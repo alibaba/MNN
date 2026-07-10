@@ -216,7 +216,7 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
 
     if (splitBinaryLN) {
         // ---------- Two-kernel SPLIT path ----------
-        int total_size_float = outter_size * inner_size;
+        int total_size_float = outter_size * ROUND_UP(inner_size, 4);
         int gws_x = UP_DIV(total_size_float, 4);
         mUnits.resize(2);
 

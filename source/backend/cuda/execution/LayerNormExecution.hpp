@@ -19,7 +19,7 @@ namespace CUDA {
 
 class LayerNormExecution : public Execution {
 public:
-    LayerNormExecution(const LayerNorm* layer_norm_param, Backend *backend);
+    LayerNormExecution(const LayerNorm* layer_norm_param, Backend *backend, bool inputC4, bool binaryC4);
     virtual ~LayerNormExecution();
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -33,6 +33,8 @@ private:
     int mAxises = 0;
     int mInside = 1;
     int mOutside = 1;
+    bool mInputC4 = false;
+    bool mBinaryC4 = false;
 
     float mEps = 0.001;
     int mGroup = 1;

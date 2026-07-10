@@ -43,17 +43,20 @@ struct CopyParam {
     int dst_k_offset;
     int dst_v_offset;
     int batch;
+    int key_c4;
     int value_c4;
     float v_scale;
     float k_scale;
 };
 
 AttentionBufExecution::AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4, float attnScale,
+                                             int headDim,
                                              std::shared_ptr<KVQuantParameter> kvQuantParam)
     : MetalExecution(backend),
       mKVCache(kvCache),
       mOutputC4(outputC4),
       mAttnScale(attnScale),
+      mHeadDim(headDim),
       mKVQuantParameter(kvQuantParam) {
     _init();
 }
@@ -84,8 +87,8 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
     auto rt = (MetalRuntime*)mtbn->runtime();
     auto context = (__bridge MNNMetalContext*)mtbn->context();
 
-    auto seq_len = inputs[0]->length(1);
-    int group_size = inputs[0]->length(2) / inputs[1]->length(2);
+    auto seq_len = mSeqLen;
+    int group_size = mNumHead / mKvNumHead;
     std::string group_str = std::to_string(group_size);
 
     // Init Kernel
@@ -106,6 +109,10 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
         qkvKeys.emplace_back("SIMD_GROUP_REDUCE");
     }
     std::vector<std::string> qkPrefillKeys = {{"matmul_qk_div_mask", ftype, group_str, "FOR_PREFILL"}};
+    if (mInputC4) {
+        qkKeys.emplace_back("QUERY_C4");
+        qkPrefillKeys.emplace_back("QUERY_C4");
+    }
     if (mHasMask) {
         if (mIsAddMask) {
             qkPrefillKeys.emplace_back("ADD_MASK");
@@ -241,6 +248,9 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
     if (mDecodeQkSoftmax) {
         std::string head_dim_str = std::to_string(mHeadDim);
         std::vector<std::string> keys = {"decode_qk_softmax", ftype, group_str, "HEAD_DIM_" + head_dim_str};
+        if (mInputC4) {
+            keys.emplace_back("QUERY_C4");
+        }
         if (mKvSeqLen <= 128) {
             keys.emplace_back("SHORT_KV_128");
         }
@@ -360,18 +370,42 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, co
     auto value = inputs[2];
     auto mtbn = static_cast<MetalBackend*>(backend());
     auto context = (__bridge MNNMetalContext*)mtbn->context();
-    auto shape = query->shape();
-    mBatch = shape[0];
-    mSeqLen = shape[1];
-    mNumHead = shape[2];
-    mHeadDim = shape[3];
+    mInputC4 = TensorUtils::getDescribe(query)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    if (mInputC4) {
+        if (mHeadDim <= 0 || query->dimensions() != 4 || key->dimensions() != 4 || value->dimensions() != 4 ||
+            key->length(0) != value->length(0) || query->length(1) % mHeadDim != 0 ||
+            key->length(1) % mHeadDim != 0 || key->length(1) != value->length(1) ||
+            query->length(2) != 1 || query->length(3) != 1 || key->length(2) != 1 || key->length(3) != 1 ||
+            value->length(2) != 1 || value->length(3) != 1 ||
+            TensorUtils::getDescribe(key)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
+            TensorUtils::getDescribe(value)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            MNN_ERROR("MetalAttention: invalid C4 q/k/v head configuration.\n");
+            return NOT_SUPPORT;
+        }
+        mNumHead = query->length(1) / mHeadDim;
+        mKvNumHead = key->length(1) / mHeadDim;
+        if (mKvNumHead <= 0 || mNumHead % mKvNumHead != 0) {
+            MNN_ERROR("MetalAttention: invalid C4 q/k/v head count.\n");
+            return NOT_SUPPORT;
+        }
+        mBatch = 1;
+        mSeqLen = query->length(0);
+        mCurrentKvLen = key->length(0);
+    } else {
+        auto shape = query->shape();
+        mBatch = shape[0];
+        mSeqLen = shape[1];
+        mNumHead = shape[2];
+        mHeadDim = shape[3];
+        mKvNumHead = key->shape()[2];
+        mCurrentKvLen = key->shape()[1];
+    }
+    mOutputC4 = TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
     mScale = (mAttnScale == 0.0f) ? (1.0f / sqrt(mHeadDim)) : mAttnScale;
     // TODO : define short_seq more accurately
     mShortSeq = mSeqLen < 16;
     // hardware resource limit
     // Check Env
-    mKvNumHead = key->shape()[2];
-    mCurrentKvLen = key->shape()[1];
     mKvSeqLen = mCurrentKvLen;
     // Align to mKvAlignNum, for simd/tensor matrix load
     mKvMaxLen = ROUND_UP(mKvSeqLen, mKvAlignNum);
@@ -453,12 +487,13 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
          */
         copyp->head_count = mKvNumHead * mHeadDim;
         // current new kv_len
-        copyp->kv_seq_len = key->shape()[1];
+        copyp->kv_seq_len = mCurrentKvLen;
         copyp->max_kv_len = mKvMaxLen;
         int pastLength = mKVCache ? mKVCacheManager->kvLength() : 0;
         copyp->dst_k_offset = pastLength * copyp->head_count;
         copyp->dst_v_offset = pastLength;
         copyp->batch = mBatch;
+        copyp->key_c4 = TensorUtils::getDescribe(key)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
         copyp->value_c4 =
             TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
         if (mQuantValue && mKVQuantParameter != nullptr) {
@@ -471,7 +506,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
         } else {
             copyp->k_scale = 0.0f;
         }
-        int copy_line = key->shape()[1];
+        int copy_line = mCurrentKvLen;
 
         id<MTLComputePipelineState> pipeline = mKernel_copy;
         [encoder setComputePipelineState:pipeline];
@@ -699,7 +734,8 @@ public:
             quantParam->qkScale = mhqscale[2];
             quantParam->vScale = mhqscale[3];
         }
-        return new AttentionBufExecution(backend, param->kv_cache(), param->output_c4(), param->attnScale(), quantParam);
+        return new AttentionBufExecution(backend, param->kv_cache(), param->output_c4(), param->attnScale(),
+                                         param->head_dim(), quantParam);
     }
 };
 REGISTER_METAL_OP_TRANSFORMER_CREATOR(AttentionBufCreator, OpType_Attention);

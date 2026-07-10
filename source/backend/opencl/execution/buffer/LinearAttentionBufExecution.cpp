@@ -15,9 +15,37 @@
 namespace MNN {
 namespace OpenCL {
 
-LinearAttentionBufExecution::LinearAttentionBufExecution(const MNN::Op *op, Backend *backend)
+static void linearAttentionDims(const Tensor* qkv, int& batch, int& convDim, int& seqLen) {
+    if (TensorUtils::getDescribe(qkv)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        batch = 1;
+        seqLen = qkv->length(0);
+        convDim = qkv->length(1);
+        return;
+    }
+    batch = qkv->length(0);
+    convDim = qkv->length(1);
+    seqLen = qkv->length(2);
+}
+
+static void addLinearAttentionLayoutOptions(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                            std::set<std::string>& buildOptions) {
+    if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        buildOptions.emplace("-DQKV_C4");
+    }
+    if (TensorUtils::getDescribe(inputs[1])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        buildOptions.emplace("-DGATE_C4");
+    }
+    if (TensorUtils::getDescribe(inputs[2])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        buildOptions.emplace("-DBETA_C4");
+    }
+    if (TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        buildOptions.emplace("-DOUTPUT_C4");
+    }
+}
+
+LinearAttentionBufExecution::LinearAttentionBufExecution(const MNN::Op* op, Backend* backend)
     : CommonExecution(backend, op) {
-    mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
+    mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
     mMeta = (KVMeta*)(backend->getMetaPtr());
     auto param = op->main_as_LinearAttentionParam();
     mAttentionType = param->attn_type()->str();
@@ -29,14 +57,14 @@ LinearAttentionBufExecution::LinearAttentionBufExecution(const MNN::Op *op, Back
     mStateCache.reset(new OpenCLStateCache);
 }
 
-ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inputs,
+                                                const std::vector<Tensor*>& outputs) {
     auto qkv = inputs[0];
-    int batch = qkv->length(0);
-    int convDim = qkv->length(1);
-    int seqLen = qkv->length(2);
+    int batch = 0, convDim = 0, seqLen = 0;
+    linearAttentionDims(qkv, batch, convDim, seqLen);
 
     // ─── Chunked prefill: fully independent branch ───
-    mUseChunkedPrefill = (seqLen > 1);
+    mUseChunkedPrefill = mAttentionType != "short_conv" && seqLen > 1;
     if (mUseChunkedPrefill) {
         return onResizeChunkedPrefill(inputs, outputs);
     }
@@ -50,23 +78,27 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
     int val_dim = mNumVHeads * dv;
     int gqa_factor = (mNumVHeads > mNumKHeads) ? (mNumVHeads / mNumKHeads) : 1;
     float qScale = 1.0f / sqrt((float)dk);
+    int convChannels = mAttentionType == "short_conv" ? mHeadVDim : convDim;
+    bool needRecurrentState = mAttentionType != "short_conv";
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
     // ─── Persistent state buffers (STATIC): allocate once, shared via onClone ───
     int bytesPerElement = mOpenCLBackend->fpBytes();
-    if (mStateCache->mRecurrentState.get() == nullptr) {
+    if (mStateCache->mConvState.get() == nullptr) {
         // First time: allocate and zero-initialize
-        int rnnSize = batch * H * dk * dv;
-        mStateCache->mRecurrentState.reset(Tensor::createDevice<float>({rnnSize}));
-        bool success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
-        if (!success) return OUT_OF_MEMORY;
-
-        {
+        bool success = true;
+        if (needRecurrentState) {
+            int rnnSize = batch * H * dk * dv;
+            mStateCache->mRecurrentState.reset(Tensor::createDevice<float>({rnnSize}));
+            success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
+            if (!success)
+                return OUT_OF_MEMORY;
             cl_int res;
             int bufferBytes = rnnSize * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+            void* mapPtr =
+                runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mRecurrentState.get()), true,
+                                                         CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
             if (mapPtr != nullptr && res == CL_SUCCESS) {
                 ::memset(mapPtr, 0, bufferBytes);
                 runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
@@ -74,15 +106,17 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         }
 
         if (convStateSize > 0) {
-            int convStateTotal = batch * convDim * convStateSize;
+            int convStateTotal = batch * convChannels * convStateSize;
             mStateCache->mConvState.reset(Tensor::createDevice<float>({convStateTotal}));
             success &= backend()->onAcquireBuffer(mStateCache->mConvState.get(), Backend::STATIC);
-            if (!success) return OUT_OF_MEMORY;
+            if (!success)
+                return OUT_OF_MEMORY;
 
             cl_int res;
             int bufferBytes = convStateTotal * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+            void* mapPtr =
+                runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mConvState.get()), true,
+                                                         CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
             if (mapPtr != nullptr && res == CL_SUCCESS) {
                 ::memset(mapPtr, 0, bufferBytes);
                 runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
@@ -92,24 +126,28 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         // Prefill: reset state for new sequence, UNLESS:
         // 1. Loading from prefix cache (PendingRead), or
         // 2. Reusing KV from previous inference (reuse_kv=true, i.e. previous != remove)
-        bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        bool loadingFromDisk =
+            (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
         bool reusingKV = (mMeta != nullptr && mMeta->previous != mMeta->remove);
         if (!loadingFromDisk && !reusingKV) {
-            {
+            if (mStateCache->mRecurrentState.get() != nullptr) {
                 cl_int res;
                 int bufferBytes = mStateCache->mRecurrentState->elementSize() * bytesPerElement;
-                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                    openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                void* mapPtr =
+                    runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mRecurrentState.get()), true,
+                                                             CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
                 if (mapPtr != nullptr && res == CL_SUCCESS) {
                     ::memset(mapPtr, 0, bufferBytes);
-                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()),
+                                                                  mapPtr);
                 }
             }
             if (mStateCache->mConvState.get() != nullptr) {
                 cl_int res;
                 int bufferBytes = mStateCache->mConvState->elementSize() * bytesPerElement;
-                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                    openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                void* mapPtr =
+                    runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mConvState.get()), true,
+                                                             CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
                 if (mapPtr != nullptr && res == CL_SUCCESS) {
                     ::memset(mapPtr, 0, bufferBytes);
                     runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
@@ -120,7 +158,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
     // Decode (seqLen == 1): keep existing state untouched
 
     // Allocate temporary conv output buffer
-    mConvOut.reset(Tensor::createDevice<float>({batch * convDim * seqLen}));
+    mConvOut.reset(Tensor::createDevice<float>({batch * convChannels * seqLen}));
     mOpenCLBackend->onAcquireBuffer(mConvOut.get(), Backend::DYNAMIC);
     mOpenCLBackend->onReleaseBuffer(mConvOut.get(), Backend::DYNAMIC);
 
@@ -129,9 +167,95 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
     int local_size = 16;
     buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
     buildOptions.emplace("-DK_SIZE=" + std::to_string(dv));
+    addLinearAttentionLayoutOptions(inputs, outputs, buildOptions);
+
+    if (mAttentionType == "short_conv") {
+        int total = batch * mHeadVDim * seqLen;
+        mKernelShortConv = runtime->buildKernel("linear_attention_buf", "linear_attn_short_conv_nosilu", buildOptions,
+                                                mOpenCLBackend->getPrecision());
+        mGWSShortConv = {(uint32_t)total, 1, 1};
+        auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelShortConv));
+        uint32_t localSize = std::min(maxWorkGroupSize, (uint32_t)256);
+        localSize = std::min(localSize, (uint32_t)total);
+        mLWSShortConv = {localSize, 1, 1};
+
+        uint32_t idx = 0;
+        cl_int ret = CL_SUCCESS;
+        ret |= mKernelShortConv->get().setArg(idx++, total);
+        ret |= mKernelShortConv->get().setArg(idx++, openCLBuffer(inputs[0]));
+        ret |= mKernelShortConv->get().setArg(idx++, openCLBuffer(mStateCache->mConvState.get()));
+        ret |= mKernelShortConv->get().setArg(idx++, openCLBuffer(inputs[3]));
+        ret |= mKernelShortConv->get().setArg(idx++, openCLBuffer(mConvOut.get()));
+        ret |= mKernelShortConv->get().setArg(idx++, batch);
+        ret |= mKernelShortConv->get().setArg(idx++, convDim);
+        ret |= mKernelShortConv->get().setArg(idx++, seqLen);
+        ret |= mKernelShortConv->get().setArg(idx++, K_conv);
+        ret |= mKernelShortConv->get().setArg(idx++, convStateSize);
+        ret |= mKernelShortConv->get().setArg(idx++, mHeadVDim);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg linear_attn_short_conv_nosilu");
+
+        if (convStateSize > 0) {
+            int stateTotal = batch * mHeadVDim * convStateSize;
+            mKernelShortConvStateUpdate =
+                runtime->buildKernel("linear_attention_buf", "linear_attn_short_conv_state_update", buildOptions,
+                                     mOpenCLBackend->getPrecision());
+            mGWSShortConvStateUpdate = {(uint32_t)stateTotal, 1, 1};
+            maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelShortConvStateUpdate));
+            uint32_t stateLocalSize = std::min(maxWorkGroupSize, (uint32_t)256);
+            stateLocalSize = std::min(stateLocalSize, (uint32_t)stateTotal);
+            mLWSShortConvStateUpdate = {stateLocalSize, 1, 1};
+
+            idx = 0;
+            ret = CL_SUCCESS;
+            ret |= mKernelShortConvStateUpdate->get().setArg(idx++, stateTotal);
+            ret |= mKernelShortConvStateUpdate->get().setArg(idx++, openCLBuffer(inputs[0]));
+            ret |= mKernelShortConvStateUpdate->get().setArg(idx++, openCLBuffer(mStateCache->mConvState.get()));
+            ret |= mKernelShortConvStateUpdate->get().setArg(idx++, batch);
+            ret |= mKernelShortConvStateUpdate->get().setArg(idx++, convDim);
+            ret |= mKernelShortConvStateUpdate->get().setArg(idx++, seqLen);
+            ret |= mKernelShortConvStateUpdate->get().setArg(idx++, convStateSize);
+            ret |= mKernelShortConvStateUpdate->get().setArg(idx++, mHeadVDim);
+            MNN_CHECK_CL_SUCCESS(ret, "setArg linear_attn_short_conv_state_update");
+        }
+
+        mKernelShortConvOutput = runtime->buildKernel("linear_attention_buf", "linear_attn_short_conv_output",
+                                                      buildOptions, mOpenCLBackend->getPrecision());
+        mGWSShortConvOutput = {(uint32_t)total, 1, 1};
+        maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelShortConvOutput));
+        uint32_t outputLocalSize = std::min(maxWorkGroupSize, (uint32_t)256);
+        outputLocalSize = std::min(outputLocalSize, (uint32_t)total);
+        mLWSShortConvOutput = {outputLocalSize, 1, 1};
+        idx = 0;
+        ret = CL_SUCCESS;
+        ret |= mKernelShortConvOutput->get().setArg(idx++, total);
+        ret |= mKernelShortConvOutput->get().setArg(idx++, openCLBuffer(inputs[0]));
+        ret |= mKernelShortConvOutput->get().setArg(idx++, openCLBuffer(mConvOut.get()));
+        ret |= mKernelShortConvOutput->get().setArg(idx++, openCLBuffer(outputs[0]));
+        ret |= mKernelShortConvOutput->get().setArg(idx++, batch);
+        ret |= mKernelShortConvOutput->get().setArg(idx++, convDim);
+        ret |= mKernelShortConvOutput->get().setArg(idx++, seqLen);
+        ret |= mKernelShortConvOutput->get().setArg(idx++, mHeadVDim);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg linear_attn_short_conv_output");
+
+        mGWSShortConv[0] = ROUND_UP(mGWSShortConv[0], mLWSShortConv[0]);
+        if (convStateSize > 0) {
+            mGWSShortConvStateUpdate[0] = ROUND_UP(mGWSShortConvStateUpdate[0], mLWSShortConvStateUpdate[0]);
+        }
+        mGWSShortConvOutput[0] = ROUND_UP(mGWSShortConvOutput[0], mLWSShortConvOutput[0]);
+        mOpenCLBackend->startRecord(mRecording);
+        mOpenCLBackend->recordKernel3d(mKernelShortConv, mGWSShortConv, mLWSShortConv);
+        if (convStateSize > 0) {
+            mOpenCLBackend->recordKernel3d(mKernelShortConvStateUpdate, mGWSShortConvStateUpdate,
+                                           mLWSShortConvStateUpdate);
+        }
+        mOpenCLBackend->recordKernel3d(mKernelShortConvOutput, mGWSShortConvOutput, mLWSShortConvOutput);
+        mOpenCLBackend->endRecord(mRecording);
+        return NO_ERROR;
+    }
 
     // Kernel 1: Conv1D + SiLU
-    mKernelConvSilu = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_silu", buildOptions, mOpenCLBackend->getPrecision());
+    mKernelConvSilu = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_silu", buildOptions,
+                                           mOpenCLBackend->getPrecision());
 
     int totalConvSilu = batch * convDim * seqLen;
     mGWSConvSilu = {(uint32_t)totalConvSilu, 1, 1};
@@ -142,7 +266,8 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
 
     // Kernel 2: Conv state update
     if (convStateSize > 0) {
-        mKernelConvStateUpdate = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_state_update", buildOptions, mOpenCLBackend->getPrecision());
+        mKernelConvStateUpdate = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_state_update",
+                                                      buildOptions, mOpenCLBackend->getPrecision());
 
         int totalConvUpdate = batch * convDim * convStateSize;
         mGWSConvStateUpdate = {(uint32_t)totalConvUpdate, 1, 1};
@@ -154,10 +279,11 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
 
     // Kernel 3: Gated Delta Rule
     auto gateDeltaRuleBuildOptions = buildOptions;
-    if(seqLen == 1){
+    if (seqLen == 1) {
         gateDeltaRuleBuildOptions.emplace("-DDECODE_PHASE");
     }
-    mKernelGatedDeltaRule = runtime->buildKernel("linear_attention_buf", "linear_attn_gated_delta_rule", gateDeltaRuleBuildOptions, mOpenCLBackend->getPrecision());
+    mKernelGatedDeltaRule = runtime->buildKernel("linear_attention_buf", "linear_attn_gated_delta_rule",
+                                                 gateDeltaRuleBuildOptions, mOpenCLBackend->getPrecision());
 
     // Set kernel arguments
     // Kernel 1: conv_silu
@@ -165,10 +291,10 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernelConvSilu->get().setArg(idx++, totalConvSilu);
-        ret |= mKernelConvSilu->get().setArg(idx++, openCLBuffer(inputs[0]));          // qkv
-        ret |= mKernelConvSilu->get().setArg(idx++, openCLBuffer(mStateCache->mConvState.get()));   // conv_state
-        ret |= mKernelConvSilu->get().setArg(idx++, openCLBuffer(inputs[3]));          // conv_weight
-        ret |= mKernelConvSilu->get().setArg(idx++, openCLBuffer(mConvOut.get()));     // conv_out
+        ret |= mKernelConvSilu->get().setArg(idx++, openCLBuffer(inputs[0]));                     // qkv
+        ret |= mKernelConvSilu->get().setArg(idx++, openCLBuffer(mStateCache->mConvState.get())); // conv_state
+        ret |= mKernelConvSilu->get().setArg(idx++, openCLBuffer(inputs[3]));                     // conv_weight
+        ret |= mKernelConvSilu->get().setArg(idx++, openCLBuffer(mConvOut.get()));                // conv_out
         ret |= mKernelConvSilu->get().setArg(idx++, batch);
         ret |= mKernelConvSilu->get().setArg(idx++, convDim);
         ret |= mKernelConvSilu->get().setArg(idx++, seqLen);
@@ -183,8 +309,8 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernelConvStateUpdate->get().setArg(idx++, totalConvUpdate);
-        ret |= mKernelConvStateUpdate->get().setArg(idx++, openCLBuffer(inputs[0]));           // qkv
-        ret |= mKernelConvStateUpdate->get().setArg(idx++, openCLBuffer(mStateCache->mConvState.get()));    // conv_state
+        ret |= mKernelConvStateUpdate->get().setArg(idx++, openCLBuffer(inputs[0]));                     // qkv
+        ret |= mKernelConvStateUpdate->get().setArg(idx++, openCLBuffer(mStateCache->mConvState.get())); // conv_state
         ret |= mKernelConvStateUpdate->get().setArg(idx++, batch);
         ret |= mKernelConvStateUpdate->get().setArg(idx++, convDim);
         ret |= mKernelConvStateUpdate->get().setArg(idx++, seqLen);
@@ -193,19 +319,20 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
     }
 
     // Kernel 2.5: l2
-    if(mUseQKL2Norm){
+    if (mUseQKL2Norm) {
         auto l2BuildOptions = buildOptions;
-        if(seqLen > 1){
+        if (seqLen > 1) {
             l2BuildOptions.emplace("-DUSE_VEC");
         }
-        mKernell2Norm = runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
+        mKernell2Norm =
+            runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
 
         mGWSl2Norm = {128, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
         mLWSl2Norm = {128, 1, 1};
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
-        ret |= mKernell2Norm->get().setArg(idx++, openCLBuffer(mConvOut.get()));    // conv_out
-        ret |= mKernell2Norm->get().setArg(idx++, openCLBuffer(mConvOut.get()));    // conv_out
+        ret |= mKernell2Norm->get().setArg(idx++, openCLBuffer(mConvOut.get())); // conv_out
+        ret |= mKernell2Norm->get().setArg(idx++, openCLBuffer(mConvOut.get())); // conv_out
         ret |= mKernell2Norm->get().setArg(idx++, convDim);
         ret |= mKernell2Norm->get().setArg(idx++, dk);
         ret |= mKernell2Norm->get().setArg(idx++, 1);
@@ -219,11 +346,12 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         mGWSGatedDeltaRule = {(uint32_t)local_size, (uint32_t)UP_DIV(dv, 4) * H * batch};
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
-        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(mConvOut.get()));           // conv_out
-        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(inputs[1]));                // gate
-        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(inputs[2]));                // beta
-        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(mStateCache->mRecurrentState.get()));    // recurrent_state id = 6
-        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(outputs[0]));               // attn_out
+        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(mConvOut.get())); // conv_out
+        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(inputs[1]));      // gate
+        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(inputs[2]));      // beta
+        ret |= mKernelGatedDeltaRule->get().setArg(
+            idx++, openCLBuffer(mStateCache->mRecurrentState.get()));                // recurrent_state id = 6
+        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(outputs[0])); // attn_out
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, batch);
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, convDim);
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, seqLen);
@@ -253,7 +381,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
     if (convStateSize > 0) {
         mOpenCLBackend->recordKernel3d(mKernelConvStateUpdate, mGWSConvStateUpdate, mLWSConvStateUpdate);
     }
-    if(mUseQKL2Norm){
+    if (mUseQKL2Norm) {
         mOpenCLBackend->recordKernel3d(mKernell2Norm, mGWSl2Norm, mLWSl2Norm);
     }
     mOpenCLBackend->recordKernel2d(mKernelGatedDeltaRule, mGWSGatedDeltaRule, mLWSGatedDeltaRule);
@@ -262,13 +390,11 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
     return NO_ERROR;
 }
 
-ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
-    const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    
+ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(const std::vector<Tensor*>& inputs,
+                                                              const std::vector<Tensor*>& outputs) {
     auto qkv = inputs[0];
-    int batch = qkv->length(0);
-    int convDim = qkv->length(1);
-    int seqLen = qkv->length(2);
+    int batch = 0, convDim = 0, seqLen = 0;
+    linearAttentionDims(qkv, batch, convDim, seqLen);
 
     int H = mNumVHeads;
     int dk = mHeadKDim;
@@ -288,13 +414,15 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         mStateCache->mRecurrentState.reset(Tensor::createDevice<float>({rnnSize}));
         mStateCache->mRecurrentStateTune.reset(Tensor::createDevice<float>({rnnSize}));
         bool success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
-        if (!success) return OUT_OF_MEMORY;
+        if (!success)
+            return OUT_OF_MEMORY;
 
         {
             cl_int res;
             int bufferBytes = rnnSize * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+            void* mapPtr =
+                runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mRecurrentState.get()), true,
+                                                         CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
             if (mapPtr != nullptr && res == CL_SUCCESS) {
                 ::memset(mapPtr, 0, bufferBytes);
                 runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
@@ -305,12 +433,14 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
             int convStateTotal = batch * convDim * convStateSize;
             mStateCache->mConvState.reset(Tensor::createDevice<float>({convStateTotal}));
             success &= backend()->onAcquireBuffer(mStateCache->mConvState.get(), Backend::STATIC);
-            if (!success) return OUT_OF_MEMORY;
+            if (!success)
+                return OUT_OF_MEMORY;
 
             cl_int res;
             int bufferBytes = convStateTotal * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+            void* mapPtr =
+                runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mConvState.get()), true,
+                                                         CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
             if (mapPtr != nullptr && res == CL_SUCCESS) {
                 ::memset(mapPtr, 0, bufferBytes);
                 runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
@@ -321,8 +451,9 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         {
             cl_int res;
             int bufferBytes = mStateCache->mRecurrentState->elementSize() * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+            void* mapPtr =
+                runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mRecurrentState.get()), true,
+                                                         CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
             if (mapPtr != nullptr && res == CL_SUCCESS) {
                 ::memset(mapPtr, 0, bufferBytes);
                 runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
@@ -331,8 +462,9 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         if (mStateCache->mConvState.get() != nullptr) {
             cl_int res;
             int bufferBytes = mStateCache->mConvState->elementSize() * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+            void* mapPtr =
+                runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mConvState.get()), true,
+                                                         CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
             if (mapPtr != nullptr && res == CL_SUCCESS) {
                 ::memset(mapPtr, 0, bufferBytes);
                 runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
@@ -380,12 +512,14 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
 
     // ─── Build common kernels for prefill ───
     std::set<std::string> buildOptions;
-    
+
     int local_size = 16;
     buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
     buildOptions.emplace("-DK_SIZE=" + std::to_string(dv));
+    addLinearAttentionLayoutOptions(inputs, outputs, buildOptions);
     // Conv1D + SiLU
-    mKernelConvSiluPrefill = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_silu", buildOptions, mOpenCLBackend->getPrecision());
+    mKernelConvSiluPrefill = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_silu", buildOptions,
+                                                  mOpenCLBackend->getPrecision());
     int totalConvSilu = batch * convDim * seqLen;
     mGWSConvSiluPrefill = {(uint32_t)totalConvSilu, 1, 1};
     {
@@ -413,7 +547,8 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
 
     // Conv state update
     if (convStateSize > 0) {
-        mKernelConvStateUpdatePrefill = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_state_update", buildOptions, mOpenCLBackend->getPrecision());
+        mKernelConvStateUpdatePrefill = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_state_update",
+                                                             buildOptions, mOpenCLBackend->getPrecision());
         int totalConvUpdate = batch * convDim * convStateSize;
         mGWSConvStateUpdatePrefill = {(uint32_t)totalConvUpdate, 1, 1};
         {
@@ -441,7 +576,8 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
     if (mUseQKL2Norm) {
         auto l2BuildOptions = buildOptions;
         l2BuildOptions.emplace("-DUSE_VEC");
-        mKernell2NormPrefill = runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
+        mKernell2NormPrefill =
+            runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
         mGWSl2NormPrefill = {128, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
         mLWSl2NormPrefill = {128, 1, 1};
         uint32_t idx = 0;
@@ -462,7 +598,8 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
     chunkOpts.emplace("-DCHUNK_SIZE=" + std::to_string(chunkSize));
 
     // C1: chunk_g_cumsum
-    mKernelChunkGCumsum = runtime->buildKernel("linear_attention_buf", "chunk_g_cumsum", chunkOpts, mOpenCLBackend->getPrecision());
+    mKernelChunkGCumsum =
+        runtime->buildKernel("linear_attention_buf", "chunk_g_cumsum", chunkOpts, mOpenCLBackend->getPrecision());
     mGWSChunkGCumsum = {(uint32_t)H, (uint32_t)numChunks, (uint32_t)batch};
     mLWSChunkGCumsum = {1, 1, 1};
     {
@@ -475,16 +612,17 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernelChunkGCumsum->get().setArg(idx++, numChunks);
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_g_cumsum");
     }
-    
+
     {
         {
             // C2: chunk_build_neumann_attn
-            mKernelChunkNeumannAttn0 = runtime->buildKernel("linear_attention_buf", "chunk_build_neumann_attn_step0", chunkOpts, mOpenCLBackend->getPrecision());
+            mKernelChunkNeumannAttn0 = runtime->buildKernel("linear_attention_buf", "chunk_build_neumann_attn_step0",
+                                                            chunkOpts, mOpenCLBackend->getPrecision());
             mGWSChunkNeumannAttn0 = {(uint32_t)chunkSize * chunkSize, (uint32_t)(H * numChunks), (uint32_t)batch};
             uint32_t idx = 0;
             cl_int ret = CL_SUCCESS;
             ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, openCLBuffer(mConvOutPrefill.get()));
-            ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, openCLBuffer(inputs[2]));             // beta
+            ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, openCLBuffer(inputs[2])); // beta
             ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, openCLBuffer(mGCumsumBuf.get()));
             ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, openCLBuffer(mAttnMatrixBuf.get()));
             ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, batch);
@@ -497,11 +635,16 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
             ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, numChunks);
             MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_build_neumann_attn_step0");
             auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkNeumannAttn0));
-            mLWSChunkNeumannAttn0 = localWS3DDefault(mGWSChunkNeumannAttn0, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_build_neumann_attn_step0", mKernelChunkNeumannAttn0, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf").first;
+            mLWSChunkNeumannAttn0 =
+                localWS3DDefault(mGWSChunkNeumannAttn0, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(),
+                                 "chunk_build_neumann_attn_step0", mKernelChunkNeumannAttn0,
+                                 mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf")
+                    .first;
         }
         {
             // C2: chunk_build_neumann_attn
-            mKernelChunkNeumannAttn1 = runtime->buildKernel("linear_attention_buf", "chunk_build_neumann_attn_step1", chunkOpts, mOpenCLBackend->getPrecision());
+            mKernelChunkNeumannAttn1 = runtime->buildKernel("linear_attention_buf", "chunk_build_neumann_attn_step1",
+                                                            chunkOpts, mOpenCLBackend->getPrecision());
             mGWSChunkNeumannAttn1 = {(uint32_t)chunkSize, (uint32_t)(H * numChunks), (uint32_t)batch};
             mLWSChunkNeumannAttn1 = {(uint32_t)chunkSize, 1, 1};
             uint32_t idx = 0;
@@ -520,14 +663,15 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
     }
 
     // C3: chunk_correct_v
-    mKernelChunkCorrectV = runtime->buildKernel("linear_attention_buf", "chunk_correct_v", chunkOpts, mOpenCLBackend->getPrecision());
+    mKernelChunkCorrectV =
+        runtime->buildKernel("linear_attention_buf", "chunk_correct_v", chunkOpts, mOpenCLBackend->getPrecision());
     mGWSChunkCorrectV = {(uint32_t)UP_DIV(dv, 4), (uint32_t)(chunkSize * numChunks), (uint32_t)(batch * H)};
     {
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernelChunkCorrectV->get().setArg(idx++, openCLBuffer(mAttnMatrixBuf.get()));
         ret |= mKernelChunkCorrectV->get().setArg(idx++, openCLBuffer(mConvOutPrefill.get()));
-        ret |= mKernelChunkCorrectV->get().setArg(idx++, openCLBuffer(inputs[2]));                // beta
+        ret |= mKernelChunkCorrectV->get().setArg(idx++, openCLBuffer(inputs[2])); // beta
         ret |= mKernelChunkCorrectV->get().setArg(idx++, openCLBuffer(mGCumsumBuf.get()));
         ret |= mKernelChunkCorrectV->get().setArg(idx++, openCLBuffer(mVCorrectedBuf.get()));
         ret |= mKernelChunkCorrectV->get().setArg(idx++, openCLBuffer(mKCumdecayBuf.get()));
@@ -544,18 +688,22 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernelChunkCorrectV->get().setArg(idx++, numChunks);
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_correct_v");
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkCorrectV));
-        mLWSChunkCorrectV = localWS3DDefault(mGWSChunkCorrectV, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_correct_v", mKernelChunkCorrectV, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf").first;
+        mLWSChunkCorrectV =
+            localWS3DDefault(mGWSChunkCorrectV, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_correct_v",
+                             mKernelChunkCorrectV, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf")
+                .first;
     }
 
     // C5: chunk_qk_attn (reuses attn_matrix buffer)
-    mKernelChunkQKAttn = runtime->buildKernel("linear_attention_buf", "chunk_qk_attn", chunkOpts, mOpenCLBackend->getPrecision());
+    mKernelChunkQKAttn =
+        runtime->buildKernel("linear_attention_buf", "chunk_qk_attn", chunkOpts, mOpenCLBackend->getPrecision());
     mGWSChunkQKAttn = {(uint32_t)chunkSize, (uint32_t)(chunkSize * numChunks), (uint32_t)(batch * H)};
     {
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernelChunkQKAttn->get().setArg(idx++, openCLBuffer(mConvOutPrefill.get()));
         ret |= mKernelChunkQKAttn->get().setArg(idx++, openCLBuffer(mGCumsumBuf.get()));
-        ret |= mKernelChunkQKAttn->get().setArg(idx++, openCLBuffer(mAttnMatrixBuf.get()));  // overwrite
+        ret |= mKernelChunkQKAttn->get().setArg(idx++, openCLBuffer(mAttnMatrixBuf.get())); // overwrite
         ret |= mKernelChunkQKAttn->get().setArg(idx++, mGWSChunkQKAttn[0]);
         ret |= mKernelChunkQKAttn->get().setArg(idx++, mGWSChunkQKAttn[1]);
         ret |= mKernelChunkQKAttn->get().setArg(idx++, mGWSChunkQKAttn[2]);
@@ -569,18 +717,23 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernelChunkQKAttn->get().setArg(idx++, qScale);
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_qk_attn");
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkQKAttn));
-        mLWSChunkQKAttn = localWS3DDefault(mGWSChunkQKAttn, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_qk_attn", mKernelChunkQKAttn, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf").first;
+        mLWSChunkQKAttn =
+            localWS3DDefault(mGWSChunkQKAttn, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_qk_attn",
+                             mKernelChunkQKAttn, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf")
+                .first;
     }
 
     // C6: chunk_compute_vnew (per-chunk, chunk_idx=11 set dynamically)
-    mKernelChunkVnew = runtime->buildKernel("linear_attention_buf", "chunk_compute_vnew", chunkOpts, mOpenCLBackend->getPrecision());
+    mKernelChunkVnew =
+        runtime->buildKernel("linear_attention_buf", "chunk_compute_vnew", chunkOpts, mOpenCLBackend->getPrecision());
     mGWSChunkVnew = {(uint32_t)UP_DIV(dv, 4), (uint32_t)chunkSize, (uint32_t)(batch * H)};
     {
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernelChunkVnew->get().setArg(idx++, openCLBuffer(mVCorrectedBuf.get()));
         ret |= mKernelChunkVnew->get().setArg(idx++, openCLBuffer(mKCumdecayBuf.get()));
-        ret |= mKernelChunkVnew->get().setArg(idx++, openCLBuffer(mStateCache->mRecurrentStateTune.get()));  // arg 2: state (tune first)
+        ret |= mKernelChunkVnew->get().setArg(
+            idx++, openCLBuffer(mStateCache->mRecurrentStateTune.get())); // arg 2: state (tune first)
         ret |= mKernelChunkVnew->get().setArg(idx++, openCLBuffer(mVNewBuf.get()));
         ret |= mKernelChunkVnew->get().setArg(idx++, mGWSChunkVnew[0]);
         ret |= mKernelChunkVnew->get().setArg(idx++, mGWSChunkVnew[1]);
@@ -589,25 +742,30 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernelChunkVnew->get().setArg(idx++, dv);
         ret |= mKernelChunkVnew->get().setArg(idx++, H);
         ret |= mKernelChunkVnew->get().setArg(idx++, numChunks);
-        ret |= mKernelChunkVnew->get().setArg(idx++, 0);  // chunk_idx placeholder
+        ret |= mKernelChunkVnew->get().setArg(idx++, 0); // chunk_idx placeholder
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_compute_vnew");
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkVnew));
-        mLWSChunkVnew = localWS3DDefault(mGWSChunkVnew, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_compute_vnew", mKernelChunkVnew, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf").first;
+        mLWSChunkVnew =
+            localWS3DDefault(mGWSChunkVnew, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_compute_vnew",
+                             mKernelChunkVnew, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf")
+                .first;
         // Swap to real state buffer after tuning
         ret |= mKernelChunkVnew->get().setArg(2, openCLBuffer(mStateCache->mRecurrentState.get()));
     }
-    
+
     // C6.5: chunk_output (per-chunk, chunk_idx=17 set dynamically)
-    mKernelChunkOutput = runtime->buildKernel("linear_attention_buf", "chunk_output", chunkOpts, mOpenCLBackend->getPrecision());
-    mGWSChunkOutput = {(uint32_t)UP_DIV(dv, 4) * chunkSize,  (uint32_t)H, (uint32_t)batch};
+    mKernelChunkOutput =
+        runtime->buildKernel("linear_attention_buf", "chunk_output", chunkOpts, mOpenCLBackend->getPrecision());
+    mGWSChunkOutput = {(uint32_t)UP_DIV(dv, 4) * chunkSize, (uint32_t)H, (uint32_t)batch};
     {
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernelChunkOutput->get().setArg(idx++, openCLBuffer(mConvOutPrefill.get()));
-        ret |= mKernelChunkOutput->get().setArg(idx++, openCLBuffer(mAttnMatrixBuf.get()));  // qk_attn after C5
+        ret |= mKernelChunkOutput->get().setArg(idx++, openCLBuffer(mAttnMatrixBuf.get())); // qk_attn after C5
         ret |= mKernelChunkOutput->get().setArg(idx++, openCLBuffer(mVNewBuf.get()));
         ret |= mKernelChunkOutput->get().setArg(idx++, openCLBuffer(mGCumsumBuf.get()));
-        ret |= mKernelChunkOutput->get().setArg(idx++, openCLBuffer(mStateCache->mRecurrentState.get()));  // arg 4: state (tune first)
+        ret |= mKernelChunkOutput->get().setArg(
+            idx++, openCLBuffer(mStateCache->mRecurrentState.get())); // arg 4: state (tune first)
         ret |= mKernelChunkOutput->get().setArg(idx++, openCLBuffer(outputs[0]));
         ret |= mKernelChunkOutput->get().setArg(idx++, mGWSChunkOutput[0]);
         ret |= mKernelChunkOutput->get().setArg(idx++, mGWSChunkOutput[1]);
@@ -620,24 +778,29 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernelChunkOutput->get().setArg(idx++, key_dim);
         ret |= mKernelChunkOutput->get().setArg(idx++, gqa_factor);
         ret |= mKernelChunkOutput->get().setArg(idx++, numChunks);
-        ret |= mKernelChunkOutput->get().setArg(idx++, 0);  // chunk_idx placeholder
+        ret |= mKernelChunkOutput->get().setArg(idx++, 0); // chunk_idx placeholder
         ret |= mKernelChunkOutput->get().setArg(idx++, qScale);
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_output");
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkOutput));
-        mLWSChunkOutput = localWS3DDefault(mGWSChunkOutput, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_output", mKernelChunkOutput, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf").first;
+        mLWSChunkOutput =
+            localWS3DDefault(mGWSChunkOutput, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_output",
+                             mKernelChunkOutput, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf")
+                .first;
     }
 
     // C7: chunk_output_state_update (per-chunk, chunk_idx=17 set dynamically)
-    mKernelChunkOutputUpdate = runtime->buildKernel("linear_attention_buf", "chunk_output_state_update", chunkOpts, mOpenCLBackend->getPrecision());
+    mKernelChunkOutputUpdate = runtime->buildKernel("linear_attention_buf", "chunk_output_state_update", chunkOpts,
+                                                    mOpenCLBackend->getPrecision());
     mGWSChunkOutputUpdate = {(uint32_t)UP_DIV(dv, 4) * dk, (uint32_t)H, (uint32_t)batch};
     {
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, openCLBuffer(mConvOutPrefill.get()));
-        ret |= mKernelChunkOutputUpdate->get().setArg(idx++, openCLBuffer(mAttnMatrixBuf.get()));  // qk_attn after C5
+        ret |= mKernelChunkOutputUpdate->get().setArg(idx++, openCLBuffer(mAttnMatrixBuf.get())); // qk_attn after C5
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, openCLBuffer(mVNewBuf.get()));
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, openCLBuffer(mGCumsumBuf.get()));
-        ret |= mKernelChunkOutputUpdate->get().setArg(idx++, openCLBuffer(mStateCache->mRecurrentStateTune.get()));  // arg 4: state (tune first)
+        ret |= mKernelChunkOutputUpdate->get().setArg(
+            idx++, openCLBuffer(mStateCache->mRecurrentStateTune.get())); // arg 4: state (tune first)
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, openCLBuffer(outputs[0]));
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, mGWSChunkOutputUpdate[0]);
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, mGWSChunkOutputUpdate[1]);
@@ -650,20 +813,28 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, key_dim);
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, gqa_factor);
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, numChunks);
-        ret |= mKernelChunkOutputUpdate->get().setArg(idx++, 0);  // chunk_idx placeholder
+        ret |= mKernelChunkOutputUpdate->get().setArg(idx++, 0); // chunk_idx placeholder
         ret |= mKernelChunkOutputUpdate->get().setArg(idx++, qScale);
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_output_state_update");
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkOutputUpdate));
-        mLWSChunkOutputUpdate = localWS3DDefault(mGWSChunkOutputUpdate, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "chunk_output_state_update", mKernelChunkOutputUpdate, mOpenCLBackend->getCLTuneLevel(), "linear_attention_buf").first;
+        mLWSChunkOutputUpdate =
+            localWS3DDefault(mGWSChunkOutputUpdate, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(),
+                             "chunk_output_state_update", mKernelChunkOutputUpdate, mOpenCLBackend->getCLTuneLevel(),
+                             "linear_attention_buf")
+                .first;
         // Swap to real state buffer after tuning
         ret |= mKernelChunkOutputUpdate->get().setArg(4, openCLBuffer(mStateCache->mRecurrentState.get()));
     }
 
     // Round up chunked GWS
     for (auto& gws_lws : std::vector<std::pair<std::vector<uint32_t>*, std::vector<uint32_t>*>>{
-        {&mGWSChunkCorrectV, &mLWSChunkCorrectV}, {&mGWSChunkNeumannAttn0, &mLWSChunkNeumannAttn0}, {&mGWSChunkNeumannAttn1, &mLWSChunkNeumannAttn1},
-        {&mGWSChunkQKAttn, &mLWSChunkQKAttn}, {&mGWSChunkVnew, &mLWSChunkVnew},{&mGWSChunkOutput, &mLWSChunkOutput},
-        {&mGWSChunkOutputUpdate, &mLWSChunkOutputUpdate}}) {
+             {&mGWSChunkCorrectV, &mLWSChunkCorrectV},
+             {&mGWSChunkNeumannAttn0, &mLWSChunkNeumannAttn0},
+             {&mGWSChunkNeumannAttn1, &mLWSChunkNeumannAttn1},
+             {&mGWSChunkQKAttn, &mLWSChunkQKAttn},
+             {&mGWSChunkVnew, &mLWSChunkVnew},
+             {&mGWSChunkOutput, &mLWSChunkOutput},
+             {&mGWSChunkOutputUpdate, &mLWSChunkOutputUpdate}}) {
         for (int d = 0; d < 3; ++d) {
             (*gws_lws.first)[d] = ROUND_UP((*gws_lws.first)[d], std::max((uint32_t)1, (*gws_lws.second)[d]));
         }
@@ -672,36 +843,79 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
     return NO_ERROR;
 }
 
-ErrorCode LinearAttentionBufExecution::onExecuteChunkedPrefill(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode LinearAttentionBufExecution::onExecuteChunkedPrefill(const std::vector<Tensor*>& inputs,
+                                                               const std::vector<Tensor*>& outputs) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     int convStateSize = inputs[3]->length(2) - 1;
 
 #ifdef ENABLE_OPENCL_TIME_PROFILER
-    { cl::Event event; run3DKernelDefault(mKernelConvSiluPrefill, mGWSConvSiluPrefill, mLWSConvSiluPrefill, runtime, &event); runtime->pushEvent({"linear_attn_conv_silu", event}); }
+    {
+        cl::Event event;
+        run3DKernelDefault(mKernelConvSiluPrefill, mGWSConvSiluPrefill, mLWSConvSiluPrefill, runtime, &event);
+        runtime->pushEvent({"linear_attn_conv_silu", event});
+    }
     if (convStateSize > 0) {
-        cl::Event event; run3DKernelDefault(mKernelConvStateUpdatePrefill, mGWSConvStateUpdatePrefill, mLWSConvStateUpdatePrefill, runtime, &event); runtime->pushEvent({"linear_attn_conv_state_update", event});
+        cl::Event event;
+        run3DKernelDefault(mKernelConvStateUpdatePrefill, mGWSConvStateUpdatePrefill, mLWSConvStateUpdatePrefill,
+                           runtime, &event);
+        runtime->pushEvent({"linear_attn_conv_state_update", event});
     }
     if (mUseQKL2Norm) {
-        cl::Event event; run3DKernelDefault(mKernell2NormPrefill, mGWSl2NormPrefill, mLWSl2NormPrefill, runtime, &event); runtime->pushEvent({"l2_norm", event});
+        cl::Event event;
+        run3DKernelDefault(mKernell2NormPrefill, mGWSl2NormPrefill, mLWSl2NormPrefill, runtime, &event);
+        runtime->pushEvent({"l2_norm", event});
     }
-    { cl::Event e; run3DKernelDefault(mKernelChunkGCumsum, mGWSChunkGCumsum, mLWSChunkGCumsum, runtime, &e); runtime->pushEvent({"chunk_g_cumsum", e}); }
-    { cl::Event e; run3DKernelDefault(mKernelChunkNeumannAttn0, mGWSChunkNeumannAttn0, mLWSChunkNeumannAttn0, runtime, &e); runtime->pushEvent({"chunk_build_neumann_attn0", e}); }
-    { cl::Event e; run3DKernelDefault(mKernelChunkNeumannAttn1, mGWSChunkNeumannAttn1, mLWSChunkNeumannAttn1, runtime, &e); runtime->pushEvent({"chunk_build_neumann_attn1", e}); }
-    { cl::Event e; run3DKernelDefault(mKernelChunkCorrectV, mGWSChunkCorrectV, mLWSChunkCorrectV, runtime, &e); runtime->pushEvent({"chunk_correct_v", e}); }
-    { cl::Event e; run3DKernelDefault(mKernelChunkQKAttn, mGWSChunkQKAttn, mLWSChunkQKAttn, runtime, &e); runtime->pushEvent({"chunk_qk_attn", e}); }
+    {
+        cl::Event e;
+        run3DKernelDefault(mKernelChunkGCumsum, mGWSChunkGCumsum, mLWSChunkGCumsum, runtime, &e);
+        runtime->pushEvent({"chunk_g_cumsum", e});
+    }
+    {
+        cl::Event e;
+        run3DKernelDefault(mKernelChunkNeumannAttn0, mGWSChunkNeumannAttn0, mLWSChunkNeumannAttn0, runtime, &e);
+        runtime->pushEvent({"chunk_build_neumann_attn0", e});
+    }
+    {
+        cl::Event e;
+        run3DKernelDefault(mKernelChunkNeumannAttn1, mGWSChunkNeumannAttn1, mLWSChunkNeumannAttn1, runtime, &e);
+        runtime->pushEvent({"chunk_build_neumann_attn1", e});
+    }
+    {
+        cl::Event e;
+        run3DKernelDefault(mKernelChunkCorrectV, mGWSChunkCorrectV, mLWSChunkCorrectV, runtime, &e);
+        runtime->pushEvent({"chunk_correct_v", e});
+    }
+    {
+        cl::Event e;
+        run3DKernelDefault(mKernelChunkQKAttn, mGWSChunkQKAttn, mLWSChunkQKAttn, runtime, &e);
+        runtime->pushEvent({"chunk_qk_attn", e});
+    }
     for (int c = 0; c < mNumChunks; ++c) {
         mKernelChunkVnew->get().setArg(11, c);
         mKernelChunkOutput->get().setArg(17, c);
         mKernelChunkOutputUpdate->get().setArg(17, c);
-        { cl::Event e; run3DKernelDefault(mKernelChunkVnew, mGWSChunkVnew, mLWSChunkVnew, runtime, &e); runtime->pushEvent({"chunk_vnew_" + std::to_string(c), e}); }
-        { cl::Event e; runKernel2D(mKernelChunkOutput, mGWSChunkOutput, mLWSChunkOutput, runtime, &e); runtime->pushEvent({"chunk_output_" + std::to_string(c), e}); }
-        { cl::Event e; run3DKernelDefault(mKernelChunkOutputUpdate, mGWSChunkOutputUpdate, mLWSChunkOutputUpdate, runtime, &e); runtime->pushEvent({"chunk_update" + std::to_string(c), e}); }
+        {
+            cl::Event e;
+            run3DKernelDefault(mKernelChunkVnew, mGWSChunkVnew, mLWSChunkVnew, runtime, &e);
+            runtime->pushEvent({"chunk_vnew_" + std::to_string(c), e});
+        }
+        {
+            cl::Event e;
+            runKernel2D(mKernelChunkOutput, mGWSChunkOutput, mLWSChunkOutput, runtime, &e);
+            runtime->pushEvent({"chunk_output_" + std::to_string(c), e});
+        }
+        {
+            cl::Event e;
+            run3DKernelDefault(mKernelChunkOutputUpdate, mGWSChunkOutputUpdate, mLWSChunkOutputUpdate, runtime, &e);
+            runtime->pushEvent({"chunk_update" + std::to_string(c), e});
+        }
     }
 #else
     // Common kernels
     run3DKernelDefault(mKernelConvSiluPrefill, mGWSConvSiluPrefill, mLWSConvSiluPrefill, runtime);
     if (convStateSize > 0) {
-        run3DKernelDefault(mKernelConvStateUpdatePrefill, mGWSConvStateUpdatePrefill, mLWSConvStateUpdatePrefill, runtime);
+        run3DKernelDefault(mKernelConvStateUpdatePrefill, mGWSConvStateUpdatePrefill, mLWSConvStateUpdatePrefill,
+                           runtime);
     }
     if (mUseQKL2Norm) {
         run3DKernelDefault(mKernell2NormPrefill, mGWSl2NormPrefill, mLWSl2NormPrefill, runtime);
@@ -713,9 +927,9 @@ ErrorCode LinearAttentionBufExecution::onExecuteChunkedPrefill(const std::vector
     run3DKernelDefault(mKernelChunkCorrectV, mGWSChunkCorrectV, mLWSChunkCorrectV, runtime);
     run3DKernelDefault(mKernelChunkQKAttn, mGWSChunkQKAttn, mLWSChunkQKAttn, runtime);
     for (int c = 0; c < mNumChunks; ++c) {
-        mKernelChunkVnew->get().setArg(11, c);           // chunk_idx at position 11
-        mKernelChunkOutput->get().setArg(17, c);   // chunk_idx at position 17
-        mKernelChunkOutputUpdate->get().setArg(17, c);   // chunk_idx at position 17
+        mKernelChunkVnew->get().setArg(11, c);         // chunk_idx at position 11
+        mKernelChunkOutput->get().setArg(17, c);       // chunk_idx at position 17
+        mKernelChunkOutputUpdate->get().setArg(17, c); // chunk_idx at position 17
         run3DKernelDefault(mKernelChunkVnew, mGWSChunkVnew, mLWSChunkVnew, runtime);
         runKernel2D(mKernelChunkOutput, mGWSChunkOutput, mLWSChunkOutput, runtime);
         run3DKernelDefault(mKernelChunkOutputUpdate, mGWSChunkOutputUpdate, mLWSChunkOutputUpdate, runtime);
@@ -725,9 +939,11 @@ ErrorCode LinearAttentionBufExecution::onExecuteChunkedPrefill(const std::vector
     return NO_ERROR;
 }
 
-ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs,
+                                                 const std::vector<Tensor*>& outputs) {
     // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
-    int seqLen = inputs[0]->length(2);
+    int batch = 0, convDim = 0, seqLen = 0;
+    linearAttentionDims(inputs[0], batch, convDim, seqLen);
     if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
         bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
         if (!loadingFromDisk) {
@@ -736,21 +952,24 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &in
             if (mStateCache->mConvState.get() != nullptr) {
                 cl_int res;
                 int bufferBytes = mStateCache->mConvState->elementSize() * bytesPerElement;
-                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                    openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                void* mapPtr =
+                    runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mConvState.get()), true,
+                                                             CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
                 if (mapPtr != nullptr && res == CL_SUCCESS) {
                     ::memset(mapPtr, 0, bufferBytes);
                     runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
                 }
             }
-            {
+            if (mStateCache->mRecurrentState.get() != nullptr) {
                 cl_int res;
                 int bufferBytes = mStateCache->mRecurrentState->elementSize() * bytesPerElement;
-                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                    openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                void* mapPtr =
+                    runtime->commandQueue().enqueueMapBuffer(openCLBuffer(mStateCache->mRecurrentState.get()), true,
+                                                             CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
                 if (mapPtr != nullptr && res == CL_SUCCESS) {
                     ::memset(mapPtr, 0, bufferBytes);
-                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()),
+                                                                  mapPtr);
                 }
             }
         }
@@ -763,6 +982,39 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &in
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     int convStateSize = inputs[3]->length(2) - 1;
 
+    if (mAttentionType == "short_conv") {
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+        {
+            cl::Event event;
+            run3DKernelDefault(mKernelShortConv, mGWSShortConv, mLWSShortConv, runtime, &event);
+            runtime->pushEvent({"linear_attn_short_conv_nosilu", event});
+        }
+        if (convStateSize > 0) {
+            cl::Event event;
+            run3DKernelDefault(mKernelShortConvStateUpdate, mGWSShortConvStateUpdate, mLWSShortConvStateUpdate, runtime,
+                               &event);
+            runtime->pushEvent({"linear_attn_short_conv_state_update", event});
+        }
+        {
+            cl::Event event;
+            run3DKernelDefault(mKernelShortConvOutput, mGWSShortConvOutput, mLWSShortConvOutput, runtime, &event);
+            runtime->pushEvent({"linear_attn_short_conv_output", event});
+        }
+#else
+        if (mOpenCLBackend->isUseRecordQueue()) {
+            mOpenCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
+            return NO_ERROR;
+        }
+        run3DKernelDefault(mKernelShortConv, mGWSShortConv, mLWSShortConv, runtime);
+        if (convStateSize > 0) {
+            run3DKernelDefault(mKernelShortConvStateUpdate, mGWSShortConvStateUpdate, mLWSShortConvStateUpdate,
+                               runtime);
+        }
+        run3DKernelDefault(mKernelShortConvOutput, mGWSShortConvOutput, mLWSShortConvOutput, runtime);
+#endif
+        return NO_ERROR;
+    }
+
 #ifdef ENABLE_OPENCL_TIME_PROFILER
     {
         cl::Event event;
@@ -774,7 +1026,7 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &in
         run3DKernelDefault(mKernelConvStateUpdate, mGWSConvStateUpdate, mLWSConvStateUpdate, runtime, &event);
         runtime->pushEvent({"linear_attn_conv_state_update", event});
     }
-    if(mUseQKL2Norm){
+    if (mUseQKL2Norm) {
         cl::Event event;
         run3DKernelDefault(mKernell2Norm, mGWSl2Norm, mLWSl2Norm, runtime, &event);
         runtime->pushEvent({"l2_norm", event});
@@ -785,7 +1037,7 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &in
         runtime->pushEvent({"linear_attn_gated_delta_rule", event});
     }
 #else
-    if(mOpenCLBackend->isUseRecordQueue()){
+    if (mOpenCLBackend->isUseRecordQueue()) {
         mOpenCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
         return NO_ERROR;
     }
@@ -793,7 +1045,7 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &in
     if (convStateSize > 0) {
         run3DKernelDefault(mKernelConvStateUpdate, mGWSConvStateUpdate, mLWSConvStateUpdate, runtime);
     }
-    if(mUseQKL2Norm){
+    if (mUseQKL2Norm) {
         run3DKernelDefault(mKernell2Norm, mGWSl2Norm, mLWSl2Norm, runtime);
     }
     runKernel2D(mKernelGatedDeltaRule, mGWSGatedDeltaRule, mLWSGatedDeltaRule, runtime);
@@ -815,8 +1067,14 @@ bool LinearAttentionBufExecution::onClone(Backend* bn, const Op* op, Execution**
 
 class LinearAttentionBufCreator : public OpenCLBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                const MNN::Op *op, Backend *backend) const override {
+    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                const MNN::Op* op, Backend* backend) const override {
+        auto param = op->main_as_LinearAttentionParam();
+        if (param != nullptr && param->attn_type() != nullptr && param->attn_type()->str() == "gated_delta_rule" &&
+            param->head_v_dim() % 4 != 0) {
+            // The current gated-delta kernels update recurrent state with float4 vectors.
+            return nullptr;
+        }
         for (int i = 0; i < inputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(inputs[i], false);
         }

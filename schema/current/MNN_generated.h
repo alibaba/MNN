@@ -3024,12 +3024,14 @@ struct AttentionParamT : public flatbuffers::NativeTable {
   std::vector<std::unique_ptr<TensorQuantInfoT>> mhq_quant;
   bool output_c4;
   float attnScale;
+  int32_t head_dim;
   AttentionParamT()
       : kv_cache(true),
         layer_index(-1),
         kv_shared_layer_index(-1),
         output_c4(false),
-        attnScale(0.0f) {
+        attnScale(0.0f),
+        head_dim(0) {
   }
 };
 
@@ -3059,6 +3061,9 @@ struct AttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   float attnScale() const {
     return GetField<float>(16, 0.0f);
   }
+  int32_t head_dim() const {
+    return GetField<int32_t>(18, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, 4) &&
@@ -3071,6 +3076,7 @@ struct AttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVectorOfTables(mhq_quant()) &&
            VerifyField<uint8_t>(verifier, 14) &&
            VerifyField<float>(verifier, 16) &&
+           VerifyField<int32_t>(verifier, 18) &&
            verifier.EndTable();
   }
   AttentionParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3102,6 +3108,9 @@ struct AttentionParamBuilder {
   void add_attnScale(float attnScale) {
     fbb_.AddElement<float>(16, attnScale, 0.0f);
   }
+  void add_head_dim(int32_t head_dim) {
+    fbb_.AddElement<int32_t>(18, head_dim, 0);
+  }
   explicit AttentionParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3122,8 +3131,10 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(
     int32_t kv_shared_layer_index = -1,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>>> mhq_quant = 0,
     bool output_c4 = false,
-    float attnScale = 0.0f) {
+    float attnScale = 0.0f,
+    int32_t head_dim = 0) {
   AttentionParamBuilder builder_(_fbb);
+  builder_.add_head_dim(head_dim);
   builder_.add_attnScale(attnScale);
   builder_.add_mhq_quant(mhq_quant);
   builder_.add_kv_shared_layer_index(kv_shared_layer_index);
@@ -5674,6 +5685,7 @@ inline void AttentionParam::UnPackTo(AttentionParamT *_o, const flatbuffers::res
   { auto _e = mhq_quant(); if (_e) { _o->mhq_quant.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->mhq_quant[_i] = std::unique_ptr<TensorQuantInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = output_c4(); _o->output_c4 = _e; };
   { auto _e = attnScale(); _o->attnScale = _e; };
+  { auto _e = head_dim(); _o->head_dim = _e; };
 }
 
 inline flatbuffers::Offset<AttentionParam> AttentionParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5691,6 +5703,7 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::Fla
   auto _mhq_quant = _o->mhq_quant.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorQuantInfo>> (_o->mhq_quant.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorQuantInfo(*__va->__fbb, __va->__o->mhq_quant[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _output_c4 = _o->output_c4;
   auto _attnScale = _o->attnScale;
+  auto _head_dim = _o->head_dim;
   return MNN::CreateAttentionParam(
       _fbb,
       _kv_cache,
@@ -5699,7 +5712,8 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::Fla
       _kv_shared_layer_index,
       _mhq_quant,
       _output_c4,
-      _attnScale);
+      _attnScale,
+      _head_dim);
 }
 
 inline LinearAttentionParamT *LinearAttentionParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -9361,7 +9375,8 @@ inline const flatbuffers::TypeTable *AttentionParamTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_SEQUENCE, 1, 0 },
     { flatbuffers::ET_BOOL, 0, -1 },
-    { flatbuffers::ET_FLOAT, 0, -1 }
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     TensorQuantInfoTypeTable
@@ -9373,10 +9388,11 @@ inline const flatbuffers::TypeTable *AttentionParamTypeTable() {
     "kv_shared_layer_index",
     "mhq_quant",
     "output_c4",
-    "attnScale"
+    "attnScale",
+    "head_dim"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 8, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

@@ -237,6 +237,7 @@ table AttentionParam {
     mhq_quant:[TensorQuantInfo]; // qk_scale_q, qk_scale_k, sv_scale_s, sv_scale_v
     output_c4:bool = false;
     attnScale: float = 0.0;
+    head_dim: int = 0;
 }
 
 table LinearAttentionParam {

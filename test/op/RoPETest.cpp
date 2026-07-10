@@ -58,17 +58,18 @@ static void computeRopeExpected(const std::vector<float>& input, std::vector<flo
                                 const std::vector<float>& cos, const std::vector<float>& sin, int outer, int head,
                                 int headDim, int ropeCutHeadDim) {
     output = input;
-    int halfDim = headDim / 2;
-    int ropeHalfDim = std::min(ropeCutHeadDim / 2, halfDim);
+    int ropeDim = std::min(ropeCutHeadDim, headDim);
+    ropeDim = (ropeDim / 2) * 2;
+    int ropeHalfDim = ropeDim / 2;
     for (int o = 0; o < outer; ++o) {
         for (int h = 0; h < head; ++h) {
             for (int i = 0; i < ropeHalfDim; ++i) {
                 int base = (o * head + h) * headDim;
-                int trig = o * headDim + i;
+                int trig = o * ropeDim + i;
                 float evenVal = input[base + i];
-                float oddVal = input[base + i + halfDim];
+                float oddVal = input[base + i + ropeHalfDim];
                 output[base + i] = evenVal * cos[trig] - oddVal * sin[trig];
-                output[base + i + halfDim] = oddVal * cos[trig + halfDim] + evenVal * sin[trig + halfDim];
+                output[base + i + ropeHalfDim] = oddVal * cos[trig + ropeHalfDim] + evenVal * sin[trig + ropeHalfDim];
             }
         }
     }
@@ -96,21 +97,16 @@ static void computeRmsNormExpected(const std::vector<float>& input, std::vector<
 class RoPETest : public MNNTestCase {
 public:
     virtual ~RoPETest() = default;
-    bool runCase(bool useNorm) {
+    bool runCase(bool useNorm, int seqLen, int qHead, int kHead, int headDim, int ropeCutHeadDim) {
         const int batch = 1;
-        const int seqLen = 2;
-        const int qHead = 2;
-        const int kHead = 1;
-        const int headDim = 8;
-        const int halfDim = headDim / 2;
         const int outer = batch * seqLen;
-        const int ropeCutHeadDim = 6;
+        const int ropeHalfDim = ropeCutHeadDim / 2;
         const float normEps = 1e-6f;
 
         std::vector<float> qData(qHead * headDim * seqLen);
         std::vector<float> kData(kHead * headDim * seqLen);
-        std::vector<float> cos(outer * headDim);
-        std::vector<float> sin(outer * headDim);
+        std::vector<float> cos(outer * ropeCutHeadDim);
+        std::vector<float> sin(outer * ropeCutHeadDim);
         std::vector<float> qGamma(headDim);
         std::vector<float> kGamma(headDim);
         for (int i = 0; i < (int)qData.size(); ++i) {
@@ -119,13 +115,14 @@ public:
         for (int i = 0; i < (int)kData.size(); ++i) {
             kData[i] = (float)((i % 11) - 5) * -0.13f;
         }
-        for (int i = 0; i < outer * halfDim; ++i) {
-            int token = i / halfDim;
-            int offset = i % halfDim;
-            cos[token * headDim + offset] = 0.9f - 0.03f * i;
-            cos[token * headDim + offset + halfDim] = 0.91f - 0.02f * i;
-            sin[token * headDim + offset] = 0.1f + 0.04f * i;
-            sin[token * headDim + offset + halfDim] = 0.11f + 0.03f * i;
+        for (int i = 0; i < outer * ropeHalfDim; ++i) {
+            int token = i / ropeHalfDim;
+            int offset = i % ropeHalfDim;
+            float angle = 0.013f * (token + 1) * (offset + 1);
+            cos[token * ropeCutHeadDim + offset] = std::cos(angle);
+            cos[token * ropeCutHeadDim + offset + ropeHalfDim] = std::cos(angle);
+            sin[token * ropeCutHeadDim + offset] = std::sin(angle);
+            sin[token * ropeCutHeadDim + offset + ropeHalfDim] = std::sin(angle);
         }
         for (int i = 0; i < headDim; ++i) {
             qGamma[i] = 0.7f + 0.03f * i;
@@ -136,8 +133,8 @@ public:
 
         auto q = _Input({seqLen, qHead * headDim, 1, 1}, NC4HW4);
         auto k = _Input({seqLen, kHead * headDim, 1, 1}, NC4HW4);
-        auto c = _Input({batch, seqLen, headDim}, NCHW);
-        auto s = _Input({batch, seqLen, headDim}, NCHW);
+        auto c = _Input({batch, seqLen, ropeCutHeadDim}, NCHW);
+        auto s = _Input({batch, seqLen, ropeCutHeadDim}, NCHW);
         ::memcpy(q->writeMap<float>(), qC4.data(), qC4.size() * sizeof(float));
         ::memcpy(k->writeMap<float>(), kC4.data(), kC4.size() * sizeof(float));
         ::memcpy(c->writeMap<float>(), cos.data(), cos.size() * sizeof(float));
@@ -162,8 +159,10 @@ public:
             computeRopeExpected(qData, qExpected, cos, sin, outer, qHead, headDim, ropeCutHeadDim);
             computeRopeExpected(kData, kExpected, cos, sin, outer, kHead, headDim, ropeCutHeadDim);
         }
-        if (!checkVector<float>(qOut->readMap<float>(), qExpected.data(), qExpected.size(), 0.03f) ||
-            !checkVector<float>(kOut->readMap<float>(), kExpected.data(), kExpected.size(), 0.03f)) {
+        auto qExpectedC4 = packC4(qExpected, seqLen, qHead * headDim);
+        auto kExpectedC4 = packC4(kExpected, seqLen, kHead * headDim);
+        if (!checkVector<float>(qOut->readMap<float>(), qExpectedC4.data(), qExpectedC4.size(), 0.03f) ||
+            !checkVector<float>(kOut->readMap<float>(), kExpectedC4.data(), kExpectedC4.size(), 0.03f)) {
             MNN_ERROR("RoPETest %s failed!\n", useNorm ? "norm" : "base");
             return false;
         }
@@ -171,7 +170,8 @@ public:
     }
 
     virtual bool run(int precision) {
-        return runCase(false) && runCase(true);
+        return runCase(false, 2, 2, 1, 8, 6) && runCase(true, 2, 2, 1, 8, 6) && runCase(false, 18, 16, 2, 128, 128) &&
+               runCase(true, 18, 16, 2, 128, 128);
     }
 };
 

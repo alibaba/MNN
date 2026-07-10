@@ -1,5 +1,6 @@
 #include "LinearAttentionExecution.hpp"
 #include "core/TensorUtils.hpp"
+#include "MNNCUDADefine.hpp"
 #include <cuda_fp16.h>
 #include <float.h>
 
@@ -14,22 +15,58 @@ static inline T* getDevPtr(const Tensor* t) {
     return reinterpret_cast<T*>(t->deviceId());
 }
 
+static inline bool isC4Tensor(const Tensor* tensor) {
+    return TensorUtils::getDescribe(tensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+}
+
+static inline void linearAttentionDims(const Tensor* qkv, int& batch, int& convDim, int& seqLen) {
+    if (isC4Tensor(qkv)) {
+        batch = 1;
+        seqLen = qkv->length(0);
+        convDim = qkv->length(1);
+        return;
+    }
+    batch = qkv->length(0);
+    convDim = qkv->length(1);
+    seqLen = qkv->length(2);
+}
+
+template <typename T>
+__device__ __forceinline__ float read_qkv(const T* input, int b, int d, int l, int D, int L, bool inputC4) {
+    const int packedD = ((D + PACK_NUMBER - 1) / PACK_NUMBER) * PACK_NUMBER;
+    const int offset = inputC4 ? (b * L + l) * packedD + d : (b * D + d) * L + l;
+    return (float)input[offset];
+}
+
+template <typename T>
+__device__ __forceinline__ float read_token_channel(const T* input, int b, int l, int c, int L, int C,
+                                                    bool inputC4) {
+    const int packedC = ((C + PACK_NUMBER - 1) / PACK_NUMBER) * PACK_NUMBER;
+    const int offset = inputC4 ? (b * L + l) * packedC + c : (b * L + l) * C + c;
+    return (float)input[offset];
+}
+
+template <typename T>
+__device__ __forceinline__ void write_token_channel(T* output, int token, int c, int C, bool outputC4, float value) {
+    const int packedC = ((C + PACK_NUMBER - 1) / PACK_NUMBER) * PACK_NUMBER;
+    const int offset = outputC4 ? token * packedC + c : token * C + c;
+    output[offset] = (T)value;
+}
+
 // ============================================================================
 // Kernel 1: Depthwise Conv1D + SiLU (fused)
 // ============================================================================
-template<typename T>
-__global__ void conv1d_silu_kernel(
-    const T* __restrict__ qkvInput,   // [B, D, L]
-    const T* __restrict__ convWeight, // [D, 1, K]
-    float* __restrict__ convState,    // [B, D, convStateSize]
-    float* __restrict__ convOutFp32,  // [B, D, L]
-    int B, int D, int L, int K_conv, int convStateSize
-) {
+template <typename T>
+__global__ void conv1d_silu_kernel(const T* __restrict__ qkvInput,   // [B, D, L]
+                                   const T* __restrict__ convWeight, // [D, 1, K]
+                                   float* __restrict__ convState,    // [B, D, convStateSize]
+                                   float* __restrict__ convOutFp32,  // [B, D, L]
+                                   int B, int D, int L, int K_conv, int convStateSize, bool inputC4) {
     int channelIdx = blockIdx.x;
     if (channelIdx >= B * D) return;
 
     int d = channelIdx % D;
-    const T* input = qkvInput + channelIdx * L;
+    int b = channelIdx / D;
     const T* weight = convWeight + d * K_conv;
     float* outFp32 = convOutFp32 + channelIdx * L;
 
@@ -47,7 +84,7 @@ __global__ void conv1d_silu_kernel(
             padded[i] = state[i];
     }
     for (int i = threadIdx.x; i < L; i += blockDim.x)
-        padded[convStateSize + i] = (float)input[i];
+        padded[convStateSize + i] = read_qkv(qkvInput, b, d, i, D, L, inputC4);
     __syncthreads();
 
     for (int l = threadIdx.x; l < L; l += blockDim.x) {
@@ -65,6 +102,57 @@ __global__ void conv1d_silu_kernel(
         for (int i = threadIdx.x; i < convStateSize; i += blockDim.x)
             state[i] = padded[totalLen - convStateSize + i];
     }
+}
+
+template <typename T>
+__global__ void short_conv_kernel(const T* __restrict__ qkvInput, const T* __restrict__ convWeight,
+                                  float* __restrict__ convState, float* __restrict__ convOut, int B, int D, int L,
+                                  int H, int K, int convStateSize, bool inputC4) {
+    const int channelIdx = blockIdx.x;
+    if (channelIdx >= B * H)
+        return;
+    const int b = channelIdx / H;
+    const int h = channelIdx % H;
+    extern __shared__ float padded[];
+
+    for (int i = threadIdx.x; i < convStateSize; i += blockDim.x) {
+        padded[i] = convState[channelIdx * convStateSize + i];
+    }
+    for (int l = threadIdx.x; l < L; l += blockDim.x) {
+        const float bValue = read_qkv(qkvInput, b, h, l, D, L, inputC4);
+        const float xValue = read_qkv(qkvInput, b, 2 * H + h, l, D, L, inputC4);
+        padded[convStateSize + l] = bValue * xValue;
+    }
+    __syncthreads();
+
+    for (int l = threadIdx.x; l < L; l += blockDim.x) {
+        float sum = 0.0f;
+        for (int k = 0; k < K; ++k) {
+            sum += padded[l + k] * (float)convWeight[h * K + k];
+        }
+        convOut[channelIdx * L + l] = sum;
+    }
+    __syncthreads();
+
+    for (int i = threadIdx.x; i < convStateSize; i += blockDim.x) {
+        convState[channelIdx * convStateSize + i] = padded[L + i];
+    }
+}
+
+template <typename T>
+__global__ void short_conv_output_kernel(const T* __restrict__ qkvInput, const float* __restrict__ convOut,
+                                         T* __restrict__ output, int B, int D, int L, int H, bool inputC4,
+                                         bool outputC4) {
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    const int total = B * L * H;
+    if (index >= total)
+        return;
+    const int h = index % H;
+    const int token = index / H;
+    const int l = token % L;
+    const int b = token / L;
+    const float cValue = read_qkv(qkvInput, b, H + h, l, D, L, inputC4);
+    write_token_channel(output, token, h, H, outputC4, cValue * convOut[(b * H + h) * L + l]);
 }
 
 // ============================================================================
@@ -110,7 +198,8 @@ __global__ void gated_delta_rule_decode_kernel(
     T* __restrict__ output,
     int B, int H_k, int H_v, int d_k, int d_v,
     int key_dim, int val_dim, int D,
-    int gqa_factor, bool useL2Norm, float qScale
+    int gqa_factor, bool useL2Norm, float qScale,
+    bool gateC4, bool betaC4, bool outputC4
 ) {
     int idx = blockIdx.x;
     if (idx >= B * H_v) return;
@@ -164,8 +253,8 @@ __global__ void gated_delta_rule_decode_kernel(
     for (int i = threadIdx.x; i < d_k; i += blockDim.x) q_s[i] *= qScale;
     __syncthreads();
 
-    float decay = expf((float)gateInput[b * H_v + h]);
-    float beta_t = (float)betaInput[b * H_v + h];
+    float decay = expf(read_token_channel(gateInput, b, 0, h, 1, H_v, gateC4));
+    float beta_t = read_token_channel(betaInput, b, 0, h, 1, H_v, betaC4);
     float* state = recurrentState + (b * H_v + h) * d_k * d_v;
     int stateSize = d_k * d_v;
     int stateSize4 = stateSize / 4;
@@ -207,11 +296,10 @@ __global__ void gated_delta_rule_decode_kernel(
     }
     __syncthreads();
 
-    T* out = output + (b * H_v + h) * d_v;
     for (int j = threadIdx.x; j < d_v; j += blockDim.x) {
         float sum = 0.0f;
         for (int i = 0; i < d_k; i++) sum += state[i * d_v + j] * q_s[i];
-        out[j] = (T)sum;
+        write_token_channel(output, b * H_v + h, j, d_v, outputC4, sum);
     }
 }
 
@@ -237,7 +325,8 @@ void gated_delta_rule_prefill_kernel(
     T* __restrict__ output,                       // [B, L, H_v, d_v]
     int B, int L, int H_k, int H_v, int d_k, int d_v,
     int key_dim, int val_dim, int D,
-    int gqa_factor, bool useL2Norm, float qScale
+    int gqa_factor, bool useL2Norm, float qScale,
+    bool gateC4, bool betaC4, bool outputC4
 ) {
     int idx = blockIdx.x;
     if (idx >= B * H_v) return;
@@ -246,11 +335,11 @@ void gated_delta_rule_prefill_kernel(
     int h = idx % H_v;
     int k_head = h / gqa_factor;
 
-    int myJ = threadIdx.x % d_v;        // my column in state matrix
-    int myPart = threadIdx.x / d_v;     // 0 = even rows, 1 = odd rows
-    int halfK = d_k / 2;
+    const bool stateThread = threadIdx.x < 2 * d_v;
+    int myJ = stateThread ? threadIdx.x % d_v : 0;    // my column in state matrix
+    int myPart = stateThread ? threadIdx.x / d_v : 0; // 0 = even rows, 1 = odd rows
 
-    // Shared memory: partial[256] + q[dk] + k[dk] + v[dv] + delta[dv]
+    // Shared memory: partial[blockDim] + q[dk] + k[dk] + v[dv] + delta[dv]
     extern __shared__ float smem[];
     float* partial_buf = smem;
     float* q_s = partial_buf + blockDim.x;
@@ -264,7 +353,7 @@ void gated_delta_rule_prefill_kernel(
     #pragma unroll
     for (int e = 0; e < MAX_HALF_DK; e++) {
         int myI = myPart + e * 2;
-        S[e] = (myI < d_k) ? globalState[myI * d_v + myJ] : 0.0f;
+        S[e] = (stateThread && myI < d_k) ? globalState[myI * d_v + myJ] : 0.0f;
     }
 
     const float* convBase = convOutTransposed + b * L * D;
@@ -311,14 +400,16 @@ void gated_delta_rule_prefill_kernel(
         for (int i = threadIdx.x; i < d_k; i += blockDim.x) q_s[i] *= qScale;
         __syncthreads();
 
-        float decay = expf((float)gateInput[b * L * H_v + t * H_v + h]);
-        float beta_t = (float)betaInput[b * L * H_v + t * H_v + h];
+        float decay = expf(read_token_channel(gateInput, b, t, h, L, H_v, gateC4));
+        float beta_t = read_token_channel(betaInput, b, t, h, L, H_v, betaC4);
 
         // Preload k vector into registers (eliminates shared memory reads in inner loops)
         float vec_reg[MAX_HALF_DK];
         #pragma unroll
-        for (int e = 0; e < MAX_HALF_DK; e++)
-            vec_reg[e] = k_s[myPart + e * 2];
+        for (int e = 0; e < MAX_HALF_DK; e++) {
+            int myI = myPart + e * 2;
+            vec_reg[e] = (stateThread && myI < d_k) ? k_s[myI] : 0.0f;
+        }
 
         // 5.1 Decay: pure register ops!
         #pragma unroll
@@ -342,7 +433,7 @@ void gated_delta_rule_prefill_kernel(
         __syncthreads();
 
         // 5.4 Write: S[i][j] += k[i] * delta[j] — register ops
-        {
+        if (stateThread) {
             float my_delta = delta_s[myJ];
             #pragma unroll
             for (int e = 0; e < MAX_HALF_DK; e++)
@@ -351,8 +442,10 @@ void gated_delta_rule_prefill_kernel(
 
         // Preload q vector (reuse vec_reg)
         #pragma unroll
-        for (int e = 0; e < MAX_HALF_DK; e++)
-            vec_reg[e] = q_s[myPart + e * 2];
+        for (int e = 0; e < MAX_HALF_DK; e++) {
+            int myI = myPart + e * 2;
+            vec_reg[e] = (stateThread && myI < d_k) ? q_s[myI] : 0.0f;
+        }
 
         // 5.5 Query: o[j] = sum_i S[i][j] * q[i] — all register ops
         float partial_query = 0.0f;
@@ -364,8 +457,8 @@ void gated_delta_rule_prefill_kernel(
 
         if (threadIdx.x < d_v) {
             float result = partial_buf[threadIdx.x] + partial_buf[threadIdx.x + d_v];
-            T* out = output + (b * L + t) * H_v * d_v + h * d_v;
-            out[threadIdx.x] = (T)result;
+            const int outputToken = (b * L + t) * H_v + h;
+            write_token_channel(output, outputToken, threadIdx.x, d_v, outputC4, result);
         }
         __syncthreads();
     }
@@ -374,7 +467,7 @@ void gated_delta_rule_prefill_kernel(
     #pragma unroll
     for (int e = 0; e < MAX_HALF_DK; e++) {
         int myI = myPart + e * 2;
-        if (myI < d_k)
+        if (stateThread && myI < d_k)
             globalState[myI * d_v + myJ] = S[e];
     }
 }
@@ -401,32 +494,62 @@ CUDALinearAttention::~CUDALinearAttention() {
 }
 
 ErrorCode CUDALinearAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    if (inputs.size() < 4 || outputs.empty())
+        return INVALID_VALUE;
     auto qkv = inputs[0];
     auto convWeight = inputs[3];
 
-    int batch = qkv->length(0);
-    int convDim = qkv->length(1);
-    int seqLen = qkv->length(2);
+    int batch = 0, convDim = 0, seqLen = 0;
+    linearAttentionDims(qkv, batch, convDim, seqLen);
     int K_conv = convWeight->length(2);
     int convStateSize = K_conv - 1;
     int H = mNumVHeads;
     int dk = mHeadKDim;
     int dv = mHeadVDim;
+    const bool shortConv = mAttentionType == "short_conv";
+    const bool gatedDelta = mAttentionType == "gated_delta_rule";
+    const bool inputC4 = isC4Tensor(qkv);
+    const int convChannels = shortConv ? convDim / 3 : convDim;
+
+    if ((!shortConv && !gatedDelta) || batch <= 0 || convDim <= 0 || seqLen <= 0 || K_conv <= 0 || H <= 0 || dk <= 0 ||
+        dv <= 0 || (gatedDelta && (dk > 128 || dv > 128)) ||
+        (shortConv && (mNumKHeads != 1 || mNumVHeads != 1 || convDim % 3 != 0 || convDim / 3 != dv))) {
+        MNN_ERROR("CUDA LinearAttention: invalid type, shape, or head configuration.\n");
+        return INVALID_VALUE;
+    }
+    if (inputC4) {
+        const bool outputC4 = isC4Tensor(outputs[0]);
+        const bool validPackedShape =
+            qkv->dimensions() == 4 && qkv->length(2) == 1 && qkv->length(3) == 1 && outputC4;
+        bool validAux = true;
+        if (gatedDelta) {
+            validAux = isC4Tensor(inputs[1]) && isC4Tensor(inputs[2]);
+        }
+        if (!validPackedShape || !validAux) {
+            MNN_ERROR("CUDA LinearAttention: invalid C4 input/output layout.\n");
+            return INVALID_VALUE;
+        }
+    }
 
     // Use int32_t to ensure 4 bytes/element in fp16 mode
     if (mStateCache->mConvState.get() == nullptr) {
         if (convStateSize > 0) {
-            int convStateTotal = batch * convDim * convStateSize;
+            int convStateTotal = batch * convChannels * convStateSize;
             mStateCache->mConvState.reset(Tensor::createDevice<int32_t>({convStateTotal}));
             bool success = backend()->onAcquireBuffer(mStateCache->mConvState.get(), Backend::STATIC);
             if (!success) { MNN_ERROR("LinearAttention: convState STATIC alloc failed\n"); return OUT_OF_MEMORY; }
             cudaMemset(getDevPtr<void>(mStateCache->mConvState.get()), 0, convStateTotal * sizeof(float));
         }
-        int rnnStateTotal = batch * H * dk * dv;
-        mStateCache->mRecurrentState.reset(Tensor::createDevice<int32_t>({rnnStateTotal}));
-        bool success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
-        if (!success) { MNN_ERROR("LinearAttention: recurrentState STATIC alloc failed\n"); return OUT_OF_MEMORY; }
-        cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0, rnnStateTotal * sizeof(float));
+        if (gatedDelta) {
+            int rnnStateTotal = batch * H * dk * dv;
+            mStateCache->mRecurrentState.reset(Tensor::createDevice<int32_t>({rnnStateTotal}));
+            bool success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
+            if (!success) {
+                MNN_ERROR("LinearAttention: recurrentState STATIC alloc failed\n");
+                return OUT_OF_MEMORY;
+            }
+            cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0, rnnStateTotal * sizeof(float));
+        }
     } else if (seqLen > 1) {
         // Prefill: reset state for new sequence, UNLESS:
         // 1. Loading from prefix cache (PendingRead), or
@@ -437,18 +560,19 @@ ErrorCode CUDALinearAttention::onResize(const std::vector<Tensor*>& inputs, cons
             if (mStateCache->mConvState.get() != nullptr)
                 cudaMemset(getDevPtr<void>(mStateCache->mConvState.get()), 0,
                            mStateCache->mConvState->elementSize() * sizeof(float));
-            cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0,
-                       mStateCache->mRecurrentState->elementSize() * sizeof(float));
+            if (mStateCache->mRecurrentState.get() != nullptr)
+                cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0,
+                           mStateCache->mRecurrentState->elementSize() * sizeof(float));
         }
     }
 
-    int convOutSize = batch * convDim * seqLen;
+    int convOutSize = batch * convChannels * seqLen;
     mConvOut.reset(Tensor::createDevice<int32_t>({convOutSize}));
     bool success = backend()->onAcquireBuffer(mConvOut.get(), Backend::DYNAMIC);
     if (!success) { MNN_ERROR("LinearAttention: convOut DYNAMIC alloc failed\n"); return OUT_OF_MEMORY; }
 
-    if (seqLen > 1) {
-        mConvOutTransposed.reset(Tensor::createDevice<int32_t>({convOutSize}));
+    if (gatedDelta && seqLen > 1) {
+        mConvOutTransposed.reset(Tensor::createDevice<int32_t>({batch * convDim * seqLen}));
         success = backend()->onAcquireBuffer(mConvOutTransposed.get(), Backend::DYNAMIC);
         if (!success) return OUT_OF_MEMORY;
         backend()->onReleaseBuffer(mConvOutTransposed.get(), Backend::DYNAMIC);
@@ -460,7 +584,8 @@ ErrorCode CUDALinearAttention::onResize(const std::vector<Tensor*>& inputs, cons
 
 ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
-    int seqLen = inputs[0]->length(2);
+    int resetBatch = 0, resetDim = 0, seqLen = 0;
+    linearAttentionDims(inputs[0], resetBatch, resetDim, seqLen);
     if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
         bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
         if (!loadingFromDisk) {
@@ -468,9 +593,16 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
                 cudaMemset(getDevPtr<void>(mStateCache->mConvState.get()), 0,
                            mStateCache->mConvState->elementSize() * sizeof(float));
             }
-            cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0,
-                       mStateCache->mRecurrentState->elementSize() * sizeof(float));
+            if (mStateCache->mRecurrentState.get() != nullptr)
+                cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0,
+                           mStateCache->mRecurrentState->elementSize() * sizeof(float));
         }
+    }
+    if (mMeta != nullptr && !mMeta->file_name.empty() &&
+        (mMeta->file_flag == KVMeta::PendingWrite || mMeta->file_flag == KVMeta::PendingRead) &&
+        mMeta->previous == mMeta->remove && mMeta->layer_nums > 0) {
+        // Keep the shared prefix index aligned with full-attention layers in hybrid models.
+        mMeta->layer_index = (mMeta->layer_index + 1) % mMeta->layer_nums;
     }
 
     auto qkvTensor = inputs[0];
@@ -479,9 +611,8 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
     auto convWTensor = inputs[3];
     auto outTensor = outputs[0];
 
-    int B = qkvTensor->length(0);
-    int D = qkvTensor->length(1);
-    int L = qkvTensor->length(2);
+    int B = 0, D = 0, L = 0;
+    linearAttentionDims(qkvTensor, B, D, L);
     int H_k = mNumKHeads;
     int H_v = mNumVHeads;
     int dk = mHeadKDim;
@@ -495,6 +626,43 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
 
     cudaStream_t stream = 0;
     bool useFp16 = (mPrecision == 2);
+    const bool inputC4 = isC4Tensor(qkvTensor);
+    const bool gateC4 = isC4Tensor(gateTensor);
+    const bool betaC4 = isC4Tensor(betaTensor);
+    const bool outputC4 = isC4Tensor(outTensor);
+
+    if (mAttentionType == "short_conv") {
+        const int shortHeads = D / 3;
+        const int blockSize = L == 1 ? 32 : 128;
+        const int sharedBytes = (convStateSize + L) * sizeof(float);
+        float* convStatePtr =
+            mStateCache->mConvState.get() != nullptr ? getDevPtr<float>(mStateCache->mConvState.get()) : nullptr;
+        float* convOutPtr = getDevPtr<float>(mConvOut.get());
+        if (useFp16) {
+            short_conv_kernel<half><<<B * shortHeads, blockSize, sharedBytes, stream>>>(
+                getDevPtr<half>(qkvTensor), getDevPtr<half>(convWTensor), convStatePtr, convOutPtr, B, D, L, shortHeads,
+                K_conv, convStateSize, inputC4);
+        } else {
+            short_conv_kernel<float><<<B * shortHeads, blockSize, sharedBytes, stream>>>(
+                getDevPtr<float>(qkvTensor), getDevPtr<float>(convWTensor), convStatePtr, convOutPtr, B, D, L,
+                shortHeads, K_conv, convStateSize, inputC4);
+        }
+        checkKernelErrors;
+
+        const int total = B * L * shortHeads;
+        const int outputBlock = 256;
+        if (useFp16) {
+            short_conv_output_kernel<half><<<UP_DIV(total, outputBlock), outputBlock, 0, stream>>>(
+                getDevPtr<half>(qkvTensor), convOutPtr, getDevPtr<half>(outTensor), B, D, L, shortHeads, inputC4,
+                outputC4);
+        } else {
+            short_conv_output_kernel<float><<<UP_DIV(total, outputBlock), outputBlock, 0, stream>>>(
+                getDevPtr<float>(qkvTensor), convOutPtr, getDevPtr<float>(outTensor), B, D, L, shortHeads, inputC4,
+                outputC4);
+        }
+        checkKernelErrors;
+        return NO_ERROR;
+    }
 
     // Step 1: Conv1D + SiLU -> [B, D, L]
     {
@@ -508,13 +676,14 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
 
         if (useFp16) {
             conv1d_silu_kernel<half><<<totalChannels, blockSize, smemSize, stream>>>(
-                getDevPtr<half>(qkvTensor), getDevPtr<half>(convWTensor),
-                convStatePtr, convOutPtr, B, D, L, K_conv, convStateSize);
+                getDevPtr<half>(qkvTensor), getDevPtr<half>(convWTensor), convStatePtr, convOutPtr, B, D, L, K_conv,
+                convStateSize, inputC4);
         } else {
             conv1d_silu_kernel<float><<<totalChannels, blockSize, smemSize, stream>>>(
-                getDevPtr<float>(qkvTensor), getDevPtr<float>(convWTensor),
-                convStatePtr, convOutPtr, B, D, L, K_conv, convStateSize);
+                getDevPtr<float>(qkvTensor), getDevPtr<float>(convWTensor), convStatePtr, convOutPtr, B, D, L, K_conv,
+                convStateSize, inputC4);
         }
+        checkKernelErrors;
     }
 
     // Steps 2-5: Gated Delta Rule
@@ -534,13 +703,13 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
                     convOutPtr, getDevPtr<half>(gateTensor), getDevPtr<half>(betaTensor),
                     rnnStatePtr, getDevPtr<half>(outTensor),
                     B, H_k, H_v, dk, dv, key_dim, val_dim, D,
-                    gqa_factor, mUseQKL2Norm, qScale);
+                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4);
             } else {
                 gated_delta_rule_decode_kernel<float><<<totalHeads, blockSize, smemSize, stream>>>(
                     convOutPtr, getDevPtr<float>(gateTensor), getDevPtr<float>(betaTensor),
                     rnnStatePtr, getDevPtr<float>(outTensor),
                     B, H_k, H_v, dk, dv, key_dim, val_dim, D,
-                    gqa_factor, mUseQKL2Norm, qScale);
+                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4);
             }
         } else {
             // Prefill: transpose + register-tiled kernel
@@ -552,7 +721,7 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
             }
 
             // smem: partial[256] + q[dk] + k[dk] + v[dv] + delta[dv]
-            int blockSize = 256;
+            int blockSize = UP_DIV(2 * dv, 32) * 32;
             int smemSize = (blockSize + 2 * dk + 2 * dv) * sizeof(float);
             if (mUseQKL2Norm) smemSize += (8 + 8 + 2) * sizeof(float);
 
@@ -561,13 +730,13 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
                     convOutTransPtr, getDevPtr<half>(gateTensor), getDevPtr<half>(betaTensor),
                     rnnStatePtr, getDevPtr<half>(outTensor),
                     B, L, H_k, H_v, dk, dv, key_dim, val_dim, D,
-                    gqa_factor, mUseQKL2Norm, qScale);
+                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4);
             } else {
                 gated_delta_rule_prefill_kernel<float><<<totalHeads, blockSize, smemSize, stream>>>(
                     convOutTransPtr, getDevPtr<float>(gateTensor), getDevPtr<float>(betaTensor),
                     rnnStatePtr, getDevPtr<float>(outTensor),
                     B, L, H_k, H_v, dk, dv, key_dim, val_dim, D,
-                    gqa_factor, mUseQKL2Norm, qScale);
+                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4);
             }
         }
     }
@@ -587,6 +756,12 @@ class LinearAttentionCreator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        auto param = op->main_as_LinearAttentionParam();
+        if (param == nullptr || param->attn_type() == nullptr)
+            return nullptr;
+        const auto type = param->attn_type()->str();
+        if (type != "gated_delta_rule" && type != "short_conv")
+            return nullptr;
         return new CUDALinearAttention(backend, op);
     }
 };

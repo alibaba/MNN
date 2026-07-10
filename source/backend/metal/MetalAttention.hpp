@@ -21,7 +21,7 @@
 namespace MNN {
 class AttentionBufExecution : public MetalExecution {
 public:
-    AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4, float attnScale,
+    AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4, float attnScale, int headDim,
                           std::shared_ptr<KVQuantParameter> kvQuantParam);
     virtual ~AttentionBufExecution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
@@ -32,7 +32,7 @@ public:
         if (nullptr == dst) {
             return true;
         }
-        auto exe = new AttentionBufExecution(bn, mKVCache, mOutputC4, mAttnScale, mKVQuantParameter);
+        auto exe = new AttentionBufExecution(bn, mKVCache, mOutputC4, mAttnScale, mHeadDim, mKVQuantParameter);
         if (mKVCache && bn->getMetaPtr() == mMeta && mMeta != nullptr) {
             exe->mKVCacheManager = mKVCacheManager;
         }
@@ -49,6 +49,7 @@ private:
     float mAttnScale = 0.0f;
     float mScale;
     bool mOutputC4 = false;
+    bool mInputC4 = false;
     bool mShortSeq = false;
     std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
     int mNumHead = 0, mHeadDim = 0, mValueH = 0, mKvNumHead = 0;

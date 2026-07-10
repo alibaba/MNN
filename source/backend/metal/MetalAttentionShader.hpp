@@ -36,6 +36,20 @@ struct Param {
     float k_scale;
 };
 
+static inline ftype4 load_query4(const device ftype* input, constant Param& param, int b, int token, int head,
+                                 int dim) {
+#ifdef QUERY_C4
+    int outer = param.batch * param.query_seq_len;
+    int flat_token = b * param.query_seq_len + token;
+    int channel = head * param.head_dim + dim;
+    int offset = (channel / 4) * outer * 4 + flat_token * 4 + (channel % 4);
+    return ((const device ftype4*)(input + offset))[0];
+#else
+    int offset = ((b * param.query_seq_len + token) * param.head_num + head) * param.head_dim + dim;
+    return ((const device ftype4*)(input + offset))[0];
+#endif
+}
+
 static inline bool attention_mask_hit(constant Param& param, int k) {
     if (param.mask_k_len <= 1) {
         return true;
@@ -167,8 +181,6 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
     int idx_slk_global = kv_start + slk * 32 + nl;
     int idx_slk = idx_slk_global < k_seq_len ? idx_slk_global : k_seq_len - 1;
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    auto A_offset = input0 + ((b * q_seq_len + idx_slq) * head_num + hn) * head_dim / 4 + (0 * 4 + kl) * 2 + 0;
-
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
 #ifdef QUANT_K
     auto B_offset = (const device char4*)past_key + ((idx_slk * param.batch + b)* head_num / group + zin) * head_dim / 4 + (0 * 4 + kl) * 2 + 0;
@@ -177,8 +189,10 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
 #endif
 
     for(int i = 0; i < head_dim/4; i += 8){
-        ((threadgroup ftype4*)sdata)[(ml * 4 + kl) * 2 + 0] = A_offset[i + 0];
-        ((threadgroup ftype4*)sdata)[(ml * 4 + kl) * 2 + 1] = A_offset[i + 1];
+        ((threadgroup ftype4*)sdata)[(ml * 4 + kl) * 2 + 0] =
+            load_query4((const device ftype*)input0, param, b, idx_slq, hn, (i + kl * 2) * 4);
+        ((threadgroup ftype4*)sdata)[(ml * 4 + kl) * 2 + 1] =
+            load_query4((const device ftype*)input0, param, b, idx_slq, hn, (i + kl * 2 + 1) * 4);
 
         ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kl) * 2 + 0] = (ftype4)GETK4(B_offset[i + 0], idx_slk * param.batch + b);
         ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kl) * 2 + 1] = (ftype4)GETK4(B_offset[i + 1], idx_slk * param.batch + b);
@@ -468,8 +482,6 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     int idx_slk_global = kv_start + slk * 16 + rcl;
     int idx_slk = idx_slk_global < k_seq_len ? idx_slk_global : k_seq_len - 1;
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    auto A_offset = input0 + ((b * q_seq_len + idx_slq) * head_num + hn) * head_dim + (0 * 2 + kl) * 4 + 0;
-
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
 #ifdef QUANT_K
     auto B_offset = (const device char*)past_key + ((idx_slk * param.batch + b)* head_num / group + zin) * head_dim + 0 * 8 + kl * 4 + 0;
@@ -479,7 +491,8 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 
     for(int i = 0; i < head_dim; i += 8){
         // 向量化写入 Q（4 元素一组）
-        *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[rcl * 8 + kl * 4])) = *((const device ftype4*)(&A_offset[i]));
+        *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[rcl * 8 + kl * 4])) =
+            load_query4(input0, param, b, idx_slq, hn, i + kl * 4);
 
         ((threadgroup ftype*)sdata)[128 + (kl * 4 + 0) * 16 + rcl] = GETK(B_offset[i + 0], idx_slk * param.batch + b);
         ((threadgroup ftype*)sdata)[128 + (kl * 4 + 1) * 16 + rcl] = GETK(B_offset[i + 1], idx_slk * param.batch + b);
@@ -709,11 +722,8 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     int b  = y / head_num;
     int hn = y % head_num;
 
-    const int offset = head_num * head_dim;
-    const int offset_head = y * head_dim;
     const int offset_head_kv = (hn / group) * head_dim;
-    // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    const device ftype* A_offset = input0 + (b * query_seq_len + q_idx) * offset + offset_head;
+    const int offset = head_num * head_dim;
 
     float Vscale = (float)param.scale;
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
@@ -727,7 +737,6 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 
     // 两路流水：每次处理 8 个标量（两个 float4），减少循环开销
     int itN = head_dim / 8; // head_dim 保证 16 对齐，因此 /8 为整数
-    const device ftype4* A4p = (const device ftype4*)A_offset;
 #ifdef QUANT_K
     const device char4* B4p_c = (const device char4*)B_offset;
 #else
@@ -741,8 +750,8 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         float4 B0 = float4(B4p[i * 2 + 0]);
         float4 B1 = float4(B4p[i * 2 + 1]);
 #endif
-        float4 A0 = float4(A4p[i * 2 + 0]);
-        float4 A1 = float4(A4p[i * 2 + 1]);
+        float4 A0 = float4(load_query4(input0, param, b, q_idx, hn, i * 8));
+        float4 A1 = float4(load_query4(input0, param, b, q_idx, hn, i * 8 + 4));
         out0 += dot(A0, B0) + dot(A1, B1);
     }
 
@@ -815,11 +824,7 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
     int b  = y / kv_head_num;
     int kv_hn = y % kv_head_num;
     const int offset = head_num * head_dim;
-    const int offset_head = kv_hn * group * head_dim;
     const int offset_head_kv = kv_hn * head_dim;
-
-    // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    const device ftype* A_offset = input0 + (b * param.query_seq_len + x) * offset + offset_head;
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
 #ifdef QUANT_K
     const device char* Pastkey_offset = (const device char*)past_key + ((z * param.batch + b) * offset / group + offset_head_kv);
@@ -855,9 +860,8 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
             float4 B1 = float4(((const device ftype4*)Pastkey_offset)[i * 2 + 1]);
 #endif
             for (int j = 0; j < group; j++) {
-                const device ftype4* Ajp = (const device ftype4*)(A_offset + head_dim * j);
-                float4 A0 = float4(Ajp[i * 2 + 0]);
-                float4 A1 = float4(Ajp[i * 2 + 1]);
+                float4 A0 = float4(load_query4(input0, param, b, x, kv_hn * group + j, i * 8));
+                float4 A1 = float4(load_query4(input0, param, b, x, kv_hn * group + j, i * 8 + 4));
                 out[j] += dot(A0, B0) + dot(A1, B1);
             }
         }
@@ -883,9 +887,8 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
             float4 B1 = float4(((const device ftype4*)Pastkey_offset)[i * 2 + 1]);
 #endif
             for (int j = 0; j < group; j++) {
-                const device ftype4* Ajp = (const device ftype4*)(A_offset + head_dim * j);
-                float4 A0 = float4(Ajp[i * 2 + 0]);
-                float4 A1 = float4(Ajp[i * 2 + 1]);
+                float4 A0 = float4(load_query4(input0, param, b, x, kv_hn * group + j, i * 8));
+                float4 A1 = float4(load_query4(input0, param, b, x, kv_hn * group + j, i * 8 + 4));
                 out[j] += dot(A0, B0) + dot(A1, B1);
             }
         }
@@ -936,6 +939,7 @@ struct Param {
     int dst_k_offset;
     int dst_v_offset;
     int batch;
+    int key_c4;
     int value_c4;
     float v_scale;
     float k_scale;
@@ -955,14 +959,30 @@ struct Param {
 #define VOUT_TYPE ftype
 #endif
 
-static inline int value_c4_offset(int token, int channel, int seq_len) {
+static inline int kv_c4_offset(int token, int channel, int seq_len) {
     return (channel / 4) * seq_len * 4 + token * 4 + (channel % 4);
+}
+
+static inline ftype load_key(const device ftype* input, constant Param& param, int b, int y, int x) {
+    if (param.key_c4 != 0) {
+        int token = b * param.kv_seq_len + y;
+        return input[kv_c4_offset(token, x, param.kv_seq_len * param.batch)];
+    }
+    return input[(b * param.kv_seq_len + y) * param.head_count + x];
+}
+
+static inline ftype4 load_key4(const device ftype* input, constant Param& param, int b, int y, int x) {
+    if (param.key_c4 != 0) {
+        int token = b * param.kv_seq_len + y;
+        return ((const device ftype4*)(input + kv_c4_offset(token, x, param.kv_seq_len * param.batch)))[0];
+    }
+    return ((const device ftype4*)(input + (b * param.kv_seq_len + y) * param.head_count + x))[0];
 }
 
 static inline ftype load_value(const device ftype* input, constant Param& param, int b, int y, int x) {
     if (param.value_c4 != 0) {
         int token = b * param.kv_seq_len + y;
-        return input[value_c4_offset(token, x, param.kv_seq_len * param.batch)];
+        return input[kv_c4_offset(token, x, param.kv_seq_len * param.batch)];
     }
     return input[(b * param.kv_seq_len + y) * param.head_count + x];
 }
@@ -970,7 +990,7 @@ static inline ftype load_value(const device ftype* input, constant Param& param,
 static inline ftype4 load_value4(const device ftype* input, constant Param& param, int b, int y, int x) {
     if (param.value_c4 != 0) {
         int token = b * param.kv_seq_len + y;
-        return ((const device ftype4*)(input + value_c4_offset(token, x, param.kv_seq_len * param.batch)))[0];
+        return ((const device ftype4*)(input + kv_c4_offset(token, x, param.kv_seq_len * param.batch)))[0];
     }
     return ((const device ftype4*)(input + (b * param.kv_seq_len + y) * param.head_count + x))[0];
 }
@@ -1023,7 +1043,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         for (int x = int(titg) * 4; x < vector_end; x += int(tptg) * 4) {
             const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
 #ifdef KV_QUANT_K
-            float4 k4 = float4(((const device ftype4*)(input0 + in_idx))[0]);
+            float4 k4 = float4(load_key4(input0, param, b, y, x));
             float k_min = metal::min(metal::min(k4.x, k4.y), metal::min(k4.z, k4.w));
             float k_max = metal::max(metal::max(k4.x, k4.y), metal::max(k4.z, k4.w));
             min_k = metal::min(min_k, k_min);
@@ -1040,7 +1060,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         for (int x = vector_end + int(titg); x < param.head_count; x += int(tptg)) {
             const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
 #ifdef KV_QUANT_K
-            float k = (float)input0[in_idx];
+            float k = (float)load_key(input0, param, b, y, x);
             min_k = metal::min(min_k, k);
             max_k = metal::max(max_k, k);
 #endif
@@ -1145,7 +1165,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         // Write K
         int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
 #ifdef KV_QUANT_K
-        float4 k = float4(((const device ftype4*)(input0 + in_idx))[0]);
+        float4 k = float4(load_key4(input0, param, b, y, x));
         if (k_scale == 0.0f) {
             ((device char4*)(output0 + out_idx_k))[0] = char4(0);
         } else {
@@ -1154,7 +1174,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             ((device char4*)(output0 + out_idx_k))[0] = char4(qi);
         }
 #else
-        ((device ftype4*)(output0 + out_idx_k))[0] = ((const device ftype4*)(input0 + in_idx))[0];
+        ((device ftype4*)(output0 + out_idx_k))[0] = load_key4(input0, param, b, y, x);
 #endif
 
         // Write V
@@ -1187,7 +1207,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 
         int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
 #ifdef KV_QUANT_K
-        float k = (float)input0[in_idx];
+        float k = (float)load_key(input0, param, b, y, x);
         if (k_scale == 0.0f) {
             output0[out_idx_k] = (char)0;
         } else {
@@ -1197,7 +1217,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             output0[out_idx_k] = (char)qi;
         }
 #else
-        output0[out_idx_k] = input0[in_idx];
+        output0[out_idx_k] = load_key(input0, param, b, y, x);
 #endif
 
         int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
@@ -1227,7 +1247,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 
     int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
 #ifdef KV_QUANT_K
-    float k = (float)input0[in_idx];
+    float k = (float)load_key(input0, param, b, y, x);
     if (param.k_scale == 0.0f) {
         output0[out_idx_k] = (char)0;
     } else {
@@ -1237,7 +1257,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         output0[out_idx_k] = (char)qi;
     }
 #else
-    output0[out_idx_k] = input0[in_idx];
+    output0[out_idx_k] = load_key(input0, param, b, y, x);
 #endif
 
     int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
@@ -1910,6 +1930,20 @@ struct Param {
     float v_scale;
     float k_scale;
 };
+
+static inline ftype4 load_decode_query4(const device ftype* input, constant Param& param, int b, int token,
+                                        int head, int dim) {
+#ifdef QUERY_C4
+    int outer = param.batch * param.query_seq_len;
+    int flat_token = b * param.query_seq_len + token;
+    int channel = head * param.head_dim + dim;
+    int offset = (channel / 4) * outer * 4 + flat_token * 4 + (channel % 4);
+    return ((const device ftype4*)(input + offset))[0];
+#else
+    int offset = ((b * param.query_seq_len + token) * param.head_num + head) * param.head_dim + dim;
+    return ((const device ftype4*)(input + offset))[0];
+#endif
+}
 #define SIMD_GROUP_WIDTH 32
 #ifdef SHORT_KV_128
 #define DECODE_QK_SOFTMAX_MAX_KV 128
@@ -1957,9 +1991,6 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
 
     const int head0 = kv_hn * GROUP_SIZE;
     const int head1 = head0 + 1;
-    const int query_offset = (b * param.query_seq_len + q_idx) * param.head_num * head_dim;
-    const device ftype* query0 = input0 + query_offset + head0 * head_dim;
-    const device ftype* query1 = input0 + query_offset + head1 * head_dim;
     const int key_head_offset = kv_hn * head_dim;
     const int key_stride = kv_head_num * head_dim;
 
@@ -1974,8 +2005,6 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
 #endif
         float s0 = 0.0f;
         float s1 = 0.0f;
-        const device ftype4* q04 = (const device ftype4*)query0;
-        const device ftype4* q14 = (const device ftype4*)query1;
 #ifdef QUANT_K
         const device char4* k4 = (const device char4*)key;
 #ifdef DYNAMIC_QUANT_K
@@ -1999,8 +2028,12 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
             float4 k0 = float4(k4[d * 2 + 0]);
             float4 k1 = float4(k4[d * 2 + 1]);
 #endif
-            s0 += dot(float4(q04[d * 2 + 0]), k0) + dot(float4(q04[d * 2 + 1]), k1);
-            s1 += dot(float4(q14[d * 2 + 0]), k0) + dot(float4(q14[d * 2 + 1]), k1);
+            float4 q00 = float4(load_decode_query4(input0, param, b, q_idx, head0, d * 8));
+            float4 q01 = float4(load_decode_query4(input0, param, b, q_idx, head0, d * 8 + 4));
+            float4 q10 = float4(load_decode_query4(input0, param, b, q_idx, head1, d * 8));
+            float4 q11 = float4(load_decode_query4(input0, param, b, q_idx, head1, d * 8 + 4));
+            s0 += dot(q00, k0) + dot(q01, k1);
+            s1 += dot(q10, k0) + dot(q11, k1);
         }
         s0 *= param.scale;
         s1 *= param.scale;

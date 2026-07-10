@@ -21,7 +21,7 @@ namespace MNN {
 
 class CPUAttention : public Execution {
 public:
-    CPUAttention(Backend* backend, bool kv_cache);
+    CPUAttention(Backend* backend, bool kvCache, int headDim);
     virtual ~CPUAttention() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -30,12 +30,13 @@ public:
 private:
     bool mKVCache        = true;
     bool mIsKVShared = false;
+    bool mInputC4 = false;
     int mBytes = 4;
     int mThreadNum = 1;
     int mBlockKV = 512;
     int eP, lP, hP, mPack; // float matmul packing
     int eP8, lP8, hP8;    // GemmInt8 packing
-    int mNumHead, mKvNumHead, mHeadDim;
+    int mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
     KVMeta* mMeta;
 
     // common
@@ -53,6 +54,7 @@ private:
     MemChunk mQuantQuery, mAccumBuffer;
 
     MemChunk mQuantQK, mQKScale, mQKBias, mSumQK, mArray;
+    MemChunk mQueryContiguous;
     AutoStorage<int8_t> mGemmBias, mGemmRelu;
 
     std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, const float*, ssize_t)> mQuantFunc;
