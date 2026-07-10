@@ -72,6 +72,31 @@ static inline FLOAT4 load_c4_value4(__global const FLOAT* value,
 }
 #endif
 
+#ifdef ATTENTION_C4
+static inline void store_attention_c4_4(__global FLOAT* output, const FLOAT4 value, const int seq_storage,
+                                        const int token, const int channel, const int count) {
+    if (((channel & 3) == 0) && count == 4) {
+        const int offset = ((channel >> 2) * seq_storage + token) * 4;
+        vstore4(value, 0, output + offset);
+        return;
+    }
+    for (int i = 0; i < count; ++i) {
+        const int c = channel + i;
+        const int offset = ((c >> 2) * seq_storage + token) * 4 + (c & 3);
+        output[offset] = value[i];
+    }
+}
+
+static inline void store_attention_c4_8(__global FLOAT* output, const FLOAT8 value, const int seq_storage,
+                                        const int token, const int channel, const int count) {
+    const int low_count = min(count, 4);
+    store_attention_c4_4(output, value.lo, seq_storage, token, channel, low_count);
+    if (count > 4) {
+        store_attention_c4_4(output, value.hi, seq_storage, token, channel + 4, count - 4);
+    }
+}
+#endif
+
 
 __kernel void rearrange_qkv(GLOBAL_SIZE_3_DIMS
                               __global const FLOAT *input_q, //[batch, seqLenQ/4, headNum, headDim, seqLenQ_4]
@@ -325,18 +350,22 @@ __kernel void qkv_transpose_output(GLOBAL_SIZE_3_DIMS
     FLOAT4 temp_3 = vload4(0, input + offset_inp + 3 * seq_len_pack);
 
 #ifdef ATTENTION_C4
-    // output is NC4HW4: [(head_num*head_dim)/4, batch*seq_len, 4], channel = hn*head_dim + 4*hd.
-    // Must match matmul_qkv_prefill's ATTENTION_C4 output layout so o_proj reads it correctly.
-    const int channel4 = (hn * head_dim + 4 * hd) >> 2;
+    // output is NC4HW4: [(head_num*head_dim)/4, batch*seq_len, 4].
+    const int channel = hn * head_dim + 4 * hd;
+    const int channel_count = min(4, head_dim - 4 * hd);
     const int seq_storage = seq_len * batch;
-    const int output_offset = (channel4 * seq_storage + (b * seq_len + sl * 4)) * 4;
-    vstore4((FLOAT4)(temp_0.s0, temp_1.s0, temp_2.s0, temp_3.s0), 0, output + output_offset);
+    int token = b * seq_len + sl * 4;
+    store_attention_c4_4(output, (FLOAT4)(temp_0.s0, temp_1.s0, temp_2.s0, temp_3.s0), seq_storage, token,
+                         channel, channel_count);
     if(4 * sl + 1 >= seq_len) return;
-    vstore4((FLOAT4)(temp_0.s1, temp_1.s1, temp_2.s1, temp_3.s1), 0, output + output_offset + 4);
+    store_attention_c4_4(output, (FLOAT4)(temp_0.s1, temp_1.s1, temp_2.s1, temp_3.s1), seq_storage, ++token,
+                         channel, channel_count);
     if(4 * sl + 2 >= seq_len) return;
-    vstore4((FLOAT4)(temp_0.s2, temp_1.s2, temp_2.s2, temp_3.s2), 0, output + output_offset + 8);
+    store_attention_c4_4(output, (FLOAT4)(temp_0.s2, temp_1.s2, temp_2.s2, temp_3.s2), seq_storage, ++token,
+                         channel, channel_count);
     if(4 * sl + 3 >= seq_len) return;
-    vstore4((FLOAT4)(temp_0.s3, temp_1.s3, temp_2.s3, temp_3.s3), 0, output + output_offset + 12);
+    store_attention_c4_4(output, (FLOAT4)(temp_0.s3, temp_1.s3, temp_2.s3, temp_3.s3), seq_storage, ++token,
+                         channel, channel_count);
 #else
     const int offset_out = (((b * seq_len + sl*4) * head_num + hn) * head_dim + 4 * hd);
     vstore4((FLOAT4)(temp_0.s0, temp_1.s0, temp_2.s0, temp_3.s0), 0, output + offset_out);
@@ -806,32 +835,48 @@ __kernel void matmul_qkv_prefill(GLOBAL_SIZE_3_DIMS
     }
     
 #ifdef ATTENTION_C4
-    int output_offset = (z * head_dim + x8) * query_seq_len * batch + (b * query_seq_len + y4) * 4;
-    const int stride = query_seq_len * batch * 4;
-    vstore4(CONVERT_FLOAT4(out0.lo), 0, output + output_offset);
-    vstore4(CONVERT_FLOAT4(out0.hi), 0, output + output_offset + stride);
+    const int channel = z * head_dim + x8;
+    const int channel_count = min(8, head_dim - x8);
+    const int seq_storage = query_seq_len * batch;
+    int token = b * query_seq_len + y4;
+    store_attention_c4_8(output, CONVERT_FLOAT8(out0), seq_storage, token, channel, channel_count);
     if(y4 + 1 >= query_seq_len) return;
-    output_offset += 4;
-    vstore4(CONVERT_FLOAT4(out1.lo), 0, output + output_offset);
-    vstore4(CONVERT_FLOAT4(out1.hi), 0, output + output_offset + stride);
+    store_attention_c4_8(output, CONVERT_FLOAT8(out1), seq_storage, ++token, channel, channel_count);
     if(y4 + 2 >= query_seq_len) return;
-    output_offset += 4;
-    vstore4(CONVERT_FLOAT4(out2.lo), 0, output + output_offset);
-    vstore4(CONVERT_FLOAT4(out2.hi), 0, output + output_offset + stride);
+    store_attention_c4_8(output, CONVERT_FLOAT8(out2), seq_storage, ++token, channel, channel_count);
     if(y4 + 3 >= query_seq_len) return;
-    output_offset += 4;
-    vstore4(CONVERT_FLOAT4(out3.lo), 0, output + output_offset);
-    vstore4(CONVERT_FLOAT4(out3.hi), 0, output + output_offset + stride);
+    store_attention_c4_8(output, CONVERT_FLOAT8(out3), seq_storage, ++token, channel, channel_count);
 #else
     const int output_offset = ((b * query_seq_len + y4) * head_num + z) * head_dim + x8;
     const int stride = head_num * head_dim;
-    vstore8(CONVERT_FLOAT8(out0), 0, output + output_offset);
+    const int channel_count = min(8, head_dim - x8);
+    if (channel_count == 8) {
+        vstore8(CONVERT_FLOAT8(out0), 0, output + output_offset);
+    } else {
+        FLOAT8 value = CONVERT_FLOAT8(out0);
+        for (int i = 0; i < channel_count; ++i) output[output_offset + i] = value[i];
+    }
     if(y4 + 1 >= query_seq_len) return;
-    vstore8(CONVERT_FLOAT8(out1), 0, output + output_offset + stride);
+    if (channel_count == 8) {
+        vstore8(CONVERT_FLOAT8(out1), 0, output + output_offset + stride);
+    } else {
+        FLOAT8 value = CONVERT_FLOAT8(out1);
+        for (int i = 0; i < channel_count; ++i) output[output_offset + stride + i] = value[i];
+    }
     if(y4 + 2 >= query_seq_len) return;
-    vstore8(CONVERT_FLOAT8(out2), 0, output + output_offset + stride + stride);
+    if (channel_count == 8) {
+        vstore8(CONVERT_FLOAT8(out2), 0, output + output_offset + stride + stride);
+    } else {
+        FLOAT8 value = CONVERT_FLOAT8(out2);
+        for (int i = 0; i < channel_count; ++i) output[output_offset + stride + stride + i] = value[i];
+    }
     if(y4 + 3 >= query_seq_len) return;
-    vstore8(CONVERT_FLOAT8(out3), 0, output + output_offset + stride + stride + stride);
+    if (channel_count == 8) {
+        vstore8(CONVERT_FLOAT8(out3), 0, output + output_offset + stride + stride + stride);
+    } else {
+        FLOAT8 value = CONVERT_FLOAT8(out3);
+        for (int i = 0; i < channel_count; ++i) output[output_offset + stride + stride + stride + i] = value[i];
+    }
 #endif
 }
 
@@ -908,7 +953,17 @@ __kernel void matmul_qkv_decode_b8(GLOBAL_SIZE_2_DIMS
     #endif
     
     const int output_offset = y * head_dim + x8;
-    vstore8(CONVERT_FLOAT8(out0), 0, output + output_offset);
+    const int channel_count = min(8, head_dim - x8);
+#ifdef ATTENTION_C4
+    store_attention_c4_8(output, CONVERT_FLOAT8(out0), 1, 0, output_offset, channel_count);
+#else
+    if (channel_count == 8) {
+        vstore8(CONVERT_FLOAT8(out0), 0, output + output_offset);
+    } else {
+        FLOAT8 value = CONVERT_FLOAT8(out0);
+        for (int i = 0; i < channel_count; ++i) output[output_offset + i] = value[i];
+    }
+#endif
 }
 
 __kernel void matmul_qkv_decode_b4(GLOBAL_SIZE_2_DIMS
@@ -983,5 +1038,15 @@ __kernel void matmul_qkv_decode_b4(GLOBAL_SIZE_2_DIMS
     #endif
     
     const int output_offset = y * head_dim + x4;
-    vstore4(CONVERT_FLOAT4(out0), 0, output + output_offset);
+    const int channel_count = min(4, head_dim - x4);
+#ifdef ATTENTION_C4
+    store_attention_c4_4(output, CONVERT_FLOAT4(out0), 1, 0, output_offset, channel_count);
+#else
+    if (channel_count == 4) {
+        vstore4(CONVERT_FLOAT4(out0), 0, output + output_offset);
+    } else {
+        FLOAT4 value = CONVERT_FLOAT4(out0);
+        for (int i = 0; i < channel_count; ++i) output[output_offset + i] = value[i];
+    }
+#endif
 }

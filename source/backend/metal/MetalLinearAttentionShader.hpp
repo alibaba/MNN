@@ -35,8 +35,23 @@ struct LinearAttnParam {
     int val_dim;
     int gqa_factor;
     int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
     float q_scale;
 };
+
+inline int c4_offset(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int qkv_offset(int b, int d, int l, constant LinearAttnParam& param) {
+    if (param.qkv_c4) {
+        return c4_offset(b * param.seq_len + l, d, param.batch * param.seq_len);
+    }
+    return (b * param.conv_dim + d) * param.seq_len + l;
+}
 
 // Kernel 1: Depthwise Conv1D + SiLU
 // Each thread processes one (batch*channel, seq_pos) element
@@ -81,7 +96,7 @@ kernel void linear_attn_conv_silu(
         if (pos < css) {
             input_val = (float)conv_state[b * D * css + d * css + pos];
         } else {
-            input_val = (float)qkv[b * D * L + d * L + (pos - css)];
+            input_val = (float)qkv[qkv_offset(b, d, pos - css, param)];
         }
         sum += input_val * (float)conv_weight[d * K + k];
     }
@@ -124,7 +139,7 @@ kernel void linear_attn_conv_state_update(
     if (pos < css) {
         val = conv_state[b * D * css + d * css + pos];
     } else {
-        val = qkv[b * D * L + d * L + (pos - css)];
+        val = qkv[qkv_offset(b, d, pos - css, param)];
     }
     // Write to conv_state - note: we need to be careful about reading and writing
     // conv_state simultaneously. Since we write to position i and read from position (L+i),
@@ -157,8 +172,32 @@ struct LinearAttnParam {
     int val_dim;
     int gqa_factor;
     int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
     float q_scale;
 };
+
+inline int c4_offset(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int token_channel_offset(int b, int t, int c, int channel, int packed,
+                                constant LinearAttnParam& param) {
+    if (packed) {
+        return c4_offset(b * param.seq_len + t, c, param.batch * param.seq_len);
+    }
+    return (b * param.seq_len + t) * channel + c;
+}
+
+inline int output_offset(int b, int t, int h, int d, constant LinearAttnParam& param) {
+    int token = (b * param.seq_len + t) * param.num_v_heads + h;
+    if (param.output_c4) {
+        return c4_offset(token, d, param.batch * param.seq_len * param.num_v_heads);
+    }
+    return token * param.head_v_dim + d;
+}
 
 // Kernel 3: Extract Q, K, V and normalize/scale
 // Each thread processes one (batch, L, head)
@@ -263,8 +302,8 @@ kernel void linear_attn_gated_delta_rule(
         const device ftype* k_t = k + (b * L * H + t * H + h) * d_k;
         float v_t_j = (float)v[(b * L * H + t * H + h) * d_v + j];
 
-        float g_t    = (float)gate[b * L * H + t * H + h];
-        float beta_t = (float)beta[b * L * H + t * H + h];
+        float g_t = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4, param)];
+        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4, param)];
 
         float decay_val = exp(g_t);
 
@@ -287,7 +326,7 @@ kernel void linear_attn_gated_delta_rule(
             o_t_j += s_val * (float)q_t[i];
         }
 
-        attn_out[(b * L * H + t * H + h) * d_v + j] = (ftype)o_t_j;
+        attn_out[output_offset(b, t, h, j, param)] = (ftype)o_t_j;
     }
 }
 )metal";
@@ -319,8 +358,32 @@ struct LinearAttnParam {
     int val_dim;
     int gqa_factor;
     int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
     float q_scale;
 };
+
+inline int c4_offset(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int token_channel_offset(int b, int t, int c, int channel, int packed,
+                                constant LinearAttnParam& param) {
+    if (packed) {
+        return c4_offset(b * param.seq_len + t, c, param.batch * param.seq_len);
+    }
+    return (b * param.seq_len + t) * channel + c;
+}
+
+inline int output_offset(int b, int t, int h, int d, constant LinearAttnParam& param) {
+    int token = (b * param.seq_len + t) * param.num_v_heads + h;
+    if (param.output_c4) {
+        return c4_offset(token, d, param.batch * param.seq_len * param.num_v_heads);
+    }
+    return token * param.head_v_dim + d;
+}
 
 // SIMD_ITERS is injected as a compile-time macro from C++ side: (d_k + 31) / 32
 
@@ -361,8 +424,8 @@ kernel void linear_attn_gated_delta_rule_sg(
         const device ftype* q_t = q + bth * d_k;
         const device ftype* k_t = k + bth * d_k;
         float v_t_j = (float)v[bth * d_v + j];
-        float decay_val = exp((float)gate[bth]);
-        float beta_t = (float)beta[bth];
+        float decay_val = exp((float)gate[token_channel_offset(b, t, h, H, param.gate_c4, param)]);
+        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4, param)];
 
         float k_reg[SIMD_ITERS], q_reg[SIMD_ITERS];
         for (int ii = 0; ii < n_iters; ii++) {
@@ -397,7 +460,7 @@ kernel void linear_attn_gated_delta_rule_sg(
         o_t_j = simd_sum(o_t_j);
 
         if (lane == 0) {
-            attn_out[bth * d_v + j] = (ftype)o_t_j;
+            attn_out[output_offset(b, t, h, j, param)] = (ftype)o_t_j;
         }
     }
 }
@@ -432,8 +495,32 @@ struct LinearAttnParam {
     int val_dim;
     int gqa_factor;
     int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
     float q_scale;
 };
+
+inline int c4_offset(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int token_channel_offset(int b, int t, int c, int channel, int packed,
+                                constant LinearAttnParam& param) {
+    if (packed) {
+        return c4_offset(b * param.seq_len + t, c, param.batch * param.seq_len);
+    }
+    return (b * param.seq_len + t) * channel + c;
+}
+
+inline int output_offset(int b, int t, int h, int d, constant LinearAttnParam& param) {
+    int token = (b * param.seq_len + t) * param.num_v_heads + h;
+    if (param.output_c4) {
+        return c4_offset(token, d, param.batch * param.seq_len * param.num_v_heads);
+    }
+    return token * param.head_v_dim + d;
+}
 
 // SIMD_ITERS is injected as a compile-time macro from C++ side: (d_k + 31) / 32
 
@@ -516,8 +603,8 @@ kernel void linear_attn_fused_sg(
         float v_t_j = (float)conv_base[(2 * key_dim + h * d_v + j) * L + t];
 
         const int bth = b * L * H + t * H + h;
-        float decay_val = exp((float)gate[bth]);
-        float beta_t = (float)beta[bth];
+        float decay_val = exp((float)gate[token_channel_offset(b, t, h, H, param.gate_c4, param)]);
+        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4, param)];
 
         // Step 1: Decay state + compute v_pred
         float v_pred_j = 0.0f;
@@ -547,9 +634,140 @@ kernel void linear_attn_fused_sg(
         o_t_j = simd_sum(o_t_j);
 
         if (lane == 0) {
-            attn_out[bth * d_v + j] = (ftype)o_t_j;
+            attn_out[output_offset(b, t, h, j, param)] = (ftype)o_t_j;
         }
     }
+}
+)metal";
+
+static const char* gLinearAttnShortConv = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef half ftype;
+#else
+typedef float ftype;
+#endif
+
+struct LinearAttnParam {
+    int batch;
+    int conv_dim;
+    int seq_len;
+    int kernel_size;
+    int conv_state_size;
+    int num_k_heads;
+    int num_v_heads;
+    int head_k_dim;
+    int head_v_dim;
+    int key_dim;
+    int val_dim;
+    int gqa_factor;
+    int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
+    float q_scale;
+};
+
+inline int c4_offset(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int qkv_offset(int b, int d, int l, constant LinearAttnParam& param) {
+    if (param.qkv_c4) {
+        return c4_offset(b * param.seq_len + l, d, param.batch * param.seq_len);
+    }
+    return (b * param.conv_dim + d) * param.seq_len + l;
+}
+
+inline float short_conv_input(const device ftype* qkv, int b, int h, int l,
+                              constant LinearAttnParam& param) {
+    int hidden = param.head_v_dim;
+    float b_value = (float)qkv[qkv_offset(b, h, l, param)];
+    float x_value = (float)qkv[qkv_offset(b, 2 * hidden + h, l, param)];
+    return b_value * x_value;
+}
+
+inline int output_offset(int b, int l, int h, constant LinearAttnParam& param) {
+    int token = b * param.seq_len + l;
+    if (param.output_c4) {
+        return c4_offset(token, h, param.batch * param.seq_len);
+    }
+    return token * param.head_v_dim + h;
+}
+
+kernel void linear_attn_short_conv_nosilu(
+    const device ftype* qkv         [[buffer(0)]],
+    device ftype* conv_state        [[buffer(1)]],
+    const device ftype* conv_weight [[buffer(2)]],
+    device ftype* conv_out          [[buffer(3)]],
+    constant LinearAttnParam& param [[buffer(4)]],
+    uint gid [[thread_position_in_grid]]) {
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int K = param.kernel_size;
+    const int css = param.conv_state_size;
+    const int H = param.head_v_dim;
+    const int total = B * H * L;
+    if ((int)gid >= total) return;
+
+    const int l = gid % L;
+    const int bh = gid / L;
+    const int b = bh / H;
+    const int h = bh % H;
+    float sum = 0.0f;
+    for (int k = 0; k < K; ++k) {
+        int pos = l + k;
+        float value = pos < css ? (float)conv_state[(b * H + h) * css + pos]
+                                : short_conv_input(qkv, b, h, pos - css, param);
+        sum += value * (float)conv_weight[h * K + k];
+    }
+    conv_out[(b * H + h) * L + l] = (ftype)sum;
+}
+
+kernel void linear_attn_short_conv_state_update(
+    const device ftype* qkv         [[buffer(0)]],
+    device ftype* conv_state        [[buffer(1)]],
+    constant LinearAttnParam& param [[buffer(2)]],
+    uint gid [[thread_position_in_grid]]) {
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int css = param.conv_state_size;
+    const int H = param.head_v_dim;
+    const int total = B * H * css;
+    if ((int)gid >= total) return;
+
+    const int i = gid % css;
+    const int bh = gid / css;
+    const int b = bh / H;
+    const int h = bh % H;
+    int pos = L + i;
+    ftype value = pos < css ? conv_state[(b * H + h) * css + pos]
+                            : (ftype)short_conv_input(qkv, b, h, pos - css, param);
+    conv_state[(b * H + h) * css + i] = value;
+}
+
+kernel void linear_attn_short_conv_output(
+    const device ftype* qkv         [[buffer(0)]],
+    const device ftype* conv_out    [[buffer(1)]],
+    device ftype* attn_out          [[buffer(2)]],
+    constant LinearAttnParam& param [[buffer(3)]],
+    uint gid [[thread_position_in_grid]]) {
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int H = param.head_v_dim;
+    const int total = B * H * L;
+    if ((int)gid >= total) return;
+
+    const int l = gid % L;
+    const int bh = gid / L;
+    const int b = bh / H;
+    const int h = bh % H;
+    float c_value = (float)qkv[qkv_offset(b, H + h, l, param)];
+    float conv_value = (float)conv_out[(b * H + h) * L + l];
+    attn_out[output_offset(b, l, h, param)] = (ftype)(c_value * conv_value);
 }
 )metal";
 

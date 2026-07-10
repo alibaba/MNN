@@ -28,9 +28,8 @@ class MNNConverter:
         self.tie_embeddings_info = None
 
     def transformer_c4_args(self):
-        if getattr(self.args, 'transformer_c4', False):
-            return ['--transformerFuseC4=1']
-        return []
+        enabled = getattr(self.args, 'transformer_c4', True)
+        return ['--transformerFuseC4={}'.format(1 if enabled else 0)]
 
     def convert(self, convert_args):
         import contextlib
@@ -431,6 +430,9 @@ class MNNConverter:
         attrs = op['main']['attr']
         name = op['name']
         rope_cut_head_dim = 0
+        num_head = 0
+        kv_num_head = 0
+        head_dim = 0
         q_norm = False
         k_norm = False
         q_norm_eps = 0.0
@@ -440,6 +442,12 @@ class MNNConverter:
                 name = attr['s']
             elif attr['key'] == 'rope_cut_head_dim':
                 rope_cut_head_dim = attr['i']
+            elif attr['key'] == 'num_head':
+                num_head = attr['i']
+            elif attr['key'] == 'kv_num_head':
+                kv_num_head = attr['i']
+            elif attr['key'] == 'head_dim':
+                head_dim = attr['i']
             elif attr['key'] == 'q_norm':
                 q_norm = bool(attr['i'])
             elif attr['key'] == 'k_norm':
@@ -451,6 +459,9 @@ class MNNConverter:
 
         rope_param = {
             "rope_cut_head_dim": rope_cut_head_dim,
+            "num_head": num_head,
+            "kv_num_head": kv_num_head,
+            "head_dim": head_dim,
         }
         input_indexes = op['inputIndexes']
         if q_norm or k_norm:
