@@ -7,12 +7,11 @@
 //  Inputs:  x, cos, sin
 //  Output:  same shape as x
 //
-//  For last dimension D (must be even), let halfD = D/2 and split x as
-//    even = x[..., 0:halfD]
-//    odd  = x[..., halfD:]
+//  For rotary dimension R (must be even), split x[..., 0:R] in half and
+//  leave x[..., R:D] unchanged.
 //  Then compute
 //    q0 = even * cos[i] - odd * sin[i]
-//    q1 = odd  * cos[i + halfD] + even * sin[i + halfD]
+//    q1 = odd  * cos[i + ropeHalfD] + even * sin[i + ropeHalfD]
 //  and concatenate [q0, q1] along the last dimension.
 //
 
@@ -40,7 +39,7 @@ static std::shared_ptr<MetalLayerNorm::Resource> makeRopeNormResource(Backend* b
     if (gammaSize <= 0) {
         return nullptr;
     }
-    std::shared_ptr<MetalLayerNorm::Resource> res(new MetalLayerNorm::Resource);
+    auto res = std::make_shared<MetalLayerNorm::Resource>();
     res->mGroup = layerNorm->group();
     res->mEps = layerNorm->epsilon();
     res->mAxisSize = layerNorm->axis() == nullptr ? 1 : layerNorm->axis()->size();
@@ -66,7 +65,8 @@ static bool validRopeC4Input(const Tensor* q, const Tensor* k, int numHead, int 
         TensorUtils::getDescribe(k)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
         return false;
     }
-    if (q->dimensions() < 2 || k->dimensions() < 2) {
+    if (q->dimensions() != 4 || k->dimensions() != 4 || q->length(0) != k->length(0) || q->length(2) != 1 ||
+        q->length(3) != 1 || k->length(2) != 1 || k->length(3) != 1) {
         return false;
     }
     return q->length(1) == numHead * headDim && k->length(1) == kvNumHead * headDim;
@@ -74,7 +74,7 @@ static bool validRopeC4Input(const Tensor* q, const Tensor* k, int numHead, int 
 
 struct RopeParam {
     int outerSize;
-    int halfD;
+    int workDim;
     int ropeHalfD;
     int D;
     int numHead;
@@ -97,7 +97,7 @@ typedef float ftype;
 
 struct RopeParam {
     int outerSize;
-    int halfD;
+    int workDim;
     int ropeHalfD;
     int D;
     int numHead;
@@ -161,11 +161,13 @@ kernel void rope_kernel(
     const device ftype* xTensor = q;
     int xBase = actual_z * p.D;
     int xSeq = p.outerSize;
-    device ftype* y = qo + actual_z * p.D + gid.y * p.D * p.numHead;
+    device ftype* yTensor = qo;
+    int yBase = gid.y * p.numHead * p.D + actual_z * p.D;
     if (actual_z >= p.numHead) {
         xTensor = k;
         xBase = (actual_z - p.numHead) * p.D;
-        y = ko + (actual_z - p.numHead) * p.D + gid.y * p.D * p.kvnumHead;
+        yTensor = ko;
+        yBase = gid.y * p.kvnumHead * p.D + (actual_z - p.numHead) * p.D;
         isQ = false;
     }
     
@@ -205,35 +207,44 @@ kernel void rope_kernel(
     }
 #endif
 
-    for (int i = start; i < p.halfD; i += step) {
+    for (int i = start; i < p.ropeHalfD; i += step) {
         ftype evenVal = loadC4(xTensor, gid.y, xBase, i, xSeq);
-        ftype oddVal  = loadC4(xTensor, gid.y, xBase, i + p.halfD, xSeq);
+        ftype oddVal  = loadC4(xTensor, gid.y, xBase, i + p.ropeHalfD, xSeq);
 #ifdef Q_NORM
         if (isQ) {
             evenVal = evenVal * var * qGamma[i];
-            oddVal  = oddVal * var * qGamma[i + p.halfD];
+            oddVal  = oddVal * var * qGamma[i + p.ropeHalfD];
         }
 #endif
 #ifdef K_NORM
         if (!isQ) {
             evenVal = evenVal * var * kGamma[i];
-            oddVal  = oddVal * var * kGamma[i + p.halfD];
+            oddVal  = oddVal * var * kGamma[i + p.ropeHalfD];
         }
 #endif
 
-        if (i < p.ropeHalfD) {
-            int cosIndex = gid.y * p.D + i;
-            ftype cEven = cos[cosIndex];
-            ftype cOdd  = cos[cosIndex + p.halfD];
-            ftype sEven = sin[cosIndex];
-            ftype sOdd  = sin[cosIndex + p.halfD];
+        int cosIndex = gid.y * (2 * p.ropeHalfD) + i;
+        ftype cEven = cos[cosIndex];
+        ftype cOdd  = cos[cosIndex + p.ropeHalfD];
+        ftype sEven = sin[cosIndex];
+        ftype sOdd  = sin[cosIndex + p.ropeHalfD];
 
-            y[i]           = evenVal * cEven - oddVal * sEven;
-            y[i + p.halfD] = oddVal  * cOdd  + evenVal * sOdd;
-        } else {
-            y[i]           = evenVal;
-            y[i + p.halfD] = oddVal;
+        yTensor[yBase + i] = evenVal * cEven - oddVal * sEven;
+        yTensor[yBase + i + p.ropeHalfD] = oddVal * cOdd + evenVal * sOdd;
+    }
+    for (int i = 2 * p.ropeHalfD + start; i < p.D; i += step) {
+        ftype value = loadC4(xTensor, gid.y, xBase, i, xSeq);
+#ifdef Q_NORM
+        if (isQ) {
+            value = value * var * qGamma[i];
         }
+#endif
+#ifdef K_NORM
+        if (!isQ) {
+            value = value * var * kGamma[i];
+        }
+#endif
+        yTensor[yBase + i] = value;
     }
 }
 #else
@@ -246,37 +257,39 @@ kernel void rope_kernel(
                         device ftype* ko                 [[ buffer(5) ]],
                         constant RopeParam& p           [[ buffer(6) ]],
                         uint3 gid                      [[ thread_position_in_grid]]) {
-    if (gid.x >= (uint)p.halfD || gid.y >= (uint)p.outerSize || gid.z >= p.fullHead) {
+    if (gid.x >= (uint)p.workDim || gid.y >= (uint)p.outerSize || gid.z >= p.fullHead) {
         return;
     }
     const device ftype* xTensor = q;
     int xBase = gid.z * p.D;
     int xSeq = p.outerSize;
-    device ftype* y = qo + gid.z * p.D + gid.y * p.D * p.numHead;
+    device ftype* yTensor = qo;
+    int yBase = gid.y * p.numHead * p.D + gid.z * p.D;
     if (gid.z >= p.numHead) {
         xTensor = k;
         xBase = (gid.z - p.numHead) * p.D;
-        y = ko + (gid.z-p.numHead) * p.D + gid.y * p.D * p.kvnumHead;
+        yTensor = ko;
+        yBase = gid.y * p.kvnumHead * p.D + (gid.z - p.numHead) * p.D;
     }
-    ftype evenVal = loadC4(xTensor, gid.y, xBase, gid.x, xSeq);
-    ftype oddVal  = loadC4(xTensor, gid.y, xBase, gid.x + p.halfD, xSeq);
-
     if (gid.x < (uint)p.ropeHalfD) {
-        int cosIndex = gid.y * p.D + gid.x;
+        ftype evenVal = loadC4(xTensor, gid.y, xBase, gid.x, xSeq);
+        ftype oddVal  = loadC4(xTensor, gid.y, xBase, gid.x + p.ropeHalfD, xSeq);
+        int cosIndex = gid.y * (2 * p.ropeHalfD) + gid.x;
 
         ftype cEven = cos[cosIndex];
-        ftype cOdd  = cos[cosIndex + p.halfD];
+        ftype cOdd  = cos[cosIndex + p.ropeHalfD];
         ftype sEven = sin[cosIndex];
-        ftype sOdd  = sin[cosIndex + p.halfD];
+        ftype sOdd  = sin[cosIndex + p.ropeHalfD];
 
         ftype q0 = evenVal * cEven - oddVal * sEven;
         ftype q1 = oddVal  * cOdd  + evenVal * sOdd;
 
-        y[gid.x]           = q0;
-        y[gid.x + p.halfD] = q1;
-    } else {
-        y[gid.x]           = evenVal;
-        y[gid.x + p.halfD] = oddVal;
+        yTensor[yBase + gid.x] = q0;
+        yTensor[yBase + gid.x + p.ropeHalfD] = q1;
+    }
+    int tail = 2 * p.ropeHalfD + gid.x;
+    if (tail < p.D) {
+        yTensor[yBase + tail] = loadC4(xTensor, gid.y, xBase, tail, xSeq);
     }
 }
 #endif
@@ -333,8 +346,11 @@ public:
     }
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        MNN_ASSERT(6 == inputs.size());
-        MNN_ASSERT(2 == outputs.size());
+        if (inputs.size() != 4 || outputs.size() != 2) {
+            MNN_ERROR("MetalRope: expected 4 inputs and 2 outputs, got %zu inputs and %zu outputs.\n", inputs.size(),
+                      outputs.size());
+            return INVALID_VALUE;
+        }
         auto q       = inputs[0];
         auto k       = inputs[1];
         if (!validRopeC4Input(q, k, mNumHead, mKvNumHead, mHeadDim)) {
@@ -350,13 +366,13 @@ public:
 
         RopeParam* p = (RopeParam*)(mParam.contents);
         p->outerSize  = static_cast<int>(batch * seqLen);
-        p->halfD      = headDim / 2;
         int ropeDim = mRopeCutHeadDim;
         if (ropeDim <= 0 || ropeDim > headDim) {
             ropeDim = headDim;
         }
         ropeDim = (ropeDim / 2) * 2;
         p->ropeHalfD  = ropeDim / 2;
+        p->workDim    = ALIMAX(p->ropeHalfD, headDim - ropeDim);
         p->D          = headDim;
         p->numHead    = numHead;
         p->kvnumHead  = kvnumHead;
@@ -372,7 +388,7 @@ public:
                 mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(1, p->outerSize, (NSUInteger)(numHead + kvnumHead))];
             }
         } else {
-            mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger)p->halfD, p->outerSize, (NSUInteger)(numHead + kvnumHead))];
+            mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger)p->workDim, p->outerSize, (NSUInteger)(numHead + kvnumHead))];
         }
         return NO_ERROR;
     }

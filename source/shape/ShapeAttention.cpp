@@ -102,8 +102,11 @@ class AttentionSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         auto input = inputs[0], output = outputs[0];
-        MNN_ASSERT(input->buffer().dimensions == 4);
-        if (op->main_as_AttentionParam()->output_c4()) {
+        auto param = op->main_as_AttentionParam();
+        if (param == nullptr || input == nullptr || output == nullptr || input->buffer().dimensions != 4) {
+            return false;
+        }
+        if (param->output_c4()) {
             output->buffer().dim[0].extent = input->buffer().dim[0].extent * input->buffer().dim[1].extent;
             output->buffer().dim[1].extent = input->buffer().dim[2].extent * input->buffer().dim[3].extent;
             output->buffer().dim[2].extent = 1;
@@ -123,13 +126,19 @@ class AttentionSizeComputer : public SizeComputer {
     }
     virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                  const std::vector<Tensor*>& outputs) const override {
-        auto seqLen = static_cast<float>(outputs[0]->length(1));
-        auto headDim = static_cast<float>(outputs[0]->length(2));
+        if (inputs.size() < 2 || inputs[0] == nullptr || inputs[1] == nullptr || inputs[0]->dimensions() != 4 ||
+            inputs[1]->dimensions() != 4) {
+            return 0.f;
+        }
+        auto seqLen = static_cast<float>(inputs[0]->length(1));
+        auto kvSeqLen = static_cast<float>(inputs[1]->length(1));
+        auto headDim = static_cast<float>(inputs[0]->length(3));
+        auto numHead = static_cast<float>(inputs[0]->length(2));
         float flops = 0.f;
         // qk + qkv
-        flops += (2 * seqLen * headDim * seqLen);
+        flops += (2 * numHead * seqLen * headDim * kvSeqLen);
         // softmax
-        flops += (seqLen * seqLen);
+        flops += (numHead * seqLen * kvSeqLen);
         return flops / FLOPS_M;
     }
 };
@@ -137,9 +146,37 @@ class AttentionSizeComputer : public SizeComputer {
 class LinearAttentionSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
+        if (op == nullptr || inputs.size() < 4 || outputs.empty() || inputs[0] == nullptr || inputs[3] == nullptr ||
+            outputs[0] == nullptr) {
+            return false;
+        }
         auto input = inputs[0];
         auto output = outputs[0];
         auto param = op->main_as_LinearAttentionParam();
+
+        if (param == nullptr) {
+            return false;
+        }
+
+        auto inputFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+        if (inputFormat == MNN_DATA_FORMAT_NC4HW4) {
+            // LLM Linear projections flatten batch and sequence into N. The
+            // packed path currently supports the batch=1 LLM execution model.
+            // Keep head_v_dim as C so per-head RMSNorm can remain packed.
+            if (input->dimensions() != 4 || input->length(0) <= 0 || input->length(1) <= 0 || input->length(2) != 1 ||
+                input->length(3) != 1 || param->num_v_heads() <= 0 || param->head_v_dim() <= 0) {
+                MNN_ERROR("LinearAttention: invalid C4 input or head configuration.\n");
+                return false;
+            }
+            output->buffer().dimensions = 4;
+            output->buffer().dim[0].extent = input->length(0) * param->num_v_heads();
+            output->buffer().dim[1].extent = param->head_v_dim();
+            output->buffer().dim[2].extent = 1;
+            output->buffer().dim[3].extent = 1;
+            output->buffer().type = input->buffer().type;
+            TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            return true;
+        }
 
         int batch = input->length(0);
         int seq_len = input->length(2);
@@ -159,9 +196,17 @@ class LinearAttentionSizeComputer : public SizeComputer {
     }
     virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                  const std::vector<Tensor*>& outputs) const override {
+        if (op == nullptr || inputs.size() < 4 || inputs[0] == nullptr || inputs[3] == nullptr) {
+            return 0.f;
+        }
         auto param = op->main_as_LinearAttentionParam();
+        if (param == nullptr) {
+            return 0.f;
+        }
         auto input = inputs[0];
-        float L = static_cast<float>(input->length(2));
+        float L = static_cast<float>(TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4
+                                         ? input->length(0)
+                                         : input->length(2));
         float D = static_cast<float>(input->length(1));
         int H = param->num_v_heads();
         int dk = param->head_k_dim();

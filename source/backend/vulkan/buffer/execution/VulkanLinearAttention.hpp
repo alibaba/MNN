@@ -34,6 +34,7 @@ public:
     virtual ~VulkanLinearAttention();
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const VulkanCommandPool::Buffer* cmdBuffer) override;
+    virtual ErrorCode onBeforeExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override;
 
 private:
@@ -66,18 +67,25 @@ private:
     const VulkanPipeline* mQKVPrepPipeline = nullptr;
     const VulkanPipeline* mPrefillPipeline = nullptr;
     const VulkanPipeline* mDecodePipeline = nullptr;
+    const VulkanPipeline* mShortConvPipeline = nullptr;
+    const VulkanPipeline* mShortConvStateUpdatePipeline = nullptr;
+    const VulkanPipeline* mShortConvOutputPipeline = nullptr;
 
     std::shared_ptr<VulkanLayout::DescriptorSet> mConvSiluDesSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mConvStateUpdateDesSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mQKVPrepDesSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mPrefillDesSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mDecodeDesSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mShortConvDesSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mShortConvStateUpdateDesSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mShortConvOutputDesSet;
 
     std::shared_ptr<VulkanBuffer> mConvSiluParam;
     std::shared_ptr<VulkanBuffer> mConvStateUpdateParam;
     std::shared_ptr<VulkanBuffer> mQKVPrepParam;
     std::shared_ptr<VulkanBuffer> mPrefillParam;
     std::shared_ptr<VulkanBuffer> mDecodeParam;
+    std::shared_ptr<VulkanBuffer> mShortConvParam;
 };
 
 } // namespace MNN

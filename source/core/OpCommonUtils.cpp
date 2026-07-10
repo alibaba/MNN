@@ -659,6 +659,7 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
     builder_.add_main(parameterMain);
     builder_.add_type(origin->type());
     builder_.add_main_type(origin->main_type());
+    builder_.add_defaultDimentionFormat(origin->defaultDimentionFormat());
     builder.Finish(builder_.Finish());
     return true;
 }
