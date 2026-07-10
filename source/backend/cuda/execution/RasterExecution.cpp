@@ -50,6 +50,12 @@ static bool _directBlitC4(const Tensor::InsideDescribe::Region& slice0, const Te
         // area pack for fast blit only
         return false;
     }
+    for (int i = 0; i < 3; ++i) {
+        if ((slice0.size[i] > 1 && (slice0.src.stride[i] == 0 || slice0.dst.stride[i] == 0)) ||
+            (slice1.size[i] > 1 && (slice1.src.stride[i] == 0 || slice1.dst.stride[i] == 0))) {
+            return false;
+        }
+    }
     if(slice0.size[1] % PACK_NUMBER != 0) {
         return false;
     }

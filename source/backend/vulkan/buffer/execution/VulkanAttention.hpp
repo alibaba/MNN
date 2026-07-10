@@ -23,7 +23,7 @@ private:
         ivec4 s0; // qLen, kLen, headNum, kvHeadNum
         ivec4 s1; // headDim, group, pastLen, totalLen
         ivec4 s2; // maskQlen, maskKvlen, maskMode(0:none,1:additive,2:causal), cacheMaxLen
-        vec4 f0;  // scale, 0, 0, 0
+        vec4 f0;  // scale, queryKeyC4, valueC4, outputC4
     };
 
     struct KVCache {
@@ -42,6 +42,9 @@ private:
     const Op* mOp = nullptr;
     bool mNeedKvCache = false;
     bool mUseFP16 = false;
+    bool mInputC4 = false;
+    bool mValueC4 = false;
+    bool mOutputC4 = false;
     KVMeta* mMeta = nullptr;
 
     int mQueryLen = 0;

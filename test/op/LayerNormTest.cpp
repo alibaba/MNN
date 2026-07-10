@@ -147,14 +147,15 @@ static int nc4hw4Offset(int n, int c, int plane, int batch) {
 }
 
 static void computeChannelLayerNorm(const std::vector<float>& input, std::vector<float>& output, int batch, int channel,
-                                    const std::vector<float>& gamma, const std::vector<float>& beta) {
+                                    const std::vector<float>& gamma, const std::vector<float>& beta,
+                                    bool useRMS = false) {
     output.resize(batch * channel);
     for (int n = 0; n < batch; ++n) {
         float mean = 0.0f;
         for (int c = 0; c < channel; ++c) {
             mean += input[n * channel + c];
         }
-        mean /= channel;
+        mean = useRMS ? 0.0f : mean / channel;
         float variance = 0.0f;
         for (int c = 0; c < channel; ++c) {
             float v = input[n * channel + c] - mean;
@@ -292,7 +293,7 @@ MNNTestSuiteRegister(LayerNormTest, "op/layernorm");
 class LayerNormC4Test : public MNNTestCase {
 public:
     virtual ~LayerNormC4Test() = default;
-    bool runOne(int batch, int channel) {
+    bool runOne(int batch, int channel, bool useRMS, bool rank2 = false) {
         const int physicalSize = batch * UP_DIV(channel, 4) * 4;
         std::vector<float> logical(batch * channel);
         std::vector<float> packed(physicalSize, 0.0f);
@@ -310,7 +311,7 @@ public:
                 packed[nc4hw4Offset(n, c, 1, batch)] = logical[n * channel + c];
             }
         }
-        auto input = _Input({batch, channel, 1, 1}, NC4HW4);
+        auto input = rank2 ? _Input({batch, channel}, NC4HW4) : _Input({batch, channel, 1, 1}, NC4HW4);
         ::memcpy(input->writeMap<float>(), packed.data(), packed.size() * sizeof(float));
         input->unMap();
         std::unique_ptr<OpT> op(new OpT);
@@ -321,22 +322,24 @@ public:
         op->main.AsLayerNorm()->gamma = gamma;
         op->main.AsLayerNorm()->beta = beta;
         op->main.AsLayerNorm()->epsilon = eps;
-        op->main.AsLayerNorm()->axis = {1};
+        op->main.AsLayerNorm()->axis = {rank2 ? -1 : 1};
+        op->main.AsLayerNorm()->useRMSNorm = useRMS;
         auto output = Variable::create(Expr::create(std::move(op), {input}));
         std::vector<float> expected;
-        computeChannelLayerNorm(logical, expected, batch, channel, gamma, beta);
+        computeChannelLayerNorm(logical, expected, batch, channel, gamma, beta, useRMS);
         return checkNC4HW4Logical(output, expected, batch, channel, "LayerNormC4Test");
     }
 
     virtual bool run(int precision) {
-        return runOne(2, 8) && runOne(13, 1024);
+        return runOne(2, 8, false) && runOne(3, 5, false) && runOne(13, 1024, false) && runOne(2, 8, true) &&
+               runOne(3, 5, true) && runOne(13, 1024, true) && runOne(22, 128, true, true);
     }
 };
 
 class BinaryLayerNormC4Test : public MNNTestCase {
 public:
     virtual ~BinaryLayerNormC4Test() = default;
-    bool runOne(int batch, int channel) {
+    bool runOne(int batch, int channel, bool useRMS) {
         const int physicalSize = batch * UP_DIV(channel, 4) * 4;
         std::vector<float> logical0(batch * channel);
         std::vector<float> logical1(batch * channel);
@@ -375,18 +378,20 @@ public:
         op->main.AsLayerNorm()->beta = beta;
         op->main.AsLayerNorm()->epsilon = eps;
         op->main.AsLayerNorm()->axis = {1};
+        op->main.AsLayerNorm()->useRMSNorm = useRMS;
         auto expr = Expr::create(std::move(op), {input0, input1}, 2);
         auto sumOutput = Variable::create(expr, 0);
         auto normOutput = Variable::create(expr, 1);
 
         std::vector<float> expectedNorm;
-        computeChannelLayerNorm(sumLogical, expectedNorm, batch, channel, gamma, beta);
+        computeChannelLayerNorm(sumLogical, expectedNorm, batch, channel, gamma, beta, useRMS);
         return checkNC4HW4Logical(sumOutput, sumLogical, batch, channel, "BinaryLayerNormC4SumTest") &&
                checkNC4HW4Logical(normOutput, expectedNorm, batch, channel, "BinaryLayerNormC4NormTest");
     }
 
     virtual bool run(int precision) {
-        return runOne(2, 8) && runOne(13, 1024);
+        return runOne(2, 8, false) && runOne(3, 5, false) && runOne(13, 1024, false) && runOne(2, 8, true) &&
+               runOne(3, 5, true) && runOne(13, 1024, true);
     }
 };
 

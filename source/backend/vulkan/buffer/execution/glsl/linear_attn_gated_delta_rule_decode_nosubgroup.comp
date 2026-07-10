@@ -28,12 +28,16 @@ layout(set=0, binding=6) writeonly buffer s6 {
 
 layout(set=0, binding=7) readonly uniform constBuffer {
     ivec4 size0; // batch, seq_len, num_v_heads, head_k_dim
-    ivec4 size1; // head_v_dim, total_rows, 0, 0
+    ivec4 size1; // head_v_dim, total_rows, layout_flags, 0
 } uConstant;
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
 shared float sReduce[512];
+
+int c4Offset(int token, int channel, int tokenCount) {
+    return ((channel >> 2) * tokenCount + token) * 4 + (channel & 3);
+}
 
 void main() {
     const uint laneCount = gl_WorkGroupSize.x;
@@ -46,6 +50,9 @@ void main() {
     const int numVHeads = uConstant.size0.z;
     const int dk = uConstant.size0.w;
     const int dv = uConstant.size1.x;
+    const int batch = uConstant.size0.x;
+    const int seqLen = uConstant.size0.y;
+    const int layoutFlags = uConstant.size1.z;
 
     const int j = alive ? int(row % uint(dv)) : 0;
     const int bh = alive ? int(row / uint(dv)) : 0;
@@ -61,8 +68,11 @@ void main() {
     float beta = 0.0;
     float vVal = 0.0;
     if (alive) {
-        decay = exp(float(uGate.data[bth]));
-        beta = float(uBeta.data[bth]);
+        const int token = b * seqLen;
+        const int gateIndex = (layoutFlags & 1) != 0 ? c4Offset(token, h, batch * seqLen) : bth;
+        const int betaIndex = (layoutFlags & 2) != 0 ? c4Offset(token, h, batch * seqLen) : bth;
+        decay = exp(float(uGate.data[gateIndex]));
+        beta = float(uBeta.data[betaIndex]);
         vVal = float(uV.data[vIndex]);
     }
 
@@ -108,6 +118,11 @@ void main() {
         barrier();
     }
     if (alive && lane == 0u) {
-        uOutput.data[bth * dv + j] = FLOAT(sReduce[scratchBase]);
+        const int token = b * seqLen;
+        const int outputToken = token * numVHeads + h;
+        const int outputIndex = (layoutFlags & 4) != 0
+                                    ? c4Offset(outputToken, j, batch * seqLen * numVHeads)
+                                    : bth * dv + j;
+        uOutput.data[outputIndex] = FLOAT(sReduce[scratchBase]);
     }
 }

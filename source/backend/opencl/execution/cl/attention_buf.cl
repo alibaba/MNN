@@ -50,7 +50,7 @@
     }
 
 
-#ifdef VALUE_C4
+#if defined(QUERY_C4) || defined(KEY_C4) || defined(VALUE_C4)
 static inline FLOAT load_c4_value(__global const FLOAT* value,
                                   const int seq_storage,
                                   const int token,
@@ -119,10 +119,23 @@ __kernel void rearrange_qkv(GLOBAL_SIZE_3_DIMS
             vstore4((FLOAT4)0, 0, output_q + out_offset_q + 2 * seqLenPackQ);
             vstore4((FLOAT4)0, 0, output_q + out_offset_q + 3 * seqLenPackQ);
         } else {
+            #ifdef QUERY_C4
+            const int query_seq_storage = batch * seqLenQ;
+            const int query_channel = hn * headDim + 4 * hd;
+            const int query_token = b * seqLenQ + sl * 4;
+            FLOAT4 temp_0 = load_c4_value4(input_q, query_seq_storage, query_token, query_channel, 4 * hd, headDim);
+            FLOAT4 temp_1 = (sl * 4 + 1 >= seqLenQ) ? (FLOAT4)0 :
+                load_c4_value4(input_q, query_seq_storage, query_token + 1, query_channel, 4 * hd, headDim);
+            FLOAT4 temp_2 = (sl * 4 + 2 >= seqLenQ) ? (FLOAT4)0 :
+                load_c4_value4(input_q, query_seq_storage, query_token + 2, query_channel, 4 * hd, headDim);
+            FLOAT4 temp_3 = (sl * 4 + 3 >= seqLenQ) ? (FLOAT4)0 :
+                load_c4_value4(input_q, query_seq_storage, query_token + 3, query_channel, 4 * hd, headDim);
+            #else
             FLOAT4 temp_0 = vload4(0, input_q + in_offset_q);
             FLOAT4 temp_1 = (sl * 4 + 1 >= seqLenQ) ? (FLOAT4)0 : vload4(0, input_q + in_offset_q + headNum*headDim);
             FLOAT4 temp_2 = (sl * 4 + 2 >= seqLenQ) ? (FLOAT4)0 : vload4(0, input_q + in_offset_q + 2*headNum*headDim);
             FLOAT4 temp_3 = (sl * 4 + 3 >= seqLenQ) ? (FLOAT4)0 : vload4(0, input_q + in_offset_q + 3*headNum*headDim);
+            #endif
             #ifdef HEADDIM_LEAVE
             DEAL_INNER_HEADDIM_NOT_ALIGN(headDim)
             #endif
@@ -156,10 +169,23 @@ __kernel void rearrange_qkv(GLOBAL_SIZE_3_DIMS
             vstore4((FLOAT4)0, 0, output_k + out_offset_k + 2 * seqLenPackKV);
             vstore4((FLOAT4)0, 0, output_k + out_offset_k + 3 * seqLenPackKV);
         } else {
+            #ifdef KEY_C4
+            const int key_seq_storage = batch * seqLenKV;
+            const int key_channel = hn * headDim + 4 * hd;
+            const int key_token = b * seqLenKV + sl * 4;
+            FLOAT4 temp_0 = load_c4_value4(input_k, key_seq_storage, key_token, key_channel, 4 * hd, headDim);
+            FLOAT4 temp_1 = (sl * 4 + 1 >= seqLenKV) ? (FLOAT4)0 :
+                load_c4_value4(input_k, key_seq_storage, key_token + 1, key_channel, 4 * hd, headDim);
+            FLOAT4 temp_2 = (sl * 4 + 2 >= seqLenKV) ? (FLOAT4)0 :
+                load_c4_value4(input_k, key_seq_storage, key_token + 2, key_channel, 4 * hd, headDim);
+            FLOAT4 temp_3 = (sl * 4 + 3 >= seqLenKV) ? (FLOAT4)0 :
+                load_c4_value4(input_k, key_seq_storage, key_token + 3, key_channel, 4 * hd, headDim);
+            #else
             FLOAT4 temp_0 = vload4(0, input_k + in_offset_kv);
             FLOAT4 temp_1 = (sl * 4 + 1 >= seqLenKV) ? (FLOAT4)0 : vload4(0, input_k + in_offset_kv + headNum*headDim/group);
             FLOAT4 temp_2 = (sl * 4 + 2 >= seqLenKV) ? (FLOAT4)0 : vload4(0, input_k + in_offset_kv + 2*headNum*headDim/group);
             FLOAT4 temp_3 = (sl * 4 + 3 >= seqLenKV) ? (FLOAT4)0 : vload4(0, input_k + in_offset_kv + 3*headNum*headDim/group);
+            #endif
             #ifdef HEADDIM_LEAVE
             DEAL_INNER_HEADDIM_NOT_ALIGN(headDim)
             #endif
@@ -375,11 +401,24 @@ __kernel void rearrange_q(GLOBAL_SIZE_3_DIMS
     const int y4 = y << 2;
     const int seq_len4 = (seq_len + 3) / 4 * 4;;
     const int stride = head_num * head_dim;
+    #ifdef QUERY_C4
+    const int query_seq_storage = (global_size_dim2 / head_num) * seq_len;
+    const int query_channel = z * head_dim + y4;
+    const int query_token = b * seq_len + x4;
+    FLOAT4 query_vec0 = load_c4_value4(query, query_seq_storage, query_token, query_channel, y4, head_dim);
+    FLOAT4 query_vec1 = (x4 + 1 >= seq_len) ? (FLOAT4)0 :
+        load_c4_value4(query, query_seq_storage, query_token + 1, query_channel, y4, head_dim);
+    FLOAT4 query_vec2 = (x4 + 2 >= seq_len) ? (FLOAT4)0 :
+        load_c4_value4(query, query_seq_storage, query_token + 2, query_channel, y4, head_dim);
+    FLOAT4 query_vec3 = (x4 + 3 >= seq_len) ? (FLOAT4)0 :
+        load_c4_value4(query, query_seq_storage, query_token + 3, query_channel, y4, head_dim);
+    #else
     int query_offset = ((b * seq_len + x4) * head_num + z) * head_dim + y4;
     FLOAT4 query_vec0 = vload4(0, query + query_offset); query_offset += stride;
     FLOAT4 query_vec1 = (x4 + 1 >= seq_len) ? (FLOAT4)0 : vload4(0, query + query_offset); query_offset += stride;
     FLOAT4 query_vec2 = (x4 + 2 >= seq_len) ? (FLOAT4)0 : vload4(0, query + query_offset); query_offset += stride;
     FLOAT4 query_vec3 = (x4 + 3 >= seq_len) ? (FLOAT4)0 : vload4(0, query + query_offset);
+    #endif
     
     const int queryout_offset = ((b * head_num + z) * head_dim + y4) * seq_len4 + x4;
     vstore4((FLOAT4)(query_vec0.s0, query_vec1.s0, query_vec2.s0, query_vec3.s0), 0, query_tmp + queryout_offset);
@@ -410,18 +449,38 @@ __kernel void rearrange_k(GLOBAL_SIZE_3_DIMS
 #ifdef OPENCL_PREFILL_ATTENTION
     const int x4 = x << 2;
     const int stride = kv_head_num * head_dim;
+    #ifdef KEY_C4
+    const int key_seq_storage = (global_size_dim2 / kv_head_num) * seq_len;
+    const int key_channel = z * head_dim + y4;
+    const int key_token = b * seq_len + x4;
+    FLOAT4 key_vec0 = load_c4_value4(key, key_seq_storage, key_token, key_channel, y4, head_dim);
+    FLOAT4 key_vec1 = (x4 + 1 >= seq_len) ? (FLOAT4)0 :
+        load_c4_value4(key, key_seq_storage, key_token + 1, key_channel, y4, head_dim);
+    FLOAT4 key_vec2 = (x4 + 2 >= seq_len) ? (FLOAT4)0 :
+        load_c4_value4(key, key_seq_storage, key_token + 2, key_channel, y4, head_dim);
+    FLOAT4 key_vec3 = (x4 + 3 >= seq_len) ? (FLOAT4)0 :
+        load_c4_value4(key, key_seq_storage, key_token + 3, key_channel, y4, head_dim);
+    #else
     int key_offset = ((b * seq_len + x4) * kv_head_num + z) * head_dim + y4;
     FLOAT4 key_vec0 = vload4(0, key + key_offset); key_offset += stride;
     FLOAT4 key_vec1 = (x4 + 1 >= seq_len) ? (FLOAT4)0 : vload4(0, key + key_offset); key_offset += stride;
     FLOAT4 key_vec2 = (x4 + 2 >= seq_len) ? (FLOAT4)0 : vload4(0, key + key_offset); key_offset += stride;
     FLOAT4 key_vec3 = (x4 + 3 >= seq_len) ? (FLOAT4)0 : vload4(0, key + key_offset);
+    #endif
     const int output_offset = ((b * kv_head_num + z) * head_dim + y4) * max_len + past_len + x4;
     vstore4((FLOAT4)(key_vec0.s0, key_vec1.s0, key_vec2.s0, key_vec3.s0), 0, past_key + output_offset);
     vstore4((FLOAT4)(key_vec0.s1, key_vec1.s1, key_vec2.s1, key_vec3.s1), 0, past_key + output_offset + max_len);
     vstore4((FLOAT4)(key_vec0.s2, key_vec1.s2, key_vec2.s2, key_vec3.s2), 0, past_key + output_offset + max_len + max_len);
     vstore4((FLOAT4)(key_vec0.s3, key_vec1.s3, key_vec2.s3, key_vec3.s3), 0, past_key + output_offset + max_len + max_len + max_len);
 #else
+    #ifdef KEY_C4
+    const int key_seq_storage = (global_size_dim2 / kv_head_num) * seq_len;
+    const int key_channel = z * head_dim + y4;
+    const int key_token = b * seq_len;
+    FLOAT4 key_vec = load_c4_value4(key, key_seq_storage, key_token, key_channel, y4, head_dim);
+    #else
     FLOAT4 key_vec = vload4(0, key + (b * kv_head_num + z) * head_dim + y4);
+    #endif
     const int output_offset = ((b * kv_head_num + z) * head_dim + y4) * max_len + past_len;
     past_key[output_offset] = key_vec.s0;
     past_key[output_offset + max_len] = key_vec.s1;
@@ -707,7 +766,11 @@ __kernel void matmul_qk_decode(GLOBAL_SIZE_2_DIMS
     
     for(int i = 0; i < head_dim / 4; ++i){
         int i4 = i << 2;
+        #ifdef QUERY_C4
+        float4 query_vec = convert_float4(load_c4_value4(query, 1, 0, y * head_dim + i4, i4, head_dim));
+        #else
         float4 query_vec = convert_float4(vload4(0, query + query_offset + i4));
+        #endif
         
         float4 past_vec0 = convert_float4(vload4(0, past_key + past_offset + i4 * max_len));
         float4 past_vec1 = convert_float4(vload4(0, past_key + past_offset + (i4 + 1) * max_len));

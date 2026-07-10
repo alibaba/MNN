@@ -31,8 +31,24 @@ struct LinearAttnParam {
     int val_dim;
     int gqa_factor;
     int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
     float q_scale;
 };
+
+static void linearAttentionDims(const Tensor* qkv, int& batch, int& convDim, int& seqLen) {
+    if (TensorUtils::getDescribe(qkv)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        batch = 1;
+        seqLen = qkv->length(0);
+        convDim = qkv->length(1);
+        return;
+    }
+    batch = qkv->length(0);
+    convDim = qkv->length(1);
+    seqLen = qkv->length(2);
+}
 
 MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
     : MetalExecution(backend) {
@@ -56,6 +72,27 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
     bool useFp16 = mtbn->useFp16InsteadFp32();
     if (useFp16) {
         option.preprocessorMacros = @{@"MNN_METAL_FLOAT16_STORAGE" : @"1"};
+    }
+
+    if (mAttentionType == "short_conv") {
+        std::vector<std::string> commonKeys;
+        if (useFp16) {
+            commonKeys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+        }
+        auto buildShortPipeline = [&](const char* kernel) -> id<MTLComputePipelineState> {
+            auto keys = commonKeys;
+            keys.insert(keys.begin(), kernel);
+            id<MTLComputePipelineState> pipeline = rt->findPipeline(keys);
+            if (nil == pipeline) {
+                pipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnShortConv, kernel, option);
+                rt->insertPipeline(keys, pipeline);
+            }
+            return pipeline;
+        };
+        mShortConvPipeline = buildShortPipeline("linear_attn_short_conv_nosilu");
+        mShortConvStateUpdatePipeline = buildShortPipeline("linear_attn_short_conv_state_update");
+        mShortConvOutputPipeline = buildShortPipeline("linear_attn_short_conv_output");
+        return;
     }
 
     // Conv + SiLU pipeline (includes both conv_silu and conv_state_update kernels)
@@ -137,35 +174,38 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
 
 ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto qkv = inputs[0];
-    int batch = qkv->length(0);
-    int convDim = qkv->length(1);
-    int seqLen = qkv->length(2);
+    int batch = 0, convDim = 0, seqLen = 0;
+    linearAttentionDims(qkv, batch, convDim, seqLen);
     int K_conv = inputs[3]->length(2);
     int convStateSize = K_conv - 1;
     int H = mNumVHeads;
     int dk = mHeadKDim;
     int dv = mHeadVDim;
+    int convChannels = mAttentionType == "short_conv" ? mHeadVDim : convDim;
+    bool needRecurrentState = mAttentionType != "short_conv";
 
     // ─── Persistent state buffers (STATIC): allocate once, shared via onClone ───
     auto mtbn = static_cast<MetalBackend *>(backend());
     int bytesPerElement = mtbn->useFp16InsteadFp32() ? 2 : 4;
-    if (mStateCache->mRecurrentState.get() == nullptr) {
+    if (mStateCache->mConvState.get() == nullptr) {
         // First time: allocate and zero-initialize
         if (convStateSize > 0) {
-            mStateCache->mConvState.reset(Tensor::createDevice<float>({batch, convDim, convStateSize}));
+            mStateCache->mConvState.reset(Tensor::createDevice<float>({batch, convChannels, convStateSize}));
             bool success = backend()->onAcquireBuffer(mStateCache->mConvState.get(), Backend::STATIC);
             if (!success) return OUT_OF_MEMORY;
             auto convDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mConvState->deviceId())->getBuffer();
             auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
-            ::memset(convPtr, 0, batch * convDim * convStateSize * bytesPerElement);
+            ::memset(convPtr, 0, batch * convChannels * convStateSize * bytesPerElement);
         }
 
-        mStateCache->mRecurrentState.reset(Tensor::createDevice<float>({batch, H, dk, dv}));
-        bool success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
-        if (!success) return OUT_OF_MEMORY;
-        auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
-        auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
-        ::memset(rnnPtr, 0, batch * H * dk * dv * bytesPerElement);
+        if (needRecurrentState) {
+            mStateCache->mRecurrentState.reset(Tensor::createDevice<float>({batch, H, dk, dv}));
+            bool success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
+            if (!success) return OUT_OF_MEMORY;
+            auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
+            auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
+            ::memset(rnnPtr, 0, batch * H * dk * dv * bytesPerElement);
+        }
     } else if (seqLen > 1) {
         // Prefill: reset state for new sequence, UNLESS:
         // 1. Loading from prefix cache (PendingRead), or
@@ -178,18 +218,20 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
                 auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
                 ::memset(convPtr, 0, mStateCache->mConvState->elementSize() * bytesPerElement);
             }
-            auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
-            auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
-            ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
+            if (mStateCache->mRecurrentState.get() != nullptr) {
+                auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
+                auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
+                ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
+            }
         }
     }
     // Decode (seqLen == 1): keep existing state untouched
 
-    mConvOut.reset(Tensor::createDevice<float>({batch, convDim, seqLen}));
+    mConvOut.reset(Tensor::createDevice<float>({batch, convChannels, seqLen}));
     bool success = backend()->onAcquireBuffer(mConvOut.get(), Backend::DYNAMIC);
 
     // Fused decode path (simd + L=1) reads conv_out directly, no Q/K/V needed
-    bool needQKV = !(mUseSimdGroupOpt && seqLen == 1);
+    bool needQKV = mAttentionType != "short_conv" && !(mUseSimdGroupOpt && seqLen == 1);
     if (needQKV) {
         mQ.reset(Tensor::createDevice<float>({batch, seqLen, H, dk}));
         mK.reset(Tensor::createDevice<float>({batch, seqLen, H, dk}));
@@ -212,7 +254,9 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
 
 void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
-    if (inputs[0]->length(2) > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
+    int resetBatch = 0, resetConvDim = 0, resetSeqLen = 0;
+    linearAttentionDims(inputs[0], resetBatch, resetConvDim, resetSeqLen);
+    if (resetSeqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
         bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
         if (!loadingFromDisk) {
             auto mtbn = static_cast<MetalBackend *>(backend());
@@ -222,16 +266,17 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
                 auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
                 ::memset(convPtr, 0, mStateCache->mConvState->elementSize() * bytesPerElement);
             }
-            auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
-            auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
-            ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
+            if (mStateCache->mRecurrentState.get() != nullptr) {
+                auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
+                auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
+                ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
+            }
         }
     }
 
     auto qkv = inputs[0];
-    int batch = qkv->length(0);
-    int convDim = qkv->length(1);
-    int seqLen = qkv->length(2);
+    int batch = 0, convDim = 0, seqLen = 0;
+    linearAttentionDims(qkv, batch, convDim, seqLen);
     int K_conv = inputs[3]->length(2);
     int convStateSize = K_conv - 1;
     int H = mNumVHeads;
@@ -256,7 +301,49 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
     paramPtr->val_dim = val_dim;
     paramPtr->gqa_factor = gqa_factor;
     paramPtr->use_l2norm = mUseQKL2Norm ? 1 : 0;
+    paramPtr->qkv_c4 = TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
+    paramPtr->gate_c4 = TensorUtils::getDescribe(inputs[1])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
+    paramPtr->beta_c4 = TensorUtils::getDescribe(inputs[2])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
+    paramPtr->output_c4 = TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
     paramPtr->q_scale = 1.0f / sqrtf((float)dk);
+
+    if (mAttentionType == "short_conv") {
+        int total = batch * mHeadVDim * seqLen;
+        NSUInteger threadGroupSize = MIN((NSUInteger)256, mShortConvPipeline.maxTotalThreadsPerThreadgroup);
+        threadGroupSize = MIN(threadGroupSize, (NSUInteger)total);
+
+        [encoder setComputePipelineState:mShortConvPipeline];
+        MetalBackend::setTensor(inputs[0], encoder, 0);
+        MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1);
+        MetalBackend::setTensor(inputs[3], encoder, 2);
+        MetalBackend::setTensor(mConvOut.get(), encoder, 3);
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:4];
+        [encoder dispatchThreadgroups:MTLSizeMake((total + threadGroupSize - 1) / threadGroupSize, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
+
+        if (convStateSize > 0) {
+            int stateTotal = batch * mHeadVDim * convStateSize;
+            NSUInteger stateThreadGroupSize =
+                MIN((NSUInteger)256, mShortConvStateUpdatePipeline.maxTotalThreadsPerThreadgroup);
+            stateThreadGroupSize = MIN(stateThreadGroupSize, (NSUInteger)stateTotal);
+            [encoder setComputePipelineState:mShortConvStateUpdatePipeline];
+            MetalBackend::setTensor(inputs[0], encoder, 0);
+            MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1);
+            [encoder setBuffer:mParamBuffer offset:0 atIndex:2];
+            [encoder dispatchThreadgroups:MTLSizeMake((stateTotal + stateThreadGroupSize - 1) / stateThreadGroupSize,
+                                                       1, 1)
+                    threadsPerThreadgroup:MTLSizeMake(stateThreadGroupSize, 1, 1)];
+        }
+
+        [encoder setComputePipelineState:mShortConvOutputPipeline];
+        MetalBackend::setTensor(inputs[0], encoder, 0);
+        MetalBackend::setTensor(mConvOut.get(), encoder, 1);
+        MetalBackend::setTensor(outputs[0], encoder, 2);
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:3];
+        [encoder dispatchThreadgroups:MTLSizeMake((total + threadGroupSize - 1) / threadGroupSize, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
+        return;
+    }
 
     // Kernel 1: Conv1D + SiLU
     {

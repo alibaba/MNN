@@ -11,6 +11,7 @@
 #include "CPUKVCacheManager.hpp"
 #include "core/Concurrency.h"
 #include "core/TensorUtils.hpp"
+#include <vector>
 
 namespace MNN {
 
@@ -729,18 +730,30 @@ void CPUKVCacheManager::onClear() {
 
 template <typename T>
 void CPUKVCacheManager::ProcessKey(const Tensor* key, int seqLen, int kvHead) {
+    const bool keyC4 = TensorUtils::getDescribe(key)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    const int pack = static_cast<CPUBackend*>(mBackend)->functions()->pack;
+    const auto keySrc = key->host<T>();
+    auto loadKey = [&](int token, int channel) {
+        if (keyC4) {
+            if (seqLen == 1) {
+                return keySrc[channel];
+            }
+            return keySrc[c4Offset(token, channel, seqLen, pack)];
+        }
+        return keySrc[token * mKvNumHead * mHeadDim + channel];
+    };
+    const int channelBase = kvHead * mHeadDim;
     if ((mKeyQuantMode == KVQuantMode::TQ3) || (mKeyQuantMode == KVQuantMode::TQ4)) {
         int bytesPerBlock = (mKeyQuantMode == KVQuantMode::TQ3) ? TQ3_BYTES_PER_BLOCK : TQ4_BYTES_PER_BLOCK;
         int blockSize = (mKeyQuantMode == KVQuantMode::TQ3) ? TQ3_BLOCK_SIZE : TQ4_BLOCK_SIZE;
         int bytesPerSeq = (mHeadDim / blockSize) * bytesPerBlock;
         uint8_t* keyDst = (uint8_t*)addrOfKey(kvHead);
         for (int i = 0; i < seqLen; i++) {
-            T* src = key->host<T>() + i * mKvNumHead * mHeadDim + kvHead * mHeadDim;
             uint8_t* dst = keyDst + (mPastLength + i) * bytesPerSeq;
             float block[TQ4_BLOCK_SIZE]; // TQ4_BLOCK_SIZE >= TQ3_BLOCK_SIZE
             for (int b = 0; b < mHeadDim / blockSize; b++) {
                 for (int k = 0; k < blockSize; k++) {
-                    block[k] = (float)src[b * blockSize + k];
+                    block[k] = (float)loadKey(i, channelBase + b * blockSize + k);
                 }
                 if (mKeyQuantMode == KVQuantMode::TQ3) {
                     tq3_quantize_block(dst + b * bytesPerBlock, block);
@@ -761,17 +774,29 @@ void CPUKVCacheManager::ProcessKey(const Tensor* key, int seqLen, int kvHead) {
 
         T* keyMax = reinterpret_cast<T*>(addrOfKeyMax(kvHead));
         int32_t params[] = {mKvNumHead, seqLen, mHeadDim, mConfig.mBlockNum, eP8, lP8, hP8, mPastLength, kvHead};
-        mQuantKeyFunc(keyDst, key->host<float>(), sumDst, (float*)keyMax, params);
+        if (!keyC4) {
+            mQuantKeyFunc(keyDst, key->host<float>(), sumDst, (float*)keyMax, params);
+        } else {
+            std::vector<T> contiguous((size_t)seqLen * mHeadDim);
+            for (int i = 0; i < seqLen; ++i) {
+                for (int d = 0; d < mHeadDim; ++d) {
+                    contiguous[(size_t)i * mHeadDim + d] = loadKey(i, channelBase + d);
+                }
+            }
+            int32_t contiguousParams[] = {1, seqLen, mHeadDim, mConfig.mBlockNum, eP8, lP8, hP8, mPastLength, 0};
+            mQuantKeyFunc(keyDst, reinterpret_cast<float*>(contiguous.data()), sumDst, (float*)keyMax,
+                          contiguousParams);
+        }
     } else { // target: [maxlen/hP, headdim/lP, hP, lP]
         T* key_dst = reinterpret_cast<T*>(addrOfKey(kvHead));
         auto stride0 = ROUND_UP(mHeadDim, lP) * hP;
         auto stride1 = hP * lP;
         for (int i = 0; i < seqLen; i++) {
-            T* key_src = key->host<T>() + i * mKvNumHead * mHeadDim + kvHead * mHeadDim;
             int out_index = (mPastLength + i) / hP;
             int in_index = (mPastLength + i) % hP;
             for (int j = 0; j < mHeadDim; j++) {
-                key_dst[out_index * stride0 + (j / lP) * stride1 + in_index * lP + (j % lP)] = key_src[j];
+                key_dst[out_index * stride0 + (j / lP) * stride1 + in_index * lP + (j % lP)] =
+                    loadKey(i, channelBase + j);
             }
         }
     }
@@ -784,6 +809,9 @@ void CPUKVCacheManager::ProcessValue(const Tensor* value, int seqLen, int kvHead
     const auto valueSrc = value->host<T>();
     auto loadValue = [&](int token, int channel) {
         if (valueC4) {
+            if (seqLen == 1) {
+                return valueSrc[channel];
+            }
             return valueSrc[c4Offset(token, channel, seqLen, pack)];
         }
         return valueSrc[token * mKvNumHead * mHeadDim + channel];
@@ -927,11 +955,8 @@ size_t CPUKVCacheManager::valueIndex(int seq, int dim) const {
     auto stride1 = UP_DIV((int32_t)mFlashAttentionUpperKv, lP) * hP * lP;
     auto stride0 = stride1 * UP_DIV(mHeadDim, hP);
     auto seqInBlock = seq % (int32_t)mFlashAttentionUpperKv;
-    return (seq / (int32_t)mFlashAttentionUpperKv) * stride0 +
-           (dim / hP) * stride1 +
-           (seqInBlock / lP) * hP * lP +
-           (dim % hP) * lP +
-           (seqInBlock % lP);
+    return (seq / (int32_t)mFlashAttentionUpperKv) * stride0 + (dim / hP) * stride1 + (seqInBlock / lP) * hP * lP +
+           (dim % hP) * lP + (seqInBlock % lP);
 }
 
 template <typename T>

@@ -1,0 +1,92 @@
+layout(set=0, binding=0) writeonly buffer SumBuffer {
+    FLOAT4 data[];
+} uSum;
+
+layout(set=0, binding=1) writeonly buffer NormBuffer {
+    FLOAT4 data[];
+} uNorm;
+
+layout(set=0, binding=2) readonly buffer Input0Buffer {
+    FLOAT4 data[];
+} uInput0;
+
+layout(set=0, binding=3) readonly buffer Input1Buffer {
+    FLOAT4 data[];
+} uInput1;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec4 size; // inside, outside, inputC4, outside
+    float eps;
+} uConstant;
+
+layout(constant_id = 3) const uint USE_RMS = 0;
+
+#ifdef LAYERNORM_SCALE
+layout(set=0, binding=5) readonly buffer GammaBuffer {
+    FLOAT4 data[];
+} uGamma;
+
+layout(set=0, binding=6) readonly buffer BetaBuffer {
+    FLOAT4 data[];
+} uBeta;
+#endif
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+shared float gSum[64];
+shared float gSqSum[64];
+
+void main() {
+    int inside = uConstant.size.x;
+    int outside = uConstant.size.w;
+    int token = int(gl_WorkGroupID.x);
+    if (token >= outside) {
+        return;
+    }
+
+    int inside4 = inside >> 2;
+    uint tid = gl_LocalInvocationID.x;
+    uint groupSize = gl_WorkGroupSize.x;
+    float sum = 0.0;
+    float sqSum = 0.0;
+    for (int c4 = int(tid); c4 < inside4; c4 += int(groupSize)) {
+        int index = c4 * outside + token;
+        vec4 value = vec4(uInput0.data[index]) + vec4(uInput1.data[index]);
+        uSum.data[index] = FLOAT4(value);
+        if (USE_RMS == 0u) {
+            sum += value.x + value.y + value.z + value.w;
+        }
+        sqSum += dot(value, value);
+    }
+
+    if (USE_RMS == 0u) {
+        gSum[tid] = sum;
+    }
+    gSqSum[tid] = sqSum;
+    barrier();
+
+    for (uint stride = groupSize >> 1; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            if (USE_RMS == 0u) {
+                gSum[tid] += gSum[tid + stride];
+            }
+            gSqSum[tid] += gSqSum[tid + stride];
+        }
+        barrier();
+    }
+
+    float invInside = 1.0 / float(inside);
+    float mean = USE_RMS == 0u ? gSum[0] * invInside : 0.0;
+    float squareMean = gSqSum[0] * invInside;
+    float variance = USE_RMS == 0u ? max(squareMean - mean * mean, 0.0) : squareMean;
+    float invStd = inversesqrt(variance + uConstant.eps);
+    for (int c4 = int(tid); c4 < inside4; c4 += int(groupSize)) {
+        int index = c4 * outside + token;
+        vec4 value = vec4(uInput0.data[index]) + vec4(uInput1.data[index]);
+        vec4 normalized = USE_RMS == 0u ? (value - vec4(mean)) * invStd : value * invStd;
+#ifdef LAYERNORM_SCALE
+        normalized = normalized * vec4(uGamma.data[c4]) + vec4(uBeta.data[c4]);
+#endif
+        uNorm.data[index] = FLOAT4(normalized);
+    }
+}

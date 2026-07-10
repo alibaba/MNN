@@ -69,9 +69,13 @@ public:
 
 private:
     bool mOutputC4 = false;
+    bool mInputC4 = false;
     float mAttnScale = 0.0f;
+    int mHeadDimParam = 0;
     KVMeta* mMeta;
     int getLocalSize(int size, int maxGroupSize);
+    void getAttentionShape(const std::vector<Tensor*>& inputs, int& batch, int& seqlen, int& kvInputLen,
+                           int& numHead, int& kvNumHead, int& headDim) const;
     bool mIsDecode = false;
     void handleKVCache(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     int mPastKvSeqlen = 0;

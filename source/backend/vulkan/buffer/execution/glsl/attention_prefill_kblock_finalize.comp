@@ -14,7 +14,7 @@ layout(set=0, binding=3) readonly uniform constBuffer {
     ivec4 s0; // qLen, kLen, headNum, kvHeadNum
     ivec4 s1; // headDim, group, pastLen, totalLen
     ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
-    vec4 f0;  // scale, 0, 0, 0
+    vec4 f0;  // scale, queryKeyC4, valueC4, outputC4
 } uConst;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -49,7 +49,8 @@ void main() {
     const int base0 = row0 * headDim + d;
     vec4 v0 = vec4(uOAcc.data[base0 + 0], uOAcc.data[base0 + 1], uOAcc.data[base0 + 2], uOAcc.data[base0 + 3]) * inv0;
 
-    const int outBase0 = row0 * headDim + d;
+    const bool outputC4 = uConst.f0.w > 0.5;
+    const int outBase0 = outputC4 ? ((h * d4Size + d4) * qLen + q0) * 4 : row0 * headDim + d;
     uOutput.data[outBase0 + 0] = FLOAT(v0.x);
     uOutput.data[outBase0 + 1] = FLOAT(v0.y);
     uOutput.data[outBase0 + 2] = FLOAT(v0.z);
@@ -61,11 +62,10 @@ void main() {
         const int base1 = row1 * headDim + d;
         vec4 v1 = vec4(uOAcc.data[base1 + 0], uOAcc.data[base1 + 1], uOAcc.data[base1 + 2], uOAcc.data[base1 + 3]) * inv1;
 
-        const int outBase1 = row1 * headDim + d;
+        const int outBase1 = outputC4 ? ((h * d4Size + d4) * qLen + q0 + 1) * 4 : row1 * headDim + d;
         uOutput.data[outBase1 + 0] = FLOAT(v1.x);
         uOutput.data[outBase1 + 1] = FLOAT(v1.y);
         uOutput.data[outBase1 + 2] = FLOAT(v1.z);
         uOutput.data[outBase1 + 3] = FLOAT(v1.w);
     }
 }
-

@@ -28,7 +28,8 @@ const int pastLength = 101;
 #define GENERATE_TOKENS 128
 
 static KVMeta gMeta;
-static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool outputC4 = false) {
+static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool outputC4 = false,
+                                                    bool forceOpenCLBuffer = false) {
     auto Q = _Input();
     auto K = _Input();
     auto V = _Input();
@@ -39,6 +40,7 @@ static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool 
     attention->main.value = new MNN::AttentionParamT;
     attention->main.AsAttentionParam()->kv_cache = true;
     attention->main.AsAttentionParam()->output_c4 = outputC4;
+    attention->main.AsAttentionParam()->head_dim = HeadDim;
     auto o = Variable::create(Expr::create(attention.get(), {Q, K, V, mask}));
     auto buffer = Variable::save({o});
     MNN::ScheduleConfig config;
@@ -49,7 +51,9 @@ static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool 
     bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
     bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
     config.backendConfig = &bnConfig;
-    config.numThread = 1;
+    config.numThread = forceOpenCLBuffer && status.forwardType == MNN_FORWARD_OPENCL
+                           ? MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_NONE
+                           : 1;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &gMeta);
     rtmgr->setHint(MNN::Interpreter::ATTENTION_OPTION, attentionMode);
@@ -609,8 +613,24 @@ public:
     AttentionC4Test() = default;
     virtual ~AttentionC4Test() = default;
 
-    bool compareC4Result(int seqLen) {
+    bool compareC4Result(int seqLen, const char* caseName) {
+        auto outputInfo = Output->getInfo();
+        if (outputInfo == nullptr) {
+            MNN_ERROR("AttentionC4Test failed to get output info\n");
+            return false;
+        }
         const float* resultPtr = Output->readMap<float>();
+        if (resultPtr == nullptr) {
+            MNN_ERROR("AttentionC4Test failed to map output, expected seqLen=%d, output size=%zu\n", seqLen,
+                      outputInfo->size);
+            return false;
+        }
+        if (expected_result.size() != seqLen) {
+            MNN_ERROR("AttentionC4Test expected result size mismatch: expected=%d, actual=%zu\n", seqLen,
+                      expected_result.size());
+            Output->unMap();
+            return false;
+        }
         const int hidden = NumHead * HeadDim;
         std::vector<float> actual(seqLen * hidden);
         std::vector<float> expected(seqLen * hidden);
@@ -626,9 +646,11 @@ public:
             }
         }
         if (!checkVectorByRelativeError<float>(actual.data(), expected.data(), actual.size(), 0.02f)) {
-            MNN_ERROR("AttentionC4Test failed!\n");
+            MNN_ERROR("AttentionC4Test failed for %s\n", caseName);
+            Output->unMap();
             return false;
         }
+        Output->unMap();
         return true;
     }
 
@@ -638,24 +660,135 @@ public:
         generateMask(seqLen, seqLen);
         expected_result = naiveAttention->onExecute(query, key, value, mask, seqLen);
 
+        auto decodeQuery = generateRandTensor(1, NumHead, HeadDim, precision);
+        auto decodeKey = generateRandTensor(1, KvNumHead, HeadDim, precision);
+        auto decodeValue = generateRandTensor(1, KvNumHead, HeadDim, precision);
+        auto decodeQueryVar = vector_to_var(decodeQuery);
+        auto decodeKeyVar = vector_to_var(decodeKey);
+        auto decodeValueVar = vector_to_var(decodeValue);
+        std::vector<std::vector<int>> decodeMask;
+
         gMeta.previous = 0;
         gMeta.remove = 0;
         gMeta.add = seqLen;
-        auto attn = _makeAttentionModule(8, true);
+        auto attn = _makeAttentionModule(8, true, true);
         Output = attn->onForward({Query, Key, Value, Mask})[0];
-        gMeta.sync();
-        if (!compareC4Result(seqLen)) {
+        if (!compareC4Result(seqLen, "NCHW Q/K/V prefill")) {
             return false;
         }
+        gMeta.sync();
+        expected_result = naiveAttention->onExecute(decodeQuery, decodeKey, decodeValue, decodeMask, 1);
+        gMeta.add = 1;
+        Output = attn->onForward({decodeQueryVar, decodeKeyVar, decodeValueVar, Mask})[0];
+        if (!compareC4Result(1, "NCHW Q/K/V decode")) {
+            return false;
+        }
+        gMeta.sync();
 
+        std::shared_ptr<NaiveAttention> naiveAttentionValueC4(new NaiveAttention);
+        expected_result = naiveAttentionValueC4->onExecute(query, key, value, mask, seqLen);
         auto valueC4 = vector_to_c4_value(value);
         gMeta.previous = 0;
         gMeta.remove = 0;
         gMeta.add = seqLen;
-        auto attnValueC4 = _makeAttentionModule(8, true);
+        auto attnValueC4 = _makeAttentionModule(8, true, true);
         Output = attnValueC4->onForward({Query, Key, valueC4, Mask})[0];
+        if (!compareC4Result(seqLen, "NCHW Q/K and C4 V prefill")) {
+            return false;
+        }
         gMeta.sync();
-        return compareC4Result(seqLen);
+
+        auto decodeValueC4 = vector_to_c4_value(decodeValue);
+        expected_result = naiveAttentionValueC4->onExecute(decodeQuery, decodeKey, decodeValue, decodeMask, 1);
+        gMeta.add = 1;
+        Output = attnValueC4->onForward({decodeQueryVar, decodeKeyVar, decodeValueC4, Mask})[0];
+        if (!compareC4Result(1, "NCHW Q/K and C4 V decode")) {
+            return false;
+        }
+        gMeta.sync();
+
+        std::shared_ptr<NaiveAttention> naiveAttentionC4(new NaiveAttention);
+        expected_result = naiveAttentionC4->onExecute(query, key, value, mask, seqLen);
+        auto queryC4 = vector_to_c4_value(query);
+        auto keyC4 = vector_to_c4_value(key);
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = seqLen;
+        auto attnC4 = _makeAttentionModule(8, true, true);
+        Output = attnC4->onForward({queryC4, keyC4, valueC4, Mask})[0];
+        if (!compareC4Result(seqLen, "C4 Q/K/V prefill")) {
+            return false;
+        }
+        gMeta.sync();
+
+        auto decodeQueryC4 = vector_to_c4_value(decodeQuery);
+        auto decodeKeyC4 = vector_to_c4_value(decodeKey);
+        expected_result = naiveAttentionC4->onExecute(decodeQuery, decodeKey, decodeValue, decodeMask, 1);
+        gMeta.add = 1;
+        Output = attnC4->onForward({decodeQueryC4, decodeKeyC4, decodeValueC4, Mask})[0];
+        if (!compareC4Result(1, "C4 Q/K/V decode")) {
+            return false;
+        }
+        gMeta.sync();
+        return true;
+    }
+
+    bool runC4Only(int seqLen, int precision) {
+        generateInput(seqLen, precision);
+        generateMask(seqLen, seqLen);
+        auto queryC4 = vector_to_c4_value(query);
+        auto keyC4 = vector_to_c4_value(key);
+        auto valueC4 = vector_to_c4_value(value);
+
+        std::shared_ptr<NaiveAttention> outputTailNaive(new NaiveAttention);
+        expected_result = outputTailNaive->onExecute(query, key, value, mask, seqLen);
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = seqLen;
+        auto outputTailAttn = _makeAttentionModule(8, true, true);
+        Output = outputTailAttn->onForward({Query, Key, Value, Mask})[0];
+        if (!compareC4Result(seqLen, "NCHW Q/K/V with C4 tail output")) {
+            return false;
+        }
+        gMeta.sync();
+
+        std::shared_ptr<NaiveAttention> valueTailNaive(new NaiveAttention);
+        expected_result = valueTailNaive->onExecute(query, key, value, mask, seqLen);
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = seqLen;
+        auto valueTailAttn = _makeAttentionModule(8, true, true);
+        Output = valueTailAttn->onForward({Query, Key, valueC4, Mask})[0];
+        if (!compareC4Result(seqLen, "NCHW Q/K with C4 tail V/output")) {
+            return false;
+        }
+        gMeta.sync();
+
+        std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+        expected_result = naiveAttention->onExecute(query, key, value, mask, seqLen);
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = seqLen;
+        auto attn = _makeAttentionModule(8, true, true);
+        Output = attn->onForward({queryC4, keyC4, valueC4, Mask})[0];
+        if (!compareC4Result(seqLen, "C4 tail Q/K/V prefill")) {
+            return false;
+        }
+        gMeta.sync();
+
+        auto decodeQuery = generateRandTensor(1, NumHead, HeadDim, precision);
+        auto decodeKey = generateRandTensor(1, KvNumHead, HeadDim, precision);
+        auto decodeValue = generateRandTensor(1, KvNumHead, HeadDim, precision);
+        auto decodeQueryC4 = vector_to_c4_value(decodeQuery);
+        auto decodeKeyC4 = vector_to_c4_value(decodeKey);
+        auto decodeValueC4 = vector_to_c4_value(decodeValue);
+        std::vector<std::vector<int>> decodeMask;
+        expected_result = naiveAttention->onExecute(decodeQuery, decodeKey, decodeValue, decodeMask, 1);
+        gMeta.add = 1;
+        Output = attn->onForward({decodeQueryC4, decodeKeyC4, decodeValueC4, Mask})[0];
+        bool pass = compareC4Result(1, "C4 tail Q/K/V decode");
+        gMeta.sync();
+        return pass;
     }
 
     virtual bool run(int precision) {
@@ -664,6 +797,27 @@ public:
     }
 };
 
+class AttentionC4TailTest : public AttentionC4Test {
+public:
+    virtual bool run(int precision) {
+        const int originalNumHead = NumHead;
+        const int originalKvNumHead = KvNumHead;
+        const int originalHeadDim = HeadDim;
+        NumHead = 3;
+        KvNumHead = 1;
+        HeadDim = 4;
+        srand(2024);
+        bool tailPass = runC4Only(10, precision);
+        NumHead = 2;
+        tailPass = tailPass && runC4Only(10, precision);
+        NumHead = originalNumHead;
+        KvNumHead = originalKvNumHead;
+        HeadDim = originalHeadDim;
+        return tailPass;
+    }
+};
+
 MNNTestSuiteRegister(AttentionC4Test, "op/attention_c4");
+MNNTestSuiteRegister(AttentionC4TailTest, "op/attention_c4_tail");
 MNNTestSuiteRegister(SpeedAttentionTest, "speed/attention");
 #endif

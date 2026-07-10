@@ -153,22 +153,36 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
     return true;
 }
 
+void AttentionBufExecution::getAttentionShape(const std::vector<Tensor*>& inputs, int& batch, int& seqlen,
+                                              int& kvInputLen, int& numHead, int& kvNumHead, int& headDim) const {
+    auto query = inputs[0];
+    auto key = inputs[1];
+    if (mInputC4) {
+        batch = 1;
+        seqlen = query->length(0);
+        kvInputLen = key->length(0);
+        headDim = mHeadDimParam;
+        numHead = query->length(1) / headDim;
+        kvNumHead = key->length(1) / headDim;
+        return;
+    }
+    auto shape = query->shape();
+    batch = shape[0];
+    seqlen = shape[1];
+    kvInputLen = key->length(1);
+    numHead = shape[2];
+    kvNumHead = key->length(2);
+    headDim = shape[3];
+}
+
 void AttentionBufExecution::handleKVCache(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     if (mHasMask) {
         auto mask = inputs[3];
         mIsAddMask = (mask->getType() == halide_type_of<float>());
     }
 
-    auto query = inputs[0];
-    auto key = inputs[1];
-    auto shape = query->shape();
-
-    int batch = shape[0];
-    int seqlen = shape[1];
-    int kvInputLen = key->shape()[1];
-    int numHead = shape[2];
-    int kvNumHead = key->shape()[2];
-    int headDim = shape[3];
+    int batch, seqlen, kvInputLen, numHead, kvNumHead, headDim;
+    getAttentionShape(inputs, batch, seqlen, kvInputLen, numHead, kvNumHead, headDim);
 
     if (nullptr == mMeta) {
         mPastKvSeqlen = 0;
@@ -224,14 +238,8 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
     auto query = inputs[0];
     auto key = inputs[1];
     auto value = inputs[2];
-    auto shape = query->shape();
-
-    int batch = shape[0];
-    int seqlen = shape[1];
-    int kvInputLen = key->shape()[1];
-    int numHead = shape[2];
-    int kvNumHead = key->shape()[2];
-    int headDim = shape[3];
+    int batch, seqlen, kvInputLen, numHead, kvNumHead, headDim;
+    getAttentionShape(inputs, batch, seqlen, kvInputLen, numHead, kvNumHead, headDim);
     int group_size = numHead / kvNumHead;
     float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(headDim)) : mAttnScale;
     mPastKvSeqlen = mKVCacheCLManager->pastKvLength();
@@ -495,14 +503,8 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor*>& i
     auto key = inputs[1];
     auto value = inputs[2];
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    auto shape = query->shape();
-
-    int batch = shape[0];
-    int seqlen = shape[1];
-    int kvInputLen = key->shape()[1];
-    int numHead = shape[2];
-    int kvNumHead = key->shape()[2];
-    int headDim = shape[3];
+    int batch, seqlen, kvInputLen, numHead, kvNumHead, headDim;
+    getAttentionShape(inputs, batch, seqlen, kvInputLen, numHead, kvNumHead, headDim);
     int group_size = numHead / kvNumHead;
     float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(headDim)) : mAttnScale;
     int maskQlen = seqlen;
@@ -607,6 +609,12 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor*>& i
     // rearrange qkv
     {
         std::set<std::string> buildOption;
+        if (TensorUtils::getDescribe(query)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            buildOption.emplace("-DQUERY_C4");
+        }
+        if (TensorUtils::getDescribe(key)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            buildOption.emplace("-DKEY_C4");
+        }
         if (TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
             buildOption.emplace("-DVALUE_C4");
         }
@@ -1071,14 +1079,8 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor*>& input
     auto query = inputs[0];
     auto key = inputs[1];
     auto value = inputs[2];
-    auto shape = query->shape();
-
-    int batch = shape[0];
-    int seqlen = shape[1];
-    int kvInputLen = key->shape()[1];
-    int numHead = shape[2];
-    int kvNumHead = key->shape()[2];
-    int headDim = shape[3];
+    int batch, seqlen, kvInputLen, numHead, kvNumHead, headDim;
+    getAttentionShape(inputs, batch, seqlen, kvInputLen, numHead, kvNumHead, headDim);
     int groupSize = numHead / kvNumHead;
     float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(headDim)) : mAttnScale;
 
@@ -1134,6 +1136,9 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor*>& input
     {
         // rearrange query
         std::set<std::string> buildOption;
+        if (TensorUtils::getDescribe(query)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            buildOption.emplace("-DQUERY_C4");
+        }
 
         mKernel_rearrangeQ = runtime->buildKernel("attention_buf", "rearrange_q", buildOption,
                                                   mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
@@ -1173,6 +1178,9 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor*>& input
         std::set<std::string> buildOption;
 
         buildOption.emplace("-DOPENCL_PREFILL_ATTENTION");
+        if (TensorUtils::getDescribe(key)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            buildOption.emplace("-DKEY_C4");
+        }
         mKernel_rearrange = runtime->buildKernel("attention_buf", "rearrange_k", buildOption,
                                                  mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel_rearrange));
@@ -1465,13 +1473,8 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
     auto query = inputs[0];
     auto key = inputs[1];
     auto value = inputs[2];
-    auto shape = query->shape();
-
-    int batch = shape[0];
-    int seqlen = shape[1];
-    int numHead = shape[2];
-    int kvNumHead = key->shape()[2];
-    int headDim = shape[3];
+    int batch, seqlen, kvInputLen, numHead, kvNumHead, headDim;
+    getAttentionShape(inputs, batch, seqlen, kvInputLen, numHead, kvNumHead, headDim);
     int group_size = numHead / kvNumHead;
     float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(headDim)) : mAttnScale;
 
@@ -1499,6 +1502,9 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
     {
         // rearrange key
         std::set<std::string> buildOption;
+        if (TensorUtils::getDescribe(key)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            buildOption.emplace("-DKEY_C4");
+        }
 
         mKernel_rearrange = runtime->buildKernel("attention_buf", "rearrange_k", buildOption,
                                                  mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
@@ -1543,6 +1549,9 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
         // matmul qk
         std::set<std::string> buildOption;
         buildOption.emplace("-DNUMHEAD_GROUP_SIZE=" + std::to_string(group_size));
+        if (TensorUtils::getDescribe(query)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            buildOption.emplace("-DQUERY_C4");
+        }
         mKernel_qk = runtime->buildKernel("attention_buf", "matmul_qk_decode", buildOption,
                                           mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
         mGlobalWorkSizeQk = {static_cast<uint32_t>(UP_DIV(mKvSeqlen, 4)), static_cast<uint32_t>(numHead)};
@@ -1779,13 +1788,27 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
 // [Batch, q_seqlen, HeadNum, HeadDim] -> [Batch, kv_seqlen, HeadNum, HeadDim]
 ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     mOpenCLBackend->startRecord(mRecording);
-    auto shape = inputs[0]->shape();
-
-    int batch = shape[0];
-    int seqlen = shape[1];
-    int numHead = shape[2];
-    int headDim = shape[3];
-    int kvNumHead = inputs[1]->shape()[2];
+    auto query = inputs[0];
+    auto key = inputs[1];
+    auto value = inputs[2];
+    mInputC4 = TensorUtils::getDescribe(query)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    if (mInputC4 &&
+        (mHeadDimParam <= 0 || query->dimensions() != 4 || key->dimensions() != 4 || value->dimensions() != 4 ||
+         key->length(0) != value->length(0) || query->length(1) % mHeadDimParam != 0 ||
+         key->length(1) % mHeadDimParam != 0 || key->length(1) != value->length(1) || query->length(2) != 1 ||
+         query->length(3) != 1 || key->length(2) != 1 || key->length(3) != 1 || value->length(2) != 1 ||
+         value->length(3) != 1 || TensorUtils::getDescribe(key)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
+         TensorUtils::getDescribe(value)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4)) {
+        MNN_ERROR("AttentionBufExecution: invalid C4 q/k/v head configuration.\n");
+        return NOT_SUPPORT;
+    }
+    mOutputC4 = TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    int batch, seqlen, kvInputLen, numHead, kvNumHead, headDim;
+    getAttentionShape(inputs, batch, seqlen, kvInputLen, numHead, kvNumHead, headDim);
+    if (mInputC4 && (kvNumHead <= 0 || numHead % kvNumHead != 0)) {
+        MNN_ERROR("AttentionBufExecution: invalid C4 q/k/v head count.\n");
+        return NOT_SUPPORT;
+    }
     if (nullptr != mMeta) {
         // if has kv_cache, default has mask
         //        MNN_ASSERT(inputs.size() > 3);
@@ -1921,7 +1944,7 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, c
         if (mKVCacheCLManager->isReallocDone()) {
             mKVCacheCLManager->clearReallocDone();
         } else {
-            int kvInputLen = inputs[1]->shape()[1];
+            int kvInputLen = mInputC4 ? inputs[1]->length(0) : inputs[1]->length(1);
             mKVCacheCLManager->reallocKVCache(mMeta, kvInputLen);
         }
     }
@@ -2070,7 +2093,9 @@ AttentionBufExecution::AttentionBufExecution(const MNN::Op* op, Backend* backend
     : CommonExecution(backend, op) {
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mOutputC4 = outputC4;
-    mAttnScale = op->main_as_AttentionParam()->attnScale();
+    auto param = op->main_as_AttentionParam();
+    mAttnScale = param->attnScale();
+    mHeadDimParam = param->head_dim();
     mKVCacheCLManager.reset(new KVCacheCLManager(backend, nullptr != mMeta));
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel(
@@ -2087,6 +2112,7 @@ AttentionBufExecution::AttentionBufExecution(std::shared_ptr<KVCacheCLManager> m
     auto param = op->main_as_AttentionParam();
     mOutputC4 = param->output_c4();
     mAttnScale = param->attnScale();
+    mHeadDimParam = param->head_dim();
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel(
         "softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL_CTOR(kernel);

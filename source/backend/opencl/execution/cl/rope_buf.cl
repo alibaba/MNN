@@ -14,7 +14,7 @@
 
 __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global const FLOAT* k, __global const FLOAT* cos,
                        __global const FLOAT* sin, __global FLOAT* q_out, __global FLOAT* k_out,
-                       __private const int outerSize, __private const int halfD, __private const int ropeHalfD,
+                       __private const int outerSize, __private const int workDim, __private const int ropeHalfD,
                        __private const int headDim, __private const int numHead, __private const int kvNumHead
 #ifdef Q_NORM
                        ,
@@ -36,7 +36,7 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
         return;
     }
 #else
-    if (x >= halfD || y >= outerSize || z >= fullHead) {
+    if (x >= workDim || y >= outerSize || z >= fullHead) {
         return;
     }
 #endif
@@ -45,7 +45,8 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
     bool isQ = (z < numHead);
     __global const FLOAT* in_ptr = isQ ? q : k;
     const int inBase = isQ ? (z * D) : ((z - numHead) * D);
-    __global FLOAT* out_ptr = isQ ? (q_out + (y * numHead + z) * D) : (k_out + (y * kvNumHead + z - numHead) * D);
+    __global FLOAT* out_ptr = isQ ? q_out : k_out;
+    const int outBase = inBase;
 
     float var = 0.0f;
 #ifdef Q_NORM
@@ -68,56 +69,64 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
 #endif
 
 #if defined(Q_NORM) || defined(K_NORM)
-    for (int i = 0; i < halfD; ++i) {
-        const int cosIndex = y * headDim + i;
+    for (int i = 0; i < ropeHalfD; ++i) {
+        const int cosIndex = y * (2 * ropeHalfD) + i;
         FLOAT cEven = cos[cosIndex];
-        FLOAT cOdd = cos[cosIndex + halfD];
+        FLOAT cOdd = cos[cosIndex + ropeHalfD];
         FLOAT sEven = sin[cosIndex];
-        FLOAT sOdd = sin[cosIndex + halfD];
+        FLOAT sOdd = sin[cosIndex + ropeHalfD];
 
         FLOAT evenVal = in_ptr[C4_OFFSET(y, inBase + i, outerSize)];
-        FLOAT oddVal = in_ptr[C4_OFFSET(y, inBase + i + halfD, outerSize)];
+        FLOAT oddVal = in_ptr[C4_OFFSET(y, inBase + i + ropeHalfD, outerSize)];
 #ifdef Q_NORM
         if (isQ) {
             evenVal = (FLOAT)((float)evenVal * var * qGamma[i]);
-            oddVal = (FLOAT)((float)oddVal * var * qGamma[i + halfD]);
+            oddVal = (FLOAT)((float)oddVal * var * qGamma[i + ropeHalfD]);
         }
 #endif
 #ifdef K_NORM
         if (!isQ) {
             evenVal = (FLOAT)((float)evenVal * var * kGamma[i]);
-            oddVal = (FLOAT)((float)oddVal * var * kGamma[i + halfD]);
+            oddVal = (FLOAT)((float)oddVal * var * kGamma[i + ropeHalfD]);
         }
 #endif
 
-        if (i < ropeHalfD) {
-            FLOAT v0 = evenVal * cEven - oddVal * sEven;
-            FLOAT v1 = oddVal * cOdd + evenVal * sOdd;
-            out_ptr[i] = v0;
-            out_ptr[i + halfD] = v1;
-        } else {
-            out_ptr[i] = evenVal;
-            out_ptr[i + halfD] = oddVal;
-        }
-    }
-#else
-    const int cosIndex = y * headDim + x;
-    FLOAT cEven = cos[cosIndex];
-    FLOAT cOdd = cos[cosIndex + halfD];
-    FLOAT sEven = sin[cosIndex];
-    FLOAT sOdd = sin[cosIndex + halfD];
-
-    FLOAT evenVal = in_ptr[C4_OFFSET(y, inBase + x, outerSize)];
-    FLOAT oddVal = in_ptr[C4_OFFSET(y, inBase + x + halfD, outerSize)];
-
-    if (x < ropeHalfD) {
         FLOAT v0 = evenVal * cEven - oddVal * sEven;
         FLOAT v1 = oddVal * cOdd + evenVal * sOdd;
-        out_ptr[x] = v0;
-        out_ptr[x + halfD] = v1;
-    } else {
-        out_ptr[x] = evenVal;
-        out_ptr[x + halfD] = oddVal;
+        out_ptr[C4_OFFSET(y, outBase + i, outerSize)] = v0;
+        out_ptr[C4_OFFSET(y, outBase + i + ropeHalfD, outerSize)] = v1;
+    }
+    for (int i = 2 * ropeHalfD; i < D; ++i) {
+        FLOAT value = in_ptr[C4_OFFSET(y, inBase + i, outerSize)];
+#ifdef Q_NORM
+        if (isQ) {
+            value = (FLOAT)((float)value * var * qGamma[i]);
+        }
+#endif
+#ifdef K_NORM
+        if (!isQ) {
+            value = (FLOAT)((float)value * var * kGamma[i]);
+        }
+#endif
+        out_ptr[C4_OFFSET(y, outBase + i, outerSize)] = value;
+    }
+#else
+    if (x < ropeHalfD) {
+        const int cosIndex = y * (2 * ropeHalfD) + x;
+        FLOAT cEven = cos[cosIndex];
+        FLOAT cOdd = cos[cosIndex + ropeHalfD];
+        FLOAT sEven = sin[cosIndex];
+        FLOAT sOdd = sin[cosIndex + ropeHalfD];
+        FLOAT evenVal = in_ptr[C4_OFFSET(y, inBase + x, outerSize)];
+        FLOAT oddVal = in_ptr[C4_OFFSET(y, inBase + x + ropeHalfD, outerSize)];
+        FLOAT v0 = evenVal * cEven - oddVal * sEven;
+        FLOAT v1 = oddVal * cOdd + evenVal * sOdd;
+        out_ptr[C4_OFFSET(y, outBase + x, outerSize)] = v0;
+        out_ptr[C4_OFFSET(y, outBase + x + ropeHalfD, outerSize)] = v1;
+    }
+    int tail = 2 * ropeHalfD + x;
+    if (tail < D) {
+        out_ptr[C4_OFFSET(y, outBase + tail, outerSize)] = in_ptr[C4_OFFSET(y, inBase + tail, outerSize)];
     }
 #endif
 }

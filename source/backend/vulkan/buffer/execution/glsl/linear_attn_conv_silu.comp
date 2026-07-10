@@ -16,7 +16,7 @@ layout(set=0, binding=3) writeonly buffer s3{
 
 layout(set=0, binding=4) readonly uniform constBuffer {
     ivec4 size0; // batch, conv_dim, seq_len, kernel_size
-    ivec4 size1; // conv_state_size, total, 0, 0
+    ivec4 size1; // conv_state_size, total, qkv_c4, 0
 } uConstant;
 
 layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -32,6 +32,7 @@ void main()
     int L = uConstant.size0.z;
     int K = uConstant.size0.w;
     int css = uConstant.size1.x; // conv_state_size = K - 1
+    bool qkvC4 = uConstant.size1.z != 0;
 
     int l = gid % L;
     int bd = gid / L;
@@ -47,7 +48,10 @@ void main()
         if (pos < css) {
             input_val = float(uConvState.data[b * D * css + d * css + pos]);
         } else {
-            input_val = float(uQKV.data[b * D * L + d * L + (pos - css)]);
+            int lIn = pos - css;
+            int inputOffset = qkvC4 ? ((d >> 2) * (B * L) + b * L + lIn) * 4 + (d & 3)
+                                     : b * D * L + d * L + lIn;
+            input_val = float(uQKV.data[inputOffset]);
         }
         sum += input_val * float(uConvWeight.data[d * K + k]);
     }

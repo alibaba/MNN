@@ -32,6 +32,8 @@ private:
     std::shared_ptr<CPULayerNorm::Resource> mKNorm;
     MemChunk mTmpQC4;
     MemChunk mTmpKC4;
+    MemChunk mTmpQOutput;
+    MemChunk mTmpKOutput;
     MemChunk mTmpQFloat;
     MemChunk mTmpKFloat;
 };

@@ -1,0 +1,119 @@
+layout(set=0, binding=0) readonly buffer s0 {
+    FLOAT data[];
+} uQ;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT data[];
+} uK;
+
+layout(set=0, binding=2) readonly buffer s2 {
+    FLOAT data[];
+} uCos;
+
+layout(set=0, binding=3) readonly buffer s3 {
+    FLOAT data[];
+} uSin;
+
+layout(set=0, binding=4) writeonly buffer s4 {
+    FLOAT data[];
+} uQOut;
+
+layout(set=0, binding=5) writeonly buffer s5 {
+    FLOAT data[];
+} uKOut;
+
+layout(set=0, binding=6) readonly buffer s6 {
+    FLOAT data[];
+} uQGamma;
+
+layout(set=0, binding=7) readonly buffer s7 {
+    FLOAT data[];
+} uKGamma;
+
+layout(set=0, binding=8) readonly uniform constBuffer {
+    ivec4 size0; // seqLen, headDim, numHead, kvNumHead
+    ivec4 size1; // ropeHalfDim, qNorm, kNorm, 0
+    vec4 eps;    // qEps, kEps, 0, 0
+} uConstant;
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+shared float squareSum[64];
+
+int c4Offset(int token, int channel, int seqLen) {
+    return ((channel >> 2) * seqLen + token) * 4 + (channel & 3);
+}
+
+void main() {
+    const int combinedHead = int(gl_WorkGroupID.x);
+    const int token = int(gl_WorkGroupID.y);
+    const int seqLen = uConstant.size0.x;
+    const int headDim = uConstant.size0.y;
+    const int numHead = uConstant.size0.z;
+    const int kvNumHead = uConstant.size0.w;
+    if (token >= seqLen || combinedHead >= numHead + kvNumHead) {
+        return;
+    }
+
+    const bool isQ = combinedHead < numHead;
+    const int head = isQ ? combinedHead : combinedHead - numHead;
+    const int channelBase = head * headDim;
+    const bool useNorm = isQ ? (uConstant.size1.y != 0) : (uConstant.size1.z != 0);
+    const uint tid = gl_LocalInvocationID.x;
+    float localSum = 0.0;
+    if (useNorm) {
+        for (int d = int(tid); d < headDim; d += 64) {
+            int offset = c4Offset(token, channelBase + d, seqLen);
+            float value = isQ ? float(uQ.data[offset]) : float(uK.data[offset]);
+            localSum += value * value;
+        }
+    }
+    squareSum[tid] = localSum;
+    barrier();
+    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            squareSum[tid] += squareSum[tid + stride];
+        }
+        barrier();
+    }
+    const float eps = isQ ? uConstant.eps.x : uConstant.eps.y;
+    const float scale = useNorm ? inversesqrt(squareSum[0] / float(headDim) + eps) : 1.0;
+    const int ropeHalfDim = uConstant.size1.x;
+    const int ropeDim = ropeHalfDim * 2;
+    const int trigBase = token * ropeDim;
+
+    for (int d = int(tid); d < ropeHalfDim; d += 64) {
+        const int evenOffset = c4Offset(token, channelBase + d, seqLen);
+        const int oddOffset = c4Offset(token, channelBase + d + ropeHalfDim, seqLen);
+        float even = isQ ? float(uQ.data[evenOffset]) : float(uK.data[evenOffset]);
+        float odd = isQ ? float(uQ.data[oddOffset]) : float(uK.data[oddOffset]);
+        if (useNorm) {
+            even *= scale * (isQ ? float(uQGamma.data[d]) : float(uKGamma.data[d]));
+            odd *= scale *
+                   (isQ ? float(uQGamma.data[d + ropeHalfDim]) : float(uKGamma.data[d + ropeHalfDim]));
+        }
+        const float cEven = float(uCos.data[trigBase + d]);
+        const float cOdd = float(uCos.data[trigBase + d + ropeHalfDim]);
+        const float sEven = float(uSin.data[trigBase + d]);
+        const float sOdd = float(uSin.data[trigBase + d + ropeHalfDim]);
+        if (isQ) {
+            uQOut.data[evenOffset] = FLOAT(even * cEven - odd * sEven);
+            uQOut.data[oddOffset] = FLOAT(odd * cOdd + even * sOdd);
+        } else {
+            uKOut.data[evenOffset] = FLOAT(even * cEven - odd * sEven);
+            uKOut.data[oddOffset] = FLOAT(odd * cOdd + even * sOdd);
+        }
+    }
+    for (int d = ropeDim + int(tid); d < headDim; d += 64) {
+        const int offset = c4Offset(token, channelBase + d, seqLen);
+        float value = isQ ? float(uQ.data[offset]) : float(uK.data[offset]);
+        if (useNorm) {
+            value *= scale * (isQ ? float(uQGamma.data[d]) : float(uKGamma.data[d]));
+        }
+        if (isQ) {
+            uQOut.data[offset] = FLOAT(value);
+        } else {
+            uKOut.data[offset] = FLOAT(value);
+        }
+    }
+}

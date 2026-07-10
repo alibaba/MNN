@@ -17,6 +17,14 @@ public:
                            Context& context, CommandBuffer& res) const override {
         /* Target: Ensure reduce dimensions must be a sequence subset [-rank,...,rank-1] */
         auto layernorm          = op->main_as_LayerNorm();
+        if (op->defaultDimentionFormat() == MNN_DATA_FORMAT_NC4HW4) {
+            for (auto input : inputs) {
+                TensorUtils::getDescribe(input)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            }
+            for (auto output : outputs) {
+                TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            }
+        }
         if (!layernorm->axis() || op->defaultDimentionFormat() == MNN_DATA_FORMAT_NC4HW4) {
             std::shared_ptr<Command> cmdP(new Command);
             auto& cmd = *cmdP;

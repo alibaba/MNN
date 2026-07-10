@@ -4637,7 +4637,6 @@ static CoreFunctions* gCoreFunction = nullptr;
 
 static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven, const void* cosOdd,
                                 const void* sinEven, const void* sinOdd, int numHead, int headDim, int ropeCutHeadDim) {
-    const int halfHeadDim = headDim / 2;
     int ropeDim = ropeCutHeadDim;
     if (ropeDim <= 0 || ropeDim > headDim) {
         ropeDim = headDim;
@@ -4653,9 +4652,9 @@ static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven,
     auto sinOddFloat = static_cast<const float*>(sinOdd);
     for (int j = 0; j < numHead; ++j) {
         auto src0 = srcFloat + j * headDim;
-        auto src1 = src0 + halfHeadDim;
+        auto src1 = src0 + ropeHalfHeadDim;
         auto dst0 = dstFloat + j * headDim;
-        auto dst1 = dst0 + halfHeadDim;
+        auto dst1 = dst0 + ropeHalfHeadDim;
         int k = 0;
         for (; k <= ropeHalfHeadDim - 4; k += 4) {
             auto q0 = Vec4::load(src0 + k);
@@ -4673,9 +4672,9 @@ static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven,
             dst0[k] = q0 * cosEvenFloat[k] - q1 * sinEvenFloat[k];
             dst1[k] = q1 * cosOddFloat[k] + q0 * sinOddFloat[k];
         }
-        if (ropeHalfHeadDim < halfHeadDim) {
-            ::memcpy(dst0 + ropeHalfHeadDim, src0 + ropeHalfHeadDim, (halfHeadDim - ropeHalfHeadDim) * sizeof(float));
-            ::memcpy(dst1 + ropeHalfHeadDim, src1 + ropeHalfHeadDim, (halfHeadDim - ropeHalfHeadDim) * sizeof(float));
+        if (ropeDim < headDim) {
+            ::memcpy(dstFloat + j * headDim + ropeDim, srcFloat + j * headDim + ropeDim,
+                     (headDim - ropeDim) * sizeof(float));
         }
     }
 }
