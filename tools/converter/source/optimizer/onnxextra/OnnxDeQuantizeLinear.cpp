@@ -88,7 +88,8 @@ public:
         std::unique_ptr<MNN::OpT> iden(new MNN::OpT);
         iden->type = OpType_Int8ToFloat;
 
-        if (input->getInfo() && input->getInfo()->dim.size() == 4) { // convolution weight
+        if (input->getInfo() && input->getInfo()->dim.size() == 4 &&
+            input->readMap<int8_t>() != nullptr) { // convolution weight
             auto shape_ = input->getInfo()->dim;
             int size = scale->getInfo()->dim[0];
             // [oc,ic,kx,ky] -> [ic,oc,kx,ky]
