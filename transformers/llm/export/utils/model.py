@@ -225,8 +225,14 @@ class LlmModel(PreTrainedModel):
         final_logit_softcapping = getattr(text_config, 'final_logit_softcapping', None)
         model.lm = Lm(model.lm, final_logit_softcapping=final_logit_softcapping)
 
-        if 'gemma' in model_type and hasattr(model.embed, 'embed_scale'):
-            model.scale_emb = model.embed.embed_scale
+        embed_scale = getattr(model.embed, 'embed_scale', None)
+        if embed_scale is not None:
+            if isinstance(embed_scale, torch.Tensor):
+                is_identity_scale = embed_scale.numel() == 1 and embed_scale.detach().cpu().item() == 1.0
+            else:
+                is_identity_scale = embed_scale == 1.0
+            if not is_identity_scale:
+                model.scale_emb = embed_scale
 
         # Multi-modal parts
         if model.visual is not None:

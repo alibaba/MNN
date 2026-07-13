@@ -12,7 +12,10 @@ class Embedding(torch.nn.Module):
         self.hidden_size = config.hidden_size
         self.embed = embed
         self.embed_scale = 1.0
-        if config.model_type == 'gemma' or config.model_type == 'gemma2':
+        config_embed_scale = getattr(config, 'scale_emb', None)
+        if config_embed_scale is not None:
+            self.embed_scale = config_embed_scale
+        elif config.model_type == 'gemma' or config.model_type == 'gemma2':
             self.embed_scale = self.hidden_size**0.5
         if hasattr(embed, 'embed_scale'):
             self.embed_scale = embed.embed_scale
