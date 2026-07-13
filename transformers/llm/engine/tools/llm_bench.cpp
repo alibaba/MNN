@@ -2,7 +2,6 @@
 #include "core/MNNFileUtils.h"
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
-#include "Profiler.hpp"
 #include <fstream>
 #include <sstream>
 #include <regex>
@@ -208,6 +207,7 @@ struct TestInstance {
         std::transform(cost_us.begin(), cost_us.end(), std::back_inserter(ts), [n_tokens](int64_t t) { return 1e6 * n_tokens / t; });
         return ts;
     }
+
     std::vector<double> getTokensPerSecond(std::vector<int64_t> n_tokens, std::vector<int64_t> cost_us) const {
         std::vector<double> ts(n_tokens.size());
         for (int i = 0; i < n_tokens.size(); ++i) {
@@ -380,8 +380,8 @@ struct markdownPrinter : public Printer {
                 value = buf;
             }  else if (field == "backend") {
                 if (t.backend == 1) value = "METAL";
-                else if (t.backend == 2) value = "CUDA";
                 else if (t.backend == 3) value = "OPENCL";
+                else if (t.backend == 7) value = "VULKAN";
                 else value = "CPU";
             } else if (field == "test") {
                 if (t.nPrompt > 0 && t.nGenerate == 0) {
@@ -487,6 +487,7 @@ struct jsonAggregator : public Printer {
         writer.Key("backend");
         if (t.backend == 1) writer.String("METAL");
         else if (t.backend == 3) writer.String("OPENCL");
+        else if (t.backend == 7) writer.String("VULKAN");
         else writer.String("CPU");
 
         writer.Key("threads");
@@ -539,7 +540,7 @@ struct jsonAggregator : public Printer {
 
                 std::vector<double> speed;
                 if (!inst.decodeUs.empty()) {
-                    speed = inst.getTokensPerSecond(inst.nGenerates, inst.decodeUs);
+                    speed = inst.getTokensPerSecond(inst.nGenerate, inst.decodeUs);
                 } else if (!inst.samplesUs.empty()) {
                     speed = inst.getTokensPerSecond(inst.nGenerate, inst.samplesUs);
                 }
@@ -568,7 +569,7 @@ struct jsonAggregator : public Printer {
                     writer.Double(inst.getStdevUs(prefill_speed));
                 }
                 if (!inst.decodeUs.empty()) {
-                    auto decode_speed = inst.getTokensPerSecond(inst.nGenerates, inst.decodeUs);
+                    auto decode_speed = inst.getTokensPerSecond(inst.nGenerate, inst.decodeUs);
                     writer.Key("decode_tps");
                     writer.Double(inst.getAvgUs(decode_speed));
                     writer.Key("decode_std");
@@ -772,28 +773,58 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
     return instances;
 }
 
-std::string getDirectoryOf(const std::string& file_path, std::string& modelname) {
-    // weight filename
-    std::string weight_name = "llm.mnn.weight";
+static uint64_t getFileSizeIfExists(const std::string& path) {
+    if (!MNNFileExist(path.c_str())) {
+        return 0;
+    }
+    file_t file = MNNOpenFile(path.c_str(), MNN_FILE_READ);
+    if (file == INVALID_FILE) {
+        return 0;
+    }
+    auto size = MNNGetFileSize(file);
+    MNNCloseFile(file);
+    return size == INVALID_SIZE ? 0 : size;
+}
+
+static bool isSegmentConfig(const std::string& file_path) {
+    std::ifstream file(file_path.c_str());
+    if (!file.is_open()) {
+        return false;
+    }
+    std::string json_str((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    rapidjson::Document doc;
+    doc.Parse(json_str.c_str());
+    return doc.HasMember("mnn_llm_version") && doc["mnn_llm_version"].IsString() &&
+           std::string(doc["mnn_llm_version"].GetString()) == "segment";
+}
+
+uint64_t getModelSize(const std::string& file_path, std::string& modelname) {
     std::ifstream file(file_path.c_str());
     std::string json_str((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
     rapidjson::Document doc;
     doc.Parse(json_str.c_str());
 
-    if (doc.HasMember("llm_weight") && doc["llm_weight"].IsString()) {
-        weight_name = doc["llm_weight"].GetString();
-    }
-
     size_t pos = file_path.find_last_of("/\\");
     if (pos == std::string::npos) {
         MNN_ERROR("Invalid model config path\n");
-        return "";
+        return 0;
     }
     auto dir = file_path.substr(0, pos);
     pos = dir.find_last_of("/\\");
     modelname = dir.substr(pos + 1, -1);
-    return MNNFilePathConcat(dir, weight_name);
+
+    if (isSegmentConfig(file_path)) {
+        return getFileSizeIfExists(MNNFilePathConcat(dir, "decoder.mnn.weight")) +
+               getFileSizeIfExists(MNNFilePathConcat(dir, "logit.mnn.weight")) +
+               getFileSizeIfExists(MNNFilePathConcat(dir, "embed.mnn.weight"));
+    }
+
+    std::string weight_name = "llm.mnn.weight";
+    if (doc.HasMember("llm_weight") && doc["llm_weight"].IsString()) {
+        weight_name = doc["llm_weight"].GetString();
+    }
+    return getFileSizeIfExists(MNNFilePathConcat(dir, weight_name));
 }
 
 static void printUsage(int /* argc */, char ** argv) {
@@ -802,7 +833,7 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("options:\n");
     printf("  -h, --help\n");
     printf("  -m, --model <filename>                    (default: ./Qwen2.5-1.5B-Instruct/config.json)\n");
-    printf("  -a, --backends <cpu,opencl,metal>         (default: %s)\n", "cpu");
+    printf("  -a, --backends <cpu,opencl,metal,vulkan>  (default: %s)\n", "cpu");
     printf("  -c, --precision <n>                       (default: %s) | Note: (0:Normal(for cpu bakend, 'Normal' is 'High'),1:High,2:Low)\n", join(runtimeParamsDefaults.precision, ",").c_str());
     printf("  -t, --threads <n>                         (default: %s)\n", join(runtimeParamsDefaults.threads, ",").c_str());
     printf("  -p, --n-prompt <n>                        (default: %s)\n", join(testParamsDefaults.nPrompt, ",").c_str());
@@ -818,11 +849,10 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("  -mr, --mixedSme2NeonRatio <n>             (default: 41) | Note: This parameter is intended to optimize multi-threaded inference performance on backends that support Arm SME instructions. The optimal ratio may vary across different models; we recommend trying values such as 41, 49, 33.\n");
     printf("  -qatten, --quant-attention <0|1>          (default: 0) | Note: if 1, quantize attention's key value to int8; default 0\n");
     printf("  -j, --json <filename>                     (default: llm_bench.json) | Note: if set, output result to a JSON file\n");
-    printf("  --profile                                 Enable operator-level profiling to print detailed timing statistics\n");
 }
 
 
-static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile, bool& helpInfo, bool& jsonMode, std::string& jsonFile, bool& enableProfile) {
+static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile, bool& helpInfo, bool& jsonMode, std::string& jsonFile) {
     std::string       arg;
     bool              invalidParam = false;
     const std::string argPrefix    = "--";
@@ -884,10 +914,10 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
             for (auto& type: ba) {
                 if (type == "metal") {
                     p.emplace_back(1);
-                } else if (type == "cuda") {
-                    p.emplace_back(2);
                 } else if (type == "opencl") {
                     p.emplace_back(3);
+                } else if (type == "vulkan") {
+                    p.emplace_back(7);
                 } else {
                     p.emplace_back(0);
                 }
@@ -994,8 +1024,6 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
              if (i + 1 < argc && argv[i+1][0] != '-') {
                  jsonFile = argv[++i];
              }
-        } else if (arg == "--profile") {
-            enableProfile = true;
         }
         else {
             invalidParam = true;
@@ -1058,7 +1086,7 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
 }
 
 
-static Llm* buildLLM(const std::string& config_path, int backend, int memory, int precision, int threads, int power, int dynamic_option, bool use_mmap, int divisionRatioSme2Neon, int smeCoreNum, int promptLen, int attention_mode) {
+static Llm* buildLLM(const std::string& config_path, int backend, int memory, int precision, int threads, int power, int dynamic_option, bool use_mmap, int divisionRatioSme2Neon, int smeCoreNum, int promptLen, int attention_mode, bool isSegment) {
     auto llmPtr = Llm::createLLM(config_path);
     llmPtr->set_config(R"({
         "async":false
@@ -1067,16 +1095,24 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
     // Otherwise, mContext->history_tokens retains data after the first run, skewing true prefill performance metrics."
     llmPtr->set_config(R"({"reuse_kv":false})");
     std::map<int, std::string> lever = {{0,"normal"}, {1, "high"}, {2, "low"}};
-    std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {2, "cuda"}, {3, "opencl"}};
+    std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {3, "opencl"}, {7, "vulkan"}};
     std::map<bool, std::string> mmap = {{true,"true"}, {false, "false"}};
 
     bool setSuccess = true;
-    setSuccess &= llmPtr->set_config("{\"precision\":\"" + lever[precision] + "\"}");
+    if (isSegment) {
+        setSuccess &= llmPtr->set_config("{\"precision\":" + std::to_string(precision) + "}");
+    } else {
+        setSuccess &= llmPtr->set_config("{\"precision\":\"" + lever[precision] + "\"}");
+    }
     if (!setSuccess) {
         MNN_ERROR("precison for LLM config set error\n");
         return nullptr;
     }
-    setSuccess &= llmPtr->set_config("{\"memory\":\"" + lever[memory] + "\"}");
+    if (isSegment) {
+        setSuccess &= llmPtr->set_config("{\"memory\":" + std::to_string(memory) + "}");
+    } else {
+        setSuccess &= llmPtr->set_config("{\"memory\":\"" + lever[memory] + "\"}");
+    }
     if (!setSuccess) {
         MNN_ERROR("memory for LLM config set error\n");
         return nullptr;
@@ -1090,6 +1126,13 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
     if (!setSuccess) {
         MNN_ERROR("backend_type for LLM config set error\n");
         return nullptr;
+    }
+    if (isSegment) {
+        setSuccess &= llmPtr->set_config("{\"forwardtype\":" + std::to_string(backend) + "}");
+        if (!setSuccess) {
+            MNN_ERROR("forwardtype for LLM config set error\n");
+            return nullptr;
+        }
     }
     setSuccess &= llmPtr->set_config("{\"thread_num\":" + std::to_string(threads) + "}");
     if (!setSuccess) {
@@ -1141,8 +1184,7 @@ int main(int argc, char ** argv) {
     bool helpInfo = false;
     bool jsonMode = false;
     std::string jsonFile = "llm_bench.json";
-    bool enableProfile = false;
-    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile, helpInfo, jsonMode, jsonFile, enableProfile);
+    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile, helpInfo, jsonMode, jsonFile);
     if (!parseSuccess) {
         MNN_ERROR("Parse arguments error\n");
         return -1;
@@ -1178,48 +1220,39 @@ int main(int argc, char ** argv) {
 
     for (const auto & instance: paramsInstances) {
         TestInstance t(instance);
-        auto llmWeightPath = getDirectoryOf(t.modelConfigFile, t.modelType); // To check path
-
-        file_t file = MNNOpenFile(llmWeightPath.c_str(), MNN_FILE_READ);
-        t.modelSize = MNNGetFileSize(file);
+        t.modelSize = getModelSize(t.modelConfigFile, t.modelType);
+        const bool isSegment = isSegmentConfig(t.modelConfigFile);
 
         MNN::BackendConfig backendConfig;
-        // Map backend parameter to MNN forward type (0=CPU, 1=METAL, 2=CUDA, 3=OPENCL)
-        MNNForwardType forwardType = static_cast<MNNForwardType>(instance.mCmdParam.backend);
+        MNNForwardType forwardType = isSegment ? MNN_FORWARD_CPU : static_cast<MNNForwardType>(instance.mCmdParam.backend);
         auto executor = MNN::Express::Executor::newExecutor(forwardType, backendConfig, 1);
         MNN::Express::ExecutorScope scope(executor);
 
-        auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt, instance.mCmdParam.attentionOption);
-        std::unique_ptr<Llm> llm(llmPtr);
-        if (enableProfile) {
-            llm->set_config(R"({"enable_debug":true})");
-            auto profiler = MNN::Profiler::getInstance();
-            llm->setDebugCallback(
-                [profiler](const std::vector<MNN::Tensor*>& inputs, const MNN::OperatorInfo* info) {
-                    profiler->start(info);
-                    return true;
-                },
-                [profiler](const std::vector<MNN::Tensor*>& outputs, const MNN::OperatorInfo* info) {
-                    for (auto o : outputs) {
-                        o->wait(MNN::Tensor::MAP_TENSOR_READ, true);
-                    }
-                    profiler->end(info);
-                    return true;
-                }
-            );
-        }
-        if (instance.mCmdParam.loadingTime == "true") {
+        auto createLLM = [&]() {
+            return std::unique_ptr<Llm>(buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend,
+                                                instance.mCmdParam.memory, instance.mCmdParam.precision,
+                                                instance.mCmdParam.threads, instance.mCmdParam.power,
+                                                instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap,
+                                                instance.mCmdParam.divisionRatioSme2Neon,
+                                                instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt,
+                                                instance.mCmdParam.attentionOption, isSegment));
+        };
+        auto measureLoadingTime = [&]() {
+            if (instance.mCmdParam.loadingTime != "true" || !t.loadingS.empty()) {
+                return;
+            }
             for (int k = 0; k < 3; ++k) {
+                auto loadLLM = createLLM();
                 Timer loadingCost;
-                llm->load();
+                loadLLM->load();
                 t.loadingS.push_back((double)loadingCost.durationInUs() / 1e6);
             }
-        } else {
-            llm->load();
-        }
+        };
+        auto llm = createLLM();
+        llm->load();
         tuning_prepare(llm.get());
         auto context = llm->getContext();
-        // Ensure GPU sync for accurate timing
+        // Ensure GPU sync for accurate timing.
         llm->set_config("{\"async\":false}");
         if (instance.mCmdParam.nGenerate > 0) {
             llm->set_config("{\"max_new_tokens\":1}");
@@ -1255,6 +1288,7 @@ int main(int argc, char ** argv) {
                 printer_->printHeader(runtimeParams, testParams);
                 printHeader = false;
             }
+            measureLoadingTime();
             printer_->printPerformance(t);
             // Cool
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -1293,18 +1327,12 @@ int main(int argc, char ** argv) {
                 printer_->printHeader(runtimeParams, testParams);
                 printHeader = false;
             }
+            measureLoadingTime();
             printer_->printPerformance(t);
             // Cool
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
         }
-    }
-
-    if (enableProfile) {
-        auto profiler = MNN::Profiler::getInstance();
-        fprintf(stdout, "\n========== Operator Profile Results ==========\n");
-        // profiler->printTimeByName(1);
-        profiler->printTimeByType(1);
     }
 
     fprintf(stdout, "\n");

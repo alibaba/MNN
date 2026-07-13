@@ -65,6 +65,9 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
 * Combined stdout/stderr for every stage is saved under
   `logs/test-<UTC-timestamp>/<stage>.log` — read the named log of a failing
   stage for the trailing output. `rc=137` ≈ OOM-kill, `rc=139` ≈ SIGSEGV.
+* For GPU/OpenCL smoke tests, verify that the intended backend actually loaded
+  (for example, OpenCL tuning/backend logs are present). A correct model output
+  alone is not sufficient when CPU fallback is possible.
 
 ## Environment variables
 
@@ -146,6 +149,10 @@ recommending deletion:
    [`docs/testing.md`](../../docs/testing.md) § "新增算子测试".
 2. If its name prefix matches an existing stage (e.g. `op/*`), it is picked up
    automatically — no JSON change needed. Otherwise add a dedicated stage.
+3. Do not add backend-specific skips inside an operator test. If a configured
+   backend fails, fix the backend implementation or, for a confirmed driver
+   issue, put the exact test name in the stage `skip` list with a documented
+   rationale in `test_stages.json`.
 
 For deeper work on operators themselves, see the
 [`add-new-op`](../add-new-op/SKILL.md) skill.

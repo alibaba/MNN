@@ -8,6 +8,8 @@
 
 ## 4.1 导出 MNN 模型
 
+> **Safetensors segment 分支**：如果目标是 `--segment` / `MNNConvert -f ST`，不要使用本节默认 ONNX 导出路径，改用 `safetensors-segment.md` 的 S4/S5：`llmexport.py --export mnn --segment --workflow ...`，并用 `llm_demo <MODEL>/config.json prompt.txt` 验证 segment runtime。
+
 ```bash
 cd transformers/llm/export
 python3 llmexport.py \

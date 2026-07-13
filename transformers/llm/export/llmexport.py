@@ -21,6 +21,7 @@ from utils.awq_quantizer import AwqQuantizer
 from utils.smooth_quantizer import SmoothQuantizer
 from utils.omni_quantizer import OmniQuantizer
 from utils.torch_utils import onnx_export
+import segment as segment_export
 
 class LlmExporter(torch.nn.Module):
     '''
@@ -29,7 +30,10 @@ class LlmExporter(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
         self.init_from_args(args)
-        self.load_model(args.path)
+        if segment_export.enabled(args) and getattr(args, 'test', None) is None:
+            segment_export.load_metadata(self, args.path)
+        else:
+            self.load_model(args.path)
 
     def init_from_args(self, args):
         self.args = args
@@ -47,7 +51,7 @@ class LlmExporter(torch.nn.Module):
         # init export dst dir
         if not os.path.exists(self.args.dst_path):
             os.makedirs(self.args.dst_path)
-        if not os.path.exists(self.onnx_path):
+        if not segment_export.enabled(self.args) and not os.path.exists(self.onnx_path):
             os.makedirs(self.onnx_path)
 
     @spinner_run(f'load pretrained model ', True)
@@ -679,6 +683,9 @@ class LlmExporter(torch.nn.Module):
             self.onnx_load_param(onnx_model)
 
     def export(self, export_type):
+        if segment_export.enabled(self.args):
+            segment_export.export(self, export_type)
+            return
         if not self.args.skip_weight:
             if self.args.omni:
                 self.omni_quant()
@@ -879,6 +886,8 @@ def build_args(parser):
     parser.add_argument('--quant_config', type=str, default=None, help='path to the JSON file for op-wise quantization configuration.')
     parser.add_argument('--generate_for_npu', action='store_true', help='Whether or not to generate model for NPU deployment, default is False.')
     parser.add_argument('--skip_weight', action='store_true', help='Whether or not to skip loading model weights, useful for testing export flow.')
+    parser.add_argument('--segment', action='store_true', help='Export segment MNN LLM from safetensors workflow directly, without ONNX export.')
+    parser.add_argument('--workflow', type=str, default=None, help='workflow json for --segment safetensors conversion. If absent, search resource/*.json.')
     # omni quant
     parser.add_argument('--omni_epochs', type=int, default=20, help='OmniQuant 优化的轮数')
     parser.add_argument('--omni_lr', type=float, default=5e-3, help='OmniQuant 的学习率')

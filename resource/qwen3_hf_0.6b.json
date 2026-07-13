@@ -1,0 +1,34 @@
+{
+  "models": [
+    {
+      "name": "hf_decoder",
+      "blocks": [
+        {
+          "type": "QwenTransformer",
+          "hiddenSize": 1024,
+          "headDim": 128,
+          "numHead": 16,
+          "kvNumHead": 8,
+          "number": 28,
+          "max_position_embeddings": 40960
+        }
+      ]
+    },
+    {
+      "name": "logit",
+      "blocks": [
+        {
+          "type": "InnerProduct",
+          "prefix": "lm_head"
+        },
+        {
+          "type": "TieEmbedding"
+        },
+        {
+          "type": "TopKV",
+          "K": [1, 5]
+        }
+      ]
+    }
+  ]
+}

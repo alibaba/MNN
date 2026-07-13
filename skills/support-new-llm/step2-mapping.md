@@ -10,6 +10,8 @@
 
 MNN 使用 4 层映射将 HuggingFace 模型结构转换为统一接口：
 
+> **Safetensors segment 分支**：如果本次目标是 `--segment` 或 `MNNConvert -f ST`，不要把主要工作放在 `model_mapper.py`。segment 分支的映射单位是 `resource/*.json` workflow 和 `tools/converter/source/safetensors` builder，流程见 `safetensors-segment.md` 的步骤 S2。
+
 | 映射键 | 作用 | 说明 |
 |--------|------|------|
 | `config` | HF config.json 字段 → LlmConfig 属性 | 把模型配置正确读入 |

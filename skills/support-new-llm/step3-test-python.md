@@ -10,6 +10,8 @@
 
 仅看最终输出文本是否"合理"是不够的。本步骤通过 **hook 机制**在两个模型的关键位置截取中间结果，逐层对比，精确定位映射或实现中的错误。
 
+> **Safetensors segment 分支**：如果目标是 `--segment` / `MNNConvert -f ST`，本步骤需要先做 `safetensors-segment.md` 中的 S3 静态校验（key、shape、workflow 超参、tokenizer/config 资源）。只有当 segment 分支仍修改了 Python LlmModel 或 transformers 逻辑时，才继续执行本文的 hook 对齐。
+
 **对比的两套模型**：
 1. **原始 transformers 模型**：步骤 1 中加载的 `AutoModelForCausalLM`（标准答案）
 2. **MNN LlmModel**：步骤 2 中映射转换后的 `LlmModel`（需要验证）

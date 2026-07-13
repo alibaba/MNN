@@ -11,6 +11,7 @@
 #include <string>
 #include <MNN/MNNDefine.h>
 #include <fstream>
+#include <vector>
 struct PostTreatContext;
 class MNN_PUBLIC modelConfig {
 public:
@@ -23,13 +24,14 @@ public:
           saveHalfFloat(false){
     }
     ~ modelConfig ();
-    enum MODEL_SOURCE { TENSORFLOW = 0, CAFFE, ONNX, MNN, TFLITE, TORCH, JSON, MAX_SOURCE };
+    enum MODEL_SOURCE { TENSORFLOW = 0, CAFFE, ONNX, MNN, TFLITE, TORCH, JSON, SAFETENSORS, MAX_SOURCE };
 
     // MNN model path
     std::string MNNModel;
     // if model is tensorflow, this value is NULL;
     std::string prototxtFile;
     // tensorflow pb, or caffe model
+    std::vector<std::string> modelFiles;
     std::string modelFile;
     // bizCode
     std::string bizCode;

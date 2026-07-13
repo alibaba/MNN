@@ -57,6 +57,26 @@ The directory structure is as follows:
 + Direct Conversion to MNN Model
 Use `--export mnn` to directly convert to an MNN model. Note that you need to either install pymnn or specify the path to the MNNConvert tool using the `--mnnconvert` option. At least one of these conditions must be met. If pymnn is not installed and the MNNConvert tool's path is not specified via --mnnconvert, the llmexport.py script will search for the MNNConvert tool in the directory "../../../build/". Ensure that the MNNConvert file exists in this directory. This method currently supports exporting 4-bit and 8-bit models.
 
++ Segment MNN Export
+Use `--export mnn --segment` to export a segment-format MNN LLM directly from safetensors weights and a workflow JSON, without generating ONNX first. If `--workflow` is not specified, `llmexport.py` searches `resource/*.json` for a matching workflow.
+
+```
+cd transformers/llm/export
+python3 llmexport.py \
+    --path /path/to/Qwen3-0.6B \
+    --export mnn \
+    --segment \
+    --dst_path ./model
+```
+
+The output directory contains `config.json` with `"mnn_llm_version": "segment"`, `llm_config.json`, `tokenizer.mtok`, `embed.mnn`, `decoder.mnn`, `decoder.mnn.weight`, `logit.mnn`, `logit.mnn.weight`, and `logit_topkv_1.mnn`. Run the segment model with the generated `config.json`:
+
+```
+./llm_demo transformers/llm/export/model/config.json /path/to/prompt.txt
+```
+
+The C++ runtime must be built with `MNN_BUILD_LLM=ON` and `MNN_LLM_SUPPORT_SEGMENT=ON` (enabled by default). Segment export currently supports `--export mnn` only.
+
 + If you encounter issues with directly converting to an MNN model or require quantization with other bit depths (e.g., 5-bit/6-bit), you can first convert the model to an ONNX model using `--export onnx`. Then, use the MNNConvert tool to convert the ONNX model to an MNN model with the following command:
 
 ```
@@ -72,7 +92,7 @@ Use `--export mnn` to directly convert to an MNN model. Note that you need to ei
 ```
 usage: llmexport.py [-h] --path PATH [--type TYPE] [--lora_path LORA_PATH] [--dst_path DST_PATH] [--test TEST] [--export EXPORT]
                     [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK] [--lm_quant_bit LM_QUANT_BIT]
-                    [--mnnconvert MNNCONVERT]
+                    [--mnnconvert MNNCONVERT] [--segment] [--workflow WORKFLOW]
 
 llm_exporter
 
@@ -89,6 +109,8 @@ options:
   --dst_path DST_PATH   export onnx/mnn model to path, default is `./model`.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
+  --segment             export segment MNN LLM from safetensors workflow directly, without ONNX export.
+  --workflow WORKFLOW   workflow json for --segment safetensors conversion. If absent, search resource/*.json.
   --quant_bit QUANT_BIT
                         mnn quant bit, 4 or 8, default is 4.
   --quant_block QUANT_BLOCK
