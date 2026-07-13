@@ -360,6 +360,11 @@ BackendConfig* Executor::RuntimeManager::getBnConfig() {
 void Executor::RuntimeManager::setCache(std::string cacheName) {
     std::lock_guard<std::mutex> _l(mLock);
 
+    if (nullptr == mInside->mInfo) {
+        // Runtime not created (e.g. requested backend unavailable on this device), skip setCache
+        MNN_ERROR("Runtime not created, skip setCache\n");
+        return;
+    }
     mInside->mCache.reset(new Cache);
     mInside->mCache->cacheFile = cacheName;
     mInside->mInfo->onSetCachePath(cacheName.c_str(), 0);
