@@ -713,6 +713,7 @@ class LlmExporter(torch.nn.Module):
 class EmbeddingExporter(LlmExporter):
     def __init__(self, args):
         super().__init__(args)
+        self.dst_name = 'embedding'
 
     def response(self, query):
         self.model.eval()
