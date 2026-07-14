@@ -1,0 +1,84 @@
+layout(set=0, binding=0) buffer outValueBuffer {
+    FLOAT data[];
+} uOutValue;
+
+layout(set=0, binding=1) buffer outIndexBuffer {
+    int data[];
+} uOutIndex;
+
+layout(set=0, binding=2) readonly buffer sourceBuffer {
+    FLOAT data[];
+} uInput;
+
+layout(set=0, binding=3) uniform constBuffer {
+    int rowSize;
+    int k;
+    int numRows;
+    int pad;
+} uConst;
+
+#define MAX_THREAD_NUMBER 1024
+
+shared FLOAT sharedValue[MAX_THREAD_NUMBER];
+shared int sharedIndex[MAX_THREAD_NUMBER];
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+bool better(FLOAT aValue, int aIndex, FLOAT bValue, int bIndex) {
+    if (bIndex < 0) return true;
+    if (aIndex < 0) return false;
+#ifdef SORT_DESC
+    if (aValue > bValue) return true;
+    if (aValue < bValue) return false;
+#else
+    if (aValue < bValue) return true;
+    if (aValue > bValue) return false;
+#endif
+    return aIndex < bIndex;
+}
+
+void main() {
+    int tid = int(gl_LocalInvocationID.x);
+    int row = int(gl_WorkGroupID.y);
+    int threadNumber = int(gl_WorkGroupSize.x);
+
+    if (row >= uConst.numRows) return;
+
+    int rowOffset = row * uConst.rowSize;
+#ifdef SORT_DESC
+    FLOAT bestValue = FLOAT(-1e38);
+#else
+    FLOAT bestValue = FLOAT(1e38);
+#endif
+    int bestIndex = -1;
+
+    for (int c = tid; c < uConst.rowSize; c += threadNumber) {
+        FLOAT value = uInput.data[rowOffset + c];
+        if (better(value, c, bestValue, bestIndex)) {
+            bestValue = value;
+            bestIndex = c;
+        }
+    }
+
+    sharedValue[tid] = bestValue;
+    sharedIndex[tid] = bestIndex;
+    barrier();
+
+    for (uint stride = gl_WorkGroupSize.x >> 1u; stride > 0u; stride >>= 1u) {
+        if (uint(tid) < stride) {
+            uint other = uint(tid) + stride;
+            if (better(sharedValue[other], sharedIndex[other],
+                       sharedValue[tid], sharedIndex[tid])) {
+                sharedValue[tid] = sharedValue[other];
+                sharedIndex[tid] = sharedIndex[other];
+            }
+        }
+        barrier();
+    }
+
+    if (tid == 0) {
+        int outOffset = row * uConst.k;
+        uOutValue.data[outOffset] = sharedValue[0];
+        uOutIndex.data[outOffset] = sharedIndex[0];
+    }
+}

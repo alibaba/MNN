@@ -17,12 +17,14 @@ namespace MNN {
 
 class VulkanPrelu : public VulkanBasicExecution {
 public:
-    VulkanPrelu(Backend* bn, const Op* op, Tensor * tensor);
+    VulkanPrelu(Backend* bn, const Op* op, Tensor* tensor);
     virtual ~VulkanPrelu();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
+    bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override;
 
 private:
+    VulkanPrelu(Backend* bn, const VulkanPrelu* src);
     std::shared_ptr<VulkanBuffer> mGpuPreluParam;
     std::shared_ptr<VulkanBuffer> mSlope;
     const VulkanPipeline* mPreluPipeline;

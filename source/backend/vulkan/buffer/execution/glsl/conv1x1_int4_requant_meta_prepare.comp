@@ -1,0 +1,89 @@
+// Prepare per-output-channel INT8 requant meta for block-quant INT4 weights.
+//
+// Source:
+//   W4:   [padN, padK / 8] uint, each word stores 8 unsigned nibbles
+//         low-bits-first. Decoded q4 = nibble - 8.
+//   Meta: [padN, blockStride, 2] -> (scale, offset) for original W4 blocks.
+//
+// Output:
+//   RowMeta: [padN, 2] -> (scale, offset) for dynamic q8 weights:
+//            realW ~= q8 * scale + offset.
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer WeightBuffer {
+    uint W4[];
+};
+
+layout(binding = 1) readonly buffer WeightMeta {
+    FLOAT Meta[];
+};
+
+layout(binding = 2) writeonly buffer RequantMeta {
+    FLOAT RowMeta[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint K;
+    uint N;
+    uint padK;
+    uint padN;
+    uint blockSize;
+    uint blockStride;
+    uint weightStride;
+} pc;
+
+shared float LocalMin[256];
+shared float LocalMax[256];
+
+void main() {
+    const uint n = gl_WorkGroupID.x;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint localSize = gl_WorkGroupSize.x;
+
+    float minV = 3.402823466e+38;
+    float maxV = -3.402823466e+38;
+
+    if (n < pc.N) {
+        const uint rowBase = ((n >> 2u) * pc.weightStride) * 4u + (n & 3u);
+        for (uint k = tid; k < pc.K; k += localSize) {
+            const uint word = W4[rowBase + (k >> 3u) * 4u];
+            const int q = int((word >> ((k & 7u) * 4u)) & 0xFu) - 8;
+            const uint block = min(k / pc.blockSize, pc.blockStride - 1u);
+            const uint metaBase = (n * pc.blockStride + block) * 2u;
+            const float s = float(Meta[metaBase + 0u]);
+            const float o = float(Meta[metaBase + 1u]);
+            const float v = float(q) * s + o;
+            minV = min(minV, v);
+            maxV = max(maxV, v);
+        }
+    } else {
+        minV = 0.0;
+        maxV = 0.0;
+    }
+
+    LocalMin[tid] = minV;
+    LocalMax[tid] = maxV;
+    barrier();
+
+    for (uint stride = localSize >> 1u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            LocalMin[tid] = min(LocalMin[tid], LocalMin[tid + stride]);
+            LocalMax[tid] = max(LocalMax[tid], LocalMax[tid + stride]);
+        }
+        barrier();
+    }
+
+    if (tid == 0u && n < pc.padN) {
+        float scale = 1.0 / 255.0;
+        float offset = 0.0;
+        if (n < pc.N) {
+            const float rangeV = LocalMax[0] - LocalMin[0];
+            scale = rangeV > 1.0e-8 ? rangeV / 255.0 : 1.0 / 255.0;
+            offset = LocalMin[0] + 128.0 * scale;
+        }
+        const uint dst = n * 2u;
+        RowMeta[dst + 0u] = FLOAT(scale);
+        RowMeta[dst + 1u] = FLOAT(offset);
+    }
+}

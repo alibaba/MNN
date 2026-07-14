@@ -1,0 +1,134 @@
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+layout(set=0, binding=0) readonly buffer Input0Buffer {
+    FLOAT4 data[];
+} uInput0;
+
+layout(set=0, binding=1) readonly buffer Input1Buffer {
+    FLOAT4 data[];
+} uInput1;
+
+layout(set=0, binding=2) writeonly buffer RawOutputBuffer {
+    FLOAT4 data[];
+} uRawOutput;
+
+layout(set=0, binding=3) writeonly buffer NormOutputBuffer {
+    FLOAT4 data[];
+} uNormOutput;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec4 size; // channel, outside, useRMSNorm, hasResidual
+    float eps;
+} uConstant;
+
+layout(constant_id = 3) const uint USE_RMS = 0;
+
+#ifdef LAYERNORM_SCALE
+layout(set=0, binding=5) readonly buffer GammaBuffer {
+    FLOAT4 data[];
+} uGamma;
+
+layout(set=0, binding=6) readonly buffer BetaBuffer {
+    FLOAT4 data[];
+} uBeta;
+#endif
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+float validSum(vec4 v, uint valid) {
+    float r = v.x;
+    if (valid > 1u) {
+        r += v.y;
+    }
+    if (valid > 2u) {
+        r += v.z;
+    }
+    if (valid > 3u) {
+        r += v.w;
+    }
+    return r;
+}
+
+float validSqSum(vec4 v, uint valid) {
+    float r = v.x * v.x;
+    if (valid > 1u) {
+        r += v.y * v.y;
+    }
+    if (valid > 2u) {
+        r += v.z * v.z;
+    }
+    if (valid > 3u) {
+        r += v.w * v.w;
+    }
+    return r;
+}
+
+vec4 maskTail(vec4 v, uint valid) {
+    if (valid <= 1u) {
+        v.y = 0.0;
+    }
+    if (valid <= 2u) {
+        v.z = 0.0;
+    }
+    if (valid <= 3u) {
+        v.w = 0.0;
+    }
+    return v;
+}
+
+void main() {
+    const uint y = gl_WorkGroupID.x;
+    const uint outside = uint(uConstant.size.y);
+    if (y >= outside) {
+        return;
+    }
+
+    const uint channel = uint(uConstant.size.x);
+    const uint channel4 = (channel + 3u) >> 2u;
+    const uint tid = gl_SubgroupInvocationID;
+    const uint subgroupSize = gl_SubgroupSize;
+    const bool hasResidual = uConstant.size.w != 0;
+
+    float sum = 0.0;
+    float sqSum = 0.0;
+    for (uint c4 = tid; c4 < channel4; c4 += subgroupSize) {
+        const uint baseC = c4 << 2u;
+        const uint valid = min(4u, channel - baseC);
+        const uint index = c4 * outside + y;
+        vec4 v = vec4(uInput0.data[index]);
+        if (hasResidual) {
+            v += vec4(uInput1.data[index]);
+        }
+        if (USE_RMS == 0u) {
+            sum += validSum(v, valid);
+        }
+        sqSum += validSqSum(v, valid);
+    }
+
+    const float invChannel = 1.0 / float(channel);
+    const float sumAll = subgroupAdd(sum);
+    const float sqSumAll = subgroupAdd(sqSum);
+    const float mean = (USE_RMS != 0u) ? 0.0 : (sumAll * invChannel);
+    const float squareMean = sqSumAll * invChannel;
+    const float var = (USE_RMS != 0u) ? squareMean : max(squareMean - mean * mean, 0.0);
+    const float invStd = inversesqrt(var + uConstant.eps);
+
+    for (uint c4 = tid; c4 < channel4; c4 += subgroupSize) {
+        const uint baseC = c4 << 2u;
+        const uint valid = min(4u, channel - baseC);
+        const uint index = c4 * outside + y;
+        vec4 v = vec4(uInput0.data[index]);
+        if (hasResidual) {
+            v += vec4(uInput1.data[index]);
+        }
+        vec4 dst = (USE_RMS != 0u) ? (v * invStd) : ((v - vec4(mean)) * invStd);
+#ifdef LAYERNORM_SCALE
+        dst = dst * vec4(uGamma.data[c4]) + vec4(uBeta.data[c4]);
+#endif
+        if (hasResidual) {
+            uRawOutput.data[index] = FLOAT4(maskTail(v, valid));
+        }
+        uNormOutput.data[index] = FLOAT4(maskTail(dst, valid));
+    }
+}

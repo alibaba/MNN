@@ -1,0 +1,179 @@
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifdef D256
+#define D4_SIZE 64
+#elif defined(D192)
+#define D4_SIZE 48
+#elif defined(D128)
+#define D4_SIZE 32
+#else
+#define D4_SIZE 16
+#endif
+
+layout(set=0, binding=0) writeonly buffer s0 {
+    FLOAT data[];
+} uSoftmax;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT data[];
+} uQuery;
+
+layout(set=0, binding=2) readonly buffer s2 {
+    FLOAT4 data[];
+} uCacheKey;
+
+layout(set=0, binding=3) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
+    vec4 f0;  // scale, outputC4, decodeTwoStageEnabled, 0
+} uConst;
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 3) const uint MASK_MODE_CONST = 0u; // 0: runtime, 1: additive, 2: causal
+layout(constant_id = 4) const uint GROUP_SIZE_CONST = 0u; // 0: runtime, otherwise fixed GQA group
+layout(constant_id = 5) const uint SOFTMAX_STRIDE_CONST = 2048u;
+
+const float NEG_INF = -3.402823466e38;
+const int DECODE_TWO_STAGE_MAX_LEN = 2048;
+
+shared vec4 sQuery0[D4_SIZE];
+shared vec4 sQuery1[D4_SIZE];
+shared float sScore0[DECODE_TWO_STAGE_MAX_LEN];
+shared float sScore1[DECODE_TWO_STAGE_MAX_LEN];
+shared float sReduce0[32];
+shared float sReduce1[32];
+
+void main() {
+    const int kvh = int(gl_WorkGroupID.x);
+    const uint tid = gl_LocalInvocationID.x;
+    const uint localSize = gl_WorkGroupSize.x;
+    const uint lane = gl_SubgroupInvocationID;
+    const uint subgroupId = gl_SubgroupID;
+    const uint subgroupCount = gl_NumSubgroups;
+
+    const int qLen = uConst.s0.x;
+    const int headNum = uConst.s0.z;
+    const int kvHeadNum = uConst.s0.w;
+    const int headDim = uConst.s1.x;
+    const int headDimConst = D4_SIZE * 4;
+    const int group = GROUP_SIZE_CONST != 0u ? int(GROUP_SIZE_CONST) : uConst.s1.y;
+    if (kvh >= kvHeadNum || qLen != 1 || headDim != headDimConst || group != 2) {
+        return;
+    }
+
+    const int head0 = kvh * group;
+    const int head1 = head0 + 1;
+    if (head1 >= headNum) {
+        return;
+    }
+
+    if (tid < uint(D4_SIZE)) {
+        const int i = int(tid);
+        const int d = i * 4;
+        const int q0 = head0 * headDimConst + d;
+        const int q1 = head1 * headDimConst + d;
+        sQuery0[i] = vec4(float(uQuery.data[q0 + 0]), float(uQuery.data[q0 + 1]),
+                          float(uQuery.data[q0 + 2]), float(uQuery.data[q0 + 3]));
+        sQuery1[i] = vec4(float(uQuery.data[q1 + 0]), float(uQuery.data[q1 + 1]),
+                          float(uQuery.data[q1 + 2]), float(uQuery.data[q1 + 3]));
+    }
+    barrier();
+
+    const int totalLen = uConst.s1.w;
+    const int pastLen = uConst.s1.z;
+    const int maxLen = uConst.s2.w;
+    if (totalLen <= 0 || totalLen > DECODE_TWO_STAGE_MAX_LEN || maxLen <= 0) {
+        return;
+    }
+
+    const int maskMode = MASK_MODE_CONST != 0u ? int(MASK_MODE_CONST) : uConst.s2.z;
+    const int scanLen = (maskMode == 2 && pastLen + 1 < totalLen) ? (pastLen + 1) : totalLen;
+    if (scanLen <= 0) {
+        return;
+    }
+
+    const float scale = uConst.f0.x;
+    float localMax0 = NEG_INF;
+    float localMax1 = NEG_INF;
+    for (int k = int(tid); k < scanLen; k += int(localSize)) {
+        float dot0 = 0.0;
+        float dot1 = 0.0;
+        for (int i = 0; i < D4_SIZE; ++i) {
+            const int kOff = (kvh * D4_SIZE + i) * maxLen + k;
+            const vec4 kv = vec4(uCacheKey.data[kOff]);
+            dot0 += dot(sQuery0[i], kv);
+            dot1 += dot(sQuery1[i], kv);
+        }
+        const float score0 = dot0 * scale;
+        const float score1 = dot1 * scale;
+        sScore0[k] = score0;
+        sScore1[k] = score1;
+        localMax0 = max(localMax0, score0);
+        localMax1 = max(localMax1, score1);
+    }
+
+    localMax0 = subgroupMax(localMax0);
+    localMax1 = subgroupMax(localMax1);
+    if (lane == 0u) {
+        sReduce0[subgroupId] = localMax0;
+        sReduce1[subgroupId] = localMax1;
+    }
+    barrier();
+
+    if (subgroupId == 0u && lane == 0u) {
+        float max0 = NEG_INF;
+        float max1 = NEG_INF;
+        for (uint i = 0u; i < subgroupCount; ++i) {
+            max0 = max(max0, sReduce0[i]);
+            max1 = max(max1, sReduce1[i]);
+        }
+        sReduce0[0] = max0;
+        sReduce1[0] = max1;
+    }
+    barrier();
+
+    const float max0 = sReduce0[0];
+    const float max1 = sReduce1[0];
+    float localSum0 = 0.0;
+    float localSum1 = 0.0;
+    for (int k = int(tid); k < scanLen; k += int(localSize)) {
+        const float w0 = exp(sScore0[k] - max0);
+        const float w1 = exp(sScore1[k] - max1);
+        sScore0[k] = w0;
+        sScore1[k] = w1;
+        localSum0 += w0;
+        localSum1 += w1;
+    }
+
+    localSum0 = subgroupAdd(localSum0);
+    localSum1 = subgroupAdd(localSum1);
+    if (lane == 0u) {
+        sReduce0[subgroupId] = localSum0;
+        sReduce1[subgroupId] = localSum1;
+    }
+    barrier();
+
+    if (subgroupId == 0u && lane == 0u) {
+        float sum0 = 0.0;
+        float sum1 = 0.0;
+        for (uint i = 0u; i < subgroupCount; ++i) {
+            sum0 += sReduce0[i];
+            sum1 += sReduce1[i];
+        }
+        sReduce0[0] = sum0;
+        sReduce1[0] = sum1;
+    }
+    barrier();
+
+    const float invSum0 = sReduce0[0] > 0.0 ? (1.0 / sReduce0[0]) : 0.0;
+    const float invSum1 = sReduce1[0] > 0.0 ? (1.0 / sReduce1[0]) : 0.0;
+    const int softmaxStride = int(SOFTMAX_STRIDE_CONST);
+    const int base0 = head0 * softmaxStride;
+    const int base1 = head1 * softmaxStride;
+    for (int k = int(tid); k < scanLen; k += int(localSize)) {
+        uSoftmax.data[base0 + k] = FLOAT(sScore0[k] * invSum0);
+        uSoftmax.data[base1 + k] = FLOAT(sScore1[k] * invSum1);
+    }
+}

@@ -50,9 +50,10 @@ void main() {
     float scale = 0.0;
     float offset = 0.0;
     if (m < pc.M) {
-        float rangeV = maxV - minV;
+        const float rangeV = maxV - minV;
         scale = rangeV > 1.0e-8 ? rangeV / 255.0 : 1.0 / 255.0;
-        offset = minV + 128.0 * scale;
+        const float quantBias = round(-minV / scale) - 128.0;
+        offset = -quantBias * scale;
     }
 
     ScaleA[m]  = FLOAT(scale);

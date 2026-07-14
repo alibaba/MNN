@@ -3,13 +3,19 @@
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 layout(constant_id = 3) const uint ACTIVATION = 0; // 0:none 1:relu 2:relu6
+layout(constant_id = 4) const uint BLOCK_SIZE_CONST = 0;
+layout(constant_id = 5) const uint BLOCK_STRIDE_CONST = 0;
+layout(constant_id = 6) const uint OFFSET_MODE = 0; // 0: read meta offset, 1: offset is zero
+layout(constant_id = 7) const uint K_CONST = 0;
+layout(constant_id = 8) const uint WEIGHT_STRIDE_CONST = 0;
+layout(constant_id = 9) const uint N_CONST = 0;
 
 layout(std430, binding = 0) readonly buffer ActivationBuffer {
     FLOAT4 X4[];
 };
 
 layout(std430, binding = 1) readonly buffer WeightBuffer {
-    uint Wp[]; // [padN, padK/8], 8x int4(raw) per uint32
+    uint Wp[]; // [padN/4, padK/8, 4], 8x int4(raw) per uint32
 };
 
 layout(std430, binding = 2) readonly buffer MetaBuffer {
@@ -32,107 +38,128 @@ layout(push_constant) uniform PushConstants {
     uint weightStride;
 } pc;
 
+float dotPackedInt4Block(uint packedW, uint wordIndex, uint m, uint M, uint baseM, uint block8) {
+    const uint xBase = wordIndex << 1u;
+    const FLOAT4 x0 = FLOAT4(X4[(xBase + 0u) * M + m]);
+    const FLOAT4 x1 = FLOAT4(X4[(xBase + 1u) * M + m]);
+    const FLOAT4 w0 = FLOAT4(
+        float((packedW >> 0u) & 0xFu),
+        float((packedW >> 4u) & 0xFu),
+        float((packedW >> 8u) & 0xFu),
+        float((packedW >> 12u) & 0xFu)) - FLOAT4(8.0);
+    const FLOAT4 w1 = FLOAT4(
+        float((packedW >> 16u) & 0xFu),
+        float((packedW >> 20u) & 0xFu),
+        float((packedW >> 24u) & 0xFu),
+        float((packedW >> 28u) & 0xFu)) - FLOAT4(8.0);
+    const uint kb = wordIndex / block8;
+    const uint metaBase = (baseM + kb) * 2u;
+    const FLOAT scale = FLOAT(Meta[metaBase + 0u]);
+    const FLOAT qdot = dot(w0, x0) + dot(w1, x1);
+    if (OFFSET_MODE == 1u) {
+        return float(qdot * scale);
+    }
+    const FLOAT offset = FLOAT(Meta[metaBase + 1u]);
+    const FLOAT xsum = dot(x0, FLOAT4(1.0)) + dot(x1, FLOAT4(1.0));
+    return float(qdot * scale + xsum * offset);
+}
+
 void main() {
-    const uint row = gl_WorkGroupID.x;
-    if (row >= pc.N) {
+    const uint row = gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID;
+    const uint m = gl_WorkGroupID.y;
+    const uint M = gl_NumWorkGroups.y;
+    const uint K = K_CONST != 0u ? K_CONST : pc.K;
+    const uint N = N_CONST != 0u ? N_CONST : pc.N;
+    const uint weightStride = WEIGHT_STRIDE_CONST != 0u ? WEIGHT_STRIDE_CONST : pc.weightStride;
+    if (row >= N) {
         return;
     }
 
-    const uint lane = gl_LocalInvocationID.x;
+    const uint lane = gl_SubgroupInvocationID;
     const uint stride = gl_SubgroupSize;
 
-    const uint K8 = pc.K >> 3;
-    const uint safeBlockSize = max(pc.blockSize, 1u);
-    const uint block8 = max(safeBlockSize >> 3, 1u);
+    const uint K8 = K >> 3;
+    const uint blockSize = BLOCK_SIZE_CONST != 0u ? BLOCK_SIZE_CONST : pc.blockSize;
+    const uint blockStride = BLOCK_STRIDE_CONST != 0u ? BLOCK_STRIDE_CONST : pc.blockStride;
+    const uint block8 = blockSize >> 3u;
 
-    const uint baseW = row * pc.weightStride;
-    const uint baseM = row * pc.blockStride;
+    const uint baseW = ((row >> 2u) * weightStride) * 4u + (row & 3u);
+    const uint baseM = row * blockStride;
 
     float sum = 0.0;
 
-    for (uint idx = lane; idx < K8; idx += stride * 2u) {
-        const uint i0 = idx;
-        const uint i1 = idx + stride;
+    if (K8 <= stride * 4u) {
+        for (uint idx = lane; idx < K8; idx += stride * 4u) {
+            const uint i0 = idx;
+            const uint i1 = idx + stride;
+            const uint i2 = idx + stride * 2u;
+            const uint i3 = idx + stride * 3u;
 
-        if (i0 < K8) {
-            const uint kb = i0 / block8;
-            const uint metaBase = (baseM + kb) * 2;
-            const float scale = float(Meta[metaBase + 0]);
-            const float offset = float(Meta[metaBase + 1]);
-
-            const uint packedW = Wp[baseW + i0];
-            vec4 w0 = vec4(
-                float((packedW >> 0u) & 0xFu),
-                float((packedW >> 4u) & 0xFu),
-                float((packedW >> 8u) & 0xFu),
-                float((packedW >> 12u) & 0xFu));
-            vec4 w1 = vec4(
-                float((packedW >> 16u) & 0xFu),
-                float((packedW >> 20u) & 0xFu),
-                float((packedW >> 24u) & 0xFu),
-                float((packedW >> 28u) & 0xFu));
-
-            w0 = (w0 - vec4(8.0)) * scale + vec4(offset);
-            w1 = (w1 - vec4(8.0)) * scale + vec4(offset);
-
-            const uint xBase = i0 << 1;
-            vec4 x0 = vec4(X4[xBase + 0u]);
-            vec4 x1 = vec4(X4[xBase + 1u]);
-            sum += dot(w0, x0) + dot(w1, x1);
+            if (i0 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i0 * 4u], i0, m, M, baseM, block8);
+            }
+            if (i1 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i1 * 4u], i1, m, M, baseM, block8);
+            }
+            if (i2 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i2 * 4u], i2, m, M, baseM, block8);
+            }
+            if (i3 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i3 * 4u], i3, m, M, baseM, block8);
+            }
         }
+    } else {
+        for (uint idx = lane; idx < K8; idx += stride * 8u) {
+            const uint i0 = idx;
+            const uint i1 = idx + stride;
+            const uint i2 = idx + stride * 2u;
+            const uint i3 = idx + stride * 3u;
+            const uint i4 = idx + stride * 4u;
+            const uint i5 = idx + stride * 5u;
+            const uint i6 = idx + stride * 6u;
+            const uint i7 = idx + stride * 7u;
 
-        if (i1 < K8) {
-            const uint kb = i1 / block8;
-            const uint metaBase = (baseM + kb) * 2;
-            const float scale = float(Meta[metaBase + 0]);
-            const float offset = float(Meta[metaBase + 1]);
-
-            const uint packedW = Wp[baseW + i1];
-            vec4 w0 = vec4(
-                float((packedW >> 0u) & 0xFu),
-                float((packedW >> 4u) & 0xFu),
-                float((packedW >> 8u) & 0xFu),
-                float((packedW >> 12u) & 0xFu));
-            vec4 w1 = vec4(
-                float((packedW >> 16u) & 0xFu),
-                float((packedW >> 20u) & 0xFu),
-                float((packedW >> 24u) & 0xFu),
-                float((packedW >> 28u) & 0xFu));
-
-            w0 = (w0 - vec4(8.0)) * scale + vec4(offset);
-            w1 = (w1 - vec4(8.0)) * scale + vec4(offset);
-
-            const uint xBase = i1 << 1;
-            vec4 x0 = vec4(X4[xBase + 0u]);
-            vec4 x1 = vec4(X4[xBase + 1u]);
-            sum += dot(w0, x0) + dot(w1, x1);
+            if (i0 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i0 * 4u], i0, m, M, baseM, block8);
+            }
+            if (i1 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i1 * 4u], i1, m, M, baseM, block8);
+            }
+            if (i2 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i2 * 4u], i2, m, M, baseM, block8);
+            }
+            if (i3 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i3 * 4u], i3, m, M, baseM, block8);
+            }
+            if (i4 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i4 * 4u], i4, m, M, baseM, block8);
+            }
+            if (i5 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i5 * 4u], i5, m, M, baseM, block8);
+            }
+            if (i6 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i6 * 4u], i6, m, M, baseM, block8);
+            }
+            if (i7 < K8) {
+                sum += dotPackedInt4Block(Wp[baseW + i7 * 4u], i7, m, M, baseM, block8);
+            }
         }
     }
 
-    // Tail K handling for K % 8 != 0.
-    const uint tail = pc.K & 7u;
+    const uint tail = K & 7u;
     if (tail > 0u && gl_SubgroupInvocationID == 0u) {
         const uint idx = K8;
-        const uint packedW = Wp[baseW + idx];
-        const uint kBase = idx << 3;
-        vec4 x0 = vec4(X4[idx << 1]);
-        vec4 x1 = vec4(0.0);
-        if (tail > 4u) {
-            x1 = vec4(X4[(idx << 1) + 1u]);
-        }
+        const uint packedW = Wp[baseW + idx * 4u];
+        const uint kBase = idx << 3u;
+        const uint kb = kBase / blockSize;
+        const uint metaBase = (baseM + kb) * 2u;
+        const float scale = float(Meta[metaBase + 0u]);
+        const float offset = OFFSET_MODE == 1u ? 0.0 : float(Meta[metaBase + 1u]);
+        const vec4 x0 = vec4(X4[(idx << 1u) * M + m]);
+        const vec4 x1 = tail > 4u ? vec4(X4[((idx << 1u) + 1u) * M + m]) : vec4(0.0);
         for (uint t = 0u; t < tail; ++t) {
-            const uint k = kBase + t;
-            const uint kb = k / safeBlockSize;
-            const uint metaBase = (baseM + kb) * 2u;
-            const float scale = float(Meta[metaBase + 0u]);
-            const float offset = float(Meta[metaBase + 1u]);
             const float q = float((packedW >> (t * 4u)) & 0xFu) - 8.0;
-            float x = 0.0;
-            if (t < 4u) {
-                x = x0[int(t)];
-            } else {
-                x = x1[int(t - 4u)];
-            }
+            const float x = t < 4u ? x0[int(t)] : x1[int(t - 4u)];
             sum += (q * scale + offset) * x;
         }
     }
@@ -146,6 +173,6 @@ void main() {
         } else if (ACTIVATION == 2u) {
             y = clamp(y, 0.0, 6.0);
         }
-        Y[row] = FLOAT(y);
+        Y[((row >> 2u) * M + m) * 4u + (row & 3u)] = FLOAT(y);
     }
 }

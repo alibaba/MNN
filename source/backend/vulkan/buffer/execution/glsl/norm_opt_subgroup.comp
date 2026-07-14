@@ -1,0 +1,72 @@
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+layout(set=0, binding=0) writeonly buffer s0 {
+    FLOAT4 data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT4 data[];
+} uInput;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec4 size; // inside, outside, useRMSNorm, outside
+    float eps;
+} uConstant;
+
+layout(constant_id = 3) const uint USE_RMS = 0;
+
+#ifdef LAYERNORM_SCALE
+layout(set=0, binding=3) readonly buffer s2 {
+    FLOAT4 data[];
+} uGamma;
+
+layout(set=0, binding=4) readonly buffer s3 {
+    FLOAT4 data[];
+} uBeta;
+#endif
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    const int inside = uConstant.size.x;
+    const int outside = uConstant.size.w;
+    const int y = int(gl_WorkGroupID.x);
+    if (y >= outside) {
+        return;
+    }
+
+    const int inside4 = inside >> 2;
+    const int base4 = y * inside4;
+    const uint tid = gl_SubgroupInvocationID;
+    const uint subgroupSize = gl_SubgroupSize;
+
+    float sum = 0.0;
+    float sqSum = 0.0;
+    for (int j4 = int(tid); j4 < inside4; j4 += int(subgroupSize)) {
+        const vec4 v4 = vec4(uInput.data[base4 + j4]);
+        if (USE_RMS == 0u) {
+            sum += v4.x + v4.y + v4.z + v4.w;
+        }
+        sqSum += dot(v4, v4);
+    }
+
+    const float invInside = 1.0 / float(inside);
+    const float sumAll = subgroupAdd(sum);
+    const float sqSumAll = subgroupAdd(sqSum);
+    const float mean = (USE_RMS != 0u) ? 0.0 : (sumAll * invInside);
+    const float squareMean = sqSumAll * invInside;
+    const float var = (USE_RMS != 0u) ? squareMean : max(squareMean - mean * mean, 0.0);
+    const float invStd = inversesqrt(var + uConstant.eps);
+
+    for (int j4 = int(tid); j4 < inside4; j4 += int(subgroupSize)) {
+        const vec4 v4 = vec4(uInput.data[base4 + j4]);
+        const vec4 nv = (USE_RMS != 0u) ? (v4 * invStd) : ((v4 - vec4(mean)) * invStd);
+#ifdef LAYERNORM_SCALE
+        const vec4 dst = nv * vec4(uGamma.data[j4]) + vec4(uBeta.data[j4]);
+#else
+        const vec4 dst = nv;
+#endif
+        uOutput.data[base4 + j4] = FLOAT4(dst);
+    }
+}

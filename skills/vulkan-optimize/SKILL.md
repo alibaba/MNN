@@ -178,6 +178,8 @@ makeshader 重生成的文件：`AllShader.cpp`、`VulkanShaderMap.cpp`、`shade
 | 入口 `_init` 标志位 (`mIsInt2/3`) + clone 复制 | 都加 |
 | dispatcher (`VulkanConvolution.cpp`) | 跳过 CoopMat / 选 General |
 
+恢复被删除的 Vulkan shader / execution 文件时，用 `git status --short` 同时检查索引和工作区：`git checkout <branch> -- <path>` 会把恢复文件放入 index，最终交付前要确认这些 `.comp`/`.cpp` 源文件和 `makeshader.py` 生成的 `AllShader` / `VulkanShaderMap` 一起出现在变更列表中。
+
 **编译错调试**：`makeshader.py` 调用 `glslangValidator`，错误直接打到 stderr。运行时 driver 编译错则在 `Warning: Create function failed: ...` 后看 SPIR-V validation 报错。常见：
 
 | 错误 | 原因 |

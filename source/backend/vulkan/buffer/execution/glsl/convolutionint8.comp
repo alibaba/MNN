@@ -32,6 +32,14 @@ layout(set=0, binding=5) uniform constBuffer {
 
 layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
+FLOAT4 unpackInt8x4(uint v) {
+    return FLOAT4(
+        bitfieldExtract(int(v), 0, 8),
+        bitfieldExtract(int(v), 8, 8),
+        bitfieldExtract(int(v), 16, 8),
+        bitfieldExtract(int(v), 24, 8));
+}
+
 void main()
 {
     int gpuIndex = int(gl_GlobalInvocationID.x);
@@ -69,10 +77,10 @@ void main()
                         + ob * uConstant.inputSize.x * uConstant.inputSize.y
                         ;
                     FLOAT4 inputValue = uInput.data[iPos];
-                    FLOAT4 k0 = FLOAT4(unpackSnorm4x8(uKernel.data[(kPosOffset+fz) * 4 + 0]));
-                    FLOAT4 k1 = FLOAT4(unpackSnorm4x8(uKernel.data[(kPosOffset+fz) * 4 + 1]));
-                    FLOAT4 k2 = FLOAT4(unpackSnorm4x8(uKernel.data[(kPosOffset+fz) * 4 + 2]));
-                    FLOAT4 k3 = FLOAT4(unpackSnorm4x8(uKernel.data[(kPosOffset+fz) * 4 + 3]));
+                    FLOAT4 k0 = unpackInt8x4(uKernel.data[(kPosOffset+fz) * 4 + 0]);
+                    FLOAT4 k1 = unpackInt8x4(uKernel.data[(kPosOffset+fz) * 4 + 1]);
+                    FLOAT4 k2 = unpackInt8x4(uKernel.data[(kPosOffset+fz) * 4 + 2]);
+                    FLOAT4 k3 = unpackInt8x4(uKernel.data[(kPosOffset+fz) * 4 + 3]);
                     k0 = k0 * ws + wb;
                     k1 = k1 * ws + wb;
                     k2 = k2 * ws + wb;

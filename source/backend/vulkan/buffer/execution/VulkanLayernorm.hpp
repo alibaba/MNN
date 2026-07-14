@@ -18,10 +18,10 @@ namespace MNN {
 
 class VulkanLayernorm : public VulkanBasicExecution {
 public:
-    VulkanLayernorm(const Op* op, Backend* bn, Tensor * tensor);
+    VulkanLayernorm(const Op* op, Backend* bn, Tensor* tensor);
     virtual ~VulkanLayernorm();
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                       const VulkanCommandPool::Buffer* cmdBuffer) override;
+                               const VulkanCommandPool::Buffer* cmdBuffer) override;
     virtual bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override;
 
 private:
@@ -33,15 +33,26 @@ private:
     std::shared_ptr<VulkanLayout::DescriptorSet> mDesSet;
     const VulkanPipeline* mOptPipeline = nullptr;
     std::shared_ptr<VulkanLayout::DescriptorSet> mOptDesSet;
+    const VulkanPipeline* mOptSubgroupPipeline = nullptr;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mOptSubgroupDesSet;
+    const VulkanPipeline* mC4Pipeline = nullptr;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mC4DesSet;
+    const VulkanPipeline* mC4SubgroupPipeline = nullptr;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mC4SubgroupDesSet;
     std::string mKey;
     std::string mOptKey;
+    std::string mOptSubgroupKey;
+    std::string mC4Key;
+    std::string mC4SubgroupKey;
     std::vector<VkDescriptorType> mDesTypes;
+    std::vector<VkDescriptorType> mC4DesTypes;
     float mEps;
     bool mHasScale = false;
     bool mUseRMSNorm = false;
     int mGroup = 0;
     int mAxisSize = 0;
     bool mFP16{false};
+    uint32_t mSubgroupSize = 0;
 };
 
 } // namespace MNN

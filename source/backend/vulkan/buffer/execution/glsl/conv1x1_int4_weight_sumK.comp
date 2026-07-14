@@ -31,9 +31,9 @@ void main() {
     }
 
     int sum = 0;
-    uint base = n * pc.weightStride;
+    uint base = ((n >> 2u) * pc.weightStride) * 4u + (n & 3u);
     for (uint i = 0u; i < pc.weightStride; ++i) {
-        uint packed = Wp[base + i];
+        uint packed = Wp[base + i * 4u];
         for (uint j = 0u; j < 8u; ++j) {
             sum += int((packed >> (j * 4u)) & 0xFu) - 8;
         }

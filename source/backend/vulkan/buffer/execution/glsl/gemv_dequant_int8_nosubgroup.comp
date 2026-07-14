@@ -51,20 +51,35 @@ void main() {
     float sum = 0.0;
 
     for (uint idx = lane; idx < K4; idx += stride) {
-        const uint kb = idx / block4;
-        const uint metaBase = (baseM + kb) * 2;
-        const float scale = float(Meta[metaBase + 0]);
-        const float offset = float(Meta[metaBase + 1]);
-
         const int packedW = Wp[baseW + idx];
         vec4 w = vec4(
             float(bitfieldExtract(packedW, 0, 8)),
             float(bitfieldExtract(packedW, 8, 8)),
             float(bitfieldExtract(packedW, 16, 8)),
             float(bitfieldExtract(packedW, 24, 8)));
-        w = w * scale + vec4(offset);
-
         vec4 x = vec4(X4[idx]);
+        if ((safeBlockSize & 3u) == 0u) {
+            const uint kb = idx / block4;
+            const uint metaBase = (baseM + kb) * 2u;
+            const float scale = float(Meta[metaBase + 0u]);
+            const float offset = float(Meta[metaBase + 1u]);
+            w = w * scale + vec4(offset);
+        } else {
+            const uint kBase = idx << 2u;
+            const uint kb0 = (kBase + 0u) / safeBlockSize;
+            const uint kb1 = (kBase + 1u) / safeBlockSize;
+            const uint kb2 = (kBase + 2u) / safeBlockSize;
+            const uint kb3 = (kBase + 3u) / safeBlockSize;
+            const uint meta0 = (baseM + kb0) * 2u;
+            const uint meta1 = (baseM + kb1) * 2u;
+            const uint meta2 = (baseM + kb2) * 2u;
+            const uint meta3 = (baseM + kb3) * 2u;
+            w = vec4(
+                w.x * float(Meta[meta0 + 0u]) + float(Meta[meta0 + 1u]),
+                w.y * float(Meta[meta1 + 0u]) + float(Meta[meta1 + 1u]),
+                w.z * float(Meta[meta2 + 0u]) + float(Meta[meta2 + 1u]),
+                w.w * float(Meta[meta3 + 0u]) + float(Meta[meta3 + 1u]));
+        }
         sum += dot(w, x);
     }
 

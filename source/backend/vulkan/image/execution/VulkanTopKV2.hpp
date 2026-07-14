@@ -12,9 +12,8 @@
 
 namespace MNN {
 class VulkanTopKV2 : public VulkanBasicExecution {
-
 public:
-    VulkanTopKV2(const Op* op, Backend* bn, int k);
+    VulkanTopKV2(const Op* op, Backend* bn);
     virtual ~VulkanTopKV2();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
@@ -23,7 +22,6 @@ private:
     const VulkanPipeline* mPipeline;
     std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
     std::shared_ptr<VulkanBuffer> mGpuParam;
-    int mK;
     bool mLargest;
 };
 

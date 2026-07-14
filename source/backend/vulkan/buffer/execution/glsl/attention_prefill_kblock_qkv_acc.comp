@@ -74,66 +74,83 @@ void main() {
     const int row0 = (q0 + 0) * headNum + h;
     const int row1 = (q0 + 1) * headNum + h;
     const bool q1Valid = (q0 + 1) < qLen;
+    const int maskMode = uConst.s2.z;
+    const int pastLen = uConst.s1.z;
+    const bool q0CausalValid = (maskMode != 2) || ((pastLen + q0) >= kStart);
+    const bool q1CausalValid = q1Valid && ((maskMode != 2) || ((pastLen + q0 + 1) >= kStart));
+    if (!q0CausalValid && !q1CausalValid) {
+        return;
+    }
 
-    const float alpha0 = uAlpha.data[row0];
-    const float alpha1 = q1Valid ? uAlpha.data[row1] : 0.0;
+    const float alpha0 = q0CausalValid ? uAlpha.data[row0] : 1.0;
+    const float alpha1 = q1CausalValid ? uAlpha.data[row1] : 0.0;
 
     const int accBase0 = row0 * headDim + d;
-    vec4 outVec0 = vec4(uOAcc.data[accBase0 + 0], uOAcc.data[accBase0 + 1], uOAcc.data[accBase0 + 2], uOAcc.data[accBase0 + 3]) * alpha0;
+    vec4 outVec0 = vec4(0.0);
+    if (q0CausalValid) {
+        outVec0 = vec4(uOAcc.data[accBase0 + 0], uOAcc.data[accBase0 + 1], uOAcc.data[accBase0 + 2], uOAcc.data[accBase0 + 3]) * alpha0;
+    }
 
     vec4 outVec1 = vec4(0.0);
     int accBase1 = 0;
-    if (q1Valid) {
+    if (q1CausalValid) {
         accBase1 = row1 * headDim + d;
         outVec1 = vec4(uOAcc.data[accBase1 + 0], uOAcc.data[accBase1 + 1], uOAcc.data[accBase1 + 2], uOAcc.data[accBase1 + 3]) * alpha1;
     }
 
     const int wBase0 = row0 * blockLen4_4;
     const int wBase1 = row1 * blockLen4_4;
+    int loopK4 = blockLen4_4;
+    if (maskMode == 2) {
+        const int maxQ = q1CausalValid ? (q0 + 1) : q0;
+        const int validK = min(blockLen, max(0, pastLen + maxQ - kStart + 1));
+        loopK4 = (validK + 3) / 4;
+    }
 
-    for (int k4 = 0; k4 < blockLen4_4; ++k4) {
+    for (int k4 = 0; k4 < loopK4; ++k4) {
         const int k0 = k4 * 4;
         const int gk0 = kStart + k0;
 
-        vec4 w0 = vec4(uW.data[wBase0 + k4]);
-        vec4 w1 = q1Valid ? vec4(uW.data[wBase1 + k4]) : vec4(0.0);
+        vec4 w0 = q0CausalValid ? vec4(uW.data[wBase0 + k4]) : vec4(0.0);
+        vec4 w1 = q1CausalValid ? vec4(uW.data[wBase1 + k4]) : vec4(0.0);
 
         if ((gk0 + 0) < totalLen) {
             const int vOff4 = ((kvh * maxLen + (gk0 + 0)) * d4Size) + d4;
             vec4 v = vec4(uCacheValue.data[vOff4]);
-            outVec0 += w0.x * v;
-            if (q1Valid) outVec1 += w1.x * v;
+            if (q0CausalValid) outVec0 += w0.x * v;
+            if (q1CausalValid) outVec1 += w1.x * v;
         }
         if ((gk0 + 1) < totalLen) {
             const int vOff4 = ((kvh * maxLen + (gk0 + 1)) * d4Size) + d4;
             vec4 v = vec4(uCacheValue.data[vOff4]);
-            outVec0 += w0.y * v;
-            if (q1Valid) outVec1 += w1.y * v;
+            if (q0CausalValid) outVec0 += w0.y * v;
+            if (q1CausalValid) outVec1 += w1.y * v;
         }
         if ((gk0 + 2) < totalLen) {
             const int vOff4 = ((kvh * maxLen + (gk0 + 2)) * d4Size) + d4;
             vec4 v = vec4(uCacheValue.data[vOff4]);
-            outVec0 += w0.z * v;
-            if (q1Valid) outVec1 += w1.z * v;
+            if (q0CausalValid) outVec0 += w0.z * v;
+            if (q1CausalValid) outVec1 += w1.z * v;
         }
         if ((gk0 + 3) < totalLen) {
             const int vOff4 = ((kvh * maxLen + (gk0 + 3)) * d4Size) + d4;
             vec4 v = vec4(uCacheValue.data[vOff4]);
-            outVec0 += w0.w * v;
-            if (q1Valid) outVec1 += w1.w * v;
+            if (q0CausalValid) outVec0 += w0.w * v;
+            if (q1CausalValid) outVec1 += w1.w * v;
         }
     }
 
-    uOAcc.data[accBase0 + 0] = outVec0.x;
-    uOAcc.data[accBase0 + 1] = outVec0.y;
-    uOAcc.data[accBase0 + 2] = outVec0.z;
-    uOAcc.data[accBase0 + 3] = outVec0.w;
+    if (q0CausalValid) {
+        uOAcc.data[accBase0 + 0] = outVec0.x;
+        uOAcc.data[accBase0 + 1] = outVec0.y;
+        uOAcc.data[accBase0 + 2] = outVec0.z;
+        uOAcc.data[accBase0 + 3] = outVec0.w;
+    }
 
-    if (q1Valid) {
+    if (q1CausalValid) {
         uOAcc.data[accBase1 + 0] = outVec1.x;
         uOAcc.data[accBase1 + 1] = outVec1.y;
         uOAcc.data[accBase1 + 2] = outVec1.z;
         uOAcc.data[accBase1 + 3] = outVec1.w;
     }
 }
-
