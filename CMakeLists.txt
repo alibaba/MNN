@@ -682,9 +682,11 @@ ENDIF()
 
 # NEUROPILOT
 IF(MNN_NEUROPILOT)
-    target_compile_options(MNNCore PRIVATE -DMNN_NEUROPILOT=1)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/neuropilot)
-    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NEUROPILOT>)
+    IF(TARGET MNN_NEUROPILOT)
+        target_compile_options(MNNCore PRIVATE -DMNN_NEUROPILOT=1)
+        list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NEUROPILOT>)
+    ENDIF()
 ENDIF()
 
 # Vulkan
