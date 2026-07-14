@@ -841,6 +841,7 @@ class Rotary(torch.nn.Module):
         self.attention_scaling = 1.0
         self.is_scaled = False
         self.mrope_interleaved = False
+        self.mrope_axes = 3
 
         def get_theta():
             return 1.0 / (self.rope_theta ** (torch.arange(0, self.rotary_dim, 2, dtype=torch.float32) / self.rotary_dim))
@@ -848,17 +849,21 @@ class Rotary(torch.nn.Module):
         self.theta = get_theta()
         # other type
         if hasattr(config, 'rope_scaling') and config.rope_scaling is not None:
-            scaling_config = config.rope_scaling
+            scaling_config = dict(config.rope_scaling)
+            if 'xdrope_section' in scaling_config and 'mrope_section' not in scaling_config:
+                scaling_config['mrope_section'] = scaling_config['xdrope_section']
             # get rope_type
             rope_type = 'default'
-            if 'type' in config.rope_scaling:
-                rope_type = config.rope_scaling['type']
-            elif 'rope_type' in config.rope_scaling:
-                rope_type = config.rope_scaling['rope_type']
+            if 'type' in scaling_config:
+                rope_type = scaling_config['type']
+            elif 'rope_type' in scaling_config:
+                rope_type = scaling_config['rope_type']
+            if rope_type == 'xdrope':
+                rope_type = 'dynamic'
             # gen theta for rope_type
             if rope_type == 'dynamic': # NTK
-                if 'alpha' in config.rope_scaling: # NTKAlpha in Hunyuan
-                    self.rope_theta *= (config.rope_scaling['alpha'] ** (self.rotary_dim / (self.rotary_dim - 2)))
+                if 'alpha' in scaling_config: # NTKAlpha in Hunyuan
+                    self.rope_theta *= (scaling_config['alpha'] ** (self.rotary_dim / (self.rotary_dim - 2)))
                 else: # NTKScaling
                     pass
                 self.theta = get_theta()
@@ -883,6 +888,7 @@ class Rotary(torch.nn.Module):
             if 'mrope_section' in scaling_config:
                 self.mrope_interleaved = scaling_config.get('mrope_interleaved', False)
                 self.mrope_section = scaling_config['mrope_section']
+                self.mrope_axes = len(self.mrope_section)
                 self.theta = get_theta().unsqueeze(0)
                 self.theta_sections = self.theta.split(self.mrope_section, dim=-1)
                 def apply_interleaved_mrope(freqs, mrope_section):
@@ -922,17 +928,26 @@ class Rotary(torch.nn.Module):
             idx_theta = position_ids * self.theta.to(position_ids.device)
             idx_theta = idx_theta.transpose(1, 0).reshape(-1, 3 * self.rotary_dim // 2)
             idx_theta = idx_theta[:, self.mrope_reindex]
+        elif self.model_type == 'hunyuan_vl':
+            axis_theta = position_ids * self.theta.to(position_ids.device)
+            axis_theta = torch.cat((axis_theta, axis_theta), dim=-1)
+            full_sections = [section * 2 for axis, section in enumerate(self.mrope_section)]
+            axis_chunks = [axis_theta[axis].split(full_sections, dim=-1) for axis in range(self.mrope_axes)]
+            idx_theta = torch.cat([
+                axis_chunks[axis % self.mrope_axes][axis] for axis, section in enumerate(full_sections)
+            ], dim=-1)
         else:
             idx_theta = torch.concat([
-                position_ids[0] * self.theta_sections[0],
-                position_ids[1] * self.theta_sections[1],
-                position_ids[2] * self.theta_sections[2]
+                position_ids[axis] * self.theta_sections[axis]
+                for axis, section in enumerate(self.mrope_section)
             ], dim=-1)
         rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
         if self.model_type in ['glm_ocr']:
             # interleaved doubling: [c0,c0,c1,c1,...,cn,cn]
             rotary_pos_emb = torch.stack((rotary_pos_emb, rotary_pos_emb), dim=-1)
             rotary_pos_emb = rotary_pos_emb.reshape(*rotary_pos_emb.shape[:-2], -1)
+        elif self.model_type == 'hunyuan_vl':
+            pass
         else:
             rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
         rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)

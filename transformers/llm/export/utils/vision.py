@@ -1,4 +1,6 @@
+import json
 import math
+import os
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -52,6 +54,7 @@ class Vision(torch.nn.Module):
             'minicpmv': MiniCPMVision,
             'glm_ocr': GlmOcrVision,
             'lfm2_vl': Lfm2VlVision,
+            'hunyuan_vl': HunyuanVLVision,
         }
         if model_type in visual_models:
             return visual_models[model_type]
@@ -1464,6 +1467,248 @@ class Idefics3Vision(Vision):
                     output_names=['image_embeds'],
                     dynamic_axes={
                         "pixel_values": { 0: "size" },
+                    })
+        return onnx_model
+
+
+class HunyuanVLVision(Vision):
+    def __init__(self, visual, base):
+        self.image_embeds = []
+        self.image_grid_thw = []
+        self.image_height = 512
+        self.image_width = 512
+        self.model_path = getattr(getattr(base, 'args', None), 'path', None)
+        self.is_mrope = getattr(getattr(base, 'rotary', None), 'is_mrope', False)
+        self.mrope_axes = getattr(getattr(base, 'rotary', None), 'mrope_axes', 3)
+        super().__init__(visual, base)
+        self.quant_bit = 4
+        self.transformer_fuse = False
+
+    def load(self):
+        vconfig = self.visual.config
+        self.vision_start_id = self.config.image_start_token_id
+        self.vision_end_id = self.config.image_end_token_id
+        self.image_pad_id = self.config.image_token_id
+        self.patch_size = vconfig.patch_size
+        self.merge_size = vconfig.spatial_merge_size
+        self.temporal_patch_size = vconfig.temporal_patch_size
+        self.min_pixels = vconfig.min_image_size * vconfig.min_image_size
+        self.max_pixels = vconfig.max_image_size * vconfig.max_image_size
+        if self.model_path is not None:
+            preprocessor_config = os.path.join(self.model_path, 'preprocessor_config.json')
+            if os.path.exists(preprocessor_config):
+                with open(preprocessor_config, 'r', encoding='utf-8') as f:
+                    processor_config = json.load(f)
+                self.min_pixels = int(processor_config.get('min_pixels', self.min_pixels))
+                self.max_pixels = int(processor_config.get('max_pixels', self.max_pixels))
+        self.image_height = vconfig.min_image_size
+        self.image_width = vconfig.min_image_size
+        self.llm_config['vision_type'] = 'hunyuan_vl'
+        self.llm_config['image_size'] = self.image_height
+        self.llm_config['image_size_unit'] = self.patch_size * self.merge_size
+        self.llm_config['hunyuan_patch_size'] = self.patch_size
+        self.llm_config['hunyuan_spatial_merge_size'] = self.merge_size
+        self.llm_config['hunyuan_temporal_patch_size'] = self.temporal_patch_size
+        self.llm_config['image_max_size'] = vconfig.max_image_size
+        self.llm_config['image_min_pixels'] = self.min_pixels
+        self.llm_config['image_max_pixels'] = self.max_pixels
+        self.llm_config['vision_start'] = self.vision_start_id
+        self.llm_config['vision_end'] = self.vision_end_id
+        self.llm_config['image_pad'] = self.image_pad_id
+        self.vision_start_token = self.tokenizer.id_to_str(self.vision_start_id)
+        self.vision_end_token = self.tokenizer.id_to_str(self.vision_end_id)
+        self.image_pad_token = self.tokenizer.id_to_str(self.image_pad_id)
+
+    def get_position_ids(self, input_ids, seq_len, new_tokens):
+        if not self.is_mrope:
+            return None
+        axes = self.mrope_axes
+        if new_tokens:
+            return torch.stack([torch.tensor([seq_len - 1], dtype=torch.int)] * axes)
+        position_ids = torch.arange(seq_len, dtype=torch.int)
+        position_ids = torch.stack([position_ids] * axes)
+        if input_ids is None or len(self.image_grid_thw) == 0:
+            return position_ids
+        image_token_id = getattr(self.config, 'image_token_id', None)
+        if image_token_id is None:
+            return position_ids
+        flat_input_ids = input_ids.reshape(-1).to(torch.int64)
+        image_mask = (flat_input_ids == int(image_token_id)).tolist()
+        spans = []
+        start = None
+        for index, is_image in enumerate(image_mask):
+            if is_image and start is None:
+                start = index
+            elif not is_image and start is not None:
+                spans.append((start, index))
+                start = None
+        if start is not None:
+            spans.append((start, len(image_mask)))
+        if len(spans) != len(self.image_grid_thw):
+            raise ValueError(
+                f"HunyuanVL image spans do not match image_grid_thw: spans={len(spans)}, "
+                f"grids={len(self.image_grid_thw)}"
+            )
+        merge_size = int(getattr(self, 'merge_size', 1))
+        axis_offset = max(0, axes - 3)
+        for image_index, ((span_start, span_end), grid_thw) in enumerate(zip(spans, self.image_grid_thw)):
+            _, grid_h, grid_w = [int(x) for x in grid_thw]
+            merged_h = grid_h // merge_size
+            merged_w = grid_w // merge_size
+            grid_tokens = merged_h * (merged_w + 1)
+            span_len = span_end - span_start
+            if span_len == grid_tokens + 2:
+                grid_start = span_start + 1
+            elif span_len == grid_tokens:
+                grid_start = span_start
+            else:
+                raise ValueError(
+                    "HunyuanVL image token span length does not match image_grid_thw: "
+                    f"span_length={span_len}, expected {grid_tokens} or {grid_tokens + 2}"
+                )
+            grid_end = grid_start + grid_tokens
+            width = torch.arange(merged_w + 1, dtype=torch.int).repeat(merged_h)
+            height = torch.arange(merged_h, dtype=torch.int).repeat_interleave(merged_w + 1)
+            position_ids[axis_offset, grid_start:grid_end] = width
+            position_ids[axis_offset + 1, grid_start:grid_end] = height
+            position_ids[axis_offset + 2, grid_start:grid_end] = image_index
+        return position_ids
+
+    def str_to_ids(self, prompt):
+        self.image_embeds = []
+        self.image_grid_thw = []
+        if '<img>' not in prompt or '</img>' not in prompt:
+            return self.tokenizer(prompt, return_tensors="pt")['input_ids']
+        import re
+        import requests
+        from PIL import Image
+        pattern = r'(<img>.*?</img>)'
+        parts = re.split(pattern, prompt)
+        txt_prompt = ''
+        for part in parts:
+            if re.match(pattern, part):
+                img_content = re.search(r'<img>(.*?)</img>', part).group(1)
+                image_hw = None
+                match = re.search(r'<hw>(.*?)</hw>', img_content)
+                if match:
+                    img_content = img_content[:match.start()] + img_content[match.end():]
+                    hw = match.group(1).split(',')
+                    image_hw = (int(hw[0]), int(hw[1]))
+                if img_content.startswith('http://') or img_content.startswith('https://'):
+                    image_obj = Image.open(requests.get(img_content, stream=True).raw)
+                else:
+                    image_obj = Image.open(img_content)
+                img_pad_len = self.img_process(image_obj, image_hw)
+                txt_prompt += self.vision_start_token
+                txt_prompt += self.image_pad_token * img_pad_len
+                txt_prompt += self.vision_end_token
+            else:
+                txt_prompt += part
+        return self.tokenizer(txt_prompt, return_tensors="pt")['input_ids']
+
+    def smart_resize(self, height: int, width: int):
+        factor = self.patch_size * self.merge_size
+        if max(height, width) / min(height, width) > 200:
+            raise ValueError("absolute aspect ratio must be smaller than 200")
+        h_bar = round(height / factor) * factor
+        w_bar = round(width / factor) * factor
+        if h_bar * w_bar > self.max_pixels:
+            beta = math.sqrt((height * width) / self.max_pixels)
+            h_bar = max(factor, math.floor(height / beta / factor) * factor)
+            w_bar = max(factor, math.floor(width / beta / factor) * factor)
+        elif h_bar * w_bar < self.min_pixels:
+            beta = math.sqrt(self.min_pixels / (height * width))
+            h_bar = math.ceil(height * beta / factor) * factor
+            w_bar = math.ceil(width * beta / factor) * factor
+        return h_bar, w_bar
+
+    def vision_reshape(self, images):
+        batch, channel, height, width = images.shape
+        grid_h, grid_w = height // self.patch_size, width // self.patch_size
+        patches = images.reshape(
+            batch,
+            channel,
+            grid_h // self.merge_size,
+            self.merge_size,
+            self.patch_size,
+            grid_w // self.merge_size,
+            self.merge_size,
+            self.patch_size,
+        )
+        patches = patches.permute(0, 2, 5, 3, 6, 1, 4, 7)
+        flatten_patches = patches.unsqueeze(6).expand(
+            -1, -1, -1, -1, -1, -1, self.temporal_patch_size, -1, -1
+        ).reshape(
+            batch,
+            grid_h * grid_w,
+            channel * self.temporal_patch_size * self.patch_size * self.patch_size,
+        )
+        grid_thw = torch.tensor([[1, grid_h, grid_w]], dtype=torch.long)
+        self.image_grid_thw.append([1, grid_h, grid_w])
+        return flatten_patches.reshape(-1, flatten_patches.shape[-1]), grid_thw
+
+    def images_forward(self, images):
+        pixel_values, image_grid_thw = self.vision_reshape(images)
+        return self.forward(pixel_values, image_grid_thw)
+
+    def forward(self, pixel_values, image_grid_thw):
+        output = self.visual(pixel_values, grid_thw=image_grid_thw).pooler_output
+        return output.squeeze(0).unsqueeze(1)
+
+    def img_process(self, image, image_hw=None):
+        from transformers.image_transforms import (
+            convert_to_rgb,
+            resize,
+            rescale,
+            normalize
+        )
+        from transformers.image_utils import (
+            PILImageResampling,
+            infer_channel_dimension_format,
+            to_numpy_array
+        )
+        image_width, image_height = image.size
+        if image_hw is not None:
+            image_height, image_width = image_hw
+        image = convert_to_rgb(image)
+        image = to_numpy_array(image)
+        resized_height, resized_width = self.smart_resize(image_height, image_width)
+        image_format = infer_channel_dimension_format(image)
+        image = resize(
+            image,
+            size=(resized_height, resized_width),
+            resample=PILImageResampling.BICUBIC,
+            input_data_format=image_format
+        )
+        image = rescale(image, scale=1 / 255.0, input_data_format=image_format)
+        image = normalize(image=image, mean=self.norm_mean, std=self.norm_std, input_data_format=image_format)
+        image = np.expand_dims(image, [0])
+        image = image.transpose(0, 3, 1, 2)
+        image_embed = self.images_forward(torch.from_numpy(image))
+        self.image_embeds.append(image_embed.to(dtype=self.embed_.embed.weight.dtype))
+        return image_embed.shape[0]
+
+    def embed(self, input_ids, images=None, videos=None):
+        input_embeds = self.embed_(input_ids)
+        if self.image_embeds:
+            image_mask = (input_ids == self.image_pad_id).squeeze()
+            input_embeds[image_mask] = torch.concat(self.image_embeds, dim=0).to(input_embeds.dtype)
+            self.image_embeds = []
+        return input_embeds
+
+    @spinner_run(f'export visual to ')
+    def export(self, onnx_path):
+        grid = self.image_height // self.patch_size
+        pixel_values = torch.randn([grid * grid, 3 * self.temporal_patch_size * self.patch_size * self.patch_size])
+        image_grid_thw = torch.tensor([[1, grid, grid]], dtype=torch.long)
+        onnx_model = f'{onnx_path}/visual.onnx'
+        onnx_export(self, (pixel_values, image_grid_thw),
+                    onnx_model,
+                    input_names=['pixel_values', 'image_grid_thw'],
+                    output_names=['image_embeds'],
+                    dynamic_axes={
+                        "pixel_values": { 0: "num_patches" },
+                        "image_grid_thw": { 0: "num_images" },
                     })
         return onnx_model
 

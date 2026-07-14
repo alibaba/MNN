@@ -269,6 +269,8 @@ public:
         return config_.value("is_mrope", false);
     }
 
+    int mrope_axes() const { return config_.value("mrope_axes", 3); }
+
     bool has_talker() const {
         return config_.value("has_talker", false);
     }

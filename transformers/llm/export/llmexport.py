@@ -86,6 +86,8 @@ class LlmExporter(torch.nn.Module):
             'attention_type': self.config.attention_type,
             'is_mrope': self.model.rotary.is_mrope
         }
+        if self.model.rotary.is_mrope:
+            self.llm_config['mrope_axes'] = self.model.rotary.mrope_axes
         self.llm_config.update(self.model.get_config())
         # Attention scaling (gemma4 uses 1.0 instead of 1/sqrt(head_dim))
         if hasattr(self.model, 'blocks') and len(self.model.blocks) > 0:
@@ -116,6 +118,13 @@ class LlmExporter(torch.nn.Module):
             self.llm_config['jinja'] = {
                 'chat_template': "[gMASK]<sop>{% for message in messages %}{% if message.role == \"user\" %}<|user|>\n{{ message.content }}{% elif message.role == \"assistant\" %}<|assistant|>\n{{ message.content }}{% elif message.role == \"system\" %}<|system|>\n{{ message.content }}{% endif %}{% endfor %}{% if add_generation_prompt %}<|assistant|>\n{% endif %}",
                 'eos': '<|endoftext|>'
+            }
+        # HunyuanVL's HF template uses syntax unsupported by the C++ minja parser.
+        if self.model_type == 'hunyuan_vl':
+            self.llm_config['jinja'] = {
+                'chat_template': "<｜hy_begin▁of▁sentence｜>{% for message in messages %}{% if message.role == \"system\" %}{{ message.content }}<｜hy_place▁holder▁no▁3｜>{% elif message.role == \"user\" %}{{ message.content }}<｜hy_User｜>{% elif message.role == \"assistant\" %}{{ message.content }}<｜hy_Assistant｜>{% endif %}{% endfor %}",
+                'bos': '<｜hy_begin▁of▁sentence｜>',
+                'eos': '<｜hy_Assistant｜>'
             }
 
         # tie word embeddings
