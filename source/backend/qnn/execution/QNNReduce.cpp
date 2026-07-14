@@ -50,6 +50,62 @@ ErrorCode QNNReduce::onEncode(const std::vector<Tensor *> &inputs, const std::ve
         }
     }
 
+    // The HTP graph runs in FLOAT16 mode and its fp16 reduce kernel (q::reduce_sum.fp16 etc.) cannot
+    // be lowered when the reduction covers the innermost axis (fails at graph_prepare). Note that a
+    // plain reshape that appends a trailing singleton does NOT help -- HTP squeezes trailing 1s and
+    // still sees an innermost reduction. Instead, when reducing the single last axis, physically
+    // transpose it to the second-to-last position (so the innermost axis is a real, non-1 dim), run
+    // a native reduce there, then reshape back. This keeps exact reduce semantics for every reduce
+    // type (Sum/Mean/Max/Min/Prod). Reductions over non-innermost axes already lower fine and take
+    // the normal path below.
+    bool singleLastAxis = (axesData.size() == 1 && (int)axesData[0] == inputDim - 1);
+    // The transpose trick needs a real second-to-last axis; a rank < 2 tensor has none. Check at
+    // runtime (MNN_ASSERT is stripped in release builds) and fall through to the normal path when
+    // rank < 2 -- otherwise perm[inRank-2] / tDims[inRank-2] would underflow (uint32) and corrupt memory.
+    if (singleLastAxis && mBackend->getNativeTensor(inputs[0])->v1.rank >= 2) {
+        Qnn_Tensor_t* inNative = mBackend->getNativeTensor(inputs[0]);
+        Qnn_Tensor_t* outNative = mBackend->getNativeTensor(outputs[0]);
+        uint32_t inRank = inNative->v1.rank;
+        uint32_t* inDims = inNative->v1.dimensions;
+        Qnn_DataType_t dtype = inNative->v1.dataType;
+
+        // Transpose the reduced (last) axis to the second-to-last position, so the innermost axis is
+        // a real (non-1) dim: [.., M, K] -> [.., K, M].
+        std::vector<uint32_t> perm(inRank);
+        for (uint32_t i = 0; i < inRank; i++)
+            perm[i] = i;
+        std::swap(perm[inRank - 1], perm[inRank - 2]);
+
+        std::vector<uint32_t> tDims(inDims, inDims + inRank);
+        std::swap(tDims[inRank - 1], tDims[inRank - 2]); // [.., K, M]
+        auto tStage = this->createStageTensor("reduce_tin", dtype, tDims);
+
+        std::vector<uint32_t> rDims = tDims;
+        rDims[inRank - 2] = 1; // [.., 1, M]
+        auto rStage = this->createStageTensor("reduce_tout", dtype, rDims);
+
+        auto permParam = this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {inRank}, perm.data());
+        this->addNodeCommonPermute("reduce_transpose_in", *inNative, *(permParam->getNativeParam()),
+                                   *(tStage->getNativeTensor()));
+
+        uint32_t reduceAxis = inRank - 2;
+        auto axesParam = this->createParamTensor("axes", QNN_DATATYPE_UINT_32, {1}, &reduceAxis);
+        auto keepParam = this->createParamScalar("keep_dims", true);
+        {
+            CLEAR_BEFORE_ADDING_NODE;
+            mNodeType = iter->second;
+            std::string rName = mNodeName + "_reduce_t";
+            mParams.push_back(*(axesParam->getNativeParam()));
+            mParams.push_back(*(keepParam->getNativeParam()));
+            mInputs.push_back(*(tStage->getNativeTensor()));
+            mOutputs.push_back(*(rStage->getNativeTensor()));
+            mBackend->addNodeToGraph(mOpConfigVersion, rName.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams,
+                                     mInputs, mOutputs);
+        }
+        this->addNodeCommonReshape("reduce_reshape_t", *(rStage->getNativeTensor()), *outNative);
+        return NO_ERROR;
+    }
+
     this->createParamTensor("axes", QNN_DATATYPE_UINT_32, {(uint32_t) axesData.size()}, (void *) axesData.data());
     this->createParamScalar("keep_dims", keepDims);
 
