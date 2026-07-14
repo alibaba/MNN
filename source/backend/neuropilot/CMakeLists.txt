@@ -1,17 +1,7 @@
-set(MNN_NEUROPILOT_CONVERT_MODE ON)
+message(WARNING
+    "MNN_NEUROPILOT is not supported in this open-source distribution. "
+    "The option will be disabled. Contact MediaTek and the MNN team for access and integration support."
+)
 
-if(CMAKE_SYSTEM_NAME MATCHES "^Android")
-    set(MNN_NEUROPILOT_CONVERT_MODE OFF)
-endif()
-file(GLOB BACKEND_SRCS ${CMAKE_CURRENT_LIST_DIR}/backend/*)
-file(GLOB CONVERTER_SRCS ${CMAKE_CURRENT_LIST_DIR}/converter/*)
-file(GLOB_RECURSE PLUGIN_SRCS ${CMAKE_CURRENT_LIST_DIR}/mtk/*)
-if (MNN_NEUROPILOT_CONVERT_MODE)
-    add_library(MNN_NEUROPILOT OBJECT ${BACKEND_SRCS} ${CONVERTER_SRCS})
-    target_compile_options(MNN_NEUROPILOT PRIVATE -DMNN_NEUROPILOT_CONVERT_MODE)
-else()
-    include_directories(${CMAKE_CURRENT_LIST_DIR}/mtk)
-    add_library(MNN_NEUROPILOT OBJECT ${BACKEND_SRCS} ${PLUGIN_SRCS})
-endif()
-
-target_include_directories(MNN_NEUROPILOT PRIVATE ${CMAKE_CURRENT_LIST_DIR}/)
+set(MNN_NEUROPILOT OFF CACHE BOOL "Build the NeuroPilot backend" FORCE)
+set(MNN_NEUROPILOT OFF PARENT_SCOPE)
