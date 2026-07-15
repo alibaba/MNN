@@ -31,12 +31,18 @@ ErrorCode QNNPool::onEncode(const std::vector<Tensor *> &inputs, const std::vect
 
     setParamPool(mNodeType, filterSizeData, strideData, padAmountData, roundingMode, inputs[0], outputs[0]);
 
-    // shape(out[0])[height_out] = ROUND((pad_amount[0,0] + shape(in[0])[height] + pad_amount[0,1] - filter_size[0]) / stride[0] + 1)
-    if(inputs[0]->height() < filterSizeData[0]) {
-        filterSizeData[0] = inputs[0]->height();
+    // QNN derives the output size strictly from the formula:
+    //   shape(out)[h] = ROUND((pad[0,0] + shape(in)[h] + pad[0,1] - filter[0]) / stride[0] + 1)
+    // A filter larger than the *padded* input is invalid, so clamp against (input + padBefore + padAfter)
+    // rather than the raw input. This keeps padding-compensated kernels (e.g. SPP MaxPool k=9/13 with
+    // SAME-style padding, stride 1) intact, while still handling the global/adaptive case (pad == 0).
+    uint32_t paddedHeight = (uint32_t)inputs[0]->height() + padAmountData[0] + padAmountData[1];
+    uint32_t paddedWidth = (uint32_t)inputs[0]->width() + padAmountData[2] + padAmountData[3];
+    if (paddedHeight < filterSizeData[0]) {
+        filterSizeData[0] = paddedHeight;
     }
-    if(inputs[0]->width() < filterSizeData[1]) {
-        filterSizeData[1] = inputs[0]->width();
+    if (paddedWidth < filterSizeData[1]) {
+        filterSizeData[1] = paddedWidth;
     }
     this->createParamTensor("filter_size", QNN_DATATYPE_UINT_32, {2}, (void *)filterSizeData.data());
     this->createParamTensor("stride", QNN_DATATYPE_UINT_32, {2}, (void *)strideData.data());
