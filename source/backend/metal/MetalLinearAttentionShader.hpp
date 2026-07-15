@@ -106,7 +106,8 @@ kernel void linear_attn_conv_silu(
     conv_out[b * D * L + d * L + l] = (ftype)(sum * sigmoid_val);
 }
 
-// Kernel 2: Update conv state with last (K-1) elements of padded input
+// Kernel 2: Update conv state with last (K-1) elements of padded input.
+// One thread owns a complete channel so shifting the state in-place is ordered.
 // padded input = [old_conv_state, qkv], total length = css + L
 // new conv_state = padded[L .. L+css-1] (last css elements)
 // Which maps to: if (L + i) < css -> old_state[L+i], else -> qkv[(L+i) - css]
@@ -122,29 +123,20 @@ kernel void linear_attn_conv_state_update(
     const int L = param.seq_len;
     const int css = param.conv_state_size;
 
-    const int total = B * D * css;
+    const int total = B * D;
     if ((int)gid >= total) return;
 
-    const int i = gid % css;
-    const int bd = gid / css;
-    const int b = bd / D;
-    const int d = bd % D;
-
-    // new_state[i] = padded[L + i], padded = cat(old_state[css], qkv[L])
-    // position in padded = L + i
-    // Since L + i >= css (because L >= 1 and i >= 0, and css = K-1, and L+i = L+i),
-    // we need: if (L + i) < css -> old_state, else -> qkv[(L+i) - css]
-    int pos = L + i;
-    ftype val;
-    if (pos < css) {
-        val = conv_state[b * D * css + d * css + pos];
-    } else {
-        val = qkv[qkv_offset(b, d, pos - css, param)];
+    const int b = gid / D;
+    const int d = gid % D;
+    device ftype* state = conv_state + gid * css;
+    for (int i = 0; i < css; ++i) {
+        int pos = L + i;
+        if (pos < css) {
+            state[i] = state[pos];
+        } else {
+            state[i] = qkv[qkv_offset(b, d, pos - css, param)];
+        }
     }
-    // Write to conv_state - note: we need to be careful about reading and writing
-    // conv_state simultaneously. Since we write to position i and read from position (L+i),
-    // and L >= 1, so (L+i) > i always -> no read-write conflict.
-    conv_state[b * D * css + d * css + i] = val;
 }
 )metal";
 
