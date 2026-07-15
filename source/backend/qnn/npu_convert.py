@@ -83,7 +83,7 @@ def process_src(task):
         "-t", "x86_64-linux-clang",
         "-o", workdir,
     ]
-    compile_result = run_subprocess(compile_cmd, retries=3)
+    compile_result = run_subprocess(compile_cmd, cwd=workdir, retries=3)
     if compile_result.returncode != 0:
         raise RuntimeError(f"Compile failed for src={src}: {' '.join(compile_cmd)}")
 
