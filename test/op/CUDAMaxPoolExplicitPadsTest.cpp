@@ -24,25 +24,25 @@ using namespace MNN::Express;
 static VARP _MaxPoolWithExplicitPads(VARP input, int padX, int padY, const std::vector<int>& pads, bool isGlobal,
                                      DataType dataType = DataType_DT_FLOAT) {
     std::unique_ptr<PoolT> pool(new PoolT);
-    pool->padX      = padX;
-    pool->padY      = padY;
-    pool->isGlobal  = isGlobal;
-    pool->kernelX   = 5;
-    pool->kernelY   = 5;
-    pool->strideX   = 1;
-    pool->strideY   = 1;
-    pool->type      = PoolType_MAXPOOL;
-    pool->padType   = PoolPadType_CAFFE;
-    pool->dataType  = dataType;
+    pool->padX = padX;
+    pool->padY = padY;
+    pool->isGlobal = isGlobal;
+    pool->kernelX = 5;
+    pool->kernelY = 5;
+    pool->strideX = 1;
+    pool->strideY = 1;
+    pool->type = PoolType_MAXPOOL;
+    pool->padType = PoolPadType_CAFFE;
+    pool->dataType = dataType;
     pool->ceilModel = false;
-    pool->pads      = pads;
+    pool->pads = pads;
     pool->countType = AvgPoolCountType_DEFAULT;
 
     std::unique_ptr<OpT> op(new OpT);
-    op->type                   = OpType_Pooling;
+    op->type = OpType_Pooling;
     op->defaultDimentionFormat = MNN_DATA_FORMAT_NHWC;
-    op->main.type              = OpParameter_Pool;
-    op->main.value             = pool.release();
+    op->main.type = OpParameter_Pool;
+    op->main.value = pool.release();
 
     return Variable::create(Expr::create(op.get(), {input}));
 }
@@ -66,10 +66,10 @@ static std::vector<float> referenceMaxPool5x5(const std::vector<float>& input, i
                                 continue;
                             }
                             int offset = ((b * c + ch) * h + iy) * w + ix;
-                            maxValue   = std::max(maxValue, input[offset]);
+                            maxValue = std::max(maxValue, input[offset]);
                         }
                     }
-                    int outputOffset    = ((b * c + ch) * h + oy) * w + ox;
+                    int outputOffset = ((b * c + ch) * h + oy) * w + ox;
                     output[outputOffset] = maxValue;
                 }
             }
@@ -97,10 +97,10 @@ static std::vector<int8_t> referenceMaxPool5x5Int8(const std::vector<int8_t>& in
                                 continue;
                             }
                             int offset = ((b * c + ch) * h + iy) * w + ix;
-                            maxValue   = std::max(maxValue, input[offset]);
+                            maxValue = std::max(maxValue, input[offset]);
                         }
                     }
-                    int outputOffset     = ((b * c + ch) * h + oy) * w + ox;
+                    int outputOffset = ((b * c + ch) * h + oy) * w + ox;
                     output[outputOffset] = maxValue;
                 }
             }
@@ -117,7 +117,7 @@ static std::vector<float> referenceGlobalMaxPool(const std::vector<float>& input
             for (int y = 0; y < h; ++y) {
                 for (int x = 0; x < w; ++x) {
                     int offset = ((b * c + ch) * h + y) * w + x;
-                    maxValue   = std::max(maxValue, input[offset]);
+                    maxValue = std::max(maxValue, input[offset]);
                 }
             }
             output[b * c + ch] = maxValue;
@@ -138,7 +138,7 @@ public:
         for (int ch = 0; ch < c; ++ch) {
             for (int y = 0; y < h; ++y) {
                 for (int x = 0; x < w; ++x) {
-                    int offset        = (ch * h + y) * w + x;
+                    int offset = (ch * h + y) * w + x;
                     inputData[offset] =
                         static_cast<float>((ch % 5) * 0.25f + y * 1.7f - x * 0.6f + (offset % 11) * 0.13f);
                 }
@@ -150,9 +150,8 @@ public:
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         input->unMap();
 
-        auto expected =
-            referenceMaxPool5x5(inputData, n, c, h, w, pads.size() >= 2 ? pads[0] : padY,
-                                pads.size() >= 2 ? pads[1] : padX);
+        auto expected = referenceMaxPool5x5(inputData, n, c, h, w, pads.size() >= 2 ? pads[0] : padY,
+                                            pads.size() >= 2 ? pads[1] : padX);
         const float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1.0f : 20.0f;
         if (!checkVectorByRelativeError<float>(output->readMap<float>(), expected.data(), expected.size(),
                                                0.001f * errorScale)) {
@@ -171,7 +170,7 @@ public:
         for (int ch = 0; ch < c; ++ch) {
             for (int y = 0; y < h; ++y) {
                 for (int x = 0; x < w; ++x) {
-                    int offset        = (ch * h + y) * w + x;
+                    int offset = (ch * h + y) * w + x;
                     inputData[offset] = static_cast<float>(ch * 0.5f + y * 2.0f + x * 0.25f);
                 }
             }
@@ -201,7 +200,7 @@ public:
         for (int ch = 0; ch < c; ++ch) {
             for (int y = 0; y < h; ++y) {
                 for (int x = 0; x < w; ++x) {
-                    int offset        = (ch * h + y) * w + x;
+                    int offset = (ch * h + y) * w + x;
                     inputData[offset] = static_cast<int8_t>((ch * 11 + y * 17 - x * 13 + offset * 3) % 127 - 63);
                 }
             }
@@ -209,8 +208,8 @@ public:
 
         auto input = _Input({n, c, h, w}, NCHW, halide_type_of<int8_t>());
         const std::vector<int> pads = {2, 2, 2, 2};
-        auto output = _Convert(
-            _MaxPoolWithExplicitPads(_Convert(input, NC4HW4), 0, 0, pads, false, DataType_DT_INT8), NCHW);
+        auto output =
+            _Convert(_MaxPoolWithExplicitPads(_Convert(input, NC4HW4), 0, 0, pads, false, DataType_DT_INT8), NCHW);
         ::memcpy(input->writeMap<int8_t>(), inputData.data(), inputData.size() * sizeof(int8_t));
         input->unMap();
 

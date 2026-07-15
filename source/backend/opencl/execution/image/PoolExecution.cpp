@@ -81,7 +81,7 @@ ErrorCode PoolExecution::onEncode(const std::vector<Tensor *> &inputs, const std
     std::set<std::string> buildOptions;
     std::string kernelName = "pooling";
     auto runtime           = mOpenCLBackend->getOpenCLRuntime();
-    auto padType           = mPoolParams->padType();
+    auto padType = mPoolParams->padType();
     int local_size = 1;
 
     if (mPoolParams->isGlobal()) {

@@ -59,8 +59,8 @@ ErrorCode PoolBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     std::set<std::string> buildOptions;
     std::string kernelName = "pooling";
-    auto padType           = mPoolParams->padType();
-    int local_size         = 1;
+    auto padType = mPoolParams->padType();
+    int local_size = 1;
 
     if (mPoolParams->isGlobal()) {
         std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
