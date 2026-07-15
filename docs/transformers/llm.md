@@ -113,6 +113,53 @@
 
 ---
 
+### **Android Hexagon 后端**
+
+Hexagon 后端用于在支持 Qualcomm HTP/cDSP 的 Android 设备上运行 LLM。当前 LLM Hexagon 路径只支持
+4-bit 权重量化并使用对称量化，即导出时需要使用 `--quant_bit 4 --sym`。非 4-bit 权重和非对称权重
+目前不属于支持范围。
+
+必须使用 Transformer C4 导出，若 Attention 的 `output_c4` 是`False`，那么`Hexagon`后端不支持：
+
+```bash
+cd transformers/llm/export
+python llmexport.py \
+    --path /path/to/Qwen3-0.6B \
+    --export mnn \
+    --quant_bit 4 \
+    --quant_block 64 \
+    --sym \
+    --mnnconvert /path/to/MNNConvert \
+    --dst_path /path/to/qwen3_0_6b_hexagon
+```
+
+运行前需要将 `config.json` 中的 `backend_type` 改为 `hexagon`，并把模型文件、`libMNN.so`、
+`libMNN_htpops.so`、`libMNN_htpops_skel.so`、`llm_demo`、`llm_bench` 推到设备同一运行目录。例如：
+
+```bash
+adb push /path/to/qwen3_0_6b_hexagon /data/local/tmp/MNN/
+adb push libMNN.so libMNN_htpops.so libMNN_htpops_skel.so llm_demo llm_bench /data/local/tmp/MNN/
+
+adb shell 'cd /data/local/tmp/MNN && \
+    export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && \
+    export ADSP_LIBRARY_PATH=/data/local/tmp/MNN && \
+    ./llm_demo qwen3_0_6b_hexagon/config.json prompt.txt'
+```
+
+性能测试可使用：
+
+```bash
+adb shell 'cd /data/local/tmp/MNN && \
+    export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && \
+    export ADSP_LIBRARY_PATH=/data/local/tmp/MNN && \
+    ./llm_bench -m qwen3_0_6b_hexagon/config.json -a hexagon -p 512 -n 128 -rep 3'
+```
+
+如果修改了 `source/backend/hexagon/htp-ops-lib/src/dsp` 下的 DSP 侧实现，需要重新编译并部署
+`libMNN_htpops.so` 和 `libMNN_htpops_skel.so`，否则设备仍会加载旧的 DSP 实现。
+
+---
+
 **总结流程图**：
 `准备PyTorch模型` -> `使用 llmexport.py 导出为 MNN 格式` -> `编译 MNN 引擎 (启用 LLM)` -> `配置 config.json` -> `使用 llm_demo 进行推理`
 

@@ -1,0 +1,18 @@
+namespace DSPCOMMAND;
+attribute "priority";
+table Tensor {
+    fd:int;
+    offset:int;
+    size:int;
+}
+table Command {
+    type:int;
+    inputs:[Tensor];
+    outputs:[Tensor];
+    params:[int];
+}
+
+table SyncGroup {
+    inputs:[Tensor];
+    outputs:[Tensor];
+}
