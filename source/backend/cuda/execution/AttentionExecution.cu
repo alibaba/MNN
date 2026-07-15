@@ -1,6 +1,8 @@
 #include "AttentionExecution.hpp"
 #include "core/TensorUtils.hpp"
+#include "MNNCUDADefine.hpp"
 #include "SoftmaxExecution.hpp"
+#include "Transpose.cuh"
 
 namespace MNN {
 namespace CUDA {
@@ -584,17 +586,12 @@ __global__ void flash_attn_combine_results(
 // =====================================================================
 // Optimized Prefill QK Kernel: uses shared memory tiling
 // =====================================================================
-template<typename T, typename AccT = float>
-__global__ void qk_kernel_tiled(
-    const T* __restrict__ query_input,    // [B, L_q_full, H_q, D]
-    const T* __restrict__ key_cache,      // [L_k_total_alloc, B, H_kv, D]
-    T* __restrict__ qk_scores_output,     // [B, H_q, L_q_piece, L_k_total]
-    const void* mask_tensor_data,
-    const AttentionKernelParam* param,
-    int q_seq_piece_offset,
-    bool has_mask_flag,
-    bool is_add_mask_flag
-) {
+template <typename T, typename AccT = float>
+__global__ void qk_kernel_tiled(const T* __restrict__ query_input, // [B, L_q_full, H_q, D]
+                                const T* __restrict__ key_cache,   // [L_k_total_alloc, B, H_kv, D]
+                                T* __restrict__ qk_scores_output,  // [B, H_q, L_q_piece, L_k_total]
+                                const void* mask_tensor_data, const AttentionKernelParam* param, int q_seq_piece_offset,
+                                bool has_mask_flag, bool is_add_mask_flag, bool is_causal_mask_flag) {
     // Block handles a tile of [QK_TILE_Q x QK_TILE_K] outputs
     const int QK_TILE = 16;
     __shared__ AccT q_tile[QK_TILE][128 + 1]; // +1 to avoid bank conflict, max head_dim=128
@@ -665,8 +662,11 @@ __global__ void qk_kernel_tiled(
 
     score_sum *= param->scale;
 
-    // Apply mask
-    if (has_mask_flag && mask_tensor_data) {
+    // A scalar mask is the causal sentinel used by the LLM engine. Current
+    // query tokens are right-aligned with the full KV cache.
+    if (is_causal_mask_flag && k_idx > param->key_seq_len - param->query_seq_len + current_full_q_idx) {
+        score_sum = (sizeof(T) == sizeof(__half)) ? AccT(-65504.0f) : AccT(-1e9f);
+    } else if (has_mask_flag && mask_tensor_data) {
         if (is_add_mask_flag) {
             int mask_idx = current_full_q_idx * param->query_seq_len + k_idx - param->key_seq_len + param->query_seq_len;
             if (k_idx >= param->key_seq_len - param->query_seq_len) {
@@ -694,7 +694,6 @@ __global__ void qk_kernel_tiled(
                   q_idx_in_piece * param->key_seq_len + k_idx;
     qk_scores_output[out_idx] = static_cast<T>(score_sum);
 }
-
 
 // =====================================================================
 // Optimized QKV Kernel: shared memory tiling for V accumulation
@@ -756,9 +755,21 @@ __global__ void qkv_kernel_tiled(
 // ======= AttentionExecution 类实现 =======
 
 AttentionExecution::AttentionExecution(Backend* backend, bool kv_cache_op_param)
-    : Execution(backend), mIsKVCacheEnabled(kv_cache_op_param), mCudaBackend(static_cast<CUDABackend*>(backend)),
-      mBatch(0), mQuerySeqLen(0), mNumHead(0), mHeadDim(0), mKvNumHead(0), mNewKvSeqLen(0),
-      mQseqSplitNum(1), mHasMask(false), mIsAddMask(false), mParam_gpu(nullptr), mScale(1.0f) {
+    : Execution(backend),
+      mCudaBackend(static_cast<CUDABackend*>(backend)),
+      mIsKVCacheEnabled(kv_cache_op_param),
+      mScale(1.0f),
+      mBatch(0),
+      mQuerySeqLen(0),
+      mNumHead(0),
+      mHeadDim(0),
+      mKvNumHead(0),
+      mNewKvSeqLen(0),
+      mQseqSplitNum(1),
+      mHasMask(false),
+      mIsCausalMask(false),
+      mIsAddMask(false),
+      mParam_gpu(nullptr) {
     mPrecision = 4; // 默认精度,可在 onResize 中更改
     if (mIsKVCacheEnabled) {
         mCache.reset(new SharedCache());
@@ -767,6 +778,14 @@ AttentionExecution::AttentionExecution(Backend* backend, bool kv_cache_op_param)
 }
 
 AttentionExecution::~AttentionExecution() {
+    auto releaseBuffer = [this](std::shared_ptr<Tensor>& tensor) {
+        if (tensor && tensor->deviceId() != 0) {
+            mCudaBackend->onReleaseBuffer(tensor.get(), Backend::STATIC);
+        }
+        tensor.reset();
+    };
+    releaseBuffer(mC4ValueContiguous);
+    releaseBuffer(mC4OutputContiguous);
     if (mParam_gpu) {
         cudaFree(mParam_gpu);
         mParam_gpu = nullptr;
@@ -1069,6 +1088,42 @@ ErrorCode AttentionExecution::ensureTempBuffers_gpu(int batch, int num_head, int
     return MNN::NO_ERROR;
 }
 
+ErrorCode AttentionExecution::ensureC4TailBuffers_gpu() {
+    auto ensureBuffer = [this](std::shared_ptr<Tensor>& tensor, const std::vector<int>& shape) -> ErrorCode {
+        if (tensor && tensor->deviceId() != 0 && tensor->shape() == shape) {
+            return MNN::NO_ERROR;
+        }
+        if (tensor && tensor->deviceId() != 0) {
+            mCudaBackend->onReleaseBuffer(tensor.get(), Backend::STATIC);
+        }
+        tensor.reset(mPrecision == 4 ? Tensor::createDevice<float>(shape) : Tensor::createDevice<uint16_t>(shape));
+        if (!tensor) {
+            return MNN::OUT_OF_MEMORY;
+        }
+        TensorUtils::getDescribe(tensor.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        if (!mCudaBackend->onAcquireBuffer(tensor.get(), Backend::STATIC)) {
+            return MNN::OUT_OF_MEMORY;
+        }
+        return MNN::NO_ERROR;
+    };
+
+    if (mOutputC4HasTail) {
+        std::vector<int> shape = {mBatch * mQuerySeqLen, mNumHead * mHeadDim, 1, 1};
+        auto code = ensureBuffer(mC4OutputContiguous, shape);
+        if (code != MNN::NO_ERROR) {
+            return code;
+        }
+    }
+    if (mValueC4HasTail) {
+        std::vector<int> shape = {mBatch * mNewKvSeqLen, mKvNumHead * mHeadDim, 1, 1};
+        auto code = ensureBuffer(mC4ValueContiguous, shape);
+        if (code != MNN::NO_ERROR) {
+            return code;
+        }
+    }
+    return MNN::NO_ERROR;
+}
+
 bool AttentionExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
@@ -1084,6 +1139,7 @@ bool AttentionExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
 ErrorCode AttentionExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     const auto* query_tensor = inputs[0]; // 形状: [B, L_q, H_q, D]
     const auto* key_tensor = inputs[1];   // 形状: [B, L_k_new, H_kv, D]
+    const auto* value_tensor = inputs[2];
 
     if (mCudaBackend->useFp16()) {
         mPrecision = 2;
@@ -1091,19 +1147,35 @@ ErrorCode AttentionExecution::onResize(const std::vector<Tensor *> &inputs, cons
         mPrecision = 4;
     }
 
+    mValueC4HasTail = false;
     mBatch = query_tensor->length(0);
     mQuerySeqLen = query_tensor->length(1);
     mNumHead = query_tensor->length(2);
     mHeadDim = query_tensor->length(3);
-
     mKvNumHead = key_tensor->length(2);
     mNewKvSeqLen = key_tensor->length(1);
+    if (TensorUtils::getDescribe(value_tensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        const int valueChannels = mKvNumHead * mHeadDim;
+        if (value_tensor->dimensions() != 4 || value_tensor->length(0) != mBatch * mNewKvSeqLen ||
+            value_tensor->length(1) != valueChannels || value_tensor->length(2) != 1 ||
+            value_tensor->length(3) != 1) {
+            MNN_ERROR("CUDA Attention: invalid C4 value layout.\n");
+            return MNN::INVALID_VALUE;
+        }
+        mValueC4HasTail = valueChannels % PACK_NUMBER != 0;
+    }
+    mOutputC4HasTail = TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
+                       (mNumHead * mHeadDim) % PACK_NUMBER != 0;
 
     if (mHeadDim == 0 || mKvNumHead == 0) return MNN::INVALID_VALUE;
     if (mNumHead % mKvNumHead != 0) return MNN::INVALID_VALUE;
     mScale = 1.0f / sqrtf(static_cast<float>(mHeadDim));
 
     mHasMask = inputs.size() > 3 && inputs[3] != nullptr && inputs[3]->elementSize() > 0;
+    mIsCausalMask = mHasMask && inputs[3]->shape().empty();
+    if (mIsCausalMask) {
+        mHasMask = false;
+    }
     if (mHasMask) {
         mIsAddMask = (inputs[3]->getType().code == halide_type_float);
     }
@@ -1116,6 +1188,13 @@ ErrorCode AttentionExecution::onResize(const std::vector<Tensor *> &inputs, cons
     if (mIsKVCacheEnabled) {
         ErrorCode err = init_cache_tensors();
         if (err != MNN::NO_ERROR) return err;
+    }
+
+    if (mValueC4HasTail || mOutputC4HasTail) {
+        auto err = ensureC4TailBuffers_gpu();
+        if (err != MNN::NO_ERROR) {
+            return err;
+        }
     }
 
     if (!mParam_gpu) {
@@ -1134,9 +1213,28 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     const Tensor* mask_input_tensor = mHasMask ? inputs[3] : nullptr;
     auto final_output_tensor = outputs[0];
 
-    if (mIsKVCacheEnabled && mHasMask && mask_input_tensor && mask_input_tensor->elementSize() == 1) {
-        mHasMask = false;
+    const Tensor* query_execution_tensor = query_input_tensor;
+    const Tensor* key_execution_tensor = key_input_tensor;
+    const Tensor* value_execution_tensor = value_input_tensor;
+    Tensor* output_execution_tensor = final_output_tensor;
+    auto runtime = mCudaBackend->getCUDARuntime();
+    if (mOutputC4HasTail) {
+        output_execution_tensor = mC4OutputContiguous.get();
     }
+    if (mValueC4HasTail) {
+        FormatConvert(getTensorDevicePtr(mC4ValueContiguous.get()), getTensorDevicePtr(value_input_tensor),
+                      MNN_DATA_FORMAT_NC4HW4, MNN_DATA_FORMAT_NCHW, runtime, 1, mBatch * mNewKvSeqLen,
+                      mKvNumHead * mHeadDim, value_input_tensor, mPrecision, true, true);
+        value_execution_tensor = mC4ValueContiguous.get();
+    }
+    auto packC4OutputTail = [&]() {
+        if (!mOutputC4HasTail) {
+            return;
+        }
+        FormatConvert(getTensorDevicePtr(final_output_tensor), getTensorDevicePtr(output_execution_tensor),
+                      MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4, runtime, 1, mBatch * mQuerySeqLen,
+                      mNumHead * mHeadDim, final_output_tensor, mPrecision, true, true);
+    };
 
     cudaStream_t stream = 0;
 
@@ -1187,12 +1285,12 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
                             UP_DIV(mBatch * mKvNumHead, copy_blockDim.z));
         if (mPrecision == 4) {
              copy_kv_to_cache_kernel<float><<<copy_gridDim, copy_blockDim, 0, stream>>>(
-                getTensorDevicePtr<float>(key_input_tensor), getTensorDevicePtr<float>(value_input_tensor),
+                getTensorDevicePtr<float>(key_execution_tensor), getTensorDevicePtr<float>(value_execution_tensor),
                 getTensorDevicePtr<float>(mCache->mPastKey.get()), getTensorDevicePtr<float>(mCache->mPastValue.get()),
                 mBatch, mNewKvSeqLen, mKvNumHead, mHeadDim, param_cpu.past_kv_len, mCache->mMaxLength);
         } else if (mPrecision == 2) {
              copy_kv_to_cache_kernel<__half><<<copy_gridDim, copy_blockDim, 0, stream>>>(
-                getTensorDevicePtr<__half>(key_input_tensor), getTensorDevicePtr<__half>(value_input_tensor),
+                getTensorDevicePtr<__half>(key_execution_tensor), getTensorDevicePtr<__half>(value_execution_tensor),
                 getTensorDevicePtr<__half>(mCache->mPastKey.get()), getTensorDevicePtr<__half>(mCache->mPastValue.get()),
                 mBatch, mNewKvSeqLen, mKvNumHead, mHeadDim, param_cpu.past_kv_len, mCache->mMaxLength);
         } else { return MNN::NOT_SUPPORT; }
@@ -1216,12 +1314,12 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
                             UP_DIV(mBatch * mKvNumHead, copy_blockDim.z));
         if (mPrecision == 4) {
             copy_kv_to_cache_kernel<float><<<copy_gridDim, copy_blockDim, 0, stream>>>(
-                getTensorDevicePtr<float>(key_input_tensor), getTensorDevicePtr<float>(value_input_tensor),
+                getTensorDevicePtr<float>(key_execution_tensor), getTensorDevicePtr<float>(value_execution_tensor),
                 getTensorDevicePtr<float>(mTempK_current_step.get()), getTensorDevicePtr<float>(mTempV_current_step.get()),
                 mBatch, mNewKvSeqLen, mKvNumHead, mHeadDim, 0, allocated_kv_len_for_value_stride);
         } else if (mPrecision == 2) {
              copy_kv_to_cache_kernel<__half><<<copy_gridDim, copy_blockDim, 0, stream>>>(
-                getTensorDevicePtr<__half>(key_input_tensor), getTensorDevicePtr<__half>(value_input_tensor),
+                getTensorDevicePtr<__half>(key_execution_tensor), getTensorDevicePtr<__half>(value_execution_tensor),
                 getTensorDevicePtr<__half>(mTempK_current_step.get()), getTensorDevicePtr<__half>(mTempV_current_step.get()),
                 mBatch, mNewKvSeqLen, mKvNumHead, mHeadDim, 0, allocated_kv_len_for_value_stride);
         } else { return MNN::NOT_SUPPORT; }
@@ -1281,18 +1379,18 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
 
             if (mPrecision == 4) {
                 flash_decode_kernel<float><<<grid, block, smem_size_orig, stream>>>(
-                    getTensorDevicePtr<float>(query_input_tensor),
+                    getTensorDevicePtr<float>(query_execution_tensor),
                     static_cast<const float*>(effective_key_cache_ptr),
                     static_cast<const float*>(effective_value_cache_ptr),
-                    getTensorDevicePtr<float>(final_output_tensor),
+                    getTensorDevicePtr<float>(output_execution_tensor),
                     mBatch, mNumHead, mKvNumHead, mHeadDim,
                     current_total_kv_len_for_qk, allocated_kv_len_for_value_stride, mScale);
             } else if (mPrecision == 2) {
                 flash_decode_kernel<__half><<<grid, block, smem_size_orig, stream>>>(
-                    getTensorDevicePtr<__half>(query_input_tensor),
+                    getTensorDevicePtr<__half>(query_execution_tensor),
                     static_cast<const __half*>(effective_key_cache_ptr),
                     static_cast<const __half*>(effective_value_cache_ptr),
-                    getTensorDevicePtr<__half>(final_output_tensor),
+                    getTensorDevicePtr<__half>(output_execution_tensor),
                     mBatch, mNumHead, mKvNumHead, mHeadDim,
                     current_total_kv_len_for_qk, allocated_kv_len_for_value_stride, mScale);
             } else { return MNN::NOT_SUPPORT; }
@@ -1306,7 +1404,7 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
 
             if (mPrecision == 4) {
                 flash_decode_kernel_splitk<float><<<grid_splitk, block_splitk, smem_size, stream>>>(
-                    getTensorDevicePtr<float>(query_input_tensor),
+                    getTensorDevicePtr<float>(query_execution_tensor),
                     static_cast<const float*>(effective_key_cache_ptr),
                     static_cast<const float*>(effective_value_cache_ptr),
                     partial_out, partial_meta,
@@ -1315,7 +1413,7 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
                     parallel_blocks);
             } else if (mPrecision == 2) {
                 flash_decode_kernel_splitk<__half><<<grid_splitk, block_splitk, smem_size, stream>>>(
-                    getTensorDevicePtr<__half>(query_input_tensor),
+                    getTensorDevicePtr<__half>(query_execution_tensor),
                     static_cast<const __half*>(effective_key_cache_ptr),
                     static_cast<const __half*>(effective_value_cache_ptr),
                     partial_out, partial_meta,
@@ -1332,18 +1430,19 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
             if (mPrecision == 4) {
                 flash_attn_combine_results<float><<<grid_combine, block_combine, 0, stream>>>(
                     partial_out, partial_meta,
-                    getTensorDevicePtr<float>(final_output_tensor),
+                    getTensorDevicePtr<float>(output_execution_tensor),
                     mBatch, mNumHead, mHeadDim, parallel_blocks);
             } else if (mPrecision == 2) {
                 flash_attn_combine_results<__half><<<grid_combine, block_combine, 0, stream>>>(
                     partial_out, partial_meta,
-                    getTensorDevicePtr<__half>(final_output_tensor),
+                    getTensorDevicePtr<__half>(output_execution_tensor),
                     mBatch, mNumHead, mHeadDim, parallel_blocks);
             }
         }
         checkKernelErrors;
 
         mCache->mPastLength += mNewKvSeqLen;
+        packC4OutputTail();
         return MNN::NO_ERROR;
     }
 
@@ -1363,20 +1462,20 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
 
         if (mPrecision == 4) {
             flash_decode_kernel_with_mask<float><<<grid, block, smem_size, stream>>>(
-                getTensorDevicePtr<float>(query_input_tensor),
+                getTensorDevicePtr<float>(query_execution_tensor),
                 static_cast<const float*>(effective_key_cache_ptr),
                 static_cast<const float*>(effective_value_cache_ptr),
-                getTensorDevicePtr<float>(final_output_tensor),
+                getTensorDevicePtr<float>(output_execution_tensor),
                 static_cast<const float*>(getTensorDevicePtr(mask_input_tensor)),
                 mBatch, mNumHead, mKvNumHead, mHeadDim,
                 current_total_kv_len_for_qk, allocated_kv_len_for_value_stride,
                 mQuerySeqLen, mScale);
         } else if (mPrecision == 2) {
             flash_decode_kernel_with_mask<__half><<<grid, block, smem_size, stream>>>(
-                getTensorDevicePtr<__half>(query_input_tensor),
+                getTensorDevicePtr<__half>(query_execution_tensor),
                 static_cast<const __half*>(effective_key_cache_ptr),
                 static_cast<const __half*>(effective_value_cache_ptr),
-                getTensorDevicePtr<__half>(final_output_tensor),
+                getTensorDevicePtr<__half>(output_execution_tensor),
                 static_cast<const __half*>(getTensorDevicePtr(mask_input_tensor)),
                 mBatch, mNumHead, mKvNumHead, mHeadDim,
                 current_total_kv_len_for_qk, allocated_kv_len_for_value_stride,
@@ -1385,6 +1484,7 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         checkKernelErrors;
 
         mCache->mPastLength += mNewKvSeqLen;
+        packC4OutputTail();
         return MNN::NO_ERROR;
     }
 
@@ -1417,14 +1517,14 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
 
         if (mPrecision == 4) {
             qk_kernel_tiled<float><<<qk_gridDim, qk_blockDim, 0, stream>>>(
-                getTensorDevicePtr<float>(query_input_tensor), static_cast<const float*>(effective_key_cache_ptr),
-                getTensorDevicePtr<float>(mTempQK.get()), mask_ptr_device,
-                mParam_gpu, q_seq_offset, mHasMask, mIsAddMask);
+                getTensorDevicePtr<float>(query_execution_tensor), static_cast<const float*>(effective_key_cache_ptr),
+                getTensorDevicePtr<float>(mTempQK.get()), mask_ptr_device, mParam_gpu, q_seq_offset, mHasMask,
+                mIsAddMask, mIsCausalMask);
         } else if (mPrecision == 2) {
-             qk_kernel_tiled<__half><<<qk_gridDim, qk_blockDim, 0, stream>>>(
-                getTensorDevicePtr<__half>(query_input_tensor), static_cast<const __half*>(effective_key_cache_ptr),
-                getTensorDevicePtr<__half>(mTempQK.get()), mask_ptr_device,
-                mParam_gpu, q_seq_offset, mHasMask, mIsAddMask);
+            qk_kernel_tiled<__half><<<qk_gridDim, qk_blockDim, 0, stream>>>(
+                getTensorDevicePtr<__half>(query_execution_tensor), static_cast<const __half*>(effective_key_cache_ptr),
+                getTensorDevicePtr<__half>(mTempQK.get()), mask_ptr_device, mParam_gpu, q_seq_offset, mHasMask,
+                mIsAddMask, mIsCausalMask);
         } else { return MNN::NOT_SUPPORT; }
         checkKernelErrors;
 
@@ -1468,11 +1568,11 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         if (mPrecision == 4) {
             qkv_kernel_tiled<float><<<qkv_gridDim, qkv_blockDim, 0, stream>>>(
                 getTensorDevicePtr<float>(mTempSoftmax.get()), static_cast<const float*>(effective_value_cache_ptr),
-                getTensorDevicePtr<float>(final_output_tensor), mParam_gpu, q_seq_offset);
+                getTensorDevicePtr<float>(output_execution_tensor), mParam_gpu, q_seq_offset);
         } else if (mPrecision == 2) {
             qkv_kernel_tiled<__half><<<qkv_gridDim, qkv_blockDim, 0, stream>>>(
                 getTensorDevicePtr<__half>(mTempSoftmax.get()), static_cast<const __half*>(effective_value_cache_ptr),
-                getTensorDevicePtr<__half>(final_output_tensor), mParam_gpu, q_seq_offset);
+                getTensorDevicePtr<__half>(output_execution_tensor), mParam_gpu, q_seq_offset);
         } else { return MNN::NOT_SUPPORT; }
         checkKernelErrors;
     }
@@ -1480,6 +1580,8 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     if (mIsKVCacheEnabled) {
         mCache->mPastLength += mNewKvSeqLen;
     }
+
+    packC4OutputTail();
 
     return MNN::NO_ERROR;
 }

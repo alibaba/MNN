@@ -35,7 +35,8 @@ class FakeLinear(torch.nn.Module):
 
 class FusedAttentionOp(torch.autograd.Function):
     @staticmethod
-    def symbolic(g, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index, kv_shared_layer_index):
+    def symbolic(g, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index,
+                 kv_shared_layer_index, head_dim):
         # These become the operator attributes.
         kwargs = {
             "output_dim_i": output_dim,
@@ -43,6 +44,7 @@ class FusedAttentionOp(torch.autograd.Function):
             "name_s": name,
             "layer_index_i": layer_index,
             "kv_shared_layer_index_i": kv_shared_layer_index,
+            "head_dim_i": head_dim,
         }
         from torch.onnx.symbolic_helper import _get_tensor_sizes
         out_sizes = _get_tensor_sizes(query)
@@ -51,28 +53,36 @@ class FusedAttentionOp(torch.autograd.Function):
         return g.op("LlmExporter::FusedAttention", query, key, value, attention_mask, **kwargs).setType(output_type)
 
     @staticmethod
-    def forward(ctx, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index, kv_shared_layer_index):
+    def forward(ctx, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index,
+                kv_shared_layer_index, head_dim):
         out_shape = list(query.shape)[:2] + [output_dim]
         return query.new_zeros(out_shape)
 
 class FusedAttention(torch.nn.Module):
-    def __init__(self, hidden_size, kv_cache, name, layer_index=-1, kv_shared_layer_index=-1):
+    def __init__(self, hidden_size, kv_cache, name, layer_index=-1, kv_shared_layer_index=-1,
+                 head_dim=0):
         super(FusedAttention, self).__init__()
         self.hidden_size = hidden_size
         self.kv_cache = int(kv_cache)
         self.name = name
         self.layer_index = layer_index
         self.kv_shared_layer_index = kv_shared_layer_index
+        self.head_dim = int(head_dim)
 
     def forward(self, query, key, value, attention_mask):
-        return FusedAttentionOp.apply(query, key, value, attention_mask, self.hidden_size, self.kv_cache, self.name, self.layer_index, self.kv_shared_layer_index)
+        return FusedAttentionOp.apply(
+            query, key, value, attention_mask, self.hidden_size, self.kv_cache, self.name,
+            self.layer_index, self.kv_shared_layer_index, self.head_dim)
 
 class FusedRoPEOp(torch.autograd.Function):
     @staticmethod
-    def symbolic(g, query, key, cos, sin, q_norm_weight, k_norm_weight, rope_cut_head_dim, q_norm_eps, k_norm_eps,
-                 q_norm, k_norm, name):
+    def symbolic(g, query, key, cos, sin, q_norm_weight, k_norm_weight, rope_cut_head_dim, num_head,
+                 kv_num_head, head_dim, q_norm_eps, k_norm_eps, q_norm, k_norm, name):
         kwargs = {
             "rope_cut_head_dim_i": rope_cut_head_dim,
+            "num_head_i": num_head,
+            "kv_num_head_i": kv_num_head,
+            "head_dim_i": head_dim,
             "q_norm_eps_f": q_norm_eps,
             "k_norm_eps_f": k_norm_eps,
             "q_norm_i": q_norm,
@@ -95,14 +105,17 @@ class FusedRoPEOp(torch.autograd.Function):
         return query_output, key_output
 
     @staticmethod
-    def forward(ctx, query, key, cos, sin, q_norm_weight, k_norm_weight, rope_cut_head_dim, q_norm_eps, k_norm_eps,
-                q_norm, k_norm, name):
+    def forward(ctx, query, key, cos, sin, q_norm_weight, k_norm_weight, rope_cut_head_dim, num_head,
+                kv_num_head, head_dim, q_norm_eps, k_norm_eps, q_norm, k_norm, name):
         return query, key
 
 class FusedRoPE(torch.nn.Module):
-    def __init__(self, rope_cut_head_dim, name):
+    def __init__(self, rope_cut_head_dim, num_head, kv_num_head, head_dim, name):
         super(FusedRoPE, self).__init__()
         self.rope_cut_head_dim = int(rope_cut_head_dim)
+        self.num_head = int(num_head)
+        self.kv_num_head = int(kv_num_head)
+        self.head_dim = int(head_dim)
         self.name = name
 
     @staticmethod
@@ -124,6 +137,9 @@ class FusedRoPE(torch.nn.Module):
             q_norm_weight,
             k_norm_weight,
             self.rope_cut_head_dim,
+            self.num_head,
+            self.kv_num_head,
+            self.head_dim,
             q_norm_eps,
             k_norm_eps,
             int(q_norm is not None),

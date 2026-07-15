@@ -216,7 +216,7 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
 
     if (splitBinaryLN) {
         // ---------- Two-kernel SPLIT path ----------
-        int total_size_float = outter_size * inner_size;
+        int total_size_float = outter_size * ROUND_UP(inner_size, 4);
         int gws_x = UP_DIV(total_size_float, 4);
         mUnits.resize(2);
 
@@ -224,9 +224,6 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
         {
             auto& u0 = mUnits[0];
             std::set<std::string> addOpts;
-            if (total_size_float % 4 != 0) {
-                addOpts.emplace("-DPACK_LEAVE");
-            }
             u0.kernel =
                 runtime->buildKernel("layernorm_buf", "binary_add_c4_buf", addOpts, mOpenCLBackend->getPrecision());
             OPENCL_CHECK_KERNEL(u0.kernel);

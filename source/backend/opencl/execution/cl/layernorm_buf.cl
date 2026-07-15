@@ -2,6 +2,15 @@
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 #endif
 
+#define MASK_C4_TAIL(value, index, channel_unit, remain) \
+    do {                                                   \
+        if ((remain) != 0 && (index) == (channel_unit)-1) { \
+            if ((remain) < 4) (value).w = 0.0f;            \
+            if ((remain) < 3) (value).z = 0.0f;            \
+            if ((remain) < 2) (value).y = 0.0f;            \
+        }                                                  \
+    } while (0)
+
 __kernel void layernorm_c4_buf(__private int global_dim0, __private int global_dim1,
                         __global const FLOAT4 * input,
                         __global FLOAT4 * output,
@@ -20,7 +29,8 @@ __kernel void layernorm_c4_buf(__private int global_dim0, __private int global_d
     if (pos.x < global_dim0 && pos.y < global_dim1) {
         const int lid = get_local_id(0);
         const int batch = global_dim1;
-        const int channelUnit = inside / 4;
+        const int channelUnit = (inside + 3) / 4;
+        const int channelRemain = inside & 3;
 
         float4 in_sum = 0;
         int index = lid;
@@ -30,6 +40,7 @@ __kernel void layernorm_c4_buf(__private int global_dim0, __private int global_d
         for(; index < channelUnit; index+=LOCAL_SIZE){
             int idx = index * batch + pos.y;
             float4 in = convert_float4(input[idx]);
+            MASK_C4_TAIL(in, index, channelUnit, channelRemain);
             in_sum += in;
         }
         sum_mean_mnn[lid] = in_sum;
@@ -50,7 +61,9 @@ __kernel void layernorm_c4_buf(__private int global_dim0, __private int global_d
         for(; index < channelUnit; index+=LOCAL_SIZE){
             int idx = index * batch + pos.y;
             float4 in = convert_float4(input[idx]);
-            in_sum += (in - mean) * (in - mean);
+            float4 diff = in - mean;
+            MASK_C4_TAIL(diff, index, channelUnit, channelRemain);
+            in_sum += diff * diff;
         }
         sum_mnn[lid] = in_sum;
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -71,13 +84,15 @@ __kernel void layernorm_c4_buf(__private int global_dim0, __private int global_d
             #else
             float4 out = (in - mean) * value;
             #endif
+            MASK_C4_TAIL(out, index, channelUnit, channelRemain);
             output[idx] = CONVERT_FLOAT4(out);
         }
     }
 #else
     if (pos.x < global_dim0 && pos.y < global_dim1) {
         const int batch = global_dim1;
-        const int channelUnit = inside / 4;
+        const int channelUnit = (inside + 3) / 4;
+        const int channelRemain = inside & 3;
 
         float4 in_sum = 0;
         #ifdef RMSNORM
@@ -86,6 +101,7 @@ __kernel void layernorm_c4_buf(__private int global_dim0, __private int global_d
         for(int index = 0; index < channelUnit; index++){
             int idx = index * batch + pos.y;
             float4 in = convert_float4(input[idx]);
+            MASK_C4_TAIL(in, index, channelUnit, channelRemain);
             in_sum += in;
         }
         float sum_all = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
@@ -96,7 +112,9 @@ __kernel void layernorm_c4_buf(__private int global_dim0, __private int global_d
         for(int index = 0; index < channelUnit; index++){
             int idx = index * batch + pos.y;
             float4 in = convert_float4(input[idx]);
-            in_sum += (in - mean) * (in - mean);
+            float4 diff = in - mean;
+            MASK_C4_TAIL(diff, index, channelUnit, channelRemain);
+            in_sum += diff * diff;
         }
         float square_sum_all = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
         float4 square_sum = (float4)(square_sum_all / inside);
@@ -108,6 +126,7 @@ __kernel void layernorm_c4_buf(__private int global_dim0, __private int global_d
         #else
         float4 out = (in - mean) * value;
         #endif
+        MASK_C4_TAIL(out, pos.x, channelUnit, channelRemain);
         output[idx] = CONVERT_FLOAT4(out);
     }
 #endif
