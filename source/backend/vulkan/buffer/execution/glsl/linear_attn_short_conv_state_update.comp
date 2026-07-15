@@ -1,0 +1,47 @@
+layout(set=0, binding=0) readonly buffer s0 {
+    FLOAT data[];
+} uQKV;
+
+layout(set=0, binding=1) buffer s1 {
+    FLOAT data[];
+} uConvState;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec4 size0; // batch, conv_dim, seq_len, kernel_size
+    ivec4 size1; // conv_state_size, hidden, qkv_c4, output_c4
+} uConstant;
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+int qkvOffset(int b, int d, int l, int B, int D, int L, bool qkvC4) {
+    if (qkvC4) {
+        return ((d >> 2) * (B * L) + b * L + l) * 4 + (d & 3);
+    }
+    return (b * D + d) * L + l;
+}
+
+float shortInput(int b, int h, int l, int B, int D, int L, int H, bool qkvC4) {
+    float bValue = float(uQKV.data[qkvOffset(b, h, l, B, D, L, qkvC4)]);
+    float xValue = float(uQKV.data[qkvOffset(b, 2 * H + h, l, B, D, L, qkvC4)]);
+    return bValue * xValue;
+}
+
+void main() {
+    int bh = int(gl_GlobalInvocationID.x);
+    int B = uConstant.size0.x;
+    int D = uConstant.size0.y;
+    int L = uConstant.size0.z;
+    int css = uConstant.size1.x;
+    int H = uConstant.size1.y;
+    bool qkvC4 = uConstant.size1.z != 0;
+    if (bh >= B * H) return;
+
+    int b = bh / H;
+    int h = bh % H;
+    for (int i = 0; i < css; ++i) {
+        int pos = L + i;
+        FLOAT value = pos < css ? uConvState.data[bh * css + pos]
+                                : FLOAT(shortInput(b, h, pos - css, B, D, L, H, qkvC4));
+        uConvState.data[bh * css + i] = value;
+    }
+}

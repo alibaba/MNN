@@ -591,6 +591,10 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
         }
         mSession->getInfo(Interpreter::RESIZE_STATUS, &curStatus);
         code = mSession->resize();
+        if (code != NO_ERROR) {
+            MNN_ERROR("StaticModule resize failed before input copy: %d\n", code);
+            return code;
+        }
         // Copy
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr == mInputTensors[i]) {

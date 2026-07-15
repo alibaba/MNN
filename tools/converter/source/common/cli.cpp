@@ -217,7 +217,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         cxxopts::value<int>())("transformerFuse", "fuse key transformer op, like attention. default: false",
                                cxxopts::value<bool>())(
         "transformerFuseC4",
-        "fuse LLM transformer tensors to C4 format for faster runtime. default: false, set 1 to enable",
+        "fuse LLM transformer tensors to C4 format for faster runtime. default: true, set 0 to disable",
         cxxopts::value<int>())("groupConvNative", "keep native group convolution. default: false",
                                cxxopts::value<bool>())("allowCustomOp", "allow custom op when convert. default: false",
                                                        cxxopts::value<bool>())(

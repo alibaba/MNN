@@ -4637,7 +4637,6 @@ static CoreFunctions* gCoreFunction = nullptr;
 
 static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven, const void* cosOdd,
                                 const void* sinEven, const void* sinOdd, int numHead, int headDim, int ropeCutHeadDim) {
-    const int halfHeadDim = headDim / 2;
     int ropeDim = ropeCutHeadDim;
     if (ropeDim <= 0 || ropeDim > headDim) {
         ropeDim = headDim;
@@ -4653,9 +4652,9 @@ static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven,
     auto sinOddFloat = static_cast<const float*>(sinOdd);
     for (int j = 0; j < numHead; ++j) {
         auto src0 = srcFloat + j * headDim;
-        auto src1 = src0 + halfHeadDim;
+        auto src1 = src0 + ropeHalfHeadDim;
         auto dst0 = dstFloat + j * headDim;
-        auto dst1 = dst0 + halfHeadDim;
+        auto dst1 = dst0 + ropeHalfHeadDim;
         int k = 0;
         for (; k <= ropeHalfHeadDim - 4; k += 4) {
             auto q0 = Vec4::load(src0 + k);
@@ -4673,54 +4672,129 @@ static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven,
             dst0[k] = q0 * cosEvenFloat[k] - q1 * sinEvenFloat[k];
             dst1[k] = q1 * cosOddFloat[k] + q0 * sinOddFloat[k];
         }
-        if (ropeHalfHeadDim < halfHeadDim) {
-            ::memcpy(dst0 + ropeHalfHeadDim, src0 + ropeHalfHeadDim, (halfHeadDim - ropeHalfHeadDim) * sizeof(float));
-            ::memcpy(dst1 + ropeHalfHeadDim, src1 + ropeHalfHeadDim, (halfHeadDim - ropeHalfHeadDim) * sizeof(float));
+        if (ropeDim < headDim) {
+            ::memcpy(dstFloat + j * headDim + ropeDim, srcFloat + j * headDim + ropeDim,
+                     (headDim - ropeDim) * sizeof(float));
         }
     }
 }
 
 template <int Pack>
-static void MNNNormPackedFloat(float* dest, const float* source, const float* gamma, const float* beta, float epsilon,
-                               size_t batch, size_t channels, bool RMSNorm) {
+static void MNNNormPackedFloat(float* dest, float* sum, const float* source, const float* residual,
+                               const float* gamma, const float* beta, float epsilon, size_t batch, size_t channels,
+                               bool RMSNorm, int tId, int threadNumber) {
+    MNN_ASSERT((residual == nullptr) == (sum == nullptr));
+    MNN_ASSERT(threadNumber > 0);
+    constexpr int tokenTile = 4;
     const size_t channelUnit = UP_DIV(channels, Pack);
-    for (size_t n = 0; n < batch; ++n) {
-        float mean = 0.0f;
-        if (!RMSNorm) {
-            float sum = 0.0f;
-            for (size_t c = 0; c < channels; ++c) {
-                const size_t cu = c / Pack;
-                const size_t cr = c - cu * Pack;
-                sum += source[(cu * batch + n) * Pack + cr];
+    const size_t tileCount = UP_DIV(batch, tokenTile);
+#if defined(MNN_USE_NEON) && defined(__aarch64__)
+    if (Pack == 4 && RMSNorm && residual == nullptr && channels % Pack == 0) {
+        for (size_t tile = tId; tile < tileCount; tile += threadNumber) {
+            const size_t tokenBase = tile * tokenTile;
+            const size_t tokenCount = ALIMIN(tokenTile, batch - tokenBase);
+            float32x4_t squareSums[tokenTile];
+            for (size_t token = 0; token < tokenCount; ++token) {
+                squareSums[token] = vdupq_n_f32(0.0f);
             }
-            mean = sum / static_cast<float>(channels);
-        }
-
-        float squareSum = 0.0f;
-        for (size_t c = 0; c < channels; ++c) {
-            const size_t cu = c / Pack;
-            const size_t cr = c - cu * Pack;
-            float v = source[(cu * batch + n) * Pack + cr];
-            float d = RMSNorm ? v : (v - mean);
-            squareSum += d * d;
-        }
-
-        const float invStd = 1.0f / std::sqrt(squareSum / static_cast<float>(channels) + epsilon);
-        for (size_t c = 0; c < channels; ++c) {
-            const size_t cu = c / Pack;
-            const size_t cr = c - cu * Pack;
-            const size_t index = (cu * batch + n) * Pack + cr;
-            float v = source[index];
-            float norm = RMSNorm ? (v * invStd) : ((v - mean) * invStd);
-            if (gamma && beta) {
-                norm = norm * gamma[c] + beta[c];
+            for (size_t block = 0; block < channelUnit; ++block) {
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (block * batch + tokenBase + token) * Pack;
+                    auto value = vld1q_f32(source + offset);
+                    squareSums[token] = vmlaq_f32(squareSums[token], value, value);
+                }
             }
-            dest[index] = norm;
+            float invStds[tokenTile];
+            for (size_t token = 0; token < tokenCount; ++token) {
+                invStds[token] =
+                    1.0f / std::sqrt(vaddvq_f32(squareSums[token]) / static_cast<float>(channels) + epsilon);
+            }
+            const bool affine = gamma != nullptr && beta != nullptr;
+            for (size_t block = 0; block < channelUnit; ++block) {
+                float32x4_t gammaValue;
+                float32x4_t betaValue;
+                if (affine) {
+                    gammaValue = vld1q_f32(gamma + block * Pack);
+                    betaValue = vld1q_f32(beta + block * Pack);
+                }
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (block * batch + tokenBase + token) * Pack;
+                    auto value = vmulq_n_f32(vld1q_f32(source + offset), invStds[token]);
+                    if (affine) {
+                        value = vmlaq_f32(betaValue, value, gammaValue);
+                    }
+                    vst1q_f32(dest + offset, value);
+                }
+            }
         }
-        for (size_t c = channels; c < channelUnit * Pack; ++c) {
-            const size_t cu = c / Pack;
-            const size_t cr = c - cu * Pack;
-            dest[(cu * batch + n) * Pack + cr] = 0.0f;
+        return;
+    }
+#endif
+    for (size_t tile = tId; tile < tileCount; tile += threadNumber) {
+        const size_t tokenBase = tile * tokenTile;
+        const size_t tokenCount = ALIMIN(tokenTile, batch - tokenBase);
+        float means[tokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
+        if (residual != nullptr || !RMSNorm) {
+            for (size_t block = 0; block < channelUnit; ++block) {
+                const size_t valid = ALIMIN(static_cast<size_t>(Pack), channels - block * Pack);
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (block * batch + tokenBase + token) * Pack;
+                    for (size_t lane = 0; lane < valid; ++lane) {
+                        float value = source[offset + lane];
+                        if (residual != nullptr) {
+                            value += residual[offset + lane];
+                            sum[offset + lane] = value;
+                        }
+                        if (!RMSNorm) {
+                            means[token] += value;
+                        }
+                    }
+                    if (sum != nullptr) {
+                        for (size_t lane = valid; lane < Pack; ++lane) {
+                            sum[offset + lane] = 0.0f;
+                        }
+                    }
+                }
+            }
+            if (!RMSNorm) {
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    means[token] /= static_cast<float>(channels);
+                }
+            }
+        }
+        const float* normSource = sum != nullptr ? sum : source;
+        float squareSums[tokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (size_t block = 0; block < channelUnit; ++block) {
+            const size_t valid = ALIMIN(static_cast<size_t>(Pack), channels - block * Pack);
+            for (size_t token = 0; token < tokenCount; ++token) {
+                const size_t offset = (block * batch + tokenBase + token) * Pack;
+                for (size_t lane = 0; lane < valid; ++lane) {
+                    const float diff = normSource[offset + lane] - means[token];
+                    squareSums[token] += diff * diff;
+                }
+            }
+        }
+        float invStds[tokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (size_t token = 0; token < tokenCount; ++token) {
+            invStds[token] = 1.0f / std::sqrt(squareSums[token] / static_cast<float>(channels) + epsilon);
+        }
+        for (size_t block = 0; block < channelUnit; ++block) {
+            const size_t channelBase = block * Pack;
+            const size_t valid = ALIMIN(static_cast<size_t>(Pack), channels - channelBase);
+            for (size_t token = 0; token < tokenCount; ++token) {
+                const size_t offset = (block * batch + tokenBase + token) * Pack;
+                for (size_t lane = 0; lane < valid; ++lane) {
+                    const size_t channel = channelBase + lane;
+                    float value = (normSource[offset + lane] - means[token]) * invStds[token];
+                    if (gamma != nullptr && beta != nullptr) {
+                        value = value * gamma[channel] + beta[channel];
+                    }
+                    dest[offset + lane] = value;
+                }
+                for (size_t lane = valid; lane < Pack; ++lane) {
+                    dest[offset + lane] = 0.0f;
+                }
+            }
         }
     }
 }

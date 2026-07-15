@@ -66,7 +66,7 @@ class Attention(torch.nn.Module):
         self.layer_id = layer_id
         self.rotary = rotary
         export_args = getattr(config, 'export_args', None)
-        self.export_fused_rope = getattr(export_args, 'transformer_c4', False)
+        self.export_fused_rope = getattr(export_args, 'transformer_c4', True)
         self.hidden_size = config.hidden_size
         self.head_dim = config.head_dim
         if isinstance(config.num_attention_heads, list):
@@ -78,6 +78,7 @@ class Attention(torch.nn.Module):
             self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         ModelMapper.do_map(self, attn, mapper['attention'])
+        self.q_gate_proj = None
         self.qk_norm_after_rope = getattr(config, 'qk_norm_after_rope', False)
         if not self.qk_norm_after_rope:
             self.qk_norm_after_rope = (
@@ -117,8 +118,18 @@ class Attention(torch.nn.Module):
 
         # Create FusedAttention with KV sharing info
         kv_shared_idx = self.kv_shared_layer_index if self.is_kv_shared_layer else -1
-        self.fused_attn = FusedAttention(self.num_heads * self.head_dim, self.kv_cache, f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx)
-        self.fused_rope = FusedRoPE(self.head_dim, f'/layers.{layer_id}/self_attn/FusedRoPE')
+        self.fused_attn = FusedAttention(
+            self.num_heads * self.head_dim, self.kv_cache,
+            f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx,
+            self.head_dim)
+        self.rope_cut_head_dim = min(int(getattr(self.rotary, 'rotary_dim', self.head_dim)), self.head_dim)
+        self.fused_rope = FusedRoPE(
+            self.rope_cut_head_dim,
+            self.num_heads,
+            self.num_key_value_heads,
+            self.head_dim,
+            f'/layers.{layer_id}/self_attn/FusedRoPE',
+        )
 
         if hasattr(self, 'qkv_proj') and self.qkv_proj is not None:
             # split qkv linear to q, k, v
@@ -167,6 +178,30 @@ class Attention(torch.nn.Module):
             self.k_proj.bias.requires_grad = False
             self.v_proj.bias.requires_grad = False
 
+        # Some gated attention variants concatenate query and output-gate channels in q_proj.
+        # Split the projection while exporting C4 so query and gate can remain independent C4 tensors.
+        query_size = self.num_heads * self.head_dim
+        if (self.export_fused_rope
+                and not getattr(export_args, 'lora_split', False)
+                and isinstance(self.q_proj, torch.nn.Linear)
+                and self.q_proj.out_features == 2 * query_size):
+            combined_q_proj = self.q_proj
+            has_bias = combined_q_proj.bias is not None
+            self.q_proj = torch.nn.Linear(combined_q_proj.in_features, query_size, bias=has_bias)
+            self.q_gate_proj = torch.nn.Linear(combined_q_proj.in_features, query_size, bias=has_bias)
+            q_gate_weight = combined_q_proj.weight.data.view(
+                self.num_heads, 2, self.head_dim, combined_q_proj.in_features)
+            self.q_proj.weight.data = q_gate_weight[:, 0].reshape(query_size, combined_q_proj.in_features).clone()
+            self.q_gate_proj.weight.data = q_gate_weight[:, 1].reshape(query_size, combined_q_proj.in_features).clone()
+            if has_bias:
+                q_gate_bias = combined_q_proj.bias.data.view(self.num_heads, 2, self.head_dim)
+                self.q_proj.bias.data = q_gate_bias[:, 0].reshape(query_size).clone()
+                self.q_gate_proj.bias.data = q_gate_bias[:, 1].reshape(query_size).clone()
+            for projection in (self.q_proj, self.q_gate_proj):
+                projection.weight.requires_grad = False
+                if projection.bias is not None:
+                    projection.bias.requires_grad = False
+
         self.past_key_value = None
 
     def forward(
@@ -179,7 +214,9 @@ class Attention(torch.nn.Module):
         query_states = self.q_proj(hidden_states)
         key_states = None
         value_states = None
-        if self.q_proj.out_features == 2 * self.num_heads * self.head_dim:
+        if self.q_gate_proj is not None:
+            gate = self.q_gate_proj(hidden_states)
+        elif self.q_proj.out_features == 2 * self.num_heads * self.head_dim:
             reshaped = query_states.view(bsz, q_len, self.num_heads, self.head_dim * 2)
             query_states, gate = torch.split(reshaped, self.head_dim, dim=-1)
             gate = gate.reshape(bsz, q_len, -1)
@@ -224,30 +261,38 @@ class Attention(torch.nn.Module):
         # rope
         if self.rotary is not None:
             cos, sin = rotary_pos_emb[0], rotary_pos_emb[1]
+            q_norm_fusable = (
+                not q_norm_before_rope
+                or (hasattr(self.q_norm, 'weight') and self.q_norm.weight is not None)
+            )
+            k_norm_fusable = (
+                not k_norm_before_rope
+                or (hasattr(self.k_norm, 'weight') and self.k_norm.weight is not None)
+            )
             use_fused_rope = (
                 self.export_fused_attn and torch.onnx.is_in_onnx_export()
                 and self.export_fused_rope
                 and not qk_norm_after_rope
                 and not use_shared_kv
+                and not self.k_eq_v
                 and self.k_proj is not None
+                and q_norm_fusable
+                and k_norm_fusable
+                and not getattr(getattr(self.config, 'export_args', None), 'lora_split', False)
                 and self.rotary.model_type not in ['chatglm', 'chatglm2', 'ernie4_5', 'glm_ocr']
-                and cos.shape[-1] == self.head_dim
-                and sin.shape[-1] == self.head_dim
+                and cos.shape[-1] == self.rope_cut_head_dim
+                and sin.shape[-1] == self.rope_cut_head_dim
             )
-            fuse_qk_norm = use_fused_rope and q_norm_before_rope and k_norm_before_rope
+            fuse_q_norm = use_fused_rope and q_norm_before_rope
+            fuse_k_norm = use_fused_rope and k_norm_before_rope
             if use_fused_rope:
-                if not fuse_qk_norm:
-                    if q_norm_before_rope:
-                        query_states = self.q_norm(query_states)
-                    if k_norm_before_rope:
-                        key_states = self.k_norm(key_states)
                 query_states, key_states = self.fused_rope(
                     query_states,
                     key_states,
                     cos,
                     sin,
-                    self.q_norm if fuse_qk_norm else None,
-                    self.k_norm if fuse_qk_norm else None,
+                    self.q_norm if fuse_q_norm else None,
+                    self.k_norm if fuse_k_norm else None,
                 )
             else:
                 # Most models apply q/k norm before rotary, but HunYuan applies it after rotary.

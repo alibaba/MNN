@@ -388,7 +388,17 @@ void MetalLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::ve
 
 class MetalLayerNormCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *> &outputs) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend,
+                                const std::vector<Tensor *> &outputs) const {
+        if (inputs.empty() || outputs.empty()) {
+            return nullptr;
+        }
+        const bool c4 = op->defaultDimentionFormat() == MNN_DATA_FORMAT_NC4HW4 ||
+                        TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+        if (c4 && (inputs[0]->dimensions() < 2 ||
+                   (inputs[0]->length(1) > 0 && inputs[0]->length(1) % 4 != 0))) {
+            return nullptr;
+        }
         auto res = MetalLayerNorm::makeResource(backend, op->main_as_LayerNorm());
         if (nullptr == res) {
             return nullptr;

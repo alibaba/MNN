@@ -33,7 +33,7 @@ layout(set=0, binding=7) readonly uniform constBuffer {
     ivec4 s0; // qLen, kLen, headNum, kvHeadNum
     ivec4 s1; // headDim, group, pastLen, totalLen
     ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
-    vec4 f0;  // scale, 0, 0, 0
+    vec4 f0;  // scale, 0, valueC4, outputC4
 } uConst;
 
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
@@ -82,6 +82,7 @@ void main() {
     }
 
     const float scale = uConst.f0.x;
+    const bool outputC4 = uConst.f0.w > 0.5;
     const int qBase = (q * headNum + h) * headDim;
     const int kMaskStart = (maskMode == 1 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
 
@@ -143,8 +144,6 @@ void main() {
     const float laneScale = (l > 0.0) ? exp(m - mGlobal) : 0.0;
     const float lGlobal = subgroupAdd(l * laneScale);
     const float invL = (lGlobal > 0.0) ? (1.0 / lGlobal) : 0.0;
-    const int outBase = (q * headNum + h) * headDim;
-
     for (int i = 0; i < d4Size; ++i) {
         vec4 scaled = outVec[i] * laneScale;
         vec4 reduced;
@@ -155,10 +154,12 @@ void main() {
         if (lane == 0u) {
             vec4 v = reduced * invL;
             const int d = i * 4;
-            uOutput.data[outBase + d + 0] = FLOAT(v.x);
-            uOutput.data[outBase + d + 1] = FLOAT(v.y);
-            uOutput.data[outBase + d + 2] = FLOAT(v.z);
-            uOutput.data[outBase + d + 3] = FLOAT(v.w);
+            const int outBase = outputC4 ? ((h * d4Size + i) * qLen + q) * 4
+                                         : (q * headNum + h) * headDim + d;
+            uOutput.data[outBase + 0] = FLOAT(v.x);
+            uOutput.data[outBase + 1] = FLOAT(v.y);
+            uOutput.data[outBase + 2] = FLOAT(v.z);
+            uOutput.data[outBase + 3] = FLOAT(v.w);
         }
     }
 }

@@ -219,8 +219,27 @@ public:
         for (int i = 0; i < expected.size(); ++i) {
             expected[i] = x[i] * (y[i] / (1.0f + std::exp(-y[i])));
         }
-        return test<float, float>(MNN::Express::_MulSilu, "MultiplySiluTest", 0.01f, x, y, expected, {2, 3}, {2, 3},
-                                  {2, 3});
+        if (!test<float, float>(MNN::Express::_MulSilu, "MultiplySiluTest", 0.01f, x, y, expected, {2, 3},
+                                {2, 3}, {2, 3})) {
+            return false;
+        }
+
+        const int batch = 2;
+        const int channel = 8;
+        std::vector<float> packedX(batch * channel), packedY(batch * channel), packedExpected(batch * channel);
+        for (int n = 0; n < batch; ++n) {
+            for (int c = 0; c < channel; ++c) {
+                int offset = (c % 4) + 4 * n + 4 * batch * (c / 4);
+                packedX[offset] = (float)(n * channel + c - 7) * 0.25f;
+                packedY[offset] = (float)((n * channel + c) % 9 - 4) * 0.5f;
+                packedExpected[offset] =
+                    packedX[offset] * (packedY[offset] / (1.0f + std::exp(-packedY[offset])));
+            }
+        }
+        return test<float, float>(MNN::Express::_MulSilu, "MultiplySiluC4Test", 0.01f, packedX, packedY,
+                                  packedExpected, {batch, channel, 1, 1}, {batch, channel, 1, 1},
+                                  {batch, channel, 1, 1}, {-100.f, -100.f, -100.f}, {-100.f, -100.f, -100.f},
+                                  NC4HW4);
     }
 };
 
@@ -725,6 +744,32 @@ public:
     }
 };
 
+class AddC4BroadcastTest : public BinaryTestCommon {
+public:
+    virtual ~AddC4BroadcastTest() = default;
+    virtual bool run(int precision) {
+        const int batch = 16;
+        const int channel = 16;
+        std::vector<float> input(batch * channel);
+        std::vector<float> bias(channel);
+        std::vector<float> expected(batch * channel);
+        for (int c = 0; c < channel; ++c) {
+            bias[c] = (float)(c - 7) * 0.25f;
+        }
+        for (int n = 0; n < batch; ++n) {
+            for (int c = 0; c < channel; ++c) {
+                int offset = (c % 4) + 4 * n + 4 * batch * (c / 4);
+                input[offset] = (float)(n * channel + c) * 0.03125f;
+                expected[offset] = input[offset] + bias[c];
+            }
+        }
+        return test<float, float>(MNN::Express::_Add, "AddC4ChannelBroadcastTest", 0.01f, input, bias,
+                                  expected, {batch, channel, 1, 1}, {1, channel, 1, 1},
+                                  {batch, channel, 1, 1}, {-100.f, -100.f, -100.f},
+                                  {-100.f, -100.f, -100.f}, NC4HW4);
+    }
+};
+
 // Float32 OpTest.
 MNNTestSuiteRegister(BinaryBroadcastShapeTest, "op/binary/broadcastShapeTest");
 MNNTestSuiteRegister(AddTest, "op/binary/add");
@@ -768,4 +813,5 @@ MNNTestSuiteRegister(Atan2Int8Test, "op/binary/atan2Int8");
 MNNTestSuiteRegister(SquaredDifferenceInt8Test, "op/binary/sqdInt8");
 
 MNNTestSuiteRegister(AddC4Test, "op/binary/addC4");
+MNNTestSuiteRegister(AddC4BroadcastTest, "op/binary/addC4Broadcast");
 MNNTestSuiteRegister(AddBroastTest, "op/binary/AddBroast");

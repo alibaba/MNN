@@ -784,6 +784,9 @@ void CPUKVCacheManager::ProcessValue(const Tensor* value, int seqLen, int kvHead
     const auto valueSrc = value->host<T>();
     auto loadValue = [&](int token, int channel) {
         if (valueC4) {
+            if (seqLen == 1) {
+                return valueSrc[channel];
+            }
             return valueSrc[c4Offset(token, channel, seqLen, pack)];
         }
         return valueSrc[token * mKvNumHead * mHeadDim + channel];

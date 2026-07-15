@@ -863,8 +863,8 @@ def build_args(parser):
     parser.add_argument('--hqq', action='store_true', help='Whether or not to use hqq quant.')
     parser.add_argument('--omni', action='store_true', help='Whether or not to use omni quant.')
     parser.add_argument('--transformer_fuse', action='store_true', help='Whether or not to fuse vision transformer op.')
-    parser.add_argument('--enable_transformer_c4', dest='transformer_c4', action='store_true', default=False,
-                        help='Whether or not to enable LLM C4 graph fusion.')
+    parser.add_argument('--disable_transformer_c4', dest='transformer_c4', action='store_false', default=True,
+                        help='Disable LLM C4 graph fusion for compatibility with older runtimes.')
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')
     parser.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
     parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), default is False.')

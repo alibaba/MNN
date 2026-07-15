@@ -179,6 +179,8 @@ python llmexport.py \
   cmake .. -DMNN_BUILD_CONVERTER=ON && make -j16
   ```
   编译完成后 `build/` 目录下会生成 `MNNConvert` 可执行文件，`llmexport.py` 默认会在 `../../../build/` 下查找该工具；也可以通过 `--mnnconvert` 选项显式指定 MNNConvert 路径。若未提供本地 MNNConvert，脚本会回退到 pymnn（需先安装 `pip install MNN`）。此方案目前支持导出4bit和8bit模型。
+
+  > **C4 融合与引擎兼容性**：`llmexport.py` 默认开启 Transformer C4 图融合，以减少布局转换并提升 CPU、Metal、OpenCL、CUDA 和 Vulkan 后端的推理性能。默认导出的模型依赖支持 C4 RoPE/Attention 布局的新版 MNN 引擎，无法在不包含相关实现的历史引擎上运行；可使用 `--disable_transformer_c4` 导出兼容模型。新引擎仍兼容旧的非 C4 模型。独立使用 `MNNConvert` 时 C4 融合同样默认开启，可通过 `--transformerFuseC4=0` 显式关闭。
 - 如果直接转为mnn模型遇到问题，或者需要其他bits数的量化（如5bit/6bit），可以先将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型:
 
 ```
@@ -197,7 +199,7 @@ usage: llmexport.py [-h] --path PATH [--type TYPE] [--tokenizer_path TOKENIZER_P
                     [--gptq_path GPTQ_PATH] [--dst_path DST_PATH] [--verbose] [--test TEST] [--export EXPORT]
                     [--onnx_slim] [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK]
                     [--lm_quant_bit LM_QUANT_BIT] [--mnnconvert MNNCONVERT] [--ppl] [--awq] [--omni] [--sym] [--seperate_embed]
-                    [--lora_split]
+                    [--lora_split] [--disable_transformer_c4]
 
 llm_exporter
 
@@ -232,6 +234,8 @@ optional arguments:
                         mnn lm_head quant bit, 4 or 8, default is `quant_bit`.
   --mnnconvert MNNCONVERT
                         local mnnconvert path, if invalid, using pymnn.
+  --disable_transformer_c4
+                        Disable LLM C4 graph fusion for compatibility with older runtimes.
   --ppl                 Whether or not to get all logits of input tokens.
   --awq                 Whether or not to use awq quant.
   --sym                 Whether or not to using symmetric quant (without zeropoint), defualt is False.

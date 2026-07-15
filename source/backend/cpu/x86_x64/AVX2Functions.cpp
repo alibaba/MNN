@@ -24,26 +24,44 @@ static void _MNNGetMatMulPackMode(int* eP, int* lP, int* hP) {
 }
 
 template <int Pack>
-static void _MNNNormPacked_Float(float* dest, const float* source, const float* gamma, const float* beta, float epsilon,
-                                 size_t batch, size_t channels, bool RMSNorm) {
+static void _MNNNormPacked_Float(float* dest, float* sum, const float* source, const float* residual,
+                                 const float* gamma, const float* beta, float epsilon, size_t batch, size_t channels,
+                                 bool RMSNorm, int tId, int threadNumber) {
+    MNN_ASSERT((residual == nullptr) == (sum == nullptr));
+    MNN_ASSERT(threadNumber > 0);
     const size_t channelUnit = UP_DIV(channels, Pack);
-    for (size_t n = 0; n < batch; ++n) {
-        float mean = 0.0f;
-        if (!RMSNorm) {
-            float sum = 0.0f;
+    for (size_t n = tId; n < batch; n += threadNumber) {
+        const float* normSource = source;
+        if (residual != nullptr) {
             for (size_t c = 0; c < channels; ++c) {
                 const size_t cu = c / Pack;
                 const size_t cr = c - cu * Pack;
-                sum += source[(cu * batch + n) * Pack + cr];
+                const size_t index = (cu * batch + n) * Pack + cr;
+                sum[index] = source[index] + residual[index];
             }
-            mean = sum / static_cast<float>(channels);
+            for (size_t c = channels; c < channelUnit * Pack; ++c) {
+                const size_t cu = c / Pack;
+                const size_t cr = c - cu * Pack;
+                sum[(cu * batch + n) * Pack + cr] = 0.0f;
+            }
+            normSource = sum;
+        }
+        float mean = 0.0f;
+        if (!RMSNorm) {
+            float sumValue = 0.0f;
+            for (size_t c = 0; c < channels; ++c) {
+                const size_t cu = c / Pack;
+                const size_t cr = c - cu * Pack;
+                sumValue += normSource[(cu * batch + n) * Pack + cr];
+            }
+            mean = sumValue / static_cast<float>(channels);
         }
 
         float squareSum = 0.0f;
         for (size_t c = 0; c < channels; ++c) {
             const size_t cu = c / Pack;
             const size_t cr = c - cu * Pack;
-            float v = source[(cu * batch + n) * Pack + cr];
+            float v = normSource[(cu * batch + n) * Pack + cr];
             float d = RMSNorm ? v : (v - mean);
             squareSum += d * d;
         }
@@ -53,7 +71,7 @@ static void _MNNNormPacked_Float(float* dest, const float* source, const float* 
             const size_t cu = c / Pack;
             const size_t cr = c - cu * Pack;
             const size_t index = (cu * batch + n) * Pack + cr;
-            float v = source[index];
+            float v = normSource[index];
             float norm = RMSNorm ? (v * invStd) : ((v - mean) * invStd);
             if (gamma && beta) {
                 norm = norm * gamma[c] + beta[c];

@@ -18,7 +18,7 @@ layout(set=0, binding=4) readonly uniform constBuffer {
     ivec4 s0; // qLen, kLen, headNum, kvHeadNum
     ivec4 s1; // headDim, group, pastLen, totalLen
     ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
-    vec4 f0;  // scale, 0, 0, 0
+    vec4 f0;  // scale, 0, valueC4, outputC4
 } uConst;
 
 layout(local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
@@ -44,8 +44,11 @@ void main() {
         return;
     }
 
-    // input: [1, kLen, kvHeadNum, headDim]
-    const int inBase = (token * kvHeadNum + kvh) * headDim + d;
+    // Key is contiguous [1, kLen, kvHeadNum, headDim]; value may use channel-blocked C4 storage.
+    const bool valueC4 = uConst.f0.z > 0.5;
+    const int keyBase4 = (token * kvHeadNum + kvh) * (headDim / 4) + d4;
+    const int valueBase4 = valueC4 ? (kvh * (headDim / 4) + d4) * kLen + token
+                                   : (token * kvHeadNum + kvh) * (headDim / 4) + d4;
     const int cacheToken = pastLen + token;
     if (cacheToken >= maxLen) {
         return;
@@ -54,10 +57,10 @@ void main() {
     // cacheK (packed): [kvHeadNum, headDim/4, maxLen, 4]
     const int d4Size = headDim / 4;
     const int outBase = (kvh * d4Size + d4) * maxLen + cacheToken;
-    uCacheKey.data[outBase] = uKey.data[inBase / 4];
+    uCacheKey.data[outBase] = uKey.data[keyBase4];
 
     // cacheV (kvh-major, packed-D): [kvHeadNum, maxLen, headDim/4, 4]
     // Index: ((kvh * maxLen + token) * d4Size + d4)
     const int outBaseV4 = (kvh * maxLen + cacheToken) * d4Size + d4;
-    uCacheValue.data[outBaseV4] = uValue.data[inBase / 4];
+    uCacheValue.data[outBaseV4] = uValue.data[valueBase4];
 }

@@ -19,22 +19,22 @@ namespace MNN {
 namespace OpenCL {
 
 struct OpenCLStateCache {
-    std::shared_ptr<Tensor> mConvState;      // Conv1D padding state: [B, D, kernel_size - 1]
-    std::shared_ptr<Tensor> mRecurrentState; // Gated Delta Rule recurrent state S: [B, H, d_k, d_v]
+    std::shared_ptr<Tensor> mConvState;          // Conv1D padding state: [B, D, kernel_size - 1]
+    std::shared_ptr<Tensor> mRecurrentState;     // Gated Delta Rule recurrent state S: [B, H, d_k, d_v]
     std::shared_ptr<Tensor> mRecurrentStateTune; // Gated Delta Rule recurrent state S: [B, H, d_k, d_v]
 };
 
 class LinearAttentionBufExecution : public CommonExecution {
 public:
-    LinearAttentionBufExecution(const MNN::Op *op, Backend *backend);
+    LinearAttentionBufExecution(const MNN::Op* op, Backend* backend);
     virtual ~LinearAttentionBufExecution() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
     // Chunked prefill: fully independent branch (called from onResize/onExecute when seqLen > 1)
-    ErrorCode onResizeChunkedPrefill(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode onExecuteChunkedPrefill(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    ErrorCode onResizeChunkedPrefill(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    ErrorCode onExecuteChunkedPrefill(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 
 private:
     std::string mAttentionType;
@@ -44,7 +44,7 @@ private:
     int mHeadVDim;
     bool mUseQKL2Norm;
 
-    OpenCLBackend *mOpenCLBackend;
+    OpenCLBackend* mOpenCLBackend;
 
     // Persistent state buffers shared between prefill and decode via onClone
     std::shared_ptr<OpenCLStateCache> mStateCache;
@@ -57,6 +57,9 @@ private:
     std::shared_ptr<KernelWrap> mKernelConvStateUpdate;
     std::shared_ptr<KernelWrap> mKernell2Norm;
     std::shared_ptr<KernelWrap> mKernelGatedDeltaRule;
+    std::shared_ptr<KernelWrap> mKernelShortConv;
+    std::shared_ptr<KernelWrap> mKernelShortConvStateUpdate;
+    std::shared_ptr<KernelWrap> mKernelShortConvOutput;
 
     // Work sizes
     std::vector<uint32_t> mGWSConvSilu;
@@ -67,6 +70,12 @@ private:
     std::vector<uint32_t> mLWSl2Norm;
     std::vector<uint32_t> mGWSGatedDeltaRule;
     std::vector<uint32_t> mLWSGatedDeltaRule;
+    std::vector<uint32_t> mGWSShortConv;
+    std::vector<uint32_t> mLWSShortConv;
+    std::vector<uint32_t> mGWSShortConvStateUpdate;
+    std::vector<uint32_t> mLWSShortConvStateUpdate;
+    std::vector<uint32_t> mGWSShortConvOutput;
+    std::vector<uint32_t> mLWSShortConvOutput;
 
     // ─── Chunked prefill ───
     bool mUseChunkedPrefill = false;
@@ -104,10 +113,10 @@ private:
 
     // Chunked prefill intermediate buffers (float32)
     std::shared_ptr<Tensor> mGCumsumBuf;
-    std::shared_ptr<Tensor> mAttnMatrixBuf;   // shared for Neumann attn and QK attn
+    std::shared_ptr<Tensor> mAttnMatrixBuf; // shared for Neumann attn and QK attn
     std::shared_ptr<Tensor> mVCorrectedBuf;
     std::shared_ptr<Tensor> mKCumdecayBuf;
-    std::shared_ptr<Tensor> mVNewBuf;         // single chunk only
+    std::shared_ptr<Tensor> mVNewBuf; // single chunk only
 };
 
 } // namespace OpenCL
