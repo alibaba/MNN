@@ -47,6 +47,7 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     param.elhPad[2] = UP_DIV(h, PACK_NUMBER) * PACK_NUMBER;
 
     auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
+    if (nullptr == tempCacheBuffer.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
     float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
     runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(float), MNNMemcpyHostToDevice);
 
@@ -74,6 +75,7 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         mBias = (void *)biasTensor.get()->buffer().device;
 
         auto tempBiasBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(biasPackSize * sizeof(float));
+        if (nullptr == tempBiasBuffer.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
         float* cacheBias = (float*)((uint8_t*)tempBiasBuffer.first + tempBiasBuffer.second);
         cuda_check(cudaMemcpy(cacheBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
 
@@ -160,11 +162,13 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     MemChunk buffer_input, buffer_im2col;
     if(mFp16Fp32MixInfer) {
         buffer_input = pool->alloc(sizeof(__half) * mGemmInfo.elh[0] * mGemmInfo.elhPad[1]);
+        if (nullptr == buffer_input.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mInputBuffer = (void*)((uint8_t*)buffer_input.first + buffer_input.second);
     } else {
         mInputBuffer = (void*)input->deviceId();
     }
     buffer_im2col = pool->alloc(bytes * mGemmInfo.elh[0] * mGemmInfo.elhPad[2]);
+    if (nullptr == buffer_im2col.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mIm2ColBuffer = (__half*)((uint8_t*)buffer_im2col.first + buffer_im2col.second);
     if(mFp16Fp32MixInfer) {
         pool->free(buffer_input);

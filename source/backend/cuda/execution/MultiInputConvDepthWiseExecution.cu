@@ -103,9 +103,11 @@ ErrorCode MultiInputConvDepthWiseExecution::onResize(const std::vector<Tensor *>
     auto pool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
 
     auto bufferFilter = pool->alloc(mParams.numWeightPackTotal * sizeof(half));
+    if (nullptr == bufferFilter.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mParams.mFilter = (void*)((uint8_t*)bufferFilter.first + bufferFilter.second);
 
     auto bufferBias = pool->alloc(mParams.numBiasPackTotal * sizeof(half));
+    if (nullptr == bufferBias.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mParams.mBias = (void*)((uint8_t*)bufferBias.first + bufferBias.second);
 
     pool->free(bufferFilter);

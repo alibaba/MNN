@@ -21,6 +21,7 @@ ScaleExecution::ScaleExecution(const Scale* scale, Backend *backend) : Execution
     auto scaleBiasStorageSize = 2 * mChannel * PACK_NUMBER * sizeof(float);
     auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
     mScaleBiasStorage = staticPool->alloc(scaleBiasStorageSize);
+    if (nullptr == mScaleBiasStorage.first) { mValid = false; MNN_ERROR("CUDA alloc failed\n"); return; }
     mDeviceScale = (uint8_t*)mScaleBiasStorage.first + mScaleBiasStorage.second;
     mDeviceBias = (uint8_t*)mDeviceScale + scaleBiasStorageSize / 2;
     cudaMemset(mDeviceScale, 0, scaleBiasStorageSize);

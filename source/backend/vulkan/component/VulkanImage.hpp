@@ -59,6 +59,9 @@ public:
         return std::get<4>(mInfo);
     }
     void release();
+    bool valid() const {
+        return mMemory.first != nullptr;
+    }
     void resetBarrier() {
         mLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     }

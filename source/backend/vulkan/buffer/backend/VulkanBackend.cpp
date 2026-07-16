@@ -223,6 +223,10 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
     auto des = TensorUtils::getDescribeOrigin(tensor);
     if (Backend::STATIC == storageType) {
         auto newBuffer = mRuntime->mBufferPool->alloc(alignSize);
+        if (nullptr == newBuffer.first) {
+            MNN_ERROR("Vulkan alloc static buffer failed, size=%zu\n", alignSize);
+            return nullptr;
+        }
         auto mem = new VulkanMemRelease(mRuntime->mBufferPool.get(), newBuffer, alignSize);
         MTensor->buffer().device = (uint64_t)(newBuffer.first);
         des->offset = newBuffer.second;
@@ -230,6 +234,10 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
     }
     bool seperate  = storageType == Backend::DYNAMIC_SEPERATE;
     auto newBuffer = mCurrentDynamicBufferPool->alloc(alignSize, seperate);
+    if (nullptr == newBuffer.first) {
+        MNN_ERROR("Vulkan alloc dynamic buffer failed, size=%zu\n", alignSize);
+        return nullptr;
+    }
     auto mem = new VulkanMemRelease(mCurrentDynamicBufferPool, newBuffer, alignSize);
     MTensor->buffer().device = (uint64_t)(newBuffer.first);
     des->offset = newBuffer.second;
