@@ -114,6 +114,7 @@ public:
                         break;
                 }
                 MemChunk buffer = pool->alloc(bufferSize);
+                if (nullptr == buffer.first) { mValid = false; MNN_ERROR("CUDA alloc failed\n"); return; }
                 runtime->memcpy(buffer.ptr(), result, bufferSize, MNNMemcpyHostToDevice);
 
                 mConstIndides.emplace_back(std::make_pair(attr->i(), buffer));

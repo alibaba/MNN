@@ -261,6 +261,10 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
         case Backend::STATIC: {
             buffer = mRuntime->mStaticAllocator->alloc(size, false);
             allocator = mRuntime->mStaticAllocator.get();
+            if (nullptr == buffer.first && nullptr != mRuntime->mStaticAllocatorRaw.get()) {
+                buffer = mRuntime->mStaticAllocatorRaw->alloc(size, false);
+                allocator = mRuntime->mStaticAllocatorRaw.get();
+            }
         } break;
         case Backend::DYNAMIC: {
             buffer = mCurrentAllocator->alloc(size, false);
@@ -1303,8 +1307,14 @@ public:
     virtual MemChunk onAlloc(size_t size, size_t align) override {
         auto mem = mOrigin->onAlloc(size, align);
         MNN_ASSERT(mem.second == 0);
+        if (mem.first == nullptr) {
+            return MemChunk(nullptr, 0);
+        }
         id<MTLBuffer> buffer = [mDevice newBufferWithBytesNoCopy:mem.first length:size options:MTLResourceStorageModeShared  deallocator:nil];
-
+        if (buffer == nil) {
+            mOrigin->onRelease(mem);
+            return MemChunk(nullptr, 0);
+        }
         auto wrap = new MetalRuntimeAllocator::MetalBufferAlloc(buffer);
         return MemChunk((void *)wrap, 0);
     }

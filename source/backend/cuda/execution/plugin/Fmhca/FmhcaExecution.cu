@@ -49,6 +49,7 @@ ErrorCode FmhcaExecution::onResize(const std::vector<Tensor*>& inputs, const std
         MNN_ERROR("MNN CUDA Fmhca only support sequence len <= 128 now!\n");
     }
     auto buffer_q = pool->alloc((mBatchSize+1) * sizeof(int32_t));
+    if (nullptr == buffer_q.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mSeqLenQDevPtr = (void*)((uint8_t*)buffer_q.first + buffer_q.second);
     std::vector<int32_t> cuSeqLensQ(mBatchSize + 1, 0);
     // Compute the prefix sum of the1
@@ -60,6 +61,7 @@ ErrorCode FmhcaExecution::onResize(const std::vector<Tensor*>& inputs, const std
     checkKernelErrors;
 
     auto buffer_kv = pool->alloc((mBatchSize+1) * sizeof(int32_t));
+    if (nullptr == buffer_kv.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mSeqLenKVDevPtr = (void*)((uint8_t*)buffer_kv.first + buffer_kv.second);
     std::vector<int32_t> cuSeqLensKV(mBatchSize + 1, 0);
     // Compute the prefix sum of the1

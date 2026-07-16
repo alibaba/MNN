@@ -482,28 +482,48 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
         size = ROUND_UP(size, 2);
         if (storageType == DYNAMIC_SEPERATE) {
             auto buffer = mBufferPool->alloc(size*typeSize, true);
+            if (nullptr == buffer) {
+                MNN_ERROR("OpenCL alloc buffer failed (DYNAMIC_SEPERATE), size=%zu\n", size*typeSize);
+                return nullptr;
+            }
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
             return new CLMemReleaseBuffer(buffer, mBufferPool);
         }
         if (storageType == DYNAMIC) {
             auto buffer = mBufferPool->alloc(size*typeSize);
+            if (nullptr == buffer) {
+                MNN_ERROR("OpenCL alloc buffer failed (DYNAMIC), size=%zu\n", size*typeSize);
+                return nullptr;
+            }
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
             return new CLMemReleaseBuffer(buffer, mBufferPool);
         }
         if (storageType == DYNAMIC_IN_EXECUTION){
             auto node = mExecutionBufferPool->alloc(size*typeSize);
+            if (nullptr == node.get()) {
+                MNN_ERROR("OpenCL alloc exec buffer failed, size=%zu\n", size*typeSize);
+                return nullptr;
+            }
             ((Tensor*)nativeTensor)->buffer().device = reinterpret_cast<uint64_t>(node.get());
             return new CLReleaseExecutionBuffer(node, mExecutionBufferPool.get());
         }
         MNN_ASSERT(storageType == STATIC);
         if(mCLRuntime->hint().useCachedMmap && mCLRuntime->mMmapPool.get() != nullptr && mCLRuntime->mUseMmapPool)
         {
-            auto buffer = mCLRuntime->mMmapPool->allocBuffer(size*typeSize).get();
-            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
-            return new CLMemReleaseMmapBuffer(buffer, mCLRuntime->mMmapPool.get());
-        }else{
+            auto buffer = mCLRuntime->mMmapPool->allocBuffer(size*typeSize);
+            if (nullptr != buffer.get()) {
+                ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer.get();
+                return new CLMemReleaseMmapBuffer(buffer.get(), mCLRuntime->mMmapPool.get());
+            }
+            MNN_ERROR("OpenCL mmap alloc failed, falling back to buffer pool, size=%zu\n", size*typeSize);
+        }
+        {
             auto buffer = mCLRuntime->mBufferPool->alloc(size*typeSize);
-            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
+            if (nullptr == buffer) {
+                MNN_ERROR("OpenCL alloc buffer failed (STATIC), size=%zu\n", size*typeSize);
+                return nullptr;
+            }
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
             return new CLMemReleaseBuffer(buffer, mCLRuntime->mBufferPool.get());
         }
     }
@@ -534,17 +554,29 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
 
         if (storageType == DYNAMIC_SEPERATE) {
             auto image                               = mImagePool->alloc(imageWidth, imageHeight, dataType, true);
-            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image; // fix
+            if (nullptr == image) {
+                MNN_ERROR("OpenCL alloc image failed (DYNAMIC_SEPERATE), %zux%zu\n", imageWidth, imageHeight);
+                return nullptr;
+            }
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image;
             return new CLMemReleaseImage(image, mImagePool);
         }
         if (storageType == DYNAMIC) {
             auto image                               = mImagePool->alloc(imageWidth, imageHeight, dataType);
-            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image; // fix
+            if (nullptr == image) {
+                MNN_ERROR("OpenCL alloc image failed (DYNAMIC), %zux%zu\n", imageWidth, imageHeight);
+                return nullptr;
+            }
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image;
             return new CLMemReleaseImage(image, mImagePool);
         }
         MNN_ASSERT(storageType == STATIC);
         auto image                               = mCLRuntime->mImagePool->alloc(imageWidth, imageHeight, dataType);
-        ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image; // fix
+        if (nullptr == image) {
+            MNN_ERROR("OpenCL alloc image failed (STATIC), %zux%zu\n", imageWidth, imageHeight);
+            return nullptr;
+        }
+        ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image;
         return new CLMemReleaseImage(image, mCLRuntime->mImagePool.get());
     }
 }

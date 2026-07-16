@@ -1105,6 +1105,7 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     }
     if((mNeedConvertMatAB && mFp16Fp32MixInfer) || mNeedATempBuffer) {
         bufferAData = pool->alloc(convertBytes * mBatch * mAs * mGemmInfo.elh[0] * mGemmInfo.elhPad[1]);
+        if (nullptr == bufferAData.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mTempMatA = (void*)bufferAData.ptr();
     } else {
         mTempMatA = (void *)A->deviceId();
@@ -1112,6 +1113,7 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
 
     if((mNeedConvertMatAB && mFp16Fp32MixInfer) || mNeedBTempBuffer) {
         bufferBData = pool->alloc(convertBytes * mBatch * mBs * mGemmInfo.elh[2] * mGemmInfo.elhPad[1]);
+        if (nullptr == bufferBData.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mTempMatB = (void*)bufferBData.ptr();
     } else {
         mTempMatB = (void *)B->deviceId();

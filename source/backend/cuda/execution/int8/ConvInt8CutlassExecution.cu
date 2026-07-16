@@ -234,6 +234,7 @@ ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     // Reorder weight
     {
         auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(int8_t));
+        if (nullptr == tempCacheBuffer.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
         int8_t* cacheWeight = (int8_t*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
         runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(int8_t), MNNMemcpyHostToDevice);
 
@@ -349,6 +350,7 @@ ErrorCode ConvInt8CutlassExecution::onResize(const std::vector<Tensor*> &inputs,
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
     if(mNeedIm2Col) {
         auto buffer = pool->alloc(sizeof(int8_t) * (size_t)mGemmInfo.elh[0] * (size_t)mGemmInfo.elhPad[1]);
+        if (nullptr == buffer.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mIm2ColBuffer = (void*)((uint8_t*)buffer.first + buffer.second);
         pool->free(buffer);
     }
