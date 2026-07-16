@@ -283,11 +283,20 @@ bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* 
             auto dst = (int*)ptr;
             if (!mInside->mRuntime.first.empty()) {
                 *dst = mInside->mRuntime.first.begin()->first;
+                return true;
             }
         } break;
         case Interpreter::RESIZE_STATUS: {
             auto dst = (int*)ptr;
             *dst = mInside->mResizeStatus;
+            return true;
+        } break;
+        case Interpreter::BACKEND_PROFILE: {
+            for (auto& r : mInside->mRuntime.first) {
+                if (r.second != nullptr && r.second->onGetRuntimeInfo((int)code, ptr)) {
+                    return true;
+                }
+            }
         } break;
         default: {
             // Do nothing

@@ -35,6 +35,9 @@
 #include "CommonUtils.hpp"
 #include "PostConverter.hpp"
 #include "Json2Flatbuffer.hpp"
+#ifdef ENABLE_RKNN_CONVERT_MODE
+#include "RKNNBundle.hpp"
+#endif
 #include <fstream>
 #include <sstream>
 #include <cmath>
@@ -228,15 +231,20 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         "dumpPass",
         "Enable verbose output for each optimization pass, showing what changes each pass made (like LLVM's "
         "-debug-pass)");
+#ifdef ENABLE_RKNN_CONVERT_MODE
+    options.add_options()("rknn", "generate RKNN sidecar from source ONNX and environment variables");
+#endif
 
     auto result = options.parse(argc, argv);
 
     if (result.count("help")) {
+        modelPath.cliExitCode = 0;
         std::cout << options.help({""}) << std::endl;
         return false;
     }
 
     if (result.count("version")) {
+        modelPath.cliExitCode = 0;
         std::cout << MNN_VERSION << std::endl;
         return false;
     }
@@ -272,6 +280,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         return false;
     }
     if (result.count("OP")) {
+        modelPath.cliExitCode = 0;
         MNN_PRINT("Dump %s support Ops\n", frameWork.c_str());
         const auto& res = OpCount::get()->getMap().find(frameWork);
         if (res == OpCount::get()->getMap().end()) {
@@ -454,6 +463,14 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("dumpPass")) {
         modelPath.dumpPass = true;
     }
+#ifdef ENABLE_RKNN_CONVERT_MODE
+    if (result.count("rknn")) {
+        modelPath.rknnSidecar = true;
+        if (!PopulateRKNNConfigFromEnv(modelPath)) {
+            return false;
+        }
+    }
+#endif
     return true;
 }
 
@@ -660,19 +677,37 @@ bool Cli::convertModel(modelConfig& modelPath) {
         expectedPass.emplace_back("SplitBlockQuantConvolution");
     }
     CommonKit::loadCompress(modelPath);
+    std::unique_ptr<MNN::NetT> finalNet;
     if (needOptimize) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
-        std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining, modelPath, expectedPass);
-        if (newNet->extraTensorDescribe.size()>0 && expectedPass.empty()) {
+        finalNet = optimizeNet(netT, modelPath.forTraining, modelPath, expectedPass);
+        if (finalNet->extraTensorDescribe.size()>0 && expectedPass.empty()) {
             MNN_PRINT("MNN net has tensor quant info\n");
-            computeUnaryBuffer(newNet.get());
+            computeUnaryBuffer(finalNet.get());
         }
-        _reorderInputs(inputNames, newNet.get());
-        error = writeFb(newNet, modelPath, std::move(metaOp));
+        _reorderInputs(inputNames, finalNet.get());
     } else {
         _reorderInputs(inputNames, netT.get());
-        error = writeFb(netT, modelPath, std::move(metaOp));
+        finalNet = std::move(netT);
     }
+
+#ifdef ENABLE_RKNN_CONVERT_MODE
+    if (modelPath.rknnSidecar) {
+        RKNNBundlePaths bundlePaths;
+        if (!GenerateRKNNBundle(modelPath, &bundlePaths)) {
+            return false;
+        }
+        auto wrapperNet = BuildRKNNWrapperNet(*finalNet, modelPath, bundlePaths);
+        if (nullptr == wrapperNet) {
+            return false;
+        }
+        error = writeFb(wrapperNet, modelPath, std::move(metaOp));
+    } else {
+        error = writeFb(finalNet, modelPath, std::move(metaOp));
+    }
+#else
+    error = writeFb(finalNet, modelPath, std::move(metaOp));
+#endif
     if (0 == error) {
         std::cout << "Converted Success!" << std::endl;
     } else {
