@@ -36,7 +36,8 @@ ErrorCode CutlassConvCommonExecution::callCutlassGemmTensorCore884(const std::ve
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                auto allocSuccess = mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                if (!allocSuccess) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -61,7 +62,8 @@ ErrorCode CutlassConvCommonExecution::callCutlassGemmTensorCore884(const std::ve
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                auto allocSuccess = mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                if (!allocSuccess) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -90,7 +92,8 @@ ErrorCode CutlassConvCommonExecution::callCutlassGemmTensorCore884(const std::ve
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                auto allocSuccess = mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                if (!allocSuccess) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -115,7 +118,8 @@ ErrorCode CutlassConvCommonExecution::callCutlassGemmTensorCore884(const std::ve
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                auto allocSuccess = mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                if (!allocSuccess) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -142,7 +146,8 @@ ErrorCode CutlassConvCommonExecution::callCutlassGemmTensorCore884(const std::ve
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                auto allocSuccess = mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                if (!allocSuccess) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -164,7 +169,8 @@ ErrorCode CutlassConvCommonExecution::callCutlassGemmTensorCore884(const std::ve
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                auto allocSuccess = mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                if (!allocSuccess) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 

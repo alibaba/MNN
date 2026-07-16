@@ -41,6 +41,7 @@ ErrorCode FmhaV2Execution::onResize(const std::vector<Tensor*>& inputs, const st
     mBatchSize = output->length(0);
     mSeqLen = output->length(1);
     auto buffer_data = pool->alloc((mBatchSize+1) * sizeof(int32_t));
+    if (nullptr == buffer_data.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mSeqLenDevPtr = (void*)((uint8_t*)buffer_data.first + buffer_data.second);
     std::vector<int32_t> cuSeqLens(mBatchSize + 1, 0);
     // Compute the prefix sum of the1

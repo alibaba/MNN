@@ -489,6 +489,7 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     if (!srcDevice) {
         auto cpuSize = srcTensor->size();
         tempSrcStorage = mStaticBufferPool->alloc(cpuSize);
+        if (nullptr == tempSrcStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
         srcPtr = tempSrcStorage.ptr();
         mCUDARuntime->memcpy(srcPtr, srcTensor->host<void>(), cpuSize, MNNMemcpyHostToDevice,
                              true);
@@ -500,6 +501,7 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     if (!dstDevice) {
         auto cpuSize = dstTensor->size();
         tempDstStorage = mStaticBufferPool->alloc(cpuSize);
+        if (nullptr == tempDstStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
         dstPtr = tempDstStorage.ptr();
     } else {
         dstPtr = (uint8_t*)dstTensor->deviceId();
@@ -540,6 +542,7 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
 
         wrapTensor.reset(Tensor::createDevice(srcTensor->shape(), dstTensor->getType(), dimType));
         wrapSrcStorage = mStaticBufferPool->alloc(realSize(wrapTensor.get()) * getBytes(dstTensor));
+        if (nullptr == wrapSrcStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
         // MNN_PRINT("warp:%d %d %d %d\n", realSize(wrapTensor.get()), getBytes(dstTensor), dstTensor->getType(), srcTensor->getDimensionType());
         wrapTensor.get()->buffer().device = (uint64_t)(wrapSrcStorage.ptr());
 

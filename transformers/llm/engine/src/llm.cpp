@@ -294,6 +294,11 @@ bool Llm::load() {
     }
     MNN::Express::ExecutorScope s(mExecutor);
     Timer _t;
+    // Must release old module before runtime, because module's Execution objects
+    // reference Backend owned by RuntimeManager. Releasing runtime first would
+    // destroy the Backend, causing use-after-free when module destructor runs.
+    mModulePool.clear();
+    mModule.reset();
     initRuntime();
     // init module status
     // 1. load vocab
@@ -1246,6 +1251,7 @@ Llm::~Llm() {
     }
 #endif
     mGenerateParam.reset();
+    mModulePool.clear();
     mModule.reset();
     mRuntimeManager.reset();
     mProcessorRuntimeManager.reset();

@@ -83,6 +83,7 @@ ConvWinogradExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
     // Reorder weight
     {
         auto tempCacheBuffer = static_cast<CUDABackend*>(backend)->getStaticBufferPool()->alloc(dstWeightSize*sizeof(float));
+        if (nullptr == tempCacheBuffer.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
         float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
         runtime->memcpy(cacheWeight, dstWeight->host<uint8_t>(), dstWeightSize * sizeof(float), MNNMemcpyHostToDevice);
         if(static_cast<CUDABackend*>(backend)->getPrecision() == 1) {
@@ -196,9 +197,11 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
         BtdB_bytes = 4;
     }
     auto bufferData = pool->alloc(BtdB_bytes * mBlock2 * mGemmInfo.elhPad[0] * mGemmInfo.elhPad[1]);
+    if (nullptr == bufferData.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mBtdB_Buffer = (void*)((uint8_t*)bufferData.first + bufferData.second);
 
     auto bufferMatmul = pool->alloc(bytes * mBlock2 * mGemmInfo.elh[0] * mGemmInfo.elhPad[2]);
+    if (nullptr == bufferMatmul.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mMatmul_Buffer = (void*)((uint8_t*)bufferMatmul.first + bufferMatmul.second);
 
     pool->free(bufferData);

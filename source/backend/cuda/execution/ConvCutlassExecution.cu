@@ -40,6 +40,7 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     // Reorder weight
     {
         auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
+        if (nullptr == tempCacheBuffer.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
         float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
         runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(float), MNNMemcpyHostToDevice);
         if(static_cast<CUDABackend*>(bn)->getPrecision() == 1) {
@@ -66,6 +67,7 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
             int hp = UP_DIV(biasSize, 8) * 8;
 
             auto tempBiasStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(hp*sizeof(float));
+            if (nullptr == tempBiasStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
             auto biasTemp = (float*)((uint8_t*)tempBiasStorage.first + tempBiasStorage.second);
             runtime->memset(biasTemp, 0, hp * sizeof(int32_t));
             cuda_check(cudaMemcpy(biasTemp, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
@@ -183,6 +185,7 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
             im2colBytes = 4;
         }
         auto buffer = pool->alloc(im2colBytes * (size_t)mGemmInfo.elh[0] * (size_t)mGemmInfo.elhPad[1]);
+        if (nullptr == buffer.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mIm2ColBuffer = (void*)((uint8_t*)buffer.first + buffer.second);
         pool->free(buffer);
     }

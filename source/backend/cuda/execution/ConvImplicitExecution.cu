@@ -95,6 +95,7 @@ ConvImplicitExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
         int khw = mKernelInfo.kernelX * mKernelInfo.kernelY;
 
         auto tempCacheBuffer = static_cast<CUDABackend*>(backend)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
+        if (nullptr == tempCacheBuffer.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
         float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
         runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(float), MNNMemcpyHostToDevice);
         if(static_cast<CUDABackend*>(backend)->getPrecision() == 1) {
@@ -127,6 +128,7 @@ ConvImplicitExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
         int hp = UP_DIV(biasSize, PACK_NUMBER) * PACK_NUMBER;
 
         auto tempBiasStorage = static_cast<CUDABackend*>(backend)->getStaticBufferPool()->alloc(hp*sizeof(float));
+        if (nullptr == tempBiasStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return; }
         auto biasTemp = (float*)((uint8_t*)tempBiasStorage.first + tempBiasStorage.second);
         runtime->memset(biasTemp, 0, hp * sizeof(int32_t));
         cuda_check(cudaMemcpy(biasTemp, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));

@@ -107,18 +107,37 @@ public:
         std::string name = mPrefix + std::to_string(mAllocTimes) + "." + mPosfix;
         std::string fileName = MNNFilePathConcat(mFileName, name);
         file_t file;
+        size = UP_DIV(size, align) * align;
         if (MNNFileExist(fileName.c_str())) {
             file = MNNOpenFile(fileName.c_str(), MNN_FILE_READ | MNN_FILE_WRITE);
+            // The cache file may be shorter than the mapping we are about to make
+            // (truncated / incomplete previous sync / mismatched chunk ordering
+            // across in-process reloads). Mapping past EOF raises SIGBUS on iOS,
+            // so grow the file to cover the whole mapping before mmap.
+            if (MNNGetFileSize(file) < size) {
+                auto code = MNNSetFileSize(file, size);
+                if (NO_ERROR != code) {
+                    MNN_ERROR("Grow mmap cache file size %lu error= %d\n", size, code);
+                    MNNCloseFile(file);
+                    return MemChunk(nullptr, 0);
+                }
+            }
         } else {
             file = MNNCreateFile(fileName.c_str());
-            size = UP_DIV(size, align) * align;
             auto code = MNNSetFileSize(file, size);
             if (NO_ERROR != code) {
                 MNN_ERROR("Set File size %lu error= %d\n", size, code);
+                MNNCloseFile(file);
+                return MemChunk(nullptr, 0);
             }
             mNewMmap = true;
         }
         void* ptr = MNNMmapFile(file, size);
+        if (ptr == nullptr) {
+            MNN_ERROR("MNNMmapFile failed for %s, size=%lu\n", fileName.c_str(), size);
+            MNNCloseFile(file);
+            return MemChunk(nullptr, 0);
+        }
         mCache.insert(std::make_pair(ptr, std::make_tuple(file, size, fileName)));
         mAllocTimes++;
         return MemChunk(ptr, 0);

@@ -657,6 +657,7 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     ConvolutionCommon::getConvParameters(&quanCommon, bn, op, &filterDataPtr, &weightSize);
     auto tempWeightStorage = pool->alloc(depthC * PACK_NUMBER * kernelY * kernelX * sizeof(float));
+    if (nullptr == tempWeightStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return nullptr; }
     auto tempWeight = (uint8_t*)tempWeightStorage.first + tempWeightStorage.second;
     cuda_check(cudaMemset(tempWeight, 0, depthC * PACK_NUMBER * kernelY * kernelX * sizeof(float)));
     cuda_check(cudaMemcpy(tempWeight, filterDataPtr, weightSize*sizeof(float), cudaMemcpyHostToDevice));
@@ -664,7 +665,9 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
     FuseRegion reg;
     int offset[8 * PACK_NUMBER];
     auto regionStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(FuseRegion));
+    if (nullptr == regionStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return nullptr; }
     auto offsetGpuStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(offset));
+    if (nullptr == offsetGpuStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return nullptr; }
     auto offsetGpu = (uint8_t*)offsetGpuStorage.first + offsetGpuStorage.second;
 
     #ifdef ENABLE_CUDA_BF16
@@ -713,6 +716,7 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
     }
     if(conv->bias() != nullptr) {
         auto tempBiasStorage = pool->alloc(depth * sizeof(float));
+        if (nullptr == tempBiasStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return nullptr; }
         auto tempBias = (uint8_t*)tempBiasStorage.first + tempBiasStorage.second;
         cuda_check(cudaMemcpy(tempBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
 
