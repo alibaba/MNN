@@ -49,6 +49,18 @@ class RMSNorm(torch.nn.Module):
             hidden_states = hidden_states * F.silu(gate.to(torch.float32))
         return hidden_states.to(input_dtype)
 
+def canonical_rms_norm(norm, weight_offset=0.0):
+    """Convert model-specific RMSNorm weight semantics to an explicit gamma."""
+    if norm is None or not hasattr(norm, 'weight') or norm.weight is None:
+        return norm
+    eps = getattr(norm, 'variance_epsilon', getattr(norm, 'eps', 1e-6))
+    canonical = RMSNorm(norm.weight.numel(), eps=float(eps))
+    gamma = norm.weight.detach().float().clone()
+    if weight_offset != 0.0:
+        gamma = gamma + weight_offset
+    canonical.weight = torch.nn.Parameter(gamma, requires_grad=norm.weight.requires_grad)
+    return canonical
+
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
@@ -78,6 +90,11 @@ class Attention(torch.nn.Module):
             self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         ModelMapper.do_map(self, attn, mapper['attention'])
+        if config.model_type in ['qwen3_5', 'qwen3_5_moe']:
+            # Qwen3.5 attention norms use gamma=(1+weight). FusedRoPE stores
+            # norm.weight as gamma, so canonicalize the offset semantics first.
+            self.q_norm = canonical_rms_norm(getattr(self, 'q_norm', None), 1.0)
+            self.k_norm = canonical_rms_norm(getattr(self, 'k_norm', None), 1.0)
         self.q_gate_proj = None
         self.qk_norm_after_rope = getattr(config, 'qk_norm_after_rope', False)
         if not self.qk_norm_after_rope:

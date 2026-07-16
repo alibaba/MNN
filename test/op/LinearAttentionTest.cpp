@@ -926,7 +926,8 @@ public:
             MNN_PRINT("LinearAttention Decode batch (B=%d, %d steps) PASSED\n", B, decodeSteps);
         }
 
-        // Qwen3.5 uses d_v=128. This also exercises every output channel block in the OpenCL buffer kernel.
+        // Qwen3.5 uses d_v=128 and a 6144-channel conv. Multiple C4 decode
+        // steps exercise conv-state shifts across Metal threadgroup boundaries.
         {
             const int B = 1, numKHeads = 16, numVHeads = 16;
             const int headKDim = 128, headVDim = 128, K_conv = 4;
@@ -934,6 +935,7 @@ public:
             const int val_dim = numVHeads * headVDim;
             const int D = 2 * key_dim + val_dim;
             const int L = 1;
+            const int decodeSteps = 256;
             const float qwenTolerance = precision == MNN::BackendConfig::Precision_Low ? 0.015f : 0.002f;
 
             auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, true,
@@ -943,35 +945,76 @@ public:
                 return false;
             }
 
-            auto qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
-            auto gateVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
-            auto betaVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
             auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
-            fillDeterministic(qkvVar->writeMap<float>(), B * D * L, 0.08f, 0.01f);
-            fillGate(gateVar->writeMap<float>(), B * L * numVHeads);
-            fillBeta(betaVar->writeMap<float>(), B * L * numVHeads);
             fillConvWeight(convWVar->writeMap<float>(), D * K_conv);
 
             NaiveLinearAttention naive;
             naive.init(B, D, K_conv, numVHeads, headKDim, headVDim);
-            auto expected = naive.forward(qkvVar->readMap<float>(), gateVar->readMap<float>(),
-                                          betaVar->readMap<float>(), convWVar->readMap<float>(), B, L, D, K_conv,
-                                          numKHeads, numVHeads, headKDim, headVDim, true);
-            auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
-            if (outputs.empty()) {
-                MNN_PRINT("Error: Qwen3.5 LinearAttention returned empty output\n");
+            const float* convWeight = convWVar->readMap<float>();
+            auto checkOutput = [&](const std::vector<VARP>& outputs, const std::vector<float>& expected,
+                                   int tokenCount, int step) {
+                if (outputs.empty()) {
+                    MNN_PRINT("Error: Qwen3.5 LinearAttention step %d returned empty output\n", step);
+                    return false;
+                }
+                const float* resultPtr = outputs[0]->readMap<float>();
+                const int outputTokens = tokenCount * numVHeads;
+                for (int token = 0; token < outputTokens; ++token) {
+                    for (int d = 0; d < headVDim; ++d) {
+                        int packedIndex = ((d / 4) * outputTokens + token) * 4 + d % 4;
+                        int logicalIndex = token * headVDim + d;
+                        float diff = fabs(resultPtr[packedIndex] - expected[logicalIndex]);
+                        if (!std::isfinite(resultPtr[packedIndex]) ||
+                            diff > qwenTolerance + 0.02f * fabs(expected[logicalIndex])) {
+                            MNN_PRINT("Qwen3.5 C4 step %d FAILED at %d: expected %.6f, got %.6f (diff=%.6f)\n",
+                                      step, logicalIndex, expected[logicalIndex], resultPtr[packedIndex], diff);
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            };
+
+            const int prefillLength = 14;
+            std::vector<float> prefillQkv(B * D * prefillLength);
+            std::vector<float> prefillGate(B * prefillLength * numVHeads);
+            std::vector<float> prefillBeta(B * prefillLength * numVHeads);
+            fillDeterministic(prefillQkv.data(), prefillQkv.size(), 0.08f, 0.01f);
+            fillGate(prefillGate.data(), prefillGate.size());
+            fillBeta(prefillBeta.data(), prefillBeta.size());
+            auto prefillExpected = naive.forward(prefillQkv.data(), prefillGate.data(), prefillBeta.data(), convWeight,
+                                                 B, prefillLength, D, K_conv, numKHeads, numVHeads, headKDim,
+                                                 headVDim, true);
+            auto prefillOutputs = module->onForward({makeC4TokenChannelInput(prefillQkv, prefillLength, D, true),
+                                                     makeC4TokenChannelInput(prefillGate, prefillLength, numVHeads,
+                                                                             false),
+                                                     makeC4TokenChannelInput(prefillBeta, prefillLength, numVHeads,
+                                                                             false),
+                                                     convWVar});
+            if (!checkOutput(prefillOutputs, prefillExpected, prefillLength, -1)) {
                 return false;
             }
-            const float* resultPtr = outputs[0]->readMap<float>();
-            for (int i = 0; i < static_cast<int>(expected.size()); ++i) {
-                float diff = fabs(resultPtr[i] - expected[i]);
-                if (!std::isfinite(resultPtr[i]) || diff > qwenTolerance + 0.02f * fabs(expected[i])) {
-                    MNN_PRINT("Qwen3.5 decode FAILED at %d: expected %.6f, got %.6f (diff=%.6f)\n", i,
-                              expected[i], resultPtr[i], diff);
+
+            for (int step = 0; step < decodeSteps; ++step) {
+                std::vector<float> qkv(B * D * L);
+                std::vector<float> gate(B * L * numVHeads);
+                std::vector<float> beta(B * L * numVHeads);
+                fillDeterministic(qkv.data(), qkv.size(), 0.08f, 0.01f * (step + 1));
+                fillGate(gate.data(), gate.size());
+                fillBeta(beta.data(), beta.size());
+
+                auto expected = naive.forward(qkv.data(), gate.data(), beta.data(), convWeight, B, L, D, K_conv,
+                                              numKHeads, numVHeads, headKDim, headVDim, true);
+                auto qkvVar = makeC4TokenChannelInput(qkv, L, D, true);
+                auto gateVar = makeC4TokenChannelInput(gate, L, numVHeads, false);
+                auto betaVar = makeC4TokenChannelInput(beta, L, numVHeads, false);
+                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+                if (!checkOutput(outputs, expected, L, step)) {
                     return false;
                 }
             }
-            MNN_PRINT("LinearAttention Qwen3.5 decode layout (H=%d, dv=%d) PASSED\n", numVHeads, headVDim);
+            MNN_PRINT("LinearAttention Qwen3.5 C4 prefill(%d)+decode(%d) layout (H=%d, dv=%d) PASSED\n",
+                      prefillLength, decodeSteps, numVHeads, headVDim);
         }
 
         return true;
