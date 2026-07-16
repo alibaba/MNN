@@ -169,7 +169,7 @@ public:
 
     virtual bool run(int precision) {
         return runCase(false, 2, 2, 1, 8, 6) && runCase(true, 2, 2, 1, 8, 6) && runCase(false, 18, 16, 2, 128, 128) &&
-               runCase(true, 18, 16, 2, 128, 128);
+               runCase(true, 18, 16, 2, 128, 128) && runCase(true, 3, 8, 2, 256, 64);
     }
 };
 

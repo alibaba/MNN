@@ -380,7 +380,7 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1); // conv_state
         [encoder setBuffer:mParamBuffer offset:0 atIndex:2];               // param
 
-        int totalUpdate = batch * convDim * convStateSize;
+        int totalUpdate = batch * convDim;
         NSUInteger threadGroupSize = MIN((NSUInteger)256, mConvStateUpdatePipeline.maxTotalThreadsPerThreadgroup);
         threadGroupSize = MIN(threadGroupSize, (NSUInteger)totalUpdate);
         [encoder dispatchThreadgroups:MTLSizeMake((totalUpdate + threadGroupSize - 1) / threadGroupSize, 1, 1)
