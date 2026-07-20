@@ -36,7 +36,12 @@ class LoRA:
         with safe_open(path, framework="pt") as f:
             for k in f.keys():
                 names = k.split('.')
-                layer, key, name = names[4], names[6], names[7]
+                ni = next((i for i, n in enumerate(names) if n.startswith('lora_')), -1)
+                if ni < 1 or names[ni] not in ('lora_A', 'lora_B'):
+                    continue
+
+                name, key = names[ni], names[ni - 1]
+                layer = next(n for n in reversed(names[:ni - 1]) if n.isdigit())
                 tag = layer + key
                 tensor = f.get_tensor(k).float()
                 self.lora_keys.add(key)
