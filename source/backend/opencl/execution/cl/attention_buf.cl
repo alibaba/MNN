@@ -80,10 +80,19 @@ static inline void store_attention_c4_4(__global FLOAT* output, const FLOAT4 val
         vstore4(value, 0, output + offset);
         return;
     }
-    for (int i = 0; i < count; ++i) {
-        const int c = channel + i;
-        const int offset = ((c >> 2) * seq_storage + token) * 4 + (c & 3);
-        output[offset] = value[i];
+    int c = channel;
+    output[((c >> 2) * seq_storage + token) * 4 + (c & 3)] = value.x;
+    if (count > 1) {
+        c = channel + 1;
+        output[((c >> 2) * seq_storage + token) * 4 + (c & 3)] = value.y;
+    }
+    if (count > 2) {
+        c = channel + 2;
+        output[((c >> 2) * seq_storage + token) * 4 + (c & 3)] = value.z;
+    }
+    if (count > 3) {
+        c = channel + 3;
+        output[((c >> 2) * seq_storage + token) * 4 + (c & 3)] = value.w;
     }
 }
 
@@ -96,6 +105,46 @@ static inline void store_attention_c4_8(__global FLOAT* output, const FLOAT8 val
     }
 }
 #endif
+
+// Store the first `count` (<=4) components of a FLOAT4 to contiguous addresses without vector subscript.
+static inline void store_scalar4(__global FLOAT* output, const int base, const FLOAT4 value, const int count) {
+    output[base] = value.x;
+    if (count > 1) {
+        output[base + 1] = value.y;
+    }
+    if (count > 2) {
+        output[base + 2] = value.z;
+    }
+    if (count > 3) {
+        output[base + 3] = value.w;
+    }
+}
+
+// Store the first `count` (<=8) components of a FLOAT8 to contiguous addresses without vector subscript.
+static inline void store_scalar8(__global FLOAT* output, const int base, const FLOAT8 value, const int count) {
+    output[base] = value.s0;
+    if (count > 1) {
+        output[base + 1] = value.s1;
+    }
+    if (count > 2) {
+        output[base + 2] = value.s2;
+    }
+    if (count > 3) {
+        output[base + 3] = value.s3;
+    }
+    if (count > 4) {
+        output[base + 4] = value.s4;
+    }
+    if (count > 5) {
+        output[base + 5] = value.s5;
+    }
+    if (count > 6) {
+        output[base + 6] = value.s6;
+    }
+    if (count > 7) {
+        output[base + 7] = value.s7;
+    }
+}
 
 
 __kernel void rearrange_qkv(GLOBAL_SIZE_3_DIMS
@@ -853,29 +902,25 @@ __kernel void matmul_qkv_prefill(GLOBAL_SIZE_3_DIMS
     if (channel_count == 8) {
         vstore8(CONVERT_FLOAT8(out0), 0, output + output_offset);
     } else {
-        FLOAT8 value = CONVERT_FLOAT8(out0);
-        for (int i = 0; i < channel_count; ++i) output[output_offset + i] = value[i];
+        store_scalar8(output, output_offset, CONVERT_FLOAT8(out0), channel_count);
     }
     if(y4 + 1 >= query_seq_len) return;
     if (channel_count == 8) {
         vstore8(CONVERT_FLOAT8(out1), 0, output + output_offset + stride);
     } else {
-        FLOAT8 value = CONVERT_FLOAT8(out1);
-        for (int i = 0; i < channel_count; ++i) output[output_offset + stride + i] = value[i];
+        store_scalar8(output, output_offset + stride, CONVERT_FLOAT8(out1), channel_count);
     }
     if(y4 + 2 >= query_seq_len) return;
     if (channel_count == 8) {
         vstore8(CONVERT_FLOAT8(out2), 0, output + output_offset + stride + stride);
     } else {
-        FLOAT8 value = CONVERT_FLOAT8(out2);
-        for (int i = 0; i < channel_count; ++i) output[output_offset + stride + stride + i] = value[i];
+        store_scalar8(output, output_offset + stride + stride, CONVERT_FLOAT8(out2), channel_count);
     }
     if(y4 + 3 >= query_seq_len) return;
     if (channel_count == 8) {
         vstore8(CONVERT_FLOAT8(out3), 0, output + output_offset + stride + stride + stride);
     } else {
-        FLOAT8 value = CONVERT_FLOAT8(out3);
-        for (int i = 0; i < channel_count; ++i) output[output_offset + stride + stride + stride + i] = value[i];
+        store_scalar8(output, output_offset + stride + stride + stride, CONVERT_FLOAT8(out3), channel_count);
     }
 #endif
 }
@@ -960,8 +1005,7 @@ __kernel void matmul_qkv_decode_b8(GLOBAL_SIZE_2_DIMS
     if (channel_count == 8) {
         vstore8(CONVERT_FLOAT8(out0), 0, output + output_offset);
     } else {
-        FLOAT8 value = CONVERT_FLOAT8(out0);
-        for (int i = 0; i < channel_count; ++i) output[output_offset + i] = value[i];
+        store_scalar8(output, output_offset, CONVERT_FLOAT8(out0), channel_count);
     }
 #endif
 }
@@ -1045,8 +1089,7 @@ __kernel void matmul_qkv_decode_b4(GLOBAL_SIZE_2_DIMS
     if (channel_count == 4) {
         vstore4(CONVERT_FLOAT4(out0), 0, output + output_offset);
     } else {
-        FLOAT4 value = CONVERT_FLOAT4(out0);
-        for (int i = 0; i < channel_count; ++i) output[output_offset + i] = value[i];
+        store_scalar4(output, output_offset, CONVERT_FLOAT4(out0), channel_count);
     }
 #endif
 }
