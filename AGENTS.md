@@ -83,11 +83,12 @@ cd build
 
 Test suite includes: unit tests (`run_test.out`), model tests, conversion tests (ONNX/TF/TFLite/Torch), quantization tests, LLM tests, PyMNN tests. See `test.sh`, `test_stages.json`, and `test/` directory for details.
 
-## Commit Message
+## Development Workflow
 
-One-line English summary with a `[Module:Type]` prefix. Module: `LLM`, `CPU`, `Metal`, `CUDA`, `OpenCL`, `Vulkan`, `Core`, `Infra`, `Doc`, etc. Type: `Feature`, `Bugfix`, `Perf`, `Refact`, `Style`, `Doc`, `Test`, `Chore`, `Release`.
-
-Example: `[LLM:Feature] Add streaming support`
+- **Branch**: Use `feature/<short-description>`, for example `feature/llm-streaming`.
+- **Commit**: Use a concise, one-line English message: `[Module:Type] Summary`, for example `[LLM:Feature] Add streaming support`.
+  - Modules: `LLM`, `CPU`, `Metal`, `CUDA`, `OpenCL`, `Vulkan`, `Core`, `Infra`, `Doc`, etc.
+  - Types: `Feature`, `Bugfix`, `Perf`, `Refact`, `Style`, `Doc`, `Test`, `Chore`, `Release`.
 
 ## Skills
 
