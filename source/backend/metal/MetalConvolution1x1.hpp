@@ -68,6 +68,25 @@ private:
     id<MTLComputePipelineState> mGateUpFusedPipeline = nil;  // fused pipeline with GATE_UP_FUSED
     id<MTLBuffer> mGateUpSegBuffer = nil;         // {up_scale_coef} (gate uses cst.scale_coef)
 
+    // Step B.2: fused Q4 GEMM staging — separate GEMM pipeline that reads from
+    // fp16-identity weight buffer at buffer(6). Set when kFusedQ4Stage >= 2.
+    // The dequant kernel (mDequantPipeline) still runs first to populate
+    // mTempWeight; the fused GEMM kernel then reads mTempWeight through
+    // buffer(6) while the int4 weight (buffer 3) and dequantScale (buffer 5)
+    // are bound but unused (B.3 will start using them for in-kernel dequant).
+    bool mFusedQ4Stage2 = false;
+    // Stage 3 subsumes stage 2 (identical buffer bindings) and additionally
+    // defines the FUSED_Q4_REAL_UNPACK shader macro so the fused kernel does
+    // int4 unpack + dequant in-place instead of reading the fp16 mTempWeight.
+    bool mFusedQ4Stage3 = false;
+    // P0: M=64 tile variant of the fused Q4 GEMM (conv1x1_fused_q4_gemm_stage_m64).
+    // Halves grid.x for prefill (M_TILE=64 vs baseline M_TILE=32) — cuts
+    // weight-read redundancy across TGs in half. Requires stage 3 (real
+    // in-shader unpack) and area >= 128. Controlled via env
+    // MNN_METAL_FUSED_Q4_M_TILE (default: auto — enable for area>=128 on
+    // tensor-API-capable devices; set =32 to force off, =64 to force on).
+    bool mFusedQ4M64 = false;
+
     // QKV fusion state
     bool mIsQKVLeader = false;           // true if this is Q (leader) in a QKV triple
     bool mIsQKVFollower = false;         // true if this is K or V (follower)
