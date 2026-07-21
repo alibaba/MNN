@@ -28,6 +28,7 @@ bool MetalLayerNorm::onClone(Backend* bn, const Op* op, Execution** dst) {
         return true;
     }
     *dst = new MetalLayerNorm(bn, mResource);
+    MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
     return true;
 }
 
@@ -80,6 +81,7 @@ std::shared_ptr<MetalLayerNorm::Resource> MetalLayerNorm::makeResource(Backend *
 }
 
 ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    mIsFused = false;
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
 
@@ -253,7 +255,20 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
                 mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(64, 1, 1));
             } else if(mResource->mRMSNorm) {
                 // pretty much threads compute all inside dims in a threadgroup
-                if(mOutside / 512.0 * mInside / 512.0 > 1.0) {
+                // Also use this path for small outside (e.g. LLM decode) to avoid
+                // redundant square_sum computation in layernorm_x4_rms_sg — but only
+                // when the alternative (x4_rms_sg) grid is too small to saturate the
+                // GPU. On Apple GPUs (~10 cores * 32 lanes), once UP_DIV(inside,4) *
+                // outside > 32 the x4 kernel already fills the SMs, so the cost of
+                // its duplicated square_sum is negligible compared to serializing
+                // through a single-simdgroup in_all_rms dispatch. Without this cap
+                // Qwen3-0.6B decode (outside=1, inside=1024, x4 grid=256) hits the
+                // in_all path and only lights up 32 lanes per RMSNorm, adding ~5%
+                // total decode latency.
+                const int mInsideSg = (mInside + 3) / 4;  // grid width for x4_rms_sg
+                const bool smallXforInAll = (mInsideSg * mOutside) <= 32;
+                if(mOutside / 512.0 * mInside / 512.0 > 1.0 ||
+                   (mOutside <= 4 && mInside > 128 && smallXforInAll)) {
                     auto keys = baseKeys;
                     keys.emplace_back("layernorm_in_all_rms_sg");
                     auto pipeline = rt->findPipeline(keys);
@@ -341,10 +356,28 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
             mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger)inside, (NSUInteger)mOutside, 1)];
         }
     }
+
+    // Register binary RMSNorm for potential LN+Conv1x1 fusion
+    if (mIsNC4HW4 && inputs.size() == 2 && outputs.size() == 2 &&
+        mResource->mRMSNorm && mResource->mHasGammaBeta) {
+        MetalBackend::LayerNormFusionInfo info;
+        info.hiddenInput = inputs[1];      // hidden state (output of attention/o_proj)
+        info.residualInput = inputs[0];    // previous residual
+        info.residualOutput = outputs[0];  // sum = residual + hidden
+        info.gamma = mResource->mGammaBuffer;
+        info.eps = mResource->mEps;
+        info.fusedFlag = &mIsFused;
+        backend->registerLayerNorm(outputs[1], info);  // outputs[1] = normalized
+    }
+
     return NO_ERROR;
 }
 
 void MetalLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+
+    if (mIsFused) {
+        return;  // LN is fused into Conv1x1 GEMV kernel — skip dispatch
+    }
 
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();

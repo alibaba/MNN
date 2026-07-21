@@ -49,6 +49,8 @@ class LlmConfig(PretrainedConfig):
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
+        model_type = None
+        raw_config = {}
         config_path = os.path.join(pretrained_model_name_or_path, 'config.json')
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
@@ -86,11 +88,15 @@ class LlmConfig(PretrainedConfig):
         if llm_config.rope_theta is None or llm_config.rope_theta == 10000.0:
             # Try rope_parameters (transformers 5.x style)
             rp = getattr(config, 'rope_parameters', None) or getattr(config, 'rope_scaling', None)
+            if not isinstance(rp, dict):
+                rp = getattr(llm_config, 'rope_parameters', None)
             if isinstance(rp, dict) and 'rope_theta' in rp:
                 llm_config.rope_theta = rp['rope_theta']
-            # Fallback to raw config JSON
+            # Fallback to raw config JSON (top-level or nested text_config)
             elif 'rope_theta' in raw_config:
                 llm_config.rope_theta = raw_config['rope_theta']
+            elif 'text_config' in raw_config and 'rope_theta' in raw_config.get('text_config', {}):
+                llm_config.rope_theta = raw_config['text_config']['rope_theta']
 
         if llm_config.rope_theta is None:
             llm_config.rope_theta = 10000.0

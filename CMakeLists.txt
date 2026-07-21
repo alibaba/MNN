@@ -261,6 +261,7 @@ endif()
 
 # backend options
 option(MNN_METAL "Enable Metal" OFF)
+option(MNN_METAL_OP_PROFILE "Enable per-op GPU time profiling for the Metal backend." OFF)
 option(MNN_OPENCL "Enable OpenCL" OFF)
 option(MNN_OPENGL "Enable OpenGL" OFF)
 option(MNN_VULKAN "Enable Vulkan" OFF)
