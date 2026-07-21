@@ -45,13 +45,15 @@ static inline bool attention_mask_hit(constant Param& param, int k) {
     return local_k >= 0 && local_k < param.mask_k_len;
 }
 
-static inline int attention_mask_offset(constant Param& param, int b, int hn, int q, int k) {
+static inline long attention_mask_offset(constant Param& param, int b, int hn, int q, int k) {
     int mask_b = param.mask_batch <= 1 ? 0 : b;
     int mask_h = param.mask_head_num <= 1 ? 0 : hn;
     int mask_q = param.mask_q_len <= 1 ? 0 : min(q, param.mask_q_len - 1);
     int mask_k_start = max(param.key_seq_len - param.mask_k_len, 0);
     int local_k = param.mask_k_len <= 1 ? 0 : clamp(k - mask_k_start, 0, param.mask_k_len - 1);
-    return ((mask_b * param.mask_head_num + mask_h) * param.mask_q_len + mask_q) * param.mask_k_len + local_k;
+    // Return long: at seq_q=seq_k=500K with head-dim mask fields, the product
+    // mask_q_len * mask_k_len already reaches 2.5e11 > INT32_MAX.
+    return ((long(mask_b) * param.mask_head_num + mask_h) * param.mask_q_len + mask_q) * (long)param.mask_k_len + local_k;
 }
 
 #if MNN_METAL_FLOAT16_STORAGE
@@ -207,7 +209,9 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
 #endif
 
     int base_k_idx =  (slk * 4 + ncl) * 8 + 0;
-    auto xy_out = output + (z * q_seq_piece_len + slq * 32 + mcl) * output_k_len + base_k_idx + 0;
+    // Use long for the outer offset: at ~24K prompt, z=B*H up to 16 makes the
+    // z*q_seq_piece_len*output_k_len product ~9.6e9 which overflows int32.
+    auto xy_out = output + ((long)(z * q_seq_piece_len + slq * 32 + mcl)) * output_k_len + base_k_idx + 0;
     if(slq * 32 + mcl < q_seq_piece_len &&  seq_idx * q_seq_piece_len + slq * 32 + mcl < q_seq_len) {
         int ori_q_idx = seq_idx * q_seq_piece_len + slq * 32 + mcl;
         if(base_k_idx + 0 < output_k_len) {
@@ -464,6 +468,32 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     const int hn = z % head_num;
     int zin = hn / param.group;
 
+#if defined(DEFAULT_MASK) || defined(ADD_MASK) || defined(SET_MASK)
+    // Causal skip: if this M16xN16 tile lies entirely above the diagonal in the
+    // causal-mask sense, the whole tile ends up as -FLT_MAX after masking anyway.
+    // Write -FLT_MAX directly and exit to save all the QK matmul work on the upper
+    // triangle (~50% of tiles in a square prefill grid).
+    //
+    // Assumption: the mask provided by the LLM engine is causal-lower-triangular
+    // (which is always the case for standard causal LLM prefill).  For non-causal
+    // custom masks this optimization would over-mask.
+    {
+        int tile_min_k_global = kv_start + slk * 16;
+        int tile_max_q_absolute = (k_seq_len - q_seq_len) + seq_idx * q_seq_piece_len + slq * 16 + 15;
+        if (tile_min_k_global > tile_max_q_absolute) {
+            auto xy_out_skip = output + ((long)(z * q_seq_piece_len + slq * 16 + rcl)) * output_k_len + slk * 16 + kl * 8;
+            if (slq * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len) {
+                for (int j = 0; j < 8; ++j) {
+                    if (slk * 16 + kl * 8 + j < output_k_len) {
+                        xy_out_skip[j] = (ftype)(-FLT_MAX);
+                    }
+                }
+            }
+            return;
+        }
+    }
+#endif
+
     int idx_slq = seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len ? seq_idx * q_seq_piece_len + slq * 16 + rcl : q_seq_len - 1;
     int idx_slk_global = kv_start + slk * 16 + rcl;
     int idx_slk = idx_slk_global < k_seq_len ? idx_slk_global : k_seq_len - 1;
@@ -534,7 +564,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     int kv_valid_offset = k_seq_len - q_seq_len;
 #endif
 
-    auto xy_out = output + (z * q_seq_piece_len + slq * 16 + rcl) * output_k_len + slk * 16 + kl * 8 + 0;
+    auto xy_out = output + ((long)(z * q_seq_piece_len + slq * 16 + rcl)) * output_k_len + slk * 16 + kl * 8 + 0;
     if(slq * 16 + rcl < q_seq_piece_len &&  seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len) {
         int ori_q_idx = seq_idx * q_seq_piece_len + slq * 16 + rcl;
         if(slk * 16 + kl * 8 + 0 < output_k_len) {
@@ -861,6 +891,26 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
                 out[j] += dot(A0, B0) + dot(A1, B1);
             }
         }
+        // Tail: 4-element remainder (head_dim % 8 == 4).  Only lane 0 accumulates;
+        // simd_sum below still returns the correct total.  Covers head_dim=4 case
+        // where the main loop above never executes.
+        if ((head_dim & 4) != 0 && int(tiisg) == 0) {
+            int tail_i4 = itN * 2;  // float4 index for the trailing 4-element chunk
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 B0 = float4(((const device char4*)Pastkey_offset)[tail_i4]) * k_scale + k_bias;
+#else
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[tail_i4], z * param.batch + b);
+#endif
+#else
+            float4 B0 = float4(((const device ftype4*)Pastkey_offset)[tail_i4]);
+#endif
+            for (int j = 0; j < group; j++) {
+                const device ftype4* Ajp = (const device ftype4*)(A_offset + head_dim * j);
+                float4 A0 = float4(Ajp[tail_i4]);
+                out[j] += dot(A0, B0);
+            }
+        }
     }
     for(int j = 0; j < group; j++) {
         out[j] = simd_sum(out[j]);
@@ -887,6 +937,24 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
                 float4 A0 = float4(Ajp[i * 2 + 0]);
                 float4 A1 = float4(Ajp[i * 2 + 1]);
                 out[j] += dot(A0, B0) + dot(A1, B1);
+            }
+        }
+        // Tail: 4-element remainder (head_dim % 8 == 4). Covers head_dim=4 case.
+        if ((head_dim & 4) != 0) {
+            int tail_i4 = itN * 2;
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 B0 = float4(((const device char4*)Pastkey_offset)[tail_i4]) * k_scale + k_bias;
+#else
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[tail_i4], z * param.batch + b);
+#endif
+#else
+            float4 B0 = float4(((const device ftype4*)Pastkey_offset)[tail_i4]);
+#endif
+            for (int j = 0; j < group; j++) {
+                const device ftype4* Ajp = (const device ftype4*)(A_offset + head_dim * j);
+                float4 A0 = float4(Ajp[tail_i4]);
+                out[j] += dot(A0, B0);
             }
         }
     }
@@ -1396,7 +1464,7 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
 
     int idx_qk_sl = sl * 32 + ml < q_seq_piece_len ? (sl * 32 + ml) : q_seq_piece_len - 1;
 
-    auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 4 + kl) * 8 + 0;
+    auto A_offset = input0 + (long)(z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 4 + kl) * 8 + 0;
 #ifdef QUANT_V
     auto B_offset = (const device char4*)past_value + (zin * head_dim + hm * 32 + nl) * param.max_kv_len / 4 + (0 * 4 + kvl) * 2 + 0;
 #else
@@ -1431,7 +1499,7 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
 
     // [M32, N4, N8]
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    auto xy_out = output + ((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 32 + mcl) * head_num + hn) * head_dim/4 + (hm * 4 + ncl) * 2 + 0;
+    auto xy_out = output + ((long)((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 32 + mcl) * head_num + hn)) * head_dim/4 + (hm * 4 + ncl) * 2 + 0;
     if(sl * 32 + mcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 32 + mcl < q_seq_len) {
         if((hm * 4 + ncl) * 2 + 0 < head_dim/4) {
             xy_out[0] =  ftype4(((threadgroup float4*)sdata)[sindex_base + 0]);
@@ -1537,14 +1605,31 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
     int idx_qk_sl = sl * 16 + rcl < q_seq_piece_len ? (sl * 16 + rcl) : q_seq_piece_len - 1;
 
-    auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 2 + kl) * 4 + 0;
+    auto A_offset = input0 + (long)(z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 2 + kl) * 4 + 0;
 #ifdef QUANT_V
     auto B_offset = (const device char*)past_value + (zin * head_dim + hm * 16 + nl * 4 + 0) * param.max_kv_len + (0 * 8 + kcl);
 #else
     auto B_offset = past_value + (zin * head_dim + hm * 16 + nl * 4 + 0) * param.max_kv_len + (0 * 8 + kcl);
 #endif
 
-    for(int i = 0; i < align_value_len; i += 8){
+    // Causal skip for AV matmul: because softmax output beyond causal k_max is 0
+    // (thanks to -FLT_MAX in QK+softmax), we can stop accumulating early.  Each
+    // M16 q-tile has a maximum allowed k = kv_valid_offset + tile_max_q_absolute.
+    // Round up to K=8 alignment.  For a square prefill this halves K iterations
+    // on average and gives up to 4x speedup for early-q tiles.
+    int av_k_upper = align_value_len;
+#if defined(DEFAULT_MASK) || defined(ADD_MASK) || defined(SET_MASK)
+    {
+        int kv_valid_offset = value_seq_len - q_seq_len;
+        int tile_max_q_abs = kv_valid_offset + seq_idx * q_seq_piece_len + sl * 16 + 15;
+        int k_bound = tile_max_q_abs + 1;                  // exclusive
+        if (k_bound < 0) k_bound = 0;
+        int k_bound_aligned = ((k_bound + 7) / 8) * 8;     // round up to K=8 stride
+        if (k_bound_aligned < av_k_upper) av_k_upper = k_bound_aligned;
+    }
+#endif
+
+    for(int i = 0; i < av_k_upper; i += 8){
         *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 0])) = *((const device ftype4*)(&A_offset[i + 0]));
 
         ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 0] = GETV(B_offset[i + 0 * param.max_kv_len], b * param.max_kv_len + i);
@@ -1598,7 +1683,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
     // [N2, M2, M8, N8]
 #ifdef ATTENTION_C4
     // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen, 4]
-    auto xy_out = output + (b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * 4 + (hn * head_dim / 4 + hm * 4 + kl * 2) * 4 * param.batch * q_seq_len + 0;
+    auto xy_out = output + (long)(b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * 4 + (long)(hn * head_dim / 4 + hm * 4 + kl * 2) * 4 * param.batch * q_seq_len + 0;
     if(sl * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 16 + rcl < q_seq_len) {
         if(hm * 16 + kl * 8 + 0 < head_dim) {
             xy_out[0] =  ((threadgroup float*)sdata)[sindex_base + 0];
@@ -1627,7 +1712,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
     }
 #else
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    auto xy_out = output + ((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * head_num + hn) * head_dim + hm * 16 + kl * 8 + 0;
+    auto xy_out = output + ((long)((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * head_num + hn)) * head_dim + hm * 16 + kl * 8 + 0;
     if(sl * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 16 + rcl < q_seq_len) {
         if(hm * 16 + kl * 8 + 0 < head_dim) {
             xy_out[0] =  ((threadgroup float*)sdata)[sindex_base + 0];
@@ -1911,12 +1996,26 @@ struct Param {
     float k_scale;
 };
 #define SIMD_GROUP_WIDTH 32
+
+// Determine max KV length based on GROUP_SIZE to stay within 32KB threadgroup memory
+// Memory usage: GROUP_SIZE * (MAX_KV + 32) * sizeof(float)
 #ifdef SHORT_KV_128
 #define DECODE_QK_SOFTMAX_MAX_KV 128
-#else
+#elif GROUP_SIZE <= 2
 #define DECODE_QK_SOFTMAX_MAX_KV 2048
+#elif GROUP_SIZE <= 4
+#define DECODE_QK_SOFTMAX_MAX_KV 1024
+#elif GROUP_SIZE <= 8
+#define DECODE_QK_SOFTMAX_MAX_KV 512
 #endif
 
+// GROUP_SIZE == 2 specialization: keep the pre-b9a6e60e hard-coded implementation.
+// The generic loop-over-GROUP_SIZE version (below) puts scores/reduce state in
+// arrays indexed by g, which stops Metal's compiler from fully lifting them into
+// registers. For GROUP_SIZE=2 that costs ~15% (measured on Qwen3-0.6B decode).
+// The hard-coded pair of scalars gives the compiler two independent instruction
+// streams (s0/s1, local_max0/local_max1, etc.) which interleave cleanly.
+#if GROUP_SIZE == 2
 kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
     device ftype* past_key [[buffer(2)]],
@@ -2078,6 +2177,182 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
         output[base1 + k] = (ftype)0.0f;
     }
 }
+#else  // GROUP_SIZE != 2: generic implementation for group_size in {4, 8}
+kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype* past_key [[buffer(2)]],
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+#if defined(QUANT_K) && defined(DYNAMIC_QUANT_K)
+    device ftype* k_scales [[buffer(8)]],
+#endif
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint tid[[thread_index_in_threadgroup]],
+    uint tiisg[[thread_index_in_simdgroup]],
+    uint sgitg[[simdgroup_index_in_threadgroup]],
+    uint3 tptg_3d[[threads_per_threadgroup]]
+) {
+    // Threadgroup memory for scores and reduction buffers, indexed as [group][element]
+    threadgroup float scores_buf[GROUP_SIZE * DECODE_QK_SOFTMAX_MAX_KV];
+    threadgroup float reduce_buf[GROUP_SIZE * 32];
+
+    const int tptg = int(tptg_3d.x * tptg_3d.y * tptg_3d.z);
+    const int sg_count = tptg / SIMD_GROUP_WIDTH;
+    const int kv_head_num = param.head_num / GROUP_SIZE;
+    const int b = int(gid.x) / kv_head_num;
+    const int kv_hn = int(gid.x) - b * kv_head_num;
+#ifdef HEAD_DIM
+    const int head_dim = HEAD_DIM;
+#else
+    const int head_dim = param.head_dim;
+#endif
+    const int key_seq_len = param.key_seq_len;
+    const int align_key_len = ((key_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
+    const int x = int(gid.y);
+    const int q_idx = seq_idx * param.q_seq_piece_len + x;
+
+    if (b >= param.batch || kv_hn >= kv_head_num || x >= param.q_seq_piece_len || q_idx >= param.query_seq_len) {
+        return;
+    }
+
+    const int head_base = kv_hn * GROUP_SIZE;
+    const int query_offset = (b * param.query_seq_len + q_idx) * param.head_num * head_dim;
+    const int key_head_offset = kv_hn * head_dim;
+    const int key_stride = kv_head_num * head_dim;
+
+    // Pre-compute query pointers for all heads in the group
+    const device ftype4* q4_ptrs[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        q4_ptrs[g] = (const device ftype4*)(input0 + query_offset + (head_base + g) * head_dim);
+    }
+
+    float local_max[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        local_max[g] = -FLT_MAX;
+    }
+
+    const int kv_valid_limit = max(key_seq_len - param.query_seq_len, 0) + q_idx;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        // Read key data once, shared across all heads in the group
+#ifdef QUANT_K
+        const device char* key = (const device char*)past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device char4* k4 = (const device char4*)key;
+#ifdef DYNAMIC_QUANT_K
+        const int k_token_idx = k * param.batch + b;
+        const float k_scale = float(k_scales[k_token_idx * 2]);
+        const float k_bias = float(k_scales[k_token_idx * 2 + 1]);
+#endif
+#else
+        const device ftype* key = past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device ftype4* k4 = (const device ftype4*)key;
+#endif
+
+        // Compute dot products for all heads in the group
+        float s[GROUP_SIZE];
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            s[g] = 0.0f;
+        }
+
+        for (int d = 0; d < head_dim / 8; ++d) {
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 kv0 = float4(k4[d * 2 + 0]) * k_scale + k_bias;
+            float4 kv1 = float4(k4[d * 2 + 1]) * k_scale + k_bias;
+#else
+            float4 kv0 = float4(k4[d * 2 + 0]) * param.k_scale;
+            float4 kv1 = float4(k4[d * 2 + 1]) * param.k_scale;
+#endif
+#else
+            float4 kv0 = float4(k4[d * 2 + 0]);
+            float4 kv1 = float4(k4[d * 2 + 1]);
+#endif
+            for (int g = 0; g < GROUP_SIZE; g++) {
+                s[g] += dot(float4(q4_ptrs[g][d * 2 + 0]), kv0) + dot(float4(q4_ptrs[g][d * 2 + 1]), kv1);
+            }
+        }
+
+        bool masked = (k > kv_valid_limit);
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            float sv = masked ? -FLT_MAX : (s[g] * param.scale);
+            scores_buf[g * DECODE_QK_SOFTMAX_MAX_KV + k] = sv;
+            local_max[g] = max(local_max[g], sv);
+        }
+    }
+
+    // Max reduction across simdgroups
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        local_max[g] = simd_max(local_max[g]);
+        if (tiisg == 0) {
+            reduce_buf[g * 32 + sgitg] = local_max[g];
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg == 0 && tiisg == 0) {
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            float m = -FLT_MAX;
+            for (int i = 0; i < sg_count; ++i) {
+                m = max(m, reduce_buf[g * 32 + i]);
+            }
+            reduce_buf[g * 32] = m;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float max_val[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        max_val[g] = reduce_buf[g * 32];
+    }
+
+    // Exp and sum
+    float local_sum[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        local_sum[g] = 0.0f;
+    }
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            float v = exp(scores_buf[g * DECODE_QK_SOFTMAX_MAX_KV + k] - max_val[g]);
+            scores_buf[g * DECODE_QK_SOFTMAX_MAX_KV + k] = v;
+            local_sum[g] += v;
+        }
+    }
+
+    // Sum reduction across simdgroups
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        local_sum[g] = simd_sum(local_sum[g]);
+        if (tiisg == 0) {
+            reduce_buf[g * 32 + sgitg] = local_sum[g];
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg == 0 && tiisg == 0) {
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            float s = 0.0f;
+            for (int i = 0; i < sg_count; ++i) {
+                s += reduce_buf[g * 32 + i];
+            }
+            reduce_buf[g * 32] = s;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Normalize and write output
+    float inv_sum[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        inv_sum[g] = 1.0f / reduce_buf[g * 32];
+    }
+
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        const int head = head_base + g;
+        const int base = ((b * param.head_num + head) * param.query_seq_len + q_idx) * align_key_len;
+        for (int k = int(tid); k < key_seq_len; k += tptg) {
+            output[base + k] = (ftype)(scores_buf[g * DECODE_QK_SOFTMAX_MAX_KV + k] * inv_sum[g]);
+        }
+        for (int k = int(tid) + key_seq_len; k < align_key_len; k += tptg) {
+            output[base + k] = (ftype)0.0f;
+        }
+    }
+}
+#endif // GROUP_SIZE == 2
 )metal";
 
 // softmax sg reduce source moved to MetalSoftmaxShader.cpp

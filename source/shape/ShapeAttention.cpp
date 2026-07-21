@@ -14,9 +14,9 @@ namespace MNN {
 class RoPESizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
+        auto param = op->main_as_RoPEParam();
         MNN_ASSERT(inputs.size() == 4);
         MNN_ASSERT(outputs.size() == 2);
-        auto param = op->main_as_RoPEParam();
         if (param == nullptr || param->num_head() <= 0 || param->kv_num_head() <= 0 || param->head_dim() <= 0) {
             MNN_ERROR("RoPE: invalid C4 head config.\n");
             return false;

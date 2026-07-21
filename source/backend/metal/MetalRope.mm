@@ -275,7 +275,6 @@ kernel void rope_kernel(
         ftype evenVal = loadC4(xTensor, gid.y, xBase, gid.x, xSeq);
         ftype oddVal  = loadC4(xTensor, gid.y, xBase, gid.x + p.ropeHalfD, xSeq);
         int cosIndex = gid.y * (2 * p.ropeHalfD) + gid.x;
-
         ftype cEven = cos[cosIndex];
         ftype cOdd  = cos[cosIndex + p.ropeHalfD];
         ftype sEven = sin[cosIndex];
@@ -423,6 +422,7 @@ public:
         }
         auto rope = new MetalRopeExecution(bn, mRopeCutHeadDim, mQNorm, mKNorm, mNumHead, mKvNumHead, mHeadDim);
         *dst = rope;
+        MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
         return true;
     }
 

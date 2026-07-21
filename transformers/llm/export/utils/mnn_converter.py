@@ -487,7 +487,6 @@ class MNNConverter:
                     "gamma": k_gamma,
                     "useRMSNorm": True
                 }
-
         rope_op = {
             "inputIndexes": input_indexes[:4],
             "main_type": "RoPEParam",

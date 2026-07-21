@@ -23,6 +23,7 @@
 #import "core/TensorUtils.hpp"
 #include "MetalCache_generated.h"
 #include "core/MNNFileUtils.h"
+#import "backend/metal/MetalConvolution1x1.hpp"
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
 #endif
@@ -37,6 +38,69 @@ int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor) {
     content->offset = des->offset;
     return 0;
 }
+
+#if MNN_METAL_OP_PROFILE
+#include <algorithm>
+namespace {
+// Thread-safe aggregator of per-op GPU time (accumulated from command buffer
+// completion handlers). Prints a sorted summary at process exit.
+class MetalOpProfiler {
+public:
+    void add(const std::string& name, double ms) {
+        std::lock_guard<std::mutex> _l(mMutex);
+        auto& e = mStat[name];
+        e.first  += ms;
+        e.second += 1;
+        mTotal   += ms;
+    }
+    // Global (backend-instance-independent) op name registry: create backend and
+    // execute backend may differ, so names must be keyed by the execution pointer.
+    void registerName(const void* exe, const std::string& name) {
+        std::lock_guard<std::mutex> _l(mNameMutex);
+        mNames[exe] = name;
+    }
+    std::string lookupName(const void* exe) {
+        std::lock_guard<std::mutex> _l(mNameMutex);
+        auto it = mNames.find(exe);
+        return it != mNames.end() ? it->second : std::string("Unknown");
+    }
+    void print() {
+        std::lock_guard<std::mutex> _l(mMutex);
+        if (mStat.empty()) {
+            return;
+        }
+        std::vector<std::pair<std::string, std::pair<double, int>>> items(mStat.begin(), mStat.end());
+        std::sort(items.begin(), items.end(),
+                  [](const std::pair<std::string, std::pair<double, int>>& a,
+                     const std::pair<std::string, std::pair<double, int>>& b) {
+                      return a.second.first > b.second.first;
+                  });
+        printf("\n===== Metal Per-Op GPU Time Profile =====\n");
+        printf("%-22s %12s %10s %12s %8s\n", "OpType", "GPU(ms)", "Calls", "Avg(us)", "Ratio");
+        for (auto& it : items) {
+            double t = it.second.first;
+            int    c = it.second.second;
+            printf("%-22s %12.3f %10d %12.3f %7.2f%%\n", it.first.c_str(), t, c,
+                   c > 0 ? t * 1000.0 / c : 0.0, mTotal > 0 ? t / mTotal * 100.0 : 0.0);
+        }
+        printf("%-22s %12.3f\n", "TOTAL", mTotal);
+        printf("=========================================\n");
+        mStat.clear();
+        mTotal = 0;
+    }
+    ~MetalOpProfiler() {
+        print();
+    }
+private:
+    std::mutex mMutex;
+    std::map<std::string, std::pair<double, int>> mStat;
+    double mTotal = 0;
+    std::mutex mNameMutex;
+    std::map<const void*, std::string> mNames;
+};
+static MetalOpProfiler gMetalOpProfiler;
+} // namespace
+#endif
 
 namespace MNN {
 
@@ -331,6 +395,9 @@ Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std
         MNN_PRINT("The Creator Don't support type [%s], %s\n", MNN::EnumNameOpType(op->type()), op->name() ? op->name()->c_str() : "");
         return NULL;
     }
+#if MNN_METAL_OP_PROFILE
+    profileRegisterOp(exe, EnumNameOpType(op->type()));
+#endif
     return exe;
 }
 void MetalBackend::flushEncoder() const {
@@ -394,6 +461,11 @@ bool MetalBackend::onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
 }
 
 bool MetalBackend::isCmdBufferCommit() {
+#if MNN_METAL_OP_PROFILE
+    // Profiling: commit one command buffer per op so that each command buffer's
+    // GPUEndTime-GPUStartTime measures a single op's GPU time.
+    return true;
+#else
     auto ctx = (__bridge MNNMetalContext *)context();
     
     //TODO: set magic number
@@ -403,7 +475,26 @@ bool MetalBackend::isCmdBufferCommit() {
         return true;
     }
     return false;
+#endif
 }
+
+#if MNN_METAL_OP_PROFILE
+void MetalBackend::profileRegisterOp(const Execution* exe, const std::string& name) const {
+    gMetalOpProfiler.registerName(exe, name);
+}
+void MetalBackend::profileMarkOp(const Execution* exe) const {
+    mCurProfileName = gMetalOpProfiler.lookupName(exe);
+}
+void MetalBackend::setProfileSubtag(const std::string& subtag) const {
+    if (subtag.empty()) return;
+    // Preserve OpType prefix (before first '/') and rewrite everything after.
+    // This lets an op split its work into sub-passes with independent profile tags
+    // (e.g. outer-dequant weight dequant vs gemm) by calling this before each commit.
+    auto pos = mCurProfileName.find('/');
+    std::string base = (pos == std::string::npos) ? mCurProfileName : mCurProfileName.substr(0, pos);
+    mCurProfileName = base.empty() ? subtag : (base + "/" + subtag);
+}
+#endif
 
 id<MTLBuffer> MetalBackend::getHostBuffer(size_t size) const {
     size = UP_DIV(size, METAL_CONST_BUFFER_LIMIT) * METAL_CONST_BUFFER_LIMIT;
@@ -618,11 +709,129 @@ void MetalBackend::onResizeBegin() {
     _commandBuffer = nil;
     wait();
     mCurrentAllocator->reset();
+    // Clear Gate/Up fusion mappings from previous resize
+    clearConv1x1Map();
 }
 
 ErrorCode MetalBackend::onResizeEnd() {
     auto ctx = (__bridge MNNMetalContext *)context();
-    return mCurrentAllocator->compute();
+    // Allocate buffers first so that matchQKVFusions can check for buffer overlap
+    auto err = mCurrentAllocator->compute();
+    if (err != NO_ERROR) {
+        return err;
+    }
+    // Match QKV fusion candidates after buffer allocation
+    matchQKVFusions();
+    // Match LayerNorm+Conv1x1 fusion after QKV fusion is set up
+    matchLNFusions();
+    return NO_ERROR;
+}
+
+void MetalBackend::matchQKVFusions() {
+    // QKV fusion: merges Q/K/V Conv1x1 dispatches into one (3→1 per layer).
+    // Disabled by default: on Apple GPUs, the fused kernel's segment branching
+    // and extra buffer bindings cost more than 3 separate dispatches save.
+    // Measured on M4 Pro (tg128, rep=5):
+    //   Qwen3-0.6B: 177.5 (unfused) -> 113.6 (fused)  -36%
+    //   Qwen3-4B:   35.0  (unfused) -> 35.4  (fused)  +1%
+    // Set MNN_ENABLE_QKV_FUSION=1 to force-enable.
+    static bool sEnableQKVFusion = (getenv("MNN_ENABLE_QKV_FUSION") != nullptr) &&
+                                   (getenv("MNN_DISABLE_QKV_FUSION") == nullptr);
+    if (!sEnableQKVFusion) {
+        return;
+    }
+    for (auto& pair : mInputToConv1x1Group) {
+        auto& candidates = pair.second;
+        if (candidates.size() != 3) {
+            continue;
+        }
+        // All three must be 2sg decode pipelines and not already fused
+        bool allEligible = true;
+        for (auto& c : candidates) {
+            if (!c.conv->is2sgDecodePipeline() ||
+                c.conv->isGateUpLeader() || c.conv->isGateUpFollower() ||
+                c.conv->isQKVLeader() || c.conv->isQKVFollower()) {
+                allEligible = false;
+                break;
+            }
+            // Per-output-channel limit
+            if (c.outputChannel > 16384) {
+                allEligible = false;
+                break;
+            }
+        }
+        if (!allEligible) {
+            continue;
+        }
+        // Identify Q, K, V by GQA shape:
+        // Two of three have the same (smaller) output channel -> K and V
+        // The third has output channel >= K/V -> Q
+        int oc0 = candidates[0].outputChannel;
+        int oc1 = candidates[1].outputChannel;
+        int oc2 = candidates[2].outputChannel;
+        int qIdx = -1, kIdx = -1, vIdx = -1;
+        if (oc1 == oc2 && oc0 >= oc1) {
+            qIdx = 0; kIdx = 1; vIdx = 2;
+        } else if (oc0 == oc2 && oc1 >= oc0) {
+            qIdx = 1; kIdx = 0; vIdx = 2;
+        } else if (oc0 == oc1 && oc2 >= oc0) {
+            qIdx = 2; kIdx = 0; vIdx = 1;
+        } else {
+            // No valid GQA shape (e.g. all different, or two larger equal)
+            continue;
+        }
+        auto& q = candidates[qIdx];
+        auto& k = candidates[kIdx];
+        auto& v = candidates[vIdx];
+        // Check buffer overlap: MNN's buffer reuse may alias Q/K/V outputs.
+        // Fused dispatch writes all three simultaneously, so overlapping buffers
+        // would corrupt data. Skip fusion if any two share the same MTLBuffer.
+        {
+            auto qBuf = ((MetalRuntimeAllocator::MetalBufferAlloc *)q.output->deviceId())->getBuffer();
+            auto kBuf = ((MetalRuntimeAllocator::MetalBufferAlloc *)k.output->deviceId())->getBuffer();
+            auto vBuf = ((MetalRuntimeAllocator::MetalBufferAlloc *)v.output->deviceId())->getBuffer();
+            if (qBuf == kBuf || qBuf == vBuf || kBuf == vBuf) {
+                continue;  // buffer overlap — skip this QKV group
+            }
+        }
+        // Setup QKV fusion: Q becomes leader, K and V become followers
+        q.conv->setupQKVFusion(k.conv, k.output, v.conv, v.output);
+    }
+}
+
+void MetalBackend::matchLNFusions() {
+    // LayerNorm+Conv1x1 fusion: eliminates the Binary-LN dispatch by computing
+    // RMSNorm inside the Conv1x1 GEMV kernel. The Conv1x1 reads hidden+residual,
+    // writes the residual sum, and normalizes the input for GEMV.
+    // Set MNN_METAL_DISABLE_LN_FUSION=1 to disable.
+    static bool sEnableLNFusion = (getenv("MNN_METAL_DISABLE_LN_FUSION") == nullptr);
+    if (!sEnableLNFusion) {
+        return;
+    }
+    for (auto& pair : mLayernormMap) {
+        const auto& normalizedOutput = pair.first;
+        const auto& info = pair.second;
+        // Find Conv1x1(s) that consume the normalized output as their input
+        auto it = mInputToConv1x1Group.find(normalizedOutput);
+        if (it == mInputToConv1x1Group.end()) {
+            continue;
+        }
+        for (auto& candidate : it->second) {
+            auto* conv = candidate.conv;
+            if (!conv->is2sgDecodePipeline()) {
+                continue;
+            }
+            // Only leaders have dispatch paths that bind LN buffers
+            if (!conv->isQKVLeader() && !conv->isGateUpLeader()) {
+                continue;
+            }
+            conv->setupLNFusion(info.hiddenInput, info.residualInput,
+                                info.residualOutput, info.gamma, info.eps);
+            if (info.fusedFlag) {
+                *info.fusedFlag = true;
+            }
+        }
+    }
 }
 
 static std::string _getType(const halide_type_t& type, MNN_DATA_FORMAT format, bool useFp16AsFp32) {
@@ -823,6 +1032,9 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
             if (standalone) {
                 [encoder endEncoding];
             }
+#if MNN_METAL_OP_PROFILE
+            mCurProfileName = "ConvertCopy";
+#endif
             commit();
             devicePtr = (uint8_t*)tmpBuffer.contents;
         }
@@ -847,6 +1059,9 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
             if (standalone) {
                 [encoder endEncoding];
             }
+#if MNN_METAL_OP_PROFILE
+            mCurProfileName = "ConvertCopy";
+#endif
             commit();
         } else {
             auto device = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)dst->deviceId())->getBuffer();
@@ -909,6 +1124,18 @@ void MetalBackend::commit() const {
 #endif
     mRuntime->pExecutionStatus = NO_ERROR;
     if (nil != _commandBuffer &&  _commandBuffer.status < MTLCommandBufferStatusCommitted) {
+#if MNN_METAL_OP_PROFILE
+        {
+            std::string profName = mCurProfileName.empty() ? std::string("CopyBuffer/Sync") : mCurProfileName;
+            [_commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+                if (@available(iOS 10.3, macOS 10.15, *)) {
+                    double ms = (buffer.GPUEndTime - buffer.GPUStartTime) * 1000.0;
+                    gMetalOpProfiler.add(profName, ms);
+                }
+            }];
+            mCurProfileName.clear();
+        }
+#endif
         [_commandBuffer commit];
         mRuntime->_waiting = _commandBuffer;
         _commandBuffer = nil;

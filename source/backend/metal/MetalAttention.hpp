@@ -37,6 +37,7 @@ public:
             exe->mKVCacheManager = mKVCacheManager;
         }
         *dst = exe;
+        MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
         return true;
     }
 
@@ -63,6 +64,7 @@ private:
     id<MTLComputePipelineState> mKernel_qk_softmax = nil;
     id<MTLComputePipelineState> mKernelPrefill_qk = nil;
     id<MTLComputePipelineState> mKernelPrefill_qkv = nil;
+    id<MTLComputePipelineState> mKernel_flashAttn = nil;
     id<MTLBuffer> mParamQKV;
     id<MTLBuffer> mParamSoftmax;
     id<MTLBuffer> mParamCopy;
@@ -77,6 +79,13 @@ private:
     bool mQkvSimdMatrix = false;
     bool mDecodeQkSoftmax = false;
     bool mCopySimdReduce = false;
+    // Fused prefill flash-attention. Currently opt-in via env var
+    // MNN_ENABLE_FLASH_ATTN_PREFILL=1 and gated to head_dim in {64,128},
+    // non-quant KV, causal-only. Kernel body TBD in follow-up commit; for now
+    // this flag routes through the existing prefill_qk/softmax/prefill_qkv
+    // pipeline (i.e. no behavior change) so the wiring and eligibility check
+    // can land independently of the fused shader.
+    bool mFlashAttnPrefill = false;
 
 private:
     bool mHasMask = false;

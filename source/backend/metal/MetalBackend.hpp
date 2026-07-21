@@ -18,12 +18,15 @@
 #include <MNN/ErrorCode.hpp>
 #include <vector>
 #include <queue>
+#include <unordered_map>
 //#include "MNNMetalContext.h"
 #include "MetalCache_generated.h"
 using namespace MetalCache;
 
 #if MNN_METAL_ENABLED
 namespace MNN {
+
+class MetalConvolution1x1; // forward declaration for Gate/Up fusion
 
 /** MetalRuntime */
 enum MetalTuneLevel {Never = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
@@ -230,6 +233,16 @@ public:
     id<MTLCommandBuffer> getCommandBufferForBufferCopy() const;
 
     bool isCmdBufferCommit();
+#if MNN_METAL_OP_PROFILE
+    // Register an execution's op name for per-op GPU profiling (called at onCreate).
+    void profileRegisterOp(const Execution* exe, const std::string& name) const;
+    // Mark the currently executing op so the next committed command buffer is attributed to it.
+    void profileMarkOp(const Execution* exe) const;
+    // Append a kernel-variant subtag to the current op profile name. Called from onEncode
+    // after the pipeline has been selected so profile rows can distinguish kernels.
+    // Example: OpType="Convolution", subtag="gemm_32x64_split_k" -> "Convolution/gemm_32x64_split_k"
+    void setProfileSubtag(const std::string& subtag) const;
+#endif
     bool isIphone(){
         return mIsIphone;
     }
@@ -255,9 +268,54 @@ public:
     bool isSupportTensorApi() const {
         return mSupportTensorApi;
     }
+
+    // Gate/Up projection fusion: register Conv1x1 execution for its output tensor
+    void registerConv1x1ForOutput(const Tensor* output, MetalConvolution1x1* exe) {
+        mOutputToConv1x1[output] = exe;
+    }
+    MetalConvolution1x1* findConv1x1ForOutput(const Tensor* output) const {
+        auto it = mOutputToConv1x1.find(output);
+        return it != mOutputToConv1x1.end() ? it->second : nullptr;
+    }
+
+    // QKV fusion: register Conv1x1 grouped by input tensor for later matching
+    struct QKVCandidate {
+        MetalConvolution1x1* conv;
+        const Tensor* output;
+        int outputChannel;
+    };
+    void registerConv1x1ForQKV(const Tensor* input, MetalConvolution1x1* conv, const Tensor* output, int outputChannel) {
+        mInputToConv1x1Group[input].push_back({conv, output, outputChannel});
+    }
+    void matchQKVFusions();  // called in onResizeEnd
+
+    // LayerNorm+Conv1x1 fusion: register LN by its normalized output for matching
+    struct LayerNormFusionInfo {
+        const Tensor* hiddenInput;      // LN inputs[1] → Conv1x1's in (buffer 0)
+        const Tensor* residualInput;    // LN inputs[0] → ln_residual_in (buffer 20)
+        const Tensor* residualOutput;   // LN outputs[0] → ln_residual_out (buffer 22)
+        std::shared_ptr<Tensor> gamma;  // LN gamma tensor (float4 data)
+        float eps;
+        bool* fusedFlag;                // points to MetalLayerNorm::mIsFused
+    };
+    void registerLayerNorm(const Tensor* normalizedOutput, const LayerNormFusionInfo& info) {
+        mLayernormMap[normalizedOutput] = info;
+    }
+    void matchLNFusions();  // called after matchQKVFusions in onResizeEnd
+
+    void clearConv1x1Map() {
+        mOutputToConv1x1.clear();
+        mInputToConv1x1Group.clear();
+        mLayernormMap.clear();
+    }
 private:
     BackendConfig::MemoryMode mMemoryMode;
     bool mSupportTensorApi = false;
+    // Gate/Up fusion: maps output tensor to its Conv1x1 execution
+    std::unordered_map<const Tensor*, MetalConvolution1x1*> mOutputToConv1x1;
+    // QKV fusion: maps input tensor to group of Conv1x1 candidates
+    std::unordered_map<const Tensor*, std::vector<QKVCandidate>> mInputToConv1x1Group;
+    std::unordered_map<const Tensor*, LayerNormFusionInfo> mLayernormMap;
 private:
     MetalRuntimeAllocator::MetalBufferAlloc mEmptyMem;
     id<MTLCommandBuffer> getCommandBufferForNet() const;
@@ -290,6 +348,9 @@ private:
     bool mIsIphone = false;
     BufferAllocator* mCurrentAllocator = nullptr;
     std::shared_ptr<BufferAllocator> mExecutionBufferPool;
+#if MNN_METAL_OP_PROFILE
+    mutable std::string mCurProfileName;
+#endif
 
 };
 
@@ -318,6 +379,20 @@ public:
     void ___##name##__##opType##__() {              \
         MetalBackend::addCreator(opType, new name); \
     }
+
+#if MNN_METAL_OP_PROFILE
+// Register a cloned execution's op name for per-op GPU profiling.
+// Must be called inside each MetalExecution subclass's onClone (op carries the type).
+#define MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, dstExe)                                       \
+    do {                                                                                        \
+        if ((dstExe) != nullptr && (op) != nullptr) {                                           \
+            static_cast<MNN::MetalBackend*>(bn)->profileRegisterOp((dstExe),                     \
+                                                                   MNN::EnumNameOpType((op)->type())); \
+        }                                                                                       \
+    } while (0)
+#else
+#define MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, dstExe)
+#endif
 
 #endif /* MNN_METAL_ENABLED */
 #endif /* MetalBackend_hpp */
