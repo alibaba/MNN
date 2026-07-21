@@ -18,7 +18,9 @@ kernel void softmax_plane(const device T* in [[buffer(0)]],
                           constant softmax_shape& s [[buffer(2)]],
                           uint2 gid [[thread_position_in_grid]]) {
   if ((int)gid.x >= s.inside_size || (int)gid.y >= s.outside_size) return;
-  const int axis_off = int(gid.y) * s.axis_length * s.inside_size + int(gid.x);
+  // Long offset: at 24K seq * 151K vocab (LLM LM-head softmax) the product
+  // overflows int32.
+  const long axis_off = (long)gid.y * s.axis_length * s.inside_size + int(gid.x);
   const device T* axis_in = in + axis_off;
   device T* axis_out = out + axis_off;
   float maxv = -FLT_MAX;
@@ -53,7 +55,7 @@ kernel void softmax_plane_sg(const device T* in [[buffer(0)]],
                              uint2 gid [[threadgroup_position_in_grid]],
                              uint  tiisg [[thread_index_in_simdgroup]]) {
   if ((int)gid.x >= s.inside_size || (int)gid.y >= s.outside_size) return;
-  const int axis_off = int(gid.y) * s.axis_length * s.inside_size + int(gid.x);
+  const long axis_off = (long)gid.y * s.axis_length * s.inside_size + int(gid.x);
   const device T* axis_in = in + axis_off;
   device T* axis_out = out + axis_off;
   float lmax = -FLT_MAX;
@@ -96,7 +98,7 @@ kernel void softmax_plane_sg_tg(const device T* in [[buffer(0)]],
                                 uint  tiisg [[thread_index_in_simdgroup]],
                                 uint  sgitg [[simdgroup_index_in_threadgroup]]) {
   if ((int)gtp.x >= s.inside_size || (int)gtp.y >= s.outside_size) return;
-  const int axis_off = int(gtp.y) * s.axis_length * s.inside_size + int(gtp.x);
+  const long axis_off = (long)gtp.y * s.axis_length * s.inside_size + int(gtp.x);
   const device T* axis_in = in + axis_off;
   device T* axis_out = out + axis_off;
 
@@ -163,8 +165,10 @@ kernel void softmax_plane(const device ftype *in [[buffer(0)]],
                           constant softmax_shape& s [[buffer(2)]],
                           uint2 gid [[thread_position_in_grid]]) {
     if ((int)gid.x >= s.inside_size || (int)gid.y >= s.outside_size) return;
-    auto in_offset = gid.y * s.axis_length * s.inside_size + gid.x;
-    auto out_offset = gid.y * s.axis_align_length * s.inside_size + gid.x;
+    // Use long for the outer offset: for LLM attention softmax at 24K+ seq,
+    // gid.y * axis_length * inside_size = B*H*seq * seq easily exceeds INT_MAX.
+    long in_offset = (long)gid.y * s.axis_length * s.inside_size + gid.x;
+    long out_offset = (long)gid.y * s.axis_align_length * s.inside_size + gid.x;
     auto axis_in  = in + in_offset;
     auto axis_out = out + out_offset;
     float max1 = -FLT_MAX;
@@ -188,8 +192,8 @@ kernel void softmax_plane_sg(const device ftype *in     [[buffer(0)]],
                         uint  sgitg[[simdgroup_index_in_threadgroup]]
     ) {
     if ((int)gid.x >= s.inside_size || (int)gid.y >= s.outside_size) return;
-    auto in_offset = gid.y * s.axis_length * s.inside_size + gid.x;
-    auto out_offset = gid.y * s.axis_align_length * s.inside_size + gid.x;
+    long in_offset = (long)gid.y * s.axis_length * s.inside_size + gid.x;
+    long out_offset = (long)gid.y * s.axis_align_length * s.inside_size + gid.x;
     auto axis_in  = in + in_offset;
     auto axis_out = out + out_offset;
     float max1 = -FLT_MAX;

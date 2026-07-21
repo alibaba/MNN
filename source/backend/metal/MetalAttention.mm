@@ -9,6 +9,7 @@
 #import "MetalCast.hpp"
 #import "MNNMetalContext.h"
 #import "MetalAttentionShader.hpp"
+#import "MetalFlashAttnShader.hpp"
 #import "MetalSoftmaxShader.hpp"
 #import "MetalAttention.hpp"
 #include "core/TensorUtils.hpp"
@@ -268,6 +269,48 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
         mKernel_qk_softmax = pipeline;
         MNN_ASSERT(nil != mKernel_qk_softmax);
     }
+    if (mFlashAttnPrefill) {
+        std::string head_dim_str = std::to_string(mHeadDim);
+        std::vector<std::string> keys = {"prefill_flash_attn", ftype, group_str, "HEAD_DIM_" + head_dim_str};
+        if (mHasMask) {
+            keys.emplace_back("HAS_MASK");
+        }
+        if (mOutputC4) {
+            keys.emplace_back("ATTENTION_C4");
+        }
+        if (mQuantKey) {
+            keys.emplace_back("QUANT_K");
+        }
+        if (mQuantValue) {
+            keys.emplace_back("QUANT_V");
+        }
+        auto pipeline = rt->findPipeline(keys);
+        if (nil == pipeline) {
+            MTLCompileOptions* option = [[MTLCompileOptions alloc] init];
+            auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+            [dic setValue:@(ftype.c_str()) forKey:@"ftype"];
+            [dic setValue:@(ftype4.c_str()) forKey:@"ftype4"];
+            [dic setValue:@(group_str.c_str()) forKey:@"GROUP_SIZE"];
+            [dic setValue:@(head_dim_str.c_str()) forKey:@"HEAD_DIM"];
+            if (mHasMask) {
+                [dic setValue:@"1" forKey:@"HAS_MASK"];
+            }
+            if (mOutputC4) {
+                [dic setValue:@"1" forKey:@"ATTENTION_C4"];
+            }
+            if (mQuantKey) {
+                [dic setValue:@"1" forKey:@"QUANT_K"];
+            }
+            if (mQuantValue) {
+                [dic setValue:@"1" forKey:@"QUANT_V"];
+            }
+            option.preprocessorMacros = dic;
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gPrefillFlashAttn, "prefill_flash_attn", option);
+            rt->insertPipeline(keys, pipeline);
+        }
+        mKernel_flashAttn = pipeline;
+        MNN_ASSERT(nil != mKernel_flashAttn);
+    }
 }
 
 void AttentionBufExecution::handleKVAllocMemory() {
@@ -325,6 +368,15 @@ void AttentionBufExecution::handleKVAllocMemory() {
     float useMemorySize = 1.0 * mKvMaxLen / 1024.0 * mSeqLen / 1024.0 * mBatch * mNumHead;
     // elementSize larger than 32M
     mQseqSplitNum = 1;
+
+    // Flash-attn prefill path is self-contained: online softmax accumulator lives
+    // in threadgroup memory and never materializes the full QK / softmax tensors.
+    // Skipping these scratch buffers is the whole point of using flash-attn for
+    // long context — mTempQK alone is O(B * H * seq * kv_max) which reaches TB
+    // scale at 512K prompts.
+    if (mFlashAttnPrefill) {
+        return;
+    }
 
     int qSeqLenPiece = UP_DIV(mSeqLen, mQseqSplitNum);
     // temp tensor alloc memory
@@ -428,21 +480,91 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     mQkSimdReduce = supportSimdReduce && mShortSeq;
     // loop_k can divide 8, thus avoid branch
     mQkSimdMatrix = supportSimdMatrix && mSeqLen >= 16 && mHeadDim % 8 == 0;
-    // 32x32x32 tensor block
-    mQkTensorMatrix = supportTensorMatrix && mSeqLen >= 128 && mHeadDim % 32 == 0;
+    // 32x32x32 tensor block — minimum seqLen=32 matches tile size
+    mQkTensorMatrix = supportTensorMatrix && mSeqLen >= 32 && mHeadDim % 32 == 0;
 
     mSftmSimdReduce = supportSimdReduce;
     mQkvSimdReduce = supportSimdReduce && mShortSeq && mHeadDim * mNumHead < mKvSeqLen * 32;
     mQkvSimdMatrix = supportSimdMatrix && mSeqLen >= 16;
     mCopySimdReduce = mKVCache && supportSimdReduce && mKVCacheManager->useDynamicScaleBuffer();
+
+    // Fused prefill flash-attention: opt-in.
+    // Two ways to enable (either turns FA on):
+    //   1. Config-level: attention_mode / 8 >= 1 (i.e. attention_mode in {8, 10, ...})
+    //      -- matches the CPU convention documented in docs/transformers/llm.md.
+    //      attention_mode encodes both KV quant (% 8) and FA (/ 8), so e.g.
+    //      attention_mode=10 gives FA + KV int8 in one config value.
+    //   2. Env var MNN_ENABLE_FLASH_ATTN_PREFILL=1 (developer override).
+    //      MNN_ENABLE_FLASH_ATTN_PREFILL=0 explicitly disables FA even when the
+    //      config asks for it (useful for A/B benchmarking).
+    // Eligibility (all must hold):
+    //   - simdgroup matrix supported (M2+ / Apple GPU 7+)
+    //   - KV in memory (not on disk).  KV quantization is supported via
+    //     the QUANT_K/QUANT_V shader path (int8 K/V dequanted per 8x8 tile
+    //     into small tg scratch before simdgroup_load).
+    //   - head_dim in {64, 128, 256}   (256 for Qwen3.5 memory-bound long context)
+    //   - GQA group_size in {1, 2, 4, 8}
+    //   - prefill length >= 128 (short seqs already fast via existing paths)
+    //
+    // head_dim=256 (Qwen3.5): kernel is compute-bound and ~2.8% slower than
+    // the three-kernel path in isolation (see prior benchmark note), but at
+    // long context the fused path skips the O(seq^2 * B * H) mTempQK /
+    // mTempSoftMax scratch allocations, which dominates peak memory.  Trade
+    // is acceptable for long-context / constrained-device runs.
+    {
+        int attentionOption = static_cast<MetalBackend*>(backend())->getRuntime()->hint().attentionOption;
+        bool enableFromConfig = (attentionOption / 8) >= 1;
+        const char* enableStr = getenv("MNN_ENABLE_FLASH_ATTN_PREFILL");
+        bool envForceOn  = enableStr != nullptr && enableStr[0] == '1';
+        bool envForceOff = enableStr != nullptr && enableStr[0] == '0';
+        bool enableFlashAttn = envForceOff ? false : (envForceOn || enableFromConfig);
+
+        // FA shader uses simdgroup_half8x8 for Q/K/V/P — only compiles when
+        // ftype=half (fp16 precision).  fp32 precision falls back to the
+        // three-kernel pipeline.
+        //
+        // FA also hard-codes causal masking via `kv_valid_offset = seq_k - seq_q`
+        // in the `in_bounds` check, so it's only valid when an explicit mask is
+        // present (LLM causal ADD-mask exports).  Non-causal / no-mask attention
+        // (e.g. Attention op with kv_cache=false and no mask input) must fall
+        // back to the three-kernel pipeline.
+        bool eligible = supportSimdMatrix
+                        && static_cast<MetalBackend*>(backend())->useFp16InsteadFp32()
+                        && mHasMask
+                        && !mKvInDisk
+                        && (mHeadDim == 64 || mHeadDim == 128 || mHeadDim == 256)
+                        && (group_size == 1 || group_size == 2 || group_size == 4 || group_size == 8)
+                        && !mShortSeq
+                        && mSeqLen >= 128;
+        mFlashAttnPrefill = enableFlashAttn && eligible;
+        static bool _fa_log_once = false;
+        if (mFlashAttnPrefill && !_fa_log_once) {
+            _fa_log_once = true;
+            MNN_PRINT("[MetalAttention] flash-attn-prefill kernel active (seq=%d, head_dim=%d, group=%d, mask=%d, outC4=%d, quant_k=%d, quant_v=%d).\n",
+                      mSeqLen, mHeadDim, group_size, (int)mHasMask, (int)mOutputC4,
+                      (int)mQuantKey, (int)mQuantValue);
+        }
+    }
+
     bool trivialFloatMask = mHasMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
+    // Max KV length for fused decode QK+softmax kernel depends on group_size
+    // to stay within 32KB threadgroup memory limit:
+    //   group_size<=2: 2048, group_size<=4: 1024, group_size<=8: 512
+    int maxKvForFusion = 0;
+    if (group_size >= 2 && group_size <= 2) maxKvForFusion = 2048;
+    else if (group_size <= 4) maxKvForFusion = 1024;
+    else if (group_size <= 8) maxKvForFusion = 512;
     mDecodeQkSoftmax = mKVCache && mShortSeq && mSeqLen <= 8 &&
                        (!mHasMask || trivialFloatMask) && !mKvInDisk &&
-                       group_size == 2 && mHeadDim % 8 == 0 && mKvSeqLen <= 2048;
+                       group_size >= 2 && mHeadDim % 8 == 0 && mKvSeqLen <= maxKvForFusion;
 
     // start to compile attention shaders
     compilerShader(inputs);
 
+#if MNN_METAL_OP_PROFILE
+    // Split Attention into per-subpass command buffers so profile shows QK / Softmax / AV / Copy separately.
+    static_cast<MetalBackend*>(backend())->setProfileSubtag("copy");
+#endif
     // Run Copy and Format-Convert Kernel
     {
         auto copyp = (CopyParam*)mParamCopy.contents;
@@ -502,6 +624,15 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 
         [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
     }
+#if MNN_METAL_OP_PROFILE
+    {
+        auto* mtbn = static_cast<MetalBackend*>(backend());
+        mtbn->flushEncoder();
+        mtbn->commit_net();
+        mtbn->setProfileSubtag(mShortSeq ? "qk_short" : (mDecodeQkSoftmax ? "qk_softmax_fused" : "qk"));
+        encoder = mtbn->encoder_for_net();
+    }
+#endif
 
     // Update Parameters
     int seqLenPiece = UP_DIV(mSeqLen, mQseqSplitNum);
@@ -534,6 +665,46 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     }
 
     for (int seq_idx = 0; seq_idx < mQseqSplitNum; seq_idx++) {
+        if (mFlashAttnPrefill) {
+            // Fused prefill flash-attention: QK + online softmax + PV in a single dispatch.
+            // Writes directly to outputs[0]; mTempQK / mTempSoftMax are never touched.
+            [encoder setComputePipelineState:mKernel_flashAttn];
+            MetalBackend::setTensor(query, encoder, 0);
+            MetalBackend::setTensor(outputs[0], encoder, 1);
+            MetalBackend::setTensor(tempTensorK, encoder, 2);
+            MetalBackend::setTensor(tempTensorV, encoder, 3);
+            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+            [encoder setBytes:&seq_idx length:sizeof(seq_idx) atIndex:5];
+            int fa_kv_start = 0;
+            int fa_kv_len   = mKvSeqLen;
+            [encoder setBytes:&fa_kv_start length:sizeof(int) atIndex:6];
+            [encoder setBytes:&fa_kv_len   length:sizeof(int) atIndex:7];
+            if (mHasMask) {
+                MetalBackend::setTensor(inputs[3], encoder, 8);
+            }
+            if (mQuantKey && mKVCacheManager->getKScaleBuffer() != nil) {
+                [encoder setBuffer:mKVCacheManager->getKScaleBuffer() offset:0 atIndex:9];
+            }
+            if (mQuantValue && mKVCacheManager->getVScaleBuffer() != nil) {
+                [encoder setBuffer:mKVCacheManager->getVScaleBuffer() offset:0 atIndex:10];
+            }
+            // Grid = (ceil(seqLenPiece/16), B*H, 1); threadgroup = (32, NSG=4, 1) = 128 threads.
+            // Q_TILE=16 halves K read redundancy per pp2048 layer vs Q_TILE=8.
+            auto gl = std::make_pair(
+                MTLSizeMake(UP_DIV(seqLenPiece, 16), mBatch * mNumHead, 1),
+                MTLSizeMake(32, 4, 1));
+            [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
+#if MNN_METAL_OP_PROFILE
+            {
+                auto* mtbn2 = static_cast<MetalBackend*>(backend());
+                mtbn2->flushEncoder();
+                mtbn2->commit_net();
+                mtbn2->setProfileSubtag("flash_attn");
+                encoder = mtbn2->encoder_for_net();
+            }
+#endif
+            continue;   // skip the standard QK / softmax / PV path below
+        }
         if (mDecodeQkSoftmax) {
             [encoder setComputePipelineState:mKernel_qk_softmax];
             MetalBackend::setTensor(query, encoder, 0);
@@ -599,6 +770,15 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
                                                threads:MTLSizeMake(seqLenPiece, decode_grid_y, mKvSeqLen)];
             }
             [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
+#if MNN_METAL_OP_PROFILE
+            {
+                auto* mtbn = static_cast<MetalBackend*>(backend());
+                mtbn->flushEncoder();
+                mtbn->commit_net();
+                mtbn->setProfileSubtag("softmax");
+                encoder = mtbn->encoder_for_net();
+            }
+#endif
             // Run Softmax Kernel
             // For softmax parameter
             // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
@@ -631,6 +811,15 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 
             [encoder dispatchThreadgroups:softmaxGl.first threadsPerThreadgroup:softmaxGl.second];
         }
+#if MNN_METAL_OP_PROFILE
+        {
+            auto* mtbn = static_cast<MetalBackend*>(backend());
+            mtbn->flushEncoder();
+            mtbn->commit_net();
+            mtbn->setProfileSubtag("av");
+            encoder = mtbn->encoder_for_net();
+        }
+#endif
         // Run QKV Kernel
         {
             id<MTLComputePipelineState> pipeline;

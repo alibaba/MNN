@@ -469,6 +469,7 @@ bool MetalLinearAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
     // Share persistent state buffers between prefill and decode Executions
     tmp->mStateCache = mStateCache;
     *dst = tmp;
+    MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
     return true;
 }
 
