@@ -464,10 +464,17 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
       - 14: FlashAttention + KV-TQ4（4-bit量化，内存节省>30%，推荐4B+模型）
       - 12: FlashAttention + KV-TQ3（3-bit量化，极致压缩，推荐4B+模型）
     - 注意：TQ3/TQ4基于TurboQuant算法（WHT旋转+Lloyd-Max码本），建议在4B及以上参数模型上使用，小模型（<1B）精度损失较大
-    - GPU attention 算子中是否使用Flash Attention，可选为：`0, 8, 16`，默认为`8`，目前仅支持Metal后端，含义如下：
-      - 0: 运行时不使用Flash Attention, 朴素Attention实现，上下文较长时不推荐内存占用高
-      - 8: 运行时使用Flash Attention, 在算子层面分步实现，性能接近设为0，内存占用比设为0小
-      - 16: 运行时使用Flash Attention, 在算子层面单算子融合实现，内存占用最小，性能比设为8稍慢一些
+    - Metal 后端 attention_mode 说明（其他 GPU 后端暂不支持 FlashAttention，`attention_mode` 会被忽略）：
+      - FlashAttention（attention_mode / 8 >= 1）：启用 prefill 阶段的融合 Flash Attention kernel，跳过 `mTempQK` / `mTempSoftMax` 两块 O(seq²·B·H) 中间显存，长上下文场景峰值内存显著下降。当前 kernel 已支持 head_dim ∈ {64, 128, 256}、GQA group ∈ {1,2,4,8}、causal ADD-mask 输入。
+      - KV Cache 量化（attention_mode % 8）：Metal 目前仅支持 int8 通道，即 `0/1/2`（TQ3/TQ4 为 CPU 专属）：
+        - 0: 不量化
+        - 1: 仅 Key int8 量化
+        - 2: Key 和 Value 均 int8 量化
+      - 常用组合：
+        - 8：FlashAttention，KV 保持 fp16（长上下文默认推荐）
+        - 10：FlashAttention + KV-INT8（进一步降低 KV 显存，短上下文 pp 会略降 5–14%）
+      - 开发者调试：环境变量 `MNN_ENABLE_FLASH_ATTN_PREFILL=1` 可强制开启 FA（无视 config），`=0` 可强制关闭 FA（用于 A/B 基准）。
+    - 其他 GPU 后端（OpenCL / Vulkan / CUDA）目前仅遵循 attention_mode 中的默认行为，不支持 FlashAttention 切换。
   - use_mmap: 是否使用mmap方式，在内存不足时将权重写入磁盘，避免溢出，默认为false，手机上建议设成true
   - chunk: 限制每次最大处理的token数，高于此值将分块运行，以减少内存占用，eg: chunk: 128
   - chunk_limits: 限制每次处理的token数，不在此范围内将分拆或者补零处理，eg: chunk_limits: [128, 1] , 存在 chunk_limits 时，chunk 配置无效

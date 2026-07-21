@@ -276,10 +276,12 @@ bool MetalConvolutionDepthwise::onClone(Backend* bn, const Op* op, Execution** d
     }
     if (mDynamicWeight) {
         *dst = new MetalConvolutionDepthwise(bn, op, true);
+        MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
         return true;
     }
     auto exe = new MetalConvolutionDepthwise(bn, op, mWeight, mBias);
     *dst = exe;
+    MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
     return true;
 }
 

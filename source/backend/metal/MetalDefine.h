@@ -30,5 +30,11 @@
 
 #define MNN_METAL_BENCHMARK 0
 
+// Per-op GPU time profiling for Metal backend.
+// Enable by cmake option -DMNN_METAL_OP_PROFILE=ON. Off by default (no overhead).
+#ifndef MNN_METAL_OP_PROFILE
+#define MNN_METAL_OP_PROFILE 0
+#endif
+
 
 #endif /* MetalDefine_h */

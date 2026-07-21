@@ -651,6 +651,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
             "TranslateJsonOp",
             "FuseDupOp",
             "RemoveInvalidCast",
+            "RemoveDeadShapeOp",
         };
         if (modelPath.transformerFuseC4) {
             expectedPass.insert(expectedPass.begin() + 1, "FuseTransformerC4");
