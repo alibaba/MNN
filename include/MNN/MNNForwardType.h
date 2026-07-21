@@ -40,7 +40,7 @@ typedef enum {
     /*User can use API from Backend.hpp to add or search Backend*/
     MNN_FORWARD_USER_0 = 8,
     MNN_FORWARD_USER_1 = 9,
-    MNN_FORWARD_USER_2 = 10,
+    MNN_FORWARD_HEXAGON = 10,
     MNN_FORWARD_USER_3 = 11,
 
     MNN_FORWARD_ALL = 12,
