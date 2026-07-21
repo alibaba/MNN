@@ -11,6 +11,7 @@
 #import "core/Macro.h"
 #import "core/TensorUtils.hpp"
 #import "backend/metal/MetalBackend.hpp"
+#import "backend/metal/MetalConvolution1x1.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -155,6 +156,23 @@ public:
         }
         ((int *)mConstBuffer.contents)[0] = outputDataCount / 4;
         mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(outputDataCount / 4, 1, 1)];
+
+        // Gate/Up fusion: try to pair the two input Conv1x1 projections
+        // In mulsilu_vec shader: in1 = gate, in0 = up
+        // Set MNN_DISABLE_GATE_UP_FUSION=1 to disable (for A/B benchmarking).
+        static bool sDisableGateUpFusion = (getenv("MNN_DISABLE_GATE_UP_FUSION") != nullptr);
+        if (!sDisableGateUpFusion) {
+            auto* gateConv = backend->findConv1x1ForOutput(inputs[1]); // gate
+            auto* upConv   = backend->findConv1x1ForOutput(inputs[0]); // up
+            if (gateConv && upConv && gateConv != upConv
+                && gateConv->is2sgDecodePipeline() && upConv->is2sgDecodePipeline()
+                && !gateConv->isGateUpLeader() && !gateConv->isGateUpFollower()
+                && !upConv->isGateUpLeader() && !upConv->isGateUpFollower()) {
+                // gate becomes leader, up becomes follower
+                gateConv->setupGateUpFusion(upConv, inputs[0]);
+            }
+        }
+
         return NO_ERROR;
     }
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
