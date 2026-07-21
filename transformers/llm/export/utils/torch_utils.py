@@ -80,10 +80,13 @@ def _quant_on_device(weight, quant_bit, quant_block, symmetric, awq, hqq):
     if quant_bit < 8 and 8 % quant_bit == 0:
         group_size = 8 // quant_bit
         q_weight = q_weight.reshape(-1, group_size)
-        multipliers = [2 ** (quant_bit * (group_size - 1 - i)) for i in range(group_size)]
-        # Use uint8 multipliers to avoid uint8->int64 promotion (8x memory blowup)
-        multipliers = torch.tensor(multipliers, dtype=torch.uint8).to(q_weight.device)
-        q_weight = (q_weight * multipliers).sum(axis=1).to(torch.uint8)
+        # Accumulate column-by-column in uint8: avoids int64 promotion and an MPS
+        # bug where sum(axis=1) over >=2^28 uint8 elements silently returns zeros.
+        packed = torch.zeros(q_weight.shape[0], dtype=torch.uint8, device=q_weight.device)
+        for i in range(group_size):
+            shift = quant_bit * (group_size - 1 - i)
+            packed |= q_weight[:, i] << shift
+        q_weight = packed
     elif quant_bit < 8:
         q_weight = repack_low_bits(q_weight.reshape((block_num * oc, block_size)), quant_bit, block_size)
 
