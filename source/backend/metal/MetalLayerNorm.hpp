@@ -41,6 +41,7 @@ private:
     bool mIsNC4HW4 = false;
     bool mIsBinaryNCHW = false;
     int mChannelUnit;
+    bool mIsFused = false;  // set by backend matchLNFusions when LN is fused into Conv1x1
     std::shared_ptr<Resource> mResource;
     id<MTLBuffer> mShapeBuffer;
     id<MTLComputePipelineState> mPipeline;

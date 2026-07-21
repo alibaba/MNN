@@ -78,6 +78,7 @@ bool MetalConvolutionWinograd::onClone(Backend* bn, const Op* op, Execution** ds
         return true;
     }
     *dst = new MetalConvolutionWinograd(bn, op, mWeight, mBias);
+    MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
     return true;
 }
 
