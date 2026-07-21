@@ -1,0 +1,23 @@
+/* FastRPC IDL interface */
+
+#ifndef HTP_OPS_IDL
+#define HTP_OPS_IDL
+
+#include "AEEStdDef.idl"
+#include "remote.idl"
+
+interface htp_ops : remote_handle64 {
+    AEEResult init_backend();
+
+    /* ops RPC interface */
+    AEEResult start_queue(in uint64 queueId);
+    AEEResult stop_queue();
+
+    AEEResult getInfo(in int32 fd0, in int32 offset0);
+    AEEResult getInfoProfile(in int32 fd0, in int32 offset0);
+
+    AEEResult execute_command_group(in int32 groupFd, in int32 groupOffset, in int32 count, in int32 syncGroupFd, in int32 syncGroupOffset, in int32 syncGroupSize);
+    AEEResult execute_command_group_profile(in int32 groupFd, in int32 groupOffset, in int32 count, in int32 syncGroupFd, in int32 syncGroupOffset, in int32 syncGroupSize, in int32 profileFd, in int32 profileOffset, in int32 profileSize);
+};
+
+#endif /* HTP_OPS_IDL */

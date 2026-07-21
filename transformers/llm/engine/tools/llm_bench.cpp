@@ -382,6 +382,7 @@ struct markdownPrinter : public Printer {
                 if (t.backend == 1) value = "METAL";
                 else if (t.backend == 2) value = "CUDA";
                 else if (t.backend == 3) value = "OPENCL";
+                else if (t.backend == 10) value = "HEXAGON";
                 else value = "CPU";
             } else if (field == "test") {
                 if (t.nPrompt > 0 && t.nGenerate == 0) {
@@ -487,6 +488,7 @@ struct jsonAggregator : public Printer {
         writer.Key("backend");
         if (t.backend == 1) writer.String("METAL");
         else if (t.backend == 3) writer.String("OPENCL");
+        else if (t.backend == 10) writer.String("HEXAGON");
         else writer.String("CPU");
 
         writer.Key("threads");
@@ -802,7 +804,7 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("options:\n");
     printf("  -h, --help\n");
     printf("  -m, --model <filename>                    (default: ./Qwen2.5-1.5B-Instruct/config.json)\n");
-    printf("  -a, --backends <cpu,opencl,metal>         (default: %s)\n", "cpu");
+    printf("  -a, --backends <cpu,opencl,metal,hexagon> (default: %s)\n", "cpu");
     printf("  -c, --precision <n>                       (default: %s) | Note: (0:Normal(for cpu bakend, 'Normal' is 'High'),1:High,2:Low)\n", join(runtimeParamsDefaults.precision, ",").c_str());
     printf("  -t, --threads <n>                         (default: %s)\n", join(runtimeParamsDefaults.threads, ",").c_str());
     printf("  -p, --n-prompt <n>                        (default: %s)\n", join(testParamsDefaults.nPrompt, ",").c_str());
@@ -888,6 +890,8 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
                     p.emplace_back(2);
                 } else if (type == "opencl") {
                     p.emplace_back(3);
+                } else if (type == "hexagon") {
+                    p.emplace_back(10);
                 } else {
                     p.emplace_back(0);
                 }
@@ -1067,7 +1071,8 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
     // Otherwise, mContext->history_tokens retains data after the first run, skewing true prefill performance metrics."
     llmPtr->set_config(R"({"reuse_kv":false})");
     std::map<int, std::string> lever = {{0,"normal"}, {1, "high"}, {2, "low"}};
-    std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {2, "cuda"}, {3, "opencl"}};
+    std::map<int, std::string> backend_type = {
+        {0, "cpu"}, {1, "metal"}, {2, "cuda"}, {3, "opencl"}, {10, "hexagon"}};
     std::map<bool, std::string> mmap = {{true,"true"}, {false, "false"}};
 
     bool setSuccess = true;

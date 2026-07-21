@@ -255,13 +255,13 @@ void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
 }
 void Executor::RuntimeManager::setHintPtr(Interpreter::HintMode mode, void* value) {
     if (mode == Interpreter::KVCACHE_INFO) {
-        mInside->mMeta = value;
+        mInside->mContent->pMeta = value;
     }
 }
 
 void Executor::RuntimeManager::applyMetaToRuntime() const {
     for (auto& iter : mInside->mRuntime.first) {
-        iter.second->pMeta = mInside->mMeta;
+        iter.second->pMeta = mInside->mContent->pMeta;
     }
 }
 

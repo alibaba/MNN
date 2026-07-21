@@ -71,6 +71,8 @@ static MNNForwardType backend_type_convert(const std::string& type_str) {
         return MNN_FORWARD_OPENGL;
     if (type_str == "vulkan")
         return MNN_FORWARD_VULKAN;
+    if (type_str == "hexagon")
+        return MNN_FORWARD_HEXAGON;
     if (type_str == "npu")
         return MNN_FORWARD_NN;
     return MNN_FORWARD_AUTO;

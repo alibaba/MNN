@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hexagon Attention Optimization"
+  short_description: "Optimize and refactor MNN Hexagon Attention paths."
+  default_prompt: "Use Hexagon Attention Optimization to analyze and optimize MNN Hexagon Attention performance."

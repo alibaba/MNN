@@ -282,6 +282,8 @@ option(MNN_COREML "Enable CoreML" OFF)
 option(MNN_NNAPI "Enable NNAPI" OFF)
 option(MNN_QNN "Enable QNN" OFF)
 option(MNN_QNN_ONLINE_FINALIZE "Enable QNN Online Finalize" ON)
+option(MNN_HEXAGON "Enable Hexagon DSP backend" OFF)
+option(MNN_HEXAGON_ASAN "Enable Hexagon backend internal memory consistency checks" OFF)
 
 option(MNN_GPU_TIME_PROFILE "Enable time profiling for the OpenCL backend and Vulkan backend." OFF)
 option(MNN_GPU_PROFILE_SILENT "When GPU time profiling is enabled, only accumulate total time without printing per-kernel details." OFF)
@@ -678,6 +680,13 @@ IF(MNN_QNN)
     add_definitions(-DMNN_QNN_ENABLED=1)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/qnn/)
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_QNN>)
+ENDIF()
+
+IF(MNN_HEXAGON)
+    target_compile_options(MNNCore PRIVATE -DMNN_HEXAGON_ENABLED=1)
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/hexagon)
+    list(APPEND MNN_TARGETS MNN_Hexagon)
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_Hexagon>)
 ENDIF()
 
 # NEUROPILOT

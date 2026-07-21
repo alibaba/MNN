@@ -47,8 +47,8 @@ public:
             RuntimeInfo&& runtime);
     ~Session();
 
-    Session* clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
-    static void createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime);
+    Session* clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, void* meta = nullptr);
+    static void createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime, void* meta = nullptr);
 
 public:
     /**
