@@ -19,6 +19,9 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     auto backend = static_cast<MetalBackend *>(this->backend());
 
     auto encoder           = backend->encoder_for_net();
+#if MNN_METAL_OP_PROFILE
+    backend->profileMarkOp(this);
+#endif
     this->onEncode(inputs, outputs, encoder);
     if(backend->isCmdBufferCommit()) {
         backend->flushEncoder();

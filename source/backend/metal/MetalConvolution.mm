@@ -30,6 +30,7 @@ bool MetalConvolution::onClone(Backend* bn, const Op* op, Execution** dst) {
         return true;
     }
     *dst = new MetalConvolution(bn, op, mWeight, mBias);
+    MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
     return true;
 }
 ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
