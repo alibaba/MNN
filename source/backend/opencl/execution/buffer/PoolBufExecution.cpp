@@ -59,8 +59,9 @@ ErrorCode PoolBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     std::set<std::string> buildOptions;
     std::string kernelName = "pooling";
-    int local_size;
-    
+    auto padType = mPoolParams->padType();
+    int local_size = 1;
+
     if (mPoolParams->isGlobal()) {
         std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
         mKernels                    = {inputShape.at(1), inputShape.at(2)};
@@ -72,23 +73,27 @@ ErrorCode PoolBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
     }
 
-    if (mPadType == PoolPadType_SAME) {
+    if (padType == PoolPadType_SAME) {
         int padNeededHeight = std::max(0, (output->height() - 1) * mStrides[0] + mKernels[0] - input->height());
         int padNeededWidth  = std::max(0, (output->width() - 1) * mStrides[1] + mKernels[1] - input->width());
 
         mPaddings[0] = padNeededHeight;
         mPaddings[1] = padNeededWidth;
-    }else if (mPoolParams->padType() == PoolPadType_VALID) {
+    } else if (padType == PoolPadType_VALID) {
         mPaddings[0] = mPaddings[1] = 0;
     }
-    
+
     auto countType         = mPoolParams->countType();
-    if (mPoolParams->pads() != nullptr && mPadType == PoolPadType_CAFFE) {
-        mPadType = PoolPadType_VALID;
+    if (!mPoolParams->isGlobal() && mPoolParams->pads() != nullptr && padType == PoolPadType_CAFFE) {
+        if (mPoolParams->pads()->size() == 4) {
+            mPaddings[0] = mPoolParams->pads()->data()[0] * 2;
+            mPaddings[1] = mPoolParams->pads()->data()[1] * 2;
+        }
+        padType = PoolPadType_VALID;
     }
-    
+
     if (countType == MNN::AvgPoolCountType_DEFAULT) {
-        if (mPadType == MNN::PoolPadType_CAFFE) {
+        if (padType == MNN::PoolPadType_CAFFE) {
             countType = MNN::AvgPoolCountType_INCLUDE_PADDING;
         } else {
             countType = MNN::AvgPoolCountType_EXCLUDE_PADDING;
@@ -187,8 +192,9 @@ ErrorCode PoolBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
     auto output = outputs[0];
     bool returnRedice = outputs.size() == 2;
     auto redice = returnRedice ? outputs[1] : outputs[0];
-    
+
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    auto padType = mPoolParams->padType();
 
     if (mPoolParams->isGlobal()) {
         std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
@@ -197,23 +203,27 @@ ErrorCode PoolBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
         mPaddings                   = {0, 0};
     }
 
-    if (mPadType == PoolPadType_SAME) {
+    if (padType == PoolPadType_SAME) {
         int padNeededHeight = std::max(0, (output->height() - 1) * mStrides[0] + mKernels[0] - input->height());
         int padNeededWidth  = std::max(0, (output->width() - 1) * mStrides[1] + mKernels[1] - input->width());
 
         mPaddings[0] = padNeededHeight;
         mPaddings[1] = padNeededWidth;
-    } else if (mPoolParams->padType() == PoolPadType_VALID) {
+    } else if (padType == PoolPadType_VALID) {
         mPaddings[0] = mPaddings[1] = 0;
     }
 
     auto countType = mPoolParams->countType();
-    if (mPoolParams->pads() != nullptr && mPadType == PoolPadType_CAFFE) {
-        mPadType = PoolPadType_VALID;
+    if (!mPoolParams->isGlobal() && mPoolParams->pads() != nullptr && padType == PoolPadType_CAFFE) {
+        if (mPoolParams->pads()->size() == 4) {
+            mPaddings[0] = mPoolParams->pads()->data()[0] * 2;
+            mPaddings[1] = mPoolParams->pads()->data()[1] * 2;
+        }
+        padType = PoolPadType_VALID;
     }
 
     if (countType == MNN::AvgPoolCountType_DEFAULT) {
-        if (mPadType == MNN::PoolPadType_CAFFE) {
+        if (padType == MNN::PoolPadType_CAFFE) {
             countType = MNN::AvgPoolCountType_INCLUDE_PADDING;
         } else {
             countType = MNN::AvgPoolCountType_EXCLUDE_PADDING;

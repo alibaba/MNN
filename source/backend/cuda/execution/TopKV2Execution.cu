@@ -295,9 +295,9 @@ ErrorCode TopKV2Execution::onResize(const std::vector<Tensor *> &inputs, const s
     mParams.mLengthRow = lengthRow;
     mParams.mNumRow = numRow;
 
-    auto boolDescendFlag = mOp->main_as_TopKV2();
-    if (boolDescendFlag != nullptr) {
-        mParams.mDescendFlag = boolDescendFlag ? 1 : -1;
+    auto topkParam = mOp->main_as_TopKV2();
+    if (topkParam != nullptr) {
+        mParams.mDescendFlag = topkParam->largest() ? 1 : -1;
     }
 
     mParams.mNumElePerRow = mParams.mLengthRow;
