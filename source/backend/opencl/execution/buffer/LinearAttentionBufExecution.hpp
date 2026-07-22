@@ -22,6 +22,7 @@ struct OpenCLStateCache {
     std::shared_ptr<Tensor> mConvState;          // Conv1D padding state: [B, D, kernel_size - 1]
     std::shared_ptr<Tensor> mRecurrentState;     // Gated Delta Rule recurrent state S: [B, H, d_k, d_v]
     std::shared_ptr<Tensor> mRecurrentStateTune; // Gated Delta Rule recurrent state S: [B, H, d_k, d_v]
+    int mPrefixLayerIndex = -1;                  // layer_index captured once per prefix-cache session
 };
 
 class LinearAttentionBufExecution : public CommonExecution {

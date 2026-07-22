@@ -179,7 +179,13 @@ void CLRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vec
     }
 }
 void CLRuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
-    mInfo.gpuMode = numberThread;
+    // numberThread carries the GPU mode bits (memory type + tuning level).
+    // A RuntimeManager created inside an existing executor scope shares this runtime
+    // (reset=false); overwriting gpuMode here would silently switch the global
+    // executor's memory mode (e.g. BUFFER -> AUTO/IMAGE) and tuning level.
+    if (full) {
+        mInfo.gpuMode = numberThread;
+    }
 }
 
 bool CLRuntime::onSetCache(const void* buffer, size_t size) {

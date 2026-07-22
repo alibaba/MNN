@@ -64,7 +64,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
     linearAttentionDims(qkv, batch, convDim, seqLen);
 
     // ─── Chunked prefill: fully independent branch ───
-    mUseChunkedPrefill = mAttentionType != "short_conv" && seqLen > 1;
+    mUseChunkedPrefill = mAttentionType != "short_conv" && seqLen > 1 && mHeadKDim == mHeadVDim;
     if (mUseChunkedPrefill) {
         return onResizeChunkedPrefill(inputs, outputs);
     }
@@ -168,7 +168,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
     std::set<std::string> buildOptions;
     int local_size = 16;
     buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-    buildOptions.emplace("-DK_SIZE=" + std::to_string(dv));
+    buildOptions.emplace("-DK_SIZE=" + std::to_string(dk));
     addLinearAttentionLayoutOptions(inputs, outputs, buildOptions);
 
     if (mAttentionType == "short_conv") {
@@ -329,8 +329,8 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
         mKernell2Norm =
             runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
 
-        mGWSl2Norm = {128, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
-        mLWSl2Norm = {128, 1, 1};
+        mGWSl2Norm = {(uint32_t)dk, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
+        mLWSl2Norm = {(uint32_t)dk, 1, 1};
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernell2Norm->get().setArg(idx++, openCLBuffer(mConvOut.get())); // conv_out
@@ -523,7 +523,7 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(const std::vector<
 
     int local_size = 16;
     buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-    buildOptions.emplace("-DK_SIZE=" + std::to_string(dv));
+    buildOptions.emplace("-DK_SIZE=" + std::to_string(dk));
     addLinearAttentionLayoutOptions(inputs, outputs, buildOptions);
     // Conv1D + SiLU
     mKernelConvSiluPrefill = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_silu", buildOptions,
@@ -586,8 +586,8 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(const std::vector<
         l2BuildOptions.emplace("-DUSE_VEC");
         mKernell2NormPrefill =
             runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
-        mGWSl2NormPrefill = {128, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
-        mLWSl2NormPrefill = {128, 1, 1};
+        mGWSl2NormPrefill = {(uint32_t)dk, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
+        mLWSl2NormPrefill = {(uint32_t)dk, 1, 1};
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernell2NormPrefill->get().setArg(idx++, openCLBuffer(mConvOutPrefill.get()));
@@ -981,6 +981,17 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor*>& inp
                 }
             }
         }
+    }
+
+    // Capture layer_index once per prefix-cache session (chunk 1, marked by
+    // previous == remove); chunks 2..N reuse it. Mirrors CPULinearAttention /
+    // CPUKVCacheManager once-per-session advancement so hybrid models keep the
+    // shared counter consistent and don't clobber other layers' prefix files.
+    if (mMeta != nullptr && mMeta->file_name.size() > 0 &&
+        (mMeta->file_flag == KVMeta::PendingWrite || mMeta->file_flag == KVMeta::PendingRead) &&
+        mMeta->previous == mMeta->remove) {
+        mStateCache->mPrefixLayerIndex = mMeta->layer_index;
+        mMeta->layer_index = (mMeta->layer_index + 1) % mMeta->layer_nums;
     }
 
     if (mUseChunkedPrefill) {

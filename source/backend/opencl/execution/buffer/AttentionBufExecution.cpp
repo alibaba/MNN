@@ -831,9 +831,10 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor*>& i
             ret |= mKernel_qk_vec[seq_idx]->get().setArg(idx++, openCLBuffer(mTempQ.get()));
             ret |= mKernel_qk_vec[seq_idx]->get().setArg(idx++, openCLBuffer(mTempK.get()));
             if (mHasMask) {
+                // Only when biasType >= 1 does the kernel have the egm (bias) parameter;
+                // maskless builds have no BIAS_TYPE, and setting an extra arg fails with
+                // CL_INVALID_ARG_INDEX, silently skipping the QK matmul.
                 ret |= mKernel_qk_vec[seq_idx]->get().setArg(idx++, openCLBuffer(mTempMask.get()));
-            } else {
-                ret |= mKernel_qk_vec[seq_idx]->get().setArg(idx++, openCLBuffer(mTempQK.get()));
             }
             ret |= mKernel_qk_vec[seq_idx]->get().setArg(idx++, openCLBuffer(mTempQK.get()));
             ret |= mKernel_qk_vec[seq_idx]->get().setArg(idx++, batch_offset);

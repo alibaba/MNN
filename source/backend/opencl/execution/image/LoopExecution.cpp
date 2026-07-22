@@ -221,7 +221,12 @@ void LoopExecution::ImageToBufferAllTensor(){
         const int Width = Shape.at(2);
         const int Height = Shape.at(1);
         const int Batch = Shape.at(0);
-        mTmpBuffers[input] = bufferPool->alloc(input->elementSize() * bufferUnitSize);
+        int unitSize = bufferUnitSize;
+        if (input->getType().code != halide_type_float) {
+            // tile kernel reads/writes the tensor's raw type (e.g. int32), not FLOAT
+            unitSize = input->getType().bytes();
+        }
+        mTmpBuffers[input] = bufferPool->alloc(input->elementSize() * unitSize);
         
         Unit unit;
         _TileTensor(input, mTmpBuffers[input], unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height,Channel, Batch, mOpenCLBackend, {});
