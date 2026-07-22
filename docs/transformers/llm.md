@@ -699,6 +699,8 @@ options:
   -rep, --n-repeat <n>                      (default: 5)
   -kv, --kv-cache <true|false>              (default: false) | Note: if true: Every time the LLM model generates a new word, it utilizes the cached KV-cache
   -fp, --file-print <stdout|filename>       (default: stdout) ｜ If not 'stdout', all test results will be written to the specified file.
+  -qa, --quant-attention <n>               (default: 0) | Note: KV cache quantization mode (0=no-quant, 1=QK-int8, 2=QKV-int8, 3=QK-TQ3, 4=QKV-TQ3, 5=QK-TQ4, 6=QKV-TQ4)
+  -fa, --flash-attention <0|1>              (default: 1) | Note: 1=enable flash attention, 0=disable
   --profile                                 Enable operator-level profiling to print detailed timing statistics
 ```
 
@@ -713,11 +715,25 @@ options:
 - '-rep | --n-repeat': 每一个测试实例重复的次数，最终结果取平均数，并计算性能的标准差；
 - '-kv | --kv-cache': 当设置为true时，测试时在LLM模型decode阶段会考虑历史KV信息，即测试方法和运行'llm_demo'程序一致；
 - '-fp | --file-print': 默认输出到屏幕上；如果指定了输出文件，最终的测试结果会以追加的方式以markdown格式写入到文件中，不会删除文件中已有的内容；文件不存在会自动创建。
+- '-qa | --quant-attention': 控制 KV Cache 量化模式（`attention_mode % 8` 部分），默认 `0`（不量化）。可选值：`0`=不量化、`1`=Key int8、`2`=KV int8、`3`=Key TQ3、`4`=KV TQ3、`5`=Key TQ4、`6`=KV TQ4。完整编码规则见上方 [attention_mode](#推理配置) 说明。
+- '-fa | --flash-attention': 控制是否启用 Flash Attention，默认 `1`（开启）。设为 `0` 时关闭 Flash Attention。`-qa` 和 `-fa` 独立控制量化模式和 Flash Attention，最终 `attention_mode = flash * 8 + quant`。例如 `-qa 0 -fa 1` 等效于 `attention_mode=8`，`-qa 2 -fa 0` 等效于 `attention_mode=2`。
 
 ##### 命令行运行llm_bench
 在build目录下运行
 ```bash
 ./llm_bench -m ./Qwen2.5-1.5B-Instruct/config.json,./Qwen2.5-0.5B-Instruct/config.json -a cpu,opencl,metal -c 1,2 -t 8,12 -p 16,32 -n 10,20 -pg 8,16 -mmp 0 -rep 4 -kv true -fp ./test_result
+```
+
+关闭 Flash Attention 或开启 KV 量化进行 A/B 对比测试：
+```bash
+# Flash Attention 开启（默认）
+./llm_bench -m ./model/config.json -a metal -p 512 -n 128 -rep 5
+
+# Flash Attention 关闭
+./llm_bench -m ./model/config.json -a metal -fa 0 -p 512 -n 128 -rep 5
+
+# 开启 KV-INT8 量化（Key+Value）
+./llm_bench -m ./model/config.json -a metal -qa 2 -p 512 -n 128 -rep 5
 ```
 
 #### 多Prompt场景下KVCache选择性复用
