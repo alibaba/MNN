@@ -13,6 +13,11 @@
 [![Sana](https://img.shields.io/badge/Apps-Sana_Image_Edit-blue)](./apps/sana/README.md)
 
 ## News 🔥
+- [2026/07/22] MNN 3.6.1 is released with a new 🚀 Hexagon backend, enabling accelerated model inference on Qualcomm Hexagon DSPs. [Learn more](./source/backend/hexagon/README.md).
+
+<details>
+<summary> History News </summary>
+
 - [2026/03/05] Support Qwen3.5 Series.
 <p align="center">
   <img width="15%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/assets/qwen35_1.jpg" style="margin: 0 10px;">
@@ -24,9 +29,6 @@
 <p align="center">
   <img width="80%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/assets/sana_show_case.jpg" style="margin: 0 10px;">
 </p>
-
-<details>
-<summary> History News </summary>
 
 - [2025/10/16] Support Qwen3-VL Series.
 - [2025/06/11] New App MNN TaoAvatar released, you can talk with 3DAvatar offline with LLM, ASR, TTS, A2BS and NNR models all run local on your device!! [MNN TaoAvatar](./apps/Android/Mnn3dAvatar/README.md)
