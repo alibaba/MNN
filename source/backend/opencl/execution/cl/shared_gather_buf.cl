@@ -162,7 +162,9 @@ __kernel void shared_gather_quant_image(
     COMPUTE_FLOAT4 out4 = (COMPUTE_FLOAT4)(0, 0, 0, 0);
 
 #ifdef USE_LOW_BIT_WEIGHT_INT4
-    const uchar16 weightBytes = as_uchar16(read_imagei(weight, SAMPLER, (int2)(k4, ocBlock)));
+    const uchar16 weightVec = as_uchar16(read_imagei(weight, SAMPLER, (int2)(k4, ocBlock)));
+    uchar weightArr16[16];
+    vstore16(weightVec, 0, weightArr16);
 #endif
 
     for (int i = 0; i < 4; ++i) {
@@ -190,11 +192,13 @@ __kernel void shared_gather_quant_image(
         COMPUTE_FLOAT wVal = (COMPUTE_FLOAT)0;
 #ifdef USE_LOW_BIT_WEIGHT_INT8
         const int imageX = (k4 << 1) + (i >> 1);
-        const char16 weightBytes = as_char16(read_imagei(weight, SAMPLER, (int2)(imageX, ocBlock)));
-        char qw = weightBytes[(i & 1) * 8 + oc_in8];
+        const char16 weightVec = as_char16(read_imagei(weight, SAMPLER, (int2)(imageX, ocBlock)));
+        char weightArr[16];
+        vstore16(weightVec, 0, weightArr);
+        char qw = weightArr[(i & 1) * 8 + oc_in8];
         wVal = (COMPUTE_FLOAT)qw;
 #elif defined(USE_LOW_BIT_WEIGHT_INT4)
-        uchar packed = weightBytes[i * 4 + (oc_in8 >> 1)];
+        uchar packed = weightArr16[i * 4 + (oc_in8 >> 1)];
         int nibble = (oc_in8 & 1) == 0 ? ((packed >> 4) & 0x0F) : (packed & 0x0F);
 #ifdef ASYMMETRIC
         wVal = (COMPUTE_FLOAT)nibble;
@@ -203,8 +207,10 @@ __kernel void shared_gather_quant_image(
 #endif
 #else
         const int imageX = (k4 << 1) + (i >> 1);
-        const char16 weightBytes = as_char16(read_imagei(weight, SAMPLER, (int2)(imageX, ocBlock)));
-        wVal = (COMPUTE_FLOAT)weightBytes[(i & 1) * 8 + oc_in8];
+        const char16 weightVec2 = as_char16(read_imagei(weight, SAMPLER, (int2)(imageX, ocBlock)));
+        char weightArr2[16];
+        vstore16(weightVec2, 0, weightArr2);
+        wVal = (COMPUTE_FLOAT)weightArr2[(i & 1) * 8 + oc_in8];
 #endif
 
         COMPUTE_FLOAT v = mad(wVal, scale, offset);
