@@ -1,5 +1,5 @@
 //
-//  CUDAMaxPoolExplicitPadsTest.cpp
+//  PoolTest.cpp
 //  MNNTests
 //
 //  Created by MNN on 2026/07/14.
@@ -126,9 +126,9 @@ static std::vector<float> referenceGlobalMaxPool(const std::vector<float>& input
     return output;
 }
 
-class CUDAMaxPoolExplicitPadsTest : public MNNTestCase {
+class MaxPoolExplicitPadsTest : public MNNTestCase {
 public:
-    virtual ~CUDAMaxPoolExplicitPadsTest() = default;
+    virtual ~MaxPoolExplicitPadsTest() = default;
     bool runCase(int precision, int padX, int padY, const std::vector<int>& pads) {
         const int n = 1;
         const int c = 16;
@@ -155,7 +155,7 @@ public:
         const float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1.0f : 20.0f;
         if (!checkVectorByRelativeError<float>(output->readMap<float>(), expected.data(), expected.size(),
                                                0.001f * errorScale)) {
-            MNN_ERROR("CUDAMaxPoolExplicitPads test failed\n");
+            MNN_ERROR("MaxPoolExplicitPads test failed\n");
             return false;
         }
         return true;
@@ -185,7 +185,7 @@ public:
         const float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1.0f : 20.0f;
         if (!checkVectorByRelativeError<float>(output->readMap<float>(), expected.data(), expected.size(),
                                                0.001f * errorScale)) {
-            MNN_ERROR("CUDAMaxPoolExplicitPads global test failed\n");
+            MNN_ERROR("MaxPoolExplicitPads global test failed\n");
             return false;
         }
         return true;
@@ -215,7 +215,7 @@ public:
 
         auto expected = referenceMaxPool5x5Int8(inputData, n, c, h, w, pads[0], pads[1]);
         if (!checkVector<int8_t>(output->readMap<int8_t>(), expected.data(), expected.size(), 0)) {
-            MNN_ERROR("CUDAMaxPoolExplicitPads int8 test failed\n");
+            MNN_ERROR("MaxPoolExplicitPads int8 test failed\n");
             return false;
         }
         return true;
@@ -238,4 +238,4 @@ public:
     }
 };
 
-MNNTestSuiteRegister(CUDAMaxPoolExplicitPadsTest, "op/CUDAMaxPoolExplicitPads");
+MNNTestSuiteRegister(MaxPoolExplicitPadsTest, "op/MaxPoolExplicitPads");
