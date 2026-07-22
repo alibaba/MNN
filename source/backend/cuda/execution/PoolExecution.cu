@@ -204,7 +204,11 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
     }
     mPoolType      = layer->type();
     auto padType           = layer->padType();
-    if (layer->pads() != nullptr && padType == PoolPadType_CAFFE) {
+    if (!layer->isGlobal() && layer->pads() != nullptr && padType == PoolPadType_CAFFE) {
+        if (layer->pads()->size() == 4) {
+            padHeight = layer->pads()->data()[0];
+            padWidth  = layer->pads()->data()[1];
+        }
         padType = PoolPadType_VALID;
     }
     mPadType = padType;
@@ -224,9 +228,9 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     auto ow = outputs[0]->width();
     auto oh = outputs[0]->height();
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
-    auto& prop = runtime->prop();
-    int threads_num = prop.maxThreadsPerBlock;
-    int block_num = prop.multiProcessorCount;
+    int total = ib * oh * ow * ic_p;
+    int block_num = runtime->blocks_num(total);
+    int threads_num = runtime->threads_num();
     // MNN_PRINT("%d %d, %d %d %d %d %d %d, %d %d\n", ih, iw, mKernels[0], mKernels[1], mPaddings[0], mPaddings[1], mStrides[0], mStrides[1], oh, ow);
 
     #ifdef ENABLE_CUDA_BF16

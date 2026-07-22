@@ -9,16 +9,18 @@
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/NeuralNetWorkOp.hpp>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
+#include <cstring>
+#include <memory>
 #include <random>
 #include <vector>
 
 using namespace MNN::Express;
 
-
-template<typename valueT, typename indexT>
-void MinHeapify(valueT * arr, indexT * index, int size, int i) {
+template <typename valueT, typename indexT>
+void MinHeapify(valueT* arr, indexT* index, int size, int i) {
     int l = 2 * i + 1;
     int r = 2 * i + 2;
     int smallest = i;
@@ -37,19 +39,17 @@ void MinHeapify(valueT * arr, indexT * index, int size, int i) {
     return;
 }
 
-
-template<typename valueT, typename indexT>
-void BuildMinHeap(valueT * arr, indexT * index, int size) {
+template <typename valueT, typename indexT>
+void BuildMinHeap(valueT* arr, indexT* index, int size) {
     for (int i = size / 2 - 1; i >= 0; i--) {
         MinHeapify<valueT, indexT>(arr, index, size, i);
     }
 }
 
-
-template<typename valueT, typename indexT>
-void Sort(valueT * values, indexT * indices, const int num) {
-    valueT * _values = static_cast<valueT *>(values);
-    indexT * _indices = static_cast<indexT *>(indices);
+template <typename valueT, typename indexT>
+void Sort(valueT* values, indexT* indices, const int num) {
+    valueT* _values = static_cast<valueT*>(values);
+    indexT* _indices = static_cast<indexT*>(indices);
     for (int i = 0; i < num - 1; i++) {
         for (int j = 0; j < num - i - 1; j++) {
             if (_values[j] < _values[j + 1]) {
@@ -62,9 +62,8 @@ void Sort(valueT * values, indexT * indices, const int num) {
     return;
 }
 
-
-template<typename valueT, typename indexT>
-void CpuKernelOneRow(const valueT * input, indexT * outputIndices, valueT * outputValues, const int K, const int length) {
+template <typename valueT, typename indexT>
+void CpuKernelOneRow(const valueT* input, indexT* outputIndices, valueT* outputValues, const int K, const int length) {
     for (int i = 0; i < K; i++) {
         outputIndices[i] = i;
         outputValues[i] = input[i];
@@ -82,17 +81,17 @@ void CpuKernelOneRow(const valueT * input, indexT * outputIndices, valueT * outp
     return;
 }
 
-
-template<typename indexT, typename valueT>
-void CpuKernelAllRows(valueT * input, indexT * outputIndices, valueT * outputValues, const int K, const int lengthRow, const int numRow, int descendFlag) {
+template <typename indexT, typename valueT>
+void CpuKernelAllRows(valueT* input, indexT* outputIndices, valueT* outputValues, const int K, const int lengthRow,
+                      const int numRow, int descendFlag) {
     for (int i = 0; i < lengthRow * numRow; i++) {
         input[i] = input[i] * descendFlag;
     }
 
     for (int i = 0; i < numRow; i++) {
-        const valueT * inputThisRow = input + lengthRow * i;
-        indexT * outputIndicesThisRow = outputIndices + K * i;
-        valueT * outputValuesThisRow = outputValues + K * i;
+        const valueT* inputThisRow = input + lengthRow * i;
+        indexT* outputIndicesThisRow = outputIndices + K * i;
+        valueT* outputValuesThisRow = outputValues + K * i;
         CpuKernelOneRow(inputThisRow, outputIndicesThisRow, outputValuesThisRow, K, lengthRow);
     }
 
@@ -100,15 +99,14 @@ void CpuKernelAllRows(valueT * input, indexT * outputIndices, valueT * outputVal
         input[i] = input[i] * descendFlag;
     }
 
-    for (int i = 0 ; i < numRow * K; i++) {
+    for (int i = 0; i < numRow * K; i++) {
         outputValues[i] = outputValues[i] * descendFlag;
     }
 
     return;
 }
 
-
-void RandomInitFloat(float * array, const int & numEle) {
+void RandomInitFloat(float* array, const int& numEle) {
     std::mt19937 rng(4);
     std::uniform_real_distribution<float> dist(0.0, 1.0);
 
@@ -118,20 +116,36 @@ void RandomInitFloat(float * array, const int & numEle) {
     return;
 }
 
-
-void SetK(int * valuePtr, const int K) {
+void SetK(int* valuePtr, const int K) {
     *valuePtr = K;
 }
 
+static std::vector<VARP> _TopKV2WithLargest(VARP input, VARP k, bool largest) {
+    std::unique_ptr<MNN::TopKV2T> topk(new MNN::TopKV2T);
+    topk->largest = largest;
 
-bool checkIndicesHalf(const float * input, const float * expectedOutput0, const int * gotOutput1, const int K, const int numRow, const int lengthRow) {
+    std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+    op->type = MNN::OpType_TopKV2;
+    op->main.type = MNN::OpParameter_TopKV2;
+    op->main.value = topk.release();
+
+    auto expr = Expr::create(op.get(), {input, k}, 2);
+    auto values = Variable::create(expr, 0);
+    auto indices = Variable::create(expr, 1);
+    return {values, indices};
+}
+
+bool checkIndicesHalf(const float* input, const float* expectedOutput0, const int* gotOutput1, const int K,
+                      const int numRow, const int lengthRow) {
     for (int i = 0; i < numRow; i++) {
         for (int j = 0; j < K; j++) {
             bool condition =
                 (fabs((expectedOutput0[i * K + j]) - input[gotOutput1[i * K + j] + i * lengthRow]) > 0.02f);
             if (condition) {
-                    MNN_PRINT("Conflict: Number %d. Value Correct is %f. Value Computed is %f.\n", i * K + j, convertFP32ToFP16(expectedOutput0[i * K + j]), convertFP32ToFP16(input[gotOutput1[i * K + j] + i * lengthRow]));
-                    return false;
+                MNN_PRINT("Conflict: Number %d. Value Correct is %f. Value Computed is %f.\n", i * K + j,
+                          convertFP32ToFP16(expectedOutput0[i * K + j]),
+                          convertFP32ToFP16(input[gotOutput1[i * K + j] + i * lengthRow]));
+                return false;
             }
         }
     }
@@ -139,21 +153,21 @@ bool checkIndicesHalf(const float * input, const float * expectedOutput0, const 
     return true;
 }
 
-
-bool checkIndicesFloat(const float * input, const float * expectedOutput0, const int * gotOutput1, const int K, const int numRow, const int lengthRow) {
+bool checkIndicesFloat(const float* input, const float* expectedOutput0, const int* gotOutput1, const int K,
+                       const int numRow, const int lengthRow) {
     for (int i = 0; i < numRow; i++) {
         for (int j = 0; j < K; j++) {
             bool condition = (expectedOutput0[i * K + j] != input[gotOutput1[i * K + j] + i * lengthRow]);
             if (condition) {
-                    MNN_PRINT("Conflict: Number %d. Value Correct is %f. Value Computed is %f.\n", i * K + j, expectedOutput0[i * K + j], input[gotOutput1[i * K + j] + i * lengthRow]);
-                    return false;
+                MNN_PRINT("Conflict: Number %d. Value Correct is %f. Value Computed is %f.\n", i * K + j,
+                          expectedOutput0[i * K + j], input[gotOutput1[i * K + j] + i * lengthRow]);
+                return false;
             }
         }
     }
 
     return true;
 }
-
 
 void printTimeCost(uint64_t timeCost) {
     uint64_t seconds = timeCost / 1000000;
@@ -163,12 +177,75 @@ void printTimeCost(uint64_t timeCost) {
     return;
 }
 
-
 class TopKV2Test : public MNNTestCase {
 public:
     virtual ~TopKV2Test() = default;
 
+    bool runLargestFlagCase() {
+        const int rowCount = 1;
+        const int rowLength = 8;
+        const int k = 4;
+        const std::vector<float> inputData = {3.0f, -1.0f, 2.0f, -4.0f, 0.5f, -2.0f, 1.0f, 4.0f};
+        const std::vector<float> expectedValues = {4.0f, 3.0f, 2.0f, 1.0f};
+        const std::vector<int> expectedIndices = {7, 0, 2, 6};
+
+        auto input = _Input({rowCount, rowLength}, NCHW, halide_type_of<float>());
+        auto kVar = _Input({1}, NCHW, halide_type_of<int>());
+        ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
+        input->unMap();
+        kVar->writeMap<int>()[0] = k;
+        kVar->unMap();
+
+        auto outputs = _TopKV2(input, kVar);
+        auto values = outputs[0]->readMap<float>();
+        auto indices = outputs[1]->readMap<int>();
+        if (!checkVectorByRelativeError<float>(values, expectedValues.data(), rowCount * k, 0.001f)) {
+            MNN_ERROR("TopKV2 largest value test failed\n");
+            return false;
+        }
+        if (!checkVector<int>(indices, expectedIndices.data(), rowCount * k, 0)) {
+            MNN_ERROR("TopKV2 largest index test failed\n");
+            return false;
+        }
+        return true;
+    }
+
+    bool runSmallestFlagCase() {
+        const int rowCount = 1;
+        const int rowLength = 8;
+        const int k = 4;
+        const std::vector<float> inputData = {3.0f, -1.0f, 2.0f, -4.0f, 0.5f, -2.0f, 1.0f, 4.0f};
+        const std::vector<float> expectedValues = {-4.0f, -2.0f, -1.0f, 0.5f};
+        const std::vector<int> expectedIndices = {3, 5, 1, 4};
+
+        auto input = _Input({rowCount, rowLength}, NCHW, halide_type_of<float>());
+        auto kVar = _Input({1}, NCHW, halide_type_of<int>());
+        ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
+        input->unMap();
+        kVar->writeMap<int>()[0] = k;
+        kVar->unMap();
+
+        auto outputs = _TopKV2WithLargest(input, kVar, false);
+        auto values = outputs[0]->readMap<float>();
+        auto indices = outputs[1]->readMap<int>();
+        if (!checkVectorByRelativeError<float>(values, expectedValues.data(), rowCount * k, 0.001f)) {
+            MNN_ERROR("TopKV2 smallest value test failed\n");
+            return false;
+        }
+        if (!checkVector<int>(indices, expectedIndices.data(), rowCount * k, 0)) {
+            MNN_ERROR("TopKV2 smallest index test failed\n");
+            return false;
+        }
+        return true;
+    }
+
     virtual bool run(int precision) {
+        if (!runLargestFlagCase()) {
+            return false;
+        }
+        if (!runSmallestFlagCase()) {
+            return false;
+        }
         // set params
         const int K = 300;
         const int numRow = 180;
@@ -186,14 +263,15 @@ public:
         auto res = _TopKV2(input0, input1);
         VARP output0 = res[0];
         VARP output1 = res[1];
-        auto gotOutput0                        = output0->readMap<float>();
-        auto gotOutput1                        = output1->readMap<int>();
+        auto gotOutput0 = output0->readMap<float>();
+        auto gotOutput1 = output1->readMap<int>();
         auto timeCost = _t.durationInUs();
 
         // calculate expectedOutput
         std::vector<float> expectedOutput0(numRow * K);
         std::vector<int> expectedOutput1(numRow * K);
-        CpuKernelAllRows<int, float>(input0->writeMap<float>(), expectedOutput1.data(), expectedOutput0.data(), K, lengthRow, numRow, 1);
+        CpuKernelAllRows<int, float>(input0->writeMap<float>(), expectedOutput1.data(), expectedOutput0.data(), K,
+                                     lengthRow, numRow, 1);
 
         printTimeCost(timeCost);
 
@@ -218,8 +296,6 @@ public:
 
         return true;
     }
-
 };
-
 
 MNNTestSuiteRegister(TopKV2Test, "op/TopKV2");
