@@ -413,7 +413,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"range", "97feaf25d837a325382c162ad77ae0ca"},
     {"scale_buf", "9176b8e86fd4d326e7fa14640ce13b48"},
     {"matmul_buf", "b66faece7f0591d49c289e5227d9f680"},
-    {"shared_gather_buf", "74b2cbe87698151c5c3cf718fa279cd4"},
+    {"shared_gather_buf", "7bfae0b1bee7d3c1c92990bfbebad642"},
     {"pooling", "900d1388836badea36a7e06ad7763b0d"},
     {"conv_2d_buf", "2faa0378ab0d702419a92ecc2073851a"},
     {"gemm_int", "4e64d43a8ca423a9d0dc68dcfcd64c06"},
