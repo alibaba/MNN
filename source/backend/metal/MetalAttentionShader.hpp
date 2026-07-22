@@ -1497,18 +1497,39 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
     // [M32, N4, N2, n4]
     auto sindex_base = (mcl * 4 + ncl) * 2 + 0;
 
-    // [M32, N4, N8]
-    // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    auto xy_out = output + ((long)((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 32 + mcl) * head_num + hn)) * head_dim/4 + (hm * 4 + ncl) * 2 + 0;
-    if(sl * 32 + mcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 32 + mcl < q_seq_len) {
-        if((hm * 4 + ncl) * 2 + 0 < head_dim/4) {
-            xy_out[0] =  ftype4(((threadgroup float4*)sdata)[sindex_base + 0]);
+    // Output layout write. Two paths depending on the exported model:
+    //   * default: [mBatch, mSeqLen, mNumHead, mHeadDim] as ftype4* stride 1
+    //     (each ftype4 packs 4 consecutive d-lane values).
+    //   * ATTENTION_C4: [mNumHead * (mHeadDim/4), mBatch * mSeqLen, 4]
+    //     — this matches Qwen3 c4-head exports; without this branch the
+    //     tensor-API kernel wrote to the default layout while the rest of
+    //     the graph assumed C4, producing garbage tokens.
+    int d_group0 = (hm * 4 + ncl) * 2 + 0;
+    int d_group1 = (hm * 4 + ncl) * 2 + 1;
+    int q_abs = seq_idx * q_seq_piece_len + sl * 32 + mcl;
+    if(sl * 32 + mcl < q_seq_piece_len && q_abs < q_seq_len) {
+#ifdef ATTENTION_C4
+        long c4_middle = (long)(b * q_seq_len + q_abs);
+        long c4_stride = (long)param.batch * (long)q_seq_len;
+        if(d_group0 < head_dim/4) {
+            output[(long)(hn * (head_dim/4) + d_group0) * c4_stride + c4_middle] =
+                ftype4(((threadgroup float4*)sdata)[sindex_base + 0]);
         }
-        if((hm * 4 + ncl) * 2 + 1 < head_dim/4) {
-            xy_out[1] =  ftype4(((threadgroup float4*)sdata)[sindex_base + 1]);
+        if(d_group1 < head_dim/4) {
+            output[(long)(hn * (head_dim/4) + d_group1) * c4_stride + c4_middle] =
+                ftype4(((threadgroup float4*)sdata)[sindex_base + 1]);
         }
+#else
+        auto xy_out = output + ((long)((b * q_seq_len + q_abs) * head_num + hn)) * head_dim/4
+                    + d_group0;
+        if(d_group0 < head_dim/4) {
+            xy_out[0] = ftype4(((threadgroup float4*)sdata)[sindex_base + 0]);
+        }
+        if(d_group1 < head_dim/4) {
+            xy_out[1] = ftype4(((threadgroup float4*)sdata)[sindex_base + 1]);
+        }
+#endif
     }
-
 }
 #endif
 
