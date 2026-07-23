@@ -1219,23 +1219,41 @@ static void Sme2MNNPackC4ForMatMul_A_FP16(float* destOrigin, float const** sourc
         const int eHandled = eMain * eTile;
         const int lHandled = lMain * lTile;
 
-        // Process remaining rows
-        for (int y = eHandled; y < e; ++y) {
-            int yR = y % eDest;
-            for (int x = 0; x < l; ++x) {
-                int xR = x % pack;
-                int xC = x / pack;
-                destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] = sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
+        if (lMain == 0 && l <= pack) {
+            // Fast path: all channels fit in one NC8HW8 slice (e.g., ic=3 first conv).
+            // Avoids per-element division/modulo by using simplified addressing.
+            auto dest16 = (FLOAT16*)destBase;
+            for (int y = 0; y < e; ++y) {
+                auto src = sourceBase + y * srcRowStride;
+                int x = 0;
+                for (; x + 1 < l; x += 2) {
+                    auto dstAddr = dest16 + (x / lP) * dstColBlockStride + y * lP;
+                    *(uint32_t*)(dstAddr) = *(const uint32_t*)(src + x);
+                }
+                if (x < l) {
+                    auto dstAddr = dest16 + (x / lP) * dstColBlockStride + y * lP + (x % lP);
+                    *dstAddr = src[x];
+                }
             }
-        }
+        } else {
+            // Process remaining rows
+            for (int y = eHandled; y < e; ++y) {
+                int yR = y % eDest;
+                for (int x = 0; x < l; ++x) {
+                    int xR = x % pack;
+                    int xC = x / pack;
+                    destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] = sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
+                }
+            }
 
-        // Process remaining columns for the already handled rows
-        for (int y = 0; y < eHandled; ++y) {
-            int yR = y % eDest;
-            for (int x = lHandled; x < l; ++x) {
-                int xR = x % pack;
-                int xC = x / pack;
-                destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] = sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
+            // Process remaining columns for the already handled rows
+            for (int y = 0; y < eHandled; ++y) {
+                int yR = y % eDest;
+                for (int x = lHandled; x < l; ++x) {
+                    int xR = x % pack;
+                    int xC = x / pack;
+                    destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] = sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
+                }
             }
         }
     }
