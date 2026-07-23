@@ -81,6 +81,19 @@ typedef enum {
     MNN_GPU_RECORD_BATCH  = 1 << 9,   /* 10 kernels record into one recording.(OpenCL) All ops share one commandBuffer.(Vulkan) */
 } MNNGpuMode;
 
+/** BackendConfig::flags accepted by the QNN backend. */
+typedef enum {
+    /**
+     * Expose QNN native tensors as application-readable graph outputs and dump
+     * them after execution. Files are written below MNN_QNN_DUMP_DIR, or
+     * ./qnn_intermediate_outputs when the environment variable is unset.
+     *
+     * This is an accuracy-debugging option. It substantially increases graph
+     * outputs, memory consumption, and execution time.
+     */
+    MNN_QNN_DUMP_INTERMEDIATE_OUTPUTS = 1 << 16,
+} MNNQnnMode;
+
 #ifdef __cplusplus
 namespace MNN {
 struct BackendConfig {
@@ -96,10 +109,10 @@ struct BackendConfig {
 
     PrecisionMode precision = Precision_Normal;
 
-    /** user defined context */
+    /** user defined context or backend-specific flags */
     union {
         void* sharedContext = nullptr;
-        size_t flags; // Valid for CPU Backend
+        size_t flags;
     };
 };
 

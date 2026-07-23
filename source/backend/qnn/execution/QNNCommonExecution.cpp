@@ -108,8 +108,13 @@ std::shared_ptr<QNNTensorWrapper> QNNCommonExecution::createStageTensor(const st
         tScaleOffsetEncoding.offset = mBackend->getNativeTensor(tensor)->v1.quantizeParams.scaleOffsetEncoding.offset;
         quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
     }
-    std::shared_ptr<QNNTensorWrapper> tensorWrapper = QNNTensorWrapper::create(tensorName, QNN_TENSOR_TYPE_NATIVE, dataType, dimensions, quantize);
+    const auto tensorType = mBackend->isTensorDumpEnabled() ? QNN_TENSOR_TYPE_APP_READ : QNN_TENSOR_TYPE_NATIVE;
+    std::shared_ptr<QNNTensorWrapper> tensorWrapper =
+        QNNTensorWrapper::create(tensorName, tensorType, dataType, dimensions, quantize);
     mBackend->addTensor(tensorWrapper->getNativeTensor());
+    if (mBackend->isTensorDumpEnabled()) {
+        mBackend->registerDebugTensor(tensorWrapper);
+    }
     mTempTensorWrappers.push_back(tensorWrapper);
     return tensorWrapper;
 }

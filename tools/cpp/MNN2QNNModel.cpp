@@ -153,7 +153,7 @@ static bool checkSystem() {
 int main(int argc, const char* argv[]) {
     if (argc < 6) {
         MNN_PRINT("This tool generates offline caches for the QNN backend.");
-        MNN_PRINT("Usage: %s <qnnSDKPath> <socId> <hexagonArch> <srcMNNPath> <outputDir> [totalShapeNum] [inputShape1] [inputShape2] ...\n", argv[0]);
+        MNN_PRINT("Usage: %s <qnnSDKPath> <socId> <hexagonArch> <srcMNNPath> <outputDir> [totalShapeNum] [inputShape1] [inputShape2] ... [--dump_intermediate_outputs]\n", argv[0]);
         MNN_PRINT("    <qnnSDKPath>      : Path to the QNN SDK directory.\n");
         MNN_PRINT("    <socId>           : Target SoC ID.\n");
         MNN_PRINT("                        Common SoCs: 8Gen2 -> 43, 8Gen3 -> 57, 8 Elite -> 69. For others, please refer to Qualcomm's documentation.\n");
@@ -164,6 +164,7 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("    [<totalShapeNum>] : Optional. Number of dynamic input shape configurations.\n");
         MNN_PRINT("    [<inputShapeN>]   : Optional. Input shape configuration. Can be a shape string or a path to a .mnn file.\n");
         MNN_PRINT("                     Shape string format for multiple inputs: dim1xdim2_dim3xdim4. Example: 1x3x512x512_1x256\n");
+        MNN_PRINT("    [--dump_intermediate_outputs] : Optional. Build a debug artifact with QNN intermediate outputs.\n");
         MNN_PRINT("Examples:\n");
         MNN_PRINT("  1. Use default shape from the MNN model:\n");
         MNN_PRINT("     %s /path/to/qnn/sdk 57 75 /path/to/model.mnn /path/to/output\n", argv[0]);
@@ -178,6 +179,9 @@ int main(int argc, const char* argv[]) {
         return -1;
     }
 
+    const bool dumpIntermediateOutputs =
+        argc > 6 && std::string(argv[argc - 1]) == "--dump_intermediate_outputs";
+    const int argumentCount = dumpIntermediateOutputs ? argc - 1 : argc;
     std::string qnnSdkPath = argv[1];
     int socId = std::stoi(std::string(argv[2]));
     int hexagonArch = std::stoi(std::string(argv[3]));
@@ -196,6 +200,10 @@ int main(int argc, const char* argv[]) {
     }(srcMNNPath);
     std::string modelSignature = "_" + std::to_string(socId) + "_" + std::to_string(hexagonArch);
     std::string outputDir = argv[5];
+    if (!MNNCreateDir(outputDir.c_str())) {
+        MNN_ERROR("Failed to create output directory: %s\n", outputDir.c_str());
+        return -1;
+    }
     std::string dstMNNPath = MNNFilePathConcat(outputDir, modelBaseName + modelSignature + ".mnn");
 
     std::vector<std::string> inputNames;
@@ -207,7 +215,7 @@ int main(int argc, const char* argv[]) {
     std::vector<std::vector<MNN::Express::VARP>> inputsVarpList;
 
     int totalShapeType = 1;
-    if(argc > 6) {
+    if(argumentCount > 6) {
         totalShapeType = std::stoi(argv[6]);
         std::vector<std::vector<int>> temp;
         if(parseDims(argv[7], temp)) {
@@ -227,7 +235,7 @@ int main(int argc, const char* argv[]) {
             for (int i=0; i<inputs.size(); ++i) {
                 inputNames.emplace_back(inputs[i]->name());
             }
-            if(argc > 7+totalShapeType) {
+            if(argumentCount > 7+totalShapeType) {
                 outputs = MNN::Express::Variable::load(argv[7+totalShapeType]);
                 for (int i=0; i<outputs.size(); ++i) {
                     outputNames.emplace_back(outputs[i]->name());
@@ -265,6 +273,9 @@ int main(int argc, const char* argv[]) {
 
         MNN::ScheduleConfig config;
         config.type = MNN_CONVERT_QNN;
+        MNN::BackendConfig backendConfig;
+        backendConfig.flags = dumpIntermediateOutputs ? MNN_QNN_DUMP_INTERMEDIATE_OUTPUTS : 0;
+        config.backendConfig = &backendConfig;
         std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
         rtmgr->setCache(curQnnModelDir.c_str());
         MNN::Express::Module::Config mConfig;
@@ -465,6 +476,11 @@ int main(int argc, const char* argv[]) {
     for(int i = 0; i < qnnGraphNames.size(); i++) {
         attr->list->s[i] = qnnGraphNames[i];
     }
+    extra->attr.emplace_back(std::move(attr));
+    attr.reset(new MNN::AttributeT);
+
+    attr->key = "dump_intermediate_outputs";
+    attr->i = dumpIntermediateOutputs ? 1 : 0;
     extra->attr.emplace_back(std::move(attr));
     attr.reset(new MNN::AttributeT);
 
