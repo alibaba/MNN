@@ -85,7 +85,7 @@ function (download_kleidiai_and_collect_sources)
     endif()
 
     set(MNN_KLEIDIAI_DIR "${_MNN_KLEIDIAI_CMAKE_LIST_DIR}/../source/backend/cpu/kleidiai")
-    if(NOT EXISTS "${MNN_KLEIDIAI_DIR}/mnn_kleidiai.cpp")
+    if(NOT EXISTS "${MNN_KLEIDIAI_DIR}/KleidiAIConvInt8.cpp")
         # These sources live inside the MNN repo itself (committed alongside this
         # file), so a correctly-resolved path always finds them. Reaching here means
         # the MNN checkout is incomplete/corrupted, not an external dependency issue
@@ -94,8 +94,6 @@ function (download_kleidiai_and_collect_sources)
                             "Your MNN checkout looks incomplete; update it to a version that "
                             "includes source/backend/cpu/kleidiai, or pass -DMNN_KLEIDIAI=OFF.")
     endif()
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/mnn_kleidiai.cpp)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/mnn_kleidiai_util.cpp)
     list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIConvolution.cpp)
     list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIConvolutionDepthwise.cpp)
     list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIConvInt8.cpp)
