@@ -5,6 +5,15 @@ on:
       - '*'
       - '!Android*'
   workflow_dispatch:
+    inputs:
+      target:
+        description: Release target to build
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - windows
 
 jobs:
   setup:
@@ -13,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       VERSION: ${{ steps.get_version.outputs.VERSION }}
+      TARGET: ${{ steps.get_target.outputs.TARGET }}
     steps:
     - name: get-version
       id: get_version
@@ -24,9 +34,18 @@ jobs:
           # 如果不是标签，则设置版本为 'dev'
           echo "VERSION=dev" >> $GITHUB_OUTPUT
         fi
+    - name: get-target
+      id: get_target
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.target }}" ]]; then
+          echo "TARGET=${{ github.event.inputs.target }}" >> $GITHUB_OUTPUT
+        else
+          echo "TARGET=all" >> $GITHUB_OUTPUT
+        fi
 
   linux-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: ubuntu-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_linux_x64_cpu_opencl_vulkan
@@ -52,9 +71,8 @@ jobs:
 
   windows-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' || needs.setup.outputs.TARGET == 'windows' }}
     runs-on: windows-latest
-    env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl_vulkan_avx512
     steps:
     - uses: actions/checkout@v4
       with:
@@ -63,20 +81,45 @@ jobs:
     - name: using msvc
       uses: ilammy/msvc-dev-cmd@v1
 
+    - name: set package name
+      id: package
+      shell: pwsh
+      run: |
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        $vsVersion = ""
+        if (Test-Path $vswhere) {
+          $vsVersion = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property catalog_productLineVersion | Select-Object -First 1)
+        }
+        if ([string]::IsNullOrWhiteSpace($vsVersion)) {
+          $vsVersion = $env:VisualStudioVersion
+        }
+        $vsVersion = ([string]$vsVersion).Trim()
+        switch -Regex ($vsVersion) {
+          '^2019$|^16(\.|$)' { $vsYear = '2019' }
+          '^2022$|^17(\.|$)' { $vsYear = '2022' }
+          '^2026$|^18(\.|$)' { $vsYear = '2026' }
+          default { throw "Unable to determine Visual Studio year from version=$vsVersion" }
+        }
+        $packageName = "mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_vs${vsYear}_cpu_opencl_vulkan_avx512"
+        "PACKAGENAME=$packageName" >> $env:GITHUB_ENV
+        "name=$packageName" >> $env:GITHUB_OUTPUT
+        "Windows package name: $packageName"
+
     - name: build
       # LLM (+ vision/audio) + OpenCL + Vulkan + AVX512 are already enabled in
       # build_lib_release.ps1 by default.
-      run: powershell .\package_scripts\win\build_lib_release.ps1 -path ${{ env.PACKAGENAME }}
+      run: powershell .\package_scripts\win\build_lib_release.ps1 -path ${{ steps.package.outputs.name }}
     - name: package
-      run: 7z a -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
+      run: 7z a -r ${{ steps.package.outputs.name }}.zip ${{ steps.package.outputs.name }}
     - name: upload-zip
       uses: actions/upload-artifact@v4
       with:
-        name: artifact-${{ env.PACKAGENAME }}
-        path: ${{ env.PACKAGENAME }}.zip
+        name: artifact-${{ steps.package.outputs.name }}
+        path: ${{ steps.package.outputs.name }}.zip
 
   macos-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: macos-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_macos_x64_arm82_cpu_opencl_metal
@@ -108,6 +151,7 @@ jobs:
 
   android-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: ubuntu-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_android_armv7_armv8_cpu_opencl_vulkan
@@ -148,6 +192,7 @@ jobs:
 
   harmony-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: ubuntu-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_harmony_arm64_cpu
@@ -180,6 +225,7 @@ jobs:
 
   ios-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: macos-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_ios_armv82_cpu_metal
@@ -211,7 +257,8 @@ jobs:
 
   upload-release:
     name: upload_to_release
-    needs: [linux-release, windows-release, macos-release, android-release, ios-release, harmony-release]
+    needs: [setup, linux-release, windows-release, macos-release, android-release, ios-release, harmony-release]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/download-artifact@v4
