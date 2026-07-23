@@ -120,12 +120,20 @@ class ProgressDialog(
 
 object ChatRouter {
 
+    const val EXTRA_AGENT_MODE = "agentMode"
+
     internal fun resolveDiffusionDir(configFilePath: String): String {
         val path = File(configFilePath)
         return if (path.isDirectory) configFilePath else (path.parent ?: configFilePath)
     }
 
-    fun startRun(context: Context, modelIdParam: String, destModelDir:String?, sessionId: String?) {
+    fun startRun(
+        context: Context,
+        modelIdParam: String,
+        destModelDir:String?,
+        sessionId: String?,
+        agentMode: Boolean? = null
+    ) {
         Log.d(TAG, "startRun modelIdParam: $modelIdParam destModelDir: $destModelDir sessionId: $sessionId")
         val isDiffusion = ModelTypeUtils.isDiffusionModel(modelIdParam)
         var modelId:String? = modelIdParam
@@ -144,7 +152,7 @@ object ChatRouter {
         if (ModelTypeUtils.isQnnModel(modelId)) {
             Log.d(TAG, "QNN model detected: $modelId")
             if (QnnModule.deviceSupported()) {
-                checkAndDownloadQnnLibs(context, modelId, destModelDir, sessionId, isDiffusion)
+                checkAndDownloadQnnLibs(context, modelId, destModelDir, sessionId, isDiffusion, agentMode)
             } else {
                 Log.w(TAG, "QNN model detected but device does not support QNN acceleration")
                 Toast.makeText(context, context.getString(R.string.qnn_device_not_supported), Toast.LENGTH_LONG).show()
@@ -153,10 +161,17 @@ object ChatRouter {
         }
         
         // Continue with normal flow for non-QNN models
-        proceedToStartChat(context, modelId, destModelDir, sessionId, isDiffusion)
+        proceedToStartChat(context, modelId, destModelDir, sessionId, isDiffusion, agentMode)
     }
     
-    private fun checkAndDownloadQnnLibs(context: Context, modelId: String, destModelDir: String?, sessionId: String?, isDiffusion: Boolean) {
+    private fun checkAndDownloadQnnLibs(
+        context: Context,
+        modelId: String,
+        destModelDir: String?,
+        sessionId: String?,
+        isDiffusion: Boolean,
+        agentMode: Boolean?
+    ) {
         // Check if QNN libs are already copied
         MainScope().launch {
             try {
@@ -174,7 +189,7 @@ object ChatRouter {
                     
                     if (loadSuccess) {
                         Log.d(TAG, "QNN libraries loaded successfully, proceeding to start chat")
-                        proceedToStartChat(context, modelId, destModelDir, sessionId, isDiffusion)
+                        proceedToStartChat(context, modelId, destModelDir, sessionId, isDiffusion, agentMode)
                     } else {
                         Log.e(TAG, "Failed to load QNN libraries")
                         Toast.makeText(context, context.getString(R.string.qnn_libs_load_failed), Toast.LENGTH_LONG).show()
@@ -183,7 +198,7 @@ object ChatRouter {
                 }
                 
                 // Show confirmation dialog
-                showQnnDownloadConfirmationDialog(context, modelId, destModelDir, sessionId, isDiffusion)
+                showQnnDownloadConfirmationDialog(context, modelId, destModelDir, sessionId, isDiffusion, agentMode)
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking QNN libs status", e)
@@ -192,12 +207,19 @@ object ChatRouter {
         }
     }
     
-    private fun showQnnDownloadConfirmationDialog(context: Context, modelId: String, destModelDir: String?, sessionId: String?, isDiffusion: Boolean) {
+    private fun showQnnDownloadConfirmationDialog(
+        context: Context,
+        modelId: String,
+        destModelDir: String?,
+        sessionId: String?,
+        isDiffusion: Boolean,
+        agentMode: Boolean?
+    ) {
         val dialog = MaterialAlertDialogBuilder(context)
             .setTitle(context.getString(R.string.qnn_libs_download_title))
             .setMessage(context.getString(R.string.qnn_libs_download_message))
             .setPositiveButton(context.getString(R.string.download)) { _, _ ->
-                downloadQnnLibsAndStartChat(context, modelId, destModelDir, sessionId, isDiffusion)
+                downloadQnnLibsAndStartChat(context, modelId, destModelDir, sessionId, isDiffusion, agentMode)
             }
             .setNegativeButton(context.getString(R.string.cancel)) { dialog, _ ->
                 dialog.dismiss()
@@ -236,7 +258,14 @@ object ChatRouter {
         return dialog
     }
     
-    private fun downloadQnnLibsAndStartChat(context: Context, modelId: String, destModelDir: String?, sessionId: String?, isDiffusion: Boolean) {
+    private fun downloadQnnLibsAndStartChat(
+        context: Context,
+        modelId: String,
+        destModelDir: String?,
+        sessionId: String?,
+        isDiffusion: Boolean,
+        agentMode: Boolean?
+    ) {
         val progressDialog = ProgressDialog(
             context = context,
             modelId = null // We'll set this up in the coroutine
@@ -269,7 +298,7 @@ object ChatRouter {
                     
                     if (loadSuccess) {
                         Log.d(TAG, "QNN libraries loaded successfully, starting chat")
-                        proceedToStartChat(context, modelId, destModelDir, sessionId, isDiffusion)
+                        proceedToStartChat(context, modelId, destModelDir, sessionId, isDiffusion, agentMode)
                     } else {
                         Log.e(TAG, "Failed to load QNN libraries")
                         Toast.makeText(context, context.getString(R.string.qnn_libs_load_failed), Toast.LENGTH_LONG).show()
@@ -287,7 +316,14 @@ object ChatRouter {
         }
     }
     
-    private fun proceedToStartChat(context: Context, modelId: String, destModelDir: String?, sessionId: String?, isDiffusion: Boolean) {
+    private fun proceedToStartChat(
+        context: Context,
+        modelId: String,
+        destModelDir: String?,
+        sessionId: String?,
+        isDiffusion: Boolean,
+        agentMode: Boolean?
+    ) {
         val downloadManager = ModelDownloadManager.getInstance(context)
         if (isStopDownloadOnChatEnabled(context)) {
             downloadManager.pauseAllDownloads()
@@ -305,6 +341,7 @@ object ChatRouter {
         Log.d(TAG, "isDiffusion: ${isDiffusion}, configFilePath: $configFilePath")
         val intent = Intent(context, ChatActivity::class.java)
         intent.putExtra("chatSessionId", sessionId)
+        agentMode?.let { intent.putExtra(EXTRA_AGENT_MODE, it) }
         if (isDiffusion) {
             // For diffusion models, pass the directory path, not the config file path
             val diffusionDir = resolveDiffusionDir(configFilePath)

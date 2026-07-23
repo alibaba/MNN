@@ -31,6 +31,9 @@ import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.chat.input.ChatInputComponent
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
+import com.alibaba.mnnllm.android.chat.model.ChatFileAttachment
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.chat.model.ChatDatabaseHelper
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.llm.AudioDataListener
 import com.alibaba.mnnllm.android.llm.LlmSession
@@ -50,6 +53,7 @@ import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.CrashReportContext
 import com.alibaba.mnnllm.android.utils.ConfigInfoDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
@@ -96,6 +100,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var chatPresenter: ChatPresenter
     private var chatInputModule: ChatInputComponent? = null
     lateinit var chatListComponent: ChatListComponent
+    private var agentModeEnabled: Boolean = false
 
     // Real-time audio playback settings
     private var isRealTimePlayback = true
@@ -137,6 +142,19 @@ class ChatActivity : AppCompatActivity() {
             startMockStream()
             return
         }
+        if (shouldPromptInitialSessionMode()) {
+            showNewSessionModeDialog(
+                onSelected = { agentEnabled ->
+                    intent.putExtra(ChatRouter.EXTRA_AGENT_MODE, agentEnabled)
+                    setupSession()
+                    initializeVoiceModelsChecker()
+                },
+                onCancel = {
+                    finish()
+                }
+            )
+            return
+        }
         this.setupSession()
         initializeVoiceModelsChecker()
     }
@@ -163,6 +181,7 @@ class ChatActivity : AppCompatActivity() {
         }
         
         chatPresenter = ChatPresenter(this, modelName, modelId)
+        chatPresenter.setAgentEnabled(agentModeEnabled)
         setChatPresenter(chatPresenter)
         chatInputModule = ChatInputComponent(this, binding, modelId, modelName)
         setupChatListComponent()
@@ -210,10 +229,24 @@ class ChatActivity : AppCompatActivity() {
     private fun setupSession() {
         chatSession = chatPresenter.createSession()
         sessionId = chatSession!!.sessionId
+        val restoredMode = intent.getStringExtra("chatSessionId")?.let {
+            ChatDataManager.getInstance(this).getSessionMode(it)
+        } ?: if (intent.getBooleanExtra(ChatRouter.EXTRA_AGENT_MODE, false)) {
+            ChatDatabaseHelper.SESSION_MODE_AGENT
+        } else {
+            ChatDatabaseHelper.SESSION_MODE_NORMAL
+        }
+        agentModeEnabled = restoredMode == ChatDatabaseHelper.SESSION_MODE_AGENT
+        chatPresenter.setAgentEnabled(agentModeEnabled)
         CrashReportContext.setCurrentModel(modelId, sessionId)
         onSessionCreated()
         Log.d(TAG, "current SessionId: $sessionId")
         chatPresenter.load()
+    }
+
+    private fun shouldPromptInitialSessionMode(): Boolean {
+        val isNewSession = intent.getStringExtra("chatSessionId").isNullOrEmpty()
+        return isNewSession && !isDiffusion && !isMockStreamSession && !intent.hasExtra(ChatRouter.EXTRA_AGENT_MODE)
     }
 
     private fun shouldStartMockStream(): Boolean {
@@ -598,18 +631,60 @@ class ChatActivity : AppCompatActivity() {
 
 
     private fun handleNewSession() {
-        if (!isGenerating) {
-            currentUserMessage = null
-            if (chatListComponent.reset()) {
-                Toast.makeText(this, R.string.new_conversation_started, Toast.LENGTH_LONG).show()
-            }
-            this.sessionName = null
-            chatPresenter.reset{newSessionId ->
-                sessionId = newSessionId
-                CrashReportContext.setCurrentModel(modelId, sessionId)
-            }
-        } else {
+        if (isGenerating) {
             Toast.makeText(this, "Cannot Create New Session when generating", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (isDiffusion) {
+            startNewSession(agentEnabled = false)
+            return
+        }
+        showNewSessionModeDialog(
+            onSelected = { agentEnabled: Boolean ->
+                startNewSession(agentEnabled)
+            }
+        )
+    }
+
+    private fun showNewSessionModeDialog(
+        onSelected: (Boolean) -> Unit,
+        onCancel: (() -> Unit)? = null
+    ) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.new_conversation_mode_title)
+            .setMessage(R.string.new_conversation_mode_message)
+            .setNegativeButton(R.string.new_conversation_normal_mode) { _, _ ->
+                onSelected(false)
+            }
+            .setPositiveButton(R.string.new_conversation_agent_mode) { _, _ ->
+                onSelected(true)
+            }
+            .setOnCancelListener {
+                onCancel?.invoke()
+            }
+            .show()
+    }
+
+    private fun setCurrentSessionMode(agentEnabled: Boolean, showToast: Boolean = true) {
+        agentModeEnabled = agentEnabled
+        chatPresenter.setAgentEnabled(agentEnabled)
+        if (!showToast) return
+        val messageRes = if (agentEnabled) {
+            R.string.new_agent_conversation_started
+        } else {
+            R.string.new_conversation_started
+        }
+        Toast.makeText(this, messageRes, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun startNewSession(agentEnabled: Boolean) {
+        currentUserMessage = null
+        chatListComponent.reset()
+        this.sessionName = null
+        chatPresenter.reset { newSessionId ->
+            sessionId = newSessionId
+            setCurrentSessionMode(agentEnabled)
+            CrashReportContext.setCurrentModel(modelId, sessionId)
         }
     }
 
@@ -713,6 +788,15 @@ class ChatActivity : AppCompatActivity() {
         chatListComponent.updateAssistantResponse(chatDataItem)
     }
 
+    fun onAgentStatus(status: String) {
+        val chatDataItem = chatListComponent.recentItem ?: return
+        chatDataItem.thinkingText = ""
+        chatDataItem.displayText = status
+        chatDataItem.text = status
+        chatDataItem.loading = true
+        chatListComponent.updateAssistantResponse(chatDataItem)
+    }
+
     fun onDiffusionGenerateProgress(progress: String?, diffusionDestPath: String?) {
         val chatDataItem = chatListComponent.recentItem
         if (chatDataItem == null) {
@@ -778,9 +862,22 @@ class ChatActivity : AppCompatActivity() {
         } else {
             // Normal success case - set response if available
             val response = benchMarkResult["response"] as? String
-            if (!response.isNullOrEmpty() && recentItem.text.isNullOrEmpty()) {
+            val shouldReplaceDisplay = benchMarkResult["replace_display"] as? Boolean == true
+            if (!response.isNullOrEmpty() && (recentItem.text.isNullOrEmpty() || shouldReplaceDisplay)) {
                 recentItem.text = response
                 recentItem.displayText = response
+            }
+            if (shouldReplaceDisplay) {
+                val agentSteps = benchMarkResult["agent_steps"] as? String
+                if (!agentSteps.isNullOrBlank()) {
+                    recentItem.thinkingText = agentSteps
+                    recentItem.thinkingFinishedTime = 0L
+                }
+            }
+            @Suppress("UNCHECKED_CAST")
+            val generatedFiles = benchMarkResult["generated_files"] as? List<ChatFileAttachment>
+            if (!generatedFiles.isNullOrEmpty()) {
+                recentItem.generatedFiles = generatedFiles
             }
         }
         
@@ -924,6 +1021,7 @@ class ChatActivity : AppCompatActivity() {
             this.sessionName = null
             chatPresenter.reset { newSessionId ->
                 sessionId = newSessionId
+                setCurrentSessionMode(false, showToast = false)
                 CrashReportContext.setCurrentModel(modelId, sessionId)
                 // Create voice chat fragment with the new session
                 val voiceChatFragment = VoiceChatFragment.newInstance(modelName, modelId!!, chatPresenter)

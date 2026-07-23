@@ -98,12 +98,23 @@
         android:background="#00f"
         tools:src="@drawable/testtest"/>
 
+    <LinearLayout
+        android:id="@+id/ll_generated_files"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:layout_toEndOf="@id/ic_header"
+        android:layout_below="@id/image_generated"
+        android:orientation="vertical"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
     <!-- Button row above benchmark info -->
     <LinearLayout
         android:id="@+id/ll_action_buttons"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_below="@id/image_generated"
+        android:layout_below="@id/ll_generated_files"
         android:layout_alignStart="@id/tv_chat_text"
         android:orientation="horizontal"
         android:layout_marginBottom="8dp"
@@ -169,7 +180,7 @@
     <com.github.ybq.android.spinkit.SpinKitView
         android:id="@+id/view_assistant_loading"
         android:visibility="gone"
-        android:layout_below="@id/image_generated"
+        android:layout_below="@id/ll_generated_files"
         android:layout_centerVertical="true"
         android:layout_toEndOf="@id/ic_header"
         android:layout_marginStart="10dp"
