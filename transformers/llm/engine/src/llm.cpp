@@ -427,7 +427,7 @@ bool Llm::load() {
         }
 
         if (mConfig->is_mrope()) {
-            mPositionIdsVarVec[i] = _Input({3, index}, NCHW, halide_type_of<int>());
+            mPositionIdsVarVec[i] = _Input({mConfig->mrope_axes(), index}, NCHW, halide_type_of<int>());
         } else {
             mPositionIdsVarVec[i] = _Input({1, index}, NCHW, halide_type_of<int>());
         }
@@ -1587,8 +1587,9 @@ VARP Llm::gen_position_ids(int seq_len) {
             auto ptr = mPositionIdsVarVec[0]->writeMap<int>();
             ptr[0] = is_glm2 ? mContext->gen_seq_len : mContext->all_seq_len;
             if (mConfig->is_mrope()) {
-                ptr[1] = ptr[0];
-                ptr[2] = ptr[0];
+                for (int axis = 1; axis < mConfig->mrope_axes(); axis++) {
+                    ptr[axis] = ptr[0];
+                }
             }
             return mPositionIdsVarVec[0];
         }
@@ -1597,16 +1598,21 @@ VARP Llm::gen_position_ids(int seq_len) {
             for (int i = 0; i < seq_len; i++) {
                 ptr[i] = i + mContext->all_seq_len;
             }
+            if (mConfig->is_mrope()) {
+                for (int axis = 1; axis < mConfig->mrope_axes(); axis++) {
+                    ::memcpy(ptr + axis * seq_len, ptr, seq_len * sizeof(int));
+                }
+            }
             return mPositionIdsVarVec[1];
         }
 
         if (mConfig->is_mrope()) {
-            positionIds = _Input({3, seq_len}, NCHW, halide_type_of<int>());
+            positionIds = _Input({mConfig->mrope_axes(), seq_len}, NCHW, halide_type_of<int>());
             auto ptr = positionIds->writeMap<int>();
-            for (int i = 0; i < seq_len; i++) {
-                ptr[0 * seq_len + i] = i + mContext->all_seq_len;
-                ptr[1 * seq_len + i] = i + mContext->all_seq_len;
-                ptr[2 * seq_len + i] = i + mContext->all_seq_len;
+            for (int axis = 0; axis < mConfig->mrope_axes(); axis++) {
+                for (int i = 0; i < seq_len; i++) {
+                    ptr[axis * seq_len + i] = i + mContext->all_seq_len;
+                }
             }
             return positionIds;
         }

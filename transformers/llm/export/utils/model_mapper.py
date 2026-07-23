@@ -699,6 +699,40 @@ class ModelMapper:
         }
         self.regist('hunyuan_v1_dense', hunyuan_map)
 
+    def regist_hunyuan_vl(self):
+        hunyuan_vl_config = {
+            'hidden_size': 'text_config.hidden_size',
+            'head_dim': 'text_config.head_dim',
+            'num_attention_heads': 'text_config.num_attention_heads',
+            'num_hidden_layers': 'text_config.num_hidden_layers',
+            'num_key_value_heads': 'text_config.num_key_value_heads',
+            'rope_theta': 'text_config.rope_theta',
+            'rope_scaling': 'text_config.rope_scaling',
+            'max_position_embeddings': 'text_config.max_position_embeddings'
+        }
+        hunyuan_vl_model = {
+            'lm': 'lm_head',
+            'embed': 'model.language_model.embed_tokens',
+            'blocks': 'model.language_model.layers',
+            'final_layernorm': 'model.language_model.norm',
+            'visual': 'model.vision_tower'
+        }
+        hunyuan_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'o_proj',
+            'q_norm': 'query_layernorm',
+            'k_norm': 'key_layernorm'
+        }
+        hunyuan_vl_map = {
+            'config': hunyuan_vl_config,
+            'model': hunyuan_vl_model,
+            'decoder': self.default_decoder,
+            'attention': hunyuan_attention
+        }
+        self.regist('hunyuan_vl', hunyuan_vl_map)
+
     def regist_gpt_oss(self):
         gpt_oss_config = {
             'hidden_size': 'hidden_size',
