@@ -93,29 +93,24 @@ bool StableDiffusion::load() {
         MNN_PRINT("First time initilizing may cost a few seconds to create cachefile, please wait ...\n");
     }
     
-    VARP text_embeddings;
     mModules.resize(3);
     mResizeCachePrepared.assign(3, false);
-    // load text_encoder model
+    // load text_encoder model (always loaded upfront)
     {
         std::string model_path = mModelPath + "/text_encoder.mnn";
-        // MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[0].reset(Module::load(
                                        {"input_ids"}, {"last_hidden_state", "pooler_output"}, model_path.c_str(), runtime_manager_, &module_config));
     }
-    // load unet model
-    {
-        std::string model_path = mModelPath + "/unet.mnn";
-        // MNN_PRINT("Load %s\n", model_path.c_str());
+    // load unet and vae_decoder only if not in low memory mode
+    if (mMemoryMode != 0) {
+        std::string unet_path = mModelPath + "/unet.mnn";
         mModules[1].reset(Module::load(
-                                       {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, model_path.c_str(), runtime_manager_, &module_config));
-    }
-    // load vae_decoder model
-    {
-        std::string model_path = mModelPath + "/vae_decoder.mnn";
-        // MNN_PRINT("Load %s\n", model_path.c_str());
+                                       {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, unet_path.c_str(), runtime_manager_, &module_config));
+        std::string vae_path = mModelPath + "/vae_decoder.mnn";
         mModules[2].reset(Module::load(
-                                       {"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
+                                       {"latent_sample"}, {"sample"}, vae_path.c_str(), runtime_manager_, &module_config));
+    } else {
+        MNN_PRINT("[SD] Low memory mode: UNet and VAE decoder will be loaded on demand\n");
     }
     
     // tokenizer loading
@@ -132,7 +127,8 @@ bool StableDiffusion::load() {
         return false;
     }
 
-    // text encoder
+    VARP text_embeddings;
+    // text encoder warmup
     {
         auto outputs = forwardWithResizeCache(0, {mPromptVar});
         text_embeddings = _Convert(outputs[0], NCHW);
@@ -140,7 +136,7 @@ bool StableDiffusion::load() {
     }
 
     if(mMemoryMode > 0) {
-        // unet
+        // unet warmup
         {
             auto outputs = forwardWithResizeCache(1, {mSampleVar, mTimestepVar, text_embeddings});
             auto output = _Convert(outputs[0], NCHW);
@@ -148,7 +144,7 @@ bool StableDiffusion::load() {
         }
     }
     if(mMemoryMode == 1) {
-        // vae decoder
+        // vae decoder warmup
         {
             auto outputs = forwardWithResizeCache(2, {mLatentVar});
             auto output = _Convert(outputs[0], NCHW);
@@ -234,7 +230,30 @@ VARP StableDiffusion::step_plms(VARP sample, VARP model_output, int index) {
 
 VARP StableDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, std::function<void(int)> progressCallback) {
     if(mMemoryMode != 1) {
+        // Copy text_embeddings to independent CPU tensor before freeing text encoder
+        auto info = text_embeddings->getInfo();
+        if (info) {
+            size_t n = 1; for (auto d : info->dim) n *= d;
+            std::vector<float> buf(n);
+            const float* src = text_embeddings->readMap<float>();
+            if (src) memcpy(buf.data(), src, n * sizeof(float));
+            VARP tmp = _Input(info->dim, info->order, halide_type_of<float>());
+            memcpy(tmp->writeMap<float>(), buf.data(), n * sizeof(float));
+            tmp.fix(VARP::CONSTANT);
+            text_embeddings = tmp;
+        }
         mModules[0].reset();
+        MNN_PRINT("[SD] Text encoder unloaded\n");
+    }
+    // Lazy load UNet on demand
+    if (!mModules[1]) {
+        std::string unet_path = mModelPath + "/unet.mnn";
+        MNN_PRINT("[SD] Load UNet on demand: %s\n", unet_path.c_str());
+        Module::Config mc; mc.shapeMutable = false;
+        mModules[1].reset(Module::load(
+            {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, unet_path.c_str(), runtime_manager_, &mc));
+        if (mModules[1]) mModules[1]->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);
+        if (!mModules[1]) { MNN_PRINT("[SD] Failed to load UNet\n"); return nullptr; }
     }
     if(mInitNoise.size() != 16384) {
         mInitNoise.resize(16384);
@@ -300,6 +319,17 @@ VARP StableDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, st
 VARP StableDiffusion::vae_decoder(VARP latent) {
     if(mMemoryMode != 1) {
         mModules[1].reset();
+        MNN_PRINT("[SD] UNet unloaded\n");
+    }
+    // Lazy load VAE decoder on demand
+    if (!mModules[2]) {
+        std::string vae_path = mModelPath + "/vae_decoder.mnn";
+        MNN_PRINT("[SD] Load VAE decoder on demand: %s\n", vae_path.c_str());
+        Module::Config mc; mc.shapeMutable = false;
+        mModules[2].reset(Module::load(
+            {"latent_sample"}, {"sample"}, vae_path.c_str(), runtime_manager_, &mc));
+        if (mModules[2]) mModules[2]->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);
+        if (!mModules[2]) { MNN_PRINT("[SD] Failed to load VAE decoder\n"); return nullptr; }
     }
     latent = latent * _Const(1 / 0.18215);
     
@@ -351,6 +381,7 @@ bool StableDiffusion::run(const std::string prompt, const std::string imagePath,
 
     if(mMemoryMode != 1) {
         mModules[2].reset();
+        MNN_PRINT("[SD] VAE decoder unloaded\n");
     }
     
     if (progressCallback) {

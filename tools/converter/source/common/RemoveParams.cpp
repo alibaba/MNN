@@ -86,6 +86,9 @@ void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64
                case MNN::DataType_DT_BFLOAT16:
                     storeWeight<uint8_t>(fs, param->uint8s, param->external, offset);
                     break;
+                case MNN::DataType_DT_HALF:
+                    storeWeight<uint8_t>(fs, param->uint8s, param->external, offset);
+                    break;
                 case MNN::DataType_DT_INT32:
                     storeWeight<int>(fs, param->int32s, param->external, offset);
                     break;
@@ -196,6 +199,9 @@ void loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader* fl) {
                     break;
                 case MNN::DataType_DT_INT8:
                     loadExternalData<int8_t>(fl, param->int8s, param->external[1]);
+                    break;
+                case MNN::DataType_DT_HALF:
+                    loadExternalData<uint8_t>(fl, param->uint8s, param->external[1]);
                     break;
                 default:
                     break;
