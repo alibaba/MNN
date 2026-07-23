@@ -29,7 +29,7 @@ jobs:
             python-version: '3.8.10'
       - name: prepare
         run: |
-            pip3 install numpy opencv-python torch
+            pip3 install "numpy<2.5" "opencv-python<5" torch
       - name: build
         run: |
             cd pymnn/pip_package
