@@ -3913,7 +3913,7 @@ void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, si
 
 #endif
 
-#ifndef __aarch64__
+#if !defined(__aarch64__) || defined(__APPLE__)
 static void MNNRankOneUpdateDefault(float* S, const float* k, const float* delta, size_t dk, size_t dv) {
     for (size_t i = 0; i < dk; ++i) {
         float k_val = k[i];
