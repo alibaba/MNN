@@ -221,6 +221,11 @@ def seperate(args, model_name, ids):
         "KVCACHE_SIZE_LIMIT":args.max_history_token,
         "cache":"qnn"
     }
+    is_visual = args.model_name == "visual.mnn"
+    if not is_visual:
+        config["graph_name"] = "graphllm"
+    else:
+        config["graph_name"] = "graphvisual"
     for i in ids:
         config['testdir'].append(os.path.join("testdir", '%d' %i))
     cache = os.path.join(os.getcwd(), args.cache_path)
@@ -243,11 +248,17 @@ def compile_qnn(args):
     return process.returncode
 
 def output_qnn(args):
-    if os.path.exists(os.path.join(args.model, 'qnn')):
+    if not args.reuse_config_qnn_json and os.path.exists(os.path.join(args.model, 'qnn')):
         shutil.rmtree(os.path.join(args.model, 'qnn'))
-    shutil.move(os.path.join(args.cache_path, 'qnn'), os.path.join(args.model, 'qnn'))
+        shutil.move(os.path.join(args.cache_path, 'qnn'), os.path.join(args.model, 'qnn'))
+    else:
+        shutil.copytree(os.path.join(args.cache_path, 'qnn'), os.path.join(args.model, 'qnn'), dirs_exist_ok=True)
     if args.need_config_json is True:
-        config_path = os.path.join(args.model, 'config.json')
+        config_path = {}
+        if args.reuse_config_qnn_json:
+          config_path = os.path.join(args.model, 'config_qnn.json')
+        else:
+          config_path = os.path.join(args.model, 'config.json')
         config_npu = {}
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -400,6 +411,9 @@ def main():
                         )
     parser.add_argument('--need_config_json', type=bool, default=True,
                         help='wheather generate config json'
+                        )
+    parser.add_argument('--reuse_config_qnn_json', type=bool, default=False,
+                        help='wheather to overwrite config_qnn.json for convert both llm/visual model to same qnn folder'
                         )
     args = parser.parse_args()
     convert(args)
