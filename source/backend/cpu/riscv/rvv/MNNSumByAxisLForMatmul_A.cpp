@@ -8,7 +8,6 @@ void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* scal
                                   SumByAxisParams sumParams) {
     int8_t* srcInt8 = source;
     auto scalePtr = scale;
-
     auto blockNum = sumParams.blockNum;
     auto EP = sumParams.DST_XUNIT;
     auto LP = sumParams.SRC_UNIT;
