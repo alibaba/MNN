@@ -11,6 +11,8 @@
 #endif
 #include <regex>
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <random>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -32,6 +34,202 @@
 namespace MNN {
 using namespace Express;
 namespace Transformer {
+
+static int roundHalfToEven(float value) {
+    float floorValue = std::floor(value);
+    float diff = value - floorValue;
+    int rounded = static_cast<int>(floorValue);
+    constexpr float eps = 1e-6f;
+    if (diff > 0.5f + eps) {
+        return rounded + 1;
+    }
+    if (diff < 0.5f - eps) {
+        return rounded;
+    }
+    return (rounded % 2 == 0) ? rounded : rounded + 1;
+}
+
+static std::pair<int, int> qwenVlSmartResize(int height, int width, int factor, int minPixels, int maxPixels) {
+    int resizedHeight = roundHalfToEven(static_cast<float>(height) / factor) * factor;
+    int resizedWidth = roundHalfToEven(static_cast<float>(width) / factor) * factor;
+    int64_t resizedPixels = static_cast<int64_t>(resizedHeight) * resizedWidth;
+    if (resizedPixels > maxPixels) {
+        float beta = std::sqrt(static_cast<float>(height) * width / maxPixels);
+        resizedHeight = static_cast<int>(std::floor(height / beta / factor)) * factor;
+        resizedWidth = static_cast<int>(std::floor(width / beta / factor)) * factor;
+    } else if (resizedPixels < minPixels) {
+        float beta = std::sqrt(static_cast<float>(minPixels) / (static_cast<float>(height) * width));
+        resizedHeight = static_cast<int>(std::ceil(height * beta / factor)) * factor;
+        resizedWidth = static_cast<int>(std::ceil(width * beta / factor)) * factor;
+    }
+    return std::make_pair(resizedHeight, resizedWidth);
+}
+
+static constexpr int kPillowResizePrecisionBits = 32 - 8 - 2;
+static constexpr int kPillowResizePrecision = 1 << kPillowResizePrecisionBits;
+
+static inline double pillowBicubicFilter(double x) {
+    if (x < 0.0) {
+        x = -x;
+    }
+    if (x < 1.0) {
+        return ((1.5 * x - 2.5) * x) * x + 1.0;
+    }
+    if (x < 2.0) {
+        return (((-0.5 * x + 2.5) * x - 4.0) * x) + 2.0;
+    }
+    return 0.0;
+}
+
+struct PillowResizeCoeffs {
+    int ksize = 0;
+    std::vector<int> bounds;
+    std::vector<int> weights;
+};
+
+static PillowResizeCoeffs precomputePillowResizeCoeffs(int inSize, int outSize) {
+    const double filterSupport = 2.0;
+    const double scale = static_cast<double>(inSize) / static_cast<double>(outSize);
+    const double filterScale = std::max(scale, 1.0);
+    const double support = filterSupport * filterScale;
+    const int ksize = static_cast<int>(std::ceil(support)) * 2 + 1;
+
+    PillowResizeCoeffs coeffs;
+    coeffs.ksize = ksize;
+    coeffs.bounds.resize(outSize * 2);
+    coeffs.weights.assign(outSize * ksize, 0);
+
+    std::vector<double> floatWeights(ksize);
+    for (int xx = 0; xx < outSize; ++xx) {
+        const double center = (xx + 0.5) * scale;
+        int xmin = static_cast<int>(center - support + 0.5);
+        xmin = std::max(xmin, 0);
+        int xmax = static_cast<int>(center + support + 0.5);
+        xmax = std::min(xmax, inSize);
+        xmax -= xmin;
+
+        double weightSum = 0.0;
+        for (int x = 0; x < xmax; ++x) {
+            const double arg = (x + xmin - center + 0.5) / filterScale;
+            floatWeights[x] = pillowBicubicFilter(arg);
+            weightSum += floatWeights[x];
+        }
+        if (weightSum != 0.0) {
+            for (int x = 0; x < xmax; ++x) {
+                floatWeights[x] /= weightSum;
+            }
+        }
+        for (int x = 0; x < xmax; ++x) {
+            coeffs.weights[xx * ksize + x] = static_cast<int>(floatWeights[x] * kPillowResizePrecision);
+        }
+        for (int x = xmax; x < ksize; ++x) {
+            coeffs.weights[xx * ksize + x] = 0;
+        }
+        coeffs.bounds[xx * 2] = xmin;
+        coeffs.bounds[xx * 2 + 1] = xmax;
+    }
+    return coeffs;
+}
+
+static inline uint8_t pillowClipU8(int v) {
+    if (v < 0) {
+        return 0;
+    }
+    if (v > 255) {
+        return 255;
+    }
+    return static_cast<uint8_t>(v);
+}
+
+static void pillowHorizontalResizePass(const uint8_t* src, int inW, int inH, int channels, uint8_t* dst, int outW,
+                                       const PillowResizeCoeffs& xCoeffs) {
+    const int rounding = 1 << (kPillowResizePrecisionBits - 1);
+    for (int y = 0; y < inH; ++y) {
+        for (int x = 0; x < outW; ++x) {
+            const int xmin = xCoeffs.bounds[x * 2];
+            const int xmax = xCoeffs.bounds[x * 2 + 1];
+            const int* weights = xCoeffs.weights.data() + x * xCoeffs.ksize;
+            for (int c = 0; c < channels; ++c) {
+                int sum = 0;
+                for (int k = 0; k < xmax; ++k) {
+                    sum += src[(y * inW + xmin + k) * channels + c] * weights[k];
+                }
+                dst[(y * outW + x) * channels + c] = pillowClipU8((sum + rounding) >> kPillowResizePrecisionBits);
+            }
+        }
+    }
+}
+
+static void pillowVerticalResizePass(const uint8_t* src, int inW, int inH, int channels, uint8_t* dst, int outH,
+                                     const PillowResizeCoeffs& yCoeffs) {
+    const int rounding = 1 << (kPillowResizePrecisionBits - 1);
+    for (int y = 0; y < outH; ++y) {
+        const int ymin = yCoeffs.bounds[y * 2];
+        const int ymax = yCoeffs.bounds[y * 2 + 1];
+        const int* weights = yCoeffs.weights.data() + y * yCoeffs.ksize;
+        for (int x = 0; x < inW; ++x) {
+            for (int c = 0; c < channels; ++c) {
+                int sum = 0;
+                for (int k = 0; k < ymax; ++k) {
+                    sum += src[((ymin + k) * inW + x) * channels + c] * weights[k];
+                }
+                dst[(y * inW + x) * channels + c] = pillowClipU8((sum + rounding) >> kPillowResizePrecisionBits);
+            }
+        }
+    }
+}
+
+static std::vector<uint8_t> pillowLikeBicubicResizeRgb(const uint8_t* bgr, int inW, int inH, int outW, int outH) {
+    constexpr int channels = 3;
+    std::vector<uint8_t> rgb(static_cast<size_t>(inW) * inH * channels);
+    for (int y = 0; y < inH; ++y) {
+        for (int x = 0; x < inW; ++x) {
+            const uint8_t* src = bgr + (y * inW + x) * channels;
+            uint8_t* dst = rgb.data() + (y * inW + x) * channels;
+            dst[0] = src[2];
+            dst[1] = src[1];
+            dst[2] = src[0];
+        }
+    }
+
+    auto xCoeffs = precomputePillowResizeCoeffs(inW, outW);
+    auto yCoeffs = precomputePillowResizeCoeffs(inH, outH);
+    std::vector<uint8_t> tmp(static_cast<size_t>(outW) * inH * channels);
+    std::vector<uint8_t> resized(static_cast<size_t>(outW) * outH * channels);
+    pillowHorizontalResizePass(rgb.data(), inW, inH, channels, tmp.data(), outW, xCoeffs);
+    pillowVerticalResizePass(tmp.data(), outW, inH, channels, resized.data(), outH, yCoeffs);
+    return resized;
+}
+
+static VARP qwen3VlPillowResizeAndNormalize(VARP image, int outW, int outH) {
+    if (image.get() == nullptr || image->getInfo() == nullptr) {
+        return nullptr;
+    }
+    auto info = image->getInfo();
+    if (info->dim.size() != 3 || info->dim[2] != 3) {
+        MNN_ERROR("qwen3VlPillowResizeAndNormalize expects HWC 3-channel image\n");
+        return nullptr;
+    }
+    const int inH = info->dim[0];
+    const int inW = info->dim[1];
+    auto bgr = image->readMap<uint8_t>();
+    if (bgr == nullptr) {
+        MNN_ERROR("qwen3VlPillowResizeAndNormalize failed to map input image\n");
+        return nullptr;
+    }
+
+    auto resized = pillowLikeBicubicResizeRgb(bgr, inW, inH, outW, outH);
+    auto output = Express::_Input({outH, outW, 3}, NHWC, halide_type_of<float>());
+    auto outPtr = output->writeMap<float>();
+    if (outPtr == nullptr) {
+        MNN_ERROR("qwen3VlPillowResizeAndNormalize failed to map output\n");
+        return nullptr;
+    }
+    for (size_t i = 0; i < resized.size(); ++i) {
+        outPtr[i] = (static_cast<float>(resized[i]) / 255.0f - 0.5f) / 0.5f;
+    }
+    return output;
+}
 
 template <typename T>
 static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
@@ -324,11 +522,29 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     constexpr int merge_size = 2;
     const int align_size = patch_size * merge_size;
     // Qwen2-VL / Qwen2.5-VL / Qwen3-VL
-    mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
-    mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
-    image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
-                            MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
-                            mVisionMean, mVisionNorm);
+    const int defaultMinPixels = isQwen3VL ? 65536 : 3136;
+    const int defaultMaxPixels = isQwen3VL ? 16777216 : 12845056;
+    const int minPixels = mConfig->config_.value("image_min_pixels", defaultMinPixels);
+    const int maxPixels = mConfig->config_.value("image_max_pixels", defaultMaxPixels);
+    auto resizedSize = qwenVlSmartResize(mVisionHeight, mVisionWidth, align_size, minPixels, maxPixels);
+    mVisionHeight = resizedSize.first;
+    mVisionWidth = resizedSize.second;
+    bool usePillowResize = isQwen3VL && mConfig->config_.value("qwen3_vl_pillow_resize", true);
+    if (usePillowResize) {
+        auto pillowImage = qwen3VlPillowResizeAndNormalize(image, mVisionWidth, mVisionHeight);
+        if (pillowImage.get() != nullptr) {
+            image = pillowImage;
+        } else {
+            MNN_ERROR("qwen3VlPillowResizeAndNormalize failed, fallback to MNN CV resize\n");
+            image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
+                                    MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
+                                    mVisionMean, mVisionNorm);
+        }
+    } else {
+        image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
+                                MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
+                                mVisionMean, mVisionNorm);
+    }
     image = Express::_Unsqueeze(image, {0});
     image = Express::_Convert(image, NCHW);
     auto patches = Express::_Concat({image, image}, 0);
@@ -1022,8 +1238,10 @@ void Omni::addPositionIds(int t, int h, int w) {
                 }
             }
         }
-        // vision end
-        mPositionIds.push_back();
+        // Match Qwen3-VL MRoPE: after a vision segment, continue from
+        // start + max(llm_grid_h, llm_grid_w), not from the last W index.
+        int next_idx = cur_idx + std::max(h, w);
+        mPositionIds.push_back(next_idx, next_idx, next_idx);
     }
 }
 
@@ -1238,8 +1456,7 @@ VARP Omni::gen_position_ids(int seq_len) {
     auto ptr = positionIds->writeMap<int>();
     if (mContext->gen_seq_len > 0) {
         for (int i=0; i<seq_len; ++i) {
-            // auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
-            auto pos = mContext->all_seq_len + i;
+            auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
             ptr[i + 0] = pos;
             ptr[i + seq_len] = pos;
             ptr[i + seq_len * 2] = pos;
