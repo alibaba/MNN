@@ -173,8 +173,8 @@ class AwqQuantizer:
     def _module_forward(
         self, x: torch.Tensor, module: torch.nn.Module, module_kwargs: Dict
     ) -> torch.Tensor:
-
         if self.n_parallel_calib_samples is None:
+            AwqQuantizer.clear_past_key_value(module)
             # runs through all samples at once
             module_output = module(x, **module_kwargs)
             if isinstance(module_output, tuple):
@@ -185,6 +185,7 @@ class AwqQuantizer:
             module_output = []
             partitioned_inputs = torch.split(x, self.n_parallel_calib_samples)
             for x_partial in partitioned_inputs:
+                AwqQuantizer.clear_past_key_value(module)
                 partial_output = module(x_partial, **module_kwargs)
 
                 if isinstance(partial_output, tuple):
@@ -194,6 +195,7 @@ class AwqQuantizer:
 
             module_output = torch.cat(module_output, dim=0)
 
+        AwqQuantizer.clear_past_key_value(module)
         return module_output
 
     @torch.no_grad()
@@ -758,6 +760,12 @@ class AwqQuantizer:
             del weight
         gc.collect()
         torch.cuda.empty_cache()
+
+    @staticmethod
+    def clear_past_key_value(module):
+        for child in module.modules():
+            if hasattr(child, 'past_key_value'):
+                child.past_key_value = None
 
 
     @staticmethod
