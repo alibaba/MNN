@@ -136,7 +136,7 @@ bool QNNTensorWrapper::supportsHostBufferDataType(Qnn_DataType_t dataType) {
     }
 }
 
-void * QNNTensorWrapper::alloc(Tensor::DimensionType dimType) {
+void * QNNTensorWrapper::alloc(Tensor::DimensionType dimType, bool bindToClientBuffer) {
     MNN_ASSERT(mIsAlloc == false); // Realloc is not allowed.
     MNN_ASSERT(mQnnTensor.v1.type == QNN_TENSOR_TYPE_APP_READ ||
                mQnnTensor.v1.type == QNN_TENSOR_TYPE_APP_WRITE ||
@@ -215,11 +215,20 @@ void * QNNTensorWrapper::alloc(Tensor::DimensionType dimType) {
         MNN_ERROR("MNN_QNN: Failed to allocate host buffer for QNN tensor.\n");
         return nullptr;
     }
+    mIsAlloc = true;
+    if (bindToClientBuffer && !bindHostBuffer()) {
+        return nullptr;
+    }
+    return mDataContainer->host<void>();
+}
+
+bool QNNTensorWrapper::bindHostBuffer() {
+    if (!mIsAlloc || mDataContainer == nullptr || mDataContainer->host<void>() == nullptr) {
+        return false;
+    }
     mQnnTensor.v1.clientBuf.data = mDataContainer->host<void>();
     mQnnTensor.v1.clientBuf.dataSize = mDataContainer->usize();
-    mIsAlloc = true;
-
-    return mQnnTensor.v1.clientBuf.data;
+    return true;
 }
 
 const std::vector<uint32_t> * QNNTensorWrapper::getDimension() {

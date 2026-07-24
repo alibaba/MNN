@@ -84,8 +84,9 @@ public:
     bool getUseFP16() const;
     bool isTensorDumpEnabled() const;
     bool canDumpTensor(Qnn_DataType_t dataType, const std::string& name) const;
-    bool registerDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor,
-                             Tensor::DimensionType dimType = gQnnTensorDimType);
+    bool prepareDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor,
+                            Tensor::DimensionType dimType = gQnnTensorDimType);
+    bool registerDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor);
     void buildOutputDequant();
     void buildInputCast(const Tensor *tensor);
     void buildOutputCast();

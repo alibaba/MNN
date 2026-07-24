@@ -1789,11 +1789,15 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
     std::shared_ptr<QNNTensorWrapper> qnnTensorWrapper = QNNTensorWrapper::create(tName + suffix, tType, tDataType, tDims, tQuantizeParams);
 
     Qnn_Tensor_t * qnnTensor = qnnTensorWrapper->getNativeTensor();
-    if (isDebugTensor && !registerDebugTensor(qnnTensorWrapper, tensorDimType)) {
+    if (isDebugTensor && !prepareDebugTensor(qnnTensorWrapper, tensorDimType)) {
         qnnTensor->v1.type = QNN_TENSOR_TYPE_NATIVE;
         isDebugTensor = false;
     }
+    // QNN requires APP_READ/APP_WRITE client buffers to remain null at graph-tensor creation.
     CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, qnnTensor));
+    if (isDebugTensor && !registerDebugTensor(qnnTensorWrapper)) {
+        MNN_ERROR("MNN_QNN: Intermediate tensor %s will not be dumped.\n", tName.c_str());
+    }
     mQNNTensorWrappers.push_back(qnnTensorWrapper);
     mTensorMap.insert({TensorUtils::getDescribe(tensor), mTensorCounter});
 
@@ -2141,14 +2145,23 @@ bool QnnBackend::canDumpTensor(Qnn_DataType_t dataType, const std::string& name)
     return false;
 }
 
-bool QnnBackend::registerDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor,
-                                      Tensor::DimensionType dimType) {
+bool QnnBackend::prepareDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor,
+                                    Tensor::DimensionType dimType) {
     MNN_ASSERT(tensor != nullptr);
     MNN_ASSERT(tensor->getNativeTensor()->v1.type == QNN_TENSOR_TYPE_APP_READ);
-    if (tensor->alloc(dimType) == nullptr) {
-        const char* name = QNN_TENSOR_GET_NAME(*tensor->getNativeTensor());
-        MNN_ERROR("MNN_QNN: Failed to allocate intermediate dump buffer for %s.\n",
-                  name == nullptr ? "<unnamed>" : name);
+    if (tensor->alloc(dimType, false) != nullptr) {
+        return true;
+    }
+    const char* name = QNN_TENSOR_GET_NAME(*tensor->getNativeTensor());
+    MNN_ERROR("MNN_QNN: Failed to allocate intermediate dump buffer for %s.\n",
+              name == nullptr ? "<unnamed>" : name);
+    return false;
+}
+
+bool QnnBackend::registerDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor) {
+    MNN_ASSERT(tensor != nullptr);
+    MNN_ASSERT(tensor->getNativeTensor()->v1.type == QNN_TENSOR_TYPE_APP_READ);
+    if (!tensor->bindHostBuffer()) {
         return false;
     }
     mDebugTensorWrappers.emplace_back(tensor);

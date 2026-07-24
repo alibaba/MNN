@@ -32,7 +32,8 @@ public:
     ~QNNTensorWrapper();
     Qnn_Tensor_t * getNativeTensor();
     const Qnn_Tensor_t * getNativeTensor() const;
-    void * alloc(Tensor::DimensionType dimType = gQnnTensorDimType);
+    void * alloc(Tensor::DimensionType dimType = gQnnTensorDimType, bool bindToClientBuffer = true);
+    bool bindHostBuffer();
     std::shared_ptr<Tensor> getDataContainer();
     const std::vector<uint32_t> * getDimension();
     void setName(std::string name);
