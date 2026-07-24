@@ -120,6 +120,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				4D19EEDE2D67202200EA3FED /* model */,
+			);
 			name = "mnn-llm";
 			productName = "mnn-llm";
 			productReference = 4D5B97882B2B21D3003AF2F1 /* mnn-llm.app */;

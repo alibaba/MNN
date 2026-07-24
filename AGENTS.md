@@ -55,6 +55,8 @@ MNN supports end-to-end LLM export and inference:
 - **Python**: Standard Python conventions
 - **Formatting**: `clang-format -i -style=file <file>`
 
+> ⚠️ **禁止 C++ 全局对象（动态初始化）**:不允许在命名空间作用域定义需要动态初始化的非 POD 对象（如 `static const std::string` / `static const json` / 全局 STL 容器，**头文件中同样禁止**,每个包含它的 TU 都会生成一份）。这类对象产生 `__GLOBAL__sub_I_*` 启动初始化函数，会被手淘等打包静态检查拦截（代码安全风险 + 启动性能下降）。替代方案:`constexpr`/POD 常量（直接进 .rodata)、函数内 `static`（懒初始化）、或按需构造返回。
+
 ## Build & Test
 
 ```bash
@@ -96,6 +98,8 @@ For the following tasks, **read the Skill entry file first** and execute step by
 
 **After non-trivial skill-driven tasks, run Retrospective only when there are reusable lessons.**
 
+上表可能未覆盖全部 skill。遇到打包/发布/摩天轮/MTL/crash/集成等关键词时，**先 `Glob skills/**/SKILL.md` 确认是否有对应 skill**，不要仅凭表格判断。
+
 Public skills are listed below. Environment-dependent skills may exist under `skills/*/SKILL.md`.
 
 | Skill | Entry File | Trigger |
@@ -107,5 +111,5 @@ Public skills are listed below. Environment-dependent skills may exist under `sk
 | Vulkan optimization | `skills/vulkan-optimize/SKILL.md` | Optimize op performance on Vulkan |
 | Metal optimization | `skills/metal-optimize/SKILL.md` | Optimize op performance on Metal |
 | Bugfix / debugging | `skills/general-debug/SKILL.md` | Diagnose correctness bugs / regressions in MNN — organized by bug category. |
-| Run tests / CI | `skills/test-ci/SKILL.md` | Run the regression / CI suite (host or on-device), or add / select / retune a test stage |
+| Run tests / CI | `skills/test-ci/SKILL.md` | Run the regression / CI suite (host or on-device), benchmark LLM on a real iPhone/iPad, or add / select / retune a test stage |
 | Retrospective | `skills/retrospective/SKILL.md` | After non-trivial tasks with reusable lessons |

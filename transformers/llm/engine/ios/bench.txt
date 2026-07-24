@@ -1,0 +1,8 @@
+# Default benchmark prompts for iOS LLM performance test.
+# Lines starting with '#' are ignored. Use \n for newlines inside a prompt.
+计算8乘以12的结果。
+请介绍一下人工智能的发展历史，包括关键的里程碑事件。
+将下面这句话翻译成英文：今天天气很好，我们一起去公园散步吧。
+写一首关于秋天的五言绝句。
+What are the main differences between supervised learning and unsupervised learning? Please explain with examples.
+Summarize the following text in one sentence: Deep learning is a subset of machine learning that uses neural networks with many layers to progressively extract higher-level features from raw input. For example, in image processing, lower layers may identify edges, while higher layers may identify concepts relevant to a human such as digits or letters or faces.
