@@ -16,6 +16,13 @@ class ChatViewModel: ObservableObject {
 
     init() {
         self.messages.append(Message(id: UUID(), text: " 模型加载中, 请稍等 ...", isUser: false))
+        let args = ProcessInfo.processInfo.arguments
+        var autoCmd: String? = nil
+        if let idx = args.firstIndex(of: "--bench-cmd"), idx + 1 < args.count {
+            autoCmd = args[idx + 1]
+        } else if args.contains("--auto-bench") {
+            autoCmd = "benchmark"
+        }
         llm = LLMInferenceEngineWrapper { [weak self] success in
             DispatchQueue.main.async {
                 self?.isModelLoaded = success
@@ -24,6 +31,9 @@ class ChatViewModel: ObservableObject {
                     loadresult = "模型加载失败！"
                 }
                 self?.messages.append(Message(id: UUID(), text: loadresult, isUser: false))
+                if success, let cmd = autoCmd {
+                    self?.sendInput(cmd)
+                }
             }
         }
     }
@@ -135,6 +145,10 @@ struct ChatView: View {
                 .padding()
             }
             .navigationBarTitle("mnn-llm", displayMode: .inline)  // 设置标题
+        }
+        .onAppear {
+            // Benchmark 可能长时间运行，保持屏幕常亮，避免熄屏导致 Metal 后端丢弃 GPU 任务
+            UIApplication.shared.isIdleTimerDisabled = true
         }
     }
 }

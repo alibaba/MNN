@@ -164,6 +164,12 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
     }
     if(((MetalRuntime *)mRuntime)->supportTensorOps()) {
         mSupportTensorApi = true;
+        // Probe every matmul2d descriptor shape actually used by MNN kernels
+        // (attention 32x32x32, conv 32x64x64 / 32x64x32 / 64x64x32, plus the
+        // dynamic-K device-tensor form). If a future MPP header rejects any of
+        // them, the probe fails and the tensor api is disabled as a whole,
+        // instead of passing a toy shape and then failing kernel compilation
+        // at runtime on every dispatch.
         const char * src_tensor_f16 = "\n"
             "#include <metal_stdlib> \n"
             "#include <metal_tensor> \n"
@@ -171,6 +177,21 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
             " \n"
             "using namespace metal; \n"
             "using namespace mpp::tensor_ops; \n"
+            " \n"
+            "template <int M, int N, int K> \n"
+            "static void probe_static_shape(threadgroup half* buf) { \n"
+            "    auto tA = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(buf, dextents<int32_t, 2>(K, M)); \n"
+            "    auto tB = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(buf + M * K, dextents<int32_t, 2>(K, N)); \n"
+            "    matmul2d< \n"
+            "        matmul2d_descriptor(M, N, K, false, true, false, matmul2d_descriptor::mode::multiply_accumulate), \n"
+            "        execution_simdgroups<4>> mm; \n"
+            "    auto cT = mm.template get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>(); \n"
+            "    auto sA = tA.slice(0, 0); \n"
+            "    auto sB = tB.slice(0, 0); \n"
+            "    mm.run(sA, sB, cT); \n"
+            "    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)buf, dextents<int32_t, 2>(N, M)); \n"
+            "    cT.store(tC); \n"
+            "} \n"
             " \n"
             "kernel void dummy_kernel( \n"
             "    tensor<device  half, dextents<int32_t, 2>> A [[buffer(0)]], \n"
@@ -182,7 +203,7 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
             "    auto tB = B.slice((int)tgid.x, 0); \n"
             " \n"
             "    matmul2d< \n"
-            "        matmul2d_descriptor(8, 8, dynamic_extent), \n"
+            "        matmul2d_descriptor(16, 8, dynamic_extent), \n"
             "        execution_simdgroups<4>> mm; \n"
             " \n"
             "    auto cT = mm.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>(); \n"
@@ -194,6 +215,12 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
             "    auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(C, dextents<int32_t, 2>(4, 4)); \n"
             " \n"
             "    cT.store(tC); \n"
+            " \n"
+            "    threadgroup half sdata[6144]; \n"
+            "    probe_static_shape<32, 32, 32>(sdata); \n"
+            "    probe_static_shape<32, 64, 64>(sdata); \n"
+            "    probe_static_shape<32, 64, 32>(sdata); \n"
+            "    probe_static_shape<64, 64, 32>(sdata); \n"
             "}";
         
         auto pipeline = makeComputePipelineWithSourceOption(src_tensor_f16, "dummy_kernel", nullptr);
@@ -224,7 +251,9 @@ void MetalBackend::setUpGPUEnabledSwitch() {
         dispatch_semaphore_wait(latch, DISPATCH_TIME_FOREVER);
     }
     mGPUEnabledSwitch.store(state == UIApplicationStateActive);
-    mForegroundObserver = [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:nil usingBlock:^(NSNotification * _Nonnull notification) {
+    // Use DidBecomeActive instead of WillEnterForeground: a backend created while the app
+    // is Inactive (launch transition / screen locked) would otherwise never re-enable GPU.
+    mForegroundObserver = [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification * _Nonnull notification) {
         mGPUEnabledSwitch.store(true);
     }];
     mBackgroundObserver = [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:nil usingBlock:^(NSNotification * _Nonnull notification) {
@@ -1074,7 +1103,18 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
 }
 int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
     if (mRuntime->pExecutionStatus == NO_EXECUTION) {
+#ifdef CHECK_IOS_UI_STATUS
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+        if (!mGPUEnabledSwitch) {
+            return NO_EXECUTION;
+        }
+        mRuntime->pExecutionStatus = NO_ERROR;
+#else
         return NO_EXECUTION;
+#endif
+#else
+        return NO_EXECUTION;
+#endif
     }
     flushEncoder();
     auto ctx = (__bridge MNNMetalContext *)context();
@@ -1150,6 +1190,9 @@ void MetalBackend::wait() const {
     if (nil != mRuntime->_waiting) {
         auto buffer = mRuntime->_waiting;
         if (buffer.status >= MTLCommandBufferStatusCompleted) {
+            if (buffer.error) {
+                MNN_ERROR("[METAL] command buffer error: %s\n", buffer.error.localizedDescription.UTF8String);
+            }
             mRuntime->_waiting = nil;
             return;
         }
@@ -1169,11 +1212,9 @@ void MetalBackend::wait() const {
         [buffer waitUntilCompleted];
 #endif
 
-#if MNN_METAL_DEBUG
         if (buffer.error) {
-            printf("[METAL] %s\n", buffer.error.localizedDescription.UTF8String);
+            MNN_ERROR("[METAL] command buffer error: %s\n", buffer.error.localizedDescription.UTF8String);
         }
-#endif
     }
     mRuntime->_waiting = nil;
 }
