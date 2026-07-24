@@ -35,6 +35,7 @@ namespace MNN {
 namespace QNN {
 #ifdef ENABLE_QNN_ONLINE_FINALIZE
 
+class QNNTensorDumper;
 class QnnRuntime;
 
 class QnnBackend : public Backend {
@@ -81,6 +82,10 @@ public:
     std::shared_ptr<QNNTensorWrapper> getTensorWrapper(const Tensor * tensor);
     bool useCache() const;
     bool getUseFP16() const;
+    bool isTensorDumpEnabled() const;
+    bool canDumpTensor(Qnn_DataType_t dataType, const std::string& name) const;
+    bool registerDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor,
+                             Tensor::DimensionType dimType = gQnnTensorDimType);
     void buildOutputDequant();
     void buildInputCast(const Tensor *tensor);
     void buildOutputCast();
@@ -96,6 +101,8 @@ private:
     const QnnRuntime * mRuntime;
 
     std::unique_ptr<QNNPerf> mPerf;
+    std::unique_ptr<QNNTensorDumper> mTensorDumper;
+    bool mDumpIntermediateOutputs = false;
 
     bool mUseFP16;
     const BackendConfig::PowerMode mPower;
@@ -124,6 +131,7 @@ private:
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mDeQuantOutputTensorMap;
     std::vector<int> mInputTensorIndexes;
     std::vector<int> mOutputTensorIndexes;
+    std::vector<std::shared_ptr<QNNTensorWrapper>> mDebugTensorWrappers;
     std::vector<std::function<void()>> mReleaseFunc;
     std::shared_ptr<QNNTensorWrapper> mMaskTensor;
     std::vector<std::shared_ptr<QNNTensorWrapper>> mExtraInputs;
@@ -164,6 +172,7 @@ private:
     BackendConfig::PowerMode mPower;
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PrecisionMode mPrecision;
+    bool mDumpIntermediateOutputs = false;
     // Qnn related
     QNN_INTERFACE_VER_TYPE mQnnInterface{};
     Qnn_LogHandle_t mQnnLogHandle = nullptr;

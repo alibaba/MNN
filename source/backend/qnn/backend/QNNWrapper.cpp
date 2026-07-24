@@ -110,56 +110,111 @@ std::shared_ptr<Tensor> QNNTensorWrapper::getDataContainer() {
     return mDataContainer;
 }
 
+bool QNNTensorWrapper::supportsHostBufferDataType(Qnn_DataType_t dataType) {
+    switch (dataType) {
+        case QNN_DATATYPE_FLOAT_16:
+        case QNN_DATATYPE_FLOAT_32:
+        case QNN_DATATYPE_FLOAT_64:
+        case QNN_DATATYPE_INT_8:
+        case QNN_DATATYPE_INT_16:
+        case QNN_DATATYPE_INT_32:
+        case QNN_DATATYPE_INT_64:
+        case QNN_DATATYPE_UINT_8:
+        case QNN_DATATYPE_UINT_16:
+        case QNN_DATATYPE_UINT_32:
+        case QNN_DATATYPE_UINT_64:
+        case QNN_DATATYPE_BOOL_8:
+        case QNN_DATATYPE_SFIXED_POINT_8:
+        case QNN_DATATYPE_SFIXED_POINT_16:
+        case QNN_DATATYPE_SFIXED_POINT_32:
+        case QNN_DATATYPE_UFIXED_POINT_8:
+        case QNN_DATATYPE_UFIXED_POINT_16:
+        case QNN_DATATYPE_UFIXED_POINT_32:
+            return true;
+        default:
+            return false;
+    }
+}
+
 void * QNNTensorWrapper::alloc(Tensor::DimensionType dimType) {
     MNN_ASSERT(mIsAlloc == false); // Realloc is not allowed.
-    MNN_ASSERT(mQnnTensor.v1.type == QNN_TENSOR_TYPE_APP_READ || mQnnTensor.v1.type == QNN_TENSOR_TYPE_APP_WRITE || mQnnTensor.v1.type == QNN_TENSOR_TYPE_STATIC);
+    MNN_ASSERT(mQnnTensor.v1.type == QNN_TENSOR_TYPE_APP_READ ||
+               mQnnTensor.v1.type == QNN_TENSOR_TYPE_APP_WRITE ||
+               mQnnTensor.v1.type == QNN_TENSOR_TYPE_STATIC);
 
     std::vector<int> dims(mDimensions.size());
     for (int i = 0; i < mDimensions.size(); i++) {
         dims[i] = (int)mDimensions[i];
     }
 
-    MNN_ASSERT(mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_32 || mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_16 \
-        || mQnnTensor.v1.dataType == QNN_DATATYPE_INT_32 || mQnnTensor.v1.dataType == QNN_DATATYPE_UINT_32 \
-        || mQnnTensor.v1.dataType == QNN_DATATYPE_SFIXED_POINT_8 \
-        || mQnnTensor.v1.dataType == QNN_DATATYPE_SFIXED_POINT_32 \
-        || mQnnTensor.v1.dataType == QNN_DATATYPE_UFIXED_POINT_8\
-        || mQnnTensor.v1.dataType == QNN_DATATYPE_UFIXED_POINT_16);
-    halide_type_t halideType;
-
-    halideType.lanes = 1;
+    if (!supportsHostBufferDataType(mQnnTensor.v1.dataType)) {
+        MNN_ERROR("MNN_QNN: Unsupported QNN tensor data type %u for host buffer.\n",
+                  static_cast<unsigned int>(mQnnTensor.v1.dataType));
+        return nullptr;
+    }
+    halide_type_t halideType = {halide_type_uint, 8, 1};
     switch (mQnnTensor.v1.dataType) {
         case QNN_DATATYPE_FLOAT_32:
             halideType.code = halide_type_float;
             halideType.bits = 32;
             break;
         case QNN_DATATYPE_FLOAT_16:
-        case QNN_DATATYPE_UFIXED_POINT_16:
             halideType.code = halide_type_float;
             halideType.bits = 16;
             break;
-        case QNN_DATATYPE_INT_32:
-            halideType.code = halide_type_int;
-            halideType.bits = 32;
+        case QNN_DATATYPE_FLOAT_64:
+            halideType.code = halide_type_float;
+            halideType.bits = 64;
             break;
+        case QNN_DATATYPE_INT_8:
         case QNN_DATATYPE_SFIXED_POINT_8:
             halideType.code = halide_type_int;
             halideType.bits = 8;
             break;
+        case QNN_DATATYPE_INT_16:
+        case QNN_DATATYPE_SFIXED_POINT_16:
+            halideType.code = halide_type_int;
+            halideType.bits = 16;
+            break;
+        case QNN_DATATYPE_INT_32:
         case QNN_DATATYPE_SFIXED_POINT_32:
             halideType.code = halide_type_int;
             halideType.bits = 32;
             break;
-        case QNN_DATATYPE_UFIXED_POINT_8:
+        case QNN_DATATYPE_INT_64:
             halideType.code = halide_type_int;
+            halideType.bits = 64;
+            break;
+        case QNN_DATATYPE_UINT_8:
+        case QNN_DATATYPE_BOOL_8:
+        case QNN_DATATYPE_UFIXED_POINT_8:
+            halideType.code = halide_type_uint;
             halideType.bits = 8;
             break;
-        default:
+        case QNN_DATATYPE_UINT_16:
+        case QNN_DATATYPE_UFIXED_POINT_16:
+            halideType.code = halide_type_uint;
+            halideType.bits = 16;
             break;
+        case QNN_DATATYPE_UINT_32:
+        case QNN_DATATYPE_UFIXED_POINT_32:
+            halideType.code = halide_type_uint;
+            halideType.bits = 32;
+            break;
+        case QNN_DATATYPE_UINT_64:
+            halideType.code = halide_type_uint;
+            halideType.bits = 64;
+            break;
+        default:
+            MNN_ASSERT(false);
+            return nullptr;
     }
 
     mDataContainer.reset(Tensor::create(dims, halideType, nullptr, dimType));
-
+    if (mDataContainer == nullptr || mDataContainer->host<void>() == nullptr) {
+        MNN_ERROR("MNN_QNN: Failed to allocate host buffer for QNN tensor.\n");
+        return nullptr;
+    }
     mQnnTensor.v1.clientBuf.data = mDataContainer->host<void>();
     mQnnTensor.v1.clientBuf.dataSize = mDataContainer->usize();
     mIsAlloc = true;
