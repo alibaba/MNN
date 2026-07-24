@@ -454,39 +454,10 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 
     int group_size = mNumHead / mKvNumHead;
 
-    // temp memory alloc, handle variable set
-    Tensor* tempTensorK;
-    Tensor* tempTensorV;
-    handleKVAllocMemory();
-    id<MTLBuffer> tempBufferK;
-    id<MTLBuffer> tempBufferV;
-    if (mKvInDisk) {
-        tempBufferK = mKVCacheManager->getKeyBuffer();
-        tempBufferV = mKVCacheManager->getValueBuffer();
-    } else if (mKVCache) {
-        tempTensorK = mKVCacheManager->getKeyTensor();
-        tempTensorV = mKVCacheManager->getValueTensor();
-    } else {
-        tempTensorK = mTempK.get();
-        tempTensorV = mTempV.get();
-    }
-
     // whether use simdgroup
     bool supportSimdReduce = rt->supportSimdGroupReduce();
     bool supportSimdMatrix = rt->supportSimdGroupMatrix();
     bool supportTensorMatrix = mtbn->isSupportTensorApi(); // rt->supportTensorOps();
-
-    // decode and thread number not too large
-    mQkSimdReduce = supportSimdReduce && mShortSeq;
-    // loop_k can divide 8, thus avoid branch
-    mQkSimdMatrix = supportSimdMatrix && mSeqLen >= 16 && mHeadDim % 8 == 0;
-    // 32x32x32 tensor block — minimum seqLen=32 matches tile size
-    mQkTensorMatrix = supportTensorMatrix && mSeqLen >= 32 && mHeadDim % 32 == 0;
-
-    mSftmSimdReduce = supportSimdReduce;
-    mQkvSimdReduce = supportSimdReduce && mShortSeq && mHeadDim * mNumHead < mKvSeqLen * 32;
-    mQkvSimdMatrix = supportSimdMatrix && mSeqLen >= 16;
-    mCopySimdReduce = mKVCache && supportSimdReduce && mKVCacheManager->useDynamicScaleBuffer();
 
     // Fused prefill flash-attention: opt-in.
     // Two ways to enable (either turns FA on):
@@ -511,6 +482,12 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     // long context the fused path skips the O(seq^2 * B * H) mTempQK /
     // mTempSoftMax scratch allocations, which dominates peak memory.  Trade
     // is acceptable for long-context / constrained-device runs.
+    //
+    // NOTE: must be decided BEFORE handleKVAllocMemory(), which relies on
+    // mFlashAttnPrefill to skip the O(B * H * seq * kv_max) mTempQK /
+    // mTempSoftMax scratch allocation.  Deciding it afterwards made the first
+    // prefill allocate that scratch with a stale flag (GBs at 4K context on
+    // multi-B models), pushing Metal past the app memory limit.
     {
         int attentionOption = static_cast<MetalBackend*>(backend())->getRuntime()->hint().attentionOption;
         bool enableFromConfig = (attentionOption / 8) >= 1;
@@ -545,6 +522,35 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
                       (int)mQuantKey, (int)mQuantValue);
         }
     }
+
+    // temp memory alloc, handle variable set
+    Tensor* tempTensorK;
+    Tensor* tempTensorV;
+    handleKVAllocMemory();
+    id<MTLBuffer> tempBufferK;
+    id<MTLBuffer> tempBufferV;
+    if (mKvInDisk) {
+        tempBufferK = mKVCacheManager->getKeyBuffer();
+        tempBufferV = mKVCacheManager->getValueBuffer();
+    } else if (mKVCache) {
+        tempTensorK = mKVCacheManager->getKeyTensor();
+        tempTensorV = mKVCacheManager->getValueTensor();
+    } else {
+        tempTensorK = mTempK.get();
+        tempTensorV = mTempV.get();
+    }
+
+    // decode and thread number not too large
+    mQkSimdReduce = supportSimdReduce && mShortSeq;
+    // loop_k can divide 8, thus avoid branch
+    mQkSimdMatrix = supportSimdMatrix && mSeqLen >= 16 && mHeadDim % 8 == 0;
+    // 32x32x32 tensor block — minimum seqLen=32 matches tile size
+    mQkTensorMatrix = supportTensorMatrix && mSeqLen >= 32 && mHeadDim % 32 == 0;
+
+    mSftmSimdReduce = supportSimdReduce;
+    mQkvSimdReduce = supportSimdReduce && mShortSeq && mHeadDim * mNumHead < mKvSeqLen * 32;
+    mQkvSimdMatrix = supportSimdMatrix && mSeqLen >= 16;
+    mCopySimdReduce = mKVCache && supportSimdReduce && mKVCacheManager->useDynamicScaleBuffer();
 
     bool trivialFloatMask = mHasMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
     // Max KV length for fused decode QK+softmax kernel depends on group_size
