@@ -408,7 +408,10 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
      */
     threadgroup float sdata[256] = {0.f};
 
-#ifdef USE_METAL_TENSOR_OPS
+// Tensor prefill uses the dedicated 32x32 kernel above. Keep this legacy
+// 16x16x8 implementation disabled because recent Tensor API versions require
+// a fixed K dimension to be a multiple of 16.
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
 
     const int K = 8, M = 16, N = 16;
     auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
@@ -517,7 +520,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         ((threadgroup ftype*)sdata)[128 + (kl * 4 + 3) * 16 + rcl] = GETK(B_offset[i + 3], idx_slk * param.batch + b);
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
         auto sA = tA.slice(0, 0);
         auto sB = tB.slice(0, 0);
 
@@ -537,7 +540,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
 
     auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
     cT.store(tC);
@@ -550,7 +553,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
     // [M16, N2, N8]
     auto sindex_base = (rcl * 2 + kl) * 8 + 0;
 #else
@@ -1561,7 +1564,9 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
     threadgroup float sdata[256] = {0.f};
 
-#ifdef USE_METAL_TENSOR_OPS
+// Tensor prefill uses prefill_qkv_tensor (32x32x32). Do not instantiate the
+// legacy 16x16x8 path when compiling that pipeline.
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
 
     const int K = 8, M = 16, N = 16;
     auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
@@ -1660,7 +1665,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
         auto sA = tA.slice(0, 0);
         auto sB = tB.slice(0, 0);
 
@@ -1680,7 +1685,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
 
     auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
     cT.store(tC);
@@ -1693,7 +1698,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
     // [M16, N2, N8]
     auto sindex_base = (rcl * 2 + kl) * 8 + 0;
 #else
