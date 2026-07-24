@@ -459,10 +459,7 @@ public:
         std::snprintf(manifestName, sizeof(manifestName), "manifest_%06llu.tsv",
                       static_cast<unsigned long long>(mExecution));
         const auto manifestPath = MNNFilePathConcat(mOutputDirectory, manifestName);
-        FILE* manifest = std::fopen(manifestPath.c_str(), "w");
-        if (manifest != nullptr) {
-            std::fprintf(manifest, "index\tname\tfile\tdata_type\tdimensions\tquant_encoding\tscale\toffset\n");
-        }
+        FILE* manifest = nullptr;
 
         for (uint32_t i = 0; i < tensorCount; ++i) {
             const auto& tensor = tensors[i];
@@ -499,6 +496,14 @@ public:
                 continue;
             }
 
+            if (manifest == nullptr) {
+                manifest = std::fopen(manifestPath.c_str(), "w");
+                if (manifest == nullptr) {
+                    MNN_ERROR("MNN_QNN: Failed to open intermediate dump manifest: %s\n", manifestPath.c_str());
+                } else {
+                    std::fprintf(manifest, "index\tname\tfile\tdata_type\tdimensions\tquant_encoding\tscale\toffset\n");
+                }
+            }
             if (manifest != nullptr) {
                 const auto quant = QNN_TENSOR_GET_QUANT_PARAMS(tensor);
                 float scale = 0.0f;
@@ -1753,7 +1758,7 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
             }
         }
     }
-    const bool isDebugTensor = mDumpIntermediateOutputs && tType == QNN_TENSOR_TYPE_NATIVE;
+    bool isDebugTensor = tType == QNN_TENSOR_TYPE_NATIVE && canDumpTensor(tDataType, tName);
     if (isDebugTensor) {
         tType = QNN_TENSOR_TYPE_APP_READ;
     }
@@ -1784,12 +1789,13 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
     std::shared_ptr<QNNTensorWrapper> qnnTensorWrapper = QNNTensorWrapper::create(tName + suffix, tType, tDataType, tDims, tQuantizeParams);
 
     Qnn_Tensor_t * qnnTensor = qnnTensorWrapper->getNativeTensor();
+    if (isDebugTensor && !registerDebugTensor(qnnTensorWrapper, tensorDimType)) {
+        qnnTensor->v1.type = QNN_TENSOR_TYPE_NATIVE;
+        isDebugTensor = false;
+    }
     CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, qnnTensor));
     mQNNTensorWrappers.push_back(qnnTensorWrapper);
     mTensorMap.insert({TensorUtils::getDescribe(tensor), mTensorCounter});
-    if (isDebugTensor) {
-        registerDebugTensor(qnnTensorWrapper, tensorDimType);
-    }
 
     if (isInput) {
         // create stage tensor to cast
@@ -1988,7 +1994,6 @@ void QnnBackend::executeGraph() const {
     for (int j = 0 ; j < mOutputTensorIndexes.size(); j++) {
         outputs.push_back(*(mQNNTensorWrappers[mOutputTensorIndexes[j]]->getNativeTensor()));
     }
-    const size_t debugOutputOffset = outputs.size();
     for (const auto& tensor : mDebugTensorWrappers) {
         outputs.emplace_back(*tensor->getNativeTensor());
     }
@@ -2000,8 +2005,8 @@ void QnnBackend::executeGraph() const {
                                                   outputs.data(), outputs.size(), mQnnProfileHandle,
                                                   mQnnSignalHandle));
 
-    if (mTensorDumper != nullptr && !mDebugTensorWrappers.empty()) {
-        mTensorDumper->dump(outputs.data() + debugOutputOffset, mDebugTensorWrappers.size());
+    if (mTensorDumper != nullptr) {
+        mTensorDumper->dump(outputs.data(), outputs.size());
     }
 
     // Free temporarily allocated output tensor buffers.
@@ -2124,12 +2129,30 @@ bool QnnBackend::isTensorDumpEnabled() const {
     return mDumpIntermediateOutputs;
 }
 
-void QnnBackend::registerDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor,
-                                     Tensor::DimensionType dimType) {
+bool QnnBackend::canDumpTensor(Qnn_DataType_t dataType, const std::string& name) const {
+    if (!mDumpIntermediateOutputs) {
+        return false;
+    }
+    if (QNNTensorWrapper::supportsHostBufferDataType(dataType)) {
+        return true;
+    }
+    MNN_ERROR("MNN_QNN: Skip intermediate dump for %s because data type %u has no host-buffer mapping.\n",
+              name.c_str(), static_cast<unsigned int>(dataType));
+    return false;
+}
+
+bool QnnBackend::registerDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor,
+                                      Tensor::DimensionType dimType) {
     MNN_ASSERT(tensor != nullptr);
     MNN_ASSERT(tensor->getNativeTensor()->v1.type == QNN_TENSOR_TYPE_APP_READ);
-    tensor->alloc(dimType);
+    if (tensor->alloc(dimType) == nullptr) {
+        const char* name = QNN_TENSOR_GET_NAME(*tensor->getNativeTensor());
+        MNN_ERROR("MNN_QNN: Failed to allocate intermediate dump buffer for %s.\n",
+                  name == nullptr ? "<unnamed>" : name);
+        return false;
+    }
     mDebugTensorWrappers.emplace_back(tensor);
+    return true;
 }
 
 void QnnBackend::clean() {

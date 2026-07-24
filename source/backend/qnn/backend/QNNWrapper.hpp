@@ -27,6 +27,7 @@ public:
     static std::shared_ptr<QNNTensorWrapper> createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam = DEFAULT_QUANTIZE_PARAMS);
     static std::shared_ptr<QNNTensorWrapper> createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
     static std::shared_ptr<QNNTensorWrapper> createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
+    static bool supportsHostBufferDataType(Qnn_DataType_t dataType);
     QNNTensorWrapper(const std::string & name, Qnn_TensorType_t type, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, Qnn_QuantizeParams_t quantize);
     ~QNNTensorWrapper();
     Qnn_Tensor_t * getNativeTensor();

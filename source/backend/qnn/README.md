@@ -4,7 +4,8 @@ The QNN backend can expose every native activation as an application-readable
 QNN graph output. This follows the same mechanism as ExecuTorch's QNN
 intermediate debugger: native tensors become `QNN_TENSOR_TYPE_APP_READ` before
 the graph is finalized, receive host buffers, and are returned by
-`graphExecute`.
+`graphExecute`. The dump contains the complete `graphExecute` output set, including
+the model outputs and promoted intermediate tensors.
 
 This mode is intended only for accuracy debugging. It increases graph outputs,
 memory use, and execution time.
@@ -34,6 +35,8 @@ was built. Generate a separate debug artifact:
 MNN2QNNModel /path/to/qnn/sdk 57 75 model.mnn output \
   --dump_intermediate_outputs
 ```
+
+The flag may appear anywhere among the optional dynamic-shape arguments.
 
 The generated MNN plugin model remembers that it is a debug artifact and writes
 files to `qnn_intermediate_outputs` beside the model by default. Release

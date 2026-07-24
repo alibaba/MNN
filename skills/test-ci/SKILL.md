@@ -66,6 +66,14 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
   `logs/test-<UTC-timestamp>/<stage>.log` — read the named log of a failing
   stage for the trailing output. `rc=137` ≈ OOM-kill, `rc=139` ≈ SIGSEGV.
 
+## Dynamic-shape device smoke tests
+
+A zero exit code only proves that a backend context ran; it does not prove that
+the requested input shape selected the intended dynamic context. For a
+shape-sensitive device test, record and validate the runtime-observed input
+shape (for example, from a backend dump manifest or the runner's input tensor)
+before treating the test as dynamic-shape coverage.
+
 ## Environment variables
 
 | Var | Mode | Meaning |
