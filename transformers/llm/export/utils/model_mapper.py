@@ -1085,6 +1085,22 @@ class ModelMapper:
             'linear_attention': qwen3_5_linear_attention
         }
         self.regist('qwen3_5', qwen3_5_map)
+        # Text-only Qwen3.5 (model_type=qwen3_5_text, Qwen3_5ForCausalLM): no visual tower;
+        # config fields live at the top level rather than under text_config.* (only the
+        # multimodal variant nests them).
+        qwen3_5_text_config = {k: v.replace('text_config.', '') for k, v in qwen3_5_config.items()}
+        # The live module hierarchy is flat: transformers builds model.layers (not
+        # language_model.layers); the checkpoint's language_model.* keys are remapped on
+        # load. do_map walks live modules, so use the flat default_model minus visual.
+        qwen3_5_text_model = {k: v for k, v in self.default_model.items() if k != 'visual'}
+        qwen3_5_text_map = {
+            'config': qwen3_5_text_config,
+            'model': qwen3_5_text_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention,
+            'linear_attention': qwen3_5_linear_attention
+        }
+        self.regist('qwen3_5_text', qwen3_5_text_map)
         qwen3_5_moe_mlp = {
             'num_experts': 'experts.num_experts',
             'top_k': 'gate.top_k',
