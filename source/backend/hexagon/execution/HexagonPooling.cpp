@@ -55,7 +55,11 @@ ErrorCode HexagonPooling::onBuildCmd(const std::vector<Tensor*>& inputs, const s
         mPadY = 0;
     }
     mPadType = originPadType;
-    if (layer->pads() != nullptr && mPadType == PoolPadType_CAFFE) {
+    if (!layer->isGlobal() && layer->pads() != nullptr && mPadType == PoolPadType_CAFFE) {
+        if (layer->pads()->size() == 4) {
+            mPadY = layer->pads()->data()[0];
+            mPadX = layer->pads()->data()[1];
+        }
         mPadType = PoolPadType_VALID;
     }
 
