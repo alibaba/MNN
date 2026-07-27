@@ -2127,86 +2127,14 @@ kernel void conv1x1_gemm_32x16_sg(const device ftype4 *in            [[buffer(0)
 }
 
 
-//======================================================================
-// Step 12 / Step B.1: Fused Q4 GEMM — Dequant-only kernel
-//
-// Purpose: prove out the pipeline of "new kernel reading int4 weight buffer
-// with the MNN [N/4, K/4, N4, K4] layout and writing fp16 [N/4, K/16, N4, K4, K4]
-// dequanted output". Functionally equivalent to conv1x1_w_dequant (W_QUANT_4
-// branch, with W_ALIGN_K16_PROTECT boundary handling), just under a new
-// kernel name so the dispatcher can A/B switch via env MNN_METAL_FUSED_Q4_STAGE=1.
-//
-// Contract (must match conv1x1_w_dequant byte-for-byte on W_QUANT_4 path):
-//   - buffer(0): int4-packed weight, layout [N/4, K/4, N4, K4] as `uchar2` per
-//                (N4, K4) tile — each uchar2 holds 4 int4 nibbles.
-//   - buffer(1): fp16 dequanted weight, layout [N/4, K/16, N4, K4, K4].
-//   - buffer(2): conv1x1_constants.
-//   - buffer(3): dequantScale, layout [N/4, block_size, 2/*scale,bias*/, N4].
-//   - Grid: (oc, UP_DIV(ic, 16), 1), same as conv1x1_w_dequant.
-//
-// Later steps (B.2..B.8) will replace the "write to device" epilogue with a
-// tensor-API matmul into device output. This kernel is intentionally minimal
-// so that B.1 verification is unambiguous.
-//======================================================================
-#if defined(W_QUANT_4)
-kernel void conv1x1_dequant_only_q4(
-                            const device uchar2 *wi            [[buffer(0)]], // [N/4, K/4, N4, K4]
-                            device ftype4 *wf                  [[buffer(1)]], // [N/4, K/16, N4, K4, K4]
-                            constant conv1x1_constants& cst    [[buffer(2)]],
-                            const device ftype4 *dequantScale  [[buffer(3)]],
-                            uint3 gid                          [[thread_position_in_grid]]
-) {
-    int idx_n   = gid.x; // N
-    int idx_k16 = gid.y; // K/16
-
-    int idx_n4 = idx_n / 4;
-    int idx_nl = idx_n % 4;
-    int idx_k4 = idx_k16 * 4;
-
-    if (idx_n4 >= cst.output_slice || idx_k4 >= cst.input_slice) {
-        return;
-    }
-
-    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
-    int bi    = idx_k4 / block;
-
-    // dequantScale layout: [N/4, block_size, 2, N4]
-    FLOAT scale        = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
-    FLOAT dequant_bias = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
-
-    auto xy_wi = wi + (idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl;                          // [N/4, K/4, N4, K4]
-    auto xy_wf = wf + ((idx_n4 * ((cst.input_slice + 3) / 4) + idx_k16) * 4 + idx_nl) * 4;       // [N/4, K/16, N4, K4, K4]
-
-    for (int k = 0; k < 4; k++) {
-        if (idx_k4 + k >= cst.input_slice) {
-            xy_wf[k] = ftype4(0);
-        } else {
-            uchar2 w_int4 = xy_wi[4 * k]; // [N/4, K/4, N4, K4]
-            FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8,
-                               (float)(w_int4[0] & 15) - 8,
-                               (float)(w_int4[1] >> 4) - 8,
-                               (float)(w_int4[1] & 15) - 8);
-            FLOAT4 res = w4 * scale + dequant_bias;
-            xy_wf[k]   = (ftype4)res;
-        }
-    }
-}
-#endif // W_QUANT_4
 
 
 //======================================================================
-// Step 12 / Step B.2 + B.3 + B.7a: Fused Q4/Q8 GEMM
+// Fused Q4/Q8 GEMM (tensor-API prefill path)
 //
-// Two staging modes controlled by shader macro FUSED_Q4_REAL_UNPACK:
-//   * B.2 mode (macro undefined) - weight load reads a pre-dequanted fp16
-//     buffer from buffer(6). Verifies the tensor API matmul skeleton with
-//     a stub weight source. mTempWeight is populated by the separate
-//     conv1x1_dequant_only_q4 kernel (dispatched by the host beforehand).
-//   * B.3 mode (macro defined) - weight load unpacks int4 from buffer(3)
-//     directly and applies per-block scale/bias from buffer(5). buffer(6)
-//     is bound but unused (host still writes mTempWeight in stage2 but the
-//     kernel ignores it). This proves the "true fused" path: no extra
-//     device-memory round trip for the dequanted weight.
+// Unpacks quantized weights in-kernel and applies per-block scale/bias
+// from buffer(5) — no fp16 pre-dequant pass or extra device-memory round
+// trip for the dequanted weight.
 //
 // Buffer contract:
 //   buffer(0): input        [K/4, M, K4] fp16
@@ -2214,14 +2142,12 @@ kernel void conv1x1_dequant_only_q4(
 //   buffer(2): conv1x1_constants
 //   buffer(3): quantized weight (int4 packed as MNN::uchar4x2 OR
 //              int8 packed as char4 depending on W_QUANT_4/8 macro)
-//                           (B.2: unused; B.3+: source of Phase 1 load)
 //   buffer(4): biasTerms    [N/4]
 //   buffer(5): dequantScale [N/4, block_size, 2, N4]
-//                           (B.2: unused; B.3+: scale/bias per quant block)
-//   buffer(6): fp16 pre-dequanted weight
-//                           (B.2: source of Phase 1 load; B.3+: unused)
+//   buffer(6): unused placeholder (host binds mWeight to satisfy the
+//              Metal validation layer)
 //
-// Weight int4 unpack (B.3): follows conv1x1_gemm_32x64_wquant_split_k_sg
+// Weight int4 unpack: follows conv1x1_gemm_32x64_wquant_split_k_sg
 // (the in-shader sg_matrix path that actually reads mWeight int4 layout).
 // The int4 buffer memory layout is [N/4, K/4-slice, N4-inner, uchar2] where
 // each uchar2 holds 4 K-nibbles for one (K/4-slice, N4-inner). Successive
@@ -2311,9 +2237,7 @@ kernel void conv1x1_fused_q4_gemm_stage(
     //   fp16 mTempWeight  layout: [N/4, K/16, N4, K4, K4]  (ftype4x4 slots)
     //   int4 mWeight (Q4) layout: [N/4, K/4-slice, N4, uchar2]
     //   int8 mWeight (Q8) layout: [N/4, K/4-slice, N4, char4]
-    int idx_wk16 = 0 * 2 + kwl;   // used for fp16 (B.2 stub) pointer only
     int idx_n4   = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
-#ifdef FUSED_Q4_REAL_UNPACK
     // Reinterpret buffer(3) as the packed-quant element type — Q4 = uchar2
     // (4 nibbles = 4 K per slot), Q8 = char4 (4 int8 = 4 K per slot). Base
     // points to (N/4=idx_n4, K/4-slice=0, N4-inner=nl). Per-thread stride is
@@ -2323,28 +2247,23 @@ kernel void conv1x1_fused_q4_gemm_stage(
     #else
     auto xy_wt_i8 = ((const device char4*)wt_int8)  + (idx_n4 * cst.input_slice + 0) * 4 + nl;
     #endif
-#else
-    auto xy_wt   = wt_fp + (idx_n4 * ((cst.input_slice + 3) / 4) + idx_wk16) * 4 + nl;
-#endif
 
     int idx_sa = (ml * 2 + 0) * 8 + kl;                                  // input write offset in sdata (ftype4 units)
     int idx_sb = 256 + ((no * 4 + nl) * 2 + kwl) * 4 + 0;                // weight write offset (ftype4 units, base = 1024/4 = 256)
     int block  = (cst.input_slice + cst.block_size - 1) / cst.block_size;
 
     for (int bi = 0; bi < cst.block_size; ++bi) {
-#ifdef FUSED_Q4_REAL_UNPACK
         // Per-block scale/bias (same as split_k_sg branch of gemm_32x64_split_k_sg).
         // Layout of dequantScale: [N/4, block_size, 2, N4]. `nl` (0..3) picks the
         // N4-inner slot corresponding to this thread's OC row within the (uz*16+no)
         // group. The `/scale_coef` divides out the host-side compensation.
         FLOAT scale0        = FLOAT(dequantScale[((idx_n4 * cst.block_size + bi) * 2 + 0) * 4 + nl]) / (FLOAT)cst.scale_coef;
         FLOAT dequant_bias0 = FLOAT(dequantScale[((idx_n4 * cst.block_size + bi) * 2 + 1) * 4 + nl]) / (FLOAT)cst.scale_coef;
-#endif
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
         for (int z = zmin; z < zmax; z += 8) {
-            // ---- Phase 1: weight load (B.2 stub OR B.3 int4 unpack) ----
+            // ---- Phase 1: weight load (in-kernel int4/int8 unpack) ----
             //
             // Outer z counts K/4-slices; one iter per quant block since
             // block == zmax-zmin K/4-slices and we jump by 8 (=1 block for the
@@ -2352,7 +2271,6 @@ kernel void conv1x1_fused_q4_gemm_stage(
             // K/4-slices for THIS thread's (nl) N4-inner row, corresponding to
             // the kwl-half of the block (K positions 4*(kwl*4+i) .. 4*(kwl*4+i)+3).
             FLOAT4x4 w_dequant;
-#ifdef FUSED_Q4_REAL_UNPACK
             {
     #ifdef W_QUANT_4
                 // Mirror conv1x1_gemm_32x64_wquant_split_k_sg's inner unpack:
@@ -2382,12 +2300,6 @@ kernel void conv1x1_fused_q4_gemm_stage(
                 }
     #endif
             }
-#else
-            {
-                auto w = xy_wt[z]; // ftype4x4 from pre-dequanted fp16 buffer
-                w_dequant = FLOAT4x4((FLOAT4)w[0], (FLOAT4)w[1], (FLOAT4)w[2], (FLOAT4)w[3]);
-            }
-#endif
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -2537,17 +2449,12 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
     auto xy_in2 = in + idx_k4 * cst.input_size * cst.batch + idx_m2;
     auto xy_in3 = in + idx_k4 * cst.input_size * cst.batch + idx_m3;
 
-    int idx_wk16 = 0 * 2 + kwl;
     int idx_n4   = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
-#ifdef FUSED_Q4_REAL_UNPACK
     #ifdef W_QUANT_4
     auto xy_wt_i4 = ((const device uchar2*)wt_int4) + (idx_n4 * cst.input_slice + 0) * 4 + nl;
     #else
     auto xy_wt_i8 = ((const device char4*)wt_int8)  + (idx_n4 * cst.input_slice + 0) * 4 + nl;
     #endif
-#else
-    auto xy_wt   = wt_fp + (idx_n4 * ((cst.input_slice + 3) / 4) + idx_wk16) * 4 + nl;
-#endif
 
     // sA layout (ftype array): sdata[m * K + k] with M=64, K=32.
     // Per thread 4 rows m = 4*ml + r (r=0..3), K col group kl (K4 chunk at k = 4*kl).
@@ -2562,16 +2469,13 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
     int block  = (cst.input_slice + cst.block_size - 1) / cst.block_size;
 
     for (int bi = 0; bi < cst.block_size; ++bi) {
-#ifdef FUSED_Q4_REAL_UNPACK
         FLOAT scale0        = FLOAT(dequantScale[((idx_n4 * cst.block_size + bi) * 2 + 0) * 4 + nl]) / (FLOAT)cst.scale_coef;
         FLOAT dequant_bias0 = FLOAT(dequantScale[((idx_n4 * cst.block_size + bi) * 2 + 1) * 4 + nl]) / (FLOAT)cst.scale_coef;
-#endif
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
         for (int z = zmin; z < zmax; z += 8) {
             FLOAT4x4 w_dequant;
-#ifdef FUSED_Q4_REAL_UNPACK
             {
     #ifdef W_QUANT_4
                 #pragma unroll(4)
@@ -2593,12 +2497,6 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
                 }
     #endif
             }
-#else
-            {
-                auto w = xy_wt[z];
-                w_dequant = FLOAT4x4((FLOAT4)w[0], (FLOAT4)w[1], (FLOAT4)w[2], (FLOAT4)w[3]);
-            }
-#endif
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -2670,6 +2568,172 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
 #endif // USE_METAL_TENSOR_OPS
 }
 #endif // W_QUANT_4 || W_QUANT_8
+
+//======================================================================
+// conv1x1_gemm_64x64_split_k_sg — sg_matrix M=64 tile (fp16 weights,
+// outer-dequant path, non-tensor-API devices e.g. M4).
+// Same [N64, K32] weight tile per iteration as the 32x64 kernel, but each
+// threadgroup produces M64 output rows — grid.x halves, so weight DRAM
+// traffic across threadgroups halves.
+// 4 simdgroups: sgitg -> (M half = sgitg/2, N half = sgitg%2); each SG
+// computes an M32 x N32 tile = sgd[16] accumulators.
+// Threadgroup memory: loop phase A 4 KB + B 4 KB fp16; epilogue 16 KB
+// float C. sdata = 1024 FLOAT4 = 16 KB.
+//======================================================================
+kernel void conv1x1_gemm_64x64_split_k_sg(const device ftype4 *in            [[buffer(0)]],
+                            device ftype4 *out                 [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                            const device ftype4x4 *wt          [[buffer(3)]],// [N/4, K/16, N4, K4, K4] fp16 (pre-dequanted)
+                            const device ftype4 *biasTerms     [[buffer(4)]],
+                            uint3 gid                          [[threadgroup_position_in_grid]],
+                            uint                  tiitg[[thread_index_in_threadgroup]],
+                            uint                  tiisg[[thread_index_in_simdgroup]],
+                            uint                  sgitg[[simdgroup_index_in_threadgroup]]) {
+    /*
+     // Read (ftype offsets):
+     0~2047    ---> input : [K4, M64, K8]
+     2048~4095 ---> weight: [K4, K8, N64]
+     // Write:
+     FLOAT 0~4095 ---> per-SG [M32, N32] tiles at float offset 1024*sgitg
+     */
+    threadgroup FLOAT4 sdata[1024] = {0.f};
+
+    INIT_SIMDGROUP_MATRIX(4, 4, 16);
+
+    int rx = gid.x;// M/64
+    int uz = gid.y;// N/64
+
+    // A:[4, 2, 16] — ko: K4-chunk of K8 (0~3), kl: K2 (0~1), ml: 0~15 (4 M rows each)
+    int ko = tiitg / 32;
+    int rcl = tiitg % 32;
+    int kl = rcl / 16;
+    int ml = rcl % 16;
+    // B:[16, 2, 4] — identical to the 32x64 kernel (weight tile unchanged)
+    int no = tiitg / 8;
+    int sl = tiitg % 8;
+    int kwl = sl / 4;
+    int nl = sl % 4;
+
+    /** input:
+     threadgroup: [K4, M64, K8] -> [K4, M16, M4, K2, K4]
+     index: [ko, ml, M4, kl, K4] — each thread M4K4
+     layout: [K/4, M, K4] -> [K/32, K4, K2, M/64, M16, M4, K4]
+     */
+    /** weight:
+     threadgroup: [K4, K8, N64] -> [K2, K4, K4, N16, N4]
+     index: [kwl, K4, K4, no, nl] — each thread K4K4 (one ftype4x4)
+     layout: [N/4, K/16, N4, K4, K4] -> [N/64, N16, K/32, K2, N4, K4, K4]
+     */
+
+    // boundary limit
+    int mBound = cst.input_size * cst.batch;
+    int idx_m40 = (rx * 16 + ml) * 4 + 0 < mBound ? (rx * 16 + ml) * 4 + 0 : (mBound - 1);
+    int idx_m41 = (rx * 16 + ml) * 4 + 1 < mBound ? (rx * 16 + ml) * 4 + 1 : (mBound - 1);
+    int idx_m42 = (rx * 16 + ml) * 4 + 2 < mBound ? (rx * 16 + ml) * 4 + 2 : (mBound - 1);
+    int idx_m43 = (rx * 16 + ml) * 4 + 3 < mBound ? (rx * 16 + ml) * 4 + 3 : (mBound - 1);
+
+    int idx_k4 = ko * 2 + kl;
+    auto xy_in0 = in + idx_k4 * mBound + idx_m40;// [K/4, M, K4]
+    auto xy_in1 = in + idx_k4 * mBound + idx_m41;
+    auto xy_in2 = in + idx_k4 * mBound + idx_m42;
+    auto xy_in3 = in + idx_k4 * mBound + idx_m43;
+
+    int idx_n4 = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
+    auto xy_wt = wt + (idx_n4 * ((cst.input_slice + 3) / 4) + kwl) * 4 + nl;// [N/4, K/16, N4, K4, K4]
+
+    int idx_sa = (ko * 64 + ml * 4 + 0) * 2 + kl;                 // ftype4 units, [K4, M64, K2] x K4
+    int idx_sb = 2048 + (kwl * 16 + 0) * 64 + no * 4 + nl;        // ftype units, [K2, K16, N64]
+
+    for (int z = 0; z < cst.input_slice; z += 8) {
+        ftype4x4 w_local = xy_wt[z];
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        #pragma unroll(16)
+        for (int i = 0; i < 16; ++i) {
+            ((threadgroup ftype*)sdata)[idx_sb + 64 * i] = w_local[i / 4][i % 4];
+        }
+
+        #ifdef MNN_METAL_SRC_PROTECT
+        if (idx_k4 + z < cst.input_slice) {
+            ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)*(xy_in0);
+            ((threadgroup ftype4*)sdata)[idx_sa + 2] = (ftype4)*(xy_in1);
+            ((threadgroup ftype4*)sdata)[idx_sa + 4] = (ftype4)*(xy_in2);
+            ((threadgroup ftype4*)sdata)[idx_sa + 6] = (ftype4)*(xy_in3);
+        } else {
+            ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)(0);
+            ((threadgroup ftype4*)sdata)[idx_sa + 2] = (ftype4)(0);
+            ((threadgroup ftype4*)sdata)[idx_sa + 4] = (ftype4)(0);
+            ((threadgroup ftype4*)sdata)[idx_sa + 6] = (ftype4)(0);
+        }
+        #else
+        ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)*(xy_in0);
+        ((threadgroup ftype4*)sdata)[idx_sa + 2] = (ftype4)*(xy_in1);
+        ((threadgroup ftype4*)sdata)[idx_sa + 4] = (ftype4)*(xy_in2);
+        ((threadgroup ftype4*)sdata)[idx_sa + 6] = (ftype4)*(xy_in3);
+        #endif
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        /*
+        A: [K4, M64, K8] -> per-SG M half at ftype offset 256*(sgitg/2)
+        B: [K4, K8, N64] -> per-SG N half at ftype offset 2048 + 32*(sgitg%2)
+        */
+        threadgroup ftype * sdata_a = (threadgroup ftype*)sdata + 256 * (sgitg / 2);
+        threadgroup ftype * sdata_b = (threadgroup ftype*)sdata + 2048 + 32 * (sgitg % 2);
+
+        #pragma unroll(4)
+        for (short ik = 0; ik < 4; ik++) {
+            simdgroup_load(sga[0], (const threadgroup ftype*)sdata_a + 512 * ik +   0, 8);
+            simdgroup_load(sga[1], (const threadgroup ftype*)sdata_a + 512 * ik +  64, 8);
+            simdgroup_load(sga[2], (const threadgroup ftype*)sdata_a + 512 * ik + 128, 8);
+            simdgroup_load(sga[3], (const threadgroup ftype*)sdata_a + 512 * ik + 192, 8);
+
+            simdgroup_load(sgb[0], (const threadgroup ftype*)sdata_b + 512 * ik +  0, 64);
+            simdgroup_load(sgb[1], (const threadgroup ftype*)sdata_b + 512 * ik +  8, 64);
+            simdgroup_load(sgb[2], (const threadgroup ftype*)sdata_b + 512 * ik + 16, 64);
+            simdgroup_load(sgb[3], (const threadgroup ftype*)sdata_b + 512 * ik + 24, 64);
+
+            simdgroup_barrier(mem_flags::mem_none);
+            SIMDGROUP_MATRIX_FMA(4, 4);
+            simdgroup_barrier(mem_flags::mem_none);
+        }
+
+        xy_in0 += 8 * mBound;
+        xy_in1 += 8 * mBound;
+        xy_in2 += 8 * mBound;
+        xy_in3 += 8 * mBound;
+    }
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    threadgroup FLOAT * sdata_c = (threadgroup FLOAT*)sdata + 1024 * sgitg;
+    SIMDGROUP_MATRIX_STORE(sdata_c, 16);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Epilogue: 128 threads x 8 stores cover the [M64, N64] tile.
+    // mlc: output row within tile (0~63); nh: N32 half (0~1).
+    // Source: SG (msg*2 + nh) tile, sgd index j*4+mi, 8x8 row-major ld 8.
+    {
+        int mlc = tiitg % 64;
+        int nh  = tiitg / 64;
+        int msg = mlc / 32;
+        int mi  = (mlc % 32) / 8;
+        int mr  = mlc % 8;
+        threadgroup FLOAT * csrc = (threadgroup FLOAT*)sdata + 1024 * (msg * 2 + nh);
+        if ((rx * 64 + mlc) < mBound) {
+            for (int n4o = 0; n4o < 8; ++n4o) {
+                int n4 = nh * 8 + n4o;                  // N4 group within N64 (0~15)
+                if ((uz * 16 + n4) < cst.output_slice) {
+                    FLOAT4 val = *((threadgroup FLOAT4*)(csrc + 64 * ((n4o / 2) * 4 + mi) + mr * 8 + (n4o % 2) * 4));
+                    out[(uz * 16 + n4) * cst.output_size * cst.batch + (rx * 64 + mlc)] =
+                        activate(ftype4(val + FLOAT4(biasTerms[uz * 16 + n4])), cst.activation);
+                }
+            }
+        }
+    }
+}
 )metal";
 
 static const char* gConv1x1WfpSgReduce = R"metal(
@@ -3062,24 +3126,6 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
                             const device ftype4 *biasTerms_up               [[buffer(8)]],
                             const device ftype4 *dequantScale_up            [[buffer(9)]],
                             constant float *gate_up_seg                     [[buffer(14)]],
-                        #elif defined(QKV_FUSED)
-                            device ftype4 *out_k                            [[buffer(6)]],
-                        #ifdef W_QUANT_4
-                            const device ushort4 *wt_k                      [[buffer(7)]],
-                        #elif defined(W_QUANT_8)
-                            const device MNN::char4x4 *wt_k                [[buffer(7)]],
-                        #endif
-                            const device ftype4 *biasTerms_k                [[buffer(8)]],
-                            const device ftype4 *dequantScale_k             [[buffer(9)]],
-                            device ftype4 *out_v                            [[buffer(10)]],
-                        #ifdef W_QUANT_4
-                            const device ushort4 *wt_v                      [[buffer(11)]],
-                        #elif defined(W_QUANT_8)
-                            const device MNN::char4x4 *wt_v                [[buffer(11)]],
-                        #endif
-                            const device ftype4 *biasTerms_v                [[buffer(12)]],
-                            const device ftype4 *dequantScale_v             [[buffer(13)]],
-                            constant float *qkv_seg                         [[buffer(14)]],
                         #endif
                         #ifdef LN_FUSED
                             const device ftype4 *ln_residual_in             [[buffer(20)]],
@@ -3098,42 +3144,8 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         biasTerms = biasTerms_up;
         dequantScale = dequantScale_up;
     }
-#elif defined(QKV_FUSED)
-    // qkv_seg: [0]=q_groups, [1]=k_groups, [2]=k_oc_slice, [3]=v_oc_slice, [4]=k_scale_coef, [5]=v_scale_coef
-    int qkv_q_groups = (int)qkv_seg[0];
-    int qkv_k_groups = (int)qkv_seg[1];
-    int local_gid_x = gid.x;
-    int cur_output_slice = cst.output_slice;
-    float cur_scale_coef = cst.scale_coef;
-    // Use local pointer variables instead of reassigning kernel parameters
-    // to avoid potential Metal compiler optimization issues with parameter pointers
-    device ftype4 *cur_out = out;
-#ifdef W_QUANT_4
-    const device ushort4 *cur_wt = wt;
-#elif defined(W_QUANT_8)
-    const device MNN::char4x4 *cur_wt = wt;
-#endif
-    const device ftype4 *cur_bias = biasTerms;
-    const device ftype4 *cur_dequant = dequantScale;
-    if ((int)gid.x >= qkv_q_groups + qkv_k_groups) {
-        // V segment
-        local_gid_x = (int)gid.x - qkv_q_groups - qkv_k_groups;
-        cur_out = out_v; cur_wt = wt_v; cur_bias = biasTerms_v; cur_dequant = dequantScale_v;
-        cur_output_slice = (int)qkv_seg[3];
-        cur_scale_coef = qkv_seg[5];
-    } else if ((int)gid.x >= qkv_q_groups) {
-        // K segment
-        local_gid_x = (int)gid.x - qkv_q_groups;
-        cur_out = out_k; cur_wt = wt_k; cur_bias = biasTerms_k; cur_dequant = dequantScale_k;
-        cur_output_slice = (int)qkv_seg[2];
-        cur_scale_coef = qkv_seg[4];
-    }
 #endif
 
-#ifdef QKV_FUSED
-    const int uz = local_gid_x * 2 + sgitg;
-    if (uz >= cur_output_slice) return;
-#else
     // 2 simdgroups per threadgroup, each handles one output_slice independently
     const int uz = gid.x * 2 + sgitg;
     if (uz >= cst.output_slice) return;
@@ -3147,27 +3159,18 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         cur_scale_coef = gate_up_seg[0];
     }
     #endif
-#endif
 
     const int area_size = cst.output_size * cst.batch;
-#ifdef QKV_FUSED
-    auto xy_wt = cur_wt + uz * cst.input_slice;
-    auto xy_in0 = in;
-    auto biasValue = FLOAT4(cur_bias[uz]);
-#else
     auto xy_wt = wt + uz * cst.input_slice;
     auto xy_in0 = in;
     auto biasValue = FLOAT4(biasTerms[uz]);
-#endif
 
 #ifdef LN_FUSED
     float sq_sum = 0.0f;
     // Only one threadgroup should write ln_residual_out to avoid races
-    // when multiple segments (QKV) or threadgroups process the same input slices.
+    // when multiple threadgroups process the same input slices.
     bool ln_write_residual = (sgitg == 0
-    #ifdef QKV_FUSED
-        && (int)gid.x < qkv_q_groups && local_gid_x == 0
-    #elif defined(GATE_UP_FUSED)
+    #ifdef GATE_UP_FUSED
         && gid.z == 0 && gid.x == 0
     #else
         && gid.x == 0
@@ -3209,13 +3212,8 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     FLOAT4 result = FLOAT4(0);
 
     for (int bi = outer_index; bi < cst.block_size; bi += outer_step) {
-#ifdef QKV_FUSED
-        FLOAT4 scale = FLOAT4(cur_dequant[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cur_scale_coef;
-        FLOAT4 dequant_bias = FLOAT4(cur_dequant[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cur_scale_coef;
-#else
         FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cur_scale_coef;
         FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cur_scale_coef;
-#endif
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
@@ -3280,11 +3278,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     result = simd_sum(result);
 
     if (tiisg == 0) {
-#ifdef QKV_FUSED
-        cur_out[uz * area_size] = activate(ftype4(result + biasValue), cst.activation);
-#else
         out[uz * area_size] = activate(ftype4(result + biasValue), cst.activation);
-#endif
     }
 }
 
@@ -3448,17 +3442,10 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
                             uint3 gid[[threadgroup_position_in_grid]],
                             uint  tiisg[[thread_index_in_simdgroup]],
                             uint  sgitg[[simdgroup_index_in_threadgroup]]) {
-    // GEMV_G16_SGS: number of simdgroups per threadgroup.
-    // Default = 2 (M4 / older Apple GPU). Set to 4 on M5-class wide-SM devices
-    // via the "G16_4SG" macro from the dispatcher, halving the grid.x count
-    // for large lm_head convolutions.
-    // Each simdgroup still computes 8 output data (2 oc_4).
-#ifdef G16_4SG
-    const int GEMV_G16_SGS = 4;
-#else
+    // 2 simdgroups per threadgroup; each simdgroup computes 8 output data (2 oc_4).
     const int GEMV_G16_SGS = 2;
-#endif
-    int uz = 2 * (gid.x * GEMV_G16_SGS + sgitg);
+    const int G16_ROWS = 2;
+    int uz = G16_ROWS * (gid.x * GEMV_G16_SGS + sgitg);
     if(uz >= cst.output_slice) {
         return;
     }

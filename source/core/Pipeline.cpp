@@ -901,6 +901,13 @@ ErrorCode Pipeline::fixResizeCache() {
             info.computeCache.close(false);
             continue;
         }
+        // KV-cache attention's onResize bakes meta-driven state (kv length, grid
+        // sizes) that changes every decode step even though tensor shapes are
+        // static — caching it freezes the attention window. Always re-resize.
+        if (info.op->type() == OpType_Attention || info.op->type() == OpType_LinearAttention) {
+            info.computeCache.close(false);
+            continue;
+        }
         info.computeCache.close(true);
         if (info.type == Schedule::CONSTANT) {
             continue;

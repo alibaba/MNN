@@ -157,6 +157,10 @@ struct softmax_shape {
     int axis_length;
     int outside_size;
     int axis_align_length;
+    // CAUSAL_BOUND only: outside is [B*H, q_piece]; row q_local = gid.y % q_piece_len
+    // has valid prefix length min(axis_length, causal_base + q_local).
+    int q_piece_len;
+    int causal_base;
 };
 #define SIMD_GROUP_WIDTH 32
 
@@ -171,16 +175,37 @@ kernel void softmax_plane(const device ftype *in [[buffer(0)]],
     long out_offset = (long)gid.y * s.axis_align_length * s.inside_size + gid.x;
     auto axis_in  = in + in_offset;
     auto axis_out = out + out_offset;
+#ifdef CAUSAL_BOUND
+    // Causal prefill: rows only attend to the valid prefix; the upper-triangle
+    // region of the QK output is neither read nor written here. Zero-pad past
+    // the valid prefix so that AV in prefill_qkv can read the tile boundary
+    // safely without touching stale memory beyond the softmax write.
+    //
+    // The pad end is rounded up to a 32-scalar boundary so both tile shapes
+    // are safe:
+    //   * non-tensor prefill_qkv: tile M=16, K=8; needs pad >= 16 rows worth
+    //     of zeros past the last row's valid_len.
+    //   * tensor prefill_qkv: tile M=32, K=32; the 32-row tile has
+    //     max_valid - min_valid = 31 in a single tile and reads a K=32 tile
+    //     at a time — the pad must be >= 32 and 32-aligned so av_k_upper can
+    //     be picked to satisfy X <= min_pad_end for every row in the tile.
+    int q_local = (int)gid.y % s.q_piece_len;
+    int valid_len = min(s.axis_length, s.causal_base + q_local);
+    int pad_end = min(s.axis_align_length, ((valid_len + 32 + 31) / 32) * 32);
+#else
+    int valid_len = s.axis_length;
+    int pad_end = s.axis_align_length;
+#endif
     float max1 = -FLT_MAX;
-    for (int i = 0; i < s.axis_length; i++) {
+    for (int i = 0; i < valid_len; i++) {
         max1 = max(max1, float(axis_in[i * s.inside_size]));
     }
     float sum1 = 0;
-    for (int i = 0; i < s.axis_length; i++) {
+    for (int i = 0; i < valid_len; i++) {
         sum1 += exp(float(axis_in[i * s.inside_size]) - float(max1));
     }
-    for (int i = 0; i < s.axis_align_length; i++) {
-        axis_out[i * s.inside_size] = i >= s.axis_length ? ftype(0.0) : ftype(exp(float(axis_in[i * s.inside_size]) - float(max1)) / sum1);
+    for (int i = 0; i < pad_end; i++) {
+        axis_out[i * s.inside_size] = i >= valid_len ? ftype(0.0) : ftype(exp(float(axis_in[i * s.inside_size]) - float(max1)) / sum1);
     }
 }
 
@@ -196,18 +221,29 @@ kernel void softmax_plane_sg(const device ftype *in     [[buffer(0)]],
     long out_offset = (long)gid.y * s.axis_align_length * s.inside_size + gid.x;
     auto axis_in  = in + in_offset;
     auto axis_out = out + out_offset;
+#ifdef CAUSAL_BOUND
+    int q_local = (int)gid.y % s.q_piece_len;
+    int valid_len = min(s.axis_length, s.causal_base + q_local);
+    // Pad past valid to a 32-scalar boundary (see softmax_plane comment above
+    // for why 32-aligned +32 is required to keep both M=16 and M=32 prefill_qkv
+    // tiles safe).
+    int pad_end = min(s.axis_align_length, ((valid_len + 32 + 31) / 32) * 32);
+#else
+    int valid_len = s.axis_length;
+    int pad_end = s.axis_align_length;
+#endif
     float max1 = -FLT_MAX;
-    for (int i = tiisg; i < s.axis_length; i+=SIMD_GROUP_WIDTH) {
+    for (int i = tiisg; i < valid_len; i+=SIMD_GROUP_WIDTH) {
         max1 = max(max1, float(axis_in[i * s.inside_size]));
     }
     max1 = simd_max(max1);
     float sum1 = 0;
-    for (int i = tiisg; i < s.axis_length; i+=SIMD_GROUP_WIDTH) {
+    for (int i = tiisg; i < valid_len; i+=SIMD_GROUP_WIDTH) {
         sum1 += exp(float(axis_in[i * s.inside_size]) - float(max1));
     }
     sum1 = simd_sum(sum1);
-    for (int i = tiisg; i < s.axis_align_length; i+=SIMD_GROUP_WIDTH) {
-        axis_out[i * s.inside_size] = i >= s.axis_length ? ftype(0.0) : ftype(exp(float(axis_in[i * s.inside_size]) - float(max1)) / sum1);
+    for (int i = tiisg; i < pad_end; i+=SIMD_GROUP_WIDTH) {
+        axis_out[i * s.inside_size] = i >= valid_len ? ftype(0.0) : ftype(exp(float(axis_in[i * s.inside_size]) - float(max1)) / sum1);
     }
 }
 

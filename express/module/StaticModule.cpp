@@ -469,7 +469,51 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
     int curStatus = 0;
     if (mResource->mModes.inputMode == Interpreter::Session_Input_User) {
         pipelineInfo.first.inputBackendChange = false;
-        bool needResize = mResource->mUseContentInputs;
+        bool needResize = false;
+        if (mResource->mUseContentInputs) {
+            // Shape inference reads some inputs' CONTENT (e.g. the LLM logits-index
+            // scalar feeding a StridedSlice begin), which historically forced a
+            // full re-resize EVERY forward. Cache those inputs' bytes (tiny
+            // integer control tensors) and only force resize when one changed.
+            // MNN_LLM_CONTENT_RESIZE_ALWAYS=1 restores the legacy behavior.
+            static const bool sAlwaysResize = []{
+                const char* e = getenv("MNN_LLM_CONTENT_RESIZE_ALWAYS");
+                return e != nullptr && e[0] == '1';
+            }();
+            if (sAlwaysResize) {
+                needResize = true;
+            } else {
+                constexpr size_t kMaxContentCacheBytes = 4096;
+                if (mContentCache.size() != inputs.size()) {
+                    mContentCache.clear();
+                    mContentCache.resize(inputs.size());
+                    needResize = true;
+                }
+                for (int i = 0; i < inputs.size(); ++i) {
+                    if (nullptr == mInputTensors[i]) {
+                        continue;
+                    }
+                    auto inputTensor = Utils::getTensor(inputs[i]);
+                    if (inputTensor->getType().code == halide_type_float) {
+                        // integer tensors drive shape computation; float inputs
+                        // (embeddings / mask) do not feed shape inference
+                        continue;
+                    }
+                    auto size = inputTensor->usize();
+                    const void* host = inputTensor->host<void>();
+                    if (nullptr == host || size == 0 || size > kMaxContentCacheBytes) {
+                        needResize = true;
+                        continue;
+                    }
+                    auto& cache = mContentCache[i];
+                    if (cache.size() != size || 0 != ::memcmp(cache.data(), host, size)) {
+                        cache.resize(size);
+                        ::memcpy(cache.data(), host, size);
+                        needResize = true;
+                    }
+                }
+            }
+        }
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr == mInputTensors[i]) {
                 continue;
