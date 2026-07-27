@@ -1089,6 +1089,10 @@ void BinaryBlitTemplateInt32(uint8_t* output, const uint8_t* input, const uint8_
     int count = size[0] * size[1] * size[2];
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
+    if (opType == MNN::BinaryOpOperation_REALDIV) {
+        // Integer REALDIV is plain truncating division, same as CPU backend
+        opType = MNN::BinaryOpOperation_DIV;
+    }
     #define COMPUTE_INT(TYPE, TOut)\
     if (opType == MNN::BinaryOpOperation_##TYPE ) {\
             Binary##TYPE<<<block_num, threads_num>>>((const int*)input, (const int*)(input1), (TOut*)output,\
