@@ -24,7 +24,11 @@ MetalPooling::MetalPooling(Backend *backend, const Pool *pooling)
       mStrideY(pooling->strideY()),
       mPadX(pooling->padX()),
       mPadY(pooling->padY()) {
-    // nothing to do
+    if (!pooling->isGlobal() && pooling->pads() != nullptr && pooling->padType() == PoolPadType_CAFFE &&
+        pooling->pads()->size() == 4) {
+        mPadY = pooling->pads()->data()[0];
+        mPadX = pooling->pads()->data()[1];
+    }
 }
 
 ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
