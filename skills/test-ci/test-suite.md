@@ -142,6 +142,38 @@ recommending deletion:
 2. If its name prefix matches an existing stage (e.g. `op/*`), it is picked up
    automatically — no JSON change needed. Otherwise add a dedicated stage.
 
+### Attention causal-mask assumption (⚠️ non-causal models on Metal)
+
+Metal backend prefill has a **silent-error mode**: both the three-kernel path
+(with CAUSAL_TRI / CAUSAL_BOUND, `f28510967` / `78ae7bc55`) and the flash-attn
+path (`MetalFlashAttnShader.hpp`) hard-code the assumption **"attention mask
+is causal lower-triangular"**. Non-causal architectures (Sliding Window
+Attention: Mistral 7B v0.1 / Gemma-2 / Ministral; Prefix LM: Baichuan-Base;
+encoder / bidirectional: BERT-family, T5, UL2) will **produce garbled tokens
+with no crash and no warning** when routed through Metal.
+
+The default LLM smoke stage uses Qwen2.5-0.5B (causal), so it will not catch
+this regression. When adding a **non-causal model** to `test_stages.json`
+smoke list, or when introducing a new Attention / softmax / prefill_qk /
+prefill_qkv shader change, you must:
+
+1. Include a diff-based A/B in the smoke: run once with `MNN_METAL_QK_CAUSAL_TRI=0`
+   and once with default; the first 20 greedy tokens must be identical
+   (indicates the model actually is causal-safe under CAUSAL_TRI/BOUND).
+   If they diverge, the model is not causal and the smoke must pin
+   `MNN_METAL_QK_CAUSAL_TRI=0`.
+2. For any model configured with `attention_mode >= 8` (FA enabled), also
+   verify with `MNN_ENABLE_FLASH_ATTN_PREFILL=0` — FA's causal hard-code
+   has no opt-out short of disabling FA entirely.
+3. Add the safe env pin to the model's stage entry (via a wrapper script or a
+   TODO in `test_stages.json`), and note in `_documentation.skip_rationale`
+   or a new note field why it is required.
+
+Full risk breakdown, gate conditions, and remediation options: see
+[`skills/general-debug/SKILL.md`](../general-debug/SKILL.md) §7 (后端 kernel 隐式假设违反)
+and [`skills/metal-optimize/build-and-test.md`](../metal-optimize/build-and-test.md)
+§ "Attention causal 假设".
+
 For deeper work on operators themselves, see the
 [`add-new-op`](../add-new-op/SKILL.md) skill.
 

@@ -218,6 +218,23 @@ void Sampler::buildPipeline() {
 
 int Sampler::sample(Express::VARP logits) {
     Timer _t;
+    if (mConfig.type == "greedy") {
+        // Fast path: argmax directly on the mapped logits, skipping the
+        // vocab-sized SamplerState copy (~600 KB per token for Qwen3 vocab).
+        // Same first-max tie-break as stepSelect.
+        auto ptr = logits->readMap<float>();
+        int lastDim = logits->getInfo()->dim.back();
+        int bestIdx = 0;
+        float bestScore = ptr[0];
+        for (int i = 1; i < lastDim; ++i) {
+            if (ptr[i] > bestScore) {
+                bestScore = ptr[i];
+                bestIdx = i;
+            }
+        }
+        mContext->sample_us += _t.durationInUs();
+        return bestIdx;
+    }
     SamplerState state = createState(logits);
     for (auto& step : mPipeline) {
         step(state);

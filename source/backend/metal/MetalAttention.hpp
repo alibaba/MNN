@@ -79,6 +79,30 @@ private:
     bool mQkvSimdMatrix = false;
     bool mDecodeQkSoftmax = false;
     bool mCopySimdReduce = false;
+    // Split-KV decode attention (llama.cpp flash_attn_ext_vec-style): fused
+    // QK + online-softmax + AV with KV strided across workgroups, plus a
+    // second reduce dispatch combining per-workgroup partials. Env-gated via
+    // MNN_METAL_DECODE_SPLITKV=1 (A/B). fp16 KV, seq==1, trivial/no mask only.
+    bool mDecodeSplitKV = false;
+    int mSplitKVNwgMax = 32;
+    id<MTLComputePipelineState> mKernel_splitkv = nil;
+    id<MTLComputePipelineState> mKernel_splitkv_reduce = nil;
+    std::shared_ptr<Tensor> mTempSplitKV;
+    // Causal triangular dispatch for prefill_qk (simdgroup-matrix path):
+    // launch only the trapezoid of tiles at or below the causal diagonal;
+    // the CAUSAL_BOUND softmax reduces/writes only each row's causally-valid
+    // prefix (+24 zero pad) and prefill_qkv truncates its AV loop, so the
+    // upper-triangle region of mTempQK/mTempSoftMax is never read or written.
+    // Interior (fully-valid) tiles also skip per-element mask logic. Assumes
+    // causal masks (same assumption as the previous per-tile skip).
+    // Env MNN_METAL_QK_CAUSAL_TRI=0 disables (A/B baseline = rectangular grid).
+    bool mQkCausalTri = false;
+    // CAUSAL_BOUND: bounded softmax + prefill_qkv AV early-exit. Independent of
+    // the QK-side CAUSAL_TRI trapezoid dispatch — this can activate on the
+    // tensor-API path (M5+) too, whereas CAUSAL_TRI is currently only wired for
+    // the simdgroup-matrix path (16x16 tile coord inversion). Setting
+    // MNN_METAL_QK_CAUSAL_TRI=0 disables both.
+    bool mCausalBound = false;
     // Fused prefill flash-attention. Currently opt-in via env var
     // MNN_ENABLE_FLASH_ATTN_PREFILL=1 and gated to head_dim in {64,128},
     // non-quant KV, causal-only. Kernel body TBD in follow-up commit; for now
