@@ -83,7 +83,7 @@ static void applyL2NormAndScale(float* q, float* k, int dk) {
 
 // Build a LinearAttention op as a Module so we can run forward(). Uses the
 // same FlatBuffers-based construction as LinearAttentionTest.
-static std::shared_ptr<Module> makeModule(int numKHeads, int numVHeads, int dk, int dv) {
+static std::shared_ptr<Module> makeModule(int numKHeads, int numVHeads, int dk, int dv, bool useL2Norm) {
     auto qkv = _Input();
     auto gate = _Input();
     auto beta = _Input();
@@ -99,7 +99,7 @@ static std::shared_ptr<Module> makeModule(int numKHeads, int numVHeads, int dk, 
     p->num_v_heads = numVHeads;
     p->head_k_dim = dk;
     p->head_v_dim = dv;
-    p->use_qk_l2norm = true;
+    p->use_qk_l2norm = useL2Norm;
 
     auto out = Variable::create(Expr::create(op.get(), {qkv, gate, beta, convW}));
     auto buffer = Variable::save({out});
@@ -126,6 +126,7 @@ struct Case {
     int dv;
     int L;        // 1 → exercises gated_delta_rule_decode; >1 → gated_delta_rule_mnn (prefill)
     int numSteps; // number of forward() invocations; state accumulates across steps
+    bool useL2Norm;
 };
 
 // Run one Case: drives the LinearAttention module forward `numSteps` times,
@@ -147,7 +148,7 @@ static bool runCase(const Case& cs, std::mt19937& rng, float tolerance) {
     const int D = 2 * key_dim + val_dim;
     const int gqa_factor = (Hv > Hk) ? (Hv / Hk) : 1;
 
-    auto module = makeModule(Hk, Hv, dk, dv);
+    auto module = makeModule(Hk, Hv, dk, dv, cs.useL2Norm);
     if (!module) {
         MNN_PRINT("FusedGatedDeltaTest[%s]: module creation failed\n", cs.name);
         return false;
@@ -224,7 +225,14 @@ static bool runCase(const Case& cs, std::mt19937& rng, float tolerance) {
                     for (int i = 0; i < dv; ++i) {
                         vLocal[i] = convOut[(b * D + 2 * key_dim + h * dv + i) * L + t];
                     }
-                    applyL2NormAndScale(qLocal.data(), kLocal.data(), dk);
+                    if (cs.useL2Norm) {
+                        applyL2NormAndScale(qLocal.data(), kLocal.data(), dk);
+                    } else {
+                        const float qScale = 1.0f / std::sqrt(static_cast<float>(dk));
+                        for (int i = 0; i < dk; ++i) {
+                            qLocal[i] *= qScale;
+                        }
+                    }
                     float decay = std::exp(gPtr[b * L * Hv + t * Hv + h]);
                     float beta_t = bPtr[b * L * Hv + t * Hv + h];
                     float* state = refS.data() + (b * Hv + h) * dk * dv;
@@ -269,16 +277,21 @@ public:
         //  - prefill (L>1): multi-head + GQA at dk=128/dv=128 to exercise the
         //    gated_delta_rule_mnn path with the shared per-thread buffer
         std::vector<Case> cases = {
-            // {name,                    Hk, Hv,  dk,  dv,  L, steps}
-            {"decode_1h_dk64_dv64", 1, 1, 64, 64, 1, 4},
-            {"decode_1h_dk64_dv128", 1, 1, 64, 128, 1, 4},
-            {"decode_1h_dk128_dv64", 1, 1, 128, 64, 1, 4},
-            {"decode_1h_dk128_dv128", 1, 1, 128, 128, 1, 4},    // ← Qwen3-Next shape
-            {"decode_4h_dk128_dv128", 4, 4, 128, 128, 1, 3},    // multi-head decode
-            {"decode_gqa2_dk128_dv128", 2, 4, 128, 128, 1, 3},  // GQA 2:1 decode
-            {"prefill_1h_dk128_dv128", 1, 1, 128, 128, 8, 2},   // L>1 single head
-            {"prefill_4h_dk128_dv128", 4, 4, 128, 128, 8, 2},   // L>1 multi-head
-            {"prefill_gqa2_dk128_dv128", 2, 4, 128, 128, 8, 2}, // L>1 + GQA
+            // {name, Hk, Hv, dk, dv, L, steps, useL2Norm}
+            {"decode_1h_dk64_dv64", 1, 1, 64, 64, 1, 4, true},
+            {"decode_1h_dk64_dv128", 1, 1, 64, 128, 1, 4, true},
+            {"decode_1h_dk128_dv64", 1, 1, 128, 64, 1, 4, true},
+            {"decode_1h_dk128_dv128", 1, 1, 128, 128, 1, 4, true}, // Qwen3-Next shape
+            {"decode_1h_dk63_dv65", 1, 1, 63, 65, 1, 4, true},
+            {"decode_1h_dk127_dv129", 1, 1, 127, 129, 1, 4, true},
+            {"decode_4h_dk128_dv128", 4, 4, 128, 128, 1, 3, true},
+            {"decode_gqa2_dk128_dv128", 2, 4, 128, 128, 1, 3, true},
+            {"prefill_1h_dk128_dv128", 1, 1, 128, 128, 8, 2, true},
+            {"prefill_4h_dk128_dv128", 4, 4, 128, 128, 8, 2, true},
+            {"prefill_gqa2_dk128_dv128", 2, 4, 128, 128, 8, 2, true},
+            {"prefill_1h_dk63_dv65", 1, 1, 63, 65, 5, 2, true},
+            {"decode_no_l2_dk64_dv128", 1, 1, 64, 128, 1, 4, false},
+            {"prefill_no_l2_dk128_dv128", 1, 1, 128, 128, 8, 2, false},
         };
 
         // fp16 path accumulates more round-off — loosen tolerance for low-precision.
