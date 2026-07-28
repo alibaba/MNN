@@ -882,7 +882,8 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
                 // ── Step 3+4: L2 Normalization + Scale, plus dot(k, q) ──
                 float kq = 0.0f;
                 if (bytes == 4) {
-                    kq = gcore->MNNNormalizeQKAndDot(reinterpret_cast<float*>(q_local), reinterpret_cast<float*>(k_local), qScale, useL2Norm, d_k);
+                    kq = gcore->MNNNormalizeQKAndDot(reinterpret_cast<float*>(q_local),
+                                                     reinterpret_cast<float*>(k_local), qScale, useL2Norm, d_k);
                 } else if (useL2Norm) {
                     const float eps = 1e-6f;
                     float qSumSq = 0.0f, kSumSq = 0.0f;
@@ -1044,7 +1045,8 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
             // ── Step 3+4: L2 Normalization + Scale, plus dot(k, q) ──
             float kq = 0.0f;
             if (bytes == 4) {
-                kq = gcore->MNNNormalizeQKAndDot(reinterpret_cast<float*>(q_local), reinterpret_cast<float*>(k_local), qScale, useL2Norm, d_k);
+                kq = gcore->MNNNormalizeQKAndDot(reinterpret_cast<float*>(q_local), reinterpret_cast<float*>(k_local),
+                                                 qScale, useL2Norm, d_k);
             } else if (useL2Norm) {
                 const float eps = 1e-6f;
                 float qSumSq = 0.0f, kSumSq = 0.0f;

@@ -56,6 +56,4 @@ void _AVX512_MNNInt8FunctionInit(void* functions, bool suppotVNNI);
 extern MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC16Functions[AVX512_INPUT_TILE_MAX];
 extern MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC32Functions[AVX512_INPUT_TILE_MAX];
 extern MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC48Functions[AVX512_INPUT_TILE_MAX];
-
 }
-
