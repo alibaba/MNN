@@ -344,7 +344,9 @@ class ModelMapper:
                 'q_proj': 'q_proj',
                 'k_proj': 'k_proj',
                 'v_proj': 'v_proj',
-                'o_proj': 'o_proj'
+                'o_proj': 'o_proj',
+                'q_norm': 'q_norm',
+                'k_norm': 'k_norm'
             }
         }
         self.regist('internvl_chat', intervl_map)
