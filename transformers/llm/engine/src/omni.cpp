@@ -180,7 +180,12 @@ std::vector<int> Omni::defaultVisionProcess(VARP image) {
                             MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
                             mVisionMean, mVisionNorm);
     image = Express::_Unsqueeze(image, {0});
-    image = Express::_Convert(image, NC4HW4);
+    auto visionInputOrder = NCHW;
+    auto visionInfo = mVisionModule->getInfo();
+    if (visionInfo != nullptr && !visionInfo->inputs.empty()) {
+        visionInputOrder = visionInfo->inputs[0].order;
+    }
+    image = Express::_Convert(image, visionInputOrder);
     auto imageEmbedding = mVisionModule->forward(image);
 
     mVisionEmbeddings.push_back(imageEmbedding);
