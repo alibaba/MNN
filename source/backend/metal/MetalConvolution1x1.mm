@@ -7,6 +7,7 @@
 //
 
 #import "backend/metal/MetalConvolution1x1.hpp"
+#import "backend/metal/MetalEnv.hpp"
 #import "core/Macro.h"
 #import "backend/metal/MetalBackend.hpp"
 #import "backend/metal/MetalSharedGather.hpp"
@@ -160,112 +161,6 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
     return true;
 }
 
-bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tensor* peerKOutput,
-                                          MetalConvolution1x1* peerV, const Tensor* peerVOutput) {
-    if (!mIs2sgDecode || !peerK->mIs2sgDecode || !peerV->mIs2sgDecode) {
-        return false;
-    }
-    // Leader = Q (this), Followers = K (peerK), V (peerV)
-    mIsQKVLeader = true;
-    mQKVPeerK = peerK;
-    mQKVPeerV = peerV;
-    mQKVPeerKOutput = peerKOutput;
-    mQKVPeerVOutput = peerVOutput;
-    peerK->mIsQKVFollower = true;
-    peerV->mIsQKVFollower = true;
-
-    // Build fused pipeline with QKV_FUSED macro
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    MetalRuntime* rt = (MetalRuntime *)backend->runtime();
-
-    std::string ftype4 = backend->useFp16InsteadFp32() ? "half4" : "float4";
-    std::vector<std::string> keys = {ftype4, "MNN_METAL_FLOAT32_COMPUTER"};
-    if (backend->useFp16InsteadFp32()) {
-        keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
-    }
-    if (mDequantBits == 4) {
-        keys.emplace_back("conv1x1_wquant_4");
-    } else if (mDequantBits == 8) {
-        keys.emplace_back("conv1x1_wquant_8");
-    }
-    keys.emplace_back("conv1x1_wquant_sg_reduce");
-    keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
-    keys.emplace_back("QKV_FUSED");
-
-    mQKVFusedPipeline = rt->findPipeline(keys);
-    if (nil == mQKVFusedPipeline) {
-        std::string ftype = backend->useFp16InsteadFp32() ? "half" : "float";
-        std::string ftype2 = backend->useFp16InsteadFp32() ? "half2" : "float2";
-        std::string ftype2x4 = backend->useFp16InsteadFp32() ? "half2x4" : "float2x4";
-        std::string ftype4x4 = backend->useFp16InsteadFp32() ? "half4x4" : "float4x4";
-
-        MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
-        auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
-        [dic setValue:@(ftype.c_str()) forKey:@"ftype"];
-        [dic setValue:@(ftype2.c_str()) forKey:@"ftype2"];
-        [dic setValue:@(ftype4.c_str()) forKey:@"ftype4"];
-        [dic setValue:@(ftype2x4.c_str()) forKey:@"ftype2x4"];
-        [dic setValue:@(ftype4x4.c_str()) forKey:@"ftype4x4"];
-        [dic setValue:@"1" forKey:@"MNN_METAL_FLOAT32_COMPUTER"];
-        if (backend->useFp16InsteadFp32()) {
-            [dic setValue:@"1" forKey:@"MNN_METAL_FLOAT16_STORAGE"];
-        }
-        if (mDequantBits == 4) {
-            [dic setValue:@"1" forKey:@"W_QUANT_4"];
-        } else if (mDequantBits == 8) {
-            [dic setValue:@"1" forKey:@"W_QUANT_8"];
-        }
-        [dic setValue:@"1" forKey:@"QKV_FUSED"];
-        option.preprocessorMacros = dic;
-
-        std::string sgrWqStr = std::string(gBasicConvPrefix) + gConv1x1WqSgReduce;
-        mQKVFusedPipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), "conv1x1_gemv_g4m1_2sg_wquant_sg", option);
-        rt->insertPipeline(keys, mQKVFusedPipeline);
-    }
-
-    if (nil == mQKVFusedPipeline) {
-        // Compilation failed, revert fusion
-        mIsQKVLeader = false;
-        mQKVPeerK = nullptr;
-        mQKVPeerV = nullptr;
-        peerK->mIsQKVFollower = false;
-        peerV->mIsQKVFollower = false;
-        return false;
-    }
-
-    // Compute segment info: Q groups, K groups, and output_slice for each
-    auto qParam = (Param *)mConstBuffer.contents;
-    auto kParam = (Param *)peerK->getConstBuffer().contents;
-    auto vParam = (Param *)peerV->getConstBuffer().contents;
-    int q_groups = (int)mThreads.first.width;   // UP_DIV(q_oc, 8)
-    int k_groups = (int)UP_DIV(peerK->getBias()->length(0), 2); // UP_DIV(k_oc_4, 2) = UP_DIV(k_oc, 8)
-    int v_groups = (int)UP_DIV(peerV->getBias()->length(0), 2);
-    // Recalculate from const buffer for accuracy
-    q_groups = UP_DIV(qParam->output_slice, 2);
-    k_groups = UP_DIV(kParam->output_slice, 2);
-    v_groups = UP_DIV(vParam->output_slice, 2);
-    int total_groups = q_groups + k_groups + v_groups;
-
-    // Create segment info buffer as float array:
-    // [0]=q_groups, [1]=k_groups, [2]=k_oc_slice, [3]=v_oc_slice, [4]=k_scale_coef, [5]=v_scale_coef
-    mQKVSegBuffer = backend->getConstBuffer(6 * sizeof(float));
-    auto segPtr = (float *)mQKVSegBuffer.contents;
-    segPtr[0] = (float)q_groups;
-    segPtr[1] = (float)k_groups;
-    segPtr[2] = (float)kParam->output_slice;
-    segPtr[3] = (float)vParam->output_slice;
-    segPtr[4] = kParam->scale_coef;
-    segPtr[5] = vParam->scale_coef;
-
-    // Save original grid before modifying (needed for fallback if buffer overlap detected)
-    mQKVOriginalGrid = mThreads.first;
-    // Update grid: total_groups in x, 1 in y (same as original 2sg decode)
-    mThreads.first = MTLSizeMake(total_groups, 1, 1);
-
-    return true;
-}
-
 bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor* residualInput,
                                         const Tensor* residualOutput, std::shared_ptr<Tensor> gamma, float eps) {
     if (!mIs2sgDecode) {
@@ -300,9 +195,7 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
     }
     keys.emplace_back("conv1x1_wquant_sg_reduce");
     keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
-    if (mIsQKVLeader) {
-        keys.emplace_back("QKV_FUSED");
-    } else if (mIsGateUpLeader) {
+    if (mIsGateUpLeader) {
         keys.emplace_back("GATE_UP_FUSED");
     }
     keys.emplace_back("LN_FUSED");
@@ -325,9 +218,7 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
         } else if (mDequantBits == 8) {
             [dic setValue:@"1" forKey:@"W_QUANT_8"];
         }
-        if (mIsQKVLeader) {
-            [dic setValue:@"1" forKey:@"QKV_FUSED"];
-        } else if (mIsGateUpLeader) {
+        if (mIsGateUpLeader) {
             [dic setValue:@"1" forKey:@"GATE_UP_FUSED"];
         }
         [dic setValue:@"1" forKey:@"LN_FUSED"];
@@ -363,15 +254,6 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     mGateUpFusedPipeline = nil;
     mGateUpSegBuffer = nil;
 
-    // Reset QKV fusion state on each resize
-    mIsQKVLeader = false;
-    mIsQKVFollower = false;
-    mQKVPeerK = nullptr;
-    mQKVPeerV = nullptr;
-    mQKVPeerKOutput = nullptr;
-    mQKVPeerVOutput = nullptr;
-    mQKVFusedPipeline = nil;
-    mQKVSegBuffer = nil;
 
     mHasLNFusion = false;
     mLNFusedPipeline = nil;
@@ -463,36 +345,6 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     if ((mDequantBits == 2 || mDequantBits == 3) && area > 1 && rt->supportSimdGroupMatrix()) {
         dequantInShader = false;
     }
-    // Tensor API path selection.
-    //
-    // Legacy rule (kept as opt-in via env): "prefer outer-dequant + tensor API
-    // GEMM on M5/A19+ because TensorCore is faster than sg_matrix". Measurement
-    // contradicts this on the workload we actually care about:
-    //
-    //   M5, Qwen3-4B pp512, W4-block32, fp16, 4 threads:
-    //     current default (tensor API on):   698 tok/s
-    //     llama.cpp Q4_0:                   1039 tok/s (+49%)
-    //     MNN with tensor API forced off:   ~980 tok/s (see below) -> closes most of the gap
-    //
-    //   MNN_METAL_OP_PROFILE breakdown showed 55.7% of prefill GPU time went to
-    //   `outdeq_gemm_USE_METAL_TENSOR_OPS` (conv1x1_gemm_32x64_split_k_sg tensor
-    //   path). The tensor API's matmul2d has 32×32×32 minimum tile — great when
-    //   M is large but Qwen3-4B pp512 sees M=512 which the sg_matrix 32×64
-    //   split-K path handles more efficiently on M5.
-    //
-    // Env override:
-    //   MNN_METAL_FORCE_TENSOR_API=1     force the legacy tensor API path (A/B)
-    //   MNN_METAL_FORCE_TENSOR_API=0     force in-shader sg_matrix path
-    //   unset  → new default: **do NOT force tensor API**, let the general
-    //           `dequantInShader` heuristic pick (in-shader for area<64;
-    //           outer-dequant + sg_matrix or tensor API path via the
-    //           conv1x1_gemm_32x64_split_k_sg USE_METAL_TENSOR_OPS macro
-    //           when the sg_matrix path selects tensor API from within).
-    //
-    // Note: tensor API is still applied inside `conv1x1_gemm_32x64_split_k_sg`
-    // when the outer-dequant path is chosen for other reasons — this override
-    // only affects the special-case "force outer-dequant on any tensor-API
-    // device" rule, not the finer-grained dispatch below.
     // Tensor API vs in-shader sg_matrix path for prefill (area > 1) with Q4/Q8.
     //
     // Default on M5+ (tensor API devices): route to outer-dequant + tensor API
@@ -503,7 +355,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     //   forced in-shader:      361 tok/s  (-48% — massive regression)
     //   llama.cpp Q4_0:       1039 tok/s (MNN gap: 33% behind)
     //
-    // Tested MNN_METAL_FORCE_TENSOR_API=0 (in-shader sg_matrix) on M5 and it
+    // Tested the in-shader sg_matrix route on M5 and it
     // regresses catastrophically because the in-shader Q4 sg_matrix kernels
     // (conv1x1_gemm_32x16_wquant_sg / 16x32_wquant_sg / 32x64_wquant_split_k_sg)
     // do NOT use tensor API — they're pure SIMD-matrix. For pp512-scale
@@ -515,37 +367,27 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     // level changes (better matmul2d tiling, weight prefetching, etc.), not
     // dispatcher-level rerouting.
     //
-    // Env:
-    //   MNN_METAL_FORCE_TENSOR_API=0  disables (in-shader sg_matrix) — A/B only
-    //   MNN_METAL_FORCE_TENSOR_API=1  redundant with default
     if (backend->isSupportTensorApi() && area > 1 && (mDequantBits == 4 || mDequantBits == 8)) {
-        static const int kForceTensorApi = []{
-            const char* e = getenv("MNN_METAL_FORCE_TENSOR_API");
-            if (e && e[0] == '0') return -1;
-            return 1;  // default on M5+: force outer-dequant + tensor API
-        }();
-        if (kForceTensorApi != -1) {
-            dequantInShader = false;
-        }
+        // On tensor-API devices (M5+) always force outer-dequant + tensor API.
+        dequantInShader = false;
     }
     // On non-tensor-API devices (M4 and below), choose in-shader vs outer-dequant
-    // based on weight size. For large weights (ic*oc > 4M), in-shader dequant avoids
-    // the outer-dequant double-pass (dequant Q4→fp16 then GEMM). For small weights,
-    // the optimized fp GEMM kernel outperforms in-shader dequant despite the extra pass.
+    // based on weight size AND prompt length. In-shader dequant re-unpacks the Q4
+    // weights once per M-tile (unpack count ~ area/32), so it only wins for large
+    // weights at short area; outer-dequant pays a fixed double-pass instead.
+    // M4 calibration (EXP11, Qwen3-4B): pp256 in-shader +1.2%, pp512 parity,
+    // pp768 outdeq +2.4%, pp2048 outdeq +5.3%; Qwen3.5-2B pp2048 outdeq +3.0%.
+    // ⚠️ M3 has a regression precedent with this heuristic — re-validate there
+    // before relying on the 512 boundary outside M4.
     // Env MNN_METAL_PREFILL_INSHADER_DEQUANT=1 forces on, =0 forces off.
     if (!backend->isSupportTensorApi() && rt->supportSimdGroupMatrix() && area > 1 &&
         (mDequantBits == 4 || mDequantBits == 8)) {
-        static const int kForceInShader = []{
-            const char* e = getenv("MNN_METAL_PREFILL_INSHADER_DEQUANT");
-            if (e && e[0] == '1') return 1;
-            if (e && e[0] == '0') return -1;
-            return 0;
-        }();
+        const int kForceInShader = MetalEnv::get().prefillInshaderDequant;
         if (kForceInShader == 1) {
             dequantInShader = true;
         } else if (kForceInShader == -1) {
             dequantInShader = false;
-        } else if ((size_t)ic * oc > 4 * 1024 * 1024) {
+        } else if ((size_t)ic * oc > 4 * 1024 * 1024 && area < 512) {
             dequantInShader = true;
         }
     }
@@ -621,50 +463,12 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), piece, 1), MTLSizeMake(32, 1, 1));
                 } else if(mDequantBits != 2 && mDequantBits != 3 && oc > 16384 && oc_4 % 2 == 0) {
                     // g16 path not extended for W_QUANT_2/3, fall back to g8.
-                    //
-                    // G16_4SG (decode lm_head optimization):
-                    //   Baseline g16 = 2 simdgroups (SGS=2) per TG, threadgroup size 64,
-                    //   each TG covers 16 OC (2 SG × 8 OC/SG).
-                    //   G16_4SG = 4 SG per TG, threadgroup size 128, each TG covers 32 OC.
-                    //   Halves the number of dispatched TGs → less launch overhead.
-                    //
-                    // History:
-                    //   Pre-fused-Q4 era: single kernel +30%, end-to-end +0.4% (noise).
-                    //     Skill decided default = 2SG at the time.
-                    //   Post-fused-Q4 (this session): re-tested on M5. Even with
-                    //     fused Q4 done (lm_head share is 15.8% of decode GPU
-                    //     time), 4SG shows:
-                    //       4SG: 232.43, 230.62, 233.39 (mean 232.15, stddev 2.0)
-                    //       2SG: 232.52, 232.46, 231.67 (mean 232.22, stddev 0.27)
-                    //     Mean unchanged, but 4SG stddev is **7× worse** — subtle
-                    //     regression indicator (more variable execution). Reverted
-                    //     to 2SG default.
-                    //
-                    // Root cause hypothesis: at 767us/call, lm_head is one dispatch
-                    // per token. Even halving grid → -3-4% on that kernel alone,
-                    // but the saved GPU time gets absorbed into CPU/GPU sync
-                    // (CopyBuffer/Sync is 10.7% of decode GPU time — larger than
-                    // any single-kernel win we can chase here). End-to-end wins
-                    // now require reducing dispatch count via fusion or moving
-                    // work off the critical path (async sampling in LLM engine
-                    // layer), not making the last-kernel faster.
-                    //
-                    // Env override kept for future re-measurement:
-                    //   MNN_METAL_LMHEAD_4SG=1 force enable
-                    //   MNN_METAL_LMHEAD_4SG=0 force disable (= current default)
+                    // Baseline g16 = 2 simdgroups per TG, threadgroup size 64,
+                    // each TG covers 16 OC (2 SG x 8 OC/SG).
+                    // Variants explored and retired (see skills/metal-optimize):
+                    // 4SG (halved grid) — e2e neutral with 7x worse stddev on M5;
+                    // G16_OC4 (4 oc_4 rows/SG) — kernel -4.8% on M5 but e2e neutral.
                     auto keys = baseKeys;
-                    static const int kLmhead4SG = []{
-                        const char* e = getenv("MNN_METAL_LMHEAD_4SG");
-                        if (e && e[0] == '0') return -1;
-                        if (e && e[0] == '1') return 1;
-                        return -1;  // DEFAULT DISABLED (see history above)
-                    }();
-                    const bool use4SG = (kLmhead4SG == 1) && (oc_4 % 4 == 0);
-                    if (use4SG) {
-                        [dic setValue:@"1" forKey:@"G16_4SG"];
-                        option.preprocessorMacros = dic;
-                        keys.emplace_back("G16_4SG");
-                    }
                     keys.emplace_back("conv1x1_gemv_g16_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
@@ -672,13 +476,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
-                    // 4SG: grid.x = UP_DIV(oc, 32) (each TG covers 32 OC), TG size 128
-                    // 2SG: grid.x = UP_DIV(oc, 16)                       , TG size 64
-                    if (use4SG) {
-                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 32), area, 1), MTLSizeMake(128, 1, 1));
-                    } else {
-                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), area, 1), MTLSizeMake(64, 1, 1));
-                    }
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), area, 1),
+                                              MTLSizeMake(64, 1, 1));
                 } else if(mDequantBits != 2 && mDequantBits != 3 && area == 1) {
                     // GEMV inner reduction lane partitioning:
                     //   middle_step = min(32, max(block/4, 1)) — M4 Pro tuning.
@@ -703,7 +502,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     mIs2sgDecode = true;
                     // Register this Conv1x1 for Gate/Up fusion lookup
                     backend->registerConv1x1ForOutput(output, this);
-                    // Register for QKV fusion grouping (by input tensor)
+                    // Register by input tensor for LN fusion consumer lookup
                     backend->registerConv1x1ForQKV(input, this, output, oc);
                 } else {
                     auto keys = baseKeys;
@@ -879,135 +678,35 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             }
             option.preprocessorMacros = dic;
 
-            // Step B.1..B.5: fused-Q4 staged rollout (env-driven).
-            //
-            // MNN_METAL_FUSED_Q4_STAGE (developer A/B):
-            //   unset       -> default policy (see selection below).
-            //   0           -> force disable at every stage (== legacy path).
-            //   1           -> swap ONLY the dequant kernel to
-            //                  conv1x1_dequant_only_q4 (byte-identical fp16
-            //                  dequant; verifies plumbing).
-            //   2           -> also swap GEMM to conv1x1_fused_q4_gemm_stage
-            //                  reading fp16-identity weight via buffer(6).
-            //                  Proves the fused-kernel skeleton.
-            //   3           -> flip on FUSED_Q4_REAL_UNPACK: fused kernel
-            //                  unpacks int4 from buffer(3) directly. The
-            //                  dequant kernel still runs but its output is
-            //                  ignored (buffer(6) bound but unused).
-            //   >=4         -> stage-4 optimization: skip the dequant kernel
-            //                  dispatch entirely AND skip allocating
-            //                  mTempWeight. This is the "true fused" path.
-            //                  Requires FUSED_Q4_REAL_UNPACK (stage 3 code
-            //                  path in the shader).
-            //
-            // MNN_METAL_DISABLE_FUSED_Q4_GEMM=1  hard-off switch for the
-            //   fused kernel regardless of anything else — used as A/B
-            //   baseline for benchmarking and as an emergency rollback for
-            //   users hitting a regression.
-            //
-            // Default selection (when neither env is set):
-            //   area >= 64 && supportTensorApi && mDequantBits in {4, 8}
-            //     -> stage 4 (fully-fused, no dequant pre-pass)
-            //   else -> stage 0 (legacy conv1x1_w_dequant + tensor API GEMM)
-            //
-            // Q8 (Step B.7a): fused kernel supports int8 via FUSED_Q4_REAL_UNPACK +
-            // W_QUANT_8 branch (added to conv1x1_fused_q4_gemm_stage).
-            //
-            // The area >= 64 threshold matches the existing prefill/decode
-            // split in the dispatcher (`dequantInShader = area < 64` below).
-            // Below area=64 we're in decode territory and the outer-dequant
-            // path isn't taken anyway (in-shader dequant kernels handle it).
-            static const bool kDisableFusedQ4 = []{
-                const char* e = getenv("MNN_METAL_DISABLE_FUSED_Q4_GEMM");
-                return e && e[0] == '1';
-            }();
-            static const int kFusedQ4StageEnv = []{
-                const char* e = getenv("MNN_METAL_FUSED_Q4_STAGE");
-                if (e == nullptr) return -1;  // sentinel: use default policy
-                return atoi(e);
-            }();
+            // Fused Q4/Q8 GEMM: the fused kernel unpacks quantized weights
+            // in-kernel, skipping both the dequant pre-pass dispatch and the
+            // mTempWeight allocation.
+            // Enabled when proven correct and profitable: Q4/Q8, tensor-API
+            // capable device, area >= 64 (prefill; below that the outer-dequant
+            // path isn't taken anyway — in-shader dequant kernels handle decode).
+            // MNN_METAL_DISABLE_FUSED_Q4_GEMM=1 is the A/B baseline and
+            // emergency rollback switch (see skills/metal-optimize/env-registry.md).
+            const bool fusedQ4 = !MetalEnv::get().fusedQ4GemmDisabled &&
+                                 (mDequantBits == 4 || mDequantBits == 8) &&
+                                 backend->isSupportTensorApi() && area >= 64;
 
-            int fusedStage;
-            if (kDisableFusedQ4) {
-                fusedStage = 0;
-            } else if (kFusedQ4StageEnv >= 0) {
-                fusedStage = kFusedQ4StageEnv;
-            } else {
-                // Default policy: enable fully-fused (stage 4 — skip both
-                // dequant kernel dispatch and mTempWeight alloc) only where
-                // it's been proven both correct and profitable — Q4/Q8,
-                // tensor-API capable device, area >= 64 (prefill).
-                if ((mDequantBits == 4 || mDequantBits == 8) &&
-                    backend->isSupportTensorApi() && area >= 64) {
-                    fusedStage = 4;
-                } else {
-                    fusedStage = 0;
-                }
-            }
-
-            // P0: M_TILE=64 variant policy.
-            //   MNN_METAL_FUSED_Q4_M_TILE unset  -> default auto (see below)
-            //   MNN_METAL_FUSED_Q4_M_TILE=32     -> force M=32 baseline
-            //   MNN_METAL_FUSED_Q4_M_TILE=64     -> force M=64 (bypass area guard)
-            //
-            // Default (auto): enable M=64 when the fused Q4 stage-4 path is
-            // active (which itself requires tensor API — implicitly M5+),
-            // Q4, and area >= 128. M4 Pro / non-tensor-API devices go through
-            // fusedStage=0 (legacy path) and therefore never touch this branch.
-            //
+            // M_TILE=64 variant (requires tensor API — implicitly M5+).
             // Measured on M5, Qwen3-4B, Metal fp16, 4 threads, 3-rep A/B:
             //   pp512  M32 851 t/s  -> M64 901 t/s  (+5.9%)
             //   pp2048 M32 715 t/s  -> M64 764 t/s  (+6.8%)
-            // Correctness: greedy sampling front 20 tokens byte-identical.
-            static const int kFusedQ4MTileEnv = []{
-                const char* e = getenv("MNN_METAL_FUSED_Q4_M_TILE");
-                if (e == nullptr) return -1;
-                return atoi(e);
-            }();
-            mFusedQ4M64 = false;
-            if (fusedStage >= 4 && mDequantBits == 4 && area >= 128) {
-                if (kFusedQ4MTileEnv == 32) {
-                    mFusedQ4M64 = false;  // explicit off
-                } else if (kFusedQ4MTileEnv == 64) {
-                    mFusedQ4M64 = true;   // explicit on
-                } else {
-                    mFusedQ4M64 = true;   // default auto
-                }
-            }
+            mFusedQ4M64 = fusedQ4 && mDequantBits == 4 && area >= 128;
 
-            // Resolve derived flags before pipeline creation so we can skip
-            // mTempWeight allocation and dequant pipeline construction at
-            // stage >= 4. Stage 1's dedicated dequant kernel is Q4-only
-            // (conv1x1_dequant_only_q4), so gate that on mDequantBits == 4;
-            // stages 2/3/4 support both Q4 and Q8 via W_QUANT_4/8 macros.
-            const bool bitsOK = (mDequantBits == 4 || mDequantBits == 8);
-            mFusedQ4Stage2 = (fusedStage >= 2 && bitsOK &&
-                              backend->isSupportTensorApi());
-            mFusedQ4Stage3 = (fusedStage >= 3 && mFusedQ4Stage2);
-            const bool skipDequantPass = (fusedStage >= 4 && mFusedQ4Stage3);
+            mFusedQ4 = fusedQ4;
 
-            if (!skipDequantPass) {
+            if (!fusedQ4) {
                 int bytes = backend->useFp16InsteadFp32() ? 2 : 4;
-                // Acquire mTempWeight — needed by both legacy path (stage 0/1)
-                // and stub-fused path (stage 2). Stage 3 tolerates it being
-                // present but ignored; stage 4 skips this allocation entirely.
                 mTempWeight.reset(Tensor::createDevice<uint8_t>(std::vector<int>{ROUND_UP(oc, 4) * ROUND_UP(ic, 32) * bytes}));
                 backend->onAcquireBuffer(mTempWeight.get(), Backend::DYNAMIC);
                 backend->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
 
-                const char* dequantKernelName = "conv1x1_w_dequant";
-                // Stage 1's alternative dequant kernel exists only for Q4.
-                // For Q8 or higher stages we always use conv1x1_w_dequant
-                // (which handles both Q4 and Q8) — irrelevant for stage >= 4
-                // where the dequant pass is skipped entirely.
-                if (fusedStage >= 1 && fusedStage <= 3 && mDequantBits == 4) {
-                    dequantKernelName = "conv1x1_dequant_only_q4";
-                    keys.back() = "conv1x1_dequant_only_q4";
-                }
-
                 auto pipeline = rt->findPipeline(keys);
                 if (nil == pipeline) {
-                    pipeline = backend->makeComputePipelineWithSourceOption(sgmWfpStr.c_str(), dequantKernelName, option);
+                    pipeline = backend->makeComputePipelineWithSourceOption(sgmWfpStr.c_str(), "conv1x1_w_dequant", option);
                     rt->insertPipeline(keys, pipeline);
                 }
                 mDequantPipeline = pipeline;
@@ -1019,13 +718,11 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             }
         }
 
-        // (env resolution moved into the dequant block above — the GEMM block
-        // below reads mFusedQ4Stage2 / mFusedQ4Stage3 which are set there.)
-
         {
             auto keys = baseKeys;
             const char* gemmKernelName = "conv1x1_gemm_32x64_split_k_sg";
-            if (mFusedQ4Stage2) {
+            bool sgMatrixM64 = false;
+            if (mFusedQ4) {
                 if (mFusedQ4M64) {
                     gemmKernelName = "conv1x1_fused_q4_gemm_stage_m64";
                     keys.emplace_back("conv1x1_fused_q4_gemm_stage_m64");
@@ -1033,6 +730,13 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     gemmKernelName = "conv1x1_fused_q4_gemm_stage";
                     keys.emplace_back("conv1x1_fused_q4_gemm_stage");
                 }
+            } else if (!backend->isSupportTensorApi() && MetalEnv::get().gemmM64SgMatrix && area >= 128) {
+                // Experimental sg_matrix M=64 tile (MNN_METAL_GEMM_M64=1):
+                // halves grid.x / weight DRAM traffic; fp16 weights from the
+                // outer-dequant pre-pass, same bindings as the 32x64 kernel.
+                gemmKernelName = "conv1x1_gemm_64x64_split_k_sg";
+                keys.emplace_back("conv1x1_gemm_64x64_split_k_sg");
+                sgMatrixM64 = true;
             } else {
                 keys.emplace_back("conv1x1_gemm_32x64_split_k_sg");
             }
@@ -1045,7 +749,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             if(backend->isSupportTensorApi() == true) {
                 [dic setValue:@"1" forKey:@"USE_METAL_TENSOR_OPS"];
                 keys.emplace_back("USE_METAL_TENSOR_OPS");
-                if(ic > oc && ic > 2048 && (ic / blockSize) % 64 == 0 && !mFusedQ4Stage2) {
+                if(ic > oc && ic > 2048 && (ic / blockSize) % 64 == 0 && !mFusedQ4) {
                     // LOOP_K64 branch only exists for conv1x1_gemm_32x64_split_k_sg.
                     // Fused-stage kernel is always K=32 tile.
                     [dic setValue:@"1" forKey:@"LOOP_K64"];
@@ -1056,22 +760,13 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             // (kernel body is guarded by `#if defined(W_QUANT_4) || defined(W_QUANT_8)`).
             // Q8 branch (Step B.7a): reads char4 int8 weights from buffer(3),
             // applies scale/bias directly (no -8 offset like Q4's unsigned nibble).
-            if (mFusedQ4Stage2) {
+            if (mFusedQ4) {
                 if (mDequantBits == 4) {
                     [dic setValue:@"1" forKey:@"W_QUANT_4"];
                     keys.emplace_back("W_QUANT_4");
                 } else {
                     [dic setValue:@"1" forKey:@"W_QUANT_8"];
                     keys.emplace_back("W_QUANT_8");
-                }
-                // Step B.3: enable in-kernel int4/int8 unpack + dequant.
-                // Stage 3+: define FUSED_Q4_REAL_UNPACK so the fused kernel reads
-                // from buffer(3) (packed quant weight) instead of the fp16 stub
-                // buffer(6). buffer(6) is still bound and populated in stage 2/3
-                // but ignored in stage 3; stage 4 skips both entirely.
-                if (mFusedQ4Stage3) {
-                    [dic setValue:@"1" forKey:@"FUSED_Q4_REAL_UNPACK"];
-                    keys.emplace_back("FUSED_Q4_REAL_UNPACK");
                 }
             }
             option.preprocessorMacros = dic;
@@ -1082,7 +777,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                 rt->insertPipeline(keys, pipeline);
             }
             mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
-            const int mTile = mFusedQ4M64 ? 64 : 32;
+            const int mTile = (mFusedQ4M64 || sgMatrixM64) ? 64 : 32;
             mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, mTile), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
             //printf("out dequant MNK: %d %d %d %d\n", area, oc, ic, blockSize);
         }
@@ -1228,13 +923,11 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     // Gate/Up follower: the leader already dispatched this projection
     if (mIsGateUpFollower) {
+#if MNN_METAL_OP_PROFILE
+        static_cast<MetalBackend *>(backend())->profileDropCurrentSample();
+#endif
         return;
     }
-    // QKV follower: the leader already dispatched Q/K/V via fused pipeline
-    if (mIsQKVFollower) {
-        return;
-    }
-
 #if MNN_METAL_OP_PROFILE
     // Report kernel-variant tag so the profile output can distinguish shader paths
     // (e.g. Convolution/gemm_32x64_split_k_sg vs Convolution/gemv_g4m1_2sg_wquant_sg).
@@ -1242,8 +935,6 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
         std::string subtag = mProfileTag;
         if (mIsGateUpLeader) {
             subtag = "gate_up_fused_" + subtag;
-        } else if (mIsQKVLeader) {
-            subtag = "qkv_leader_" + subtag;
         } else if (mPreDequantWeight) {
             subtag = "outdeq+" + subtag;
         }
@@ -1253,41 +944,6 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
 
     auto input = inputs[0];
     auto output = outputs[0];
-
-    // QKV leader: dispatch Q/K/V in a single fused dispatch
-    if (mIsQKVLeader && mQKVPeerK && mQKVPeerV && nil != (mHasLNFusion ? mLNFusedPipeline : mQKVFusedPipeline) && mQKVPeerKOutput && mQKVPeerVOutput) {
-        [encoder setComputePipelineState:(mHasLNFusion ? mLNFusedPipeline : mQKVFusedPipeline)];
-        // buffer(0): input (shared by Q/K/V) — with LN fusion, use hidden input
-        {
-            auto inTensor = mHasLNFusion ? mLNHiddenInput : input;
-            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inTensor->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(inTensor)->offset atIndex:0];
-        }
-        // buffer(1): Q output
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(output)->offset atIndex:1];
-        // buffer(2): Q const params
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        // buffers(3-5): Q weight, bias, dequant
-        MetalBackend::setTensor(mWeight.get(), encoder, 3);
-        MetalBackend::setTensor(mBias.get(), encoder, 4);
-        MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 5);
-        // buffers(6-9): K output, weight, bias, dequant
-        MetalBackend::setTensor(mQKVPeerKOutput, encoder, 6);
-        MetalBackend::setTensor(mQKVPeerK->getWeight().get(), encoder, 7);
-        MetalBackend::setTensor(mQKVPeerK->getBias().get(), encoder, 8);
-        MetalBackend::setTensor(mQKVPeerK->getDequantScale().get(), encoder, 9);
-        // buffers(10-13): V output, weight, bias, dequant
-        MetalBackend::setTensor(mQKVPeerVOutput, encoder, 10);
-        MetalBackend::setTensor(mQKVPeerV->getWeight().get(), encoder, 11);
-        MetalBackend::setTensor(mQKVPeerV->getBias().get(), encoder, 12);
-        MetalBackend::setTensor(mQKVPeerV->getDequantScale().get(), encoder, 13);
-        // buffer(14): segment info
-        [encoder setBuffer:mQKVSegBuffer offset:0 atIndex:14];
-        if (mHasLNFusion) {
-            bindLNBuffers(encoder);
-        }
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        return;
-    }
 
     // Gate/Up leader: dispatch fused kernel covering both gate and up projections
     if (mIsGateUpLeader && mGateUpPeer && nil != (mHasLNFusion ? mLNFusedPipeline : mGateUpFusedPipeline) && mGateUpPeerOutput) {
@@ -1324,24 +980,40 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
         return;
     }
 
+    // Plain single-conv LN fusion (merged gate/up projection consumers): the
+    // standalone LN_FUSED kernel variant computes RMSNorm in-kernel; no
+    // leader/follower pairing involved.
+    if (mHasLNFusion && !mIsGateUpLeader && nil != mLNFusedPipeline && mLNHiddenInput != nullptr) {
+        [encoder setComputePipelineState:mLNFusedPipeline];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mLNHiddenInput->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(mLNHiddenInput)->offset atIndex:0];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(output)->offset atIndex:1];
+        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+        MetalBackend::setTensor(mWeight.get(), encoder, 3);
+        MetalBackend::setTensor(mBias.get(), encoder, 4);
+        MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 5);
+        bindLNBuffers(encoder);
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+        return;
+    }
+
     if(mPreDequantWeight) {
-        // Stage 4 (skipDequantPass) short-circuit: mDequantPipeline is nil and
-        // mTempWeight was never allocated. Dispatch only the fused GEMM which
-        // reads int4 weight from buffer(3) directly. buffer(6) is bound to
-        // mWeight as a harmless alias — the kernel body ignores it under
-        // FUSED_Q4_REAL_UNPACK, but binding *something* keeps the Metal
-        // validation layer happy in debug builds.
-        const bool stage4 = (mDequantPipeline == nil) && mFusedQ4Stage3;
+        // Fused path: mDequantPipeline is nil and mTempWeight was never
+        // allocated. Dispatch only the fused GEMM which reads quantized weight
+        // from buffer(3) directly. buffer(6) is bound to mWeight as a harmless
+        // alias — the fused kernel body never reads buffer(6), but
+        // binding *something* keeps the Metal validation layer happy in debug
+        // builds.
+        const bool fused = (mDequantPipeline == nil) && mFusedQ4;
 
 #if MNN_METAL_OP_PROFILE
         // In profile mode, split the two sub-passes (weight dequant + gemm) into
         // independent command buffers so each shows up as its own profile row.
-        if (!stage4) {
+        if (!fused) {
             static_cast<MetalBackend*>(backend())->setProfileSubtag("outdeq_wdq");
         }
 #endif
-        // pre dequant weight pipeline (stages 1/2/3 only)
-        if (!stage4) {
+        // pre dequant weight pipeline (legacy outer-dequant path)
+        if (!fused) {
             [encoder setComputePipelineState:mDequantPipeline];
             MetalBackend::setTensor(mWeight.get(), encoder, 0);
             MetalBackend::setTensor(mTempWeight.get(), encoder, 1);
@@ -1351,15 +1023,12 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
 #if MNN_METAL_OP_PROFILE
             {
                 auto* mtbn = static_cast<MetalBackend*>(backend());
-                mtbn->flushEncoder();
-                mtbn->commit_net();
-                mtbn->setProfileSubtag(std::string("outdeq_gemm_") + mProfileTag);
-                encoder = mtbn->encoder_for_net();
+                encoder = mtbn->profileNextSubpass(std::string("outdeq_gemm_") + mProfileTag);
             }
 #endif
         }
 #if MNN_METAL_OP_PROFILE
-        if (stage4) {
+        if (fused) {
             static_cast<MetalBackend*>(backend())->setProfileSubtag(std::string("fused_gemm_") + mProfileTag);
         }
 #endif
@@ -1369,25 +1038,15 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
             [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(input)->offset atIndex:0];
             [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(output)->offset atIndex:1];
             [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-            if (mFusedQ4Stage2) {
-                // Fused-stage kernel bindings (identical for stages 2/3/4):
-                //   buffer(3) = int4 raw weight (read at stage 3+, unused at stage 2)
-                //   buffer(4) = bias
-                //   buffer(5) = dequantScale (read at stage 3+, unused at stage 2)
-                //   buffer(6) = fp16 pre-dequanted weight
-                //       stage 2: read (populated by dequant pass)
-                //       stage 3: bound but ignored (dequant pass still ran)
-                //       stage 4: aliased to mWeight (mTempWeight not allocated)
+            if (mFusedQ4) {
+                // Fused kernel bindings: buffer(3) = quantized weight,
+                // buffer(4) = bias, buffer(5) = dequantScale, buffer(6) =
+                // placeholder alias of mWeight (never read by the fused
+                // kernel; mTempWeight is not allocated).
                 MetalBackend::setTensor(mWeight.get(), encoder, 3);
                 MetalBackend::setTensor(mBias.get(), encoder, 4);
                 MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 5);
-                if (stage4) {
-                    // Bind mWeight again as a placeholder; kernel body doesn't
-                    // touch buffer(6) when FUSED_Q4_REAL_UNPACK is defined.
-                    MetalBackend::setTensor(mWeight.get(), encoder, 6);
-                } else {
-                    MetalBackend::setTensor(mTempWeight.get(), encoder, 6);
-                }
+                MetalBackend::setTensor(mWeight.get(), encoder, 6);
             } else {
                 // Legacy conv1x1_gemm_32x64_split_k_sg: buffer(3)=fp16 dequanted
                 // weight (mTempWeight), buffer(5)=dequantScale (used for LOOP_K64

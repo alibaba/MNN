@@ -1,6 +1,6 @@
 # 构建、测试、性能基线（Metal LLM）
 
-> **配套 SKILL.md 的 sub-doc**：build 命令、模型导出、性能测试脚本、基线数据、文件索引。做完 `kernel-basics` / `llm-optimizations` 里描述的改动后，回到这里跑测试。
+> **配套 SKILL.md 的 sub-doc**：build 命令、模型导出、性能测试脚本、基线数据、文件索引。做完 `kernel-basics` / `perf-playbook` 里描述的改动后，回到这里跑测试。
 
 ---
 
@@ -43,8 +43,10 @@ find . -name "mnn_cachefile.bin" -delete
 |---|---|---|
 | **Prompt 长度** | 短 (~50 tok) + 中 (~512 tok) + 长 (~2048 tok) | 触发不同 kernel 路径（mShortSeq / mQkSimdMatrix / mQkTensorMatrix / mFlashAttnPrefill） |
 | **FA on / off** | `MNN_ENABLE_FLASH_ATTN_PREFILL=1` 和 `=0` | 决定走 flash-attn 还是三段 pipeline (prefill_qk[_tensor] + softmax + prefill_qkv[_tensor])。两条路径都要正确 |
+| **CAUSAL_TRI on / off** | `MNN_METAL_QK_CAUSAL_TRI=` 默认 和 `=0` | 决定 CAUSAL_TRI 梯形 QK dispatch + CAUSAL_BOUND softmax/AV 是否启用。**任何 attention/softmax 相关改动都必须覆盖此开关**，且见下方 § "Attention causal 假设"。 |
 | **每一个新增 env var** | 默认（不设）+ 每个显式值都跑一遍 | Env 只在 static 初始化时读一次（`static const int kX = getenv(...)`），不同值 = 完全不同分支 |
 | **至少 2 个模型 shape** | `head_dim ∈ {64, 128, 256}` × `group_size ∈ {1, 2, 4, 8}` | Qwen3-0.6B (D=128, G=2)、Qwen3-4B (D=128, G=4)、Qwen3.5-2B (D=256, G=4) — 每个都可能踩不同 layout / stride 分支 |
+| **Mask 语义** | 若测试目标是**非 causal 模型**（SWA / prefix LM / bidirectional），必须显式测 `MNN_METAL_QK_CAUSAL_TRI=0` | Metal 三段 + FA 两条 prefill 路径都硬编码 "causal lower-triangular mask" 假设；非 causal 模型不设此 env 会**静默乱码**（无崩溃、无 warning）。详见下方 § "Attention causal 假设"。 |
 
 **判据**：跟 baseline 前 N (≥ 20) tokens byte-identical，或至少输出语义合理（无乱码 / 无异常重复 / 无语言跳变）。
 
@@ -141,6 +143,48 @@ MNN_ENABLE_FLASH_ATTN_PREFILL=0 ./llm_demo config_metal.json prompt.txt 30 > off
 MNN_ENABLE_FLASH_ATTN_PREFILL=1 ./llm_demo config_metal.json prompt.txt 30 > on.log
 diff off.log on.log
 ```
+
+## Attention causal 假设（⚠️ 加载非标准模型前必读）
+
+Metal 后端**两条** prefill attention 路径**都硬编码了 "attention mask 是 causal lower-triangular" 的假设**，运行时不做验证：
+
+- **三段路径**（`prefill_qk[_tensor]` + `softmax` + `prefill_qkv[_tensor]`）：CAUSAL_TRI host 只 dispatch 对角线以下 tile；CAUSAL_BOUND softmax 只归约 valid prefix + zero-pad；AV 用 `av_k_upper` 早退。**违反假设 → 上三角"应有效"位置被静默丢弃**。见 `MetalAttentionShader.hpp:558/651` 的 `Assumption:` 注释。
+- **FA 路径**（`prefill_flash_attn`）：`in_bounds = (kv_col_abs <= q_abs + kv_valid_offset)` hard-code causal。见 `MetalAttention.mm:531`。
+
+**因此以下模型加载 Metal 后端会静默错**（不崩、不 warning、只是输出乱）：
+
+| 模型类别 | 举例 | 症状 |
+|---|---|---|
+| Sliding Window Attention | Mistral 7B v0.1, Gemma-2, Ministral | 短 prompt 可能对，超过 window size 后开始漂移 |
+| Mixed window（层交替） | Gemma-2（每层交替 SWA / full）| 层内 window 边界后开始错 |
+| Prefix LM | Baichuan-Base 前缀部分、UL2 | 从第一 token 就错 |
+| Encoder-decoder cross-attention | T5、UL2、Whisper | 完全不适用 |
+| BERT-family bidirectional | 任何 encoder 模型 | 完全不适用 |
+
+**准入检查（导入新模型前跑一次）**：
+
+```bash
+# 1) 双路径对拍：默认 vs 全关 causal-tri，前 20 token 应逐字一致
+DYLD_LIBRARY_PATH=build:build/express \
+  build/llm_demo <cfg> <prompt> 20 > /tmp/a.log 2>&1
+MNN_METAL_QK_CAUSAL_TRI=0 DYLD_LIBRARY_PATH=build:build/express \
+  build/llm_demo <cfg> <prompt> 20 > /tmp/b.log 2>&1
+diff <(awk '/^prompt file is/{f=1;next}/^#####/{f=0}f' /tmp/a.log) \
+     <(awk '/^prompt file is/{f=1;next}/^#####/{f=0}f' /tmp/b.log)
+# ✓ 无 diff  → 模型是 causal，用默认路径（享受 +51.5% pp2048）
+# ✗ 有 diff → 模型非 causal 或 mask 结构异常，config 必须硬设 MNN_METAL_QK_CAUSAL_TRI=0 或
+#             attention_mode 关掉 FA（若你能改 attention_mode），并复查
+```
+
+**推荐操作**：
+- 加载 **Qwen / Llama / Phi / DeepSeek / Yi / Baichuan-Chat** 等纯 causal LLM：直接跑，无需干预
+- 加载**任何** SWA / prefix / bidirectional 模型：`export MNN_METAL_QK_CAUSAL_TRI=0` 后再跑；生产环境写进启动脚本
+- 不确定模型是不是 causal：读 HF `config.json` 里有没有 `sliding_window` / `attention_bias` / `is_encoder_decoder` 字段，任一非默认值就当非 causal
+- 若目标模型必须启用性能优化又必须保正确性 → 见 `skills/general-debug/SKILL.md` §7.3 Step 6 的加固方向（config 字段 / runtime 检测）
+
+**已知限制**：`MNN_METAL_QK_CAUSAL_TRI=0` 只关三段路径的 CAUSAL_TRI/BOUND，**FA 内部的 causal hard-code 无 opt-out**。若同时启用 FA (`MNN_ENABLE_FLASH_ATTN_PREFILL=1` 或 `attention_mode/8>=1`) 且模型非 causal，FA path 仍会错，需再关 FA (`MNN_ENABLE_FLASH_ATTN_PREFILL=0`)。
+
+---
 
 ## 真实教训（为什么强制验证流程存在）
 

@@ -15,6 +15,7 @@
 #include <atomic>
 #include "MNN_generated.h"
 #include "MetalDefine.h"
+#include "MetalEnv.hpp"
 #include <MNN/ErrorCode.hpp>
 #include <vector>
 #include <queue>
@@ -27,6 +28,33 @@ using namespace MetalCache;
 namespace MNN {
 
 class MetalConvolution1x1; // forward declaration for Gate/Up fusion
+
+// Compile with -DMNN_SESSION_CPU_TRACE: cumulative CPU-side timers for the op encode path
+// and command-buffer waits, printed at process exit. Quantifies the
+// encode-reuse / ICB leverage ceiling. Not compiled in production builds.
+#ifdef MNN_SESSION_CPU_TRACE
+struct MetalCpuTrace {
+    // Pure onEncode / encoder_for_net (mid-execution flush split off below).
+    std::atomic<uint64_t> encodeNs{0};
+    std::atomic<uint64_t> encodeOps{0};
+    // flushEncoder + commit_net inside a Execution (isCmdBufferCommit path).
+    std::atomic<uint64_t> commitNs{0};
+    std::atomic<uint64_t> commitCalls{0};
+    // Blocking waits on the last-committed command buffer.
+    std::atomic<uint64_t> waitNs{0};
+    std::atomic<uint64_t> waitCalls{0};
+    // per-site wait attribution: 0=resizeFence 1=d2h 2=h2d 3=onSync
+    std::atomic<uint64_t> waitSiteNs[4]{};
+    std::atomic<uint64_t> waitSiteCalls[4]{};
+    // GPU-side utilization: per-command-buffer busy time and inter-buffer gaps
+    std::atomic<uint64_t> gpuBusyNs{0};
+    std::atomic<uint64_t> gpuGapNs{0};
+    std::atomic<uint64_t> gpuBuffers{0};
+    std::atomic<double> gpuPrevEnd{0.0};
+    ~MetalCpuTrace();
+};
+MetalCpuTrace& metalCpuTrace();
+#endif // MNN_SESSION_CPU_TRACE
 
 /** MetalRuntime */
 enum MetalTuneLevel {Never = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
@@ -48,6 +76,9 @@ public:
     }
     bool supportTensorOps() {
         return mTensorOps;
+    }
+    bool preferInShaderPrefillDequant() {
+        return mPreferInShaderPrefillDequant;
     }
     void setGpuMode(const int cl_mode_num);
     void setCommandQueue(id<MTLCommandQueue> queue, bool userSync);
@@ -121,6 +152,7 @@ private:
     bool mSimdGroupReduce;
     bool mSimdGroupMatrix;
     bool mTensorOps;
+    bool mPreferInShaderPrefillDequant = false;
     size_t mMaxThreadSize;
 };
 
@@ -180,6 +212,9 @@ public:
     size_t getTensorSizeInBytes(const Tensor* tensor) const;
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
     id<MTLBuffer> getHostBuffer(size_t size) const;
+    // queued host->device upload staging ring (see onCopyBuffer h2d path)
+    id<MTLBuffer> acquireUploadStaging(size_t size) const;
+    void markUploadStagingUse(id<MTLBuffer> staging, id<MTLCommandBuffer> cmd) const;
     id<MTLBuffer> getConstBuffer(size_t size) const;
     void returnConstBuffer(id<MTLBuffer> buffer) const;
     id<MTLComputePipelineState> makeComputePipelineWithSourceOption(const char* csource, const char* cname, MTLCompileOptions *options) const;
@@ -242,6 +277,21 @@ public:
     // after the pipeline has been selected so profile rows can distinguish kernels.
     // Example: OpType="Convolution", subtag="gemm_32x64_split_k" -> "Convolution/gemm_32x64_split_k"
     void setProfileSubtag(const std::string& subtag) const;
+    // Split an op into sub-passes for profiling. Counter mode: ends the current
+    // encoder (cheap, stays in the same command buffer). Legacy mode: commits a
+    // command buffer per sub-pass. Returns a fresh encoder tagged with `subtag`.
+    id<MTLComputeCommandEncoder> profileNextSubpass(const std::string& subtag) const;
+    // Per-op encoder boundary (called by MetalExecution after onEncode in counter mode).
+    void profileOpEncoded() const;
+    // Called by ops that encode NOTHING (fused followers' early return): an empty
+    // encoder's stage-boundary timestamps measure scheduling gaps, not GPU work,
+    // so drop its sample instead of polluting the profile.
+    void profileDropCurrentSample() const {
+        mProfileCurSampleIndex = -1;
+    }
+    bool profileUseCounters() const {
+        return mProfileCounterMode;
+    }
 #endif
     bool isIphone(){
         return mIsIphone;
@@ -249,7 +299,9 @@ public:
     
     void commit() const;
     void commit_net() const;
-    void wait() const;
+    void wait(int traceSite = -1) const;
+    // wait only for this backend's own in-flight command buffer (see member note)
+    void waitOwnInflight() const;
     id<MTLCommandQueue> queue() const {
         return _commandQueue;
     }
@@ -287,7 +339,6 @@ public:
     void registerConv1x1ForQKV(const Tensor* input, MetalConvolution1x1* conv, const Tensor* output, int outputChannel) {
         mInputToConv1x1Group[input].push_back({conv, output, outputChannel});
     }
-    void matchQKVFusions();  // called in onResizeEnd
 
     // LayerNorm+Conv1x1 fusion: register LN by its normalized output for matching
     struct LayerNormFusionInfo {
@@ -301,7 +352,7 @@ public:
     void registerLayerNorm(const Tensor* normalizedOutput, const LayerNormFusionInfo& info) {
         mLayernormMap[normalizedOutput] = info;
     }
-    void matchLNFusions();  // called after matchQKVFusions in onResizeEnd
+    void matchLNFusions();  // called in onResizeEnd
 
     void clearConv1x1Map() {
         mOutputToConv1x1.clear();
@@ -321,6 +372,11 @@ private:
     id<MTLCommandBuffer> getCommandBufferForNet() const;
     id<MTLComputeCommandEncoder> encoder_net() const;
     mutable id<MTLCommandBuffer> _commandBuffer = nil;
+    // Per-backend fence: the last command buffer THIS backend committed.
+    // onResizeBegin only needs to wait for our own in-flight work before
+    // resetting our allocator; draining the shared runtime's last commit
+    // (which may belong to another module's backend) serializes decode.
+    mutable id<MTLCommandBuffer> mLastOwnCommandBuffer = nil;
     mutable std::queue<id<MTLBuffer>> mHoldBuffers;
 
     id<MTLCommandQueue> _commandQueue;
@@ -342,6 +398,13 @@ private:
     void removeNotificationsObservers();
 
     mutable id<MTLBuffer> mHostBuffer = nullptr;
+    // staging ring for queued host->device uploads: each slot remembers the
+    // command buffer that consumes it so reuse never races in-flight GPU reads
+    struct UploadStagingSlot {
+        id<MTLBuffer> buffer = nil;
+        id<MTLCommandBuffer> lastUse = nil;
+    };
+    mutable std::vector<UploadStagingSlot> mUploadStagingRing;
     // hostmask: 0: no host, 1: src is host, 2: dst is host
     void onCopyDeviceToDevice(const Tensor *src, const Tensor *dst, id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape, int hostmask = 0) const;
     bool mUseFloatAsFp16;
@@ -350,6 +413,27 @@ private:
     std::shared_ptr<BufferAllocator> mExecutionBufferPool;
 #if MNN_METAL_OP_PROFILE
     mutable std::string mCurProfileName;
+    // MTLCounterSampleBuffer-based per-encoder GPU timing (accurate absolute
+    // numbers, no per-op command buffer commit). Falls back to legacy
+    // whole-command-buffer timing when stage-boundary sampling is unsupported
+    // or MNN_METAL_OP_PROFILE_LEGACY=1.
+    bool mProfileCounterMode = false;
+    struct ProfilePendingSample {
+        int index;         // startOfEncoderSampleIndex; end = index + 1
+        std::string name;
+    };
+    mutable id<MTLCounterSampleBuffer> mProfileSampleBuffer = nil;
+    mutable int mProfileSampleCursor = 0;
+    mutable int mProfileCurSampleIndex = -1;  // sample index of the live encoder
+    mutable std::vector<ProfilePendingSample> mProfilePendingSamples;
+    // Sample buffers filled up mid-command-buffer, waiting for resolution at commit.
+    struct ProfileSealedBuffer {
+        id<MTLCounterSampleBuffer> buffer;
+        int usedCount;
+        std::vector<ProfilePendingSample> samples;
+    };
+    mutable std::vector<ProfileSealedBuffer> mProfileSealedBuffers;
+    id<MTLCounterSampleBuffer> profileAcquireSampleBuffer() const;
 #endif
 
 };
