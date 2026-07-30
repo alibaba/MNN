@@ -66,6 +66,10 @@ struct CommandParameters {
     int                 nRepeat;
     std::string         kvCache;
     std::string         loadingTime;
+    // Prefill nPrompt tokens then generate nGenerate tokens in ONE run, the
+    // decode phase continuing from the prefill's KV cache (llama-bench's `-pg`
+    // semantics). Set by `-pg`, and by the deprecated `-kv true`.
+    bool                sharedKv = false;
 };
 
 
@@ -119,6 +123,7 @@ struct commandParametersInstance {
         mCmdParam.kvCache        = cmdParam.kvCache;
         mCmdParam.loadingTime    = cmdParam.loadingTime;
         mCmdParam.smeCoreNum     = cmdParam.smeCoreNum;
+        mCmdParam.sharedKv       = cmdParam.sharedKv;
     }
 
     CommandParameters get_cmd_parameters() const {
@@ -191,6 +196,9 @@ struct TestInstance {
     int                      smeCoreNum;
     int                      quantKv;
     int                      flashAttention;
+    // true for `-pg` (and deprecated `-kv true`) rows: prefillUs/decodeUs are
+    // filled; false for pp-only/tg-only rows, which fill samplesUs instead.
+    bool                     sharedKv = false;
 
     TestInstance(const commandParametersInstance & instance) {
 
@@ -208,6 +216,7 @@ struct TestInstance {
         smeCoreNum        = instance.mCmdParam.smeCoreNum;
         quantKv    = instance.mCmdParam.quantKv;
         flashAttention     = instance.mCmdParam.flashAttention;
+        sharedKv           = instance.mCmdParam.sharedKv;
     }
 
     std::vector<double> getTokensPerSecond(int n_tokens, std::vector<int64_t> cost_us) const {
@@ -350,12 +359,21 @@ struct markdownPrinter : public Printer {
         if (rp.useMmap) {
             fields.emplace_back("useMmap");
         }
-        if (tp.kvCache == "false") {
-            fields.emplace_back("test");
-            fields.emplace_back("t/s");
-        } else {
+        // Column layout depends on the test mode:
+        //  - `-pg pp,tg` : test name (ppN+tgM) + separate prefill/decode speeds
+        //  - `-kv true`  : legacy llm_demo layout (deprecated)
+        //  - `-p` / `-n` : test name + single t/s (llama-bench layout)
+        const bool hasPg = !tp.nPrompGen.empty() &&
+                           !(tp.nPrompGen.size() == 1 && tp.nPrompGen[0].first == 0 && tp.nPrompGen[0].second == 0);
+        if (tp.kvCache == "true") {
             fields.emplace_back("llm_demo");
             fields.emplace_back("speed(tok/s)");
+        } else if (hasPg) {
+            fields.emplace_back("test");
+            fields.emplace_back("speed(tok/s)");
+        } else {
+            fields.emplace_back("test");
+            fields.emplace_back("t/s");
         }
         if (tp.loadTime == "true") {
             fields.emplace_back("loadingTime(s)");
@@ -411,9 +429,15 @@ struct markdownPrinter : public Printer {
                 snprintf(buf, sizeof(buf), "%.2f ± %.2f", t.getAvgUs(spd), t.getStdevUs(spd));
                 value = buf;
             } else if (field == "speed(tok/s)") {
-                auto decode_speed = t.getTokensPerSecond(t.nGenerates, t.decodeUs);
-                auto prefill_speed = t.getTokensPerSecond(t.nPrompt, t.prefillUs);
-                snprintf(buf, sizeof(buf), "%.2f ± %.2f<br>%.2f ± %.2f", t.getAvgUs(prefill_speed), t.getStdevUs(prefill_speed), t.getAvgUs(decode_speed), t.getStdevUs(decode_speed));
+                if (t.sharedKv) {
+                    auto decode_speed = t.getTokensPerSecond(t.nGenerates, t.decodeUs);
+                    auto prefill_speed = t.getTokensPerSecond(t.nPrompt, t.prefillUs);
+                    snprintf(buf, sizeof(buf), "%.2f ± %.2f<br>%.2f ± %.2f", t.getAvgUs(prefill_speed), t.getStdevUs(prefill_speed), t.getAvgUs(decode_speed), t.getStdevUs(decode_speed));
+                } else {
+                    // pp-only / tg-only row sharing a table with -pg rows
+                    auto spd = t.getTokensPerSecond(t.nPrompt + t.nGenerate, t.samplesUs);
+                    snprintf(buf, sizeof(buf), "%.2f ± %.2f", t.getAvgUs(spd), t.getStdevUs(spd));
+                }
                 value = buf;
             } else if (field == "precision") {
                 if (t.precision == 2) value = "Low";
@@ -677,7 +701,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
     for (const auto &smeNum: rp.smeCoreNum)
     for (const auto & quantKv : rp.quantKv)
     for (const auto & flashAttn : rp.flashAttention)
-        if (tp.kvCache == "true") { // MNN llm_demo test standard
+        if (tp.kvCache == "true") { // deprecated: same as pairing every -p with every -n via -pg
             for (const auto & nPrompt : tp.nPrompt) {
                 if (nPrompt == 0) {
                     continue;
@@ -701,6 +725,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                     tmpParam.flashAttention = flashAttn;
                     tmpParam.nRepeat = tp.nRepeat[0];
                     tmpParam.kvCache = "true";
+                    tmpParam.sharedKv = true;
                     tmpParam.loadingTime = tp.loadTime;
                     tmpParam.divisionRatioSme2Neon = mratio;
                     tmpParam.smeCoreNum = smeNum;
@@ -735,6 +760,9 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 instances.push_back(instance);
             }
             for (const auto & nGenerate: tp.nGenerate) {
+                if (nGenerate == 0) {
+                    continue;
+                }
                 CommandParameters tmpParam;
                 tmpParam.model = m;
                 tmpParam.nPrompt = 0;
@@ -775,6 +803,9 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.flashAttention = flashAttn;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
+                // -pg means "prefill pp, then generate tg continuing from that
+                // KV cache" (llama-bench semantics) — one run, both phases timed.
+                tmpParam.sharedKv = true;
                 tmpParam.loadingTime = tp.loadTime;
                 tmpParam.divisionRatioSme2Neon = mratio;
                 tmpParam.smeCoreNum = smeNum;
@@ -819,12 +850,12 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("  -a, --backends <cpu,opencl,metal,hexagon> (default: %s)\n", "cpu");
     printf("  -c, --precision <n>                       (default: %s) | Note: (0:Normal(for cpu bakend, 'Normal' is 'High'),1:High,2:Low)\n", join(runtimeParamsDefaults.precision, ",").c_str());
     printf("  -t, --threads <n>                         (default: %s)\n", join(runtimeParamsDefaults.threads, ",").c_str());
-    printf("  -p, --n-prompt <n>                        (default: %s)\n", join(testParamsDefaults.nPrompt, ",").c_str());
-    printf("  -n, --n-gen <n>                           (default: %s)\n", join(testParamsDefaults.nGenerate, ",").c_str());
-    printf("  -pg <pp,tg>                               (default: %s)\n", join(transform2String(testParamsDefaults.nPrompGen, pairString), ",").c_str());
+    printf("  -p, --n-prompt <n>                        (default: %s) | Note: prefill-only test (ppN), no KV-cache reuse\n", join(testParamsDefaults.nPrompt, ",").c_str());
+    printf("  -n, --n-gen <n>                           (default: %s) | Note: decode-only test (tgN), starts from a 1-token context\n", join(testParamsDefaults.nGenerate, ",").c_str());
+    printf("  -pg <pp,tg>                               (default: %s) | Note: prefill pp tokens then generate tg tokens reusing that KV-cache (llama-bench -pg); reports prefill and decode speed separately\n", join(transform2String(testParamsDefaults.nPrompGen, pairString), ",").c_str());
     printf("  -mmp, --mmap <0|1>                        (default: %s)\n", "0");
     printf("  -rep, --n-repeat <n>                      (default: %s)\n", join(testParamsDefaults.nRepeat, ",").c_str());
-    printf("  -kv, --kv-cache <true|false>              (default: %s) | Note: if true: Every time the LLM model generates a new word, it utilizes the cached KV-cache\n", "false");
+    printf("  -kv, --kv-cache <true|false>              (default: %s) | Note: DEPRECATED, use -pg instead. `-p A -n B -kv true` == `-pg A,B`\n", "false");
     printf("  -fp, --file-print <stdout|filename>       (default: %s)\n", "stdout");
     printf("  -scn, --sme-core-num <n>                  (default: 2) | Note: Specify the number of smeCoreNum to use.\n");
     printf("  -load, --loading-time <true|false>        (default: %s)\n", "true");
@@ -967,6 +998,10 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
             }
             auto p = splitString<std::string>(argv[i], splitDelim);
             testParams.kvCache = p[0];
+            if (testParams.kvCache == "true") {
+                fprintf(stderr, "[llm_bench] -kv true is deprecated: use `-pg <pp>,<tg>` instead "
+                                "(`-p A -n B -kv true` == `-pg A,B`).\n");
+            }
         } else if (arg == "-fp" || arg == "--file-print") {
             if (++i >= argc) {
                 invalidParam = true;
@@ -1257,8 +1292,9 @@ int main(int argc, char ** argv) {
         auto decodeTokens = instance.mCmdParam.nGenerate;
         bool isOpenCL = (instance.mCmdParam.backend == 3); // MNN_FORWARD_OPENCL
 
-        // llm_demo test
-        if (instance.mCmdParam.kvCache == "true") {
+        // Shared-KV pp+tg run: prefill nPrompt tokens, then generate nGenerate
+        // tokens continuing from that KV cache (`-pg`, and deprecated `-kv true`).
+        if (instance.mCmdParam.sharedKv) {
             std::vector<int> tokens(prompt_tokens, 16);
 
             for (int i = 0; i < instance.mCmdParam.nRepeat + 1; ++i) {
@@ -1288,8 +1324,8 @@ int main(int argc, char ** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
 
-        // llama.cpp llama-bench test
-        if (instance.mCmdParam.kvCache == "false") {
+        // Standalone pp-only / tg-only run (llama-bench's `-p` / `-n`)
+        if (!instance.mCmdParam.sharedKv) {
             int tok = 16;
             std::vector<int> tokens(prompt_tokens, tok);
             std::vector<int> tokens1(1, tok);
