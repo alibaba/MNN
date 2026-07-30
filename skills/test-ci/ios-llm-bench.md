@@ -25,7 +25,7 @@ sh transformers/llm/engine/ios/ios_llm_bench.sh \
 
 | 选项 | 说明 |
 |---|---|
-| `--backend cpu\|metal --prompt-len N --decode-len N` | 定长 bench（类似 `llm_bench`），不带则跑 `bench.txt` prompt 文件模式 |
+| `--backend cpu\|metal --prompt-len N --decode-len N` | 定长 bench，不带则跑 `bench.txt` prompt 文件模式。⚠️ 语义等价于桌面端 **`llm_bench -pg P,D`**（prefill P 个 token 后**复用该 KV cache** 续写 D 个 token，prefill/decode 分开计时），**不是** `-p P -n D`（那是两个独立的 prefill-only / decode-only 测试，其 decode 从 kv≈0 起算、数值偏高） |
 | `--prompt-len 512,1024,2048 --decode-len 128,2000` | 逗号分隔的多组长度，自动跑全组合矩阵（此例 3×2=6 组），framework/App 只构建安装一次，每组独立日志 `bench_*_p<P>_d<D>.log`，报告汇总所有 avg 行 |
 | `--repeat N` / `--threads N` | 定长 bench 轮数（首轮 warmup 不计入）/ CPU 线程数 |
 | `--skip-framework` | 复用现有 `ios/MNN.framework`，跳过 C++ 编译（对比测试时关键） |

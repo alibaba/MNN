@@ -21,6 +21,11 @@
 #   --decode-len N    fixed decode length(s) in tokens, comma-separated for a matrix
 #                     e.g. --decode-len 128,2000 (used with --backend)
 #                     all prompt x decode combinations are benchmarked sequentially
+#                     NOTE: `--prompt-len P --decode-len D` is the desktop
+#                     `llm_bench -pg P,D` test (prefill P tokens, then decode D
+#                     tokens reusing that KV cache; prefill/decode timed
+#                     separately) — NOT `-p P -n D`, which are two independent
+#                     prefill-only / decode-only tests.
 #   --repeat N        fixed bench repeat count, first warmup run excluded (default 3)
 #   --threads N       cpu thread num for fixed bench (default 4)
 #   --prompt-dir DIR  prompt-file bench: run every *.txt in DIR as a prompt, log
@@ -71,7 +76,7 @@ while [ $# -gt 0 ]; do
         --threads)        THREADS="$2"; shift 2 ;;
         --prompt-dir)     PROMPT_DIR="$2"; shift 2 ;;
         --max-new)        MAX_NEW="$2"; shift 2 ;;
-        -h|--help)        sed -n '2,34p' "$0"; exit 0 ;;
+        -h|--help)        sed -n '2,/^$/p' "$0"; exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
