@@ -35,6 +35,10 @@ public:
             }
             binaryOp = BinaryOpOperation_MUL;
         }
+        if (axis < 0 || axis >= (int)shape.size()) {
+            MNN_ERROR("CumSum/CumProd: axis %d out of range [0, %d)\n", axis, (int)shape.size());
+            return false;
+        }
 
         int outside = std::accumulate(shape.begin(), shape.begin() + axis, 1, [](int a, int b) { return a * b; });
         int inside = std::accumulate(shape.begin() + axis + 1, shape.end(), 1, [](int a, int b) { return a * b; });
