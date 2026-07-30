@@ -1,21 +1,22 @@
-#include "dsp/mmap_mgr.h"
 #include <AEEStdErr.h>
 #include <HAP_farf.h>
 #include <HAP_mem.h>
-#include <stdint.h>
-#include <math.h>
-#include <string.h>
-#include <hexagon_types.h>
 #include <hexagon_protos.h>
-
+#include <hexagon_types.h>
+#include <math.h>
 #include <remote.h>
-#include "region_ops.h"
+#include <stdint.h>
+#include <string.h>
+
 #include "dsp/dma_utils.h"
 #include "dsp/hvx_convert.h"
-#include "dsp/hvx_utils.h"
 #include "dsp/hvx_math.h"
+#include "dsp/hvx_utils.h"
+#include "dsp/mmap_mgr.h"
+#include "dsp/pwl.h"
 #include "dsp/vtcm_mgr.h"
 #include "dsp/worker_pool.h"
+#include "region_ops.h"
 
 extern "C" {
 
@@ -456,40 +457,9 @@ static inline void htp_ops_binary_run_task(HtpOpsBinaryTaskState* state, int siz
   worker_pool_synctoken_wait(&(state->sync_ctx));
 }
 
-static inline HVX_Vector htp_ops_binary_mul_silu_sf_vec(HVX_Vector v0, HVX_Vector v1) {
-  HVX_Vector zero_v = Q6_V_vzero();
-  HVX_Vector one_v = Q6_V_vsplat_R(0x3f800000);
-  HVX_Vector two_v = Q6_V_vsplat_R(0x40000000);
-  HVX_Vector log2e_v = Q6_V_vsplat_R(0x3fb8aa3b);
-
-  HVX_VectorPred q_v1_lt_0 = Q6_Q_vcmp_gt_VsfVsf(zero_v, v1);
-  HVX_Vector neg_v1 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(zero_v, v1));
-  HVX_Vector z = Q6_V_vmux_QVV(q_v1_lt_0, v1, neg_v1);
-  HVX_Vector exp_arg = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(z, log2e_v));
-  HVX_Vector exp_val = hvx_my_exp2_vsf(exp_arg);
-
-  HVX_Vector denom = Q6_Vqf32_vadd_VsfVsf(one_v, exp_val);
-  HVX_Vector inv_denom = hvx_my_inv_vqf32_vsf(Q6_Vsf_equals_Vqf32(denom));
-  HVX_Vector two_qf32 = Q6_Vqf32_vadd_VsfVsf(two_v, zero_v);
-  HVX_Vector dy = Q6_Vqf32_vmpy_Vqf32Vqf32(denom, inv_denom);
-  HVX_Vector two_minus_dy = Q6_Vqf32_vsub_Vqf32Vqf32(two_qf32, dy);
-  inv_denom = Q6_Vqf32_vmpy_Vqf32Vqf32(inv_denom, two_minus_dy);
-
-  HVX_Vector num = Q6_V_vmux_QVV(q_v1_lt_0, exp_val, one_v);
-  HVX_Vector num_qf32 = Q6_Vqf32_vadd_VsfVsf(num, zero_v);
-  HVX_Vector v1_qf32 = Q6_Vqf32_vadd_VsfVsf(v1, zero_v);
-  HVX_Vector v0_qf32 = Q6_Vqf32_vadd_VsfVsf(v0, zero_v);
-  HVX_Vector sig_v = Q6_Vqf32_vmpy_Vqf32Vqf32(num_qf32, inv_denom);
-  HVX_Vector v1_sig_v = Q6_Vqf32_vmpy_Vqf32Vqf32(v1_qf32, sig_v);
-  return Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_Vqf32Vqf32(v0_qf32, v1_sig_v));
-}
-
 static inline HVX_Vector htp_ops_binary_mul_silu_fp16_vec(HVX_Vector v0, HVX_Vector v1) {
-  HVX_VectorPair v0_sf = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(v0));
-  HVX_VectorPair v1_sf = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(v1));
-  HVX_Vector vr0 = htp_ops_binary_mul_silu_sf_vec(Q6_V_lo_W(v0_sf), Q6_V_lo_W(v1_sf));
-  HVX_Vector vr1 = htp_ops_binary_mul_silu_sf_vec(Q6_V_hi_W(v0_sf), Q6_V_hi_W(v1_sf));
-  return Q6_Vh_vdeal_Vh(Q6_Vhf_vcvt_VsfVsf(vr0, vr1));
+  HVX_Vector silu_v1 = htp_ops_silu_pwl_fp16_vec(v1);
+  return Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v0, silu_v1));
 }
 
 static inline HVX_Vector htp_ops_binary_squared_difference_fp16_vec(HVX_Vector v0, HVX_Vector v1) {

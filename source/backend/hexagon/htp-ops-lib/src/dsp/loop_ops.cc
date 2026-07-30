@@ -1,22 +1,24 @@
-#include "dsp/mmap_mgr.h"
-#include <stdbool.h>
-#include <stdlib.h>
-#include <math.h>
 #include <AEEStdErr.h>
 #include <HAP_farf.h>
 #include <HAP_mem.h>
+#include <math.h>
 #include <qurt_memory.h>
-#include <stdint.h>
-#include <string.h>
 #include <remote.h>
-#include "region_ops.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "dsp/hmx_mgr.h"
 #include "dsp/hmx_utils.h"
-#include "dsp/hvx_utils.h"
 #include "dsp/hvx_convert.h"
 #include "dsp/hvx_math.h"
+#include "dsp/hvx_utils.h"
+#include "dsp/mmap_mgr.h"
+#include "dsp/pwl.h"
 #include "dsp/vtcm_mgr.h"
 #include "dsp/worker_pool.h"
+#include "region_ops.h"
 
 extern "C" {
 
@@ -65,24 +67,8 @@ static inline int32_t htp_ops_loop_binary_apply_int32(int32_t a, int32_t b, int3
 }
 
 static inline HVX_Vector htp_ops_loop_binary_mul_silu_fp16_vec(HVX_Vector v0, HVX_Vector v1) {
-    HVX_Vector zero_v = Q6_V_vzero();
-    HVX_Vector one_v = Q6_Vh_vsplat_R(0x3c00);
-    HVX_VectorPred q_v1_lt_0 = Q6_Q_vcmp_gt_VhfVhf(zero_v, v1);
-    HVX_Vector neg_v1 = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vsub_VhfVhf(zero_v, v1));
-    HVX_Vector z = Q6_V_vmux_QVV(q_v1_lt_0, v1, neg_v1);
-    HVX_Vector log2e_v = Q6_Vh_vsplat_R(0x3dc5);
-    HVX_Vector exp_arg = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(z, log2e_v));
-    HVX_Vector exp_val = hvx_my_exp2_vhf(exp_arg);
-    HVX_Vector denom = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(one_v, exp_val));
-    HVX_Vector inv_denom = hvx_my_inv_vhf(denom);
-    HVX_Vector two_v = Q6_Vh_vsplat_R(0x4000);
-    HVX_Vector dy = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(denom, inv_denom));
-    HVX_Vector two_minus_dy = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vsub_VhfVhf(two_v, dy));
-    inv_denom = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(inv_denom, two_minus_dy));
-    HVX_Vector num = Q6_V_vmux_QVV(q_v1_lt_0, exp_val, one_v);
-    HVX_Vector q_sig_v = Q6_Vqf16_vmpy_VhfVhf(num, inv_denom);
-    HVX_Vector q_v1_sig_v = Q6_Vqf16_vmpy_Vqf16Vhf(q_sig_v, v1);
-    return Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_Vqf16Vhf(q_v1_sig_v, v0));
+  HVX_Vector silu_v1 = htp_ops_silu_pwl_fp16_vec(v1);
+  return Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v0, silu_v1));
 }
 
 static inline HVX_Vector htp_ops_loop_binary_apply_vec(HVX_Vector a, HVX_Vector b, int32_t opType) {

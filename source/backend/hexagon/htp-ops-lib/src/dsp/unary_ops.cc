@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "dsp/hvx_math.h"
+#include "dsp/pwl.h"
 #include "dsp/worker_pool.h"
 
 extern "C" {
@@ -170,6 +171,12 @@ static inline _Float16 htp_ops_unary_apply_fp16(_Float16 x, int opType) {
     case HTP_OPS_UNARY_SILU:
       {
         float x_f = (float) x;
+        if (x_f <= -8.0f) {
+          return (_Float16) 0.0f;
+        }
+        if (x_f >= 8.0f) {
+          return x;
+        }
         return (_Float16) (x_f / (1.0f + expf(-x_f)));
       }
     case HTP_OPS_UNARY_TANH:
@@ -202,75 +209,136 @@ static inline int32_t htp_ops_unary_apply_int32(int32_t x, int opType) {
   }
 }
 
-static inline HVX_Vector htp_ops_unary_sigmoid_fp16_vec(HVX_Vector v, HVX_Vector zero_v, HVX_Vector one_v) {
-  HVX_VectorPred q_v_lt_0 = Q6_Q_vcmp_gt_VhfVhf(zero_v, v);
-  HVX_Vector     neg_v    = Q6_Vhf_vsub_VhfVhf(zero_v, v);
-  HVX_Vector     ax       = Q6_V_vmux_QVV(q_v_lt_0, neg_v, v);
+// FP16 coefficients are generated from linear interpolation at the segment
+// endpoints: a = (f(x1) - f(x0)) / (x1 - x0) and b = f(x0) - a * x0,
+// with b recomputed after quantizing a to FP16. The uniform variant uses
+// 0.25-wide segments. The companded variant uses widths 0.25, 0.5, and 1.0
+// over [0, 2], [2, 4], and [4, 8], respectively.
+//
+// The first 16 entries of each aligned table are used by vlut16. Keeping a full
+// vector per table makes the load safe and lets the compiler hoist it out of the
+// element loop.
+#define HTP_OPS_PWL_TABLE(name, ...) static const uint32_t name[32] __attribute__((aligned(128))) = { __VA_ARGS__ }
 
-  static const uint16_t slope_bits[32] = { 0x33f5, 0x33b7, 0x3343, 0x32a4, 0x31eb, 0x3128, 0x3067, 0x2f62,
-                                           0x2e1b, 0x2cfd, 0x2c0a, 0x2a7b, 0x292c, 0x281a, 0x267d, 0x251c,
-                                           0x2404, 0x224d, 0x20ef, 0x1fb8, 0x1e08, 0x1cb6, 0x1b5a, 0x19bc,
-                                           0x1879, 0x16f9, 0x156f, 0x143c, 0x1299, 0x1124, 0x1001, 0x0e3d };
-  static const uint16_t bias_bits[32]  = { 0x3800, 0x3804, 0x3812, 0x3830, 0x385e, 0x389b, 0x38e4, 0x3933,
-                                           0x3985, 0x39d5, 0x3a22, 0x3a68, 0x3aa7, 0x3ade, 0x3b0e, 0x3b38,
-                                           0x3b5b, 0x3b78, 0x3b91, 0x3ba5, 0x3bb6, 0x3bc4, 0x3bcf, 0x3bd9,
-                                           0x3be0, 0x3be6, 0x3beb, 0x3bef, 0x3bf3, 0x3bf5, 0x3bf7, 0x3bf9 };
-  static const uint16_t edge_bits[31]  = { 0x3400, 0x3800, 0x3a00, 0x3c00, 0x3d00, 0x3e00, 0x3f00, 0x4000,
-                                           0x4080, 0x4100, 0x4180, 0x4200, 0x4280, 0x4300, 0x4380, 0x4400,
-                                           0x4440, 0x4480, 0x44c0, 0x4500, 0x4540, 0x4580, 0x45c0, 0x4600,
-                                           0x4640, 0x4680, 0x46c0, 0x4700, 0x4740, 0x4780, 0x47c0 };
+#if HTP_OPS_PWL_COMPANDED16
+HTP_OPS_PWL_TABLE(sigmoid_slope, 0x33f5, 0x33b7, 0x3343, 0x32a4, 0x31eb, 0x3128, 0x3067, 0x2f62, 0x2d8c, 0x2b47, 0x28a3,
+                  0x25cd, 0x21c8, 0x1c52, 0x1665, 0x10b7);
+HTP_OPS_PWL_TABLE(sigmoid_bias, 0x3800, 0x3804, 0x3812, 0x3830, 0x385e, 0x389b, 0x38e4, 0x3933, 0x39a9, 0x3a42, 0x3ac0,
+                  0x3b22, 0x3b7f, 0x3bc7, 0x3be8, 0x3bf6);
 
-  HVX_Vector y =
-    Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vmpy_VhfVhf(ax, Q6_Vh_vsplat_R(slope_bits[0])), Q6_Vh_vsplat_R(bias_bits[0]));
-  for (int i = 1; i < 32; ++i) {
-    HVX_Vector candidate =
-      Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vmpy_VhfVhf(ax, Q6_Vh_vsplat_R(slope_bits[i])), Q6_Vh_vsplat_R(bias_bits[i]));
-    HVX_VectorPred q_ge_edge = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(edge_bits[i - 1]));
-    y                        = Q6_V_vmux_QVV(q_ge_edge, candidate, y);
+HTP_OPS_PWL_TABLE(tanh_slope, 0x3bd6, 0x3af3, 0x3989, 0x380c, 0x358c, 0x3347, 0x30a3, 0x2dcd, 0x29c8, 0x2452, 0x1e65,
+                  0x18b7);
+HTP_OPS_PWL_TABLE(tanh_bias, 0x0000, 0x271b, 0x2f6f, 0x3418, 0x36a3, 0x3883, 0x3981, 0x3a43, 0x3afd, 0x3b8e, 0x3bd0,
+                  0x3bec);
+
+HTP_OPS_PWL_TABLE(gelu_slope, 0x38ca, 0x3a46, 0x3b7f, 0x3c2e, 0x3c6d, 0x3c82, 0x3c7c, 0x3c66, 0x3c3e, 0x3c17, 0x3c06,
+                  0x3c01);
+HTP_OPS_PWL_TABLE(gelu_bias, 0x0000, 0xa9ef, 0xafdc, 0xb285, 0xb43e, 0xb4a8, 0xb483, 0xb3d3, 0xb154, 0xac8f, 0xa56e,
+                  0x9c22);
+#else
+HTP_OPS_PWL_TABLE(sigmoid_slope_lo, 0x33f5, 0x33b7, 0x3343, 0x32a4, 0x31eb, 0x3128, 0x3067, 0x2f62, 0x2e1b, 0x2cfd,
+                  0x2c0a, 0x2a7b, 0x292c, 0x281a, 0x267d, 0x251c);
+HTP_OPS_PWL_TABLE(sigmoid_bias_lo, 0x3800, 0x3804, 0x3812, 0x3830, 0x385e, 0x389b, 0x38e4, 0x3933, 0x3985, 0x39d6,
+                  0x3a22, 0x3a68, 0x3aa7, 0x3ade, 0x3b0e, 0x3b38);
+HTP_OPS_PWL_TABLE(sigmoid_slope_hi, 0x2404, 0x224d, 0x20ef, 0x1fb8, 0x1e08, 0x1cb6, 0x1b5a, 0x19bc, 0x1879, 0x16f9,
+                  0x156f, 0x143c, 0x1299, 0x1124, 0x1001, 0x0e3d);
+HTP_OPS_PWL_TABLE(sigmoid_bias_hi, 0x3b5b, 0x3b78, 0x3b91, 0x3ba5, 0x3bb6, 0x3bc4, 0x3bcf, 0x3bd9, 0x3be0, 0x3be6,
+                  0x3beb, 0x3bef, 0x3bf3, 0x3bf5, 0x3bf7, 0x3bf9);
+
+HTP_OPS_PWL_TABLE(tanh_slope, 0x3bd6, 0x3af3, 0x3989, 0x380c, 0x358c, 0x3347, 0x30a3, 0x2dcd, 0x2b2b, 0x2866, 0x255f,
+                  0x228b, 0x1ff5, 0x1cd6, 0x19df, 0x1720);
+HTP_OPS_PWL_TABLE(tanh_bias, 0x0000, 0x271b, 0x2f6f, 0x3418, 0x36a3, 0x3883, 0x3981, 0x3a43, 0x3ad1, 0x3b35, 0x3b79,
+                  0x3ba7, 0x3bc6, 0x3bda, 0x3be8, 0x3bf0);
+
+HTP_OPS_PWL_TABLE(gelu_slope, 0x38ca, 0x3a46, 0x3b7f, 0x3c2e, 0x3c6d, 0x3c82, 0x3c7c, 0x3c66, 0x3c4b, 0x3c32, 0x3c1e,
+                  0x3c11, 0x3c08, 0x3c04, 0x3c02, 0x3c01);
+HTP_OPS_PWL_TABLE(gelu_bias, 0x0000, 0xa9ef, 0xafdc, 0xb285, 0xb43e, 0xb4a8, 0xb483, 0xb3d3, 0xb224, 0xb063, 0xada7,
+                  0xaad5, 0xa6ee, 0xa34e, 0x9fa2, 0x9bf3);
+#endif
+
+#undef HTP_OPS_PWL_TABLE
+
+static inline HVX_Vector htp_ops_unary_pwl_fp16_vec(HVX_Vector v, int opType) {
+  if (opType == HTP_OPS_UNARY_SILU) {
+    return htp_ops_silu_pwl_fp16_vec(v);
   }
 
-  HVX_VectorPred q_ge_8 = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(0x4800));
-  y                     = Q6_V_vmux_QVV(q_ge_8, one_v, y);
-  HVX_Vector y_neg      = Q6_Vhf_vsub_VhfVhf(one_v, y);
-  return Q6_V_vmux_QVV(q_v_lt_0, y_neg, y);
-}
+  const HVX_Vector zero_v  = Q6_V_vzero();
+  const HVX_Vector one_v   = Q6_Vh_vsplat_R(0x3c00);
+  const HVX_Vector four_v  = Q6_Vh_vsplat_R(0x4400);
+  const HVX_Vector eight_v = Q6_Vh_vsplat_R(0x4800);
 
-static inline HVX_Vector htp_ops_unary_sigmoid_fp16_fast_vec(HVX_Vector v, HVX_Vector zero_v, HVX_Vector one_v) {
-  HVX_VectorPred q_v_lt_0 = Q6_Q_vcmp_gt_VhfVhf(zero_v, v);
-  HVX_Vector     neg_v    = Q6_Vhf_vsub_VhfVhf(zero_v, v);
-  HVX_Vector     ax       = Q6_V_vmux_QVV(q_v_lt_0, neg_v, v);
+  const HVX_VectorPred negative = Q6_Q_vcmp_gt_VhfVhf(zero_v, v);
+  const HVX_Vector     abs_v    = Q6_V_vmux_QVV(negative, Q6_Vhf_vsub_VhfVhf(zero_v, v), v);
 
-  static const uint16_t slope_bits[16] = { 0x33d6, 0x32f3, 0x3189, 0x300c, 0x2d8c, 0x2b47, 0x28a3, 0x25cd,
-                                           0x232b, 0x2066, 0x1d5f, 0x1a8b, 0x17f5, 0x14d6, 0x11df, 0x0f20 };
-  static const uint16_t bias_bits[16]  = { 0x3800, 0x381c, 0x3877, 0x3906, 0x39a9, 0x3a41, 0x3ac0, 0x3b22,
-                                           0x3b68, 0x3b9a, 0x3bbd, 0x3bd4, 0x3be3, 0x3bed, 0x3bf4, 0x3bf8 };
-  static const uint16_t edge_bits[15]  = { 0x3800, 0x3c00, 0x3e00, 0x4000, 0x4100, 0x4200, 0x4300, 0x4400,
-                                           0x4480, 0x4500, 0x4580, 0x4600, 0x4680, 0x4700, 0x4780 };
+  const bool       range_is_eight = opType == HTP_OPS_UNARY_SIGMOID;
+  const HVX_Vector range_v        = range_is_eight ? eight_v : four_v;
+#if HTP_OPS_PWL_COMPANDED16
+  const HVX_Vector index = htp_ops_pwl_companded_index16(abs_v);
+#else
+  const HVX_VectorPred high_bank = Q6_Q_not_Q(Q6_Q_vcmp_gt_VhfVhf(four_v, abs_v));
+  const HVX_Vector     local_x   = Q6_V_vmux_QVV(high_bank, Q6_Vhf_vsub_VhfVhf(abs_v, four_v), abs_v);
+  const HVX_Vector     index     = htp_ops_pwl_index16(local_x, 0x4400);
+#endif
 
-  HVX_Vector y = Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vmpy_VhfVhf(ax, Q6_Vh_vsplat_R(slope_bits[0])), Q6_Vh_vsplat_R(0x3800));
-  for (int i = 1; i < 16; ++i) {
-    HVX_Vector candidate =
-      Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vmpy_VhfVhf(ax, Q6_Vh_vsplat_R(slope_bits[i])), Q6_Vh_vsplat_R(bias_bits[i]));
-    HVX_VectorPred q_ge_edge = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(edge_bits[i - 1]));
-    y                        = Q6_V_vmux_QVV(q_ge_edge, candidate, y);
+  const uint32_t *slope_lo = nullptr;
+  const uint32_t *bias_lo  = nullptr;
+#if !HTP_OPS_PWL_COMPANDED16
+  const uint32_t *slope_hi = nullptr;
+  const uint32_t *bias_hi  = nullptr;
+#endif
+  if (opType == HTP_OPS_UNARY_SIGMOID) {
+#if HTP_OPS_PWL_COMPANDED16
+    slope_lo = sigmoid_slope;
+    bias_lo  = sigmoid_bias;
+#else
+    slope_lo = sigmoid_slope_lo;
+    bias_lo  = sigmoid_bias_lo;
+    slope_hi = sigmoid_slope_hi;
+    bias_hi  = sigmoid_bias_hi;
+#endif
+  } else if (opType == HTP_OPS_UNARY_TANH) {
+    slope_lo = tanh_slope;
+    bias_lo  = tanh_bias;
+  } else {
+    slope_lo = gelu_slope;
+    bias_lo  = gelu_bias;
   }
 
-  HVX_VectorPred q_ge_8 = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(0x4800));
-  y                     = Q6_V_vmux_QVV(q_ge_8, one_v, y);
-  HVX_Vector y_neg      = Q6_Vhf_vsub_VhfVhf(one_v, y);
-  return Q6_V_vmux_QVV(q_v_lt_0, y_neg, y);
-}
+  HVX_Vector slope = htp_ops_pwl_lookup16(index, slope_lo);
+  HVX_Vector bias  = htp_ops_pwl_lookup16(index, bias_lo);
+#if !HTP_OPS_PWL_COMPANDED16
+  if (range_is_eight) {
+    HVX_Vector high_slope = htp_ops_pwl_lookup16(index, slope_hi);
+    HVX_Vector high_bias  = htp_ops_pwl_lookup16(index, bias_hi);
+    slope                 = Q6_V_vmux_QVV(high_bank, high_slope, slope);
+    bias                  = Q6_V_vmux_QVV(high_bank, high_bias, bias);
+  }
+#endif
 
-static inline HVX_Vector htp_ops_unary_gelu_fp16_vec(HVX_Vector v, HVX_Vector zero_v, HVX_Vector one_v) {
-  HVX_Vector c_2_sqrt_2_over_pi = Q6_Vh_vsplat_R(0x3e62);
-  HVX_Vector c_0_044715         = Q6_Vh_vsplat_R(0x29b9);
-  HVX_Vector x2                 = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v, v));
-  HVX_Vector x3                 = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(x2, v));
-  HVX_Vector cubic              = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(x3, c_0_044715));
-  HVX_Vector inner              = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(v, cubic));
-  HVX_Vector sig_arg            = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(inner, c_2_sqrt_2_over_pi));
-  HVX_Vector sig                = htp_ops_unary_sigmoid_fp16_vec(sig_arg, zero_v, one_v);
-  return Q6_Vhf_vmpy_VhfVhf(v, sig);
+  HVX_Vector positive_y = htp_ops_pwl_eval(abs_v, slope, bias);
+  HVX_Vector negative_y;
+  HVX_Vector positive_limit;
+  HVX_Vector negative_limit;
+  if (opType == HTP_OPS_UNARY_SIGMOID) {
+    negative_y     = Q6_Vhf_vsub_VhfVhf(one_v, positive_y);
+    positive_limit = one_v;
+    negative_limit = zero_v;
+  } else if (opType == HTP_OPS_UNARY_TANH) {
+    negative_y     = Q6_Vhf_vsub_VhfVhf(zero_v, positive_y);
+    positive_limit = one_v;
+    negative_limit = Q6_Vhf_vsub_VhfVhf(zero_v, one_v);
+  } else {
+    // SiLU(-x) = SiLU(x) - x and GELU(-x) = GELU(x) - x.
+    negative_y     = Q6_Vhf_vsub_VhfVhf(positive_y, abs_v);
+    positive_limit = abs_v;
+    negative_limit = zero_v;
+  }
+
+  HVX_Vector           result    = Q6_V_vmux_QVV(negative, negative_y, positive_y);
+  const HVX_VectorPred saturated = Q6_Q_not_Q(Q6_Q_vcmp_gt_VhfVhf(range_v, abs_v));
+  const HVX_Vector     limit     = Q6_V_vmux_QVV(negative, negative_limit, positive_limit);
+  return Q6_V_vmux_QVV(saturated, limit, result);
 }
 
 static inline void htp_ops_unary_compute_fp16_chunk(__fp16 *dst, const __fp16 *src, int size, int opType) {
@@ -337,6 +405,28 @@ static inline void htp_ops_unary_compute_fp16_chunk(__fp16 *dst, const __fp16 *s
       src_ptr += vec_len;
       dst_ptr += vec_len;
     }
+  } else if (opType == HTP_OPS_UNARY_LOG) {
+    const __fp16    *src_ptr  = src;
+    __fp16          *dst_ptr  = dst;
+    const HVX_Vector zero_v   = Q6_V_vzero();
+    const HVX_Vector ln2_v    = Q6_Vh_vsplat_R(0x398c);
+    const HVX_Vector lowest_v = Q6_Vh_vsplat_R(0xfbff);
+    for (; i < vec_end; i += vec_len) {
+      const int pf = i + vec_len * HTP_OPS_UNARY_L2FETCH_VECS;
+      if (pf < vec_end) {
+        const int remain = (vec_end - pf) / vec_len;
+        l2fetch(src + pf, 128, 128, remain < HTP_OPS_UNARY_L2FETCH_VECS ? remain : HTP_OPS_UNARY_L2FETCH_VECS, 0);
+      }
+      HVX_Vector           v            = vmem(src_ptr);
+      // The shared HVX helper returns log2(x) in qf16. Convert it to ln(x)
+      // and preserve the scalar kernel's finite sentinel for x <= 0.
+      HVX_Vector           log2_v       = hvx_my_log2_vqf16_vhf(v);
+      HVX_Vector           result       = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_Vqf16Vhf(log2_v, ln2_v));
+      const HVX_VectorPred non_positive = Q6_Q_not_Q(Q6_Q_vcmp_gt_VhfVhf(v, zero_v));
+      vmem(dst_ptr)                     = Q6_V_vmux_QVV(non_positive, lowest_v, result);
+      src_ptr += vec_len;
+      dst_ptr += vec_len;
+    }
   } else if (opType == HTP_OPS_UNARY_EXP) {
     const __fp16    *src_ptr = src;
     __fp16          *dst_ptr = dst;
@@ -372,9 +462,6 @@ static inline void htp_ops_unary_compute_fp16_chunk(__fp16 *dst, const __fp16 *s
     }
   } else if (opType == HTP_OPS_UNARY_SIGMOID || opType == HTP_OPS_UNARY_GELU || opType == HTP_OPS_UNARY_SILU ||
              opType == HTP_OPS_UNARY_TANH) {
-    HVX_Vector    zero_v   = Q6_V_vzero();
-    HVX_Vector    one_v    = Q6_Vh_vsplat_R(0x3c00);
-    HVX_Vector    two_v    = Q6_Vh_vsplat_R(0x4000);
     const __fp16 *src_ptr  = src;
     __fp16       *dst_ptr  = dst;
     const int     vec2_len = vec_len * 2;
@@ -385,28 +472,10 @@ static inline void htp_ops_unary_compute_fp16_chunk(__fp16 *dst, const __fp16 *s
         const int remain = (vec_end - pf) / vec_len;
         l2fetch(src + pf, 128, 128, remain < HTP_OPS_UNARY_L2FETCH_VECS ? remain : HTP_OPS_UNARY_L2FETCH_VECS, 0);
       }
-      HVX_Vector v      = vmem(src_ptr);
-      HVX_Vector v_next = vmem(src_ptr + vec_len);
-      HVX_Vector vr;
-      HVX_Vector vr_next;
-      if (opType == HTP_OPS_UNARY_SIGMOID) {
-        vr      = htp_ops_unary_sigmoid_fp16_vec(v, zero_v, one_v);
-        vr_next = htp_ops_unary_sigmoid_fp16_vec(v_next, zero_v, one_v);
-      } else if (opType == HTP_OPS_UNARY_GELU) {
-        vr      = htp_ops_unary_gelu_fp16_vec(v, zero_v, one_v);
-        vr_next = htp_ops_unary_gelu_fp16_vec(v_next, zero_v, one_v);
-      } else if (opType == HTP_OPS_UNARY_SILU) {
-        vr = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v, htp_ops_unary_sigmoid_fp16_vec(v, zero_v, one_v)));
-        vr_next =
-          Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v_next, htp_ops_unary_sigmoid_fp16_vec(v_next, zero_v, one_v)));
-      } else {
-        HVX_Vector sig =
-          htp_ops_unary_sigmoid_fp16_fast_vec(Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v, two_v)), zero_v, one_v);
-        HVX_Vector sig_next =
-          htp_ops_unary_sigmoid_fp16_fast_vec(Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v_next, two_v)), zero_v, one_v);
-        vr      = Q6_Vhf_vsub_VhfVhf(Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(sig, two_v)), one_v);
-        vr_next = Q6_Vhf_vsub_VhfVhf(Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(sig_next, two_v)), one_v);
-      }
+      HVX_Vector v            = vmem(src_ptr);
+      HVX_Vector v_next       = vmem(src_ptr + vec_len);
+      HVX_Vector vr           = htp_ops_unary_pwl_fp16_vec(v, opType);
+      HVX_Vector vr_next      = htp_ops_unary_pwl_fp16_vec(v_next, opType);
       vmem(dst_ptr)           = vr;
       vmem(dst_ptr + vec_len) = vr_next;
       src_ptr += vec2_len;
@@ -418,19 +487,8 @@ static inline void htp_ops_unary_compute_fp16_chunk(__fp16 *dst, const __fp16 *s
         const int remain = (vec_end - pf) / vec_len;
         l2fetch(src + pf, 128, 128, remain < HTP_OPS_UNARY_L2FETCH_VECS ? remain : HTP_OPS_UNARY_L2FETCH_VECS, 0);
       }
-      HVX_Vector v = vmem(src_ptr);
-      HVX_Vector vr;
-      if (opType == HTP_OPS_UNARY_SIGMOID) {
-        vr = htp_ops_unary_sigmoid_fp16_vec(v, zero_v, one_v);
-      } else if (opType == HTP_OPS_UNARY_GELU) {
-        vr = htp_ops_unary_gelu_fp16_vec(v, zero_v, one_v);
-      } else if (opType == HTP_OPS_UNARY_SILU) {
-        vr = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v, htp_ops_unary_sigmoid_fp16_vec(v, zero_v, one_v)));
-      } else {
-        HVX_Vector sig =
-          htp_ops_unary_sigmoid_fp16_fast_vec(Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v, two_v)), zero_v, one_v);
-        vr = Q6_Vhf_vsub_VhfVhf(Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(sig, two_v)), one_v);
-      }
+      HVX_Vector v  = vmem(src_ptr);
+      HVX_Vector vr = htp_ops_unary_pwl_fp16_vec(v, opType);
       vmem(dst_ptr) = vr;
       src_ptr += vec_len;
       dst_ptr += vec_len;
