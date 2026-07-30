@@ -266,8 +266,11 @@ void DFlashGeneration::generate(GenerationParams& param) {
 
         // Sample first token from prefill logits
         mContext->current_token = mLlm->sample(param.outputs[0], param.validLogitStart, param.validLogitSize);
-        mContext->history_tokens.push_back(mContext->current_token);
-        mContext->output_tokens.push_back(mContext->current_token);
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->history_tokens.push_back(mContext->current_token);
+            mContext->output_tokens.push_back(mContext->current_token);
+        }
         mLlm->updateContext(0, 1);
 
         if (mLlm->is_stop(mContext->current_token)) {
@@ -513,8 +516,11 @@ void DFlashGeneration::generate(GenerationParams& param) {
         bool stop = false;
         for (int i = 1; i <= acceptance_length; i++) {
             int token = block_ids[i];
-            mContext->history_tokens.push_back(token);
-            mContext->output_tokens.push_back(token);
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->history_tokens.push_back(token);
+                mContext->output_tokens.push_back(token);
+            }
             if (nullptr != mContext->os) {
                 *mContext->os << mLlm->tokenizer_decode(token) << std::flush;
             }
@@ -526,8 +532,11 @@ void DFlashGeneration::generate(GenerationParams& param) {
 
         if (!stop) {
             // Add the corrected/next token
-            mContext->history_tokens.push_back(mContext->current_token);
-            mContext->output_tokens.push_back(mContext->current_token);
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->history_tokens.push_back(mContext->current_token);
+                mContext->output_tokens.push_back(mContext->current_token);
+            }
             if (nullptr != mContext->os) {
                 if (mLlm->is_stop(mContext->current_token)) {
                     *mContext->os << mContext->end_with << std::flush;

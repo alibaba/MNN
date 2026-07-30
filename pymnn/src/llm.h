@@ -342,13 +342,25 @@ static PyObject* PyMNNLLM_get_context(LLM *self, PyObject *args) {
         Py_RETURN_NONE;
     }
 
+    // Snapshot container fields under lock: the decode loop mutates them on
+    // another thread; copying without the lock is a use-after-free risk.
+    std::string end_with_copy, generate_str_copy;
+    std::vector<int> history_tokens_copy, output_tokens_copy;
+    {
+        std::lock_guard<std::mutex> _l(context->mutex);
+        end_with_copy = context->end_with;
+        generate_str_copy = context->generate_str;
+        history_tokens_copy = context->history_tokens;
+        output_tokens_copy = context->output_tokens;
+    }
+
     PyObject* dict = PyDict_New();
 
     // Forward parameters
     PyDict_SetItemString(dict, "prompt_len", PyLong_FromLong(context->prompt_len));
     PyDict_SetItemString(dict, "gen_seq_len", PyLong_FromLong(context->gen_seq_len));
     PyDict_SetItemString(dict, "all_seq_len", PyLong_FromLong(context->all_seq_len));
-    PyDict_SetItemString(dict, "end_with", string2Object(context->end_with));
+    PyDict_SetItemString(dict, "end_with", string2Object(end_with_copy));
 
     // Performance metrics
     PyDict_SetItemString(dict, "load_us", PyLong_FromLongLong(context->load_us));
@@ -363,13 +375,13 @@ static PyObject* PyMNNLLM_get_context(LLM *self, PyObject *args) {
     // Tokens
     PyDict_SetItemString(dict, "current_token", PyLong_FromLong(context->current_token));
 
-    PyObject* history_tokens = toPyObj<int, toPyObj>(context->history_tokens);
+    PyObject* history_tokens = toPyObj<int, toPyObj>(history_tokens_copy);
     PyDict_SetItemString(dict, "history_tokens", history_tokens);
 
-    PyObject* output_tokens = toPyObj<int, toPyObj>(context->output_tokens);
+    PyObject* output_tokens = toPyObj<int, toPyObj>(output_tokens_copy);
     PyDict_SetItemString(dict, "output_tokens", output_tokens);
 
-    PyDict_SetItemString(dict, "generate_str", string2Object(context->generate_str));
+    PyDict_SetItemString(dict, "generate_str", string2Object(generate_str_copy));
 
     // llm status
     PyDict_SetItemString(dict, "status", PyLong_FromLong((int)context->status));
@@ -411,6 +423,7 @@ static PyObject* PyMNNLLM_set_context(LLM *self, PyObject *args) {
 
     PyObject* end_with = PyDict_GetItemString(dict, "end_with");
     if (end_with && PyUnicode_Check(end_with)) {
+        std::lock_guard<std::mutex> _l(context->mutex);
         context->end_with = object2String(end_with);
     }
 
@@ -422,17 +435,23 @@ static PyObject* PyMNNLLM_set_context(LLM *self, PyObject *args) {
 
     PyObject* history_tokens = PyDict_GetItemString(dict, "history_tokens");
     if (history_tokens && PyList_Check(history_tokens)) {
-        context->history_tokens = toInts(history_tokens);
+        auto tokens = toInts(history_tokens);
+        std::lock_guard<std::mutex> _l(context->mutex);
+        context->history_tokens = std::move(tokens);
     }
 
     PyObject* output_tokens = PyDict_GetItemString(dict, "output_tokens");
     if (output_tokens && PyList_Check(output_tokens)) {
-        context->output_tokens = toInts(output_tokens);
+        auto tokens = toInts(output_tokens);
+        std::lock_guard<std::mutex> _l(context->mutex);
+        context->output_tokens = std::move(tokens);
     }
 
     PyObject* generate_str = PyDict_GetItemString(dict, "generate_str");
     if (generate_str && PyUnicode_Check(generate_str)) {
-        context->generate_str = object2String(generate_str);
+        auto str = object2String(generate_str);
+        std::lock_guard<std::mutex> _l(context->mutex);
+        context->generate_str = std::move(str);
     }
 
     PyObject* status = PyDict_GetItemString(dict, "status");
