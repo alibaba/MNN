@@ -1292,7 +1292,10 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
     }
     int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
     mContext->prompt_len = seqLen;
-    mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end());
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end());
+    }
 
     MNN::Timer _t;
     auto outputs = forwardVec(input_embeds);
@@ -1305,14 +1308,20 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
 
     // Sample first thinker token from prefill logits
     mContext->current_token = sample(outputs[0]);
-    mContext->history_tokens.push_back(mContext->current_token);
-    mContext->output_tokens.push_back(mContext->current_token);
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.push_back(mContext->current_token);
+        mContext->output_tokens.push_back(mContext->current_token);
+    }
     updateContext(0, 1);
 
     // Output first token
     if (!is_stop(mContext->current_token)) {
         auto decodeStr = tokenizer_decode(mContext->current_token);
-        mContext->generate_str += decodeStr;
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->generate_str += decodeStr;
+        }
         if (nullptr != os) {
             *os << decodeStr << std::flush;
         }
@@ -1334,15 +1343,21 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
 
         int next_token = sample(decode_outputs[0]);
         mContext->current_token = next_token;
-        mContext->history_tokens.push_back(next_token);
-        mContext->output_tokens.push_back(next_token);
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->history_tokens.push_back(next_token);
+            mContext->output_tokens.push_back(next_token);
+        }
         updateContext(0, 1);
         mContext->decode_us += t_decode.durationInUs();
         thinker_tokens = 2;
 
         if (!is_stop(next_token)) {
             auto decodeStr = tokenizer_decode(next_token);
-            mContext->generate_str += decodeStr;
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->generate_str += decodeStr;
+            }
             if (nullptr != os) {
                 *os << decodeStr << std::flush;
             }
@@ -1381,8 +1396,11 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
 
             int next_token = sample(decode_outputs[0]);
             mContext->current_token = next_token;
-            mContext->history_tokens.push_back(next_token);
-            mContext->output_tokens.push_back(next_token);
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->history_tokens.push_back(next_token);
+                mContext->output_tokens.push_back(next_token);
+            }
             updateContext(0, 1);
             mContext->decode_us += t_decode.durationInUs();
             thinker_tokens++;
@@ -1394,7 +1412,10 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
                 }
             } else {
                 auto decodeStr = tokenizer_decode(next_token);
-                mContext->generate_str += decodeStr;
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->generate_str += decodeStr;
+                }
                 if (nullptr != os) {
                     *os << decodeStr << std::flush;
                 }
@@ -2029,8 +2050,11 @@ void Talker::stepPrefill() {
     MNN::Timer _t;
     auto logits = forward(input_embeds);
     mContext->current_token = sample(logits);
-    mContext->history_tokens.push_back(mContext->current_token);
-    mContext->output_tokens.push_back(mContext->current_token);
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.push_back(mContext->current_token);
+        mContext->output_tokens.push_back(mContext->current_token);
+    }
     mContext->prefill_us += _t.durationInUs();
 }
 
@@ -2053,8 +2077,11 @@ void Talker::stepForward(int stepIdx) {
     int token = sample(logits);
 
     mContext->current_token = token;
-    mContext->history_tokens.push_back(token);
-    mContext->output_tokens.push_back(token);
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.push_back(token);
+        mContext->output_tokens.push_back(token);
+    }
 
     if (mAsyncToken2Wav) {
         trySubmitChunkAsync(false);
