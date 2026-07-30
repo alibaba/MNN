@@ -414,7 +414,7 @@ class SmoothQuantizer:
         model_type = getattr(self.model.config, "model_type", "")
         layer_type = getattr(module, "layer_type", None)
 
-        if model_type in ("qwen3_5", "qwen3_5_moe"):
+        if model_type in ("qwen3_5", "qwen3_5_moe", "qwen3_5_text"):
             if layer_type == "linear_attention" and hasattr(module, "linear_attn"):
                 attn_ln = module.input_layernorm
                 linear_attn = module.linear_attn
