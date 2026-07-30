@@ -100,7 +100,10 @@ void LookaheadGeneration::generate(GenerationParams& param) {
         drafts.push_back(mContext->current_token);
         
         auto decodeStr = mLlm->tokenizer_decode(mContext->current_token);
-        mContext->generate_str += decodeStr;
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->generate_str += decodeStr;
+        }
         if (nullptr != mContext->os) {
             *mContext->os << decodeStr;
             *mContext->os << std::flush;
@@ -182,14 +185,20 @@ void LookaheadGeneration::generate(GenerationParams& param) {
             }
         #endif
             if(stop) {
-                mContext->history_tokens.push_back(mContext->current_token);
-                mContext->output_tokens.push_back(mContext->current_token);
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->history_tokens.push_back(mContext->current_token);
+                    mContext->output_tokens.push_back(mContext->current_token);
+                }
                 mLlm->updateContext(0, 1);
                 break;
             }
             if (mLlm->is_stop(mContext->current_token)) {
-                mContext->history_tokens.push_back(mContext->current_token);
-                mContext->output_tokens.push_back(mContext->current_token);
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->history_tokens.push_back(mContext->current_token);
+                    mContext->output_tokens.push_back(mContext->current_token);
+                }
                 mLlm->updateContext(0, 1);
                 if (nullptr != mContext->os) {
                     *mContext->os << mContext->end_with << std::flush;

@@ -10,6 +10,7 @@
 
 #include <vector>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <fstream>
 #include <sstream>
@@ -127,6 +128,11 @@ struct LlmContext {
     LlmStatus status = LlmStatus::NOT_LOADED;
     // log buffer (per-instance, no locking needed)
     std::string log_buffer;
+    // Guards history_tokens / output_tokens / generate_str / end_with against
+    // concurrent access: the decode loop mutates them while other threads
+    // (e.g. pymnn get_context) may read; unsynchronized vector/string
+    // reallocation causes use-after-free.
+    mutable std::mutex mutex;
 };
 struct GenerationParams;
 class MNN_PUBLIC Llm {
