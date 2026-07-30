@@ -142,11 +142,13 @@ class Qwen2_5OmniTalker(Talker):
             self.blocks.append(decoder)
 
 
-    def forward(self, inputs_embeds, attention_mask, position_ids):
+    def forward(self, inputs_embeds, attention_mask, position_ids, past_key_values=None):
         hidden_states = self.talker.thinker_to_talker_proj(inputs_embeds)
         rotary_pos_emb = self.rotary(position_ids)
 
         for i in range(self.num_hidden_layers):
+            if past_key_values is not None:
+                self.blocks[i].self_attn.past_key_value = past_key_values[i]
             hidden_states = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask)
 
         hidden_states = hidden_states[:, -1, :]
@@ -239,14 +241,18 @@ class Qwen2_5OmniTalker(Talker):
         inputs_embeds = torch.randn([1, self.seq_len, self.input_hidden_size])
         posision_ids = self.get_position_ids()
         attention_mask = self.get_attention_mask()
+        # Zero-length past kv makes each layer emit Concat(past, new) on K/V during
+        # the trace, which MNN's FuseAttention pass requires to set kv_cache=true.
+        past_key_values = torch.zeros([self.num_hidden_layers, 2, 1, 0, self.num_key_value_heads, self.head_dim])
         talker_onnx = f'{onnx_path}/talker.onnx'
-        onnx_export(self, (inputs_embeds, attention_mask, posision_ids),
+        onnx_export(self, (inputs_embeds, attention_mask, posision_ids, past_key_values),
                     talker_onnx,
-                    input_names=['inputs_embeds', 'attention_mask', 'position_ids'],
+                    input_names=['inputs_embeds', 'attention_mask', 'position_ids', 'past_key_values'],
                     output_names=['logits'],
                     dynamic_axes={
                         "inputs_embeds": { 1: "size" },
                         "attention_mask": { 2: "size", 3: "size" },
-                        "position_ids": { 2: "size" }
+                        "position_ids": { 2: "size" },
+                        "past_key_values": { 3: "history_len" }
                     })
         return talker_onnx
