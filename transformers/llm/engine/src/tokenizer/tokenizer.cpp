@@ -76,7 +76,7 @@ Tokenizer* Tokenizer::createTokenizer(const std::string& filename) {
     // AUTOTIME;
     Tokenizer* tokenizer = nullptr;
     // check file
-    std::ifstream tok_file(filename);
+    std::ifstream tok_file(filename, std::ios::binary); // std::ifstream tok_file(filename);
     if (!tok_file.good()) {
         printf("Failed: can't load tokenzier from: %s.\n", filename.c_str());
         return tokenizer;
