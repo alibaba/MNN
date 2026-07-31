@@ -2157,6 +2157,144 @@ struct Param {
 // The hard-coded pair of scalars gives the compiler two independent instruction
 // streams (s0/s1, local_max0/local_max1, etc.) which interleave cleanly.
 #if GROUP_SIZE == 2
+#ifdef QK_QSPLIT
+// Q-head-split variant (host auto gate: group_size==2, non-tensor-API device,
+// kv>=512): each
+// threadgroup handles ONE query head — gid.z selects the head within the kv
+// group. Doubles threadgroup count (8 -> 16 on Qwen3-0.6B) for occupancy, at
+// the cost of reading K once per q-head (2x K traffic) and a single dot
+// stream per thread (vs the s0/s1 ILP pair below).
+kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype* past_key [[buffer(2)]],
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+#if defined(QUANT_K) && defined(DYNAMIC_QUANT_K)
+    device ftype* k_scales [[buffer(8)]],
+#endif
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint tid[[thread_index_in_threadgroup]],
+    uint tiisg[[thread_index_in_simdgroup]],
+    uint sgitg[[simdgroup_index_in_threadgroup]],
+    uint3 tptg_3d[[threads_per_threadgroup]]
+) {
+    threadgroup float scores0[DECODE_QK_SOFTMAX_MAX_KV];
+    threadgroup float reduce0[32];
+
+    const int tptg = int(tptg_3d.x * tptg_3d.y * tptg_3d.z);
+    const int sg_count = tptg / SIMD_GROUP_WIDTH;
+    const int kv_head_num = param.head_num / GROUP_SIZE;
+    const int b = int(gid.x) / kv_head_num;
+    const int kv_hn = int(gid.x) - b * kv_head_num;
+#ifdef HEAD_DIM
+    const int head_dim = HEAD_DIM;
+#else
+    const int head_dim = param.head_dim;
+#endif
+    const int key_seq_len = param.key_seq_len;
+    const int align_key_len = ((key_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
+    const int x = int(gid.y);
+    const int q_idx = seq_idx * param.q_seq_piece_len + x;
+
+    if (b >= param.batch || kv_hn >= kv_head_num || x >= param.q_seq_piece_len || q_idx >= param.query_seq_len) {
+        return;
+    }
+
+    const int head0 = kv_hn * GROUP_SIZE + int(gid.z);
+    const int query_offset = (b * param.query_seq_len + q_idx) * param.head_num * head_dim;
+    const device ftype* query0 = input0 + query_offset + head0 * head_dim;
+    const int key_head_offset = kv_hn * head_dim;
+    const int key_stride = kv_head_num * head_dim;
+
+    float local_max0 = -FLT_MAX;
+    const int kv_valid_limit = max(key_seq_len - param.query_seq_len, 0) + q_idx;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+#ifdef QUANT_K
+        const device char* key = (const device char*)past_key + (k * param.batch + b) * key_stride + key_head_offset;
+#else
+        const device ftype* key = past_key + (k * param.batch + b) * key_stride + key_head_offset;
+#endif
+        float s0 = 0.0f;
+        const device ftype4* q04 = (const device ftype4*)query0;
+#ifdef QUANT_K
+        const device char4* k4 = (const device char4*)key;
+#ifdef DYNAMIC_QUANT_K
+        const int k_token_idx = k * param.batch + b;
+        const float k_scale = float(k_scales[k_token_idx * 2]);
+        const float k_bias = float(k_scales[k_token_idx * 2 + 1]);
+#endif
+#else
+        const device ftype4* k4 = (const device ftype4*)key;
+#endif
+        for (int d = 0; d < head_dim / 8; ++d) {
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 k0 = float4(k4[d * 2 + 0]) * k_scale + k_bias;
+            float4 k1 = float4(k4[d * 2 + 1]) * k_scale + k_bias;
+#else
+            float4 k0 = float4(k4[d * 2 + 0]) * param.k_scale;
+            float4 k1 = float4(k4[d * 2 + 1]) * param.k_scale;
+#endif
+#else
+            float4 k0 = float4(k4[d * 2 + 0]);
+            float4 k1 = float4(k4[d * 2 + 1]);
+#endif
+            s0 += dot(float4(q04[d * 2 + 0]), k0) + dot(float4(q04[d * 2 + 1]), k1);
+        }
+        s0 *= param.scale;
+        if (k > kv_valid_limit) {
+            s0 = -FLT_MAX;
+        }
+        scores0[k] = s0;
+        local_max0 = max(local_max0, s0);
+    }
+
+    local_max0 = simd_max(local_max0);
+    if (tiisg == 0) {
+        reduce0[sgitg] = local_max0;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg == 0 && tiisg == 0) {
+        float max0 = -FLT_MAX;
+        for (int i = 0; i < sg_count; ++i) {
+            max0 = max(max0, reduce0[i]);
+        }
+        reduce0[0] = max0;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const float max0 = reduce0[0];
+
+    float local_sum0 = 0.0f;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        float v0 = exp(scores0[k] - max0);
+        scores0[k] = v0;
+        local_sum0 += v0;
+    }
+
+    local_sum0 = simd_sum(local_sum0);
+    if (tiisg == 0) {
+        reduce0[sgitg] = local_sum0;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg == 0 && tiisg == 0) {
+        float sum0 = 0.0f;
+        for (int i = 0; i < sg_count; ++i) {
+            sum0 += reduce0[i];
+        }
+        reduce0[0] = sum0;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const float inv_sum0 = 1.0f / reduce0[0];
+
+    const int base0 = ((b * param.head_num + head0) * param.query_seq_len + q_idx) * align_key_len;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        output[base0 + k] = (ftype)(scores0[k] * inv_sum0);
+    }
+    for (int k = int(tid) + key_seq_len; k < align_key_len; k += tptg) {
+        output[base0 + k] = (ftype)0.0f;
+    }
+}
+#else  // !QK_QSPLIT: original paired implementation
 kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
     device ftype* past_key [[buffer(2)]],
@@ -2318,6 +2456,7 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
         output[base1 + k] = (ftype)0.0f;
     }
 }
+#endif // QK_QSPLIT
 #else  // GROUP_SIZE != 2: generic implementation for group_size in {4, 8}
 kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
@@ -2531,12 +2670,18 @@ struct Param {
     float k_scale;
 };
 #define SIMD_GROUP_WIDTH 32
+#ifndef SPLITKV_NSG
 #define SPLITKV_NSG 4
+#endif
 #define SPLITKV_C 32
 #define DPT (HEAD_DIM / SIMD_GROUP_WIDTH)   // d-values owned per lane in the AV phase
+// One threadgroup per q head (grid.y = batch*head_num, MLX sdpa_vector form);
+// the GROUP_SIZE loops collapse. The kv-head-grouped variant (GS_LOCAL =
+// GROUP_SIZE, SDPA_QSPLIT=0) measured worse and was removed 2026-07-30.
+#define GS_LOCAL 1
 
 kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
-    device float* tmp_out [[buffer(1)]],
+    device ftype* out_final [[buffer(1)]],
     const device ftype* past_key [[buffer(2)]],
     const device ftype* past_value [[buffer(3)]],
     constant Param& param [[buffer(4)]],
@@ -2549,32 +2694,36 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 
     const int kv_head_num = param.head_num / GROUP_SIZE;
     const int iwg   = int(gid.x);
-    const int b     = int(gid.y) / kv_head_num;
-    const int kv_hn = int(gid.y) % kv_head_num;
+    const int b     = int(gid.y) / param.head_num;
+    const int q_head_base = int(gid.y) % param.head_num; // this TG's single q head
+    const int kv_hn = q_head_base / GROUP_SIZE;
     const int key_seq_len = param.key_seq_len;
     const int key_stride  = kv_head_num * HEAD_DIM;
 
-    // Query for the GROUP_SIZE heads sharing this kv head, promoted to float in
-    // threadgroup memory (read once, reused for every kv block).
-    threadgroup float sq[GROUP_SIZE * HEAD_DIM];
+    // Query for the GS_LOCAL heads handled by this threadgroup, promoted to float
+    // in threadgroup memory (read once, reused for every kv block).
+    threadgroup float sq[GS_LOCAL * HEAD_DIM];
     // exp-scores of the current 32-kv block, per simdgroup / group head
-    threadgroup float s_vs[SPLITKV_NSG][GROUP_SIZE][SPLITKV_C];
-    // per-simdgroup partial outputs and (S, M) for the cross-simdgroup reduce
-    threadgroup float s_out[SPLITKV_NSG][GROUP_SIZE][HEAD_DIM];
-    threadgroup float s_sm[SPLITKV_NSG][GROUP_SIZE][2];
+    threadgroup float s_vs[SPLITKV_NSG][GS_LOCAL][SPLITKV_C];
+    // Cross-simdgroup reduce scratch: one float per (lane, simdgroup) pair, reused
+    // for every head_dim component group. Deliberately independent of HEAD_DIM --
+    // a [SPLITKV_NSG][GS_LOCAL][HEAD_DIM] buffer would be 32KB at NSG=32 and
+    // blow the threadgroup limit, capping SPLITKV_NSG at 4.
+    threadgroup float s_out[SPLITKV_NSG * SIMD_GROUP_WIDTH];
+    threadgroup float s_sm[SPLITKV_NSG][GS_LOCAL][2];
 
     {
-        const device ftype* q_base = input0 + (b * param.head_num + kv_hn * GROUP_SIZE) * HEAD_DIM;
-        for (int i = int(sgitg * SIMD_GROUP_WIDTH + tiisg); i < GROUP_SIZE * HEAD_DIM; i += SPLITKV_NSG * SIMD_GROUP_WIDTH) {
+        const device ftype* q_base = input0 + (b * param.head_num + q_head_base) * HEAD_DIM;
+        for (int i = int(sgitg * SIMD_GROUP_WIDTH + tiisg); i < GS_LOCAL * HEAD_DIM; i += SPLITKV_NSG * SIMD_GROUP_WIDTH) {
             sq[i] = float(q_base[i]);
         }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    float S[GROUP_SIZE];
-    float M[GROUP_SIZE];
-    float O[GROUP_SIZE][DPT];
-    for (int g = 0; g < GROUP_SIZE; ++g) {
+    float S[GS_LOCAL];
+    float M[GS_LOCAL];
+    float O[GS_LOCAL][DPT];
+    for (int g = 0; g < GS_LOCAL; ++g) {
         S[g] = 0.0f;
         M[g] = -FLT_MAX / 2;
         for (int d = 0; d < DPT; ++d) {
@@ -2591,8 +2740,10 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 
     for (int ic0 = (iwg * SPLITKV_NSG + int(sgitg)) * SPLITKV_C; ic0 < key_seq_len; ic0 += nwg * SPLITKV_NSG * SPLITKV_C) {
         // ---- QK: lane <-> kv position ----
+        // (A coalesced simdgroup<->kv-row QK variant (SDPA_COALESCED) matched
+        // this one e2e three times over and was removed 2026-07-30.)
         const int ic = ic0 + int(tiisg);
-        float score[GROUP_SIZE];
+        float score[GS_LOCAL];
         if (ic < key_seq_len) {
 #ifdef QUANT_K
             const device char4* k4 = (const device char4*)((const device char*)past_key + (ic * param.batch + b) * key_stride + kv_hn * HEAD_DIM);
@@ -2607,8 +2758,8 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 #else
             const device ftype4* k4 = (const device ftype4*)(past_key + (ic * param.batch + b) * key_stride + kv_hn * HEAD_DIM);
 #endif
-            float acc[GROUP_SIZE];
-            for (int g = 0; g < GROUP_SIZE; ++g) {
+            float acc[GS_LOCAL];
+            for (int g = 0; g < GS_LOCAL; ++g) {
                 acc[g] = 0.0f;
             }
             for (int d4 = 0; d4 < HEAD_DIM / 4; ++d4) {
@@ -2617,16 +2768,16 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 #else
                 float4 k = float4(k4[d4]);
 #endif
-                for (int g = 0; g < GROUP_SIZE; ++g) {
+                for (int g = 0; g < GS_LOCAL; ++g) {
                     float4 q = ((threadgroup float4*)(sq + g * HEAD_DIM))[d4];
                     acc[g] += dot(q, k);
                 }
             }
-            for (int g = 0; g < GROUP_SIZE; ++g) {
+            for (int g = 0; g < GS_LOCAL; ++g) {
                 score[g] = acc[g] * param.scale;
             }
         } else {
-            for (int g = 0; g < GROUP_SIZE; ++g) {
+            for (int g = 0; g < GS_LOCAL; ++g) {
                 score[g] = -FLT_MAX / 2;
             }
         }
@@ -2635,9 +2786,9 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
         // Under QUANT_V the V scale is folded into s_vs (vs * scale) and the V bias
         // contribution (sum_j vs_j * bias_j, identical for every d) into vb[g], so
         // the AV loop below reads raw int8 V with zero per-element dequant math.
-        float ms[GROUP_SIZE];
+        float ms[GS_LOCAL];
 #ifdef QUANT_V
-        float vb[GROUP_SIZE];
+        float vb[GS_LOCAL];
 #ifdef DYNAMIC_QUANT_V
         const int v_tok = b * param.max_kv_len + ic;
         const float v_sc = (ic < key_seq_len) ? float(v_scales[v_tok * 2])     : 0.0f;
@@ -2647,7 +2798,7 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
         const float v_bi = 0.0f;
 #endif
 #endif
-        for (int g = 0; g < GROUP_SIZE; ++g) {
+        for (int g = 0; g < GS_LOCAL; ++g) {
             const float m_prev = M[g];
             M[g] = max(m_prev, simd_max(score[g]));
             ms[g] = exp(m_prev - M[g]);
@@ -2672,8 +2823,8 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
             const device ftype* v_row = v_base + d * param.max_kv_len + ic0;
 #endif
             if (kv_rem == SPLITKV_C) {
-                float4 vsum[GROUP_SIZE];
-                for (int g = 0; g < GROUP_SIZE; ++g) {
+                float4 vsum[GS_LOCAL];
+                for (int g = 0; g < GS_LOCAL; ++g) {
                     vsum[g] = 0.0f;
                 }
                 for (int j4 = 0; j4 < SPLITKV_C / 4; ++j4) {
@@ -2682,11 +2833,11 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 #else
                     float4 v = float4(((const device ftype4*)v_row)[j4]);
 #endif
-                    for (int g = 0; g < GROUP_SIZE; ++g) {
+                    for (int g = 0; g < GS_LOCAL; ++g) {
                         vsum[g] += v * ((threadgroup float4*)(s_vs[sgitg][g]))[j4];
                     }
                 }
-                for (int g = 0; g < GROUP_SIZE; ++g) {
+                for (int g = 0; g < GS_LOCAL; ++g) {
 #ifdef QUANT_V
                     O[g][dd] = O[g][dd] * ms[g] + (vsum[g].x + vsum[g].y + vsum[g].z + vsum[g].w) + vb[g];
 #else
@@ -2694,7 +2845,7 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 #endif
                 }
             } else {
-                for (int g = 0; g < GROUP_SIZE; ++g) {
+                for (int g = 0; g < GS_LOCAL; ++g) {
                     float acc = 0.0f;
                     for (int j = 0; j < kv_rem; ++j) {
                         acc += float(v_row[j]) * s_vs[sgitg][g][j];
@@ -2711,103 +2862,54 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     }
 
     // ---- cross-simdgroup reduce inside the threadgroup ----
-    for (int g = 0; g < GROUP_SIZE; ++g) {
-        for (int dd = 0; dd < DPT; ++dd) {
-            s_out[sgitg][g][dd * SIMD_GROUP_WIDTH + tiisg] = O[g][dd];
-        }
-        if (tiisg == 0) {
+    // MLX sdpa_vector-style transposed reduce: (S, M) are combined by one
+    // simd_max/simd_sum over lanes indexing simdgroups; O is combined one
+    // 32-component group at a time through the shared s_out scratch, so the
+    // barrier count is 2 per component group instead of log2(NSG) full-HEAD_DIM
+    // sweeps and threadgroup memory stays HEAD_DIM-independent.
+    if (tiisg == 0) {
+        for (int g = 0; g < GS_LOCAL; ++g) {
             s_sm[sgitg][g][0] = S[g];
             s_sm[sgitg][g][1] = M[g];
         }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    for (int r = SPLITKV_NSG / 2; r > 0; r >>= 1) {
-        if (int(sgitg) < r) {
-            for (int g = 0; g < GROUP_SIZE; ++g) {
-                const float S0 = s_sm[sgitg][g][0], M0 = s_sm[sgitg][g][1];
-                const float S1 = s_sm[sgitg + r][g][0], M1 = s_sm[sgitg + r][g][1];
-                const float m  = max(M0, M1);
-                const float ms0 = exp(M0 - m), ms1 = exp(M1 - m);
-                if (tiisg == 0) {
-                    s_sm[sgitg][g][0] = S0 * ms0 + S1 * ms1;
-                    s_sm[sgitg][g][1] = m;
-                }
-                for (int d = int(tiisg); d < HEAD_DIM; d += SIMD_GROUP_WIDTH) {
-                    s_out[sgitg][g][d] = s_out[sgitg][g][d] * ms0 + s_out[sgitg + r][g][d] * ms1;
-                }
-            }
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    // ---- write the per-workgroup partial (O unnormalized, S, M) ----
-    if (sgitg == 0) {
-        for (int g = 0; g < GROUP_SIZE; ++g) {
-            const int row = b * param.head_num + kv_hn * GROUP_SIZE + g;
-            device float* dst = tmp_out + (row * nwg + iwg) * (HEAD_DIM + 2);
-            for (int d = int(tiisg); d < HEAD_DIM; d += SIMD_GROUP_WIDTH) {
-                dst[d] = s_out[0][g][d];
-            }
-            if (tiisg == 0) {
-                dst[HEAD_DIM]     = s_sm[0][g][0];
-                dst[HEAD_DIM + 1] = s_sm[0][g][1];
-            }
-        }
-    }
-}
-
-kernel void decode_splitkv_reduce(const device float* tmp_in [[buffer(0)]],
-    device ftype* output [[buffer(1)]],
-    constant Param& param [[buffer(4)]],
-    constant int& nwg [[buffer(5)]],
-    uint3 gid [[threadgroup_position_in_grid]],
-    uint tiitg [[thread_index_in_threadgroup]],
-    uint tiisg [[thread_index_in_simdgroup]],
-    uint sgitg [[simdgroup_index_in_threadgroup]]) {
-
-    const int row = int(gid.x); // b * head_num + hn
-    const int b  = row / param.head_num;
-    const int hn = row % param.head_num;
-
-    const device float* base = tmp_in + row * nwg * (HEAD_DIM + 2);
-
-    // combine (S, M) across workgroups on simdgroup 0; nwg <= 32
-    threadgroup float s_ms[SIMD_GROUP_WIDTH];
-    threadgroup float s_inv[1];
-    if (sgitg == 0) {
-        const float Mi = (int(tiisg) < nwg) ? base[tiisg * (HEAD_DIM + 2) + HEAD_DIM + 1] : -FLT_MAX / 2;
+    const int row_base = b * param.head_num + q_head_base;
+    const bool lane_is_sg = (int(tiisg) < SPLITKV_NSG);
+    for (int g = 0; g < GS_LOCAL; ++g) {
+        // lane t holds simdgroup t's (S, M); reduce across lanes
+        const float Mi = lane_is_sg ? s_sm[tiisg][g][1] : (-FLT_MAX / 2);
         const float m  = simd_max(Mi);
-        const float msi = (int(tiisg) < nwg) ? exp(Mi - m) : 0.0f;
-        const float Si  = (int(tiisg) < nwg) ? base[tiisg * (HEAD_DIM + 2) + HEAD_DIM] : 0.0f;
-        const float S   = simd_sum(Si * msi);
-        s_ms[tiisg] = msi;
-        if (tiisg == 0) {
-            s_inv[0] = (S == 0.0f) ? 0.0f : (1.0f / S);
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    const float inv_s = s_inv[0];
+        const float factor = lane_is_sg ? exp(Mi - m) : 0.0f;
+        const float S_tot  = simd_sum(lane_is_sg ? (s_sm[tiisg][g][0] * factor) : 0.0f);
 
-    // 128 threads split head_dim for the weighted O combine
-    for (int d = int(tiitg); d < HEAD_DIM; d += 4 * SIMD_GROUP_WIDTH) {
-        float acc = 0.0f;
-        for (int i = 0; i < nwg; ++i) {
-            acc += base[i * (HEAD_DIM + 2) + d] * s_ms[i];
-        }
-        const float out = acc * inv_s;
+        const float inv_s = (S_tot == 0.0f) ? 0.0f : (1.0f / S_tot);
+        const int hn = q_head_base + g;
+
+        for (int dd = 0; dd < DPT; ++dd) {
+            // transpose partials: component-lane major so one simdgroup can gather
+            // all SPLITKV_NSG partials of a component with a single simd_sum
+            s_out[tiisg * SPLITKV_NSG + sgitg] = O[g][dd];
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            for (int rep = 0; rep < SIMD_GROUP_WIDTH / SPLITKV_NSG; ++rep) {
+                const int lp = int(sgitg) + rep * SPLITKV_NSG; // component-lane owned by this simdgroup
+                const float part = lane_is_sg ? (s_out[lp * SPLITKV_NSG + tiisg] * factor) : 0.0f;
+                const float acc  = simd_sum(part);
+                if (tiisg == 0) {
+                    const int d = dd * SIMD_GROUP_WIDTH + lp;
 #ifdef ATTENTION_C4
-        // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen, 4]
-        {
-            const int c  = hn * HEAD_DIM + d;
-            const int co = c / 4;
-            const int ci = c % 4;
-            output[b * 4 + ci + co * param.batch * 4] = ftype(out);
-        }
+                    // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen(=1), 4]
+                    const int c  = hn * HEAD_DIM + d;
+                    out_final[b * 4 + (c % 4) + (c / 4) * param.batch * 4] = ftype(acc * inv_s);
 #else
-        // [mBatch, mSeqLen(=1), mNumHead, mHeadDim]
-        output[(b * param.head_num + hn) * HEAD_DIM + d] = ftype(out);
+                    // [mBatch, mSeqLen(=1), mNumHead, mHeadDim]
+                    out_final[(row_base + g) * HEAD_DIM + d] = ftype(acc * inv_s);
 #endif
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
     }
 }
 )metal";

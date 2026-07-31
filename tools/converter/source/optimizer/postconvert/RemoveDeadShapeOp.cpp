@@ -25,14 +25,49 @@ using namespace MNN;
 class RemoveDeadShapeOp : public PostConverter {
 public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
-        // Conservative whitelist: only pure shape / index arithmetic ops.
-        // Ops like Reshape, BinaryOp, Concat, StridedSlice, Gather etc. are
-        // excluded because they also participate in data computation in many
-        // models (especially TF), and would be wrongly deleted if the
-        // reachability analysis misses any output tensor name.
-        static const std::set<OpType> kShapeOpWhitelist = {
+        // Reachability from the declared network outputs is a sound liveness
+        // proof -- an op that cannot be reached provably cannot influence any
+        // output -- but only when the analysis sees every consumer. Subgraph
+        // bodies (While / If) may consume outer-scope tensors without an edge in
+        // net->oplists, so the wider set below is gated on there being no
+        // subgraphs; otherwise we fall back to the minimal, always-safe set.
+        //
+        // Measured on Qwen3-0.6B (28 layers): transformer fusion orphans ~24 ops
+        // per layer -- Unsqueeze x10, BinaryOp x5, Concat x3, Const x2,
+        // StridedSlice x2, Squeeze x2, GatherV2 x2 -- the shape-vector
+        // construction that fed the pre-fusion Reshape targets, plus the
+        // q_norm/k_norm Const weights now absorbed into RoPEParam. That is
+        // 731 of 1116 ops (65.5%) unreachable, none of which the minimal
+        // whitelist can remove.
+        //
+        // Input / Extra are deliberately excluded: graph inputs must stay
+        // declared even when unreachable, and Extra may carry runtime metadata.
+        //
+        // Scope: the wider set is applied ONLY to graphs that actually contain
+        // fused transformer ops (RoPE / Attention), because that fusion is what
+        // orphans these subgraphs. Other model families keep the old minimal
+        // behaviour byte-for-byte -- important because MNN's generic DCE treats
+        // an unconsumed tensor as an implicit network output, so some workflows
+        // fetch intermediate tensors by name; we must not delete those.
+        static const std::set<OpType> kMinimalWhitelist = {
             OpType_Shape,       OpType_Rank,        OpType_Size,
         };
+        static const std::set<OpType> kShapeArithWhitelist = {
+            OpType_Shape,        OpType_Rank,      OpType_Size,
+            OpType_Unsqueeze,    OpType_Squeeze,   OpType_Concat,
+            OpType_StridedSlice, OpType_GatherV2,  OpType_BinaryOp,
+            OpType_Const,
+        };
+        bool hasFusedTransformer = false;
+        for (const auto& op : net->oplists) {
+            if (op->type == OpType_RoPE || op->type == OpType_Attention) {
+                hasFusedTransformer = true;
+                break;
+            }
+        }
+        const bool wideScope = hasFusedTransformer && net->subgraphs.empty();
+        const std::set<OpType>& kShapeOpWhitelist =
+            wideScope ? kShapeArithWhitelist : kMinimalWhitelist;
 
         const int tensorCount = (int)net->tensorName.size();
 

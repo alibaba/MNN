@@ -74,6 +74,9 @@ private:
     std::shared_ptr<LlmContext> mContext;
     SamplerConfig mConfig;
     std::mt19937 mRng;
+    // GPU top-k prefilter: fetch only top-k values/indices instead of full
+    // vocab logits when topK is the first effective filter step.
+    bool mGpuTopKPrefilter = false;
     // Pipeline
     using SamplerStep = std::function<void(SamplerState&)>;
     std::vector<SamplerStep> mPipeline;

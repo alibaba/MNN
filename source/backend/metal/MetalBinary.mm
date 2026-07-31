@@ -160,7 +160,7 @@ public:
 
         // Gate/Up fusion: try to pair the two input Conv1x1 projections
         // In mulsilu_vec shader: in1 = gate, in0 = up
-        // Set MNN_DISABLE_GATE_UP_FUSION=1 to disable (for A/B benchmarking).
+        // Set MNN_METAL_DISABLE_GATE_UP_FUSION=1 to disable (for A/B benchmarking).
         const bool sDisableGateUpFusion = MetalEnv::get().gateUpFusionDisabled;
         if (!sDisableGateUpFusion) {
             auto* gateConv = backend->findConv1x1ForOutput(inputs[1]); // gate

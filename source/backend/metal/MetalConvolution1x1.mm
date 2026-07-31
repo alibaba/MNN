@@ -113,6 +113,10 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
     keys.emplace_back("conv1x1_wquant_sg_reduce");
     keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
     keys.emplace_back("GATE_UP_FUSED");
+    const bool row2 = !backend->isSupportTensorApi();
+    if (row2) {
+        keys.emplace_back("ROW_2");
+    }
 
     mGateUpFusedPipeline = rt->findPipeline(keys);
     if (nil == mGateUpFusedPipeline) {
@@ -138,6 +142,9 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
             [dic setValue:@"1" forKey:@"W_QUANT_8"];
         }
         [dic setValue:@"1" forKey:@"GATE_UP_FUSED"];
+        if (row2) {
+            [dic setValue:@"1" forKey:@"ROW_2"];
+        }
         option.preprocessorMacros = dic;
 
         std::string sgrWqStr = std::string(gBasicConvPrefix) + gConv1x1WqSgReduce;
@@ -154,9 +161,149 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
         return false;
     }
 
-    // Update grid: add z=2 dimension for gate/up selection
+    // Update grid: add z=2 dimension for gate/up selection. The fused pipeline
+    // is 2sg-kernel based — force 64 threads (plain pipeline may be split-K g8
+    // with a 128-thread group). ROW_2: each simdgroup covers 2 slices -> grid.x
+    // covers 4 slices per TG.
     auto gridSize = mThreads.first;
-    mThreads.first = MTLSizeMake(gridSize.width, gridSize.height, 2);
+    NSUInteger gw = gridSize.width;
+    if (row2) {
+        auto slice = ((Param*)mConstBuffer.contents)->output_slice;
+        gw = (NSUInteger)UP_DIV(slice, 4);
+    }
+    mThreads.first = MTLSizeMake(gw, gridSize.height, 2);
+    mThreads.second = MTLSizeMake(64, 1, 1);
+
+    return true;
+}
+
+bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tensor* peerKOutput,
+                                         MetalConvolution1x1* peerV, const Tensor* peerVOutput) {
+    if (!mIs2sgDecode || !peerK->mIs2sgDecode || !peerV->mIs2sgDecode) {
+        return false;
+    }
+    // No stacking with other fusion roles (buffer indices 6-9/14 collide with
+    // GATE_UP_FUSED; LN_FUSED pipeline would lack the QKV macro).
+    if (mIsGateUpLeader || mIsGateUpFollower || mHasLNFusion ||
+        peerK->mIsGateUpLeader || peerK->mIsGateUpFollower || peerK->mHasLNFusion ||
+        peerV->mIsGateUpLeader || peerV->mIsGateUpFollower || peerV->mHasLNFusion) {
+        return false;
+    }
+    // The fused kernel shares the leader's cst for everything except
+    // output_slice and scale_coef, so quant layout and activation must match.
+    if (peerK->mDequantBits != mDequantBits || peerV->mDequantBits != mDequantBits ||
+        peerK->mBlockSize != mBlockSize || peerV->mBlockSize != mBlockSize ||
+        peerK->mActivationType != mActivationType || peerV->mActivationType != mActivationType) {
+        return false;
+    }
+
+    auto backend = static_cast<MetalBackend *>(this->backend());
+    MetalRuntime* rt = (MetalRuntime *)backend->runtime();
+
+    std::string ftype4 = backend->useFp16InsteadFp32() ? "half4" : "float4";
+    std::vector<std::string> keys = {ftype4, "MNN_METAL_FLOAT32_COMPUTER"};
+    if (backend->useFp16InsteadFp32()) {
+        keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+    }
+    if (mDequantBits == 4) {
+        keys.emplace_back("conv1x1_wquant_4");
+    } else if (mDequantBits == 8) {
+        keys.emplace_back("conv1x1_wquant_8");
+    }
+    keys.emplace_back("conv1x1_wquant_sg_reduce");
+    keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
+    keys.emplace_back("QKV_FUSED");
+    const bool row2 = !backend->isSupportTensorApi();
+    if (row2) {
+        keys.emplace_back("ROW_2");
+    }
+
+    mQKVFusedPipeline = rt->findPipeline(keys);
+    if (nil == mQKVFusedPipeline) {
+        std::string ftype = backend->useFp16InsteadFp32() ? "half" : "float";
+        std::string ftype2 = backend->useFp16InsteadFp32() ? "half2" : "float2";
+        std::string ftype2x4 = backend->useFp16InsteadFp32() ? "half2x4" : "float2x4";
+        std::string ftype4x4 = backend->useFp16InsteadFp32() ? "half4x4" : "float4x4";
+
+        MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
+        auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+        [dic setValue:@(ftype.c_str()) forKey:@"ftype"];
+        [dic setValue:@(ftype2.c_str()) forKey:@"ftype2"];
+        [dic setValue:@(ftype4.c_str()) forKey:@"ftype4"];
+        [dic setValue:@(ftype2x4.c_str()) forKey:@"ftype2x4"];
+        [dic setValue:@(ftype4x4.c_str()) forKey:@"ftype4x4"];
+        [dic setValue:@"1" forKey:@"MNN_METAL_FLOAT32_COMPUTER"];
+        if (backend->useFp16InsteadFp32()) {
+            [dic setValue:@"1" forKey:@"MNN_METAL_FLOAT16_STORAGE"];
+        }
+        if (mDequantBits == 4) {
+            [dic setValue:@"1" forKey:@"W_QUANT_4"];
+        } else if (mDequantBits == 8) {
+            [dic setValue:@"1" forKey:@"W_QUANT_8"];
+        }
+        [dic setValue:@"1" forKey:@"QKV_FUSED"];
+        if (row2) {
+            [dic setValue:@"1" forKey:@"ROW_2"];
+        }
+        option.preprocessorMacros = dic;
+
+        std::string sgrWqStr = std::string(gBasicConvPrefix) + gConv1x1WqSgReduce;
+        mQKVFusedPipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), "conv1x1_gemv_g4m1_2sg_wquant_sg", option);
+        rt->insertPipeline(keys, mQKVFusedPipeline);
+    }
+    if (nil == mQKVFusedPipeline) {
+        return false;
+    }
+
+    mIsQKVLeader = true;
+    mQKVPeerK = peerK;
+    mQKVPeerV = peerV;
+    mQKVPeerKOutput = peerKOutput;
+    mQKVPeerVOutput = peerVOutput;
+    peerK->mIsQKVFollower = true;
+    peerV->mIsQKVFollower = true;
+
+    // The fused dispatch writes k/v outputs at the leader's (earlier) position.
+    // Ops between the leader and the k/v consumers (q/k-norm Cast/Raster, RoPE,
+    // attention in-execution scratch) may share the followers' dynamic-pool
+    // regions — their lifetimes don't overlap in the UNfused schedule — and
+    // would clobber the early writes (observed as decode garbage once KV growth
+    // reshuffled the pool). Re-home both outputs to static memory, which the
+    // dynamic pool can never alias; consumers bind tensor addresses at encode
+    // time and follow automatically. Called after the allocator's compute(), so
+    // the assignment sticks. The few KB of static memory per projection are not
+    // reclaimed on later resizes (decode module resizes once; bounded waste).
+    if (!backend->onAcquireBuffer(peerKOutput, Backend::STATIC) ||
+        !backend->onAcquireBuffer(peerVOutput, Backend::STATIC)) {
+        mIsQKVLeader = false;
+        mQKVPeerK = nullptr;
+        mQKVPeerV = nullptr;
+        mQKVPeerKOutput = nullptr;
+        mQKVPeerVOutput = nullptr;
+        peerK->mIsQKVFollower = false;
+        peerV->mIsQKVFollower = false;
+        return false;
+    }
+
+    // Followers' per-projection scale_coef + output_slice (leader's come from cst).
+    auto kSlice = ((Param*)peerK->mConstBuffer.contents)->output_slice;
+    auto vSlice = ((Param*)peerV->mConstBuffer.contents)->output_slice;
+    mQKVSegBuffer = backend->getConstBuffer(4 * sizeof(float));
+    auto seg = (float *)mQKVSegBuffer.contents;
+    seg[0] = peerK->mScaleCoef;
+    seg[1] = peerV->mScaleCoef;
+    seg[2] = (float)kSlice;
+    seg[3] = (float)vSlice;
+
+    // grid.x covers the largest projection; z selects q/k/v. Out-of-range
+    // simdgroups on the smaller projections early-return in the shader.
+    // Fused pipeline is 2sg-kernel based — force 64 threads (plain pipeline
+    // may be split-K g8 with a 128-thread group). ROW_2: 2 slices per
+    // simdgroup -> 4 slices per TG.
+    auto leaderSlice = ((Param*)mConstBuffer.contents)->output_slice;
+    NSUInteger maxGridX = (NSUInteger)UP_DIV(ALIMAX(leaderSlice, ALIMAX(kSlice, vSlice)), row2 ? 4 : 2);
+    mThreads.first = MTLSizeMake(maxGridX, mThreads.first.height, 3);
+    mThreads.second = MTLSizeMake(64, 1, 1);
 
     return true;
 }
@@ -198,7 +345,14 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
     if (mIsGateUpLeader) {
         keys.emplace_back("GATE_UP_FUSED");
     }
+    if (mIsQKVLeader) {
+        keys.emplace_back("QKV_FUSED");
+    }
     keys.emplace_back("LN_FUSED");
+    const bool row2 = !backend->isSupportTensorApi();
+    if (row2) {
+        keys.emplace_back("ROW_2");
+    }
 
     mLNFusedPipeline = rt->findPipeline(keys);
     if (nil == mLNFusedPipeline) {
@@ -221,7 +375,13 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
         if (mIsGateUpLeader) {
             [dic setValue:@"1" forKey:@"GATE_UP_FUSED"];
         }
+        if (mIsQKVLeader) {
+            [dic setValue:@"1" forKey:@"QKV_FUSED"];
+        }
         [dic setValue:@"1" forKey:@"LN_FUSED"];
+        if (row2) {
+            [dic setValue:@"1" forKey:@"ROW_2"];
+        }
         option.preprocessorMacros = dic;
 
         std::string sgrWqStr = std::string(gBasicConvPrefix) + gConv1x1WqSgReduce;
@@ -233,6 +393,16 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
         mHasLNFusion = false;
         return false;
     }
+    // LN-fused pipeline is 2sg-kernel based — force 64 threads (the plain
+    // sole-consumer path dispatches mLNFusedPipeline with mThreads, which may
+    // be split-K g8's 128-thread group). ROW_2 sole consumer: plain grid was
+    // 2 slices/TG, dual-row covers 4 — halve grid.x (stacked leaders already
+    // set their grid in setupGateUp/QKVFusion).
+    if (row2 && !mIsGateUpLeader && !mIsQKVLeader) {
+        auto slice = ((Param*)mConstBuffer.contents)->output_slice;
+        mThreads.first = MTLSizeMake((NSUInteger)UP_DIV(slice, 4), mThreads.first.height, mThreads.first.depth);
+    }
+    mThreads.second = MTLSizeMake(64, 1, 1);
     return true;
 }
 
@@ -253,6 +423,16 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     mGateUpPeer = nullptr;
     mGateUpFusedPipeline = nil;
     mGateUpSegBuffer = nil;
+
+    // Reset QKV fusion state on each resize
+    mIsQKVLeader = false;
+    mIsQKVFollower = false;
+    mQKVPeerK = nullptr;
+    mQKVPeerV = nullptr;
+    mQKVPeerKOutput = nullptr;
+    mQKVPeerVOutput = nullptr;
+    mQKVFusedPipeline = nil;
+    mQKVSegBuffer = nil;
 
 
     mHasLNFusion = false;
@@ -303,6 +483,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     param->block_size = blockSize;
     param->activation = mActivationType;
     param->scale_coef = mScaleCoef;
+    mBlockSize = blockSize;
     int area = ob * ow * oh;
     // basic marco info
     std::string ftype = "float";
@@ -379,7 +560,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     // pp768 outdeq +2.4%, pp2048 outdeq +5.3%; Qwen3.5-2B pp2048 outdeq +3.0%.
     // ⚠️ M3 has a regression precedent with this heuristic — re-validate there
     // before relying on the 512 boundary outside M4.
-    // Env MNN_METAL_PREFILL_INSHADER_DEQUANT=1 forces on, =0 forces off.
+    // Env MNN_METAL_PREFILL_INSHADER_DEQUANT_SGMATRIX=1 forces on, =0 forces off.
     if (!backend->isSupportTensorApi() && rt->supportSimdGroupMatrix() && area > 1 &&
         (mDequantBits == 4 || mDequantBits == 8)) {
         const int kForceInShader = MetalEnv::get().prefillInshaderDequant;
@@ -479,26 +660,51 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), area, 1),
                                               MTLSizeMake(64, 1, 1));
                 } else if(mDequantBits != 2 && mDequantBits != 3 && area == 1) {
-                    // GEMV inner reduction lane partitioning:
-                    //   middle_step = min(32, max(block/4, 1)) — M4 Pro tuning.
+                    // Decode GEMV. Per-kernel bandwidth profiling (M4 Pro,
+                    // Qwen3-0.6B Q4) showed the 2sg kernel is latency-limited on
+                    // small projections: one simdgroup streams a whole row, so
+                    // 0.5-1.8MB matrices reach only 88-137 GB/s while the 87MB
+                    // lm_head (g16 path) hits 252 GB/s. SPLIT_K_2 keeps the same
+                    // pre-scaling inner loop but runs 4 simdgroups per
+                    // threadgroup — two K-halves per row combined via threadgroup
+                    // memory — doubling in-flight reads per row.
+                    // (Routing to the g8 kernel instead was tried first: its
+                    // nibble-unpack inner loop is slower and lost 5% e2e.)
+                    // MNN_METAL_GEMV_SPLITK=0 restores the legacy 2sg kernel.
                     //
-                    // Tried on M5 (env MNN_METAL_GEMV_WIDE_MIDDLE=1 -> shader
-                    // uses min(32, block) instead): consistent regression across
-                    // 3 runs on Qwen3-0.6B tg128 (229.3 -> 224.0, -2.3%).
-                    // See skills/metal-optimize/SKILL.md "GEMV lane partition"
-                    // note for the analysis. `WIDE_MIDDLE` shader branch is
-                    // kept in-place as an A/B knob; enabling it in dispatcher
-                    // was reverted. Default policy holds on both M4 Pro and M5.
-                    auto keys = baseKeys;
-                    keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
-                    auto pipeline = rt->findPipeline(keys);
-                    if (nil == pipeline) {
-                        pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), "conv1x1_gemv_g4m1_2sg_wquant_sg", option);
-                        rt->insertPipeline(keys, pipeline);
+                    // Legacy 2sg lane partitioning notes (WIDE_MIDDLE knob, M5
+                    // regression) kept in the shader comment block.
+                    const int sSplitK = MetalEnv::get().gemvSplitK;
+                    const bool splitkUsable = (oc % 8 == 0) && (blockSize % 2 == 0);
+                    if (sSplitK > 0 && splitkUsable) {
+                        auto keys = baseKeys;
+                        keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
+                        keys.emplace_back("SPLIT_K_2");
+                        auto pipeline = rt->findPipeline(keys);
+                        if (nil == pipeline) {
+                            NSMutableDictionary *skDic = [dic mutableCopy];
+                            [skDic setValue:@"1" forKey:@"SPLIT_K_2"];
+                            MTLCompileOptions *skOption = [[MTLCompileOptions alloc] init];
+                            skOption.preprocessorMacros = skDic;
+                            pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), "conv1x1_gemv_g4m1_2sg_wquant_sg", skOption);
+                            rt->insertPipeline(keys, pipeline);
+                        }
+                        mPipeline = pipeline; CONV1X1_SET_TAG("splitk2_gemv_g4m1_2sg_wquant_sg");
+                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(128, 1, 1));
+                    } else {
+                        auto keys = baseKeys;
+                        keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
+                        auto pipeline = rt->findPipeline(keys);
+                        if (nil == pipeline) {
+                            pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), "conv1x1_gemv_g4m1_2sg_wquant_sg", option);
+                            rt->insertPipeline(keys, pipeline);
+                        }
+                        mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
+                        // 2 simdgroups per threadgroup, each handles 4 OC independently
+                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(64, 1, 1));
                     }
-                    mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
-                    // 2 simdgroups per threadgroup, each handles 4 OC independently
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(64, 1, 1));
+                    // Fusion leaders (gate/up, qkv, LN) build their own 2sg-based
+                    // pipelines and force a 64-thread dispatch in their setup.
                     mIs2sgDecode = true;
                     // Register this Conv1x1 for Gate/Up fusion lookup
                     backend->registerConv1x1ForOutput(output, this);
@@ -684,9 +890,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             // Enabled when proven correct and profitable: Q4/Q8, tensor-API
             // capable device, area >= 64 (prefill; below that the outer-dequant
             // path isn't taken anyway — in-shader dequant kernels handle decode).
-            // MNN_METAL_DISABLE_FUSED_Q4_GEMM=1 is the A/B baseline and
-            // emergency rollback switch (see skills/metal-optimize/env-registry.md).
-            const bool fusedQ4 = !MetalEnv::get().fusedQ4GemmDisabled &&
+            // MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1 forces the outer-dequant
+            // baseline instead (A/B + emergency rollback; see
+            // skills/metal-optimize/env-registry.md).
+            const bool fusedQ4 = !MetalEnv::get().w4w8OuterDequantGemm &&
                                  (mDequantBits == 4 || mDequantBits == 8) &&
                                  backend->isSupportTensorApi() && area >= 64;
 
@@ -730,8 +937,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     gemmKernelName = "conv1x1_fused_q4_gemm_stage";
                     keys.emplace_back("conv1x1_fused_q4_gemm_stage");
                 }
-            } else if (!backend->isSupportTensorApi() && MetalEnv::get().gemmM64SgMatrix && area >= 128) {
-                // Experimental sg_matrix M=64 tile (MNN_METAL_GEMM_M64=1):
+            } else if (!backend->isSupportTensorApi() &&
+                       ((MetalRuntime*)backend->runtime())->preferM64Gemm() && area >= 128) {
+                // sg_matrix M=64 tile, device-tiered via architecture.name
+                // (M4-class Macs only, see MetalBackend.mm; env removed 2026-07-31):
                 // halves grid.x / weight DRAM traffic; fp16 weights from the
                 // outer-dequant pre-pass, same bindings as the 32x64 kernel.
                 gemmKernelName = "conv1x1_gemm_64x64_split_k_sg";
@@ -928,6 +1137,13 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
 #endif
         return;
     }
+    // QKV follower: the leader already dispatched this projection
+    if (mIsQKVFollower) {
+#if MNN_METAL_OP_PROFILE
+        static_cast<MetalBackend *>(backend())->profileDropCurrentSample();
+#endif
+        return;
+    }
 #if MNN_METAL_OP_PROFILE
     // Report kernel-variant tag so the profile output can distinguish shader paths
     // (e.g. Convolution/gemm_32x64_split_k_sg vs Convolution/gemv_g4m1_2sg_wquant_sg).
@@ -935,6 +1151,8 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
         std::string subtag = mProfileTag;
         if (mIsGateUpLeader) {
             subtag = "gate_up_fused_" + subtag;
+        } else if (mIsQKVLeader) {
+            subtag = "qkv_fused_" + subtag;
         } else if (mPreDequantWeight) {
             subtag = "outdeq+" + subtag;
         }
@@ -973,6 +1191,40 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
         MetalBackend::setTensor(mGateUpPeer->getDequantScale().get(), encoder, 9);
         // buffer(14): {up_scale_coef} - per-tensor coefficient used by up branch
         [encoder setBuffer:mGateUpSegBuffer offset:0 atIndex:14];
+        if (mHasLNFusion) {
+            bindLNBuffers(encoder);
+        }
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+        return;
+    }
+
+    // QKV leader: dispatch fused kernel covering q, k and v projections
+    if (mIsQKVLeader && mQKVPeerK && mQKVPeerV && nil != (mHasLNFusion ? mLNFusedPipeline : mQKVFusedPipeline) && mQKVPeerKOutput && mQKVPeerVOutput) {
+        [encoder setComputePipelineState:(mHasLNFusion ? mLNFusedPipeline : mQKVFusedPipeline)];
+        // buffer(0): input (shared by q/k/v) — with LN fusion, the raw hidden input
+        {
+            auto inTensor = mHasLNFusion ? mLNHiddenInput : input;
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inTensor->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(inTensor)->offset atIndex:0];
+        }
+        // buffer(1): q output (this)
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(output)->offset atIndex:1];
+        // buffer(2): q params (input dims shared; k/v output_slice via seg)
+        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+        MetalBackend::setTensor(mWeight.get(), encoder, 3);
+        MetalBackend::setTensor(mBias.get(), encoder, 4);
+        MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 5);
+        // buffers(6-9): k projection
+        MetalBackend::setTensor(mQKVPeerKOutput, encoder, 6);
+        MetalBackend::setTensor(mQKVPeerK->getWeight().get(), encoder, 7);
+        MetalBackend::setTensor(mQKVPeerK->getBias().get(), encoder, 8);
+        MetalBackend::setTensor(mQKVPeerK->getDequantScale().get(), encoder, 9);
+        // buffers(10-13): v projection
+        MetalBackend::setTensor(mQKVPeerVOutput, encoder, 10);
+        MetalBackend::setTensor(mQKVPeerV->getWeight().get(), encoder, 11);
+        MetalBackend::setTensor(mQKVPeerV->getBias().get(), encoder, 12);
+        MetalBackend::setTensor(mQKVPeerV->getDequantScale().get(), encoder, 13);
+        // buffer(14): {k_coef, v_coef, k_oslice, v_oslice}
+        [encoder setBuffer:mQKVSegBuffer offset:0 atIndex:14];
         if (mHasLNFusion) {
             bindLNBuffers(encoder);
         }

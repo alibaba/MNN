@@ -22,7 +22,7 @@ description: MNN 各类正确性/回归 bug 的排查方法论集合。按 bug �
 | 3 | *（待补：并发 / 线程竞争）* | 结果不稳定、每次运行不同；单线程稳定但多线程随机错 | *待补* |
 | 4 | *（待补：图优化回归）* | 某个 converter pass 之后模型跑错，disable 该 pass 后正常 | *待补* |
 | 5 | *（待补：数值精度 / fp16 溢出）* | 结果"接近对"但存在系统性偏差，长序列尤其明显 | *待补* |
-| 6 | *（待补：Shader / Codegen 错）* | GPU 后端某 shape 或某 quant 组合下崩溃或乱码；调整 threadgroup / kernel 参数症状变化 | *待补* |
+| 6 | **GPU Shader 越界 / Command Buffer 故障** | `[METAL] command buffer error` 后速度假快数百倍；只在某 shape 阈值之上触发；关某条 kernel 路径 env 后消失；或同越界在别的模型上表现为静默数值损坏 | [§6](#6-gpu-shader-越界--command-buffer-故障) |
 | 7 | **后端 kernel 隐式假设违反** | 某类模型（如 SWA/prefix LM/bidirectional）静默输出乱码或语义偏移；标准 causal LLM (Qwen/Llama) 正常；调整某个"看起来无关"的性能开关（如 `MNN_METAL_QK_CAUSAL_TRI=0`）后就好 | [§7](#7-后端-kernel-隐式假设违反) |
 
 > 新增章节时同步在这张表里补一行；每个章节命名为 `## <编号> <类别名>`，保持编号递增。
@@ -313,14 +313,48 @@ q_weight = packed
 
 ---
 
+## §6 GPU Shader 越界 / Command Buffer 故障
+
+**触发**（满足以下之一强烈怀疑本类）：
+- 运行中出现 `[METAL] command buffer error`（`InnocentVictim` / `SubmissionsIgnored` / GPU restart），此后速度数字**假快数百倍**（forward 实际没跑）；
+- 只在**某个 shape 阈值之上**触发（某 kv 长度、某模型 head_dim、某 batch），阈值之下完全正常；
+- 关掉某条 kernel 路径的 env 开关后消失；
+- ⚠️ 反面：同样的越界在别的模型上可能**不崩而是静默数值损坏**（踩到的是已映射内存）——"没崩"不等于"没越界"。
+
+### 6.1 排查流程（按成本从低到高）
+
+1. **先看第一条错误，别被 victim 骗**：`InnocentVictim`/`SubmissionsIgnored` 都是**受害者**代码，真凶 buffer 常常不在日志里。不要基于 victim 的 op 去猜。
+2. **用 env 开关把"路径"与"触发变量"解耦**（判别性探针，代价一次 run）：逐个关可疑路径（如 `MNN_METAL_DECODE_SDPA=0`、`MNN_METAL_DISABLE_REPLAY=1`）看谁消失。⚠️ 注意"关 A 消失"不等于"A 是根因"——replay 常只是放大面；要看**最小共同集**（本案例：0.8B 关 replay 也好，2B 只有关 splitkv 才好 ⇒ 根在 splitkv）。
+3. **解耦相关变量**：阈值型触发常有多个共变量（kv 长度 ↔ nwg=ceil(kv/256)）。用 pin 类旋钮做 2×2（当年是 `MNN_METAL_DECODE_SPLITKV_NWG=19/20` × 安全/故障 kv）——本案例一轮就锁定"nwg>16 而非 kv 本身"。⚠️ 本案例的 split-KV 路径及其 `MNN_METAL_DECODE_SPLITKV` / `_NWG` 两个 env **已于 2026-07-30 删除**（收敛到单 pass `MNN_METAL_DECODE_SDPA`）；方法论照用，具体开关名以 `metal-optimize/env-registry.md` 现表为准。
+4. **Metal Shader Validation 拿实锤**（最有力，几分钟）：
+   ```bash
+   MTL_SHADER_VALIDATION=1 MTL_SHADER_VALIDATION_REPORT_TO_STDERR=1 \
+   MTL_SHADER_VALIDATION_FAIL_MODE=allow <重现命令，n 可缩到 32>
+   ```
+   直接报 **kernel 名 + 越界 offset**（`Invalid device store at offset N, executing kernel "xxx"`）。
+5. **对 offset 做算术反推**：拿第一个非法 offset 除以已知 stride，反推 kernel 以为的 buffer 尺寸 vs 实际分配尺寸。本案例：非法 offset ≈133120B = `8×32×(128+2)×4B`——正好是"元素数对、字节数减半"，直指 fp16 后端 `createDevice<float>` 按 2B 存储的陷阱（`metal-optimize/kernel-basics.md` 陷阱 F）。
+6. **加一次性尺寸日志坐实**（分配处 + dispatch 处各一行，打印 elementSize / MTLBuffer.length / 索引参数），修复后删除。
+7. **修复验证矩阵**：validation 0 OOB + 原故障配置 e2e 零错误 + greedy 对拍（⚠️ 用 metal+greedy config，见 `metal-optimize/build-and-test.md` Step 1.5——本案例曾被默认 mixed-sampler config 污染出一个假 bug）+ `run_test.out` 全过。
+
+### 6.2 测试覆盖教训
+
+阈值型 bug 能长期潜伏是因为**测试矩阵恰好停在结构阈值上**：splitkv 的 nwg 在 kv=4096 时恰为 16（越界临界），而历史性能/对拍全部 ≤p2048~p4096。**改 kernel 后的覆盖至少要跨过它的每个结构常数边界**（nwg cap、tile 对齐、tg mem 档位），各取"边界±1"各测一档。
+
+### 6.3 参考案例：split-KV partial buffer 半长分配（2026-07-29，`6975fa71e7`）
+
+`mTempSplitKV` 用 `createDevice<float>` 分配、shader 按 `device float*` 写：fp16 后端下存储 2B/元素 ⇒ buffer 半长，nwg>16（kv>4096）越界。HD=256（Qwen3.5）撞未映射页 → GPU 故障链；HD=128（Qwen3）同条件仅静默损坏。修复 = 按字节分配（`createDevice<uint8_t>`，公式显式 `* sizeof(float)`）。完整陷阱条目见 `metal-optimize/kernel-basics.md` 陷阱 F。
+
+---
+
 ## §7 后端 kernel 隐式假设违反
 
 **触发**（满足以下之一强烈怀疑本类）：
 - 加载**非标准 causal LLM**（Mistral SWA、Gemma-2 SWA、prefix LM、encoder-decoder cross-attn、BERT-family bidirectional 等）时**静默输出乱码或语义偏移**，Qwen/Llama/Phi 等纯 causal LLM 完全正常；
 - 换后端**一致地错**（Metal + CPU 都错，或 Metal 三段路径与 Metal FA 路径都错），但 torch 侧 rebuilt 模型 `--test` 输出正常；
-- 关掉某个"标榜性能优化"的开关（如 `MNN_METAL_QK_CAUSAL_TRI=0`）后就好；
 - 短 prompt 不明显、长 prompt 越来越错（尤其超过 SWA window size 后）；
 - 输出前 N 个 token byte-identical，后续开始发散。
+
+> **2026-07-31 更新**：Metal 的 causal 假设已改为**数据驱动**（`mCausalLayout`，见 `MetalAttention.mm` `_computePathFlags`）——真实 mask 张量（`mHasMask=true`）自动关掉 causal-tri/bound/FA-v1/faNax 并逐元素 honor mask，标量哨兵/无 mask + kvcache 才走 causal 优化。CPU/hexagon 早已如此。**因此 Metal 上的非 causal 模型不再需要手动设 env**（`MNN_METAL_QK_CAUSAL_TRI` 已删除）。本节的 Metal 部分主要作为历史方法论保留；若仍遇非 causal 乱码，先确认 `gen_attention_mask` 是否给该模型正确产出了**真实 mask 张量**（而非误走标量分支），根因多在导出/mask 生成侧而非 kernel。
 
 ### 7.1 核心心法
 
@@ -356,14 +390,15 @@ q_weight = packed
 - **Prefix LM / bidirectional**：Baichuan-Base、UL2 前缀部分、encoder 类 → 必踩
 - **不确定**：读 HF 模型的 `config.json`，看 `sliding_window` / `attention_bias` / `is_encoder_decoder` 字段；或读 modeling 源码里 attention_mask 生成部分
 
-#### Step 2: 单一 gate 消除法（关键手法）
+#### Step 2: 数据驱动检测（Metal 现状）+ 单一 gate 消除法（历史手法）
 
-**只要"关掉某个开关就恢复"，几乎必然是隐式假设违反**：
+**Metal（2026-07-31 起）**：causal 与否由 mask 张量形状自动判定，非 causal 模型走真实 mask 张量即自动 honor，无需任何 env。若非 causal 模型仍乱码，**先查 `gen_attention_mask` 是否为该模型走了正确分支**（真实张量 vs 误走标量），而非调 kernel 开关。
+
+**历史手法（其他后端 / 旧分支）**：**只要"关掉某个开关就恢复"，几乎必然是隐式假设违反**。旧 Metal 分支上曾用：
 
 ```bash
-# 关 CAUSAL_TRI/BOUND，回到矩形 grid + full-length softmax + full K AV
-MNN_METAL_QK_CAUSAL_TRI=0 ./llm_demo ... 2>&1 | head
-# → 若输出正常，问题定位在 causal-tri 假设
+# (已删除) 旧分支：关 CAUSAL_TRI/BOUND 回到矩形 grid
+# MNN_METAL_QK_CAUSAL_TRI=0 ./llm_demo ...
 ```
 
 不要一次关一堆开关（那样分不清哪个是罪魁），一个一个来。
@@ -403,9 +438,8 @@ source/backend/metal/MetalAttention.mm:531:  FA also hard-codes causal masking v
 
 #### Step 6: 加固方向（若确认此类）
 
-- **短期修复**：让用户 config 设 env `MNN_METAL_QK_CAUSAL_TRI=0`（现有 opt-out 通道）
-- **中期修复**：在 llm_config.json 引入 `"attention_layout": "causal"/"swa"/"custom"` 字段，Metal backend 根据该字段自动 gate 掉 causal-tri/bound
-- **长期修复**：runtime 首次 attention encode 时抽样验证 mask 是否 lower-triangular，缓存结果，自动 fallback（工作量最大但用户无感知）
+- **Metal：已实现（2026-07-31）** —— `MetalAttention.mm` `_computePathFlags` 从 `inputs[3]` 形状派生 `mCausalLayout`（真实张量 mask ⇒ 非 causal ⇒ 逐元素 honor、关全部 causal 优化；标量/无 mask + kvcache ⇒ causal）。配套 `llm.cpp` 对 metal 后端也发标量哨兵 causal mask（同 cpu/hexagon）。`MNN_METAL_QK_CAUSAL_TRI` 已删除
+- **其他后端 / 通用长期方向**：runtime 首次 attention encode 时抽样验证 mask 是否 lower-triangular 并缓存（工作量最大但通用）；或导出侧 `llm_config.json` 落 `attention_type` 字段权威标注
 
 ### 7.4 常见对照表：症状 → 优先怀疑
 
