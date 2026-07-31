@@ -221,13 +221,14 @@ struct TestInstance {
 
     std::vector<double> getTokensPerSecond(int n_tokens, std::vector<int64_t> cost_us) const {
         std::vector<double> ts;
-        std::transform(cost_us.begin(), cost_us.end(), std::back_inserter(ts), [n_tokens](int64_t t) { return 1e6 * n_tokens / t; });
+        std::transform(cost_us.begin(), cost_us.end(), std::back_inserter(ts),
+                       [n_tokens](int64_t t) { return t > 0 ? 1e6 * n_tokens / t : 0.0; });
         return ts;
     }
     std::vector<double> getTokensPerSecond(std::vector<int64_t> n_tokens, std::vector<int64_t> cost_us) const {
         std::vector<double> ts(n_tokens.size());
         for (int i = 0; i < n_tokens.size(); ++i) {
-            ts[i] = 1e6 * n_tokens[i] / cost_us[i];
+            ts[i] = cost_us[i] > 0 ? 1e6 * n_tokens[i] / cost_us[i] : 0.0;
         }
         return ts;
     }
@@ -1337,16 +1338,34 @@ int main(int argc, char ** argv) {
                     if (isOpenCL) {
                         llm->switchMode(Llm::Prefill);
                     }
-                    llm->response(tokens, nullptr, nullptr, 1);
-                    sampler_us += context->prefill_us;
+                    Timer prefillCost;
+                    llm->response(tokens, nullptr, nullptr, decodeTokens > 0 ? 1 : 0);
+                    int64_t prefill_us = context->prefill_us;
+                    if (prefill_us <= 0) {
+                        prefill_us = static_cast<int64_t>(prefillCost.durationInUs());
+                    }
+                    sampler_us += prefill_us;
                 }
                 if (decodeTokens) {
                     // Enable record queue during decode for OpenCL
                     if (isOpenCL) {
                         llm->switchMode(Llm::Decode);
                     }
+                    Timer decodeCost;
                     llm->response(tokens1, nullptr, nullptr, decodeTokens);
-                    sampler_us += context->decode_us;
+                    int64_t decode_us = context->decode_us;
+                    if (decode_us <= 0) {
+                        decode_us = static_cast<int64_t>(decodeCost.durationInUs());
+                        int64_t generatedTokens = context->gen_seq_len;
+                        if (llm->stoped() && generatedTokens > 0) {
+                            generatedTokens -= 1;
+                        }
+                        generatedTokens = std::max<int64_t>(generatedTokens, 1);
+                        if (generatedTokens < decodeTokens) {
+                            decode_us = (decode_us * decodeTokens + generatedTokens - 1) / generatedTokens;
+                        }
+                    }
+                    sampler_us += decode_us;
                 }
                 if (i > 0) {
                     t.samplesUs.push_back(sampler_us);
@@ -1367,7 +1386,9 @@ int main(int argc, char ** argv) {
     if (enableProfile) {
         auto profiler = MNN::Profiler::getInstance();
         fprintf(stdout, "\n========== Operator Profile Results ==========\n");
-        // profiler->printTimeByName(1);
+        if (std::getenv("MNN_LLM_BENCH_PROFILE_NAME") != nullptr) {
+            profiler->printTimeByName(1);
+        }
         profiler->printTimeByType(1);
     }
 

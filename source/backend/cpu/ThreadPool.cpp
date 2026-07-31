@@ -16,6 +16,16 @@
 namespace MNN {
 static std::unordered_map<long int, ThreadPool*> gInstances;
 static std::mutex gInitMutex;
+
+static inline void MNNThreadPoolRelax() {
+#if defined(__riscv)
+    // Zihintpause encoding. Use the raw instruction so older assemblers do not need to recognize the mnemonic.
+    asm volatile(".word 0x0100000f" ::: "memory");
+#else
+    std::this_thread::yield();
+#endif
+}
+
 int ThreadPool::init(int numberThread, unsigned long cpuMask, ThreadPool*& threadPool) {
     if (1 >= numberThread) {
         numberThread = 1;
@@ -64,7 +74,7 @@ ThreadPool::ThreadPool(int numberThread) {
                             { *mTasks[i].second[threadIndex] = false; }
                         }
                     }
-                    std::this_thread::yield();
+                    MNNThreadPoolRelax();
                 }
                 std::unique_lock<std::mutex> _l(mQueueMutex);
                 mCondition.wait(_l, [this] { return mStop || mActiveCount > 0; });
@@ -165,7 +175,7 @@ void ThreadPool::enqueueInternal(TASK* taskp, int index) {
                 break;
             }
         }
-        std::this_thread::yield();
+        MNNThreadPoolRelax();
         // FUNC_PRINT(notComplete);
     } while (!complete);
     if (nullptr != tmpTask) {

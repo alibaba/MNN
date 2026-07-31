@@ -9,6 +9,7 @@
 #include "backend/cpu/CPUConvolution.hpp"
 #include <math.h>
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/compute/CPUExtension.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include <limits>
@@ -355,7 +356,14 @@ public:
         // auto res = CPUConvolution::makeResourceInt8(backend, op, core->pack);
         // return new DenseConvInt8TiledExecutor(backend, op, res);
 
-       return new DenseConvInt8TiledExecutor(backend, op, quanCommon, false);
+        auto extension = core->extension;
+        if (extension != nullptr && extension->createInt8GemmExecution != nullptr) {
+            auto execution = extension->createInt8GemmExecution(backend, op, quanCommon, false);
+            if (execution != nullptr) {
+                return execution;
+            }
+        }
+        return new DenseConvInt8TiledExecutor(backend, op, quanCommon, false);
     }
 };
 

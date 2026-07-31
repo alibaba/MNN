@@ -107,6 +107,7 @@ Public skills are listed below. Environment-dependent skills may exist under `sk
 | Support new LLM | `skills/support-new-llm/SKILL.md` | Add / adapt a new LLM model |
 | Add new op | `skills/add-new-op/SKILL.md` | Add a new operator |
 | ARM CPU optimization | `skills/arm-cpu-optimize/SKILL.md` | Optimize op performance on ARM CPU |
+| RISC-V CPU optimization | `skills/riscv-cpu-optimize/SKILL.md` | Optimize standard RVV or vendor matrix-extension CPU paths |
 | OpenCL optimization | `skills/opencl-optimize/SKILL.md` | Optimize op performance on OpenCL |
 | Vulkan optimization | `skills/vulkan-optimize/SKILL.md` | Optimize op performance on Vulkan |
 | Metal optimization | `skills/metal-optimize/SKILL.md` | Optimize op performance on Metal |
