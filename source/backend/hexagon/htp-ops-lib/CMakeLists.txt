@@ -70,6 +70,7 @@ else()
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/attention_sync_process.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/attention_entry.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/flash_attention_block_ops.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/pwl.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/unary_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/cast_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/eltwise_ops.cc
@@ -94,6 +95,27 @@ else()
     )
     set_target_properties(htp_ops_skel PROPERTIES OUTPUT_NAME ${MNN_HTP_OPS_SKEL_NAME})
     build_idl(include/htp_ops.idl htp_ops_skel)
+    set(HTP_OPS_PWL_VARIANT "learned8" CACHE STRING
+        "FP16 PWL implementation: uniform32, companded16, or learned8")
+    set_property(CACHE HTP_OPS_PWL_VARIANT PROPERTY STRINGS uniform32 companded16 learned8)
+    if(HTP_OPS_PWL_VARIANT STREQUAL "uniform32")
+        target_compile_definitions(htp_ops_skel PRIVATE
+            HTP_OPS_PWL_COMPANDED16=0 HTP_OPS_PWL_LEARNED8=0)
+    elseif(HTP_OPS_PWL_VARIANT STREQUAL "companded16")
+        target_compile_definitions(htp_ops_skel PRIVATE
+            HTP_OPS_PWL_COMPANDED16=1 HTP_OPS_PWL_LEARNED8=0)
+    elseif(HTP_OPS_PWL_VARIANT STREQUAL "learned8")
+        # Learned eight-segment tables currently specialize SiLU/MulSiLU.
+        # Other activations retain the one-bank companded implementation.
+        target_compile_definitions(htp_ops_skel PRIVATE
+            HTP_OPS_PWL_COMPANDED16=1 HTP_OPS_PWL_LEARNED8=1)
+    else()
+        message(FATAL_ERROR "Unsupported HTP_OPS_PWL_VARIANT=${HTP_OPS_PWL_VARIANT}")
+    endif()
+    message(STATUS "Hexagon FP16 PWL variant: ${HTP_OPS_PWL_VARIANT}")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
+        target_compile_definitions(htp_ops_skel PRIVATE $<$<COMPILE_LANGUAGE:CXX>:_Alignas=alignas>)
+    endif()
 
     # Enable HMX inline assembly
     set(HTP_OPS_DSP_FLAGS "-mhmx")
