@@ -13,6 +13,7 @@
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include <algorithm>
 #include <cstring>
 
 namespace MNN {
@@ -180,6 +181,7 @@ ErrorCode CPURoPE::onExecute(const std::vector<Tensor*>& inputs, const std::vect
     int ropeHalfDim = ropeDim / 2;
     int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     int totalWork = batch * seqLen;
+    threadNum = std::min(threadNum, totalWork);
     auto core = static_cast<CPUBackend*>(backend())->functions();
     MNN_ASSERT(core->MNNRoPECompute != nullptr);
 
