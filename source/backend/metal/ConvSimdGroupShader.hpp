@@ -3127,6 +3127,27 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
                             const device ftype4 *dequantScale_up            [[buffer(9)]],
                             constant float *gate_up_seg                     [[buffer(14)]],
                         #endif
+                        #ifdef QKV_FUSED
+                            device ftype4 *out_k                            [[buffer(6)]],
+                        #ifdef W_QUANT_4
+                            const device ushort4 *wt_k                      [[buffer(7)]],
+                        #elif defined(W_QUANT_8)
+                            const device MNN::char4x4 *wt_k                [[buffer(7)]],
+                        #endif
+                            const device ftype4 *biasTerms_k                [[buffer(8)]],
+                            const device ftype4 *dequantScale_k             [[buffer(9)]],
+                            device ftype4 *out_v                            [[buffer(10)]],
+                        #ifdef W_QUANT_4
+                            const device ushort4 *wt_v                      [[buffer(11)]],
+                        #elif defined(W_QUANT_8)
+                            const device MNN::char4x4 *wt_v                [[buffer(11)]],
+                        #endif
+                            const device ftype4 *biasTerms_v                [[buffer(12)]],
+                            const device ftype4 *dequantScale_v             [[buffer(13)]],
+                            // qkv_seg: [0]=k scale_coef, [1]=v scale_coef,
+                            //          [2]=k output_slice, [3]=v output_slice
+                            constant float *qkv_seg                         [[buffer(14)]],
+                        #endif
                         #ifdef LN_FUSED
                             const device ftype4 *ln_residual_in             [[buffer(20)]],
                             const device float4 *ln_gamma                    [[buffer(21)]],
@@ -3145,11 +3166,190 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         dequantScale = dequantScale_up;
     }
 #endif
+#ifdef QKV_FUSED
+    // gid.z selects: 0 = leader (q), 1 = k, 2 = v. Unlike GATE_UP_FUSED the
+    // projections have different output_channel, so each follower carries its
+    // own output_slice (grid.x is sized for the largest projection).
+    int qkv_output_slice = cst.output_slice;
+    float qkv_scale_coef = cst.scale_coef;
+    if (gid.z == 1) {
+        out = out_k;
+        wt = wt_k;
+        biasTerms = biasTerms_k;
+        dequantScale = dequantScale_k;
+        qkv_scale_coef = qkv_seg[0];
+        qkv_output_slice = int(qkv_seg[2]);
+    } else if (gid.z == 2) {
+        out = out_v;
+        wt = wt_v;
+        biasTerms = biasTerms_v;
+        dequantScale = dequantScale_v;
+        qkv_scale_coef = qkv_seg[1];
+        qkv_output_slice = int(qkv_seg[3]);
+    }
+#endif
+
+#ifdef ROW_2
+    // Dual-row variant (fused pipelines only): each simdgroup handles TWO
+    // adjacent output slices with independent accumulator streams — doubles
+    // in-flight weight reads with no barrier (cf. SPLIT_K_2's tg reduce) and
+    // shares the input read + LN prologue across both rows.
+    const int uz = (gid.x * 2 + (int)sgitg) * 2;
+#ifdef QKV_FUSED
+    if (uz >= qkv_output_slice) return;
+    const bool row1_valid = (uz + 1) < qkv_output_slice;
+    float cur_scale_coef = qkv_scale_coef;
+#else
+    if (uz >= cst.output_slice) return;
+    const bool row1_valid = (uz + 1) < cst.output_slice;
+    float cur_scale_coef = cst.scale_coef;
+#endif
+    #ifdef GATE_UP_FUSED
+    if (gid.z == 1) {
+        cur_scale_coef = gate_up_seg[0];
+    }
+    #endif
+
+    const int area_size = cst.output_size * cst.batch;
+    // Invalid second row aliases row0 (safe reads); its result is discarded.
+    const int uz1 = row1_valid ? (uz + 1) : uz;
+    auto xy_wt0 = wt + uz * cst.input_slice;
+    auto xy_wt1 = wt + uz1 * cst.input_slice;
+    auto xy_in0 = in;
+    auto biasValue0 = FLOAT4(biasTerms[uz]);
+    auto biasValue1 = FLOAT4(biasTerms[uz1]);
+
+#ifdef LN_FUSED
+    float sq_sum = 0.0f;
+    bool ln_write_residual = (sgitg == 0
+    #if defined(GATE_UP_FUSED) || defined(QKV_FUSED)
+        && gid.z == 0 && gid.x == 0
+    #else
+        && gid.x == 0
+    #endif
+    );
+    for (int z = tiisg; z < cst.input_slice; z += 32) {
+        float4 d = (float4)*(xy_in0 + z * area_size) + (float4)*(ln_residual_in + z * area_size);
+        sq_sum += dot(d, d);
+        if (ln_write_residual) {
+            ln_residual_out[z * area_size] = (ftype4)d;
+        }
+    }
+    sq_sum = simd_sum(sq_sum);
+    float inv_rms = rsqrt(sq_sum / (float)(cst.input_slice * 4) + *ln_eps);
+#endif
+
+    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+#ifdef WIDE_MIDDLE
+    int middle_step = min(SIMD_GROUP_WIDTH, max(block, 1));
+#else
+    int middle_step = min(SIMD_GROUP_WIDTH, max(block / 4, 1));
+#endif
+    int outer_step  = SIMD_GROUP_WIDTH / middle_step;
+    int middle_index = tiisg % middle_step;
+    int outer_index  = tiisg / middle_step;
+
+    FLOAT4 result0 = FLOAT4(0);
+    FLOAT4 result1 = FLOAT4(0);
+
+    for (int bi = outer_index; bi < cst.block_size; bi += outer_step) {
+        FLOAT4 scale0 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cur_scale_coef;
+        FLOAT4 dbias0 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cur_scale_coef;
+        FLOAT4 scale1 = FLOAT4(dequantScale[2 * (uz1 * cst.block_size + bi) + 0]) / (FLOAT)cur_scale_coef;
+        FLOAT4 dbias1 = FLOAT4(dequantScale[2 * (uz1 * cst.block_size + bi) + 1]) / (FLOAT)cur_scale_coef;
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+
+    #ifdef W_QUANT_4
+        FLOAT4 raw_dot0 = FLOAT4(0);
+        FLOAT4 raw_dot1 = FLOAT4(0);
+        FLOAT input_sum = FLOAT(0);
+        for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+        #ifdef LN_FUSED
+            FLOAT4 raw = (FLOAT4)*(xy_in0 + z * area_size) + (FLOAT4)*(ln_residual_in + z * area_size);
+            FLOAT4 in4 = raw * inv_rms * (FLOAT4)ln_gamma[z];
+        #else
+            FLOAT4 in4 = (FLOAT4)*(xy_in0 + z * area_size);
+        #endif
+            input_sum += in4[0] + in4[1] + in4[2] + in4[3];
+
+            FLOAT in_ps0 = in4[0] * FLOAT(1.0/16.0);
+            FLOAT in_ps2 = in4[2] * FLOAT(1.0/4096.0);
+            FLOAT in_ps3 = in4[3] * FLOAT(1.0/256.0);
+
+            ushort4 wA = xy_wt0[z];
+            ushort4 wB = xy_wt1[z];
+            raw_dot0[0] += in_ps0 * FLOAT(wA[0] & 0x00F0) + in4[1] * FLOAT(wA[0] & 0x000F)
+                         + in_ps2 * FLOAT(wA[0] & 0xF000) + in_ps3 * FLOAT(wA[0] & 0x0F00);
+            raw_dot0[1] += in_ps0 * FLOAT(wA[1] & 0x00F0) + in4[1] * FLOAT(wA[1] & 0x000F)
+                         + in_ps2 * FLOAT(wA[1] & 0xF000) + in_ps3 * FLOAT(wA[1] & 0x0F00);
+            raw_dot0[2] += in_ps0 * FLOAT(wA[2] & 0x00F0) + in4[1] * FLOAT(wA[2] & 0x000F)
+                         + in_ps2 * FLOAT(wA[2] & 0xF000) + in_ps3 * FLOAT(wA[2] & 0x0F00);
+            raw_dot0[3] += in_ps0 * FLOAT(wA[3] & 0x00F0) + in4[1] * FLOAT(wA[3] & 0x000F)
+                         + in_ps2 * FLOAT(wA[3] & 0xF000) + in_ps3 * FLOAT(wA[3] & 0x0F00);
+            raw_dot1[0] += in_ps0 * FLOAT(wB[0] & 0x00F0) + in4[1] * FLOAT(wB[0] & 0x000F)
+                         + in_ps2 * FLOAT(wB[0] & 0xF000) + in_ps3 * FLOAT(wB[0] & 0x0F00);
+            raw_dot1[1] += in_ps0 * FLOAT(wB[1] & 0x00F0) + in4[1] * FLOAT(wB[1] & 0x000F)
+                         + in_ps2 * FLOAT(wB[1] & 0xF000) + in_ps3 * FLOAT(wB[1] & 0x0F00);
+            raw_dot1[2] += in_ps0 * FLOAT(wB[2] & 0x00F0) + in4[1] * FLOAT(wB[2] & 0x000F)
+                         + in_ps2 * FLOAT(wB[2] & 0xF000) + in_ps3 * FLOAT(wB[2] & 0x0F00);
+            raw_dot1[3] += in_ps0 * FLOAT(wB[3] & 0x00F0) + in4[1] * FLOAT(wB[3] & 0x000F)
+                         + in_ps2 * FLOAT(wB[3] & 0xF000) + in_ps3 * FLOAT(wB[3] & 0x0F00);
+        }
+        FLOAT4 adj0 = dbias0 - FLOAT(8.0) * scale0;
+        FLOAT4 adj1 = dbias1 - FLOAT(8.0) * scale1;
+        result0 += raw_dot0 * scale0 + input_sum * adj0;
+        result1 += raw_dot1 * scale1 + input_sum * adj1;
+    #elif defined(W_QUANT_8)
+        for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+            auto wA = xy_wt0[z];
+            auto wB = xy_wt1[z];
+            FLOAT4x4 wA_dq;
+            FLOAT4x4 wB_dq;
+            for (int i = 0; i < 4; ++i) {
+                wA_dq[i] = FLOAT4(wA[i]) * scale0[i] + dbias0[i];
+                wB_dq[i] = FLOAT4(wB[i]) * scale1[i] + dbias1[i];
+            }
+        #ifdef LN_FUSED
+            FLOAT4 raw = (FLOAT4)*(xy_in0 + z * area_size) + (FLOAT4)*(ln_residual_in + z * area_size);
+            FLOAT4 in4 = raw * inv_rms * (FLOAT4)ln_gamma[z];
+        #else
+            FLOAT4 in4 = (FLOAT4)*(xy_in0 + z * area_size);
+        #endif
+            result0 += FLOAT4(in4 * wA_dq);
+            result1 += FLOAT4(in4 * wB_dq);
+        }
+    #endif
+    }
+
+    result0 = simd_sum(result0);
+    result1 = simd_sum(result1);
+    if (tiisg == 0) {
+        out[uz * area_size] = activate(ftype4(result0 + biasValue0), cst.activation);
+        if (row1_valid) {
+            out[uz1 * area_size] = activate(ftype4(result1 + biasValue1), cst.activation);
+        }
+    }
+#else  // !ROW_2
 
     // 2 simdgroups per threadgroup, each handles one output_slice independently
+#ifdef SPLIT_K_2
+    // 4 simdgroups: sg 0/1 = rows (lower K half), sg 2/3 = same rows (upper K
+    // half); partials combined via threadgroup memory. Host guarantees the
+    // grid is exact (oc % 8 == 0) so no simdgroup early-returns before the
+    // barrier below.
+    const int uz = gid.x * 2 + ((int)sgitg & 1);
+    const int sk_half = (int)sgitg >> 1;
+#else
     const int uz = gid.x * 2 + sgitg;
+#endif
+#ifdef QKV_FUSED
+    if (uz >= qkv_output_slice) return;
+    float cur_scale_coef = qkv_scale_coef;
+#else
     if (uz >= cst.output_slice) return;
     float cur_scale_coef = cst.scale_coef;
+#endif
     #ifdef GATE_UP_FUSED
     // Gate uses cst.scale_coef (leader's), up uses its own scale_coef via gate_up_seg[0].
     // Without this, up's dequant is scaled by gate's coefficient -> systematic bias
@@ -3170,7 +3370,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     // Only one threadgroup should write ln_residual_out to avoid races
     // when multiple threadgroups process the same input slices.
     bool ln_write_residual = (sgitg == 0
-    #ifdef GATE_UP_FUSED
+    #if defined(GATE_UP_FUSED) || defined(QKV_FUSED)
         && gid.z == 0 && gid.x == 0
     #else
         && gid.x == 0
@@ -3211,7 +3411,13 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
 
     FLOAT4 result = FLOAT4(0);
 
+#ifdef SPLIT_K_2
+    const int sk_bi_begin = sk_half * (cst.block_size / 2);
+    const int sk_bi_end   = (sk_half == 1) ? cst.block_size : (cst.block_size / 2);
+    for (int bi = sk_bi_begin + outer_index; bi < sk_bi_end; bi += outer_step) {
+#else
     for (int bi = outer_index; bi < cst.block_size; bi += outer_step) {
+#endif
         FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cur_scale_coef;
         FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cur_scale_coef;
         int zmin = bi * block;
@@ -3277,9 +3483,22 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
 
     result = simd_sum(result);
 
+#ifdef SPLIT_K_2
+    threadgroup FLOAT4 sk_partial[2];
+    if (sk_half == 1 && tiisg == 0) {
+        sk_partial[(int)sgitg & 1] = result;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sk_half == 0 && tiisg == 0) {
+        result += sk_partial[(int)sgitg & 1];
+        out[uz * area_size] = activate(ftype4(result + biasValue), cst.activation);
+    }
+#else
     if (tiisg == 0) {
         out[uz * area_size] = activate(ftype4(result + biasValue), cst.activation);
     }
+#endif
+#endif // ROW_2
 }
 
 kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffer(0)]],

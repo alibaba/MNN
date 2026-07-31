@@ -32,6 +32,11 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual void onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                           id<MTLComputeCommandEncoder> encoder) override;
+    // Encode performs per-token CPU state management (state reset, param
+    // buffer contents) that binding replay cannot capture.
+    virtual bool canRecordEncode() const override {
+        return false;
+    }
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:

@@ -80,6 +80,11 @@ public:
     bool preferInShaderPrefillDequant() {
         return mPreferInShaderPrefillDequant;
     }
+    // M64 outer-dequant GEMM tile tier (see MetalConvolution1x1). True only on
+    // M4-class Macs, resolved from MTLDevice.architecture.name at runtime init.
+    bool preferM64Gemm() {
+        return mPreferM64Gemm;
+    }
     void setGpuMode(const int cl_mode_num);
     void setCommandQueue(id<MTLCommandQueue> queue, bool userSync);
     id<MTLCommandQueue> getCommandQueue() const {
@@ -153,6 +158,7 @@ private:
     bool mSimdGroupMatrix;
     bool mTensorOps;
     bool mPreferInShaderPrefillDequant = false;
+    bool mPreferM64Gemm = false;
     size_t mMaxThreadSize;
 };
 
@@ -320,6 +326,14 @@ public:
     bool isSupportTensorApi() const {
         return mSupportTensorApi;
     }
+    // matmul2d input cooperative tensors (single-simdgroup scope + per-element
+    // operator[]). Required by fused attention, where the QK destination must
+    // become the PV left operand without going through memory. Probed
+    // separately from mSupportTensorApi because MNN's other tensor kernels only
+    // need a destination cooperative tensor at execution_simdgroups<4>.
+    bool isSupportTensorCoopInput() const {
+        return mSupportTensorCoopInput;
+    }
 
     // Gate/Up projection fusion: register Conv1x1 execution for its output tensor
     void registerConv1x1ForOutput(const Tensor* output, MetalConvolution1x1* exe) {
@@ -353,6 +367,7 @@ public:
         mLayernormMap[normalizedOutput] = info;
     }
     void matchLNFusions();  // called in onResizeEnd
+    void matchQKVFusions(); // called in onResizeEnd
 
     void clearConv1x1Map() {
         mOutputToConv1x1.clear();
@@ -362,6 +377,7 @@ public:
 private:
     BackendConfig::MemoryMode mMemoryMode;
     bool mSupportTensorApi = false;
+    bool mSupportTensorCoopInput = false;
     // Gate/Up fusion: maps output tensor to its Conv1x1 execution
     std::unordered_map<const Tensor*, MetalConvolution1x1*> mOutputToConv1x1;
     // QKV fusion: maps input tensor to group of Conv1x1 candidates

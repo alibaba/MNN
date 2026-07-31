@@ -547,6 +547,26 @@ public:
                 return false;
             }
         }
+        // Long causal prefill: exercises the tiled prefill kernels (three-stage
+        // and fused flash-attn variants) past their 32/16-wide tile boundaries.
+        // 100 is a multiple of neither, so it covers both q and kv tail blocks.
+        {
+            for (int seq_len : {64, 100, 192, 512}) {
+                std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+                generateInput(seq_len, precision);
+                generateMask(seq_len, seq_len);
+                expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+                auto attn = _makeAttentionModule();
+                gMeta.previous = 0;
+                gMeta.add = seq_len;
+                Output = attn->onForward({Query, Key, Value, Mask})[0];
+                gMeta.sync();
+                if (!compareResult(seq_len)) {
+                    printf("Error: long causal prefill (seq_len=%d) unit test failed!\n", seq_len);
+                    return false;
+                }
+            }
+        }
         return true;
     }
 };

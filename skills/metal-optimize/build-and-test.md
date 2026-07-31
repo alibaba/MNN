@@ -22,6 +22,28 @@ cd build && make -j8 -B llm_demo
 
 如果测试结果诡异（比如"改了 kernel body 但行为没变"），第一步先 `ls -l build/libMNN.dylib` 看链接时间是否最新，不是就 `make -B`。
 
+**新增源文件后必须重跑 `cmake ..`。** build 目录的源文件列表是 configure 时 GLOB 出来的，新增 `.mm/.hpp` 不会被自动纳入 —— 表现为链接期 `Undefined symbols`（2026-07-30 前科：`MetalReplayProxy` / `metalReplayEmit` / `metalReplayValidate` 全缺）。更坏的情况是 link 失败后 `libMNN.dylib` 已被删掉，而你以为"构建成功过"。
+
+```bash
+cd build && cmake .. && make -j10 llm_demo llm_bench
+```
+
+### Step 0.5 测量前的二进制新鲜度断言（血泪，必做）
+
+**过期 build 不会报错，只会静默给出错误的性能数字。** 2026-07-30 前科：整轮 MNN-vs-MLX 对比（4 模型 × 3 prompt 长度）跑在一个隔了一天的 `libMNN.dylib` 上，0.6B decode 偏低 6~8%，还据此立项排查了一个不存在的"-9% 回归"（建 worktree、编译 baseline、正反序配对、二分两轮，全部白做）。
+
+```bash
+# 1) 时间戳必须晚于你最后一次改动
+ls -l build/libMNN.dylib
+
+# 2) 关键符号断言：改动引入的新 kernel/函数名必须出现在产物里
+strings build/libMNN.dylib | grep -c prefill_flash_attn_nax   # 应为非 0
+```
+
+判据：**只要"当前 HEAD 引入的某个新符号"在 `libMNN.dylib` 里找不到，这一轮所有数字作废。** 反向也成立——排查"疑似回归"时，先做这个断言再去建 worktree 二分。
+
+⚠️ 顺带一个易踩的输出格式差异：HEAD 的 `llm_bench -pg <pp>,<tg>` 只打印**合并吞吐**（单个数字），要分列 prefill / decode 必须用 `-p A -n B -kv true`。当年那个 WIP 二进制的 `-pg` 会打两个数字，照旧脚本抄会拿到错的口径。
+
 ### Step 1. 清 Metal pipeline binary cache
 
 Metal 会把 pipeline JIT 结果缓存到 `tmp/mnn_cachefile.bin`（launch 目录相对路径）。改 shader 后 pipeline key 可能没变（宏组合相同），Metal 会加载旧 binary → 观察到"改了 shader 但完全没生效"。
@@ -30,6 +52,23 @@ Metal 会把 pipeline JIT 结果缓存到 `tmp/mnn_cachefile.bin`（launch 目�
 find . -name "mnn_cachefile.bin" -delete
 # 常见位置: build/tmp/mnn_cachefile.bin, ./tmp/mnn_cachefile.bin (llm_demo launch dir)
 ```
+
+### Step 1.5 新导出模型：先造 greedy config，禁止用导出默认 config 对拍
+
+`llmexport.py` 产出的默认 `config.json` 是 **`backend_type: cpu` + `sampler_type: mixed` + `temperature 0.8`**——拿它跑 `llm_demo` 做"对拍/自拍"，得到的是**CPU 上的随机采样**：自拍必然 DIFFERS、从第 1 个 token 就分叉，且任何 Metal env 开关都"看似无效"。2026-07-29 的前科：splitkv 越界修复后的验证被它污染，误报出一个"p4096 prefill 非确定性"的假 bug，差点为此新开排查。
+
+```bash
+# 新模型落地第一步（llm_bench 因有 -a metal 不受影响，llm_demo 全部用这份）
+python3 - <<'EOF'
+import json, sys
+p = '/path/to/model/config.json'
+d = json.load(open(p))
+d['backend_type'] = 'metal'; d['sampler_type'] = 'greedy'; d['temperature'] = 0.0
+json.dump(d, open(p.replace('config.json', 'config_mtl_greedy.json'), 'w'), indent=4)
+EOF
+```
+
+**判据**：自拍（同 config 连跑两次）DIFFERS 时，第一反应先 `grep sampler_type <config>`，再怀疑代码。
 
 ### Step 2. 正确性验证矩阵（必须全部跑）
 
@@ -43,10 +82,10 @@ find . -name "mnn_cachefile.bin" -delete
 |---|---|---|
 | **Prompt 长度** | 短 (~50 tok) + 中 (~512 tok) + 长 (~2048 tok) | 触发不同 kernel 路径（mShortSeq / mQkSimdMatrix / mQkTensorMatrix / mFlashAttnPrefill） |
 | **FA on / off** | `MNN_ENABLE_FLASH_ATTN_PREFILL=1` 和 `=0` | 决定走 flash-attn 还是三段 pipeline (prefill_qk[_tensor] + softmax + prefill_qkv[_tensor])。两条路径都要正确 |
-| **CAUSAL_TRI on / off** | `MNN_METAL_QK_CAUSAL_TRI=` 默认 和 `=0` | 决定 CAUSAL_TRI 梯形 QK dispatch + CAUSAL_BOUND softmax/AV 是否启用。**任何 attention/softmax 相关改动都必须覆盖此开关**，且见下方 § "Attention causal 假设"。 |
+| **CAUSAL_TRI（数据驱动，2026-07-31 起无 env）** | 用真实 mask 张量 vs 标量哨兵 mask 两类模型覆盖 | causal-tri/bound 现由 `mCausalLayout`（inputs[3] 形状）自动 gate，非手动 env。**任何 attention/softmax 改动都要同时覆盖 causal（标量 mask）与非 causal（真实张量 mask）两条路径**，见下方 § "Attention causal 假设" |
 | **每一个新增 env var** | 默认（不设）+ 每个显式值都跑一遍 | Env 只在 static 初始化时读一次（`static const int kX = getenv(...)`），不同值 = 完全不同分支 |
 | **至少 2 个模型 shape** | `head_dim ∈ {64, 128, 256}` × `group_size ∈ {1, 2, 4, 8}` | Qwen3-0.6B (D=128, G=2)、Qwen3-4B (D=128, G=4)、Qwen3.5-2B (D=256, G=4) — 每个都可能踩不同 layout / stride 分支 |
-| **Mask 语义** | 若测试目标是**非 causal 模型**（SWA / prefix LM / bidirectional），必须显式测 `MNN_METAL_QK_CAUSAL_TRI=0` | Metal 三段 + FA 两条 prefill 路径都硬编码 "causal lower-triangular mask" 假设；非 causal 模型不设此 env 会**静默乱码**（无崩溃、无 warning）。详见下方 § "Attention causal 假设"。 |
+| **Mask 语义（数据驱动）** | 非 causal 模型（SWA / prefix LM / bidirectional）**无需再设 env** | Metal 2026-07-31 起从 mask 张量形状自动判定：真实张量 ⇒ 逐元素 honor、关全部 causal 优化；标量/无 mask+kvcache ⇒ causal。若非 causal 仍乱码，查 `gen_attention_mask` 是否为该模型产出真实张量 mask（非误走标量）。详见下方 § "Attention causal 假设"。 |
 
 **判据**：跟 baseline 前 N (≥ 20) tokens byte-identical，或至少输出语义合理（无乱码 / 无异常重复 / 无语言跳变）。
 
@@ -164,25 +203,24 @@ Metal 后端**两条** prefill attention 路径**都硬编码了 "attention mask
 **准入检查（导入新模型前跑一次）**：
 
 ```bash
-# 1) 双路径对拍：默认 vs 全关 causal-tri，前 20 token 应逐字一致
-DYLD_LIBRARY_PATH=build:build/express \
-  build/llm_demo <cfg> <prompt> 20 > /tmp/a.log 2>&1
-MNN_METAL_QK_CAUSAL_TRI=0 DYLD_LIBRARY_PATH=build:build/express \
-  build/llm_demo <cfg> <prompt> 20 > /tmp/b.log 2>&1
+# 数据驱动检测（2026-07-31 起）：causal 由 gen_attention_mask 产出的 mask 形状决定
+# —— 标准 causal 模型发标量哨兵 mask，非 causal 模型发真实张量 mask，Metal 自动分流。
+# 无需 A/B env 对拍。直接与 CPU 后端 greedy 对拍前 20 token：
+DYLD_LIBRARY_PATH=build:build/express build/llm_demo <cfg_metal> <prompt> 20 > /tmp/a.log 2>&1
+DYLD_LIBRARY_PATH=build:build/express build/llm_demo <cfg_cpu>   <prompt> 20 > /tmp/b.log 2>&1
 diff <(awk '/^prompt file is/{f=1;next}/^#####/{f=0}f' /tmp/a.log) \
      <(awk '/^prompt file is/{f=1;next}/^#####/{f=0}f' /tmp/b.log)
-# ✓ 无 diff  → 模型是 causal，用默认路径（享受 +51.5% pp2048）
-# ✗ 有 diff → 模型非 causal 或 mask 结构异常，config 必须硬设 MNN_METAL_QK_CAUSAL_TRI=0 或
-#             attention_mode 关掉 FA（若你能改 attention_mode），并复查
+# ✓ 无 diff → Metal 输出与 CPU 一致，正确
+# ✗ 有 diff → 查 gen_attention_mask 是否为该模型走了正确分支（真实张量 vs 标量），
+#             根因多在 mask 生成/导出侧
 ```
 
 **推荐操作**：
-- 加载 **Qwen / Llama / Phi / DeepSeek / Yi / Baichuan-Chat** 等纯 causal LLM：直接跑，无需干预
-- 加载**任何** SWA / prefix / bidirectional 模型：`export MNN_METAL_QK_CAUSAL_TRI=0` 后再跑；生产环境写进启动脚本
-- 不确定模型是不是 causal：读 HF `config.json` 里有没有 `sliding_window` / `attention_bias` / `is_encoder_decoder` 字段，任一非默认值就当非 causal
-- 若目标模型必须启用性能优化又必须保正确性 → 见 `skills/general-debug/SKILL.md` §7.3 Step 6 的加固方向（config 字段 / runtime 检测）
+- 加载 **Qwen / Llama / Phi / DeepSeek / Yi / Baichuan-Chat** 等纯 causal LLM：直接跑，标量哨兵 mask + causal 优化全开
+- 加载 SWA / prefix / bidirectional 模型：**无需再设任何 env**（2026-07-31 起数据驱动）；真实张量 mask 自动触发逐元素 honor、关掉 causal-tri/bound/FA。前提是 `gen_attention_mask` 为该模型产出真实张量 mask（SWA 走 `attention_type=mix` 双平面；确认导出 config 正确）
+- 不确定模型是不是 causal：读 HF `config.json` 里有没有 `sliding_window` / `attention_bias` / `is_encoder_decoder` 字段
 
-**已知限制**：`MNN_METAL_QK_CAUSAL_TRI=0` 只关三段路径的 CAUSAL_TRI/BOUND，**FA 内部的 causal hard-code 无 opt-out**。若同时启用 FA (`MNN_ENABLE_FLASH_ATTN_PREFILL=1` 或 `attention_mode/8>=1`) 且模型非 causal，FA path 仍会错，需再关 FA (`MNN_ENABLE_FLASH_ATTN_PREFILL=0`)。
+**注意**：causal-tri/bound 及 FA-v1/faNax 的 causal 假设现由 `mCausalLayout`（inputs[3] 形状）统一 gate。真实张量 mask 会一并关掉 FA（含 FA-v1 那条以前无 opt-out 的路径），不再需要手动关 `MNN_ENABLE_FLASH_ATTN_PREFILL`。
 
 ---
 
@@ -200,6 +238,24 @@ Root cause: `prefill_qkv_tensor` kernel 缺 `#ifdef ATTENTION_C4` 分支（长�
 
 **案例 2：M3 Pro fusion 诊断（2026-07）**
 第一版脚本每场景 3-rep 全跑完再切下一场景，第一个跑的 baseline 吃冷启动税 → 后面场景全比 baseline 快 5-7%，包括理论上不该有效应的 `no_fused_Q4_gemm`（M3 Pro 硬 gated off）。用户 catch 到这个矛盾信号，`v2` 改成 outer=rep / inner=case + WARMUP + SHUFFLE 后，delta 大幅缩小。**性能测量的 process-level cold start 效应比 kernel 差异大**。
+
+**案例 3：过期二进制伪造出 -9% 假回归（2026-07-30）**
+
+跑 MNN-vs-MLX 全矩阵对比时，用户指出「`200530d339` 在 tg128@p512 应有 decode 342.9」，而当轮只测出 307.0。随后的排查路径**全部走在错误前提上**：
+
+1. 用文档原测法 `llm_demo + config_greedy` 复测 → 309.09，"排除了工具差异"；
+2. 建 worktree 编译 `200530d339`，正序交替配对 3 轮 → ratio 0.9475 / 0.8952 / 0.9134；
+3. 反序配对 3 轮（铁律 11）→ 0.9051 / 0.8891 / 0.8994，"双向一致，确认真回归"；
+4. 二分两轮（`6975fa71e7` 331 快、`024412a537` 337 快），把嫌疑收窄到 3 个 commit；
+5. 才去看 `ls -l build/libMNN.dylib` → **7月29 20:34，比 HEAD 晚三个 commit**，`decode_sdpa` / `probe_coop_input` / `prefill_flash_attn_nax` 三个符号全缺；
+6. 重跑 `cmake ..` + `make` 后再配对 → **0.9998 / 0.9997 / 1.0001，回归消失。**
+
+**教训**：
+
+- **交替配对 + 反序验证只能排除热漂移，不能排除"测的不是你以为的那个二进制"。** 两个方向都稳定复现 -9%，正是因为那个慢的产物是真实存在的、稳定的——只不过它不是 HEAD。方法论再严谨，装置错了就全错。
+- **排查顺序应当是「先验证测量装置，再验证代码」**：疑似回归时，第 1 步做 Step 0.5 的符号断言，第 2 步才是建 worktree 二分。本次顺序反了，白烧掉两次编译 + 六轮配对 + 两轮二分。
+- **副作用会污染下游结论**：同一个过期产物还让「b64 对 decode 只有 +0.2~3.2%」这个结论成立，订正后真值是 **+4.1~9.2%**（模型越大越明显），差点据此把 b64 判为无收益。
+- 过期产物的来源是前一天残留的 WIP 构建 —— 它的 `llm_bench -pg` 输出格式都和 HEAD 不同（两个数字 vs 一个数字），这本身就是个该被注意到的信号。
 
 ---
 

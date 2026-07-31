@@ -115,22 +115,36 @@ VARP Embedding::txt_embedding(const std::string& txt) {
 }
 
 VARP Embedding::gen_attention_mask(int seq_len) {
-    auto attention_mask = _Input({1, 1, seq_len, seq_len}, NCHW, halide_type_of<float>());
-    auto ptr = attention_mask->writeMap<float>();
     if (mConfig->attention_mask() == "float") {
+        // Standard lower-triangular causal mask. On backends that recognize the
+        // scalar sentinel (cpu/hexagon/metal, see Llm::gen_attention_mask /
+        // CPUAttention), emit a shape-empty float 0 instead of materializing the
+        // full seq*seq tensor -- this lets the attention op take the causal fast
+        // path (Metal causal-tri) and skips the O(seq^2) mask alloc/upload.
+        auto bt = mConfig->backend_type();
+        if (bt == "cpu" || bt == "hexagon" || bt == "metal") {
+            auto attention_mask = _Input({}, NCHW, halide_type_of<float>());
+            attention_mask->writeMap<float>()[0] = 0;
+            return attention_mask;
+        }
+        auto attention_mask = _Input({1, 1, seq_len, seq_len}, NCHW, halide_type_of<float>());
+        auto ptr = attention_mask->writeMap<float>();
         for (int i = 0; i < seq_len; i++) {
             for (int j = 0; j < seq_len; j++) {
                 ptr[seq_len * i + j] = (j > i) * std::numeric_limits<float>::lowest();
             }
         }
+        return attention_mask;
     } else {
+        auto attention_mask = _Input({1, 1, seq_len, seq_len}, NCHW, halide_type_of<float>());
+        auto ptr = attention_mask->writeMap<float>();
         for (int i = 0; i < seq_len; i++) {
             for (int j = 0; j < seq_len; j++) {
                 ptr[seq_len * i + j] = 1.0;
             }
         }
+        return attention_mask;
     }
-    return attention_mask;
 }
 
 VARP Embedding::gen_position_ids(int seq_len) {

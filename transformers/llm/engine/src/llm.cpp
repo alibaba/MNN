@@ -411,7 +411,7 @@ bool Llm::load() {
         // attentiion mask var
         {
             // Mask: lower triangular
-           if (mConfig->backend_type() == "cpu" && mValidBlockSize.empty()) {
+           if ((mConfig->backend_type() == "cpu" || mConfig->backend_type() == "metal") && mValidBlockSize.empty()) {
                mAttentionMaskVarVec[i] = _Input({}, NCHW, halide_type_of<float>());
                auto ptr = mAttentionMaskVarVec[i]->writeMap<float>();
                ptr[0] = 0;
@@ -1542,7 +1542,7 @@ VARP Llm::gen_attention_mask(int seq_len) {
         }
 
         // Mask: lower triangular
-       if ((mConfig->backend_type() == "cpu" || mConfig->backend_type() == "hexagon") && mValidBlockSize.empty()) {
+       if ((mConfig->backend_type() == "cpu" || mConfig->backend_type() == "hexagon" || mConfig->backend_type() == "metal") && mValidBlockSize.empty()) {
            attentionMask = _Input({}, NCHW, halide_type_of<float>());
            auto ptr = attentionMask->writeMap<float>();
            ptr[0] = 0;
