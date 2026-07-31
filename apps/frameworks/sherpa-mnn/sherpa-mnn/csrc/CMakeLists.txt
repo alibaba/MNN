@@ -222,7 +222,7 @@ endif()
 if(ANDROID_NDK)
   target_link_libraries(sherpa-mnn-core android log)
 endif()
-target_link_libraries(sherpa-mnn-core MNN)
+target_link_libraries(sherpa-mnn-core MNN MNN_Express)
 
 target_link_libraries(sherpa-mnn-core
   kaldi-native-fbank-core

@@ -1,0 +1,92 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+apply from: '../downloadSherpaMnn.gradle'
+
+preBuild.dependsOn downloadAndUnzipNativeLibs
+
+android {
+    namespace 'com.alibaba.mnntalk'
+    compileSdk 35
+    ndkVersion "27.2.12479018"
+
+    defaultConfig {
+        // Keep the original ID so upgrades retain the already-downloaded model cache.
+        applicationId "com.alibaba.mnnvoicechat"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++17'
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+            }
+        }
+
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    lint {
+        disable 'ChromeOsAbiSupport', 'GradleDependency'
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        resources.excludes.addAll([
+                'META-INF/DEPENDENCIES',
+                'META-INF/LICENSE',
+                'META-INF/MANIFEST.MF'
+        ])
+    }
+}
+
+dependencies {
+    implementation project(':mnn_tts')
+    implementation project(':model_downloader')
+
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.activity:activity-ktx:1.10.1'
+    implementation 'androidx.core:core-ktx:1.15.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
+
+    testImplementation 'junit:junit:4.13.2'
+}

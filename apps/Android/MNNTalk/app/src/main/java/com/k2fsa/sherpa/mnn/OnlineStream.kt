@@ -1,0 +1,31 @@
+package com.k2fsa.sherpa.mnn
+
+class OnlineStream(var ptr: Long = 0L) {
+    fun acceptWaveform(samples: FloatArray, sampleRate: Int) {
+        acceptWaveform(ptr, samples, sampleRate)
+    }
+
+    fun inputFinished() {
+        inputFinished(ptr)
+    }
+
+    fun release() {
+        if (ptr != 0L) {
+            delete(ptr)
+            ptr = 0L
+        }
+    }
+
+    @Suppress("deprecation")
+    protected fun finalize() = release()
+
+    private external fun acceptWaveform(ptr: Long, samples: FloatArray, sampleRate: Int)
+    private external fun inputFinished(ptr: Long)
+    private external fun delete(ptr: Long)
+
+    companion object {
+        init {
+            System.loadLibrary("sherpa-mnn-jni")
+        }
+    }
+}

@@ -1,0 +1,30 @@
+task downloadAndUnzipNativeLibs {
+    group = 'Pre-build'
+    description = 'Downloads the arm64-v8a Sherpa-MNN JNI library.'
+
+    def nativeLibsUrl = 'https://meta.alicdn.com/data/mnn/libs/libsherpa-mnn-jni-16k.zip'
+    def outputDir = file('src/main/jniLibs/arm64-v8a')
+    def downloadedZip = new File(project.buildDir, 'libsherpa-mnn-jni-16k.zip')
+    def nativeLibrary = new File(outputDir, 'libsherpa-mnn-jni.so')
+
+    inputs.property('url', nativeLibsUrl)
+    outputs.file(nativeLibrary)
+
+    doLast {
+        outputDir.mkdirs()
+        downloadedZip.parentFile.mkdirs()
+        ant.get(src: nativeLibsUrl, dest: downloadedZip)
+        if (!downloadedZip.isFile()) {
+            throw new GradleException("Sherpa-MNN download failed: ${downloadedZip}")
+        }
+        copy {
+            from(zipTree(downloadedZip))
+            into(outputDir)
+        }
+        downloadedZip.delete()
+    }
+
+    onlyIf {
+        !nativeLibrary.isFile()
+    }
+}

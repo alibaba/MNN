@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ink">#181724</color>
+    <color name="ink_secondary">#706E7D</color>
+    <color name="ink_tertiary">#9996A5</color>
+    <color name="surface">#FBFAFD</color>
+    <color name="surface_card">#F2FFFFFF</color>
+    <color name="brand">#675AF2</color>
+    <color name="brand_dark">#493CCB</color>
+    <color name="brand_accent">#9C72F5</color>
+    <color name="brand_soft">#EBE8FF</color>
+    <color name="mint">#1AA37C</color>
+    <color name="mint_soft">#E4F8F1</color>
+    <color name="stroke">#DDD9E8</color>
+    <color name="stroke_strong">#D2CCE3</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

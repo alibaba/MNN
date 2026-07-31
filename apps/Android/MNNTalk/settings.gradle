@@ -1,0 +1,23 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "MNNTalk"
+include ':app'
+include ':mnn_tts'
+include ':model_downloader'
+
+project(':mnn_tts').projectDir = new File('../../frameworks/mnn_tts/android')
+project(':model_downloader').projectDir = new File('../../frameworks/model_downloader/android')

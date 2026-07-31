@@ -1,0 +1,3 @@
+-keep class com.k2fsa.sherpa.mnn.** { *; }
+-keep class com.alibaba.mnntalk.engine.LocalLlm { *; }
+-keep class com.alibaba.mnntalk.engine.LocalLlm$TokenListener { *; }
