@@ -88,9 +88,19 @@ class LoRA:
         return output_index
 
     def replace_input(self, origin_idx, new_idx):
+        # Rewire every consumer of the base projection output to read the LoRA
+        # sum instead. Replace only the matching index (consumers may have other
+        # inputs, e.g. the residual LayerNorm / MulSilu BinaryOp that consume a
+        # projection output directly when FuseTransformerC4 is on). This iterates
+        # the ORIGINAL oplists; the freshly built A/B/ADD ops are still in
+        # self.new_ops, so the ADD (which legitimately consumes origin_idx) is
+        # never rewired and no cycle forms. Works with C4 off (consumer is a
+        # ConvertTensor) and C4 on (consumer is the fused op); json2mnn's
+        # AddTensorFormatConverter bridges any NHWC/NC4HW4 mismatch.
         for op in self.base_model['oplists']:
-            if op['type'] == 'ConvertTensor' and origin_idx in op['inputIndexes']:
-                op['inputIndexes'] = [new_idx]
+            idxs = op.get('inputIndexes', [])
+            if origin_idx in idxs:
+                op['inputIndexes'] = [new_idx if x == origin_idx else x for x in idxs]
 
     def apply_lora(self, op):
         names = op['name'].split('/')
