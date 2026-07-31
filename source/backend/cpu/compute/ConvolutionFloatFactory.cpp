@@ -22,6 +22,7 @@
 #include "core/Macro.h"
 #include "core/OpCommonUtils.hpp"
 #include "backend/cpu/OneDNNConvolution.hpp"
+#include "backend/cpu/compute/CPUExtension.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 
 #ifdef MNN_KLEIDIAI_ENABLED
@@ -153,6 +154,13 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #ifdef MNN_LOW_MEMORY
     if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
         if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+            auto extension = cpuBackend->functions()->extension;
+            if (extension != nullptr && extension->createInt8GemmExecution != nullptr) {
+                auto execution = extension->createInt8GemmExecution(backend, op, weightQuantInfo, true);
+                if (execution != nullptr) {
+                    return execution;
+                }
+            }
             return new DenseConvInt8TiledExecutor(backend, op, weightQuantInfo, true);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);

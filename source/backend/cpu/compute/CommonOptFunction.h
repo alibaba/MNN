@@ -250,6 +250,8 @@ typedef void (*MNNBinaryExecInt8)(int8_t* outputRaw, const int8_t* inputRaw0, co
 constexpr int InputTileMax = 14; // same value from DynamicGemm.h, cannot include from different backend code.
 
 namespace MNN {
+struct CPUExtension;
+
 struct MatmulRelatedFunctions {
     // from coreFunctions
     void (*MNNSumWeightInt8)(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP,
@@ -546,6 +548,8 @@ struct CoreFunctions {
 
     MatmulRelatedFunctions int8MatmulRelatedFunctions;
     MatmulRelatedFunctions arm82MatmulRelatedFunctions;
+    bool kvUpdateConcurrent = false;
+    const CPUExtension* extension = nullptr;
 };
 void MNNCoreFunctionInit();
 CoreFunctions* MNNGetCoreFunctions();

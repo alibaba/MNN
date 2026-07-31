@@ -26,6 +26,50 @@ void MNNReorderWeightInt4_RVV(uint8_t* dest, const uint8_t* source, int32_t* sha
     const int32_t stride1 = lu * hp * lp;
     const int32_t stride2 = hp * lp;
 
+    if (hp == 4 && lp == 8) {
+        constexpr int32_t kInside = 32;
+        for (int32_t i = 0; i < hu; ++i) {
+            for (int32_t bl = 0; bl < blocknum; ++bl) {
+                uint8_t* dstOutside = dest + (i * blocknum + bl) * lu * kInside;
+                float* sumBase = kernelsum + (i * blocknum + bl) * hp;
+                int32_t sum0 = 0;
+                int32_t sum1 = 0;
+                int32_t sum2 = 0;
+                int32_t sum3 = 0;
+                const uint8_t* src0 = source + (i * hp + 0) * ic + bl * lu * lp;
+                const uint8_t* src1 = source + (i * hp + 1) * ic + bl * lu * lp;
+                const uint8_t* src2 = source + (i * hp + 2) * ic + bl * lu * lp;
+                const uint8_t* src3 = source + (i * hp + 3) * ic + bl * lu * lp;
+                for (int32_t j = 0; j < lu; ++j) {
+                    uint8_t* dstBase = dstOutside + j * kInside;
+                    const uint8_t* s0 = src0 + j * lp;
+                    const uint8_t* s1 = src1 + j * lp;
+                    const uint8_t* s2 = src2 + j * lp;
+                    const uint8_t* s3 = src3 + j * lp;
+                    for (int32_t p = 0; p < 8; ++p) {
+                        const uint8_t d0 = s0[p];
+                        const uint8_t d1 = s1[p];
+                        const uint8_t d2 = s2[p];
+                        const uint8_t d3 = s3[p];
+                        dstBase[2 * p + 0] = (d0 & 0xf0) | (d2 >> 4);
+                        dstBase[2 * p + 1] = static_cast<uint8_t>(((d0 & 0x0f) << 4) | (d2 & 0x0f));
+                        dstBase[16 + 2 * p + 0] = (d1 & 0xf0) | (d3 >> 4);
+                        dstBase[16 + 2 * p + 1] = static_cast<uint8_t>(((d1 & 0x0f) << 4) | (d3 & 0x0f));
+                        sum0 += (d0 >> 4) + (d0 & 0x0f);
+                        sum1 += (d1 >> 4) + (d1 & 0x0f);
+                        sum2 += (d2 >> 4) + (d2 & 0x0f);
+                        sum3 += (d3 >> 4) + (d3 & 0x0f);
+                    }
+                }
+                sumBase[0] = static_cast<float>(sum0);
+                sumBase[1] = static_cast<float>(sum1);
+                sumBase[2] = static_cast<float>(sum2);
+                sumBase[3] = static_cast<float>(sum3);
+            }
+        }
+        return;
+    }
+
     // [oc,ic] -> [hu,blocknum,lu,hp,lp]
     for (int32_t i = 0; i < hu; ++i) {
         for (int32_t k = 0; k < hp; ++k) {
