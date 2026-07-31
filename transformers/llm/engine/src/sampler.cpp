@@ -8,6 +8,8 @@
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include <MNN/expr/MathOp.hpp>
+#include <MNN/expr/NeuralNetWorkOp.hpp>
 
 #include "llm/llm.hpp"
 #include "sampler.hpp"
@@ -214,28 +216,49 @@ void Sampler::buildPipeline() {
     }
     // final select step
     mPipeline.push_back([this](SamplerState& s) { stepSelect(s); });
+
+    // The device top-k prefilter is exact only when topK is the first
+    // effective filter step: logit_bias / banned_tokens are applied before
+    // topK on CPU, and a leading penalty step must be a no-op.
+    if (mConfig.type == "mixed" && mConfig.topK > 0 && mConfig.logit_bias.empty() &&
+        mConfig.banned_tokens.empty()) {
+        const auto& ms = mConfig.mixedSamplers;
+        if (!ms.empty() && ms[0] == "topK") {
+            mGpuTopKPrefilter = true;
+        } else if (ms.size() > 1 && ms[0] == "penalty" && ms[1] == "topK" &&
+                   mConfig.repetition_penalty <= 1.0f && mConfig.presence_penalty <= 0.0f &&
+                   mConfig.frequency_penalty <= 0.0f && mConfig.ngram_factor <= 1.0f) {
+            mGpuTopKPrefilter = true;
+        }
+    }
 }
 
 int Sampler::sample(Express::VARP logits) {
     Timer _t;
+    int lastDim = logits->getInfo()->dim.back();
     if (mConfig.type == "greedy") {
-        // Fast path: argmax directly on the mapped logits, skipping the
-        // vocab-sized SamplerState copy (~600 KB per token for Qwen3 vocab).
-        // Same first-max tie-break as stepSelect.
-        auto ptr = logits->readMap<float>();
-        int lastDim = logits->getInfo()->dim.back();
-        int bestIdx = 0;
-        float bestScore = ptr[0];
-        for (int i = 1; i < lastDim; ++i) {
-            if (ptr[i] > bestScore) {
-                bestScore = ptr[i];
-                bestIdx = i;
-            }
-        }
+        // Device-side argmax: only a 4-byte index crosses the device boundary
+        // instead of the full fp32 logits (~600 KB for Qwen3 vocab).
+        // MetalArgMax keeps the first-max tie-break identical to the CPU loop.
+        auto tokenIdx = Express::_ArgMax(logits, -1);
         mContext->sample_us += _t.durationInUs();
-        return bestIdx;
+        return tokenIdx->readMap<int>()[0];
     }
-    SamplerState state = createState(logits);
+    SamplerState state;
+    if (mGpuTopKPrefilter && mConfig.topK < lastDim) {
+        // Device-side top-k prefilter: TopKV2 on the device logits, then run
+        // the remaining pipeline steps on the k-sized subset. Equivalent to
+        // the CPU path because topK is the first effective filter step.
+        auto res = Express::_TopKV2(logits, Express::_Scalar<int>(mConfig.topK));
+        auto valuePtr = res[0]->readMap<float>();
+        auto indexPtr = res[1]->readMap<int>();
+        state.logits.assign(valuePtr, valuePtr + mConfig.topK);
+        state.indices.assign(indexPtr, indexPtr + mConfig.topK);
+        state.is_subset = true;
+        state.vocab_size = lastDim;
+    } else {
+        state = createState(logits);
+    }
     for (auto& step : mPipeline) {
         step(state);
     }

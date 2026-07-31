@@ -8,6 +8,7 @@
 
 #import "backend/metal/MetalBackend.hpp"
 #import "backend/metal/MetalEnv.hpp"
+#import "backend/metal/MetalReplay.hpp"
 #define MNN_METAL
 #import <MNN/MNNSharedContext.h>
 #define METAL_CONST_BUFFER_LIMIT 128
@@ -344,6 +345,52 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
             mSupportTensorApi = false;
         }
     }
+    if (mSupportTensorApi) {
+        // Separate probe for matmul2d INPUT cooperative tensors. Fused attention
+        // needs the QK destination to become the PV left operand in registers,
+        // which requires input cooperative tensors -- and those are only allowed
+        // at single-simdgroup scope (MPPTensorOpsMatMul2dImpl.h: "Input
+        // cooperative tensors require a single SIMD group"). None of MNN's other
+        // tensor kernels use this, so it gets its own capability flag.
+        // Covers all three shapes the fused kernel needs: QK (B transposed),
+        // PV (neither transposed), and PV with an fp32 left operand (the
+        // softmax output is kept in fp32).
+        const char* src_coop_input = "\n"
+            "#include <metal_stdlib> \n"
+            "#include <metal_tensor> \n"
+            "#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h> \n"
+            "using namespace metal; \n"
+            "using namespace mpp::tensor_ops; \n"
+            " \n"
+            "template <bool TB, typename AT> \n"
+            "static float probe_coop_input(float seed) { \n"
+            "    matmul2d<matmul2d_descriptor(16, 32, 16, false, TB, true, \n"
+            "             matmul2d_descriptor::mode::multiply_accumulate), \n"
+            "             metal::execution_simdgroup> mm; \n"
+            "    auto ct_a = mm.template get_left_input_cooperative_tensor<AT, half, float>(); \n"
+            "    auto ct_b = mm.template get_right_input_cooperative_tensor<AT, half, float>(); \n"
+            "    auto ct_c = mm.template get_destination_cooperative_tensor<decltype(ct_a), decltype(ct_b), float>(); \n"
+            "    for (ushort i = 0; i < 8; i++) { ct_a[i] = AT(seed); } \n"
+            "    for (ushort i = 0; i < 16; i++) { ct_b[i] = half(seed); ct_c[i] = 0.0f; } \n"
+            "    mm.run(ct_a, ct_b, ct_c); \n"
+            "    float acc = 0.0f; \n"
+            "    for (ushort i = 0; i < 16; i++) { acc += float(ct_c[i]); } \n"
+            "    return acc; \n"
+            "} \n"
+            " \n"
+            "kernel void probe_kernel(device float* out [[buffer(0)]], \n"
+            "                        uint tid [[thread_position_in_grid]]) { \n"
+            "    float acc = probe_coop_input<true,  half >(1.0f) \n"
+            "              + probe_coop_input<false, half >(1.0f) \n"
+            "              + probe_coop_input<false, float>(1.0f); \n"
+            "    out[tid] = acc; \n"
+            "}";
+        auto coopPipeline = makeComputePipelineWithSourceOption(src_coop_input, "probe_kernel", nullptr);
+        mSupportTensorCoopInput = (coopPipeline != nullptr);
+        if (!mSupportTensorCoopInput) {
+            MNN_PRINT("Metal4 tensor input-cooperative-tensor unsupported, fused attention disabled.\n");
+        }
+    }
     _commandBuffer = nil;
     setUpGPUEnabledSwitch();
 }
@@ -351,6 +398,8 @@ MetalBackend::~MetalBackend() {
     flushEncoder();
     removeNotificationsObservers();
 }
+
+
 
 void MetalBackend::setUpGPUEnabledSwitch() {
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
@@ -995,9 +1044,37 @@ ErrorCode MetalBackend::onResizeEnd() {
     if (err != NO_ERROR) {
         return err;
     }
-    // Match LayerNorm+Conv1x1 fusion after buffer allocation
+    // Match Q/K/V projection fusion first, then LayerNorm fusion so LN can
+    // target the QKV leader's fused dispatch (mirrors the gate/up leader case).
+    matchQKVFusions();
     matchLNFusions();
     return NO_ERROR;
+}
+
+void MetalBackend::matchQKVFusions() {
+    // QKV fusion: three decode-GEMV Conv1x1 sharing one input (attention q/k/v
+    // projections) dispatch as a single grid.z=3 kernel from the first conv in
+    // execution order; the other two encode nothing. Cuts per-token kernel
+    // launches (and their DRAM ramp) by 2 per layer.
+    // Set MNN_METAL_DISABLE_QKV_FUSION=1 to disable (A/B baseline).
+    if (MetalEnv::get().qkvFusionDisabled) {
+        return;
+    }
+    for (auto& pair : mInputToConv1x1Group) {
+        auto& group = pair.second;
+        // Exactly three consumers = q/k/v pattern. Registration order follows
+        // pipeline resize order, i.e. execution order, so group[0] runs first
+        // and is the only valid leader (its encode covers all three outputs).
+        if (group.size() != 3) {
+            continue;
+        }
+        if (group[0].conv == group[1].conv || group[0].conv == group[2].conv ||
+            group[1].conv == group[2].conv) {
+            continue;
+        }
+        group[0].conv->setupQKVFusion(group[1].conv, group[1].output,
+                                      group[2].conv, group[2].output);
+    }
 }
 
 void MetalBackend::matchLNFusions() {
@@ -1025,10 +1102,10 @@ void MetalBackend::matchLNFusions() {
             // Leaders bind LN buffers in their fused dispatch; additionally a
             // plain conv may fuse when it is the SOLE consumer of the normalized
             // output. Baseline transformer graphs have 2 (gate/up) or 3 (q/k/v)
-            // consumers and are unaffected by the sole-consumer rule.
+            // consumers; both are covered by their leader's fused dispatch.
             bool soleConsumer = (it->second.size() == 1) &&
                                 !conv->isGateUpLeader() && !conv->isGateUpFollower();
-            if (!conv->isGateUpLeader() && !soleConsumer) {
+            if (!conv->isGateUpLeader() && !conv->isQKVLeader() && !soleConsumer) {
                 continue;
             }
             bool ok = conv->setupLNFusion(info.hiddenInput, info.residualInput,
@@ -1344,6 +1421,11 @@ id<MTLCommandBuffer> MetalBackend::getCommandBufferForNet() const {
 
 void MetalBackend::setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index) {
     [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(tensor)->offset atIndex:index];
+    // Encode-replay annotation: while a recording proxy is active, tag the
+    // binding just recorded with its source tensor for replay-time validation.
+    if (nil != gMetalReplayProxy) {
+        [gMetalReplayProxy annotateTensor:tensor atIndex:index];
+    }
 }
 void MetalBackend::setMem(const MemChunk& chunk, id<MTLComputeCommandEncoder> encoder, int index) {
     [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)chunk.first)->getBuffer() offset:chunk.second atIndex:index];
@@ -1682,6 +1764,23 @@ MetalRuntime::MetalRuntime(void* context) {
                        [[[ctx device] name] containsString:@"M2"] || \
                        [[[ctx device] name] containsString:@"M3"];
     mPreferInShaderPrefillDequant = mSimdGroupMatrix && !isOldMacGpu;
+    // M64 outer-dequant GEMM tile tier, MLX-style arch parse (family API can't
+    // tell M3 from M4 -- both MTLGPUFamilyApple9). architecture.name is
+    // "applegpu_g<gen><size>" (g13=M1 .. g16=M4/A18, size: p=phone, g=base/pro,
+    // s=max, d=ultra). M4-class Macs (gen >= 16, non-phone) take the 64x64 tile:
+    // M4 Pro paired rep5x2 pp2048 +1.1~2.4%, pp512 neutral. M3 Pro pp512 -1.4%
+    // keeps gen <= 15 off; phones ('p') stay off pending calibration. Older OS
+    // exposes no architecture -> off (conservative).
+    if (@available(iOS 17.0, macOS 14.0, *)) {
+        const char* archName = [[[[ctx device] architecture] name] UTF8String];
+        const char* kPrefix = "applegpu_g";
+        if (archName != nullptr && strncmp(archName, kPrefix, strlen(kPrefix)) == 0) {
+            const char* p = archName + strlen(kPrefix);
+            int gen = atoi(p);
+            char size = archName[strlen(archName) - 1];
+            mPreferM64Gemm = mSimdGroupMatrix && gen >= 16 && size != 'p';
+        }
+    }
 //    MNN_PRINT("Metal device name %s, open tensor: %d\n\n", [[[ctx device] name] UTF8String], mTensorOps);
     mStaticAllocator.reset(new EagerBufferAllocator(allocator));
     mDynamic.resize(METAL_SEPERATE_MAX_COUNT);
@@ -1881,7 +1980,8 @@ public:
         if (mem.first == nullptr) {
             return MemChunk(nullptr, 0);
         }
-        id<MTLBuffer> buffer = [mDevice newBufferWithBytesNoCopy:mem.first length:size options:MTLResourceStorageModeShared  deallocator:nil];
+        MTLResourceOptions opts = MTLResourceStorageModeShared;
+        id<MTLBuffer> buffer = [mDevice newBufferWithBytesNoCopy:mem.first length:size options:opts deallocator:nil];
         if (buffer == nil) {
             mOrigin->onRelease(mem);
             return MemChunk(nullptr, 0);

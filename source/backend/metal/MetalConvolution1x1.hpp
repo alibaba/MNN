@@ -29,6 +29,14 @@ public:
     bool setupGateUpFusion(MetalConvolution1x1* peer, const Tensor* peerOutput);
     bool isGateUpLeader() const { return mIsGateUpLeader; }
     bool isGateUpFollower() const { return mIsGateUpFollower; }
+    // QKV fusion: called by MetalBackend::matchQKVFusions for three decode
+    // GEMV projections sharing one input. 'this' (first in execution order)
+    // becomes the leader and dispatches all three in a single grid.z=3 kernel;
+    // the two followers' onEncode become no-ops.
+    bool setupQKVFusion(MetalConvolution1x1* peerK, const Tensor* peerKOutput,
+                        MetalConvolution1x1* peerV, const Tensor* peerVOutput);
+    bool isQKVLeader() const { return mIsQKVLeader; }
+    bool isQKVFollower() const { return mIsQKVFollower; }
     // Check if this Conv1x1 uses the 2sg decode GEMV pipeline (eligible for fusion)
     bool is2sgDecodePipeline() const { return mIs2sgDecode; }
 
@@ -61,9 +69,21 @@ private:
     id<MTLComputePipelineState> mGateUpFusedPipeline = nil;  // fused pipeline with GATE_UP_FUSED
     id<MTLBuffer> mGateUpSegBuffer = nil;         // {up_scale_coef} (gate uses cst.scale_coef)
 
+    // QKV fusion state (see setupQKVFusion)
+    bool mIsQKVLeader = false;
+    bool mIsQKVFollower = false;
+    MetalConvolution1x1* mQKVPeerK = nullptr;
+    MetalConvolution1x1* mQKVPeerV = nullptr;
+    const Tensor* mQKVPeerKOutput = nullptr;
+    const Tensor* mQKVPeerVOutput = nullptr;
+    id<MTLComputePipelineState> mQKVFusedPipeline = nil;    // fused pipeline with QKV_FUSED
+    id<MTLBuffer> mQKVSegBuffer = nil;  // {k_coef, v_coef, k_oslice, v_oslice}
+    // Quant block count along IC (per output_slice); fused projections must match.
+    int mBlockSize = 1;
+
     // Fused Q4/Q8 GEMM: kernel unpacks quantized weights in-kernel
     // (FUSED_Q4_REAL_UNPACK), skipping the dequant pre-pass and mTempWeight.
-    // Kill-switch: MNN_METAL_DISABLE_FUSED_Q4_GEMM=1.
+    // Kill-switch: MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1.
     bool mFusedQ4 = false;
     // M=64 tile variant of the fused Q4 GEMM (conv1x1_fused_q4_gemm_stage_m64).
     // Halves grid.x for prefill (M_TILE=64 vs baseline M_TILE=32) — cuts

@@ -108,7 +108,7 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
         qkvKeys.emplace_back("SIMD_GROUP_REDUCE");
     }
     std::vector<std::string> qkPrefillKeys = {{"matmul_qk_div_mask", ftype, group_str, "FOR_PREFILL"}};
-    if (mHasMask) {
+    if (mHasTensorMask) {
         if (mIsAddMask) {
             qkPrefillKeys.emplace_back("ADD_MASK");
             if (seq_len > 1) {
@@ -248,6 +248,10 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
     if (mDecodeQkSoftmax) {
         std::string head_dim_str = std::to_string(mHeadDim);
         std::vector<std::string> keys = {"decode_qk_softmax", ftype, group_str, "HEAD_DIM_" + head_dim_str};
+        // mQkQsplit decided in _computePathFlags (kv/device gated, per token).
+        if (mQkQsplit) {
+            keys.emplace_back("QK_QSPLIT");
+        }
         if (mKvSeqLen <= 128) {
             keys.emplace_back("SHORT_KV_128");
         }
@@ -275,52 +279,75 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
         mKernel_qk_softmax = pipeline;
         MNN_ASSERT(nil != mKernel_qk_softmax);
     }
-    if (mDecodeSplitKV) {
+    if (mSdpaSinglePass) {
         std::string head_dim_str = std::to_string(mHeadDim);
-        std::vector<std::string> keys = {"decode_splitkv", ftype, group_str, "HEAD_DIM_" + head_dim_str};
-        if (mOutputC4) {
-            keys.emplace_back("ATTENTION_C4");
-        }
-        if (mQuantKey) {
-            keys.emplace_back("QUANT_K");
-            if (dynamicQuantK) {
-                keys.emplace_back("DYNAMIC_QUANT_K");
+        auto buildSdpa = [&](int nsg) -> id<MTLComputePipelineState> {
+            std::vector<std::string> keys = {"decode_splitkv_sdpa", ftype, group_str,
+                                             "HEAD_DIM_" + head_dim_str, "NSG_" + std::to_string(nsg)};
+            if (mOutputC4) {
+                keys.emplace_back("ATTENTION_C4");
             }
-        }
-        if (mQuantValue) {
-            keys.emplace_back("QUANT_V");
-            if (dynamicQuantV) {
-                keys.emplace_back("DYNAMIC_QUANT_V");
+            if (mQuantKey) {
+                keys.emplace_back("QUANT_K");
+                if (dynamicQuantK) {
+                    keys.emplace_back("DYNAMIC_QUANT_K");
+                }
             }
-        }
-        std::vector<std::string> keysR = keys;
-        keysR[0] = "decode_splitkv_reduce";
-        auto pipeline  = rt->findPipeline(keys);
-        auto pipelineR = rt->findPipeline(keysR);
-        if (nil == pipeline || nil == pipelineR) {
-            MTLCompileOptions* option = [[MTLCompileOptions alloc] init];
-            auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
-            [dic setValue:@(ftype.c_str()) forKey:@"ftype"];
-            [dic setValue:@(ftype4.c_str()) forKey:@"ftype4"];
-            [dic setValue:@(group_str.c_str()) forKey:@"GROUP_SIZE"];
-            [dic setValue:@(head_dim_str.c_str()) forKey:@"HEAD_DIM"];
-            for (size_t j = 4; j < keys.size(); ++j) {
-                [dic setValue:@"1" forKey:@(keys[j].c_str())];
+            if (mQuantValue) {
+                keys.emplace_back("QUANT_V");
+                if (dynamicQuantV) {
+                    keys.emplace_back("DYNAMIC_QUANT_V");
+                }
             }
-            option.preprocessorMacros = dic;
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gDecodeSplitKV, "decode_splitkv", option);
-            rt->insertPipeline(keys, pipeline);
-            pipelineR = mtbn->makeComputePipelineWithSourceOption(gDecodeSplitKV, "decode_splitkv_reduce", option);
-            rt->insertPipeline(keysR, pipelineR);
+            auto pipeline = rt->findPipeline(keys);
+            if (nil == pipeline) {
+                MTLCompileOptions* option = [[MTLCompileOptions alloc] init];
+                auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+                [dic setValue:@(ftype.c_str()) forKey:@"ftype"];
+                [dic setValue:@(ftype4.c_str()) forKey:@"ftype4"];
+                [dic setValue:@(group_str.c_str()) forKey:@"GROUP_SIZE"];
+                [dic setValue:@(head_dim_str.c_str()) forKey:@"HEAD_DIM"];
+                [dic setValue:@(std::to_string(nsg).c_str()) forKey:@"SPLITKV_NSG"];
+                for (size_t j = 5; j < keys.size(); ++j) {
+                    [dic setValue:@"1" forKey:@(keys[j].c_str())];
+                }
+                option.preprocessorMacros = dic;
+                pipeline = mtbn->makeComputePipelineWithSourceOption(gDecodeSplitKV, "decode_splitkv", option);
+                if (nil != pipeline) {
+                    rt->insertPipeline(keys, pipeline);
+                }
+            }
+            return pipeline;
+        };
+        // Degrade NSG until the compiled pipeline can actually host 32*NSG threads.
+        int nsg = mSdpaNsg;
+        id<MTLComputePipelineState> pipeline = nil;
+        while (nsg >= 4) {
+            pipeline = buildSdpa(nsg);
+            if (nil != pipeline && (int)pipeline.maxTotalThreadsPerThreadgroup >= 32 * nsg) {
+                break;
+            }
+            if (nil != pipeline) {
+                MNN_PRINT("MNN::Metal SDPA: NSG %d exceeds pipeline thread cap %d, degrading\n",
+                          nsg, (int)pipeline.maxTotalThreadsPerThreadgroup);
+            }
+            pipeline = nil;
+            nsg /= 2;
         }
-        mKernel_splitkv = pipeline;
-        mKernel_splitkv_reduce = pipelineR;
-        MNN_ASSERT(nil != mKernel_splitkv && nil != mKernel_splitkv_reduce);
+        if (nil == pipeline) {
+            MNN_ERROR("MNN::Metal SDPA: no viable NSG, falling back to legacy decode path\n");
+            mSdpaSinglePass = false;
+            // the single-pass early return skipped mTempQK/mTempSoftMax; re-run
+            handleKVAllocMemory();
+        } else {
+            mSdpaNsg = nsg;
+            mKernel_sdpa = pipeline;
+        }
     }
     if (mFlashAttnPrefill) {
         std::string head_dim_str = std::to_string(mHeadDim);
         std::vector<std::string> keys = {"prefill_flash_attn", ftype, group_str, "HEAD_DIM_" + head_dim_str};
-        if (mHasMask) {
+        if (mHasTensorMask) {
             keys.emplace_back("HAS_MASK");
         }
         if (mOutputC4) {
@@ -340,7 +367,7 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
             [dic setValue:@(ftype4.c_str()) forKey:@"ftype4"];
             [dic setValue:@(group_str.c_str()) forKey:@"GROUP_SIZE"];
             [dic setValue:@(head_dim_str.c_str()) forKey:@"HEAD_DIM"];
-            if (mHasMask) {
+            if (mHasTensorMask) {
                 [dic setValue:@"1" forKey:@"HAS_MASK"];
             }
             if (mOutputC4) {
@@ -358,6 +385,48 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
         }
         mKernel_flashAttn = pipeline;
         MNN_ASSERT(nil != mKernel_flashAttn);
+    }
+    if (mFaNaxPrefill) {
+        std::string head_dim_str = std::to_string(mHeadDim);
+        std::vector<std::string> keys = {"prefill_flash_attn_nax", ftype, "HEAD_DIM_" + head_dim_str};
+        if (mHasTensorMask) {
+            keys.emplace_back("HAS_MASK");
+        }
+        if (mOutputC4) {
+            keys.emplace_back("ATTENTION_C4");
+        }
+        auto pipeline = rt->findPipeline(keys);
+        if (nil == pipeline) {
+            MTLCompileOptions* option = [[MTLCompileOptions alloc] init];
+            auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+            [dic setValue:@(ftype.c_str()) forKey:@"ftype"];
+            [dic setValue:@(ftype4.c_str()) forKey:@"ftype4"];
+            [dic setValue:@(head_dim_str.c_str()) forKey:@"HEAD_DIM"];
+            if (mHasTensorMask) {
+                [dic setValue:@"1" forKey:@"HAS_MASK"];
+            }
+            if (mOutputC4) {
+                [dic setValue:@"1" forKey:@"ATTENTION_C4"];
+            }
+            option.preprocessorMacros = dic;
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gPrefillFlashAttnNax, "prefill_flash_attn_nax", option);
+            if (nil != pipeline) {
+                rt->insertPipeline(keys, pipeline);
+            }
+        }
+        if (nil == pipeline || (int)pipeline.maxTotalThreadsPerThreadgroup < 128) {
+            MNN_ERROR("MNN::Metal FA-NAX: pipeline unavailable (cap %d), falling back to three-stage prefill\n",
+                      pipeline ? (int)pipeline.maxTotalThreadsPerThreadgroup : -1);
+            // Sticky, then recompute: the FA-NAX early return skipped the scratch
+            // allocation and suppressed causal-tri / causal-bound.
+            mFaNaxUnavailable = true;
+            mFaNaxPrefill = false;
+            _computePathFlags(inputs);
+            compilerShader(inputs);
+            return;
+        } else {
+            mKernel_faNax = pipeline;
+        }
     }
 }
 
@@ -422,22 +491,13 @@ void AttentionBufExecution::handleKVAllocMemory() {
     // Skipping these scratch buffers is the whole point of using flash-attn for
     // long context — mTempQK alone is O(B * H * seq * kv_max) which reaches TB
     // scale at 512K prompts.
-    if (mFlashAttnPrefill) {
+    if (mFlashAttnPrefill || mFaNaxPrefill) {
         return;
     }
 
-    // Split-KV decode: only needs the per-workgroup partial buffer
-    // [B*H, nwg_max, head_dim + 2] floats; never touches mTempQK/mTempSoftMax.
-    if (mDecodeSplitKV) {
-        int splitSize = mBatch * mNumHead * mSplitKVNwgMax * (mHeadDim + 2);
-        if (nullptr == mTempSplitKV || mTempSplitKV->elementSize() != splitSize) {
-            mTempSplitKV.reset(Tensor::createDevice<float>({splitSize}));
-        }
-        if (!backend()->onAcquireBuffer(mTempSplitKV.get(), allocType)) {
-            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY when execute attention metal splitkv\n");
-            return;
-        }
-        backend()->onReleaseBuffer(mTempSplitKV.get(), allocType);
+    // Single-pass fused SDPA writes the final output from the kernel itself;
+    // no partial buffer, no mTempQK/mTempSoftMax.
+    if (mSdpaSinglePass) {
         return;
     }
 
@@ -466,8 +526,12 @@ void AttentionBufExecution::handleKVAllocMemory() {
 }
 
 ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    mHasMask = inputs.size() > 3 && inputs[3]->dimensions() >= 2;
-    if (mHasMask) {
+    // A mask input with dims>=2 is a per-element (tensor) mask that must be read
+    // position by position. A dims<2 float mask is the scalar causal sentinel
+    // (see llm.cpp gen_attention_mask / CPUAttention) -- not a tensor mask; its
+    // causal meaning is resolved into mCausalLayout in _computePathFlags.
+    mHasTensorMask = inputs.size() > 3 && inputs[3]->dimensions() >= 2;
+    if (mHasTensorMask) {
         mIsAddMask = (inputs[3]->getType() == halide_type_of<float>());
     }
     auto query = inputs[0];
@@ -506,33 +570,87 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, co
     }
     return NO_ERROR;
 }
-void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                     id<MTLComputeCommandEncoder> encoder) {
-    auto query = inputs[0];
-    auto key = inputs[1];
-    auto value = inputs[2];
+void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs) {
     auto mtbn = static_cast<MetalBackend*>(backend());
-    auto context = (__bridge MNNMetalContext*)mtbn->context();
     auto rt = (MetalRuntime*)mtbn->runtime();
 
     int group_size = mNumHead / mKvNumHead;
 
-    // Split-KV decode attention (env MNN_METAL_DECODE_SPLITKV=1): decided BEFORE
-    // handleKVAllocMemory so the partial buffer is allocated on the first decode
-    // step. Fused single-pass QK + online-softmax + AV with KV strided across
-    // workgroups + reduce dispatch; no threadgroup-memory KV cap.
-    // Restricted to fp16 or int8-quantized KV / seq==1 / causal (trivial or no mask).
+    // Causal-fast-path gate. Enable causal-tri / causal-bound / FA / faNax ONLY
+    // when no per-element mask is in play: either the mask input is absent, or it
+    // is the standard-causal scalar sentinel -- a scalar float mask (dims<2) whose
+    // value is ~0 (matching CPUAttention.cpp:574-587's shape().empty() &&
+    // ptr[0]<1e-6). Both LLM decode/prefill and embedding models feed this scalar
+    // sentinel (embedding via gen_attention_mask, kv_cache=true), so both take the
+    // fast path. kv-cache is also required because the per-tile causal masking
+    // these opts rely on is DEFAULT_MASK, only compiled in compilerShader's
+    // `else if (mKVCache)` branch.
+    //   - absent mask / scalar sentinel(0), plus kv-cache => causal fast path
+    //   - tensor mask (SWA/arbitrary)                     => honor per-element
+    //   - non-zero scalar / no kv-cache                   => no fast path
+    //     (correctness still holds: DEFAULT_MASK causal when mKVCache, else dense)
+    // Value read is from shared-storage contents, safe here (_computePathFlags
+    // runs at encode time, mask data already written). Replaces the old
+    // MNN_METAL_QK_CAUSAL_TRI env. Invariant: mCausalLayout==true => mKVCache==true.
+    bool scalarCausalSentinel = inputs.size() <= 3;
+    if (!mHasTensorMask && inputs.size() > 3 &&
+        inputs[3]->dimensions() < 2 && inputs[3]->getType() == halide_type_of<float>()) {
+        auto alloc = (MetalRuntimeAllocator::MetalBufferAlloc*)inputs[3]->deviceId();
+        if (alloc != nullptr) {
+            auto buf = (id<MTLBuffer>)alloc->getBuffer();
+            const float* mptr = (const float*)((uint8_t*)buf.contents +
+                                 TensorUtils::getDescribeOrigin(inputs[3])->offset);
+            scalarCausalSentinel = (mptr[0] < 1e-6f && mptr[0] > -1e-6f);
+        }
+    }
+    mCausalLayout = scalarCausalSentinel && mKVCache;
+
+    // Fused decode attention threshold (auto, device-tiered). Beyond the fused
+    // decode_qk_softmax kernel's threadgroup-memory kv cap (group2: 2048,
+    // group4: 1024, group8: 512) the alternative is the three-stage decode_qk
+    // path; single-pass SDPA beats it across the whole kv>=cap band, so clamp
+    // the auto threshold to the cap. tensor-API devices (M5) cross over higher.
     {
-        const int sSplitKVThresh = MetalEnv::get().decodeSplitKvThresh;
-        bool trivialMask = mHasMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
-        // threadgroup floats: sq[GS*HD] + s_vs[4*GS*32] + s_out[4*GS*HD] + s_sm[4*GS*2]
-        const int tgBytes = (group_size * mHeadDim + 4 * group_size * 32 +
-                             4 * group_size * mHeadDim + 4 * group_size * 2) * (int)sizeof(float);
+        int sDecodeFusedThresh = mtbn->isSupportTensorApi() ? 3072 : 1536;
+        {
+            int fusedKvCap = 0;
+            if (group_size == 2) fusedKvCap = 2048;
+            else if (group_size > 2 && group_size <= 4) fusedKvCap = 1024;
+            else if (group_size > 4 && group_size <= 8) fusedKvCap = 512;
+            if (fusedKvCap > 0 && fusedKvCap < sDecodeFusedThresh) {
+                sDecodeFusedThresh = fusedKvCap;
+            }
+        }
+        bool trivialMask = mHasTensorMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
         const int totalKv = (mKVCache && mKVCacheManager != nullptr ? mKVCacheManager->kvLength() : 0) + mCurrentKvLen;
-        mDecodeSplitKV = sSplitKVThresh > 0 && totalKv >= sSplitKVThresh &&
-                         mKVCache && mSeqLen == 1 && !mKvInDisk &&
-                         (!mHasMask || trivialMask) &&
-                         (mHeadDim % 32) == 0 && tgBytes <= 30 * 1024;
+
+        // Single-pass fused decode SDPA (MLX sdpa_vector form): decode_splitkv
+        // runs a single workgroup (nwg=1), no reduce dispatch, final output
+        // written by the kernel itself. Default auto-on
+        // (MNN_METAL_DECODE_SDPA); =0 disables (fused qk_softmax at kv<=cap /
+        // three-stage decode_qk beyond it take over); =N>1 overrides the kv
+        // threshold. Short/mid-kv stays on the fused qk_softmax path.
+        mSdpaSinglePass = false;
+        const int sdpaEnv = MetalEnv::get().decodeSdpa;
+        if (sdpaEnv > 0) {
+            const int sdpaThresh = (sdpaEnv == 1) ? sDecodeFusedThresh : sdpaEnv;
+            mSdpaNsg = MetalEnv::get().decodeSdpaNsg;
+            if (mSdpaNsg == 0) {
+                // Device-tiered default: M5 (tensor-API) e2e sweep favors nsg8
+                // (p2048 +6.2% vs nsg32 +3.3%); M4-class (non-tensor-API) favors
+                // nsg32 (M4 Pro paired p2048 +6.0% / p4096 +7.5% vs nsg8 -3.5%,
+                // opposite of M5). M1/M2/M3/iPhone inherit the non-tensor branch.
+                mSdpaNsg = mtbn->isSupportTensorApi() ? 8 : 32;
+            }
+            // threadgroup floats: sq[HD] + s_vs[NSG*32] + s_out[NSG*32] + s_sm[NSG*2]
+            // (one q head per threadgroup, GS_LOCAL fixed at 1)
+            const int tgBytesSdpa = (mHeadDim + mSdpaNsg * 32 +
+                                     mSdpaNsg * 32 + mSdpaNsg * 2) * (int)sizeof(float);
+            mSdpaSinglePass = sdpaThresh > 0 && totalKv >= sdpaThresh &&
+                              mKVCache && mSeqLen == 1 && !mKvInDisk &&
+                              (mCausalLayout || trivialMask) &&
+                              (mHeadDim % 32) == 0 && tgBytesSdpa <= 30 * 1024;
+        }
     }
 
     // whether use simdgroup
@@ -588,7 +706,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
         // back to the three-kernel pipeline.
         bool eligible = supportSimdMatrix
                         && static_cast<MetalBackend*>(backend())->useFp16InsteadFp32()
-                        && mHasMask
+                        && mCausalLayout
                         && !mKvInDisk
                         && (mHeadDim == 64 || mHeadDim == 128 || mHeadDim == 256)
                         && (group_size == 1 || group_size == 2 || group_size == 4 || group_size == 8)
@@ -604,8 +722,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
         // the measured range; env MNN_ENABLE_FLASH_ATTN_PREFILL=1 still forces FA
         // (and long context keeps FA for its scratch-memory elimination).
         if (mFlashAttnPrefill && !envForceOn) {
-            bool boundUsable = !MetalEnv::get().qkCausalTriOff && (mHasMask || mKVCache) && !mKvInDisk &&
-                               mKvSeqLen >= mSeqLen;
+            bool boundUsable = mCausalLayout && !mKvInDisk && mKvSeqLen >= mSeqLen;
             // CAUSAL_TRI (QK trapezoid dispatch) is wired on both the simdgroup-
             // matrix path (16x16 tile, added in the original causal-tri commit)
             // and the tensor-API path (32x32 tile, added by the "extend
@@ -627,27 +744,45 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
         if (mFlashAttnPrefill && !_fa_log_once) {
             _fa_log_once = true;
             MNN_PRINT("[MetalAttention] flash-attn-prefill kernel active (seq=%d, head_dim=%d, group=%d, mask=%d, outC4=%d, quant_k=%d, quant_v=%d).\n",
-                      mSeqLen, mHeadDim, group_size, (int)mHasMask, (int)mOutputC4,
+                      mSeqLen, mHeadDim, group_size, (int)mHasTensorMask, (int)mOutputC4,
                       (int)mQuantKey, (int)mQuantValue);
         }
     }
 
-    // temp memory alloc, handle variable set
-    Tensor* tempTensorK;
-    Tensor* tempTensorV;
-    handleKVAllocMemory();
-    id<MTLBuffer> tempBufferK;
-    id<MTLBuffer> tempBufferV;
-    if (mKvInDisk) {
-        tempBufferK = mKVCacheManager->getKeyBuffer();
-        tempBufferV = mKVCacheManager->getValueBuffer();
-    } else if (mKVCache) {
-        tempTensorK = mKVCacheManager->getKeyTensor();
-        tempTensorV = mKVCacheManager->getValueTensor();
-    } else {
-        tempTensorK = mTempK.get();
-        tempTensorV = mTempV.get();
+    // Fused prefill attention on the Metal tensor API (prefill_flash_attn_nax),
+    // env-gated (MNN_METAL_PREFILL_FA_TENSORAPI, default on for causal models).
+    // Registers-resident S/O, so the O(n^2) score matrix is never materialized.
+    // Must be decided BEFORE handleKVAllocMemory() so the mTempQK / mTempSoftMax
+    // scratch is skipped (same constraint as mFlashAttnPrefill).
+    // Scope: fp16, head_dim 64/128, causal semantics (ADD mask or kv-cache
+    // default causal), fp16 KV.
+    {
+        mFaNaxPrefill = false;
+        int faEnvMode = MetalEnv::get().prefillFaTensorApi;
+        if (faEnvMode < 0) {
+            // Unset -> follow the data-driven causal layout: enable for standard
+            // causal masks (scalar sentinel / kv-cache), off for arbitrary masks.
+            // This kernel hard-codes causal with no opt-out of its own, so it must
+            // never see a non-causal mask. Further gated below by
+            // isSupportTensorCoopInput() (M5+), so this is a no-op on M4/M3.
+            faEnvMode = mCausalLayout ? 1 : 0;
+        }
+        // Arbitrary masks (mCausalLayout==false) must never reach faNax even when
+        // MNN_METAL_PREFILL_FA_TENSORAPI=1 force-enables it.
+        const bool faCausal = mCausalLayout;
+        const bool faCommon = mtbn->useFp16InsteadFp32() && faCausal && !mKvInDisk &&
+                              !mQuantKey && !mQuantValue && mKvSeqLen >= mSeqLen &&
+                              (mHeadDim == 64 || mHeadDim == 128);
+        if (faEnvMode == 1 && !mFaNaxUnavailable) {
+            // matmul2d input cooperative tensors are single-simdgroup only.
+            mFaNaxPrefill = mtbn->isSupportTensorCoopInput() && faCommon && mSeqLen >= 64;
+        }
+        if (mFaNaxPrefill) {
+            mFlashAttnPrefill = false;
+        }
     }
+
+    handleKVAllocMemory();
 
     // decode and thread number not too large
     mQkSimdReduce = supportSimdReduce && mShortSeq;
@@ -662,23 +797,20 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     mCopySimdReduce = mKVCache && supportSimdReduce && mKVCacheManager->useDynamicScaleBuffer();
 
     // Causal triangular dispatch for prefill_qk (see MetalAttention.hpp).
-    // Requires one of the causal mask macros to be compiled (mHasMask || mKVCache),
-    // the simdgroup-matrix tile path, in-memory KV, and kv >= q so the diagonal
-    // offset D is non-negative for every seq piece.
+    // Gated on mCausalLayout (standard causal mask), the simdgroup-matrix tile
+    // path, in-memory KV, and kv >= q so the diagonal offset D is non-negative.
     {
-        const bool sQkTriOff = MetalEnv::get().qkCausalTriOff;
-        mQkCausalTri = !sQkTriOff && !mShortSeq && (mQkSimdMatrix || mQkTensorMatrix) &&
-                       !mFlashAttnPrefill && (mHasMask || mKVCache) && !mKvInDisk &&
+        mQkCausalTri = mCausalLayout && !mShortSeq && (mQkSimdMatrix || mQkTensorMatrix) &&
+                       !mFlashAttnPrefill && !mFaNaxPrefill && !mKvInDisk &&
                        mKvSeqLen >= mSeqLen;
         // CAUSAL_BOUND is path-agnostic: activates on both simd-matrix (M4 and
         // below) and tensor-API (M5+) three-kernel prefill paths, so long as we
         // are not on the FA path and the causal-mask semantics hold.
-        mCausalBound = !sQkTriOff && !mShortSeq && !mFlashAttnPrefill &&
-                       (mHasMask || mKVCache) && !mKvInDisk &&
-                       mKvSeqLen >= mSeqLen;
+        mCausalBound = mCausalLayout && !mShortSeq && !mFlashAttnPrefill && !mFaNaxPrefill &&
+                       !mKvInDisk && mKvSeqLen >= mSeqLen;
     }
 
-    bool trivialFloatMask = mHasMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
+    bool trivialFloatMask = mHasTensorMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
     // Max KV length for fused decode QK+softmax kernel depends on group_size
     // to stay within 32KB threadgroup memory limit:
     //   group_size<=2: 2048, group_size<=4: 1024, group_size<=8: 512
@@ -687,13 +819,157 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     else if (group_size <= 4) maxKvForFusion = 1024;
     else if (group_size <= 8) maxKvForFusion = 512;
     mDecodeQkSoftmax = mKVCache && mShortSeq && mSeqLen <= 8 &&
-                       (!mHasMask || trivialFloatMask) && !mKvInDisk &&
+                       (mCausalLayout || trivialFloatMask) && !mKvInDisk &&
                        group_size >= 2 && mHeadDim % 8 == 0 && mKvSeqLen <= maxKvForFusion;
 
-    // Split-KV decode (decided at the top of onEncode, before the KV alloc)
-    // supersedes the fused qk_softmax path.
-    if (mDecodeSplitKV) {
+    // Single-pass fused SDPA (decided at the top of onEncode, before the KV
+    // alloc) supersedes the fused qk_softmax path.
+    if (mSdpaSinglePass) {
         mDecodeQkSoftmax = false;
+    }
+
+    // Q-head-split variant of the fused QK+softmax kernel (group_size==2
+    // only). Non-tensor-API devices at kv >= 512 (M4 sweep 2026-07-28: p1024
+    // +2.7% / p768 +1.8% / p512 neutral / p12 ~-1%; M5 forced-on measured
+    // -2~3% -> tensor-API devices stay excluded, calibration closed and the
+    // MNN_METAL_QK_QSPLIT override removed).
+    mQkQsplit = mDecodeQkSoftmax && group_size == 2 &&
+                !mtbn->isSupportTensorApi() && mKvSeqLen >= 512;
+}
+
+uint32_t AttentionBufExecution::_pathSignature() const {
+    uint32_t sig = 0;
+    sig |= (uint32_t)mShortSeq;
+    sig |= (uint32_t)mDecodeQkSoftmax << 2;
+    sig |= (uint32_t)mQkvSimdReduce << 3;
+    sig |= (uint32_t)mQkvSimdMatrix << 4;
+    sig |= (uint32_t)mQkSimdMatrix << 5;
+    sig |= (uint32_t)mQkTensorMatrix << 6;
+    sig |= (uint32_t)mQkSimdReduce << 7;
+    sig |= (uint32_t)mSftmSimdReduce << 8;
+    sig |= (uint32_t)mCopySimdReduce << 9;
+    sig |= (uint32_t)mHasTensorMask << 10;
+    sig |= (uint32_t)mIsAddMask << 11;
+    sig |= (uint32_t)mFlashAttnPrefill << 12;
+    sig |= (uint32_t)mQuantKey << 13;
+    sig |= (uint32_t)mQuantValue << 14;
+    sig |= (uint32_t)mKVCache << 15;
+    sig |= (uint32_t)mKvInDisk << 16;
+    sig |= (uint32_t)mOutputC4 << 17;
+    sig |= (uint32_t)mQkCausalTri << 18;
+    sig |= (uint32_t)mCausalBound << 19;
+    sig |= (uint32_t)(mQseqSplitNum & 0xF) << 20;
+    // The fused decode_qk_softmax pipeline is compiled with a SHORT_KV_128
+    // macro while kv <= 128 — replay must not outlive that variant.
+    sig |= (uint32_t)((mDecodeQkSoftmax && mKvSeqLen <= 128) ? 1 : 0) << 24;
+    // Q-head-split fused kernel variant flips at the kv>=512 auto gate.
+    sig |= (uint32_t)mQkQsplit << 25;
+    // Single-pass fused SDPA path.
+    sig |= (uint32_t)mSdpaSinglePass << 26;
+    sig |= (uint32_t)mFaNaxPrefill << 29;
+    return sig;
+}
+
+void AttentionBufExecution::_writeCopyParam(const Tensor* key, const Tensor* value) {
+    auto copyp = (CopyParam*)mParamCopy.contents;
+    /*
+     Key -> K-Cache :   [mBatch, mKvSeqLen, mKvNumHead, mHeadDim] -> [mKvMaxLen, mBatch, mKvNumHead, mHeadDim]
+     Value -> V-Cache : [mBatch, mKvSeqLen, mKvNumHead, mHeadDim] -> [mBatch, mKvNumHead, mHeadDim, mKvMaxLen (fill
+     when decode)]
+     */
+    copyp->head_count = mKvNumHead * mHeadDim;
+    // current new kv_len
+    copyp->kv_seq_len = key->shape()[1];
+    copyp->max_kv_len = mKvMaxLen;
+    int pastLength = mKVCache ? mKVCacheManager->kvLength() : 0;
+    copyp->dst_k_offset = pastLength * copyp->head_count;
+    copyp->dst_v_offset = pastLength;
+    copyp->batch = mBatch;
+    copyp->value_c4 =
+        TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
+    if (mQuantValue && mKVQuantParameter != nullptr) {
+        copyp->v_scale = mKVQuantParameter->vScale;
+    } else {
+        copyp->v_scale = 0.0f;
+    }
+    if (mQuantKey && mKVQuantParameter != nullptr) {
+        copyp->k_scale = mKVQuantParameter->kScale;
+    } else {
+        copyp->k_scale = 0.0f;
+    }
+}
+
+void AttentionBufExecution::_writeQKVParam(const std::vector<Tensor*>& inputs, int seqLenPiece) {
+    int group_size = mNumHead / mKvNumHead;
+    auto param = (Param*)mParamQKV.contents;
+    param->scale = mScale;
+    param->head_dim = mHeadDim;
+    param->key_seq_len = mKvSeqLen;
+    param->head_num = mNumHead;
+    param->group = group_size;
+    param->query_seq_len = mSeqLen;
+    param->q_seq_piece_len = seqLenPiece;
+    param->max_kv_len = mKvMaxLen;
+    param->batch = mBatch;
+    param->kv_align_len = mKvAlignNum;
+    param->mask_batch = mHasTensorMask ? inputs[3]->length(0) : 1;
+    param->mask_head_num = (mHasTensorMask && inputs[3]->dimensions() > 3) ? inputs[3]->length(1) : 1;
+    param->mask_q_len = (mHasTensorMask && inputs[3]->dimensions() > 3) ? inputs[3]->length(2) : 1;
+    param->mask_k_len = (mHasTensorMask && inputs[3]->dimensions() > 0) ? inputs[3]->length(inputs[3]->dimensions() - 1) : 1;
+    if (mQuantValue && mKVQuantParameter != nullptr) {
+        param->v_scale = mKVQuantParameter->vScale;
+    } else {
+        param->v_scale = 0.0f;
+    }
+    if (mQuantKey && mKVQuantParameter != nullptr) {
+        param->k_scale = mKVQuantParameter->kScale;
+    } else {
+        param->k_scale = 0.0f;
+    }
+}
+
+void AttentionBufExecution::_writeSoftmaxParam(int seqLenPiece, int seq_idx) {
+    // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
+    int inside = 1;
+    int outside = mBatch * mNumHead * seqLenPiece;
+    int axis = mKvSeqLen;
+    int axis_align = ROUND_UP(axis, mKvAlignNum);
+    auto softmax = (int*)mParamSoftmax.contents;
+    // Inside, axis, outside, plane(invalid)
+    softmax[0] = inside;
+    softmax[1] = axis;
+    softmax[2] = outside;
+    softmax[3] = axis_align;
+    // CAUSAL_BOUND fields (ignored by non-causal softmax variants)
+    softmax[4] = seqLenPiece;
+    softmax[5] = (mKvSeqLen - mSeqLen) + seq_idx * seqLenPiece + 1;
+}
+
+void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                     id<MTLComputeCommandEncoder> encoder) {
+    auto query = inputs[0];
+    auto key = inputs[1];
+    auto value = inputs[2];
+    auto mtbn = static_cast<MetalBackend*>(backend());
+    auto context = (__bridge MNNMetalContext*)mtbn->context();
+
+    _computePathFlags(inputs);
+    int group_size = mNumHead / mKvNumHead;
+
+    // temp memory alloc, handle variable set
+    Tensor* tempTensorK;
+    Tensor* tempTensorV;
+    id<MTLBuffer> tempBufferK;
+    id<MTLBuffer> tempBufferV;
+    if (mKvInDisk) {
+        tempBufferK = mKVCacheManager->getKeyBuffer();
+        tempBufferV = mKVCacheManager->getValueBuffer();
+    } else if (mKVCache) {
+        tempTensorK = mKVCacheManager->getKeyTensor();
+        tempTensorV = mKVCacheManager->getValueTensor();
+    } else {
+        tempTensorK = mTempK.get();
+        tempTensorV = mTempV.get();
     }
 
     // start to compile attention shaders
@@ -705,32 +981,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 #endif
     // Run Copy and Format-Convert Kernel
     {
-        auto copyp = (CopyParam*)mParamCopy.contents;
-        /*
-         Key -> K-Cache :   [mBatch, mKvSeqLen, mKvNumHead, mHeadDim] -> [mKvMaxLen, mBatch, mKvNumHead, mHeadDim]
-         Value -> V-Cache : [mBatch, mKvSeqLen, mKvNumHead, mHeadDim] -> [mBatch, mKvNumHead, mHeadDim, mKvMaxLen (fill
-         when decode)]
-         */
-        copyp->head_count = mKvNumHead * mHeadDim;
-        // current new kv_len
-        copyp->kv_seq_len = key->shape()[1];
-        copyp->max_kv_len = mKvMaxLen;
-        int pastLength = mKVCache ? mKVCacheManager->kvLength() : 0;
-        copyp->dst_k_offset = pastLength * copyp->head_count;
-        copyp->dst_v_offset = pastLength;
-        copyp->batch = mBatch;
-        copyp->value_c4 =
-            TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
-        if (mQuantValue && mKVQuantParameter != nullptr) {
-            copyp->v_scale = mKVQuantParameter->vScale;
-        } else {
-            copyp->v_scale = 0.0f;
-        }
-        if (mQuantKey && mKVQuantParameter != nullptr) {
-            copyp->k_scale = mKVQuantParameter->kScale;
-        } else {
-            copyp->k_scale = 0.0f;
-        }
+        _writeCopyParam(key, value);
         int copy_line = key->shape()[1];
 
         id<MTLComputePipelineState> pipeline = mKernel_copy;
@@ -765,41 +1016,37 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 #if MNN_METAL_OP_PROFILE
     {
         auto* mtbn = static_cast<MetalBackend*>(backend());
-        encoder = mtbn->profileNextSubpass(mShortSeq ? "qk_short" : (mDecodeQkSoftmax ? "qk_softmax_fused" : "qk"));
+        encoder = mtbn->profileNextSubpass(mSdpaSinglePass ? "sdpa_fused" : (mShortSeq ? "qk_short" : (mDecodeQkSoftmax ? "qk_softmax_fused" : "qk")));
     }
 #endif
 
     // Update Parameters
     int seqLenPiece = UP_DIV(mSeqLen, mQseqSplitNum);
-    {
-        auto param = (Param*)mParamQKV.contents;
-        param->scale = mScale;
-        param->head_dim = mHeadDim;
-        param->key_seq_len = mKvSeqLen;
-        param->head_num = mNumHead;
-        param->group = group_size;
-        param->query_seq_len = mSeqLen;
-        param->q_seq_piece_len = seqLenPiece;
-        param->max_kv_len = mKvMaxLen;
-        param->batch = mBatch;
-        param->kv_align_len = mKvAlignNum;
-        param->mask_batch = mHasMask ? inputs[3]->length(0) : 1;
-        param->mask_head_num = (mHasMask && inputs[3]->dimensions() > 3) ? inputs[3]->length(1) : 1;
-        param->mask_q_len = (mHasMask && inputs[3]->dimensions() > 3) ? inputs[3]->length(2) : 1;
-        param->mask_k_len = (mHasMask && inputs[3]->dimensions() > 0) ? inputs[3]->length(inputs[3]->dimensions() - 1) : 1;
-        if (mQuantValue && mKVQuantParameter != nullptr) {
-            param->v_scale = mKVQuantParameter->vScale;
-        } else {
-            param->v_scale = 0.0f;
-        }
-        if (mQuantKey && mKVQuantParameter != nullptr) {
-            param->k_scale = mKVQuantParameter->kScale;
-        } else {
-            param->k_scale = 0.0f;
-        }
-    }
+    _writeQKVParam(inputs, seqLenPiece);
 
     for (int seq_idx = 0; seq_idx < mQseqSplitNum; seq_idx++) {
+        if (mFaNaxPrefill) {
+            // Fused prefill on the tensor API: one dispatch, S and O in registers.
+            [encoder setComputePipelineState:mKernel_faNax];
+            MetalBackend::setTensor(query, encoder, 0);
+            MetalBackend::setTensor(outputs[0], encoder, 1);
+            MetalBackend::setTensor(tempTensorK, encoder, 2);
+            MetalBackend::setTensor(tempTensorV, encoder, 3);
+            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+            [encoder setBytes:&seq_idx length:sizeof(seq_idx) atIndex:5];
+            if (mHasTensorMask) {
+                MetalBackend::setTensor(inputs[3], encoder, 8);
+            }
+            [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(seqLenPiece, 64), mBatch * mNumHead, 1)
+                    threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+#if MNN_METAL_OP_PROFILE
+            {
+                auto* mtbn2 = static_cast<MetalBackend*>(backend());
+                encoder = mtbn2->profileNextSubpass("fa_nax");
+            }
+#endif
+            continue;   // skip the standard QK / softmax / PV path below
+        }
         if (mFlashAttnPrefill) {
             // Fused prefill flash-attention: QK + online softmax + PV in a single dispatch.
             // Writes directly to outputs[0]; mTempQK / mTempSoftMax are never touched.
@@ -814,7 +1061,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             int fa_kv_len   = mKvSeqLen;
             [encoder setBytes:&fa_kv_start length:sizeof(int) atIndex:6];
             [encoder setBytes:&fa_kv_len   length:sizeof(int) atIndex:7];
-            if (mHasMask) {
+            if (mHasTensorMask) {
                 MetalBackend::setTensor(inputs[3], encoder, 8);
             }
             if (mQuantKey && mKVCacheManager->getKScaleBuffer() != nil) {
@@ -837,13 +1084,12 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 #endif
             continue;   // skip the standard QK / softmax / PV path below
         }
-        if (mDecodeSplitKV) {
-            // Adaptive workgroup count: each workgroup covers 4 simdgroups x 32 kv
-            // per stride; target >= 2 strides per workgroup before capping at nwg_max.
-            int nwg = ALIMIN(mSplitKVNwgMax, ALIMAX(1, UP_DIV(mKvSeqLen, 256)));
-            [encoder setComputePipelineState:mKernel_splitkv];
+        if (mSdpaSinglePass) {
+            // Single-pass fused decode SDPA: one kernel, no reduce, no partials.
+            int nwg = 1;
+            [encoder setComputePipelineState:mKernel_sdpa];
             MetalBackend::setTensor(query, encoder, 0);
-            MetalBackend::setTensor(mTempSplitKV.get(), encoder, 1);
+            MetalBackend::setTensor(outputs[0], encoder, 1);
             MetalBackend::setTensor(tempTensorK, encoder, 2);
             MetalBackend::setTensor(tempTensorV, encoder, 3);
             [encoder setBuffer:mParamQKV offset:0 atIndex:4];
@@ -854,27 +1100,13 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             if (mQuantValue && mKVCacheManager->getVScaleBuffer() != nil) {
                 [encoder setBuffer:mKVCacheManager->getVScaleBuffer() offset:0 atIndex:9];
             }
-            [encoder dispatchThreadgroups:MTLSizeMake(nwg, mBatch * mKvNumHead, 1)
-                    threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
-#if MNN_METAL_OP_PROFILE
-            {
-                auto* mtbn2 = static_cast<MetalBackend*>(backend());
-                encoder = mtbn2->profileNextSubpass("splitkv");
-            }
-#endif
-            [encoder setComputePipelineState:mKernel_splitkv_reduce];
-            MetalBackend::setTensor(mTempSplitKV.get(), encoder, 0);
-            MetalBackend::setTensor(outputs[0], encoder, 1);
-            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
-            [encoder setBytes:&nwg length:sizeof(nwg) atIndex:5];
-            [encoder dispatchThreadgroups:MTLSizeMake(mBatch * mNumHead, 1, 1)
-                    threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
-#if MNN_METAL_OP_PROFILE
-            {
-                auto* mtbn2 = static_cast<MetalBackend*>(backend());
-                encoder = mtbn2->profileNextSubpass("splitkv_reduce");
-            }
-#endif
+            const int gridY = mBatch * mNumHead;
+            [encoder dispatchThreadgroups:MTLSizeMake(1, gridY, 1)
+                    threadsPerThreadgroup:MTLSizeMake(32 * mSdpaNsg, 1, 1)];
+            // No trailing profileNextSubpass here: the subtag was already set to
+            // "sdpa_fused" after the copy flush, and profileOpEncoded settles the
+            // encoder under that name (a trailing call would add a same-named
+            // empty encoder and dilute the average).
             continue;   // skip the standard QK / softmax / QKV path below
         }
         if (mDecodeQkSoftmax) {
@@ -887,11 +1119,17 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             if (mKVCache && mQuantKey && mKVCacheManager->getKScaleBuffer() != nil) {
                 [encoder setBuffer:mKVCacheManager->getKScaleBuffer() offset:0 atIndex:8];
             }
+            int gridZ = mQkQsplit ? group_size : 1;
             int qkGroups = mBatch * (mNumHead / group_size) * seqLenPiece;
             int maxLocalSize = ALIMAX(32, ((int)mKernel_qk_softmax.maxTotalThreadsPerThreadgroup / 32) * 32);
             int localSize = qkGroups <= 8 ? ALIMIN(maxLocalSize, ALIMAX(128, ROUND_UP(mKvSeqLen, 32))) :
                             ALIMIN(maxLocalSize, ALIMAX(64, ROUND_UP(UP_DIV(mKvSeqLen, 6), 32)));
-            auto gl = std::make_pair(MTLSizeMake(mBatch * (mNumHead / group_size), seqLenPiece, 1), MTLSizeMake(localSize, 1, 1));
+            if (mQkQsplit) {
+                // Half-width TGs: total threads match the non-split path while
+                // TG count doubles. The narrow kv/6 formula costs ~5% here.
+                localSize = ALIMIN(maxLocalSize, ALIMAX(128, ROUND_UP(UP_DIV(mKvSeqLen, 2), 32)));
+            }
+            auto gl = std::make_pair(MTLSizeMake(mBatch * (mNumHead / group_size), seqLenPiece, gridZ), MTLSizeMake(localSize, 1, 1));
             [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
         } else {
             // Run QK Kernel
@@ -927,7 +1165,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             int kv_start = 0, current_block_len = mKvSeqLen;
             [encoder setBytes:&kv_start length:sizeof(kv_start) atIndex:5];
             [encoder setBytes:&current_block_len length:sizeof(int) atIndex:6];
-            if (mHasMask) {
+            if (mHasTensorMask) {
                 MetalBackend::setTensor(inputs[3], encoder, 7);
             }
 
@@ -986,19 +1224,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
             int inside = 1;
             int outside = mBatch * mNumHead * seqLenPiece;
-            int axis = mKvSeqLen;
-            int axis_align = ROUND_UP(axis, mKvAlignNum);
-            {
-                auto softmax = (int*)mParamSoftmax.contents;
-                // Inside, axis, outside, plane(invalid)
-                softmax[0] = inside;
-                softmax[1] = axis;
-                softmax[2] = outside;
-                softmax[3] = axis_align;
-                // CAUSAL_BOUND fields (ignored by non-causal softmax variants)
-                softmax[4] = seqLenPiece;
-                softmax[5] = (mKvSeqLen - mSeqLen) + seq_idx * seqLenPiece + 1;
-            }
+            _writeSoftmaxParam(seqLenPiece, seq_idx);
             [encoder setComputePipelineState:mKernel_softmax];
             // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
             MetalBackend::setTensor(mTempQK.get(), encoder, 0);
@@ -1069,7 +1295,121 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     if (mKVCache) {
         mKVCacheManager->setPastLength(mKVCacheManager->kvLength() + mCurrentKvLen);
     }
+    // Replay bookkeeping: capture the structural fingerprint + raw scale-buffer
+    // identities so onReplayUpdate can detect path switches / KV reallocations.
+    mLastEncodeSig = _pathSignature();
+    mLastKScaleBuffer = (mKVCache && mKVCacheManager) ? mKVCacheManager->getKScaleBuffer() : nil;
+    mLastVScaleBuffer = (mKVCache && mKVCacheManager) ? mKVCacheManager->getVScaleBuffer() : nil;
+    if (mKVCache && !mKvInDisk && mKVCacheManager) {
+        mLastKTensor = mKVCacheManager->getKeyTensor();
+        mLastVTensor = mKVCacheManager->getValueTensor();
+    } else {
+        mLastKTensor = nullptr;
+        mLastVTensor = nullptr;
+    }
     return;
+}
+
+bool AttentionBufExecution::onReplayUpdate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    // Replay is only maintained for the in-memory KV-cache decode paths with a
+    // single seq piece. Anything else (prefill, disk KV, flash-attn, split
+    // pieces) bails: the execution drops the recording and re-encodes normally.
+    // (Checks here use last-encode state; the signature check below is the
+    // authoritative one — it recomputes every flag for THIS token first.)
+    if (!mKVCache || mKvInDisk || mFlashAttnPrefill || mFaNaxPrefill || mQseqSplitNum != 1) {
+        return false;
+    }
+    // Recompute all per-token path state (kv length, split-kv / fused-decode
+    // switches, simd flags) exactly as onEncode would. Idempotent when the
+    // caller falls back to onEncode after a bail: handleKVAllocMemory's
+    // onRealloc is a no-op once capacity suffices.
+    _computePathFlags(inputs);
+    if (!mShortSeq || _pathSignature() != mLastEncodeSig) {
+        return false;
+    }
+    // Raw scale-buffer bindings are not tensor-validated by the replay layer;
+    // a KV-cache realloc swaps them, so compare identities explicitly.
+    auto kScale = mKVCacheManager ? mKVCacheManager->getKScaleBuffer() : nil;
+    auto vScale = mKVCacheManager ? mKVCacheManager->getVScaleBuffer() : nil;
+    if (kScale != mLastKScaleBuffer || vScale != mLastVScaleBuffer) {
+        return false;
+    }
+    // KV expansion (possibly just performed by _computePathFlags above)
+    // DESTROYS the old cache tensors (mPastKey.reset), leaving dangling tensor
+    // pointers in the recorded bindings. Detect the swap by tensor identity —
+    // buffer identity is NOT reliable (pool suballocation can keep the same
+    // MTLBuffer). The stored pointers are compared, never dereferenced.
+    if (mKVCacheManager->getKeyTensor() != mLastKTensor ||
+        mKVCacheManager->getValueTensor() != mLastVTensor) {
+        return false;
+    }
+    // Structural layout must match the recording before patching by position.
+    const int expectEvents = mSdpaSinglePass ? 2 : (mDecodeQkSoftmax ? 3 : 4);
+    if ((int)mReplayEvents.size() != expectEvents) {
+        return false;
+    }
+    for (const auto& e : mReplayEvents) {
+        if (e.type != MetalReplayEvent::Dispatch) {
+            return false;
+        }
+    }
+    // Validate tensor bindings up front: kvLength is advanced below, and a
+    // late metalReplayEmit failure would fall back to onEncode and advance it
+    // a second time.
+    if (!metalReplayValidate(mReplayEvents)) {
+        return false;
+    }
+
+    auto mtbn = static_cast<MetalBackend*>(backend());
+    auto context = (__bridge MNNMetalContext*)mtbn->context();
+    int group_size = mNumHead / mKvNumHead;
+    int seqLenPiece = UP_DIV(mSeqLen, mQseqSplitNum);
+
+    // Rewrite param-buffer contents consumed by the recorded dispatches.
+    _writeCopyParam(inputs[1], inputs[2]);
+    _writeQKVParam(inputs, seqLenPiece);
+    _writeSoftmaxParam(seqLenPiece, 0);
+
+    auto patchIntBytes = [](MetalReplayEvent& e, int index, int value) {
+        for (auto& by : e.bytesArgs) {
+            if (by.first == index && by.second.size() == sizeof(int)) {
+                memcpy(by.second.data(), &value, sizeof(int));
+            }
+        }
+    };
+    // events[0] is the KV copy: its grid is kv-length independent.
+    if (mSdpaSinglePass) {
+        // events[1] = fused sdpa: grid (1, B*heads) and nwg (pinned 1) are both
+        // kv-length independent; kv reaches the kernel via the param rewrite.
+    } else if (mDecodeQkSoftmax) {
+        // events[1] = fused qk_softmax: threadgroup width tracks kv.
+        // events[2] = qkv: grid is kv-length independent.
+        // (QK_QSPLIT: recorded grid already carries z=group_size; only the
+        // qkGroups count feeding the width heuristic changes.)
+        auto& fused = mReplayEvents[1];
+        int qkGroups = mBatch * (mNumHead / group_size) * seqLenPiece;
+        int maxLocalSize = ALIMAX(32, ((int)fused.pipeline.maxTotalThreadsPerThreadgroup / 32) * 32);
+        int localSize = qkGroups <= 8 ? ALIMIN(maxLocalSize, ALIMAX(128, ROUND_UP(mKvSeqLen, 32))) :
+                        ALIMIN(maxLocalSize, ALIMAX(64, ROUND_UP(UP_DIV(mKvSeqLen, 6), 32)));
+        if (mQkQsplit) {
+            localSize = ALIMIN(maxLocalSize, ALIMAX(128, ROUND_UP(UP_DIV(mKvSeqLen, 2), 32)));
+        }
+        fused.threads = MTLSizeMake(localSize, 1, 1);
+    } else {
+        // events[1] = qk (short-seq): grid depth + block length track kv.
+        // events[2] = softmax, events[3] = qkv: grids kv-length independent
+        // (kv length reaches them through the rewritten param buffers).
+        auto& qk = mReplayEvents[1];
+        int decode_grid_y = mBatch * mNumHead;
+        auto gl = [context computeBestGroupAndLocal:qk.pipeline
+                                            threads:MTLSizeMake(seqLenPiece, decode_grid_y / group_size, mKvSeqLen)];
+        qk.grid = gl.first;
+        qk.threads = gl.second;
+        patchIntBytes(qk, 6, mKvSeqLen);
+    }
+
+    mKVCacheManager->setPastLength(mKVCacheManager->kvLength() + mCurrentKvLen);
+    return true;
 }
 
 class AttentionBufCreator : public MetalBackend::Creator {

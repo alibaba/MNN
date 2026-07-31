@@ -80,6 +80,14 @@ W_QUANT_8 的 tile layout 是 `byte = ro * 4 + ri`（OC 外、K_inner 内），�
 
 **示例**：把 byte ↔ (oc, ic) 映射写反（OC 内、K 外），shader 编译过、kernel 能跑，但输出乱码——只有 dump 第一个 op 的 weight 前几行和 CPU 对照才能发现。GPU 输出"乱"很容易先怀疑 dequant 数值或 sampler，反到字节顺序的可能性需要主动检查。
 
+### 陷阱 F：fp16 后端下 `Tensor::createDevice<float>` 只给一半字节
+
+Metal 后端开 fp16（`useFp16InsteadFp32`）时，float 类型的 device tensor 按 **2 字节/元素** 分配存储；若 shader 把这块 scratch 按 `device float*`（4B）读写，**buffer 实际只有需求的一半**。越界不会立刻炸：先静默踩别的内存（数值损坏），直到撞上未映射页才报 GPU 故障（`kIOGPUCommandBufferCallbackErrorInnocentVictim/SubmissionsIgnored`，且真凶 buffer 常不在日志里）。
+
+**前科（2026-07-29 split-KV 越界）**：`mTempSplitKV` 用 `createDevice<float>({B*H*32*(HD+2)})` 分配，shader 端 `device float* tmp_out`。分配 132KB、kernel 要 264KB ⇒ **nwg>16（kv>4096）必越界**。历史测试全部 ≤kv4096（nwg=16 恰好贴边），Qwen3.5（HD=256）p4096+tg1000 才引爆；HD=128 模型同条件只是静默损坏不崩。定位手段：`MTL_SHADER_VALIDATION=1 MTL_SHADER_VALIDATION_REPORT_TO_STDERR=1` 直接报出 kernel 名与越界 offset，从 offset 反推分配尺寸即见真相。
+
+**规矩**：shader 按 `device float` 消费的 scratch，host 一律 `createDevice<uint8_t>({bytes})` 按字节分配；分配公式写明 `* sizeof(float)`。检查现有代码时 grep `createDevice<float>` 与对应 shader 的指针类型是否一致。
+
 ---
 
 ## Packed weight 设计
@@ -173,3 +181,45 @@ CPU/Metal 同 prompt + `temperature=0.0` 前 N 个 token 应一致（fp16 误差
 **模型本身可能就坏**（小模型在低 bit 上量化退化常见），先用更大的模型 baseline CPU 跑通，再验 Metal kernel 正确性。
 
 **数值偏差容忍** 同 OpenCL skill：fp16 路径 abs < 1e-2 / rel < 5e-3，量化 dequant + fp16 abs < 1e-1。
+
+---
+
+## Metal tensor API：cooperative tensor 的逐元素布局（2026-07-29 实测，写融合 kernel 必读）
+
+MNN 现有 tensor 用法（`prefill_qk_tensor`、`conv1x1_fused_q4_gemm_stage`）只用到「destination cooperative tensor + `run(sA,sB,cT)` + 一次性 `cT.store()`」。要写 **融合 attention** 这类需要在两次 matmul 之间对中间结果做 online softmax 的 kernel，必须用到三个此前未用过的能力，**已在本机（M5 / macOS 26.6 / `applegpu_g17g`）实测可编译**：
+
+| 能力 | 说明 |
+|---|---|
+| `get_left_input_cooperative_tensor<A,B,C>()` / `get_right_...` | 让 A/B 也是寄存器 coop tensor，从而把上一次 matmul 的 destination 直接当下一次的 A（P 不落内存）|
+| coop tensor 的 `operator[]` | 逐元素读写，softmax/mask 全在寄存器完成 |
+| `run(ct_a, ct_b, ct_c)` | 三个操作数都是 coop tensor |
+| `get_capacity()` / `get_multidimensional_index(i)` | 官方坐标查询，**也可用**（MLX 没用，它硬编码经验公式）|
+
+⚠️ **硬约束**：input cooperative tensor 只允许单 simdgroup 作用域
+（`MPPTensorOpsMatMul2dImpl.h:3295` `"Input cooperative tensors require a single SIMD group"`）
+⇒ 必须 `metal::execution_simdgroup`，每个 simdgroup 独立跑一个小 matmul（MLX NAX 用 **16×32×16**）。MNN 现有的 `execution_simdgroups<4>` + threadgroup source tensor 写法**无法表达 online softmax**。
+
+⚠️ 能力探针在 `MetalBackend.mm` 的 `mSupportTensorCoopInput`（与 `mSupportTensorApi` 分开，因为其他 kernel 不需要这条）。
+
+### 逐元素布局（`matmul2d_descriptor(16,32,16, false, TB, true, multiply_accumulate)` + `execution_simdgroup`，实测 dump）
+
+```
+qid = lane >> 2
+fm  = (qid & 4) | ((lane >> 1) & 3)      // 0..7   慢轴基址
+fn  = ((qid & 2) | (lane & 1)) * 4       // 0/4/8/12  快轴基址（每 lane 连续 4 个）
+```
+`get_multidimensional_index(i)` 返回 **(dim0, dim1) = (快轴, 慢轴)**：
+
+| 操作数 | 形状（存储序）| capacity | 元素 i 的坐标 |
+|---|---|---:|---|
+| A（left, 不转置）| M=16 × K=16 | 8 | `K = fn + (i&3)`，`M = fm + (i>>2)*8` |
+| B（right, `tb=true`）| N=32 × K=16 | 16 | `K = fn + (i&3)`，`N = fm + ((i>>2)&1)*8 + (i>>3)*16` |
+| B（right, `tb=false`）| K=16 × N=32 | 16 | `N = fn + (i&3) + (i>>3)*16`，`K = fm + ((i>>2)&1)*8` |
+| D（destination）| M=16 × N=32 | 16 | `N = fn + (i&3) + (i>>3)*16`，`M = fm + ((i>>2)&1)*8` |
+
+推论（融合 attention 直接用）：
+- **每 lane 只持 2 个不同的 M 行**（`fm` 与 `fm+8`）⇒ online softmax 的 running max/sum 是 `float2`。
+- **同一 M 行的 lane 只在 bit0 与 bit3 上不同** ⇒ 行归约 = `simd_shuffle_xor(v,1)` + `simd_shuffle_xor(v,8)`（与 MLX `NAX_H:353-371` 一致，已实测印证）。
+- `i>>3` 选第二个 16 宽 frag，与 MLX 的 `Cn0[i]=ct_c[i]` / `Cn1[i]=ct_c[8+i]` 对应。
+
+> ⚠️ Apple 文档明确说 coop tensor 布局是 implementation-defined（`MPPTensorOpsMatMul2d.h:216-225`）。上表是本机实测，**换设备/OS 需重跑 dump**。快速 dump 手段：用 MLX 的 `mx.fast.metal_kernel` 跑一个 32 线程 kernel，把每 lane 每元素的 `get_multidimensional_index(i)` 写进输出 buffer 再打印（比在 MNN 里搭 harness 快得多）。
