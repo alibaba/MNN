@@ -261,7 +261,11 @@ class MNNConverter:
             subgraphs = self.get_experts_graphs(self.exporter.experts)
             mnn_graph['subgraphs'] = subgraphs
         new_ops = []
-        # Load layernorm weight from external
+        # Load layernorm weight from external.
+        # Weights that the converter externalized but rebuild does not rewrite
+        # (e.g. nested LoRA linears that are not FakeLinear) would be lost when
+        # the weight file is truncated below, and orphaned external references
+        # materialize as zeros on the json2mnn round trip — inline them instead.
         with open(self.mnn_weight_path, 'rb') as f:
             for op in tqdm(mnn_graph['oplists'], 'Load LayerNorm data'):
                 if op['type'] == 'LayerNorm' and 'external' in op['main']:
@@ -275,6 +279,27 @@ class MNNConverter:
                     f.seek(external[0])
                     op['main']['float32s'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
                     del op['main']['external']
+                if op['type'] not in ('LayerNorm', 'Const', 'Extra') and 'external' in op.get('main', {}):
+                    external = op['main']['external']
+                    f.seek(external[0])
+                    blob = f.read(sum(external[1:]))
+                    common = op['main'].get('common', {})
+                    group = max(1, common.get('group', 1))
+                    weight_elems = (common.get('outputCount', 0) * (common.get('inputCount', 0) // group) *
+                                    common.get('kernelX', 1) * common.get('kernelY', 1))
+                    weight_bytes, bias_bytes = external[1], (external[2] if len(external) > 2 else 0)
+                    if weight_elems > 0 and weight_bytes == weight_elems * 4:
+                        weight = np.frombuffer(blob[:weight_bytes], np.float32)
+                    elif weight_elems > 0 and weight_bytes == weight_elems * 2:
+                        weight = np.frombuffer(blob[:weight_bytes], np.float16).astype(np.float32)
+                    else:
+                        weight = None  # unknown layout: leave external (best effort)
+                    if weight is not None:
+                        op['main']['weight'] = weight.tolist()
+                        if bias_bytes > 0:
+                            bias = np.frombuffer(blob[weight_bytes:weight_bytes + bias_bytes], np.float32)
+                            op['main']['bias'] = bias.tolist()
+                        del op['main']['external']
         # Rebuild ops
         with open(self.mnn_weight_path, 'wb') as self.mnn_weight:
             for op in tqdm(mnn_graph['oplists'], 'Quant weights'):

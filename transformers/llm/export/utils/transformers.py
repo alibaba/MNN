@@ -835,8 +835,238 @@ class LinearAttention(torch.nn.Module):
         return output
 
 
+class RWKV7Attention(torch.nn.Module):
+    """
+    RWKV7 linear attention (fla models.rwkv7.RWKV7Attention).
+
+    Per-token recurrence per head (fla.ops.rwkv7 fused_recurrent kernel):
+        kk  = l2norm(k_raw * k_k)                  # per-head L2 norm
+        k'  = k_raw * (1 + (a - 1) * k_a)
+        tmp = (-kk)^T @ S                          # uses pre-update S
+        S   = exp(w) * S + (kk * a) (x) tmp        # decay + delta-rule term
+        S   = S + k' (x) v
+        o   = S^T @ r
+        o   = g * (GroupNorm(o) + v * sum(r * k' * r_k))
+
+    Token-shift mixing (x_? = lerp(x_t, x_{t-1}, mix_?)) is stateful, so it is
+    fused into a "rwkv7_mixing" op; the recurrence + norm + correction live in
+    the "rwkv7" op. Projections / LoRAs stay in the graph (quantizable).
+
+    v_first: layer 0's raw v is reused by all later layers
+    (v = lerp(v, v_first, sigmoid(v_lora(xv)))). It flows as a graph tensor
+    (ONNX path) / shared-dict entry (test path).
+    """
+    gnorm_eps_factor = None  # set per-instance
+
+    def __init__(self, attn, layer_id, config, mapper):
+        super().__init__()
+        self.layer_id = layer_id
+        self.hidden_size = config.hidden_size
+        self.head_dim = config.head_dim
+        self.num_heads = self.hidden_size // self.head_dim
+
+        ModelMapper.do_map(self, attn, mapper['linear_attention'])
+
+        # g_norm: nn.GroupNorm(num_groups=num_heads, num_channels=value_dim,
+        #                      eps=head_dim*norm_eps, affine=True)
+        self.gnorm_eps = float(getattr(self.g_norm, 'eps', self.head_dim * 1e-5))
+
+        # Cross-layer v_first storage (layer 0 writes, layers 1..N read)
+        if getattr(config, 'rwkv7_shared', None) is None:
+            config.rwkv7_shared = {}
+        self.shared = config.rwkv7_shared
+
+        mix_dim = 6 * self.hidden_size
+        self.mix_attn = FusedLinearAttention(
+            name=f'/layers.{layer_id}/self_attn/RwkvMix',
+            attn_type="rwkv7_mixing",
+            num_k_heads=1,
+            num_v_heads=1,
+            head_k_dim=mix_dim,
+            head_v_dim=mix_dim,
+            use_qk_l2norm=False
+        )
+        # qkv = cat([r, w, k, a, v, g]); params = cat([gnorm_w, gnorm_b, r_k, k_k, k_a, eps])
+        self.fused_attn = FusedLinearAttention(
+            name=f'/layers.{layer_id}/self_attn/FusedLinearAttention',
+            attn_type="rwkv7",
+            num_k_heads=self.num_heads,
+            num_v_heads=self.num_heads,
+            head_k_dim=self.head_dim,
+            head_v_dim=self.head_dim,
+            use_qk_l2norm=False
+        )
+        self.conv_state = None  # previous attn input x: [B, 1, H]
+        self.rnn_state = None   # recurrent state S:    [B, num_heads, dk, dv]
+
+    def _mix_params(self):
+        # conv weight [6H, 1, 2]: out = mix * x_{t-1} + (1 - mix) * x_t
+        mix = torch.cat([self.x_r, self.x_w, self.x_k, self.x_v, self.x_a, self.x_g], dim=-1).view(-1)
+        return torch.stack([mix, 1.0 - mix], dim=-1).view(-1, 1, 2)
+
+    def _op_params(self):
+        eps = torch.tensor([self.gnorm_eps], dtype=torch.float32)
+        params = torch.cat([
+            self.g_norm.weight.view(-1).float(),
+            self.g_norm.bias.view(-1).float(),
+            self.r_k.view(-1).float(),
+            self.k_k.view(-1).float(),
+            self.k_a.view(-1).float(),
+            eps
+        ])
+        return params.view(-1, 1, 1)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        batch_size, seq_len, hidden = hidden_states.shape
+
+        if torch.onnx.is_in_onnx_export():
+            # ── ONNX path ──
+            # 1. Token-shift mixing via rwkv7_mixing op (stateful 2-tap conv)
+            x6 = torch.cat([hidden_states] * 6, dim=-1)  # [B, L, 6H]
+            zeros = torch.zeros(batch_size, seq_len, 1, dtype=hidden_states.dtype, device=hidden_states.device)
+            mixed = self.mix_attn(x6.transpose(1, 2), zeros, zeros, self._mix_params())
+            xr, xw, xk, xv, xa, xg = mixed.view(batch_size, seq_len, -1).chunk(6, dim=-1)
+
+            # 2. Projections / LoRAs in the graph
+            r = self.r_proj(xr)
+            w = -0.6065306597126334 * torch.sigmoid(self.w_lora(xw))
+            k = self.k_proj(xk)
+            v = self.v_proj(xv)
+            if self.layer_id == 0:
+                self.shared['v_first'] = v
+            else:
+                v = torch.lerp(v, self.shared['v_first'], torch.sigmoid(self.v_lora(xv)))
+            a = torch.sigmoid(self.a_lora(xa))
+            g = self.g_lora(xg)
+
+            # 3. Recurrence + GroupNorm + gate correction in the rwkv7 op
+            qkv = torch.cat([r, w, k, a, v, g], dim=-1).transpose(1, 2)  # [B, 6H, L]
+            attn_out = self.fused_attn(qkv, zeros, zeros, self._op_params())
+            attn_out = attn_out.reshape(batch_size, seq_len, -1)
+            return self.o_proj(attn_out)
+
+        # ── Test path: reference computation with persistent state ──
+        H, dk, dv = self.num_heads, self.head_dim, self.head_dim
+
+        # 1. Token-shift mixing: x_? = x + (x_prev - x) * mix_?
+        if self.conv_state is None:
+            x_prev = torch.zeros_like(hidden_states[:, :1, :])
+        else:
+            x_prev = self.conv_state
+        x_prev = torch.cat([x_prev, hidden_states[:, :-1, :]], dim=1)
+        delta = x_prev - hidden_states
+        xr = hidden_states + delta * self.x_r
+        xw = hidden_states + delta * self.x_w
+        xk = hidden_states + delta * self.x_k
+        xv = hidden_states + delta * self.x_v
+        xa = hidden_states + delta * self.x_a
+        xg = hidden_states + delta * self.x_g
+        self.conv_state = hidden_states[:, -1:, :].detach()
+
+        # 2. Projections / LoRAs
+        r = self.r_proj(xr)
+        w = -0.6065306597126334 * torch.sigmoid(self.w_lora(xw))
+        k = self.k_proj(xk)
+        v = self.v_proj(xv)
+        if self.layer_id == 0:
+            self.shared['v_first'] = v
+        else:
+            v = torch.lerp(v, self.shared['v_first'], torch.sigmoid(self.v_lora(xv)))
+        a = torch.sigmoid(self.a_lora(xa))
+        g = self.g_lora(xg)
+
+        r = r.view(batch_size, seq_len, H, dk)
+        w = w.view(batch_size, seq_len, H, dk)
+        k = k.view(batch_size, seq_len, H, dk)
+        a = a.view(batch_size, seq_len, H, dk)
+        v = v.view(batch_size, seq_len, H, dv)
+        g = g.view(batch_size, seq_len, H, dv)
+        k_k = self.k_k.view(H, dk)
+        k_a = self.k_a.view(H, dk)
+        r_k = self.r_k.view(H, dk)
+
+        # 3. Recurrence (matches fla fused_recurrent_rwkv7 kernel semantics)
+        if self.rnn_state is None:
+            S = torch.zeros(batch_size, H, dk, dv, dtype=torch.float32)
+        else:
+            S = self.rnn_state.float()
+        dtype = hidden_states.dtype
+        outs = []
+        for t in range(seq_len):
+            r_t, w_t, k_t = r[:, t].float(), w[:, t].float(), k[:, t].float()
+            a_t, v_t, g_t = a[:, t].float(), v[:, t].float(), g[:, t].float()
+            kk_t = F.normalize(k_t * k_k, dim=-1, p=2.0)
+            k_mod = k_t + k_t * (a_t - 1.0) * k_a
+            tmp = torch.einsum('bhi,bhij->bhj', -kk_t, S)      # (-kk)^T S on old S
+            b = kk_t * a_t
+            S = torch.exp(w_t).unsqueeze(-1) * S + b.unsqueeze(-1) * tmp.unsqueeze(-2)
+            S = S + k_mod.unsqueeze(-1) * v_t.unsqueeze(-2)
+            o_t = torch.einsum('bhi,bhij->bhj', r_t, S)
+            # GroupNorm over each head (eps = head_dim * norm_eps)
+            o_t = self.g_norm(o_t.reshape(batch_size, H * dv)).view(batch_size, H, dv)
+            corr = (r_t * k_mod * r_k).sum(dim=-1, keepdim=True)
+            o_t = g_t * (o_t + corr * v_t)
+            outs.append(o_t.to(dtype))
+        self.rnn_state = S.detach()
+
+        attn_out = torch.stack(outs, dim=1).reshape(batch_size, seq_len, -1)
+        return self.o_proj(attn_out)
+
+
+class RWKV7Mlp(torch.nn.Module):
+    """
+    RWKV7 channel mixing (fla models.rwkv7.RWKV7FeedForward):
+        mixed = x + (x_prev - x) * x_k      (token-shift, stateful)
+        out   = value(sqrelu(key(mixed)))
+    The stateful mixing is exported as an "rwkv7_mixing" op; key/value stay in
+    the graph.
+    """
+    def __init__(self, mlp, layer_id, config):
+        super().__init__()
+        self.hidden_size = config.hidden_size
+        self.x_k = mlp.x_k
+        self.key = mlp.key
+        self.value = mlp.value
+        self.mix_attn = FusedLinearAttention(
+            name=f'/layers.{layer_id}/mlp/RwkvMix',
+            attn_type="rwkv7_mixing",
+            num_k_heads=1,
+            num_v_heads=1,
+            head_k_dim=self.hidden_size,
+            head_v_dim=self.hidden_size,
+            use_qk_l2norm=False
+        )
+        self.ffn_state = None  # previous ffn input x: [B, 1, H]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size, seq_len, hidden = x.shape
+        if torch.onnx.is_in_onnx_export():
+            mix = self.x_k.view(-1)
+            conv_w = torch.stack([mix, 1.0 - mix], dim=-1).view(-1, 1, 2)
+            zeros = torch.zeros(batch_size, seq_len, 1, dtype=x.dtype, device=x.device)
+            mixed = self.mix_attn(x.transpose(1, 2), zeros, zeros, conv_w)
+            mixed = mixed.view(batch_size, seq_len, hidden)
+        else:
+            if self.ffn_state is None:
+                x_prev = torch.zeros_like(x[:, :1, :])
+            else:
+                x_prev = self.ffn_state
+            x_prev = torch.cat([x_prev, x[:, :-1, :]], dim=1)
+            mixed = x + (x_prev - x) * self.x_k
+            self.ffn_state = x[:, -1:, :].detach()
+        hidden_states = self.key(mixed)
+        hidden_states = torch.square(F.relu(hidden_states))  # sqrelu
+        return self.value(hidden_states)
+
+
 def create_linear_attention(attn, layer_id, config, rotary, mapper):
     """Factory function for creating LinearAttention variants based on config."""
+    if getattr(config, 'model_type', None) == 'rwkv7':
+        return RWKV7Attention(attn, layer_id, config, mapper)
     if hasattr(config, 'conv_L_cache') and config.conv_L_cache > 0:
         return ShortConvAttention(attn, layer_id, config, mapper)
     return LinearAttention(attn, layer_id, config, rotary, mapper)
@@ -1324,6 +1554,10 @@ class Decoder(torch.nn.Module):
         ModelMapper.do_map(self, decoder, mapper['decoder'])
         if 'mlp' in mapper and hasattr(self.mlp, 'experts'):
             self.mlp = Mlp(self.mlp, mapper, layer_id)
+        # RWKV7 channel mixing: token-shift state requires the stateful
+        # rwkv7_mixing op, so wrap the HF feed-forward module.
+        if getattr(config, 'model_type', None) == 'rwkv7' and self.mlp is not None:
+            self.mlp = RWKV7Mlp(self.mlp, layer_id, config)
 
         # gemma4 MoE: router and experts are at decoder layer level (parallel to dense MLP)
         self.has_gemma4_moe = hasattr(self, 'experts') and self.experts is not None
@@ -1375,6 +1609,10 @@ class Decoder(torch.nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         hidden_states = hidden_states.view(1, -1, self.hidden_size)
+        # RWKV7 norm_first: layer 0 normalizes the embeddings before the
+        # standard pre-norm residual path (residual = pre_norm(x)).
+        if hasattr(self, 'pre_norm') and self.pre_norm is not None:
+            hidden_states = self.pre_norm(hidden_states)
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
         norm_hidden_states = hidden_states

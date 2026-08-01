@@ -136,11 +136,17 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
     // ─── Per-type parameters ───
     int convChannels = convDim;
     bool needRecurrentState = false;
+    // RWKV7 keeps its recurrent state in fp32 even on fp16 backends: the
+    // multiplicative recurrence amplifies fp16 rounding errors.
+    int rnnElemBytes = mBytes;
 
     if (mAttentionType == "short_conv") {
         convChannels = mHeadVDim;
     } else if (mAttentionType == "gated_delta_rule") {
         needRecurrentState = true;
+    } else if (mAttentionType == "rwkv7") {
+        needRecurrentState = true;
+        rnnElemBytes = sizeof(float);
     }
 
     // ─── Persistent state buffers (STATIC): allocate once, shared via onClone ───
@@ -160,11 +166,11 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
 
         if (needRecurrentStateInit) {
             int H = mNumVHeads, dk = mHeadKDim, dv = mHeadVDim;
-            mStateCache->mRecurrentState.reset(Tensor::createDevice<int8_t>({batch * H * dk * dv * mBytes}));
+            mStateCache->mRecurrentState.reset(Tensor::createDevice<int8_t>({batch * H * dk * dv * rnnElemBytes}));
             success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
             if (!success)
                 return OUT_OF_MEMORY;
-            ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, batch * H * dk * dv * mBytes);
+            ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, batch * H * dk * dv * rnnElemBytes);
         }
     } else if (seqLen > 1) {
         // Prefill: decide keep/restore/reset from meta. LA state isn't
@@ -178,7 +184,7 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
         int rnnBytes = 0;
         if (mStateCache->mRecurrentState.get() != nullptr) {
             int H = mNumVHeads, dk = mHeadKDim, dv = mHeadVDim;
-            rnnBytes = batch * H * dk * dv * mBytes;
+            rnnBytes = batch * H * dk * dv * rnnElemBytes;
         }
         if (loadingFromDisk) {
             // onExecute will mmap-load the prefix state and snapshot it.
@@ -575,6 +581,10 @@ ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, cons
     // Normal execution
     if (mAttentionType == "short_conv") {
         short_conv(inputs, outputs);
+    } else if (mAttentionType == "rwkv7_mixing") {
+        rwkv7_mixing(inputs, outputs);
+    } else if (mAttentionType == "rwkv7") {
+        rwkv7(inputs, outputs);
     } else {
         gated_delta_rule_mnn(inputs, outputs);
     }
@@ -1192,6 +1202,245 @@ void CPULinearAttention::short_conv(const std::vector<Tensor*>& inputs, const st
         int offsets[2] = {H, tokenCount};
         core->MNNPackCUnitTranspose(reinterpret_cast<float*>(outPtr), reinterpret_cast<const float*>(computeOutputPtr),
                                     tokenCount, H, offsets);
+    }
+}
+
+// RWKV7 token-shift mixing: per-channel 2-tap "conv" with persistent state:
+//   out_t = w0 * x_{t-1} + w1 * x_t      (state holds the previous input)
+// qkv [B, D, L] carries N copies of the same hidden vector (one per mixing
+// coefficient); conv_weight [D, 1, 2] = [mix, 1 - mix] per channel.
+// Output: [B, L, 1, D].
+void CPULinearAttention::rwkv7_mixing(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto qkvTensor = inputs[0];
+    auto convWTensor = inputs[3];
+    auto outTensor = outputs[0];
+
+    const int8_t* qkvPtr = qkvTensor->host<int8_t>();
+    const int8_t* convWPtr = convWTensor->host<int8_t>();
+    int8_t* outPtr = outTensor->host<int8_t>();
+
+    int B = 0, D = 0, L = 0;
+    _linearAttentionDims(qkvTensor, B, D, L);
+    const int K_conv = convWTensor->length(2);
+    const int convStateSize = K_conv - 1;
+    const int bytes = mBytes;
+    const int pack = static_cast<CPUBackend*>(backend())->functions()->pack;
+    bool qkvC4 = _isC4(qkvTensor);
+    const bool outputC4 = _isC4(outTensor);
+
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    const int tokenCount = B * L;
+    if (L > 1 && qkvC4) {
+        int offsets[2] = {tokenCount, tokenCount};
+        core->MNNUnpackCUnit(reinterpret_cast<float*>(mQKVUnpacked->host<int8_t>()),
+                             reinterpret_cast<const float*>(qkvPtr), tokenCount, D, offsets);
+        qkvPtr = mQKVUnpacked->host<int8_t>();
+        qkvC4 = false;
+    }
+    int8_t* computeOutputPtr = (L > 1 && outputC4) ? mOutputUnpacked->host<int8_t>() : outPtr;
+    int8_t* convStatePtr = mStateCache->mConvState->host<int8_t>();
+
+    const int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
+    const int totalChannels = B * D;
+
+    MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+        for (int idx = (int)tId; idx < totalChannels; idx += threadNum) {
+            const int b = idx / D;
+            const int d = idx % D;
+            const int8_t* weight = convWPtr + d * K_conv * bytes;
+            const float w0 = _readElement(weight, 0, bytes);
+            const float w1 = _readElement(weight, K_conv - 1, bytes);
+
+            // Previous input sample for this channel (zero on fresh prefill).
+            float prev = 0.0f;
+            if (convStateSize > 0) {
+                prev = _readElement(convStatePtr + idx * convStateSize * bytes, convStateSize - 1, bytes);
+            }
+            float last = prev;
+            for (int l = 0; l < L; ++l) {
+                const float x = _readQKV(qkvPtr, qkvC4, b, d, l, B, D, L, bytes, pack);
+                const float y = prev * w0 + x * w1;
+                prev = x;
+                last = x;
+                if (L > 1 && outputC4) {
+                    _writeElement(computeOutputPtr, (b * L + l) * D + d, y, bytes);
+                } else if (outputC4) {
+                    _writeAttentionOutput(outPtr, true, b, l, 0, d, B, L, 1, D, y, bytes, pack);
+                } else {
+                    _writeElement(outPtr, (b * L + l) * D + d, y, bytes);
+                }
+            }
+            if (convStateSize > 0) {
+                _writeElement(convStatePtr + idx * convStateSize * bytes, convStateSize - 1, last, bytes);
+            }
+        }
+    }
+    MNN_CONCURRENCY_END();
+    if (L > 1 && outputC4) {
+        int offsets[2] = {D, tokenCount};
+        core->MNNPackCUnitTranspose(reinterpret_cast<float*>(outPtr), reinterpret_cast<const float*>(computeOutputPtr),
+                                    tokenCount, D, offsets);
+    }
+}
+
+// RWKV7 recurrence (fla.ops.rwkv7 fused_recurrent kernel semantics), per head:
+//   kk   = l2norm(k * k_k)                       (eps 1e-12, per-head)
+//   k'   = k * (1 + (a - 1) * k_a)
+//   tmp  = (-kk)^T S                             (on the pre-update state)
+//   S    = exp(w) * S + (kk * a) (x) tmp
+//   S    = S + k' (x) v
+//   o    = S^T r
+//   o    = g * (GroupNorm(o, eps) + v * sum(r * k' * r_k))
+// qkv [B, D, L] segments: [r, w, k, a, v, g] with key_dim = num_k_heads *
+// head_k_dim and value_dim = num_v_heads * head_v_dim.
+// inputs[3] = [gnorm_w, gnorm_b, r_k, k_k, k_a, eps] (flat, value/key dims).
+// Output: [B, L, num_v_heads, head_v_dim]. State is fp32 (see onResize).
+void CPULinearAttention::rwkv7(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto qkvTensor = inputs[0];
+    auto paramsTensor = inputs[3];
+    auto outTensor = outputs[0];
+
+    const int8_t* qkvPtr = qkvTensor->host<int8_t>();
+    int8_t* outPtr = outTensor->host<int8_t>();
+
+    int B = 0, D = 0, L = 0;
+    _linearAttentionDims(qkvTensor, B, D, L);
+
+    const int H = mNumVHeads;
+    const int dk = mHeadKDim;
+    const int dv = mHeadVDim;
+    const int key_dim = mNumKHeads * dk;
+    const int val_dim = H * dv;
+    const int bytes = mBytes;
+    const int pack = static_cast<CPUBackend*>(backend())->functions()->pack;
+    bool qkvC4 = _isC4(qkvTensor);
+    const bool outputC4 = _isC4(outTensor);
+
+    // qkv channel offsets
+    const int offR = 0;
+    const int offW = key_dim;
+    const int offK = 2 * key_dim;
+    const int offA = 3 * key_dim;
+    const int offV = 4 * key_dim;
+    const int offG = 4 * key_dim + val_dim;
+    // parameter offsets (constant; may be fp16 on lowp backends, like conv_weight)
+    const int8_t* params = paramsTensor->host<int8_t>();
+    const int offGnormW = 0;
+    const int offGnormB = val_dim;
+    const int offRK = 2 * val_dim;
+    const int offKK = 3 * val_dim;
+    const int offKA = 4 * val_dim;
+    const float gnormEps = _readElement(params, 5 * val_dim, bytes);
+
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    const int tokenCount = B * L;
+    if (L > 1 && qkvC4) {
+        int offsets[2] = {tokenCount, tokenCount};
+        core->MNNUnpackCUnit(reinterpret_cast<float*>(mQKVUnpacked->host<int8_t>()),
+                             reinterpret_cast<const float*>(qkvPtr), tokenCount, D, offsets);
+        qkvPtr = mQKVUnpacked->host<int8_t>();
+        qkvC4 = false;
+    }
+    int8_t* computeOutputPtr = (L > 1 && outputC4) ? mOutputUnpacked->host<int8_t>() : outPtr;
+
+    int8_t* rnnStatePtr = mStateCache->mRecurrentState->host<int8_t>();
+    const int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
+    const int totalHeads = B * H;
+
+    MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+        std::vector<float> r_t(dk), w_t(dk), kk(dk), kmod(dk), v_t(dv), tmp(dv), o(dv);
+        for (int idx = (int)tId; idx < totalHeads; idx += threadNum) {
+            const int b = idx / H;
+            const int h = idx % H;
+            // fp32 state regardless of backend precision
+            float* S = reinterpret_cast<float*>(rnnStatePtr) + idx * dk * dv;
+
+            for (int t = 0; t < L; ++t) {
+                // ── Load r, w, k, a [dk] and v [dv] for this token/head ──
+                float sumSq = 0.0f;
+                for (int i = 0; i < dk; ++i) {
+                    const float ki = _readQKV(qkvPtr, qkvC4, b, offK + h * dk + i, t, B, D, L, bytes, pack);
+                    const float ai = _readQKV(qkvPtr, qkvC4, b, offA + h * dk + i, t, B, D, L, bytes, pack);
+                    r_t[i] = _readQKV(qkvPtr, qkvC4, b, offR + h * dk + i, t, B, D, L, bytes, pack);
+                    w_t[i] = _readQKV(qkvPtr, qkvC4, b, offW + h * dk + i, t, B, D, L, bytes, pack);
+                    // kk = l2norm(k * k_k), k' = k * (1 + (a - 1) * k_a)
+                    const float kki = ki * _readElement(params, offKK + h * dk + i, bytes);
+                    kk[i] = kki;
+                    sumSq += kki * kki;
+                    kmod[i] = ki * (1.0f + (ai - 1.0f) * _readElement(params, offKA + h * dk + i, bytes));
+                }
+                for (int j = 0; j < dv; ++j) {
+                    v_t[j] = _readQKV(qkvPtr, qkvC4, b, offV + h * dv + j, t, B, D, L, bytes, pack);
+                }
+                const float invNorm = 1.0f / ALIMAX(sqrtf(sumSq), 1e-12f);
+                for (int i = 0; i < dk; ++i) {
+                    kk[i] *= invNorm;
+                }
+                // ── tmp = (-kk)^T S on the pre-update state ──
+                for (int j = 0; j < dv; ++j) {
+                    float s = 0.0f;
+                    for (int i = 0; i < dk; ++i) {
+                        s += kk[i] * S[i * dv + j];
+                    }
+                    tmp[j] = s;
+                }
+                // ── S = exp(w) * S - (kk * a) (x) tmp;  S += k' (x) v ──
+                for (int i = 0; i < dk; ++i) {
+                    const float decay = expf(w_t[i]);
+                    const float bcoef = kk[i] * _readQKV(qkvPtr, qkvC4, b, offA + h * dk + i, t, B, D, L, bytes, pack);
+                    const float ki = kmod[i];
+                    float* Srow = S + i * dv;
+                    for (int j = 0; j < dv; ++j) {
+                        Srow[j] = decay * Srow[j] - bcoef * tmp[j] + ki * v_t[j];
+                    }
+                }
+                // ── o = S^T r ──
+                for (int j = 0; j < dv; ++j) {
+                    float s = 0.0f;
+                    for (int i = 0; i < dk; ++i) {
+                        s += S[i * dv + j] * r_t[i];
+                    }
+                    o[j] = s;
+                }
+                // ── GroupNorm (per head, biased variance) ──
+                float mean = 0.0f;
+                for (int j = 0; j < dv; ++j) {
+                    mean += o[j];
+                }
+                mean /= (float)dv;
+                float var = 0.0f;
+                for (int j = 0; j < dv; ++j) {
+                    const float d = o[j] - mean;
+                    var += d * d;
+                }
+                var /= (float)dv;
+                const float invStd = 1.0f / sqrtf(var + gnormEps);
+                // ── correction: out = g * (o_norm + v * sum(r * k' * r_k)) ──
+                float corr = 0.0f;
+                for (int i = 0; i < dk; ++i) {
+                    corr += r_t[i] * kmod[i] * _readElement(params, offRK + h * dk + i, bytes);
+                }
+                for (int j = 0; j < dv; ++j) {
+                    const float gj = _readQKV(qkvPtr, qkvC4, b, offG + h * dv + j, t, B, D, L, bytes, pack);
+                    const float on = ((o[j] - mean) * invStd * _readElement(params, offGnormW + h * dv + j, bytes) +
+                          _readElement(params, offGnormB + h * dv + j, bytes));
+                    const float y = gj * (on + corr * v_t[j]);
+                    if (L > 1 && outputC4) {
+                        _writeElement(computeOutputPtr, ((b * L + t) * H + h) * dv + j, y, bytes);
+                    } else if (outputC4) {
+                        _writeAttentionOutput(outPtr, true, b, t, h, j, B, L, H, dv, y, bytes, pack);
+                    } else {
+                        _writeElement(outPtr, ((b * L + t) * H + h) * dv + j, y, bytes);
+                    }
+                }
+            }
+        }
+    }
+    MNN_CONCURRENCY_END();
+    if (L > 1 && outputC4) {
+        int offsets[2] = {dv, tokenCount * H};
+        core->MNNPackCUnitTranspose(reinterpret_cast<float*>(outPtr), reinterpret_cast<const float*>(computeOutputPtr),
+                                    tokenCount * H, dv, offsets);
     }
 }
 

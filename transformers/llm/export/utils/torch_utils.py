@@ -94,17 +94,73 @@ def _quant_on_device(weight, quant_bit, quant_block, symmetric, awq, hqq):
         return q_weight.cpu(), alpha.float().cpu()
     return q_weight, alpha.float()
 
+def _quant_result_sane(weight, q_weight, alpha, quant_bit, quant_block, symmetric):
+    # Verify that (q_weight, alpha) reconstruct the source weight within
+    # quantization error. This catches corrupted/partially-written GPU results.
+    # A pure monotonicity/correlation check is NOT enough: with corrupted
+    # scale/zero the quantized values stay monotonic in the weight, and a
+    # consistent-but-wrong (q, alpha) pair even reconstructs perfectly — only
+    # the cross-check against the original weight catches q/alpha inconsistency.
+    try:
+        if quant_bit > 8 or quant_bit < 2:
+            return True
+        oc, ic = weight.shape
+        w = weight.detach().float().cpu().reshape(-1)
+        bs = quant_block if quant_block else ic
+        while ic % bs != 0:
+            bs //= 2
+        bs = int(bs)
+        nb = ic // bs
+        offset = 1 << (quant_bit - 1)
+        q = q_weight.detach().cpu()
+        if quant_bit < 8:
+            if 8 % quant_bit != 0:
+                return True  # repack_low_bits layout: not worth unpacking here
+            group = 8 // quant_bit
+            qb = q.reshape(-1, 1)
+            vals = torch.cat([((qb >> (quant_bit * (group - 1 - i))) & ((1 << quant_bit) - 1))
+                              for i in range(group)], dim=1)
+            qf = vals.reshape(-1).float()
+        else:
+            qf = q.reshape(-1).float()
+        n = oc * ic
+        if qf.numel() < n:
+            return True
+        a = alpha.detach().float().cpu().reshape(-1)
+        if a.numel() == oc * nb:
+            scale = a.reshape(oc, nb, 1)
+            zero = torch.zeros_like(scale)
+        elif a.numel() == oc * nb * 2:
+            a2 = a.reshape(oc, nb, 2)
+            zero, scale = a2[:, :, 0:1], a2[:, :, 1:2]
+        else:
+            return True
+        recon = ((qf[:n].reshape(oc, nb, bs) - offset) * scale + zero)
+        # Valid quantization error is <= scale/2 per element (plus a small fp
+        # margin); corrupted results exceed it by orders of magnitude.
+        err = (recon - w.reshape(oc, nb, bs)).abs()
+        tol = 1.5 * scale + 1e-5  # scale is (oc, nb, 1), broadcasts over bs
+        return bool((err <= tol).all().item())
+    except Exception:
+        return True
+
 def _quant_dispatch(weight, quant_bit, quant_block, symmetric, awq, hqq):
     # Try GPU quantization first for speed, fall back to CPU on OOM
     if torch.cuda.is_available():
         try:
             torch.cuda.empty_cache()
-            return _quant_on_device(weight.cuda(), quant_bit, quant_block, symmetric, awq, hqq)
+            q_weight, alpha = _quant_on_device(weight.cuda(), quant_bit, quant_block, symmetric, awq, hqq)
+            if _quant_result_sane(weight, q_weight, alpha, quant_bit, quant_block, symmetric):
+                return q_weight, alpha
+            # Corrupted GPU result (uninitialized buffer); retry on CPU below.
+            torch.cuda.empty_cache()
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
     if torch.backends.mps.is_available():
         try:
-            return _quant_on_device(weight.to('mps'), quant_bit, quant_block, symmetric, awq, hqq)
+            q_weight, alpha = _quant_on_device(weight.to('mps'), quant_bit, quant_block, symmetric, awq, hqq)
+            if _quant_result_sane(weight, q_weight, alpha, quant_bit, quant_block, symmetric):
+                return q_weight, alpha
         except Exception:
             pass
     return _quant_on_device(weight, quant_bit, quant_block, symmetric, awq, hqq)

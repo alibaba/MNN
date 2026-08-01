@@ -582,6 +582,39 @@ class LlmTokenizer(PreTrainedTokenizer):
 
         file_path = os.path.join(save_directory, "tokenizer.txt")
 
+        # RWKV World tokenizer: byte-level greedy longest-match trie. The C++
+        # Tiktoken implementation is exactly a trie longest-match over raw
+        # bytes, so the vocab can be reused in TIKTOKEN format (id = line idx).
+        rwkv_vocab = os.path.join(model_path, 'rwkv_vocab_v20230424.txt')
+        if os.path.exists(rwkv_vocab):
+            vocab_bytes = {}
+            with open(rwkv_vocab, 'r', encoding='utf-8') as f:
+                for l in f.readlines():
+                    idx = int(l[:l.index(' ')])
+                    x = eval(l[l.index(' '):l.rindex(' ')])
+                    x = x.encode('utf-8') if isinstance(x, str) else x
+                    vocab_bytes[idx] = x
+            max_id = max(vocab_bytes)
+            # id 0 is the added special token; HF maps the "\n\n" eos special
+            # to max_id + 1 (outside the trie range), keep both as specials so
+            # encode() matches HuggingFace exactly.
+            lines = []
+            for i in range(max_id + 2):
+                if i == 0:
+                    token = b'<|rwkv_tokenizer_end_of_text|>'
+                elif i == max_id + 1:
+                    token = b'\n\n'
+                else:
+                    token = vocab_bytes[i]
+                lines.append(base64.b64encode(token).decode('utf8'))
+            special_list = [0, max_id + 1]
+            with open(file_path, "w", encoding="utf8") as fp:
+                write_header(fp, TIKTOIKEN, special_list)
+                fp.write(f'{len(lines)}\n')
+                for line in lines:
+                    fp.write(line + '\n')
+            return file_path
+
         # Collect special tokens from various sources
         special_list = list(self.tokenizer.added_tokens_decoder.keys())
         if hasattr(self.tokenizer, 'special_tokens'):

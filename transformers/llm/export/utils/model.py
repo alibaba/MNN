@@ -86,6 +86,71 @@ class LlmModel(PreTrainedModel):
         except (ImportError, AttributeError):
             return AutoModelForCausalLM
 
+    @staticmethod
+    def _load_checkpoint_tensor(model_path, tensor_name):
+        # Fetch a single tensor from a checkpoint directory (single/sharded
+        # safetensors or pytorch bin). Returns None when not found.
+        import os
+        import json
+        safetensors_file = os.path.join(model_path, 'model.safetensors')
+        if os.path.isfile(safetensors_file):
+            from safetensors import safe_open
+            with safe_open(safetensors_file, framework='pt') as f:
+                if tensor_name in f.keys():
+                    return f.get_tensor(tensor_name)
+        index_file = os.path.join(model_path, 'model.safetensors.index.json')
+        if os.path.isfile(index_file):
+            with open(index_file, 'r') as f:
+                weight_map = json.load(f).get('weight_map', {})
+            shard = weight_map.get(tensor_name)
+            if shard is not None:
+                from safetensors import safe_open
+                with safe_open(os.path.join(model_path, shard), framework='pt') as f:
+                    if tensor_name in f.keys():
+                        return f.get_tensor(tensor_name)
+        bin_file = os.path.join(model_path, 'pytorch_model.bin')
+        if os.path.isfile(bin_file):
+            state = torch.load(bin_file, map_location='cpu', weights_only=True)
+            return state.get(tensor_name)
+        return None
+
+    @staticmethod
+    def _repair_output_embedding(model, model_path):
+        # transformers>=5 can silently leave an untied output embedding
+        # uninitialized (observed on RWKV7: lm_head.weight comes out as
+        # garbage while the loader reports no missing/mismatched keys, which
+        # makes logits — and everything downstream — garbage). Verify the
+        # output embedding against the checkpoint and reload it if it does
+        # not match. No-op when loading already worked.
+        try:
+            lm = model.get_output_embeddings()
+            emb = model.get_input_embeddings()
+            if lm is None or getattr(lm, 'weight', None) is None:
+                return
+            if emb is not None and getattr(emb, 'weight', None) is not None \
+                    and lm.weight.data_ptr() == emb.weight.data_ptr():
+                return  # tied: loaded via the input embedding
+            lm_name = None
+            for name, mod in model.named_modules():
+                if mod is lm:
+                    lm_name = name + '.weight'
+                    break
+            if lm_name is None:
+                return
+            ckpt_tensor = LlmModel._load_checkpoint_tensor(model_path, lm_name)
+            if ckpt_tensor is None:
+                return
+            current = lm.weight.detach().float().cpu()
+            ckpt = ckpt_tensor.detach().float().cpu()
+            if current.shape != ckpt.shape:
+                return
+            ref = float(ckpt.abs().max())
+            if ref > 0 and abs(float(current.abs().max()) - ref) > 0.01 * ref:
+                with torch.no_grad():
+                    lm.weight.copy_(ckpt_tensor.to(lm.weight.dtype))
+        except Exception:
+            pass
+
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, args=None, **kwargs):
         config = LlmConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
@@ -134,6 +199,7 @@ class LlmModel(PreTrainedModel):
                 original_model = model_class.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
             except Exception:
                 original_model = AutoModel.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
+            cls._repair_output_embedding(original_model, pretrained_model_name_or_path)
 
         # print(f"Loading model type: {model_type}\n{original_model}")
 

@@ -178,6 +178,7 @@ modeling_*.py 中是否有全新的 Attention 类型（非标准 SDPA）?
 | `lfm2_vl` | 5+6 | 视觉 (SigLIP2 NaFlex + pixel_unshuffle) + 混合架构 |
 | `lfm2` | 6 | 混合架构 (short_conv + full_attention) |
 | `qwen3_5` | 6 | 视觉+LinearAttn (gated_delta_rule) |
+| `rwkv7` | 6 | 线性注意力 RNN (rwkv7_mixing token-shift + rwkv7 递归算子；无 RoPE；嵌套 LoRA linear) |
 
 ---
 

@@ -1112,6 +1112,57 @@ class ModelMapper:
         }
         self.regist('qwen3_5_text', qwen3_5_text_map)
 
+    def regist_rwkv7(self):
+        # RWKV7: linear-attention RNN (no RoPE, no standard q/k/v attention).
+        # Every block is: [pre_norm(layer0 only)] attn_norm -> attn -> ffn_norm -> ffn
+        rwkv7_config = {
+            'hidden_size': 'hidden_size',
+            'head_dim': 'head_dim',
+            'num_hidden_layers': 'num_hidden_layers',
+            'max_position_embeddings': 'max_position_embeddings',
+        }
+        rwkv7_model = {
+            'lm': 'lm_head',
+            'embed': 'model.embeddings',
+            'blocks': 'model.layers',
+            'final_layernorm': 'model.norm',
+        }
+        rwkv7_decoder = {
+            'linear_attn': 'attn',
+            'mlp': 'ffn',
+            'input_layernorm': 'attn_norm',
+            'post_attention_layernorm': 'ffn_norm',
+            'pre_norm': 'pre_norm',
+        }
+        rwkv7_linear_attention = {
+            'r_proj': 'r_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'o_proj',
+            'w_lora': 'w_lora',
+            'a_lora': 'a_lora',
+            'g_lora': 'g_lora',
+            'v_lora': 'v_lora',
+            'g_norm': 'g_norm',
+            'x_r': 'x_r',
+            'x_w': 'x_w',
+            'x_k': 'x_k',
+            'x_v': 'x_v',
+            'x_a': 'x_a',
+            'x_g': 'x_g',
+            'k_k': 'k_k',
+            'k_a': 'k_a',
+            'r_k': 'r_k',
+        }
+        rwkv7_map = {
+            'config': rwkv7_config,
+            'model': rwkv7_model,
+            'decoder': rwkv7_decoder,
+            'attention': self.default_attention,
+            'linear_attention': rwkv7_linear_attention,
+        }
+        self.regist('rwkv7', rwkv7_map)
+
     def init_default_map(self):
         # default map is `LlamaForCausalLM`
         self.config_key = 'config'

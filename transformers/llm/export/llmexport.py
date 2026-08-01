@@ -333,7 +333,7 @@ class LlmExporter(torch.nn.Module):
                 "n_gram": 8,
                 "ngram_factor": 1.0
             }
-            config['tokenizer_file'] = 'tokenizer.mtok'
+            config['tokenizer_file'] = getattr(self, 'tokenizer_file', 'tokenizer.mtok')
             if self.args.embed_bit < 16:
                 config['embedding_file'] = f"embeddings_int{self.args.embed_bit}.bin"
             if hasattr(self, 'talker') and self.talker is not None:
@@ -708,7 +708,8 @@ class LlmExporter(torch.nn.Module):
 
     @spinner_run(f'export tokenizer to ')
     def export_tokenizer(self):
-        return self.tokenizer.export(self.args.dst_path)
+        self.tokenizer_file = os.path.basename(self.tokenizer.export(self.args.dst_path))
+        return self.tokenizer_file
 
 class EmbeddingExporter(LlmExporter):
     def __init__(self, args):

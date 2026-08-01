@@ -471,3 +471,81 @@ elif model_type == 'lfm2_audio':
 - 非标准加载的模型**权重路径可能不同**于标准 HF 模型，需要通过 `print(original_model)` 或 `state_dict().keys()` 确认实际路径
 - 嵌套的 config 结构可能需要在 `config.py` 的 `from_pretrained` 中手动提取子配置
 - 某些包的注意力实现默认使用 `flash_attention_2`，CPU 上需要手动切换为 `sdpa` 或 `eager`
+
+---
+
+## 15. MNNConvert 二进制过期导致新 schema 字段被静默丢弃
+
+### 问题描述
+
+`mnn_converter.py` 的 json2mnn/removeDupOps 走的是 `build/MNNConvert` 二进制。如果该二进制**早于 schema 更新**（如 `IDSTQuan.scaleStorage` 这类新字段），JSON round-trip 会**静默丢弃**这些字段（恢复成默认值），且无任何报错。
+
+### 实际案例（RWKV7 适配）
+
+默认 `--scale_bit 16` 时量化 alpha 按 **fp16** 写入权重文件，并依赖 quanParameter 的 `scaleStorage=FP16` 告知运行时。旧版 MNNConvert 不认识 `scaleStorage`，round-trip 后变回 FP32 默认值 → 运行时把 fp16 alpha 当 fp32 读 → **所有量化 Linear 输出接近 0**，模型输出乱码。表象极易误判为"量化实现/自定义算子写错了"。
+
+### 排查方法
+
+1. 怀疑权重解码错误时，先用**最小模型**隔离：构造 `Input → 单个 Convolution(quanParameter+external)` 的 json，`MNNConvert -f JSON` 转成 mnn，用 Module 跑已知输入，对比 numpy `W @ x`。
+2. 对比 `stat build/MNNConvert` 与 `schema/current/*_generated.h` 的时间戳；**只增量编译 `llm_demo` 不会更新 MNNConvert**，需显式 `cmake --build build --target MNNConvert`。
+3. 用 C++ 直接读回转换后的 mnn 验证字段值（`op->main_as_Convolution2D()->quanParameter()->scaleStorage()`）。
+
+### 解决方案
+
+重新编译 MNNConvert（及 libMNNConvertDeps）后重新导出。涉及新 schema 字段的导出流程，必须先确认转换工具链与 schema 同源。
+
+---
+
+## 16. GPU 量化结果损坏（torch/CUDA 组合问题）与全块自检兜底
+
+### 问题描述
+
+个别 torch/CUDA 组合下（如 torch 2.13 + CUDA 13 于某些显卡），`torch_utils.py` 的 GPU 量化路径会返回**未写入/部分写入**的缓冲区（q 或 alpha 为垃圾值），进程内可确定性复现但独立进程单独跑又正常，极难定位。
+
+### 解决方案
+
+`_quant_dispatch` 在采用 GPU 结果前做**全块单调性自检**（`_quant_result_sane`）：合法量化在每个 block 内与原始权重单调相关（|corr|≈1），损坏块 ≈0。任一块不通过即回落 CPU 重量化。**必须检查全部块**——损坏常是局部的，抽样几块会漏检。
+
+### 注意事项
+
+- 自检只依赖"q 与 w 的相关性"，**不能**发现"输入权重本身已被破坏"的情况；若怀疑权重在导出中途被改写，直接在 `rebuild_linear` 处对 `linear.weight.data` 打 md5，与 safetensors/ONNX 对齐。
+- 验证量化正确性时注意 ONNX 中 MatMul 权重是**转置**布局（`[ic, oc]`），直接 reshape 对比会得到"差值=absmax"的假象。
+
+---
+
+## 17. 嵌套 Linear（LoRA 等）的 external 权重在 rebuild 截断中丢失
+
+### 问题描述
+
+`unload_param` 只替换 `self_attn`/`mlp` 的**直接** Linear 子模块为 FakeLinear。嵌套在子模块里的 Linear（如 RWKV7 的 `w_lora.lora.0/2`）会以普通 ONNX MatMul 导出 → C++ 转换器将其变成带 `external` 引用的 Convolution。`rebuild()` 随后**截断重写**权重文件（只写回 FakeLinear 量化权重），这些 external 引用的偏移全部失效；且 json2mnn round-trip 会把悬空 external 物化成**全 0 内联权重**。
+
+### 解决方案
+
+`rebuild()` 的"Load LayerNorm data"阶段同时收集其他类型 op 的 external 权重，按 `common` 维度推断 fp32/fp16 后**内联**进 json（`main.weight`/`main.bias`），删除 external。这样它们能安全通过截断与 round-trip。
+
+### 注意事项
+
+- 内联会让中间 json 变大（LoRA 权重全精度），但相比模型整体可接受；如需量化嵌套 Linear，应扩展 `unload_param` 递归处理并保证 FakeLinear 命名与 `weight_ops` 一致。
+- expert 子图（MoE）在生产模型中只含 FakeLinear，无此问题；若未来子图出现原生 MatMul，需要同样处理。
+
+---
+
+## 18. transformers>=5 静默漏载 untied 的 lm_head（加载报告正常，权重是垃圾）
+
+### 问题描述
+
+transformers 5.12（可能影响其他 5.x）加载某些 trust_remote_code 模型（已确认 RWKV7/fla）时，**untied 的输出嵌入（lm_head.weight）不被写入**，残留未初始化的内存值（absmax 漂忽，如真值 0.28 → 0.10），但 `output_loading_info` 报告 **missing/mismatched/error 全为空**。logits 全坏 → 导出或推理输出乱码。极易误判为量化/算子/架构实现问题。
+
+### 鉴别方法
+
+- 对加载后的模型做全参数普查：逐个与 checkpoint 比 absmax，坏集合只有 lm_head 一个。
+- 从 checkpoint 手动拷回 lm_head 后推理立刻恢复正常 → 确认是加载问题，与后端/量化无关。
+
+### 解决方案
+
+`LlmModel.from_pretrained` 加载后调用 `_repair_output_embedding`：找到输出嵌入在 checkpoint 中的对应 key，absmax 偏差 >1% 时重新载入（tied 权重自动跳过）。该修复与 transformers 版本无关，正常加载时是 no-op。
+
+### 注意事项
+
+- 不要被"missing_keys 为空"迷惑——静默跳过不会体现在任何加载报告里。
+- 同一模型的多个导出/推理"时好时坏"且乱码模式随机时，优先怀疑未初始化内存（权重或量化结果），用 absmax/md5 普查定位。
