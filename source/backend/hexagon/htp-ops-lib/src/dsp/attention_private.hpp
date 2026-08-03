@@ -23,15 +23,16 @@
 #include "dsp/worker_pool.h"
 #include "transpose_hvx.h"
 #include "dsp/hmx_mgr.h"
+#include "dsp/hmx_queue.h"
 #include "dsp/hmx_utils.h"
 
-#if defined(__HEXAGON_ARCH__) && (__HEXAGON_ARCH__ >= 81)
-#define MNN_ATTENTION_HMX_ENABLE_PER_MATMUL 1
 #define MNN_ATTENTION_HMX_COMBINE_DECODE 1
+#if defined(__HEXAGON_ARCH__) && (__HEXAGON_ARCH__ >= 81)
+#define MNN_ATTENTION_GROUP_CAUSAL_PREFILL 1
 #else
-#define MNN_ATTENTION_HMX_ENABLE_PER_MATMUL 0
-#define MNN_ATTENTION_HMX_COMBINE_DECODE 0
+#define MNN_ATTENTION_GROUP_CAUSAL_PREFILL 0
 #endif
+#define MNN_ATTENTION_CAUSAL_GROUP_Q_ROWS 64
 
 enum AttnHmxOutputLayoutType {
   ATTN_HMX_OUT_PACKED_FP16 = 0,
@@ -140,6 +141,8 @@ typedef struct {
   float scale;
   int decode_grouped;
   int online_pages;
+  int prefill_segment_q;
+  int prefill_n_heads;
 } SyncAttentionTaskState;
 
 size_t sync_attention_head_workspace_bytes(int qo_len, int seq_len);
@@ -172,6 +175,20 @@ void attn_hmx_matmul_page_qk_block(const SyncAttentionTaskState* state, float* s
 void attn_hmx_matmul_page_sv_block(const SyncAttentionTaskState* state, __fp16* dst, __fp16* page_temp_O,
                                    const __fp16* linear_S, int rows, int kv_head, int page_begin,
                                    int page_end, int block_start, int block_valid);
+void queued_attn_hmx_matmul(uint8_t* c, const uint8_t* a, const uint8_t* b, int M, int K, int N, int max_K,
+                            int a_stride, int output_layout_type, float output_scale, int weight_layout_type,
+                            int kv_head, int n_kv_heads, int output_stride, int output_row_offset);
+void queued_attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores, const __fp16* q_ptr,
+                                     int rows, int q_stride, int q_row_offset, int kv_head, int valid_end);
+void queued_attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, __fp16* temp_O,
+                                     const __fp16* linear_S, int rows, int output_stride, int row_offset,
+                                     int kv_head, int valid_end);
+void queued_attn_hmx_matmul_page_qk_block(const SyncAttentionTaskState* state, float* scores,
+                                          const __fp16* q_ptr, int rows, int q_stride, int kv_head,
+                                          int page_begin, int page_end, int block_start, int block_valid);
+void queued_attn_hmx_matmul_page_sv_block(const SyncAttentionTaskState* state, __fp16* dst, __fp16* page_temp_O,
+                                          const __fp16* linear_S, int rows, int kv_head, int page_begin,
+                                          int page_end, int block_start, int block_valid);
 
 AEEResult htp_ops_push_kv(uint8_t* pPastK, uint8_t* pPastV, uint8_t* pK, uint8_t* pV, int32_t seq_current,
                           int32_t seq_add, int32_t n_kv_heads, int32_t head_dim, int32_t max_kv_len,

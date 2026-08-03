@@ -1281,6 +1281,7 @@ int main(int argc, char ** argv) {
         } else {
             llm->load();
         }
+        std::shared_ptr<MNN::Express::Executor::Activation> act = llm->getExecutor()->activte();
         tuning_prepare(llm.get());
         auto context = llm->getContext();
         // Ensure GPU sync for accurate timing

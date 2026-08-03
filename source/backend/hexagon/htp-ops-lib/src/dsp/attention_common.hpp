@@ -10,20 +10,6 @@ static inline void sync_attention_matmul_lock_release() {
   hmx_unit_release();
 }
 
-static inline void sync_attention_hmx_section_begin() {
-  sync_attention_matmul_lock_acquire();
-#if MNN_ATTENTION_HMX_ENABLE_PER_MATMUL
-  hmx_manager_enable_execution();
-#endif
-}
-
-static inline void sync_attention_hmx_section_end() {
-#if MNN_ATTENTION_HMX_ENABLE_PER_MATMUL
-  hmx_manager_disable_execution();
-#endif
-  sync_attention_matmul_lock_release();
-}
-
 static inline void attn_prepare_dma_desc_2d(dma_desc_2d_t* desc, const void* src, void* dst, uint32_t width, uint32_t height,
                                             uint32_t src_stride, uint32_t dst_stride, uint32_t next) {
   memset(desc, 0, sizeof(dma_desc_2d_t));
@@ -258,26 +244,20 @@ static inline void run_locked_attn_hmx_matmul_ex(uint8_t* c, const uint8_t* a, c
                                                  int max_K, int a_stride, int outputLayoutType, float outputScale,
                                                  int weightLayoutType, int kv_head, int n_kv_heads, int output_stride,
                                                  int output_row_offset) {
-  sync_attention_hmx_section_begin();
-  attn_hmx_matmul(c, a, b, M, K, N, max_K, a_stride, outputLayoutType, outputScale, weightLayoutType, kv_head, n_kv_heads,
-                  output_stride, output_row_offset);
-  sync_attention_hmx_section_end();
+  queued_attn_hmx_matmul(c, a, b, M, K, N, max_K, a_stride, outputLayoutType, outputScale, weightLayoutType,
+                         kv_head, n_kv_heads, output_stride, output_row_offset);
 }
 
 static inline void run_locked_attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores,
                                                        const __fp16* q_ptr, int rows, int q_stride, int q_row_offset,
                                                        int kv_head, int valid_end) {
-  sync_attention_hmx_section_begin();
-  attn_hmx_matmul_pages_qk(state, scores, q_ptr, rows, q_stride, q_row_offset, kv_head, valid_end);
-  sync_attention_hmx_section_end();
+  queued_attn_hmx_matmul_pages_qk(state, scores, q_ptr, rows, q_stride, q_row_offset, kv_head, valid_end);
 }
 
 static inline void run_locked_attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, __fp16* temp_O,
                                                        const __fp16* linear_S, int rows, int output_stride, int row_offset,
                                                        int kv_head, int valid_end) {
-  sync_attention_hmx_section_begin();
-  attn_hmx_matmul_pages_sv(state, dst, temp_O, linear_S, rows, output_stride, row_offset, kv_head, valid_end);
-  sync_attention_hmx_section_end();
+  queued_attn_hmx_matmul_pages_sv(state, dst, temp_O, linear_S, rows, output_stride, row_offset, kv_head, valid_end);
 }
 
 static inline void sync_attention_wait_async_push(const SyncAttentionTaskState* state) {
@@ -540,20 +520,16 @@ static inline void sync_attention_run_page_sv(const SyncAttentionTaskState* stat
 static inline void sync_attention_run_page_qk_block(const SyncAttentionTaskState* state, float* scores,
                                                     const __fp16* q_ptr, int rows, int q_stride, int kv_head,
                                                     int page_begin, int page_end, int block_start, int block_valid) {
-  sync_attention_hmx_section_begin();
-  attn_hmx_matmul_page_qk_block(state, scores, q_ptr, rows, q_stride, kv_head, page_begin, page_end,
-                                block_start, block_valid);
-  sync_attention_hmx_section_end();
+  queued_attn_hmx_matmul_page_qk_block(state, scores, q_ptr, rows, q_stride, kv_head, page_begin, page_end,
+                                       block_start, block_valid);
 }
 
 static inline void sync_attention_run_page_sv_block(const SyncAttentionTaskState* state, __fp16* dst,
                                                     __fp16* page_temp_O, const __fp16* linear_S, int rows,
                                                     int kv_head, int page_begin, int page_end, int block_start,
                                                     int block_valid) {
-  sync_attention_hmx_section_begin();
-  attn_hmx_matmul_page_sv_block(state, dst, page_temp_O, linear_S, rows, kv_head, page_begin, page_end,
-                                block_start, block_valid);
-  sync_attention_hmx_section_end();
+  queued_attn_hmx_matmul_page_sv_block(state, dst, page_temp_O, linear_S, rows, kv_head, page_begin, page_end,
+                                       block_start, block_valid);
 }
 
 static inline float sync_attention_load_page_v(const SyncAttentionTaskState* state, int token, int h_kv, int dim) {

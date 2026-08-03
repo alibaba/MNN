@@ -60,11 +60,13 @@ else()
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/matmul_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/matmul_q4block_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/tmac_ops.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/conv1x1_w8a16_sym_per_channel.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/im2col_convolution_fp16.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/pool_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/conv_depthwise_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/attention_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/attention_hmx.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/attention_hmx_queue.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/attention_sync_setup.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/attention_push_kv.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/attention_sync_process.cc
@@ -83,6 +85,7 @@ else()
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/shared_gather_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/power.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/hmx_mgr.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/hmx_queue.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/worker_pool.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/mmap_mgr.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/vtcm_mgr.cc
@@ -119,12 +122,17 @@ else()
 
     # Enable HMX inline assembly
     set(HTP_OPS_DSP_FLAGS "-mhmx")
-    string(REGEX REPLACE "^v" "" HTP_OPS_DSP_ARCH_NUMBER "${DSP_ARCH}")
+    set(HTP_OPS_DSP_ARCH "${DSP_ARCH}")
+    if(NOT HTP_OPS_DSP_ARCH)
+        set(HTP_OPS_DSP_ARCH "${HEXAGON_ARCH}")
+    endif()
+    string(REGEX REPLACE "^v" "" HTP_OPS_DSP_ARCH_NUMBER "${HTP_OPS_DSP_ARCH}")
     if(HTP_OPS_DSP_ARCH_NUMBER LESS 79)
         set(HTP_OPS_DSP_FLAGS "${HTP_OPS_DSP_FLAGS} -mhvx-ieee-fp")
     endif()
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${HTP_OPS_DSP_FLAGS}")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${HTP_OPS_DSP_FLAGS}")
+    target_compile_definitions(htp_ops_skel PRIVATE HTP_OPS_SKEL_ARCH=0x${HTP_OPS_DSP_ARCH_NUMBER})
 
     # Link C++ libraries
     target_link_libraries(htp_ops_skel ${HEXAGON_LIB_DIR}/${HEXAGON_ARCH}/G0/pic/libc++abi.so.1)

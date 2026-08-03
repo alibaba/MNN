@@ -57,25 +57,28 @@ static bool _mapUnaryOp(int mnnOpType, int* dspOpType) {
     }
 }
 
-HexagonUnary::HexagonUnary(Backend* backend, int dspOpType) : HexagonExecution(backend), mDspOpType(dspOpType) {
+HexagonUnary::HexagonUnary(Backend* backend, int dspOpType)
+    : HexagonExecution(backend), mDspOpType(dspOpType) {
     mAllocator = static_cast<HexagonBackend*>(backend)->getAllocator(1);
 }
+
+
 
 HexagonUnary* HexagonUnary::create(Backend* backend, const Op* op) {
     if (op->type() != OpType_UnaryOp) {
         return nullptr;
     }
+    int dspOpType = 0;
     auto unary = op->main_as_UnaryOp();
     if (unary == nullptr) {
         return nullptr;
     }
-    int dspOpType = 0;
     if (!_mapUnaryOp(unary->opType(), &dspOpType)) {
         return nullptr;
     }
 
     auto functions = HexagonRuntime::getDstFunctions();
-    if (functions == nullptr) {
+    if (functions == nullptr ) {
         return nullptr;
     }
     return new HexagonUnary(backend, dspOpType);
@@ -139,7 +142,8 @@ ErrorCode HexagonUnary::onBuildCmd(const std::vector<Tensor*>& inputs, const std
     std::vector<std::pair<int, int>> outputFds = {dstDev};
 
     dst.emplace_back();
-    dst.back().build(hexBackend, DSP_OP_UNARY, &params, sizeof(params), inputFds, outputFds, inputs, outputs);
+    dst.back().build(hexBackend, DSP_OP_UNARY, &params, sizeof(params),
+                     inputFds,  outputFds,  inputs, outputs);
 
     return NO_ERROR;
 }

@@ -19,6 +19,8 @@ public:
         int int4WeightType = 0;  // ggml_type, e.g. GGML_TYPE_Q4_0
         int int4LayoutType = 0;  // 1: per-tile permuted
         int int4ScaleBlockNum = 1;
+        MemChunk int8Weight;
+        bool useInt8W8A16 = false;
         int gatherInputChannels = 0;
         int gatherOutputChannels = 0;
         BufferAllocator* allocator;

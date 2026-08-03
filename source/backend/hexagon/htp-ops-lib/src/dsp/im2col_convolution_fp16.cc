@@ -10,6 +10,7 @@
 #include "dsp/ops.h"
 #include "dsp/vtcm_mgr.h"
 #include "dsp/worker_pool.h"
+#include "im2col_convolution_fp16_internal.h"
 
 static inline int store_output_tile_fp16(uint8_t* dst, const __fp16* vtcm_output, const __fp16* bias,
                                          int M, int ox, int oy, int pack, int relu, int relu6,
@@ -204,13 +205,23 @@ static inline void compute_hmx_tile_fp16(const __fp16* act_tile, const __fp16* w
     hmx_consume_accumulator_fp16(vtcm_output);
 }
 
+void hmx_im2col_compute_tile_fp16(const __fp16* act_tile, const __fp16* weight_tile,
+                                  int kp, __fp16* vtcm_output) {
+    compute_hmx_tile_fp16(act_tile, weight_tile, kp, vtcm_output);
+}
+
+static inline size_t input_plane_offset_fp16(const Im2ColParameter* p, int ob, int sy, int sx) {
+    return (size_t)ob * p->destICStride +
+           (size_t)sy * p->srcYStep +
+           (size_t)sx * p->packCUnit;
+}
+
 static inline size_t input_block_offset_fp16(const Im2ColParameter* p, int ob, int sy, int sx, int icBlock) {
     const int block_channel = icBlock * 32;
     const int pack_idx = block_channel / p->packCUnit;
     const int pack_inner = block_channel % p->packCUnit;
     const size_t elem_offset = (size_t)pack_idx * p->srcZStep +
-                               (size_t)(ob * p->ih + sy) * p->srcYStep +
-                               (size_t)sx * p->packCUnit +
+                               input_plane_offset_fp16(p, ob, sy, sx) +
                                (size_t)pack_inner;
     return elem_offset * sizeof(__fp16);
 }
@@ -848,8 +859,7 @@ static void fill_im2col_activation_1x1_pack64_tiles(__fp16* vtcm_activation, con
 
 static inline const uint8_t* input_pack64_block0_ptr(const uint8_t* src, const Im2ColParameter* p,
                                                      int ob, int sy, int sx) {
-    return src + ((size_t)(ob * p->ih + sy) * p->srcYStep +
-                  (size_t)sx * p->packCUnit) * sizeof(__fp16);
+    return src + input_plane_offset_fp16(p, ob, sy, sx) * sizeof(__fp16);
 }
 
 static void fill_im2col_activation_pack64_ic1_tiles(__fp16* vtcm_activation, const uint8_t* src,
@@ -1054,11 +1064,62 @@ static void fill_im2col_activation_pack64_1d_unit_range(__fp16* vtcm_activation,
     }
 }
 
+static inline bool use_pack64_horizontal_1d_fast(const Im2ColParameter* p, int kp,
+                                                  int ic_blocks, int plane) {
+    return p->packCUnit == 64 && p->kernelY == 1 && p->ih == 1 && p->oh == 1 &&
+           p->strideX == 1 && p->strideY == 1 && p->dilateX == 1 && p->dilateY == 1 &&
+           p->padX == 0 && p->padY == 0 && kp == p->kernelX * ic_blocks &&
+           plane == p->ow && (p->ow & 31) == 0 && p->iw == p->ow + p->kernelX - 1;
+}
+
+static void fill_im2col_activation_pack64_horizontal_1d_unit_range(
+    __fp16* vtcm_activation, const uint8_t* src, const Im2ColParameter* p,
+    int tile_start, int kp, int ic_blocks, int plane, int unit_start, int unit_end) {
+    // The fast-path predicate guarantees padding-free, full 32-row tiles.
+    const size_t tile_elems = (size_t)kp * 1024;
+    const int pairs_per_kernel = (ic_blocks + 1) / 2;
+    const int pair_count = p->kernelX * pairs_per_kernel;
+    int local_tile = unit_start / pair_count;
+    int pair_start = unit_start - local_tile * pair_count;
+    while (unit_start < unit_end) {
+        __fp16* tile_base = vtcm_activation + (size_t)local_tile * tile_elems;
+        const int tileStart = (tile_start + local_tile) * 32;
+        int pair_end = unit_end - local_tile * pair_count;
+        if (pair_end > pair_count) {
+            pair_end = pair_count;
+        }
+        const int ob = tileStart / plane;
+        const int ox = tileStart - ob * plane;
+        for (int pair_idx = pair_start; pair_idx < pair_end; ++pair_idx) {
+            const int kx = pair_idx / pairs_per_kernel;
+            const int ic_block = (pair_idx - kx * pairs_per_kernel) * 2;
+            const int kk = kx * ic_blocks + ic_block;
+            __fp16* tile0 = tile_base + (size_t)kk * 1024;
+            __fp16* tile1 = (ic_block + 1 < ic_blocks) ? tile0 + 1024 : nullptr;
+            const uint8_t* src_base = src + input_block_offset_fp16(p, ob, 0, ox + kx, ic_block);
+            const int src_stride_bytes = p->packCUnit * (int)sizeof(__fp16);
+            for (int r = 0; r < 32; r += 2) {
+                const uint8_t* src0 = src_base + (size_t)r * src_stride_bytes;
+                const uint8_t* src1 = src0 + src_stride_bytes;
+                store_pack64_im2col_row_pair(tile0, tile1, r, src0, src1);
+            }
+        }
+        unit_start = (local_tile + 1) * pair_count;
+        ++local_tile;
+        pair_start = 0;
+    }
+}
+
 static void fill_im2col_activation_pack64_unit_range(__fp16* vtcm_activation, const uint8_t* src,
                                                      const Im2ColParameter* p,
                                                      int tile_start, int tile_count, int kp, int batch,
                                                      int ic_blocks, int plane,
                                                      int unit_start, int unit_end) {
+    if (use_pack64_horizontal_1d_fast(p, kp, ic_blocks, plane)) {
+        fill_im2col_activation_pack64_horizontal_1d_unit_range(
+            vtcm_activation, src, p, tile_start, kp, ic_blocks, plane, unit_start, unit_end);
+        return;
+    }
     const size_t tile_elems = (size_t)kp * 1024;
     const int totalM = batch * p->oh * p->ow;
     const int kernel_count = p->kernelX * p->kernelY;
@@ -1601,6 +1662,12 @@ static void fill_im2col_activation_tiles(__fp16* vtcm_activation, const uint8_t*
 
         fill_im2col_activation_kk_range(tile_base, src, p, tileStart, validCount, kp, 0, kp, ic_blocks, plane);
     }
+}
+
+void hmx_im2col_fill_activation_tiles(__fp16* vtcm_activation, const uint8_t* src,
+                                      const Im2ColParameter* p,
+                                      int tile_start, int tile_count, int kp, int batch) {
+    fill_im2col_activation_tiles(vtcm_activation, src, p, tile_start, tile_count, kp, batch);
 }
 
 static void fill_weight_tiles_fp16(__fp16* vtcm_weight, const __fp16* src_weight, const HmxIm2ColConvParam* params,

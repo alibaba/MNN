@@ -28,6 +28,16 @@ class MNN_PUBLIC Executor {
 public:
     class ComputeCache;
     class RuntimeExecuteWrap;
+    class MNN_PUBLIC Activation {
+    public:
+        ~Activation();
+
+    private:
+        friend class Executor;
+        explicit Activation(const RuntimeInfo& info);
+        RuntimeInfo mRuntimeInfo;
+        std::unique_ptr<RuntimeExecuteWrap> mRuntimeWrap;
+    };
     struct DebugTools;
     /**Internal Usage Begin*/
     struct Requirement {
@@ -75,6 +85,8 @@ public:
     bool registerSubGraph(const std::string& submoduleName, VARPS outputs, VARPS inputs);
     std::shared_ptr<SubGraph> findSubGraph(const std::string& submoduleName);
     static RuntimeInfo getRuntime();
+    /** Keep this executor's runtimes active until the returned guard is destroyed. */
+    std::shared_ptr<Activation> activte() const;
     void setCallBack(TensorCallBackWithInfo&& before, TensorCallBackWithInfo&& after);
     const DebugTools* getDebugTools() const {
         return mDebug.get();
