@@ -359,6 +359,17 @@ M5（tensor-API 路径扩展增量）：0.6B pp2048 **+38.9%**，累计 +51.5% v
 
 Decode 时 batch=1，默认 kernel 选择倾向大 batch tile，launch overhead 反而大。`batch <= 4 && hidden_size <= 4096` 时用单 threadgroup 处理整个 norm。Decode RMSNorm 提速 ~5%，链路 ~1%。
 
+### 1.4.2 LinearAttention（gated delta rule，Qwen3.5 系）优化批次（2026-08-03，M4 Pro）
+
+背景 profiling（0.8B p2360 prefill）：LinearAttention 占 GPU **32.6%**（与全部 GEMM 相当）——非 tensor-API 设备长 prefill 走 `fused_chunk_sg`（chunk 内逐 timestep 标量 delta rule，零 matmul 化）；decode 占比仅 5.8%。⇒ prefill kernel 是最大单点。
+
+1. **`linear_attn_flash_chunk_sgmm`（主项，`MNN_METAL_LINEAR_ATTN_SGMM`，默认开）**：把 tensor-API 版 `flash_chunk` 的分块算法（K@Kᵀ / Q@Kᵀ / T 前代求逆 / K@S / Q@S / state multiply-accumulate）用 `simdgroup_float8x8` 8x8 MMA 重写，供 M4 级 / iPhone 使用。SIMDS_PER_TG 扫描 4/8/16/32 → 356/285/**269**/454ms（TG 内存 ~29KB 限 1 TG/核，**宽 TG 是唯一 occupancy 杠杆，但 32 过宽反噬**）。e2e 双向配对：0.8B pp512 **+14.7%** / pp2048 **+15.8%**，2B pp2048 **+8.2%**。⚠️ **dk=64 证伪**：标量基线在 dk<128 用 CHUNK_BT=32，全 L 段反而更快（sgmm 门控收紧到 dk==128）。⚠️ 测量教训重演：pp512 首轮固定顺序 A/B 测出 "+5.9%" 反序即翻转（铁律 11）——真收益要等 sg16 才显现。
+2. **decode encode-replay 接入**：`canRecordEncode()` 从恒 false 改为 `seqLen==1 && gated_delta_rule`；关键障碍是 `Pipeline.cpp` 对 LinearAttention **每 token 强制 re-resize**，`onResize` 每次重建 mConvOut → 录制绑定悬垂 Tensor*（症状：每 token invalidate→ban）。修法：shape 不变时保留 Tensor 对象 + resize-generation 守卫在 `onReplayUpdate` 里 bail（先于 metalReplayEmit 的解引用）。收益中性（decode GPU-bound，符合 §2.2.4 预期），价值在消除结构性豁免。
+3. **短 prefill (2≤L<16) 路由 fused_sg_align**：省 qkv_prep dispatch + mQ/mK/mV 物化往返。微基准 L8：d64 **-21%** / d128 -4%；tokens on/off 一致。投机解码（#9）的前置路径。
+4. **fused_sg_tg 重标定证伪**：`preferTG = H < 16` 恰好排除 Qwen3.5（H=16）；探针放宽到 H<=16 实测 decode e2e 与微基准均中性偏负 ⇒ 阈值维持 H<16，TG 共享 Q/K 读在 H=16 档无收益（冗余读被 cache 吸收）。
+
+正确性口径：新旧 Metal 路径 tokens 全一致（0.8B short/1200/2048 + 2B 2048 + 两轮对话 state reset）；CPU vs Metal 在 p2360 有**预先存在**的 fp16 长 prompt 分叉（两侧均连贯，非本批引入）。`run_test.out all 1` 384/392，8 失败与基线集合完全一致（含预先存在的 `linear_attention_chunked_layer_index` layer_index 簿记 bug，CPU 过 Metal 挂，待另立 bugfix）。
+
 ---
 
 # 二、系统架构层级优化

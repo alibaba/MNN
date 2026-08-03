@@ -112,6 +112,12 @@ Metal 后端开 fp16（`useFp16InsteadFp32`）时，float 类型的 device tenso
 
 ## Shader 修改流程
 
+### 跨分支移植优化前先核对隐含前置
+
+性能提交可能基于已 squash 的基础设施提交开发，单看 `git cherry-pick` 的补丁无法发现这些隐含依赖。移植前先用 `git log -S'<新增 override/API>' -- <相关目录>` 定位接口来源，并确认目标分支是否已有实现；若没有，只补最小前置提交，不要整文件采用来源分支的公共 registry/backend 文件，否则会夹带无关架构改动。
+
+解决冲突后还要检查两点：核心实现文件应与来源分支的目标行为一致；被新 kernel 取代的旧 shader、pipeline 成员和 dispatch 分支必须一起删除，并用 `rg` 确认零引用。最后执行 clean rebuild 和至少一次真实 Metal 运行，因为普通 C++ 编译不能发现运行时 Metal shader 编译错误。
+
 ```bash
 # 直接编辑 .hpp 里的字符串
 vi source/backend/metal/ConvSimdGroupShader.hpp

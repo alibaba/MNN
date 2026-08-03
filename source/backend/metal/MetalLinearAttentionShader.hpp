@@ -106,6 +106,45 @@ kernel void linear_attn_conv_silu(
     conv_out[b * D * L + d * L + l] = (ftype)(sum * sigmoid_val);
 }
 
+// Decode specialization (L=1): the convolution and state update have the
+// same one-thread-per-channel ownership, so keep the old state live until the
+// convolution completes and update it before returning. This removes one
+// kernel launch plus a second qkv/state traversal per linear-attention layer.
+kernel void linear_attn_conv_silu_state_decode(
+    const device ftype* qkv         [[buffer(0)]],
+    device ftype* conv_state        [[buffer(1)]],
+    const device ftype* conv_weight [[buffer(2)]],
+    device ftype* conv_out          [[buffer(3)]],
+    constant LinearAttnParam& param [[buffer(4)]],
+    uint gid [[thread_position_in_grid]])
+{
+    const int D = param.conv_dim;
+    const int css = param.conv_state_size;
+    const int total = param.batch * D;
+    if ((int)gid >= total) return;
+
+    const int b = gid / D;
+    const int d = gid % D;
+    const int K = css + 1;
+    device ftype* state = conv_state + gid * css;
+    const float current = (float)qkv[qkv_offset(b, d, 0, param)];
+
+    float sum = current * (float)conv_weight[d * K + css];
+    for (int i = 0; i < css; ++i) {
+        sum += (float)state[i] * (float)conv_weight[d * K + i];
+    }
+
+    if (css > 0) {
+        for (int i = 0; i + 1 < css; ++i) {
+            state[i] = state[i + 1];
+        }
+        state[css - 1] = (ftype)current;
+    }
+
+    const float sigmoid_val = 1.0f / (1.0f + exp(-sum));
+    conv_out[gid] = (ftype)(sum * sigmoid_val);
+}
+
 // Kernel 2: Update conv state with last (K-1) elements of padded input.
 // One thread owns a complete channel so shifting the state in-place is ordered.
 // padded input = [old_conv_state, qkv], total length = css + L
@@ -139,6 +178,131 @@ kernel void linear_attn_conv_state_update(
     }
 }
 )metal";
+
+
+static const char* gLinearAttnQKVPrepSG = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef half ftype;
+#else
+typedef float ftype;
+#endif
+
+struct LinearAttnParam {
+    int batch;
+    int conv_dim;
+    int seq_len;
+    int kernel_size;
+    int conv_state_size;
+    int num_k_heads;
+    int num_v_heads;
+    int head_k_dim;
+    int head_v_dim;
+    int key_dim;
+    int val_dim;
+    int gqa_factor;
+    int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
+    float q_scale;
+};
+
+kernel void linear_attn_qkv_prep_sg(
+    const device ftype* conv_out         [[buffer(0)]],
+    device ftype* q_out                  [[buffer(1)]],
+    device ftype* k_out                  [[buffer(2)]],
+    device ftype* v_out                  [[buffer(3)]],
+    constant LinearAttnParam& param      [[buffer(4)]],
+    uint3 tgpig [[threadgroup_position_in_grid]],
+    uint sgitg  [[simdgroup_index_in_threadgroup]],
+    uint lane   [[thread_index_in_simdgroup]])
+{
+    const int B = param.batch;
+    const int D = param.conv_dim;
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int key_dim = param.key_dim;
+    const int gqa_factor = param.gqa_factor;
+    const int use_l2norm = param.use_l2norm;
+    const float q_scale = param.q_scale;
+
+    // 4 simdgroups per threadgroup -> 128 threads / TG.
+    // Each simdgroup owns one (b, t, h) element.
+    const int idx = (int)(tgpig.x * 4 + sgitg);
+    const int total = B * L * H;
+    if (idx >= total) return;
+
+    const int b = idx / (L * H);
+    const int rem = idx % (L * H);
+    const int t = rem / H;
+    const int h = rem % H;
+    const int k_head = h / gqa_factor;
+
+    const device ftype* conv_base = conv_out + b * D * L;
+    device ftype* dst_q = q_out + idx * HEAD_K_DIM;
+    device ftype* dst_k = k_out + idx * HEAD_K_DIM;
+    device ftype* dst_v = v_out + idx * HEAD_V_DIM;
+
+    // ─── Load Q, K into per-lane registers (single pass over conv_out) ────
+    //  lane i owns positions {i, i+32, i+64, ...} of the dk axis.
+    float qBuf[SIMD_ITERS_K];
+    float kBuf[SIMD_ITERS_K];
+    #pragma unroll
+    for (int ii = 0; ii < SIMD_ITERS_K; ++ii) {
+        int i = lane + ii * 32;
+        if (i < HEAD_K_DIM) {
+            qBuf[ii] = (float)conv_base[(k_head * HEAD_K_DIM + i) * L + t];
+            kBuf[ii] = (float)conv_base[(key_dim + k_head * HEAD_K_DIM + i) * L + t];
+        } else {
+            qBuf[ii] = 0.0f;
+            kBuf[ii] = 0.0f;
+        }
+    }
+
+    // ─── L2 norm (single simd-wide reduction) + q_scale ────
+    float invQ, invK;
+    if (use_l2norm) {
+        const float eps = 1e-6f;
+        float sqQ = 0.0f, sqK = 0.0f;
+        #pragma unroll
+        for (int ii = 0; ii < SIMD_ITERS_K; ++ii) {
+            sqQ += qBuf[ii] * qBuf[ii];
+            sqK += kBuf[ii] * kBuf[ii];
+        }
+        sqQ = simd_sum(sqQ);
+        sqK = simd_sum(sqK);
+        invQ = rsqrt(sqQ + eps) * q_scale;
+        invK = rsqrt(sqK + eps);
+    } else {
+        invQ = q_scale;
+        invK = 1.0f;
+    }
+
+    // ─── Write Q, K (coalesced: 32 lanes write 32 consecutive positions) ──
+    #pragma unroll
+    for (int ii = 0; ii < SIMD_ITERS_K; ++ii) {
+        int i = lane + ii * 32;
+        if (i < HEAD_K_DIM) {
+            dst_q[i] = (ftype)(qBuf[ii] * invQ);
+            dst_k[i] = (ftype)(kBuf[ii] * invK);
+        }
+    }
+
+    // ─── V: direct copy, no normalization ────
+    #pragma unroll
+    for (int ii = 0; ii < SIMD_ITERS_V; ++ii) {
+        int i = lane + ii * 32;
+        if (i < HEAD_V_DIM) {
+            dst_v[i] = conv_base[(2 * key_dim + h * HEAD_V_DIM + i) * L + t];
+        }
+    }
+}
+)metal";
+
 
 static const char* gLinearAttnGatedDeltaRule = R"metal(
 #include <metal_stdlib>
@@ -295,7 +459,10 @@ kernel void linear_attn_gated_delta_rule(
         float v_t_j = (float)v[(b * L * H + t * H + h) * d_v + j];
 
         float g_t = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4, param)];
-        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4, param)];
+        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
+        if (param.beta_c4 & 2) {
+            beta_t = (float)(ftype)(1.0f / (1.0f + exp(clamp(-beta_t, -87.0f, 87.0f))));
+        }
 
         float decay_val = exp(g_t);
 
@@ -458,11 +625,7 @@ kernel void linear_attn_gated_delta_rule_sg(
 }
 )metal";
 
-// Fused QKV-prep + Gated Delta Rule (for decode, reads directly from conv_out)
-// Eliminates intermediate Q, K, V buffers and the qkv_prep kernel launch
-// Best for decode (L=1) where conv_out stride = 1 (coalesced)
-// Each simdgroup (32 threads) handles one (batch, head, j) element
-// State layout: [B, H, d_v, d_k] for coalesced simd access
+
 static const char* gLinearAttnFusedSG = R"metal(
 #include <metal_stdlib>
 using namespace metal;
@@ -760,6 +923,1435 @@ kernel void linear_attn_short_conv_output(
     float c_value = (float)qkv[qkv_offset(b, H + h, l, param)];
     float conv_value = (float)conv_out[(b * H + h) * L + l];
     attn_out[output_offset(b, l, h, param)] = (ftype)(c_value * conv_value);
+}
+)metal";
+
+
+static const char* gLinearAttnFusedSGAlign = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef half ftype;
+#else
+typedef float ftype;
+#endif
+
+struct LinearAttnParam {
+    int batch;
+    int conv_dim;
+    int seq_len;
+    int kernel_size;
+    int conv_state_size;
+    int num_k_heads;
+    int num_v_heads;
+    int head_k_dim;
+    int head_v_dim;
+    int key_dim;
+    int val_dim;
+    int gqa_factor;
+    int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
+    float q_scale;
+};
+
+inline int c4_offset_v2(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int token_channel_offset(int b, int t, int c, int channel, int packed,
+                                constant LinearAttnParam& param) {
+    if (packed) {
+        return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
+    }
+    return (b * param.seq_len + t) * channel + c;
+}
+
+inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
+    int token = (b * param.seq_len + t) * param.num_v_heads + h;
+    if (param.output_c4) {
+        return c4_offset_v2(token, d, param.batch * param.seq_len * param.num_v_heads);
+    }
+    return token * param.head_v_dim + d;
+}
+
+// SIMD_ITERS is injected as a compile-time macro from C++ side: (d_k + 31) / 32
+// D_K_ALIGNED (0 or 1) is injected from C++ side; when 1, d_k % 32 == 0 and
+// per-lane boundary checks against d_k can be dropped.
+
+#ifndef ALIGN_SIMDS_PER_TG
+#define ALIGN_SIMDS_PER_TG 4
+#endif
+
+// [Opt7] IS_LANE_VALID — 1 when this SIMD_ITERS lane is in-range.
+// For the last iteration under D_K_ALIGNED=0 we still need the runtime guard.
+#if D_K_ALIGNED
+    #define IS_LANE_VALID(ii, lane, d_k) (true)
+#else
+    #define IS_LANE_VALID(ii, lane, d_k) (((int)(lane) + (ii) * 32) < (d_k))
+#endif
+
+kernel void linear_attn_fused_sg_align(
+    const device ftype* conv_out         [[buffer(0)]],
+    const device ftype* gate             [[buffer(1)]],
+    const device ftype* beta             [[buffer(2)]],
+    device ftype* recurrent_state        [[buffer(3)]],
+    device ftype* attn_out               [[buffer(4)]],
+    constant LinearAttnParam& param      [[buffer(5)]],
+    uint3 tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int d_k = param.head_k_dim;
+    const int d_v = param.head_v_dim;
+    const int key_dim = param.key_dim;
+    const int gqa_factor = param.gqa_factor;
+    const int use_l2norm = param.use_l2norm;
+    const float q_scale = param.q_scale;
+    const int D = param.conv_dim;
+
+    // Each simdgroup independently handles one (b, h, j).
+    const int idx = (int)tgpig.x * ALIGN_SIMDS_PER_TG + (int)sgitg;
+    const int total = B * H * d_v;
+    if (idx >= total) return;
+
+    const int j         = idx % d_v;
+    const int b_h       = idx / d_v;
+    const int h         = b_h % H;
+    const int b         = b_h / H;
+    const int k_head    = h / gqa_factor;
+
+    // Transposed state: [B, H, d_v, d_k]
+    device ftype* state = recurrent_state + (b * H + h) * d_v * d_k + j * d_k;
+
+    // [Opt9] Hoist per-(b,h,j) addressing out of the t-loop.
+    const device ftype* conv_base = conv_out + b * D * L;
+    const int q_row_base   = k_head * d_k;                   // Q  channel base
+    const int k_row_base   = key_dim + k_head * d_k;         // K  channel base
+    const int v_channel    = 2 * key_dim + h * d_v + j;      // V  channel
+    const int bth_base     = b * L * H + h;                  // (b, ., h) part
+    const int lane_i32     = (int)lane;
+    const int n_iters      = SIMD_ITERS;                     // compile-time
+    const int lane_stride  = 32;                             // simd width
+
+    // Precomputed per-iteration channel indices (compile-time expandable).
+    int lane_offs[SIMD_ITERS];
+    for (int ii = 0; ii < n_iters; ++ii) {
+        lane_offs[ii] = lane_i32 + ii * lane_stride;
+    }
+
+    // ─── [Opt4][Opt9] Load state once into registers ────────────────────
+    float st_reg[SIMD_ITERS];
+    for (int ii = 0; ii < n_iters; ++ii) {
+#if D_K_ALIGNED
+        st_reg[ii] = (float)state[lane_offs[ii]];
+#else
+        st_reg[ii] = (lane_offs[ii] < d_k) ? (float)state[lane_offs[ii]] : 0.0f;
+#endif
+    }
+
+    for (int t = 0; t < L; ++t) {
+        const int bth = bth_base + t * H;
+
+        // ─── Read Q, K directly from conv_out [B, D, L] ─────────────────
+        float k_reg[SIMD_ITERS];
+        float q_reg[SIMD_ITERS];
+        for (int ii = 0; ii < n_iters; ++ii) {
+#if D_K_ALIGNED
+            const int i = lane_offs[ii];
+            q_reg[ii] = (float)conv_base[(q_row_base + i) * L + t];
+            k_reg[ii] = (float)conv_base[(k_row_base + i) * L + t];
+#else
+            const int i = lane_offs[ii];
+            if (i < d_k) {
+                q_reg[ii] = (float)conv_base[(q_row_base + i) * L + t];
+                k_reg[ii] = (float)conv_base[(k_row_base + i) * L + t];
+            } else {
+                q_reg[ii] = 0.0f;
+                k_reg[ii] = 0.0f;
+            }
+#endif
+        }
+
+        // ─── Inline L2 norm for Q and K using simd_sum ──────────────────
+        // [Opt6] q_scale is folded into inv_q, saving a second scale pass.
+        float inv_q = q_scale;
+        float inv_k = 1.0f;
+        if (use_l2norm) {
+            const float eps = 1e-6f;
+            float sq_q = 0.0f, sq_k = 0.0f;
+            for (int ii = 0; ii < n_iters; ++ii) {
+                if (IS_LANE_VALID(ii, lane, d_k)) {
+                    sq_q += q_reg[ii] * q_reg[ii];
+                    sq_k += k_reg[ii] * k_reg[ii];
+                }
+            }
+            sq_q = simd_sum(sq_q);
+            sq_k = simd_sum(sq_k);
+            inv_q = rsqrt(sq_q + eps) * q_scale;   // fold q_scale here
+            inv_k = rsqrt(sq_k + eps);
+        }
+        for (int ii = 0; ii < n_iters; ++ii) {
+            q_reg[ii] *= inv_q;
+            k_reg[ii] *= inv_k;
+        }
+
+        // ─── Lane-0 device reads + simdgroup broadcast (Opt5/Opt8) ──────
+        float v_t_j     = 0.0f;
+        float decay_val = 0.0f;
+        float beta_t    = 0.0f;
+        if (lane == 0) {
+            v_t_j     = (float)conv_base[v_channel * L + t];
+            decay_val = exp((float)gate[token_channel_offset(b, t, h, H, param.gate_c4, param)]);
+            beta_t    = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
+            if (param.beta_c4 & 2) {
+                beta_t = (float)(ftype)(1.0f / (1.0f + exp(clamp(-beta_t, -87.0f, 87.0f))));
+            }
+        }
+        v_t_j     = simd_broadcast_first(v_t_j);
+        decay_val = simd_broadcast_first(decay_val);
+        beta_t    = simd_broadcast_first(beta_t);
+
+        // ─── [Opt1][Opt4] Decay state in-register + compute v_pred ──────
+        float v_pred_j = 0.0f;
+        for (int ii = 0; ii < n_iters; ++ii) {
+            if (IS_LANE_VALID(ii, lane, d_k)) {
+                st_reg[ii] *= decay_val;
+                v_pred_j   += st_reg[ii] * k_reg[ii];
+            }
+        }
+        v_pred_j = simd_sum(v_pred_j);
+
+        const float delta_j = beta_t * (v_t_j - v_pred_j);
+
+        // ─── [Opt1][Opt4] Update state in-register + compute output ─────
+        float o_t_j = 0.0f;
+        for (int ii = 0; ii < n_iters; ++ii) {
+            if (IS_LANE_VALID(ii, lane, d_k)) {
+                st_reg[ii] += k_reg[ii] * delta_j;
+                o_t_j      += st_reg[ii] * q_reg[ii];
+            }
+        }
+        o_t_j = simd_sum(o_t_j);
+
+        if (lane == 0) {
+            attn_out[output_offset_v2(b, t, h, j, param)] = (ftype)o_t_j;
+        }
+    }
+
+    // ─── [Opt4] Write state back to device once ─────────────────────────
+    for (int ii = 0; ii < n_iters; ++ii) {
+#if D_K_ALIGNED
+        state[lane_offs[ii]] = (ftype)st_reg[ii];
+#else
+        if (lane_offs[ii] < d_k) state[lane_offs[ii]] = (ftype)st_reg[ii];
+#endif
+    }
+}
+)metal";
+
+
+static const char* gLinearAttnFusedSGTG = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef half ftype;
+#else
+typedef float ftype;
+#endif
+
+struct LinearAttnParam {
+    int batch;
+    int conv_dim;
+    int seq_len;
+    int kernel_size;
+    int conv_state_size;
+    int num_k_heads;
+    int num_v_heads;
+    int head_k_dim;
+    int head_v_dim;
+    int key_dim;
+    int val_dim;
+    int gqa_factor;
+    int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
+    float q_scale;
+};
+
+inline int c4_offset_v2(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int token_channel_offset(int b, int t, int c, int channel, int packed,
+                                constant LinearAttnParam& param) {
+    if (packed) {
+        return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
+    }
+    return (b * param.seq_len + t) * channel + c;
+}
+
+inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
+    int token = (b * param.seq_len + t) * param.num_v_heads + h;
+    if (param.output_c4) {
+        return c4_offset_v2(token, d, param.batch * param.seq_len * param.num_v_heads);
+    }
+    return token * param.head_v_dim + d;
+}
+
+#if D_K_ALIGNED
+    #define IS_LANE_VALID_TG(ii, lane, d_k) (true)
+#else
+    #define IS_LANE_VALID_TG(ii, lane, d_k) (((int)(lane) + (ii) * 32) < (d_k))
+#endif
+
+kernel void linear_attn_fused_sg_tg(
+    const device ftype* conv_out         [[buffer(0)]],
+    const device ftype* gate             [[buffer(1)]],
+    const device ftype* beta             [[buffer(2)]],
+    device ftype* recurrent_state        [[buffer(3)]],
+    device ftype* attn_out               [[buffer(4)]],
+    constant LinearAttnParam& param      [[buffer(5)]],
+    uint3 tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane  [[thread_index_in_simdgroup]])
+{
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int d_k = param.head_k_dim;
+    const int d_v = param.head_v_dim;
+    const int key_dim = param.key_dim;
+    const int gqa_factor = param.gqa_factor;
+    const int use_l2norm = param.use_l2norm;
+    const float q_scale = param.q_scale;
+    const int D = param.conv_dim;
+
+    // Host guarantees d_v % SIMDS_PER_TG == 0, so a TG's SIMDS_PER_TG SGs
+    // all fall within the same (b, h) — same k_head, same Q/K row.
+    const int idx = (int)tgpig.x * SIMDS_PER_TG + (int)sgitg;
+    const int total = B * H * d_v;
+    if (idx >= total) return;
+
+    const int j       = idx % d_v;
+    const int b_h     = idx / d_v;
+    const int h       = b_h % H;
+    const int b       = b_h / H;
+    const int k_head  = h / gqa_factor;
+
+    // Transposed state: [B, H, d_v, d_k]
+    device ftype* state = recurrent_state + (b * H + h) * d_v * d_k + j * d_k;
+
+    // Hoist per-(b, h, j) addressing.
+    const device ftype* conv_base = conv_out + b * D * L;
+    const int q_row_base = k_head * d_k;
+    const int k_row_base = key_dim + k_head * d_k;
+    const int v_channel  = 2 * key_dim + h * d_v + j;
+    const int bth_base   = b * L * H + h;
+
+    const int TG_THREADS = SIMDS_PER_TG * 32;
+    const int tid        = (int)(sgitg * 32 + lane);
+
+    // Shared Q/K row for this (b, h, t) — reused by all SIMDS_PER_TG SGs.
+    threadgroup float sh_q[HEAD_K_DIM];
+    threadgroup float sh_k[HEAD_K_DIM];
+    // Shared per-t scalars (decay_val, beta_t). v_t_j is per-j, kept per-SG.
+    threadgroup float sh_scalars[2];
+
+    // ─── Load state once into registers ────────────────────────────────
+    float st_reg[SIMD_ITERS];
+    for (int ii = 0; ii < SIMD_ITERS; ++ii) {
+        int i = (int)lane + ii * 32;
+#if D_K_ALIGNED
+        st_reg[ii] = (float)state[i];
+#else
+        st_reg[ii] = (i < d_k) ? (float)state[i] : 0.0f;
+#endif
+    }
+
+    int bth = bth_base;
+    for (int t = 0; t < L; ++t, bth += H) {
+        // ─── Cooperative load Q, K into shared memory (128 threads). ───
+        for (int i = tid; i < d_k; i += TG_THREADS) {
+            sh_q[i] = (float)conv_base[(q_row_base + i) * L + t];
+            sh_k[i] = (float)conv_base[(k_row_base + i) * L + t];
+        }
+        // Scalars (once per TG, per timestep).
+        if (tid == 0) {
+            float gate_value = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4 & 1, param)];
+            sh_scalars[0] = exp(gate_value);
+            float beta_raw = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
+            sh_scalars[1] = (param.beta_c4 & 2)
+                ? (float)(ftype)(1.0f / (1.0f + exp(clamp(-beta_raw, -87.0f, 87.0f))))
+                : beta_raw;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ─── L2 norm + q_scale done ONCE by SG 0 on shared Q/K. ────────
+        // Other SGs wait on the trailing barrier. This trades some SG
+        // idle for eliminating the per-SG redundant reduction of the
+        // baseline kernel; net win because HEAD_K_DIM reduction is small.
+        if (sgitg == 0) {
+            if (use_l2norm) {
+                const float eps = 1e-6f;
+                float sq_q = 0.0f, sq_k = 0.0f;
+                for (int i = (int)lane; i < d_k; i += 32) {
+                    float qv = sh_q[i]; float kv = sh_k[i];
+                    sq_q += qv * qv; sq_k += kv * kv;
+                }
+                sq_q = simd_sum(sq_q);
+                sq_k = simd_sum(sq_k);
+                float inv_q = rsqrt(sq_q + eps) * q_scale;
+                float inv_k = rsqrt(sq_k + eps);
+                for (int i = (int)lane; i < d_k; i += 32) {
+                    sh_q[i] *= inv_q;
+                    sh_k[i] *= inv_k;
+                }
+            } else {
+                // Fold q_scale directly onto sh_q; K unchanged.
+                for (int i = (int)lane; i < d_k; i += 32) {
+                    sh_q[i] *= q_scale;
+                }
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ─── Load normalized Q, K into per-lane registers. ─────────────
+        float q_reg[SIMD_ITERS];
+        float k_reg[SIMD_ITERS];
+        for (int ii = 0; ii < SIMD_ITERS; ++ii) {
+            int i = (int)lane + ii * 32;
+#if D_K_ALIGNED
+            q_reg[ii] = sh_q[i];
+            k_reg[ii] = sh_k[i];
+#else
+            if (i < d_k) {
+                q_reg[ii] = sh_q[i];
+                k_reg[ii] = sh_k[i];
+            } else {
+                q_reg[ii] = 0.0f;
+                k_reg[ii] = 0.0f;
+            }
+#endif
+        }
+
+        // ─── Scalars: decay/beta from shared, v_t_j per-SG (lane 0 → bcast).
+        const float decay_val = sh_scalars[0];
+        const float beta_t    = sh_scalars[1];
+        float v_t_j = 0.0f;
+        if (lane == 0) {
+            v_t_j = (float)conv_base[v_channel * L + t];
+        }
+        v_t_j = simd_broadcast_first(v_t_j);
+
+        // ─── Decay state in-register + compute v_pred. ─────────────────
+        float v_pred_j = 0.0f;
+        for (int ii = 0; ii < SIMD_ITERS; ++ii) {
+            if (IS_LANE_VALID_TG(ii, lane, d_k)) {
+                st_reg[ii] *= decay_val;
+                v_pred_j   += st_reg[ii] * k_reg[ii];
+            }
+        }
+        v_pred_j = simd_sum(v_pred_j);
+
+        const float delta_j = beta_t * (v_t_j - v_pred_j);
+
+        // ─── Update state in-register + compute output. ────────────────
+        float o_t_j = 0.0f;
+        for (int ii = 0; ii < SIMD_ITERS; ++ii) {
+            if (IS_LANE_VALID_TG(ii, lane, d_k)) {
+                st_reg[ii] += k_reg[ii] * delta_j;
+                o_t_j      += st_reg[ii] * q_reg[ii];
+            }
+        }
+        o_t_j = simd_sum(o_t_j);
+
+        if (lane == 0) {
+            attn_out[output_offset_v2(b, t, h, j, param)] = (ftype)o_t_j;
+        }
+
+        // Keep all SGs in lockstep through the shared-Q/K phase before the
+        // compiler schedules state writeback. Although decode has no next
+        // timestep, removing this barrier regresses the kernel on Apple GPUs.
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    // ─── Write state back to device once. ──────────────────────────────
+    for (int ii = 0; ii < SIMD_ITERS; ++ii) {
+        int i = (int)lane + ii * 32;
+#if D_K_ALIGNED
+        state[i] = (ftype)st_reg[ii];
+#else
+        if (i < d_k) state[i] = (ftype)st_reg[ii];
+#endif
+    }
+}
+)metal";
+
+static const char* gLinearAttnFusedChunkSG = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef half ftype;
+#else
+typedef float ftype;
+#endif
+
+struct LinearAttnParam {
+    int batch;
+    int conv_dim;
+    int seq_len;
+    int kernel_size;
+    int conv_state_size;
+    int num_k_heads;
+    int num_v_heads;
+    int head_k_dim;
+    int head_v_dim;
+    int key_dim;
+    int val_dim;
+    int gqa_factor;
+    int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
+    float q_scale;
+};
+
+inline int c4_offset_v2(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int token_channel_offset(int b, int t, int c, int channel, int packed,
+                                constant LinearAttnParam& param) {
+    if (packed) {
+        return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
+    }
+    return (b * param.seq_len + t) * channel + c;
+}
+
+inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
+    int token = (b * param.seq_len + t) * param.num_v_heads + h;
+    if (param.output_c4) {
+        return c4_offset_v2(token, d, param.batch * param.seq_len * param.num_v_heads);
+    }
+    return token * param.head_v_dim + d;
+}
+
+kernel void linear_attn_fused_chunk_sg(
+    const device ftype* conv_out         [[buffer(0)]],
+    const device ftype* gate             [[buffer(1)]],
+    const device ftype* beta             [[buffer(2)]],
+    device ftype* recurrent_state        [[buffer(3)]],
+    device ftype* attn_out               [[buffer(4)]],
+    constant LinearAttnParam& param      [[buffer(5)]],
+    uint tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane  [[thread_index_in_simdgroup]])
+{
+    const int L      = param.seq_len;
+    const int H      = param.num_v_heads;
+    const int d_k    = param.head_k_dim;
+    const int d_v    = param.head_v_dim;
+    const int D      = param.conv_dim;
+    const int key_dim= param.key_dim;
+    const int gqa_factor = param.gqa_factor;
+    const int use_l2norm = param.use_l2norm;
+    const float q_scale  = param.q_scale;
+
+    // Decode grid position into (b, h, j-block).
+    // TGs = B * H * (dv / SIMDS_PER_TG); j-block index within a head = tgpig
+    // mod (dv/SIMDS_PER_TG). Each SG then owns j = j_block_base + sgitg.
+    const int j_blocks = d_v / SIMDS_PER_TG;              // whole j-blocks per head
+    const int idx      = (int)tgpig;
+    const int bh       = idx / j_blocks;
+    const int j_block  = idx % j_blocks;
+    const int b        = bh / H;
+    const int h        = bh % H;
+    const int k_head   = h / gqa_factor;
+    const int j        = j_block * SIMDS_PER_TG + sgitg;  // this SG's dv column
+
+    // ─── State: dk elements per j, hoisted into lane-local registers. ───
+    device ftype* state_gm = recurrent_state + (b * H + h) * d_v * d_k + j * d_k;
+    float s_reg[SIMD_ITERS];
+    for (int ii = 0; ii < SIMD_ITERS; ++ii) {
+        int i = lane + ii * 32;
+        s_reg[ii] = (i < d_k) ? (float)state_gm[i] : 0.0f;
+    }
+
+    // ─── Threadgroup-shared buffers for one chunk. ───
+    // Q, K are shared across all SIMDS_PER_TG simdgroups (same for every j in
+    // the block). V is per-j but only the SIMDS_PER_TG j-columns owned here.
+    threadgroup float sh_q[CHUNK_BT][HEAD_K_DIM];             // scaled+normalized Q
+    threadgroup float sh_k[CHUNK_BT][HEAD_K_DIM];             // normalized K
+    threadgroup float sh_v[CHUNK_BT][SIMDS_PER_TG];           // per-j V for this TG
+    threadgroup float sh_g[CHUNK_BT];
+    threadgroup float sh_beta[CHUNK_BT];
+
+    const int TG_THREADS = SIMDS_PER_TG * 32;
+    const int tid = (int)(sgitg * 32 + lane);
+
+    const device ftype* conv_base = conv_out + b * D * L;
+
+    // Main chunked timestep loop.
+    for (int t0 = 0; t0 < L; t0 += CHUNK_BT) {
+        int chunk_len = min(CHUNK_BT, L - t0);
+
+        // ── Cooperative load Q, K, V, gate, beta for this chunk. ──
+        int qk_total = chunk_len * d_k;
+        for (int idx2 = tid; idx2 < qk_total; idx2 += TG_THREADS) {
+            int dt = idx2 / d_k;
+            int di = idx2 % d_k;
+            int t_abs = t0 + dt;
+            sh_q[dt][di] = (float)conv_base[(k_head * d_k + di) * L + t_abs];
+            sh_k[dt][di] = (float)conv_base[(key_dim + k_head * d_k + di) * L + t_abs];
+        }
+        // V: only SIMDS_PER_TG columns (the ones we output), keyed by (dt, sgitg).
+        // Each SG loads its own j-column's V across all chunk_len timesteps.
+        for (int dt = (int)lane; dt < chunk_len; dt += 32) {
+            int t_abs = t0 + dt;
+            sh_v[dt][sgitg] = (float)conv_base[(2 * key_dim + h * d_v + j) * L + t_abs];
+        }
+        for (int dt = tid; dt < chunk_len; dt += TG_THREADS) {
+            int bth = b * L * H + (t0 + dt) * H + h;
+            int t_abs = t0 + dt;
+            sh_g[dt]    = (float)gate[token_channel_offset(b, t_abs, h, H, param.gate_c4, param)];
+            sh_beta[dt] = (float)beta[token_channel_offset(b, t_abs, h, H, param.beta_c4, param)];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── L2 norm + q_scale on sh_q / sh_k. Each SG handles a slice of
+        //     timesteps (round-robin over sgitg) so the whole TG cooperates. ──
+        if (use_l2norm) {
+            const float eps = 1e-6f;
+            for (int dt = sgitg; dt < chunk_len; dt += SIMDS_PER_TG) {
+                // Q norm
+                float sq = 0.0f;
+                for (int i = lane; i < d_k; i += 32) {
+                    float v = sh_q[dt][i]; sq += v * v;
+                }
+                sq = simd_sum(sq);
+                float invQ = rsqrt(sq + eps) * q_scale;
+                for (int i = lane; i < d_k; i += 32) sh_q[dt][i] *= invQ;
+                // K norm
+                sq = 0.0f;
+                for (int i = lane; i < d_k; i += 32) {
+                    float v = sh_k[dt][i]; sq += v * v;
+                }
+                sq = simd_sum(sq);
+                float invK = rsqrt(sq + eps);
+                for (int i = lane; i < d_k; i += 32) sh_k[dt][i] *= invK;
+            }
+        } else {
+            for (int dt = sgitg; dt < chunk_len; dt += SIMDS_PER_TG) {
+                for (int i = lane; i < d_k; i += 32) sh_q[dt][i] *= q_scale;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── Sequential delta rule for this SG's j across chunk_len timesteps. ──
+        // 32 lanes in the SG cooperatively reduce dk each timestep via simd_sum.
+        // State stays register-resident in s_reg[SIMD_ITERS].
+        for (int dt = 0; dt < chunk_len; ++dt) {
+            float decay  = exp(sh_g[dt]);
+            float beta_t = sh_beta[dt];
+            float v_t_j  = sh_v[dt][sgitg];
+
+            // Phase 1: decay state, accumulate v_pred = <s, k>
+            float v_pred = 0.0f;
+            for (int ii = 0; ii < SIMD_ITERS; ++ii) {
+                int i = lane + ii * 32;
+                if (i < d_k) {
+                    s_reg[ii] *= decay;
+                    v_pred += s_reg[ii] * sh_k[dt][i];
+                }
+            }
+            v_pred = simd_sum(v_pred);
+
+            float delta = beta_t * (v_t_j - v_pred);
+
+            // Phase 2: state += delta * k, accumulate o = <s, q>
+            float o_t_j = 0.0f;
+            for (int ii = 0; ii < SIMD_ITERS; ++ii) {
+                int i = lane + ii * 32;
+                if (i < d_k) {
+                    s_reg[ii] += sh_k[dt][i] * delta;
+                    o_t_j += s_reg[ii] * sh_q[dt][i];
+                }
+            }
+            o_t_j = simd_sum(o_t_j);
+
+            if (lane == 0) {
+                attn_out[output_offset_v2(b, t0 + dt, h, j, param)] = (ftype)o_t_j;
+            }
+        }
+        // No trailing barrier needed: the next iteration's loads only touch
+        // sh_q/sh_k/sh_v/sh_g/sh_beta which have been fully consumed here,
+        // and the load loop starts with an implicit "any thread may write".
+        // But we must ensure no stray thread proceeds to the next load before
+        // others finish their reads of the current chunk's sh_* data.
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    // ── Flush register-resident state back to device memory. ──
+    for (int ii = 0; ii < SIMD_ITERS; ++ii) {
+        int i = lane + ii * 32;
+        if (i < d_k) state_gm[i] = (ftype)s_reg[ii];
+    }
+}
+)metal";
+
+
+static const char* gLinearAttnFlashChunk = R"metal(
+#include <metal_tensor>
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
+#include <metal_stdlib>
+using namespace metal;
+using namespace mpp::tensor_ops;
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef half ftype;
+#else
+typedef float ftype;
+#endif
+
+struct LinearAttnParam {
+    int batch;
+    int conv_dim;
+    int seq_len;
+    int kernel_size;
+    int conv_state_size;
+    int num_k_heads;
+    int num_v_heads;
+    int head_k_dim;
+    int head_v_dim;
+    int key_dim;
+    int val_dim;
+    int gqa_factor;
+    int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
+    float q_scale;
+};
+
+inline int c4_offset_v2(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int token_channel_offset(int b, int t, int c, int channel, int packed,
+                                constant LinearAttnParam& param) {
+    if (packed) {
+        return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
+    }
+    return (b * param.seq_len + t) * channel + c;
+}
+
+inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
+    int token = (b * param.seq_len + t) * param.num_v_heads + h;
+    if (param.output_c4) {
+        return c4_offset_v2(token, d, param.batch * param.seq_len * param.num_v_heads);
+    }
+    return token * param.head_v_dim + d;
+}
+
+kernel void linear_attn_flash_chunk(
+    const device ftype* conv_out         [[buffer(0)]],
+    const device ftype* gate             [[buffer(1)]],
+    const device ftype* beta             [[buffer(2)]],
+    device ftype* recurrent_state        [[buffer(3)]],
+    device ftype* attn_out               [[buffer(4)]],
+    constant LinearAttnParam& param      [[buffer(5)]],
+    uint tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane  [[thread_index_in_simdgroup]])
+{
+    const int L         = param.seq_len;
+    const int H         = param.num_v_heads;
+    const int d_k       = param.head_k_dim;
+    const int d_v       = param.head_v_dim;
+    const int D         = param.conv_dim;
+    const int key_dim   = param.key_dim;
+    const int gqa_factor= param.gqa_factor;
+    const int use_l2norm= param.use_l2norm;
+    const float q_scale = param.q_scale;
+
+    const int dv_blocks = HEAD_V_DIM / DV_BLOCK;
+    const int idx       = (int)tgpig;
+    const int bh        = idx / dv_blocks;
+    const int dvb       = idx % dv_blocks;
+    const int b         = bh / H;
+    const int h         = bh % H;
+    const int k_head    = h / gqa_factor;
+    const int dv_off    = dvb * DV_BLOCK;
+
+    const int TG_THREADS = SIMDS_PER_TG * 32;
+    const int tid        = (int)(sgitg * 32 + lane);
+    const device ftype* conv_base = conv_out + b * D * L;
+
+    threadgroup float sh_q   [CHUNK_BT][HEAD_K_DIM];
+    threadgroup float sh_k   [CHUNK_BT][HEAD_K_DIM];
+    threadgroup float sh_state[HEAD_K_DIM][DV_BLOCK]; // in-place accumulate
+    threadgroup float sh_attn[CHUNK_BT][CHUNK_BT];
+    threadgroup float sh_qkdm[CHUNK_BT][CHUNK_BT];
+    threadgroup float sh_v   [CHUNK_BT][DV_BLOCK]; // v_beta / v_new / v_nb
+    threadgroup float sh_K_S [CHUNK_BT][DV_BLOCK]; // K@state / v_prime
+    threadgroup float sh_out [CHUNK_BT][DV_BLOCK]; // Q·expG @ state / final
+    threadgroup float sh_g   [CHUNK_BT];
+    threadgroup float sh_beta[CHUNK_BT];
+    threadgroup float sh_G   [CHUNK_BT];
+
+    device ftype* state_gm = recurrent_state + (b * H + h) * d_v * d_k;
+    // Load state once.
+    for (int p = tid; p < HEAD_K_DIM * DV_BLOCK; p += TG_THREADS) {
+        int dki = p / DV_BLOCK, dvi = p % DV_BLOCK;
+        sh_state[dki][dvi] = (float)state_gm[(dv_off + dvi) * d_k + dki];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    using D2 = dextents<int32_t, 2>;
+
+    for (int t0 = 0; t0 < L; t0 += CHUNK_BT) {
+        int chunk_len = min((int)CHUNK_BT, L - t0);
+
+        // ── 1. Cooperative load Q, K, V, g, β. ──
+        for (int p = tid; p < chunk_len * d_k; p += TG_THREADS) {
+            int dt = p / d_k, di = p % d_k;
+            int t_abs = t0 + dt;
+            sh_q[dt][di] = (float)conv_base[(k_head * d_k + di) * L + t_abs];
+            sh_k[dt][di] = (float)conv_base[(key_dim + k_head * d_k + di) * L + t_abs];
+        }
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int dt = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            int t_abs = t0 + dt;
+            sh_v[dt][dvi] = (float)conv_base[(2 * key_dim + h * d_v + dv_off + dvi) * L + t_abs];
+        }
+        for (int dt = tid; dt < chunk_len; dt += TG_THREADS) {
+            int bth = b * L * H + (t0 + dt) * H + h;
+            // Clamp gate to [-88, 0] to prevent NaN propagation via cumsum.
+            // With fp16 storage the upstream `-exp(A_log) * softplus(a+dt_bias)`
+            // pipeline may overflow to -inf on certain (b, h, t) positions (values
+            // that stay finite in fp32). Once a single gate is -inf, `sh_G`
+            // cumsum becomes -inf and downstream `exp(sh_G[i] - sh_G[j])` = NaN,
+            // corrupting the entire output. `exp(-88)` ≈ 0 so clamping is
+            // semantically equivalent to `exp(-inf) = 0` — which is what the
+            // fused_chunk_sg / gated_delta_rule_sg kernels effectively see
+            // (they read gate per-timestep and apply exp directly, without
+            // cumsum, so those kernels are naturally robust to -inf inputs).
+            int t_abs = t0 + dt;
+            float g_val = (float)gate[token_channel_offset(b, t_abs, h, H, param.gate_c4, param)];
+            g_val = clamp(g_val, -88.0f, 0.0f);
+            sh_g[dt]    = g_val;
+            sh_beta[dt] = (float)beta[token_channel_offset(b, t_abs, h, H, param.beta_c4, param)];
+        }
+        for (int dt = chunk_len + tid; dt < CHUNK_BT; dt += TG_THREADS) {
+            sh_g[dt] = 0.0f; sh_beta[dt] = 0.0f;
+            for (int di = 0; di < HEAD_K_DIM; ++di) { sh_q[dt][di] = 0.0f; sh_k[dt][di] = 0.0f; }
+            for (int dvi = 0; dvi < DV_BLOCK; ++dvi) sh_v[dt][dvi] = 0.0f;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 2. L2 norm + q_scale (in-place). ──
+        if (use_l2norm) {
+            const float eps = 1e-6f;
+            for (int dt = sgitg; dt < chunk_len; dt += SIMDS_PER_TG) {
+                float sq = 0.0f;
+                for (int i = lane; i < d_k; i += 32) { float v = sh_q[dt][i]; sq += v * v; }
+                sq = simd_sum(sq);
+                float invQ = rsqrt(sq + eps) * q_scale;
+                for (int i = lane; i < d_k; i += 32) sh_q[dt][i] *= invQ;
+                sq = 0.0f;
+                for (int i = lane; i < d_k; i += 32) { float v = sh_k[dt][i]; sq += v * v; }
+                sq = simd_sum(sq);
+                float invK = rsqrt(sq + eps);
+                for (int i = lane; i < d_k; i += 32) sh_k[dt][i] *= invK;
+            }
+        } else {
+            for (int dt = sgitg; dt < chunk_len; dt += SIMDS_PER_TG) {
+                for (int i = lane; i < d_k; i += 32) sh_q[dt][i] *= q_scale;
+            }
+        }
+        // ── 3. cumsum(g) → sh_G — FUSED with L2 norm barrier ──
+        if (tid == 0) {
+            float acc = 0.0f;
+            for (int t = 0; t < chunk_len; ++t) { acc += sh_g[t]; sh_G[t] = acc; }
+            for (int t = chunk_len; t < CHUNK_BT; ++t) sh_G[t] = acc;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 4. K@K^T → sh_attn,  Q@K^T → sh_qkdm  (TENSOR, execution_simdgroups=8) ──
+        {
+            auto tKrow = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_k[0][0], D2(HEAD_K_DIM, CHUNK_BT));
+            auto tQrow = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_q[0][0], D2(HEAD_K_DIM, CHUNK_BT));
+            matmul2d<
+                matmul2d_descriptor(CHUNK_BT, CHUNK_BT, HEAD_K_DIM,
+                                    false, true, false),
+                execution_simdgroups<SIMDS_PER_TG>> mm;
+            auto sKa = tKrow.slice(0, 0);
+            auto sKb = tKrow.slice(0, 0);
+            auto cKK = mm.get_destination_cooperative_tensor<decltype(sKa), decltype(sKb), float>();
+            mm.run(sKa, sKb, cKK);
+            auto tAttn = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_attn[0][0], D2(CHUNK_BT, CHUNK_BT));
+            cKK.store(tAttn);
+
+            auto sQa = tQrow.slice(0, 0);
+            auto cQK = mm.get_destination_cooperative_tensor<decltype(sQa), decltype(sKb), float>();
+            mm.run(sQa, sKb, cQK);
+            auto tQkdm = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_qkdm[0][0], D2(CHUNK_BT, CHUNK_BT));
+            cQK.store(tQkdm);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 5. Apply mask + decay + β. Also compute v_beta in sh_v (FUSED). ──
+        for (int p = tid; p < CHUNK_BT * CHUNK_BT; p += TG_THREADS) {
+            int i = p / CHUNK_BT, jj = p % CHUNK_BT;
+            float aval = 0.0f, qval = 0.0f;
+            if (i < chunk_len && jj < chunk_len) {
+                float decay = exp(sh_G[i] - sh_G[jj]);
+                if (i > jj)  aval = -sh_beta[i] * sh_attn[i][jj] * decay;
+                if (i >= jj) qval = sh_qkdm[i][jj] * decay;
+            }
+            sh_attn[i][jj] = aval;
+            sh_qkdm[i][jj] = qval;
+        }
+        // Compute v_beta in sh_v (in-place, disjoint from sh_attn) — same barrier.
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int dt = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            sh_v[dt][dvi] = sh_beta[dt] * sh_v[dt][dvi];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 6. (I - strict_lower(sh_attn))^{-1} via forward sub (SERIAL, SG 0). ──
+        if (sgitg == 0) {
+            for (int i = 1; i < chunk_len; ++i) {
+                int kcol = (int)lane;
+                float new_val = 0.0f;
+                if (kcol < i) {
+                    float sum = 0.0f;
+                    for (int s = kcol + 1; s < i; ++s) sum += sh_attn[i][s] * sh_attn[s][kcol];
+                    new_val = sh_attn[i][kcol] + sum;
+                }
+                simdgroup_barrier(mem_flags::mem_threadgroup);
+                if (kcol < i) sh_attn[i][kcol] = new_val;
+                simdgroup_barrier(mem_flags::mem_threadgroup);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid < chunk_len) sh_attn[tid][tid] = 1.0f;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 7. Combined stage:
+        //   * K_S = K @ state              (TENSOR)  → sh_K_S
+        //   * v_nb = attn @ v_beta         (scalar)  → sh_out (temp)
+        //   These write to disjoint TG-mem regions — one barrier at the end. ──
+        {
+            auto tK = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_k[0][0], D2(HEAD_K_DIM, CHUNK_BT));
+            auto tState = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_state[0][0], D2(DV_BLOCK, HEAD_K_DIM));
+            matmul2d<
+                matmul2d_descriptor(CHUNK_BT, DV_BLOCK, HEAD_K_DIM,
+                                    false, false, false),
+                execution_simdgroups<SIMDS_PER_TG>> mm;
+            auto sA = tK.slice(0, 0);
+            auto sB = tState.slice(0, 0);
+            auto cOut = mm.get_destination_cooperative_tensor<decltype(sA), decltype(sB), float>();
+            mm.run(sA, sB, cOut);
+            auto tKS = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_K_S[0][0], D2(DV_BLOCK, CHUNK_BT));
+            cOut.store(tKS);
+        }
+        // v_nb (small scalar matmul) into sh_out to leave sh_v intact until step 8.
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int t = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            float acc = 0.0f;
+            for (int s = 0; s <= t; ++s) acc += sh_attn[t][s] * sh_v[s][dvi];
+            sh_out[t][dvi] = acc;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 8. Combined stage:
+        //   * attn_scaled = attn * (β · expG) — write to sh_attn in-place
+        //   * v_new = v_nb − v_prime (where v_prime = attn_scaled @ K_S)
+        //     (scalar, small 16×16×16 = 4 KB fmas)
+        //   * Q_expG = Q * exp(G[t]) — write to sh_q in-place ──
+        // 8a. Row-scale sh_attn (uses β and expG from sh_beta / sh_G).
+        for (int p = tid; p < CHUNK_BT * CHUNK_BT; p += TG_THREADS) {
+            int t = p / CHUNK_BT, s = p % CHUNK_BT;
+            sh_attn[t][s] = sh_attn[t][s] * sh_beta[s] * exp(sh_G[s]);
+        }
+        // 8b. Scale Q into sh_q in-place (row-wise). Disjoint from sh_attn.
+        for (int p = tid; p < chunk_len * d_k; p += TG_THREADS) {
+            int dt = p / d_k, di = p % d_k;
+            sh_q[dt][di] = sh_q[dt][di] * exp(sh_G[dt]);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        // 8c. v_new = v_nb (sh_out) - attn_scaled @ K_S (scalar), write to sh_v.
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int t = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            float acc = 0.0f;
+            for (int s = 0; s < chunk_len; ++s) acc += sh_attn[t][s] * sh_K_S[s][dvi];
+            sh_v[t][dvi] = sh_out[t][dvi] - acc;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 9. attn_inter = (Q · expG) @ state (TENSOR, biggest). ──
+        {
+            auto tQ = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_q[0][0], D2(HEAD_K_DIM, CHUNK_BT));
+            auto tState = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_state[0][0], D2(DV_BLOCK, HEAD_K_DIM));
+            matmul2d<
+                matmul2d_descriptor(CHUNK_BT, DV_BLOCK, HEAD_K_DIM,
+                                    false, false, false),
+                execution_simdgroups<SIMDS_PER_TG>> mm;
+            auto sA = tQ.slice(0, 0);
+            auto sB = tState.slice(0, 0);
+            auto cOut = mm.get_destination_cooperative_tensor<decltype(sA), decltype(sB), float>();
+            mm.run(sA, sB, cOut);
+            auto tOut = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_out[0][0], D2(DV_BLOCK, CHUNK_BT));
+            cOut.store(tOut);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 10. out += attn_intra @ v_new (scalar, small); write to attn_out. ──
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int t = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            float acc = sh_out[t][dvi];
+            for (int s = 0; s <= t; ++s) acc += sh_qkdm[t][s] * sh_v[s][dvi];
+            // Write directly to device (out no longer needed in TG mem).
+            attn_out[output_offset_v2(b, t0 + t, h, dv_off + dvi, param)] = (ftype)acc;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 11. Combined stage: prepare for state update.
+        //   * K_dec[dt][di] = K[dt][di] * exp(G_last - G[dt])  → sh_k in-place
+        //   * sh_state *= exp(G_last)  (decay old state in-place) ──
+        float G_last = sh_G[chunk_len - 1];
+        float decay_total = exp(G_last);
+        for (int p = tid; p < chunk_len * d_k; p += TG_THREADS) {
+            int dt = p / d_k, di = p % d_k;
+            sh_k[dt][di] = sh_k[dt][di] * exp(G_last - sh_G[dt]);
+        }
+        for (int p = tid; p < HEAD_K_DIM * DV_BLOCK; p += TG_THREADS) {
+            int dki = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            sh_state[dki][dvi] *= decay_total;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 12. State update in one shot via multiply_accumulate mode:
+        //   D = C + A * B, where C = sh_state, A = K_dec^T, B = v_new.
+        //   Eliminates the separate sh_state_scratch buffer entirely. ──
+        {
+            auto tKdec = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_k[0][0], D2(HEAD_K_DIM, CHUNK_BT));
+            auto tVnew = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_v[0][0], D2(DV_BLOCK, CHUNK_BT));
+            auto tStateIn = tensor<threadgroup float, D2, tensor_inline>(
+                (threadgroup float*)&sh_state[0][0], D2(DV_BLOCK, HEAD_K_DIM));
+            matmul2d<
+                matmul2d_descriptor(HEAD_K_DIM, DV_BLOCK, CHUNK_BT,
+                                    /*ta=*/true, /*tb=*/false, /*tr=*/false,
+                                    matmul2d_descriptor::mode::multiply_accumulate),
+                execution_simdgroups<SIMDS_PER_TG>> mm;
+            auto sA = tKdec.slice(0, 0);
+            auto sB = tVnew.slice(0, 0);
+            auto cOut = mm.get_destination_cooperative_tensor<decltype(sA), decltype(sB), float>();
+            // Seed the accumulator with the decayed state.
+            cOut.load(tStateIn);
+            mm.run(sA, sB, cOut);
+            cOut.store(tStateIn);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    // ── Flush state to device once at kernel exit. ──
+    for (int p = tid; p < HEAD_K_DIM * DV_BLOCK; p += TG_THREADS) {
+        int dki = p / DV_BLOCK, dvi = p % DV_BLOCK;
+        state_gm[(dv_off + dvi) * d_k + dki] = (ftype)sh_state[dki][dvi];
+    }
+}
+)metal";
+
+// simdgroup_matrix (8x8 fp32 MMA) port of linear_attn_flash_chunk for devices
+// without the Metal tensor API (M4-class Macs, iPhone A-series). Replaces the
+// per-timestep scalar fused_chunk_sg path for long prefill: the chunked
+// gated-delta-rule formulation turns the sequential recurrence into a handful
+// of 16x{16,DV_BLOCK}xHEAD_K_DIM matmuls per chunk, which map directly onto
+// simdgroup_float8x8 tiles. Algorithm, buffers and barriers mirror
+// linear_attn_flash_chunk step-for-step; only the three tensor-API matmul
+// blocks (steps 4, 7, 9, 12) are re-expressed as 8x8 MMA loops.
+static const char* gLinearAttnFlashChunkSGMM = R"metal(
+#include <metal_stdlib>
+#include <metal_simdgroup_matrix>
+using namespace metal;
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef half ftype;
+#else
+typedef float ftype;
+#endif
+
+struct LinearAttnParam {
+    int batch;
+    int conv_dim;
+    int seq_len;
+    int kernel_size;
+    int conv_state_size;
+    int num_k_heads;
+    int num_v_heads;
+    int head_k_dim;
+    int head_v_dim;
+    int key_dim;
+    int val_dim;
+    int gqa_factor;
+    int use_l2norm;
+    int qkv_c4;
+    int gate_c4;
+    int beta_c4;
+    int output_c4;
+    float q_scale;
+};
+
+inline int c4_offset_v2(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int token_channel_offset(int b, int t, int c, int channel, int packed,
+                                constant LinearAttnParam& param) {
+    if (packed) {
+        return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
+    }
+    return (b * param.seq_len + t) * channel + c;
+}
+
+inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
+    int token = (b * param.seq_len + t) * param.num_v_heads + h;
+    if (param.output_c4) {
+        return c4_offset_v2(token, d, param.batch * param.seq_len * param.num_v_heads);
+    }
+    return token * param.head_v_dim + d;
+}
+
+// CHUNK_BT (=16), HEAD_K_DIM, HEAD_V_DIM, DV_BLOCK (=16), SIMDS_PER_TG are
+// injected as compile-time macros. CHUNK_BT and DV_BLOCK must be multiples of
+// 8; HEAD_K_DIM must be a multiple of 8 and <= 128 (threadgroup memory).
+
+kernel void linear_attn_flash_chunk_sgmm(
+    const device ftype* conv_out         [[buffer(0)]],
+    const device ftype* gate             [[buffer(1)]],
+    const device ftype* beta             [[buffer(2)]],
+    device ftype* recurrent_state        [[buffer(3)]],
+    device ftype* attn_out               [[buffer(4)]],
+    constant LinearAttnParam& param      [[buffer(5)]],
+    uint tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane  [[thread_index_in_simdgroup]])
+{
+    const int L         = param.seq_len;
+    const int H         = param.num_v_heads;
+    const int d_k       = param.head_k_dim;
+    const int d_v       = param.head_v_dim;
+    const int D         = param.conv_dim;
+    const int key_dim   = param.key_dim;
+    const int gqa_factor= param.gqa_factor;
+    const int use_l2norm= param.use_l2norm;
+    const float q_scale = param.q_scale;
+
+    const int dv_blocks = HEAD_V_DIM / DV_BLOCK;
+    const int idx       = (int)tgpig;
+    const int bh        = idx / dv_blocks;
+    const int dvb       = idx % dv_blocks;
+    const int b         = bh / H;
+    const int h         = bh % H;
+    const int k_head    = h / gqa_factor;
+    const int dv_off    = dvb * DV_BLOCK;
+
+    const int TG_THREADS = SIMDS_PER_TG * 32;
+    const int tid        = (int)(sgitg * 32 + lane);
+    const device ftype* conv_base = conv_out + b * D * L;
+
+    threadgroup float sh_q   [CHUNK_BT][HEAD_K_DIM];
+    threadgroup float sh_k   [CHUNK_BT][HEAD_K_DIM];
+    threadgroup float sh_state[HEAD_K_DIM][DV_BLOCK]; // in-place accumulate
+    threadgroup float sh_attn[CHUNK_BT][CHUNK_BT];
+    threadgroup float sh_qkdm[CHUNK_BT][CHUNK_BT];
+    threadgroup float sh_v   [CHUNK_BT][DV_BLOCK]; // v_beta / v_new / v_nb
+    threadgroup float sh_K_S [CHUNK_BT][DV_BLOCK]; // K@state / v_prime
+    threadgroup float sh_out [CHUNK_BT][DV_BLOCK]; // Q·expG @ state / final
+    threadgroup float sh_g   [CHUNK_BT];
+    threadgroup float sh_beta[CHUNK_BT];
+    threadgroup float sh_G   [CHUNK_BT];
+
+    device ftype* state_gm = recurrent_state + (b * H + h) * d_v * d_k;
+    // Load state once.
+    for (int p = tid; p < HEAD_K_DIM * DV_BLOCK; p += TG_THREADS) {
+        int dki = p / DV_BLOCK, dvi = p % DV_BLOCK;
+        sh_state[dki][dvi] = (float)state_gm[(dv_off + dvi) * d_k + dki];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (int t0 = 0; t0 < L; t0 += CHUNK_BT) {
+        int chunk_len = min((int)CHUNK_BT, L - t0);
+
+        // ── 1. Cooperative load Q, K, V, g, β. ──
+        for (int p = tid; p < chunk_len * d_k; p += TG_THREADS) {
+            int dt = p / d_k, di = p % d_k;
+            int t_abs = t0 + dt;
+            sh_q[dt][di] = (float)conv_base[(k_head * d_k + di) * L + t_abs];
+            sh_k[dt][di] = (float)conv_base[(key_dim + k_head * d_k + di) * L + t_abs];
+        }
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int dt = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            int t_abs = t0 + dt;
+            sh_v[dt][dvi] = (float)conv_base[(2 * key_dim + h * d_v + dv_off + dvi) * L + t_abs];
+        }
+        for (int dt = tid; dt < chunk_len; dt += TG_THREADS) {
+            // Clamp gate to [-88, 0]: with fp16 storage the upstream gate may
+            // overflow to -inf, which would poison the cumsum in sh_G (see the
+            // matching comment in linear_attn_flash_chunk).
+            int t_abs = t0 + dt;
+            float g_val = (float)gate[token_channel_offset(b, t_abs, h, H, param.gate_c4, param)];
+            g_val = clamp(g_val, -88.0f, 0.0f);
+            sh_g[dt]    = g_val;
+            sh_beta[dt] = (float)beta[token_channel_offset(b, t_abs, h, H, param.beta_c4, param)];
+        }
+        for (int dt = chunk_len + tid; dt < CHUNK_BT; dt += TG_THREADS) {
+            sh_g[dt] = 0.0f; sh_beta[dt] = 0.0f;
+            for (int di = 0; di < HEAD_K_DIM; ++di) { sh_q[dt][di] = 0.0f; sh_k[dt][di] = 0.0f; }
+            for (int dvi = 0; dvi < DV_BLOCK; ++dvi) sh_v[dt][dvi] = 0.0f;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 2. L2 norm + q_scale (in-place). ──
+        if (use_l2norm) {
+            const float eps = 1e-6f;
+            for (int dt = sgitg; dt < chunk_len; dt += SIMDS_PER_TG) {
+                float sq = 0.0f;
+                for (int i = lane; i < d_k; i += 32) { float v = sh_q[dt][i]; sq += v * v; }
+                sq = simd_sum(sq);
+                float invQ = rsqrt(sq + eps) * q_scale;
+                for (int i = lane; i < d_k; i += 32) sh_q[dt][i] *= invQ;
+                sq = 0.0f;
+                for (int i = lane; i < d_k; i += 32) { float v = sh_k[dt][i]; sq += v * v; }
+                sq = simd_sum(sq);
+                float invK = rsqrt(sq + eps);
+                for (int i = lane; i < d_k; i += 32) sh_k[dt][i] *= invK;
+            }
+        } else {
+            for (int dt = sgitg; dt < chunk_len; dt += SIMDS_PER_TG) {
+                for (int i = lane; i < d_k; i += 32) sh_q[dt][i] *= q_scale;
+            }
+        }
+        // ── 3. cumsum(g) → sh_G — FUSED with L2 norm barrier ──
+        if (tid == 0) {
+            float acc = 0.0f;
+            for (int t = 0; t < chunk_len; ++t) { acc += sh_g[t]; sh_G[t] = acc; }
+            for (int t = chunk_len; t < CHUNK_BT; ++t) sh_G[t] = acc;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 4. K@K^T → sh_attn,  Q@K^T → sh_qkdm  (8x8 MMA). ──
+        // 2x2 tiles per 16x16 output, 8 tiles across both outputs; SGs
+        // round-robin over tiles, K-loop over HEAD_K_DIM in 8-wide steps.
+        {
+            const int kk_tiles = (CHUNK_BT / 8) * (CHUNK_BT / 8); // 4
+            for (int t = sgitg; t < 2 * kk_tiles; t += SIMDS_PER_TG) {
+                const bool is_qk = t >= kk_tiles;
+                const int tt = is_qk ? t - kk_tiles : t;
+                const int r8 = (tt / (CHUNK_BT / 8)) * 8;
+                const int c8 = (tt % (CHUNK_BT / 8)) * 8;
+                simdgroup_float8x8 mC = make_filled_simdgroup_matrix<float, 8>(0.0f);
+                for (int kk = 0; kk < HEAD_K_DIM; kk += 8) {
+                    simdgroup_float8x8 mA;
+                    simdgroup_float8x8 mB;
+                    if (is_qk) {
+                        simdgroup_load(mA, &sh_q[r8][kk], HEAD_K_DIM);
+                    } else {
+                        simdgroup_load(mA, &sh_k[r8][kk], HEAD_K_DIM);
+                    }
+                    simdgroup_load(mB, &sh_k[c8][kk], HEAD_K_DIM, ulong2(0, 0), true);
+                    simdgroup_multiply_accumulate(mC, mA, mB, mC);
+                }
+                if (is_qk) {
+                    simdgroup_store(mC, &sh_qkdm[r8][c8], CHUNK_BT);
+                } else {
+                    simdgroup_store(mC, &sh_attn[r8][c8], CHUNK_BT);
+                }
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 5. Apply mask + decay + β. Also compute v_beta in sh_v (FUSED). ──
+        for (int p = tid; p < CHUNK_BT * CHUNK_BT; p += TG_THREADS) {
+            int i = p / CHUNK_BT, jj = p % CHUNK_BT;
+            float aval = 0.0f, qval = 0.0f;
+            if (i < chunk_len && jj < chunk_len) {
+                float decay = exp(sh_G[i] - sh_G[jj]);
+                if (i > jj)  aval = -sh_beta[i] * sh_attn[i][jj] * decay;
+                if (i >= jj) qval = sh_qkdm[i][jj] * decay;
+            }
+            sh_attn[i][jj] = aval;
+            sh_qkdm[i][jj] = qval;
+        }
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int dt = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            sh_v[dt][dvi] = sh_beta[dt] * sh_v[dt][dvi];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 6. (I - strict_lower(sh_attn))^{-1} via forward sub (SERIAL, SG 0). ──
+        if (sgitg == 0) {
+            for (int i = 1; i < chunk_len; ++i) {
+                int kcol = (int)lane;
+                float new_val = 0.0f;
+                if (kcol < i) {
+                    float sum = 0.0f;
+                    for (int s = kcol + 1; s < i; ++s) sum += sh_attn[i][s] * sh_attn[s][kcol];
+                    new_val = sh_attn[i][kcol] + sum;
+                }
+                simdgroup_barrier(mem_flags::mem_threadgroup);
+                if (kcol < i) sh_attn[i][kcol] = new_val;
+                simdgroup_barrier(mem_flags::mem_threadgroup);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid < chunk_len) sh_attn[tid][tid] = 1.0f;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 7. Combined stage:
+        //   * K_S = K @ state              (8x8 MMA)  → sh_K_S
+        //   * v_nb = attn @ v_beta         (scalar)   → sh_out (temp)
+        //   Disjoint TG-mem regions — one barrier at the end. ──
+        {
+            const int ks_tiles = (CHUNK_BT / 8) * (DV_BLOCK / 8); // 4
+            for (int t = sgitg; t < ks_tiles; t += SIMDS_PER_TG) {
+                const int r8 = (t / (DV_BLOCK / 8)) * 8;
+                const int c8 = (t % (DV_BLOCK / 8)) * 8;
+                simdgroup_float8x8 mC = make_filled_simdgroup_matrix<float, 8>(0.0f);
+                for (int kk = 0; kk < HEAD_K_DIM; kk += 8) {
+                    simdgroup_float8x8 mA;
+                    simdgroup_float8x8 mB;
+                    simdgroup_load(mA, &sh_k[r8][kk], HEAD_K_DIM);
+                    simdgroup_load(mB, &sh_state[kk][c8], DV_BLOCK);
+                    simdgroup_multiply_accumulate(mC, mA, mB, mC);
+                }
+                simdgroup_store(mC, &sh_K_S[r8][c8], DV_BLOCK);
+            }
+        }
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int t = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            float acc = 0.0f;
+            for (int s = 0; s <= t; ++s) acc += sh_attn[t][s] * sh_v[s][dvi];
+            sh_out[t][dvi] = acc;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 8. Combined stage (same as flash_chunk):
+        //   8a. attn_scaled = attn * (β · expG) in-place; 8b. Q *= exp(G[t]);
+        //   8c. v_new = v_nb - attn_scaled @ K_S → sh_v. ──
+        for (int p = tid; p < CHUNK_BT * CHUNK_BT; p += TG_THREADS) {
+            int t = p / CHUNK_BT, s = p % CHUNK_BT;
+            sh_attn[t][s] = sh_attn[t][s] * sh_beta[s] * exp(sh_G[s]);
+        }
+        for (int p = tid; p < chunk_len * d_k; p += TG_THREADS) {
+            int dt = p / d_k, di = p % d_k;
+            sh_q[dt][di] = sh_q[dt][di] * exp(sh_G[dt]);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int t = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            float acc = 0.0f;
+            for (int s = 0; s < chunk_len; ++s) acc += sh_attn[t][s] * sh_K_S[s][dvi];
+            sh_v[t][dvi] = sh_out[t][dvi] - acc;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 9. attn_inter = (Q · expG) @ state (8x8 MMA, biggest). ──
+        {
+            const int qs_tiles = (CHUNK_BT / 8) * (DV_BLOCK / 8); // 4
+            for (int t = sgitg; t < qs_tiles; t += SIMDS_PER_TG) {
+                const int r8 = (t / (DV_BLOCK / 8)) * 8;
+                const int c8 = (t % (DV_BLOCK / 8)) * 8;
+                simdgroup_float8x8 mC = make_filled_simdgroup_matrix<float, 8>(0.0f);
+                for (int kk = 0; kk < HEAD_K_DIM; kk += 8) {
+                    simdgroup_float8x8 mA;
+                    simdgroup_float8x8 mB;
+                    simdgroup_load(mA, &sh_q[r8][kk], HEAD_K_DIM);
+                    simdgroup_load(mB, &sh_state[kk][c8], DV_BLOCK);
+                    simdgroup_multiply_accumulate(mC, mA, mB, mC);
+                }
+                simdgroup_store(mC, &sh_out[r8][c8], DV_BLOCK);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 10. out += attn_intra @ v_new (scalar, small); write to attn_out. ──
+        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
+            int t = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            float acc = sh_out[t][dvi];
+            for (int s = 0; s <= t; ++s) acc += sh_qkdm[t][s] * sh_v[s][dvi];
+            attn_out[output_offset_v2(b, t0 + t, h, dv_off + dvi, param)] = (ftype)acc;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 11. Prepare state update: K_dec = K * exp(G_last - G[t]) in-place;
+        //        sh_state *= exp(G_last). ──
+        float G_last = sh_G[chunk_len - 1];
+        float decay_total = exp(G_last);
+        for (int p = tid; p < chunk_len * d_k; p += TG_THREADS) {
+            int dt = p / d_k, di = p % d_k;
+            sh_k[dt][di] = sh_k[dt][di] * exp(G_last - sh_G[dt]);
+        }
+        for (int p = tid; p < HEAD_K_DIM * DV_BLOCK; p += TG_THREADS) {
+            int dki = p / DV_BLOCK, dvi = p % DV_BLOCK;
+            sh_state[dki][dvi] *= decay_total;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ── 12. State update: sh_state += K_dec^T @ v_new (8x8 MMA,
+        //        multiply-accumulate seeded from the decayed state). ──
+        {
+            const int su_tiles = (HEAD_K_DIM / 8) * (DV_BLOCK / 8);
+            for (int t = sgitg; t < su_tiles; t += SIMDS_PER_TG) {
+                const int r8 = (t / (DV_BLOCK / 8)) * 8;
+                const int c8 = (t % (DV_BLOCK / 8)) * 8;
+                simdgroup_float8x8 mC;
+                simdgroup_load(mC, &sh_state[r8][c8], DV_BLOCK);
+                for (int kk = 0; kk < CHUNK_BT; kk += 8) {
+                    simdgroup_float8x8 mA;
+                    simdgroup_float8x8 mB;
+                    simdgroup_load(mA, &sh_k[kk][r8], HEAD_K_DIM, ulong2(0, 0), true);
+                    simdgroup_load(mB, &sh_v[kk][c8], DV_BLOCK);
+                    simdgroup_multiply_accumulate(mC, mA, mB, mC);
+                }
+                simdgroup_store(mC, &sh_state[r8][c8], DV_BLOCK);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    // ── Flush state to device once at kernel exit. ──
+    for (int p = tid; p < HEAD_K_DIM * DV_BLOCK; p += TG_THREADS) {
+        int dki = p / DV_BLOCK, dvi = p % DV_BLOCK;
+        state_gm[(dv_off + dvi) * d_k + dki] = (ftype)sh_state[dki][dvi];
+    }
 }
 )metal";
 
