@@ -78,6 +78,11 @@ struct MetalEnv {
     // kernel: 4 simdgroups per tg, two K-halves per row + tg reduce).
     // 0 = off (legacy 2sg, 64 threads), unset/1 = on (default).
     int gemvSplitK;
+    // MNN_METAL_LINEAR_ATTN_SGMM: simdgroup_matrix (8x8 MMA) chunked prefill
+    // kernel for LinearAttention on non-tensor-API devices (M4-class/iPhone).
+    // Replaces the per-timestep scalar fused_chunk_sg path for seq >= 16.
+    // 0 = off (legacy scalar chunk path), unset/1 = on (default).
+    int linearAttnSgmm;
     // MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1: take the outer-dequant +
     // fp GEMM path instead of the fused Q4/Q8 GEMM that unpacks weights
     // in-kernel (A/B baseline + emergency rollback). Only meaningful on
@@ -147,6 +152,10 @@ struct MetalEnv {
                     int n = atoi(v);
                     e.gemvSplitK = (n < 0) ? 0 : (n > 2 ? 2 : n);
                 }
+            }
+            {
+                const char* v = getenv("MNN_METAL_LINEAR_ATTN_SGMM");
+                e.linearAttnSgmm = (v != nullptr && v[0] == '0') ? 0 : 1;
             }
             e.w4w8OuterDequantGemm   = envIs("MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI", '1');
             e.h2dQueued            = !envIs("MNN_METAL_H2D_QUEUED", '0');
