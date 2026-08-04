@@ -904,11 +904,13 @@ void Calibration::_collectFeatureMapsDistribution() {
                 }
             }
 
-            // store all raster input tensor
-            if (info->type() == "Raster") {
-                _rasterTensors[info->name()] = std::make_pair(inputsWeakPtrs[0], inputsWeakPtrs);
-            } else if (info->type() == "Pooling") {
-                _poolTensors[info->name()] = std::make_pair(inputsWeakPtrs[0], inputsWeakPtrs);
+            // store all raster input tensor (only when valid inputs exist)
+            if (!inputsWeakPtrs.empty()) {
+                if (info->type() == "Raster") {
+                    _rasterTensors[info->name()] = std::make_pair(inputsWeakPtrs[0], inputsWeakPtrs);
+                } else if (info->type() == "Pooling") {
+                    _poolTensors[info->name()] = std::make_pair(inputsWeakPtrs[0], inputsWeakPtrs);
+                }
             }
             return true;
         };
@@ -925,15 +927,23 @@ void Calibration::_collectFeatureMapsDistribution() {
                 }
             }
 
-            // store raster output tensor
+            // store raster output tensor (only if before callback recorded valid inputs)
             if (info->type() == "Raster") {
-                auto inputsWeakPtrs = _rasterTensors[info->name()].second;
-                auto outputweakPtr = std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(TensorUtils::getDescribeOrigin(nTensors[0])->mContent);
-                _rasterTensors[info->name()] = std::make_pair(outputweakPtr, inputsWeakPtrs);
+                auto rasterIter = _rasterTensors.find(info->name());
+                if (rasterIter != _rasterTensors.end() && !nTensors.empty()) {
+                    auto inputsWeakPtrs = rasterIter->second.second;
+                    auto outputweakPtr = std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(
+                        TensorUtils::getDescribeOrigin(nTensors[0])->mContent);
+                    _rasterTensors[info->name()] = std::make_pair(outputweakPtr, inputsWeakPtrs);
+                }
             } else if (info->type() == "Pooling") {
-                auto inputsWeakPtrs = _poolTensors[info->name()].second;
-                auto outputweakPtr = std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(TensorUtils::getDescribeOrigin(nTensors[0])->mContent);
-                _poolTensors[info->name()] = std::make_pair(outputweakPtr, inputsWeakPtrs);
+                auto poolIter = _poolTensors.find(info->name());
+                if (poolIter != _poolTensors.end() && !nTensors.empty()) {
+                    auto inputsWeakPtrs = poolIter->second.second;
+                    auto outputweakPtr = std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(
+                        TensorUtils::getDescribeOrigin(nTensors[0])->mContent);
+                    _poolTensors[info->name()] = std::make_pair(outputweakPtr, inputsWeakPtrs);
+                }
             }
             return true;
         };
@@ -960,6 +970,9 @@ void Calibration::_computeFeatureScaleKL() {
     for (auto& iter: _rasterTensors) {
         auto inputsPtr = iter.second.second;
         auto outputPtr = iter.second.first;
+        if (inputsPtr.empty()) {
+            continue;
+        }
         if (inputsPtr.size() > 1) {
             for (auto& inputWeakPtr: inputsPtr) {
                 _scales[inputWeakPtr].first = _scales[outputPtr].first;
@@ -974,7 +987,9 @@ void Calibration::_computeFeatureScaleKL() {
     for (auto& iter: _poolTensors) {
         auto inputsPtr = iter.second.second;
         auto outputPtr = iter.second.first;
-
+        if (inputsPtr.empty()) {
+            continue;
+        }
         for (auto& inputWeakPtr: inputsPtr) {
             _scales[outputPtr].first  = _scales[inputWeakPtr].first;
             _scales[outputPtr].second = _scales[inputWeakPtr].second;
