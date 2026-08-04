@@ -94,12 +94,14 @@ function (download_kleidiai_and_collect_sources)
                             "Your MNN checkout looks incomplete; update it to a version that "
                             "includes source/backend/cpu/kleidiai, or pass -DMNN_KLEIDIAI=OFF.")
     endif()
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/mnn_kleidiai.cpp)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/mnn_kleidiai_util.cpp)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIConvolution.cpp)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIConvolutionDepthwise.cpp)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIConvInt8.cpp)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIDenseConvolution.cpp)
+    list(APPEND MNN_KLEIDIAI_INTEGRATION_SOURCES
+        ${MNN_KLEIDIAI_DIR}/mnn_kleidiai.cpp
+        ${MNN_KLEIDIAI_DIR}/mnn_kleidiai_util.cpp
+        ${MNN_KLEIDIAI_DIR}/KleidiAIConvolution.cpp
+        ${MNN_KLEIDIAI_DIR}/KleidiAIConvolutionDepthwise.cpp
+        ${MNN_KLEIDIAI_DIR}/KleidiAIConvInt8.cpp
+        ${MNN_KLEIDIAI_DIR}/KleidiAIDenseConvolution.cpp)
+    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_INTEGRATION_SOURCES})
 
     include_directories(${MNN_KLEIDIAI_DIR})
 
@@ -129,7 +131,7 @@ function (download_kleidiai_and_collect_sources)
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qai8dxp_f32.c"
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxp_qs4cxs1s0.c"
     )
-    list(APPEND MNN_SOURCES_KLEIDIAI ${kleidiai_pack_sources})
+    list(APPEND KLEIDIAI_FILES_NEON ${kleidiai_pack_sources})
 
     file(GLOB matmul_clamp_f32_qai8dxp_qsi4cxp_sources
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*dotprod.c"
@@ -137,7 +139,7 @@ function (download_kleidiai_and_collect_sources)
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*dotprod_asm.S"
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*i8mm_asm.S"
     )
-    list(APPEND MNN_SOURCES_KLEIDIAI ${matmul_clamp_f32_qai8dxp_qsi4cxp_sources})
+    list(APPEND KLEIDIAI_FILES_NEON ${matmul_clamp_f32_qai8dxp_qsi4cxp_sources})
 
     file(GLOB matmul_clamp_f16_qsi8d32p_qai4c32p_sources
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*dotprod.c"
@@ -145,7 +147,7 @@ function (download_kleidiai_and_collect_sources)
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*dotprod_asm.S"
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*i8mm_asm.S"
     )
-    list(APPEND MNN_SOURCES_KLEIDIAI ${matmul_clamp_f16_qsi8d32p_qai4c32p_sources})
+    list(APPEND KLEIDIAI_FILES_NEON ${matmul_clamp_f16_qsi8d32p_qai4c32p_sources})
 
     file(GLOB matmul_clamp_f32_qsi8d32p_qai4c32p_sources
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*dotprod.c"
@@ -153,7 +155,8 @@ function (download_kleidiai_and_collect_sources)
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*dotprod_asm.S"
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*i8mm_asm.S"
     )
-    list(APPEND MNN_SOURCES_KLEIDIAI ${matmul_clamp_f32_qsi8d32p_qai4c32p_sources})
+    list(APPEND KLEIDIAI_FILES_NEON ${matmul_clamp_f32_qsi8d32p_qai4c32p_sources})
+    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_FILES_NEON})
 
     file(GLOB sme_pack_sources
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/*_sme.c
@@ -237,9 +240,13 @@ function (download_kleidiai_and_collect_sources)
     list(APPEND KLEIDIAI_FILES_SME2 ${dwconv_f32_f32_f32p_sme2_sources})
 
     set_source_files_properties(
-        ${MNN_SOURCES_KLEIDIAI}
+        ${MNN_KLEIDIAI_INTEGRATION_SOURCES}
         PROPERTIES COMPILE_OPTIONS
-            "-fno-tree-vectorize;-march=armv8.2-a+i8mm+dotprod+sve+sve2+fp16")
+            "-fno-tree-vectorize;-march=armv8.2-a+fp16")
+    set_source_files_properties(
+        ${KLEIDIAI_FILES_NEON}
+        PROPERTIES COMPILE_OPTIONS
+            "-fno-tree-vectorize;-march=armv8.2-a+i8mm+dotprod+fp16")
     set_source_files_properties(
         ${KLEIDIAI_FILES_SME2}
         PROPERTIES COMPILE_OPTIONS
