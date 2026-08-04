@@ -12,6 +12,7 @@ def makeIO(args, model_name, inputjson, external_file = None):
     exe = os.path.join(os.getcwd(), args.mnn_path, "generateIO")
     model = os.path.join(os.getcwd(), args.model, model_name)
     cache = os.path.join(os.getcwd(), args.cache_path)
+    inputjson = os.path.join(os.getcwd(), inputjson)
     output = os.path.join(cache, 'testdir')
     os.makedirs(output, exist_ok=True)
     process = subprocess.Popen(exe + " " + model + " " + inputjson + " " + output + " " + external_file, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True, shell=True)

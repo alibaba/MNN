@@ -157,22 +157,22 @@ ErrorCode QNNLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std:
     std::vector<uint32_t> realInputShape = getNHWCShape(input);
 
     // Create Resources.
-    this->createParamScalar("epsilon", mEpsilon);                                                                          // mParamScalarWrappers[0], epsilon
+    this->createParamScalar("epsilon", mEpsilon); // mParamScalarWrappers[0], epsilon
 
-    uint32_t tempPtr[1] = {(uint32_t) mInputDim - 1}; // Qnn only allows the last dim for norm.
-    this->createParamTensor("axes", QNN_DATATYPE_UINT_32, {1}, (void *)tempPtr);                                         // mParamTensorWrappers[0], axes
+    uint32_t tempPtr[1] = {(uint32_t)mInputDim - 1}; // Qnn only allows the last dim for norm.
+    this->createParamTensor("axes", QNN_DATATYPE_UINT_32, {1}, (void*)tempPtr); // mParamTensorWrappers[0], axes
 
     if (mGammaBetaSize == 0) {
         mGammaBetaSize = realInputShape[mRealAxis];
-        #ifdef QNN_VERBOSE
+#ifdef QNN_VERBOSE
         MNN_PRINT("LayerNorm do not have original gamma beta, %d", mGammaBetaSize);
-        #endif
+#endif
         mGammaData.resize(mGammaBetaSize, 1.0f);
         mBetaData.resize(mGammaBetaSize, 0.0f);
     } else {
         MNN_ASSERT(mGammaBetaSize == realInputShape[mRealAxis]);
     }
-    
+
     Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
     createGammaBeta(dataType);
 
@@ -246,9 +246,13 @@ ErrorCode QNNLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std:
     if(mInputDim == 4)
     {
         uint32_t tempPtr[1] = {(uint32_t)2}; // Qnn only allows the last dim for norm.
-        this->createParamTensor("axes", QNN_DATATYPE_UINT_32, {1}, (void *)tempPtr, "redefine");      
-        this->createStageTensor("InputReshapeTensor", dataType, std::vector<int>({inputs[0]->length(0), inputs[0]->length(2) * inputs[0]->length(3), inputs[0]->length(1)}));
-        this->createStageTensor("OutputReshapeTensor", dataType, std::vector<int>({inputs[0]->length(0), inputs[0]->length(2) * inputs[0]->length(3), inputs[0]->length(1)}));
+        this->createParamTensor("axes", QNN_DATATYPE_UINT_32, {1}, (void*)tempPtr, "redefine");
+        this->createStageTensor("InputReshapeTensor", dataType,
+                                std::vector<int>({inputs[0]->length(0), inputs[0]->length(2) * inputs[0]->length(3),
+                                                  inputs[0]->length(1)}));
+        this->createStageTensor("OutputReshapeTensor", dataType,
+                                std::vector<int>({inputs[0]->length(0), inputs[0]->length(2) * inputs[0]->length(3),
+                                                  inputs[0]->length(1)}));
         // reshape input
         {
             std::string name = mNodeName + "_input_reshape";
@@ -394,4 +398,4 @@ public:
 REGISTER_QNN_OP_CREATOR(QNNLayerNormCreator, OpType_LayerNorm)
 #endif
 } // end namespace MNN
-} // end namespace QNN
+} // namespace MNN

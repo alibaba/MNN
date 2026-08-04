@@ -80,7 +80,13 @@ static void createQnnContext(){
     // Create Log.
     Qnn_LogHandle_t logHandle = nullptr;
     {
-        QnnLog_Callback_t logCallback = nullptr;
+        QnnLog_Callback_t logCallback = [](const char* fmt, QnnLog_Level_t level, uint64_t timestamp, va_list args) {
+            if (level <= QNN_LOG_LEVEL_ERROR) {
+                char buf[512];
+                vsnprintf(buf, sizeof(buf), fmt, args);
+                MNN_PRINT("QNN_LOG[%d]: %s\n", level, buf);
+            }
+        };
         if ((QNN_GET_ERROR_CODE(qnnInterface.logCreate(logCallback, QNN_LOG_LEVEL_ERROR, &logHandle)) != QNN_SUCCESS) ||
             (logHandle == nullptr)) {
             MNN_PRINT("MNN_QNN: Failed to initialize logging in the backend.\n");
@@ -1580,7 +1586,7 @@ QnnBackend::QnnBackend(const QnnRuntime* runtime) : Backend(QNN_FORWARD_TYPE), m
         mPerf->setRpcLatencyAndPolling();
     }
 
-    // Set mQnnGraphConfig.
+    // Set mQnnGraphConfig - precision.
     mQnnHtpGraphCustomConfig.option = QNN_HTP_GRAPH_CONFIG_OPTION_PRECISION;
     mQnnHtpGraphCustomConfig.precision = QNN_PRECISION_FLOAT16;
     mQnnGraphConfig.option       = QNN_GRAPH_CONFIG_OPTION_CUSTOM;
@@ -1658,6 +1664,10 @@ const Runtime* QnnBackend::getRuntime() {
 }
 
 void QnnBackend::onExecuteEnd() const {
+    if (!mGraphValid) {
+        MNN_ERROR("QNN onExecuteEnd skipped: graph is invalid.\n");
+        return;
+    }
     executeGraph();
     if (mPower == BackendConfig::Power_Normal) {
         mPerf->setPowerConfigBalanced();
@@ -1678,14 +1688,19 @@ ErrorCode QnnBackend::onResizeEnd() {
     #endif
     buildOutputCast();
     buildOutputDequant();
-    finalizeGraph();
+    mGraphValid = finalizeGraph();
     for(auto func : mReleaseFunc){
         func();
     }
     mReleaseFunc.clear();
-    #ifdef QNN_VERBOSE
+    if (!mGraphValid) {
+        MNN_ERROR(
+            "QNN onResizeEnd: graphFinalize failed, graph contains unsupported ops. Execution will be skipped.\n");
+        return NOT_SUPPORT;
+    }
+#ifdef QNN_VERBOSE
     MNN_PRINT("end finalize\n");
-    #endif
+#endif
     return NO_ERROR;
 }
 
@@ -1861,9 +1876,9 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
     }
 
     mTensorCounter += 1;
-    #ifdef QNN_VERBOSE
+#ifdef QNN_VERBOSE
     MNN_PRINT("Total qnn tensor count:%d\n", mTensorCounter);
-    #endif
+#endif
     return new Backend::MemObj();
 }
 
@@ -1965,6 +1980,7 @@ bool QnnBackend::useCache() const {
 
 void QnnBackend::createContextAndGraph() {
     mRuntime->allocContext();
+
     const QnnGraph_Config_t * pGraphConfig[] = {&mQnnGraphConfig, nullptr};
     if (mRuntime->mUseCache) {
         CALL_QNN(mRuntime->mQnnInterface.graphRetrieve(mRuntime->mQnnContextHandle, mQnnGraphName.c_str(), &mQnnGraphHandle));
@@ -1974,22 +1990,30 @@ void QnnBackend::createContextAndGraph() {
     MNN_ASSERT(mQnnGraphHandle != nullptr);
 }
 
-void QnnBackend::finalizeGraph() {
+bool QnnBackend::finalizeGraph() {
     // [TODO] Fix this. Add the following branch for empty resize.
     if (mTensorCounter == 0) {
-        return;
+        return true;
     }
-    #ifdef QNN_VERBOSE
+#ifdef QNN_VERBOSE
     MNN_PRINT("Total qnn tensor count:%d\n", mTensorCounter);
-    #endif
+#endif
 
     // Create Prefile Handle
     MNN::QNN::createProfileHandle(mRuntime->mQnnInterface, mRuntime->mQnnBackendHandle, &mQnnProfileHandle);
 
-    CALL_QNN(mRuntime->mQnnInterface.graphFinalize(mQnnGraphHandle, mQnnProfileHandle, mQnnSignalHandle));
+    CALL_QNN_CHECK(mRuntime->mQnnInterface.graphFinalize(mQnnGraphHandle, mQnnProfileHandle, mQnnSignalHandle), {
+        MNN_ERROR("QNN graphFinalize failed! The graph contains unsupported ops or invalid configurations.\n");
+        return false;
+    });
+    return true;
 }
 
-void QnnBackend::executeGraph() const {
+bool QnnBackend::executeGraph() const {
+    if (!mGraphValid) {
+        MNN_ERROR("QNN executeGraph skipped: graph is not valid (finalize failed previously).\n");
+        return false;
+    }
     std::vector<Qnn_Tensor_t> inputs;
     std::vector<Qnn_Tensor_t> outputs;
     for (int i = 0; i <  mInputTensorIndexes.size(); i++) {
@@ -2005,9 +2029,14 @@ void QnnBackend::executeGraph() const {
     // Ensure all output tensors have memory allocated; allocate temp buffers for those without.
     auto tempBuffers = ensureOutputTensorsMemory(outputs.data(), (uint32_t)outputs.size());
 
-    CALL_QNN(mRuntime->mQnnInterface.graphExecute(mQnnGraphHandle, inputs.data(), mInputTensorIndexes.size(),
-                                                  outputs.data(), outputs.size(), mQnnProfileHandle,
-                                                  mQnnSignalHandle));
+    CALL_QNN_CHECK(mRuntime->mQnnInterface.graphExecute(mQnnGraphHandle, inputs.data(), mInputTensorIndexes.size(),
+                                                        outputs.data(), outputs.size(), mQnnProfileHandle,
+                                                        mQnnSignalHandle),
+                   {
+                       MNN_ERROR("QNN graphExecute failed!\n");
+                       freeOutputTensorsTempMemory(outputs.data(), tempBuffers);
+                       return false;
+                   });
 
     if (mTensorDumper != nullptr) {
         mTensorDumper->dump(outputs.data(), outputs.size());
@@ -2015,6 +2044,7 @@ void QnnBackend::executeGraph() const {
 
     // Free temporarily allocated output tensor buffers.
     freeOutputTensorsTempMemory(outputs.data(), tempBuffers);
+    return true;
 }
 
 void QnnBackend::freeContextAndGraph() {
@@ -2039,9 +2069,17 @@ void QnnBackend::addNodeToGraph(Qnn_OpConfigVersion_t version, const char* nodeN
     opConfig.v1.numOfOutputs = outputs.size();
     opConfig.v1.outputTensors = outputs.data();
 
-    CALL_QNN(mRuntime->mQnnInterface.backendValidateOpConfig(mRuntime->mQnnBackendHandle, opConfig));
+    auto validateResult = mRuntime->mQnnInterface.backendValidateOpConfig(mRuntime->mQnnBackendHandle, opConfig);
+    if (QNN_SUCCESS != validateResult) {
+        MNN_PRINT("QNN validate failed for node '%s' type '%s', error: %lu\n", nodeName, nodeType,
+                  (unsigned long)validateResult);
+    }
 
-    CALL_QNN(mRuntime->mQnnInterface.graphAddNode(mQnnGraphHandle, opConfig));
+    auto addResult = mRuntime->mQnnInterface.graphAddNode(mQnnGraphHandle, opConfig);
+    if (QNN_SUCCESS != addResult) {
+        MNN_PRINT("QNN graphAddNode failed for node '%s' type '%s', error: %lu\n", nodeName, nodeType,
+                  (unsigned long)addResult);
+    }
 }
 
 int QnnBackend::getTensorIdx(const Tensor * tensor) const {
@@ -2053,9 +2091,9 @@ int QnnBackend::getTensorIdx(const Tensor * tensor) const {
         if (TensorUtils::getDescribe(tensor)->usage != Tensor::InsideDescribe::Usage::CONSTANT) {
             MNN_PRINT("Tensor usage is %d.\n", (int) TensorUtils::getDescribe(tensor)->usage);
         }
-        #ifdef QNN_VERBOSE
+#ifdef QNN_VERBOSE
         MNN_PRINT("qnn tenor usage:%d, dimension:%d\n", TensorUtils::getDescribe(tensor)->usage, tensor->dimensions());
-        #endif
+#endif
         MNN_ASSERT(TensorUtils::getDescribe(tensor)->usage == Tensor::InsideDescribe::Usage::CONSTANT);
         // MNN_ASSERT(tensor->dimensions() <= 2);
         std::vector<uint32_t> tDims = getNHWCShape(tensor);
