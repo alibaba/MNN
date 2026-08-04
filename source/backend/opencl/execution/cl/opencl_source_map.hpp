@@ -433,7 +433,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"topkv2", "8cea07bb2956df69992691127dbf2f84"},
     {"roi_pooling", "ba4a81b7ec7058d14afb377c18674a76"},
     {"depthwise_conv2d", "a23dd590e0bdcdd60987e8bab5ed529f"},
-    {"layernorm", "bd457b4bd4f3c57818bc17e073b09e74"},
+    {"layernorm", "1b7f89cc49697df242b4957cf7a9dc81"},
     {"gemm_conv1x1_buf", "33694bd346b3ef7f8308cb1b3fbbc9c5"},
     {"winogradTransformDest2_5_1", "4f3d0d6b3e0ee7f0bff97acfbbdf653f"},
     {"cast_buf", "f39e5c1ca2fa4b39eac2af1c7934ba85"},

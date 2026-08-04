@@ -67,8 +67,8 @@ public:
 
 private:
     void createContextAndGraph();
-    void finalizeGraph();
-    void executeGraph() const;
+    bool finalizeGraph();
+    bool executeGraph() const;
     void freeContextAndGraph();
 
 public:
@@ -130,6 +130,7 @@ private:
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mInputCastTensorMap;
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mOutputCastTensorMap;
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mDeQuantOutputTensorMap;
+    bool mGraphValid = true;
     std::vector<int> mInputTensorIndexes;
     std::vector<int> mOutputTensorIndexes;
     std::vector<std::shared_ptr<QNNTensorWrapper>> mDebugTensorWrappers;
