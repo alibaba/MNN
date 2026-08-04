@@ -37,6 +37,13 @@
 #if MNN_METAL_ENABLED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
+// Shader text is packed into a compressed blob at build time when
+// MNN_METAL_PACK_SHADER is on; the accessor macros in the generated header
+// then replace the symbols defined below.
+#ifdef MNN_METAL_PACK_SHADER
+#include "MetalPackedShader.hpp"
+#else
+
 const char* gPrefillFlashAttn = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
@@ -627,6 +634,8 @@ kernel void prefill_flash_attn_nax(
     }
 }
 )metal";
+
+#endif /* MNN_METAL_PACK_SHADER */
 
 #endif /* MNN_SUPPORT_TRANSFORMER_FUSE */
 #endif /* MNN_METAL_ENABLED */

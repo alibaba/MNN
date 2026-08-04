@@ -42,6 +42,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_METAL            | 是否构建`Metal`后端，默认为`OFF` |
 | MNN_METAL_TENSOR     | 是否启用`Metal Tensor`接口，该宏仅在`MNN_METAL=ON`时生效，默认为`ON` |
 | MNN_METAL_OP_PROFILE | 是否启用`Metal`后端的逐算子GPU耗时profiling，该宏仅在`MNN_METAL=ON`时生效，默认为`OFF` |
+| MNN_METAL_PACK_SHADER | 是否在构建期压缩`Metal` shader源码（运行时首次使用时解压），可减少约400KB二进制体积，该宏仅在`MNN_METAL=ON`时生效，`MNN_REDUCE_SIZE=ON`时默认为`ON`，否则默认为`OFF` |
 | MNN_OPENCL           | 是否构建`OpenCL`后端，默认为`OFF` |
 | MNN_OPENGL           | 是否构建`OpenGL`后端，默认为`OFF` |
 | MNN_VULKAN           | 是否构建`Vulkan`后端，默认为`OFF` |

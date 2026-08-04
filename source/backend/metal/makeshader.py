@@ -23,9 +23,21 @@ def getName(fileName):
 def generateFile(headfile, sourcefile, shaders):
     lasthead = headfile.split('/')
     lasthead = lasthead[len(lasthead)-1]
+    # Only the non-render shaders are handled by packshader.py, so only they get
+    # the MNN_METAL_PACK_SHADER gating that swaps the literals for blobs.
+    packable = (lasthead == gOutputHeadFile)
 
     h = "#ifndef MNN_METAL_SHADER_AUTO_GENERATE_H\n#define MNN_METAL_SHADER_AUTO_GENERATE_H\n"
     cpp = "#include \"" + lasthead +"\"\n"
+    if packable:
+        h += "// With MNN_METAL_PACK_SHADER the shader text is compressed at build time and\n"
+        h += "// these names become accessor macros supplied by the generated header.\n"
+        h += "#ifdef MNN_METAL_PACK_SHADER\n"
+        h += "#include \"MetalPackedShader.hpp\"\n"
+        h += "#else\n"
+        cpp += "// The literal definitions below are replaced by the compressed blobs in\n"
+        cpp += "// MetalPackedShader.cpp when MNN_METAL_PACK_SHADER is enabled.\n"
+        cpp += "#ifndef MNN_METAL_PACK_SHADER\n"
     mapcpp = "#include \"ShaderMap.hpp\"\n"
     mapcpp += '#include \"AllShader.hpp\"\n'
     mapcpp += 'namespace MNN {\n'
@@ -65,6 +77,9 @@ def generateFile(headfile, sourcefile, shaders):
         cpp += ";\n"
         mapcpp += 'mMaps.insert(std::make_pair(\"' + name + '\", ' + name + "));\n"
     mapcpp += '}\n}\n'
+    if packable:
+        h += "#endif /* MNN_METAL_PACK_SHADER */\n"
+        cpp += "#endif /* MNN_METAL_PACK_SHADER */\n"
     h+= "#endif"
     with open(headfile, "w") as f:
         f.write(h);

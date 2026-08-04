@@ -8,6 +8,13 @@
 
 #if MNN_METAL_ENABLED
 
+// Shader text is packed into a compressed blob at build time when
+// MNN_METAL_PACK_SHADER is on; the accessor macros in the generated header
+// then replace the symbols defined below.
+#ifdef MNN_METAL_PACK_SHADER
+#include "MetalPackedShader.hpp"
+#else
+
 static const char* gBasicConvPrefix = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
@@ -3783,6 +3790,8 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     }
 }
 )metal";
+
+#endif /* MNN_METAL_PACK_SHADER */
 
 
 #endif

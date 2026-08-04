@@ -8,6 +8,13 @@
 
 #if MNN_METAL_ENABLED
 
+// Shader text is packed into a compressed blob at build time when
+// MNN_METAL_PACK_SHADER is on; the accessor macros in the generated header
+// then replace the symbols defined below.
+#ifdef MNN_METAL_PACK_SHADER
+#include "MetalPackedShader.hpp"
+#else
+
 const char* gLayerNormSgReduce = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
@@ -653,5 +660,7 @@ kernel void binary_layernorm_c4_rms_sg(const device ftype4 *in0       [[buffer(0
 }
 
 )metal";
+
+#endif /* MNN_METAL_PACK_SHADER */
 
 #endif

@@ -262,6 +262,15 @@ endif()
 # backend options
 option(MNN_METAL "Enable Metal" OFF)
 option(MNN_METAL_OP_PROFILE "Enable per-op GPU time profiling for the Metal backend." OFF)
+if (DEFINED MNN_METAL_PACK_SHADER)
+    set(MNN_METAL_PACK_SHADER_EXPLICIT ON)
+endif()
+option(MNN_METAL_PACK_SHADER "Compress Metal shader source at build time instead of embedding it as plain text. Defaults ON with MNN_REDUCE_SIZE." OFF)
+# Shader text is the single largest contributor to the Metal backend's binary
+# size, so a size-reduced build wants it packed unless asked otherwise.
+if (MNN_REDUCE_SIZE AND NOT MNN_METAL_PACK_SHADER_EXPLICIT)
+    set(MNN_METAL_PACK_SHADER ON CACHE BOOL "<docstring>" FORCE)
+endif()
 option(MNN_OPENCL "Enable OpenCL" OFF)
 option(MNN_OPENGL "Enable OpenGL" OFF)
 option(MNN_VULKAN "Enable Vulkan" OFF)

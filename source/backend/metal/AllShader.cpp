@@ -1,4 +1,7 @@
 #include "AllShader.hpp"
+// The literal definitions below are replaced by the compressed blobs in
+// MetalPackedShader.cpp when MNN_METAL_PACK_SHADER is enabled.
+#ifndef MNN_METAL_PACK_SHADER
 const char* shader_MetalReLU6_metal = 
 "struct Param {\n"
 " float minV;\n"
@@ -2394,3 +2397,4 @@ const char* shader_MetalEltwise_metal =
 " }\n"
 "}\n"
 ;
+#endif /* MNN_METAL_PACK_SHADER */
