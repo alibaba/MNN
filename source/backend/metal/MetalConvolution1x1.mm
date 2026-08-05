@@ -63,7 +63,8 @@ bool MetalConvolution1x1::onClone(Backend* bn, const Op* op, Execution** dst) {
     }
     if (op->type() == OpType_GatherV2) {
         // SharedGather path: reuse quantized weight and dequant resources
-        if (!mDequantScaleBias.get() || (mDequantBits != 4 && mDequantBits != 8)) {
+        if (!mDequantScaleBias.get() ||
+            (mDequantBits != 2 && mDequantBits != 3 && mDequantBits != 4 && mDequantBits != 8)) {
             // Quantized weight is required for SharedGather
             return false;
         }
@@ -105,7 +106,11 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
     if (backend->useFp16InsteadFp32()) {
         keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
     }
-    if (mDequantBits == 4) {
+    if (mDequantBits == 2) {
+        keys.emplace_back("conv1x1_wquant_2");
+    } else if (mDequantBits == 3) {
+        keys.emplace_back("conv1x1_wquant_3");
+    } else if (mDequantBits == 4) {
         keys.emplace_back("conv1x1_wquant_4");
     } else if (mDequantBits == 8) {
         keys.emplace_back("conv1x1_wquant_8");
@@ -136,7 +141,11 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
         if (backend->useFp16InsteadFp32()) {
             [dic setValue:@"1" forKey:@"MNN_METAL_FLOAT16_STORAGE"];
         }
-        if (mDequantBits == 4) {
+        if (mDequantBits == 2) {
+            [dic setValue:@"1" forKey:@"W_QUANT_2"];
+        } else if (mDequantBits == 3) {
+            [dic setValue:@"1" forKey:@"W_QUANT_3"];
+        } else if (mDequantBits == 4) {
             [dic setValue:@"1" forKey:@"W_QUANT_4"];
         } else if (mDequantBits == 8) {
             [dic setValue:@"1" forKey:@"W_QUANT_8"];
@@ -205,7 +214,11 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     if (backend->useFp16InsteadFp32()) {
         keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
     }
-    if (mDequantBits == 4) {
+    if (mDequantBits == 2) {
+        keys.emplace_back("conv1x1_wquant_2");
+    } else if (mDequantBits == 3) {
+        keys.emplace_back("conv1x1_wquant_3");
+    } else if (mDequantBits == 4) {
         keys.emplace_back("conv1x1_wquant_4");
     } else if (mDequantBits == 8) {
         keys.emplace_back("conv1x1_wquant_8");
@@ -236,7 +249,11 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
         if (backend->useFp16InsteadFp32()) {
             [dic setValue:@"1" forKey:@"MNN_METAL_FLOAT16_STORAGE"];
         }
-        if (mDequantBits == 4) {
+        if (mDequantBits == 2) {
+            [dic setValue:@"1" forKey:@"W_QUANT_2"];
+        } else if (mDequantBits == 3) {
+            [dic setValue:@"1" forKey:@"W_QUANT_3"];
+        } else if (mDequantBits == 4) {
             [dic setValue:@"1" forKey:@"W_QUANT_4"];
         } else if (mDequantBits == 8) {
             [dic setValue:@"1" forKey:@"W_QUANT_8"];
@@ -335,7 +352,11 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
     if (backend->useFp16InsteadFp32()) {
         keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
     }
-    if (mDequantBits == 4) {
+    if (mDequantBits == 2) {
+        keys.emplace_back("conv1x1_wquant_2");
+    } else if (mDequantBits == 3) {
+        keys.emplace_back("conv1x1_wquant_3");
+    } else if (mDequantBits == 4) {
         keys.emplace_back("conv1x1_wquant_4");
     } else if (mDequantBits == 8) {
         keys.emplace_back("conv1x1_wquant_8");
@@ -367,7 +388,11 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
         if (backend->useFp16InsteadFp32()) {
             [dic setValue:@"1" forKey:@"MNN_METAL_FLOAT16_STORAGE"];
         }
-        if (mDequantBits == 4) {
+        if (mDequantBits == 2) {
+            [dic setValue:@"1" forKey:@"W_QUANT_2"];
+        } else if (mDequantBits == 3) {
+            [dic setValue:@"1" forKey:@"W_QUANT_3"];
+        } else if (mDequantBits == 4) {
             [dic setValue:@"1" forKey:@"W_QUANT_4"];
         } else if (mDequantBits == 8) {
             [dic setValue:@"1" forKey:@"W_QUANT_8"];
@@ -518,11 +543,13 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     // if M is small, dequant weight in shader
     // if device not support simdgroup matrix, only support dequant in shader
     bool dequantInShader = (area < 64) || !(rt->supportSimdGroupMatrix());
-    // Native W_QUANT_2/3 paths are only implemented in conv1x1_gemv_g8_wquant_sg (decode,
-    // area==1). For multi-token prefill we route through the outer-dequant + fp gemm
-    // path instead, which has a real W_QUANT_2/3 dequant in conv1x1_w_dequant.
-    // The outer-dequant path itself uses simdgroup-matrix; only override when the device
-    // supports it, otherwise stay on the in-shader path.
+    // Decode (area==1) has native W_QUANT_2/3 paths in the GEMV kernels (2sg, and
+    // g16 for lm_head). The multi-token in-shader kernels (g4mN / sg-matrix gemm)
+    // have no true W2/3 branches, so for prefill we route through the outer-dequant
+    // + fp gemm path instead, which has a real W_QUANT_2/3 dequant in
+    // conv1x1_w_dequant. The outer-dequant path itself uses simdgroup-matrix; only
+    // override when the device supports it, otherwise stay on the in-shader path
+    // (g8/g16 cover all areas in-shader there).
     if ((mDequantBits == 2 || mDequantBits == 3) && area > 1 && rt->supportSimdGroupMatrix()) {
         dequantInShader = false;
     }
@@ -613,11 +640,16 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             } else if(mDequantBits == 8) {
                 baseKeys.emplace_back("conv1x1_wquant_8");
             }
-            if(rt->supportSimdGroupReduce() && area <= short_seq) {
+            // W_QUANT_2/3 on non-simdgroup-matrix devices: the outer-dequant GEMM
+            // (sg-matrix based) and the g1z4 fallback below are both unusable, so
+            // g8/g16 must cover all areas in-shader, not just area <= short_seq.
+            const bool w23NoMatrix = (mDequantBits == 2 || mDequantBits == 3) && !rt->supportSimdGroupMatrix();
+            if(rt->supportSimdGroupReduce() && (area <= short_seq || w23NoMatrix)) {
                 baseKeys.emplace_back("conv1x1_wquant_sg_reduce");
 
                 std::string sgrWqStr = basicShaderPrefix + sgrWqShader;
-                if(area > 1) {
+                // g4mN kernels now have true W_QUANT_2/3 branches.
+                if(area > 1 && (mDequantBits == 2 || mDequantBits == 3 || mDequantBits == 4 || mDequantBits == 8)) {
                     auto keys = baseKeys;
                     int piece = 1;
                     // memory bound not so seriously, can add more thread to reduce computation in each thread
@@ -642,10 +674,9 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     }
                     mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), piece, 1), MTLSizeMake(32, 1, 1));
-                } else if(mDequantBits != 2 && mDequantBits != 3 && oc > 16384 && oc_4 % 2 == 0) {
-                    // g16 path not extended for W_QUANT_2/3, fall back to g8.
-                    // Baseline g16 = 2 simdgroups per TG, threadgroup size 64,
-                    // each TG covers 16 OC (2 SG x 8 OC/SG).
+                } else if(oc > 16384 && oc_4 % 2 == 0) {
+                    // lm_head path. Baseline g16 = 2 simdgroups per TG,
+                    // threadgroup size 64, each TG covers 16 OC (2 SG x 8 OC/SG).
                     // Variants explored and retired (see skills/metal-optimize):
                     // 4SG (halved grid) — e2e neutral with 7x worse stddev on M5;
                     // G16_OC4 (4 oc_4 rows/SG) — kernel -4.8% on M5 but e2e neutral.
@@ -659,7 +690,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), area, 1),
                                               MTLSizeMake(64, 1, 1));
-                } else if(mDequantBits != 2 && mDequantBits != 3 && area == 1) {
+                } else if(area == 1) {
                     // Decode GEMV. Per-kernel bandwidth profiling (M4 Pro,
                     // Qwen3-0.6B Q4) showed the 2sg kernel is latency-limited on
                     // small projections: one simdgroup streams a whole row, so
@@ -818,10 +849,15 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             } else if(mDequantBits == 4) {
                 mPipeline = [context pipelineWithName:@"conv1x1_g1z4_w4" fp16:backend->useFp16InsteadFp32()];
                 name = "conv1x1_g1z4_w4";
-            } else {
-                // mDequantBits == 8
+            } else if(mDequantBits == 8) {
                 mPipeline = [context pipelineWithName:@"conv1x1_g1z4_w8" fp16:backend->useFp16InsteadFp32()];
                 name = "conv1x1_g1z4_w8";
+            } else {
+                // W_QUANT_2/3 without simdGroupReduce: no usable kernel exists
+                // (g1z4_w4/w8 would misread the packed 2/3-bit buffer, and the
+                // outer-dequant GEMM requires simdgroup matrix).
+                MNN_ERROR("metal W_QUANT_%d conv1x1 requires simdgroup reduce support!\n", mDequantBits);
+                return NOT_SUPPORT;
             }
         } else {
             MNN_ERROR("metal conv weight quant not support %d bits yet!\n", mDequantBits);
@@ -884,18 +920,28 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             }
             option.preprocessorMacros = dic;
 
-            // Fused Q4/Q8 GEMM: the fused kernel unpacks quantized weights
+            // Fused quant GEMM: the fused kernel unpacks quantized weights
             // in-kernel, skipping both the dequant pre-pass dispatch and the
             // mTempWeight allocation.
-            // Enabled when proven correct and profitable: Q4/Q8, tensor-API
+            // Enabled when proven correct and profitable: W2/W3/W4/W8, tensor-API
             // capable device, area >= 64 (prefill; below that the outer-dequant
             // path isn't taken anyway — in-shader dequant kernels handle decode).
             // MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1 forces the outer-dequant
             // baseline instead (A/B + emergency rollback; see
             // skills/metal-optimize/env-registry.md).
+            // W3 is additionally gated by weight size: its 6-scalar-load +
+            // hi-mask unpack costs more ALU per M-tile than W2/W4's wide loads,
+            // which goes net-negative when fp16 layer weights stay L2-resident
+            // (M5: 0.6B W3 pp2048 fused -3.6% both orders, pp512 neutral) but
+            // wins once weights exceed L2 (4B W3 +10~11% pp512/pp2048). 4M
+            // elements ~ fp16 8MB, same boundary as the in-shader dequant gate;
+            // splits the calibrated points (0.6B max conv 3.1M, 4B min 6.5M).
             const bool fusedQ4 = !MetalEnv::get().w4w8OuterDequantGemm &&
-                                 (mDequantBits == 4 || mDequantBits == 8) &&
-                                 backend->isSupportTensorApi() && area >= 64;
+                                 (mDequantBits == 2 || mDequantBits == 3 ||
+                                  mDequantBits == 4 || mDequantBits == 8) &&
+                                 backend->isSupportTensorApi() && area >= 64 &&
+                                 (mDequantBits != 3 ||
+                                  (int64_t)oc * ic >= (int64_t)4 * 1024 * 1024);
 
             // M_TILE=64 variant (requires tensor API — implicitly M5+).
             // Measured on M5, Qwen3-4B, Metal fp16, 4 threads, 3-rep A/B:
@@ -965,17 +1011,27 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     keys.emplace_back("LOOP_K64");
                 }
             }
-            // Fused-stage kernel is compiled with W_QUANT_4 or W_QUANT_8
-            // (kernel body is guarded by `#if defined(W_QUANT_4) || defined(W_QUANT_8)`).
-            // Q8 branch (Step B.7a): reads char4 int8 weights from buffer(3),
-            // applies scale/bias directly (no -8 offset like Q4's unsigned nibble).
+            // Fused-stage kernel is compiled with W_QUANT_{2,3,4,8}.
+            // (kernel body is guarded by `#if defined(W_QUANT_2) || defined(W_QUANT_3)
+            //  || defined(W_QUANT_4) || defined(W_QUANT_8)`).
             if (mFusedQ4) {
-                if (mDequantBits == 4) {
-                    [dic setValue:@"1" forKey:@"W_QUANT_4"];
-                    keys.emplace_back("W_QUANT_4");
-                } else {
-                    [dic setValue:@"1" forKey:@"W_QUANT_8"];
-                    keys.emplace_back("W_QUANT_8");
+                switch (mDequantBits) {
+                    case 2:
+                        [dic setValue:@"1" forKey:@"W_QUANT_2"];
+                        keys.emplace_back("W_QUANT_2");
+                        break;
+                    case 3:
+                        [dic setValue:@"1" forKey:@"W_QUANT_3"];
+                        keys.emplace_back("W_QUANT_3");
+                        break;
+                    case 4:
+                        [dic setValue:@"1" forKey:@"W_QUANT_4"];
+                        keys.emplace_back("W_QUANT_4");
+                        break;
+                    default:
+                        [dic setValue:@"1" forKey:@"W_QUANT_8"];
+                        keys.emplace_back("W_QUANT_8");
+                        break;
                 }
             }
             option.preprocessorMacros = dic;
