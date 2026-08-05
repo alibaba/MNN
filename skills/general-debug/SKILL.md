@@ -27,6 +27,8 @@ description: MNN 各类正确性/回归 bug 的排查方法论集合。按 bug �
 
 > 新增章节时同步在这张表里补一行；每个章节命名为 `## <编号> <类别名>`，保持编号递增。
 
+> **后端专属 skill 优先**：若问题明确落在 **QNN / NPU（高通 HTP）** 后端——结果不对/精度差、报错 `1002/6000/1003/6004`、`graphFinalize/graphExecute` 失败、`validateOpConfig failed`、某算子 QNN 不支持、LLM 在 NPU 上乱码、或要给 QNN 新增/适配算子——**直接转 [`qnn-debug`](../qnn-debug/SKILL.md) skill**（含 QNN 两条执行路径、中间张量 dump 定位法、误差模式与算子约束速查），不要在本文件里从头排查。本文件覆盖的是**跨后端通用**的正确性 bug 方法论。
+
 ---
 
 ## 通用排查原则（所有类别共用）

@@ -206,11 +206,10 @@ typedef half4x4 FLOAT4x4;
 
 
 static const char* gConv1x1WqSgMatrix = R"metal(
-// W_QUANT_2/3 fall through to W_QUANT_4 macros for unimplemented gemm kernels so that
-// the source still compiles. Only conv1x1_gemv_g8_wquant_sg has true W_QUANT_2/3 paths.
-#if (defined(W_QUANT_2) || defined(W_QUANT_3)) && !defined(W_QUANT_4) && !defined(W_QUANT_8)
-#define W_QUANT_4
-#endif
+// W_QUANT_2/3 sg_matrix kernels are not implemented; the dispatcher routes
+// W2/W3 prefill to outer-dequant + fp GEMM instead. Guard the entire string
+// so the kernels don't silently miscompile under W_QUANT_2/3 macros.
+#if !defined(W_QUANT_2) && !defined(W_QUANT_3)
 kernel void conv1x1_gemm_8x8_wquant_sg(const device ftype2 *in            [[buffer(0)]],
                             device ftype2 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
@@ -1254,6 +1253,7 @@ kernel void conv1x1_gemm_32x64_wquant_sg(const device ftype2 *in            [[bu
         }
     }
 }
+#endif // !defined(W_QUANT_2) && !defined(W_QUANT_3)
 )metal";
 
 static const char* gConv1x1WfpSgMatrix = R"metal(
@@ -1262,12 +1262,9 @@ static const char* gConv1x1WfpSgMatrix = R"metal(
 #include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
 #endif
 
-// W_QUANT_2/3 dequant path is implemented in conv1x1_w_dequant (prefill outer-dequant);
-// fall through to W_QUANT_4 macros for gemm kernels not yet extended so the Metal source
-// still compiles. Those gemm kernels are not dispatched in W_QUANT_2/3 mode.
-#if (defined(W_QUANT_2) || defined(W_QUANT_3)) && !defined(W_QUANT_4) && !defined(W_QUANT_8)
-#define W_QUANT_4
-#endif
+// W_QUANT_2/3 dequant path is implemented in conv1x1_w_dequant (prefill outer-dequant).
+// The fused_q4_gemm_stage kernels are guarded by #if defined(W_QUANT_4) || defined(W_QUANT_8)
+// and the fp GEMM kernels don't use W_QUANT macros, so W2/W3 compilation is safe.
 
 kernel void conv1x1_w_dequant(
                         #if defined(W_QUANT_2) || defined(W_QUANT_3)
@@ -1306,21 +1303,39 @@ kernel void conv1x1_w_dequant(
 
 #ifdef W_QUANT_3
     auto wt_base = wi + (idx_n4 * cst.input_slice + idx_k4) * 6;
-#else
+#elif !defined(W_QUANT_2)
     auto xy_wi = wi + (idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl;// [N/4, K/4, N4, K4]
 #endif
     auto xy_wf = wf + ((idx_n4 * ((cst.input_slice+3)/4) + idx_k16) * 4 + idx_nl) * 4;// [N/4, K/4, N4, K4]
 
     #ifdef W_QUANT_2
-    for(int k = 0; k < 4; k++) {
-        #if W_ALIGN_K16_PROTECT
-        if(idx_k4 + k >= cst.input_slice) { xy_wf[k] = ftype4(0); continue; }
-        #endif
-        uchar b = xy_wi[4*k];
-        FLOAT4 w4 = FLOAT4((float)((b >> 6) & 3) - 2, (float)((b >> 4) & 3) - 2,
-                            (float)((b >> 2) & 3) - 2, (float)( b       & 3) - 2);
-        xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
+    #if W_ALIGN_K16_PROTECT
+    // Tail-protected path: 4B-aligned uchar4 load per K/4-slice (vs scattered
+    // 1-byte loads), nl byte extracted in-register.
+    {
+        auto xy_wi4 = (const device uchar4*)wi + idx_n4 * cst.input_slice + idx_k4;
+        for(int k = 0; k < 4; k++) {
+            if(idx_k4 + k >= cst.input_slice) { xy_wf[k] = ftype4(0); continue; }
+            uchar b = xy_wi4[k][idx_nl];
+            FLOAT4 w4 = FLOAT4((float)((b >> 6) & 3) - 2, (float)((b >> 4) & 3) - 2,
+                                (float)((b >> 2) & 3) - 2, (float)( b       & 3) - 2);
+            xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
+        }
     }
+    #else
+    // ic%16==0 here, so the 16B tile (4 K/4-slices x 4 N4 bytes) is 16B-aligned:
+    // one uint4 load replaces four scattered byte loads.
+    {
+        uint4 w16 = ((const device uint4*)wi)[idx_n4 * (cst.input_slice / 4) + idx_k16];
+        int sh = 8 * idx_nl;
+        for(int k = 0; k < 4; k++) {
+            uchar b = uchar((w16[k] >> sh) & 0xFF);
+            FLOAT4 w4 = FLOAT4((float)((b >> 6) & 3) - 2, (float)((b >> 4) & 3) - 2,
+                                (float)((b >> 2) & 3) - 2, (float)( b       & 3) - 2);
+            xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
+        }
+    }
+    #endif
     #elif defined(W_QUANT_3)
     for(int k = 0; k < 4; k++) {
         #if W_ALIGN_K16_PROTECT
@@ -2179,12 +2194,16 @@ kernel void conv1x1_gemm_32x16_sg(const device ftype4 *in            [[buffer(0)
 // selected when block_size divides ic_4 cleanly and block >= 2 K-slices,
 // which holds for all Qwen3 W4-block32 shapes we care about.
 //======================================================================
-#if defined(W_QUANT_4) || defined(W_QUANT_8)
+#if defined(W_QUANT_2) || defined(W_QUANT_3) || defined(W_QUANT_4) || defined(W_QUANT_8)
 kernel void conv1x1_fused_q4_gemm_stage(
                             const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
-                        #ifdef W_QUANT_4
+                        #ifdef W_QUANT_2
+                            const device uchar4 *wt_int2       [[buffer(3)]],
+                        #elif defined(W_QUANT_3)
+                            const device uchar *wt_int3        [[buffer(3)]],
+                        #elif defined(W_QUANT_4)
                             const device MNN::uchar4x2 *wt_int4 [[buffer(3)]],
                         #else
                             const device MNN::char4x4  *wt_int8 [[buffer(3)]],
@@ -2235,18 +2254,25 @@ kernel void conv1x1_fused_q4_gemm_stage(
 
     // Weight tile mapping.
     //   fp16 mTempWeight  layout: [N/4, K/16, N4, K4, K4]  (ftype4x4 slots)
+    //   int2 mWeight (Q2) layout: [N/4, K/4-slice, N4, uchar]
+    //   int3 mWeight (Q3) layout: [N/4, K/4-slice, 6 bytes] (shared tile across N4)
     //   int4 mWeight (Q4) layout: [N/4, K/4-slice, N4, uchar2]
     //   int8 mWeight (Q8) layout: [N/4, K/4-slice, N4, char4]
     int idx_n4   = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
-    // Reinterpret buffer(3) as the packed-quant element type — Q4 = uchar2
-    // (4 nibbles = 4 K per slot), Q8 = char4 (4 int8 = 4 K per slot). Base
-    // points to (N/4=idx_n4, K/4-slice=0, N4-inner=nl). Per-thread stride is
-    // 4 (== N4 count), stepped in the inner loop as `(z + kwl*4 + i) * 4`.
-    #ifdef W_QUANT_4
+    // Reinterpret buffer(3) as the packed-quant element type.
+    // W2: uchar4 = 4 bytes per K/4-slice (one per N4 row), thread nl picks byte.
+    // W3: uchar*  = 6 bytes per K/4-slice (shared tile), thread accesses tilePtr[nl].
+    // W4: uchar2  = 2 bytes × 4 N4 rows per K/4-slice.
+    // W8: char4   = 4 bytes × 4 N4 rows per K/4-slice.
+#ifdef W_QUANT_2
+    auto xy_wt_i2 = ((const device uchar*)wt_int2) + (idx_n4 * cst.input_slice) * 4 + nl;
+#elif defined(W_QUANT_3)
+    auto xy_wt_i3 = wt_int3 + idx_n4 * cst.input_slice * 6;
+#elif defined(W_QUANT_4)
     auto xy_wt_i4 = ((const device uchar2*)wt_int4) + (idx_n4 * cst.input_slice + 0) * 4 + nl;
-    #else
+#else // W_QUANT_8
     auto xy_wt_i8 = ((const device char4*)wt_int8)  + (idx_n4 * cst.input_slice + 0) * 4 + nl;
-    #endif
+#endif
 
     int idx_sa = (ml * 2 + 0) * 8 + kl;                                  // input write offset in sdata (ftype4 units)
     int idx_sb = 256 + ((no * 4 + nl) * 2 + kwl) * 4 + 0;                // weight write offset (ftype4 units, base = 1024/4 = 256)
@@ -2263,7 +2289,7 @@ kernel void conv1x1_fused_q4_gemm_stage(
         int zmax = min(zmin + block, cst.input_slice);
 
         for (int z = zmin; z < zmax; z += 8) {
-            // ---- Phase 1: weight load (in-kernel int4/int8 unpack) ----
+            // ---- Phase 1: weight load (in-kernel quant unpack) ----
             //
             // Outer z counts K/4-slices; one iter per quant block since
             // block == zmax-zmin K/4-slices and we jump by 8 (=1 block for the
@@ -2272,7 +2298,38 @@ kernel void conv1x1_fused_q4_gemm_stage(
             // the kwl-half of the block (K positions 4*(kwl*4+i) .. 4*(kwl*4+i)+3).
             FLOAT4x4 w_dequant;
             {
-    #ifdef W_QUANT_4
+#ifdef W_QUANT_2
+                // W2: each uchar packs 4 x 2-bit values at bit pairs [7:6,5:4,3:2,1:0].
+                // Unsigned range [0,3] centered at 1.5 → subtract 2.0 (mirrors conv1x1_w_dequant).
+                #pragma unroll(4)
+                for (int i = 0; i < 4; ++i) {
+                    uchar b = xy_wt_i2[(z + kwl * 4 + i) * 4];
+                    w_dequant[i][0] = FLOAT((b >> 6) & 3);
+                    w_dequant[i][1] = FLOAT((b >> 4) & 3);
+                    w_dequant[i][2] = FLOAT((b >> 2) & 3);
+                    w_dequant[i][3] = FLOAT( b       & 3);
+                }
+                FLOAT4 val = FLOAT4(dequant_bias0 - 2.0 * scale0);
+                w_dequant  = w_dequant * scale0 + FLOAT4x4(val, val, val, val);
+#elif defined(W_QUANT_3)
+                // W3: 6-byte tile per (4 OC, 4 IC) per K/4-slice.
+                // Bytes 0..3: low 2 bits per OC row. Bytes 4..5: shared high-bit nibbles
+                // (byte4 for OC 0,1; byte5 for OC 2,3; nl%2 picks nibble within byte).
+                // Unsigned range [0,7] centered at 3.5 → subtract 4.0.
+                #pragma unroll(4)
+                for (int i = 0; i < 4; ++i) {
+                    const device uchar* tilePtr = xy_wt_i3 + (z + kwl * 4 + i) * 6;
+                    uchar lo = tilePtr[nl];
+                    uchar h  = (nl < 2) ? tilePtr[4] : tilePtr[5];
+                    uchar hShifted = (nl % 2 == 0) ? (h >> 4) : (h & 0xF);
+                    w_dequant[i][0] = FLOAT(((lo >> 6) & 3) | (((hShifted >> 3) & 1) << 2));
+                    w_dequant[i][1] = FLOAT(((lo >> 4) & 3) | (((hShifted >> 2) & 1) << 2));
+                    w_dequant[i][2] = FLOAT(((lo >> 2) & 3) | (((hShifted >> 1) & 1) << 2));
+                    w_dequant[i][3] = FLOAT(( lo       & 3) | (( hShifted       & 1) << 2));
+                }
+                FLOAT4 val = FLOAT4(dequant_bias0 - 4.0 * scale0);
+                w_dequant  = w_dequant * scale0 + FLOAT4x4(val, val, val, val);
+#elif defined(W_QUANT_4)
                 // Mirror conv1x1_gemm_32x64_wquant_split_k_sg's inner unpack:
                 //   uchar2 w = xy_wt_i4[K4slice_index * 4]
                 //   -> w[0]>>4 (K col 0), w[0]&0xF (col 1),
@@ -2288,7 +2345,7 @@ kernel void conv1x1_fused_q4_gemm_stage(
                 }
                 FLOAT4 val = FLOAT4(dequant_bias0 - 8.0 * scale0);
                 w_dequant  = w_dequant * scale0 + FLOAT4x4(val, val, val, val);
-    #else // W_QUANT_8
+#else // W_QUANT_8
                 // Q8: each char4 gives 4 signed int8 K values for one row.
                 // scale/bias directly applied (no -8 offset unlike Q4 which is
                 // unsigned nibble minus 8). Follows the split_k Q8 branch.
@@ -2298,7 +2355,7 @@ kernel void conv1x1_fused_q4_gemm_stage(
                     FLOAT4 w4 = FLOAT4(FLOAT(w[0]), FLOAT(w[1]), FLOAT(w[2]), FLOAT(w[3]));
                     w_dequant[i] = w4 * scale0 + dequant_bias0;
                 }
-    #endif
+#endif
             }
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -2361,7 +2418,7 @@ kernel void conv1x1_fused_q4_gemm_stage(
     }
 #endif // USE_METAL_TENSOR_OPS
 }
-#endif // W_QUANT_4 || W_QUANT_8
+#endif // W_QUANT_2 || W_QUANT_3 || W_QUANT_4 || W_QUANT_8
 
 )metal";
 
@@ -2394,12 +2451,16 @@ kernel void conv1x1_fused_q4_gemm_stage(
 //                mm iter 0..1 → m_idx = mm*32+mlc covers M=0..63.
 //======================================================================
 static const char* gConv1x1WfpSgMatrixM64 = R"metal(
-#if defined(W_QUANT_4) || defined(W_QUANT_8)
+#if defined(W_QUANT_2) || defined(W_QUANT_3) || defined(W_QUANT_4) || defined(W_QUANT_8)
 kernel void conv1x1_fused_q4_gemm_stage_m64(
                             const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
-                        #ifdef W_QUANT_4
+                        #ifdef W_QUANT_2
+                            const device uchar4 *wt_int2       [[buffer(3)]],
+                        #elif defined(W_QUANT_3)
+                            const device uchar *wt_int3        [[buffer(3)]],
+                        #elif defined(W_QUANT_4)
                             const device MNN::uchar4x2 *wt_int4 [[buffer(3)]],
                         #else
                             const device MNN::char4x4  *wt_int8 [[buffer(3)]],
@@ -2450,11 +2511,15 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
     auto xy_in3 = in + idx_k4 * cst.input_size * cst.batch + idx_m3;
 
     int idx_n4   = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
-    #ifdef W_QUANT_4
+#ifdef W_QUANT_2
+    auto xy_wt_i2 = ((const device uchar*)wt_int2) + (idx_n4 * cst.input_slice) * 4 + nl;
+#elif defined(W_QUANT_3)
+    auto xy_wt_i3 = wt_int3 + idx_n4 * cst.input_slice * 6;
+#elif defined(W_QUANT_4)
     auto xy_wt_i4 = ((const device uchar2*)wt_int4) + (idx_n4 * cst.input_slice + 0) * 4 + nl;
-    #else
+#else // W_QUANT_8
     auto xy_wt_i8 = ((const device char4*)wt_int8)  + (idx_n4 * cst.input_slice + 0) * 4 + nl;
-    #endif
+#endif
 
     // sA layout (ftype array): sdata[m * K + k] with M=64, K=32.
     // Per thread 4 rows m = 4*ml + r (r=0..3), K col group kl (K4 chunk at k = 4*kl).
@@ -2477,7 +2542,32 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
         for (int z = zmin; z < zmax; z += 8) {
             FLOAT4x4 w_dequant;
             {
-    #ifdef W_QUANT_4
+#ifdef W_QUANT_2
+                #pragma unroll(4)
+                for (int i = 0; i < 4; ++i) {
+                    uchar b = xy_wt_i2[(z + kwl * 4 + i) * 4];
+                    w_dequant[i][0] = FLOAT((b >> 6) & 3);
+                    w_dequant[i][1] = FLOAT((b >> 4) & 3);
+                    w_dequant[i][2] = FLOAT((b >> 2) & 3);
+                    w_dequant[i][3] = FLOAT( b       & 3);
+                }
+                FLOAT4 val = FLOAT4(dequant_bias0 - 2.0 * scale0);
+                w_dequant  = w_dequant * scale0 + FLOAT4x4(val, val, val, val);
+#elif defined(W_QUANT_3)
+                #pragma unroll(4)
+                for (int i = 0; i < 4; ++i) {
+                    const device uchar* tilePtr = xy_wt_i3 + (z + kwl * 4 + i) * 6;
+                    uchar lo = tilePtr[nl];
+                    uchar h  = (nl < 2) ? tilePtr[4] : tilePtr[5];
+                    uchar hShifted = (nl % 2 == 0) ? (h >> 4) : (h & 0xF);
+                    w_dequant[i][0] = FLOAT(((lo >> 6) & 3) | (((hShifted >> 3) & 1) << 2));
+                    w_dequant[i][1] = FLOAT(((lo >> 4) & 3) | (((hShifted >> 2) & 1) << 2));
+                    w_dequant[i][2] = FLOAT(((lo >> 2) & 3) | (((hShifted >> 1) & 1) << 2));
+                    w_dequant[i][3] = FLOAT(( lo       & 3) | (( hShifted       & 1) << 2));
+                }
+                FLOAT4 val = FLOAT4(dequant_bias0 - 4.0 * scale0);
+                w_dequant  = w_dequant * scale0 + FLOAT4x4(val, val, val, val);
+#elif defined(W_QUANT_4)
                 #pragma unroll(4)
                 for (int i = 0; i < 4; ++i) {
                     uchar2 w = xy_wt_i4[(z + kwl * 4 + i) * 4];
@@ -2488,14 +2578,14 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
                 }
                 FLOAT4 val = FLOAT4(dequant_bias0 - 8.0 * scale0);
                 w_dequant  = w_dequant * scale0 + FLOAT4x4(val, val, val, val);
-    #else // W_QUANT_8
+#else // W_QUANT_8
                 #pragma unroll(4)
                 for (int i = 0; i < 4; ++i) {
                     char4 w = xy_wt_i8[(z + kwl * 4 + i) * 4];
                     FLOAT4 w4 = FLOAT4(FLOAT(w[0]), FLOAT(w[1]), FLOAT(w[2]), FLOAT(w[3]));
                     w_dequant[i] = w4 * scale0 + dequant_bias0;
                 }
-    #endif
+#endif
             }
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -2567,7 +2657,7 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
     }
 #endif // USE_METAL_TENSOR_OPS
 }
-#endif // W_QUANT_4 || W_QUANT_8
+#endif // W_QUANT_2 || W_QUANT_3 || W_QUANT_4 || W_QUANT_8
 
 //======================================================================
 // conv1x1_gemm_64x64_split_k_sg — sg_matrix M=64 tile (fp16 weights,
@@ -2770,16 +2860,15 @@ kernel void conv1x1_z4_sg(const device ftype4 *in            [[buffer(0)]],
 
 static const char* gConv1x1WqSgReduce = R"metal(
 
-// W_QUANT_2/3 fall through to W_QUANT_4 macros for unimplemented kernels.
-#if (defined(W_QUANT_2) || defined(W_QUANT_3)) && !defined(W_QUANT_4) && !defined(W_QUANT_8)
-#define W_QUANT_4
-#endif
-
 template <int AREA_THREAD>
 kernel void conv1x1_gemv_g4mx_wquant_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
-                        #ifdef W_QUANT_4
+                        #ifdef W_QUANT_2
+                            const device uchar4 *wt             [[buffer(3)]],
+                        #elif defined(W_QUANT_3)
+                            const device uchar *wt              [[buffer(3)]],
+                        #elif defined(W_QUANT_4)
                             const device ushort4 *wt             [[buffer(3)]],
                         #elif defined(W_QUANT_8)
                             const device MNN::char4x4 *wt      [[buffer(3)]],
@@ -2797,7 +2886,11 @@ kernel void conv1x1_gemv_g4mx_wquant_sg(const device ftype4 *in            [[buf
     if(uz >= cst.output_slice || rx >= area_size) {
         return;
     }
+#ifdef W_QUANT_3
+    auto xy_wt = wt + uz * cst.input_slice * 6;
+#else
     auto xy_wt = wt + uz * cst.input_slice;
+#endif
     auto xy_in0  = in + rx;
     auto xy_out = out + uz * area_size + rx;
     auto biasValue = FLOAT4(biasTerms[uz]);
@@ -2815,7 +2908,87 @@ kernel void conv1x1_gemv_g4mx_wquant_sg(const device ftype4 *in            [[buf
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
-        #ifdef W_QUANT_4
+    #if defined(W_QUANT_2) || defined(W_QUANT_3)
+        // Deferred dequantization with power-of-two pre-scaling (see g8 kernel for
+        // mask/pre-scale derivation). Each token accumulates its own raw_dot and
+        // input_sum; the weight tile is loaded once and shared across all tokens.
+        {
+            FLOAT4 raw_dot[AREA_THREAD] = {FLOAT4(0)};
+            FLOAT input_sum[AREA_THREAD] = {FLOAT(0)};
+        #ifdef W_QUANT_2
+            for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+                uchar4 w_b = xy_wt[z];
+                auto base_xy = xy_in0 + z * area_size;
+                for (int i = 0; i < AREA_THREAD; i++) {
+                #ifdef MNN_METAL_SRC_PROTECT
+                    FLOAT4 in40 = (rx + (int)i) < area_size ? (FLOAT4)*(base_xy + i) : (FLOAT4)0;
+                #else
+                    FLOAT4 in40 = (FLOAT4)*(base_xy + i);
+                #endif
+                    input_sum[i] += in40[0] + in40[1] + in40[2] + in40[3];
+                    FLOAT in_ps0 = in40[0] * FLOAT(1.0/64.0);
+                    FLOAT in_ps1 = in40[1] * FLOAT(1.0/16.0);
+                    FLOAT in_ps2 = in40[2] * FLOAT(1.0/4.0);
+                    raw_dot[i][0] += in_ps0 * FLOAT(w_b[0] & 0xC0) + in_ps1 * FLOAT(w_b[0] & 0x30)
+                                   + in_ps2 * FLOAT(w_b[0] & 0x0C) + in40[3] * FLOAT(w_b[0] & 0x03);
+                    raw_dot[i][1] += in_ps0 * FLOAT(w_b[1] & 0xC0) + in_ps1 * FLOAT(w_b[1] & 0x30)
+                                   + in_ps2 * FLOAT(w_b[1] & 0x0C) + in40[3] * FLOAT(w_b[1] & 0x03);
+                    raw_dot[i][2] += in_ps0 * FLOAT(w_b[2] & 0xC0) + in_ps1 * FLOAT(w_b[2] & 0x30)
+                                   + in_ps2 * FLOAT(w_b[2] & 0x0C) + in40[3] * FLOAT(w_b[2] & 0x03);
+                    raw_dot[i][3] += in_ps0 * FLOAT(w_b[3] & 0xC0) + in_ps1 * FLOAT(w_b[3] & 0x30)
+                                   + in_ps2 * FLOAT(w_b[3] & 0x0C) + in40[3] * FLOAT(w_b[3] & 0x03);
+                }
+            }
+            FLOAT4 adjusted_bias = dequant_bias - FLOAT(2.0) * scale;
+            for (int i = 0; i < AREA_THREAD; i++) {
+                result[i] += raw_dot[i] * scale + input_sum[i] * adjusted_bias;
+            }
+        #else // W_QUANT_3
+            for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+                const device ushort* tilePtr = (const device ushort*)(xy_wt + z * 6);
+                ushort tw0 = tilePtr[0], tw1 = tilePtr[1], tw2 = tilePtr[2];
+                uchar lo0 = uchar(tw0), lo1 = uchar(tw0 >> 8), lo2 = uchar(tw1), lo3 = uchar(tw1 >> 8);
+                uchar hb0 = uchar(tw2), hb1 = uchar(tw2 >> 8);
+                uchar h0 = hb0 >> 4, h1 = hb0 & 0xF, h2 = hb1 >> 4, h3 = hb1 & 0xF;
+                auto base_xy = xy_in0 + z * area_size;
+                for (int i = 0; i < AREA_THREAD; i++) {
+                #ifdef MNN_METAL_SRC_PROTECT
+                    FLOAT4 in40 = (rx + (int)i) < area_size ? (FLOAT4)*(base_xy + i) : (FLOAT4)0;
+                #else
+                    FLOAT4 in40 = (FLOAT4)*(base_xy + i);
+                #endif
+                    input_sum[i] += in40[0] + in40[1] + in40[2] + in40[3];
+                    FLOAT in_ps0 = in40[0] * FLOAT(1.0/64.0);
+                    FLOAT in_ps1 = in40[1] * FLOAT(1.0/16.0);
+                    FLOAT in_ps2 = in40[2] * FLOAT(1.0/4.0);
+                    FLOAT in_hi0 = in40[0] * FLOAT(0.5);
+                    FLOAT in_hi2 = in40[2] * FLOAT(2.0);
+                    FLOAT in_hi3 = in40[3] * FLOAT(4.0);
+                    raw_dot[i][0] += in_ps0 * FLOAT(lo0 & 0xC0) + in_ps1 * FLOAT(lo0 & 0x30)
+                                   + in_ps2 * FLOAT(lo0 & 0x0C) + in40[3] * FLOAT(lo0 & 0x03)
+                                   + in_hi0 * FLOAT(h0 & 0x8) + in40[1] * FLOAT(h0 & 0x4)
+                                   + in_hi2 * FLOAT(h0 & 0x2) + in_hi3 * FLOAT(h0 & 0x1);
+                    raw_dot[i][1] += in_ps0 * FLOAT(lo1 & 0xC0) + in_ps1 * FLOAT(lo1 & 0x30)
+                                   + in_ps2 * FLOAT(lo1 & 0x0C) + in40[3] * FLOAT(lo1 & 0x03)
+                                   + in_hi0 * FLOAT(h1 & 0x8) + in40[1] * FLOAT(h1 & 0x4)
+                                   + in_hi2 * FLOAT(h1 & 0x2) + in_hi3 * FLOAT(h1 & 0x1);
+                    raw_dot[i][2] += in_ps0 * FLOAT(lo2 & 0xC0) + in_ps1 * FLOAT(lo2 & 0x30)
+                                   + in_ps2 * FLOAT(lo2 & 0x0C) + in40[3] * FLOAT(lo2 & 0x03)
+                                   + in_hi0 * FLOAT(h2 & 0x8) + in40[1] * FLOAT(h2 & 0x4)
+                                   + in_hi2 * FLOAT(h2 & 0x2) + in_hi3 * FLOAT(h2 & 0x1);
+                    raw_dot[i][3] += in_ps0 * FLOAT(lo3 & 0xC0) + in_ps1 * FLOAT(lo3 & 0x30)
+                                   + in_ps2 * FLOAT(lo3 & 0x0C) + in40[3] * FLOAT(lo3 & 0x03)
+                                   + in_hi0 * FLOAT(h3 & 0x8) + in40[1] * FLOAT(h3 & 0x4)
+                                   + in_hi2 * FLOAT(h3 & 0x2) + in_hi3 * FLOAT(h3 & 0x1);
+                }
+            }
+            FLOAT4 adjusted_bias = dequant_bias - FLOAT(4.0) * scale;
+            for (int i = 0; i < AREA_THREAD; i++) {
+                result[i] += raw_dot[i] * scale + input_sum[i] * adjusted_bias;
+            }
+        #endif
+        }
+    #elif defined(W_QUANT_4)
         if constexpr (AREA_THREAD == 1) {
             // Deferred dequantization with ushort pre-scaling (decode only, AREA_THREAD==1):
             // Uses ushort4 native vector + mask instead of custom struct shift/mask.
@@ -3109,7 +3282,11 @@ kernel void conv1x1_gemv_fused_wquant_sg(const device ftype4 *in     [[buffer(0)
 kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buffer(0)]],
                             device ftype4 *out                             [[buffer(1)]],
                             constant conv1x1_constants& cst                [[buffer(2)]],
-                        #ifdef W_QUANT_4
+                        #ifdef W_QUANT_2
+                            const device uchar4 *wt                         [[buffer(3)]],
+                        #elif defined(W_QUANT_3)
+                            const device uchar *wt                          [[buffer(3)]],
+                        #elif defined(W_QUANT_4)
                             const device ushort4 *wt                        [[buffer(3)]],
                         #elif defined(W_QUANT_8)
                             const device MNN::char4x4 *wt                  [[buffer(3)]],
@@ -3118,7 +3295,11 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
                             const device ftype4 *dequantScale               [[buffer(5)]],
                         #ifdef GATE_UP_FUSED
                             device ftype4 *out_up                           [[buffer(6)]],
-                        #ifdef W_QUANT_4
+                        #ifdef W_QUANT_2
+                            const device uchar4 *wt_up                      [[buffer(7)]],
+                        #elif defined(W_QUANT_3)
+                            const device uchar *wt_up                       [[buffer(7)]],
+                        #elif defined(W_QUANT_4)
                             const device ushort4 *wt_up                     [[buffer(7)]],
                         #elif defined(W_QUANT_8)
                             const device MNN::char4x4 *wt_up               [[buffer(7)]],
@@ -3129,7 +3310,11 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
                         #endif
                         #ifdef QKV_FUSED
                             device ftype4 *out_k                            [[buffer(6)]],
-                        #ifdef W_QUANT_4
+                        #ifdef W_QUANT_2
+                            const device uchar4 *wt_k                       [[buffer(7)]],
+                        #elif defined(W_QUANT_3)
+                            const device uchar *wt_k                        [[buffer(7)]],
+                        #elif defined(W_QUANT_4)
                             const device ushort4 *wt_k                      [[buffer(7)]],
                         #elif defined(W_QUANT_8)
                             const device MNN::char4x4 *wt_k                [[buffer(7)]],
@@ -3137,7 +3322,11 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
                             const device ftype4 *biasTerms_k                [[buffer(8)]],
                             const device ftype4 *dequantScale_k             [[buffer(9)]],
                             device ftype4 *out_v                            [[buffer(10)]],
-                        #ifdef W_QUANT_4
+                        #ifdef W_QUANT_2
+                            const device uchar4 *wt_v                       [[buffer(11)]],
+                        #elif defined(W_QUANT_3)
+                            const device uchar *wt_v                        [[buffer(11)]],
+                        #elif defined(W_QUANT_4)
                             const device ushort4 *wt_v                      [[buffer(11)]],
                         #elif defined(W_QUANT_8)
                             const device MNN::char4x4 *wt_v                [[buffer(11)]],
@@ -3213,8 +3402,14 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     const int area_size = cst.output_size * cst.batch;
     // Invalid second row aliases row0 (safe reads); its result is discarded.
     const int uz1 = row1_valid ? (uz + 1) : uz;
-    auto xy_wt0 = wt + uz * cst.input_slice;
-    auto xy_wt1 = wt + uz1 * cst.input_slice;
+#ifdef W_QUANT_3
+    // 6-byte (4 OC x 4 IC) tiles: row stride is 6x the ic_4 count.
+    const int wt_row_stride = cst.input_slice * 6;
+#else
+    const int wt_row_stride = cst.input_slice;
+#endif
+    auto xy_wt0 = wt + uz * wt_row_stride;
+    auto xy_wt1 = wt + uz1 * wt_row_stride;
     auto xy_in0 = in;
     auto biasValue0 = FLOAT4(biasTerms[uz]);
     auto biasValue1 = FLOAT4(biasTerms[uz1]);
@@ -3260,7 +3455,101 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
-    #ifdef W_QUANT_4
+    #if defined(W_QUANT_2) || defined(W_QUANT_3)
+        // Deferred + pre-scaling dual-row streams (see g8 kernel for the
+        // mask/pre-scale derivation). Trap-A: must precede the W4 branch.
+        FLOAT4 raw_dot0 = FLOAT4(0);
+        FLOAT4 raw_dot1 = FLOAT4(0);
+        FLOAT input_sum = FLOAT(0);
+        for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+        #ifdef LN_FUSED
+            FLOAT4 raw = (FLOAT4)*(xy_in0 + z * area_size) + (FLOAT4)*(ln_residual_in + z * area_size);
+            FLOAT4 in4 = raw * inv_rms * (FLOAT4)ln_gamma[z];
+        #else
+            FLOAT4 in4 = (FLOAT4)*(xy_in0 + z * area_size);
+        #endif
+            input_sum += in4[0] + in4[1] + in4[2] + in4[3];
+
+            FLOAT in_ps0 = in4[0] * FLOAT(1.0/64.0);
+            FLOAT in_ps1 = in4[1] * FLOAT(1.0/16.0);
+            FLOAT in_ps2 = in4[2] * FLOAT(1.0/4.0);
+        #ifdef W_QUANT_2
+            uchar4 wA = xy_wt0[z];
+            uchar4 wB = xy_wt1[z];
+            raw_dot0[0] += in_ps0 * FLOAT(wA[0] & 0xC0) + in_ps1 * FLOAT(wA[0] & 0x30)
+                         + in_ps2 * FLOAT(wA[0] & 0x0C) + in4[3] * FLOAT(wA[0] & 0x03);
+            raw_dot0[1] += in_ps0 * FLOAT(wA[1] & 0xC0) + in_ps1 * FLOAT(wA[1] & 0x30)
+                         + in_ps2 * FLOAT(wA[1] & 0x0C) + in4[3] * FLOAT(wA[1] & 0x03);
+            raw_dot0[2] += in_ps0 * FLOAT(wA[2] & 0xC0) + in_ps1 * FLOAT(wA[2] & 0x30)
+                         + in_ps2 * FLOAT(wA[2] & 0x0C) + in4[3] * FLOAT(wA[2] & 0x03);
+            raw_dot0[3] += in_ps0 * FLOAT(wA[3] & 0xC0) + in_ps1 * FLOAT(wA[3] & 0x30)
+                         + in_ps2 * FLOAT(wA[3] & 0x0C) + in4[3] * FLOAT(wA[3] & 0x03);
+            raw_dot1[0] += in_ps0 * FLOAT(wB[0] & 0xC0) + in_ps1 * FLOAT(wB[0] & 0x30)
+                         + in_ps2 * FLOAT(wB[0] & 0x0C) + in4[3] * FLOAT(wB[0] & 0x03);
+            raw_dot1[1] += in_ps0 * FLOAT(wB[1] & 0xC0) + in_ps1 * FLOAT(wB[1] & 0x30)
+                         + in_ps2 * FLOAT(wB[1] & 0x0C) + in4[3] * FLOAT(wB[1] & 0x03);
+            raw_dot1[2] += in_ps0 * FLOAT(wB[2] & 0xC0) + in_ps1 * FLOAT(wB[2] & 0x30)
+                         + in_ps2 * FLOAT(wB[2] & 0x0C) + in4[3] * FLOAT(wB[2] & 0x03);
+            raw_dot1[3] += in_ps0 * FLOAT(wB[3] & 0xC0) + in_ps1 * FLOAT(wB[3] & 0x30)
+                         + in_ps2 * FLOAT(wB[3] & 0x0C) + in4[3] * FLOAT(wB[3] & 0x03);
+        #else
+            FLOAT in_hi0 = in4[0] * FLOAT(0.5);
+            FLOAT in_hi2 = in4[2] * FLOAT(2.0);
+            FLOAT in_hi3 = in4[3] * FLOAT(4.0);
+            const device ushort* tA = (const device ushort*)(xy_wt0 + z * 6);
+            const device ushort* tB = (const device ushort*)(xy_wt1 + z * 6);
+            ushort sa0 = tA[0], sa1 = tA[1], sa2 = tA[2];
+            ushort sb0 = tB[0], sb1 = tB[1], sb2 = tB[2];
+            uchar a0 = uchar(sa0), a1 = uchar(sa0 >> 8), a2 = uchar(sa1), a3 = uchar(sa1 >> 8);
+            uchar hab0 = uchar(sa2), hab1 = uchar(sa2 >> 8);
+            uchar ha0 = hab0 >> 4, ha1 = hab0 & 0xF, ha2 = hab1 >> 4, ha3 = hab1 & 0xF;
+            uchar b0 = uchar(sb0), b1 = uchar(sb0 >> 8), b2 = uchar(sb1), b3 = uchar(sb1 >> 8);
+            uchar hbb0 = uchar(sb2), hbb1 = uchar(sb2 >> 8);
+            uchar hb0 = hbb0 >> 4, hb1 = hbb0 & 0xF, hb2 = hbb1 >> 4, hb3 = hbb1 & 0xF;
+            raw_dot0[0] += in_ps0 * FLOAT(a0 & 0xC0) + in_ps1 * FLOAT(a0 & 0x30)
+                         + in_ps2 * FLOAT(a0 & 0x0C) + in4[3] * FLOAT(a0 & 0x03)
+                         + in_hi0 * FLOAT(ha0 & 0x8) + in4[1] * FLOAT(ha0 & 0x4)
+                         + in_hi2 * FLOAT(ha0 & 0x2) + in_hi3 * FLOAT(ha0 & 0x1);
+            raw_dot0[1] += in_ps0 * FLOAT(a1 & 0xC0) + in_ps1 * FLOAT(a1 & 0x30)
+                         + in_ps2 * FLOAT(a1 & 0x0C) + in4[3] * FLOAT(a1 & 0x03)
+                         + in_hi0 * FLOAT(ha1 & 0x8) + in4[1] * FLOAT(ha1 & 0x4)
+                         + in_hi2 * FLOAT(ha1 & 0x2) + in_hi3 * FLOAT(ha1 & 0x1);
+            raw_dot0[2] += in_ps0 * FLOAT(a2 & 0xC0) + in_ps1 * FLOAT(a2 & 0x30)
+                         + in_ps2 * FLOAT(a2 & 0x0C) + in4[3] * FLOAT(a2 & 0x03)
+                         + in_hi0 * FLOAT(ha2 & 0x8) + in4[1] * FLOAT(ha2 & 0x4)
+                         + in_hi2 * FLOAT(ha2 & 0x2) + in_hi3 * FLOAT(ha2 & 0x1);
+            raw_dot0[3] += in_ps0 * FLOAT(a3 & 0xC0) + in_ps1 * FLOAT(a3 & 0x30)
+                         + in_ps2 * FLOAT(a3 & 0x0C) + in4[3] * FLOAT(a3 & 0x03)
+                         + in_hi0 * FLOAT(ha3 & 0x8) + in4[1] * FLOAT(ha3 & 0x4)
+                         + in_hi2 * FLOAT(ha3 & 0x2) + in_hi3 * FLOAT(ha3 & 0x1);
+            raw_dot1[0] += in_ps0 * FLOAT(b0 & 0xC0) + in_ps1 * FLOAT(b0 & 0x30)
+                         + in_ps2 * FLOAT(b0 & 0x0C) + in4[3] * FLOAT(b0 & 0x03)
+                         + in_hi0 * FLOAT(hb0 & 0x8) + in4[1] * FLOAT(hb0 & 0x4)
+                         + in_hi2 * FLOAT(hb0 & 0x2) + in_hi3 * FLOAT(hb0 & 0x1);
+            raw_dot1[1] += in_ps0 * FLOAT(b1 & 0xC0) + in_ps1 * FLOAT(b1 & 0x30)
+                         + in_ps2 * FLOAT(b1 & 0x0C) + in4[3] * FLOAT(b1 & 0x03)
+                         + in_hi0 * FLOAT(hb1 & 0x8) + in4[1] * FLOAT(hb1 & 0x4)
+                         + in_hi2 * FLOAT(hb1 & 0x2) + in_hi3 * FLOAT(hb1 & 0x1);
+            raw_dot1[2] += in_ps0 * FLOAT(b2 & 0xC0) + in_ps1 * FLOAT(b2 & 0x30)
+                         + in_ps2 * FLOAT(b2 & 0x0C) + in4[3] * FLOAT(b2 & 0x03)
+                         + in_hi0 * FLOAT(hb2 & 0x8) + in4[1] * FLOAT(hb2 & 0x4)
+                         + in_hi2 * FLOAT(hb2 & 0x2) + in_hi3 * FLOAT(hb2 & 0x1);
+            raw_dot1[3] += in_ps0 * FLOAT(b3 & 0xC0) + in_ps1 * FLOAT(b3 & 0x30)
+                         + in_ps2 * FLOAT(b3 & 0x0C) + in4[3] * FLOAT(b3 & 0x03)
+                         + in_hi0 * FLOAT(hb3 & 0x8) + in4[1] * FLOAT(hb3 & 0x4)
+                         + in_hi2 * FLOAT(hb3 & 0x2) + in_hi3 * FLOAT(hb3 & 0x1);
+        #endif
+        }
+        #ifdef W_QUANT_2
+        FLOAT4 adj0 = dbias0 - FLOAT(2.0) * scale0;
+        FLOAT4 adj1 = dbias1 - FLOAT(2.0) * scale1;
+        #else
+        FLOAT4 adj0 = dbias0 - FLOAT(4.0) * scale0;
+        FLOAT4 adj1 = dbias1 - FLOAT(4.0) * scale1;
+        #endif
+        result0 += raw_dot0 * scale0 + input_sum * adj0;
+        result1 += raw_dot1 * scale1 + input_sum * adj1;
+    #elif defined(W_QUANT_4)
         FLOAT4 raw_dot0 = FLOAT4(0);
         FLOAT4 raw_dot1 = FLOAT4(0);
         FLOAT input_sum = FLOAT(0);
@@ -3361,7 +3650,11 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     #endif
 
     const int area_size = cst.output_size * cst.batch;
+#ifdef W_QUANT_3
+    auto xy_wt = wt + uz * cst.input_slice * 6;
+#else
     auto xy_wt = wt + uz * cst.input_slice;
+#endif
     auto xy_in0 = in;
     auto biasValue = FLOAT4(biasTerms[uz]);
 
@@ -3423,7 +3716,67 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
-    #ifdef W_QUANT_4
+    #if defined(W_QUANT_2) || defined(W_QUANT_3)
+        // Deferred + pre-scaling (see g8 kernel for the mask/pre-scale
+        // derivation). Trap-A: must precede the W4 branch.
+        FLOAT4 raw_dot = FLOAT4(0);
+        FLOAT input_sum = FLOAT(0);
+        for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+        #ifdef LN_FUSED
+            FLOAT4 raw = (FLOAT4)*(xy_in0 + z * area_size) + (FLOAT4)*(ln_residual_in + z * area_size);
+            FLOAT4 in4 = raw * inv_rms * (FLOAT4)ln_gamma[z];
+        #else
+            FLOAT4 in4 = (FLOAT4)*(xy_in0 + z * area_size);
+        #endif
+            input_sum += in4[0] + in4[1] + in4[2] + in4[3];
+
+            FLOAT in_ps0 = in4[0] * FLOAT(1.0/64.0);
+            FLOAT in_ps1 = in4[1] * FLOAT(1.0/16.0);
+            FLOAT in_ps2 = in4[2] * FLOAT(1.0/4.0);
+        #ifdef W_QUANT_2
+            uchar4 w_b = xy_wt[z];
+            raw_dot[0] += in_ps0 * FLOAT(w_b[0] & 0xC0) + in_ps1 * FLOAT(w_b[0] & 0x30)
+                        + in_ps2 * FLOAT(w_b[0] & 0x0C) + in4[3] * FLOAT(w_b[0] & 0x03);
+            raw_dot[1] += in_ps0 * FLOAT(w_b[1] & 0xC0) + in_ps1 * FLOAT(w_b[1] & 0x30)
+                        + in_ps2 * FLOAT(w_b[1] & 0x0C) + in4[3] * FLOAT(w_b[1] & 0x03);
+            raw_dot[2] += in_ps0 * FLOAT(w_b[2] & 0xC0) + in_ps1 * FLOAT(w_b[2] & 0x30)
+                        + in_ps2 * FLOAT(w_b[2] & 0x0C) + in4[3] * FLOAT(w_b[2] & 0x03);
+            raw_dot[3] += in_ps0 * FLOAT(w_b[3] & 0xC0) + in_ps1 * FLOAT(w_b[3] & 0x30)
+                        + in_ps2 * FLOAT(w_b[3] & 0x0C) + in4[3] * FLOAT(w_b[3] & 0x03);
+        #else
+            FLOAT in_hi0 = in4[0] * FLOAT(0.5);
+            FLOAT in_hi2 = in4[2] * FLOAT(2.0);
+            FLOAT in_hi3 = in4[3] * FLOAT(4.0);
+            const device ushort* t = (const device ushort*)(xy_wt + z * 6);
+            ushort tw0 = t[0], tw1 = t[1], tw2 = t[2];
+            uchar lo0 = uchar(tw0), lo1 = uchar(tw0 >> 8), lo2 = uchar(tw1), lo3 = uchar(tw1 >> 8);
+            uchar hb0 = uchar(tw2), hb1 = uchar(tw2 >> 8);
+            uchar h0 = hb0 >> 4, h1 = hb0 & 0xF, h2 = hb1 >> 4, h3 = hb1 & 0xF;
+            raw_dot[0] += in_ps0 * FLOAT(lo0 & 0xC0) + in_ps1 * FLOAT(lo0 & 0x30)
+                        + in_ps2 * FLOAT(lo0 & 0x0C) + in4[3] * FLOAT(lo0 & 0x03)
+                        + in_hi0 * FLOAT(h0 & 0x8) + in4[1] * FLOAT(h0 & 0x4)
+                        + in_hi2 * FLOAT(h0 & 0x2) + in_hi3 * FLOAT(h0 & 0x1);
+            raw_dot[1] += in_ps0 * FLOAT(lo1 & 0xC0) + in_ps1 * FLOAT(lo1 & 0x30)
+                        + in_ps2 * FLOAT(lo1 & 0x0C) + in4[3] * FLOAT(lo1 & 0x03)
+                        + in_hi0 * FLOAT(h1 & 0x8) + in4[1] * FLOAT(h1 & 0x4)
+                        + in_hi2 * FLOAT(h1 & 0x2) + in_hi3 * FLOAT(h1 & 0x1);
+            raw_dot[2] += in_ps0 * FLOAT(lo2 & 0xC0) + in_ps1 * FLOAT(lo2 & 0x30)
+                        + in_ps2 * FLOAT(lo2 & 0x0C) + in4[3] * FLOAT(lo2 & 0x03)
+                        + in_hi0 * FLOAT(h2 & 0x8) + in4[1] * FLOAT(h2 & 0x4)
+                        + in_hi2 * FLOAT(h2 & 0x2) + in_hi3 * FLOAT(h2 & 0x1);
+            raw_dot[3] += in_ps0 * FLOAT(lo3 & 0xC0) + in_ps1 * FLOAT(lo3 & 0x30)
+                        + in_ps2 * FLOAT(lo3 & 0x0C) + in4[3] * FLOAT(lo3 & 0x03)
+                        + in_hi0 * FLOAT(h3 & 0x8) + in4[1] * FLOAT(h3 & 0x4)
+                        + in_hi2 * FLOAT(h3 & 0x2) + in_hi3 * FLOAT(h3 & 0x1);
+        #endif
+        }
+        #ifdef W_QUANT_2
+        FLOAT4 adjusted_bias = dequant_bias - FLOAT(2.0) * scale;
+        #else
+        FLOAT4 adjusted_bias = dequant_bias - FLOAT(4.0) * scale;
+        #endif
+        result += raw_dot * scale + input_sum * adjusted_bias;
+    #elif defined(W_QUANT_4)
         FLOAT4 raw_dot = FLOAT4(0);
         FLOAT input_sum = FLOAT(0);
 
@@ -3554,7 +3907,85 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
             FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
             int zmin = bi * block;
             int zmax = min(zmin + block, cst.input_slice);
-            #ifdef W_QUANT_4
+            // The W2/W3 branch must be tested before W4/W8 since the ladder is
+            // exclusive; only one W_QUANT_* macro is defined per compilation.
+            #if defined(W_QUANT_2) || defined(W_QUANT_3)
+            // Deferred dequantization with power-of-two pre-scaling (mask-only
+            // extraction, no per-element shifts/subs): accumulate unsigned raw
+            // dots and input sums, apply scale/bias once per quant block.
+            // W2 packs 4 2-bit values per byte: IC0@[7:6] IC1@[5:4] IC2@[3:2]
+            // IC3@[1:0]. W3 adds a high-bit plane in bytes 4..5 of the 6-byte
+            // tile (nibble per OC pair, bit3=IC0..bit0=IC3, weight x4).
+            {
+                FLOAT4 raw_dot = FLOAT4(0);
+                FLOAT input_sum = FLOAT(0);
+            #ifdef W_QUANT_2
+                for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+                    FLOAT4 in40 = (FLOAT4)*(xy_in0 + z * area_size);
+                    input_sum += in40[0] + in40[1] + in40[2] + in40[3];
+
+                    // Pre-scale so a bare mask recovers the value x input:
+                    //   &0xC0 -> x1/64, &0x30 -> x1/16, &0x0C -> x1/4, &0x03 -> x1
+                    FLOAT in_ps0 = in40[0] * FLOAT(1.0/64.0);
+                    FLOAT in_ps1 = in40[1] * FLOAT(1.0/16.0);
+                    FLOAT in_ps2 = in40[2] * FLOAT(1.0/4.0);
+
+                    uchar4 w_b = xy_wt[z];
+                    raw_dot[0] += in_ps0 * FLOAT(w_b[0] & 0xC0) + in_ps1 * FLOAT(w_b[0] & 0x30)
+                                + in_ps2 * FLOAT(w_b[0] & 0x0C) + in40[3] * FLOAT(w_b[0] & 0x03);
+                    raw_dot[1] += in_ps0 * FLOAT(w_b[1] & 0xC0) + in_ps1 * FLOAT(w_b[1] & 0x30)
+                                + in_ps2 * FLOAT(w_b[1] & 0x0C) + in40[3] * FLOAT(w_b[1] & 0x03);
+                    raw_dot[2] += in_ps0 * FLOAT(w_b[2] & 0xC0) + in_ps1 * FLOAT(w_b[2] & 0x30)
+                                + in_ps2 * FLOAT(w_b[2] & 0x0C) + in40[3] * FLOAT(w_b[2] & 0x03);
+                    raw_dot[3] += in_ps0 * FLOAT(w_b[3] & 0xC0) + in_ps1 * FLOAT(w_b[3] & 0x30)
+                                + in_ps2 * FLOAT(w_b[3] & 0x0C) + in40[3] * FLOAT(w_b[3] & 0x03);
+                }
+                FLOAT4 adjusted_bias = dequant_bias - FLOAT(2.0) * scale;
+            #else
+                for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+                    FLOAT4 in40 = (FLOAT4)*(xy_in0 + z * area_size);
+                    input_sum += in40[0] + in40[1] + in40[2] + in40[3];
+
+                    // lo-plane pre-scales (as W2) plus hi-plane ones (bit weight
+                    // x4): &0x8 -> x1/2, &0x4 -> x1, &0x2 -> x2, &0x1 -> x4
+                    FLOAT in_ps0 = in40[0] * FLOAT(1.0/64.0);
+                    FLOAT in_ps1 = in40[1] * FLOAT(1.0/16.0);
+                    FLOAT in_ps2 = in40[2] * FLOAT(1.0/4.0);
+                    FLOAT in_hi0 = in40[0] * FLOAT(0.5);
+                    FLOAT in_hi2 = in40[2] * FLOAT(2.0);
+                    FLOAT in_hi3 = in40[3] * FLOAT(4.0);
+
+                    const device ushort* tilePtr = (const device ushort*)(xy_wt + z * 6);
+                    ushort tw0 = tilePtr[0], tw1 = tilePtr[1], tw2 = tilePtr[2];
+                    uchar lo0 = uchar(tw0), lo1 = uchar(tw0 >> 8), lo2 = uchar(tw1), lo3 = uchar(tw1 >> 8);
+                    uchar hb0 = uchar(tw2), hb1 = uchar(tw2 >> 8);
+                    uchar h0 = hb0 >> 4;
+                    uchar h1 = hb0 & 0xF;
+                    uchar h2 = hb1 >> 4;
+                    uchar h3 = hb1 & 0xF;
+
+                    raw_dot[0] += in_ps0 * FLOAT(lo0 & 0xC0) + in_ps1 * FLOAT(lo0 & 0x30)
+                                + in_ps2 * FLOAT(lo0 & 0x0C) + in40[3] * FLOAT(lo0 & 0x03)
+                                + in_hi0 * FLOAT(h0 & 0x8) + in40[1] * FLOAT(h0 & 0x4)
+                                + in_hi2 * FLOAT(h0 & 0x2) + in_hi3 * FLOAT(h0 & 0x1);
+                    raw_dot[1] += in_ps0 * FLOAT(lo1 & 0xC0) + in_ps1 * FLOAT(lo1 & 0x30)
+                                + in_ps2 * FLOAT(lo1 & 0x0C) + in40[3] * FLOAT(lo1 & 0x03)
+                                + in_hi0 * FLOAT(h1 & 0x8) + in40[1] * FLOAT(h1 & 0x4)
+                                + in_hi2 * FLOAT(h1 & 0x2) + in_hi3 * FLOAT(h1 & 0x1);
+                    raw_dot[2] += in_ps0 * FLOAT(lo2 & 0xC0) + in_ps1 * FLOAT(lo2 & 0x30)
+                                + in_ps2 * FLOAT(lo2 & 0x0C) + in40[3] * FLOAT(lo2 & 0x03)
+                                + in_hi0 * FLOAT(h2 & 0x8) + in40[1] * FLOAT(h2 & 0x4)
+                                + in_hi2 * FLOAT(h2 & 0x2) + in_hi3 * FLOAT(h2 & 0x1);
+                    raw_dot[3] += in_ps0 * FLOAT(lo3 & 0xC0) + in_ps1 * FLOAT(lo3 & 0x30)
+                                + in_ps2 * FLOAT(lo3 & 0x0C) + in40[3] * FLOAT(lo3 & 0x03)
+                                + in_hi0 * FLOAT(h3 & 0x8) + in40[1] * FLOAT(h3 & 0x4)
+                                + in_hi2 * FLOAT(h3 & 0x2) + in_hi3 * FLOAT(h3 & 0x1);
+                }
+                FLOAT4 adjusted_bias = dequant_bias - FLOAT(4.0) * scale;
+            #endif
+                result0 += raw_dot * scale + input_sum * adjusted_bias;
+            }
+            #elif defined(W_QUANT_4)
             // Deferred dequantization: accumulate raw dot products and input sums,
             // apply scale/bias once per quant block.
             {
@@ -3586,46 +4017,18 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
                 result0 += raw_dot * scale + input_sum * adjusted_bias;
             }
             #else
+            // W_QUANT_8
             for (int z = zmin + middle_index; z < zmax; z += middle_step) {
                 FLOAT4 in40 = (FLOAT4)*(xy_in0 + z * area_size);
 
-                #ifdef W_QUANT_2
-                    uchar4 w_b = xy_wt[z];
-                    FLOAT4x4 w_dequant;
-                    for (int i = 0; i < 4; ++i) {
-                        uchar b = w_b[i];
-                        FLOAT4 w4 = FLOAT4((float)((b >> 6) & 3) - 2, (float)((b >> 4) & 3) - 2,
-                                            (float)((b >> 2) & 3) - 2, (float)( b       & 3) - 2);
-                        w_dequant[i] = w4 * scale[i] + dequant_bias[i];
-                    }
-                #elif defined(W_QUANT_3)
-                    const device uchar* tilePtr = xy_wt + z * 6;
-                    uchar lo0 = tilePtr[0], lo1 = tilePtr[1], lo2 = tilePtr[2], lo3 = tilePtr[3];
-                    uchar hi01 = tilePtr[4], hi23 = tilePtr[5];
-                    uchar lo[4] = { lo0, lo1, lo2, lo3 };
-                    FLOAT4x4 w_dequant;
-                    for (int i = 0; i < 4; ++i) {
-                        uchar b = lo[i];
-                        uchar h = (i < 2) ? hi01 : hi23;
-                        uchar hShifted = (i % 2 == 0) ? (h >> 4) : (h & 0xF);
-                        FLOAT4 w4 = FLOAT4(
-                            (float)( ((b >> 6) & 3) | (((hShifted >> 3) & 1) << 2) ) - 4,
-                            (float)( ((b >> 4) & 3) | (((hShifted >> 2) & 1) << 2) ) - 4,
-                            (float)( ((b >> 2) & 3) | (((hShifted >> 1) & 1) << 2) ) - 4,
-                            (float)( ( b       & 3) | (( hShifted       & 1) << 2) ) - 4);
-                        w_dequant[i] = w4 * scale[i] + dequant_bias[i];
-                    }
-                #elif defined(W_QUANT_8)
-                    auto w = xy_wt[z];
-                    FLOAT4x4 w_fp32 = FLOAT4x4(FLOAT4(w[0]), FLOAT4(w[1]), FLOAT4(w[2]), FLOAT4(w[3]));
-                    FLOAT4x4 w_dequant;
-                    for (int i = 0; i < 4; ++i) {
-                        w_dequant[i] = w_fp32[i] * scale[i] + dequant_bias[i];
-                    }
-                #endif
+                auto w = xy_wt[z];
+                FLOAT4x4 w_fp32 = FLOAT4x4(FLOAT4(w[0]), FLOAT4(w[1]), FLOAT4(w[2]), FLOAT4(w[3]));
+                FLOAT4x4 w_dequant;
+                for (int i = 0; i < 4; ++i) {
+                    w_dequant[i] = w_fp32[i] * scale[i] + dequant_bias[i];
+                }
 
                 result0 += FLOAT4(in40 * w_dequant);
-
             }
             #endif
         }
@@ -3651,7 +4054,11 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
 kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
-                        #ifdef W_QUANT_4
+                        #ifdef W_QUANT_2
+                            const device uchar4 *wt            [[buffer(3)]],
+                        #elif defined(W_QUANT_3)
+                            const device uchar *wt             [[buffer(3)]],
+                        #elif defined(W_QUANT_4)
                             const device ushort4 *wt            [[buffer(3)]],
                         #elif defined(W_QUANT_8)
                             const device MNN::char4x4 *wt      [[buffer(3)]],
@@ -3670,7 +4077,11 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     }
     auto area_size = cst.output_size * cst.batch;
     int rx = gid.y;
+#ifdef W_QUANT_3
+    auto xy_wt = wt + uz * cst.input_slice * 6;
+#else
     auto xy_wt = wt + uz * cst.input_slice;
+#endif
     auto xy_in0  = in + rx;
     auto xy_out = out + uz * area_size + rx;
     auto biasValue0 = FLOAT4(biasTerms[uz]);
@@ -3695,7 +4106,98 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
-        #ifdef W_QUANT_4
+        #if defined(W_QUANT_2) || defined(W_QUANT_3)
+        // Deferred + pre-scaling dual-row streams (mask/pre-scale derivation in
+        // the g8 kernel). Trap-A: must precede the W4 branch.
+        {
+            FLOAT4 raw_dot0 = FLOAT4(0), raw_dot1 = FLOAT4(0);
+            FLOAT input_sum = FLOAT(0);
+
+            for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+                FLOAT4 in4 = (FLOAT4)*(xy_in0 + z * area_size);
+                input_sum += in4[0] + in4[1] + in4[2] + in4[3];
+
+                FLOAT in_ps0 = in4[0] * FLOAT(1.0/64.0);
+                FLOAT in_ps1 = in4[1] * FLOAT(1.0/16.0);
+                FLOAT in_ps2 = in4[2] * FLOAT(1.0/4.0);
+            #ifdef W_QUANT_2
+                uchar4 w0 = xy_wt[z];
+                uchar4 w1 = xy_wt[cst.input_slice + z];
+                raw_dot0[0] += in_ps0 * FLOAT(w0[0] & 0xC0) + in_ps1 * FLOAT(w0[0] & 0x30)
+                             + in_ps2 * FLOAT(w0[0] & 0x0C) + in4[3] * FLOAT(w0[0] & 0x03);
+                raw_dot0[1] += in_ps0 * FLOAT(w0[1] & 0xC0) + in_ps1 * FLOAT(w0[1] & 0x30)
+                             + in_ps2 * FLOAT(w0[1] & 0x0C) + in4[3] * FLOAT(w0[1] & 0x03);
+                raw_dot0[2] += in_ps0 * FLOAT(w0[2] & 0xC0) + in_ps1 * FLOAT(w0[2] & 0x30)
+                             + in_ps2 * FLOAT(w0[2] & 0x0C) + in4[3] * FLOAT(w0[2] & 0x03);
+                raw_dot0[3] += in_ps0 * FLOAT(w0[3] & 0xC0) + in_ps1 * FLOAT(w0[3] & 0x30)
+                             + in_ps2 * FLOAT(w0[3] & 0x0C) + in4[3] * FLOAT(w0[3] & 0x03);
+                raw_dot1[0] += in_ps0 * FLOAT(w1[0] & 0xC0) + in_ps1 * FLOAT(w1[0] & 0x30)
+                             + in_ps2 * FLOAT(w1[0] & 0x0C) + in4[3] * FLOAT(w1[0] & 0x03);
+                raw_dot1[1] += in_ps0 * FLOAT(w1[1] & 0xC0) + in_ps1 * FLOAT(w1[1] & 0x30)
+                             + in_ps2 * FLOAT(w1[1] & 0x0C) + in4[3] * FLOAT(w1[1] & 0x03);
+                raw_dot1[2] += in_ps0 * FLOAT(w1[2] & 0xC0) + in_ps1 * FLOAT(w1[2] & 0x30)
+                             + in_ps2 * FLOAT(w1[2] & 0x0C) + in4[3] * FLOAT(w1[2] & 0x03);
+                raw_dot1[3] += in_ps0 * FLOAT(w1[3] & 0xC0) + in_ps1 * FLOAT(w1[3] & 0x30)
+                             + in_ps2 * FLOAT(w1[3] & 0x0C) + in4[3] * FLOAT(w1[3] & 0x03);
+            #else
+                FLOAT in_hi0 = in4[0] * FLOAT(0.5);
+                FLOAT in_hi2 = in4[2] * FLOAT(2.0);
+                FLOAT in_hi3 = in4[3] * FLOAT(4.0);
+                const device ushort* t0 = (const device ushort*)(xy_wt + z * 6);
+                const device ushort* t1 = (const device ushort*)(xy_wt + (cst.input_slice + z) * 6);
+                ushort sa0 = t0[0], sa1 = t0[1], sa2 = t0[2];
+                ushort sb0 = t1[0], sb1 = t1[1], sb2 = t1[2];
+                uchar a0 = uchar(sa0), a1 = uchar(sa0 >> 8), a2 = uchar(sa1), a3 = uchar(sa1 >> 8);
+                uchar hab0 = uchar(sa2), hab1 = uchar(sa2 >> 8);
+                uchar ha0 = hab0 >> 4, ha1 = hab0 & 0xF, ha2 = hab1 >> 4, ha3 = hab1 & 0xF;
+                uchar b0 = uchar(sb0), b1 = uchar(sb0 >> 8), b2 = uchar(sb1), b3 = uchar(sb1 >> 8);
+                uchar hbb0 = uchar(sb2), hbb1 = uchar(sb2 >> 8);
+                uchar hb0 = hbb0 >> 4, hb1 = hbb0 & 0xF, hb2 = hbb1 >> 4, hb3 = hbb1 & 0xF;
+                raw_dot0[0] += in_ps0 * FLOAT(a0 & 0xC0) + in_ps1 * FLOAT(a0 & 0x30)
+                             + in_ps2 * FLOAT(a0 & 0x0C) + in4[3] * FLOAT(a0 & 0x03)
+                             + in_hi0 * FLOAT(ha0 & 0x8) + in4[1] * FLOAT(ha0 & 0x4)
+                             + in_hi2 * FLOAT(ha0 & 0x2) + in_hi3 * FLOAT(ha0 & 0x1);
+                raw_dot0[1] += in_ps0 * FLOAT(a1 & 0xC0) + in_ps1 * FLOAT(a1 & 0x30)
+                             + in_ps2 * FLOAT(a1 & 0x0C) + in4[3] * FLOAT(a1 & 0x03)
+                             + in_hi0 * FLOAT(ha1 & 0x8) + in4[1] * FLOAT(ha1 & 0x4)
+                             + in_hi2 * FLOAT(ha1 & 0x2) + in_hi3 * FLOAT(ha1 & 0x1);
+                raw_dot0[2] += in_ps0 * FLOAT(a2 & 0xC0) + in_ps1 * FLOAT(a2 & 0x30)
+                             + in_ps2 * FLOAT(a2 & 0x0C) + in4[3] * FLOAT(a2 & 0x03)
+                             + in_hi0 * FLOAT(ha2 & 0x8) + in4[1] * FLOAT(ha2 & 0x4)
+                             + in_hi2 * FLOAT(ha2 & 0x2) + in_hi3 * FLOAT(ha2 & 0x1);
+                raw_dot0[3] += in_ps0 * FLOAT(a3 & 0xC0) + in_ps1 * FLOAT(a3 & 0x30)
+                             + in_ps2 * FLOAT(a3 & 0x0C) + in4[3] * FLOAT(a3 & 0x03)
+                             + in_hi0 * FLOAT(ha3 & 0x8) + in4[1] * FLOAT(ha3 & 0x4)
+                             + in_hi2 * FLOAT(ha3 & 0x2) + in_hi3 * FLOAT(ha3 & 0x1);
+                raw_dot1[0] += in_ps0 * FLOAT(b0 & 0xC0) + in_ps1 * FLOAT(b0 & 0x30)
+                             + in_ps2 * FLOAT(b0 & 0x0C) + in4[3] * FLOAT(b0 & 0x03)
+                             + in_hi0 * FLOAT(hb0 & 0x8) + in4[1] * FLOAT(hb0 & 0x4)
+                             + in_hi2 * FLOAT(hb0 & 0x2) + in_hi3 * FLOAT(hb0 & 0x1);
+                raw_dot1[1] += in_ps0 * FLOAT(b1 & 0xC0) + in_ps1 * FLOAT(b1 & 0x30)
+                             + in_ps2 * FLOAT(b1 & 0x0C) + in4[3] * FLOAT(b1 & 0x03)
+                             + in_hi0 * FLOAT(hb1 & 0x8) + in4[1] * FLOAT(hb1 & 0x4)
+                             + in_hi2 * FLOAT(hb1 & 0x2) + in_hi3 * FLOAT(hb1 & 0x1);
+                raw_dot1[2] += in_ps0 * FLOAT(b2 & 0xC0) + in_ps1 * FLOAT(b2 & 0x30)
+                             + in_ps2 * FLOAT(b2 & 0x0C) + in4[3] * FLOAT(b2 & 0x03)
+                             + in_hi0 * FLOAT(hb2 & 0x8) + in4[1] * FLOAT(hb2 & 0x4)
+                             + in_hi2 * FLOAT(hb2 & 0x2) + in_hi3 * FLOAT(hb2 & 0x1);
+                raw_dot1[3] += in_ps0 * FLOAT(b3 & 0xC0) + in_ps1 * FLOAT(b3 & 0x30)
+                             + in_ps2 * FLOAT(b3 & 0x0C) + in4[3] * FLOAT(b3 & 0x03)
+                             + in_hi0 * FLOAT(hb3 & 0x8) + in4[1] * FLOAT(hb3 & 0x4)
+                             + in_hi2 * FLOAT(hb3 & 0x2) + in_hi3 * FLOAT(hb3 & 0x1);
+            #endif
+            }
+            #ifdef W_QUANT_2
+            FLOAT4 adj0 = dequant_bias0 - FLOAT(2.0) * scale0;
+            FLOAT4 adj1 = dequant_bias1 - FLOAT(2.0) * scale1;
+            #else
+            FLOAT4 adj0 = dequant_bias0 - FLOAT(4.0) * scale0;
+            FLOAT4 adj1 = dequant_bias1 - FLOAT(4.0) * scale1;
+            #endif
+            result0 += raw_dot0 * scale0 + input_sum * adj0;
+            result1 += raw_dot1 * scale1 + input_sum * adj1;
+        }
+        #elif defined(W_QUANT_4)
         // Deferred + pre-scaling nibble extraction (mirrors g4m1_2sg kernel).
         // Read weight as ushort4 (single 128-bit vector load per z instead of
         // 8 bytes via uchar4x2). Extract each nibble with a pure mask (no shift)
