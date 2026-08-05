@@ -938,6 +938,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         std::string sgmWfpStr = basicShaderPrefix + sgmWfpShader;
 
         mPreDequantWeight = true;
+        auto specMeta = (KVMeta *)backend->getMetaPtr();
+        const bool specBlock = (specMeta != nullptr && specMeta->spec_block > 0);
         {
             NSMutableDictionary *dic = [baseDic mutableCopy];
 
@@ -1029,8 +1031,32 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             auto keys = baseKeys;
             const char* gemmKernelName = "conv1x1_gemm_32x64_split_k_sg";
             bool sgMatrixM64 = false;
+            // K-split x4 recovers TG-starved speculative-verify shapes; TG-rich ones
+            // (lm_head) stay out. MNN_METAL_FUSED_Q4_KSPLIT: unset auto, =0 off, =1 on.
+            const auto& metalEnv = MetalEnv::get();
+            const bool fusedQ4SpecBlock = mFusedQ4 && mDequantPipeline == nil &&
+                                      mDequantBits == 4 && !mFusedQ4M64 && specBlock;
+            mUseFusedKsplit = false;
+            if (fusedQ4SpecBlock && metalEnv.fusedQ4Ksplit >= 0) {
+                mUseFusedKsplit = metalEnv.fusedQ4Ksplit == 1 ||
+                                  (area <= 32 && UP_DIV(oc, 64) <= 48 && blockSize >= 4);
+            }
+            // M8-native tile for small-M shapes the K-split gate skips (a padded M32
+            // tile runs at quarter occupancy). MNN_METAL_FUSED_Q4_M8=0 forces it off.
+            const bool useFusedM8 = fusedQ4SpecBlock && !mUseFusedKsplit &&
+                                    area > 1 && area <= 8 && metalEnv.fusedQ4M8 >= 0;
             if (mFusedQ4) {
-                if (mFusedQ4M64) {
+                if (mUseFusedKsplit) {
+                    // Stack the M8 tile on K-split when the block is narrow enough;
+                    // MNN_METAL_FUSED_Q4_KSPLIT_M8=0 keeps the M32 tile.
+                    mKsplitM8 = area <= 8 && metalEnv.fusedQ4KsplitM8 >= 0;
+                    gemmKernelName = mKsplitM8 ? "conv1x1_fused_q4_gemm_stage_ksplit_m8"
+                                               : "conv1x1_fused_q4_gemm_stage_ksplit";
+                    keys.emplace_back(gemmKernelName);
+                } else if (useFusedM8) {
+                    gemmKernelName = "conv1x1_fused_q4_gemm_stage_m8";
+                    keys.emplace_back("conv1x1_fused_q4_gemm_stage_m8");
+                } else if (mFusedQ4M64) {
                     gemmKernelName = "conv1x1_fused_q4_gemm_stage_m64";
                     keys.emplace_back("conv1x1_fused_q4_gemm_stage_m64");
                 } else {
@@ -1081,6 +1107,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     case 4:
                         [dic setValue:@"1" forKey:@"W_QUANT_4"];
                         keys.emplace_back("W_QUANT_4");
+                        // The M8/K-split kernels are guarded by W_QUANT_4 && FUSED_Q4_REAL_UNPACK;
+                        // without the macro the library compiles but pipeline lookup finds no function.
+                        [dic setValue:@"1" forKey:@"FUSED_Q4_REAL_UNPACK"];
+                        keys.emplace_back("FUSED_Q4_REAL_UNPACK");
                         break;
                     default:
                         [dic setValue:@"1" forKey:@"W_QUANT_8"];
@@ -1096,8 +1126,28 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                 rt->insertPipeline(keys, pipeline);
             }
             mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
-            const int mTile = (mFusedQ4M64 || sgMatrixM64) ? 64 : 32;
-            mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, mTile), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
+            if (mUseFusedKsplit) {
+                // grid gains z=4 K-partitions; the reduce pass sums the fp32
+                // partials and applies bias + activation.
+                mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, mKsplitM8 ? 8 : 32), UP_DIV(oc, 64), 4), MTLSizeMake(128, 1, 1));
+                auto rkeys = keys;
+                rkeys.emplace_back("conv1x1_fused_q4_ksplit_reduce");
+                auto rpipeline = rt->findPipeline(rkeys);
+                if (nil == rpipeline) {
+                    rpipeline = backend->makeComputePipelineWithSourceOption(sgmWfpStr.c_str(), "conv1x1_fused_q4_ksplit_reduce", option);
+                    rt->insertPipeline(rkeys, rpipeline);
+                }
+                mKsplitReducePipeline = rpipeline;
+                // fp32 partials [KS=4, oc_4, area, 4] = 4 * oc_4 * area * 16 bytes.
+                int totalOut = oc_4 * area;
+                mKsplitPartial.reset(Tensor::createDevice<uint8_t>(std::vector<int>{4 * totalOut * 16}));
+                backend->onAcquireBuffer(mKsplitPartial.get(), Backend::DYNAMIC);
+                backend->onReleaseBuffer(mKsplitPartial.get(), Backend::DYNAMIC);
+                mKsplitReduceThreads = std::make_pair(MTLSizeMake(UP_DIV(totalOut, 128), 1, 1), MTLSizeMake(128, 1, 1));
+            } else {
+                const int mTile = useFusedM8 ? 8 : ((mFusedQ4M64 || sgMatrixM64) ? 64 : 32);
+                mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, mTile), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
+            }
             //printf("out dequant MNK: %d %d %d %d\n", area, oc, ic, blockSize);
         }
 
@@ -1407,6 +1457,24 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
             [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(input)->offset atIndex:0];
             [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(output)->offset atIndex:1];
             [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+            if (mUseFusedKsplit) {
+                // Two-pass: the ksplit GEMM writes fp32 partials over buffer(1); the
+                // reduce pass sums them, adds bias/activation, writes the real output.
+                MetalBackend::setTensor(mKsplitPartial.get(), encoder, 1);
+                MetalBackend::setTensor(mWeight.get(), encoder, 3);
+                MetalBackend::setTensor(mBias.get(), encoder, 4);
+                MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 5);
+                MetalBackend::setTensor(mWeight.get(), encoder, 6);
+                [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+                [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+                [encoder setComputePipelineState:mKsplitReducePipeline];
+                MetalBackend::setTensor(mKsplitPartial.get(), encoder, 0);
+                [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(output)->offset atIndex:1];
+                MetalBackend::setTensor(mBias.get(), encoder, 2);
+                [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
+                [encoder dispatchThreadgroups:mKsplitReduceThreads.first threadsPerThreadgroup:mKsplitReduceThreads.second];
+                return;
+            }
             if (mFusedQ4) {
                 // Fused kernel bindings: buffer(3) = quantized weight,
                 // buffer(4) = bias, buffer(5) = dequantScale, buffer(6) =

@@ -2420,6 +2420,451 @@ kernel void conv1x1_fused_q4_gemm_stage(
 }
 #endif // W_QUANT_2 || W_QUANT_3 || W_QUANT_4 || W_QUANT_8
 
+
+
+// conv1x1_fused_q4_gemm_stage_m8: M8-native tile for decode-verify (M=8), removing the
+// 32-row tile's padding waste. Q4-only; same staging as the 32-row kernel, smaller A tile/C store.
+#if defined(W_QUANT_4) && defined(FUSED_Q4_REAL_UNPACK)
+kernel void conv1x1_fused_q4_gemm_stage_m8(
+                            const device ftype4 *in            [[buffer(0)]],
+                            device ftype4 *out                 [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                            const device MNN::uchar4x2 *wt_int4 [[buffer(3)]],
+                            const device ftype4 *biasTerms     [[buffer(4)]],
+                            const device ftype *dequantScale   [[buffer(5)]],
+                            const device ftype4x4 *wt_fp       [[buffer(6)]],
+                            uint3 gid                          [[threadgroup_position_in_grid]],
+                            uint                  tiitg [[thread_index_in_threadgroup]],
+                            uint                  tiisg [[thread_index_in_simdgroup]],
+                            uint                  sgitg [[simdgroup_index_in_threadgroup]]) {
+#ifdef USE_METAL_TENSOR_OPS
+    threadgroup FLOAT4 sdata[800] = {0.f};
+
+    const int K = 32, M = 8, N = 64;
+    auto tI = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));
+    auto tW = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + 1024, dextents<int32_t, 2>(K, N));
+
+    mpp::tensor_ops::matmul2d<
+        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, true, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mmOps;
+
+    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tI), decltype(tW), FLOAT>();
+
+    int rx = gid.x;
+    int uz = gid.y;
+
+    int idx_n4 = (uz * 16 + tiitg / 8) < cst.output_slice ? (uz * 16 + tiitg / 8) : (cst.output_slice - 1);
+    int block  = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+
+    // A tile: 8 rows x 8 K4-slices, one ftype4 per thread on the first 64 threads.
+    int aml = (int)tiitg / 8;
+    int akl = (int)tiitg % 8;
+    bool aAct = aml < M;
+    int am = rx * M + aml;
+    int amc = am < cst.input_size * cst.batch ? am : (cst.input_size * cst.batch - 1);
+
+    // v2 register prefetch (identical mapping to the 32-row kernel)
+    uint2 w2pre;
+    {
+        const device uint2 *wq = (const device uint2 *)wt_int4;
+        int no0 = (int)tiitg / 8;
+        int kw0 = ((int)tiitg % 8) / 4;
+        int i0  = (int)tiitg % 4;
+        int n4_0 = (uz * 16 + no0) < cst.output_slice ? (uz * 16 + no0) : (cst.output_slice - 1);
+        w2pre = wq[n4_0 * cst.input_slice + (kw0 * 4 + i0)];
+    }
+    for (int bi = 0; bi < cst.block_size; ++bi) {
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+
+        ftype4 sc4t_h = *(const device ftype4 *)(dequantScale + ((idx_n4 * cst.block_size + bi) * 2 + 0) * 4);
+        ftype4 db4t_h = *(const device ftype4 *)(dequantScale + ((idx_n4 * cst.block_size + bi) * 2 + 1) * 4);
+        FLOAT4 sc4_h = FLOAT4(sc4t_h) / (FLOAT)cst.scale_coef;
+        FLOAT4 db4_h = FLOAT4(db4t_h) / (FLOAT)cst.scale_coef;
+
+        for (int z = zmin; z < zmax; z += 8) {
+            FLOAT4 wb[4];
+            {
+                const device uint2 *wq = (const device uint2 *)wt_int4;
+                int no = (int)tiitg / 8;
+                int kw = ((int)tiitg % 8) / 4;
+                int i  = (int)tiitg % 4;
+                int idx_n4c = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
+                uint2 w2 = w2pre;
+                w2pre = (z + 8 < cst.input_slice) ? wq[idx_n4c * cst.input_slice + (z + 8 + kw * 4 + i)] : w2pre;
+                uchar4 b0 = as_type<uchar4>(w2.x);
+                uchar4 b1 = as_type<uchar4>(w2.y);
+                FLOAT4 sc4 = sc4_h, db4 = db4_h;
+                FLOAT4 v4  = db4 - 8.0f * sc4;
+                #pragma unroll(4)
+                for (int j = 0; j < 4; ++j) {
+                    uchar wx = (j < 2) ? (j == 0 ? b0.x : b0.z) : (j == 2 ? b1.x : b1.z);
+                    uchar wy = (j < 2) ? (j == 0 ? b0.y : b0.w) : (j == 2 ? b1.y : b1.w);
+                    FLOAT4 row = FLOAT4(FLOAT(wx >> 4), FLOAT(wx & 0x0F), FLOAT(wy >> 4), FLOAT(wy & 0x0F));
+                    wb[j] = row * sc4[j] + v4[j];
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            {
+                int no = (int)tiitg / 8;
+                int kw = ((int)tiitg % 8) / 4;
+                #pragma unroll(4)
+                for (int j = 0; j < 4; ++j) {
+                    ((threadgroup ftype4*)sdata)[256 + ((no * 4 + j) * 2 + kw) * 4 + ((int)tiitg % 4)] = ftype4(wb[j]);
+                }
+            }
+            if (aAct) {
+                #ifdef MNN_METAL_SRC_PROTECT
+                if (akl + z < cst.input_slice) {
+                    ((threadgroup ftype4*)sdata)[aml * 8 + akl] = (ftype4)in[(z + akl) * cst.input_size * cst.batch + amc];
+                } else {
+                    ((threadgroup ftype4*)sdata)[aml * 8 + akl] = (ftype4)(0);
+                }
+                #else
+                ((threadgroup ftype4*)sdata)[aml * 8 + akl] = (ftype4)in[(z + akl) * cst.input_size * cst.batch + amc];
+                #endif
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            auto sA = tI.slice(0, 0);
+            auto sB = tW.slice(0, 0);
+            mmOps.run(sA, sB, cT);
+        }
+    }
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    auto tC = tensor<threadgroup FLOAT, dextents<int32_t, 2>, tensor_inline>((threadgroup FLOAT*)sdata, dextents<int32_t, 2>(N, M));
+    cT.store(tC);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Epilogue: [N/4, M, N4] with bias + activation. sdata: FLOAT [M8][N64].
+    for (int e = (int)tiitg; e < M * 16; e += 128) {
+        int m = e / 16, n4l = e % 16;
+        int gm = rx * M + m;
+        if (gm >= cst.input_size * cst.batch) continue;
+        int n4 = uz * 16 + n4l;
+        if (n4 >= cst.output_slice) continue;
+        FLOAT4 v = FLOAT4(((threadgroup FLOAT*)sdata)[m * 64 + n4l * 4 + 0],
+                          ((threadgroup FLOAT*)sdata)[m * 64 + n4l * 4 + 1],
+                          ((threadgroup FLOAT*)sdata)[m * 64 + n4l * 4 + 2],
+                          ((threadgroup FLOAT*)sdata)[m * 64 + n4l * 4 + 3]);
+        out[n4 * cst.output_size * cst.batch + gm] = activate(ftype4(v + FLOAT4(biasTerms[n4])), cst.activation);
+    }
+#endif // USE_METAL_TENSOR_OPS
+}
+#endif // W_QUANT_4 && FUSED_Q4_REAL_UNPACK
+
+// conv1x1_fused_q4_gemm_stage_ksplit: K-split x4 across gid.z for TG-starved decode-verify shapes;
+// fp32 partials, reduce pass adds bias/activation. NOT bit-exact vs single pass (summation order).
+#if defined(W_QUANT_4) && defined(FUSED_Q4_REAL_UNPACK)
+#define FUSED_KSPLIT_KS 4
+kernel void conv1x1_fused_q4_gemm_stage_ksplit(
+                            const device ftype4 *in            [[buffer(0)]],
+                            device float4 *partialOut          [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                            const device MNN::uchar4x2 *wt_int4 [[buffer(3)]],
+                            const device ftype4 *biasTerms     [[buffer(4)]],
+                            const device ftype *dequantScale   [[buffer(5)]],
+                            const device ftype4x4 *wt_fp       [[buffer(6)]],
+                            uint3 gid                          [[threadgroup_position_in_grid]],
+                            uint                  tiitg [[thread_index_in_threadgroup]],
+                            uint                  tiisg [[thread_index_in_simdgroup]],
+                            uint                  sgitg [[simdgroup_index_in_threadgroup]]) {
+#ifdef USE_METAL_TENSOR_OPS
+    threadgroup FLOAT4 sdata[800] = {0.f};
+
+    const int K = 32, M = 32, N = 64;
+    auto tI = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));
+    auto tW = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + 1024, dextents<int32_t, 2>(K, N));
+
+    mpp::tensor_ops::matmul2d<
+        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, true, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mmOps;
+
+    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tI), decltype(tW), FLOAT>();
+
+    int rx = gid.x;
+    int uz = gid.y;
+    int ks = gid.z;   // K partition index (0..KS-1)
+
+    int kl  = tiitg / 16;
+    int ml  = tiitg % 16;
+    int nl  = (tiitg % 8) / 2;
+    int mlc = tiitg / 4;
+    int nlc = tiitg % 4;
+
+    int idx_m20 = (rx * 16 + ml) * 2 + 0 < cst.input_size * cst.batch ? (rx * 16 + ml) * 2 + 0 : (cst.input_size * cst.batch - 1);
+    int idx_m21 = (rx * 16 + ml) * 2 + 1 < cst.input_size * cst.batch ? (rx * 16 + ml) * 2 + 1 : (cst.input_size * cst.batch - 1);
+
+    int idx_n4   = (uz * 16 + tiitg / 8) < cst.output_slice ? (uz * 16 + tiitg / 8) : (cst.output_slice - 1);
+    int idx_sa   = (ml * 2 + 0) * 8 + kl;
+    int block    = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+
+    // quant-block partition: scale hoist semantics preserved (whole blocks per part)
+    int nsub = (cst.block_size + FUSED_KSPLIT_KS - 1) / FUSED_KSPLIT_KS;
+    int bi0  = ks * nsub;
+    int bi1  = min(bi0 + nsub, cst.block_size);
+    int zpart_end = min(bi1 * block, cst.input_slice);
+
+    int idx_k4 = 0 * 8 + kl;
+    auto xy_in0 = in + (bi0 * block + idx_k4) * cst.input_size * cst.batch + idx_m20;
+    auto xy_in1 = in + (bi0 * block + idx_k4) * cst.input_size * cst.batch + idx_m21;
+
+    // v2 register prefetch (first slice of this partition)
+    uint2 w2pre;
+    {
+        const device uint2 *wq = (const device uint2 *)wt_int4;
+        int no0 = (int)tiitg / 8;
+        int kw0 = ((int)tiitg % 8) / 4;
+        int i0  = (int)tiitg % 4;
+        int n4_0 = (uz * 16 + no0) < cst.output_slice ? (uz * 16 + no0) : (cst.output_slice - 1);
+        int z0 = min(bi0 * block + kw0 * 4 + i0, cst.input_slice - 1);
+        w2pre = wq[n4_0 * cst.input_slice + z0];
+    }
+    for (int bi = bi0; bi < bi1; ++bi) {
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+
+        // scale hoist (identical to single-pass kernel)
+        ftype4 sc4t_h = *(const device ftype4 *)(dequantScale + ((idx_n4 * cst.block_size + bi) * 2 + 0) * 4);
+        ftype4 db4t_h = *(const device ftype4 *)(dequantScale + ((idx_n4 * cst.block_size + bi) * 2 + 1) * 4);
+        FLOAT4 sc4_h = FLOAT4(sc4t_h) / (FLOAT)cst.scale_coef;
+        FLOAT4 db4_h = FLOAT4(db4t_h) / (FLOAT)cst.scale_coef;
+
+        for (int z = zmin; z < zmax; z += 8) {
+            FLOAT4 wb[4];
+            {
+                const device uint2 *wq = (const device uint2 *)wt_int4;
+                int no = (int)tiitg / 8;
+                int kw = ((int)tiitg % 8) / 4;
+                int i  = (int)tiitg % 4;
+                int idx_n4c = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
+                uint2 w2 = w2pre;
+                int znext = z + 8 + kw * 4 + i;
+                w2pre = (z + 8 < zpart_end) ? wq[idx_n4c * cst.input_slice + min(znext, cst.input_slice - 1)] : w2pre;
+                uchar4 b0 = as_type<uchar4>(w2.x);
+                uchar4 b1 = as_type<uchar4>(w2.y);
+                FLOAT4 sc4 = sc4_h, db4 = db4_h;
+                FLOAT4 v4  = db4 - 8.0f * sc4;
+                #pragma unroll(4)
+                for (int j = 0; j < 4; ++j) {
+                    uchar wx = (j < 2) ? (j == 0 ? b0.x : b0.z) : (j == 2 ? b1.x : b1.z);
+                    uchar wy = (j < 2) ? (j == 0 ? b0.y : b0.w) : (j == 2 ? b1.y : b1.w);
+                    FLOAT4 row = FLOAT4(FLOAT(wx >> 4), FLOAT(wx & 0x0F), FLOAT(wy >> 4), FLOAT(wy & 0x0F));
+                    wb[j] = row * sc4[j] + v4[j];
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            {
+                int no = (int)tiitg / 8;
+                int kw = ((int)tiitg % 8) / 4;
+                #pragma unroll(4)
+                for (int j = 0; j < 4; ++j) {
+                    ((threadgroup ftype4*)sdata)[256 + ((no * 4 + j) * 2 + kw) * 4 + ((int)tiitg % 4)] = ftype4(wb[j]);
+                }
+            }
+            #ifdef MNN_METAL_SRC_PROTECT
+            if (idx_k4 + z < cst.input_slice) {
+                ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)*(xy_in0);
+                ((threadgroup ftype4*)sdata)[idx_sa + 8] = (ftype4)*(xy_in1);
+            } else {
+                ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)(0);
+                ((threadgroup ftype4*)sdata)[idx_sa + 8] = (ftype4)(0);
+            }
+            #else
+            ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)*(xy_in0);
+            ((threadgroup ftype4*)sdata)[idx_sa + 8] = (ftype4)*(xy_in1);
+            #endif
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            auto sA = tI.slice(0, 0);
+            auto sB = tW.slice(0, 0);
+            mmOps.run(sA, sB, cT);
+
+            xy_in0 += 8 * cst.input_size * cst.batch;
+            xy_in1 += 8 * cst.input_size * cst.batch;
+        }
+    }
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    auto tC = tensor<threadgroup FLOAT, dextents<int32_t, 2>, tensor_inline>((threadgroup FLOAT*)sdata, dextents<int32_t, 2>(N, M));
+    cT.store(tC);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // fp32 partials, no bias/activation (applied in reduce pass)
+    int m = rx * 32 + mlc;
+    if (m < cst.input_size * cst.batch) {
+        for (int r = 0; r < 4; ++r) {
+            int n4 = (uz * 4 + nlc) * 4 + r;
+            if (n4 < cst.output_slice) {
+                partialOut[((size_t)ks * cst.output_slice + n4) * cst.output_size * cst.batch + m] =
+                    float4(((threadgroup FLOAT4*)sdata)[(mlc * 4 + nlc) * 4 + r]);
+            }
+        }
+    }
+#endif // USE_METAL_TENSOR_OPS
+}
+
+
+// K-split x4 with the M8-native tile: same partitioning/partials/reduce as _ksplit,
+// minus the 32-row tile's padding rows. Routed for TG-starved shapes when area <= 8.
+kernel void conv1x1_fused_q4_gemm_stage_ksplit_m8(
+                            const device ftype4 *in            [[buffer(0)]],
+                            device float4 *partialOut          [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                            const device MNN::uchar4x2 *wt_int4 [[buffer(3)]],
+                            const device ftype4 *biasTerms     [[buffer(4)]],
+                            const device ftype *dequantScale   [[buffer(5)]],
+                            const device ftype4x4 *wt_fp       [[buffer(6)]],
+                            uint3 gid                          [[threadgroup_position_in_grid]],
+                            uint                  tiitg [[thread_index_in_threadgroup]],
+                            uint                  tiisg [[thread_index_in_simdgroup]],
+                            uint                  sgitg [[simdgroup_index_in_threadgroup]]) {
+#ifdef USE_METAL_TENSOR_OPS
+    threadgroup FLOAT4 sdata[800] = {0.f};
+
+    const int K = 32, M = 8, N = 64;
+    auto tI = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));
+    auto tW = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + 1024, dextents<int32_t, 2>(K, N));
+
+    mpp::tensor_ops::matmul2d<
+        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, true, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mmOps;
+
+    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tI), decltype(tW), FLOAT>();
+
+    int rx = gid.x;
+    int uz = gid.y;
+    int ks = gid.z;
+
+    int idx_n4 = (uz * 16 + tiitg / 8) < cst.output_slice ? (uz * 16 + tiitg / 8) : (cst.output_slice - 1);
+    int block  = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+
+    int nsub = (cst.block_size + FUSED_KSPLIT_KS - 1) / FUSED_KSPLIT_KS;
+    int bi0  = ks * nsub;
+    int bi1  = min(bi0 + nsub, cst.block_size);
+    int zpart_end = min(bi1 * block, cst.input_slice);
+
+    int aml = (int)tiitg / 8;
+    int akl = (int)tiitg % 8;
+    bool aAct = aml < M;
+    int am = rx * M + aml;
+    int amc = am < cst.input_size * cst.batch ? am : (cst.input_size * cst.batch - 1);
+
+    uint2 w2pre;
+    {
+        const device uint2 *wq = (const device uint2 *)wt_int4;
+        int no0 = (int)tiitg / 8;
+        int kw0 = ((int)tiitg % 8) / 4;
+        int i0  = (int)tiitg % 4;
+        int n4_0 = (uz * 16 + no0) < cst.output_slice ? (uz * 16 + no0) : (cst.output_slice - 1);
+        int z0 = min(bi0 * block + kw0 * 4 + i0, cst.input_slice - 1);
+        w2pre = wq[n4_0 * cst.input_slice + z0];
+    }
+    for (int bi = bi0; bi < bi1; ++bi) {
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+
+        ftype4 sc4t_h = *(const device ftype4 *)(dequantScale + ((idx_n4 * cst.block_size + bi) * 2 + 0) * 4);
+        ftype4 db4t_h = *(const device ftype4 *)(dequantScale + ((idx_n4 * cst.block_size + bi) * 2 + 1) * 4);
+        FLOAT4 sc4_h = FLOAT4(sc4t_h) / (FLOAT)cst.scale_coef;
+        FLOAT4 db4_h = FLOAT4(db4t_h) / (FLOAT)cst.scale_coef;
+
+        for (int z = zmin; z < zmax; z += 8) {
+            FLOAT4 wb[4];
+            {
+                const device uint2 *wq = (const device uint2 *)wt_int4;
+                int no = (int)tiitg / 8;
+                int kw = ((int)tiitg % 8) / 4;
+                int i  = (int)tiitg % 4;
+                int idx_n4c = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
+                uint2 w2 = w2pre;
+                int znext = z + 8 + kw * 4 + i;
+                w2pre = (z + 8 < zpart_end) ? wq[idx_n4c * cst.input_slice + min(znext, cst.input_slice - 1)] : w2pre;
+                uchar4 b0 = as_type<uchar4>(w2.x);
+                uchar4 b1 = as_type<uchar4>(w2.y);
+                FLOAT4 sc4 = sc4_h, db4 = db4_h;
+                FLOAT4 v4  = db4 - 8.0f * sc4;
+                #pragma unroll(4)
+                for (int j = 0; j < 4; ++j) {
+                    uchar wx = (j < 2) ? (j == 0 ? b0.x : b0.z) : (j == 2 ? b1.x : b1.z);
+                    uchar wy = (j < 2) ? (j == 0 ? b0.y : b0.w) : (j == 2 ? b1.y : b1.w);
+                    FLOAT4 row = FLOAT4(FLOAT(wx >> 4), FLOAT(wx & 0x0F), FLOAT(wy >> 4), FLOAT(wy & 0x0F));
+                    wb[j] = row * sc4[j] + v4[j];
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            {
+                int no = (int)tiitg / 8;
+                int kw = ((int)tiitg % 8) / 4;
+                #pragma unroll(4)
+                for (int j = 0; j < 4; ++j) {
+                    ((threadgroup ftype4*)sdata)[256 + ((no * 4 + j) * 2 + kw) * 4 + ((int)tiitg % 4)] = ftype4(wb[j]);
+                }
+            }
+            if (aAct) {
+                #ifdef MNN_METAL_SRC_PROTECT
+                if (akl + z < cst.input_slice) {
+                    ((threadgroup ftype4*)sdata)[aml * 8 + akl] = (ftype4)in[(z + akl) * cst.input_size * cst.batch + amc];
+                } else {
+                    ((threadgroup ftype4*)sdata)[aml * 8 + akl] = (ftype4)(0);
+                }
+                #else
+                ((threadgroup ftype4*)sdata)[aml * 8 + akl] = (ftype4)in[(z + akl) * cst.input_size * cst.batch + amc];
+                #endif
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            auto sA = tI.slice(0, 0);
+            auto sB = tW.slice(0, 0);
+            mmOps.run(sA, sB, cT);
+        }
+    }
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    auto tC = tensor<threadgroup FLOAT, dextents<int32_t, 2>, tensor_inline>((threadgroup FLOAT*)sdata, dextents<int32_t, 2>(N, M));
+    cT.store(tC);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (int e = (int)tiitg; e < M * 16; e += 128) {
+        int m = e / 16, n4l = e % 16;
+        int gm = rx * M + m;
+        if (gm >= cst.input_size * cst.batch) continue;
+        int n4 = uz * 16 + n4l;
+        if (n4 >= cst.output_slice) continue;
+        FLOAT4 v = FLOAT4(((threadgroup FLOAT*)sdata)[m * 64 + n4l * 4 + 0],
+                          ((threadgroup FLOAT*)sdata)[m * 64 + n4l * 4 + 1],
+                          ((threadgroup FLOAT*)sdata)[m * 64 + n4l * 4 + 2],
+                          ((threadgroup FLOAT*)sdata)[m * 64 + n4l * 4 + 3]);
+        partialOut[((size_t)ks * cst.output_slice + n4) * cst.output_size * cst.batch + gm] = float4(v);
+    }
+#endif // USE_METAL_TENSOR_OPS
+}
+
+kernel void conv1x1_fused_q4_ksplit_reduce(
+                            const device float4 *partialIn     [[buffer(0)]],
+                            device ftype4 *out                 [[buffer(1)]],
+                            const device ftype4 *biasTerms     [[buffer(2)]],
+                            constant conv1x1_constants& cst    [[buffer(3)]],
+                            uint gid [[thread_position_in_grid]]) {
+    int total = cst.output_slice * cst.output_size * cst.batch;
+    if ((int)gid >= total) return;
+    int n4 = (int)gid / (cst.output_size * cst.batch);
+    float4 s = float4(0.f);
+    for (int k = 0; k < FUSED_KSPLIT_KS; ++k) {
+        s += partialIn[(size_t)k * total + gid];
+    }
+    out[gid] = activate(ftype4(FLOAT4(s) + FLOAT4(biasTerms[n4])), cst.activation);
+}
+#endif // W_QUANT_4 && FUSED_Q4_REAL_UNPACK
+
 )metal";
 
 //======================================================================

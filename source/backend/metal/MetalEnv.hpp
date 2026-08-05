@@ -83,6 +83,17 @@ struct MetalEnv {
     // in-kernel (A/B baseline + emergency rollback). Only meaningful on
     // tensor-API devices (M5+), where the fused path is the default.
     bool w4w8OuterDequantGemm;
+    // MNN_METAL_FUSED_Q4_KSPLIT: K-split x4 for fused-Q4 GEMM on speculative-block shapes.
+    // Env unset = auto gate, "1" = force on, "0" = force off; stored as 0 / 1 / -1 respectively.
+    int fusedQ4Ksplit;
+    // MNN_METAL_FUSED_Q4_M8: M8 tile for the small-M shapes the K-split gate skips.
+    // Env unset = auto, "1" = same as unset (tile only correct for area <= 8), "0" = force off;
+    // stored as 0 / 1 / -1 respectively.
+    int fusedQ4M8;
+    // MNN_METAL_FUSED_Q4_KSPLIT_M8: stack the M8 tile on K-split.
+    // Env unset = auto (area <= 8 gate), "1" = same as unset, "0" = force off (keep the M32 tile);
+    // stored as 0 / 1 / -1 respectively.
+    int fusedQ4KsplitM8;
     // MNN_METAL_H2D_QUEUED=0: restore the legacy drain+direct-write upload path.
     bool h2dQueued;
     // MNN_METAL_COMMIT_NUM>0 overrides ops-per-commit cadence (device calibration).
@@ -149,6 +160,9 @@ struct MetalEnv {
                 }
             }
             e.w4w8OuterDequantGemm   = envIs("MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI", '1');
+            e.fusedQ4Ksplit          = envTriState("MNN_METAL_FUSED_Q4_KSPLIT");
+            e.fusedQ4M8              = envTriState("MNN_METAL_FUSED_Q4_M8");
+            e.fusedQ4KsplitM8        = envTriState("MNN_METAL_FUSED_Q4_KSPLIT_M8");
             e.h2dQueued            = !envIs("MNN_METAL_H2D_QUEUED", '0');
             {
                 const char* v = getenv("MNN_METAL_COMMIT_NUM");
