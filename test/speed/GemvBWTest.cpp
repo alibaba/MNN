@@ -209,10 +209,9 @@ public:
         std::printf("type | thr |   us/iter |  W MiB | bytes/elem | eff GB/s | %%peak |  GFLOPS |  AI (op/B)\n");
         std::printf("-----|----:|----------:|-------:|-----------:|---------:|------:|--------:|----------:\n");
 
-        // Metal backend currently only supports w4 / w8 hybrid quant kernels
-        // (see MetalConvolution1x1.mm: mDequantBits == 4 || == 8).
-        std::vector<int> bitsList =
-            (forwardType == MNN_FORWARD_CPU) ? std::vector<int>{8, 4, 3, 2} : std::vector<int>{8, 4};
+        // Metal supports w8 / w4 / w3 / w2 hybrid quant GEMV (decode, area==1) via
+        // the 2sg kernel (see MetalConvolution1x1.mm conv1x1_gemv_g4m1_2sg_wquant_sg).
+        std::vector<int> bitsList = {8, 4, 3, 2};
         for (int nbit : bitsList) {
             GemvResult r = benchGemv(M, K, nbit, blocksize, precision, threads, iters, forwardType);
             double bpe = r.weightBytes / ((double)M * K);

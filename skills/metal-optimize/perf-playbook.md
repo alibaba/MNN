@@ -192,6 +192,24 @@ decode GEMV 是**权重带宽 bound**，B 个 token 权重只读一次 ⇒ 理�
 - ⇒ **可动项明确**：把 SPLIT_K_2 / 多 SG 并行度（以及后续的融合）移植到 `conv1x1_gemv_g4mN`。目标是把 `cost(2)` 从 1.77× 压到 ~1.1×。GEMV 占 decode ~70%，若达标，B=2 前向 wall 从 4079us → ~2900us，per-token 从 2040us → ~1450us。
 - ⚠️ **前置依赖已就绪**：`transformers/llm/engine/src/speculative_decoding/` 已有 `lookahead` / `ngram` / `tokentree` / `eagle` / `mtp`——**n-gram lookahead 不需要 draft 模型**。实际收益 = 本节的摊薄曲线 × 接受率，立项时需实测接受率。
 
+### 1.1.8 W2/W3 decode 对齐 W4 优化栈
+
+**背景**：2/3bit 支持（`20e5d03f3`）落地后 decode 实际是坏的——g8 body 的 W4 deferred 分支（`b71528f0d`）在 alias 下遮蔽 W2/W3 分支（陷阱 A 回归，见 kernel-basics），所有 W2/3 decode pipeline 编译失败；且 2sg/SPLIT_K_2/融合/g16/SharedGather 全部只支持 4/8bit。另发现**引擎级 bug**：`diskembedding.cpp` 对 2/3bit 误用 4bit nibble 解包（3bit 还越界读 → SIGSEGV），已修（q21/q31_dequant_ref + oc 计算 `*8/bit` 修整数截断）。
+
+**实施**（每步 greedy 对拍过门）：
+1. g8 body 阶梯重排 W2/W3→W4→W8（修复）+ g4mN 分支门控 4/8bit（非 sgMatrix 设备防越界）
+2. g8 W2/W3 deferred + pre-scaling：**W2** 每 z 读 uchar4，mask 0xC0/0x30/0x0C/0x03 配 in×(1/64, 1/16, 1/4, 1)，`adj = dbias - 2*scale`；**W3** lo 面同 W2 + hi 面（tile bytes 4..5，nibble bit3=IC0..bit0=IC3）mask 0x8/0x4/0x2/0x1 配 in×(1/2, 1, 2, 4)，`adj = dbias - 4*scale`。pre-scale 全 2 的幂 → fp 位精确
+3. 2sg kernel 6 处阶梯扩展（4 signature + ROW_2/plain body）+ dispatcher 解禁 + 3 个 fusion setup 的 keys/dic 补 W2/W3（漏改是静默退融合，靠 profile subtag 检测）
+4. g16 lm_head 双行 W2/W3 分支（W3 row stride ×6）
+5. SharedGather（tied lm_head GatherV2 clone）W2/W3 分支——onClone 门控与宏链**必须同时落**（否则 2/3bit 静默编成 W8）
+
+**实测**（M4 Pro，0.6B，交替配对）：decode tg128 **W3 +15%**（245→281）、**W2 +37%**（298→409）vs g8 路径；融合 kill-switch 验证 +3%（W3）；W4 全程字节一致。最终绝对值：W2 409 / W4 349 / W3 303 tok/s；prefill pp512 W3≈W4（5190，compute-bound）、W2 4248（-18%，`conv1x1_w_dequant` W2 分支散字节读未优化，遗留项）。
+
+**W3 < W4 decode 归因**：W3 tile 6B 非对齐，内环 6 标量 load + hi 面额外 8 mask（W4 是 1×ushort4 + 8 mask）；3×ushort load 变体实测**中性**（sentinel 归一 0.837 vs 0.837，已回退）——与 EXP16/17/20 结论一致：0.6B 小 GEMV latency-bound，指令微调不兑现。结构性差距留待 4B+（更接近 BW-bound）再评。
+
+**正确性验证方法论（低 bit 专用，新增）**：低 bit 小模型输出常是乱码/退化（W2 0.6B 即使 HQQ 也半乱码），CPU oracle 又不可用（CPU int2/3 ARM kernel 在 Apple Silicon 上有 bug：W2 乱码、W3 SIGSEGV，未修）。**可用 oracle = `transformers/llm/export/mnn_quant_ref.py`：从导出的 .mnn.weight 文件直接解码权重（header + MSB-first 位解包 + fp16 alpha）注入 HF 模型 greedy 生成**（独立于 MNN 运行时代码）。判据：① 连贯模型（W3/W4）逐 token 一致；② 乱码模型看共同前缀 + **噪声敏感度标定**（oracle logits 加 ε 噪声：1e-3 不翻转、1e-2 在与 Metal 分叉点相近位置翻转 ⇒ Metal 偏差为 O(1e-2) 精度级 = 合法，O(0.1+) 才是 bug）。
+
+
 
 ## 1.2 GEMM（prefill）
 

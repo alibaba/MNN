@@ -58,6 +58,8 @@ mDequantScaleBias && !dequantInShader (area>=128 + simdgroupMatrix)
 
 修法：扩展的 kernel 里**所有相关 `#ifdef` 必须 W_QUANT_2 → W_QUANT_3 → W_QUANT_4 → W_QUANT_8 顺序**，新 bit 优先匹配。signature 和 body 都要这个顺序，少一处都 sneaky 错。
 
+**真实回归实例（2026-08 修复）**：`20e5d03f3` 给 g8 kernel 加了 W2/W3 分支（signature 顺序正确），但后来 `b71528f0d` 给 g8 body 加 W4 deferred 分支时把 `#ifdef W_QUANT_4` 放在 body 阶梯最前——alias 让 W2/3 编译同时命中 W4 body 分支（`uchar4x2` vs `uchar4*` 类型冲突）→ **所有 W2/3 decode pipeline 编译失败**（`no viable conversion from 'const device uchar4' to 'MNN::uchar4x2'`），静默持续了数周。教训：改 alias 字符串内任何 kernel 的 `#ifdef` 阶梯前，先确认该 kernel 是否在 W2/3 下编译（dispatcher 是否用它）。
+
 ### 陷阱 B：dispatcher 漏路径（lm_head）
 
 LLM 的 lm_head conv (`oc = vocab_size ~150k`) 走 `oc > 16384` 的特殊路径（如 `g16`）。新加 quant bit 没扩 g16 时，dispatch 还会进 g16 → 用错 layout 读 buffer → 数值错或 crash。
