@@ -28,6 +28,11 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:
+#ifdef MNN_SME2
+    bool mUseMixedSmeNeonMatMul = false;
+    int mSmeThreadCount = 0;
+    int mSmeHeadCount = 0;
+#endif
     bool mKVCache        = true;
     bool mIsKVShared = false;
     int mBytes = 4;

@@ -38,6 +38,9 @@
 #define CPUINFO_ARM_LINUX_FEATURE_FPHP UINT32_C(0x00000200)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP UINT32_C(0x00000400)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP UINT32_C(0x00100000)
+#ifdef MNN_SME2
+#define CPUINFO_ARM_LINUX_FEATURE_ASIMDFHM UINT32_C(0x00800000)
+#endif
 #define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
 // HWCAP2 flags
 #define CPUINFO_ARM_LINUX_FEATURE2_SVE2 UINT32_C(0x00000002)
@@ -1341,6 +1344,11 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
     if (have_feature("hw.optional.arm.FEAT_FP16")) {
         cpuinfo_isa->fp16arith = true;
     }
+#ifdef MNN_SME2
+    if (have_feature("hw.optional.arm.FEAT_FHM")) {
+        cpuinfo_isa->fp16fml = true;
+    }
+#endif
     if (have_feature("hw.optional.arm.FEAT_DotProd")) {
         cpuinfo_isa->dot = true;
     }
@@ -1368,6 +1376,11 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     if ((isa_features & fp16arith_mask) == fp16arith_mask) {
         cpuinfo_isa->fp16arith = true;
     }
+#ifdef MNN_SME2
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDFHM) {
+        cpuinfo_isa->fp16fml = true;
+    }
+#endif
     // HWCAP2 features
     isa_features2 = (uint64_t)getauxval(AT_HWCAP2);
     if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_I8MM) {
@@ -1590,6 +1603,9 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->i8mm = false;
     cpuinfo_isa->sve2 = false;
     cpuinfo_isa->sme2 = false;
+#ifdef MNN_SME2
+    cpuinfo_isa->fp16fml = false;
+#endif
     // android
     /**Get CPU Info*/
 #ifdef __linux__

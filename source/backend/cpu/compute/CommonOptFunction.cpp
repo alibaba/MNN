@@ -1372,6 +1372,70 @@ static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase,
     }
 }
 
+#ifdef MNN_SME2
+// This is Attention-only: CPUAttention uses no bias or post-processing on QK/PV matmuls.
+// B keeps the [H/64, L, 64] SME2 KV-cache layout, allowing NEON and SME workers to share one cache.
+static void MNNPackedMatMulRemainWithSme2PackedB(float* C, const float* A, const float* B, size_t eSize,
+                                                  const size_t* parameter, const float* postParameters,
+                                                  const float* bias, const float* k, const float* b) {
+    MNN_ASSERT(postParameters == nullptr && bias == nullptr && k == nullptr && b == nullptr);
+    const size_t aStride = parameter[0] / sizeof(float);
+    const size_t l = parameter[1];
+    const size_t h = parameter[2];
+    const size_t cStride = parameter[3] / sizeof(float);
+    const size_t bStride = l * 64 + parameter[5] / sizeof(float);
+    if (eSize == 1 && h % 16 == 0) {
+        for (size_t y = 0; y < h; y += 16) {
+            const float* weight0 = B + (y / 64) * bStride + y % 64;
+            const float* weight1 = weight0 + 4;
+            const float* weight2 = weight0 + 8;
+            const float* weight3 = weight0 + 12;
+            auto sum0 = Vec(0.0f);
+            auto sum1 = Vec(0.0f);
+            auto sum2 = Vec(0.0f);
+            auto sum3 = Vec(0.0f);
+            for (size_t z = 0; z < l; ++z) {
+                const auto a = Vec(A[z * aStride]);
+                sum0 = Vec::fma(sum0, Vec::load(weight0 + z * 64), a);
+                sum1 = Vec::fma(sum1, Vec::load(weight1 + z * 64), a);
+                sum2 = Vec::fma(sum2, Vec::load(weight2 + z * 64), a);
+                sum3 = Vec::fma(sum3, Vec::load(weight3 + z * 64), a);
+            }
+            float* dst = C + (y / 4) * cStride;
+            Vec::save(dst, sum0);
+            Vec::save(dst + cStride, sum1);
+            Vec::save(dst + 2 * cStride, sum2);
+            Vec::save(dst + 3 * cStride, sum3);
+        }
+        return;
+    }
+    for (size_t e = 0; e < eSize; ++e) {
+        for (size_t y = 0; y < h; y += 4) {
+            const size_t remain = ALIMIN((size_t)4, h - y);
+            const float* weight = B + (y / 64) * bStride + y % 64;
+            auto sum = Vec(0.0f);
+            for (size_t z = 0; z < l; ++z) {
+                sum = Vec::fma(sum, Vec::load(weight + z * 64), Vec(A[z * aStride + e]));
+            }
+            float* dst = C + (y / 4) * cStride + e * 4;
+            if (remain == 4) {
+                Vec::save(dst, sum);
+            } else {
+                for (size_t i = 0; i < remain; ++i) {
+                    dst[i] = sum[i];
+                }
+            }
+        }
+    }
+}
+
+static void MNNPackedMatMulWithSme2PackedB(float* C, const float* A, const float* B, const size_t* parameter,
+                                            const float* postParameters, const float* bias, const float* k,
+                                            const float* b) {
+    MNNPackedMatMulRemainWithSme2PackedB(C, A, B, 16, parameter, postParameters, bias, k, b);
+}
+#endif
+
 #ifndef __aarch64__
 void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params) {
     int32_t kvNumHead = params[0];
@@ -4882,6 +4946,10 @@ void MNNCoreFunctionInit() {
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     gCoreFunction->MNNAttenPackAndScaleSingleHead = MNNAttenPackAndScaleSingleHead;
+#ifdef MNN_SME2
+    gCoreFunction->MNNPackedMatMulWithSme2PackedB = MNNPackedMatMulWithSme2PackedB;
+    gCoreFunction->MNNPackedMatMulRemainWithSme2PackedB = MNNPackedMatMulRemainWithSme2PackedB;
+#endif
     gCoreFunction->MNNFlashAttentionUpdateBlockOutput = MNNFlashAttentionUpdateBlockOutput;
     gCoreFunction->MNNQuantAttentionKey = MNNQuantAttentionKey;
     gCoreFunction->MNNQuantAttentionValue = MNNQuantAttentionValue;
@@ -4921,6 +4989,9 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportSDot = gCPUInfo.dot;
     gCoreFunction->supportI8mm = gCPUInfo.i8mm;
     gCoreFunction->supportSME2 = gCPUInfo.sme2;
+#ifdef MNN_SME2
+    gCoreFunction->supportFp16FML = gCPUInfo.fp16fml;
+#endif
     // add rvv support
     gCoreFunction->supportRVV = gCPUInfo.rvv;
 

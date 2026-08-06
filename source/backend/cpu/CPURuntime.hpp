@@ -22,6 +22,9 @@ struct MNNCPUInfo {
     bool i8mm = false;
     bool sve2 = false;
     bool sme2 = false;
+#ifdef MNN_SME2
+    bool fp16fml = false;
+#endif
     std::vector<CPUGroup> groups;
  // RVV attributes
     bool rvv = false;

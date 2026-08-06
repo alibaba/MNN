@@ -319,6 +319,125 @@ static void MNNPackedMatMulFP16_SME2(float* C, const float* A, const float* B, c
     MNNPackedMatMulRemainFP16_SME2(C, A, B, 16, parameter, postParameters, bias, k, b);
 }
 #endif
+
+#if defined(MNN_SME2) && defined(MNN_USE_NEON)
+// NEON path for SME/NEON mixed Attention. It reads the [H/64, L, 64] KV cache
+// packed by the SME2 path and keeps the Arm82 FP16 output packing.
+static void MNNPackedMatMulRemainFP16WithSme2PackedB(float* C, const float* A, const float* B, size_t eSize,
+                                                      const size_t* parameter, const float* postParameters,
+                                                      const float* bias, const float* k, const float* b) {
+    MNN_ASSERT(postParameters == nullptr && bias == nullptr && k == nullptr && b == nullptr);
+    const size_t aStride = parameter[0] / sizeof(FLOAT16);
+    const size_t l = parameter[1];
+    const size_t h = parameter[2];
+    const size_t cStride = parameter[3] / sizeof(FLOAT16);
+    const size_t bStride = UP_DIV(l, 2) * 128 + parameter[5] / sizeof(FLOAT16);
+    const auto aPtr = reinterpret_cast<const FLOAT16*>(A);
+    const auto bPtr = reinterpret_cast<const FLOAT16*>(B);
+    auto cPtr = reinterpret_cast<FLOAT16*>(C);
+    MNN_ASSERT(l % 2 == 0);
+    for (size_t e = 0; e < eSize; ++e) {
+        size_t y = 0;
+        for (; y + 8 <= h; y += 8) {
+            auto sumLo = vdupq_n_f32(0.0f);
+            auto sumHi = vdupq_n_f32(0.0f);
+            const auto aBase = aPtr + e * 2;
+            const auto bBase = bPtr + (y / 64) * bStride + (y % 64) * 2;
+            for (size_t z = 0; z < l; z += 2) {
+                const auto raw = reinterpret_cast<const uint16_t*>(bBase + z * 64);
+                const auto raw0 = vld1q_u16(raw);
+                const auto raw1 = vld1q_u16(raw + 8);
+                const auto values0 = vreinterpretq_f16_u16(vuzp1q_u16(raw0, raw1));
+                const auto values1 = vreinterpretq_f16_u16(vuzp2q_u16(raw0, raw1));
+                const auto a = aBase + (z / 2) * aStride;
+                const float a0 = static_cast<float>(a[0]);
+                const float a1 = static_cast<float>(a[1]);
+                sumLo = vfmaq_n_f32(sumLo, vcvt_f32_f16(vget_low_f16(values0)), a0);
+                sumHi = vfmaq_n_f32(sumHi, vcvt_f32_f16(vget_high_f16(values0)), a0);
+                sumLo = vfmaq_n_f32(sumLo, vcvt_f32_f16(vget_low_f16(values1)), a1);
+                sumHi = vfmaq_n_f32(sumHi, vcvt_f32_f16(vget_high_f16(values1)), a1);
+            }
+            vst1q_f16(cPtr + (y / 8) * cStride + e * 8, vcombine_f16(vcvt_f16_f32(sumLo), vcvt_f16_f32(sumHi)));
+        }
+        for (; y < h; ++y) {
+            float sum = 0.0f;
+            const auto aBase = aPtr + e * 2;
+            const auto bBase = bPtr + (y / 64) * bStride + (y % 64) * 2;
+            for (size_t z = 0; z < l; z += 2) {
+                const auto weight = bBase + z * 64;
+                const auto a = aBase + (z / 2) * aStride;
+                sum += static_cast<float>(weight[0]) * static_cast<float>(a[0]);
+                sum += static_cast<float>(weight[1]) * static_cast<float>(a[1]);
+            }
+            cPtr[(y / 8) * cStride + e * 8 + y % 8] = static_cast<FLOAT16>(sum);
+        }
+    }
+}
+
+static void MNNPackedMatMulFP16WithSme2PackedB(float* C, const float* A, const float* B, const size_t* parameter,
+                                                const float* postParameters, const float* bias, const float* k,
+                                                const float* b) {
+    MNNPackedMatMulRemainFP16WithSme2PackedB(C, A, B, 16, parameter, postParameters, bias, k, b);
+}
+
+__attribute__((target("arch=armv8.2-a+fp16fml")))
+static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(float* C, const float* A, const float* B, size_t eSize,
+                                                            const size_t* parameter, const float* postParameters,
+                                                            const float* bias, const float* k, const float* b) {
+    MNN_ASSERT(postParameters == nullptr && bias == nullptr && k == nullptr && b == nullptr);
+    const size_t aStride = parameter[0] / sizeof(FLOAT16);
+    const size_t l = parameter[1];
+    const size_t h = parameter[2];
+    const size_t cStride = parameter[3] / sizeof(FLOAT16);
+    const size_t bStride = UP_DIV(l, 2) * 128 + parameter[5] / sizeof(FLOAT16);
+    const auto aPtr = reinterpret_cast<const FLOAT16*>(A);
+    const auto bPtr = reinterpret_cast<const FLOAT16*>(B);
+    auto cPtr = reinterpret_cast<FLOAT16*>(C);
+    MNN_ASSERT(l % 2 == 0);
+    for (size_t e = 0; e < eSize; ++e) {
+        size_t y = 0;
+        for (; y + 8 <= h; y += 8) {
+            auto sumLo = vdupq_n_f32(0.0f);
+            auto sumHi = vdupq_n_f32(0.0f);
+            const auto aBase = aPtr + e * 2;
+            const auto bBase = bPtr + (y / 64) * bStride + (y % 64) * 2;
+            for (size_t z = 0; z < l; z += 2) {
+                const auto raw = reinterpret_cast<const uint16_t*>(bBase + z * 64);
+                const auto raw0 = vld1q_u16(raw);
+                const auto raw1 = vld1q_u16(raw + 8);
+                const auto values0 = vreinterpretq_f16_u16(vuzp1q_u16(raw0, raw1));
+                const auto values1 = vreinterpretq_f16_u16(vuzp2q_u16(raw0, raw1));
+                const auto a = aBase + (z / 2) * aStride;
+                const auto a0 = vdupq_n_f16(a[0]);
+                const auto a1 = vdupq_n_f16(a[1]);
+                sumLo = vfmlalq_low_f16(sumLo, values0, a0);
+                sumHi = vfmlalq_high_f16(sumHi, values0, a0);
+                sumLo = vfmlalq_low_f16(sumLo, values1, a1);
+                sumHi = vfmlalq_high_f16(sumHi, values1, a1);
+            }
+            vst1q_f16(cPtr + (y / 8) * cStride + e * 8, vcombine_f16(vcvt_f16_f32(sumLo), vcvt_f16_f32(sumHi)));
+        }
+        for (; y < h; ++y) {
+            float sum = 0.0f;
+            const auto aBase = aPtr + e * 2;
+            const auto bBase = bPtr + (y / 64) * bStride + (y % 64) * 2;
+            for (size_t z = 0; z < l; z += 2) {
+                const auto weight = bBase + z * 64;
+                const auto a = aBase + (z / 2) * aStride;
+                sum += static_cast<float>(weight[0]) * static_cast<float>(a[0]);
+                sum += static_cast<float>(weight[1]) * static_cast<float>(a[1]);
+            }
+            cPtr[(y / 8) * cStride + e * 8 + y % 8] = static_cast<FLOAT16>(sum);
+        }
+    }
+}
+
+static void MNNPackedMatMulFP16WithSme2PackedB_Fmlal(float* C, const float* A, const float* B,
+                                                      const size_t* parameter, const float* postParameters,
+                                                      const float* bias, const float* k, const float* b) {
+    MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(C, A, B, 16, parameter, postParameters, bias, k, b);
+}
+#endif
 #else
 static void ARM82CountMinMaxValue(float* source, float* minVal, float* maxVal, size_t size) {
     auto srcPtr = (FLOAT16*)source;
@@ -2869,6 +2988,9 @@ bool Arm82Functions::init() {
     gInstance->supportSDot = origin->supportSDot;
     gInstance->supportI8mm = origin->supportI8mm;
     gInstance->supportSME2 = origin->supportSME2;
+#ifdef MNN_SME2
+    gInstance->supportFp16FML = origin->supportFp16FML;
+#endif
     gInstance->smeCoreNumber = origin->smeCoreNumber;
 #ifdef MNN_LOW_MEMORY
     // Dynamic Qaunt Helper Functions
@@ -2898,6 +3020,15 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNFlashAttentionUpdateBlockOutput, MNNFlashAttentionUpdateBlockOutput);
     gInstance->MNNQuantAttentionKey = MNNQuantAttentionKeyFP16;
     gInstance->MNNQuantAttentionValue = MNNQuantAttentionValueFP16;
+#if defined(MNN_SME2) && defined(__aarch64__) && defined(MNN_USE_NEON)
+    if (origin->supportFp16FML) {
+        FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulWithSme2PackedB, MNNPackedMatMulFP16WithSme2PackedB_Fmlal);
+        FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedB, MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal);
+    } else {
+        FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulWithSme2PackedB, MNNPackedMatMulFP16WithSme2PackedB);
+        FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedB, MNNPackedMatMulRemainFP16WithSme2PackedB);
+    }
+#endif
 
     // LinearAttention fp16 kernels
     FUNC_PTR_ASSIGN(gInstance->MNNRankOneUpdate, MNNRankOneUpdateFp16);

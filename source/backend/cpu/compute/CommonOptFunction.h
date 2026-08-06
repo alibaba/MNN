@@ -319,6 +319,9 @@ struct CoreFunctions {
     bool supportSDot = false;
     bool supportI8mm = false;
     bool supportSME2 = false;
+#ifdef MNN_SME2
+    bool supportFp16FML = false;
+#endif
     bool supportRVV = false;
     int smeCoreNumber = 0;
     /**MatMul Pack and Functions*/
@@ -532,6 +535,15 @@ struct CoreFunctions {
     void (*MNNAccumulateSequenceNumber)(float* dst, const float* src, int size);
 
     // Attention
+    // Attention-only matmul. B uses the H=64 layout produced by the SME2 KV cache packer.
+#ifdef MNN_SME2
+    void (*MNNPackedMatMulWithSme2PackedB)(float* C, const float* A, const float* B, const size_t* parameter,
+                                            const float* postParameters, const float* bias, const float* k,
+                                            const float* b);
+    void (*MNNPackedMatMulRemainWithSme2PackedB)(float* C, const float* A, const float* B, size_t eSize,
+                                                  const size_t* parameter, const float* postParameters,
+                                                  const float* bias, const float* k, const float* b);
+#endif
     void (*MNNAttenPackAndScaleSingleHead)(float* dst, const float* srcHeadBase, size_t srcRowStride,
                                            const float* scale, const int32_t* units, size_t seqLen, size_t headDim);
     void (*MNNFlashAttentionUpdateBlockOutput)(float* dst, float* src, float* scale, float* normalizeScale,
