@@ -1,4 +1,4 @@
-// #define MNN_OPEN_TIME_TRACE
+//#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <algorithm>
 #include <climits>
@@ -17,7 +17,8 @@
 namespace MNN {
 static_assert(sizeof(ConvolutionCommon::Im2ColParameter) == sizeof(Im2ColParameter), "Im2ColParameter layout mismatch");
 
-static void setHexagonIm2ColParameter(ConvolutionCommon::Im2ColParameter& param, const Convolution2DCommon* convCommon,
+static void setHexagonIm2ColParameter(ConvolutionCommon::Im2ColParameter& param,
+                                      const Convolution2DCommon* convCommon,
                                       Tensor* input, Tensor* output, int padX, int padY, int pack) {
     param.dilateX = convCommon->dilateX();
     param.dilateY = convCommon->dilateY();
@@ -36,17 +37,19 @@ static void setHexagonIm2ColParameter(ConvolutionCommon::Im2ColParameter& param,
     param.srcZStep = input->stride(1) * pack * input->batch();
     param.srcYStep = input->stride(2) * pack;
     param.packCUnit = pack;
+    param.destICStride = input->height() * param.srcYStep;
     param.ic = input->channel();
     param.icup4 = input->channel();
 
     if (param.iw == 1 && param.ow == 1 && param.oh > 1 && param.kernelX == 1 && param.padX == 0) {
+        const int inputHeight = param.ih;
         param.ow = param.oh;
         param.oh = 1;
         param.padX = param.padY;
         param.padY = 0;
         param.strideX = param.strideY;
         param.strideY = 1;
-        param.iw = param.ih;
+        param.iw = inputHeight;
         param.ih = 1;
         param.dilateX = param.dilateY;
         param.dilateY = 1;
@@ -79,8 +82,11 @@ enum class Q4ScaleMode {
     Block,
 };
 
-static HexagonTileShape chooseIm2ColTileShape(int totalMp, int totalNp, int KAlign, int availSize) {
-    int maxSum = availSize / (64 * KAlign);
+static HexagonTileShape chooseIm2ColTileShape(int totalMp, int totalNp, int KAlign, int availSize,
+                                              bool useInt8Staging = false) {
+    const int bytesPerMp = 64 * KAlign;
+    const int bytesPerNp = useInt8Staging ? 96 * KAlign : 64 * KAlign;
+    int maxSum = availSize / std::max(bytesPerMp, bytesPerNp);
     maxSum = std::max(maxSum, 2);
 
     HexagonTileShape best;
@@ -89,7 +95,10 @@ static HexagonTileShape chooseIm2ColTileShape(int totalMp, int totalNp, int KAli
     int bestTileArea = 0;
     const int maxMp = std::min(totalMp, maxSum - 1);
     for (int candMp = 1; candMp <= maxMp; ++candMp) {
-        const int maxNp = std::min(totalNp, maxSum - candMp);
+        if ((int64_t)candMp * bytesPerMp >= availSize) {
+            continue;
+        }
+        const int maxNp = std::min(totalNp, (int)((availSize - (int64_t)candMp * bytesPerMp) / bytesPerNp));
         for (int candNp = 1; candNp <= maxNp; ++candNp) {
             const int oxChunks = UP_DIV(totalMp, candMp);
             const int oyChunks = UP_DIV(totalNp, candNp);
@@ -98,7 +107,8 @@ static HexagonTileShape chooseIm2ColTileShape(int totalMp, int totalNp, int KAli
             const int64_t cost = std::min(activationOuterCost, weightOuterCost);
             const int chunkPairs = oxChunks * oyChunks;
             const int tileArea = candMp * candNp;
-            if (cost < bestCost || (cost == bestCost && chunkPairs < bestChunkPairs) ||
+            if (cost < bestCost ||
+                (cost == bestCost && chunkPairs < bestChunkPairs) ||
                 (cost == bestCost && chunkPairs == bestChunkPairs && tileArea > bestTileArea)) {
                 bestCost = cost;
                 bestChunkPairs = chunkPairs;
@@ -110,14 +120,14 @@ static HexagonTileShape chooseIm2ColTileShape(int totalMp, int totalNp, int KAli
     return best;
 }
 
-static HexagonTileShape chooseQ4BlockPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp, int KAlign,
-                                                      int vtcmSize);
+static HexagonTileShape chooseQ4BlockPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp,
+                                                      int KAlign, int vtcmSize);
 static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scaleBlockNum, int vtcmSize);
-static HexagonTileShape chooseQ4PerOutputPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp, int KAlign,
-                                                          int vtcmSize);
+static HexagonTileShape chooseQ4PerOutputPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp,
+                                                          int KAlign, int vtcmSize);
 
-static HexagonTileShape chooseDirectTileShape(int totalMp, int totalNp, int KAlign, int availSize, int vtcmSize,
-                                              Q4ScaleMode q4ScaleMode, int scaleBlockNum) {
+static HexagonTileShape chooseDirectTileShape(int totalMp, int totalNp, int KAlign, int availSize,
+                                              int vtcmSize, Q4ScaleMode q4ScaleMode, int scaleBlockNum) {
     const bool useInt4 = q4ScaleMode != Q4ScaleMode::None;
     int maxSum = useInt4 ? availSize / (64 * KAlign + 64 + 16 * KAlign) : availSize / (64 * KAlign);
     maxSum = std::max(maxSum, 3); // at least 1 mp (takes 2) and 1 np (takes 1)
@@ -125,7 +135,8 @@ static HexagonTileShape chooseDirectTileShape(int totalMp, int totalNp, int KAli
     HexagonTileShape tile;
     tile.mp = std::min(totalMp, std::max(1, maxSum / 3));
     const int remainSize = availSize - 64 * KAlign * 2 * tile.mp;
-    int maxNp = useInt4 ? remainSize / (64 + 64 * KAlign + 16 * KAlign + 2048) : remainSize / (64 * KAlign);
+    int maxNp = useInt4 ? remainSize / (64 + 64 * KAlign + 16 * KAlign + 2048)
+                        : remainSize / (64 * KAlign);
     tile.np = std::min(totalNp, std::max(1, maxNp));
     if (tile.np + 2 * tile.mp < maxSum && tile.mp < totalMp) {
         tile.mp = std::min(totalMp, (maxSum - tile.np) / 2);
@@ -147,10 +158,11 @@ static HexagonTileShape chooseDirectTileShape(int totalMp, int totalNp, int KAli
             const int activationBuffers = mp >= totalMp ? 1 : 2;
             const int outputBuffers = asyncOutputStore ? ((np > 1 && (np & 1) == 0) ? 4 : 2) : 1;
             const int scaleBuffers = asyncOutputStore ? 2 : 1;
-            return (size_t)np * 64 * KAlign + // fp16 weight
-                   (size_t)np * 16 * KAlign + // int4 weight
-                   (size_t)activationBuffers * mp * 64 * KAlign + (size_t)outputBuffers * np * 1024 * sizeof(int16_t) +
-                   (size_t)np * 256 + // hmx scales
+            return (size_t)np * 64 * KAlign +                  // fp16 weight
+                   (size_t)np * 16 * KAlign +                  // int4 weight
+                   (size_t)activationBuffers * mp * 64 * KAlign +
+                   (size_t)outputBuffers * np * 1024 * sizeof(int16_t) +
+                   (size_t)np * 256 +                          // hmx scales
                    (size_t)scaleBuffers * (np * 64 + 64);
         };
         while (tile.np > 1 && footprint(tile.mp, tile.np, true) > safeVtcmSize) {
@@ -160,17 +172,18 @@ static HexagonTileShape chooseDirectTileShape(int totalMp, int totalNp, int KAli
     return tile;
 }
 
-static HexagonTileShape chooseQ4PerOutputPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp, int KAlign,
-                                                          int vtcmSize) {
+static HexagonTileShape chooseQ4PerOutputPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp,
+                                                          int KAlign, int vtcmSize) {
     const size_t safeVtcmSize = vtcmSize > 16 * 1024 ? (size_t)vtcmSize - 16 * 1024 : (size_t)vtcmSize;
     auto footprint = [&](int mp, int np) {
         const int activationBuffers = mp >= totalMp ? 1 : 2;
         const int outputBuffers = (np > 1 && (np & 1) == 0) ? 4 : 2;
-        return (size_t)np * 64 * KAlign + // fp16 weight
-               (size_t)np * 16 * KAlign + // int4 weight
-               (size_t)activationBuffers * mp * 64 * KAlign + (size_t)outputBuffers * np * 1024 * sizeof(int16_t) +
-               (size_t)np * 256 +          // hmx scales
-               (size_t)2 * (np * 64 + 64); // double-buffered output scales
+        return (size_t)np * 64 * KAlign +                 // fp16 weight
+               (size_t)np * 16 * KAlign +                 // int4 weight
+               (size_t)activationBuffers * mp * 64 * KAlign +
+               (size_t)outputBuffers * np * 1024 * sizeof(int16_t) +
+               (size_t)np * 256 +                         // hmx scales
+               (size_t)2 * (np * 64 + 64);                 // double-buffered output scales
     };
 
     HexagonTileShape best = base;
@@ -195,7 +208,8 @@ static HexagonTileShape chooseQ4PerOutputPrefillTileShape(HexagonTileShape base,
             const int tileArea = candMp * candNp;
             if (reuseActivation > bestReuseActivation ||
                 (reuseActivation == bestReuseActivation &&
-                 (cost < bestCost || (cost == bestCost && chunkPairs < bestChunkPairs) ||
+                 (cost < bestCost ||
+                  (cost == bestCost && chunkPairs < bestChunkPairs) ||
                   (cost == bestCost && chunkPairs == bestChunkPairs && tileArea > bestTileArea)))) {
                 bestReuseActivation = reuseActivation;
                 bestCost = cost;
@@ -208,8 +222,8 @@ static HexagonTileShape chooseQ4PerOutputPrefillTileShape(HexagonTileShape base,
     return best;
 }
 
-static HexagonTileShape chooseQ4BlockPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp, int KAlign,
-                                                      int vtcmSize) {
+static HexagonTileShape chooseQ4BlockPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp,
+                                                      int KAlign, int vtcmSize) {
     const size_t fixedBytes = 4 * 1024 + 256;
     const size_t safeVtcmSize = vtcmSize > (int)fixedBytes ? (size_t)vtcmSize - fixedBytes : 0;
     const size_t activationBytesPerMp = (size_t)64 * KAlign;
@@ -237,7 +251,8 @@ static HexagonTileShape chooseQ4BlockPrefillTileShape(HexagonTileShape base, int
             const int tileArea = candMp * candNp;
             if (reuseActivation > bestReuseActivation ||
                 (reuseActivation == bestReuseActivation &&
-                 (cost < bestCost || (cost == bestCost && chunkPairs < bestChunkPairs) ||
+                 (cost < bestCost ||
+                  (cost == bestCost && chunkPairs < bestChunkPairs) ||
                   (cost == bestCost && chunkPairs == bestChunkPairs && tileArea > bestTileArea)))) {
                 bestReuseActivation = reuseActivation;
                 bestCost = cost;
@@ -255,11 +270,11 @@ static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scal
     const int outputPartitions = scaleOutputPasses > 1 ? scaleOutputPasses : 1;
     const int scalePartitions = scaleOutputPasses > 1 ? 2 : 1;
     const size_t topReservedBytes = 16 * 1024;
-    const size_t safeVtcmSize =
-        vtcmSize > (int)topReservedBytes ? (size_t)vtcmSize - topReservedBytes : (size_t)vtcmSize;
+    const size_t safeVtcmSize = vtcmSize > (int)topReservedBytes ? (size_t)vtcmSize - topReservedBytes : (size_t)vtcmSize;
     const size_t kp = UP_DIV(KAlign, 32);
     const size_t fixedBytes = (size_t)64 * KAlign + kp * 128 + 256;
-    const size_t bytesPerNp = (size_t)64 * KAlign + (size_t)16 * KAlign + (size_t)outputPartitions * 2048 +
+    const size_t bytesPerNp = (size_t)64 * KAlign + (size_t)16 * KAlign +
+                              (size_t)outputPartitions * 2048 +
                               (size_t)scalePartitions * 2048 + 128;
     if (safeVtcmSize <= fixedBytes || bytesPerNp == 0) {
         return currentNp;
@@ -271,9 +286,9 @@ static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scal
     return std::min(currentNp, std::min(totalNp, std::max(1, safeNp)));
 }
 
-static bool reorderInt4WeightForHmx(uint8_t* dst, size_t dstBytes, const uint8_t* rawInt4Data,
-                                    const float* rawAlphaData, int rawAlphaSize, int ic, int oc, int scaleBlockNum,
-                                    void (*fp32tofp16)(const float*, int16_t*, size_t)) {
+static bool reorderInt4WeightForHmx(uint8_t* dst, size_t dstBytes, const uint8_t* rawInt4Data, const float* rawAlphaData,
+                                    int rawAlphaSize, int ic, int oc, int scaleBlockNum,
+                                    void(*fp32tofp16)(const float*, int16_t*, size_t)) {
     const int icP = UP_DIV(ic, 32);
     const int ocP = UP_DIV(oc, 32);
     const int icBytes = UP_DIV(ic, 2);
@@ -291,11 +306,8 @@ static bool reorderInt4WeightForHmx(uint8_t* dst, size_t dstBytes, const uint8_t
     const size_t neededBytes = weightBytes + scaleBytes + packedScaleBytes;
 
     if (neededBytes > dstBytes || (rawAlphaData != nullptr && rawAlphaSize < oc * scaleBlocks)) {
-        MNN_PRINT(
-            "[MNN::Hexagon][int4] invalid q4block reorder bounds: ic=%d oc=%d icP=%d ocP=%d scaleBlocks=%d alpha=%d "
-            "need=%zu dst=%zu weight=%zu scale=%zu packed=%zu\n",
-            ic, oc, icP, ocP, scaleBlocks, rawAlphaSize, neededBytes, dstBytes, weightBytes, scaleBytes,
-            packedScaleBytes);
+        MNN_PRINT("[MNN::Hexagon][int4] invalid q4block reorder bounds: ic=%d oc=%d icP=%d ocP=%d scaleBlocks=%d alpha=%d need=%zu dst=%zu weight=%zu scale=%zu packed=%zu\n",
+                  ic, oc, icP, ocP, scaleBlocks, rawAlphaSize, neededBytes, dstBytes, weightBytes, scaleBytes, packedScaleBytes);
         return false;
     }
     if (!aligned) {
@@ -402,6 +414,60 @@ static bool reorderInt4WeightForHmx(uint8_t* dst, size_t dstBytes, const uint8_t
     return true;
 }
 
+static bool reorderInt8SymWeightForHmx(uint8_t* dst, size_t dstBytes, const int8_t* rawInt8Data,
+                                       const float* rawAlphaData, int rawAlphaSize,
+                                       int ic, int oc, int kernelX, int kernelY,
+                                       void(*fp32tofp16)(const float*, int16_t*, size_t)) {
+    constexpr int icPack = 32;
+    constexpr int ocPack = 32;
+    const int icP = UP_DIV(ic, icPack);
+    const int ocP = UP_DIV(oc, ocPack);
+    const int kp = kernelY * kernelX * icP;
+    constexpr int packs = icPack * ocPack;
+    const size_t weightBytes = (size_t)ocP * kp * packs;
+    const size_t scaleBytes = (size_t)ocP * ocPack * sizeof(int16_t);
+    const size_t neededBytes = weightBytes + scaleBytes;
+    if (dst == nullptr || rawInt8Data == nullptr || rawAlphaData == nullptr ||
+        rawAlphaSize < oc || neededBytes > dstBytes) {
+        MNN_PRINT("[MNN::Hexagon][int8] invalid w8 reorder bounds: ic=%d oc=%d alpha=%d need=%zu dst=%zu\n",
+                  ic, oc, rawAlphaSize, neededBytes, dstBytes);
+        return false;
+    }
+    ::memset(dst, 0, neededBytes);
+    int8_t* dstWeight = reinterpret_cast<int8_t*>(dst);
+    int16_t* dstScale = reinterpret_cast<int16_t*>(dst + weightBytes);
+    fp32tofp16(rawAlphaData, dstScale, oc);
+
+    for (int oz = 0; oz < ocP; ++oz) {
+        for (int kk = 0; kk < kp; ++kk) {
+            const int kernelIndex = kk / icP;
+            const int iz = kk % icP;
+            const int ky = kernelIndex / kernelX;
+            const int kx = kernelIndex % kernelX;
+            const size_t blockBase = ((size_t)oz * kp + kk) * packs;
+            for (int oy = 0; oy < ocPack; ++oy) {
+                const int o = oz * ocPack + oy;
+                if (o >= oc) {
+                    continue;
+                }
+                for (int ix = 0; ix < icPack; ++ix) {
+                    const int i = iz * icPack + ix;
+                    if (i >= ic) {
+                        continue;
+                    }
+                    const size_t srcIndex = (((size_t)o * ic + i) * kernelY + ky) * kernelX + kx;
+                    const int ixPair = ix / 2;
+                    const int ixRem = ix & 1;
+                    const int lane = oy * 2 + ixRem;
+                    const size_t dstIndex = blockBase + (size_t)(ixPair / 2) * 128 + lane * 2 + (ixPair & 1);
+                    dstWeight[dstIndex] = rawInt8Data[srcIndex];
+                }
+            }
+        }
+    }
+    return true;
+}
+
 static void reorderFp16WeightForHmx(int16_t* dst, const int16_t* src, int ic, int oc, int kernelX, int kernelY) {
     constexpr int icPack = 32;
     constexpr int ocPack = 32;
@@ -422,22 +488,18 @@ static void reorderFp16WeightForHmx(int16_t* dst, const int16_t* src, int ic, in
             const size_t blockBase = ((size_t)oz * kp + kk) * packs;
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
             if (kernelX == 1 && kernelY == 1 && oz * ocPack + ocPack <= oc && iz * icPack + icPack <= ic) {
-                auto transpose8x8 = [](int16x8_t r0, int16x8_t r1, int16x8_t r2, int16x8_t r3, int16x8_t r4,
-                                       int16x8_t r5, int16x8_t r6, int16x8_t r7, int16x8_t* c0, int16x8_t* c1,
-                                       int16x8_t* c2, int16x8_t* c3, int16x8_t* c4, int16x8_t* c5, int16x8_t* c6,
-                                       int16x8_t* c7) {
+                auto transpose8x8 = [](int16x8_t r0, int16x8_t r1, int16x8_t r2, int16x8_t r3,
+                                        int16x8_t r4, int16x8_t r5, int16x8_t r6, int16x8_t r7,
+                                        int16x8_t* c0, int16x8_t* c1, int16x8_t* c2, int16x8_t* c3,
+                                        int16x8_t* c4, int16x8_t* c5, int16x8_t* c6, int16x8_t* c7) {
                     const int16x8x2_t t0 = vtrnq_s16(r0, r1);
                     const int16x8x2_t t1 = vtrnq_s16(r2, r3);
                     const int16x8x2_t t2 = vtrnq_s16(r4, r5);
                     const int16x8x2_t t3 = vtrnq_s16(r6, r7);
-                    const int32x4x2_t u0 =
-                        vtrnq_s32(vreinterpretq_s32_s16(t0.val[0]), vreinterpretq_s32_s16(t1.val[0]));
-                    const int32x4x2_t u1 =
-                        vtrnq_s32(vreinterpretq_s32_s16(t0.val[1]), vreinterpretq_s32_s16(t1.val[1]));
-                    const int32x4x2_t u2 =
-                        vtrnq_s32(vreinterpretq_s32_s16(t2.val[0]), vreinterpretq_s32_s16(t3.val[0]));
-                    const int32x4x2_t u3 =
-                        vtrnq_s32(vreinterpretq_s32_s16(t2.val[1]), vreinterpretq_s32_s16(t3.val[1]));
+                    const int32x4x2_t u0 = vtrnq_s32(vreinterpretq_s32_s16(t0.val[0]), vreinterpretq_s32_s16(t1.val[0]));
+                    const int32x4x2_t u1 = vtrnq_s32(vreinterpretq_s32_s16(t0.val[1]), vreinterpretq_s32_s16(t1.val[1]));
+                    const int32x4x2_t u2 = vtrnq_s32(vreinterpretq_s32_s16(t2.val[0]), vreinterpretq_s32_s16(t3.val[0]));
+                    const int32x4x2_t u3 = vtrnq_s32(vreinterpretq_s32_s16(t2.val[1]), vreinterpretq_s32_s16(t3.val[1]));
                     const int64x2_t a0 = vreinterpretq_s64_s32(u0.val[0]);
                     const int64x2_t a1 = vreinterpretq_s64_s32(u1.val[0]);
                     const int64x2_t a2 = vreinterpretq_s64_s32(u0.val[1]);
@@ -518,9 +580,11 @@ HexagonConvolution::Resource::~Resource() {
     if (gatherInt4Weight.first != nullptr) {
         allocator->free(gatherInt4Weight);
     }
+    if (int8Weight.first != nullptr) {
+        allocator->free(int8Weight);
+    }
 }
-HexagonConvolution::HexagonConvolution(Backend* backend, std::shared_ptr<Resource> res, const Op* op)
-    : HexagonExecution(backend) {
+HexagonConvolution::HexagonConvolution(Backend *backend, std::shared_ptr<Resource> res, const Op* op) : HexagonExecution(backend) {
     mResource = res;
     mOp = op;
     if (op != nullptr) {
@@ -540,7 +604,7 @@ HexagonConvolution::HexagonConvolution(Backend* backend, std::shared_ptr<Resourc
     }
 }
 
-ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                          std::vector<HexagonCommand>& dst) {
     const auto runtime = static_cast<const HexagonRuntime*>(backend()->getRuntime());
     int vtcmSize = runtime->info().vtcmSize;
@@ -571,8 +635,9 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor*>& inputs, con
         auto pads = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], common);
         ::memset(&mParam, 0, sizeof(mParam));
         setHexagonIm2ColParameter(mParam, common, inputs[0], outputs[0], pads.first, pads.second, 64);
-        useConv1x1Direct = common->kernelX() == 1 && common->kernelY() == 1 && common->strideX() == 1 &&
-                           common->strideY() == 1 && common->dilateX() == 1 && common->dilateY() == 1 &&
+        useConv1x1Direct = common->kernelX() == 1 && common->kernelY() == 1 &&
+                           common->strideX() == 1 && common->strideY() == 1 &&
+                           common->dilateX() == 1 && common->dilateY() == 1 &&
                            pads.first == 0 && pads.second == 0;
         mParam.kernelCountUnit = common->kernelX() * common->kernelY() * UP_DIV(ic, 32);
         mParam.ic = UP_DIV(ic, 32) * 32;
@@ -602,10 +667,12 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor*>& inputs, con
     if (!mUseIm2Col && mResource != nullptr && mResource->useInt4W4A16) {
         q4ScaleMode = mResource->int4ScaleBlockNum > 1 ? Q4ScaleMode::Block : Q4ScaleMode::PerOutput;
     }
-    HexagonTileShape tile = mUseIm2Col
-                                ? chooseIm2ColTileShape(total_mp, total_np, KAlign, avail_size)
-                                : chooseDirectTileShape(total_mp, total_np, KAlign, avail_size, vtcmSize, q4ScaleMode,
-                                                        mResource ? mResource->int4ScaleBlockNum : 1);
+    const bool useInt8Staging = mUseIm2Col && mResource != nullptr && mResource->useInt8W8A16;
+    HexagonTileShape tile = mUseIm2Col ? chooseIm2ColTileShape(total_mp, total_np, KAlign, avail_size,
+                                                               useInt8Staging)
+                                       : chooseDirectTileShape(total_mp, total_np, KAlign, avail_size,
+                                                               vtcmSize, q4ScaleMode,
+                                                               mResource ? mResource->int4ScaleBlockNum : 1);
     mMp = tile.mp;
     mNp = tile.np;
     mKp = UP_DIV(K, 32);
@@ -617,10 +684,10 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor*>& inputs, con
         im2colParams.batch = batch;
         im2colParams.outputBytes = (int32_t)static_cast<HexagonBackend*>(backend())->getSize(outputs[0]);
     }
-    //    FUNC_PRINT(vtcmSize);
-    //    FUNC_PRINT(mMp);
-    //    FUNC_PRINT(mNp);
-    //    FUNC_PRINT(maxNp);
+//    FUNC_PRINT(vtcmSize);
+//    FUNC_PRINT(mMp);
+//    FUNC_PRINT(mNp);
+//    FUNC_PRINT(maxNp);
 
     auto input = HexagonBackend::getDevicePtr(inputs[0]);
     auto output = HexagonBackend::getDevicePtr(outputs[0]);
@@ -634,23 +701,23 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor*>& inputs, con
     std::vector<std::pair<int, int>> outputFds = {output};
 
     if (mUseIm2Col) {
-        auto weight = HexagonBackend::getDevicePtr(mResource->weight);
+        auto weight = mResource->useInt8W8A16 ? HexagonBackend::getDevicePtr(mResource->int8Weight)
+                                              : HexagonBackend::getDevicePtr(mResource->weight);
         std::vector<std::pair<int, int>> inputFds = {input, weight, bias};
         dst.emplace_back();
-        const auto opType = useConv1x1Direct ? DSP_OP_CONV1X1_DIRECT_FP16 : DSP_OP_IM2COL_CONVOLUTION_FP16;
-        dst.back().build(static_cast<HexagonBackend*>(backend()), opType, &im2colParams, sizeof(im2colParams), inputFds,
-                         outputFds, inputs, outputs);
+        const auto opType = mResource->useInt8W8A16 ? DSP_OP_CONV1X1_DIRECT_W8A16_SYM_PER_CHANNEL
+                                                    : (useConv1x1Direct ? DSP_OP_CONV1X1_DIRECT_FP16 : DSP_OP_IM2COL_CONVOLUTION_FP16);
+        dst.back().build(static_cast<HexagonBackend*>(backend()), opType, &im2colParams, sizeof(im2colParams),
+                         inputFds,  outputFds,  inputs, outputs);
     } else if (mResource->useInt4W4A16) {
         // Kernel don't need treat not aligned ic / oc
         auto weight = HexagonBackend::getDevicePtr(mResource->int4Weight);
-        int params[] = {area, icP * 32, ocP * 32, mResource->int4WeightType,    mResource->int4LayoutType,
-                        mMp,  mNp,      mKp,      mResource->int4ScaleBlockNum, 0};
+        int params[] = {area, icP * 32, ocP * 32, mResource->int4WeightType, mResource->int4LayoutType, mMp, mNp, mKp, mResource->int4ScaleBlockNum, 0};
         std::vector<std::pair<int, int>> inputFds = {input, weight, bias};
-        const auto opType =
-            mResource->int4ScaleBlockNum > 1 ? DSP_OP_MATMUL_Q4A16_BLOCK_FP16 : DSP_OP_MATMUL_Q4A16_FP16;
+        const auto opType = mResource->int4ScaleBlockNum > 1 ? DSP_OP_MATMUL_Q4A16_BLOCK_FP16 : DSP_OP_MATMUL_Q4A16_FP16;
         dst.emplace_back();
-        dst.back().build(static_cast<HexagonBackend*>(backend()), opType, params, sizeof(params), inputFds, outputFds,
-                         inputs, outputs);
+        dst.back().build(static_cast<HexagonBackend*>(backend()), opType, params, sizeof(params),
+                         inputFds,  outputFds,  inputs, outputs);
     }
 
     return NO_ERROR;
@@ -666,7 +733,8 @@ bool HexagonConvolution::onClone(Backend* bn, const Op* op, Execution** dst) {
         if (mResource == nullptr) {
             return false;
         }
-        if ((!mResource->useInt4W4A16 && mResource->weight.first == nullptr) ||
+        if ((!mResource->useInt4W4A16 && !mResource->useInt8W8A16 && mResource->weight.first == nullptr) ||
+            (mResource->useInt8W8A16 && mResource->int8Weight.first == nullptr) ||
             (mResource->useInt4W4A16 && mResource->int4Weight.first == nullptr)) {
             return false;
         }
@@ -678,7 +746,7 @@ bool HexagonConvolution::onClone(Backend* bn, const Op* op, Execution** dst) {
     *dst = exe;
     return true;
 }
-HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
+HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
     auto conv2d = op->main_as_Convolution2D();
     if (conv2d == nullptr || conv2d->common() == nullptr) {
         return nullptr;
@@ -686,8 +754,8 @@ HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
     auto common = conv2d->common();
     int ic = common->inputCount();
     int oc = common->outputCount();
-    const bool fastWay =
-        common->kernelY() == 1 && common->kernelX() == 1 && common->strideX() == 1 && common->strideY() == 1;
+    const bool fastWay = common->kernelY() == 1 && common->kernelX() == 1 && common->strideX() == 1 &&
+                         common->strideY() == 1 && common->dilateX() == 1 && common->dilateY() == 1;
     const int ocPack = 32;
     const int icPack = 32;
 
@@ -702,6 +770,7 @@ HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
 
     bool useInt4W4A16 = false;
+    bool useInt8W8A16 = false;
     int int4WeightType = 0;
     int int4LayoutType = 1;
     if (fastWay && nullptr != conv2d->quanParameter()) {
@@ -718,9 +787,18 @@ HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
             originWeight = nullptr;
             originWeightSize = quanCommon->weight.size();
         } else {
-            quanCommon = ConvolutionCommon::load(op, backend, true, false, nullptr);
-            originWeight = quanCommon->weightFloat.get();
-            originWeightSize = quanCommon->weightFloat.size();
+            quanCommon = ConvolutionCommon::load(op, backend, false, true, nullptr);
+            if (fastWay && quanCommon != nullptr && !quanCommon->asymmetric && quanCommon->weight.get() != nullptr &&
+                quanCommon->alpha.get() != nullptr && quanCommon->alpha.size() >= oc &&
+                conv2d->quanParameter()->index() == nullptr) {
+                useInt8W8A16 = true;
+                originWeight = nullptr;
+                originWeightSize = quanCommon->weight.size();
+            } else {
+                quanCommon = ConvolutionCommon::load(op, backend, true, false, nullptr);
+                originWeight = quanCommon->weightFloat.get();
+                originWeightSize = quanCommon->weightFloat.size();
+            }
         }
     } else {
         originWeight = conv2d->weight()->data();
@@ -731,6 +809,8 @@ HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
     if (ic == 0) {
         if (useInt4W4A16) {
             ic = (originWeightSize * 2) / oc;
+        } else if (useInt8W8A16) {
+            ic = originWeightSize / (oc * kernelSize);
         } else {
             ic = originWeightSize / (oc * kernelSize);
         }
@@ -744,9 +824,7 @@ HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
     int int4ScaleBlockNum = 1;
     if (useInt4W4A16 && quanCommon && quanCommon->alpha.get() != nullptr) {
         if (quanCommon->asymmetric) {
-            MNN_PRINT(
-                "[MNN::Hexagon] asymmetric int4 scale is not supported by W4A16 HTP path, fallback to fp16 "
-                "convolution\n");
+            MNN_PRINT("[MNN::Hexagon] asymmetric int4 scale is not supported by W4A16 HTP path, fallback to fp16 convolution\n");
             useInt4W4A16 = false;
             useIm2Col = true;
             quanCommon = ConvolutionCommon::load(op, backend, true, false, nullptr);
@@ -789,13 +867,14 @@ HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
     res->gatherOutputChannels = oc;
 
     bool int4Success = false;
+    bool int8Success = false;
     if (useInt4W4A16) {
         const bool dequantInWeight = int4ScaleBlockNum > 1;
         const int scaleUnit = dequantInWeight ? 64 : 32;
-        const size_t packedScaleSize =
-            dequantInWeight ? (size_t)ocP * UP_DIV(int4ScaleBlockNum, 2) * 64 * sizeof(int16_t) : 0;
+        const size_t packedScaleSize = dequantInWeight ? (size_t)ocP * UP_DIV(int4ScaleBlockNum, 2) * 64 * sizeof(int16_t) : 0;
         const size_t int4WeightSize = (size_t)icP * ocP * 32 * 16 +
-                                      (size_t)ocP * int4ScaleBlockNum * scaleUnit * sizeof(int16_t) + packedScaleSize;
+                                      (size_t)ocP * int4ScaleBlockNum * scaleUnit * sizeof(int16_t) +
+                                      packedScaleSize;
         res->int4Weight = bufferAlloc->alloc(int4WeightSize);
         if (res->int4Weight.first != nullptr) {
             int4Success = true;
@@ -822,7 +901,32 @@ HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
         }
     }
 
-    if (!int4Success) {
+    if (useInt8W8A16) {
+        const size_t expectedWeightSize = (size_t)oc * ic * kernelSize;
+        const size_t int8WeightBytes = im2colBlockedWeightSize;
+        const size_t int8ScaleBytes = (size_t)ocP * ocPack * sizeof(int16_t);
+        const size_t int8BufferSize = int8WeightBytes + int8ScaleBytes;
+        if (quanCommon == nullptr || quanCommon->weight.get() == nullptr || quanCommon->alpha.get() == nullptr ||
+            (size_t)quanCommon->weight.size() < expectedWeightSize || quanCommon->alpha.size() < oc) {
+            return nullptr;
+        }
+        res->int8Weight = bufferAlloc->alloc(int8BufferSize);
+        if (res->int8Weight.first == nullptr) {
+            return nullptr;
+        }
+        if (!reorderInt8SymWeightForHmx(reinterpret_cast<uint8_t*>(HexagonBackend::getPtr(res->int8Weight)),
+                                        int8BufferSize, quanCommon->weight.get(), quanCommon->alpha.get(),
+                                        quanCommon->alpha.size(), ic, oc,
+                                        common->kernelX(), common->kernelY(),
+                                        HexagonBackend::fp32ToFp16)) {
+            return nullptr;
+        }
+        res->useInt8W8A16 = true;
+        int8Success = true;
+        static_cast<HexagonBackend*>(backend)->markHostInput(res->int8Weight, (int)int8BufferSize);
+    }
+
+    if (!int4Success && !int8Success) {
         const size_t expectedWeightSize = (size_t)oc * ic * (useIm2Col ? kernelSize : 1);
         const size_t reorderedWeightSize = im2colBlockedWeightSize;
         if (originWeight == nullptr || (size_t)originWeightSize < expectedWeightSize) {
@@ -835,11 +939,12 @@ HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
         std::vector<int16_t> tempWeight(expectedWeightSize);
         HexagonBackend::fp32ToFp16(originWeight, tempWeight.data(), tempWeight.size());
         reorderFp16WeightForHmx((int16_t*)HexagonBackend::getPtr(res->weight), tempWeight.data(), ic, oc,
-                                useIm2Col ? common->kernelX() : 1, useIm2Col ? common->kernelY() : 1);
+                                useIm2Col ? common->kernelX() : 1,
+                                useIm2Col ? common->kernelY() : 1);
         static_cast<HexagonBackend*>(backend)->markHostInput(res->weight, (int)(reorderedWeightSize * sizeof(int16_t)));
     }
 
     return new HexagonConvolution(backend, res, op);
 }
 
-} // namespace MNN
+}

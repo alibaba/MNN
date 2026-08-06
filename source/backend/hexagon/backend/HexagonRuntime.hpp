@@ -11,6 +11,11 @@
 #include <memory>
 #include <vector>
 namespace MNN {
+// Owns the dlopen handle of the host-side DSP library (libMNN_htpops.so) and
+// its resolved symbols. Managed via a weak_ptr singleton and held by every
+// HexagonRuntime; the last runtime destruction dlcloses the DSP libraries.
+// (defined in HexagonRuntime.cpp)
+struct HexagonContext;
 struct HexagonBuffer {
 public:
     void* ptr;
@@ -42,9 +47,14 @@ public:
     virtual bool onCheckInfo(Backend::Info& info) const override;
     virtual CompilerType onGetCompilerType() const override { return Compiler_Loop; }
     virtual float onGetMemoryInMB() override;
+    virtual void onConcurrencyBegin() const override;
+    virtual void onConcurrencyEnd() const override;
     friend class HexagonBackend;
     const HexagonInfo& info() const {
         return mInfo;
+    }
+    bool isAvailable() const {
+        return mAvailable;
     }
     static const HexagonFunctions* getDstFunctions();
 #ifdef MNN_HEXAGON_ASAN
@@ -78,11 +88,15 @@ private:
     };
     void addSyncRecord(std::vector<SyncTensorRecord>& records, int fd, int offset, int size) const;
 
+    // Keeps the host-side DSP libraries loaded for this runtime's lifetime;
+    // released (dlclose) when the last runtime is destroyed.
+    std::shared_ptr<HexagonContext> mLib;
     std::shared_ptr<BufferAllocator> mStaticAlloc;
     std::shared_ptr<BufferAllocator> mCommandAlloc;
     std::shared_ptr<BufferAllocator> mWeightAlloc;
     mutable SingleBufferWithAllocator mDynamicBuffer;
     HexagonInfo mInfo;
+    bool mAvailable = false;
     mutable DSPCommandGroup* mCommandGroup = nullptr;
     mutable int mCommandGroupCount = 0;
     mutable int mCommandSerial = 1;

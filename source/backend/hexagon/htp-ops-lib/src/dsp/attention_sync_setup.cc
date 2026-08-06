@@ -17,17 +17,14 @@ static int sync_attention_rows_per_task(int qo_len, int gqa_factor, int decode_g
 }
 
 int sync_attention_causal_group_q_rows(int qo_len) {
-  int group_q_rows = MNN_ATTENTION_HMX_COMBINE_DECODE ? 64 : ATTN_PREFILL_SEGMENT_Q;
+  int group_q_rows = MNN_ATTENTION_CAUSAL_GROUP_Q_ROWS;
   return qo_len < group_q_rows ? qo_len : group_q_rows;
 }
 
 static int sync_attention_can_group_causal_shape(int qo_len, int n_heads, int n_kv_heads, int head_dim,
                                                  int mask_stride) {
-  if (mask_stride >= 0 || qo_len <= 8 || head_dim % 64 != 0 ||
+  if (!MNN_ATTENTION_GROUP_CAUSAL_PREFILL || mask_stride >= 0 || qo_len <= 8 || head_dim % 64 != 0 ||
       n_kv_heads <= 0 || n_heads % n_kv_heads != 0) {
-    return 0;
-  }
-  if (qo_len > ATTN_PREFILL_SEGMENT_Q && !MNN_ATTENTION_HMX_COMBINE_DECODE) {
     return 0;
   }
   const int gqa_factor = n_heads / n_kv_heads;
@@ -98,34 +95,23 @@ static int sync_attention_init_common_state(SyncAttentionTaskState* state, __fp1
 }
 
 static void sync_attention_run_segmented_prefill(SyncAttentionTaskState* state) {
-  const __fp16* q_base = state->Q;
   const int total_q = state->qo_len;
-  const int base_seq_current = state->seq_current;
   const int n_heads = state->n_kv_heads * state->gqa_factor;
-  for (int q_offset = 0; q_offset < total_q; q_offset += ATTN_PREFILL_SEGMENT_Q) {
-    int segment_q = total_q - q_offset;
-    if (segment_q > ATTN_PREFILL_SEGMENT_Q) {
-      segment_q = ATTN_PREFILL_SEGMENT_Q;
-    }
-    SyncAttentionTaskState segment = *state;
-    segment.task_id = 0;
-    segment.qo_len = segment_q;
-    segment.q_offset = q_offset;
-    segment.qo_total_len = total_q;
-    segment.seq_current = base_seq_current + q_offset;
-    segment.N = base_seq_current + q_offset + segment_q;
-    segment.N_padded = (segment.N + 31) / 32 * 32;
-    segment.Q = q_base + (size_t)q_offset * state->qo_stride;
-    int task_rows = segment_q;
-    int n_tasks = sync_attention_worker_count(n_heads, 0, segment_q);
-    segment.total_heads = n_heads;
-    segment.decode_grouped = 0;
-    segment.worker_workspace_bytes = state->page_count > 0
-        ? (segment.online_pages ? sync_attention_page_block_workspace_bytes(task_rows, segment.online_block_size, segment.K_dim_padded)
-                                : sync_attention_page_head_workspace_bytes(task_rows, segment.N, segment.K_dim_padded))
-        : sync_attention_head_workspace_bytes(task_rows, segment.N);
-    sync_attention_run_tasks(&segment, n_tasks);
-  }
+  const int segment_count = (total_q + ATTN_PREFILL_SEGMENT_Q - 1) / ATTN_PREFILL_SEGMENT_Q;
+  const int task_rows = ATTN_PREFILL_SEGMENT_Q;
+  state->task_id = 0;
+  state->total_heads = n_heads * segment_count;
+  state->decode_grouped = 0;
+  state->prefill_segment_q = ATTN_PREFILL_SEGMENT_Q;
+  state->prefill_n_heads = n_heads;
+  state->worker_workspace_bytes = state->page_count > 0
+      ? (state->online_pages
+             ? sync_attention_page_block_workspace_bytes(task_rows, state->online_block_size, state->K_dim_padded)
+             : sync_attention_page_head_workspace_bytes(task_rows, state->N, state->K_dim_padded))
+      : sync_attention_head_workspace_bytes(task_rows, state->N);
+  sync_attention_run_tasks(state, sync_attention_worker_count(n_heads, 0, ATTN_PREFILL_SEGMENT_Q));
+  state->prefill_segment_q = 0;
+  state->prefill_n_heads = 0;
 }
 
 int sync_attention(__fp16 *restrict O, const __fp16 *restrict Q, const float *restrict mask, uint8_t *workspace, __fp16 *pastK,

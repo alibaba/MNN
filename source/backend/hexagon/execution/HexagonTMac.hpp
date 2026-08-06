@@ -18,6 +18,7 @@ public:
         int outputChannels = 0;
         int scaleBlockNum = 1;
         int asymmetric = 0;
+        int packedScaleOffset = 0;
         BufferAllocator* allocator = nullptr;
         ~Resource();
     };
@@ -27,14 +28,12 @@ public:
     bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:
-    HexagonTMac(Backend* backend, std::shared_ptr<Resource> res, const Op* op);
+    HexagonTMac(Backend* backend, std::shared_ptr<Resource> res);
     ErrorCode onBuildCmd(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                          std::vector<HexagonCommand>& dst) override;
 
 private:
     std::shared_ptr<Resource> mResource;
-    int mRelu = 0;
-    int mRelu6 = 0;
 };
 
 } // namespace MNN

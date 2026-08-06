@@ -57,9 +57,72 @@ static inline uint16_t htp_ops_softmax_fp16_max_bits(const __fp16* src, int32_t 
   return bestBits;
 }
 
+static inline void htp_ops_softmax_fp16_row_tail_hvx(__fp16* dst, const __fp16* src, int32_t channel,
+                                                     int32_t inside, int32_t begin, int32_t valid) {
+  const int vec_len = 128 / (int)sizeof(__fp16);
+  const uint32_t validBytes = (uint32_t)(valid * sizeof(__fp16));
+  const int32_t plane = channel * inside;
+  const HVX_VectorPred qValid = Q6_Q_vsetq_R((int)validBytes);
+  const HVX_Vector negInf = Q6_Vh_vsplat_R(0xfc00);
+  const HVX_Vector log2e_v = Q6_Vh_vsplat_R(0x3dc5);
+  const HVX_Vector two_v = Q6_Vh_vsplat_R(0x4000);
+
+  HVX_Vector max_v = negInf;
+  for (int32_t c = 0; c < channel; ++c) {
+    const __fp16* srcPtr = src + (size_t)c * inside + begin;
+    HVX_Vector x = Q6_V_vzero();
+    if ((int64_t)c * inside + begin + vec_len <= plane) {
+      x = vmemu((const HVX_Vector*)srcPtr);
+    } else {
+      memcpy(&x, srcPtr, validBytes);
+    }
+    x = Q6_V_vmux_QVV(qValid, x, negInf);
+    max_v = Q6_Vhf_vmax_VhfVhf(max_v, x);
+  }
+
+  HVX_Vector sum_v = Q6_V_vzero();
+  for (int32_t c = 0; c < channel; ++c) {
+    const __fp16* srcPtr = src + (size_t)c * inside + begin;
+    __fp16* dstPtr = dst + (size_t)c * inside + begin;
+    HVX_Vector x = Q6_V_vzero();
+    if ((int64_t)c * inside + begin + vec_len <= plane) {
+      x = vmemu((const HVX_Vector*)srcPtr);
+    } else {
+      memcpy(&x, srcPtr, validBytes);
+    }
+    x = Q6_V_vmux_QVV(qValid, x, max_v);
+    HVX_Vector diff = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vsub_VhfVhf(x, max_v));
+    HVX_Vector expArg = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(diff, log2e_v));
+    HVX_Vector expValue = hvx_my_exp2_vhf(expArg);
+    expValue = Q6_V_vmux_QVV(qValid, expValue, Q6_V_vzero());
+    vstu_variable(dstPtr, validBytes, expValue);
+    sum_v = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(sum_v, expValue));
+  }
+
+  HVX_Vector invSum = hvx_my_inv_vhf(sum_v);
+  HVX_Vector dy = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(sum_v, invSum));
+  HVX_Vector twoMinusDy = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vsub_VhfVhf(two_v, dy));
+  invSum = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(invSum, twoMinusDy));
+  for (int32_t c = 0; c < channel; ++c) {
+    __fp16* dstPtr = dst + (size_t)c * inside + begin;
+    HVX_Vector x = Q6_V_vzero();
+    memcpy(&x, dstPtr, validBytes);
+    HVX_Vector y = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(x, invSum));
+    vstu_variable(dstPtr, validBytes, y);
+  }
+}
+
 static inline void htp_ops_softmax_fp16_row_range(__fp16* dst, const __fp16* src, int32_t channel,
                                                   int32_t inside, int32_t begin, int32_t end) {
   const int vec_len = 128 / (int)sizeof(__fp16);
+  if (begin >= end) {
+    return;
+  }
+  if (end - begin < vec_len) {
+    htp_ops_softmax_fp16_row_tail_hvx(dst, src, channel, inside, begin, end - begin);
+    return;
+  }
+
   const int32_t vecEnd = begin + ((end - begin) / vec_len) * vec_len;
   const HVX_Vector log2e_v = Q6_Vh_vsplat_R(0x3dc5);
   const HVX_Vector two_v = Q6_Vh_vsplat_R(0x4000);
@@ -94,29 +157,8 @@ static inline void htp_ops_softmax_fp16_row_range(__fp16* dst, const __fp16* src
     }
   }
 
-  for (; i < end; ++i) {
-    const __fp16* srcRow = src + i;
-    __fp16* dstRow = dst + i;
-
-    float maxValue = (float)srcRow[0];
-    for (int32_t c = 1; c < channel; ++c) {
-      const float value = (float)srcRow[c * inside];
-      if (value > maxValue) {
-        maxValue = value;
-      }
-    }
-
-    float sumValue = 0.0f;
-    for (int32_t c = 0; c < channel; ++c) {
-      const float value = expf((float)srcRow[c * inside] - maxValue);
-      dstRow[c * inside] = (__fp16)value;
-      sumValue += value;
-    }
-
-    const float invSum = 1.0f / sumValue;
-    for (int32_t c = 0; c < channel; ++c) {
-      dstRow[c * inside] = (__fp16)((float)dstRow[c * inside] * invSum);
-    }
+  if (i < end) {
+    htp_ops_softmax_fp16_row_tail_hvx(dst, src, channel, inside, i, end - i);
   }
 }
 

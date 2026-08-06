@@ -20,6 +20,115 @@ static void appendZeroCmd(HexagonBackend* backend, Tensor* output, std::vector<H
     dst.emplace_back();
     dst.back().build(backend, DSP_OP_ZERO, params, sizeof(params), inputFds,  outputFds,  {}, cmdOutputs);
 }
+
+static int computeArea(const Tensor* tensor) {
+    int area = 1;
+    for (int d = 2; d < tensor->dimensions(); ++d) {
+        area *= tensor->length(d);
+    }
+    return area;
+}
+
+static bool turnArea1ChannelSliceToC4Regions(const Tensor::InsideDescribe::Region& slice, const Tensor* output,
+                                             int pack,
+                                             std::vector<std::shared_ptr<Tensor::InsideDescribe::Region>>& regions) {
+    auto origin = slice.origin;
+    if (origin == nullptr || pack <= 0 || origin->dimensions() > 4 || output->dimensions() > 4) {
+        return false;
+    }
+    if (computeArea(origin) != 1 || computeArea(output) != 1) {
+        return false;
+    }
+    const int batch = origin->batch();
+    const int srcChannel = origin->channel();
+    const int dstBatch = output->batch();
+    const int dstChannel = output->channel();
+    if (batch <= 0 || srcChannel <= 0 || dstBatch != batch || dstChannel <= 0) {
+        return false;
+    }
+    if (slice.size[0] != batch || slice.size[1] != dstChannel || slice.size[2] != 1) {
+        return false;
+    }
+    if (slice.src.stride[0] != srcChannel || slice.src.stride[1] != 1 ||
+        slice.dst.stride[0] != dstChannel || slice.dst.stride[1] != 1) {
+        return false;
+    }
+    if (slice.src.offset < 0 || slice.dst.offset != 0 || slice.src.offset + dstChannel > srcChannel) {
+        return false;
+    }
+    if (slice.src.offset % pack == 0 && dstChannel % pack == 0) {
+        return false;
+    }
+
+    struct Segment {
+        int blockStart;
+        int blockCount;
+        int srcBlockDelta;
+        int srcLane;
+        int dstLane;
+        int len;
+    };
+    std::vector<Segment> segments;
+    const int dstBlocks = UP_DIV(dstChannel, pack);
+    for (int dstBlock = 0; dstBlock < dstBlocks; ++dstBlock) {
+        const int valid = std::min(pack, dstChannel - dstBlock * pack);
+        int copied = 0;
+        while (copied < valid) {
+            const int srcAbs = slice.src.offset + dstBlock * pack + copied;
+            const int srcBlock = srcAbs / pack;
+            const int srcLane = srcAbs % pack;
+            const int len = std::min(valid - copied, pack - srcLane);
+            const int srcBlockDelta = srcBlock - dstBlock;
+            const int dstLane = copied;
+            if (!segments.empty()) {
+                auto& last = segments.back();
+                if (last.blockStart + last.blockCount == dstBlock &&
+                    last.srcBlockDelta == srcBlockDelta && last.srcLane == srcLane &&
+                    last.dstLane == dstLane && last.len == len) {
+                    last.blockCount++;
+                    copied += len;
+                    continue;
+                }
+            }
+            segments.push_back({dstBlock, 1, srcBlockDelta, srcLane, dstLane, len});
+            copied += len;
+        }
+    }
+
+    for (auto& seg : segments) {
+        std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
+        auto& c4 = *newSlice;
+        c4.origin = origin;
+        c4.size[0] = batch;
+        c4.size[1] = seg.blockCount;
+        c4.size[2] = seg.len;
+        const int srcBlock = seg.blockStart + seg.srcBlockDelta;
+        c4.src.offset = srcBlock * batch * pack + seg.srcLane;
+        c4.dst.offset = seg.blockStart * batch * pack + seg.dstLane;
+        c4.src.stride[0] = pack;
+        c4.dst.stride[0] = pack;
+        c4.src.stride[1] = batch * pack;
+        c4.dst.stride[1] = batch * pack;
+        c4.src.stride[2] = 1;
+        c4.dst.stride[2] = 1;
+        regions.emplace_back(std::move(newSlice));
+    }
+    return !segments.empty();
+}
+
+static bool turnAlignedC4Region(const Tensor::InsideDescribe::Region& slice, const Tensor* output, int pack,
+                                Tensor::InsideDescribe::Region& region) {
+    if (!OpCommonUtils::canBlitFast(slice, output, pack, true)) {
+        return false;
+    }
+    OpCommonUtils::turnToPackRegion(slice, region, output, pack, true);
+    if (region.src.offset % pack != 0 || region.dst.offset % pack != 0) {
+        return false;
+    }
+    region.src.offset /= pack;
+    region.dst.offset /= pack;
+    return true;
+}
 }
 
 HexagonRaster::HexagonRaster(Backend* backend) : HexagonExecution(backend) {
@@ -106,6 +215,9 @@ ErrorCode HexagonRaster::onBuildCmd(const std::vector<Tensor*>& inputs, const st
     }
 
     auto midFormat = MNN_DATA_FORMAT_NCHW;
+    int rasterBytes = mBytes;
+    bool directC4Raster = false;
+    bool directC4NeedZero = false;
 
     if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && output->dimensions() == 4 && des->regions.size() == 1) {
         auto& slice = des->regions[0];
@@ -149,7 +261,63 @@ ErrorCode HexagonRaster::onBuildCmd(const std::vector<Tensor*>& inputs, const st
         }
     }
 
-    if (MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat &&
+    if (pack > 0 && MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat &&
+        output->dimensions() > 1 && output->dimensions() <= 4) {
+        bool supportArea1C4 = true;
+        std::vector<std::pair<Tensor*, Tensor::InsideDescribe::Region*>> c4Copies;
+        std::vector<std::shared_ptr<Tensor::InsideDescribe::Region>> c4Regions;
+        for (int i = 0; i < des->regions.size(); ++i) {
+            auto& slice = des->regions[i];
+            auto origin = slice.origin;
+            auto originDesc = origin == nullptr ? nullptr : TensorUtils::getDescribe(origin);
+            if (originDesc == nullptr || originDesc->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                supportArea1C4 = false;
+                break;
+            }
+            const size_t oldSize = c4Regions.size();
+            if (!turnArea1ChannelSliceToC4Regions(slice, output, pack, c4Regions)) {
+                supportArea1C4 = false;
+                break;
+            }
+            for (size_t r = oldSize; r < c4Regions.size(); ++r) {
+                c4Copies.emplace_back(origin, c4Regions[r].get());
+            }
+        }
+        if (supportArea1C4) {
+            directC4Raster = true;
+            directC4NeedZero = output->channel() % pack != 0;
+            mTempInputCopy = std::move(c4Copies);
+            mCacheRegions = std::move(c4Regions);
+        } else {
+            bool supportAlignedC4 = output->channel() % pack == 0;
+            c4Copies.clear();
+            c4Regions.clear();
+            for (int i = 0; i < des->regions.size(); ++i) {
+                auto& slice = des->regions[i];
+                auto origin = slice.origin;
+                auto originDesc = origin == nullptr ? nullptr : TensorUtils::getDescribe(origin);
+                if (originDesc == nullptr || originDesc->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                    supportAlignedC4 = false;
+                    break;
+                }
+                std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
+                if (!turnAlignedC4Region(slice, output, pack, *newSlice)) {
+                    supportAlignedC4 = false;
+                    break;
+                }
+                c4Copies.emplace_back(origin, newSlice.get());
+                c4Regions.emplace_back(std::move(newSlice));
+            }
+            if (supportAlignedC4) {
+                directC4Raster = true;
+                rasterBytes = mBytes * pack;
+                mTempInputCopy = std::move(c4Copies);
+                mCacheRegions = std::move(c4Regions);
+            }
+        }
+    }
+
+    if (!directC4Raster && MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat &&
         (output->dimensions() == 3 || output->dimensions() == 4)) {
         mTempOutput.reset(new Tensor);
         TensorUtils::setupTensorInfo(output, mTempOutput.get(), midFormat);
@@ -161,141 +329,143 @@ ErrorCode HexagonRaster::onBuildCmd(const std::vector<Tensor*>& inputs, const st
     }
 
     TensorUtils::FuseWrap fuseUtils;
-    for (int i = 0; i < des->regions.size(); ++i) {
-        auto& slice = des->regions[i];
-        auto origin = slice.origin;
-        if (nullptr == origin) {
-            continue;
-        }
-
-        auto originDesc = TensorUtils::getDescribe(origin);
-        if (originDesc == nullptr) {
-            mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
-            continue;
-        }
-        if (originDesc->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
-            mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
-            continue;
-        }
-
-        int channel = origin->channel();
-        int batch = origin->batch();
-        int area = 1;
-        for (int d = 2; d < origin->dimensions(); d++) {
-            area *= origin->length(d);
-        }
-
-        if (batch > 0 && area == 1 && channel % pack == 0 && output->channel() % pack == 0) {
-            Tensor::InsideDescribe::Region regionTmp;
-            regionTmp.src.offset = 0;
-            regionTmp.src.stride[0] = batch * pack;
-            regionTmp.src.stride[1] = pack;
-            regionTmp.src.stride[2] = 1;
-            regionTmp.dst.offset = 0;
-            regionTmp.dst.stride[0] = pack;
-            regionTmp.dst.stride[1] = channel;
-            regionTmp.dst.stride[2] = 1;
-            regionTmp.size[0] = channel / pack;
-            regionTmp.size[1] = batch;
-            regionTmp.size[2] = pack;
-            regionTmp.origin = slice.origin;
-            bool merge = fuseUtils.match(regionTmp, slice);
-            if (merge) {
-                std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
-                *newSlice = slice;
-                fuseUtils.apply(regionTmp, *newSlice);
-                mTempInputCopy.emplace_back(std::make_pair(origin, newSlice.get()));
-                mCacheRegions.emplace_back(newSlice);
+    if (!directC4Raster) {
+        for (int i = 0; i < des->regions.size(); ++i) {
+            auto& slice = des->regions[i];
+            auto origin = slice.origin;
+            if (nullptr == origin) {
                 continue;
             }
-        }
 
-        if (batch == 1 && channel % pack == 0 && output->channel() % pack == 0) {
-            Tensor::InsideDescribe::Region regionTmp;
-            regionTmp.src.offset = 0;
-            regionTmp.src.stride[0] = area * pack;
-            regionTmp.src.stride[1] = 1;
-            regionTmp.src.stride[2] = pack;
-            regionTmp.dst.offset = 0;
-            regionTmp.dst.stride[0] = area * pack;
-            regionTmp.dst.stride[1] = area;
-            regionTmp.dst.stride[2] = 1;
-            regionTmp.size[0] = channel / pack;
-            regionTmp.size[1] = pack;
-            regionTmp.size[2] = area;
-            regionTmp.origin = slice.origin;
-            bool merge = fuseUtils.match(regionTmp, slice);
-            if (merge) {
-                std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
-                *newSlice = slice;
-                fuseUtils.apply(regionTmp, *newSlice);
-                mTempInputCopy.emplace_back(std::make_pair(origin, newSlice.get()));
-                mCacheRegions.emplace_back(newSlice);
+            auto originDesc = TensorUtils::getDescribe(origin);
+            if (originDesc == nullptr) {
+                mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
                 continue;
             }
-        }
-
-        auto tempTensor = mTempInput.find(origin);
-        if (tempTensor == mTempInput.end()) {
-            std::shared_ptr<Tensor> newTensor(new Tensor);
-            TensorUtils::copyShape(origin, newTensor.get());
-            TensorUtils::getDescribe(newTensor.get())->dimensionFormat = midFormat;
-            TensorUtils::getDescribe(newTensor.get())->quantAttr = TensorUtils::getDescribe(origin)->quantAttr;
-            TensorUtils::getDescribe(newTensor.get())->applyQuant = TensorUtils::getDescribe(origin)->applyQuant;
-            newTensor->buffer().type = origin->getType();
-            TensorUtils::setLinearLayout(newTensor.get());
-            mTempInput.insert(std::make_pair(origin, newTensor));
-            auto res = backend()->onAcquireBuffer(newTensor.get(), Backend::DYNAMIC);
-            if (!res) {
-                releaseDynamicTemps();
-                return OUT_OF_MEMORY;
+            if (originDesc->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
+                continue;
             }
-            TensorUtils::getDescribe(newTensor.get())->useCount = TensorUtils::getDescribe(origin)->useCount;
-            tempTensor = mTempInput.find(origin);
-        }
-        mTempInputCopy.emplace_back(std::make_pair(tempTensor->second.get(), &slice));
-    }
 
-    for (auto& iter : mTempInput) {
-        auto input = iter.first;
-        auto output = iter.second.get();
-        auto& subIb = input->buffer();
-        auto source = TensorUtils::getDescribe(input)->dimensionFormat;
-        auto dest = TensorUtils::getDescribe(output)->dimensionFormat;
-
-        int dims = subIb.dimensions;
-        int batch = (dims > 0) ? subIb.dim[0].extent : 1;
-        int channel = (dims > 1) ? subIb.dim[1].extent : 1;
-        int height = (dims > 2) ? subIb.dim[2].extent : 1;
-        int width = (dims > 3) ? subIb.dim[3].extent : 1;
-        int area = height * width;
-
-        auto srcDev = HexagonBackend::getDevicePtr(input);
-        auto dstDev = HexagonBackend::getDevicePtr(output);
-
-        int convertType;
-        if (subIb.dimensions <= 1 || source == dest) {
-            convertType = 2;
-            if (source == MNN_DATA_FORMAT_NC4HW4) {
-                auto pack = static_cast<const HexagonRuntime*>(backend()->getRuntime())->info().vectorSize;
-                if (pack <= 0) pack = 4;
-                channel = UP_DIV(channel, pack) * pack;
+            int channel = origin->channel();
+            int batch = origin->batch();
+            int area = 1;
+            for (int d = 2; d < origin->dimensions(); d++) {
+                area *= origin->length(d);
             }
-        } else {
-            convertType = (source == MNN_DATA_FORMAT_NC4HW4) ? 0 : 1;
+
+            if (batch > 0 && area == 1 && channel % pack == 0 && output->channel() % pack == 0) {
+                Tensor::InsideDescribe::Region regionTmp;
+                regionTmp.src.offset = 0;
+                regionTmp.src.stride[0] = batch * pack;
+                regionTmp.src.stride[1] = pack;
+                regionTmp.src.stride[2] = 1;
+                regionTmp.dst.offset = 0;
+                regionTmp.dst.stride[0] = pack;
+                regionTmp.dst.stride[1] = channel;
+                regionTmp.dst.stride[2] = 1;
+                regionTmp.size[0] = channel / pack;
+                regionTmp.size[1] = batch;
+                regionTmp.size[2] = pack;
+                regionTmp.origin = slice.origin;
+                bool merge = fuseUtils.match(regionTmp, slice);
+                if (merge) {
+                    std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
+                    *newSlice = slice;
+                    fuseUtils.apply(regionTmp, *newSlice);
+                    mTempInputCopy.emplace_back(std::make_pair(origin, newSlice.get()));
+                    mCacheRegions.emplace_back(newSlice);
+                    continue;
+                }
+            }
+
+            if (batch == 1 && channel % pack == 0 && output->channel() % pack == 0) {
+                Tensor::InsideDescribe::Region regionTmp;
+                regionTmp.src.offset = 0;
+                regionTmp.src.stride[0] = area * pack;
+                regionTmp.src.stride[1] = 1;
+                regionTmp.src.stride[2] = pack;
+                regionTmp.dst.offset = 0;
+                regionTmp.dst.stride[0] = area * pack;
+                regionTmp.dst.stride[1] = area;
+                regionTmp.dst.stride[2] = 1;
+                regionTmp.size[0] = channel / pack;
+                regionTmp.size[1] = pack;
+                regionTmp.size[2] = area;
+                regionTmp.origin = slice.origin;
+                bool merge = fuseUtils.match(regionTmp, slice);
+                if (merge) {
+                    std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
+                    *newSlice = slice;
+                    fuseUtils.apply(regionTmp, *newSlice);
+                    mTempInputCopy.emplace_back(std::make_pair(origin, newSlice.get()));
+                    mCacheRegions.emplace_back(newSlice);
+                    continue;
+                }
+            }
+
+            auto tempTensor = mTempInput.find(origin);
+            if (tempTensor == mTempInput.end()) {
+                std::shared_ptr<Tensor> newTensor(new Tensor);
+                TensorUtils::copyShape(origin, newTensor.get());
+                TensorUtils::getDescribe(newTensor.get())->dimensionFormat = midFormat;
+                TensorUtils::getDescribe(newTensor.get())->quantAttr = TensorUtils::getDescribe(origin)->quantAttr;
+                TensorUtils::getDescribe(newTensor.get())->applyQuant = TensorUtils::getDescribe(origin)->applyQuant;
+                newTensor->buffer().type = origin->getType();
+                TensorUtils::setLinearLayout(newTensor.get());
+                mTempInput.insert(std::make_pair(origin, newTensor));
+                auto res = backend()->onAcquireBuffer(newTensor.get(), Backend::DYNAMIC);
+                if (!res) {
+                    releaseDynamicTemps();
+                    return OUT_OF_MEMORY;
+                }
+                TensorUtils::getDescribe(newTensor.get())->useCount = TensorUtils::getDescribe(origin)->useCount;
+                tempTensor = mTempInput.find(origin);
+            }
+            mTempInputCopy.emplace_back(std::make_pair(tempTensor->second.get(), &slice));
         }
-        int params[] = {batch, area, channel, mBytes, convertType};
+
+        for (auto& iter : mTempInput) {
+            auto input = iter.first;
+            auto output = iter.second.get();
+            auto& subIb = input->buffer();
+            auto source = TensorUtils::getDescribe(input)->dimensionFormat;
+            auto dest = TensorUtils::getDescribe(output)->dimensionFormat;
+
+            int dims = subIb.dimensions;
+            int batch = (dims > 0) ? subIb.dim[0].extent : 1;
+            int channel = (dims > 1) ? subIb.dim[1].extent : 1;
+            int height = (dims > 2) ? subIb.dim[2].extent : 1;
+            int width = (dims > 3) ? subIb.dim[3].extent : 1;
+            int area = height * width;
+
+            auto srcDev = HexagonBackend::getDevicePtr(input);
+            auto dstDev = HexagonBackend::getDevicePtr(output);
+
+            int convertType;
+            if (subIb.dimensions <= 1 || source == dest) {
+                convertType = 2;
+                if (source == MNN_DATA_FORMAT_NC4HW4) {
+                    auto pack = static_cast<const HexagonRuntime*>(backend()->getRuntime())->info().vectorSize;
+                    if (pack <= 0) pack = 4;
+                    channel = UP_DIV(channel, pack) * pack;
+                }
+            } else {
+                convertType = (source == MNN_DATA_FORMAT_NC4HW4) ? 0 : 1;
+            }
+            int params[] = {batch, area, channel, mBytes, convertType};
 #ifdef HEXAGON_DEBUG
-        MNN_PRINT("HexagonRaster pre convert cmd params: batch=%d, area=%d, channel=%d, mBytes=%d, convertType=%d\n", batch, area, channel, mBytes, convertType);
+            MNN_PRINT("HexagonRaster pre convert cmd params: batch=%d, area=%d, channel=%d, mBytes=%d, convertType=%d\n", batch, area, channel, mBytes, convertType);
 #endif
-        std::vector<std::pair<int, int>> inputFds = {srcDev};
-        std::vector<std::pair<int, int>> outputFds = {dstDev};
+            std::vector<std::pair<int, int>> inputFds = {srcDev};
+            std::vector<std::pair<int, int>> outputFds = {dstDev};
 
-        std::vector<Tensor*> cmdInputs = {input};
-        std::vector<Tensor*> cmdOutputs = {output};
+            std::vector<Tensor*> cmdInputs = {input};
+            std::vector<Tensor*> cmdOutputs = {output};
             dst.emplace_back();
             dst.back().build(static_cast<HexagonBackend*>(backend()), DSP_OP_TENSOR_CONVERT, params, sizeof(params),
                              inputFds,  outputFds,  cmdInputs, cmdOutputs);
+        }
     }
 
     auto dstDev = std::make_pair(0, 0);
@@ -305,7 +475,7 @@ ErrorCode HexagonRaster::onBuildCmd(const std::vector<Tensor*>& inputs, const st
         dstDev = HexagonBackend::getDevicePtr(output);
     }
 
-    if (mNeedZero) {
+    if (mNeedZero || directC4NeedZero) {
         auto zeroTarget = mTempOutput != nullptr ? mTempOutput.get() : output;
         appendZeroCmd(static_cast<HexagonBackend*>(backend()), zeroTarget, dst);
     }
@@ -384,12 +554,12 @@ ErrorCode HexagonRaster::onBuildCmd(const std::vector<Tensor*>& inputs, const st
         std::vector<uint8_t> paramData(paramSize);
         MergedRasterParam* params = reinterpret_cast<MergedRasterParam*>(paramData.data());
         params->regionCount = groupRegions.size();
-        params->bytes = mBytes;
+        params->bytes = rasterBytes;
         params->srcNumber = groupSrcCount;
         memcpy(paramData.data() + sizeof(MergedRasterParam), groupRegions.data(), groupRegions.size() * sizeof(RasterRegion));
 
 #ifdef HEXAGON_DEBUG
-        MNN_PRINT("HexagonRaster raster blit cmd params: regionCount=%d, mBytes=%d, src_number=%d\n", (int)groupRegions.size(), mBytes, groupSrcCount);
+        MNN_PRINT("HexagonRaster raster blit cmd params: regionCount=%d, mBytes=%d, src_number=%d\n", (int)groupRegions.size(), rasterBytes, groupSrcCount);
 #endif
         std::vector<std::pair<int, int>> inputFds = groupSrcFds;
         std::vector<std::pair<int, int>> outputFds = {dstDev};

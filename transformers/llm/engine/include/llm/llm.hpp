@@ -201,6 +201,9 @@ public:
     const LlmContext* getContext() const {
         return mContext.get();
     }
+    const std::shared_ptr<Express::Executor>& getExecutor() const {
+        return mExecutor;
+    }
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {}
     virtual void generateWavform() {}
 protected:

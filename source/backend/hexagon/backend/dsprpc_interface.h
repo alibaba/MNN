@@ -4,6 +4,10 @@
 #include <stdlib.h>
 
 #ifdef __cplusplus
+#include <memory>
+#endif
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -95,4 +99,38 @@ int fastrpc_munmap(int domain, int fd, void * addr, size_t length);
 
 #ifdef __cplusplus
 }
+
+class DspRpcInterface {
+public:
+    DspRpcInterface();
+    ~DspRpcInterface();
+    bool valid() const;
+
+    void rpcmemInit() const;
+    void rpcmemDeinit() const;
+    void* rpcmemAlloc(int heapId, uint32_t flags, int size) const;
+    void rpcmemFree(void* p) const;
+    int rpcmemToFd(void* p) const;
+    int rpcmemCacheFlush(void* po, int size) const;
+    int rpcmemCacheInvalidate(void* po, int size) const;
+    int fastrpcMmap(int domain, int fd, void* addr, int offset, size_t length, enum fastrpc_map_flags flags) const;
+    int fastrpcMunmap(int domain, int fd, void* addr, size_t length) const;
+
+private:
+    void* mLib = nullptr;
+    void (*mRpcmemInit)() = nullptr;
+    void (*mRpcmemDeinit)() = nullptr;
+    void* (*mRpcmemAlloc)(int heapId, uint32_t flags, int size) = nullptr;
+    void (*mRpcmemFree)(void* p) = nullptr;
+    int (*mRpcmemToFd)(void* p) = nullptr;
+    int (*mRpcmemCacheFlush)(void* po, int size) = nullptr;
+    int (*mRpcmemCacheInvalidate)(void* po, int size) = nullptr;
+
+    int (*mFastrpcMmap)(int domain, int fd, void* addr, int offset, size_t length,
+                        enum fastrpc_map_flags flags) = nullptr;
+    int (*mFastrpcMunmap)(int domain, int fd, void* addr, size_t length) = nullptr;
+};
+
+void dsprpc_interface_set_active(const std::shared_ptr<DspRpcInterface>& interface);
+void dsprpc_interface_clear_active(const DspRpcInterface* interface);
 #endif
