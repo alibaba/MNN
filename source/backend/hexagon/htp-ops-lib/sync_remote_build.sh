@@ -1,16 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: bash sync_remote_build.sh [DSP_ARCH]
+# Usage: bash sync_remote_build.sh [DSP_ARCH...]
 # Required env: REMOTE_SSH. Optional env: DSP_ARCH, HTP_OPS_SDK_ENV,
-# HTP_OPS_CMAKE_ROOT, HTP_OPS_BUILD_ANDROID and HTP_OPS_USE_MAKE.
+# HTP_OPS_CMAKE_ROOT, HTP_OPS_BUILD_ANDROID, HTP_OPS_USE_MAKE and
+# HTP_OPS_PWL_VARIANT.
 REMOTE_SSH="${REMOTE_SSH:-}"
-DSP_ARCH="${1:-${DSP_ARCH:-v79}}"
 HTP_OPS_PWL_VARIANT="${HTP_OPS_PWL_VARIANT:-learned8}"
-HTP_OPS_SDK_ENV="${HTP_OPS_SDK_ENV:-${HOME}/third/hexagon/setup_sdk_env.source}"
+HTP_OPS_SDK_ENV="${HTP_OPS_SDK_ENV:-}"
 HTP_OPS_CMAKE_ROOT="${HTP_OPS_CMAKE_ROOT:-}"
 HTP_OPS_BUILD_ANDROID="${HTP_OPS_BUILD_ANDROID:-1}"
 HTP_OPS_USE_MAKE="${HTP_OPS_USE_MAKE:-0}"
+if [[ "$#" -gt 0 ]]; then
+    DSP_ARCH_LIST=("$@")
+else
+    DSP_ARCH_LIST=("${DSP_ARCH:-v79}")
+fi
 
 if [[ -z "${REMOTE_SSH}" ]]; then
     echo "REMOTE_SSH is not set"
@@ -66,14 +71,18 @@ scp "${LOCAL_ARCHIVE}" "${REMOTE_SSH}:${REMOTE_ARCHIVE}"
 echo "[4/6] unzip remote htp-ops-lib"
 ssh "${REMOTE_SSH}" "cd '${REMOTE_SOURCE_ROOT}' && unzip -oq '${REMOTE_ARCHIVE}' && rm -f '${REMOTE_ARCHIVE}'"
 
-echo "[5/6] build remote htp so with bash build.sh ${DSP_ARCH}, PWL=${HTP_OPS_PWL_VARIANT}"
-ssh "${REMOTE_SSH}" "cd '${REMOTE_HTP_DIR}' && HTP_OPS_SDK_ENV='${HTP_OPS_SDK_ENV}' HTP_OPS_CMAKE_ROOT='${HTP_OPS_CMAKE_ROOT}' HTP_OPS_BUILD_ANDROID='${HTP_OPS_BUILD_ANDROID}' HTP_OPS_USE_MAKE='${HTP_OPS_USE_MAKE}' HTP_OPS_PWL_VARIANT='${HTP_OPS_PWL_VARIANT}' bash build.sh '${DSP_ARCH}'"
+echo "[5/6] build remote htp so, PWL=${HTP_OPS_PWL_VARIANT}"
+ssh "${REMOTE_SSH}" "rm -rf '${REMOTE_HTP_DIR}/outputs_all'"
+for DSP_ARCH_ITEM in "${DSP_ARCH_LIST[@]}"; do
+    echo "  - ${DSP_ARCH_ITEM}"
+    ssh "${REMOTE_SSH}" "cd '${REMOTE_HTP_DIR}' && HTP_OPS_SDK_ENV='${HTP_OPS_SDK_ENV}' HTP_OPS_CMAKE_ROOT='${HTP_OPS_CMAKE_ROOT}' HTP_OPS_BUILD_ANDROID='${HTP_OPS_BUILD_ANDROID}' HTP_OPS_USE_MAKE='${HTP_OPS_USE_MAKE}' HTP_OPS_PWL_VARIANT='${HTP_OPS_PWL_VARIANT}' bash build.sh '${DSP_ARCH_ITEM}' && mkdir -p outputs_all && cp outputs/*.so outputs_all/"
+done
 
 echo "[6/6] prepare local outputs dir and download outputs/*.so"
 mkdir -p "${LOCAL_OUTPUT_DIR}"
 rm -f "${LOCAL_OUTPUT_DIR}"/*.so
 
-scp "${REMOTE_SSH}:${REMOTE_HTP_DIR}/outputs/*.so" "${LOCAL_OUTPUT_DIR}/"
+scp "${REMOTE_SSH}:${REMOTE_HTP_DIR}/outputs_all/*.so" "${LOCAL_OUTPUT_DIR}/"
 
 echo "done"
 echo "local outputs: ${LOCAL_OUTPUT_DIR}"

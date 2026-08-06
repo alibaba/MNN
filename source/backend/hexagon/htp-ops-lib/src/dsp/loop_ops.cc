@@ -390,6 +390,16 @@ static inline int htp_ops_loop_up_div(int v, int d) {
     return (v + d - 1) / d;
 }
 
+static inline HVX_Vector htp_ops_loop_hmx_load_row32(const uint8_t* src, int elems, bool canRead64) {
+    if (canRead64) {
+        return vmemu((const HVX_Vector*)src);
+    }
+    __fp16 tmp[64] __attribute__((aligned(128)));
+    memset(tmp, 0, sizeof(tmp));
+    memcpy(tmp, src, (size_t)elems * sizeof(__fp16));
+    return vmem((const HVX_Vector*)tmp);
+}
+
 static inline void htp_ops_loop_hmx_pack_activation_k64(__fp16* dst, const uint8_t* src0Base,
                                                        const HtpOpsLoopParam* lp, int eBase,
                                                        int validRows) {
@@ -423,12 +433,32 @@ static inline void htp_ops_loop_hmx_pack_activation_tile(__fp16* dst, const uint
                                                         const HtpOpsLoopParam* lp, int K, int kt,
                                                         int eBase, int validRows) {
     __fp16* tile = dst + (size_t)kt * 1024;
-    memset(tile, 0, 1024 * sizeof(__fp16));
     const int kBegin = kt * 32;
     int kRemain = K - kBegin;
     if (kRemain > 32) {
         kRemain = 32;
     }
+    if (lp->src0StrideXYZ[1] == 2 && kRemain > 0) {
+        if (validRows < 32 || kRemain < 32) {
+            memset(tile, 0, 1024 * sizeof(__fp16));
+        }
+        const bool canRead64 = kBegin + 64 <= K;
+        int r = 0;
+        for (; r <= validRows - 2; r += 2) {
+            const uint8_t* src0 = src0Base + (int64_t)(eBase + r) * lp->src0StrideXYZ[0] + kBegin * 2;
+            const uint8_t* src1 = src0Base + (int64_t)(eBase + r + 1) * lp->src0StrideXYZ[0] + kBegin * 2;
+            HVX_VectorPair vp = Q6_W_vdeal_VVR(htp_ops_loop_hmx_load_row32(src1, kRemain, canRead64),
+                                                htp_ops_loop_hmx_load_row32(src0, kRemain, canRead64), 64);
+            vmem((HVX_Vector*)((uint8_t*)tile + r * 64)) = Q6_Vh_vshuff_Vh(Q6_V_lo_W(vp));
+        }
+        if (r < validRows) {
+            const uint8_t* src0 = src0Base + (int64_t)(eBase + r) * lp->src0StrideXYZ[0] + kBegin * 2;
+            HVX_VectorPair vp = Q6_W_vdeal_VVR(Q6_V_vzero(), htp_ops_loop_hmx_load_row32(src0, kRemain, canRead64), 64);
+            vmem((HVX_Vector*)((uint8_t*)tile + r * 64)) = Q6_Vh_vshuff_Vh(Q6_V_lo_W(vp));
+        }
+        return;
+    }
+    memset(tile, 0, 1024 * sizeof(__fp16));
     for (int r = 0; r < validRows; ++r) {
         const uint8_t* srcRow = src0Base + (int64_t)(eBase + r) * lp->src0StrideXYZ[0];
         for (int k = 0; k < kRemain; ++k) {
@@ -452,6 +482,24 @@ static inline void htp_ops_loop_hmx_pack_weight_tile(__fp16* dst, const uint8_t*
     if (nRemain > 32) {
         nRemain = 32;
     }
+    if (lp->src1StrideXYZ[2] == 2 && kRemain > 0 && nRemain > 0) {
+        if (kRemain < 32 || nRemain < 32) {
+            memset(tile, 0, 1024 * sizeof(__fp16));
+        }
+        const bool canRead64 = nBegin + 64 <= N;
+        for (int k = 0; k < kRemain; k += 2) {
+            const uint8_t* src0 = src1Base + (int64_t)(kBegin + k) * lp->src1StrideXYZ[1] + nBegin * 2;
+            HVX_Vector v0 = htp_ops_loop_hmx_load_row32(src0, nRemain, canRead64);
+            HVX_Vector v1 = Q6_V_vzero();
+            if (k + 1 < kRemain) {
+                const uint8_t* src1 = src1Base + (int64_t)(kBegin + k + 1) * lp->src1StrideXYZ[1] + nBegin * 2;
+                v1 = htp_ops_loop_hmx_load_row32(src1, nRemain, canRead64);
+            }
+            HVX_VectorPair vp = Q6_W_vdeal_VVR(v1, v0, 64);
+            vmem((HVX_Vector*)((uint8_t*)tile + k * 64)) = Q6_Vh_vshuff_Vh(Q6_V_lo_W(vp));
+        }
+        return;
+    }
     for (int k = 0; k < kRemain; ++k) {
         const uint8_t* srcRow = src1Base + (int64_t)(kBegin + k) * lp->src1StrideXYZ[1];
         for (int c = 0; c < nRemain; ++c) {
@@ -469,20 +517,20 @@ static inline void htp_ops_loop_hmx_store_output_tile(uint8_t* dstBase, const __
     if (nRemain > 32) {
         nRemain = 32;
     }
-    if (nBegin == 0 && N <= 16 && lp->dstStrideXYZ[0] == N * 2 && lp->dstStrideXYZ[2] == 2) {
-        const uint32_t rowBytes = (uint32_t)(N * (int)sizeof(__fp16));
+    if (lp->dstStrideXYZ[0] == N * 2 && lp->dstStrideXYZ[2] == 2) {
+        const uint32_t rowBytes = (uint32_t)(nRemain * (int)sizeof(__fp16));
         const HVX_Vector* src = (const HVX_Vector*)vtcmOutput;
         int r = 0;
         for (; r <= validRows - 2; r += 2) {
             HVX_Vector v = Q6_Vh_vdeal_Vh(*src++);
-            uint8_t* dst0 = dstBase + (int64_t)(eBase + r) * lp->dstStrideXYZ[0];
-            uint8_t* dst1 = dstBase + (int64_t)(eBase + r + 1) * lp->dstStrideXYZ[0];
+            uint8_t* dst0 = dstBase + (int64_t)(eBase + r) * lp->dstStrideXYZ[0] + (int64_t)nBegin * lp->dstStrideXYZ[2];
+            uint8_t* dst1 = dstBase + (int64_t)(eBase + r + 1) * lp->dstStrideXYZ[0] + (int64_t)nBegin * lp->dstStrideXYZ[2];
             vstu_variable(dst0, rowBytes, v);
             vstu_variable(dst1, rowBytes, Q6_V_valign_VVR(v, v, 64));
         }
         if (r < validRows) {
             HVX_Vector v = Q6_Vh_vdeal_Vh(*src++);
-            uint8_t* dst0 = dstBase + (int64_t)(eBase + r) * lp->dstStrideXYZ[0];
+            uint8_t* dst0 = dstBase + (int64_t)(eBase + r) * lp->dstStrideXYZ[0] + (int64_t)nBegin * lp->dstStrideXYZ[2];
             vstu_variable(dst0, rowBytes, v);
         }
         return;
@@ -496,9 +544,7 @@ static inline void htp_ops_loop_hmx_store_output_tile(uint8_t* dstBase, const __
     }
 }
 
-static inline bool htp_ops_loop_matmul_hmx_general(uint8_t* dstBase, const uint8_t* src0Base,
-                                                   const uint8_t* src1Base, const HtpOpsLoopParam* lp,
-                                                   int64_t outOff, int64_t in0Off, int64_t in1Off) {
+static inline bool htp_ops_loop_matmul_hmx_general_eligible(const HtpOpsLoopParam* lp) {
     const int E = lp->sizeXYZ[0];
     const int K = lp->sizeXYZ[1];
     const int N = lp->sizeXYZ[2];
@@ -511,16 +557,47 @@ static inline bool htp_ops_loop_matmul_hmx_general(uint8_t* dstBase, const uint8
     if (lp->dstStrideXYZ[0] < 0 || lp->src0StrideXYZ[0] < 0 || lp->src1StrideXYZ[1] < 0) {
         return false;
     }
+    return (int64_t)E * K * N >= 32768;
+}
+
+static inline bool htp_ops_loop_matmul_hmx_small_eligible(const HtpOpsLoopParam* lp) {
+    const int E = lp->sizeXYZ[0];
+    const int K = lp->sizeXYZ[1];
+    const int N = lp->sizeXYZ[2];
+    if (E <= 0 || K != 64 || N <= 0 || N > 16) {
+        return false;
+    }
+    if (lp->dstStrideXYZ[2] != 2 || lp->src0StrideXYZ[1] != 2 || lp->src0StrideXYZ[0] != K * 2 ||
+        lp->src1StrideXYZ[2] != 2) {
+        return false;
+    }
+    return lp->dstStrideXYZ[0] >= 0 && lp->src0StrideXYZ[0] >= 0 && lp->src1StrideXYZ[1] >= 0;
+}
+
+static inline bool htp_ops_loop_matmul_batch_hmx_prepare(const HtpOpsLoopParam* lp) {
+    const int K = lp->sizeXYZ[1];
+    const int N = lp->sizeXYZ[2];
+    const bool preferHmxGeneral = ((K | N) & 31) != 0 || K == 32 || N == 32;
+    return htp_ops_loop_matmul_hmx_small_eligible(lp) ||
+           (preferHmxGeneral && htp_ops_loop_matmul_hmx_general_eligible(lp));
+}
+
+static inline bool htp_ops_loop_matmul_hmx_general(uint8_t* dstBase, const uint8_t* src0Base,
+                                                   const uint8_t* src1Base, const HtpOpsLoopParam* lp,
+                                                   int64_t outOff, int64_t in0Off, int64_t in1Off,
+                                                   bool hmxPrepared) {
+    const int E = lp->sizeXYZ[0];
+    const int K = lp->sizeXYZ[1];
+    const int N = lp->sizeXYZ[2];
+    if (!htp_ops_loop_matmul_hmx_general_eligible(lp)) {
+       return false;
+    }
     const int64_t dstLast = (int64_t)(E - 1) * lp->dstStrideXYZ[0] + (int64_t)(N - 1) * lp->dstStrideXYZ[2];
     const int64_t src0Last = (int64_t)(E - 1) * lp->src0StrideXYZ[0] + (int64_t)(K - 1) * lp->src0StrideXYZ[1];
     const int64_t src1Last = (int64_t)(K - 1) * lp->src1StrideXYZ[1] + (int64_t)(N - 1) * lp->src1StrideXYZ[2];
     if (!htp_ops_loop_check_element(outOff, dstLast, 2, lp->outputElementSize) ||
         !htp_ops_loop_check_element(in0Off, src0Last, 2, lp->input0Size) ||
         !htp_ops_loop_check_element(in1Off, src1Last, 2, lp->input1Size)) {
-        return false;
-    }
-    const int64_t work = (int64_t)E * K * N;
-    if (work < 32768) {
         return false;
     }
 
@@ -535,8 +612,10 @@ static inline bool htp_ops_loop_matmul_hmx_general(uint8_t* dstBase, const uint8
         return false;
     }
 
-    hmx_manager_enable_execution();
-    hmx_unit_acquire();
+    if (!hmxPrepared) {
+        hmx_manager_enable_execution();
+        hmx_unit_acquire();
+    }
     hmx_init_column_scales(vtcmScales, Q6_V_vsplat_R(0x3c00));
     hmx_set_output_scales(vtcmScales);
 
@@ -561,25 +640,21 @@ static inline bool htp_ops_loop_matmul_hmx_general(uint8_t* dstBase, const uint8
         }
     }
 
-    hmx_unit_release();
-    hmx_manager_disable_execution();
+    if (!hmxPrepared) {
+        hmx_unit_release();
+        hmx_manager_disable_execution();
+    }
     return true;
 }
 
 static inline bool htp_ops_loop_matmul_hmx_small(uint8_t* dstBase, const uint8_t* src0Base,
                                                  const uint8_t* src1Base, const HtpOpsLoopParam* lp,
-                                                 int64_t outOff, int64_t in0Off, int64_t in1Off) {
+                                                 int64_t outOff, int64_t in0Off, int64_t in1Off,
+                                                 bool hmxPrepared) {
     const int E = lp->sizeXYZ[0];
     const int K = lp->sizeXYZ[1];
     const int N = lp->sizeXYZ[2];
-    if (E <= 0 || K != 64 || N <= 0 || N > 16) {
-        return false;
-    }
-    if (lp->dstStrideXYZ[2] != 2 || lp->src0StrideXYZ[1] != 2 || lp->src0StrideXYZ[0] != K * 2 ||
-        lp->src1StrideXYZ[2] != 2) {
-        return false;
-    }
-    if (lp->dstStrideXYZ[0] < 0 || lp->src0StrideXYZ[0] < 0 || lp->src1StrideXYZ[1] < 0) {
+    if (!htp_ops_loop_matmul_hmx_small_eligible(lp)) {
         return false;
     }
     const int64_t dstLast = (int64_t)(E - 1) * lp->dstStrideXYZ[0] + (int64_t)(N - 1) * lp->dstStrideXYZ[2];
@@ -602,8 +677,10 @@ static inline bool htp_ops_loop_matmul_hmx_small(uint8_t* dstBase, const uint8_t
         return false;
     }
 
-    hmx_manager_enable_execution();
-    hmx_unit_acquire();
+    if (!hmxPrepared) {
+        hmx_manager_enable_execution();
+        hmx_unit_acquire();
+    }
     hmx_init_column_scales(vtcmScales, Q6_V_vsplat_R(0x3c00));
     hmx_set_output_scales(vtcmScales);
 
@@ -629,8 +706,10 @@ static inline bool htp_ops_loop_matmul_hmx_small(uint8_t* dstBase, const uint8_t
         }
     }
 
-    hmx_unit_release();
-    hmx_manager_disable_execution();
+    if (!hmxPrepared) {
+        hmx_unit_release();
+        hmx_manager_disable_execution();
+    }
     return true;
 }
 
@@ -773,7 +852,8 @@ static inline bool htp_ops_loop_matmul_fast_small_h(uint8_t* dstBase, const uint
     const HVX_Vector zero = Q6_V_vzero();
     const HVX_VectorPred qH = Q6_Q_vsetq_R(H * (int)sizeof(__fp16));
     const int safeRows = (vecElems + H - 1) / H;
-    const int vectorLimit = L >= safeRows ? L - safeRows + 1 : 0;
+    const bool src1RowsTightlyPacked = lp->src1StrideXYZ[1] == H * (int)sizeof(__fp16);
+    const int vectorLimit = src1RowsTightlyPacked && L >= safeRows ? L - safeRows + 1 : 0;
     for (int e = 0; e < E; ++e) {
         const uint8_t* src0Row = src0Base + (int64_t)e * lp->src0StrideXYZ[0];
         uint8_t* dstRow = dstBase + (int64_t)e * lp->dstStrideXYZ[0];
@@ -862,14 +942,15 @@ static inline bool htp_ops_loop_matmul_fast_l_contiguous(uint8_t* dstBase, const
 
 static inline void htp_ops_loop_matmul_region(uint8_t* dstBase, const uint8_t* src0Base,
                                               const uint8_t* src1Base, const HtpOpsLoopParam* lp,
-                                              int64_t outOff, int64_t in0Off, int64_t in1Off) {
-    if (htp_ops_loop_matmul_hmx_small(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off)) {
+                                              int64_t outOff, int64_t in0Off, int64_t in1Off,
+                                              bool hmxPrepared) {
+    if (htp_ops_loop_matmul_hmx_small(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off, hmxPrepared)) {
         return;
     }
     const bool preferHmxGeneral = ((lp->sizeXYZ[1] | lp->sizeXYZ[2]) & 31) != 0 ||
                                   lp->sizeXYZ[1] == 32 || lp->sizeXYZ[2] == 32;
     if (preferHmxGeneral &&
-        htp_ops_loop_matmul_hmx_general(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off)) {
+        htp_ops_loop_matmul_hmx_general(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off, hmxPrepared)) {
         return;
     }
     if (htp_ops_loop_matmul_fast_small_h(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off)) {
@@ -882,7 +963,7 @@ static inline void htp_ops_loop_matmul_region(uint8_t* dstBase, const uint8_t* s
         return;
     }
     if (!preferHmxGeneral &&
-        htp_ops_loop_matmul_hmx_general(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off)) {
+        htp_ops_loop_matmul_hmx_general(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off, hmxPrepared)) {
         return;
     }
     const int E = lp->sizeXYZ[0];
@@ -987,7 +1068,7 @@ AEEResult htp_ops_loop_blit(uint8_t* dst, uint8_t* src0, uint8_t* src1,
             if (in1Off < 0 || in1Off >= lp->input1Size) continue;
             const uint8_t* src1Base = pSrc1 + in1Off * bytes;
             if (cmdKind == 2) {
-                htp_ops_loop_matmul_region(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off);
+                htp_ops_loop_matmul_region(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off, false);
             } else {
                 if (loopNumber == 1) {
                     HtpOpsBinaryRegion region;
@@ -1066,6 +1147,11 @@ AEEResult htp_ops_batch_matmul(uint8_t* dst, uint8_t* src0, uint8_t* src1,
     const uint8_t* srcIter0 = iter0;
     const uint8_t* srcIter1 = iter1;
     const uint8_t* srcIter2 = iter2;
+    const bool hmxPrepared = htp_ops_loop_matmul_batch_hmx_prepare(lp);
+    if (hmxPrepared) {
+        hmx_manager_enable_execution();
+        hmx_unit_acquire();
+    }
     for (int iter = 0; iter < lp->loopNumber; ++iter) {
         int32_t it0 = srcIter0 ? loop_read_int32(srcIter0 + iter * sizeof(int32_t)) : iter;
         int32_t it1 = srcIter1 ? loop_read_int32(srcIter1 + iter * sizeof(int32_t)) : iter;
@@ -1086,7 +1172,11 @@ AEEResult htp_ops_batch_matmul(uint8_t* dst, uint8_t* src0, uint8_t* src1,
         uint8_t* dstBase = dst + (int64_t)outOff * bytes;
         const uint8_t* src0Base = src0 + (int64_t)in0Off * bytes;
         const uint8_t* src1Base = src1 + (int64_t)in1Off * bytes;
-        htp_ops_loop_matmul_region(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off);
+        htp_ops_loop_matmul_region(dstBase, src0Base, src1Base, lp, outOff, in0Off, in1Off, hmxPrepared);
+    }
+    if (hmxPrepared) {
+        hmx_unit_release();
+        hmx_manager_disable_execution();
     }
     return 0;
 }

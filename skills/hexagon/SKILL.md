@@ -37,6 +37,9 @@ Use this skill for MNN Hexagon DSP work where correctness, device stability, and
 
 Run commands from the directories expected by the project scripts.
 
+- `Executor::RuntimeManager::createRuntimeManager` adds its backend runtime to the Executor that is current during
+  creation. To hold DSP power across a benchmark, create the activation guard from that same Executor after the runtime
+  manager exists and keep it alive for the measured region; do not create a duplicate Hexagon Executor only for power.
 - Android build directory:
   - `cd project/android/build_64`
 - Rebuild host Android artifacts and update device:

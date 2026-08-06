@@ -108,6 +108,16 @@ Executor::~Executor(){
     // Do nothing
 }
 
+Executor::Activation::Activation(const RuntimeInfo& info) : mRuntimeInfo(info) {
+    mRuntimeWrap.reset(new RuntimeExecuteWrap(mRuntimeInfo));
+}
+
+Executor::Activation::~Activation() = default;
+
+std::shared_ptr<Executor::Activation> Executor::activte() const {
+    return std::shared_ptr<Activation>(new Activation(mRuntimeInfo));
+}
+
 void Executor::setCallBack(TensorCallBackWithInfo&& before, TensorCallBackWithInfo&& after) {
     mDebug->before = std::move(before);
     mDebug->after = std::move(after);

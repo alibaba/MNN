@@ -152,16 +152,6 @@ static inline void htp_ops_transpose_16_hvx_block(uint8_t* dstBase, const uint8_
   __fp16* dstZ = (__fp16*)dstBase + region->dstStride[keepDim] * z;
   HVX_Vector v[64];
 
-  if (rowCount <= 8 || (row > 0 && row + rowCount == rows && rowCount <= 40)) {
-    for (int c = 0; c < colCount; ++c) {
-      __fp16* dstCol = dstZ + (col + c) * dstStride + row;
-      for (int k = 0; k < rowCount; ++k) {
-        dstCol[k] = srcZ[(row + k) * srcStride + col + c];
-      }
-    }
-    return;
-  }
-
   if (colCount == 64) {
     for (int k = 0; k < rowCount; ++k) {
       v[k] = vmemu((const HVX_Vector*)(srcZ + (row + k) * srcStride + col));
@@ -1560,6 +1550,98 @@ typedef struct {
   int grain;
   unsigned int task_id;
   worker_synctoken_t sync_ctx;
+} HtpOpsRasterInterleaveC64SingleState;
+
+static inline void htp_ops_interleave_c64_single_range(HtpOpsRasterInterleaveC64SingleState* state,
+                                                       int rowStart, int rowEnd) {
+  const HtpOpsRasterRegion* r = state->region;
+  const uint16_t* srcBase = (const uint16_t*)state->srcBase;
+  uint16_t* dstBase = (uint16_t*)state->dstBase;
+  for (int row = rowStart; row < rowEnd; ++row) {
+    const int z = row / state->ySize;
+    const int y = row - z * state->ySize;
+    const uint16_t* src = srcBase + (ptrdiff_t)z * r->srcStride[0] + (ptrdiff_t)y * r->srcStride[1];
+    uint16_t* dst = dstBase + (ptrdiff_t)z * r->dstStride[0] + (ptrdiff_t)y * r->dstStride[1];
+    dst[0] = src[0];
+    dst[4] = src[1];
+    dst[8] = src[2];
+    dst[12] = src[3];
+    dst[16] = src[4];
+    dst[20] = src[5];
+    dst[24] = src[6];
+    dst[28] = src[7];
+    dst[32] = src[8];
+    dst[36] = src[9];
+    dst[40] = src[10];
+    dst[44] = src[11];
+    dst[48] = src[12];
+    dst[52] = src[13];
+    dst[56] = src[14];
+    dst[60] = src[15];
+  }
+}
+
+static void htp_ops_interleave_c64_single_worker(void* data, int worker_id) {
+  (void)worker_id;
+  HtpOpsRasterInterleaveC64SingleState* state = (HtpOpsRasterInterleaveC64SingleState*)data;
+  while (true) {
+    const int taskId = (int)worker_pool_atomic_inc_return(&(state->task_id)) - 1;
+    const int begin = taskId * state->grain;
+    if (begin >= state->rows) {
+      break;
+    }
+    int end = begin + state->grain;
+    if (end > state->rows) {
+      end = state->rows;
+    }
+    htp_ops_interleave_c64_single_range(state, begin, end);
+  }
+  worker_pool_synctoken_jobdone(&(state->sync_ctx));
+}
+
+static inline bool htp_ops_try_interleave_c64_single_blit(uint8_t* dstBase, const uint8_t* srcBase,
+                                                          const HtpOpsRasterRegion* r, int32_t bytes) {
+  if (bytes != 2 || r->size[0] <= 0 || r->size[1] <= 0 || r->size[2] != 16 ||
+      r->srcStride[2] != 1 || r->dstStride[2] != 4 ||
+      r->srcStride[0] < 0 || r->srcStride[1] < 0 ||
+      r->dstStride[0] < 0 || r->dstStride[1] < 0) {
+    return false;
+  }
+  HtpOpsRasterInterleaveC64SingleState state = {};
+  state.dstBase = dstBase;
+  state.srcBase = srcBase;
+  state.region = r;
+  state.rows = r->size[0] * r->size[1];
+  state.ySize = r->size[1];
+  state.task_id = 0;
+  const size_t workBytes = (size_t)state.rows * 16 * sizeof(uint16_t);
+  const int nTasks = htp_ops_raster_pick_task_count(workBytes, state.rows);
+  state.grain = (state.rows + nTasks - 1) / nTasks;
+  if (nTasks <= 1) {
+    htp_ops_interleave_c64_single_range(&state, 0, state.rows);
+    return true;
+  }
+
+  worker_pool_job_t job;
+  job.fptr = htp_ops_interleave_c64_single_worker;
+  job.dptr = &state;
+  worker_pool_synctoken_init(&(state.sync_ctx), nTasks);
+  for (int i = 0; i < nTasks; ++i) {
+    worker_pool_submit(NULL, job);
+  }
+  worker_pool_synctoken_wait(&(state.sync_ctx));
+  return true;
+}
+
+typedef struct {
+  uint8_t* dstBase;
+  const uint8_t* srcBase;
+  const HtpOpsRasterRegion* region;
+  int rows;
+  int ySize;
+  int grain;
+  unsigned int task_id;
+  worker_synctoken_t sync_ctx;
 } HtpOpsRasterBroadcastInnerFp16State;
 
 static inline void htp_ops_fill_fp16(uint16_t* dst, int count, uint16_t value) {
@@ -1700,6 +1782,9 @@ AEEResult htp_ops_raster_blit(uint8_t* dst, uint8_t** src, int src_number, uint8
       continue;
     }
     if (htp_ops_try_broadcast_inner_fp16_blit(dstBase, srcBase, r, bytes)) {
+      continue;
+    }
+    if (htp_ops_try_interleave_c64_single_blit(dstBase, srcBase, r, bytes)) {
       continue;
     }
     if (htp_ops_try_pack_area1_blit(dstBase, srcBase, r, bytes)) {

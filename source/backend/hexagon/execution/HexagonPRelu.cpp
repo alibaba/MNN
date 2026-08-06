@@ -46,10 +46,7 @@ HexagonPRelu* HexagonPRelu::create(Backend* backend, const Op* op, const std::ve
     }
     if (prelu->slopeCount() != 1) {
         auto output = outputs[0];
-        auto des = TensorUtils::getDescribe(output);
-        if (output == nullptr || output->dimensions() < 2 ||
-            des->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
-            prelu->slopeCount() != output->channel()) {
+        if (output == nullptr || output->dimensions() < 2 || prelu->slopeCount() != output->channel()) {
             return nullptr;
         }
     }
@@ -77,11 +74,24 @@ ErrorCode HexagonPRelu::onBuildCmd(const std::vector<Tensor*>& inputs, const std
     }
     int plane = 1;
     int channel = 1;
-    if (output->dimensions() >= 2) {
+    int commandPack = mPack;
+    if (mSlopeCount != 1) {
+        if (output->dimensions() < 2 || mSlopeCount != output->channel()) {
+            return NOT_SUPPORT;
+        }
         channel = output->channel();
-        plane = output->batch();
-        for (int i = 2; i < output->dimensions(); ++i) {
-            plane *= output->length(i);
+        auto des = TensorUtils::getDescribe(output);
+        const bool c4Packed = des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && output->dimensions() <= 4;
+        if (c4Packed) {
+            plane = output->batch();
+            for (int i = 2; i < output->dimensions(); ++i) {
+                plane *= output->length(i);
+            }
+        } else {
+            commandPack = 1;
+            for (int i = 2; i < output->dimensions(); ++i) {
+                plane *= output->length(i);
+            }
         }
     }
 
@@ -99,6 +109,7 @@ ErrorCode HexagonPRelu::onBuildCmd(const std::vector<Tensor*>& inputs, const std
         int32_t channel;
         int32_t slopeCount;
         int32_t pack;
+        int32_t batch;
     } __attribute__((packed));
 
     PReluParam params;
@@ -108,7 +119,8 @@ ErrorCode HexagonPRelu::onBuildCmd(const std::vector<Tensor*>& inputs, const std
     params.plane = plane;
     params.channel = channel;
     params.slopeCount = mSlopeCount;
-    params.pack = mPack;
+    params.pack = commandPack;
+    params.batch = commandPack == 1 ? output->batch() : 1;
 
     std::vector<std::pair<int, int>> inputFds = {srcDev, slopeDev};
     std::vector<std::pair<int, int>> outputFds = {dstDev};
