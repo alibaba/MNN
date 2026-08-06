@@ -1785,12 +1785,24 @@ private:
             return false;
         }
         std::vector<HiddenBlockPlan> candidates;
+        int attentionCount = 0;
         for (int idx = 0; idx < (int)mOps.size(); ++idx) {
+            if (mOps[idx] != nullptr && mOps[idx]->type == OpType_Attention) {
+                attentionCount++;
+            }
             HiddenBlockPlan plan;
             if (!matchHiddenBlockFromAttention(idx, &plan) && !matchHiddenBlockFromLinearAttention(idx, &plan)) {
                 continue;
             }
             candidates.push_back(plan);
+        }
+        // Partial or zero match means the whole hidden-state region keeps its
+        // per-layer convert/reshape chains (measured -6% end-to-end on Qwen3-0.6B
+        // when a graph-shape change silently broke the matcher) — make it loud.
+        if (attentionCount > 0 && (int)candidates.size() < attentionCount) {
+            MNN_PRINT("FuseTransformerC4: hidden-state C4 region matched only %d / %d attention blocks%s\n",
+                      (int)candidates.size(), attentionCount,
+                      candidates.empty() ? " - region fusion skipped, expect slower inference" : "");
         }
         if (candidates.empty()) {
             return false;

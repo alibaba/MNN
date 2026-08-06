@@ -30,6 +30,16 @@ After compilation, you should see two directories: `android_ReleaseG_aarch64` an
 
 These two dynamic link libraries will be used later; please refer to the instructions in the main repository. In FastRPC terminology, they are the Stub (`libMNN_htpops.so`) and Skeleton (`libMNN_htpops_skel.so`) respectively. You can use `ldd` to distinguish between the two shared objects: `libMNN_htpops.so` targets the AArch64 architecture and runs on the CPU; `libMNN_htpops_skel.so` targets the Q6DSP architecture and runs on the Hexagon NPU (cDSP).
 
+## FP16 Activation PWL
+
+The HVX implementations of Sigmoid, Tanh, GELU, SiLU, and MulSiLU use piecewise-linear (PWL) approximations to avoid
+scalar transcendental functions. The default `learned8` configuration uses a hardware-constrained eight-segment
+approximation for SiLU/MulSiLU and single-bank companded tables for the other activations.
+
+See the Chinese design note
+[`docs/perf/hexagon_pwl_activations.md`](../../../../docs/perf/hexagon_pwl_activations.md) for the algorithm, build
+variants, accuracy checks, and measured performance.
+
 ## About FP16 HMX
 
 Our current implementation heavily relies on FP16 HMX for dequantize GEMM and FlashAttention. The relevant instructions are derived from the qhl_hmx sample in Hexagon SDK 5.x (removed in newer versions).

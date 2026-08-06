@@ -12,8 +12,9 @@
 
 namespace MNN {
 
-// gSharedGatherQuant: directly decode int4/int8 weights and gather on-the-fly.
-// Layout and dequant parameters follow conv1x1 low-memory path.
+// gSharedGatherQuant: directly decode int2/int3/int4/int8 weights and gather
+// on-the-fly. Layout and dequant parameters follow conv1x1 low-memory path
+// (W_QUANT_2/3 unpack mirrors conv1x1_w_dequant).
 // Weight layout: [N/4, K/4, N4, K4] (packed), linear index for a pack:
 //   offset = ((idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl)
 //   - idx_n4 = n / 4, idx_nl = n % 4
@@ -36,7 +37,9 @@ namespace MNN {
 static const char* gSharedGatherQuant = R"metal(
 kernel void shared_gather_quant(
     device ftype4 *wf                             [[buffer(0)]],
-#ifdef W_QUANT_4
+#if defined(W_QUANT_2) || defined(W_QUANT_3)
+    const device uchar *wi                        [[buffer(1)]],
+#elif defined(W_QUANT_4)
     const device uchar2 *wi                       [[buffer(1)]],
 #elif defined(W_QUANT_8)
     const device char4 *wi                        [[buffer(1)]],
@@ -70,10 +73,34 @@ kernel void shared_gather_quant(
     FLOAT scale = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
     FLOAT dequant_bias = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
 
+#ifdef W_QUANT_3
+    auto wt_base = wi + (idx_n4 * cst.input_slice + idx_k4) * 6;
+#else
     auto xy_wi = wi + (idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl;// [N/4, K/4, N4, K4]
+#endif
     auto xy_wf = wf + (ic * gid.x + idx_k16 * 16) / 4;
 
-    #ifdef W_QUANT_4
+    #ifdef W_QUANT_2
+    for(int k = 0; k < 4; k++) {
+        uchar b = xy_wi[4*k];
+        FLOAT4 w4 = FLOAT4((float)((b >> 6) & 3) - 2, (float)((b >> 4) & 3) - 2,
+                            (float)((b >> 2) & 3) - 2, (float)( b       & 3) - 2);
+        xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
+    }
+    #elif defined(W_QUANT_3)
+    for(int k = 0; k < 4; k++) {
+        const device uchar* tilePtr = wt_base + 6 * k;
+        uchar b = tilePtr[idx_nl];
+        uchar h = (idx_nl < 2) ? tilePtr[4] : tilePtr[5];
+        uchar hShifted = (idx_nl % 2 == 0) ? (h >> 4) : (h & 0xF);
+        FLOAT4 w4 = FLOAT4(
+            (float)( ((b >> 6) & 3) | (((hShifted >> 3) & 1) << 2) ) - 4,
+            (float)( ((b >> 4) & 3) | (((hShifted >> 2) & 1) << 2) ) - 4,
+            (float)( ((b >> 2) & 3) | (((hShifted >> 1) & 1) << 2) ) - 4,
+            (float)( ( b       & 3) | (( hShifted       & 1) << 2) ) - 4);
+        xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
+    }
+    #elif defined(W_QUANT_4)
     for(int k = 0; k < 4; k++) {
         uchar2 w_int4 = xy_wi[4*k]; // [N/4, K/4, N4, K4]
         FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8, (float)(w_int4[0] & 15) - 8, (float)(w_int4[1] >> 4) - 8, (float)(w_int4[1] & 15) - 8);
@@ -189,7 +216,13 @@ ErrorCode MetalSharedGather::onResize(const std::vector<Tensor *> &inputs,
     MTLCompileOptions *optionQuant = [[MTLCompileOptions alloc] init];
     NSMutableDictionary *dic = [baseDic mutableCopy];
     std::vector<std::string> keys = {ftype4, "MNN_METAL_FLOAT32_COMPUTER", "shared_gather_quant"};
-    if (mDequantBits == 4) {
+    if (mDequantBits == 2) {
+        [dic setValue:@"1" forKey:@"W_QUANT_2"];
+        keys.emplace_back("W_QUANT_2");
+    } else if (mDequantBits == 3) {
+        [dic setValue:@"1" forKey:@"W_QUANT_3"];
+        keys.emplace_back("W_QUANT_3");
+    } else if (mDequantBits == 4) {
         [dic setValue:@"1" forKey:@"W_QUANT_4"];
         keys.emplace_back("W_QUANT_4");
     } else {

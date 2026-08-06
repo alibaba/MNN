@@ -45,17 +45,20 @@ ErrorCode HexagonSharedGather::onBuildCmd(const std::vector<Tensor*>& inputs, co
     } __attribute__((packed));
 
     const bool useInt4 = mResource->useInt4W4A16;
-    if ((!useInt4 && mResource->weight.first == nullptr) ||
+    const bool useInt8 = mResource->useInt8W8A16;
+    if ((!useInt4 && !useInt8 && mResource->weight.first == nullptr) ||
+        (useInt8 && mResource->int8Weight.first == nullptr) ||
         (useInt4 && mResource->int4Weight.first == nullptr && mResource->gatherInt4Weight.first == nullptr)) {
         return NOT_SUPPORT;
     }
     const bool useRawInt4Gather = useInt4 && mResource->gatherInt4Weight.first != nullptr;
-    SharedGatherParam params = {selectSize, ic, oc, bytes, useRawInt4Gather ? 2 : (useInt4 ? 1 : 0)};
+    SharedGatherParam params = {selectSize, ic, oc, bytes, useRawInt4Gather ? 2 : (useInt4 ? 1 : (useInt8 ? 3 : 0))};
 
     auto indicesDev = HexagonBackend::getDevicePtr(indices);
     auto weightDev = useRawInt4Gather ? HexagonBackend::getDevicePtr(mResource->gatherInt4Weight)
                                       : (useInt4 ? HexagonBackend::getDevicePtr(mResource->int4Weight)
-                                                 : HexagonBackend::getDevicePtr(mResource->weight));
+                                                 : (useInt8 ? HexagonBackend::getDevicePtr(mResource->int8Weight)
+                                                            : HexagonBackend::getDevicePtr(mResource->weight)));
     auto outputDev = HexagonBackend::getDevicePtr(output);
     auto hexagonBackend = static_cast<HexagonBackend*>(backend());
 

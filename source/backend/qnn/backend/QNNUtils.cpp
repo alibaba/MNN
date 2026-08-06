@@ -126,6 +126,7 @@ void registerQNNOps() {
     ___QNNConcatCreator__OpType_Unpack__();
     ___QNNConvDepthwiseCreator__OpType_ConvolutionDepthwise__();
     ___QNNConvolutionCreator__OpType_Convolution__();
+    ___QNNDeconvolutionCreator__OpType_Deconvolution__();
     ___QNNFlattenCreator__OpType_Flatten__();
     ___QNNLayerNormCreator__OpType_LayerNorm__();
     ___QNNPaddingCreator__OpType_Padding__();

@@ -1,10 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: bash sync_remote_build.sh [DSP_ARCH]
-# Required env: REMOTE_SSH. Optional env: DSP_ARCH, default v79.
+# Usage: bash sync_remote_build.sh [DSP_ARCH...]
+# Required env: REMOTE_SSH. Optional env: DSP_ARCH, HTP_OPS_SDK_ENV,
+# HTP_OPS_CMAKE_ROOT, HTP_OPS_BUILD_ANDROID, HTP_OPS_USE_MAKE and
+# HTP_OPS_PWL_VARIANT.
 REMOTE_SSH="${REMOTE_SSH:-}"
-DSP_ARCH="${1:-${DSP_ARCH:-v79}}"
+HTP_OPS_PWL_VARIANT="${HTP_OPS_PWL_VARIANT:-learned8}"
+HTP_OPS_SDK_ENV="${HTP_OPS_SDK_ENV:-}"
+HTP_OPS_CMAKE_ROOT="${HTP_OPS_CMAKE_ROOT:-}"
+HTP_OPS_BUILD_ANDROID="${HTP_OPS_BUILD_ANDROID:-1}"
+HTP_OPS_USE_MAKE="${HTP_OPS_USE_MAKE:-0}"
+if [[ "$#" -gt 0 ]]; then
+    DSP_ARCH_LIST=("$@")
+else
+    DSP_ARCH_LIST=("${DSP_ARCH:-v79}")
+fi
 
 if [[ -z "${REMOTE_SSH}" ]]; then
     echo "REMOTE_SSH is not set"
@@ -17,7 +28,7 @@ LOCAL_HEXAGON_DIR="$(cd "${LOCAL_HTP_DIR}/.." && pwd)"
 LOCAL_MNN_DIR="$(cd "${LOCAL_HTP_DIR}/../../../.." && pwd)"
 LOCAL_SCHEMA_DIR="${LOCAL_HEXAGON_DIR}/schema"
 LOCAL_FLATBUFFERS_INCLUDE_DIR="${LOCAL_MNN_DIR}/3rd_party/flatbuffers/include"
-LOCAL_OUTPUT_DIR="${LOCAL_HTP_DIR}/outputs"
+LOCAL_OUTPUT_DIR="${HTP_OPS_OUTPUT_DIR:-${LOCAL_HTP_DIR}/outputs}"
 BUILD_ID="$(date +%s)_$$_${RANDOM}_${RANDOM}"
 REMOTE_SOURCE_ROOT="/tmp/cache_ssid_dsp_source_${BUILD_ID}"
 REMOTE_HEXAGON_DIR="${REMOTE_SOURCE_ROOT}/source/backend/hexagon"
@@ -44,8 +55,6 @@ if [[ ! -d "${LOCAL_FLATBUFFERS_INCLUDE_DIR}" ]]; then
     exit 1
 fi
 
-rm -rf "${LOCAL_OUTPUT_DIR}"
-
 echo "[1/6] prepare remote temporary source dir: ${REMOTE_SSH}:${REMOTE_SOURCE_ROOT}"
 ssh "${REMOTE_SSH}" "rm -rf '${REMOTE_SOURCE_ROOT}' && mkdir -p '${REMOTE_SOURCE_ROOT}'"
 
@@ -62,19 +71,25 @@ scp "${LOCAL_ARCHIVE}" "${REMOTE_SSH}:${REMOTE_ARCHIVE}"
 echo "[4/6] unzip remote htp-ops-lib"
 ssh "${REMOTE_SSH}" "cd '${REMOTE_SOURCE_ROOT}' && unzip -oq '${REMOTE_ARCHIVE}' && rm -f '${REMOTE_ARCHIVE}'"
 
-echo "[5/6] build remote htp so with bash build.sh ${DSP_ARCH}"
-ssh "${REMOTE_SSH}" "cd '${REMOTE_HTP_DIR}' && bash build.sh '${DSP_ARCH}'"
+echo "[5/6] build remote htp so, PWL=${HTP_OPS_PWL_VARIANT}"
+ssh "${REMOTE_SSH}" "rm -rf '${REMOTE_HTP_DIR}/outputs_all'"
+for DSP_ARCH_ITEM in "${DSP_ARCH_LIST[@]}"; do
+    echo "  - ${DSP_ARCH_ITEM}"
+    ssh "${REMOTE_SSH}" "cd '${REMOTE_HTP_DIR}' && HTP_OPS_SDK_ENV='${HTP_OPS_SDK_ENV}' HTP_OPS_CMAKE_ROOT='${HTP_OPS_CMAKE_ROOT}' HTP_OPS_BUILD_ANDROID='${HTP_OPS_BUILD_ANDROID}' HTP_OPS_USE_MAKE='${HTP_OPS_USE_MAKE}' HTP_OPS_PWL_VARIANT='${HTP_OPS_PWL_VARIANT}' bash build.sh '${DSP_ARCH_ITEM}' && mkdir -p outputs_all && cp outputs/*.so outputs_all/"
+done
 
 echo "[6/6] prepare local outputs dir and download outputs/*.so"
 mkdir -p "${LOCAL_OUTPUT_DIR}"
 rm -f "${LOCAL_OUTPUT_DIR}"/*.so
 
-scp "${REMOTE_SSH}:${REMOTE_HTP_DIR}/outputs/*.so" "${LOCAL_OUTPUT_DIR}/"
+scp "${REMOTE_SSH}:${REMOTE_HTP_DIR}/outputs_all/*.so" "${LOCAL_OUTPUT_DIR}/"
 
 echo "done"
 echo "local outputs: ${LOCAL_OUTPUT_DIR}"
 
-if [[ -n "${ANDROID_SERIAL:-}" ]]; then
+if ! command -v adb >/dev/null 2>&1; then
+    echo "skip adb push: adb is not installed on this host"
+elif [[ -n "${ANDROID_SERIAL:-}" ]]; then
     adb -s "${ANDROID_SERIAL}" push "${LOCAL_OUTPUT_DIR}"/*.so /data/local/tmp/MNN/
 else
     DEVICE_COUNT="$(adb devices | awk 'NR > 1 && $2 == "device" {count++} END {print count + 0}')"

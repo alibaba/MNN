@@ -32,6 +32,25 @@ void MNNFloat2Int8_RVV(const float* src, int8_t* dst, size_t sizeQuad, const flo
     const float maxf = (float)maxValue;
     const size_t total = sizeQuad * 4;
 
+    if ((quanParamVec & 3) == 0) {
+        const float scale0 = scalep[0];
+        const float zero0 = zeroPoint[0];
+        size_t i = 0;
+        while (i < total) {
+            const size_t vl = __riscv_vsetvl_e32m2(total - i);
+            vfloat32m2_t v_src = __riscv_vle32_v_f32m2(src + i, vl);
+            vfloat32m2_t v_value = __riscv_vfmul_vf_f32m2(v_src, scale0, vl);
+            v_value = __riscv_vfadd_vf_f32m2(v_value, zero0, vl);
+            v_value = __riscv_vfmin_vf_f32m2(__riscv_vfmax_vf_f32m2(v_value, minf, vl), maxf, vl);
+            vint32m2_t v_i32 = __riscv_vfcvt_x_f_v_i32m2(v_value, vl);
+            vint16m1_t v_i16 = __riscv_vncvt_x_x_w_i16m1(v_i32, vl);
+            vint8mf2_t v_i8 = __riscv_vncvt_x_x_w_i8mf2(v_i16, vl);
+            __riscv_vse8_v_i8mf2(dst + i, v_i8, vl);
+            i += vl;
+        }
+        return;
+    }
+
     // get vl，create scale/zero cyclic template
     // template by e32m1
     size_t vl_template = __riscv_vsetvlmax_e32m2();

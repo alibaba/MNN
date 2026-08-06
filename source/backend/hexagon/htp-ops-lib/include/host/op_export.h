@@ -7,6 +7,8 @@ extern "C" {
 #endif
 
 int htp_ops_rpc_init_backend();
+int htp_ops_rpc_power_acquire();
+int htp_ops_rpc_power_release();
 int htp_ops_rpc_getInfo(int fd, int offset);
 int htp_ops_rpc_getInfoProfile(int fd, int offset);
 

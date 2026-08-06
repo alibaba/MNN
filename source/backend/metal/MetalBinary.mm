@@ -7,6 +7,7 @@
 //
 
 #import "backend/metal/MetalBinary.hpp"
+#import "MetalEnv.hpp"
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
 #import "core/TensorUtils.hpp"
@@ -159,8 +160,8 @@ public:
 
         // Gate/Up fusion: try to pair the two input Conv1x1 projections
         // In mulsilu_vec shader: in1 = gate, in0 = up
-        // Set MNN_DISABLE_GATE_UP_FUSION=1 to disable (for A/B benchmarking).
-        static bool sDisableGateUpFusion = (getenv("MNN_DISABLE_GATE_UP_FUSION") != nullptr);
+        // Set MNN_METAL_DISABLE_GATE_UP_FUSION=1 to disable (for A/B benchmarking).
+        const bool sDisableGateUpFusion = MetalEnv::get().gateUpFusionDisabled;
         if (!sDisableGateUpFusion) {
             auto* gateConv = backend->findConv1x1ForOutput(inputs[1]); // gate
             auto* upConv   = backend->findConv1x1ForOutput(inputs[0]); // up

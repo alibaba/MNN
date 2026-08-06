@@ -26,12 +26,12 @@ struct MNNCPUInfo {
     bool fp16fml = false;
 #endif
     std::vector<CPUGroup> groups;
- // RVV attributes
+    // RISC-V Vector features, as reported by Linux riscv_hwprobe(2). The probe
+    // asks for no specific CPU set, so the kernel ANDs every bit across all
+    // online CPUs: runtime dispatch stays valid when a thread migrates.
     bool rvv = false;
-    int rvv_vlen = 0;
-    int rvv_version = 0;
     bool zvfh = false;
-    bool zvkn = false;
+    bool zvfhmin = false;
 
     int cpuNumber = 0;
     int smeCoreNumber = 0;

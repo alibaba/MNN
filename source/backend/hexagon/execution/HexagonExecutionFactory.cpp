@@ -22,67 +22,109 @@
 #include "HexagonRelu6.hpp"
 #include "HexagonPRelu.hpp"
 #include "HexagonLSTM.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 
+static void logUnsupportedOp(const Op* op, const std::vector<Tensor*>& inputs,
+                             const std::vector<Tensor*>& outputs) {
+    if (op == nullptr) {
+        MNN_PRINT("[MNN::Hexagon] create unsupported: null op, inputs=%zu, outputs=%zu\n", inputs.size(),
+                  outputs.size());
+        return;
+    }
+    const char* typeName = EnumNameOpType(op->type());
+    const char* opName = op->name() == nullptr ? "" : op->name()->c_str();
+    MNN_PRINT("[MNN::Hexagon] create unsupported: type=%s(%d), name=%s, inputs=%zu, outputs=%zu\n",
+              typeName == nullptr ? "Unknown" : typeName, op->type(), opName, inputs.size(), outputs.size());
+}
+
 Execution* HexagonExecutionFactory::create(const Op* op, const std::vector<Tensor*>& inputs,
                                           const std::vector<Tensor*>& outputs, Backend* backend) {
+    if (op == nullptr) {
+        logUnsupportedOp(op, inputs, outputs);
+        return nullptr;
+    }
+    Execution* execution = nullptr;
     switch (op->type()) {
         case OpType_LayerNorm:
-            return HexagonLayerNorm::create(backend, op);
+            execution = HexagonLayerNorm::create(backend, op);
+            break;
         case OpType_Convolution:
             if (inputs.size() > 1) {
-                return nullptr;
+                break;
             }
             if (auto exe = HexagonTMac::create(backend, op, inputs, outputs)) {
                 return exe;
             }
-            return HexagonConvolution::create(backend, op);
+            execution = HexagonConvolution::create(backend, op);
+            break;
         case OpType_ConvolutionDepthwise:
-            return HexagonConvolutionDepthwise::create(backend, op);
+            execution = HexagonConvolutionDepthwise::create(backend, op);
+            break;
         case OpType_Deconvolution:
-            return HexagonDeconvolution::create(backend, op, inputs, outputs);
+            execution = HexagonDeconvolution::create(backend, op, inputs, outputs);
+            break;
         case OpType_Scale:
-            return HexagonScale::create(backend, op);
+            execution = HexagonScale::create(backend, op);
+            break;
         case OpType_Pooling:
             if (outputs.size() > 1) {
-                return nullptr;
+                break;
             }
-            return HexagonPooling::create(backend, op);
+            execution = HexagonPooling::create(backend, op);
+            break;
         case OpType_Raster:
-            return HexagonRaster::create(backend, op);
+            execution = HexagonRaster::create(backend, op);
+            break;
         case OpType_While:
-            return HexagonLoop::create(backend, op);
+            execution = HexagonLoop::create(backend, op);
+            break;
         case OpType_UnaryOp:
-            return HexagonUnary::create(backend, op);
+            execution = HexagonUnary::create(backend, op);
+            break;
         case OpType_Reduction:
-            return HexagonReduction::create(backend, op, inputs, outputs);
+            execution = HexagonReduction::create(backend, op, inputs, outputs);
+            break;
         case OpType_ReLU:
-            return HexagonRelu::create(backend, op);
+            execution = HexagonRelu::create(backend, op);
+            break;
         case OpType_ReLU6:
-            return HexagonRelu6::create(backend, op);
+            execution = HexagonRelu6::create(backend, op);
+            break;
         case OpType_PReLU:
-            return HexagonPRelu::create(backend, op, inputs, outputs);
+            execution = HexagonPRelu::create(backend, op, inputs, outputs);
+            break;
         case OpType_BinaryOp:
-            return HexagonBinary::create(backend, op);
+            execution = HexagonBinary::create(backend, op);
+            break;
         case OpType_Cast:
-            return HexagonCast::create(backend, op, inputs, outputs);
+            execution = HexagonCast::create(backend, op, inputs, outputs);
+            break;
         case OpType_RoPE:
             return HexagonRoPE::create(backend, op);
         case OpType_Attention:
-            return HexagonAttention::create(backend, op);
+            execution = HexagonAttention::create(backend, op);
+            break;
         case OpType_Select:
-            return HexagonSelect::create(backend, op);
+            execution = HexagonSelect::create(backend, op);
+            break;
         case OpType_TopKV2:
-            return HexagonTopKV2::create(backend, op, inputs, outputs);
+            execution = HexagonTopKV2::create(backend, op, inputs, outputs);
+            break;
         case OpType_Softmax:
-            return HexagonSoftmax::create(backend, op, inputs, outputs);
+            execution = HexagonSoftmax::create(backend, op, inputs, outputs);
+            break;
         case OpType_LSTM:
-            return HexagonLSTM::create(backend, op, inputs, outputs);
+            execution = HexagonLSTM::create(backend, op, inputs, outputs);
+            break;
         default:
             break;
     }
-    return nullptr;
+    if (execution == nullptr) {
+        logUnsupportedOp(op, inputs, outputs);
+    }
+    return execution;
 }
 
 } // namespace MNN

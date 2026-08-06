@@ -8,11 +8,11 @@
 
 interface htp_ops : remote_handle64 {
     AEEResult init_backend();
+    AEEResult get_skel_arch(rout uint32 arch);
+    AEEResult power_acquire();
+    AEEResult power_release();
 
     /* ops RPC interface */
-    AEEResult start_queue(in uint64 queueId);
-    AEEResult stop_queue();
-
     AEEResult getInfo(in int32 fd0, in int32 offset0);
     AEEResult getInfoProfile(in int32 fd0, in int32 offset0);
 

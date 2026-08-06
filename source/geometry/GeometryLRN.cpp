@@ -21,6 +21,18 @@ public:
         auto normalize      = op->main_as_Normalize();
         auto mAcrossSpatial = normalize->acrossSpatial();
         auto mChannelShared = normalize->channelShared();
+        auto inputTensor = inputs[0];
+        // Validate: Normalize requires 4D NCHW input
+        if (inputTensor->dimensions() < 4) {
+            MNN_ERROR("Normalize: input dimensions (%d) < 4, require NCHW format\n", inputTensor->dimensions());
+            return false;
+        }
+        // Validate: scale size must match channel
+        if (normalize->scale()->size() != inputTensor->channel()) {
+            MNN_ERROR("Normalize: scale size (%d) != channel (%d)\n",
+                      normalize->scale()->size(), inputTensor->channel());
+            return false;
+        }
         Tensor* eps         = nullptr;
         Tensor* scale       = nullptr;
         auto cache          = context.searchConst(op);
@@ -36,7 +48,6 @@ public:
             ::memcpy(mScale->host<float>(), normalize->scale()->data(), normalize->scale()->size() * sizeof(float));
             scale = mScale.get();
         }
-        auto inputTensor = inputs[0];
         // Across channel
         int inside  = inputTensor->width() * inputTensor->height();
         int axis    = inputTensor->channel();

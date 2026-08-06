@@ -14,10 +14,20 @@ if [ ! -f "$SO_PATH" ]; then
     exit 1
 fi
 
-# 获取 undefined symbols
-NM_BIN="${HEXAGON_SDK_ROOT}/tools/HEXAGON_Tools/19.0.04/Tools/bin/hexagon-nm"
+# 获取 undefined symbols. Newer SDKs ship llvm-nm instead of hexagon-nm.
+NM_BIN="${HEXAGON_NM:-}"
+if [ -z "$NM_BIN" ] && [ -n "${DEFAULT_HEXAGON_TOOLS_ROOT:-}" ]; then
+    for candidate in \
+        "${DEFAULT_HEXAGON_TOOLS_ROOT}/Tools/bin/llvm-nm" \
+        "${DEFAULT_HEXAGON_TOOLS_ROOT}/Tools/bin/hexagon-nm"; do
+        if [ -x "$candidate" ]; then
+            NM_BIN="$candidate"
+            break
+        fi
+    done
+fi
 if [ ! -x "$NM_BIN" ]; then
-    echo "Error: hexagon-nm tool not found at $NM_BIN"
+    echo "Error: Hexagon nm tool not found; set HEXAGON_NM to its path"
     exit 1
 fi
 

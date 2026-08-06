@@ -477,6 +477,7 @@ ErrorCode LoopExecution::LoopBatchMatMul(int cmdIndex, int iter) {
         buildOptions.emplace("-DTRANSPOSE_B");
     }
     buildOptions.emplace("-DH_LEAVES=" + std::to_string(h % 4));
+    buildOptions.emplace("-DE_LEAVES=" + std::to_string(e % 4));
     unit.kernel = runTime->buildKernel("loop", KernelName, buildOptions, mOpenCLBackend->getPrecision(), mTensors[cmd->indexes()->data()[1]], mTensors[cmd->indexes()->data()[0]]);
     uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(UP_DIV(h, 4)), (uint32_t)(UP_DIV(e, 4)),(uint32_t)(n)};

@@ -140,6 +140,7 @@ static void setDeconvAsConvIm2ColParameter(ConvolutionCommon::Im2ColParameter& p
     param.srcZStep = input->stride(1) * pack * input->batch();
     param.srcYStep = input->stride(2) * pack;
     param.packCUnit = pack;
+    param.destICStride = input->height() * param.srcYStep;
     param.ic = input->channel();
     param.icup4 = UP_DIV(input->channel(), 32) * 32;
 

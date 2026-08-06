@@ -1,21 +1,22 @@
-#include "dsp/mmap_mgr.h"
 #include <AEEStdErr.h>
 #include <HAP_farf.h>
 #include <HAP_mem.h>
-#include <stdint.h>
-#include <math.h>
-#include <string.h>
-#include <hexagon_types.h>
 #include <hexagon_protos.h>
-
+#include <hexagon_types.h>
+#include <math.h>
 #include <remote.h>
-#include "region_ops.h"
+#include <stdint.h>
+#include <string.h>
+
 #include "dsp/dma_utils.h"
 #include "dsp/hvx_convert.h"
-#include "dsp/hvx_utils.h"
 #include "dsp/hvx_math.h"
+#include "dsp/hvx_utils.h"
+#include "dsp/mmap_mgr.h"
+#include "dsp/pwl.h"
 #include "dsp/vtcm_mgr.h"
 #include "dsp/worker_pool.h"
+#include "region_ops.h"
 
 extern "C" {
 
@@ -132,7 +133,7 @@ static inline _Float16 htp_ops_binary_apply_fp16(_Float16 a, _Float16 b, int opT
       return (_Float16)(v * v);
     }
     case HTP_OPS_BINARY_DIV:
-      return a / b;
+      return (_Float16)((float)a / (float)b);
     case HTP_OPS_BINARY_MAX:
       return a > b ? a : b;
     case HTP_OPS_BINARY_MIN:
@@ -456,40 +457,9 @@ static inline void htp_ops_binary_run_task(HtpOpsBinaryTaskState* state, int siz
   worker_pool_synctoken_wait(&(state->sync_ctx));
 }
 
-static inline HVX_Vector htp_ops_binary_mul_silu_sf_vec(HVX_Vector v0, HVX_Vector v1) {
-  HVX_Vector zero_v = Q6_V_vzero();
-  HVX_Vector one_v = Q6_V_vsplat_R(0x3f800000);
-  HVX_Vector two_v = Q6_V_vsplat_R(0x40000000);
-  HVX_Vector log2e_v = Q6_V_vsplat_R(0x3fb8aa3b);
-
-  HVX_VectorPred q_v1_lt_0 = Q6_Q_vcmp_gt_VsfVsf(zero_v, v1);
-  HVX_Vector neg_v1 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(zero_v, v1));
-  HVX_Vector z = Q6_V_vmux_QVV(q_v1_lt_0, v1, neg_v1);
-  HVX_Vector exp_arg = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(z, log2e_v));
-  HVX_Vector exp_val = hvx_my_exp2_vsf(exp_arg);
-
-  HVX_Vector denom = Q6_Vqf32_vadd_VsfVsf(one_v, exp_val);
-  HVX_Vector inv_denom = hvx_my_inv_vqf32_vsf(Q6_Vsf_equals_Vqf32(denom));
-  HVX_Vector two_qf32 = Q6_Vqf32_vadd_VsfVsf(two_v, zero_v);
-  HVX_Vector dy = Q6_Vqf32_vmpy_Vqf32Vqf32(denom, inv_denom);
-  HVX_Vector two_minus_dy = Q6_Vqf32_vsub_Vqf32Vqf32(two_qf32, dy);
-  inv_denom = Q6_Vqf32_vmpy_Vqf32Vqf32(inv_denom, two_minus_dy);
-
-  HVX_Vector num = Q6_V_vmux_QVV(q_v1_lt_0, exp_val, one_v);
-  HVX_Vector num_qf32 = Q6_Vqf32_vadd_VsfVsf(num, zero_v);
-  HVX_Vector v1_qf32 = Q6_Vqf32_vadd_VsfVsf(v1, zero_v);
-  HVX_Vector v0_qf32 = Q6_Vqf32_vadd_VsfVsf(v0, zero_v);
-  HVX_Vector sig_v = Q6_Vqf32_vmpy_Vqf32Vqf32(num_qf32, inv_denom);
-  HVX_Vector v1_sig_v = Q6_Vqf32_vmpy_Vqf32Vqf32(v1_qf32, sig_v);
-  return Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_Vqf32Vqf32(v0_qf32, v1_sig_v));
-}
-
 static inline HVX_Vector htp_ops_binary_mul_silu_fp16_vec(HVX_Vector v0, HVX_Vector v1) {
-  HVX_VectorPair v0_sf = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(v0));
-  HVX_VectorPair v1_sf = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(v1));
-  HVX_Vector vr0 = htp_ops_binary_mul_silu_sf_vec(Q6_V_lo_W(v0_sf), Q6_V_lo_W(v1_sf));
-  HVX_Vector vr1 = htp_ops_binary_mul_silu_sf_vec(Q6_V_hi_W(v0_sf), Q6_V_hi_W(v1_sf));
-  return Q6_Vh_vdeal_Vh(Q6_Vhf_vcvt_VsfVsf(vr0, vr1));
+  HVX_Vector silu_v1 = htp_ops_silu_pwl_fp16_vec(v1);
+  return Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v0, silu_v1));
 }
 
 static inline HVX_Vector htp_ops_binary_squared_difference_fp16_vec(HVX_Vector v0, HVX_Vector v1) {
@@ -506,8 +476,8 @@ static inline bool htp_ops_binary_supports_fp16_vector_tail(int opType) {
   return opType == HTP_OPS_BINARY_ADD || opType == HTP_OPS_BINARY_ADD_RELU ||
          opType == HTP_OPS_BINARY_SUB || opType == HTP_OPS_BINARY_MUL ||
          opType == HTP_OPS_BINARY_SQUARED_DIFFERENCE ||
-         opType == HTP_OPS_BINARY_DIV || opType == HTP_OPS_BINARY_MAX ||
-         opType == HTP_OPS_BINARY_MIN || opType == HTP_OPS_BINARY_MUL_SILU;
+         opType == HTP_OPS_BINARY_MAX || opType == HTP_OPS_BINARY_MIN ||
+         opType == HTP_OPS_BINARY_MUL_SILU;
 }
 
 static inline HVX_Vector htp_ops_binary_compute_fp16_vector(HVX_Vector v0, HVX_Vector v1, int opType) {
@@ -736,20 +706,6 @@ static inline void htp_ops_binary_compute_fp16_chunk(__fp16* __restrict dst,
       src1_ptr += vec_len;
       dst_ptr += vec_len;
     }
-  } else if (opType == HTP_OPS_BINARY_DIV) {
-    const __fp16* src0_ptr = src0;
-    const __fp16* src1_ptr = src1;
-    __fp16* dst_ptr = dst;
-    for (; i < vec_end; i += vec_len) {
-      HVX_Vector v0 = vmem(src0_ptr);
-      HVX_Vector v1 = vmem(src1_ptr);
-      HVX_Vector inv_v1 = hvx_my_inv_vhf(v1);
-      HVX_Vector vr = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v0, inv_v1));
-      vmem(dst_ptr) = vr;
-      src0_ptr += vec_len;
-      src1_ptr += vec_len;
-      dst_ptr += vec_len;
-    }
   } else if (opType == HTP_OPS_BINARY_MAX) {
     const __fp16* src0_ptr = src0;
     const __fp16* src1_ptr = src1;
@@ -848,13 +804,6 @@ static inline void htp_ops_binary_compute_fp16_rhs_scalar_chunk(__fp16* dst, con
       HVX_Vector v0 = memLoadFunc((const HVX_Vector*)(src0 + i));
       vmemu(dst + i) = htp_ops_binary_squared_difference_fp16_vec(v0, v1_vec);
     }
-  } else if (opType == HTP_OPS_BINARY_DIV) {
-    HVX_Vector inv_v1 = hvx_my_inv_vhf(v1_vec);
-    for (; i <= size - vec_len; i += vec_len) {
-      HVX_Vector v0 = memLoadFunc((const HVX_Vector*)(src0 + i));
-      HVX_Vector vr = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v0, inv_v1));
-      vmemu(dst + i) = vr;
-    }
   } else if (opType == HTP_OPS_BINARY_MAX) {
     for (; i <= size - vec_len; i += vec_len) {
       HVX_Vector v0 = memLoadFunc((const HVX_Vector*)(src0 + i));
@@ -916,13 +865,6 @@ static inline void htp_ops_binary_compute_fp16_lhs_scalar_chunk(__fp16* dst, _Fl
     for (; i <= size - vec_len; i += vec_len) {
       HVX_Vector v1 = memLoadFunc((const HVX_Vector*)(src1 + i));
       vmemu(dst + i) = htp_ops_binary_squared_difference_fp16_vec(v0_vec, v1);
-    }
-  } else if (opType == HTP_OPS_BINARY_DIV) {
-    for (; i <= size - vec_len; i += vec_len) {
-      HVX_Vector v1 = memLoadFunc((const HVX_Vector*)(src1 + i));
-      HVX_Vector inv_v1 = hvx_my_inv_vhf(v1);
-      HVX_Vector vr = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v0_vec, inv_v1));
-      vmemu(dst + i) = vr;
     }
   } else if (opType == HTP_OPS_BINARY_MAX) {
     for (; i <= size - vec_len; i += vec_len) {
@@ -1184,9 +1126,15 @@ static inline bool htp_ops_binary_blit_src_row_broadcast(const HtpOpsBinaryRegio
          (r->size[1] <= 1 || stride[1] == 0);
 }
 
-static inline void htp_ops_binary_blit_add_fp16_row_broadcast(HtpOpsBinaryBlitTaskState* state,
-                                                              int begin, int end,
-                                                              bool src1Broadcast) {
+static inline HVX_Vector htp_ops_binary_blit_apply_row_broadcast(HVX_Vector varying, HVX_Vector broadcast,
+                                                                  int opType, bool src1Broadcast) {
+  return src1Broadcast ? htp_ops_binary_compute_fp16_vector(varying, broadcast, opType)
+                       : htp_ops_binary_compute_fp16_vector(broadcast, varying, opType);
+}
+
+static inline void htp_ops_binary_blit_fp16_row_broadcast(HtpOpsBinaryBlitTaskState* state,
+                                                          int begin, int end,
+                                                          bool src1Broadcast) {
   const HtpOpsBinaryRegion* r = state->region;
   const int vec_len = 128 / (int)sizeof(__fp16);
   const int vec_end = r->size[2] & -vec_len;
@@ -1202,7 +1150,7 @@ static inline void htp_ops_binary_blit_add_fp16_row_broadcast(HtpOpsBinaryBlitTa
       const __fp16* src = (const __fp16*)(varyingBase + z * varyingStride[0] + y * varyingStride[1]) + x;
       __fp16* dst = (__fp16*)(state->dstBase + z * r->dstStride[0] + y * r->dstStride[1]) + x;
       HVX_Vector v = vmemu((const HVX_Vector*)src);
-      vmemu((HVX_Vector*)dst) = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(v, vb));
+      vmemu((HVX_Vector*)dst) = htp_ops_binary_blit_apply_row_broadcast(v, vb, state->opType, src1Broadcast);
     }
   }
 
@@ -1233,15 +1181,15 @@ static inline void htp_ops_binary_blit_add_fp16_row_broadcast(HtpOpsBinaryBlitTa
         memcpy(srcTail, src, (size_t)remain * sizeof(__fp16));
         v = vmem(srcTail);
       }
-      HVX_Vector sum = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(v, vb));
-      vstu_variable(dst, (uint32_t)(remain * (int)sizeof(__fp16)), sum);
+      HVX_Vector out = htp_ops_binary_blit_apply_row_broadcast(v, vb, state->opType, src1Broadcast);
+      vstu_variable(dst, (uint32_t)(remain * (int)sizeof(__fp16)), out);
     }
   }
 }
 
-static inline bool htp_ops_binary_blit_try_add_fp16_small_y_broadcast(HtpOpsBinaryBlitTaskState* state,
-                                                                      int begin, int end,
-                                                                      bool src1Broadcast) {
+static inline bool htp_ops_binary_blit_try_fp16_small_y_broadcast(HtpOpsBinaryBlitTaskState* state,
+                                                                  int begin, int end,
+                                                                  bool src1Broadcast) {
   const HtpOpsBinaryRegion* r = state->region;
   const int vec_len = 128 / (int)sizeof(__fp16);
   const int rowBytes = r->size[2] * (int)sizeof(__fp16);
@@ -1257,6 +1205,34 @@ static inline bool htp_ops_binary_blit_try_add_fp16_small_y_broadcast(HtpOpsBina
 
   const uint8_t* broadcastBase = src1Broadcast ? state->src1Base : state->src0Base;
   const uint8_t* varyingBase = src1Broadcast ? state->src0Base : state->src1Base;
+  if (r->size[2] < vec_len) {
+    __fp16 broadcastPattern[vec_len] __attribute__((aligned(128)));
+    const __fp16* broadcast = (const __fp16*)broadcastBase;
+    for (int i = 0; i < vec_len; ++i) {
+      broadcastPattern[i] = broadcast[i % r->size[2]];
+    }
+    const HVX_Vector vb = vmem(broadcastPattern);
+
+    const int totalElems = (end - begin) * r->size[2];
+    const __fp16* src = (const __fp16*)(varyingBase + (ptrdiff_t)begin * rowBytes);
+    __fp16* dst = (__fp16*)(state->dstBase + (ptrdiff_t)begin * rowBytes);
+    int offset = 0;
+    for (; offset + vec_len <= totalElems; offset += vec_len) {
+      HVX_Vector v = vmemu((const HVX_Vector*)(src + offset));
+      vmemu((HVX_Vector*)(dst + offset)) =
+          htp_ops_binary_blit_apply_row_broadcast(v, vb, state->opType, src1Broadcast);
+    }
+    if (offset < totalElems) {
+      const int remain = totalElems - offset;
+      __fp16 srcTail[vec_len] __attribute__((aligned(128))) = {};
+      memcpy(srcTail, src + offset, (size_t)remain * sizeof(__fp16));
+      HVX_Vector v = vmem(srcTail);
+      HVX_Vector out = htp_ops_binary_blit_apply_row_broadcast(v, vb, state->opType, src1Broadcast);
+      vstu_variable(dst + offset, (uint32_t)(remain * (int)sizeof(__fp16)), out);
+    }
+    return true;
+  }
+
   HVX_Vector broadcast0 = vmemu((const HVX_Vector*)broadcastBase);
   HVX_Vector broadcast1 = Q6_V_vzero();
   if (r->size[2] > vec_len) {
@@ -1269,7 +1245,7 @@ static inline bool htp_ops_binary_blit_try_add_fp16_small_y_broadcast(HtpOpsBina
     const __fp16* src = (const __fp16*)(varyingBase + (ptrdiff_t)index * varyingStride[1]);
     __fp16* dst = (__fp16*)(state->dstBase + (ptrdiff_t)index * r->dstStride[1]);
     HVX_Vector v0 = vmemu((const HVX_Vector*)src);
-    vmemu((HVX_Vector*)dst) = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(v0, broadcast0));
+    vmemu((HVX_Vector*)dst) = htp_ops_binary_blit_apply_row_broadcast(v0, broadcast0, state->opType, src1Broadcast);
     if (r->size[2] > vec_len) {
       const int remain = r->size[2] - vec_len;
       HVX_Vector v1;
@@ -1280,8 +1256,8 @@ static inline bool htp_ops_binary_blit_try_add_fp16_small_y_broadcast(HtpOpsBina
         memcpy(srcTail, src + vec_len, (size_t)remain * sizeof(__fp16));
         v1 = vmem(srcTail);
       }
-      HVX_Vector sum = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(v1, broadcast1));
-      vstu_variable(dst + vec_len, (uint32_t)(remain * (int)sizeof(__fp16)), sum);
+      HVX_Vector out = htp_ops_binary_blit_apply_row_broadcast(v1, broadcast1, state->opType, src1Broadcast);
+      vstu_variable(dst + vec_len, (uint32_t)(remain * (int)sizeof(__fp16)), out);
     }
   }
   return true;
@@ -1290,23 +1266,26 @@ static inline bool htp_ops_binary_blit_try_add_fp16_small_y_broadcast(HtpOpsBina
 static inline void htp_ops_binary_blit_run_rows(HtpOpsBinaryBlitTaskState* state, int begin, int end) {
   const HtpOpsBinaryRegion* r = state->region;
   const int vec_len_fp16 = 128 / (int)sizeof(__fp16);
-  if (state->bytes == 2 && state->opType == HTP_OPS_BINARY_ADD &&
+  const bool rowBroadcastOp = state->opType == HTP_OPS_BINARY_ADD ||
+                              state->opType == HTP_OPS_BINARY_ADD_RELU ||
+                              state->opType == HTP_OPS_BINARY_MUL;
+  if (state->bytes == 2 && rowBroadcastOp &&
       r->dstStride[2] == 2 && r->src0Stride[2] == 2 && r->src1Stride[2] == 2 &&
       htp_ops_binary_supports_fp16_vector_tail(state->opType)) {
     const bool src0Broadcast = htp_ops_binary_blit_src_row_broadcast(r, 0);
     const bool src1Broadcast = htp_ops_binary_blit_src_row_broadcast(r, 1);
     if (src1Broadcast && !src0Broadcast) {
-      if (htp_ops_binary_blit_try_add_fp16_small_y_broadcast(state, begin, end, true)) {
+      if (htp_ops_binary_blit_try_fp16_small_y_broadcast(state, begin, end, true)) {
         return;
       }
-      htp_ops_binary_blit_add_fp16_row_broadcast(state, begin, end, true);
+      htp_ops_binary_blit_fp16_row_broadcast(state, begin, end, true);
       return;
     }
     if (src0Broadcast && !src1Broadcast) {
-      if (htp_ops_binary_blit_try_add_fp16_small_y_broadcast(state, begin, end, false)) {
+      if (htp_ops_binary_blit_try_fp16_small_y_broadcast(state, begin, end, false)) {
         return;
       }
-      htp_ops_binary_blit_add_fp16_row_broadcast(state, begin, end, false);
+      htp_ops_binary_blit_fp16_row_broadcast(state, begin, end, false);
       return;
     }
   }
@@ -2108,7 +2087,7 @@ typedef struct {
   const __fp16* src;
 } HtpOpsReductionTaskState;
 
-static inline void htp_ops_reduction_copy_fp16(uint8_t* dst, const uint8_t* src, size_t bytes) {
+static inline void htp_ops_reduction_copy(uint8_t* dst, const uint8_t* src, size_t bytes) {
   const size_t vecBytes = __HVX_LENGTH__;
   size_t offset = 0;
   for (; offset + vecBytes <= bytes; offset += vecBytes) {
@@ -2117,6 +2096,32 @@ static inline void htp_ops_reduction_copy_fp16(uint8_t* dst, const uint8_t* src,
   }
   if (offset < bytes) {
     memcpy(dst + offset, src + offset, bytes - offset);
+  }
+}
+
+static inline void htp_ops_reduce_int32(int32_t* dst, const int32_t* src, int outside,
+                                        int reduce, int inside, int opType) {
+  const int outputSize = outside * inside;
+  for (int index = 0; index < outputSize; ++index) {
+    const int o = index / inside;
+    const int i = index - o * inside;
+    const int32_t* srcBase = src + ((int64_t)o * reduce * inside + i);
+    int32_t value = srcBase[0];
+    if (opType == HTP_OPS_REDUCTION_MAXIMUM) {
+      for (int r = 1; r < reduce; ++r) {
+        const int32_t current = srcBase[(int64_t)r * inside];
+        value = current > value ? current : value;
+      }
+    } else {
+      value = 0;
+      for (int r = 0; r < reduce; ++r) {
+        value += srcBase[(int64_t)r * inside];
+      }
+      if (opType == HTP_OPS_REDUCTION_MEAN) {
+        value /= reduce;
+      }
+    }
+    dst[index] = value;
   }
 }
 
@@ -2408,12 +2413,17 @@ AEEResult htp_ops_reduction(uint8_t* dst, const uint8_t* src, int32_t outside, i
   if (dst == nullptr || src == nullptr || outside <= 0 || reduce <= 0 || inside <= 0) {
     return AEE_EBADPARM;
   }
-  if (bytes != 2 || (opType != HTP_OPS_REDUCTION_SUM && opType != HTP_OPS_REDUCTION_MAXIMUM &&
-                     opType != HTP_OPS_REDUCTION_MEAN)) {
+  if ((bytes != 2 && bytes != 4) ||
+      (opType != HTP_OPS_REDUCTION_SUM && opType != HTP_OPS_REDUCTION_MAXIMUM &&
+       opType != HTP_OPS_REDUCTION_MEAN)) {
     return AEE_EBADPARM;
   }
   if (reduce == 1) {
-    htp_ops_reduction_copy_fp16(dst, src, (size_t)outside * inside * sizeof(__fp16));
+    htp_ops_reduction_copy(dst, src, (size_t)outside * inside * bytes);
+    return AEE_SUCCESS;
+  }
+  if (bytes == 4) {
+    htp_ops_reduce_int32((int32_t*)dst, (const int32_t*)src, outside, reduce, inside, opType);
     return AEE_SUCCESS;
   }
   HtpOpsReductionTaskState state = {};
@@ -2826,6 +2836,15 @@ typedef struct {
   const __fp16*      slope;
 } HtpOpsPReluTaskState;
 
+static inline uint16_t htp_ops_prelu_fp16_bits(float x) {
+  union {
+    __fp16 f;
+    uint16_t u;
+  } v;
+  v.f = (__fp16)x;
+  return v.u;
+}
+
 static inline void htp_ops_prelu_channel_fp16_blocks(HtpOpsPReluTaskState* state, int start, int end) {
   const HVX_Vector zeroVec = Q6_V_vzero();
   for (int block = start; block < end; ++block) {
@@ -2864,10 +2883,36 @@ static void htp_ops_prelu_channel_worker_loop(void* data, int worker_index) {
   worker_pool_synctoken_jobdone(&(state->sync_ctx));
 }
 
+static inline void htp_ops_prelu_contiguous_fp16(__fp16* dst, const __fp16* src, const __fp16* slope,
+                                                 int batch, int plane, int channel) {
+  const HVX_Vector zeroVec = Q6_V_vzero();
+  const int vec_len = 128 / (int)sizeof(__fp16);
+  for (int n = 0; n < batch; ++n) {
+    const int batchBase = n * channel * plane;
+    for (int c = 0; c < channel; ++c) {
+      const HVX_Vector slopeVec = Q6_Vh_vsplat_R(htp_ops_prelu_fp16_bits(slope[c]));
+      const int base = batchBase + c * plane;
+      int i = 0;
+      for (; i + vec_len <= plane; i += vec_len) {
+        const int offset = base + i;
+        HVX_Vector v = vmemu((const HVX_Vector*)(src + offset));
+        HVX_Vector scaled = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v, slopeVec));
+        HVX_VectorPred negative = Q6_Q_vcmp_gt_VhfVhf(zeroVec, v);
+        vmemu((HVX_Vector*)(dst + offset)) = Q6_V_vmux_QVV(negative, scaled, v);
+      }
+      for (; i < plane; ++i) {
+        const int offset = base + i;
+        const __fp16 v = src[offset];
+        dst[offset] = v < (__fp16)0.0f ? v * slope[c] : v;
+      }
+    }
+  }
+}
+
 AEEResult htp_ops_prelu(uint8_t* dst, const uint8_t* src, const uint8_t* slope, int32_t size, int32_t bytes,
-                        int32_t plane, int32_t channel, int32_t slopeCount, int32_t pack) {
+                        int32_t plane, int32_t channel, int32_t slopeCount, int32_t pack, int32_t batch) {
   if (dst == nullptr || src == nullptr || slope == nullptr || size < 0 || bytes != 2 ||
-      plane <= 0 || channel <= 0 || slopeCount <= 0 || pack <= 0) {
+      plane <= 0 || channel <= 0 || slopeCount <= 0 || pack <= 0 || batch <= 0) {
     return AEE_EBADPARM;
   }
   const __fp16* slopeFp16 = (const __fp16*)slope;
@@ -2876,6 +2921,13 @@ AEEResult htp_ops_prelu(uint8_t* dst, const uint8_t* src, const uint8_t* slope, 
   }
 
   const int vec_len = 128 / (int)sizeof(__fp16);
+  if (pack == 1) {
+    if (slopeCount != channel || size < batch * channel * plane) {
+      return AEE_EBADPARM;
+    }
+    htp_ops_prelu_contiguous_fp16((__fp16*)dst, (const __fp16*)src, slopeFp16, batch, plane, channel);
+    return AEE_SUCCESS;
+  }
   if (pack != vec_len || slopeCount != channel) {
     return AEE_EUNSUPPORTED;
   }

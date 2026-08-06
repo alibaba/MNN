@@ -15,9 +15,27 @@ namespace QNN {
 ErrorCode QNNActivation::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto opType = mOp->type();
     switch (opType) {
-        case OpType_ReLU:
+        case OpType_ReLU: {
+            float slope = 0.0f;
+            if (mOp->main_as_Relu()) {
+                slope = mOp->main_as_Relu()->slope();
+            }
+            if (slope != 0.0f) {
+                // LeakyReLU: use Prelu with alpha tensor matching input data type
+                mNodeType = "Prelu";
+                Qnn_DataType_t dataType = mBackend->getUseFP16() ? QNN_DATATYPE_FLOAT_16 : QNN_DATATYPE_FLOAT_32;
+                // Create alpha as a 1-element tensor (broadcast to all channels)
+                this->createStaticFloatTensor("coeff", dataType, {1}, &slope);
+                mInputs.push_back(*(mBackend->getNativeTensor(inputs[0])));
+                mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor())); // alpha/coeff
+                mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
+                mBackend->addNodeToGraph(mOpConfigVersion, mNodeName.c_str(), mPackageName.c_str(), mNodeType.c_str(),
+                                         mParams, mInputs, mOutputs);
+                return NO_ERROR;
+            }
             mNodeType = "Relu";
             break;
+        }
         case OpType_ReLU6:
             mNodeType = "ReluMinMax";
             this->createParamScalar("min_value", mOp->main_as_Relu6()->minValue());

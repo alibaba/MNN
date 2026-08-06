@@ -61,6 +61,9 @@ extern void MNNPackForMatMul_B_RVV(float* destC, const float* sourceC, size_t h,
                                    bool transpose);
 extern void MNNQuantScaleFP32_RVV(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
 extern void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
+namespace MNN {
+void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
+}
 #endif
 
 #ifndef MNN_USE_SSE
@@ -272,6 +275,32 @@ static void MNNCountMaxMinValue(const float* source, float* minVal, float* maxVa
     minVal[0] = minval;
     maxVal[0] = maxval;
 #endif
+}
+
+static float MNNNormalizeQKAndDotDefault(float* q, float* k, float qScale, bool useL2Norm, size_t dk) {
+    if (!useL2Norm) {
+        float qk = 0.0f;
+        for (size_t i = 0; i < dk; ++i) {
+            q[i] *= qScale;
+            qk += q[i] * k[i];
+        }
+        return qk;
+    }
+    float qSumSq = 0.0f;
+    float kSumSq = 0.0f;
+    float qk = 0.0f;
+    for (size_t i = 0; i < dk; ++i) {
+        qSumSq += q[i] * q[i];
+        kSumSq += k[i] * k[i];
+        qk += q[i] * k[i];
+    }
+    const float qNormScale = qScale / sqrtf(qSumSq + 1e-6f);
+    const float kNormScale = 1.0f / sqrtf(kSumSq + 1e-6f);
+    for (size_t i = 0; i < dk; ++i) {
+        q[i] *= qNormScale;
+        k[i] *= kNormScale;
+    }
+    return qk * qNormScale * kNormScale;
 }
 
 #ifdef MNN_LOW_MEMORY
@@ -4885,6 +4914,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNDualMatVec = MNNDualMatVecDefault;
     gCoreFunction->MNNDecayRankOneUpdate = MNNDecayRankOneUpdateDefault;
     gCoreFunction->MNNFusedGatedDelta = MNNFusedGatedDeltaDefault;
+    gCoreFunction->MNNNormalizeQKAndDot = MNNNormalizeQKAndDotDefault;
 
     // Lowp
     gCoreFunction->MNNFp32ToLowp = nullptr;
@@ -5058,6 +5088,7 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemainFP32_RVV;
         gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B_RVV;
         gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode_RVV;
+        MNNRvvInitializeFastPathFunctions(gCoreFunction);
 #ifdef MNN_LOW_MEMORY
         gCoreFunction->MNNAbsMax = MNNAbsMaxFP32_RVV;
         gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32_RVV;

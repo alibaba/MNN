@@ -25,7 +25,7 @@ sh transformers/llm/engine/ios/ios_llm_bench.sh \
 
 | 选项 | 说明 |
 |---|---|
-| `--backend cpu\|metal --prompt-len N --decode-len N` | 定长 bench（类似 `llm_bench`），不带则跑 `bench.txt` prompt 文件模式 |
+| `--backend cpu\|metal --prompt-len N --decode-len N` | 定长 bench，不带则跑 `bench.txt` prompt 文件模式。⚠️ 语义等价于桌面端 **`llm_bench -pg P,D`**（prefill P 个 token 后**复用该 KV cache** 续写 D 个 token，prefill/decode 分开计时），**不是** `-p P -n D`（那是两个独立的 prefill-only / decode-only 测试，其 decode 从 kv≈0 起算、数值偏高） |
 | `--prompt-len 512,1024,2048 --decode-len 128,2000` | 逗号分隔的多组长度，自动跑全组合矩阵（此例 3×2=6 组），framework/App 只构建安装一次，每组独立日志 `bench_*_p<P>_d<D>.log`，报告汇总所有 avg 行 |
 | `--repeat N` / `--threads N` | 定长 bench 轮数（首轮 warmup 不计入）/ CPU 线程数 |
 | `--skip-framework` | 复用现有 `ios/MNN.framework`，跳过 C++ 编译（对比测试时关键） |
@@ -49,6 +49,10 @@ sh transformers/llm/engine/ios/ios_llm_bench.sh \
 
 ## 已知陷阱
 
+- **shell 环境的 `SDKROOT` / `CPATH` 指向 MacOSX.sdk 会打爆整个 iOS 编译**（2026-07-30 实锤）：症状是几百个 `<cstddef> tried including <stddef.h> but didn't find libc++'s <stddef.h>`，libc++ 头来自 iPhoneOS.sdk 而 C 头来自 MacOSX.sdk。且 `buildiOS.sh` 失败后仍 `exit 0`，只留下残缺 framework（仅 Headers + Info.plist，无二进制、`Headers/llm` 为空），下游 App 编译报 `MNN/llm/llm.hpp not found` 误导排查方向。**处置**：跑本脚本一律 `env -u SDKROOT -u CPATH DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh ios_llm_bench.sh ...`；怀疑 framework 残缺时先 `ls MNN.framework/MNN` 确认二进制存在。
+- **Team ID 必须查本机，不能抄文档**：`--team` 用错会报 `No Account for Team`。查法：`security find-identity -v -p codesigning` 看证书，或 `security cms -D -i ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision | grep -A2 TeamIdentifier`。本机（jbyang，2026-07-30）为 `3TLG5LZ643`。
+- **免费开发者证书每台设备最多 3 个 App**：安装报 `CoreDeviceError 3002` + `maximum number of installed apps using a free developer profile`，错误信息会列出占位的 3 个 bundle id。**处置**：优先用 `--bundle-id` 复用其中同 Team 的旧 bench App 原地覆盖（如 `com.jiuqi.mnn-llm-bench`），不必删设备上的 App。
+- **签名未信任的启动失败是"秒失败"，但脚本会傻等满 `--timeout`（默认 1800s）**：换新 bundle id / 新 profile 首次安装后必须在 iPad 上手动信任（设置 > 通用 > VPN与设备管理 > 开发者App）。日志特征：`FBSOpenApplicationErrorDomain error 3` + `its profile has not been explicitly trusted by the user`。看到 TIMEOUT 先翻 `bench_logs/*.log` 头部有没有这个错误，别真等 30 分钟。
 - **设备锁屏**：锁屏时 `devicectl` 无法启动 App（FBSOpenApplicationErrorDomain error 7 "Locked"），脚本会立即报 `app failed to launch (device locked?)`。测试前保持屏幕解锁（建议 设置 > 显示与亮度 > 自动锁定 设为"永不"）。
 - **iOS 26.5 Metal4 Tensor API 探测（本 skill 相关 bugfix）**：MPP `matmul2d` 要求 M/N 至少一个是 16 的倍数、静态 K 是 16 的倍数。探测 kernel 描述符需用 `(16, 8, dynamic_extent)`；同时 `MetalAttentionShader.hpp` 中 legacy 16x16x8 tensor 路径（静态 K=8）必须保持禁用（宏 `MNN_METAL_TENSOR_OPS_LEGACY_8X8`），否则探测通过但运行时反复编译失败，prefill 反而大幅回退（953 → 717 tok/s）。完整修复后 tensor API 生效，prefill 953 → 1884 tok/s（Qwen3.5-2B，prompt=512）。
 - **GPU 开关**：通过 `devicectl` 启动时 App 处于 Inactive 状态，Metal backend 若在此时创建，必须监听 `UIApplicationDidBecomeActiveNotification`（而非 WillEnterForeground）才能恢复 GPU，否则 bench 卡死。
@@ -62,3 +66,14 @@ sh transformers/llm/engine/ios/ios_llm_bench.sh \
 | master（tensor API 探测失败被禁用） | ~953 | ~86 |
 | master + tensor API 探测/shader 修复 | ~1884 | ~86 |
 | feature/linear-attn-opt-metal | ~2253 | ~89 |
+
+## 参考基线（iPad Pro 11" M5 · iPad17,1，Q4 b64，metal，prompt=512 / decode=128 / repeat=6，`fecee95475`，2026-07-30）
+
+| 模型 | Prefill tok/s | Decode tok/s |
+|---|---:|---:|
+| Qwen3-0.6B | 7795.2 | 241.7 |
+| Qwen3.5-0.8B | 3017.5 | 195.9 |
+| Qwen3.5-2B | 1942.8 | 95.8 |
+| Qwen3-4B | 1231.1 | 47.9 |
+
+对照同分支 M4 Pro Mac（b64 同口径）：iPad M5 prefill 全面更高（+14%~+74%，tensor-API/NAX 生效），decode 全面更低（−30%~−35%，内存带宽约减半）。与 M5 Mac 参考值（`mlx-comparison.md` 0.6B prefill ~7488 / decode ~227）同量级。

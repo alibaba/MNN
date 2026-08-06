@@ -19,9 +19,9 @@ extern "C" {
 int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale, const uint8_t * bias, int m, int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric);
 int hmx_matmulq4fp16_mle32(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale, const uint8_t * bias, int m, int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric);
 int hmx_matmulq4blockfp16_mle32(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale, const uint8_t * bias, int m, int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric);
-int scalar_tmac_a16w1_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight, const float *scale,
-                           const uint8_t *bias, int m, int ic, int oc, int scale_block_num,
-                           int scale_asymmetric, int relu, int relu6, int output_bytes);
+int hvx_tmac_a16w1_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight, const float *scale,
+                        const uint8_t *bias, int m, int ic, int oc, int scale_block_num,
+                        int scale_asymmetric, int output_bytes);
 typedef struct Im2ColParameter {
     int32_t padX;
     int32_t padY;
@@ -65,6 +65,8 @@ typedef struct WeightReorderParam {
 
 int hmx_im2col_convolution_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight, const uint8_t *bias,
                                 const HmxIm2ColConvParam* params);
+int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
+                                             const uint8_t *bias, const HmxIm2ColConvParam* params);
 int htp_ops_conv1x1_direct_fp16(uint8_t* output, uint8_t* input, uint8_t* weight, uint8_t* bias,
                                 const HmxIm2ColConvParam* params);
 int hvx_pool2d_fp16(__fp16 *restrict dst, const __fp16 *restrict src,

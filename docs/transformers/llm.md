@@ -108,7 +108,8 @@
 4.  **（可选）性能基准测试**：
     使用 `llm_bench` 工具对不同后端、线程数、Prompt 长度等配置进行性能压测，以找到最优配置。
     ```bash
-    ./llm_bench -m ./model/config.json -a cpu,opencl -t 4,8 -p 32,64 -n 32 -rep 3
+    # -pg <pp>,<tg>：prefill pp 个 token 后复用 KV cache 生成 tg 个 token（最接近真实推理）
+    ./llm_bench -m ./model/config.json -a cpu,opencl -t 4,8 -pg 64,32 -rep 3
     ```
 
 ---
@@ -692,12 +693,12 @@ options:
   -a, --backends <cpu,opencl,metal>         (default: cpu)
   -c, --precision <n>                       (default: 2) | Note: (0:Normal(for cpu bakend, 'Nornal' is 'High'),1:High,2:Low)
   -t, --threads <n>                         (default: 4)
-  -p, --n-prompt <n>                        (default: 512)
-  -n, --n-gen <n>                           (default: 128)
-  -pg <pp,tg>                               (default: 512,128)
+  -p, --n-prompt <n>                        (default: 512) | Note: prefill-only test (ppN), no KV-cache reuse
+  -n, --n-gen <n>                           (default: 128) | Note: decode-only test (tgN), starts from a 1-token context
+  -pg <pp,tg>                               (default: 0,0) | Note: prefill pp tokens then generate tg tokens reusing that KV-cache (llama-bench -pg); reports prefill and decode speed separately
   -mmp, --mmap <0|1>                        (default: 0)
   -rep, --n-repeat <n>                      (default: 5)
-  -kv, --kv-cache <true|false>              (default: false) | Note: if true: Every time the LLM model generates a new word, it utilizes the cached KV-cache
+  -kv, --kv-cache <true|false>              (default: false) | Note: DEPRECATED, use -pg instead. `-p A -n B -kv true` == `-pg A,B`
   -fp, --file-print <stdout|filename>       (default: stdout) ｜ If not 'stdout', all test results will be written to the specified file.
   -qa, --quant-attention <n>               (default: 0) | Note: KV cache quantization mode (0=no-quant, 1=QK-int8, 2=QKV-int8, 3=QK-TQ3, 4=QKV-TQ3, 5=QK-TQ4, 6=QKV-TQ4)
   -fa, --flash-attention <0|1>              (default: 1) | Note: 1=enable flash attention, 0=disable
@@ -708,20 +709,47 @@ options:
 - '-m | --model': llm.mnn和llm.mnn.weight文件所在的文件夹中config.json文件的路径，而不是文件夹的路径或者mnn/mnn.weight文件的路径。 可以填写多个模型的config.json文件地址，使用英文逗号分隔；
 - '-a | --backends': 指定运行LLM模型的后端，目前MNN仅支持CPU/METAL/OPENCL后端。可以填写多个后端，后端名称均使用英文小写字母，使用英文逗号分隔；
 - '-t | --threads': 指定CPU后端推理时采用的线程数。对于OPENCL后端，该字段表示的不是线程数，而是GPU MODE，当前LLM推理时OpenCL均采取Buffer模式推理，线程数设置为4时性能较优。对于METAL后端对性能的影响较小。可以填写多个线程数，使用英文逗号分隔；
-- '-p | --n-prompt': 指定推理时处理的prompt长度，可填写多个长度，使用英文逗号分隔；测试结果表示LLM模型的首字符响应速度；
-- '-n | --n-gen': 指定推理时生成字符的长度，可填写多个长度，使用英文逗号分隔；测试结果表示LLM模型在不考虑历史KV信息时生成一个字符的速度，即Attention算子中past_kv_length=0;
-- '-pg': 指定prompt长度和生成字符数量，测试中该项的耗时是前两项('-p'和'-n')耗时的总和，处理字符的数量是prompt长度和生成字符数量之和；
+- '-p | --n-prompt': **prefill-only 测试（表格中显示为 `ppN`）**。只处理长度为 N 的 prompt，不做续写；结果表示首字符响应速度（prefill 吞吐）。可填写多个长度，使用英文逗号分隔；
+- '-n | --n-gen': **decode-only 测试（表格中显示为 `tgN`）**。从 1 个 token 的上下文开始连续生成 N 个字符，即 Attention 的 past_kv_length 从 0 起算，衡量"无历史 KV 负担"时的纯生成速度。可填写多个长度，使用英文逗号分隔；
+- '-pg <pp,tg>': **prefill + decode 联合测试（表格中显示为 `ppN+tgM`）**，语义与 llama.cpp `llama-bench -pg` 一致：先 prefill `pp` 个 token，再**复用该 KV cache** continue 生成 `tg` 个 token（一次运行，decode 阶段的 kv 长度从 pp 增长到 pp+tg），因此最接近真实推理（与运行 `llm_demo` 的行为一致）。输出**分别给出 prefill 与 decode 两个速度**（`prefill<br>decode`），便于定位性能变化发生在哪个阶段；
 - '-mmp | --mmap': 指定模型加载时是否使用mmap技术，只能填写一个候选项，0或1；该项对模型推理性能无影响；
 - '-rep | --n-repeat': 每一个测试实例重复的次数，最终结果取平均数，并计算性能的标准差；
-- '-kv | --kv-cache': 当设置为true时，测试时在LLM模型decode阶段会考虑历史KV信息，即测试方法和运行'llm_demo'程序一致；
+- '-kv | --kv-cache': **已废弃（deprecated），请改用 `-pg`**。`-p A -n B -kv true` 完全等价于 `-pg A,B`；使用时会打印一条 deprecation 提示。保留该选项仅为兼容既有脚本；
 - '-fp | --file-print': 默认输出到屏幕上；如果指定了输出文件，最终的测试结果会以追加的方式以markdown格式写入到文件中，不会删除文件中已有的内容；文件不存在会自动创建。
 - '-qa | --quant-attention': 控制 KV Cache 量化模式（`attention_mode % 8` 部分），默认 `0`（不量化）。可选值：`0`=不量化、`1`=Key int8、`2`=KV int8、`3`=Key TQ3、`4`=KV TQ3、`5`=Key TQ4、`6`=KV TQ4。完整编码规则见上方 [attention_mode](#推理配置) 说明。
 - '-fa | --flash-attention': 控制是否启用 Flash Attention，默认 `1`（开启）。设为 `0` 时关闭 Flash Attention。`-qa` 和 `-fa` 独立控制量化模式和 Flash Attention，最终 `attention_mode = flash * 8 + quant`。例如 `-qa 0 -fa 1` 等效于 `attention_mode=8`，`-qa 2 -fa 0` 等效于 `attention_mode=2`。
 
+##### 三种测试模式（与 llama.cpp llama-bench 对齐）
+
+| 模式 | 参数 | 表格 test 列 | KV cache | 输出 | llama-bench 对应 |
+|---|---|---|---|---|---|
+| prefill-only | `-p 512` | `pp512` | 不复用 | 单个 t/s | `-p` |
+| decode-only | `-n 128` | `tg128` | 从 1 token 起 | 单个 t/s | `-n` |
+| **prefill+decode** | `-pg 512,128` | `pp512+tg128` | **decode 复用 prefill 的 KV** | **prefill / decode 两个速度** | `-pg` |
+
+三者可同时给出，会各自产生独立的表格行：
+
+```bash
+# 同时跑 pp512、tg128、pp512+tg128 三个测试
+./llm_bench -m ./model/config.json -a metal -p 512 -n 128 -pg 512,128 -rep 3
+```
+
+输出示例（`-pg` 行给出 prefill 与 decode 两个速度，其余行为单个 t/s）：
+
+```
+| model              |  modelSize | backend | threads | precision  | test          | speed(tok/s) |
+| ------------------ | ---------: | ------- | ----: | ---------- | ------------- | ------------ |
+| qwen3-0.6b         | 355.68 MiB | METAL   |     4 | Low        | pp512         | 5073.12 ± 8.61 |
+| qwen3-0.6b         | 355.68 MiB | METAL   |     4 | Low        | tg128         | 345.85 ± 1.02 |
+| qwen3-0.6b         | 355.68 MiB | METAL   |     4 | Low        | pp512+tg128   | 5061.44 ± 9.30<br>293.40 ± 0.42 |
+```
+
+> 评估真实推理性能（尤其是长上下文下 decode 随 kv 增长而变慢的效应）请使用 `-pg`：它是唯一让 decode 阶段带着真实 KV cache 长度运行的模式。`-n` 得到的是 kv≈0 的理想值，通常明显偏高。
+
 ##### 命令行运行llm_bench
 在build目录下运行
 ```bash
-./llm_bench -m ./Qwen2.5-1.5B-Instruct/config.json,./Qwen2.5-0.5B-Instruct/config.json -a cpu,opencl,metal -c 1,2 -t 8,12 -p 16,32 -n 10,20 -pg 8,16 -mmp 0 -rep 4 -kv true -fp ./test_result
+./llm_bench -m ./Qwen2.5-1.5B-Instruct/config.json,./Qwen2.5-0.5B-Instruct/config.json -a cpu,opencl,metal -c 1,2 -t 8,12 -pg 16,10 -pg 32,20 -mmp 0 -rep 4 -fp ./test_result
 ```
 
 关闭 Flash Attention 或开启 KV 量化进行 A/B 对比测试：
@@ -1025,6 +1053,7 @@ make -j16
 | `--model` | str | (必填) | MNN 模型所在目录路径 |
 | `--soc_id` | int | (必填) | 目标设备的 SOC ID，如 8Gen3 为 57 |
 | `--dsp_arch` | str | (必填) | 目标设备的 DSP 架构，如 8Gen3 为 v75 |
+| `--vtcm_mb` | int | (选填) | 目标设备上用于缓存graph的vtcm_mb大小，默认配置为8 |
 | `--model_name` | str | `llm.mnn` | 要转换的模型文件名，如 `llm.mnn` 或 `visual.mnn` |
 | `--image_sizes` | str | `512x512` | 视觉模型的输入图片尺寸，支持多尺寸，如 `"224x224,384x384,512x512"` |
 | `--input_json` | str | `""` | 自定义输入 shape 的 JSON 文件路径，非空时使用自定义模式 |

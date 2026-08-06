@@ -16,17 +16,21 @@ ErrorCode QNNFlatten::onEncode(const std::vector<Tensor *> &inputs, const std::v
     Tensor::DimensionType outputDimType = outputs[0]->getDimensionType();
 
     MNN_ASSERT(inputDimType == outputDimType);
+
+    // NC4HW4 tensors live as NHWC inside QNN. When a reshape changes the innermost (channel) extent,
+    // a plain Reshape flattens in NHWC order and scrambles the data, so we must first transpose
+    // NHWC->NCHW. This holds for any output rank -- including 2D flattens like [1,C,H,W] -> [1,C*H*W]
+    // feeding an FC layer. (A previous shortcut took a plain Reshape whenever the output was 2D,
+    // which silently corrupted exactly this common case.)
     std::vector<uint32_t> inputQnnShape = getNHWCShape(inputs[0]);
     std::vector<uint32_t> outputQnnShape = getNHWCShape(outputs[0]);
-    if(TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-        if(inputQnnShape[inputs[0]->dimensions() - 1] != outputQnnShape[outputs[0]->dimensions() - 1]){
-            this->ReshapeTranspose(inputs, outputs);
-            return NO_ERROR;
-        }
+    if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
+        inputQnnShape[inputs[0]->dimensions() - 1] != outputQnnShape[outputs[0]->dimensions() - 1]) {
+        this->ReshapeTranspose(inputs, outputs);
+        return NO_ERROR;
     }
-    
+
     mNodeType = "Reshape";
-    // this->addNodeCommon(inputs, outputs);
     this->addNodeCommonReshape("Reshape", *(mBackend->getNativeTensor(inputs[0])), *(mBackend->getNativeTensor(outputs[0])));
 
     return NO_ERROR;
@@ -113,7 +117,7 @@ void QNNFlatten::ReshapeTranspose(const std::vector<Tensor *> &inputs, const std
     }
 
     // nchw -> nhwc
-    {
+    if (permuteOutput) {
         mNodeType = "Transpose";
         std::string name = mNodeName + "_output_transpose";
         mParams.clear();

@@ -47,32 +47,49 @@ static void reorderTMacWeightForHvx(uint8_t* dst, const uint8_t* src, int ic, in
 static void packTMacScaleForHvx(float* dst, const float* src, int oc, int scaleBlockNum, bool asymmetric) {
     const int ocPack = 128;
     const int vecLanes = 32;
-    const int vectorsPerPack = 8;
+    const int vectorsPerPack = 4;
     const int ocP = UP_DIV(oc, ocPack);
     ::memset(dst, 0, (size_t)ocP * scaleBlockNum * vectorsPerPack * vecLanes * sizeof(float));
     for (int oz = 0; oz < ocP; ++oz) {
         for (int block = 0; block < scaleBlockNum; ++block) {
             float* pack = dst + ((size_t)oz * scaleBlockNum + block) * vectorsPerPack * vecLanes;
             for (int lane = 0; lane < vecLanes; ++lane) {
-                const int ocIndex[4] = {oz * ocPack + lane * 2, oz * ocPack + lane * 2 + 1, oz * ocPack + 64 + lane * 2,
-                                        oz * ocPack + 64 + lane * 2 + 1};
+                const int ocIndex[4] = {
+                    oz * ocPack + lane * 2,
+                    oz * ocPack + lane * 2 + 1,
+                    oz * ocPack + 64 + lane * 2,
+                    oz * ocPack + 64 + lane * 2 + 1
+                };
                 for (int part = 0; part < 4; ++part) {
                     if (ocIndex[part] >= oc) {
                         continue;
                     }
-                    float alpha = 0.0f;
-                    float offsetFactor = 0.0f;
                     const int scaleIndex = ocIndex[part] * scaleBlockNum + block;
-                    if (asymmetric) {
-                        const float minValue = src[2 * scaleIndex + 0];
-                        alpha = src[2 * scaleIndex + 1];
-                        offsetFactor = minValue - alpha;
-                    } else {
-                        alpha = src[scaleIndex];
-                        offsetFactor = -alpha;
-                    }
-                    pack[(part * 2 + 0) * vecLanes + lane] = alpha;
-                    pack[(part * 2 + 1) * vecLanes + lane] = offsetFactor;
+                    pack[part * vecLanes + lane] = asymmetric ? src[2 * scaleIndex + 0] : src[scaleIndex];
+                }
+            }
+        }
+    }
+}
+
+static void packTMacBiasForHvx(float* dst, const float* src, int oc, int srcSize) {
+    const int ocPack = 128;
+    const int vecLanes = 32;
+    const int vectorsPerPack = 4;
+    const int ocP = UP_DIV(oc, ocPack);
+    ::memset(dst, 0, (size_t)ocP * vectorsPerPack * vecLanes * sizeof(float));
+    for (int oz = 0; oz < ocP; ++oz) {
+        float* pack = dst + (size_t)oz * vectorsPerPack * vecLanes;
+        for (int lane = 0; lane < vecLanes; ++lane) {
+            const int ocIndex[4] = {
+                oz * ocPack + lane * 2,
+                oz * ocPack + lane * 2 + 1,
+                oz * ocPack + 64 + lane * 2,
+                oz * ocPack + 64 + lane * 2 + 1
+            };
+            for (int part = 0; part < vectorsPerPack; ++part) {
+                if (ocIndex[part] < oc && ocIndex[part] < srcSize) {
+                    pack[part * vecLanes + lane] = src[ocIndex[part]];
                 }
             }
         }
@@ -94,14 +111,8 @@ HexagonTMac::Resource::~Resource() {
     }
 }
 
-HexagonTMac::HexagonTMac(Backend* backend, std::shared_ptr<Resource> res, const Op* op)
+HexagonTMac::HexagonTMac(Backend* backend, std::shared_ptr<Resource> res)
     : HexagonExecution(backend), mResource(std::move(res)) {
-    auto conv2d = op != nullptr ? op->main_as_Convolution2D() : nullptr;
-    auto common = conv2d != nullptr ? conv2d->common() : nullptr;
-    if (common != nullptr) {
-        mRelu = common->relu() ? 1 : 0;
-        mRelu6 = common->relu6() ? 1 : 0;
-    }
 }
 
 HexagonTMac* HexagonTMac::create(Backend* backend, const Op* op, const std::vector<Tensor*>& inputs,
@@ -111,7 +122,8 @@ HexagonTMac* HexagonTMac::create(Backend* backend, const Op* op, const std::vect
         return nullptr;
     }
     auto common = conv2d->common();
-    if (common->kernelY() != 1 || common->kernelX() != 1 || common->strideX() != 1 || common->strideY() != 1 ||
+    if (common->kernelY() != 1 || common->kernelX() != 1 ||
+        common->strideX() != 1 || common->strideY() != 1 ||
         common->relu() || common->relu6()) {
         return nullptr;
     }
@@ -123,7 +135,7 @@ HexagonTMac* HexagonTMac::create(Backend* backend, const Op* op, const std::vect
     }
     int ic = common->inputCount();
     const int oc = common->outputCount();
-    if (ic <= 0 || oc <= 0 || (ic % 32) != 0 || (oc % 32) != 0) {
+    if (ic <= 0 || oc <= 0 || (ic % 64) != 0 || (oc % 32) != 0) {
         return nullptr;
     }
 
@@ -163,16 +175,18 @@ HexagonTMac* HexagonTMac::create(Backend* backend, const Op* op, const std::vect
     const int packedWeightBlockCount = scaleBlockNum * (blockSize / 8);
     const size_t packedWeightSize = (size_t)packedOcP * packedWeightBlockCount * 128;
     const size_t rawScaleSize = (size_t)alphaSize * sizeof(float);
-    const size_t packedScaleSize = (size_t)packedOcP * scaleBlockNum * 8 * 32 * sizeof(float);
+    const size_t packedScaleSize = (size_t)packedOcP * scaleBlockNum * 4 * 32 * sizeof(float);
     res->weight = bufferAlloc->alloc(packedWeightSize);
     res->scale = bufferAlloc->alloc(rawScaleSize + packedScaleSize);
     if (res->weight.first == nullptr || res->scale.first == nullptr) {
         return nullptr;
     }
     reorderTMacWeightForHvx(HexagonBackend::getPtr(res->weight),
-                            reinterpret_cast<const uint8_t*>(quanCommon->weight.get()), ic, oc, scaleBlockNum);
+                            reinterpret_cast<const uint8_t*>(quanCommon->weight.get()),
+                            ic, oc, scaleBlockNum);
     auto scalePtr = reinterpret_cast<float*>(HexagonBackend::getPtr(res->scale));
     ::memcpy(scalePtr, quanCommon->alpha.get(), rawScaleSize);
+    res->packedScaleOffset = (int)rawScaleSize;
     packTMacScaleForHvx(scalePtr + alphaSize, quanCommon->alpha.get(), oc, scaleBlockNum, quanCommon->asymmetric);
     hexBackend->markHostInput(res->weight, (int)packedWeightSize);
     hexBackend->markHostInput(res->scale, (int)(rawScaleSize + packedScaleSize));
@@ -185,19 +199,17 @@ HexagonTMac* HexagonTMac::create(Backend* backend, const Op* op, const std::vect
     }
     res->hasBias = hasNonZeroBias(originBias, std::min(oc, originBiasSize));
     if (res->hasBias) {
-        const int biasRound = UP_DIV(oc, 64) * 64;
-        const int biasSize = biasRound * (int)sizeof(int16_t) + 64;
+        const int biasSize = packedOcP * 4 * 32 * (int)sizeof(float);
         res->bias = bufferAlloc->alloc((size_t)biasSize);
         if (res->bias.first == nullptr) {
             return nullptr;
         }
-        auto biasPtr = HexagonBackend::getPtr(res->bias);
-        ::memset(biasPtr, 0, (size_t)biasSize);
-        HexagonBackend::fp32ToFp16(originBias, reinterpret_cast<int16_t*>(biasPtr), std::min(oc, originBiasSize));
+        packTMacBiasForHvx(reinterpret_cast<float*>(HexagonBackend::getPtr(res->bias)), originBias, oc,
+                           originBiasSize);
         hexBackend->markHostInput(res->bias, biasSize);
     }
 
-    return new HexagonTMac(backend, res, op);
+    return new HexagonTMac(backend, res);
 }
 
 ErrorCode HexagonTMac::onBuildCmd(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -219,26 +231,27 @@ ErrorCode HexagonTMac::onBuildCmd(const std::vector<Tensor*>& inputs, const std:
     auto inputDev = HexagonBackend::getDevicePtr(input);
     auto weightDev = HexagonBackend::getDevicePtr(mResource->weight);
     auto scaleDev = HexagonBackend::getDevicePtr(mResource->scale);
+    scaleDev.second += mResource->packedScaleOffset;
     std::pair<int, int> biasDev = {-1, 0};
     if (mResource->hasBias) {
         biasDev = HexagonBackend::getDevicePtr(mResource->bias);
     }
     auto outputDev = HexagonBackend::getDevicePtr(output);
 
-    int params[] = {area,
-                    mResource->inputChannels,
-                    mResource->outputChannels,
-                    mResource->scaleBlockNum,
-                    mResource->asymmetric,
-                    mRelu,
-                    mRelu6,
-                    (int32_t)static_cast<HexagonBackend*>(backend())->getSize(output)};
+    int params[] = {
+        area,
+        mResource->inputChannels,
+        mResource->outputChannels,
+        mResource->scaleBlockNum,
+        mResource->asymmetric,
+        (int32_t)static_cast<HexagonBackend*>(backend())->getSize(output)
+    };
     std::vector<std::pair<int, int>> inputFds = {inputDev, weightDev, scaleDev, biasDev};
     std::vector<std::pair<int, int>> outputFds = {outputDev};
 
     dst.emplace_back();
-    dst.back().build(static_cast<HexagonBackend*>(backend()), DSP_OP_TMAC_A16W1, params, sizeof(params), inputFds,
-                     outputFds, inputs, outputs);
+    dst.back().build(static_cast<HexagonBackend*>(backend()), DSP_OP_TMAC_A16W1, params, sizeof(params),
+                     inputFds, outputFds, inputs, outputs);
     return NO_ERROR;
 }
 
@@ -249,9 +262,7 @@ bool HexagonTMac::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (dst == nullptr) {
         return true;
     }
-    auto exe = new HexagonTMac(bn, mResource, op);
-    exe->mRelu = mRelu;
-    exe->mRelu6 = mRelu6;
+    auto exe = new HexagonTMac(bn, mResource);
     *dst = exe;
     return true;
 }

@@ -240,7 +240,18 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
                 int h = i / width;
                 float4 in = convert_float4(RI_F(input, SAMPLER, (int2)(c * width + w, b * height + h)));
 #ifdef GAMMA_BETA
-                float4 out = (in - mean) * value * (float4)gamma[c * reduce_size + i] + (float4)beta[c * reduce_size + i];
+                // The normalized axis includes channel here, so the 4 packed channels of this C4 block
+                // (real channels 4c..4c+3) each have their own gamma/beta. Gather per-channel (identity
+                // for channels past `channel`, which are only image padding) instead of broadcasting one.
+                float4 gamma4 = (float4)1.0f;
+                float4 beta4 = (float4)0.0f;
+                float* gamma4_ptr = (float*)(&gamma4);
+                float* beta4_ptr = (float*)(&beta4);
+                for(int k = 0; k < 4 && (c * 4 + k) < channel; ++k){
+                    gamma4_ptr[k] = gamma[(c * 4 + k) * reduce_size + i];
+                    beta4_ptr[k] = beta[(c * 4 + k) * reduce_size + i];
+                }
+                float4 out = (in - mean) * value * gamma4 + beta4;
 #else
                 float4 out = (in - mean) * value;
 #endif

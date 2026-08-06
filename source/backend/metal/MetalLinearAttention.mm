@@ -9,6 +9,7 @@
 #import "MetalLinearAttention.hpp"
 #import "MNNMetalContext.h"
 #import "MetalLinearAttentionShader.hpp"
+#import "MetalEnv.hpp"
 #import "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
@@ -95,7 +96,7 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
         return;
     }
 
-    // Conv + SiLU pipeline (includes both conv_silu and conv_state_update kernels)
+    // ── Conv + SiLU pipeline (used every forward) ──────────────────────
     {
         std::vector<std::string> keys = {"linear_attn_conv_silu"};
         if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
@@ -103,6 +104,18 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
         if (nil == mConvSiluPipeline) {
             mConvSiluPipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnConvSilu, "linear_attn_conv_silu", option);
             rt->insertPipeline(keys, mConvSiluPipeline);
+        }
+    }
+    {
+        std::vector<std::string> keys = {"linear_attn_conv_silu_state_decode"};
+        if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+        mConvSiluStateDecodePipeline = rt->findPipeline(keys);
+        if (nil == mConvSiluStateDecodePipeline) {
+            mConvSiluStateDecodePipeline = mtbn->makeComputePipelineWithSourceOption(
+                gLinearAttnConvSilu, "linear_attn_conv_silu_state_decode", option);
+            if (nil != mConvSiluStateDecodePipeline) {
+                rt->insertPipeline(keys, mConvSiluStateDecodePipeline);
+            }
         }
     }
     {
@@ -114,7 +127,7 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             rt->insertPipeline(keys, mConvStateUpdatePipeline);
         }
     }
-    // QKV prep pipeline
+    // ── QKV prep pipelines: scalar (baseline) and simdgroup (short prefill) ──
     {
         std::vector<std::string> keys = {"linear_attn_qkv_prep"};
         if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
@@ -124,22 +137,49 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             rt->insertPipeline(keys, mQKVPrepPipeline);
         }
     }
-    // Gated delta rule pipelines
+    // Simdgroup-optimized QKV prep: used for short prefill (2 <= L < 16).
+    // Uses compile-time head dims for register-resident buffers.
+    if (rt->supportSimdGroupReduce()) {
+        constexpr int kMaxHeadDim = 512;
+        if (mHeadKDim > 0 && mHeadKDim <= kMaxHeadDim &&
+            mHeadVDim > 0 && mHeadVDim <= kMaxHeadDim) {
+            const int simdItersK = (mHeadKDim + 31) / 32;
+            const int simdItersV = (mHeadVDim + 31) / 32;
+            MTLCompileOptions *qkvOpt = [[MTLCompileOptions alloc] init];
+            NSMutableDictionary *qkvMacros = [NSMutableDictionary dictionary];
+            if (useFp16) qkvMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
+            qkvMacros[@"HEAD_K_DIM"]   = [NSString stringWithFormat:@"%d", mHeadKDim];
+            qkvMacros[@"HEAD_V_DIM"]   = [NSString stringWithFormat:@"%d", mHeadVDim];
+            qkvMacros[@"SIMD_ITERS_K"] = [NSString stringWithFormat:@"%d", simdItersK];
+            qkvMacros[@"SIMD_ITERS_V"] = [NSString stringWithFormat:@"%d", simdItersV];
+            qkvOpt.preprocessorMacros = qkvMacros;
+
+            std::string qkvKey = "QKV_PREP_SG_dk" + std::to_string(mHeadKDim) +
+                                 "_dv" + std::to_string(mHeadVDim);
+            std::vector<std::string> keys = {"linear_attn_qkv_prep_sg", qkvKey};
+            if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+            mQKVPrepSGPipeline = rt->findPipeline(keys);
+            if (nil == mQKVPrepSGPipeline) {
+                mQKVPrepSGPipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnQKVPrepSG, "linear_attn_qkv_prep_sg", qkvOpt);
+                if (nil != mQKVPrepSGPipeline) rt->insertPipeline(keys, mQKVPrepSGPipeline);
+            }
+        }
+    }
+
+    // ── Simdgroup-based delta / decode pipelines ────────────────────────
     mUseSimdGroupOpt = rt->supportSimdGroupReduce();
     if (mUseSimdGroupOpt) {
-        // Compute SIMD_ITERS from actual head_k_dim and inject as compile-time macro
         int simdIters = (mHeadKDim + 31) / 32;
         NSString *simdItersStr = [NSString stringWithFormat:@"%d", simdIters];
         MTLCompileOptions *sgOption = [[MTLCompileOptions alloc] init];
         NSMutableDictionary *sgMacros = [NSMutableDictionary dictionary];
-        if (useFp16) {
-            sgMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
-        }
+        if (useFp16) sgMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
         sgMacros[@"SIMD_ITERS"] = simdItersStr;
         sgOption.preprocessorMacros = sgMacros;
 
         std::string simdItersKey = "SIMD_ITERS_" + std::to_string(simdIters);
-        // Non-fused simdgroup version for prefill (reads pre-arranged Q/K/V)
+        // Simdgroup delta rule (used by short prefill unfused path)
         {
             std::vector<std::string> keys = {"linear_attn_gated_delta_rule_sg", simdItersKey};
             if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
@@ -149,7 +189,7 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
                 rt->insertPipeline(keys, mGatedDeltaRuleSGPipeline);
             }
         }
-        // Fused simdgroup version for decode (reads conv_out directly, skips qkv_prep)
+        // Master baseline fused decode kernel (fallback for fused_sg_align)
         {
             std::vector<std::string> keys = {"linear_attn_fused_sg", simdItersKey};
             if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
@@ -159,9 +199,187 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
                 rt->insertPipeline(keys, mGatedDeltaRuleFusedSGPipeline);
             }
         }
+        // fused_sg_align: register-resident state + D_K_ALIGNED for decode.
+        // Preferred over fused_sg for decode (L=1) when available; used as the
+        // fallback when the TG-shared-QK variant below is unavailable.
+        int dkAligned = (mHeadKDim % 32 == 0) ? 1 : 0;
+        NSString *dkAlignedStr = [NSString stringWithFormat:@"%d", dkAligned];
+        std::string dkAlignedKey = "D_K_ALIGNED_" + std::to_string(dkAligned);
+        {
+            MTLCompileOptions *alignOpt = [[MTLCompileOptions alloc] init];
+            NSMutableDictionary *alignMacros = [NSMutableDictionary dictionary];
+            if (useFp16) alignMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
+            mFusedSGAlignSimds = 8;
+            alignMacros[@"SIMD_ITERS"]  = simdItersStr;
+            alignMacros[@"D_K_ALIGNED"] = dkAlignedStr;
+            alignMacros[@"ALIGN_SIMDS_PER_TG"] =
+                [NSString stringWithFormat:@"%d", mFusedSGAlignSimds];
+            alignOpt.preprocessorMacros = alignMacros;
+
+            std::vector<std::string> keys = {"linear_attn_fused_sg_align", simdItersKey, dkAlignedKey,
+                                              "ALIGN_SIMDS_PER_TG_" + std::to_string(mFusedSGAlignSimds)};
+            if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+            mFusedSGAlignPipeline = rt->findPipeline(keys);
+            if (nil == mFusedSGAlignPipeline) {
+                mFusedSGAlignPipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnFusedSGAlign, "linear_attn_fused_sg_align", alignOpt);
+                if (nil != mFusedSGAlignPipeline) rt->insertPipeline(keys, mFusedSGAlignPipeline);
+            }
+        }
+        // fused_sg_tg: TG-shared-QK on top of fused_sg_align.
+        // Requires d_v % SIMDS_PER_TG (== 4) == 0 so that all 4 SGs of a TG
+        // share the same (b, h). Preferred over fused_sg_align for decode.
+        mFusedSGTGSimds = 4;
+        if (mHeadKDim > 0 && (mHeadVDim % mFusedSGTGSimds == 0)) {
+            MTLCompileOptions *tgOpt = [[MTLCompileOptions alloc] init];
+            NSMutableDictionary *tgMacros = [NSMutableDictionary dictionary];
+            if (useFp16) tgMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
+            tgMacros[@"SIMD_ITERS"]   = simdItersStr;
+            tgMacros[@"D_K_ALIGNED"]  = dkAlignedStr;
+            tgMacros[@"HEAD_K_DIM"]   = [NSString stringWithFormat:@"%d", mHeadKDim];
+            tgMacros[@"SIMDS_PER_TG"] = [NSString stringWithFormat:@"%d", mFusedSGTGSimds];
+            tgOpt.preprocessorMacros = tgMacros;
+
+            std::string tgDkKey = "DK_" + std::to_string(mHeadKDim);
+            std::vector<std::string> keys = {"linear_attn_fused_sg_tg", simdItersKey,
+                                              dkAlignedKey, tgDkKey,
+                                              "SIMDS_PER_TG_" + std::to_string(mFusedSGTGSimds)};
+            if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+            mFusedSGTGPipeline = rt->findPipeline(keys);
+            if (nil == mFusedSGTGPipeline) {
+                mFusedSGTGPipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnFusedSGTG, "linear_attn_fused_sg_tg", tgOpt);
+                if (nil != mFusedSGTGPipeline) rt->insertPipeline(keys, mFusedSGTGPipeline);
+            }
+        }
+        // ── Tensor-op chunk-64 prefill, without sequence-sized scratch ──
+        // A/P reuse conv_out's V storage after V is backed up into the output;
+        // the recurrent scan overwrites that backup with final results. Two
+        // 64x64 matrices require at least 128 V channels.
+        mUseFlashChunk = rt->supportTensorOps() && mHeadKDim > 0 && mHeadKDim <= 128 &&
+                         mHeadKDim % 16 == 0 && mHeadVDim >= 128 &&
+                         mHeadVDim % mFlashDvBlock == 0;
+        if (mUseFlashChunk) {
+            MTLCompileOptions *flashOption = [[MTLCompileOptions alloc] init];
+            NSMutableDictionary *flashMacros = [NSMutableDictionary dictionary];
+            if (useFp16) flashMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
+            flashMacros[@"CK_DK"] = [NSString stringWithFormat:@"%d", mHeadKDim];
+            flashMacros[@"CK_DV"] = [NSString stringWithFormat:@"%d", mHeadVDim];
+            flashMacros[@"CK_CHUNK"] = @"64";
+            flashMacros[@"CK_W"] = [NSString stringWithFormat:@"%d", mFlashDvBlock];
+            flashOption.preprocessorMacros = flashMacros;
+
+            std::string flashKey = "CHUNK64_INPLACE_" + std::to_string(mHeadKDim) + "_" +
+                                   std::to_string(mHeadVDim) + "_DVB" +
+                                   std::to_string(mFlashDvBlock);
+            {
+                std::vector<std::string> keys = {"linear_attn_chunk64_prep_inplace", flashKey};
+                if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+                mFlashChunkPrepPipeline = rt->findPipeline(keys);
+                if (nil == mFlashChunkPrepPipeline) {
+                    mFlashChunkPrepPipeline = mtbn->makeComputePipelineWithSourceOption(
+                        gLinearAttnChunk64Inplace, "linear_attn_chunk64_prep_inplace", flashOption);
+                    if (nil != mFlashChunkPrepPipeline) {
+                        rt->insertPipeline(keys, mFlashChunkPrepPipeline);
+                    }
+                }
+            }
+            {
+                std::vector<std::string> keys = {"linear_attn_chunk64_recurrent_inplace", flashKey};
+                if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+                mFlashChunkScanPipeline = rt->findPipeline(keys);
+                if (nil == mFlashChunkScanPipeline) {
+                    mFlashChunkScanPipeline = mtbn->makeComputePipelineWithSourceOption(
+                        gLinearAttnChunk64Inplace, "linear_attn_chunk64_recurrent_inplace", flashOption);
+                    if (nil != mFlashChunkScanPipeline) {
+                        rt->insertPipeline(keys, mFlashChunkScanPipeline);
+                    }
+                }
+            }
+            const int requiredThreads = mFlashSimdsPerTG * 32;
+            if (nil == mFlashChunkPrepPipeline || nil == mFlashChunkScanPipeline ||
+                mFlashChunkPrepPipeline.maxTotalThreadsPerThreadgroup < requiredThreads ||
+                mFlashChunkScanPipeline.maxTotalThreadsPerThreadgroup < requiredThreads) {
+                mFlashChunkPrepPipeline = nil;
+                mFlashChunkScanPipeline = nil;
+                mUseFlashChunk = false;
+            }
+        }
+        // ── simdgroup_matrix flash chunk prefill (non-tensor-API devices) ──
+        // Same chunked algorithm as flash_chunk but with 8x8 fp32 MMA tiles,
+        // for M4-class Macs / iPhone where MPP tensor ops are unavailable.
+        // Gated to head_k_dim == 128: at dk=64 the scalar fused_chunk_sg
+        // baseline (CHUNK_BT=32) measures faster across all L, while dk=128
+        // measures +15% e2e prefill (Qwen3.5 0.8B/2B, M4 Pro).
+        mUseFlashChunkSGMM = !mUseFlashChunk && rt->supportSimdGroupMatrix() &&
+                             MetalEnv::get().linearAttnSgmm != 0 &&
+                             mHeadKDim == 128 &&
+                             mHeadVDim >= mSgmmDvBlock && mHeadVDim % mSgmmDvBlock == 0;
+        if (mUseFlashChunkSGMM) {
+            MTLCompileOptions *sgmmOption = [[MTLCompileOptions alloc] init];
+            NSMutableDictionary *sgmmMacros = [NSMutableDictionary dictionary];
+            if (useFp16) sgmmMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
+            sgmmMacros[@"CHUNK_BT"] = @"16";
+            sgmmMacros[@"HEAD_K_DIM"] = [NSString stringWithFormat:@"%d", mHeadKDim];
+            sgmmMacros[@"HEAD_V_DIM"] = [NSString stringWithFormat:@"%d", mHeadVDim];
+            sgmmMacros[@"DV_BLOCK"] = [NSString stringWithFormat:@"%d", mSgmmDvBlock];
+            sgmmMacros[@"SIMDS_PER_TG"] = [NSString stringWithFormat:@"%d", mSgmmSimdsPerTG];
+            sgmmOption.preprocessorMacros = sgmmMacros;
+
+            std::string sgmmKey = "SGMM_" + std::to_string(mHeadKDim) + "_" +
+                                  std::to_string(mHeadVDim) + "_BT16_DVB" +
+                                  std::to_string(mSgmmDvBlock) + "_SG" +
+                                  std::to_string(mSgmmSimdsPerTG);
+            std::vector<std::string> keys = {"linear_attn_flash_chunk_sgmm", sgmmKey};
+            if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+            mFlashChunkSGMMPipeline = rt->findPipeline(keys);
+            if (nil == mFlashChunkSGMMPipeline) {
+                mFlashChunkSGMMPipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnFlashChunkSGMM, "linear_attn_flash_chunk_sgmm", sgmmOption);
+                if (nil != mFlashChunkSGMMPipeline) {
+                    rt->insertPipeline(keys, mFlashChunkSGMMPipeline);
+                }
+            }
+            if (nil == mFlashChunkSGMMPipeline ||
+                mFlashChunkSGMMPipeline.maxTotalThreadsPerThreadgroup < mSgmmSimdsPerTG * 32) {
+                mFlashChunkSGMMPipeline = nil;
+                mUseFlashChunkSGMM = false;
+            }
+        }
+        // ── Fused chunked prefill fallback ────────────────────────────
+        const int simdsPerTG = 4;
+        mUseFusedChunkSG = (mHeadVDim % simdsPerTG == 0) && (mHeadVDim >= simdsPerTG);
+        if (mUseFusedChunkSG) {
+            const int chunkBT = (mHeadKDim >= 128) ? 16 : 32;
+            MTLCompileOptions *chunkOption = [[MTLCompileOptions alloc] init];
+            NSMutableDictionary *chunkMacros = [NSMutableDictionary dictionary];
+            if (useFp16) chunkMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
+            chunkMacros[@"SIMD_ITERS"]   = simdItersStr;
+            chunkMacros[@"CHUNK_BT"]     = [NSString stringWithFormat:@"%d", chunkBT];
+            chunkMacros[@"HEAD_K_DIM"]   = [NSString stringWithFormat:@"%d", mHeadKDim];
+            chunkMacros[@"HEAD_V_DIM"]   = [NSString stringWithFormat:@"%d", mHeadVDim];
+            chunkMacros[@"SIMDS_PER_TG"] = [NSString stringWithFormat:@"%d", simdsPerTG];
+            chunkOption.preprocessorMacros = chunkMacros;
+
+            std::string chunkKey = "CHUNK_" + std::to_string(mHeadKDim) + "_" +
+                                   std::to_string(mHeadVDim) + "_BT" + std::to_string(chunkBT);
+            std::vector<std::string> keys = {"linear_attn_fused_chunk_sg", chunkKey};
+            if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+            mFusedChunkSGPipeline = rt->findPipeline(keys);
+            if (nil == mFusedChunkSGPipeline) {
+                mFusedChunkSGPipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnFusedChunkSG, "linear_attn_fused_chunk_sg", chunkOption);
+                if (nil != mFusedChunkSGPipeline) rt->insertPipeline(keys, mFusedChunkSGPipeline);
+            }
+            if (nil == mFusedChunkSGPipeline) {
+                mUseFusedChunkSG = false;
+            } else {
+                mChunkTGThreads = simdsPerTG * 32;
+            }
+        }
     }
+    // Scalar delta rule fallback (when SG-reduce is unavailable)
     {
-        // Scalar fallback
         std::vector<std::string> keys = {"linear_attn_gated_delta_rule"};
         if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
         mGatedDeltaRulePipeline = rt->findPipeline(keys);
@@ -176,6 +394,7 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     auto qkv = inputs[0];
     int batch = 0, convDim = 0, seqLen = 0;
     linearAttentionDims(qkv, batch, convDim, seqLen);
+    mLastSeqLen = seqLen;
     int K_conv = inputs[3]->length(2);
     int convStateSize = K_conv - 1;
     int H = mNumVHeads;
@@ -230,11 +449,29 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     }
     // Decode (seqLen == 1): keep existing state untouched
 
-    mConvOut.reset(Tensor::createDevice<float>({batch, convChannels, seqLen}));
+    // Pipeline force-resizes LinearAttention every decode token. Keep the
+    // mConvOut Tensor object alive when its shape is unchanged so encode-replay
+    // recordings never hold a dangling Tensor*; buffer/offset drift after an
+    // allocator re-plan is caught by metalReplayValidate.
+    const bool convOutChanged = mConvOut.get() == nullptr ||
+                                mConvOut->length(0) != batch ||
+                                mConvOut->length(1) != convChannels ||
+                                mConvOut->length(2) != seqLen;
+    if (convOutChanged) {
+        mConvOut.reset(Tensor::createDevice<float>({batch, convChannels, seqLen}));
+        mResizeGeneration++;
+    }
     bool success = backend()->onAcquireBuffer(mConvOut.get(), Backend::DYNAMIC);
 
-    // Fused decode path (simd + L=1) reads conv_out directly, no Q/K/V needed
-    bool needQKV = mAttentionType != "short_conv" && !(mUseSimdGroupOpt && seqLen == 1);
+
+    // Fused decode kernels loop over L internally and read conv_out directly,
+    // so short prefill (2 <= L < 16) shares the decode path: skips qkv_prep
+    // and the mQ/mK/mV round-trip. Longer prefill takes a chunked kernel.
+    bool fusedDecode      = mUseSimdGroupOpt && seqLen < 16;
+    bool fusedLongPrefill = (seqLen >= 64 && mUseFlashChunk) ||
+                            (seqLen >= 16 && mUseFlashChunkSGMM) ||
+                            (seqLen >= 32 && mUseFusedChunkSG);
+    bool needQKV = mAttentionType != "short_conv" && !fusedDecode && !fusedLongPrefill;
     if (needQKV) {
         mQ.reset(Tensor::createDevice<float>({batch, seqLen, H, dk}));
         mK.reset(Tensor::createDevice<float>({batch, seqLen, H, dk}));
@@ -256,6 +493,7 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
 }
 
 void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    mRecordedGeneration = mResizeGeneration;
     // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
     int resetBatch = 0, resetConvDim = 0, resetSeqLen = 0;
     linearAttentionDims(inputs[0], resetBatch, resetConvDim, resetSeqLen);
@@ -288,6 +526,7 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
     int key_dim = mNumKHeads * dk;
     int val_dim = mNumVHeads * dv;
     int gqa_factor = (mNumVHeads > mNumKHeads) ? (mNumVHeads / mNumKHeads) : 1;
+    Tensor* attentionOutput = outputs[0];
 
     // Update param buffer
     auto paramPtr = (LinearAttnParam *)mParamBuffer.contents;
@@ -306,8 +545,9 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
     paramPtr->use_l2norm = mUseQKL2Norm ? 1 : 0;
     paramPtr->qkv_c4 = TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
     paramPtr->gate_c4 = TensorUtils::getDescribe(inputs[1])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
-    paramPtr->beta_c4 = TensorUtils::getDescribe(inputs[2])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
-    paramPtr->output_c4 = TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
+    paramPtr->beta_c4 =
+        TensorUtils::getDescribe(inputs[2])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
+    paramPtr->output_c4 = TensorUtils::getDescribe(attentionOutput)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
     paramPtr->q_scale = 1.0f / sqrtf((float)dk);
 
     if (mAttentionType == "short_conv") {
@@ -341,7 +581,7 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         [encoder setComputePipelineState:mShortConvOutputPipeline];
         MetalBackend::setTensor(inputs[0], encoder, 0);
         MetalBackend::setTensor(mConvOut.get(), encoder, 1);
-        MetalBackend::setTensor(outputs[0], encoder, 2);
+        MetalBackend::setTensor(attentionOutput, encoder, 2);
         [encoder setBuffer:mParamBuffer offset:0 atIndex:3];
         NSUInteger outputThreadGroupSize =
             MIN((NSUInteger)256, mShortConvOutputPipeline.maxTotalThreadsPerThreadgroup);
@@ -351,34 +591,32 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         return;
     }
 
-    // Kernel 1: Conv1D + SiLU
-    {
-        [encoder setComputePipelineState:mConvSiluPipeline];
-        // [batch, convDim, seqLen]
-        MetalBackend::setTensor(inputs[0], encoder, 0);                    // qkv
-        // [batch, convDim, K_conv-1]
-        MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1); // conv_state
-        // [convDim, 1, K_conv]
-        MetalBackend::setTensor(inputs[3], encoder, 2);                    // conv_weight
-        // [batch, convDim, seqLen]
-        MetalBackend::setTensor(mConvOut.get(), encoder, 3);               // conv_out
-        [encoder setBuffer:mParamBuffer offset:0 atIndex:4];     // param
+    const bool fuseDecodeConvState =
+        seqLen == 1 && convStateSize > 0 && mConvSiluStateDecodePipeline != nil &&
+        getenv("MNN_METAL_DISABLE_LINEAR_ATTN_CONV_STATE_FUSION") == nullptr;
 
-        int totalConvSilu = batch * convDim * seqLen;
-        NSUInteger threadGroupSize = MIN((NSUInteger)256, mConvSiluPipeline.maxTotalThreadsPerThreadgroup);
+    // ── Fixed head: Conv1D + SiLU (always run) ────────────────────────
+    {
+        id<MTLComputePipelineState> convPipeline =
+            fuseDecodeConvState ? mConvSiluStateDecodePipeline : mConvSiluPipeline;
+        [encoder setComputePipelineState:convPipeline];
+        MetalBackend::setTensor(inputs[0], encoder, 0);                              // qkv
+        MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1);          // conv_state
+        MetalBackend::setTensor(inputs[3], encoder, 2);                              // conv_weight
+        MetalBackend::setTensor(mConvOut.get(), encoder, 3);                         // conv_out
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:4];
+
+        int totalConvSilu = fuseDecodeConvState ? batch * convDim : batch * convDim * seqLen;
+        NSUInteger threadGroupSize = MIN((NSUInteger)256, convPipeline.maxTotalThreadsPerThreadgroup);
         threadGroupSize = MIN(threadGroupSize, (NSUInteger)totalConvSilu);
         [encoder dispatchThreadgroups:MTLSizeMake((totalConvSilu + threadGroupSize - 1) / threadGroupSize, 1, 1)
                 threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
     }
-
-    // Kernel 2: Conv state update
-    if (convStateSize > 0) {
+    if (convStateSize > 0 && !fuseDecodeConvState) {
         [encoder setComputePipelineState:mConvStateUpdatePipeline];
-        // [batch, convDim, seqLen]
-        MetalBackend::setTensor(inputs[0], encoder, 0);                    // qkv
-        // [batch, convDim, K_conv-1]
-        MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1); // conv_state
-        [encoder setBuffer:mParamBuffer offset:0 atIndex:2];               // param
+        MetalBackend::setTensor(inputs[0], encoder, 0);
+        MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1);
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:2];
 
         int totalUpdate = batch * convDim;
         NSUInteger threadGroupSize = MIN((NSUInteger)256, mConvStateUpdatePipeline.maxTotalThreadsPerThreadgroup);
@@ -387,27 +625,101 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
                 threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
     }
 
-    if (mUseSimdGroupOpt && seqLen == 1) {
-        // Decode: Fused QKV-prep + Delta Rule (skip qkv_prep, read conv_out directly)
-        // conv_out stride = L = 1, so reads are coalesced
-        [encoder setComputePipelineState:mGatedDeltaRuleFusedSGPipeline];
-        MetalBackend::setTensor(mConvOut.get(), encoder, 0);               // conv_out
-        MetalBackend::setTensor(inputs[1], encoder, 1);                    // gate
-        MetalBackend::setTensor(inputs[2], encoder, 2);                    // beta
-        MetalBackend::setTensor(mStateCache->mRecurrentState.get(), encoder, 3);  // recurrent_state
-        MetalBackend::setTensor(outputs[0], encoder, 4);                   // attn_out
-        [encoder setBuffer:mParamBuffer offset:0 atIndex:5];               // param
-
+    // ── Variable tail: pick optimal path by seqLen ────────────────────
+    // Priority within each branch: prefer *_align/flash > baseline > fallback.
+    if (mUseSimdGroupOpt && seqLen < 16) {
+        // ── Decode (L=1) and short prefill (2<=L<16) — the fused kernels loop
+        //    over L internally. Priority: fused_sg_tg (decode only) >
+        //    fused_sg_align > fused_sg. ──
+        id<MTLComputePipelineState> decodePipe = mGatedDeltaRuleFusedSGPipeline;
+        const bool preferTG = H < 16 && seqLen == 1;
+        if (mFusedSGTGPipeline != nil && preferTG) {
+            decodePipe = mFusedSGTGPipeline;
+        } else if (mFusedSGAlignPipeline != nil) {
+            decodePipe = mFusedSGAlignPipeline;
+        }
+        [encoder setComputePipelineState:decodePipe];
+        MetalBackend::setTensor(mConvOut.get(), encoder, 0);                              // conv_out
+        MetalBackend::setTensor(inputs[1], encoder, 1);                                  // gate
+        MetalBackend::setTensor(inputs[2], encoder, 2);                                  // beta
+        MetalBackend::setTensor(mStateCache->mRecurrentState.get(), encoder, 3);          // recurrent_state
+        MetalBackend::setTensor(attentionOutput, encoder, 4);                             // attn_out
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:5];
+        const int simdgroupsPerTG = decodePipe == mFusedSGTGPipeline ? mFusedSGTGSimds :
+                                    (decodePipe == mFusedSGAlignPipeline ? mFusedSGAlignSimds : 4);
         int totalSimdgroups = batch * H * dv;
-        int simdgroupsPerTG = 4;
-        NSUInteger threadGroupSize = simdgroupsPerTG * 32; // 128 threads
+        NSUInteger threadGroupSize = simdgroupsPerTG * 32;
         int numThreadgroups = (totalSimdgroups + simdgroupsPerTG - 1) / simdgroupsPerTG;
         [encoder dispatchThreadgroups:MTLSizeMake(numThreadgroups, 1, 1)
                 threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
+    } else if (mUseSimdGroupOpt && seqLen >= 64 && mUseFlashChunk) {
+        // ── Chunk-parallel A/P prep, followed by chunk-sequential scan ──
+        const int numChunks = (seqLen + 63) / 64;
+        [encoder setComputePipelineState:mFlashChunkPrepPipeline];
+        MetalBackend::setTensor(mConvOut.get(), encoder, 0);
+        MetalBackend::setTensor(inputs[1], encoder, 1);
+        MetalBackend::setTensor(inputs[2], encoder, 2);
+        MetalBackend::setTensor(attentionOutput, encoder, 3);
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:4];
+        [encoder dispatchThreadgroups:MTLSizeMake(numChunks, batch * H, 1)
+                threadsPerThreadgroup:MTLSizeMake(32, mFlashSimdsPerTG, 1)];
+
+        [encoder setComputePipelineState:mFlashChunkScanPipeline];
+        MetalBackend::setTensor(mConvOut.get(), encoder, 0);
+        MetalBackend::setTensor(inputs[1], encoder, 1);
+        MetalBackend::setTensor(inputs[2], encoder, 2);
+        MetalBackend::setTensor(mStateCache->mRecurrentState.get(), encoder, 3);
+        MetalBackend::setTensor(attentionOutput, encoder, 4);
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:5];
+        [encoder dispatchThreadgroups:MTLSizeMake(dv / mFlashDvBlock, batch * H, 1)
+                threadsPerThreadgroup:MTLSizeMake(32, mFlashSimdsPerTG, 1)];
+    } else if (mUseSimdGroupOpt && seqLen >= 16 && mUseFlashChunkSGMM) {
+        // ── simdgroup_matrix chunk prefill (L>=16, non-tensor-API) ────
+        [encoder setComputePipelineState:mFlashChunkSGMMPipeline];
+        MetalBackend::setTensor(mConvOut.get(), encoder, 0);
+        MetalBackend::setTensor(inputs[1], encoder, 1);
+        MetalBackend::setTensor(inputs[2], encoder, 2);
+        MetalBackend::setTensor(mStateCache->mRecurrentState.get(), encoder, 3);
+        MetalBackend::setTensor(attentionOutput, encoder, 4);
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:5];
+
+        int numThreadgroups = batch * H * (dv / mSgmmDvBlock);
+        NSUInteger threadGroupSize = (NSUInteger)(mSgmmSimdsPerTG * 32);
+        [encoder dispatchThreadgroups:MTLSizeMake(numThreadgroups, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
+    } else if (mUseSimdGroupOpt && seqLen >= 32 && mUseFusedChunkSG) {
+        // ── Long prefill (L>=32) w/o tensor_ops: fused_chunk_sg ──────
+        [encoder setComputePipelineState:mFusedChunkSGPipeline];
+        MetalBackend::setTensor(mConvOut.get(), encoder, 0);
+        MetalBackend::setTensor(inputs[1], encoder, 1);
+        MetalBackend::setTensor(inputs[2], encoder, 2);
+        MetalBackend::setTensor(mStateCache->mRecurrentState.get(), encoder, 3);
+        MetalBackend::setTensor(attentionOutput, encoder, 4);
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:5];
+
+        int simdsPerTG = mChunkTGThreads / 32;
+        int numThreadgroups = batch * H * (dv / simdsPerTG);
+        [encoder dispatchThreadgroups:MTLSizeMake(numThreadgroups, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake((NSUInteger)mChunkTGThreads, 1, 1)];
     } else {
-        // Prefill or scalar fallback: QKV prep + separate Delta Rule
-        // Kernel 3: QKV prep
-        {
+        // ── Short prefill (2<=L<16), or long prefill w/o SG fused path:
+        //     unfused two-stage: qkv_prep_sg (or scalar) + delta_rule_sg (or scalar) ──
+
+        // Kernel: QKV prep — prefer simdgroup version
+        if (mQKVPrepSGPipeline != nil) {
+            [encoder setComputePipelineState:mQKVPrepSGPipeline];
+            MetalBackend::setTensor(mConvOut.get(), encoder, 0);
+            MetalBackend::setTensor(mQ.get(), encoder, 1);
+            MetalBackend::setTensor(mK.get(), encoder, 2);
+            MetalBackend::setTensor(mV.get(), encoder, 3);
+            [encoder setBuffer:mParamBuffer offset:0 atIndex:4];
+
+            int total = batch * seqLen * H;
+            const int simdgroupsPerTG = 4;
+            int numTG = (total + simdgroupsPerTG - 1) / simdgroupsPerTG;
+            [encoder dispatchThreadgroups:MTLSizeMake(numTG, 1, 1)
+                    threadsPerThreadgroup:MTLSizeMake(simdgroupsPerTG * 32, 1, 1)];
+        } else {
             [encoder setComputePipelineState:mQKVPrepPipeline];
             MetalBackend::setTensor(mConvOut.get(), encoder, 0);
             MetalBackend::setTensor(mQ.get(), encoder, 1);
@@ -421,9 +733,9 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
             [encoder dispatchThreadgroups:MTLSizeMake((totalPrep + threadGroupSize - 1) / threadGroupSize, 1, 1)
                     threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
         }
-        // Kernel 4: Gated Delta Rule
+
+        // Kernel: Delta rule
         if (mUseSimdGroupOpt) {
-            // Simdgroup-optimized (prefill path)
             [encoder setComputePipelineState:mGatedDeltaRuleSGPipeline];
             MetalBackend::setTensor(mQ.get(), encoder, 0);
             MetalBackend::setTensor(mK.get(), encoder, 1);
@@ -431,17 +743,16 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
             MetalBackend::setTensor(inputs[1], encoder, 3);
             MetalBackend::setTensor(inputs[2], encoder, 4);
             MetalBackend::setTensor(mStateCache->mRecurrentState.get(), encoder, 5);
-            MetalBackend::setTensor(outputs[0], encoder, 6);
+            MetalBackend::setTensor(attentionOutput, encoder, 6);
             [encoder setBuffer:mParamBuffer offset:0 atIndex:7];
 
+            const int simdgroupsPerTG = 4;
             int totalSimdgroups = batch * H * dv;
-            int simdgroupsPerTG = 4;
             NSUInteger threadGroupSize = simdgroupsPerTG * 32;
             int numThreadgroups = (totalSimdgroups + simdgroupsPerTG - 1) / simdgroupsPerTG;
             [encoder dispatchThreadgroups:MTLSizeMake(numThreadgroups, 1, 1)
                     threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
         } else {
-            // Scalar fallback
             [encoder setComputePipelineState:mGatedDeltaRulePipeline];
             MetalBackend::setTensor(mQ.get(), encoder, 0);
             MetalBackend::setTensor(mK.get(), encoder, 1);
@@ -449,7 +760,7 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
             MetalBackend::setTensor(inputs[1], encoder, 3);
             MetalBackend::setTensor(inputs[2], encoder, 4);
             MetalBackend::setTensor(mStateCache->mRecurrentState.get(), encoder, 5);
-            MetalBackend::setTensor(outputs[0], encoder, 6);
+            MetalBackend::setTensor(attentionOutput, encoder, 6);
             [encoder setBuffer:mParamBuffer offset:0 atIndex:7];
 
             int total = batch * H * dv;

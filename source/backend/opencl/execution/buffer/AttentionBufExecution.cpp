@@ -9,6 +9,7 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "backend/opencl/execution/buffer/AttentionBufExecution.hpp"
+#include "core/MNNFileUtils.h"
 #include <fstream>
 namespace MNN {
 namespace OpenCL {
@@ -21,14 +22,212 @@ void KVCacheCLManager::allocKVCache(const KVMeta* meta, int seqlen) {
     if (!mKVCache) {
         return;
     }
-    mPastLength = meta != nullptr ? meta->previous : 0;
     if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
         mByte = 2;
     }
+
+    // Prefix kvcache: share a fixed prompt's kvcache on disk (see Llm::setPrefixCacheFile).
+    // Only act on the very first allocation of this layer's cache: file_flag stays
+    // PendingWrite/PendingRead through the decode steps of the same generate() call, but the
+    // load/save + layer_index bookkeeping must happen exactly once (mirrors onAlloc-once on
+    // CPU/Metal, where growth is handled by onRealloc without prefix logic).
+    bool firstAlloc = (mPastKey.get() == nullptr);
+    bool hasPrefixFile = firstAlloc && meta != nullptr && meta->file_name.size() > 0 && !mPrefixCacheDir.empty();
+
+    // Load path: pull the per-layer prefix files into the cache and skip prefill compute.
+    if (hasPrefixFile && meta->file_flag == KVMeta::PendingRead) {
+        if (loadPrefixKVCache(meta, seqlen)) {
+            mReallocDone = true;
+            return;
+        }
+        // Fall through to a normal (empty) allocation when the cache is unusable.
+    }
+
+    // Save path: remember this layer's target file, then allocate normally. onExecute
+    // dumps the prefill kvcache to disk once the kernels have run.
+    if (hasPrefixFile && meta->file_flag == KVMeta::PendingWrite) {
+        mSaveShareKvPrefix = true;
+        if (!MNNCreateDir(mPrefixCacheDir.c_str())) {
+            MNN_PRINT("Failed to create prefix cache file dir: %s\n", mPrefixCacheDir.c_str());
+        }
+        mBasePrefixFileName =
+            MNNFilePathConcat(mPrefixCacheDir, meta->file_name) + "_" + std::to_string(meta->layer_index);
+        // Advance the shared per-layer counter exactly once during the resize pass,
+        // matching CPUKVCacheManager / MetalKVCacheManager.
+        const_cast<KVMeta*>(meta)->layer_index = (meta->layer_index + 1) % meta->layer_nums;
+    }
+
+    mPastLength = meta != nullptr ? meta->previous : 0;
     // Fully execute reallocKVCache (including Remove and mPastLength update)
     // in resize phase so that LWS tuning kernels use the same args as execute.
     reallocKVCache(meta, seqlen, true);
     mReallocDone = true;
+}
+
+bool KVCacheCLManager::loadPrefixKVCache(const KVMeta* meta, int seqlen) {
+    std::string pathk =
+        MNNFilePathConcat(mPrefixCacheDir, meta->file_name) + "_" + std::to_string(meta->layer_index) + ".k";
+    std::string pathv =
+        MNNFilePathConcat(mPrefixCacheDir, meta->file_name) + "_" + std::to_string(meta->layer_index) + ".v";
+    // Advance the shared per-layer counter once during the resize pass.
+    const_cast<KVMeta*>(meta)->layer_index = (meta->layer_index + 1) % meta->layer_nums;
+
+    int diskLen = meta->seqlen_in_disk;
+    if (diskLen <= 0) {
+        MNN_PRINT("Prefix cache: invalid seqlen_in_disk %d\n", diskLen);
+        return false;
+    }
+
+    // Compact on-disk layout (stride == diskLen, no 4-alignment padding):
+    //   key   : [kvNumHead * headDim, diskLen]
+    //   value : [kvNumHead, diskLen, headDim]
+    size_t expectKeyBytes = (size_t)mKvNumHead * mHeadDim * diskLen * mByte;
+    size_t expectValueBytes = (size_t)mKvNumHead * diskLen * mHeadDim * mByte;
+
+    auto keyFd = MNNOpenFile(pathk.c_str(), MNN_FILE_READ);
+    auto valueFd = MNNOpenFile(pathv.c_str(), MNN_FILE_READ);
+    if (keyFd == INVALID_FILE || valueFd == INVALID_FILE) {
+        MNN_PRINT("Prefix cache: failed to open %s / %s\n", pathk.c_str(), pathv.c_str());
+        if (keyFd != INVALID_FILE)
+            MNNCloseFile(keyFd);
+        if (valueFd != INVALID_FILE)
+            MNNCloseFile(valueFd);
+        return false;
+    }
+    size_t keyBytes = MNNGetFileSize(keyFd);
+    size_t valueBytes = MNNGetFileSize(valueFd);
+    // The file must be at least as large as the region we will read. A mismatch usually
+    // means the cache was written with a different precision/shape; bail to a clean cache.
+    if (keyBytes < expectKeyBytes || valueBytes < expectValueBytes) {
+        MNN_PRINT("Prefix cache size mismatch: key %zu(expect>=%zu) value %zu(expect>=%zu), rebuild cache\n", keyBytes,
+                  expectKeyBytes, valueBytes, expectValueBytes);
+        MNNCloseFile(keyFd);
+        MNNCloseFile(valueFd);
+        return false;
+    }
+
+    // Match the buffer size the no-cache path would produce so the attention kernels use the
+    // same maxLength (hence the same fp16 tiling/reduction order) and the output is bit-identical:
+    // the no-cache path allocs diskLen+mExpandChunk for the prefix, then only grows if the query
+    // pushes past it (seqlen > mExpandChunk).
+    int kvNeed = diskLen + seqlen;
+    mMaxLength = (kvNeed <= diskLen + mExpandChunk) ? (diskLen + mExpandChunk) : (kvNeed + mExpandChunk);
+    size_t newMaxlen = ROUND_UP(mMaxLength, 4);
+    size_t bufferSize = UP_DIV(mMaxLength, 4) * mKvNumHead * mHeadDim * 4 * mByte;
+    cl_int res;
+    auto newKey = new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(),
+                                 CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, bufferSize);
+    auto newValue = new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(),
+                                   CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, bufferSize);
+
+    // Load key: [kvNumHead * headDim, diskLen] -> buffer [kvNumHead * headDim, newMaxlen]
+    {
+        char* keyPtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+            *newKey, true, CL_MAP_WRITE, 0, bufferSize, nullptr, nullptr, &res);
+        if (keyPtr != nullptr && res == CL_SUCCESS) {
+            ::memset(keyPtr, 0, bufferSize);
+            size_t diskRow = (size_t)diskLen * mByte;
+            size_t bufRow = newMaxlen * mByte;
+            for (int i = 0; i < mKvNumHead * mHeadDim; ++i) {
+                MNNSetFilePointer(keyFd, (size_t)i * diskRow);
+                MNNReadFile(keyFd, keyPtr + i * bufRow, diskRow);
+            }
+        } else {
+            MNN_ERROR("Prefix cache: map new key failed\n");
+        }
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*newKey, keyPtr);
+    }
+
+    // Load value: [kvNumHead, diskLen, headDim] -> buffer [kvNumHead, newMaxlen, headDim]
+    {
+        char* valuePtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+            *newValue, true, CL_MAP_WRITE, 0, bufferSize, nullptr, nullptr, &res);
+        if (valuePtr != nullptr && res == CL_SUCCESS) {
+            ::memset(valuePtr, 0, bufferSize);
+            size_t rowBytes = (size_t)mHeadDim * mByte;
+            for (int h = 0; h < mKvNumHead; ++h) {
+                MNNSetFilePointer(valueFd, (size_t)h * diskLen * rowBytes);
+                // Contiguous [diskLen, headDim] block on disk maps to [newMaxlen, headDim]
+                // buffer rows; per-head strides differ so read the whole block at once.
+                MNNReadFile(valueFd, valuePtr + (size_t)h * newMaxlen * rowBytes, (size_t)diskLen * rowBytes);
+            }
+        } else {
+            MNN_ERROR("Prefix cache: map new value failed\n");
+        }
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*newValue, valuePtr);
+    }
+
+    MNNCloseFile(keyFd);
+    MNNCloseFile(valueFd);
+    mPastKey.reset(newKey);
+    mPastValue.reset(newValue);
+    mPastLength = diskLen;
+    return true;
+}
+
+void KVCacheCLManager::savePrefixKVCache() {
+    if (!mSaveShareKvPrefix || mBasePrefixFileName.empty() || mPastLength <= 0) {
+        return;
+    }
+    if (mPastKey.get() == nullptr || mPastValue.get() == nullptr) {
+        return;
+    }
+    // Ensure all kvcache writes issued by the attention kernels are complete before mapping.
+    mOpenCLBackend->getOpenCLRuntime()->commandQueue().finish();
+
+    int len = mPastLength;
+    size_t newMaxlen = ROUND_UP(mMaxLength, 4);
+    size_t bufferSize = UP_DIV(mMaxLength, 4) * mKvNumHead * mHeadDim * 4 * mByte;
+    cl_int res;
+
+    std::string pathk = mBasePrefixFileName + ".k";
+    std::string pathv = mBasePrefixFileName + ".v";
+    auto keyFd = MNNCreateFile(pathk.c_str());
+    auto valueFd = MNNCreateFile(pathv.c_str());
+    if (keyFd == INVALID_FILE || valueFd == INVALID_FILE) {
+        MNN_PRINT("Prefix cache: failed to create %s / %s\n", pathk.c_str(), pathv.c_str());
+        if (keyFd != INVALID_FILE)
+            MNNCloseFile(keyFd);
+        if (valueFd != INVALID_FILE)
+            MNNCloseFile(valueFd);
+        return;
+    }
+
+    // Dump key: buffer [kvNumHead * headDim, newMaxlen] -> compact [kvNumHead * headDim, len]
+    {
+        char* keyPtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+            *mPastKey.get(), true, CL_MAP_READ, 0, bufferSize, nullptr, nullptr, &res);
+        if (keyPtr != nullptr && res == CL_SUCCESS) {
+            size_t diskRow = (size_t)len * mByte;
+            size_t bufRow = newMaxlen * mByte;
+            for (int i = 0; i < mKvNumHead * mHeadDim; ++i) {
+                MNNWriteFile(keyFd, keyPtr + i * bufRow, diskRow);
+            }
+        } else {
+            MNN_ERROR("Prefix cache: map key for save failed\n");
+        }
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mPastKey.get(), keyPtr);
+    }
+
+    // Dump value: buffer [kvNumHead, newMaxlen, headDim] -> compact [kvNumHead, len, headDim]
+    {
+        char* valuePtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+            *mPastValue.get(), true, CL_MAP_READ, 0, bufferSize, nullptr, nullptr, &res);
+        if (valuePtr != nullptr && res == CL_SUCCESS) {
+            size_t rowBytes = (size_t)mHeadDim * mByte;
+            for (int h = 0; h < mKvNumHead; ++h) {
+                MNNWriteFile(valueFd, valuePtr + (size_t)h * newMaxlen * rowBytes, (size_t)len * rowBytes);
+            }
+        } else {
+            MNN_ERROR("Prefix cache: map value for save failed\n");
+        }
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mPastValue.get(), valuePtr);
+    }
+
+    MNNCloseFile(keyFd);
+    MNNCloseFile(valueFd);
+    // Only dump once per prefill; _sync markers are created by Llm::completePrefixWrite.
+    mSaveShareKvPrefix = false;
 }
 
 bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExecute) {
@@ -60,6 +259,19 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
         // past_value: [1, numhead, maxlen, headdim]
         auto newValue = new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(),
                                        CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, bufferSize);
+
+        // Zero the freshly allocated buffers (matching CPU/Metal and loadPrefixKVCache). The
+        // attention kernels read the 4-aligned tail [kvSeqlen, ROUND_UP(kvSeqlen, 4)); leaving
+        // it uninitialized makes the result depend on stale device memory and diverge from the
+        // disk-loaded prefix path, which zeroes its padding.
+        for (cl::Buffer* buf : {newKey, newValue}) {
+            char* p = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+                *buf, true, CL_MAP_WRITE, 0, bufferSize, nullptr, nullptr, &res);
+            if (p != nullptr && res == CL_SUCCESS) {
+                ::memset(p, 0, bufferSize);
+                mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*buf, p);
+            }
+        }
 
         if (needCopy) {
             // copy key
@@ -2060,6 +2272,16 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, c
     }
 #endif
 
+    // Prefill-only prefix cache dump: persist this layer's prompt kvcache to disk once the
+    // rearrange kernels have populated the buffer (savePrefixKVCache finish()es the queue).
+    // Safe against the record queue: the LLM engine disables it during prefill (sets
+    // OP_ENCODER_NUMBER_FOR_COMMIT=0), so the write path always reaches here via synchronous
+    // dispatch rather than the addRecord early-return above.
+    if (!mIsDecode && nullptr != mMeta && mMeta->file_flag == KVMeta::PendingWrite &&
+        mKVCacheCLManager->savingPrefix()) {
+        mKVCacheCLManager->savePrefixKVCache();
+    }
+
 #ifdef LOG_VERBOSE
     MNN_PRINT("end AttentionBufExecution onExecute !\n");
 #endif
@@ -2074,6 +2296,7 @@ AttentionBufExecution::AttentionBufExecution(const MNN::Op* op, Backend* backend
     mAttnScale = op->main_as_AttentionParam()->attnScale();
     mKVCacheCLManager.reset(new KVCacheCLManager(backend, nullptr != mMeta));
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
+    mKVCacheCLManager->setPrefixCacheDir(mOpenCLBackend->getRuntime()->hint().prefixcacheDirPath);
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel(
         "softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL_CTOR(kernel);

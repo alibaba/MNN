@@ -162,15 +162,8 @@ static void sync_attention_process_online_pages(const SyncAttentionTaskState* st
     int page_end = page + state->online_block_pages;
     if (page_end > state->page_count) page_end = state->page_count;
 
-    const int combine_hmx = decode_grouped && MNN_ATTENTION_HMX_COMBINE_DECODE;
-    if (combine_hmx) {
-      sync_attention_hmx_section_begin();
-      attn_hmx_matmul_page_qk_block(state, scores, q_ptr, rows, q_stride, kv_head, page, page_end,
-                                    block_start, block_valid);
-    } else {
-      sync_attention_run_page_qk_block(state, scores, q_ptr, rows, q_stride, kv_head, page, page_end,
-                                       block_start, block_valid);
-    }
+    sync_attention_run_page_qk_block(state, scores, q_ptr, rows, q_stride, kv_head, page, page_end,
+                                     block_start, block_valid);
 
     int any_valid = 0;
     for (int r = 0; r < rows; ++r) {
@@ -181,20 +174,11 @@ static void sync_attention_process_online_pages(const SyncAttentionTaskState* st
                                                      row_max, row_sum, row_scale);
     }
     if (!any_valid) {
-      if (combine_hmx) {
-        sync_attention_hmx_section_end();
-      }
       continue;
     }
 
-    if (combine_hmx) {
-      attn_hmx_matmul_page_sv_block(state, temp_O, page_temp_O, linear_S, rows, kv_head, page, page_end,
-                                    block_start, block_valid);
-      sync_attention_hmx_section_end();
-    } else {
-      sync_attention_run_page_sv_block(state, temp_O, page_temp_O, linear_S, rows, kv_head, page, page_end,
-                                       block_start, block_valid);
-    }
+    sync_attention_run_page_sv_block(state, temp_O, page_temp_O, linear_S, rows, kv_head, page, page_end,
+                                     block_start, block_valid);
     sync_attention_scale_packed_rows(accum_O, rows, state->K_dim_padded, row_scale);
     sync_attention_add_packed_rows(accum_O, temp_O, rows, state->K_dim_padded);
   }
@@ -405,7 +389,9 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
         for (int h = 0; h < group_heads; ++h) {
           const __fp16* src = state->Q + (size_t)(q_base + q) * state->qo_stride + (head_base + h) * state->head_dim;
           __fp16* dst = packed_Q + (size_t)(q * group_heads + h) * state->head_dim;
-          memcpy(dst, src, (size_t)state->head_dim * sizeof(__fp16));
+          for (int d = 0; d < state->head_dim; d += 64) {
+            vmemu(dst + d) = vmemu(src + d);
+          }
         }
       }
 
@@ -447,8 +433,8 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
           __fp16* dst = state->O + (size_t)(head_base + h) * (state->head_dim / 64) * state->qo_total_len * 64;
           for (int pack_idx = 0; pack_idx < state->head_dim / 64; ++pack_idx) {
             const __fp16* src = packed_O + (size_t)(pack_idx * rows + row) * 64;
-            memcpy(dst + (size_t)pack_idx * state->qo_total_len * 64 +
-                   (state->q_offset + q_base + q) * 64, src, 64 * sizeof(__fp16));
+            vmemu(dst + (size_t)pack_idx * state->qo_total_len * 64 +
+                  (state->q_offset + q_base + q) * 64) = vmemu(src);
           }
         }
       }
@@ -461,31 +447,15 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
     attention_valid_end = sync_attention_causal_valid_end(state, 1);
   }
 
-  const int combine_hmx = MNN_ATTENTION_HMX_COMBINE_DECODE;
-  if (combine_hmx) {
-    sync_attention_hmx_section_begin();
-  }
   if (state->page_count > 0) {
-    if (combine_hmx) {
-      attn_hmx_matmul_pages_qk(state, scores, state->Q + (size_t)head_base * state->head_dim,
+    sync_attention_run_page_qk(state, scores, state->Q + (size_t)head_base * state->head_dim,
                                group_heads, state->head_dim, 0, kv_head, attention_valid_end);
-    } else {
-      sync_attention_run_page_qk(state, scores, state->Q + (size_t)head_base * state->head_dim,
-                                 group_heads, state->head_dim, 0, kv_head, attention_valid_end);
-    }
   } else {
-    if (combine_hmx) {
-      attn_hmx_matmul((uint8_t*)scores, (uint8_t*)(state->Q + (size_t)head_base * state->head_dim), (uint8_t*)state->pastK,
-                      group_heads, state->head_dim, (attention_valid_end + 31) & ~31, state->K_dim_padded,
-                      state->head_dim, ATTN_HMX_OUT_LINEAR_FP32_SCALED, state->scale,
-                      ATTN_HMX_WEIGHT_LAYOUT_K_BLOCK256, kv_head, state->n_kv_heads, 0, 0);
-    } else {
-      run_locked_attn_hmx_matmul((uint8_t*)scores, (uint8_t*)(state->Q + (size_t)head_base * state->head_dim),
-                                 (uint8_t*)state->pastK, group_heads, state->head_dim,
-                                 (attention_valid_end + 31) & ~31, state->K_dim_padded, state->head_dim,
-                                 ATTN_HMX_OUT_LINEAR_FP32_SCALED, state->scale, ATTN_HMX_WEIGHT_LAYOUT_K_BLOCK256,
-                                 kv_head, state->n_kv_heads);
-    }
+    run_locked_attn_hmx_matmul((uint8_t*)scores, (uint8_t*)(state->Q + (size_t)head_base * state->head_dim),
+                               (uint8_t*)state->pastK, group_heads, state->head_dim,
+                               (attention_valid_end + 31) & ~31, state->K_dim_padded, state->head_dim,
+                               ATTN_HMX_OUT_LINEAR_FP32_SCALED, state->scale, ATTN_HMX_WEIGHT_LAYOUT_K_BLOCK256,
+                               kv_head, state->n_kv_heads);
   }
 
   int maskStartPos = sync_attention_mask_start_pos(state);
@@ -507,68 +477,66 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
 
   __fp16* packed_O = (__fp16*)scores;
   if (state->page_count > 0) {
-    if (combine_hmx) {
-      attn_hmx_matmul_pages_sv(state, packed_O, temp_O, linear_S, group_heads, group_heads, 0, kv_head,
+    sync_attention_run_page_sv(state, packed_O, temp_O, linear_S, group_heads, group_heads, 0, kv_head,
                                attention_valid_end);
-    } else {
-      sync_attention_run_page_sv(state, packed_O, temp_O, linear_S, group_heads, group_heads, 0, kv_head,
-                                 attention_valid_end);
-    }
   } else {
-    if (combine_hmx) {
-      attn_hmx_matmul((uint8_t*)packed_O, (uint8_t*)linear_S, (uint8_t*)state->pastV, group_heads, attention_valid_end,
-                      state->K_dim_padded, state->N_padded, state->N_padded, ATTN_HMX_OUT_PACKED_FP16, 1.0f,
-                      ATTN_HMX_WEIGHT_LAYOUT_V_BLOCK256, kv_head, state->n_kv_heads, 0, 0);
-    } else {
-      run_locked_attn_hmx_matmul((uint8_t*)packed_O, (uint8_t*)linear_S, (uint8_t*)state->pastV, group_heads,
-                                 attention_valid_end, state->K_dim_padded, state->N_padded, state->N_padded,
-                                 ATTN_HMX_OUT_PACKED_FP16, 1.0f, ATTN_HMX_WEIGHT_LAYOUT_V_BLOCK256, kv_head,
-                                 state->n_kv_heads);
-    }
-  }
-  if (combine_hmx) {
-    sync_attention_hmx_section_end();
+    run_locked_attn_hmx_matmul((uint8_t*)packed_O, (uint8_t*)linear_S, (uint8_t*)state->pastV, group_heads,
+                               attention_valid_end, state->K_dim_padded, state->N_padded, state->N_padded,
+                               ATTN_HMX_OUT_PACKED_FP16, 1.0f, ATTN_HMX_WEIGHT_LAYOUT_V_BLOCK256, kv_head,
+                               state->n_kv_heads);
   }
   sync_attention_copy_decode_group_output(state->O, packed_O, head_base, group_heads, state->head_dim, NULL);
 }
 
+static inline void sync_attention_process_task(const SyncAttentionTaskState* state, int task_id, int worker_index) {
+  if (state->prefill_segment_q > 0) {
+    const int segment_index = task_id / state->prefill_n_heads;
+    const int head_id = task_id - segment_index * state->prefill_n_heads;
+    const int q_offset = segment_index * state->prefill_segment_q;
+    int segment_q = state->qo_len - q_offset;
+    if (segment_q > state->prefill_segment_q) {
+      segment_q = state->prefill_segment_q;
+    }
+
+    SyncAttentionTaskState segment = *state;
+    segment.qo_len = segment_q;
+    segment.q_offset = q_offset;
+    segment.qo_total_len = state->qo_len;
+    segment.seq_current = state->seq_current + q_offset;
+    segment.N = segment.seq_current + segment_q;
+    segment.N_padded = (segment.N + 31) / 32 * 32;
+    segment.Q = state->Q + (size_t)q_offset * state->qo_stride;
+    segment.prefill_segment_q = 0;
+    segment.prefill_n_heads = 0;
+    sync_attention_process_head(&segment, head_id, worker_index);
+    return;
+  }
+  if (state->decode_grouped) {
+    sync_attention_process_decode_group(state, task_id, worker_index);
+  } else {
+    sync_attention_process_head(state, task_id, worker_index);
+  }
+}
+
 static void sync_attention_worker(void* data, int worker_index) {
   SyncAttentionTaskState* state = (SyncAttentionTaskState*)data;
-#if !MNN_ATTENTION_HMX_ENABLE_PER_MATMUL
-  hmx_manager_enable_execution();
-#endif
   while (1) {
     unsigned int task_id = worker_pool_atomic_inc_return(&(state->task_id)) - 1;
     if ((int)task_id >= state->total_heads) {
       break;
     }
-    if (state->decode_grouped) {
-      sync_attention_process_decode_group(state, (int)task_id, worker_index);
-    } else {
-      sync_attention_process_head(state, (int)task_id, worker_index);
-    }
+    sync_attention_process_task(state, (int)task_id, worker_index);
   }
-#if !MNN_ATTENTION_HMX_ENABLE_PER_MATMUL
-  hmx_manager_disable_execution();
-#endif
   worker_pool_synctoken_jobdone(&(state->sync_ctx));
 }
 
 void sync_attention_run_tasks(SyncAttentionTaskState* state, int n_tasks) {
+  hmx_queue_begin();
   if (n_tasks <= 1) {
-#if !MNN_ATTENTION_HMX_ENABLE_PER_MATMUL
-    hmx_manager_enable_execution();
-#endif
     for (int task = 0; task < state->total_heads; ++task) {
-      if (state->decode_grouped) {
-        sync_attention_process_decode_group(state, task, 0);
-      } else {
-        sync_attention_process_head(state, task, 0);
-      }
+      sync_attention_process_task(state, task, 0);
     }
-#if !MNN_ATTENTION_HMX_ENABLE_PER_MATMUL
-    hmx_manager_disable_execution();
-#endif
+    hmx_queue_end();
     return;
   }
 
@@ -581,4 +549,5 @@ void sync_attention_run_tasks(SyncAttentionTaskState* state, int n_tasks) {
     worker_pool_submit(NULL, job);
   }
   worker_pool_synctoken_wait(&(state->sync_ctx));
+  hmx_queue_end();
 }

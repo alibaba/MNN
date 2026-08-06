@@ -438,42 +438,99 @@ public:
 private:
 };
 
-// singleton HTP backend context
+// Host-side DSP backend context: owns the FastRPC driver, the dlopen handle of
+// libMNN_htpops.so (the FastRPC stub), and its resolved symbols.
 struct HexagonContext {
+    std::shared_ptr<DspRpcInterface> rpc;
     // HTP ops backend library
-    void * ops_dl_handle;
+    void * ops_dl_handle = nullptr;
     bool init = false;
-    int(*getHtpInfo)(int fd, int offset);
-    int(*getHtpInfoProfile)(int fd, int offset);
-    HexagonFunctions functions;
+    int(*getHtpInfo)(int fd, int offset) = nullptr;
+    int(*getHtpInfoProfile)(int fd, int offset) = nullptr;
+    int(*powerAcquire)() = nullptr;
+    int(*powerRelease)() = nullptr;
+    HexagonFunctions functions{};
+    ~HexagonContext();
 };
 
-static HexagonContext* getContext() {
-    static HexagonContext gContext;
-    static std::mutex gContextMutex;
-    std::lock_guard<std::mutex> lock(gContextMutex);
-    if (!gContext.init) {
-        gContext.ops_dl_handle = dlopen(HTP_OPS_DL_PATH, RTLD_LAZY | RTLD_LOCAL);
-        if (nullptr == gContext.ops_dl_handle) {
-            MNN_ERROR("[MNN::Hexagon] Open %s, error=%s\n", HTP_OPS_DL_PATH, dlerror());
-            return nullptr;
-        }
-        gContext.getHtpInfo = (decltype(gContext.getHtpInfo))dlsym(gContext.ops_dl_handle, "htp_ops_rpc_getInfo");
-        gContext.getHtpInfoProfile = (decltype(gContext.getHtpInfoProfile))dlsym(gContext.ops_dl_handle, "htp_ops_rpc_getInfoProfile");
-        gContext.functions.execute_command_group = (decltype(gContext.functions.execute_command_group))dlsym(gContext.ops_dl_handle, "htp_rpc_execute_command_group");
-        gContext.functions.execute_command_group_profile = (decltype(gContext.functions.execute_command_group_profile))dlsym(gContext.ops_dl_handle, "htp_rpc_execute_command_group_profile");
-        if (gContext.functions.execute_command_group == nullptr) {
-            MNN_ERROR("[MNN::Hexagon] Failed to dlsym htp_rpc_execute_command_group, error=%s\n", dlerror());
-        } else {
-            MNN_PRINT("[MNN::Hexagon] Successfully loaded htp_rpc_execute_command_group at %p\n", gContext.functions.execute_command_group);
-        }
+// LibWrapper mechanism (mirrors QNNBackend's QNNLibWrapper): the host-side DSP
+// libraries are loaded on demand and dlclose-d when the last HexagonRuntime
+// (i.e. the last shared_ptr holder of HexagonContext) is destroyed.
+static std::recursive_mutex& hexagonLibMutex() {
+    static std::recursive_mutex mutex;
+    return mutex;
+}
+static std::weak_ptr<HexagonContext> gWeakHexagonLib;
+// Non-owning pointer to the currently alive wrapper, guarded by hexagonLibMutex().
+// Used across the backend (getDstFunctions/flushCommand/...) while a runtime is alive.
+static HexagonContext* gActiveHexagonContext = nullptr;
 
-        gContext.init = true;
+static HexagonContext* getContext() {
+    std::lock_guard<std::recursive_mutex> lock(hexagonLibMutex());
+    return gActiveHexagonContext;
+}
+
+static std::shared_ptr<HexagonContext> getOrCreateHexagonLib() {
+    std::lock_guard<std::recursive_mutex> lock(hexagonLibMutex());
+    auto lib = gWeakHexagonLib.lock();
+    if (lib) {
+        return lib;
     }
-    return &gContext;
+    lib = std::make_shared<HexagonContext>();
+    lib->rpc = std::make_shared<DspRpcInterface>();
+    if (!lib->rpc->valid()) {
+        MNN_ERROR("[MNN::Hexagon] Open libcdsprpc.so failed\n");
+        return nullptr;
+    }
+    dsprpc_interface_set_active(lib->rpc);
+    lib->ops_dl_handle = dlopen(HTP_OPS_DL_PATH, RTLD_LAZY | RTLD_LOCAL);
+    if (nullptr == lib->ops_dl_handle) {
+        MNN_ERROR("[MNN::Hexagon] Open %s, error=%s\n", HTP_OPS_DL_PATH, dlerror());
+        return nullptr;
+    }
+    lib->getHtpInfo = (decltype(lib->getHtpInfo))dlsym(lib->ops_dl_handle, "htp_ops_rpc_getInfo");
+    lib->getHtpInfoProfile = (decltype(lib->getHtpInfoProfile))dlsym(lib->ops_dl_handle, "htp_ops_rpc_getInfoProfile");
+    lib->powerAcquire = (decltype(lib->powerAcquire))dlsym(lib->ops_dl_handle, "htp_ops_rpc_power_acquire");
+    lib->powerRelease = (decltype(lib->powerRelease))dlsym(lib->ops_dl_handle, "htp_ops_rpc_power_release");
+    lib->functions.execute_command_group = (decltype(lib->functions.execute_command_group))dlsym(lib->ops_dl_handle, "htp_rpc_execute_command_group");
+    lib->functions.execute_command_group_profile = (decltype(lib->functions.execute_command_group_profile))dlsym(lib->ops_dl_handle, "htp_rpc_execute_command_group_profile");
+    lib->functions.power_acquire = lib->powerAcquire;
+    lib->functions.power_release = lib->powerRelease;
+    if (lib->functions.execute_command_group == nullptr) {
+        MNN_ERROR("[MNN::Hexagon] Failed to dlsym htp_rpc_execute_command_group, error=%s\n", dlerror());
+    } else {
+        MNN_PRINT("[MNN::Hexagon] Successfully loaded htp_rpc_execute_command_group at %p\n", lib->functions.execute_command_group);
+    }
+    lib->init = true;
+    gWeakHexagonLib = lib;
+    gActiveHexagonContext = lib.get();
+    return lib;
+}
+
+HexagonContext::~HexagonContext() {
+    std::lock_guard<std::recursive_mutex> lock(hexagonLibMutex());
+    if (gActiveHexagonContext == this) {
+        gActiveHexagonContext = nullptr;
+    }
+    // Release the host-side DSP stub library (libMNN_htpops.so). The DSP-side
+    // skeleton (libMNN_htpops_skelV*.so) is unloaded earlier via close_dsp_session()
+    // -> htp_ops_close() on the last-runtime release path.
+    if (ops_dl_handle != nullptr) {
+        MNN_PRINT("[MNN::Hexagon] dlclose %s\n", HTP_OPS_DL_PATH);
+        dlclose(ops_dl_handle);
+        ops_dl_handle = nullptr;
+    }
+    getHtpInfo = nullptr;
+    getHtpInfoProfile = nullptr;
+    powerAcquire = nullptr;
+    powerRelease = nullptr;
+    functions = HexagonFunctions();
+    dsprpc_interface_clear_active(rpc.get());
+    rpc.reset();
 }
 
 static int gDspSessionRefCount = 0;
+static int gDspPowerRefCount = 0;
 
 static std::mutex& dspSessionMutex() {
     static std::mutex mutex;
@@ -523,6 +580,49 @@ static bool ensureDspSessionOnCurrentThreadLocked(HexagonContext* context) {
     return context != nullptr && context->ops_dl_handle != nullptr && gDspSessionRefCount > 0;
 }
 
+static bool acquireDspPowerLocked(HexagonContext* context) {
+    if (!ensureDspSessionOnCurrentThreadLocked(context) || context->powerAcquire == nullptr) {
+        return false;
+    }
+    if (gDspPowerRefCount > 0) {
+        ++gDspPowerRefCount;
+        return true;
+    }
+    int err = context->powerAcquire();
+    if (err != 0) {
+        MNN_ERROR("[Hexagon] failed to acquire DSP power: %d\n", err);
+        return false;
+    }
+    gDspPowerRefCount = 1;
+    return true;
+}
+
+static void releaseDspPowerLocked(HexagonContext* context) {
+    if (gDspPowerRefCount <= 0) {
+        return;
+    }
+    --gDspPowerRefCount;
+    if (gDspPowerRefCount > 0) {
+        return;
+    }
+    if (ensureDspSessionOnCurrentThreadLocked(context) && context->powerRelease != nullptr) {
+        int err = context->powerRelease();
+        if (err != 0) {
+            MNN_ERROR("[Hexagon] failed to release DSP power: %d\n", err);
+        }
+    }
+}
+
+static bool acquireDspPower(HexagonContext* context) {
+    std::lock_guard<std::mutex> lock(dspSessionMutex());
+    return acquireDspPowerLocked(context);
+}
+
+static void releaseDspPower(HexagonContext* context) {
+    std::lock_guard<std::mutex> lock(dspSessionMutex());
+    releaseDspPowerLocked(context);
+}
+
 static bool acquireDspSession(HexagonContext* context) {
     std::lock_guard<std::mutex> lock(dspSessionMutex());
     if (context == nullptr || context->ops_dl_handle == nullptr) {
@@ -551,6 +651,7 @@ static void releaseDspSession(HexagonContext* context) {
     if (gDspSessionRefCount > 0) {
         return;
     }
+    gDspPowerRefCount = 0;
     closeDspSessionLocked(context);
     rpcmem_deinit();
 }
@@ -724,7 +825,8 @@ void HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
 }
 
 void HexagonRuntime::flushCommand() const {
-    if (mCommandGroupCount == 0 && mPendingHostOutputs.empty() && mPendingHostInputs.empty()) {
+    if (mCommandGroupCount == 0 && mPendingHostOutputs.empty() && mPendingHostInputs.empty() &&
+        mPendingHexagonOutputs.empty()) {
         return;
     }
     if (mCommandGroup == nullptr || mCommandGroupChunk.first == nullptr) {
@@ -737,16 +839,19 @@ void HexagonRuntime::flushCommand() const {
     int syncGroupSize = 0;
     int syncGroupFd = -1;
     int syncGroupOffset = 0;
-    if (!mPendingHostInputs.empty() || !mPendingHostOutputs.empty()) {
+    if (!mPendingHostInputs.empty() || !mPendingHostOutputs.empty() || !mPendingHexagonOutputs.empty()) {
         flatbuffers::FlatBufferBuilder builder;
         std::vector<flatbuffers::Offset<DSPCOMMAND::Tensor>> inputTensors;
         std::vector<flatbuffers::Offset<DSPCOMMAND::Tensor>> outputTensors;
         inputTensors.reserve(mPendingHostInputs.size());
-        outputTensors.reserve(mPendingHostOutputs.size());
+        outputTensors.reserve(mPendingHostOutputs.size() + mPendingHexagonOutputs.size());
         for (const auto& record : mPendingHostInputs) {
             inputTensors.emplace_back(DSPCOMMAND::CreateTensor(builder, record.fd, record.offset, record.size));
         }
         for (const auto& record : mPendingHostOutputs) {
+            outputTensors.emplace_back(DSPCOMMAND::CreateTensor(builder, record.fd, record.offset, record.size));
+        }
+        for (const auto& record : mPendingHexagonOutputs) {
             outputTensors.emplace_back(DSPCOMMAND::CreateTensor(builder, record.fd, record.offset, record.size));
         }
         auto syncGroup = DSPCOMMAND::CreateSyncGroup(builder, builder.CreateVector(inputTensors), builder.CreateVector(outputTensors));
@@ -767,6 +872,7 @@ void HexagonRuntime::flushCommand() const {
         }
     }
     const int commandCount = mCommandGroupCount;
+    const bool powerAcquired = acquireDspPower(context);
 #ifdef MNN_HEXAGON_ASAN
     const bool asanBeforeFlush = asanCheckAllBuffers("before flushCommand");
 #endif
@@ -858,6 +964,9 @@ void HexagonRuntime::flushCommand() const {
         MNN_ERROR("[Hexagon] execute_command_group function pointer is null! functions=%p\n", functions);
     }
 #endif
+    if (powerAcquired) {
+        releaseDspPower(context);
+    }
 #ifdef MNN_HEXAGON_ASAN
     asanCheckAllBuffers("after flushCommand");
 #endif
@@ -890,10 +999,13 @@ float HexagonRuntime::onGetMemoryInMB() {
 }
 
 HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
-    auto context = getContext();
+    mLib = getOrCreateHexagonLib();
+    auto context = mLib.get();
     if (!acquireDspSession(context)) {
         MNN_ERROR("[Hexagon] failed to acquire DSP session\n");
+        return;
     }
+    mAvailable = true;
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new HexagonAllocator());
     constexpr size_t staticMinAllocSize = 16 * 1024 * 1024;
     constexpr size_t commandMinAllocSize = 4 * 1024 * 1024;
@@ -926,6 +1038,7 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
     }
 #endif
     {
+        const bool powerAcquired = acquireDspPower(context);
         auto infoMem = mStaticAlloc->alloc(256);
         auto buf = (HexagonBuffer*)infoMem.first;
         if (buf == nullptr) {
@@ -964,6 +1077,9 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
             ::memcpy(&mInfo, info, sizeof(mInfo));
             mStaticAlloc->free(infoMem);
         }
+        if (powerAcquired) {
+            releaseDspPower(context);
+        }
     }
     std::shared_ptr<BufferAllocator> weightAlloc(new EagerBufferAllocator(allocator, 128, weightMinAllocSize));
 #ifdef MNN_HEXAGON_ASAN
@@ -978,8 +1094,8 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
         FUNC_PRINT_ALL(mInfo.flops[i], f);
     }
 #endif
-    MNN_PRINT("[MNN::Hexagon] vectorSize=%d, vtcmSize=%d, maxThreads=%d\n",
-              mInfo.vectorSize, mInfo.vtcmSize, mInfo.maxThreads);
+    MNN_PRINT("[MNN::Hexagon] vectorSize=%d, vtcmSize=%d, maxThreads=%d, hvxArch=%d\n",
+              mInfo.vectorSize, mInfo.vtcmSize, mInfo.maxThreads, mInfo.hvxArch);
 
     if (false) {
         int err = 0;
@@ -1096,12 +1212,24 @@ HexagonRuntime::~HexagonRuntime() {
 }
 
 Backend* HexagonRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
+    if (!mAvailable) {
+        MNN_ERROR("[Hexagon] runtime is unavailable\n");
+        return nullptr;
+    }
     Backend::Info info;
     info.type = MNN_FORWARD_HEXAGON;
     info.numThread = 1; // Hexagon 通常单线程调度
     info.mode = Backend::Info::DIRECT;
     auto res = new HexagonBackend(info, this);
     return res;
+}
+
+void HexagonRuntime::onConcurrencyBegin() const {
+    acquireDspPower(getContext());
+}
+
+void HexagonRuntime::onConcurrencyEnd() const {
+    releaseDspPower(getContext());
 }
 
 void HexagonRuntime::onGabageCollect(int level) {
@@ -1129,6 +1257,10 @@ bool HexagonRuntime::onCheckInfo(Backend::Info& info) const {
 // Creator
 Runtime* HexagonRuntimeCreator::onCreate(const Backend::Info& info) const {
     auto* runtime = new HexagonRuntime(info);
+    if (!runtime->isAvailable()) {
+        delete runtime;
+        return nullptr;
+    }
     return runtime;
 }
 
@@ -1139,8 +1271,11 @@ bool HexagonRuntimeCreator::onValid(Backend::Info& info) const {
 }
 
 extern void registerHexagon() {
-    auto context = getContext();
-    if (nullptr == context) {
+    // Validate that the host-side DSP library can be loaded before registering
+    // the runtime creator. The wrapper is released here and reloaded on demand
+    // when a HexagonRuntime is actually created.
+    auto lib = getOrCreateHexagonLib();
+    if (nullptr == lib) {
         return;
     }
     MNNInsertExtraRuntimeCreator(MNN_FORWARD_HEXAGON, new HexagonRuntimeCreator);

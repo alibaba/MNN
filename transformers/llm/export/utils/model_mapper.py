@@ -344,7 +344,9 @@ class ModelMapper:
                 'q_proj': 'q_proj',
                 'k_proj': 'k_proj',
                 'v_proj': 'v_proj',
-                'o_proj': 'o_proj'
+                'o_proj': 'o_proj',
+                'q_norm': 'q_norm',
+                'k_norm': 'k_norm'
             }
         }
         self.regist('internvl_chat', intervl_map)
@@ -1096,6 +1098,19 @@ class ModelMapper:
         qwen3_5_moe_map = copy.deepcopy(qwen3_5_map)
         qwen3_5_moe_map['mlp'] = qwen3_5_moe_mlp
         self.regist('qwen3_5_moe', qwen3_5_moe_map)
+        # text-only variant (Qwen3_5ForCausalLM): no visual tower; config fields
+        # live at the top level rather than under text_config.*, and the live
+        # module hierarchy is flat (model.layers, not language_model.layers)
+        qwen3_5_text_config = {k: v.replace('text_config.', '') for k, v in qwen3_5_config.items()}
+        qwen3_5_text_model = {k: v for k, v in self.default_model.items() if k != 'visual'}
+        qwen3_5_text_map = {
+            'config': qwen3_5_text_config,
+            'model': qwen3_5_text_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention,
+            'linear_attention': qwen3_5_linear_attention
+        }
+        self.regist('qwen3_5_text', qwen3_5_text_map)
 
     def init_default_map(self):
         # default map is `LlamaForCausalLM`

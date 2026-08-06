@@ -27,7 +27,12 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
-private:
+protected:
+    virtual bool tryExecuteFastPath(const int8_t* query, int8_t* output, int seqLen, int kvSeqLen, int paddingLength,
+                                    float qScale, float attentionScale, bool lowerTriangular, bool hasSinks,
+                                    bool outputC4, bool directC4Output);
+    virtual CPUAttention* createClone(Backend* backend) const;
+
 #ifdef MNN_SME2
     bool mUseMixedSmeNeonMatMul = false;
     int mSmeThreadCount = 0;
@@ -44,7 +49,7 @@ private:
     KVMeta* mMeta;
 
     // common
-    std::shared_ptr<Tensor> mPackQ, mPackQKV, mRunningMax, mRunningSum, mTempQKBlock, mTempOut, mExpfDiffMax;
+    std::shared_ptr<Tensor> mPackQ, mPackQKV, mRunningMax, mRunningSum, mTempOut, mExpfDiffMax;
     std::shared_ptr<CPUKVCacheManager> mKVCacheManager = nullptr;
     bool mUseFlashAttention = true;
 

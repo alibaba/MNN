@@ -11,6 +11,16 @@ int htp_ops_rpc_init_backend() {
     return htp_ops_init_backend(get_global_handle());
 }
 
+int htp_ops_rpc_power_acquire() {
+    if (htp_ops_rpc_handle_invalid()) return -1;
+    return htp_ops_power_acquire(get_global_handle());
+}
+
+int htp_ops_rpc_power_release() {
+    if (htp_ops_rpc_handle_invalid()) return -1;
+    return htp_ops_power_release(get_global_handle());
+}
+
 int htp_ops_rpc_getInfo(int fd, int offset) {
     if (htp_ops_rpc_handle_invalid()) return -1;
     return htp_ops_getInfo(get_global_handle(), fd, offset);
@@ -23,10 +33,10 @@ int htp_ops_rpc_getInfoProfile(int fd, int offset) {
 
 int htp_rpc_execute_command_group(int groupFd, int groupOffset, int count, int syncGroupFd, int syncGroupOffset, int syncGroupSize) {
     if (htp_ops_rpc_handle_invalid()) return -1;
-    return htp_dspqueue_execute_command_group(groupFd, groupOffset, count, syncGroupFd, syncGroupOffset, syncGroupSize);
+    return htp_ops_execute_command_group(get_global_handle(), groupFd, groupOffset, count, syncGroupFd, syncGroupOffset, syncGroupSize);
 }
 
 int htp_rpc_execute_command_group_profile(int groupFd, int groupOffset, int count, int syncGroupFd, int syncGroupOffset, int syncGroupSize, int profileFd, int profileOffset, int profileSize) {
     if (htp_ops_rpc_handle_invalid()) return -1;
-    return htp_dspqueue_execute_command_group_profile(groupFd, groupOffset, count, syncGroupFd, syncGroupOffset, syncGroupSize, profileFd, profileOffset, profileSize);
+    return htp_ops_execute_command_group_profile(get_global_handle(), groupFd, groupOffset, count, syncGroupFd, syncGroupOffset, syncGroupSize, profileFd, profileOffset, profileSize);
 }

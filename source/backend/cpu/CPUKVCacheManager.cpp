@@ -766,6 +766,16 @@ void CPUKVCacheManager::ProcessKey(const Tensor* key, int seqLen, int kvHead) {
         T* key_dst = reinterpret_cast<T*>(addrOfKey(kvHead));
         auto stride0 = ROUND_UP(mHeadDim, lP) * hP;
         auto stride1 = hP * lP;
+        if (mBytes == 4 && hP == 4 && lP == 1 && (mPastLength % hP) == 0 && (seqLen % hP) == 0) {
+            auto core = static_cast<CPUBackend*>(mBackend)->functions();
+            if (core->pack == hP) {
+                int areaOffset[] = {mKvNumHead * mHeadDim, ROUND_UP(mHeadDim, lP)};
+                auto keySrc = reinterpret_cast<const float*>(key->host<T>()) + kvHead * mHeadDim;
+                auto keyDst = reinterpret_cast<float*>(key_dst) + (mPastLength / hP) * stride0;
+                core->MNNPackCUnit(keyDst, keySrc, mHeadDim, seqLen, areaOffset);
+                return;
+            }
+        }
         for (int i = 0; i < seqLen; i++) {
             T* key_src = key->host<T>() + i * mKvNumHead * mHeadDim + kvHead * mHeadDim;
             int out_index = (mPastLength + i) / hP;
@@ -904,6 +914,25 @@ void CPUKVCacheManager::ProcessValue(const Tensor* value, int seqLen, int kvHead
         auto weightStride0 = weightStride1 * UP_DIV(mHeadDim, hP);
 
         T* value_dst = reinterpret_cast<T*>(addrOfValue(kvHead));
+        if (valueC4 && mBytes == 4 && pack == hP && hP == 4 && lP == 1 && (mHeadDim % hP) == 0 &&
+            mFlashAttentionUpperKv > 0) {
+            const int channelQuads = UP_DIV(mHeadDim, hP);
+            int srcToken = 0;
+            int dstToken = mPastLength;
+            while (srcToken < seqLen) {
+                const int block = dstToken / (int)mFlashAttentionUpperKv;
+                const int inBlock = dstToken % (int)mFlashAttentionUpperKv;
+                const int run = ALIMIN(seqLen - srcToken, (int)mFlashAttentionUpperKv - inBlock);
+                for (int q = 0; q < channelQuads; ++q) {
+                    const T* src = valueSrc + ((channelBase / hP + q) * seqLen + srcToken) * hP;
+                    T* dst = value_dst + block * weightStride0 + q * weightStride1 + inBlock * hP;
+                    ::memcpy(dst, src, run * hP * sizeof(T));
+                }
+                srcToken += run;
+                dstToken += run;
+            }
+            return;
+        }
         for (int i = 0; i < seqLen; i++) {
             // int seqLenOut = (mPastLength + i) / lP;
             // int seqLenIn = (mPastLength + i) % lP;
@@ -955,8 +984,13 @@ void CPUKVCacheManager::moveKV(int src, int dst, int size) {
 void CPUKVCacheManager::onUpdateKV(const Tensor* key, const Tensor* value, int add) {
     auto core = static_cast<CPUBackend*>(mBackend)->functions();
     int seq_len = add;
-    auto divPart = UP_DIV(mKvNumHead, 1);
-    MNN_CONCURRENCY_BEGIN(tId, 1) {
+    int updateThreadNum = 1;
+    if (core->kvUpdateConcurrent && mBytes == 4 && mKeyQuantMode == KVQuantMode::None &&
+        mValueQuantMode == KVQuantMode::None) {
+        updateThreadNum = mThreadNum;
+    }
+    auto divPart = UP_DIV(mKvNumHead, updateThreadNum);
+    MNN_CONCURRENCY_BEGIN(tId, updateThreadNum) {
         auto remainPart = mKvNumHead - tId * divPart;
         if (remainPart > 0) {
             remainPart = ALIMIN(divPart, remainPart);

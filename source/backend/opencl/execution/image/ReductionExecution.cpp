@@ -95,6 +95,9 @@ ErrorCode ReductionExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     int outputChannels = outputShape.at(3);
     int outputChannelBlocks = (outputChannels + 3) / 4;
 
+    auto inputType = input->getType();
+    bool isInt32 = (inputType.code == halide_type_int && inputType.bits == 32);
+
     std::set<std::string> buildOption;
     switch (mReductType) {
         case 0:
@@ -104,11 +107,11 @@ ErrorCode ReductionExecution::onEncode(const std::vector<Tensor *> &inputs, cons
             break;
         case 1:
             buildOption.emplace("-DOPERATE(a,b)=max(a,b)");
-            buildOption.emplace("-DVALUE=-FLT_MAX");
+            buildOption.emplace(isInt32 ? "-DVALUE=(-2147483647-1)" : "-DVALUE=-FLT_MAX");
             break;
         case 2:
             buildOption.emplace("-DOPERATE(a,b)=min(a,b)");
-            buildOption.emplace("-DVALUE=FLT_MAX");
+            buildOption.emplace(isInt32 ? "-DVALUE=2147483647" : "-DVALUE=FLT_MAX");
             break;
         case 3:
             buildOption.emplace("-DOPERATE(a,b)=(a*b)");
@@ -209,6 +212,10 @@ public:
             return NULL;
         }
         if(reduct->dim()->size() != 1) {
+            return NULL;
+        }
+        if (inputs[0]->getType().code != halide_type_float &&
+            !(inputs[0]->getType().code == halide_type_int && inputs[0]->getType().bits == 32)) {
             return NULL;
         }
         auto axis = reduct->dim()->data()[0];

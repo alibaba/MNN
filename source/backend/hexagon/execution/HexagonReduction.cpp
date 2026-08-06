@@ -30,6 +30,21 @@ static bool _mapReductionOp(ReductionType op, int* dspOpType) {
     }
 }
 
+static bool _isSupportedType(const Tensor* input, const Tensor* output) {
+    const auto inputType = input->getType();
+    const auto outputType = output->getType();
+    const int inputBytes = HexagonBackend::getBytes(input);
+    const int outputBytes = HexagonBackend::getBytes(output);
+    if (inputType.code == halide_type_float && outputType.code == halide_type_float) {
+        return inputBytes == 2 && outputBytes == 2;
+    }
+    if (inputType.code == halide_type_int && inputType.bits == 32 &&
+        outputType.code == halide_type_int && outputType.bits == 32) {
+        return inputBytes == 4 && outputBytes == 4;
+    }
+    return false;
+}
+
 HexagonReduction::HexagonReduction(Backend* backend, int opType, int axis, bool masked)
     : HexagonExecution(backend), mOpType(opType), mAxis(axis), mMasked(masked) {
 }
@@ -60,20 +75,18 @@ HexagonReduction* HexagonReduction::create(Backend* backend, const Op* op,
     }
     auto inputDes = TensorUtils::getDescribe(inputs[0]);
     auto outputDes = TensorUtils::getDescribe(outputs[0]);
-    if (inputDes->dimensionFormat != MNN_DATA_FORMAT_NCHW ||
-        outputDes->dimensionFormat != MNN_DATA_FORMAT_NCHW) {
+    if (inputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ||
+        outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         return nullptr;
     }
-    if (inputs[0]->getType().code != halide_type_float || outputs[0]->getType().code != halide_type_float) {
+    if (!_isSupportedType(inputs[0], outputs[0])) {
         return nullptr;
     }
     if (masked && inputs[1]->getType().code != halide_type_float) {
         return nullptr;
     }
-    if (HexagonBackend::getBytes(inputs[0]) != 2 || HexagonBackend::getBytes(outputs[0]) != 2) {
-        return nullptr;
-    }
-    if (masked && (dspOpType != HEXAGON_REDUCTION_SUM || HexagonBackend::getBytes(inputs[1]) != 2)) {
+    if (masked && (dspOpType != HEXAGON_REDUCTION_SUM || inputs[0]->getType().code != halide_type_float ||
+                   HexagonBackend::getBytes(inputs[0]) != 2 || HexagonBackend::getBytes(inputs[1]) != 2)) {
         return nullptr;
     }
     return new HexagonReduction(backend, dspOpType, reduction->dim()->Get(0), masked);
@@ -90,13 +103,11 @@ ErrorCode HexagonReduction::onBuildCmd(const std::vector<Tensor*>& inputs, const
     if (input == nullptr || output == nullptr || (mMasked && mask == nullptr)) {
         return INPUT_DATA_ERROR;
     }
-    if (input->getType().code != halide_type_float || output->getType().code != halide_type_float) {
+    if (!_isSupportedType(input, output)) {
         return NOT_SUPPORT;
     }
-    if (HexagonBackend::getBytes(input) != 2 || HexagonBackend::getBytes(output) != 2) {
-        return NOT_SUPPORT;
-    }
-    if (mMasked && (mask->getType().code != halide_type_float || HexagonBackend::getBytes(mask) != 2)) {
+    if (mMasked && (input->getType().code != halide_type_float || HexagonBackend::getBytes(input) != 2 ||
+                    mask->getType().code != halide_type_float || HexagonBackend::getBytes(mask) != 2)) {
         return NOT_SUPPORT;
     }
 
@@ -138,7 +149,7 @@ ErrorCode HexagonReduction::onBuildCmd(const std::vector<Tensor*>& inputs, const
         return NOT_SUPPORT;
     }
 
-    int32_t params[5] = {outside, reduce, inside, mOpType, 2};
+    int32_t params[5] = {outside, reduce, inside, mOpType, HexagonBackend::getBytes(input)};
     std::vector<std::pair<int, int>> inputFds = mMasked ? std::vector<std::pair<int, int>>{srcDev, maskDev}
                                                         : std::vector<std::pair<int, int>>{srcDev};
     std::vector<std::pair<int, int>> outputFds = {dstDev};

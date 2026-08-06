@@ -2421,6 +2421,12 @@ static void MNNGetGemmUnitI8mm(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
     *DST_XUNIT = 10;
 }
 
+static void MNNGetGemmUnitRVV(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
+    *UNIT = GEMM_INT8_UNIT;
+    *SRC_UNIT = GEMM_INT8_SRC_UNIT;
+    *DST_XUNIT = 8;
+}
+
 static void MNNGetGemmUnitSme2_HP32(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
     *UNIT = 32;
     *SRC_UNIT = 4;
@@ -2457,6 +2463,10 @@ extern void MNNMaxPoolInt8_RVV(int8_t* dst, int8_t* src, size_t outputWidth, siz
 
 extern void MNNReluWithSlopeChannelInt8_RVV(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber,
                                             size_t depthQuad, const QuanPrePostParameters* params, size_t pack);
+
+namespace MNN {
+void MNNRvvInitializeInt8FastPathFunctions(CoreInt8Functions* core);
+}
 
 #endif
 
@@ -2793,7 +2803,11 @@ void MNNCoreInt8FunctionInit() {
 #ifdef __riscv
 #ifdef MNN_USE_RVV
     if (core->supportRVV) {
+        gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnitRVV;
+        gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A<8, GEMM_INT8_SRC_UNIT, GEMM_INT8_UNIT>;
+        core->int8MatmulRelatedFunctions.eP = 8;
         gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_RVV;
+        MNNRvvInitializeInt8FastPathFunctions(gCoreFunc);
         gCoreFunc->MNNAvgPoolInt8 = MNNAvgPoolInt8_RVV;
         gCoreFunc->MNNFloat2Int8 = MNNFloat2Int8_RVV;
         gCoreFunc->MNNInt8ScaleToFloat = MNNInt8ScaleToFloat_RVV;

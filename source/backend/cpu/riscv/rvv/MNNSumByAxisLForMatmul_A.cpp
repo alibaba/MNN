@@ -25,6 +25,31 @@ void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* scal
     float singlescale = scale[0];
     const size_t vlmax = __riscv_vsetvlmax_e32m4();
 
+    // Conservatively limit each i16 lane to 128 signed int8 values: [-16384, 16256].
+    constexpr int kInt16FastPathAccumulationLimit = 128;
+    if (realDstCount == 1 && kernelxy == 1 && LP == 16 && valid == 0 && blockNum > 0 && LU % blockNum == 0 &&
+        blockSizeQuad <= kInt16FastPathAccumulationLimit) {
+        const size_t vl = __riscv_vsetvl_e8m1(16);
+        const size_t vlOne = __riscv_vsetvl_e32m1(1);
+        const vint32m1_t zero32 = __riscv_vmv_v_x_i32m1(0, vlOne);
+        for (int k = 0; k < blockNum; ++k) {
+            const int8_t* srcBlock = srcInt8 + k * LP * blockSizeQuad;
+            vint16m2_t vacc = __riscv_vmv_v_x_i16m2(0, vl);
+            for (int i = 0; i < blockSizeQuad; ++i) {
+                const vint8m1_t v8 = __riscv_vle8_v_i8m1(srcBlock + i * LP, vl);
+                vacc = __riscv_vadd_vv_i16m2(vacc, __riscv_vwcvt_x_x_v_i16m2(v8, vl), vl);
+            }
+            const vint32m1_t sumVec = __riscv_vwredsum_vs_i16m2_i32m1(vacc, zero32, vl);
+            const int32_t sum = __riscv_vmv_x_s_i32m1_i32(sumVec);
+            float dequantScale = singlescale;
+            if (!oneScale) {
+                dequantScale = inputBlockQuant ? scalePtr[k] : scalePtr[0];
+            }
+            dest[k] = dequantScale * static_cast<float>(sum);
+        }
+        return;
+    }
+
     do {
         int step = ALIMIN(EP, realDstCount);
         int scaleOffset = inputBlockQuant ? (step * blockNum) : step;

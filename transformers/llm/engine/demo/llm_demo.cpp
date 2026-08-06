@@ -280,6 +280,7 @@ int main(int argc, const char* argv[]) {
             return 0;
         }
     }
+    std::shared_ptr<MNN::Express::Executor::Activation> act = llm->getExecutor()->activte();
     if (true) {
         AUTOTIME;
         tuning_prepare(llm.get());

@@ -11,6 +11,7 @@
 #include "dsp/hmx_utils.h"
 #include "dsp/hvx_utils.h"
 #include "dsp/dma_utils.h"
+#include "dsp/pwl.h"
 #include "dsp/vtcm_mgr.h"
 #include "dsp/worker_pool.h"
 #include "htp_ops.h"
@@ -59,135 +60,63 @@ static inline float htp_ops_lstm_tanh(float x) {
   return 2.0f * htp_ops_lstm_sigmoid(2.0f * x) - 1.0f;
 }
 
-static inline HVX_Vector htp_ops_lstm_sigmoid_fp16_fast_vec(HVX_Vector v,
-                                                            HVX_Vector zero_v,
-                                                            HVX_Vector one_v) {
-  HVX_VectorPred q_v_lt_0 = Q6_Q_vcmp_gt_VhfVhf(zero_v, v);
-  HVX_Vector neg_v = Q6_Vhf_vsub_VhfVhf(zero_v, v);
-  HVX_Vector ax = Q6_V_vmux_QVV(q_v_lt_0, neg_v, v);
+static const uint32_t htp_ops_lstm_sigmoid_slope_lo[32] __attribute__((aligned(128))) = {
+    0x33f5, 0x33b7, 0x3343, 0x32a4, 0x31eb, 0x3128, 0x3067, 0x2f62,
+    0x2e1b, 0x2cfd, 0x2c0a, 0x2a7b, 0x292c, 0x281a, 0x267d, 0x251c};
+static const uint32_t htp_ops_lstm_sigmoid_bias_lo[32] __attribute__((aligned(128))) = {
+    0x3800, 0x3804, 0x3812, 0x3830, 0x385e, 0x389b, 0x38e4, 0x3933,
+    0x3985, 0x39d5, 0x3a22, 0x3a68, 0x3aa7, 0x3ade, 0x3b0e, 0x3b38};
+static const uint32_t htp_ops_lstm_sigmoid_slope_hi[32] __attribute__((aligned(128))) = {
+    0x21c8, 0x1c52, 0x1665, 0x10b7};
+static const uint32_t htp_ops_lstm_sigmoid_bias_hi[32] __attribute__((aligned(128))) = {
+    0x3b7f, 0x3bc7, 0x3be8, 0x3bf6};
 
-  static const uint16_t slope_bits[32] = {
-      0x33f5, 0x33b7, 0x3343, 0x32a4, 0x31eb, 0x3128, 0x3067, 0x2f62,
-      0x2e1b, 0x2cfd, 0x2c0a, 0x2a7b, 0x292c, 0x281a, 0x267d, 0x251c,
-      0x2404, 0x224d, 0x20ef, 0x1fb8, 0x1e08, 0x1cb6, 0x1b5a, 0x19bc,
-      0x1879, 0x16f9, 0x156f, 0x143c, 0x1299, 0x1124, 0x1001, 0x0e3d};
-  static const uint16_t bias_bits[32] = {
-      0x3800, 0x3804, 0x3812, 0x3830, 0x385e, 0x389b, 0x38e4, 0x3933,
-      0x3985, 0x39d5, 0x3a22, 0x3a68, 0x3aa7, 0x3ade, 0x3b0e, 0x3b38,
-      0x3b5b, 0x3b78, 0x3b91, 0x3ba5, 0x3bb6, 0x3bc4, 0x3bcf, 0x3bd9,
-      0x3be0, 0x3be6, 0x3beb, 0x3bef, 0x3bf3, 0x3bf5, 0x3bf7, 0x3bf9};
-  static const uint16_t edge_bits[31] = {
-      0x3400, 0x3800, 0x3a00, 0x3c00, 0x3d00, 0x3e00, 0x3f00, 0x4000,
-      0x4080, 0x4100, 0x4180, 0x4200, 0x4280, 0x4300, 0x4380, 0x4400,
-      0x4440, 0x4480, 0x44c0, 0x4500, 0x4540, 0x4580, 0x45c0, 0x4600,
-      0x4640, 0x4680, 0x46c0, 0x4700, 0x4740, 0x4780, 0x47c0};
-
-  HVX_Vector slope = Q6_Vh_vsplat_R(slope_bits[0]);
-  HVX_Vector bias = Q6_Vh_vsplat_R(0x3800);
-#pragma unroll
-  for (int i = 1; i < 32; ++i) {
-    HVX_VectorPred q_ge_edge = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(edge_bits[i - 1]));
-    slope = Q6_V_vmux_QVV(q_ge_edge, Q6_Vh_vsplat_R(slope_bits[i]), slope);
-    bias = Q6_V_vmux_QVV(q_ge_edge, Q6_Vh_vsplat_R(bias_bits[i]), bias);
-  }
-  HVX_Vector y = Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vmpy_VhfVhf(ax, slope), bias);
-
-  HVX_VectorPred q_ge_8 = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(0x4800));
-  y = Q6_V_vmux_QVV(q_ge_8, one_v, y);
-  HVX_Vector y_neg = Q6_Vhf_vsub_VhfVhf(one_v, y);
-  return Q6_V_vmux_QVV(q_v_lt_0, y_neg, y);
+// Match the original strict `x > edge` PWL intervals: ceil(scaled) - 1.
+// This matters for recurrent state because FP16 values often land exactly on segment boundaries.
+static inline HVX_Vector htp_ops_lstm_pwl_strict_index16(HVX_Vector x, uint16_t scale_bits) {
+  const HVX_Vector zero_v = Q6_V_vzero();
+  HVX_Vector scaled = Q6_Vhf_vmpy_VhfVhf(x, Q6_Vh_vsplat_R(scale_bits));
+  const HVX_Vector max_index_v = Q6_Vh_vsplat_R(0x4b80);
+  scaled = Q6_V_vmux_QVV(Q6_Q_vcmp_gt_VhfVhf(scaled, max_index_v), max_index_v, scaled);
+  const HVX_Vector floor_index = Q6_Vh_equals_Vhf(scaled);
+  const HVX_Vector floor_value = Q6_Vhf_equals_Vh(floor_index);
+  const HVX_Vector previous_index = Q6_Vh_vsub_VhVh(floor_index, Q6_Vh_vsplat_R(1));
+  const HVX_VectorPred has_fraction = Q6_Q_vcmp_gt_VhfVhf(scaled, floor_value);
+  const HVX_Vector index = Q6_V_vmux_QVV(has_fraction, floor_index, previous_index);
+  const HVX_VectorPred positive = Q6_Q_vcmp_gt_VhVh(floor_index, zero_v);
+  return Q6_V_vmux_QVV(positive, index, zero_v);
 }
 
-static inline HVX_Vector htp_ops_lstm_tanh_fp16_fast_vec(HVX_Vector v,
-                                                         HVX_Vector zero_v,
-                                                         HVX_Vector one_v,
-                                                         HVX_Vector two_v) {
-  HVX_Vector two_x = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v, two_v));
-  HVX_Vector sig = htp_ops_lstm_sigmoid_fp16_fast_vec(two_x, zero_v, one_v);
-  return Q6_Vhf_vsub_VhfVhf(Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(sig, two_v)), one_v);
-}
-
-static inline HVX_Vector htp_ops_lstm_sigmoid_fp16_fast28_vec(HVX_Vector v,
-                                                              HVX_Vector zero_v,
-                                                              HVX_Vector one_v) {
-  HVX_VectorPred q_v_lt_0 = Q6_Q_vcmp_gt_VhfVhf(zero_v, v);
-  HVX_Vector neg_v = Q6_Vhf_vsub_VhfVhf(zero_v, v);
-  HVX_Vector ax = Q6_V_vmux_QVV(q_v_lt_0, neg_v, v);
-
-  static const uint16_t slope_bits[28] = {
-      0x33f5, 0x33b7, 0x3343, 0x32a4, 0x31eb, 0x3128, 0x3067, 0x2f62,
-      0x2e1b, 0x2cfd, 0x2c0a, 0x2a7b, 0x292c, 0x281a, 0x267d, 0x251c,
-      0x2404, 0x224d, 0x20ef, 0x1fb8, 0x1e08, 0x1cb6, 0x1b5a, 0x19bc,
-      0x1879, 0x16f9, 0x156f, 0x143c};
-  static const uint16_t bias_bits[28] = {
-      0x3800, 0x3804, 0x3812, 0x3830, 0x385e, 0x389b, 0x38e4, 0x3933,
-      0x3985, 0x39d5, 0x3a22, 0x3a68, 0x3aa7, 0x3ade, 0x3b0e, 0x3b38,
-      0x3b5b, 0x3b78, 0x3b91, 0x3ba5, 0x3bb6, 0x3bc4, 0x3bcf, 0x3bd9,
-      0x3be0, 0x3be6, 0x3beb, 0x3bef};
-  static const uint16_t edge_bits[27] = {
-      0x3400, 0x3800, 0x3a00, 0x3c00, 0x3d00, 0x3e00, 0x3f00, 0x4000,
-      0x4080, 0x4100, 0x4180, 0x4200, 0x4280, 0x4300, 0x4380, 0x4400,
-      0x4440, 0x4480, 0x44c0, 0x4500, 0x4540, 0x4580, 0x45c0, 0x4600,
-      0x4640, 0x4680, 0x46c0};
-
-  HVX_Vector slope = Q6_Vh_vsplat_R(slope_bits[0]);
-  HVX_Vector bias = Q6_Vh_vsplat_R(0x3800);
-#pragma unroll
-  for (int i = 1; i < 28; ++i) {
-    HVX_VectorPred q_ge_edge = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(edge_bits[i - 1]));
-    slope = Q6_V_vmux_QVV(q_ge_edge, Q6_Vh_vsplat_R(slope_bits[i]), slope);
-    bias = Q6_V_vmux_QVV(q_ge_edge, Q6_Vh_vsplat_R(bias_bits[i]), bias);
-  }
-  HVX_Vector y = Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vmpy_VhfVhf(ax, slope), bias);
-
-  HVX_VectorPred q_ge_8 = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(0x4800));
-  y = Q6_V_vmux_QVV(q_ge_8, one_v, y);
-  HVX_Vector y_neg = Q6_Vhf_vsub_VhfVhf(one_v, y);
-  return Q6_V_vmux_QVV(q_v_lt_0, y_neg, y);
-}
-
-static inline HVX_Vector htp_ops_lstm_sigmoid_fp16_fast20_vec(HVX_Vector v,
-                                                              HVX_Vector zero_v,
-                                                              HVX_Vector one_v) {
-  HVX_VectorPred q_v_lt_0 = Q6_Q_vcmp_gt_VhfVhf(zero_v, v);
-  HVX_Vector neg_v = Q6_Vhf_vsub_VhfVhf(zero_v, v);
-  HVX_Vector ax = Q6_V_vmux_QVV(q_v_lt_0, neg_v, v);
-
-  static const uint16_t slope_bits[20] = {
-      0x33f5, 0x33b7, 0x3343, 0x32a4, 0x31eb, 0x3128, 0x3067, 0x2f62,
-      0x2e1b, 0x2cfd, 0x2c0a, 0x2a7b, 0x292c, 0x281a, 0x267d, 0x251c,
-      0x21c8, 0x1c52, 0x1665, 0x10b7};
-  static const uint16_t bias_bits[20] = {
-      0x3800, 0x3804, 0x3812, 0x3830, 0x385e, 0x389b, 0x38e4, 0x3933,
-      0x3985, 0x39d5, 0x3a22, 0x3a68, 0x3aa7, 0x3ade, 0x3b0e, 0x3b38,
-      0x3b7f, 0x3bc7, 0x3be8, 0x3bf6};
-  static const uint16_t edge_bits[19] = {
-      0x3400, 0x3800, 0x3a00, 0x3c00, 0x3d00, 0x3e00, 0x3f00, 0x4000,
-      0x4080, 0x4100, 0x4180, 0x4200, 0x4280, 0x4300, 0x4380, 0x4400,
-      0x4500, 0x4600, 0x4700};
-
-  HVX_Vector slope = Q6_Vh_vsplat_R(slope_bits[0]);
-  HVX_Vector bias = Q6_Vh_vsplat_R(0x3800);
-#pragma unroll
-  for (int i = 1; i < 20; ++i) {
-    HVX_VectorPred q_ge_edge = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(edge_bits[i - 1]));
-    slope = Q6_V_vmux_QVV(q_ge_edge, Q6_Vh_vsplat_R(slope_bits[i]), slope);
-    bias = Q6_V_vmux_QVV(q_ge_edge, Q6_Vh_vsplat_R(bias_bits[i]), bias);
-  }
-  HVX_Vector y = Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vmpy_VhfVhf(ax, slope), bias);
-
-  HVX_VectorPred q_ge_8 = Q6_Q_vcmp_gt_VhfVhf(ax, Q6_Vh_vsplat_R(0x4800));
-  y = Q6_V_vmux_QVV(q_ge_8, one_v, y);
-  HVX_Vector y_neg = Q6_Vhf_vsub_VhfVhf(one_v, y);
-  return Q6_V_vmux_QVV(q_v_lt_0, y_neg, y);
-}
-
-static inline HVX_Vector htp_ops_lstm_tanh_fp16_fast20_vec(HVX_Vector v,
+static inline HVX_Vector htp_ops_lstm_sigmoid_fp16_pwl_vec(HVX_Vector v,
                                                            HVX_Vector zero_v,
-                                                           HVX_Vector one_v,
-                                                           HVX_Vector two_v) {
+                                                           HVX_Vector one_v) {
+  const HVX_Vector four_v = Q6_Vh_vsplat_R(0x4400);
+  const HVX_Vector eight_v = Q6_Vh_vsplat_R(0x4800);
+  const HVX_VectorPred negative = Q6_Q_vcmp_gt_VhfVhf(zero_v, v);
+  const HVX_Vector abs_v = Q6_V_vmux_QVV(negative, Q6_Vhf_vsub_VhfVhf(zero_v, v), v);
+  const HVX_VectorPred high_bank = Q6_Q_vcmp_gt_VhfVhf(abs_v, four_v);
+  const HVX_Vector high_x = Q6_Vhf_vsub_VhfVhf(abs_v, four_v);
+  const HVX_Vector low_index = htp_ops_lstm_pwl_strict_index16(abs_v, 0x4400);
+  const HVX_Vector high_index = htp_ops_lstm_pwl_strict_index16(high_x, 0x3c00);
+  HVX_Vector slope = htp_ops_pwl_lookup16(low_index, htp_ops_lstm_sigmoid_slope_lo);
+  HVX_Vector bias = htp_ops_pwl_lookup16(low_index, htp_ops_lstm_sigmoid_bias_lo);
+  slope = Q6_V_vmux_QVV(high_bank,
+                        htp_ops_pwl_lookup16(high_index, htp_ops_lstm_sigmoid_slope_hi), slope);
+  bias = Q6_V_vmux_QVV(high_bank,
+                       htp_ops_pwl_lookup16(high_index, htp_ops_lstm_sigmoid_bias_hi), bias);
+  HVX_Vector y = Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vmpy_VhfVhf(abs_v, slope), bias);
+  const HVX_VectorPred saturated = Q6_Q_not_Q(Q6_Q_vcmp_gt_VhfVhf(eight_v, abs_v));
+  y = Q6_V_vmux_QVV(saturated, one_v, y);
+  const HVX_Vector y_neg = Q6_Vhf_vsub_VhfVhf(one_v, y);
+  return Q6_V_vmux_QVV(negative, y_neg, y);
+}
+
+static inline HVX_Vector htp_ops_lstm_tanh_fp16_pwl_vec(HVX_Vector v,
+                                                        HVX_Vector zero_v,
+                                                        HVX_Vector one_v,
+                                                        HVX_Vector two_v) {
   HVX_Vector two_x = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(v, two_v));
-  HVX_Vector sig = htp_ops_lstm_sigmoid_fp16_fast20_vec(two_x, zero_v, one_v);
+  HVX_Vector sig = htp_ops_lstm_sigmoid_fp16_pwl_vec(two_x, zero_v, one_v);
   return Q6_Vhf_vsub_VhfVhf(Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(sig, two_v)), one_v);
 }
 
@@ -270,39 +199,39 @@ static inline void htp_ops_lstm_gate_update_range(const HtpOpsLstmGateTask* task
       const int stateIndex = batchIndex * hiddenSize + h;
       const int yIndex = task->yBaseIndex + stateIndex;
       HVX_Vector inputI = task->inputGatePacked ? htp_ops_lstm_load_packed_gate_vec(task->inputGateBase, inputPackedRow, 0, task->packedGateTiles, task->hiddenTiles, h)
-                                                : vmem((const HVX_Vector*)(inputGateBase + h));
+                                                : vmemu((const HVX_Vector*)(inputGateBase + h));
       HVX_Vector inputO = task->inputGatePacked ? htp_ops_lstm_load_packed_gate_vec(task->inputGateBase, inputPackedRow, 1, task->packedGateTiles, task->hiddenTiles, h)
-                                                : vmem((const HVX_Vector*)(inputGateBase + hiddenSize + h));
+                                                : vmemu((const HVX_Vector*)(inputGateBase + hiddenSize + h));
       HVX_Vector inputF = task->inputGatePacked ? htp_ops_lstm_load_packed_gate_vec(task->inputGateBase, inputPackedRow, 2, task->packedGateTiles, task->hiddenTiles, h)
-                                                : vmem((const HVX_Vector*)(inputGateBase + 2 * hiddenSize + h));
+                                                : vmemu((const HVX_Vector*)(inputGateBase + 2 * hiddenSize + h));
       HVX_Vector inputC = task->inputGatePacked ? htp_ops_lstm_load_packed_gate_vec(task->inputGateBase, inputPackedRow, 3, task->packedGateTiles, task->hiddenTiles, h)
-                                                : vmem((const HVX_Vector*)(inputGateBase + 3 * hiddenSize + h));
+                                                : vmemu((const HVX_Vector*)(inputGateBase + 3 * hiddenSize + h));
       HVX_Vector recurI = task->recurrentGatePacked ? htp_ops_lstm_load_packed_gate_vec(task->recurrentGate, batchIndex, 0, task->packedGateTiles, task->hiddenTiles, h)
-                                                    : vmem((const HVX_Vector*)(recurrentGateBase + h));
+                                                    : vmemu((const HVX_Vector*)(recurrentGateBase + h));
       HVX_Vector recurO = task->recurrentGatePacked ? htp_ops_lstm_load_packed_gate_vec(task->recurrentGate, batchIndex, 1, task->packedGateTiles, task->hiddenTiles, h)
-                                                    : vmem((const HVX_Vector*)(recurrentGateBase + hiddenSize + h));
+                                                    : vmemu((const HVX_Vector*)(recurrentGateBase + hiddenSize + h));
       HVX_Vector recurF = task->recurrentGatePacked ? htp_ops_lstm_load_packed_gate_vec(task->recurrentGate, batchIndex, 2, task->packedGateTiles, task->hiddenTiles, h)
-                                                    : vmem((const HVX_Vector*)(recurrentGateBase + 2 * hiddenSize + h));
+                                                    : vmemu((const HVX_Vector*)(recurrentGateBase + 2 * hiddenSize + h));
       HVX_Vector recurC = task->recurrentGatePacked ? htp_ops_lstm_load_packed_gate_vec(task->recurrentGate, batchIndex, 3, task->packedGateTiles, task->hiddenTiles, h)
-                                                    : vmem((const HVX_Vector*)(recurrentGateBase + 3 * hiddenSize + h));
+                                                    : vmemu((const HVX_Vector*)(recurrentGateBase + 3 * hiddenSize + h));
       HVX_Vector gateI = Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vadd_VhfVhf(inputI, recurI), biasI);
       HVX_Vector gateO = Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vadd_VhfVhf(inputO, recurO), biasO);
       HVX_Vector gateF = Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vadd_VhfVhf(inputF, recurF), biasF);
       HVX_Vector gateC = Q6_Vhf_vadd_VhfVhf(Q6_Vhf_vadd_VhfVhf(inputC, recurC), biasC);
-      HVX_Vector inputGateValue = htp_ops_lstm_sigmoid_fp16_fast20_vec(gateI, task->zero_v, task->one_v);
-      HVX_Vector outputGateValue = htp_ops_lstm_sigmoid_fp16_fast20_vec(gateO, task->zero_v, task->one_v);
-      HVX_Vector forgetGateValue = htp_ops_lstm_sigmoid_fp16_fast20_vec(gateF, task->zero_v, task->one_v);
-      HVX_Vector cellGate = htp_ops_lstm_tanh_fp16_fast20_vec(gateC, task->zero_v, task->one_v, task->two_v);
-      HVX_Vector oldCell = vmem((const HVX_Vector*)(task->cell + stateIndex));
+      HVX_Vector inputGateValue = htp_ops_lstm_sigmoid_fp16_pwl_vec(gateI, task->zero_v, task->one_v);
+      HVX_Vector outputGateValue = htp_ops_lstm_sigmoid_fp16_pwl_vec(gateO, task->zero_v, task->one_v);
+      HVX_Vector forgetGateValue = htp_ops_lstm_sigmoid_fp16_pwl_vec(gateF, task->zero_v, task->one_v);
+      HVX_Vector cellGate = htp_ops_lstm_tanh_fp16_pwl_vec(gateC, task->zero_v, task->one_v, task->two_v);
+      HVX_Vector oldCell = vmemu((const HVX_Vector*)(task->cell + stateIndex));
       HVX_Vector forgetPart = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(forgetGateValue, oldCell));
       HVX_Vector inputPart = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(inputGateValue, cellGate));
       HVX_Vector cellValue = Q6_Vhf_vadd_VhfVhf(forgetPart, inputPart);
       HVX_Vector hiddenValue = Q6_Vhf_equals_Vqf16(
           Q6_Vqf16_vmpy_VhfVhf(outputGateValue,
-                               htp_ops_lstm_tanh_fp16_fast20_vec(cellValue, task->zero_v, task->one_v, task->two_v)));
-      vmem((HVX_Vector*)(task->cell + stateIndex)) = cellValue;
-      vmem((HVX_Vector*)(task->hidden + stateIndex)) = hiddenValue;
-      vmem((HVX_Vector*)(task->y + yIndex)) = hiddenValue;
+                               htp_ops_lstm_tanh_fp16_pwl_vec(cellValue, task->zero_v, task->one_v, task->two_v)));
+      vmemu((HVX_Vector*)(task->cell + stateIndex)) = cellValue;
+      vmemu((HVX_Vector*)(task->hidden + stateIndex)) = hiddenValue;
+      vmemu((HVX_Vector*)(task->y + yIndex)) = hiddenValue;
     }
   }
 }
@@ -315,7 +244,7 @@ static void htp_ops_lstm_gate_worker(void* data, int worker_id) {
 }
 
 static inline int htp_ops_lstm_pick_gate_tasks(int batch) {
-  if (batch < 32 || g_max_num_workers <= 1) {
+  if (g_max_num_workers <= 1) {
     return 1;
   }
   int tasks = (int)g_max_num_workers;
@@ -335,15 +264,15 @@ static inline void htp_ops_lstm_hmx_pack_activation(__fp16* dst, const __fp16* s
     for (; r <= validRows - 2; r += 2) {
       const __fp16* src0 = src + (rowBase + r) * rowStride + kBegin;
       const __fp16* src1 = src + (rowBase + r + 1) * rowStride + kBegin;
-      HVX_Vector v0 = vmem((const HVX_Vector*)src0);
-      HVX_Vector v1 = vmem((const HVX_Vector*)src1);
+      HVX_Vector v0 = vmemu((const HVX_Vector*)src0);
+      HVX_Vector v1 = vmemu((const HVX_Vector*)src1);
       HVX_VectorPair vp = Q6_W_vdeal_VVR(v1, v0, 64);
       vmem((HVX_Vector*)((uint8_t*)tile0 + r * 64)) = Q6_Vh_vshuff_Vh(Q6_V_lo_W(vp));
       vmem((HVX_Vector*)((uint8_t*)tile1 + r * 64)) = Q6_Vh_vshuff_Vh(Q6_V_hi_W(vp));
     }
     if (r < validRows) {
       const __fp16* src0 = src + (rowBase + r) * rowStride + kBegin;
-      HVX_Vector v0 = vmem((const HVX_Vector*)src0);
+      HVX_Vector v0 = vmemu((const HVX_Vector*)src0);
       HVX_Vector v1 = Q6_V_vzero();
       HVX_VectorPair vp = Q6_W_vdeal_VVR(v1, v0, 64);
       vmem((HVX_Vector*)((uint8_t*)tile0 + r * 64)) = Q6_Vh_vshuff_Vh(Q6_V_lo_W(vp));
@@ -555,6 +484,12 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
   const int inputKp = htp_ops_lstm_up_div(inputSize, 32);
   const int recurrentKp = htp_ops_lstm_up_div(hiddenSize, 32);
   const int weightKpStride = inputKp > recurrentKp ? inputKp : recurrentKp;
+  const int np = htp_ops_lstm_up_div(gateSize, 32);
+  constexpr int inputGateBlockSteps = 16;
+  const int inputGateBlockRows = inputGateBlockSteps * batch;
+  const int inputGateBlockRowBlocks = htp_ops_lstm_up_div(inputGateBlockRows, 32);
+  const int recurrentGateRowBlocks = htp_ops_lstm_up_div(batch, 32);
+  const bool usePackedGate = batch >= 32;
   const int xSize = sizes[0];
   const int wSize = sizes[1];
   const int rSize = sizes[2];
@@ -567,7 +502,14 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
   const int stateSize = batch * hiddenSize;
   const int biasDirectionStride = direction > 0 ? bSize / direction : gateSize;
   const size_t stateBytes = (size_t)stateSize * sizeof(__fp16);
-  const size_t requiredScratchBytes = 2 * stateBytes;
+  size_t requiredScratchBytes = 2 * stateBytes;
+  const size_t inputGateBytes = usePackedGate ? inputGateBlockRowBlocks * (size_t)np * 1024 * sizeof(__fp16)
+                                              : (size_t)inputGateBlockRows * gateSize * sizeof(__fp16);
+  const size_t recurrentGateBytes = usePackedGate ? recurrentGateRowBlocks * (size_t)np * 1024 * sizeof(__fp16)
+                                                  : (size_t)batch * gateSize * sizeof(__fp16);
+  if (!usePackedGate) {
+    requiredScratchBytes += inputGateBytes + recurrentGateBytes;
+  }
   if (scratch == nullptr || scratchBytes < 0 || (size_t)scratchBytes < requiredScratchBytes) {
     return AEE_ENOMEMORY;
   }
@@ -575,22 +517,23 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
   __fp16* hidden = (__fp16*)scratchPtr;
   scratchPtr += stateBytes;
   __fp16* cell = (__fp16*)scratchPtr;
+  scratchPtr += stateBytes;
   uint8_t* vtcmPtr = (uint8_t*)vtcm_manager_get_vtcm_base();
-  const int np = htp_ops_lstm_up_div(gateSize, 32);
   __fp16* vtcmActivation = (__fp16*)vtcm_seq_alloc(&vtcmPtr, (size_t)weightKpStride * 1024 * sizeof(__fp16));
   __fp16* vtcmInputWeight = (__fp16*)vtcm_seq_alloc(&vtcmPtr, (size_t)np * weightKpStride * 1024 * sizeof(__fp16));
   __fp16* vtcmRecurrentWeight = (__fp16*)vtcm_seq_alloc(&vtcmPtr, (size_t)np * weightKpStride * 1024 * sizeof(__fp16));
   __fp16* vtcmOutput = (__fp16*)vtcm_seq_alloc(&vtcmPtr, 1024 * sizeof(__fp16));
   __fp16* vtcmScales = (__fp16*)vtcm_seq_alloc(&vtcmPtr, 256);
   htp_ops_lstm_align_vtcm(&vtcmPtr, 2048);
-  constexpr int inputGateBlockSteps = 16;
-  const int inputGateBlockRows = inputGateBlockSteps * batch;
-  const int inputGateBlockRowBlocks = htp_ops_lstm_up_div(inputGateBlockRows, 32);
-  const int recurrentGateRowBlocks = htp_ops_lstm_up_div(batch, 32);
-  __fp16* vtcmStepInputGate = (__fp16*)vtcm_seq_alloc(&vtcmPtr,
-                                                      inputGateBlockRowBlocks * (size_t)np * 1024 * sizeof(__fp16));
-  __fp16* vtcmRecurrentGate = (__fp16*)vtcm_seq_alloc(&vtcmPtr,
-                                                      recurrentGateRowBlocks * (size_t)np * 1024 * sizeof(__fp16));
+  __fp16* vtcmStepInputGate = usePackedGate
+                                  ? (__fp16*)vtcm_seq_alloc(&vtcmPtr, inputGateBytes)
+                                  : (__fp16*)scratchPtr;
+  if (!usePackedGate) {
+    scratchPtr += inputGateBytes;
+  }
+  __fp16* vtcmRecurrentGate = usePackedGate
+                                  ? (__fp16*)vtcm_seq_alloc(&vtcmPtr, recurrentGateBytes)
+                                  : (__fp16*)scratchPtr;
   if (vtcmActivation == nullptr || vtcmInputWeight == nullptr || vtcmRecurrentWeight == nullptr ||
       vtcmOutput == nullptr || vtcmScales == nullptr || vtcmStepInputGate == nullptr || vtcmRecurrentGate == nullptr) {
     return AEE_ENOMEMORY;
@@ -652,8 +595,8 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
       }
       for (int h = 0; h < hiddenSize; h += 64) {
         const int stateIndex = batchIndex * hiddenSize + h;
-        vmem((HVX_Vector*)(hidden + stateIndex)) = vmemu((const HVX_Vector*)(h0Ptr + initIndex + h));
-        vmem((HVX_Vector*)(cell + stateIndex)) = vmemu((const HVX_Vector*)(c0Ptr + initIndex + h));
+        vmemu((HVX_Vector*)(hidden + stateIndex)) = vmemu((const HVX_Vector*)(h0Ptr + initIndex + h));
+        vmemu((HVX_Vector*)(cell + stateIndex)) = vmemu((const HVX_Vector*)(c0Ptr + initIndex + h));
       }
     }
 
@@ -677,10 +620,10 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
       singleGateTask.hiddenTiles = hiddenSize >> 5;
       singleGateTask.startBatch = 0;
       singleGateTask.batchCount = batch;
-      singleGateTask.inputGateInVtcm = true;
-      singleGateTask.recurrentGateInVtcm = true;
-      singleGateTask.inputGatePacked = true;
-      singleGateTask.recurrentGatePacked = true;
+      singleGateTask.inputGateInVtcm = usePackedGate;
+      singleGateTask.recurrentGateInVtcm = usePackedGate;
+      singleGateTask.inputGatePacked = usePackedGate;
+      singleGateTask.recurrentGatePacked = usePackedGate;
     } else {
       const int batchPerTask = (batch + gateTasks - 1) / gateTasks;
       for (int taskIndex = 0; taskIndex < gateTasks; ++taskIndex) {
@@ -704,10 +647,10 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
         gateTaskStorage[taskIndex].hiddenTiles = hiddenSize >> 5;
         gateTaskStorage[taskIndex].startBatch = startBatch;
         gateTaskStorage[taskIndex].batchCount = endBatch - startBatch;
-        gateTaskStorage[taskIndex].inputGateInVtcm = true;
-        gateTaskStorage[taskIndex].recurrentGateInVtcm = true;
-        gateTaskStorage[taskIndex].inputGatePacked = true;
-        gateTaskStorage[taskIndex].recurrentGatePacked = true;
+        gateTaskStorage[taskIndex].inputGateInVtcm = usePackedGate;
+        gateTaskStorage[taskIndex].recurrentGateInVtcm = usePackedGate;
+        gateTaskStorage[taskIndex].inputGatePacked = usePackedGate;
+        gateTaskStorage[taskIndex].recurrentGatePacked = usePackedGate;
         gateTaskStorage[taskIndex].sync_ctx = &gateSyncToken;
       }
     }
@@ -720,9 +663,14 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
       }
       const int copyBeginT = reverse ? seqLength - blockStart - blockSteps : blockStart;
       const __fp16* blockX = xPtr + (size_t)copyBeginT * batch * inputSize;
-      if (!htp_ops_lstm_hmx_matmul_prepacked_k64_packed(vtcmStepInputGate, blockX, vtcmInputWeight, blockSteps * batch,
-                                                        gateSize, inputKp, weightKpStride, inputSize,
-                                                        vtcmActivation)) {
+      const bool inputMatmulOk = usePackedGate
+          ? htp_ops_lstm_hmx_matmul_prepacked_k64_packed(vtcmStepInputGate, blockX, vtcmInputWeight,
+                                                         blockSteps * batch, gateSize, inputKp, weightKpStride,
+                                                         inputSize, vtcmActivation)
+          : htp_ops_lstm_hmx_matmul_prepacked_k64(vtcmStepInputGate, blockX, vtcmInputWeight,
+                                                  blockSteps * batch, gateSize, inputKp, weightKpStride,
+                                                  inputSize, gateSize, vtcmActivation, vtcmOutput, vtcmScales);
+      if (!inputMatmulOk) {
         hmx_unit_release();
         hmx_manager_disable_execution();
         return AEE_EFAILED;
@@ -730,9 +678,14 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
       for (int blockOffset = 0; blockOffset < blockSteps; ++blockOffset) {
         const int step = blockStart + blockOffset;
         const int t = reverse ? seqLength - 1 - step : step;
-        if (!htp_ops_lstm_hmx_matmul_prepacked_k64_packed(vtcmRecurrentGate, hidden, vtcmRecurrentWeight, batch,
-                                                          gateSize, recurrentKp, weightKpStride, hiddenSize,
-                                                          vtcmActivation)) {
+        const bool recurrentMatmulOk = usePackedGate
+            ? htp_ops_lstm_hmx_matmul_prepacked_k64_packed(vtcmRecurrentGate, hidden, vtcmRecurrentWeight,
+                                                           batch, gateSize, recurrentKp, weightKpStride,
+                                                           hiddenSize, vtcmActivation)
+            : htp_ops_lstm_hmx_matmul_prepacked_k64(vtcmRecurrentGate, hidden, vtcmRecurrentWeight,
+                                                    batch, gateSize, recurrentKp, weightKpStride,
+                                                    hiddenSize, gateSize, vtcmActivation, vtcmOutput, vtcmScales);
+        if (!recurrentMatmulOk) {
           hmx_unit_release();
           hmx_manager_disable_execution();
           return AEE_EFAILED;
@@ -776,7 +729,7 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
         }
         for (int h = 0; h < hiddenSize; h += 64) {
           const int stateIndex = batchIndex * hiddenSize + h;
-          vmemu((HVX_Vector*)(yhPtr + base + h)) = vmem((const HVX_Vector*)(hidden + stateIndex));
+          vmemu((HVX_Vector*)(yhPtr + base + h)) = vmemu((const HVX_Vector*)(hidden + stateIndex));
         }
       }
     }
@@ -790,7 +743,7 @@ static inline AEEResult htp_ops_lstm_fast_fp16(uint8_t* y, uint8_t* yh, uint8_t*
         }
         for (int h = 0; h < hiddenSize; h += 64) {
           const int stateIndex = batchIndex * hiddenSize + h;
-          vmemu((HVX_Vector*)(ycPtr + base + h)) = vmem((const HVX_Vector*)(cell + stateIndex));
+          vmemu((HVX_Vector*)(ycPtr + base + h)) = vmemu((const HVX_Vector*)(cell + stateIndex));
         }
       }
     }

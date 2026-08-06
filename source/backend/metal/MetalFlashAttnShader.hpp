@@ -332,5 +332,301 @@ kernel void prefill_flash_attn(
 }
 )metal";
 
+//  ---------------------------------------------------------------------------
+//  prefill_flash_attn_nax -- fused prefill attention on the Metal tensor API.
+//
+//  Why the tensor API: an 8x8 simdgroup_matrix variant of this fused structure
+//  (prefill_flash_attn_v2, removed 2026-07-30) was numerically correct but lost
+//  to the three-stage path on M5, because 8x8 simdgroup_matrix delivers about
+//  half the FLOP efficiency of matmul2d for these shapes (see
+//  skills/metal-optimize/mlx-comparison.md 9.1). This version keeps the same
+//  fused structure -- S and O resident in registers, scores never written to
+//  global memory -- but does the matmuls with matmul2d.
+//
+//  matmul2d input cooperative tensors are only allowed at single-simdgroup
+//  scope, so each simdgroup runs its own 16x32x16 matmul and every operand is a
+//  cooperative tensor. That is what lets the QK destination become the PV left
+//  operand in registers.
+//
+//  Per-lane element layout of those cooperative tensors is dumped and documented
+//  in skills/metal-optimize/kernel-basics.md; the two facts this kernel leans on
+//  are that a lane owns exactly two M rows (fm and fm+8) and that row-mates
+//  differ only in lane bits 0 and 3.
+//
+//  Macros: ftype, HEAD_DIM (64/128), GROUP_SIZE, ATTENTION_C4, HAS_MASK.
+//  Tiles: 64 queries/threadgroup over 4 simdgroups (16 rows each), 32 kv/step.
+//  Zero threadgroup memory: Q/K/V go straight from device to registers.
+//  ---------------------------------------------------------------------------
+const char* gPrefillFlashAttnNax = R"metal(
+#include <metal_stdlib>
+#include <metal_tensor>
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
+using namespace metal;
+using namespace mpp::tensor_ops;
+
+struct FaParam {
+    int query_seq_len;
+    int q_seq_piece_len;
+    int key_seq_len;
+    int head_num;
+    int group;
+    int head_dim;
+    float scale;
+    int max_kv_len;
+    int batch;
+    int kv_align_len;
+    int mask_batch;
+    int mask_head_num;
+    int mask_q_len;
+    int mask_k_len;
+    float v_scale;
+    float k_scale;
+};
+
+static inline long fanax_mask_offset(constant FaParam& param, int b, int hn, int q, int k) {
+    int mask_b = param.mask_batch <= 1 ? 0 : b;
+    int mask_h = param.mask_head_num <= 1 ? 0 : hn;
+    int mask_q = param.mask_q_len <= 1 ? 0 : min(q, param.mask_q_len - 1);
+    int mask_k_start = max(param.key_seq_len - param.mask_k_len, 0);
+    int local_k = param.mask_k_len <= 1 ? 0 : clamp(k - mask_k_start, 0, param.mask_k_len - 1);
+    return ((long(mask_b) * param.mask_head_num + mask_h) * param.mask_q_len + mask_q) * (long)param.mask_k_len + local_k;
+}
+
+#define FANAX_NSG   4
+#define FANAX_BQ    64                   // queries per threadgroup (16 per simdgroup)
+#define FANAX_BK    32                   // kv columns per step (= matmul2d N)
+#define FANAX_TK    (FANAX_BK / 16)      // 2 kv frags
+#define FANAX_TD    (HEAD_DIM / 16)      // head_dim frags
+#define FANAX_NEG   (-1.0e30f)
+
+// Both matmuls use transpose_b, which happens to match MNN's cache layouts and
+// keeps every device read contiguous:
+//   QK: D[q][kv] = Q[q][d] * K^T, K supplied as stored [kv][d]
+//   PV: D[q][d]  = P[q][kv] * V^T, V supplied as stored [d][kv] (already
+//       transposed in the cache, so the 4 elements a lane reads are 4
+//       consecutive kv -- with transpose_b=false they would have been 4 d values
+//       strided by max_kv_len instead).
+#define FANAX_DESC matmul2d_descriptor(16, 32, 16, false, true, true, \
+                                       matmul2d_descriptor::mode::multiply_accumulate)
+
+kernel void prefill_flash_attn_nax(
+    const device ftype* Q       [[buffer(0)]],
+    device ftype* O             [[buffer(1)]],
+    const device ftype* K       [[buffer(2)]],
+    const device ftype* V       [[buffer(3)]],
+    constant FaParam& param     [[buffer(4)]],
+    constant int& seq_idx       [[buffer(5)]],
+#ifdef HAS_MASK
+    const device ftype* Mask    [[buffer(8)]],
+#endif
+    uint3 tgpig  [[threadgroup_position_in_grid]],
+    ushort tiisg [[thread_index_in_simdgroup]],
+    ushort sgitg [[simdgroup_index_in_threadgroup]])
+{
+    const int hb = int(tgpig.y);
+    const int b  = hb / param.head_num;
+    const int h  = hb % param.head_num;
+    const int kh = h / param.group;
+
+    const int seq_q = param.query_seq_len;
+    const int seq_k = param.key_seq_len;
+    const int kv_valid_offset = seq_k - seq_q;
+    const int kv_heads = param.head_num / param.group;
+    // Each simdgroup owns 16 consecutive query rows of this threadgroup's 64.
+    const int q_row_base = int(tgpig.x) * FANAX_BQ + seq_idx * param.q_seq_piece_len
+                         + int(sgitg) * 16;
+
+    // Per-lane base offsets inside a cooperative tensor tile (kernel-basics.md):
+    // fn indexes 4 consecutive elements of the fast axis, fm the slow axis.
+    const ushort qid = tiisg >> 2;
+    const ushort fm  = (qid & 4) | ((tiisg >> 1) & 3);
+    const ushort fn  = ((qid & 2) | (tiisg & 1)) * 4;
+
+    matmul2d<FANAX_DESC, metal::execution_simdgroup> mm;
+
+    // O accumulator: HEAD_DIM/32 destination tiles of 16x32, 16 floats each.
+    float o_acc[FANAX_TD / 2][16];
+    for (int t = 0; t < FANAX_TD / 2; t++) {
+        for (int i = 0; i < 16; i++) {
+            o_acc[t][i] = 0.0f;
+        }
+    }
+    // A lane owns exactly two query rows (fm and fm+8), so the softmax state is
+    // two running maxima and two running sums.
+    float run_max[2] = {FANAX_NEG, FANAX_NEG};
+    float run_sum[2] = {0.0f, 0.0f};
+
+    // exp2-based softmax wants logits in log2 units; fold scale*log2(e) into Q.
+    const float qscale = param.scale * M_LOG2E_F;
+
+    // Hoisted addressing: all offsets below are 32-bit and loop-invariant except
+    // for the tile index, and every gather reads 4 consecutive halves.
+    const int q_row_stride = param.head_num * param.head_dim;
+    const int k_row_stride = param.batch * kv_heads * param.head_dim;
+    const int v_row_stride = param.max_kv_len;
+    const device ftype* q_lane = Q + ((long)b * seq_q * param.head_num + h) * param.head_dim
+                                  + (long)(q_row_base + int(fm)) * q_row_stride + int(fn);
+    const device ftype* k_head = K + ((long)b * kv_heads + kh) * param.head_dim + int(fn);
+    const device ftype* v_head = V + ((long)b * kv_heads + kh) * param.head_dim * v_row_stride + int(fn);
+
+    // Tile-level causal bounds: blocks fully above the diagonal never run, and
+    // blocks fully below it skip masking entirely.
+    const int kv_lim = min(seq_k, q_row_base + 16 + kv_valid_offset);
+    const int kv_no_mask_end = q_row_base + kv_valid_offset;
+    const int q_valid_rows = seq_q - q_row_base;   // rows >= this are padding
+
+    for (int kv0 = 0; kv0 < kv_lim; kv0 += FANAX_BK) {
+        // ---- QK: S[16 q][32 kv], accumulated over head_dim ----
+        float s_acc[16];
+        for (int i = 0; i < 16; i++) {
+            s_acc[i] = 0.0f;
+        }
+        for (int dd = 0; dd < FANAX_TD; dd++) {
+            auto ct_a = mm.get_left_input_cooperative_tensor<ftype, ftype, float>();
+            auto ct_b = mm.get_right_input_cooperative_tensor<ftype, ftype, float>();
+            auto ct_c = mm.get_destination_cooperative_tensor<decltype(ct_a), decltype(ct_b), float>();
+
+            // A[m=q][k=d]: k = fn + (j&3) (4 consecutive), m = fm + (j>>2)*8
+            const device ftype* qp = q_lane + dd * 16;
+            for (ushort g = 0; g < 2; g++) {
+                const bool row_ok = (int(fm) + g * 8) < q_valid_rows;
+                ftype4 qv = row_ok ? *(const device ftype4*)(qp + g * 8 * q_row_stride) : ftype4(0);
+                for (ushort j = 0; j < 4; j++) {
+                    ct_a[g * 4 + j] = ftype(float(qv[j]) * qscale);
+                }
+            }
+            // B stored [n=kv][k=d]: k = fn + (j&3), n = fm + g*8 + f*16
+            const device ftype* kp = k_head + dd * 16;
+            for (ushort f = 0; f < 2; f++) {
+            for (ushort g = 0; g < 2; g++) {
+                    const int kv = kv0 + int(fm) + g * 8 + f * 16;
+                    ftype4 kvv = (kv < seq_k) ? *(const device ftype4*)(kp + kv * k_row_stride) : ftype4(0);
+                for (ushort j = 0; j < 4; j++) {
+                        const ushort i = f * 8 + g * 4 + j;
+                        ct_b[i] = kvv[j];
+                        ct_c[i] = s_acc[i];
+                    }
+                }
+            }
+            mm.run(ct_a, ct_b, ct_c);
+        for (ushort i = 0; i < 16; i++) {
+                s_acc[i] = ct_c[i];
+            }
+        }
+
+        // ---- mask, in registers. In a destination tile element i sits at
+        // (m = fm + ((i>>2)&1)*8, n = fn + (i&3) + (i>>3)*16).
+        const bool tile_all_valid = (kv0 + FANAX_BK - 1) <= kv_no_mask_end && (kv0 + FANAX_BK) <= seq_k;
+        if (!tile_all_valid) {
+        for (ushort i = 0; i < 16; i++) {
+                const int qr = q_row_base + int(fm) + ((i >> 2) & 1) * 8;
+                const int kv = kv0 + int(fn) + (i & 3) + (i >> 3) * 16;
+                const bool ok = (kv < seq_k) && (kv <= qr + kv_valid_offset);
+                s_acc[i] = ok ? s_acc[i] : FANAX_NEG;
+            }
+#ifdef HAS_MASK
+        for (ushort i = 0; i < 16; i++) {
+                const int qr = q_row_base + int(fm) + ((i >> 2) & 1) * 8;
+                const int kv = kv0 + int(fn) + (i & 3) + (i >> 3) * 16;
+                if (s_acc[i] > FANAX_NEG && kv < seq_k && qr < seq_q) {
+                    s_acc[i] += M_LOG2E_F * float(Mask[fanax_mask_offset(param, b, h, qr, kv)]);
+                }
+            }
+#endif
+        }
+
+        // ---- online softmax; element i belongs to row half (i>>2)&1 ----
+        float m_new[2] = {run_max[0], run_max[1]};
+        for (ushort i = 0; i < 16; i++) {
+            const ushort r = (i >> 2) & 1;
+            m_new[r] = max(m_new[r], s_acc[i]);
+        }
+        float tile_sum[2] = {0.0f, 0.0f};
+        float factor[2];
+    for (int r = 0; r < 2; r++) {
+            // Row-mates are the lanes differing in bits 0 and 3.
+            m_new[r] = max(m_new[r], simd_shuffle_xor(m_new[r], 1u));
+            m_new[r] = max(m_new[r], simd_shuffle_xor(m_new[r], 8u));
+        }
+        for (ushort i = 0; i < 16; i++) {
+            const ushort r = (i >> 2) & 1;
+            const float p = exp2(s_acc[i] - m_new[r]);
+            s_acc[i] = p;
+            tile_sum[r] += p;
+        }
+    for (int r = 0; r < 2; r++) {
+            tile_sum[r] += simd_shuffle_xor(tile_sum[r], 1u);
+            tile_sum[r] += simd_shuffle_xor(tile_sum[r], 8u);
+            factor[r] = (run_max[r] == FANAX_NEG) ? 0.0f : exp2(run_max[r] - m_new[r]);
+            run_sum[r] = run_sum[r] * factor[r] + tile_sum[r];
+            run_max[r] = m_new[r];
+        }
+    for (int t = 0; t < FANAX_TD / 2; t++) {
+        for (ushort i = 0; i < 16; i++) {
+                o_acc[t][i] *= factor[(i >> 2) & 1];
+            }
+        }
+
+        // ---- PV: O[16 q][32 d] += P[16 q][16 kv] * V^T ----
+        // P needs no shuffling: the QK destination element carrying (m, kv) is
+        // exactly the one the PV left operand wants at (m, k=kv).
+        for (int ik = 0; ik < FANAX_TK; ik++) {
+    for (int t = 0; t < FANAX_TD / 2; t++) {
+                auto ct_a = mm.get_left_input_cooperative_tensor<float, ftype, float>();
+                auto ct_b = mm.get_right_input_cooperative_tensor<float, ftype, float>();
+                auto ct_c = mm.get_destination_cooperative_tensor<decltype(ct_a), decltype(ct_b), float>();
+
+                for (ushort j = 0; j < 8; j++) {
+                    ct_a[j] = s_acc[ik * 8 + (j >> 2) * 4 + (j & 3)];
+                }
+                // B stored [n=d][k=kv]: k = kv0 + ik*16 + fn + (j&3) (4
+                // consecutive), n = d = t*32 + fm + g*8 + f*16
+                const device ftype* vp = v_head + kv0 + ik * 16;
+            for (ushort f = 0; f < 2; f++) {
+            for (ushort g = 0; g < 2; g++) {
+                        const int d = t * 32 + int(fm) + g * 8 + f * 16;
+                        ftype4 vv = *(const device ftype4*)(vp + d * v_row_stride);
+                for (ushort j = 0; j < 4; j++) {
+                            const ushort i = f * 8 + g * 4 + j;
+                            ct_b[i] = vv[j];
+                            ct_c[i] = o_acc[t][i];
+                        }
+                    }
+                }
+                mm.run(ct_a, ct_b, ct_c);
+        for (ushort i = 0; i < 16; i++) {
+                    o_acc[t][i] = ct_c[i];
+                }
+            }
+        }
+    }
+
+    // ---- epilogue: normalize per row, then write out ----
+    float inv_s[2];
+    for (int r = 0; r < 2; r++) {
+        inv_s[r] = (run_sum[r] > 0.0f) ? (1.0f / run_sum[r]) : 0.0f;
+    }
+    for (int t = 0; t < FANAX_TD / 2; t++) {
+        for (ushort i = 0; i < 16; i++) {
+            const ushort r = (i >> 2) & 1;
+            const int qr = q_row_base + int(fm) + r * 8;
+            if (qr >= seq_q) {
+                continue;
+            }
+            const int d = t * 32 + int(fn) + (i & 3) + (i >> 3) * 16;
+            const float v = o_acc[t][i] * inv_s[r];
+#ifdef ATTENTION_C4
+            long o_off = (long)(h * (param.head_dim / 4) + (d / 4)) * 4 * param.batch * seq_q
+                       + (long)(b * seq_q + qr) * 4
+                       + (d & 3);
+#else
+            long o_off = ((long)(b * seq_q + qr) * param.head_num + h) * param.head_dim + d;
+#endif
+            O[o_off] = ftype(v);
+        }
+    }
+}
+)metal";
+
 #endif /* MNN_SUPPORT_TRANSFORMER_FUSE */
 #endif /* MNN_METAL_ENABLED */

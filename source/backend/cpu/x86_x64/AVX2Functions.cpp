@@ -128,6 +128,7 @@ bool AVX2Functions::init(int cpuFlags) {
     coreFunction->pack = 8;
     coreFunction->MNNNormPacked = _MNNNormPacked_Float<8>;
     _AVX_ExtraInit(coreFunction);
+    _AVX_LinearAttentionInit(coreFunction);
     // Winograd
     _AVX_WinogradInit(coreFunction);
     if (cpuFlags & libyuv::kCpuHasFMA3) {
@@ -146,6 +147,7 @@ bool AVX2Functions::init(int cpuFlags) {
         coreFunction->MNNNormPacked = _MNNNormPacked_Float<16>;
         _AVX512_ReorderInit(coreFunction);
         _AVX512_ExtraInit(coreFunction);
+        _AVX512_LinearAttentionInit(coreFunction);
         _AVX512_WinogradInit(coreFunction);
         coreFunction->MNNPackForMatMul_B = _AVX512_MNNPackForMatMul_B;
         coreFunction->MNNPackC4ForMatMul_A = _AVX512_MNNPackC8ForMatMul_A;

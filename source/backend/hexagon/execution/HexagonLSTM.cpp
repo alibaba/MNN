@@ -162,7 +162,13 @@ ErrorCode HexagonLSTM::onBuildCmd(const std::vector<Tensor*>& inputs, const std:
     size_t scratchBytes = 4 * (size_t)stateSize * sizeof(float);
     if (canUseHmxLstm) {
         const size_t stateBytes = (size_t)stateSize * sizeof(int16_t);
-        scratchBytes = std::max(scratchBytes, 2 * stateBytes);
+        size_t hmxScratchBytes = 2 * stateBytes;
+        if (batch < 32) {
+            const int inputGateBlockSteps = 16;
+            const size_t inputGateBlockRows = (size_t)inputGateBlockSteps * batch;
+            hmxScratchBytes += (inputGateBlockRows + (size_t)batch) * gateSize * sizeof(int16_t);
+        }
+        scratchBytes = std::max(scratchBytes, hmxScratchBytes);
     }
     if (scratchBytes > (size_t)INT_MAX) {
         return NOT_SUPPORT;

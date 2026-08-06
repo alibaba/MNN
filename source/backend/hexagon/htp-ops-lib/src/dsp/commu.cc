@@ -1,7 +1,6 @@
 // Communication & RPC related interfaces
 
 #include <AEEStdErr.h>
-#include <dspqueue.h>
 #include <HAP_farf.h>
 #include <HAP_mem.h>
 #include <HAP_perf.h>
@@ -13,6 +12,7 @@
 #include <string.h>
 
 #include "dsp/hmx_mgr.h"
+#include "dsp/hmx_queue.h"
 #include "dsp/mmap_mgr.h"
 #include "dsp/ops.h"
 #include "dsp/power.h"
@@ -98,7 +98,6 @@ extern "C" {
 
 struct HtpOpsSessionContext {
   bool initialized;
-  dspqueue_t queue;
 };
 
 enum BackendLifecycleState {
@@ -110,9 +109,11 @@ enum BackendLifecycleState {
 static volatile int g_backend_ref_count = BACKEND_UNINITIALIZED;
 
 static void htp_ops_global_backend_setup() {
-  power_setup();
+  power_acquire();
   vtcm_manager_setup();
   hmx_manager_setup();
+  hmx_queue_setup();
+  power_release();
   worker_pool_global_init();
 }
 
@@ -120,9 +121,10 @@ static void htp_ops_global_backend_reset() {
   worker_pool_global_deinit();
   mmap_manager_release_all();
 
+  hmx_queue_reset();
   hmx_manager_reset();
   vtcm_manager_reset();
-  power_reset();
+  power_release_all();
 }
 
 static bool htp_ops_acquire_global_backend() {
@@ -166,8 +168,6 @@ static void htp_ops_release_global_backend() {
   }
 }
 
-static void htp_ops_queue_packet_callback(dspqueue_t queue, int error, void *context);
-static void htp_ops_queue_error_callback(dspqueue_t queue, int error, void *context);
 
 AEEResult htp_ops_execute_command_group(remote_handle64 handle, int32 groupFd, int32 groupOffset, int32 count,
                                         int32 syncGroupFd, int32 syncGroupOffset, int32 syncGroupSize);
@@ -197,11 +197,6 @@ AEEResult htp_ops_close(remote_handle64 handle) {
     return AEE_EBADPARM;
   }
 
-  if (ctx->queue) {
-    dspqueue_close(ctx->queue);
-    ctx->queue = NULL;
-  }
-
   if (ctx->initialized) {
     htp_ops_release_global_backend();
     ctx->initialized = false;
@@ -209,48 +204,6 @@ AEEResult htp_ops_close(remote_handle64 handle) {
 
   free(ctx);
 
-  return AEE_SUCCESS;
-}
-
-// FastRPC interface
-AEEResult htp_ops_start_queue(remote_handle64 handle, uint64 queueId) {
-  HtpOpsSessionContext *ctx = (HtpOpsSessionContext *)(uintptr_t)handle;
-  if (ctx == nullptr || !ctx->initialized) {
-    return AEE_EBADSTATE;
-  }
-  if (ctx->queue) {
-    return AEE_EITEMBUSY;
-  }
-
-  int err = dspqueue_import(queueId,
-                            htp_ops_queue_packet_callback,
-                            htp_ops_queue_error_callback,
-                            (void*)ctx,
-                            &ctx->queue);
-  if (err != AEE_SUCCESS) {
-    FARF(ERROR, "htp_ops_start_queue: dspqueue_import failed: 0x%08x", (unsigned)err);
-    ctx->queue = NULL;
-    return err;
-  }
-  return AEE_SUCCESS;
-}
-
-// FastRPC interface
-AEEResult htp_ops_stop_queue(remote_handle64 handle) {
-  HtpOpsSessionContext *ctx = (HtpOpsSessionContext *)(uintptr_t)handle;
-  if (ctx == nullptr) {
-    return AEE_EBADPARM;
-  }
-  if (!ctx->queue) {
-    return AEE_SUCCESS;
-  }
-
-  int err = dspqueue_close(ctx->queue);
-  ctx->queue = NULL;
-  if (err != AEE_SUCCESS) {
-    FARF(ERROR, "htp_ops_stop_queue: dspqueue_close failed: 0x%08x", (unsigned)err);
-    return err;
-  }
   return AEE_SUCCESS;
 }
 
@@ -275,95 +228,40 @@ AEEResult htp_ops_init_backend(remote_handle64 handle) {
   return AEE_SUCCESS;
 }
 
-#define MNN_DSPQUEUE_POLL_TIMEOUT_USEC 100
-#define MNN_DSPQUEUE_POLL_COUNT 100
-
-static void htp_ops_queue_packet_callback(dspqueue_t queue, int error, void *context) {
-  HtpOpsSessionContext *ctx = (HtpOpsSessionContext *)context;
-  if (ctx == nullptr) {
-    return;
+// FastRPC interface
+AEEResult htp_ops_get_skel_arch(remote_handle64 handle, uint32 *arch) {
+  HtpOpsSessionContext *ctx = (HtpOpsSessionContext *)(uintptr_t)handle;
+  if (ctx == nullptr || arch == nullptr) {
+    return AEE_EBADPARM;
   }
-
-  uint32_t poll_count = MNN_DSPQUEUE_POLL_COUNT;
-  while (true) {
-    struct DSPQueueCommandGroupReq req;
-    memset(&req, 0, sizeof(req));
-    uint32_t req_size = sizeof(req);
-    uint32_t n_dbufs = 0;
-    uint32_t flags = 0;
-
-    int err = dspqueue_read_noblock(queue,
-                                    &flags,
-                                    0,
-                                    &n_dbufs,
-                                    NULL,
-                                    sizeof(req),
-                                    &req_size,
-                                    (uint8_t *)&req);
-    if (err == AEE_EWOULDBLOCK) {
-      if (vtcm_manager_needs_release()) {
-        break;
-      }
-      if (--poll_count) {
-        qurt_sleep(MNN_DSPQUEUE_POLL_TIMEOUT_USEC);
-        continue;
-      }
-      break;
-    }
-    if (err != AEE_SUCCESS) {
-      FARF(ERROR, "htp_ops_queue_packet_callback: dspqueue_read_noblock failed: 0x%08x", (unsigned)err);
-      break;
-    }
-    if (req_size != sizeof(req) || n_dbufs != 0) {
-      FARF(ERROR, "htp_ops_queue_packet_callback: invalid request size=%u n_dbufs=%u",
-           (unsigned)req_size, (unsigned)n_dbufs);
-      continue;
-    }
-
-    poll_count = MNN_DSPQUEUE_POLL_COUNT;
-    int status = AEE_SUCCESS;
-    if (req.count > 0 && !vtcm_manager_is_acquired()) {
-      status = vtcm_manager_acquire();
-      if (status != AEE_SUCCESS) {
-        FARF(ERROR, "htp_ops_queue_packet_callback: failed to acquire VTCM/HMX resource: 0x%08x",
-             (unsigned)status);
-      }
-    }
-    if (status == AEE_SUCCESS) {
-      status = req.profile ?
-        htp_ops_execute_command_group_profile((remote_handle64)(uintptr_t)ctx,
-                                              req.groupFd, req.groupOffset, req.count,
-                                              req.syncGroupFd, req.syncGroupOffset, req.syncGroupSize,
-                                              req.profileFd, req.profileOffset, req.profileSize) :
-        htp_ops_execute_command_group((remote_handle64)(uintptr_t)ctx,
-                                      req.groupFd, req.groupOffset, req.count,
-                                      req.syncGroupFd, req.syncGroupOffset, req.syncGroupSize);
-    }
-
-    struct DSPQueueCommandGroupRsp rsp;
-    rsp.id = req.id;
-    rsp.status = status;
-    err = dspqueue_write(queue,
-                         0,
-                         0,
-                         NULL,
-                         sizeof(rsp),
-                         (const uint8_t *)&rsp,
-                         DSPQUEUE_TIMEOUT_NONE);
-    if (err != AEE_SUCCESS) {
-      FARF(ERROR, "htp_ops_queue_packet_callback: dspqueue_write failed: 0x%08x", (unsigned)err);
-      break;
-    }
-    if (vtcm_manager_needs_release()) {
-      break;
-    }
-  }
-
-  vtcm_manager_release();
+#ifdef HTP_OPS_SKEL_ARCH
+  *arch = HTP_OPS_SKEL_ARCH;
+#elif defined(__HVX_ARCH__)
+  *arch = __HVX_ARCH__;
+#else
+  *arch = 0;
+#endif
+  return AEE_SUCCESS;
 }
 
-static void htp_ops_queue_error_callback(dspqueue_t queue, int error, void *context) {
-  FARF(ERROR, "htp_ops_queue_error_callback: 0x%08x", (unsigned)error);
+// FastRPC interface
+AEEResult htp_ops_power_acquire(remote_handle64 handle) {
+  HtpOpsSessionContext *ctx = (HtpOpsSessionContext *)(uintptr_t)handle;
+  if (ctx == nullptr || !ctx->initialized) {
+    return AEE_EBADSTATE;
+  }
+  power_acquire();
+  return AEE_SUCCESS;
+}
+
+// FastRPC interface
+AEEResult htp_ops_power_release(remote_handle64 handle) {
+  HtpOpsSessionContext *ctx = (HtpOpsSessionContext *)(uintptr_t)handle;
+  if (ctx == nullptr || !ctx->initialized) {
+    return AEE_EBADSTATE;
+  }
+  power_release();
+  return AEE_SUCCESS;
 }
 
 // FastRPC interface
