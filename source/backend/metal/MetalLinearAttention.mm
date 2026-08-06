@@ -252,41 +252,56 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
                 if (nil != mFusedSGTGPipeline) rt->insertPipeline(keys, mFusedSGTGPipeline);
             }
         }
-        // ── Tensor-op flash chunk prefill ─────────────────────────────
-        // Metal tensor matmul requires 16-aligned static dimensions. The
-        // shader's largest supported shape (dk=128, DV_BLOCK=16) uses just
-        // under 30 KB of threadgroup memory.
+        // ── Tensor-op chunk-64 prefill, without sequence-sized scratch ──
+        // A/P reuse conv_out's V storage after V is backed up into the output;
+        // the recurrent scan overwrites that backup with final results. Two
+        // 64x64 matrices require at least 128 V channels.
         mUseFlashChunk = rt->supportTensorOps() && mHeadKDim > 0 && mHeadKDim <= 128 &&
-                         mHeadKDim % 16 == 0 && mHeadVDim >= mFlashDvBlock &&
+                         mHeadKDim % 16 == 0 && mHeadVDim >= 128 &&
                          mHeadVDim % mFlashDvBlock == 0;
         if (mUseFlashChunk) {
             MTLCompileOptions *flashOption = [[MTLCompileOptions alloc] init];
             NSMutableDictionary *flashMacros = [NSMutableDictionary dictionary];
             if (useFp16) flashMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
-            flashMacros[@"CHUNK_BT"] = @"16";
-            flashMacros[@"HEAD_K_DIM"] = [NSString stringWithFormat:@"%d", mHeadKDim];
-            flashMacros[@"HEAD_V_DIM"] = [NSString stringWithFormat:@"%d", mHeadVDim];
-            flashMacros[@"DV_BLOCK"] = [NSString stringWithFormat:@"%d", mFlashDvBlock];
-            flashMacros[@"SIMDS_PER_TG"] = [NSString stringWithFormat:@"%d", mFlashSimdsPerTG];
+            flashMacros[@"CK_DK"] = [NSString stringWithFormat:@"%d", mHeadKDim];
+            flashMacros[@"CK_DV"] = [NSString stringWithFormat:@"%d", mHeadVDim];
+            flashMacros[@"CK_CHUNK"] = @"64";
+            flashMacros[@"CK_W"] = [NSString stringWithFormat:@"%d", mFlashDvBlock];
             flashOption.preprocessorMacros = flashMacros;
 
-            std::string flashKey = "FLASH_" + std::to_string(mHeadKDim) + "_" +
-                                   std::to_string(mHeadVDim) + "_BT16_DVB" +
-                                   std::to_string(mFlashDvBlock) + "_SG" +
-                                   std::to_string(mFlashSimdsPerTG);
-            std::vector<std::string> keys = {"linear_attn_flash_chunk", flashKey};
-            if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
-            mFlashChunkPipeline = rt->findPipeline(keys);
-            if (nil == mFlashChunkPipeline) {
-                mFlashChunkPipeline = mtbn->makeComputePipelineWithSourceOption(
-                    gLinearAttnFlashChunk, "linear_attn_flash_chunk", flashOption);
-                if (nil != mFlashChunkPipeline) {
-                    rt->insertPipeline(keys, mFlashChunkPipeline);
+            std::string flashKey = "CHUNK64_INPLACE_" + std::to_string(mHeadKDim) + "_" +
+                                   std::to_string(mHeadVDim) + "_DVB" +
+                                   std::to_string(mFlashDvBlock);
+            {
+                std::vector<std::string> keys = {"linear_attn_chunk64_prep_inplace", flashKey};
+                if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+                mFlashChunkPrepPipeline = rt->findPipeline(keys);
+                if (nil == mFlashChunkPrepPipeline) {
+                    mFlashChunkPrepPipeline = mtbn->makeComputePipelineWithSourceOption(
+                        gLinearAttnChunk64Inplace, "linear_attn_chunk64_prep_inplace", flashOption);
+                    if (nil != mFlashChunkPrepPipeline) {
+                        rt->insertPipeline(keys, mFlashChunkPrepPipeline);
+                    }
                 }
             }
-            if (nil == mFlashChunkPipeline ||
-                mFlashChunkPipeline.maxTotalThreadsPerThreadgroup < mFlashSimdsPerTG * 32) {
-                mFlashChunkPipeline = nil;
+            {
+                std::vector<std::string> keys = {"linear_attn_chunk64_recurrent_inplace", flashKey};
+                if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+                mFlashChunkScanPipeline = rt->findPipeline(keys);
+                if (nil == mFlashChunkScanPipeline) {
+                    mFlashChunkScanPipeline = mtbn->makeComputePipelineWithSourceOption(
+                        gLinearAttnChunk64Inplace, "linear_attn_chunk64_recurrent_inplace", flashOption);
+                    if (nil != mFlashChunkScanPipeline) {
+                        rt->insertPipeline(keys, mFlashChunkScanPipeline);
+                    }
+                }
+            }
+            const int requiredThreads = mFlashSimdsPerTG * 32;
+            if (nil == mFlashChunkPrepPipeline || nil == mFlashChunkScanPipeline ||
+                mFlashChunkPrepPipeline.maxTotalThreadsPerThreadgroup < requiredThreads ||
+                mFlashChunkScanPipeline.maxTotalThreadsPerThreadgroup < requiredThreads) {
+                mFlashChunkPrepPipeline = nil;
+                mFlashChunkScanPipeline = nil;
                 mUseFlashChunk = false;
             }
         }
@@ -299,7 +314,7 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
         mUseFlashChunkSGMM = !mUseFlashChunk && rt->supportSimdGroupMatrix() &&
                              MetalEnv::get().linearAttnSgmm != 0 &&
                              mHeadKDim == 128 &&
-                             mHeadVDim >= mFlashDvBlock && mHeadVDim % mFlashDvBlock == 0;
+                             mHeadVDim >= mSgmmDvBlock && mHeadVDim % mSgmmDvBlock == 0;
         if (mUseFlashChunkSGMM) {
             MTLCompileOptions *sgmmOption = [[MTLCompileOptions alloc] init];
             NSMutableDictionary *sgmmMacros = [NSMutableDictionary dictionary];
@@ -307,13 +322,13 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             sgmmMacros[@"CHUNK_BT"] = @"16";
             sgmmMacros[@"HEAD_K_DIM"] = [NSString stringWithFormat:@"%d", mHeadKDim];
             sgmmMacros[@"HEAD_V_DIM"] = [NSString stringWithFormat:@"%d", mHeadVDim];
-            sgmmMacros[@"DV_BLOCK"] = [NSString stringWithFormat:@"%d", mFlashDvBlock];
+            sgmmMacros[@"DV_BLOCK"] = [NSString stringWithFormat:@"%d", mSgmmDvBlock];
             sgmmMacros[@"SIMDS_PER_TG"] = [NSString stringWithFormat:@"%d", mSgmmSimdsPerTG];
             sgmmOption.preprocessorMacros = sgmmMacros;
 
             std::string sgmmKey = "SGMM_" + std::to_string(mHeadKDim) + "_" +
                                   std::to_string(mHeadVDim) + "_BT16_DVB" +
-                                  std::to_string(mFlashDvBlock) + "_SG" +
+                                  std::to_string(mSgmmDvBlock) + "_SG" +
                                   std::to_string(mSgmmSimdsPerTG);
             std::vector<std::string> keys = {"linear_attn_flash_chunk_sgmm", sgmmKey};
             if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
@@ -453,7 +468,8 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     // so short prefill (2 <= L < 16) shares the decode path: skips qkv_prep
     // and the mQ/mK/mV round-trip. Longer prefill takes a chunked kernel.
     bool fusedDecode      = mUseSimdGroupOpt && seqLen < 16;
-    bool fusedLongPrefill = (seqLen >= 16 && (mUseFlashChunk || mUseFlashChunkSGMM)) ||
+    bool fusedLongPrefill = (seqLen >= 64 && mUseFlashChunk) ||
+                            (seqLen >= 16 && mUseFlashChunkSGMM) ||
                             (seqLen >= 32 && mUseFusedChunkSG);
     bool needQKV = mAttentionType != "short_conv" && !fusedDecode && !fusedLongPrefill;
     if (needQKV) {
@@ -636,20 +652,27 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         int numThreadgroups = (totalSimdgroups + simdgroupsPerTG - 1) / simdgroupsPerTG;
         [encoder dispatchThreadgroups:MTLSizeMake(numThreadgroups, 1, 1)
                 threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
-    } else if (mUseSimdGroupOpt && seqLen >= 16 && mUseFlashChunk) {
-        // ── Tensor-op flash chunk prefill (L>=16) ────────────────────
-        [encoder setComputePipelineState:mFlashChunkPipeline];
+    } else if (mUseSimdGroupOpt && seqLen >= 64 && mUseFlashChunk) {
+        // ── Chunk-parallel A/P prep, followed by chunk-sequential scan ──
+        const int numChunks = (seqLen + 63) / 64;
+        [encoder setComputePipelineState:mFlashChunkPrepPipeline];
+        MetalBackend::setTensor(mConvOut.get(), encoder, 0);
+        MetalBackend::setTensor(inputs[1], encoder, 1);
+        MetalBackend::setTensor(inputs[2], encoder, 2);
+        MetalBackend::setTensor(attentionOutput, encoder, 3);
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:4];
+        [encoder dispatchThreadgroups:MTLSizeMake(numChunks, batch * H, 1)
+                threadsPerThreadgroup:MTLSizeMake(32, mFlashSimdsPerTG, 1)];
+
+        [encoder setComputePipelineState:mFlashChunkScanPipeline];
         MetalBackend::setTensor(mConvOut.get(), encoder, 0);
         MetalBackend::setTensor(inputs[1], encoder, 1);
         MetalBackend::setTensor(inputs[2], encoder, 2);
         MetalBackend::setTensor(mStateCache->mRecurrentState.get(), encoder, 3);
         MetalBackend::setTensor(attentionOutput, encoder, 4);
         [encoder setBuffer:mParamBuffer offset:0 atIndex:5];
-
-        int numThreadgroups = batch * H * (dv / mFlashDvBlock);
-        NSUInteger threadGroupSize = (NSUInteger)(mFlashSimdsPerTG * 32);
-        [encoder dispatchThreadgroups:MTLSizeMake(numThreadgroups, 1, 1)
-                threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
+        [encoder dispatchThreadgroups:MTLSizeMake(dv / mFlashDvBlock, batch * H, 1)
+                threadsPerThreadgroup:MTLSizeMake(32, mFlashSimdsPerTG, 1)];
     } else if (mUseSimdGroupOpt && seqLen >= 16 && mUseFlashChunkSGMM) {
         // ── simdgroup_matrix chunk prefill (L>=16, non-tensor-API) ────
         [encoder setComputePipelineState:mFlashChunkSGMMPipeline];
@@ -660,7 +683,7 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         MetalBackend::setTensor(attentionOutput, encoder, 4);
         [encoder setBuffer:mParamBuffer offset:0 atIndex:5];
 
-        int numThreadgroups = batch * H * (dv / mFlashDvBlock);
+        int numThreadgroups = batch * H * (dv / mSgmmDvBlock);
         NSUInteger threadGroupSize = (NSUInteger)(mSgmmSimdsPerTG * 32);
         [encoder dispatchThreadgroups:MTLSizeMake(numThreadgroups, 1, 1)
                 threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
