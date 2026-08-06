@@ -30,7 +30,7 @@ layout(set=0, binding=7) readonly uniform constBuffer {
     ivec4 s0; // qLen, kLen, headNum, kvHeadNum
     ivec4 s1; // headDim, group, pastLen, totalLen
     ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
-    vec4 f0;  // scale, 0, 0, 0
+    vec4 f0;  // scale, 0, valueC4, outputC4
 } uConst;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -61,6 +61,8 @@ void main() {
     const int maskKvlen = uConst.s2.y;
 
     const float scale = uConst.f0.x;
+    const bool valueC4 = uConst.f0.z > 0.5;
+    const bool outputC4 = uConst.f0.w > 0.5;
 
     const int kvh = h / group;
     if (kvh >= kvHeadNum) {
@@ -121,10 +123,10 @@ void main() {
             s += w;
         }
 
-        const int vOffBase = ((k * kvHeadNum + kvh) * headDim);
         for (int i = 0; i < d4Size; ++i) {
             const int d = i * 4;
-            const int vOff = vOffBase + d;
+            const int vOff = valueC4 ? ((kvh * d4Size + i) * kLen + k) * 4
+                                     : ((k * kvHeadNum + kvh) * headDim) + d;
             vec4 vv = vec4(float(uCacheValue.data[vOff + 0]), float(uCacheValue.data[vOff + 1]), float(uCacheValue.data[vOff + 2]),
                            float(uCacheValue.data[vOff + 3]));
             outVec[i] += w * vv;
@@ -133,13 +135,14 @@ void main() {
 
     float invS = 1.0 / s;
     // output: [1, qLen, headNum * headDim]
-    const int outBase = (q * headNum + h) * headDim;
     for (int i = 0; i < d4Size; ++i) {
         vec4 v = outVec[i] * invS;
         const int d = i * 4;
-        uOutput.data[outBase + d + 0] = FLOAT(v.x);
-        uOutput.data[outBase + d + 1] = FLOAT(v.y);
-        uOutput.data[outBase + d + 2] = FLOAT(v.z);
-        uOutput.data[outBase + d + 3] = FLOAT(v.w);
+        const int outBase = outputC4 ? ((h * d4Size + i) * qLen + q) * 4
+                                     : (q * headNum + h) * headDim + d;
+        uOutput.data[outBase + 0] = FLOAT(v.x);
+        uOutput.data[outBase + 1] = FLOAT(v.y);
+        uOutput.data[outBase + 2] = FLOAT(v.z);
+        uOutput.data[outBase + 3] = FLOAT(v.w);
     }
 }

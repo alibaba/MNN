@@ -1,35 +1,39 @@
 ---
 name: test-ci
-description: Run the MNN regression / CI suite for this fork — host-side (local) tests and the on-device Android arm64 matrix — via the declarative ./test_ci.sh driver and test_stages.json. Use when the user asks to run the tests, run CI, smoke-test a build, verify a change on a device, benchmark on-device, or add / select / retune a test stage.
+description: Run MNN tests / benchmarks on host or real devices. Covers two parallel tracks — (1) the regression / CI suite (static checks, host-side tests, on-device Android arm64 matrix via ./test.sh + test_stages.json) and (2) one-command iOS real-device LLM benchmarking (prefill/decode tok/s, branch comparison). Use when the user asks to run the tests, run CI, smoke-test a build, verify a change on a device, benchmark on-device (Android or iPhone/iPad), or add / select / retune a test stage.
 ---
 
-# MNN Test / CI SKILL
+# MNN Test / CI SKILL (index)
 
-> **Trigger**: when the user wants to run the test suite or CI ("run the tests",
-> "run CI", "smoke test", "does this still pass", "verify on the phone/device",
-> "benchmark on device"), or to add / select / retune a test stage.
+This skill is an **index**. Pick the document that matches the task and follow it:
 
-The operational scripts live at the **repository root** and are invoked from
-there — this skill is the discovery + usage entry point for AI agents and
-humans:
+| Document | Use when |
+|----------|----------|
+| [`test-suite.md`](test-suite.md) | Run the regression / CI suite — static checks, host (local) tests, the on-device **Android** arm64 matrix (`./test.sh` + `test_stages.json`); add / select / retune a test stage; audit stale CI scripts; add a new operator test. |
+| [`ios-llm-bench.md`](ios-llm-bench.md) | Benchmark LLM prefill/decode speed on a real **iPhone/iPad** (`ios_llm_bench.sh`); compare branches on iOS Metal/CPU; verify Metal kernel changes on device. |
+
+The two tracks are independent: Android/host regression testing goes through
+`test.sh`, while iOS LLM benchmarking goes through
+`transformers/llm/engine/ios/ios_llm_bench.sh`.
 
 | File | Role |
 |------|------|
-| [`test_ci.sh`](../../test_ci.sh) | Bash driver. `local` (host CPU) and `android <serial>` modes. |
+| [`test.sh`](../../test.sh) | Bash driver. `static`, `local` (host CPU), and `android <serial>` modes. |
 | [`test_stages.json`](../../test_stages.json) | Declarative stage matrix. **Edit this** to add / drop / retune stages — no shell edits needed for the common cases. It is self-documenting via its `_documentation` block. |
-| [`TESTING.md`](../../TESTING.md) | Deep reference: per-stage explanation + how to add a new operator test end-to-end. |
+| [`docs/testing.md`](../../docs/testing.md) | 中文测试文档：阶段说明、字段表、新增算子测试流程。 |
 
-> Do **not** read or reference `schema/private/` or `source/internal/` (internal
-> proprietary code, per the project CLAUDE.md).
 
 ## Quick start
 
 ```bash
+# Static checks only:
+./test.sh static
+
 # Host regression (CPU only): build + unit suite + smoke + LLM smoke.
-./test_ci.sh local
+./test.sh local
 
 # Full on-device matrix on the attached arm64 device:
-./test_ci.sh android <serial>          # e.g. ./test_ci.sh android R5CY71BJJ9D
+./test.sh android <serial>          # e.g. ./test.sh android R5CY71BJJ9D
 ```
 
 `<serial>` comes from `adb devices` (the script prefers `adbk` and falls back
@@ -41,13 +45,13 @@ debugging** on the phone first.
 Android mode takes an optional filter as the third argument:
 
 ```bash
-./test_ci.sh android <serial> cpu        # CPU unit + lowmem + llm
-./test_ci.sh android <serial> opencl     # OpenCL unit (image+buffer) + opencl smoke
-./test_ci.sh android <serial> vulkan     # Vulkan unit + vulkan smoke
-./test_ci.sh android <serial> gpu        # opencl + vulkan
-./test_ci.sh android <serial> unit       # all unit/op stages only
-./test_ci.sh android <serial> lowmem     # only the low-memory matrix
-./test_ci.sh android <serial> android-ci # bench + smoke + llm only (no unit/lowmem)
+./test.sh android <serial> cpu        # CPU unit + lowmem + llm
+./test.sh android <serial> opencl     # OpenCL unit (image+buffer) + opencl smoke
+./test.sh android <serial> vulkan     # Vulkan unit + vulkan smoke
+./test.sh android <serial> gpu        # opencl + vulkan
+./test.sh android <serial> unit       # all unit/op stages only
+./test.sh android <serial> lowmem     # only the low-memory matrix
+./test.sh android <serial> android-ci # bench + smoke + llm only (no unit/lowmem)
 ```
 
 Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
@@ -63,8 +67,16 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
 * **Exit code is non-zero iff any stage failed.** Gate automation on the exit
   code, not on log scraping.
 * Combined stdout/stderr for every stage is saved under
-  `logs/test_ci-<UTC-timestamp>/<stage>.log` — read the named log of a failing
+  `logs/test-<UTC-timestamp>/<stage>.log` — read the named log of a failing
   stage for the trailing output. `rc=137` ≈ OOM-kill, `rc=139` ≈ SIGSEGV.
+
+## Dynamic-shape device smoke tests
+
+A zero exit code only proves that a backend context ran; it does not prove that
+the requested input shape selected the intended dynamic context. For a
+shape-sensitive device test, record and validate the runtime-observed input
+shape (for example, from a backend dump manifest or the runner's input tensor)
+before treating the test as dynamic-shape coverage.
 
 ## Environment variables
 
@@ -87,14 +99,22 @@ network.
 
 ```bash
 # Already have the model on disk → no download attempt at all:
-LLM_MODEL_DIR=/path/to/Qwen2.5-0.5B-Instruct-MNN ./test_ci.sh local
+LLM_MODEL_DIR=/path/to/Qwen2.5-0.5B-Instruct-MNN ./test.sh local
 
 # huggingface.co unreachable (e.g. mainland China) → fetch from ModelScope:
-LLM_MODEL_SOURCE=modelscope ./test_ci.sh android <serial>
+LLM_MODEL_SOURCE=modelscope ./test.sh android <serial>
 ```
 
 For the built-in default model the ModelScope org is remapped automatically
 (`taobao-mnn/*` → `MNN/*`); an explicitly-set `LLM_MODEL_REPO` is used verbatim.
+
+### LLM backend/layout smoke
+
+For backend or tensor-layout optimizations, do not stop at operator tests. Run
+an end-to-end `llm_demo` correctness smoke with a short prompt and another
+prompt long enough to cross backend prefill branch thresholds. This catches
+real exported-graph layout bugs where an op test covers only the output format,
+but the graph also changes an input tensor format.
 
 ## Configuring stages
 
@@ -106,16 +126,36 @@ benchmark args) lives there, and the `_documentation` block at the top of the
 file explains every field and every `skip` entry's rationale.
 
 * **Add a stage that runs an existing test in a new config** → add an object to
-  `android.stages` (or `local.stages`). See `TESTING.md` § "Add a dedicated stage".
+  `android.stages` (or `local.stages`). See `docs/testing.md` § "增加专门阶段".
 * **Skip a known-broken test on one stage** → add its exact name to that
   stage's `skip` array **and** document why under `_documentation.skip_rationale`.
-* **Add a smoke model / bench entry** → see `TESTING.md` § 2d / 2e.
+* **Add a smoke model / bench entry** → see `docs/testing.md` § "新增 smoke 模型或 bench 阶段".
+
+## Auditing stale CI/test scripts
+
+When asked to clean up old CI or test scripts, build a usage map before
+recommending deletion:
+
+* Prefer `git ls-files` plus targeted `rg`/`git grep` over broad filesystem
+  scans, so generated build directories and local experiments do not look like
+  maintained CI surface.
+* Classify scripts by role: active CI entrypoints, declarative test driver,
+  release/package scripts, manual benchmark helpers, third-party vendored
+  tests, and local device/debug helpers.
+* Treat lack of in-repo references as a "review/deprecate" signal, not proof
+  of dead code; internal CI systems can invoke tracked files by convention.
+  Prefer a staged deprecation plan unless a script is both unreferenced and
+  clearly superseded by `test.sh` / `test_stages.json`.
+* When renaming or consolidating test entrypoints, grep for both executable
+  names and generated-artifact prefixes. Update CI config, `.gitignore`,
+  `test_stages.json` self-documentation, developer docs, skill docs, and code
+  comments in the same change so the old entrypoint disappears completely.
 
 ## Adding a new operator test
 
 1. Write the C++ test under `test/op/` (one file, registered with
    `MNNTestSuiteRegister`). The full template + conventions are in
-   [`TESTING.md`](../../TESTING.md) § "How to add a new operator test".
+   [`docs/testing.md`](../../docs/testing.md) § "新增算子测试".
 2. If its name prefix matches an existing stage (e.g. `op/*`), it is picked up
    automatically — no JSON change needed. Otherwise add a dedicated stage.
 
@@ -124,5 +164,5 @@ For deeper work on operators themselves, see the
 
 ## Read next
 
-`TESTING.md` is the authoritative deep reference — read it for the per-stage
+`docs/testing.md` is the authoritative deep reference — read it for the per-stage
 breakdown, the stage-object field table, and worked examples.

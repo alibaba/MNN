@@ -9,7 +9,12 @@
 #include "VulkanMemoryPool.hpp"
 namespace MNN {
 VulkanMemory::VulkanMemory(const VulkanDevice& dev, const VkMemoryAllocateInfo& info) : mDevice(dev) {
-    CALL_VK(mDevice.allocMemory(mMemory, info));
+    mMemory = VK_NULL_HANDLE;
+    auto ret = mDevice.allocMemory(mMemory, info);
+    if (ret != VK_SUCCESS) {
+        MNN_ERROR("Vulkan allocMemory failed, result=%d, size=%zu\n", ret, info.allocationSize);
+        return;
+    }
     mTypeIndex = info.memoryTypeIndex;
     mSize      = info.allocationSize;
 }
@@ -32,6 +37,10 @@ public:
         info.allocationSize = size;
         info.memoryTypeIndex = mIndex;
         auto mem = new VulkanMemory(mDevice, info);
+        if (mem->get() == VK_NULL_HANDLE) {
+            delete mem;
+            return MemChunk(nullptr, 0);
+        }
         return MemChunk(mem, 0);
     }
     virtual void onRelease(MemChunk ptr) override {

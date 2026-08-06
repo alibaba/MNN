@@ -88,17 +88,20 @@ ErrorCode MultiInputDeconvExecution::onResize(const std::vector<Tensor*> &inputs
     MemChunk buffer_input, buffer_im2col;
     if(mFp16Fp32MixInfer) {
         buffer_input = pool->alloc(sizeof(__half) * mGemmInfo.elhPad[1] * mGemmInfo.elh[2]);
+        if (nullptr == buffer_input.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mInputBuffer = (void*)buffer_input.ptr();
     } else {
         mInputBuffer = (void*)input->deviceId();
     }
     buffer_im2col = pool->alloc(bytes * mGemmInfo.elh[0] * mGemmInfo.elhPad[2]);
+    if (nullptr == buffer_im2col.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mIm2ColBuffer = (void*)buffer_im2col.ptr();
 
     mNeedWeightFill = (mGemmInfo.elh[1] != mGemmInfo.elhPad[1]);
     MemChunk buffer_filter;
     if(mNeedWeightFill) {
         buffer_filter = pool->alloc(bytes * (size_t)mGemmInfo.elh[0] * (size_t)mGemmInfo.elhPad[1]);
+        if (nullptr == buffer_filter.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mFilterAddr = (void*)buffer_filter.ptr();
     } else {
         mFilterAddr = (void*)inputs[1]->deviceId();

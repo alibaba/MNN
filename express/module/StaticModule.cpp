@@ -387,7 +387,7 @@ StaticModule::StaticModule(std::vector<int> inputs, std::vector<int> outputs,
     MNN_ASSERT(1 == scheduleInfo.pipelineInfo.size());
     auto& bnCache = scheduleInfo.pipelineInfo[0].first;
     // Create Backend for prearrange
-    Session::createPipelineBackend(scheduleInfo.pipelineInfo[0], rt);
+    Session::createPipelineBackend(scheduleInfo.pipelineInfo[0], rt, rtm->getInside()->mContent->pMeta);
     if (nullptr == bnCache.cache.first || nullptr == bnCache.cache.second) {
         MNN_ERROR("[MNN:Express] Create Backend Error\n");
         return;
@@ -469,7 +469,51 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
     int curStatus = 0;
     if (mResource->mModes.inputMode == Interpreter::Session_Input_User) {
         pipelineInfo.first.inputBackendChange = false;
-        bool needResize = mResource->mUseContentInputs;
+        bool needResize = false;
+        if (mResource->mUseContentInputs) {
+            // Shape inference reads some inputs' CONTENT (e.g. the LLM logits-index
+            // scalar feeding a StridedSlice begin), which historically forced a
+            // full re-resize EVERY forward. Cache those inputs' bytes (tiny
+            // integer control tensors) and only force resize when one changed.
+            // MNN_LLM_CONTENT_RESIZE_ALWAYS=1 restores the legacy behavior.
+            static const bool sAlwaysResize = []{
+                const char* e = getenv("MNN_LLM_CONTENT_RESIZE_ALWAYS");
+                return e != nullptr && e[0] == '1';
+            }();
+            if (sAlwaysResize) {
+                needResize = true;
+            } else {
+                constexpr size_t kMaxContentCacheBytes = 4096;
+                if (mContentCache.size() != inputs.size()) {
+                    mContentCache.clear();
+                    mContentCache.resize(inputs.size());
+                    needResize = true;
+                }
+                for (int i = 0; i < inputs.size(); ++i) {
+                    if (nullptr == mInputTensors[i]) {
+                        continue;
+                    }
+                    auto inputTensor = Utils::getTensor(inputs[i]);
+                    if (inputTensor->getType().code == halide_type_float) {
+                        // integer tensors drive shape computation; float inputs
+                        // (embeddings / mask) do not feed shape inference
+                        continue;
+                    }
+                    auto size = inputTensor->usize();
+                    const void* host = inputTensor->host<void>();
+                    if (nullptr == host || size == 0 || size > kMaxContentCacheBytes) {
+                        needResize = true;
+                        continue;
+                    }
+                    auto& cache = mContentCache[i];
+                    if (cache.size() != size || 0 != ::memcmp(cache.data(), host, size)) {
+                        cache.resize(size);
+                        ::memcpy(cache.data(), host, size);
+                        needResize = true;
+                    }
+                }
+            }
+        }
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr == mInputTensors[i]) {
                 continue;
@@ -591,6 +635,10 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
         }
         mSession->getInfo(Interpreter::RESIZE_STATUS, &curStatus);
         code = mSession->resize();
+        if (code != NO_ERROR) {
+            MNN_ERROR("StaticModule resize failed before input copy: %d\n", code);
+            return code;
+        }
         // Copy
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr == mInputTensors[i]) {
@@ -714,7 +762,8 @@ Module* StaticModule::clone(CloneContext* ctx) const {
     // mSession->clone may construct new Backends.
     ctx->pRuntimeManager->applyMetaToRuntime();
     auto rt = ctx->pRuntimeManager->getInside()->mRuntime;
-    module->mSession.reset(mSession->clone(std::move(rt), mResource->mSharedConst));
+    module->mSession.reset(
+        mSession->clone(std::move(rt), mResource->mSharedConst, ctx->pRuntimeManager->getInside()->mContent->pMeta));
     module->resetInputOutputs();
     return this->cloneBaseTo(ctx, module);
 }

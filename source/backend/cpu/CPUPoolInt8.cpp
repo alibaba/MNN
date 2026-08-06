@@ -181,6 +181,7 @@ ErrorCode CPUPoolInt8::onResize(const std::vector<Tensor *> &inputs, const std::
     int strideHeight = mParameter->strideY();
     int padWidth     = mParameter->padX();
     int padHeight    = mParameter->padY();
+    auto padType = mParameter->padType();
     int kernelWidth  = mParameter->kernelX();
     int kernelHeight = mParameter->kernelY();
 
@@ -199,11 +200,17 @@ ErrorCode CPUPoolInt8::onResize(const std::vector<Tensor *> &inputs, const std::
         padWidth     = 0;
         padHeight    = 0;
     }
-    if (mParameter->padType() == PoolPadType_SAME) {
+    if (padType == PoolPadType_SAME) {
         int padNeededWidth  = (outputWidth - 1) * strideWidth + kernelWidth - inputWidth;
         int padNeededHeight = (outputHeight - 1) * strideHeight + kernelHeight - inputHeight;
         padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
         padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+    }
+    if (!mParameter->isGlobal() && mParameter->pads() != nullptr && padType == PoolPadType_CAFFE) {
+        if (mParameter->pads()->size() == 4) {
+            padHeight = mParameter->pads()->data()[0];
+            padWidth = mParameter->pads()->data()[1];
+        }
     }
 
     const int channel = input->channel();

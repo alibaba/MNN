@@ -1,10 +1,10 @@
 {
   "$schemaVersion": 2,
   "_documentation": {
-    "purpose": "Declarative configuration for ./test_ci.sh. Editing this file is the supported way to add, drop, or reconfigure tests for either the local-host or on-device Android driver.",
+    "purpose": "Declarative configuration for ./test.sh. Editing this file is the supported way to add, drop, or reconfigure tests for either the local-host or on-device Android driver.",
     "top_level": {
-      "android": "Stages dispatched by `./test_ci.sh android <serial>` — runs on the connected device after a cross-build push.",
-      "local":   "Stages dispatched by `./test_ci.sh local`     — runs entirely on the host (CPU only).",
+      "android": "Stages dispatched by `./test.sh android <serial>` — runs on the connected device after a cross-build push.",
+      "local":   "Stages dispatched by `./test.sh local`     — runs entirely on the host (CPU only).",
       "llm":     "LLM smoke-test configuration. Active in both modes when the model is provisioned."
     },
     "stage_object": {
@@ -44,7 +44,7 @@
   },
 
   "android": {
-    "_comment": "Stages run by `./test_ci.sh android`. Smoke + bench stages iterate per model from android.smoke_models below.",
+    "_comment": "Stages run by `./test.sh android`. Smoke + bench stages iterate per model from android.smoke_models below.",
     "stages": [
       {
         "name":            "unit/cpu/all",
@@ -365,7 +365,7 @@
   },
 
   "local": {
-    "_comment": "Stages run by `./test_ci.sh local`. Local mode is CPU-only by design — Stage B (CPU-vs-backend) is meaningless without a GPU build.",
+    "_comment": "Stages run by `./test.sh local`. Local mode is CPU-only by design — Stage B (CPU-vs-backend) is meaningless without a GPU build.",
     "stages": [
       {
         "name":            "unit/cpu",

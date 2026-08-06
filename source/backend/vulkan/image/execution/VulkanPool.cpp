@@ -90,6 +90,11 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         } else if (mCommon->padType() == PoolPadType_VALID) {
             padWidth = padHeight = 0;
         }
+        if (!mCommon->isGlobal() && mCommon->pads() != nullptr && mCommon->padType() == PoolPadType_CAFFE &&
+            mCommon->pads()->size() == 4) {
+            padHeight = mCommon->pads()->data()[0];
+            padWidth = mCommon->pads()->data()[1];
+        }
 
         pool->pad[0]        = padWidth;
         pool->pad[1]        = padHeight;

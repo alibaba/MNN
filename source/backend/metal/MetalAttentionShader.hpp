@@ -45,13 +45,15 @@ static inline bool attention_mask_hit(constant Param& param, int k) {
     return local_k >= 0 && local_k < param.mask_k_len;
 }
 
-static inline int attention_mask_offset(constant Param& param, int b, int hn, int q, int k) {
+static inline long attention_mask_offset(constant Param& param, int b, int hn, int q, int k) {
     int mask_b = param.mask_batch <= 1 ? 0 : b;
     int mask_h = param.mask_head_num <= 1 ? 0 : hn;
     int mask_q = param.mask_q_len <= 1 ? 0 : min(q, param.mask_q_len - 1);
     int mask_k_start = max(param.key_seq_len - param.mask_k_len, 0);
     int local_k = param.mask_k_len <= 1 ? 0 : clamp(k - mask_k_start, 0, param.mask_k_len - 1);
-    return ((mask_b * param.mask_head_num + mask_h) * param.mask_q_len + mask_q) * param.mask_k_len + local_k;
+    // Return long: at seq_q=seq_k=500K with head-dim mask fields, the product
+    // mask_q_len * mask_k_len already reaches 2.5e11 > INT32_MAX.
+    return ((long(mask_b) * param.mask_head_num + mask_h) * param.mask_q_len + mask_q) * (long)param.mask_k_len + local_k;
 }
 
 #if MNN_METAL_FLOAT16_STORAGE
@@ -124,9 +126,45 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
     int mcl = ml;// 0~31
     int ncl = kl;// 0~3
 
+#ifdef CAUSAL_TRI
+    // Causal triangular dispatch for 32x32 tiles: mirror the trapezoid tile
+    // count in the host (useTensorCausalTri branch, MetalAttention.mm). Decode
+    // linear tile id gid.x back to (slq, slk). Same closed-form as the 16-tile
+    // variant in prefill_qk with 32 substituted for 16.
+    //   base = ceil(D, 32) + 1  is the number of k-tiles the top q-tile row
+    //     needs to cover; row lq needs min(kt, lq + base) tiles.
+    //   rows 0..r-1 form a triangle (v = lq + base, T1 = r*base + r*(r-1)/2);
+    //   rows r..qt-1 each need the full kt tiles.
+    int slq, slk;
+    {
+        int D = (param.key_seq_len - param.query_seq_len) + seq_idx * param.q_seq_piece_len - kv_start;
+        int kt = (output_k_len + 31) >> 5;
+        int qt = (param.q_seq_piece_len + 31) >> 5;
+        int base = ((D + 31) >> 5) + 1;
+        int r = clamp(kt - base + 1, 0, qt);
+        int T1 = r * base + (r * (r - 1)) / 2;
+        int t = (int)gid.x;
+        if (t < T1) {
+            // Solve S(lq) = lq*base + lq*(lq-1)/2 <= t < S(lq+1); float-precision
+            // fix-up below covers the couple of borderline cases.
+            float fb = (float)(2 * base - 1);
+            int lq = (int)((sqrt(fb * fb + 8.0f * (float)t) - fb) * 0.5f);
+            while (lq > 0 && lq * base + (lq * (lq - 1)) / 2 > t) { lq--; }
+            while ((lq + 1) * base + ((lq + 1) * lq) / 2 <= t) { lq++; }
+            slq = lq;
+            slk = t - (lq * base + (lq * (lq - 1)) / 2);
+        } else {
+            int t2 = t - T1;
+            slq = r + t2 / kt;
+            slk = t2 % kt;
+        }
+    }
+    const int z = gid.z;
+#else
     const int slq = gid.x; // q_seq_len/32 -> M/32
     const int slk = gid.y; // k_seq_len/32 -> N/32
     const int z = gid.z; // head_num * batch
+#endif
 
     /** Q:
      threadgroup: [M32, K32] -> [M32, K4, K2, K4]
@@ -206,24 +244,37 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
     int kv_valid_offset = max(k_seq_len - q_seq_len, 0);
 #endif
 
+#ifdef CAUSAL_TRI
+    // Whole-tile below the causal diagonal: mask is a no-op for every k in
+    // this tile (max_k <= min-row-causal-bound), so skip all mask reads and
+    // -FLT_MAX branches. Only diagonal-straddling tiles keep the per-element
+    // masked path. Matches the prefill_qk shader's three-zone decomposition.
+    const bool tileFullValid = (kv_start + slk * 32 + 31) <=
+        ((k_seq_len - q_seq_len) + seq_idx * q_seq_piece_len + slq * 32);
+#else
+    const bool tileFullValid = false;
+#endif
+
     int base_k_idx =  (slk * 4 + ncl) * 8 + 0;
-    auto xy_out = output + (z * q_seq_piece_len + slq * 32 + mcl) * output_k_len + base_k_idx + 0;
+    // Use long for the outer offset: at ~24K prompt, z=B*H up to 16 makes the
+    // z*q_seq_piece_len*output_k_len product ~9.6e9 which overflows int32.
+    auto xy_out = output + ((long)(z * q_seq_piece_len + slq * 32 + mcl)) * output_k_len + base_k_idx + 0;
     if(slq * 32 + mcl < q_seq_piece_len &&  seq_idx * q_seq_piece_len + slq * 32 + mcl < q_seq_len) {
         int ori_q_idx = seq_idx * q_seq_piece_len + slq * 32 + mcl;
         if(base_k_idx + 0 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 0] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + base_k_idx + 0)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 0)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 0)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + base_k_idx + 0)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 0)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 0)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + base_k_idx + 0;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -232,17 +283,17 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
         if(base_k_idx + 1 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 1] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + base_k_idx + 1)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 1)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 1)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + base_k_idx + 1)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 1)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 1)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + base_k_idx + 1;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -251,17 +302,17 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
         if(base_k_idx + 2 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 2] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + base_k_idx + 2)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 2)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 2)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + base_k_idx + 2)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 2)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 2)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + base_k_idx + 2;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -270,17 +321,17 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
         if(base_k_idx + 3 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 3] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + base_k_idx + 3)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 3)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 3)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + base_k_idx + 3)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 3)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 3)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + base_k_idx + 3;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -289,17 +340,17 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
         if(base_k_idx + 4 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 4] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + base_k_idx + 4)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 4)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 4)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + base_k_idx + 4)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 4)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 4)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + base_k_idx + 4;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -308,17 +359,17 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
         if(base_k_idx + 5 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 5] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + base_k_idx + 5)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 5)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 5)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + base_k_idx + 5)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 5)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 5)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + base_k_idx + 5;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -327,17 +378,17 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
         if(base_k_idx + 6 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 6] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + base_k_idx + 6)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 6)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 6)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + base_k_idx + 6)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 6)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 6)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + base_k_idx + 6;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -346,17 +397,17 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
         if(base_k_idx + 7 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 7] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + base_k_idx + 7)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 7)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 7)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + base_k_idx + 7)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + base_k_idx + 7)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 7)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + base_k_idx + 7;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -404,7 +455,10 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
      */
     threadgroup float sdata[256] = {0.f};
 
-#ifdef USE_METAL_TENSOR_OPS
+// Tensor prefill uses the dedicated 32x32 kernel above. Keep this legacy
+// 16x16x8 implementation disabled because recent Tensor API versions require
+// a fixed K dimension to be a multiple of 16.
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
 
     const int K = 8, M = 16, N = 16;
     auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
@@ -427,8 +481,40 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     int kl = tiitg % 2;// 0~1
     int rcl = tiitg / 2;// 0~15
 
+#ifdef CAUSAL_TRI
+    // Causal triangular dispatch: the host launches only the trapezoid of tiles
+    // at or below the causal diagonal (grid.x = total trapezoid tile count,
+    // see the mirrored formula in MetalAttention.mm). Decode the linear tile id
+    // back to (slq, slk). Row-tile lq covers v(lq) = min(kt, lq + base) k-tiles:
+    //   rows 0..r-1 form a triangle (v = lq + base), rows >= r are full kt rows.
+    int slq, slk;
+    {
+        int D = (param.key_seq_len - param.query_seq_len) + seq_idx * param.q_seq_piece_len - kv_start;
+        int kt = (output_k_len + 15) >> 4;
+        int qt = (param.q_seq_piece_len + 15) >> 4;
+        int base = ((D + 15) >> 4) + 1;
+        int r = clamp(kt - base + 1, 0, qt);
+        int T1 = r * base + (r * (r - 1)) / 2;
+        int t = (int)gid.x;
+        if (t < T1) {
+            // solve lq: S(lq) = lq*base + lq*(lq-1)/2 <= t < S(lq+1)
+            float fb = (float)(2 * base - 1);
+            int lq = (int)((sqrt(fb * fb + 8.0f * (float)t) - fb) * 0.5f);
+            // float-precision fix-up (at most a couple of steps)
+            while (lq > 0 && lq * base + (lq * (lq - 1)) / 2 > t) { lq--; }
+            while ((lq + 1) * base + ((lq + 1) * lq) / 2 <= t) { lq++; }
+            slq = lq;
+            slk = t - (lq * base + (lq * (lq - 1)) / 2);
+        } else {
+            int t2 = t - T1;
+            slq = r + t2 / kt;
+            slk = t2 % kt;
+        }
+    }
+#else
     const int slq = gid.x; // q_seq_len/16 -> M/16
     const int slk = gid.y; // k_seq_len/16 -> N/16
+#endif
     const int z = gid.z; // head_num * batch
 
     /** Q:
@@ -464,6 +550,34 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     const int hn = z % head_num;
     int zin = hn / param.group;
 
+#if !defined(CAUSAL_TRI) && (defined(DEFAULT_MASK) || defined(ADD_MASK) || defined(SET_MASK))
+    // Causal skip: if this M16xN16 tile lies entirely above the diagonal in the
+    // causal-mask sense, the whole tile ends up as -FLT_MAX after masking anyway.
+    // Write -FLT_MAX directly and exit to save all the QK matmul work on the upper
+    // triangle (~50% of tiles in a square prefill grid).
+    // (With CAUSAL_TRI the host never launches these tiles and the CAUSAL_BOUND
+    // softmax never reads the upper region, so this check is compiled out.)
+    //
+    // Assumption: the mask provided by the LLM engine is causal-lower-triangular
+    // (which is always the case for standard causal LLM prefill).  For non-causal
+    // custom masks this optimization would over-mask.
+    {
+        int tile_min_k_global = kv_start + slk * 16;
+        int tile_max_q_absolute = (k_seq_len - q_seq_len) + seq_idx * q_seq_piece_len + slq * 16 + 15;
+        if (tile_min_k_global > tile_max_q_absolute) {
+            auto xy_out_skip = output + ((long)(z * q_seq_piece_len + slq * 16 + rcl)) * output_k_len + slk * 16 + kl * 8;
+            if (slq * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len) {
+                for (int j = 0; j < 8; ++j) {
+                    if (slk * 16 + kl * 8 + j < output_k_len) {
+                        xy_out_skip[j] = (ftype)(-FLT_MAX);
+                    }
+                }
+            }
+            return;
+        }
+    }
+#endif
+
     int idx_slq = seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len ? seq_idx * q_seq_piece_len + slq * 16 + rcl : q_seq_len - 1;
     int idx_slk_global = kv_start + slk * 16 + rcl;
     int idx_slk = idx_slk_global < k_seq_len ? idx_slk_global : k_seq_len - 1;
@@ -487,7 +601,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         ((threadgroup ftype*)sdata)[128 + (kl * 4 + 3) * 16 + rcl] = GETK(B_offset[i + 3], idx_slk * param.batch + b);
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
         auto sA = tA.slice(0, 0);
         auto sB = tB.slice(0, 0);
 
@@ -507,7 +621,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
 
     auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
     cT.store(tC);
@@ -520,7 +634,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
     // [M16, N2, N8]
     auto sindex_base = (rcl * 2 + kl) * 8 + 0;
 #else
@@ -534,23 +648,35 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     int kv_valid_offset = k_seq_len - q_seq_len;
 #endif
 
-    auto xy_out = output + (z * q_seq_piece_len + slq * 16 + rcl) * output_k_len + slk * 16 + kl * 8 + 0;
+#ifdef CAUSAL_TRI
+    // Three-zone decomposition: a tile entirely at or below the causal diagonal
+    // (max k of tile <= causal bound of its min q row) is fully valid — the mask
+    // is a no-op there (DEFAULT_MASK never fires; causal ADD/SET masks are
+    // 0/pass in the valid region), so skip the per-element mask reads/branches.
+    // Only the O(T) diagonal-straddling tiles keep the masked path.
+    const bool tileFullValid = (kv_start + slk * 16 + 15) <=
+        ((k_seq_len - q_seq_len) + seq_idx * q_seq_piece_len + slq * 16);
+#else
+    const bool tileFullValid = false;
+#endif
+
+    auto xy_out = output + ((long)(z * q_seq_piece_len + slq * 16 + rcl)) * output_k_len + slk * 16 + kl * 8 + 0;
     if(slq * 16 + rcl < q_seq_piece_len &&  seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len) {
         int ori_q_idx = seq_idx * q_seq_piece_len + slq * 16 + rcl;
         if(slk * 16 + kl * 8 + 0 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 0] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 0)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 0)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 0)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 0)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 0)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 0)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + slk * 16 + kl * 8 + 0;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -559,17 +685,17 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 1 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 1] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 1)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 1)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 1)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 1)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 1)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 1)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + slk * 16 + kl * 8 + 1;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -578,17 +704,17 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 2 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 2] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 2)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 2)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 2)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 2)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 2)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 2)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + slk * 16 + kl * 8 + 2;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -597,17 +723,17 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 3 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 3] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 3)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 3)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 3)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 3)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 3)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 3)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + slk * 16 + kl * 8 + 3;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -616,17 +742,17 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 4 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 4] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 4)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 4)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 4)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 4)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 4)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 4)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + slk * 16 + kl * 8 + 4;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -635,17 +761,17 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 5 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 5] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 5)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 5)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 5)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 5)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 5)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 5)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + slk * 16 + kl * 8 + 5;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -654,17 +780,17 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 6 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 6] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 6)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 6)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 6)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 6)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 6)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 6)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + slk * 16 + kl * 8 + 6;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -673,17 +799,17 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 7 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 7] * Vscale;
             #ifdef ADD_MASK
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 7)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 7)) {
                     auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 7)];
                     out0 = mask_val + out0;
                 }
             #elif defined(SET_MASK)
-                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 7)) {
+                if (!tileFullValid && attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 7)) {
                     out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 7)] == 0 ? -FLT_MAX : out0;
                 }
             #elif defined(DEFAULT_MASK)
                 int k_global = kv_start + slk * 16 + kl * 8 + 7;
-                if (k_global > kv_valid_offset + ori_q_idx) {
+                if (!tileFullValid && k_global > kv_valid_offset + ori_q_idx) {
                     out0 = -FLT_MAX;
                 }
             #endif
@@ -861,6 +987,26 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
                 out[j] += dot(A0, B0) + dot(A1, B1);
             }
         }
+        // Tail: 4-element remainder (head_dim % 8 == 4).  Only lane 0 accumulates;
+        // simd_sum below still returns the correct total.  Covers head_dim=4 case
+        // where the main loop above never executes.
+        if ((head_dim & 4) != 0 && int(tiisg) == 0) {
+            int tail_i4 = itN * 2;  // float4 index for the trailing 4-element chunk
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 B0 = float4(((const device char4*)Pastkey_offset)[tail_i4]) * k_scale + k_bias;
+#else
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[tail_i4], z * param.batch + b);
+#endif
+#else
+            float4 B0 = float4(((const device ftype4*)Pastkey_offset)[tail_i4]);
+#endif
+            for (int j = 0; j < group; j++) {
+                const device ftype4* Ajp = (const device ftype4*)(A_offset + head_dim * j);
+                float4 A0 = float4(Ajp[tail_i4]);
+                out[j] += dot(A0, B0);
+            }
+        }
     }
     for(int j = 0; j < group; j++) {
         out[j] = simd_sum(out[j]);
@@ -887,6 +1033,24 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
                 float4 A0 = float4(Ajp[i * 2 + 0]);
                 float4 A1 = float4(Ajp[i * 2 + 1]);
                 out[j] += dot(A0, B0) + dot(A1, B1);
+            }
+        }
+        // Tail: 4-element remainder (head_dim % 8 == 4). Covers head_dim=4 case.
+        if ((head_dim & 4) != 0) {
+            int tail_i4 = itN * 2;
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 B0 = float4(((const device char4*)Pastkey_offset)[tail_i4]) * k_scale + k_bias;
+#else
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[tail_i4], z * param.batch + b);
+#endif
+#else
+            float4 B0 = float4(((const device ftype4*)Pastkey_offset)[tail_i4]);
+#endif
+            for (int j = 0; j < group; j++) {
+                const device ftype4* Ajp = (const device ftype4*)(A_offset + head_dim * j);
+                float4 A0 = float4(Ajp[tail_i4]);
+                out[j] += dot(A0, B0);
             }
         }
     }
@@ -936,6 +1100,7 @@ struct Param {
     int dst_k_offset;
     int dst_v_offset;
     int batch;
+    int value_c4;
     float v_scale;
     float k_scale;
 };
@@ -953,6 +1118,26 @@ struct Param {
 #else
 #define VOUT_TYPE ftype
 #endif
+
+static inline int value_c4_offset(int token, int channel, int seq_len) {
+    return (channel / 4) * seq_len * 4 + token * 4 + (channel % 4);
+}
+
+static inline ftype load_value(const device ftype* input, constant Param& param, int b, int y, int x) {
+    if (param.value_c4 != 0) {
+        int token = b * param.kv_seq_len + y;
+        return input[value_c4_offset(token, x, param.kv_seq_len * param.batch)];
+    }
+    return input[(b * param.kv_seq_len + y) * param.head_count + x];
+}
+
+static inline ftype4 load_value4(const device ftype* input, constant Param& param, int b, int y, int x) {
+    if (param.value_c4 != 0) {
+        int token = b * param.kv_seq_len + y;
+        return ((const device ftype4*)(input + value_c4_offset(token, x, param.kv_seq_len * param.batch)))[0];
+    }
+    return ((const device ftype4*)(input + (b * param.kv_seq_len + y) * param.head_count + x))[0];
+}
 
 
 kernel void copy(const device ftype* input0 [[buffer(0)]],
@@ -1009,7 +1194,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             max_k = metal::max(max_k, k_max);
 #endif
 #ifdef KV_QUANT_V
-            float4 v4 = float4(((const device ftype4*)(input1 + in_idx))[0]);
+            float4 v4 = float4(load_value4(input1, param, b, y, x));
             float v_min = metal::min(metal::min(v4.x, v4.y), metal::min(v4.z, v4.w));
             float v_max = metal::max(metal::max(v4.x, v4.y), metal::max(v4.z, v4.w));
             min_v = metal::min(min_v, v_min);
@@ -1024,7 +1209,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             max_k = metal::max(max_k, k);
 #endif
 #ifdef KV_QUANT_V
-            float v = (float)input1[in_idx];
+            float v = (float)load_value(input1, param, b, y, x);
             min_v = metal::min(min_v, v);
             max_v = metal::max(max_v, v);
 #endif
@@ -1138,8 +1323,9 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 
         // Write V
         int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+        ftype4 v4 = load_value4(input1, param, b, y, x);
 #ifdef KV_QUANT_V
-        float4 v = float4(((const device ftype4*)(input1 + in_idx))[0]);
+        float4 v = float4(v4);
         if (v_scale == 0.0f) {
             output1[out_idx_v] = (char)0;
             output1[out_idx_v + param.max_kv_len] = (char)0;
@@ -1154,10 +1340,10 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             output1[out_idx_v + param.max_kv_len * 3] = (char)qi.w;
         }
 #else
-        output1[out_idx_v] = input1[in_idx];
-        output1[out_idx_v + param.max_kv_len] = input1[in_idx + 1];
-        output1[out_idx_v + param.max_kv_len * 2] = input1[in_idx + 2];
-        output1[out_idx_v + param.max_kv_len * 3] = input1[in_idx + 3];
+        output1[out_idx_v] = v4.x;
+        output1[out_idx_v + param.max_kv_len] = v4.y;
+        output1[out_idx_v + param.max_kv_len * 2] = v4.z;
+        output1[out_idx_v + param.max_kv_len * 3] = v4.w;
 #endif
     }
     for (int x = vector_end + int(titg); x < param.head_count; x += int(tptg)) {
@@ -1179,8 +1365,9 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 #endif
 
         int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+        ftype value = load_value(input1, param, b, y, x);
 #ifdef KV_QUANT_V
-        float v = (float)input1[in_idx];
+        float v = (float)value;
         if (v_scale == 0.0f) {
             output1[out_idx_v] = (char)0;
         } else {
@@ -1190,7 +1377,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             output1[out_idx_v] = (char)qi;
         }
 #else
-        output1[out_idx_v] = input1[in_idx];
+        output1[out_idx_v] = value;
 #endif
     }
 #else
@@ -1218,8 +1405,9 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 #endif
 
     int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+    ftype value = load_value(input1, param, b, y, x);
 #ifdef KV_QUANT_V
-    float v = (float)input1[in_idx];
+    float v = (float)value;
     if (param.v_scale == 0.0f) {
         output1[out_idx_v] = (char)0;
     } else {
@@ -1229,7 +1417,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         output1[out_idx_v] = (char)qi;
     }
 #else
-    output1[out_idx_v] = input1[in_idx];
+    output1[out_idx_v] = value;
 #endif
 #endif
 }
@@ -1372,21 +1560,43 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
 
     int idx_qk_sl = sl * 32 + ml < q_seq_piece_len ? (sl * 32 + ml) : q_seq_piece_len - 1;
 
-    auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 4 + kl) * 8 + 0;
+    auto A_offset = input0 + (long)(z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 4 + kl) * 8 + 0;
 #ifdef QUANT_V
     auto B_offset = (const device char4*)past_value + (zin * head_dim + hm * 32 + nl) * param.max_kv_len / 4 + (0 * 4 + kvl) * 2 + 0;
 #else
     auto B_offset = past_value + (zin * head_dim + hm * 32 + nl) * param.max_kv_len / 4 + (0 * 4 + kvl) * 2 + 0;
 #endif
 
+    // AV causal early-exit for the tensor-API tile (M=32, K=32). Each iteration
+    // loads 8 ftype4 = 32 scalar K, so av_k_upper_v4 must be a multiple of 8.
+    // The upper bound is picked as ceil-32(tile_max_valid), which is:
+    //   * >= tile_max_valid_len (all live rows in the tile see their full valid K)
+    //   * <= softmax's per-row pad_end for every row in the tile (softmax pads
+    //     to ceil-32(valid_len + 32); see MetalSoftmaxShader.cpp CAUSAL_BOUND
+    //     branch), so the tile never reads memory that softmax did not write.
+    // v_k_upper_v4 is 32-scalar-aligned by construction (32 / 4 = 8 v4).
+    int av_k_upper_v4 = (value_seq_len + 3) / 4;
+#ifdef CAUSAL_BOUND
+    {
+        int kv_valid_offset = value_seq_len - q_seq_len;
+        // tile M=32: the tile-max q_abs (unclipped; the store-side guard at
+        // line ~1557 already handles q_abs >= q_seq_len rows).
+        int tile_max_q_abs = kv_valid_offset + seq_idx * q_seq_piece_len + sl * 32 + 31;
+        int tile_max_valid = tile_max_q_abs + 1;
+        if (tile_max_valid < 0) tile_max_valid = 0;
+        int k_bound_scalar = ((tile_max_valid + 31) / 32) * 32;   // ceil to 32-scalar
+        if (k_bound_scalar > align_value_len) k_bound_scalar = align_value_len;
+        av_k_upper_v4 = k_bound_scalar / 4;                         // exact: 32-align / 4 = 8-align v4
+    }
+#endif
 
-    for(int i = 0; i < (value_seq_len+3)/4; i += 8){
+    for(int i = 0; i < av_k_upper_v4; i += 8){
         // 向量化写入 P（两次 ftype4，覆盖 8 个标量）
         *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 0])) = *((const device ftype4*)(&A_offset[4*i + 0]));
         *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 4])) = *((const device ftype4*)(&A_offset[4*i + 4]));
 
-        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 0] = (ftype4)GETV4(B_offset[i + 0], b * param.max_kv_len + i * 4 + 0);
-        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 1] = (ftype4)GETV4(B_offset[i + 1], b * param.max_kv_len + i * 4 + 4);
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 0] = (ftype4)GETV4(B_offset[i + 0], b * param.max_kv_len + (kvl * 2 + i) * 4 + 0);
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 1] = (ftype4)GETV4(B_offset[i + 1], b * param.max_kv_len + (kvl * 2 + i) * 4 + 4);
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -1405,18 +1615,39 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
     // [M32, N4, N2, n4]
     auto sindex_base = (mcl * 4 + ncl) * 2 + 0;
 
-    // [M32, N4, N8]
-    // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    auto xy_out = output + ((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 32 + mcl) * head_num + hn) * head_dim/4 + (hm * 4 + ncl) * 2 + 0;
-    if(sl * 32 + mcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 32 + mcl < q_seq_len) {
-        if((hm * 4 + ncl) * 2 + 0 < head_dim/4) {
-            xy_out[0] =  ftype4(((threadgroup float4*)sdata)[sindex_base + 0]);
+    // Output layout write. Two paths depending on the exported model:
+    //   * default: [mBatch, mSeqLen, mNumHead, mHeadDim] as ftype4* stride 1
+    //     (each ftype4 packs 4 consecutive d-lane values).
+    //   * ATTENTION_C4: [mNumHead * (mHeadDim/4), mBatch * mSeqLen, 4]
+    //     — this matches Qwen3 c4-head exports; without this branch the
+    //     tensor-API kernel wrote to the default layout while the rest of
+    //     the graph assumed C4, producing garbage tokens.
+    int d_group0 = (hm * 4 + ncl) * 2 + 0;
+    int d_group1 = (hm * 4 + ncl) * 2 + 1;
+    int q_abs = seq_idx * q_seq_piece_len + sl * 32 + mcl;
+    if(sl * 32 + mcl < q_seq_piece_len && q_abs < q_seq_len) {
+#ifdef ATTENTION_C4
+        long c4_middle = (long)(b * q_seq_len + q_abs);
+        long c4_stride = (long)param.batch * (long)q_seq_len;
+        if(d_group0 < head_dim/4) {
+            output[(long)(hn * (head_dim/4) + d_group0) * c4_stride + c4_middle] =
+                ftype4(((threadgroup float4*)sdata)[sindex_base + 0]);
         }
-        if((hm * 4 + ncl) * 2 + 1 < head_dim/4) {
-            xy_out[1] =  ftype4(((threadgroup float4*)sdata)[sindex_base + 1]);
+        if(d_group1 < head_dim/4) {
+            output[(long)(hn * (head_dim/4) + d_group1) * c4_stride + c4_middle] =
+                ftype4(((threadgroup float4*)sdata)[sindex_base + 1]);
         }
+#else
+        auto xy_out = output + ((long)((b * q_seq_len + q_abs) * head_num + hn)) * head_dim/4
+                    + d_group0;
+        if(d_group0 < head_dim/4) {
+            xy_out[0] = ftype4(((threadgroup float4*)sdata)[sindex_base + 0]);
+        }
+        if(d_group1 < head_dim/4) {
+            xy_out[1] = ftype4(((threadgroup float4*)sdata)[sindex_base + 1]);
+        }
+#endif
     }
-
 }
 #endif
 
@@ -1448,7 +1679,9 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
     threadgroup float sdata[256] = {0.f};
 
-#ifdef USE_METAL_TENSOR_OPS
+// Tensor prefill uses prefill_qkv_tensor (32x32x32). Do not instantiate the
+// legacy 16x16x8 path when compiling that pipeline.
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
 
     const int K = 8, M = 16, N = 16;
     auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
@@ -1513,24 +1746,41 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
     int idx_qk_sl = sl * 16 + rcl < q_seq_piece_len ? (sl * 16 + rcl) : q_seq_piece_len - 1;
 
-    auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 2 + kl) * 4 + 0;
+    auto A_offset = input0 + (long)(z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 2 + kl) * 4 + 0;
 #ifdef QUANT_V
     auto B_offset = (const device char*)past_value + (zin * head_dim + hm * 16 + nl * 4 + 0) * param.max_kv_len + (0 * 8 + kcl);
 #else
     auto B_offset = past_value + (zin * head_dim + hm * 16 + nl * 4 + 0) * param.max_kv_len + (0 * 8 + kcl);
 #endif
 
-    for(int i = 0; i < align_value_len; i += 8){
+    // Causal skip for AV matmul: because softmax output beyond causal k_max is 0
+    // (thanks to -FLT_MAX in QK+softmax), we can stop accumulating early.  Each
+    // M16 q-tile has a maximum allowed k = kv_valid_offset + tile_max_q_absolute.
+    // Round up to K=8 alignment.  For a square prefill this halves K iterations
+    // on average and gives up to 4x speedup for early-q tiles.
+    int av_k_upper = align_value_len;
+#if defined(DEFAULT_MASK) || defined(ADD_MASK) || defined(SET_MASK) || defined(CAUSAL_BOUND)
+    {
+        int kv_valid_offset = value_seq_len - q_seq_len;
+        int tile_max_q_abs = kv_valid_offset + seq_idx * q_seq_piece_len + sl * 16 + 15;
+        int k_bound = tile_max_q_abs + 1;                  // exclusive
+        if (k_bound < 0) k_bound = 0;
+        int k_bound_aligned = ((k_bound + 7) / 8) * 8;     // round up to K=8 stride
+        if (k_bound_aligned < av_k_upper) av_k_upper = k_bound_aligned;
+    }
+#endif
+
+    for(int i = 0; i < av_k_upper; i += 8){
         *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 0])) = *((const device ftype4*)(&A_offset[i + 0]));
 
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 0] = GETV(B_offset[i + 0 * param.max_kv_len], b * param.max_kv_len + i);
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 1] = GETV(B_offset[i + 1 * param.max_kv_len], b * param.max_kv_len + i);
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 2] = GETV(B_offset[i + 2 * param.max_kv_len], b * param.max_kv_len + i);
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 3] = GETV(B_offset[i + 3 * param.max_kv_len], b * param.max_kv_len + i);
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 0] = GETV(B_offset[i + 0 * param.max_kv_len], b * param.max_kv_len + i + kcl);
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 1] = GETV(B_offset[i + 1 * param.max_kv_len], b * param.max_kv_len + i + kcl);
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 2] = GETV(B_offset[i + 2 * param.max_kv_len], b * param.max_kv_len + i + kcl);
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 3] = GETV(B_offset[i + 3 * param.max_kv_len], b * param.max_kv_len + i + kcl);
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
         auto sA = tA.slice(0, 0);
         auto sB = tB.slice(0, 0);
 
@@ -1550,7 +1800,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
 
     auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
     cT.store(tC);
@@ -1563,7 +1813,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef USE_METAL_TENSOR_OPS
+#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
     // [M16, N2, N8]
     auto sindex_base = (rcl * 2 + kl) * 8 + 0;
 #else
@@ -1574,7 +1824,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
     // [N2, M2, M8, N8]
 #ifdef ATTENTION_C4
     // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen, 4]
-    auto xy_out = output + (b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * 4 + (hn * head_dim / 4 + hm * 4 + kl * 2) * 4 * param.batch * q_seq_len + 0;
+    auto xy_out = output + (long)(b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * 4 + (long)(hn * head_dim / 4 + hm * 4 + kl * 2) * 4 * param.batch * q_seq_len + 0;
     if(sl * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 16 + rcl < q_seq_len) {
         if(hm * 16 + kl * 8 + 0 < head_dim) {
             xy_out[0] =  ((threadgroup float*)sdata)[sindex_base + 0];
@@ -1603,7 +1853,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
     }
 #else
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    auto xy_out = output + ((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * head_num + hn) * head_dim + hm * 16 + kl * 8 + 0;
+    auto xy_out = output + ((long)((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * head_num + hn)) * head_dim + hm * 16 + kl * 8 + 0;
     if(sl * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 16 + rcl < q_seq_len) {
         if(hm * 16 + kl * 8 + 0 < head_dim) {
             xy_out[0] =  ((threadgroup float*)sdata)[sindex_base + 0];
@@ -1888,6 +2138,32 @@ struct Param {
 };
 #define SIMD_GROUP_WIDTH 32
 
+// Determine max KV length based on GROUP_SIZE to stay within 32KB threadgroup memory
+// Memory usage: GROUP_SIZE * (MAX_KV + 32) * sizeof(float)
+#ifdef SHORT_KV_128
+#define DECODE_QK_SOFTMAX_MAX_KV 128
+#elif GROUP_SIZE <= 2
+#define DECODE_QK_SOFTMAX_MAX_KV 2048
+#elif GROUP_SIZE <= 4
+#define DECODE_QK_SOFTMAX_MAX_KV 1024
+#elif GROUP_SIZE <= 8
+#define DECODE_QK_SOFTMAX_MAX_KV 512
+#endif
+
+// GROUP_SIZE == 2 specialization: keep the pre-b9a6e60e hard-coded implementation.
+// The generic loop-over-GROUP_SIZE version (below) puts scores/reduce state in
+// arrays indexed by g, which stops Metal's compiler from fully lifting them into
+// registers. For GROUP_SIZE=2 that costs ~15% (measured on Qwen3-0.6B decode).
+// The hard-coded pair of scalars gives the compiler two independent instruction
+// streams (s0/s1, local_max0/local_max1, etc.) which interleave cleanly.
+#if GROUP_SIZE == 2
+#ifdef QK_QSPLIT
+// Q-head-split variant (host auto gate: group_size==2, non-tensor-API device,
+// kv>=512): each
+// threadgroup handles ONE query head — gid.z selects the head within the kv
+// group. Doubles threadgroup count (8 -> 16 on Qwen3-0.6B) for occupancy, at
+// the cost of reading K once per q-head (2x K traffic) and a single dot
+// stream per thread (vs the s0/s1 ILP pair below).
 kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
     device ftype* past_key [[buffer(2)]],
@@ -1902,8 +2178,139 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     uint sgitg[[simdgroup_index_in_threadgroup]],
     uint3 tptg_3d[[threads_per_threadgroup]]
 ) {
-    threadgroup float scores0[2048];
-    threadgroup float scores1[2048];
+    threadgroup float scores0[DECODE_QK_SOFTMAX_MAX_KV];
+    threadgroup float reduce0[32];
+
+    const int tptg = int(tptg_3d.x * tptg_3d.y * tptg_3d.z);
+    const int sg_count = tptg / SIMD_GROUP_WIDTH;
+    const int kv_head_num = param.head_num / GROUP_SIZE;
+    const int b = int(gid.x) / kv_head_num;
+    const int kv_hn = int(gid.x) - b * kv_head_num;
+#ifdef HEAD_DIM
+    const int head_dim = HEAD_DIM;
+#else
+    const int head_dim = param.head_dim;
+#endif
+    const int key_seq_len = param.key_seq_len;
+    const int align_key_len = ((key_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
+    const int x = int(gid.y);
+    const int q_idx = seq_idx * param.q_seq_piece_len + x;
+
+    if (b >= param.batch || kv_hn >= kv_head_num || x >= param.q_seq_piece_len || q_idx >= param.query_seq_len) {
+        return;
+    }
+
+    const int head0 = kv_hn * GROUP_SIZE + int(gid.z);
+    const int query_offset = (b * param.query_seq_len + q_idx) * param.head_num * head_dim;
+    const device ftype* query0 = input0 + query_offset + head0 * head_dim;
+    const int key_head_offset = kv_hn * head_dim;
+    const int key_stride = kv_head_num * head_dim;
+
+    float local_max0 = -FLT_MAX;
+    const int kv_valid_limit = max(key_seq_len - param.query_seq_len, 0) + q_idx;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+#ifdef QUANT_K
+        const device char* key = (const device char*)past_key + (k * param.batch + b) * key_stride + key_head_offset;
+#else
+        const device ftype* key = past_key + (k * param.batch + b) * key_stride + key_head_offset;
+#endif
+        float s0 = 0.0f;
+        const device ftype4* q04 = (const device ftype4*)query0;
+#ifdef QUANT_K
+        const device char4* k4 = (const device char4*)key;
+#ifdef DYNAMIC_QUANT_K
+        const int k_token_idx = k * param.batch + b;
+        const float k_scale = float(k_scales[k_token_idx * 2]);
+        const float k_bias = float(k_scales[k_token_idx * 2 + 1]);
+#endif
+#else
+        const device ftype4* k4 = (const device ftype4*)key;
+#endif
+        for (int d = 0; d < head_dim / 8; ++d) {
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 k0 = float4(k4[d * 2 + 0]) * k_scale + k_bias;
+            float4 k1 = float4(k4[d * 2 + 1]) * k_scale + k_bias;
+#else
+            float4 k0 = float4(k4[d * 2 + 0]) * param.k_scale;
+            float4 k1 = float4(k4[d * 2 + 1]) * param.k_scale;
+#endif
+#else
+            float4 k0 = float4(k4[d * 2 + 0]);
+            float4 k1 = float4(k4[d * 2 + 1]);
+#endif
+            s0 += dot(float4(q04[d * 2 + 0]), k0) + dot(float4(q04[d * 2 + 1]), k1);
+        }
+        s0 *= param.scale;
+        if (k > kv_valid_limit) {
+            s0 = -FLT_MAX;
+        }
+        scores0[k] = s0;
+        local_max0 = max(local_max0, s0);
+    }
+
+    local_max0 = simd_max(local_max0);
+    if (tiisg == 0) {
+        reduce0[sgitg] = local_max0;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg == 0 && tiisg == 0) {
+        float max0 = -FLT_MAX;
+        for (int i = 0; i < sg_count; ++i) {
+            max0 = max(max0, reduce0[i]);
+        }
+        reduce0[0] = max0;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const float max0 = reduce0[0];
+
+    float local_sum0 = 0.0f;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        float v0 = exp(scores0[k] - max0);
+        scores0[k] = v0;
+        local_sum0 += v0;
+    }
+
+    local_sum0 = simd_sum(local_sum0);
+    if (tiisg == 0) {
+        reduce0[sgitg] = local_sum0;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg == 0 && tiisg == 0) {
+        float sum0 = 0.0f;
+        for (int i = 0; i < sg_count; ++i) {
+            sum0 += reduce0[i];
+        }
+        reduce0[0] = sum0;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const float inv_sum0 = 1.0f / reduce0[0];
+
+    const int base0 = ((b * param.head_num + head0) * param.query_seq_len + q_idx) * align_key_len;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        output[base0 + k] = (ftype)(scores0[k] * inv_sum0);
+    }
+    for (int k = int(tid) + key_seq_len; k < align_key_len; k += tptg) {
+        output[base0 + k] = (ftype)0.0f;
+    }
+}
+#else  // !QK_QSPLIT: original paired implementation
+kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype* past_key [[buffer(2)]],
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+#if defined(QUANT_K) && defined(DYNAMIC_QUANT_K)
+    device ftype* k_scales [[buffer(8)]],
+#endif
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint tid[[thread_index_in_threadgroup]],
+    uint tiisg[[thread_index_in_simdgroup]],
+    uint sgitg[[simdgroup_index_in_threadgroup]],
+    uint3 tptg_3d[[threads_per_threadgroup]]
+) {
+    threadgroup float scores0[DECODE_QK_SOFTMAX_MAX_KV];
+    threadgroup float scores1[DECODE_QK_SOFTMAX_MAX_KV];
     threadgroup float reduce0[32];
     threadgroup float reduce1[32];
 
@@ -2047,6 +2454,462 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     for (int k = int(tid) + key_seq_len; k < align_key_len; k += tptg) {
         output[base0 + k] = (ftype)0.0f;
         output[base1 + k] = (ftype)0.0f;
+    }
+}
+#endif // QK_QSPLIT
+#else  // GROUP_SIZE != 2: generic implementation for group_size in {4, 8}
+kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype* past_key [[buffer(2)]],
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+#if defined(QUANT_K) && defined(DYNAMIC_QUANT_K)
+    device ftype* k_scales [[buffer(8)]],
+#endif
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint tid[[thread_index_in_threadgroup]],
+    uint tiisg[[thread_index_in_simdgroup]],
+    uint sgitg[[simdgroup_index_in_threadgroup]],
+    uint3 tptg_3d[[threads_per_threadgroup]]
+) {
+    // Threadgroup memory for scores and reduction buffers, indexed as [group][element]
+    threadgroup float scores_buf[GROUP_SIZE * DECODE_QK_SOFTMAX_MAX_KV];
+    threadgroup float reduce_buf[GROUP_SIZE * 32];
+
+    const int tptg = int(tptg_3d.x * tptg_3d.y * tptg_3d.z);
+    const int sg_count = tptg / SIMD_GROUP_WIDTH;
+    const int kv_head_num = param.head_num / GROUP_SIZE;
+    const int b = int(gid.x) / kv_head_num;
+    const int kv_hn = int(gid.x) - b * kv_head_num;
+#ifdef HEAD_DIM
+    const int head_dim = HEAD_DIM;
+#else
+    const int head_dim = param.head_dim;
+#endif
+    const int key_seq_len = param.key_seq_len;
+    const int align_key_len = ((key_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
+    const int x = int(gid.y);
+    const int q_idx = seq_idx * param.q_seq_piece_len + x;
+
+    if (b >= param.batch || kv_hn >= kv_head_num || x >= param.q_seq_piece_len || q_idx >= param.query_seq_len) {
+        return;
+    }
+
+    const int head_base = kv_hn * GROUP_SIZE;
+    const int query_offset = (b * param.query_seq_len + q_idx) * param.head_num * head_dim;
+    const int key_head_offset = kv_hn * head_dim;
+    const int key_stride = kv_head_num * head_dim;
+
+    // Pre-compute query pointers for all heads in the group
+    const device ftype4* q4_ptrs[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        q4_ptrs[g] = (const device ftype4*)(input0 + query_offset + (head_base + g) * head_dim);
+    }
+
+    float local_max[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        local_max[g] = -FLT_MAX;
+    }
+
+    const int kv_valid_limit = max(key_seq_len - param.query_seq_len, 0) + q_idx;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        // Read key data once, shared across all heads in the group
+#ifdef QUANT_K
+        const device char* key = (const device char*)past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device char4* k4 = (const device char4*)key;
+#ifdef DYNAMIC_QUANT_K
+        const int k_token_idx = k * param.batch + b;
+        const float k_scale = float(k_scales[k_token_idx * 2]);
+        const float k_bias = float(k_scales[k_token_idx * 2 + 1]);
+#endif
+#else
+        const device ftype* key = past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device ftype4* k4 = (const device ftype4*)key;
+#endif
+
+        // Compute dot products for all heads in the group
+        float s[GROUP_SIZE];
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            s[g] = 0.0f;
+        }
+
+        for (int d = 0; d < head_dim / 8; ++d) {
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 kv0 = float4(k4[d * 2 + 0]) * k_scale + k_bias;
+            float4 kv1 = float4(k4[d * 2 + 1]) * k_scale + k_bias;
+#else
+            float4 kv0 = float4(k4[d * 2 + 0]) * param.k_scale;
+            float4 kv1 = float4(k4[d * 2 + 1]) * param.k_scale;
+#endif
+#else
+            float4 kv0 = float4(k4[d * 2 + 0]);
+            float4 kv1 = float4(k4[d * 2 + 1]);
+#endif
+            for (int g = 0; g < GROUP_SIZE; g++) {
+                s[g] += dot(float4(q4_ptrs[g][d * 2 + 0]), kv0) + dot(float4(q4_ptrs[g][d * 2 + 1]), kv1);
+            }
+        }
+
+        bool masked = (k > kv_valid_limit);
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            float sv = masked ? -FLT_MAX : (s[g] * param.scale);
+            scores_buf[g * DECODE_QK_SOFTMAX_MAX_KV + k] = sv;
+            local_max[g] = max(local_max[g], sv);
+        }
+    }
+
+    // Max reduction across simdgroups
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        local_max[g] = simd_max(local_max[g]);
+        if (tiisg == 0) {
+            reduce_buf[g * 32 + sgitg] = local_max[g];
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg == 0 && tiisg == 0) {
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            float m = -FLT_MAX;
+            for (int i = 0; i < sg_count; ++i) {
+                m = max(m, reduce_buf[g * 32 + i]);
+            }
+            reduce_buf[g * 32] = m;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float max_val[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        max_val[g] = reduce_buf[g * 32];
+    }
+
+    // Exp and sum
+    float local_sum[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        local_sum[g] = 0.0f;
+    }
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            float v = exp(scores_buf[g * DECODE_QK_SOFTMAX_MAX_KV + k] - max_val[g]);
+            scores_buf[g * DECODE_QK_SOFTMAX_MAX_KV + k] = v;
+            local_sum[g] += v;
+        }
+    }
+
+    // Sum reduction across simdgroups
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        local_sum[g] = simd_sum(local_sum[g]);
+        if (tiisg == 0) {
+            reduce_buf[g * 32 + sgitg] = local_sum[g];
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg == 0 && tiisg == 0) {
+        for (int g = 0; g < GROUP_SIZE; g++) {
+            float s = 0.0f;
+            for (int i = 0; i < sg_count; ++i) {
+                s += reduce_buf[g * 32 + i];
+            }
+            reduce_buf[g * 32] = s;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Normalize and write output
+    float inv_sum[GROUP_SIZE];
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        inv_sum[g] = 1.0f / reduce_buf[g * 32];
+    }
+
+    for (int g = 0; g < GROUP_SIZE; g++) {
+        const int head = head_base + g;
+        const int base = ((b * param.head_num + head) * param.query_seq_len + q_idx) * align_key_len;
+        for (int k = int(tid); k < key_seq_len; k += tptg) {
+            output[base + k] = (ftype)(scores_buf[g * DECODE_QK_SOFTMAX_MAX_KV + k] * inv_sum[g]);
+        }
+        for (int k = int(tid) + key_seq_len; k < align_key_len; k += tptg) {
+            output[base + k] = (ftype)0.0f;
+        }
+    }
+}
+#endif // GROUP_SIZE == 2
+)metal";
+
+// Split-KV decode attention (llama.cpp flash_attn_ext_vec-style).
+// Single fused QK + online-softmax + AV pass over a KV slice per workgroup,
+// followed by a small reduce kernel combining the per-workgroup partials.
+// Removes the threadgroup-memory KV cap of decode_qk_softmax (scores never
+// materialized beyond a 32-element block) and restores GPU-wide parallelism
+// for long KV where one simdgroup per head would be latency-bound.
+// Compile-time: ftype, GROUP_SIZE, HEAD_DIM (+ optional ATTENTION_C4).
+// Layouts (same as decode_qk / decode_qkv):
+//   query : [batch, 1, head_num, head_dim]
+//   K     : [max_kv, batch, kv_head_num, head_dim]
+//   V     : [batch, kv_head_num, head_dim, max_kv]   (transposed)
+//   tmp   : [batch*head_num, nwg, head_dim + 2] float (O partial, S, M)
+const char* gDecodeSplitKV = R"metal(
+#include <metal_stdlib>
+#include <simd/simd.h>
+using namespace metal;
+struct Param {
+    int query_seq_len;
+    int q_seq_piece_len;
+    int key_seq_len;
+    int head_num;
+    int group;
+    int head_dim;
+    float scale;
+    int max_kv_len;
+    int batch;
+    int kv_align_len;
+    int mask_batch;
+    int mask_head_num;
+    int mask_q_len;
+    int mask_k_len;
+    float v_scale;
+    float k_scale;
+};
+#define SIMD_GROUP_WIDTH 32
+#ifndef SPLITKV_NSG
+#define SPLITKV_NSG 4
+#endif
+#define SPLITKV_C 32
+#define DPT (HEAD_DIM / SIMD_GROUP_WIDTH)   // d-values owned per lane in the AV phase
+// One threadgroup per q head (grid.y = batch*head_num, MLX sdpa_vector form);
+// the GROUP_SIZE loops collapse. The kv-head-grouped variant (GS_LOCAL =
+// GROUP_SIZE, SDPA_QSPLIT=0) measured worse and was removed 2026-07-30.
+#define GS_LOCAL 1
+
+kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
+    device ftype* out_final [[buffer(1)]],
+    const device ftype* past_key [[buffer(2)]],
+    const device ftype* past_value [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+    constant int& nwg [[buffer(5)]],
+    device ftype* k_scales [[buffer(8)]],
+    device ftype* v_scales [[buffer(9)]],
+    uint3 gid [[threadgroup_position_in_grid]],
+    uint tiisg [[thread_index_in_simdgroup]],
+    uint sgitg [[simdgroup_index_in_threadgroup]]) {
+
+    const int kv_head_num = param.head_num / GROUP_SIZE;
+    const int iwg   = int(gid.x);
+    const int b     = int(gid.y) / param.head_num;
+    const int q_head_base = int(gid.y) % param.head_num; // this TG's single q head
+    const int kv_hn = q_head_base / GROUP_SIZE;
+    const int key_seq_len = param.key_seq_len;
+    const int key_stride  = kv_head_num * HEAD_DIM;
+
+    // Query for the GS_LOCAL heads handled by this threadgroup, promoted to float
+    // in threadgroup memory (read once, reused for every kv block).
+    threadgroup float sq[GS_LOCAL * HEAD_DIM];
+    // exp-scores of the current 32-kv block, per simdgroup / group head
+    threadgroup float s_vs[SPLITKV_NSG][GS_LOCAL][SPLITKV_C];
+    // Cross-simdgroup reduce scratch: one float per (lane, simdgroup) pair, reused
+    // for every head_dim component group. Deliberately independent of HEAD_DIM --
+    // a [SPLITKV_NSG][GS_LOCAL][HEAD_DIM] buffer would be 32KB at NSG=32 and
+    // blow the threadgroup limit, capping SPLITKV_NSG at 4.
+    threadgroup float s_out[SPLITKV_NSG * SIMD_GROUP_WIDTH];
+    threadgroup float s_sm[SPLITKV_NSG][GS_LOCAL][2];
+
+    {
+        const device ftype* q_base = input0 + (b * param.head_num + q_head_base) * HEAD_DIM;
+        for (int i = int(sgitg * SIMD_GROUP_WIDTH + tiisg); i < GS_LOCAL * HEAD_DIM; i += SPLITKV_NSG * SIMD_GROUP_WIDTH) {
+            sq[i] = float(q_base[i]);
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float S[GS_LOCAL];
+    float M[GS_LOCAL];
+    float O[GS_LOCAL][DPT];
+    for (int g = 0; g < GS_LOCAL; ++g) {
+        S[g] = 0.0f;
+        M[g] = -FLT_MAX / 2;
+        for (int d = 0; d < DPT; ++d) {
+            O[g][d] = 0.0f;
+        }
+    }
+
+    // V rows for the DPT d-values owned by this lane (V is [.., head_dim, max_kv])
+#ifdef QUANT_V
+    const device char* v_base = (const device char*)past_value + (b * kv_head_num + kv_hn) * HEAD_DIM * param.max_kv_len;
+#else
+    const device ftype* v_base = past_value + (b * kv_head_num + kv_hn) * HEAD_DIM * param.max_kv_len;
+#endif
+
+    for (int ic0 = (iwg * SPLITKV_NSG + int(sgitg)) * SPLITKV_C; ic0 < key_seq_len; ic0 += nwg * SPLITKV_NSG * SPLITKV_C) {
+        // ---- QK: lane <-> kv position ----
+        // (A coalesced simdgroup<->kv-row QK variant (SDPA_COALESCED) matched
+        // this one e2e three times over and was removed 2026-07-30.)
+        const int ic = ic0 + int(tiisg);
+        float score[GS_LOCAL];
+        if (ic < key_seq_len) {
+#ifdef QUANT_K
+            const device char4* k4 = (const device char4*)((const device char*)past_key + (ic * param.batch + b) * key_stride + kv_hn * HEAD_DIM);
+#ifdef DYNAMIC_QUANT_K
+            const int k_tok = ic * param.batch + b;
+            const float k_scale = float(k_scales[k_tok * 2]);
+            const float k_bias  = float(k_scales[k_tok * 2 + 1]);
+#else
+            const float k_scale = param.k_scale;
+            const float k_bias  = 0.0f;
+#endif
+#else
+            const device ftype4* k4 = (const device ftype4*)(past_key + (ic * param.batch + b) * key_stride + kv_hn * HEAD_DIM);
+#endif
+            float acc[GS_LOCAL];
+            for (int g = 0; g < GS_LOCAL; ++g) {
+                acc[g] = 0.0f;
+            }
+            for (int d4 = 0; d4 < HEAD_DIM / 4; ++d4) {
+#ifdef QUANT_K
+                float4 k = float4(k4[d4]) * k_scale + k_bias;
+#else
+                float4 k = float4(k4[d4]);
+#endif
+                for (int g = 0; g < GS_LOCAL; ++g) {
+                    float4 q = ((threadgroup float4*)(sq + g * HEAD_DIM))[d4];
+                    acc[g] += dot(q, k);
+                }
+            }
+            for (int g = 0; g < GS_LOCAL; ++g) {
+                score[g] = acc[g] * param.scale;
+            }
+        } else {
+            for (int g = 0; g < GS_LOCAL; ++g) {
+                score[g] = -FLT_MAX / 2;
+            }
+        }
+
+        // ---- online softmax + rescale of the running O ----
+        // Under QUANT_V the V scale is folded into s_vs (vs * scale) and the V bias
+        // contribution (sum_j vs_j * bias_j, identical for every d) into vb[g], so
+        // the AV loop below reads raw int8 V with zero per-element dequant math.
+        float ms[GS_LOCAL];
+#ifdef QUANT_V
+        float vb[GS_LOCAL];
+#ifdef DYNAMIC_QUANT_V
+        const int v_tok = b * param.max_kv_len + ic;
+        const float v_sc = (ic < key_seq_len) ? float(v_scales[v_tok * 2])     : 0.0f;
+        const float v_bi = (ic < key_seq_len) ? float(v_scales[v_tok * 2 + 1]) : 0.0f;
+#else
+        const float v_sc = param.v_scale;
+        const float v_bi = 0.0f;
+#endif
+#endif
+        for (int g = 0; g < GS_LOCAL; ++g) {
+            const float m_prev = M[g];
+            M[g] = max(m_prev, simd_max(score[g]));
+            ms[g] = exp(m_prev - M[g]);
+            const float vs = (ic < key_seq_len) ? exp(score[g] - M[g]) : 0.0f;
+            S[g] = S[g] * ms[g] + simd_sum(vs);
+#ifdef QUANT_V
+            s_vs[sgitg][g][tiisg] = vs * v_sc;
+            vb[g] = simd_sum(vs * v_bi);
+#else
+            s_vs[sgitg][g][tiisg] = vs;
+#endif
+        }
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+
+        // ---- AV: lane <-> head_dim, V^T rows contiguous along kv ----
+        const int kv_rem = min(SPLITKV_C, key_seq_len - ic0);
+        for (int dd = 0; dd < DPT; ++dd) {
+            const int d = dd * SIMD_GROUP_WIDTH + int(tiisg);
+#ifdef QUANT_V
+            const device char* v_row = v_base + d * param.max_kv_len + ic0;
+#else
+            const device ftype* v_row = v_base + d * param.max_kv_len + ic0;
+#endif
+            if (kv_rem == SPLITKV_C) {
+                float4 vsum[GS_LOCAL];
+                for (int g = 0; g < GS_LOCAL; ++g) {
+                    vsum[g] = 0.0f;
+                }
+                for (int j4 = 0; j4 < SPLITKV_C / 4; ++j4) {
+#ifdef QUANT_V
+                    float4 v = float4(((const device char4*)v_row)[j4]);
+#else
+                    float4 v = float4(((const device ftype4*)v_row)[j4]);
+#endif
+                    for (int g = 0; g < GS_LOCAL; ++g) {
+                        vsum[g] += v * ((threadgroup float4*)(s_vs[sgitg][g]))[j4];
+                    }
+                }
+                for (int g = 0; g < GS_LOCAL; ++g) {
+#ifdef QUANT_V
+                    O[g][dd] = O[g][dd] * ms[g] + (vsum[g].x + vsum[g].y + vsum[g].z + vsum[g].w) + vb[g];
+#else
+                    O[g][dd] = O[g][dd] * ms[g] + (vsum[g].x + vsum[g].y + vsum[g].z + vsum[g].w);
+#endif
+                }
+            } else {
+                for (int g = 0; g < GS_LOCAL; ++g) {
+                    float acc = 0.0f;
+                    for (int j = 0; j < kv_rem; ++j) {
+                        acc += float(v_row[j]) * s_vs[sgitg][g][j];
+                    }
+#ifdef QUANT_V
+                    O[g][dd] = O[g][dd] * ms[g] + acc + vb[g];
+#else
+                    O[g][dd] = O[g][dd] * ms[g] + acc;
+#endif
+                }
+            }
+        }
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    // ---- cross-simdgroup reduce inside the threadgroup ----
+    // MLX sdpa_vector-style transposed reduce: (S, M) are combined by one
+    // simd_max/simd_sum over lanes indexing simdgroups; O is combined one
+    // 32-component group at a time through the shared s_out scratch, so the
+    // barrier count is 2 per component group instead of log2(NSG) full-HEAD_DIM
+    // sweeps and threadgroup memory stays HEAD_DIM-independent.
+    if (tiisg == 0) {
+        for (int g = 0; g < GS_LOCAL; ++g) {
+            s_sm[sgitg][g][0] = S[g];
+            s_sm[sgitg][g][1] = M[g];
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const int row_base = b * param.head_num + q_head_base;
+    const bool lane_is_sg = (int(tiisg) < SPLITKV_NSG);
+    for (int g = 0; g < GS_LOCAL; ++g) {
+        // lane t holds simdgroup t's (S, M); reduce across lanes
+        const float Mi = lane_is_sg ? s_sm[tiisg][g][1] : (-FLT_MAX / 2);
+        const float m  = simd_max(Mi);
+        const float factor = lane_is_sg ? exp(Mi - m) : 0.0f;
+        const float S_tot  = simd_sum(lane_is_sg ? (s_sm[tiisg][g][0] * factor) : 0.0f);
+
+        const float inv_s = (S_tot == 0.0f) ? 0.0f : (1.0f / S_tot);
+        const int hn = q_head_base + g;
+
+        for (int dd = 0; dd < DPT; ++dd) {
+            // transpose partials: component-lane major so one simdgroup can gather
+            // all SPLITKV_NSG partials of a component with a single simd_sum
+            s_out[tiisg * SPLITKV_NSG + sgitg] = O[g][dd];
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            for (int rep = 0; rep < SIMD_GROUP_WIDTH / SPLITKV_NSG; ++rep) {
+                const int lp = int(sgitg) + rep * SPLITKV_NSG; // component-lane owned by this simdgroup
+                const float part = lane_is_sg ? (s_out[lp * SPLITKV_NSG + tiisg] * factor) : 0.0f;
+                const float acc  = simd_sum(part);
+                if (tiisg == 0) {
+                    const int d = dd * SIMD_GROUP_WIDTH + lp;
+#ifdef ATTENTION_C4
+                    // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen(=1), 4]
+                    const int c  = hn * HEAD_DIM + d;
+                    out_final[b * 4 + (c % 4) + (c / 4) * param.batch * 4] = ftype(acc * inv_s);
+#else
+                    // [mBatch, mSeqLen(=1), mNumHead, mHeadDim]
+                    out_final[(row_base + g) * HEAD_DIM + d] = ftype(acc * inv_s);
+#endif
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
     }
 }
 )metal";

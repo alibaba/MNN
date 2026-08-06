@@ -250,6 +250,8 @@ typedef void (*MNNBinaryExecInt8)(int8_t* outputRaw, const int8_t* inputRaw0, co
 constexpr int InputTileMax = 14; // same value from DynamicGemm.h, cannot include from different backend code.
 
 namespace MNN {
+struct CPUExtension;
+
 struct MatmulRelatedFunctions {
     // from coreFunctions
     void (*MNNSumWeightInt8)(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP,
@@ -370,9 +372,12 @@ struct CoreFunctions {
     // 'kq' must be precomputed as dot(k,q) by the caller.
     void (*MNNFusedGatedDelta)(float* S, const float* k, const float* q, const float* v, float* out, float decay,
                                float beta, float kq, size_t dk, size_t dv);
+    float (*MNNNormalizeQKAndDot)(float* q, float* k, float qScale, bool useL2Norm, size_t dk);
     void (*MNNCountMaxMinValue)(const float* source, float* minVal, float* maxVal, size_t size);
-    void (*MNNNormPacked)(float* dest, const float* source, const float* gamma, const float* beta, float epsilon,
-                          size_t batch, size_t channels, bool RMSNorm);
+    // Packed layout is [channelUnit, batch, pack]. residual and sum are an optional pair; threads split batch work.
+    void (*MNNNormPacked)(float* dest, float* sum, const float* source, const float* residual, const float* gamma,
+                          const float* beta, float epsilon, size_t batch, size_t channels, bool RMSNorm, int tId,
+                          int threadNumber);
     void (*MNNDynamicUpdateConvBiasScale)(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero,
                                           size_t ocQuad);
     void (*MNNAsyQuantInfo)(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax,
@@ -544,6 +549,8 @@ struct CoreFunctions {
 
     MatmulRelatedFunctions int8MatmulRelatedFunctions;
     MatmulRelatedFunctions arm82MatmulRelatedFunctions;
+    bool kvUpdateConcurrent = false;
+    const CPUExtension* extension = nullptr;
 };
 void MNNCoreFunctionInit();
 CoreFunctions* MNNGetCoreFunctions();

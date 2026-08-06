@@ -38,6 +38,8 @@ std::string OpenCLMmapAllocator::onAlloc(size_t size) {
         auto code = MNNSetFileSize(file, size);
         if (NO_ERROR != code) {
             MNN_ERROR("Set File size %lu error= %d\n", size, code);
+            MNNCloseFile(file);
+            return "";
         }
         mNewMmap = true;
     }
@@ -110,9 +112,13 @@ std::shared_ptr<cl::Buffer> MmapPool::allocBuffer(size_t size, bool separate) {
     if(fileName.length() == 0){
         //need open new file
         fileName = mOrigin->onAlloc(mFileSize);
+        if (fileName.empty()) {
+            MNN_ERROR("OpenCL mmap file alloc failed\n");
+            return nullptr;
+        }
         mFileInfo.insert(std::make_pair(fileName, 0));
     }
-    
+
     std::shared_ptr<OpenCLMmapBufferNode> node(new OpenCLMmapBufferNode);
     cl_int ret = CL_SUCCESS;
     mTotalSize += size;
@@ -186,6 +192,10 @@ std::shared_ptr<cl::Image> MmapPool::allocImage(size_t w, size_t h, cl_channel_t
     if(fileName.length() == 0){
         //need open new file
         fileName = mOrigin->onAlloc(mFileSize);
+        if (fileName.empty()) {
+            MNN_ERROR("OpenCL mmap file alloc failed for image\n");
+            return nullptr;
+        }
         mFileInfo.insert(std::make_pair(fileName, 0));
     }
     node->fileName = fileName;

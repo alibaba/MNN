@@ -44,7 +44,6 @@ enum ImageFormat {
 | 14 | `HSV_FULL` |  |
 
 
----
 ### Filter
 ```cpp
 enum Filter {
@@ -61,7 +60,6 @@ enum Filter {
 | 2 | `BICUBIC`  | 双三次的 |
 
 
----
 ### Wrap
 ```cpp
 enum Wrap {
@@ -79,7 +77,6 @@ enum Wrap {
 
 ## 成员函数
 
----
 ### create
 ```cpp
 static ImageProcess* create(const Config& config, const Tensor* dstTensor = nullptr);
@@ -92,7 +89,6 @@ static ImageProcess* create(const Config& config, const Tensor* dstTensor = null
 
 返回：图像处理器
 
----
 ### create
 ```cpp
 static ImageProcess* create(const ImageFormat sourceFormat = RGBA, const ImageFormat destFormat = RGBA,
@@ -112,11 +108,9 @@ static ImageProcess* create(const ImageFormat sourceFormat = RGBA, const ImageFo
 
 返回：图像处理器
 
----
 ### ~ImageProcess
 析构函数
 
----
 ### destroy
 ```cpp
 static void destroy(ImageProcess* imageProcess);
@@ -128,7 +122,6 @@ static void destroy(ImageProcess* imageProcess);
 
 返回：`void`
 
----
 ### matrix
 ```cpp
 inline const Matrix& matrix() const {
@@ -141,7 +134,6 @@ inline const Matrix& matrix() const {
 
 返回：仿射变换矩阵
 
----
 ### setMatrix
 ```cpp
 void setMatrix(const Matrix& matrix);
@@ -153,7 +145,6 @@ void setMatrix(const Matrix& matrix);
 
 返回：`void`
 
----
 ### convert
 ```cpp
 ErrorCode convert(const uint8_t* source, int iw, int ih, int stride, Tensor* dest);
@@ -169,7 +160,6 @@ ErrorCode convert(const uint8_t* source, int iw, int ih, int stride, Tensor* des
 
 返回：结果code
 
----
 ### convert
 ```cpp
 ErrorCode convert(const uint8_t* source, int iw, int ih, int stride, void* dest, int ow, int oh, int outputBpp = 0,
@@ -191,7 +181,6 @@ ErrorCode convert(const uint8_t* source, int iw, int ih, int stride, void* dest,
 
 返回：结果code
 
----
 ### createImageTensor
 ```cpp
 template <typename T>
@@ -211,7 +200,6 @@ static Tensor* createImageTensor(halide_type_t type, int w, int h, int bpp, void
 
 返回：创建的张量
 
----
 ### setPadding
 ```cpp
 void setPadding(uint8_t value) {
@@ -225,7 +213,6 @@ void setPadding(uint8_t value) {
 
 返回：`void`
 
----
 ### setDraw
 ```cpp
 void setDraw();
@@ -236,7 +223,6 @@ void setDraw();
 
 返回：`void`
 
----
 ### draw
 ```cpp
 void draw(uint8_t* img, int w, int h, int c, const int* regions, int num, const uint8_t* color);

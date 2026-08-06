@@ -168,7 +168,10 @@ void MtpGeneration::generate(GenerationParams& param) {
         drafts.push_back(mContext->current_token);
         
         auto decodeStr = mLlm->tokenizer_decode(mContext->current_token);
-        mContext->generate_str += decodeStr;
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->generate_str += decodeStr;
+        }
         if (nullptr != mContext->os) {
             *mContext->os << decodeStr;
             *mContext->os << std::flush;
@@ -225,8 +228,11 @@ void MtpGeneration::generate(GenerationParams& param) {
             mContext->decode_us += _t.durationInUs();
 
             // add all accept tokens to string
-            mContext->history_tokens.insert(mContext->history_tokens.end(), drafts.begin(), drafts.begin() + i_dft);
-            mContext->output_tokens.insert(mContext->output_tokens.end(), drafts.begin(), drafts.begin() + i_dft);
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->history_tokens.insert(mContext->history_tokens.end(), drafts.begin(), drafts.begin() + i_dft);
+                mContext->output_tokens.insert(mContext->output_tokens.end(), drafts.begin(), drafts.begin() + i_dft);
+            }
             
         #ifdef DUMP_PROFILE_INFO
             spl_decode += drafts.size();
@@ -234,14 +240,20 @@ void MtpGeneration::generate(GenerationParams& param) {
             spl_count++;
         #endif
             if(stop) {
-                mContext->history_tokens.push_back(mContext->current_token);
-                mContext->output_tokens.push_back(mContext->current_token);
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->history_tokens.push_back(mContext->current_token);
+                    mContext->output_tokens.push_back(mContext->current_token);
+                }
                 mLlm->updateContext(0, 1);
                 break;
             }
             if (mLlm->is_stop(mContext->current_token)) {
-                mContext->history_tokens.push_back(mContext->current_token);
-                mContext->output_tokens.push_back(mContext->current_token);
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->history_tokens.push_back(mContext->current_token);
+                    mContext->output_tokens.push_back(mContext->current_token);
+                }
                 mLlm->updateContext(0, 1);
                 if (nullptr != mContext->os) {
                     *mContext->os << mContext->end_with << std::flush;

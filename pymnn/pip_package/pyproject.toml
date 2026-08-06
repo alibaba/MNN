@@ -3,7 +3,7 @@ requires = [
     "setuptools>=42",
     "wheel",
     "ninja; sys_platform == 'windows'",
-    "numpy"
+    "numpy<2.5"
 ]
 
 build-backend = "setuptools.build_meta"
@@ -21,6 +21,8 @@ repair-wheel-command = ""
 [tool.cibuildwheel.linux]
 build = "cp*-manylinux*"
 skip = "pp*"
+manylinux-x86_64-image = "manylinux2014"
+manylinux-aarch64-image = "manylinux2014"
 before-all = [
     "pushd pymnn/pip_package",
     "python3 build_deps.py llm",

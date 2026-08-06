@@ -31,48 +31,59 @@ void main()
     int y = int(gl_GlobalInvocationID.x);
     if (y < uConstant.size.w)
     {
+        bool inputC4 = uConstant.size.z != 0;
         float scale = 1.0 / float(uConstant.size.x);
         if (USE_RMS != 0u) {
             float squaremean = 0.0;
             for (int j=0; j<uConstant.size.x; ++j)
             {
-                float v = float(uInput.data[j + y * uConstant.size.x]);
+                int index = inputC4 ? ((j >> 2) * uConstant.size.w + y) * 4 + (j & 3)
+                                    : j + y * uConstant.size.x;
+                float v = float(uInput.data[index]);
                 squaremean = squaremean + (v * v * scale);
             }
             float invStd = 1.0 / sqrt(squaremean + uConstant.eps);
             for (int j=0; j<uConstant.size.x; ++j)
             {
-                float v = float(uInput.data[j + y * uConstant.size.x]);
+                int index = inputC4 ? ((j >> 2) * uConstant.size.w + y) * 4 + (j & 3)
+                                    : j + y * uConstant.size.x;
+                float v = float(uInput.data[index]);
 #ifdef LAYERNORM_SCALE
                 float dst = (v * invStd) * float(uGamma.data[j]) + float(uBeta.data[j]);
 #else
                 float dst = v * invStd;
 #endif
-                uOutput.data[j + y * uConstant.size.x] = FLOAT(dst);
+                uOutput.data[index] = FLOAT(dst);
             }
         } else {
         float mean = 0.0;
         for (int j=0; j<uConstant.size.x; ++j)
         {
-            mean = mean + (float(uInput.data[j + y * uConstant.size.x]) * scale);
+            int index = inputC4 ? ((j >> 2) * uConstant.size.w + y) * 4 + (j & 3)
+                                : j + y * uConstant.size.x;
+            mean = mean + (float(uInput.data[index]) * scale);
         }
         float squaremean = 0.0;
         for (int j=0; j<uConstant.size.x; ++j)
         {
-            float v = float(uInput.data[j + y * uConstant.size.x]);
+            int index = inputC4 ? ((j >> 2) * uConstant.size.w + y) * 4 + (j & 3)
+                                : j + y * uConstant.size.x;
+            float v = float(uInput.data[index]);
             v = v - mean;
             squaremean = squaremean + (v * v * scale);
         }
         float invStd = 1.0 / sqrt(squaremean + uConstant.eps);
         for (int j=0; j<uConstant.size.x; ++j)
         {
-            float v = float(uInput.data[j + y * uConstant.size.x]);
+            int index = inputC4 ? ((j >> 2) * uConstant.size.w + y) * 4 + (j & 3)
+                                : j + y * uConstant.size.x;
+            float v = float(uInput.data[index]);
 #ifdef LAYERNORM_SCALE
             float dst = ((v - mean) * invStd) * float(uGamma.data[j]) + float(uBeta.data[j]);
 #else
             float dst = (v - mean) * invStd;
 #endif
-            uOutput.data[j + y * uConstant.size.x] = FLOAT(dst);
+            uOutput.data[index] = FLOAT(dst);
         }
         }
     }

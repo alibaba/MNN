@@ -11,6 +11,9 @@ __private const int global_size_dim0, __private const int global_size_dim1,
     }
 
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
+// INPUT_TYPE_I4 / RI_DATA / WI_DATA / CONVERT_OUTPUT_I4 are set by the runtime from
+// the data tensor dtype (int4/read_imagei for int32 data, float4|half4 otherwise),
+// so int32 Select is not corrupted by being read/written as half under fp16 precision.
 __kernel void select_img(GLOBAL_SIZE_2_DIMS
                             __read_only image2d_t input,
                             __read_only image2d_t input0,
@@ -23,18 +26,22 @@ __kernel void select_img(GLOBAL_SIZE_2_DIMS
     DEAL_NON_UNIFORM_DIM2(idx, idy);
     int4 select_vec = read_imagei(input, SAMPLER, (int2)(idx, idy));
 #ifdef INSIZE1_EUQAL_1
-    FLOAT4 in0 = RI_F(input0, SAMPLER, (int2)(0, 0));
-    in0 = (FLOAT4)(in0.x);
+    INPUT_TYPE_I4 in0 = RI_DATA(input0, SAMPLER, (int2)(0, 0));
+    in0 = (INPUT_TYPE_I4)(in0.x);
 #else
-    FLOAT4 in0 = RI_F(input0, SAMPLER, (int2)(idx, idy));
+    INPUT_TYPE_I4 in0 = RI_DATA(input0, SAMPLER, (int2)(idx, idy));
 #endif
-    
+
 #ifdef INSIZE2_EUQAL_1
-    FLOAT4 in1 = RI_F(input1, SAMPLER, (int2)(0, 0));
-    in1 = (FLOAT4)(in1.x);
+    INPUT_TYPE_I4 in1 = RI_DATA(input1, SAMPLER, (int2)(0, 0));
+    in1 = (INPUT_TYPE_I4)(in1.x);
 #else
-    FLOAT4 in1 = RI_F(input1, SAMPLER, (int2)(idx, idy));
+    INPUT_TYPE_I4 in1 = RI_DATA(input1, SAMPLER, (int2)(idx, idy));
 #endif
-    FLOAT4 out = select(in1, in0, CONVERT_FLOAT4(select_vec) == (FLOAT4)(1));
-    WI_F(output, (int2)(idx, idy), out);
+    INPUT_TYPE_I4 out;
+    out.x = select_vec.x ? in0.x : in1.x;
+    out.y = select_vec.y ? in0.y : in1.y;
+    out.z = select_vec.z ? in0.z : in1.z;
+    out.w = select_vec.w ? in0.w : in1.w;
+    WI_DATA(output, (int2)(idx, idy), CONVERT_OUTPUT_I4(out));
 }

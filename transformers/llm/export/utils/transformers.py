@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import Optional, Tuple
 
 from .model_mapper import ModelMapper
-from .custom_op import FusedAttention, MoE, FusedLinearAttention
+from .custom_op import FusedAttention, FusedRoPE, MoE, FusedLinearAttention
 
 class Embedding(torch.nn.Module):
     def __init__(self, embed, config):
@@ -12,7 +12,10 @@ class Embedding(torch.nn.Module):
         self.hidden_size = config.hidden_size
         self.embed = embed
         self.embed_scale = 1.0
-        if config.model_type == 'gemma' or config.model_type == 'gemma2':
+        config_embed_scale = getattr(config, 'scale_emb', None)
+        if config_embed_scale is not None:
+            self.embed_scale = config_embed_scale
+        elif config.model_type == 'gemma' or config.model_type == 'gemma2':
             self.embed_scale = self.hidden_size**0.5
         if hasattr(embed, 'embed_scale'):
             self.embed_scale = embed.embed_scale
@@ -46,6 +49,18 @@ class RMSNorm(torch.nn.Module):
             hidden_states = hidden_states * F.silu(gate.to(torch.float32))
         return hidden_states.to(input_dtype)
 
+def canonical_rms_norm(norm, weight_offset=0.0):
+    """Convert model-specific RMSNorm weight semantics to an explicit gamma."""
+    if norm is None or not hasattr(norm, 'weight') or norm.weight is None:
+        return norm
+    eps = getattr(norm, 'variance_epsilon', getattr(norm, 'eps', 1e-6))
+    canonical = RMSNorm(norm.weight.numel(), eps=float(eps))
+    gamma = norm.weight.detach().float().clone()
+    if weight_offset != 0.0:
+        gamma = gamma + weight_offset
+    canonical.weight = torch.nn.Parameter(gamma, requires_grad=norm.weight.requires_grad)
+    return canonical
+
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
@@ -57,11 +72,14 @@ class Attention(torch.nn.Module):
     def __init__(self, attn, layer_id, config, rotary, mapper):
         super().__init__()
         self.export_fused_attn = False
+        self.export_fused_rope = False
         if config is None: return
         self.config = config
         self.kv_cache = True
         self.layer_id = layer_id
         self.rotary = rotary
+        export_args = getattr(config, 'export_args', None)
+        self.export_fused_rope = getattr(export_args, 'transformer_c4', True)
         self.hidden_size = config.hidden_size
         self.head_dim = config.head_dim
         if isinstance(config.num_attention_heads, list):
@@ -73,6 +91,12 @@ class Attention(torch.nn.Module):
             self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         ModelMapper.do_map(self, attn, mapper['attention'])
+        if config.model_type in ['qwen3_5', 'qwen3_5_moe', 'qwen3_5_text']:
+            # Qwen3.5 attention norms use gamma=(1+weight). FusedRoPE stores
+            # norm.weight as gamma, so canonicalize the offset semantics first.
+            self.q_norm = canonical_rms_norm(getattr(self, 'q_norm', None), 1.0)
+            self.k_norm = canonical_rms_norm(getattr(self, 'k_norm', None), 1.0)
+        self.q_gate_proj = None
         self.qk_norm_after_rope = getattr(config, 'qk_norm_after_rope', False)
         if not self.qk_norm_after_rope:
             self.qk_norm_after_rope = (
@@ -112,7 +136,18 @@ class Attention(torch.nn.Module):
 
         # Create FusedAttention with KV sharing info
         kv_shared_idx = self.kv_shared_layer_index if self.is_kv_shared_layer else -1
-        self.fused_attn = FusedAttention(self.num_heads * self.head_dim, self.kv_cache, f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx)
+        self.fused_attn = FusedAttention(
+            self.num_heads * self.head_dim, self.kv_cache,
+            f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx,
+            self.head_dim)
+        self.rope_cut_head_dim = min(int(getattr(self.rotary, 'rotary_dim', self.head_dim)), self.head_dim)
+        self.fused_rope = FusedRoPE(
+            self.rope_cut_head_dim,
+            self.num_heads,
+            self.num_key_value_heads,
+            self.head_dim,
+            f'/layers.{layer_id}/self_attn/FusedRoPE',
+        )
 
         if hasattr(self, 'qkv_proj') and self.qkv_proj is not None:
             # split qkv linear to q, k, v
@@ -161,6 +196,30 @@ class Attention(torch.nn.Module):
             self.k_proj.bias.requires_grad = False
             self.v_proj.bias.requires_grad = False
 
+        # Some gated attention variants concatenate query and output-gate channels in q_proj.
+        # Split the projection while exporting C4 so query and gate can remain independent C4 tensors.
+        query_size = self.num_heads * self.head_dim
+        if (self.export_fused_rope
+                and not getattr(export_args, 'lora_split', False)
+                and isinstance(self.q_proj, torch.nn.Linear)
+                and self.q_proj.out_features == 2 * query_size):
+            combined_q_proj = self.q_proj
+            has_bias = combined_q_proj.bias is not None
+            self.q_proj = torch.nn.Linear(combined_q_proj.in_features, query_size, bias=has_bias)
+            self.q_gate_proj = torch.nn.Linear(combined_q_proj.in_features, query_size, bias=has_bias)
+            q_gate_weight = combined_q_proj.weight.data.view(
+                self.num_heads, 2, self.head_dim, combined_q_proj.in_features)
+            self.q_proj.weight.data = q_gate_weight[:, 0].reshape(query_size, combined_q_proj.in_features).clone()
+            self.q_gate_proj.weight.data = q_gate_weight[:, 1].reshape(query_size, combined_q_proj.in_features).clone()
+            if has_bias:
+                q_gate_bias = combined_q_proj.bias.data.view(self.num_heads, 2, self.head_dim)
+                self.q_proj.bias.data = q_gate_bias[:, 0].reshape(query_size).clone()
+                self.q_gate_proj.bias.data = q_gate_bias[:, 1].reshape(query_size).clone()
+            for projection in (self.q_proj, self.q_gate_proj):
+                projection.weight.requires_grad = False
+                if projection.bias is not None:
+                    projection.bias.requires_grad = False
+
         self.past_key_value = None
 
     def forward(
@@ -171,7 +230,11 @@ class Attention(torch.nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         bsz, q_len, _ = hidden_states.size()
         query_states = self.q_proj(hidden_states)
-        if self.q_proj.out_features == 2 * self.num_heads * self.head_dim:
+        key_states = None
+        value_states = None
+        if self.q_gate_proj is not None:
+            gate = self.q_gate_proj(hidden_states)
+        elif self.q_proj.out_features == 2 * self.num_heads * self.head_dim:
             reshaped = query_states.view(bsz, q_len, self.num_heads, self.head_dim * 2)
             query_states, gate = torch.split(reshaped, self.head_dim, dim=-1)
             gate = gate.reshape(bsz, q_len, -1)
@@ -180,15 +243,14 @@ class Attention(torch.nn.Module):
 
         qk_norm_after_rope = getattr(self, 'qk_norm_after_rope', getattr(self.config, 'qk_norm_after_rope', False))
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim)
-        # Most models apply q_norm before rotary, but HunYuan applies it after rotary.
-        if not qk_norm_after_rope and hasattr(self, 'q_norm') and self.q_norm is not None:
-            query_states = self.q_norm(query_states)
+        q_norm_before_rope = not qk_norm_after_rope and hasattr(self, 'q_norm') and self.q_norm is not None
 
         # KV sharing: for shared layers, reuse KV from source layer (test mode only)
         shared_kv_cache = getattr(self, '_shared_kv_cache', None)
         use_shared_kv = (self.is_kv_shared_layer and shared_kv_cache is not None
                          and self.kv_shared_layer_index in shared_kv_cache
                          and not torch.onnx.is_in_onnx_export())
+        k_norm_before_rope = False
 
         if use_shared_kv:
             key_states, value_states = shared_kv_cache[self.kv_shared_layer_index]
@@ -200,8 +262,7 @@ class Attention(torch.nn.Module):
                 value_states = self.v_proj(hidden_states)
             key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
             value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-            if not qk_norm_after_rope and hasattr(self, 'k_norm') and self.k_norm is not None:
-                key_states = self.k_norm(key_states)
+            k_norm_before_rope = not qk_norm_after_rope and hasattr(self, 'k_norm') and self.k_norm is not None
             # gemma4 has v_norm (RMSNorm without scale)
             if hasattr(self, 'v_norm') and self.v_norm is not None:
                 value_states = self.v_norm(value_states)
@@ -210,16 +271,61 @@ class Attention(torch.nn.Module):
             # Dummy K/V for ONNX tracing; FusedAttention handles sharing via kv_shared_layer_index
             key_states = query_states.new_zeros(bsz, q_len, self.num_key_value_heads, self.head_dim)
             value_states = key_states
+            k_norm_before_rope = False
 
         kv_seq_len = key_states.shape[1]
         if self.past_key_value is not None:
             kv_seq_len += self.past_key_value[0].shape[1]
         # rope
         if self.rotary is not None:
+            q_norm_fusable = (
+                not q_norm_before_rope
+                or (hasattr(self.q_norm, 'weight') and self.q_norm.weight is not None)
+            )
+            k_norm_fusable = (
+                not k_norm_before_rope
+                or (hasattr(self.k_norm, 'weight') and self.k_norm.weight is not None)
+            )
             cos, sin = rotary_pos_emb[0], rotary_pos_emb[1]
-            query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
-            if not use_shared_kv and self.k_proj is not None:
-                key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
+            use_fused_rope = (
+                self.export_fused_attn and torch.onnx.is_in_onnx_export()
+                and self.export_fused_rope
+                and not qk_norm_after_rope
+                and not use_shared_kv
+                and not self.k_eq_v
+                and self.k_proj is not None
+                and q_norm_fusable
+                and k_norm_fusable
+                and not getattr(getattr(self.config, 'export_args', None), 'lora_split', False)
+                and self.rotary.model_type not in ['chatglm', 'chatglm2', 'ernie4_5', 'glm_ocr']
+                and cos.shape[-1] == self.rope_cut_head_dim
+                and sin.shape[-1] == self.rope_cut_head_dim
+            )
+            fuse_q_norm = use_fused_rope and q_norm_before_rope
+            fuse_k_norm = use_fused_rope and k_norm_before_rope
+            if use_fused_rope:
+                query_states, key_states = self.fused_rope(
+                    query_states,
+                    key_states,
+                    cos,
+                    sin,
+                    self.q_norm if fuse_q_norm else None,
+                    self.k_norm if fuse_k_norm else None,
+                )
+            else:
+                # Most models apply q/k norm before rotary, but Hunyuan applies it after rotary.
+                if q_norm_before_rope:
+                    query_states = self.q_norm(query_states)
+                if k_norm_before_rope:
+                    key_states = self.k_norm(key_states)
+                query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
+                if not use_shared_kv and self.k_proj is not None:
+                    key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
+        elif q_norm_before_rope or k_norm_before_rope:
+            if q_norm_before_rope:
+                query_states = self.q_norm(query_states)
+            if k_norm_before_rope:
+                key_states = self.k_norm(key_states)
 
         if qk_norm_after_rope:
             if hasattr(self, 'q_norm') and self.q_norm is not None:
@@ -943,7 +1049,7 @@ class Rotary(torch.nn.Module):
             return self.chatglm_rotary_pos(x, cos, sin)
         if self.model_type == 'chatglm2':
             return self.chatglm2_rotary_pos(x, cos, sin)
-        if self.model_type in ['phi-msft', 'qwen3_5', 'qwen3_5_moe']:
+        if self.model_type in ['phi-msft', 'qwen3_5', 'qwen3_5_moe', 'qwen3_5_text']:
             return self.phi_rotary_pos(x, cos, sin)
         if self.model_type in ['ernie4_5', 'glm_ocr']:
             return self.ernie_rotary_pos(x, cos, sin)

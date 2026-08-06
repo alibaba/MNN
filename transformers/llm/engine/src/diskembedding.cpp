@@ -31,6 +31,33 @@ static void q81_dequant_ref(const uint8_t* src, float* dst, float scale, float z
     }
 }
 
+static void q21_dequant_ref(const uint8_t* src, float* dst, float scale, float zero, int size) {
+    for (int i = 0; i < size / 4; i++) {
+        int x = src[i];
+        dst[4 * i]     = ((x >> 6) & 3) * scale + zero;
+        dst[4 * i + 1] = ((x >> 4) & 3) * scale + zero;
+        dst[4 * i + 2] = ((x >> 2) & 3) * scale + zero;
+        dst[4 * i + 3] = (x & 3) * scale + zero;
+    }
+}
+
+static void q31_dequant_ref(const uint8_t* src, float* dst, float scale, float zero, int size) {
+    // 3-bit MSB-first bit-packed (mirrors SplitBufToArray): value i at bit offset 3*i.
+    int bitpos = 0;
+    for (int i = 0; i < size; i++) {
+        int r = bitpos % 8;
+        int shift = 8 - 3 - r;
+        int v;
+        if (shift < 0) {
+            v = ((src[bitpos / 8] << (-shift)) | (src[bitpos / 8 + 1] >> (8 + shift))) & 7;
+        } else {
+            v = (src[bitpos / 8] >> shift) & 7;
+        }
+        dst[i] = v * scale + zero;
+        bitpos += 3;
+    }
+}
+
 void DiskEmbedding::seek_read(uint8_t* dst, size_t size, size_t offset) {
     mFile->offset(offset);
     mFile->read((char*)dst, size);
@@ -68,10 +95,18 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
             } else {
                 mBlockNum = mHiddenSize / mQuantBlock;
             }
-            mDequantFunc      = mQuantBit == 8 ? q81_dequant_ref : q41_dequant_ref;
+            if (mQuantBit == 8) {
+                mDequantFunc = q81_dequant_ref;
+            } else if (mQuantBit == 4) {
+                mDequantFunc = q41_dequant_ref;
+            } else if (mQuantBit == 3) {
+                mDequantFunc = q31_dequant_ref;
+            } else {
+                mDequantFunc = q21_dequant_ref;
+            }
             auto a_offset = info.alpha_offset;
             auto alpha_size_disk = info.alpha_size;
-            size_t oc = (a_offset - mWeightOffset) * (8 / mQuantBit) / mHiddenSize;
+            size_t oc = (a_offset - mWeightOffset) * 8 / mQuantBit / mHiddenSize;
 
             // Always store alpha internally as fp32; if disk format is fp16, decode on load.
             const size_t alphaElemBytes = alphaIsFp16 ? sizeof(uint16_t) : sizeof(float);

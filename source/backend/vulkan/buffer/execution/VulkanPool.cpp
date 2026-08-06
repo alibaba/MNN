@@ -86,13 +86,21 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
             padHeight    = 0;
         }
 
-        if(mCommon->padType() == PoolPadType_SAME){
+        auto padType = mCommon->padType();
+        if (padType == PoolPadType_SAME) {
             int padNeededWidth  = (output->width() - 1) * strideWidth + kernelWidth - input->width();
             int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
             padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
             padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
-        } else if (mCommon->padType() == PoolPadType_VALID) {
+        } else if (padType == PoolPadType_VALID) {
             padWidth = padHeight = 0;
+        }
+        if (!mCommon->isGlobal() && mCommon->pads() != nullptr && padType == PoolPadType_CAFFE) {
+            if (mCommon->pads()->size() == 4) {
+                padHeight = mCommon->pads()->data()[0];
+                padWidth = mCommon->pads()->data()[1];
+            }
+            padType = PoolPadType_VALID;
         }
 
         pool->pad[0]        = padWidth;
@@ -104,7 +112,7 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
 
         auto countType = mCommon->countType();
         if (countType == AvgPoolCountType_DEFAULT) {
-            if (mCommon->padType() == PoolPadType_CAFFE) {
+            if (padType == PoolPadType_CAFFE) {
                 countType = AvgPoolCountType_INCLUDE_PADDING;
             } else {
                 countType = AvgPoolCountType_EXCLUDE_PADDING;

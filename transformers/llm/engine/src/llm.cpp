@@ -47,6 +47,8 @@ static MNNForwardType backend_type_convert(const std::string& type_str) {
         return MNN_FORWARD_OPENGL;
     if (type_str == "vulkan")
         return MNN_FORWARD_VULKAN;
+    if (type_str == "hexagon")
+        return MNN_FORWARD_HEXAGON;
     if (type_str == "npu")
         return MNN_FORWARD_NN;
     return MNN_FORWARD_AUTO;
@@ -203,6 +205,7 @@ void Llm::initRuntime() {
     if(config.type == 3){
         // opencl need set numThread = 64(buffer mode)
         config.numThread |= 64;
+        config.numThread |= 512;
     }
     if (mConfig->power() == "high") {
         cpuBackendConfig.power = BackendConfig::Power_High;
@@ -293,6 +296,11 @@ bool Llm::load() {
     }
     MNN::Express::ExecutorScope s(mExecutor);
     Timer _t;
+    // Must release old module before runtime, because module's Execution objects
+    // reference Backend owned by RuntimeManager. Releasing runtime first would
+    // destroy the Backend, causing use-after-free when module destructor runs.
+    mModulePool.clear();
+    mModule.reset();
     initRuntime();
     // init module status
     // 1. load vocab
@@ -403,7 +411,7 @@ bool Llm::load() {
         // attentiion mask var
         {
             // Mask: lower triangular
-           if (mConfig->backend_type() == "cpu" && mValidBlockSize.empty()) {
+           if ((mConfig->backend_type() == "cpu" || mConfig->backend_type() == "metal") && mValidBlockSize.empty()) {
                mAttentionMaskVarVec[i] = _Input({}, NCHW, halide_type_of<float>());
                auto ptr = mAttentionMaskVarVec[i]->writeMap<float>();
                ptr[0] = 0;
@@ -501,8 +509,15 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
 }
 
 void Llm::switchMode(Llm::Stage stage) {
-    // do nothing, only reserve api
-    return;
+    if (mConfig->backend_type() == "opencl") {
+        if (stage == Prefill) {
+            // Disable record queue during prefill
+            mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, 0);
+        } else if (stage == Decode) {
+            // Enable record queue during decode for better performance, use max record queue size 512 for decode stage
+            mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, 512);
+        }
+    }
 }
 
 void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve) {
@@ -780,8 +795,11 @@ int Llm::sample(VARP logits, int offset, int size) {
 }
 
 void Llm::reset() {
-    mContext->output_tokens.clear();
-    mContext->history_tokens.clear();
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->output_tokens.clear();
+        mContext->history_tokens.clear();
+    }
     mContext->all_seq_len = 0;
     mContext->gen_seq_len = 0;
     mContext->vision_us = 0;
@@ -795,11 +813,18 @@ void Llm::reset() {
 void Llm::generate_init(std::ostream* os, const char* end_with) {
     // init status
     mContext->os = os;
-    if (nullptr != end_with) {
-        mContext->end_with = end_with;
-    }
-    if (!mContext->generate_str.empty()) {
-        mContext->generate_str.clear();
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        if (nullptr != end_with) {
+            mContext->end_with = end_with;
+        }
+        if (!mContext->generate_str.empty()) {
+            mContext->generate_str.clear();
+        }
+        if (!mConfig->reuse_kv()) {
+            mContext->history_tokens.clear();
+        }
+        mContext->output_tokens.clear();
     }
     mContext->gen_seq_len = 0;
     mContext->prefill_us  = 0;
@@ -808,10 +833,8 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
     mContext->sample_us = 0;
     if (!mConfig->reuse_kv()) {
         mContext->all_seq_len = 0;
-        mContext->history_tokens.clear();
         mMeta->remove = mMeta->previous;
     }
-    mContext->output_tokens.clear();
     if(mContext->status != LlmStatus::NOT_LOADED) {
         mContext->status = LlmStatus::RUNNING;
     }
@@ -844,6 +867,7 @@ void Llm::eraseHistory(size_t begin, size_t end) {
     mContext->all_seq_len = mMeta->previous - mMeta->remove + revertNumber;
     // FIXME: support history_tokens erease the tokens with correct position
     if(revertNumber == 0 && mMeta->remove <  mContext->history_tokens.size()){
+        std::lock_guard<std::mutex> _l(mContext->mutex);
         mContext->history_tokens.resize(mContext->history_tokens.size() - mMeta->remove);
     }
 }
@@ -901,7 +925,10 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
         }
     }
 
-    mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
+    }
     if(!passExecute) {
         if (0 == mBlockSize || input_ids.size() <= mBlockSize) {
             auto hidden_states = embedding(input_ids);
@@ -1112,7 +1139,10 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
             // History was trimmed — clear all stale state and do full re-prefill.
             mCachedPromptText.clear();
             mContext->all_seq_len = 0;
-            mContext->history_tokens.clear();
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->history_tokens.clear();
+            }
             mMeta->remove = mMeta->previous;
             std::vector<int> input_ids = tokenizer_encode(prompt);
             size_t history_before = input_ids.size(); // generate() pushes these first
@@ -1153,12 +1183,19 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
         // Also preserve mMeta->remove so that a pending eraseHistory() (from
         // a prior cancelled decode) is not silently cleared before sync().
         int saved_all_seq_len = mContext->all_seq_len;
-        auto saved_history = std::move(mContext->history_tokens);
+        std::vector<int> saved_history;
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            saved_history = std::move(mContext->history_tokens);
+        }
         size_t saved_previous = mMeta->previous;
         size_t saved_remove = mMeta->remove;
         generate_init(os, end_with);
         mContext->all_seq_len = saved_all_seq_len;
-        mContext->history_tokens = std::move(saved_history);
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->history_tokens = std::move(saved_history);
+        }
         mMeta->previous = saved_previous;
         mMeta->remove = saved_remove;
         CHECK_LLM_RUNNING(mContext);
@@ -1177,7 +1214,10 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
         // only clears KV when reuse_kv=false, so handle reuse_kv=true here.
         if (mContext->all_seq_len > 0) {
             mContext->all_seq_len = 0;
-            mContext->history_tokens.clear();
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->history_tokens.clear();
+            }
             mMeta->remove = mMeta->previous;
         }
         std::vector<int> input_ids = tokenizer_encode(prompt);
@@ -1238,6 +1278,7 @@ Llm::~Llm() {
     }
 #endif
     mGenerateParam.reset();
+    mModulePool.clear();
     mModule.reset();
     mRuntimeManager.reset();
     mProcessorRuntimeManager.reset();
@@ -1501,7 +1542,7 @@ VARP Llm::gen_attention_mask(int seq_len) {
         }
 
         // Mask: lower triangular
-       if (mConfig->backend_type() == "cpu" && mValidBlockSize.empty()) { // Now only cpu supports using lower triangular to opt the attention performance
+       if ((mConfig->backend_type() == "cpu" || mConfig->backend_type() == "hexagon" || mConfig->backend_type() == "metal") && mValidBlockSize.empty()) {
            attentionMask = _Input({}, NCHW, halide_type_of<float>());
            auto ptr = attentionMask->writeMap<float>();
            ptr[0] = 0;

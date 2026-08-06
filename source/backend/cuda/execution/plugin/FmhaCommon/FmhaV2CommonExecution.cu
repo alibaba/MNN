@@ -149,14 +149,18 @@ ErrorCode FmhaCommonExecution::onResize(const std::vector<Tensor*>& inputs, cons
     MemChunk buffer_q;
     if(mType == 0) {
         buffer_q = pool->alloc(mBatchSize * mSeqLen * mHeadSize * mNumHeads * sizeof(half));
+        if (nullptr == buffer_q.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mQ_Buffer = (void*)((uint8_t*)buffer_q.first + buffer_q.second);
     }
     auto buffer_k = pool->alloc(mBatchSize * mSeqLenKV * mHeadSize * mNumHeads * sizeof(half));
+    if (nullptr == buffer_k.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mK_Buffer = (void*)((uint8_t*)buffer_k.first + buffer_k.second);
     auto buffer_v = pool->alloc(mBatchSize * mSeqLenKV * mHeadSizeV * mNumHeads * sizeof(half));
+    if (nullptr == buffer_v.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mV_Buffer = (void*)((uint8_t*)buffer_v.first + buffer_v.second);
     // output size
     auto buffer_acc = pool->alloc(mBatchSize * mSeqLen * mHeadSizeV * mNumHeads * sizeof(float));
+    if (nullptr == buffer_acc.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mAcc_Buffer = (void*)((uint8_t*)buffer_acc.first + buffer_acc.second);
     
     if(mType == 0) {

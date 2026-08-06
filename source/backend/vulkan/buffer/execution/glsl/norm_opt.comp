@@ -37,14 +37,15 @@ void main() {
         return;
     }
     int inside4 = inside >> 2;
-    int base4 = y * inside4;
+    bool inputC4 = uConstant.size.z != 0;
     uint tid = gl_LocalInvocationID.x;
     uint groupSize = gl_WorkGroupSize.x;
 
     float sum = 0.0;
     float sqSum = 0.0;
     for (int j4 = int(tid); j4 < inside4; j4 += int(groupSize)) {
-        vec4 v4 = vec4(uInput.data[base4 + j4]);
+        int index4 = inputC4 ? j4 * outside + y : y * inside4 + j4;
+        vec4 v4 = vec4(uInput.data[index4]);
         if (USE_RMS == 0u) {
             sum += v4.x + v4.y + v4.z + v4.w;
         }
@@ -74,13 +75,14 @@ void main() {
     float invStd = inversesqrt(var + uConstant.eps);
 
     for (int j4 = int(tid); j4 < inside4; j4 += int(groupSize)) {
-        vec4 v4 = vec4(uInput.data[base4 + j4]);
+        int index4 = inputC4 ? j4 * outside + y : y * inside4 + j4;
+        vec4 v4 = vec4(uInput.data[index4]);
         vec4 nv = (USE_RMS != 0u) ? (v4 * invStd) : ((v4 - vec4(mean)) * invStd);
 #ifdef LAYERNORM_SCALE
         vec4 dst = nv * vec4(uGamma.data[j4]) + vec4(uBeta.data[j4]);
 #else
         vec4 dst = nv;
 #endif
-        uOutput.data[base4 + j4] = FLOAT4(dst);
+        uOutput.data[index4] = FLOAT4(dst);
     }
 }

@@ -96,7 +96,10 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
             float y1         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
             float x2         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
             float y2         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
-            MNN_ASSERT(batchIdx < input->batch());
+            if (batchIdx < 0 || batchIdx >= input->batch()) {
+                MNN_ERROR("ROIAlign: batch index %d out of range [0, %d)\n", batchIdx, input->batch());
+                return NOT_SUPPORT;
+            }
 
             float roiW = x2 - x1;
             float roiH = y2 - y1;
@@ -156,7 +159,10 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
             float y1         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
             float x2         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
             float y2         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
-            MNN_ASSERT(batchIdx < input->batch());
+            if (batchIdx < 0 || batchIdx >= input->batch()) {
+                MNN_ERROR("ROIAlign: batch index %d out of range [0, %d)\n", batchIdx, input->batch());
+                return NOT_SUPPORT;
+            }
 
             float roiW = x2 - x1;
             float roiH = y2 - y1;

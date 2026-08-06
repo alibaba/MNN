@@ -330,8 +330,11 @@ void EagleGeneration::generate(GenerationParams& param) {
     auto inputIds     = param.input_ids;
     auto sampleToken  = mLlm->sample(param.outputs[0]);
     mContext->current_token = sampleToken;
-    mContext->history_tokens.push_back(mContext->current_token);
-    mContext->output_tokens.push_back(mContext->current_token);
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.push_back(mContext->current_token);
+        mContext->output_tokens.push_back(mContext->current_token);
+    }
     mLlm->updateContext(0, 1);
     if (nullptr != mContext->os) {
         *mContext->os << mLlm->tokenizer_decode(sampleToken) << std::flush;
@@ -376,6 +379,7 @@ void EagleGeneration::generate(GenerationParams& param) {
         accpetLens.push_back(acceptInfo.acceptTokens.size());
         {
             mContext->current_token = acceptInfo.acceptTokens.back();
+            std::lock_guard<std::mutex> _l(mContext->mutex);
             for (auto token : acceptInfo.acceptTokens) {
                 mContext->history_tokens.push_back(token);
                 mContext->output_tokens.push_back(token);
@@ -383,6 +387,7 @@ void EagleGeneration::generate(GenerationParams& param) {
         }
         bool stop = processTokens(acceptInfo.acceptTokens);
         if (stop || newTokens >= param.max_new_tokens) {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
             mContext->output_tokens.push_back(steps);
             break;
         }
