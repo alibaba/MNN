@@ -89,7 +89,8 @@ private:
     id<MTLComputePipelineState> mFusedSGTGPipeline        = nil;
     int mFusedSGTGSimds = 4;
     id<MTLComputePipelineState> mFusedChunkSGPipeline     = nil;
-    id<MTLComputePipelineState> mFlashChunkPipeline       = nil;
+    id<MTLComputePipelineState> mFlashChunkPrepPipeline   = nil;
+    id<MTLComputePipelineState> mFlashChunkScanPipeline   = nil;
     id<MTLComputePipelineState> mFlashChunkSGMMPipeline   = nil;
     id<MTLComputePipelineState> mShortConvPipeline;
     id<MTLComputePipelineState> mShortConvStateUpdatePipeline;
@@ -99,8 +100,9 @@ private:
     bool mUseFlashChunk     = false;
     bool mUseFlashChunkSGMM = false;
     int  mChunkTGThreads    = 0;
-    int  mFlashDvBlock      = 16;
-    int  mFlashSimdsPerTG   = 8;
+    int  mFlashDvBlock      = 32;
+    int  mFlashSimdsPerTG   = 4;
+    int  mSgmmDvBlock       = 16;
     int  mSgmmSimdsPerTG    = 16;
 };
 

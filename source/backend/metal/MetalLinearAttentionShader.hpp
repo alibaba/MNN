@@ -1612,10 +1612,26 @@ kernel void linear_attn_fused_chunk_sg(
 )metal";
 
 
-static const char* gLinearAttnFlashChunk = R"metal(
+// Chunk-64 Gated Delta Rule prefill without sequence-sized temporary tensors.
+//
+// The first kernel prepares the two state-independent chunk matrices in
+// parallel. The original V values are copied to the not-yet-produced output,
+// then conv_out's V region is reused in place:
+//
+//   V[:, 0:64]   <- T = (I - A)^-1,
+//                     A = -strict_lower((K * beta) K^T * decay)
+//   V[:, 64:128] <- P =  lower_inclusive(Q K^T * decay)
+//
+// The recurrent kernel owns a 32-column state slice, walks chunks in order,
+// computes v_new = T @ (v*beta - (k*beta*exp(gc))@S) in threadgroup
+// memory, then computes output and updates S. Consequently the path retains
+// the chunk-parallel dependency reduction without allocating Q/K/V/U/W/P
+// scratch tensors. The output buffer only contains transient V values until
+// each corresponding final output slice is written.
+static const char* gLinearAttnChunk64Inplace = R"metal(
+#include <metal_stdlib>
 #include <metal_tensor>
 #include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
-#include <metal_stdlib>
 using namespace metal;
 using namespace mpp::tensor_ops;
 
@@ -1646,345 +1662,513 @@ struct LinearAttnParam {
     float q_scale;
 };
 
-inline int c4_offset_v2(int token, int channel, int token_count) {
+inline int ck_c4_offset(int token, int channel, int token_count) {
     return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
 }
 
-inline int token_channel_offset(int b, int t, int c, int channel, int packed,
-                                constant LinearAttnParam& param) {
+inline int ck_token_channel_offset(int b, int t, int c, int channel, int packed,
+                                   constant LinearAttnParam& param) {
     if (packed) {
-        return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
+        return ck_c4_offset(b * param.seq_len + t, c, param.batch * param.seq_len);
     }
     return (b * param.seq_len + t) * channel + c;
 }
 
-inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
+inline int ck_output_offset(int b, int t, int h, int d, constant LinearAttnParam& param) {
     int token = (b * param.seq_len + t) * param.num_v_heads + h;
     if (param.output_c4) {
-        return c4_offset_v2(token, d, param.batch * param.seq_len * param.num_v_heads);
+        return ck_c4_offset(token, d, param.batch * param.seq_len * param.num_v_heads);
     }
     return token * param.head_v_dim + d;
 }
 
-kernel void linear_attn_flash_chunk(
-    const device ftype* conv_out         [[buffer(0)]],
-    const device ftype* gate             [[buffer(1)]],
-    const device ftype* beta             [[buffer(2)]],
-    device ftype* recurrent_state        [[buffer(3)]],
-    device ftype* attn_out               [[buffer(4)]],
-    constant LinearAttnParam& param      [[buffer(5)]],
-    uint tgpig [[threadgroup_position_in_grid]],
-    uint sgitg [[simdgroup_index_in_threadgroup]],
-    uint lane  [[thread_index_in_simdgroup]])
-{
-    const int L         = param.seq_len;
-    const int H         = param.num_v_heads;
-    const int d_k       = param.head_k_dim;
-    const int d_v       = param.head_v_dim;
-    const int D         = param.conv_dim;
-    const int key_dim   = param.key_dim;
-    const int gqa_factor= param.gqa_factor;
-    const int use_l2norm= param.use_l2norm;
-    const float q_scale = param.q_scale;
+#define CK_NSG      4
+#define CK_NT       (CK_CHUNK / 16)
+#define CK_DK_TILES (CK_DK / 16)
+#define CK_A_CHANNEL 0
+#define CK_P_CHANNEL CK_CHUNK
 
-    const int dv_blocks = HEAD_V_DIM / DV_BLOCK;
-    const int idx       = (int)tgpig;
-    const int bh        = idx / dv_blocks;
-    const int dvb       = idx % dv_blocks;
-    const int b         = bh / H;
-    const int h         = bh % H;
-    const int k_head    = h / gqa_factor;
-    const int dv_off    = dvb * DV_BLOCK;
+// B is supplied as N rows of K values.
+#define CK_DESC_TT matmul2d_descriptor(16, 32, 16, false, true, true, \
+                                       matmul2d_descriptor::mode::multiply_accumulate)
+// B is supplied as K rows of N values.
+#define CK_DESC_TF matmul2d_descriptor(16, CK_W, 16, false, false, true, \
+                                       matmul2d_descriptor::mode::multiply_accumulate)
 
-    const int TG_THREADS = SIMDS_PER_TG * 32;
-    const int tid        = (int)(sgitg * 32 + lane);
-    const device ftype* conv_base = conv_out + b * D * L;
+// Grid: (ceil(L / 64), B * H), 4 simdgroups per threadgroup.
+kernel void linear_attn_chunk64_prep_inplace(
+    device ftype* conv_out                  [[buffer(0)]],
+    const device ftype* gate               [[buffer(1)]],
+    const device ftype* beta               [[buffer(2)]],
+    device ftype* attn_out                 [[buffer(3)]],
+    constant LinearAttnParam& param        [[buffer(4)]],
+    uint3 tgpig  [[threadgroup_position_in_grid]],
+    ushort tiisg [[thread_index_in_simdgroup]],
+    ushort sgitg [[simdgroup_index_in_threadgroup]]) {
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int D = param.conv_dim;
+    const int c = int(tgpig.x);
+    const int bh = int(tgpig.y);
+    const int b = bh / H;
+    const int h = bh % H;
+    const int kHead = h / param.gqa_factor;
+    const int c0 = c * CK_CHUNK;
+    const uint tid = uint(sgitg) * 32u + uint(tiisg);
 
-    threadgroup float sh_q   [CHUNK_BT][HEAD_K_DIM];
-    threadgroup float sh_k   [CHUNK_BT][HEAD_K_DIM];
-    threadgroup float sh_state[HEAD_K_DIM][DV_BLOCK]; // in-place accumulate
-    threadgroup float sh_attn[CHUNK_BT][CHUNK_BT];
-    threadgroup float sh_qkdm[CHUNK_BT][CHUNK_BT];
-    threadgroup float sh_v   [CHUNK_BT][DV_BLOCK]; // v_beta / v_new / v_nb
-    threadgroup float sh_K_S [CHUNK_BT][DV_BLOCK]; // K@state / v_prime
-    threadgroup float sh_out [CHUNK_BT][DV_BLOCK]; // Q·expG @ state / final
-    threadgroup float sh_g   [CHUNK_BT];
-    threadgroup float sh_beta[CHUNK_BT];
-    threadgroup float sh_G   [CHUNK_BT];
+    device ftype* convBase = conv_out + (long)b * D * L;
+    device ftype* scratchBase = convBase + (2 * param.key_dim + h * CK_DV) * L;
 
-    device ftype* state_gm = recurrent_state + (b * H + h) * d_v * d_k;
-    // Load state once.
-    for (int p = tid; p < HEAD_K_DIM * DV_BLOCK; p += TG_THREADS) {
-        int dki = p / DV_BLOCK, dvi = p % DV_BLOCK;
-        sh_state[dki][dvi] = (float)state_gm[(dv_off + dvi) * d_k + dki];
+    threadgroup float gcTg[CK_CHUNK];
+    threadgroup float betaTg[CK_CHUNK];
+    threadgroup float qInvTg[CK_CHUNK];
+    threadgroup float kInvTg[CK_CHUNK];
+    threadgroup float aTg[CK_CHUNK * CK_CHUNK];
+
+    // Preserve V in the output buffer before its conv_out storage is reused.
+    for (int e = int(tid); e < CK_CHUNK * CK_DV; e += CK_NSG * 32) {
+        int m = e / CK_DV;
+        int n = e % CK_DV;
+        int token = c0 + m;
+        if (token < L) {
+            ftype vv = scratchBase[(long)n * L + token];
+            attn_out[ck_output_offset(b, token, h, n, param)] = vv;
+        }
+    }
+    // Every original V element must be read before A/P starts overwriting it.
+    threadgroup_barrier(mem_flags::mem_device);
+
+    if (tid < CK_CHUNK) {
+        int token = c0 + int(tid);
+        float gv = 0.0f;
+        float bv = 0.0f;
+        if (token < L) {
+            gv = float(gate[ck_token_channel_offset(b, token, h, H, param.gate_c4, param)]);
+            bv = float(beta[ck_token_channel_offset(b, token, h, H, param.beta_c4, param)]);
+        }
+        // Finite pairwise cumsum differences are required by the chunk form.
+        // exp(-30) is below fp16's smallest subnormal, preserving state-reset
+        // semantics, while the upper clamp protects malformed positive gates.
+        gcTg[tid] = clamp(gv, -30.0f, 0.0f);
+        betaTg[tid] = bv;
+        qInvTg[tid] = 0.0f;
+        kInvTg[tid] = 0.0f;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    using D2 = dextents<int32_t, 2>;
+    if (tid == 0) {
+        float acc = 0.0f;
+        for (int i = 0; i < CK_CHUNK; ++i) {
+            acc += gcTg[i];
+            gcTg[i] = acc;
+        }
+    }
 
-    for (int t0 = 0; t0 < L; t0 += CHUNK_BT) {
-        int chunk_len = min((int)CHUNK_BT, L - t0);
+    if (param.use_l2norm) {
+        for (int m = int(sgitg); m < CK_CHUNK; m += CK_NSG) {
+            int token = c0 + m;
+            float qSum = 0.0f;
+            float kSum = 0.0f;
+            if (token < L) {
+                for (int d = int(tiisg); d < CK_DK; d += 32) {
+                    float qv = float(convBase[(kHead * CK_DK + d) * L + token]);
+                    float kv = float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]);
+                    qSum += qv * qv;
+                    kSum += kv * kv;
+                }
+            }
+            qSum = simd_sum(qSum);
+            kSum = simd_sum(kSum);
+            if (tiisg == 0 && token < L) {
+                qInvTg[m] = rsqrt(qSum + 1.0e-6f) * param.q_scale;
+                kInvTg[m] = rsqrt(kSum + 1.0e-6f);
+            }
+        }
+    } else if (tid < CK_CHUNK && c0 + int(tid) < L) {
+        qInvTg[tid] = param.q_scale;
+        kInvTg[tid] = 1.0f;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // ── 1. Cooperative load Q, K, V, g, β. ──
-        for (int p = tid; p < chunk_len * d_k; p += TG_THREADS) {
-            int dt = p / d_k, di = p % d_k;
-            int t_abs = t0 + dt;
-            sh_q[dt][di] = (float)conv_base[(k_head * d_k + di) * L + t_abs];
-            sh_k[dt][di] = (float)conv_base[(key_dim + k_head * d_k + di) * L + t_abs];
+    const ushort qid = tiisg >> 2;
+    const ushort fm = (qid & 4) | ((tiisg >> 1) & 3);
+    const ushort fn = ((qid & 2) | (tiisg & 1)) * 4;
+    matmul2d<CK_DESC_TT, metal::execution_simdgroup> mm;
+
+    // A = -strict_lower((K * beta) @ K^T * exp(gc_m - gc_n)).
+    for (int nt = 0; nt < CK_CHUNK / 32; ++nt) {
+        float acc[16];
+        for (int i = 0; i < 16; ++i) acc[i] = 0.0f;
+        for (int kt = 0; kt < CK_DK_TILES; ++kt) {
+            auto ctA = mm.get_left_input_cooperative_tensor<ftype, ftype, float>();
+            auto ctB = mm.get_right_input_cooperative_tensor<ftype, ftype, float>();
+            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            for (ushort g = 0; g < 2; ++g) {
+                int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
+                int token = c0 + m;
+                for (ushort j = 0; j < 4; ++j) {
+                    int d = kt * 16 + int(fn) + int(j);
+                    float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]) : 0.0f;
+                    ctA[g * 4 + j] = ftype(kv * kInvTg[m] * betaTg[m]);
+                }
+            }
+            for (ushort g = 0; g < 4; ++g) {
+                int n = nt * 32 + int(fm) + (int(g) & 1) * 8 + (int(g) >> 1) * 16;
+                int token = c0 + n;
+                for (ushort j = 0; j < 4; ++j) {
+                    int d = kt * 16 + int(fn) + int(j);
+                    float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]) : 0.0f;
+                    ctB[g * 4 + j] = ftype(kv * kInvTg[n]);
+                }
+            }
+            for (int i = 0; i < 16; ++i) ctC[i] = acc[i];
+            mm.run(ctA, ctB, ctC);
+            for (int i = 0; i < 16; ++i) acc[i] = ctC[i];
         }
-        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
-            int dt = p / DV_BLOCK, dvi = p % DV_BLOCK;
-            int t_abs = t0 + dt;
-            sh_v[dt][dvi] = (float)conv_base[(2 * key_dim + h * d_v + dv_off + dvi) * L + t_abs];
+        for (ushort i = 0; i < 16; ++i) {
+            int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+            int n = nt * 32 + int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            float av = m > n ? -acc[i] * exp(gcTg[m] - gcTg[n]) : 0.0f;
+            aTg[m * CK_CHUNK + n] = av;
         }
-        for (int dt = tid; dt < chunk_len; dt += TG_THREADS) {
-            int bth = b * L * H + (t0 + dt) * H + h;
-            // Clamp gate to [-88, 0] to prevent NaN propagation via cumsum.
-            // With fp16 storage the upstream `-exp(A_log) * softplus(a+dt_bias)`
-            // pipeline may overflow to -inf on certain (b, h, t) positions (values
-            // that stay finite in fp32). Once a single gate is -inf, `sh_G`
-            // cumsum becomes -inf and downstream `exp(sh_G[i] - sh_G[j])` = NaN,
-            // corrupting the entire output. `exp(-88)` ≈ 0 so clamping is
-            // semantically equivalent to `exp(-inf) = 0` — which is what the
-            // fused_chunk_sg / gated_delta_rule_sg kernels effectively see
-            // (they read gate per-timestep and apply exp directly, without
-            // cumsum, so those kernels are naturally robust to -inf inputs).
-            int t_abs = t0 + dt;
-            float g_val = (float)gate[token_channel_offset(b, t_abs, h, H, param.gate_c4, param)];
-            g_val = clamp(g_val, -88.0f, 0.0f);
-            sh_g[dt]    = g_val;
-            sh_beta[dt] = (float)beta[token_channel_offset(b, t_abs, h, H, param.beta_c4, param)];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Forward substitution produces T - I in place. SG0 lanes own columns
+    // {lane, lane+32}; barriers preserve the read-before-write ordering of a
+    // row while previously completed rows are consumed.
+    if (sgitg == 0) {
+        const int j0 = int(tiisg);
+        const int j1 = int(tiisg) + 32;
+        for (int i = 1; i < CK_CHUNK; ++i) {
+            float acc0 = 0.0f;
+            float acc1 = 0.0f;
+            for (int m = 0; m < i; ++m) {
+                float row = aTg[i * CK_CHUNK + m];
+                acc0 += row * aTg[m * CK_CHUNK + j0];
+                acc1 += row * aTg[m * CK_CHUNK + j1];
+            }
+            simdgroup_barrier(mem_flags::mem_threadgroup);
+            if (j0 < i) aTg[i * CK_CHUNK + j0] += acc0;
+            if (j1 < i) aTg[i * CK_CHUNK + j1] += acc1;
+            simdgroup_barrier(mem_flags::mem_threadgroup);
         }
-        for (int dt = chunk_len + tid; dt < CHUNK_BT; dt += TG_THREADS) {
-            sh_g[dt] = 0.0f; sh_beta[dt] = 0.0f;
-            for (int di = 0; di < HEAD_K_DIM; ++di) { sh_q[dt][di] = 0.0f; sh_k[dt][di] = 0.0f; }
-            for (int dvi = 0; dvi < DV_BLOCK; ++dvi) sh_v[dt][dvi] = 0.0f;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (int e = int(tid); e < CK_CHUNK * CK_CHUNK; e += CK_NSG * 32) {
+        int m = e / CK_CHUNK;
+        int n = e % CK_CHUNK;
+        if (c0 + m < L) {
+            float tv = aTg[e] + (m == n ? 1.0f : 0.0f);
+            scratchBase[(CK_A_CHANNEL + n) * L + c0 + m] = ftype(tv);
+        }
+    }
+
+    // P = lower_inclusive(Q @ K^T * exp(gc_m - gc_n)).
+    for (int nt = 0; nt < CK_CHUNK / 32; ++nt) {
+        float acc[16];
+        for (int i = 0; i < 16; ++i) acc[i] = 0.0f;
+        for (int kt = 0; kt < CK_DK_TILES; ++kt) {
+            auto ctA = mm.get_left_input_cooperative_tensor<ftype, ftype, float>();
+            auto ctB = mm.get_right_input_cooperative_tensor<ftype, ftype, float>();
+            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            for (ushort g = 0; g < 2; ++g) {
+                int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
+                int token = c0 + m;
+                for (ushort j = 0; j < 4; ++j) {
+                    int d = kt * 16 + int(fn) + int(j);
+                    float qv = token < L ? float(convBase[(kHead * CK_DK + d) * L + token]) : 0.0f;
+                    ctA[g * 4 + j] = ftype(qv * qInvTg[m]);
+                }
+            }
+            for (ushort g = 0; g < 4; ++g) {
+                int n = nt * 32 + int(fm) + (int(g) & 1) * 8 + (int(g) >> 1) * 16;
+                int token = c0 + n;
+                for (ushort j = 0; j < 4; ++j) {
+                    int d = kt * 16 + int(fn) + int(j);
+                    float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]) : 0.0f;
+                    ctB[g * 4 + j] = ftype(kv * kInvTg[n]);
+                }
+            }
+            for (int i = 0; i < 16; ++i) ctC[i] = acc[i];
+            mm.run(ctA, ctB, ctC);
+            for (int i = 0; i < 16; ++i) acc[i] = ctC[i];
+        }
+        for (ushort i = 0; i < 16; ++i) {
+            int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+            int n = nt * 32 + int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            float pv = m >= n ? acc[i] * exp(gcTg[m] - gcTg[n]) : 0.0f;
+            if (c0 + m < L) {
+                scratchBase[(CK_P_CHANNEL + n) * L + c0 + m] = ftype(pv);
+            }
+        }
+    }
+}
+
+// Grid: (DV / 32, B * H), 4 simdgroups per threadgroup.
+kernel void linear_attn_chunk64_recurrent_inplace(
+    const device ftype* conv_out            [[buffer(0)]],
+    const device ftype* gate               [[buffer(1)]],
+    const device ftype* beta               [[buffer(2)]],
+    device ftype* recurrent_state          [[buffer(3)]],
+    device ftype* attn_out                 [[buffer(4)]],
+    constant LinearAttnParam& param        [[buffer(5)]],
+    uint3 tgpig  [[threadgroup_position_in_grid]],
+    ushort tiisg [[thread_index_in_simdgroup]],
+    ushort sgitg [[simdgroup_index_in_threadgroup]]) {
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int D = param.conv_dim;
+    const int chunks = (L + CK_CHUNK - 1) / CK_CHUNK;
+    const int ws = int(tgpig.x);
+    const int bh = int(tgpig.y);
+    const int b = bh / H;
+    const int h = bh % H;
+    const int kHead = h / param.gqa_factor;
+    const int n0 = ws * CK_W;
+    const uint tid = uint(sgitg) * 32u + uint(tiisg);
+
+    const device ftype* convBase = conv_out + (long)b * D * L;
+    const device ftype* scratchBase = convBase + (2 * param.key_dim + h * CK_DV) * L;
+
+    // The per-tile/per-lane layout is simultaneously a matmul destination and
+    // a non-transposed right operand, avoiding state transposes between stages.
+    threadgroup float stateTg[CK_DK_TILES][32][16];
+    threadgroup float vnTg[CK_CHUNK][CK_W];
+    threadgroup float gcTg[CK_CHUNK];
+    threadgroup float betaTg[CK_CHUNK];
+    threadgroup float qInvTg[CK_CHUNK];
+    threadgroup float kInvTg[CK_CHUNK];
+
+    const ushort qid = tiisg >> 2;
+    const ushort fm = (qid & 4) | ((tiisg >> 1) & 3);
+    const ushort fn = ((qid & 2) | (tiisg & 1)) * 4;
+
+    for (int kt = int(sgitg); kt < CK_DK_TILES; kt += CK_NSG) {
+        for (ushort i = 0; i < 16; ++i) {
+            int dk = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+            int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            stateTg[kt][tiisg][i] = float(recurrent_state[(long)(bh * CK_DV + n0 + n) * CK_DK + dk]);
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    matmul2d<CK_DESC_TF, metal::execution_simdgroup> mm;
+
+    for (int c = 0; c < chunks; ++c) {
+        const int c0 = c * CK_CHUNK;
+
+        if (tid < CK_CHUNK) {
+            int token = c0 + int(tid);
+            float gv = 0.0f;
+            float bv = 0.0f;
+            if (token < L) {
+                gv = float(gate[ck_token_channel_offset(b, token, h, H, param.gate_c4, param)]);
+                bv = float(beta[ck_token_channel_offset(b, token, h, H, param.beta_c4, param)]);
+            }
+            gcTg[tid] = clamp(gv, -30.0f, 0.0f);
+            betaTg[tid] = bv;
+            qInvTg[tid] = 0.0f;
+            kInvTg[tid] = 0.0f;
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // ── 2. L2 norm + q_scale (in-place). ──
-        if (use_l2norm) {
-            const float eps = 1e-6f;
-            for (int dt = sgitg; dt < chunk_len; dt += SIMDS_PER_TG) {
-                float sq = 0.0f;
-                for (int i = lane; i < d_k; i += 32) { float v = sh_q[dt][i]; sq += v * v; }
-                sq = simd_sum(sq);
-                float invQ = rsqrt(sq + eps) * q_scale;
-                for (int i = lane; i < d_k; i += 32) sh_q[dt][i] *= invQ;
-                sq = 0.0f;
-                for (int i = lane; i < d_k; i += 32) { float v = sh_k[dt][i]; sq += v * v; }
-                sq = simd_sum(sq);
-                float invK = rsqrt(sq + eps);
-                for (int i = lane; i < d_k; i += 32) sh_k[dt][i] *= invK;
-            }
-        } else {
-            for (int dt = sgitg; dt < chunk_len; dt += SIMDS_PER_TG) {
-                for (int i = lane; i < d_k; i += 32) sh_q[dt][i] *= q_scale;
-            }
-        }
-        // ── 3. cumsum(g) → sh_G — FUSED with L2 norm barrier ──
         if (tid == 0) {
             float acc = 0.0f;
-            for (int t = 0; t < chunk_len; ++t) { acc += sh_g[t]; sh_G[t] = acc; }
-            for (int t = chunk_len; t < CHUNK_BT; ++t) sh_G[t] = acc;
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // ── 4. K@K^T → sh_attn,  Q@K^T → sh_qkdm  (TENSOR, execution_simdgroups=8) ──
-        {
-            auto tKrow = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_k[0][0], D2(HEAD_K_DIM, CHUNK_BT));
-            auto tQrow = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_q[0][0], D2(HEAD_K_DIM, CHUNK_BT));
-            matmul2d<
-                matmul2d_descriptor(CHUNK_BT, CHUNK_BT, HEAD_K_DIM,
-                                    false, true, false),
-                execution_simdgroups<SIMDS_PER_TG>> mm;
-            auto sKa = tKrow.slice(0, 0);
-            auto sKb = tKrow.slice(0, 0);
-            auto cKK = mm.get_destination_cooperative_tensor<decltype(sKa), decltype(sKb), float>();
-            mm.run(sKa, sKb, cKK);
-            auto tAttn = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_attn[0][0], D2(CHUNK_BT, CHUNK_BT));
-            cKK.store(tAttn);
-
-            auto sQa = tQrow.slice(0, 0);
-            auto cQK = mm.get_destination_cooperative_tensor<decltype(sQa), decltype(sKb), float>();
-            mm.run(sQa, sKb, cQK);
-            auto tQkdm = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_qkdm[0][0], D2(CHUNK_BT, CHUNK_BT));
-            cQK.store(tQkdm);
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // ── 5. Apply mask + decay + β. Also compute v_beta in sh_v (FUSED). ──
-        for (int p = tid; p < CHUNK_BT * CHUNK_BT; p += TG_THREADS) {
-            int i = p / CHUNK_BT, jj = p % CHUNK_BT;
-            float aval = 0.0f, qval = 0.0f;
-            if (i < chunk_len && jj < chunk_len) {
-                float decay = exp(sh_G[i] - sh_G[jj]);
-                if (i > jj)  aval = -sh_beta[i] * sh_attn[i][jj] * decay;
-                if (i >= jj) qval = sh_qkdm[i][jj] * decay;
+            for (int i = 0; i < CK_CHUNK; ++i) {
+                acc += gcTg[i];
+                gcTg[i] = acc;
             }
-            sh_attn[i][jj] = aval;
-            sh_qkdm[i][jj] = qval;
         }
-        // Compute v_beta in sh_v (in-place, disjoint from sh_attn) — same barrier.
-        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
-            int dt = p / DV_BLOCK, dvi = p % DV_BLOCK;
-            sh_v[dt][dvi] = sh_beta[dt] * sh_v[dt][dvi];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // ── 6. (I - strict_lower(sh_attn))^{-1} via forward sub (SERIAL, SG 0). ──
-        if (sgitg == 0) {
-            for (int i = 1; i < chunk_len; ++i) {
-                int kcol = (int)lane;
-                float new_val = 0.0f;
-                if (kcol < i) {
-                    float sum = 0.0f;
-                    for (int s = kcol + 1; s < i; ++s) sum += sh_attn[i][s] * sh_attn[s][kcol];
-                    new_val = sh_attn[i][kcol] + sum;
+        if (param.use_l2norm) {
+            for (int m = int(sgitg); m < CK_CHUNK; m += CK_NSG) {
+                int token = c0 + m;
+                float qSum = 0.0f;
+                float kSum = 0.0f;
+                if (token < L) {
+                    for (int d = int(tiisg); d < CK_DK; d += 32) {
+                        float qv = float(convBase[(kHead * CK_DK + d) * L + token]);
+                        float kv = float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]);
+                        qSum += qv * qv;
+                        kSum += kv * kv;
+                    }
                 }
-                simdgroup_barrier(mem_flags::mem_threadgroup);
-                if (kcol < i) sh_attn[i][kcol] = new_val;
-                simdgroup_barrier(mem_flags::mem_threadgroup);
+                qSum = simd_sum(qSum);
+                kSum = simd_sum(kSum);
+                if (tiisg == 0 && token < L) {
+                    qInvTg[m] = rsqrt(qSum + 1.0e-6f) * param.q_scale;
+                    kInvTg[m] = rsqrt(kSum + 1.0e-6f);
+                }
+            }
+        } else if (tid < CK_CHUNK && c0 + int(tid) < L) {
+            qInvTg[tid] = param.q_scale;
+            kInvTg[tid] = 1.0f;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // tmp = v*beta - (k*beta*exp(gc)) @ state.
+        {
+            float acc[16];
+            for (int i = 0; i < 16; ++i) acc[i] = 0.0f;
+            for (int kt = 0; kt < CK_DK_TILES; ++kt) {
+                auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
+                auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
+                auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+                for (ushort g = 0; g < 2; ++g) {
+                    int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
+                    int token = c0 + m;
+                    float scale = betaTg[m] * exp(gcTg[m]) * kInvTg[m];
+                    for (ushort j = 0; j < 4; ++j) {
+                        int d = kt * 16 + int(fn) + int(j);
+                        float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]) : 0.0f;
+                        ctA[g * 4 + j] = ftype(kv * scale);
+                    }
+                }
+                for (ushort i = 0; i < 16; ++i) {
+                    ctB[i] = stateTg[kt][tiisg][i];
+                    ctC[i] = acc[i];
+                }
+                mm.run(ctA, ctB, ctC);
+                for (int i = 0; i < 16; ++i) acc[i] = ctC[i];
+            }
+            for (ushort i = 0; i < 16; ++i) {
+                int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+                int token = c0 + m;
+                int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+                float vv = token < L ? float(attn_out[ck_output_offset(b, token, h, n0 + n, param)]) : 0.0f;
+                vnTg[m][n] = vv * betaTg[m] - acc[i];
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        if (tid < chunk_len) sh_attn[tid][tid] = 1.0f;
-        threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // ── 7. Combined stage:
-        //   * K_S = K @ state              (TENSOR)  → sh_K_S
-        //   * v_nb = attn @ v_beta         (scalar)  → sh_out (temp)
-        //   These write to disjoint TG-mem regions — one barrier at the end. ──
-        {
-            auto tK = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_k[0][0], D2(HEAD_K_DIM, CHUNK_BT));
-            auto tState = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_state[0][0], D2(DV_BLOCK, HEAD_K_DIM));
-            matmul2d<
-                matmul2d_descriptor(CHUNK_BT, DV_BLOCK, HEAD_K_DIM,
-                                    false, false, false),
-                execution_simdgroups<SIMDS_PER_TG>> mm;
-            auto sA = tK.slice(0, 0);
-            auto sB = tState.slice(0, 0);
-            auto cOut = mm.get_destination_cooperative_tensor<decltype(sA), decltype(sB), float>();
-            mm.run(sA, sB, cOut);
-            auto tKS = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_K_S[0][0], D2(DV_BLOCK, CHUNK_BT));
-            cOut.store(tKS);
-        }
-        // v_nb (small scalar matmul) into sh_out to leave sh_v intact until step 8.
-        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
-            int t = p / DV_BLOCK, dvi = p % DV_BLOCK;
-            float acc = 0.0f;
-            for (int s = 0; s <= t; ++s) acc += sh_attn[t][s] * sh_v[s][dvi];
-            sh_out[t][dvi] = acc;
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // ── 8. Combined stage:
-        //   * attn_scaled = attn * (β · expG) — write to sh_attn in-place
-        //   * v_new = v_nb − v_prime (where v_prime = attn_scaled @ K_S)
-        //     (scalar, small 16×16×16 = 4 KB fmas)
-        //   * Q_expG = Q * exp(G[t]) — write to sh_q in-place ──
-        // 8a. Row-scale sh_attn (uses β and expG from sh_beta / sh_G).
-        for (int p = tid; p < CHUNK_BT * CHUNK_BT; p += TG_THREADS) {
-            int t = p / CHUNK_BT, s = p % CHUNK_BT;
-            sh_attn[t][s] = sh_attn[t][s] * sh_beta[s] * exp(sh_G[s]);
-        }
-        // 8b. Scale Q into sh_q in-place (row-wise). Disjoint from sh_attn.
-        for (int p = tid; p < chunk_len * d_k; p += TG_THREADS) {
-            int dt = p / d_k, di = p % d_k;
-            sh_q[dt][di] = sh_q[dt][di] * exp(sh_G[dt]);
+        // v_new = T @ tmp. All simdgroups retain their result tile in
+        // registers until the barrier, then overwrite tmp in place; this
+        // avoids a second 64x32 threadgroup buffer.
+        float vnewAcc[16];
+        for (int i = 0; i < 16; ++i) vnewAcc[i] = 0.0f;
+        for (int kt = 0; kt < CK_NT; ++kt) {
+            auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
+            auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
+            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            for (ushort g = 0; g < 2; ++g) {
+                int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
+                for (ushort j = 0; j < 4; ++j) {
+                    int tokenK = kt * 16 + int(fn) + int(j);
+                    ctA[g * 4 + j] = c0 + m < L
+                        ? scratchBase[(CK_A_CHANNEL + tokenK) * L + c0 + m]
+                        : ftype(0);
+                }
+            }
+            for (ushort i = 0; i < 16; ++i) {
+                int tokenK = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+                int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+                ctB[i] = vnTg[tokenK][n];
+                ctC[i] = vnewAcc[i];
+            }
+            mm.run(ctA, ctB, ctC);
+            for (int i = 0; i < 16; ++i) vnewAcc[i] = ctC[i];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        // 8c. v_new = v_nb (sh_out) - attn_scaled @ K_S (scalar), write to sh_v.
-        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
-            int t = p / DV_BLOCK, dvi = p % DV_BLOCK;
-            float acc = 0.0f;
-            for (int s = 0; s < chunk_len; ++s) acc += sh_attn[t][s] * sh_K_S[s][dvi];
-            sh_v[t][dvi] = sh_out[t][dvi] - acc;
+        for (ushort i = 0; i < 16; ++i) {
+            int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+            int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            vnTg[m][n] = vnewAcc[i];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // ── 9. attn_inter = (Q · expG) @ state (TENSOR, biggest). ──
-        {
-            auto tQ = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_q[0][0], D2(HEAD_K_DIM, CHUNK_BT));
-            auto tState = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_state[0][0], D2(DV_BLOCK, HEAD_K_DIM));
-            matmul2d<
-                matmul2d_descriptor(CHUNK_BT, DV_BLOCK, HEAD_K_DIM,
-                                    false, false, false),
-                execution_simdgroups<SIMDS_PER_TG>> mm;
-            auto sA = tQ.slice(0, 0);
-            auto sB = tState.slice(0, 0);
-            auto cOut = mm.get_destination_cooperative_tensor<decltype(sA), decltype(sB), float>();
-            mm.run(sA, sB, cOut);
-            auto tOut = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_out[0][0], D2(DV_BLOCK, CHUNK_BT));
-            cOut.store(tOut);
+        // O = (q*exp(gc)) @ state + P @ v_new.
+        float outAcc[16];
+        for (int i = 0; i < 16; ++i) outAcc[i] = 0.0f;
+        for (int kt = 0; kt < CK_DK_TILES; ++kt) {
+            auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
+            auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
+            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            for (ushort g = 0; g < 2; ++g) {
+                int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
+                int token = c0 + m;
+                float scale = exp(gcTg[m]) * qInvTg[m];
+                for (ushort j = 0; j < 4; ++j) {
+                    int d = kt * 16 + int(fn) + int(j);
+                    float qv = token < L ? float(convBase[(kHead * CK_DK + d) * L + token]) : 0.0f;
+                    ctA[g * 4 + j] = ftype(qv * scale);
+                }
+            }
+            for (ushort i = 0; i < 16; ++i) {
+                ctB[i] = stateTg[kt][tiisg][i];
+                ctC[i] = outAcc[i];
+            }
+            mm.run(ctA, ctB, ctC);
+            for (int i = 0; i < 16; ++i) outAcc[i] = ctC[i];
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (int kt = 0; kt < CK_NT; ++kt) {
+            auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
+            auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
+            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            for (ushort g = 0; g < 2; ++g) {
+                int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
+                for (ushort j = 0; j < 4; ++j) {
+                    int tokenK = kt * 16 + int(fn) + int(j);
+                    ctA[g * 4 + j] = c0 + m < L
+                        ? scratchBase[(CK_P_CHANNEL + tokenK) * L + c0 + m]
+                        : ftype(0);
+                }
+            }
+            for (ushort i = 0; i < 16; ++i) {
+                int tokenK = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+                int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+                ctB[i] = vnTg[tokenK][n];
+                ctC[i] = outAcc[i];
+            }
+            mm.run(ctA, ctB, ctC);
+            for (int i = 0; i < 16; ++i) outAcc[i] = ctC[i];
+        }
 
-        // ── 10. out += attn_intra @ v_new (scalar, small); write to attn_out. ──
-        for (int p = tid; p < chunk_len * DV_BLOCK; p += TG_THREADS) {
-            int t = p / DV_BLOCK, dvi = p % DV_BLOCK;
-            float acc = sh_out[t][dvi];
-            for (int s = 0; s <= t; ++s) acc += sh_qkdm[t][s] * sh_v[s][dvi];
-            // Write directly to device (out no longer needed in TG mem).
-            attn_out[output_offset_v2(b, t0 + t, h, dv_off + dvi, param)] = (ftype)acc;
+        for (ushort i = 0; i < 16; ++i) {
+            int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+            int token = c0 + m;
+            if (token >= L) continue;
+            int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            attn_out[ck_output_offset(b, token, h, n0 + n, param)] = ftype(outAcc[i]);
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // ── 11. Combined stage: prepare for state update.
-        //   * K_dec[dt][di] = K[dt][di] * exp(G_last - G[dt])  → sh_k in-place
-        //   * sh_state *= exp(G_last)  (decay old state in-place) ──
-        float G_last = sh_G[chunk_len - 1];
-        float decay_total = exp(G_last);
-        for (int p = tid; p < chunk_len * d_k; p += TG_THREADS) {
-            int dt = p / d_k, di = p % d_k;
-            sh_k[dt][di] = sh_k[dt][di] * exp(G_last - sh_G[dt]);
-        }
-        for (int p = tid; p < HEAD_K_DIM * DV_BLOCK; p += TG_THREADS) {
-            int dki = p / DV_BLOCK, dvi = p % DV_BLOCK;
-            sh_state[dki][dvi] *= decay_total;
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // ── 12. State update in one shot via multiply_accumulate mode:
-        //   D = C + A * B, where C = sh_state, A = K_dec^T, B = v_new.
-        //   Eliminates the separate sh_state_scratch buffer entirely. ──
-        {
-            auto tKdec = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_k[0][0], D2(HEAD_K_DIM, CHUNK_BT));
-            auto tVnew = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_v[0][0], D2(DV_BLOCK, CHUNK_BT));
-            auto tStateIn = tensor<threadgroup float, D2, tensor_inline>(
-                (threadgroup float*)&sh_state[0][0], D2(DV_BLOCK, HEAD_K_DIM));
-            matmul2d<
-                matmul2d_descriptor(HEAD_K_DIM, DV_BLOCK, CHUNK_BT,
-                                    /*ta=*/true, /*tb=*/false, /*tr=*/false,
-                                    matmul2d_descriptor::mode::multiply_accumulate),
-                execution_simdgroups<SIMDS_PER_TG>> mm;
-            auto sA = tKdec.slice(0, 0);
-            auto sB = tVnew.slice(0, 0);
-            auto cOut = mm.get_destination_cooperative_tensor<decltype(sA), decltype(sB), float>();
-            // Seed the accumulator with the decayed state.
-            cOut.load(tStateIn);
-            mm.run(sA, sB, cOut);
-            cOut.store(tStateIn);
+        // state = exp(gc_last)*state + k_dec^T @ v_new.
+        const float totalDecay = exp(gcTg[CK_CHUNK - 1]);
+        for (int mt = int(sgitg); mt < CK_DK_TILES; mt += CK_NSG) {
+            float acc[16];
+            for (int i = 0; i < 16; ++i) acc[i] = 0.0f;
+            for (int kt = 0; kt < CK_NT; ++kt) {
+                auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
+                auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
+                auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+                for (ushort i = 0; i < 8; ++i) {
+                    int tokenK = kt * 16 + int(fn) + (int(i) & 3);
+                    int token = c0 + tokenK;
+                    int dk = mt * 16 + int(fm) + (int(i) >> 2) * 8;
+                    float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + dk) * L + token]) : 0.0f;
+                    ctA[i] = ftype(kv * kInvTg[tokenK] * exp(gcTg[CK_CHUNK - 1] - gcTg[tokenK]));
+                }
+                for (ushort i = 0; i < 16; ++i) {
+                    int tokenK = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+                    int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+                    ctB[i] = vnTg[tokenK][n];
+                    ctC[i] = acc[i];
+                }
+                mm.run(ctA, ctB, ctC);
+                for (int i = 0; i < 16; ++i) acc[i] = ctC[i];
+            }
+            for (ushort i = 0; i < 16; ++i) {
+                stateTg[mt][tiisg][i] = totalDecay * stateTg[mt][tiisg][i] + acc[i];
+            }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    // ── Flush state to device once at kernel exit. ──
-    for (int p = tid; p < HEAD_K_DIM * DV_BLOCK; p += TG_THREADS) {
-        int dki = p / DV_BLOCK, dvi = p % DV_BLOCK;
-        state_gm[(dv_off + dvi) * d_k + dki] = (ftype)sh_state[dki][dvi];
+    for (int kt = int(sgitg); kt < CK_DK_TILES; kt += CK_NSG) {
+        for (ushort i = 0; i < 16; ++i) {
+            int dk = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
+            int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            recurrent_state[(long)(bh * CK_DV + n0 + n) * CK_DK + dk] = ftype(stateTg[kt][tiisg][i]);
+        }
     }
 }
 )metal";
