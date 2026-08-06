@@ -879,8 +879,12 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
                     _writeElement(v_local, i, vv, bytes);
                 }
 
-                // ── Step 3+4: L2 Normalization + Scale (fused) ──
-                if (useL2Norm) {
+                // ── Step 3+4: L2 Normalization + Scale, plus dot(k, q) ──
+                float kq = 0.0f;
+                if (bytes == 4) {
+                    kq = gcore->MNNNormalizeQKAndDot(reinterpret_cast<float*>(q_local),
+                                                     reinterpret_cast<float*>(k_local), qScale, useL2Norm, d_k);
+                } else if (useL2Norm) {
                     const float eps = 1e-6f;
                     float qSumSq = 0.0f, kSumSq = 0.0f;
                     for (int i = 0; i < d_k; ++i) {
@@ -905,10 +909,10 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
                 float decay = decayPtr[b * L * H + t * H + h];
                 float beta_t = _readTokenChannel(betaPtr, betaC4, b, t, h, B, L, H, bytes, pack);
 
-                // dot(k, q) — small reduction in fp32 for precision.
-                float kq = 0.0f;
-                for (int i = 0; i < d_k; ++i) {
-                    kq += _readElement(k_local, i, bytes) * _readElement(q_local, i, bytes);
+                if (bytes != 4) {
+                    for (int i = 0; i < d_k; ++i) {
+                        kq += _readElement(k_local, i, bytes) * _readElement(q_local, i, bytes);
+                    }
                 }
 
                 // out_t is written; state S is updated in-place.
@@ -1038,8 +1042,12 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
             ::memcpy(k_local, kBase, d_k * bytes);
             ::memcpy(v_local, vBase, d_v * bytes);
 
-            // ── Step 3+4: L2 Normalization + Scale (fused) ──
-            if (useL2Norm) {
+            // ── Step 3+4: L2 Normalization + Scale, plus dot(k, q) ──
+            float kq = 0.0f;
+            if (bytes == 4) {
+                kq = gcore->MNNNormalizeQKAndDot(reinterpret_cast<float*>(q_local), reinterpret_cast<float*>(k_local),
+                                                 qScale, useL2Norm, d_k);
+            } else if (useL2Norm) {
                 const float eps = 1e-6f;
                 float qSumSq = 0.0f, kSumSq = 0.0f;
                 for (int i = 0; i < d_k; ++i) {
@@ -1072,9 +1080,10 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
 
             // Analytic correction: delta = beta * (v - decay * vPred);
             //                      out   = decay * out_q + dot(k,q) * delta.
-            float kq = 0.0f;
-            for (int i = 0; i < d_k; ++i) {
-                kq += _readElement(k_local, i, bytes) * _readElement(q_local, i, bytes);
+            if (bytes != 4) {
+                for (int i = 0; i < d_k; ++i) {
+                    kq += _readElement(k_local, i, bytes) * _readElement(q_local, i, bytes);
+                }
             }
             for (int i = 0; i < d_v; ++i) {
                 const float vPred_i = decay * _readElement(localVPred, i, bytes);

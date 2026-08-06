@@ -372,6 +372,7 @@ struct CoreFunctions {
     // 'kq' must be precomputed as dot(k,q) by the caller.
     void (*MNNFusedGatedDelta)(float* S, const float* k, const float* q, const float* v, float* out, float decay,
                                float beta, float kq, size_t dk, size_t dv);
+    float (*MNNNormalizeQKAndDot)(float* q, float* k, float qScale, bool useL2Norm, size_t dk);
     void (*MNNCountMaxMinValue)(const float* source, float* minVal, float* maxVal, size_t size);
     // Packed layout is [channelUnit, batch, pack]. residual and sum are an optional pair; threads split batch work.
     void (*MNNNormPacked)(float* dest, float* sum, const float* source, const float* residual, const float* gamma,

@@ -277,6 +277,32 @@ static void MNNCountMaxMinValue(const float* source, float* minVal, float* maxVa
 #endif
 }
 
+static float MNNNormalizeQKAndDotDefault(float* q, float* k, float qScale, bool useL2Norm, size_t dk) {
+    if (!useL2Norm) {
+        float qk = 0.0f;
+        for (size_t i = 0; i < dk; ++i) {
+            q[i] *= qScale;
+            qk += q[i] * k[i];
+        }
+        return qk;
+    }
+    float qSumSq = 0.0f;
+    float kSumSq = 0.0f;
+    float qk = 0.0f;
+    for (size_t i = 0; i < dk; ++i) {
+        qSumSq += q[i] * q[i];
+        kSumSq += k[i] * k[i];
+        qk += q[i] * k[i];
+    }
+    const float qNormScale = qScale / sqrtf(qSumSq + 1e-6f);
+    const float kNormScale = 1.0f / sqrtf(kSumSq + 1e-6f);
+    for (size_t i = 0; i < dk; ++i) {
+        q[i] *= qNormScale;
+        k[i] *= kNormScale;
+    }
+    return qk * qNormScale * kNormScale;
+}
+
 #ifdef MNN_LOW_MEMORY
 static void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
 #ifdef __aarch64__
@@ -4824,6 +4850,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNDualMatVec = MNNDualMatVecDefault;
     gCoreFunction->MNNDecayRankOneUpdate = MNNDecayRankOneUpdateDefault;
     gCoreFunction->MNNFusedGatedDelta = MNNFusedGatedDeltaDefault;
+    gCoreFunction->MNNNormalizeQKAndDot = MNNNormalizeQKAndDotDefault;
 
     // Lowp
     gCoreFunction->MNNFp32ToLowp = nullptr;

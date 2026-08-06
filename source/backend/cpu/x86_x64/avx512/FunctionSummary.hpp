@@ -49,13 +49,11 @@ void _AVX512_MNNPackedSparseMatMulEpx1(float* C, const float* A, const float* B,
 
 void _AVX512_ReorderInit(void* functions);
 void _AVX512_ExtraInit(void* functions);
+void _AVX512_LinearAttentionInit(void* functions);
 void _AVX512_WinogradInit(void* functions);
 void _AVX512_MNNInt8FunctionInit(void* functions, bool suppotVNNI);
 
 extern MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC16Functions[AVX512_INPUT_TILE_MAX];
 extern MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC32Functions[AVX512_INPUT_TILE_MAX];
 extern MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC48Functions[AVX512_INPUT_TILE_MAX];
-
 }
-
-

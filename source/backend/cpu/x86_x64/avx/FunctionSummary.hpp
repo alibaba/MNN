@@ -65,6 +65,7 @@ void _AVX_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, siz
 void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose);
 
 void _AVX_ExtraInit(void* functions);
+void _AVX_LinearAttentionInit(void* functions);
 void _AVX_WinogradInit(void* functions);
 
 void _AVX_MNNGelu(float *dst, const float *src, size_t size, float* parameters);
