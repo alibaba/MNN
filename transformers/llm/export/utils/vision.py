@@ -269,6 +269,7 @@ class Qwen2Vision(Vision):
         self.video_fps = 2.0
         self.video_max_frames = 768
         self.video_max_pixels = 768 * 28 * 28
+        self.video_max_vision_tokens = 4096
         super().__init__(visual, base)
         self.quant_bit = 4
 
@@ -286,6 +287,7 @@ class Qwen2Vision(Vision):
             self.llm_config['video_fps'] = self.video_fps
             self.llm_config['video_max_frames'] = self.video_max_frames
             self.llm_config['video_max_pixels'] = self.video_max_pixels
+            self.llm_config['video_max_vision_tokens'] = self.video_max_vision_tokens
         self.vision_start_token = '<|vision_start|>'
         self.vision_end_token = '<|vision_end|>'
         self.image_pad_token = '<|image_pad|>'
@@ -431,10 +433,15 @@ class Qwen2Vision(Vision):
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         sample_indices = self.video_sample_indices(total_frames, native_fps)
         old_height, old_width = self.image_height, self.image_width
+        old_min_pixels = self.min_pixels
         source_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         source_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         if source_width > 0 and source_height > 0:
-            self.image_width, self.image_height = self.video_resize_size(source_width, source_height)
+            self.image_width, self.image_height = self.video_resize_size(
+                source_width, source_height, len(sample_indices)
+            )
+            self.min_pixels = min(self.min_pixels, self.image_width * self.image_height)
+        has_video_size = source_width > 0 and source_height > 0
         frames, timestamps = [], []
         frame_idx = 0
         sample_idx = 0
@@ -445,6 +452,13 @@ class Qwen2Vision(Vision):
                     break
                 if frame_idx == sample_indices[sample_idx]:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    if not has_video_size:
+                        source_height, source_width = frame.shape[:2]
+                        self.image_width, self.image_height = self.video_resize_size(
+                            source_width, source_height, len(sample_indices)
+                        )
+                        self.min_pixels = min(self.min_pixels, self.image_width * self.image_height)
+                        has_video_size = True
                     while sample_idx < len(sample_indices) and frame_idx == sample_indices[sample_idx]:
                         frames.append(self.image_to_tensor(Image.fromarray(frame)))
                         timestamps.append(frame_idx / native_fps)
@@ -470,6 +484,7 @@ class Qwen2Vision(Vision):
         finally:
             cap.release()
             self.image_height, self.image_width = old_height, old_width
+            self.min_pixels = old_min_pixels
 
     def video_aligned_frame_count(self, frame_count, max_frames=None):
         if frame_count <= 0:
@@ -485,9 +500,21 @@ class Qwen2Vision(Vision):
             return factor
         return count // factor * factor
 
-    def video_resize_size(self, width, height):
+    def video_effective_max_pixels(self, frame_count):
+        max_pixels = getattr(self, 'video_max_pixels', 768 * 28 * 28)
+        frame_count = int(frame_count)
+        grid_t = frame_count // max(int(getattr(self, 'temporal_patch_size', 2)), 1)
+        if grid_t <= 0:
+            return max_pixels
+        max_tokens = max(int(getattr(self, 'video_max_vision_tokens', 4096)), 1)
+        token_pixels = max(max_tokens // grid_t, 1) * self.patch_size * self.patch_size
+        return min(max_pixels, token_pixels) if max_pixels > 0 else token_pixels
+
+    def video_resize_size(self, width, height, frame_count=None):
         factor = self.patch_size * self.merge_size
         max_pixels = getattr(self, 'video_max_pixels', 768 * 28 * 28)
+        if frame_count is not None:
+            max_pixels = self.video_effective_max_pixels(frame_count)
         width = max(int(width), factor)
         height = max(int(height), factor)
         w_bar = max(round(width / factor) * factor, factor)
@@ -539,8 +566,10 @@ class Qwen2Vision(Vision):
         position_ids = torch.cat(pos_ids, dim=0)
         return position_ids
 
-    def vision_attention_mask(self, grid_thw, cu_window_seqlens = None):
-        seq_len = grid_thw[:, 0] * grid_thw[:, 1] * grid_thw[:, 2]
+    def vision_attention_mask(self, grid_thw, cu_window_seqlens = None, max_seq_len = None):
+        seq_len = int((grid_thw[:, 0] * grid_thw[:, 1] * grid_thw[:, 2]).sum().item())
+        if max_seq_len is not None and seq_len > max(int(max_seq_len), 1):
+            raise RuntimeError(f"video visual tokens {seq_len} exceed video_max_vision_tokens {max_seq_len}")
         if cu_window_seqlens is None:
             cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]).cumsum(dim=0)
             cu_seqlens = F.pad(cu_seqlens, (1, 0), value=0)
@@ -607,7 +636,7 @@ class Qwen2Vision(Vision):
     def videos_forward(self, frames):
         flatten_patches, grid_thw = self.video_reshape(frames)
         position_ids = self.vision_position_ids(grid_thw)
-        attention_mask = self.vision_attention_mask(grid_thw)
+        attention_mask = self.vision_attention_mask(grid_thw, max_seq_len=self.video_max_vision_tokens)
         output = self.forward(flatten_patches, position_ids, attention_mask)
         return output[0] if isinstance(output, tuple) else output
 
@@ -1432,7 +1461,7 @@ class Qwen3_5Vision(Qwen2Vision):
         flatten_patches, grid_thw = self.video_reshape(frames)
         idx_tensor, weight_tensor = self.get_idx_weight(grid_thw)
         position_ids = self.vision_position_ids(grid_thw)
-        attention_mask = self.vision_attention_mask(grid_thw)
+        attention_mask = self.vision_attention_mask(grid_thw, max_seq_len=self.video_max_vision_tokens)
         video_embeds = self.forward(flatten_patches, position_ids, attention_mask, idx_tensor, weight_tensor)
         return video_embeds
 

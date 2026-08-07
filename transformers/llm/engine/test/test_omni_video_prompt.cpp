@@ -51,6 +51,13 @@ int main() {
     videoSize = MNN::Transformer::qwenVideoResizeSize(854, 854, 28, 0);
     assert((videoSize == std::make_pair(840, 840)));
 
+    int frameCount = MNN::Transformer::qwenVideoAlignedFrameCount(20, 768, 2);
+    int maxPixels = MNN::Transformer::qwenVideoEffectiveMaxPixels(768 * 28 * 28, 4096, frameCount, 2, 16);
+    videoSize = MNN::Transformer::qwenVideoResizeSize(3840, 2160, 32, maxPixels);
+    int seqLen = frameCount / 2 * (videoSize.second / 16) * (videoSize.first / 16);
+    assert(seqLen <= 4096);
+    assert(MNN::Transformer::qwenVideoEffectiveMaxPixels(0, 4096, frameCount, 2, 16) == 409 * 16 * 16);
+
     std::vector<float> mask(16);
     MNN::Transformer::fillQwenVisionAttentionMask(mask.data(), 2, 2);
     const float blocked = std::numeric_limits<float>::lowest();

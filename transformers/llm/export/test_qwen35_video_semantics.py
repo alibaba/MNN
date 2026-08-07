@@ -2,6 +2,7 @@ import sys
 import tempfile
 import types
 
+import numpy as np
 import torch
 from PIL import Image
 
@@ -60,6 +61,11 @@ def make_qwen_vision():
     vision.video_fps = 2.0
     vision.video_max_frames = 768
     vision.video_max_pixels = 768 * 28 * 28
+    vision.video_max_vision_tokens = 4096
+    vision.image_height = 448
+    vision.image_width = 448
+    vision.min_pixels = 56 * 56
+    vision.max_pixels = 14 * 14 * 4 * 1280
     return vision
 
 
@@ -175,6 +181,101 @@ def test_video_resize_preserves_aspect_and_caps_pixels():
     assert Qwen2Vision.video_resize_size(vision, 854, 854) == (840, 840)
 
 
+def test_video_resize_uses_total_token_budget_for_long_video():
+    vision = make_qwen_vision()
+    frame_count = len(Qwen2Vision.video_sample_indices(vision, 250, 25.0))
+
+    width, height = Qwen2Vision.video_resize_size(vision, 3840, 2160, frame_count)
+    seq_len = (
+        frame_count // vision.temporal_patch_size * (height // vision.patch_size) * (width // vision.patch_size)
+    )
+
+    assert frame_count == 20
+    assert seq_len <= vision.video_max_vision_tokens
+    assert width * height <= vision.video_max_pixels
+    assert Qwen2Vision.video_effective_max_pixels(vision, frame_count) <= vision.video_max_pixels
+
+
+def test_video_attention_mask_rejects_over_budget_before_allocation():
+    vision = make_qwen_vision()
+    vision.video_max_vision_tokens = 4
+
+    try:
+        Qwen2Vision.vision_attention_mask(
+            vision, torch.tensor([[2, 4, 4]]), max_seq_len=vision.video_max_vision_tokens
+        )
+    except RuntimeError as exc:
+        assert "video_max_vision_tokens" in str(exc)
+    else:
+        raise AssertionError("over-budget video mask should fail before allocation")
+
+
+def test_video_process_uses_first_frame_size_when_metadata_is_missing():
+    vision = make_qwen_vision()
+    old_cv2 = sys.modules.get("cv2")
+    seen_sizes = []
+
+    class FakeCapture:
+        def __init__(self, path):
+            self.read_count = 0
+
+        def isOpened(self):
+            return True
+
+        def get(self, prop):
+            if prop == 0:
+                return 25.0
+            if prop == 1:
+                return 1
+            return 0
+
+        def read(self):
+            if self.read_count > 0:
+                return False, None
+            self.read_count += 1
+            return True, np.zeros((2160, 3840, 3), dtype=np.uint8)
+
+        def release(self):
+            pass
+
+    fake_cv2 = types.SimpleNamespace(
+        CAP_PROP_FPS=0,
+        CAP_PROP_FRAME_COUNT=1,
+        CAP_PROP_FRAME_WIDTH=2,
+        CAP_PROP_FRAME_HEIGHT=3,
+        COLOR_BGR2RGB=4,
+        VideoCapture=FakeCapture,
+        cvtColor=lambda frame, code: frame,
+    )
+    sys.modules["cv2"] = fake_cv2
+
+    def fake_image_to_tensor(image):
+        seen_sizes.append((vision.image_width, vision.image_height, vision.min_pixels))
+        return torch.zeros((1, 3, vision.image_height, vision.image_width))
+
+    def fake_videos_forward(frames):
+        seq_len = (frames[0].shape[2] // vision.patch_size) * (frames[0].shape[3] // vision.patch_size)
+        return torch.zeros((seq_len, 1, 1))
+
+    vision.image_to_tensor = fake_image_to_tensor
+    vision.videos_forward = fake_videos_forward
+    try:
+        segments = Qwen2Vision.video_process(vision, "missing-meta.avi")
+    finally:
+        if old_cv2 is None:
+            sys.modules.pop("cv2", None)
+        else:
+            sys.modules["cv2"] = old_cv2
+
+    assert len(seen_sizes) == 2
+    width, height, min_pixels = seen_sizes[0]
+    assert width * height <= vision.video_max_pixels
+    assert min_pixels <= width * height
+    assert segments
+    assert vision.image_width == 448
+    assert vision.image_height == 448
+
+
 def test_str_to_ids_resets_multimodal_state():
     vision = make_qwen_vision()
     vision.image_embeds = [object()]
@@ -226,6 +327,9 @@ if __name__ == "__main__":
     test_video_position_ids_advance_by_largest_axis_for_non_square_grid()
     test_video_sampling_matches_qwen3vl_min_frames_and_linspace()
     test_video_resize_preserves_aspect_and_caps_pixels()
+    test_video_resize_uses_total_token_budget_for_long_video()
+    test_video_attention_mask_rejects_over_budget_before_allocation()
+    test_video_process_uses_first_frame_size_when_metadata_is_missing()
     test_str_to_ids_resets_multimodal_state()
     test_video_prompt_requires_video_token_id()
     test_visual_position_ids_repeat_for_temporal_video_grid()

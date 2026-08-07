@@ -67,6 +67,19 @@ int qwenVideoAlignedFrameCount(int frameCount, int maxFrames, int factor) {
     return count / factor * factor;
 }
 
+int qwenVideoEffectiveMaxPixels(int maxPixels, int maxVisionTokens, int frameCount, int factor, int patchSize) {
+    factor = std::max(factor, 1);
+    patchSize = std::max(patchSize, 1);
+    int gridT = frameCount / factor;
+    if (gridT <= 0) {
+        return maxPixels;
+    }
+    int tokensPerTemporal = std::max(std::max(maxVisionTokens, 1) / gridT, 1);
+    int64_t tokenPixels = static_cast<int64_t>(tokensPerTemporal) * patchSize * patchSize;
+    int budgetPixels = static_cast<int>(std::min<int64_t>(tokenPixels, std::numeric_limits<int>::max()));
+    return maxPixels > 0 ? std::min(maxPixels, budgetPixels) : budgetPixels;
+}
+
 std::pair<int, int> qwenVideoResizeSize(int width, int height, int alignSize, int maxPixels) {
     alignSize = std::max(alignSize, 1);
     width = std::max(width, alignSize);
@@ -201,6 +214,7 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Llm(config) {
         mVideoFps = config->config_.value("video_fps", mVideoFps);
         mVideoMaxFrames = config->config_.value("video_max_frames", mVideoMaxFrames);
         mVideoMaxPixels = config->config_.value("video_max_pixels", mVideoMaxPixels);
+        mVideoMaxVisionTokens = std::max(1, config->config_.value("video_max_vision_tokens", mVideoMaxVisionTokens));
     }
     if (config->is_audio()) {
         mAudioPad = config->config_.value("audio_pad", mAudioPad);
@@ -655,16 +669,18 @@ std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const s
     constexpr int temporal_patch_size = kQwenVideoTemporalPatchSize;
     constexpr int merge_size = 2;
     const int align_size = patch_size * merge_size;
-    auto videoSize = qwenVideoResizeSize(mVisionWidth, mVisionHeight, align_size, mVideoMaxPixels);
-    mVisionWidth = videoSize.first;
-    mVisionHeight = videoSize.second;
-
     int frameCount = qwenVideoAlignedFrameCount(static_cast<int>(frames.size()), mVideoMaxFrames, temporal_patch_size);
     if (frameCount <= 0) {
         MNN_PRINT("Omni video requires max_frames >= %d\n", temporal_patch_size);
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return std::vector<int>(0);
     }
+    int maxPixels = qwenVideoEffectiveMaxPixels(mVideoMaxPixels, mVideoMaxVisionTokens, frameCount, temporal_patch_size,
+                                                patch_size);
+    auto videoSize = qwenVideoResizeSize(mVisionWidth, mVisionHeight, align_size, maxPixels);
+    mVisionWidth = videoSize.first;
+    mVisionHeight = videoSize.second;
+
     std::vector<VARP> processedFrames;
     std::vector<float> frameTimes;
     frameTimes.reserve(frameCount);
@@ -709,6 +725,11 @@ std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const s
         Express::_Reshape(patches, {grid_t * grid_h * grid_w, channel * temporal_patch_size * patch_size * patch_size});
 
     const int seqLen = grid_t * grid_h * grid_w;
+    if (seqLen > mVideoMaxVisionTokens) {
+        MNN_PRINT("Omni video visual tokens %d exceed video_max_vision_tokens %d\n", seqLen, mVideoMaxVisionTokens);
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
     const int wblockSize = merge_size * merge_size;
     const int hblockSize = wblockSize * grid_w / merge_size;
     VARP positionIds = Express::_Input({2, seqLen}, NCHW, halide_type_of<int>());
@@ -1184,6 +1205,12 @@ std::vector<int> Omni::videoProcess(const std::string& file) {
     int sampleIdx = 0;
     int oldVisionHeight = mVisionHeight;
     int oldVisionWidth = mVisionWidth;
+    const auto inputNames = mVisionModule->getInfo()->inputNames;
+    bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
+    const int patchSize = isQwen3VL ? 16 : 14;
+    const int alignSize = patchSize * 2;
+    int frameCount = qwenVideoAlignedFrameCount(static_cast<int>(sampleIndices.size()), mVideoMaxFrames,
+                                                kQwenVideoTemporalPatchSize);
     bool hasVideoSize = false;
     cv::Mat frame;
     while (sampleIdx < sampleIndices.size() && cap.read(frame)) {
@@ -1198,13 +1225,23 @@ std::vector<int> Omni::videoProcess(const std::string& file) {
                 bgr = bgr.clone();
             }
             if (!hasVideoSize) {
-                mVisionHeight = bgr.rows;
-                mVisionWidth = bgr.cols;
+                int maxPixels = qwenVideoEffectiveMaxPixels(mVideoMaxPixels, mVideoMaxVisionTokens, frameCount,
+                                                            kQwenVideoTemporalPatchSize, patchSize);
+                auto videoSize = qwenVideoResizeSize(bgr.cols, bgr.rows, alignSize, maxPixels);
+                mVisionWidth = videoSize.first;
+                mVisionHeight = videoSize.second;
                 hasVideoSize = true;
             }
+            cv::Mat resizedBgr = bgr;
+            if (bgr.cols != mVisionWidth || bgr.rows != mVisionHeight) {
+                cv::resize(bgr, resizedBgr, cv::Size(mVisionWidth, mVisionHeight), 0, 0, cv::INTER_CUBIC);
+            }
+            if (!resizedBgr.isContinuous()) {
+                resizedBgr = resizedBgr.clone();
+            }
             while (sampleIdx < sampleIndices.size() && frameIdx == sampleIndices[sampleIdx]) {
-                auto var = Express::_Input({bgr.rows, bgr.cols, 3}, NHWC, halide_type_of<uint8_t>());
-                ::memcpy(var->writeMap<uint8_t>(), bgr.data, bgr.total() * bgr.elemSize());
+                auto var = Express::_Input({resizedBgr.rows, resizedBgr.cols, 3}, NHWC, halide_type_of<uint8_t>());
+                ::memcpy(var->writeMap<uint8_t>(), resizedBgr.data, resizedBgr.total() * resizedBgr.elemSize());
                 frames.push_back(var);
                 timestamps.push_back(static_cast<float>(frameIdx / nativeFps));
                 sampleIdx++;

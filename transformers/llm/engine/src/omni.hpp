@@ -27,6 +27,7 @@ static const char* const kOmniMultimodalRegex = "<(img|audio|video)>(.*?)</\\1>"
 std::vector<int> qwenVideoSampleIndices(int totalFrames, double nativeFps, float targetFps, int minFrames,
                                         int maxFrames);
 int qwenVideoAlignedFrameCount(int frameCount, int maxFrames, int factor);
+int qwenVideoEffectiveMaxPixels(int maxPixels, int maxVisionTokens, int frameCount, int factor, int patchSize);
 std::pair<int, int> qwenVideoResizeSize(int width, int height, int alignSize, int maxPixels);
 void fillQwenVisionAttentionMask(float* mask, int gridT, int tokensPerTemporal);
 
@@ -185,6 +186,7 @@ private:
     float mVideoFps = 2.0f;
     int mVideoMaxFrames = 768;
     int mVideoMaxPixels = 768 * 28 * 28;
+    int mVideoMaxVisionTokens = 4096;
     int mVisionNum = 0;
     std::vector<float> mVisionMean{122.7709383, 116.7460125, 104.09373615};
     std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
