@@ -358,6 +358,20 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto key = inputs[1];
     auto value = inputs[2];
     int seqLen = query->length(1);
+    mNumHead = query->length(2);
+#ifdef MNN_SME2
+    mUseMixedSmeNeonMatMul = seqLen == 1 && mUseFlashAttention && mKeyQuantMode == KVQuantMode::None &&
+                              mValueQuantMode == KVQuantMode::None && (gcore->bytes == 2 || gcore->bytes == 4) &&
+                              gcore->supportSME2 &&
+                              gcore->smeCoreNumber > 0 && mThreadNum > gcore->smeCoreNumber;
+    mSmeThreadCount = 0;
+    mSmeHeadCount = 0;
+    if (mUseMixedSmeNeonMatMul) {
+        mSmeThreadCount = ALIMIN(mThreadNum, gcore->smeCoreNumber);
+        const int headsPerThread = UP_DIV(mNumHead, mThreadNum);
+        mSmeHeadCount = ALIMIN(headsPerThread * mSmeThreadCount, mNumHead);
+    }
+#endif
     auto queryPtr = query->host<int8_t>();
     const Tensor* mask = nullptr;
     if (inputs.size() > 3) {
@@ -579,7 +593,6 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 outputOffset += currentSeqBlockSize;
             }
         } // Finish quantize Q
-
         if (mValueQuantMode == KVQuantMode::Int8) {
             auto scalePtr = (float*)(mQKScale.ptr());
             auto zeroPtr = (float*)(mQKBias.ptr());
@@ -600,8 +613,34 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         auto qkSoftmax = softmMaxQ->host<float>() + tId * softmMaxQ->stride(0);
         auto qkReordered = newPackQK->host<int8_t>() + tId * newPackQK->stride(0);
         auto qkvBuffer = mPackQKV->host<int8_t>() + tId * mPackQKV->stride(0);
-        int headIndex = tId * numHeadDiv;
-        int headsToCompute = ALIMIN(numHeadDiv, mNumHead - headIndex);
+#ifdef MNN_SME2
+        bool useNeonMatMul = false;
+        int headIndex = 0;
+        int headsToCompute = 0;
+        if (mUseMixedSmeNeonMatMul) {
+            if (tId < mSmeThreadCount) {
+                const int headsPerSmeThread = UP_DIV(mSmeHeadCount, mSmeThreadCount);
+                headIndex = tId * headsPerSmeThread;
+                headsToCompute = headIndex < mSmeHeadCount ? ALIMIN(headsPerSmeThread, mSmeHeadCount - headIndex) : 0;
+            } else {
+                const int neonThreadId = tId - mSmeThreadCount;
+                const int neonThreadCount = mThreadNum - mSmeThreadCount;
+                const int headsPerNeonThread = UP_DIV(mNumHead - mSmeHeadCount, neonThreadCount);
+                headIndex = mSmeHeadCount + neonThreadId * headsPerNeonThread;
+                headsToCompute = headIndex < mNumHead ? ALIMIN(headsPerNeonThread, mNumHead - headIndex) : 0;
+                useNeonMatMul = true;
+            }
+        } else {
+            headIndex = tId * numHeadDiv;
+            headsToCompute = headIndex < mNumHead ? ALIMIN(numHeadDiv, mNumHead - headIndex) : 0;
+        }
+        auto packedMatMul = useNeonMatMul ? gcore->MNNPackedMatMulWithSme2PackedB : gcore->MNNPackedMatMul;
+        auto packedMatMulRemain =
+            useNeonMatMul ? gcore->MNNPackedMatMulRemainWithSme2PackedB : gcore->MNNPackedMatMulRemain;
+#else
+        const int headIndex = tId * numHeadDiv;
+        const int headsToCompute = headIndex < mNumHead ? ALIMIN(numHeadDiv, mNumHead - headIndex) : 0;
+#endif
 
         // Flash Attention
         auto runningMax = mRunningMax ? (float*)(mRunningMax->host<int8_t>() + tId * mRunningMax->stride(0)) : nullptr;
@@ -856,12 +895,20 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                                                  0,
                                                  0};
                     for (int ei = 0; ei < loop_e; ei++) {
+#ifdef MNN_SME2
+                        packedMatMul((float*)(qkPacked + (ei * eP * mPack) * mBytes),
+#else
                         gcore->MNNPackedMatMul((float*)(qkPacked + (ei * eP * mPack) * mBytes),
+#endif
                                                (float*)(qReordered + ei * qStride0), (float*)keyPtr, shapeParameters,
                                                nullptr, nullptr, nullptr, nullptr);
                     }
                     if (remain > 0) {
+#ifdef MNN_SME2
+                        packedMatMulRemain((float*)(qkPacked + (loop_e * eP * mPack) * mBytes),
+#else
                         gcore->MNNPackedMatMulRemain((float*)(qkPacked + (loop_e * eP * mPack) * mBytes),
+#endif
                                                      (float*)(qReordered + loop_e * qStride0), (float*)keyPtr, remain,
                                                      shapeParameters, nullptr, nullptr, nullptr, nullptr);
                     }
@@ -1030,7 +1077,11 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     for (; ei < loop_e; ei++) {
                         srcPtr[0] = (float const*)((int8_t*)qkSoftmax + (ei * eP + rowStart) * mPack * mBytes);
                         gcore->MNNPackC4ForMatMul_A((float*)qkReordered, srcPtr, infoFloatV, elFloatV);
+#ifdef MNN_SME2
+                        packedMatMul((float*)(qkvPacked + (ei * eP + rowStart) * mPack * mBytes),
+#else
                         gcore->MNNPackedMatMul((float*)(qkvPacked + (ei * eP + rowStart) * mPack * mBytes),
+#endif
                                                (float*)qkReordered, (float*)valuePtr, shapeParameters, nullptr, nullptr,
                                                nullptr, nullptr);
                     }
@@ -1040,7 +1091,11 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                         srcPtr[0] = (float const*)((int8_t*)qkSoftmax + (loop_e * eP + rowStart) * mPack * mBytes);
                         shapeParameters[0] = remain * lP * mBytes;
                         gcore->MNNPackC4ForMatMul_A((float*)qkReordered, srcPtr, infoFloatV, elFloatV);
+#ifdef MNN_SME2
+                        packedMatMulRemain((float*)(qkvPacked + (loop_e * eP + rowStart) * mPack * mBytes),
+#else
                         gcore->MNNPackedMatMulRemain((float*)(qkvPacked + (loop_e * eP + rowStart) * mPack * mBytes),
+#endif
                                                      (float*)qkReordered, (float*)valuePtr, remain, shapeParameters,
                                                      nullptr, nullptr, nullptr, nullptr);
                     }
@@ -1074,7 +1129,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                         core->MNNPackC4Int8ForMatMul_A(qkReordered, (int8_t const**)srcPtr, infoInt8V, elInt8V);
                         // mSumQK
                         gcore->MNNSumByAxisLForMatmul_A(gemmParam4QKxV.srcKernelSum, qkReordered,
-                                                        (float*)mQKScale.ptr(), eSize, sumParams4QKxV);
+                                                         (float*)mQKScale.ptr(), eSize, sumParams4QKxV);
                         mInt8GemmKernel(qkvFloat, qkReordered, valuePtr, UP_DIV(MNN_FLASH_ATTENTION_BLOCK_SIZE, lP8),
                                         dstStep, UP_DIV(mHeadDim, mPack), &gemmParam4QKxV, eSize);
 

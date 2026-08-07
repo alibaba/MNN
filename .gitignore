@@ -2,6 +2,9 @@
 # Created by https://www.gitignore.io/api/python,cmake,xcode,androidstudio
 # Edit at https://www.gitignore.io/?templates=python,cmake,xcode,androidstudio
 
+# Local build, export, and device-test artifacts.
+/.artifacts/
+
 ### AndroidStudio ###
 # Covers files to be ignored for android development using Android Studio.
 

@@ -22,6 +22,9 @@ struct MNNCPUInfo {
     bool i8mm = false;
     bool sve2 = false;
     bool sme2 = false;
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    bool fp16fml = false;
+#endif
     std::vector<CPUGroup> groups;
     // RISC-V Vector features, as reported by Linux riscv_hwprobe(2). The probe
     // asks for no specific CPU set, so the kernel ANDs every bit across all
