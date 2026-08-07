@@ -27,6 +27,7 @@ static const char* const kOmniMultimodalRegex = "<(img|audio|video)>(.*?)</\\1>"
 std::vector<int> qwenVideoSampleIndices(int totalFrames, double nativeFps, float targetFps, int minFrames,
                                         int maxFrames);
 int qwenVideoAlignedFrameCount(int frameCount, int maxFrames, int factor);
+int qwenVideoEffectiveMaxPixels(int maxPixels, int maxVisionTokens, int frameCount, int factor, int patchSize);
 std::pair<int, int> qwenVideoResizeSize(int width, int height, int alignSize, int maxPixels);
 void fillQwenVisionAttentionMask(float* mask, int gridT, int tokensPerTemporal);
 
@@ -207,16 +208,17 @@ public:
     std::vector<int> hunyuanVisionProcess(VARP image);
     std::vector<int> gemma4VisionProcess(VARP image);
     std::vector<int> qwenVideoProcess(const std::vector<VARP>& frames, const std::vector<float>& timestamps);
+
 private:
     bool initProcessorRuntime();
-    int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
-        mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646,
-        mAudioStart = -1, mAudioEnd = -1, mVideoPad = -1;
+    int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857, mVisionEnd = 151858, mVisionPad = 151859,
+        mAudioPad = 151646, mAudioStart = -1, mAudioEnd = -1, mVideoPad = -1;
     int mVisionGlobal = 49152;
     int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
     float mVideoFps = 2.0f;
     int mVideoMaxFrames = 768;
     int mVideoMaxPixels = 768 * 28 * 28;
+    int mVideoMaxVisionTokens = 4096;
     int mVisionNum = 0;
     int mNumGridPerSide = 1;
     bool mVisionSizeOverridden = false;
