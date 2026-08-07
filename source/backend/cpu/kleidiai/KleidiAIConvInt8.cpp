@@ -19,15 +19,20 @@
 #include "backend/cpu/CPUTensorConvert.hpp"
 
 // KleidiAI micro-kernel headers (int4 / int8 dynamic-quant matmul + packing).
-// The symmetric per-channel int4 path is served by the asymmetric qsi8d32/qai4c32
-// kernels below. The asym packer stores signed int4 (v-8), so the dequant is
-// w = scale*(v-8) + zero; symmetric weights are exactly this with per-channel zero = 0.
-// so no dedicated qai8dxp/qsi4cxp ukernels are needed here.
+// Keep a dedicated symmetric per-channel int4 path (qai8dxp/qsi4cxp) to preserve
+// legacy behavior and support K values that are only 2-aligned (for example K=16/48).
 #include "kai_common.h"
+#include "kai_lhs_quant_pack_qai8dxp_f32.h"
 #include "kai_lhs_quant_pack_qsi8d32pscalef32_f16_neon.h"
 #include "kai_lhs_quant_pack_qsi8d32pscalef32_f32_neon.h"
+#include "kai_rhs_pack_nxk_qsi4cxp_qs4cxs1s0.h"
+#include "kai_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon.h"
 #include "kai_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon.h"
 #include "kai_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s0s1_f32_f32_f32_neon.h"
+#include "kai_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod.h"
+#include "kai_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm.h"
+#include "kai_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa.h"
+#include "kai_matmul_clamp_f32_qai8dxp1x4_qsi4cxp4vlx4_1x4vl_sme2_sdot.h"
 #include "kai_matmul_clamp_f16_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod.h"
 #include "kai_matmul_clamp_f16_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm.h"
 #include "kai_matmul_clamp_f32_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod.h"
@@ -91,12 +96,13 @@ bool KleidiAIConvInt8::isSupported(KernelType type, const Convolution2DCommon* c
         return false;
     }
     if (type == KernelType::QI4_ASYM_PERCHANNEL_F32 || type == KernelType::QI4_ASYM_PERCHANNEL_F16
-        || type == KernelType::QI8_ASYM_PERCHANNEL || type == KernelType::QI4_SYM_PERCHANNEL_F32) {
-        // Symmetric per-channel reuses the asymmetric qsi8d32/qai4c32 kernels, which require
-        // the K dimension to be a multiple of 32.
+        || type == KernelType::QI8_ASYM_PERCHANNEL) {
         if (common->inputCount() % 32 != 0) {
             return false;
         }
+    }
+    if (type == KernelType::QI4_SYM_PERCHANNEL_F32 && (common->inputCount() % 2 != 0)) {
+        return false;
     }
     if (common->kernelX() == 1 && common->kernelY() == 1
         && common->padX() == 0 && common->padY() == 0
@@ -120,6 +126,183 @@ size_t KleidiAIConvInt8::getVecNumPerThread(size_t totalVec, size_t totalThread,
 // (qsi4cx / qai8dx) kernels that do not take it. All are bound once in configKernel().
 namespace {
 
+constexpr size_t kKaiNumBytesAdderRhs = 4;
+constexpr size_t kKaiNumBytesMultiplierRhs = sizeof(float);
+constexpr size_t kKaiNumBytesBias = sizeof(float);
+
+inline size_t kaiKRoundedUpCompat(size_t k, size_t kr, size_t sr) {
+    const size_t krSrRoundedUp4 = kai_roundup(kr * sr, 4);
+    return kai_roundup(k, krSrRoundedUp4);
+}
+
+// Legacy-compatible qsi4cxp rhs packing wrappers. Keep these transformations to
+// preserve historical symmetric int4 numerics for IC values accepted by the old path.
+void rhsPackSymNeonCompat(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr, size_t sr,
+                          const uint8_t* rhs, const float* bias, const float* scale,
+                          void* rhsPacked, size_t extraBytes) {
+    KAI_ASSERT(numGroups == 1);
+    KAI_ASSERT(extraBytes == 0);
+    KAI_ASSERT((kr % sr) == 0);
+    KAI_ASSERT(rhs != nullptr);
+    KAI_ASSERT(scale != nullptr);
+    KAI_ASSERT(rhsPacked != nullptr);
+
+    struct kai_rhs_pack_nxk_qsi4cxp_qs4cxs1s0_params params;
+    params.lhs_zero_point = 1;
+    params.rhs_zero_point = 8;
+
+    const size_t rhsZeroPoint = params.rhs_zero_point;
+    const size_t rhsPackedStride = kai_get_rhs_packed_stride_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(k, nr, kr, sr);
+    const size_t kInternal = kaiKRoundedUpCompat(k, kr, sr);
+    const size_t dstNumRows = kai_roundup(n, nr) / nr;
+    const size_t dstNumBytesPerRow = nr * (kInternal / 2);
+    const size_t blockLengthInBytes = kr / sr;
+    const size_t kInterleavedV = 16U;
+    const size_t rhsStride = kai_roundup(k, 2) / 2;
+
+    for (size_t dstRowIdx = 0; dstRowIdx < dstNumRows; ++dstRowIdx) {
+        uint8_t* dstRow = reinterpret_cast<uint8_t*>(rhsPacked) + dstRowIdx * rhsPackedStride;
+        int32_t* sums = reinterpret_cast<int32_t*>(dstRow + nr * (kInternal / 2));
+        memset(sums, 0, nr * sizeof(int32_t));
+
+        for (size_t dstByteIdx = 0; dstByteIdx < dstNumBytesPerRow; ++dstByteIdx) {
+            const size_t blockIdx = dstByteIdx / blockLengthInBytes;
+            const size_t blockByteIdx = dstByteIdx % blockLengthInBytes;
+            const size_t superBlockIdx = blockIdx / nr;
+            const size_t nrIdx = blockIdx % nr;
+
+            const size_t kAdjustment =
+                ((blockByteIdx + superBlockIdx * blockLengthInBytes) / kInterleavedV) * kInterleavedV;
+            const size_t k0Idx = blockByteIdx + superBlockIdx * blockLengthInBytes + kAdjustment;
+            const size_t k1Idx = k0Idx + kInterleavedV;
+            const size_t n0Idx = dstRowIdx * nr + nrIdx;
+            const size_t n0ValidIdx = KAI_MIN(n0Idx, n - 1);
+
+            const size_t srcAddrByte0 = (k0Idx / 2) + n0ValidIdx * rhsStride;
+            const size_t srcAddrByte1 = (k1Idx / 2) + n0ValidIdx * rhsStride;
+
+            uint8_t byte0 = rhsZeroPoint | (rhsZeroPoint << 4);
+            uint8_t byte1 = rhsZeroPoint | (rhsZeroPoint << 4);
+
+            if (k0Idx < k) {
+                byte0 = rhs[srcAddrByte0];
+            }
+            if (k1Idx < k) {
+                byte1 = rhs[srcAddrByte1];
+            }
+
+            const size_t shiftRightX0 = ((k0Idx + 1) % 2) * 4;
+            const size_t shiftRightX1 = ((k1Idx + 1) % 2) * 4;
+
+            const uint8_t srcX0Lo = (byte0 >> shiftRightX0) & 0x0F;
+            const uint8_t srcX0Hi = (byte1 >> shiftRightX1) & 0x0F;
+
+            sums[nrIdx] += (int32_t)srcX0Lo + (int32_t)srcX0Hi - 2 * (int32_t)rhsZeroPoint;
+
+            const uint8_t dstQs0 = srcX0Lo | (srcX0Hi << 4);
+            *dstRow = dstQs0 ^ 0x88;
+            dstRow += sizeof(uint8_t);
+        }
+
+        for (size_t i = 0; i < nr; ++i) {
+            sums[i] = sums[i] * 16;
+            dstRow += sizeof(int32_t);
+        }
+
+        for (size_t i = 0; i < nr; ++i) {
+            const size_t srcRowIdx = KAI_MIN(dstRowIdx * nr + i, n - 1);
+            *reinterpret_cast<float*>(dstRow) = scale[srcRowIdx] * 0.0625F;
+            dstRow += sizeof(float);
+        }
+
+        if (bias == nullptr) {
+            memset(dstRow, 0, nr * sizeof(float));
+        } else {
+            for (size_t i = 0; i < nr; ++i) {
+                const size_t srcRowIdx = KAI_MIN(dstRowIdx * nr + i, n - 1);
+                reinterpret_cast<float*>(dstRow)[i] = bias[srcRowIdx];
+            }
+        }
+    }
+}
+
+void rhsPackSymSme2Compat(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr, size_t sr,
+                          const uint8_t* rhs, const float* bias, const float* scale,
+                          void* rhsPacked, size_t extraBytes) {
+    const size_t kInternal = kaiKRoundedUpCompat(k, 16, 2);
+
+    KAI_ASSERT((kInternal % kr) == 0);
+    KAI_ASSERT(numGroups == 1);
+    KAI_ASSERT(extraBytes == 0);
+    KAI_ASSERT((kr % sr) == 0);
+    KAI_ASSERT(rhs != nullptr);
+    KAI_ASSERT(scale != nullptr);
+    KAI_ASSERT(rhsPacked != nullptr);
+
+    struct kai_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon_params params;
+    params.lhs_zero_point = 1;
+    params.rhs_zero_point = 8;
+
+    const int32_t rhsZeroPoint = params.rhs_zero_point;
+    const size_t rhsStride = kai_roundup(k, 2) / 2;
+    const size_t rhsPackedStride = kai_get_rhs_packed_stride_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon(k, nr, kr, sr);
+    const size_t dstNrBlockSize = nr * kr * sizeof(uint8_t) / 2;
+
+    for (size_t rowIdx = 0; rowIdx < n; rowIdx += nr) {
+        int8_t* const dstRow = reinterpret_cast<int8_t*>(rhsPacked) + ((rowIdx / nr) * rhsPackedStride);
+
+        int32_t* const sums = reinterpret_cast<int32_t*>(dstRow + (nr * (kInternal / 2)));
+        float* const scalingFactors = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(sums) + (nr * kKaiNumBytesAdderRhs));
+        float* const biases = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(scalingFactors) + (nr * kKaiNumBytesMultiplierRhs));
+
+        memset(sums, 0, nr * kKaiNumBytesAdderRhs);
+
+        size_t rowsLeft = n - rowIdx;
+        if (rowsLeft >= nr) {
+            memcpy(scalingFactors, &scale[rowIdx], nr * kKaiNumBytesMultiplierRhs);
+            if (bias != nullptr) {
+                memcpy(biases, &bias[rowIdx], nr * kKaiNumBytesBias);
+            } else {
+                memset(biases, 0, nr * kKaiNumBytesBias);
+            }
+        } else {
+            memcpy(scalingFactors, &scale[rowIdx], rowsLeft * kKaiNumBytesMultiplierRhs);
+            memset(&scalingFactors[rowsLeft], 0, (nr - rowsLeft) * kKaiNumBytesMultiplierRhs);
+            if (bias != nullptr) {
+                memcpy(biases, &bias[rowIdx], rowsLeft * kKaiNumBytesBias);
+                memset(&biases[rowsLeft], 0, (nr - rowsLeft) * kKaiNumBytesBias);
+            } else {
+                memset(biases, 0, nr * kKaiNumBytesBias);
+            }
+        }
+
+        for (size_t nrBlockIdx = 0; nrBlockIdx < nr; ++nrBlockIdx) {
+            const uint8_t* const srcRow = rhs + ((rowIdx + nrBlockIdx) * rhsStride);
+            int8_t* dstKrBlock = dstRow + (nrBlockIdx * kr / 2);
+
+            int32_t sum = 0;
+            for (size_t colIdx = 0; colIdx < kInternal; colIdx += kr) {
+                for (size_t krBlockIdx = 0; krBlockIdx < kr; krBlockIdx += 2) {
+                    if (rowIdx + nrBlockIdx >= n || colIdx + krBlockIdx >= k) {
+                        dstKrBlock[krBlockIdx / 2] = 0;
+                        continue;
+                    }
+
+                    const uint8_t dstByte = srcRow[(colIdx + krBlockIdx) / 2];
+                    const int32_t secondValue = (dstByte & 0xF) - rhsZeroPoint;
+                    const int32_t firstValue = colIdx + krBlockIdx + 1 >= k ? 0 : (dstByte >> 4) - rhsZeroPoint;
+                    sum += firstValue + secondValue;
+
+                    dstKrBlock[krBlockIdx / 2] = static_cast<int8_t>((secondValue << 4) | (firstValue & 0xF));
+                }
+                dstKrBlock += dstNrBlockSize;
+            }
+
+            sums[nrBlockIdx] = sum;
+        }
+    }
+}
+
 // The rhs/lhs "size" and "offset" getters are pure forwarders that differ only by the concrete
 // kai function and whether the trailing granularity arg is sr (channel-quant) or bl (block-quant).
 // Generate them from a single pattern to avoid a wall of near-identical one-liners.
@@ -142,14 +325,32 @@ namespace {
     }
 
 // ---- rhs packed size ----
+DEFINE_RHS_INFO(rhsSizeSymSme2,  kai_get_rhs_packed_size_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon, sr)
+DEFINE_RHS_INFO(rhsSizeSymNeon,  kai_get_rhs_packed_size_rhs_pack_nxk_qsi4cxp_qs4cxs1s0,            sr)
 DEFINE_RHS_INFO(rhsSizeAsymSme2, kai_get_rhs_packed_size_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s0s1_f32_f32_f32_neon, bl)
 DEFINE_RHS_INFO(rhsSizeAsymNeon, kai_get_rhs_packed_size_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon,      bl)
 
 // ---- rhs packed offset ----
+DEFINE_RHS_INFO(rhsOffSymSme2,   kai_get_rhs_packed_offset_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon, sr)
+DEFINE_RHS_INFO(rhsOffSymNeon,   kai_get_rhs_packed_offset_rhs_pack_nxk_qsi4cxp_qs4cxs1s0,            sr)
 DEFINE_RHS_INFO(rhsOffAsymSme2,  kai_get_rhs_packed_offset_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s0s1_f32_f32_f32_neon, bl)
 DEFINE_RHS_INFO(rhsOffAsymNeon,  kai_get_rhs_packed_offset_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon,    bl)
 
 // ---- rhs pack ----
+void rhsPackSymSme2(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl,
+                    const void* rhs, const void* scale, const void* zeroPoint, const void* bias, void* rhsPacked) {
+    (void)bl;
+    (void)zeroPoint;
+    rhsPackSymSme2Compat(numGroups, n, k, nr, kr, sr,
+        (const uint8_t*)rhs, (const float*)bias, (const float*)scale, rhsPacked, 0);
+}
+void rhsPackSymNeon(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl,
+                    const void* rhs, const void* scale, const void* zeroPoint, const void* bias, void* rhsPacked) {
+    (void)bl;
+    (void)zeroPoint;
+    rhsPackSymNeonCompat(numGroups, n, k, nr, kr, sr,
+        (const uint8_t*)rhs, (const float*)bias, (const float*)scale, rhsPacked, 0);
+}
 void rhsPackAsymSme2(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl,
                      const void* rhs, const void* scale, const void* zeroPoint, const void* bias, void* rhsPacked) {
     struct kai_rhs_pack_nxk_qai4c32p_params params;
@@ -168,14 +369,20 @@ void rhsPackAsymNeon(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr,
 }
 
 // ---- lhs quanted packed size ----
+DEFINE_LHS_INFO_CHNL(lhsSizeSymF32,   kai_get_lhs_packed_size_lhs_quant_pack_qai8dxp_f32)
 DEFINE_LHS_INFO_BLK(lhsSizeAsymF32,  kai_get_lhs_packed_size_lhs_quant_pack_qsi8d32pscalef32_f32_neon)
 DEFINE_LHS_INFO_BLK(lhsSizeAsymF16,  kai_get_lhs_packed_size_lhs_quant_pack_qsi8d32pscalef32_f16_neon)
 
 // ---- lhs quanted packed offset ----
+DEFINE_LHS_INFO_CHNL(lhsOffSymF32,    kai_get_lhs_packed_offset_lhs_quant_pack_qai8dxp_f32)
 DEFINE_LHS_INFO_BLK(lhsOffAsymF32,   kai_get_lhs_packed_offset_lhs_quant_pack_qsi8d32pscalef32_f32_neon)
 DEFINE_LHS_INFO_BLK(lhsOffAsymF16,   kai_get_lhs_packed_offset_lhs_quant_pack_qsi8d32pscalef32_f16_neon)
 
 // ---- lhs quant + pack ----
+void lhsPackSymF32(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr, const void* lhs, void* out) {
+    (void)bl;
+    kai_run_lhs_quant_pack_qai8dxp_f32(m, k, mr, kr, sr, 0, (const float*)lhs, k * sizeof(float), out);
+}
 void lhsPackAsymF32(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr, const void* lhs, void* out) {
     kai_run_lhs_quant_pack_qsi8d32pscalef32_f32_neon(m, k, bl, mr, kr, sr, 0, (const float*)lhs, k * sizeof(float), out);
 }
@@ -184,6 +391,24 @@ void lhsPackAsymF16(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t 
 }
 
 // ---- matmul (GEMV when m == 1, GEMM otherwise) ----
+void matmulSymF32Sme2(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
+                      size_t sr, size_t sc, float mn, float mx) {
+    (void)bl;
+    if (m == 1) {
+        kai_run_matmul_clamp_f32_qai8dxp1x4_qsi4cxp4vlx4_1x4vl_sme2_sdot(m, n, k, lhs, rhs, (float*)dst, sr, sc, mn, mx);
+    } else {
+        kai_run_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa(m, n, k, lhs, rhs, (float*)dst, sr, sc, mn, mx);
+    }
+}
+void matmulSymF32Neon(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
+                      size_t sr, size_t sc, float mn, float mx) {
+    (void)bl;
+    if (m == 1) {
+        kai_run_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod(m, n, k, lhs, rhs, (float*)dst, sr, sc, mn, mx);
+    } else {
+        kai_run_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm(m, n, k, lhs, rhs, (float*)dst, sr, sc, mn, mx);
+    }
+}
 void matmulAsymF32Sme2(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
                        size_t sr, size_t sc, float mn, float mx) {
     if (m == 1) {
@@ -238,11 +463,38 @@ void KleidiAIConvInt8::configKernel() {
     KernelParam& p = mParam;
     Ukernel& u = mUkernel;
     switch (mKernelType) {
-        // Symmetric per-channel int4 is served by the asymmetric qsi8d32/qai4c32 kernels:
-        // the asym packer stores signed int4 (v-8), so w = scale*(v-8) + zero; symmetric is
-        // exactly this with per-channel zero = 0. The symmetric scale/zero are synthesized in
-        // the constructor.
         case KernelType::QI4_SYM_PERCHANNEL_F32:
+            u.lhsPackedSize   = lhsSizeSymF32;
+            u.lhsPackedOffset = lhsOffSymF32;
+            u.runLhsQuantPack = lhsPackSymF32;
+            if (mSme2) {
+                p.mKaiMstepGemv = 1;
+                p.mKaiMstepGemm = kai_get_m_step_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                p.mKaiNStep     = kai_get_n_step_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                p.mKaiMrGemv    = 1;
+                p.mKaiMrGemm    = kai_get_mr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                p.mKaiNr        = kai_get_nr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                p.mKaiKr        = kai_get_kr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                p.mKaiSr        = kai_get_sr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                u.rhsPackedSize   = rhsSizeSymSme2;
+                u.rhsPackedOffset = rhsOffSymSme2;
+                u.runRhsPack      = rhsPackSymSme2;
+                u.matmul          = matmulSymF32Sme2;
+            } else if (mDot && mI8mm) {
+                p.mKaiMstepGemv = 1;
+                p.mKaiMstepGemm = 8;
+                p.mKaiNStep     = 4;
+                p.mKaiMrGemv    = 1;
+                p.mKaiMrGemm    = 4;
+                p.mKaiNr        = 4;
+                p.mKaiKr        = 16;
+                p.mKaiSr        = 2;
+                u.rhsPackedSize   = rhsSizeSymNeon;
+                u.rhsPackedOffset = rhsOffSymNeon;
+                u.runRhsPack      = rhsPackSymNeon;
+                u.matmul          = matmulSymF32Neon;
+            }
+            break;
         case KernelType::QI4_ASYM_PERCHANNEL_F32:
         case KernelType::QI4_ASYM_PERBLOCK_F32:
             u.lhsPackedSize   = lhsSizeAsymF32;
@@ -386,9 +638,8 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_p
         return;
     }
 
-    // Prepare bias (needed by every path) and, for the symmetric path, scale/zero.
-    // The asymmetric path fills scale/zero below in the ukernel-specific linear layout,
-    // so we intentionally skip them here to avoid computing them twice with different layouts.
+    // Prepare bias (needed by every path) and per-channel symmetric scale/zero.
+    // Asymmetric paths repack their scale/zero values in a ukernel-specific layout below.
     {
         int outputCount = convOp->common()->outputCount();
         auto quanInfoPtr = quanCommon->alpha.get();
@@ -396,8 +647,6 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_p
         auto zeroPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(scalePtr) + scaleSize * QUANT_INFO_BYTES);
         auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(zeroPtr) + scaleSize * QUANT_INFO_BYTES);
         if (!quanCommon->asymmetric) {
-            // Symmetric weights routed through the asymmetric ukernel: the packer stores signed
-            // int4 (v-8), so w = scale*(v-8) + zero. Symmetric is exactly scale*(v-8), i.e. zero = 0.
             for (int i = 0; i < blockNum; ++i) {
                 auto dstScale = scalePtr + i * ocUp4;
                 auto dstZero  = zeroPtr + i * ocUp4;
