@@ -1,0 +1,83 @@
+name: CI tests
+
+on: [push, workflow_dispatch]
+
+jobs:
+  linux:
+
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cmake_opts:
+          - '-DCMARK_SHARED=ON'
+          - ''
+        compiler:
+          - c: 'clang'
+            cpp: 'clang++'
+          - c: 'gcc'
+            cpp: 'g++'
+    env:
+       CMAKE_OPTIONS: ${{ matrix.cmake_opts }}
+       CC: ${{ matrix.compiler.c }}
+       CXX: ${{ matrix.compiler.cpp }}
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install valgrind
+      run: |
+         sudo apt install -y valgrind
+    - name: Build and test
+      run: |
+         make
+         make test
+         make leakcheck
+
+  macos:
+
+    runs-on: macOS-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cmake_opts:
+          - '-DCMARK_SHARED=ON'
+          - ''
+        compiler:
+          - c: 'clang'
+            cpp: 'clang++'
+          - c: 'gcc'
+            cpp: 'g++'
+    env:
+       CMAKE_OPTIONS: ${{ matrix.cmake_opts }}
+       CC: ${{ matrix.compiler.c }}
+       CXX: ${{ matrix.compiler.cpp }}
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Build and test
+      env:
+         CMAKE_OPTIONS: -DCMARK_SHARED=OFF
+      run: |
+         make
+         make test
+
+  windows:
+
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cmake_opts:
+          - '-DCMARK_SHARED=ON'
+          - ''
+    env:
+       CMAKE_OPTIONS: ${{ matrix.cmake_opts }}
+
+    steps:
+    - uses: actions/checkout@v1
+    - uses: ilammy/msvc-dev-cmd@v1
+    - name: Build and test
+      run: |
+        chcp 65001
+        nmake.exe /nologo /f Makefile.nmake test
+      shell: cmd

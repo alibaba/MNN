@@ -1,0 +1,23 @@
+name: Format
+on:
+  push:
+    branches:
+      - main
+jobs:
+  format:
+    name: swift-format
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.0.app
+      - name: Install
+        run: brew install swift-format
+      - name: Format
+        run: make format
+      - uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: Run swift format
+          branch: 'main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

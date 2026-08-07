@@ -129,6 +129,44 @@ final class LLMChatInteractor: ChatInteractorProtocol {
         }
     }
 
+    /// Appends a preset user message (optionally with an image) plus the empty assistant bubble,
+    /// mirroring the .user branch of send(draftMessage:userType:) without requiring a DraftMessage.
+    func sendPresetMessage(text: String, imageURL: URL?) async {
+        let images: [LLMChatImage] = imageURL.map { url in
+            [LLMChatImage(id: UUID().uuidString, thumbnail: url, full: url)]
+        } ?? []
+        let message = LLMChatMessage(
+            uid: UUID().uuidString,
+            sender: chatData.user,
+            createdAt: Date(),
+            status: .sending,
+            text: text,
+            images: images,
+            videos: [],
+            recording: nil,
+            replyMessage: nil
+        )
+
+        await MainActor.run { [weak self] in
+            self?.chatState.value.append(message)
+
+            let assistantSender = self?.chatData.assistant ?? message.sender
+            let emptyMessage = LLMChatMessage(
+                uid: UUID().uuidString,
+                sender: assistantSender,
+                createdAt: Date(),
+                text: "",
+                images: [],
+                videos: [],
+                recording: nil,
+                replyMessage: nil
+            )
+            self?.chatState.value.append(emptyMessage)
+
+            self?.processor.startNewChat()
+        }
+    }
+
     func sendImage(imageURL: URL) {
         Task {
             await MainActor.run { [weak self] in

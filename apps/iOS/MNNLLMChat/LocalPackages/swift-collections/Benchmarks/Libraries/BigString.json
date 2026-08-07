@@ -1,0 +1,192 @@
+{
+  "kind": "group",
+  "title": "BigString Benchmarks",
+  "directory": "BigString",
+  "contents": [
+    {
+      "kind": "group",
+      "title": "BigString operations",
+      "directory": "BigString",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "ingestion",
+          "tasks": [
+            "BigString init from native string",
+            "BigString init from bridged string"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration",
+          "tasks": [
+            "BigString character iteration",
+            "BigString scalar iteration",
+            "BigString UTF-16 iteration",
+            "BigString UTF-8 iteration"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "index-offset-by",
+          "tasks": [
+            "BigString.index(offsetBy:)",
+            "BigString.unicodeScalars.index(offsetBy:)",
+            "BigString.utf16.index(offsetBy:)",
+            "BigString.utf8.index(offsetBy:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "distance",
+          "tasks": [
+            "BigString.distance(from:to:)",
+            "BigString.unicodeScalars.distance(from:to:)",
+            "BigString.utf16.distance(from:to:)",
+            "BigString.utf8.distance(from:to:)"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "String operations",
+      "directory": "String",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "sequential iteration",
+          "tasks": [
+            "String character iteration",
+            "String scalar iteration",
+            "String UTF-16 iteration",
+            "String UTF-8 iteration"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "index-offset-by",
+          "tasks": [
+            "String.index(offsetBy:)",
+            "String.unicodeScalars.index(offsetBy:)",
+            "String.utf16.index(offsetBy:)",
+            "String.utf8.index(offsetBy:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "distance",
+          "tasks": [
+            "String.distance(from:to:)",
+            "String.unicodeScalars.distance(from:to:)",
+            "String.utf16.distance(from:to:)",
+            "String.utf8.distance(from:to:)"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "BigString vs String",
+      "directory": "versus String",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "character iteration",
+          "tasks": [
+            "BigString character iteration",
+            "String character iteration"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "scalar iteration",
+          "tasks": [
+            "BigString scalar iteration",
+            "String scalar iteration"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "UTF-8 iteration",
+          "tasks": [
+            "BigString UTF-8 iteration",
+            "String UTF-8 iteration"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "UTF-16 iteration",
+          "tasks": [
+            "BigString UTF-16 iteration",
+            "String UTF-16 iteration"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "Character-based index(offsetBy:)",
+          "tasks": [
+            "BigString.index(offsetBy:)",
+            "String.index(offsetBy:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "UnicodeScalar-based index(offsetBy:)",
+          "tasks": [
+            "BigString.unicodeScalars.index(offsetBy:)",
+            "String.unicodeScalars.index(offsetBy:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "UTF-8 index(offsetBy:)",
+          "tasks": [
+            "BigString.utf8.index(offsetBy:)",
+            "String.utf8.index(offsetBy:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "UTF-16 index(offsetBy:)",
+          "tasks": [
+            "BigString.utf16.index(offsetBy:)",
+            "String.utf16.index(offsetBy:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "Character-based distance",
+          "tasks": [
+            "BigString.distance(from:to:)",
+            "String.distance(from:to:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "UnicodeScalar-based distance",
+          "tasks": [
+            "BigString.unicodeScalars.distance(from:to:)",
+            "String.unicodeScalars.distance(from:to:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "UTF-8 distance",
+          "tasks": [
+            "BigString.utf8.distance(from:to:)",
+            "String.utf8.distance(from:to:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "UTF-16 distance",
+          "tasks": [
+            "BigString.utf16.distance(from:to:)",
+            "String.utf16.distance(from:to:)"
+          ]
+        }
+      ]
+    }
+  ]
+}

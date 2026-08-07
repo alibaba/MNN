@@ -1,0 +1,140 @@
+{
+  "kind": "group",
+  "title": "Array Benchmarks",
+  "directory": "Array",
+  "contents": [
+    {
+      "kind": "group",
+      "title": "Operations",
+      "directory": "operations",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "operations",
+          "tasks": [
+            "Array<Int> init from unsafe buffer",
+            "Array<Int> sequential iteration",
+            "Array<Int> subscript get, random offsets",
+            "Array<Int> append",
+            "Array<Int> append, reserving capacity",
+            "Array<Int> prepend",
+            "Array<Int> prepend, reserving capacity",
+            "Array<Int> removeFirst",
+            "Array<Int> removeLast",
+            "Array<Int> sort"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "access",
+          "tasks": [
+            "Array<Int> sequential iteration",
+            "Array<Int> subscript get, random offsets"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "mutate",
+          "tasks": [
+            "Array<Int> mutate through subscript",
+            "Array<Int> random swaps",
+            "Array<Int> partitioning around middle",
+            "Array<Int> sort"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "Array vs std::vector",
+      "directory": "versus STL vector",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "init from buffer of integers",
+          "tasks": [
+            "std::vector<intptr_t> constructor from buffer",
+            "Array<Int> init from unsafe buffer"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration",
+          "tasks": [
+            "std::vector<intptr_t> sequential iteration",
+            "Array<Int> sequential iteration"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "random-access offset lookups",
+          "tasks": [
+            "std::vector<intptr_t> random-access offset lookups (operator [])",
+            "std::vector<intptr_t> random-access offset lookups (at)",
+            "Array<Int> subscript get, random offsets"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "append individual integers",
+          "tasks": [
+            "std::vector<intptr_t> push_back",
+            "std::vector<intptr_t> push_back, reserving capacity",
+            "Array<Int> append",
+            "Array<Int> append, reserving capacity"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "prepend individual integers",
+          "tasks": [
+            "std::vector<intptr_t> insert at front",
+            "std::vector<intptr_t> insert at front, reserving capacity",
+            "Array<Int> prepend",
+            "Array<Int> prepend, reserving capacity"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "random insertions",
+          "tasks": [
+            "std::vector<intptr_t> random insertions",
+            "Array<Int> random insertions"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "removeFirst",
+          "tasks": [
+            "std::vector<intptr_t> erase first",
+            "Array<Int> removeFirst"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "removeLast",
+          "tasks": [
+            "std::vector<intptr_t> pop_back",
+            "Array<Int> removeLast"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "random removals",
+          "tasks": [
+            "std::vector<intptr_t> random removals",
+            "Array<Int> random removals"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sort",
+          "tasks": [
+            "std::vector<intptr_t> sort",
+            "Array<Int> sort"
+          ]
+        }
+      ]
+    }
+  ]
+}

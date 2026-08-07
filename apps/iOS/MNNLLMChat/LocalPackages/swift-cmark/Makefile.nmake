@@ -1,0 +1,38 @@
+SRCDIR=src
+DATADIR=data
+BUILDDIR=build
+INSTALLDIR=windows
+SPEC=test/spec.txt
+PROG=$(BUILDDIR)\src\cmark-gfm.exe
+GENERATOR=NMake Makefiles
+
+all: $(BUILDDIR)/CMakeFiles
+	@cd $(BUILDDIR) && $(MAKE) /nologo && cd ..
+
+$(BUILDDIR)/CMakeFiles:
+	@-mkdir $(BUILDDIR) 2> nul
+	cd $(BUILDDIR) && \
+	cmake \
+	    -G "$(GENERATOR)" \
+	    -D CMAKE_BUILD_TYPE=$(BUILD_TYPE) \
+	    -D CMAKE_INSTALL_PREFIX=$(INSTALLDIR) \
+	    -D CMARK_STATIC=ON \
+	    -D CMARK_SHARED=OFF \
+	    .. && \
+	cd ..
+
+install: all
+	@cd $(BUILDDIR) && $(MAKE) /nologo install && cd ..
+
+clean:
+	-rmdir /s /q $(BUILDDIR) $(MINGW_INSTALLDIR) 2> nul
+
+$(SRCDIR)\case_fold_switch.inc: $(DATADIR)\CaseFolding-3.2.0.txt
+	perl mkcasefold.pl < $? > $@
+
+test: $(SPEC) all
+	@cd $(BUILDDIR) && $(MAKE) /nologo test ARGS="-V" && cd ..
+
+distclean: clean
+	del /q src\scanners.c 2> nul
+	del /q spec.md spec.html 2> nul

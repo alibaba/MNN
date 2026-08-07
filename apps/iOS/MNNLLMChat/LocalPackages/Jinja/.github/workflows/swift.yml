@@ -1,0 +1,46 @@
+# This workflow will build a Swift project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-swift
+
+name: Swift
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Swift ${{ matrix.swift }} on Xcode ${{ matrix.xcode }}
+    strategy:
+      matrix:
+        include:
+          - swift: "5.9"
+            xcode: "15.2"
+          - swift: "5.10"
+            xcode: "15.2"
+    runs-on: macos-14
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Select Xcode
+      run: sudo xcode-select -s /Applications/Xcode_${{ matrix.xcode }}.app
+
+    - name: Set up Swift
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: ${{ matrix.swift }}
+
+    - name: Install swift-format
+      run: brew install swift-format
+
+    - name: Run swift-format
+      if: ${{ matrix.swift == '5.9' }}
+      run: swift-format lint --recursive . --strict
+
+    - name: Build
+      run: swift build -v
+
+    - name: Run tests
+      run: swift test -v

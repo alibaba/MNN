@@ -158,7 +158,25 @@ struct LLMChatView: View {
             .navigationBarTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden()
-            .disabled(viewModel.chatInputUnavilable)
+            .disabled(!viewModel.isModelLoaded)
+            .overlay(alignment: .top) {
+                PresetPromptBar(presets: PresetPrompts.all()) { preset in
+                    viewModel.sendPreset(preset)
+                }
+                .disabled(viewModel.chatInputUnavilable)
+            }
+            .overlay(alignment: .bottom) {
+                DemoInputBar(isEnabled: !viewModel.chatInputUnavilable) { text in
+                    viewModel.sendToLLM(draft: DraftMessage(
+                        text: text,
+                        thinkText: nil,
+                        medias: [],
+                        recording: nil,
+                        replyMessage: nil,
+                        createdAt: Date()
+                    ))
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -241,5 +259,89 @@ struct LLMChatView: View {
     /// Setup callbacks for batch test functionality
     private func setupBatchTestCallbacks() {
         // Setup any additional callbacks if needed
+    }
+}
+
+// MARK: - Preset Prompt Bar
+
+struct PresetPromptBar: View {
+    let presets: [PresetPrompt]
+    let onSelect: (PresetPrompt) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(presets.enumerated()), id: \.offset) { _, preset in
+                    Button {
+                        onSelect(preset)
+                    } label: {
+                        HStack(spacing: 4) {
+                            if let path = preset.imageBundlePath, let ui = UIImage(contentsOfFile: path) {
+                                Image(uiImage: ui)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 18, height: 18)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                            } else {
+                                Image(systemName: preset.icon)
+                                    .font(.system(size: 12))
+                            }
+                            Text(preset.title)
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(Color(hex: "F2F3F5")))
+                        .foregroundColor(.black)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+        .background(Color.white.opacity(0.95))
+    }
+}
+
+// MARK: - Demo Input Bar
+
+struct DemoInputBar: View {
+    let isEnabled: Bool
+    let onSend: (String) -> Void
+
+    @State private var text: String = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("输入消息…", text: $text, axis: .vertical)
+                .lineLimit(1...4)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(Capsule().fill(Color(hex: "F2F3F5")))
+                .focused($focused)
+                .onSubmit(send)
+
+            Button(action: send) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 28))
+            }
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.5)
+    }
+
+    private func send() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnabled, !trimmed.isEmpty else { return }
+        text = ""
+        focused = false
+        onSend(trimmed)
     }
 }

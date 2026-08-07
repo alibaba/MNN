@@ -638,6 +638,7 @@ static std::string ProcessLegacyVideoPlaceholders(const std::string& prompt, int
     std::atomic<bool> _shouldStopBenchmark;
     std::atomic<bool> _shouldStopInference;
     std::atomic<int> _videoMaxFrames;
+    int _maxNewTokens;
     std::atomic<bool> _enableAudioOutput;
     NSString *_talkerSpeaker;
     BOOL (^_audioWaveformCallback)(const float *, size_t, BOOL);
@@ -771,6 +772,7 @@ bool removeDirectorySafely(const std::string& path) {
  */
 - (BOOL)loadModel {
     @try {
+        _maxNewTokens = 999999;
         if (_llm) {
             NSLog(@"Warning: Model already loaded");
             return YES;
@@ -842,6 +844,8 @@ bool removeDirectorySafely(const std::string& path) {
         
         // Get memory mapping setting with default fallback
         BOOL useMmap = configDict[@"use_mmap"] == nil ? YES : [configDict[@"use_mmap"] boolValue];
+        _maxNewTokens = configDict[@"max_new_tokens"] ? [configDict[@"max_new_tokens"] intValue] : 999999;
+        if (_maxNewTokens <= 0) { _maxNewTokens = 999999; }
         
         // Create LLM instance with error checking
         _llm.reset(MNN::Transformer::Llm::createLLM(config_path));
@@ -1098,7 +1102,7 @@ bool removeDirectorySafely(const std::string& path) {
                     blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 1);
                     
                     int current_size = 1;
-                    int max_new_tokens = 999999;
+                    int max_new_tokens = blockSelf->_maxNewTokens;
                     
                     // Continue generation with precise token-by-token control
                     while (!blockSelf->_shouldStopInference.load() && 
@@ -1383,8 +1387,14 @@ bool removeDirectorySafely(const std::string& path) {
             multimodal_input.prompt_template = sanitized_prompt;
             
             {
+                // Store a placeholder-stripped copy in history so later turns do not
+                // re-parse <img>/<audio>/<video> tags and re-inject stale media.
+                std::string history_prompt = sanitized_prompt;
+                history_prompt = std::regex_replace(history_prompt, std::regex("<img>.*?</img>"), "[image]");
+                history_prompt = std::regex_replace(history_prompt, std::regex("<audio>.*?</audio>"), "[audio]");
+                history_prompt = std::regex_replace(history_prompt, std::regex("<video>.*?</video>"), "[video]");
                 std::lock_guard<std::mutex> lock(blockSelf->_historyMutex);
-                blockSelf->_history.emplace_back(ChatMessage("user", sanitized_prompt));
+                blockSelf->_history.emplace_back(ChatMessage("user", history_prompt));
             }
             
             blockSelf->_shouldStopInference = false;
@@ -1406,7 +1416,7 @@ bool removeDirectorySafely(const std::string& path) {
             }
             
             int current_size = 1;
-            const int max_new_tokens = 999999;
+            const int max_new_tokens = blockSelf->_maxNewTokens;
             
             while (!blockSelf->_shouldStopInference.load() &&
                    !blockSelf->_llm->stoped() &&
@@ -1636,10 +1646,10 @@ bool removeDirectorySafely(const std::string& path) {
     auto varp = MNN::Express::_Input(
         {1, static_cast<int>(height), static_cast<int>(width), 3},
         MNN::Express::NHWC,
-        halide_type_of<float>()
+        halide_type_of<uint8_t>()
     );
-    
-    auto ptr = varp->writeMap<float>();
+
+    auto ptr = varp->writeMap<uint8_t>();
     if (!ptr) {
         return MNN::Express::VARP();
     }
@@ -1648,9 +1658,9 @@ bool removeDirectorySafely(const std::string& path) {
         for (size_t x = 0; x < width; ++x) {
             size_t byteIndex = y * bytesPerRow + x * 4;
             size_t pixelIndex = (y * width + x) * 3;
-            ptr[pixelIndex + 0] = rawData[byteIndex + 0] / 255.0f;
-            ptr[pixelIndex + 1] = rawData[byteIndex + 1] / 255.0f;
-            ptr[pixelIndex + 2] = rawData[byteIndex + 2] / 255.0f;
+            ptr[pixelIndex + 0] = rawData[byteIndex + 2]; // B
+            ptr[pixelIndex + 1] = rawData[byteIndex + 1]; // G
+            ptr[pixelIndex + 2] = rawData[byteIndex + 0]; // R
         }
     }
 

@@ -1,0 +1,2 @@
+add_subdirectory(ArgumentParserEndToEndTests)
+add_subdirectory(ArgumentParserUnitTests)

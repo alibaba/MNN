@@ -1,0 +1,92 @@
+{
+  "kind": "group",
+  "title": "Dictionary Benchmarks",
+  "directory": "Dictionary",
+  "contents": [
+    {
+      "kind": "group",
+      "title": "Operations",
+      "directory": "operations",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "operations",
+          "tasks": [
+            "Dictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "Dictionary<Int, Int> sequential iteration",
+            "Dictionary<Int, Int> subscript, successful lookups",
+            "Dictionary<Int, Int> subscript, insert, unique",
+            "Dictionary<Int, Int> subscript, remove existing, unique"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "iteration",
+          "tasks": [
+            "Dictionary<Int, Int> sequential iteration",
+            "Dictionary<Int, Int>.Keys sequential iteration",
+            "Dictionary<Int, Int>.Values sequential iteration",
+            "Dictionary<Int, Int> sequential iteration, indices"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "lookups",
+          "tasks": [
+            "Dictionary<Int, Int> subscript, successful lookups",
+            "Dictionary<Int, Int> subscript, unsuccessful lookups",
+            "Dictionary<Int, Int> defaulted subscript, successful lookups",
+            "Dictionary<Int, Int> defaulted subscript, unsuccessful lookups",
+            "Dictionary<Int, Int> successful index(forKey:)",
+            "Dictionary<Int, Int> unsuccessful index(forKey:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "subscript",
+          "tasks": [
+            "Dictionary<Int, Int> subscript, successful lookups",
+            "Dictionary<Int, Int> subscript, unsuccessful lookups",
+            "Dictionary<Int, Int> subscript, noop setter",
+            "Dictionary<Int, Int> subscript, set existing",
+            "Dictionary<Int, Int> subscript, _modify",
+            "Dictionary<Int, Int> subscript, insert, unique",
+            "Dictionary<Int, Int> subscript, insert, reserving capacity",
+            "Dictionary<Int, Int> subscript, remove existing, unique",
+            "Dictionary<Int, Int> subscript, remove missing"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "defaulted subscript",
+          "tasks": [
+            "Dictionary<Int, Int> defaulted subscript, successful lookups",
+            "Dictionary<Int, Int> defaulted subscript, unsuccessful lookups",
+            "Dictionary<Int, Int> defaulted subscript, _modify existing",
+            "Dictionary<Int, Int> defaulted subscript, _modify missing"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "mutations",
+          "tasks": [
+            "Dictionary<Int, Int> updateValue(_:forKey:), existing",
+            "Dictionary<Int, Int> subscript, set existing",
+            "Dictionary<Int, Int> subscript, _modify",
+            "Dictionary<Int, Int> defaulted subscript, _modify existing"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "removals",
+          "tasks": [
+            "Dictionary<Int, Int> subscript, remove existing, unique",
+            "Dictionary<Int, Int> subscript, remove missing",
+            "Dictionary<Int, Int> random removals (existing keys)",
+            "Dictionary<Int, Int> random removals (missing keys)"
+          ]
+        }
+      ]
+    }
+  ]
+}

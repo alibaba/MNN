@@ -1,0 +1,21 @@
+environment:
+  PYTHON: "C:\\Python34-x64"
+  PYTHON_VERSION: "3.4.3"
+  PYTHON_ARCH: "64"
+  matrix:
+    - MSVC_VERSION: 10
+    - MSVC_VERSION: 12
+
+# set up for nmake:
+install:
+  - "SET PATH=%PYTHON%;%PYTHON%\\Scripts;%PATH%"
+
+build_script:
+  - 'tools\appveyor-build.bat'
+
+artifacts:
+  - path: build/src/cmark-gfm.exe
+    name: cmark-gfm.exe
+
+test_script:
+  - 'nmake test'

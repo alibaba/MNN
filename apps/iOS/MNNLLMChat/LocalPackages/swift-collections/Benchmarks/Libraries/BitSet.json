@@ -1,0 +1,78 @@
+{
+  "kind": "group",
+  "title": "BitSet Benchmarks",
+  "directory": "BitSet",
+  "contents": [
+    {
+      "kind": "group",
+      "title": "BitSet Operations",
+      "contents": [
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "BitArray Operations",
+      "contents": [
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "Comparisons against reference implementations",
+      "directory": "versus",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "initializers",
+          "tasks": [
+            "std::vector<bool> create from integer buffer (subscript)",
+            "std::vector<bool> create from integer buffer (at)",
+            "CFBitVector create from integer buffer"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration",
+          "tasks": [
+            "std::vector<bool> const_iterator",
+            "CFBitVectorGetBitAtIndex (sequential iteration)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "random-access lookups",
+          "tasks": [
+            "std::vector<bool> random-access offset lookups (subscript)",
+            "std::vector<bool> random-access offset lookups (at)",
+            "CFBitVectorGetBitAtIndex (random-access lookups)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "set random bits to true",
+          "tasks": [
+            "std::vector<bool> set bits to true (subscript)",
+            "std::vector<bool> set bits to true (at)",
+            "CFBitVectorSetBitAtIndex (random-access set)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "find true bits",
+          "tasks": [
+            "std::vector<bool> find true bits",
+            "CFBitVectorGetFirstIndexOfBit"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "count true bits",
+          "tasks": [
+            "std::vector<bool> count true bits",
+            "CFBitVectorGetCountOfBit"
+          ]
+        },
+      ]
+    }
+  ]
+
+}

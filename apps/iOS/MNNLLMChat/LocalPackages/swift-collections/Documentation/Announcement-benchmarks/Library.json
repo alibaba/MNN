@@ -1,0 +1,62 @@
+{
+  "kind": "group",
+  "title": "All results",
+  "directory": "Results",
+  "contents": [
+    {
+      "kind": "chart",
+      "title": "Deque - random access lookups",
+      "tasks": [
+        "Deque<Int> subscript get, random offsets (discontiguous)",
+        "Array<Int> subscript get, random offsets",
+        "std::deque<intptr_t> at, random offsets",
+      ]
+    },
+    {
+      "kind": "chart",
+      "title": "Deque - prepending individual integers",
+      "tasks": [
+        "Deque<Int> prepend, reserving capacity",
+        "Array<Int> prepend, reserving capacity",
+        "std::deque<intptr_t> push_front",
+      ]
+    },
+    {
+      "kind": "chart",
+      "title": "OrderedSet lookups",
+      "tasks": [
+        "OrderedSet<Int> successful contains",
+        "Set<Int> successful contains",
+        "std::unordered_set<intptr_t> successful find",
+        "Array<Int> successful contains"
+      ]
+    },
+    {
+      "kind": "chart",
+      "title": "OrderedSet insertions",
+      "tasks": [
+        "OrderedSet<Int> append, reserving capacity",
+        "Set<Int> insert, reserving capacity",
+        "std::unordered_set<intptr_t> insert, reserving capacity",
+      ]
+    },
+    {
+      "kind": "chart",
+      "title": "OrderedDictionary lookups",
+      "tasks": [
+        "OrderedDictionary<Int, Int> subscript, successful lookups",
+        "Dictionary<Int, Int> subscript, successful lookups",
+        "std::unordered_map<intptr_t, intptr_t> successful find",
+      ]
+    },
+    {
+      "kind": "chart",
+      "title": "OrderedDictionary insertions",
+      "tasks": [
+        "OrderedDictionary<Int, Int> subscript, append, reserving capacity",
+        "Dictionary<Int, Int> subscript, insert, reserving capacity",
+        "std::unordered_map<intptr_t, intptr_t> insert, reserving capacity",
+      ]
+    },
+  ]
+}

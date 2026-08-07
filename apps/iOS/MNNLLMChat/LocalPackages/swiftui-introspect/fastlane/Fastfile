@@ -1,0 +1,115 @@
+skip_docs
+
+devices = {
+    "ios" => {
+        13 => ["iPhone 11 (13.7)", "iPad Pro (9.7-inch) (13.7)"],
+        14 => ["iPhone 12 (14.5)", "iPad Pro (9.7-inch) (14.5)"],
+        15 => ["iPhone SE (3rd generation) (15.5)", "iPad Air (5th generation) (15.5)",],
+        16 => ["iPhone 14 (16.4)", "iPad Pro (11-inch) (4th generation) (16.4)"],
+        17 => ["iPhone 14 (17.5)", "iPad Pro (11-inch) (4th generation) (17.5)"],
+        18 => ["iPhone 15 (18.0)", "iPad Pro 11-inch (M4) (18.0)"],
+    },
+    "tvos" => {
+        13 => ["Apple TV (13.4)"],
+        14 => ["Apple TV (14.5)"],
+        15 => ["Apple TV (15.4)"],
+        16 => ["Apple TV (16.4)"],
+        17 => ["Apple TV (17.5)"],
+        18 => ["Apple TV (18.0)"],
+    },
+    "watchos" => {
+        8 => ["Apple Watch Series 7 (45mm) (8.5)"],
+        9 => ["Apple Watch Series 8 (45mm) (9.4)"],
+        10 => ["Apple Watch Series 9 (45mm) (10.5)"],
+        11 => ["Apple Watch Series 9 (45mm) (11.0)"],
+    },
+    "visionos" => {
+        1 => ["Apple Vision Pro (1.2)"],
+        2 => ["Apple Vision Pro (2.0)"],
+    },
+}
+
+lane :build do |options|
+    platform = options[:platform].to_s.downcase
+    version = options[:version].to_i
+    scheme = options[:scheme].to_s
+
+    unless scheme == "Showcase" || scheme == "SwiftUIIntrospect"
+        raise "Unsupported scheme: #{scheme}"
+        next
+    end
+
+    if platform == "macos"
+        for destination in ["platform=macOS", "platform=macOS,variant=Mac Catalyst"]
+            build_app(
+                scheme: scheme,
+                destination: destination,
+                skip_archive: true,
+                skip_codesigning: true,
+                skip_package_ipa: true,
+                skip_profile_detection: true,
+            )
+        end
+    else
+        run_tests(
+            configuration: "Debug",
+            build_for_testing: true,
+            scheme: scheme,
+            devices: devices[platform][version],
+            prelaunch_simulator: false,
+            ensure_devices_found: true,
+            force_quit_simulator: true,
+            disable_concurrent_testing: true,
+        )
+    end
+end
+
+lane :test do |options|
+    configuration = (options[:configuration] || "Debug").to_s
+    platform = options[:platform].to_s.downcase
+    version = options[:version].to_i
+    scheme = options[:scheme].to_s
+
+    if platform == "macos"
+        destinations = case version
+        when 13
+            ["platform=macOS"]
+        else
+            ["platform=macOS", "platform=macOS,variant=Mac Catalyst"] # TODO: figure out why Catalyst tests fail on macOS 13
+        end
+        for destination in destinations
+            run_tests(
+                configuration: configuration,
+                scheme: scheme,
+                destination: destination,
+                catalyst_platform: "macos",
+                disable_slide_to_type: false,
+                prelaunch_simulator: false,
+                ensure_devices_found: true,
+                force_quit_simulator: false,
+                disable_concurrent_testing: true,
+            )
+        end
+    else
+        is_legacy_sdk = (platform == "ios" && version == 13) || (platform == "tvos" && version == 13)
+        scheme = case scheme
+        when "SwiftUIIntrospectTests"
+            is_legacy_sdk ? "LegacySwiftUIIntrospectTests" : "SwiftUIIntrospectTests"
+        when "SwiftUIIntrospectUITests"
+            "SwiftUIIntrospectUITests"
+        else
+            raise "Unsupported scheme: #{scheme}"
+        end
+        run_tests(
+            configuration: configuration,
+            scheme: scheme,
+            devices: devices[platform][version],
+            prelaunch_simulator: true,
+            ensure_devices_found: true,
+            force_quit_simulator: true,
+            disable_concurrent_testing: true,
+            result_bundle: true,
+            output_directory: Dir.pwd + "/test_output",
+        )
+    end
+end

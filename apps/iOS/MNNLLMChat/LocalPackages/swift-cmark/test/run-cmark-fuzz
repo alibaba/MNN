@@ -1,0 +1,4 @@
+#!/bin/bash -eu
+CMARK_FUZZ="$1"
+shift
+ASAN_OPTIONS="quarantine_size_mb=10:detect_leaks=1" "${CMARK_FUZZ}" -max_len=256 -timeout=1 -dict=test/fuzzing_dictionary "$@"

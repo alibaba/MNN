@@ -1,0 +1,83 @@
+{
+  "kind": "group",
+  "title": "Heap Benchmarks",
+  "directory": "Heap",
+  "contents": [
+    {
+      "kind": "group",
+      "title": "Heap Operations",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "operations",
+          "tasks": [
+            "Heap<Int> init from range",
+            "Heap<Int> insert",
+            "Heap<Int> insert(contentsOf:)",
+            "Heap<Int> popMax",
+            "Heap<Int> popMin"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "initializers",
+          "tasks": [
+            "Heap<Int> init from range",
+            "Heap<Int> init from buffer"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "insert",
+          "tasks": [
+            "Heap<Int> insert",
+            "Heap<Int> insert(contentsOf:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "remove",
+          "tasks": [
+            "Heap<Int> popMax",
+            "Heap<Int> popMin"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "Heap vs CFBinaryHeap and std::priority_queue",
+      "directory": "versus",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "initializers",
+          "tasks": [
+            "std::priority_queue<intptr_t> construct from buffer",
+            "Heap<Int> init from buffer",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "insert",
+          "tasks": [
+            "std::priority_queue<intptr_t> push",
+            "CFBinaryHeapAddValue",
+            "CFBinaryHeapAddValue, reserving capacity",
+            "Heap<Int> insert"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "pop",
+          "tasks": [
+            "std::priority_queue<intptr_t> pop",
+            "CFBinaryHeapRemoveMinimumValue",
+            "Heap<Int> popMin",
+            "Heap<Int> popMax"
+          ]
+        },
+      ]
+    }
+  ]
+}

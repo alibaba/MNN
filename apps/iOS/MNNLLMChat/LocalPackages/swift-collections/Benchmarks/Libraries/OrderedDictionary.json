@@ -1,0 +1,357 @@
+{
+  "kind": "group",
+  "title": "OrderedDictionary",
+  "directory": "OrderedDictionary",
+  "contents": [
+    {
+      "kind": "group",
+      "title": "Operations",
+      "directory": "operations",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "operations",
+          "tasks": [
+            "OrderedDictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> sequential iteration",
+            "OrderedDictionary<Int, Int> subscript, successful lookups",
+            "OrderedDictionary<Int, Int> subscript, append, unique",
+            "OrderedDictionary<Int, Int> subscript, remove existing, unique",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "initializers",
+          "tasks": [
+            "OrderedDictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> init(uncheckedUniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> init(uncheckedUniqueKeys:values:)"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "iteration",
+          "tasks": [
+            "OrderedDictionary<Int, Int> sequential iteration",
+            "OrderedDictionary<Int, Int>.Keys sequential iteration",
+            "OrderedDictionary<Int, Int>.Values sequential iteration"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "lookups",
+          "tasks": [
+            "OrderedDictionary<Int, Int> subscript, successful lookups",
+            "OrderedDictionary<Int, Int> subscript, unsuccessful lookups",
+            "OrderedDictionary<Int, Int> defaulted subscript, successful lookups",
+            "OrderedDictionary<Int, Int> defaulted subscript, unsuccessful lookups",
+            "OrderedDictionary<Int, Int> successful index(forKey:)",
+            "OrderedDictionary<Int, Int> unsuccessful index(forKey:)",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "subscript",
+          "tasks": [
+            "OrderedDictionary<Int, Int> subscript, successful lookups",
+            "OrderedDictionary<Int, Int> subscript, unsuccessful lookups",
+            "OrderedDictionary<Int, Int> subscript, noop setter",
+            "OrderedDictionary<Int, Int> subscript, set existing",
+            "OrderedDictionary<Int, Int> subscript, _modify",
+            "OrderedDictionary<Int, Int> subscript, append, unique",
+            "OrderedDictionary<Int, Int> subscript, append, reserving capacity",
+            "OrderedDictionary<Int, Int> subscript, remove existing, unique",
+            "OrderedDictionary<Int, Int> subscript, remove missing",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "defaulted subscript",
+          "tasks": [
+            "OrderedDictionary<Int, Int> defaulted subscript, successful lookups",
+            "OrderedDictionary<Int, Int> defaulted subscript, unsuccessful lookups",
+            "OrderedDictionary<Int, Int> defaulted subscript, _modify existing",
+            "OrderedDictionary<Int, Int> defaulted subscript, _modify missing",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "mutations",
+          "tasks": [
+            "OrderedDictionary<Int, Int> updateValue(_:forKey:), existing",
+            "OrderedDictionary<Int, Int> subscript, set existing",
+            "OrderedDictionary<Int, Int> subscript, _modify",
+            "OrderedDictionary<Int, Int> defaulted subscript, _modify existing",
+            "OrderedDictionary<Int, Int> random swaps",
+            "OrderedDictionary<Int, Int> partitioning around middle",
+            "OrderedDictionary<Int, Int> sort",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "removals",
+          "tasks": [
+            "OrderedDictionary<Int, Int> subscript, remove existing, unique",
+            "OrderedDictionary<Int, Int> subscript, remove missing",
+            "OrderedDictionary<Int, Int> removeLast",
+            "OrderedDictionary<Int, Int> removeFirst",
+            "OrderedDictionary<Int, Int> random removals (offset-based)",
+            "OrderedDictionary<Int, Int> random removals (existing keys)",
+            "OrderedDictionary<Int, Int> random removals (missing keys)",
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "OrderedDictionary vs Dictionary",
+      "directory": "versus Dictionary",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "initializers",
+          "tasks": [
+            "Dictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> init(uncheckedUniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> init(uncheckedUniqueKeys:values:)"
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "iteration",
+              "tasks": [
+                "Dictionary<Int, Int> sequential iteration",
+                "OrderedDictionary<Int, Int> sequential iteration",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "Keys iteration",
+              "tasks": [
+                "Dictionary<Int, Int>.Keys sequential iteration",
+                "OrderedDictionary<Int, Int>.Keys sequential iteration",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "Values iteration",
+              "tasks": [
+                "Dictionary<Int, Int>.Values sequential iteration",
+                "OrderedDictionary<Int, Int>.Values sequential iteration",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "Values iteration",
+              "tasks": [
+                "Dictionary<Int, Int>.Values sequential iteration",
+                "OrderedDictionary<Int, Int>.Values sequential iteration",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "index(forKey:)",
+          "tasks": [
+            "Dictionary<Int, Int> successful index(forKey:)",
+            "Dictionary<Int, Int> unsuccessful index(forKey:)",
+            "OrderedDictionary<Int, Int> successful index(forKey:)",
+            "OrderedDictionary<Int, Int> unsuccessful index(forKey:)",
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "subscript lookups",
+              "tasks": [
+                "Dictionary<Int, Int> subscript, successful lookups",
+                "Dictionary<Int, Int> subscript, unsuccessful lookups",
+                "OrderedDictionary<Int, Int> subscript, successful lookups",
+                "OrderedDictionary<Int, Int> subscript, unsuccessful lookups",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subscript setter, simple",
+              "tasks": [
+                "Dictionary<Int, Int> subscript, noop setter",
+                "Dictionary<Int, Int> subscript, set existing",
+                "Dictionary<Int, Int> subscript, _modify",
+                "OrderedDictionary<Int, Int> subscript, noop setter",
+                "OrderedDictionary<Int, Int> subscript, set existing",
+                "OrderedDictionary<Int, Int> subscript, _modify",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subscript insert/append",
+              "tasks": [
+                "Dictionary<Int, Int> subscript, insert, unique",
+                "Dictionary<Int, Int> subscript, insert, reserving capacity",
+                "OrderedDictionary<Int, Int> subscript, append, unique",
+                "OrderedDictionary<Int, Int> subscript, append, reserving capacity",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subscript remove",
+              "tasks": [
+                "Dictionary<Int, Int> subscript, remove existing, unique",
+                "Dictionary<Int, Int> subscript, remove missing",
+                "OrderedDictionary<Int, Int> subscript, remove existing, unique",
+                "OrderedDictionary<Int, Int> subscript, remove missing",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "defaulted subscript lookups",
+              "tasks": [
+                "Dictionary<Int, Int> defaulted subscript, successful lookups",
+                "Dictionary<Int, Int> defaulted subscript, unsuccessful lookups",
+                "OrderedDictionary<Int, Int> defaulted subscript, successful lookups",
+                "OrderedDictionary<Int, Int> defaulted subscript, unsuccessful lookups",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "defaulted subscript mutations",
+              "tasks": [
+                "Dictionary<Int, Int> defaulted subscript, _modify existing",
+                "Dictionary<Int, Int> defaulted subscript, _modify missing",
+                "OrderedDictionary<Int, Int> defaulted subscript, _modify existing",
+                "OrderedDictionary<Int, Int> defaulted subscript, _modify missing",
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "updateValue(_:forKey:)",
+          "tasks": [
+            "Dictionary<Int, Int> updateValue(_:forKey:), existing",
+            "Dictionary<Int, Int> updateValue(_:forKey:), insert",
+            "OrderedDictionary<Int, Int> updateValue(_:forKey:), existing",
+            "OrderedDictionary<Int, Int> updateValue(_:forKey:), append",
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "OrderedDictionary vs std::unordered_map",
+      "directory": "versus STL unordered_map",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "initializers",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> insert",
+            "Dictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> init(uncheckedUniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> init(uncheckedUniqueKeys:values:)",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "iteration",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> sequential iteration",
+            "Dictionary<Int, Int> sequential iteration",
+            "OrderedDictionary<Int, Int> sequential iteration",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "successful find index",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> successful find",
+            "OrderedDictionary<Int, Int> successful index(forKey:)",
+            "Dictionary<Int, Int> successful index(forKey:)",
+            "Int.hashValue on each value",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "unsuccessful find index",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> unsuccessful find",
+            "OrderedDictionary<Int, Int> unsuccessful index(forKey:)",
+            "Dictionary<Int, Int> unsuccessful index(forKey:)",
+            "Int.hashValue on each value",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "defaulted subscript, existing key",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> subscript, existing key",
+            "OrderedDictionary<Int, Int> defaulted subscript, _modify existing",
+            "Dictionary<Int, Int> defaulted subscript, _modify existing",
+            "Int.hashValue on each value",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "defaulted subscript, new key",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> subscript, new key",
+            "OrderedDictionary<Int, Int> defaulted subscript, _modify missing",
+            "Dictionary<Int, Int> defaulted subscript, _modify missing",
+            "Int.hashValue on each value",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "insert",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> insert",
+            "OrderedDictionary<Int, Int> subscript, append, unique",
+            "Dictionary<Int, Int> subscript, insert, unique",
+            "Int.hashValue on each value",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "insert, reserving capacity",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> insert, reserving capacity",
+            "OrderedDictionary<Int, Int> subscript, append, reserving capacity",
+            "Dictionary<Int, Int> subscript, insert, reserving capacity",
+            "Int.hashValue on each value",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "removing existing elements",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> erase existing",
+            "OrderedDictionary<Int, Int> subscript, remove existing, unique",
+            "Dictionary<Int, Int> subscript, remove existing, unique",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "removing missing elements",
+          "tasks": [
+            "std::unordered_map<intptr_t, intptr_t> erase missing",
+            "OrderedDictionary<Int, Int> subscript, remove missing",
+            "Dictionary<Int, Int> subscript, remove missing",
+          ]
+        },
+      ]
+    },
+  ]
+}

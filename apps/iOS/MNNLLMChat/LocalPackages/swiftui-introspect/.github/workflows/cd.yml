@@ -1,0 +1,33 @@
+name: CD
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  deploy:
+    name: Deploy to CocoaPods Trunk
+    runs-on: macos-14
+    steps:
+      - name: Git Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # required to be able to find Git tags
+
+      - name: Set up pkgx environment
+        uses: pkgxdev/setup@v1
+        with:
+          +: pod xcodes
+
+      - name: Select Xcode version
+        run: sudo xcodes select 15.4
+
+      - name: Deploy to CocoaPods Trunk
+        run: |
+          set -eo pipefail
+          export LIB_VERSION=$(git describe --tags `git rev-list --tags --max-count=1`)
+          pod lib lint SwiftUIIntrospect.podspec --allow-warnings
+          pod trunk push SwiftUIIntrospect.podspec --allow-warnings
+        env:
+          COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}

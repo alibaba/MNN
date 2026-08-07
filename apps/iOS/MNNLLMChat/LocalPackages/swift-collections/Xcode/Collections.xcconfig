@@ -1,0 +1,43 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift Collections open source project
+//
+// Copyright (c) 2023 - 2024 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See https://swift.org/LICENSE.txt for license information
+//
+//===----------------------------------------------------------------------===//
+
+PRODUCT_NAME = Collections
+PRODUCT_BUNDLE_IDENTIFIER = org.swift.Collections
+
+SUPPORTED_PLATFORMS = macosx iphoneos iphonesimulator watchos watchsimulator appletvos appletvsimulator
+ARCHS = $(ARCHS_STANDARD)
+
+MACOSX_DEPLOYMENT_TARGET = 12.0
+IPHONEOS_DEPLOYMENT_TARGET = 15.0
+WATCHOS_DEPLOYMENT_TARGET = 8.0
+TVOS_DEPLOYMENT_TARGET = 15.0
+
+MARKETING_VERSION = 1.1
+
+CURRENT_PROJECT_VERSION = 1
+VERSIONING_SYSTEM = apple-generic
+VERSION_INFO_PREFIX =
+
+DYLIB_COMPATIBILITY_VERSION = $(CURRENT_PROJECT_VERSION)
+DYLIB_CURRENT_VERSION = $(CURRENT_PROJECT_VERSION)
+
+INSTALL_PATH = $(LOCAL_LIBRARY_DIR)/Frameworks
+SKIP_INSTALL = YES
+DYLIB_INSTALL_NAME_BASE = @rpath
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/../Frameworks @loader_path/Frameworks
+
+ENABLE_TESTABILITY = NO
+ENABLE_TESTABILITY[config=Debug] = YES
+
+GENERATE_INFOPLIST_FILE = YES
+
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -

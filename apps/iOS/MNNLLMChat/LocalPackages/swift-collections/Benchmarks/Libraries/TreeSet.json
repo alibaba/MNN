@@ -1,0 +1,889 @@
+{
+  "kind": "group",
+  "title": "TreeSet Benchmarks",
+  "directory": "TreeSet",
+  "contents": [
+    {
+      "kind": "group",
+      "title": "Operations",
+      "directory": "operations",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "operations",
+          "tasks": [
+            "TreeSet<Int> init from range",
+            "TreeSet<Int> init from unsafe buffer",
+            "TreeSet<Int> sequential iteration",
+            "TreeSet<Int> successful contains",
+            "TreeSet<Int> unsuccessful contains",
+            "TreeSet<Int> insert",
+            "TreeSet<Int> remove"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "initializers",
+          "tasks": [
+            "TreeSet<Int> init from range",
+            "TreeSet<Int> init from unsafe buffer",
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "union with Self, distinct",
+              "tasks": [
+                "TreeSet<Int> union with Self (0% overlap, distinct)",
+                "TreeSet<Int> union with Self (25% overlap, distinct)",
+                "TreeSet<Int> union with Self (50% overlap, distinct)",
+                "TreeSet<Int> union with Self (75% overlap, distinct)",
+                "TreeSet<Int> union with Self (100% overlap, distinct)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "union with Self, shared",
+              "tasks": [
+                "TreeSet<Int> union with Self (0% overlap, shared)",
+                "TreeSet<Int> union with Self (25% overlap, shared)",
+                "TreeSet<Int> union with Self (50% overlap, shared)",
+                "TreeSet<Int> union with Self (75% overlap, shared)",
+                "TreeSet<Int> union with Self (100% overlap, shared)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "union with Array",
+              "tasks": [
+                "TreeSet<Int> union with Array (0% overlap)",
+                "TreeSet<Int> union with Array (25% overlap)",
+                "TreeSet<Int> union with Array (50% overlap)",
+                "TreeSet<Int> union with Array (75% overlap)",
+                "TreeSet<Int> union with Array (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formUnion with Self, distinct",
+              "tasks": [
+                "TreeSet<Int> formUnion with Self (0% overlap, distinct)",
+                "TreeSet<Int> formUnion with Self (25% overlap, distinct)",
+                "TreeSet<Int> formUnion with Self (50% overlap, distinct)",
+                "TreeSet<Int> formUnion with Self (75% overlap, distinct)",
+                "TreeSet<Int> formUnion with Self (100% overlap, distinct)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formUnion with Self, shared",
+              "tasks": [
+                "TreeSet<Int> formUnion with Self (0% overlap, shared)",
+                "TreeSet<Int> formUnion with Self (25% overlap, shared)",
+                "TreeSet<Int> formUnion with Self (50% overlap, shared)",
+                "TreeSet<Int> formUnion with Self (75% overlap, shared)",
+                "TreeSet<Int> formUnion with Self (100% overlap, shared)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formUnion with Array",
+              "tasks": [
+                "TreeSet<Int> formUnion with Array (0% overlap)",
+                "TreeSet<Int> formUnion with Array (25% overlap)",
+                "TreeSet<Int> formUnion with Array (50% overlap)",
+                "TreeSet<Int> formUnion with Array (75% overlap)",
+                "TreeSet<Int> formUnion with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "intersection with Self, distinct",
+              "tasks": [
+                "TreeSet<Int> intersection with Self (0% overlap, distinct)",
+                "TreeSet<Int> intersection with Self (25% overlap, distinct)",
+                "TreeSet<Int> intersection with Self (50% overlap, distinct)",
+                "TreeSet<Int> intersection with Self (75% overlap, distinct)",
+                "TreeSet<Int> intersection with Self (100% overlap, distinct)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "intersection with Self, shared",
+              "tasks": [
+                "TreeSet<Int> intersection with Self (0% overlap, shared)",
+                "TreeSet<Int> intersection with Self (25% overlap, shared)",
+                "TreeSet<Int> intersection with Self (50% overlap, shared)",
+                "TreeSet<Int> intersection with Self (75% overlap, shared)",
+                "TreeSet<Int> intersection with Self (100% overlap, shared)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "intersection with Array",
+              "tasks": [
+                "TreeSet<Int> intersection with Array (0% overlap)",
+                "TreeSet<Int> intersection with Array (25% overlap)",
+                "TreeSet<Int> intersection with Array (50% overlap)",
+                "TreeSet<Int> intersection with Array (75% overlap)",
+                "TreeSet<Int> intersection with Array (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formIntersection with Self, distinct",
+              "tasks": [
+                "TreeSet<Int> formIntersection with Self (0% overlap, distinct)",
+                "TreeSet<Int> formIntersection with Self (25% overlap, distinct)",
+                "TreeSet<Int> formIntersection with Self (50% overlap, distinct)",
+                "TreeSet<Int> formIntersection with Self (75% overlap, distinct)",
+                "TreeSet<Int> formIntersection with Self (100% overlap, distinct)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formIntersection with Self, shared",
+              "tasks": [
+                "TreeSet<Int> formIntersection with Self (0% overlap, shared)",
+                "TreeSet<Int> formIntersection with Self (25% overlap, shared)",
+                "TreeSet<Int> formIntersection with Self (50% overlap, shared)",
+                "TreeSet<Int> formIntersection with Self (75% overlap, shared)",
+                "TreeSet<Int> formIntersection with Self (100% overlap, shared)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formIntersection with Array",
+              "tasks": [
+                "TreeSet<Int> formIntersection with Array (0% overlap)",
+                "TreeSet<Int> formIntersection with Array (25% overlap)",
+                "TreeSet<Int> formIntersection with Array (50% overlap)",
+                "TreeSet<Int> formIntersection with Array (75% overlap)",
+                "TreeSet<Int> formIntersection with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "symmetricDifference with Self, distinct",
+              "tasks": [
+                "TreeSet<Int> symmetricDifference with Self (0% overlap, distinct)",
+                "TreeSet<Int> symmetricDifference with Self (25% overlap, distinct)",
+                "TreeSet<Int> symmetricDifference with Self (50% overlap, distinct)",
+                "TreeSet<Int> symmetricDifference with Self (75% overlap, distinct)",
+                "TreeSet<Int> symmetricDifference with Self (100% overlap, distinct)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "symmetricDifference with Self, shared",
+              "tasks": [
+                "TreeSet<Int> symmetricDifference with Self (0% overlap, shared)",
+                "TreeSet<Int> symmetricDifference with Self (25% overlap, shared)",
+                "TreeSet<Int> symmetricDifference with Self (50% overlap, shared)",
+                "TreeSet<Int> symmetricDifference with Self (75% overlap, shared)",
+                "TreeSet<Int> symmetricDifference with Self (100% overlap, shared)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "symmetricDifference with Array",
+              "tasks": [
+                "TreeSet<Int> symmetricDifference with Array (0% overlap)",
+                "TreeSet<Int> symmetricDifference with Array (25% overlap)",
+                "TreeSet<Int> symmetricDifference with Array (50% overlap)",
+                "TreeSet<Int> symmetricDifference with Array (75% overlap)",
+                "TreeSet<Int> symmetricDifference with Array (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference with Self, distinct",
+              "tasks": [
+                "TreeSet<Int> formSymmetricDifference with Self (0% overlap, distinct)",
+                "TreeSet<Int> formSymmetricDifference with Self (25% overlap, distinct)",
+                "TreeSet<Int> formSymmetricDifference with Self (50% overlap, distinct)",
+                "TreeSet<Int> formSymmetricDifference with Self (75% overlap, distinct)",
+                "TreeSet<Int> formSymmetricDifference with Self (100% overlap, distinct)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference with Self, shared",
+              "tasks": [
+                "TreeSet<Int> formSymmetricDifference with Self (0% overlap, shared)",
+                "TreeSet<Int> formSymmetricDifference with Self (25% overlap, shared)",
+                "TreeSet<Int> formSymmetricDifference with Self (50% overlap, shared)",
+                "TreeSet<Int> formSymmetricDifference with Self (75% overlap, shared)",
+                "TreeSet<Int> formSymmetricDifference with Self (100% overlap, shared)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference with Array",
+              "tasks": [
+                "TreeSet<Int> formSymmetricDifference with Array (0% overlap)",
+                "TreeSet<Int> formSymmetricDifference with Array (25% overlap)",
+                "TreeSet<Int> formSymmetricDifference with Array (50% overlap)",
+                "TreeSet<Int> formSymmetricDifference with Array (75% overlap)",
+                "TreeSet<Int> formSymmetricDifference with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "subtracting Self, distinct",
+              "tasks": [
+                "TreeSet<Int> subtracting Self (0% overlap, distinct)",
+                "TreeSet<Int> subtracting Self (25% overlap, distinct)",
+                "TreeSet<Int> subtracting Self (50% overlap, distinct)",
+                "TreeSet<Int> subtracting Self (75% overlap, distinct)",
+                "TreeSet<Int> subtracting Self (100% overlap, distinct)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtracting Self, shared",
+              "tasks": [
+                "TreeSet<Int> subtracting Self (0% overlap, shared)",
+                "TreeSet<Int> subtracting Self (25% overlap, shared)",
+                "TreeSet<Int> subtracting Self (50% overlap, shared)",
+                "TreeSet<Int> subtracting Self (75% overlap, shared)",
+                "TreeSet<Int> subtracting Self (100% overlap, shared)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtracting Array",
+              "tasks": [
+                "TreeSet<Int> subtracting Array (0% overlap)",
+                "TreeSet<Int> subtracting Array (25% overlap)",
+                "TreeSet<Int> subtracting Array (50% overlap)",
+                "TreeSet<Int> subtracting Array (75% overlap)",
+                "TreeSet<Int> subtracting Array (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtract Self, distinct",
+              "tasks": [
+                "TreeSet<Int> subtract Self (0% overlap, distinct)",
+                "TreeSet<Int> subtract Self (25% overlap, distinct)",
+                "TreeSet<Int> subtract Self (50% overlap, distinct)",
+                "TreeSet<Int> subtract Self (75% overlap, distinct)",
+                "TreeSet<Int> subtract Self (100% overlap, distinct)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtract Self, shared",
+              "tasks": [
+                "TreeSet<Int> subtract Self (0% overlap, shared)",
+                "TreeSet<Int> subtract Self (25% overlap, shared)",
+                "TreeSet<Int> subtract Self (50% overlap, shared)",
+                "TreeSet<Int> subtract Self (75% overlap, shared)",
+                "TreeSet<Int> subtract Self (100% overlap, shared)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtract with Array",
+              "tasks": [
+                "TreeSet<Int> subtract Array (0% overlap)",
+                "TreeSet<Int> subtract Array (25% overlap)",
+                "TreeSet<Int> subtract Array (50% overlap)",
+                "TreeSet<Int> subtract Array (75% overlap)",
+                "TreeSet<Int> subtract Array (100% overlap)",
+              ]
+            },
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "Reference comparisons",
+      "directory": "versus Set",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "init from buffer of integers",
+          "tasks": [
+            "TreeSet<Int> init from unsafe buffer",
+            "Set<Int> init from unsafe buffer",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "init from range of integers",
+          "tasks": [
+            "TreeSet<Int> init from range",
+            "Set<Int> init from range",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration",
+          "tasks": [
+            "TreeSet<Int> sequential iteration",
+            "Set<Int> sequential iteration",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration using indices",
+          "tasks": [
+            "TreeSet<Int> sequential iteration, indices",
+            "Set<Int> sequential iteration, indices",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "successful random lookups",
+          "tasks": [
+            "TreeSet<Int> successful contains",
+            "Set<Int> successful contains",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "unsuccessful random lookups",
+          "tasks": [
+            "TreeSet<Int> unsuccessful contains",
+            "Set<Int> unsuccessful contains",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "insert",
+          "tasks": [
+            "TreeSet<Int> insert",
+            "Set<Int> insert",
+            "Set<Int> insert, reserving capacity",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "insert-shared",
+          "tasks": [
+            "TreeSet<Int> insert, shared",
+            "Set<Int> insert, shared",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "model building with constant diffing",
+          "tasks": [
+            "TreeSet<Int> model diffing",
+            "Set<Int> model diffing"
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "remove",
+          "tasks": [
+            "TreeSet<Int> remove",
+            "TreeSet<Int> remove, shared",
+            "Set<Int> remove",
+            "Set<Int> remove, shared",
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "union (0% overlap)",
+              "tasks": [
+                "TreeSet<Int> union with Self (0% overlap, distinct)",
+                "TreeSet<Int> union with Self (0% overlap, shared)",
+                "TreeSet<Int> union with Array (0% overlap)",
+                "Set<Int> union with Self (0% overlap)",
+                "Set<Int> union with Array (0% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "union (25% overlap)",
+              "tasks": [
+                "TreeSet<Int> union with Self (25% overlap, distinct)",
+                "TreeSet<Int> union with Self (25% overlap, shared)",
+                "TreeSet<Int> union with Array (25% overlap)",
+                "Set<Int> union with Self (25% overlap)",
+                "Set<Int> union with Array (25% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "union (50% overlap)",
+              "tasks": [
+                "TreeSet<Int> union with Self (50% overlap, distinct)",
+                "TreeSet<Int> union with Self (50% overlap, shared)",
+                "TreeSet<Int> union with Array (50% overlap)",
+                "Set<Int> union with Self (50% overlap)",
+                "Set<Int> union with Array (50% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "union (75% overlap)",
+              "tasks": [
+                "TreeSet<Int> union with Self (75% overlap, distinct)",
+                "TreeSet<Int> union with Self (75% overlap, shared)",
+                "TreeSet<Int> union with Array (75% overlap)",
+                "Set<Int> union with Self (75% overlap)",
+                "Set<Int> union with Array (75% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "union (100% overlap)",
+              "tasks": [
+                "TreeSet<Int> union with Self (100% overlap, distinct)",
+                "TreeSet<Int> union with Self (100% overlap, shared)",
+                "TreeSet<Int> union with Array (100% overlap)",
+                "Set<Int> union with Self (100% overlap)",
+                "Set<Int> union with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "formUnion (0% overlap)",
+              "tasks": [
+                "TreeSet<Int> formUnion with Self (0% overlap, distinct)",
+                "TreeSet<Int> formUnion with Self (0% overlap, shared)",
+                "TreeSet<Int> formUnion with Array (0% overlap)",
+                "Set<Int> formUnion with Self (0% overlap)",
+                "Set<Int> formUnion with Array (0% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formUnion (25% overlap)",
+              "tasks": [
+                "TreeSet<Int> formUnion with Self (25% overlap, distinct)",
+                "TreeSet<Int> formUnion with Self (25% overlap, shared)",
+                "TreeSet<Int> formUnion with Array (25% overlap)",
+                "Set<Int> formUnion with Self (25% overlap)",
+                "Set<Int> formUnion with Array (25% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formUnion (50% overlap)",
+              "tasks": [
+                "TreeSet<Int> formUnion with Self (50% overlap, distinct)",
+                "TreeSet<Int> formUnion with Self (50% overlap, shared)",
+                "TreeSet<Int> formUnion with Array (50% overlap)",
+                "Set<Int> formUnion with Self (50% overlap)",
+                "Set<Int> formUnion with Array (50% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formUnion (75% overlap)",
+              "tasks": [
+                "TreeSet<Int> formUnion with Self (75% overlap, distinct)",
+                "TreeSet<Int> formUnion with Self (75% overlap, shared)",
+                "TreeSet<Int> formUnion with Array (75% overlap)",
+                "Set<Int> formUnion with Self (75% overlap)",
+                "Set<Int> formUnion with Array (75% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formUnion (100% overlap)",
+              "tasks": [
+                "TreeSet<Int> formUnion with Self (100% overlap, distinct)",
+                "TreeSet<Int> formUnion with Self (100% overlap, shared)",
+                "TreeSet<Int> formUnion with Array (100% overlap)",
+                "Set<Int> formUnion with Self (100% overlap)",
+                "Set<Int> formUnion with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "intersection (0% overlap)",
+              "tasks": [
+                "TreeSet<Int> intersection with Self (0% overlap, distinct)",
+                "TreeSet<Int> intersection with Self (0% overlap, shared)",
+                "TreeSet<Int> intersection with Array (0% overlap)",
+                "Set<Int> intersection with Self (0% overlap)",
+                "Set<Int> intersection with Array (0% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "intersection (25% overlap)",
+              "tasks": [
+                "TreeSet<Int> intersection with Self (25% overlap, distinct)",
+                "TreeSet<Int> intersection with Self (25% overlap, shared)",
+                "TreeSet<Int> intersection with Array (25% overlap)",
+                "Set<Int> intersection with Self (25% overlap)",
+                "Set<Int> intersection with Array (25% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "intersection (50% overlap)",
+              "tasks": [
+                "TreeSet<Int> intersection with Self (50% overlap, distinct)",
+                "TreeSet<Int> intersection with Self (50% overlap, shared)",
+                "TreeSet<Int> intersection with Array (50% overlap)",
+                "Set<Int> intersection with Self (50% overlap)",
+                "Set<Int> intersection with Array (50% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "intersection (75% overlap)",
+              "tasks": [
+                "TreeSet<Int> intersection with Self (75% overlap, distinct)",
+                "TreeSet<Int> intersection with Self (75% overlap, shared)",
+                "TreeSet<Int> intersection with Array (75% overlap)",
+                "Set<Int> intersection with Self (75% overlap)",
+                "Set<Int> intersection with Array (75% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "intersection (100% overlap)",
+              "tasks": [
+                "TreeSet<Int> intersection with Self (100% overlap, distinct)",
+                "TreeSet<Int> intersection with Self (100% overlap, shared)",
+                "TreeSet<Int> intersection with Array (100% overlap)",
+                "Set<Int> intersection with Self (100% overlap)",
+                "Set<Int> intersection with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "formIntersection (0% overlap)",
+              "tasks": [
+                "TreeSet<Int> formIntersection with Self (0% overlap, distinct)",
+                "TreeSet<Int> formIntersection with Self (0% overlap, shared)",
+                "TreeSet<Int> formIntersection with Array (0% overlap)",
+                "Set<Int> formIntersection with Self (0% overlap)",
+                "Set<Int> formIntersection with Array (0% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formIntersection (25% overlap)",
+              "tasks": [
+                "TreeSet<Int> formIntersection with Self (25% overlap, distinct)",
+                "TreeSet<Int> formIntersection with Self (25% overlap, shared)",
+                "TreeSet<Int> formIntersection with Array (25% overlap)",
+                "Set<Int> formIntersection with Self (25% overlap)",
+                "Set<Int> formIntersection with Array (25% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formIntersection (50% overlap)",
+              "tasks": [
+                "TreeSet<Int> formIntersection with Self (50% overlap, distinct)",
+                "TreeSet<Int> formIntersection with Self (50% overlap, shared)",
+                "TreeSet<Int> formIntersection with Array (50% overlap)",
+                "Set<Int> formIntersection with Self (50% overlap)",
+                "Set<Int> formIntersection with Array (50% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formIntersection (75% overlap)",
+              "tasks": [
+                "TreeSet<Int> formIntersection with Self (75% overlap, distinct)",
+                "TreeSet<Int> formIntersection with Self (75% overlap, shared)",
+                "TreeSet<Int> formIntersection with Array (75% overlap)",
+                "Set<Int> formIntersection with Self (75% overlap)",
+                "Set<Int> formIntersection with Array (75% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formIntersection (100% overlap)",
+              "tasks": [
+                "TreeSet<Int> formIntersection with Self (100% overlap, distinct)",
+                "TreeSet<Int> formIntersection with Self (100% overlap, shared)",
+                "TreeSet<Int> formIntersection with Array (100% overlap)",
+                "Set<Int> formIntersection with Self (100% overlap)",
+                "Set<Int> formIntersection with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "symmetricDifference (0% overlap)",
+              "tasks": [
+                "TreeSet<Int> symmetricDifference with Self (0% overlap, distinct)",
+                "TreeSet<Int> symmetricDifference with Self (0% overlap, shared)",
+                "TreeSet<Int> symmetricDifference with Array (0% overlap)",
+                "Set<Int> symmetricDifference with Self (0% overlap)",
+                "Set<Int> symmetricDifference with Array (0% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "symmetricDifference (25% overlap)",
+              "tasks": [
+                "TreeSet<Int> symmetricDifference with Self (25% overlap, distinct)",
+                "TreeSet<Int> symmetricDifference with Self (25% overlap, shared)",
+                "TreeSet<Int> symmetricDifference with Array (25% overlap)",
+                "Set<Int> symmetricDifference with Self (25% overlap)",
+                "Set<Int> symmetricDifference with Array (25% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "symmetricDifference (50% overlap)",
+              "tasks": [
+                "TreeSet<Int> symmetricDifference with Self (50% overlap, distinct)",
+                "TreeSet<Int> symmetricDifference with Self (50% overlap, shared)",
+                "TreeSet<Int> symmetricDifference with Array (50% overlap)",
+                "Set<Int> symmetricDifference with Self (50% overlap)",
+                "Set<Int> symmetricDifference with Array (50% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "symmetricDifference (75% overlap)",
+              "tasks": [
+                "TreeSet<Int> symmetricDifference with Self (75% overlap, distinct)",
+                "TreeSet<Int> symmetricDifference with Self (75% overlap, shared)",
+                "TreeSet<Int> symmetricDifference with Array (75% overlap)",
+                "Set<Int> symmetricDifference with Self (75% overlap)",
+                "Set<Int> symmetricDifference with Array (75% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "symmetricDifference (100% overlap)",
+              "tasks": [
+                "TreeSet<Int> symmetricDifference with Self (100% overlap, distinct)",
+                "TreeSet<Int> symmetricDifference with Self (100% overlap, shared)",
+                "TreeSet<Int> symmetricDifference with Array (100% overlap)",
+                "Set<Int> symmetricDifference with Self (100% overlap)",
+                "Set<Int> symmetricDifference with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference (0% overlap)",
+              "tasks": [
+                "TreeSet<Int> formSymmetricDifference with Self (0% overlap, distinct)",
+                "TreeSet<Int> formSymmetricDifference with Self (0% overlap, shared)",
+                "TreeSet<Int> formSymmetricDifference with Array (0% overlap)",
+                "Set<Int> formSymmetricDifference with Self (0% overlap)",
+                "Set<Int> formSymmetricDifference with Array (0% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference (25% overlap)",
+              "tasks": [
+                "TreeSet<Int> formSymmetricDifference with Self (25% overlap, distinct)",
+                "TreeSet<Int> formSymmetricDifference with Self (25% overlap, shared)",
+                "TreeSet<Int> formSymmetricDifference with Array (25% overlap)",
+                "Set<Int> formSymmetricDifference with Self (25% overlap)",
+                "Set<Int> formSymmetricDifference with Array (25% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference (50% overlap)",
+              "tasks": [
+                "TreeSet<Int> formSymmetricDifference with Self (50% overlap, distinct)",
+                "TreeSet<Int> formSymmetricDifference with Self (50% overlap, shared)",
+                "TreeSet<Int> formSymmetricDifference with Array (50% overlap)",
+                "Set<Int> formSymmetricDifference with Self (50% overlap)",
+                "Set<Int> formSymmetricDifference with Array (50% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference (75% overlap)",
+              "tasks": [
+                "TreeSet<Int> formSymmetricDifference with Self (75% overlap, distinct)",
+                "TreeSet<Int> formSymmetricDifference with Self (75% overlap, shared)",
+                "TreeSet<Int> formSymmetricDifference with Array (75% overlap)",
+                "Set<Int> formSymmetricDifference with Self (75% overlap)",
+                "Set<Int> formSymmetricDifference with Array (75% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference (100% overlap)",
+              "tasks": [
+                "TreeSet<Int> formSymmetricDifference with Self (100% overlap, distinct)",
+                "TreeSet<Int> formSymmetricDifference with Self (100% overlap, shared)",
+                "TreeSet<Int> formSymmetricDifference with Array (100% overlap)",
+                "Set<Int> formSymmetricDifference with Self (100% overlap)",
+                "Set<Int> formSymmetricDifference with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "subtracting (0% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtracting Self (0% overlap, distinct)",
+                "TreeSet<Int> subtracting Self (0% overlap, shared)",
+                "TreeSet<Int> subtracting Array (0% overlap)",
+                "Set<Int> subtracting Self (0% overlap)",
+                "Set<Int> subtracting Array (0% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtracting (25% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtracting Self (25% overlap, distinct)",
+                "TreeSet<Int> subtracting Self (25% overlap, shared)",
+                "TreeSet<Int> subtracting Array (25% overlap)",
+                "Set<Int> subtracting Self (25% overlap)",
+                "Set<Int> subtracting Array (25% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtracting (50% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtracting Self (50% overlap, distinct)",
+                "TreeSet<Int> subtracting Self (50% overlap, shared)",
+                "TreeSet<Int> subtracting Array (50% overlap)",
+                "Set<Int> subtracting Self (50% overlap)",
+                "Set<Int> subtracting Array (50% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtracting (75% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtracting Self (75% overlap, distinct)",
+                "TreeSet<Int> subtracting Self (75% overlap, shared)",
+                "TreeSet<Int> subtracting Array (75% overlap)",
+                "Set<Int> subtracting Self (75% overlap)",
+                "Set<Int> subtracting Array (75% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtracting (100% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtracting Self (100% overlap, distinct)",
+                "TreeSet<Int> subtracting Self (100% overlap, shared)",
+                "TreeSet<Int> subtracting Array (100% overlap)",
+                "Set<Int> subtracting Self (100% overlap)",
+                "Set<Int> subtracting Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "subtract (0% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtract Self (0% overlap, distinct)",
+                "TreeSet<Int> subtract Self (0% overlap, shared)",
+                "TreeSet<Int> subtract Array (0% overlap)",
+                "Set<Int> subtract Self (0% overlap)",
+                "Set<Int> subtract Array (0% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtract (25% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtract Self (25% overlap, distinct)",
+                "TreeSet<Int> subtract Self (25% overlap, shared)",
+                "TreeSet<Int> subtract Array (25% overlap)",
+                "Set<Int> subtract Self (25% overlap)",
+                "Set<Int> subtract Array (25% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtract (50% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtract Self (50% overlap, distinct)",
+                "TreeSet<Int> subtract Self (50% overlap, shared)",
+                "TreeSet<Int> subtract Array (50% overlap)",
+                "Set<Int> subtract Self (50% overlap)",
+                "Set<Int> subtract Array (50% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtract (75% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtract Self (75% overlap, distinct)",
+                "TreeSet<Int> subtract Self (75% overlap, shared)",
+                "TreeSet<Int> subtract Array (75% overlap)",
+                "Set<Int> subtract Self (75% overlap)",
+                "Set<Int> subtract Array (75% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtract (100% overlap)",
+              "tasks": [
+                "TreeSet<Int> subtract Self (100% overlap, distinct)",
+                "TreeSet<Int> subtract Self (100% overlap, shared)",
+                "TreeSet<Int> subtract Array (100% overlap)",
+                "Set<Int> subtract Self (100% overlap)",
+                "Set<Int> subtract Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+      ]
+    },
+  ]
+}

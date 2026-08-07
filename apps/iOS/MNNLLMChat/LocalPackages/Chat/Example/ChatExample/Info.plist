@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>App Uses Non-Exempt Encryption</key>
+		<false/>
+		<key>CFBundleIconName</key>
+		<string>AppIcon</string>
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+    </dict>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Grant access to photo library to be able to select photos</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Grant access to camera to be able to take photos and videos</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Grant access to microphone to be able to take videos</string>
+</dict>
+</plist>

@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=@CMAKE_INSTALL_PREFIX@
+libdir=@CMAKE_INSTALL_PREFIX@/@libdir@
+includedir=@CMAKE_INSTALL_PREFIX@/include
+
+Name: libcmark-gfm
+Description: CommonMark parsing, rendering, and manipulation with GitHub Flavored Markdown extensions
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lcmark-gfm -lcmark-gfm-extensions
+Cflags: -I${includedir}

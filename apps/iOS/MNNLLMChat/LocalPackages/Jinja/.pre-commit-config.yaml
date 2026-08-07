@@ -1,0 +1,6 @@
+repos:
+- repo: https://github.com/slessans/pre-commit-swift-format
+  rev: "fd627de92bdf84a75c924ed95691336d14e94cf1"
+  hooks:
+    - id: swift-format
+      args: ["--configuration", ".swift-format"]

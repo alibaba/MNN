@@ -1,0 +1,61 @@
+name: build
+
+on:
+  push:
+  pull_request:
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        macos:
+          - 14
+        xcode:
+          - latest-stable
+    runs-on: macos-${{ matrix.macos }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Build and Test
+        run: |
+          xcodebuild -scheme "LRUCache" -sdk macosx clean build test -enableCodeCoverage YES -derivedDataPath Build/
+          cd Build/Build/ProfileData
+          cd $(ls -d */|head -n 1)
+          directory=${PWD##*/}
+          pathCoverage=Build/Build/ProfileData/${directory}/Coverage.profdata
+          cd ../../../../
+          xcrun llvm-cov export -format="lcov" -instr-profile $pathCoverage Build/Build/Products/Debug/LRUCache.framework/LRUCache > info.lcov
+      - name: Codecov
+        uses: codecov/codecov-action@v2
+        with:
+          # the token is optional for a public repo, but including it anyway
+          token: 5bfd6ece-264f-4cef-8dbf-4c5cfa0f87aa
+          env_vars: MD_APPLE_SDK_ROOT,RUNNER_OS,RUNNER_ARCH
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        swiftver:
+          - swift:5.7
+          - swiftlang/swift:nightly-main
+        swiftos:
+          - focal
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ format('{0}-{1}', matrix.swiftver, matrix.swiftos) }}
+      options: --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --security-opt apparmor=unconfined
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Build and Test
+        run: swift test --enable-test-discovery
+
+  swiftwasm_test_5_9:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: swiftwasm/swiftwasm-action@v5.9
+        with:
+          shell-action: carton test
+

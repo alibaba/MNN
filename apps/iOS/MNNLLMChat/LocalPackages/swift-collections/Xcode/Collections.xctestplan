@@ -1,0 +1,25 @@
+{
+  "configurations" : [
+    {
+      "id" : "18C3508F-98DB-45BE-9CFC-5159D79BA600",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Collections.xcodeproj",
+        "identifier" : "7DE91B2D29CA6721004483EB",
+        "name" : "CollectionsTests"
+      }
+    }
+  ],
+  "version" : 1
+}

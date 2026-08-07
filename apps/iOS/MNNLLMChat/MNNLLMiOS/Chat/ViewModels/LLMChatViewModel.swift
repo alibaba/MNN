@@ -262,6 +262,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     /// Sends a draft message to the LLM for processing
     /// - Parameter draft: The draft message to send
     func sendToLLM(draft: DraftMessage) {
+        guard !chatInputUnavilable else { return }
         NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
 
         Task {
@@ -603,119 +604,154 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                 return
             }
 
-            // First, send the empty message asynchronously
-            let emptyMessage = DraftMessage(
-                text: "",
-                thinkText: "",
+            await runLLMInference(content: content, images: imageDictionary, useMultimodalAPI: shouldUseMultimodalAPI)
+        }
+    }
+
+    /// Runs streaming inference for already-prepared content and appends the result to the chat.
+    /// Shared by the normal send flow and preset prompts.
+    func runLLMInference(content: String, images: [String: UIImage], useMultimodalAPI: Bool) async {
+        await llmState.setProcessing(true)
+
+        // First, send the empty message asynchronously
+        let emptyMessage = DraftMessage(
+            text: "",
+            thinkText: "",
+            medias: [],
+            recording: nil,
+            replyMessage: nil,
+            createdAt: Date()
+        )
+
+        do {
+            try await self.send(draft: emptyMessage, userType: .assistant)
+        } catch {
+            print("Error sending empty message: \(error)")
+            await llmState.setProcessing(false)
+            return
+        }
+
+        // Then update UI state on main actor
+        await MainActor.run {
+            self.isProcessing = true
+            if let lastMessage = self.messages.last {
+                self.currentStreamingMessageId = lastMessage.id
+
+                // Create and start state manager
+                let stateManager = StreamingMessageStateManager(messageId: lastMessage.id)
+                self.streamingStates[lastMessage.id] = stateManager
+                stateManager.startStreaming()
+            }
+        }
+
+        let convertedContent = self.convertDeepSeekMutliChat(content: content)
+
+        let outputHandler: (String) -> Void = { [weak self] output in
+            guard let self = self else { return }
+
+            if output.contains("<eop>") {
+                Task {
+                    await UIUpdateOptimizer.shared.forceFlush { [weak self] finalOutput in
+                        guard let self = self else { return }
+                        if !finalOutput.isEmpty {
+                            Task {
+                                do {
+                                    try await self.send(draft: DraftMessage(
+                                        text: finalOutput,
+                                        thinkText: "",
+                                        medias: [],
+                                        recording: nil,
+                                        replyMessage: nil,
+                                        createdAt: Date()
+                                    ), userType: .assistant)
+                                } catch {
+                                    print("Error sending final output message: \(error)")
+                                }
+                            }
+                        }
+                    }
+
+                    await MainActor.run {
+                        // Mark model output as complete
+                        if let messageId = self.currentStreamingMessageId,
+                           let stateManager = self.streamingStates[messageId]
+                        {
+                            stateManager.markOutputComplete()
+                        }
+                        // currentStreamingMessageId will be cleared when animation completes via callback
+
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
+                        }
+                    }
+                    await self.llmState.setProcessing(false)
+                }
+                return
+            }
+
+            Task {
+                await UIUpdateOptimizer.shared.addUpdate(output) { [weak self] output in
+                    guard let self = self else { return }
+                    Task {
+                        do {
+                            try await self.send(draft: DraftMessage(
+                                text: output,
+                                thinkText: "",
+                                medias: [],
+                                recording: nil,
+                                replyMessage: nil,
+                                createdAt: Date()
+                            ), userType: .assistant)
+                        } catch {
+                            print("Error sending streaming message: \(error)")
+                        }
+                    }
+                }
+            }
+        }
+
+        if useMultimodalAPI {
+            await llmState.processMultimodalContent(
+                convertedContent,
+                images: images,
+                llm: self.llm,
+                showPerformance: true,
+                completion: outputHandler
+            )
+        } else {
+            await llmState.processContent(
+                convertedContent,
+                llm: self.llm,
+                showPerformance: true,
+                completion: outputHandler
+            )
+        }
+    }
+
+    /// Sends a preset prompt (optionally with a bundled image) through the chat pipeline.
+    func sendPreset(_ preset: PresetPrompt) {
+        guard !chatInputUnavilable else { return }
+
+        // Each preset is an independent turn: clean engine history keeps the
+        // prefill/decode stats attributable to this prompt alone.
+        llm?.clearChatHistory()
+
+        if let imagePath = preset.imageBundlePath {
+            let imageURL = URL(fileURLWithPath: imagePath)
+            let content = "<img>\(imagePath)</img>" + preset.text
+            Task {
+                await interactor.sendPresetMessage(text: preset.text, imageURL: imageURL)
+                await runLLMInference(content: content, images: [:], useMultimodalAPI: true)
+            }
+        } else {
+            sendToLLM(draft: DraftMessage(
+                text: preset.text,
+                thinkText: nil,
                 medias: [],
                 recording: nil,
                 replyMessage: nil,
                 createdAt: Date()
-            )
-
-            do {
-                try await self.send(draft: emptyMessage, userType: .assistant)
-            } catch {
-                print("Error sending empty message: \(error)")
-                await llmState.setProcessing(false)
-                return
-            }
-
-            // Then update UI state on main actor
-            await MainActor.run {
-                self.isProcessing = true
-                if let lastMessage = self.messages.last {
-                    self.currentStreamingMessageId = lastMessage.id
-
-                    // Create and start state manager
-                    let stateManager = StreamingMessageStateManager(messageId: lastMessage.id)
-                    self.streamingStates[lastMessage.id] = stateManager
-                    stateManager.startStreaming()
-                }
-            }
-
-            let convertedContent = self.convertDeepSeekMutliChat(content: content)
-
-            let outputHandler: (String) -> Void = { [weak self] output in
-                guard let self = self else { return }
-
-                if output.contains("<eop>") {
-                    Task {
-                        await UIUpdateOptimizer.shared.forceFlush { [weak self] finalOutput in
-                            guard let self = self else { return }
-                            if !finalOutput.isEmpty {
-                                Task {
-                                    do {
-                                        try await self.send(draft: DraftMessage(
-                                            text: finalOutput,
-                                            thinkText: "",
-                                            medias: [],
-                                            recording: nil,
-                                            replyMessage: nil,
-                                            createdAt: Date()
-                                        ), userType: .assistant)
-                                    } catch {
-                                        print("Error sending final output message: \(error)")
-                                    }
-                                }
-                            }
-                        }
-
-                        await MainActor.run {
-                            // Mark model output as complete
-                            if let messageId = self.currentStreamingMessageId,
-                               let stateManager = self.streamingStates[messageId]
-                            {
-                                stateManager.markOutputComplete()
-                            }
-                            // currentStreamingMessageId will be cleared when animation completes via callback
-
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
-                            }
-                        }
-                        await self.llmState.setProcessing(false)
-                    }
-                    return
-                }
-
-                Task {
-                    await UIUpdateOptimizer.shared.addUpdate(output) { [weak self] output in
-                        guard let self = self else { return }
-                        Task {
-                            do {
-                                try await self.send(draft: DraftMessage(
-                                    text: output,
-                                    thinkText: "",
-                                    medias: [],
-                                    recording: nil,
-                                    replyMessage: nil,
-                                    createdAt: Date()
-                                ), userType: .assistant)
-                            } catch {
-                                print("Error sending streaming message: \(error)")
-                            }
-                        }
-                    }
-                }
-            }
-
-            if shouldUseMultimodalAPI {
-                await llmState.processMultimodalContent(
-                    convertedContent,
-                    images: imageDictionary,
-                    llm: self.llm,
-                    showPerformance: true,
-                    completion: outputHandler
-                )
-            } else {
-                await llmState.processContent(
-                    convertedContent,
-                    llm: self.llm,
-                    showPerformance: true,
-                    completion: outputHandler
-                )
-            }
+            ))
         }
     }
 

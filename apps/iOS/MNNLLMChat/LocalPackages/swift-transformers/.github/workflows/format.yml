@@ -1,0 +1,49 @@
+name: Swift Format
+on:
+  pull_request:
+    paths:
+      - '**.swift'
+  workflow_dispatch:
+jobs:
+  swift-format:
+    name: Check Swift Formatting
+    runs-on: macos-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install SwiftFormat
+        run: brew install swiftformat
+        
+      - name: Check formatting
+        run: |
+          found_issues=false
+          files_with_issues=()
+          
+          while IFS= read -r file; do
+            if ! swiftformat --config .swiftformat --lint "$file"; then
+              found_issues=true
+              files_with_issues+=("$file")
+              echo "❌ Formatting issues found in: $file"
+            fi
+          done < <(find . -name "*.swift" -type f)
+          
+          if [ "$found_issues" = true ]; then
+            echo "❌ The following files need formatting:"
+            printf '%s\n' "${files_with_issues[@]}"
+            exit 1
+          else
+            echo "✅ All Swift files are properly formatted!"
+          fi
+          
+      - name: Suggest fixes (if check fails)
+        if: failure()
+        run: |
+          echo "### Here's how to fix the formatting locally:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# Install SwiftFormat if you haven't already" >> $GITHUB_STEP_SUMMARY
+          echo "brew install swiftformat" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Format all Swift files" >> $GITHUB_STEP_SUMMARY
+          echo 'swiftformat --config .swiftformat .' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Discussion
+    url: https://github.com/gonzalezreal/swift-markdown-ui/discussions
+    about: MarkdownUI Q&A, ideas, and more
+  - name: Documentation
+    url: https://swiftpackageindex.com/gonzalezreal/swift-markdown-ui/2.0.0/documentation/markdownui
+    about: MarkdownUI documentation

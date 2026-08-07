@@ -1,0 +1,13 @@
+# Lines starting with '#' are comments.
+# Each line is a case-sensitive file pattern followed by one or more owners.
+# Order is important. The last matching pattern has the most precedence.
+# More information: https://docs.github.com/en/articles/about-code-owners
+#
+# Please mirror the repository's file hierarchy in case-sensitive lexicographic
+# order.
+
+# Default owners
+*                       @lorentey
+
+# Swift CI configuration files
+.swiftci/               @shahmishal
