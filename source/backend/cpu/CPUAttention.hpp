@@ -33,6 +33,11 @@ protected:
                                     bool outputC4, bool directC4Output);
     virtual CPUAttention* createClone(Backend* backend) const;
 
+#ifdef MNN_SME2
+    bool mUseMixedSmeNeonMatMul = false;
+    int mSmeThreadCount = 0;
+    int mSmeHeadCount = 0;
+#endif
     bool mKVCache        = true;
     bool mIsKVShared = false;
     int mBytes = 4;

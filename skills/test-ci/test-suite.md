@@ -60,6 +60,10 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
 * Combined stdout/stderr for every stage is saved under
   `logs/test-<UTC-timestamp>/<stage>.log` — read the named log of a failing
   stage for the trailing output. `rc=137` ≈ OOM-kill, `rc=139` ≈ SIGSEGV.
+* When a remote transport has a shorter timeout than the device workload, a
+  blank or truncated client response does not prove that the process exited.
+  Write results on the device, then poll the process and result-file size
+  before deciding whether the test completed.
 
 ## Environment variables
 
