@@ -12,6 +12,15 @@
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 
+#if defined(__riscv) && defined(MNN_USE_RVV)
+extern void CPUQuantizedAdd_RVV(const uint8_t* input1Data, const uint8_t* input2Data, uint8_t* outputData, size_t size,
+                                int32_t input1Offset, int32_t input2Offset, int32_t outputOffset,
+                                int32_t leftShiftResult1, int32_t leftShiftResult2, int32_t input1Multiplier,
+                                int32_t input2Multiplier, int32_t rightShift1, int32_t rightShift2,
+                                int32_t leftShiftOut, int32_t outputMultiplier, int32_t rightShiftOut,
+                                int32_t outputActivationMin, int32_t outputActivationMax);
+#endif
+
 namespace MNN {
 
 CPUQuantizedAdd::CPUQuantizedAdd(Backend *backend, const Op *op) : Execution(backend) {
@@ -87,6 +96,25 @@ ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
     int size = inputs[0]->batch()*inputs[0]->height()*inputs[0]->width()*ROUND_UP(outputChannels, 4);
     int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
     int countUnit    = UP_DIV(size, threadNumber);
+
+#if defined(__riscv) && defined(MNN_USE_RVV)
+    if (((CPUBackend*)backend())->functions()->supportRVV) {
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            int realDstCount = (int)ALIMIN(size - tId * countUnit, countUnit);
+            uint8_t* curInput1Data = input1Data + tId * countUnit;
+            uint8_t* curInput2Data = input2Data + tId * countUnit;
+            uint8_t* curOutputData = outputData + tId * countUnit;
+            if (realDstCount > 0) {
+                CPUQuantizedAdd_RVV(curInput1Data, curInput2Data, curOutputData, (size_t)realDstCount, mInput1Offset,
+                                    mInput2Offset, mOutputOffset, mLeftShiftResult1, mLeftShiftResult2,
+                                    mInput1Multiplier, mInput2Multiplier, mRightShift1, mRightShift2, mLeftShiftOut,
+                                    mOutputMultiplier, mRightShiftOut, mOutputActivationMin, mOutputActivationMax);
+            }
+        }
+        MNN_CONCURRENCY_END();
+        return NO_ERROR;
+    }
+#endif
 
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
         int realDstCount       = (int)ALIMIN(size - tId * countUnit, countUnit);
