@@ -14,9 +14,8 @@ int main(int argc, char *argv[]) {
     // parser command line arg
     auto res = MNN::Cli::initializeMNNConvertArgs(modelPath, argc, argv);
     if (!res) {
-        return 0;
+        return modelPath.cliExitCode;
     }
     // Convert
-    MNN::Cli::convertModel(modelPath);
-    return 0;
+    return MNN::Cli::convertModel(modelPath) ? 0 : 1;
 }

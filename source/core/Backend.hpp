@@ -76,6 +76,9 @@ struct RuntimeHint {
     // Use CPU Ids
     std::vector<int> cpuIds;
 
+    // Enable backend-side profiling export for runtimes that support it.
+    bool enableBackendProfile = false;
+
     // Division ration between SME and NEON when runtime threads>=4
     // Default: 41, which means that in LLM inference,
     // during the Prefill stage the workload
@@ -228,6 +231,7 @@ public:
     virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
         return false;
     }
+    virtual bool onGetSessionInfo(int code, void* ptr) const;
 
     /**
      * @brief clear all dynamic buffers.
@@ -285,6 +289,7 @@ private:
 /** Each backend belong to a runtime*/
 class Runtime : public NonCopyable {
 public:
+    static constexpr int kSessionInfoBackendProfile = 5;
     /**
      Origin Op -> (Compiler) -> New Op -> Backend
      Default use Compiler_Geometry, Origin Op -> Compiler_Geometry -> Little Op
@@ -305,6 +310,20 @@ public:
     }
     const RuntimeHint& hint() const {
         return mHint;
+    }
+    void setLastBackendProfile(std::string profile) const {
+        mLastBackendProfile = std::move(profile);
+    }
+    bool onGetRuntimeInfo(int code, void* ptr) const {
+        if (code == kSessionInfoBackendProfile) {
+            auto dst = reinterpret_cast<const char**>(ptr);
+            if (nullptr == dst) {
+                return false;
+            }
+            *dst = mLastBackendProfile.empty() ? nullptr : mLastBackendProfile.c_str();
+            return true;
+        }
+        return false;
     }
 
     virtual CompilerType onGetCompilerType() const {
@@ -406,6 +425,7 @@ public:
 private:
     std::future<int> mFuture;
     RuntimeHint mHint;
+    mutable std::string mLastBackendProfile;
 };
 
 /** abstract Runtime register */
@@ -439,6 +459,14 @@ protected:
      */
     RuntimeCreator() = default;
 };
+
+inline bool Backend::onGetSessionInfo(int code, void* ptr) const {
+    auto rt = const_cast<Backend*>(this)->getRuntime();
+    if (nullptr == rt) {
+        return false;
+    }
+    return rt->onGetRuntimeInfo(code, ptr);
+}
 
 /**
  * @brief get registered backend creator for given forward type.
