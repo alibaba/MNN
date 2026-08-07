@@ -22,60 +22,51 @@ static const char* gWeightTrans = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct weight_shape {
-    int group;
-    int goc;
-    int goc_4;
-    int gic;
-    int gic_4;
-    int kh;
-    int kw;
+int group;
+int goc;
+int goc_4;
+int gic;
+int gic_4;
+int kh;
+int kw;
 };
 kernel void int4_weight_transform_fast(const device uint8_t* src [[buffer(0)]],
-    device uint8_t* dst [[buffer(1)]],
-    constant weight_shape &uConstant [[buffer(2)]], 
-    uint3 gid [[thread_position_in_grid]]
+device uint8_t* dst [[buffer(1)]],
+constant weight_shape &uConstant [[buffer(2)]],
+uint3 gid [[thread_position_in_grid]]
 ) {
-    if ((int)gid.x < uConstant.goc && (int)gid.y < uConstant.gic) {
-        auto zo = gid.x / 4, ro = gid.x % 4;
-        auto zi = gid.y / 4, ri = gid.y % 4;
-
-        dst[((zo * uConstant.gic_4 + zi) * 16 + ro * 4 + ri) / 2] = src[(gid.x * uConstant.gic + gid.y) / 2];
-    }
+if ((int)gid.x < uConstant.goc && (int)gid.y < uConstant.gic) {
+auto zo = gid.x / 4, ro = gid.x % 4;
+auto zi = gid.y / 4, ri = gid.y % 4;
+dst[((zo * uConstant.gic_4 + zi) * 16 + ro * 4 + ri) / 2] = src[(gid.x * uConstant.gic + gid.y) / 2];
 }
-
+}
 kernel void int4_weight_transform_c4_fast(const device uint16_t* src [[buffer(0)]],
-    device uint16_t* dst [[buffer(1)]],
-    constant weight_shape &uConstant [[buffer(2)]], 
-    uint3 gid [[thread_position_in_grid]]
+device uint16_t* dst [[buffer(1)]],
+constant weight_shape &uConstant [[buffer(2)]],
+uint3 gid [[thread_position_in_grid]]
 ) {
-    if ((int)gid.x < uConstant.goc && (int)gid.y < uConstant.gic_4) {
-        auto zo = gid.x / 4, ro = gid.x % 4;
-
-        dst[(zo * uConstant.gic_4 + gid.y) * 4 + ro] = src[gid.x * uConstant.gic_4 + gid.y];
-    }
+if ((int)gid.x < uConstant.goc && (int)gid.y < uConstant.gic_4) {
+auto zo = gid.x / 4, ro = gid.x % 4;
+dst[(zo * uConstant.gic_4 + gid.y) * 4 + ro] = src[gid.x * uConstant.gic_4 + gid.y];
 }
-
+}
 kernel void weight_transform_common(const device IType* src [[buffer(0)]],
-    device OType* dst [[buffer(1)]],
-    constant weight_shape &uConstant [[buffer(2)]], 
-    uint3 gid [[thread_position_in_grid]]
+device OType* dst [[buffer(1)]],
+constant weight_shape &uConstant [[buffer(2)]],
+uint3 gid [[thread_position_in_grid]]
 ) {
-    if ((int)gid.x < uConstant.group * uConstant.goc && (int)gid.y < uConstant.gic && (int)gid.z < uConstant.kh * uConstant.kw) {
-
-        auto g = gid.x / uConstant.goc;
-        auto goc = gid.x % uConstant.goc;
-        auto zo = goc / 4, ro = goc % 4;
-        auto zi = gid.y / 4, ri = gid.y % 4;
-        auto h = gid.z / uConstant.kw;
-        auto w = gid.z % uConstant.kw;
-
-        // to   [g][o/4][i/4][h][w][16]
-        // from [g][o][i][h][w]
-        int dx = g * uConstant.goc_4 * uConstant.gic_4 * uConstant.kh * uConstant.kw * 16 + zo * uConstant.gic_4 * uConstant.kh * uConstant.kw * 16 + ro * 4 + zi * uConstant.kh * uConstant.kw * 16 + ri + (h * uConstant.kw + w) * 16;
-        int sx = (gid.x * uConstant.gic + gid.y) * uConstant.kh * uConstant.kw + gid.z;
-
-        dst[dx] = (OType)src[sx];
-    }
+if ((int)gid.x < uConstant.group * uConstant.goc && (int)gid.y < uConstant.gic && (int)gid.z < uConstant.kh * uConstant.kw) {
+auto g = gid.x / uConstant.goc;
+auto goc = gid.x % uConstant.goc;
+auto zo = goc / 4, ro = goc % 4;
+auto zi = gid.y / 4, ri = gid.y % 4;
+auto h = gid.z / uConstant.kw;
+auto w = gid.z % uConstant.kw;
+int dx = g * uConstant.goc_4 * uConstant.gic_4 * uConstant.kh * uConstant.kw * 16 + zo * uConstant.gic_4 * uConstant.kh * uConstant.kw * 16 + ro * 4 + zi * uConstant.kh * uConstant.kw * 16 + ri + (h * uConstant.kw + w) * 16;
+int sx = (gid.x * uConstant.gic + gid.y) * uConstant.kh * uConstant.kw + gid.z;
+dst[dx] = (OType)src[sx];
+}
 }
 )metal";
     

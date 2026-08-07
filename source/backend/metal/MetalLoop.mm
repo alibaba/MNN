@@ -18,153 +18,132 @@ namespace MNN {
 static const char* gMatMulUnitTemplate = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
-
 using namespace metal;
-
 struct constBuffer
 {
-    int4 size;
-    int4 stride_o;
-    int4 stride_a;
-    int4 stride_b;
-    int4 stride_c;
-    int4 _step;
-    int4 iter;
+int4 size;
+int4 stride_o;
+int4 stride_a;
+int4 stride_b;
+int4 stride_c;
+int4 _step;
+int4 iter;
 };
-
 kernel void loop_matmul(device T* uOutput [[buffer(0)]], const device T* uInputA [[buffer(1)]], const device T* uInputB [[buffer(2)]],
 #ifdef HAS_BIAS
-    const device T* uInputC [[buffer(3)]],
-    const device int* uOOffset [[buffer(4)]],
-    const device int* uAOffset [[buffer(5)]],
-    const device int* uBOffset [[buffer(6)]],
-    const device int* uCOffset [[buffer(7)]],
-    constant constBuffer& uConstant [[buffer(8)]],
+const device T* uInputC [[buffer(3)]],
+const device int* uOOffset [[buffer(4)]],
+const device int* uAOffset [[buffer(5)]],
+const device int* uBOffset [[buffer(6)]],
+const device int* uCOffset [[buffer(7)]],
+constant constBuffer& uConstant [[buffer(8)]],
 #else
-    const device int* uOOffset [[buffer(3)]],
-    const device int* uAOffset [[buffer(4)]],
-    const device int* uBOffset [[buffer(5)]],
-    constant constBuffer& uConstant [[buffer(6)]],
+const device int* uOOffset [[buffer(3)]],
+const device int* uAOffset [[buffer(4)]],
+const device int* uBOffset [[buffer(5)]],
+constant constBuffer& uConstant [[buffer(6)]],
 #endif
-    uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
-    int e = uConstant.size.x;
-    int l = uConstant.size.y;
-    int h = uConstant.size.z;
-    int n = uConstant.size.w;
-
-    int X0 = gl_GlobalInvocationID.x * 4;
-    int Y0 = gl_GlobalInvocationID.y * 4;
-    int regionOutsideIndex = gl_GlobalInvocationID.z;
-
-    if (X0 >= e || Y0 >= h || regionOutsideIndex >= n) {
-        return;
-    }
-
-    int4 index = int4(regionOutsideIndex, regionOutsideIndex, regionOutsideIndex, regionOutsideIndex);
-    if (uConstant.iter.x >= 0) {
-        index.x = uOOffset[regionOutsideIndex];
-    }
-    if (uConstant.iter.y >= 0) {
-        index.y = uAOffset[regionOutsideIndex];
-    }
-    if (uConstant.iter.z >= 0) {
-        index.z = uBOffset[regionOutsideIndex];
-    }
+int e = uConstant.size.x;
+int l = uConstant.size.y;
+int h = uConstant.size.z;
+int n = uConstant.size.w;
+int X0 = gl_GlobalInvocationID.x * 4;
+int Y0 = gl_GlobalInvocationID.y * 4;
+int regionOutsideIndex = gl_GlobalInvocationID.z;
+if (X0 >= e || Y0 >= h || regionOutsideIndex >= n) {
+return;
+}
+int4 index = int4(regionOutsideIndex, regionOutsideIndex, regionOutsideIndex, regionOutsideIndex);
+if (uConstant.iter.x >= 0) {
+index.x = uOOffset[regionOutsideIndex];
+}
+if (uConstant.iter.y >= 0) {
+index.y = uAOffset[regionOutsideIndex];
+}
+if (uConstant.iter.z >= 0) {
+index.z = uBOffset[regionOutsideIndex];
+}
 #ifdef HAS_BIAS
-    if (uConstant.iter.w >= 0) {
-        index.w = uCOffset[regionOutsideIndex];
-    }
+if (uConstant.iter.w >= 0) {
+index.w = uCOffset[regionOutsideIndex];
+}
 #endif
-
-    int4 offset = index * uConstant._step;
-
-    T value[4][4];
-    for (int y = 0; y < 4; ++y) {
-        for (int x = 0; x < 4; ++x) {
-            value[x][y] = T(0.0);
-        }
-    }
-
-    int aOffset0 = offset.y + uConstant.stride_a.w;
-    int bOffset0 = offset.z + uConstant.stride_b.w;
-
-    int a_idx[4];
-    int b_idx[4];
-    for (int x = 0; x < 4; ++x) {
-        a_idx[x] = min(X0 + x, e - 1) * uConstant.stride_a.x;
-    }
-    for (int y = 0; y < 4; ++y) {
-        b_idx[y] = min(Y0 + y, h - 1) * uConstant.stride_b.z;
-    }
-
-    bool safe = (X0 + 3 < e) && (Y0 + 3 < h);
-
-    if (safe) {
-        for (int i = 0; i < l; i++) {
-            T a[4];
-            T b[4];
-            int a_base = aOffset0 + i * uConstant.stride_a.y;
-            int b_base = bOffset0 + i * uConstant.stride_b.y;
-
-            for(int x = 0; x < 4; ++x) {
-                a[x] = uInputA[a_base + a_idx[x]];
-            }
-
-            for(int y = 0; y < 4; ++y) {
-                b[y] = uInputB[b_base + b_idx[y]];
-            }
-
-            for(int y = 0; y < 4; ++y) {
-                for(int x = 0; x < 4; ++x) {
-                    value[x][y] += a[x] * b[y];
-                }
-            }
-        }
-    } else {
-        for (int i = 0; i < l; i++) {
-            T a[4];
-            T b[4];
-            int a_base = aOffset0 + i * uConstant.stride_a.y;
-            int b_base = bOffset0 + i * uConstant.stride_b.y;
-
-            // Load A with boundary check
-            for(int x = 0; x < 4; ++x) {
-                if (X0 + x < e) {
-                    a[x] = uInputA[a_base + a_idx[x]];
-                } else {
-                    a[x] = T(0.0);
-                }
-            }
-
-            // Load B with boundary check
-            for(int y = 0; y < 4; ++y) {
-                if (Y0 + y < h) {
-                    b[y] = uInputB[b_base + b_idx[y]];
-                } else {
-                    b[y] = T(0.0);
-                }
-            }
-
-            for(int y = 0; y < 4; ++y) {
-                for(int x = 0; x < 4; ++x) {
-                    value[x][y] += a[x] * b[y];
-                }
-            }
-        }
-    }
-
-    for (int y = 0; y < 4; ++y) {
-        if (Y0 + y >= h) continue;
-        for (int x = 0; x < 4; ++x) {
-            if (X0 + x >= e) continue;
-            T outVal = value[x][y];
+int4 offset = index * uConstant._step;
+T value[4][4];
+for (int y = 0; y < 4; ++y) {
+for (int x = 0; x < 4; ++x) {
+value[x][y] = T(0.0);
+}
+}
+int aOffset0 = offset.y + uConstant.stride_a.w;
+int bOffset0 = offset.z + uConstant.stride_b.w;
+int a_idx[4];
+int b_idx[4];
+for (int x = 0; x < 4; ++x) {
+a_idx[x] = min(X0 + x, e - 1) * uConstant.stride_a.x;
+}
+for (int y = 0; y < 4; ++y) {
+b_idx[y] = min(Y0 + y, h - 1) * uConstant.stride_b.z;
+}
+bool safe = (X0 + 3 < e) && (Y0 + 3 < h);
+if (safe) {
+for (int i = 0; i < l; i++) {
+T a[4];
+T b[4];
+int a_base = aOffset0 + i * uConstant.stride_a.y;
+int b_base = bOffset0 + i * uConstant.stride_b.y;
+for(int x = 0; x < 4; ++x) {
+a[x] = uInputA[a_base + a_idx[x]];
+}
+for(int y = 0; y < 4; ++y) {
+b[y] = uInputB[b_base + b_idx[y]];
+}
+for(int y = 0; y < 4; ++y) {
+for(int x = 0; x < 4; ++x) {
+value[x][y] += a[x] * b[y];
+}
+}
+}
+} else {
+for (int i = 0; i < l; i++) {
+T a[4];
+T b[4];
+int a_base = aOffset0 + i * uConstant.stride_a.y;
+int b_base = bOffset0 + i * uConstant.stride_b.y;
+for(int x = 0; x < 4; ++x) {
+if (X0 + x < e) {
+a[x] = uInputA[a_base + a_idx[x]];
+} else {
+a[x] = T(0.0);
+}
+}
+for(int y = 0; y < 4; ++y) {
+if (Y0 + y < h) {
+b[y] = uInputB[b_base + b_idx[y]];
+} else {
+b[y] = T(0.0);
+}
+}
+for(int y = 0; y < 4; ++y) {
+for(int x = 0; x < 4; ++x) {
+value[x][y] += a[x] * b[y];
+}
+}
+}
+}
+for (int y = 0; y < 4; ++y) {
+if (Y0 + y >= h) continue;
+for (int x = 0; x < 4; ++x) {
+if (X0 + x >= e) continue;
+T outVal = value[x][y];
 #ifdef HAS_BIAS
-            outVal += uInputC[offset.w + (Y0 + y) * uConstant.stride_c.z + (X0 + x) * uConstant.stride_c.x];
+outVal += uInputC[offset.w + (Y0 + y) * uConstant.stride_c.z + (X0 + x) * uConstant.stride_c.x];
 #endif
-            uOutput[offset.x + uConstant.stride_o.w + (X0 + x) * uConstant.stride_o.x + (Y0 + y) * uConstant.stride_o.z] = outVal;
-        }
-    }
+uOutput[offset.x + uConstant.stride_o.w + (X0 + x) * uConstant.stride_o.x + (Y0 + y) * uConstant.stride_o.z] = outVal;
+}
+}
 }
 )metal";
 
@@ -306,72 +285,67 @@ static const char* gBlitRegion = R"metal(
 using namespace metal;
 struct constBuffer
 {
-    int4 stride;
-    int4 size;
-    int4 extent;
-    int4 _step;
-    int4 iter;
-    int4 totalSize;
+int4 stride;
+int4 size;
+int4 extent;
+int4 _step;
+int4 iter;
+int4 totalSize;
 };
-
 struct s1
 {
-    int data[1];
+int data[1];
 };
-
 struct s2
 {
-    int data[1];
+int data[1];
 };
-
 struct sourceBuffer
 {
-    T data[1];
+T data[1];
 };
-
 struct s0
 {
-    T data[1];
+T data[1];
 };
-
 kernel void gather_blit(device sourceBuffer& uOutput [[buffer(0)]], const device s0& uInput [[buffer(1)]], const device s1& uSrcOffset [[buffer(2)]], const device s2& uDstOffset [[buffer(3)]], constant constBuffer& uConstant [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
-    int3 posTmp = int3(gl_GlobalInvocationID);
-    if (posTmp.x < uConstant._step.w)
-    {
-        int regionInsideIndex = posTmp.x % uConstant.size.w;
-        int regionOutsideIndex = posTmp.x / uConstant.size.w;
-        int3 pos;
-        pos.x = regionInsideIndex / (uConstant.size.y * uConstant.size.z);
-        int subIndex = regionInsideIndex % (uConstant.size.y * uConstant.size.z);
-        pos.z = subIndex % uConstant.size.z;
-        pos.y = subIndex / uConstant.size.z;
-        int srcBasicOffset;
-        if (uConstant.iter.y > 0)
-        {
-            srcBasicOffset = uConstant._step.y * int(uSrcOffset.data[regionOutsideIndex]);
-        }
-        else
-        {
-            srcBasicOffset = uConstant._step.y * regionOutsideIndex;
-        }
-        int dstBasicOffset;
-        if (uConstant.iter.x > 0)
-        {
-            dstBasicOffset = uConstant._step.x * int(uDstOffset.data[regionOutsideIndex]);
-        }
-        else
-        {
-            dstBasicOffset = uConstant._step.x * regionOutsideIndex;
-        }
-        int srcOffset = (((srcBasicOffset + uConstant.stride.w) + (uConstant.stride.z * pos.z)) + (uConstant.stride.y * pos.y)) + (uConstant.stride.x * pos.x);
-        int dstOffset = (((dstBasicOffset + uConstant.extent.w) + (pos.x * uConstant.extent.x)) + (pos.y * uConstant.extent.y)) + (pos.z * uConstant.extent.z);
-        if(srcOffset >= 0 && srcOffset < uConstant.totalSize.x) {
-            if(dstOffset >= 0 && dstOffset < uConstant.totalSize.y) {
-                uOutput.data[dstOffset] = uInput.data[srcOffset];
-            }
-        }
-    }
+int3 posTmp = int3(gl_GlobalInvocationID);
+if (posTmp.x < uConstant._step.w)
+{
+int regionInsideIndex = posTmp.x % uConstant.size.w;
+int regionOutsideIndex = posTmp.x / uConstant.size.w;
+int3 pos;
+pos.x = regionInsideIndex / (uConstant.size.y * uConstant.size.z);
+int subIndex = regionInsideIndex % (uConstant.size.y * uConstant.size.z);
+pos.z = subIndex % uConstant.size.z;
+pos.y = subIndex / uConstant.size.z;
+int srcBasicOffset;
+if (uConstant.iter.y > 0)
+{
+srcBasicOffset = uConstant._step.y * int(uSrcOffset.data[regionOutsideIndex]);
+}
+else
+{
+srcBasicOffset = uConstant._step.y * regionOutsideIndex;
+}
+int dstBasicOffset;
+if (uConstant.iter.x > 0)
+{
+dstBasicOffset = uConstant._step.x * int(uDstOffset.data[regionOutsideIndex]);
+}
+else
+{
+dstBasicOffset = uConstant._step.x * regionOutsideIndex;
+}
+int srcOffset = (((srcBasicOffset + uConstant.stride.w) + (uConstant.stride.z * pos.z)) + (uConstant.stride.y * pos.y)) + (uConstant.stride.x * pos.x);
+int dstOffset = (((dstBasicOffset + uConstant.extent.w) + (pos.x * uConstant.extent.x)) + (pos.y * uConstant.extent.y)) + (pos.z * uConstant.extent.z);
+if(srcOffset >= 0 && srcOffset < uConstant.totalSize.x) {
+if(dstOffset >= 0 && dstOffset < uConstant.totalSize.y) {
+uOutput.data[dstOffset] = uInput.data[srcOffset];
+}
+}
+}
 }
 )metal";
 
@@ -393,44 +367,41 @@ static const char* gInitRegion = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
 using namespace metal;
-
 struct constBuffer
 {
-    int4 srcStride;
-    int4 dstStride;
-    int4 size;
-    int4 totalSize;
+int4 srcStride;
+int4 dstStride;
+int4 size;
+int4 totalSize;
 };
-
-kernel void set_zero(device T *out   [[buffer(0)]],
-                     const device T *in   [[buffer(1)]],
-                     constant constBuffer &info  [[buffer(2)]],
-                     uint3 gl_GlobalInvocationID  [[thread_position_in_grid]]) {
-    int3 gid = int3(gl_GlobalInvocationID);
-    if (gid.x >= info.size.x || gid.y >= info.size.y || gid.z >= info.size.z) {
-        return;
-    }
-    int dst_offset = (gid.z * info.size.y + gid.y) * info.size.x + gid.x;
-    if(dst_offset >= 0 && dst_offset < info.totalSize.y) {
-        out[dst_offset] = (T)0;
-    }
+kernel void set_zero(device T *out [[buffer(0)]],
+const device T *in [[buffer(1)]],
+constant constBuffer &info [[buffer(2)]],
+uint3 gl_GlobalInvocationID [[thread_position_in_grid]]) {
+int3 gid = int3(gl_GlobalInvocationID);
+if (gid.x >= info.size.x || gid.y >= info.size.y || gid.z >= info.size.z) {
+return;
 }
-
-kernel void set_copy(device T *out   [[buffer(0)]],
-                     const device T *in   [[buffer(1)]],
-                     constant constBuffer &info  [[buffer(2)]],
-                     uint3 gl_GlobalInvocationID  [[thread_position_in_grid]]) {
-    int3 gid = int3(gl_GlobalInvocationID);
-    if (gid.x >= info.size.x || gid.y >= info.size.y || gid.z >= info.size.z) {
-        return;
-    }
-    int src_offset = gid.x * info.srcStride.x + gid.y * info.srcStride.y + gid.z * info.srcStride.z;
-    int dst_offset = gid.x * info.dstStride.x + gid.y * info.dstStride.y + gid.z * info.dstStride.z;
-    if(src_offset >= 0 && src_offset < info.totalSize.x) {
-        if(dst_offset >= 0 && dst_offset < info.totalSize.y) {
-            out[dst_offset] = in[src_offset];
-        }
-    }
+int dst_offset = (gid.z * info.size.y + gid.y) * info.size.x + gid.x;
+if(dst_offset >= 0 && dst_offset < info.totalSize.y) {
+out[dst_offset] = (T)0;
+}
+}
+kernel void set_copy(device T *out [[buffer(0)]],
+const device T *in [[buffer(1)]],
+constant constBuffer &info [[buffer(2)]],
+uint3 gl_GlobalInvocationID [[thread_position_in_grid]]) {
+int3 gid = int3(gl_GlobalInvocationID);
+if (gid.x >= info.size.x || gid.y >= info.size.y || gid.z >= info.size.z) {
+return;
+}
+int src_offset = gid.x * info.srcStride.x + gid.y * info.srcStride.y + gid.z * info.srcStride.z;
+int dst_offset = gid.x * info.dstStride.x + gid.y * info.dstStride.y + gid.z * info.dstStride.z;
+if(src_offset >= 0 && src_offset < info.totalSize.x) {
+if(dst_offset >= 0 && dst_offset < info.totalSize.y) {
+out[dst_offset] = in[src_offset];
+}
+}
 }
 )metal";
     
@@ -554,42 +525,40 @@ static const char* gBinaryBroadcast = R"metal(
 using namespace metal;
 struct constBuffer
 {
-    int4 srcview0;
-    int4 srcview1;
-    int4 dstview;
-    int4 size;
+int4 srcview0;
+int4 srcview1;
+int4 dstview;
+int4 size;
 };
-
 static inline __attribute__((always_inline))
 int computeVec4dot(thread const int4& a, thread const int4& b)
 {
-    return (((a.x * b.x) + (a.y * b.y)) + (a.z * b.z)) + (a.w * b.w);
+return (((a.x * b.x) + (a.y * b.y)) + (a.z * b.z)) + (a.w * b.w);
 }
-
 kernel void loop_binary(device T1* uOutput [[buffer(0)]], const device T0* uInput0 [[buffer(1)]], const device T0* uInput1 [[buffer(2)]], constant constBuffer& uConstant [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
-    int3 posTmp = int3(gl_GlobalInvocationID);
-    if (posTmp.x < uConstant.size.w)
-    {
-        int4 pos;
-        pos.x = posTmp.x / (uConstant.size.y * uConstant.size.z);
-        int subIndex = posTmp.x % (uConstant.size.y * uConstant.size.z);
-        pos.z = subIndex % uConstant.size.z;
-        pos.y = subIndex / uConstant.size.z;
-        pos.w = 1;
-        int4 param = uConstant.srcview0;
-        int4 param_1 = pos;
-        int s0 = computeVec4dot(param, param_1);
-        int4 param_2 = uConstant.srcview1;
-        int4 param_3 = pos;
-        int s1 = computeVec4dot(param_2, param_3);
-        int4 param_4 = uConstant.dstview;
-        int4 param_5 = pos;
-        int d = computeVec4dot(param_4, param_5);
-        T0 V0 = uInput0[s0];
-        T0 V1 = uInput1[s1];
-        uOutput[d] = CUSTOM;
-    }
+int3 posTmp = int3(gl_GlobalInvocationID);
+if (posTmp.x < uConstant.size.w)
+{
+int4 pos;
+pos.x = posTmp.x / (uConstant.size.y * uConstant.size.z);
+int subIndex = posTmp.x % (uConstant.size.y * uConstant.size.z);
+pos.z = subIndex % uConstant.size.z;
+pos.y = subIndex / uConstant.size.z;
+pos.w = 1;
+int4 param = uConstant.srcview0;
+int4 param_1 = pos;
+int s0 = computeVec4dot(param, param_1);
+int4 param_2 = uConstant.srcview1;
+int4 param_3 = pos;
+int s1 = computeVec4dot(param_2, param_3);
+int4 param_4 = uConstant.dstview;
+int4 param_5 = pos;
+int d = computeVec4dot(param_4, param_5);
+T0 V0 = uInput0[s0];
+T0 V1 = uInput1[s1];
+uOutput[d] = CUSTOM;
+}
 }
 )metal";
 

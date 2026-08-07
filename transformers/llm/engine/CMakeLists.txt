@@ -1,10 +1,15 @@
 option(BUILD_MLS "Build PC Commandline." OFF)
 option(MNN_LLM_BUILD_DEMO "Build LLM demo" ON)
 option(LLM_SUPPORT_HTTP_RESOURCE "Support HTTP resource download" ON)
+option(MNN_LLM_SPECULATE "Build LLM speculative decoding (eagle / mtp / lookahead / dflash)" OFF)
+option(MNN_LLM_USE_JINJA "Build jinja chat-template engine into the tokenizer" ON)
+option(LLM_SUPPORT_VISION "Enable vision input support in LLM (requires MNN_BUILD_OPENCV)" ON)
 
 set(LLM_DEPS ${MNN_DEPS})
 if (MNN_BUILD_OPENCV)
-    add_definitions(-DLLM_SUPPORT_VISION)
+    if (LLM_SUPPORT_VISION)
+        add_definitions(-DLLM_SUPPORT_VISION)
+    endif()
     if (MNN_SEP_BUILD)
         list(APPEND LLM_DEPS MNNOpenCV)
     endif()
@@ -27,6 +32,16 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
 
 # source files
 FILE(GLOB_RECURSE SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*)
+if (NOT MNN_LLM_SPECULATE)
+    FILE(GLOB LLM_SPEC_SRCS ${CMAKE_CURRENT_LIST_DIR}/src/speculative_decoding/eagle.cpp
+                              ${CMAKE_CURRENT_LIST_DIR}/src/speculative_decoding/lookahead.cpp
+                              ${CMAKE_CURRENT_LIST_DIR}/src/speculative_decoding/mtp.cpp
+                              ${CMAKE_CURRENT_LIST_DIR}/src/speculative_decoding/dflash.cpp)
+    list(REMOVE_ITEM SRCS ${LLM_SPEC_SRCS})
+endif()
+if (NOT MNN_BUILD_LLM_OMNI)
+    list(REMOVE_ITEM SRCS ${CMAKE_CURRENT_LIST_DIR}/src/omni.cpp)
+endif()
 
 if (MNN_SEP_BUILD)
     if (MNN_BUILD_SHARED_LIBS)
@@ -42,8 +57,17 @@ if (MNN_SEP_BUILD)
 else()
     add_library(llm OBJECT ${SRCS})
 endif()
-# jinja.cpp template engine (always enabled, header-only)
-target_compile_definitions(llm PRIVATE LLM_USE_JINJA)
+# jinja.cpp template engine (header-only); when disabled the tokenizer falls
+# back to plain message concatenation for chat templates
+if (MNN_LLM_USE_JINJA)
+    target_compile_definitions(llm PRIVATE LLM_USE_JINJA)
+endif()
+if (MNN_LLM_SPECULATE)
+    target_compile_definitions(llm PRIVATE LLM_SUPPORT_SPECULATE)
+endif()
+if (MNN_BUILD_LLM_OMNI)
+    target_compile_definitions(llm PRIVATE LLM_SUPPORT_OMNI)
+endif()
 
 # Option to store MNN_PRINT/MNN_ERROR output into a string buffer.
 # Only enabled on Android. Pass -DLLM_LOG_TO_STRING=ON at cmake configure time.
@@ -56,7 +80,7 @@ endif()
 add_executable(apply_template ${CMAKE_CURRENT_LIST_DIR}/demo/apply_template.cpp)
 target_link_libraries(apply_template ${LLM_DEPS})
 
-if (MNN_BUILD_OPENCV)
+if (MNN_BUILD_OPENCV AND LLM_SUPPORT_VISION)
     target_compile_definitions(llm PRIVATE LLM_SUPPORT_VISION)
 endif()
 if (MNN_BUILD_AUDIO)

@@ -21,108 +21,105 @@ static const char* gReduceTemplate = R"metal(
 using namespace metal;
 struct constBuffer
 {
-    // outside_size, axis_size, inside_size, outside_step
-    int4 size;
+int4 size;
 };
-
 #define SIMD_GROUP_WIDTH 32
 kernel void reduce_shader(const device T* uInput [[buffer(0)]],
-        device T* uOutput [[buffer(1)]], 
-        constant constBuffer& uConst [[buffer(2)]], 
+device T* uOutput [[buffer(1)]],
+constant constBuffer& uConst [[buffer(2)]],
 #ifdef SIMD_GROUP_REDUCE
-    uint3 gid[[threadgroup_position_in_grid]],
-    uint  tiisg[[thread_index_in_simdgroup]],
-    uint  sgitg[[simdgroup_index_in_threadgroup]]
+uint3 gid[[threadgroup_position_in_grid]],
+uint tiisg[[thread_index_in_simdgroup]],
+uint sgitg[[simdgroup_index_in_threadgroup]]
 #else
-    uint3 gid[[thread_position_in_grid]]
+uint3 gid[[thread_position_in_grid]]
 #endif
 ) {
-    int outside_size = uConst.size.x;
-    if(gid.x >= outside_size) {
-        return;
-    }
-    int axis_size = uConst.size.y;
-    int inside_size = uConst.size.z;
-    int outside_step = uConst.size.w;
-    auto axis_in = uInput + gid.x * outside_step + gid.y;
+int outside_size = uConst.size.x;
+if(gid.x >= outside_size) {
+return;
+}
+int axis_size = uConst.size.y;
+int inside_size = uConst.size.z;
+int outside_step = uConst.size.w;
+auto axis_in = uInput + gid.x * outside_step + gid.y;
 #ifdef SIMD_GROUP_REDUCE
-    #ifdef COMPUTE_REDUCE_MAX
-        T res = (T)(-FLT_MAX);
-        for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
-            T data = axis_in[i * inside_size];
-            res = max(res, data);
-        }
-        res = simd_max(res);
-    #elif defined(COMPUTE_REDUCE_SUM)
-        T res = (T)0;
-        for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
-            T data = axis_in[i * inside_size];
-            res += data;
-        }
-        res = simd_sum(res);
-    #elif defined(COMPUTE_REDUCE_MEAN)
-        T res = (T)0;
-        for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
-            T data = axis_in[i * inside_size];
-            res += data;
-        }
-        res = simd_sum(res);
-        res = res / axis_size;
-    #elif defined(COMPUTE_REDUCE_MIN)
-        T res = (T)(FLT_MAX);
-        for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
-            T data = axis_in[i * inside_size];
-            res = min(res, data);
-        }
-        res = simd_min(res);
-    #elif defined(COMPUTE_REDUCE_PROD)
-        T res = (T)1;
-        for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
-            T data = axis_in[i * inside_size];
-            res *= data;
-        }
-        res = simd_product(res);
-    #endif
-    if(tiisg == 0) {
-        uOutput[int(gid.x) * inside_size + int(gid.y)] = (T)res;
-    }
-#else
-    #ifdef COMPUTE_REDUCE_MAX
-        T res = (T)(-FLT_MAX);
-        for (int i = 0; i < axis_size; i++) {
-            T data = axis_in[i * inside_size];
-            res = max(res, data);
-        }
-    #elif defined(COMPUTE_REDUCE_SUM)
-        M res = (M)0;
-        for(int i = 0; i < axis_size; i++){
-            T data = axis_in[i * inside_size];
-            res += (M)data;
-        }
-    #elif defined(COMPUTE_REDUCE_MEAN)
-        T res = (T)0;
-        for(int i = 0; i < axis_size; i++){
-            T data = axis_in[i * inside_size];
-            res += (M)data;
-        }
-        res = res / axis_size;
-    #elif defined(COMPUTE_REDUCE_MIN)
-        T res = (T)(FLT_MAX);
-        for(int i = 0; i < axis_size; i++){
-            T data = axis_in[i * inside_size];
-            res = min(res, data);
-        }
-    #elif defined(COMPUTE_REDUCE_PROD)
-        M res = (M)1;
-        for(int i = 0; i < axis_size; i++){
-            T data = axis_in[i * inside_size];
-            res *= (M)data;
-        }
-        res = simd_product(res);
-    #endif
-    uOutput[int(gid.x) * inside_size + int(gid.y)] = (T)res;
+#ifdef COMPUTE_REDUCE_MAX
+T res = (T)(-FLT_MAX);
+for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
+T data = axis_in[i * inside_size];
+res = max(res, data);
+}
+res = simd_max(res);
+#elif defined(COMPUTE_REDUCE_SUM)
+T res = (T)0;
+for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
+T data = axis_in[i * inside_size];
+res += data;
+}
+res = simd_sum(res);
+#elif defined(COMPUTE_REDUCE_MEAN)
+T res = (T)0;
+for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
+T data = axis_in[i * inside_size];
+res += data;
+}
+res = simd_sum(res);
+res = res / axis_size;
+#elif defined(COMPUTE_REDUCE_MIN)
+T res = (T)(FLT_MAX);
+for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
+T data = axis_in[i * inside_size];
+res = min(res, data);
+}
+res = simd_min(res);
+#elif defined(COMPUTE_REDUCE_PROD)
+T res = (T)1;
+for(int i = tiisg; i < axis_size; i+=SIMD_GROUP_WIDTH){
+T data = axis_in[i * inside_size];
+res *= data;
+}
+res = simd_product(res);
 #endif
-
+if(tiisg == 0) {
+uOutput[int(gid.x) * inside_size + int(gid.y)] = (T)res;
+}
+#else
+#ifdef COMPUTE_REDUCE_MAX
+T res = (T)(-FLT_MAX);
+for (int i = 0; i < axis_size; i++) {
+T data = axis_in[i * inside_size];
+res = max(res, data);
+}
+#elif defined(COMPUTE_REDUCE_SUM)
+M res = (M)0;
+for(int i = 0; i < axis_size; i++){
+T data = axis_in[i * inside_size];
+res += (M)data;
+}
+#elif defined(COMPUTE_REDUCE_MEAN)
+T res = (T)0;
+for(int i = 0; i < axis_size; i++){
+T data = axis_in[i * inside_size];
+res += (M)data;
+}
+res = res / axis_size;
+#elif defined(COMPUTE_REDUCE_MIN)
+T res = (T)(FLT_MAX);
+for(int i = 0; i < axis_size; i++){
+T data = axis_in[i * inside_size];
+res = min(res, data);
+}
+#elif defined(COMPUTE_REDUCE_PROD)
+M res = (M)1;
+for(int i = 0; i < axis_size; i++){
+T data = axis_in[i * inside_size];
+res *= (M)data;
+}
+res = simd_product(res);
+#endif
+uOutput[int(gid.x) * inside_size + int(gid.y)] = (T)res;
+#endif
 }
 )metal";
 MetalReduction::MetalReduction(Backend *backend, const ReductionParam *p) : MetalExecution(backend) {

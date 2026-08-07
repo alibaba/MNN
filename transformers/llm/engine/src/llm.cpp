@@ -22,7 +22,9 @@
 #include "tokenizer/tokenizer.hpp"
 #include "diskembedding.hpp"
 #include "sampler.hpp"
+#ifdef LLM_SUPPORT_OMNI
 #include "omni.hpp"
+#endif
 #include "speculative_decoding/generate.hpp"
 #include "core/MNNFileUtils.h"
 
@@ -90,7 +92,12 @@ Llm* Llm::createLLM(const std::string& config_path) {
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
     Llm* llm = nullptr;
     if (config->is_visual() || config->is_audio() || config->has_talker()) {
+#ifdef LLM_SUPPORT_OMNI
         llm = new Omni(config);
+#else
+        MNN_ERROR("[Error]: This MNN build has no multimodal (omni) support, rebuild with MNN_BUILD_LLM_OMNI=ON.\n");
+        return nullptr;
+#endif
     } else {
         llm = new Llm(config);
     }
@@ -245,6 +252,7 @@ void Llm::initRuntime() {
     }
 }
 
+#ifdef LLM_SUPPORT_SPECULATE
 static bool canSpecDecode(std::shared_ptr<Express::Module> module) {
     bool canSpec = false;
     auto info = module->getInfo();
@@ -259,7 +267,9 @@ static bool canSpecDecode(std::shared_ptr<Express::Module> module) {
     }
     return canSpec;
 }
+#endif
 void Llm::setSpeculativeConfig() {
+#ifdef LLM_SUPPORT_SPECULATE
     auto specultive_type = mConfig->speculative_type();
     if(!specultive_type.empty()) {
         if(!canSpecDecode(mModule)) {
@@ -269,6 +279,12 @@ void Llm::setSpeculativeConfig() {
         mDraftLength = mConfig->draft_predict_length();
         mInSpec = true;
     }
+#else
+    if(!mConfig->speculative_type().empty()) {
+        MNN_ERROR("[Warning]: speculative decoding is not built in this MNN, fallback to autoregressive decoding.\n");
+    }
+    mInSpec = false;
+#endif
 }
 
 bool Llm::checkFile(const std::string& path, const char* name) {
@@ -354,9 +370,11 @@ bool Llm::load() {
         outputNames.emplace_back("talker_embeds");
     }
     bool needHiddenState = mConfig->config_.value("hidden_states", false);
+#ifdef LLM_SUPPORT_SPECULATE
     if(mConfig->speculative_type() == "mtp") {
         needHiddenState = true;
     }
+#endif
     if (needHiddenState) {
         outputNames.emplace_back("hidden_states");
     }

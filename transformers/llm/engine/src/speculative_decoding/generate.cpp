@@ -9,7 +9,9 @@
 #include "llm/llm.hpp"
 #include "../llmconfig.hpp"
 #include "../kvmeta.hpp"
+#ifdef LLM_SUPPORT_SPECULATE
 #include "lookahead.hpp"
+#endif
 
 using namespace MNN::Express;
 
@@ -19,6 +21,7 @@ namespace Transformer {
 std::shared_ptr<Generation> GenerationStrategyFactory::create(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config, bool canSpec) {
     std::shared_ptr<Generation> res;
     if(canSpec) {
+#ifdef LLM_SUPPORT_SPECULATE
         if(config->speculative_type() == "lookahead") {
             res.reset(new LookaheadGeneration(llm, context, config));
         } else if(config->speculative_type() == "mtp") {
@@ -27,7 +30,9 @@ std::shared_ptr<Generation> GenerationStrategyFactory::create(Llm* llm, std::sha
             res.reset(new EagleGeneration(llm, context, config));
         } else if(config->speculative_type() == "dflash") {
             res.reset(new DFlashGeneration(llm, context, config));
-        } else {
+        } else
+#endif
+        {
             // autoregressive generation
             res.reset(new ArGeneration(llm, context, config));
         }

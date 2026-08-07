@@ -36,85 +36,75 @@ namespace MNN {
 // Thread grid: 1D over all elements (selectSize * ic).
 static const char* gSharedGatherQuant = R"metal(
 kernel void shared_gather_quant(
-    device ftype4 *wf                             [[buffer(0)]],
+device ftype4 *wf [[buffer(0)]],
 #if defined(W_QUANT_2) || defined(W_QUANT_3)
-    const device uchar *wi                        [[buffer(1)]],
+const device uchar *wi [[buffer(1)]],
 #elif defined(W_QUANT_4)
-    const device uchar2 *wi                       [[buffer(1)]],
+const device uchar2 *wi [[buffer(1)]],
 #elif defined(W_QUANT_8)
-    const device char4 *wi                        [[buffer(1)]],
+const device char4 *wi [[buffer(1)]],
 #else
-    const device ftype4 *wi                     [[buffer(1)]],// [N/4, K/4, N4, K4]
+const device ftype4 *wi [[buffer(1)]],
 #endif
-    const device int *indices                     [[buffer(2)]],
-    constant conv1x1_constants& cst               [[buffer(3)]],
-    const device ftype4 *dequantScale             [[buffer(4)]],
-    uint2 gid                                      [[thread_position_in_grid]]) {
-    int ic = cst.input_size;
-    int selectSize = cst.output_width;
-    int idx_k16 = gid.y; // K/16
-
-    int idx_k4 = idx_k16 * 4;
-
-    if(idx_k4 >= cst.input_slice || gid.x >= selectSize) {
-        return;
-    }
-
-    int idx_n = indices[gid.x]; // N
-
-    int idx_n4 = idx_n/4;
-    int idx_nl = idx_n%4;
-
-    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
-
-
-    int bi = idx_k4 / block;
-    // [N/4, cst.block_size, 2/*scale_bias*/, N4]
-    FLOAT scale = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
-    FLOAT dequant_bias = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
-
+const device int *indices [[buffer(2)]],
+constant conv1x1_constants& cst [[buffer(3)]],
+const device ftype4 *dequantScale [[buffer(4)]],
+uint2 gid [[thread_position_in_grid]]) {
+int ic = cst.input_size;
+int selectSize = cst.output_width;
+int idx_k16 = gid.y;
+int idx_k4 = idx_k16 * 4;
+if(idx_k4 >= cst.input_slice || gid.x >= selectSize) {
+return;
+}
+int idx_n = indices[gid.x];
+int idx_n4 = idx_n/4;
+int idx_nl = idx_n%4;
+int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+int bi = idx_k4 / block;
+FLOAT scale = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
+FLOAT dequant_bias = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
 #ifdef W_QUANT_3
-    auto wt_base = wi + (idx_n4 * cst.input_slice + idx_k4) * 6;
+auto wt_base = wi + (idx_n4 * cst.input_slice + idx_k4) * 6;
 #else
-    auto xy_wi = wi + (idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl;// [N/4, K/4, N4, K4]
+auto xy_wi = wi + (idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl;
 #endif
-    auto xy_wf = wf + (ic * gid.x + idx_k16 * 16) / 4;
-
-    #ifdef W_QUANT_2
-    for(int k = 0; k < 4; k++) {
-        uchar b = xy_wi[4*k];
-        FLOAT4 w4 = FLOAT4((float)((b >> 6) & 3) - 2, (float)((b >> 4) & 3) - 2,
-                            (float)((b >> 2) & 3) - 2, (float)( b       & 3) - 2);
-        xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
-    }
-    #elif defined(W_QUANT_3)
-    for(int k = 0; k < 4; k++) {
-        const device uchar* tilePtr = wt_base + 6 * k;
-        uchar b = tilePtr[idx_nl];
-        uchar h = (idx_nl < 2) ? tilePtr[4] : tilePtr[5];
-        uchar hShifted = (idx_nl % 2 == 0) ? (h >> 4) : (h & 0xF);
-        FLOAT4 w4 = FLOAT4(
-            (float)( ((b >> 6) & 3) | (((hShifted >> 3) & 1) << 2) ) - 4,
-            (float)( ((b >> 4) & 3) | (((hShifted >> 2) & 1) << 2) ) - 4,
-            (float)( ((b >> 2) & 3) | (((hShifted >> 1) & 1) << 2) ) - 4,
-            (float)( ( b       & 3) | (( hShifted       & 1) << 2) ) - 4);
-        xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
-    }
-    #elif defined(W_QUANT_4)
-    for(int k = 0; k < 4; k++) {
-        uchar2 w_int4 = xy_wi[4*k]; // [N/4, K/4, N4, K4]
-        FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8, (float)(w_int4[0] & 15) - 8, (float)(w_int4[1] >> 4) - 8, (float)(w_int4[1] & 15) - 8);
-        FLOAT4 res = w4 * scale + dequant_bias;
-        xy_wf[k] = (ftype4)res;
-    }
-    #elif defined(W_QUANT_8)
-    for(int k = 0; k < 4; k++) {
-        char4 w_int4 = xy_wi[4*k]; // [N/4, K/4, N4, K4]
-        FLOAT4 w4 = FLOAT4((float)w_int4[0], (float)w_int4[1], (float)w_int4[2], (float)w_int4[3]);
-        FLOAT4 res = w4 * scale + dequant_bias;
-        xy_wf[k] = (ftype4)res;
-    }
-    #endif
+auto xy_wf = wf + (ic * gid.x + idx_k16 * 16) / 4;
+#ifdef W_QUANT_2
+for(int k = 0; k < 4; k++) {
+uchar b = xy_wi[4*k];
+FLOAT4 w4 = FLOAT4((float)((b >> 6) & 3) - 2, (float)((b >> 4) & 3) - 2,
+(float)((b >> 2) & 3) - 2, (float)( b & 3) - 2);
+xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
+}
+#elif defined(W_QUANT_3)
+for(int k = 0; k < 4; k++) {
+const device uchar* tilePtr = wt_base + 6 * k;
+uchar b = tilePtr[idx_nl];
+uchar h = (idx_nl < 2) ? tilePtr[4] : tilePtr[5];
+uchar hShifted = (idx_nl % 2 == 0) ? (h >> 4) : (h & 0xF);
+FLOAT4 w4 = FLOAT4(
+(float)( ((b >> 6) & 3) | (((hShifted >> 3) & 1) << 2) ) - 4,
+(float)( ((b >> 4) & 3) | (((hShifted >> 2) & 1) << 2) ) - 4,
+(float)( ((b >> 2) & 3) | (((hShifted >> 1) & 1) << 2) ) - 4,
+(float)( ( b & 3) | (( hShifted & 1) << 2) ) - 4);
+xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
+}
+#elif defined(W_QUANT_4)
+for(int k = 0; k < 4; k++) {
+uchar2 w_int4 = xy_wi[4*k];
+FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8, (float)(w_int4[0] & 15) - 8, (float)(w_int4[1] >> 4) - 8, (float)(w_int4[1] & 15) - 8);
+FLOAT4 res = w4 * scale + dequant_bias;
+xy_wf[k] = (ftype4)res;
+}
+#elif defined(W_QUANT_8)
+for(int k = 0; k < 4; k++) {
+char4 w_int4 = xy_wi[4*k];
+FLOAT4 w4 = FLOAT4((float)w_int4[0], (float)w_int4[1], (float)w_int4[2], (float)w_int4[3]);
+FLOAT4 res = w4 * scale + dequant_bias;
+xy_wf[k] = (ftype4)res;
+}
+#endif
 }
 )metal";
 

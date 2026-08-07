@@ -16,62 +16,59 @@ namespace MNN {
 static const char* gDepthwiseMultiInputTransform = R"metal(
 #include <metal_stdlib>
 using namespace metal;
-
 kernel void depthwise_weight_pack(const device IType* src [[buffer(0)]],
-                                  device OType4* dst [[buffer(1)]],
-                                  constant int2& cst [[buffer(2)]],
-                                  uint2 gid [[thread_position_in_grid]]) {
-    int z = (int)gid.x;
-    int k = (int)gid.y;
-    int base = z * 4;
-    int channel = cst.x;
-    int kernelSize = cst.y;
-    if (base >= channel || k >= kernelSize) {
-        return;
-    }
-    OType4 value = OType4(0);
-    value.x = (OType)src[(base + 0) * kernelSize + k];
-    if (base + 1 < channel) {
-        value.y = (OType)src[(base + 1) * kernelSize + k];
-    }
-    if (base + 2 < channel) {
-        value.z = (OType)src[(base + 2) * kernelSize + k];
-    }
-    if (base + 3 < channel) {
-        value.w = (OType)src[(base + 3) * kernelSize + k];
-    }
-    dst[z * kernelSize + k] = value;
+device OType4* dst [[buffer(1)]],
+constant int2& cst [[buffer(2)]],
+uint2 gid [[thread_position_in_grid]]) {
+int z = (int)gid.x;
+int k = (int)gid.y;
+int base = z * 4;
+int channel = cst.x;
+int kernelSize = cst.y;
+if (base >= channel || k >= kernelSize) {
+return;
 }
-
+OType4 value = OType4(0);
+value.x = (OType)src[(base + 0) * kernelSize + k];
+if (base + 1 < channel) {
+value.y = (OType)src[(base + 1) * kernelSize + k];
+}
+if (base + 2 < channel) {
+value.z = (OType)src[(base + 2) * kernelSize + k];
+}
+if (base + 3 < channel) {
+value.w = (OType)src[(base + 3) * kernelSize + k];
+}
+dst[z * kernelSize + k] = value;
+}
 kernel void depthwise_bias_pack(const device IType* src [[buffer(0)]],
-                                device OType4* dst [[buffer(1)]],
-                                constant int& channel [[buffer(2)]],
-                                uint gid [[thread_position_in_grid]]) {
-    int base = (int)gid * 4;
-    if (base >= channel) {
-        return;
-    }
-    OType4 value = OType4(0);
-    value.x = (OType)src[base + 0];
-    if (base + 1 < channel) {
-        value.y = (OType)src[base + 1];
-    }
-    if (base + 2 < channel) {
-        value.z = (OType)src[base + 2];
-    }
-    if (base + 3 < channel) {
-        value.w = (OType)src[base + 3];
-    }
-    dst[(int)gid] = value;
+device OType4* dst [[buffer(1)]],
+constant int& channel [[buffer(2)]],
+uint gid [[thread_position_in_grid]]) {
+int base = (int)gid * 4;
+if (base >= channel) {
+return;
 }
-
+OType4 value = OType4(0);
+value.x = (OType)src[base + 0];
+if (base + 1 < channel) {
+value.y = (OType)src[base + 1];
+}
+if (base + 2 < channel) {
+value.z = (OType)src[base + 2];
+}
+if (base + 3 < channel) {
+value.w = (OType)src[base + 3];
+}
+dst[(int)gid] = value;
+}
 kernel void depthwise_bias_zero(device OType4* dst [[buffer(0)]],
-                                constant int& channel [[buffer(1)]],
-                                uint gid [[thread_position_in_grid]]) {
-    if ((int)gid * 4 >= channel) {
-        return;
-    }
-    dst[(int)gid] = OType4(0);
+constant int& channel [[buffer(1)]],
+uint gid [[thread_position_in_grid]]) {
+if ((int)gid * 4 >= channel) {
+return;
+}
+dst[(int)gid] = OType4(0);
 }
 )metal";
 

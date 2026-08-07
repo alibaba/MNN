@@ -20,110 +20,109 @@ static const char* gArgMaxTemplate = R"metal(
 using namespace metal;
 struct constBuffer
 {
-    int4 size;
+int4 size;
 };
 struct sourceBuffer
 {
-    T data[1];
+T data[1];
 };
 struct destbuffer
 {
-    int data[1];
+int data[1];
 };
-
 kernel void main0(device destbuffer& uOutput [[buffer(0)]], const device sourceBuffer& uInput [[buffer(1)]], constant constBuffer& uConst [[buffer(2)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
-    threadgroup T local_buffer[256];
-    threadgroup int local_index[256];
-    int index = int(gl_GlobalInvocationID.x) / uConst.size.w;
-    int lidIndex = int(gl_LocalInvocationID.x);
-    int lidx = lidIndex / uConst.size.w;
-    int lid = lidIndex % uConst.size.w;
-    int x = index % uConst.size.x;
-    int y = index / uConst.size.x;
-    int W = uConst.size.x;
-    int H = uConst.size.y;
-    int C = uConst.size.z;
-    bool _68 = y < uConst.size.z;
-    bool _75;
-    if (_68)
-    {
-        _75 = lid < uConst.size.y;
-    }
-    else
-    {
-        _75 = _68;
-    }
-    if (_75)
-    {
-        int offset = ((y * H) * W) + x;
-        T maxValue = uInput.data[offset + (lid * W)];
-        int maxIndex = lid;
-        int _107 = lid + uConst.size.w;
-        for (int i = _107; i < uConst.size.y; i += uConst.size.w)
-        {
-            T value = uInput.data[offset + (i * W)];
+threadgroup T local_buffer[256];
+threadgroup int local_index[256];
+int index = int(gl_GlobalInvocationID.x) / uConst.size.w;
+int lidIndex = int(gl_LocalInvocationID.x);
+int lidx = lidIndex / uConst.size.w;
+int lid = lidIndex % uConst.size.w;
+int x = index % uConst.size.x;
+int y = index / uConst.size.x;
+int W = uConst.size.x;
+int H = uConst.size.y;
+int C = uConst.size.z;
+bool _68 = y < uConst.size.z;
+bool _75;
+if (_68)
+{
+_75 = lid < uConst.size.y;
+}
+else
+{
+_75 = _68;
+}
+if (_75)
+{
+int offset = ((y * H) * W) + x;
+T maxValue = uInput.data[offset + (lid * W)];
+int maxIndex = lid;
+int _107 = lid + uConst.size.w;
+for (int i = _107; i < uConst.size.y; i += uConst.size.w)
+{
+T value = uInput.data[offset + (i * W)];
 #ifdef ARGMIN
-            if (value < maxValue)
-            {
-                maxValue = value;
-                maxIndex = i;
-            }
+if (value < maxValue)
+{
+maxValue = value;
+maxIndex = i;
+}
 #else
-            if (value > maxValue)
-            {
-                maxValue = value;
-                maxIndex = i;
-            }
+if (value > maxValue)
+{
+maxValue = value;
+maxIndex = i;
+}
 #endif
-        }
-        local_buffer[lid + (lidx * uConst.size.w)] = maxValue;
-        local_index[lid + (lidx * uConst.size.w)] = maxIndex;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if ((y < uConst.size.z) && (lid == 0))
-    {
-        T maxValue_1 = local_buffer[lidx * uConst.size.w];
-        int maxIndex_1 = local_index[lidx * uConst.size.w];
-        int t = 1;
-        for (;;)
-        {
-            bool _195 = t < uConst.size.w;
-            bool _202;
-            if (_195)
-            {
-                _202 = t < uConst.size.y;
-            }
-            else
-            {
-                _202 = _195;
-            }
-            if (_202)
-            {
-                T next = local_buffer[t + (lidx * uConst.size.w)];
+}
+local_buffer[lid + (lidx * uConst.size.w)] = maxValue;
+local_index[lid + (lidx * uConst.size.w)] = maxIndex;
+}
+threadgroup_barrier(mem_flags::mem_threadgroup);
+if ((y < uConst.size.z) && (lid == 0))
+{
+T maxValue_1 = local_buffer[lidx * uConst.size.w];
+int maxIndex_1 = local_index[lidx * uConst.size.w];
+int t = 1;
+for (;;)
+{
+bool _195 = t < uConst.size.w;
+bool _202;
+if (_195)
+{
+_202 = t < uConst.size.y;
+}
+else
+{
+_202 = _195;
+}
+if (_202)
+{
+T next = local_buffer[t + (lidx * uConst.size.w)];
 #ifdef ARGMIN
-                if (next < maxValue_1)
-                {
-                    maxValue_1 = next;
-                    maxIndex_1 = local_index[t + (lidx * uConst.size.w)];
-                }
+if (next < maxValue_1)
+{
+maxValue_1 = next;
+maxIndex_1 = local_index[t + (lidx * uConst.size.w)];
+}
 #else
-                if (next > maxValue_1)
-                {
-                    maxValue_1 = next;
-                    maxIndex_1 = local_index[t + (lidx * uConst.size.w)];
-                }
+if (next > maxValue_1)
+{
+maxValue_1 = next;
+maxIndex_1 = local_index[t + (lidx * uConst.size.w)];
+}
 #endif
-                t++;
-                continue;
-            }
-            else
-            {
-                break;
-            }
-        }
-        uOutput.data[index] = maxIndex_1;
-    }
+t++;
+continue;
+}
+else
+{
+break;
+}
+}
+uOutput.data[index] = maxIndex_1;
+}
 }
 )metal";
 

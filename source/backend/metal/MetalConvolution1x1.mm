@@ -28,6 +28,15 @@ bool MetalConvolution1x1::isValid(const Convolution2D *conv, const Tensor *input
     auto dx = common->dilateX(), dy = common->dilateY();
     auto sx = common->strideX(), sy = common->strideY();
     auto px = common->padX(), py = common->padY();
+#ifndef MNN_SUPPORT_QUANT_W2W3
+    if (conv->quanParameter() != nullptr && !conv->quanParameter()->has_scaleInt()) {
+        int bits = conv->quanParameter()->aMaxOrBits();
+        if (bits == 2 || bits == 3) {
+            // 2/3-bit weight quantization not built in, fallback to float weight convolution
+            return false;
+        }
+    }
+#endif
     return kx == 1 && ky == 1 && dx == 1 && dy == 1 && px == 0 && py == 0 && sx == 1 && sy == 1;
 }
 

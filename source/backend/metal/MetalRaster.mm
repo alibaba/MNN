@@ -65,27 +65,27 @@ static const char* gMultiBlitMetal = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct SamplerInfo {
-    uint4 stride;//stride[3] + offset
-    uint4 size;//size[3] + totalSize
-    uint4 extent;//dstStride[3]+dstOffset
+uint4 stride;
+uint4 size;
+uint4 extent;
 };
 kernel void mblit(const device T *in [[buffer(0)]],
-                       device T *out [[buffer(1)]],
-                       const device uint4* buf [[buffer(2)]],
-                       uint3 tgid [[thread_position_in_grid]]) {
-    uint4 limit = buf[0];
-    const device SamplerInfo* infoP = (const device SamplerInfo*)(buf + 1);
-    uint3 gid = tgid;
-    gid.x = tgid.x % limit.x;
-    uint n = tgid.x / limit.x;
-    if (n < limit.y) {
-        SamplerInfo info = infoP[n];
-        if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
-            uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
-            uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
-            out[int(dstOffset)] = in[int(srcOffset)];
-        }
-    }
+device T *out [[buffer(1)]],
+const device uint4* buf [[buffer(2)]],
+uint3 tgid [[thread_position_in_grid]]) {
+uint4 limit = buf[0];
+const device SamplerInfo* infoP = (const device SamplerInfo*)(buf + 1);
+uint3 gid = tgid;
+gid.x = tgid.x % limit.x;
+uint n = tgid.x / limit.x;
+if (n < limit.y) {
+SamplerInfo info = infoP[n];
+if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
+uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
+uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
+out[int(dstOffset)] = in[int(srcOffset)];
+}
+}
 }
 )metal";
 
@@ -94,19 +94,19 @@ static const char* gSingleBlitMetal = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct SamplerInfo {
-    uint4 stride;//stride[3] + offset
-    uint4 size;//size[3] + totalSize
-    uint4 extent;//dstStride[3]+dstOffset
+uint4 stride;
+uint4 size;
+uint4 extent;
 };
 kernel void sblit(const device T *in [[buffer(0)]],
-                       device T *out [[buffer(1)]],
-                       constant SamplerInfo &info [[buffer(2)]],
-                       uint3 gid [[thread_position_in_grid]]) {
-    if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
-        uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
-        uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
-        out[int(dstOffset)] = in[int(srcOffset)];
-    }
+device T *out [[buffer(1)]],
+constant SamplerInfo &info [[buffer(2)]],
+uint3 gid [[thread_position_in_grid]]) {
+if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
+uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
+uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
+out[int(dstOffset)] = in[int(srcOffset)];
+}
 }
 )metal";
 
@@ -115,62 +115,59 @@ static const char* gMultiRasterTemplate = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct SamplerInfo {
-    uint4 stride;//stride[3] + offset
-    uint4 size;//size[3] + totalSize
-    uint4 extent;//dstStride[3]+dstOffset
+uint4 stride;
+uint4 size;
+uint4 extent;
 };
 kernel void mraster(const device T *in [[buffer(0)]],
-                       device T *out [[buffer(1)]],
-                       const device uint4* buf [[buffer(2)]],
-                       uint3 tgid [[thread_position_in_grid]]) {
-    
-    uint4 limit = buf[2];
-    const device SamplerInfo* infoP = (const device SamplerInfo*)(buf + 3);
-    uint3 gid = tgid;
-    gid.x = tgid.x % limit.x;
-    uint n = tgid.x / limit.x;
-    if (n < limit.y) {
-        SamplerInfo info = infoP[n];
-
-        if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
-            uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
-            uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
-        #ifdef INPUT_FORMAT_NCHW
-            int srcOffsetReal = srcOffset;
-        #elif INPUT_FORMAT_NHWC
-            int srcOffsetReal = srcOffset;
-        #elif INPUT_FORMAT_C4NHW4
-            uint4 src_shape = buf[0];//src nchw
-            int src_batch   = src_shape.x;
-            int src_channel = src_shape.y;
-            int src_height  = src_shape.z;
-            int src_width   = src_shape.w;
-            int in_w = srcOffset % src_width; srcOffset /= src_width;
-            int in_h = srcOffset % src_height; srcOffset /= src_height;
-            int in_c = srcOffset % src_channel;
-            int in_b = srcOffset / src_channel;
-            int srcOffsetReal = (((in_b + (in_c / 4) * src_batch) * src_height + in_h) * src_width + in_w) * 4 + (in_c % 4);
-        #endif
-
-        #ifdef OUTPUT_FORMAT_NCHW
-            int dstOffsetReal = dstOffset;
-        #elif OUTPUT_FORMAT_NHWC
-            int dstOffsetReal = dstOffset;
-        #elif OUTPUT_FORMAT_C4NHW4
-            uint4 dst_shape = buf[1];//dst nchw
-            int dst_batch   = dst_shape.x;
-            int dst_channel = dst_shape.y;
-            int dst_height  = dst_shape.z;
-            int dst_width   = dst_shape.w;
-            int out_w = dstOffset % dst_width; dstOffset /= dst_width;
-            int out_h = dstOffset % dst_height; dstOffset /= dst_height;
-            int out_c = dstOffset % dst_channel;
-            int out_b = dstOffset / dst_channel;
-            int dstOffsetReal = (((out_b + (out_c / 4) * dst_batch) * dst_height + out_h) * dst_width + out_w) * 4 + (out_c % 4);
-        #endif
-            out[dstOffsetReal] = in[srcOffsetReal];
-        }
-    }
+device T *out [[buffer(1)]],
+const device uint4* buf [[buffer(2)]],
+uint3 tgid [[thread_position_in_grid]]) {
+uint4 limit = buf[2];
+const device SamplerInfo* infoP = (const device SamplerInfo*)(buf + 3);
+uint3 gid = tgid;
+gid.x = tgid.x % limit.x;
+uint n = tgid.x / limit.x;
+if (n < limit.y) {
+SamplerInfo info = infoP[n];
+if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
+uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
+uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
+#ifdef INPUT_FORMAT_NCHW
+int srcOffsetReal = srcOffset;
+#elif INPUT_FORMAT_NHWC
+int srcOffsetReal = srcOffset;
+#elif INPUT_FORMAT_C4NHW4
+uint4 src_shape = buf[0];
+int src_batch = src_shape.x;
+int src_channel = src_shape.y;
+int src_height = src_shape.z;
+int src_width = src_shape.w;
+int in_w = srcOffset % src_width; srcOffset /= src_width;
+int in_h = srcOffset % src_height; srcOffset /= src_height;
+int in_c = srcOffset % src_channel;
+int in_b = srcOffset / src_channel;
+int srcOffsetReal = (((in_b + (in_c / 4) * src_batch) * src_height + in_h) * src_width + in_w) * 4 + (in_c % 4);
+#endif
+#ifdef OUTPUT_FORMAT_NCHW
+int dstOffsetReal = dstOffset;
+#elif OUTPUT_FORMAT_NHWC
+int dstOffsetReal = dstOffset;
+#elif OUTPUT_FORMAT_C4NHW4
+uint4 dst_shape = buf[1];
+int dst_batch = dst_shape.x;
+int dst_channel = dst_shape.y;
+int dst_height = dst_shape.z;
+int dst_width = dst_shape.w;
+int out_w = dstOffset % dst_width; dstOffset /= dst_width;
+int out_h = dstOffset % dst_height; dstOffset /= dst_height;
+int out_c = dstOffset % dst_channel;
+int out_b = dstOffset / dst_channel;
+int dstOffsetReal = (((out_b + (out_c / 4) * dst_batch) * dst_height + out_h) * dst_width + out_w) * 4 + (out_c % 4);
+#endif
+out[dstOffsetReal] = in[srcOffsetReal];
+}
+}
 }
 )metal";
 
@@ -179,53 +176,52 @@ static const char* gSingleRasterTemplate = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct SamplerInfo {
-    uint4 stride;//stride[3] + offset
-    uint4 size;//size[3] + totalSize
-    uint4 extent;//dstStride[3]+dstOffset
+uint4 stride;
+uint4 size;
+uint4 extent;
 };
 kernel void sraster(const device T *in [[buffer(0)]],
-                       device T *out [[buffer(1)]],
-                       const device uint4* buf [[buffer(2)]],
-                       uint3 gid [[thread_position_in_grid]]) {
-    SamplerInfo info = *((const device SamplerInfo*)(buf + 3));
-    if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
-        uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
-        uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
-    #ifdef INPUT_FORMAT_NCHW
-        int srcOffsetReal = srcOffset;
-    #elif INPUT_FORMAT_NHWC
-        int srcOffsetReal = srcOffset;
-    #elif INPUT_FORMAT_C4NHW4
-        uint4 src_shape = buf[0];//src nchw
-        int src_batch   = src_shape.x;
-        int src_channel = src_shape.y;
-        int src_height  = src_shape.z;
-        int src_width   = src_shape.w;
-        int in_w = srcOffset % src_width; srcOffset /= src_width;
-        int in_h = srcOffset % src_height; srcOffset /= src_height;
-        int in_c = srcOffset % src_channel;
-        int in_b = srcOffset / src_channel;
-        int srcOffsetReal = (((in_b + (in_c / 4) * src_batch) * src_height + in_h) * src_width + in_w) * 4 + (in_c % 4);
-    #endif
-
-    #ifdef OUTPUT_FORMAT_NCHW
-        int dstOffsetReal = dstOffset;
-    #elif OUTPUT_FORMAT_NHWC
-        int dstOffsetReal = dstOffset;
-    #elif OUTPUT_FORMAT_C4NHW4
-        uint4 dst_shape = buf[1];//dst nchw
-        int dst_batch   = dst_shape.x;
-        int dst_channel = dst_shape.y;
-        int dst_height  = dst_shape.z;
-        int dst_width   = dst_shape.w;
-        int out_w = dstOffset % dst_width; dstOffset /= dst_width;
-        int out_h = dstOffset % dst_height; dstOffset /= dst_height;
-        int out_c = dstOffset % dst_channel;
-        int out_b = dstOffset / dst_channel;
-        int dstOffsetReal = (((out_b + (out_c / 4) * dst_batch) * dst_height + out_h) * dst_width + out_w) * 4 + (out_c % 4);
-    #endif
-        out[dstOffsetReal] = in[srcOffsetReal];
-    }
+device T *out [[buffer(1)]],
+const device uint4* buf [[buffer(2)]],
+uint3 gid [[thread_position_in_grid]]) {
+SamplerInfo info = *((const device SamplerInfo*)(buf + 3));
+if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
+uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
+uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
+#ifdef INPUT_FORMAT_NCHW
+int srcOffsetReal = srcOffset;
+#elif INPUT_FORMAT_NHWC
+int srcOffsetReal = srcOffset;
+#elif INPUT_FORMAT_C4NHW4
+uint4 src_shape = buf[0];
+int src_batch = src_shape.x;
+int src_channel = src_shape.y;
+int src_height = src_shape.z;
+int src_width = src_shape.w;
+int in_w = srcOffset % src_width; srcOffset /= src_width;
+int in_h = srcOffset % src_height; srcOffset /= src_height;
+int in_c = srcOffset % src_channel;
+int in_b = srcOffset / src_channel;
+int srcOffsetReal = (((in_b + (in_c / 4) * src_batch) * src_height + in_h) * src_width + in_w) * 4 + (in_c % 4);
+#endif
+#ifdef OUTPUT_FORMAT_NCHW
+int dstOffsetReal = dstOffset;
+#elif OUTPUT_FORMAT_NHWC
+int dstOffsetReal = dstOffset;
+#elif OUTPUT_FORMAT_C4NHW4
+uint4 dst_shape = buf[1];
+int dst_batch = dst_shape.x;
+int dst_channel = dst_shape.y;
+int dst_height = dst_shape.z;
+int dst_width = dst_shape.w;
+int out_w = dstOffset % dst_width; dstOffset /= dst_width;
+int out_h = dstOffset % dst_height; dstOffset /= dst_height;
+int out_c = dstOffset % dst_channel;
+int out_b = dstOffset / dst_channel;
+int dstOffsetReal = (((out_b + (out_c / 4) * dst_batch) * dst_height + out_h) * dst_width + out_w) * 4 + (out_c % 4);
+#endif
+out[dstOffsetReal] = in[srcOffsetReal];
+}
 }
 )metal";
 
@@ -234,28 +230,28 @@ static const char* gFastC4ToNCHWTemplate = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct FastC4ToNCHWInfo {
-    uint element;
-    uint srcBatch;
-    uint srcChannel;
-    uint srcArea;
+uint element;
+uint srcBatch;
+uint srcChannel;
+uint srcArea;
 };
 kernel void c4_to_nchw(const device T *in [[buffer(0)]],
-                       device T *out [[buffer(1)]],
-                       constant FastC4ToNCHWInfo& info [[buffer(2)]],
-                       uint gid [[thread_position_in_grid]]) {
-    if (gid >= info.element) {
-        return;
-    }
-    if (info.srcArea == 1 && info.srcBatch == 1) {
-        out[gid] = in[gid];
-        return;
-    }
-    uint areaIndex = gid % info.srcArea;
-    uint channelBatch = gid / info.srcArea;
-    uint channel = channelBatch % info.srcChannel;
-    uint batch = channelBatch / info.srcChannel;
-    uint srcOffset = (((channel / 4) * info.srcBatch + batch) * info.srcArea + areaIndex) * 4 + (channel % 4);
-    out[gid] = in[srcOffset];
+device T *out [[buffer(1)]],
+constant FastC4ToNCHWInfo& info [[buffer(2)]],
+uint gid [[thread_position_in_grid]]) {
+if (gid >= info.element) {
+return;
+}
+if (info.srcArea == 1 && info.srcBatch == 1) {
+out[gid] = in[gid];
+return;
+}
+uint areaIndex = gid % info.srcArea;
+uint channelBatch = gid / info.srcArea;
+uint channel = channelBatch % info.srcChannel;
+uint batch = channelBatch / info.srcChannel;
+uint srcOffset = (((channel / 4) * info.srcBatch + batch) * info.srcArea + areaIndex) * 4 + (channel % 4);
+out[gid] = in[srcOffset];
 }
 )metal";
 
@@ -264,16 +260,16 @@ static const char* gFastRawCopyTemplate = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct FastRawCopyInfo {
-    uint count;
+uint count;
 };
 kernel void raw_copy_int4(const device int4 *in [[buffer(0)]],
-                          device int4 *out [[buffer(1)]],
-                          constant FastRawCopyInfo& info [[buffer(2)]],
-                          uint gid [[thread_position_in_grid]]) {
-    if (gid >= info.count) {
-        return;
-    }
-    out[gid] = in[gid];
+device int4 *out [[buffer(1)]],
+constant FastRawCopyInfo& info [[buffer(2)]],
+uint gid [[thread_position_in_grid]]) {
+if (gid >= info.count) {
+return;
+}
+out[gid] = in[gid];
 }
 )metal";
 
@@ -292,15 +288,15 @@ static const char* gFillInt4 = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct MemsetInfo {
-    int4 value;
-    uint4 size;
+int4 value;
+uint4 size;
 };
-kernel void fill(device int4 *out   [[buffer(0)]],
-                       constant MemsetInfo &info        [[buffer(1)]],
-                       uint3 gid                 [[thread_position_in_grid]]) {
-    if (gid.x < info.size.x) {
-        out[gid.x] = info.value;
-    }
+kernel void fill(device int4 *out [[buffer(0)]],
+constant MemsetInfo &info [[buffer(1)]],
+uint3 gid [[thread_position_in_grid]]) {
+if (gid.x < info.size.x) {
+out[gid.x] = info.value;
+}
 }
 )metal";
 

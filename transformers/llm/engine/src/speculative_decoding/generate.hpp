@@ -53,6 +53,7 @@ public:
     virtual void generate(GenerationParams& param);
 };
 
+#ifdef LLM_SUPPORT_SPECULATE
 class LookaheadGeneration: public Generation {
 public:
     LookaheadGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
@@ -140,6 +141,7 @@ private:
     MNN::Express::VARP mContextHidden;
     bool mInitialized = false;
 };
+#endif // LLM_SUPPORT_SPECULATE
 
 class GenerationStrategyFactory {
 public:

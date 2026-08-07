@@ -884,122 +884,120 @@ static const char* gTranspose = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct tensor_shape {
-    uint4 size; // n, c, plane, 1
-    uint4 stride;
+uint4 size;
+uint4 stride;
 };
 kernel void main0(const device IType* in [[buffer(0)]], device OType* out [[buffer(1)]], constant tensor_shape &uConstant [[buffer(2)]], uint gid [[thread_position_in_grid]]) {
-    int channel = uConstant.size.y;
-    if (gid < channel * uConstant.size.x * uConstant.size.z) {
-        int tmp = gid % (channel * uConstant.size.x);
-        int x = gid / (channel * uConstant.size.x);
-        int b = tmp / channel;
-        int c = tmp % channel;
-        int outPos = b * uConstant.size.y * uConstant.size.z + c * uConstant.size.z + x;
-        int inPos = b * uConstant.size.y * uConstant.size.z + c + x * uConstant.size.y;
-        out[outPos] = (OType)(in[inPos]);
-    }
-})metal";
+int channel = uConstant.size.y;
+if (gid < channel * uConstant.size.x * uConstant.size.z) {
+int tmp = gid % (channel * uConstant.size.x);
+int x = gid / (channel * uConstant.size.x);
+int b = tmp / channel;
+int c = tmp % channel;
+int outPos = b * uConstant.size.y * uConstant.size.z + c * uConstant.size.z + x;
+int inPos = b * uConstant.size.y * uConstant.size.z + c + x * uConstant.size.y;
+out[outPos] = (OType)(in[inPos]);
+}
+}
+)metal";
 
 static const char* gNC4HW4Convert = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
 using namespace metal;
 struct tensor_shape {
-    uint4 size; // n, c, plane, 1
-    uint4 stride;
+uint4 size;
+uint4 stride;
 };
 kernel void main0(const device IType* in [[buffer(0)]], device OType* out [[buffer(1)]], constant tensor_shape &uConstant [[buffer(2)]], uint gid [[thread_position_in_grid]]) {
-    int channelC4 = (uConstant.size.y + 3) / 4;
-    if (gid < channelC4 * uConstant.size.x * uConstant.size.z)
-    {
-        int3 pos;
-        pos.z = gid % (channelC4 * uConstant.size.x);
-        pos.y = gid / (channelC4 * uConstant.size.x);
-        pos.x = 0;
-        int batchIndex = pos.z / channelC4;
-        int zDiv4 = pos.z % channelC4;
-
-        int lastZ = uConstant.size.y / 4;
-        int cIndex = uConstant.size.y % 4;
-
-        int z = zDiv4*4;
-        int basicOffset = 0
-            + batchIndex*uConstant.stride.x
-            + z * uConstant.stride.y
-            + pos.y * uConstant.stride.z
-            ;
+int channelC4 = (uConstant.size.y + 3) / 4;
+if (gid < channelC4 * uConstant.size.x * uConstant.size.z)
+{
+int3 pos;
+pos.z = gid % (channelC4 * uConstant.size.x);
+pos.y = gid / (channelC4 * uConstant.size.x);
+pos.x = 0;
+int batchIndex = pos.z / channelC4;
+int zDiv4 = pos.z % channelC4;
+int lastZ = uConstant.size.y / 4;
+int cIndex = uConstant.size.y % 4;
+int z = zDiv4*4;
+int basicOffset = 0
++ batchIndex*uConstant.stride.x
++ z * uConstant.stride.y
++ pos.y * uConstant.stride.z
+;
 #ifdef MNN_OUTPUT_C4
-        OType color = OType(0);
-        if(zDiv4 == lastZ)
-        {
-            if(cIndex == 1)
-            {
-                color.r = in[basicOffset+0];
-                color.g = 0.0;
-                color.b = 0.0;
-                color.a = 0.0;
-            }
-            else if(cIndex == 2)
-            {
-                color.r = in[basicOffset+0];
-                color.g = in[basicOffset+1*uConstant.stride.y];
-                color.b = 0.0;
-                color.a = 0.0;
-            }
-            else
-            {
-                color.r = in[basicOffset+0];
-                color.g = in[basicOffset+1*uConstant.stride.y];
-                color.b = in[basicOffset+2*uConstant.stride.y];
-                color.a = 0.0;
-            }
-        }
-        else
-        {
-            color.r = in[basicOffset+0];
-            color.g = in[basicOffset+1*uConstant.stride.y];
-            color.b = in[basicOffset+2*uConstant.stride.y];
-            color.a = in[basicOffset+3*uConstant.stride.y];
-        }
-
-        out[0
-            + pos.y
-            + uConstant.size.x * uConstant.size.z*zDiv4
-            + batchIndex*uConstant.size.z
-            ] = color;
+OType color = OType(0);
+if(zDiv4 == lastZ)
+{
+if(cIndex == 1)
+{
+color.r = in[basicOffset+0];
+color.g = 0.0;
+color.b = 0.0;
+color.a = 0.0;
+}
+else if(cIndex == 2)
+{
+color.r = in[basicOffset+0];
+color.g = in[basicOffset+1*uConstant.stride.y];
+color.b = 0.0;
+color.a = 0.0;
+}
+else
+{
+color.r = in[basicOffset+0];
+color.g = in[basicOffset+1*uConstant.stride.y];
+color.b = in[basicOffset+2*uConstant.stride.y];
+color.a = 0.0;
+}
+}
+else
+{
+color.r = in[basicOffset+0];
+color.g = in[basicOffset+1*uConstant.stride.y];
+color.b = in[basicOffset+2*uConstant.stride.y];
+color.a = in[basicOffset+3*uConstant.stride.y];
+}
+out[0
++ pos.y
++ uConstant.size.x * uConstant.size.z*zDiv4
++ batchIndex*uConstant.size.z
+] = color;
 #else
-        IType color = in[0
-            + pos.y
-            + uConstant.size.x * uConstant.size.z*zDiv4
-            + batchIndex*uConstant.size.z
-            ];
-        if(zDiv4 == lastZ)
-        {
-            if(cIndex == 1)
-            {
-                out[basicOffset+0*uConstant.stride.y] = color.r;
-            }
-            else if(cIndex == 2)
-            {
-                out[basicOffset+0*uConstant.stride.y] = color.r;
-                out[basicOffset+1*uConstant.stride.y] = color.g;
-            }
-            else
-            {
-                out[basicOffset+0*uConstant.stride.y] = color.r;
-                out[basicOffset+1*uConstant.stride.y] = color.g;
-                out[basicOffset+2*uConstant.stride.y] = color.b;
-            }
-        }
-        else
-        {
-            out[basicOffset+0*uConstant.stride.y] = color.r;
-            out[basicOffset+1*uConstant.stride.y] = color.g;
-            out[basicOffset+2*uConstant.stride.y] = color.b;
-            out[basicOffset+3*uConstant.stride.y] = color.a;
-        }
+IType color = in[0
++ pos.y
++ uConstant.size.x * uConstant.size.z*zDiv4
++ batchIndex*uConstant.size.z
+];
+if(zDiv4 == lastZ)
+{
+if(cIndex == 1)
+{
+out[basicOffset+0*uConstant.stride.y] = color.r;
+}
+else if(cIndex == 2)
+{
+out[basicOffset+0*uConstant.stride.y] = color.r;
+out[basicOffset+1*uConstant.stride.y] = color.g;
+}
+else
+{
+out[basicOffset+0*uConstant.stride.y] = color.r;
+out[basicOffset+1*uConstant.stride.y] = color.g;
+out[basicOffset+2*uConstant.stride.y] = color.b;
+}
+}
+else
+{
+out[basicOffset+0*uConstant.stride.y] = color.r;
+out[basicOffset+1*uConstant.stride.y] = color.g;
+out[basicOffset+2*uConstant.stride.y] = color.b;
+out[basicOffset+3*uConstant.stride.y] = color.a;
+}
 #endif
-    }
+}
 }
 )metal";
 
@@ -1008,10 +1006,11 @@ static const char* gCopy = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 kernel void main0(const device IType *in [[buffer(0)]], device OType *out [[buffer(1)]], constant uint4& limit [[buffer(2)]], uint gid [[thread_position_in_grid]]) {
-    if (gid < limit.x) {
-        out[int(gid)] = (OType)in[int(gid)];
-    }
-})metal";
+if (gid < limit.x) {
+out[int(gid)] = (OType)in[int(gid)];
+}
+}
+)metal";
 
 void MetalBackend::onResizeBegin() {    
     // Abort last inference task if needed

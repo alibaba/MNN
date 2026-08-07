@@ -596,17 +596,27 @@ public:
         if (static_cast<OpenCLBackend *>(backend)->getMemory() == BackendConfig::Memory_Low){
             auto conv2dParams = op->main_as_Convolution2D();
             if (conv2dParams->quanParameter() != nullptr) {
-                if (((conv2dParams->quanParameter()->type() == 4) ||
-                     (conv2dParams->quanParameter()->type() == 1) ||
-                     (conv2dParams->quanParameter()->type() == 2))) {
-                    if ((1 == conv2dParams->quanParameter()->type() || 2 == conv2dParams->quanParameter()->type()) && conv2dParams->quanParameter()->has_scaleInt()) {
-                        // Don't support IDST-int8 because of error
+                bool skipLowMemory = false;
+#ifndef MNN_SUPPORT_QUANT_W2W3
+                {
+                    // 2/3-bit weight quantization not built in, fallback to float weight convolution
+                    int quanBits = conv2dParams->quanParameter()->aMaxOrBits();
+                    skipLowMemory = (quanBits == 2 || quanBits == 3);
+                }
+#endif
+                if (!skipLowMemory) {
+                    if (((conv2dParams->quanParameter()->type() == 4) ||
+                         (conv2dParams->quanParameter()->type() == 1) ||
+                         (conv2dParams->quanParameter()->type() == 2))) {
+                        if ((1 == conv2dParams->quanParameter()->type() || 2 == conv2dParams->quanParameter()->type()) && conv2dParams->quanParameter()->has_scaleInt()) {
+                            // Don't support IDST-int8 because of error
+                            return nullptr;
+                        }
+                        OPENCL_CREATOR_CHECK(new ConvLowMemoryExecution(inputs, outputs, op, backend));
+                    } else {
+                        //MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
                         return nullptr;
                     }
-                    OPENCL_CREATOR_CHECK(new ConvLowMemoryExecution(inputs, outputs, op, backend));
-                } else {
-                    //MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
-                    return nullptr;
                 }
             }
         }

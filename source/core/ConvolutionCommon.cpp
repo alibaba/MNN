@@ -561,6 +561,13 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
     auto quan = conv->quanParameter();
     std::shared_ptr<ConvolutionCommon::Int8Common> result(new Int8Common);
     result->quan = quan;
+#ifndef MNN_SUPPORT_QUANT_W2W3
+    // 2/3-bit weight quantization not built in: dequant to float weight, same behavior on all backends
+    if (nullptr != quan && (quan->aMaxOrBits() == 2 || quan->aMaxOrBits() == 3)) {
+        forceFloat = true;
+        forceInt8 = false;
+    }
+#endif
     size_t buffer_size = 0, alpha_size = 0;
     const int8_t* buffer_ptr = nullptr;
     const float* alpha_ptr = nullptr;

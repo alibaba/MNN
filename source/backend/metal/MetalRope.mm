@@ -94,202 +94,190 @@ typedef half ftype;
 #else
 typedef float ftype;
 #endif
-
 struct RopeParam {
-    int outerSize;
-    int workDim;
-    int ropeHalfD;
-    int D;
-    int numHead;
-    int kvnumHead;
-    int fullHead;
-    float qEps;
-    float kEps;
+int outerSize;
+int workDim;
+int ropeHalfD;
+int D;
+int numHead;
+int kvnumHead;
+int fullHead;
+float qEps;
+float kEps;
 };
-
 static inline int c4Offset(int token, int channel, int seqLen) {
-    return (channel / 4) * seqLen * 4 + token * 4 + (channel % 4);
+return (channel / 4) * seqLen * 4 + token * 4 + (channel % 4);
 }
-
 static inline ftype loadC4(const device ftype* tensor, int token, int base, int offset, int seqLen) {
-    if (seqLen == 1) {
-        return tensor[base + offset];
-    }
-    return tensor[c4Offset(token, base + offset, seqLen)];
+if (seqLen == 1) {
+return tensor[base + offset];
 }
-
+return tensor[c4Offset(token, base + offset, seqLen)];
+}
 #if defined(Q_NORM) || defined(K_NORM)
 kernel void rope_kernel(
-                        const device ftype* q           [[ buffer(0) ]],
-                        const device ftype* k           [[ buffer(1) ]],
-                        const device ftype* cos         [[ buffer(2) ]],
-                        const device ftype* sin         [[ buffer(3) ]],
-                        device ftype* qo                 [[ buffer(4) ]],
-                        device ftype* ko                 [[ buffer(5) ]],
-                        constant RopeParam& p           [[ buffer(6) ]],
+const device ftype* q [[ buffer(0) ]],
+const device ftype* k [[ buffer(1) ]],
+const device ftype* cos [[ buffer(2) ]],
+const device ftype* sin [[ buffer(3) ]],
+device ftype* qo [[ buffer(4) ]],
+device ftype* ko [[ buffer(5) ]],
+constant RopeParam& p [[ buffer(6) ]],
 #ifdef Q_NORM
-                        const device float* qGamma      [[ buffer(7) ]],
+const device float* qGamma [[ buffer(7) ]],
 #endif
 #ifdef K_NORM
-                        const device float* kGamma      [[ buffer(8) ]],
+const device float* kGamma [[ buffer(8) ]],
 #endif
 #ifdef USE_SG
-                        uint3 gid                      [[ threadgroup_position_in_grid]],
-                        uint tiisg                     [[ thread_index_in_simdgroup]],
-                        uint sgitg                     [[ simdgroup_index_in_threadgroup ]]
+uint3 gid [[ threadgroup_position_in_grid]],
+uint tiisg [[ thread_index_in_simdgroup]],
+uint sgitg [[ simdgroup_index_in_threadgroup ]]
 #else
-                        uint3 gid                      [[ thread_position_in_grid]]
+uint3 gid [[ thread_position_in_grid]]
 #endif
 ) {
 #ifdef USE_SG
-    uint actual_z = gid.z * 2 + sgitg;
-    if (gid.y >= (uint)p.outerSize || actual_z >= p.fullHead) {
-        return;
-    }
-    int step = 32;
-    int start = tiisg;
+uint actual_z = gid.z * 2 + sgitg;
+if (gid.y >= (uint)p.outerSize || actual_z >= p.fullHead) {
+return;
+}
+int step = 32;
+int start = tiisg;
 #else
-    uint actual_z = gid.z;
-    if (gid.x >= 1 || gid.y >= (uint)p.outerSize || actual_z >= p.fullHead) {
-        return;
-    }
-    int step = 1;
-    int start = 0;
+uint actual_z = gid.z;
+if (gid.x >= 1 || gid.y >= (uint)p.outerSize || actual_z >= p.fullHead) {
+return;
+}
+int step = 1;
+int start = 0;
 #endif
-
-    bool isQ = true;
-    const device ftype* xTensor = q;
-    int xBase = actual_z * p.D;
-    int xSeq = p.outerSize;
-    device ftype* yTensor = qo;
-    int yBase = gid.y * p.numHead * p.D + actual_z * p.D;
-    if (actual_z >= p.numHead) {
-        xTensor = k;
-        xBase = (actual_z - p.numHead) * p.D;
-        yTensor = ko;
-        yBase = gid.y * p.kvnumHead * p.D + (actual_z - p.numHead) * p.D;
-        isQ = false;
-    }
-    
-    float square_sum = 0.0f;
+bool isQ = true;
+const device ftype* xTensor = q;
+int xBase = actual_z * p.D;
+int xSeq = p.outerSize;
+device ftype* yTensor = qo;
+int yBase = gid.y * p.numHead * p.D + actual_z * p.D;
+if (actual_z >= p.numHead) {
+xTensor = k;
+xBase = (actual_z - p.numHead) * p.D;
+yTensor = ko;
+yBase = gid.y * p.kvnumHead * p.D + (actual_z - p.numHead) * p.D;
+isQ = false;
+}
+float square_sum = 0.0f;
 #ifdef Q_NORM
-    if (isQ) {
-        for (int i = start; i < p.D; i += step) {
-            float val = loadC4(xTensor, gid.y, xBase, i, xSeq);
-            square_sum += val * val;
-        }
+if (isQ) {
+for (int i = start; i < p.D; i += step) {
+float val = loadC4(xTensor, gid.y, xBase, i, xSeq);
+square_sum += val * val;
+}
 #ifdef USE_SG
-        square_sum = simd_sum(square_sum);
+square_sum = simd_sum(square_sum);
 #endif
-    }
+}
 #endif
 #ifdef K_NORM
-    if (!isQ) {
-        for (int i = start; i < p.D; i += step) {
-            float val = loadC4(xTensor, gid.y, xBase, i, xSeq);
-            square_sum += val * val;
-        }
+if (!isQ) {
+for (int i = start; i < p.D; i += step) {
+float val = loadC4(xTensor, gid.y, xBase, i, xSeq);
+square_sum += val * val;
+}
 #ifdef USE_SG
-        square_sum = simd_sum(square_sum);
+square_sum = simd_sum(square_sum);
 #endif
-    }
+}
 #endif
-
-    float var = 0;
+float var = 0;
 #ifdef Q_NORM
-    if (isQ) {
-        var = 1.0 / sqrt(square_sum / p.D + p.qEps);
-    }
+if (isQ) {
+var = 1.0 / sqrt(square_sum / p.D + p.qEps);
+}
 #endif
 #ifdef K_NORM
-    if (!isQ) {
-        var = 1.0 / sqrt(square_sum / p.D + p.kEps);
-    }
+if (!isQ) {
+var = 1.0 / sqrt(square_sum / p.D + p.kEps);
+}
 #endif
-
-    for (int i = start; i < p.ropeHalfD; i += step) {
-        ftype evenVal = loadC4(xTensor, gid.y, xBase, i, xSeq);
-        ftype oddVal  = loadC4(xTensor, gid.y, xBase, i + p.ropeHalfD, xSeq);
+for (int i = start; i < p.ropeHalfD; i += step) {
+ftype evenVal = loadC4(xTensor, gid.y, xBase, i, xSeq);
+ftype oddVal = loadC4(xTensor, gid.y, xBase, i + p.ropeHalfD, xSeq);
 #ifdef Q_NORM
-        if (isQ) {
-            evenVal = evenVal * var * qGamma[i];
-            oddVal  = oddVal * var * qGamma[i + p.ropeHalfD];
-        }
+if (isQ) {
+evenVal = evenVal * var * qGamma[i];
+oddVal = oddVal * var * qGamma[i + p.ropeHalfD];
+}
 #endif
 #ifdef K_NORM
-        if (!isQ) {
-            evenVal = evenVal * var * kGamma[i];
-            oddVal  = oddVal * var * kGamma[i + p.ropeHalfD];
-        }
+if (!isQ) {
+evenVal = evenVal * var * kGamma[i];
+oddVal = oddVal * var * kGamma[i + p.ropeHalfD];
+}
 #endif
-
-        int cosIndex = gid.y * (2 * p.ropeHalfD) + i;
-        ftype cEven = cos[cosIndex];
-        ftype cOdd  = cos[cosIndex + p.ropeHalfD];
-        ftype sEven = sin[cosIndex];
-        ftype sOdd  = sin[cosIndex + p.ropeHalfD];
-
-        yTensor[yBase + i] = evenVal * cEven - oddVal * sEven;
-        yTensor[yBase + i + p.ropeHalfD] = oddVal * cOdd + evenVal * sOdd;
-    }
-    for (int i = 2 * p.ropeHalfD + start; i < p.D; i += step) {
-        ftype value = loadC4(xTensor, gid.y, xBase, i, xSeq);
+int cosIndex = gid.y * (2 * p.ropeHalfD) + i;
+ftype cEven = cos[cosIndex];
+ftype cOdd = cos[cosIndex + p.ropeHalfD];
+ftype sEven = sin[cosIndex];
+ftype sOdd = sin[cosIndex + p.ropeHalfD];
+yTensor[yBase + i] = evenVal * cEven - oddVal * sEven;
+yTensor[yBase + i + p.ropeHalfD] = oddVal * cOdd + evenVal * sOdd;
+}
+for (int i = 2 * p.ropeHalfD + start; i < p.D; i += step) {
+ftype value = loadC4(xTensor, gid.y, xBase, i, xSeq);
 #ifdef Q_NORM
-        if (isQ) {
-            value = value * var * qGamma[i];
-        }
+if (isQ) {
+value = value * var * qGamma[i];
+}
 #endif
 #ifdef K_NORM
-        if (!isQ) {
-            value = value * var * kGamma[i];
-        }
+if (!isQ) {
+value = value * var * kGamma[i];
+}
 #endif
-        yTensor[yBase + i] = value;
-    }
+yTensor[yBase + i] = value;
+}
 }
 #else
 kernel void rope_kernel(
-                        const device ftype* q           [[ buffer(0) ]],
-                        const device ftype* k           [[ buffer(1) ]],
-                        const device ftype* cos         [[ buffer(2) ]],
-                        const device ftype* sin         [[ buffer(3) ]],
-                        device ftype* qo                 [[ buffer(4) ]],
-                        device ftype* ko                 [[ buffer(5) ]],
-                        constant RopeParam& p           [[ buffer(6) ]],
-                        uint3 gid                      [[ thread_position_in_grid]]) {
-    if (gid.x >= (uint)p.workDim || gid.y >= (uint)p.outerSize || gid.z >= p.fullHead) {
-        return;
-    }
-    const device ftype* xTensor = q;
-    int xBase = gid.z * p.D;
-    int xSeq = p.outerSize;
-    device ftype* yTensor = qo;
-    int yBase = gid.y * p.numHead * p.D + gid.z * p.D;
-    if (gid.z >= p.numHead) {
-        xTensor = k;
-        xBase = (gid.z - p.numHead) * p.D;
-        yTensor = ko;
-        yBase = gid.y * p.kvnumHead * p.D + (gid.z - p.numHead) * p.D;
-    }
-    if (gid.x < (uint)p.ropeHalfD) {
-        ftype evenVal = loadC4(xTensor, gid.y, xBase, gid.x, xSeq);
-        ftype oddVal  = loadC4(xTensor, gid.y, xBase, gid.x + p.ropeHalfD, xSeq);
-        int cosIndex = gid.y * (2 * p.ropeHalfD) + gid.x;
-        ftype cEven = cos[cosIndex];
-        ftype cOdd  = cos[cosIndex + p.ropeHalfD];
-        ftype sEven = sin[cosIndex];
-        ftype sOdd  = sin[cosIndex + p.ropeHalfD];
-
-        ftype q0 = evenVal * cEven - oddVal * sEven;
-        ftype q1 = oddVal  * cOdd  + evenVal * sOdd;
-
-        yTensor[yBase + gid.x] = q0;
-        yTensor[yBase + gid.x + p.ropeHalfD] = q1;
-    }
-    int tail = 2 * p.ropeHalfD + gid.x;
-    if (tail < p.D) {
-        yTensor[yBase + tail] = loadC4(xTensor, gid.y, xBase, tail, xSeq);
-    }
+const device ftype* q [[ buffer(0) ]],
+const device ftype* k [[ buffer(1) ]],
+const device ftype* cos [[ buffer(2) ]],
+const device ftype* sin [[ buffer(3) ]],
+device ftype* qo [[ buffer(4) ]],
+device ftype* ko [[ buffer(5) ]],
+constant RopeParam& p [[ buffer(6) ]],
+uint3 gid [[ thread_position_in_grid]]) {
+if (gid.x >= (uint)p.workDim || gid.y >= (uint)p.outerSize || gid.z >= p.fullHead) {
+return;
+}
+const device ftype* xTensor = q;
+int xBase = gid.z * p.D;
+int xSeq = p.outerSize;
+device ftype* yTensor = qo;
+int yBase = gid.y * p.numHead * p.D + gid.z * p.D;
+if (gid.z >= p.numHead) {
+xTensor = k;
+xBase = (gid.z - p.numHead) * p.D;
+yTensor = ko;
+yBase = gid.y * p.kvnumHead * p.D + (gid.z - p.numHead) * p.D;
+}
+if (gid.x < (uint)p.ropeHalfD) {
+ftype evenVal = loadC4(xTensor, gid.y, xBase, gid.x, xSeq);
+ftype oddVal = loadC4(xTensor, gid.y, xBase, gid.x + p.ropeHalfD, xSeq);
+int cosIndex = gid.y * (2 * p.ropeHalfD) + gid.x;
+ftype cEven = cos[cosIndex];
+ftype cOdd = cos[cosIndex + p.ropeHalfD];
+ftype sEven = sin[cosIndex];
+ftype sOdd = sin[cosIndex + p.ropeHalfD];
+ftype q0 = evenVal * cEven - oddVal * sEven;
+ftype q1 = oddVal * cOdd + evenVal * sOdd;
+yTensor[yBase + gid.x] = q0;
+yTensor[yBase + gid.x + p.ropeHalfD] = q1;
+}
+int tail = 2 * p.ropeHalfD + gid.x;
+if (tail < p.D) {
+yTensor[yBase + tail] = loadC4(xTensor, gid.y, xBase, tail, xSeq);
+}
 }
 #endif
 )metal";

@@ -105,20 +105,20 @@ static const char* gBinaryTemplate = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 kernel void binary(const device T0 *in0 [[buffer(0)]],
-    const device T1 *in1 [[buffer(1)]], device T2 *out [[buffer(2)]], constant int4& s [[buffer(3)]], uint gid [[thread_position_in_grid]]) {
-    if ((int)gid >= s.z) return;
+const device T1 *in1 [[buffer(1)]], device T2 *out [[buffer(2)]], constant int4& s [[buffer(3)]], uint gid [[thread_position_in_grid]]) {
+if ((int)gid >= s.z) return;
 #ifdef SAME_SIZE
-    auto V0 = in0[int(gid)];
-    auto V1 = in1[int(gid)];
+auto V0 = in0[int(gid)];
+auto V1 = in1[int(gid)];
 #else
-    auto V0 = in0[s.x * int(gid)];
-    auto V1 = in1[s.y * int(gid)];
+auto V0 = in0[s.x * int(gid)];
+auto V1 = in1[s.y * int(gid)];
 #endif
-    auto val = CUSTOM;
+auto val = CUSTOM;
 #ifdef RELU
-    val = (val < (T2)0 ? (T2)0 : val);
+val = (val < (T2)0 ? (T2)0 : val);
 #endif
-    out[int(gid)] = val;
+out[int(gid)] = val;
 }
 )metal";
 
@@ -127,14 +127,14 @@ static const char* gMulSiluVecTemplate = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 kernel void mulsilu_vec(const device T *in0 [[buffer(0)]],
-    const device T *in1 [[buffer(1)]], device T *out [[buffer(2)]], constant int& size [[buffer(3)]],
-    uint gid [[thread_position_in_grid]]) {
-    if ((int)gid >= size) {
-        return;
-    }
-    float4 gate = float4(in1[int(gid)]);
-    float4 up = float4(in0[int(gid)]);
-    out[int(gid)] = (T)(up * (gate / (1.0f + exp(-gate))));
+const device T *in1 [[buffer(1)]], device T *out [[buffer(2)]], constant int& size [[buffer(3)]],
+uint gid [[thread_position_in_grid]]) {
+if ((int)gid >= size) {
+return;
+}
+float4 gate = float4(in1[int(gid)]);
+float4 up = float4(in0[int(gid)]);
+out[int(gid)] = (T)(up * (gate / (1.0f + exp(-gate))));
 }
 )metal";
 

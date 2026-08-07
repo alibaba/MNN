@@ -225,15 +225,15 @@ static const char* gSelectTemplate = R"metal(
 using namespace metal;
 kernel void select(device T* uOutput [[buffer(0)]], const device int* uSelect [[buffer(1)]], const device T* uInput0 [[buffer(2)]], const device T* uInput1 [[buffer(3)]], constant int4& uStride [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
-    int i = int(gl_GlobalInvocationID.x);
-    if (i < uStride.w)
-    {
-        if (uSelect[uStride.x*i] > 0) {
-            uOutput[i] = uInput0[uStride.y*i];
-        } else {
-            uOutput[i] = uInput1[uStride.z*i];
-        }
-    }
+int i = int(gl_GlobalInvocationID.x);
+if (i < uStride.w)
+{
+if (uSelect[uStride.x*i] > 0) {
+uOutput[i] = uInput0[uStride.y*i];
+} else {
+uOutput[i] = uInput1[uStride.z*i];
+}
+}
 }
 )metal";
 
@@ -327,10 +327,10 @@ static const char* gRangeTemplate = R"metal(
 using namespace metal;
 kernel void range(device T* uOutput [[buffer(0)]], const device T* uStart [[buffer(1)]], const device T* uDelta [[buffer(2)]], constant int4& uSize [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
-    int i = int(gl_GlobalInvocationID.x);
-    if(i < uSize.w) {
-        uOutput[i] = (T)(i) * uDelta[0] + uStart[0];
-    }
+int i = int(gl_GlobalInvocationID.x);
+if(i < uSize.w) {
+uOutput[i] = (T)(i) * uDelta[0] + uStart[0];
+}
 }
 )metal";
 class MetalRangeCreator : public MetalBackend::Creator {

@@ -19,19 +19,17 @@ static const char* gUnaryTemplate = R"metal(
 #include <simd/simd.h>
 using namespace metal;
 struct unary_shape {
-    int width;
-    int height;
-    int size;
+int width;
+int height;
+int size;
 };
-
 static inline float4 MNNEXP(float4 tmp) {
-    tmp = clamp(tmp, (float4)-87.0, (float4)87.0);
-    return exp(tmp);
+tmp = clamp(tmp, (float4)-87.0, (float4)87.0);
+return exp(tmp);
 }
-
 static inline float4 MNNTANH(float4 value) {
-    float4 tmp = MNNEXP((float4)(2.0)*value);
-    return (tmp-(float4)1.0)/(tmp+(float4)1.0);
+float4 tmp = MNNEXP((float4)(2.0)*value);
+return (tmp-(float4)1.0)/(tmp+(float4)1.0);
 }
 static inline float4 neg(float4 value) { return -value; }
 static inline float4 square(float4 value) { return value * value; }
@@ -41,24 +39,23 @@ static inline float4 sigmoid(float4 value) {return 1.f / (1.f + MNNEXP(-value));
 static inline float4 silu(float4 value) {return value / (1.f + MNNEXP(-value));}
 static inline float4 log1p(float4 value) {return log(1.f + value);}
 static inline float4 hardswish(float4 value) {
-    return (float4)(1.0/6.0) * (value * min(max(value+(float4)3, 0), (float4)6));
+return (float4)(1.0/6.0) * (value * min(max(value+(float4)3, 0), (float4)6));
 }
 static inline float4 gelu(float4 value) {
-    float4 temp = (float4)0.044715 * value * value * value;
-    temp = (float4)0.79788458 * (temp + value);
-    temp = clamp(temp, (float4)-5.0, (float4)5.0);
-    float4 result = ((float4)1.0 + MNNTANH(temp)) * value * (float4)0.5;
-    return result;
+float4 temp = (float4)0.044715 * value * value * value;
+temp = (float4)0.79788458 * (temp + value);
+temp = clamp(temp, (float4)-5.0, (float4)5.0);
+float4 result = ((float4)1.0 + MNNTANH(temp)) * value * (float4)0.5;
+return result;
 }
-
 kernel void unary(const device T *in [[buffer(0)]], \
-                            device T *out      [[buffer(1)]], \
-                            device unary_shape& s   [[buffer(2)]], \
-                            uint3 gid               [[thread_position_in_grid]]) { \
-    if (gid.x < (uint)s.width) { \
-        int off = gid.z * s.size + gid.y * s.width + gid.x; \
-        out[off] = (T)(FUNC((float4)(in[off]))); \
-    } \
+device T *out [[buffer(1)]], \
+device unary_shape& s [[buffer(2)]], \
+uint3 gid [[thread_position_in_grid]]) { \
+if (gid.x < (uint)s.width) { \
+int off = gid.z * s.size + gid.y * s.width + gid.x; \
+out[off] = (T)(FUNC((float4)(in[off]))); \
+} \
 }
 )metal";
 

@@ -928,7 +928,16 @@ public:
         if (static_cast<OpenCLBackend *>(backend)->getMemory() == BackendConfig::Memory_Low){
             auto conv2dParams = op->main_as_Convolution2D();
             if (conv2dParams->quanParameter() != nullptr) {
-                if (((conv2dParams->quanParameter()->type() == 4) ||
+                bool skipLowMemory = false;
+#ifndef MNN_SUPPORT_QUANT_W2W3
+                {
+                    // 2/3-bit weight quantization not built in, fallback to float weight convolution
+                    int quanBits = conv2dParams->quanParameter()->aMaxOrBits();
+                    skipLowMemory = (quanBits == 2 || quanBits == 3);
+                }
+#endif
+                if (!skipLowMemory &&
+                    ((conv2dParams->quanParameter()->type() == 4) ||
                      (conv2dParams->quanParameter()->type() == 1) ||
                      (conv2dParams->quanParameter()->type() == 2))) {
                     if ((1 == conv2dParams->quanParameter()->type() || 2 == conv2dParams->quanParameter()->type()) && conv2dParams->quanParameter()->has_scaleInt()) {
