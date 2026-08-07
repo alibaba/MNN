@@ -15,11 +15,17 @@ class ChatDataManager private constructor(context: Context) {
     
     init {
         ensureLastChatTimeColumn()
+        ensureSessionModeColumn()
+        ensureAgentTables()
         fixAllMissingLastChatTimes()
     }
 
-    fun addOrUpdateSession(sessionId: String, modelId: String?) {
-        Log.d(TAG, "addOrUpdateSession: sessionId: $sessionId modelId: $modelId")
+    fun addOrUpdateSession(
+        sessionId: String,
+        modelId: String?,
+        sessionMode: String? = null
+    ) {
+        Log.d(TAG, "addOrUpdateSession: sessionId: $sessionId modelId: $modelId sessionMode: $sessionMode")
         val db = dbHelper.writableDatabase
 
         val cursor = db.query(
@@ -35,6 +41,9 @@ class ChatDataManager private constructor(context: Context) {
         val values = ContentValues()
         values.put(ChatDatabaseHelper.COLUMN_SESSION_ID, sessionId)
         values.put(ChatDatabaseHelper.COLUMN_MODEL_ID, modelId)
+        if (!sessionMode.isNullOrBlank()) {
+            values.put(ChatDatabaseHelper.COLUMN_SESSION_MODE, normalizeSessionMode(sessionMode))
+        }
         
         if (exists) {
             // Don't update lastChatTime when just updating session info
@@ -46,9 +55,247 @@ class ChatDataManager private constructor(context: Context) {
         } else {
             // Set initial lastChatTime to 0 for new sessions
             values.put(ChatDatabaseHelper.COLUMN_LAST_CHAT_TIME, 0L)
+            if (sessionMode.isNullOrBlank()) {
+                values.put(ChatDatabaseHelper.COLUMN_SESSION_MODE, ChatDatabaseHelper.SESSION_MODE_NORMAL)
+            }
             db.insert(ChatDatabaseHelper.TABLE_SESSION, null, values)
         }
         db.close()
+    }
+
+    fun updateSessionMode(sessionId: String, sessionMode: String) {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues()
+        values.put(ChatDatabaseHelper.COLUMN_SESSION_MODE, normalizeSessionMode(sessionMode))
+        db.update(
+            ChatDatabaseHelper.TABLE_SESSION,
+            values,
+            ChatDatabaseHelper.COLUMN_SESSION_ID + "=?",
+            arrayOf(sessionId)
+        )
+        db.close()
+    }
+
+    @SuppressLint("Range")
+    fun getSessionMode(sessionId: String): String {
+        val db = dbHelper.readableDatabase
+        return try {
+            val cursor = db.query(
+                ChatDatabaseHelper.TABLE_SESSION,
+                arrayOf(ChatDatabaseHelper.COLUMN_SESSION_MODE),
+                ChatDatabaseHelper.COLUMN_SESSION_ID + "=?",
+                arrayOf(sessionId), null, null, null
+            )
+            val mode = if (cursor.moveToFirst()) {
+                cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_SESSION_MODE))
+            } else {
+                null
+            }
+            cursor.close()
+            normalizeSessionMode(mode)
+        } catch (e: Exception) {
+            ChatDatabaseHelper.SESSION_MODE_NORMAL
+        } finally {
+            db.close()
+        }
+    }
+
+    @SuppressLint("Range")
+    fun getAgentMemories(limit: Int = 40): List<AgentMemoryItem> {
+        val list = mutableListOf<AgentMemoryItem>()
+        val db = dbHelper.readableDatabase
+        try {
+            val cursor = db.query(
+                ChatDatabaseHelper.TABLE_AGENT_MEMORY,
+                null,
+                null,
+                null,
+                null,
+                null,
+                ChatDatabaseHelper.COLUMN_AGENT_MEMORY_UPDATED_AT + " DESC",
+                limit.coerceAtLeast(1).toString()
+            )
+            while (cursor.moveToNext()) {
+                list += AgentMemoryItem(
+                    id = cursor.getLong(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_MEMORY_ID)),
+                    category = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_MEMORY_CATEGORY)).orEmpty(),
+                    content = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_MEMORY_CONTENT)).orEmpty(),
+                    source = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_MEMORY_SOURCE)).orEmpty(),
+                    updatedAt = cursor.getLong(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_MEMORY_UPDATED_AT))
+                )
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "getAgentMemories failed", e)
+        } finally {
+            db.close()
+        }
+        return list
+    }
+
+    @SuppressLint("Range")
+    fun getEnabledAgentSkills(): List<AgentSkillItem> {
+        val list = mutableListOf<AgentSkillItem>()
+        val db = dbHelper.readableDatabase
+        try {
+            val cursor = db.query(
+                ChatDatabaseHelper.TABLE_AGENT_SKILL,
+                null,
+                ChatDatabaseHelper.COLUMN_AGENT_SKILL_ENABLED + "=1",
+                null,
+                null,
+                null,
+                ChatDatabaseHelper.COLUMN_AGENT_SKILL_CREATED_AT + " DESC"
+            )
+            while (cursor.moveToNext()) {
+                list += AgentSkillItem(
+                    id = cursor.getLong(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_SKILL_ID)),
+                    name = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_SKILL_NAME)).orEmpty(),
+                    description = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_SKILL_DESCRIPTION)).orEmpty(),
+                    triggerKeywords = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_SKILL_TRIGGER_KEYWORDS)).orEmpty(),
+                    actionTemplate = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_SKILL_ACTION_TEMPLATE)).orEmpty(),
+                    enabled = cursor.getInt(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_SKILL_ENABLED)) == 1,
+                    createdAt = cursor.getLong(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AGENT_SKILL_CREATED_AT))
+                )
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "getEnabledAgentSkills failed", e)
+        } finally {
+            db.close()
+        }
+        return list
+    }
+
+    fun upsertAgentMemory(category: String?, content: String?, source: String = "agent") {
+        val safeCategory = compactAgentText(category, 48)
+        val safeContent = compactAgentText(content, MEMORY_CONTENT_MAX_CHARS)
+        if (safeCategory.isBlank() || safeContent.isBlank()) return
+        if (!isUsefulAgentMemory(safeCategory, safeContent)) return
+        val db = dbHelper.writableDatabase
+        try {
+            val values = ContentValues().apply {
+                put(ChatDatabaseHelper.COLUMN_AGENT_MEMORY_CATEGORY, safeCategory)
+                put(ChatDatabaseHelper.COLUMN_AGENT_MEMORY_CONTENT, safeContent)
+                put(ChatDatabaseHelper.COLUMN_AGENT_MEMORY_SOURCE, source)
+                put(ChatDatabaseHelper.COLUMN_AGENT_MEMORY_UPDATED_AT, System.currentTimeMillis())
+            }
+            db.insert(ChatDatabaseHelper.TABLE_AGENT_MEMORY, null, values)
+        } catch (e: Exception) {
+            Log.e(TAG, "upsertAgentMemory failed", e)
+        } finally {
+            db.close()
+        }
+    }
+
+    fun upsertAgentSkill(
+        name: String?,
+        description: String?,
+        triggerKeywords: List<String>?,
+        actionTemplate: String?
+    ) {
+        val safeName = compactAgentText(name, 64)
+        val safeTemplate = compactAgentText(actionTemplate, SKILL_ACTION_MAX_CHARS)
+        if (safeName.isBlank() || safeTemplate.isBlank()) return
+        if (!isUsefulAgentSkill(safeName, safeTemplate)) return
+        val db = dbHelper.writableDatabase
+        try {
+            val values = ContentValues().apply {
+                put(ChatDatabaseHelper.COLUMN_AGENT_SKILL_NAME, safeName)
+                put(ChatDatabaseHelper.COLUMN_AGENT_SKILL_DESCRIPTION, compactAgentText(description, MEMORY_CONTENT_MAX_CHARS))
+                put(ChatDatabaseHelper.COLUMN_AGENT_SKILL_TRIGGER_KEYWORDS, JSONArray(triggerKeywords.orEmpty().map { compactAgentText(it, 32) }.filter { it.isNotBlank() }).toString())
+                put(ChatDatabaseHelper.COLUMN_AGENT_SKILL_ACTION_TEMPLATE, safeTemplate)
+                put(ChatDatabaseHelper.COLUMN_AGENT_SKILL_ENABLED, 1)
+                put(ChatDatabaseHelper.COLUMN_AGENT_SKILL_CREATED_AT, System.currentTimeMillis())
+            }
+            db.replace(ChatDatabaseHelper.TABLE_AGENT_SKILL, null, values)
+        } catch (e: Exception) {
+            Log.e(TAG, "upsertAgentSkill failed", e)
+        } finally {
+            db.close()
+        }
+    }
+
+    fun buildAgentMemoryBlock(limit: Int = 20): String {
+        return getAgentMemories(limit)
+            .filter { it.content.isNotBlank() }
+            .filter { isUsefulAgentMemory(it.category, it.content) }
+            .joinToString("\n") {
+                "- ${compactAgentText(it.category, 48)}: ${compactAgentText(it.content, MEMORY_CONTENT_MAX_CHARS)}"
+            }
+    }
+
+    fun buildAgentSkillBlock(): String {
+        return getEnabledAgentSkills()
+            .filter { isUsefulAgentSkill(it.name, it.actionTemplate) }
+            .joinToString("\n\n") { skill ->
+                buildString {
+                    appendLine("- ${compactAgentText(skill.name, 64)}: ${compactAgentText(skill.description, MEMORY_CONTENT_MAX_CHARS)}")
+                    appendLine("  triggers: ${compactAgentText(skill.triggerKeywords, MEMORY_CONTENT_MAX_CHARS)}")
+                    append("  action: ${compactAgentText(skill.actionTemplate, SKILL_ACTION_MAX_CHARS)}")
+                }
+            }
+    }
+
+    fun runLocalAgentSkills(userInput: String): String {
+        val normalizedInput = userInput.lowercase()
+        val outputs = mutableListOf<String>()
+        for (skill in getEnabledAgentSkills()) {
+            val triggers = parseTriggerKeywords(skill.triggerKeywords)
+            val matched = triggers.any { keyword ->
+                keyword.isNotBlank() && normalizedInput.contains(keyword.lowercase())
+            }
+            if (matched) {
+                outputs += "【${skill.name}】${skill.actionTemplate}"
+            }
+        }
+        return outputs.joinToString("\n")
+    }
+
+    private fun compactAgentText(value: String?, maxChars: Int): String {
+        val compacted = value.orEmpty()
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (compacted.length <= maxChars) return compacted
+        return compacted.take(maxChars).trimEnd() + "..."
+    }
+
+    private fun isUsefulAgentMemory(category: String?, content: String?): Boolean {
+        val text = "${category.orEmpty()} ${content.orEmpty()}".trim()
+        if (text.length < 8) return false
+        if (looksLikeTaskNoise(text)) return false
+        val lower = text.lowercase()
+        return listOf(
+            "用户", "偏好", "喜欢", "不喜欢", "希望", "默认", "记住", "姓名", "学校", "课程", "专业",
+            "preference", "prefer", "user", "remember", "default", "likes", "dislikes"
+        ).any { lower.contains(it.lowercase()) }
+    }
+
+    private fun isUsefulAgentSkill(name: String?, actionTemplate: String?): Boolean {
+        val text = "${name.orEmpty()} ${actionTemplate.orEmpty()}".trim()
+        if (text.length < 12) return false
+        if (looksLikeTaskNoise(text)) return false
+        return actionTemplate.orEmpty().contains(
+            Regex("搜索|浏览|读取|分析|生成|保存|检查|search|browse|read|analy[sz]e|generate|save|check", RegexOption.IGNORE_CASE)
+        )
+    }
+
+    private fun looksLikeTaskNoise(text: String): Boolean {
+        val lower = text.lowercase()
+        return listOf(
+            "已准备", "已经准备", "已经修正", "成功创建", "用于展示", "希望这个例子", "随时告诉我",
+            "现在我已经", "我将为您", "请稍等", "示例数据", "sample_data", "sample.xlsx",
+            "prepared", "successfully created", "example data", "ready to", "feel free"
+        ).any { lower.contains(it.lowercase()) }
+    }
+
+    private fun parseTriggerKeywords(raw: String): List<String> {
+        return runCatching {
+            val array = JSONArray(raw)
+            (0 until array.length()).map { array.optString(it) }
+        }.getOrElse {
+            raw.split(',', '，', ';', '；').map { it.trim() }
+        }.filter { it.isNotBlank() }
     }
 
     fun addChatData(sessionId: String?, chatDataItem: ChatDataItem) {
@@ -252,7 +499,8 @@ class ChatDataManager private constructor(context: Context) {
                         ChatDatabaseHelper.COLUMN_SESSION_ID,
                         ChatDatabaseHelper.COLUMN_MODEL_ID,
                         ChatDatabaseHelper.COLUMN_SESSION_NAME,
-                        ChatDatabaseHelper.COLUMN_LAST_CHAT_TIME
+                        ChatDatabaseHelper.COLUMN_LAST_CHAT_TIME,
+                        ChatDatabaseHelper.COLUMN_SESSION_MODE
                     ),
                     null, null, null, null, ChatDatabaseHelper.COLUMN_LAST_CHAT_TIME + " DESC"
                 )
@@ -282,7 +530,12 @@ class ChatDataManager private constructor(context: Context) {
                     } catch (e: Exception) {
                         0L // Fallback for when column doesn't exist
                     }
-                    list.add(SessionItem(sid, mid, name, lastChatTime))
+                    val sessionMode = try {
+                        cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_SESSION_MODE))
+                    } catch (e: Exception) {
+                        ChatDatabaseHelper.SESSION_MODE_NORMAL
+                    }
+                    list.add(SessionItem(sid, mid, name, lastChatTime, normalizeSessionMode(sessionMode)))
                 }
                 cursor.close()
             }
@@ -452,7 +705,8 @@ class ChatDataManager private constructor(context: Context) {
             arrayOf(
                 ChatDatabaseHelper.COLUMN_SESSION_ID,
                 ChatDatabaseHelper.COLUMN_MODEL_ID,
-                ChatDatabaseHelper.COLUMN_SESSION_NAME
+                ChatDatabaseHelper.COLUMN_SESSION_NAME,
+                ChatDatabaseHelper.COLUMN_SESSION_MODE
             ),
             ChatDatabaseHelper.COLUMN_MODEL_ID + "=?",
             arrayOf(modelId), null, null, 
@@ -463,7 +717,12 @@ class ChatDataManager private constructor(context: Context) {
             val sid = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_SESSION_ID))
             val mid = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_MODEL_ID))
             val name = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_SESSION_NAME))
-            list.add(SessionItem(sid, mid, name))
+            val sessionMode = try {
+                cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_SESSION_MODE))
+            } catch (e: Exception) {
+                ChatDatabaseHelper.SESSION_MODE_NORMAL
+            }
+            list.add(SessionItem(sid, mid, name, sessionMode = normalizeSessionMode(sessionMode)))
         }
         cursor.close()
         db.close()
@@ -576,6 +835,58 @@ class ChatDataManager private constructor(context: Context) {
         }
     }
 
+    private fun ensureSessionModeColumn() {
+        val db = dbHelper.writableDatabase
+        try {
+            db.rawQuery("SELECT ${ChatDatabaseHelper.COLUMN_SESSION_MODE} FROM ${ChatDatabaseHelper.TABLE_SESSION} LIMIT 1", null)?.close()
+        } catch (e: Exception) {
+            try {
+                db.execSQL(
+                    "ALTER TABLE ${ChatDatabaseHelper.TABLE_SESSION} " +
+                        "ADD COLUMN ${ChatDatabaseHelper.COLUMN_SESSION_MODE} TEXT DEFAULT '${ChatDatabaseHelper.SESSION_MODE_NORMAL}'"
+                )
+            } catch (e2: Exception) {
+                // Ignore if already exists
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    private fun ensureAgentTables() {
+        val db = dbHelper.writableDatabase
+        try {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS ${ChatDatabaseHelper.TABLE_AGENT_MEMORY} (" +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_MEMORY_ID} INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_MEMORY_CATEGORY} TEXT, " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_MEMORY_CONTENT} TEXT, " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_MEMORY_SOURCE} TEXT DEFAULT 'agent', " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_MEMORY_UPDATED_AT} INTEGER)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS ${ChatDatabaseHelper.TABLE_AGENT_SKILL} (" +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_SKILL_ID} INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_SKILL_NAME} TEXT UNIQUE, " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_SKILL_DESCRIPTION} TEXT, " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_SKILL_TRIGGER_KEYWORDS} TEXT, " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_SKILL_ACTION_TEMPLATE} TEXT, " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_SKILL_ENABLED} INTEGER DEFAULT 1, " +
+                    "${ChatDatabaseHelper.COLUMN_AGENT_SKILL_CREATED_AT} INTEGER)"
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    private fun normalizeSessionMode(sessionMode: String?): String {
+        return if (sessionMode == ChatDatabaseHelper.SESSION_MODE_AGENT) {
+            ChatDatabaseHelper.SESSION_MODE_AGENT
+        } else {
+            ChatDatabaseHelper.SESSION_MODE_NORMAL
+        }
+    }
+
     @SuppressLint("Range")
     private fun fixMissingLastChatTime(sessionId: String): Long {
         val db = dbHelper.writableDatabase
@@ -649,6 +960,9 @@ class ChatDataManager private constructor(context: Context) {
     companion object {
         private var sInstance: ChatDataManager? = null
         private const val TAG = "ChatDataManager"
+        private const val MEMORY_CONTENT_MAX_CHARS = 168
+        private const val SKILL_ACTION_MAX_CHARS = 350
+
         @JvmStatic
         fun getInstance(context: Context): ChatDataManager {
             synchronized(ChatDataManager::class.java) {

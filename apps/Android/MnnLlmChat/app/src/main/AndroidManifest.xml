@@ -46,6 +46,7 @@
             android:name="com.alibaba.mnnllm.android.chat.ChatActivity"
             android:configChanges="orientation|screenSize"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -75,7 +76,8 @@
         <activity
             android:name=".main.MainActivity"
             android:configChanges="orientation|screenSize"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -86,7 +88,8 @@
             android:name=".mainsettings.MainSettingsActivity"
             android:configChanges="orientation|screenSize"
             android:exported="true"
-            android:label="@string/settings">
+            android:label="@string/settings"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -97,7 +100,8 @@
             android:name=".mainsettings.StorageManagementActivity"
             android:configChanges="orientation|screenSize"
             android:exported="false"
-            android:label="@string/storage_management" />
+            android:label="@string/storage_management"
+            android:screenOrientation="portrait" />
 
 <!--        <activity-->
 <!--            android:name=".modelsettings.SettingsActivity"-->
