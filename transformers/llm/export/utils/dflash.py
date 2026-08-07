@@ -5,7 +5,7 @@ import torch.nn as nn
 from typing import Optional, Tuple
 
 from .transformers import Attention, RMSNorm, Rotary, Embedding
-from utils.custom_op import FakeLinear
+from utils.custom_op import FakeLinear, FusedAttention
 from utils.spinner import spinner_run
 from .torch_utils import onnx_export
 from transformers.activations import ACT2FN
@@ -29,6 +29,13 @@ class DFlashAttention(torch.nn.Module):
         self.q_norm = RMSNorm(self.head_dim)
         self.k_norm = RMSNorm(self.head_dim)
 
+        self.fused_attn = FusedAttention(
+            self.num_attention_heads * self.head_dim,
+            kv_cache=0,
+            name=f'/dflash_layers.{layer_idx}/self_attn/FusedAttention',
+            layer_index=-1,
+            kv_shared_layer_index=-1)
+
     def forward(self, hidden_states, context_hidden, q_cos, q_sin, k_cos, k_sin, attention_mask):
         """
         hidden_states: [1, block_size, hidden_size] (noise)
@@ -42,40 +49,26 @@ class DFlashAttention(torch.nn.Module):
         ctx_len = context_hidden.shape[1]
         total_len = ctx_len + q_len
 
-        # Q from noise only
-        q = self.q_proj(hidden_states)
-        q = q.view(bsz, q_len, self.num_attention_heads, self.head_dim)
-        q = self.q_norm(q).transpose(1, 2)  # [1, num_heads, q_len, head_dim]
-
-        # K/V from cat(context, noise)
+        # Projections + q/k norm in [B, seq, heads, head_dim] layout
+        q = self.q_norm(self.q_proj(hidden_states).view(bsz, q_len, self.num_attention_heads, self.head_dim))
         kv_input = torch.cat([context_hidden, hidden_states], dim=1)  # [1, total_len, hidden_size]
-        k = self.k_proj(kv_input)
-        v = self.v_proj(kv_input)
-        k = k.view(bsz, total_len, self.num_key_value_heads, self.head_dim)
-        k = self.k_norm(k).transpose(1, 2)  # [1, num_kv_heads, total_len, head_dim]
-        v = v.view(bsz, total_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        k = self.k_norm(self.k_proj(kv_input).view(bsz, total_len, self.num_key_value_heads, self.head_dim))
+        v = self.v_proj(kv_input).view(bsz, total_len, self.num_key_value_heads, self.head_dim)
 
-        # Apply RoPE (pre-computed, no dynamic slicing needed)
+        # RoPE, then one fused Attention op (K/V un-repeated; the op does GQA internally)
         q = self._apply_rope(q, q_cos, q_sin)
         k = self._apply_rope(k, k_cos, k_sin)
+        attn_output = self.fused_attn(q, k, v, attention_mask)  # [1, q_len, num_heads*head_dim]
 
-        # GQA repeat
-        if self.num_key_value_groups > 1:
-            k = k.repeat_interleave(self.num_key_value_groups, dim=1)
-            v = v.repeat_interleave(self.num_key_value_groups, dim=1)
-
-        # Attention
-        attn_weights = torch.matmul(q, k.transpose(-2, -1)) * self.scaling
-        attn_weights = attn_weights + attention_mask
-        attn_weights = torch.softmax(attn_weights, dim=-1)
-        attn_output = torch.matmul(attn_weights, v)
-
-        attn_output = attn_output.transpose(1, 2).reshape(bsz, q_len, -1)
+        # No-op reshape: FusedAttentionOp.symbolic annotates the output as rank-4 while the runtime tensor is rank-3
+        attn_output = attn_output.reshape(bsz, q_len, -1)
         return self.o_proj(attn_output)
 
     @staticmethod
     def _apply_rope(x, cos, sin):
-        """Apply rotary position embedding."""
+        """RoPE for [B, seq, heads, dim] layout: transpose cos/sin [1,1,seq,dim]->[1,seq,1,dim]."""
+        cos = cos.transpose(1, 2)
+        sin = sin.transpose(1, 2)
         x1 = x[..., : x.shape[-1] // 2]
         x2 = x[..., x.shape[-1] // 2 :]
         rotated = torch.cat((-x2, x1), dim=-1)
