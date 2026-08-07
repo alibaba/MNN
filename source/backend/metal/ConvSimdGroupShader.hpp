@@ -3206,6 +3206,7 @@ template [[host_name("conv1x1_gemv_g4m12_wquant_sg")]] kernel kernel_type_t conv
 template [[host_name("conv1x1_gemv_g4m13_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<13>;
 template [[host_name("conv1x1_gemv_g4m14_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<14>;
 template [[host_name("conv1x1_gemv_g4m15_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<15>;
+template [[host_name("conv1x1_gemv_g4m16_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<16>;
 
 // Fused weight+scale decode GEMV kernel: scale/bias is stored inline before each weight block
 // in a single contiguous buffer, eliminating separate scale buffer access.
