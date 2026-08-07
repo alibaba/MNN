@@ -1,0 +1,129 @@
+name: Sync merged PR
+run-name: Sync merged PR
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      pipeline_branch:
+        description: Branch containing the sync pipeline definition
+        required: true
+        default: master
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: repository-reverse-sync
+  cancel-in-progress: false
+
+jobs:
+  trigger-reverse-sync:
+    name: Trigger reverse sync
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.merged == true) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, aone-sync]
+    timeout-minutes: 5
+    env:
+      SYNC_TRIGGER_TOKEN: ${{ secrets.AONE_CI_TRIGGER_TOKEN }}
+      SYNC_TRIGGER_URL: ${{ secrets.AONE_CI_TRIGGER_URL }}
+      SYNC_PIPELINE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.pipeline_branch || 'master' }}
+    steps:
+      - name: Harden local runner permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          runner_root="$(dirname "$(dirname "${RUNNER_WORKSPACE}")")"
+          if [[ "${runner_root}" != /* || "${runner_root}" == '/' ||
+                ! -f "${runner_root}/.runner" ||
+                ! -f "${runner_root}/.credentials" ||
+                ! -f "${runner_root}/.credentials_rsaparams" ]]; then
+              echo "::error::Cannot identify the self-hosted runner root"
+              exit 1
+          fi
+          runner_owner="$(stat --format='%U' "${runner_root}")"
+          if [[ "${runner_owner}" != "$(id --user --name)" ]]; then
+              echo "::error::Refusing to change permissions outside the runner-owned directory"
+              exit 1
+          fi
+
+          chmod 700 "${runner_root}" "${runner_root}/_work" "${runner_root}/_diag"
+          chmod 600 \
+              "${runner_root}/.runner" \
+              "${runner_root}/.credentials" \
+              "${runner_root}/.credentials_rsaparams"
+
+      # Do not checkout, download, or execute pull request code in this job.
+      - name: Start sync pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${SYNC_TRIGGER_TOKEN}" || -z "${SYNC_TRIGGER_URL}" ]]; then
+              echo "::error::Missing sync trigger configuration"
+              exit 1
+          fi
+          if [[ "${SYNC_TRIGGER_URL}" != https://* ]]; then
+              echo "::error::Sync trigger URL must use HTTPS"
+              exit 1
+          fi
+
+          umask 077
+          response_file="$(mktemp)"
+          header_file="$(mktemp)"
+          trap 'rm -f "${response_file}" "${header_file}"' EXIT
+          printf 'private-token: %s\n' "${SYNC_TRIGGER_TOKEN}" > "${header_file}"
+          unset SYNC_TRIGGER_TOKEN
+
+          request_body="$(
+              jq \
+                  --null-input \
+                  --arg branch "${SYNC_PIPELINE_BRANCH}" \
+                  '{
+                    branch: $branch,
+                    params: {
+                      mode: "reverse",
+                      internal_branch: "master",
+                      github_branch: "master",
+                      github_sync_branch: "sync/ali-to-github",
+                      create_pr: "false",
+                      incremental: "true",
+                      max_deleted_files: "20"
+                    }
+                  }'
+          )"
+
+          if ! http_code="$(
+              curl \
+                  --silent \
+                  --proto '=https' \
+                  --connect-timeout 10 \
+                  --max-time 60 \
+                  --output "${response_file}" \
+                  --write-out '%{http_code}' \
+                  --request POST \
+                  --header "@${header_file}" \
+                  --header 'Content-Type: application/json' \
+                  --data-binary "${request_body}" \
+                  "${SYNC_TRIGGER_URL}"
+          )"; then
+              echo "::error::Sync API request failed"
+              exit 1
+          fi
+
+          if [[ ! "${http_code}" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Sync API returned HTTP ${http_code}"
+              exit 1
+          fi
+
+          if ! jq -e '.success == true' "${response_file}" >/dev/null; then
+              echo "::error::Sync API rejected the pipeline request"
+              exit 1
+          fi
+
+          echo "Sync pipeline run request accepted."
