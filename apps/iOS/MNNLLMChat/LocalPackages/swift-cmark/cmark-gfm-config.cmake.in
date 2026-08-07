@@ -1,0 +1,3 @@
+@PACKAGE_INIT@
+include(${CMAKE_CURRENT_LIST_DIR}/cmark-gfm/cmark-gfm.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmark-gfm-extensions/cmark-gfm-extensions.cmake)

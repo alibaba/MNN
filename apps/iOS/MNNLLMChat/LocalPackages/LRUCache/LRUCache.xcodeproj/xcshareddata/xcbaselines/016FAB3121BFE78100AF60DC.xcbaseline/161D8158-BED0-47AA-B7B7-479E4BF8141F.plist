@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>classNames</key>
+	<dict>
+		<key>LRUPerformanceTests</key>
+		<dict>
+			<key>testInsertionPerformance()</key>
+			<dict>
+				<key>com.apple.XCTPerformanceMetric_WallClockTime</key>
+				<dict>
+					<key>baselineAverage</key>
+					<real>0.01056</real>
+					<key>baselineIntegrationDisplayName</key>
+					<string>8 Aug 2021 at 21:01:20</string>
+				</dict>
+			</dict>
+			<key>testLookupPerformance()</key>
+			<dict>
+				<key>com.apple.XCTPerformanceMetric_WallClockTime</key>
+				<dict>
+					<key>baselineAverage</key>
+					<real>0.0079472</real>
+					<key>baselineIntegrationDisplayName</key>
+					<string>8 Aug 2021 at 21:01:20</string>
+				</dict>
+			</dict>
+			<key>testOverflowInsertionPerformance()</key>
+			<dict>
+				<key>com.apple.XCTPerformanceMetric_WallClockTime</key>
+				<dict>
+					<key>baselineAverage</key>
+					<real>0.012648</real>
+					<key>baselineIntegrationDisplayName</key>
+					<string>8 Aug 2021 at 21:01:20</string>
+				</dict>
+			</dict>
+			<key>testRemovalPerformance()</key>
+			<dict>
+				<key>com.apple.XCTPerformanceMetric_WallClockTime</key>
+				<dict>
+					<key>baselineAverage</key>
+					<real>0.0045635</real>
+					<key>baselineIntegrationDisplayName</key>
+					<string>8 Aug 2021 at 21:01:20</string>
+				</dict>
+			</dict>
+		</dict>
+	</dict>
+</dict>
+</plist>

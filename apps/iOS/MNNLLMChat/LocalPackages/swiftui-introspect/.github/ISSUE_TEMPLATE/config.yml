@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Project Discussion
+    url: https://github.com/siteline/swiftui-introspect/discussions
+    about: Q&A, ideas, and more
+  - name: Documentation
+    url: https://github.com/siteline/swiftui-introspect#swiftui-introspect
+    about: Read SwiftUI Introspect's documentation

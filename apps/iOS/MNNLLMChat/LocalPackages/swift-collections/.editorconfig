@@ -1,0 +1,41 @@
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+end_of_line = lf
+trim_trailing_whitespace = true
+
+[*.{swift,swift.gyb,cpp,h,yml}]
+indent_style = space
+tab_width = 4
+indent_size = 2
+
+[*.{sh,py}]
+indent_style = space
+indent_size = 4
+
+[.swiftci/*}]
+indent_style = space
+indent_size = 4
+
+[CMakeLists.txt]
+indent_style = space
+indent_size = 2
+
+[*.cmake{,.in}]
+indent_style = space
+indent_size = 2
+
+[*.{md,txt}]
+indent_style = space
+indent_size = 2
+
+[*.xcconfig]
+indent_style = space
+indent_size = 2
+
+[*.pbxproj]
+indent_style = tab
+tab_width = 4
+indent_size = 4

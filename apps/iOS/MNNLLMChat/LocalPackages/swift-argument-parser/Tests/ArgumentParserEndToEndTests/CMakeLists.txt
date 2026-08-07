@@ -1,0 +1,22 @@
+add_library(EndToEndTests
+  AsyncCommandEndToEndTests.swift
+  CustomParsingEndToEndTests.swift
+  DefaultsEndToEndTests.swift
+  EnumEndToEndTests.swift
+  FlagsEndToEndTests.swift
+  JoinedEndToEndTests.swift
+  LongNameWithShortDashEndToEndTests.swift
+  NestedCommandEndToEndTests.swift
+  OptionalEndToEndTests.swift
+  OptionGroupEndToEndTests.swift
+  PositionalEndToEndTests.swift
+  RawRepresentableEndToEndTests.swift
+  RepeatingEndToEndTests.swift
+  RepeatingEndToEndTests+ParsingStrategy.swift
+  ShortNameEndToEndTests.swift
+  SimpleEndToEndTests.swift
+  SingleValueParsingStrategyTests.swift
+  SubcommandEndToEndTests.swift
+  ValidationEndToEndTests.swift)
+target_link_libraries(EndToEndTests PUBLIC
+  ArgumentParserTestHelpers)

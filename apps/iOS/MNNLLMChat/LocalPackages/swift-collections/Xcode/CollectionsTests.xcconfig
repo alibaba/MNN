@@ -1,0 +1,33 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift Collections open source project
+//
+// Copyright (c) 2023 - 2024 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See https://swift.org/LICENSE.txt for license information
+//
+//===----------------------------------------------------------------------===//
+
+PRODUCT_NAME = CollectionsTests
+PRODUCT_BUNDLE_IDENTIFIER = org.swift.CollectionsTests
+
+SUPPORTED_PLATFORMS = macosx iphoneos iphonesimulator watchos watchsimulator appletvos appletvsimulator
+ARCHS = $(ARCHS_STANDARD)
+
+MACOSX_DEPLOYMENT_TARGET = 12.0
+IPHONEOS_DEPLOYMENT_TARGET = 15.0
+WATCHOS_DEPLOYMENT_TARGET = 8.0
+TVOS_DEPLOYMENT_TARGET = 15.0
+
+CURRENT_PROJECT_VERSION = 1
+MARKETING_VERSION = 1.0
+
+GENERATE_INFOPLIST_FILE = YES
+
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -
+
+ENABLE_TESTABILITY = NO
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) COLLECTIONS_RANDOMIZED_TESTING

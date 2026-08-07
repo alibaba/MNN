@@ -11,7 +11,7 @@
 	<key>CFBundleVersion</key>
 	<string>49598652</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.taobao.mnnchat</string>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

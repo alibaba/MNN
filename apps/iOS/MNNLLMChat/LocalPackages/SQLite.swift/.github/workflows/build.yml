@@ -1,0 +1,84 @@
+name: Build and test
+on: [push, pull_request]
+env:
+  IOS_SIMULATOR: "iPhone 15"
+  IOS_VERSION: "17.2"
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+    - uses: actions/checkout@v2
+    - name: "Select Xcode"
+      # Currently only works with Xcode 14.2:
+      # https://github.com/CocoaPods/CocoaPods/issues/11839
+      run: |
+        xcode-select -p
+        sudo xcode-select -s /Applications/Xcode_15.3.app/Contents/Developer
+    - name: "Lint"
+      run: make lint
+    - name: "Run tests (PACKAGE_MANAGER_COMMAND: test)"
+      env:
+        PACKAGE_MANAGER_COMMAND: test -Xswiftc -warnings-as-errors
+      run: ./run-tests.sh
+    - name: "Run tests (SPM integration test)"
+      env:
+        SPM: run
+      run: ./run-tests.sh
+    - name: "Run tests (BUILD_SCHEME: SQLite iOS)"
+      env:
+        BUILD_SCHEME: SQLite iOS
+      run: ./run-tests.sh
+    - name: "Run tests (BUILD_SCHEME: SQLite Mac)"
+      env:
+        BUILD_SCHEME: SQLite Mac
+      run: ./run-tests.sh
+    - name: "Run tests (VALIDATOR_SUBSPEC: none)"
+      env:
+        VALIDATOR_SUBSPEC: none
+      run: ./run-tests.sh
+    - name: "Run tests (VALIDATOR_SUBSPEC: standard)"
+      env:
+        VALIDATOR_SUBSPEC: standard
+      run: ./run-tests.sh
+    - name: "Run tests (VALIDATOR_SUBSPEC: standalone)"
+      env:
+        VALIDATOR_SUBSPEC: standalone
+      run: ./run-tests.sh
+    - name: "Run tests (VALIDATOR_SUBSPEC: SQLCipher)"
+      env:
+        VALIDATOR_SUBSPEC: SQLCipher
+      run: ./run-tests.sh
+    - name: "Run tests (CARTHAGE_PLATFORM: iOS)"
+      env:
+        CARTHAGE_PLATFORM: iOS
+      run: ./run-tests.sh
+    - name: "Run tests (CARTHAGE_PLATFORM: Mac)"
+      env:
+        CARTHAGE_PLATFORM: Mac
+      run: ./run-tests.sh
+    - name: "Run tests (CARTHAGE_PLATFORM: watchOS)"
+      env:
+        CARTHAGE_PLATFORM: watchOS
+      run: ./run-tests.sh
+    - name: "Run tests (CARTHAGE_PLATFORM: tvOS)"
+      env:
+        CARTHAGE_PLATFORM: tvOS
+      run: ./run-tests.sh
+    - name: "Run tests (CARTHAGE_PLATFORM: visionOS)"
+      env:
+        CARTHAGE_PLATFORM: visionOS
+      run: ./run-tests.sh
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y libsqlite3-dev
+    - name: Test
+      run: swift test
+    - name: "Run tests (SPM integration test)"
+      env:
+        SPM: run
+      run: ./run-tests.sh

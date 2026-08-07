@@ -26,6 +26,7 @@
 		3ECE19C52E9CE17B001A4CDD /* DocumentPicker.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C42E9CE17B001A4CDD /* DocumentPicker.swift */; };
 		3ECE19C72E9CE1BD001A4CDD /* TextFileActivityItemSource.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */; };
 		3ECE19C92E9CE1F0001A4CDD /* BatchFileTestService.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */; };
+		3E000000000000000000A102 /* PresetPrompts.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3E000000000000000000A101 /* PresetPrompts.swift */; };
 		3EEAB30B2E8BD5550039DF50 /* BatchFileTestViewModel.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */; };
 		4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */; };
 		4230C2DB2E7D4EB5001169DF /* mock.json in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2AD2E7D4EB5001169DF /* mock.json */; };
@@ -154,6 +155,7 @@
 		3ECE19C42E9CE17B001A4CDD /* DocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPicker.swift; sourceTree = "<group>"; };
 		3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFileActivityItemSource.swift; sourceTree = "<group>"; };
 		3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestService.swift; sourceTree = "<group>"; };
+		3E000000000000000000A101 /* PresetPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetPrompts.swift; sourceTree = "<group>"; };
 		3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestViewModel.swift; sourceTree = "<group>"; };
 		4230C22C2E7D4EB5001169DF /* ChatInteractorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInteractorProtocol.swift; sourceTree = "<group>"; };
 		4230C22D2E7D4EB5001169DF /* LLMChatInteractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatInteractor.swift; sourceTree = "<group>"; };
@@ -375,6 +377,7 @@
 				3ECE19C42E9CE17B001A4CDD /* DocumentPicker.swift */,
 				3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */,
 				3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */,
+				3E000000000000000000A101 /* PresetPrompts.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -852,10 +855,10 @@
 			mainGroup = 3E8591F52D1D45070067B46F;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */,
-				3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */,
-				3EAB12342E7FD12300C4E5F6 /* XCRemoteSwiftPackageReference "MarkdownView" */,
-				3ECAC6072F3C74370003C496 /* XCRemoteSwiftPackageReference "Chat" */,
+				3E94DF8A2D37D8FF00BE39A7 /* XCLocalSwiftPackageReference "SQLite" */,
+				3EC8DF832E4DCF4A00861131 /* XCLocalSwiftPackageReference "swift-transformers" */,
+				3EAB12342E7FD12300C4E5F6 /* XCLocalSwiftPackageReference "MarkdownView" */,
+				3ECAC6072F3C74370003C496 /* XCLocalSwiftPackageReference "Chat" */,
 			);
 			productRefGroup = 3E8591FF2D1D45070067B46F /* Products */;
 			projectDirPath = "";
@@ -996,6 +999,7 @@
 				4230C3412E7D4EB5001169DF /* LanguageManager.swift in MNNChat */,
 				4230C3422E7D4EB5001169DF /* ModelUtils.swift in MNNChat */,
 				3ECE19C92E9CE1F0001A4CDD /* BatchFileTestService.swift in MNNChat */,
+				3E000000000000000000A102 /* PresetPrompts.swift in MNNChat */,
 				4230C3432E7D4EB5001169DF /* NotificationNames.swift in MNNChat */,
 				4230C3442E7D4EB5001169DF /* String+Extension.swift in MNNChat */,
 				4230C3452E7D4EB5001169DF /* URL+Extension.swift in MNNChat */,
@@ -1270,37 +1274,21 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.15.3;
-			};
+		3E94DF8A2D37D8FF00BE39A7 /* XCLocalSwiftPackageReference "SQLite" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/SQLite.swift;
 		};
-		3EAB12342E7FD12300C4E5F6 /* XCRemoteSwiftPackageReference "MarkdownView" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Yogayu/MarkdownView";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 3.4.0;
-			};
+		3EAB12342E7FD12300C4E5F6 /* XCLocalSwiftPackageReference "MarkdownView" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/MarkdownView;
 		};
-		3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/huggingface/swift-transformers/";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.1.22;
-			};
+		3EC8DF832E4DCF4A00861131 /* XCLocalSwiftPackageReference "swift-transformers" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/swift-transformers;
 		};
-		3ECAC6072F3C74370003C496 /* XCRemoteSwiftPackageReference "Chat" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Yogayu/Chat.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.43;
-			};
+		3ECAC6072F3C74370003C496 /* XCLocalSwiftPackageReference "Chat" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/Chat;
 		};
 /* End XCRemoteSwiftPackageReference section */
 
@@ -1319,17 +1307,17 @@
 		};
 		3E94DFF02D37DBA900BE39A7 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */;
+			package = 3E94DF8A2D37D8FF00BE39A7 /* XCLocalSwiftPackageReference "SQLite" */;
 			productName = SQLite;
 		};
 		3EAB12352E7FD12300C4E5F6 /* MarkdownView */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3EAB12342E7FD12300C4E5F6 /* XCRemoteSwiftPackageReference "MarkdownView" */;
+			package = 3EAB12342E7FD12300C4E5F6 /* XCLocalSwiftPackageReference "MarkdownView" */;
 			productName = MarkdownView;
 		};
 		3EC8DF862E4DCF5800861131 /* Transformers */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			package = 3EC8DF832E4DCF4A00861131 /* XCLocalSwiftPackageReference "swift-transformers" */;
 			productName = Transformers;
 		};
 		3ECAC6052F3C62570003C496 /* ExyteChat */ = {
@@ -1338,7 +1326,7 @@
 		};
 		3ECAC6082F3C74370003C496 /* ExyteChat */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3ECAC6072F3C74370003C496 /* XCRemoteSwiftPackageReference "Chat" */;
+			package = 3ECAC6072F3C74370003C496 /* XCLocalSwiftPackageReference "Chat" */;
 			productName = ExyteChat;
 		};
 /* End XCSwiftPackageProductDependency section */

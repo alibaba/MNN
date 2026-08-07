@@ -1,0 +1,211 @@
+{
+  "kind": "group",
+  "title": "TreeDictionary Benchmarks",
+  "directory": "TreeDictionary",
+  "contents": [
+    {
+      "kind": "group",
+      "title": "TreeDictionary Operations",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "all",
+          "tasks": [
+            "TreeDictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "TreeDictionary<Int, Int> sequential iteration",
+            "TreeDictionary<Int, Int> sequential iteration, indices",
+            "TreeDictionary<Int, Int>.Keys sequential iteration",
+            "TreeDictionary<Int, Int>.Values sequential iteration",
+            "TreeDictionary<Int, Int> indexing subscript",
+            "TreeDictionary<Int, Int> subscript, successful lookups",
+            "TreeDictionary<Int, Int> subscript, unsuccessful lookups",
+            "TreeDictionary<Int, Int> subscript, noop setter",
+            "TreeDictionary<Int, Int> subscript, set existing",
+            "TreeDictionary<Int, Int> subscript, _modify",
+            "TreeDictionary<Int, Int> subscript, insert, unique",
+            "TreeDictionary<Int, Int> subscript, insert, shared",
+            "TreeDictionary<Int, Int> subscript, remove existing, unique",
+            "TreeDictionary<Int, Int> subscript, remove existing, shared",
+            "TreeDictionary<Int, Int> subscript, remove missing",
+            "TreeDictionary<Int, Int> defaulted subscript, successful lookups",
+            "TreeDictionary<Int, Int> defaulted subscript, unsuccessful lookups",
+            "TreeDictionary<Int, Int> defaulted subscript, _modify existing",
+            "TreeDictionary<Int, Int> defaulted subscript, _modify missing",
+            "TreeDictionary<Int, Int> successful index(forKey:)",
+            "TreeDictionary<Int, Int> unsuccessful index(forKey:)",
+            "TreeDictionary<Int, Int> updateValue(_:forKey:), existing",
+            "TreeDictionary<Int, Int> updateValue(_:forKey:), insert",
+            "TreeDictionary<Int, Int> random removals (existing keys)",
+            "TreeDictionary<Int, Int> random removals (missing keys)",
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "Comparisons against reference implementations",
+      "directory": "versus",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "init(uniqueKeysWithValues:)",
+          "tasks": [
+            "TreeDictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "Dictionary<Int, Int> init(uniqueKeysWithValues:)",
+            "OrderedDictionary<Int, Int> init(uniqueKeysWithValues:)",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration",
+          "tasks": [
+            "TreeDictionary<Int, Int> sequential iteration",
+            "Dictionary<Int, Int> sequential iteration",
+            "OrderedDictionary<Int, Int> sequential iteration",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration [Keys]",
+          "tasks": [
+            "TreeDictionary<Int, Int>.Keys sequential iteration",
+            "Dictionary<Int, Int>.Keys sequential iteration",
+            "OrderedDictionary<Int, Int>.Keys sequential iteration",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration [Values]",
+          "tasks": [
+            "TreeDictionary<Int, Int>.Values sequential iteration",
+            "Dictionary<Int, Int>.Values sequential iteration",
+            "OrderedDictionary<Int, Int>.Values sequential iteration",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration using indices",
+          "tasks": [
+            "TreeDictionary<Int, Int> sequential iteration, indices",
+            "Dictionary<Int, Int> sequential iteration, indices",
+            "OrderedDictionary<Int, Int> sequential iteration, indices",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "indexing subscript",
+          "tasks": [
+            "TreeDictionary<Int, Int> indexing subscript",
+            "Dictionary<Int, Int> indexing subscript",
+            "OrderedDictionary<Int, Int> indexing subscript",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "subscript, successful lookups",
+          "tasks": [
+            "TreeDictionary<Int, Int> subscript, successful lookups",
+            "Dictionary<Int, Int> subscript, successful lookups",
+            "OrderedDictionary<Int, Int> subscript, successful lookups",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "subscript, unsuccessful lookups",
+          "tasks": [
+            "TreeDictionary<Int, Int> subscript, unsuccessful lookups",
+            "Dictionary<Int, Int> subscript, unsuccessful lookups",
+            "OrderedDictionary<Int, Int> subscript, unsuccessful lookups",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "subscript, insert into unique collection",
+          "tasks": [
+            "TreeDictionary<Int, Int> subscript, insert, unique",
+            "Dictionary<Int, Int> subscript, insert, unique",
+            "Dictionary<Int, Int> subscript, insert, reserving capacity",
+            "OrderedDictionary<Int, Int> subscript, append, unique",
+            "OrderedDictionary<Int, Int> subscript, append, reserving capacity",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "subscript, insert into shared collection",
+          "tasks": [
+            "TreeDictionary<Int, Int> subscript, insert, shared",
+            "Dictionary<Int, Int> subscript, insert, shared",
+            "OrderedDictionary<Int, Int> subscript, append, shared",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "subscript, remove existing from unique collection",
+          "tasks": [
+            "TreeDictionary<Int, Int> subscript, remove existing, unique",
+            "Dictionary<Int, Int> subscript, remove existing, unique",
+            "OrderedDictionary<Int, Int> subscript, remove existing, unique",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "subscript, remove existing from shared collection",
+          "tasks": [
+            "TreeDictionary<Int, Int> subscript, remove existing, shared",
+            "Dictionary<Int, Int> subscript, remove existing, shared",
+            "OrderedDictionary<Int, Int> subscript, remove existing, shared",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "subscript, _modify existing",
+          "tasks": [
+            "TreeDictionary<Int, Int> subscript, _modify",
+            "TreeDictionary<Int, Int> defaulted subscript, _modify existing",
+            "Dictionary<Int, Int> subscript, _modify",
+            "Dictionary<Int, Int> defaulted subscript, _modify existing",
+            "OrderedDictionary<Int, Int> subscript, _modify",
+            "OrderedDictionary<Int, Int> defaulted subscript, _modify existing",
+          ]
+        },
+
+        {
+          "kind": "chart",
+          "title": "index(forKey:), successful index(forKey:)",
+          "tasks": [
+            "TreeDictionary<Int, Int> successful index(forKey:)",
+            "Dictionary<Int, Int> successful index(forKey:)",
+            "OrderedDictionary<Int, Int> successful index(forKey:)",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "index(forKey:), unsuccessful index(forKey:)",
+          "tasks": [
+            "TreeDictionary<Int, Int> unsuccessful index(forKey:)",
+            "Dictionary<Int, Int> unsuccessful index(forKey:)",
+            "OrderedDictionary<Int, Int> unsuccessful index(forKey:)",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "updateValue(_:forKey:), existing",
+          "tasks": [
+            "TreeDictionary<Int, Int> updateValue(_:forKey:), existing",
+            "Dictionary<Int, Int> updateValue(_:forKey:), existing",
+            "OrderedDictionary<Int, Int> updateValue(_:forKey:), existing"
+           ]
+        },
+        {
+          "kind": "chart",
+          "title": "updateValue(_:forKey:), insert",
+          "tasks": [
+            "TreeDictionary<Int, Int> updateValue(_:forKey:), insert",
+            "Dictionary<Int, Int> updateValue(_:forKey:), insert",
+            "OrderedDictionary<Int, Int> updateValue(_:forKey:), append"
+          ]
+        },
+      ]
+    },
+  ]
+}

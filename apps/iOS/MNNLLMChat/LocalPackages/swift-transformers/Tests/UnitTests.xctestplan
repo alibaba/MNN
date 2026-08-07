@@ -1,0 +1,59 @@
+{
+  "configurations" : [
+    {
+      "id" : "367F8B85-4892-48A2-81CC-0E20793175C0",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "NormalizerTests",
+        "name" : "NormalizerTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "PreTokenizerTests",
+        "name" : "PreTokenizerTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "TensorUtilsTests",
+        "name" : "TensorUtilsTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "PostProcessorTests",
+        "name" : "PostProcessorTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "HubTests",
+        "name" : "HubTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "TokenizersTests",
+        "name" : "TokenizersTests"
+      }
+    }
+  ],
+  "version" : 1
+}

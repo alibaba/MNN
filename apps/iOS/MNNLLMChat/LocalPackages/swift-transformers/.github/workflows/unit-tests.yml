@@ -1,0 +1,12 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    uses: huggingface/hf-workflows/.github/workflows/swift_transformers_unit_tests.yml@main

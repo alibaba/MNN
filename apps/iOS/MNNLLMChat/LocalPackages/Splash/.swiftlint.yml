@@ -1,0 +1,7 @@
+disabled_rules:
+    - nesting
+line_length: 200
+function_body_length: 100
+type_body_length: 600
+file_length: 800
+cyclomatic_complexity: 15

@@ -1,0 +1,14 @@
+#ifndef CMARK_CONFIG_H
+#define CMARK_CONFIG_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#cmakedefine01 CMARK_THREADING
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

@@ -1,0 +1,10 @@
+os: linux
+language: generic
+sudo: required
+dist: trusty
+env:
+    - SWIFT_VERSION=5.2
+install:
+    - eval "$(curl -sL https://swiftenv.fuller.li/install.sh)"
+script:
+    - swift test

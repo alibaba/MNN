@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "72B91FD4-441C-4C06-9E92-CAEDCB7325AB",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:SQLite.xcodeproj",
+        "identifier" : "DEB306E72B61CF9500F9D46B",
+        "name" : "SQLiteTests visionOS"
+      }
+    }
+  ],
+  "version" : 1
+}

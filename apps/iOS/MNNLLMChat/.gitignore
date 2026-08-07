@@ -1,2 +1,5 @@
 MNN
 .DS_Store
+MNNLLMiOS/LocalModel/Qwen3.5-2B/
+_model_holding/
+MNNLLMiOS/LocalModel/preset_images/*.png

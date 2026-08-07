@@ -1,0 +1,20 @@
+parent_config: ../.swiftlint.yml
+
+disabled_rules:
+  - force_cast
+  - force_try
+  - identifier_name
+
+type_body_length:
+  warning: 1000
+  error: 1000
+
+function_body_length:
+  warning: 200
+  error: 200
+
+file_length:
+  warning: 1000
+  error: 1000
+
+

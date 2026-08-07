@@ -1,0 +1,189 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "**"
+  schedule:
+    - cron: "3 3 * * 2" # 3:03 AM, every Tuesday
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-podspec:
+    name: Lint Podspec
+    runs-on: macos-14
+    steps:
+      - name: Git Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # required to be able to find Git tags
+
+      - name: Set up pkgx environment
+        uses: pkgxdev/setup@v1
+        with:
+          +: pod xcodes
+
+      - name: Select Xcode version
+        run: sudo xcodes select 15.4
+
+      - name: Lint Podspec
+        run: |
+          set -eo pipefail
+          export LIB_VERSION=$(git describe --tags `git rev-list --tags --max-count=1`)
+          pod lib lint SwiftUIIntrospect.podspec --allow-warnings
+
+  ci:
+    name: ${{ matrix.platform[0] }} ${{ matrix.platform[1] }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: [iOS, 13]
+            runtime: iOS 13.7
+            os: macos-12
+            xcode: 14.2
+            install: true
+          - platform: [iOS, 14]
+            runtime: iOS 14.5
+            os: macos-12
+            xcode: 14.2
+            install: true
+          - platform: [iOS, 15]
+            runtime: iOS 15.5
+            os: macos-13
+            xcode: 15.0.1
+            install: true
+          - platform: [iOS, 16]
+            runtime: iOS 16.4
+            os: macos-13
+            xcode: 14.3.1
+          - platform: [iOS, 17]
+            runtime: iOS 17.5
+            os: macos-14
+            xcode: 15.4
+          - platform: [iOS, 18]
+            runtime: iOS 18.0
+            os: macos-14
+            xcode: 16.0
+
+          - platform: [tvOS, 13]
+            runtime: tvOS 13.4
+            os: macos-12
+            xcode: 14.2
+            install: true
+          - platform: [tvOS, 14]
+            runtime: tvOS 14.5
+            os: macos-12
+            xcode: 14.2
+            install: true
+          - platform: [tvOS, 15]
+            runtime: tvOS 15.4
+            os: macos-13
+            xcode: 15.0.1
+            install: true
+          - platform: [tvOS, 16]
+            runtime: tvOS 16.4
+            os: macos-13
+            xcode: 15.0.1
+          - platform: [tvOS, 17]
+            runtime: tvOS 17.5
+            os: macos-14
+            xcode: 15.4
+          - platform: [tvOS, 18]
+            runtime: tvOS 18.0
+            os: macos-14
+            xcode: 16.0
+
+          - platform: [watchOS, 8]
+            runtime: watchOS 8.5
+            os: macos-13
+            xcode: 15.0.1
+            install: true
+          - platform: [watchOS, 9]
+            runtime: watchOS 9.4
+            os: macos-13
+            xcode: 14.3.1
+          - platform: [watchOS, 10]
+            runtime: watchOS 10.5
+            os: macos-14
+            xcode: 15.4
+          - platform: [watchOS, 11]
+            runtime: watchOS 11.0
+            os: macos-14
+            xcode: 16.0
+
+          - platform: [macOS, 12]
+            runtime: macOS 12
+            os: macos-12
+            xcode: 14.2
+          - platform: [macOS, 13]
+            runtime: macOS 13
+            os: macos-13
+            xcode: 15.0.1
+          - platform: [macOS, 14]
+            runtime: macOS 14
+            os: macos-14
+            xcode: 15.4
+
+          - platform: [visionOS, 1]
+            runtime: visionOS 1.2
+            os: macos-14
+            xcode: 15.4
+          - platform: [visionOS, 2]
+            runtime: visionOS 2.0
+            os: macos-14
+            xcode: 16.0
+    steps:
+      - name: Git Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pkgx environment
+        uses: pkgxdev/setup@v1
+        with:
+          +: fastlane xcodes
+
+      - name: Set environment variables
+        run: echo "SKIP_SLOW_FASTLANE_WARNING=1" >> $GITHUB_ENV
+
+      - name: Select Xcode version
+        run: sudo xcodes select ${{ matrix.xcode }}
+
+      - if: ${{ matrix.install }}
+        name: "[Debug] List Available Installable Runtimes"
+        run: xcodes runtimes --include-betas
+
+      - if: ${{ matrix.install }}
+        name: Install Required Runtime (${{ matrix.runtime }})
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: sudo xcodes runtimes install '${{ matrix.runtime }}'
+
+      - name: "[Debug] List Available Runtimes, Simulators, and Destinations"
+        run: |
+          xcrun simctl list
+          xcodebuild -scheme "SwiftUIIntrospect" -showdestinations
+
+      - if: ${{ matrix.platform[0] != 'watchOS' }}
+        name: Build Showcase
+        run: fastlane build platform:${{ matrix.platform[0] }} version:${{ matrix.platform[1] }} scheme:Showcase
+
+      - if: ${{ matrix.platform[0] == 'watchOS' }}
+        name: Build Library
+        run: fastlane build platform:${{ matrix.platform[0] }} version:${{ matrix.platform[1] }} scheme:SwiftUIIntrospect
+
+      - if: ${{ matrix.platform[0] != 'watchOS' }}
+        name: Run Tests
+        run: fastlane test platform:${{ matrix.platform[0] }} version:${{ matrix.platform[1] }} scheme:SwiftUIIntrospectTests configuration:Debug
+
+      # - if: ${{ matrix.platform[0] == 'iOS' && matrix.platform[1] <= '16' }}
+      #   name: Run UI Tests
+      #   run: fastlane test platform:${{ matrix.platform[0] }} version:${{ matrix.platform[1] }} scheme:SwiftUIIntrospectUITests configuration:Debug

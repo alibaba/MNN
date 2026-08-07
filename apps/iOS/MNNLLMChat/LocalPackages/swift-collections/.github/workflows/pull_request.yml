@@ -1,0 +1,30 @@
+name: Pull request
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  tests:
+    name: Test
+    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@main
+    with:
+      linux_exclude_swift_versions: '[{"swift_version": "5.8"}, {"swift_version": "5.9"}]'
+      windows_exclude_swift_versions: '[{"swift_version": "5.9"}]'
+  soundness:
+    name: Soundness
+    uses: swiftlang/github-workflows/.github/workflows/soundness.yml@main
+    with:
+      license_header_check_project_name: "Swift.org"
+      # https://github.com/apple/swift-collections/issues/428
+      python_lint_check_enabled: false
+      # https://github.com/apple/swift-collections/issues/429
+      docs_check_enabled: false
+      # https://github.com/apple/swift-collections/issues/430
+      shell_check_enabled: false
+      # https://github.com/apple/swift-collections/issues/431
+      format_check_enabled: false
+      # https://github.com/apple/swift-collections/issues/434
+      license_header_check_enabled: false
+      # https://github.com/apple/swift-collections/issues/435
+      api_breakage_check_enabled: false

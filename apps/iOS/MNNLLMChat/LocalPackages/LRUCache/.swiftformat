@@ -1,0 +1,25 @@
+# file options
+
+--exclude Package.swift
+
+# format options
+
+--swiftversion 5.7
+--hexgrouping ignore
+--decimalgrouping ignore
+--ifdef no-indent
+--self init-only
+--wraparguments before-first
+--wrapcollections before-first
+--maxwidth 100
+
+# rules
+
+--enable isEmpty
+--enable docComments
+--enable noGuardInTests
+--enable noForceTryInTests
+--enable noForceUnwrapInTests
+--enable redundantEquatable
+--enable redundantMemberwiseInit
+--enable redundantProperty

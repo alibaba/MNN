@@ -1,0 +1,98 @@
+{
+  "axisLabels" : {
+    "color" : "#000000FF",
+    "font" : {
+      "family" : "Helvetica",
+      "isBold" : false,
+      "isItalic" : false,
+      "size" : 13
+    }
+  },
+  "axisLeading" : 3,
+  "background" : "#FFFFFFFF",
+  "bandDimmingFactor" : 0.29999999999999999,
+  "border" : {
+    "capStyle" : "round",
+    "color" : "#000000FF",
+    "joinStyle" : "round",
+    "width" : 0.5
+  },
+  "curveFallback" : {
+    "color" : "#000000FF",
+    "lineWidth" : 4
+  },
+  "curves" : [
+    {
+      "color" : "#F05138FF",
+      "lineWidth" : 8
+    },
+    {
+      "color" : "#FFC07FFF",
+      "lineWidth" : 6
+    },
+    {
+      "color" : "#FFE57FFF",
+      "lineWidth" : 6
+    },
+    {
+      "color" : "#93E6C0FF",
+      "lineWidth" : 6
+    },
+  ],
+  "hairlines" : {
+    "capStyle" : "round",
+    "color" : "#0000004D",
+    "joinStyle" : "round",
+    "width" : 0.5
+  },
+  "legendCornerOffset" : [
+    24,
+    24
+  ],
+  "legendLabels" : {
+    "color" : "#000000FF",
+    "font" : {
+      "family" : "Menlo",
+      "isBold" : false,
+      "isItalic" : false,
+      "size" : 13
+    }
+  },
+  "legendLineLeading" : 3,
+  "legendLineSampleWidth" : 24,
+  "legendPadding" : {
+    "bottom" : 12,
+    "left" : 12,
+    "right" : 12,
+    "top" : 12
+  },
+  "legendPosition" : "topLeft",
+  "legendSeparation" : 9,
+  "majorGridline" : {
+    "capStyle" : "butt",
+    "color" : "#0000007F",
+    "joinStyle" : "round",
+    "width" : 0.75
+  },
+  "margins" : {
+    "bottom" : 9,
+    "left" : 9,
+    "right" : 9,
+    "top" : 9
+  },
+  "minorGridline" : {
+    "capStyle" : "butt",
+    "color" : "#00000042",
+    "dash" : {
+      "phase" : 0,
+      "style" : [
+        6,
+        3
+      ]
+    },
+    "joinStyle" : "round",
+    "width" : 0.5
+  },
+  "xPadding" : 6,
+  "yPadding" : 3
+}

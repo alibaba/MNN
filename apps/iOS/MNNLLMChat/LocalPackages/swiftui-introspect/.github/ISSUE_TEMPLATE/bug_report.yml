@@ -1,0 +1,73 @@
+name: Bug Report
+description: Something isn't working as expected
+labels: [bug]
+body:
+- type: markdown
+  attributes:
+    value: |
+      Thank you for contributing to SwiftUI Introspect!
+
+      Before you submit your issue, please complete each text area below with the relevant details for your bug, and complete the steps in the checklist.
+- type: textarea
+  attributes:
+    label: Description
+    description: |
+      A short description of the incorrect behavior.
+
+      If you think this issue has been recently introduced and did not occur in an earlier version, please note that. If possible, include the last version that the behavior was correct in addition to your current version.
+  validations:
+    required: true
+- type: checkboxes
+  attributes:
+    label: Checklist
+    options:
+    - label: I have read the [README](https://github.com/siteline/swiftui-introspect#swiftui-introspect) before submitting this report.
+      required: true
+    - label: This issue hasn't been addressed in an [existing GitHub issue](https://github.com/siteline/swiftui-introspect/issues) or [discussion](https://github.com/siteline/swiftui-introspect/discussions).
+      required: true
+- type: textarea
+  attributes:
+    label: Expected behavior
+    description: Describe what you expected to happen.
+  validations:
+    required: false
+- type: textarea
+  attributes:
+    label: Actual behavior
+    description: Describe or copy/paste the behavior you observe.
+  validations:
+    required: false
+- type: textarea
+  attributes:
+    label: Steps to reproduce
+    description: |
+      Explanation of how to reproduce the incorrect behavior.
+
+      This could include an attached project or link to code that is exhibiting the issue, and/or a screen recording.
+
+      Please make sure the code you are sharing is minimal and can be run independently of your project, otherwise it may be difficult to debug and will take longer to fix.
+    placeholder: |
+      1. ...
+  validations:
+    required: false
+- type: input
+  attributes:
+    label: Version information
+    description: The version of SwiftUIIntrospect used to reproduce this issue.
+    placeholder: "'0.11.0' for example, or a commit hash"
+- type: input
+  attributes:
+    label: Destination operating system
+    description: The OS running the SwiftUIIntrospect module.
+    placeholder: "'iOS 17' for example"
+- type: input
+  attributes:
+    label: Xcode version information
+    description: The version of Xcode used to reproduce this issue.
+    placeholder: "The version displayed from 'Xcode 〉About Xcode'"
+- type: textarea
+  attributes:
+    label: Swift Compiler version information
+    description: The version of Swift used to reproduce this issue.
+    placeholder: Output from 'xcrun swiftc --version'
+    render: shell

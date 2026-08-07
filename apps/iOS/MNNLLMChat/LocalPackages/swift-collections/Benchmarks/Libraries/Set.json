@@ -1,0 +1,299 @@
+{
+  "kind": "group",
+  "title": "Set Benchmarks",
+  "directory": "Set",
+  "contents": [
+    {
+      "kind": "group",
+      "title": "Operations",
+      "directory": "operations",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "operations",
+          "tasks": [
+            "Set<Int> init from range",
+            "Set<Int> init from unsafe buffer",
+            "Set<Int> sequential iteration",
+            "Set<Int> successful contains",
+            "Set<Int> unsuccessful contains",
+            "Set<Int> insert",
+            "Set<Int> insert, reserving capacity",
+            "Set<Int> remove"
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "union with Self",
+              "tasks": [
+                "Set<Int> union with Self (0% overlap)",
+                "Set<Int> union with Self (25% overlap)",
+                "Set<Int> union with Self (50% overlap)",
+                "Set<Int> union with Self (75% overlap)",
+                "Set<Int> union with Self (100% overlap)"
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "union with Array",
+              "tasks": [
+                "Set<Int> union with Array (0% overlap)",
+                "Set<Int> union with Array (25% overlap)",
+                "Set<Int> union with Array (50% overlap)",
+                "Set<Int> union with Array (75% overlap)",
+                "Set<Int> union with Array (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formUnion with Self",
+              "tasks": [
+                "Set<Int> formUnion with Self (0% overlap)",
+                "Set<Int> formUnion with Self (25% overlap)",
+                "Set<Int> formUnion with Self (50% overlap)",
+                "Set<Int> formUnion with Self (75% overlap)",
+                "Set<Int> formUnion with Self (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formUnion with Array",
+              "tasks": [
+                "Set<Int> formUnion with Array (0% overlap)",
+                "Set<Int> formUnion with Array (25% overlap)",
+                "Set<Int> formUnion with Array (50% overlap)",
+                "Set<Int> formUnion with Array (75% overlap)",
+                "Set<Int> formUnion with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "intersection with Self",
+              "tasks": [
+                "Set<Int> intersection with Self (0% overlap)",
+                "Set<Int> intersection with Self (25% overlap)",
+                "Set<Int> intersection with Self (50% overlap)",
+                "Set<Int> intersection with Self (75% overlap)",
+                "Set<Int> intersection with Self (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "intersection with Array",
+              "tasks": [
+                "Set<Int> intersection with Array (0% overlap)",
+                "Set<Int> intersection with Array (25% overlap)",
+                "Set<Int> intersection with Array (50% overlap)",
+                "Set<Int> intersection with Array (75% overlap)",
+                "Set<Int> intersection with Array (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formIntersection with Self",
+              "tasks": [
+                "Set<Int> formIntersection with Self (0% overlap)",
+                "Set<Int> formIntersection with Self (25% overlap)",
+                "Set<Int> formIntersection with Self (50% overlap)",
+                "Set<Int> formIntersection with Self (75% overlap)",
+                "Set<Int> formIntersection with Self (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formIntersection with Array",
+              "tasks": [
+                "Set<Int> formIntersection with Array (0% overlap)",
+                "Set<Int> formIntersection with Array (25% overlap)",
+                "Set<Int> formIntersection with Array (50% overlap)",
+                "Set<Int> formIntersection with Array (75% overlap)",
+                "Set<Int> formIntersection with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "symmetricDifference with Self",
+              "tasks": [
+                "Set<Int> symmetricDifference with Self (0% overlap)",
+                "Set<Int> symmetricDifference with Self (25% overlap)",
+                "Set<Int> symmetricDifference with Self (50% overlap)",
+                "Set<Int> symmetricDifference with Self (75% overlap)",
+                "Set<Int> symmetricDifference with Self (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "symmetricDifference with Array",
+              "tasks": [
+                "Set<Int> symmetricDifference with Array (0% overlap)",
+                "Set<Int> symmetricDifference with Array (25% overlap)",
+                "Set<Int> symmetricDifference with Array (50% overlap)",
+                "Set<Int> symmetricDifference with Array (75% overlap)",
+                "Set<Int> symmetricDifference with Array (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference with Self",
+              "tasks": [
+                "Set<Int> formSymmetricDifference with Self (0% overlap)",
+                "Set<Int> formSymmetricDifference with Self (25% overlap)",
+                "Set<Int> formSymmetricDifference with Self (50% overlap)",
+                "Set<Int> formSymmetricDifference with Self (75% overlap)",
+                "Set<Int> formSymmetricDifference with Self (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "formSymmetricDifference with Array",
+              "tasks": [
+                "Set<Int> formSymmetricDifference with Array (0% overlap)",
+                "Set<Int> formSymmetricDifference with Array (25% overlap)",
+                "Set<Int> formSymmetricDifference with Array (50% overlap)",
+                "Set<Int> formSymmetricDifference with Array (75% overlap)",
+                "Set<Int> formSymmetricDifference with Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+        {
+          "kind": "variants",
+          "charts": [
+            {
+              "kind": "chart",
+              "title": "subtracting Self",
+              "tasks": [
+                "Set<Int> subtracting Self (0% overlap)",
+                "Set<Int> subtracting Self (25% overlap)",
+                "Set<Int> subtracting Self (50% overlap)",
+                "Set<Int> subtracting Self (75% overlap)",
+                "Set<Int> subtracting Self (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtracting Array",
+              "tasks": [
+                "Set<Int> subtracting Array (0% overlap)",
+                "Set<Int> subtracting Array (25% overlap)",
+                "Set<Int> subtracting Array (50% overlap)",
+                "Set<Int> subtracting Array (75% overlap)",
+                "Set<Int> subtracting Array (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtract Self",
+              "tasks": [
+                "Set<Int> subtract Self (0% overlap)",
+                "Set<Int> subtract Self (25% overlap)",
+                "Set<Int> subtract Self (50% overlap)",
+                "Set<Int> subtract Self (75% overlap)",
+                "Set<Int> subtract Self (100% overlap)",
+              ]
+            },
+            {
+              "kind": "chart",
+              "title": "subtract with Array",
+              "tasks": [
+                "Set<Int> subtract Array (0% overlap)",
+                "Set<Int> subtract Array (25% overlap)",
+                "Set<Int> subtract Array (50% overlap)",
+                "Set<Int> subtract Array (75% overlap)",
+                "Set<Int> subtract Array (100% overlap)",
+              ]
+            },
+          ]
+        },
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "Set vs std::unordered_set",
+      "directory": "versus STL unordered_set",
+      "contents": [
+        {
+          "kind": "chart",
+          "title": "Hashing",
+          "tasks": [
+            "std::hash<intptr_t>",
+            "custom_intptr_hash (using Swift.Hasher)",
+            "Hasher.combine on a single buffer of integers",
+            "Int.hashValue on each value",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "init from integer range",
+          "tasks": [
+            "std::unordered_set<intptr_t> insert from integer range",
+            "Set<Int> init from range",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "init from buffer of integers",
+          "tasks": [
+            "std::unordered_set<intptr_t> constructor from buffer",
+            "Set<Int> init from unsafe buffer",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "sequential iteration",
+          "tasks": [
+            "std::unordered_set<intptr_t> sequential iteration",
+            "Set<Int> sequential iteration",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "successful lookups",
+          "tasks": [
+            "std::unordered_set<intptr_t> successful find",
+            "Set<Int> successful contains",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "unsuccessful lookups",
+          "tasks": [
+            "std::unordered_set<intptr_t> unsuccessful find",
+            "Set<Int> unsuccessful contains",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "random insertions",
+          "tasks": [
+            "std::unordered_set<intptr_t> insert",
+            "std::unordered_set<intptr_t> insert, reserving capacity",
+            "Set<Int> insert",
+            "Set<Int> insert, reserving capacity",
+          ]
+        },
+        {
+          "kind": "chart",
+          "title": "random removals",
+          "tasks": [
+            "std::unordered_set<intptr_t> erase",
+            "Set<Int> remove",
+          ]
+        },
+      ]
+    }
+  ]
+}

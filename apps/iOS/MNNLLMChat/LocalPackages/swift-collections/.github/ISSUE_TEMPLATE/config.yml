@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ❓ Discussion Forum
+    url: https://forums.swift.org/c/related-projects/collections/
+    about: Questions about using Swift Collections? Ask here!
