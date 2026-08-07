@@ -267,11 +267,17 @@ class Qwen2Vision(Vision):
         super().__init__(visual, base)
         self.quant_bit = 4
 
+    def refresh_image_resize_config(self):
+        self.llm_config['image_size_unit'] = self.patch_size * self.merge_size
+        self.llm_config['image_min_pixels'] = self.min_pixels
+        self.llm_config['image_max_pixels'] = self.max_pixels
+
     def load(self):
         self.vision_start_id = self.config.vision_start_token_id
         self.vision_end_id = self.config.vision_end_token_id
         self.image_pad_id = self.config.image_token_id
         self.llm_config['image_size'] = self.image_height
+        self.refresh_image_resize_config()
         self.llm_config['vision_start'] = self.vision_start_id
         self.llm_config['vision_end'] = self.vision_end_id
         self.llm_config['image_pad'] = self.image_pad_id
@@ -364,7 +370,7 @@ class Qwen2Vision(Vision):
                 h_index = torch.arange(h).view(1, -1, 1).expand(t, -1, w).flatten()
                 w_index = torch.arange(w).view(1, 1, -1).expand(t, h, -1).flatten()
                 position_ids_list.append(torch.stack([t_index, h_index, w_index]) + cur_idx)
-                cur_idx += w
+                cur_idx += max(h, w)
                 vision_idx += 1
         if txt_len > 0:
             text_index = torch.arange(cur_idx, cur_idx + txt_len, dtype=torch.int)
@@ -985,6 +991,7 @@ class Qwen3Vision(Qwen2Vision):
 
         self.min_pixels = 65536
         self.max_pixels = 16777216
+        self.refresh_image_resize_config()
         self.merge_unit = self.merge_size * self.merge_size
         self.deepstack_visual_indexes = visual.deepstack_visual_indexes
         self.num_grid_per_side = visual.num_grid_per_side
@@ -1151,6 +1158,7 @@ class Qwen3_5Vision(Qwen2Vision):
 
         self.min_pixels = 65536
         self.max_pixels = 16777216
+        self.refresh_image_resize_config()
         self.merge_unit = self.merge_size * self.merge_size
         self.num_grid_per_side = visual.num_grid_per_side
         self.pos_embed = visual.pos_embed
