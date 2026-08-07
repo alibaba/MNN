@@ -321,7 +321,7 @@ static void MNNPackedMatMulFP16_SME2(float* C, const float* A, const float* B, c
 #endif
 
 #if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE) && defined(MNN_USE_NEON)
-// NEON path for SME/NEON mixed Attention. It reads the [H/64, L, 64] KV cache
+// NEON path for SME/NEON mixed Attention. It reads the [H/64, L/2, 64, 2] KV cache
 // packed by the SME2 path and keeps the Arm82 FP16 output packing.
 static void MNNPackedMatMulRemainFP16WithSme2PackedB(float* C, const float* A, const float* B, size_t eSize,
                                                       const size_t* parameter, const float* postParameters,

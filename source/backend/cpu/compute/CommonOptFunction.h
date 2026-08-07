@@ -538,7 +538,7 @@ struct CoreFunctions {
     void (*MNNAccumulateSequenceNumber)(float* dst, const float* src, int size);
 
     // Attention
-    // Attention-only matmul. B uses the H=64 layout produced by the SME2 KV cache packer.
+    // Attention-only matmul. B uses the [H/64, L/2, 64, 2] layout produced by the SME2 KV cache packer.
 #if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     void (*MNNPackedMatMulWithSme2PackedB)(float* C, const float* A, const float* B, const size_t* parameter,
                                             const float* postParameters, const float* bias, const float* k,

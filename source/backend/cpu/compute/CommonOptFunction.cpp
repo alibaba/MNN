@@ -1403,7 +1403,7 @@ static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase,
 
 #if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
 // This is Attention-only: CPUAttention uses no bias or post-processing on QK/PV matmuls.
-// B keeps the [H/64, L, 64] SME2 KV-cache layout, allowing NEON and SME workers to share one cache.
+// B keeps the [H/64, L/2, 64, 2] SME2 KV-cache layout, allowing NEON and SME workers to share one cache.
 static void MNNPackedMatMulRemainWithSme2PackedB(float* C, const float* A, const float* B, size_t eSize,
                                                   const size_t* parameter, const float* postParameters,
                                                   const float* bias, const float* k, const float* b) {
