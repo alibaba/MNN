@@ -330,14 +330,15 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
             mPastLength = start;
             return true;
         }
-
-        size_t pastkvSize = mKvNumHead * UP_DIV(mMaxLength, 4) * mHeadDim * 4 * mByte;
+        size_t curMaxlen = ROUND_UP(mMaxLength, 4);
+        size_t pastkvSize = mKvNumHead * UP_DIV(curMaxlen, 4) * mHeadDim * 4 * mByte;
         char* keyPtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
             *mPastKey.get(), true, CL_MAP_READ | CL_MAP_WRITE, 0, pastkvSize, nullptr, nullptr, &res);
         char* valuePtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
             *mPastValue.get(), true, CL_MAP_READ | CL_MAP_WRITE, 0, pastkvSize, nullptr, nullptr, &res);
 
         // TODO: need to ensure reserve info is sorted
+        auto copyDstIndex = start;
         for (int n = 0; n < meta->n_reserve; ++n) {
             auto begin = meta->reserve[2 * n];
             auto length = meta->reserve[2 * n + 1];
@@ -345,22 +346,21 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
             // past_value : [mKvNumHead, mMaxLength, mHeadDim]
 
             auto copySrcIndex = start + begin;
-            auto copyDstIndex = start;
             for (int i = 0; i < mKvNumHead * mHeadDim; i++) {
-                ::memcpy(keyPtr + (i * mMaxLength + copyDstIndex) * mByte,
-                         keyPtr + (i * mMaxLength + copySrcIndex) * mByte, length * mByte);
+                ::memmove(keyPtr + (i * curMaxlen + copyDstIndex) * mByte,
+                         keyPtr + (i * curMaxlen + copySrcIndex) * mByte, length * mByte);
             }
             for (int i = 0; i < mKvNumHead; i++) {
                 for (int j = 0; j < length; j++) {
-                    ::memcpy(valuePtr + (i * mMaxLength + copyDstIndex + j) * mHeadDim * mByte,
-                             valuePtr + (i * mMaxLength + copySrcIndex + j) * mHeadDim * mByte, mHeadDim * mByte);
+                    ::memmove(valuePtr + (i * curMaxlen + copyDstIndex + j) * mHeadDim * mByte,
+                             valuePtr + (i * curMaxlen + copySrcIndex + j) * mHeadDim * mByte, mHeadDim * mByte);
                 }
             }
-            start += length;
+            copyDstIndex += length;
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mPastKey.get(), keyPtr);
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mPastValue.get(), valuePtr);
-        mPastLength = (int)start;
+        mPastLength = (int)copyDstIndex;
     }
     return true;
 }
