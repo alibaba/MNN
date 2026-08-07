@@ -45,8 +45,7 @@ class FusedAttentionOp(torch.autograd.Function):
             "kv_shared_layer_index_i": kv_shared_layer_index,
         }
         from torch.onnx.symbolic_helper import _get_tensor_sizes
-        out_sizes = _get_tensor_sizes(query)
-        out_sizes[-1] = output_dim
+        out_sizes = _get_tensor_sizes(query)[:2] + [output_dim]
         output_type = query.type().with_sizes(out_sizes)
         return g.op("LlmExporter::FusedAttention", query, key, value, attention_mask, **kwargs).setType(output_type)
 

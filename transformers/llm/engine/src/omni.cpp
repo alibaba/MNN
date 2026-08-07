@@ -559,7 +559,7 @@ std::vector<int> Omni::hunyuanVisionProcess(VARP image) {
     int gridW = mVisionWidth / patchSize;
     auto patches = Express::_Reshape(
         image, {1, 3, gridH / mergeSize, mergeSize, patchSize, gridW / mergeSize, mergeSize, patchSize});
-    patches = Express::_Permute(patches, {0, 2, 5, 3, 6, 1, 4, 7});
+    patches = Express::_Permute(patches, {0, 2, 3, 5, 6, 1, 4, 7});
     patches = Express::_Reshape(patches, {gridH * gridW, 3 * temporalPatchSize * patchSize * patchSize});
     auto imageGridThw = Express::_Input({1, 3}, NCHW, halide_type_of<int>());
     auto gridPtr = imageGridThw->writeMap<int>();
@@ -1155,6 +1155,7 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     std::smatch match;
     std::vector<int> ids{};
     mPositionIds.clear();
+    mVisionNum = 0;
 
     while (std::regex_search(searchStart, prompt.cend(), match, multimode_regex)) {
         auto txt_ids = mTokenizer->encode(match.prefix().str());

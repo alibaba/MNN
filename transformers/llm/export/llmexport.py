@@ -419,6 +419,8 @@ class LlmExporter(torch.nn.Module):
             for i in range(len(self.model.blocks)):
                 # different kv cache shape in different layers
                 # if isinstance(self.config.num_attention_heads, list):
+                # Keep custom Attention in the exported LLM graph so runtime decode uses KV cache.
+                # HunyuanVL still disables MNNConvert transformerFuse separately.
                 self.model.blocks[i].self_attn.export_fused_attn = True
                 is_moe = hasattr(self.model.blocks[i].mlp, 'is_moe') and self.model.blocks[i].mlp.is_moe
                 if is_moe:
@@ -681,7 +683,8 @@ class LlmExporter(torch.nn.Module):
         if self.args.onnx_slim:
             self.slim_onnx(onnx_model)
         if self.mnn_converter:
-            tie_embeddings_info = MNNConverter(self, self.unloaded_ops).export(onnx_model)
+            fuse_transformer = self.model_type != 'hunyuan_vl'
+            tie_embeddings_info = MNNConverter(self, self.unloaded_ops).export(onnx_model, transformer_fuse=fuse_transformer)
             if tie_embeddings_info is not None:
                 self.llm_config['tie_embeddings'] = tie_embeddings_info
         else:

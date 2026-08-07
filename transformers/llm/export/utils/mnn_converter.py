@@ -156,7 +156,10 @@ class MNNConverter:
             self.mnn2json(self.mnn_model_path, mnn_json)
             self.rebuild(mnn_json)
             self.json2mnn(mnn_json, self.mnn_model_path)
-            self.removeDupOps(self.mnn_model_path)
+            # HunyuanVL needs the explicit q/k/v reshape boundary before Attention.
+            # The extra optimize pass can bypass v_proj's post_reshape into Attention.
+            if self.exporter.model_type != 'hunyuan_vl':
+                self.removeDupOps(self.mnn_model_path)
             self.mnn2json(self.mnn_model_path, mnn_json)
             if self.args.gptq_path is not None:
                 self.apply_gptq(mnn_json)

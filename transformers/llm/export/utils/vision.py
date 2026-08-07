@@ -1635,7 +1635,7 @@ class HunyuanVLVision(Vision):
             self.merge_size,
             self.patch_size,
         )
-        patches = patches.permute(0, 2, 5, 3, 6, 1, 4, 7)
+        patches = patches.permute(0, 2, 3, 5, 6, 1, 4, 7)
         flatten_patches = patches.unsqueeze(6).expand(
             -1, -1, -1, -1, -1, -1, self.temporal_patch_size, -1, -1
         ).reshape(
@@ -1652,7 +1652,30 @@ class HunyuanVLVision(Vision):
         return self.forward(pixel_values, image_grid_thw)
 
     def forward(self, pixel_values, image_grid_thw):
-        output = self.visual(pixel_values, grid_thw=image_grid_thw).pooler_output
+        hidden_states = self.visual.embeddings(pixel_values, image_grid_thw)
+        for layer in self.visual.layers:
+            residual = hidden_states
+            hidden_states = layer.layer_norm1(hidden_states)
+            attn = layer.self_attn
+            batch_size, seq_len, _ = hidden_states.shape
+            query = attn.q_proj(hidden_states)
+            key = attn.k_proj(hidden_states)
+            value = attn.v_proj(hidden_states)
+            query = query.view(batch_size, seq_len, attn.num_heads, attn.head_dim).transpose(1, 2)
+            key = key.view(batch_size, seq_len, attn.num_heads, attn.head_dim).transpose(1, 2)
+            value = value.view(batch_size, seq_len, attn.num_heads, attn.head_dim).transpose(1, 2)
+            attn_weights = torch.matmul(query, key.transpose(2, 3)) * attn.scaling
+            attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
+            hidden_states = torch.matmul(attn_weights, value)
+            hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, seq_len, -1).contiguous()
+            hidden_states = attn.o_proj(hidden_states)
+            hidden_states = residual + hidden_states
+
+            residual = hidden_states
+            hidden_states = layer.layer_norm2(hidden_states)
+            hidden_states = layer.mlp(hidden_states)
+            hidden_states = residual + hidden_states
+        output = self.visual.patch_merger(hidden_states, size=(image_grid_thw[0, 1], image_grid_thw[0, 2]))
         return output.squeeze(0).unsqueeze(1)
 
     def img_process(self, image, image_hw=None):
