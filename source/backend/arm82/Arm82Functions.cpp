@@ -320,7 +320,7 @@ static void MNNPackedMatMulFP16_SME2(float* C, const float* A, const float* B, c
 }
 #endif
 
-#if defined(MNN_SME2) && defined(MNN_USE_NEON)
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE) && defined(MNN_USE_NEON)
 // NEON path for SME/NEON mixed Attention. It reads the [H/64, L, 64] KV cache
 // packed by the SME2 path and keeps the Arm82 FP16 output packing.
 static void MNNPackedMatMulRemainFP16WithSme2PackedB(float* C, const float* A, const float* B, size_t eSize,
@@ -2988,7 +2988,7 @@ bool Arm82Functions::init() {
     gInstance->supportSDot = origin->supportSDot;
     gInstance->supportI8mm = origin->supportI8mm;
     gInstance->supportSME2 = origin->supportSME2;
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(__aarch64__) && defined(MNN_USE_NEON)
     gInstance->supportFp16FML = origin->supportFp16FML;
 #endif
     gInstance->smeCoreNumber = origin->smeCoreNumber;

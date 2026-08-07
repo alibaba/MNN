@@ -41,7 +41,7 @@
 #define CPUINFO_ARM_LINUX_FEATURE_FPHP UINT32_C(0x00000200)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP UINT32_C(0x00000400)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP UINT32_C(0x00100000)
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDFHM UINT32_C(0x00800000)
 #endif
 #define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
@@ -1347,7 +1347,7 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
     if (have_feature("hw.optional.arm.FEAT_FP16")) {
         cpuinfo_isa->fp16arith = true;
     }
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     if (have_feature("hw.optional.arm.FEAT_FHM")) {
         cpuinfo_isa->fp16fml = true;
     }
@@ -1379,7 +1379,7 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     if ((isa_features & fp16arith_mask) == fp16arith_mask) {
         cpuinfo_isa->fp16arith = true;
     }
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDFHM) {
         cpuinfo_isa->fp16fml = true;
     }
@@ -1517,7 +1517,7 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->i8mm = false;
     cpuinfo_isa->sve2 = false;
     cpuinfo_isa->sme2 = false;
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     cpuinfo_isa->fp16fml = false;
 #endif
     // android

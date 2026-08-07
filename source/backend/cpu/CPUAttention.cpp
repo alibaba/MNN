@@ -360,27 +360,16 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     int seqLen = query->length(1);
     mNumHead = query->length(2);
 #ifdef MNN_SME2
-    const int divisionRatio = static_cast<CPUBackend*>(backend())->getRuntime()->hint().divisionRatio;
-    int prefillRatio = divisionRatio / 8 % 8;
-    int decodeRatio = divisionRatio % 8;
-    if (decodeRatio == 0 && prefillRatio != 0) {
-        decodeRatio = 1;
-    } else if (prefillRatio == 0 && decodeRatio != 0) {
-        prefillRatio = 6;
-    } else if (decodeRatio > prefillRatio) {
-        decodeRatio = 1;
-    }
-    const int ratio = seqLen == 1 ? decodeRatio : prefillRatio;
     mUseMixedSmeNeonMatMul = seqLen == 1 && mUseFlashAttention && mKeyQuantMode == KVQuantMode::None &&
                               mValueQuantMode == KVQuantMode::None && (gcore->bytes == 2 || gcore->bytes == 4) &&
                               gcore->supportSME2 &&
-                              gcore->smeCoreNumber > 0 && mThreadNum > gcore->smeCoreNumber && ratio > 0;
+                              gcore->smeCoreNumber > 0 && mThreadNum > gcore->smeCoreNumber;
     mSmeThreadCount = 0;
     mSmeHeadCount = 0;
     if (mUseMixedSmeNeonMatMul) {
         mSmeThreadCount = ALIMIN(mThreadNum, gcore->smeCoreNumber);
-        const int workUnit = UP_DIV(mNumHead, ratio * mSmeThreadCount + mThreadNum - mSmeThreadCount);
-        mSmeHeadCount = ALIMIN(workUnit * ratio * mSmeThreadCount, mNumHead);
+        const int headsPerThread = UP_DIV(mNumHead, mThreadNum);
+        mSmeHeadCount = ALIMIN(headsPerThread * mSmeThreadCount, mNumHead);
     }
 #endif
     auto queryPtr = query->host<int8_t>();

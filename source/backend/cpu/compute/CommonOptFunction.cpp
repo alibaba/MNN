@@ -1401,7 +1401,7 @@ static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase,
     }
 }
 
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
 // This is Attention-only: CPUAttention uses no bias or post-processing on QK/PV matmuls.
 // B keeps the [H/64, L, 64] SME2 KV-cache layout, allowing NEON and SME workers to share one cache.
 static void MNNPackedMatMulRemainWithSme2PackedB(float* C, const float* A, const float* B, size_t eSize,
@@ -4976,7 +4976,7 @@ void MNNCoreFunctionInit() {
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     gCoreFunction->MNNAttenPackAndScaleSingleHead = MNNAttenPackAndScaleSingleHead;
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     gCoreFunction->MNNPackedMatMulWithSme2PackedB = MNNPackedMatMulWithSme2PackedB;
     gCoreFunction->MNNPackedMatMulRemainWithSme2PackedB = MNNPackedMatMulRemainWithSme2PackedB;
 #endif
@@ -5019,7 +5019,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportSDot = gCPUInfo.dot;
     gCoreFunction->supportI8mm = gCPUInfo.i8mm;
     gCoreFunction->supportSME2 = gCPUInfo.sme2;
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     gCoreFunction->supportFp16FML = gCPUInfo.fp16fml;
 #endif
     // add rvv support

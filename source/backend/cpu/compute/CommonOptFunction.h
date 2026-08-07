@@ -321,7 +321,7 @@ struct CoreFunctions {
     bool supportSDot = false;
     bool supportI8mm = false;
     bool supportSME2 = false;
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     bool supportFp16FML = false;
 #endif
     bool supportRVV = false;
@@ -539,7 +539,7 @@ struct CoreFunctions {
 
     // Attention
     // Attention-only matmul. B uses the H=64 layout produced by the SME2 KV cache packer.
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     void (*MNNPackedMatMulWithSme2PackedB)(float* C, const float* A, const float* B, const size_t* parameter,
                                             const float* postParameters, const float* bias, const float* k,
                                             const float* b);

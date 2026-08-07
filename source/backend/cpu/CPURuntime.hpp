@@ -22,7 +22,7 @@ struct MNNCPUInfo {
     bool i8mm = false;
     bool sve2 = false;
     bool sme2 = false;
-#ifdef MNN_SME2
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     bool fp16fml = false;
 #endif
     std::vector<CPUGroup> groups;
