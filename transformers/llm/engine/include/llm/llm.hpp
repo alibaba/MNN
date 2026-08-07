@@ -80,10 +80,24 @@ struct MNN_PUBLIC PromptAudioPart {
     MNN::Express::VARP waveform;
 };
 
+struct MNN_PUBLIC PromptVideoPart {
+    // file_path is decoded and sampled by Omni using the model video_fps/video_max_frames config.
+    std::string file_path;
+    // In-memory frames are expected to be already sampled in chronological order; timestamps, when provided,
+    // are seconds for those sampled frames.
+    std::vector<MNN::Express::VARP> frames;
+    std::vector<float> timestamps;
+    int width = 0;
+    int height = 0;
+    float fps = 2.0f;
+    int max_frames = 768;
+};
+
 struct MNN_PUBLIC MultimodalPrompt {
     std::string prompt_template;
     std::map<std::string, PromptImagePart> images;
     std::map<std::string, PromptAudioPart> audios;
+    std::map<std::string, PromptVideoPart> videos;
 };
 
 enum TuneType {
