@@ -31,11 +31,13 @@ public:
     // Whether the current CPU + convolution shape can be accelerated by KleidiAI.
     static bool isSupported(KernelType type, const Convolution2DCommon* common);
 
-    KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon, bool isDynamicQuant, KernelType kernelType, int32_t blockNum);
+    KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon,
+                     bool isDynamicQuant, KernelType kernelType, int32_t blockNum);
     virtual ~KleidiAIConvInt8();
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+
 private:
     KleidiAIConvInt8(Backend* backend, const Op* op, const KleidiAIConvInt8& exe);
 
@@ -64,11 +66,10 @@ private:
                            void* rhsPacked) = nullptr;
         size_t (*lhsPackedSize)(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr) = nullptr;
         size_t (*lhsPackedOffset)(size_t mIdx, size_t k, size_t bl, size_t mr, size_t kr, size_t sr) = nullptr;
-        void (*runLhsQuantPack)(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr,
-                                const void* lhs, void* lhsQuantedPacked) = nullptr;
+        void (*runLhsQuantPack)(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr, const void* lhs,
+                                void* lhsQuantedPacked) = nullptr;
         // Handles both GEMV (m == 1) and GEMM internally.
-        void (*matmul)(size_t m, size_t n, size_t k, size_t bl,
-                       const void* lhsPacked, const void* rhsPacked, void* dst,
+        void (*matmul)(size_t m, size_t n, size_t k, size_t bl, const void* lhsPacked, const void* rhsPacked, void* dst,
                        size_t dstStrideRow, size_t dstStrideCol, float clampMin, float clampMax) = nullptr;
     };
 
@@ -83,14 +84,15 @@ private:
     size_t getNStep() const { return mParam.mKaiNStep; }
     bool bSupportSme2() const { return mSme2; }
     static size_t getVecNumPerThread(size_t totalVec, size_t totalThread, size_t minStep);
-    static size_t getDstOffset(size_t mIdx, size_t nIdx, size_t n, size_t elementSize) { return (nIdx * elementSize) + mIdx * (n * elementSize); }
+    static size_t getDstOffset(size_t mIdx, size_t nIdx, size_t n, size_t elementSize) {
+        return (nIdx * elementSize) + mIdx * (n * elementSize);
+    }
 
     // Rhs (weight) pack.
     size_t getRhsPackedSize(size_t n, size_t k, size_t bl) const;
     size_t getRhsPackedOffset(size_t nIdx, size_t k, size_t bl) const;
-    void runRhsPack(size_t numGroups, size_t n, size_t k, size_t bl,
-                    const void* rhs, const void* scale, const void* zeroPoint, const void* bias,
-                    void* rhsPacked) const;
+    void runRhsPack(size_t numGroups, size_t n, size_t k, size_t bl, const void* rhs, const void* scale,
+                    const void* zeroPoint, const void* bias, void* rhsPacked) const;
 
     // Lhs (activation) dynamic quant + pack.
     size_t getLhsQuantedPackedSize(size_t m, size_t k, size_t bl) const;
@@ -98,10 +100,8 @@ private:
     void runLhsQuantPack(size_t m, size_t k, size_t bl, size_t mr, const void* lhs, void* lhsQuantedPacked) const;
 
     // Matmul.
-    void runMatmul(size_t m, size_t n, size_t k, size_t bl,
-                   const void* lhsPacked, const void* rhsPacked, void* dst,
-                   size_t dstStrideRow, size_t dstStrideCol,
-                   const float scalarMax, const float scalarMin) const;
+    void runMatmul(size_t m, size_t n, size_t k, size_t bl, const void* lhsPacked, const void* rhsPacked, void* dst,
+                   size_t dstStrideRow, size_t dstStrideCol, const float scalarMax, const float scalarMin) const;
 
     std::shared_ptr<Tensor> mWeightInt8;
     std::shared_ptr<Tensor> mTempIm2ColBuffer;
