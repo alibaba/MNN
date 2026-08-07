@@ -273,7 +273,7 @@ void MNNC3ToXYZ(const unsigned char* source, unsigned char* dest, size_t count, 
         C3 = coeffs[r1], C4 = coeffs[4], C5 = coeffs[b1],
         C6 = coeffs[r2], C7 = coeffs[7], C8 = coeffs[b2];
     int sta = 0;
-    
+
 #if defined MNN_USE_NEON
     int countD8 = (int)count / 8;
     if (countD8 > 0) {
@@ -282,7 +282,7 @@ void MNNC3ToXYZ(const unsigned char* source, unsigned char* dest, size_t count, 
         sta = countD8 * 8;
     }
 #endif
-    
+
     for (int i = sta; i < count; ++i) {
         int r = source[3 * i + 0];
         int g = source[3 * i + 1];
@@ -333,7 +333,7 @@ void MNNC3ToBGR555(const unsigned char* source, unsigned char* dest, size_t coun
         } else {
             MNNRGBToBGR555Fast(source, dest, countD8);
         }
-        
+
         i = countD8 * 8;
     }
 #endif
@@ -755,8 +755,8 @@ static void _sampleBilinearCommon(const unsigned char* source, unsigned char* de
         float x  = __clamp(curPoints.fX, 0, xMax);
         int y0   = (int)y;
         int x0   = (int)x;
-        int y1   = (int)ceilf(y);
-        int x1   = (int)ceilf(x);
+        int y1   = std::min((int)ceilf(y), (int)(ih - 1));
+        int x1   = std::min((int)ceilf(x), (int)(iw - 1));
         float xF = x - (float)x0;
         float yF = y - (float)y0;
 
