@@ -2988,7 +2988,7 @@ bool Arm82Functions::init() {
     gInstance->supportSDot = origin->supportSDot;
     gInstance->supportI8mm = origin->supportI8mm;
     gInstance->supportSME2 = origin->supportSME2;
-#if defined(MNN_SME2) && defined(__aarch64__) && defined(MNN_USE_NEON)
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE) && defined(__aarch64__) && defined(MNN_USE_NEON)
     gInstance->supportFp16FML = origin->supportFp16FML;
 #endif
     gInstance->smeCoreNumber = origin->smeCoreNumber;
