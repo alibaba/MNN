@@ -94,13 +94,17 @@ Tokenizer* Tokenizer::createTokenizer(const std::string& filename) {
     line_str >> tokenizer_type;
     if (tokenizer_type == PIPELINE) {
         // .mtok binary format (PipelineTokenizer)
+        tok_file.close();
+        // Reopen from the beginning in binary mode instead of reusing a
+        // text-mode tellg() position, that position isn't guaranteed to
+        // line up with a byte offset in a separately-opened stream on
+        // Windows/MSVC.
         auto* pt = new PipelineTokenizer();
         tokenizer = pt;
-        tokenizer->load_special(tok_file);
-        auto pos = tok_file.tellg();
-        tok_file.close();
         std::ifstream bin_file(filename, std::ios::binary);
-        bin_file.seekg(pos);
+        std::string bin_line;
+        std::getline(bin_file, bin_line);   // re-consume the magic/type line
+        tokenizer->load_special(bin_file);
         pt->load_vocab_binary(bin_file);
         bin_file.close();
         tokenizer->cache_special_tokens();
