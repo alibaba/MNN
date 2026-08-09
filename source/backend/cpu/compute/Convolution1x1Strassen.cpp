@@ -119,8 +119,8 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             }
             unit.offset[1] = 0;
             unit.offset[2] = 0;
-            unit.offset[0] = core->pack * planeStart * bytes;
-            unit.offset[3] = core->pack * planeStart * bytes;
+            unit.offset[0] = static_cast<size_t>(core->pack) * planeStart * bytes;
+            unit.offset[3] = static_cast<size_t>(core->pack) * planeStart * bytes;
             unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), maxDepth));
             int e = planeSize;
             int l = ic;
@@ -162,19 +162,20 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             }
             auto ocStartWeight = (ocStart * core->pack) / hPack;
             auto ocWeightSize = std::min(UP_DIV((ocSize * core->pack), hPack), mResource->mWeight->length(0) - ocStartWeight);
-            unit.offset[1] = hPack * icAlign * ocStartWeight * mWeightBytes;
-            unit.offset[2] = core->pack * ocStart * bytes;
+            // Large output projections can exceed 2 GB. Promote before multiplying to avoid int overflow.
+            unit.offset[1] = static_cast<size_t>(hPack) * icAlign * ocStartWeight * mWeightBytes;
+            unit.offset[2] = static_cast<size_t>(core->pack) * ocStart * bytes;
             unit.offset[0] = 0;
-            unit.offset[3] = core->pack * matrixSizeE * ocStart * bytes;
+            unit.offset[3] = static_cast<size_t>(core->pack) * matrixSizeE * ocStart * bytes;
 
             unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), maxDepth));
             int e = matrixSizeE;
             int l = ic;
             int h = std::min(ocSize * core->pack, ocWeightSize * hPack);
             uint8_t* aPtr = nullptr;
-            auto bPtr = TensorUtils::getDescribeOrigin(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * mWeightBytes;
+            auto bPtr = TensorUtils::getDescribeOrigin(mResource->mWeight.get())->mem->chunk() + unit.offset[1];
             uint8_t* cPtr = nullptr;
-            auto biasPtr = TensorUtils::getDescribeOrigin(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
+            auto biasPtr = TensorUtils::getDescribeOrigin(mResource->mBias.get())->mem->chunk() + unit.offset[2];
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {

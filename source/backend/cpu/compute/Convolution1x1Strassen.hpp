@@ -29,7 +29,7 @@ private:
 
     struct Unit {
         bool mValid = true;
-        int offset[4];//Input, Weight, Output, Bias
+        size_t offset[4]; // Input, Weight, Output, Bias
         std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
     };
 
