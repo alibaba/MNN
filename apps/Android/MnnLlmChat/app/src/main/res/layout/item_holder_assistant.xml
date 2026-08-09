@@ -71,18 +71,15 @@
             tools:visibility="visible" />
     </LinearLayout>
 
-    <TextView
+    <com.alibaba.mnnllm.android.chat.chatlist.MarkdownMessageView
         android:id="@+id/tv_chat_text"
         tools:text="this is the generated text"
         android:layout_toEndOf="@id/ic_header"
         android:layout_below="@id/ll_thinking_container"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingStart="@dimen/space10"
         android:paddingEnd="@dimen/space10"
-        android:textAppearance="@style/Light"
-        android:textColor="?colorOnSurface"
-        android:textSize="@dimen/h3"
         android:visibility="visible" />
         
     <ImageView

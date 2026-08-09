@@ -19,6 +19,7 @@ import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -285,7 +286,8 @@ class ChatPresenter(
     suspend fun requestGenerate(userData: ChatDataItem, generateListener: GenerateListener): HashMap<String, Any> {
         this.generateListener = generateListener
         val prompt = PromptUtils.generateUserPrompt(userData)
-        
+        var userInputSaved = false
+
         // Ensure user input is saved first
         try {
             if (this.sessionName.isNullOrEmpty()) {
@@ -296,6 +298,7 @@ class ChatPresenter(
             // Always save user input to database first
             Log.d(TAG, "requestGenerate: saving user input for sessionId=$sessionId")
             chatDataManager!!.addChatData(sessionId, userData)
+            userInputSaved = true
             
             this.generateListener?.onGenerateStart()
             additionalListeners.forEach { it.onGenerateStart() }
@@ -305,12 +308,14 @@ class ChatPresenter(
             }.await()
             
             return result
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "requestGenerate: Error during request generation", e)
-            
+
             // Still try to save user input even if generation fails
             try {
-                if (sessionId != null) {
+                if (!userInputSaved && sessionId != null) {
                     chatDataManager!!.addChatData(sessionId, userData)
                 }
             } catch (saveException: Exception) {
