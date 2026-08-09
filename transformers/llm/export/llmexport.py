@@ -22,6 +22,7 @@ from utils.smooth_quantizer import SmoothQuantizer
 from utils.omni_quantizer import OmniQuantizer
 from utils.torch_utils import onnx_export
 
+
 class LlmExporter(torch.nn.Module):
     '''
     Base class for all llm model export. Inherits from [`torch.nn.Module`].
@@ -32,6 +33,8 @@ class LlmExporter(torch.nn.Module):
         self.load_model(args.path)
 
     def init_from_args(self, args):
+        if args.smooth and args.omni:
+            raise ValueError('--smooth and --omni cannot be used together; choose one quantization calibration method.')
         self.args = args
         self.max_new_tokens = 1024
         self.dst_name = 'llm'
@@ -874,12 +877,13 @@ def build_args(parser):
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
     parser.add_argument('--awq', action='store_true', help='Whether or not to use awq quant.')
     parser.add_argument('--hqq', action='store_true', help='Whether or not to use hqq quant.')
-    parser.add_argument('--omni', action='store_true', help='Whether or not to use omni quant.')
+    calibration_group = parser.add_mutually_exclusive_group()
+    calibration_group.add_argument('--omni', action='store_true', help='Whether or not to use omni quant.')
+    calibration_group.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
     parser.add_argument('--transformer_fuse', action='store_true', help='Whether or not to fuse vision transformer op.')
     parser.add_argument('--disable_transformer_c4', dest='transformer_c4', action='store_false', default=True,
                         help='Disable LLM C4 graph fusion for compatibility with older runtimes.')
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')
-    parser.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
     parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), default is False.')
     parser.add_argument('--scale_bit', type=int, default=16, choices=[16, 32], help='Bit-width for quant scale/zero-point storage. Currently supports 16 (fp16, default) and 32 (fp32); 8/4 reserved for future.')
     parser.add_argument('--visual_sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint) for visual model, default is False.')
