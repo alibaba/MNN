@@ -58,13 +58,19 @@ int GetFmhaV2NumHeads(EXPRP expr) {
         return 0;
     }
     auto z = expr;
+    // A Reshape whose shape operand was folded into the op has a single input.
+    if (z->inputs().size() < 2) {
+        return 0;
+    }
     auto x = z->inputs().at(1)->expr().first;
     if (!helpers::IsConcat(x)) {
         return 0;
     }
     z = x;
-    int head_num_idx = z->inputs().size() - 2;
-    MNN_ASSERT(head_num_idx >= 2);
+    int head_num_idx = static_cast<int>(z->inputs().size()) - 2;
+    if (head_num_idx < 2) {
+        return 0;
+    }
     x = z->inputs().at(head_num_idx)->expr().first;
     if (!helpers::IsConstant(x)) {
         return 0;

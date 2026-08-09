@@ -44,6 +44,9 @@ ErrorCode CutlassConvCommonExecution::runCutlassGemmFunc() {
         } else if(mActivationType == 2) {
             cutlass::Status status = mGemmCudaF32F32Relu6();
             cutlass_check(status);
+        } else if (mUseTf32TensorCore) {
+            cutlass::Status status = mGemmTensorF32F32LnSm80();
+            cutlass_check(status);
         } else {
             cutlass::Status status = mGemmCudaF32F32Ln();
             cutlass_check(status);

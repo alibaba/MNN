@@ -127,6 +127,9 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
         case Interpreter::CPU_SME_CORES:
             runtimeHint.smeCores = value;
             break;
+        case Interpreter::ALLOW_TF32:
+            runtimeHint.allowTf32 = value > 0;
+            break;
         default:
             break;
     }

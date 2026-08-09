@@ -264,7 +264,12 @@ public:
         CPU_SME2_NEON_DIVISION_RATIO = 17,
 
         // Set SME cores, default is 2, if supports sme
-        CPU_SME_CORES = 18
+        CPU_SME_CORES = 18,
+
+        // Let an fp32 GEMM round its operands to TF32 so it can run on the tensor cores. TF32 keeps fp32's
+        // exponent range, so nothing that fitted before can overflow, but it carries ten mantissa bits instead
+        // of twenty-three. Opt-in, because Precision_High otherwise means exactly fp32. Default 0.
+        ALLOW_TF32 = 19
     };
 
     enum ExternalPathType {

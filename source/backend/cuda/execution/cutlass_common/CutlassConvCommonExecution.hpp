@@ -87,6 +87,8 @@ protected:
     GemmCuda_F32_F32_Relu_AlignCuda mGemmCudaF32F32Relu;
     GemmCuda_F32_F32_Relu6_AlignCuda mGemmCudaF32F32Relu6;
     GemmCuda_F32_F32_Linear_AlignCuda mGemmCudaF32F32Ln;
+    GemmTensor_F32_F32_Linear_AlignTensor_Sm80 mGemmTensorF32F32LnSm80;
+    bool mUseTf32TensorCore = false;
 
     #ifdef ENABLE_CUDA_BF16
     GemmTensor_BF16_BF16_Linear_AlignTensor_Sm80 mGemmBF16BF16LnSm80;

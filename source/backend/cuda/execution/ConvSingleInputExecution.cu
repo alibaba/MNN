@@ -39,12 +39,19 @@ public:
 
         #ifdef MNN_LOW_MEMORY
         auto conv2dParams = op->main_as_Convolution2D();
-        bool isMemoryLowWeightOnlyQuant = conv2dParams->quanParameter() && (conv2dParams->external() || conv2dParams->quanParameter()->buffer());
+        // A quanParameter of type 8 is an externally stored *float* weight, not a quantized one: the weight-only
+        // path would ask for its int8 form, get nothing, and stage an empty buffer.
+        const bool isQuantizedWeight = conv2dParams->quanParameter() && conv2dParams->quanParameter()->type() != 8;
+        bool isMemoryLowWeightOnlyQuant = isQuantizedWeight && (conv2dParams->external() || conv2dParams->quanParameter()->buffer());
         isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && (static_cast<CUDABackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low);
         isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && ConvFpAIntBExecution::isValid(op->main_as_Convolution2D(), backend);
         if (isMemoryLowWeightOnlyQuant) {
             std::shared_ptr<ConvFpAIntBExecution::Resource> resource(new ConvFpAIntBExecution::Resource(backend, op));
-            return new ConvFpAIntBExecution(backend, op, resource);
+            // If staging the quantized weights ran the pool dry, fall through to a path that can still run
+            // rather than handing the forward a resource whose weights were never written.
+            if (resource->mValid) {
+                return new ConvFpAIntBExecution(backend, op, resource);
+            }
         }
         #endif
 

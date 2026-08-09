@@ -42,6 +42,12 @@ if (MNN_BUILD_LLM)
 
     add_executable(wan_diffusion_demo ${CMAKE_CURRENT_LIST_DIR}/wan_diffusion_demo.cpp)
     target_link_libraries(wan_diffusion_demo ${MNN_DEPS})
+
+    add_executable(minimax_h3_demo ${CMAKE_CURRENT_LIST_DIR}/minimax_h3_demo.cpp)
+    target_link_libraries(minimax_h3_demo ${MNN_DEPS})
+
+    add_executable(minimax_h3_video_demo ${CMAKE_CURRENT_LIST_DIR}/minimax_h3_video_demo.cpp)
+    target_link_libraries(minimax_h3_video_demo ${MNN_DEPS})
 endif()
 
 add_executable(diffusion_sd35_demo ${CMAKE_CURRENT_LIST_DIR}/diffusion_sd35_demo.cpp)

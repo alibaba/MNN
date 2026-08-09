@@ -72,6 +72,29 @@ ErrorCode CutlassConvCommonExecution::callCutlassGemmCudaCoreFloat32(const std::
         status = mGemmCudaF32F32Relu6.initialize(arguments, (uint8_t *)mWorkspace);
         cutlass_check(status);
 
+    } else if (mGpuComputeCap >= 80 &&
+               static_cast<CUDABackend*>(mBackendPtr)->getRuntime()->hint().allowTf32) {
+        // The plain fp32 SIMT path reaches about 60% of its peak; this reaches nearly all of the tensor cores'
+        // TF32 peak, which on consumer Ampere is about the same number. It needs no change to the data, since
+        // tfloat32_t is fp32 storage rounded inside the mma. It costs mantissa bits, so it is opt-in.
+        mUseTf32TensorCore = true;
+        typename GemmTensor_F32_F32_Linear_AlignTensor_Sm80::Arguments arguments{problem_size,
+                                            {(cutlass::tfloat32_t *)input_fp32_addr, mGemmInfo.elhPad[1]},
+                                            {(cutlass::tfloat32_t *)mFilterAddr, mGemmInfo.elhPad[1]},
+                                            {(ElementOutput_F32 *)mBiasAddr, 0},
+                                            {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},
+                                            {alpha, beta},
+                                            split_k_slices};
+        size_t workspace_size = GemmTensor_F32_F32_Linear_AlignTensor_Sm80::get_workspace_size(arguments);
+        if(workspace_size != 0) {
+            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+            mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+        }
+        cutlass::Status status = mGemmTensorF32F32LnSm80.can_implement(arguments);
+        cutlass_check(status);
+        status = mGemmTensorF32F32LnSm80.initialize(arguments, (uint8_t *)mWorkspace);
+        cutlass_check(status);
     } else {
         typename GemmCuda_F32_F32_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {input_fp32_addr, mGemmInfo.elhPad[1]},  // Ptr + ldm

@@ -751,6 +751,499 @@ __global__ void qkv_kernel_tiled(
     attention_output[out_idx] = static_cast<T>(weighted_sum);
 }
 
+// =====================================================================
+// Fused attention
+// =====================================================================
+// The three kernels above write the batch * head * queryLen * kvLen score tensor, read it back to softmax it,
+// and read it a third time to apply V -- and because the score tensor has to be capped, they re-read all of K
+// and V once per query piece. At 21763 keys over 56 heads that traffic is most of the layer's time. This does
+// the same maths in one sweep with FlashAttention's running maximum, so no score tensor exists: each block
+// owns BR queries, streams K and V through shared memory once, and keeps the running max, the running
+// denominator and the output accumulator per query row.
+//
+// Layout matches the split path: Q and the output are [B, Lq, H, D], K is [Lk, B, Hkv, D], V is [B, Hkv,
+// maxKv, D]. Shared rows are padded to a float4 multiple so both inner loops read four floats per instruction,
+// and the keys and channels a thread owns are interleaved so a warp's lanes cover every bank once.
+template <typename T>
+__global__ void flash_attention_kernel(const T* __restrict__ query, const T* __restrict__ key,
+                                       const T* __restrict__ value, const void* mask_tensor_data,
+                                       T* __restrict__ output, const AttentionKernelParam* param,
+                                       bool has_mask_flag, bool is_add_mask_flag, bool is_causal_mask_flag) {
+    constexpr int BR = 32;      // query rows per block
+    constexpr int BC = 32;      // key columns per K/V tile
+    constexpr int DMAX = 128;   // largest head_dim this kernel is dispatched for
+    constexpr int THREADS = 128;
+    constexpr int VEC = 4;      // both inner loops read shared memory four floats at a time
+    constexpr int PAD = VEC;    // row stride 132: 16-byte aligned rows, and one float4 spans four banks
+    constexpr int ROW = DMAX + PAD;
+    constexpr int Q_PER_THREAD = 2;
+    constexpr int K_PER_THREAD = 4;
+    constexpr int K_GROUPS = BC / K_PER_THREAD;
+    constexpr int CHAN_GROUPS = 8;
+    constexpr int CHAN_VECS = DMAX / (VEC * CHAN_GROUPS);
+    constexpr float NEG_SENTINEL = -1e30f;
+    static_assert(Q_PER_THREAD == 2, "both inner loops are unrolled over two query rows");
+    static_assert(THREADS == BR * K_GROUPS / Q_PER_THREAD, "score pass must cover the tile exactly");
+    static_assert(THREADS == BR * CHAN_GROUPS / Q_PER_THREAD, "accumulation pass must cover the tile exactly");
+    static_assert(BC % 4 == 0, "the softmax reduction splits a row across four lanes");
+
+    __shared__ float sQ[BR][ROW];
+    __shared__ float sKV[BC][ROW];
+    __shared__ float sProb[BR][BC];
+    __shared__ float sMax[BR];
+    __shared__ float sDen[BR];
+    __shared__ float sRescale[BR];
+
+    const int headDim = param->head_dim;
+    const int queryLen = param->query_seq_len;
+    const int kvLen = param->key_seq_len;
+    const int headNum = param->head_num;
+    const int bh = blockIdx.y;
+    const int b = bh / headNum;
+    const int h = bh % headNum;
+    const int hKv = h / param->group;
+    const int queryBase = blockIdx.x * BR;
+    const int tid = threadIdx.x;
+
+    const size_t qHeadStride = (size_t)headNum * headDim;
+    const T* queryHead = query + (size_t)b * queryLen * qHeadStride + (size_t)h * headDim;
+    const T* keyHead = key + (size_t)b * param->kv_head_num * headDim + (size_t)hKv * headDim;
+    const size_t keyStride = (size_t)param->batch * param->kv_head_num * headDim;
+    const T* valueHead = value + (size_t)b * param->kv_head_num * param->max_kv_len * headDim +
+                         (size_t)hKv * param->max_kv_len * headDim;
+
+    for (int i = tid; i < BR * headDim; i += THREADS) {
+        const int r = i / headDim;
+        const int d = i - r * headDim;
+        const int q = queryBase + r;
+        sQ[r][d] = (q < queryLen) ? (float)queryHead[(size_t)q * qHeadStride + d] : 0.0f;
+    }
+    if (tid < BR) {
+        sMax[tid] = NEG_SENTINEL;
+        sDen[tid] = 0.0f;
+    }
+    // Tile loads only fill [0, head_dim); the accumulation loop walks all DMAX channels unguarded and simply
+    // does not write the ones past head_dim, so the tail has to read as zero rather than as whatever was there.
+    for (int i = tid; i < BC * (DMAX - headDim); i += THREADS) {
+        const int span = DMAX - headDim;
+        sKV[i / span][headDim + i % span] = 0.0f;
+    }
+
+    // Score pass: Q_PER_THREAD queries by K_PER_THREAD keys, the keys interleaved by K_GROUPS so that the
+    // lanes of a warp touch every bank once.
+    const int rowQ = (tid / K_GROUPS) * Q_PER_THREAD;
+    const int laneK = tid % K_GROUPS;
+    // Accumulation pass: the same queries by CHAN_VECS float4 channel chunks, interleaved the same way.
+    const int laneChan = tid % CHAN_GROUPS;
+    // Softmax pass: four lanes per query row.
+    const int softmaxRow = tid / 4;
+    const int softmaxPart = tid % 4;
+    constexpr int SOFTMAX_SPAN = BC / 4;
+
+    float4 acc[Q_PER_THREAD][CHAN_VECS];
+    for (int qi = 0; qi < Q_PER_THREAD; ++qi) {
+        for (int v = 0; v < CHAN_VECS; ++v) {
+            acc[qi][v] = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        }
+    }
+
+    for (int kvBase = 0; kvBase < kvLen; kvBase += BC) {
+        __syncthreads();
+        for (int i = tid; i < BC * headDim; i += THREADS) {
+            const int r = i / headDim;
+            const int d = i - r * headDim;
+            const int k = kvBase + r;
+            sKV[r][d] = (k < kvLen) ? (float)keyHead[(size_t)k * keyStride + d] : 0.0f;
+        }
+        __syncthreads();
+
+        float score[Q_PER_THREAD][K_PER_THREAD];
+        for (int qi = 0; qi < Q_PER_THREAD; ++qi) {
+            for (int g = 0; g < K_PER_THREAD; ++g) {
+                score[qi][g] = 0.0f;
+            }
+        }
+        for (int d = 0; d < headDim; d += VEC) {
+            const float4 q0 = *(const float4*)&sQ[rowQ][d];
+            const float4 q1 = *(const float4*)&sQ[rowQ + 1][d];
+            for (int g = 0; g < K_PER_THREAD; ++g) {
+                const float4 kv = *(const float4*)&sKV[laneK + g * K_GROUPS][d];
+                score[0][g] += q0.x * kv.x + q0.y * kv.y + q0.z * kv.z + q0.w * kv.w;
+                score[1][g] += q1.x * kv.x + q1.y * kv.y + q1.z * kv.z + q1.w * kv.w;
+            }
+        }
+
+        for (int qi = 0; qi < Q_PER_THREAD; ++qi) {
+            const int q = queryBase + rowQ + qi;
+            for (int g = 0; g < K_PER_THREAD; ++g) {
+                const int column = laneK + g * K_GROUPS;
+                const int k = kvBase + column;
+                float value = score[qi][g] * param->scale;
+                if (q >= queryLen || k >= kvLen) {
+                    value = NEG_SENTINEL;
+                } else if (is_causal_mask_flag && k > kvLen - queryLen + q) {
+                    value = -1e9f;
+                } else if (has_mask_flag && mask_tensor_data != nullptr) {
+                    if (is_add_mask_flag) {
+                        const int shifted = k - kvLen + queryLen;
+                        if (shifted >= 0) {
+                            const size_t index = (size_t)q * queryLen + shifted;
+                            value += (sizeof(T) == sizeof(__half))
+                                         ? __half2float(((const __half*)mask_tensor_data)[index])
+                                         : ((const float*)mask_tensor_data)[index];
+                        }
+                    } else if (((const int*)mask_tensor_data)[(size_t)q * kvLen + k] == 0) {
+                        value = -1e9f;
+                    }
+                }
+                sProb[rowQ + qi][column] = value;
+            }
+        }
+        __syncthreads();
+
+        {
+            float local = NEG_SENTINEL;
+            for (int i = 0; i < SOFTMAX_SPAN; ++i) {
+                local = fmaxf(local, sProb[softmaxRow][softmaxPart * SOFTMAX_SPAN + i]);
+            }
+            local = fmaxf(local, __shfl_xor_sync(0xffffffff, local, 1));
+            local = fmaxf(local, __shfl_xor_sync(0xffffffff, local, 2));
+            const float previous = sMax[softmaxRow];
+            const float updated = fmaxf(previous, local);
+            // An all-masked tile leaves the running state untouched rather than subtracting two sentinels.
+            const bool empty = updated <= NEG_SENTINEL;
+            float sum = 0.0f;
+            for (int i = 0; i < SOFTMAX_SPAN; ++i) {
+                const int column = softmaxPart * SOFTMAX_SPAN + i;
+                const float p = empty ? 0.0f : __expf(sProb[softmaxRow][column] - updated);
+                sProb[softmaxRow][column] = p;
+                sum += p;
+            }
+            sum += __shfl_xor_sync(0xffffffff, sum, 1);
+            sum += __shfl_xor_sync(0xffffffff, sum, 2);
+            if (softmaxPart == 0) {
+                const float rescale = empty ? 0.0f : __expf(previous - updated);
+                sRescale[softmaxRow] = rescale;
+                sDen[softmaxRow] = sDen[softmaxRow] * rescale + sum;
+                sMax[softmaxRow] = updated;
+            }
+        }
+        __syncthreads();
+
+        for (int i = tid; i < BC * headDim; i += THREADS) {
+            const int r = i / headDim;
+            const int d = i - r * headDim;
+            const int k = kvBase + r;
+            sKV[r][d] = (k < kvLen) ? (float)valueHead[(size_t)k * headDim + d] : 0.0f;
+        }
+        __syncthreads();
+
+        for (int qi = 0; qi < Q_PER_THREAD; ++qi) {
+            const float rescale = sRescale[rowQ + qi];
+            for (int v = 0; v < CHAN_VECS; ++v) {
+                acc[qi][v].x *= rescale;
+                acc[qi][v].y *= rescale;
+                acc[qi][v].z *= rescale;
+                acc[qi][v].w *= rescale;
+            }
+        }
+        for (int k = 0; k < BC; ++k) {
+            const float p0 = sProb[rowQ][k];
+            const float p1 = sProb[rowQ + 1][k];
+            for (int v = 0; v < CHAN_VECS; ++v) {
+                const float4 val = *(const float4*)&sKV[k][(laneChan + v * CHAN_GROUPS) * VEC];
+                acc[0][v].x = __fmaf_rn(p0, val.x, acc[0][v].x);
+                acc[0][v].y = __fmaf_rn(p0, val.y, acc[0][v].y);
+                acc[0][v].z = __fmaf_rn(p0, val.z, acc[0][v].z);
+                acc[0][v].w = __fmaf_rn(p0, val.w, acc[0][v].w);
+                acc[1][v].x = __fmaf_rn(p1, val.x, acc[1][v].x);
+                acc[1][v].y = __fmaf_rn(p1, val.y, acc[1][v].y);
+                acc[1][v].z = __fmaf_rn(p1, val.z, acc[1][v].z);
+                acc[1][v].w = __fmaf_rn(p1, val.w, acc[1][v].w);
+            }
+        }
+    }
+
+    for (int qi = 0; qi < Q_PER_THREAD; ++qi) {
+        const int q = queryBase + rowQ + qi;
+        if (q >= queryLen) {
+            continue;
+        }
+        const float den = sDen[rowQ + qi];
+        const float inverse = (den > 0.0f) ? 1.0f / den : 0.0f;
+        T* out = output + (size_t)b * queryLen * qHeadStride + (size_t)q * qHeadStride + (size_t)h * headDim;
+        for (int v = 0; v < CHAN_VECS; ++v) {
+            const int d = (laneChan + v * CHAN_GROUPS) * VEC;
+            if (d < headDim) {
+                out[d + 0] = (T)(acc[qi][v].x * inverse);
+                out[d + 1] = (T)(acc[qi][v].y * inverse);
+                out[d + 2] = (T)(acc[qi][v].z * inverse);
+                out[d + 3] = (T)(acc[qi][v].w * inverse);
+            }
+        }
+    }
+}
+
+
+// =====================================================================
+// Fused attention on tensor cores
+// =====================================================================
+// The SIMT kernel above is limited by shared memory, not arithmetic: measured with ncu it sits at 43.5% of the
+// shared-LSU peak and 16.7% occupancy while DRAM idles at 0.26%, because a register tile of two queries by four
+// keys still costs three bytes of shared traffic per multiply-accumulate. One m16n8k8 mma does 1024 of them from
+// 96 bytes of fragments, and TF32 keeps fp32's exponent so nothing new can overflow.
+//
+// The reason this is written against the mma instruction rather than wmma is the accumulator: wmma will not say
+// which row each of its elements belongs to, so FlashAttention's running rescale cannot be applied to one, and
+// working around that costs a second pass over K. The mma layout is fixed and verified -- a lane's four
+// accumulator values sit on rows lane/4 and lane/4+8 -- so the rescale is two multiplies per element pair.
+//
+// Tiles: 64 queries by 64 keys per block, 16 warps. The score pass gives each warp two of the 4x8 m16n8k8
+// tiles; the accumulation pass gives each warp four of the 4x(D/8) tiles and keeps them in registers across the
+// whole K sweep.
+#define MNN_ATTENTION_TC_BR 64
+#define MNN_ATTENTION_TC_BC 64
+#define MNN_ATTENTION_TC_DMAX 128
+#define MNN_ATTENTION_TC_ROW (MNN_ATTENTION_TC_DMAX + 8)
+#define MNN_ATTENTION_TC_PROW (MNN_ATTENTION_TC_BC + 8)
+#define MNN_ATTENTION_TC_THREADS 512
+
+static inline size_t attentionTensorCoreSharedBytes() {
+    const size_t row = MNN_ATTENTION_TC_ROW, prow = MNN_ATTENTION_TC_PROW;
+    const size_t br = MNN_ATTENTION_TC_BR, bc = MNN_ATTENTION_TC_BC;
+    return ((br + bc) * row + br * prow + 3 * br) * sizeof(float);
+}
+
+__global__ void flash_attention_tc_kernel(const float* __restrict__ query, const float* __restrict__ key,
+                                          const float* __restrict__ value, const void* mask_tensor_data,
+                                          float* __restrict__ output, const AttentionKernelParam* param,
+                                          bool has_mask_flag, bool is_add_mask_flag, bool is_causal_mask_flag) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+    constexpr int BR = MNN_ATTENTION_TC_BR;
+    constexpr int BC = MNN_ATTENTION_TC_BC;
+    constexpr int DMAX = MNN_ATTENTION_TC_DMAX;
+    constexpr int ROW = MNN_ATTENTION_TC_ROW;
+    constexpr int PROW = MNN_ATTENTION_TC_PROW;
+    constexpr int THREADS = MNN_ATTENTION_TC_THREADS;
+    constexpr int WARPS = THREADS / 32;
+    constexpr int M_TILES = BR / 16;
+    constexpr int SCORE_N_TILES = BC / 8;
+    constexpr int SCORE_PER_WARP = M_TILES * SCORE_N_TILES / WARPS;
+    constexpr int ACC_PER_WARP = M_TILES * (DMAX / 8) / WARPS;
+    constexpr int SOFT_LANES = THREADS / BR;
+    constexpr int SOFT_SPAN = BC / SOFT_LANES;
+    constexpr float NEG_SENTINEL = -1e30f;
+
+    extern __shared__ float shared[];
+    float* sQ = shared;
+    float* sKV = sQ + BR * ROW;
+    float* sProb = sKV + BC * ROW;
+    float* sMax = sProb + BR * PROW;
+    float* sDen = sMax + BR;
+    float* sRescale = sDen + BR;
+
+    const int headDim = param->head_dim;
+    const int queryLen = param->query_seq_len;
+    const int kvLen = param->key_seq_len;
+    const int headNum = param->head_num;
+    const int chanTiles = headDim / 8;
+    const int bh = blockIdx.y;
+    const int b = bh / headNum;
+    const int h = bh % headNum;
+    const int hKv = h / param->group;
+    const int queryBase = blockIdx.x * BR;
+    const int tid = threadIdx.x;
+    const int warp = tid / 32;
+    const int lane = tid % 32;
+    const int laneRow = lane / 4;
+    const int laneCol = lane % 4;
+    // Both passes give a warp the same query rows, so its accumulator rows never move.
+    const int mTile = warp % M_TILES;
+    const int scoreNBase = (warp / M_TILES) * SCORE_PER_WARP;
+    const int accNBase = (warp / M_TILES) * ACC_PER_WARP;
+
+    const size_t qHeadStride = (size_t)headNum * headDim;
+    const float* queryHead = query + (size_t)b * queryLen * qHeadStride + (size_t)h * headDim;
+    const float* keyHead = key + (size_t)b * param->kv_head_num * headDim + (size_t)hKv * headDim;
+    const size_t keyStride = (size_t)param->batch * param->kv_head_num * headDim;
+    const float* valueHead = value + (size_t)b * param->kv_head_num * param->max_kv_len * headDim +
+                             (size_t)hKv * param->max_kv_len * headDim;
+
+    for (int i = tid; i < BR * headDim; i += THREADS) {
+        const int r = i / headDim;
+        const int d = i - r * headDim;
+        const int q = queryBase + r;
+        sQ[r * ROW + d] = (q < queryLen) ? queryHead[(size_t)q * qHeadStride + d] : 0.0f;
+    }
+    if (tid < BR) {
+        sMax[tid] = NEG_SENTINEL;
+        sDen[tid] = 0.0f;
+    }
+
+    float acc[ACC_PER_WARP][4];
+    for (int t = 0; t < ACC_PER_WARP; ++t) {
+        acc[t][0] = acc[t][1] = acc[t][2] = acc[t][3] = 0.0f;
+    }
+
+    for (int kvBase = 0; kvBase < kvLen; kvBase += BC) {
+        __syncthreads();
+        for (int i = tid; i < BC * headDim; i += THREADS) {
+            const int r = i / headDim;
+            const int d = i - r * headDim;
+            const int k = kvBase + r;
+            sKV[r * ROW + d] = (k < kvLen) ? keyHead[(size_t)k * keyStride + d] : 0.0f;
+        }
+        __syncthreads();
+
+        // Q times K^T. K is stored [key][channel], and the mma's B operand is column major, so reading it with
+        // the key as the column index is the transpose for free.
+        // The reduction index is outermost so the Q fragment, which every tile of this warp shares, is read from
+        // shared memory once instead of once per tile. Shared traffic is what this kernel runs out of first.
+        float c[SCORE_PER_WARP][4];
+        for (int t = 0; t < SCORE_PER_WARP; ++t) {
+            c[t][0] = c[t][1] = c[t][2] = c[t][3] = 0.0f;
+        }
+        for (int k0 = 0; k0 < headDim; k0 += 8) {
+            const float* qa = sQ + (mTile * 16 + laneRow) * ROW + k0;
+            const float* qb = sQ + (mTile * 16 + laneRow + 8) * ROW + k0;
+            float a[4] = {qa[laneCol], qb[laneCol], qa[laneCol + 4], qb[laneCol + 4]};
+            const unsigned* ap = reinterpret_cast<const unsigned*>(a);
+            for (int t = 0; t < SCORE_PER_WARP; ++t) {
+                const float* kk = sKV + ((scoreNBase + t) * 8 + laneRow) * ROW + k0;
+                float bfrag[2] = {kk[laneCol], kk[laneCol + 4]};
+                const unsigned* bp = reinterpret_cast<const unsigned*>(bfrag);
+                asm volatile(
+                    "mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, "
+                    "{%0,%1,%2,%3};"
+                    : "+f"(c[t][0]), "+f"(c[t][1]), "+f"(c[t][2]), "+f"(c[t][3])
+                    : "r"(ap[0]), "r"(ap[1]), "r"(ap[2]), "r"(ap[3]), "r"(bp[0]), "r"(bp[1]));
+            }
+        }
+        for (int t = 0; t < SCORE_PER_WARP; ++t) {
+            const int nTile = scoreNBase + t;
+            const int rows[2] = {mTile * 16 + laneRow, mTile * 16 + laneRow + 8};
+            for (int half = 0; half < 2; ++half) {
+                for (int j = 0; j < 2; ++j) {
+                    sProb[rows[half] * PROW + nTile * 8 + laneCol * 2 + j] = c[t][half * 2 + j];
+                }
+            }
+        }
+        __syncthreads();
+
+        // Scale, mask, and advance the running maximum and denominator, SOFT_LANES lanes to a query row.
+        {
+            const int row = tid / SOFT_LANES;
+            const int part = tid % SOFT_LANES;
+            const int q = queryBase + row;
+            float scaled[SOFT_SPAN];
+            float local = NEG_SENTINEL;
+            for (int i = 0; i < SOFT_SPAN; ++i) {
+                const int column = part * SOFT_SPAN + i;
+                const int k = kvBase + column;
+                float v = sProb[row * PROW + column] * param->scale;
+                if (q >= queryLen || k >= kvLen) {
+                    v = NEG_SENTINEL;
+                } else if (is_causal_mask_flag && k > kvLen - queryLen + q) {
+                    v = -1e9f;
+                } else if (has_mask_flag && mask_tensor_data != nullptr) {
+                    if (is_add_mask_flag) {
+                        const int shifted = k - kvLen + queryLen;
+                        if (shifted >= 0) {
+                            v += ((const float*)mask_tensor_data)[(size_t)q * queryLen + shifted];
+                        }
+                    } else if (((const int*)mask_tensor_data)[(size_t)q * kvLen + k] == 0) {
+                        v = -1e9f;
+                    }
+                }
+                scaled[i] = v;
+                local = fmaxf(local, v);
+            }
+            for (int offset = 1; offset < SOFT_LANES; offset <<= 1) {
+                local = fmaxf(local, __shfl_xor_sync(0xffffffff, local, offset));
+            }
+            const float previous = sMax[row];
+            const float updated = fmaxf(previous, local);
+            const bool empty = updated <= NEG_SENTINEL;
+            float sum = 0.0f;
+            for (int i = 0; i < SOFT_SPAN; ++i) {
+                const float p = empty ? 0.0f : __expf(scaled[i] - updated);
+                sProb[row * PROW + part * SOFT_SPAN + i] = p;
+                sum += p;
+            }
+            for (int offset = 1; offset < SOFT_LANES; offset <<= 1) {
+                sum += __shfl_xor_sync(0xffffffff, sum, offset);
+            }
+            if (part == 0) {
+                const float rescale = empty ? 0.0f : __expf(previous - updated);
+                sRescale[row] = rescale;
+                sDen[row] = sDen[row] * rescale + sum;
+                sMax[row] = updated;
+            }
+        }
+        __syncthreads();
+
+        for (int i = tid; i < BC * headDim; i += THREADS) {
+            const int r = i / headDim;
+            const int d = i - r * headDim;
+            const int k = kvBase + r;
+            sKV[r * ROW + d] = (k < kvLen) ? valueHead[(size_t)k * headDim + d] : 0.0f;
+        }
+        // A lane's accumulator elements sit on rows laneRow and laneRow + 8 of its tile, so one factor each.
+        const float rescale0 = sRescale[mTile * 16 + laneRow];
+        const float rescale1 = sRescale[mTile * 16 + laneRow + 8];
+        for (int t = 0; t < ACC_PER_WARP; ++t) {
+            acc[t][0] *= rescale0;
+            acc[t][1] *= rescale0;
+            acc[t][2] *= rescale1;
+            acc[t][3] *= rescale1;
+        }
+        __syncthreads();
+
+        // Same reason: all four channel tiles of this warp share one P fragment per reduction step.
+        for (int k0 = 0; k0 < BC; k0 += 8) {
+            const float* pa = sProb + (mTile * 16 + laneRow) * PROW + k0;
+            const float* pb = sProb + (mTile * 16 + laneRow + 8) * PROW + k0;
+            float a[4] = {pa[laneCol], pb[laneCol], pa[laneCol + 4], pb[laneCol + 4]};
+            const unsigned* ap = reinterpret_cast<const unsigned*>(a);
+            for (int t = 0; t < ACC_PER_WARP; ++t) {
+                const int nTile = accNBase + t;
+                if (nTile >= chanTiles) {
+                    continue;
+                }
+                float bfrag[2] = {sKV[(k0 + laneCol) * ROW + nTile * 8 + laneRow],
+                                  sKV[(k0 + laneCol + 4) * ROW + nTile * 8 + laneRow]};
+                const unsigned* bp = reinterpret_cast<const unsigned*>(bfrag);
+                asm volatile(
+                    "mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, "
+                    "{%0,%1,%2,%3};"
+                    : "+f"(acc[t][0]), "+f"(acc[t][1]), "+f"(acc[t][2]), "+f"(acc[t][3])
+                    : "r"(ap[0]), "r"(ap[1]), "r"(ap[2]), "r"(ap[3]), "r"(bp[0]), "r"(bp[1]));
+            }
+        }
+    }
+
+    for (int t = 0; t < ACC_PER_WARP; ++t) {
+        const int nTile = accNBase + t;
+        if (nTile >= chanTiles) {
+            continue;
+        }
+        const int rows[2] = {mTile * 16 + laneRow, mTile * 16 + laneRow + 8};
+        for (int half = 0; half < 2; ++half) {
+            const int r = rows[half];
+            const int q = queryBase + r;
+            if (q >= queryLen) {
+                continue;
+            }
+            const float den = sDen[r];
+            const float inverse = (den > 0.0f) ? 1.0f / den : 0.0f;
+            float* out = output + (size_t)b * queryLen * qHeadStride + (size_t)q * qHeadStride + (size_t)h * headDim;
+            for (int j = 0; j < 2; ++j) {
+                out[nTile * 8 + laneCol * 2 + j] = acc[t][half * 2 + j] * inverse;
+            }
+        }
+    }
+#endif
+}
 
 // ======= AttentionExecution 类实现 =======
 
@@ -1041,10 +1534,10 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, cons
 }
 
 // 为新 KV、QK^T、Softmax 分配 GPU 空间
-ErrorCode AttentionExecution::ensureTempBuffers_gpu(int batch, int num_head, int q_seq_piece_len_max, int current_max_total_kv_len, int head_dim) {
+ErrorCode AttentionExecution::ensureTempBuffers_gpu(int batch, int num_head, int q_seq_piece_len_max, int current_max_total_kv_len, int head_dim, bool need_scores) {
     // QK Scores: [B, H_q, Max_L_q_piece, Max_L_k_total]
     std::vector<int> qk_shape = {batch, num_head, q_seq_piece_len_max, current_max_total_kv_len};
-    bool qk_realloc = !mTempQK || mTempQK->shape() != qk_shape;
+    bool qk_realloc = need_scores && (!mTempQK || mTempQK->shape() != qk_shape);
     if (qk_realloc) {
         if(mTempQK && mTempQK->deviceId() != 0) mCudaBackend->onReleaseBuffer(mTempQK.get(), Backend::STATIC);
         mTempQK.reset(mPrecision == 4
@@ -1054,7 +1547,7 @@ ErrorCode AttentionExecution::ensureTempBuffers_gpu(int batch, int num_head, int
     }
 
     // Softmax Probs: 与QK scores形状相同
-    bool softmax_realloc = !mTempSoftmax || mTempSoftmax->shape() != qk_shape;
+    bool softmax_realloc = need_scores && (!mTempSoftmax || mTempSoftmax->shape() != qk_shape);
     if (softmax_realloc) {
          if(mTempSoftmax && mTempSoftmax->deviceId() != 0) mCudaBackend->onReleaseBuffer(mTempSoftmax.get(), Backend::STATIC);
         mTempSoftmax.reset(mPrecision == 4
@@ -1185,6 +1678,23 @@ ErrorCode AttentionExecution::onResize(const std::vector<Tensor *> &inputs, cons
     if (mQuerySeqLen > 1024) mQseqSplitNum = UP_DIV(mQuerySeqLen, 1024);
     else if (mQuerySeqLen > 256) mQseqSplitNum = UP_DIV(mQuerySeqLen, 256);
 
+    // The piece length above ignores how wide the attention is, yet it sizes two score buffers holding
+    // batch * head * piece * kvLen elements each. A bidirectional prefill over many heads and keys -- 56 heads
+    // over 21763 keys is 4.8 GB per buffer -- then fails to allocate. Shrink the piece until one buffer fits a
+    // budget; extra pieces cost kernel launches, not correctness. Two buffers live at once, so the budget has
+    // to stay small next to the weights the rest of the graph is holding.
+    {
+        const size_t elementBytes = (mPrecision == 4) ? sizeof(float) : sizeof(uint16_t);
+        const size_t pieceRowBytes = static_cast<size_t>(mBatch) * mNumHead * mNewKvSeqLen * elementBytes;
+        const size_t scoreBudget = 256ull * 1024ull * 1024ull;
+        if (pieceRowBytes > 0 && pieceRowBytes < scoreBudget) {
+            const int maxPiece = static_cast<int>(scoreBudget / pieceRowBytes);
+            if (UP_DIV(mQuerySeqLen, mQseqSplitNum) > maxPiece) {
+                mQseqSplitNum = UP_DIV(mQuerySeqLen, maxPiece);
+            }
+        }
+    }
+
     if (mIsKVCacheEnabled) {
         ErrorCode err = init_cache_tensors();
         if (err != MNN::NO_ERROR) return err;
@@ -1199,7 +1709,7 @@ ErrorCode AttentionExecution::onResize(const std::vector<Tensor *> &inputs, cons
 
     if (!mParam_gpu) {
         auto cuda_err = cudaMalloc(&mParam_gpu, sizeof(AttentionKernelParam));
-        if (cuda_err != cudaSuccess) { MNN_ERROR("cudaMalloc failed for mParam_gpu\n"); return MNN::NOT_SUPPORT; }
+        if (cuda_err != cudaSuccess) { MNN_ERROR("cudaMalloc failed for mParam_gpu: %s\n", cudaGetErrorString(cuda_err)); return MNN::NOT_SUPPORT; }
     }
 
     return MNN::NO_ERROR;
@@ -1237,6 +1747,11 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     };
 
     cudaStream_t stream = 0;
+
+    // Decided here so the staging below knows whether the two seqLen^2 score tensors are needed at all. The
+    // fused kernel reads shared memory as float4, so it needs a head_dim it can split into four-float chunks.
+    const bool fusedPrefill = mHeadDim <= 128 && mHeadDim % 4 == 0 && (mPrecision == 4 || mPrecision == 2) &&
+                              !(mQuerySeqLen == 1 && mIsKVCacheEnabled && !mHasMask);
 
     AttentionKernelParam param_cpu;
     param_cpu.batch = mBatch;
@@ -1305,7 +1820,7 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         param_cpu.key_seq_len = mNewKvSeqLen;
         param_cpu.max_kv_len = allocated_kv_len_for_value_stride;
 
-        ErrorCode temp_err = ensureTempBuffers_gpu(mBatch, mNumHead, UP_DIV(mQuerySeqLen, mQseqSplitNum), current_total_kv_len_for_qk, mHeadDim);
+        ErrorCode temp_err = ensureTempBuffers_gpu(mBatch, mNumHead, UP_DIV(mQuerySeqLen, mQseqSplitNum), current_total_kv_len_for_qk, mHeadDim, !fusedPrefill);
         if(temp_err != MNN::NO_ERROR) return temp_err;
 
         dim3 copy_blockDim(32, 8, 1);
@@ -1491,12 +2006,66 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     // =====================================================================
     // Prefill path (seq_len > 1) or decode with mask
     // =====================================================================
+    const void* mask_ptr_device = mHasMask ? getTensorDevicePtr(mask_input_tensor) : nullptr;
+
+    // The fused kernel needs no score tensor, so prefer it and never allocate one.
+    if (fusedPrefill) {
+        cudaMemcpyAsync(mParam_gpu, &param_cpu, sizeof(AttentionKernelParam), cudaMemcpyHostToDevice, stream);
+        checkKernelErrors;
+        // TF32 tensor cores where the hardware has them: same exponent range as fp32, several times the rate.
+        if (mPrecision == 4 && mHeadDim % 8 == 0 &&
+            mCudaBackend->getCUDARuntime()->compute_capability() >= 80) {
+            const size_t sharedBytes = attentionTensorCoreSharedBytes();
+            static bool optedIn = false;
+            if (!optedIn) {
+                // Over 48 KB of shared memory per block has to be requested explicitly.
+                cudaFuncSetAttribute(flash_attention_tc_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                     (int)sharedBytes);
+                optedIn = true;
+            }
+            cudaMemcpyAsync(mParam_gpu, &param_cpu, sizeof(AttentionKernelParam), cudaMemcpyHostToDevice, stream);
+            dim3 tcGrid(UP_DIV(mQuerySeqLen, MNN_ATTENTION_TC_BR), mBatch * mNumHead, 1);
+            flash_attention_tc_kernel<<<tcGrid, MNN_ATTENTION_TC_THREADS, sharedBytes, stream>>>(
+                getTensorDevicePtr<float>(query_execution_tensor),
+                static_cast<const float*>(effective_key_cache_ptr),
+                static_cast<const float*>(effective_value_cache_ptr), mask_ptr_device,
+                getTensorDevicePtr<float>(output_execution_tensor), mParam_gpu, mHasMask, mIsAddMask,
+                mIsCausalMask);
+            checkKernelErrors;
+            if (mIsKVCacheEnabled) {
+                mCache->mPastLength += mNewKvSeqLen;
+            }
+            packC4OutputTail();
+            return MNN::NO_ERROR;
+        }
+        dim3 grid(UP_DIV(mQuerySeqLen, 32), mBatch * mNumHead, 1);
+        if (mPrecision == 4) {
+            flash_attention_kernel<float><<<grid, 128, 0, stream>>>(
+                getTensorDevicePtr<float>(query_execution_tensor),
+                static_cast<const float*>(effective_key_cache_ptr),
+                static_cast<const float*>(effective_value_cache_ptr), mask_ptr_device,
+                getTensorDevicePtr<float>(output_execution_tensor), mParam_gpu, mHasMask, mIsAddMask,
+                mIsCausalMask);
+        } else {
+            flash_attention_kernel<__half><<<grid, 128, 0, stream>>>(
+                getTensorDevicePtr<__half>(query_execution_tensor),
+                static_cast<const __half*>(effective_key_cache_ptr),
+                static_cast<const __half*>(effective_value_cache_ptr), mask_ptr_device,
+                getTensorDevicePtr<__half>(output_execution_tensor), mParam_gpu, mHasMask, mIsAddMask,
+                mIsCausalMask);
+        }
+        checkKernelErrors;
+        if (mIsKVCacheEnabled) {
+            mCache->mPastLength += mNewKvSeqLen;
+        }
+        packC4OutputTail();
+        return MNN::NO_ERROR;
+    }
+
     int max_q_seq_piece_len = UP_DIV(mQuerySeqLen, mQseqSplitNum);
 
-    ErrorCode temp_buf_err = ensureTempBuffers_gpu(mBatch, mNumHead, max_q_seq_piece_len, current_total_kv_len_for_qk, mHeadDim);
+    ErrorCode temp_buf_err = ensureTempBuffers_gpu(mBatch, mNumHead, max_q_seq_piece_len, current_total_kv_len_for_qk, mHeadDim, true);
     if (temp_buf_err != MNN::NO_ERROR) return temp_buf_err;
-
-    const void* mask_ptr_device = mHasMask ? getTensorDevicePtr(mask_input_tensor) : nullptr;
 
     for (int i = 0; i < mQseqSplitNum; ++i) {
         int q_seq_offset = i * max_q_seq_piece_len;

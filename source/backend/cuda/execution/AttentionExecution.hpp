@@ -47,7 +47,7 @@ private:
     ErrorCode init_cache_tensors(); // 如果需要，初始化 mPastKey/mPastValue为空Tensor
     ErrorCode reallocKVCache_gpu(int required_total_kv_len, int batch_size, int kv_num_head, int head_dim, cudaStream_t stream);
     ErrorCode reallocKVCache_gpu(int required_total_kv_len, const KVMeta* meta, cudaStream_t stream);
-    ErrorCode ensureTempBuffers_gpu(int batch, int num_head, int q_seq_piece_len_max, int current_max_total_kv_len, int head_dim);
+    ErrorCode ensureTempBuffers_gpu(int batch, int num_head, int q_seq_piece_len_max, int current_max_total_kv_len, int head_dim, bool need_scores);
     ErrorCode ensureC4TailBuffers_gpu();
 
     CUDABackend* mCudaBackend;

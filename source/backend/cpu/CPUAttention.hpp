@@ -21,7 +21,7 @@ namespace MNN {
 
 class CPUAttention : public Execution {
 public:
-    CPUAttention(Backend* backend, bool kvCache);
+    CPUAttention(Backend* backend, bool kvCache, bool bidirectional = false);
     virtual ~CPUAttention() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -34,6 +34,7 @@ protected:
     virtual CPUAttention* createClone(Backend* backend) const;
 
     bool mKVCache        = true;
+    bool mBidirectional  = false;
     bool mIsKVShared = false;
     int mBytes = 4;
     int mThreadNum = 1;

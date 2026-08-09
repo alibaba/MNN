@@ -66,6 +66,9 @@ struct RuntimeHint {
     int encorderNumForCommit = 10;
     int initThreadNumber = 0;
 
+    // Allow an fp32 GEMM to round its operands to TF32 and use the tensor cores. See HintMode::ALLOW_TF32.
+    bool allowTf32 = false;
+
     // whether to use Arm sme2 cores when threads>1
     bool useArmSme2Cores = true;
 #ifdef MNN_DEFAULT_USE_KLEIDIAI

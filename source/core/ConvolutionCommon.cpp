@@ -7,6 +7,7 @@
 //
 
 #include "ConvolutionCommon.hpp"
+#include <thread>
 #include <math.h>
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/CPUBackend.hpp"
@@ -802,19 +803,45 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         // forceFloat needs fp32 alpha; lazy-fill from alphaHalf if disk was fp16.
         auto alphaF = result->getAlphaFloat();
         int partWeightSize = (int)weightLength / outputCount;
-        for (int o = 0; o < outputCount; ++o) {
-            float min = 0.0f;
-            float alpha = 0.0f;
-            if (result->asymmetric) {
-                min = alphaF[2 * o];
-                alpha = alphaF[2 * o + 1];
-            } else {
-                alpha = alphaF[o];
+        auto dequantRange = [&](int begin, int end) {
+            for (int o = begin; o < end; ++o) {
+                float min = 0.0f;
+                float alpha = 0.0f;
+                if (result->asymmetric) {
+                    min = alphaF[2 * o];
+                    alpha = alphaF[2 * o + 1];
+                } else {
+                    alpha = alphaF[o];
+                }
+                auto dstW   = result->weightFloat.get() + o * partWeightSize;
+                auto srcW   = result->weight.get() + o * partWeightSize;
+                for (int v=0; v < partWeightSize; ++v) {
+                    dstW[v] = (float)srcW[v] * alpha + min;
+                }
             }
-            auto dstW   = result->weightFloat.get() + o * partWeightSize;
-            auto srcW   = result->weight.get() + o * partWeightSize;
-            for (int v=0; v < partWeightSize; ++v) {
-                dstW[v] = (float)srcW[v] * alpha + min;
+        };
+        // Quantization groups write disjoint ranges, so this splits across cores. A transformer's weights make
+        // this loop big enough to matter: at 770 M of them per module it is most of the time spent building one.
+        const int parallelThreshold = 1 << 21;
+        unsigned threadCount = (weightLength >= parallelThreshold) ? std::thread::hardware_concurrency() : 1;
+        threadCount = std::min<unsigned>(threadCount ? threadCount : 1, 8);
+        threadCount = std::min<unsigned>(threadCount, (unsigned)outputCount);
+        if (threadCount <= 1) {
+            dequantRange(0, outputCount);
+        } else {
+            std::vector<std::thread> workers;
+            workers.reserve(threadCount - 1);
+            const int span = UP_DIV(outputCount, (int)threadCount);
+            for (unsigned t = 1; t < threadCount; ++t) {
+                const int begin = std::min((int)t * span, outputCount);
+                const int end = std::min(begin + span, outputCount);
+                if (begin < end) {
+                    workers.emplace_back(dequantRange, begin, end);
+                }
+            }
+            dequantRange(0, std::min(span, outputCount));
+            for (auto& worker : workers) {
+                worker.join();
             }
         }
         result->weight.release();

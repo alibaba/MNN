@@ -33,6 +33,9 @@ public:
         std::shared_ptr<Tensor> biasTensor;
         Backend* mBackend = nullptr;
         bool mIsWeightInt4 = false;
+        // Staging the weights can run the static pool dry. The constructor cannot report that, and a
+        // half-built resource used to reach the forward with unfilled weights and return NaN.
+        bool mValid = true;
         
         std::shared_ptr<Tensor> mSumBQTensor;
         void* mSumBQ = nullptr;

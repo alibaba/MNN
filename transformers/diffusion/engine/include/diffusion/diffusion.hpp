@@ -27,6 +27,7 @@ typedef enum {
     STABLE_DIFFUSION_TAIYI_CHINESE = 1,
     SANA_DIFFUSION = 2,
     WAN2_1_T2V = 3,
+    MINIMAX_H3 = 4,
     DIFFUSION_MODEL_USER
 } DiffusionModelType;
 

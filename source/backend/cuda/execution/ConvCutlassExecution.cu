@@ -122,6 +122,8 @@ bool ConvCutlassExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
 
 ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
+    // Left at its default of 75 this path never sees the tensor cores it could be using.
+    mGpuComputeCap = runtime->compute_capability();
     auto input = inputs[0], output = outputs[0];
     const int UNIT = PACK_NUMBER;
     auto convCommon = mOp->main_as_Convolution2D()->common();

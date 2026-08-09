@@ -105,6 +105,12 @@ static void _maskQK(float* qkPacked, const float* scale, size_t seqLen, size_t p
     }
 
     if (mask == nullptr) {
+        // A bidirectional op comes without a mask, so only the scale the loop below folds in is left to do.
+        if (!quantKey) {
+            for (int i = 0; i < qkSize; ++i) {
+                source[i] *= scaleVal;
+            }
+        }
         return;
     }
 
@@ -426,8 +432,8 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     const float* sinksPtr = sinks ? sinks->host<float>() : nullptr;
     int kvValidOffset = kvSeqLen - seqLen; // reuse_kv=true or decode, kvValidOffset>0
 
-    bool isLowerTriangular = (mask == nullptr);
-    if (mask != nullptr && mask->shape().empty()) {
+    bool isLowerTriangular = (mask == nullptr) && !mBidirectional;
+    if (mask != nullptr && mask->shape().empty() && !mBidirectional) {
         if (mBytes == 2) {
             auto maskPtr = mask->host<FLOAT16_T>();
             if (maskPtr[0] < 1e-6) {
@@ -1153,7 +1159,8 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
     return true;
 }
 
-CPUAttention::CPUAttention(Backend* backend, bool kvCache) : Execution(backend), mKVCache(kvCache) {
+CPUAttention::CPUAttention(Backend* backend, bool kvCache, bool bidirectional)
+    : Execution(backend), mKVCache(kvCache), mBidirectional(bidirectional) {
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mPackQ.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
     mPackQKV.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
@@ -1185,7 +1192,7 @@ bool CPUAttention::tryExecuteFastPath(const int8_t* query, int8_t* output, int s
 }
 
 CPUAttention* CPUAttention::createClone(Backend* backend) const {
-    return new CPUAttention(backend, mKVCache);
+    return new CPUAttention(backend, mKVCache, mBidirectional);
 }
 
 class CPUAttentionCreator : public CPUBackend::Creator {
@@ -1194,13 +1201,14 @@ public:
                                 const MNN::Op* op, Backend* backend) const override {
         auto param = op->main_as_AttentionParam();
         auto extension = static_cast<CPUBackend*>(backend)->functions()->extension;
-        if (extension != nullptr && extension->createAttentionExecution != nullptr) {
+        // The extension factory only carries kv_cache, so a bidirectional graph has to use the reference path.
+        if (extension != nullptr && extension->createAttentionExecution != nullptr && !param->bidirectional()) {
             auto execution = extension->createAttentionExecution(backend, param->kv_cache());
             if (execution != nullptr) {
                 return execution;
             }
         }
-        return new CPUAttention(backend, param->kv_cache());
+        return new CPUAttention(backend, param->kv_cache(), param->bidirectional());
     }
 };
 

@@ -237,6 +237,9 @@ table AttentionParam {
     mhq_quant:[TensorQuantInfo]; // qk_scale_q, qk_scale_k, sv_scale_s, sv_scale_v
     output_c4:bool = false;
     attnScale: float = 0.0;
+    // Every query sees every key. Without it a missing mask means lower-triangular, so a non-causal graph has
+    // to carry an all-zero seqLen x seqLen additive mask.
+    bidirectional:bool = false;
 }
 
 table LinearAttentionParam {

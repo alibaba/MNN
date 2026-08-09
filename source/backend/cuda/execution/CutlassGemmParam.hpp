@@ -282,12 +282,34 @@ using GemmCuda_F32_F32_Linear_AlignCuda = cutlass::gemm::device::Gemm<
     ElementAccumulator,
     cutlass::arch::OpClassSimt,
     cutlass::arch::Sm75,
-    cutlass::gemm::GemmShape<64, 64, 64>,
-    cutlass::gemm::GemmShape<32, 32, 64>,
+    cutlass::gemm::GemmShape<128, 128, 8>,
+    cutlass::gemm::GemmShape<32, 64, 8>,
     cutlass::gemm::GemmShape<1, 1, 1>,
     EpilogueCudaOp_F32_Linear,
     SwizzleThreadBlock,
     NumStages>;
+
+// TF32 keeps fp32's 8-bit exponent, so this is a drop-in upgrade for an fp32 GEMM wherever Ampere's tensor
+// cores exist, and ten mantissa bits is still wider than the bfloat16 most released checkpoints carry. Note
+// that on consumer Ampere the TF32 peak is not higher than the CUDA cores' fp32 peak (measured 38.8 against
+// 35.6 TFLOPS on GA102); the gain is that a tensor-core GEMM reaches nearly all of it where the SIMT one
+// reached about 60%. Going faster than this needs fp16 (2x) or int8 (8x), both measured on the same part.
+using GemmTensor_F32_F32_Linear_AlignTensor_Sm80 = cutlass::gemm::device::Gemm<
+    cutlass::tfloat32_t,
+    LayoutInputA,
+    cutlass::tfloat32_t,
+    LayoutInputB,
+    float,
+    LayoutOutput,
+    ElementAccumulator,
+    cutlass::arch::OpClassTensorOp,
+    cutlass::arch::Sm80,
+    cutlass::gemm::GemmShape<128, 128, 16>,
+    cutlass::gemm::GemmShape<64, 64, 16>,
+    cutlass::gemm::GemmShape<16, 8, 8>,
+    EpilogueTensorOp_F32_Linear,
+    SwizzleThreadBlock,
+    3>;
 
 using GemmTensor_F32_F32_Linear_AlignCuda_Sm70 = cutlass::gemm::device::Gemm<
     float,
@@ -543,8 +565,8 @@ using GemmCuda_F32_F32_Relu_AlignCuda = cutlass::gemm::device::Gemm<
     ElementAccumulator,
     cutlass::arch::OpClassSimt,
     cutlass::arch::Sm75,
-    cutlass::gemm::GemmShape<64, 64, 64>,
-    cutlass::gemm::GemmShape<32, 32, 64>,
+    cutlass::gemm::GemmShape<128, 128, 8>,
+    cutlass::gemm::GemmShape<32, 64, 8>,
     cutlass::gemm::GemmShape<1, 1, 1>,
     EpilogueCudaOp_F32_Relu,
     SwizzleThreadBlock,
@@ -804,8 +826,8 @@ using GemmCuda_F32_F32_Relu6_AlignCuda = cutlass::gemm::device::Gemm<
     ElementAccumulator,
     cutlass::arch::OpClassSimt,
     cutlass::arch::Sm75,
-    cutlass::gemm::GemmShape<64, 64, 64>,
-    cutlass::gemm::GemmShape<32, 32, 64>,
+    cutlass::gemm::GemmShape<128, 128, 8>,
+    cutlass::gemm::GemmShape<32, 64, 8>,
     cutlass::gemm::GemmShape<1, 1, 1>,
     EpilogueCudaOp_F32_Relu6,
     SwizzleThreadBlock,

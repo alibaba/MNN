@@ -5,6 +5,7 @@
 #include "diffusion/stable_diffusion.hpp"
 #include "diffusion/sana_diffusion.hpp"
 #include "diffusion/wan_diffusion.hpp"
+#include "diffusion/minimax_h3_diffusion.hpp"
 
 #if defined(_MSC_VER)
 #include <Windows.h>
@@ -60,6 +61,8 @@ Diffusion* Diffusion::createDiffusion(std::string modelPath, DiffusionModelType 
         return new SanaDiffusion(modelPath, modelType, backendType, memoryMode);
     } else if (modelType == WAN2_1_T2V) {
         return new WanDiffusion(modelPath, modelType, backendType, memoryMode);
+    } else if (modelType == MINIMAX_H3) {
+        return new MinimaxH3Diffusion(modelPath, modelType, backendType, memoryMode);
     } else {
         return new StableDiffusion(modelPath, modelType, backendType, memoryMode);
     }
