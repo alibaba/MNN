@@ -27,60 +27,58 @@ bool OpenCLSymbols::LoadOpenCLLibrary() {
     }
     static const std::vector<std::string> gOpencl_library_paths = {
 
-    #if defined(__APPLE__) || defined(__MACOSX)
+#if defined(__APPLE__) || defined(__MACOSX)
         "libOpenCL.so", "/System/Library/Frameworks/OpenCL.framework/OpenCL"
-    #elif defined(__OHOS__)
+#elif defined(__OHOS__)
         "/vendor/lib64/chipsetsdk/libhvgr_v200.so",
         "/vendor/lib64/chipsetsdk/libGLES_mali.so",
         "/system/lib64/libGLES_mali.so",
         "libGLES_mali.so",
-        "/vendor/lib64/chipsetsdk/libEGI_imp1.so",
-    #elif defined(__ANDROID__)
+        "/vendor/lib64/chipsetsdk/libEGL_impl.so",
+#elif defined(__ANDROID__)
         "libOpenCL.so",
         "libGLES_mali.so",
         "libmali.so",
         "libOpenCL-pixel.so",
-    #if defined(__aarch64__)
+#if defined(__aarch64__)
         // Qualcomm Adreno
         "/system/vendor/lib64/libOpenCL.so",
         "/system/lib64/libOpenCL.so",
         // Mali
         "/system/vendor/lib64/egl/libGLES_mali.so",
         "/system/lib64/egl/libGLES_mali.so",
-    #else
+#else
         // Qualcomm Adreno
         "/system/vendor/lib/libOpenCL.so", "/system/lib/libOpenCL.so",
         // Mali
         "/system/vendor/lib/egl/libGLES_mali.so", "/system/lib/egl/libGLES_mali.so",
         // other
         "/system/vendor/lib/libPVROCL.so", "/data/data/org.pocl.libs/files/lib/libpocl.so"
-    #endif
-    #elif defined(__linux__)
+#endif
+#elif defined(__linux__)
         "/usr/lib/libOpenCL.so",
         "/usr/local/lib/libOpenCL.so",
         "/usr/local/lib/libpocl.so",
         "/usr/lib64/libOpenCL.so",
         "/usr/lib32/libOpenCL.so",
         "libOpenCL.so"
-    /*
-     *  0: System32, 1: SysWOW64
-     *  --------------------------------------
-     *  | Real CPU /          |  x64  |  x86  |
-     *  |        / Target CPU |       |       |
-     *  --------------------------------------
-     *  |         x64         | 0 / 1 |   1   |
-     *  --------------------------------------
-     *  |         x86         | Error |   0   |
-     *  --------------------------------------
-     *  0 / 1: 0 if OpenCL.dll (System32, 64bit on x64), otherwise 1 (SysWOW64, 32bit compatible on 64bit OS)
-     */
-    #elif defined(_WIN64)
-        "C:/Windows/System32/OpenCL.dll",
-        "C:/Windows/SysWOW64/OpenCL.dll"
-    #elif defined(_WIN32)
-        "C:/Windows/SysWOW64/OpenCL.dll",
-        "C:/Windows/System32/OpenCL.dll"
-    #endif
+/*
+ *  0: System32, 1: SysWOW64
+ *  --------------------------------------
+ *  | Real CPU /          |  x64  |  x86  |
+ *  |        / Target CPU |       |       |
+ *  --------------------------------------
+ *  |         x64         | 0 / 1 |   1   |
+ *  --------------------------------------
+ *  |         x86         | Error |   0   |
+ *  --------------------------------------
+ *  0 / 1: 0 if OpenCL.dll (System32, 64bit on x64), otherwise 1 (SysWOW64, 32bit compatible on 64bit OS)
+ */
+#elif defined(_WIN64)
+        "C:/Windows/System32/OpenCL.dll", "C:/Windows/SysWOW64/OpenCL.dll"
+#elif defined(_WIN32)
+        "C:/Windows/SysWOW64/OpenCL.dll", "C:/Windows/System32/OpenCL.dll"
+#endif
     };
 
     for (const auto &opencl_lib : gOpencl_library_paths) {
