@@ -32,8 +32,7 @@ float Embedding::cos_sim(VARP var0, VARP var1) {
 
 Embedding* Embedding::createEmbedding(const std::string& config_path, bool load) {
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
-    Embedding* embedding = config->is_visual() ? static_cast<Embedding*>(new Omni(config))
-                                               : new Embedding(config);
+    Embedding* embedding = config->is_visual() ? static_cast<Embedding*>(new Omni(config)) : new Embedding(config);
     if (load) {
         embedding->load();
     }
@@ -68,7 +67,7 @@ bool Embedding::load() {
     }
     module_config.rearrange    = true;
     auto model_path            = mConfig->llm_model();
-    auto weight_path           = mConfig->llm_weight();
+    auto weight_path = mConfig->llm_weight();
     MNN_PRINT("load %s ... ", model_path.c_str());
     mRuntimeManager->setExternalFile(weight_path);
     mModule.reset(Module::load({"input_ids", "attention_mask", "position_ids"}, {"sentence_embeddings"},

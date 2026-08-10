@@ -790,8 +790,8 @@ static inline float _cubicWeight(float x) {
 
 static void _sampleCubicCommon(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
                                size_t iw, size_t ih, size_t yStride, size_t bpp) {
-    float dy   = points[1].fY;
-    float dx   = points[1].fX;
+    float dy = points[1].fY;
+    float dx = points[1].fX;
     float xMax = iw - 1;
     float yMax = ih - 1;
 

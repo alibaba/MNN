@@ -106,7 +106,8 @@ int main(int argc, const char* argv[]) {
         std::cout << "len=" << ids.size() << std::endl;
         std::cout << "ids=[";
         for (size_t i = 0; i < ids.size(); ++i) {
-            if (i > 0) std::cout << ", ";
+            if (i > 0)
+                std::cout << ", ";
             std::cout << ids[i];
         }
         std::cout << "]" << std::endl;

@@ -155,7 +155,8 @@ public:
         mAudioModule.reset();
     }
     virtual bool load() override;
-    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {}) override;
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos,
+                                                  Express::VARPS extraArgs = {}) override;
     virtual std::vector<int> tokenizer_encode(const std::string& query) override;
     virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input) override;
     virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
@@ -204,7 +205,6 @@ private:
     MropeInfo mPositionIds;
     bool mIsEmbedding = false;
 };
-
 }
 }
 #endif // OMNI_hpp

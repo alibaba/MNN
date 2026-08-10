@@ -126,15 +126,21 @@ bool Omni::load() {
         setChatTemplate();
     } else {
         res = Llm::load();
-        if (!res) { return false; }
+        if (!res) {
+            return false;
+        }
     }
     res = initProcessorRuntime();
-    if (!res) { return false; }
+    if (!res) {
+        return false;
+    }
     if (mConfig->has_talker()) {
         mTalker.reset(new Talker(mConfig, this));
         mTalker->setProcessorRuntimeManager(mProcessorRuntimeManager);
         res = mTalker->load();
-        if (!res) { return false; }
+        if (!res) {
+            return false;
+        }
     }
     if (mConfig->has_deepstack()) {
         mExtraArgs.emplace_back(Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0)));
@@ -197,20 +203,24 @@ bool Omni::initProcessorRuntime() {
     }
     Module::Config module_config;
     if(config.type == MNN_FORWARD_NN) {
-        module_config.shapeMutable = false; module_config.rearrange = false;
+        module_config.shapeMutable = false;
+        module_config.rearrange = false;
     } else {
-        module_config.shapeMutable = true; module_config.rearrange = true;
+        module_config.shapeMutable = true;
+        module_config.rearrange = true;
     }
     mProcessorRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, nullptr);
     // pMeta isolation between LLM and processor RTMs is now provided by
     // per-RTM RuntimeAttr::mPMeta + applyMetaToRuntime; no manual reset needed.
     if (mConfig->is_visual()) {
         mVisionModule.reset(Module::load({}, {}, mConfig->visual_model().c_str(), mProcessorRuntimeManager, &module_config));
-        if (nullptr == mVisionModule.get()) return false;
+        if (nullptr == mVisionModule.get())
+            return false;
     }
     if (mConfig->is_audio()) {
         mAudioModule.reset(Module::load({}, {}, mConfig->audio_model().c_str(), mProcessorRuntimeManager, &module_config));
-        if (nullptr == mAudioModule.get()) return false;
+        if (nullptr == mAudioModule.get())
+            return false;
     }
     return true;
 }
@@ -385,9 +395,8 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
     mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
     auto interp = isQwen3VL ? MNN::CV::INTER_CUBIC : MNN::CV::INTER_LINEAR;
-    image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
-                            interp, MNN::CV::COLOR_BGR2RGB,
-                            mVisionMean, mVisionNorm);
+    image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0, interp, MNN::CV::COLOR_BGR2RGB, mVisionMean,
+                            mVisionNorm);
     image = Express::_Unsqueeze(image, {0});
     image = Express::_Convert(image, NCHW);
     auto patches = Express::_Concat({image, image}, 0);
@@ -1319,8 +1328,8 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     bool hasMultimodalEmbeds = !mVisionEmbeddings.empty() || !mAudioEmbeddings.empty();
     if (!hasMultimodalEmbeds) {
         if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
-            mExtraArgs[0] = Express::_Fill(_var<int>({3, static_cast<int>(input_ids.size()), mConfig->hidden_size()}, {3}),
-                                           _Scalar<float>(0.0));
+            mExtraArgs[0] = Express::_Fill(
+                _var<int>({3, static_cast<int>(input_ids.size()), mConfig->hidden_size()}, {3}), _Scalar<float>(0.0));
         }
         return Llm::embedding(input_ids);
     }
@@ -1415,8 +1424,10 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     }
     auto mergedEmbed = Express::_Concat(embeddings, 0);
     if (mergedEmbed == nullptr || mergedEmbed->getInfo() == nullptr) {
-        MNN_ERROR("[Error]: failed to build merged multimodal embeddings. text_chunks=%zu, vision_embeds=%zu, audio_embeds=%zu\n",
-                  embeddings.size(), mVisionEmbeddings.size(), mAudioEmbeddings.size());
+        MNN_ERROR(
+            "[Error]: failed to build merged multimodal embeddings. text_chunks=%zu, vision_embeds=%zu, "
+            "audio_embeds=%zu\n",
+            embeddings.size(), mVisionEmbeddings.size(), mAudioEmbeddings.size());
         return nullptr;
     }
     // Deep copy: materialize the lazy concat so vision data persists after clear
@@ -1425,10 +1436,8 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
         auto cPtr = mergedEmbed->readMap<float>();
         if (cPtr == nullptr) {
             MNN_ERROR("[Error]: merged multimodal embeddings are not readable. dims=[%d,%d,%d,%d]\n",
-                      cInfo->dim.size() > 0 ? cInfo->dim[0] : -1,
-                      cInfo->dim.size() > 1 ? cInfo->dim[1] : -1,
-                      cInfo->dim.size() > 2 ? cInfo->dim[2] : -1,
-                      cInfo->dim.size() > 3 ? cInfo->dim[3] : -1);
+                      cInfo->dim.size() > 0 ? cInfo->dim[0] : -1, cInfo->dim.size() > 1 ? cInfo->dim[1] : -1,
+                      cInfo->dim.size() > 2 ? cInfo->dim[2] : -1, cInfo->dim.size() > 3 ? cInfo->dim[3] : -1);
             return nullptr;
         }
         auto freshEmbed = _Input(cInfo->dim, cInfo->order);
@@ -1807,7 +1816,9 @@ VARP Omni::ids_embedding(const std::vector<int>& ids) {
     auto attention_mask = gen_attention_mask(seqLen);
     auto position_ids = gen_position_ids(seqLen);
     auto outputs = forwardRaw(inputs_ids, attention_mask, position_ids);
-    if (outputs.empty()) { return nullptr; }
+    if (outputs.empty()) {
+        return nullptr;
+    }
     return outputs[0];
 }
 

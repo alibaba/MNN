@@ -119,7 +119,8 @@ void Llm::setChatTemplate() {
         if (mConfig->config_.contains("asr_language")) {
             context_json["asr_language"] = mConfig->asr_language();
         }
-        mTokenizer->set_chat_template(jinja["chat_template"].get<std::string>(), jinja.value("eos", ""), context_json.dump());
+        mTokenizer->set_chat_template(jinja["chat_template"].get<std::string>(), jinja.value("eos", ""),
+                                      context_json.dump());
     }
     if (jinja.contains("context") || mConfig->config_.contains("asr_language")) {
         ujson::json context_json = jinja.contains("context") ? jinja["context"] : ujson::json::object();
