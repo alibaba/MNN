@@ -175,7 +175,7 @@ object ChatViewHolders {
 
     class AssistantViewHolder @SuppressLint("ClickableViewAccessibility") constructor(view: View) :
         RecyclerView.ViewHolder(view), View.OnClickListener, OnLongClickListener {
-        private val viewText: TextView = view.findViewById(R.id.tv_chat_text)
+        private val viewText: MarkdownMessageView = view.findViewById(R.id.tv_chat_text)
         private val viewThinking: TextView = view.findViewById(R.id.tv_chat_thinking)
         private val thinkingContainer: View = view.findViewById(R.id.ll_thinking_container)
         private val thinkingMarker: View = view.findViewById(R.id.view_thinking_marker)
@@ -203,7 +203,10 @@ object ChatViewHolders {
                 builder.addInlineProcessor(LatexInlineProcessor())
             })
             .usePlugin(TablePlugin.create(itemView.context))
-            .usePlugin(JLatexMathPlugin.create(viewText.textSize, viewText.textSize) { builder ->
+            .usePlugin(JLatexMathPlugin.create(
+                itemView.resources.getDimension(R.dimen.h3),
+                itemView.resources.getDimension(R.dimen.h3)
+            ) { builder ->
                 builder.inlinesEnabled(true)
             })
             .build()
@@ -220,16 +223,7 @@ object ChatViewHolders {
                 chatDataItem.toggleThinking()
                 updateThinkingView(chatDataItem, itemView.context)
                 
-                if (AssistantTextRenderPolicy.usePlainText(chatDataItem)) {
-                    viewText.text = chatDataItem.displayText
-                } else {
-                    val streamText = if (chatDataItem.loading) {
-                        preprocessStreamingMarkdown(chatDataItem.displayText ?: "", true)
-                    } else {
-                        chatDataItem.displayText ?: ""
-                    }
-                    markdown.setMarkdown(viewText, streamText)
-                }
+                renderAssistantText(chatDataItem)
             }
 
             // Setup action buttons
@@ -304,17 +298,34 @@ object ChatViewHolders {
             return result
         }
 
+        private fun renderAssistantText(data: ChatDataItem) {
+            val sourceText = data.displayText ?: ""
+            if (sourceText.isEmpty()) {
+                viewText.visibility = View.GONE
+                return
+            }
+
+            viewText.visibility = View.VISIBLE
+            if (AssistantTextRenderPolicy.usePlainText(data)) {
+                viewText.showPlainText(sourceText)
+                return
+            }
+
+            val streamText = if (data.loading) {
+                preprocessStreamingMarkdown(sourceText, true)
+            } else {
+                sourceText
+            }
+            viewText.renderMarkdown(markdown, sourceText, streamText, data.loading)
+        }
+
         fun bind(data: ChatDataItem, modelName: String?, payloads: List<Any?>?) {
             if (!payloads.isNullOrEmpty()) {
                 if (data.thinkingText != null && !TextUtils.isEmpty(data.thinkingText)) {
                     updateThinkingView(data, itemView.context)
                 }
                 if (data.displayText != null) {
-                    if (AssistantTextRenderPolicy.usePlainText(data)) {
-                        viewText.text = data.displayText
-                    } else {
-                        markdown.setMarkdown(viewText, data.displayText!!)
-                    }
+                    renderAssistantText(data)
                 }
                 imageGenerated.visibility =
                     if (data.imageUri != null) View.VISIBLE else View.GONE
@@ -326,21 +337,7 @@ object ChatViewHolders {
             }
 
             updateThinkingView(data, itemView.context)
-            if (AssistantTextRenderPolicy.usePlainText(data)) {
-                viewText.text = data.displayText
-            } else {
-                val streamText = if (data.loading) {
-                    preprocessStreamingMarkdown(data.displayText ?: "", true)
-                } else {
-                    data.displayText ?: ""
-                }
-                if (streamText.isEmpty()) {
-                    viewText.visibility = View.GONE
-                } else {
-                    viewText.visibility = View.VISIBLE
-                    markdown.setMarkdown(viewText, streamText)
-                }
-            }
+            renderAssistantText(data)
 
             viewAssistantLoading.visibility = if (AssistantLoadingVisibilityDecider.shouldShow(data)) {
                 View.VISIBLE
@@ -426,16 +423,18 @@ object ChatViewHolders {
                 return false
             }
             
-            val textView = v as? TextView ?: return false
             v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             PopupWindowHelper().showPopupWindow(
                 v.getContext(), v
             ) { v ->
                 if (v.id == R.id.assistant_text_copy) {
-                    UiUtils.copyText(itemView.context, textView)
+                    ClipboardUtils.copyToClipboard(
+                        itemView.context,
+                        chatDataItem.displayText ?: chatDataItem.text ?: ""
+                    )
                 } else if (v.id == R.id.assistant_text_select) {
                     val intent = Intent(v.context, SelectTextActivity::class.java)
-                    intent.putExtra("content", chatDataItem.text)
+                    intent.putExtra("content", chatDataItem.displayText ?: chatDataItem.text)
                     v.context.startActivity(intent)
                 } else if (v.id == R.id.assistant_text_report) {
                     val chatActivity = UiUtils.getActivity(v.context) as ChatActivity
