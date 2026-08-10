@@ -7,6 +7,10 @@
 //
 
 #include "core/Session.hpp"
+#ifdef MNN_SESSION_CPU_TRACE
+#include <atomic>
+#include <chrono>
+#endif
 #include <string.h>
 #include <MNN/AutoTime.hpp>
 #include <map>
@@ -19,7 +23,7 @@
 #include "utils/InitNet.hpp"
 
 namespace MNN {
-void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime) {
+void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime, void* meta) {
     if (iter.first.cache.first != nullptr) {
         return;
     }
@@ -30,6 +34,7 @@ void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& r
         specialUsage = iter.first.info.user->flags > 0;
     }
     iter.first.cache.first.reset(rt->onCreate(iter.first.info.user));
+    iter.first.cache.first->setMetaPtr(meta);
     std::shared_ptr<Backend> second;
     if (iter.first.cache.first->type() == MNN_FORWARD_CPU && (!specialUsage)) {
         iter.first.cache.second = iter.first.cache.first;
@@ -49,6 +54,7 @@ void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& r
             origin = iter.first.cache.first.get();
         }
         iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig, origin));
+        iter.first.cache.second->setMetaPtr(meta);
     }
 }
 void Session::ModeGroup::setMode(Interpreter::SessionMode mode) {
@@ -240,7 +246,38 @@ std::pair<const void*, size_t> Session::getCache() {
     return std::make_pair(nullptr, 0);
 }
 
+// Compile with -DMNN_SESSION_CPU_TRACE: per-forward resize/run CPU attribution (printed at exit).
+#ifdef MNN_SESSION_CPU_TRACE
+namespace {
+struct SessionCpuTrace {
+    std::atomic<uint64_t> resizeNs{0}, resizeCalls{0}, encodeNs{0}, encodeCalls{0}, mallocNs{0}, runNs{0}, runCalls{0};
+    ~SessionCpuTrace() {
+        if (resizeCalls.load() == 0 && runCalls.load() == 0) return;
+        printf("\n===== Session CPU Trace =====\n");
+        printf("resize: %.3f ms total, %llu calls (%llu with shape re-encode: %.3f ms, malloc: %.3f ms)\n",
+               resizeNs.load()/1e6, (unsigned long long)resizeCalls.load(),
+               (unsigned long long)encodeCalls.load(), encodeNs.load()/1e6, mallocNs.load()/1e6);
+        printf("run   : %.3f ms total, %llu calls\n", runNs.load()/1e6, (unsigned long long)runCalls.load());
+        printf("=============================\n");
+    }
+};
+SessionCpuTrace& _sessionCpuTrace() {
+    static SessionCpuTrace trace;
+    return trace;
+}
+inline uint64_t _traceNowNs() {
+    return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+} // namespace
+#endif // MNN_SESSION_CPU_TRACE
+
 ErrorCode Session::run() const {
+#ifdef MNN_SESSION_CPU_TRACE
+    struct _RunTraceGuard {
+        uint64_t t0;
+        ~_RunTraceGuard() { _sessionCpuTrace().runNs += _traceNowNs() - t0; _sessionCpuTrace().runCalls += 1; }
+    } _g{_traceNowNs()};
+#endif
     if (mNeedResize) {
         MNN_ERROR("Can't run session because not resized\n");
         return COMPUTE_SIZE_ERROR;
@@ -270,6 +307,10 @@ ErrorCode Session::runWithCallBack(const TensorCallBackWithInfo& before, const T
 }
 
 ErrorCode Session::resize() {
+#ifdef MNN_SESSION_CPU_TRACE
+    uint64_t _t0 = _traceNowNs();
+#endif
+
 #ifdef LOG_VERBOSE
     for (auto& iter : mInfo.inputTensors) {
         auto& inputTensor = iter.second;
@@ -283,6 +324,9 @@ ErrorCode Session::resize() {
 
     bool firstMalloc = false;
     if (mNeedResize) {
+#ifdef MNN_SESSION_CPU_TRACE
+        uint64_t _te0 = _traceNowNs();
+#endif
         bool debug = mCallBackMode == Interpreter::Session_Debug;
         for (auto& iter : mPipelines) {
             auto error = iter->encode(debug, permitCodegen);
@@ -293,6 +337,10 @@ ErrorCode Session::resize() {
         mNeedResize = false;
         mNeedMalloc = true;
         firstMalloc = true;
+#ifdef MNN_SESSION_CPU_TRACE
+        _sessionCpuTrace().encodeNs += _traceNowNs() - _te0;
+        _sessionCpuTrace().encodeCalls += 1;
+#endif
     }
     if (mNeedMalloc) {
         // Set needResize = true for easy for judge in runSession when error
@@ -303,12 +351,18 @@ ErrorCode Session::resize() {
         if (mInfo.constReplaceBackend != nullptr) {
             forbidReplace = true;
         }
+#ifdef MNN_SESSION_CPU_TRACE
+        uint64_t _tm0 = _traceNowNs();
+#endif
         for (auto& iter : mPipelines) {
             auto error = iter->allocMemory(firstMalloc, forbidReplace);
             if (NO_ERROR != error) {
                 return error;
             }
         }
+#ifdef MNN_SESSION_CPU_TRACE
+        _sessionCpuTrace().mallocNs += _traceNowNs() - _tm0;
+#endif
         if (mMemoryUsageMode == Interpreter::Session_Memory_Collect) {
             mRuntime.second->onGabageCollect(0);
             for (auto& iter : mRuntime.first) {
@@ -327,6 +381,10 @@ ErrorCode Session::resize() {
         outputTensor->printShape();
         MNN_PRINT("\n");
     }
+#endif
+#ifdef MNN_SESSION_CPU_TRACE
+    _sessionCpuTrace().resizeNs += _traceNowNs() - _t0;
+    _sessionCpuTrace().resizeCalls += 1;
 #endif
     return NO_ERROR;
 }
@@ -500,7 +558,7 @@ static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors,
     }
 }
 
-Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, void* meta) {
     // TODO: Currently only valid for Module api's onClone
     Schedule::ScheduleInfo scheduleInfo;
     scheduleInfo.defaultBackend = mInfo.defaultBackend;
@@ -520,7 +578,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     pipelineInfo.first.info.user = &pipelineInfo.first.config;
     auto& oplists                = pipelineInfo.second;
     oplists.resize(opCaches.size());
-    createPipelineBackend(pipelineInfo, runtime);
+    createPipelineBackend(pipelineInfo, runtime, meta);
     auto first  = pipelineInfo.first.cache.first;
     auto second = pipelineInfo.first.cache.second;
     for (int i = 0; i < opCaches.size(); ++i) {

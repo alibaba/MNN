@@ -1,6 +1,8 @@
 import os
 import torch
 import importlib
+import json
+import os
 from packaging.version import Version
 from transformers import PreTrainedModel, AutoConfig, AutoModel, AutoModelForCausalLM
 from typing import Optional, List
@@ -9,6 +11,61 @@ from utils.config import LlmConfig
 from utils.tokenizer import LlmTokenizer
 from utils.model_mapper import ModelMapper
 from utils.transformers import Embedding, Rotary, Decoder, Lm
+
+
+def remap_hunyuan_vl_state_dict(state_dict):
+    remapped = {}
+    prefixes = (
+        ('model.embed_tokens.', 'model.language_model.embed_tokens.'),
+        ('model.layers.', 'model.language_model.layers.'),
+        ('model.norm.', 'model.language_model.norm.'),
+        ('vit.embeddings.', 'model.vision_tower.embeddings.'),
+        ('vit.layers.', 'model.vision_tower.layers.'),
+        ('vit.perceive.before_rms.', 'model.vision_tower.patch_merger.before_rms.'),
+        ('vit.perceive.after_rms.', 'model.vision_tower.patch_merger.after_rms.'),
+        ('vit.perceive.image_begin', 'model.vision_tower.patch_merger.image_begin'),
+        ('vit.perceive.image_end', 'model.vision_tower.patch_merger.image_end'),
+        ('vit.perceive.image_newline', 'model.vision_tower.patch_merger.image_newline'),
+        ('vit.perceive.image_sep', 'model.vision_tower.patch_merger.image_sep'),
+        ('vit.perceive.mlp.', 'model.vision_tower.patch_merger.mlp.'),
+        ('vit.perceive.proj.0.', 'model.vision_tower.patch_merger.proj_conv.'),
+        ('vit.perceive.proj.2.', 'model.vision_tower.patch_merger.proj_out.'),
+    )
+    for key, value in state_dict.items():
+        new_key = key
+        for old_prefix, new_prefix in prefixes:
+            if key.startswith(old_prefix):
+                new_key = new_prefix + key[len(old_prefix):]
+                break
+        if new_key.startswith('model.vision_tower.layers.'):
+            new_key = new_key.replace('.input_layernorm.', '.layer_norm1.')
+            new_key = new_key.replace('.post_attention_layernorm.', '.layer_norm2.')
+            new_key = new_key.replace('.mlp.dense_h_to_4h.', '.mlp.fc1.')
+            new_key = new_key.replace('.mlp.dense_4h_to_h.', '.mlp.fc2.')
+        remapped[new_key] = value
+    return remapped
+
+
+def load_hunyuan_vl_state_dict(model_path):
+    from safetensors.torch import load_file
+    index_path = os.path.join(model_path, 'model.safetensors.index.json')
+    if os.path.exists(index_path):
+        with open(index_path, 'r', encoding='utf-8') as f:
+            index = json.load(f)
+        shard_files = sorted(set(index.get('weight_map', {}).values()))
+        if not shard_files:
+            raise ValueError(f"HunyuanVL safetensors index has no weight_map entries: {index_path}")
+    else:
+        safetensors_path = os.path.join(model_path, 'model.safetensors')
+        if not os.path.exists(safetensors_path):
+            raise FileNotFoundError(f"HunyuanVL weights not found: {safetensors_path}")
+        shard_files = [os.path.basename(safetensors_path)]
+    state_dict = {}
+    for shard_file in shard_files:
+        shard_path = shard_file if os.path.isabs(shard_file) else os.path.join(model_path, shard_file)
+        state_dict.update(load_file(shard_path, device='cpu'))
+    return state_dict
+
 
 class LlmModel(PreTrainedModel):
     config_class = LlmConfig
@@ -27,6 +84,28 @@ class LlmModel(PreTrainedModel):
 
     def _init_weights(self, module):
         pass
+
+    @staticmethod
+    def _sanitize_skip_weight_tensors(model):
+        # Some small parameters remain ONNX Consts even in skeleton mode; keep them finite for JSON export.
+        def fill_tensor(name, tensor):
+            if tensor is None or getattr(tensor, "is_meta", False):
+                return
+            if not tensor.is_floating_point() or tensor.dim() > 1:
+                return
+            try:
+                with torch.no_grad():
+                    if name.endswith("weight") or name.endswith("gamma") or "scale" in name:
+                        tensor.fill_(1.0)
+                    else:
+                        tensor.zero_()
+            except (NotImplementedError, RuntimeError):
+                pass
+
+        for name, param in model.named_parameters():
+            fill_tensor(name, param)
+        for name, buffer in model.named_buffers():
+            fill_tensor(name, buffer)
 
     def get_config(self):
         llm_config = {}
@@ -56,6 +135,7 @@ class LlmModel(PreTrainedModel):
             'glm_ocr': 'GlmOcrForConditionalGeneration',
             'lfm2_vl': 'Lfm2VlForConditionalGeneration',
             'gemma4': 'Gemma4ForConditionalGeneration',
+            'hunyuan_vl': 'HunYuanVLForConditionalGeneration',
         }
         if model_type is None or model_type not in MODEL_CLASS_MAPPING:
             return AutoModelForCausalLM
@@ -69,6 +149,7 @@ class LlmModel(PreTrainedModel):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, args=None, **kwargs):
         config = LlmConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        config.export_args = args
         model_type = config.model_type
         model_class = cls.get_model_class(model_type)
 
@@ -97,6 +178,7 @@ class LlmModel(PreTrainedModel):
                 else:
                     original_model = AutoModelForCausalLM.from_config(original_config, trust_remote_code=True)
                 original_model.to_empty(device="cpu")
+                cls._sanitize_skip_weight_tensors(original_model)
         elif model_type == 'lfm2_audio':
             # LFM2-Audio uses liquid_audio package, not standard HF class
             from pathlib import Path
@@ -106,6 +188,22 @@ class LlmModel(PreTrainedModel):
             )
             # Force sdpa attention on CPU (flash_attention_2 requires GPU)
             original_model.lfm.set_attn_implementation('sdpa')
+        elif model_type == 'hunyuan_vl':
+            try:
+                original_model = model_class.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
+            except Exception as load_error:
+                original_config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
+                if hasattr(model_class, '_from_config'):
+                    original_model = model_class._from_config(original_config)
+                else:
+                    original_model = model_class(original_config)
+                state_dict = remap_hunyuan_vl_state_dict(load_hunyuan_vl_state_dict(pretrained_model_name_or_path))
+                missing, unexpected = original_model.load_state_dict(state_dict, strict=False)
+                if missing or unexpected:
+                    raise RuntimeError(
+                        "HunyuanVL fallback weight load mismatch: "
+                        f"missing={missing}, unexpected={unexpected}"
+                    ) from load_error
         else:
             # Normal loading with weights
             try:
@@ -203,8 +301,14 @@ class LlmModel(PreTrainedModel):
         final_logit_softcapping = getattr(text_config, 'final_logit_softcapping', None)
         model.lm = Lm(model.lm, final_logit_softcapping=final_logit_softcapping)
 
-        if 'gemma' in model_type and hasattr(model.embed, 'embed_scale'):
-            model.scale_emb = model.embed.embed_scale
+        embed_scale = getattr(model.embed, 'embed_scale', None)
+        if embed_scale is not None:
+            if isinstance(embed_scale, torch.Tensor):
+                is_identity_scale = embed_scale.numel() == 1 and embed_scale.detach().cpu().item() == 1.0
+            else:
+                is_identity_scale = embed_scale == 1.0
+            if not is_identity_scale:
+                model.scale_emb = embed_scale
 
         # Multi-modal parts
         if model.visual is not None:
@@ -465,7 +569,7 @@ class LlmModel(PreTrainedModel):
             position_ids = torch.arange(seq_len, dtype=torch.int)
 
         if self.rotary.is_mrope:
-            position_ids = torch.stack([position_ids] * 3)
+            position_ids = torch.stack([position_ids] * self.rotary.mrope_axes)
         else:
             position_ids = position_ids.unsqueeze(0)
         return position_ids

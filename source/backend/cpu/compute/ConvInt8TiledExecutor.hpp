@@ -55,8 +55,25 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
-private:
+
+protected:
+    // Reports reorder completion and raw packed layout; derived executors decide whether the layout is supported.
+    struct WeightReorderInfo {
+        size_t srcDepthQuad;
+        size_t dstDepthQuad;
+        size_t blockNum;
+        int unit;
+        int packedSrcUnit;
+        int ocBranch;
+    };
+    using WeightReorderComplete =
+        std::function<void(bool, const std::shared_ptr<CPUConvolution::ResourceInt8>&, const WeightReorderInfo&)>;
+    DenseConvInt8TiledExecutor(Backend* backend, const Op* op,
+                               std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon, bool isDynamicQuant,
+                               WeightReorderComplete weightReorderComplete);
     DenseConvInt8TiledExecutor(Backend* backend, const Op* op, const DenseConvInt8TiledExecutor& exe);
+    virtual bool onSetupLinearFastPath(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    virtual DenseConvInt8TiledExecutor* createClone(Backend* bn, const Op* op) const;
 
     decltype(CoreInt8Functions::Int8GemmKernel) mGemmKernel;
     std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, const float*, ssize_t)> mQuantFunc;

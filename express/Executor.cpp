@@ -108,6 +108,16 @@ Executor::~Executor(){
     // Do nothing
 }
 
+Executor::Activation::Activation(const RuntimeInfo& info) : mRuntimeInfo(info) {
+    mRuntimeWrap.reset(new RuntimeExecuteWrap(mRuntimeInfo));
+}
+
+Executor::Activation::~Activation() = default;
+
+std::shared_ptr<Executor::Activation> Executor::activte() const {
+    return std::shared_ptr<Activation>(new Activation(mRuntimeInfo));
+}
+
 void Executor::setCallBack(TensorCallBackWithInfo&& before, TensorCallBackWithInfo&& after) {
     mDebug->before = std::move(before);
     mDebug->after = std::move(after);
@@ -255,13 +265,13 @@ void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
 }
 void Executor::RuntimeManager::setHintPtr(Interpreter::HintMode mode, void* value) {
     if (mode == Interpreter::KVCACHE_INFO) {
-        mInside->mMeta = value;
+        mInside->mContent->pMeta = value;
     }
 }
 
 void Executor::RuntimeManager::applyMetaToRuntime() const {
     for (auto& iter : mInside->mRuntime.first) {
-        iter.second->pMeta = mInside->mMeta;
+        iter.second->pMeta = mInside->mContent->pMeta;
     }
 }
 
@@ -360,6 +370,11 @@ BackendConfig* Executor::RuntimeManager::getBnConfig() {
 void Executor::RuntimeManager::setCache(std::string cacheName) {
     std::lock_guard<std::mutex> _l(mLock);
 
+    if (nullptr == mInside->mInfo) {
+        // Runtime not created (e.g. requested backend unavailable on this device), skip setCache
+        MNN_ERROR("Runtime not created, skip setCache\n");
+        return;
+    }
     mInside->mCache.reset(new Cache);
     mInside->mCache->cacheFile = cacheName;
     mInside->mInfo->onSetCachePath(cacheName.c_str(), 0);

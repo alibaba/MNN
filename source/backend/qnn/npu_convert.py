@@ -6,6 +6,7 @@ import subprocess
 import json
 import concurrent.futures
 import multiprocessing
+import resource
 post_treat = {}
 qnn_sdk = os.environ["QNN_SDK_ROOT"]
 print(qnn_sdk)
@@ -13,7 +14,8 @@ with open(sys.argv[1]) as f:
     post_treat = json.load(f)
 soc_id = int(sys.argv[2])
 dsp_arch = sys.argv[3]
-print('soc_id:', soc_id, "; dsp_arch:", dsp_arch)
+vtcm_mb = int(sys.argv[4])
+print('soc_id:', soc_id, "; dsp_arch:", dsp_arch, "; vtcm_mb:", vtcm_mb)
 qnn_bin_path = os.path.join(qnn_sdk, 'bin', 'x86_64-linux-clang')
 qnnModelLibGenerator = os.path.join(qnn_bin_path, 'qnn-model-lib-generator')
 qnnContextBinaryGenerator = os.path.join(qnn_bin_path, 'qnn-context-binary-generator')
@@ -22,6 +24,21 @@ cache_dir = 'res'
 if 'cache' in post_treat:
     cache_dir = post_treat['cache']
 clean_tmp = True
+
+
+def raise_stack_limit():
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
+        if soft == resource.RLIM_INFINITY:
+            return
+        target = hard
+        if hard == resource.RLIM_INFINITY:
+            target = resource.RLIM_INFINITY
+        if target > soft or target == resource.RLIM_INFINITY:
+            resource.setrlimit(resource.RLIMIT_STACK, (target, hard))
+            print(f"[QNN] raise stack limit: {soft} -> {target}", flush=True)
+    except Exception as e:
+        print(f"[QNN] skip raising stack limit: {e}", flush=True)
 
 
 def run_subprocess(cmd, cwd=None, retries=3):
@@ -67,7 +84,7 @@ def process_src(task):
         "-t", "x86_64-linux-clang",
         "-o", workdir,
     ]
-    compile_result = run_subprocess(compile_cmd, retries=3)
+    compile_result = run_subprocess(compile_cmd, cwd=workdir, retries=3)
     if compile_result.returncode != 0:
         raise RuntimeError(f"Compile failed for src={src}: {' '.join(compile_cmd)}")
 
@@ -94,7 +111,7 @@ htp_so = os.path.join(qnn_sdk, 'lib','x86_64-linux-clang','libQnnHtp.so')
 htp_backend_extensions = {
     "graphs": [
         {
-            "vtcm_mb": 8,
+            "vtcm_mb": vtcm_mb,
             "O": 3.0,
             "fp16_relaxed_precision": 1,
             "hvx_threads": 4
@@ -176,6 +193,7 @@ def process_merge(key, merge_index):
                 raise RuntimeError(f"Remove workdir failed: {workdir}")
 
 merge_keys = list(post_treat["merge"])
+raise_stack_limit()
 merge_workers = max(1, min(os.cpu_count()//2 or 1, len(merge_keys)))
 print(f"[Merge Parallel] running {len(merge_keys)} merge task(s), max_workers={merge_workers}", flush=True)
 

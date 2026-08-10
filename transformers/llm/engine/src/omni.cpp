@@ -11,6 +11,7 @@
 #endif
 #include <regex>
 #include <algorithm>
+#include <cmath>
 #include <random>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -86,6 +87,8 @@ static MNNForwardType backend_type_convert(const std::string& type_str) {
         return MNN_FORWARD_OPENGL;
     if (type_str == "vulkan")
         return MNN_FORWARD_VULKAN;
+    if (type_str == "hexagon")
+        return MNN_FORWARD_HEXAGON;
     if (type_str == "npu")
         return MNN_FORWARD_NN;
     return MNN_FORWARD_AUTO;
@@ -169,13 +172,25 @@ bool Omni::initProcessorRuntime() {
         BackendConfig cpuBackendConfig;
         config.type      = backend_type_convert(mConfig->backend_type(true));
         config.numThread = mConfig->thread_num(true);
-        if(config.type == 3){ config.numThread |= 64; }
-        if (mConfig->power(true) == "high") { cpuBackendConfig.power = BackendConfig::Power_High; }
-        else if (mConfig->power(true) == "low") { cpuBackendConfig.power = BackendConfig::Power_Low; }
-        if (mConfig->memory(true) == "high") { cpuBackendConfig.memory = BackendConfig::Memory_High; }
-        else if (mConfig->memory(true) == "low") { cpuBackendConfig.memory = BackendConfig::Memory_Low; }
-        if (mConfig->precision(true) == "high") { cpuBackendConfig.precision = BackendConfig::Precision_High; }
-        else if (mConfig->precision(true) == "low") { cpuBackendConfig.precision = BackendConfig::Precision_Low; }
+        if (config.type == 3) {
+            config.numThread |= 64;
+            config.numThread |= 512;
+        }
+        if (mConfig->power(true) == "high") {
+            cpuBackendConfig.power = BackendConfig::Power_High;
+        } else if (mConfig->power(true) == "low") {
+            cpuBackendConfig.power = BackendConfig::Power_Low;
+        }
+        if (mConfig->memory(true) == "high") {
+            cpuBackendConfig.memory = BackendConfig::Memory_High;
+        } else if (mConfig->memory(true) == "low") {
+            cpuBackendConfig.memory = BackendConfig::Memory_Low;
+        }
+        if (mConfig->precision(true) == "high") {
+            cpuBackendConfig.precision = BackendConfig::Precision_High;
+        } else if (mConfig->precision(true) == "low") {
+            cpuBackendConfig.precision = BackendConfig::Precision_Low;
+        }
         config.backendConfig = &cpuBackendConfig;
         mProcessorRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
         setRuntimeHint(mProcessorRuntimeManager, true);
@@ -209,7 +224,12 @@ std::vector<int> Omni::defaultVisionProcess(VARP image) {
                             MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
                             mVisionMean, mVisionNorm);
     image = Express::_Unsqueeze(image, {0});
-    image = Express::_Convert(image, NC4HW4);
+    auto visionInputOrder = NCHW;
+    auto visionInfo = mVisionModule->getInfo();
+    if (visionInfo != nullptr && !visionInfo->inputs.empty()) {
+        visionInputOrder = visionInfo->inputs[0].order;
+    }
+    image = Express::_Convert(image, visionInputOrder);
     auto imageEmbedding = mVisionModule->forward(image);
 
     mVisionEmbeddings.push_back(imageEmbedding);
@@ -562,6 +582,91 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     return imgIds;
 }
 
+std::vector<int> Omni::hunyuanVisionProcess(VARP image) {
+    MNN::Express::ExecutorScope s(mExecutor);
+    int patchSize = mConfig->config_.value("hunyuan_patch_size", 16);
+    int mergeSize = mConfig->config_.value("hunyuan_spatial_merge_size", 2);
+    int temporalPatchSize = mConfig->config_.value("hunyuan_temporal_patch_size", 1);
+    if (patchSize <= 0 || mergeSize <= 0 || temporalPatchSize <= 0) {
+        MNN_ERROR("Invalid Hunyuan vision config: patch=%d merge=%d temporal=%d\n", patchSize, mergeSize,
+                  temporalPatchSize);
+        return std::vector<int>(0);
+    }
+    if (temporalPatchSize != 1) {
+        MNN_ERROR("Hunyuan temporal_patch_size=%d is not supported by Omni image preprocessing\n", temporalPatchSize);
+        return std::vector<int>(0);
+    }
+    if (!mVisionSizeOverridden) {
+        auto imageInfo = image->getInfo();
+        if (imageInfo != nullptr && imageInfo->dim.size() >= 2) {
+            auto dims = imageInfo->dim;
+            int imageHeight = dims[0];
+            int imageWidth = dims[1];
+            if (dims.size() >= 3 && dims[dims.size() - 1] <= 4) {
+                imageHeight = dims[dims.size() - 3];
+                imageWidth = dims[dims.size() - 2];
+            }
+            if (imageHeight > 0 && imageWidth > 0) {
+                mVisionHeight = imageHeight;
+                mVisionWidth = imageWidth;
+            }
+        }
+    }
+    const int factor = patchSize * mergeSize;
+    int minPixels = mConfig->config_.value("image_min_pixels", mVisionHeight * mVisionWidth);
+    int maxPixels = mConfig->config_.value("image_max_pixels", mVisionMaxSize * mVisionMaxSize);
+    int resizedHeight =
+        std::max(factor, static_cast<int>(std::round(static_cast<float>(mVisionHeight) / factor)) * factor);
+    int resizedWidth =
+        std::max(factor, static_cast<int>(std::round(static_cast<float>(mVisionWidth) / factor)) * factor);
+    if (resizedHeight * resizedWidth > maxPixels) {
+        float beta = std::sqrt(static_cast<float>(mVisionHeight * mVisionWidth) / maxPixels);
+        resizedHeight = std::max(factor, static_cast<int>(std::floor(mVisionHeight / beta / factor)) * factor);
+        resizedWidth = std::max(factor, static_cast<int>(std::floor(mVisionWidth / beta / factor)) * factor);
+    } else if (resizedHeight * resizedWidth < minPixels) {
+        float beta = std::sqrt(static_cast<float>(minPixels) / (mVisionHeight * mVisionWidth));
+        resizedHeight = std::max(factor, static_cast<int>(std::ceil(mVisionHeight * beta / factor)) * factor);
+        resizedWidth = std::max(factor, static_cast<int>(std::ceil(mVisionWidth * beta / factor)) * factor);
+    }
+    mVisionHeight = resizedHeight;
+    mVisionWidth = resizedWidth;
+    image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0, MNN::CV::INTER_CUBIC, MNN::CV::COLOR_BGR2RGB,
+                            mVisionMean, mVisionNorm);
+    image = Express::_Unsqueeze(image, {0});
+    image = Express::_Convert(image, NCHW);
+    int gridH = mVisionHeight / patchSize;
+    int gridW = mVisionWidth / patchSize;
+    auto patches = Express::_Reshape(
+        image, {1, 3, gridH / mergeSize, mergeSize, patchSize, gridW / mergeSize, mergeSize, patchSize});
+    patches = Express::_Permute(patches, {0, 2, 3, 5, 6, 1, 4, 7});
+    patches = Express::_Reshape(patches, {gridH * gridW, 3 * temporalPatchSize * patchSize * patchSize});
+    auto imageGridThw = Express::_Input({1, 3}, NCHW, halide_type_of<int>());
+    auto gridPtr = imageGridThw->writeMap<int>();
+    gridPtr[0] = 1;
+    gridPtr[1] = gridH;
+    gridPtr[2] = gridW;
+    auto outputs = mVisionModule->onForward({patches, imageGridThw});
+    if (outputs.empty() || outputs[0] == nullptr || outputs[0]->getInfo() == nullptr) {
+        MNN_ERROR("Hunyuan vision forward failed: resized=%dx%d grid=%dx%d patch=%d merge=%d\n", mVisionHeight,
+                  mVisionWidth, gridH, gridW, patchSize, mergeSize);
+        return std::vector<int>(0);
+    }
+    auto imageEmbedding = outputs[0];
+    int visionLen = imageEmbedding->getInfo()->dim[0];
+    int gridTokens = (gridH / mergeSize) * (gridW / mergeSize + 1);
+    int extraTokens = visionLen - gridTokens;
+    if (extraTokens != 0 && extraTokens != 2) {
+        MNN_ERROR("Hunyuan image token count mismatch: tokens=%d grid=%d\n", visionLen, gridTokens);
+        return std::vector<int>(0);
+    }
+    mVisionEmbeddings.push_back(imageEmbedding);
+    addPositionIds(visionLen, gridH / mergeSize, gridW / mergeSize);
+    std::vector<int> imgIds(visionLen, mVisionPad);
+    imgIds.insert(imgIds.begin(), mVisionStart);
+    imgIds.push_back(mVisionEnd);
+    return imgIds;
+}
+
 std::vector<int> Omni::smolvlmVisionProcess(VARP image) {
     MNN::Express::ExecutorScope s(mExecutor);
     // SmolVLM / LFM2-VL: compute visionLen from global image forward
@@ -856,13 +961,21 @@ std::vector<int> Omni::visionProcess(VARP image) {
 #ifdef LLM_SUPPORT_VISION
     if (image == nullptr) {
         MNN_PRINT("Omni Can't open image\n");
+        mVisionSizeOverridden = false;
         return std::vector<int>(0);
     }
     Timer _t;
     std::vector<int> imgIds;
     const auto inputNames = mVisionModule->getInfo()->inputNames;
+    const auto visionType = mConfig->config_.value("vision_type", "");
     if (inputNames.size() >= 3 && inputNames[0] == "patches") {
         imgIds = qwen2VisionProcess(image);
+    } else if (visionType == "hunyuan_vl") {
+        if (inputNames.size() == 2 && inputNames[0] == "pixel_values" && inputNames[1] == "image_grid_thw") {
+            imgIds = hunyuanVisionProcess(image);
+        } else {
+            MNN_ERROR("Hunyuan vision expects inputs pixel_values,image_grid_thw\n");
+        }
     } else if (inputNames[0] == "pixel_values") {
         if (inputNames.size() == 1) {
             imgIds = smolvlmVisionProcess(image);
@@ -882,6 +995,7 @@ std::vector<int> Omni::visionProcess(VARP image) {
     }
     mContext->vision_us += _t.durationInUs();
     mContext->pixels_mp += (mVisionWidth / 1000.0f) * (mVisionHeight / 1000.0f);
+    mVisionSizeOverridden = false;
     // set vision number for image idx
     mVisionNum += 1;
     return imgIds;
@@ -1033,7 +1147,12 @@ std::vector<int> Omni::multimodeProcess(const std::string& mode, std::string inf
 
             std::stringstream hw_ss(match.str(1));
             char comma;
-            hw_ss >> mVisionHeight >> comma >> mVisionWidth;
+            int parsedHeight = 0, parsedWidth = 0;
+            if (hw_ss >> parsedHeight >> comma >> parsedWidth && parsedHeight > 0 && parsedWidth > 0) {
+                mVisionHeight = parsedHeight;
+                mVisionWidth = parsedWidth;
+                mVisionSizeOverridden = true;
+            }
             currentPosition = matchPosition + match.length();
         }
         if (currentPosition < info.length()) {
@@ -1079,6 +1198,29 @@ std::vector<int> Omni::multimodeProcess(const std::string& mode, std::string inf
 }
 
 void Omni::addPositionIds(int t, int h, int w) {
+    if (mConfig->config_.value("vision_type", "") == "hunyuan_vl" && h >= 0 && w >= 0) {
+        int cur_idx = mPositionIds.mT.empty() ? 0 : mPositionIds.mT.back() + 1;
+        int gridTokens = h * (w + 1);
+        int extraTokens = t - gridTokens;
+        if (extraTokens != 0 && extraTokens != 2) {
+            MNN_ERROR("Hunyuan image token count mismatch: tokens=%d grid=%d\n", t, gridTokens);
+            return;
+        }
+        mPositionIds.push_back(cur_idx++);
+        if (extraTokens == 2) {
+            mPositionIds.push_back(cur_idx++);
+        }
+        for (int h_i = 0; h_i < h; h_i++) {
+            for (int w_i = 0; w_i <= w; w_i++) {
+                mPositionIds.push_back(cur_idx++, w_i, h_i, mVisionNum);
+            }
+        }
+        if (extraTokens == 2) {
+            mPositionIds.push_back(cur_idx++);
+        }
+        mPositionIds.push_back(cur_idx++);
+        return;
+    }
     int cur_idx = mPositionIds.currentIdx();
     if (h < 0 && w < 0) { // text position ids
         for (int i = 0; i < t; i++) {
@@ -1107,6 +1249,7 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     std::smatch match;
     std::vector<int> ids{};
     mPositionIds.clear();
+    mVisionNum = 0;
 
     while (std::regex_search(searchStart, prompt.cend(), match, multimode_regex)) {
         auto txt_ids = mTokenizer->encode(match.prefix().str(), false);
@@ -1145,6 +1288,7 @@ std::vector<int> Omni::processImageContent(const std::string& content, const std
         if (it->second.height > 0 && it->second.width > 0) {
             mVisionHeight = it->second.height;
             mVisionWidth = it->second.width;
+            mVisionSizeOverridden = true;
         }
         // MNN_PRINT("processImageContent: using placeholder '%s' with size %dx%d", content.c_str(), mVisionWidth, mVisionHeight);
         return visionProcess(it->second.image_data);
@@ -1318,26 +1462,42 @@ VARP Omni::gen_position_ids(int seq_len) {
         return Llm::gen_position_ids(seq_len);
     }
     // mrope
-    if (needNewVar(positionIds, 1, seq_len)) {
-        positionIds = _Input({3, seq_len}, NCHW, halide_type_of<int>());
+    int axes = mConfig->mrope_axes();
+    if (positionIds == nullptr || positionIds->getInfo()->dim[0] != axes || needNewVar(positionIds, 1, seq_len)) {
+        positionIds = _Input({axes, seq_len}, NCHW, halide_type_of<int>());
     }
     auto ptr = positionIds->writeMap<int>();
     if (mContext->gen_seq_len > 0) {
-        for (int i=0; i<seq_len; ++i) {
+        for (int i = 0; i < seq_len; ++i) {
             // auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
             auto pos = mContext->all_seq_len + i;
-            ptr[i + 0] = pos;
-            ptr[i + seq_len] = pos;
-            ptr[i + seq_len * 2] = pos;
+            for (int axis = 0; axis < axes; axis++) {
+                ptr[i + seq_len * axis] = pos;
+            }
         }
     } else {
+        bool hunyuan = mConfig->config_.value("vision_type", "") == "hunyuan_vl";
+        auto axisValue = [this](int axis, int i) {
+            const std::vector<int>* values = nullptr;
+            if (axis == 0) {
+                values = &mPositionIds.mT;
+            } else if (axis == 1) {
+                values = &mPositionIds.mH;
+            } else if (axis == 2) {
+                values = &mPositionIds.mW;
+            } else if (axis == 3) {
+                values = &mPositionIds.mX;
+            }
+            if (values != nullptr && i < static_cast<int>(values->size())) {
+                return (*values)[i];
+            }
+            return i;
+        };
         for (int i = 0; i < seq_len; i++) {
-            int mT_val = i < mPositionIds.mT.size() ? mPositionIds.mT[i] : i;
-            int mH_val = i < mPositionIds.mH.size() ? mPositionIds.mH[i] : i;
-            int mW_val = i < mPositionIds.mW.size() ? mPositionIds.mW[i] : i;
-            ptr[i] = mT_val + mContext->all_seq_len;
-            ptr[i + seq_len] = mH_val + mContext->all_seq_len;
-            ptr[i + seq_len * 2] = mW_val + mContext->all_seq_len;
+            for (int axis = 0; axis < axes; axis++) {
+                int offset = (hunyuan && axis > 0) ? 0 : mContext->all_seq_len;
+                ptr[i + seq_len * axis] = axisValue(axis, i) + offset;
+            }
         }
         if (mTalker) {
             mTalker->setPostionIds(mPositionIds);
@@ -1387,7 +1547,10 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
     }
     int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
     mContext->prompt_len = seqLen;
-    mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end());
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end());
+    }
 
     MNN::Timer _t;
     auto outputs = forwardVec(input_embeds);
@@ -1400,14 +1563,20 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
 
     // Sample first thinker token from prefill logits
     mContext->current_token = sample(outputs[0]);
-    mContext->history_tokens.push_back(mContext->current_token);
-    mContext->output_tokens.push_back(mContext->current_token);
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.push_back(mContext->current_token);
+        mContext->output_tokens.push_back(mContext->current_token);
+    }
     updateContext(0, 1);
 
     // Output first token
     if (!is_stop(mContext->current_token)) {
         auto decodeStr = tokenizer_decode(mContext->current_token);
-        mContext->generate_str += decodeStr;
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->generate_str += decodeStr;
+        }
         if (nullptr != os) {
             *os << decodeStr << std::flush;
         }
@@ -1429,15 +1598,21 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
 
         int next_token = sample(decode_outputs[0]);
         mContext->current_token = next_token;
-        mContext->history_tokens.push_back(next_token);
-        mContext->output_tokens.push_back(next_token);
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->history_tokens.push_back(next_token);
+            mContext->output_tokens.push_back(next_token);
+        }
         updateContext(0, 1);
         mContext->decode_us += t_decode.durationInUs();
         thinker_tokens = 2;
 
         if (!is_stop(next_token)) {
             auto decodeStr = tokenizer_decode(next_token);
-            mContext->generate_str += decodeStr;
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->generate_str += decodeStr;
+            }
             if (nullptr != os) {
                 *os << decodeStr << std::flush;
             }
@@ -1476,8 +1651,11 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
 
             int next_token = sample(decode_outputs[0]);
             mContext->current_token = next_token;
-            mContext->history_tokens.push_back(next_token);
-            mContext->output_tokens.push_back(next_token);
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->history_tokens.push_back(next_token);
+                mContext->output_tokens.push_back(next_token);
+            }
             updateContext(0, 1);
             mContext->decode_us += t_decode.durationInUs();
             thinker_tokens++;
@@ -1489,7 +1667,10 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
                 }
             } else {
                 auto decodeStr = tokenizer_decode(next_token);
-                mContext->generate_str += decodeStr;
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->generate_str += decodeStr;
+                }
                 if (nullptr != os) {
                     *os << decodeStr << std::flush;
                 }
@@ -2143,8 +2324,11 @@ void Talker::stepPrefill() {
     MNN::Timer _t;
     auto logits = forward(input_embeds);
     mContext->current_token = sample(logits);
-    mContext->history_tokens.push_back(mContext->current_token);
-    mContext->output_tokens.push_back(mContext->current_token);
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.push_back(mContext->current_token);
+        mContext->output_tokens.push_back(mContext->current_token);
+    }
     mContext->prefill_us += _t.durationInUs();
 }
 
@@ -2167,8 +2351,11 @@ void Talker::stepForward(int stepIdx) {
     int token = sample(logits);
 
     mContext->current_token = token;
-    mContext->history_tokens.push_back(token);
-    mContext->output_tokens.push_back(token);
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.push_back(token);
+        mContext->output_tokens.push_back(token);
+    }
 
     if (mAsyncToken2Wav) {
         trySubmitChunkAsync(false);

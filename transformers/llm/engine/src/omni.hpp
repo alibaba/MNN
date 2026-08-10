@@ -27,6 +27,7 @@ public:
         mT = info.mT;
         mH = info.mH;
         mW = info.mW;
+        mX = info.mX;
     }
     int back() {
         if (mW.empty()) {
@@ -40,10 +41,12 @@ public:
         }
         return back() + 1;
     }
-    void push_back(int t, int h, int w) {
+    void push_back(int t, int h, int w) { push_back(t, h, w, w); }
+    void push_back(int t, int h, int w, int x) {
         mT.push_back(t);
         mH.push_back(h);
         mW.push_back(w);
+        mX.push_back(x);
     }
     void push_back(int t) {
         push_back(t, t, t);
@@ -56,8 +59,9 @@ public:
         mT.clear();
         mH.clear();
         mW.clear();
+        mX.clear();
     }
-    std::vector<int> mT, mH, mW;
+    std::vector<int> mT, mH, mW, mX;
 };
 
 struct WavChunk {
@@ -167,6 +171,7 @@ public:
     std::vector<int> qwen2VisionProcess(VARP image);
     std::vector<int> smolvlmVisionProcess(VARP image);
     std::vector<int> minicpmVisionProcess(VARP image);
+    std::vector<int> hunyuanVisionProcess(VARP image);
     std::vector<int> gemma4VisionProcess(VARP image);
 private:
     bool initProcessorRuntime();
@@ -177,6 +182,7 @@ private:
     int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
     int mVisionNum = 0;
     int mNumGridPerSide = 1;
+    bool mVisionSizeOverridden = false;
     std::vector<float> mVisionMean{122.7709383, 116.7460125, 104.09373615};
     std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
     std::vector<int> multimodeProcess(const std::string& mode, std::string info);

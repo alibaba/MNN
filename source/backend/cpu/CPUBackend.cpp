@@ -588,9 +588,14 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     auto& buffer = dest->buffer();
     auto des = TensorUtils::getDescribe(dest);
     MemChunk chunk;
+    BufferAllocator* staticAllocator = mRuntime->mStaticAllocator.get();
     switch (storageType) {
         case STATIC: {
             chunk = mRuntime->mStaticAllocator->alloc(size, false);
+            if (chunk.invalid() && nullptr != mRuntime->mStaticAllocatorRaw.get()) {
+                chunk = mRuntime->mStaticAllocatorRaw->alloc(size, false);
+                staticAllocator = mRuntime->mStaticAllocatorRaw.get();
+            }
             break;
         }
         case DYNAMIC: {
@@ -614,7 +619,7 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     Backend::MemObj* res = nullptr;
 
     if (storageType == STATIC) {
-        res = new CPUMemObj(mRuntime->mStaticAllocator.get(), chunk, size);
+        res = new CPUMemObj(staticAllocator, chunk, size);
     } else {
         res = new CPUMemObj(mDmaInfo->mCurrentDynamicAllocator, chunk, size);
         chunk.attach(dest);
@@ -653,6 +658,31 @@ static OpType _getRealOpType(OpType opType) {
         default:
             return opType;
     }
+}
+
+// A Conv / DepthwiseConv may be promoted to Int8 execution purely based on the
+// int8 quantAttr of its input/output tensors. Guard against promoting an op that
+// carries no quantized weight data (e.g. a Conv listed in skip_quant_op_names but
+// still surrounded by int8 tensors): the ConvInt8 executor would later dereference
+// a missing quan weight (null symmetricQuan) and crash. Non-conv ops are unaffected.
+static bool _convHasQuantWeight(const MNN::Op* op) {
+    auto opType = op->type();
+    if (opType != OpType_Convolution && opType != OpType_ConvolutionDepthwise) {
+        return true;
+    }
+    auto conv2d = op->main_as_Convolution2D();
+    if (nullptr == conv2d) {
+        return false;
+    }
+    auto quan = conv2d->quanParameter();
+    if (nullptr != quan && (nullptr != quan->buffer() || nullptr != conv2d->external())) {
+        return true;
+    }
+    auto symmetric = conv2d->symmetricQuan();
+    if (nullptr != symmetric && nullptr != symmetric->weight()) {
+        return true;
+    }
+    return false;
 }
 void* CPUBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) {
     if (static_cast<int>(getBytes(this, srcTensor)) != srcTensor->getType().bytes()) {
@@ -732,7 +762,7 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
     if (outputs.size() > 0 && inputs.size() > 0) {
         bool outputQuant = TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->quantAttr->type == DataType_DT_INT8;
         bool inputQuant = TensorUtils::getDescribe(inputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(inputs[0])->quantAttr->type == DataType_DT_INT8;
-        if (inputQuant && outputQuant) {
+        if (inputQuant && outputQuant && _convHasQuantWeight(op)) {
             opType = _getRealOpType(opType);
         }
     }

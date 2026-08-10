@@ -22,6 +22,7 @@ from utils.smooth_quantizer import SmoothQuantizer
 from utils.omni_quantizer import OmniQuantizer
 from utils.torch_utils import onnx_export
 
+
 class LlmExporter(torch.nn.Module):
     '''
     Base class for all llm model export. Inherits from [`torch.nn.Module`].
@@ -32,6 +33,8 @@ class LlmExporter(torch.nn.Module):
         self.load_model(args.path)
 
     def init_from_args(self, args):
+        if args.smooth and args.omni:
+            raise ValueError('--smooth and --omni cannot be used together; choose one quantization calibration method.')
         self.args = args
         self.max_new_tokens = 1024
         self.dst_name = 'llm'
@@ -98,6 +101,8 @@ class LlmExporter(torch.nn.Module):
             'attention_type': self.config.attention_type,
             'is_mrope': self.model.rotary.is_mrope
         }
+        if self.model.rotary.is_mrope:
+            self.llm_config['mrope_axes'] = self.model.rotary.mrope_axes
         self.llm_config.update(self.model.get_config())
         # Attention scaling (gemma4 uses 1.0 instead of 1/sqrt(head_dim))
         if hasattr(self.model, 'blocks') and len(self.model.blocks) > 0:
@@ -139,6 +144,14 @@ class LlmExporter(torch.nn.Module):
             }
             if self.tokenizer.eos_token:
                 self.llm_config['jinja']['eos'] = self.tokenizer.eos_token
+
+        # HunyuanVL's HF template uses syntax unsupported by the C++ minja parser.
+        if self.model_type == 'hunyuan_vl':
+            self.llm_config['jinja'] = {
+                'chat_template': "<｜hy_begin▁of▁sentence｜>{% for message in messages %}{% if message.role == \"system\" %}{{ message.content }}<｜hy_place▁holder▁no▁3｜>{% elif message.role == \"user\" %}{{ message.content }}<｜hy_User｜>{% elif message.role == \"assistant\" %}{{ message.content }}<｜hy_Assistant｜>{% endif %}{% endfor %}",
+                'bos': '<｜hy_begin▁of▁sentence｜>',
+                'eos': '<｜hy_Assistant｜>'
+            }
 
         # tie word embeddings
         self.args.tie_word_embeddings = not self.args.seperate_embed and self.model.lm.lm.weight.equal(self.model.embed.embed.weight)
@@ -439,6 +452,8 @@ class LlmExporter(torch.nn.Module):
             for i in range(len(self.model.blocks)):
                 # different kv cache shape in different layers
                 # if isinstance(self.config.num_attention_heads, list):
+                # Keep custom Attention in the exported LLM graph so runtime decode uses KV cache.
+                # HunyuanVL still disables MNNConvert transformerFuse separately.
                 self.model.blocks[i].self_attn.export_fused_attn = True
                 is_moe = hasattr(self.model.blocks[i].mlp, 'is_moe') and self.model.blocks[i].mlp.is_moe
                 if is_moe:
@@ -701,7 +716,8 @@ class LlmExporter(torch.nn.Module):
         if self.args.onnx_slim:
             self.slim_onnx(onnx_model)
         if self.mnn_converter:
-            tie_embeddings_info = MNNConverter(self, self.unloaded_ops).export(onnx_model)
+            fuse_transformer = self.model_type != 'hunyuan_vl'
+            tie_embeddings_info = MNNConverter(self, self.unloaded_ops).export(onnx_model, transformer_fuse=fuse_transformer)
             if tie_embeddings_info is not None:
                 self.llm_config['tie_embeddings'] = tie_embeddings_info
         else:
@@ -744,6 +760,7 @@ class LlmExporter(torch.nn.Module):
 class EmbeddingExporter(LlmExporter):
     def __init__(self, args):
         super().__init__(args)
+        self.dst_name = 'embedding'
 
     def unload_embedding_param(self):
         self.unloaded_ops = {}
@@ -969,10 +986,13 @@ def build_args(parser):
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
     parser.add_argument('--awq', action='store_true', help='Whether or not to use awq quant.')
     parser.add_argument('--hqq', action='store_true', help='Whether or not to use hqq quant.')
-    parser.add_argument('--omni', action='store_true', help='Whether or not to use omni quant.')
+    calibration_group = parser.add_mutually_exclusive_group()
+    calibration_group.add_argument('--omni', action='store_true', help='Whether or not to use omni quant.')
+    calibration_group.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
     parser.add_argument('--transformer_fuse', action='store_true', help='Whether or not to fuse vision transformer op.')
+    parser.add_argument('--disable_transformer_c4', dest='transformer_c4', action='store_false', default=True,
+                        help='Disable LLM C4 graph fusion for compatibility with older runtimes.')
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')
-    parser.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
     parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), default is False.')
     parser.add_argument('--scale_bit', type=int, default=16, choices=[16, 32], help='Bit-width for quant scale/zero-point storage. Currently supports 16 (fp16, default) and 32 (fp32); 8/4 reserved for future.')
     parser.add_argument('--visual_sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint) for visual model, default is False.')

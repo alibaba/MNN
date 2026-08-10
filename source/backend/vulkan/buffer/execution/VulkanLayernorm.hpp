@@ -18,10 +18,10 @@ namespace MNN {
 
 class VulkanLayernorm : public VulkanBasicExecution {
 public:
-    VulkanLayernorm(const Op* op, Backend* bn, Tensor * tensor);
+    VulkanLayernorm(const Op* op, Backend* bn, Tensor* tensor, bool binaryC4 = false);
     virtual ~VulkanLayernorm();
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                       const VulkanCommandPool::Buffer* cmdBuffer) override;
+                               const VulkanCommandPool::Buffer* cmdBuffer) override;
     virtual bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override;
 
 private:
@@ -42,6 +42,8 @@ private:
     int mGroup = 0;
     int mAxisSize = 0;
     bool mFP16{false};
+    bool mIsNC4HW4{false};
+    bool mIsBinaryC4{false};
 };
 
 } // namespace MNN

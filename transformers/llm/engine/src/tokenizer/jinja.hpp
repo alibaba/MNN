@@ -579,7 +579,6 @@ static json undefined_init() {
     j["__jinja_undefined__"] = true;
     return j;
 }
-static const json UNDEFINED = undefined_init();
 
 inline bool is_undefined(const json& val) {
     return val.is_object() && val.contains("__jinja_undefined__");
@@ -635,7 +634,7 @@ public:
             }
         }
         JINJA_LOG("Context: Variable '" << name << "' not found, returning UNDEFINED");
-        return UNDEFINED;
+        return undefined_init();
     }
 
     json get(const std::string& name) const {
@@ -645,7 +644,7 @@ public:
                 return (*it)[name];
             }
         }
-        return UNDEFINED;
+        return undefined_init();
     }
 
     void set(const std::string& name, json val) {
@@ -718,7 +717,7 @@ struct GetAttrExpr : Expr {
         } else if (obj_val.is_array() && name == "length") {
              return obj_val.size();
         }
-        return UNDEFINED;
+        return undefined_init();
     }
     std::string dump() const override { return object->dump() + "." + name; }
 };

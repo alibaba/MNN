@@ -19,13 +19,16 @@
 #if defined(__aarch64__)
 #include <sys/auxv.h>
 #endif
-//riscv support component
+// RISC-V runtime feature detection, via riscv_hwprobe(2) (Linux 6.4+). The
+// kernel header is optional: an older sysroot can still build code that probes
+// a newer kernel, so only the struct definition is taken from it when present.
 #if defined(__riscv)
-#include <stdlib.h>
-#include <string.h>
-#include <sys/auxv.h>
-#include <signal.h>
-#include <setjmp.h>
+#if defined(__has_include)
+#if __has_include(<asm/hwprobe.h>)
+#include <asm/hwprobe.h>
+#define MNN_HAS_RISCV_HWPROBE_H 1
+#endif
+#endif
 #endif
 
 
@@ -38,6 +41,9 @@
 #define CPUINFO_ARM_LINUX_FEATURE_FPHP UINT32_C(0x00000200)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP UINT32_C(0x00000400)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP UINT32_C(0x00100000)
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+#define CPUINFO_ARM_LINUX_FEATURE_ASIMDFHM UINT32_C(0x00800000)
+#endif
 #define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
 // HWCAP2 flags
 #define CPUINFO_ARM_LINUX_FEATURE2_SVE2 UINT32_C(0x00000002)
@@ -1341,6 +1347,11 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
     if (have_feature("hw.optional.arm.FEAT_FP16")) {
         cpuinfo_isa->fp16arith = true;
     }
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    if (have_feature("hw.optional.arm.FEAT_FHM")) {
+        cpuinfo_isa->fp16fml = true;
+    }
+#endif
     if (have_feature("hw.optional.arm.FEAT_DotProd")) {
         cpuinfo_isa->dot = true;
     }
@@ -1368,6 +1379,11 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     if ((isa_features & fp16arith_mask) == fp16arith_mask) {
         cpuinfo_isa->fp16arith = true;
     }
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDFHM) {
+        cpuinfo_isa->fp16fml = true;
+    }
+#endif
     // HWCAP2 features
     isa_features2 = (uint64_t)getauxval(AT_HWCAP2);
     if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_I8MM) {
@@ -1384,158 +1400,69 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
 #endif
 //Riscv support
 #if defined(__linux__) && defined(__riscv)
-    // only needed in  RISC-V Linux
-  #ifndef AT_HWCAP
-        #define AT_HWCAP 16
-    #endif
+// riscv_hwprobe(2) ABI, from arch/riscv/include/uapi/asm/hwprobe.h. Only the
+// pair struct is borrowed from the kernel header; the key and the bit masks are
+// spelled out here because upstream defines the top bit as a signed
+// `(1 << 31)`, which sign-extends to 0xffffffff80000000 once promoted to
+// uint64_t and would then alias every extension bit above 31.
+#if defined(MNN_HAS_RISCV_HWPROBE_H)
+using MNNRiscvHwprobe = riscv_hwprobe;
+#else
+struct MNNRiscvHwprobe {
+    int64_t key;
+    uint64_t value;
+};
+#endif
 
-    #ifndef RISCV_HWCAP_ISA_V
-        #define RISCV_HWCAP_ISA_V (1 << 21)
-    #endif
-// ============================================================
-// 1. cpuinfo 缓存
-// ============================================================
+#if defined(__NR_riscv_hwprobe)
+static const long gRISCVHwprobeNr = __NR_riscv_hwprobe;
+#else
+// RISC-V Linux reserves syscall 258 for riscv_hwprobe.
+static const long gRISCVHwprobeNr = 258;
+#endif
 
-static char g_cpuinfo_buf[8192];
-static int g_cpuinfo_loaded = 0;
+static const int64_t gRISCVHwprobeKeyImaExt0 = 4;
+static const uint64_t gRISCVHwprobeImaV = 1ULL << 2;
+static const uint64_t gRISCVHwprobeExtZvfh = 1ULL << 30;
+static const uint64_t gRISCVHwprobeExtZvfhmin = 1ULL << 31;
 
-static void _load_cpuinfo_once() {
-    if (g_cpuinfo_loaded) return;
-
-    FILE* f = fopen("/proc/cpuinfo", "r");
-    if (!f) return;
-
-    size_t len = fread(g_cpuinfo_buf, 1, sizeof(g_cpuinfo_buf) - 1, f);
-    g_cpuinfo_buf[len] = '\0';
-
-    fclose(f);
-    g_cpuinfo_loaded = 1;
-}
-
-// ============================================================
-// 2. 精确匹配扩展（避免 _zvfh 命中 _zvfhmin）
-// ============================================================
-
-static int _match_ext_token(const char* str, const char* ext) {
-    const char* p = str;
-
-    size_t ext_len = strlen(ext);
-
-    while ((p = strstr(p, ext)) != NULL) {
-        char next = p[ext_len];
-
-        // 设置边界条件
-        if (next == '\0' || next == ' ' || next == '\n' || next == '_') {
-            return 1;
-        }
-        p += ext_len;
+static void _getRISCVInfoHwprobe(MNNCPUInfo* cpuinfo) {
+    // The cpufreq scan in _fillInfo is the primary source for cpuNumber, but it
+    // is skipped entirely on boards that expose no cpufreq policy, so keep a
+    // fallback here rather than leaving the count at zero.
+    if (cpuinfo->cpuNumber <= 0) {
+        cpuinfo->cpuNumber = (int)sysconf(_SC_NPROCESSORS_ONLN);
     }
-
-    return 0;
-}
-
-static bool _check_riscv_extension(const char* ext) {
-    _load_cpuinfo_once();
-
-    const char* line = g_cpuinfo_buf;
-
-    while ((line = strstr(line, "isa")) != NULL) {
-        const char* end = strchr(line, '\n');
-        if (!end) break;
-
-        char isa_line[1024];
-        size_t len = end - line;
-        if (len >= sizeof(isa_line)) len = sizeof(isa_line) - 1;
-
-        strncpy(isa_line, line, len);
-        isa_line[len] = '\0';
-
-        if (_match_ext_token(isa_line, ext)) {
-            return true;
-        }
-
-        line = end + 1;
-    }
-
-    return false;
-}
-
-// ============================================================
-// 3. SIGILL读取 vlenb
-// ============================================================
-
-static sigjmp_buf g_jmpbuf;
-
-static void _sigill_handler(int signo) {
-    siglongjmp(g_jmpbuf, 1);
-}
-
-static uint32_t _safe_read_vlenb() {
-    uint32_t vlenb = 0;
-
-    struct sigaction sa_old, sa_new;
-    memset(&sa_new, 0, sizeof(sa_new));
-    sa_new.sa_handler = _sigill_handler;
-
-    sigaction(SIGILL, &sa_new, &sa_old);
-
-    if (sigsetjmp(g_jmpbuf, 1) == 0) {
-        __asm__ __volatile__(
-            ".option push\n\t"
-            ".option arch, +v\n\t"
-            "csrr %0, vlenb\n\t"
-            ".option pop\n\t"
-            : "=r"(vlenb)
-            :
-            : "memory"
-        );
-    } else {
-        // SIGILL fallback
-        vlenb = 0;
-    }
-
-    sigaction(SIGILL, &sa_old, NULL);
-
-    if (vlenb == 0) vlenb = 16; // fallback
-
-    return vlenb;
-}
-
-// ============================================================
-// 4. 主逻辑
-// ============================================================
-
-static void _getRISCVInfoAux(MNNCPUInfo* cpuinfo) {
-    // CPU 核心数
-    cpuinfo->cpuNumber = (int)sysconf(_SC_NPROCESSORS_ONLN);
     if (cpuinfo->cpuNumber <= 0) {
         cpuinfo->cpuNumber = (int)sysconf(_SC_NPROCESSORS_CONF);
     }
 
-    // HWCAP 检测
-    unsigned long hwcap = getauxval(AT_HWCAP);
-    if ((hwcap & RISCV_HWCAP_ISA_V) == 0) return;
-
-    cpuinfo->rvv = true;
-
-    // 安全读取 VLEN
-    uint32_t vlenb = _safe_read_vlenb();
-    cpuinfo->rvv_vlen = (int)(vlenb * 8);
-
-    // RVV 版本
-#if defined(__riscv_v)
-    cpuinfo->rvv_version = __riscv_v;
-#endif
-
-    // 扩展检测（使用缓存 + 精确匹配）
-    if (_check_riscv_extension("_zvfh")) {
-        cpuinfo->zvfh = true;
-        cpuinfo->fp16arith = true;
+    MNNRiscvHwprobe pair = {gRISCVHwprobeKeyImaExt0, 0};
+    // Args are pairs, pair_count, cpusetsize, cpus, flags. A zero cpusetsize
+    // with a null set queries every online CPU and the kernel ANDs the
+    // extension bits across them, so dispatch survives thread migration.
+    long result = syscall(gRISCVHwprobeNr, &pair, (size_t)1, (size_t)0, (void*)NULL, 0u);
+    if (0 != result || pair.key != gRISCVHwprobeKeyImaExt0) {
+        // Kernels older than 6.4 fail the call with ENOSYS; a key the running
+        // kernel does not recognise is rewritten to -1 with a zero value.
+        return;
     }
 
-    if (_check_riscv_extension("_zvkn") || _check_riscv_extension("_zvkdot")) {
-        cpuinfo->zvkn = true;
-        cpuinfo->dot = true;
+    cpuinfo->rvv = 0 != (pair.value & gRISCVHwprobeImaV);
+    if (!cpuinfo->rvv) {
+        return;
+    }
+    // The Zvfh / Zvfhmin bits were only added in Linux 6.8; on an older kernel
+    // they read back as zero, which is reported here as "not available".
+    cpuinfo->zvfh = 0 != (pair.value & gRISCVHwprobeExtZvfh);
+    // Zvfh is a superset of Zvfhmin, so treat it as providing the minimal FP16
+    // conversion capability even on a kernel that only sets the Zvfh bit.
+    cpuinfo->zvfhmin = cpuinfo->zvfh || 0 != (pair.value & gRISCVHwprobeExtZvfhmin);
+
+    // Zvfhmin only adds FP16<->FP32 vector conversion. Keep fp16arith tied to
+    // full Zvfh, which additionally provides FP16 vector arithmetic.
+    if (cpuinfo->zvfh) {
+        cpuinfo->fp16arith = true;
     }
 }
 
@@ -1590,6 +1517,9 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->i8mm = false;
     cpuinfo_isa->sve2 = false;
     cpuinfo_isa->sme2 = false;
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    cpuinfo_isa->fp16fml = false;
+#endif
     // android
     /**Get CPU Info*/
 #ifdef __linux__
@@ -1674,7 +1604,7 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
  
 //riscv support
 #if defined(__riscv)
-    _getRISCVInfoAux(cpuinfo_isa);
+    _getRISCVInfoHwprobe(cpuinfo_isa);
 #endif
 
 

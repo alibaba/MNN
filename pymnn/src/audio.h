@@ -85,7 +85,11 @@ static PyObject *PyMNNAUDIO_whisper_fbank(PyObject *self, PyObject *args) {
     int sample_rate = 16000, n_mels = 128, n_fft = 400, hop_length = 160, chunk_len = 30;
     if (PyArg_ParseTuple(args, "O|iiiii", &waveform, &sample_rate, &n_mels, &n_fft, &hop_length, &chunk_len) &&
         isVar(waveform)) {
-        return toPyObj(AUDIO::whisper_fbank(toVar(waveform), sample_rate, n_mels, n_fft, hop_length, chunk_len));
+        auto result = AUDIO::whisper_fbank(toVar(waveform), sample_rate, n_mels, n_fft, hop_length, chunk_len);
+        if (result == nullptr) {
+            PyMNN_ERROR("whisper_fbank failed: invalid parameters");
+        }
+        return toPyObj(result);
     }
     PyMNN_ERROR("whisper_fbank require args: (Var, |int, int, int, int, int)");
 }

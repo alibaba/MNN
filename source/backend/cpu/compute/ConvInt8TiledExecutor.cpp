@@ -13,6 +13,7 @@
 
 #include <math.h>
 #include "backend/cpu/CPUBackend.hpp"
+#include "CPUExtension.hpp"
 #include "core/Concurrency.h"
 #include "core/TensorUtils.hpp"
 
@@ -350,6 +351,11 @@ static inline void _updateMixedKernelFlag(bool& mixedKernel, bool& onlineReorder
 DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op,
                                                        std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon,
                                                        bool isDynamicQuant)
+    : DenseConvInt8TiledExecutor(backend, op, std::move(quanCommon), isDynamicQuant, nullptr) {}
+
+DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op,
+                                                       std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon,
+                                                       bool isDynamicQuant, WeightReorderComplete weightReorderComplete)
     : ConvInt8TiledExecutor(backend, op) {
     // convolution info
     auto convOp = op->main_as_Convolution2D();
@@ -477,6 +483,12 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         mResourceInt8->mWeightAsymmetricQuant = true; // offset: 4 from uint8_t
     }
     mResourceInt8->mDynamicQuant = isDynamicQuant ? true : false;
+    const WeightReorderInfo weightReorderInfo = {static_cast<size_t>(shapeMain[2]),
+                                                 static_cast<size_t>(shapeMain[1]),
+                                                 static_cast<size_t>(shapeMain[0]),
+                                                 shapeMain[3],
+                                                 shapeMain[4],
+                                                 mOcBranch};
 
     // Relu/Relu6 post parameters
     auto postPtr = getPostParameters();
@@ -505,10 +517,16 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
 
     if (!res) {
         MNN_ERROR("weight acquire buffer error\n");
+        if (weightReorderComplete) {
+            weightReorderComplete(false, mResourceInt8, weightReorderInfo);
+        }
         return;
     }
     bool useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
     if (useCachedMmap) {
+        if (weightReorderComplete) {
+            weightReorderComplete(true, mResourceInt8, weightReorderInfo);
+        }
         return;
     }
 
@@ -810,7 +828,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         bool fastReadWeight =
             (kernelCount == 1 && ROUND_UP(ocMain, UNITMain) == ocMain && ROUND_UP(ic, SRC_UNITMain) == ic);
         weightSummerFuncion sumFunc = funcsMain.MNNSumWeightInt8;
-        if (mOnlineReorderWeightSme) {
+        if (needToReorderWeightOnline4Sme) {
             sumFunc = funcsMain.MNNSumWeightInt8SmeHp128;
         }
 
@@ -821,8 +839,14 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         addressPtr[3] =
             quanCommon ? (int8_t*)quanCommon->alpha.get() : (int8_t*)convOp->symmetricQuan()->scale()->data();
 
-        reorderFunc(funcsMain, shapeMain, UNITMain, SRC_UNITMain, DST_XUNITMain, weightlenMain, scaleSizeMain, ocMain,
-                    0, fastReadWeight, addressPtr, sumFunc);
+        auto reorderResult = reorderFunc(funcsMain, shapeMain, UNITMain, SRC_UNITMain, DST_XUNITMain, weightlenMain,
+                                         scaleSizeMain, ocMain, 0, fastReadWeight, addressPtr, sumFunc);
+        if (reorderResult != 0) {
+            if (weightReorderComplete) {
+                weightReorderComplete(false, target, weightReorderInfo);
+            }
+            return reorderResult;
+        }
 
         if (ocBranch > 0) {
             // update the address of weight source, weight destination, weight kernel sum and weight scale
@@ -837,8 +861,18 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
 
             fastReadWeight =
                 (kernelCount == 1 && ROUND_UP(ocBranch, UNITMain) == ocBranch && ROUND_UP(ic, SRC_UNITMain) == ic);
-            reorderFunc(funcsBranch, shapeBranch, UNITBranch, SRC_UNITBranch, DST_XUNITBranch, weightlenBranch,
-                        scaleSizeBranch, ocBranch, 1, fastReadWeight, addressPtr, sumFunc);
+            reorderResult =
+                reorderFunc(funcsBranch, shapeBranch, UNITBranch, SRC_UNITBranch, DST_XUNITBranch, weightlenBranch,
+                            scaleSizeBranch, ocBranch, 1, fastReadWeight, addressPtr, sumFunc);
+            if (reorderResult != 0) {
+                if (weightReorderComplete) {
+                    weightReorderComplete(false, target, weightReorderInfo);
+                }
+                return reorderResult;
+            }
+        }
+        if (weightReorderComplete) {
+            weightReorderComplete(true, target, weightReorderInfo);
         }
         return 0;
     };
@@ -916,6 +950,15 @@ DenseConvInt8TiledExecutor::~DenseConvInt8TiledExecutor() {
     // Do nothing
 }
 
+bool DenseConvInt8TiledExecutor::onSetupLinearFastPath(const std::vector<Tensor*>& inputs,
+                                                       const std::vector<Tensor*>& outputs) {
+    return false;
+}
+
+DenseConvInt8TiledExecutor* DenseConvInt8TiledExecutor::createClone(Backend* bn, const Op* op) const {
+    return new DenseConvInt8TiledExecutor(bn, op, *this);
+}
+
 bool DenseConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
@@ -924,7 +967,7 @@ bool DenseConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** 
         *dst = new SharedGather(bn, mResourceInt8);
         return true;
     }
-    auto exe = new DenseConvInt8TiledExecutor(bn, op, *this);
+    auto exe = createClone(bn, op);
     if (!exe->valid()) {
         return false;
     }
@@ -1050,6 +1093,13 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     const int pack = gcore->pack;
     auto kernelCountUnit = mIm2ColParamter.kernelCountUnit;
     mSplitByOc = true;
+#ifdef MNN_USE_RVV
+    auto extension = gcore->extension;
+    const bool preferLinearPlaneSplit =
+        extension != nullptr && extension->createInt8GemmExecution != nullptr && onSetupLinearFastPath(inputs, outputs);
+#else
+    const bool preferLinearPlaneSplit = false;
+#endif
 
     // flop and io
     float flop = gcore->bytes * planeSize *
@@ -1059,12 +1109,13 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
                  ((CPUBackend*)backend())->getTensorSize(mResourceInt8->mWeightInt8.get()) * weightBytes) /
                 (1024.0 * 1024.0 * 1024.0);
 
-    if ((threads < planeSize || mOnlineReorderWeightSme) && !mMixedKernel) { // Thread split by output nhw.
+    if ((preferLinearPlaneSplit || threads < planeSize || mOnlineReorderWeightSme) &&
+        !mMixedKernel) { // Thread split by output nhw.
         tileLimit = ALIMIN(tileLimitByC, UP_DIV(planeSize, threads));
         mIm2ColCount = UP_DIV(tileLimit, DST_XUNIT);
         auto DynamicDestUnit = DST_XUNIT * mIm2ColCount;
         mTileCount = UP_DIV(planeSize, DynamicDestUnit);
-        if (mTileCount > threads || (mOnlineReorderWeightSme && planeSize > 1)) {
+        if (preferLinearPlaneSplit || mTileCount > threads || (mOnlineReorderWeightSme && planeSize > 1)) {
             mSplitByOc = false;
         }
     }

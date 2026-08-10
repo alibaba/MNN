@@ -41,6 +41,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_JNI              | 是否构建MNN的JNI支持，默认为`OFF` |
 | MNN_METAL            | 是否构建`Metal`后端，默认为`OFF` |
 | MNN_METAL_TENSOR     | 是否启用`Metal Tensor`接口，该宏仅在`MNN_METAL=ON`时生效，默认为`ON` |
+| MNN_METAL_OP_PROFILE | 是否启用`Metal`后端的逐算子GPU耗时profiling，该宏仅在`MNN_METAL=ON`时生效，默认为`OFF` |
 | MNN_OPENCL           | 是否构建`OpenCL`后端，默认为`OFF` |
 | MNN_OPENGL           | 是否构建`OpenGL`后端，默认为`OFF` |
 | MNN_VULKAN           | 是否构建`Vulkan`后端，默认为`OFF` |
@@ -62,6 +63,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_QNN              | 是否构建`QNN`后端，默认为`OFF` |
 | MNN_QNN_ONLINE_FINALIZE | 在`MNN_QNN`开启的基础上,是否构建在线编译模式的QNN后端，默认为`ON` |
 | MNN_QNN_CONVERT_MODE | 在`MNN_QNN`开启的基础上,是否构建Convert模式的QNN后端，默认为`OFF` |
+| MNN_HEXAGON          | 是否构建高通`Hexagon DSP`后端，默认为`OFF` ，使用说明见 `source/backend/hexagon/README.md` |
+| MNN_HEXAGON_ASAN     | 是否开启Hexagon后端内部内存一致性检查，该宏仅在`MNN_HEXAGON=ON`时生效，默认为`OFF` |
 | MNN_NEUROPILOT            | 是否构建MLA的`NPU`离线转换后端或执行插件，默认为`OFF`  |
 | MNN_NPU            | 是否构建HIAI的`NPU`后端，默认为`OFF`  |
 | MNN_USE_SPARSE_COMPUTE | 是否使用稀疏计算，默认为`ON` |
@@ -106,6 +109,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库，默认为`ON` |
 | MNN_KLEIDIAI_DEFAULT_ON | 是否默认使用KLEIDIAI的Kernel, 默认为`OFF` |
 | MNN_USE_RVV          | 是否启用RISC-V向量扩展支持，默认为`OFF` |
+| MNN_RVV_FAST_MATH    | 是否为RISC-V RVV优化Kernel启用`-ffast-math`，默认为`OFF` |
+| MNN_RVV_SPACEMIT_IME2 | 是否构建独立的SpacemiT K3 IME2专用目标；vendor宏和ISA不会传播到`MNNCPU`或标准`MNNRVV`，默认为`OFF` |
 | MNN_MUSA_QUANT       | 是否开启 MUSA 量化相关代码编译，默认为`OFF` |
 | MNN_MUSA_BF16        | 是否开启 MUSA BFloat16 代码编译，默认为`OFF` |
 | MNN_MUSA_COMPAT_STUB | MUSA 兼容存根模式，仅编译不依赖真实 GPU，默认为`ON` |

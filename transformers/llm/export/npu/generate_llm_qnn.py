@@ -12,70 +12,83 @@ def makeIO(args, model_name, inputjson, external_file = None):
     exe = os.path.join(os.getcwd(), args.mnn_path, "generateIO")
     model = os.path.join(os.getcwd(), args.model, model_name)
     cache = os.path.join(os.getcwd(), args.cache_path)
+    inputjson = os.path.join(os.getcwd(), inputjson)
     output = os.path.join(cache, 'testdir')
     os.makedirs(output, exist_ok=True)
-    print(os.popen(exe + " " + model + " " + inputjson + " " + output + " " + external_file).read())
+    process = subprocess.Popen(exe + " " + model + " " + inputjson + " " + output + " " + external_file, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True, shell=True)
+    for line in process.stdout:
+        print(line, end='')
+    process.wait()
+    return process.returncode
 
-def makeIOJson(args, seq_len, hidden_size, mask_type):
+def is_embedding_model(config_data, model_dir):
+    if config_data.get("is_embedding", False) is True:
+        return True
+
+    output_names = config_data.get("output_names", [])
+    if isinstance(output_names, str):
+        output_names = [output_names]
+    if "sentence_embeddings" in output_names:
+        return True
+
+    model_name = config_data.get("llm_model", config_data.get("embedding_model", ""))
+    if os.path.basename(model_name) == "embedding.mnn":
+        return True
+
+    if os.path.exists(os.path.join(model_dir, "embedding.mnn")):
+        return True
+
+    model_type = config_data.get("model_type", "")
+    if model_type in ("bert", "new"):
+        return True
+    if model_type == "qwen3" and not any(key in config_data for key in ("layer_nums", "attention_type", "is_mrope")):
+        return True
+    return False
+
+def makeIOJson(args, seq_len, hidden_size, mask_type, is_embedding=False):
+    def model_inputs(current_seq_len, logits_index=None):
+        inputs = [
+            {
+                "name": "input_ids",
+                "shape": [current_seq_len, 1, hidden_size]
+            },
+            {
+                "name": "attention_mask",
+                "shape": [1, 1, current_seq_len, current_seq_len],
+                "type": mask_type
+            },
+            {
+                "name": "position_ids",
+                "shape": [1, current_seq_len],
+                "type": "int"
+            }
+        ]
+        if logits_index is not None:
+            inputs.append({
+                "name": "logits_index",
+                "shape": [1],
+                "type": "int",
+                "value": logits_index
+            })
+        return inputs
+
     config = {
         "configs": [
             {
-                "inputs": [
-                    {
-                        "name": "input_ids",
-                        "shape": [seq_len, 1, hidden_size]
-                    },
-                    {
-                        "name": "attention_mask",
-                        "shape": [1, 1, seq_len, seq_len],
-                        "type": mask_type
-                    },
-                    {
-                        "name": "position_ids",
-                        "shape": [1, seq_len],
-                        "type": "int"
-                    },
-                    {
-                        "name": "logits_index",
-                        "shape": [1],
-                        "type": "int",
-                        "value": 0
-                    }
-                ],
+                "inputs": model_inputs(seq_len, None if is_embedding else 0),
                 "outputs": [
-                    "logits"
+                    "sentence_embeddings" if is_embedding else "logits"
                 ]
             },
             {
-                "inputs": [
-                    {
-                        "name": "input_ids",
-                        "shape": [1, 1, hidden_size]
-                    },
-                    {
-                        "name": "attention_mask",
-                        "shape": [1, 1, 1, 1],
-                        "type": mask_type
-                    },
-                    {
-                        "name": "position_ids",
-                        "shape": [1, 1],
-                        "type": "int"
-                    },
-                    {
-                        "name": "logits_index",
-                        "shape": [1],
-                        "type": "int",
-                        "value": -1
-                    }
-                ],
+                "inputs": model_inputs(1, None if is_embedding else -1),
                 "outputs": [
-                    "logits"
+                    "sentence_embeddings" if is_embedding else "logits"
                 ]
             }
         ]
     }
-    if "Qwen3.5" in args.model:
+    if not is_embedding and "Qwen3.5" in args.model:
         cfg = config["configs"]
         inputs = cfg[0]["inputs"]
         for inp in inputs:
@@ -90,7 +103,7 @@ def makeIOJson(args, seq_len, hidden_size, mask_type):
                 inp["shape"] = [2, 1, 1, 1, 3]		
             if inp["name"] == "position_ids":
                 inp["shape"] = [3, 1]
-    if "Qwen" in args.model and "VL" in args.model:
+    if not is_embedding and "Qwen" in args.model and "VL" in args.model:
         cfg = config["configs"]
         inputs = cfg[0]["inputs"]
         for inp in inputs:
@@ -232,13 +245,13 @@ def seperate(args, model_name, ids):
 def compile_qnn(args):
     exe = os.path.join(os.getcwd(), args.mnn_path, "..", "source", "backend", "qnn", "npu_convert.py")
     cache = os.path.join(os.getcwd(), args.cache_path)
-    process = subprocess.Popen("python3 " + exe + ' npu_postreat.json %d ' %args.soc_id + ' ' + args.dsp_arch, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True, shell=True)
+    process = subprocess.Popen("python3 " + exe + ' npu_postreat.json %d ' %args.soc_id + ' ' + args.dsp_arch + ' %d '  %args.vtcm_mb, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True, shell=True)
     for line in process.stdout:
         print(line, end='')
     process.wait()
     return process.returncode
 
-def output_qnn(args):
+def output_qnn(args, model_name=None):
     if os.path.exists(os.path.join(args.model, 'qnn')):
         shutil.rmtree(os.path.join(args.model, 'qnn'))
     shutil.move(os.path.join(args.cache_path, 'qnn'), os.path.join(args.model, 'qnn'))
@@ -248,9 +261,11 @@ def output_qnn(args):
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
                 config_npu = json.load(f)
-        is_visual = args.model_name == "visual.mnn"
+        model_name = model_name or args.model_name
+        is_visual = model_name == "visual.mnn"
         if not is_visual:
-            config_npu["llm_model"] = "qnn/llm.mnn"
+            config_npu["llm_model"] = "qnn/" + model_name
+            config_npu["llm_weight"] = model_name + ".weight"
             config_npu["chunk_limits"] = [args.chunk_size, 1]
         else:
             config_npu["visual_model"] = "qnn/visual.mnn"
@@ -261,21 +276,24 @@ def output_qnn(args):
 def convert_qnn(args, model_name, inputjson, external_file, ids):
     sta = time.time()
     print("Step1: Make IO")
-    makeIO(args, model_name, inputjson, external_file)
+    if makeIO(args, model_name, inputjson, external_file) != 0:
+        raise RuntimeError("generateIO failed")
     end = time.time()
     print("Cost: ", end - sta, ' s')
     sta = end
     print("Step2: Seperate Model")
-    seperate(args, model_name, ids)
+    if seperate(args, model_name, ids) != 0:
+        raise RuntimeError("compilefornpu failed")
     end = time.time()
     print("Cost: ", end - sta, ' s')
     sta = end
     print("Step3: Compile to QNN")
-    compile_qnn(args)
+    if compile_qnn(args) != 0:
+        raise RuntimeError("npu_convert.py failed")
     end = time.time()
     print("Cost: ", end - sta, ' s')
     print("Step4: Move result file to ", args.model)
-    output_qnn(args)
+    output_qnn(args, model_name)
 
     print("End")
 
@@ -315,22 +333,24 @@ def convert_llm(args):
     os.makedirs(cache, exist_ok=True)
     hidden_size = 768
     mask_type = "int"
-    config_file_path = os.path.join(os.getcwd(), args.model, 'llm_config.json')
+    model_dir = os.path.join(os.getcwd(), args.model)
+    config_file_path = os.path.join(model_dir, 'llm_config.json')
     with open(config_file_path, 'r', encoding='utf-8') as f:
         config_data = json.load(f)
         if "hidden_size" in config_data:
             hidden_size = config_data["hidden_size"]
         else:
-            print(f"Error: 'hidden_size' key not found in {config_file_path}")
-            return npu_convert
+            raise KeyError(f"'hidden_size' key not found in {config_file_path}")
         if "attention_mask" in config_data:
             mask_type = config_data["attention_mask"]
+        is_embedding = is_embedding_model(config_data, model_dir)
     
     ids = [0, 1]
-    external_file = os.path.join(os.getcwd(), args.model, 'llm.mnn.weight')
-    makeIOJson(args, 128, hidden_size, mask_type)
+    model_name = 'embedding.mnn' if is_embedding else 'llm.mnn'
+    external_file = os.path.join(model_dir, model_name + '.weight')
+    makeIOJson(args, args.chunk_size, hidden_size, mask_type, is_embedding)
     inputjson = os.path.join(cache, 'input.json')
-    convert_qnn(args, 'llm.mnn', inputjson, external_file, ids)
+    convert_qnn(args, model_name, inputjson, external_file, ids)
 
 def convert_input_json(args):
     cache = os.path.join(os.getcwd(), args.cache_path)
@@ -366,6 +386,10 @@ def main():
     parser.add_argument('--dsp_arch', type=str, required=True,
                         help='type(`str`, *optional*):'
                         '\n\tThe dsp_arch, for 8gen3 is v75.'
+                        )
+    parser.add_argument('--vtcm_mb', type=int, default=8,
+                        help='type(`int`, *optional*):'
+                        '\n\tThe vtcm_mb size, default is 8'
                         )
     parser.add_argument('--mnn_path', type=str, default="../../../build/",
                         help='mnn build path(`str` or `os.PathLike`):\nCan be either:'

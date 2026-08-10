@@ -7,9 +7,12 @@
 //
 
 #import "backend/metal/MetalBinary.hpp"
+#import "MetalEnv.hpp"
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
+#import "core/TensorUtils.hpp"
 #import "backend/metal/MetalBackend.hpp"
+#import "backend/metal/MetalConvolution1x1.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -119,11 +122,108 @@ kernel void binary(const device T0 *in0 [[buffer(0)]],
 }
 )metal";
 
+static const char* gMulSiluVecTemplate = R"metal(
+#include <metal_stdlib>
+#include <simd/simd.h>
+using namespace metal;
+kernel void mulsilu_vec(const device T *in0 [[buffer(0)]],
+    const device T *in1 [[buffer(1)]], device T *out [[buffer(2)]], constant int& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]]) {
+    if ((int)gid >= size) {
+        return;
+    }
+    float4 gate = float4(in1[int(gid)]);
+    float4 up = float4(in0[int(gid)]);
+    out[int(gid)] = (T)(up * (gate / (1.0f + exp(-gate))));
+}
+)metal";
+
+class MetalMulSiluVec : public MetalExecution {
+public:
+    MetalMulSiluVec(Backend *backend, id<MTLComputePipelineState> pipeline) : MetalExecution(backend) {
+        auto mtbn = static_cast<MetalBackend *>(backend);
+        auto context = (__bridge MNNMetalContext *)mtbn->context();
+        mConstBuffer = [context newDeviceBuffer:sizeof(int) access:CPUWriteOnly];
+        mPipeline = pipeline;
+    }
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
+        auto backend = static_cast<MetalBackend *>(this->backend());
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        auto input0DataCount = TensorUtils::getRawSize(inputs[0]);
+        auto input1DataCount = TensorUtils::getRawSize(inputs[1]);
+        auto outputDataCount = TensorUtils::getRawSize(outputs[0]);
+        if (input0DataCount != outputDataCount || input1DataCount != outputDataCount || outputDataCount % 4 != 0) {
+            return NOT_SUPPORT;
+        }
+        ((int *)mConstBuffer.contents)[0] = outputDataCount / 4;
+        mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(outputDataCount / 4, 1, 1)];
+
+        // Gate/Up fusion: try to pair the two input Conv1x1 projections
+        // In mulsilu_vec shader: in1 = gate, in0 = up
+        // Set MNN_METAL_DISABLE_GATE_UP_FUSION=1 to disable (for A/B benchmarking).
+        const bool sDisableGateUpFusion = MetalEnv::get().gateUpFusionDisabled;
+        if (!sDisableGateUpFusion) {
+            auto* gateConv = backend->findConv1x1ForOutput(inputs[1]); // gate
+            auto* upConv   = backend->findConv1x1ForOutput(inputs[0]); // up
+            if (gateConv && upConv && gateConv != upConv
+                && gateConv->is2sgDecodePipeline() && upConv->is2sgDecodePipeline()
+                && !gateConv->isGateUpLeader() && !gateConv->isGateUpFollower()
+                && !upConv->isGateUpLeader() && !upConv->isGateUpFollower()) {
+                // gate becomes leader, up becomes follower
+                gateConv->setupGateUpFusion(upConv, inputs[0]);
+            }
+        }
+
+        return NO_ERROR;
+    }
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                          id<MTLComputeCommandEncoder> encoder) override {
+        [encoder setComputePipelineState:mPipeline];
+        MetalBackend::setTensor(inputs[0], encoder, 0);
+        MetalBackend::setTensor(inputs[1], encoder, 1);
+        MetalBackend::setTensor(outputs[0], encoder, 2);
+        [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+    }
+
+private:
+    id<MTLBuffer> mConstBuffer;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
+};
+
 class MetalBinaryCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         auto binaryop = op->main_as_BinaryOp();
         auto mtbn = static_cast<MetalBackend *>(backend);
+        if (inputs.size() != 2) {
+            return nullptr;
+        }
+        if (binaryop->opType() == BinaryOpOperation_MUL_SILU && binaryop->activationType() == 0 &&
+            inputs[0]->getType().code == halide_type_float && inputs[1]->getType().code == halide_type_float &&
+            outputs[0]->getType().code == halide_type_float &&
+            TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
+            TensorUtils::getDescribe(inputs[1])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
+            TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
+            TensorUtils::getRawSize(inputs[0]) == TensorUtils::getRawSize(outputs[0]) &&
+            TensorUtils::getRawSize(inputs[1]) == TensorUtils::getRawSize(outputs[0]) &&
+            TensorUtils::getRawSize(outputs[0]) % 4 == 0) {
+            NSString* T = MetalCast::getVecType(outputs[0]->getType(), mtbn->useFp16InsteadFp32());
+            std::vector<std::string> keys = {std::string([T UTF8String]), "mulsilu_vec4_binary"};
+            auto pipeline = mtbn->runtime()->findPipeline(keys);
+            if (nil == pipeline) {
+                MTLCompileOptions *compileOptions = [[MTLCompileOptions alloc] init];
+                compileOptions.preprocessorMacros = @{@"T" : T};
+                pipeline = mtbn->makeComputePipelineWithSourceOption(gMulSiluVecTemplate, "mulsilu_vec", compileOptions);
+                mtbn->runtime()->insertPipeline(keys, pipeline);
+            }
+            if (nil == pipeline) {
+                MNN_ERROR("Make MUL_SILU vec4 shader error\n");
+                return nullptr;
+            }
+            return new MetalMulSiluVec(backend, pipeline);
+        }
         NSString* T2 = MetalCast::getScalarType(outputs[0]->getType(), mtbn->useFp16InsteadFp32());
         NSString* T0 = MetalCast::getScalarType(inputs[0]->getType(), mtbn->useFp16InsteadFp32());
         NSString* T1 = MetalCast::getScalarType(inputs[1]->getType(), mtbn->useFp16InsteadFp32());

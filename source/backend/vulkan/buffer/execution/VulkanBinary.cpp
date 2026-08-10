@@ -60,6 +60,9 @@ std::string VulkanBinary::getMidName(const Op *op) {
             case BinaryOpOperation_MUL:
                 mid = "MUL";
                 break;
+            case BinaryOpOperation_MUL_SILU:
+                mid = "MUL_SILU";
+                break;
             case BinaryOpOperation_POW:
                 mid = "POW";
                 break;

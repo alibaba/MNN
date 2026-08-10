@@ -115,7 +115,7 @@ class SmoothQuantizer:
             if data == "pileval":
                 dataset = load_dataset("mit-han-lab/pile-val-backup", split="validation")
             elif data == "wikitext":
-                dataset = load_dataset('wikitext', 'wikitext-2-raw-v1', split=split)
+                dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split=split)
             else:
                 custom_calib_data = True
                 # dataset = load_dataset(data, split=split)
@@ -414,7 +414,7 @@ class SmoothQuantizer:
         model_type = getattr(self.model.config, "model_type", "")
         layer_type = getattr(module, "layer_type", None)
 
-        if model_type in ("qwen3_5", "qwen3_5_moe"):
+        if model_type in ("qwen3_5", "qwen3_5_moe", "qwen3_5_text"):
             if layer_type == "linear_attention" and hasattr(module, "linear_attn"):
                 attn_ln = module.input_layernorm
                 linear_attn = module.linear_attn

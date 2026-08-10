@@ -93,7 +93,7 @@ public:
             const int validWEnd =
                 ALIMIN(outWidth, (inWidth + padLeft - strideW + blockShapeWidth - 1) / blockShapeWidth);
             int inHeightStart = validHStart * blockShapeHeight + strideH - padTop;
-            int inWidthStart  = validHStart * blockShapeWidth + strideW - padLeft;
+            int inWidthStart  = validWStart * blockShapeWidth + strideW - padLeft;
             auto srcR         = &region.src;
             auto dstR         = &region.dst;
             if (op->type() == OpType_BatchToSpaceND) {

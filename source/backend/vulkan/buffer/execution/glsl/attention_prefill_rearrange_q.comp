@@ -10,7 +10,7 @@ layout(set=0, binding=2) readonly uniform constBuffer {
     ivec4 s0; // qLen, kLen, headNum, kvHeadNum
     ivec4 s1; // headDim, group, pastLen, totalLen
     ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
-    vec4 f0;  // scale, 0, 0, 0
+    vec4 f0;  // scale, 0, valueC4, outputC4
 } uConst;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -39,8 +39,8 @@ void main() {
         return;
     }
 
-    // input: [1, qLen, headNum, headDim] as FLOAT4 over D => [q, h, d4]
-    vec4 qv = (q < qLen) ? vec4(uQuery.data[(q * headNum + h) * d4Size + d4]) : vec4(0.0);
+    const int inputOffset = (q * headNum + h) * d4Size + d4;
+    vec4 qv = (q < qLen) ? vec4(uQuery.data[inputOffset]) : vec4(0.0);
 
     // output: [headNum, headDim/4, qLen4] as FLOAT4 over D => [h, d4, q]
     const int outBase = (h * d4Size + d4) * qLen4 + q;

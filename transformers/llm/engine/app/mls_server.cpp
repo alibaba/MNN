@@ -57,6 +57,9 @@ std::string GetR1UserString(std::string user_content, bool last) {
 }
 
     std::vector<PromptItem> ConvertToR1(std::vector<PromptItem> chat_prompts) {
+    if (chat_prompts.empty()) {
+        return chat_prompts;
+    }
     std::vector<PromptItem> result_prompts = {};
     std::string prompt_result = "";
     result_prompts.emplace_back("system", "<|begin_of_sentence|>You are a helpful assistant.");
@@ -184,6 +187,13 @@ void MlsServer::Start(MNN::Transformer::Llm* llm, bool is_r1) {
           return;
       }
       json request_json = json::parse(req.body, nullptr, false);
+      if (!request_json.is_object()) {
+          json err;
+          err["error"] = "Request body must be a JSON object.";
+          res.status = 400;
+          res.set_content(err.dump(), "application/json");
+          return;
+      }
       json messages = request_json["messages"];
       std::cout<<"received messages:"<<messages.dump(0)<<std::endl;
       std::string model = request_json.value("model", "undefined-model");

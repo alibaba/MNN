@@ -295,9 +295,9 @@ ErrorCode TopKV2Execution::onResize(const std::vector<Tensor *> &inputs, const s
     mParams.mLengthRow = lengthRow;
     mParams.mNumRow = numRow;
 
-    auto boolDescendFlag = mOp->main_as_TopKV2();
-    if (boolDescendFlag != nullptr) {
-        mParams.mDescendFlag = boolDescendFlag ? 1 : -1;
+    auto topkParam = mOp->main_as_TopKV2();
+    if (topkParam != nullptr) {
+        mParams.mDescendFlag = topkParam->largest() ? 1 : -1;
     }
 
     mParams.mNumElePerRow = mParams.mLengthRow;
@@ -324,22 +324,28 @@ ErrorCode TopKV2Execution::onResize(const std::vector<Tensor *> &inputs, const s
 
     if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 32) {
         auto bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
+        if (nullptr == bufferIndices.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mParams.mBufferIndices = (void*)((uint8_t*)bufferIndices.first + bufferIndices.second);
         auto  bufferValues = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
+        if (nullptr == bufferValues.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mParams.mBufferValues = (void*)((uint8_t*)bufferValues.first + bufferValues.second);
         pool->free(bufferIndices);
         pool->free(bufferValues);
     } else if (static_cast<CUDABackend*>(backend())->useFp16()) {
         auto bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
+        if (nullptr == bufferIndices.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mParams.mBufferIndices = (void*)((uint8_t*)bufferIndices.first + bufferIndices.second);
         auto bufferValues = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(half));
+        if (nullptr == bufferValues.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mParams.mBufferValues = (void*)((uint8_t*)bufferValues.first + bufferValues.second);
         pool->free(bufferIndices);
         pool->free(bufferValues);
     } else {
         auto bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
+        if (nullptr == bufferIndices.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mParams.mBufferIndices = (void*)((uint8_t*)bufferIndices.first + bufferIndices.second);
         auto bufferValues = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(float));
+        if (nullptr == bufferValues.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mParams.mBufferValues = (void*)((uint8_t*)bufferValues.first + bufferValues.second);
         pool->free(bufferIndices);
         pool->free(bufferValues);

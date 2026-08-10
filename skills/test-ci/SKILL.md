@@ -1,23 +1,27 @@
 ---
 name: test-ci
-description: Run the MNN regression / CI suite for this fork — static checks, host-side (local) tests, and the on-device Android arm64 matrix — via the ./test.sh driver and test_stages.json. Use when the user asks to run the tests, run CI, smoke-test a build, verify a change on a device, benchmark on-device, or add / select / retune a test stage.
+description: Run MNN tests / benchmarks on host or real devices. Covers two parallel tracks — (1) the regression / CI suite (static checks, host-side tests, on-device Android arm64 matrix via ./test.sh + test_stages.json) and (2) one-command iOS real-device LLM benchmarking (prefill/decode tok/s, branch comparison). Use when the user asks to run the tests, run CI, smoke-test a build, verify a change on a device, benchmark on-device (Android or iPhone/iPad), or add / select / retune a test stage.
 ---
 
-# MNN Test / CI SKILL
+# MNN Test / CI SKILL (index)
 
-> **Trigger**: when the user wants to run the test suite or CI ("run the tests",
-> "run CI", "smoke test", "does this still pass", "verify on the phone/device",
-> "benchmark on device"), or to add / select / retune a test stage.
+This skill is an **index**. Pick the document that matches the task and follow it:
 
-The operational scripts live at the **repository root** and are invoked from
-there — this skill is the discovery + usage entry point for AI agents and
-humans:
+| Document | Use when |
+|----------|----------|
+| [`test-suite.md`](test-suite.md) | Run the regression / CI suite — static checks, host (local) tests, the on-device **Android** arm64 matrix (`./test.sh` + `test_stages.json`); add / select / retune a test stage; audit stale CI scripts; add a new operator test. |
+| [`ios-llm-bench.md`](ios-llm-bench.md) | Benchmark LLM prefill/decode speed on a real **iPhone/iPad** (`ios_llm_bench.sh`); compare branches on iOS Metal/CPU; verify Metal kernel changes on device. |
+
+The two tracks are independent: Android/host regression testing goes through
+`test.sh`, while iOS LLM benchmarking goes through
+`transformers/llm/engine/ios/ios_llm_bench.sh`.
 
 | File | Role |
 |------|------|
 | [`test.sh`](../../test.sh) | Bash driver. `static`, `local` (host CPU), and `android <serial>` modes. |
 | [`test_stages.json`](../../test_stages.json) | Declarative stage matrix. **Edit this** to add / drop / retune stages — no shell edits needed for the common cases. It is self-documenting via its `_documentation` block. |
 | [`docs/testing.md`](../../docs/testing.md) | 中文测试文档：阶段说明、字段表、新增算子测试流程。 |
+
 
 ## Quick start
 
@@ -66,35 +70,13 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
   `logs/test-<UTC-timestamp>/<stage>.log` — read the named log of a failing
   stage for the trailing output. `rc=137` ≈ OOM-kill, `rc=139` ≈ SIGSEGV.
 
-## Important pitfall for rebuild-driven smoke tests
+## Dynamic-shape device smoke tests
 
-When a verification depends on a freshly rebuilt binary (for example `llm_demo`
-or `embedding_demo` after resolving a merge conflict), do not trust smoke-test
-results gathered while the target is still compiling or before the final link
-step has completed. A stale executable can report an old runtime failure and
-send debugging in the wrong direction.
-
-Preferred flow:
-
-1. Wait for the target build to finish and confirm the final executable link
-   step succeeded.
-2. Only then rerun the smoke test and treat that result as authoritative.
-
-## Important pitfall for `llm_demo` prompt-file smoke tests
-
-`transformers/llm/engine/demo/llm_demo.cpp` reads prompt files **one line per
-prompt** in the default build. That means a multiline chat template (for
-example an ASR prompt laid out across several lines with `<|im_start|>` /
-`<|im_end|>`) is silently split into multiple independent prompts and usually
-fails or produces empty output.
-
-For multimodal / ASR smoke tests:
-
-* Prefer a **single-line** prompt file for `llm_demo`.
-* If a model requires a full chat template, collapse it to one line before
-  running the test.
-* Do not treat an empty decode or `decode tokens num = 1` from a multiline
-  prompt file as a model failure until you have retried with a one-line prompt.
+A zero exit code only proves that a backend context ran; it does not prove that
+the requested input shape selected the intended dynamic context. For a
+shape-sensitive device test, record and validate the runtime-observed input
+shape (for example, from a backend dump manifest or the runner's input tensor)
+before treating the test as dynamic-shape coverage.
 
 ## Environment variables
 
@@ -125,6 +107,14 @@ LLM_MODEL_SOURCE=modelscope ./test.sh android <serial>
 
 For the built-in default model the ModelScope org is remapped automatically
 (`taobao-mnn/*` → `MNN/*`); an explicitly-set `LLM_MODEL_REPO` is used verbatim.
+
+### LLM backend/layout smoke
+
+For backend or tensor-layout optimizations, do not stop at operator tests. Run
+an end-to-end `llm_demo` correctness smoke with a short prompt and another
+prompt long enough to cross backend prefill branch thresholds. This catches
+real exported-graph layout bugs where an op test covers only the output format,
+but the graph also changes an input tensor format.
 
 ## Configuring stages
 

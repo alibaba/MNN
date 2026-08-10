@@ -308,7 +308,7 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
     auto useOriginMmap = backend()->getRuntime()->hint().useCachedMmap > 1;
     bool preAllocGpuMem = ic != 0 && conv->quanParameter();
     int quantBit;
-    // only for weight int4/int8 now.
+    // GPU pre-allocation for quantized weights (int2/3/4/8).
     if(loadWeightInt8) {
         quantBit = conv->quanParameter()->aMaxOrBits();
         // 3.1.2 and after has aMaxOrBits for quant bits
@@ -316,7 +316,7 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
             // support old model for external weight file with int4/int8 quant
             quantBit = ConvolutionCommon::getQuantBitFromExternalFile(op);
         }
-        if(quantBit != 4 && quantBit != 8) {
+        if(quantBit != 2 && quantBit != 3 && quantBit != 4 && quantBit != 8) {
             preAllocGpuMem = false;
         }
     }
