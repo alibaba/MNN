@@ -2125,8 +2125,38 @@ void QnnBackend::addTensor(Qnn_Tensor_t * staticTensor) {
 }
 
 Qnn_Tensor_t * QnnBackend::getNativeTensor(const Tensor * tensor) {
-    int idx = getTensorIdx(tensor);
-    return mQNNTensorWrappers[idx]->getNativeTensor();
+    const Tensor::InsideDescribe::NativeInsideDescribe * tensorKey = TensorUtils::getDescribe(tensor);
+    auto iter = mTensorMap.find(tensorKey);
+    if (iter == mTensorMap.end()) {
+        // Tensor not registered in mTensorMap. This can happen in the offline
+        // compile path (_compileWholeModule) when the pipeline skips onAcquire
+        // for some intermediate activation tensors. Register as a NATIVE
+        // graph tensor (no host buffer) so QNN manages it internally.
+        std::string tName = std::string("t") + std::to_string(TensorUtils::getDescribe(tensor)->index);
+        Qnn_DataType_t tDataType;
+        if (tensor->getType().code == halide_type_int && tensor->getType().bits == 32) {
+            tDataType = QNN_DATATYPE_INT_32;
+        } else if (tensor->getType().code == halide_type_float) {
+            tDataType = mUseFP16 ? QNN_DATATYPE_FLOAT_16 : QNN_DATATYPE_FLOAT_32;
+        } else {
+            MNN_ERROR("[QNN] getNativeTensor: unsupported data type for tensor\n");
+            return nullptr;
+        }
+        auto tDims = tensor->shape();
+        std::vector<uint32_t> uDims(tDims.size());
+        for (int i = 0; i < tDims.size(); i++) {
+            uDims[i] = (uint32_t)tDims[i];
+        }
+        Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
+        auto qnnTensorWrapper = QNNTensorWrapper::create(tName, QNN_TENSOR_TYPE_NATIVE, tDataType, uDims, quantize);
+        CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, qnnTensorWrapper->getNativeTensor()));
+        mQNNTensorWrappers.push_back(qnnTensorWrapper);
+        mTensorMap.insert({tensorKey, mTensorCounter});
+        int idx = mTensorCounter;
+        mTensorCounter += 1;
+        return mQNNTensorWrappers[idx]->getNativeTensor();
+    }
+    return mQNNTensorWrappers[iter->second]->getNativeTensor();
 }
 
 std::shared_ptr<QNNTensorWrapper> QnnBackend::getTensorWrapper(const Tensor * tensor) {

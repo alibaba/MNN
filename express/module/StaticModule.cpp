@@ -646,6 +646,15 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             }
             auto exprInfo = inputs[i]->expr();
             auto inputTensor = Utils::getTensor(inputs[i]);
+            std::shared_ptr<Tensor> hostTensor;
+            if (nullptr == inputTensor->buffer().host &&
+                nullptr != TensorUtils::getDescribeOrigin(inputTensor)->getBackend()) {
+                // Device tensor from another module (e.g. previous NPU segment output):
+                // materialize to host first, otherwise backend inputIO reads a null host.
+                hostTensor.reset(Tensor::create(inputTensor->shape(), inputTensor->getType()));
+                inputTensor->copyToHostTensor(hostTensor.get());
+                inputTensor = hostTensor.get();
+            }
             mInputTensors[i]->copyFromHostTensor(inputTensor);
         }
     }

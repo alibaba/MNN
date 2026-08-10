@@ -1,6 +1,6 @@
 # QNN 后端调试参考
 
-QNN 后端内部机制、中间张量 dump（定位主力）、常见坑、误差模式速查、错误码、SDK 算子文档、以及已定位过的真实案例(在线路径案例 1–6、离线/LLM 路径案例 7–9、多 bug 叠加的工作流经验案例 10)。配合 [SKILL.md](./SKILL.md) 使用。
+QNN 后端内部机制、中间张量 dump（定位主力）、常见坑、误差模式速查、错误码、SDK 算子文档、以及已定位过的真实案例(在线路径案例 1–6、离线/LLM 路径案例 7–9、多 bug 叠加的工作流经验案例 10、compilefornpu 离线转换崩溃案例 11)。配合 [SKILL.md](./SKILL.md) 使用。
 
 ---
 
@@ -269,3 +269,15 @@ QNN_LOG[1]: graph_prepare.cc:207:  Input 1: ... output0=[...PlainFloat_TCMEE]   
 > 定位这类 bug 的最快路径：**截断到"输入好、输出坏"的那一个算子**，然后只读该算子 `onEncode` 里"从 MNN op 取了什么、喂给 QNN 什么"，几乎总能一眼看出漏掉的字段或没做的转置。
 
 ---
+
+### 案例 11 · compilefornpu 离线转换段错误：跨模块 device 张量 NULL host + shared_ptr 作用域 use-after-free
+- **背景**：`compilefornpu llm.mnn out.mnn qnn.json`（`_compileWholeModule`，`shapeMutable=false`）转换 Qwen3-VL-2B 时 SIGSEGV。`Module::load` 把大模型切成多个 StaticModule 链式执行，跨段张量是 QNN device 张量（`host()==NULL`）。
+- **三个连续 bug（修一个暴露下一个）**：
+  1. **`getTensorIdx`/`getNativeTensor` map-miss 创建 STATIC 张量**：`tensor->host<int>()` 可为 NULL → `QnnFloatToHalf(NULL)` 崩溃。修复：`getNativeTensor` 创建 `QNN_TENSOR_TYPE_NATIVE` 图张量（`QNNTensorWrapper::create` + `tensorCreateGraphTensor`）。
+  2. **段间拷贝读 NULL host**：`StaticModule::_resize` 里 `mInputTensors[i]->copyFromHostTensor(utils::getTensor(inputs[i]))`，输入是上一段（QNN）输出 → `inputIO` 从 NULL 拷贝。修复：先 `inputTensor->copyToHostTensor(hostTensor.get())` 物化到 host 再拷贝。
+  3. **（自伤）shared_ptr 作用域**：`std::shared_ptr<Tensor> hostTensor(Tensor::create(...))` 写在 if 块内，块结束时 tensor 被析构（`delete mDescribe`），但 `inputTensor = hostTensor.get()` 的裸指针在块外继续用 → **use-after-free**：glibc tcache_put 把 freelist 指针写进刚释放的 describe shell，`mContent` 被覆写 → `getDescribe()` 返回垃圾 → 在 `onCopyBuffer` 读 `usage` 处 `mov 0x1c(%rax)` SIGSEGV。修复：shared_ptr **声明在 if 块外**，块内 `reset()`。
+- **无 DWARF 定位手法**：构建无调试信息时 gdb 无法按符号访问成员，用 `objdump` 反汇编 `TensorUtils::getDescribe` 得 `mDescribe` 偏移（Tensor+0x40、`mContent` 在 shell+0x0、`usage` 在 content+0x1c），在 `outputIO` 入口用**寄存器算术 + 硬件 watchpoint**（`watch -l *(long*)($rdx+0x40)`）盯住 shell 何时被覆写——watchpoint 命中 tcache_put（free 后写 freelist），直接证明是 use-after-free 而非 stray 写。
+- **可复用经验**：
+  1. **离线转换崩溃先看「跨模块张量」**：`Module::load` 分段后，段边界的输入/输出在 backend 里是 device 张量（host NULL）。凡是"上一段输出喂给下一段"的拷贝，先物化到 host。
+  2. **shared_ptr 生命期**：`p.get()` 交给外部使用后，shared_ptr 必须活到使用结束。块内临时变量 + 块外裸指针 = 经典 UAF；声明提前到块外。
+  3. **0 字节产物 + 空日志 + exit 0 先查磁盘**：`ofstream` 写失败不报错、`printf` 缓冲在 exit 刷新失败静默丢弃，表现就是"工具正常退出但产物全空"。先 `df -h`（曾因 `/` 100% 满误判成代码问题）。
