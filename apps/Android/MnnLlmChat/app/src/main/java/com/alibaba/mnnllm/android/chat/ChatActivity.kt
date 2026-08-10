@@ -643,6 +643,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        saveInterruptedResponseIfNeeded()
         super.onDestroy()
         mockStreamRunnable?.let(mockStreamHandler::removeCallbacks)
         mockStreamRunnable = null
@@ -660,6 +661,26 @@ class ChatActivity : AppCompatActivity() {
         MainScope().launch {
             ApiServiceManager.stopApiService(ApplicationProvider.get())
         }
+    }
+
+    private fun saveInterruptedResponseIfNeeded() {
+        if (!::chatPresenter.isInitialized || !::chatListComponent.isInitialized) {
+            return
+        }
+        val recentItem = chatListComponent.recentItem ?: return
+        if (!ChatHistoryPersistencePolicy.shouldSaveInterruptedAssistant(
+                isGenerating = isGenerating,
+                isMockStreamSession = isMockStreamSession,
+                isDiffusion = isDiffusion,
+                itemType = recentItem.type,
+                text = recentItem.text
+            )
+        ) {
+            return
+        }
+        recentItem.loading = false
+        recentItem.forceShowLoadingWithText = false
+        chatPresenter.saveResponseToDatabase(recentItem)
     }
 
     override fun onStop() {
