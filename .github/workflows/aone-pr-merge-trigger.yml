@@ -22,9 +22,12 @@ concurrency:
 jobs:
   trigger-reverse-sync:
     name: Trigger reverse sync
+    # Outbound sync PRs use same-repository sync/* branches and need no reverse sync.
     if: >-
       (github.event_name == 'pull_request_target' &&
-       github.event.pull_request.merged == true) ||
+       github.event.pull_request.merged == true &&
+       !(github.event.pull_request.head.repo.full_name == github.repository &&
+         startsWith(github.event.pull_request.head.ref, 'sync/'))) ||
       github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, aone-sync]
     timeout-minutes: 5
