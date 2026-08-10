@@ -392,8 +392,26 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
             imgInfo = image->getInfo();
         }
     }
-    mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
-    mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
+    if (isQwen3VL) {
+        // Qwen3-VL's smart_resize uses Python round(), whose ties are rounded
+        // to the nearest even integer. std::round rounds ties away from zero.
+        const auto roundByFactor = [](int size, int factor) {
+            const int quotient = size / factor;
+            const int remainder = size % factor;
+            if (remainder * 2 < factor) {
+                return quotient * factor;
+            }
+            if (remainder * 2 > factor) {
+                return (quotient + 1) * factor;
+            }
+            return (quotient % 2 == 0 ? quotient : quotient + 1) * factor;
+        };
+        mVisionHeight = roundByFactor(mVisionHeight, align_size);
+        mVisionWidth = roundByFactor(mVisionWidth, align_size);
+    } else {
+        mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
+        mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
+    }
     auto interp = isQwen3VL ? MNN::CV::INTER_CUBIC : MNN::CV::INTER_LINEAR;
     image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0, interp, MNN::CV::COLOR_BGR2RGB, mVisionMean,
                             mVisionNorm);
@@ -1281,7 +1299,11 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         addPositionIds(txt_ids.size());
         ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
     }
+    const auto rawIdsSize = ids.size();
     mTokenizer->post_process(ids);
+    if (ids.size() > rawIdsSize) {
+        addPositionIds(ids.size() - rawIdsSize);
+    }
     return ids;
 }
 

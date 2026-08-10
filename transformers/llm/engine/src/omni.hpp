@@ -9,6 +9,7 @@
 #define OMNI_hpp
 
 #include "llm/llm.hpp"
+#include <algorithm>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -39,7 +40,7 @@ public:
         if (mW.empty()) {
             return 0;
         }
-        return back() + 1;
+        return std::max(std::max(mT.back(), mH.back()), std::max(mW.back(), mX.back())) + 1;
     }
     void push_back(int t, int h, int w) { push_back(t, h, w, w); }
     void push_back(int t, int h, int w, int x) {
