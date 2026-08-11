@@ -99,6 +99,9 @@ class LlmExporter(torch.nn.Module):
         if self.model.rotary.is_mrope:
             self.llm_config['mrope_axes'] = self.model.rotary.mrope_axes
         self.llm_config.update(self.model.get_config())
+        max_pos = getattr(self.config, 'max_position_embeddings', None)
+        if max_pos:
+            self.llm_config['max_position_embeddings'] = max_pos
         # Attention scaling (gemma4 uses 1.0 instead of 1/sqrt(head_dim))
         if hasattr(self.model, 'blocks') and len(self.model.blocks) > 0:
             attn = self.model.blocks[0].self_attn

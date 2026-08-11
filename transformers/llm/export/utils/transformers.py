@@ -1038,13 +1038,68 @@ class Rotary(torch.nn.Module):
                     self.mrope_reindex = apply_interleaved_mrope(freq_idx, self.mrope_section).flatten()
 
         self.is_mrope = self.theta_sections is not None or self.mrope_interleaved
+        self.rope_table_split = 2048
+        self.rope_max_pos = getattr(config, 'max_position_embeddings', None) or 131072
+        self.build_rope_tables()
+
+    def build_rope_tables(self):
+        # fp16-safe rope tables (shared by forward and mrope_forward).
+        # Backends running the graph in fp16 cannot represent integer positions
+        # >= 2048 exactly (spacing 2 at 2048, 4 at 4096), so baking
+        # position.float() * theta into the graph makes adjacent positions
+        # collide into bit-identical cos/sin and garbles attention past 4096.
+        # Instead keep the position integer, split it as p = 2048 * q + r (exact
+        # int ops), and gather cos/sin from two tables whose angles were folded
+        # into [0, 2pi) in float64:
+        #   angle(p) = q * (2048 * theta) + r * theta  (mod 2pi)
+        #   cos(p)   = cosH[q] * cosL[r] - sinH[q] * sinL[r]
+        #   sin(p)   = sinH[q] * cosL[r] + cosH[q] * sinL[r]
+        # Every tensor the backend touches then stays in [-1, 1], which fp16
+        # represents to ~6e-4 - a harmless phase jitter instead of total loss.
+        # Must be re-called by anyone mutating self.theta after __init__.
+        # reserve 4x max_pos so dynamic extrapolation (NTK, user-extended
+        # context) still gets exact angles; the clamp in _rope_cos_sin() is only
+        # a last-resort guard against out-of-bounds gathers.
+        self.rope_high_entries = (4 * self.rope_max_pos) // self.rope_table_split + 2
+        theta64 = self.theta.reshape(-1).to(torch.float64)
+        two_pi = 2.0 * math.pi
+        low_angle = (torch.arange(self.rope_table_split, dtype=torch.float64).reshape(-1, 1) * theta64) % two_pi
+        high_angle = (torch.arange(self.rope_high_entries, dtype=torch.float64).reshape(-1, 1)
+                      * ((self.rope_table_split * theta64) % two_pi)) % two_pi
+        self.rope_cos_low = torch.cos(low_angle).float()
+        self.rope_sin_low = torch.sin(low_angle).float()
+        self.rope_cos_high = torch.cos(high_angle).float()
+        self.rope_sin_high = torch.sin(high_angle).float()
+
+    def _rope_cos_sin(self, position_ids):
+        # fp16-safe gather of cos/sin for integer positions; see build_rope_tables.
+        # Returns cos, sin of shape [*position_ids.shape, rotary_dim // 2].
+        device = position_ids.device
+        shape = position_ids.shape
+        # clamp the position itself: positions outside the reserved table range
+        # are outside the model's usable window anyway, and an out-of-range
+        # gather in the exported graph reads garbage memory instead of failing.
+        # Bounding pos first keeps q and r consistent by construction (q in
+        # [0, high_entries), r in [0, split)) with only Div/Mul/Sub. pos is
+        # non-negative here so trunc == floor, but trunc avoids the Mod/Xor
+        # sign handling that floor's ONNX lowering emits and Metal cannot run.
+        pos_max = self.rope_high_entries * self.rope_table_split - 1
+        pos = position_ids.reshape(-1).long().clamp(0, pos_max)
+        q = torch.div(pos, self.rope_table_split, rounding_mode='trunc')
+        r = pos - q * self.rope_table_split
+        cos_h = torch.nn.functional.embedding(q, self.rope_cos_high.to(device))
+        sin_h = torch.nn.functional.embedding(q, self.rope_sin_high.to(device))
+        cos_l = torch.nn.functional.embedding(r, self.rope_cos_low.to(device))
+        sin_l = torch.nn.functional.embedding(r, self.rope_sin_low.to(device))
+        cos_pos = cos_h * cos_l - sin_h * sin_l
+        sin_pos = sin_h * cos_l + cos_h * sin_l
+        return cos_pos.reshape(*shape, -1), sin_pos.reshape(*shape, -1)
 
     def forward(self, position_ids):
         if self.is_mrope:
             return self.mrope_forward(position_ids)
-        position_ids = position_ids.float().reshape(-1, 1)
-        idx_theta = position_ids * self.theta.to(position_ids.device)
-        rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
+        cos_pos, sin_pos = self._rope_cos_sin(position_ids.reshape(-1))
+        rotary_pos_emb = torch.stack([cos_pos, sin_pos])
         if self.model_type == 'ernie4_5':
             rotary_pos_emb = torch.stack((rotary_pos_emb, rotary_pos_emb), dim=-1)
             rotary_pos_emb = rotary_pos_emb.reshape(*rotary_pos_emb.shape[:-2], -1)
@@ -1056,25 +1111,38 @@ class Rotary(torch.nn.Module):
         return rotary_pos_emb
 
     def mrope_forward(self, position_ids):
-        position_ids = position_ids.float().unsqueeze(-1)
+        # position_ids: [axes, seq]. Gather fp16-safe cos/sin per axis first
+        # ([axes, seq, half]); the branch-specific reorderings below are pure
+        # index selections, which commute with the elementwise cos/sin, so the
+        # result is identical to rotating position.float() * theta directly -
+        # without ever materializing a large float position in the graph.
+        cos_all, sin_all = self._rope_cos_sin(position_ids)
         if self.mrope_interleaved:
-            idx_theta = position_ids * self.theta.to(position_ids.device)
-            idx_theta = idx_theta.transpose(1, 0).reshape(-1, 3 * self.rotary_dim // 2)
-            idx_theta = idx_theta[:, self.mrope_reindex]
+            half3 = 3 * self.rotary_dim // 2
+            cos_pos = cos_all.transpose(1, 0).reshape(-1, half3)[:, self.mrope_reindex]
+            sin_pos = sin_all.transpose(1, 0).reshape(-1, half3)[:, self.mrope_reindex]
         elif self.model_type == 'hunyuan_vl':
-            axis_theta = position_ids * self.theta.to(position_ids.device)
-            axis_theta = torch.cat((axis_theta, axis_theta), dim=-1)
+            cos_all = torch.cat((cos_all, cos_all), dim=-1)
+            sin_all = torch.cat((sin_all, sin_all), dim=-1)
             full_sections = [section * 2 for axis, section in enumerate(self.mrope_section)]
-            axis_chunks = [axis_theta[axis].split(full_sections, dim=-1) for axis in range(self.mrope_axes)]
-            idx_theta = torch.cat([
-                axis_chunks[axis % self.mrope_axes][axis] for axis, section in enumerate(full_sections)
+            cos_chunks = [cos_all[axis].split(full_sections, dim=-1) for axis in range(self.mrope_axes)]
+            sin_chunks = [sin_all[axis].split(full_sections, dim=-1) for axis in range(self.mrope_axes)]
+            cos_pos = torch.cat([
+                cos_chunks[axis % self.mrope_axes][axis] for axis, section in enumerate(full_sections)
+            ], dim=-1)
+            sin_pos = torch.cat([
+                sin_chunks[axis % self.mrope_axes][axis] for axis, section in enumerate(full_sections)
             ], dim=-1)
         else:
-            idx_theta = torch.concat([
-                position_ids[axis] * self.theta_sections[axis]
+            cos_pos = torch.cat([
+                cos_all[axis].split(self.mrope_section, dim=-1)[axis]
                 for axis, section in enumerate(self.mrope_section)
             ], dim=-1)
-        rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
+            sin_pos = torch.cat([
+                sin_all[axis].split(self.mrope_section, dim=-1)[axis]
+                for axis, section in enumerate(self.mrope_section)
+            ], dim=-1)
+        rotary_pos_emb = torch.stack([cos_pos, sin_pos])
         if self.model_type in ['glm_ocr']:
             # interleaved doubling: [c0,c0,c1,c1,...,cn,cn]
             rotary_pos_emb = torch.stack((rotary_pos_emb, rotary_pos_emb), dim=-1)
