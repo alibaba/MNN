@@ -262,6 +262,7 @@ class LlmExporter(torch.nn.Module):
         self.dflash = DFlash(self.args.dflash_path, self.model)
         # Set target layer ids on args so model.forward() can use them
         self.args.dflash_target_layer_ids = self.dflash.target_layer_ids
+        # The draft reuses the target's lm_head at runtime (shared-from-target).
         dflash_onnx, dflash_fc_onnx = self.dflash.export(self.onnx_path)
         if self.mnn_converter:
             # Disable transformerFuse for dflash model: dflash uses non-causal (bidirectional) attention,
@@ -272,7 +273,6 @@ class LlmExporter(torch.nn.Module):
             # multiple target layers) has very large value ranges during prefill, which
             # causes int8 quantization overflow and produces all-zero outputs.
             MNNConverter(self, None).export(dflash_fc_onnx, quant_bit=0, transformer_fuse=False)
-
 
     @spinner_run(f'export embedding to ')
     def export_embed(self):
@@ -411,6 +411,8 @@ class LlmExporter(torch.nn.Module):
                 config['hidden_states'] = True
                 config['dflash_model'] = 'dflash.mnn'
                 config['dflash_fc'] = 'dflash_fc.mnn'
+                # Reuse the target's lm_head via the shared subgraph.
+                config['dflash_shared_lmhead_input'] = '/final_layernorm/Mul_1_output_0'
                 config['dflash_block_size'] = self.dflash.block_size
                 config['dflash_mask_token_id'] = self.dflash.mask_token_id
                 config['dflash_target_layer_ids'] = self.dflash.target_layer_ids

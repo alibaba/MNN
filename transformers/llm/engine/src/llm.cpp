@@ -466,8 +466,11 @@ bool Llm::load() {
         }
     }
 
-    // MTP model load
-    mGenerationStrategy->load(module_config);
+    // Generation strategy modules (MTP / EAGLE / DFlash drafts)
+    if (!mGenerationStrategy->load(module_config)) {
+        MNN_ERROR("Llm::load: generation strategy failed to load\n");
+        return false;
+    }
     mContext->load_us += _t.durationInUs();
     mContext->status = LlmStatus::RUNNING;  // Set status to RUNNING after successful load
     return true;

@@ -691,9 +691,6 @@ public:
     std::string dflash_fc() const {
         return base_dir_ + config_.value("dflash_fc", "dflash_fc.mnn");
     }
-    std::string dflash_lmhead() const {
-        return base_dir_ + config_.value("dflash_lmhead", "");
-    }
     int dflash_block_size() const {
         return config_.value("dflash_block_size", 16);
     }
@@ -702,6 +699,13 @@ public:
     }
     std::vector<int> dflash_target_layer_ids() const {
         return config_.value("dflash_target_layer_ids", std::vector<int>{});
+    }
+    // Target's post-final-norm tensor name in llm.mnn; the engine loads the subgraph
+    // {this tensor -> logits} so the draft reuses the target's lm_head. Empty = disabled.
+    // Target's post-final-norm tensor name in llm.mnn; mandatory for DFlash (the draft has
+    // no lm_head of its own). Empty = refused at load with a re-export hint.
+    std::string dflash_shared_lmhead_input() const {
+        return config_.value("dflash_shared_lmhead_input", std::string{});
     }
     // ========= dflash config end ===============
 

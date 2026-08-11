@@ -28,30 +28,48 @@ void DFlashGeneration::reset() {
     mContextHidden = nullptr;
 }
 
-void DFlashGeneration::load(Module::Config module_config) {
-    // Check if separate lm_head model exists
-    std::string lmheadPath = mLlm->mConfig->dflash_lmhead();
-    // Guard against empty config value: base_dir + "" = directory path, which MNNFileExist would match
-    bool hasSeparateLmHead =
-        !lmheadPath.empty() && MNNFileExist(lmheadPath.c_str()) && !MNNDirExist(lmheadPath.c_str());
+bool DFlashGeneration::load(Module::Config module_config) {
+    // lm_head resolution: the draft always reuses the target's lm_head.
+    std::string sharedLmHeadInput = mLlm->mConfig->dflash_shared_lmhead_input();
+    if (sharedLmHeadInput.empty()) {
+        MNN_ERROR("DFlash: dflash_shared_lmhead_input is empty; the draft has no lm_head of its own. "
+                  "Re-export the model with the current llmexport.\n");
+        return false;
+    }
 
     // Load dflash main module
     std::vector<std::string> dflashInputNames{"noise_embedding", "context_hidden", "attention_mask", "q_position_ids", "k_position_ids"};
-    std::vector<std::string> dflashOutputNames{hasSeparateLmHead ? "hidden_states" : "logits"};
+    std::vector<std::string> dflashOutputNames{"hidden_states"};
     mDFlashModule.reset(Module::load(
         dflashInputNames, dflashOutputNames,
         mLlm->mConfig->dflash_model().c_str(),
         mLlm->mRuntimeManager, &module_config));
+    if (mDFlashModule == nullptr) {
+        MNN_ERROR("DFlash: failed to load draft model %s\n",
+                  mLlm->mConfig->dflash_model().c_str());
+        return false;
+    }
 
-    // Load separate lm_head module if available (allows fp16 transformer + int4 lm_head)
-    if (hasSeparateLmHead) {
-        std::vector<std::string> lmInputNames{"hidden_states"};
-        std::vector<std::string> lmOutputNames{"logits"};
-        mLmHeadModule.reset(Module::load(
-            lmInputNames, lmOutputNames,
-            lmheadPath.c_str(),
-            mLlm->mRuntimeManager, &module_config));
-        MNN_PRINT("DFlash: loaded separate lm_head from %s\n", lmheadPath.c_str());
+    // lm_head module
+    // Reuse the target's lm_head: load the subgraph {sharedLmHeadInput -> logits} from llm.mnn.
+    // base + rearrange=true shares the target's lm_head weights via cloneBaseExecution
+    // (rearrange must be true, otherwise base is silently ignored).
+    Module::Config lm_cfg;
+    lm_cfg.shapeMutable = true;
+    lm_cfg.rearrange = true;
+    lm_cfg.base = mLlm->mModule.get();
+    std::vector<std::string> lmInputNames{sharedLmHeadInput};
+    std::vector<std::string> lmOutputNames{"logits"};
+    mLmHeadModule.reset(Module::load(
+        lmInputNames, lmOutputNames,
+        mLlm->mConfig->llm_model().c_str(),
+        mLlm->mRuntimeManager, &lm_cfg));
+    if (mLmHeadModule == nullptr) {
+        MNN_ERROR("DFlash: failed to load shared lm_head subgraph {%s -> logits} from %s; "
+                  "the draft has no lm_head of its own, re-export the model with the "
+                  "current llmexport.\n",
+                  sharedLmHeadInput.c_str(), mLlm->mConfig->llm_model().c_str());
+        return false;
     }
 
     // Load fc module with dedicated CPU runtime to ensure fp32 precision
@@ -77,6 +95,11 @@ void DFlashGeneration::load(Module::Config module_config) {
             fcInputNames, fcOutputNames,
             mLlm->mConfig->dflash_fc().c_str(),
             mFcRuntimeManager, &fc_config));
+        if (mFcModule == nullptr) {
+            MNN_ERROR("DFlash: failed to load fc model %s\n",
+                      mLlm->mConfig->dflash_fc().c_str());
+            return false;
+        }
         MNN_PRINT("DFlash: FC module loaded with dedicated CPU runtime (fp32)\n");
     }
 
@@ -87,6 +110,7 @@ void DFlashGeneration::load(Module::Config module_config) {
     // <think>...</think> tokens that the draft model cannot predict well.
     // Setting enable_thinking=false via jinja context skips the <think> prefix.
     mLlm->set_config("{\"jinja\": {\"context\": {\"enable_thinking\": false}}}");
+    return true;
 }
 
 VARP DFlashGeneration::fcForward(VARP hidden_states) {
@@ -214,8 +238,8 @@ VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids, VARP con
     std::vector<VARP> inputs = {noise_embedding, context_hidden, attention_mask, q_position_ids, k_position_ids};
     auto outputs = mDFlashModule->onForward(inputs);
 
-    // If separate lm_head exists, outputs[0] is hidden_states -> pass through lm_head
-    if (mLmHeadModule) {
+    // outputs[0] is hidden_states -> pass through the shared lm_head subgraph.
+    {
         auto hidden_states_out = outputs[0]; // [1, block_size, hidden_size]
 #if DFLASH_DEBUG
         {
@@ -234,8 +258,22 @@ VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids, VARP con
             printf("], range=[%.4f, %.4f], nanCount=%d/%d\n", minV, maxV, nanCount, total);
         }
 #endif
-        auto lm_outputs = mLmHeadModule->onForward({hidden_states_out});
-        auto logits = lm_outputs[0]; // [1, block_size, vocab_size]
+        // The shared subgraph feeds the lm_head Convolution directly, which expects 4D NCHW
+        // input; reshape rank-3 hidden_states to [block, hidden, 1, 1] and the output back to
+        // [1, block, vocab] (numerically a no-op).
+        auto hsInfo = hidden_states_out->getInfo();
+        int N = hsInfo->dim[0];       // 1
+        int seq = hsInfo->dim[1];     // block_size
+        int hidden = hsInfo->dim[2];  // hidden_size
+        VARP lm_input = _Reshape(hidden_states_out, {N * seq, hidden, 1, 1});
+        auto lm_outputs = mLmHeadModule->onForward({lm_input});
+        auto logits = lm_outputs[0];
+        auto lInfo = logits->getInfo();
+        int total = 1;
+        for (auto d : lInfo->dim) total *= d;
+        int vocab = total / seq;
+        logits = _Reshape(logits, {1, seq, vocab});
+        // logits: [1, block_size, vocab_size]
 #if DFLASH_DEBUG
         {
             auto lInfo = logits->getInfo();
@@ -257,9 +295,6 @@ VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids, VARP con
 #endif
         return logits;
     }
-
-    // outputs[0]: logits [1, block_size, vocab_size]
-    return outputs[0];
 }
 
 void DFlashGeneration::generate(GenerationParams& param) {
