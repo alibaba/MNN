@@ -46,6 +46,13 @@ class LlmExporter(torch.nn.Module):
             self.args.lm_quant_bit = self.args.quant_bit
         if args.lm_quant_block is None:
             self.args.lm_quant_block = self.args.quant_block
+        if not getattr(self.args, 'transformer_c4', True):
+            # C4 fusion disabled for older runtimes: none of the ops that need
+            # MNN_SUPPORT_TRANSFORMER_FUSE (FusedLinear, gate_fold) may be emitted.
+            self.args.fuse_qkv_proj = False
+            self.args.fuse_gate_up_proj = False
+            self.args.fuse_ln_proj = False
+            self.args.fuse_linear_attn_gate = False
         self.args.tie_word_embeddings = False
         # init export dst dir
         if not os.path.exists(self.args.dst_path):
@@ -882,13 +889,25 @@ def build_args(parser):
     calibration_group.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
     parser.add_argument('--transformer_fuse', action='store_true', help='Whether or not to fuse vision transformer op.')
     parser.add_argument('--disable_transformer_c4', dest='transformer_c4', action='store_false', default=True,
-                        help='Disable LLM C4 graph fusion for compatibility with older runtimes.')
+                        help='Disable LLM C4 graph fusion for compatibility with older runtimes. '
+                        'Also turns off every fused-op export that requires MNN_SUPPORT_TRANSFORMER_FUSE '
+                        '(fuse_qkv_proj / fuse_gate_up_proj / fuse_ln_proj / fuse_linear_attn_gate).')
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')
     parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), default is False.')
     parser.add_argument('--scale_bit', type=int, default=16, choices=[16, 32], help='Bit-width for quant scale/zero-point storage. Currently supports 16 (fp16, default) and 32 (fp32); 8/4 reserved for future.')
     parser.add_argument('--visual_sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint) for visual model, default is False.')
     parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, default is False, if True, embed weight will be seperate to embedding bf16.bin.')
     parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, default is False.')
+    parser.add_argument('--fuse_linear_attn_gate', dest='fuse_linear_attn_gate', action='store_true', default=True,
+                        help='Fold linear-attention gate/beta constants into LinearAttentionParam, removing the exported softplus/sigmoid chain. On by default; implemented by CPU, Metal, CUDA and the buffer-mode OpenCL / Vulkan backends (image-mode OpenCL / Vulkan have no LinearAttention execution at all and already run it on CPU).')
+    parser.add_argument('--disable_fuse_linear_attn_gate', dest='fuse_linear_attn_gate', action='store_false',
+                        help='Disable the linear-attention gate fold. Needed for engines predating gate_fold support: they ignore the flag and consume the raw `a` projection as the decay gate, which is wrong output rather than a load error.')
+    parser.add_argument('--disable_fuse_qkv_proj', dest='fuse_qkv_proj', action='store_false', default=True,
+                        help='Do not let MNNConvert group shared-input q/k/v (and linear-attention) projections into one FusedLinear op.')
+    parser.add_argument('--disable_fuse_gate_up_proj', dest='fuse_gate_up_proj', action='store_false', default=True,
+                        help='Do not let MNNConvert group dense SwiGLU gate/up projections into one FusedLinear op.')
+    parser.add_argument('--disable_fuse_ln_proj', dest='fuse_ln_proj', action='store_false', default=True,
+                        help='Do not fold the block-input binary RMSNorm into fused projection ops (has_ln variant).')
     parser.add_argument('--calib_data', type=str, default=None, help='calibration data path, default is `None` mean not use calib data.')
     parser.add_argument('--act_bit', type=int, default=16, help='smooth quant act bit, 8 or 16, default is 16.')
     parser.add_argument('--embed_bit', type=int, default=16, choices=[16, 8, 4], help='embedding export bit precision, choices are 16 (bf16), 8 (int8), 4 (int4), default is 16.')

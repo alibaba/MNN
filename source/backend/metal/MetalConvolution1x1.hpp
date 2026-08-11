@@ -23,18 +23,20 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder)  override;
 
-    // Gate/Up fusion: called by MetalMulSiluVec to pair gate and up projections
-    // 'this' becomes the leader (gate), 'peer' becomes the follower (up)
-    // peerOutput is the up projection's output tensor (needed for buffer binding)
+    // Gate/Up fusion: called by the owning MetalFusedProj for the two members of
+    // an exported FusedGateUp group. 'this' is the gate (leader), 'peer' the up
+    // (follower); peerOutput is the up projection's output tensor.
     bool setupGateUpFusion(MetalConvolution1x1* peer, const Tensor* peerOutput);
     bool isGateUpLeader() const { return mIsGateUpLeader; }
     bool isGateUpFollower() const { return mIsGateUpFollower; }
-    // QKV fusion: called by MetalBackend::matchQKVFusions for three decode
-    // GEMV projections sharing one input. 'this' (first in execution order)
-    // becomes the leader and dispatches all three in a single grid.z=3 kernel;
-    // the two followers' onEncode become no-ops.
+    // QKV fusion: called by the owning MetalFusedProj for the three (or four,
+    // e.g. Qwen3.5 linear-attention qkv/z/b/a) decode GEMV projections of one
+    // exported group. 'this' (first in member order) becomes the leader and
+    // dispatches all of them in a single grid.z=3/4 kernel; the followers'
+    // onEncode become no-ops.
     bool setupQKVFusion(MetalConvolution1x1* peerK, const Tensor* peerKOutput,
-                        MetalConvolution1x1* peerV, const Tensor* peerVOutput);
+                        MetalConvolution1x1* peerV, const Tensor* peerVOutput,
+                        MetalConvolution1x1* peerW = nullptr, const Tensor* peerWOutput = nullptr);
     bool isQKVLeader() const { return mIsQKVLeader; }
     bool isQKVFollower() const { return mIsQKVFollower; }
     // Check if this Conv1x1 uses the 2sg decode GEMV pipeline (eligible for fusion)
@@ -74,10 +76,12 @@ private:
     bool mIsQKVFollower = false;
     MetalConvolution1x1* mQKVPeerK = nullptr;
     MetalConvolution1x1* mQKVPeerV = nullptr;
+    MetalConvolution1x1* mQKVPeerW = nullptr;   // optional 4th projection
     const Tensor* mQKVPeerKOutput = nullptr;
     const Tensor* mQKVPeerVOutput = nullptr;
+    const Tensor* mQKVPeerWOutput = nullptr;
     id<MTLComputePipelineState> mQKVFusedPipeline = nil;    // fused pipeline with QKV_FUSED
-    id<MTLBuffer> mQKVSegBuffer = nil;  // {k_coef, v_coef, k_oslice, v_oslice}
+    id<MTLBuffer> mQKVSegBuffer = nil;  // {k_coef, v_coef, k_oslice, v_oslice[, w_coef, w_oslice]}
     // Quant block count along IC (per output_slice); fused projections must match.
     int mBlockSize = 1;
 

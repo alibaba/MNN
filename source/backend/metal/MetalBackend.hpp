@@ -19,6 +19,7 @@
 #include <MNN/ErrorCode.hpp>
 #include <vector>
 #include <queue>
+#include <set>
 #include <unordered_map>
 //#include "MNNMetalContext.h"
 #include "MetalCache_generated.h"
@@ -28,6 +29,7 @@ using namespace MetalCache;
 namespace MNN {
 
 class MetalConvolution1x1; // forward declaration for Gate/Up fusion
+class MetalRaster;         // forward declaration for the gated-norm fold leader
 
 // Compile with -DMNN_SESSION_CPU_TRACE: cumulative CPU-side timers for the op encode path
 // and command-buffer waits, printed at process exit. Quantifies the
@@ -68,7 +70,7 @@ public:
     void *context() const {
         return mContext;
     }
-    bool supportSimdGroupReduce() {
+    bool supportSimdGroupReduce() const {
         return mSimdGroupReduce;
     }
     bool supportSimdGroupMatrix() {
@@ -97,7 +99,11 @@ public:
     std::pair<const void*, size_t> makeCache(TunedInfo* info);
     bool setCache(std::pair<const void*, size_t> cache);
     id<MTLComputePipelineState> findPipeline(const std::vector<std::string>& keys) const;
+    // A nil pipeline is remembered as a compile failure rather than dropped, so
+    // callers can skip retrying a shader that cannot build. Without this a
+    // failing optional fusion re-compiles from source on every resize.
     void insertPipeline(const std::vector<std::string>& keys, id<MTLComputePipelineState> pipeline) const;
+    bool pipelineCompileFailed(const std::vector<std::string>& keys) const;
     MetalTuneLevel getTuneLevel() {
         return mTuneLevel;
     }
@@ -112,6 +118,7 @@ public:
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
     }
+    virtual int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
     virtual float onGetMemoryInMB() override;
 
     virtual std::pair<const void*, size_t> onGetCache() override;
@@ -153,6 +160,7 @@ private:
     TunedInfo* mTunedInfo;
     BackendConfig mDefaultConfig;
     mutable std::map<std::vector<std::string>, id<MTLComputePipelineState>> mCachePipeine;
+    mutable std::set<std::vector<std::string>> mFailedPipeline;
 private:
     bool mSimdGroupReduce;
     bool mSimdGroupMatrix;
@@ -335,54 +343,58 @@ public:
         return mSupportTensorCoopInput;
     }
 
-    // Gate/Up projection fusion: register Conv1x1 execution for its output tensor
-    void registerConv1x1ForOutput(const Tensor* output, MetalConvolution1x1* exe) {
-        mOutputToConv1x1[output] = exe;
-    }
-    MetalConvolution1x1* findConv1x1ForOutput(const Tensor* output) const {
-        auto it = mOutputToConv1x1.find(output);
-        return it != mOutputToConv1x1.end() ? it->second : nullptr;
-    }
-
-    // QKV fusion: register Conv1x1 grouped by input tensor for later matching
-    struct QKVCandidate {
-        MetalConvolution1x1* conv;
-        const Tensor* output;
-        int outputChannel;
+    // Export-time fused projection ops (FusedLinear) establish their
+    // own leader/follower wiring from the exported member order. They must do it
+    // after the allocator's compute(), because the setup re-homes follower
+    // outputs to STATIC, so they register here and onResizeEnd calls them back.
+    class FusedProjFusionHost {
+    public:
+        virtual ~FusedProjFusionHost() = default;
+        virtual void setupFusion() = 0;
     };
-    void registerConv1x1ForQKV(const Tensor* input, MetalConvolution1x1* conv, const Tensor* output, int outputChannel) {
-        mInputToConv1x1Group[input].push_back({conv, output, outputChannel});
+    void registerFusedProj(FusedProjFusionHost* host) {
+        mFusedProjs.push_back(host);
     }
+    // True when two tensors share backing memory. Any fusion that folds a
+    // producer into a consumer must check that the producer's inputs were not
+    // reused as the consumer's outputs: legal under the unfused schedule, but a
+    // read/write race once both live in one dispatch.
+    // Not static: the span of a tensor is getTensorSizeInBytes(), which needs the
+    // backend's fp16 mode, and an under-reported span misses real aliases.
+    bool tensorsOverlap(const Tensor* a, const Tensor* b) const;
 
-    // LayerNorm+Conv1x1 fusion: register LN by its normalized output for matching
-    struct LayerNormFusionInfo {
-        const Tensor* hiddenInput;      // LN inputs[1] → Conv1x1's in (buffer 0)
-        const Tensor* residualInput;    // LN inputs[0] → ln_residual_in (buffer 20)
-        const Tensor* residualOutput;   // LN outputs[0] → ln_residual_out (buffer 22)
-        std::shared_ptr<Tensor> gamma;  // LN gamma tensor (float4 data)
-        float eps;
-        bool* fusedFlag;                // points to MetalLayerNorm::mIsFused
+    // LinearAttention gate/beta fold, declared by the exported
+    // LinearAttentionParam (gate_fold). The op fills the request from its param;
+    // the backend only re-homes the raw a/b inputs.
+    struct LinearAttnFoldRequest {
+        const Tensor* gate = nullptr;   // LinearAttention inputs[1]
+        const Tensor* beta = nullptr;   // LinearAttention inputs[2]
+        int numHeads = 0;
+        const Tensor* rawA = nullptr;   // bound instead of gate
+        const Tensor* rawB = nullptr;   // bound instead of beta
+        std::vector<float> gateCoef;    // -exp(A_log)[h]
+        std::vector<float> gateBias;    // dt_bias[h]
+        bool gateFolded = false;
+        bool betaFolded = false;
+        // Set by LinearAttention when the model carries gate_fold in its param.
+        bool exportFold = false;
     };
-    void registerLayerNorm(const Tensor* normalizedOutput, const LayerNormFusionInfo& info) {
-        mLayernormMap[normalizedOutput] = info;
+    void registerLinearAttnFold(LinearAttnFoldRequest* req) {
+        mLinearAttnFolds.push_back(req);
     }
-    void matchLNFusions();  // called in onResizeEnd
-    void matchQKVFusions(); // called in onResizeEnd
+    ErrorCode applyLinearAttnGateFolds(); // called in onResizeEnd
 
     void clearConv1x1Map() {
-        mOutputToConv1x1.clear();
-        mInputToConv1x1Group.clear();
-        mLayernormMap.clear();
+        mFusedProjs.clear();
+        mLinearAttnFolds.clear();
     }
 private:
     BackendConfig::MemoryMode mMemoryMode;
     bool mSupportTensorApi = false;
     bool mSupportTensorCoopInput = false;
-    // Gate/Up fusion: maps output tensor to its Conv1x1 execution
-    std::unordered_map<const Tensor*, MetalConvolution1x1*> mOutputToConv1x1;
-    // QKV fusion: maps input tensor to group of Conv1x1 candidates
-    std::unordered_map<const Tensor*, std::vector<QKVCandidate>> mInputToConv1x1Group;
-    std::unordered_map<const Tensor*, LayerNormFusionInfo> mLayernormMap;
+    // Export-time fused projections, in resize order
+    std::vector<FusedProjFusionHost*> mFusedProjs;
+    std::vector<LinearAttnFoldRequest*> mLinearAttnFolds;
 private:
     MetalRuntimeAllocator::MetalBufferAlloc mEmptyMem;
     id<MTLCommandBuffer> getCommandBufferForNet() const;

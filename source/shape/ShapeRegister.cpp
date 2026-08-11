@@ -119,11 +119,13 @@ extern void ___TextureComputer__OpType_Texture__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 extern void ___SplitGeLUSizeComputer__OpType_SplitGeLU__();
 extern void ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
+extern void ___GatedRMSNormSizeComputer__OpType_GatedRMSNorm__();
 extern void ___FmhaV2SizeComputer__OpType_FmhaV2__();
 extern void ___FmhcaSizeComputer__OpType_Fmhca__();
 extern void ___RoPESizeComputer__OpType_RoPE__();
 extern void ___AttentionSizeComputer__OpType_Attention__();
 extern void ___LinearAttentionSizeComputer__OpType_LinearAttention__();
+extern void ___FusedProjSizeComputer__OpType_FusedLinear__();
 #endif
 void registerShapeOps() {
 ___ShapeSizeComputer__OpType_Shape__();
@@ -244,11 +246,13 @@ ___TextureComputer__OpType_Texture__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 ___SplitGeLUSizeComputer__OpType_SplitGeLU__();
 ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
+___GatedRMSNormSizeComputer__OpType_GatedRMSNorm__();
 ___FmhaV2SizeComputer__OpType_FmhaV2__();
 ___FmhcaSizeComputer__OpType_Fmhca__();
 ___RoPESizeComputer__OpType_RoPE__();
 ___AttentionSizeComputer__OpType_Attention__();
 ___LinearAttentionSizeComputer__OpType_LinearAttention__();
+___FusedProjSizeComputer__OpType_FusedLinear__();
 #endif
 }
 }

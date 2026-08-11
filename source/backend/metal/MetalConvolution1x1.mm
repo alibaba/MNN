@@ -124,7 +124,7 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
     }
 
     mGateUpFusedPipeline = rt->findPipeline(keys);
-    if (nil == mGateUpFusedPipeline) {
+    if (nil == mGateUpFusedPipeline && !rt->pipelineCompileFailed(keys)) {
         std::string ftype = backend->useFp16InsteadFp32() ? "half" : "float";
         std::string ftype2 = backend->useFp16InsteadFp32() ? "half2" : "float2";
         std::string ftype2x4 = backend->useFp16InsteadFp32() ? "half2x4" : "float2x4";
@@ -187,8 +187,12 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
 }
 
 bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tensor* peerKOutput,
-                                         MetalConvolution1x1* peerV, const Tensor* peerVOutput) {
+                                         MetalConvolution1x1* peerV, const Tensor* peerVOutput,
+                                         MetalConvolution1x1* peerW, const Tensor* peerWOutput) {
     if (!mIs2sgDecode || !peerK->mIs2sgDecode || !peerV->mIs2sgDecode) {
+        return false;
+    }
+    if (peerW != nullptr && !peerW->mIs2sgDecode) {
         return false;
     }
     // No stacking with other fusion roles (buffer indices 6-9/14 collide with
@@ -198,11 +202,20 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
         peerV->mIsGateUpLeader || peerV->mIsGateUpFollower || peerV->mHasLNFusion) {
         return false;
     }
+    if (peerW != nullptr &&
+        (peerW->mIsGateUpLeader || peerW->mIsGateUpFollower || peerW->mHasLNFusion)) {
+        return false;
+    }
     // The fused kernel shares the leader's cst for everything except
     // output_slice and scale_coef, so quant layout and activation must match.
     if (peerK->mDequantBits != mDequantBits || peerV->mDequantBits != mDequantBits ||
         peerK->mBlockSize != mBlockSize || peerV->mBlockSize != mBlockSize ||
         peerK->mActivationType != mActivationType || peerV->mActivationType != mActivationType) {
+        return false;
+    }
+    if (peerW != nullptr &&
+        (peerW->mDequantBits != mDequantBits || peerW->mBlockSize != mBlockSize ||
+         peerW->mActivationType != mActivationType)) {
         return false;
     }
 
@@ -226,13 +239,16 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     keys.emplace_back("conv1x1_wquant_sg_reduce");
     keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
     keys.emplace_back("QKV_FUSED");
+    if (peerW != nullptr) {
+        keys.emplace_back("QKV_FUSED_P4");
+    }
     const bool row2 = !backend->isSupportTensorApi();
     if (row2) {
         keys.emplace_back("ROW_2");
     }
 
     mQKVFusedPipeline = rt->findPipeline(keys);
-    if (nil == mQKVFusedPipeline) {
+    if (nil == mQKVFusedPipeline && !rt->pipelineCompileFailed(keys)) {
         std::string ftype = backend->useFp16InsteadFp32() ? "half" : "float";
         std::string ftype2 = backend->useFp16InsteadFp32() ? "half2" : "float2";
         std::string ftype2x4 = backend->useFp16InsteadFp32() ? "half2x4" : "float2x4";
@@ -259,6 +275,9 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
             [dic setValue:@"1" forKey:@"W_QUANT_8"];
         }
         [dic setValue:@"1" forKey:@"QKV_FUSED"];
+        if (peerW != nullptr) {
+            [dic setValue:@"1" forKey:@"QKV_FUSED_P4"];
+        }
         if (row2) {
             [dic setValue:@"1" forKey:@"ROW_2"];
         }
@@ -275,10 +294,15 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     mIsQKVLeader = true;
     mQKVPeerK = peerK;
     mQKVPeerV = peerV;
+    mQKVPeerW = peerW;
     mQKVPeerKOutput = peerKOutput;
     mQKVPeerVOutput = peerVOutput;
+    mQKVPeerWOutput = peerWOutput;
     peerK->mIsQKVFollower = true;
     peerV->mIsQKVFollower = true;
+    if (peerW != nullptr) {
+        peerW->mIsQKVFollower = true;
+    }
 
     // The fused dispatch writes k/v outputs at the leader's (earlier) position.
     // Ops between the leader and the k/v consumers (q/k-norm Cast/Raster, RoPE,
@@ -290,36 +314,49 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     // time and follow automatically. Called after the allocator's compute(), so
     // the assignment sticks. The few KB of static memory per projection are not
     // reclaimed on later resizes (decode module resizes once; bounded waste).
-    if (!backend->onAcquireBuffer(peerKOutput, Backend::STATIC) ||
-        !backend->onAcquireBuffer(peerVOutput, Backend::STATIC)) {
+    bool rehomed = backend->onAcquireBuffer(peerKOutput, Backend::STATIC) &&
+                   backend->onAcquireBuffer(peerVOutput, Backend::STATIC);
+    if (rehomed && peerW != nullptr) {
+        rehomed = backend->onAcquireBuffer(peerWOutput, Backend::STATIC);
+    }
+    if (!rehomed) {
         mIsQKVLeader = false;
         mQKVPeerK = nullptr;
         mQKVPeerV = nullptr;
+        mQKVPeerW = nullptr;
         mQKVPeerKOutput = nullptr;
         mQKVPeerVOutput = nullptr;
+        mQKVPeerWOutput = nullptr;
         peerK->mIsQKVFollower = false;
         peerV->mIsQKVFollower = false;
+        if (peerW != nullptr) {
+            peerW->mIsQKVFollower = false;
+        }
         return false;
     }
 
     // Followers' per-projection scale_coef + output_slice (leader's come from cst).
     auto kSlice = ((Param*)peerK->mConstBuffer.contents)->output_slice;
     auto vSlice = ((Param*)peerV->mConstBuffer.contents)->output_slice;
-    mQKVSegBuffer = backend->getConstBuffer(4 * sizeof(float));
+    auto wSlice = peerW != nullptr ? ((Param*)peerW->mConstBuffer.contents)->output_slice : 0;
+    mQKVSegBuffer = backend->getConstBuffer(6 * sizeof(float));
     auto seg = (float *)mQKVSegBuffer.contents;
     seg[0] = peerK->mScaleCoef;
     seg[1] = peerV->mScaleCoef;
     seg[2] = (float)kSlice;
     seg[3] = (float)vSlice;
+    seg[4] = peerW != nullptr ? peerW->mScaleCoef : 0.0f;
+    seg[5] = (float)wSlice;
 
-    // grid.x covers the largest projection; z selects q/k/v. Out-of-range
-    // simdgroups on the smaller projections early-return in the shader.
-    // Fused pipeline is 2sg-kernel based — force 64 threads (plain pipeline
-    // may be split-K g8 with a 128-thread group). ROW_2: 2 slices per
+    // grid.x covers the largest projection; z selects the projection.
+    // Out-of-range simdgroups on the smaller projections early-return in the
+    // shader. Fused pipeline is 2sg-kernel based — force 64 threads (plain
+    // pipeline may be split-K g8 with a 128-thread group). ROW_2: 2 slices per
     // simdgroup -> 4 slices per TG.
     auto leaderSlice = ((Param*)mConstBuffer.contents)->output_slice;
-    NSUInteger maxGridX = (NSUInteger)UP_DIV(ALIMAX(leaderSlice, ALIMAX(kSlice, vSlice)), row2 ? 4 : 2);
-    mThreads.first = MTLSizeMake(maxGridX, mThreads.first.height, 3);
+    auto maxSlice = ALIMAX(ALIMAX(leaderSlice, wSlice), ALIMAX(kSlice, vSlice));
+    NSUInteger maxGridX = (NSUInteger)UP_DIV(maxSlice, row2 ? 4 : 2);
+    mThreads.first = MTLSizeMake(maxGridX, mThreads.first.height, peerW != nullptr ? 4 : 3);
     mThreads.second = MTLSizeMake(64, 1, 1);
 
     return true;
@@ -368,6 +405,9 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
     }
     if (mIsQKVLeader) {
         keys.emplace_back("QKV_FUSED");
+        if (mQKVPeerW != nullptr) {
+            keys.emplace_back("QKV_FUSED_P4");
+        }
     }
     keys.emplace_back("LN_FUSED");
     const bool row2 = !backend->isSupportTensorApi();
@@ -376,7 +416,7 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
     }
 
     mLNFusedPipeline = rt->findPipeline(keys);
-    if (nil == mLNFusedPipeline) {
+    if (nil == mLNFusedPipeline && !rt->pipelineCompileFailed(keys)) {
         MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
         auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
         [dic setValue:@(ftype.c_str()) forKey:@"ftype"];
@@ -402,6 +442,9 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
         }
         if (mIsQKVLeader) {
             [dic setValue:@"1" forKey:@"QKV_FUSED"];
+            if (mQKVPeerW != nullptr) {
+                [dic setValue:@"1" forKey:@"QKV_FUSED_P4"];
+            }
         }
         [dic setValue:@"1" forKey:@"LN_FUSED"];
         if (row2) {
@@ -454,8 +497,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     mIsQKVFollower = false;
     mQKVPeerK = nullptr;
     mQKVPeerV = nullptr;
+    mQKVPeerW = nullptr;
     mQKVPeerKOutput = nullptr;
     mQKVPeerVOutput = nullptr;
+    mQKVPeerWOutput = nullptr;
     mQKVFusedPipeline = nil;
     mQKVSegBuffer = nil;
 
@@ -737,10 +782,6 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     // Fusion leaders (gate/up, qkv, LN) build their own 2sg-based
                     // pipelines and force a 64-thread dispatch in their setup.
                     mIs2sgDecode = true;
-                    // Register this Conv1x1 for Gate/Up fusion lookup
-                    backend->registerConv1x1ForOutput(output, this);
-                    // Register by input tensor for LN fusion consumer lookup
-                    backend->registerConv1x1ForQKV(input, this, output, oc);
                 } else {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemv_g8_wquant_sg");
@@ -953,7 +994,16 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 
             if (!fusedQ4) {
                 int bytes = backend->useFp16InsteadFp32() ? 2 : 4;
-                mTempWeight.reset(Tensor::createDevice<uint8_t>(std::vector<int>{ROUND_UP(oc, 4) * ROUND_UP(ic, 32) * bytes}));
+                const int tempSize = ROUND_UP(oc, 4) * ROUND_UP(ic, 32) * bytes;
+                // Size depends only on oc/ic/bytes, so create the Tensor once and
+                // keep the object for the execution's lifetime: a recorded
+                // encode-replay holds raw Tensor* to it, and destroying it would
+                // leave that recording dangling. Only the buffer range is
+                // acquired per resize; metalReplayValidate catches an address
+                // change on its own.
+                if (mTempWeight == nullptr || mTempWeight->elementSize() != tempSize) {
+                    mTempWeight.reset(Tensor::createDevice<uint8_t>(std::vector<int>{tempSize}));
+                }
                 backend->onAcquireBuffer(mTempWeight.get(), Backend::DYNAMIC);
                 backend->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
 
@@ -967,7 +1017,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                 mDequantThreads = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(UP_DIV(oc, 1),  UP_DIV(ic, 16), 1)];
             } else {
                 mDequantPipeline = nil;
-                mTempWeight.reset();
+                // mTempWeight is deliberately kept: see above.
             }
         }
 
@@ -1279,8 +1329,15 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
         MetalBackend::setTensor(mQKVPeerV->getWeight().get(), encoder, 11);
         MetalBackend::setTensor(mQKVPeerV->getBias().get(), encoder, 12);
         MetalBackend::setTensor(mQKVPeerV->getDequantScale().get(), encoder, 13);
-        // buffer(14): {k_coef, v_coef, k_oslice, v_oslice}
+        // buffer(14): {k_coef, v_coef, k_oslice, v_oslice[, w_coef, w_oslice]}
         [encoder setBuffer:mQKVSegBuffer offset:0 atIndex:14];
+        // buffers(15-18): optional 4th projection (QKV_FUSED_P4)
+        if (mQKVPeerW != nullptr && mQKVPeerWOutput != nullptr) {
+            MetalBackend::setTensor(mQKVPeerWOutput, encoder, 15);
+            MetalBackend::setTensor(mQKVPeerW->getWeight().get(), encoder, 16);
+            MetalBackend::setTensor(mQKVPeerW->getBias().get(), encoder, 17);
+            MetalBackend::setTensor(mQKVPeerW->getDequantScale().get(), encoder, 18);
+        }
         if (mHasLNFusion) {
             bindLNBuffers(encoder);
         }

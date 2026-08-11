@@ -19,7 +19,7 @@ namespace MNN {
 GeometryComputer::Context::~Context() {
     // Do nothing
 }
-GeometryComputer::Context::Context(int mask, std::shared_ptr<Backend> allocBackend, MNNForwardType type, BackendConfig::PrecisionMode precision) : mMask(mask) {
+GeometryComputer::Context::Context(int mask, std::shared_ptr<Backend> allocBackend, MNNForwardType type, BackendConfig::PrecisionMode precision, int gpuMode, const Runtime* computeRuntime) : mMask(mask) {
     mBackend       = allocBackend;
     flatbuffers::FlatBufferBuilder builder(32);
     OpBuilder opBuilder(builder);
@@ -30,6 +30,8 @@ GeometryComputer::Context::Context(int mask, std::shared_ptr<Backend> allocBacke
     mRasterOp->storage = builder.ReleaseRaw(mRasterOp->allocated_size, mRasterOp->offset);
     mForwardType = type;
     mPrecision = precision;
+    mGpuMode = gpuMode;
+    mComputeRuntime = computeRuntime;
 }
 
 void GeometryComputer::Context::clear() {

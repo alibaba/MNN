@@ -747,6 +747,9 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         modRuntime.externalFile = rtMgr->getInside()->mContent->mExternalFile;
         modRuntime.userConfig = &rtMgr->getInside()->mContent->mConfig;
         modRuntime.compute.type = rtMgr->getInside()->mRuntime.first.begin()->first;
+        // numThread aliases gpuMode for GPU backends; without it the geometry
+        // context sees the Backend::Info default instead of the runtime's mode.
+        modRuntime.compute.numThread = rtMgr->getInside()->mContent->mNumberThread;
     }
     auto& rt = modRuntime.rt->getInside()->mRuntime;
     auto firstRt = rt.first.find(modRuntime.compute.type)->second;

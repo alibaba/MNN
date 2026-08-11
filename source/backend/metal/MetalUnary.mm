@@ -104,11 +104,12 @@ static NSString *kernelForType(UnaryOpOperation type) {
     }
 }
 
-MetalUnary::MetalUnary(Backend *backend, id<MTLComputePipelineState> pipeline) : MetalExecution(backend) {
+MetalUnary::MetalUnary(Backend *backend, id<MTLComputePipelineState> pipeline, int opType) : MetalExecution(backend) {
     auto mtbn = static_cast<MetalBackend *>(backend);
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mConstBuffer                 = [context newDeviceBuffer:3 * sizeof(int) access:CPUWriteOnly];
     mPipeline = pipeline;
+    mOpType = opType;
 }
 ErrorCode MetalUnary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto mtbn = static_cast<MetalBackend *>(backend());
@@ -169,7 +170,7 @@ public:
             MNN_ERROR("Make Unary shader error\n");
             return nullptr;
         }
-        return new MetalUnary(backend, pipeline);
+        return new MetalUnary(backend, pipeline, (int)optype);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalUnaryCreator, OpType_UnaryOp);

@@ -13,6 +13,19 @@
 //  (allocator reshuffle, KV-cache expansion, shape change) drops the recording
 //  and falls back to the normal onEncode path, which may then re-record.
 //
+//  LIFETIME INVARIANT: that revalidation dereferences the recorded raw Tensor*,
+//  so a Tensor annotated into a recording MUST OUTLIVE the recording. Freeing
+//  one is a heap-use-after-free inside metalReplayValidate, not a mismatch it
+//  can catch. An execution that owns a Tensor it binds must therefore either
+//    - keep the object for its lifetime and only resize it in place
+//      (MetalAttention::mTempQK, MetalConvolutionWinograd::mTempSrc), or
+//    - bump a generation counter when it really re-allocates and refuse replay
+//      from onReplayUpdate while it differs (MetalLinearAttention::mConvOut).
+//  Note _replayHashIO covers only the op's own inputs/outputs, so it does not
+//  protect internally-owned tensors. A parent op that drives child executions
+//  (MetalFusedProj) captures the children's bindings into ITS recording, so the
+//  parent is the one that must guard against a child's tensor churn.
+//
 //  Ops whose encode depends on per-token CPU state (attention: kv-length in
 //  grids and param-buffer contents) must override canRecordEncode() -> false
 //  or implement onReplayUpdate().

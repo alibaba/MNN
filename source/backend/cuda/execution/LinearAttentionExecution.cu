@@ -53,6 +53,26 @@ __device__ __forceinline__ void write_token_channel(T* output, int token, int c,
     output[offset] = (T)value;
 }
 
+// gate/beta chain fold (gate_fold): replicates the unfused elementwise chain
+// op-for-op — Binary ops compute in T (half on fp16 builds), Unary ops in fp32
+// with the MNNEXP +-87 clamp — with a T store-rounding after every op, so the
+// folded value matches the separate-op chain output (mirrors
+// MetalLinearAttentionShader.hpp linear_attn_gate_fold). gateFoldConst holds
+// the per-head -exp(A_log) at [0..63] and dt_bias at [64..127].
+template <typename T>
+__device__ __forceinline__ float linear_attn_gate_fold(float a, int h, const float* __restrict__ gateFoldConst) {
+    T x = (T)((float)(T)a + (float)(T)gateFoldConst[64 + h]);        // ADD dt_bias  (Binary, T)
+    x = (T)expf(fminf(fmaxf((float)x, -87.0f), 87.0f));              // EXP          (Unary, fp32)
+    x = (T)((float)x + (float)(T)1.0f);                              // ADD +1       (Binary, T)
+    x = (T)logf((float)x);                                           // LOG          (Unary, fp32)
+    x = (T)((float)(T)gateFoldConst[h] * (float)x);                  // MUL -exp(A_log)
+    return (float)x;
+}
+template <typename T>
+__device__ __forceinline__ float linear_attn_beta_fold(float b) {
+    return (float)(T)(1.0f / (1.0f + expf(fminf(fmaxf(-b, -87.0f), 87.0f))));
+}
+
 // ============================================================================
 // Kernel 1: Depthwise Conv1D + SiLU (fused)
 // ============================================================================
@@ -199,7 +219,8 @@ __global__ void gated_delta_rule_decode_kernel(
     int B, int H_k, int H_v, int d_k, int d_v,
     int key_dim, int val_dim, int D,
     int gqa_factor, bool useL2Norm, float qScale,
-    bool gateC4, bool betaC4, bool outputC4
+    bool gateC4, bool betaC4, bool outputC4,
+    const float* __restrict__ gateFoldConst
 ) {
     int idx = blockIdx.x;
     if (idx >= B * H_v) return;
@@ -253,8 +274,14 @@ __global__ void gated_delta_rule_decode_kernel(
     for (int i = threadIdx.x; i < d_k; i += blockDim.x) q_s[i] *= qScale;
     __syncthreads();
 
-    float decay = expf(read_token_channel(gateInput, b, 0, h, 1, H_v, gateC4));
-    float beta_t = read_token_channel(betaInput, b, 0, h, 1, H_v, betaC4);
+    float gRaw = read_token_channel(gateInput, b, 0, h, 1, H_v, gateC4);
+    float bRaw = read_token_channel(betaInput, b, 0, h, 1, H_v, betaC4);
+    if (gateFoldConst != nullptr) {
+        gRaw = linear_attn_gate_fold<T>(gRaw, h, gateFoldConst);
+        bRaw = linear_attn_beta_fold<T>(bRaw);
+    }
+    float decay = expf(gRaw);
+    float beta_t = bRaw;
     float* state = recurrentState + (b * H_v + h) * d_k * d_v;
     int stateSize = d_k * d_v;
     int stateSize4 = stateSize / 4;
@@ -326,7 +353,8 @@ void gated_delta_rule_prefill_kernel(
     int B, int L, int H_k, int H_v, int d_k, int d_v,
     int key_dim, int val_dim, int D,
     int gqa_factor, bool useL2Norm, float qScale,
-    bool gateC4, bool betaC4, bool outputC4
+    bool gateC4, bool betaC4, bool outputC4,
+    const float* __restrict__ gateFoldConst
 ) {
     int idx = blockIdx.x;
     if (idx >= B * H_v) return;
@@ -400,8 +428,14 @@ void gated_delta_rule_prefill_kernel(
         for (int i = threadIdx.x; i < d_k; i += blockDim.x) q_s[i] *= qScale;
         __syncthreads();
 
-        float decay = expf(read_token_channel(gateInput, b, t, h, L, H_v, gateC4));
-        float beta_t = read_token_channel(betaInput, b, t, h, L, H_v, betaC4);
+        float gRaw = read_token_channel(gateInput, b, t, h, L, H_v, gateC4);
+        float bRaw = read_token_channel(betaInput, b, t, h, L, H_v, betaC4);
+        if (gateFoldConst != nullptr) {
+            gRaw = linear_attn_gate_fold<T>(gRaw, h, gateFoldConst);
+            bRaw = linear_attn_beta_fold<T>(bRaw);
+        }
+        float decay = expf(gRaw);
+        float beta_t = bRaw;
 
         // Preload k vector into registers (eliminates shared memory reads in inner loops)
         float vec_reg[MAX_HALF_DK];
@@ -487,6 +521,23 @@ CUDALinearAttention::CUDALinearAttention(Backend* backend, const MNN::Op* op) : 
     mHeadVDim = param->head_v_dim();
     mUseQKL2Norm = param->use_qk_l2norm();
     mPrecision = mCudaBackend->getPrecision();
+    mGateFold = param->gate_fold() && mAttentionType != "short_conv";
+    if (mGateFold) {
+        // The creator validated the arrays; upload -exp(A_log) at [0..63] and
+        // dt_bias at [64..127] once.
+        float host[128] = {0.0f};
+        for (int h = 0; h < mNumVHeads; ++h) {
+            host[h]      = param->gate_coef()->Get(h);
+            host[64 + h] = param->gate_bias()->Get(h);
+        }
+        mGateFoldConst.reset(Tensor::createDevice<int32_t>({128}));
+        if (backend->onAcquireBuffer(mGateFoldConst.get(), Backend::STATIC)) {
+            cudaMemcpy(getDevPtr<void>(mGateFoldConst.get()), host, sizeof(host), cudaMemcpyHostToDevice);
+        } else {
+            MNN_ERROR("LinearAttention: gate fold const STATIC alloc failed\n");
+            mGateFold = false;
+        }
+    }
     mStateCache.reset(new CUDAStateCache);
 }
 
@@ -705,13 +756,15 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
                     convOutPtr, getDevPtr<half>(gateTensor), getDevPtr<half>(betaTensor),
                     rnnStatePtr, getDevPtr<half>(outTensor),
                     B, H_k, H_v, dk, dv, key_dim, val_dim, D,
-                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4);
+                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4,
+                    mGateFold ? getDevPtr<float>(mGateFoldConst.get()) : nullptr);
             } else {
                 gated_delta_rule_decode_kernel<float><<<totalHeads, blockSize, smemSize, stream>>>(
                     convOutPtr, getDevPtr<float>(gateTensor), getDevPtr<float>(betaTensor),
                     rnnStatePtr, getDevPtr<float>(outTensor),
                     B, H_k, H_v, dk, dv, key_dim, val_dim, D,
-                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4);
+                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4,
+                    mGateFold ? getDevPtr<float>(mGateFoldConst.get()) : nullptr);
             }
         } else {
             // Prefill: transpose + register-tiled kernel
@@ -732,13 +785,15 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
                     convOutTransPtr, getDevPtr<half>(gateTensor), getDevPtr<half>(betaTensor),
                     rnnStatePtr, getDevPtr<half>(outTensor),
                     B, L, H_k, H_v, dk, dv, key_dim, val_dim, D,
-                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4);
+                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4,
+                    mGateFold ? getDevPtr<float>(mGateFoldConst.get()) : nullptr);
             } else {
                 gated_delta_rule_prefill_kernel<float><<<totalHeads, blockSize, smemSize, stream>>>(
                     convOutTransPtr, getDevPtr<float>(gateTensor), getDevPtr<float>(betaTensor),
                     rnnStatePtr, getDevPtr<float>(outTensor),
                     B, L, H_k, H_v, dk, dv, key_dim, val_dim, D,
-                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4);
+                    gqa_factor, mUseQKL2Norm, qScale, gateC4, betaC4, outputC4,
+                    mGateFold ? getDevPtr<float>(mGateFoldConst.get()) : nullptr);
             }
         }
     }
@@ -764,6 +819,17 @@ public:
         const auto type = param->attn_type()->str();
         if (type != "gated_delta_rule" && type != "short_conv")
             return nullptr;
+        // gate_fold changes the meaning of inputs 1/2 (raw a/b projections instead of
+        // the computed gate/beta) and needs valid per-head constants; malformed params
+        // fall back to the backup backend, which validates and errors the same way.
+        if (param->gate_fold() && type == "gated_delta_rule") {
+            const int numVHeads = param->num_v_heads();
+            if (numVHeads <= 0 || numVHeads > 64 || param->gate_coef() == nullptr ||
+                param->gate_bias() == nullptr || (int)param->gate_coef()->size() != numVHeads ||
+                (int)param->gate_bias()->size() != numVHeads) {
+                return nullptr;
+            }
+        }
         return new CUDALinearAttention(backend, op);
     }
 };

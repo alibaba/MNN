@@ -636,7 +636,6 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
 }
 
 void MetalRaster::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
-
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
 
