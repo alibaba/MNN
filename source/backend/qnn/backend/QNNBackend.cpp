@@ -18,6 +18,7 @@
 // #define QNN_PROFILE_OP
 // #define QNN_PROFILE_SUMMARIZE
 // #define QNN_VERBOSE
+// #define QNN_DEBUG
 #ifdef ENABLE_QNN_CONVERT_MODE
 #define QNN_FORWARD_TYPE MNN_CONVERT_QNN
 #else
@@ -81,6 +82,15 @@ static void createQnnContext(){
     Qnn_LogHandle_t logHandle = nullptr;
     {
         QnnLog_Callback_t logCallback = nullptr;
+#ifdef QNN_DEBUG
+        logCallback = [](const char* fmt, QnnLog_Level_t level, uint64_t timestamp, va_list args) {
+            if (level <= QNN_LOG_LEVEL_ERROR) {
+                char buf[512];
+                vsnprintf(buf, sizeof(buf), fmt, args);
+                MNN_PRINT("QNN_LOG[%d]: %s\n", level, buf);
+            }
+        };
+#endif
         if ((QNN_GET_ERROR_CODE(qnnInterface.logCreate(logCallback, QNN_LOG_LEVEL_ERROR, &logHandle)) != QNN_SUCCESS) ||
             (logHandle == nullptr)) {
             MNN_PRINT("MNN_QNN: Failed to initialize logging in the backend.\n");
