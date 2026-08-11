@@ -284,6 +284,7 @@ class LlmModel(PreTrainedModel):
                 rotary_dim = int(global_head_dim * partial_factor)
                 model.rotary_full.rotary_dim = rotary_dim
                 model.rotary_full.theta = 1.0 / (full_rp.get('rope_theta', 1000000.0) ** (torch.arange(0, rotary_dim, 2, dtype=torch.float32) / global_head_dim))
+                model.rotary_full.build_rope_tables()
             model.rotary = model.rotary_sliding  # default rotary for config reference
         else:
             model.rotary = Rotary(config)

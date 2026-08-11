@@ -1601,6 +1601,11 @@ VARP Llm::gen_attention_mask(int seq_len) {
 
 VARP Llm::gen_position_ids(int seq_len) {
     MNN::Express::ExecutorScope s(mExecutor);
+    int maxPos = mConfig->max_position_embeddings();
+    if (maxPos > 0 && mContext->all_seq_len <= maxPos && mContext->all_seq_len + seq_len > maxPos) {
+        MNN_PRINT("[MNN:LLM] Warning: sequence length %d exceeds max_position_embeddings (%d), output quality may degrade.\n",
+                  mContext->all_seq_len + seq_len, maxPos);
+    }
     if (mConfig->attention_mask() == "glm") {
         // chatglm
         if (needNewVar(positionIds, 2, seq_len)) {
