@@ -929,6 +929,8 @@ def export(path, **kwargs):
     args = parser.parse_args(['--path', path])
     for k, v in kwargs.items():
         setattr(args, k, v)
+    if args.generate_for_npu:
+        args.transformer_c4 = False
     if 'bge' in path:
         llm_exporter = EmbeddingExporter(args)
     else:
@@ -940,6 +942,8 @@ def main():
     parser = argparse.ArgumentParser(description='llm_exporter', formatter_class=argparse.RawTextHelpFormatter)
     build_args(parser)
     args = parser.parse_args()
+    if args.generate_for_npu:
+        args.transformer_c4 = False
 
     model_path = args.path
 
