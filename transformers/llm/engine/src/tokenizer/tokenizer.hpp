@@ -133,6 +133,12 @@ public:
 
 class Tokenizer {
 public:
+    struct PostProcessorInfo {
+        size_t prefix_size = 0;
+        size_t suffix_size = 0;
+        bool has_single_sequence_a = true;
+    };
+
     static constexpr int MAGIC_NUMBER = 430;
     enum TokenizerType {
         SENTENCEPIECE = 0,
@@ -146,7 +152,8 @@ public:
     static Tokenizer* createTokenizer(const std::string& filename);
     bool is_stop(int token);
     bool is_special(int token);
-    std::vector<int> encode(const std::string& str);
+    std::vector<int> encode(const std::string& str, bool with_post_processor = true);
+    PostProcessorInfo post_process(std::vector<int>& ids) const { return apply_post_processor(ids); }
     virtual std::string decode(int id) = 0;
     virtual std::string decode(const std::vector<int>& ids);
     // chat template
@@ -157,13 +164,23 @@ public:
     const std::string& chat_template() const { return chat_template_; }
     const std::string& chat_template_eos() const { return chat_template_eos_; }
 protected:
+    enum PostProcessorOpType {
+        POST_OP_SEQUENCE_A = 0,
+        POST_OP_SPECIAL_TOKEN = 1,
+    };
+    struct PostProcessorOp {
+        uint8_t type = POST_OP_SEQUENCE_A;
+        int token_id = -1;
+    };
     void cache_special_tokens();
+    PostProcessorInfo apply_post_processor(std::vector<int>& ids) const;
     virtual void load_special(std::ifstream& file);
     virtual bool load_vocab(std::ifstream& file) = 0;
     virtual void encode(const std::string& str, std::vector<int>& ids) = 0;
     std::vector<int> special_tokens_;
     std::vector<int> stop_tokens_;
     std::vector<int> prefix_tokens_;
+    std::vector<PostProcessorOp> post_single_ops_;
     std::vector<std::pair<std::string, int>> special_tokens_cache_;
     std::string chat_template_;
     std::string chat_template_eos_;

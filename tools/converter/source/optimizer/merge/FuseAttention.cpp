@@ -211,15 +211,15 @@ RemovePastKeyValue::RemovePastKeyValue() {
            llm: out <- stack [concat + unsqueeze] <- stack [concat + unsqueeze] <- concat <- gatherv2 <- gatherv2 <- in
          block: out <------------------------------- stack [concat + unsqueeze] <- concat <- gatherv2 <------------- in
          */
-        if (!helpers::IsConcat(expr)) {
+        if (!helpers::IsConcat(expr) || expr->inputs().empty()) {
             return false;
         }
         expr = expr->inputs().at(0)->expr().first;
-        if (!helpers::IsUnsqueeze(expr)) {
+        if (!helpers::IsUnsqueeze(expr) || expr->inputs().empty()) {
             return false;
         }
         expr = expr->inputs().at(0)->expr().first;
-        if (!helpers::IsConcat(expr) && expr->inputs().size() == 2) {
+        if (!(helpers::IsConcat(expr) && expr->inputs().size() == 2)) {
             return false;
         }
         expr = expr->inputs().at(0)->expr().first;

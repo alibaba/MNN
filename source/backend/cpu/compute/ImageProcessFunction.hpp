@@ -98,6 +98,12 @@ void MNNSamplerC3Bilinear(const unsigned char* source, unsigned char* dest, MNN:
                           size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
 void MNNSamplerC1Bilinear(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
                           size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+void MNNSamplerC4Cubic(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                       size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+void MNNSamplerC3Cubic(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                       size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+void MNNSamplerC1Cubic(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                       size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
 void MNNSamplerNearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta, size_t count,
                        size_t iw, size_t ih, size_t yStride, int bpp);
 void MNNSamplerC4Nearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,

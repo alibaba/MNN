@@ -311,6 +311,10 @@ public:
         return config_.value("use_template", true);
     }
 
+    bool asr_use_audio_template() const { return config_.value("asr_use_audio_template", false); }
+
+    std::string asr_language() const { return config_.value("asr_language", "Chinese"); }
+
     bool use_mmap() const {
         return config_.value("use_mmap", false);
     }

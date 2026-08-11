@@ -13,12 +13,10 @@
 #include <sstream>
 #include <stdlib.h>
 #include <initializer_list>
-#if defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
-#include <stdlib.h>
-#else
+#if !defined(_WIN32) && !defined(_WIN64) && !defined(_MSC_VER)
 #include <limits.h>
 #endif
-//#define LLM_SUPPORT_AUDIO
+// #define LLM_SUPPORT_AUDIO
 #ifdef LLM_SUPPORT_AUDIO
 #include "audio/audio.hpp"
 #endif
@@ -98,6 +96,8 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     int64_t prefill_time = 0;
     int64_t decode_time = 0;
     int64_t sample_time = 0;
+    int64_t audio_e2e_time = 0;
+    float audio_e2e_input_s = 0.0f;
     // llm->warmup();
     auto context = llm->getContext();
     if (max_token_number > 0) {
@@ -109,7 +109,8 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         waveform.reserve(waveform.size() + size);
         waveform.insert(waveform.end(), ptr, ptr + size);
         if (last_chunk) {
-            auto waveform_var = MNN::Express::_Const(waveform.data(), {(int)waveform.size()}, MNN::Express::NCHW, halide_type_of<float>());
+            auto waveform_var = MNN::Express::_Const(waveform.data(), {(int)waveform.size()}, MNN::Express::NCHW,
+                                                     halide_type_of<float>());
             MNN::AUDIO::save("output.wav", waveform_var, 24000);
             waveform.clear();
         }
@@ -118,24 +119,26 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
 #endif
     for (int i = 0; i < prompts.size(); i++) {
         auto prompt = prompts[i];
-     // #define MIMO_NO_THINKING
-     #ifdef MIMO_NO_THINKING
+// #define MIMO_NO_THINKING
+#ifdef MIMO_NO_THINKING
         // update config.json and llm_config.json if need. example:
-        llm->set_config("{\"assistant_prompt_template\":\"<|im_start|>assistant\\n<think>\\n</think>\%s<|im_end|>\\n\"}");
+        llm->set_config(
+            "{\"assistant_prompt_template\":\"<|im_start|>assistant\\n<think>\\n</think>\%s<|im_end|>\\n\"}");
         prompt = prompt + "<think>\n</think>";
-     #endif
+#endif
 
         // prompt start with '#' will be ignored
         if (prompt.substr(0, 1) == "#") {
             continue;
         }
-        
+        const float audio_input_s_before = context->audio_input_s;
+        MNN::Timer audio_e2e_timer;
         if (max_token_number >= 0) {
             llm->response(prompt, &std::cout, nullptr, 0);
             while (!llm->stoped() && context->gen_seq_len < max_token_number) {
                 llm->generate(1);
                 // Check for errors
-                if(context->status == LlmStatus::INTERNAL_ERROR) {
+                if (context->status == LlmStatus::INTERNAL_ERROR) {
                     MNN_ERROR("Error: Generation failed due to internal error\n");
                     return -1;
                 }
@@ -143,7 +146,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         } else {
             llm->response(prompt);
             // Check for errors after response
-            if(context->status == LlmStatus::INTERNAL_ERROR) {
+            if (context->status == LlmStatus::INTERNAL_ERROR) {
                 MNN_ERROR("Error: Response generation failed due to internal error\n");
                 return -1;
             }
@@ -153,6 +156,11 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         prefill_time += context->prefill_us;
         decode_time += context->decode_us;
         sample_time += context->sample_us;
+        const float audio_input_s = context->audio_input_s - audio_input_s_before;
+        if (audio_input_s > 0.0f) {
+            audio_e2e_time += audio_e2e_timer.durationInUs();
+            audio_e2e_input_s += audio_input_s;
+        }
     }
     llm->generateWavform();
 
@@ -161,6 +169,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     float prefill_s = prefill_time / 1e6;
     float decode_s = decode_time / 1e6;
     float sample_s = sample_time / 1e6;
+    float audio_e2e_s = audio_e2e_time / 1e6;
     float vision_speed = 0.0f;
     if (context->pixels_mp > 0.0f) {
         vision_speed = context->pixels_mp / vision_s;
@@ -183,6 +192,10 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     MNN_PRINT(" decode speed = %.2f tok/s\n", decode_len / decode_s);
     MNN_PRINT(" vision speed = %.3f MP/s\n", vision_speed);
     MNN_PRINT(" audio RTF = %.3f \n", audio_s / context->audio_input_s);
+    if (audio_e2e_input_s > 0.0f) {
+        MNN_PRINT(" audio E2E time = %.2f s\n", audio_e2e_s);
+        MNN_PRINT(" audio E2E RTF = %.3f \n", audio_e2e_s / audio_e2e_input_s);
+    }
     MNN_PRINT("##################################\n");
     return 0;
 }
@@ -222,7 +235,7 @@ static int ceval(Llm* llm, const std::vector<std::string>& lines, std::string fi
     ofp << "id,answer" << std::endl;
     for (int i = 0; i < answers.size(); i++) {
         auto& answer = answers[i];
-        ofp << i << ",\""<< answer << "\"" << std::endl;
+        ofp << i << ",\"" << answer << "\"" << std::endl;
     }
     ofp.close();
     return 0;
@@ -233,7 +246,7 @@ static int eval(Llm* llm, std::string prompt_file, int max_token_number) {
     std::ifstream prompt_fs(prompt_file);
     std::vector<std::string> prompts;
     std::string prompt;
-//#define LLM_DEMO_ONELINE
+// #define LLM_DEMO_ONELINE
 #ifdef LLM_DEMO_ONELINE
     std::ostringstream tempOs;
     tempOs << prompt_fs.rdbuf();

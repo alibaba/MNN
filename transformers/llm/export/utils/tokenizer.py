@@ -4,10 +4,19 @@ from transformers import PreTrainedTokenizer, AutoTokenizer
 
 class LlmTokenizer(PreTrainedTokenizer):
     def __init__(self, tokenizer_path, model_type, **kwargs):
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True, use_fast=False)
-        except:
-            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True, use_fast=True)
+        prefer_fast = model_type in ('qwen3_vl', 'qwen3_vl_moe')
+        tokenizer = None
+        for use_fast in ([True, False] if prefer_fast else [False, True]):
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    tokenizer_path, trust_remote_code=True, use_fast=use_fast
+                )
+                break
+            except Exception:
+                continue
+        if tokenizer is None:
+            raise RuntimeError(f'Failed to load tokenizer from {tokenizer_path}')
+        self.tokenizer = tokenizer
         self.tokenizer_path = tokenizer_path
         self.model_type = model_type
         # stop_ids
@@ -191,11 +200,52 @@ class LlmTokenizer(PreTrainedTokenizer):
         file_path = os.path.join(save_directory, "tokenizer.mtok")
         MAGIC_NUMBER = 430
         PIPELINE = 4
+        POST_OP_SEQUENCE_A = 0
+        POST_OP_SPECIAL_TOKEN = 1
 
         def pack_str(s):
             if isinstance(s, str):
                 s = s.encode('utf-8')
             return struct.pack('<H', len(s)) + s
+
+        def extract_single_post_processor_ops(post_processor):
+            if not isinstance(post_processor, dict):
+                return []
+            ptype = post_processor.get('type', '')
+            if ptype == 'Sequence':
+                for child in post_processor.get('processors', []):
+                    ops = extract_single_post_processor_ops(child)
+                    if ops:
+                        return ops
+                return []
+            if ptype != 'TemplateProcessing':
+                return []
+
+            ops = []
+            special_token_map = post_processor.get('special_tokens', {})
+            for item in post_processor.get('single', []):
+                if not isinstance(item, dict) or len(item) != 1:
+                    return []
+                key, value = next(iter(item.items()))
+                if key == 'Sequence':
+                    if value.get('id') != 'A':
+                        return []
+                    ops.append((POST_OP_SEQUENCE_A, None))
+                    continue
+                if key == 'SpecialToken':
+                    ids = value.get('ids', [])
+                    if not ids:
+                        special_name = value.get('id')
+                        if isinstance(special_name, str):
+                            special_info = special_token_map.get(special_name, {})
+                            ids = special_info.get('ids', [])
+                    if not isinstance(ids, list):
+                        return []
+                    for token_id in ids:
+                        ops.append((POST_OP_SPECIAL_TOKEN, int(token_id)))
+                    continue
+                return []
+            return ops
 
         with open(file_path, "w", encoding="utf8") as fp:
             # Text header: magic number + type
@@ -530,6 +580,16 @@ class LlmTokenizer(PreTrainedTokenizer):
             bos_bytes = bos_token.encode('utf-8') if bos_token else b''
             fp.write(struct.pack('<H', len(bos_bytes)))
             fp.write(bos_bytes)
+
+            # --- Single-sequence post-processor program ---
+            # Preserve TemplateProcessing(single=...) so the C++ runtime can
+            # replay special-token insertions around sequence A.
+            post_single_ops = extract_single_post_processor_ops(tj.get('post_processor'))
+            fp.write(struct.pack('<H', len(post_single_ops)))
+            for op_type, token_id in post_single_ops:
+                fp.write(struct.pack('<B', op_type))
+                if op_type == POST_OP_SPECIAL_TOKEN:
+                    fp.write(struct.pack('<I', int(token_id)))
 
         return file_path
 

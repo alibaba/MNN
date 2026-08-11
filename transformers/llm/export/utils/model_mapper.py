@@ -147,6 +147,31 @@ class ModelMapper:
         }
         self.regist('qwen3', qwen3_map)
 
+        qwen3_asr_config = {
+            'hidden_size': 'thinker_config.text_config.hidden_size',
+            'head_dim': 'thinker_config.text_config.head_dim',
+            'num_attention_heads': 'thinker_config.text_config.num_attention_heads',
+            'num_hidden_layers': 'thinker_config.text_config.num_hidden_layers',
+            'num_key_value_heads': 'thinker_config.text_config.num_key_value_heads',
+            'rope_theta': 'thinker_config.text_config.rope_theta',
+            'rope_scaling': 'thinker_config.text_config.rope_scaling',
+            'max_position_embeddings': 'thinker_config.text_config.max_position_embeddings'
+        }
+        qwen3_asr_model = {
+            'lm': 'thinker.lm_head',
+            'embed': 'thinker.model.embed_tokens',
+            'blocks': 'thinker.model.layers',
+            'final_layernorm': 'thinker.model.norm',
+            'audio': 'thinker.audio_tower'
+        }
+        qwen3_asr_map = {
+            'config': qwen3_asr_config,
+            'model': qwen3_asr_model,
+            'decoder': self.default_decoder,
+            'attention': qwen3_attention
+        }
+        self.regist('qwen3_asr', qwen3_asr_map)
+
     def regist_llama4_text(self):
         llama4_text_attention = {
             'q_proj': 'q_proj',
