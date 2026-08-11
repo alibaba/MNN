@@ -28,7 +28,7 @@ description: 为 MNN 框架新增算子。包含 Schema 定义、形状计算、
 
 | 目录/文件 | 作用 | 何时修改 |
 |----------|------|---------|
-| `schema/default/MNN.fbs` | 算子类型和参数定义 | **每个新算子都需要** |
+| `schema/default/MNN.fbs` | 算子类型和参数定义（开源版） | **每个新算子都需要**；内部仓库实际生成走 `schema/private/`，计划开源发布的算子**两份都要改**，详见 `step1-schema.md` §1.5 |
 | `schema/default/CaffeOps.fbs` | Caffe 框架算子参数 | 有参数时 |
 | `schema/default/TensorflowOp.fbs` | TF 框架算子参数 | 有参数时 |
 | `source/shape/Shape*.cpp` | 形状（维度）计算 | 输出形状与输入不同时 |

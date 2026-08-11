@@ -132,6 +132,15 @@ struct BackendConfig {
          */
         STATUS_SUPPORT_POWER_LOW,
         /**
+         * get status whether this runtime support simdgroup reduction (metal only)
+         */
+        STATUS_SUPPORT_SIMD_GROUP_REDUCE,
+        /**
+         * get status whether this runtime keeps the fused projection op whole
+         * (composite execution; vulkan-buffer / cuda)
+         */
+        STATUS_SUPPORT_FUSED_PROJ,
+        /**
          * emum total number
          */
         STATUS_COUNT

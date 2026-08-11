@@ -58,6 +58,7 @@ REPEAT=3
 THREADS=4
 PROMPT_DIR=""
 MAX_NEW=1024
+MLLM_BACKEND=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -76,6 +77,7 @@ while [ $# -gt 0 ]; do
         --threads)        THREADS="$2"; shift 2 ;;
         --prompt-dir)     PROMPT_DIR="$2"; shift 2 ;;
         --max-new)        MAX_NEW="$2"; shift 2 ;;
+        --mllm-backend)   MLLM_BACKEND="$2"; shift 2 ;;
         -h|--help)        sed -n '2,/^$/p' "$0"; exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -152,7 +154,7 @@ if [ ! -f "$MODEL_DST/bench.txt" ]; then
     cp "$SCRIPT_DIR/bench.txt" "$MODEL_DST/bench.txt"
     echo "    bench.txt not in model dir, using default prompts"
 fi
-rm -f "$MODEL_DST"/benchprompt_*.txt
+rm -f "$MODEL_DST"/benchprompt_*.txt "$MODEL_DST"/benchimg_*
 if [ -n "$PROMPT_DIR" ]; then
     N_PROMPTS=0
     for F in "$PROMPT_DIR"/*.txt; do
@@ -162,6 +164,27 @@ if [ -n "$PROMPT_DIR" ]; then
         N_PROMPTS=$((N_PROMPTS + 1))
     done
     echo "    bundled $N_PROMPTS prompt files from $PROMPT_DIR"
+    N_IMAGES=0
+    for F in "$PROMPT_DIR"/*.jpg "$PROMPT_DIR"/*.jpeg "$PROMPT_DIR"/*.png; do
+        [ -f "$F" ] || continue
+        BASE=$(basename "$F")
+        BASE=${BASE//[^a-zA-Z0-9._-]/_}
+        cp "$F" "$MODEL_DST/benchimg_${BASE}"
+        N_IMAGES=$((N_IMAGES + 1))
+    done
+    [ "$N_IMAGES" -gt 0 ] && echo "    bundled $N_IMAGES image files from $PROMPT_DIR"
+fi
+if [ -n "$MLLM_BACKEND" ]; then
+    # The engine snapshots the "mllm" config at LLM construction, so runtime
+    # set_config cannot change the vision backend — patch the bundled config.
+    python3 -c "
+import json, sys
+p = sys.argv[1]
+c = json.load(open(p))
+c.setdefault('mllm', {})['backend_type'] = sys.argv[2]
+json.dump(c, open(p, 'w'), indent=4)
+" "$MODEL_DST/config.json" "$MLLM_BACKEND" || fail "failed to patch mllm backend in config.json"
+    echo "    mllm backend -> $MLLM_BACKEND (patched into bundled config.json)"
 fi
 
 # ---------- 3. Build app ----------
@@ -281,7 +304,12 @@ if [ -n "$PROMPT_DIR" ]; then
         run_one_bench "$LOG_FILE" --bench-cmd "benchfiles $BACKEND $THREADS $MAX_NEW $FI"
         case "$STATUS" in
             done)
-                LINE=$(grep -o "\[MNN_FILE_PERF\] .*" "$LOG_FILE" | sed 's/\[MNN_FILE_PERF\] //') ;;
+                LINE=$(grep -o "\[MNN_FILE_PERF\] .*" "$LOG_FILE" | sed 's/\[MNN_FILE_PERF\] //')
+                ANSWER_DIR="${LOG_FILE%.log}.answers"
+                rm -rf "$ANSWER_DIR"; mkdir -p "$ANSWER_DIR"
+                xcrun devicectl device copy from --device "$DEVICE_ID" \
+                    --domain-type appDataContainer --domain-identifier "$BUNDLE_ID" \
+                    --source Documents/bench_answers --destination "$ANSWER_DIR" >/dev/null 2>&1 || true ;;
             error)
                 LINE="FAILED file=$FNAME: $(grep -o "\[MNN_BENCH_ERROR\] .*" "$LOG_FILE" | head -1)"; FAILED=1 ;;
             timeout)

@@ -97,7 +97,12 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     bool encoded = false;
     if (replayAllowed) {
         if (mReplayState == 1) {
-            if (this->onReplayUpdate(inputs, outputs) && metalReplayEmit(mReplayEvents, encoder)) {
+            // The recording was armed on a specific I/O address fingerprint.
+            // Raw setBuffer bindings (no tensor annotation) escape
+            // metalReplayValidate, so a drifted input/output must invalidate
+            // the recording here.
+            if (_replayHashIO(inputs, outputs) == mReplayKey &&
+                this->onReplayUpdate(inputs, outputs) && metalReplayEmit(mReplayEvents, encoder)) {
                 encoded = true;
                 mReplayFailCount = 0;
             } else {

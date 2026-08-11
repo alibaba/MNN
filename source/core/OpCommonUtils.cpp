@@ -647,6 +647,66 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
             parameterMain = Convolution2D::Pack(builder, param.get()).Union();
             break;
         }
+        case OpParameter_FusedLinearParam:
+        {
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+            std::unique_ptr<FusedLinearParamT> param(origin->main_as_FusedLinearParam()->UnPack());
+            for (auto& conv : param->convs) {
+                if (conv->external.size() < 3) {
+                    continue;
+                }
+                if (conv->quanParameter) {
+                    bool isSparse = conv->sparseParameter.get() != nullptr;
+                    bool isPTQ = conv->quanParameter->scaleIn != 0;
+                    if (isSparse || isPTQ) {
+                        external->offset(conv->external[0]);
+                        if (0 != conv->external[1]) {
+                            conv->quanParameter->buffer.resize(conv->external[1]);
+                            external->read((char*)conv->quanParameter->buffer.data(), conv->external[1]);
+                        }
+                        conv->quanParameter->alpha.resize(conv->external[2] / sizeof(float));
+                        external->read((char*)conv->quanParameter->alpha.data(), conv->external[2]);
+                    } else {
+                        // skip weight and dequant alpha for load speed; member convs read
+                        // them through the externalPath stamped on the rebuilt op
+                        externalPathFbb = builder.CreateString(external->path());
+                        external->offset(conv->external[0] + conv->external[1] + conv->external[2]);
+                    }
+                    if (conv->bias.empty() && conv->external.size() > 3) {
+                        if (conv->external[3] > 0) {
+                            conv->bias.resize(conv->external[3] / sizeof(float));
+                            external->read((char*)conv->bias.data(), conv->external[3]);
+                        } else {
+                            conv->bias.resize(conv->common->outputCount);
+                        }
+                    }
+                    if (conv->quanParameter->index.empty() && conv->external.size() > 4) {
+                        if (conv->external[4] > 0) {
+                            conv->quanParameter->index.resize(conv->external[4] / sizeof(uint32_t));
+                            external->read((char*)conv->quanParameter->index.data(), conv->external[4]);
+                        }
+                    }
+                } else {
+                    conv->quanParameter.reset(new IDSTQuanT);
+                    conv->quanParameter->type = 8;
+                    externalPathFbb = builder.CreateString(external->path());
+                    conv->bias.resize(conv->external[2] / sizeof(float));
+                    external->offset(conv->external[0] + conv->external[1]);
+                    external->read((char*)conv->bias.data(), conv->external[2]);
+                }
+            }
+            if (param->ln && param->ln->external.size() >= 3) {
+                external->offset(param->ln->external[0]);
+                param->ln->gamma.resize(param->ln->external[1] / sizeof(float));
+                external->read((char*)param->ln->gamma.data(), param->ln->external[1]);
+                param->ln->beta.resize(param->ln->external[2] / sizeof(float));
+                external->read((char*)param->ln->beta.data(), param->ln->external[2]);
+                param->ln->external.clear();
+            }
+            parameterMain = FusedLinearParam::Pack(builder, param.get()).Union();
+#endif
+            break;
+        }
         default:
             break;
     }
@@ -679,6 +739,25 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         case OpParameter_LayerNorm:
             hasExternal = USE_EXTERNAL_DATA(op->main_as_LayerNorm());
             break;
+        case OpParameter_FusedLinearParam:
+        {
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+            auto param = op->main_as_FusedLinearParam();
+            if (nullptr != param->ln() && USE_EXTERNAL_DATA(param->ln())) {
+                hasExternal = true;
+                break;
+            }
+            if (nullptr != param->convs()) {
+                for (auto conv : *param->convs()) {
+                    if (USE_EXTERNAL_DATA(conv)) {
+                        hasExternal = true;
+                        break;
+                    }
+                }
+            }
+#endif
+            break;
+        }
         default:
             break;
     }
@@ -720,6 +799,14 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
             tmpstore->storage = builder.ReleaseRaw(tmpstore->allocated_size, tmpstore->offset);
         }
     }
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    else if (op->main_type() == OpParameter_FusedLinearParam && !usemmap) {
+        // The fused-proj composite reads the rebuilt op (externalPath, member conv
+        // tables, inlined ln gamma) during onResize; keep the builder storage alive.
+        tmpstore.reset(new BufferStorage);
+        tmpstore->storage = builder.ReleaseRaw(tmpstore->allocated_size, tmpstore->offset);
+    }
+#endif
     return execution;
 #endif
 }
@@ -895,4 +982,59 @@ DataType OpCommonUtils::convertDataType(halide_type_t type) {
     }
     return DataType_DT_INVALID;
 }
+
+#if defined(MNN_SUPPORT_TRANSFORMER_FUSE) && defined(MNN_GATED_RMS_NORM)
+bool OpCommonUtils::gatedRMSNormFusable(const Op* op, const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs, bool supportSimdGroupReduce) {
+    if (!supportSimdGroupReduce) {
+        return false;
+    }
+    if (nullptr == op || inputs.size() != 2 || outputs.size() != 1) {
+        return false;
+    }
+    auto param = op->main_as_LayerNorm();
+    if (nullptr == param || !param->useRMSNorm()) {
+        return false;
+    }
+    // The kernel binds gamma and beta unconditionally: it has no no-gamma branch.
+    // Converter-folded ops keep them in the external weight file; the loader
+    // inlines them before the Metal creator runs, so sizes are all we need here.
+    int gammaSize = 0;
+    int betaSize  = 0;
+    if (nullptr != param->gamma() && nullptr != param->beta()) {
+        gammaSize = (int)param->gamma()->size();
+        betaSize  = (int)param->beta()->size();
+    } else if (nullptr != param->external() && param->external()->size() >= 3) {
+        gammaSize = (int)(param->external()->data()[1] / sizeof(float));
+        betaSize  = (int)(param->external()->data()[2] / sizeof(float));
+    } else {
+        return false;
+    }
+    auto x = inputs[0];
+    auto z = inputs[1];
+    if (x->dimensions() < 2 || z->dimensions() < 2) {
+        return false;
+    }
+    // The kernel's z / out index arithmetic assumes the decode case. Prefill
+    // carries batch == seq_len and must decompose.
+    if (z->length(0) != 1) {
+        return false;
+    }
+    const int inside = x->length(1);
+    if (x->length(0) <= 0 || inside <= 0 || (inside % 4) != 0) {
+        return false;
+    }
+    // Both copies in the creator are sized by inside.
+    if (gammaSize != inside || betaSize != inside) {
+        return false;
+    }
+    // The absorbed C4 repacks only make sense in NC4HW4.
+    for (auto t : {x, z, outputs[0]}) {
+        if (TensorUtils::getDescribe(t)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            return false;
+        }
+    }
+    return true;
+}
+#endif
 } // namespace MNN

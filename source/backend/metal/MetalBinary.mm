@@ -17,12 +17,15 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalBinary::MetalBinary(Backend *backend, id<MTLComputePipelineState> pipeline, id<MTLComputePipelineState> plane) : MetalExecution(backend) {
+MetalBinary::MetalBinary(Backend *backend, id<MTLComputePipelineState> pipeline, id<MTLComputePipelineState> plane,
+                         int opType, int activationType) : MetalExecution(backend) {
     auto mtbn = static_cast<MetalBackend *>(backend);
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mConstBuffer             = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
     mPipeline = pipeline;
     mPlanePipeline = plane;
+    mOpType = opType;
+    mActivationType = activationType;
 }
 ErrorCode MetalBinary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
@@ -158,22 +161,6 @@ public:
         ((int *)mConstBuffer.contents)[0] = outputDataCount / 4;
         mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(outputDataCount / 4, 1, 1)];
 
-        // Gate/Up fusion: try to pair the two input Conv1x1 projections
-        // In mulsilu_vec shader: in1 = gate, in0 = up
-        // Set MNN_METAL_DISABLE_GATE_UP_FUSION=1 to disable (for A/B benchmarking).
-        const bool sDisableGateUpFusion = MetalEnv::get().gateUpFusionDisabled;
-        if (!sDisableGateUpFusion) {
-            auto* gateConv = backend->findConv1x1ForOutput(inputs[1]); // gate
-            auto* upConv   = backend->findConv1x1ForOutput(inputs[0]); // up
-            if (gateConv && upConv && gateConv != upConv
-                && gateConv->is2sgDecodePipeline() && upConv->is2sgDecodePipeline()
-                && !gateConv->isGateUpLeader() && !gateConv->isGateUpFollower()
-                && !upConv->isGateUpLeader() && !upConv->isGateUpFollower()) {
-                // gate becomes leader, up becomes follower
-                gateConv->setupGateUpFusion(upConv, inputs[0]);
-            }
-        }
-
         return NO_ERROR;
     }
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
@@ -268,7 +255,7 @@ public:
             MNN_ERROR("Make Binary shader error\n");
             return nullptr;
         }
-        return new MetalBinary(backend, pipeline, plane);
+        return new MetalBinary(backend, pipeline, plane, (int)binaryop->opType(), (int)binaryop->activationType());
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalBinaryCreator, OpType_BinaryOp);

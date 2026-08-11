@@ -1,6 +1,6 @@
 # 构建、测试、性能基线（Metal LLM）
 
-> **配套 SKILL.md 的 sub-doc**：build 命令、模型导出、性能测试脚本、基线数据、文件索引。做完 `kernel-basics` / `perf-playbook` 里描述的改动后，回到这里跑测试。
+> **配套 SKILL.md 的 sub-doc**：build 命令、模型导出、性能测试脚本、基线数据、文件索引。做完 `kernel-dev-and-optimize` / `graph-fusion` / `runtime-scheduling` 里描述的改动后，回到这里跑测试。
 
 ---
 

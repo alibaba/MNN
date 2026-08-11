@@ -167,7 +167,7 @@ void Pipeline::UnitInfo::setUp(const Command& command, int index, const Op* orig
 
 Pipeline::Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt, int geometryMask)
 #ifndef MNN_SKIPBUILD_GEOMETRY
-    : mContext(geometryMask, info.first.cache.second, info.first.cache.first->type(), info.first.info.user ? info.first.info.user->precision :  BackendConfig::Precision_Normal), mUseGeometry(rt->onGetCompilerType()) {
+    : mContext(geometryMask, info.first.cache.second, info.first.cache.first->type(), info.first.info.user ? info.first.info.user->precision :  BackendConfig::Precision_Normal, info.first.info.gpuMode, rt), mUseGeometry(rt->onGetCompilerType()) {
 #else
 {
 #endif

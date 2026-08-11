@@ -29,6 +29,8 @@ layout(set=0, binding=6) writeonly buffer s6 {
 layout(set=0, binding=7) readonly uniform constBuffer {
     ivec4 size0; // batch, seq_len, num_v_heads, head_k_dim
     ivec4 size1; // head_v_dim, total_rows, layout_flags, 0
+    vec4 gateCoef[16]; // gate/beta fold (layout_flags bit 3): per-head -exp(A_log)
+    vec4 gateBias[16]; // per-head dt_bias
 } uConstant;
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
@@ -39,6 +41,22 @@ shared float sReduce[512];
 
 int c4Offset(int token, int channel, int tokenCount) {
     return ((channel >> 2) * tokenCount + token) * 4 + (channel & 3);
+}
+
+// gate/beta chain fold: replicates this backend's unfused elementwise chain
+// op-for-op in FLOAT (half on FP16 builds) — the same arithmetic unary.comp /
+// binary.comp perform (EXP/SIGMOID unclamped, LOG with the +1e-7 guard) — so
+// the folded value matches the separate-dispatch graph output on Vulkan.
+float linearAttnGateFold(FLOAT a, int h) {
+    FLOAT x = a + FLOAT(uConstant.gateBias[h >> 2][h & 3]);   // ADD dt_bias
+    x = exp(x);                                               // EXP
+    x = x + FLOAT(1.0);                                       // ADD +1
+    x = log(x + FLOAT(0.0000001));                            // LOG (unary.comp guard)
+    x = FLOAT(uConstant.gateCoef[h >> 2][h & 3]) * x;         // MUL -exp(A_log)
+    return float(x);
+}
+float linearAttnBetaFold(FLOAT b) {
+    return float(FLOAT(1.0) / (FLOAT(1.0) + exp(-b)));        // SIGMOID (unary.comp)
 }
 
 void main() {
@@ -83,8 +101,14 @@ void main() {
 
             const int gateIndex = (layoutFlags & 1) != 0 ? c4Offset(token, h, batch * seqLen) : bth;
             const int betaIndex = (layoutFlags & 2) != 0 ? c4Offset(token, h, batch * seqLen) : bth;
-            decay = exp(float(uGate.data[gateIndex]));
-            beta = float(uBeta.data[betaIndex]);
+            float gRaw = float(uGate.data[gateIndex]);
+            float bRaw = float(uBeta.data[betaIndex]);
+            if ((layoutFlags & 8) != 0) {
+                gRaw = linearAttnGateFold(uGate.data[gateIndex], h);
+                bRaw = linearAttnBetaFold(uBeta.data[betaIndex]);
+            }
+            decay = exp(gRaw);
+            beta = bRaw;
             vVal = float(uV.data[vIndex]);
         }
 

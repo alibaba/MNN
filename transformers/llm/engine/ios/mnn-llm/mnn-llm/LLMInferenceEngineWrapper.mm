@@ -20,6 +20,16 @@ const char* GetMainBundleDirectory() {
     return [bundleDirectory UTF8String];
 }
 
+// Console capture (devicectl --console) drops NSLog lines under fast output,
+// so answers are also written to files the host pulls via devicectl copy.
+static NSString* GetCleanAnswerDir() {
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+                     stringByAppendingPathComponent:@"bench_answers"];
+    [[NSFileManager defaultManager] removeItemAtPath:dir error:nil];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    return dir;
+}
+
 // mmap cache dir must be wiped per load: stale caches from a previously bundled
 // model survive app reinstall and would be silently reused, giving garbage output.
 static std::string GetCleanTmpDirectory() {
@@ -27,6 +37,39 @@ static std::string GetCleanTmpDirectory() {
     [[NSFileManager defaultManager] removeItemAtPath:dir error:nil];
     [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
     return std::string([dir UTF8String]);
+}
+
+// Vision prompts reference bundled images as <img>name</img>; resolve relative
+// paths against the app bundle so Omni::visionProcess can imread them on device.
+static std::string ResolveImagePaths(const std::string& text) {
+    const std::string open_tag = "<img>", close_tag = "</img>";
+    if (text.find(open_tag) == std::string::npos) {
+        return text;
+    }
+    std::string model_dir = GetMainBundleDirectory();
+    std::string out;
+    size_t pos = 0;
+    while (true) {
+        size_t start = text.find(open_tag, pos);
+        if (start == std::string::npos) {
+            out.append(text, pos, std::string::npos);
+            break;
+        }
+        size_t path_begin = start + open_tag.size();
+        size_t end = text.find(close_tag, path_begin);
+        if (end == std::string::npos) {
+            out.append(text, pos, std::string::npos);
+            break;
+        }
+        out.append(text, pos, start - pos);
+        std::string path = text.substr(path_begin, end - path_begin);
+        if (!path.empty() && path[0] != '/') {
+            path = model_dir + "/" + path;
+        }
+        out += open_tag + path + close_tag;
+        pos = end + close_tag.size();
+    }
+    return out;
 }
 
 static void WaitForAppActive() {
@@ -205,23 +248,28 @@ private:
     NSLog(@"[MNN_BENCH_DONE]");
 }
 
-// Answers can exceed the os_log per-message limit; escape newlines and emit
-// in UTF-8-safe chunks so the host script can reassemble the full text.
+// Answers can exceed the os_log per-message limit, and devicectl --console
+// re-encodes non-ASCII NSLog bytes (UTF-8 -> MacRoman), corrupting the text on
+// the host. Emit pure-ASCII base64 chunks instead; the host script decodes them.
 static void LogAnswerChunks(const std::string& answer) {
-    std::string s;
-    s.reserve(answer.size());
-    for (char c : answer) {
-        if (c == '\n') s += "\\n";
-        else if (c != '\r') s += c;
+    static const char* kB64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string b64;
+    b64.reserve((answer.size() + 2) / 3 * 4);
+    for (size_t i = 0; i < answer.size(); i += 3) {
+        uint32_t v = (unsigned char)answer[i] << 16;
+        int rem = (int)std::min((size_t)3, answer.size() - i);
+        if (rem > 1) v |= (unsigned char)answer[i + 1] << 8;
+        if (rem > 2) v |= (unsigned char)answer[i + 2];
+        b64 += kB64[(v >> 18) & 63];
+        b64 += kB64[(v >> 12) & 63];
+        b64 += rem > 1 ? kB64[(v >> 6) & 63] : '=';
+        b64 += rem > 2 ? kB64[v & 63] : '=';
     }
     const size_t kChunk = 700;
-    size_t pos = 0;
-    while (pos < s.size()) {
-        size_t len = std::min(kChunk, s.size() - pos);
-        while (pos + len < s.size() && (s[pos + len] & 0xC0) == 0x80) len--;
-        NSLog(@"[MNN_FILE_ANSWER] %s", s.substr(pos, len).c_str());
-        pos += len;
+    for (size_t pos = 0; pos < b64.size(); pos += kChunk) {
+        NSLog(@"[MNN_FILE_ANSWER_B64] %s", b64.substr(pos, kChunk).c_str());
     }
+    NSLog(@"[MNN_FILE_ANSWER_B64_END]");
 }
 
 // cmd: "benchfiles <cpu|metal> [threads] [max_new_tokens] [file_index]"
@@ -272,7 +320,8 @@ static void LogAnswerChunks(const std::string& answer) {
         NSLog(@"[MNN_BENCH_ERROR] createLLM failed");
         return;
     }
-    llm->set_config("{\"tmp_path\":\"" + GetCleanTmpDirectory() + "\", \"use_mmap\":true}");
+    llm->set_config("{\"tmp_path\":\"" + GetCleanTmpDirectory() + "\", \"use_mmap\":" +
+                    (cmd.find("nommap") != std::string::npos ? "false" : "true") + "}");
     llm->set_config("{\"backend_type\":\"" + backend + "\"}");
     llm->set_config("{\"thread_num\":" + std::to_string(threads) + "}");
     llm->set_config("{\"reuse_kv\":false}");
@@ -283,6 +332,7 @@ static void LogAnswerChunks(const std::string& answer) {
     auto context = llm->getContext();
     NSLog(@"[MNN_BENCH] filebench backend=%s threads=%d max_new=%d files=%zu",
           backend.c_str(), threads, max_new, files.size());
+    NSString *answerDir = GetCleanAnswerDir();
     for (size_t i = 0; i < files.size(); ++i) {
         std::ifstream fs(model_dir + "/" + files[i]);
         std::string content((std::istreambuf_iterator<char>(fs)), std::istreambuf_iterator<char>());
@@ -293,7 +343,10 @@ static void LogAnswerChunks(const std::string& answer) {
         NSLog(@"[MNN_FILE_BEGIN] file=%s bytes=%zu", files[i].c_str(), content.size());
         os << "[" << (i + 1) << "/" << files.size() << "] " << files[i] << " ...\n";
         std::ostringstream answer;
-        llm->response(content, &answer, "");
+        llm->response(ResolveImagePaths(content), &answer, "");
+        [[NSData dataWithBytes:answer.str().c_str() length:answer.str().size()]
+            writeToFile:[answerDir stringByAppendingPathComponent:
+                         [NSString stringWithUTF8String:files[i].c_str()]] atomically:YES];
         double prefill_s = context->prefill_us / 1e6;
         double decode_s = context->decode_us / 1e6;
         double pf_speed = prefill_s > 0 ? context->prompt_len / prefill_s : 0;

@@ -175,6 +175,16 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
     }
     std::string tmpPath = mConfig->tmp_path();
+    if (!tmpPath.empty() && !MNNCreateDir(tmpPath.c_str())) {
+        // Everything below only writes into tmpPath, so a missing directory
+        // costs the GPU shader cache and the mmap'd weight / KV cache -- a
+        // silent per-run recompile, not a failure. Say so once, with the name,
+        // because callers derive it programmatically (llm_demo hashes the config
+        // path) and cannot be expected to guess it from the error alone.
+        MNN_ERROR("Llm: cannot create cache dir '%s' (no write permission?). Continuing without "
+                  "disk cache; create the directory yourself to restore it.\n",
+                  tmpPath.c_str());
+    }
     if (mConfig->kvcache_mmap()) {
         rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
     }

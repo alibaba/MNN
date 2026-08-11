@@ -11,6 +11,13 @@
 
 #define MNN_OP_SUPPORT_LOG
 
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+// The buffer variant compiles VulkanFusedProj. VulkanRuntime.cpp is shared
+// with the image variant and keys STATUS_SUPPORT_FUSED_PROJ off this define
+// (the image variant's VulkanBackend.hpp does not define it).
+#define MNN_VULKAN_SUPPORT_FUSED_PROJ 1
+#endif
+
 #include <map>
 #include <vector>
 #include <MNN/ErrorCode.hpp>
@@ -97,6 +104,9 @@ public:
         virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* backend) const = 0;
     };
     static bool addCreator(OpType t, Creator* c);
+    // Lookup for composite executions that drive member ops (e.g. FusedProj)
+    // through the regular per-op creators.
+    static Creator* getCreator(OpType t);
 
     void pushCommand(VkCommandBuffer buffer) const;
     std::shared_ptr<VulkanCommandPool::Buffer> acquireIndirectSegmentForRecord();

@@ -218,6 +218,15 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
                                cxxopts::value<bool>())(
         "transformerFuseC4",
         "fuse LLM transformer tensors to C4 format for faster runtime. default: true, set 0 to disable",
+        cxxopts::value<int>())(
+        "transformerFuseQkvProj",
+        "fuse shared-input attention projections into one FusedLinear at convert time. default: true, set 0 to disable",
+        cxxopts::value<int>())(
+        "transformerFuseGateUpProj",
+        "fuse dense SwiGLU gate/up projections into one FusedLinear at convert time. default: true, set 0 to disable",
+        cxxopts::value<int>())(
+        "transformerFuseLnProj",
+        "allow folding the block-input RMSNorm into convert-time FusedLinear ops. default: true, set 0 to disable",
         cxxopts::value<int>())("groupConvNative", "keep native group convolution. default: false",
                                cxxopts::value<bool>())("allowCustomOp", "allow custom op when convert. default: false",
                                                        cxxopts::value<bool>())(
@@ -441,6 +450,15 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     }
     if (result.count("transformerFuseC4")) {
         modelPath.transformerFuseC4 = result["transformerFuseC4"].as<int>() != 0;
+    }
+    if (result.count("transformerFuseQkvProj")) {
+        modelPath.transformerFuseQkvProj = result["transformerFuseQkvProj"].as<int>() != 0;
+    }
+    if (result.count("transformerFuseGateUpProj")) {
+        modelPath.transformerFuseGateUpProj = result["transformerFuseGateUpProj"].as<int>() != 0;
+    }
+    if (result.count("transformerFuseLnProj")) {
+        modelPath.transformerFuseLnProj = result["transformerFuseLnProj"].as<int>() != 0;
     }
     if (result.count("groupConvNative")) {
         modelPath.groupConvNative = true;

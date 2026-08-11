@@ -339,7 +339,7 @@ kernel void prefill_flash_attn(
 //  (prefill_flash_attn_v2, removed 2026-07-30) was numerically correct but lost
 //  to the three-stage path on M5, because 8x8 simdgroup_matrix delivers about
 //  half the FLOP efficiency of matmul2d for these shapes (see
-//  skills/metal-optimize/mlx-comparison.md 9.1). This version keeps the same
+//  skills/metal-optimize/kernel-dev-and-optimize.md 2.3.3). This version keeps the same
 //  fused structure -- S and O resident in registers, scores never written to
 //  global memory -- but does the matmuls with matmul2d.
 //
@@ -349,7 +349,7 @@ kernel void prefill_flash_attn(
 //  operand in registers.
 //
 //  Per-lane element layout of those cooperative tensors is dumped and documented
-//  in skills/metal-optimize/kernel-basics.md; the two facts this kernel leans on
+//  in skills/metal-optimize/kernel-dev-and-optimize.md; the two facts this kernel leans on
 //  are that a lane owns exactly two M rows (fm and fm+8) and that row-mates
 //  differ only in lane bits 0 and 3.
 //
@@ -436,7 +436,7 @@ kernel void prefill_flash_attn_nax(
     const int q_row_base = int(tgpig.x) * FANAX_BQ + seq_idx * param.q_seq_piece_len
                          + int(sgitg) * 16;
 
-    // Per-lane base offsets inside a cooperative tensor tile (kernel-basics.md):
+    // Per-lane base offsets inside a cooperative tensor tile (kernel-dev-and-optimize.md §1.10):
     // fn indexes 4 consecutive elements of the fast axis, fm the slow axis.
     const ushort qid = tiisg >> 2;
     const ushort fm  = (qid & 4) | ((tiisg >> 1) & 3);

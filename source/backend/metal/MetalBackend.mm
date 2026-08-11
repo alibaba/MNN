@@ -27,6 +27,7 @@
 #include "MetalCache_generated.h"
 #include "core/MNNFileUtils.h"
 #import "backend/metal/MetalConvolution1x1.hpp"
+#import "backend/metal/MetalRaster.hpp"
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
 #endif
@@ -1044,77 +1045,75 @@ ErrorCode MetalBackend::onResizeEnd() {
     if (err != NO_ERROR) {
         return err;
     }
-    // Match Q/K/V projection fusion first, then LayerNorm fusion so LN can
-    // target the QKV leader's fused dispatch (mirrors the gate/up leader case).
-    matchQKVFusions();
-    matchLNFusions();
+    // Export-time fused projections wire up their own leader/follower dispatch
+    // from the exported member order. Must run after compute(): the setup
+    // re-homes follower outputs to STATIC, which only sticks once the dynamic
+    // allocator has assigned addresses.
+    for (auto* host : mFusedProjs) {
+        host->setupFusion();
+    }
+    return applyLinearAttnGateFolds();
+}
+
+ErrorCode MetalBackend::applyLinearAttnGateFolds() {
+    // The gate/beta fold is declared by the exported LinearAttentionParam
+    // (gate_fold): rawA/rawB are the op's own inputs and the per-head constants
+    // come from the param, so there is nothing to match here. All that remains
+    // is the STATIC re-home, and it must happen here rather than in the op's
+    // onResize: the pipeline's resize sweep nulls a consumer's input memory when
+    // its useCount exhausts (Pipeline.cpp _releaseTensor), which would free a
+    // STATIC home acquired earlier in the sweep before encode runs.
+    //
+    // Failure here is fatal rather than a fallback: the exporter already removed
+    // the gate chain from the graph, so an unfolded dispatch would consume the
+    // raw `a` projection as the decay gate.
+    // Re-home on EVERY resize, like MetalFusedProj::setupFusion does. The resize
+    // sweep drops the previous home unconditionally: _releaseTensor nulls `mem`
+    // whatever its storage type was (Pipeline.cpp), and _allocTensor then
+    // re-acquires DYNAMIC. Latching on a "already folded" flag would leave the
+    // raw a/b inputs back in the reusable pool from the second resize onwards,
+    // while the fold stays active -- and LLM decode re-resizes every token.
+    for (auto* req : mLinearAttnFolds) {
+        if (!req->exportFold) {
+            continue;
+        }
+        if (req->rawA == nullptr || req->rawB == nullptr || req->numHeads <= 0) {
+            MNN_ERROR("MetalBackend: incomplete LinearAttention gate fold request\n");
+            return NOT_SUPPORT;
+        }
+        if (!onAcquireBuffer(req->rawA, Backend::STATIC)) {
+            MNN_ERROR("MetalBackend: cannot re-home LinearAttention gate fold input\n");
+            return OUT_OF_MEMORY;
+        }
+        if (!onAcquireBuffer(req->rawB, Backend::STATIC)) {
+            onReleaseBuffer(req->rawA, Backend::STATIC);
+            MNN_ERROR("MetalBackend: cannot re-home LinearAttention beta fold input\n");
+            return OUT_OF_MEMORY;
+        }
+        req->gateFolded = true;
+        req->betaFolded = true;
+    }
     return NO_ERROR;
 }
 
-void MetalBackend::matchQKVFusions() {
-    // QKV fusion: three decode-GEMV Conv1x1 sharing one input (attention q/k/v
-    // projections) dispatch as a single grid.z=3 kernel from the first conv in
-    // execution order; the other two encode nothing. Cuts per-token kernel
-    // launches (and their DRAM ramp) by 2 per layer.
-    // Set MNN_METAL_DISABLE_QKV_FUSION=1 to disable (A/B baseline).
-    if (MetalEnv::get().qkvFusionDisabled) {
-        return;
-    }
-    for (auto& pair : mInputToConv1x1Group) {
-        auto& group = pair.second;
-        // Exactly three consumers = q/k/v pattern. Registration order follows
-        // pipeline resize order, i.e. execution order, so group[0] runs first
-        // and is the only valid leader (its encode covers all three outputs).
-        if (group.size() != 3) {
-            continue;
-        }
-        if (group[0].conv == group[1].conv || group[0].conv == group[2].conv ||
-            group[1].conv == group[2].conv) {
-            continue;
-        }
-        group[0].conv->setupQKVFusion(group[1].conv, group[1].output,
-                                      group[2].conv, group[2].output);
-    }
+// Byte span of a tensor inside its backing MTLBuffer. The span must be the
+// ALLOCATED size, not elementSize() * type.bytes(): getTensorSizeInBytes pads
+// NC4HW4 channels to 4 and adds extraPadding, and halves float32 under fp16
+// mode. Under-reporting here silently turns a real alias into "no overlap".
+static bool _tensorSpan(const MetalBackend* backend, const Tensor* t, void*& buf, size_t& begin, size_t& end) {
+    if (t == nullptr || t->deviceId() == 0) return false;
+    auto alloc = (MetalRuntimeAllocator::MetalBufferAlloc *)t->deviceId();
+    begin = (size_t)TensorUtils::getDescribeOrigin(t)->offset;
+    end = begin + backend->getTensorSizeInBytes(t);
+    buf = (__bridge void*)alloc->getBuffer();
+    return true;
 }
-
-void MetalBackend::matchLNFusions() {
-    // LayerNorm+Conv1x1 fusion: eliminates the Binary-LN dispatch by computing
-    // RMSNorm inside the Conv1x1 GEMV kernel. The Conv1x1 reads hidden+residual,
-    // writes the residual sum, and normalizes the input for GEMV.
-    // Set MNN_METAL_DISABLE_LN_FUSION=1 to disable.
-    const bool sEnableLNFusion = !MetalEnv::get().lnFusionDisabled;
-    if (!sEnableLNFusion) {
-        return;
-    }
-    for (auto& pair : mLayernormMap) {
-        const auto& normalizedOutput = pair.first;
-        const auto& info = pair.second;
-        // Find Conv1x1(s) that consume the normalized output as their input
-        auto it = mInputToConv1x1Group.find(normalizedOutput);
-        if (it == mInputToConv1x1Group.end()) {
-            continue;
-        }
-        for (auto& candidate : it->second) {
-            auto* conv = candidate.conv;
-            if (!conv->is2sgDecodePipeline()) {
-                continue;
-            }
-            // Leaders bind LN buffers in their fused dispatch; additionally a
-            // plain conv may fuse when it is the SOLE consumer of the normalized
-            // output. Baseline transformer graphs have 2 (gate/up) or 3 (q/k/v)
-            // consumers; both are covered by their leader's fused dispatch.
-            bool soleConsumer = (it->second.size() == 1) &&
-                                !conv->isGateUpLeader() && !conv->isGateUpFollower();
-            if (!conv->isGateUpLeader() && !conv->isQKVLeader() && !soleConsumer) {
-                continue;
-            }
-            bool ok = conv->setupLNFusion(info.hiddenInput, info.residualInput,
-                                info.residualOutput, info.gamma, info.eps);
-            if (ok && info.fusedFlag) {
-                *info.fusedFlag = true;
-            }
-        }
-    }
+// True when two tensors share backing memory. Used by fusions that must not let
+// one kernel write a buffer another part of the same dispatch still reads.
+bool MetalBackend::tensorsOverlap(const Tensor* a, const Tensor* b) const {
+    void* ba; void* bb; size_t a0, a1, b0, b1;
+    if (!_tensorSpan(this, a, ba, a0, a1) || !_tensorSpan(this, b, bb, b0, b1)) return false;
+    return ba == bb && a0 < b1 && b0 < a1;
 }
 
 static std::string _getType(const halide_type_t& type, MNN_DATA_FORMAT format, bool useFp16AsFp32) {
@@ -1623,7 +1622,12 @@ id<MTLComputePipelineState> MetalRuntime::findPipeline(const std::vector<std::st
 void MetalRuntime::insertPipeline(const std::vector<std::string>& keys, id<MTLComputePipelineState> pipeline) const {
     if (nil != pipeline) {
         mCachePipeine.insert(std::make_pair(keys, pipeline));
+    } else {
+        mFailedPipeline.insert(keys);
     }
+}
+bool MetalRuntime::pipelineCompileFailed(const std::vector<std::string>& keys) const {
+    return mFailedPipeline.find(keys) != mFailedPipeline.end();
 }
 
 void MetalRuntime::setGpuMode(const int mode_num) {
@@ -1868,6 +1872,13 @@ std::pair<const void*, size_t> MetalRuntime::makeCache(TunedInfo* info) {//make 
     mBuffer.resize(builder.GetSize());
     ::memcpy(mBuffer.data(), builder.GetBufferPointer(), builder.GetSize());
     return std::make_pair(mBuffer.data(), mBuffer.size());
+}
+
+int MetalRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
+    if (STATUS_SUPPORT_SIMD_GROUP_REDUCE == statusEnum) {
+        return mSimdGroupReduce ? 1 : 0;
+    }
+    return 0;
 }
 
 float MetalRuntime::onGetMemoryInMB() {

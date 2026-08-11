@@ -103,6 +103,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_LOW_MEMORY       | 是否支持低内存模式，支持低内存模式使用权值量化模型并设置`low_memory`则会使用计算时反量化，默认为`OFF` |
 | MNN_SUPPORT_RENDER   | 是否支持图形渲染相关算子实现，默认为 `OFF` |
 | MNN_SUPPORT_TRANSFORMER_FUSE | 是否支持Fuse Transformer相关OP实现，默认为 `OFF` |
+| MNN_GATED_RMS_NORM   | 是否启用 GatedRMSNorm 的 Metal 原生融合 kernel，默认为 `ON` 。仅在 MNN_SUPPORT_TRANSFORMER_FUSE 打开时生效；关闭时仅去掉原生 kernel，shape 推导与 geometry 兜底分解（LayerNorm+SILU+MUL）仍然可用，含该算子的模型可正常运行 |
 | MNN_BUILD_LLM        | 是否构建基于MNN的llm库和demo，默认为`OFF` ，打开时 MNN_LOW_MEMORY , MNN_SUPPORT_TRANSFORMER_FUSE 对应开启|
 | MNN_BUILD_LLM_OMNI        | 若构建基于MNN的llm库和demo，是否支持图像和音频输入功能，默认为`OFF` 。仅在MNN_BUILD_LLM 打开时生效。开启时 MNN_BUILD_OPENCV , MNN_IMGCODECS , MNN_BUILD_AUDIO 同时打开|
 | MNN_BUILD_DIFFUSION  | 是否构建基于MNN的diffusion demo，默认为`OFF` . 打开时MNN_BUILD_OPENCV , MNN_IMGCODECS, MNN_LOW_MEMORY, MNN_SUPPORT_TRANSFORMER_FUSE 同步开启|

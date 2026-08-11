@@ -288,16 +288,22 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
         prefix[4] += mMemory;
         prefix[6] += mPower;
         // prefix += hint().modelUUID + "_";
-        bool autoRemove = true;
-        bool syncValid = false;
-        if (hint().useCachedMmap) {
-            autoRemove = false;
-            std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, prefix + "sync.static");
-            syncValid = MNNFileExist(fileName.c_str());
-            const_cast<RuntimeHint&>(hint()).useCachedMmap += syncValid;
-        }
         if (nullptr == mStaticAllocatorMMap.get()) {
-            // Only support set weightmap dir once
+            // Only support set weightmap dir once. The sync.static marker must
+            // also be evaluated only once, here: later calls would see the
+            // sync file this very run wrote at its first onClearBuffer and
+            // flip useCachedMmap into trust-cache mode mid-run, so executions
+            // created after that (e.g. resize-time re-creations) would skip
+            // weight loading while their STATIC buffers no longer come from
+            // the mmap pool.
+            bool autoRemove = true;
+            bool syncValid = false;
+            if (hint().useCachedMmap) {
+                autoRemove = false;
+                std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, prefix + "sync.static");
+                syncValid = MNNFileExist(fileName.c_str());
+                const_cast<RuntimeHint&>(hint()).useCachedMmap += syncValid;
+            }
             mStaticAllocatorRaw = mStaticAllocator;
             auto mmapMem = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), prefix.c_str(), "static", autoRemove, syncValid);
             size_t mmapSize = static_cast<size_t>(hint().mmapFileSize) * 1024 * 1024;
@@ -790,6 +796,13 @@ bool CPUBackend::onClearBuffer() {
         mRuntime->mStaticAllocator->sync();
         mRuntime->mStaticAllocator = mRuntime->mStaticAllocatorRaw;
         mRuntime->mStaticAllocatorRaw = nullptr;
+        // The weight-mmap pool is sealed from here on: STATIC buffers acquired
+        // later come from the raw allocator and are not backed by the cache
+        // files, so executions created later (e.g. resize-time re-creations)
+        // must load their weights instead of trusting the cache.
+        if (mRuntime->hint().useCachedMmap > 1) {
+            const_cast<RuntimeHint&>(mRuntime->hint()).useCachedMmap = 1;
+        }
     }
     mCache->reset();
     mDmaInfo->mCurrentDynamicAllocator->release(true);

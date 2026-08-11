@@ -9,7 +9,7 @@ Usage:
     ./llm_demo config.json prompt.txt 100         # requires build with -DMNN_METAL_OP_PROFILE=ON
     tools/script/metal_profile_gantt.py /tmp/decode.csv
 
-CAUTION (learnt on 2026-07-23, see skills/metal-optimize/perf-playbook.md):
+CAUTION (learnt on 2026-07-23, see skills/metal-optimize/env-registry.md):
     Numbers from MNN_METAL_OP_PROFILE=ON include a per-op sample-buffer
     attachment overhead that inflates CPU encode from ~0.92us/op to ~4-20us/op.
     That overhead **manufactures GPU idle between ops** — the idle you see

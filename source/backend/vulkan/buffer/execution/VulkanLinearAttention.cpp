@@ -53,6 +53,10 @@ struct LinearAttnQKVPrepParams {
 struct LinearAttnRecurrentParams {
     ivec4 size0; // batch, seq_len, num_v_heads, head_k_dim
     ivec4 size1; // head_v_dim, total_rows, layout_flags, 0
+    // gate/beta chain fold (layout_flags bit 3): per-head -exp(A_log) and
+    // dt_bias, vec4[16] in the shader's std140 uniform (byte-identical layout).
+    float gateCoef[64];
+    float gateBias[64];
 };
 
 struct LinearAttnShortConvParams {
@@ -87,6 +91,16 @@ VulkanLinearAttention::VulkanLinearAttention(const MNN::Op* op, Backend* backend
     mHeadKDim = param->head_k_dim();
     mHeadVDim = param->head_v_dim();
     mUseQKL2Norm = param->use_qk_l2norm();
+    mGateFold = param->gate_fold() && mAttentionType != "short_conv";
+    ::memset(mGateCoef, 0, sizeof(mGateCoef));
+    ::memset(mGateBias, 0, sizeof(mGateBias));
+    if (mGateFold) {
+        // The creator validated the arrays; copy the per-head constants.
+        for (int h = 0; h < mNumVHeads; ++h) {
+            mGateCoef[h] = param->gate_coef()->Get(h);
+            mGateBias[h] = param->gate_bias()->Get(h);
+        }
+    }
     mStateCache.reset(new VulkanLinearAttentionState);
 
     auto vkBn = static_cast<VulkanBackend*>(backend);
@@ -201,8 +215,8 @@ VulkanLinearAttention::VulkanLinearAttention(const MNN::Op* op, Backend* backend
         MNN_ASSERT(nullptr != mDecodePipeline);
         mPrefillDesSet.reset(mPrefillPipeline->createSet());
         mDecodeDesSet.reset(mDecodePipeline->createSet());
-        mPrefillParam = vkBn->allocUniform();
-        mDecodeParam = vkBn->allocUniform();
+        mPrefillParam = vkBn->allocUniform(nullptr, sizeof(LinearAttnRecurrentParams));
+        mDecodeParam = vkBn->allocUniform(nullptr, sizeof(LinearAttnRecurrentParams));
     }
 }
 
@@ -525,8 +539,10 @@ ErrorCode VulkanLinearAttention::onEncode(const std::vector<Tensor*>& inputs, co
         params.size0[3] = mHeadKDim;
         params.size1[0] = mHeadVDim;
         params.size1[1] = batch * mNumVHeads * mHeadVDim;
-        params.size1[2] = (gateC4 ? 1 : 0) | (betaC4 ? 2 : 0) | (outputC4 ? 4 : 0);
+        params.size1[2] = (gateC4 ? 1 : 0) | (betaC4 ? 2 : 0) | (outputC4 ? 4 : 0) | (mGateFold ? 8 : 0);
         params.size1[3] = 0;
+        ::memcpy(params.gateCoef, mGateCoef, sizeof(mGateCoef));
+        ::memcpy(params.gateBias, mGateBias, sizeof(mGateBias));
 
         auto recurrentParam = seqLen == 1 ? mDecodeParam : mPrefillParam;
         ::memcpy(recurrentParam->map(), &params, sizeof(params));
@@ -573,6 +589,17 @@ public:
         const auto type = param->attn_type()->str();
         if (type != "gated_delta_rule" && type != "short_conv") {
             return nullptr;
+        }
+        // gate_fold changes the meaning of inputs 1/2 (raw a/b projections instead of
+        // the computed gate/beta) and needs valid per-head constants; malformed params
+        // fall back to the backup backend, which validates and errors the same way.
+        if (param->gate_fold() && type == "gated_delta_rule") {
+            const int numVHeads = param->num_v_heads();
+            if (numVHeads <= 0 || numVHeads > 64 || param->gate_coef() == nullptr ||
+                param->gate_bias() == nullptr || (int)param->gate_coef()->size() != numVHeads ||
+                (int)param->gate_bias()->size() != numVHeads) {
+                return nullptr;
+            }
         }
         return new VulkanLinearAttention(op, backend);
     }

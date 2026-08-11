@@ -244,6 +244,20 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
         success = backend()->onAcquireBuffer(mDecayBuf.get(), Backend::DYNAMIC);
         if (!success)
             return OUT_OF_MEMORY;
+
+        // Fold scratch: applyGateFold writes folded gate/beta here (token-major,
+        // non-C4, native precision) for gated_delta_rule_mnn to consume.
+        if (mGateFold) {
+            int foldSize = batch * seqLen * mNumVHeads * mBytes;
+            mGateFoldBuf.reset(Tensor::createDevice<int8_t>({foldSize}));
+            success = backend()->onAcquireBuffer(mGateFoldBuf.get(), Backend::DYNAMIC);
+            if (!success)
+                return OUT_OF_MEMORY;
+            mBetaFoldBuf.reset(Tensor::createDevice<int8_t>({foldSize}));
+            success = backend()->onAcquireBuffer(mBetaFoldBuf.get(), Backend::DYNAMIC);
+            if (!success)
+                return OUT_OF_MEMORY;
+        }
     }
 
     // fp16 path: per-thread fp32 temp buffer for Conv1D + SiLu (MNNSiLu requires fp32)
@@ -269,14 +283,16 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
     if (seqLen > 1 && needRecurrentState) {
         int tokenCount = batch * seqLen;
         int gateSize = tokenCount * mNumVHeads * mBytes;
-        if (_isC4(inputs[1])) {
+        // With gate_fold, inputs[1]/[2] are raw a/b projections; gated_delta_rule_mnn
+        // consumes the non-C4 fold buffers instead, so no unpack scratch is needed.
+        if (_isC4(inputs[1]) && !mGateFold) {
             mGateUnpacked.reset(Tensor::createDevice<int8_t>({gateSize}));
             success = backend()->onAcquireBuffer(mGateUnpacked.get(), Backend::DYNAMIC);
             if (!success) {
                 return OUT_OF_MEMORY;
             }
         }
-        if (_isC4(inputs[2])) {
+        if (_isC4(inputs[2]) && !mGateFold) {
             mBetaUnpacked.reset(Tensor::createDevice<int8_t>({gateSize}));
             success = backend()->onAcquireBuffer(mBetaUnpacked.get(), Backend::DYNAMIC);
             if (!success) {
@@ -307,6 +323,12 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
     }
     if (mConvFp32Buf) {
         backend()->onReleaseBuffer(mConvFp32Buf.get(), Backend::DYNAMIC);
+    }
+    if (mGateFoldBuf) {
+        backend()->onReleaseBuffer(mGateFoldBuf.get(), Backend::DYNAMIC);
+    }
+    if (mBetaFoldBuf) {
+        backend()->onReleaseBuffer(mBetaFoldBuf.get(), Backend::DYNAMIC);
     }
     if (needRecurrentState) {
         backend()->onReleaseBuffer(mDecayBuf.get(), Backend::DYNAMIC);
@@ -491,6 +513,68 @@ void CPULinearAttention::gated_delta_rule_ref(const std::vector<Tensor*>& inputs
     }
 }
 
+void CPULinearAttention::applyGateFold(const std::vector<Tensor*>& inputs) {
+    // inputs[1]/[2] carry the raw a/b projections. Fold the exported chain
+    //   gate[h] = -exp(A_log)[h] * log(1 + exp(a + dt_bias[h]))
+    //   beta    = sigmoid(b)
+    // op-for-op with the same primitives the unfused dispatches would use.
+    auto rawA = inputs[1];
+    auto rawB = inputs[2];
+    int B = 0, D = 0, L = 0;
+    _linearAttentionDims(inputs[0], B, D, L);
+    const int H = mNumVHeads;
+    const int N = B * L * H;
+    const int bytes = mBytes;
+    auto cpuBackend = static_cast<CPUBackend*>(backend());
+    auto core = cpuBackend->functions();
+    const int pack = core->pack;
+    const int precision = cpuBackend->precisionMode();
+    const bool aC4 = _isC4(rawA);
+    const bool bC4 = _isC4(rawB);
+    const int8_t* aPtr = rawA->host<int8_t>();
+    const int8_t* bPtr = rawB->host<int8_t>();
+    int8_t* gatePtr = mGateFoldBuf->host<int8_t>();
+    int8_t* betaPtr = mBetaFoldBuf->host<int8_t>();
+
+    // Gate step 1: x = a + dt_bias[h] (Binary ADD)
+    for (int b = 0; b < B; ++b) {
+        for (int l = 0; l < L; ++l) {
+            for (int h = 0; h < H; ++h) {
+                float a = _readTokenChannel(aPtr, aC4, b, l, h, B, L, H, bytes, pack);
+                _writeElement(gatePtr, (b * L + l) * H + h, a + mGateBias[h], bytes);
+            }
+        }
+    }
+    // Gate step 2: x = exp(x) (Unary EXP, MNNExp with +-87 clamp)
+    core->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_EXP, precision)(gatePtr, gatePtr, N);
+    // Gate step 3: x = x + 1 (Binary ADD1)
+    for (int i = 0; i < N; ++i) {
+        _writeElement(gatePtr, i, _readElement(gatePtr, i, bytes) + 1.0f, bytes);
+    }
+    // Gate step 4: x = log(x) (Unary LOG)
+    core->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_LOG, precision)(gatePtr, gatePtr, N);
+    // Gate step 5: gate = -exp(A_log)[h] * x (Binary MUL)
+    for (int b = 0; b < B; ++b) {
+        for (int l = 0; l < L; ++l) {
+            for (int h = 0; h < H; ++h) {
+                int i = (b * L + l) * H + h;
+                _writeElement(gatePtr, i, mGateCoef[h] * _readElement(gatePtr, i, bytes), bytes);
+            }
+        }
+    }
+
+    // Beta: sigmoid(b), elementwise with no per-head constants.
+    for (int b = 0; b < B; ++b) {
+        for (int l = 0; l < L; ++l) {
+            for (int h = 0; h < H; ++h) {
+                float bv = _readTokenChannel(bPtr, bC4, b, l, h, B, L, H, bytes, pack);
+                _writeElement(betaPtr, (b * L + l) * H + h, bv, bytes);
+            }
+        }
+    }
+    core->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_SIGMOID, precision)(betaPtr, betaPtr, N);
+}
+
 ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
     int batch = 0, convDim = 0, seqLen = 0;
@@ -575,6 +659,12 @@ ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, cons
     // Normal execution
     if (mAttentionType == "short_conv") {
         short_conv(inputs, outputs);
+    } else if (mGateFold) {
+        applyGateFold(inputs);
+        std::vector<Tensor*> foldedInputs = inputs;
+        foldedInputs[1] = mGateFoldBuf.get();
+        foldedInputs[2] = mBetaFoldBuf.get();
+        gated_delta_rule_mnn(foldedInputs, outputs);
     } else {
         gated_delta_rule_mnn(inputs, outputs);
     }
@@ -1223,6 +1313,21 @@ CPULinearAttention::CPULinearAttention(Backend* backend, const MNN::Op* op) : Ex
     mHeadKDim = param->head_k_dim();
     mHeadVDim = param->head_v_dim();
     mUseQKL2Norm = param->use_qk_l2norm();
+    // short_conv never touches gate/beta, so the fold is a no-op there.
+    mGateFold = param->gate_fold() && mAttentionType != "short_conv";
+    if (mGateFold) {
+        if (param->gate_coef() == nullptr || param->gate_bias() == nullptr ||
+            (int)param->gate_coef()->size() != mNumVHeads || (int)param->gate_bias()->size() != mNumVHeads) {
+            // The folded graph no longer contains the gate chain, so running
+            // unfolded is not a fallback: it would consume the raw `a`
+            // projection as the decay gate.
+            MNN_ERROR("CPULinearAttention: gate_fold set but gate_coef/gate_bias missing or wrong size\n");
+            mValid = false;
+            return;
+        }
+        mGateCoef.assign(param->gate_coef()->begin(), param->gate_coef()->end());
+        mGateBias.assign(param->gate_bias()->begin(), param->gate_bias()->end());
+    }
     mBytes = static_cast<CPUBackend*>(backend)->functions()->bytes;
     mStateCache.reset(new StateCache);
     mMeta = (KVMeta*)(backend->getMetaPtr());
@@ -1235,6 +1340,18 @@ class CPULinearAttentionCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        auto param = op->main_as_LinearAttentionParam();
+        if (param == nullptr || param->attn_type() == nullptr) {
+            return nullptr;
+        }
+        // onResize only sets up recurrent-state / decay / gate-fold scratch for
+        // gated_delta_rule, and short_conv takes its own path; anything else
+        // would reach gated_delta_rule_mnn with nothing allocated.
+        const auto type = param->attn_type()->str();
+        if (type != "gated_delta_rule" && type != "short_conv") {
+            MNN_ERROR("CPULinearAttention: unsupported attn_type %s\n", type.c_str());
+            return nullptr;
+        }
         return new CPULinearAttention(backend, op);
     }
 };

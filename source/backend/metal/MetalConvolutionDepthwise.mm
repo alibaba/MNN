@@ -116,8 +116,20 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
         const int kernelSize = mKernelX * mKernelY;
         const int weightLength = oc_4 * 4 * kernelSize;
         const int biasLength = UP_DIV(channel, 16) * 16;
-        mWeight.reset(MNN::Tensor::createDevice<float>({weightLength}));
-        mBias.reset(MNN::Tensor::createDevice<float>({biasLength}));
+        // Keep both Tensor objects for the execution's lifetime and only resize
+        // them in place: they are setTensor-bound, so a recorded encode-replay
+        // holds raw Tensor* to them and destroying the object would leave that
+        // recording dangling. An address change is caught by metalReplayValidate.
+        if (mWeight == nullptr) {
+            mWeight.reset(MNN::Tensor::createDevice<float>({weightLength}));
+        } else {
+            mWeight->setLength(0, weightLength);
+        }
+        if (mBias == nullptr) {
+            mBias.reset(MNN::Tensor::createDevice<float>({biasLength}));
+        } else {
+            mBias->setLength(0, biasLength);
+        }
         bool res = backend->onAcquireBuffer(mWeight.get(), Backend::DYNAMIC);
         res = res && backend->onAcquireBuffer(mBias.get(), Backend::DYNAMIC);
         if (!res) {

@@ -27,8 +27,30 @@ static void linearAttentionDims(const Tensor* qkv, int& batch, int& convDim, int
     seqLen = qkv->length(2);
 }
 
+// Uploads a small fp32 constant vector (gate_coef / gate_bias) into a device buffer.
+// Kept fp32 regardless of backend precision: the fold coefficients are precision
+// sensitive and Metal/CPU keep them fp32 too.
+static std::shared_ptr<cl::Buffer> uploadGateFoldConst(OpenCLBackend* backend, const float* data, int size) {
+    auto runtime = backend->getOpenCLRuntime();
+    const size_t bytes = size * sizeof(float);
+    std::shared_ptr<cl::Buffer> buffer(
+        new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, bytes));
+    cl_int error = CL_SUCCESS;
+    auto ptr = runtime->commandQueue().enqueueMapBuffer(*buffer, true, CL_MAP_WRITE, 0, bytes, nullptr, nullptr, &error);
+    if (ptr == nullptr || error != CL_SUCCESS) {
+        MNN_ERROR("LinearAttention gate fold: map constant buffer failed\n");
+        return nullptr;
+    }
+    ::memcpy(ptr, data, bytes);
+    runtime->commandQueue().enqueueUnmapMemObject(*buffer, ptr);
+    return buffer;
+}
+
 static void addLinearAttentionLayoutOptions(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                            std::set<std::string>& buildOptions) {
+                                            std::set<std::string>& buildOptions, bool gateFold) {
+    if (gateFold) {
+        buildOptions.emplace("-DGATE_FOLD");
+    }
     if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         buildOptions.emplace("-DQKV_C4");
     }
@@ -54,6 +76,28 @@ LinearAttentionBufExecution::LinearAttentionBufExecution(const MNN::Op* op, Back
     mHeadKDim = param->head_k_dim();
     mHeadVDim = param->head_v_dim();
     mUseQKL2Norm = param->use_qk_l2norm();
+    // short_conv never touches gate/beta, so the fold is a no-op there.
+    mGateFold = param->gate_fold() && mAttentionType != "short_conv";
+    if (mGateFold) {
+        // The folded graph no longer contains the gate chain, so neither failure
+        // below has a fallback: running unfolded would consume the raw `a`
+        // projection as the decay gate.
+        if (param->gate_coef() == nullptr || param->gate_bias() == nullptr ||
+            (int)param->gate_coef()->size() != mNumVHeads || (int)param->gate_bias()->size() != mNumVHeads) {
+            MNN_ERROR("LinearAttentionBufExecution: gate_fold set but gate_coef/gate_bias missing or wrong size\n");
+            mValid = false;
+            return;
+        }
+        std::vector<float> coef(param->gate_coef()->begin(), param->gate_coef()->end());
+        std::vector<float> bias(param->gate_bias()->begin(), param->gate_bias()->end());
+        mGateCoefBuf = uploadGateFoldConst(mOpenCLBackend, coef.data(), mNumVHeads);
+        mGateBiasBuf = uploadGateFoldConst(mOpenCLBackend, bias.data(), mNumVHeads);
+        if (mGateCoefBuf == nullptr || mGateBiasBuf == nullptr) {
+            MNN_ERROR("LinearAttentionBufExecution: failed to upload gate_fold constants\n");
+            mValid = false;
+            return;
+        }
+    }
     mStateCache.reset(new OpenCLStateCache);
 }
 
@@ -169,7 +213,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
     int local_size = 16;
     buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
     buildOptions.emplace("-DK_SIZE=" + std::to_string(dk));
-    addLinearAttentionLayoutOptions(inputs, outputs, buildOptions);
+    addLinearAttentionLayoutOptions(inputs, outputs, buildOptions, mGateFold);
 
     if (mAttentionType == "short_conv") {
         int total = batch * mHeadVDim * seqLen;
@@ -365,6 +409,10 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, val_dim);
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, gqa_factor);
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, qScale);
+        if (mGateFold) {
+            ret |= mKernelGatedDeltaRule->get().setArg(idx++, *mGateCoefBuf);
+            ret |= mKernelGatedDeltaRule->get().setArg(idx++, *mGateBiasBuf);
+        }
         MNN_CHECK_CL_SUCCESS(ret, "setArg linear_attn_gated_delta_rule");
         maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelGatedDeltaRule));
         mLWSGatedDeltaRule = {(uint32_t)local_size, 1};
@@ -524,7 +572,7 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(const std::vector<
     int local_size = 16;
     buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
     buildOptions.emplace("-DK_SIZE=" + std::to_string(dk));
-    addLinearAttentionLayoutOptions(inputs, outputs, buildOptions);
+    addLinearAttentionLayoutOptions(inputs, outputs, buildOptions, mGateFold);
     // Conv1D + SiLU
     mKernelConvSiluPrefill = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_silu", buildOptions,
                                                   mOpenCLBackend->getPrecision());
@@ -618,6 +666,10 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(const std::vector<
         ret |= mKernelChunkGCumsum->get().setArg(idx++, H);
         ret |= mKernelChunkGCumsum->get().setArg(idx++, seqLen);
         ret |= mKernelChunkGCumsum->get().setArg(idx++, numChunks);
+        if (mGateFold) {
+            ret |= mKernelChunkGCumsum->get().setArg(idx++, *mGateCoefBuf);
+            ret |= mKernelChunkGCumsum->get().setArg(idx++, *mGateBiasBuf);
+        }
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_g_cumsum");
     }
 
@@ -641,6 +693,10 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(const std::vector<
             ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, key_dim);
             ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, gqa_factor);
             ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, numChunks);
+            if (mGateFold) {
+                ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, *mGateCoefBuf);
+                ret |= mKernelChunkNeumannAttn0->get().setArg(idx++, *mGateBiasBuf);
+            }
             MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_build_neumann_attn_step0");
             auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkNeumannAttn0));
             mLWSChunkNeumannAttn0 =
@@ -694,6 +750,10 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(const std::vector<
         ret |= mKernelChunkCorrectV->get().setArg(idx++, key_dim);
         ret |= mKernelChunkCorrectV->get().setArg(idx++, gqa_factor);
         ret |= mKernelChunkCorrectV->get().setArg(idx++, numChunks);
+        if (mGateFold) {
+            ret |= mKernelChunkCorrectV->get().setArg(idx++, *mGateCoefBuf);
+            ret |= mKernelChunkCorrectV->get().setArg(idx++, *mGateBiasBuf);
+        }
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_correct_v");
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkCorrectV));
         mLWSChunkCorrectV =

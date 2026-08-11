@@ -66,6 +66,16 @@ private:
     int mResizeGeneration = 0;
     int mRecordedGeneration = -1;
 
+    // gate/beta elementwise-chain fold (see MetalBackend::matchLinearAttnGateFolds).
+    // Results persist across the per-token forced re-resize; invalidated when
+    // the gate/beta input tensors change.
+    MetalBackend::LinearAttnFoldRequest mFoldReq;
+    // Export-time gate/beta fold: when true, mFoldReq is populated from
+    // LinearAttentionParam directly (no runtime chain matching needed).
+    bool mGateFold = false;
+    std::vector<float> mGateCoef;
+    std::vector<float> mGateBias;
+
     // Temporary buffer (DYNAMIC)
     std::shared_ptr<Tensor> mConvOut; // [B, D, L]
     std::shared_ptr<Tensor> mQ;       // [B, L, H, d_k]
@@ -82,6 +92,7 @@ private:
     id<MTLComputePipelineState> mQKVPrepSGPipeline        = nil;
     id<MTLComputePipelineState> mGatedDeltaRulePipeline;
     id<MTLComputePipelineState> mGatedDeltaRuleSGPipeline;
+    id<MTLComputePipelineState> mGatedDeltaRuleSGV4Pipeline = nil;
     id<MTLComputePipelineState> mGatedDeltaRuleFusedSGPipeline;
     id<MTLComputePipelineState> mFusedSGAlignPipeline     = nil;
     int mFusedSGAlignSimds = 4;

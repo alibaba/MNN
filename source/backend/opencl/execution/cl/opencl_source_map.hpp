@@ -374,7 +374,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"gemv_conv1x1_buf", "7dd25918e2ce6095618a8029dfffc9c6"},
     {"raster", "0cf8ee1f7927d0027ce0f07ad564266e"},
     {"conv_2d_c1_subgroup_buf", "04a28a410c79fa6917827d16e189f322"},
-    {"linear_attention_buf", "eab9022c67655623e7ce91b727620313"},
+    {"linear_attention_buf", "3fdd363d874924c3a671cf1d41588ac9"},
     {"matmul_local_buf", "2497e20b734f5b77d021524648437b75"},
     {"conv_2d_int_buf", "98f69a5137906f806d8a406d4797a761"},
     {"interp_buf", "2e5ff1b5184be705580ab6a221864a0c"},

@@ -79,6 +79,22 @@ bool CUDARuntimeWrapper::onSetCache(const void* buffer, size_t size) {//set Cach
     return mCUDARuntime->setCache(std::make_pair(buffer, size));
 }
 
+int CUDARuntimeWrapper::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
+    switch (statusEnum) {
+        case STATUS_SUPPORT_FUSED_PROJ:
+            // FusedProjExecution (composite) is compiled with the transformer
+            // fuse ops; without it the geometry must keep decomposing the op.
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+            return 1;
+#else
+            return 0;
+#endif
+        default:
+            break;
+    }
+    return 0;
+}
+
 Backend* CUDARuntimeWrapper::onCreate(const BackendConfig* config, Backend* origin) const {
 #ifdef LOG_VERBOSE
     MNN_PRINT("cudaruntime:%p, create CUDABackend\n", this);

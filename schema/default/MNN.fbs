@@ -196,6 +196,9 @@ enum OpType : int {
     GroupNorm = 304,
     LinearAttention = 305,
     RoPE = 306,
+    FusedLinear = 307,
+    // out = RMSNorm(x) * silu(z); parameter is LayerNorm (gamma/beta/epsilon).
+    GatedRMSNorm = 308,
 
     Extra = 512,
     // quantization
@@ -246,6 +249,13 @@ table LinearAttentionParam {
     head_k_dim: int;
     head_v_dim: int;
     use_qk_l2norm: bool;
+    // Export-time gate/beta fold (--fuse_linear_attn_gate): inputs 1/2 carry the
+    // raw a/b projections instead of the computed gate/beta, and the op applies
+    // gate = gate_coef[h] * softplus(a + gate_bias[h]) and beta = sigmoid(b)
+    // inline, replacing the exported elementwise chain. Per-head arrays.
+    gate_fold: bool = false;
+    gate_coef: [float];
+    gate_bias: [float];
 }
 
 table RoPEParam {
@@ -255,6 +265,24 @@ table RoPEParam {
     head_dim: int = 0;
     q_norm: LayerNorm;
     k_norm: LayerNorm;
+}
+
+// Export-time fused projection group: N conv1x1 sharing one input, computed
+// as one op (Metal: single fused GEMV dispatch; other backends: geometry
+// decomposition into the member convs). act_silu_mul selects the flavour:
+// set, convs has 2 entries (gate, up); clear, it has 3 or 4 (q, k, v[, w]).
+table FusedLinearParam {
+    convs: [Convolution2D];
+    // When set: output = SiLU(gate) * up, computed inline from convs 0/1.
+    act_silu_mul: bool = false;
+    // Binary RMSNorm prologue (2in/2out): when set, the op also takes
+    // [hidden, residual] as inputs 1/2 and appends residual_out as its last
+    // output; the normalized hidden feeds the projections inline.
+    has_ln: bool = false;
+    ln: LayerNorm;
+    // Export-time license (--fuse_ln_proj) for the C4 pass to fold a preceding
+    // binary RMSNorm into this op (produces the has_ln variant).
+    ln_fold: bool = false;
 }
 
 table FmhaV2Param {
@@ -457,7 +485,8 @@ union OpParameter {
     StftParam,
     LinearAttentionParam,
     ShapeParam,
-    RoPEParam
+    RoPEParam,
+    FusedLinearParam
 }
 
 table Op {

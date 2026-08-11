@@ -220,6 +220,9 @@ class Attention(torch.nn.Module):
                 if projection.bias is not None:
                     projection.bias.requires_grad = False
 
+        # Shared-input q/k/v(/q_gate) projections stay separate Linears in the
+        # exported graph; MNNConvert's FuseTransformerC4 groups them into one
+        # FusedLinear at convert time (--transformerFuseQkvProj).
         self.past_key_value = None
 
     def forward(
@@ -728,6 +731,19 @@ class LinearAttention(torch.nn.Module):
         self.norm = RMSNorm(self.head_v_dim, eps=config.rms_norm_eps)
         self.norm.weight.data = original_norm.weight.data
 
+        export_args = getattr(config, 'export_args', None)
+        # Defaults off rather than following llmexport's --fuse_linear_attn_gate
+        # default: export_args is None for callers outside llmexport, which have
+        # no flag to turn the fold back off again.
+        self.gate_fold = getattr(export_args, 'fuse_linear_attn_gate', False)
+        gate_coef = None
+        gate_bias = None
+        if self.gate_fold:
+            assert self.num_v_heads <= 64, \
+                f"gate_fold requires num_v_heads <= 64, got {self.num_v_heads}"
+            gate_coef = (-self.A_log.float().exp()).tolist()
+            gate_bias = self.dt_bias.float().tolist()
+
         self.fused_attn = FusedLinearAttention(
             name=f'/layers.{layer_id}/self_attn/FusedLinearAttention',
             attn_type="gated_delta_rule",
@@ -735,8 +751,14 @@ class LinearAttention(torch.nn.Module):
             num_v_heads=self.num_v_heads,
             head_k_dim=self.head_k_dim,
             head_v_dim=self.head_v_dim,
-            use_qk_l2norm=True
+            use_qk_l2norm=True,
+            gate_fold=self.gate_fold,
+            gate_coef=gate_coef,
+            gate_bias=gate_bias,
         )
+        # The four in_proj_* stay separate Linears in the exported graph;
+        # MNNConvert's FuseTransformerC4 groups them into one FusedLinear at
+        # convert time (--transformerFuseQkvProj).
         self.conv_state = None
         self.rnn_state = None
 
@@ -753,21 +775,26 @@ class LinearAttention(torch.nn.Module):
         # 1. Linear Projections
         # mixed_qkv: [B, L, 2*key_dim + value_dim]
         mixed_qkv = self.in_proj_qkv(hidden_states)
-        # Transpose for Conv1d: [B, Dim, L]
-        mixed_qkv = mixed_qkv.transpose(1, 2)
-
         # Gate, Beta, Z projections
         z = self.in_proj_z(hidden_states) # [B, L, value_dim]
         b = self.in_proj_b(hidden_states) # [B, L, num_v_heads]
         a = self.in_proj_a(hidden_states) # [B, L, num_v_heads]
+        # Transpose for Conv1d: [B, Dim, L]
+        mixed_qkv = mixed_qkv.transpose(1, 2)
 
         # 2. Pre-compute gates
         beta = torch.sigmoid(b)
         gate = -self.A_log.float().exp() * F.softplus(a.float() + self.dt_bias)
 
         if torch.onnx.is_in_onnx_export():
-            attn_out = self.fused_attn(mixed_qkv, gate, beta, self.conv1d.weight.data.detach())
+            if self.gate_fold:
+                attn_out = self.fused_attn(mixed_qkv, a, b, self.conv1d.weight.data.detach())
+            else:
+                attn_out = self.fused_attn(mixed_qkv, gate, beta, self.conv1d.weight.data.detach())
             attn_out = attn_out.reshape(-1, self.head_v_dim)
+            # The RMSNorm(x)*silu(z) segment stays spelled out here
+            # (Reshape/RMSNorm/SILU/MUL); MNNConvert's FuseTransformerC4 folds it
+            # into one GatedRMSNorm op when --transformerFuseC4 is on.
             z = z.reshape(-1, self.head_v_dim)
             attn_out = self.norm(attn_out, z)
             attn_out = attn_out.view(batch_size, seq_len, -1)
@@ -1339,6 +1366,10 @@ class Decoder(torch.nn.Module):
         ModelMapper.do_map(self, decoder, mapper['decoder'])
         if 'mlp' in mapper and hasattr(self.mlp, 'experts'):
             self.mlp = Mlp(self.mlp, mapper, layer_id)
+
+        # Dense SwiGLU gate/up stays spelled out (gate/up Linears + SILU + MUL);
+        # MNNConvert's FuseTransformerC4 folds the pair into one act_silu_mul
+        # FusedLinear at convert time (--transformerFuseGateUpProj).
 
         # gemma4 MoE: router and experts are at decoder layer level (parallel to dense MLP)
         self.has_gemma4_moe = hasattr(self, 'experts') and self.experts is not None

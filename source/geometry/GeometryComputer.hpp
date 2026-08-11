@@ -23,7 +23,7 @@ public:
     }
     class MNN_PUBLIC Context {
     public:
-        Context(int mask, std::shared_ptr<Backend> allocBackend, MNNForwardType type = MNN_FORWARD_CPU, BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal);
+        Context(int mask, std::shared_ptr<Backend> allocBackend, MNNForwardType type = MNN_FORWARD_CPU, BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal, int gpuMode = 0, const Runtime* computeRuntime = nullptr);
         ~Context();
 
         void clear();
@@ -41,6 +41,18 @@ public:
         inline BackendConfig::PrecisionMode precisionType() const {
             return mPrecision;
         }
+        // Backend::Info::gpuMode bits (MNN_GPU_MEMORY_BUFFER / ...). 0 when the
+        // schedule did not carry one, e.g. CPU or MNN_FORWARD_AUTO.
+        inline int gpuMode() const {
+            return mGpuMode;
+        }
+        // Capability bits of the runtime the graph will run on. Note this is not
+        // the alloc backend above, which is the CPU backup: a geometry needs the
+        // compute runtime to tell whether keeping a fused op whole is actually
+        // supported there. 0 when the caller did not supply one.
+        inline int runtimeStatus(RuntimeStatus statusEnum) const {
+            return nullptr == mComputeRuntime ? 0 : mComputeRuntime->onGetRuntimeStatus(statusEnum);
+        }
         inline bool support(int option) const {
             return mMask & option;
         }
@@ -54,6 +66,8 @@ public:
         std::shared_ptr<Backend> mBackend;
         MNNForwardType mForwardType;
         BackendConfig::PrecisionMode mPrecision;
+        int mGpuMode;
+        const Runtime* mComputeRuntime;
         TensorUtils::FuseWrap mFuseUtils;
         const int mMask;
     };
