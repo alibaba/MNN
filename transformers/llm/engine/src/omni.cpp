@@ -209,9 +209,6 @@ bool Omni::initProcessorRuntime() {
         module_config.shapeMutable = true;
         module_config.rearrange = true;
     }
-    mProcessorRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, nullptr);
-    // pMeta isolation between LLM and processor RTMs is now provided by
-    // per-RTM RuntimeAttr::mPMeta + applyMetaToRuntime; no manual reset needed.
     if (mConfig->is_visual()) {
         mVisionModule.reset(Module::load({}, {}, mConfig->visual_model().c_str(), mProcessorRuntimeManager, &module_config));
         if (nullptr == mVisionModule.get())
@@ -1299,10 +1296,17 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         addPositionIds(txt_ids.size());
         ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
     }
-    const auto rawIdsSize = ids.size();
-    mTokenizer->post_process(ids);
-    if (ids.size() > rawIdsSize) {
-        addPositionIds(ids.size() - rawIdsSize);
+    const auto postProcessorInfo = mTokenizer->post_process(ids);
+    const auto positionIdsDims = mModule->getInfo()->inputs[2].dim;
+    if (positionIdsDims[0] != 1) {
+        if (!postProcessorInfo.has_single_sequence_a) {
+            MNN_ERROR("[Omni] Multimodal mRoPE post-processor must contain exactly one Sequence_A.\n");
+            return {};
+        }
+        mPositionIds.prependTextPositions(postProcessorInfo.prefix_size);
+        if (postProcessorInfo.suffix_size > 0) {
+            addPositionIds(postProcessorInfo.suffix_size);
+        }
     }
     return ids;
 }

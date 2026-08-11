@@ -188,23 +188,34 @@ void Tokenizer::cache_special_tokens() {
     }
 }
 
-void Tokenizer::apply_post_processor(std::vector<int>& ids) const {
+Tokenizer::PostProcessorInfo Tokenizer::apply_post_processor(std::vector<int>& ids) const {
+    PostProcessorInfo info;
     if (post_single_ops_.empty()) {
-        return;
+        return info;
     }
     std::vector<int> base_ids = ids;
     std::vector<int> processed;
     processed.reserve(base_ids.size() + post_single_ops_.size());
+    size_t sequence_a_count = 0;
     for (const auto& op : post_single_ops_) {
         if (op.type == POST_OP_SEQUENCE_A) {
+            if (sequence_a_count == 0) {
+                info.prefix_size = processed.size();
+            }
             processed.insert(processed.end(), base_ids.begin(), base_ids.end());
+            ++sequence_a_count;
             continue;
         }
         if (op.type == POST_OP_SPECIAL_TOKEN && op.token_id >= 0) {
             processed.push_back(op.token_id);
         }
     }
+    info.has_single_sequence_a = sequence_a_count == 1;
+    if (info.has_single_sequence_a) {
+        info.suffix_size = processed.size() - info.prefix_size - base_ids.size();
+    }
     ids.swap(processed);
+    return info;
 }
 
 std::vector<int> Tokenizer::encode(const std::string& str, bool with_post_processor) {
@@ -2482,6 +2493,9 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
         const size_t remaining = (size_t)(buf_end - ptr);
         if (remaining == (size_t)post_single_count * sizeof(uint32_t)) {
             // Backward compatibility for temporary format that stored tail special IDs only.
+            PostProcessorOp sequenceA;
+            sequenceA.type = Tokenizer::POST_OP_SEQUENCE_A;
+            post_single_ops_.push_back(sequenceA);
             for (uint16_t i = 0; i < post_single_count && ptr < buf_end; ++i) {
                 PostProcessorOp op;
                 op.type = Tokenizer::POST_OP_SPECIAL_TOKEN;

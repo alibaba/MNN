@@ -56,6 +56,22 @@ public:
         int cur_idx = currentIdx();
         push_back(cur_idx, cur_idx, cur_idx);
     }
+    void prependTextPositions(size_t count) {
+        if (count == 0) {
+            return;
+        }
+        const int offset = static_cast<int>(count);
+        std::vector<int> prefix(count);
+        for (size_t i = 0; i < count; ++i) {
+            prefix[i] = i;
+        }
+        for (auto* positions : {&mT, &mH, &mW, &mX}) {
+            for (auto& position : *positions) {
+                position += offset;
+            }
+            positions->insert(positions->begin(), prefix.begin(), prefix.end());
+        }
+    }
     void clear() {
         mT.clear();
         mH.clear();

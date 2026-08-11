@@ -198,7 +198,9 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     rtg->setExternalPath(mConfig->npu_model_dir(), MNN::Interpreter::EXTERNAL_NPU_FILE_DIR);
     rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->config_.value("dynamic_option", 0));
 
-    rtg->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
+    if (!mllm) {
+        rtg->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
+    }
     if (backend_type_convert(mConfig->backend_type(mllm)) != 0) { // not cpu
         std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
         rtg->setCache(cacheFilePath + "/mnn_cachefile.bin");
