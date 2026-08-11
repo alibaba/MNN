@@ -397,7 +397,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"splitgelu_buf", "86d5b31ea14330d2b99273e4e868bd35"},
     {"select_buf", "6c12fe9273ab292a76fbc12cfa4afae0"},
     {"grid_sample", "0e08897ea35a57c04b834b2a83be8383"},
-    {"buffer_convert_quant", "0b1a242302128d1f4b246ba7c5ccdcc2"},
+    {"buffer_convert_quant", "283e551da4b8123a211c39fa083a5dcd"},
     {"gemm_buf", "b030b6eacaf65a54e8eabee2755f892a"},
     {"conv_2d_int", "fd1170d55b6e814b3fb9e0169bcf58a5"},
     {"copy_buffer_to_image2d", "a72ed287711f9bb78a2cfa9726a1fa92"},
