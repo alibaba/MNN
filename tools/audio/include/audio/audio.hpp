@@ -163,6 +163,34 @@ MNN_PUBLIC VARP fbank(VARP waveform, int sampling_rate = 16000, int n_mels = 80,
 MNN_PUBLIC VARP whisper_fbank(VARP waveform, int sample_rate = 16000, int n_mels = 128, int n_fft = 400,
                               int hop_length = 160, int chunk_len = 0);
 
+/**
+ * @brief compute conformer fbank from audio (NeMo-style preprocessing)
+ * @param waveform waveform tensor
+ * @param sample_rate sample rate
+ * @param n_mels number of mel bins
+ * @param n_fft number of fft bins
+ * @param hop_length hop length
+ * @param win_length window length
+ * @param preemphasis preemphasis coefficient
+ * @return fbank tensor [1, n_mels, T]
+ */
+MNN_PUBLIC VARP conformer_fbank(VARP waveform, int sample_rate = 16000, int n_mels = 128, int n_fft = 512,
+                                 int hop_length = 160, int win_length = 400, float preemphasis = 0.97);
+
+/**
+ * @brief compute USM-style mel spectrogram (Gemma4 audio encoder)
+ * @param waveform waveform tensor
+ * @param sample_rate sample rate
+ * @param n_mels number of mel bins
+ * @param n_fft FFT length
+ * @param hop_length hop length
+ * @param frame_length frame/window length
+ * @param mel_floor minimum value added before log
+ * @return fbank tensor [1, T, n_mels]
+ */
+MNN_PUBLIC VARP usm_fbank(VARP waveform, int sample_rate = 16000, int n_mels = 128, int n_fft = 512,
+                           int hop_length = 160, int frame_length = 320, float mel_floor = 0.001f);
+
 } // namespace AUDIO
 } // namespace MNN
 

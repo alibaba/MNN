@@ -9,14 +9,25 @@
 #ifndef IDSTENCODER_HPP
 #define IDSTENCODER_HPP
 
+#include <cstring>
 #include <map>
 #include <sstream>
 #include "MNN_generated.h"
+#include "half.hpp"
 #include <cmath>
 
 using namespace MNN;
 
 namespace IDSTEncoder {
+
+// Options forwarded to encode(). Future fp8/fp4 / globalScale flags can be
+// added here without churning every caller.
+struct EncodeOptions {
+    int bits;
+    bool detectSparse;
+    int scaleBit; // 32=fp32 (default), 16=fp16; 8/4 reserved for future
+    EncodeOptions(int b = 8, bool ds = true, int sb = 32) : bits(b), detectSparse(ds), scaleBit(sb) {}
+};
 
 static bool WriteBlobDim(std::ostream &out, std::vector<int> dims)
 {
@@ -486,8 +497,12 @@ static bool WriteSparseQuanBlobs(std::ostream &out, const float* weightData, con
     return true;
 }
 
-static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<float>& scale, int kernelSize, int kernelNum,
-                                         bool asymmetricQuantFlag, const int8_t* quantWeightPtr, const int clampMin, const int bits = 8, bool detectSparse = true) {
+static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<float>& scale, int kernelSize,
+                                         int kernelNum, bool asymmetricQuantFlag, const int8_t* quantWeightPtr,
+                                         const int clampMin, const EncodeOptions& opts = {}) {
+    const int bits = opts.bits;
+    const bool detectSparse = opts.detectSparse;
+    const bool scaleFp16 = (opts.scaleBit == 16);
     // compute block_size
     auto alpha_size = scale.size();
     auto block_size = kernelSize;
@@ -533,8 +548,18 @@ static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<
         }
     }
     idst->shapeInt32 = shapeUseInt32;
-    idst->alpha.resize(scale.size());
-    ::memcpy(idst->alpha.data(), scale.data(), scale.size() * sizeof(float));
+    if (scaleFp16) {
+        idst->scaleStorage = ScaleStorageType_FP16;
+        idst->alphaFp16.resize(scale.size());
+        for (size_t i = 0; i < scale.size(); ++i) {
+            half_float::half h(scale[i]);
+            std::memcpy(&idst->alphaFp16[i], &h, sizeof(uint16_t));
+        }
+    } else {
+        idst->scaleStorage = ScaleStorageType_FP32;
+        idst->alpha.resize(scale.size());
+        ::memcpy(idst->alpha.data(), scale.data(), scale.size() * sizeof(float));
+    }
     idst->quantScale = 1.f;
     if (asymmetricQuantFlag) {
         idst->readType = kernelNum;

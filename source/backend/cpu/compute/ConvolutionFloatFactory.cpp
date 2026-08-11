@@ -22,12 +22,13 @@
 #include "core/Macro.h"
 #include "core/OpCommonUtils.hpp"
 #include "backend/cpu/OneDNNConvolution.hpp"
+#include "backend/cpu/compute/CPUExtension.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 
 #ifdef MNN_KLEIDIAI_ENABLED
-#include "backend/cpu/compute/KleidiAIConvInt8.hpp"
-#include "backend/cpu/compute/KleidiAIConvolution.hpp"
-#include "backend/cpu/compute/KleidiAIDenseConvolution.hpp"
+#include "backend/cpu/kleidiai/KleidiAIConvInt8.hpp"
+#include "backend/cpu/kleidiai/KleidiAIConvolution.hpp"
+#include "backend/cpu/kleidiai/KleidiAIDenseConvolution.hpp"
 #endif //MNN_KLEIDIAI_ENABLED
 
 namespace MNN {
@@ -153,6 +154,13 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #ifdef MNN_LOW_MEMORY
     if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
         if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+            auto extension = cpuBackend->functions()->extension;
+            if (extension != nullptr && extension->createInt8GemmExecution != nullptr) {
+                auto execution = extension->createInt8GemmExecution(backend, op, weightQuantInfo, true);
+                if (execution != nullptr) {
+                    return execution;
+                }
+            }
             return new DenseConvInt8TiledExecutor(backend, op, weightQuantInfo, true);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
@@ -191,7 +199,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     }
 #ifdef MNN_LOW_MEMORY
     bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() == BackendConfig::Memory_Low;
-    if (static_cast<CPUBackend*>(backend)->functions()->bytes == 2 && static_cast<CPUBackend*>(backend)->int8Functions()->MNNGemmInt8AddBiasScale_Unit_FP16 == nullptr) {
+    if (lowMemory && static_cast<CPUBackend*>(backend)->functions()->bytes == 2 && static_cast<CPUBackend*>(backend)->int8Functions()->MNNGemmInt8AddBiasScale_Unit_FP16 == nullptr) {
         // Fall back to fp32
         return nullptr;
     }
@@ -199,9 +207,6 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     bool lowMemory = false;
 #endif
 
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-    lowMemory = lowMemory || (static_cast<CPUBackend*>(backend)->memoryMode() != BackendConfig::Memory_High);
-#endif
     const float* originWeight = nullptr;
     const float* originBias   = nullptr;
     int originWeightSize   = 0;

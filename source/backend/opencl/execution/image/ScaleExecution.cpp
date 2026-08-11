@@ -41,7 +41,7 @@ ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::O
     openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(scaleBuffer, scalePtrCL);
 
     mScale.reset(Tensor::createDevice<float>({1, 1, 1, scaleSize}));
-    backend->onAcquireBuffer(mScale.get(), Backend::STATIC);
+    OPENCL_CHECK_ALLOC_CTOR(backend->onAcquireBuffer(mScale.get(), Backend::STATIC));
     copyBufferToImage(openclBackend->getOpenCLRuntime(), scaleBuffer, openCLImage(mScale.get()), UP_DIV(scaleSize, 4),
                       1, mOpenCLBackend->getPrecision());
 
@@ -65,7 +65,7 @@ ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::O
         openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
         std::shared_ptr<Tensor> bias;
         bias.reset(Tensor::createDevice<float>({1, 1, 1, biasSize}));
-        backend->onAcquireBuffer(bias.get(), Backend::STATIC);
+        OPENCL_CHECK_ALLOC_CTOR(backend->onAcquireBuffer(bias.get(), Backend::STATIC));
         copyBufferToImage(openclBackend->getOpenCLRuntime(), biasBuffer, openCLImage(bias.get()), UP_DIV(biasSize, 4),
                           1, mOpenCLBackend->getPrecision());
         mBias = bias;
@@ -75,6 +75,7 @@ ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::O
     std::string kernelName = "scale";
     auto runtime           = mOpenCLBackend->getOpenCLRuntime();
     unit.kernel          = runtime->buildKernel("scale", kernelName, buildOptions, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
 #ifdef LOG_VERBOSE

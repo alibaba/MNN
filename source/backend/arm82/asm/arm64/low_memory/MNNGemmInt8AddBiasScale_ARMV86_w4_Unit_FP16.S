@@ -887,61 +887,84 @@ TILE1_BLOCKNUM:
     movi v18.4s, #0 // oc:4,5,4,5
     movi v19.4s, #0 // oc:6,7,6,7
 
-cmp x22, #8
-bne LoopSz1_TILE_1_lu1
 cmp x13, #4
 blt LoopSz1_TILE_1_lu1
 
+    movi v24.4s, #0 // oc:0,1,0,1
+    movi v25.4s, #0 // oc:2,3,2,3
+    movi v26.4s, #0 // oc:4,5,4,5
+    movi v27.4s, #0 // oc:6,7,6,7
+
 LoopSz1_TILE_1_lu4:
     ld1 {v5.16b, v6.16b, v7.16b, v8.16b}, [x12], #64     // weight
-    ld1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x12], #64
-    ld1 {v0.8b, v1.8b, v2.8b, v3.8b}, [x11], #32         // src
+    ld1 {v0.8b}, [x11], x22                              // src
+    ld1 {v1.8b}, [x11], x22
 
-    // int4->int8
+    // int4->int8 - first two weight groups
     ushr v4.16b, v5.16b, #4
     ushr v14.16b, v6.16b, #4
     and v13.16b, v5.16b, v30.16b
     and v15.16b, v6.16b, v30.16b
 
+    ld1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x12], #64
+
+    // Second weight group - unpack + SMMLA
     ushr v20.16b, v7.16b, #4
     ushr v21.16b, v8.16b, #4
     and v22.16b, v7.16b, v30.16b
     and v23.16b, v8.16b, v30.16b
 
-    ushr v24.16b, v9.16b, #4
-    ushr v25.16b, v10.16b, #4
-    and v26.16b, v9.16b, v30.16b
-    and v27.16b, v10.16b, v30.16b
 
-    ushr v5.16b, v11.16b, #4
-    ushr v6.16b, v12.16b, #4
-    and v7.16b, v11.16b, v30.16b
-    and v8.16b, v12.16b, v30.16b
-
-    sub x13, x13, #4
-
+    // First weight group SMMLA
     .inst 0x4e84a410 // smmla v16.4s, v0.16b, v4.16b
     .inst 0x4e8ea411 // smmla v17.4s, v0.16b, v14.16b
     .inst 0x4e8da412 // smmla v18.4s, v0.16b, v13.16b
     .inst 0x4e8fa413 // smmla v19.4s, v0.16b, v15.16b
 
-    .inst 0x4e94a430 // smmla v16.4s, v1.16b, v20.16b
-    .inst 0x4e95a431 // smmla v17.4s, v1.16b, v21.16b
-    .inst 0x4e96a432 // smmla v18.4s, v1.16b, v22.16b
-    .inst 0x4e97a433 // smmla v19.4s, v1.16b, v23.16b
-    cmp x13, #4
-    .inst 0x4e98a450 // smmla v16.4s, v2.16b, v24.16b
-    .inst 0x4e99a451 // smmla v17.4s, v2.16b, v25.16b
-    .inst 0x4e9aa452 // smmla v18.4s, v2.16b, v26.16b
-    .inst 0x4e9ba453 // smmla v19.4s, v2.16b, v27.16b
+    ld1 {v2.8b}, [x11], x22
 
-    .inst 0x4e85a470 // smmla v16.4s, v3.16b, v5.16b
-    .inst 0x4e86a471 // smmla v17.4s, v3.16b, v6.16b
-    .inst 0x4e87a472 // smmla v18.4s, v3.16b, v7.16b
-    .inst 0x4e88a473 // smmla v19.4s, v3.16b, v8.16b
+
+    .inst 0x4e94a438 // smmla v24.4s, v1.16b, v20.16b
+    .inst 0x4e95a439 // smmla v25.4s, v1.16b, v21.16b
+    .inst 0x4e96a43a // smmla v26.4s, v1.16b, v22.16b
+    .inst 0x4e97a43b // smmla v27.4s, v1.16b, v23.16b
+
+    ld1 {v3.8b}, [x11], x22
+
+    // Third weight group - unpack + SMMLA
+    ushr v4.16b, v9.16b, #4
+    ushr v14.16b, v10.16b, #4
+    and v13.16b, v9.16b, v30.16b
+    and v15.16b, v10.16b, v30.16b
+
+    // Fourth weight group - unpack + SMMLA
+    ushr v5.16b, v11.16b, #4
+    ushr v6.16b, v12.16b, #4
+    and v7.16b, v11.16b, v30.16b
+    and v8.16b, v12.16b, v30.16b
+
+    .inst 0x4e84a450 // smmla v16.4s, v2.16b, v4.16b
+    .inst 0x4e8ea451 // smmla v17.4s, v2.16b, v14.16b
+    .inst 0x4e8da452 // smmla v18.4s, v2.16b, v13.16b
+    .inst 0x4e8fa453 // smmla v19.4s, v2.16b, v15.16b
+
+
+    .inst 0x4e85a478 // smmla v24.4s, v3.16b, v5.16b
+    .inst 0x4e86a479 // smmla v25.4s, v3.16b, v6.16b
+    .inst 0x4e87a47a // smmla v26.4s, v3.16b, v7.16b
+    .inst 0x4e88a47b // smmla v27.4s, v3.16b, v8.16b
+
+    sub x13, x13, #4
+    cmp x13, #4
 
     bge LoopSz1_TILE_1_lu4
-    cbz x13, LoopSzEnd_TILE_1
+    
+    add v16.4s, v16.4s, v24.4s
+    add v17.4s, v17.4s, v25.4s
+    add v18.4s, v18.4s, v26.4s
+    add v19.4s, v19.4s, v27.4s
+
+cbz x13, LoopSzEnd_TILE_1
 
 LoopSz1_TILE_1_lu1:
     ld1 {v13.16b, v14.16b}, [x12], #32   // weight
@@ -967,49 +990,61 @@ LoopSzEnd_TILE_1:
     scvtf v26.4s, v26.4s
 
 Tile1Quan:
+    // v16/v17 hold the per-OC-chunk running fp32 accumulator across blocks.  The
+    // [x10] buffer carries the running sum across blocks within ONE OC chunk; conv
+    // exec only memsets accumbuff once per kernel call (or not at all for blockNum=1)
+    // so the FIRST block of each OC chunk must zero-init v16/v17 explicitly instead
+    // of loading from [x10] (which still holds the previous OC chunk's tail).
     ld1 {v0.4s, v1.4s}, [x12], #32  // scale
-    ld1 {v6.s}[0], [x8] // x kernel sum
-    ld1 {v8.4s, v9.4s}, [x12], #32 // weight quan zeropoint
-    fmul v25.4s, v25.4s, v0.4s
-    fmul v26.4s, v26.4s, v1.4s
+    ld1 {v4.s}[0], [x23], x25       // input scale
+    ld1 {v6.s}[0], [x8]             // x kernel sum
+    ld1 {v8.4s, v9.4s}, [x12], #32  // weight quan zeropoint
+    cbz x19, _w4_first_block_zero
+    ld1 {v16.4s, v17.4s}, [x10]     // running fp32 accum from prior block
+    b _w4_init_done
+_w4_first_block_zero:
+    movi v16.4s, #0                 // first block of this OC chunk
+    movi v17.4s, #0
+_w4_init_done:
     add x8, x8, x22, LSR #1
 
-    ld1 {v4.s}[0], [x23], x25
-    fmul v25.4s, v25.4s, v4.s[0]
-    fmul v26.4s, v26.4s, v4.s[0]
+    // P1.2 scale_eff fusion: scale * input_scale off the v16/v17 critical path.
+    fmul v0.4s, v0.4s, v4.s[0]
+    fmul v1.4s, v1.4s, v4.s[0]
+
+    // Per-block dequant chain into v16/v17 directly (replaces fmul v25 + fadd v16 + ...).
+    fmla v16.4s, v25.4s, v0.4s      // v16 += accum_fp * scale_eff
+    fmla v17.4s, v26.4s, v1.4s
     TILE1_MLA:
-    MLA_WEIGHTZERO v25, v6, v8, 0 // tile:0, oc:0-3
-    MLA_WEIGHTZERO v26, v6, v9, 0 // tile:0, oc:4-7
+    MLA_WEIGHTZERO v16, v6, v8, 0   // v16 += zp * xks
+    MLA_WEIGHTZERO v17, v6, v9, 0
 
     cbz x27, TILE1_ADD_DSTV
-    ld1 {v6.s}[0], [x27], x25 // input dequant bias
-    ld1 {v8.4s, v9.4s}, [x28], #32 // weight kernel sum
-    MLA_WEIGHTZERO v25, v6, v8, 0 // tile:0, oc:0-3
-    MLA_WEIGHTZERO v26, v6, v9, 0 // tile:0, oc:4-7
+    ld1 {v6.s}[0], [x27], x25       // input dequant bias
+    ld1 {v8.4s, v9.4s}, [x28], #32  // weight kernel sum
+    MLA_WEIGHTZERO v16, v6, v8, 0   // v16 += wks * inputBias
+    MLA_WEIGHTZERO v17, v6, v9, 0
 
     TILE1_ADD_DSTV:
-    cbz x19, TILE1_TEMP_BUFFER
-    ld1 {v16.4s, v17.4s}, [x10]
-    fadd v25.4s, v25.4s, v16.4s
-    fadd v26.4s, v26.4s, v17.4s
+    // v16/v17 already hold the updated running accum; nothing more to do.
 
     TILE1_TEMP_BUFFER:
     add x19, x19, #1
     cmp x19, x26
     beq TILE1_POST
-    st1 {v25.4s, v26.4s}, [x10]
+    st1 {v16.4s, v17.4s}, [x10]
     b TILE1_BLOCKNUM
 
     TILE1_POST:
     sub x24, x24, #1
     cbz x9, TILE1_CVT_FP16
-    ld1 {v16.4s, v17.4s}, [x20], #32 // bias
-    fadd v25.4s, v25.4s, v16.4s
-    fadd v26.4s, v26.4s, v17.4s
+    ld1 {v8.4s, v9.4s}, [x20], #32  // bias (use v8/v9 since v16/v17 hold result)
+    fadd v16.4s, v16.4s, v8.4s
+    fadd v17.4s, v17.4s, v9.4s
 
     TILE1_CVT_FP16:
-    fcvtn v0.4h, v25.4s
-    fcvtn2 v0.8h, v26.4s
+    fcvtn v0.4h, v16.4s
+    fcvtn2 v0.8h, v17.4s
     cbz x14, TILE1_STORE
     fmax v0.8h, v0.8h, v29.8h
     fmin v0.8h, v0.8h, v31.8h

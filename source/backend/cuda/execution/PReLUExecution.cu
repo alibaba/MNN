@@ -24,6 +24,7 @@ PReLUExecution::PReLUExecution(const PRelu* prelu, Backend *backend) : Execution
     auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
     auto slopeSize = UP_DIV(slopCount, PACK_NUMBER) * PACK_NUMBER * sizeof(float);
     mPreluStorage = staticPool->alloc(slopeSize);
+    if (nullptr == mPreluStorage.first) { mValid = false; MNN_ERROR("CUDA alloc failed\n"); return; }
     mDeviceSlope = (uint8_t*)mPreluStorage.first + mPreluStorage.second;
 
     MNN_ASSERT(nullptr != mDeviceSlope);

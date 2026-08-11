@@ -9,7 +9,9 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadListener
+import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
+import com.alibaba.mnnllm.android.download.DownloadForegroundServiceManager
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItemWrapper
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
@@ -101,6 +103,16 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
         _models.postValue(updatedList)
     }
 
+    private fun resolveModelName(modelId: String): String? {
+        return (_models.value ?: emptyList())
+            .asSequence()
+            .plus(allTtsModels.asSequence())
+            .plus(allAsrModels.asSequence())
+            .firstOrNull { it.modelMarketItem.modelId == modelId }
+            ?.modelMarketItem
+            ?.modelName
+    }
+
     fun startDownload(item: ModelMarketItem) {
         Log.d(TAG, "Starting download for: ${item.modelId}")
         downloadManager.startDownload(item.modelId)
@@ -143,19 +155,34 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
         Log.d(TAG, "Download started for: $modelId")
         mainHandler.post {
             updateDownloadInfo(modelId)
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = true
+            )
             _itemUpdate.value = modelId
         }
     }
 
     override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
         mainHandler.post {
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = downloadInfo.downloadState == DownloadState.DOWNLOADING
+            )
             _progressUpdate.value = Pair(modelId, downloadInfo)
         }
     }
 
-    override fun onDownloadFailed(modelId: String, exception: Exception) {
-        Log.d(TAG, "Download failed for: $modelId, error: ${exception.message}")
+    override fun onDownloadFailed(modelId: String, e: Exception) {
+        Log.d(TAG, "Download failed for: $modelId, error: ${e.message}")
         mainHandler.post {
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
             updateDownloadInfo(modelId)
             _itemUpdate.value = modelId
         }
@@ -164,6 +191,11 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     override fun onDownloadFinished(modelId: String, path: String) {
         Log.d(TAG, "Download finished for: $modelId")
         mainHandler.post {
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
             updateDownloadInfo(modelId)
             _itemUpdate.value = modelId
         }
@@ -172,6 +204,11 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     override fun onDownloadPaused(modelId: String) {
         Log.d(TAG, "Download paused for: $modelId")
         mainHandler.post {
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
             updateDownloadInfo(modelId)
             _itemUpdate.value = modelId
         }
@@ -180,6 +217,11 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     override fun onDownloadFileRemoved(modelId: String) {
         Log.d(TAG, "Download file removed for: $modelId")
         mainHandler.post {
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
             updateDownloadInfo(modelId)
             _itemUpdate.value = modelId
         }

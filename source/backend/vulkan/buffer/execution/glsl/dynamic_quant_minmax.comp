@@ -1,0 +1,80 @@
+// Per-row minmax pass 1 (partial reduction along K).
+//   - vec4 accumulators (4 independent min/max chains, no serial dependency).
+//   - Hoist all per-element K-bounds checks out of the hot loop. Tail (only
+//     when last partialBlock and K not multiple of 4) handled by a single
+//     post-loop iteration with scalar checks.
+//   - Final horizontal reduction vec4 -> scalar.
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 3) const uint M_TILE = 64;
+// K-tile granularity (in uvec4 units along K). Hard-coded here to keep
+// the tuning point in one place; host (VulkanConv1x1CoopA8.cpp) mirrors
+// this literal when computing partialBlocks for grid dispatch.
+const uint K4_BLOCK = 64u;
+
+layout(binding = 0) readonly buffer SrcActivation {
+    FLOAT4 A4[];
+};
+
+layout(binding = 1) writeonly buffer PartialMinBuffer {
+    FLOAT PartialMin[];
+};
+
+layout(binding = 2) writeonly buffer PartialMaxBuffer {
+    FLOAT PartialMax[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint padM;
+    uint partialBlocks;
+} pc;
+
+void main() {
+    uint tileM = gl_WorkGroupID.x;
+    uint partialBlock = gl_WorkGroupID.y;
+    uint laneM = gl_LocalInvocationID.x;
+    uint m = tileM * M_TILE + laneM;
+    uint k4Start = partialBlock * K4_BLOCK;
+    uint k4Count = (pc.K + 3u) / 4u;
+    uint k4End = min(k4Start + K4_BLOCK, k4Count);
+
+    bool kAligned = (pc.K & 3u) == 0u;
+    bool isLastBlock = (k4End == k4Count);
+    bool needTail = !kAligned && isLastBlock;
+    uint k4FullEnd = needTail ? (k4End - 1u) : k4End;
+
+    vec4 minV4 = vec4(3.402823466e+38);
+    vec4 maxV4 = vec4(-3.402823466e+38);
+
+    if (m < pc.M) {
+        for (uint k4 = k4Start; k4 < k4FullEnd; ++k4) {
+            vec4 v = vec4(A4[k4 * pc.M + m]);
+            minV4 = min(minV4, v);
+            maxV4 = max(maxV4, v);
+        }
+        if (needTail) {
+            uint k4 = k4End - 1u;
+            uint kBase = k4 * 4u;
+            vec4 v = vec4(A4[k4 * pc.M + m]);
+            if (kBase + 0u < pc.K) { minV4.x = min(minV4.x, v.x); maxV4.x = max(maxV4.x, v.x); }
+            if (kBase + 1u < pc.K) { minV4.y = min(minV4.y, v.y); maxV4.y = max(maxV4.y, v.y); }
+            if (kBase + 2u < pc.K) { minV4.z = min(minV4.z, v.z); maxV4.z = max(maxV4.z, v.z); }
+            if (kBase + 3u < pc.K) { minV4.w = min(minV4.w, v.w); maxV4.w = max(maxV4.w, v.w); }
+        }
+    } else if (m < pc.padM) {
+        minV4 = vec4(0.0);
+        maxV4 = vec4(0.0);
+    }
+
+    float minV = min(min(minV4.x, minV4.y), min(minV4.z, minV4.w));
+    float maxV = max(max(maxV4.x, maxV4.y), max(maxV4.z, maxV4.w));
+
+    if (m < pc.padM) {
+        uint idx = partialBlock * pc.padM + m;
+        PartialMin[idx] = FLOAT(minV);
+        PartialMax[idx] = FLOAT(maxV);
+    }
+}

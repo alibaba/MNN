@@ -1,4 +1,6 @@
 #include "LayerNormExecution.hpp"
+#include "MNNCUDADefine.hpp"
+#include "core/TensorUtils.hpp"
 namespace MNN {
 namespace CUDA {
 
@@ -265,8 +267,135 @@ void input_layernorm_512(T* out, const T* input, const float* gamma, const float
 }
 
 
+// P3: Adaptive LayerNorm/RMSNorm kernel using configurable thread count (up to 1024)
+// Each block handles one row; threads cooperatively process all elements
+template <typename T>
+__global__
+void input_layernorm_adaptive(T* out, const T* input, const float* gamma, const float* beta,
+                               int m, int n, const float epsilon, bool RMSNorm)
+{
+    const int tid = threadIdx.x;
+    const int num_threads = blockDim.x;
+    const int row = blockIdx.x;
+
+    __shared__ float s_mean;
+    __shared__ float s_variance;
+
+    float mean = 0.0f;
+    s_mean = 0.0f;
+
+    // First pass: compute mean (for LayerNorm) or skip (for RMSNorm)
+    if (!RMSNorm) {
+        float local_sum = 0.0f;
+        for (int i = tid; i < n; i += num_threads) {
+            local_sum += (float)input[row * n + i];
+        }
+        mean = blockReduceSum<float>(local_sum);
+        if (tid == 0) s_mean = mean / n;
+        __syncthreads();
+    }
+    mean = s_mean;
+
+    // Second pass: compute variance
+    float var_sum = 0.0f;
+    for (int i = tid; i < n; i += num_threads) {
+        float val = (float)input[row * n + i] - mean;
+        var_sum += val * val;
+    }
+    float variance = blockReduceSum<float>(var_sum);
+    if (tid == 0) s_variance = variance / n + epsilon;
+    __syncthreads();
+
+    float inv_std = rsqrtf(s_variance);
+
+    // Third pass: normalize and write output
+    for (int i = tid; i < n; i += num_threads) {
+        float res = ((float)input[row * n + i] - mean) * inv_std;
+        if (gamma != nullptr && beta != nullptr) {
+            res = res * (float)__ldg(&gamma[i]) + (float)__ldg(&beta[i]);
+        }
+        out[row * n + i] = (T)res;
+    }
+}
+
+template <typename T>
+__global__ void binary_layernorm_c4(T* sumOut, T* normOut, const T* input0, const T* input1, const float* gamma,
+                                    const float* beta, int inside, int rowStride, float epsilon, bool RMSNorm) {
+    const int tid = threadIdx.x;
+    const int base = blockIdx.x * rowStride;
+    __shared__ float sMean;
+    __shared__ float sVariance;
+
+    float localSum = 0.0f;
+    float localSquareSum = 0.0f;
+    for (int i = tid; i < inside; i += blockDim.x) {
+        float value = (float)input0[base + i] + (float)input1[base + i];
+        localSum += value;
+        localSquareSum += value * value;
+    }
+    float sum = blockReduceSum<float>(localSum);
+    if (tid == 0) {
+        sMean = RMSNorm ? 0.0f : sum / inside;
+    }
+    __syncthreads();
+    float squareSum = blockReduceSum<float>(localSquareSum);
+    if (tid == 0) {
+        float squareMean = squareSum / inside;
+        sVariance = (RMSNorm ? squareMean : fmaxf(squareMean - sMean * sMean, 0.0f)) + epsilon;
+    }
+    __syncthreads();
+
+    float invStd = rsqrtf(sVariance);
+    for (int i = tid; i < inside; i += blockDim.x) {
+        float value = (float)input0[base + i] + (float)input1[base + i];
+        float result = (value - sMean) * invStd;
+        if (gamma != nullptr && beta != nullptr) {
+            result = result * __ldg(gamma + i) + __ldg(beta + i);
+        }
+        sumOut[base + i] = (T)value;
+        normOut[base + i] = (T)result;
+    }
+}
+
+template <typename T>
+__global__ void layernorm_c4(T* output, const T* input, const float* gamma, const float* beta, int inside,
+                             int rowStride, float epsilon, bool RMSNorm) {
+    const int tid = threadIdx.x;
+    const int base = blockIdx.x * rowStride;
+    __shared__ float sMean;
+    __shared__ float sVariance;
+
+    float localSum = 0.0f;
+    float localSquareSum = 0.0f;
+    for (int i = tid; i < inside; i += blockDim.x) {
+        float value = (float)input[base + i];
+        localSum += value;
+        localSquareSum += value * value;
+    }
+    float sum = blockReduceSum<float>(localSum);
+    if (tid == 0) {
+        sMean = RMSNorm ? 0.0f : sum / inside;
+    }
+    __syncthreads();
+    float squareSum = blockReduceSum<float>(localSquareSum);
+    if (tid == 0) {
+        float squareMean = squareSum / inside;
+        sVariance = (RMSNorm ? squareMean : fmaxf(squareMean - sMean * sMean, 0.0f)) + epsilon;
+    }
+    __syncthreads();
+
+    float invStd = rsqrtf(sVariance);
+    for (int i = tid; i < inside; i += blockDim.x) {
+        float result = ((float)input[base + i] - sMean) * invStd;
+        if (gamma != nullptr && beta != nullptr) {
+            result = result * __ldg(gamma + i) + __ldg(beta + i);
+        }
+        output[base + i] = (T)result;
+    }
+}
+
 template<typename T>
-__global__ void LAYERNORM(const int count, const int outside, const int inside, const float epsilon, 
+__global__ void LAYERNORM(const int count, const int outside, const int inside, const float epsilon,
                           const T* in, T* out, const float* gamma_data, const float* beta_data, bool RMSNorm) {
     CUDA_KERNEL_LOOP(i, count) {
         const int o = i / inside;
@@ -296,7 +425,8 @@ __global__ void LAYERNORM(const int count, const int outside, const int inside, 
     }
 }
 
-LayerNormExecution::LayerNormExecution(const LayerNorm* layer_norm_param, Backend *backend) : Execution(backend) {
+LayerNormExecution::LayerNormExecution(const LayerNorm* layer_norm_param, Backend *backend, bool inputC4, bool binaryC4)
+    : Execution(backend), mInputC4(inputC4), mBinaryC4(binaryC4) {
     if (nullptr != layer_norm_param->axis()) {
         mAxises = layer_norm_param->axis()->size();
     }
@@ -336,13 +466,41 @@ LayerNormExecution::~LayerNormExecution() {
 }
 
 ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(inputs.size() == 1);
-    MNN_ASSERT(outputs.size() == 1);
+    if ((mBinaryC4 && (inputs.size() != 2 || outputs.size() != 2)) ||
+        (!mBinaryC4 && (inputs.size() != 1 || outputs.size() != 1))) {
+        return NOT_SUPPORT;
+    }
     auto input = inputs[0];
 
     mOutside = 1;
     mInside = 1;
     int rank = input->dimensions();
+    if (mInputC4) {
+        if (mGroup > 1 || rank < 2 || input->length(1) <= 0) {
+            MNN_ERROR("CUDA LayerNorm: unsupported C4 shape.\n");
+            return NOT_SUPPORT;
+        }
+        mInside = input->length(1);
+        for (int i = 0; i < rank; ++i) {
+            if (i != 1) {
+                mOutside *= input->length(i);
+            }
+        }
+        int area = 1;
+        for (int i = 2; i < rank; ++i) {
+            area *= input->length(i);
+        }
+        if (area != 1) {
+            MNN_ERROR("CUDA LayerNorm: unsupported C4 area.\n");
+            return NOT_SUPPORT;
+        }
+        if (mBinaryC4 && (inputs[0]->shape() != inputs[1]->shape() || inputs[0]->shape() != outputs[0]->shape() ||
+                          inputs[0]->shape() != outputs[1]->shape())) {
+            MNN_ERROR("CUDA LayerNorm: invalid binary C4 inputs or outputs.\n");
+            return NOT_SUPPORT;
+        }
+        return NO_ERROR;
+    }
     if (mGroup > 1) {
         mOutside = input->length(0) * mGroup;
         for (int i = 1; i < rank; i++) {
@@ -362,6 +520,39 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
 
 ErrorCode LayerNormExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
+    const int rowStride = mInputC4 ? UP_DIV(mInside, PACK_NUMBER) * PACK_NUMBER : mInside;
+
+    if (mBinaryC4) {
+        int threads = mInside > 4096 ? 1024 : (mInside > 2048 ? 512 : 256);
+        if (static_cast<CUDABackend*>(backend())->useFp16()) {
+            binary_layernorm_c4<half><<<mOutside, threads>>>(
+                (half*)outputs[0]->deviceId(), (half*)outputs[1]->deviceId(),
+                (const half*)inputs[0]->deviceId(), (const half*)inputs[1]->deviceId(),
+                (const float*)mDeviceGamma, (const float*)mDeviceBeta, mInside, rowStride, mEps, RMSNorm);
+        } else {
+            binary_layernorm_c4<float><<<mOutside, threads>>>(
+                (float*)outputs[0]->deviceId(), (float*)outputs[1]->deviceId(),
+                (const float*)inputs[0]->deviceId(), (const float*)inputs[1]->deviceId(),
+                (const float*)mDeviceGamma, (const float*)mDeviceBeta, mInside, rowStride, mEps, RMSNorm);
+        }
+        return NO_ERROR;
+    }
+
+    if (mInputC4) {
+        int threads = mInside > 4096 ? 1024 : (mInside > 2048 ? 512 : 256);
+        if (static_cast<CUDABackend*>(backend())->useFp16()) {
+            layernorm_c4<half><<<mOutside, threads>>>((half*)outputs[0]->deviceId(),
+                                                     (const half*)inputs[0]->deviceId(),
+                                                     (const float*)mDeviceGamma, (const float*)mDeviceBeta, mInside,
+                                                     rowStride, mEps, RMSNorm);
+        } else {
+            layernorm_c4<float><<<mOutside, threads>>>((float*)outputs[0]->deviceId(),
+                                                      (const float*)inputs[0]->deviceId(),
+                                                      (const float*)mDeviceGamma, (const float*)mDeviceBeta, mInside,
+                                                      rowStride, mEps, RMSNorm);
+        }
+        return NO_ERROR;
+    }
  
     int block_num = runtime->blocks_num(mOutside*mInside);
     int threads_num = runtime->threads_num();
@@ -369,54 +560,46 @@ ErrorCode LayerNormExecution::onExecute(const std::vector<Tensor *> &inputs, con
     auto output_addr = (void*)outputs[0]->deviceId();
 
     //printf("ln:%d-%d\n", mOutside, mInside);
-    if (static_cast<CUDABackend*>(backend())->useFp16()) {
-        if(mInside < 128) {
-            LAYERNORM<<<block_num, threads_num>>>(mOutside*mInside, mOutside, mInside, mEps, (const half *)input_addr, (half *)output_addr,
-                    (const float *)mDeviceGamma, (const float *)mDeviceBeta, RMSNorm);
+    // P3: Choose optimal thread count based on hidden dimension
+    // For large hidden dims (common in LLMs: 3584, 4096, 5120, 8192), use more threads
+    auto launchLayerNorm = [&](auto* output_typed, const auto* input_typed) {
+        using TT = std::remove_pointer_t<decltype(output_typed)>;
+        if (mInside < 128) {
+            LAYERNORM<<<block_num, threads_num>>>(mOutside*mInside, mOutside, mInside, mEps,
+                input_typed, output_typed, (const float *)mDeviceGamma, (const float *)mDeviceBeta, RMSNorm);
+        } else if (mInside == 2048) {
+            input_layernorm_2048<<<mOutside, 256>>>(output_typed, input_typed, (const float *)mDeviceGamma,
+                (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
+        } else if (mInside == 1024) {
+            input_layernorm_1024<<<mOutside, 256>>>(output_typed, input_typed, (const float *)mDeviceGamma,
+                (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
+        } else if (mInside == 512) {
+            input_layernorm_512<<<mOutside, 256>>>(output_typed, input_typed, (const float *)mDeviceGamma,
+                (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
+        } else if (mInside == 320) {
+            input_layernorm_320<<<mOutside, 64>>>(output_typed, input_typed, (const float *)mDeviceGamma,
+                (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
+        } else if (mInside > 2048) {
+            // P3: For large hidden dims (3584, 4096, 5120, 8192, etc.), use adaptive kernel with more threads
+            // Use up to 1024 threads to minimize iterations per thread
+            int adaptive_threads = 256;
+            if (mInside > 2048) adaptive_threads = 512;
+            if (mInside > 4096) adaptive_threads = 1024;
+            input_layernorm_adaptive<<<mOutside, adaptive_threads>>>(output_typed, input_typed,
+                (const float *)mDeviceGamma, (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
         } else {
-            if(mInside == 2048) {
-                input_layernorm_2048<<<mOutside, 256>>>((half *)output_addr, (const half *)input_addr, (const float *)mDeviceGamma, 
-                    (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
-            } else if(mInside == 1024) {
-                input_layernorm_1024<<<mOutside, 256>>>((half *)output_addr, (const half *)input_addr, (const float *)mDeviceGamma, 
-                    (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
-            } else if(mInside == 512) {
-                input_layernorm_512<<<mOutside, 256>>>((half *)output_addr, (const half *)input_addr, (const float *)mDeviceGamma, 
-                    (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
-            } else if(mInside == 320) {
-                input_layernorm_320<<<mOutside, 64>>>((half *)output_addr, (const half *)input_addr, (const float *)mDeviceGamma, 
-                    (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
-            } else {
-                int sumPerKnl = (mInside+255) / 256;
-                input_layernorm<<<mOutside, 256>>>((half *)output_addr, (const half *)input_addr, (const float *)mDeviceGamma, 
-                    (const float *)mDeviceBeta, mOutside, mInside, mEps, sumPerKnl, RMSNorm);
-            }
+            int sumPerKnl = (mInside+255) / 256;
+            input_layernorm<<<mOutside, 256>>>(output_typed, input_typed, (const float *)mDeviceGamma,
+                (const float *)mDeviceBeta, mOutside, mInside, mEps, sumPerKnl, RMSNorm);
         }
+    };
+
+    if (static_cast<CUDABackend*>(backend())->useFp16()) {
+        launchLayerNorm((half *)output_addr, (const half *)input_addr);
         return NO_ERROR;
     }
 
-    if(mInside < 128) {
-        LAYERNORM<<<block_num, threads_num>>>(mOutside*mInside, mOutside, mInside, mEps, (const float *)input_addr, (float *)output_addr,
-                (const float *)mDeviceGamma, (const float *)mDeviceBeta, RMSNorm);
-    } else {
-        if(mInside == 2048) {
-            input_layernorm_2048<<<mOutside, 256>>>((float *)output_addr, (const float *)input_addr, (const float *)mDeviceGamma, 
-                (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
-        } else if(mInside == 1024) {
-            input_layernorm_1024<<<mOutside, 256>>>((float *)output_addr, (const float *)input_addr, (const float *)mDeviceGamma, 
-                (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
-        } else if(mInside == 512) {
-            input_layernorm_512<<<mOutside, 256>>>((float *)output_addr, (const float *)input_addr, (const float *)mDeviceGamma, 
-                (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
-        } else if(mInside == 320) {
-            input_layernorm_320<<<mOutside, 64>>>((float *)output_addr, (const float *)input_addr, (const float *)mDeviceGamma, 
-                (const float *)mDeviceBeta, mOutside, mInside, mEps, RMSNorm);
-        } else {
-            int sumPerKnl = (mInside+255) / 256;
-            input_layernorm<<<mOutside, 256>>>((float *)output_addr, (const float *)input_addr, (const float *)mDeviceGamma, 
-                (const float *)mDeviceBeta, mOutside, mInside, mEps, sumPerKnl, RMSNorm);
-        }
-    }
+    launchLayerNorm((float *)output_addr, (const float *)input_addr);
     return NO_ERROR;
 }
 
@@ -424,8 +607,26 @@ class LayerNormCreator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        auto param = op->main_as_LayerNorm();
-        return new LayerNormExecution(param, backend);
+        const bool single = inputs.size() == 1 && outputs.size() == 1;
+        const bool binary = inputs.size() == 2 && outputs.size() == 2;
+        if (!single && !binary) {
+            return nullptr;
+        }
+        const bool inputC4 = op->defaultDimentionFormat() == MNN_DATA_FORMAT_NC4HW4 ||
+                             TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+        const bool binaryC4 = binary && inputC4;
+        if (binary && !binaryC4) {
+            return nullptr;
+        }
+        if (inputC4) {
+            for (auto input : inputs) {
+                TensorUtils::getDescribe(input)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            }
+            for (auto output : outputs) {
+                TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            }
+        }
+        return new LayerNormExecution(op->main_as_LayerNorm(), backend, inputC4, binaryC4);
     }
 };
 

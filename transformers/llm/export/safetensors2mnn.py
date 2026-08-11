@@ -18,10 +18,11 @@ class Writer:
         self.file.close()
 
 class QuantParameter:
-    def __init__(self, bits, block, asymc):
+    def __init__(self, bits, block, asymc, scale_bit=32):
         self.bits = bits
         self.block = block
         self.asymc = asymc
+        self.scale_bit = scale_bit
 
 def load_embedding(k, f, writer, quant):
     print("Load embedding: ", k)
@@ -47,7 +48,7 @@ def load_convolution(op, k, f, writer, quant):
     q_weight, alpha = torch_utils.quant(f.get_tensor(k), quant.bits, quant.block, not quant.asymc, False)
     q_weight = q_weight.cpu().numpy()
     alpha = alpha.cpu().numpy()
-    conv_new, header_len, mnn_weight_offset = write_quant_parameters(quant.bits, quant.asymc, writer, ic, oc, q_weight, alpha, writer.offset, False)
+    conv_new, header_len, mnn_weight_offset = write_quant_parameters(quant.bits, quant.asymc, writer, ic, oc, q_weight, alpha, writer.offset, False, scale_bit=quant.scale_bit)
     conv['quanParameter'] = conv_new['quanParameter']
     conv['external'] = conv_new['external']
     writer.write(bias_tensor.tobytes())
@@ -71,7 +72,7 @@ def convert(args):
     lm = last.conv[0]
     asym = not args.sym
     conv_names = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-    quan = QuantParameter(args.quant_bit, args.quant_block, asym)
+    quan = QuantParameter(args.quant_bit, args.quant_block, asym, scale_bit=args.scale_bit)
     writer = Writer(os.path.join(mnn_dir, "llm.mnn.weight"))
     embedding_with_output = True
     embedding_file_name = None
@@ -110,7 +111,7 @@ def convert(args):
                     continue
                 elif k == "lm_head.weight":
                     embedding_with_output = False
-                    quan_int8 = QuantParameter(args.lm_quant_bit, args.quant_block, asym)
+                    quan_int8 = QuantParameter(args.lm_quant_bit, args.quant_block, asym, scale_bit=args.scale_bit)
                     load_convolution(lm, k, f, writer, quan_int8)
     llm_config = {}
     with open(os.path.join(mnn_dir, "llm_config.json")) as f:
@@ -124,13 +125,20 @@ def convert(args):
                 else:
                     lmbit = 8
                 print("Don't support quant bit", args.lm_quant_bit, " for tie embedding, turn to quant bit", lmbit)
-            quan_int8 = QuantParameter(lmbit, args.quant_block, asym)
+            quan_int8 = QuantParameter(lmbit, args.quant_block, asym, scale_bit=args.scale_bit)
             header_len, offset = load_convolution(lm, embedding_key, f, writer, quan_int8)
             external = lm['main']['external']
             weight_offset = external[0] + header_len
             alpha_offset = external[0] + external[1]
             alpha_size = external[2]
-            llm_config['tie_embeddings'] = [weight_offset, alpha_offset, alpha_size, lmbit, args.quant_block]
+            llm_config['tie_embeddings'] = {
+                "weight_offset": weight_offset,
+                "alpha_offset": alpha_offset,
+                "alpha_size": alpha_size,
+                "quant_bit": lmbit,
+                "quant_block": args.quant_block,
+                "alpha_dtype": "fp16" if args.scale_bit == 16 else "fp32",
+            }
             embedding_file = os.path.join(mnn_dir, "embeddings_bf16.bin")
             if os.path.exists(embedding_file):
                 os.remove(embedding_file)
@@ -169,6 +177,7 @@ if __name__ == '__main__':
     parser.add_argument('--quant_block', type=int, default=128, help='mnn quant block, default is 0 mean channle-wise.')
     parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head quant bit, 2-8, default is `quant_bit`.')
     parser.add_argument('--sym', type = bool, default=True, help='Whether or not to using symmetric quant (without zeropoint), defualt is True.')
+    parser.add_argument('--scale_bit', type=int, default=16, choices=[16, 32], help='Bit-width for quant scale/zero-point storage. Currently supports 16 (fp16, default) and 32 (fp32); 8/4 reserved for future.')
 
     args = parser.parse_args()
     if args.lm_quant_bit is None:

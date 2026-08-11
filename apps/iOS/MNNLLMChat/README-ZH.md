@@ -1,5 +1,7 @@
 # MNNLLM iOS Application
 
+[View English Documentation](./README.md)
+
 ## 介绍
 
 本项目是一个基于MNN引擎，支持本地大模型多模态对话的iOS应用。
@@ -18,14 +20,22 @@
     - 模型搜索，支持关键词搜索、标签搜索
 3. 基准测试
     - 支持自动化基准测试，输出Prefill speed、 Decode Speed 和 Memory Usage等信息
+    - 支持文本、图片和音频的批量测试
 4. 多模态聊天对话：支持完整的Markdown格式输出
     - 文本到文本
-    - 语音到文本
+    - 语音到文本（支持 Omni 模型的语音输出）
     - 图片到文本，图片可以拍摄输入或从图库中选择
+    - 视频到文本，支持视频输入处理
+    - Sana Diffusion：支持动漫风格迁移（比如吉卜力风格）
 5. 模型配置
     - 支持配置 mmap
     - 支持配置 sampling strategy
     - 支持配置 diffusion 设置
+    - 支持配置后端类型（CPU/Metal）
+    - 支持配置精度（低/普通/高）
+    - 支持配置线程数
+    - 支持配置多模态 Prompt API
+    - 支持配置 Omni 模型的音频输出
 6. 对话历史
     - 支持模型对话历史列表，还原历史对话场景
 
@@ -78,6 +88,7 @@
     -DLLM_SUPPORT_VISION=ON
     -DMNN_BUILD_OPENCV=ON
     -DMNN_IMGCODECS=ON
+    -DMNN_BUILD_LLM_OMNI=ON
     "
     ```
 
@@ -124,14 +135,8 @@ iPhone 因为内存有限，建议使用7B以及以下的模型，避免内存�
 
     <img width="400" alt="image" src="./assets/copyLocalModel.png" />
 
-2. 将下载之后的模型文件夹内的所有文件，拖动到项目中 LocalModel 文件夹下：
-
-    <img width="200" alt="image" src="./assets/copyLocalModel2.png" />
-
-3. 确保以上文件都已经在 copy bundle resources 中
-
-    <img width="400" alt="image" src="./assets/copyLocalMode3.png" />
-4. 配置模型：
+2. 将下载之后的模型文件夹拖动到项目中 LocalModel 文件夹下
+3. 如果是根目录模型，可以进行配置：
 
 进入ModelListViewModel.swift的配置，比如是否支持思考：
 
@@ -159,6 +164,17 @@ ModelStorageManager.shared.markModelAsDownloaded(modelName)
 
 
 ## Release Notes
+
+### Version 0.5
+
+- 新增 Sana Diffusion 图片风格迁移支持（如吉卜力风格）
+- 新增 Omni 模型语音输出支持
+- 新增视频输入支持，用于多模态对话
+- 新增多模态 Prompt API 配置
+- 新增后端类型配置（CPU/Metal）
+- 新增精度配置（低/普通/高）
+- 新增线程数配置
+- 新增文本、图片和音频批量测试支持
 
 ### Version 0.4
 

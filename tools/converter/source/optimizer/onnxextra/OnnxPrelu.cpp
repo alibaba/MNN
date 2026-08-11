@@ -30,6 +30,11 @@ public:
         auto config = Global<modelConfig>::Get();
         auto dimSize = slopeInfo->dim.size();
         const int slopeSize = (int)slopeInfo->size;
+        if (1 == slopeSize) {
+            auto res = _Relu(inputs[0], slopeData[0]);
+            res->setName(expr->outputName(0));
+            return res->expr().first;
+        }
         bool needPermute = false;
         std::vector<int> permuteDims;
         int slopAxis = -1;

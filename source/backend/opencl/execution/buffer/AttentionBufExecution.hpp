@@ -19,74 +19,86 @@ namespace OpenCL {
 
 class KVCacheCLManager {
 public:
-    KVCacheCLManager(Backend *backend, bool kv_cache);
+    KVCacheCLManager(Backend* backend, bool kv_cache);
 
     ~KVCacheCLManager() = default;
     void allocKVCache(const KVMeta* meta, int seqlen);
     bool reallocKVCache(const KVMeta* meta, int seqlen, bool isExecute = true);
-    void setArgs(int numHead, int kvNumHead, int headDim){
+    void setArgs(int numHead, int kvNumHead, int headDim) {
         mNumHead = numHead;
         mKvNumHead = kvNumHead;
         mHeadDim = headDim;
     }
-    int pastKvLength() {
-        return mPastLength;
-    }
-    void addKvLength(int seq_len){
-        mPastLength += seq_len;
-    }
-    int maxLength() {
-        return mMaxLength;
-    }
-    int numHead() {
-        return mNumHead;
-    }
-    const cl::Buffer * key() {
-        return mPastKey.get();
-    }
-    const cl::Buffer * value() {
-        return mPastValue.get();
-    }
+    int pastKvLength() { return mPastLength; }
+    void addKvLength(int seq_len) { mPastLength += seq_len; }
+    int maxLength() { return mMaxLength; }
+    int numHead() { return mNumHead; }
+    const cl::Buffer* key() { return mPastKey.get(); }
+    const cl::Buffer* value() { return mPastValue.get(); }
+
+    // Called after allocKVCache completes reallocKVCache in resize phase.
+    // onExecute checks this to avoid double-executing realloc/Remove.
+    bool isReallocDone() const { return mReallocDone; }
+    void clearReallocDone() { mReallocDone = false; }
+
+    // Prefix kvcache (share prompt kvcache on disk). Set by AttentionBufExecution
+    // from the backend runtime hint. Empty means the feature is disabled.
+    void setPrefixCacheDir(const std::string& dir) { mPrefixCacheDir = dir; }
+    // True after allocKVCache detected PendingWrite for this layer: onExecute must
+    // dump the prefill kvcache to disk once the kernels have run.
+    bool savingPrefix() const { return mSaveShareKvPrefix; }
+    // Load the per-layer prefix kvcache files into a freshly allocated cache buffer.
+    // Returns false (and leaves the cache unallocated) when the files are missing or
+    // inconsistent with the current precision, so the caller can fall back to prefill.
+    bool loadPrefixKVCache(const KVMeta* meta, int seqlen);
+    // Dump the valid [0, mPastLength) kvcache region to the per-layer prefix files.
+    void savePrefixKVCache();
 
 private:
     bool mKVCache;
+    bool mReallocDone = false;
     const int mExpandChunk = 64;
     std::shared_ptr<cl::Buffer> mPastKey, mPastValue;
     int mPastLength = 0, mMaxLength = 0, mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
-    OpenCLBackend *mOpenCLBackend;
+    OpenCLBackend* mOpenCLBackend;
     int mByte = 4;
+
+    // Prefix kvcache state
+    std::string mPrefixCacheDir;     // Directory holding <name>_<layer>.k/.v files
+    bool mSaveShareKvPrefix = false; // This layer is in PendingWrite mode
+    std::string mBasePrefixFileName; // <dir>/<name>_<layer> for this layer (no suffix)
 };
 
 class AttentionBufExecution : public CommonExecution {
 public:
-    AttentionBufExecution(const MNN::Op *op, Backend *backend, bool kv_cache);
-    AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op *op, Backend *backend);
-    ErrorCode longPrefillResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode prefillResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode decodeResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    AttentionBufExecution(const MNN::Op* op, Backend* backend, bool outputC4);
+    AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op* op, Backend* backend);
+    ErrorCode longPrefillResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    ErrorCode prefillResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    ErrorCode decodeResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 
-    ErrorCode UpdateArgs(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    ErrorCode UpdateArgs(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     ErrorCode init();
     int getExecuteTime();
     virtual ~AttentionBufExecution() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:
-    
+    bool mOutputC4 = false;
+    float mAttnScale = 0.0f;
     KVMeta* mMeta;
     int getLocalSize(int size, int maxGroupSize);
     bool mIsDecode = false;
-    void handleKVCache(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    void handleKVCache(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     int mPastKvSeqlen = 0;
     int mKvSeqlen = 0;
     int mKeyValueMaxlen = 0;
     int mDecodeTmpMaxlen = 0;
 
-
     uint32_t mMaxWorkGroupSize;
-    OpenCLBackend *mOpenCLBackend;
+    OpenCLBackend* mOpenCLBackend;
     RecordUpdateInfo mRgUpdateInfo;
     RecordUpdateInfo mRgQUpdateInfo;
     RecordUpdateInfo mRgMUpdateInfo;
@@ -100,6 +112,7 @@ private:
     std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
     std::shared_ptr<KVCacheCLManager> mKVCacheCLManager;
     std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
+
 private:
     int mAlignQ, mAlignKV, mAlignHDK, mAlignHDN;
     bool mLongPrefill = false;
@@ -108,6 +121,7 @@ private:
     bool mIsAddMask = false;
     bool mNeedKvCache = true;
     bool mHasMask = false;
+
 private:
     std::vector<std::shared_ptr<KernelWrap>> mKernel_rearrange_vec;
     std::vector<std::shared_ptr<KernelWrap>> mKernel_mask_vec;
@@ -116,7 +130,7 @@ private:
     std::vector<std::shared_ptr<KernelWrap>> mKernel_qk_vec;
     std::vector<std::shared_ptr<KernelWrap>> mKernel_softmax_vec;
     std::vector<std::shared_ptr<KernelWrap>> mKernel_qkv_vec;
-    
+
     std::vector<std::vector<uint32_t>> mGwsQkVec;
     std::vector<std::vector<uint32_t>> mLwsQkVec;
     std::vector<std::vector<uint32_t>> mGwsSoftMaxVec;
@@ -131,6 +145,7 @@ private:
     std::vector<std::vector<uint32_t>> mLwsTransVec;
     std::vector<std::vector<uint32_t>> mGwsClipVec;
     std::vector<std::vector<uint32_t>> mLwsClipVec;
+
 private:
     std::shared_ptr<KernelWrap> mKernel_rearrangeQ;
     std::shared_ptr<KernelWrap> mKernel_rearrangeV;
@@ -139,7 +154,7 @@ private:
     std::shared_ptr<KernelWrap> mKernel_qk;
     std::shared_ptr<KernelWrap> mKernel_softmax;
     std::shared_ptr<KernelWrap> mKernel_qkv;
-    
+
     std::vector<uint32_t> mGlobalWorkSizeQk;
     std::vector<uint32_t> mLocalWorkSizeQk;
     std::vector<uint32_t> mGlobalWorkSizeSoftMax;
@@ -154,9 +169,8 @@ private:
     std::vector<uint32_t> mLocalWorkSizeRearrg;
     std::vector<uint32_t> mGlobalWorkSizeRearrgM;
     std::vector<uint32_t> mLocalWorkSizeRearrgM;
-
 };
 } // namespace OpenCL
 } // namespace MNN
 #endif /* AttentionBufExecution_hpp */
-#endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
+#endif /* MNN_SUPPORT_TRANSFORMER_FUSE */

@@ -17,14 +17,13 @@ struct ModelListView: View {
     @State private var selectedVendors: Set<String> = []
     @State private var showFilterMenu = false
     private let topID = "topID"
-    
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    
                     Color.clear.frame(height: 0).id(topID)
-                    
+
                     Section {
                         modelListSection
                     } header: {
@@ -44,13 +43,13 @@ struct ModelListView: View {
                 Text(viewModel.errorMessage)
             }
             // Auto-scroll to top when filters change to avoid blank screen when data shrinks
-            .onChange(of: selectedTags) { old, new in
+            .onChange(of: selectedTags) { _, _ in
                 withAnimation { proxy.scrollTo(topID, anchor: .top) }
             }
-            .onChange(of: selectedCategories) { old, new in
+            .onChange(of: selectedCategories) { _, _ in
                 withAnimation { proxy.scrollTo(topID, anchor: .top) }
             }
-            .onChange(of: selectedVendors) { old, new in
+            .onChange(of: selectedVendors) { _, _ in
                 withAnimation { proxy.scrollTo(topID, anchor: .top) }
             }
             .onChange(of: showFilterMenu) { old, new in
@@ -60,14 +59,14 @@ struct ModelListView: View {
             }
         }
     }
-    
+
     // Extract model list section as independent view
     @ViewBuilder
     private var modelListSection: some View {
         LazyVStack(spacing: 8) {
             ForEach(Array(filteredModels.enumerated()), id: \.element.id) { index, model in
                 modelRowView(model: model, index: index)
-                
+
                 if index < filteredModels.count - 1 {
                     Divider()
                         .padding(.leading, 60)
@@ -76,7 +75,7 @@ struct ModelListView: View {
         }
         .padding(.vertical, 8)
     }
-    
+
     // Extract toolbar section as independent view
     @ViewBuilder
     private var toolbarSection: some View {
@@ -91,9 +90,9 @@ struct ModelListView: View {
             onSourceChange: handleSourceChange
         )
     }
-    
+
     @ViewBuilder
-    private func modelRowView(model: ModelInfo, index: Int) -> some View {
+    private func modelRowView(model: ModelInfo, index _: Int) -> some View {
         ModelRowView(
             model: model,
             viewModel: viewModel,
@@ -107,12 +106,12 @@ struct ModelListView: View {
         }
         .padding(.horizontal, 16)
     }
-    
+
     // Extract complex boolean logic as independent method
     private func isOtherDownloadingCheck(model: ModelInfo) -> Bool {
         return viewModel.currentlyDownloading != nil && viewModel.currentlyDownloading != model.id
     }
-    
+
     // Extract source change handling logic as independent method
     private func handleSourceChange(_ source: ModelSource) {
         ModelSourceManager.shared.updateSelectedSource(source)
@@ -121,34 +120,33 @@ struct ModelListView: View {
             await viewModel.fetchModels()
         }
     }
-    
+
     private var filteredModels: [ModelInfo] {
-        
         let searchFiltered = searchText.isEmpty ? viewModel.models : viewModel.models.filter { model in
             model.id.localizedCaseInsensitiveContains(searchText) ||
-            model.modelName.localizedCaseInsensitiveContains(searchText) ||
-            model.localizedTags.contains { $0.localizedCaseInsensitiveContains(searchText) }
+                model.modelName.localizedCaseInsensitiveContains(searchText) ||
+                model.localizedTags.contains { $0.localizedCaseInsensitiveContains(searchText) }
         }
-        
+
         let tagFiltered: [ModelInfo]
-        if selectedTags.isEmpty && selectedCategories.isEmpty && selectedVendors.isEmpty {
+        if selectedTags.isEmpty, selectedCategories.isEmpty, selectedVendors.isEmpty {
             tagFiltered = searchFiltered
         } else {
             tagFiltered = searchFiltered.filter { model in
                 let tagMatch = checkTagMatch(model: model)
                 let categoryMatch = checkCategoryMatch(model: model)
                 let vendorMatch = checkVendorMatch(model: model)
-                
+
                 return tagMatch && categoryMatch && vendorMatch
             }
         }
-        
+
         let downloaded = tagFiltered.filter { $0.isDownloaded }
         let notDownloaded = tagFiltered.filter { !$0.isDownloaded }
-        
+
         return downloaded + notDownloaded
     }
-    
+
     // Extract tag matching logic as independent method
     private func checkTagMatch(model: ModelInfo) -> Bool {
         return selectedTags.isEmpty || selectedTags.allSatisfy { selectedTag in
@@ -157,7 +155,7 @@ struct ModelListView: View {
             }
         }
     }
-    
+
     // Extract category matching logic as independent method
     private func checkCategoryMatch(model: ModelInfo) -> Bool {
         return selectedCategories.isEmpty || selectedCategories.allSatisfy { selectedCategory in
@@ -166,7 +164,7 @@ struct ModelListView: View {
             } ?? false
         }
     }
-    
+
     // Extract vendor matching logic as independent method
     private func checkVendorMatch(model: ModelInfo) -> Bool {
         return selectedVendors.isEmpty || selectedVendors.contains { selectedVendor in

@@ -1,0 +1,118 @@
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+layout(constant_id = 3) const uint ACTIVATION = 0; // 0:none 1:relu 2:relu6
+
+layout(std430, binding = 0) readonly buffer ActivationBuffer {
+    FLOAT4 X4[];
+};
+
+layout(std430, binding = 1) readonly buffer WeightBuffer {
+    uint Wp[]; // [padN, padK/16, 2]: even = low2, odd = hi1
+};
+
+layout(std430, binding = 2) readonly buffer MetaBuffer {
+    FLOAT Meta[];
+};
+
+layout(std430, binding = 3) readonly buffer BiasBuffer {
+    FLOAT Bias[];
+};
+
+layout(std430, binding = 4) writeonly buffer OutputBuffer {
+    FLOAT Y[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint K;
+    uint N;
+    uint blockSize;
+    uint blockStride;
+    uint weightStride; // padK / 16
+} pc;
+
+void main() {
+    const uint row = gl_WorkGroupID.x;
+    if (row >= pc.N) return;
+
+    const uint lane = gl_LocalInvocationID.x;
+    const uint stride = gl_SubgroupSize;
+
+    const uint K16 = pc.K >> 4u;
+    const uint safeBlockSize = max(pc.blockSize, 1u);
+    const uint block16 = max(safeBlockSize >> 4u, 1u);
+
+    const uint baseW = row * pc.weightStride * 2u; // 2 uints per group of 16
+    const uint baseM = row * pc.blockStride;
+
+    float sum = 0.0;
+
+    for (uint idx = lane; idx < K16; idx += stride) {
+        const uint kb = idx / block16;
+        const uint metaBase = (baseM + kb) * 2u;
+        const float scale = float(Meta[metaBase + 0u]);
+        const float offset = float(Meta[metaBase + 1u]);
+
+        const uint pairBase = baseW + idx * 2u;
+        const uint low2 = Wp[pairBase + 0u];
+        const uint hi1 = Wp[pairBase + 1u];
+
+        // Reconstruct 16 weights: q = (low2[i] | (hi1[i] << 2)) - 4
+        vec4 w0, w1, w2v, w3;
+        for (int j = 0; j < 4; ++j) {
+            uint qa = ((low2 >> uint(j * 2)) & 3u) | (((hi1 >> uint(j)) & 1u) << 2);
+            uint qb = ((low2 >> uint(8 + j * 2)) & 3u) | (((hi1 >> uint(4 + j)) & 1u) << 2);
+            uint qc = ((low2 >> uint(16 + j * 2)) & 3u) | (((hi1 >> uint(8 + j)) & 1u) << 2);
+            uint qd = ((low2 >> uint(24 + j * 2)) & 3u) | (((hi1 >> uint(12 + j)) & 1u) << 2);
+            w0[j] = float(qa) - 4.0;
+            w1[j] = float(qb) - 4.0;
+            w2v[j] = float(qc) - 4.0;
+            w3[j] = float(qd) - 4.0;
+        }
+
+        w0 = w0 * scale + vec4(offset);
+        w1 = w1 * scale + vec4(offset);
+        w2v = w2v * scale + vec4(offset);
+        w3 = w3 * scale + vec4(offset);
+
+        const uint xBase = idx << 2u;
+        vec4 x0 = vec4(X4[xBase + 0u]);
+        vec4 x1 = vec4(X4[xBase + 1u]);
+        vec4 x2 = vec4(X4[xBase + 2u]);
+        vec4 x3 = vec4(X4[xBase + 3u]);
+        sum += dot(w0, x0) + dot(w1, x1) + dot(w2v, x2) + dot(w3, x3);
+    }
+
+    // Tail
+    const uint tail = pc.K & 15u;
+    if (tail > 0u && gl_SubgroupInvocationID == 0u) {
+        const uint idx = K16;
+        const uint pairBase = baseW + idx * 2u;
+        const uint low2 = Wp[pairBase + 0u];
+        const uint hi1 = Wp[pairBase + 1u];
+        const uint kBase = idx << 4u;
+        for (uint t = 0u; t < tail; ++t) {
+            const uint k = kBase + t;
+            const uint kb = k / safeBlockSize;
+            const uint metaBase = (baseM + kb) * 2u;
+            const float scale = float(Meta[metaBase + 0u]);
+            const float offset = float(Meta[metaBase + 1u]);
+            uint q = ((low2 >> (t * 2u)) & 3u) | (((hi1 >> t) & 1u) << 2);
+            const float w = float(q) - 4.0;
+            const uint xVec = k >> 2u;
+            const uint xLane = k & 3u;
+            const float x = float(X4[xVec][int(xLane)]);
+            sum += (w * scale + offset) * x;
+        }
+    }
+
+    sum = subgroupAdd(sum);
+
+    if (gl_SubgroupInvocationID == 0u) {
+        float y = sum + float(Bias[row]);
+        if (ACTIVATION == 1u) y = max(y, 0.0);
+        else if (ACTIVATION == 2u) y = clamp(y, 0.0, 6.0);
+        Y[row] = FLOAT(y);
+    }
+}

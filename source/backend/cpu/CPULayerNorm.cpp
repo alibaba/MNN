@@ -38,7 +38,8 @@ std::shared_ptr<CPULayerNorm::Resource> CPULayerNorm::makeResource(const MNN::Op
         MNN_ASSERT(layer_norm_param->gamma()->size() == layer_norm_param->beta()->size());
         gammasize = layer_norm_param->gamma()->size();
     }
-    hasGammaBeta = hasGammaBeta || (layer_norm_param->external() && layer_norm_param->external()->size() > 1 && layer_norm_param->external()->data()[1] > 0);
+    hasGammaBeta = hasGammaBeta || (layer_norm_param->external() && layer_norm_param->external()->size() > 1 &&
+                                    layer_norm_param->external()->data()[1] > 0);
     if (hasGammaBeta && gammasize == 0) {
         gammasize = layer_norm_param->external()->data()[1] / sizeof(float);
     }
@@ -47,7 +48,8 @@ std::shared_ptr<CPULayerNorm::Resource> CPULayerNorm::makeResource(const MNN::Op
         // Use uint8_t to avoid lowp reduce float bytes
         res->mGamma.reset(Tensor::createDevice<uint8_t>({gammasize * 4}));
         res->mBeta.reset(Tensor::createDevice<uint8_t>({gammasize * 4}));
-        auto status = backend->onAcquireBuffer(res->mGamma.get(), Backend::STATIC) && backend->onAcquireBuffer(res->mBeta.get(), Backend::STATIC);
+        auto status = backend->onAcquireBuffer(res->mGamma.get(), Backend::STATIC) &&
+                      backend->onAcquireBuffer(res->mBeta.get(), Backend::STATIC);
         if (!status) {
             MNN_ERROR("Out of memory when gamma is acquired in CPULayerNorm.\n");
             return nullptr;
@@ -56,7 +58,7 @@ std::shared_ptr<CPULayerNorm::Resource> CPULayerNorm::makeResource(const MNN::Op
         if (useCachedMmap) {
             return res;
         }
-        
+
         const float* gamma_data = layer_norm_param->gamma()->data();
         memcpy(res->mGamma->host<float>(), gamma_data, gammasize * sizeof(float));
         const float* beta_data = layer_norm_param->beta()->data();
@@ -65,12 +67,9 @@ std::shared_ptr<CPULayerNorm::Resource> CPULayerNorm::makeResource(const MNN::Op
     return res;
 }
 
-ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*> &inputs,
-                                  const std::vector<Tensor*> &outputs) {
+ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     const float* gamma = mResource->mIniGammaBeta ? mResource->mGamma->host<float>() : nullptr;
     const float* beta = mResource->mIniGammaBeta ? mResource->mBeta->host<float>() : nullptr;
-    auto input = inputs[0]->host<uint8_t>();
-    auto output = outputs[0]->host<uint8_t>();
     auto bn = static_cast<CPUBackend*>(backend());
     auto core = bn->functions();
     auto threadNumber = bn->threadNumber();
@@ -84,21 +83,136 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*> &inputs,
         bytes = 1;
     }
 
+    if (mNeedUnpackC4 && (bytes == 2 || bytes == 4)) {
+        const int batch = inputs[0]->length(0);
+        const int channel = inputs[0]->length(1);
+        auto inputPtr = inputs[0]->host<uint8_t>();
+        auto outputPtr = outputs[0]->host<uint8_t>();
+        const uint8_t* input1Ptr = nullptr;
+        uint8_t* output1Ptr = nullptr;
+        if (inputs.size() == 2 && outputs.size() == 2) {
+            input1Ptr = inputs[1]->host<uint8_t>();
+            output1Ptr = outputs[1]->host<uint8_t>();
+        }
+        if (batch == 1) {
+            if (bytes == 4) {
+                auto inputFloat = reinterpret_cast<const float*>(inputPtr);
+                auto outputFloat = reinterpret_cast<float*>(outputPtr);
+                if (input1Ptr != nullptr) {
+                    auto input1Float = reinterpret_cast<const float*>(input1Ptr);
+                    auto output1Float = reinterpret_cast<float*>(output1Ptr);
+                    for (int c = 0; c < channel; ++c) {
+                        outputFloat[c] = inputFloat[c] + input1Float[c];
+                    }
+                    MNNNorm(output1Float, outputFloat, gamma, beta, mResource->mEpsilon, channel, mResource->mRMSNorm);
+                } else {
+                    MNNNorm(outputFloat, inputFloat, gamma, beta, mResource->mEpsilon, channel, mResource->mRMSNorm);
+                }
+            } else {
+                auto inputLowp = reinterpret_cast<const int16_t*>(inputPtr);
+                auto outputLowp = reinterpret_cast<int16_t*>(outputPtr);
+                auto tmpInput = reinterpret_cast<float*>(mTmpInputFloat.ptr());
+                auto tmpOutput = reinterpret_cast<float*>(mTmpOutputFloat.ptr());
+                core->MNNLowpToFp32(inputLowp, tmpInput, channel);
+                if (input1Ptr != nullptr) {
+                    auto input1Lowp = reinterpret_cast<const int16_t*>(input1Ptr);
+                    auto output1Lowp = reinterpret_cast<int16_t*>(output1Ptr);
+                    core->MNNLowpToFp32(input1Lowp, tmpOutput, channel);
+                    for (int c = 0; c < channel; ++c) {
+                        tmpInput[c] += tmpOutput[c];
+                    }
+                    core->MNNFp32ToLowp(tmpInput, outputLowp, channel);
+                    MNNNorm(tmpOutput, tmpInput, gamma, beta, mResource->mEpsilon, channel, mResource->mRMSNorm);
+                    core->MNNFp32ToLowp(tmpOutput, output1Lowp, channel);
+                } else {
+                    MNNNorm(tmpOutput, tmpInput, gamma, beta, mResource->mEpsilon, channel, mResource->mRMSNorm);
+                    core->MNNFp32ToLowp(tmpOutput, outputLowp, channel);
+                }
+            }
+            return NO_ERROR;
+        }
+        if (bytes == 4) {
+            auto inputFloat = reinterpret_cast<const float*>(inputPtr);
+            auto outputFloat = reinterpret_cast<float*>(outputPtr);
+            auto input1Float = reinterpret_cast<const float*>(input1Ptr);
+            auto output1Float = reinterpret_cast<float*>(output1Ptr);
+            if (core->MNNNormPacked == nullptr) {
+                return NOT_SUPPORT;
+            }
+            constexpr int tokenTile = 4;
+            const int packedTaskCount = core->pack == 4 ? UP_DIV(batch, tokenTile) : batch;
+            const int packedThreadNumber = ALIMIN(threadNumber, packedTaskCount);
+            MNN_CONCURRENCY_BEGIN(tId, packedThreadNumber) {
+                core->MNNNormPacked(output1Float != nullptr ? output1Float : outputFloat,
+                                    output1Float != nullptr ? outputFloat : nullptr, inputFloat, input1Float, gamma,
+                                    beta, mResource->mEpsilon, batch, channel, mResource->mRMSNorm, tId,
+                                    packedThreadNumber);
+            }
+            MNN_CONCURRENCY_END();
+            return NO_ERROR;
+        }
+        auto unpackedInput = mTmpUnpackedInput.ptr();
+        auto unpackedOutput = mTmpUnpackedOutput.ptr();
+        int unpackOffset[2] = {batch, channel};
+        core->MNNUnpackCUnitTranspose(reinterpret_cast<float*>(unpackedInput), reinterpret_cast<const float*>(inputPtr),
+                                      batch, channel, unpackOffset);
+        if (input1Ptr != nullptr) {
+            core->MNNUnpackCUnitTranspose(reinterpret_cast<float*>(unpackedOutput),
+                                          reinterpret_cast<const float*>(input1Ptr), batch, channel, unpackOffset);
+        }
+        auto unpackedInputLowp = reinterpret_cast<int16_t*>(unpackedInput);
+        auto unpackedOutputLowp = reinterpret_cast<int16_t*>(unpackedOutput);
+        MNN_CONCURRENCY_BEGIN(ttId, threadNumber) {
+            auto tmpInput = reinterpret_cast<float*>(mTmpInputFloat.ptr() + ttId * channel * sizeof(float));
+            auto tmpOutput = reinterpret_cast<float*>(mTmpOutputFloat.ptr() + ttId * channel * sizeof(float));
+            for (int n = ttId; n < batch; n += threadNumber) {
+                auto inputRow = unpackedInputLowp + n * channel;
+                auto outputRow = unpackedOutputLowp + n * channel;
+                core->MNNLowpToFp32(inputRow, tmpInput, channel);
+                if (input1Ptr != nullptr) {
+                    core->MNNLowpToFp32(outputRow, tmpOutput, channel);
+                    for (int c = 0; c < channel; ++c) {
+                        tmpInput[c] += tmpOutput[c];
+                    }
+                    core->MNNFp32ToLowp(tmpInput, inputRow, channel);
+                }
+                MNNNorm(tmpOutput, tmpInput, gamma, beta, mResource->mEpsilon, channel, mResource->mRMSNorm);
+                core->MNNFp32ToLowp(tmpOutput, outputRow, channel);
+            }
+        }
+        MNN_CONCURRENCY_END();
+        int packOffset[2] = {channel, batch};
+        if (output1Ptr != nullptr) {
+            core->MNNPackCUnitTranspose(reinterpret_cast<float*>(outputPtr),
+                                        reinterpret_cast<const float*>(unpackedInput), batch, channel, packOffset);
+            core->MNNPackCUnitTranspose(reinterpret_cast<float*>(output1Ptr),
+                                        reinterpret_cast<const float*>(unpackedOutput), batch, channel, packOffset);
+        } else {
+            core->MNNPackCUnitTranspose(reinterpret_cast<float*>(outputPtr),
+                                        reinterpret_cast<const float*>(unpackedOutput), batch, channel, packOffset);
+        }
+        return NO_ERROR;
+    }
+
+    auto input = inputs[0]->host<uint8_t>();
+    auto output = outputs[0]->host<uint8_t>();
     MNN_CONCURRENCY_BEGIN(ttId, threadNumber) {
-        for (int tId=ttId; tId < mOutterSize; tId += threadNumber) {
+        for (int tId = ttId; tId < mOutterSize; tId += threadNumber) {
             const float* inner_input = (const float*)(input + tId * mInnerSize * bytes);
             float* inner_output = (float*)(output + tId * mInnerSize * bytes);
             if (bytes != 4) {
                 auto tmpInput = (float*)(mTmpInputFloat.ptr() + ttId * mInnerSize * sizeof(float));
                 auto tmpOutput = (float*)(mTmpOutputFloat.ptr() + ttId * mInnerSize * sizeof(float));
                 if (bytes == 1) {
-                    CPUCastCreator::cast(inner_input, tmpInput, CPUCastCreator::INT8_TO_FlOAT, mInnerSize, inputQuan->scale, inputQuan->zero, inputQuan->min, inputQuan->max, bn);
+                    CPUCastCreator::cast(inner_input, tmpInput, CPUCastCreator::INT8_TO_FlOAT, mInnerSize,
+                                         inputQuan->scale, inputQuan->zero, inputQuan->min, inputQuan->max, bn);
                 } else {
                     core->MNNLowpToFp32((const int16_t*)inner_input, tmpInput, mInnerSize);
                 }
                 MNNNorm(tmpOutput, tmpInput, gamma, beta, mResource->mEpsilon, mInnerSize, mResource->mRMSNorm);
                 if (bytes == 1) {
-                    CPUCastCreator::cast(tmpOutput, inner_output, CPUCastCreator::FlOAT_TO_INT8, mInnerSize, outputQuan->scale, outputQuan->zero, outputQuan->min, outputQuan->max, bn);
+                    CPUCastCreator::cast(tmpOutput, inner_output, CPUCastCreator::FlOAT_TO_INT8, mInnerSize,
+                                         outputQuan->scale, outputQuan->zero, outputQuan->min, outputQuan->max, bn);
                 } else {
                     core->MNNFp32ToLowp(tmpOutput, (int16_t*)inner_output, mInnerSize);
                 }
@@ -111,10 +225,11 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*> &inputs,
     return NO_ERROR;
 }
 
-ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*> &inputs,
-                                 const std::vector<Tensor*> &outputs) {
+ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     mOutterSize = 1;
     mInnerSize = 1;
+    const auto layout = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+    mNeedUnpackC4 = (layout == MNN_DATA_FORMAT_NC4HW4);
     do {
         // Compute outter and inner
         int rank = inputs.at(0)->dimensions();
@@ -135,7 +250,7 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*> &inputs,
         for (int i = rank - mResource->mAxis; i < rank; ++i) {
             mInnerSize *= inputs.at(0)->length(i);
         }
-        if (mResource->mIniGammaBeta) {
+        if (mResource->mIniGammaBeta && !mNeedUnpackC4) {
             MNN_ASSERT(mResource->mGamma->size() == mInnerSize * sizeof(float));
         }
     } while (false);
@@ -143,11 +258,27 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*> &inputs,
     auto threadNumber = ALIMIN(bn->threadNumber(), mOutterSize);
     auto buf = bn->getBufferAllocator();
 
-    if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1 || bn->functions()->bytes != 4) {
-        mTmpInputFloat = buf->alloc(threadNumber * mInnerSize * sizeof(float));
-        mTmpOutputFloat = buf->alloc(threadNumber * mInnerSize * sizeof(float));
+    const bool needFloatTemp = CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 ||
+                               inputs[0]->getType().bytes() == 1 || bn->functions()->bytes != 4;
+    const bool needUnpackTemp = mNeedUnpackC4 && bn->functions()->bytes == 2;
+    if (needFloatTemp) {
+        int tmpSize = mNeedUnpackC4 ? inputs[0]->length(1) : mInnerSize;
+        int tmpThreadNumber = mNeedUnpackC4 ? bn->threadNumber() : threadNumber;
+        mTmpInputFloat = buf->alloc(tmpThreadNumber * tmpSize * sizeof(float));
+        mTmpOutputFloat = buf->alloc(tmpThreadNumber * tmpSize * sizeof(float));
+    }
+    if (needUnpackTemp) {
+        const int elementCount = inputs[0]->length(0) * inputs[0]->length(1);
+        mTmpUnpackedInput = buf->alloc(elementCount * sizeof(int16_t));
+        mTmpUnpackedOutput = buf->alloc(elementCount * sizeof(int16_t));
+    }
+    if (needFloatTemp) {
         buf->free(mTmpInputFloat);
         buf->free(mTmpOutputFloat);
+    }
+    if (needUnpackTemp) {
+        buf->free(mTmpUnpackedInput);
+        buf->free(mTmpUnpackedOutput);
     }
     return NO_ERROR;
 }
@@ -165,7 +296,8 @@ bool CPULayerNorm::onClone(Backend* bn, const Op* op, Execution** dst) {
 
 class CPULayerNormCreator : public CPUBackend::Creator {
 public:
-    Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* backend) const override {
+    Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
+                        Backend* backend) const override {
         auto res = CPULayerNorm::makeResource(op, backend);
         if (nullptr == res.get()) {
             return nullptr;
@@ -176,4 +308,4 @@ public:
 
 REGISTER_CPU_OP_CREATOR(CPULayerNormCreator, OpType_LayerNorm);
 
-}  // namespace MNN
+} // namespace MNN

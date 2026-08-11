@@ -61,7 +61,7 @@ def report(*args):
     """ print information """
     print(*args)
 
-package_name = 'MNN'
+package_name = 'mnn'
 USE_INTERNAL = False
 USE_TRT      = False
 USE_CUDA     = False
@@ -91,20 +91,20 @@ print ("USE_VULKAN:", USE_VULKAN)
 print ("USE_RENDER:", USE_RENDER)
 
 if os.path.isdir('../../schema/private'):
-    package_name += '_Internal'
+    package_name += '_internal'
 else:
     USE_INTERNAL = False
 
 if USE_TRT:
-    package_name += '_TRT'
+    package_name += '_trt'
 if USE_CUDA:
-    package_name += '_CUDA'
+    package_name += '_cuda'
 if USE_VULKAN:
-    package_name += '_VULKAN'
+    package_name += '_vulkan'
 if USE_OPENCL:
-    package_name += '_OPENCL'
+    package_name += '_opencl'
 if USE_RENDER:
-    package_name += '_RENDER'
+    package_name += '_render'
 
 print ('Building with python wheel with package name ', package_name)
 
@@ -138,7 +138,7 @@ def configure_extension_build():
         # /wdXXXX disables warning no. XXXX
         # Some macro (related with __VA_ARGS__) defined in pymnn/src/util.h can not be process correctly
         # becase of MSVC bug, enable /experimental:preprocessor fix it (And Windows SDK >= 10.0.18362.1)
-        extra_compile_args = ['/MT', '/Zi',
+        extra_compile_args = ['/MT',
                               '/EHa', '/DNOMINMAX',
                               '/wd4267', '/wd4251', '/wd4522', '/wd4522', '/wd4838',
                               '/wd4305', '/wd4244', '/wd4190', '/wd4101', '/wd4996',
@@ -224,6 +224,7 @@ def configure_extension_build():
     # llm include
     engine_include_dirs += [os.path.join(root_dir, "transformers", "llm", "engine", "include")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party")]
+    engine_include_dirs += [os.path.join(root_dir, "3rd_party", "half")]
     if has_numpy:
         engine_include_dirs += [np.get_include()]
 
@@ -312,6 +313,7 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "3rd_party",\
                                           "flatbuffers", "include")]
     tools_include_dirs += [os.path.join(root_dir, "3rd_party")]
+    tools_include_dirs += [os.path.join(root_dir, "3rd_party", "half")]
     tools_include_dirs += [os.path.join(root_dir, "3rd_party", "imageHelper")]
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
     tools_include_dirs += [os.path.join(root_dir, "schema", "current")]
@@ -363,8 +365,7 @@ def configure_extension_build():
 
     if BUILD_TYPE == 'REL_WITH_DEB_INFO':
         if IS_WINDOWS:
-            extra_compile_args += ['/DEBUG']
-            extra_link_args += ['/DEBUG', '/OPT:REF', '/OPT:ICF']
+            pass  # skip /DEBUG on Windows to avoid .pdb files bloating the wheel
         else:
             extra_compile_args += ['-g']
             extra_link_args += ['-g']
@@ -463,7 +464,7 @@ if __name__ == '__main__':
         download_url='https://github.com/alibaba/MNN',
         author='alibaba MNN Team',
         author_email='lichuan.wlc@alibaba-inc.com',
-        python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*',
+        python_requires='>=3.8',
         # PyPI package information.
         classifiers=[
             'Development Status :: 5 - Production/Stable',
@@ -472,10 +473,13 @@ if __name__ == '__main__':
             'Intended Audience :: Science/Research',
             'License :: OSI Approved :: BSD License',
             'Programming Language :: C++',
-            'Programming Language :: Python :: 2.7',
-            'Programming Language :: Python :: 3.5',
-            'Programming Language :: Python :: 3.6',
-            'Programming Language :: Python :: 3.7',
+            'Programming Language :: Python :: 3.8',
+            'Programming Language :: Python :: 3.9',
+            'Programming Language :: Python :: 3.10',
+            'Programming Language :: Python :: 3.11',
+            'Programming Language :: Python :: 3.12',
+            'Programming Language :: Python :: 3.13',
+            'Programming Language :: Python :: 3.14',
             'Topic :: Scientific/Engineering',
             'Topic :: Scientific/Engineering :: Mathematics',
             'Topic :: Scientific/Engineering :: Artificial Intelligence',

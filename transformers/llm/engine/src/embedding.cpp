@@ -7,9 +7,9 @@
 
 #include "llm/llm.hpp"
 #include "llmconfig.hpp"
-#include "prompt.hpp"
-#include "tokenizer.hpp"
+#include "tokenizer/tokenizer.hpp"
 #include "diskembedding.hpp"
+#include "core/KVMeta.hpp"
 
 namespace MNN {
 using namespace Express;
@@ -46,7 +46,8 @@ int Embedding::dim() const {
 }
 
 bool Embedding::load() {
-    if (mConfig->config_.document.HasMember("load_disk_embedding_only") && mConfig->config_.document["load_disk_embedding_only"].GetBool()) {
+    MNN::Express::ExecutorScope s(mExecutor);
+    if (mConfig->config_.value("load_disk_embedding_only", false)) {
         mDiskEmbedding.reset(new DiskEmbedding(mConfig));
         return true;
     }
@@ -58,7 +59,7 @@ bool Embedding::load() {
     mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
     printf("load tokenizer Done\n");
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
-    mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
+    setChatTemplate();
     // 2. load model
     Module::Config module_config;
     if(mConfig->backend_type() == "npu") {
@@ -75,43 +76,75 @@ bool Embedding::load() {
         return false;
     }
     MNN_PRINT("Done!\n");
+    mContext->status = LlmStatus::RUNNING;  // Set status to RUNNING after successful load
     return true;
 }
 
 std::vector<Express::VARP> Embedding::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
+    MNN::Express::ExecutorScope s(mExecutor);
     return mModule->onForward({hiddenState, mask, inputPos});
 }
 
 VARP Embedding::ids_embedding(const std::vector<int>& ids) {
+    // Check if already in error state
+    if(mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return nullptr;
+    }
+    // Reset KV cache and set add length for independent forward passes
+    setKVCacheInfo(0, getCurrentHistory());
+    reset();
+    mContext->prompt_len = ids.size();
+    mContext->all_seq_len = ids.size();
+
     int prompt_len           = ids.size();
+    mMeta->add = prompt_len;
     auto inputs_ids          = embedding(ids);
     auto attention_mask      = gen_attention_mask(prompt_len);
     auto position_ids        = gen_position_ids(prompt_len);
-    return forwardRaw(inputs_ids, attention_mask, position_ids)[0];
+    auto outputs = forwardRaw(inputs_ids, attention_mask, position_ids);
+    if(outputs.empty()) {
+        return nullptr;
+    }
+    return outputs[0];
 }
 
 VARP Embedding::txt_embedding(const std::string& txt) {
+    CHECK_LLM_RUNNING_RET(mContext, nullptr);
     auto prompt = apply_chat_template(txt);
     return ids_embedding(tokenizer_encode(prompt));
 }
 
 VARP Embedding::gen_attention_mask(int seq_len) {
-    auto attention_mask = _Input({1, 1, seq_len, seq_len}, NCHW, halide_type_of<float>());
-    auto ptr = attention_mask->writeMap<float>();
     if (mConfig->attention_mask() == "float") {
+        // Standard lower-triangular causal mask. On backends that recognize the
+        // scalar sentinel (cpu/hexagon/metal, see Llm::gen_attention_mask /
+        // CPUAttention), emit a shape-empty float 0 instead of materializing the
+        // full seq*seq tensor -- this lets the attention op take the causal fast
+        // path (Metal causal-tri) and skips the O(seq^2) mask alloc/upload.
+        auto bt = mConfig->backend_type();
+        if (bt == "cpu" || bt == "hexagon" || bt == "metal") {
+            auto attention_mask = _Input({}, NCHW, halide_type_of<float>());
+            attention_mask->writeMap<float>()[0] = 0;
+            return attention_mask;
+        }
+        auto attention_mask = _Input({1, 1, seq_len, seq_len}, NCHW, halide_type_of<float>());
+        auto ptr = attention_mask->writeMap<float>();
         for (int i = 0; i < seq_len; i++) {
             for (int j = 0; j < seq_len; j++) {
                 ptr[seq_len * i + j] = (j > i) * std::numeric_limits<float>::lowest();
             }
         }
+        return attention_mask;
     } else {
+        auto attention_mask = _Input({1, 1, seq_len, seq_len}, NCHW, halide_type_of<float>());
+        auto ptr = attention_mask->writeMap<float>();
         for (int i = 0; i < seq_len; i++) {
             for (int j = 0; j < seq_len; j++) {
                 ptr[seq_len * i + j] = 1.0;
             }
         }
+        return attention_mask;
     }
-    return attention_mask;
 }
 
 VARP Embedding::gen_position_ids(int seq_len) {

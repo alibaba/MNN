@@ -41,6 +41,10 @@ StableDiffusion::StableDiffusion(std::string modelPath, DiffusionModelType model
 
 bool StableDiffusion::load() {
     AUTOTIME;
+#if !defined(MNN_DIFFUSION_WITH_LLM_TOKENIZER)
+    MNN_ERROR("Diffusion models require MNN_BUILD_LLM=ON so diffusion can load tokenizer.mtok\n");
+    return false;
+#endif
     ScheduleConfig config;
     BackendConfig backendConfig;
     config.type = mBackendType;
@@ -91,6 +95,7 @@ bool StableDiffusion::load() {
     
     VARP text_embeddings;
     mModules.resize(3);
+    mResizeCachePrepared.assign(3, false);
     // load text_encoder model
     {
         std::string model_path = mModelPath + "/text_encoder.mnn";
@@ -114,27 +119,30 @@ bool StableDiffusion::load() {
     }
     
     // tokenizer loading
-    if(mModelType == STABLE_DIFFUSION_1_5) {
-        mTokenizer.reset(new CLIPTokenizer);
-    } else if(mModelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
-        mTokenizer.reset(new BertTokenizer);
+    if (mModelType == STABLE_DIFFUSION_1_5) {
+        mTokenizer.reset(new MtokTokenizer(MtokTokenizer::Style::kPair, 49406, 49407));
+    } else if (mModelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
+        mTokenizer.reset(new MtokTokenizer(MtokTokenizer::Style::kPair, 101, 102));
+    } else {
+        MNN_ERROR("Unsupported diffusion model type: %d\n", (int)mModelType);
+        return false;
     }
-    mTokenizer->load(mModelPath);
-    
-    // Resize fix
-    for (auto& m : mModules) {
-        m->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);
+    if (!mTokenizer->load(mModelPath)) {
+        MNN_ERROR("Failed to load tokenizer.mtok from %s\n", mModelPath.c_str());
+        return false;
     }
+
     // text encoder
     {
-        auto outputs = mModules[0]->onForward({mPromptVar});
+        auto outputs = forwardWithResizeCache(0, {mPromptVar});
         text_embeddings = _Convert(outputs[0], NCHW);
+        text_embeddings.fix(VARP::CONSTANT);
     }
-    
+
     if(mMemoryMode > 0) {
         // unet
         {
-            auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
+            auto outputs = forwardWithResizeCache(1, {mSampleVar, mTimestepVar, text_embeddings});
             auto output = _Convert(outputs[0], NCHW);
             output->readMap<float>();
         }
@@ -142,7 +150,7 @@ bool StableDiffusion::load() {
     if(mMemoryMode == 1) {
         // vae decoder
         {
-            auto outputs = mModules[2]->onForward({mLatentVar});
+            auto outputs = forwardWithResizeCache(2, {mLatentVar});
             auto output = _Convert(outputs[0], NCHW);
             output->readMap<float>();
         }
@@ -151,12 +159,36 @@ bool StableDiffusion::load() {
     return true;
 }
 
+std::vector<VARP> StableDiffusion::forwardWithResizeCache(int index, const std::vector<VARP>& inputs) {
+    if (index < 0 || index >= mModules.size() || !mModules[index]) {
+        MNN_ERROR("Invalid diffusion module index: %d\n", index);
+        return {};
+    }
+    if (mResizeCachePrepared.size() != mModules.size()) {
+        mResizeCachePrepared.assign(mModules.size(), false);
+    }
+    if (!mResizeCachePrepared[index]) {
+        auto code = mModules[index]->traceOrOptimize(MNN::Interpreter::Session_Resize_Check);
+        if (code != 0) {
+            MNN_PRINT("Resize check is not supported for diffusion module %d, code = %d\n", index, code);
+        } else {
+            mModules[index]->onForward(inputs);
+            code = mModules[index]->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);
+            if (code != 0) {
+                MNN_PRINT("Resize fix is not supported for diffusion module %d, code = %d\n", index, code);
+            }
+        }
+        mResizeCachePrepared[index] = true;
+    }
+    return mModules[index]->onForward(inputs);
+}
+
 VARP StableDiffusion::text_encoder(const std::vector<int>& ids) {
     AUTOTIME;
-    
+
     memcpy((void *)mPromptVar->writeMap<int8_t>(), ids.data(), 2*mMaxTextLen*sizeof(int));
-    
-    auto outputs = mModules[0]->onForward({mPromptVar});
+
+    auto outputs = forwardWithResizeCache(0, {mPromptVar});
     auto output = _Convert(outputs[0], NCHW);
     output.fix(VARP::CONSTANT);
     return output;
@@ -224,40 +256,39 @@ VARP StableDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, st
         mInitNoise[i] = normal(rng);
     }
 #endif
-    
+
     memcpy((void *)mLatentVar->writeMap<int8_t>(), mInitNoise.data(), 16384*sizeof(float));
     
     VARP scalevar = _Input({1}, NCHW, halide_type_of<float>());
     auto scaleptr = scalevar->writeMap<float>();
     scaleptr[0] = 7.5;
-    
-    
+
     auto floatVar = _Input({1}, NCHW, halide_type_of<float>());
     auto ptr = floatVar->writeMap<float>();
     auto plms = mLatentVar;
-    
+
     for (int i = 0; i < mTimeSteps.size(); i++) {
         AUTOTIME;
-        
+
         int timestep = mTimeSteps[i];
         ptr[0] = timestep;
         auto temp = _Cast(floatVar, halide_type_of<int>());
         mTimestepVar->input(temp);
 
         mSampleVar = _Concat({plms, plms}, 0);
-        auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
+        auto outputs = forwardWithResizeCache(1, {mSampleVar, mTimestepVar, text_embeddings});
         auto output = _Convert(outputs[0], NCHW);
-        
+
         auto noise_pred = output;
-        
+
         auto splitvar = _Split(noise_pred, {2}, 0);
         auto noise_pred_uncond = splitvar[0];
         auto noise_pred_text = splitvar[1];
-        
+
         noise_pred = scalevar * (noise_pred_text - noise_pred_uncond) + noise_pred_uncond;
-        
+
         plms = step_plms(plms, noise_pred, i);
-        
+
         if (progressCallback) {
             progressCallback((2 + i) * 100 / (iterNum + 3)); // percent
         }
@@ -273,9 +304,9 @@ VARP StableDiffusion::vae_decoder(VARP latent) {
     latent = latent * _Const(1 / 0.18215);
     
     AUTOTIME;
-    auto outputs = mModules[2]->onForward({latent});
+    auto outputs = forwardWithResizeCache(2, {latent});
     auto output = _Convert(outputs[0], NCHW);
-    
+
     auto image = output;
     image = _Relu6(image * _Const(0.5) + _Const(0.5), 0, 1);
     image = _Squeeze(_Transpose(image, {0, 2, 3, 1}));
@@ -306,12 +337,12 @@ bool StableDiffusion::run(const std::string prompt, const std::string imagePath,
     auto ids = mTokenizer->encode(prompt, mMaxTextLen);
 
     auto text_embeddings = text_encoder(ids);
-    
+
     if (progressCallback) {
         progressCallback(1 * 100 / (iterNum + 3)); // percent
     }
     auto latent = unet(text_embeddings, iterNum, randomSeed, progressCallback);
-    
+
     auto image = vae_decoder(latent);
     bool res = imwrite(imagePath, image);
     if (res) {

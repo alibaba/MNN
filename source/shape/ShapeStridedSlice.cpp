@@ -113,6 +113,9 @@ public:
                 }
                 if(step != nullptr) {
                     strides[temp_axis] = step->host<int>()[i];
+                    if (strides[temp_axis] == 0) {
+                        return false;
+                    }
                 }
                 
                 auto shape = inputShape[temp_axis];
@@ -191,6 +194,9 @@ public:
                     begins[i] = begin->host<int>()[i];
                     ends[i] = end->host<int>()[i];
                     strides[i] = strided->host<int>()[i];
+                    if (strides[i] == 0) {
+                        return false;
+                    }
                 }
             }
         }
@@ -253,7 +259,9 @@ public:
                 beginShape[i] = endShape[i];
                 endShape[i]   = t;
 
-                MNN_ASSERT(stridedShape[i] != 0);
+                if (stridedShape[i] == 0) {
+                    return false;
+                }
                 if (stridedShape[i] < 0) {
                     stridedShape[i] = -stridedShape[i];
                 } else {

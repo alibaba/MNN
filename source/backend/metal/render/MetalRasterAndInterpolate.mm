@@ -31,7 +31,7 @@ static void _setMemChunk(const MemChunk& mem, id<MTLComputeCommandEncoder> encod
     [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)mem.first)->getBuffer() offset:mem.second atIndex:index];
 }
 static void _setTensor(MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index) {
-    [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer() offset:TensorUtils::getDescribe(tensor)->extra.offset atIndex:index];
+    [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(tensor)->offset atIndex:index];
 }
 
 class MetalRadixSort {
@@ -401,7 +401,7 @@ public:
         
         MemChunk srcIndex;
         srcIndex.first = (void*)outputs[1]->deviceId();
-        srcIndex.second = TensorUtils::getDescribe(outputs[1])->extra.offset;
+        srcIndex.second = TensorUtils::getDescribeOrigin(outputs[1])->offset;
         auto dstIndex = mBuffer.pointKeysMid;
         mRadixSort->onResize(inputs, outputs, srcIndex, dstIndex);
         memPool->free(mBuffer.pointKeysMid);
@@ -474,7 +474,7 @@ public:
         // Radix sort
         MemChunk srcIndex;
         srcIndex.first = (void*)outputs[1]->deviceId();
-        srcIndex.second = TensorUtils::getDescribe(outputs[1])->extra.offset;
+        srcIndex.second = TensorUtils::getDescribeOrigin(outputs[1])->offset;
         auto dstIndex = mBuffer.pointKeysMid;
         mRadixSort->onEncode(inputs, outputs, encoder, srcIndex, dstIndex, outputs[0]);
     }

@@ -206,8 +206,13 @@ object ModelUtils {
 
     fun getConfigPathForModel(modelId: String): String? {
         return if (ModelTypeUtils.isDiffusionModel(modelId)) {
-            ModelDownloadManager.getInstance(ApplicationProvider.get())
-                .getDownloadedFile(modelId)?.absolutePath
+            // For diffusion models, check if it's a local model first
+            if (modelId.startsWith("local/")) {
+                ModelConfig.getDefaultConfigFile(modelId)
+            } else {
+                ModelDownloadManager.getInstance(ApplicationProvider.get())
+                    .getDownloadedFile(modelId)?.absolutePath
+            }
         } else {
             ModelConfig.getDefaultConfigFile(modelId)
         }

@@ -5,13 +5,12 @@
 //  Created by 游薪渝(揽清) on 2025/1/3.
 //
 
-
 import SwiftUI
 
 struct SwipeActionsView: View {
     let model: ModelInfo
     @ObservedObject var viewModel: ModelListViewModel
-    
+
     var body: some View {
         if viewModel.pinnedModelIds.contains(model.id) {
             Button {

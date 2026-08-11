@@ -15,6 +15,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
+import com.alibaba.mnnllm.android.chat.DEFAULT_SANA_PROMPT
 import com.alibaba.mnnllm.android.chat.input.AttachmentPickerModule.AttachmentType
 import com.alibaba.mnnllm.android.chat.input.AttachmentPickerModule.ImagePickCallback
 import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
@@ -27,8 +28,12 @@ import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import java.util.Date
+import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ChatInputComponent(
     private val chatActivity: ChatActivity,
@@ -86,6 +91,15 @@ class ChatInputComponent(
         
         // Update voice button visibility
         updateVoiceButtonVisibility()
+
+        // Update input hint based on current model capability.
+        updateInputHint()
+        editUserMessage.setText(
+            resolveInputTextForModel(
+                editUserMessage.text?.toString().orEmpty(),
+                ModelTypeUtils.requiresFaceImageInput(currentModelId)
+            )
+        )
     }
 
     private fun setupToggleAudioOutput() {
@@ -124,11 +138,17 @@ class ChatInputComponent(
     
     private fun setupThinkingMode() {
         val extraTags = ModelListManager.getExtraTags(currentModelId)
-        binding.btnToggleThinking.visibility = if (ModelTypeUtils.isSupportThinkingSwitchByTags(extraTags)) {
-            binding.btnToggleThinking.isSelected = ModelConfig.loadConfig(currentModelId)?.jinja?.context?.enableThinking != false
-            View.VISIBLE
-        } else  {
-            View.GONE
+        if (!ModelTypeUtils.isSupportThinkingSwitchByTags(extraTags)) {
+            binding.btnToggleThinking.visibility = View.GONE
+        } else {
+            binding.btnToggleThinking.visibility = View.VISIBLE
+            // Load config off main thread to avoid ANR (file I/O)
+            chatActivity.lifecycleScope.launch {
+                val enableThinking = withContext(Dispatchers.IO) {
+                    ModelConfig.loadConfig(currentModelId)?.jinja?.context?.enableThinking != false
+                }
+                binding.btnToggleThinking.isSelected = enableThinking
+            }
         }
         binding.btnToggleThinking.setOnClickListener {
             Log.d(TAG, "handleSendClick isGenerating : ${chatActivity.isLoading}")
@@ -156,6 +176,13 @@ class ChatInputComponent(
 
     private fun setupEditText() {
         editUserMessage = binding.etMessage
+        updateInputHint()
+        editUserMessage.setText(
+            resolveInputTextForModel(
+                editUserMessage.text?.toString().orEmpty(),
+                ModelTypeUtils.requiresFaceImageInput(currentModelId)
+            )
+        )
         editUserMessage.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
             }
@@ -170,16 +197,23 @@ class ChatInputComponent(
         })
     }
 
+    private fun updateInputHint() {
+        val hintRes = if (ModelTypeUtils.requiresFaceImageInput(currentModelId)) {
+            R.string.input_face_image_hint
+        } else {
+            R.string.input_messages
+        }
+        editUserMessage.hint = chatActivity.getString(hintRes)
+    }
+
     fun updateSenderButton() {
-        var enabled = true
-        if (chatActivity.isLoading) {
-            enabled = false
-        } else if (currentUserMessage == null && TextUtils.isEmpty(editUserMessage.text.toString())) {
-            enabled = false
-        }
-        if (chatActivity.isGenerating) {
-            enabled = true
-        }
+        val enabled = shouldEnableSendButton(
+            isLoading = chatActivity.isLoading,
+            isGenerating = chatActivity.isGenerating,
+            hasAttachment = currentUserMessage != null,
+            inputText = editUserMessage.text.toString(),
+            requiresFaceImage = ModelTypeUtils.requiresFaceImageInput(currentModelId)
+        )
         buttonSend.isEnabled = enabled
         buttonSend.setImageResource(if (!chatActivity.isGenerating) R.drawable.button_send else R.drawable.ic_stop)
     }
@@ -361,6 +395,29 @@ class ChatInputComponent(
 
     fun setOnStopGenerating(onStopGenerating: () -> Unit) {
         this.onStopGenerating = onStopGenerating
+    }
+
+    companion object {
+        internal fun shouldEnableSendButton(
+            isLoading: Boolean,
+            isGenerating: Boolean,
+            hasAttachment: Boolean,
+            inputText: String,
+            requiresFaceImage: Boolean
+        ): Boolean {
+            if (isGenerating) return true
+            if (isLoading) return false
+            if (requiresFaceImage) return hasAttachment
+            return hasAttachment || inputText.isNotBlank()
+        }
+
+        internal fun resolveInputTextForModel(
+            inputText: String,
+            requiresFaceImage: Boolean
+        ): String {
+            if (!requiresFaceImage) return inputText
+            return if (inputText.isBlank()) DEFAULT_SANA_PROMPT else inputText
+        }
     }
 
 }

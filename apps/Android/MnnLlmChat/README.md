@@ -1,5 +1,5 @@
 # MNN Chat Android App
-[中文版本](./README_CN.md)
+[簡体中文版本](./README_CN.md) | [繁體中文版本](./README_TW.md)
 
 [Download](#releases)  [下载](./README_CN.md#releases)
 
@@ -39,7 +39,7 @@ This is our full multimodal language model (LLM) Android app
 # Development
 + Prepare
   + Android Studio
-  + NDK(21 recommended)
+  + NDK (align with `app/build.gradle`, current: `27.2.12479018`)
   + `export ANDROID_NDK=${YOUR_NDK_ROOT}`
 + Clone the repository:
   ```shell
@@ -61,6 +61,92 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+
+## Version 0.8.3
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_3.apk)
++ Highlights:
+  + Add Gemma 4 model entries, including multimodal E2B/E4B and vision 26B-A4B/31B variants.
+  + Add the LFM model family, covering LFM2/LFM2.5 text, task-specific, vision-language, audio, and MoE variants.
+  + Add Qwen3.5 Claude 4.6 Opus reasoning-distilled model entries.
++ Bugfix:
+  + Clean up Android native linking to match the bundled MNN runtime library packaging.
+
+## Version 0.8.2.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_2.apk)
++ Highlights:
+  + Refresh the bundled MNN runtime with the latest CPU LinearAttention and Arm82 fp16 optimization path.
+  + Improve tokenizer and template rendering compatibility for thinking-mode prompts and array concatenation cases.
+  + Add TopKV2 backend coverage for OpenCL and Metal execution paths.
++ Bugfix:
+  + Fix the crash when tapping Add Local Model on Android.
+  + Avoid deadlocks caused by partially initialized mmap weights during model loading.
+  + Reuse the loaded runtime session when starting API service for the same model to avoid extra reloads that could freeze or crash API startup.
+
+## Version 0.8.2.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_1.apk)
++ Bugfix:
+  + Fix the Android chat regression that could stop after a single token or fail to continue on the second turn with the prebuilt runtime.
+  + Harden dumpapp and smoke coverage for terminal callback delivery, single-token regression, and thinking-mode divergence checks.
+
+## Version 0.8.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2.apk)
++ Highlights:
+  + Support real-time vision in voice chat.
+  + Restore chat auto-scroll after resume.
++ Bugfix:
+  + Fix model settings config path and reset behavior.
+  + Improve LaTeX and markdown-table streaming render regression coverage.
+
+## Version 0.8.1.3
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_3.apk)
++ Bugfix:
+  + Improve overall stability for Google Play release.
+
+## Version 0.8.1.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_2.apk)
++ Bugfix:
+  + Fix known issues and improve overall stability.
+
+## Version 0.8.1.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_1_1.apk)
++ Bugfix:
+  + Fix several known issues and improve overall stability.
+  + Improve reliability for model switching and chat flow.
+
+## Version 0.8.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_1.apk)
++ Highlights:
+  + Support switching thinking mode for Qwen3.5.
+  + Improve API stability and compatibility with the Anthropic protocol.
+
+## Version 0.8.0.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0_1.apk)
++ Bugfix:
+  + Fix benchmark crash for Qwen3.5
+
+## Version 0.8.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0.apk)
++ New feature:
+  + Support Qwen3.5
+
+## Version 0.7.8
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_8.apk)
++ New:
+  + General stability improvements
+
+## Version 0.7.7
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_7.apk)
++ Bugfix:
+  + Fix download deletion failure issue
++ New feature:
+  + Support Sana image edit model
+
+## Version 0.7.6
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_6.apk)
++ Bugfix:
+  + Fix huggingface download error
++ UI Update:
+  + Support multiple images input
 
 ## Version 0.7.5
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_5.apk)
@@ -162,7 +248,7 @@ This is our full multimodal language model (LLM) Android app
 
 ## Version 0.2.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_2.apk)
-+ Support mmap for speed up laoding speed.
++ Support mmap for speed up loading speed.
 + Add version update checker
 
 ## Version 0.2.1

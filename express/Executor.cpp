@@ -51,6 +51,13 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
 int Executor::getCurrentRuntimeStatus(RuntimeStatus statusEnum) {
     return mRuntimeInfo.first[mAttr->firstType]->onGetRuntimeStatus(statusEnum);
 }
+float Executor::getLastGpuTimeMs() const {
+    auto iter = mRuntimeInfo.first.find(mAttr->firstType);
+    if (iter == mRuntimeInfo.first.end()) {
+        return -1.0f;
+    }
+    return iter->second->onGetLastGpuTimeMs();
+}
 std::shared_ptr<Runtime> Executor::_getOrCreateRuntime(MNNForwardType type, const BackendConfig* config, int numberThread, bool reset) {
     auto iter = mRuntimeInfo.first.find(type);
     if (iter != mRuntimeInfo.first.end()) {
@@ -99,6 +106,16 @@ Executor::Executor(std::shared_ptr<Runtime> runtime, MNNForwardType type, int nu
 }
 Executor::~Executor(){
     // Do nothing
+}
+
+Executor::Activation::Activation(const RuntimeInfo& info) : mRuntimeInfo(info) {
+    mRuntimeWrap.reset(new RuntimeExecuteWrap(mRuntimeInfo));
+}
+
+Executor::Activation::~Activation() = default;
+
+std::shared_ptr<Executor::Activation> Executor::activte() const {
+    return std::shared_ptr<Activation>(new Activation(mRuntimeInfo));
 }
 
 void Executor::setCallBack(TensorCallBackWithInfo&& before, TensorCallBackWithInfo&& after) {
@@ -247,10 +264,14 @@ void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
     mInside->mContent->modes.setExternalPath(path, type);
 }
 void Executor::RuntimeManager::setHintPtr(Interpreter::HintMode mode, void* value) {
-    auto current = ExecutorScope::Current();
-    auto rt = current->getRuntime();
-    for (auto& iter : rt.first) {
-        iter.second->pMeta = value;
+    if (mode == Interpreter::KVCACHE_INFO) {
+        mInside->mContent->pMeta = value;
+    }
+}
+
+void Executor::RuntimeManager::applyMetaToRuntime() const {
+    for (auto& iter : mInside->mRuntime.first) {
+        iter.second->pMeta = mInside->mContent->pMeta;
     }
 }
 
@@ -349,6 +370,11 @@ BackendConfig* Executor::RuntimeManager::getBnConfig() {
 void Executor::RuntimeManager::setCache(std::string cacheName) {
     std::lock_guard<std::mutex> _l(mLock);
 
+    if (nullptr == mInside->mInfo) {
+        // Runtime not created (e.g. requested backend unavailable on this device), skip setCache
+        MNN_ERROR("Runtime not created, skip setCache\n");
+        return;
+    }
     mInside->mCache.reset(new Cache);
     mInside->mCache->cacheFile = cacheName;
     mInside->mInfo->onSetCachePath(cacheName.c_str(), 0);

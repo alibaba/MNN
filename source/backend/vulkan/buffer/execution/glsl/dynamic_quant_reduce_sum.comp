@@ -1,0 +1,38 @@
+// Reduce per-tile partial sums to per-row SumAq.
+// threadX walks m so loads PartialSumAq[tk*padM + m] are coalesced; each
+// thread serially accumulates over tilesK. Pure int32 — precision-agnostic.
+//
+// Dispatch: groupCount = (ceil(padM / 64), 1, 1), localSize = (64, 1, 1).
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer PartialSumBuffer {
+    int PartialSumAq[];
+};
+
+layout(binding = 1) writeonly buffer SumActivation {
+    int SumAq[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint padM;
+    uint tilesK;
+    uint reserved;
+} pc;
+
+void main() {
+    uint m = gl_GlobalInvocationID.x;
+    if (m >= pc.padM) {
+        return;
+    }
+
+    int sum = 0;
+    if (m < pc.M) {
+        for (uint tk = 0u; tk < pc.tilesK; ++tk) {
+            sum += PartialSumAq[tk * pc.padM + m];
+        }
+    }
+    // Padding rows (m in [M, padM)) write 0 so downstream dequant stays clean.
+    SumAq[m] = sum;
+}

@@ -1,11 +1,15 @@
 package com.alibaba.mnnllm.android.chat.chatlist
 
+import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.ImageView
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.widgets.FullScreenImageViewer
 import io.mockk.*
+import java.io.FileOutputStream
+import java.io.File
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -19,17 +23,38 @@ import org.robolectric.RuntimeEnvironment
  */
 @RunWith(RobolectricTestRunner::class)
 class ChatImageAdapterTest {
-
-    private val testUri1 = Uri.parse("content://test/image1.jpg")
-    private val testUri2 = Uri.parse("content://test/image2.jpg")
-    private val testUri3 = Uri.parse("content://test/image3.jpg")
+    private lateinit var testUri1: Uri
+    private lateinit var testUri2: Uri
+    private lateinit var testUri3: Uri
 
     @Before
     fun setup() {
         // Mock the static method showImagePopup
         mockkObject(FullScreenImageViewer)
-        every { FullScreenImageViewer.showImagePopup(any(), any<List<Uri>>(), any()) } just Runs
+        every { FullScreenImageViewer.showImagePopup(any(), any<List<Uri>>(), any(), any()) } just Runs
         every { FullScreenImageViewer.showImagePopup(any(), any<Uri>()) } just Runs
+        testUri1 = createImageUri("image1")
+        testUri2 = createImageUri("image2")
+        testUri3 = createImageUri("image3")
+    }
+
+    private fun createParentRecyclerView(): RecyclerView {
+        val context = RuntimeEnvironment.getApplication()
+        return RecyclerView(context).apply {
+            layoutManager = LinearLayoutManager(context)
+        }
+    }
+
+    private fun createImageUri(name: String): Uri {
+        val file = File.createTempFile(name, ".png").apply {
+            deleteOnExit()
+        }
+        val bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        FileOutputStream(file).use { output ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+        }
+        bitmap.recycle()
+        return Uri.fromFile(file)
     }
 
     @Test
@@ -84,8 +109,7 @@ class ChatImageAdapterTest {
     @Test
     fun `test onCreateViewHolder creates ViewHolder with correct layout`() {
         // Given
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(listOf(testUri1))
 
         // When
@@ -104,7 +128,7 @@ class ChatImageAdapterTest {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
         val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
 
@@ -122,8 +146,7 @@ class ChatImageAdapterTest {
     fun `test onBindViewHolder binds image at different positions`() {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
 
         // When & Then - test each position
@@ -142,7 +165,7 @@ class ChatImageAdapterTest {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
         val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
         adapter.onBindViewHolder(viewHolder, 0)
@@ -156,7 +179,8 @@ class ChatImageAdapterTest {
             FullScreenImageViewer.showImagePopup(
                 context,
                 images,
-                0
+                0,
+                false
             )
         }
     }
@@ -166,7 +190,7 @@ class ChatImageAdapterTest {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
         val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
         adapter.onBindViewHolder(viewHolder, 1)
@@ -180,7 +204,8 @@ class ChatImageAdapterTest {
             FullScreenImageViewer.showImagePopup(
                 context,
                 images,
-                1
+                1,
+                false
             )
         }
     }
@@ -190,7 +215,7 @@ class ChatImageAdapterTest {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
         val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
         adapter.onBindViewHolder(viewHolder, 2)
@@ -204,7 +229,8 @@ class ChatImageAdapterTest {
             FullScreenImageViewer.showImagePopup(
                 context,
                 images,
-                2
+                2,
+                false
             )
         }
     }
@@ -214,7 +240,7 @@ class ChatImageAdapterTest {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
         val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
         adapter.onBindViewHolder(viewHolder, 1)
@@ -228,7 +254,8 @@ class ChatImageAdapterTest {
             FullScreenImageViewer.showImagePopup(
                 context,
                 match { it.size == 3 && it.containsAll(images) },
-                1
+                1,
+                false
             )
         }
     }
@@ -238,7 +265,7 @@ class ChatImageAdapterTest {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
         val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
 
         // When - click images at different positions
@@ -252,8 +279,8 @@ class ChatImageAdapterTest {
 
         // Then
         verify {
-            FullScreenImageViewer.showImagePopup(context, images, 0)
-            FullScreenImageViewer.showImagePopup(context, images, 2)
+            FullScreenImageViewer.showImagePopup(context, images, 0, false)
+            FullScreenImageViewer.showImagePopup(context, images, 2, false)
         }
     }
 
@@ -262,7 +289,7 @@ class ChatImageAdapterTest {
         // Given
         val images = listOf(testUri1)
         val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
         adapter.onBindViewHolder(viewHolder, 0)
@@ -276,7 +303,8 @@ class ChatImageAdapterTest {
             FullScreenImageViewer.showImagePopup(
                 context,
                 match { it.size == 1 && it[0] == testUri1 },
-                0
+                0,
+                false
             )
         }
     }
@@ -299,7 +327,7 @@ class ChatImageAdapterTest {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
         val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
 
@@ -314,8 +342,8 @@ class ChatImageAdapterTest {
 
         // Then - should have clicked with correct positions
         verify {
-            FullScreenImageViewer.showImagePopup(context, images, 0)
-            FullScreenImageViewer.showImagePopup(context, images, 2)
+            FullScreenImageViewer.showImagePopup(context, images, 0, false)
+            FullScreenImageViewer.showImagePopup(context, images, 2, false)
         }
     }
 
@@ -323,8 +351,7 @@ class ChatImageAdapterTest {
     fun `test viewer is not invoked until image is clicked`() {
         // Given
         val images = listOf(testUri1, testUri2)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = ChatImageAdapter(images)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
 
@@ -333,7 +360,7 @@ class ChatImageAdapterTest {
 
         // Then - viewer should not be invoked
         verify(exactly = 0) {
-            FullScreenImageViewer.showImagePopup(any(), any<List<Uri>>(), any())
+            FullScreenImageViewer.showImagePopup(any(), any<List<Uri>>(), any(), any())
         }
     }
 }

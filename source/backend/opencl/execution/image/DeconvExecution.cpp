@@ -14,6 +14,10 @@ namespace OpenCL {
 
 DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
     : ConvCommonExecution(op->main_as_Convolution2D(), backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
     mOpenCLBackend                 = static_cast<OpenCLBackend *>(backend);
     const auto *conv2dParams       = op->main_as_Convolution2D();
     const auto *conv2dCommonParams = conv2dParams->common();
@@ -31,8 +35,6 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
     ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &weightSize);
 
     int inputChannel  = weightSize / (kernelWidth * kernelHeight * outputChannel);
-    std::vector<int> filterShape{outputChannel, inputChannel, kernelHeight, kernelWidth};
-    std::vector<int> filterImageShape{(int)inputChannel, (int)UP_DIV(outputChannel, 4) * kernelWidth * kernelHeight};
     std::vector<float> filterDataPtrTransformed;
     filterDataPtrTransformed.resize(weightSize);
     IOHW2OIHW<float, int>(filterDataPtr, filterDataPtrTransformed.data(), outputChannel, inputChannel, kernelHeight,
@@ -53,8 +55,8 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
     }
     mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
 
-        mResource->mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
-    mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+        mResource->mFilter.reset(Tensor::createDevice<float>({1, UP_DIV(outputChannel, 4) * kernelWidth * kernelHeight, 1, 4 * inputChannel}));
+    OPENCL_CHECK_ALLOC_CTOR(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC));
     MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
     
     std::string buildOption = "-DBUFFER_INP_FP32";
@@ -74,6 +76,10 @@ DeconvExecution::~DeconvExecution() {
 
 DeconvExecution::DeconvExecution(std::shared_ptr<ConvResource> resource, const MNN::Op* op, Backend *backend)
     : ConvCommonExecution(backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
     mResource = resource;
     const auto *conv2dParams       = op->main_as_Convolution2D();
     const auto *conv2dCommonParams = conv2dParams->common();
@@ -174,7 +180,7 @@ public:
         if(inputs.size() != 1){
             return nullptr;
         }
-        return new DeconvExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new DeconvExecution(inputs, op, backend));
     }
 };
 

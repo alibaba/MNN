@@ -87,13 +87,6 @@ struct Tensor::InsideDescribe {
     public:
         /** dimension format */
         MNN_DATA_FORMAT dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-        union {
-            /** Serperate memory offset*/
-            int offset;
-
-            /** function used to free handle */
-            void (*handleFreeFunction)(void*);
-        } extra;
         MemoryType memoryType = MEMORY_BACKEND;
         std::weak_ptr<Command> rasterCommand;
         /** for DEVICE tensor only. */
@@ -120,6 +113,7 @@ struct Tensor::InsideDescribe {
     };
     std::shared_ptr<NativeInsideDescribe> mContent;
     SharedPtr<Backend::MemObj> mem;
+    int offset = 0;
     inline Backend* getBackend() const {
         return backend;
     }

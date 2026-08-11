@@ -20,6 +20,30 @@ MNN::OpParameter ShapeOnnx::type() {
 
 void ShapeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                     OnnxScope* scope) {
+    bool hasStart = false, hasEnd = false;
+    int start = 0, end = 0;
+    for (int i = 0; i < onnxNode->attribute_size(); ++i) {
+        const auto& attributeProto = onnxNode->attribute(i);
+        const auto& attributeName  = attributeProto.name();
+        if (attributeName == "start") {
+            hasStart = true;
+            start = attributeProto.i();
+        }
+        if (attributeName == "end") {
+            hasEnd = true;
+            end = attributeProto.i();
+        }
+    }
+    // Only set ShapeParam when start/end are specified, to keep backward compatibility with old engines
+    if (hasStart || hasEnd) {
+        std::unique_ptr<MNN::ShapeParamT> shapeParam(new MNN::ShapeParamT);
+        shapeParam->hasStart = hasStart;
+        shapeParam->start = start;
+        shapeParam->hasEnd = hasEnd;
+        shapeParam->end = end;
+        dstOp->main.type = MNN::OpParameter_ShapeParam;
+        dstOp->main.value = shapeParam.release();
+    }
     dstOp->defaultDimentionFormat = MNN::MNN_DATA_FORMAT_NCHW;
 }
 

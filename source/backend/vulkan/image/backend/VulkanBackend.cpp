@@ -60,7 +60,7 @@ static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest) 
     dest->unmap();
 }
 
-VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
+VulkanBackend::VulkanBackend(const VulkanRuntime* runtime) : Backend(MNN_FORWARD_VULKAN) {
     mRuntime = runtime;
     mDirect = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_RECORD_BATCH) == 0;
     mDynamicMemoryPool.reset(new VulkanMemoryPool(runtime->mMemoryPool.get()));
@@ -182,11 +182,19 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
     auto format = _getFormat(tensor->getType());
     if (Backend::STATIC == storageType) {
         auto newBuffer           = std::make_shared<VulkanTensor>(MTensor, format, getMemoryPool(), device().proty().limits);
+        if (nullptr == newBuffer->image() || !newBuffer->image()->valid()) {
+            MNN_ERROR("Vulkan alloc static image failed\n");
+            return nullptr;
+        }
         MTensor->buffer().device = (uint64_t)(newBuffer.get());
         return new VulkanMemRelease(newBuffer);
     }
     bool separate  = storageType == Backend::DYNAMIC_SEPERATE;
     auto newBuffer = std::make_shared<VulkanTensor>(MTensor, format, getDynamicMemoryPool(), device().proty().limits, separate);
+    if (nullptr == newBuffer->image() || !newBuffer->image()->valid()) {
+        MNN_ERROR("Vulkan alloc dynamic image failed\n");
+        return nullptr;
+    }
     MTensor->buffer().device = (uint64_t)(newBuffer.get());
     mAllBuffers.insert(std::make_pair(MTensor->buffer().device, newBuffer));
     return new VulkanMemRelease(newBuffer);;
@@ -268,11 +276,9 @@ void VulkanBackend::onExecuteEnd() const {
     auto endTime = std::chrono::high_resolution_clock::now();
     float totalTime = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime).count() / (1e6f);
     if (mTimeProfiler) {
-        MNN_PRINT("\n=============== Vulkan Time Profiling (Begin) ===============\n");
         mTimeProfiler->printTimeProfile();
-        MNN_PRINT("Total time calculated by CPU is %6.2f ms.\n", totalTime);
-        MNN_PRINT("\n================ Vulkan Time Profiling (End) ================\n");
     }
+    MNN_PRINT("Total time calculated by CPU is %6.2f ms.\n", totalTime);
 #else
     _finish();
 #endif

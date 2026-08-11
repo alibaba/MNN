@@ -15,6 +15,7 @@ namespace Express {
 MNN_PUBLIC VARP _Add(VARP x, VARP y);
 MNN_PUBLIC VARP _Subtract(VARP x, VARP y);
 MNN_PUBLIC VARP _Multiply(VARP x, VARP y);
+MNN_PUBLIC VARP _MulSilu(VARP x, VARP y);
 MNN_PUBLIC VARP _Divide(VARP x, VARP y);
 MNN_PUBLIC VARP _Pow(VARP x, VARP y);
 MNN_PUBLIC VARP _Minimum(VARP x, VARP y);

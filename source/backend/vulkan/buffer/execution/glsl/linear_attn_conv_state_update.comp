@@ -1,0 +1,46 @@
+layout(set=0, binding=0) readonly buffer s0{
+    FLOAT data[];
+} uQKV;
+
+layout(set=0, binding=1) buffer s1{
+    FLOAT data[];
+} uConvState;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec4 size0; // batch, conv_dim, seq_len, conv_state_size
+    ivec4 size1; // channel_count, qkv_c4, 0, 0
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    int gid = int(gl_GlobalInvocationID.x);
+    int channelCount = uConstant.size1.x;
+    if (gid >= channelCount) return;
+
+    int B = uConstant.size0.x;
+    int D = uConstant.size0.y;
+    int L = uConstant.size0.z;
+    int css = uConstant.size0.w;
+
+    int bd = gid;
+    int b = bd / D;
+    int d = bd % D;
+    bool qkvC4 = uConstant.size1.y != 0;
+
+    // Ascending writes are safe because each source state index is greater than its destination.
+    for (int i = 0; i < css; ++i) {
+        int pos = L + i;
+        FLOAT val;
+        if (pos < css) {
+            val = uConvState.data[b * D * css + d * css + pos];
+        } else {
+            int lIn = pos - css;
+            int inputOffset = qkvC4 ? ((d >> 2) * (B * L) + b * L + lIn) * 4 + (d & 3)
+                                     : b * D * L + d * L + lIn;
+            val = uQKV.data[inputOffset];
+        }
+        uConvState.data[b * D * css + d * css + i] = val;
+    }
+}

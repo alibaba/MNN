@@ -10,11 +10,11 @@ import Foundation
 public actor AsyncSemaphore {
     private var value: Int
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    
+
     init(value: Int) {
         self.value = value
     }
-    
+
     func wait() async {
         if value > 0 {
             value -= 1
@@ -24,7 +24,7 @@ public actor AsyncSemaphore {
             }
         }
     }
-    
+
     func signal() {
         if waiters.isEmpty {
             value += 1

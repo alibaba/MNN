@@ -20,6 +20,7 @@ add_library(MNN
 set(MNN_SOURCE_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../../)
 set(MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")
 set(LIB_PATH "${MNN_INSTALL_ROOT}/lib")
+set(MNN_EXPRESS_PATH "${LIB_PATH}/libMNN_Express.so")
 message(STATUS "MNN_SOURCE_ROOT: ${MNN_SOURCE_ROOT}")
 message(STATUS "LIB_PATH: ${LIB_PATH}")
 
@@ -27,6 +28,12 @@ set_target_properties(MNN PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
         "${MNN_SOURCE_ROOT}/include;${MNN_SOURCE_ROOT}/tools/audio/include/;${MNN_SOURCE_ROOT}/transformers/llm/engine/include"
 )
 set_target_properties(MNN PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN.so")
+
+if(EXISTS "${MNN_EXPRESS_PATH}")
+  add_library(MNNExpress SHARED IMPORTED)
+  set_target_properties(MNNExpress PROPERTIES IMPORTED_LOCATION "${MNN_EXPRESS_PATH}")
+  message(STATUS "Linking legacy split runtime: ${MNN_EXPRESS_PATH}")
+endif()
 
 include_directories(
 	${CMAKE_CURRENT_LIST_DIR}/include
@@ -106,7 +113,15 @@ if(BUILD_ANDROID)
 endif()
 
 if(BUILD_ANDROID)
-    target_link_libraries(${PROJECT_NAME} log MNN)
+    if(TARGET MNNExpress)
+        target_link_libraries(${PROJECT_NAME} log MNN MNNExpress)
+    else()
+        target_link_libraries(${PROJECT_NAME} log MNN)
+    endif()
 else()
-    target_link_libraries(${PROJECT_NAME} MNN)
+    if(TARGET MNNExpress)
+        target_link_libraries(${PROJECT_NAME} MNN MNNExpress)
+    else()
+        target_link_libraries(${PROJECT_NAME} MNN)
+    endif()
 endif() 

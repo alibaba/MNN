@@ -89,6 +89,7 @@ public:
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
 
     bool isSupportedFP16() const;
+    bool isClCreateImageAvailable() const;
     bool isDeviceSupportedLowPower() const;
     bool isSupportedDotInt8() const;
     bool isSupportedDotAccInt8() const;
@@ -229,6 +230,7 @@ private:
 #endif
     std::string mDeviceName;
     std::string mDeviceInfo;
+    std::string mDriverInfo;
     bool isSetWorkGroupAttribute = false;
     std::string mDefaultBuildParams;
     float mFlops = 4.0f;
@@ -245,4 +247,4 @@ private:
 };
 
 } // namespace MNN
-#endif  /* OpenCLRuntime_hpp */
+#endif /* OpenCLRuntime_hpp */

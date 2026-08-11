@@ -18,6 +18,7 @@ struct RuntimeAttr {
         int mNumberThread;
         std::string mExternalFile;
         std::string mNpuDir;
+        void* pMeta = nullptr;
     };
     std::shared_ptr<Immutable> mContent;
     RuntimeInfo mRuntime;

@@ -35,7 +35,7 @@ class MessageTransformer {
         val systemPrompt = systemPromptPair.first
         val dialogMessages = systemPromptPair.second
 
-        val finalSystemPrompt = buildFinalSystemPrompt(
+        val finalSystemPrompt = buildApiSystemPrompt(
             sessionPrompt = llmSession.getSystemPrompt(),
             rawSystemPrompt = systemPrompt,
             isR1Model = isR1Model
@@ -74,14 +74,7 @@ class MessageTransformer {
         sessionPrompt: String?,
         rawSystemPrompt: String,
         isR1Model: Boolean
-    ): String {
-        val systemPrompt = if (isR1Model) rawSystemPrompt else rawSystemPrompt
-        return buildString {
-            append(sessionPrompt.orEmpty())
-            if (isNotEmpty() && systemPrompt.isNotEmpty()) append("\n")
-            append(systemPrompt)
-        }
-    }
+    ): String = buildApiSystemPrompt(sessionPrompt, rawSystemPrompt, isR1Model)
 
     //processandadddialoguehistorytoresultin
     private suspend fun addDialogMessagesToHistory(
@@ -226,4 +219,19 @@ class MessageTransformer {
         }
         return -1
     }
+}
+
+internal fun buildApiSystemPrompt(
+    sessionPrompt: String?,
+    rawSystemPrompt: String,
+    isR1Model: Boolean
+): String {
+    if (isR1Model) {
+        return rawSystemPrompt
+    }
+
+    // The runtime session already owns its configured default system prompt.
+    // Re-injecting it into the request history duplicates the instruction and can
+    // cause ResponseWithHistory() to return an empty final answer for simple API calls.
+    return rawSystemPrompt
 }

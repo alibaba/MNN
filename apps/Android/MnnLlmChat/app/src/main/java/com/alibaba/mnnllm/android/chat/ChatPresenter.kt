@@ -9,6 +9,8 @@ import androidx.lifecycle.lifecycleScope
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.ChatSession
+import com.alibaba.mnnllm.api.openai.di.ServiceLocator
+import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
@@ -16,6 +18,8 @@ import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -84,13 +88,15 @@ class ChatPresenter(
 
     fun createSession(): ChatSession {
         val intent = chatActivity.intent
-        val chatService = ChatService.provide()
-        sessionId = chatActivity.intent.getStringExtra("chatSessionId")
+        sessionId = intent.getStringExtra("chatSessionId")
+        Log.d(TAG, "createSession: received chatSessionId from intent: $sessionId")
         val chatDataItemList: List<ChatDataItem>?
         if (!TextUtils.isEmpty(sessionId)) {
             chatDataItemList = chatDataManager!!.getChatDataBySession(sessionId!!)
+            Log.d(TAG, "createSession: queried database, got ${chatDataItemList.size} items for sessionId=$sessionId")
             if (chatDataItemList.isNotEmpty()) {
                 sessionName = chatDataItemList[0].text
+                Log.d(TAG, "createSession: first item text (sessionName): $sessionName")
             }
             Log.d(TAG, "createSession: loaded ${chatDataItemList.size} history items for sessionId=$sessionId")
         } else {
@@ -106,9 +112,26 @@ class ChatPresenter(
         
         Log.d(TAG, "createSession: isDiffusion=${ModelTypeUtils.isDiffusionModel(modelName)}, modelName=$modelName, configPath=$configPath")
         
-        chatSession = chatService.createSession(
-            modelId, modelName, sessionId, chatDataItemList, configPath, false
-        )
+        if (ModelTypeUtils.isDiffusionModel(modelName) || ModelTypeUtils.isSanaModel(modelName)) {
+            val chatService = ChatService.provide()
+            chatSession = chatService.createSession(
+                modelId, modelName, sessionId, chatDataItemList, configPath, false
+            )
+        } else {
+            val result = ServiceLocator.getLlmRuntimeController().ensureSession(
+                modelId = modelId,
+                forceReload = false,
+                useAppConfig = true,
+                configPath = configPath,
+                sessionId = sessionId,
+                historyList = chatDataItemList,
+                deferLoad = true
+            )
+            if (!result.success || result.session == null) {
+                throw IllegalStateException(result.reason ?: "Failed to ensure LLM session")
+            }
+            chatSession = result.session!!
+        }
         sessionId = chatSession.sessionId
         chatSession.setKeepHistory(true)
         
@@ -123,36 +146,78 @@ class ChatPresenter(
             chatActivity.lifecycleScope.launch {
                 chatActivity.onLoadingChanged(true)
             }
-            chatSession.load()
-
-            chatActivity.lifecycleScope.launch {
-                chatActivity.onLoadingChanged(false)
+            try {
+                if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession &&
+                    (chatSession as com.alibaba.mnnllm.android.llm.LlmSession).isModelLoaded()) {
+                    Log.d(TAG, "chatSession already loaded by LlmRuntimeController, skipping load")
+                } else {
+                    chatSession.load()
+                }
+                chatActivity.lifecycleScope.launch {
+                    chatActivity.onLoadingChanged(false)
+                }
+                Log.d(TAG, "chatSession loaded")
+            } catch (e: IllegalStateException) {
+                Log.e(TAG, "Model load failed: ${e.message}", e)
+                if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
+                    ServiceLocator.getLlmRuntimeController().releaseSession()
+                }
+                chatActivity.lifecycleScope.launch {
+                    chatActivity.onLoadingChanged(false)
+                    chatActivity.onModelLoadFailed(e.message ?: "Model load failed")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Model load failed with unexpected error", e)
+                if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
+                    ServiceLocator.getLlmRuntimeController().releaseSession()
+                }
+                chatActivity.lifecycleScope.launch {
+                    chatActivity.onLoadingChanged(false)
+                    chatActivity.onModelLoadFailed(e.message ?: "Model load failed")
+                }
             }
-            Log.d(TAG, "chatSession loaded")
         }
     }
 
     fun reset(onResetSuccess: (newSessionId: String) -> Unit) {
         presenterScope.launch {
-            chatDataManager!!.deleteAllChatData(sessionId!!)
+            // Don't delete chat data - preserve history for the old session
+            // Just reset the session to get a new sessionId
             sessionId = chatSession.reset()
+            sessionName = null  // Clear session name for the new session
             chatActivity.lifecycleScope.launch {
                 onResetSuccess(sessionId!!)
             }
         }
     }
 
-    private fun submitDiffusionRequest(prompt:String): HashMap<String, Any> {
+    private fun submitDiffusionRequest(input: String, userData: ChatDataItem): HashMap<String, Any> {
+        val prompt = resolveDiffusionPrompt(input, modelId)
         val diffusionDestPath = FileUtils.generateDestDiffusionFilePath(
             chatActivity,
             sessionId!!
         )
+        val imageInputPath = userData.imageUris?.firstOrNull()?.let { 
+            FileUtils.getPathForUri(it)
+        } ?: ""
+
+        val config = ModelConfig.loadConfig(modelId)
+        val steps = config?.diffusionSteps ?: ModelConfig.defaultConfig.diffusionSteps ?: 20
+        val seed = if (config?.diffusionSeed != null && config.diffusionSeed!! != -1L) {
+            config.diffusionSeed!!.toInt()
+        } else {
+            Random(System.currentTimeMillis()).nextInt()
+        }
+        val cfgPrompt = config?.cfgPrompt ?: "Generate high quality image"
+        
         return chatSession.generate(
             prompt,
             mapOf(
                 "output" to diffusionDestPath,
-                "iterNum" to 20,
-                "randomSeed" to Random(System.currentTimeMillis()).nextInt()
+                "imageInput" to imageInputPath,
+                "iterNum" to steps,
+                "randomSeed" to seed,
+                "cfgPrompt" to cfgPrompt
             )
             , object : GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
@@ -191,7 +256,7 @@ class ChatPresenter(
         stopGenerating = false
         val benchMarkResult = try {
             if (ModelTypeUtils.isDiffusionModel(this.modelName)) {
-                submitDiffusionRequest(input)
+                submitDiffusionRequest(input, userData)
             } else {
                 submitLlmRequest(input)
             }
@@ -221,7 +286,8 @@ class ChatPresenter(
     suspend fun requestGenerate(userData: ChatDataItem, generateListener: GenerateListener): HashMap<String, Any> {
         this.generateListener = generateListener
         val prompt = PromptUtils.generateUserPrompt(userData)
-        
+        var userInputSaved = false
+
         // Ensure user input is saved first
         try {
             if (this.sessionName.isNullOrEmpty()) {
@@ -232,6 +298,7 @@ class ChatPresenter(
             // Always save user input to database first
             Log.d(TAG, "requestGenerate: saving user input for sessionId=$sessionId")
             chatDataManager!!.addChatData(sessionId, userData)
+            userInputSaved = true
             
             this.generateListener?.onGenerateStart()
             additionalListeners.forEach { it.onGenerateStart() }
@@ -241,12 +308,14 @@ class ChatPresenter(
             }.await()
             
             return result
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "requestGenerate: Error during request generation", e)
-            
+
             // Still try to save user input even if generation fails
             try {
-                if (sessionId != null) {
+                if (!userInputSaved && sessionId != null) {
                     chatDataManager!!.addChatData(sessionId, userData)
                 }
             } catch (saveException: Exception) {
@@ -326,10 +395,19 @@ class ChatPresenter(
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 if (::chatSession.isInitialized) {
-                    Log.d(TAG, "Final cleanup: Resetting and releasing chat session.")
-                    chatSession.reset()
-                    chatSession.release()
-                    Log.d(TAG, "Chat session reset and released during destroy.")
+                    if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
+                        if (!ServerEventManager.getInstance().isServerRunning()) {
+                            Log.d(TAG, "Final cleanup: Resetting and releasing LlmSession via LlmRuntimeController")
+                            chatSession.reset()
+                            ServiceLocator.getLlmRuntimeController().releaseSession()
+                        } else {
+                            Log.d(TAG, "LlmSession kept alive (API running)")
+                        }
+                    } else {
+                        Log.d(TAG, "Final cleanup: Resetting and releasing non-LLM session")
+                        chatSession.reset()
+                        chatSession.release()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error during final chat session cleanup", e)
@@ -367,13 +445,15 @@ class ChatPresenter(
                 }
                 val oldSessionId = sessionId
                 destroyCurrentSession()
-                val newSession = createNewModelSession(newModelItem)
-                applyChatHistoryToNewSession(newSession, currentChatHistory)
+                val newSession = createNewModelSession(newModelItem, currentChatHistory)
                 updateDatabaseForModelSwitch(oldSessionId, newModelItem.modelId!!)
                 chatActivity.lifecycleScope.launch {
                     onSessionCreated(newSession)
                 }
-                newSession.load()
+                if (newSession !is com.alibaba.mnnllm.android.llm.LlmSession ||
+                    !(newSession as com.alibaba.mnnllm.android.llm.LlmSession).isModelLoaded()) {
+                    newSession.load()
+                }
                 chatActivity.lifecycleScope.launch {
                     onSwitchComplete(newSession)
                     chatActivity.onLoadingChanged(false)
@@ -391,20 +471,44 @@ class ChatPresenter(
     private fun destroyCurrentSession() {
         if (::chatSession.isInitialized) {
             chatSession.reset()
-            chatSession.release()
+            if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
+                ServiceLocator.getLlmRuntimeController().releaseSession()
+            } else {
+                chatSession.release()
+            }
         }
     }
     
-    private fun createNewModelSession(newModelItem: ModelItem): ChatSession {
-        val chatService = ChatService.provide()
+    private fun createNewModelSession(newModelItem: ModelItem, currentChatHistory: List<ChatDataItem>): ChatSession {
         val newModelId = newModelItem.modelId!!
         val newModelName = newModelItem.modelName!!
+        if (ModelTypeUtils.isDiffusionModel(newModelName) || ModelTypeUtils.isSanaModel(newModelName)) {
+            val chatService = ChatService.provide()
+            val newConfigPath = ModelUtils.getConfigPathForModel(newModelItem)
+            val newSession = chatService.createSession(
+                newModelId, newModelName,
+                null, currentChatHistory,
+                newConfigPath, true
+            )
+            chatSession = newSession
+            sessionId = newSession.sessionId
+            chatSession.setKeepHistory(true)
+            return newSession
+        }
         val newConfigPath = ModelUtils.getConfigPathForModel(newModelItem)
-        val newSession = chatService.createSession(
-            newModelId, newModelName,
-            null, null, // No previous session data
-            newConfigPath, true // Use new config
+        val result = ServiceLocator.getLlmRuntimeController().ensureSession(
+            modelId = newModelId,
+            forceReload = true,
+            useAppConfig = true,
+            configPath = newConfigPath,
+            sessionId = null,
+            historyList = currentChatHistory,
+            deferLoad = true
         )
+        if (!result.success || result.session == null) {
+            throw IllegalStateException(result.reason ?: "Failed to ensure LLM session for model switch")
+        }
+        val newSession = result.session!!
         chatSession = newSession
         sessionId = newSession.sessionId
         chatSession.setKeepHistory(true)
@@ -417,14 +521,16 @@ class ChatPresenter(
         }
     }
     
-    private fun applyChatHistoryToNewSession(newSession: ChatSession, currentChatHistory: List<ChatDataItem>) {
-        if (newSession is com.alibaba.mnnllm.android.llm.LlmSession && currentChatHistory.isNotEmpty()) {
-            newSession.savedHistory = currentChatHistory
-        }
-    }
-
     companion object {
         private const val TAG: String = "ChatPresenter"
+        internal fun resolveDiffusionPrompt(input: String, modelId: String): String {
+            if (input.isNotBlank()) return input
+            return if (ModelTypeUtils.requiresFaceImageInput(modelId)) {
+                DEFAULT_SANA_PROMPT
+            } else {
+                "A cyberpunk cat in neon lights"
+            }
+        }
     }
 
     interface GenerateListener {

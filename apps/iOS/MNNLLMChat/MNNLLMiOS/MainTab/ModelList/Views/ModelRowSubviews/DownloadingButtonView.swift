@@ -10,7 +10,7 @@ import SwiftUI
 struct DownloadingButtonView: View {
     @ObservedObject var viewModel: ModelListViewModel
     let downloadProgress: Double
-    
+
     var body: some View {
         Button(action: {
             Task {
@@ -21,7 +21,7 @@ struct DownloadingButtonView: View {
                 ProgressView(value: downloadProgress)
                     .progressViewStyle(CircularProgressViewStyle(tint: .accentColor))
                     .frame(width: 24, height: 24)
-                
+
                 Text(String(format: "%.2f%%", downloadProgress * 100))
                     .font(.caption2)
                     .foregroundColor(.secondary)

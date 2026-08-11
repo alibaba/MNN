@@ -7,7 +7,7 @@
 //
 
 #include "VulkanBackend.hpp"
-#include <mutex>
+#include <algorithm>
 #include "core/Execution.hpp"
 #include "core/Macro.h"
 #include <MNN/Tensor.hpp>
@@ -96,10 +96,10 @@ static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest, 
     dest->unmap();
 }
 
-VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
+VulkanBackend::VulkanBackend(const VulkanRuntime* runtime) : Backend(MNN_FORWARD_VULKAN) {
     mRuntime = runtime;
     mDirect = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_RECORD_BATCH) == 0;
-    mUseFP16 = (info.user->precision != BackendConfig::Precision_High && mRuntime->mDevice->getFP16Support());
+    mUseFP16 = (mRuntime->mPrecision != BackendConfig::Precision_High && mRuntime->mDevice->getFP16Support());
     std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(runtime->mBufferPool.get());
     mDynamicBufferPool.resize(2);
     mDynamicBufferPool[0].reset(new EagerBufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
@@ -110,9 +110,6 @@ VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& 
 #ifdef ENABLE_VULKAN_TIME_PROFILE
     mTimeProfiler = std::make_shared<VulkanTimeProfiler>(dev);
 #endif
-    if (!mDirect) {
-        mCmdBuffer.reset(runtime->mCmdPool->allocBuffer());
-    }
     std::string deviceName = dev.proty().deviceName;
     if(deviceName.find("Apple") != std::string::npos){
         mUseAutoTune = false;
@@ -122,7 +119,8 @@ VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& 
 
 VulkanBackend::~VulkanBackend() {
     /*keep release order*/
-    mCmdBuffer = nullptr;
+    mCurrentIndirectSegment = nullptr;
+    mIndirectSegments.clear();
     mCmdBuffers.clear();
     mFence = nullptr;
 }
@@ -130,13 +128,35 @@ void VulkanBackend::pushCommand(VkCommandBuffer buffer) const {
     mCmdBuffers.emplace_back(buffer);
 }
 
-const VulkanPipeline* VulkanBackend::getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
-                                                 const std::vector<uint32_t>& localSize) const {
-    return mRuntime->mPipelineFactory->getPipeline(key, types, localSize);
+std::shared_ptr<VulkanCommandPool::Buffer> VulkanBackend::acquireIndirectSegmentForRecord() {
+    MNN_ASSERT(!mDirect);
+    if (nullptr == mCurrentIndirectSegment.get()) {
+        mCurrentIndirectSegment.reset(mRuntime->mCmdPool->allocBuffer());
+        mCurrentIndirectSegment->begin(0);
+        mCurrentIndirectSegmentOpCount = 0;
+    }
+    return mCurrentIndirectSegment;
 }
 
-SharedPtr<VulkanPipeline> VulkanBackend::getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types) {
-    return mRuntime->mPipelineFactory->getPrivatePipeline(key, types);
+void VulkanBackend::finishIndirectRecordedOp() {
+    if (mDirect) {
+        return;
+    }
+    MNN_ASSERT(nullptr != mCurrentIndirectSegment.get());
+    ++mCurrentIndirectSegmentOpCount;
+    if (mCurrentIndirectSegmentOpCount >= kIndirectSegmentOpLimit) {
+        _sealIndirectSegment();
+    }
+}
+
+const VulkanPipeline* VulkanBackend::getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
+                                                 const std::vector<uint32_t>& localSize,
+                                                 const std::vector<uint32_t>& specConstants) const {
+    return mRuntime->mPipelineFactory->getPipeline(key, types, localSize, specConstants);
+}
+
+SharedPtr<VulkanPipeline> VulkanBackend::getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& specConstants) {
+    return mRuntime->mPipelineFactory->getPrivatePipeline(key, types, specConstants);
 }
 
 void VulkanBackend::onResizeBegin() {
@@ -146,12 +166,12 @@ void VulkanBackend::onResizeBegin() {
     }
 #endif
     if (!mDirect) {
-        mCmdBuffer->begin(0);
+        _resetIndirectSegments();
     }
 }
 ErrorCode VulkanBackend::onResizeEnd() {
     if (!mDirect) {
-        mCmdBuffer->end();
+        _sealIndirectSegment();
     }
     mHostBuffer.reset();
     return NO_ERROR;
@@ -185,7 +205,7 @@ VULKAN_TENSOR VulkanBackend::getBuffer(const Tensor* tensor) const {
 std::pair<const VulkanBuffer*, size_t> VulkanBackend::getTensorBuffer(const Tensor* tensor) const {
     auto mem = (VulkanBuffer*)(tensor->deviceId());
     MNN_ASSERT(nullptr != mem);
-    return std::make_pair(mem, TensorUtils::getDescribe(tensor)->extra.offset);
+    return std::make_pair(mem, TensorUtils::getDescribeOrigin(tensor)->offset);
 }
 
 size_t VulkanBackend::getTensorSize(const Tensor* tensor) const {
@@ -200,19 +220,27 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
     //FUNC_PRINT_ALL(tensor, p);
     auto alignSize = getTensorSize(tensor);
     auto MTensor     = const_cast<Tensor*>(tensor);
-    auto des = TensorUtils::getDescribe(tensor);
+    auto des = TensorUtils::getDescribeOrigin(tensor);
     if (Backend::STATIC == storageType) {
         auto newBuffer = mRuntime->mBufferPool->alloc(alignSize);
+        if (nullptr == newBuffer.first) {
+            MNN_ERROR("Vulkan alloc static buffer failed, size=%zu\n", alignSize);
+            return nullptr;
+        }
         auto mem = new VulkanMemRelease(mRuntime->mBufferPool.get(), newBuffer, alignSize);
         MTensor->buffer().device = (uint64_t)(newBuffer.first);
-        des->extra.offset = newBuffer.second;
+        des->offset = newBuffer.second;
         return mem;
     }
     bool seperate  = storageType == Backend::DYNAMIC_SEPERATE;
     auto newBuffer = mCurrentDynamicBufferPool->alloc(alignSize, seperate);
+    if (nullptr == newBuffer.first) {
+        MNN_ERROR("Vulkan alloc dynamic buffer failed, size=%zu\n", alignSize);
+        return nullptr;
+    }
     auto mem = new VulkanMemRelease(mCurrentDynamicBufferPool, newBuffer, alignSize);
     MTensor->buffer().device = (uint64_t)(newBuffer.first);
-    des->extra.offset = newBuffer.second;
+    des->offset = newBuffer.second;
     return mem;
 }
 bool VulkanBackend::onSelectDynamicAllocator(int index, int maxIndex) {
@@ -238,6 +266,7 @@ void VulkanBackend::recycleUniform(std::shared_ptr<VulkanBuffer> buffer) {
 
 bool VulkanBackend::onClearBuffer() {
     mCurrentDynamicBufferPool->release(false);
+    _resetIndirectSegments();
     return true;
 }
 Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -274,23 +303,31 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 }
 
 void VulkanBackend::onExecuteBegin() const {
-    if (!mDirect) {
-        mCmdBuffers.push_back(mCmdBuffer->get());
-    }
-    // FUNC_PRINT_ALL(mDynamicMemoryPool->computeSize(), f);
 }
 
 void VulkanBackend::onExecuteEnd() const {
+    if (!mDirect) {
+        mCmdBuffers.reserve(mCmdBuffers.size() + mIndirectSegments.size());
+        for (auto& segment : mIndirectSegments) {
+            mCmdBuffers.push_back(segment->get());
+        }
+    }
 #ifdef ENABLE_VULKAN_TIME_PROFILE
     auto startTime = std::chrono::high_resolution_clock::now();
     _finish();
     auto endTime = std::chrono::high_resolution_clock::now();
     float totalTime = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime).count() / (1e6f);
     if (mTimeProfiler) {
+        // Store Execution-level GPU time so callers can query it via
+        // Runtime::onGetLastGpuTimeMs() without parsing printed output.
+        mRuntime->mLastGpuTimeMs = mTimeProfiler->getTotalTime(VulkanTimeProfiler::Kind::Execution);
+
+#ifndef MNN_GPU_PROFILE_SILENT
         MNN_PRINT("\n=============== Vulkan Time Profiling (Begin) ===============\n");
         mTimeProfiler->printTimeProfile();
         MNN_PRINT("Total time calculated by CPU is %6.2f ms.\n", totalTime);
         MNN_PRINT("\n================ Vulkan Time Profiling (End) ================\n");
+#endif
     }
 #else
     _finish();
@@ -321,6 +358,26 @@ void VulkanBackend::_finish() const {
     auto res = mFence->wait();
     MNN_VK_CHECK(res);
     mCmdBuffers.clear();
+}
+
+void VulkanBackend::_resetIndirectSegments() {
+    mCurrentIndirectSegment = nullptr;
+    mIndirectSegments.clear();
+    mCurrentIndirectSegmentOpCount = 0;
+}
+
+void VulkanBackend::_sealIndirectSegment() {
+    if (nullptr == mCurrentIndirectSegment.get()) {
+        return;
+    }
+    if (mCurrentIndirectSegmentOpCount <= 0) {
+        mCurrentIndirectSegment = nullptr;
+        return;
+    }
+    mCurrentIndirectSegment->end();
+    mIndirectSegments.emplace_back(mCurrentIndirectSegment);
+    mCurrentIndirectSegment = nullptr;
+    mCurrentIndirectSegmentOpCount = 0;
 }
 
 const VulkanDevice& VulkanBackend::device() const {
@@ -358,6 +415,19 @@ void VulkanBackend::copyGPUToGPUBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, V
     bufferCopy.srcOffset = srcOffset;
     vkCmdCopyBuffer(cmdbuffer->get(), srcBuffer, dstBuffer,
                     1, &bufferCopy);
+    cmdbuffer->end();
+    pushCommand(cmdbuffer->get());
+    _finish();
+}
+
+void VulkanBackend::copyGPUToGPUBufferRegions(VkBuffer srcBuffer, VkBuffer dstBuffer, const VkBufferCopy* regions,
+                                              uint32_t regionCount) const {
+    if (regionCount == 0 || regions == nullptr) {
+        return;
+    }
+    auto cmdbuffer = mCmdBufferForCopy;
+    cmdbuffer->begin(0);
+    vkCmdCopyBuffer(cmdbuffer->get(), srcBuffer, dstBuffer, regionCount, regions);
     cmdbuffer->end();
     pushCommand(cmdbuffer->get());
     _finish();
@@ -403,7 +473,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         _finish();
         auto format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
         auto buffer = reinterpret_cast<VulkanBuffer*>(dstTensor->deviceId());
-        auto offset = TensorUtils::getDescribe(dstTensor)->extra.offset;
+        auto offset = TensorUtils::getDescribeOrigin(dstTensor)->offset;
         // host->gpu
         if(format != TensorUtils::getDescribe(srcTensor)->dimensionFormat) {
             tempTensor.reset(Tensor::create(dstTensor->shape(), dstTensor->getType(), nullptr, _convert(format)));
@@ -439,7 +509,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         size_t cpSize = calculateCpSize(dstTensor);
         _requireHostBuffer(cpSize);
         auto buffer = reinterpret_cast<VulkanBuffer*>(srcTensor->deviceId());
-        auto offset = TensorUtils::getDescribe(srcTensor)->extra.offset;
+        auto offset = TensorUtils::getDescribeOrigin(srcTensor)->offset;
         auto cmdbuffer = mCmdBufferForCopy;
         cmdbuffer->begin(0);
         VkBufferCopy bufferCopy;
@@ -461,8 +531,8 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         VkBufferCopy bufferCopy;
         size_t cpSize = calculateCpSize(srcTensor);
         bufferCopy.size = cpSize;
-        bufferCopy.dstOffset = TensorUtils::getDescribe(dstTensor)->extra.offset;
-        bufferCopy.srcOffset = TensorUtils::getDescribe(srcTensor)->extra.offset;
+        bufferCopy.dstOffset = TensorUtils::getDescribeOrigin(dstTensor)->offset;
+        bufferCopy.srcOffset = TensorUtils::getDescribeOrigin(srcTensor)->offset;
         vkCmdCopyBuffer(buffer->get(), reinterpret_cast<VulkanBuffer*>(srcTensor->deviceId())->buffer(), reinterpret_cast<VulkanBuffer*>(dstTensor->deviceId())->buffer(),
                         1, &bufferCopy);
         buffer->end();

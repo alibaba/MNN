@@ -320,7 +320,7 @@ mnncompress 是基于主流训练框架TF/Pytorch的模型压缩工具，需要�
         quantizer.resume_wq_graph()
         train(quant_model, data, optimizer)
         test(quant_model, data)
-        if 触发模型保存条件：
+        if should_save_model:
             # 保存模型之前去掉插入的节点，恢复原模型结构
             quantizer.strip_wq_ops()
             # 保存模型，注意index，即模型和保存MNN模型压缩参数文件是一一对应的
@@ -399,7 +399,7 @@ mnncompress 是基于主流训练框架TF/Pytorch的模型压缩工具，需要�
         quantizer.resume_qat_graph()
         train(quant_model, data, optimizer)
         test(quant_model, data)
-        if 触发模型保存条件：
+        if should_save_model:
             # 保存模型之前去掉插入的节点，恢复原模型结构
             quantizer.strip_qat_ops()
             # 保存模型，注意index，即模型和保存MNN模型压缩参数文件是一一对应的

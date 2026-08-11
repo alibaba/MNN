@@ -1,0 +1,52 @@
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer SrcBuffer {
+    uint SrcRaw[];
+};
+
+layout(binding = 1) writeonly buffer DstBuffer {
+    uint DstQ8[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint ci;
+    uint co;
+    uint padN;
+    uint weightStride;
+    uint srcBytes;
+} pc;
+
+uint loadByte(uint byteIndex) {
+    if (byteIndex >= pc.srcBytes) {
+        return 0u;
+    }
+    const uint word = SrcRaw[byteIndex >> 2u];
+    return (word >> ((byteIndex & 3u) * 8u)) & 0xFFu;
+}
+
+void main() {
+    const uint k8 = gl_GlobalInvocationID.x;
+    const uint row = gl_GlobalInvocationID.y;
+    if (row >= pc.padN || k8 >= pc.weightStride) {
+        return;
+    }
+
+    const uint kBase = k8 << 3u;
+    uint packed = 0x88888888u;
+
+    if (row < pc.co) {
+        const uint rowBase = row * pc.ci;
+        for (uint i = 0u; i < 8u; ++i) {
+            const uint k = kBase + i;
+            uint raw = 8u;
+            if (k < pc.ci) {
+                const uint logicalIndex = rowBase + k;
+                const uint byte = loadByte(logicalIndex >> 1u);
+                raw = ((logicalIndex & 1u) == 0u) ? ((byte >> 4u) & 0xFu) : (byte & 0xFu);
+            }
+            packed = (packed & ~(0xFu << (i * 4u))) | (raw << (i * 4u));
+        }
+    }
+
+    DstQ8[row * pc.weightStride + k8] = packed;
+}

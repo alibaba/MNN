@@ -150,11 +150,14 @@ private:
 };
 class VulkanPipeline : public RefCount {
 public:
-    VulkanPipeline(const VulkanDevice& dev, VkPipeline p, SharedPtr<VulkanLayout> layout, VkPipelineBindPoint type, SharedPtr<VulkanShaderModule> shader, SharedPtr<VulkanPipelineCache> cache);
+    VulkanPipeline(const VulkanDevice& dev, VkPipeline p, SharedPtr<VulkanLayout> layout, VkPipelineBindPoint type, SharedPtr<VulkanShaderModule> shader, SharedPtr<VulkanPipelineCache> cache, const std::vector<uint32_t>& specConstants = std::vector<uint32_t>());
     virtual ~VulkanPipeline();
 
     VkPipeline get() const {
         return mPipeline;
+    }
+    VkPipelineLayout layout() const {
+        return mLayout->get();
     }
 
     void bind(VkCommandBuffer buffer, VkDescriptorSet describeSet) const;
@@ -171,6 +174,7 @@ private:
     SharedPtr<VulkanLayout> mLayout;
     SharedPtr<VulkanShaderModule> mShader;
     SharedPtr<VulkanPipelineCache> mCache;
+    std::vector<uint32_t> mSpecConstants;
 };
 
 class VulkanPipelineFactory : public NonCopyable {
@@ -178,10 +182,14 @@ public:
     VulkanPipelineFactory(const VulkanDevice& dev);
     ~VulkanPipelineFactory();
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
-                                      const std::vector<uint32_t>& localSize = std::vector<uint32_t>(), const bool separate = false) const;
-    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types);
+                                      const std::vector<uint32_t>& localSize = std::vector<uint32_t>(), 
+                                      const std::vector<uint32_t>& specConstants = std::vector<uint32_t>(),
+                                      const bool separate = false) const;
+    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& specConstants = std::vector<uint32_t>());
     VulkanPipeline* createGraphicPipeline(SharedPtr<VulkanLayout> layout, VulkanGraphicPipelineCache* cache) const;
-    VulkanPipeline* createComputePipeline(const uint8_t* data, size_t dataSize, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& localSize) const;
+    VulkanPipeline* createComputePipeline(const uint8_t* data, size_t dataSize, const std::vector<VkDescriptorType>& types, 
+                                          const std::vector<uint32_t>& localSize, 
+                                          const std::vector<uint32_t>& specConstants = std::vector<uint32_t>()) const;
     SharedPtr<VulkanShaderModule> createShader(const std::string& key) const;
     void reset();
 private:

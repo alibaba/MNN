@@ -1,39 +1,116 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:background="#999999">
+    app:cardBackgroundColor="?colorSurface"
+    app:cardCornerRadius="20dp"
+    app:cardElevation="10dp"
+    app:strokeColor="?colorOutlineVariant"
+    app:strokeWidth="1dp">
+
     <LinearLayout
         android:id="@+id/popup_menu_root"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:divider="@drawable/bg_popup_menu_divider"
+        android:minWidth="232dp"
         android:orientation="vertical"
-        android:padding="8dp">
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:showDividers="middle">
 
-        <TextView
-            android:id="@+id/assistant_text_copy"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="?colorOnSurface"
-            android:text="@string/copy_text"
-            android:padding="8dp"/>
+        <LinearLayout
+            android:id="@+id/assistant_text_copy_row"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingEnd="16dp">
 
-        <TextView
-            android:id="@+id/assistant_text_select"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="?colorOnSurface"
-            android:text="@string/select_text"
-            android:padding="8dp"/>
+            <TextView
+                android:id="@+id/assistant_text_copy"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:duplicateParentState="true"
+                android:text="@string/copy_text"
+                android:textColor="?colorOnSurface"
+                android:textSize="16sp"
+                android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/assistant_text_report"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="?colorOnSurface"
-            android:text="@string/raise_issue"
-            android:padding="8dp"/>
+            <ImageView
+                android:id="@+id/assistant_text_copy_icon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:duplicateParentState="true"
+                android:src="@drawable/ic_copy"
+                android:tint="?colorOnSurfaceVariant" />
+        </LinearLayout>
 
+        <LinearLayout
+            android:id="@+id/assistant_text_select_row"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingEnd="16dp">
+
+            <TextView
+                android:id="@+id/assistant_text_select"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:duplicateParentState="true"
+                android:text="@string/select_text"
+                android:textColor="?colorOnSurface"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/assistant_text_select_icon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:duplicateParentState="true"
+                android:src="@drawable/ic_select_text"
+                android:tint="?colorOnSurfaceVariant" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/assistant_text_report_row"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingEnd="16dp">
+
+            <TextView
+                android:id="@+id/assistant_text_report"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:duplicateParentState="true"
+                android:text="@string/raise_issue"
+                android:textColor="?colorOnSurface"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/assistant_text_report_icon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:duplicateParentState="true"
+                android:src="@drawable/ic_issue"
+                android:tint="?colorOnSurfaceVariant" />
+        </LinearLayout>
     </LinearLayout>
-</androidx.cardview.widget.CardView>
+</com.google.android.material.card.MaterialCardView>

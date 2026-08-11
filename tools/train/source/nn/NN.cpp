@@ -9,7 +9,6 @@
 #include <MNN/expr/ExecutorScope.hpp>
 #include "NN.hpp"
 #include "Distributions.hpp"
-#include "module/ModuleInside.hpp"
 #include "module/PipelineModule.hpp"
 #include "module/WhileModule.hpp"
 #include "module/IfModule.hpp"
@@ -225,10 +224,10 @@ private:
         BatchNormModule* module(new BatchNormModule);
         module->mMomentum = mMomentum;
         module->mEps = mEps;
-        module->mScale = ctx->getOrClone(mScale);
-        module->mBias = ctx->getOrClone(mBias);
-        module->mRunningMean = ctx->getOrClone(mRunningMean);
-        module->mRunningVariance = ctx->getOrClone(mRunningVariance);
+        module->mScale = (mScale);
+        module->mBias = (mBias);
+        module->mRunningMean = (mRunningMean);
+        module->mRunningVariance = (mRunningVariance);
         module->mRunningMeanPos = mRunningMeanPos;
         module->mRunningVariancePos = mRunningVariancePos;
         module->mChannels = mChannels;
@@ -311,8 +310,8 @@ private:
     Module* clone(CloneContext* ctx) const override {
         ConvModule* module(new ConvModule);
         module->mParameter = mParameter;
-        module->mParameter.weight = ctx->getOrClone(mParameter.weight);
-        module->mParameter.bias = ctx->getOrClone(mParameter.bias);
+        module->mParameter.weight = (mParameter.weight);
+        module->mParameter.bias = (mParameter.bias);
         return this->cloneBaseTo(ctx, module);
     }
 
@@ -1041,31 +1040,31 @@ private:
     Module* clone(CloneContext* ctx) const override {
         ConvBNReluFusedModule* module(new ConvBNReluFusedModule);
         module->mConvParameter = mConvParameter;
-        module->mConvParameter.weight = ctx->getOrClone(mConvParameter.weight);
-        module->mConvParameter.bias = ctx->getOrClone(mConvParameter.bias);
+        module->mConvParameter.weight = (mConvParameter.weight);
+        module->mConvParameter.bias = (mConvParameter.bias);
         module->mOption = mOption;
         module->mGroup = mGroup;
-        module->mWeight = ctx->getOrClone(mWeight);
-        module->mBias = ctx->getOrClone(mBias);
+        module->mWeight = (mWeight);
+        module->mBias = (mBias);
         module->mActivation = mActivation;
         module->mBits = mBits;
         module->mLimit = mLimit;
-        module->mLimitScale = ctx->getOrClone(mLimitScale);
-        module->mWeightClampValue = ctx->getOrClone(mWeightClampValue);
-        module->mInputScale = ctx->getOrClone(mInputScale);
-        module->mOutputScale = ctx->getOrClone(mOutputScale);
-        module->mInputMin = ctx->getOrClone(mInputMin);
-        module->mInputMax = ctx->getOrClone(mInputMax);
-        module->mOutputMin = ctx->getOrClone(mOutputMin);
-        module->mOutputMax = ctx->getOrClone(mOutputMax);
-        module->mInputZeroPoint = ctx->getOrClone(mInputZeroPoint);
-        module->mOutputZeroPoint = ctx->getOrClone(mOutputZeroPoint);
+        module->mLimitScale = (mLimitScale);
+        module->mWeightClampValue = (mWeightClampValue);
+        module->mInputScale = (mInputScale);
+        module->mOutputScale = (mOutputScale);
+        module->mInputMin = (mInputMin);
+        module->mInputMax = (mInputMax);
+        module->mOutputMin = (mOutputMin);
+        module->mOutputMax = (mOutputMax);
+        module->mInputZeroPoint = (mInputZeroPoint);
+        module->mOutputZeroPoint = (mOutputZeroPoint);
         module->mInputMinPos = mInputMinPos;
         module->mInputMaxPos = mInputMaxPos;
         module->mOutputMinPos = mOutputMinPos;
         module->mOutputMaxPos = mOutputMaxPos;
-        module->mInputClampValue = ctx->getOrClone(mInputClampValue);
-        module->mOutputClampValue = ctx->getOrClone(mOutputClampValue);
+        module->mInputClampValue = (mInputClampValue);
+        module->mOutputClampValue = (mOutputClampValue);
         module->mMomentum = mMomentum;
         module->mFeatureScaleStatMethod = mFeatureScaleStatMethod;
         module->mScaleUpdateMethod = mScaleUpdateMethod;
@@ -1074,8 +1073,8 @@ private:
             module->registerModel({module->mBatchNorm});
         }
         module->mWinogradAttr = mWinogradAttr;
-        module->mWinogradTransInputMin = ctx->getOrClone(mWinogradTransInputMin);
-        module->mWinogradTransInputMax = ctx->getOrClone(mWinogradTransInputMax);
+        module->mWinogradTransInputMin = (mWinogradTransInputMin);
+        module->mWinogradTransInputMax = (mWinogradTransInputMax);
         module->mWinogradTransInputMinPos = mWinogradTransInputMinPos;
         module->mWinogradTransInputMaxPos = mWinogradTransInputMaxPos;
         module->mWinogradTransWeightScalePos = mWinogradTransWeightScalePos;

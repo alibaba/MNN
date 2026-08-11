@@ -111,6 +111,7 @@ public:
      * @return A vector of float scores, one for each document.
      */
     std::vector<float> compute_scores(const std::string& query, const std::vector<std::string>& documents) override {
+        CHECK_LLM_RUNNING_RET(mLlm->getContext(), std::vector<float>());
         std::string prefix = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n";
         prefix = prefix + "<Instruct>: " + mInstruct + "\n<Query>: " + query + "\n<Document>: ";
         auto suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
@@ -174,8 +175,13 @@ public:
 
         // clear history cache
         mLlm->setKVCacheInfo(total_len, mLlm->getCurrentHistory());
+        
         // forward
-        auto logits = mLlm->forwardRaw(input_embeds, attention_mask, position_ids)[0];
+        auto outputs = mLlm->forwardRaw(input_embeds, attention_mask, position_ids);
+        if(outputs.empty()) {
+            return {};
+        }
+        auto logits = outputs[0];
         auto logits_dim = logits->getInfo()->dim[2];
         auto logits_ptr = logits->readMap<float>();
 
@@ -247,6 +253,7 @@ public:
      * @return A vector of float scores, one for each document.
      */
     std::vector<float> compute_scores(const std::string& query, const std::vector<std::string>& documents) override {
+        CHECK_LLM_RUNNING_RET(mLlm->getContext(), std::vector<float>());
         constexpr int pad_token_id = 1;
         constexpr int eos_token_id = 2;
         std::vector<int> query_ids {0, 6};
@@ -281,10 +288,14 @@ public:
                 mask_ptr[idx] = std::numeric_limits<float>::lowest();
             }
         }
+        
         auto input_embeds = mLlm->embedding(input_ids);
         input_embeds = _Reshape(input_embeds, _var<int>({batch, max_len, -1}, {3}));
         auto position_ids = mLlm->gen_position_ids(max_len);
         auto outputs = mLlm->forwardRaw(input_embeds, attention_mask, position_ids);
+        if(outputs.empty()) {
+            return {};
+        }
         std::vector<float> scores(outputs[0]->readMap<float>(), outputs[0]->readMap<float>() + batch);
         return scores;
     }

@@ -27,6 +27,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | NATIVE_LIBRARY_OUTPUT | 如果构建为动态库，则指定动态库的输出路径，默认为`OFF` |
 | NATIVE_INCLUDE_OUTPUT | 如果构建为动态库，则指定动态库的头文件路径，默认为`OFF` |
 | MNN_AAPL_FMWK        | 是否构建`MNN.framework`替代`*.dylib`，默认为`OFF` |
+| MNN_GENERATE_PODSPEC  | 是否构建`MNN.podspec`以支持CocoaPods发布，默认为`OFF` |
 | MNN_WITH_PLUGIN      | 是否支持`Plugin算子`，默认为`OFF` |
 | MNN_SKIPBUILD_GEOMETRY   | 是否跳过MNN的几何计算编译，若是，MNN引擎仅支持在模型转换工具时加上 --saveStaticModel 转换出来的固定输入形状的模型，默认为`OFF` |
 | MNN_BUILD_MINI       | 是否构建MNN的最小化版本，若是，开启 `MNN_SKIPBUILD_GEOMETRY` 和 `MNN_REDUCE_SIZE`，默认为`OFF` |
@@ -40,6 +41,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_JNI              | 是否构建MNN的JNI支持，默认为`OFF` |
 | MNN_METAL            | 是否构建`Metal`后端，默认为`OFF` |
 | MNN_METAL_TENSOR     | 是否启用`Metal Tensor`接口，该宏仅在`MNN_METAL=ON`时生效，默认为`ON` |
+| MNN_METAL_OP_PROFILE | 是否启用`Metal`后端的逐算子GPU耗时profiling，该宏仅在`MNN_METAL=ON`时生效，默认为`OFF` |
 | MNN_OPENCL           | 是否构建`OpenCL`后端，默认为`OFF` |
 | MNN_OPENGL           | 是否构建`OpenGL`后端，默认为`OFF` |
 | MNN_VULKAN           | 是否构建`Vulkan`后端，默认为`OFF` |
@@ -54,12 +56,15 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_CUDA_QUANT       | 是否打开CUDA 量化文件编译，默认为`OFF` |
 | MNN_CUDA_BF16        | 是否打开CUDA Bf16文件编译，默认为`OFF` |
 | MNN_CUDA_TUNE_PARAM  | 是否打开CUDA TUNE相关文件编译，目前仅支持安培及以上架构，默认为`OFF` |
+| MNN_CUDA_NATIVE_ARCH | 是否仅编译本机检测到的CUDA架构(单显卡环境下加快构建)，默认为`OFF` |
 | MNN_TENSORRT         | 是否构建`TensorRT`后端，默认为`OFF` |
 | MNN_COREML           | 是否构建`CoreML`后端，默认为`OFF` |
 | MNN_NNAPI            | 是否构建`NNAPI`后端，默认为`OFF`  |
 | MNN_QNN              | 是否构建`QNN`后端，默认为`OFF` |
 | MNN_QNN_ONLINE_FINALIZE | 在`MNN_QNN`开启的基础上,是否构建在线编译模式的QNN后端，默认为`ON` |
 | MNN_QNN_CONVERT_MODE | 在`MNN_QNN`开启的基础上,是否构建Convert模式的QNN后端，默认为`OFF` |
+| MNN_HEXAGON          | 是否构建高通`Hexagon DSP`后端，默认为`OFF` ，使用说明见 `source/backend/hexagon/README.md` |
+| MNN_HEXAGON_ASAN     | 是否开启Hexagon后端内部内存一致性检查，该宏仅在`MNN_HEXAGON=ON`时生效，默认为`OFF` |
 | MNN_NEUROPILOT            | 是否构建MLA的`NPU`离线转换后端或执行插件，默认为`OFF`  |
 | MNN_NPU            | 是否构建HIAI的`NPU`后端，默认为`OFF`  |
 | MNN_USE_SPARSE_COMPUTE | 是否使用稀疏计算，默认为`ON` |
@@ -73,6 +78,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_AVX512_VNNI      | 是否使用`avx512_vnni`指令，该宏仅在`MNN_AVX512=ON`时生效，默认为`OFF` |
 | MNN_OPENCL_SIZE_CUT  | 是否为了降低OpenCL大小而关闭OpenCL Buffer实现，该宏仅在`MNN_OPENCL=ON`时生效，默认为`OFF` |
 | MNN_GPU_TIME_PROFILE | 是否打开OpenCL后端及Vulkan后端的Kernel性能Profile，该宏仅在`MNN_OPENCL=ON`或`MNN_VULKAN=ON`时生效，默认为`OFF` |
+| MNN_GPU_PROFILE_SILENT | 在GPU性能Profile开启时，仅累计总耗时而不打印每个Kernel的详细信息，可通过`Executor::getLastGpuTimeMs()`获取最近一次推理的GPU总耗时（毫秒），该宏仅在`MNN_GPU_TIME_PROFILE=ON`时生效，默认为`OFF` |
 | MNN_METALLIB_SOURCE  | 使用Metal时是否直接使用Metal源码，该宏仅在`MNN_METAL=ON`时生效，默认为`ON` |
 | MNN_VULKAN_DEBUG     | 是否打开Vulkan的DEBUG模式，该宏仅在`MNN_VULKAN=ON`时生效，默认为`OFF` |
 | MNN_OPENGL_REGEN     | 是否重新生成OpenGL Kenel，该宏仅在`MNN_OPENGL=ON`时生效，默认为`OFF` |
@@ -95,7 +101,6 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_AUDIO_TEST       | 构建MNN的Audio功能是否开启单元测试，默认为`OFF` |
 | MNN_VULKAN_IMAGE     | 构建MNN的Vulkan后端时采用Image内存模式，以便支持FP16和部分移动端上GPU的加速，默认为`ON` |
 | MNN_LOW_MEMORY       | 是否支持低内存模式，支持低内存模式使用权值量化模型并设置`low_memory`则会使用计算时反量化，默认为`OFF` |
-| MNN_CPU_WEIGHT_DEQUANT_GEMM       | 是否编译CPU权重反量化的矩阵乘Kernel， 如果打开该编译宏并且在CPU推理时设置MNN::BackendConfig::MemoryMode=Memory_Normal，就会使用权重反量化算子进行权重量化模型的推理，默认为`OFF` |
 | MNN_SUPPORT_RENDER   | 是否支持图形渲染相关算子实现，默认为 `OFF` |
 | MNN_SUPPORT_TRANSFORMER_FUSE | 是否支持Fuse Transformer相关OP实现，默认为 `OFF` |
 | MNN_BUILD_LLM        | 是否构建基于MNN的llm库和demo，默认为`OFF` ，打开时 MNN_LOW_MEMORY , MNN_SUPPORT_TRANSFORMER_FUSE 对应开启|
@@ -104,3 +109,10 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库，默认为`ON` |
 | MNN_KLEIDIAI_DEFAULT_ON | 是否默认使用KLEIDIAI的Kernel, 默认为`OFF` |
 | MNN_USE_RVV          | 是否启用RISC-V向量扩展支持，默认为`OFF` |
+| MNN_RVV_FAST_MATH    | 是否为RISC-V RVV优化Kernel启用`-ffast-math`，默认为`OFF` |
+| MNN_RVV_SPACEMIT_IME2 | 是否构建独立的SpacemiT K3 IME2专用目标；vendor宏和ISA不会传播到`MNNCPU`或标准`MNNRVV`，默认为`OFF` |
+| MNN_MUSA_QUANT       | 是否开启 MUSA 量化相关代码编译，默认为`OFF` |
+| MNN_MUSA_BF16        | 是否开启 MUSA BFloat16 代码编译，默认为`OFF` |
+| MNN_MUSA_COMPAT_STUB | MUSA 兼容存根模式，仅编译不依赖真实 GPU，默认为`ON` |
+| MNN_MUSA_COMPAT_CUDA | 将 MUSA API 映射到 CUDA 进行编译测试，默认为`OFF` |
+| MNN_MUSA_NATIVE      | 使用原生 MUSA SDK 编译，默认为`OFF` |

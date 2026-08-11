@@ -179,7 +179,13 @@ void CLRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vec
     }
 }
 void CLRuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
-    mInfo.gpuMode = numberThread;
+    // numberThread carries the GPU mode bits (memory type + tuning level).
+    // A RuntimeManager created inside an existing executor scope shares this runtime
+    // (reset=false); overwriting gpuMode here would silently switch the global
+    // executor's memory mode (e.g. BUFFER -> AUTO/IMAGE) and tuning level.
+    if (full) {
+        mInfo.gpuMode = numberThread;
+    }
 }
 
 bool CLRuntime::onSetCache(const void* buffer, size_t size) {
@@ -218,23 +224,53 @@ Backend* CLRuntime::onCreate(const BackendConfig* config, Backend* origin) const
         precision = BackendConfig::Precision_High;
     }
     
-    if (hint().weightMemoryPath.size() > 0 && mMmapPool.get() == nullptr) {
+    if (hint().weightMemoryPath.size() > 0 && mUseMmapPool) {
         // Only support set weightmap dir once
         // forward_type, precision_type, memory_type, power_type
         std::string prefix = "1_0_0_0_";
         std::string posfix = "opencl.weight";
         auto syncPath = prefix + "sync." + posfix;
         bool autoRemove = true;
+        size_t mmapSize = static_cast<size_t>(hint().mmapFileSize) * 1024 * 1024;
         if (hint().useCachedMmap) {
             autoRemove = false;
             std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, syncPath);
-            const_cast<RuntimeHint&>(hint()).useCachedMmap += MNNFileExist(fileName.c_str());
+            if(MNNFileExist(fileName.c_str())){
+                auto file = MNNOpenFile(fileName.c_str(), MNN_FILE_READ | MNN_FILE_WRITE);
+                auto fileSize = MNNGetFileSize(file);
+                size_t oldMmapSize = 0;
+                if(fileSize >= sizeof(size_t)){
+                    auto ptr = MNNMmapFile(file, fileSize, true);
+                    if(ptr != nullptr){
+                        oldMmapSize = ((size_t*)ptr)[0];
+                    }
+                    MNNUnmapFile(ptr, fileSize);
+                }
+                if(oldMmapSize != mmapSize) {
+                    // invalid sync file
+                    MNN_ERROR("Invalid file size %d, now need file size %d\n", oldMmapSize, mmapSize);
+                    MNNRemoveFile(fileName.c_str());
+                    int allocTimes = 0;
+                    std::string name = prefix + std::to_string(allocTimes) + "." + posfix;
+                    std::string AllocfileName = MNNFilePathConcat(hint().weightMemoryPath, name);
+                    while(MNNFileExist(AllocfileName.c_str())){
+                        MNNRemoveFile(AllocfileName.c_str());
+                        allocTimes++;
+                        name = prefix + std::to_string(allocTimes) + "." + posfix;
+                        AllocfileName = MNNFilePathConcat(hint().weightMemoryPath, name);
+                    }
+                }else{
+                    const_cast<RuntimeHint&>(hint()).useCachedMmap += MNNFileExist(fileName.c_str());
+                }
+            }
         }
-        std::shared_ptr<OpenCLMmapAllocator> mmap;
-        mmap.reset(new OpenCLMmapAllocator(hint().weightMemoryPath.c_str(), prefix.c_str(), posfix.c_str(), autoRemove));
-        mMmapPool.reset(new MmapPool(mmap, mOpenCLRuntime->context(), mOpenCLRuntime->commandQueue(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, hint().useCachedMmap));
+        if(mMmapPool.get() == nullptr){
+            std::shared_ptr<OpenCLMmapAllocator> mmap;
+            mmap.reset(new OpenCLMmapAllocator(hint().weightMemoryPath.c_str(), prefix.c_str(), posfix.c_str(), autoRemove));
+            mMmapPool.reset(new MmapPool(mmap, mOpenCLRuntime->context(), mOpenCLRuntime->commandQueue(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, hint().useCachedMmap, mmapSize));
+        }
     }
-    auto backend = new OpenCLBackend(precision, memory, mInfo.gpuMode, mImagePool, mBufferPool, mMmapPool, this);
+    auto backend = new OpenCLBackend(precision, memory, mInfo.gpuMode, this);
     backend->setMetaPtr(pMeta);
     return backend;
 }
@@ -242,7 +278,7 @@ Backend* CLRuntime::onCreate(const BackendConfig* config, Backend* origin) const
 void CLRuntime::onGabageCollect(int level) {
     mImagePool->releaseFreeList();
     mBufferPool->releaseFreeList();
-    if(mMmapPool != nullptr){
+    if(mMmapPool.get() != nullptr){
         mMmapPool->releaseFreeList();
     }
 }
@@ -263,7 +299,7 @@ std::map<std::pair<OpType, GpuMemObject>, OpenCLBackend::Creator*>* gCreator() {
     return creators;
 };
 
-OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, int gpuMode, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, std::shared_ptr<MmapPool> mmapPool, const CLRuntime *runtime)
+OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, int gpuMode, const CLRuntime *runtime)
     : Backend(MNN_FORWARD_OPENCL) {
 
     mGpuMode = gpuMode;
@@ -284,9 +320,6 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
     mMemory = memory;
     // set tuneLevel, memtype, record mode
     setGpuMode(gpuMode);
-    mStaticImagePool = imgPool;
-    mStaticBufferPool = bufPool;
-    mStaticAllocatorMMap = mmapPool;
     if(mOpenCLRuntime.get()){
         if(mOpenCLRuntime->isCreateError() == true) {
             mIsCreateError = true;
@@ -455,29 +488,49 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
         size = ROUND_UP(size, 2);
         if (storageType == DYNAMIC_SEPERATE) {
             auto buffer = mBufferPool->alloc(size*typeSize, true);
+            if (nullptr == buffer) {
+                MNN_ERROR("OpenCL alloc buffer failed (DYNAMIC_SEPERATE), size=%zu\n", size*typeSize);
+                return nullptr;
+            }
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
             return new CLMemReleaseBuffer(buffer, mBufferPool);
         }
         if (storageType == DYNAMIC) {
             auto buffer = mBufferPool->alloc(size*typeSize);
+            if (nullptr == buffer) {
+                MNN_ERROR("OpenCL alloc buffer failed (DYNAMIC), size=%zu\n", size*typeSize);
+                return nullptr;
+            }
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
             return new CLMemReleaseBuffer(buffer, mBufferPool);
         }
         if (storageType == DYNAMIC_IN_EXECUTION){
             auto node = mExecutionBufferPool->alloc(size*typeSize);
+            if (nullptr == node.get()) {
+                MNN_ERROR("OpenCL alloc exec buffer failed, size=%zu\n", size*typeSize);
+                return nullptr;
+            }
             ((Tensor*)nativeTensor)->buffer().device = reinterpret_cast<uint64_t>(node.get());
             return new CLReleaseExecutionBuffer(node, mExecutionBufferPool.get());
         }
         MNN_ASSERT(storageType == STATIC);
-        if(mCLRuntime->hint().useCachedMmap && mStaticAllocatorMMap.get() != nullptr)
+        if(mCLRuntime->hint().useCachedMmap && mCLRuntime->mMmapPool.get() != nullptr && mCLRuntime->mUseMmapPool)
         {
-            auto buffer = mStaticAllocatorMMap->allocBuffer(size*typeSize).get();
-            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
-            return new CLMemReleaseMmapBuffer(buffer, mStaticAllocatorMMap.get());
-        }else{
-            auto buffer = mStaticBufferPool->alloc(size*typeSize);
-            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
-            return new CLMemReleaseBuffer(buffer, mStaticBufferPool.get());
+            auto buffer = mCLRuntime->mMmapPool->allocBuffer(size*typeSize);
+            if (nullptr != buffer.get()) {
+                ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer.get();
+                return new CLMemReleaseMmapBuffer(buffer.get(), mCLRuntime->mMmapPool.get());
+            }
+            MNN_ERROR("OpenCL mmap alloc failed, falling back to buffer pool, size=%zu\n", size*typeSize);
+        }
+        {
+            auto buffer = mCLRuntime->mBufferPool->alloc(size*typeSize);
+            if (nullptr == buffer) {
+                MNN_ERROR("OpenCL alloc buffer failed (STATIC), size=%zu\n", size*typeSize);
+                return nullptr;
+            }
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
+            return new CLMemReleaseBuffer(buffer, mCLRuntime->mBufferPool.get());
         }
     }
     else
@@ -507,18 +560,30 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
 
         if (storageType == DYNAMIC_SEPERATE) {
             auto image                               = mImagePool->alloc(imageWidth, imageHeight, dataType, true);
-            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image; // fix
+            if (nullptr == image) {
+                MNN_ERROR("OpenCL alloc image failed (DYNAMIC_SEPERATE), %zux%zu\n", imageWidth, imageHeight);
+                return nullptr;
+            }
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image;
             return new CLMemReleaseImage(image, mImagePool);
         }
         if (storageType == DYNAMIC) {
             auto image                               = mImagePool->alloc(imageWidth, imageHeight, dataType);
-            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image; // fix
+            if (nullptr == image) {
+                MNN_ERROR("OpenCL alloc image failed (DYNAMIC), %zux%zu\n", imageWidth, imageHeight);
+                return nullptr;
+            }
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image;
             return new CLMemReleaseImage(image, mImagePool);
         }
         MNN_ASSERT(storageType == STATIC);
-        auto image                               = mStaticImagePool->alloc(imageWidth, imageHeight, dataType);
-        ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image; // fix
-        return new CLMemReleaseImage(image, mStaticImagePool.get());
+        auto image                               = mCLRuntime->mImagePool->alloc(imageWidth, imageHeight, dataType);
+        if (nullptr == image) {
+            MNN_ERROR("OpenCL alloc image failed (STATIC), %zux%zu\n", imageWidth, imageHeight);
+            return nullptr;
+        }
+        ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image;
+        return new CLMemReleaseImage(image, mCLRuntime->mImagePool.get());
     }
 }
 
@@ -546,8 +611,9 @@ bool OpenCLBackend::onSelectDynamicAllocator(int index, int maxIndex) {
 bool OpenCLBackend::onClearBuffer() {
     mImagePool->clear();
     mBufferPool->clear();
-    if(mStaticAllocatorMMap.get() != nullptr){
-        mStaticAllocatorMMap.get()->sync();
+    if(mCLRuntime->mUseMmapPool && mCLRuntime->mMmapPool.get() != nullptr){
+        mCLRuntime->mMmapPool->sync();
+        mCLRuntime->mUseMmapPool = false;
     }
     if(mMapMem.second != nullptr) {
     #ifdef MNN_OPENCL_SVM_ENABLE
@@ -676,7 +742,9 @@ void OpenCLBackend::onResizeBegin() {
     mOpenCLRuntime->setCommandQueueProfileEnable();
 #endif
     // update mUseRecordableQueueSize if hint has changed
-    mUseRecordableQueueSize = mCLRuntime->hint().encorderNumForCommit <= mUseRecordableQueueSize ? mCLRuntime->hint().encorderNumForCommit : mUseRecordableQueueSize;
+    uint32_t hintSize = mCLRuntime->hint().encorderNumForCommit;
+    uint32_t maxSize = mOpenCLRuntime->getUseRecordableQueueSize();
+    mUseRecordableQueueSize = hintSize < maxSize ? hintSize : maxSize;
     mUseRecordQueue &= mUseRecordableQueueSize > 0 ? true : false;
     releaseRecord();
 }
@@ -702,6 +770,11 @@ void OpenCLBackend::onExecuteEnd() const {
     clearRecord();
     enqeueRecord();
     mOpenCLRuntime->printEventTime();
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    // Store GPU kernel time so callers can query it via
+    // Runtime::onGetLastGpuTimeMs() without parsing printed output.
+    mCLRuntime->mLastGpuTimeMs = (float)mOpenCLRuntime->mKernelTime / 1000.0f;
+#endif
 }
 
 
@@ -792,7 +865,12 @@ void OpenCLBackend::copyFromDeviceInt8(const Tensor* srcTensor, const Tensor* ds
 #endif
 
 #ifdef ENABLE_OPENCL_TIME_PROFILER
+    // Store GPU kernel time so callers can query it via
+    // Runtime::onGetLastGpuTimeMs() without parsing printed output.
+    mCLRuntime->mLastGpuTimeMs = (float)mOpenCLRuntime->mKernelTime / 1000.0f;
+#ifndef MNN_GPU_PROFILE_SILENT
     MNN_PRINT("total kernel time:%d us\n", (int)mOpenCLRuntime->mKernelTime);
+#endif
 #endif
 }
 
@@ -905,7 +983,7 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
     mOpenCLRuntime->printEventTime();
 
     cl_int res;
-#ifdef ENABLE_OPENCL_TIME_PROFILER
+#if defined(ENABLE_OPENCL_TIME_PROFILER) && !defined(MNN_GPU_PROFILE_SILENT)
     mOpenCLRuntime->commandQueue().finish();
     {
         AUTOTIME;
@@ -1009,19 +1087,19 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
     interTensor.buffer().device = (uint64_t)mHostBuffer.second.get();
     TensorUtils::getDescribe(&interTensor)->dimensionFormat = srcDimensionFormat;
 
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
+#if defined(ENABLE_OPENCL_TIME_PROFILER) && !defined(MNN_GPU_PROFILE_SILENT)
     mOpenCLRuntime->commandQueue().finish();
     {
         AUTOTIME;
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
     }
-    #else
+#else
     auto res = mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
     if(res != CL_SUCCESS) {
         MNN_ERROR("OpenCL enqueue write error:%d\n", res);
         return;
     }
-    #endif
+#endif
 
     //Covert format
     mCLRuntime->convertToDevice((const Tensor*)&interTensor, dstTensor, srcDimensionFormat, mPrecision, mMemType, false);

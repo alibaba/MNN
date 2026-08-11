@@ -12,13 +12,13 @@ struct SideMenuView: View {
     @Binding var selectedHistory: ChatHistory?
     @Binding var histories: [ChatHistory]
     @Binding var navigateToMainSettings: Bool
-    
+
     @State private var showingAlert = false
     @State private var historyToDelete: ChatHistory?
     @State private var navigateToSettings = false
-    
+
     @State private var dragOffset: CGFloat = 0
-    
+
     var body: some View {
         ZStack {
             GeometryReader { geometry in
@@ -31,15 +31,14 @@ struct SideMenuView: View {
                     }
                     .padding(.top, 80)
                     .padding(.leading, 12)
-                    
+
                     List {
                         ForEach(histories.sorted(by: { $0.updatedAt > $1.updatedAt })) { history in
-                            
-                                ChatHistoryItemView(history: history)
-                                    .onTapGesture {
-                                        selectedHistory = history
-                                        isOpen = false
-                                    }
+                            ChatHistoryItemView(history: history)
+                                .onTapGesture {
+                                    selectedHistory = history
+                                    isOpen = false
+                                }
                                 .onLongPressGesture {
                                     historyToDelete = history
                                     showingAlert = true
@@ -50,9 +49,9 @@ struct SideMenuView: View {
                     }
                     .background(Color.sidemenuBg)
                     .listStyle(PlainListStyle())
-                    
+
                     Spacer()
-                    
+
                     HStack {
                         Button(action: {
                             isOpen = false
@@ -104,7 +103,7 @@ struct SideMenuView: View {
             }
         }
     }
-    
+
     private func deleteHistory(_ history: ChatHistory) {
         ChatHistoryManager.shared.deleteHistory(history)
         histories.removeAll { $0.id == history.id }
@@ -113,7 +112,7 @@ struct SideMenuView: View {
 
 struct SettingsFullScreenView: View {
     @Binding var isPresented: Bool
-    
+
     var body: some View {
         NavigationView {
             SettingsView()

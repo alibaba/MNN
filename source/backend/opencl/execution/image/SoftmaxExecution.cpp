@@ -18,6 +18,7 @@ SoftmaxExecution::SoftmaxExecution(const std::vector<Tensor *> &inputs, int axis
     mAxis          = axis;
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax", "softmax_channel", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
@@ -134,7 +135,7 @@ public:
             axis = index[axis];
             //1 : channel //2 : height
             if (1 == axis || 2 == axis || 3 == axis) {
-                return new SoftmaxExecution(inputs, axis, op, backend);
+                OPENCL_CREATOR_CHECK(new SoftmaxExecution(inputs, axis, op, backend));
             }
             return nullptr;
         } else {
@@ -144,7 +145,7 @@ public:
             }
 
             if (1 == axis || 2 == axis || 3 == axis) {
-                return new SoftmaxExecution(inputs, axis, op, backend);
+                OPENCL_CREATOR_CHECK(new SoftmaxExecution(inputs, axis, op, backend));
             }
             return nullptr;
         }

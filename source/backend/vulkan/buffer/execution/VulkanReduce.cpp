@@ -104,7 +104,7 @@ static std::string _getShaderName(const Op* op, bool isInt, bool useFP16) {
             return "";
     }
     result += "_";
-    if (useFP16) {
+    if (useFP16 && !isInt) {
         result += "FP16_";
     }
     result += "comp";

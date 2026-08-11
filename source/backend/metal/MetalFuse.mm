@@ -46,9 +46,9 @@ void MetalFuse::onEncode(const std::vector<Tensor *> &inputs, const std::vector<
     [encoder setComputePipelineState:mPipeline];
     int i = 0;
     for (; i < inputs.size(); i++) {
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[i]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[i])->extra.offset atIndex:i];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[i]->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(inputs[i])->offset atIndex:i];
     }
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:i++];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(output)->offset atIndex:i++];
     [encoder setBuffer:mConstBuffer offset:0 atIndex:i++];
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 #ifdef MNN_FUSE_DEBUG
@@ -212,10 +212,10 @@ public:
     void encode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder, MTLSize localSize, MTLSize groupSize) {
         [encoder setComputePipelineState:mPipeline];
         for (int i=0; i<inputs.size(); ++i) {
-            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[i]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[i])->extra.offset atIndex:mInputBinding[i]];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[i]->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(inputs[i])->offset atIndex:mInputBinding[i]];
         }
         for (int i=0; i<outputs.size(); ++i) {
-            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)outputs[i]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(outputs[i])->extra.offset atIndex:mOutputBinding[i]];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)outputs[i]->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(outputs[i])->offset atIndex:mOutputBinding[i]];
         }
         for (int i=0; i<mConstIndides.size(); ++i) {
             [encoder setBuffer:mConstIndides[i].second.first offset:0 atIndex:mConstIndides[i].first];

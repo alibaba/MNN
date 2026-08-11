@@ -59,7 +59,7 @@ static void createInputsForLLM(int seqLen, int hiddenSize, const std::string& at
     }
     inputs.push_back(attentionMask);
 
-    MNN::Express::VARP positionIds = MNN::Express::_Input({seqLen}, MNN::Express::NCHW, halide_type_of<int>());
+    MNN::Express::VARP positionIds = MNN::Express::_Input({1, seqLen}, MNN::Express::NCHW, halide_type_of<int>());
     int * positionIdsData = positionIds->writeMap<int>();
     for (int i = 0; i < seqLen; i++) {
         positionIdsData[i] = i;
@@ -73,10 +73,92 @@ static void createInputsForLLM(int seqLen, int hiddenSize, const std::string& at
     return;
 }
 
-static void generateForLLM(const std::string& modelPath, const std::string& outputDir, const std::string& jsonPath, int blockSize) {
+static void createInputsForEmbedding(int seqLen, int hiddenSize, const std::string& attentionMaskType, std::vector<MNN::Express::VARP>& inputs) {
+    MNN::Express::VARP inputEmbeds = MNN::Express::_Input({seqLen, 1, hiddenSize}, MNN::Express::NCHW, halide_type_of<float>());
+    float* inputEmbedsData = inputEmbeds->writeMap<float>();
+    for (int i = 0; i < seqLen * hiddenSize; ++i) {
+        inputEmbedsData[i] = (float)(rand()) / RAND_MAX;
+    }
+    inputs.push_back(inputEmbeds);
+
+    MNN::Express::VARP attentionMask = MNN::Express::_Input({1, 1, seqLen, seqLen}, MNN::Express::NCHW, halide_type_of<float>());
+    float* attentionMaskData = attentionMask->writeMap<float>();
+    for (int i = 0; i < seqLen; ++i) {
+        for (int j = 0; j < seqLen; ++j) {
+            if (attentionMaskType == "float") {
+                attentionMaskData[i * seqLen + j] = (j > i) ? std::numeric_limits<float>::lowest() : 0.0f;
+            } else {
+                attentionMaskData[i * seqLen + j] = 1.0f;
+            }
+        }
+    }
+    inputs.push_back(attentionMask);
+
+    MNN::Express::VARP positionIds = MNN::Express::_Input({1, seqLen}, MNN::Express::NCHW, halide_type_of<int>());
+    int* positionIdsData = positionIds->writeMap<int>();
+    for (int i = 0; i < seqLen; ++i) {
+        positionIdsData[i] = i;
+    }
+    inputs.push_back(positionIds);
+}
+
+static bool hasStringValue(const rapidjson::Document& doc, const char* key, const std::string& value) {
+    if (!doc.HasMember(key)) {
+        return false;
+    }
+    auto& member = doc[key];
+    if (member.IsString()) {
+        return member.GetString() == value;
+    }
+    if (!member.IsArray()) {
+        return false;
+    }
+    for (auto iter = member.Begin(); iter != member.End(); ++iter) {
+        if (iter->IsString() && iter->GetString() == value) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool isEmbeddingModel(const rapidjson::Document& doc, const std::string& modelDir) {
+    if (doc.HasMember("is_embedding") && doc["is_embedding"].IsBool() && doc["is_embedding"].GetBool()) {
+        return true;
+    }
+    if (hasStringValue(doc, "output_names", "sentence_embeddings")) {
+        return true;
+    }
+    if (doc.HasMember("llm_model") && doc["llm_model"].IsString()) {
+        auto modelName = std::string(doc["llm_model"].GetString());
+        if (modelName.find("embedding.mnn") != std::string::npos) {
+            return true;
+        }
+    }
+    if (doc.HasMember("embedding_model") && doc["embedding_model"].IsString()) {
+        auto modelName = std::string(doc["embedding_model"].GetString());
+        if (modelName.find("embedding.mnn") != std::string::npos) {
+            return true;
+        }
+    }
+    if (MNNFileExist(MNNFilePathConcat(modelDir, "embedding.mnn").c_str())) {
+        return true;
+    }
+    auto modelType = std::string(doc.HasMember("model_type") && doc["model_type"].IsString() ? doc["model_type"].GetString() : "");
+    if (modelType == "bert" || modelType == "new") {
+        return true;
+    }
+    if (modelType == "qwen3" && !doc.HasMember("layer_nums") && !doc.HasMember("attention_type") && !doc.HasMember("is_mrope")) {
+        return true;
+    }
+    return false;
+}
+
+static bool generateForModel(const std::string& modelDir, const std::string& outputDir, const std::string& jsonPath, int blockSize) {
     std::shared_ptr<MNN::Express::Module> net;
-    std::vector<std::string> inputNames = {"input_ids", "attention_mask", "position_ids", "logits_index"};
-    std::vector<std::string> outputNames = {"logits"};
+    std::vector<std::string> inputNames;
+    std::vector<std::string> outputNames;
+    bool isEmbedding = false;
+    std::string modelPath;
 
     int hiddenSize;
     std::string attentionMaskType;
@@ -84,7 +166,7 @@ static void generateForLLM(const std::string& modelPath, const std::string& outp
         std::ifstream ifs(jsonPath);
         if (!ifs.is_open()) {
             MNN_ERROR("Failed to open JSON config file: %s.\n", jsonPath.c_str());
-            return;
+            return false;
         }
         rapidjson::IStreamWrapper isw(ifs);
         rapidjson::Document doc;
@@ -92,51 +174,97 @@ static void generateForLLM(const std::string& modelPath, const std::string& outp
 
         if (doc.HasParseError() || !doc.IsObject()) {
             MNN_ERROR("Failed to parse JSON config file: %s.\n", jsonPath.c_str());
-            return;
+            return false;
         }
 
         if (!doc.HasMember("hidden_size") || !doc["hidden_size"].IsInt()) {
             MNN_ERROR("'hidden_size' not found or not an integer in %s\n", jsonPath.c_str());
-            return;
+            return false;
         }
         hiddenSize = doc["hidden_size"].GetInt();
 
         if (!doc.HasMember("attention_mask") || !doc["attention_mask"].IsString()) {
             MNN_ERROR("'attention_mask' not found or not a string in %s\n", jsonPath.c_str());
-            return;
+            return false;
         }
         attentionMaskType = doc["attention_mask"].GetString();
+
+        isEmbedding = isEmbeddingModel(doc, modelDir);
     }
 
-    // Load Model.
+    modelPath = MNNFilePathConcat(modelDir, isEmbedding ? "embedding.mnn" : "llm.mnn");
+    if (isEmbedding && !MNNFileExist(modelPath.c_str())) {
+        auto llmModelPath = MNNFilePathConcat(modelDir, "llm.mnn");
+        if (MNNFileExist(llmModelPath.c_str())) {
+            modelPath = llmModelPath;
+        }
+    }
+    FUNC_PRINT_ALL(modelPath.c_str(), s);
+
     MNN::ScheduleConfig config;
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr(MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setExternalFile((modelPath + ".weight").c_str());
+
+    if (isEmbedding) {
+        inputNames = {"input_ids", "attention_mask", "position_ids"};
+        outputNames = {"sentence_embeddings"};
+    } else {
+        inputNames = {"input_ids", "attention_mask", "position_ids", "logits_index"};
+        outputNames = {"logits"};
+    }
     net.reset(MNN::Express::Module::load(inputNames, outputNames, modelPath.c_str(), rtmgr), MNN::Express::Module::destroy);
+    if (nullptr == net.get()) {
+        MNN_ERROR("Failed to load module for QNN IO generation as %s model.\n", isEmbedding ? "embedding" : "llm");
+        return false;
+    }
 
     {
         std::vector<MNN::Express::VARP> inputs;
         std::vector<MNN::Express::VARP> outputs;
-        createInputsForLLM(blockSize, hiddenSize, attentionMaskType, false, inputs);
+        if (isEmbedding) {
+            createInputsForEmbedding(blockSize, hiddenSize, attentionMaskType, inputs);
+        } else {
+            createInputsForLLM(blockSize, hiddenSize, attentionMaskType, false, inputs);
+        }
         outputs = net->onForward(inputs);
+        if (outputs.empty()) {
+            MNN_ERROR("Failed to run forward for QNN IO generation.\n");
+            return false;
+        }
         saveInputOutputs(net->getInfo(), inputs, outputs, outputDir, blockSize);
     }
 
-    {
+    if (!isEmbedding) {
         std::vector<MNN::Express::VARP> inputs;
         std::vector<MNN::Express::VARP> outputs;
         createInputsForLLM(1, hiddenSize, attentionMaskType, true, inputs);
         outputs = net->onForward(inputs);
+        if (outputs.empty()) {
+            MNN_ERROR("Failed to run decode forward for QNN IO generation.\n");
+            return false;
+        }
         saveInputOutputs(net->getInfo(), inputs, outputs, outputDir, 1);
     }
 
-    return;
+    if (isEmbedding) {
+        std::vector<MNN::Express::VARP> inputs;
+        std::vector<MNN::Express::VARP> outputs;
+        createInputsForEmbedding(1, hiddenSize, attentionMaskType, inputs);
+        outputs = net->onForward(inputs);
+        if (outputs.empty()) {
+            MNN_ERROR("Failed to run single token embedding forward for QNN IO generation.\n");
+            return false;
+        }
+        saveInputOutputs(net->getInfo(), inputs, outputs, outputDir, 1);
+    }
+
+    return true;
 }
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
         MNN_PRINT("Usage: ./generateLlmIO model/config.json outputDir [blocksize]\n");
-        MNN_PRINT("This program generates IO test data, i.e. input.mnn and output.mnn, for a given llm model, assuming standard inputs ('inputs_ids', 'attention_mask', 'position_ids', 'logits_index') and standard outputs('logits').\n");
+        MNN_PRINT("This program generates IO test data for QNN export. It supports both generation models and embedding models exported by llmexport.\n");
         return 1;
     }
 
@@ -147,9 +275,8 @@ int main(int argc, char* argv[]) {
     }
     FUNC_PRINT(blockSize);
 
-    std::string modelPath = std::string(argv[1]) + "/llm.mnn";
-    std::string llmConfigPath = std::string(argv[1]) + "/llm_config.json";
-    FUNC_PRINT_ALL(modelPath.c_str(), s);
+    std::string modelDir = argv[1];
+    std::string llmConfigPath = MNNFilePathConcat(modelDir, "llm_config.json");
     FUNC_PRINT_ALL(llmConfigPath.c_str(), s);
     std::string outputDir = argv[2];
 
@@ -157,7 +284,9 @@ int main(int argc, char* argv[]) {
         MNN_PRINT("Failed to create dir %s.\n", outputDir.c_str());
     }
 
-    generateForLLM(modelPath, outputDir, llmConfigPath, blockSize);
+    if (!generateForModel(modelDir, outputDir, llmConfigPath, blockSize)) {
+        return 1;
+    }
 
     return 0;
 }

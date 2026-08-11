@@ -1,0 +1,115 @@
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 3) const uint COOP_K = 16;
+layout(constant_id = 4) const uint COOP_N = 64;
+
+layout(binding = 0) readonly buffer WeightBuffer {
+    int Wp[]; // [padN, padK/4], 4x int8 per int32
+};
+layout(binding = 1) readonly buffer MetaBuffer {
+    FLOAT Meta[]; // [padN, blockStride, 2] => [scale, offset]
+};
+layout(binding = 2) writeonly buffer DstBuffer {
+    FLOAT Dst[]; // coop packed [Kt, Nt, COOP_K, COOP_N]
+};
+
+layout(push_constant) uniform PushConsts {
+    uint K;
+    uint N;
+    uint padK;
+    uint padN;
+    uint blockSize;
+    uint blockStride;
+} pc;
+
+void main() {
+    const uint tileN = gl_WorkGroupID.x;
+    const uint tileK = gl_WorkGroupID.y;
+    const uint tid = gl_LocalInvocationID.x;
+
+    const uint safeBlockSize = max(pc.blockSize, 1u);
+    const uint tileKBase = tileK * COOP_K;
+    const uint tileKLast = tileKBase + COOP_K - 1u;
+    const bool useTwoBlocks = (safeBlockSize >= COOP_K) && ((tileKBase / safeBlockSize) != (tileKLast / safeBlockSize));
+    const uint blkA = tileKBase / safeBlockSize;
+    const uint blkB = tileKLast / safeBlockSize;
+
+    if (tid >= COOP_N) {
+        return;
+    }
+
+    const uint gn = tileN * COOP_N + tid;
+    const uint tilesN = pc.padN / COOP_N;
+    const uint dstTileOffset = (tileK * tilesN + tileN) * (COOP_K * COOP_N);
+
+    FLOAT sA = FLOAT(0.0);
+    FLOAT zA = FLOAT(0.0);
+    FLOAT sB = FLOAT(0.0);
+    FLOAT zB = FLOAT(0.0);
+    if (gn < pc.N) {
+        const uint baseA = (gn * pc.blockStride + blkA) * 2;
+        sA = Meta[baseA + 0];
+        zA = Meta[baseA + 1];
+        if (useTwoBlocks) {
+            const uint baseB = (gn * pc.blockStride + blkB) * 2;
+            sB = Meta[baseB + 0];
+            zB = Meta[baseB + 1];
+        }
+    }
+
+    const uint wordsPerRow = pc.padK / 4;
+    const uint baseW = gn * wordsPerRow + (tileKBase / 4u);
+    int w0 = 0;
+    int w1 = 0;
+    int w2 = 0;
+    int w3 = 0;
+    if (gn < pc.N) {
+        if (tileKBase + 0u < pc.K) {
+            w0 = Wp[baseW + 0u];
+        }
+        if (tileKBase + 4u < pc.K) {
+            w1 = Wp[baseW + 1u];
+        }
+        if (tileKBase + 8u < pc.K) {
+            w2 = Wp[baseW + 2u];
+        }
+        if (tileKBase + 12u < pc.K) {
+            w3 = Wp[baseW + 3u];
+        }
+    }
+
+    for (uint kInTile = 0u; kInTile < COOP_K; ++kInTile) {
+        const uint gk = tileKBase + kInTile;
+        FLOAT outVal = FLOAT(0.0);
+
+        if (gn < pc.N && gk < pc.K) {
+            int packedW = w0;
+            if (kInTile >= 12u) {
+                packedW = w3;
+            } else if (kInTile >= 8u) {
+                packedW = w2;
+            } else if (kInTile >= 4u) {
+                packedW = w1;
+            }
+
+            const int q = bitfieldExtract(packedW, int((kInTile & 3u) * 8u), 8);
+
+            FLOAT scale = sA;
+            FLOAT offset = zA;
+            if (safeBlockSize >= COOP_K) {
+                if (useTwoBlocks && ((gk / safeBlockSize) != blkA)) {
+                    scale = sB;
+                    offset = zB;
+                }
+            } else {
+                const uint kb = gk / safeBlockSize;
+                const uint base = (gn * pc.blockStride + kb) * 2;
+                scale = Meta[base + 0];
+                offset = Meta[base + 1];
+            }
+            outVal = FLOAT(q) * scale + offset;
+        }
+
+        Dst[dstTileOffset + kInTile * COOP_N + tid] = outVal;
+    }
+}

@@ -9,6 +9,7 @@ import java.io.File
 
 class ChatDataItem {
     var loading: Boolean = false
+    var forceShowLoadingWithText: Boolean = false
 
     @JvmField
     var time: String? = null
@@ -123,4 +124,3 @@ class ChatDataItem {
         }
     }
 }
-

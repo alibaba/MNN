@@ -117,6 +117,27 @@
     "resizeNearest.comp":[
         "NEAREST_ROUND"
     ],
+    "blit.comp":[
+        "INT"
+    ],
+    "blit_image.comp":[
+        "INT"
+    ],
+    "fill_image.comp":[
+        "INT"
+    ],
+    "nchwToimage.comp":[
+        "INT"
+    ],
+    "imageTonchw.comp":[
+        "INT"
+    ],
+    "nc4hw4toimage.comp":[
+        "INT"
+    ],
+    "imageTonc4hw4.comp":[
+        "INT"
+    ],
     "binary_blit.comp":[
         "ADD",
         "SUB",
@@ -156,5 +177,8 @@
         "FP16",
         "RELU_FP16",
         "RELU6_FP16"
+    ],
+    "topkv2.comp":[
+        "SORT_DESC"
     ]
 }

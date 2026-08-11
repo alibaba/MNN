@@ -477,12 +477,12 @@ bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
     auto srcDes = TensorUtils::getDescribe(src);
     auto desO = TensorUtils::getDescribeOrigin(dst);
     auto srcDesO = TensorUtils::getDescribeOrigin(src);
-    bool needMalloc = dst->buffer().host != src->buffer().host || dst->buffer().device != src->buffer().device || des->extra.offset != srcDes->extra.offset;
+    bool needMalloc = dst->buffer().host != src->buffer().host || dst->buffer().device != src->buffer().device || desO->offset != srcDesO->offset;
     desO->setBackend(srcDesO->getBackend());
     dst->buffer().host = src->buffer().host;
     dst->buffer().device = src->buffer().device;
     dst->buffer().flags = src->buffer().flags;
-    des->extra.offset = srcDes->extra.offset;
+    desO->offset = srcDesO->offset;
     des->group = -1;
     return needMalloc;
 }

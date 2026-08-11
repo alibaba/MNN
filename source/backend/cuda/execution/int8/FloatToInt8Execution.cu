@@ -144,6 +144,7 @@ FloatToInt8Execution::FloatToInt8Execution(Backend *backend, const std::vector<T
     } else {
         auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
         mScaleStorage = staticPool->alloc(UP_DIV(scaleLen, INT8_PACK_NUMBER) * INT8_PACK_NUMBER * sizeof(float));
+        if (nullptr == mScaleStorage.first) { mValid = false; MNN_ERROR("CUDA alloc failed\n"); return; }
         mScales = (void *)((uint8_t*)mScaleStorage.first + mScaleStorage.second);
         runtime->memset(mScales, 0, UP_DIV(scaleLen, INT8_PACK_NUMBER) * INT8_PACK_NUMBER * sizeof(float));
 

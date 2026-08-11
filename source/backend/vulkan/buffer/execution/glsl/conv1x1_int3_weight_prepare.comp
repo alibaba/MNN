@@ -1,0 +1,58 @@
+// Pack 1B-per-weight signed bytes (range [-4, 3]) into [N, padK/16, 2] uint32
+// where word 0 = low 2 bits of 16 weights, word 1 = high 1 bit of 16 weights
+// (low 16 bits used). Stored value = signed_weight + 4 in [0, 7].
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer SrcBuffer {
+    uint SrcRaw[];
+};
+
+layout(binding = 1) writeonly buffer DstBuffer {
+    uint Dst[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint ci;
+    uint co;
+    uint padN;
+    uint weightStride; // padK/16 in 2-uint pairs (so total uints = 2 * weightStride per row)
+    uint srcBytes;
+} pc;
+
+uint loadByte(uint byteIndex) {
+    if (byteIndex >= pc.srcBytes) {
+        return 0u;
+    }
+    const uint word = SrcRaw[byteIndex >> 2u];
+    return (word >> ((byteIndex & 3u) * 8u)) & 0xFFu;
+}
+
+void main() {
+    const uint k16 = gl_GlobalInvocationID.x;
+    const uint row = gl_GlobalInvocationID.y;
+    if (row >= pc.padN || k16 >= pc.weightStride) {
+        return;
+    }
+
+    const uint kBase = k16 << 4u;
+    uint low2 = 0u;
+    uint hi1 = 0u;
+
+    if (row < pc.co) {
+        const uint rowBase = row * pc.ci;
+        for (uint i = 0u; i < 16u; ++i) {
+            const uint k = kBase + i;
+            uint q = 4u; // unsigned for signed=0
+            if (k < pc.ci) {
+                int sb = int(bitfieldExtract(int(loadByte(rowBase + k)), 0, 8));
+                q = uint(sb + 4) & 7u; // unsigned [0, 7]
+            }
+            low2 |= (q & 3u) << (i * 2u);
+            hi1 |= ((q >> 2u) & 1u) << i;
+        }
+    }
+
+    const uint base = (row * pc.weightStride + k16) * 2u;
+    Dst[base + 0u] = low2;
+    Dst[base + 1u] = hi1;
+}

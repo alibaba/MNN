@@ -41,7 +41,11 @@ void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64
             auto param = op->main.AsConvolution2D();
             if (param->quanParameter) {
                 storeWeight<int8_t>(fs, param->quanParameter->buffer, param->external, offset, false);
-                storeWeight<float>(fs, param->quanParameter->alpha, param->external, offset, false);
+                if (param->quanParameter->scaleStorage == MNN::ScaleStorageType_FP16) {
+                    storeWeight<uint16_t>(fs, param->quanParameter->alphaFp16, param->external, offset, false);
+                } else {
+                    storeWeight<float>(fs, param->quanParameter->alpha, param->external, offset, false);
+                }
                 storeWeight<float>(fs, param->bias, param->external, offset, false);
                 storeWeight<uint32_t>(fs, param->quanParameter->index, param->external, offset, false);
             } else {

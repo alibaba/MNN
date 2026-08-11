@@ -1,0 +1,60 @@
+// Reduce per-row partial min/max into final scale, offset, min, max.
+// threadX walks m so loads from PartialMin/PartialMax[block*padM + m] are
+// coalesced across the wave. Each thread serially scans partialBlocks, no
+// shared memory / barriers.
+//
+// Dispatch: groupCount = (ceil(padM / 64), 1, 1), localSize = (64, 1, 1).
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer PartialMinBuffer {
+    FLOAT PartialMin[];
+};
+
+layout(binding = 1) readonly buffer PartialMaxBuffer {
+    FLOAT PartialMax[];
+};
+
+layout(binding = 2) writeonly buffer ScaleActivation {
+    FLOAT ScaleA[];
+};
+
+layout(binding = 3) writeonly buffer OffsetActivation {
+    FLOAT OffsetA[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint padM;
+    uint partialBlocks;
+    uint reserved;
+} pc;
+
+void main() {
+    uint m = gl_GlobalInvocationID.x;
+    if (m >= pc.padM) {
+        return;
+    }
+
+    float minV = 3.402823466e+38;
+    float maxV = -3.402823466e+38;
+    if (m < pc.M) {
+        uint idx = m;
+        for (uint block = 0u; block < pc.partialBlocks; ++block) {
+            minV = min(minV, float(PartialMin[idx]));
+            maxV = max(maxV, float(PartialMax[idx]));
+            idx += pc.padM;
+        }
+    }
+
+    float scale = 0.0;
+    float offset = 0.0;
+    if (m < pc.M) {
+        float rangeV = maxV - minV;
+        scale = rangeV > 1.0e-8 ? rangeV / 255.0 : 1.0 / 255.0;
+        offset = minV + 128.0 * scale;
+    }
+
+    ScaleA[m]  = FLOAT(scale);
+    OffsetA[m] = FLOAT(offset);
+}

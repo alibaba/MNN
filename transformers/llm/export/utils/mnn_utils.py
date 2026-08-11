@@ -111,7 +111,7 @@ def load_mnn(filename):
     return mnn, opmap, convs, blockes, block
 
 
-def write_quant_parameters(quant_bit, asymc, mnn_weight_file, ic, oc, weight_main, scalebias, mnn_weight_offset, need_scale_treat = True):
+def write_quant_parameters(quant_bit, asymc, mnn_weight_file, ic, oc, weight_main, scalebias, mnn_weight_offset, need_scale_treat = True, scale_bit = 32):
     conv = {}
     aMin = 0
     readType = 0
@@ -128,12 +128,17 @@ def write_quant_parameters(quant_bit, asymc, mnn_weight_file, ic, oc, weight_mai
         readType = 1
     header_len, shape_int32 = write_quant_header(mnn_weight_file, ic, oc, quant_bit)
     weight_len =  mnn_weight_file.write(weight_main.tobytes()) + header_len
-    alpha_len = mnn_weight_file.write(scalebias.tobytes())
+    if scale_bit == 16:
+        scalebias_bytes = scalebias.astype(numpy.float16).tobytes()
+    else:
+        scalebias_bytes = scalebias.tobytes()
+    alpha_len = mnn_weight_file.write(scalebias_bytes)
     conv['quanParameter'] = {
         "quantScale": 1.0, "scaleIn": 0.0, "scaleOut": 0.0,
         "useInt32": False, "has_scaleInt": False, "shapeInt32": shape_int32,
-        "type": 1, "aMaxOrBits": quant_bit, "aMin": aMin, "readType": readType, "weightSize": 0
+        "type": 1, "aMaxOrBits": quant_bit, "aMin": aMin, "readType": readType, "weightSize": 0,
+        "scaleStorage": "FP16" if scale_bit == 16 else "FP32",
     }
     conv['external'] = [mnn_weight_offset, weight_len, alpha_len, oc * 4, 0]
-    mnn_weight_offset += (weight_len + alpha_len)   
+    mnn_weight_offset += (weight_len + alpha_len)
     return conv, header_len, mnn_weight_offset

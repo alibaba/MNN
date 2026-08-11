@@ -1,17 +1,23 @@
 package com.alibaba.mnnllm.android.widgets
 
 import android.net.Uri
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.utils.ImageUtils
 
 class FullScreenImageAdapter(
     private val images: List<Uri>,
-    private val onClick: () -> Unit
+    private val onClick: () -> Unit,
+    private val showShareOption: Boolean = true
 ) : RecyclerView.Adapter<FullScreenImageAdapter.ViewHolder>() {
+    companion object {
+        private const val TAG = "FullScreenImageAdapter"
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val view = LayoutInflater.from(parent.context)
@@ -29,9 +35,19 @@ class FullScreenImageAdapter(
         private val imageView: ImageView = itemView.findViewById(R.id.preview_image)
 
         fun bind(uri: Uri) {
-            imageView.setImageURI(uri)
+            try {
+                imageView.setImageURI(uri)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to decode fullscreen image: $uri", e)
+                imageView.setImageDrawable(null)
+            }
             imageView.setOnClickListener {
                 onClick()
+            }
+            imageView.setOnLongClickListener {
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                ImageUtils.showImageMenu(itemView.context, uri, showShareOption)
+                true
             }
         }
     }

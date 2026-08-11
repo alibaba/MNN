@@ -11,6 +11,8 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.annotation.VisibleForTesting
+import com.alibaba.mnnllm.android.BuildConfig
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
@@ -20,7 +22,6 @@ import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import java.text.DateFormat
 import java.util.Date
-import kotlin.math.abs
 
 class ChatListComponent(private val context: Context,
                         private val dateFormat: DateFormat,
@@ -29,9 +30,20 @@ class ChatListComponent(private val context: Context,
     companion object {
         private const val SCROLL_TO_BOTTOM_THRESHOLD_DP = 30
         private const val TAG = "ChatListComponent"
+
+        internal fun resolveUserScrollingState(
+            currentUserScrolling: Boolean,
+            newState: Int,
+            isAtBottom: Boolean
+        ): Boolean {
+            return when {
+                newState == RecyclerView.SCROLL_STATE_DRAGGING -> true
+                newState == RecyclerView.SCROLL_STATE_IDLE && isAtBottom -> false
+                else -> currentUserScrolling
+            }
+        }
     }
     private lateinit var recyclerView: RecyclerView
-    private lateinit var linearLayoutManager: LinearLayoutManager
     private lateinit var adapter: ChatRecyclerViewAdapter
     private lateinit var emptyView: View
     private lateinit var emptyModelAvatarView: ModelAvatarView
@@ -40,6 +52,16 @@ class ChatListComponent(private val context: Context,
     private var isUserScrolling: Boolean = false
     private var modelName:String? = null
     private var historyData: List<ChatDataItem>? = null
+    private var onResumeAutoScrollListener: (() -> Unit)? = null
+    private val maintainBottomRunnable = Runnable {
+        if (!isUserScrolling) {
+            val remainingDistance = distanceFromBottomPx()
+            if (remainingDistance > 0) {
+                recyclerView.scrollBy(0, remainingDistance)
+            }
+            updateScrollToBottomButtonVisibility()
+        }
+    }
 
     init {
         setupRecyclerView()
@@ -82,8 +104,7 @@ class ChatListComponent(private val context: Context,
     private fun setupRecyclerView() {
         recyclerView = binding.recyclerView
         recyclerView.setItemAnimator(null)
-        linearLayoutManager = LinearLayoutManager(context)
-        recyclerView.setLayoutManager(linearLayoutManager)
+        recyclerView.setLayoutManager(LinearLayoutManager(context))
         binding.layoutBottomContainer.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             val insets: WindowInsets? = v.rootWindowInsets
             val bottomInset = insets!!.systemWindowInsetBottom
@@ -96,14 +117,18 @@ class ChatListComponent(private val context: Context,
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 super.onScrollStateChanged(recyclerView, newState)
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    recyclerView.removeCallbacks(maintainBottomRunnable)
+                }
+                isUserScrolling = resolveUserScrollingState(isUserScrolling, newState, isAtBottom())
+                updateScrollToBottomButtonVisibility()
+                updateDebugProbe()
             }
 
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
-                if (abs(dy.toDouble()) > 0) {
-                    isUserScrolling = true
-                }
                 updateScrollToBottomButtonVisibility()
+                updateDebugProbe()
             }
 
         })
@@ -118,14 +143,16 @@ class ChatListComponent(private val context: Context,
     private fun setupScrollToBottomButton() {
         btnScrollToBottom = binding.btnScrollToBottom
         btnScrollToBottom.setOnClickListener {
-            scrollToBottom()
+            resumeAutoScroll()
         }
     }
 
     private fun updateEmptyViewContent() {
         modelName?.let { name ->
             emptyModelAvatarView.setModelName(name)
-            emptyMessageTextView.text = if (ModelTypeUtils.isDiffusionModel(name))  {
+            emptyMessageTextView.text = if (ModelTypeUtils.isSanaModel(name)) {
+                context.getString(R.string.model_hello_prompt_sana)
+            } else if (ModelTypeUtils.isDiffusionModel(name))  {
                 context.getString(R.string.model_hello_prompt_diffusion)
             } else {
                 context.getString(R.string.model_hello_prompt)
@@ -156,31 +183,40 @@ class ChatListComponent(private val context: Context,
         }
     }
 
-    private fun scrollToEnd() {
-        recyclerView.postDelayed({
-            val position = adapter.itemCount - 1
-            linearLayoutManager.scrollToPositionWithOffset(position, -9999)
-        }, 100)
-    }
-
     private fun scrollToBottom() {
         Log.d(TAG, "scrollToBottom")
         val position = adapter.itemCount - 1
         if (position >= 0) {
-            // Use two steps to ensure scrolling to the very bottom
             recyclerView.post {
-                // Step 1: First scroll to the last item
                 recyclerView.scrollToPosition(position)
-                // Step 2: Ensure scrolling to the very bottom
-                recyclerView.post {
-                    linearLayoutManager.scrollToPositionWithOffset(position, -99999)
-                    // Add a short delay to ensure the scroll is complete before checking button state
-                    recyclerView.postDelayed({
-                        updateScrollToBottomButtonVisibility()
-                    }, 50)
-                }
+                recyclerView.post(object : Runnable {
+                    private var attempts = 0
+
+                    override fun run() {
+                        val remainingDistance = distanceFromBottomPx()
+                        if (remainingDistance <= scrollToBottomThresholdPx() || attempts >= 4) {
+                            updateScrollToBottomButtonVisibility()
+                            return
+                        }
+                        attempts += 1
+                        recyclerView.scrollBy(0, remainingDistance)
+                        recyclerView.post(this)
+                    }
+                })
             }
         }
+    }
+
+    private fun resumeAutoScroll() {
+        isUserScrolling = false
+        scrollToBottom()
+        updateScrollToBottomButtonVisibility()
+        onResumeAutoScrollListener?.invoke()
+    }
+
+    private fun maintainBottomDuringStreaming() {
+        recyclerView.removeCallbacks(maintainBottomRunnable)
+        recyclerView.postOnAnimation(maintainBottomRunnable)
     }
 
     private fun updateScrollToBottomButtonVisibility() {
@@ -190,23 +226,29 @@ class ChatListComponent(private val context: Context,
         } else {
             btnScrollToBottom.visibility = View.GONE
         }
+        updateDebugProbe()
     }
 
     private fun isAtBottom(): Boolean {
+        return distanceFromBottomPx() < scrollToBottomThresholdPx()
+    }
+
+    private fun scrollToBottomThresholdPx(): Int {
+        return (SCROLL_TO_BOTTOM_THRESHOLD_DP * context.resources.displayMetrics.density).toInt()
+    }
+
+    private fun distanceFromBottomPx(): Int {
         val totalItemCount = adapter.itemCount
-        if (totalItemCount == 0) return true
+        if (totalItemCount == 0) return 0
 
         if (!recyclerView.canScrollVertically(1)) {
-            return true
+            return 0
         }
 
-        val thresholdPx = (SCROLL_TO_BOTTOM_THRESHOLD_DP * context.resources.displayMetrics.density).toInt()
         val range = recyclerView.computeVerticalScrollRange()
         val extent = recyclerView.computeVerticalScrollExtent()
         val offset = recyclerView.computeVerticalScrollOffset()
-        val distanceFromBottom = range - extent - offset
-
-        return distanceFromBottom < thresholdPx
+        return (range - extent - offset).coerceAtLeast(0)
     }
 
     private fun addResponsePlaceholder() {
@@ -219,7 +261,7 @@ class ChatListComponent(private val context: Context,
     fun updateAssistantResponse(chatDataItem: ChatDataItem) {
         adapter.updateRecentItem(chatDataItem)
         if (!isUserScrolling) {
-            scrollToEnd()
+            maintainBottomDuringStreaming()
         }
         updateEmptyViewVisibility()
         updateScrollToBottomButtonVisibility()
@@ -252,7 +294,51 @@ class ChatListComponent(private val context: Context,
         return wasReset
     }
 
+    @VisibleForTesting
+    internal fun setUserScrollingForTest(value: Boolean) {
+        isUserScrolling = value
+    }
+
+    @VisibleForTesting
+    internal fun detachFromBottomForTest() {
+        isUserScrolling = true
+        recyclerView.post {
+            val detachStep = recyclerView.height.coerceAtLeast(1)
+            var leftBottom = false
+            for (attempt in 0 until 4) {
+                recyclerView.scrollBy(0, -detachStep)
+                if (!isAtBottom()) {
+                    leftBottom = true
+                    break
+                }
+            }
+            if (!leftBottom) {
+                recyclerView.scrollBy(0, -detachStep)
+            }
+            updateScrollToBottomButtonVisibility()
+        }
+    }
+
+    @VisibleForTesting
+    internal fun isUserScrollingForTest(): Boolean = isUserScrolling
+
     fun getCurrentChatHistory(): List<ChatDataItem> {
         return adapter.getCurrentChatHistory()
+    }
+
+    fun setOnResumeAutoScrollListener(listener: (() -> Unit)?) {
+        onResumeAutoScrollListener = listener
+    }
+
+    private fun updateDebugProbe() {
+        if (!BuildConfig.DEBUG) {
+            return
+        }
+        recyclerView.contentDescription = buildString {
+            append("atBottom=").append(isAtBottom())
+            append(";bottomGapPx=").append(distanceFromBottomPx())
+            append(";userScrolling=").append(isUserScrolling)
+            append(";assistantChars=").append(recentItem?.displayText?.length ?: 0)
+        }
     }
 }

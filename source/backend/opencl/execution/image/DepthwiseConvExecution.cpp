@@ -20,6 +20,10 @@ namespace OpenCL {
 
 DepthwiseConvExecution::DepthwiseConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
     : ConvCommonExecution(op->main_as_Convolution2D(), backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
     mOpenCLBackend      = static_cast<OpenCLBackend *>(backend);
     mResource->mConv2dParams       = op->main_as_Convolution2D();
     mResource->mConv2dCommonParams = mResource->mConv2dParams->common();
@@ -30,17 +34,13 @@ DepthwiseConvExecution::DepthwiseConvExecution(const std::vector<Tensor *> &inpu
     int kernelHeight  = mResource->mConv2dCommonParams->kernelY();
     int outputChannel = mResource->mConv2dCommonParams->outputCount();
 
-    std::vector<int> filterShape{1, outputChannel, kernelHeight, kernelWidth};
-    std::vector<int> filterImageShape{(int)kernelHeight * kernelWidth, (int)UP_DIV(outputChannel, 4)};
-
-        
     const float* filterDataPtr = nullptr;
     int filterDataSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &filterDataSize);
 
-    mResource->mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
-    std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>(filterShape));
+    mResource->mFilter.reset(Tensor::createDevice<float>({1, UP_DIV(outputChannel, 4), 1, 4 * kernelHeight * kernelWidth}));
+        std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({1, outputChannel, kernelHeight, kernelWidth}));
         
     size_t buffer_size = filterBuffer->elementSize() * sizeof(float);
     cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
@@ -54,7 +54,7 @@ DepthwiseConvExecution::DepthwiseConvExecution(const std::vector<Tensor *> &inpu
     }
     mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
 
-    mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+    OPENCL_CHECK_ALLOC_CTOR(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC));
 
     MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
     std::string buildOption = "-DBUFFER_INP_FP32";
@@ -73,6 +73,10 @@ DepthwiseConvExecution::~DepthwiseConvExecution() {
 
 DepthwiseConvExecution::DepthwiseConvExecution(std::shared_ptr<ConvResource> resource, const MNN::Op* op, Backend *backend)
     : ConvCommonExecution(backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
     mResource = resource;
     const auto *conv2dParams       = op->main_as_Convolution2D();
     const auto *conv2dCommonParams = conv2dParams->common();
@@ -169,12 +173,10 @@ public:
                                 const MNN::Op *op, Backend *backend) const override {
         
         MNN_ASSERT(inputs.size() <= 3);
-        if (inputs.size() == 2 || inputs.size() == 3) {
-            return new MultiInputDWConvExecution(op, backend);
-        }
+        if (inputs.size() == 2 || inputs.size() == 3) OPENCL_CREATOR_CHECK(new MultiInputDWConvExecution(op, backend));
         
         MNN_ASSERT(inputs.size() == 1);
-        return new DepthwiseConvExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new DepthwiseConvExecution(inputs, op, backend));
     }
 };
 

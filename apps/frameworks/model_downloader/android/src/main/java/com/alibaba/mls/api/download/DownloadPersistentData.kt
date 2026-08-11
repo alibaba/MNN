@@ -79,7 +79,7 @@ object DownloadPersistentData {
         }
         
         // If DataStore doesn't have data, try to migrate from SharedPreferences
-        return migrateFromSharedPrefsTotal(context, normalizedModelId, key)
+        return migrateFromSharedPrefsTotal(context, modelId, key)
     }
 
     fun saveDownloadSizeSaved(context: Context, modelId: String, saved: Long) {
@@ -121,14 +121,17 @@ object DownloadPersistentData {
     }
     
     suspend fun removeProgressSuspend(context: Context, modelId: String) {
-        val normalizedModelId = ModelIdUtils.safeModelId(modelId)
-        val sizeSavedKey = createSizeSavedKey(normalizedModelId)
-        val downloadedTimeKey = createDownloadedTimeKey(normalizedModelId)
+        val safeModelId = ModelIdUtils.safeModelId(modelId)
+        val sizeSavedKey = createSizeSavedKey(safeModelId)
+        val downloadedTimeKey = createDownloadedTimeKey(safeModelId)
+        val metadataKey = createMetaDataKey(safeModelId)
         
-        // Remove from DataStore
+        // Keep size_total / market_size_total so UI can still show model size before re-download.
+        // Only clear mutable progress state.
         context.downloadDataStore.edit { preferences ->
             preferences.remove(sizeSavedKey)
             preferences.remove(downloadedTimeKey)
+            preferences.remove(metadataKey)
         }
         
         // Also remove from SharedPreferences (cleanup) - removeProgress originally used getLastFileName
@@ -259,29 +262,30 @@ object DownloadPersistentData {
     }
     private suspend fun migrateFromSharedPrefsTotal(
         context: Context, 
-        modelId: String, 
+        originalModelId: String,
         datastoreKey: Preferences.Key<Long>
     ): Long {
-        // For total size, the original implementation used getLastFileName
-        val oldModelIdKey = getLastFileName(modelId)
-        val sharedPreferences = context.getSharedPreferences("DOWNLOAD_$oldModelIdKey", Context.MODE_PRIVATE)
-        val sharedPrefValue = sharedPreferences.getLong(SIZE_TOTAL_KEY, 0)
-        
-        if (sharedPrefValue != 0L) {
+        // Legacy stores are keyed by repo tail name.
+        val legacyKeys = listOf(getLastFileName(originalModelId)).distinct()
+        for (legacyKey in legacyKeys) {
+            val sharedPreferences = context.getSharedPreferences("DOWNLOAD_$legacyKey", Context.MODE_PRIVATE)
+            val sharedPrefValue = sharedPreferences.getLong(SIZE_TOTAL_KEY, 0)
+            if (sharedPrefValue == 0L) {
+                continue
+            }
+
             // Migrate to DataStore
             context.downloadDataStore.edit { preferences ->
                 preferences[datastoreKey] = sharedPrefValue
             }
-            
+
             // Remove from SharedPreferences after successful migration
             sharedPreferences.edit().remove(SIZE_TOTAL_KEY).apply()
-            
+
             // Check if SharedPreferences file is empty and delete if so
-            deleteSharedPrefsFileIfEmpty(context, "DOWNLOAD_$oldModelIdKey")
-            
+            deleteSharedPrefsFileIfEmpty(context, "DOWNLOAD_$legacyKey")
             return sharedPrefValue
         }
-        
         return 0L
     }
     

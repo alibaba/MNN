@@ -5,6 +5,7 @@ extern void ___ShapeRasterComputer__OpType_Raster__();
 extern void ___PriorBoxComputer__OpType_PriorBox__();
 extern void ___ShapeBroadcastTo__OpType_BroadcastTo__();
 extern void ___InterpComputer__OpType_Interp__();
+extern void ___InterpComputer__OpType_Interp3D__();
 extern void ___CropSizeComputer__OpType_Crop__();
 extern void ___MatMulSizeComputer__OpType_MatMul__();
 extern void ___MatMulSizeComputer__OpType_BatchMatMul__();
@@ -120,7 +121,9 @@ extern void ___SplitGeLUSizeComputer__OpType_SplitGeLU__();
 extern void ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
 extern void ___FmhaV2SizeComputer__OpType_FmhaV2__();
 extern void ___FmhcaSizeComputer__OpType_Fmhca__();
+extern void ___RoPESizeComputer__OpType_RoPE__();
 extern void ___AttentionSizeComputer__OpType_Attention__();
+extern void ___LinearAttentionSizeComputer__OpType_LinearAttention__();
 #endif
 void registerShapeOps() {
 ___ShapeSizeComputer__OpType_Shape__();
@@ -128,6 +131,7 @@ ___ShapeRasterComputer__OpType_Raster__();
 ___PriorBoxComputer__OpType_PriorBox__();
 ___ShapeBroadcastTo__OpType_BroadcastTo__();
 ___InterpComputer__OpType_Interp__();
+___InterpComputer__OpType_Interp3D__();
 ___CropSizeComputer__OpType_Crop__();
 ___MatMulSizeComputer__OpType_MatMul__();
 ___MatMulSizeComputer__OpType_BatchMatMul__();
@@ -242,7 +246,9 @@ ___SplitGeLUSizeComputer__OpType_SplitGeLU__();
 ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
 ___FmhaV2SizeComputer__OpType_FmhaV2__();
 ___FmhcaSizeComputer__OpType_Fmhca__();
+___RoPESizeComputer__OpType_RoPE__();
 ___AttentionSizeComputer__OpType_Attention__();
+___LinearAttentionSizeComputer__OpType_LinearAttention__();
 #endif
 }
 }

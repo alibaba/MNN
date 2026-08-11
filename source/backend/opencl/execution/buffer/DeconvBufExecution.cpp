@@ -20,6 +20,10 @@ namespace OpenCL {
 
 DeconvBufExecution::DeconvBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
     : ConvBufCommonExecution(op->main_as_Convolution2D(), backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
     mOpenCLBackend                 = static_cast<OpenCLBackend *>(backend);
     const auto *conv2dParams       = op->main_as_Convolution2D();
     const auto *conv2dCommonParams = conv2dParams->common();
@@ -38,10 +42,8 @@ DeconvBufExecution::DeconvBufExecution(const std::vector<Tensor *> &inputs, cons
     ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &weightSize);
 
     int inputChannel  = weightSize / (kernelWidth * kernelHeight * outputChannel);
-    std::vector<int> filterShape{outputChannel, inputChannel, kernelHeight, kernelWidth};
-    std::vector<int> filterImageShape{(int)inputChannel, (int)UP_DIV(outputChannel, 4) * kernelWidth * kernelHeight};
-    mResource->mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
-    mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+    mResource->mFilter.reset(Tensor::createDevice<float>({1, UP_DIV(outputChannel, 4) * kernelWidth * kernelHeight, 1, 4 * inputChannel}));
+    OPENCL_CHECK_ALLOC_CTOR(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC));
         
     if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
         std::vector<float> filterDataPtrTransformed;
@@ -80,6 +82,10 @@ DeconvBufExecution::~DeconvBufExecution() {
 
 DeconvBufExecution::DeconvBufExecution(std::shared_ptr<ConvBufResource> resource, const MNN::Op* op, Backend *backend)
     : ConvBufCommonExecution(backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
     mResource = resource;
     const auto *conv2dParams       = op->main_as_Convolution2D();
     const auto *conv2dCommonParams = conv2dParams->common();
@@ -185,7 +191,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new DeconvBufExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new DeconvBufExecution(inputs, op, backend));
     }
 };
 

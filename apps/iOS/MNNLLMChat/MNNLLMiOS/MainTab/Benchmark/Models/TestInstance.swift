@@ -23,11 +23,11 @@ class TestInstance: ObservableObject, Identifiable {
     let power: Int
     let memory: Int
     let dynamicOption: Int
-    
+
     @Published var prefillUs: [Int64] = []
     @Published var decodeUs: [Int64] = []
     @Published var samplesUs: [Int64] = []
-    
+
     init(modelConfigFile: String,
          modelType: String,
          modelSize: Int64 = 0,
@@ -39,7 +39,8 @@ class TestInstance: ObservableObject, Identifiable {
          precision: Int,
          power: Int,
          memory: Int,
-         dynamicOption: Int) {
+         dynamicOption: Int)
+    {
         self.modelConfigFile = modelConfigFile
         self.modelType = modelType
         self.modelSize = modelSize
@@ -53,7 +54,7 @@ class TestInstance: ObservableObject, Identifiable {
         self.memory = memory
         self.dynamicOption = dynamicOption
     }
-    
+
     /// Calculates tokens per second from timing data
     /// - Parameters:
     ///   - tokens: Number of tokens processed

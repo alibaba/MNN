@@ -96,6 +96,7 @@
   - `GpuInterTest.out` 测试 GPU 内存输入的功能，目前仅支持 OpenCL Buffer 模式与 OpenGL texture 模式，编译时需打开 MNN_OPENCL 与 MNN_OPENGL
   - `LoRA` 将LorA权重添加到模型权重中
   - `compilefornpu` 将Npu要运行的部分转换为Plugin算子
+  - `generateIO` 用于为Npu模型转换提供输入输出工具
 ## Benchmark工具
 - 相关编译选项
   - `MNN_BUILD_BENCHMARK` 是否编译Benchmark工具

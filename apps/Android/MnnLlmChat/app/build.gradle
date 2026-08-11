@@ -2,7 +2,45 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'org.jetbrains.kotlin.plugin.serialization' version '2.1.21'
+}
 
+def enableFirebase = (project.findProperty("ENABLE_FIREBASE")?.toString()?.toBoolean() ?: false)
+def hasGoogleServicesConfig = [
+        file("$projectDir/google-services.json"),
+        file("$projectDir/src/googleplay/google-services.json"),
+        file("$projectDir/src/standard/google-services.json")
+].any { it.exists() }
+def markwonDirEnv = System.getenv("MARKWON_DIR")
+def localMarkwonDir = markwonDirEnv ? new File(markwonDirEnv) : new File(rootProject.projectDir, "../../../../../Markwon")
+def localMarkwonAars = [
+        new File(localMarkwonDir, "markwon-core/build/outputs/aar/markwon-core-release.aar"),
+        new File(localMarkwonDir, "markwon-inline-parser/build/outputs/aar/markwon-inline-parser-release.aar"),
+        new File(localMarkwonDir, "markwon-ext-latex/build/outputs/aar/markwon-ext-latex-release.aar"),
+        new File(localMarkwonDir, "markwon-ext-tables/build/outputs/aar/markwon-ext-tables-release.aar")
+]
+def markwonForkVersion = "v4.6.2-mnnchat.1"
+def useLocalMarkwon = (project.findProperty("USE_LOCAL_MARKWON")?.toString()?.toBoolean()
+        ?: System.getenv("USE_LOCAL_MARKWON")?.toBoolean()
+        ?: false)
+def localMarkwonAarsReady = localMarkwonAars.every { it.exists() }
+def useLocalMarkwonAars = useLocalMarkwon && localMarkwonAarsReady
+
+if (enableFirebase && hasGoogleServicesConfig) {
+    apply plugin: 'com.google.gms.google-services'
+    apply plugin: 'com.google.firebase.crashlytics'
+    println("Firebase plugins enabled (ENABLE_FIREBASE=true).")
+} else {
+    println("Firebase plugins disabled. Set -PENABLE_FIREBASE=true and provide google-services.json to enable.")
+}
+
+if (useLocalMarkwon && !localMarkwonAarsReady) {
+    println("USE_LOCAL_MARKWON=true but local Markwon AARs are missing, falling back to JitPack.")
+}
+
+if (useLocalMarkwonAars) {
+    println("Using local Markwon AARs from ${localMarkwonDir}")
+} else {
+    println("Using Markwon fork from JitPack: ${markwonForkVersion}")
 }
 
 // Apply prebuilt models configuration
@@ -31,8 +69,9 @@ android {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
         targetSdk 35
-        versionCode 750
-        versionName "0.7.5"
+        versionCode 830
+        versionName "0.8.3"
+        buildConfigField "boolean", "ENABLE_FIREBASE", enableFirebase ? "true" : "false"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
@@ -137,6 +176,7 @@ android {
     }
 
     testOptions {
+        unitTests.includeAndroidResources = true
         unitTests.all {
             jvmArgs '--add-opens', 'java.base/java.lang=ALL-UNNAMED'
         }
@@ -149,6 +189,8 @@ dependencies {
     def jetpack_compose_verion = '1.7.8'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
     implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+    implementation 'androidx.slidingpanelayout:slidingpanelayout:1.2.0'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
@@ -169,8 +211,16 @@ dependencies {
 
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
-    implementation "io.noties.markwon:core:4.6.2"
-    implementation "io.noties.markwon:ext-latex:4.6.2"
+    androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
+    if (useLocalMarkwonAars) {
+        implementation files(localMarkwonAars)
+        implementation 'com.atlassian.commonmark:commonmark:0.13.0'
+        implementation 'com.atlassian.commonmark:commonmark-ext-gfm-tables:0.13.0'
+    } else {
+        implementation "com.github.Juude.Markwon:core:${markwonForkVersion}"
+        implementation "com.github.Juude.Markwon:ext-latex:${markwonForkVersion}"
+        implementation "com.github.Juude.Markwon:ext-tables:${markwonForkVersion}"
+    }
     implementation 'ru.noties:jlatexmath-android:0.2.0'
     implementation 'ru.noties:jlatexmath-android-font-cyrillic:0.2.0'
     implementation 'ru.noties:jlatexmath-android-font-greek:0.2.0'
@@ -214,11 +264,15 @@ dependencies {
 
     // 日志相关依赖
     implementation "com.jakewharton.timber:timber:5.0.1"
+    implementation platform('com.google.firebase:firebase-bom:34.4.0')
+    implementation 'com.google.firebase:firebase-analytics'
+    implementation 'com.google.firebase:firebase-crashlytics'
+    implementation 'com.google.firebase:firebase-crashlytics-ndk'
 //    implementation(name: 'android_device_names', ext: 'aar')
     implementation 'com.github.Juude:AndroidDeviceNames:0.0.1'
     testImplementation 'androidx.test:core:1.5.0'
     testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.robolectric:robolectric:4.12.1'
+    testImplementation 'org.robolectric:robolectric:4.15.1'
     testImplementation 'org.mockito:mockito-core:5.11.0'
     testImplementation 'org.mockito:mockito-inline:5.2.0'
     testImplementation 'org.mockito.kotlin:mockito-kotlin:5.2.0'
@@ -226,4 +280,11 @@ dependencies {
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2"
     debugImplementation 'com.facebook.stetho:stetho:1.6.0'
     debugImplementation 'com.facebook.stetho:stetho-okhttp3:1.6.0'
+
+    // CameraX for the live video chat in VoiceChatFragment
+    def camerax_version = "1.4.2"
+    implementation "androidx.camera:camera-core:${camerax_version}"
+    implementation "androidx.camera:camera-camera2:${camerax_version}"
+    implementation "androidx.camera:camera-lifecycle:${camerax_version}"
+    implementation "androidx.camera:camera-view:${camerax_version}"
 }

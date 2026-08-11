@@ -23,6 +23,10 @@ class LlmConfig(PretrainedConfig):
         self.layer_types = kwargs.pop("layer_types", [])
         self.attention_type = kwargs.pop("attention_type", 'full')
         self.tie_word_embeddings = kwargs.pop("tie_word_embeddings", False)
+        self.scale_emb = kwargs.pop("scale_emb", None)
+        self.conv_L_cache = kwargs.pop("conv_L_cache", 0)
+        self.rope_parameters = kwargs.pop("rope_parameters", None)
+        self.qk_norm_after_rope = kwargs.pop("qk_norm_after_rope", False)
         self.model_map = kwargs.pop("model_map", {})
         super().__init__(**kwargs)
 
@@ -45,6 +49,8 @@ class LlmConfig(PretrainedConfig):
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
+        model_type = None
+        raw_config = {}
         config_path = os.path.join(pretrained_model_name_or_path, 'config.json')
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
@@ -52,7 +58,17 @@ class LlmConfig(PretrainedConfig):
             model_type = raw_config.get('model_type')
             cls._register_external_model(model_type)
 
-        config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True, **kwargs)
+        # Handle models without top-level model_type (e.g., lfm2_audio)
+        if model_type is None:
+            archs = raw_config.get('architectures', [])
+            if 'Lfm2AudioForConditionalGeneration' in archs and 'lfm' in raw_config:
+                from transformers import Lfm2Config
+                config = Lfm2Config(**raw_config['lfm'])
+                config.model_type = 'lfm2_audio'
+            else:
+                config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True, **kwargs)
+        else:
+            config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True, **kwargs)
 
         model_type, model_map = ModelMapper().get_map(config)
         llm_config_kwargs = {
@@ -68,6 +84,20 @@ class LlmConfig(PretrainedConfig):
         if llm_config.num_key_value_heads is None:
             llm_config.num_key_value_heads = llm_config.num_attention_heads
 
+        # Compatibility: transformers>=5.x moved rope_theta into rope_parameters dict
+        if llm_config.rope_theta is None or llm_config.rope_theta == 10000.0:
+            # Try rope_parameters (transformers 5.x style)
+            rp = getattr(config, 'rope_parameters', None) or getattr(config, 'rope_scaling', None)
+            if not isinstance(rp, dict):
+                rp = getattr(llm_config, 'rope_parameters', None)
+            if isinstance(rp, dict) and 'rope_theta' in rp:
+                llm_config.rope_theta = rp['rope_theta']
+            # Fallback to raw config JSON (top-level or nested text_config)
+            elif 'rope_theta' in raw_config:
+                llm_config.rope_theta = raw_config['rope_theta']
+            elif 'text_config' in raw_config and 'rope_theta' in raw_config.get('text_config', {}):
+                llm_config.rope_theta = raw_config['text_config']['rope_theta']
+
         if llm_config.rope_theta is None:
             llm_config.rope_theta = 10000.0
 
@@ -80,7 +110,10 @@ class LlmConfig(PretrainedConfig):
             else:
                 llm_config.head_dim = llm_config.hidden_size // llm_config.num_attention_heads
 
-        # Determine attention type
+        # Determine attention type.
+        # Only `sliding_attention` layers need a sliding-window mask and
+        # therefore the "mix" path.  `linear_attention` layers (e.g. Qwen3.5)
+        # do not use the attention mask at all, so they are treated as full.
         sliding_attn_layers = []
         if hasattr(llm_config, 'layer_types') and llm_config.layer_types:
             for i in range(len(llm_config.layer_types)):
@@ -94,7 +127,6 @@ class LlmConfig(PretrainedConfig):
             llm_config.sliding_attn_layers = sliding_attn_layers
         else:
             llm_config.attention_type = 'full'
-
         return llm_config
 
 # export config
@@ -127,7 +159,7 @@ class LLMExportConfig:
     attention_mask: str = 'float'
     attention_type: str = 'full'
     sliding_window: int = 0
-    tie_embeddings: Optional[List[Union[int]]] = field(default_factory=list)
+    tie_embeddings: Optional[Union[List[int], Dict[str, Any]]] = field(default_factory=list)
     jinja: Dict[str, Any] = field(default_factory=dict)
     vision: Optional[VisionExportConfig] = None
 

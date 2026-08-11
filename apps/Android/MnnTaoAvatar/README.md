@@ -5,7 +5,7 @@
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/avatar/avatar_demo.gif" style="margin: 0 10px;">
 </p>
 
-+ [中文](./README_CN.md)
++ [简体中文版本](./README_CN.md) | [繁體中文版本](./README_TW.md)
 + [Download](#releases) 
 
 Welcome to **MNN-TaoAvatar App**, a full-featured mobile app about the [TaoAvatar paper (arXiv:2503.17032v1)](https://arxiv.org/html/2503.17032v1). This project brings multimodal AI avatars to life directly on Android devices, running **all models locally**, including:

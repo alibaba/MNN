@@ -603,7 +603,7 @@ bool QNNConvolution::createWeightAndBias(Qnn_DataType_t dataType, const Tensor *
             mBlockScale.resize(oc * mBlockSize);
             mScaleOffsetData.resize(oc);
             for (int i = 0; i < oc; i++) {
-                float maxscale = -MAXFLOAT;
+                float maxscale = -std::numeric_limits<float>::max();
                 for(int j = 0; j < mBlockSize; ++j){
                     if(mDequantAlpha[i * mBlockSize + j] > maxscale){
                         maxscale = mDequantAlpha[i * mBlockSize + j];

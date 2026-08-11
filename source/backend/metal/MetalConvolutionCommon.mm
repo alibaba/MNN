@@ -12,6 +12,7 @@
 #import "backend/metal/MetalConvolution1x1.hpp"
 #import "backend/metal/MetalConvolutionWinograd.hpp"
 #import "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -78,29 +79,51 @@ kernel void weight_transform_common(const device IType* src [[buffer(0)]],
 }
 )metal";
     
-static std::shared_ptr<MNN::Tensor> biasForConv(Backend *bn, const Convolution2D *conv, bool fp16) {
+static std::shared_ptr<MNN::Tensor> biasForConv(Backend *bn, const Op* op, const Convolution2D *conv, bool fp16) {
     auto bias   = conv->bias();
     auto oc     = conv->common()->outputCount();
-    int bytes = 4;
-    if (fp16) {
-        bytes = 2;
-    }
+    int bytes = fp16 ? 2 : 4;
+
     auto bias_size_unit = UP_DIV(oc, 16) * 16;
     std::shared_ptr<MNN::Tensor> t(MNN::Tensor::createDevice<float>({bias_size_unit}));
     auto res = bn->onAcquireBuffer(t.get(), Backend::STATIC);
     if (!res) {
         return nullptr;
     }
-    if (bn->getRuntime()->hint().useCachedMmap > 1) {
+
+    const bool useCachedMmap = (bn->getRuntime() && bn->getRuntime()->hint().useCachedMmap > 1);
+    if (useCachedMmap) {
         return t;
     }
-    auto bias_size = bias_size_unit *bytes;
+
     auto buffer = MetalBackend::getBuffer(t.get());
-    auto src    = bias->data();
     auto dstOrigin = (uint8_t*)[buffer.first contents] + buffer.second;
-    ::memset(dstOrigin, 0, bias_size);
+    ::memset(dstOrigin, 0, bias_size_unit * bytes);
+
+    const float* src = nullptr;
+    std::unique_ptr<float[]> externalBias;
+    if (nullptr != bias && bias->size() >= oc) {
+        src = bias->data();
+    } else if (nullptr != op && nullptr != op->externalPath() && USE_EXTERNAL_DATA(conv) && nullptr != conv->external() && conv->external()->size() >= 3 && conv->external()->data()[2] > 0) {
+        auto externalInfo = conv->external()->data();
+        size_t biasBytes = externalInfo[2];
+        size_t expectedBytes = (size_t)oc * sizeof(float);
+        if (biasBytes < expectedBytes) {
+            return t;
+        }
+        externalBias.reset(new float[oc]);
+        std::unique_ptr<FileLoader> external(new FileLoader(op->externalPath()->c_str()));
+        external->offset(externalInfo[0] + externalInfo[1]);
+        external->read((char*)externalBias.get(), expectedBytes);
+        src = externalBias.get();
+    }
+
+    if (nullptr == src) {
+        return t;
+    }
+
     if (fp16) {
-        auto dst    = (__fp16 *)dstOrigin;
+        auto dst = (__fp16 *)dstOrigin;
     #pragma clang loop vectorize(enable) unroll(enable)
         for (int i = 0; i < oc; i++) {
             dst[i] = src[i];
@@ -108,6 +131,7 @@ static std::shared_ptr<MNN::Tensor> biasForConv(Backend *bn, const Convolution2D
     } else {
         ::memcpy(dstOrigin, src, oc * sizeof(float));
     }
+
     return t;
 }
 
@@ -125,7 +149,7 @@ MetalConvolutionCommon::MetalConvolutionCommon(Backend *backend, const MNN::Op *
     if (nullptr != bias) {
         mBias = bias;
     } else {
-        mBias = biasForConv(backend, conv, mtbn->useFp16InsteadFp32());
+        mBias = biasForConv(backend, op, conv, mtbn->useFp16InsteadFp32());
     }
     mActivationType = common->relu() ? 1 : (common->relu6() ? 2 : 0);
     if (nullptr == mBias) {
@@ -284,7 +308,7 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
     auto useOriginMmap = backend()->getRuntime()->hint().useCachedMmap > 1;
     bool preAllocGpuMem = ic != 0 && conv->quanParameter();
     int quantBit;
-    // only for weight int4/int8 now.
+    // GPU pre-allocation for quantized weights (int2/3/4/8).
     if(loadWeightInt8) {
         quantBit = conv->quanParameter()->aMaxOrBits();
         // 3.1.2 and after has aMaxOrBits for quant bits
@@ -292,7 +316,7 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
             // support old model for external weight file with int4/int8 quant
             quantBit = ConvolutionCommon::getQuantBitFromExternalFile(op);
         }
-        if(quantBit != 4 && quantBit != 8) {
+        if(quantBit != 2 && quantBit != 3 && quantBit != 4 && quantBit != 8) {
             preAllocGpuMem = false;
         }
     }
@@ -330,7 +354,12 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
     // convert
     if (loadWeightInt8) {
         auto backend = static_cast<MetalBackend *>(this->backend());
-        mWeight = weightTransform(group, oc, ic, kh, kw, (float*)qnt->weight.get(), !qnt->canUseInt4, qnt->canUseInt4, srcGpuBuffer);
+        bool useInt2 = qnt->canUseInt2;
+        bool useInt3 = qnt->canUseInt3;
+        bool int4Path = qnt->canUseInt4 && !useInt2 && !useInt3;
+        bool int8Path = !int4Path && !useInt2 && !useInt3;
+        int subBits = useInt2 ? 2 : (useInt3 ? 3 : 0);
+        mWeight = weightTransform(group, oc, ic, kh, kw, (float*)qnt->weight.get(), int8Path, int4Path, srcGpuBuffer, subBits);
         if(backend->useFp16InsteadFp32()) {
             auto dequantParams = getDequantScale<__fp16>(qnt->alpha.get(), qnt->alphaSize, backend, qnt->asymmetric, oc);
             mDequantScaleBias = dequantParams.first;
@@ -341,15 +370,36 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
             mScaleCoef = dequantParams.second;
         }
 
-        mDequantBits = qnt->canUseInt4 ? 4:8;
+        mDequantBits = useInt2 ? 2 : (useInt3 ? 3 : (int4Path ? 4 : 8));
     } else if (qnt && qnt->weightFloat.get()) {
         mWeight = weightTransform(group, oc, ic, kh, kw, qnt->weightFloat.get(), false, false, srcGpuBuffer);
     } else {
-        mWeight = weightTransform(group, oc, ic, kh, kw, conv->weight()->data(), false, false, srcGpuBuffer);
+        const float* src = nullptr;
+        std::unique_ptr<float[]> externalWeight;
+        if (nullptr != conv->weight() && conv->weight()->size() > 0) {
+            src = conv->weight()->data();
+        } else {
+            const bool useCachedMmap = (backend()->getRuntime() && backend()->getRuntime()->hint().useCachedMmap > 1);
+            if (!useCachedMmap && nullptr != op->externalPath() && USE_EXTERNAL_DATA(conv) && nullptr != conv->external() && conv->external()->size() >= 2 && conv->external()->data()[1] > 0) {
+                auto externalInfo = conv->external()->data();
+                size_t weightBytes = externalInfo[1];
+                size_t expectedBytes = size * sizeof(float);
+                if (weightBytes < expectedBytes) {
+                    mValid = false;
+                    return;
+                }
+                externalWeight.reset(new float[size]);
+                std::unique_ptr<FileLoader> external(new FileLoader(op->externalPath()->c_str()));
+                external->offset(externalInfo[0]);
+                external->read((char*)externalWeight.get(), expectedBytes);
+                src = externalWeight.get();
+            }
+        }
+        mWeight = weightTransform(group, oc, ic, kh, kw, src, false, false, srcGpuBuffer);
     }
 }
 
-std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight, id<MTLBuffer> srcGpuBuffer) {
+std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight, id<MTLBuffer> srcGpuBuffer, int subBits) {
     if(srcGpuBuffer != nil) {
         MNN_ASSERT((void*)src == (void*)srcGpuBuffer.contents);
     }
@@ -363,6 +413,75 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
     auto ori_len = group * goc * gic * kh * kw;
     bool needMemset = (goc % 4 != 0 || gic % 4 != 0);
 #ifdef MNN_LOW_MEMORY
+    if (subBits == 3) {
+        // 3-bit packed: 6 bytes / (4 OC, 4 IC) tile.
+        size_t weight_bytes = (size_t)group * goc_4 * gic_4 * kh * kw * 6;
+        std::shared_ptr<MNN::Tensor> weightLow(MNN::Tensor::createDevice<int8_t>({(int)weight_bytes}));
+        if (!backend->onAcquireBuffer(weightLow.get(), Backend::STATIC)) {
+            MNN_ERROR("Memory alloc error!\n");
+            return nullptr;
+        }
+        if (nil == src) {
+            return weightLow;
+        }
+        auto buf = MetalBackend::getBuffer(weightLow.get());
+        auto dstPtr = (uint8_t*)[buf.first contents] + buf.second;
+        ::memset(dstPtr, 0, weight_bytes);
+        auto srcPtr = (const int8_t*)src;
+        for (int g = 0; g < group; g++) {
+            for (int o = 0; o < goc; o++) {
+                int zo = o / 4, ro = o % 4;
+                for (int i = 0; i < gic; i++) {
+                    int zi = i / 4, ri = i % 4;
+                    for (int h = 0; h < kh; h++) {
+                        for (int w = 0; w < kw; w++) {
+                            int srcIdx = ((g * goc + o) * gic + i) * kh * kw + h * kw + w;
+                            int sv = (int)srcPtr[srcIdx] + 4;
+                            int tileBase = (((g * goc_4 + zo) * gic_4 + zi) * kh + h) * kw * 6 + w * 6;
+                            dstPtr[tileBase + ro] |= (uint8_t)((sv & 3) << (6 - ri * 2));
+                            int hiByte = tileBase + 4 + (ro / 2);
+                            int hiShift = (ro % 2 == 0 ? 4 : 0) + (3 - ri);
+                            dstPtr[hiByte] |= (uint8_t)(((sv >> 2) & 1) << hiShift);
+                        }
+                    }
+                }
+            }
+        }
+        return weightLow;
+    }
+    if (subBits == 2) {
+        // 2-bit packed: 4 bytes / (4 OC, 4 IC) tile.
+        size_t weight_bytes = (size_t)group * goc_4 * gic_4 * kh * kw * 4;
+        std::shared_ptr<MNN::Tensor> weightLow(MNN::Tensor::createDevice<int8_t>({(int)weight_bytes}));
+        if (!backend->onAcquireBuffer(weightLow.get(), Backend::STATIC)) {
+            MNN_ERROR("Memory alloc error!\n");
+            return nullptr;
+        }
+        if (nil == src) {
+            return weightLow;
+        }
+        auto buf = MetalBackend::getBuffer(weightLow.get());
+        auto dstPtr = (uint8_t*)[buf.first contents] + buf.second;
+        ::memset(dstPtr, 0, weight_bytes);
+        auto srcPtr = (const int8_t*)src;
+        for (int g = 0; g < group; g++) {
+            for (int o = 0; o < goc; o++) {
+                int zo = o / 4, ro = o % 4;
+                for (int i = 0; i < gic; i++) {
+                    int zi = i / 4, ri = i % 4;
+                    for (int h = 0; h < kh; h++) {
+                        for (int w = 0; w < kw; w++) {
+                            int srcIdx = ((g * goc + o) * gic + i) * kh * kw + h * kw + w;
+                            int sv = (int)srcPtr[srcIdx] + 2;
+                            int tileBase = (((g * goc_4 + zo) * gic_4 + zi) * kh + h) * kw * 4 + w * 4;
+                            dstPtr[tileBase + ro] |= (uint8_t)((sv & 3) << (6 - ri * 2));
+                        }
+                    }
+                }
+            }
+        }
+        return weightLow;
+    }
     if (int4Weight) {
         weight_len = UP_DIV(weight_len, 2);
         std::shared_ptr<MNN::Tensor> weightLow(MNN::Tensor::createDevice<int8_t>({weight_len}));

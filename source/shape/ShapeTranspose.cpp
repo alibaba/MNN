@@ -23,11 +23,16 @@ class TransposeComputer : public SizeComputer {
         auto permutation = perm->host<int32_t>();
         outputs[0]->buffer().dimensions = dims;
         outputs[0]->buffer().type = input->getType();
+        bool used[MNN_MAX_TENSOR_DIM] = {false};
         for (int i = 0; i < dims; ++i) {
             const int32_t d                    = permutation[i];
             if (d < 0 || d >= dims) {
                 return false;
             }
+            if (used[d]) {
+                return false;
+            }
+            used[d] = true;
             outputs[0]->buffer().dim[i].extent = input->buffer().dim[d].extent;
         }
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;

@@ -30,9 +30,11 @@ Interp3DExecution::Interp3DExecution(const std::vector<Tensor *> &inputs, const 
     std::string kernelName = "interp3D";
     if (op->main_as_Interp()->resizeType() == 1) {
         unit.kernel                = runtime->buildKernel("nearest", kernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     } else {
         MNN_ERROR("Resize types other than nearest are not supported in Interp3D opencl! Using nearest instead\n");
         unit.kernel                = runtime->buildKernel("nearest", kernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     }
 
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));

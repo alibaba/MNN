@@ -31,13 +31,14 @@
         --path /path/to/Qwen2-0.5B-Instruct \
         --export mnn --hqq
     ```
-    *   **关键产物**：脚本会生成一个包含 `llm.mnn`, `llm.mnn.weight`, `tokenizer.txt`, `embeddings_bf16.bin`【可能存在】, `llm_config.json`, `config.json` 等文件的模型目录。
+    *   **关键产物**：脚本会生成一个包含 `llm.mnn`, `llm.mnn.weight`, `tokenizer.mtok`, `embeddings_bf16.bin`【可能存在】, `llm_config.json`, `config.json` 等文件的模型目录。
 
 4.  **（可选）高级功能**：
     *   **量化**：通过 `--quant_bit 4` 和 `--quant_block 128` 等参数可以调节量化的Bits数，默认为`4 bit , block size 64`。通过 `--hqq` 或 `--awq` 或 `--omni` 可以启用对应算法以提升量化后的模型精度，一般建议增加`--hqq`
     *   **LoRA**：通过 `--lora_path` 合并或分离 LoRA 权重。
     *   **Embeding**：对于目前主流的8b以下模型，采用了`Tie-Embeding`技术，默认不会导出`embeddings_bf16.bin`，而是复用`llm.mnn.weight`中的`lm`权重，需要提升embed精度可以设置 `--seperate_embed` 分离出`embeddings_bf16.bin`。
     *   **GPTQ**：通过 `--gptq_path` 应用预量化好的 GPTQ 权重。
+    *   **MNNConvert 工具**：推荐优先使用本地编译的 `MNNConvert`（在 MNN 根目录下 `mkdir build && cd build && cmake .. -DMNN_BUILD_CONVERTER=ON && make -j16`），`llmexport.py` 默认会到 `../../../build/` 下查找，也可通过 `--mnnconvert` 显式指定路径。
     *   **手动转换**：如果直接导出 `mnn` 失败，或者需要fp16/fp32精度的模型，可先导出 `onnx`，再用 `MNNConvert` 工具手动转换。
 
 ---
@@ -47,11 +48,11 @@
 此步骤是编译 MNN 的 C++ 推理引擎，使其支持 LLM 推理功能。
 
 1.  **配置编译选项**：
-    在标准的 MNN 编译命令中，**必须添加 `-DMNN_BUILD_LLM=true`** 以启用 LLM 支持。
+    在标准的 MNN 编译命令中，**必须添加 `-DMNN_BUILD_LLM=ON`** 以启用 LLM 支持。
     *   **Omni 模型**：如果需要支持图像/音频输入，还需添加 `-DMNN_BUILD_LLM_OMNI=ON`。
     *   **平台优化**：
-        *   **x86 (Mac/Linux)**：可添加 `-DMNN_AVX512=true` 以利用 AVX512 指令集加速。
-        *   **Android**：可添加 `-DMNN_OPENCL=true` 以利用 GPU 加速。
+        *   **x86 (Mac/Linux)**：可添加 `-DMNN_AVX512=ON` 以利用 AVX512 指令集加速。
+        *   **Android**：可添加 `-DMNN_OPENCL=ON` 以利用 GPU 加速。
         *   **iOS**：可添加 `-DMNN_METAL=ON` 以利用 GPU 加速。
         *   **Web (WASM)**：使用 `emcmake` 并配置 `-DMNN_FORBID_MULTI_THREAD=ON` 等特定选项。
 
@@ -59,7 +60,7 @@
     以 Linux/Mac 为例：
     ```bash
     mkdir build && cd build
-    cmake .. -DMNN_BUILD_LLM=true -DMNN_AVX512=true # 根据平台调整选项
+    cmake .. -DMNN_BUILD_LLM=ON -DMNN_AVX512=ON # 根据平台调整选项
     make -j16
     ```
     编译完成后，会生成核心库文件（如 `libMNN.so`, `libllm.so`）。
@@ -71,13 +72,13 @@
 此步骤是配置模型运行参数并启动推理。
 
 1.  **准备模型目录**：
-    将第一步导出的所有文件（`llm.mnn`, `llm.mnn.weight`, `tokenizer.txt`, `embeddings_bf16.bin`, `llm_config.json`）放在同一个文件夹下。
+    将第一步导出的所有文件（`llm.mnn`, `llm.mnn.weight`, `tokenizer.mtok`, `embeddings_bf16.bin`, `llm_config.json`）放在同一个文件夹下。
 
 2.  **配置 `config.json`**：
     编辑或使用自动生成的 `config.json` 文件，根据你的硬件和需求调整参数：
     *   **硬件**：设置 `backend_type` (如 `"cpu"`, `"opencl"`) 和 `thread_num`。
     *   **性能**：设置 `precision` (如 `"low"` for fp16) 和 `memory` (如 `"low"` for runtime quant)。
-    *   **生成**：设置 `max_new_tokens`, `sampler_type` (如 `"mixed"`), `temperature`, `topK`, `topP` 等。
+    *   **生成**：设置 `max_new_tokens`, `sampler_type` (默认 `"mixed"`), `temperature`, `top_k`, `top_p`, `repetition_penalty` 等。
     *   **高级**：设置 `reuse_kv` (多轮对话), `chunk` (内存分块) 等。
     *   **示例**：
         ```json
@@ -107,8 +108,56 @@
 4.  **（可选）性能基准测试**：
     使用 `llm_bench` 工具对不同后端、线程数、Prompt 长度等配置进行性能压测，以找到最优配置。
     ```bash
-    ./llm_bench -m ./model/config.json -a cpu,opencl -t 4,8 -p 32,64 -n 32 -rep 3
+    # -pg <pp>,<tg>：prefill pp 个 token 后复用 KV cache 生成 tg 个 token（最接近真实推理）
+    ./llm_bench -m ./model/config.json -a cpu,opencl -t 4,8 -pg 64,32 -rep 3
     ```
+
+---
+
+### **Android Hexagon 后端**
+
+Hexagon 后端用于在支持 Qualcomm HTP/cDSP 的 Android 设备上运行 LLM。当前 LLM Hexagon 路径只支持
+4-bit 权重量化并使用对称量化，即导出时需要使用 `--quant_bit 4 --sym`。非 4-bit 权重和非对称权重
+目前不属于支持范围。
+
+必须使用 Transformer C4 导出，若 Attention 的 `output_c4` 是`False`，那么`Hexagon`后端不支持：
+
+```bash
+cd transformers/llm/export
+python llmexport.py \
+    --path /path/to/Qwen3-0.6B \
+    --export mnn \
+    --quant_bit 4 \
+    --quant_block 64 \
+    --sym \
+    --mnnconvert /path/to/MNNConvert \
+    --dst_path /path/to/qwen3_0_6b_hexagon
+```
+
+运行前需要将 `config.json` 中的 `backend_type` 改为 `hexagon`，并把模型文件、`libMNN.so`、
+`libMNN_htpops.so`、`libMNN_htpops_skel.so`、`llm_demo`、`llm_bench` 推到设备同一运行目录。例如：
+
+```bash
+adb push /path/to/qwen3_0_6b_hexagon /data/local/tmp/MNN/
+adb push libMNN.so libMNN_htpops.so libMNN_htpops_skel.so llm_demo llm_bench /data/local/tmp/MNN/
+
+adb shell 'cd /data/local/tmp/MNN && \
+    export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && \
+    export ADSP_LIBRARY_PATH=/data/local/tmp/MNN && \
+    ./llm_demo qwen3_0_6b_hexagon/config.json prompt.txt'
+```
+
+性能测试可使用：
+
+```bash
+adb shell 'cd /data/local/tmp/MNN && \
+    export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && \
+    export ADSP_LIBRARY_PATH=/data/local/tmp/MNN && \
+    ./llm_bench -m qwen3_0_6b_hexagon/config.json -a hexagon -p 512 -n 128 -rep 3'
+```
+
+如果修改了 `source/backend/hexagon/htp-ops-lib/src/dsp` 下的 DSP 侧实现，需要重新编译并部署
+`libMNN_htpops.so` 和 `libMNN_htpops_skel.so`，否则设备仍会加载旧的 DSP 实现。
 
 ---
 
@@ -154,7 +203,7 @@ python llmexport.py \
 5. `llm.mnn.weight`: 模型的mnn权重，推理时使用；
 6. `llm.onnx`: 模型的onnx文件，不包含权重，推理时不使用；
 7. `llm_config.json`: 模型的配置信息，推理时使用；
-8. `tokenizer.txt`: 模型的tokenzier文件，推理时使用；
+8. `tokenizer.mtok`: 模型的tokenzier文件，推理时使用；
 目录结构如下所示：
 ```
 .
@@ -168,11 +217,18 @@ python llmexport.py \
           ├──llm.onnx
           ├──llm.onnx.data
      ├── llm_config.json
-     └── tokenizer.txt
+     └── tokenizer.mtok
 ```
 
 ### 功能
-- 直接转为mnn模型，使用`--export mnn`，注意，你需要先安装pymnn或者通过`--mnnconvert`选项指定MNNConvert工具的地址，两种条件必须满足其中一个。如果没有安装pymnn并且没有通过`--mnnconvert`指定MNNConvert工具的地址，那么llmexport.py脚本会在目录"../../../build/"下寻找MNNConvert工具，需保证该目录下存在MNNConvert文件。此方案目前支持导出4bit和8bit模型
+- 直接转为mnn模型，使用`--export mnn`。**推荐优先使用本地编译的 MNNConvert 工具**：在 MNN 根目录下创建 `build/` 目录并执行编译，编译时需打开 `-DMNN_BUILD_CONVERTER=ON`，例如：
+  ```bash
+  mkdir build && cd build
+  cmake .. -DMNN_BUILD_CONVERTER=ON && make -j16
+  ```
+  编译完成后 `build/` 目录下会生成 `MNNConvert` 可执行文件，`llmexport.py` 默认会在 `../../../build/` 下查找该工具；也可以通过 `--mnnconvert` 选项显式指定 MNNConvert 路径。若未提供本地 MNNConvert，脚本会回退到 pymnn（需先安装 `pip install MNN`）。此方案目前支持导出4bit和8bit模型。
+
+  > **C4 融合与引擎兼容性**：`llmexport.py` 默认开启 Transformer C4 图融合，以减少布局转换并提升 CPU、Metal、OpenCL、CUDA 和 Vulkan 后端的推理性能。默认导出的模型依赖支持 C4 RoPE/Attention 布局的新版 MNN 引擎，无法在不包含相关实现的历史引擎上运行；可使用 `--disable_transformer_c4` 导出兼容模型。新引擎仍兼容旧的非 C4 模型。独立使用 `MNNConvert` 时 C4 融合同样默认开启，可通过 `--transformerFuseC4=0` 显式关闭。
 - 如果直接转为mnn模型遇到问题，或者需要其他bits数的量化（如5bit/6bit），可以先将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型:
 
 ```
@@ -191,7 +247,7 @@ usage: llmexport.py [-h] --path PATH [--type TYPE] [--tokenizer_path TOKENIZER_P
                     [--gptq_path GPTQ_PATH] [--dst_path DST_PATH] [--verbose] [--test TEST] [--export EXPORT]
                     [--onnx_slim] [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK]
                     [--lm_quant_bit LM_QUANT_BIT] [--mnnconvert MNNCONVERT] [--ppl] [--awq] [--omni] [--sym] [--seperate_embed]
-                    [--lora_split]
+                    [--lora_split] [--disable_transformer_c4]
 
 llm_exporter
 
@@ -226,6 +282,8 @@ optional arguments:
                         mnn lm_head quant bit, 4 or 8, default is `quant_bit`.
   --mnnconvert MNNCONVERT
                         local mnnconvert path, if invalid, using pymnn.
+  --disable_transformer_c4
+                        Disable LLM C4 graph fusion for compatibility with older runtimes.
   --ppl                 Whether or not to get all logits of input tokens.
   --awq                 Whether or not to use awq quant.
   --sym                 Whether or not to using symmetric quant (without zeropoint), defualt is False.
@@ -239,7 +297,7 @@ optional arguments:
 llmexport.py 同时支持 LLM 的验证功能，有较多的依赖。在没有相应环境的情况下，MNN-LLM也提供由 safetensors 或 gguf 文件读取权重的工具，可以降低内存需求，提高转换速度。使用方法如下：
 
 #### 权重读取前置工作
-1. 下载模型结构：在如下地址找到对应的MNN模型并下载（建文件夹 model，单独下载4个文件： llm.mnn , llm_config.json, tokenizer.txt , config.json）
+1. 下载模型结构：在如下地址找到对应的MNN模型并下载（建文件夹 model，单独下载4个文件： llm.mnn , llm_config.json, tokenizer.mtok , config.json）
 ```
 https://modelscope.cn/organization/MNN
 ```
@@ -282,7 +340,7 @@ python3 gguf2mnn.py --gguf ~/third/llama.cpp/build/ggml-model-Q4_K.gguf --mnn_di
 
 若需要开启Omni功能（支持图像/音频输入），增加`MNN_BUILD_LLM_OMNI`选项
 ```
--DMNN_BUILD_LLM=ON -D MNN_BUILD_LLM_OMNI=ON
+-DMNN_BUILD_LLM=ON -DMNN_BUILD_LLM_OMNI=ON
 ```
 
 #### mac / linux / windows
@@ -291,7 +349,7 @@ python3 gguf2mnn.py --gguf ~/third/llama.cpp/build/ggml-model-Q4_K.gguf --mnn_di
 ```
 make build
 cd build
-cmake ../ -DMNN_BUILD_LLM=true
+cmake ../ -DMNN_BUILD_LLM=ON
 make -j16
 ```
 
@@ -299,7 +357,7 @@ x86架构额外加 `MNN_AVX512` 的宏：
 ```
 make build
 cd build
-cmake ../ -DMNN_BUILD_LLM=true -DMNN_AVX512=true
+cmake ../ -DMNN_BUILD_LLM=ON -DMNN_AVX512=ON
 make -j16
 ```
 
@@ -307,7 +365,7 @@ make -j16
 ```
 cd project/android
 mkdir build_64
-../build_64.sh -DMNN_BUILD_LLM=true -DMNN_OPENCL=true -DMNN_USE_LOGCAT=true
+../build_64.sh -DMNN_BUILD_LLM=ON -DMNN_OPENCL=ON -DMNN_USE_LOGCAT=ON
 ```
 高通设备部分视觉模型支持NPU功能，可增加`MNN_QNN`宏启用QNN功能。QNN运行分2种模式：
 - 在线编译QNN模型：运行其它后端统一的mnn模型，运行时进行编译构图，通过需要较长的构图启动时间，主要用于功能正确性验证。
@@ -315,12 +373,12 @@ mkdir build_64
 ```
 cd project/android
 mkdir build_64
-../build_64.sh -DMNN_BUILD_LLM=true -DMNN_OPENCL=true -DMNN_QNN=true -DMNN_WITH_PLUGIN=true -DMNN_USE_LOGCAT=true
+../build_64.sh -DMNN_BUILD_LLM=ON -DMNN_OPENCL=ON -DMNN_QNN=ON -DMNN_WITH_PLUGIN=ON -DMNN_USE_LOGCAT=ON
 ```
 
 #### iOS: 参考 transformers/llm/engine/ios/README.md
 ```
-sh package_scripts/ios/buildiOS.sh -DMNN_BUILD_LLM=true
+sh package_scripts/ios/buildiOS.sh -DMNN_BUILD_LLM=ON
 ```
 
 #### Web
@@ -330,7 +388,7 @@ sh package_scripts/ios/buildiOS.sh -DMNN_BUILD_LLM=true
 
 ```
 mkdir buildweb
-emcmake cmake .. -DCMAKE_BUILD_TYPE=Release -DMNN_FORBID_MULTI_THREAD=ON -DMNN_USE_THREAD_POOL=OFF -DMNN_USE_SSE=OFF -DMNN_BUILD_LLM=true
+emcmake cmake .. -DCMAKE_BUILD_TYPE=Release -DMNN_FORBID_MULTI_THREAD=ON -DMNN_USE_THREAD_POOL=OFF -DMNN_USE_SSE=OFF -DMNN_BUILD_LLM=ON
 make -j16
 ```
 
@@ -358,7 +416,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
      ├── llm_config.json
      ├── llm.mnn
      ├── llm.mnn.weight
-     └── tokenizer.txt
+     └── tokenizer.mtok
 ```
 
 ##### 配置项
@@ -372,7 +430,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - lm_model: 分段模型时`lm.mnn`的实际路径为`base_dir + lm_model`，默认为`base_dir + 'lm.mnn'`
   - embedding_model: 当embedding使用模型时，embedding的实际路径为`base_dir + embedding_model`，默认为`base_dir + 'embedding.mnn'`
   - embedding_file: 当embedding使用二进制时，embedding的实际路径为`base_dir + embedding_file`，默认为`base_dir + 'embeddings_bf16.bin'`
-  - tokenizer_file: `tokenizer.txt`的实际名称路径为`base_dir + tokenizer_file`，默认为`base_dir + 'tokenizer.txt'`
+  - tokenizer_file: `tokenizer.mtok`的实际名称路径为`base_dir + tokenizer_file`，默认为`base_dir + 'tokenizer.mtok'`
   - visual_model: 当使用VL模型时，visual_model的实际路径为`base_dir + visual_model`，默认为`base_dir + 'visual.mnn'`、
   - audio_model: 当使用Audio模型时，audio_model的实际路径为`base_dir + audio_model`，默认为`base_dir + 'audio.mnn'`
   - Omni模型文件信息
@@ -388,18 +446,36 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - max_new_tokens: 生成时最大token数，默认为`512`
   - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`.
   - quant_qkv: 选项废弃，请使用 `attention_mode`
-  - attention_mode: 
-    - CPU attention 算子中`query, key, value`是否量化，可选为：`0, 1, 2, 8, 9, 10`，默认为`8`，含义如下：
-      - 0: 运行时不使用Flash Attention, query, key, value均不量化
-      - 1: 运行时不使用Flash Attention, query和key使用8bit非对称量化，value不量化
-      - 2: 运行时不使用Flash Attention, query, key, value均使用8bit非对称量化
-      - 8: 运行时使用Flash Attention, query, key, value均不量化
-      - 9: 运行时使用Flash Attention, query和key使用8bit非对称量化，value不量化
-      - 10: 运行时使用Flash Attention, query, key, value均使用8bit非对称量化
-    - GPU attention 算子中是否使用Flash Attention，可选为：`0, 8, 16`，默认为`8`，目前仅支持Metal后端，含义如下：
-      - 0: 运行时不使用Flash Attention, 朴素Attention实现，上下文较长时不推荐内存占用高
-      - 8: 运行时使用Flash Attention, 在算子层面分步实现，性能接近设为0，内存占用比设为0小
-      - 16: 运行时使用Flash Attention, 在算子层面单算子融合实现，内存占用最小，性能比设为8稍慢一些
+  - attention_mode:
+    - CPU attention 算子中KV Cache量化方式和FlashAttention开关，编码规则为 `attention_mode = flash_attention * 8 + kv_quant_mode`，默认为`8`
+    - KV Cache量化模式（attention_mode % 8）：
+      - 0: 不量化，key和value均为fp16
+      - 1: key使用int8量化，value不量化
+      - 2: key和value均使用int8量化
+      - 3: key使用TQ3（3-bit）量化，value不量化
+      - 4: key和value均使用TQ3（3-bit）量化
+      - 5: key使用TQ4（4-bit）量化，value不量化
+      - 6: key和value均使用TQ4（4-bit）量化
+    - FlashAttention（attention_mode / 8）：
+      - 0: 不使用FlashAttention
+      - 1: 使用FlashAttention
+    - 常用配置：
+      - 8: FlashAttention，不量化（默认推荐）
+      - 10: FlashAttention + KV-INT8（精度几乎无损）
+      - 14: FlashAttention + KV-TQ4（4-bit量化，内存节省>30%，推荐4B+模型）
+      - 12: FlashAttention + KV-TQ3（3-bit量化，极致压缩，推荐4B+模型）
+    - 注意：TQ3/TQ4基于TurboQuant算法（WHT旋转+Lloyd-Max码本），建议在4B及以上参数模型上使用，小模型（<1B）精度损失较大
+    - Metal 后端 attention_mode 说明（其他 GPU 后端暂不支持 FlashAttention，`attention_mode` 会被忽略）：
+      - FlashAttention（attention_mode / 8 >= 1）：启用 prefill 阶段的融合 Flash Attention kernel，跳过 `mTempQK` / `mTempSoftMax` 两块 O(seq²·B·H) 中间显存，长上下文场景峰值内存显著下降。当前 kernel 已支持 head_dim ∈ {64, 128, 256}、GQA group ∈ {1,2,4,8}、causal ADD-mask 输入。
+      - KV Cache 量化（attention_mode % 8）：Metal 目前仅支持 int8 通道，即 `0/1/2`（TQ3/TQ4 为 CPU 专属）：
+        - 0: 不量化
+        - 1: 仅 Key int8 量化
+        - 2: Key 和 Value 均 int8 量化
+      - 常用组合：
+        - 8：FlashAttention，KV 保持 fp16（长上下文默认推荐）
+        - 10：FlashAttention + KV-INT8（进一步降低 KV 显存，短上下文 pp 会略降 5–14%）
+      - 开发者调试：环境变量 `MNN_ENABLE_FLASH_ATTN_PREFILL=1` 可强制开启 FA（无视 config），`=0` 可强制关闭 FA（用于 A/B 基准）。
+    - 其他 GPU 后端（OpenCL / Vulkan / CUDA）目前仅遵循 attention_mode 中的默认行为，不支持 FlashAttention 切换。
   - use_mmap: 是否使用mmap方式，在内存不足时将权重写入磁盘，避免溢出，默认为false，手机上建议设成true
   - chunk: 限制每次最大处理的token数，高于此值将分块运行，以减少内存占用，eg: chunk: 128
   - chunk_limits: 限制每次处理的token数，不在此范围内将分拆或者补零处理，eg: chunk_limits: [128, 1] , 存在 chunk_limits 时，chunk 配置无效
@@ -420,18 +496,53 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - cpu_sme2_neon_division_ratio: 为了提高Arm SME后端多线程推理时性能，可根据模型、线程数定制化设置该参数。参数计算方式: Prefill阶段单个SME核和NEON核的工作量比例x:1，Decode阶段工作量比例y:1，
                                   则参数设置为8*x+y，x和y均是不大于7的正整数。41、49和33是常见的参数设置. 可以通过观察单线程推理时，SME后端相较于NEON后端的加速比来决定该参数的取值。默认是`41`.
 - Sampler配置
-  - sampler_type: 使用的sampler种类，目前支持`greedy`, `temperature`, `topK`, `topP`, `minP`, `tfs`, `typical`, `penalty`8种基本sampler，外加`mixed`(混合sampler，当选择`mixed`时，依次执行mixed_samplers中的sampler)。默认为`greedy`，但是建议使用`mixed`、`temperature`来增加输出多样性，或使用`penalty`来降低重复。
-  - mixed_samplers: 当`sampler_type`为`mixed`时有效，默认为`["topK", "tfs", "typical", "topP", "min_p", "temperature"]`, 模型计算得到的logits会依次经过这些sampler采样。
-  - temperature: `temperature`, `topP`, `minP`, `tfsZ`, `typical`中temerature值，默认为1.0
-  - topK: `topK`中top K 个的个数，默认为40
-  - topP: `topP`中top P的值，默认为0.9
-  - minP: `minP`中min P的值，默认为0.1
-  - tfsZ: `tfs`中Z的值，默认为1.0 (即不使用tfs算法)
-  - typical: `typical`中p的值，默认为1.0 (即不使用typical算法)
-  - penalty: `penalty`中对于logits中重复token的惩罚项，默认为0.0 (即不惩罚)，推荐值为1.05~1.5。
-  - n_gram: 最大存储的ngram大小，超过此大小的重复ngram将被禁止重复输出，仅在`penalty`选中时生效，默认为8
-  - ngram_factor: `penalty`中对于重复ngram (n>1) 的额外惩罚，默认为1.0，即没有额外惩罚
-  - penalty_sampler: `penalty`中施加完惩罚项后采用的sampling策略，可选"greedy"或"temperature"，默认greedy.
+
+  MNN-LLM 采用pipeline架构的采样器，模型输出的logits依次经过各采样步骤处理，最终选出一个token。支持以下9种采样器及`mixed`混合模式：
+
+  **采样器类型说明**
+
+  | 采样器 | 别名 | 说明 |
+  |--------|------|------|
+  | `greedy` | - | 贪心采样，直接选择logit最大的token，输出完全确定性，不受temperature等参数影响 |
+  | `temperature` | - | 温度采样，将logits除以temperature后做softmax得到概率分布，再按概率随机采样。temperature越高输出越随机，越低越确定 |
+  | `topK` | `top_k` | 仅保留logit值最大的K个候选token，丢弃其余token，缩小采样范围后再采样 |
+  | `topP` | `top_p` | 核采样(Nucleus Sampling)，将token按概率从高到低排序，保留累积概率刚好超过P的最小token集合，丢弃长尾低概率token |
+  | `minP` | `min_p` | 最小概率采样，丢弃概率低于阈值P的token。与topP不同，minP是绝对阈值而非累积阈值 |
+  | `tfs` | - | 尾部自由采样(Tail Free Sampling)，通过计算概率分布的二阶导数来定位分布的"尾部"，裁剪掉尾部的低概率token。参数Z控制裁剪程度，Z=1.0表示不裁剪 |
+  | `typical` | - | 典型采样(Typical Sampling)，保留信息量（-log(p)）最接近分布熵的token，丢弃信息量异常高或低的token。参数P控制保留的累积概率 |
+  | `penalty` | - | 重复惩罚，对已生成的token施加惩罚以降低重复。支持三种惩罚方式：乘性的repetition_penalty、加性的presence_penalty和频率相关的frequency_penalty |
+  | `mixed` | - | 混合模式，按`mixed_samplers`列表中的顺序依次执行多个采样器。logit_bias和banned_tokens会在其他步骤之前执行，penalty会被移到最前面 |
+
+  > **名称兼容性说明**：`topK`/`top_k`、`topP`/`top_p`、`minP`/`min_p` 在采样器名称和配置参数中均可互换使用。配置参数中同时支持 snake_case 和 camelCase 写法（如 `top_k` 与 `topK`），优先读取 snake_case 版本。旧配置中的 `penalty` 字段会自动映射为 `repetition_penalty`。
+
+  **配置参数**
+
+  - sampler_type: 使用的采样器种类，默认为`mixed`。可选值见上表。
+  - mixed_samplers: 当`sampler_type`为`mixed`时有效，默认为`["topK", "tfs", "typical", "topP", "min_p", "temperature"]`，模型计算得到的logits会依次经过这些采样器处理。
+  - temperature: 温度参数，用于`temperature`/`topP`/`minP`/`tfs`/`typical`采样中的softmax计算，默认为1.0。值越大输出越随机，值越小输出越确定。
+  - top_k/topK: Top-K采样的K值，保留概率最大的K个token，默认为40。（支持`top_k`或`topK`两种写法，优先读取`top_k`）
+  - top_p/topP: Top-P采样的P值，保留累积概率达到P的最小token集合，默认为0.9。（支持`top_p`或`topP`两种写法，优先读取`top_p`）
+  - min_p/minP: Min-P采样的P值，丢弃概率低于P的token，默认为0.1。（支持`min_p`或`minP`两种写法，优先读取`min_p`）
+  - tfs_z/tfsZ: TFS采样的Z值，控制尾部裁剪程度，默认为1.0（即不裁剪）。值越小裁剪越激进。（支持`tfs_z`或`tfsZ`两种写法，优先读取`tfs_z`）
+  - typical: Typical采样的P值，控制保留的累积概率，默认为1.0（即不过滤）。推荐值0.9~0.99。
+  - repetition_penalty: 重复惩罚系数（乘性），对已出现的token，正logit除以该值、负logit乘以该值，使其概率降低。默认为1.0（不惩罚），推荐值1.05~1.5。向后兼容旧配置中的`penalty`字段。
+  - presence_penalty: 存在惩罚（加性），对已出现过的每个token的logit减去该值，不论出现几次惩罚相同。默认为0.0。
+  - frequency_penalty: 频率惩罚（加性），对已出现的token按出现次数成比例扣减logit，出现N次则减去`N * frequency_penalty`。默认为0.0。
+  - penalty_window: 惩罚窗口大小，仅对最近N个token施加惩罚。0表示对全部历史token施加惩罚，默认为0。
+  - n_gram: 最大存储的ngram大小，超过此大小的重复ngram将被施加更强惩罚，仅在`penalty`选中时生效，默认为8。
+  - ngram_factor: 对重复ngram (n>1) 的额外惩罚倍率，匹配越长惩罚越强（逐级乘以ngram_factor）。默认为1.0（无额外惩罚）。
+  - penalty_sampler: `penalty`模式下施加完惩罚项后的最终采样策略，可选`"greedy"`或`"temperature"`，默认`"greedy"`。
+  - logit_bias: 对指定token的logit施加偏置，格式为`{"token_id": bias_value}`的JSON对象，正值增加生成概率，负值降低。默认为空。token_id可通过tokenizer获取，示例：
+    ```json
+    {
+        "logit_bias": {
+            "198": -100.0,
+            "151643": 5.0
+        }
+    }
+    ```
+    上例中，token 198 (如换行符) 的logit减少100（几乎禁止生成），token 151643 的logit增加5（提高生成概率）。
+  - banned_tokens: 禁止生成的token id列表，这些token的logit会被设为负无穷。默认为空。示例：`"banned_tokens": [198, 151643]`
 - 投机解码配置项
   - speculative_type: 投机解码算法设置，当前仅支持配置为`lookahead`(使用外接知识库/输入prompt信息去生成草稿做投机验证),通常需要较完备的知识库或者输入prompt与输出重合度较高的场景(例如：代码编辑、文本总结)才有较明显加速。
   - draft_predict_length: 草稿长度，通常设置2-8之间，默认为4。
@@ -459,11 +570,13 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
       "memory": "low",
       "sampler_type": "mixed",
       "mixed_samplers": ["topK", "tfs", "typical", "topP", "min_p", "temperature"],
-      "temperature": 1.0,
-      "topK": 40,
-      "topP": 0.9,
-      "tfsZ": 1.0,
-      "minP": 0.1,
+      "temperature": 0.8,
+      "top_k": 40,
+      "top_p": 0.9,
+      "min_p": 0.05,
+      "tfs_z": 1.0,
+      "typical": 0.95,
+      "repetition_penalty": 1.0,
       "reuse_kv": true
   }
   ```
@@ -500,6 +613,36 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
     "enable_thinking": false
   }
   ```
+
+#### ChatMessage 多轮对话接口
+
+C++ 多轮对话使用 `ChatMessage` 类型，定义为 `std::pair<std::string, std::string>`：
+
+- **first**: 消息角色，如 `"system"`, `"user"`, `"assistant"`, `"tool"`
+- **second**: 消息内容，普通文本字符串
+
+```cpp
+ChatMessages messages;
+messages.emplace_back("system", "You are a helpful assistant.");
+messages.emplace_back("user", "你好");
+llm->response(messages, &std::cout);
+// 保存assistant回复
+messages.emplace_back("assistant", assistant_output);
+// 继续对话
+messages.emplace_back("user", "介绍一下北京");
+llm->response(messages, &std::cout);
+```
+
+**传递复杂消息（tool_calls等）**：当消息包含 `tool_calls`、`reasoning_content` 等额外字段时，将 `first` 设为 `"json"`，`second` 设为完整的 JSON 对象字符串。`apply_chat_template` 会自动将其解析为 JSON 对象传给 Jinja 模板：
+
+```cpp
+// 普通消息
+messages.emplace_back("user", "What's the weather in NYC?");
+// 带 tool_calls 的 assistant 消息：first="json", second=完整JSON
+messages.emplace_back("json", R"({"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"location\":\"NYC\"}"}}]})");
+// tool 回复
+messages.emplace_back("tool", R"({"temperature": 72, "condition": "sunny"})");
+```
 
 #### 推理用法
 `llm_demo`的用法如下：
@@ -550,31 +693,75 @@ options:
   -a, --backends <cpu,opencl,metal>         (default: cpu)
   -c, --precision <n>                       (default: 2) | Note: (0:Normal(for cpu bakend, 'Nornal' is 'High'),1:High,2:Low)
   -t, --threads <n>                         (default: 4)
-  -p, --n-prompt <n>                        (default: 512)
-  -n, --n-gen <n>                           (default: 128)
-  -pg <pp,tg>                               (default: 512,128)
+  -p, --n-prompt <n>                        (default: 512) | Note: prefill-only test (ppN), no KV-cache reuse
+  -n, --n-gen <n>                           (default: 128) | Note: decode-only test (tgN), starts from a 1-token context
+  -pg <pp,tg>                               (default: 0,0) | Note: prefill pp tokens then generate tg tokens reusing that KV-cache (llama-bench -pg); reports prefill and decode speed separately
   -mmp, --mmap <0|1>                        (default: 0)
   -rep, --n-repeat <n>                      (default: 5)
-  -kv, --kv-cache <true|false>              (default: false) | Note: if true: Every time the LLM model generates a new word, it utilizes the cached KV-cache
+  -kv, --kv-cache <true|false>              (default: false) | Note: DEPRECATED, use -pg instead. `-p A -n B -kv true` == `-pg A,B`
   -fp, --file-print <stdout|filename>       (default: stdout) ｜ If not 'stdout', all test results will be written to the specified file.
+  -qa, --quant-attention <n>               (default: 0) | Note: KV cache quantization mode (0=no-quant, 1=QK-int8, 2=QKV-int8, 3=QK-TQ3, 4=QKV-TQ3, 5=QK-TQ4, 6=QKV-TQ4)
+  -fa, --flash-attention <0|1>              (default: 1) | Note: 1=enable flash attention, 0=disable
+  --profile                                 Enable operator-level profiling to print detailed timing statistics
 ```
 
 ##### llm_bench 参数解释
 - '-m | --model': llm.mnn和llm.mnn.weight文件所在的文件夹中config.json文件的路径，而不是文件夹的路径或者mnn/mnn.weight文件的路径。 可以填写多个模型的config.json文件地址，使用英文逗号分隔；
 - '-a | --backends': 指定运行LLM模型的后端，目前MNN仅支持CPU/METAL/OPENCL后端。可以填写多个后端，后端名称均使用英文小写字母，使用英文逗号分隔；
 - '-t | --threads': 指定CPU后端推理时采用的线程数。对于OPENCL后端，该字段表示的不是线程数，而是GPU MODE，当前LLM推理时OpenCL均采取Buffer模式推理，线程数设置为4时性能较优。对于METAL后端对性能的影响较小。可以填写多个线程数，使用英文逗号分隔；
-- '-p | --n-prompt': 指定推理时处理的prompt长度，可填写多个长度，使用英文逗号分隔；测试结果表示LLM模型的首字符响应速度；
-- '-n | --n-gen': 指定推理时生成字符的长度，可填写多个长度，使用英文逗号分隔；测试结果表示LLM模型在不考虑历史KV信息时生成一个字符的速度，即Attention算子中past_kv_length=0;
-- '-pg': 指定prompt长度和生成字符数量，测试中该项的耗时是前两项('-p'和'-n')耗时的总和，处理字符的数量是prompt长度和生成字符数量之和；
+- '-p | --n-prompt': **prefill-only 测试（表格中显示为 `ppN`）**。只处理长度为 N 的 prompt，不做续写；结果表示首字符响应速度（prefill 吞吐）。可填写多个长度，使用英文逗号分隔；
+- '-n | --n-gen': **decode-only 测试（表格中显示为 `tgN`）**。从 1 个 token 的上下文开始连续生成 N 个字符，即 Attention 的 past_kv_length 从 0 起算，衡量"无历史 KV 负担"时的纯生成速度。可填写多个长度，使用英文逗号分隔；
+- '-pg <pp,tg>': **prefill + decode 联合测试（表格中显示为 `ppN+tgM`）**，语义与 llama.cpp `llama-bench -pg` 一致：先 prefill `pp` 个 token，再**复用该 KV cache** continue 生成 `tg` 个 token（一次运行，decode 阶段的 kv 长度从 pp 增长到 pp+tg），因此最接近真实推理（与运行 `llm_demo` 的行为一致）。输出**分别给出 prefill 与 decode 两个速度**（`prefill<br>decode`），便于定位性能变化发生在哪个阶段；
 - '-mmp | --mmap': 指定模型加载时是否使用mmap技术，只能填写一个候选项，0或1；该项对模型推理性能无影响；
 - '-rep | --n-repeat': 每一个测试实例重复的次数，最终结果取平均数，并计算性能的标准差；
-- '-kv | --kv-cache': 当设置为true时，测试时在LLM模型decode阶段会考虑历史KV信息，即测试方法和运行'llm_demo'程序一致；
+- '-kv | --kv-cache': **已废弃（deprecated），请改用 `-pg`**。`-p A -n B -kv true` 完全等价于 `-pg A,B`；使用时会打印一条 deprecation 提示。保留该选项仅为兼容既有脚本；
 - '-fp | --file-print': 默认输出到屏幕上；如果指定了输出文件，最终的测试结果会以追加的方式以markdown格式写入到文件中，不会删除文件中已有的内容；文件不存在会自动创建。
+- '-qa | --quant-attention': 控制 KV Cache 量化模式（`attention_mode % 8` 部分），默认 `0`（不量化）。可选值：`0`=不量化、`1`=Key int8、`2`=KV int8、`3`=Key TQ3、`4`=KV TQ3、`5`=Key TQ4、`6`=KV TQ4。完整编码规则见上方 [attention_mode](#推理配置) 说明。
+- '-fa | --flash-attention': 控制是否启用 Flash Attention，默认 `1`（开启）。设为 `0` 时关闭 Flash Attention。`-qa` 和 `-fa` 独立控制量化模式和 Flash Attention，最终 `attention_mode = flash * 8 + quant`。例如 `-qa 0 -fa 1` 等效于 `attention_mode=8`，`-qa 2 -fa 0` 等效于 `attention_mode=2`。
+
+##### 三种测试模式（与 llama.cpp llama-bench 对齐）
+
+| 模式 | 参数 | 表格 test 列 | KV cache | 输出 | llama-bench 对应 |
+|---|---|---|---|---|---|
+| prefill-only | `-p 512` | `pp512` | 不复用 | 单个 t/s | `-p` |
+| decode-only | `-n 128` | `tg128` | 从 1 token 起 | 单个 t/s | `-n` |
+| **prefill+decode** | `-pg 512,128` | `pp512+tg128` | **decode 复用 prefill 的 KV** | **prefill / decode 两个速度** | `-pg` |
+
+三者可同时给出，会各自产生独立的表格行：
+
+```bash
+# 同时跑 pp512、tg128、pp512+tg128 三个测试
+./llm_bench -m ./model/config.json -a metal -p 512 -n 128 -pg 512,128 -rep 3
+```
+
+输出示例（`-pg` 行给出 prefill 与 decode 两个速度，其余行为单个 t/s）：
+
+```
+| model              |  modelSize | backend | threads | precision  | test          | speed(tok/s) |
+| ------------------ | ---------: | ------- | ----: | ---------- | ------------- | ------------ |
+| qwen3-0.6b         | 355.68 MiB | METAL   |     4 | Low        | pp512         | 5073.12 ± 8.61 |
+| qwen3-0.6b         | 355.68 MiB | METAL   |     4 | Low        | tg128         | 345.85 ± 1.02 |
+| qwen3-0.6b         | 355.68 MiB | METAL   |     4 | Low        | pp512+tg128   | 5061.44 ± 9.30<br>293.40 ± 0.42 |
+```
+
+> 评估真实推理性能（尤其是长上下文下 decode 随 kv 增长而变慢的效应）请使用 `-pg`：它是唯一让 decode 阶段带着真实 KV cache 长度运行的模式。`-n` 得到的是 kv≈0 的理想值，通常明显偏高。
 
 ##### 命令行运行llm_bench
 在build目录下运行
 ```bash
-./llm_bench -m ./Qwen2.5-1.5B-Instruct/config.json,./Qwen2.5-0.5B-Instruct/config.json -a cpu,opencl,metal -c 1,2 -t 8,12 -p 16,32 -n 10,20 -pg 8,16 -mmp 0 -rep 4 -kv true -fp ./test_result
+./llm_bench -m ./Qwen2.5-1.5B-Instruct/config.json,./Qwen2.5-0.5B-Instruct/config.json -a cpu,opencl,metal -c 1,2 -t 8,12 -pg 16,10 -pg 32,20 -mmp 0 -rep 4 -fp ./test_result
+```
+
+关闭 Flash Attention 或开启 KV 量化进行 A/B 对比测试：
+```bash
+# Flash Attention 开启（默认）
+./llm_bench -m ./model/config.json -a metal -p 512 -n 128 -rep 5
+
+# Flash Attention 关闭
+./llm_bench -m ./model/config.json -a metal -fa 0 -p 512 -n 128 -rep 5
+
+# 开启 KV-INT8 量化（Key+Value）
+./llm_bench -m ./model/config.json -a metal -qa 2 -p 512 -n 128 -rep 5
 ```
 
 #### 多Prompt场景下KVCache选择性复用
@@ -857,14 +1044,109 @@ make -j16
 ```
 
 
-使用 `npu/generate_llm_qnn.py` 构建 qnn 模型
-eg:
+使用 `npu/generate_llm_qnn.py` 构建 qnn 模型。该脚本支持三种使用模式：转换 LLM 语言模型、转换 Visual 视觉模型、以及通过自定义 `input_json` 转换任意模型。
 
-```
+##### 参数说明
+
+| 参数 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :----- | :--- |
+| `--model` | str | (必填) | MNN 模型所在目录路径 |
+| `--soc_id` | int | (必填) | 目标设备的 SOC ID，如 8Gen3 为 57 |
+| `--dsp_arch` | str | (必填) | 目标设备的 DSP 架构，如 8Gen3 为 v75 |
+| `--vtcm_mb` | int | (选填) | 目标设备上用于缓存graph的vtcm_mb大小，默认配置为8 |
+| `--model_name` | str | `llm.mnn` | 要转换的模型文件名，如 `llm.mnn` 或 `visual.mnn` |
+| `--image_sizes` | str | `512x512` | 视觉模型的输入图片尺寸，支持多尺寸，如 `"224x224,384x384,512x512"` |
+| `--input_json` | str | `""` | 自定义输入 shape 的 JSON 文件路径，非空时使用自定义模式 |
+| `--external_file` | str | `""` | 外部权重文件名（相对于 `--model` 目录），配合 `--input_json` 使用 |
+| `--mnn_path` | str | `../../../build/` | MNN 编译产物路径 |
+| `--cache_path` | str | `tmp` | 转换过程中的临时缓存目录 |
+| `--chunk_size` | int | `128` | NPU 的 chunk 大小 |
+| `--max_history_token` | int | `0` | 最大历史 token 数，0 表示不限制 |
+
+##### 用法一：转换 LLM 语言模型
+
+默认模式，将 `llm.mnn` 转换为 QNN 模型。脚本会自动从模型目录下的 `llm_config.json` 读取 `hidden_size` 等配置信息，生成对应的输入描述并完成转换。
+
+```bash
 cd ${MNN_ROOT}
 cd transformers/llm/export
-python3 npu/generate_llm_qnn.py --model model --soc_id=57 --dsp_arch=v75
+python3 npu/generate_llm_qnn.py \
+    --model /path/to/Qwen3.5-2B-MNN/ \
+    --soc_id=57 \
+    --dsp_arch=v75
 ```
+
+转换完成后，会在模型目录下生成 `qnn/` 子目录和 `config_qnn.json` 配置文件。
+
+##### 用法二：转换 Visual 视觉模型
+
+通过指定 `--model_name visual.mnn` 进入视觉模型转换模式。需要通过 `--image_sizes` 指定支持的输入图片尺寸（格式为 `WxH`，多个尺寸用逗号分隔）。目前支持 Qwen2.5-VL、Qwen3-VL、Qwen3.5-VL 和 FastVLM 系列视觉模型。
+
+```bash
+cd ${MNN_ROOT}
+cd transformers/llm/export
+python3 npu/generate_llm_qnn.py \
+    --model /path/to/Qwen2.5-VL-3B-MNN/ \
+    --soc_id=57 \
+    --dsp_arch=v75 \
+    --image_sizes 256x256 \
+    --model_name visual.mnn
+```
+
+支持多个图片尺寸：
+```bash
+python3 npu/generate_llm_qnn.py \
+    --model /path/to/Qwen2.5-VL-3B-MNN/ \
+    --soc_id=57 \
+    --dsp_arch=v75 \
+    --image_sizes "224x224,384x384,512x512" \
+    --model_name visual.mnn
+```
+
+转换完成后，会在模型目录下生成 `qnn/` 子目录和 `config_qnn.json`（其中 `visual_model` 字段指向转换后的 QNN 视觉模型）。
+
+##### 用法三：使用自定义 input_json 转换任意模型
+
+当需要转换非标准模型或自定义输入 shape 时，可以通过 `--input_json` 指定一个 JSON 文件来描述模型的输入输出信息。此模式下需要同时指定 `--model_name`（模型文件名）和 `--external_file`（权重文件名）。
+
+input_json 文件格式示例：
+```json
+{
+    "configs": [
+        {
+            "inputs": [
+                {"name": "input_0", "shape": [1, 3, 224, 224]},
+                {"name": "input_1", "shape": [1, 10], "type": "int"}
+            ],
+            "outputs": ["output_0"]
+        },
+        {
+            "inputs": [
+                {"name": "input_0", "shape": [1, 3, 384, 384]},
+                {"name": "input_1", "shape": [1, 20], "type": "int"}
+            ],
+            "outputs": ["output_0"]
+        }
+    ]
+}
+```
+
+其中 `configs` 数组中的每个元素代表一组输入 shape 配置，脚本会为每组配置生成对应的 QNN 模型。`type` 字段可选，默认为 float，支持 `"int"` 等类型。
+
+使用示例：
+```bash
+cd ${MNN_ROOT}
+cd transformers/llm/export
+python3 npu/generate_llm_qnn.py \
+    --model /path/to/MyModel-MNN/ \
+    --soc_id=57 \
+    --dsp_arch=v75 \
+    --input_json /path/to/input.json \
+    --model_name my_model.mnn \
+    --external_file my_model.mnn.weight
+```
+
+> **注意**：使用 `--input_json` 模式时，脚本不会自动生成 `config_qnn.json`，需要用户自行配置运行时的配置文件。
 
 目标设备`soc_id` 和 `dsp_arch` 可在高通官方查询，如下为一些设备的参考
 

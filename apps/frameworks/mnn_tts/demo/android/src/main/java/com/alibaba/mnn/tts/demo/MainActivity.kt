@@ -18,6 +18,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
+import java.util.Locale
 
 import com.taobao.meta.avatar.tts.TtsService
 import com.alibaba.mnn.tts.demo.audio.AudioChunksPlayer
@@ -31,13 +33,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ttsService: TtsService
     private lateinit var audioPlayer: AudioChunksPlayer
     private lateinit var modelAdapter: ModelAdapter
+    private val roundTripEvaluator = TtsRoundTripEvaluator()
     
     // State
     private var allModels: List<Pair<String, ModelConfig>> = emptyList()
     private var selectedModelPath: String? = null
     private var currentSpeakerId: String = ""
     private var currentLanguage: String = "en"
+    private var initializedLanguage: String = ""
     private var isTtsInitialized = false
+    private var autoRunTriggered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,36 +98,23 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             allModels = scanTtsModels()
             setupLanguageFilter()
+            maybeHandleAutoRunIntent()
         }
     }
 
     private fun loadTtsModelAndPlay(modelPath: String, text: String) {
-        if (isTtsInitialized) {
-            try {
-                ttsService.destroy()
-                isTtsInitialized = false
-            } catch (e: Exception) {
-                Log.e("TTS_TEST", "Error destroying previous TTS service", e)
-            }
-        }
-
-        ttsService = TtsService()
-        
         lifecycleScope.launch {
             try {
                 resultText.text = "Loading model: ${File(modelPath).name}..."
-                val initResult = ttsService.init(modelPath)
+                val resolvedLanguage = TtsLanguageResolver.resolve(text, currentLanguage)
+                val initResult = initTtsService(modelPath, resolvedLanguage)
                 if (initResult) {
-                    isTtsInitialized = true
-                    if (currentLanguage.isNotEmpty()) {
-                        ttsService.setLanguage(currentLanguage)
-                    }
                     processTtsText(text)
                 } else {
                     resultText.text = "Failed to load model: ${File(modelPath).name}"
                 }
             } catch (e: Exception) {
-                Log.e("TTS_TEST", "Error initializing TTS service", e)
+                Log.e(TAG, "Error initializing TTS service", e)
                 resultText.text = "Error loading model: ${e.message}"
             }
         }
@@ -141,15 +133,15 @@ class MainActivity : AppCompatActivity() {
                         if (configFile.exists()) {
                             val config = readModelConfig(file.absolutePath)
                             modelList.add(file.absolutePath to config)
-                            Log.d("TTS_TEST", "Found model: ${file.absolutePath}")
+                            Log.d(TAG, "Found model: ${file.absolutePath}")
                         }
                     }
                 }
             } else {
-                Log.w("TTS_TEST", "Models directory does not exist: ${modelsDir.absolutePath}")
+                Log.w(TAG, "Models directory does not exist: ${modelsDir.absolutePath}")
             }
         } catch (e: Exception) {
-            Log.e("TTS_TEST", "Error scanning models directory", e)
+            Log.e(TAG, "Error scanning models directory", e)
         }
 
         modelList.sortedBy { it.first }
@@ -208,37 +200,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadTtsModel(modelPath: String) {
-        if (isTtsInitialized) {
-            try {
-                ttsService.destroy()
-                isTtsInitialized = false
-            } catch (e: Exception) {
-                Log.e("TTS_TEST", "Error destroying previous TTS service", e)
-            }
-        }
-
-        ttsService = TtsService()
-        
         lifecycleScope.launch {
             try {
                 resultText.text = "Loading model: ${File(modelPath).name}..."
-                Log.d("TTS_TEST", "Initializing TTS Service with model: $modelPath")
-                val initResult = ttsService.init(modelPath)
+                configureAudioPlayer(modelPath)
+                Log.d(TAG, "Initializing TTS Service with model: $modelPath")
+                val initResult = initTtsService(modelPath, currentLanguage)
                 if (initResult) {
-                    isTtsInitialized = true
-                    Log.d("TTS_TEST", "TTS Service initialized successfully")
+                    Log.d(TAG, "TTS Service initialized successfully")
                     resultText.text = "Model loaded: ${File(modelPath).name}\nTTS Service ready"
-                    
-                    // Set initial language if selected
-                    if (currentLanguage.isNotEmpty()) {
-                        ttsService.setLanguage(currentLanguage)
-                    }
                 } else {
-                    Log.e("TTS_TEST", "TTS Service initialization failed")
+                    Log.e(TAG, "TTS Service initialization failed")
                     resultText.text = "Failed to load model: ${File(modelPath).name}"
                 }
             } catch (e: Exception) {
-                Log.e("TTS_TEST", "Error initializing TTS service", e)
+                Log.e(TAG, "Error initializing TTS service", e)
                 resultText.text = "Error loading model: ${e.message}"
             }
         }
@@ -266,18 +242,24 @@ class MainActivity : AppCompatActivity() {
                         languages.add(languagesJson.getString(i))
                     }
                 }
-                
-                return ModelConfig(speakers, languages)
+
+                val sampleRate = when (val value = json.opt("sample_rate")) {
+                    is Number -> value.toInt()
+                    is String -> value.toIntOrNull()
+                    else -> null
+                } ?: DEFAULT_SAMPLE_RATE
+
+                return ModelConfig(speakers, languages, sampleRate)
             }
         } catch (e: Exception) {
-            Log.e("TTS_TEST", "Error reading config.json", e)
+            Log.e(TAG, "Error reading config.json", e)
         }
         return ModelConfig()
     }
 
     private fun initAudioPlayer() {
         audioPlayer = AudioChunksPlayer()
-        audioPlayer.sampleRate = 44100 // Common TTS sample rate
+        audioPlayer.sampleRate = DEFAULT_SAMPLE_RATE
         audioPlayer.start()
     }
 
@@ -300,6 +282,22 @@ class MainActivity : AppCompatActivity() {
     private fun processTtsText(text: String) {
         lifecycleScope.launch {
             try {
+                val modelPath = selectedModelPath
+                if (modelPath == null) {
+                    resultText.text = "Please select a model first"
+                    return@launch
+                }
+                val modelConfig = configureAudioPlayer(modelPath)
+
+                val resolvedLanguage = TtsLanguageResolver.resolve(text, currentLanguage)
+                if (!isTtsInitialized || initializedLanguage != resolvedLanguage) {
+                    resultText.text = "Loading model: ${File(modelPath).name}..."
+                    if (!initTtsService(modelPath, resolvedLanguage)) {
+                        resultText.text = "Failed to load model: ${File(modelPath).name}"
+                        return@launch
+                    }
+                }
+
                 // Wait for TTS service to be ready
                 val isReady = ttsService.waitForInitComplete()
                 if (!isReady) {
@@ -307,21 +305,32 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                Log.d("TTS_TEST", "Processing text: $text")
+                Log.d(TAG, "Processing text: $text")
                 resultText.text = "Processing: $text"
 
                 // Process text with TTS
-                if (currentLanguage.isNotEmpty()) {
-                    ttsService.setLanguage(currentLanguage) 
-                }
+                Log.d(TAG, "Resolved language: $resolvedLanguage for text: $text")
                 if (currentSpeakerId.isNotEmpty()) {
                     ttsService.setSpeakerId(currentSpeakerId)
                 }
                 val audioData = ttsService.process(text, 0)
-                Log.d("TTS_TEST", "Generated audio data with ${audioData.size} samples")
+                Log.d(TAG, "Generated audio data with ${audioData.size} samples")
+                val audioSha256 = computeAudioSha256(audioData)
+                val roundTripResult = withContext(Dispatchers.Default) {
+                    roundTripEvaluator.evaluate(audioData, modelConfig.sampleRate, text)
+                }
+                logRoundTripResult(
+                    modelPath = modelPath,
+                    language = resolvedLanguage,
+                    sampleRate = modelConfig.sampleRate,
+                    originalText = text,
+                    audioSampleCount = audioData.size,
+                    audioSha256 = audioSha256,
+                    result = roundTripResult
+                )
                 
                 // Update UI with results
-                resultText.text = "Generated ${audioData.size} audio samples. Playing..."
+                resultText.text = buildRoundTripSummary(audioData.size, roundTripResult)
 
                 // Play the audio
                 audioPlayer.playChunk(audioData)
@@ -329,14 +338,35 @@ class MainActivity : AppCompatActivity() {
                 // Wait for playback to complete
                 audioPlayer.waitStop()
                 
-                resultText.text = "Playback completed. Generated ${audioData.size} samples."
-                Log.d("TTS_TEST", "Audio playback completed")
+                resultText.text = buildRoundTripSummary(audioData.size, roundTripResult, completed = true)
+                Log.d(TAG, "Audio playback completed")
 
             } catch (e: Exception) {
-                Log.e("TTS_TEST", "Error processing TTS", e)
+                Log.e(TAG, "Error processing TTS", e)
                 resultText.text = "Error: ${e.message}"
             }
         }
+    }
+
+    private suspend fun initTtsService(modelPath: String, language: String): Boolean {
+        if (isTtsInitialized) {
+            try {
+                ttsService.destroy()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error destroying previous TTS service", e)
+            }
+            isTtsInitialized = false
+            initializedLanguage = ""
+        }
+
+        ttsService = TtsService()
+        ttsService.setLanguage(language)
+        val initResult = ttsService.init(modelPath)
+        if (initResult) {
+            isTtsInitialized = true
+            initializedLanguage = language
+        }
+        return initResult
     }
 
     override fun onDestroy() {
@@ -345,7 +375,106 @@ class MainActivity : AppCompatActivity() {
             audioPlayer.destroy()
             ttsService.destroy()
         } catch (e: Exception) {
-            Log.e("TTS_TEST", "Error during cleanup", e)
+            Log.e(TAG, "Error during cleanup", e)
         }
     }
-} 
+
+    private fun maybeHandleAutoRunIntent() {
+        if (autoRunTriggered || !intent.getBooleanExtra(EXTRA_AUTO_RUN, false)) {
+            return
+        }
+
+        val text = intent.getStringExtra(EXTRA_INPUT_TEXT)?.trim().orEmpty()
+        if (text.isEmpty()) {
+            resultText.text = "Auto-run text is empty"
+            return
+        }
+
+        val requestedModelPath = intent.getStringExtra(EXTRA_MODEL_PATH)?.trim().orEmpty()
+        val targetModel = when {
+            requestedModelPath.isNotEmpty() -> allModels.firstOrNull { it.first == requestedModelPath }
+            else -> allModels.firstOrNull()
+        }
+
+        if (targetModel == null) {
+            resultText.text = if (requestedModelPath.isNotEmpty()) {
+                "Auto-run model not found: $requestedModelPath"
+            } else {
+                "Auto-run found no model"
+            }
+            Log.e(TAG, "Auto-run failed to resolve model path: $requestedModelPath")
+            return
+        }
+
+        autoRunTriggered = true
+        selectedModelPath = targetModel.first
+        currentSpeakerId = targetModel.second.speakers.firstOrNull().orEmpty()
+        inputText.setText(text)
+        Log.i(TAG, "TTS_AUTORUN_MODEL=${targetModel.first}")
+        Log.i(TAG, "TTS_AUTORUN_TEXT=$text")
+        loadTtsModelAndPlay(targetModel.first, text)
+    }
+
+    private fun configureAudioPlayer(modelPath: String): ModelConfig {
+        val modelConfig = readModelConfig(modelPath)
+        audioPlayer.sampleRate = modelConfig.sampleRate
+        Log.i(TAG, "Configured sample rate ${modelConfig.sampleRate} for $modelPath")
+        return modelConfig
+    }
+
+    private fun buildRoundTripSummary(
+        sampleCount: Int,
+        roundTripResult: TtsRoundTripResult,
+        completed: Boolean = false
+    ): String {
+        val prefix = if (completed) "Playback completed." else "Generated audio. Playing..."
+        val recognizedText = roundTripResult.recognizedText.ifBlank { "<empty>" }
+        val errorSuffix = roundTripResult.error?.let { "\nError: $it" }.orEmpty()
+        return "$prefix Generated $sampleCount samples." +
+            "\nRoundtrip: ${roundTripResult.status}" +
+            "\nASR: $recognizedText" +
+            "\nSimilarity: ${String.format(Locale.US, "%.3f", roundTripResult.similarity)}" +
+            errorSuffix
+    }
+
+    private fun logRoundTripResult(
+        modelPath: String,
+        language: String,
+        sampleRate: Int,
+        originalText: String,
+        audioSampleCount: Int,
+        audioSha256: String,
+        result: TtsRoundTripResult
+    ) {
+        Log.i(TAG, "TTS_MODEL_PATH=$modelPath")
+        Log.i(TAG, "TTS_LANGUAGE=$language")
+        Log.i(TAG, "TTS_SAMPLE_RATE=$sampleRate")
+        Log.i(TAG, "TTS_INPUT_TEXT=$originalText")
+        Log.i(TAG, "TTS_AUDIO_SAMPLE_COUNT=$audioSampleCount")
+        Log.i(TAG, "TTS_AUDIO_SHA256=$audioSha256")
+        Log.i(TAG, "TTS_ROUNDTRIP_TEXT=${result.recognizedText}")
+        Log.i(TAG, "TTS_ROUNDTRIP_HAS_CHINESE=${result.hasChinese}")
+        Log.i(TAG, "TTS_ROUNDTRIP_SIMILARITY=${String.format(Locale.US, "%.3f", result.similarity)}")
+        Log.i(TAG, "TTS_ROUNDTRIP_STATUS=${result.status}")
+        if (result.error != null) {
+            Log.i(TAG, "TTS_ROUNDTRIP_ERROR=${result.error}")
+        }
+    }
+
+    private fun computeAudioSha256(audioData: ShortArray): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        for (sample in audioData) {
+            digest.update((sample.toInt() and 0xFF).toByte())
+            digest.update(((sample.toInt() ushr 8) and 0xFF).toByte())
+        }
+        return digest.digest().joinToString(separator = "") { "%02x".format(it) }
+    }
+
+    companion object {
+        private const val TAG = "TTS_TEST"
+        private const val DEFAULT_SAMPLE_RATE = 44100
+        const val EXTRA_AUTO_RUN = "auto_run"
+        const val EXTRA_MODEL_PATH = "model_path"
+        const val EXTRA_INPUT_TEXT = "input_text"
+    }
+}

@@ -10,4 +10,7 @@ from . import optim
 from . import numpy
 from . import cv
 from . import audio
-from . import llm
+try:
+    from . import llm
+except ImportError:
+    llm = None

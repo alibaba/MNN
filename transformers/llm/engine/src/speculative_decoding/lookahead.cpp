@@ -87,9 +87,12 @@ void LookaheadGeneration::generate(GenerationParams& param) {
     // speculative number of times
     int spl_count = 0;
     int verify_len = mLlm->mDraftLength + 1;
-    
     while (len < max_token) {
-        if(mContext->status == LlmStatus::USER_CANCEL) {
+        if(mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
+            break;
+        }
+        if (param.timeout_ms > 0 && (mContext->prefill_us + mContext->decode_us) / 1000 >= param.timeout_ms) {
+            mContext->status = LlmStatus::TIMEOUT;
             break;
         }
         MNN::Timer _t;
@@ -97,7 +100,10 @@ void LookaheadGeneration::generate(GenerationParams& param) {
         drafts.push_back(mContext->current_token);
         
         auto decodeStr = mLlm->tokenizer_decode(mContext->current_token);
-        mContext->generate_str += decodeStr;
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->generate_str += decodeStr;
+        }
         if (nullptr != mContext->os) {
             *mContext->os << decodeStr;
             *mContext->os << std::flush;
@@ -129,12 +135,6 @@ void LookaheadGeneration::generate(GenerationParams& param) {
             AUTOTIME;
             // do draft token parallel verify
             auto outputs = mLlm->forwardVec(drafts);
-            for (auto o : outputs) {
-                if(nullptr == o->readMap<float>()) {
-                    mContext->status = LlmStatus::INTERNAL_ERROR;
-                    break;
-                }
-            }
             if(outputs.empty()) {
                 break;
             }
@@ -185,14 +185,20 @@ void LookaheadGeneration::generate(GenerationParams& param) {
             }
         #endif
             if(stop) {
-                mContext->history_tokens.push_back(mContext->current_token);
-                mContext->output_tokens.push_back(mContext->current_token);
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->history_tokens.push_back(mContext->current_token);
+                    mContext->output_tokens.push_back(mContext->current_token);
+                }
                 mLlm->updateContext(0, 1);
                 break;
             }
             if (mLlm->is_stop(mContext->current_token)) {
-                mContext->history_tokens.push_back(mContext->current_token);
-                mContext->output_tokens.push_back(mContext->current_token);
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->history_tokens.push_back(mContext->current_token);
+                    mContext->output_tokens.push_back(mContext->current_token);
+                }
                 mLlm->updateContext(0, 1);
                 if (nullptr != mContext->os) {
                     *mContext->os << mContext->end_with << std::flush;

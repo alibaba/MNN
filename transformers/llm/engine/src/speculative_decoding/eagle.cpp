@@ -102,7 +102,12 @@ std::vector<VARP> EagleGeneration::eagleForward(Express::VARP input_embeds, VARP
 }
 
 std::vector<VARP> EagleGeneration::eagleForward(const std::vector<int>& input_ids, VARP hidden_states, bool all_logits) {
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<VARP>());
+    
     auto input_embeds = mLlm->embedding(input_ids);
+    if(input_embeds == nullptr) {
+        return {};
+    }
     auto outputs = eagleForward(input_embeds, hidden_states, all_logits);
     return outputs;
 }
@@ -119,6 +124,11 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
     int sampleToken = inputIds.back();
     if(inputEmbeds == nullptr) {
         inputEmbeds = mLlm->embedding(inputIds);
+        if(inputEmbeds == nullptr) {
+            // Return empty DraftInfo - will cause generation to stop
+            DraftInfo info;
+            return info;
+        }
     }
     int seqLen       = mEaglePastLen + inputEmbeds->getInfo()->dim[0];
     auto inputHidden = mEagleModules[1]->forward(hiddenStates);
@@ -144,6 +154,11 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
     for (int d = 0; d < mDepth - 1; d++) {
         setPosition(seqLen + d);
         inputEmbeds   = mLlm->embedding(tokenTree.getIds());
+        if(inputEmbeds == nullptr) {
+            // Return empty DraftInfo - will cause generation to stop
+            DraftInfo info;
+            return info;
+        }
         auto attentionMask = getMask(tokenTree.getMask(), seqLen);
         mEagleMeta->remove = 0;
         outputs = eagleForwardRaw({inputEmbeds, inputHidden, attentionMask, mTreePosition, mLlm->logitsAllIdx});
@@ -202,9 +217,19 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
             info.attentionMask->writeMap<float>()[i * inputLen + j] = output.attentionMask[i][j] ? 0.0 : std::numeric_limits<float>::lowest();
         }
     }
-    info.positionIds = _Input({1, inputLen}, NCHW, halide_type_of<int>());
-    for (int i = 0; i < inputLen; i++) {
-        info.positionIds->writeMap<int>()[i] = seqLen + output.positionIds[i];
+    if (mLlm->mConfig->is_mrope()) {
+        info.positionIds = _Input({3, inputLen}, NCHW, halide_type_of<int>());
+        for (int i = 0; i < inputLen; i++) {
+            int pos = seqLen + output.positionIds[i];
+            info.positionIds->writeMap<int>()[i] = pos;
+            info.positionIds->writeMap<int>()[inputLen + i] = pos;
+            info.positionIds->writeMap<int>()[2 * inputLen + i] = pos;
+        }
+    } else {
+        info.positionIds = _Input({1, inputLen}, NCHW, halide_type_of<int>());
+        for (int i = 0; i < inputLen; i++) {
+            info.positionIds->writeMap<int>()[i] = seqLen + output.positionIds[i];
+        }
     }
     return info;
 }
@@ -271,7 +296,8 @@ EagleGeneration::DraftInfo EagleGeneration::updateDraft(const AcceptInfo& accept
         mLlm->updateContext(acceptLen, acceptLen);
         mLlm->mMeta->remove = acceptInfo.sampleTokens.size();
         mLlm->mMeta->n_reserve = acceptLen;
-        mLlm->mMeta->reserve = new int[mLlm->mMeta->n_reserve * 2];
+        mLlm->mMeta->reserveHost.resize(acceptLen * 2);
+        mLlm->mMeta->reserve = mLlm->mMeta->reserveHost.data();
         for (size_t i = 0; i < acceptLen; i++) {
             mLlm->mMeta->reserve[2 * i] = acceptInfo.acceptIndices[i];
             mLlm->mMeta->reserve[2 * i + 1] = 1;
@@ -304,8 +330,11 @@ void EagleGeneration::generate(GenerationParams& param) {
     auto inputIds     = param.input_ids;
     auto sampleToken  = mLlm->sample(param.outputs[0]);
     mContext->current_token = sampleToken;
-    mContext->history_tokens.push_back(mContext->current_token);
-    mContext->output_tokens.push_back(mContext->current_token);
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        mContext->history_tokens.push_back(mContext->current_token);
+        mContext->output_tokens.push_back(mContext->current_token);
+    }
     mLlm->updateContext(0, 1);
     if (nullptr != mContext->os) {
         *mContext->os << mLlm->tokenizer_decode(sampleToken) << std::flush;
@@ -324,7 +353,11 @@ void EagleGeneration::generate(GenerationParams& param) {
     std::vector<int> accpetLens;
     auto newTokens = 0, steps = 0;
     while (true) {
-        if(mContext->status == LlmStatus::USER_CANCEL) {
+        if(mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
+            break;
+        }
+        if (param.timeout_ms > 0 && (mContext->prefill_us + _t.durationInUs()) / 1000 >= param.timeout_ms) {
+            mContext->status = LlmStatus::TIMEOUT;
             break;
         }
         steps++;
@@ -346,6 +379,7 @@ void EagleGeneration::generate(GenerationParams& param) {
         accpetLens.push_back(acceptInfo.acceptTokens.size());
         {
             mContext->current_token = acceptInfo.acceptTokens.back();
+            std::lock_guard<std::mutex> _l(mContext->mutex);
             for (auto token : acceptInfo.acceptTokens) {
                 mContext->history_tokens.push_back(token);
                 mContext->output_tokens.push_back(token);
@@ -353,6 +387,7 @@ void EagleGeneration::generate(GenerationParams& param) {
         }
         bool stop = processTokens(acceptInfo.acceptTokens);
         if (stop || newTokens >= param.max_new_tokens) {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
             mContext->output_tokens.push_back(steps);
             break;
         }

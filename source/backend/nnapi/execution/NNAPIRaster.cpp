@@ -125,6 +125,7 @@ static void dumpRegion(const Tensor::InsideDescribe::Region& reg) {
     printf("dst: { stride: [%d, %d, %d], offset: %d }\n}\n", reg.dst.stride[0],reg.dst.stride[1],reg.dst.stride[2],reg.dst.offset);
 }
 ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *>& ____inputs, const std::vector<Tensor *> &outputs) {
+    mDatas.clear();
     OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
     const auto& regions = TensorUtils::getDescribe(outputs[0])->regions;
     if (regions.empty()) {

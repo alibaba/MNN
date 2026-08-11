@@ -64,6 +64,7 @@ public:
 protected:
     std::shared_ptr<ConvBufResource> mResource;
     OpenCLBackend *mOpenCLBackend;
+    bool mConvComValid = true;
 };
 
 class ConvBufExecution : public ConvBufCommonExecution, public CommonExecution {

@@ -21,6 +21,7 @@ ReductionBufExecution::ReductionBufExecution(const std::vector<Tensor *> &inputs
 #endif
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     mAxis = op->main_as_ReductionParam()->dim()->data()[0];
+    bool isInt32 = (inputs[0]->getType().code == halide_type_int && inputs[0]->getType().bits == 32);
     switch (op->main_as_ReductionParam()->operation()) {
         case ReductionType_MEAN:
             mBuildOptions.emplace("-DOPERATE(a,b)=(a+b)");
@@ -29,11 +30,11 @@ ReductionBufExecution::ReductionBufExecution(const std::vector<Tensor *> &inputs
             break;
         case ReductionType_MAXIMUM:
             mBuildOptions.emplace("-DOPERATE(a,b)=max(a,b)");
-            mBuildOptions.emplace("-DVALUE=-FLT_MAX");
+            mBuildOptions.emplace(isInt32 ? "-DVALUE=(-2147483647-1)" : "-DVALUE=-FLT_MAX");
             break;
         case ReductionType_MINIMUM:
             mBuildOptions.emplace("-DOPERATE(a,b)=min(a,b)");
-            mBuildOptions.emplace("-DVALUE=FLT_MAX");
+            mBuildOptions.emplace(isInt32 ? "-DVALUE=2147483647" : "-DVALUE=FLT_MAX");
             break;
         case ReductionType_PROD:
             mBuildOptions.emplace("-DOPERATE(a,b)=(a*b)");
@@ -48,6 +49,7 @@ ReductionBufExecution::ReductionBufExecution(const std::vector<Tensor *> &inputs
             break;
     }
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction_buf", "reduct_buf", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
+    OPENCL_CHECK_KERNEL_CTOR(kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionBufExecution init !\n");
@@ -145,6 +147,10 @@ public:
         if(reduct->dim()->size() != 1) {
             return NULL;
         }
+        if (inputs[0]->getType().code != halide_type_float &&
+            !(inputs[0]->getType().code == halide_type_int && inputs[0]->getType().bits == 32)) {
+            return NULL;
+        }
         switch (op->main_as_ReductionParam()->operation()) {
             case ReductionType_MEAN:
                 break;
@@ -160,7 +166,7 @@ public:
                 return NULL;
                 break;
         }
-        return new ReductionBufExecution(inputs, outputs, op, backend);
+        OPENCL_CREATOR_CHECK(new ReductionBufExecution(inputs, outputs, op, backend));
     }
 };
 

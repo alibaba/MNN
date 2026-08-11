@@ -7,7 +7,6 @@ import android.content.Intent
 import android.text.TextUtils
 import android.util.Log
 import android.view.MenuItem
-import android.view.MotionEvent
 import android.view.View
 import android.view.View.OnLongClickListener
 import android.widget.Button
@@ -33,6 +32,10 @@ import com.alibaba.mnnllm.android.utils.UiUtils
 import com.alibaba.mnnllm.android.widgets.FullScreenImageViewer
 import com.alibaba.mnnllm.android.widgets.PopupWindowHelper
 import io.noties.markwon.Markwon
+import io.noties.markwon.ext.latex.JLatexMathPlugin
+import io.noties.markwon.ext.latex.JLatexMathTheme
+import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.inlineparser.MarkwonInlineParserPlugin
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.util.Locale
 
@@ -172,7 +175,7 @@ object ChatViewHolders {
 
     class AssistantViewHolder @SuppressLint("ClickableViewAccessibility") constructor(view: View) :
         RecyclerView.ViewHolder(view), View.OnClickListener, OnLongClickListener {
-        private val viewText: TextView = view.findViewById(R.id.tv_chat_text)
+        private val viewText: MarkdownMessageView = view.findViewById(R.id.tv_chat_text)
         private val viewThinking: TextView = view.findViewById(R.id.tv_chat_thinking)
         private val thinkingContainer: View = view.findViewById(R.id.ll_thinking_container)
         private val thinkingMarker: View = view.findViewById(R.id.view_thinking_marker)
@@ -193,34 +196,34 @@ object ChatViewHolders {
         private val replayAudioButton: View = view.findViewById(R.id.btn_replay_audio)
         private val shareImageButton: View = view.findViewById(R.id.btn_share_image)
 
-        private val markdown = Markwon.create(itemView.context)
+        private val markdown = Markwon.builder(itemView.context)
+            .usePlugin(MarkwonInlineParserPlugin.create { builder ->
+                // Add custom LaTeX processor for single dollar sign $...$
+                // JLatexMathPlugin will add its own processor for $$...$$
+                builder.addInlineProcessor(LatexInlineProcessor())
+            })
+            .usePlugin(TablePlugin.create(itemView.context))
+            .usePlugin(JLatexMathPlugin.create(
+                itemView.resources.getDimension(R.dimen.h3),
+                itemView.resources.getDimension(R.dimen.h3)
+            ) { builder ->
+                builder.inlinesEnabled(true)
+            })
+            .build()
         var viewAssistantLoading: View =
             view.findViewById(R.id.view_assistant_loading)
-
-        private var lastTouchX = 0
-        private var lastTouchY = 0
 
         init {
             viewText.setOnLongClickListener(this)
             viewThinking.setOnLongClickListener(this)
-            viewText.setOnTouchListener { v, event ->
-                if (event.action == MotionEvent.ACTION_DOWN) {
-                    updatePointerDownLocation(v, event)
-                }
-                false
-            }
-            viewThinking.setOnTouchListener { v, event ->
-                if (event.action == MotionEvent.ACTION_DOWN) {
-                    updatePointerDownLocation(v, event)
-                }
-                false
-            }
             imageGenerated.setOnClickListener(this)
+            imageGenerated.setOnLongClickListener(this)
             thinkingToggle.setOnClickListener {
                 val chatDataItem = it.tag as ChatDataItem
                 chatDataItem.toggleThinking()
                 updateThinkingView(chatDataItem, itemView.context)
-                markdown.setMarkdown(viewText, chatDataItem.displayText!!)
+                
+                renderAssistantText(chatDataItem)
             }
 
             // Setup action buttons
@@ -254,37 +257,66 @@ object ChatViewHolders {
             }
             shareImageButton.setOnClickListener {
                 val chatDataItem = it.tag as ChatDataItem
-                shareImage(chatDataItem)
+                val imageUri = chatDataItem.imageUri
+                if (imageUri != null) {
+                    com.alibaba.mnnllm.android.utils.ImageUtils.showImageMenu(it.context, imageUri)
+                }
             }
         }
 
-        private fun shareImage(chatDataItem: ChatDataItem) {
-            val imageUri = chatDataItem.imageUri ?: return
-            val context = itemView.context
+
+        private fun preprocessStreamingMarkdown(text: String, isStreaming: Boolean): String {
+            if (!isStreaming) return text
             
-            val shareUri = if (imageUri.scheme == "file") {
-                androidx.core.content.FileProvider.getUriForFile(
-                    context,
-                    context.packageName + ".fileprovider",
-                    java.io.File(imageUri.path!!)
-                )
+            // Count occurrences to check if we are inside a latex block
+            var inInlineMath = false
+            var inBlockMath = false
+            var i = 0
+            while (i < text.length) {
+                if (i < text.length - 1 && text[i] == '$' && text[i+1] == '$') {
+                    if (!inInlineMath) {
+                        inBlockMath = !inBlockMath
+                    }
+                    i += 2
+                } else if (text[i] == '$') {
+                    // simple heuristic: don't toggle inline math if we are inside block math
+                    if (!inBlockMath) {
+                        inInlineMath = !inInlineMath
+                    }
+                    i += 1
+                } else {
+                    i += 1
+                }
+            }
+            
+            var result = text
+            if (inBlockMath) {
+                result += "\n\$\$"
+            } else if (inInlineMath) {
+                result += "$"
+            }
+            return result
+        }
+
+        private fun renderAssistantText(data: ChatDataItem) {
+            val sourceText = data.displayText ?: ""
+            if (sourceText.isEmpty()) {
+                viewText.visibility = View.GONE
+                return
+            }
+
+            viewText.visibility = View.VISIBLE
+            if (AssistantTextRenderPolicy.usePlainText(data)) {
+                viewText.showPlainText(sourceText)
+                return
+            }
+
+            val streamText = if (data.loading) {
+                preprocessStreamingMarkdown(sourceText, true)
             } else {
-                imageUri
+                sourceText
             }
-            
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "image/*"
-                putExtra(Intent.EXTRA_STREAM, shareUri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_image)))
-        }
-
-        private fun  updatePointerDownLocation(v:View, event: MotionEvent) {
-            val location = IntArray(2)
-            v.getLocationOnScreen(location)
-            lastTouchX = location[0] + event.x.toInt()
-            lastTouchY = location[1] + event.y.toInt()
+            viewText.renderMarkdown(markdown, sourceText, streamText, data.loading)
         }
 
         fun bind(data: ChatDataItem, modelName: String?, payloads: List<Any?>?) {
@@ -293,31 +325,24 @@ object ChatViewHolders {
                     updateThinkingView(data, itemView.context)
                 }
                 if (data.displayText != null) {
-                    markdown.setMarkdown(viewText, data.displayText!!)
+                    renderAssistantText(data)
                 }
+                imageGenerated.visibility =
+                    if (data.imageUri != null) View.VISIBLE else View.GONE
+                if (data.imageUri != null) {
+                    imageGenerated.setImageURI(data.imageUri)
+                }
+                shareImageButton.visibility = if (data.imageUri != null) View.VISIBLE else View.GONE
                 return
             }
 
             updateThinkingView(data, itemView.context)
-            if (TextUtils.isEmpty(data.displayText)) {
-                viewText.visibility = View.GONE
-            } else {
-                markdown.setMarkdown(viewText, data.displayText!!)
-                viewText.visibility = View.VISIBLE
-            }
+            renderAssistantText(data)
 
-            if (data.hasOmniAudio) {
-                viewAssistantLoading.visibility = if (data.loading) {
-                    View.VISIBLE
-                } else {
-                    View.GONE
-                }
+            viewAssistantLoading.visibility = if (AssistantLoadingVisibilityDecider.shouldShow(data)) {
+                View.VISIBLE
             } else {
-                viewAssistantLoading.visibility = if (!TextUtils.isEmpty(data.displayText) || !TextUtils.isEmpty(data.thinkingText)) {
-                  View.GONE
-                } else {
-                    View.VISIBLE
-                }
+                View.GONE
             }
             val showMetrics = PreferenceUtils.getBoolean(
                 itemView.context,
@@ -385,16 +410,31 @@ object ChatViewHolders {
         }
 
         override fun onLongClick(v: View): Boolean {
-            val textView = v as TextView
-            val chatDataItem = v.getTag() as ChatDataItem
+            Log.d(TAG, "onLongClick: v.id=${v.id}")
+            val chatDataItem = v.tag as? ChatDataItem ?: return false
+            if (v.id == R.id.image_generated) {
+                val imageUri = chatDataItem.imageUri
+                if (imageUri != null) {
+                    v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    com.alibaba.mnnllm.android.utils.ImageUtils.showImageMenu(v.context, imageUri)
+                    return true
+                }
+                Log.w(TAG, "onLongClick: imageUri is null")
+                return false
+            }
+            
+            v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             PopupWindowHelper().showPopupWindow(
-                v.getContext(), v, this.lastTouchX, this.lastTouchY
+                v.getContext(), v
             ) { v ->
                 if (v.id == R.id.assistant_text_copy) {
-                    UiUtils.copyText(itemView.context, textView)
+                    ClipboardUtils.copyToClipboard(
+                        itemView.context,
+                        chatDataItem.displayText ?: chatDataItem.text ?: ""
+                    )
                 } else if (v.id == R.id.assistant_text_select) {
                     val intent = Intent(v.context, SelectTextActivity::class.java)
-                    intent.putExtra("content", chatDataItem.text)
+                    intent.putExtra("content", chatDataItem.displayText ?: chatDataItem.text)
                     v.context.startActivity(intent)
                 } else if (v.id == R.id.assistant_text_report) {
                     val chatActivity = UiUtils.getActivity(v.context) as ChatActivity

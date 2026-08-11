@@ -8,6 +8,7 @@
 
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <cmath>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include "MNN_generated.h"
@@ -205,6 +206,40 @@ public:
         res = test<float, float>(MNN::Express::_Multiply, "MultiplyInt8Test", 0.01, inp1, inp2, rightResult,
                                   {16}, {16}, {16}, {0.4, 0.4, 0.16}, {1., 2., 3.});
         return res;
+    }
+};
+
+class MultiplySiluTest : public BinaryTestCommon {
+public:
+    virtual ~MultiplySiluTest() = default;
+    virtual bool run(int precision) {
+        std::vector<float> x = {-2.0f, -1.0f, 0.5f, 1.5f, 2.0f, -3.0f};
+        std::vector<float> y = {-1.5f, -0.5f, 0.25f, 1.0f, 2.0f, 3.0f};
+        std::vector<float> expected(x.size());
+        for (int i = 0; i < expected.size(); ++i) {
+            expected[i] = x[i] * (y[i] / (1.0f + std::exp(-y[i])));
+        }
+        if (!test<float, float>(MNN::Express::_MulSilu, "MultiplySiluTest", 0.01f, x, y, expected, {2, 3},
+                                {2, 3}, {2, 3})) {
+            return false;
+        }
+
+        const int batch = 2;
+        const int channel = 8;
+        std::vector<float> packedX(batch * channel), packedY(batch * channel), packedExpected(batch * channel);
+        for (int n = 0; n < batch; ++n) {
+            for (int c = 0; c < channel; ++c) {
+                int offset = (c % 4) + 4 * n + 4 * batch * (c / 4);
+                packedX[offset] = (float)(n * channel + c - 7) * 0.25f;
+                packedY[offset] = (float)((n * channel + c) % 9 - 4) * 0.5f;
+                packedExpected[offset] =
+                    packedX[offset] * (packedY[offset] / (1.0f + std::exp(-packedY[offset])));
+            }
+        }
+        return test<float, float>(MNN::Express::_MulSilu, "MultiplySiluC4Test", 0.01f, packedX, packedY,
+                                  packedExpected, {batch, channel, 1, 1}, {batch, channel, 1, 1},
+                                  {batch, channel, 1, 1}, {-100.f, -100.f, -100.f}, {-100.f, -100.f, -100.f},
+                                  NC4HW4);
     }
 };
 
@@ -709,11 +744,38 @@ public:
     }
 };
 
+class AddC4BroadcastTest : public BinaryTestCommon {
+public:
+    virtual ~AddC4BroadcastTest() = default;
+    virtual bool run(int precision) {
+        const int batch = 16;
+        const int channel = 16;
+        std::vector<float> input(batch * channel);
+        std::vector<float> bias(channel);
+        std::vector<float> expected(batch * channel);
+        for (int c = 0; c < channel; ++c) {
+            bias[c] = (float)(c - 7) * 0.25f;
+        }
+        for (int n = 0; n < batch; ++n) {
+            for (int c = 0; c < channel; ++c) {
+                int offset = (c % 4) + 4 * n + 4 * batch * (c / 4);
+                input[offset] = (float)(n * channel + c) * 0.03125f;
+                expected[offset] = input[offset] + bias[c];
+            }
+        }
+        return test<float, float>(MNN::Express::_Add, "AddC4ChannelBroadcastTest", 0.01f, input, bias,
+                                  expected, {batch, channel, 1, 1}, {1, channel, 1, 1},
+                                  {batch, channel, 1, 1}, {-100.f, -100.f, -100.f},
+                                  {-100.f, -100.f, -100.f}, NC4HW4);
+    }
+};
+
 // Float32 OpTest.
 MNNTestSuiteRegister(BinaryBroadcastShapeTest, "op/binary/broadcastShapeTest");
 MNNTestSuiteRegister(AddTest, "op/binary/add");
 MNNTestSuiteRegister(SubtractTest, "op/binary/subtract");
 MNNTestSuiteRegister(MultiplyTest, "op/binary/multiply");
+MNNTestSuiteRegister(MultiplySiluTest, "op/binary/mulsilu");
 MNNTestSuiteRegister(DivideTest, "op/binary/divide");
 MNNTestSuiteRegister(PowTest, "op/binary/pow");
 MNNTestSuiteRegister(MinimumTest, "op/binary/minimum");
@@ -751,5 +813,5 @@ MNNTestSuiteRegister(Atan2Int8Test, "op/binary/atan2Int8");
 MNNTestSuiteRegister(SquaredDifferenceInt8Test, "op/binary/sqdInt8");
 
 MNNTestSuiteRegister(AddC4Test, "op/binary/addC4");
+MNNTestSuiteRegister(AddC4BroadcastTest, "op/binary/addC4Broadcast");
 MNNTestSuiteRegister(AddBroastTest, "op/binary/AddBroast");
-

@@ -16,7 +16,7 @@ struct TestParameters {
     let nRepeat: [Int]
     let kvCache: String
     let loadTime: String
-    
+
     static let `default` = TestParameters(
         nPrompt: [256, 512],
         nGenerate: [64, 128],

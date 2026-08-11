@@ -42,7 +42,7 @@ struct OpenCLMmapImageNode {
 
 class OpenCLMmapAllocator {
 private:
-    std::map<std::string, std::tuple<file_t, size_t>> mCache;
+    std::map<std::string, std::tuple<file_t, size_t, char *>> mCache;
     std::string mFileName;
     std::string mPrefix;
     std::string mPosfix;
@@ -57,18 +57,24 @@ public:
             MNNCloseFile(std::get<0>(iter.second));
             if (mRemove) {
                 MNNRemoveFile(iter.first.c_str());
+                std::string cacheName = mPrefix + "sync." + mPosfix;
+                std::string fileName = MNNFilePathConcat(mFileName, cacheName);
+                MNNRemoveFile(fileName.c_str());
             }
         }
     }
     std::string onAlloc(size_t size);
-    bool read(std::string fileName, size_t offset, size_t size, void* buffer);
-    bool write(std::string fileName, size_t offset, size_t size, void* buffer);
+    void read(const std::string &fileName, size_t offset, size_t size, void* buffer);
+    void write(const std::string &fileName, size_t offset, size_t size, void* buffer);
     void sync();
+    void setRemove(bool remove){
+        mRemove = remove;
+    }
 };
 
 class MmapPool : public NonCopyable {
 public:
-    MmapPool(std::shared_ptr<OpenCLMmapAllocator> origin, cl::Context& context, cl::CommandQueue& command, cl_mem_flags flags, int useCacheMmap) : mOrigin(origin), mContext(context), mCommand(command), mFlag(flags), mUseCachedMmap(useCacheMmap) {}
+    MmapPool(std::shared_ptr<OpenCLMmapAllocator> origin, cl::Context& context, cl::CommandQueue& command, cl_mem_flags flags, int useCacheMmap, size_t fileSize) : mOrigin(origin), mContext(context), mCommand(command), mFlag(flags), mUseCachedMmap(useCacheMmap), mFileSize(fileSize) {}
     
     std::shared_ptr<cl::Buffer> allocBuffer(size_t size, bool separate = false);
     std::shared_ptr<cl::Image> allocImage(size_t w, size_t h, cl_channel_type type, bool separate = false);
@@ -78,6 +84,9 @@ public:
     void releaseFreeList();
     void sync();
     size_t totalSize() { return mTotalSize; }
+    void setRemove(bool remove){
+        mOrigin->setRemove(remove);
+    }
 
 private:
     std::map<cl::Buffer*, std::shared_ptr<OpenCLMmapBufferNode>> mAllBuffer;
@@ -93,7 +102,7 @@ private:
     size_t mTotalSize = 0;
     int mUseCachedMmap;
     bool mHasSync = false;
-    size_t mFileSize = 1024*1024*1024;
+    size_t mFileSize = 0;
 };
 
 

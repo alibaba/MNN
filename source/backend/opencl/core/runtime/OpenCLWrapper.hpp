@@ -197,6 +197,7 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clReleaseKernel);
     MNN_CL_DEFINE_FUNC_PTR(clCreateProgramWithSource);
     MNN_CL_DEFINE_FUNC_PTR(clCreateBuffer);
+    MNN_CL_DEFINE_FUNC_PTR(clCreateImage);
     MNN_CL_DEFINE_FUNC_PTR(clCreateImage2D);
     MNN_CL_DEFINE_FUNC_PTR(clRetainKernel);
     MNN_CL_DEFINE_FUNC_PTR(clCreateKernel);
@@ -295,4 +296,4 @@ void MNNAHardwareBuffer_describe(const AHardwareBuffer* buffer, AHardwareBuffer_
 #endif
 } // namespace MNN
 #endif
-#endif  /* OpenCLWrapper_hpp */
+#endif /* OpenCLWrapper_hpp */

@@ -119,6 +119,37 @@ public:
         return true;
     }
 };
+class ReshapeInt64ShapeTest : public MNNTestCase {
+public:
+    virtual ~ReshapeInt64ShapeTest() = default;
+    virtual bool run(int precision) {
+        auto input = _Input({6}, NCHW);
+        input->setName("input_tensor");
+        const float inputData[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+        auto inputPtr           = input->writeMap<float>();
+        memcpy(inputPtr, inputData, sizeof(inputData));
+        input->unMap();
+
+        const int64_t shapeData[] = {2, 3};
+        auto shape                = _Const(shapeData, {2}, NCHW, halide_type_of<int64_t>());
+        auto output               = _Reshape(input, shape);
+
+        const std::vector<float> expectedOutput = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+        auto gotOutput                          = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 6, 0.01f)) {
+            MNN_ERROR("ReshapeInt64ShapeTest values failed!\n");
+            return false;
+        }
+        const std::vector<int> expectedDim = {2, 3};
+        auto gotDim                        = output->getInfo()->dim;
+        if (!checkVector<int>(gotDim.data(), expectedDim.data(), (int)expectedDim.size(), 0)) {
+            MNN_ERROR("ReshapeInt64ShapeTest dims failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
 MNNTestSuiteRegister(ReshapeNCHWTest, "op/reshape/nchw");
 MNNTestSuiteRegister(ReshapeNHWCTest, "op/reshape/nhwc");
 MNNTestSuiteRegister(ReshapeNC4HW4Test, "op/reshape/nc4hw4");
+MNNTestSuiteRegister(ReshapeInt64ShapeTest, "op/reshape/int64shape");

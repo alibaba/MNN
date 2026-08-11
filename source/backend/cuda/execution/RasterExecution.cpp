@@ -50,6 +50,12 @@ static bool _directBlitC4(const Tensor::InsideDescribe::Region& slice0, const Te
         // area pack for fast blit only
         return false;
     }
+    for (int i = 0; i < 3; ++i) {
+        if ((slice0.size[i] > 1 && (slice0.src.stride[i] == 0 || slice0.dst.stride[i] == 0)) ||
+            (slice1.size[i] > 1 && (slice1.src.stride[i] == 0 || slice1.dst.stride[i] == 0))) {
+            return false;
+        }
+    }
     if(slice0.size[1] % PACK_NUMBER != 0) {
         return false;
     }
@@ -106,6 +112,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
     mNeedZero = !TensorUtils::regionIsFull(input);
     mTempInputCopy.clear();
     mTempInput.clear();
+    mFastBlit.clear();
 
     mTempOutput = nullptr;
     mOutputPtr = output; 
@@ -193,6 +200,18 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
             mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
             continue;
         }
+        // OPT: When NC4HW4 has area=1 and channel%8=0, layout is identical to NCHW.
+        // Skip temp tensor creation and use origin directly to avoid memcpy overhead.
+        if (origin->dimensions() >= 2) {
+            int area = 1;
+            for (int d = 2; d < origin->dimensions(); ++d) {
+                area *= origin->length(d);
+            }
+            if (area == 1 && origin->length(1) % PACK_NUMBER == 0) {
+                mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
+                continue;
+            }
+        }
         auto cache = static_cast<CUDABackend*>(backend())->getCache();
         auto tempTensor = cache->findCacheTensor(origin, MNN_DATA_FORMAT_NCHW);
         if (nullptr == tempTensor) {
@@ -226,23 +245,37 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
     }
 
     if (MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat) {
-        mTempOutput.reset(new Tensor);
-        TensorUtils::setupTensorInfo(output, mTempOutput.get(), MNN_DATA_FORMAT_NCHW);
-
-        // Propagate quant info if necessary
-        auto des = TensorUtils::getDescribe(mTempOutput.get());
-        auto originDes = TensorUtils::getDescribe(output);
-        if (originDes->quantAttr != nullptr) {
-            des->quantAttr.reset(new QuantAttr);
-            *des->quantAttr = *originDes->quantAttr;
-            des->applyQuant = originDes->applyQuant;
+        // OPT: When output NC4HW4 has area=1 and channel%8=0, layout is identical to NCHW.
+        // Write directly to output tensor, skip temp buffer and final conversion.
+        bool outputNoOp = false;
+        if (output->dimensions() >= 2) {
+            int outArea = 1;
+            for (int d = 2; d < output->dimensions(); ++d) {
+                outArea *= output->length(d);
+            }
+            if (outArea == 1 && output->length(1) % PACK_NUMBER == 0) {
+                outputNoOp = true;
+            }
         }
+        if (!outputNoOp) {
+            mTempOutput.reset(new Tensor);
+            TensorUtils::setupTensorInfo(output, mTempOutput.get(), MNN_DATA_FORMAT_NCHW);
 
-        auto res = backend()->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
-        if (!res) {
-            return OUT_OF_MEMORY;
+            // Propagate quant info if necessary
+            auto des = TensorUtils::getDescribe(mTempOutput.get());
+            auto originDes = TensorUtils::getDescribe(output);
+            if (originDes->quantAttr != nullptr) {
+                des->quantAttr.reset(new QuantAttr);
+                *des->quantAttr = *originDes->quantAttr;
+                des->applyQuant = originDes->applyQuant;
+            }
+
+            auto res = backend()->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
+            if (!res) {
+                return OUT_OF_MEMORY;
+            }
+            mOutputPtr = mTempOutput.get();
         }
-        mOutputPtr = mTempOutput.get();
     }
 
     //MNN_PRINT("Raster copy size:%d\n", mTempInputCopy.size());
@@ -348,19 +381,24 @@ ErrorCode RasterExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         auto srcPtr = (void*)realInput->deviceId();
         auto dstPtr = (void*)output->deviceId();
         if (MNN_DATA_FORMAT_NC4HW4 == sourceFormat) {
-            if (realInput->dimensions() <= 1) {
-                cudaMemcpy(dstPtr, srcPtr, bn->realSize(realInput) * bytes, cudaMemcpyDeviceToDevice);
+            // Unpack: NC4HW4 (NHWC8 on device) -> NCHW
+            if (realInput->dimensions() <= 1 || (srcArea == 1 && srcChannel % 8 == 0)) {
+                // When area=1 and channel%8==0, NHWC8 and NCHW have identical memory layout
+                auto copySize = srcBatch * srcChannel * bytes;
+                cudaMemcpy(dstPtr, srcPtr, copySize, cudaMemcpyDeviceToDevice);
                 return NO_ERROR;
             }
             UnpackBuffer(dstPtr, srcPtr, &pack, bytes, runtime);
-            checkKernelErrors;          
+            checkKernelErrors;
         } else {
-            if (output->dimensions() <= 1) {
-                cudaMemcpy(dstPtr, srcPtr, bn->realSize(realInput) * bytes, cudaMemcpyDeviceToDevice);
+            // Pack: NCHW -> NC4HW4 (NHWC8 on device)
+            if (output->dimensions() <= 1 || (srcArea == 1 && srcChannel % 8 == 0)) {
+                auto copySize = srcBatch * srcChannel * bytes;
+                cudaMemcpy(dstPtr, srcPtr, copySize, cudaMemcpyDeviceToDevice);
                 return NO_ERROR;
             }
             PackBuffer(dstPtr, srcPtr, &pack, bytes, runtime);
-            checkKernelErrors;         
+            checkKernelErrors;
         }
         return NO_ERROR;
     }

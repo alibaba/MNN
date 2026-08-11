@@ -33,6 +33,7 @@ import com.alibaba.mnnllm.android.utils.VoiceModelPathUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.BuildConfig
 import com.alibaba.mnnllm.android.modelist.ModelListManager
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.taobao.meta.avatar.tts.TtsService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +79,8 @@ class DebugActivity : AppCompatActivity() {
     private lateinit var testCaseContainer: FrameLayout
     private lateinit var clearLogButton: Button
     private lateinit var copyLogButton: Button
+    private lateinit var homeCrashlyticsNonFatalButton: Button
+    private lateinit var homeCrashlyticsFatalButton: Button
 
     // Test case views - will be initialized when layouts are loaded
     private var asrTestButton: Button? = null
@@ -87,9 +90,9 @@ class DebugActivity : AppCompatActivity() {
     private var showModelInfoSwitch: Switch? = null
     private var allowNetworkSwitch: Switch? = null
     private var networkDelaySwitch: Switch? = null
-    private var videoDecoderTestButton: Button? = null
-    private var videoDecoderProcessButton: Button? = null
     private var closeDebugModeButton: Button? = null
+    private var testCrashlyticsNonFatalButton: Button? = null
+    private var testCrashlyticsFatalButton: Button? = null
 
     private var recognizeService: AsrService? = null
     private var isRecording = false
@@ -100,7 +103,6 @@ class DebugActivity : AppCompatActivity() {
     private val testCases = listOf(
         TestCase("asr", "ASR Test", R.layout.debug_test_asr),
         TestCase("tts", "TTS Test", R.layout.debug_test_tts),
-        TestCase("video", "Video Decoder Test", R.layout.debug_test_video),
         TestCase("scan", "Model Scan Test", R.layout.debug_test_scan),
         TestCase("settings", "Debug Settings", R.layout.debug_test_settings)
     )
@@ -124,6 +126,8 @@ class DebugActivity : AppCompatActivity() {
         testCaseContainer = findViewById(R.id.testCaseContainer)
         clearLogButton = findViewById(R.id.clearLogButton)
         copyLogButton = findViewById(R.id.copyLogButton)
+        homeCrashlyticsNonFatalButton = findViewById(R.id.homeCrashlyticsNonFatalButton)
+        homeCrashlyticsFatalButton = findViewById(R.id.homeCrashlyticsFatalButton)
         
         val titleTextView = findViewById<TextView>(R.id.titleTextView)
         val baseTitle = getString(R.string.debug_activity_title)
@@ -173,7 +177,6 @@ class DebugActivity : AppCompatActivity() {
         when (testCase.id) {
             "asr" -> initAsrViews(view)
             "tts" -> initTtsViews(view)
-            "video" -> initVideoViews(view)
             "scan" -> initScanViews(view)
             "settings" -> initSettingsViews(view)
         }
@@ -237,24 +240,13 @@ class DebugActivity : AppCompatActivity() {
         }
     }
 
-    private fun initVideoViews(parentView: View) {
-        videoDecoderTestButton = parentView.findViewById(R.id.videoDecoderTestButton)
-        videoDecoderProcessButton = parentView.findViewById(R.id.videoDecoderProcessButton)
-
-        videoDecoderTestButton?.setOnClickListener {
-            startVideoDecoderTest()
-        }
-
-        videoDecoderProcessButton?.setOnClickListener {
-            processVideoFile()
-        }
-    }
-
     private fun initSettingsViews(parentView: View) {
         showModelInfoSwitch = parentView.findViewById(R.id.showModelInfoSwitch)
         allowNetworkSwitch = parentView.findViewById(R.id.allowNetworkSwitch)
         networkDelaySwitch = parentView.findViewById(R.id.networkDelaySwitch)
         closeDebugModeButton = parentView.findViewById(R.id.closeDebugModeButton)
+        testCrashlyticsNonFatalButton = parentView.findViewById(R.id.testCrashlyticsNonFatalButton)
+        testCrashlyticsFatalButton = parentView.findViewById(R.id.testCrashlyticsFatalButton)
 
         // Load current settings
         val isModelInfoEnabled = PreferenceUtils.getBoolean(this, KEY_SHOW_MODEL_INFO_ENABLED, false)
@@ -285,6 +277,14 @@ class DebugActivity : AppCompatActivity() {
         closeDebugModeButton?.setOnClickListener {
             closeDebugMode()
         }
+
+        testCrashlyticsNonFatalButton?.setOnClickListener {
+            testCrashlyticsNonFatal()
+        }
+
+        testCrashlyticsFatalButton?.setOnClickListener {
+            confirmAndCrashForCrashlytics()
+        }
     }
 
     private fun setupClickListeners() {
@@ -293,6 +293,12 @@ class DebugActivity : AppCompatActivity() {
         }
         copyLogButton.setOnClickListener {
             copyLog()
+        }
+        homeCrashlyticsNonFatalButton.setOnClickListener {
+            testCrashlyticsNonFatal()
+        }
+        homeCrashlyticsFatalButton.setOnClickListener {
+            confirmAndCrashForCrashlytics()
         }
     }
 
@@ -433,6 +439,35 @@ class DebugActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun testCrashlyticsNonFatal() {
+        val crashlytics = FirebaseCrashlytics.getInstance()
+        crashlytics.log("Debug panel non-fatal test")
+        crashlytics.setCustomKey("debug_mode_activated", true)
+        crashlytics.setCustomKey("build_type", if (BuildConfig.DEBUG) "debug" else "release")
+        crashlytics.setCustomKey("application_id", BuildConfig.APPLICATION_ID)
+        crashlytics.recordException(
+            IllegalStateException("Debug non-fatal Crashlytics test ${System.currentTimeMillis()}")
+        )
+        log("Crashlytics non-fatal event sent. Check Firebase console in a few minutes.")
+        Toast.makeText(this, R.string.debug_test_crashlytics_non_fatal_sent, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun confirmAndCrashForCrashlytics() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.debug_test_crashlytics_fatal_confirm_title)
+            .setMessage(R.string.debug_test_crashlytics_fatal_confirm_message)
+            .setPositiveButton(R.string.debug_test_crashlytics_fatal_confirm_action) { _, _ ->
+                val crashlytics = FirebaseCrashlytics.getInstance()
+                crashlytics.log("Debug panel fatal test")
+                crashlytics.setCustomKey("debug_mode_activated", true)
+                crashlytics.setCustomKey("build_type", if (BuildConfig.DEBUG) "debug" else "release")
+                crashlytics.setCustomKey("application_id", BuildConfig.APPLICATION_ID)
+                throw RuntimeException("Debug fatal Crashlytics test ${System.currentTimeMillis()}")
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private fun startTtsTest() {
         CoroutineScope(Dispatchers.Main).launch {
             try {
@@ -443,7 +478,13 @@ class DebugActivity : AppCompatActivity() {
                 withContext(Dispatchers.IO) {
                     try {
                         val modelDir = VoiceModelPathUtils.getTtsModelPath(this@DebugActivity)
+                        val sampleRate = VoiceModelPathUtils.getTtsSampleRate(modelDir)
+                        val language = VoiceModelPathUtils.getTtsLanguage(this@DebugActivity)
                         log("Using TTS model path: $modelDir")
+                        log("Using TTS sample rate: $sampleRate")
+                        log("Using TTS language: $language")
+                        audioPlayer?.sampleRate = sampleRate
+                        ttsService?.setLanguage(language)
                         log("Initializing TTS with model directory: $modelDir")
                         val initResult = ttsService?.init(modelDir)
                         if (initResult == true) {
@@ -526,8 +567,10 @@ class DebugActivity : AppCompatActivity() {
                     // Initialize audio player if needed
                     if (audioPlayer == null) {
                         audioPlayer = AudioChunksPlayer()
-                        audioPlayer!!.sampleRate = 44100
                     }
+                    audioPlayer!!.sampleRate = VoiceModelPathUtils.getTtsSampleRate(
+                        VoiceModelPathUtils.getTtsModelPath(this@DebugActivity)
+                    )
                     audioPlayer?.start()
 
                     // Play the audio
@@ -546,17 +589,6 @@ class DebugActivity : AppCompatActivity() {
                 Log.e(TAG, "Error processing TTS", e)
             }
         }
-    }
-
-    private fun startVideoDecoderTest() {
-        log("Starting Video Decoder Test Activity...")
-        val intent = Intent(this, VideoDecoderTestActivity::class.java)
-        startActivity(intent)
-    }
-
-    private fun processVideoFile() {
-        log("Video file processing not implemented yet")
-        Toast.makeText(this, "Video file processing not implemented yet", Toast.LENGTH_SHORT).show()
     }
 
     override fun onDestroy() {

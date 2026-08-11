@@ -44,18 +44,6 @@ object MainSettings {
         return sharedPreferences.getBoolean("enable_api_service", false)
     }
 
-    fun getDiffusionMemoryMode(context: Context): String {
-        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-        return sharedPreferences.getString("diffusion_memory_mode", DiffusionMemoryMode.MEMORY_MODE_SAVING.value)!!
-    }
-
-    fun setDiffusionMemoryMode(context: Context, mode:String) {
-        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-        sharedPreferences.edit()
-            .putString("diffusion_memory_mode", mode)
-            .apply()
-    }
-
     /**
      * Get the default TTS model ID
      */

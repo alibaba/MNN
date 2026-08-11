@@ -38,6 +38,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
     private var corsOrigins: String = ""
     private var authEnabled: Boolean = false
     private var apiKey: String = ""
+    private var useHttpsUrl: Boolean = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -81,6 +82,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         corsOrigins = ApiServerConfig.getCorsOrigins(context)
         authEnabled = ApiServerConfig.isAuthEnabled(context)
         apiKey = ApiServerConfig.getApiKey(context)
+        useHttpsUrl = ApiServerConfig.useHttpsUrl(context)
 
         //Update UI
         binding.editPort.setText(currentPort.toString())
@@ -89,6 +91,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         binding.editCorsOrigins.setText(corsOrigins)
         binding.switchAuth.isChecked = authEnabled
         binding.editApiKey.setText(apiKey)
+        binding.switchUseHttpsUrl.isChecked = useHttpsUrl
 
         updateCorsVisibility()
         updateAuthVisibility()
@@ -109,6 +112,10 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
             if (!text.isNullOrEmpty()) {
                 currentIpAddress = text.toString()
             }
+        }
+
+        binding.switchUseHttpsUrl.setOnCheckedChangeListener { _, isChecked ->
+            useHttpsUrl = isChecked
         }
 
         //IP address quick setup button
@@ -185,7 +192,8 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
             corsEnabled = corsEnabled,
             corsOrigins = corsOrigins,
             authEnabled = authEnabled,
-            apiKey = apiKey
+            apiKey = apiKey,
+            useHttpsUrl = useHttpsUrl
         )
 
         //Commented out but keep these two Toasts, can be used for testing

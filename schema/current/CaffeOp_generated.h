@@ -248,6 +248,36 @@ inline const char *EnumNameSparseAlgo(SparseAlgo e) {
   return EnumNamesSparseAlgo()[index];
 }
 
+enum ScaleStorageType {
+  ScaleStorageType_FP32 = 0,
+  ScaleStorageType_FP16 = 1,
+  ScaleStorageType_MIN = ScaleStorageType_FP32,
+  ScaleStorageType_MAX = ScaleStorageType_FP16
+};
+
+inline const ScaleStorageType (&EnumValuesScaleStorageType())[2] {
+  static const ScaleStorageType values[] = {
+    ScaleStorageType_FP32,
+    ScaleStorageType_FP16
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesScaleStorageType() {
+  static const char * const names[] = {
+    "FP32",
+    "FP16",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameScaleStorageType(ScaleStorageType e) {
+  if (e < ScaleStorageType_FP32 || e > ScaleStorageType_FP16) return "";
+  const size_t index = static_cast<int>(e);
+  return EnumNamesScaleStorageType()[index];
+}
+
 enum QuantizeAlgo {
   QuantizeAlgo_DEFAULT = 0,
   QuantizeAlgo_OVERFLOW_AWARE = 1,
@@ -945,6 +975,8 @@ struct IDSTQuanT : public flatbuffers::NativeTable {
   bool shapeInt32;
   uint32_t weightSize;
   std::vector<uint32_t> index;
+  std::vector<uint16_t> alphaFp16;
+  ScaleStorageType scaleStorage;
   IDSTQuanT()
       : type(0),
         useInt32(false),
@@ -956,7 +988,8 @@ struct IDSTQuanT : public flatbuffers::NativeTable {
         readType(0),
         has_scaleInt(false),
         shapeInt32(false),
-        weightSize(0) {
+        weightSize(0),
+        scaleStorage(ScaleStorageType_FP32) {
   }
 };
 
@@ -1007,6 +1040,12 @@ struct IDSTQuan FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<uint32_t> *index() const {
     return GetPointer<const flatbuffers::Vector<uint32_t> *>(30);
   }
+  const flatbuffers::Vector<uint16_t> *alphaFp16() const {
+    return GetPointer<const flatbuffers::Vector<uint16_t> *>(32);
+  }
+  ScaleStorageType scaleStorage() const {
+    return static_cast<ScaleStorageType>(GetField<int8_t>(34, 0));
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -1026,6 +1065,9 @@ struct IDSTQuan FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<uint32_t>(verifier, 28) &&
            VerifyOffset(verifier, 30) &&
            verifier.VerifyVector(index()) &&
+           VerifyOffset(verifier, 32) &&
+           verifier.VerifyVector(alphaFp16()) &&
+           VerifyField<int8_t>(verifier, 34) &&
            verifier.EndTable();
   }
   IDSTQuanT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1078,6 +1120,12 @@ struct IDSTQuanBuilder {
   void add_index(flatbuffers::Offset<flatbuffers::Vector<uint32_t>> index) {
     fbb_.AddOffset(30, index);
   }
+  void add_alphaFp16(flatbuffers::Offset<flatbuffers::Vector<uint16_t>> alphaFp16) {
+    fbb_.AddOffset(32, alphaFp16);
+  }
+  void add_scaleStorage(ScaleStorageType scaleStorage) {
+    fbb_.AddElement<int8_t>(34, static_cast<int8_t>(scaleStorage), 0);
+  }
   explicit IDSTQuanBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -1105,8 +1153,11 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(
     bool has_scaleInt = false,
     bool shapeInt32 = false,
     uint32_t weightSize = 0,
-    flatbuffers::Offset<flatbuffers::Vector<uint32_t>> index = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<uint32_t>> index = 0,
+    flatbuffers::Offset<flatbuffers::Vector<uint16_t>> alphaFp16 = 0,
+    ScaleStorageType scaleStorage = ScaleStorageType_FP32) {
   IDSTQuanBuilder builder_(_fbb);
+  builder_.add_alphaFp16(alphaFp16);
   builder_.add_index(index);
   builder_.add_weightSize(weightSize);
   builder_.add_readType(readType);
@@ -1118,6 +1169,7 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(
   builder_.add_type(type);
   builder_.add_alpha(alpha);
   builder_.add_buffer(buffer);
+  builder_.add_scaleStorage(scaleStorage);
   builder_.add_shapeInt32(shapeInt32);
   builder_.add_has_scaleInt(has_scaleInt);
   builder_.add_useInt32(useInt32);
@@ -4448,6 +4500,8 @@ inline void IDSTQuan::UnPackTo(IDSTQuanT *_o, const flatbuffers::resolver_functi
   { auto _e = shapeInt32(); _o->shapeInt32 = _e; };
   { auto _e = weightSize(); _o->weightSize = _e; };
   { auto _e = index(); if (_e) { _o->index.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->index[_i] = _e->Get(_i); } } };
+  { auto _e = alphaFp16(); if (_e) { _o->alphaFp16.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->alphaFp16[_i] = _e->Get(_i); } } };
+  { auto _e = scaleStorage(); _o->scaleStorage = _e; };
 }
 
 inline flatbuffers::Offset<IDSTQuan> IDSTQuan::Pack(flatbuffers::FlatBufferBuilder &_fbb, const IDSTQuanT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4472,6 +4526,8 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(flatbuffers::FlatBufferBuild
   auto _shapeInt32 = _o->shapeInt32;
   auto _weightSize = _o->weightSize;
   auto _index = _o->index.size() ? _fbb.CreateVector(_o->index) : 0;
+  auto _alphaFp16 = _o->alphaFp16.size() ? _fbb.CreateVector(_o->alphaFp16) : 0;
+  auto _scaleStorage = _o->scaleStorage;
   return MNN::CreateIDSTQuan(
       _fbb,
       _buffer,
@@ -4487,7 +4543,9 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(flatbuffers::FlatBufferBuild
       _has_scaleInt,
       _shapeInt32,
       _weightSize,
-      _index);
+      _index,
+      _alphaFp16,
+      _scaleStorage);
 }
 
 inline QuantizedFloatParamT *QuantizedFloatParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5733,6 +5791,24 @@ inline const flatbuffers::TypeTable *SparseAlgoTypeTable() {
   return &tt;
 }
 
+inline const flatbuffers::TypeTable *ScaleStorageTypeTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    ScaleStorageTypeTypeTable
+  };
+  static const char * const names[] = {
+    "FP32",
+    "FP16"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_ENUM, 2, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
 inline const flatbuffers::TypeTable *QuantizeAlgoTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
@@ -5981,7 +6057,12 @@ inline const flatbuffers::TypeTable *IDSTQuanTypeTable() {
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_UINT, 0, -1 },
-    { flatbuffers::ET_UINT, 1, -1 }
+    { flatbuffers::ET_UINT, 1, -1 },
+    { flatbuffers::ET_USHORT, 1, -1 },
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    ScaleStorageTypeTypeTable
   };
   static const char * const names[] = {
     "buffer",
@@ -5997,10 +6078,12 @@ inline const flatbuffers::TypeTable *IDSTQuanTypeTable() {
     "has_scaleInt",
     "shapeInt32",
     "weightSize",
-    "index"
+    "index",
+    "alphaFp16",
+    "scaleStorage"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 14, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 16, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

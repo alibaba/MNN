@@ -23,7 +23,7 @@
     - `-d`：数据集名称
   - **示例**
     ```sh
-    python evaluate_perplexity.py -m /path/to/model/config.json -d "wikitext/wikitext-2-raw-v1"
+    python evaluate_perplexity.py -m /path/to/model/config.json -d "Salesforce/wikitext/wikitext-2-raw-v1"
     ```
 
 ### llm_eval.py
@@ -46,7 +46,7 @@
     - `-d`：数据集名称
   - **示例**
     ```sh
-    python download_data.py -o wiki -d "wikitext/wikitext-2-raw-v1"
+    python download_data.py -o wiki -d "Salesforce/wikitext/wikitext-2-raw-v1"
     ```
 
 ### `ppl_eval`

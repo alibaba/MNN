@@ -1,0 +1,53 @@
+// Runtime int4 -> int8 unpack stage for the W8A8 prefill path.
+//
+// Source memory: a [padN, padK/8] uint32 buffer prepared by the host with
+// 8 nibbles per word, stored low-bits-first (nibble j -> bits [4j, 4j+3]).
+// Encoding (host-side +8 unsigned offset; padding nibble = 0x8 -> decoded 0):
+//   stored value = unsigned (q + 8), so 0..15 represents -8..7.
+//
+// The same memory is re-bound here as `int8_t[]` (8bit-storage view); on
+// little-endian devices nibble (2k) lives in the low half of byte k and
+// nibble (2k+1) in the high half, so each invocation reads one byte and
+// emits two int8 outputs without an inner loop.
+//
+// Output: a [padN, padK] int8 buffer the W8A8 GEMM consumes in place of the
+// per-channel quantized weight, keeping the GEMM's existing linear B layout.
+//
+// Dispatch: groupCount = (UP_DIV(padK/2, 16), UP_DIV(padN, 16), 1),
+//           localSize  = (16, 16, 1).
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_8bit_storage : require
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer Packed4 {
+    int8_t W4[]; // size = padN * (padK/2), one byte per pair of nibbles
+};
+
+layout(binding = 1) writeonly buffer Unpacked8 {
+    int8_t W8[]; // size = padN * padK
+};
+
+layout(push_constant) uniform PushConstants {
+    uint padN;
+    uint padK;
+    uint halfK; // padK / 2
+} pc;
+
+void main() {
+    const uint k2 = gl_GlobalInvocationID.x;
+    const uint n  = gl_GlobalInvocationID.y;
+    if (n >= pc.padN || k2 >= pc.halfK) {
+        return;
+    }
+
+    const uint srcIdx = n * pc.halfK + k2;
+    const int byteVal = int(W4[srcIdx]) & 0xFF;
+    const int q0 = (byteVal & 0xF) - 8;
+    const int q1 = ((byteVal >> 4) & 0xF) - 8;
+
+    const uint dstBase = n * pc.padK + (k2 << 1u);
+    W8[dstBase + 0u] = int8_t(q0);
+    W8[dstBase + 1u] = int8_t(q1);
+}

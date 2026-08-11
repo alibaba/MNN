@@ -81,3 +81,25 @@ public:
     }
 };
 MNNTestSuiteRegister(CumSumTest, "op/cumsum");
+
+// Regression test: CumSum (While/Loop) -> Reshape (makeFullRef) must read post-CumSum data.
+// Bug: makeFullRef transparently forwarded MEMORY_VIRTUAL regions, bypassing While output.
+class CumSumReshapeTest : public MNNTestCase {
+public:
+    virtual ~CumSumReshapeTest() = default;
+    virtual bool run(int precision) {
+        auto input = _Input({1, 5}, NCHW);
+        const float inpudata[] = {1.0, 2.0, 3.0, 4.0, 5.0};
+        memcpy(input->writeMap<float>(), inpudata, 5 * sizeof(float));
+        auto cumsum = _CumSum(input, 1);
+        auto output = _Reshape(cumsum, {5});
+        const std::vector<float> expected = {1., 3., 6., 10., 15.};
+        auto got = output->readMap<float>();
+        if (!checkVector<float>(got, expected.data(), 5, 0.01)) {
+            MNN_ERROR("CumSumReshapeTest failed! got=[%f,%f,%f,%f,%f]\n", got[0], got[1], got[2], got[3], got[4]);
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(CumSumReshapeTest, "op/cumsum_reshape");

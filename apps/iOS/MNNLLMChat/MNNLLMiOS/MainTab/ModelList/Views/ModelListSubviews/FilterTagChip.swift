@@ -11,7 +11,7 @@ struct FilterTagChip: View {
     let text: String
     let isSelected: Bool
     let onTap: () -> Void
-    
+
     var body: some View {
         Button(action: onTap) {
             Text(text)

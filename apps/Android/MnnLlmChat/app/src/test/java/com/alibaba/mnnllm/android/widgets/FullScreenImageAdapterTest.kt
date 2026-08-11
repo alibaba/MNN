@@ -2,6 +2,7 @@ package com.alibaba.mnnllm.android.widgets
 
 import android.net.Uri
 import android.widget.ImageView
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
 import org.junit.Assert.*
@@ -28,6 +29,13 @@ class FullScreenImageAdapterTest {
     fun setup() {
         @Suppress("UNCHECKED_CAST")
         mockOnClick = Mockito.mock(Function0::class.java) as () -> Unit
+    }
+
+    private fun createParentRecyclerView(): RecyclerView {
+        val context = RuntimeEnvironment.getApplication()
+        return RecyclerView(context).apply {
+            layoutManager = LinearLayoutManager(context)
+        }
     }
 
     @Test
@@ -82,8 +90,7 @@ class FullScreenImageAdapterTest {
     @Test
     fun `test onCreateViewHolder creates ViewHolder with correct layout`() {
         // Given
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = FullScreenImageAdapter(listOf(testUri1), mockOnClick)
 
         // When
@@ -101,8 +108,7 @@ class FullScreenImageAdapterTest {
     fun `test onBindViewHolder binds image at position 0`() {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = FullScreenImageAdapter(images, mockOnClick)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
 
@@ -120,8 +126,7 @@ class FullScreenImageAdapterTest {
     fun `test onBindViewHolder binds image at different positions`() {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = FullScreenImageAdapter(images, mockOnClick)
 
         // When & Then - test each position
@@ -139,8 +144,7 @@ class FullScreenImageAdapterTest {
     fun `test ViewHolder image click triggers callback`() {
         // Given
         val images = listOf(testUri1)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         
         var clickCount = 0
         val countingCallback: () -> Unit = { clickCount++ }
@@ -161,8 +165,7 @@ class FullScreenImageAdapterTest {
     fun `test multiple ViewHolders each trigger callback independently`() {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         
         var clickCount = 0
         val countingCallback: () -> Unit = { clickCount++ }
@@ -202,8 +205,7 @@ class FullScreenImageAdapterTest {
     fun `test ViewHolder reuse with different positions`() {
         // Given
         val images = listOf(testUri1, testUri2, testUri3)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val adapter = FullScreenImageAdapter(images, mockOnClick)
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
 
@@ -221,8 +223,7 @@ class FullScreenImageAdapterTest {
     fun `test callback is not invoked until image is clicked`() {
         // Given
         val images = listOf(testUri1)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         
         var clickCount = 0
         val countingCallback: () -> Unit = { clickCount++ }

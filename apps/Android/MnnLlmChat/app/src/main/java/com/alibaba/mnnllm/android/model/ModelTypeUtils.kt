@@ -29,12 +29,21 @@ object ModelTypeUtils {
     }
 
     fun isDiffusionModel(modelName: String): Boolean {
-        return modelName.lowercase(Locale.getDefault()).contains("stable-diffusion")
+        val lower = modelName.lowercase(Locale.getDefault())
+        return lower.contains("stable-diffusion") || lower.contains("sana")
+    }
+
+    fun isSanaModel(modelName: String): Boolean {
+        return modelName.lowercase(Locale.getDefault()).contains("sana")
+    }
+
+    fun requiresFaceImageInput(modelName: String): Boolean {
+        return isSanaModel(modelName)
     }
 
     fun isVisualModel(modelId: String): Boolean {
         return modelId.lowercase(Locale.getDefault()).contains("vl") || isOmni(modelId) ||
-                ModelListManager.isVisualModel(modelId)
+                ModelListManager.isVisualModel(modelId) || isSanaModel(modelId)
     }
 
     fun isVideoModel(modelId: String): Boolean {
@@ -52,6 +61,13 @@ object ModelTypeUtils {
 
     fun isSupportThinkingSwitchByTags(extraTags: List<String>): Boolean {
         return extraTags.any { it.equals("ThinkingSwitch", ignoreCase = true) }
+    }
+
+    fun isOpenClWarningByExtraTags(extraTags: List<String>): Boolean {
+        return extraTags.any {
+            it.equals("opencl_warning", ignoreCase = true) ||
+                it.equals("OpenCLWarning", ignoreCase = true)
+        }
     }
 
     fun isQnnModel(tags: List<String>): Boolean {

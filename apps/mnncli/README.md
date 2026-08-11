@@ -34,6 +34,11 @@ The executable will be located at `build_mnncli/mnncli`.
 ./build_mnncli/mnncli serve <model_name>
 ```
 
+Optional host/port:
+```bash
+./build_mnncli/mnncli serve <model_name> --host 127.0.0.1 --port 8000
+```
+
 ### Run Model
 ```bash
 ./build_mnncli/mnncli run <model_name> [-c config_path] [-p prompt] [-f prompt_file]
@@ -59,6 +64,54 @@ The executable will be located at `build_mnncli/mnncli`.
 ./build_mnncli/mnncli delete <model_name>
 ```
 
+## HTTP API Compatibility
+
+### `mnncli serve` (OpenAI-compatible)
+
+Available endpoints:
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+- `POST /chat/completions` (alias)
+
+Minimal `curl` examples:
+
+```bash
+curl http://127.0.0.1:8000/v1/models
+```
+
+```bash
+curl http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen3.5-0.8B-MNN",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "stream": false
+  }'
+```
+
+
+### Anthropic-compatible (`/v1/messages`)
+
+Available endpoint:
+- `POST /v1/messages`
+
+Minimal `curl` example:
+
+```bash
+curl http://127.0.0.1:8000/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -d '{
+    "model": "Qwen3.5-0.8B-MNN",
+    "max_tokens": 128,
+    "messages": [{
+      "role": "user",
+      "content": [{"type": "text", "text": "Hello"}]
+    }]
+  }'
+```
+
+This route is designed for Anthropic-style clients (including Claude-compatible integrations) and supports both non-stream and stream requests.
 ## Dependencies
 
 - OpenSSL (for HTTPS support)
@@ -70,4 +123,4 @@ The executable will be located at `build_mnncli/mnncli`.
 - The tool requires macOS 13.0+ when building on Apple platforms
 - On Linux, ensure `libssl-dev` (or equivalent) is installed
 - Models are cached in the user's cache directory
-- The web server provides an OpenAI-compatible API interface
+- `mnncli serve` currently provides OpenAI-compatible and Anthropic-compatible API routes

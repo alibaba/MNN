@@ -15,19 +15,19 @@ layout(set=0, binding=3) readonly buffer s2{
 } uInputC;
 
 layout(set=0, binding=4) readonly buffer s3{
-    FLOAT data[];
+    int data[];
 } uOOffset;
 
 layout(set=0, binding=5) readonly buffer s4{
-    FLOAT data[];
+    int data[];
 } uAOffset;
 
 layout(set=0, binding=6) readonly buffer s5{
-    FLOAT data[];
+    int data[];
 } uBOffset;
 
 layout(set=0, binding=7) readonly buffer s6{
-    FLOAT data[];
+    int data[];
 } uCOffset;
 
 layout(set=0, binding=8) uniform constBuffer{

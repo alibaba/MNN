@@ -1,0 +1,103 @@
+// Quant + tile-packed pack: write [tileM, tileK] cooperative-tile-linear int8
+// activation block, plus per-tile (tileK, m) row sums for downstream reduce.
+//
+// Dispatch: groupCount = (padM / COOP_M, tilesK, 1), localSize = (max(COOP_M, COOP_K), 1, 1).
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 3) const uint COOP_M = 64;
+layout(constant_id = 4) const uint COOP_K = 32;
+
+layout(binding = 0) readonly buffer SrcActivation {
+    FLOAT4 A4[];
+};
+
+layout(binding = 1) readonly buffer ScaleActivation {
+    FLOAT ScaleA[];
+};
+
+layout(binding = 2) readonly buffer OffsetActivation {
+    FLOAT OffsetA[];
+};
+
+layout(binding = 3) writeonly buffer QuantActivation {
+    uint AqPacked[];
+};
+
+layout(binding = 4) writeonly buffer PartialSumBuffer {
+    int PartialSumAq[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint padM;
+    uint padK;
+} pc;
+
+shared int rowSum[64];
+
+uint packInt8x4(int q0, int q1, int q2, int q3) {
+    return (uint(q0) & 0xFFu) |
+           ((uint(q1) & 0xFFu) << 8) |
+           ((uint(q2) & 0xFFu) << 16) |
+           ((uint(q3) & 0xFFu) << 24);
+}
+
+void main() {
+    uint tileM = gl_WorkGroupID.x;
+    uint tileK = gl_WorkGroupID.y;
+    uint tid = gl_LocalInvocationID.x;
+    uint tilesK = pc.padK / COOP_K;
+    uint mBase = tileM * COOP_M;
+    uint kBase = tileK * COOP_K;
+
+    if (tid < COOP_M) {
+        rowSum[tid] = 0;
+    }
+    barrier();
+
+    if (tid < COOP_M) {
+        uint m = mBase + tid;
+        float scale = 1.0;
+        float offset = 0.0;
+        if (m < pc.M) {
+            scale = float(ScaleA[m]);
+            offset = float(OffsetA[m]);
+        }
+        int sum = 0;
+
+        uint dstByteBase = (tileM * tilesK + tileK) * COOP_M * COOP_K + tid * COOP_K;
+        for (uint k4In = 0u; k4In < COOP_K / 4u; ++k4In) {
+            uint k4 = (kBase >> 2) + k4In;
+            vec4 v = vec4(0.0);
+            if (m < pc.M && k4 * 4u < pc.K) {
+                v = vec4(A4[k4 * pc.M + m]);
+            }
+
+            int q0 = 0;
+            int q1 = 0;
+            int q2 = 0;
+            int q3 = 0;
+            if (m < pc.M) {
+                uint k = kBase + k4In * 4u;
+                if (k + 0u < pc.K) q0 = clamp(int(round((v.x - offset) / scale)), -128, 127);
+                if (k + 1u < pc.K) q1 = clamp(int(round((v.y - offset) / scale)), -128, 127);
+                if (k + 2u < pc.K) q2 = clamp(int(round((v.z - offset) / scale)), -128, 127);
+                if (k + 3u < pc.K) q3 = clamp(int(round((v.w - offset) / scale)), -128, 127);
+                sum += q0 + q1 + q2 + q3;
+            }
+            AqPacked[(dstByteBase >> 2) + k4In] = packInt8x4(q0, q1, q2, q3);
+        }
+        rowSum[tid] = sum;
+    }
+
+    barrier();
+
+    if (tid < COOP_M) {
+        uint m = mBase + tid;
+        if (m < pc.padM) {
+            PartialSumAq[tileK * pc.padM + m] = rowSum[tid];
+        }
+    }
+}

@@ -160,7 +160,7 @@ ConvSubgroupBuf::ConvSubgroupBuf(const std::vector<Tensor *> &inputs, const std:
         }
 
         mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 16)}));
-        backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
+        OPENCL_CHECK_ALLOC_CTOR(backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC));
         cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
 
         cl_int res;

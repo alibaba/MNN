@@ -61,8 +61,8 @@ void MetalInterp::onEncode(const std::vector<Tensor *> &inputs, const std::vecto
     auto input = inputs[0], output = outputs[0];
     // encode
     [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(input)->offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(output)->offset atIndex:1];
     [encoder setBuffer:mShape offset:0 atIndex:2];
     [encoder setBuffer:mCordTransform offset:0 atIndex:3];
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];

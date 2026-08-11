@@ -19,6 +19,7 @@ import com.alibaba.mnnllm.android.databinding.FragmentApiConsoleSheetBinding
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
+import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.api.openai.network.logging.LogCollector
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -54,6 +55,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
     private var serverStateJob: Job? = null
     private var serverInfoJob: Job? = null
     private var logCollectorJob: Job? = null
+    private var suppressFirstStoppedEventLog: Boolean = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -171,7 +173,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                 // Use actual running server info, otherwise use configured info
                 val displayHost = if (serverInfo.host.isNotEmpty()) serverInfo.host else configuredHost
                 val displayPort = if (serverInfo.port > 0) serverInfo.port else configuredPort
-                val endpointUrl = "http://${displayHost}:${displayPort}/v1/chat/completions"
+                val endpointUrl = "${ApiServiceManager.getApiServiceBaseUrl(context)}/v1/chat/completions"
                 binding.textApiEndpoint.text = endpointUrl
                 binding.textApiEndpoint.visibility = View.VISIBLE
                 binding.labelApiEndpoint.visibility = View.VISIBLE
@@ -245,14 +247,22 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         // Add initial log message
         addLogMessage(getString(R.string.console_started))
 
+        val context = chatActivity ?: requireContext()
+        val isServiceEnabled = MainSettings.isApiServiceEnabled(context)
         val serverState = serverEventManager.getCurrentState()
-        when (serverState) {
-            ServerEventManager.ServerState.READY -> {
+        when {
+            !isServiceEnabled -> {
+                addLogMessage(getString(R.string.service_disabled_hint))
+                suppressFirstStoppedEventLog = true
+            }
+            serverState == ServerEventManager.ServerState.READY -> {
                 addLogMessage(getString(R.string.server_running_message))
                 addLogMessage(getString(R.string.waiting_for_connections))
             }
-            ServerEventManager.ServerState.STOPPED -> {
+            serverState == ServerEventManager.ServerState.STOPPED -> {
                 addLogMessage(getString(R.string.server_not_started))
+                addLogMessage(getString(R.string.server_not_started_hint))
+                suppressFirstStoppedEventLog = true
             }
             else -> {
                 addLogMessage(getString(R.string.server_status_template, serverState.name))
@@ -443,8 +453,15 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                             addLogMessage(getString(R.string.server_stopping_message))
                         }
                         ServerEventManager.ServerState.STOPPED -> {
+                            if (suppressFirstStoppedEventLog) {
+                                suppressFirstStoppedEventLog = false
+                                return@onEach
+                            }
                             addLogMessage(getString(R.string.server_stopped_message))
                         }
+                    }
+                    if (state != ServerEventManager.ServerState.STOPPED) {
+                        suppressFirstStoppedEventLog = false
                     }
                 }
             }

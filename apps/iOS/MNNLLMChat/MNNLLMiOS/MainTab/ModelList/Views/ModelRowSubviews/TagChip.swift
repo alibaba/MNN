@@ -9,7 +9,7 @@ import SwiftUI
 
 struct TagChip: View {
     let text: String
-    
+
     var body: some View {
         Text(TagTranslationManager.shared.getLocalizedTag(text))
             .font(.caption)

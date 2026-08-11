@@ -38,52 +38,59 @@ std::string OpenCLMmapAllocator::onAlloc(size_t size) {
         auto code = MNNSetFileSize(file, size);
         if (NO_ERROR != code) {
             MNN_ERROR("Set File size %lu error= %d\n", size, code);
+            MNNCloseFile(file);
+            return "";
         }
         mNewMmap = true;
     }
-    mCache.insert(std::make_pair(fileName, std::make_tuple(file, size)));
+    auto ptr = MNNMmapFile(file, size);
+    if (ptr == nullptr) {
+        MNN_ERROR("MmapFile failed for %s\n", fileName.c_str());
+        return "";
+    }
+    mCache.insert(std::make_pair(fileName, std::make_tuple(file, size, (char*)ptr)));
     mAllocTimes++;
     return fileName;
 }
-bool OpenCLMmapAllocator::read(std::string fileName, size_t offset, size_t size, void* buffer){
+void OpenCLMmapAllocator::read(const std::string &fileName, size_t offset, size_t size, void* buffer){
     auto iter = mCache.find(fileName);
     if (iter == mCache.end()) {
         MNN_ASSERT(false);
         MNN_ERROR("Invalid mmap for OpenCLMmapAllocator\n");
-        return false;
+        return;
     }
-    file_t file = std::get<0>(iter->second);
-    auto ret = MNNSetFilePointer(file, offset);
-    if (ret != NO_ERROR) {
-        return false;
-    }
-    auto readSize = MNNReadFile(file, buffer, size);
-    if (readSize != size) {
-        return false;
-    }
+    auto ptr = std::get<2>(iter->second);
+    ::memcpy(buffer, ptr + offset, size);
 }
-bool OpenCLMmapAllocator::write(std::string fileName, size_t offset, size_t size, void* buffer){
+void OpenCLMmapAllocator::write(const std::string &fileName, size_t offset, size_t size, void* buffer){
     auto iter = mCache.find(fileName);
     if (iter == mCache.end()) {
         MNN_ASSERT(false);
         MNN_ERROR("Invalid unMmap for OpenCLMmapAllocator\n");
-        return false;
+        return;
     }
-    file_t file = std::get<0>(iter->second);
-    auto ret = MNNSetFilePointer(file, offset);
-    if (ret != NO_ERROR) {
-        return false;
-    }
-    auto writeSize = MNNWriteFile(file, buffer, size);
-    if (writeSize != size) {
-        return false;
-    }
+    auto ptr = std::get<2>(iter->second);
+    ::memcpy(ptr + offset, buffer, size);
 }
 void OpenCLMmapAllocator::sync() {
+    for (auto& iter : mCache) {
+        MNNUnmapFile(std::get<2>(iter.second), std::get<1>(iter.second));
+    }
     if (!mRemove && mNewMmap) {
         std::string cacheName = mPrefix + "sync." + mPosfix;
         std::string fileName = MNNFilePathConcat(mFileName, cacheName);
-        MNNCreateFile(fileName.c_str());
+        file_t file = MNNCreateFile(fileName.c_str());
+        auto iter = mCache.begin();
+        if(iter != mCache.end()){
+            auto size = std::get<1>(iter->second);
+            auto code = MNNSetFileSize(file, sizeof(size_t));
+            if (NO_ERROR != code) {
+                MNN_ERROR("Set File size %lu error= %d\n", sizeof(size_t), code);
+                return;
+            }
+            std::vector<size_t> buffer = {size};
+            MNNWriteFile(file, buffer.data(), sizeof(size_t));
+        }
     }
 }
 
@@ -105,9 +112,13 @@ std::shared_ptr<cl::Buffer> MmapPool::allocBuffer(size_t size, bool separate) {
     if(fileName.length() == 0){
         //need open new file
         fileName = mOrigin->onAlloc(mFileSize);
+        if (fileName.empty()) {
+            MNN_ERROR("OpenCL mmap file alloc failed\n");
+            return nullptr;
+        }
         mFileInfo.insert(std::make_pair(fileName, 0));
     }
-    
+
     std::shared_ptr<OpenCLMmapBufferNode> node(new OpenCLMmapBufferNode);
     cl_int ret = CL_SUCCESS;
     mTotalSize += size;
@@ -181,6 +192,10 @@ std::shared_ptr<cl::Image> MmapPool::allocImage(size_t w, size_t h, cl_channel_t
     if(fileName.length() == 0){
         //need open new file
         fileName = mOrigin->onAlloc(mFileSize);
+        if (fileName.empty()) {
+            MNN_ERROR("OpenCL mmap file alloc failed for image\n");
+            return nullptr;
+        }
         mFileInfo.insert(std::make_pair(fileName, 0));
     }
     node->fileName = fileName;

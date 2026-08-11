@@ -70,7 +70,9 @@ ErrorCode FuseExecution::onResize(const std::vector<Tensor *> &inputs, const std
     DivModFast d_channel(channel);
 
     mDivChannelStorage = static_cast<CUDABackend*>(backend())->getStaticBufferPool()->alloc(sizeof(DivModFast));
+    if (nullptr == mDivChannelStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     mDivAreaStorage = static_cast<CUDABackend*>(backend())->getStaticBufferPool()->alloc(sizeof(DivModFast));
+    if (nullptr == mDivAreaStorage.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
     runtime->memcpy((uint8_t*)mDivAreaStorage.first + mDivAreaStorage.second, &d_area, sizeof(DivModFast), MNNMemcpyHostToDevice, true);
     runtime->memcpy((uint8_t*)mDivChannelStorage.first + mDivChannelStorage.second, &d_channel, sizeof(DivModFast), MNNMemcpyHostToDevice, true);
     #endif

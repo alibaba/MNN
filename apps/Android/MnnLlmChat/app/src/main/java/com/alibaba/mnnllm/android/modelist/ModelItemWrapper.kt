@@ -8,14 +8,18 @@ import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.utils.FileUtils
 
 /**
- * Wrapper class that combines ModelItem with DownloadedModelInfo and download size
+ * Wrapper class that combines ModelItem with DownloadedModelInfo and download size.
+ * [sourceTag] is the display label for the model source (ModelScope / HuggingFace / Modelers / Builtin),
+ * set when the list is built in ModelListManager so the UI can show it without re-deriving from modelId.
  */
 data class ModelItemWrapper(
     val modelItem: ModelItem,
     val downloadedModelInfo: ChatDataManager.DownloadedModelInfo? = null,
     val downloadSize: Long = 0,
     var isPinned: Boolean = false,
-    var hasUpdate: Boolean = false
+    var hasUpdate: Boolean = false,
+    /** Source label for My Models tag; null for local or when no source. Set in ModelListManager. */
+    val sourceTag: String? = null
 ) {
     val displayName: String
         get() = modelItem.modelName ?: ""

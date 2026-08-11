@@ -1,5 +1,7 @@
 import torch
 import importlib
+import json
+import os
 from packaging.version import Version
 from transformers import PreTrainedModel, AutoConfig, AutoModel, AutoModelForCausalLM
 from typing import Optional, List
@@ -8,6 +10,61 @@ from utils.config import LlmConfig
 from utils.tokenizer import LlmTokenizer
 from utils.model_mapper import ModelMapper
 from utils.transformers import Embedding, Rotary, Decoder, Lm
+
+
+def remap_hunyuan_vl_state_dict(state_dict):
+    remapped = {}
+    prefixes = (
+        ('model.embed_tokens.', 'model.language_model.embed_tokens.'),
+        ('model.layers.', 'model.language_model.layers.'),
+        ('model.norm.', 'model.language_model.norm.'),
+        ('vit.embeddings.', 'model.vision_tower.embeddings.'),
+        ('vit.layers.', 'model.vision_tower.layers.'),
+        ('vit.perceive.before_rms.', 'model.vision_tower.patch_merger.before_rms.'),
+        ('vit.perceive.after_rms.', 'model.vision_tower.patch_merger.after_rms.'),
+        ('vit.perceive.image_begin', 'model.vision_tower.patch_merger.image_begin'),
+        ('vit.perceive.image_end', 'model.vision_tower.patch_merger.image_end'),
+        ('vit.perceive.image_newline', 'model.vision_tower.patch_merger.image_newline'),
+        ('vit.perceive.image_sep', 'model.vision_tower.patch_merger.image_sep'),
+        ('vit.perceive.mlp.', 'model.vision_tower.patch_merger.mlp.'),
+        ('vit.perceive.proj.0.', 'model.vision_tower.patch_merger.proj_conv.'),
+        ('vit.perceive.proj.2.', 'model.vision_tower.patch_merger.proj_out.'),
+    )
+    for key, value in state_dict.items():
+        new_key = key
+        for old_prefix, new_prefix in prefixes:
+            if key.startswith(old_prefix):
+                new_key = new_prefix + key[len(old_prefix):]
+                break
+        if new_key.startswith('model.vision_tower.layers.'):
+            new_key = new_key.replace('.input_layernorm.', '.layer_norm1.')
+            new_key = new_key.replace('.post_attention_layernorm.', '.layer_norm2.')
+            new_key = new_key.replace('.mlp.dense_h_to_4h.', '.mlp.fc1.')
+            new_key = new_key.replace('.mlp.dense_4h_to_h.', '.mlp.fc2.')
+        remapped[new_key] = value
+    return remapped
+
+
+def load_hunyuan_vl_state_dict(model_path):
+    from safetensors.torch import load_file
+    index_path = os.path.join(model_path, 'model.safetensors.index.json')
+    if os.path.exists(index_path):
+        with open(index_path, 'r', encoding='utf-8') as f:
+            index = json.load(f)
+        shard_files = sorted(set(index.get('weight_map', {}).values()))
+        if not shard_files:
+            raise ValueError(f"HunyuanVL safetensors index has no weight_map entries: {index_path}")
+    else:
+        safetensors_path = os.path.join(model_path, 'model.safetensors')
+        if not os.path.exists(safetensors_path):
+            raise FileNotFoundError(f"HunyuanVL weights not found: {safetensors_path}")
+        shard_files = [os.path.basename(safetensors_path)]
+    state_dict = {}
+    for shard_file in shard_files:
+        shard_path = shard_file if os.path.isabs(shard_file) else os.path.join(model_path, shard_file)
+        state_dict.update(load_file(shard_path, device='cpu'))
+    return state_dict
+
 
 class LlmModel(PreTrainedModel):
     config_class = LlmConfig
@@ -27,6 +84,28 @@ class LlmModel(PreTrainedModel):
     def _init_weights(self, module):
         pass
 
+    @staticmethod
+    def _sanitize_skip_weight_tensors(model):
+        # Some small parameters remain ONNX Consts even in skeleton mode; keep them finite for JSON export.
+        def fill_tensor(name, tensor):
+            if tensor is None or getattr(tensor, "is_meta", False):
+                return
+            if not tensor.is_floating_point() or tensor.dim() > 1:
+                return
+            try:
+                with torch.no_grad():
+                    if name.endswith("weight") or name.endswith("gamma") or "scale" in name:
+                        tensor.fill_(1.0)
+                    else:
+                        tensor.zero_()
+            except (NotImplementedError, RuntimeError):
+                pass
+
+        for name, param in model.named_parameters():
+            fill_tensor(name, param)
+        for name, buffer in model.named_buffers():
+            fill_tensor(name, buffer)
+
     def get_config(self):
         llm_config = {}
         models = ['visual', 'audio', 'talker']
@@ -40,6 +119,8 @@ class LlmModel(PreTrainedModel):
     def get_model_class(model_type: str):
         # Same as in LlmExporter
         MODEL_CLASS_MAPPING = {
+            'qwen3_5': 'Qwen3_5ForConditionalGeneration',
+            'qwen3_5_moe': 'Qwen3_5MoeForConditionalGeneration',
             'qwen3_vl': 'Qwen3VLForConditionalGeneration',
             'qwen3_vl_moe': 'Qwen3VLMoeForConditionalGeneration',
             'qwen2_5_omni': 'Qwen2_5OmniForConditionalGeneration',
@@ -49,6 +130,10 @@ class LlmModel(PreTrainedModel):
             'smolvlm': 'AutoModelForImageTextToText',
             'idefics3': 'AutoModelForVision2Seq',
             'funaudiochat': 'AutoModelForSeq2SeqLM',
+            'glm_ocr': 'GlmOcrForConditionalGeneration',
+            'lfm2_vl': 'Lfm2VlForConditionalGeneration',
+            'gemma4': 'Gemma4ForConditionalGeneration',
+            'hunyuan_vl': 'HunYuanVLForConditionalGeneration',
         }
         if model_type is None or model_type not in MODEL_CLASS_MAPPING:
             return AutoModelForCausalLM
@@ -62,6 +147,7 @@ class LlmModel(PreTrainedModel):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, args=None, **kwargs):
         config = LlmConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        config.export_args = args
         model_type = config.model_type
         model_class = cls.get_model_class(model_type)
 
@@ -90,6 +176,32 @@ class LlmModel(PreTrainedModel):
                 else:
                     original_model = AutoModelForCausalLM.from_config(original_config, trust_remote_code=True)
                 original_model.to_empty(device="cpu")
+                cls._sanitize_skip_weight_tensors(original_model)
+        elif model_type == 'lfm2_audio':
+            # LFM2-Audio uses liquid_audio package, not standard HF class
+            from pathlib import Path
+            from liquid_audio import LFM2AudioModel
+            original_model = LFM2AudioModel.from_pretrained(
+                Path(pretrained_model_name_or_path), device='cpu', dtype=torch.bfloat16
+            )
+            # Force sdpa attention on CPU (flash_attention_2 requires GPU)
+            original_model.lfm.set_attn_implementation('sdpa')
+        elif model_type == 'hunyuan_vl':
+            try:
+                original_model = model_class.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
+            except Exception as load_error:
+                original_config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
+                if hasattr(model_class, '_from_config'):
+                    original_model = model_class._from_config(original_config)
+                else:
+                    original_model = model_class(original_config)
+                state_dict = remap_hunyuan_vl_state_dict(load_hunyuan_vl_state_dict(pretrained_model_name_or_path))
+                missing, unexpected = original_model.load_state_dict(state_dict, strict=False)
+                if missing or unexpected:
+                    raise RuntimeError(
+                        "HunyuanVL fallback weight load mismatch: "
+                        f"missing={missing}, unexpected={unexpected}"
+                    ) from load_error
         else:
             # Normal loading with weights
             try:
@@ -97,10 +209,12 @@ class LlmModel(PreTrainedModel):
             except Exception:
                 original_model = AutoModel.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
 
-        print(f"Loading model type: {model_type}\n{original_model}")
+        # print(f"Loading model type: {model_type}\n{original_model}")
 
         # LoRA
-        if args.lora_path is not None and not args.lora_split:
+        if (args is not None
+                and hasattr(args, 'lora_path') and args.lora_path is not None
+                and (not hasattr(args, 'lora_split') or not args.lora_split)):
             from peft import PeftModel
             adapter = PeftModel.from_pretrained(original_model, model_id=args.lora_path)
             original_model = adapter.merge_and_unload(progressbar=True)
@@ -127,23 +241,89 @@ class LlmModel(PreTrainedModel):
             model.lm.weight = weight
 
         model.embed = Embedding(model.embed, config)
-        model.rotary = Rotary(config)
+
+        # gemma3/gemma3_text/gemma4: dual rotary for sliding vs full attention layers
+        # rope_parameters has form {'sliding_attention': {'rope_theta': ...}, 'full_attention': {'rope_theta': ...}}
+        _rp = getattr(config, 'rope_parameters', None)
+        _is_dual_rope = (model_type in ('gemma3', 'gemma3_text', 'gemma4')
+                         and _rp is not None
+                         and isinstance(_rp, dict)
+                         and any(isinstance(v, dict) for v in _rp.values()))
+        if _is_dual_rope:
+            rp = config.rope_parameters
+            origin_config = config.origin_config
+            text_config = origin_config.text_config if hasattr(origin_config, 'text_config') else origin_config
+            # Sliding attention rotary
+            sliding_rp = rp.get('sliding_attention', {})
+            sliding_config = type('Config', (), {
+                'rope_theta': sliding_rp.get('rope_theta', 10000.0),
+                'rope_ratio': None,
+                'head_dim': text_config.head_dim,
+                'model_type': model_type,
+                'rope_parameters': None,
+                'rope_scaling': None,
+                'max_position_embeddings': config.max_position_embeddings if hasattr(config, 'max_position_embeddings') else 131072,
+            })()
+            model.rotary_sliding = Rotary(sliding_config)
+            # Full attention rotary
+            full_rp = rp.get('full_attention', {})
+            global_head_dim = getattr(text_config, 'global_head_dim', text_config.head_dim)
+            partial_factor = full_rp.get('partial_rotary_factor', 1.0)
+            full_config = type('Config', (), {
+                'rope_theta': full_rp.get('rope_theta', 1000000.0),
+                'rope_ratio': None,
+                'head_dim': global_head_dim,
+                'model_type': model_type,
+                'rope_parameters': None,
+                'rope_scaling': None,
+                'max_position_embeddings': config.max_position_embeddings if hasattr(config, 'max_position_embeddings') else 131072,
+            })()
+            model.rotary_full = Rotary(full_config)
+            # Adjust rotary_dim for partial rotary factor
+            if partial_factor < 1.0:
+                rotary_dim = int(global_head_dim * partial_factor)
+                model.rotary_full.rotary_dim = rotary_dim
+                model.rotary_full.theta = 1.0 / (full_rp.get('rope_theta', 1000000.0) ** (torch.arange(0, rotary_dim, 2, dtype=torch.float32) / global_head_dim))
+            model.rotary = model.rotary_sliding  # default rotary for config reference
+        else:
+            model.rotary = Rotary(config)
+            model.rotary_sliding = None
+            model.rotary_full = None
+
         model.blocks = torch.nn.ModuleList([
             Decoder(block, i, config, model.rotary, config.model_map) for i, block in enumerate(model.blocks.children())
         ])
-        model.lm = Lm(model.lm)
+        # Check for final_logit_softcapping (gemma4, gemma2)
+        origin_config = config.origin_config
+        text_config = origin_config.text_config if hasattr(origin_config, 'text_config') else origin_config
+        final_logit_softcapping = getattr(text_config, 'final_logit_softcapping', None)
+        model.lm = Lm(model.lm, final_logit_softcapping=final_logit_softcapping)
 
-        if 'gemma' in model_type and hasattr(model.embed, 'embed_scale'):
-            model.scale_emb = model.embed.embed_scale
+        embed_scale = getattr(model.embed, 'embed_scale', None)
+        if embed_scale is not None:
+            if isinstance(embed_scale, torch.Tensor):
+                is_identity_scale = embed_scale.numel() == 1 and embed_scale.detach().cpu().item() == 1.0
+            else:
+                is_identity_scale = embed_scale == 1.0
+            if not is_identity_scale:
+                model.scale_emb = embed_scale
 
         # Multi-modal parts
         if model.visual is not None:
             from utils.vision import Vision
-            # model.visual = Vision.get_vision(model_type)(model.visual, model)
-            model.visual = Vision.get_vision(model_type)(model.visual.float(), model).float()
+            vision_cls = Vision.get_vision(model_type)
+            if vision_cls is not None:
+                model.visual = vision_cls(model.visual.float(), model).float()
+            else:
+                model.visual = None
         if hasattr(model, 'audio') and model.audio is not None:
             from utils.audio import Audio
-            model.audio = Audio.get_audio(model.audio.config.model_type)(model.audio, model)
+            audio_type = model.audio.config.model_type if hasattr(model.audio, 'config') else model_type
+            audio_cls = Audio.get_audio(audio_type)
+            if audio_cls is not None:
+                model.audio = audio_cls(model.audio, model)
+            else:
+                model.audio = None
         if hasattr(model, 'talker') and model.talker is not None:
             from utils.talker import Talker
             model.talker = Talker.get_talker(model_type)(model.talker, model.token2wav, model)
@@ -156,36 +336,142 @@ class LlmModel(PreTrainedModel):
         return model
 
     def embedding(self, input_ids):
+        # Store original input_ids for PLE (gemma4)
+        self._last_input_ids = input_ids
         if self.visual is not None and input_ids.numel() > 1:
-            return self.visual.embed(input_ids)
+            result = self.visual.embed(input_ids)
+            # Also apply audio embeddings if audio module has pending embeddings
+            if self.audio is not None and self.audio.audio_embeds is not None:
+                audio_pad_id = self.audio.config.audio_token_id
+                audio_mask = (input_ids == audio_pad_id).squeeze()
+                if audio_mask.any():
+                    embed_scale = self.config.hidden_size ** 0.5
+                    result[audio_mask] = self.audio.audio_embeds.to(result.dtype) / embed_scale
+                    self.audio.audio_embeds = None
+            return result
         if self.audio is not None and input_ids.numel() > 1:
             return self.audio.embed(input_ids)
         return self.embed(input_ids)
+
+    def compute_ple_from_embeddings(self, hidden_states, ple_embeddings):
+        """Compute PLE from pre-looked-up embeddings (for export/C++ mode).
+        ple_embeddings: [1, seq_len, num_layers * ple_dim] — already scaled by embed_scale.
+        """
+        num_layers = self.config.num_hidden_layers
+        ple_dim = ple_embeddings.shape[-1] // num_layers
+        per_layer_inputs = ple_embeddings.reshape(*ple_embeddings.shape[:2], num_layers, ple_dim)
+        # Project from main embeddings
+        hs_for_proj = hidden_states.view(1, -1, self.config.hidden_size)
+        per_layer_proj = self.per_layer_model_projection(hs_for_proj) * (self.config.hidden_size ** -0.5)
+        per_layer_proj = per_layer_proj.reshape(*hs_for_proj.shape[:-1], num_layers, ple_dim)
+        per_layer_proj = self.per_layer_projection_norm(per_layer_proj)
+        return (per_layer_proj + per_layer_inputs) * (2.0 ** -0.5)
+
+    def compute_ple(self, hidden_states, input_ids=None):
+        """Compute Per-Layer Embeddings for gemma4."""
+        if not (hasattr(self, 'embed_tokens_per_layer') and self.embed_tokens_per_layer is not None):
+            return None
+        if input_ids is None:
+            input_ids = getattr(self, '_last_input_ids', None)
+        if input_ids is None:
+            return None
+        # Replace multimodal token IDs with pad_token_id for PLE lookup
+        # (matches HF behavior: llm_input_ids[multimodal_mask] = pad_token_id)
+        ple_ids = input_ids.clone()
+        oc = getattr(self.config, 'origin_config', self.config)
+        tc = getattr(oc, 'text_config', oc)
+        pad_token_id = getattr(tc, 'pad_token_id', 0) or 0
+        for attr in ['image_token_id', 'audio_token_id', 'video_token_id']:
+            token_id = getattr(oc, attr, None)
+            if isinstance(token_id, int):
+                ple_ids[ple_ids == token_id] = pad_token_id
+        num_layers = self.config.num_hidden_layers
+        ple_dim = self.embed_tokens_per_layer.embedding_dim // num_layers
+        # 1. Lookup per-layer embeddings (ScaledWordEmbedding applies scale internally)
+        per_layer_inputs = self.embed_tokens_per_layer(ple_ids)
+        per_layer_inputs = per_layer_inputs.reshape(*input_ids.shape, num_layers, ple_dim)
+        # 2. Project from main embeddings
+        hs_for_proj = hidden_states.view(1, -1, self.config.hidden_size)
+        per_layer_proj = self.per_layer_model_projection(hs_for_proj) * (self.config.hidden_size ** -0.5)
+        per_layer_proj = per_layer_proj.reshape(*hs_for_proj.shape[:-1], num_layers, ple_dim)
+        per_layer_proj = self.per_layer_projection_norm(per_layer_proj)
+        # 3. Combine
+        return (per_layer_proj + per_layer_inputs) * (2.0 ** -0.5)
 
     def forward(self,
                 input_ids: torch.Tensor,
                 attention_mask: torch.Tensor,
                 position_ids: torch.Tensor,
-                past_key_values: Optional[List[torch.Tensor]] = None,
                 logits_index: torch.Tensor = torch.tensor([-1], dtype=torch.int32),
-                deepstack_embeds: torch.Tensor = None
+                deepstack_embeds: torch.Tensor = None,
+                ple_embeddings: torch.Tensor = None
                 ):
         hidden_states = input_ids # llm forward without embedding
+
+        # gemma4: compute PLE
+        # For ONNX export: scale_emb is NOT in forward(), it's applied externally.
+        # For Python test: scale_emb is applied in forward() above (selective scaling).
+        # Both cases: hidden_states at this point has text positions scaled.
+        per_layer_inputs = None
+        if hasattr(self, 'per_layer_model_projection') and self.per_layer_model_projection is not None:
+            ple_proj_input = hidden_states
+            # For multimodal inputs, PLE projection uses pad embeddings at multimodal positions
+            # (matches HF: llm_inputs_embeds = where(multimodal_mask, pad_embedding, inputs_embeds))
+            ids = getattr(self, '_last_input_ids', None)
+            if ids is not None:
+                oc = getattr(self.config, 'origin_config', self.config)
+                mm_mask = torch.zeros_like(ids, dtype=torch.bool)
+                for attr in ['image_token_id', 'audio_token_id', 'video_token_id']:
+                    token_id = getattr(oc, attr, None)
+                    if isinstance(token_id, int):
+                        mm_mask = mm_mask | (ids == token_id)
+                if mm_mask.any():
+                    tc = getattr(oc, 'text_config', oc)
+                    pad_id = getattr(tc, 'pad_token_id', 0) or 0
+                    pad_emb = self.embed(torch.tensor([[pad_id]]))  # [1, 1, hidden_size]
+                    ple_proj_input = hidden_states.clone()
+                    mm_flat = mm_mask.squeeze()
+                    ple_proj_input[mm_flat] = pad_emb.squeeze()
+            if ple_embeddings is None and hasattr(self, 'embed_tokens_per_layer') and self.embed_tokens_per_layer is not None:
+                if ids is not None:
+                    per_layer_inputs = self.compute_ple(ple_proj_input, ids)
+            elif ple_embeddings is not None:
+                per_layer_inputs = self.compute_ple_from_embeddings(ple_proj_input, ple_embeddings)
+
+        # scale_emb: multiply ALL positions uniformly (text + vision).
+        # Vision positions are pre-divided by scale_emb, so after this multiply they restore.
         if self.scale_emb is not None:
             hidden_states = hidden_states * self.scale_emb
-        presents = [None for i in range(len(self.blocks))]
-        eagle_hidden_states = []
+
+        spec_hidden_states = []
+        eagle_layer_ids = set()
+        dflash_layer_ids = set()
+        if self.args and self.args.eagle_path:
+            eagle_layer_ids = {len(self.blocks)-3, len(self.blocks)//2, 2}
+        elif self.args and hasattr(self.args, 'dflash_target_layer_ids') and self.args.dflash_target_layer_ids:
+            dflash_layer_ids = set(self.args.dflash_target_layer_ids)
+
         rotary_pos_emb = self.rotary(position_ids)
         if self.args and self.args.test and rotary_pos_emb.dtype != hidden_states.dtype:
             rotary_pos_emb = rotary_pos_emb.type(hidden_states.dtype)
 
+        # gemma4: compute separate rotary for full attention layers
+        rotary_pos_emb_full = None
+        if self.rotary_full is not None:
+            rotary_pos_emb_full = self.rotary_full(position_ids)
+            if self.args and self.args.test and rotary_pos_emb_full.dtype != hidden_states.dtype:
+                rotary_pos_emb_full = rotary_pos_emb_full.type(hidden_states.dtype)
+
+        # KV sharing cache (gemma4: layers 15-34 share KV with layers 13/14)
+        shared_kv_cache = {}
         for i in range(len(self.blocks)):
-            # eagle3 hidden states
-            if self.args and self.args.eagle_path and (i == len(self.blocks)-3 or i == len(self.blocks)//2 or i==2):
-                eagle_hidden_states.append(hidden_states)
+            # Set shared KV cache reference on attention
+            if hasattr(self.blocks[i].self_attn, 'is_kv_shared_layer'):
+                self.blocks[i].self_attn._shared_kv_cache = shared_kv_cache
 
-            past_kv = past_key_values[i] if past_key_values is not None and past_key_values[i] is not None else None
-
+            # eagle: collect hidden states BEFORE the layer (input to layer)
+            if i in eagle_layer_ids:
+                spec_hidden_states.append(hidden_states)
             # sliding or full attn mask
             if self.config.attention_type == 'mix':
                 is_sliding = i in self.config.sliding_attn_layers
@@ -193,10 +479,22 @@ class LlmModel(PreTrainedModel):
             else:
                 layer_attention_mask = attention_mask
 
-            hidden_states, kv = self.blocks[i](hidden_states, rotary_pos_emb, layer_attention_mask, past_kv)
-            presents[i] = kv
+            # gemma4: use different rotary for full vs sliding layers
+            if rotary_pos_emb_full is not None and not (hasattr(self.config, 'sliding_attn_layers') and i in self.config.sliding_attn_layers):
+                layer_rotary = rotary_pos_emb_full
+            else:
+                layer_rotary = rotary_pos_emb
+
+            # Set per-layer input for PLE
+            if per_layer_inputs is not None:
+                self.blocks[i]._per_layer_input = per_layer_inputs[:, :, i, :]
+            hidden_states = self.blocks[i](hidden_states, layer_rotary, layer_attention_mask)
             if deepstack_embeds is not None and i in range(deepstack_embeds.shape[0]):
                 hidden_states += deepstack_embeds[i]
+
+            # dflash: collect hidden states AFTER the layer (output of layer)
+            if i in dflash_layer_ids:
+                spec_hidden_states.append(hidden_states)
 
         talker_embeds = None
         if hasattr(self, 'talker') and self.talker is not None:
@@ -219,13 +517,11 @@ class LlmModel(PreTrainedModel):
                 final_layernorm = hidden_states # poi
             hidden_states = hidden_states[:, logits_index_long:, :]
         logits = self.lm(hidden_states)
-        if presents[0] is not None and presents[0].shape == presents[-1].shape and None not in presents:
-            presents = torch.stack(presents)
 
-        if self.args and self.args.eagle_path is not None:
-            final_layernorm = torch.cat(eagle_hidden_states, dim=-1)
+        if self.args and (self.args.eagle_path is not None or (hasattr(self.args, 'dflash_target_layer_ids') and self.args.dflash_target_layer_ids)):
+            final_layernorm = torch.cat(spec_hidden_states, dim=-1)
 
-        return logits, final_layernorm, presents, talker_embeds
+        return logits, final_layernorm, talker_embeds
 
     def get_attention_mask(self, seq_len: int, new_tokens: int = 0):
         if self.config.model_type == 'chatglm':
@@ -266,8 +562,15 @@ class LlmModel(PreTrainedModel):
         if self.config.model_type == 'chatglm':
             return self.chatglm_position_ids(seq_len, new_tokens)
         if new_tokens:
-            return torch.tensor([[seq_len - 1]], dtype=torch.int)
-        return torch.arange(seq_len, dtype=torch.int).unsqueeze(0)
+            position_ids = torch.tensor([seq_len - 1], dtype=torch.int)
+        else:
+            position_ids = torch.arange(seq_len, dtype=torch.int)
+
+        if self.rotary.is_mrope:
+            position_ids = torch.stack([position_ids] * self.rotary.mrope_axes)
+        else:
+            position_ids = position_ids.unsqueeze(0)
+        return position_ids
 
     def chatglm_attention_mask(self, seq_len, is_decode):
         if is_decode:
@@ -322,6 +625,14 @@ class EmbeddingModel(LlmModel):
         model.blocks = transformer.layer
         # some wrapper
         model.num_hidden_layers = len(model.blocks)
+        # transformers>=5.x zeroes non-persistent buffers during from_pretrained,
+        # force-recompute RoPE inv_freq / cos_sin cache so the exported graph carries valid values.
+        rope = getattr(model.embed, 'rotary_emb', None)
+        if rope is not None and hasattr(rope, '_set_cos_sin_cache') and rope.inv_freq.abs().sum().item() == 0:
+            max_pos = rope.max_position_embeddings
+            if hasattr(rope, 'scaling_factor'):
+                max_pos = int(max_pos * rope.scaling_factor)
+            rope._set_cos_sin_cache(max_pos, rope.inv_freq.device, torch.float32)
         return model
 
     def forward(self, inputs_embeds, attention_mask, position_ids):
@@ -382,7 +693,7 @@ class EmbeddingModel(LlmModel):
         hidden_states = inputs_embeds
         rotary_pos_emb = self.rotary(position_ids)
         for i in range(len(self.blocks)):
-            hidden_states, _ = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask, None)
+            hidden_states = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask)
         last_hidden_states = hidden_states[:, -1, :]
         last_hidden_states = self.final_layernorm(last_hidden_states)
         return last_hidden_states

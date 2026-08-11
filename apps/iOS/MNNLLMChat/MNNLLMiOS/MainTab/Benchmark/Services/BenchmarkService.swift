@@ -19,23 +19,22 @@ protocol BenchmarkCallback: AnyObject {
 /// Coordinates with LLMInferenceEngineWrapper to execute performance tests
 /// and provides real-time progress updates through callback mechanisms.
 class BenchmarkService: ObservableObject {
-    
     // MARK: - Singleton & Properties
-    
+
     static let shared = BenchmarkService()
-    
+
     @Published private(set) var isRunning = false
     private var shouldStop = false
     private var currentTask: Task<Void, Never>?
-    
+
     // Real LLM inference engine - using actual MNN LLM wrapper
     private var llmEngine: LLMInferenceEngineWrapper?
     private var currentModelId: String?
-    
+
     private init() {}
-    
+
     // MARK: - Public Interface
-    
+
     /// Initiates benchmark execution with specified parameters and callback handler
     /// - Parameters:
     ///   - modelId: Identifier for the model to benchmark
@@ -52,15 +51,15 @@ class BenchmarkService: ObservableObject {
             callback.onBenchmarkError(BenchmarkErrorCode.benchmarkRunning.rawValue, "Benchmark is already running")
             return
         }
-        
+
         guard let engine = llmEngine, engine.isModelReady() else {
             callback.onBenchmarkError(BenchmarkErrorCode.modelNotInitialized.rawValue, "Model is not initialized or not ready")
             return
         }
-        
+
         isRunning = true
         shouldStop = false
-        
+
         currentTask = Task {
             await performBenchmark(
                 engine: engine,
@@ -71,7 +70,7 @@ class BenchmarkService: ObservableObject {
             )
         }
     }
-    
+
     /// Stops the currently running benchmark operation
     func stopBenchmark() {
         shouldStop = true
@@ -79,13 +78,14 @@ class BenchmarkService: ObservableObject {
         currentTask?.cancel()
         isRunning = false
     }
-    
+
     /// Checks if the model is properly initialized and ready for benchmarking
     /// - Returns: True if model is ready, false otherwise
     func isModelInitialized() -> Bool {
-        return llmEngine != nil && llmEngine!.isModelReady()
+        return llmEngine?.isModelReady() == true
+        // return llmEngine != nil && llmEngine!.isModelReady()
     }
-    
+
     /// Initializes a model for benchmark testing
     /// - Parameters:
     ///   - modelId: Identifier for the model
@@ -96,7 +96,7 @@ class BenchmarkService: ObservableObject {
             // Release existing engine if any
             llmEngine = nil
             currentModelId = nil
-            
+
             // Create new LLM inference engine
             llmEngine = LLMInferenceEngineWrapper(modelPath: modelPath) { success in
                 if success {
@@ -110,23 +110,23 @@ class BenchmarkService: ObservableObject {
             }
         }
     }
-    
+
     /// Retrieves information about the currently loaded model
     /// - Returns: Model information string, or nil if no model is loaded
     func getModelInfo() -> String? {
         guard let modelId = currentModelId else { return nil }
         return "Model: \(modelId), Engine: MNN LLM"
     }
-    
+
     /// Releases the current model and frees associated resources
     func releaseModel() {
         llmEngine?.cancelInference()
         llmEngine = nil
         currentModelId = nil
     }
-    
+
     // MARK: - Benchmark Execution
-    
+
     /// Performs the actual benchmark execution with progress tracking
     /// - Parameters:
     ///   - engine: LLM inference engine instance
@@ -143,10 +143,10 @@ class BenchmarkService: ObservableObject {
     ) async {
         do {
             let instances = generateTestInstances(runtimeParams: runtimeParams, testParams: testParams)
-            
+
             var completedInstances = 0
             let totalInstances = instances.count
-            
+
             for instance in instances {
                 if shouldStop {
                     await MainActor.run {
@@ -155,7 +155,7 @@ class BenchmarkService: ObservableObject {
                     }
                     return
                 }
-                
+
                 // Create TestInstance for current configuration
                 let testInstance = TestInstance(
                     modelConfigFile: instance.configPath,
@@ -171,11 +171,11 @@ class BenchmarkService: ObservableObject {
                     memory: instance.memory,
                     dynamicOption: instance.dynamicOption
                 )
-                
+
                 // Update overall progress
                 let progress = (completedInstances * 100) / totalInstances
                 let statusMsg = "Running test \(completedInstances + 1)/\(totalInstances): pp\(instance.nPrompt)+tg\(instance.nGenerate)"
-                
+
                 await MainActor.run {
                     callback.onProgress(BenchmarkProgress(
                         progress: progress,
@@ -187,7 +187,7 @@ class BenchmarkService: ObservableObject {
                         nGenerate: instance.nGenerate
                     ))
                 }
-                
+
                 // Execute benchmark using LLMInferenceEngineWrapper
                 let result = await runOfficialBenchmark(
                     engine: engine,
@@ -199,10 +199,10 @@ class BenchmarkService: ObservableObject {
                         }
                     }
                 )
-                
+
                 if result.success {
                     completedInstances += 1
-                    
+
                     // Only call onComplete for the last test instance
                     if completedInstances == totalInstances {
                         await MainActor.run {
@@ -217,11 +217,11 @@ class BenchmarkService: ObservableObject {
                     return
                 }
             }
-            
+
             await MainActor.run {
                 self.isRunning = false
             }
-            
+
         } catch {
             await MainActor.run {
                 callback.onBenchmarkError(BenchmarkErrorCode.nativeError.rawValue, error.localizedDescription)
@@ -229,7 +229,7 @@ class BenchmarkService: ObservableObject {
             }
         }
     }
-    
+
     /// Executes a single benchmark test using the official MNN LLM benchmark interface
     /// - Parameters:
     ///   - engine: LLM inference engine
@@ -243,10 +243,9 @@ class BenchmarkService: ObservableObject {
         testInstance: TestInstance,
         progressCallback: @escaping (BenchmarkProgress) async -> Void
     ) async -> BenchmarkResult {
-        
         return await withCheckedContinuation { continuation in
             var hasResumed = false
-            
+
             engine.runOfficialBenchmark(
                 withBackend: instance.backend,
                 threads: instance.threads,
@@ -275,7 +274,7 @@ class BenchmarkService: ObservableObject {
                         prefillSpeed: progressInfo.prefillSpeed,
                         decodeSpeed: progressInfo.decodeSpeed
                     )
-                    
+
                     Task {
                         await progressCallback(swiftProgress)
                     }
@@ -298,12 +297,12 @@ class BenchmarkService: ObservableObject {
                 completeCallback: { benchmarkResult in
                     if !hasResumed {
                         hasResumed = true
-                        
+
                         // Update test instance with timing results
                         testInstance.prefillUs = benchmarkResult.prefillTimesUs.map { $0.int64Value }
                         testInstance.decodeUs = benchmarkResult.decodeTimesUs.map { $0.int64Value }
                         testInstance.samplesUs = benchmarkResult.sampleTimesUs.map { $0.int64Value }
-                        
+
                         let result = BenchmarkResult(
                             testInstance: testInstance,
                             success: benchmarkResult.success,
@@ -315,9 +314,9 @@ class BenchmarkService: ObservableObject {
             )
         }
     }
-    
+
     // MARK: - Helper Methods & Configuration
-    
+
     /// Converts Objective-C progress type to Swift enum
     /// - Parameter objcType: Objective-C progress type
     /// - Returns: Corresponding Swift ProgressType
@@ -341,7 +340,7 @@ class BenchmarkService: ObservableObject {
             return .unknown
         }
     }
-    
+
     /// Generates test instances by combining runtime and test parameters
     /// - Parameters:
     ///   - runtimeParams: Runtime configuration parameters
@@ -352,7 +351,7 @@ class BenchmarkService: ObservableObject {
         testParams: TestParameters
     ) -> [TestConfig] {
         var instances: [TestConfig] = []
-        
+
         for backend in runtimeParams.backends {
             for thread in runtimeParams.threads {
                 for power in runtimeParams.power {
@@ -383,7 +382,7 @@ class BenchmarkService: ObservableObject {
                 }
             }
         }
-        
+
         return instances
     }
 }

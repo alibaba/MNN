@@ -33,16 +33,6 @@ void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t
                           const float* postParameters, const float* bias, const float* k, const float* b);
 void _AVX_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                 const float* postParameters, const float* bias, const float* k, const float* b);
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-void _AVX_MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter,
-                          const float* postParameters, const float* bias, const float* k, const float* b);
-void _AVX_MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                     const float* postParameters, const float* bias, const float* k, const float* b);
-void _AVX_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter,
-                          const float* postParameters, const float* bias, const float* k, const float* b);
-void _AVX_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                     const float* postParameters, const float* bias, const float* k, const float* b);
-#endif
 
 #ifdef MNN_LOW_MEMORY
 void _AVX_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
@@ -75,6 +65,7 @@ void _AVX_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, siz
 void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose);
 
 void _AVX_ExtraInit(void* functions);
+void _AVX_LinearAttentionInit(void* functions);
 void _AVX_WinogradInit(void* functions);
 
 void _AVX_MNNGelu(float *dst, const float *src, size_t size, float* parameters);

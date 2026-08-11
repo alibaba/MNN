@@ -2,11 +2,13 @@ import _mnncengine.llm as _F
 from enum import IntEnum
 
 class LlmStatus(IntEnum):
+    NOT_LOADED = -1
     RUNNING = 0
     NORMAL_FINISHED = 1
     MAX_TOKENS_FINISHED = 2
     USER_CANCEL = 3
     INTERNAL_ERROR = 4
+    TIMEOUT = 5
 
     def __str__(self):
         return "{}.{}".format(self.__class__.__name__, self.name)
@@ -369,6 +371,27 @@ class Llm:
 
     def reset(self):
         self._c_obj.reset()
+
+    def get_log(self):
+        '''
+        Get and clear the accumulated log buffer.
+        Requires LLM_LOG_TO_STRING to be enabled at compile time.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        log : str
+            The accumulated log string. Empty if LLM_LOG_TO_STRING is not enabled.
+
+        Example:
+        -------
+        >>> log = llm.get_log()
+        >>> print(log)
+        '''
+        return self._c_obj.get_log()
 
     def stoped(self):
         '''

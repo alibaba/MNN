@@ -42,6 +42,7 @@ ReductionExecution::ReductionExecution(const std::vector<Tensor *> &inputs, cons
             break;
     }
     unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction", "reduct_width", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
+    OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionExecution init !\n");
@@ -94,6 +95,9 @@ ErrorCode ReductionExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     int outputChannels = outputShape.at(3);
     int outputChannelBlocks = (outputChannels + 3) / 4;
 
+    auto inputType = input->getType();
+    bool isInt32 = (inputType.code == halide_type_int && inputType.bits == 32);
+
     std::set<std::string> buildOption;
     switch (mReductType) {
         case 0:
@@ -103,11 +107,11 @@ ErrorCode ReductionExecution::onEncode(const std::vector<Tensor *> &inputs, cons
             break;
         case 1:
             buildOption.emplace("-DOPERATE(a,b)=max(a,b)");
-            buildOption.emplace("-DVALUE=-FLT_MAX");
+            buildOption.emplace(isInt32 ? "-DVALUE=(-2147483647-1)" : "-DVALUE=-FLT_MAX");
             break;
         case 2:
             buildOption.emplace("-DOPERATE(a,b)=min(a,b)");
-            buildOption.emplace("-DVALUE=FLT_MAX");
+            buildOption.emplace(isInt32 ? "-DVALUE=2147483647" : "-DVALUE=FLT_MAX");
             break;
         case 3:
             buildOption.emplace("-DOPERATE(a,b)=(a*b)");
@@ -210,6 +214,10 @@ public:
         if(reduct->dim()->size() != 1) {
             return NULL;
         }
+        if (inputs[0]->getType().code != halide_type_float &&
+            !(inputs[0]->getType().code == halide_type_int && inputs[0]->getType().bits == 32)) {
+            return NULL;
+        }
         auto axis = reduct->dim()->data()[0];
         int dim = inputs[0]->length(axis);
         std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
@@ -231,7 +239,7 @@ public:
                 return NULL;
                 break;
         }
-        return new ReductionExecution(inputs, outputs, op, backend);
+        OPENCL_CREATOR_CHECK(new ReductionExecution(inputs, outputs, op, backend));
         return NULL;
     }
 };

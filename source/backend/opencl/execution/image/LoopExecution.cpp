@@ -20,6 +20,7 @@ static void _TileTensor(Tensor *input, cl::Buffer *output, std::shared_ptr<Kerne
         buildOptions.emplace("-DMNN_NHWC");
     }
     kernelW = bn->getOpenCLRuntime()->buildKernel("loop", "tile", buildOptions, bn->getPrecision(), input, input);
+    if (kernelW == nullptr) { return; }
     uint32_t mMaxWorkGroupSize  = static_cast<uint32_t>(bn->getOpenCLRuntime()->getMaxWorkGroupSize(kernelW));
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width * Height), (uint32_t)(UP_DIV(Channel, 4)), (uint32_t)(Batch)};
     auto kernel = kernelW->get();
@@ -50,6 +51,7 @@ static void _PackTensor(cl::Buffer *input, Tensor *output, std::shared_ptr<Kerne
         buildOptions.emplace("-DMNN_NHWC");
     }
     kernelW = bn->getOpenCLRuntime()->buildKernel("loop", "pack", buildOptions, bn->getPrecision(), output, output);
+    if (kernelW == nullptr) { return; }
     uint32_t mMaxWorkGroupSize  = static_cast<uint32_t>(bn->getOpenCLRuntime()->getMaxWorkGroupSize(kernelW));
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width * Height), (uint32_t)(UP_DIV(Channel, 4)), (uint32_t)(Batch)};
     auto kernel = kernelW->get();
@@ -219,7 +221,12 @@ void LoopExecution::ImageToBufferAllTensor(){
         const int Width = Shape.at(2);
         const int Height = Shape.at(1);
         const int Batch = Shape.at(0);
-        mTmpBuffers[input] = bufferPool->alloc(input->elementSize() * bufferUnitSize);
+        int unitSize = bufferUnitSize;
+        if (input->getType().code != halide_type_float) {
+            // tile kernel reads/writes the tensor's raw type (e.g. int32), not FLOAT
+            unitSize = input->getType().bytes();
+        }
+        mTmpBuffers[input] = bufferPool->alloc(input->elementSize() * unitSize);
         
         Unit unit;
         _TileTensor(input, mTmpBuffers[input], unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height,Channel, Batch, mOpenCLBackend, {});
@@ -470,6 +477,7 @@ ErrorCode LoopExecution::LoopBatchMatMul(int cmdIndex, int iter) {
         buildOptions.emplace("-DTRANSPOSE_B");
     }
     buildOptions.emplace("-DH_LEAVES=" + std::to_string(h % 4));
+    buildOptions.emplace("-DE_LEAVES=" + std::to_string(e % 4));
     unit.kernel = runTime->buildKernel("loop", KernelName, buildOptions, mOpenCLBackend->getPrecision(), mTensors[cmd->indexes()->data()[1]], mTensors[cmd->indexes()->data()[0]]);
     uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(UP_DIV(h, 4)), (uint32_t)(UP_DIV(e, 4)),(uint32_t)(n)};
@@ -888,7 +896,7 @@ public:
         if (nullptr == loop || loop->commands() == nullptr) {
             return nullptr;
         }
-        return new LoopExecution(loop, op, backend);
+        OPENCL_CREATOR_CHECK(new LoopExecution(loop, op, backend));
     }
 };
 

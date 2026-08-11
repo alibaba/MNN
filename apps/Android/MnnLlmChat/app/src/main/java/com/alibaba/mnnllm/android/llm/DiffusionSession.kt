@@ -4,14 +4,12 @@
 package com.alibaba.mnnllm.android.llm
 
 import android.util.Log
-import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.llm.ChatService.Companion.provide
 import com.alibaba.mnnllm.android.llm.LlmSession.Companion.TAG
-import com.alibaba.mnnllm.android.mainsettings.MainSettings.getDiffusionMemoryMode
-import com.google.gson.Gson
 
 class DiffusionSession(
+    private val modelId: String,
     override var sessionId: String,
     private val configPath: String,
     private var savedHistory: List<ChatDataItem>? = null
@@ -25,13 +23,11 @@ class DiffusionSession(
     private var generating = false
     
     override fun load() {
-        val configMap = HashMap<String, Any>().apply {
-            put("diffusion_memory_mode", getDiffusionMemoryMode(ApplicationProvider.get()))
-        }
         nativePtr = initNative(
             configPath,
-            Gson().toJson(configMap)
+            DiffusionLoadConfigResolver.buildExtraConfigJson(modelId, configPath)
         )
+        Log.d(TAG, "DiffusionSession load nativePtr=$nativePtr configPath=$configPath")
         if (releaseRequested) {
             release()
         }
@@ -44,17 +40,28 @@ class DiffusionSession(
     ): HashMap<String, Any> {
         synchronized(this) {
             Log.d(TAG, "MNN_DEBUG submit$prompt")
+            if (nativePtr == 0L) {
+                Log.e(TAG, "Diffusion nativePtr is 0, cannot generate")
+                return hashMapOf<String, Any>(
+                    "error" to true,
+                    "message" to "Native diffusion session not initialized"
+                )
+            }
             generating = true
             val output = params["output"] as String
             val iterNum = params["iterNum"] as Int
             val randomSeed = params["randomSeed"] as Int
-            val result = submitDiffusionNative(
+            val nativeResult = submitDiffusionNative(
                 nativePtr,
                 prompt,
                 output,
                 iterNum,
                 randomSeed,
                 progressListener
+            )
+            val result: HashMap<String, Any> = nativeResult ?: hashMapOf<String, Any>(
+                "error" to true,
+                "message" to "Native diffusion returned null"
             )
             generating = false
             if (releaseRequested) {
@@ -81,7 +88,7 @@ class DiffusionSession(
         iterNum: Int,
         randomSeed: Int,
         progressListener: GenerateProgressListener
-    ): HashMap<String, Any>
+    ): HashMap<String, Any>?
 
     private fun generateNewSessionId(): String {
         this.sessionId = System.currentTimeMillis().toString()

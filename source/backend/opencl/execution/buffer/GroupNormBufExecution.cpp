@@ -36,7 +36,9 @@ GroupNormBufExecution::GroupNormBufExecution(const MNN::Op* op, Backend* backend
         mBetaTensor.reset(Tensor::createDevice<float>({ALIGN_UP4(size)}));
         status = backend->onAcquireBuffer(mBetaTensor.get(), Backend::STATIC);
         if (!status) {
+            mValid = false;
             MNN_ERROR("Out of memory when beta is acquired in GroupNorm.\n");
+            return;
         }
         
         if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
@@ -191,7 +193,7 @@ public:
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         
-        return new GroupNormBufExecution(op, backend);
+        OPENCL_CREATOR_CHECK(new GroupNormBufExecution(op, backend));
     }
 };
 

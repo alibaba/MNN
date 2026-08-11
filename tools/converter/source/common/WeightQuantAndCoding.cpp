@@ -234,17 +234,22 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     if (useHqq) {
         std::vector<float> mergeScale(hqqRes.SZ->getInfo()->size);
         ::memcpy(mergeScale.data(), hqqRes.SZ->readMap<float>(), mergeScale.size() * sizeof(float));
-        param->quanParameter = IDSTEncoder::encode(nullptr, mergeScale, block_size, oc * block_num, true, hqqRes.QW->readMap<int8_t>(), int(clampMin), bits, false);
+        param->quanParameter =
+            IDSTEncoder::encode(nullptr, mergeScale, block_size, oc * block_num, true, hqqRes.QW->readMap<int8_t>(),
+                                int(clampMin), {bits, false, config.weightQuantScaleBit});
         param->weight.clear();
         std::vector<float> empty;
         param->weight.swap(empty);
     } else {
         if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
-            param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, false, param->symmetricQuan->weight.data(), int(clampMin), bits);
+            param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, false,
+                                                       param->symmetricQuan->weight.data(), int(clampMin), {bits});
             param->symmetricQuan->weight.clear();
             param->quanParameter->alpha = {1.0f}; // fake scales
         } else {
-            param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, asymmetricQuantFlag, nullptr, int(clampMin), bits, config.detectSparseSpeedUp);
+            param->quanParameter =
+                IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, asymmetricQuantFlag, nullptr,
+                                    int(clampMin), {bits, config.detectSparseSpeedUp, config.weightQuantScaleBit});
             param->weight.clear();
             std::vector<float> empty;
             param->weight.swap(empty);

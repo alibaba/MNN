@@ -19,6 +19,19 @@
 #if defined(__aarch64__)
 #include <sys/auxv.h>
 #endif
+// RISC-V runtime feature detection, via riscv_hwprobe(2) (Linux 6.4+). The
+// kernel header is optional: an older sysroot can still build code that probes
+// a newer kernel, so only the struct definition is taken from it when present.
+#if defined(__riscv)
+#if defined(__has_include)
+#if __has_include(<asm/hwprobe.h>)
+#include <asm/hwprobe.h>
+#define MNN_HAS_RISCV_HWPROBE_H 1
+#endif
+#endif
+#endif
+
+
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -28,6 +41,9 @@
 #define CPUINFO_ARM_LINUX_FEATURE_FPHP UINT32_C(0x00000200)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP UINT32_C(0x00000400)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP UINT32_C(0x00100000)
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+#define CPUINFO_ARM_LINUX_FEATURE_ASIMDFHM UINT32_C(0x00800000)
+#endif
 #define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
 // HWCAP2 flags
 #define CPUINFO_ARM_LINUX_FEATURE2_SVE2 UINT32_C(0x00000002)
@@ -1331,6 +1347,11 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
     if (have_feature("hw.optional.arm.FEAT_FP16")) {
         cpuinfo_isa->fp16arith = true;
     }
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    if (have_feature("hw.optional.arm.FEAT_FHM")) {
+        cpuinfo_isa->fp16fml = true;
+    }
+#endif
     if (have_feature("hw.optional.arm.FEAT_DotProd")) {
         cpuinfo_isa->dot = true;
     }
@@ -1358,6 +1379,11 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     if ((isa_features & fp16arith_mask) == fp16arith_mask) {
         cpuinfo_isa->fp16arith = true;
     }
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDFHM) {
+        cpuinfo_isa->fp16fml = true;
+    }
+#endif
     // HWCAP2 features
     isa_features2 = (uint64_t)getauxval(AT_HWCAP2);
     if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_I8MM) {
@@ -1372,6 +1398,76 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     }
 }
 #endif
+//Riscv support
+#if defined(__linux__) && defined(__riscv)
+// riscv_hwprobe(2) ABI, from arch/riscv/include/uapi/asm/hwprobe.h. Only the
+// pair struct is borrowed from the kernel header; the key and the bit masks are
+// spelled out here because upstream defines the top bit as a signed
+// `(1 << 31)`, which sign-extends to 0xffffffff80000000 once promoted to
+// uint64_t and would then alias every extension bit above 31.
+#if defined(MNN_HAS_RISCV_HWPROBE_H)
+using MNNRiscvHwprobe = riscv_hwprobe;
+#else
+struct MNNRiscvHwprobe {
+    int64_t key;
+    uint64_t value;
+};
+#endif
+
+#if defined(__NR_riscv_hwprobe)
+static const long gRISCVHwprobeNr = __NR_riscv_hwprobe;
+#else
+// RISC-V Linux reserves syscall 258 for riscv_hwprobe.
+static const long gRISCVHwprobeNr = 258;
+#endif
+
+static const int64_t gRISCVHwprobeKeyImaExt0 = 4;
+static const uint64_t gRISCVHwprobeImaV = 1ULL << 2;
+static const uint64_t gRISCVHwprobeExtZvfh = 1ULL << 30;
+static const uint64_t gRISCVHwprobeExtZvfhmin = 1ULL << 31;
+
+static void _getRISCVInfoHwprobe(MNNCPUInfo* cpuinfo) {
+    // The cpufreq scan in _fillInfo is the primary source for cpuNumber, but it
+    // is skipped entirely on boards that expose no cpufreq policy, so keep a
+    // fallback here rather than leaving the count at zero.
+    if (cpuinfo->cpuNumber <= 0) {
+        cpuinfo->cpuNumber = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    }
+    if (cpuinfo->cpuNumber <= 0) {
+        cpuinfo->cpuNumber = (int)sysconf(_SC_NPROCESSORS_CONF);
+    }
+
+    MNNRiscvHwprobe pair = {gRISCVHwprobeKeyImaExt0, 0};
+    // Args are pairs, pair_count, cpusetsize, cpus, flags. A zero cpusetsize
+    // with a null set queries every online CPU and the kernel ANDs the
+    // extension bits across them, so dispatch survives thread migration.
+    long result = syscall(gRISCVHwprobeNr, &pair, (size_t)1, (size_t)0, (void*)NULL, 0u);
+    if (0 != result || pair.key != gRISCVHwprobeKeyImaExt0) {
+        // Kernels older than 6.4 fail the call with ENOSYS; a key the running
+        // kernel does not recognise is rewritten to -1 with a zero value.
+        return;
+    }
+
+    cpuinfo->rvv = 0 != (pair.value & gRISCVHwprobeImaV);
+    if (!cpuinfo->rvv) {
+        return;
+    }
+    // The Zvfh / Zvfhmin bits were only added in Linux 6.8; on an older kernel
+    // they read back as zero, which is reported here as "not available".
+    cpuinfo->zvfh = 0 != (pair.value & gRISCVHwprobeExtZvfh);
+    // Zvfh is a superset of Zvfhmin, so treat it as providing the minimal FP16
+    // conversion capability even on a kernel that only sets the Zvfh bit.
+    cpuinfo->zvfhmin = cpuinfo->zvfh || 0 != (pair.value & gRISCVHwprobeExtZvfhmin);
+
+    // Zvfhmin only adds FP16<->FP32 vector conversion. Keep fp16arith tied to
+    // full Zvfh, which additionally provides FP16 vector arithmetic.
+    if (cpuinfo->zvfh) {
+        cpuinfo->fp16arith = true;
+    }
+}
+
+#endif
+
 
 static bool _readAll(const std::string& fileName, MNN::AutoStorage<uint8_t>& buffer) {
     MNN::FileLoader l(fileName.c_str());
@@ -1421,6 +1517,9 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->i8mm = false;
     cpuinfo_isa->sve2 = false;
     cpuinfo_isa->sme2 = false;
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    cpuinfo_isa->fp16fml = false;
+#endif
     // android
     /**Get CPU Info*/
 #ifdef __linux__
@@ -1433,7 +1532,7 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
         CPUGroup group;
         struct dirent* ent;
         while ((ent = readdir(root)) != NULL) {
-            if (ent->d_name[0] != '.') {
+            if (ent->d_name[0] != '.' && ent->d_type == DT_DIR) {
                 std::string policyName = dir + "/" + ent->d_name;
                 std::string cpus = policyName + "/affected_cpus";
                 {
@@ -1502,6 +1601,13 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
 #if defined(__aarch64__)
     _getInfoAux(cpuinfo_isa);
 #endif
+ 
+//riscv support
+#if defined(__riscv)
+    _getRISCVInfoHwprobe(cpuinfo_isa);
+#endif
+
+
 #if (defined(ENABLE_ARMV82) && defined(__arm__)) || (defined(__ANDROID__) && defined(__aarch64__))
     _getInfoArm(cpuinfo_isa);
 #endif // #ifdef arm / arm64

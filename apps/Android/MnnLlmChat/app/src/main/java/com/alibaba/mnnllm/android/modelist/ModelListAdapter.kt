@@ -128,10 +128,12 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     }
 
     fun updateItems(modelWrappers: List<ModelItemWrapper>) {
-        val oldItems = getItems() // Get old items before update
+        // Snapshot old items to avoid aliasing mutable backing lists during diff calculation.
+        val oldItems = getItems().toList()
+        val normalizedItems = deduplicateByModelId(modelWrappers)
         
         items.clear()
-        items.addAll(modelWrappers)
+        items.addAll(normalizedItems)
         initialized = true
         isLoading = false  // Mark as no longer loading
         
@@ -141,11 +143,23 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
         }
         
         // Use DiffUtil for efficient updates
-        val newItems = getItems() // Get new items after update
+        val newItems = getItems().toList()
         val diffCallback = ModelWrapperDiffCallback(oldItems, newItems)
         val diffResult = DiffUtil.calculateDiff(diffCallback)
         diffResult.dispatchUpdatesTo(this)
         checkIfEmpty()
+    }
+
+    private fun deduplicateByModelId(modelWrappers: List<ModelItemWrapper>): List<ModelItemWrapper> {
+        val seenModelIds = HashSet<String>()
+        return modelWrappers.filter { wrapper ->
+            val modelId = wrapper.modelItem.modelId
+            if (modelId.isNullOrBlank()) {
+                true
+            } else {
+                seenModelIds.add(modelId)
+            }
+        }
     }
     
     // Check if any filters are active

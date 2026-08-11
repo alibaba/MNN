@@ -38,7 +38,12 @@ void MtpGeneration::load(Module::Config module_config) {
 }
 
 std::vector<VARP> MtpGeneration::mtpForward(const std::vector<int>& input_ids, VARP hidden_states) {
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<VARP>());
+    
     auto input_embeds = mLlm->embedding(input_ids);
+    if(input_embeds == nullptr) {
+        return {};
+    }
     auto outputs = mtpForward(input_embeds, hidden_states);
     return outputs;
 }
@@ -151,7 +156,11 @@ void MtpGeneration::generate(GenerationParams& param) {
     int spl_count = 0;
 
     while (len < max_token) {
-        if(mContext->status == LlmStatus::USER_CANCEL) {
+        if(mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
+            break;
+        }
+        if (param.timeout_ms > 0 && (mContext->prefill_us + mContext->decode_us) / 1000 >= param.timeout_ms) {
+            mContext->status = LlmStatus::TIMEOUT;
             break;
         }
         MNN::Timer _t;
@@ -159,7 +168,10 @@ void MtpGeneration::generate(GenerationParams& param) {
         drafts.push_back(mContext->current_token);
         
         auto decodeStr = mLlm->tokenizer_decode(mContext->current_token);
-        mContext->generate_str += decodeStr;
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->generate_str += decodeStr;
+        }
         if (nullptr != mContext->os) {
             *mContext->os << decodeStr;
             *mContext->os << std::flush;
@@ -174,13 +186,7 @@ void MtpGeneration::generate(GenerationParams& param) {
             AUTOTIME;
             // do draft token parallel verify
             auto outputs = mLlm->forwardVec(drafts);
-            for (auto o : outputs) {
-                if(nullptr == o->readMap<float>()) {
-                    mContext->status = LlmStatus::INTERNAL_ERROR;
-                    break;
-                }
-            }
-            if (outputs.size() < 2) {
+            if(outputs.empty()) {
                 break;
             }
             auto logits = outputs[0];
@@ -222,8 +228,11 @@ void MtpGeneration::generate(GenerationParams& param) {
             mContext->decode_us += _t.durationInUs();
 
             // add all accept tokens to string
-            mContext->history_tokens.insert(mContext->history_tokens.end(), drafts.begin(), drafts.begin() + i_dft);
-            mContext->output_tokens.insert(mContext->output_tokens.end(), drafts.begin(), drafts.begin() + i_dft);
+            {
+                std::lock_guard<std::mutex> _l(mContext->mutex);
+                mContext->history_tokens.insert(mContext->history_tokens.end(), drafts.begin(), drafts.begin() + i_dft);
+                mContext->output_tokens.insert(mContext->output_tokens.end(), drafts.begin(), drafts.begin() + i_dft);
+            }
             
         #ifdef DUMP_PROFILE_INFO
             spl_decode += drafts.size();
@@ -231,14 +240,20 @@ void MtpGeneration::generate(GenerationParams& param) {
             spl_count++;
         #endif
             if(stop) {
-                mContext->history_tokens.push_back(mContext->current_token);
-                mContext->output_tokens.push_back(mContext->current_token);
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->history_tokens.push_back(mContext->current_token);
+                    mContext->output_tokens.push_back(mContext->current_token);
+                }
                 mLlm->updateContext(0, 1);
                 break;
             }
             if (mLlm->is_stop(mContext->current_token)) {
-                mContext->history_tokens.push_back(mContext->current_token);
-                mContext->output_tokens.push_back(mContext->current_token);
+                {
+                    std::lock_guard<std::mutex> _l(mContext->mutex);
+                    mContext->history_tokens.push_back(mContext->current_token);
+                    mContext->output_tokens.push_back(mContext->current_token);
+                }
                 mLlm->updateContext(0, 1);
                 if (nullptr != mContext->os) {
                     *mContext->os << mContext->end_with << std::flush;

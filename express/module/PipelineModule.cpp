@@ -9,7 +9,6 @@
 #include "PipelineModule.hpp"
 #include <set>
 #include <vector>
-#include "ModuleInside.hpp"
 #include "StaticModule.hpp"
 #include "IfModule.hpp"
 #include "WhileModule.hpp"
@@ -95,12 +94,8 @@ std::vector<VARP> ExprModule::onForward(const std::vector<VARP>& inputs) {
 }
 
 Module* ExprModule::clone(CloneContext* ctx) const {
-    ExprModule* module(new ExprModule(ctx->getOrClone(mExpr)));
-    for (const VARP& var : mInputs) {
-        module->mInputs.push_back(ctx->getOrClone(var));
-    }
-    module->mInputIndexes = mInputIndexes;
-    return this->cloneBaseTo(ctx, module);
+    MNN_ERROR("Don't support clone for Expr Module\n");
+    return nullptr;
 }
 
 PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outputs, const Transformer& transformFunction) {
@@ -721,6 +716,8 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
 Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, std::shared_ptr<BufferStorage> bufferStorage, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap) {
     MNN_ASSERT(nullptr != rtMgr);
     MNN_ASSERT(nullptr != config);
+    // Apply before constReplaceBackend / submodule Backends are created.
+    rtMgr->applyMetaToRuntime();
     std::shared_ptr<Schedule::ScheduleInfo> sharedConst;
     auto buffer = bufferStorage->buffer();
     auto length = bufferStorage->size();

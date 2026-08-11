@@ -5,8 +5,8 @@
 //  Created by 游薪渝(揽清) on 2025/1/15.
 //
 
-import SQLite
 import ExyteChat
+import SQLite
 
 class ChatHistoryDatabase {
     static let shared: ChatHistoryDatabase? = {
@@ -17,12 +17,12 @@ class ChatHistoryDatabase {
             return nil
         }
     }()
-    
+
     private let db: Connection
     private let chatHistories: Table
-    
+
     private typealias Column<T> = SQLite.Expression<T>
-    
+
     private let id: Column<String>
     private let modelId: Column<String>
     private let modelName: Column<String>
@@ -30,13 +30,13 @@ class ChatHistoryDatabase {
     private let messages: Column<String>
     private let createdAt: Column<Date>
     private let updatedAt: Column<Date>
-    
+
     private init() throws {
         guard let path = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first else {
             throw NSError(domain: "ChatHistoryDatabase", code: -1, userInfo: [NSLocalizedDescriptionKey: "Documents directory not found"])
         }
         db = try Connection("\(path)/chatHistory.sqlite3")
-        
+
         chatHistories = Table("chatHistories")
         id = Column<String>("id")
         modelId = Column<String>("modelId")
@@ -45,7 +45,7 @@ class ChatHistoryDatabase {
         messages = Column<String>("messages")
         createdAt = Column<Date>("createdAt")
         updatedAt = Column<Date>("updatedAt")
-        
+
         try db.run(chatHistories.create(ifNotExists: true) { t in
             t.column(id, primaryKey: true)
             t.column(modelId)
@@ -55,67 +55,66 @@ class ChatHistoryDatabase {
             t.column(createdAt)
             t.column(updatedAt)
         })
-        
+
         // for old data
         try migrateDatabase()
     }
-    
+
     private func migrateDatabase() throws {
         do {
-            let _ = try db.scalar("SELECT modelInfo FROM chatHistories LIMIT 1")
+            _ = try db.scalar("SELECT modelInfo FROM chatHistories LIMIT 1")
         } catch {
             try db.run("ALTER TABLE chatHistories ADD COLUMN modelInfo TEXT")
         }
     }
-    
+
     func saveChat(historyId: String, modelInfo: ModelInfo, messages: [Message]) {
         let modelId = modelInfo.id
         let modelName = modelInfo.modelName
         do {
             ChatHistoryFileManager.shared.createHistoryDirectory(for: historyId)
-            
+
             var historyMessages: [HistoryMessage] = []
             for message in messages {
-                
-                var copiedImages:[LLMChatImage] = []
+                var copiedImages: [LLMChatImage] = []
                 for msg in message.attachments {
                     if msg.type == .image {
                         var imageUrl = msg.full
-                        
+
                         print("Processing image attachment: \(imageUrl.path)")
 
                         guard let copiedImage = ChatHistoryFileManager.shared.copyFile(from: imageUrl, for: historyId) else {
                             print("Failed to copy image file: \(imageUrl.path)")
                             continue
                         }
-                        
+
                         imageUrl = copiedImage
                         print("Image copied to: \(imageUrl.path)")
-                        
+
                         if imageUrl.isHEICImage() {
-                            guard let jpgUrl = AssetExtractor.convertHEICToJPG(heicUrl: imageUrl) else { 
+                            guard let jpgUrl = AssetExtractor.convertHEICToJPG(heicUrl: imageUrl) else {
                                 print("Failed to convert HEIC to JPG: \(imageUrl.path)")
-                                continue 
+                                continue
                             }
                             imageUrl = jpgUrl
                             print("HEIC converted to JPG: \(imageUrl.path)")
                         }
-                        
+
                         if ChatHistoryFileManager.shared.validateFileExists(at: imageUrl) {
-                            copiedImages.append(LLMChatImage.init(id: msg.id, thumbnail: imageUrl, full: imageUrl))
+                            copiedImages.append(LLMChatImage(id: msg.id, thumbnail: imageUrl, full: imageUrl))
                             print("Image successfully saved for history: \(imageUrl.path)")
                         } else {
                             print("Final image file validation failed: \(imageUrl.path)")
                         }
                     }
                 }
-                
+
                 var copiedRecording: Recording?
                 if let recording = message.recording, let recUrl = recording.url {
                     let recUrl = ChatHistoryFileManager.shared.copyFile(from: recUrl, for: historyId)
-                    copiedRecording = Recording.init(duration: recording.duration, waveformSamples: recording.waveformSamples, url: recUrl)
+                    copiedRecording = Recording(duration: recording.duration, waveformSamples: recording.waveformSamples, url: recUrl)
                 }
-                
+
                 historyMessages.append(HistoryMessage(
                     id: message.id,
                     content: message.text,
@@ -125,13 +124,13 @@ class ChatHistoryDatabase {
                     createdAt: message.createdAt
                 ))
             }
-            
+
             let messagesData = try JSONEncoder().encode(historyMessages)
             let messagesString = String(data: messagesData, encoding: .utf8)!
-            
+
             let modelInfoData = try JSONEncoder().encode(modelInfo)
             let modelInfoString = String(data: modelInfoData, encoding: .utf8)!
-            
+
             if let _ = try? db.pluck(chatHistories.filter(id == historyId)) {
                 try db.run(chatHistories.filter(id == historyId).update(
                     self.messages <- messagesString,
@@ -140,36 +139,50 @@ class ChatHistoryDatabase {
                 ))
             } else {
                 try db.run(chatHistories.insert(
-                    self.id <- historyId,
+                    id <- historyId,
                     self.modelId <- modelId,
                     self.modelName <- modelName,
                     self.modelInfo <- modelInfoString,
                     self.messages <- messagesString,
-                    self.createdAt <- Date(),
-                    self.updatedAt <- Date()
+                    createdAt <- Date(),
+                    updatedAt <- Date()
                 ))
             }
         } catch {
             print("Failed to save chat: \(error)")
         }
     }
-    
+
     // For backward compatibility
-    func saveChat(historyId: String, modelId: String, modelName: String, messages: [Message]) {
-        let modelInfo = ModelInfo(modelId: modelId, isDownloaded: true)
+    func saveChat(historyId: String, modelId: String, modelName _: String, messages: [Message]) {
+        let modelInfo = createFallbackModelInfo(for: modelId)
         saveChat(historyId: historyId, modelInfo: modelInfo, messages: messages)
     }
-    
+
+    /// Create fallback ModelInfo that correctly identifies local models
+    private func createFallbackModelInfo(for modelId: String) -> ModelInfo {
+        // Check if this modelId corresponds to a local model
+        let localModels = ModelInfo.getAvailableLocalModels()
+
+        // Try to find matching local model by name or id
+        if let localModel = localModels.first(where: { $0.modelName == modelId || $0.id.contains(modelId) }) {
+            return localModel
+        }
+
+        // Fallback to downloaded model
+        return ModelInfo(modelId: modelId, isDownloaded: true)
+    }
+
     func getAllHistory() -> [ChatHistory] {
         var histories: [ChatHistory] = []
-        
+
         do {
             for history in try db.prepare(chatHistories) {
                 let messagesData = history[messages].data(using: .utf8)!
                 var historyMessages = try JSONDecoder().decode([HistoryMessage].self, from: messagesData)
-                
+
                 historyMessages = validateAndFixImagePaths(historyMessages, historyId: history[id])
-                
+
                 var modelInfoObj: ModelInfo
                 do {
                     if let modelInfoString = try? history.get(modelInfo), !modelInfoString.isEmpty {
@@ -179,19 +192,19 @@ class ChatHistoryDatabase {
                             // print("Successfully decoded ModelInfo from JSON for history: \(history[id])")
                         } catch {
                             // print("Failed to decode ModelInfo from JSON, using fallback: \(error)")
-                            modelInfoObj = ModelInfo(modelId: history[modelId], isDownloaded: true)
+                            modelInfoObj = createFallbackModelInfo(for: history[modelId])
                         }
                     } else {
                         // For backward compatibility
                         // print("No modelInfo data found, using fallback for history: \(history[id])")
-                        modelInfoObj = ModelInfo(modelId: history[modelId], isDownloaded: true)
+                        modelInfoObj = createFallbackModelInfo(for: history[modelId])
                     }
                 } catch {
                     // For backward compatibility
                     // print("ModelInfo column not found, using fallback for history: \(history[id])")
-                    modelInfoObj = ModelInfo(modelId: history[modelId], isDownloaded: true)
+                    modelInfoObj = createFallbackModelInfo(for: history[modelId])
                 }
-                
+
                 let chatHistory = ChatHistory(
                     id: history[id],
                     modelInfo: modelInfoObj,
@@ -199,20 +212,20 @@ class ChatHistoryDatabase {
                     createdAt: history[createdAt],
                     updatedAt: history[updatedAt]
                 )
-                
+
                 histories.append(chatHistory)
             }
         } catch {
             print("Failed to fetch histories: \(error)")
         }
-        
+
         return histories
     }
-    
+
     private func validateAndFixImagePaths(_ messages: [HistoryMessage], historyId: String) -> [HistoryMessage] {
-        return messages.map { message in
+        messages.map { message in
             var updatedMessage = message
-            
+
             if let images = message.images {
                 let validImages = images.compactMap { image -> LLMChatImage? in
                     if ChatHistoryFileManager.shared.validateFileExists(at: image.full) {
@@ -236,11 +249,11 @@ class ChatHistoryDatabase {
                     createdAt: message.createdAt
                 )
             }
-            
+
             return updatedMessage
         }
     }
-    
+
     func deleteHistory(_ history: ChatHistory) {
         do {
             try db.run(chatHistories.filter(id == history.id).delete())

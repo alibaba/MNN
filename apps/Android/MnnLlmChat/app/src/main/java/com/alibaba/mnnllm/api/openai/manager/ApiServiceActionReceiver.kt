@@ -100,8 +100,9 @@ class ApiServiceActionReceiver : BroadcastReceiver() {
             //check whetherenabledauthentication,ifenabledthenaddtokenparameter
             val finalUrl = if (ApiServerConfig.isAuthEnabled(context)) {
                 val apiKey = ApiServerConfig.getApiKey(context)
+                val encodedToken = Uri.encode(apiKey)
                 val separator = if (url.contains("?")) "&" else "?"
-                val urlWithToken = "$url${separator}token=$apiKey"
+                val urlWithToken = "$url${separator}token=$encodedToken"
                 Timber.tag("ApiServiceActionReceiver").i("Auth enabled, adding token to URL: $urlWithToken")
                 urlWithToken
             } else {

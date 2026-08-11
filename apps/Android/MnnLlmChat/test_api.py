@@ -11,6 +11,8 @@ import time
 import argparse
 from typing import Dict, Any, List
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
 class MnnApiTester:
     def __init__(self, host: str = "localhost", port: int = 8080, token: str = "mnn-llm-chat"):
         self.host = host
@@ -116,18 +118,57 @@ class MnnApiTester:
             return {"success": False, "error": str(e)}
 
 def main():
-    parser = argparse.ArgumentParser(description='MNN LLM Chat API Test Tool')
-    parser.add_argument('--host', default='localhost', help='Server address')
+    parser = argparse.ArgumentParser(
+        description='MNN LLM Chat API Test Tool',
+        epilog=(
+            "Examples:\n"
+            "  1) PC -> phone over LAN (no adb forward):\n"
+            "     python3 test_api.py --host 192.168.1.23 --port 8080 --test all\n"
+            "  2) PC -> phone with adb forward:\n"
+            "     adb forward tcp:8080 tcp:8080\n"
+            "     python3 test_api.py --adb-forward --host 127.0.0.1 --port 8080 --test all"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(
+        '--host',
+        default='127.0.0.1',
+        help='Server address. Without --adb-forward, use phone LAN IP (for example 192.168.x.x).'
+    )
     parser.add_argument('--port', type=int, default=8080, help='Server port')
     parser.add_argument('--token', default='mnn-llm-chat', help='Authentication token')
     parser.add_argument('--test', choices=['models', 'chat', 'stream', 'all'], default='all', help='Test type')
     parser.add_argument('--model', default='qwen2.5-7b-instruct', help='Test model')
     parser.add_argument('--message', default='Hello, please briefly introduce yourself', help='Test message')
+    parser.add_argument(
+        '--adb-forward',
+        action='store_true',
+        help='Set this when using adb forward and connecting to 127.0.0.1/localhost.'
+    )
     
     args = parser.parse_args()
     
     print("MNN LLM Chat API Test Tool")
     print("=" * 50)
+
+    normalized_host = args.host.strip().lower()
+    is_loopback_host = normalized_host in LOOPBACK_HOSTS
+    if not args.adb_forward and is_loopback_host:
+        print("ERROR: localhost/127.0.0.1 requires adb forward.")
+        print("Use phone LAN IP when testing from PC without adb forward.")
+        print(f"Current host: {args.host}")
+        print()
+        print("Fix options:")
+        print("  1) No adb forward: --host <PHONE_LAN_IP>")
+        print(f"  2) Use adb forward: adb forward tcp:{args.port} tcp:{args.port} and add --adb-forward")
+        return 2
+
+    if args.adb_forward and not is_loopback_host:
+        print(f"WARNING: --adb-forward is set but host is non-loopback ({args.host}).")
+        print("This still works, but --adb-forward is usually used with 127.0.0.1/localhost.")
+
+    connection_mode = "ADB forward (loopback)" if args.adb_forward else "LAN direct (no adb forward)"
+    print(f"Connection mode: {connection_mode}")
     print(f"Server: {args.host}:{args.port}")
     print(f"Token: {args.token}")
     print(f"Test type: {args.test}")

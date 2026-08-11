@@ -1,0 +1,42 @@
+// Static prepare: SumWq[n] = sum_k Wq[n, k] over the prepared INT4 weight
+// buffer (`mQuantWeightBuffer`, layout [padN, padK/8] uint32 with each uint32
+// packing 8 contiguous nibbles along K, stored as unsigned 0..15 with the
+// host-side +8 offset already applied; padding nibbles are 0x8 -> decoded 0).
+//
+// Decode formula: int8 = int(nibble) - 8.
+// Padding rows (n >= co) and padding K (k >= ci) decode to zero, so this
+// kernel can stride the entire padded extent without bounds checks past padN.
+//
+// Dispatch: groupCount = (ceil(padN / 64), 1, 1), localSize = (64, 1, 1).
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer WeightBuffer {
+    uint Wp[]; // [padN, padK/8]; each uint packs 8x int4 nibbles along K.
+};
+
+layout(binding = 1) writeonly buffer SumWeight {
+    int SumWq[]; // [padN]
+};
+
+layout(push_constant) uniform PushConstants {
+    uint padN;
+    uint weightStride; // padK / 8
+} pc;
+
+void main() {
+    uint n = gl_GlobalInvocationID.x;
+    if (n >= pc.padN) {
+        return;
+    }
+
+    int sum = 0;
+    uint base = n * pc.weightStride;
+    for (uint i = 0u; i < pc.weightStride; ++i) {
+        uint packed = Wp[base + i];
+        for (uint j = 0u; j < 8u; ++j) {
+            sum += int((packed >> (j * 4u)) & 0xFu) - 8;
+        }
+    }
+    SumWq[n] = sum;
+}

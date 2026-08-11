@@ -30,14 +30,21 @@
 #define HALF_TO_FLOAT QNN::QnnHalfToFloat
 #endif // MNN_USE_ARMV82
 
-#define CALL_QNN(apiCall)                                                       \
-    do {                                                                        \
-        int errorCode = ((apiCall) & 0xFFFF);                                   \
-        if (errorCode != QNN_SUCCESS) {                                         \
-            MNN_ERROR("Error in file %s, line %d: error code %d\n",             \
-                    __FILE__, __LINE__, errorCode);                             \
-            assert(errorCode == QNN_SUCCESS);                                   \
-        }                                                                       \
+#define CALL_QNN(apiCall)                                                                           \
+    do {                                                                                            \
+        int errorCode = ((apiCall) & 0xFFFF);                                                       \
+        if (errorCode != QNN_SUCCESS) {                                                             \
+            MNN_ERROR("Error in file %s, line %d: error code %d\n", __FILE__, __LINE__, errorCode); \
+        }                                                                                           \
+    } while (0)
+
+#define CALL_QNN_CHECK(apiCall, failAction)                                                         \
+    do {                                                                                            \
+        int errorCode = ((apiCall) & 0xFFFF);                                                       \
+        if (errorCode != QNN_SUCCESS) {                                                             \
+            MNN_ERROR("Error in file %s, line %d: error code %d\n", __FILE__, __LINE__, errorCode); \
+            failAction;                                                                             \
+        }                                                                                           \
     } while (0)
 
 #define DEFAULT_QUANTIZE_PARAMS     (Qnn_QuantizeParams_t { \
@@ -81,8 +88,11 @@ extern void ___QNNArgmaxCreator__OpType_ArgMin__();
 extern void ___QNNBinaryCreator__OpType_BinaryOp__();
 extern void ___QNNBinaryCreator__OpType_Eltwise__();
 extern void ___QNNConcatCreator__OpType_Concat__();
+extern void ___QNNConcatCreator__OpType_Pack__();
+extern void ___QNNConcatCreator__OpType_Unpack__();
 extern void ___QNNConvDepthwiseCreator__OpType_ConvolutionDepthwise__();
 extern void ___QNNConvolutionCreator__OpType_Convolution__();
+extern void ___QNNDeconvolutionCreator__OpType_Deconvolution__();
 extern void ___QNNFlattenCreator__OpType_Flatten__();
 extern void ___QNNLayerNormCreator__OpType_LayerNorm__();
 extern void ___QNNPaddingCreator__OpType_Padding__();
@@ -100,6 +110,7 @@ extern void ___QNNStridedSliceCreator__OpType_Slice__();
 extern void ___QNNUnaryCreator__OpType_UnaryOp__();
 extern void ___QNNCastCreator__OpType_Cast__();
 extern void ___QNNPermuteCreator__OpType_Permute__();
+extern void ___QNNPermuteCreator__OpType_Transpose__();
 extern void ___QNNGatherCreator__OpType_GatherV2__();
 extern void ___QNNGatherCreator__OpType_GatherElements__();
 extern void ___QNNBroadcastToCreator__OpType_BroadcastTo__();
@@ -109,6 +120,8 @@ extern void ___QNNAttentionCreator__OpType_Attention__();
 #endif
 extern void ___QNNQuantCreator__OpType_FloatToInt8__();
 extern void ___QNNDeQuantCreator__OpType_Int8ToFloat__();
+extern void ___QNNTopKV2Creator__OpType_TopKV2__();
+extern void ___QNNInterpCreator__OpType_Interp__();
 
 void registerQNNOps();
 

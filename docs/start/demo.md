@@ -1,7 +1,7 @@
 # 示例工程
 
 ## C++ Demo
-[从源码编译](../compile/tools.html#id7)
+[从源码编译](../compile/other.md)
 ### 姿态检测
 代码位置：`demo/exec/multiPose.cpp`
 
@@ -52,7 +52,7 @@
 ![TestMe.jpg.png](../../resource/images/TestMe.jpg)
 
 输出：
-```bash
+```text
 Can't Find type=4 backend, use 0 instead
 For Image: TestMe.jpg
 386, 0.419250
@@ -228,3 +228,4 @@ sh ../tools/script/get_model.sh
 - [SuperGlue关键点匹配](https://github.com/Hanson0910/MNNSuperGlue)
 - [OCR](https://github.com/DayBreak-u/chineseocr_lite/tree/onnx/android_projects/OcrLiteAndroidMNN)
 - [Bert-VITS2-MNN](https://github.com/Voine/Bert-VITS2-MNN)
+- [VirtualFaceCapture-MNN/虚拟角色面捕系统](https://github.com/Voine/VirtualFaceCapture-MNN)

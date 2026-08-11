@@ -48,6 +48,7 @@ private:
     const VulkanSampler* mSampler   = nullptr;
     MNN_DATA_FORMAT mCurrentSource;
     MNN_DATA_FORMAT mCurrentDest;
+    bool mIsInt = false;
 
     TYPE mConvertImage;
 };

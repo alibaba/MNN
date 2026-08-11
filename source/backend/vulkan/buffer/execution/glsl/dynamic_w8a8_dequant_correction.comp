@@ -1,0 +1,105 @@
+// Dequant correction:
+//   C[m, n] = sA*sW*Acc + sA*oW*sumAq + sW*oA*sumWq + K*oA*oW + Bias
+// Optional Relu / Relu6 via spec const ACTIVATION (0=none, 1=relu, 2=relu6).
+//
+// Weight scale/offset are interleaved as `MetaW[2*n] = scale, MetaW[2*n+1] =
+// offset` (matches conv1x1_quant_meta_prepare per-channel layout).
+//
+// Dispatch: groupCount = (ceil(M/16), ceil(n4_valid/16), 1), localSize = (16, 16, 1).
+// threadX walks m so Acc/Out reads/writes along m are coalesced.
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+layout(constant_id = 3) const uint ACTIVATION = 0; // 0:none 1:relu 2:relu6
+
+// Acc: int32, [padM, padN], reinterpreted as ivec4 along N.
+layout(binding = 0) readonly buffer AccumulatorBuffer {
+    ivec4 Acc[];
+};
+
+// Per-row activation params, length padM.
+layout(binding = 1) readonly buffer ScaleActivation {
+    FLOAT ScaleA[];
+};
+
+layout(binding = 2) readonly buffer OffsetActivation {
+    FLOAT OffsetA[];
+};
+
+layout(binding = 3) readonly buffer SumActivation {
+    int SumAq[];
+};
+
+// Interleaved per-output-channel weight meta, length 2*padN.
+//   MetaW[2*n + 0] = scaleW[n], MetaW[2*n + 1] = offsetW[n].
+layout(binding = 4) readonly buffer WeightMeta {
+    FLOAT MetaW[];
+};
+
+// SumWq[n] = sum_k Wq[n, k], length padN.
+layout(binding = 5) readonly buffer SumWeight {
+    ivec4 SumWq[];
+};
+
+// Per-channel bias, length padN.
+layout(binding = 6) readonly buffer BiasBuffer {
+    FLOAT4 Bias[];
+};
+
+// Output: FLOAT4, layout [n4, M, 4] (NC4HW4 along n4-major).
+layout(binding = 7) writeonly buffer OutputBuffer {
+    FLOAT4 Out[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint N;
+    uint K;
+    uint padM;
+    uint padN;
+} pc;
+
+void main() {
+    uint m  = gl_GlobalInvocationID.x;
+    uint n4 = gl_GlobalInvocationID.y;
+    uint padN4 = pc.padN >> 2;
+    uint n4_valid = (pc.N + 3u) >> 2;
+
+    if (m >= pc.M || n4 >= n4_valid) {
+        return;
+    }
+
+    // 4 consecutive output channels within this n4 lane.
+    uint metaBase = (n4 << 2) * 2u;
+    vec4 sW = vec4(float(MetaW[metaBase + 0u]),
+                   float(MetaW[metaBase + 2u]),
+                   float(MetaW[metaBase + 4u]),
+                   float(MetaW[metaBase + 6u]));
+    vec4 oW = vec4(float(MetaW[metaBase + 1u]),
+                   float(MetaW[metaBase + 3u]),
+                   float(MetaW[metaBase + 5u]),
+                   float(MetaW[metaBase + 7u]));
+
+    ivec4 acc4 = Acc[m * padN4 + n4];
+    vec4  sumW = vec4(SumWq[n4]);
+    vec4  bias = vec4(Bias[n4]);
+
+    float sA   = float(ScaleA[m]);
+    float oA   = float(OffsetA[m]);
+    float sumA = float(SumAq[m]);
+    float Kf   = float(pc.K);
+
+    vec4 result = sA * sW * vec4(acc4)
+                + (sA * sumA) * oW
+                + (oA * sW) * sumW
+                + (Kf * oA) * oW
+                + bias;
+
+    if (ACTIVATION == 1u) {
+        result = max(result, vec4(0.0));
+    } else if (ACTIVATION == 2u) {
+        result = clamp(result, vec4(0.0), vec4(6.0));
+    }
+
+    Out[n4 * pc.M + m] = FLOAT4(result);
+}

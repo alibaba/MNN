@@ -8,32 +8,45 @@
 import SwiftUI
 
 struct ModelSettingsView: View {
-    
     @Binding var showSettings: Bool
-    @State private var useMmap: Bool = false
     @ObservedObject var viewModel: LLMChatViewModel
     @State private var showAlert = false
+    @State private var showReloadAlert = false
     @State private var iterations: Int = 20
-    @State private var seed: Int = -1
-    @State private var useRandomSeed: Bool = true
-    
+    @State private var seed: Int = 42
+    @State private var useRandomSeed: Bool = false
+    @State private var backendType: String = "cpu"
+    @State private var precision: String = "low"
+    @State private var threadNum: Int = 4
+    @State private var requiresReload = false
+
     @State private var temperature: Double = 1.0
     @State private var topK: Double = 40
     @State private var topP: Double = 0.9
     @State private var minP: Double = 0.1
-    
+
     @State private var tfsZ: Double = 1.0
     @State private var typical: Double = 1.0
     @State private var penalty: Double = 0.0
     @State private var nGram: Double = 8.0
     @State private var nGramFactor: Double = 1.0
-    
+
     @State private var selectedSampler: SamplerType = .temperature
     @State private var selectedMixedSamplers: Set<String> = []
     @State private var mixedSamplersOrder: [String] = []
-    
+
     @State private var penaltySampler: PenaltySamplerType = .greedy
-    
+    @State private var videoMaxFrames: Int = 8
+    @State private var defaultMultimodalPrompt: String = ""
+    @State private var enableAudioOutput: Bool = false
+    @State private var talkerSpeaker: String = "default"
+
+    // iOS supported backends: CPU, Metal (GPU), NPU (CoreML/Neural Engine)
+    // Note: "npu" maps to MNN_FORWARD_NN which uses CoreML on iOS
+    private let backendOptions = ["cpu", "metal", "npu"]
+    private let precisionOptions = ["low", "high"]
+    private let talkerSpeakerOptions = ["Ethan", "Chelsie"]
+
     var body: some View {
         NavigationView {
             Form {
@@ -42,37 +55,138 @@ struct ModelSettingsView: View {
                         .onChange(of: viewModel.useMmap) { newValue in
                             viewModel.modelConfigManager.updateUseMmap(newValue)
                         }
-                    
+
                     Button("Clear mmap Cache") {
                         viewModel.cleanModelTmpFolder()
                         showAlert = true
                     }
+
+                    Picker("Backend", selection: $backendType) {
+                        ForEach(backendOptions, id: \.self) { backend in
+                            Text(backend.uppercased()).tag(backend)
+                        }
+                    }
+                    .onChange(of: backendType) { _, newValue in
+                        requiresReload = true
+                        viewModel.modelConfigManager.updateBackendType(newValue)
+                    }
+
+                    Picker("Precision", selection: $precision) {
+                        ForEach(precisionOptions, id: \.self) { option in
+                            Text(option.capitalized).tag(option)
+                        }
+                    }
+                    .onChange(of: precision) { _, newValue in
+                        requiresReload = true
+                        viewModel.modelConfigManager.updatePrecision(newValue)
+                    }
+
+                    Stepper(value: $threadNum, in: 1 ... viewModel.modelConfigManager.maxThreads) {
+                        HStack {
+                            Text("Threads")
+                            Spacer()
+                            Text("\(threadNum)")
+                        }
+                    }
+                    .onChange(of: threadNum) { _, newValue in
+                        requiresReload = true
+                        viewModel.modelConfigManager.updateThreadNum(newValue)
+                    }
                 } header: {
                     Text("Model Configuration")
                 }
-                
-                // Diffusion Settings
-                if viewModel.isDiffusionModel {
+
+                Section {
+                    // FIXME: Hidden The new Multimodal Prompt API
+                    // Toggle("Use Multimodal Prompt API", isOn: $viewModel.useMultimodalPromptAPI)
+                    //    .onChange(of: viewModel.useMultimodalPromptAPI) { _, newValue in
+                    //        viewModel.updateUseMultimodalPromptAPI(newValue)
+                    //    }
+
+                    Stepper(value: $videoMaxFrames, in: 1 ... 32) {
+                        HStack {
+                            Text("Video Frames")
+                            Spacer()
+                            Text("\(videoMaxFrames)")
+                        }
+                    }
+                    .onChange(of: videoMaxFrames) { _, newValue in
+                        viewModel.updateVideoMaxFrames(newValue)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Default Multimodal Prompt")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        TextEditor(text: $defaultMultimodalPrompt)
+                            .frame(minHeight: 80)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.secondary.opacity(0.3))
+                            )
+                            .onChange(of: defaultMultimodalPrompt) { _, newValue in
+                                viewModel.updateDefaultMultimodalPrompt(newValue)
+                            }
+                    }
+                } header: {
+                    Text("Multimodal Inputs")
+                }
+
+                // Audio Output Settings (Omni)
+                if ModelUtils.supportAudioOutput(viewModel.modelInfo.modelName) {
                     Section {
-                        Stepper(value: $iterations, in: 1...100) {
+                        Toggle("Enable Audio Output", isOn: $enableAudioOutput)
+                            .onChange(of: enableAudioOutput) { _, newValue in
+                                print("[AudioUI] Enable Audio Output changed to: \(newValue)")
+                                viewModel.updateEnableAudioOutput(newValue)
+                            }
+
+                        Picker("Talker Speaker", selection: $talkerSpeaker) {
+                            ForEach(talkerSpeakerOptions, id: \.self) { option in
+                                Text(option.capitalized).tag(option)
+                            }
+                        }
+                        .onChange(of: talkerSpeaker) { _, newValue in
+                            print("[AudioUI] Talker Speaker changed to: \(newValue)")
+                            viewModel.updateTalkerSpeaker(newValue)
+                        }
+                    } header: {
+                        Text("Audio Output (Omni)")
+                    }
+                }
+
+                // Diffusion Settings (Stable Diffusion and Sana Diffusion)
+                if viewModel.isAnyDiffusionModel {
+                    Section {
+                        // Model type indicator for Sana Diffusion
+                        if viewModel.isSanaDiffusionModel {
+                            HStack {
+                                Text("Model Type")
+                                Spacer()
+                                Text("Sana Style Transfer")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        Stepper(value: $iterations, in: 1 ... 100) {
                             HStack {
                                 Text("Iterations")
                                 Spacer()
                                 Text("\(iterations)")
                             }
                         }
-                        .onChange(of: iterations) { oldValue, newValue in
+                        .onChange(of: iterations) { _, newValue in
                             viewModel.modelConfigManager.updateIterations(newValue)
                         }
-                        
+
                         Toggle("Random Seed", isOn: $useRandomSeed)
-                            .onChange(of: useRandomSeed) { oldValue, newValue in
+                            .onChange(of: useRandomSeed) { _, newValue in
                                 if newValue {
                                     seed = -1
                                     viewModel.modelConfigManager.updateSeed(-1)
                                 }
                             }
-                        
+
                         if !useRandomSeed {
                             HStack {
                                 Text("Seed")
@@ -81,13 +195,13 @@ struct ModelSettingsView: View {
                                     .keyboardType(.numberPad)
                                     .multilineTextAlignment(.trailing)
                                     .frame(width: 100)
-                                    .onChange(of: seed) { oldValue, newValue in
+                                    .onChange(of: seed) { _, newValue in
                                         viewModel.modelConfigManager.updateSeed(max(0, newValue))
                                     }
                             }
                         }
                     } header: {
-                        Text("Diffusion Settings")
+                        Text(viewModel.isSanaDiffusionModel ? "Style Transfer Settings" : "Diffusion Settings")
                     }
                 } else {
                     Section {
@@ -97,16 +211,16 @@ struct ModelSettingsView: View {
                                     .tag(sampler)
                             }
                         }
-                        .onChange(of: selectedSampler) { newValue in
+                        .onChange(of: selectedSampler) { _, newValue in
                             viewModel.modelConfigManager.updateSamplerType(newValue)
                         }
-                        
+
                         switch selectedSampler {
                         case .temperature:
                             ParameterSliderView(
                                 title: "Temperature",
                                 value: $temperature,
-                                range: 0.0...2.0,
+                                range: 0.0 ... 2.0,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateTemperature(_:)
@@ -115,7 +229,7 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "Top K",
                                 value: $topK,
-                                range: 1...100,
+                                range: 1 ... 100,
                                 format: "%.0f",
                                 intValue: true,
                                 onChanged: { viewModel.modelConfigManager.updateTopK(Int($0)) }
@@ -124,7 +238,7 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "Top P",
                                 value: $topP,
-                                range: 0.0...1.0,
+                                range: 0.0 ... 1.0,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateTopP(_:)
@@ -133,7 +247,7 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "Min P",
                                 value: $minP,
-                                range: 0.05...0.3,
+                                range: 0.05 ... 0.3,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateMinP(_:)
@@ -142,7 +256,7 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "TFS-Z",
                                 value: $tfsZ,
-                                range: 0.9...0.99,
+                                range: 0.9 ... 0.99,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateTfsZ(_:)
@@ -151,44 +265,44 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "Typical",
                                 value: $typical,
-                                range: 0.8...0.95,
+                                range: 0.8 ... 0.95,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateTypical(_:)
                             )
                         case .penalty:
                             VStack(spacing: 8) {
-                                // Penalty 参数
+                                // Penalty parameters
                                 ParameterSliderView(
                                     title: "Penalty",
                                     value: $penalty,
-                                    range: 0.0...0.5,
+                                    range: 0.0 ... 0.5,
                                     format: "%.2f",
                                     intValue: false,
                                     onChanged: viewModel.modelConfigManager.updatePenalty(_:)
                                 )
-                                
-                                // N-gram Size 参数
+
+                                // N-gram Size parameters
                                 ParameterSliderView(
                                     title: "N-gram Size",
                                     value: $nGram,
-                                    range: 3...8,
+                                    range: 3 ... 8,
                                     format: "%.0f",
                                     intValue: true,
                                     onChanged: { viewModel.modelConfigManager.updateNGram(Int($0)) }
                                 )
-                                
-                                // N-gram Factor 参数
+
+                                // N-gram Factor parameters
                                 ParameterSliderView(
                                     title: "N-gram Factor",
                                     value: $nGramFactor,
-                                    range: 1.0...3.0,
+                                    range: 1.0 ... 3.0,
                                     format: "%.1f",
                                     intValue: false,
                                     onChanged: viewModel.modelConfigManager.updateNGramFactor(_:)
                                 )
-                                
-                                // Penalty Sampler 选择器
+
+                                // Penalty Sampler selector
                                 Picker("Penalty Sampler", selection: $penaltySampler) {
                                     ForEach(PenaltySamplerType.allCases, id: \.self) { samplerType in
                                         Text(samplerType.displayName)
@@ -228,26 +342,52 @@ struct ModelSettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
-                        showSettings = false
+                        if requiresReload {
+                            showReloadAlert = true
+                        } else {
+                            showSettings = false
+                        }
                     }
                 }
             }
         }
         .alert(NSLocalizedString("Success", comment: ""), isPresented: $showAlert) {
-            Button("OK", role: .cancel) { }
+            Button("OK", role: .cancel) {}
         } message: {
             Text(NSLocalizedString("Cache Cleared Successfully", comment: ""))
         }
+        .alert(NSLocalizedString("Model Reload Required", comment: ""), isPresented: $showReloadAlert) {
+            Button(NSLocalizedString("Reload Now", comment: "")) {
+                viewModel.reloadCurrentModel()
+                requiresReload = false
+                showSettings = false
+            }
+            Button(NSLocalizedString("Later", comment: ""), role: .cancel) {
+                showSettings = false
+            }
+        } message: {
+            Text(NSLocalizedString("Changes to backend, precision, or thread count require the model to reload.", comment: ""))
+        }
         .onAppear {
             selectedSampler = viewModel.modelConfigManager.readSamplerType()
-            
-            if viewModel.isDiffusionModel {
+            backendType = viewModel.modelConfigManager.readBackendType()
+            precision = viewModel.modelConfigManager.readPrecision()
+            threadNum = viewModel.modelConfigManager.readThreadNum()
+            requiresReload = false
+
+            if viewModel.isAnyDiffusionModel {
                 iterations = viewModel.modelConfigManager.readIterations()
                 seed = viewModel.modelConfigManager.readSeed()
                 useRandomSeed = (seed < 0)
+                
+                // Set default iterations for Sana Diffusion (fewer iterations needed)
+                if viewModel.isSanaDiffusionModel && iterations == 20 {
+                    iterations = 5  // Sana uses fewer iterations by default
+                }
             } else {
                 temperature = viewModel.modelConfigManager.readTemperature()
                 topK = Double(viewModel.modelConfigManager.readTopK())
@@ -259,20 +399,35 @@ struct ModelSettingsView: View {
                 nGram = Double(viewModel.modelConfigManager.readNGram())
                 nGramFactor = viewModel.modelConfigManager.readNGramFactor()
             }
+            videoMaxFrames = viewModel.modelConfigManager.readVideoMaxFrames()
+            defaultMultimodalPrompt = viewModel.modelConfigManager.readDefaultMultimodalPrompt()
+            enableAudioOutput = viewModel.modelConfigManager.readEnableAudioOutput()
             
-            // 初始化 mixed samplers
+            // Validate talkerSpeaker value - if not in options, reset to default
+            let savedTalkerSpeaker = viewModel.modelConfigManager.readTalkerSpeaker()
+            if talkerSpeakerOptions.contains(savedTalkerSpeaker) {
+                talkerSpeaker = savedTalkerSpeaker
+            } else {
+                talkerSpeaker = "default"
+                // Update config with valid default value
+                viewModel.updateTalkerSpeaker("default")
+            }
+
+            // Initialize mixed samplers
             let savedMixedSamplers = viewModel.modelConfigManager.readMixedSamplers()
             mixedSamplersOrder = ["topK", "tfs", "typical", "topP", "minP", "temperature"]
             selectedMixedSamplers = Set(savedMixedSamplers)
-            
-            // 初始化 penalty sampler
+
+            // Initialize penalty sampler
             penaltySampler = viewModel.modelConfigManager.readPenaltySampler()
         }
         .onDisappear {
             viewModel.setModelConfig()
+            viewModel.updateVideoMaxFrames(videoMaxFrames)
+            viewModel.updateDefaultMultimodalPrompt(defaultMultimodalPrompt)
         }
     }
-    
+
     private func updateMixedSamplers() {
         let orderedSelection = mixedSamplersOrder.filter { selectedMixedSamplers.contains($0) }
         viewModel.modelConfigManager.updateMixedSamplers(orderedSelection)

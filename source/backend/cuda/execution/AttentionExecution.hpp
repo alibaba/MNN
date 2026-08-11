@@ -36,7 +36,7 @@ public:
         int mMaxLength = 0;                 // Cache的已分配容量 (L_kv_max)
     };
 
-    AttentionExecution(Backend *backend, bool kv_cache_op_param); // kv_cache_op_param 来自 Op 定义
+    AttentionExecution(Backend* backend, bool kv_cache_op_param); // kv_cache_op_param 来自 Op 定义
     virtual ~AttentionExecution();
 
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
@@ -48,6 +48,7 @@ private:
     ErrorCode reallocKVCache_gpu(int required_total_kv_len, int batch_size, int kv_num_head, int head_dim, cudaStream_t stream);
     ErrorCode reallocKVCache_gpu(int required_total_kv_len, const KVMeta* meta, cudaStream_t stream);
     ErrorCode ensureTempBuffers_gpu(int batch, int num_head, int q_seq_piece_len_max, int current_max_total_kv_len, int head_dim);
+    ErrorCode ensureC4TailBuffers_gpu();
 
     CUDABackend* mCudaBackend;
     bool mIsKVCacheEnabled; // 基于 Op 参数
@@ -61,26 +62,38 @@ private:
     int mHeadDim;           // 每个头的维度 (D)
     int mKvNumHead;         // KV头数量 (H_kv)
     int mNewKvSeqLen;       // 当前输入的K/V Tensor的序列长度 (L_k_new, 即将追加的长度)
+    bool mValueC4HasTail = false;
+    bool mOutputC4HasTail = false;
 
     int mQseqSplitNum;      // 查询序列分割数量
 
     // GPU上的临时Tensor
     std::shared_ptr<Tensor> mTempQK;        // 存储 (Q*K^T)/sqrt(d)。形状: [B, H_q, Max_L_q_piece, Max_L_k_total]
     std::shared_ptr<Tensor> mTempSoftmax;   // 存储 Softmax 输出。形状: [B, H_q, Max_L_q_piece, Max_L_k_total]
-    
+
     // 如果 !mIsKVCacheEnabled, 用于存储当前步骤的K/V (类Cache格式)
     std::shared_ptr<Tensor> mTempK_current_step; // 布局: [Max_L_k_new_alloc, B, H_kv, D]
     std::shared_ptr<Tensor> mTempV_current_step; // 布局: [B, H_kv, D, Max_L_k_new_alloc]
 
+    // CUDA NC4HW4 is stored as NHWC8. Tail channels are unpacked only when C is not 8-aligned.
+    std::shared_ptr<Tensor> mC4ValueContiguous;
+    std::shared_ptr<Tensor> mC4OutputContiguous;
+
     // Mask 相关
     bool mHasMask;
+    bool mIsCausalMask;
     bool mIsAddMask; // 如果 mask 是 float 类型并相加则为 true, 如果是 int 类型并设为 -FLT_MAX 则为 false
 
     AttentionKernelParam* mParam_gpu = nullptr; // Kernel参数的设备指针
     KVMeta* mMeta = nullptr;
 
-    const int mExpandChunk = 64; // KV Cache重分配时的扩展块大小
+    int mExpandChunk = 64; // KV Cache重分配时的扩展块大小
     int mPrecision;              // 精度 (float或half)
+
+    // OPT-2: Split-K Flash Decoding temporary buffers (raw cudaMalloc)
+    float* mSplitKOutputPtr = nullptr;   // [parallel_blocks, batch*num_head, head_dim]
+    float* mSplitKMetaPtr = nullptr;     // [parallel_blocks, batch*num_head, 2] (max, sum)
+    int mMaxParallelBlocks = 0;
 };
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
 

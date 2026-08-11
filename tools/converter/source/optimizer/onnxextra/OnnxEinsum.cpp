@@ -15,14 +15,14 @@ namespace Express {
 class OnnxEinsumTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        auto inputs     = expr->inputs();
-        auto op         = expr->get();
+        auto inputs = expr->inputs();
+        auto op = expr->get();
         auto extraParam = op->main_as_Extra();
         std::string equation;
         if (nullptr != extraParam->attr()) {
             const int attrSize = extraParam->attr()->size();
             for (int i = 0; i < attrSize; ++i) {
-                auto attr       = extraParam->attr()->GetAs<Attribute>(i);
+                auto attr = extraParam->attr()->GetAs<Attribute>(i);
                 const auto& key = attr->key()->str();
                 if (key == "equation") {
                     equation = attr->s()->str();
@@ -33,6 +33,7 @@ public:
             MNN_ERROR("Can't convert Einsum for invalid Equation\n");
             return nullptr;
         }
+        std::string rawEquation = equation;
         // Turn ... to .
         bool hasPrefix = false;
         {
@@ -45,30 +46,38 @@ public:
         }
         // Remove space
         std::vector<char> valid;
-        for (int i=0; i<equation.size(); ++i) {
+        std::vector<char> rawValid;
+        for (int i = 0; i < equation.size(); ++i) {
             if (equation[i] != ' ') {
                 valid.emplace_back(equation[i]);
             }
         }
+        for (int i = 0; i < rawEquation.size(); ++i) {
+            if (rawEquation[i] != ' ') {
+                rawValid.emplace_back(rawEquation[i]);
+            }
+        }
         valid.emplace_back('\0');
+        rawValid.emplace_back('\0');
         equation = std::string(valid.data());
+        rawEquation = std::string(rawValid.data());
         auto pos = equation.find("->");
         if (pos == std::string::npos) {
             MNN_ERROR("Can't convert Einsum for no support Equation:%s\n", equation.c_str());
             return nullptr;
         }
         auto left = equation.substr(0, pos);
-        auto right = equation.substr(pos+2, equation.size());
-        if (expr->inputs().size() == 1 ){
-            auto currentVar = expr->inputs()[0];
+        auto right = equation.substr(pos + 2, equation.size());
+        if (inputs.size() == 1) {
+            auto currentVar = inputs[0];
             std::map<char, int> outputPos;
-            for (int i=0; i<right.size(); ++i) {
+            for (int i = 0; i < right.size(); ++i) {
                 outputPos.insert(std::make_pair(right[i], i));
             }
             std::vector<int> reduceAxis;
             std::map<char, int> inputPosRemap;
             int pos = 0;
-            for (int i=0; i<left.size(); ++i) {
+            for (int i = 0; i < left.size(); ++i) {
                 if (outputPos.find(left[i]) == outputPos.end()) {
                     reduceAxis.emplace_back(i);
                     continue;
@@ -80,31 +89,89 @@ public:
                 currentVar = _ReduceSum(currentVar, reduceAxis, false);
             }
             std::vector<int> permuteDims;
-            for (int i=0; i<right.size(); ++i) {
+            for (int i = 0; i < right.size(); ++i) {
                 permuteDims.emplace_back(inputPosRemap[right[i]]);
             }
             currentVar = _Permute(currentVar, permuteDims);
             currentVar->setName(expr->name());
             return currentVar->expr().first;
         }
-        if (inputs.size() !=2 ) {
+        if (inputs.size() != 2) {
             MNN_ERROR("Can't convert Einsum for input size = %d\n", (int)inputs.size());
             return nullptr;
         }
         auto iPos = left.find(",");
         auto input0 = left.substr(0, iPos);
-        auto input1 = left.substr(iPos+1, left.size());
-        auto var0 = expr->inputs()[0];
-        auto var1 = expr->inputs()[1];
+        auto input1 = left.substr(iPos + 1, left.size());
+        auto var0 = inputs[0];
+        auto var1 = inputs[1];
+        if (rawEquation == "i,i...->...") {
+            auto concatExpr = var1->expr().first;
+            auto weightExpr = var0->expr().first;
+            if (concatExpr != nullptr && weightExpr != nullptr && weightExpr->get() != nullptr) {
+                auto concatOp = concatExpr->get();
+                auto weightOp = weightExpr->get();
+                if (concatOp != nullptr && concatOp->type() == OpType_Concat && concatOp->main_as_Axis() != nullptr &&
+                    concatOp->main_as_Axis()->axis() == 0 && weightOp->type() == OpType_Const &&
+                    weightOp->main_as_Blob() != nullptr) {
+                    auto weightBlob = weightOp->main_as_Blob();
+                    auto weightPtr = weightBlob->float32s() != nullptr ? weightBlob->float32s()->data() : nullptr;
+                    auto terms = concatExpr->inputs();
+                    int weightSize = 1;
+                    if (weightBlob->dims() != nullptr) {
+                        for (int i = 0; i < weightBlob->dims()->size(); ++i) {
+                            weightSize *= weightBlob->dims()->data()[i];
+                        }
+                    }
+                    if (weightPtr != nullptr && weightSize == terms.size()) {
+                        VARP output;
+                        for (int i = 0; i < terms.size(); ++i) {
+                            auto term = terms[i];
+                            auto termExpr = term->expr().first;
+                            if (termExpr != nullptr) {
+                                auto termOp = termExpr->get();
+                                if (termOp != nullptr && termOp->type() == OpType_Unsqueeze &&
+                                    !termExpr->inputs().empty()) {
+                                    term = termExpr->inputs()[0];
+                                }
+                            }
+                            auto current = term * _Scalar<float>(weightPtr[i]);
+                            output = (output == nullptr) ? current : (output + current);
+                        }
+                        if (output.get() != nullptr) {
+                            output->setName(expr->name());
+                            return output->expr().first;
+                        }
+                    }
+                }
+            }
+            VARP scale;
+            auto input0Info = var0->getInfo();
+            auto input1Info = var1->getInfo();
+            if (input0Info != nullptr && input1Info != nullptr) {
+                std::vector<int> scaleShape = input0Info->dim;
+                scaleShape.resize(input1Info->dim.size(), 1);
+                scale = _Reshape(var0, scaleShape);
+            } else {
+                auto one = _Unsqueeze(_Scalar<int>(1), {0});
+                auto rank = _Rank(var1);
+                auto ones = _Fill(_Unsqueeze(rank - _Scalar<int>(1), {0}), one);
+                auto dynamicShape = _Concat({_Shape(var0, NCHW), ones}, 0);
+                scale = _Reshape(var0, dynamicShape);
+            }
+            auto output = _ReduceSum(scale * var1, {0}, false);
+            output->setName(expr->name());
+            return output->expr().first;
+        }
         // dim = 4
         if (right.size() == 4 && input0.size() == 4 && input1.size() == 4) {
             // batch align:
             // bhwc,bhkc -> bhwk  batch = `bh`, reduce_dim = `c`
 
             // find reduce dim
-            char reduce_dim;
+            char reduce_dim = 0;
             int reduce_dim_pos = -1;
-            for (int i = 0; i < input0.size(); ++i) {
+            for (int i = 0; i < (int)input0.size(); ++i) {
                 auto c = input0[i];
                 if (right.find(c) == std::string::npos) {
                     reduce_dim = c;
@@ -112,34 +179,51 @@ public:
                     break;
                 }
             }
-            bool needTransposeA = false;
-            if (reduce_dim_pos >= 0 && input0.size() >= 2 && reduce_dim_pos == input0.size() - 2) {
-                needTransposeA = true;
+            // Verify the fast path produces correct output order:
+            // MatMul output dims = input0 dims (minus reduce) + input1's unique dim appended.
+            // Only valid when this matches `right` without needing permutation.
+            std::string expectedOutput;
+            for (int i = 0; i < (int)input0.size(); ++i) {
+                if (i != reduce_dim_pos) {
+                    expectedOutput += input0[i];
+                }
             }
-            auto need_transpose = input1.find(reduce_dim) == (input1.size() - 1);
-            // matmul: matmul auto broadcast such: `bhwc @ hkc` -> `bhwc @ bhkc`
-            auto output = _MatMul(var0, var1, needTransposeA, need_transpose);
-            output->setName(expr->name());
-            return output->expr().first;
+            for (int i = 0; i < (int)input1.size(); ++i) {
+                char c = input1[i];
+                if (c != reduce_dim && expectedOutput.find(c) == std::string::npos) {
+                    expectedOutput += c;
+                }
+            }
+            if (reduce_dim_pos >= 0 && right == expectedOutput) {
+                bool needTransposeA = false;
+                if (input0.size() >= 2 && reduce_dim_pos == (int)input0.size() - 2) {
+                    needTransposeA = true;
+                }
+                auto need_transpose = input1.find(reduce_dim) == (input1.size() - 1);
+                auto output = _MatMul(var0, var1, needTransposeA, need_transpose);
+                output->setName(expr->name());
+                return output->expr().first;
+            }
+            // Fall through to general path when output order doesn't match
         }
-        
-        if(right.size() == 3) {
+
+        if (right.size() == 3) {
             // bid, bjd -> bij
-            if(input0.size() == 3 && input1.size() == 3) {
-                if(input0[0] == input1[0] && input0[0] == right[0]) {
-                    if (input0[2] == input1[2]) {// bid, bjd
+            if (input0.size() == 3 && input1.size() == 3) {
+                if (input0[0] == input1[0] && input0[0] == right[0]) {
+                    if (input0[2] == input1[2]) { // bid, bjd
                         auto output = _MatMul(var0, var1, false, true);
                         output->setName(expr->name());
                         return output->expr().first;
-                    } else if (input0[2] == input1[1]) {// bid, bdj
+                    } else if (input0[2] == input1[1]) { // bid, bdj
                         auto output = _MatMul(var0, var1, false, false);
                         output->setName(expr->name());
                         return output->expr().first;
-                    } else if (input0[1] == input1[1]) {// bdi, bdj
+                    } else if (input0[1] == input1[1]) { // bdi, bdj
                         auto output = _MatMul(var0, var1, true, false);
                         output->setName(expr->name());
                         return output->expr().first;
-                    } else if (input0[1] == input1[2]) {// bdi, bjd
+                    } else if (input0[1] == input1[2]) { // bdi, bjd
                         auto output = _MatMul(var0, var1, true, true);
                         output->setName(expr->name());
                         return output->expr().first;
@@ -156,14 +240,15 @@ public:
                 return output;
             }
             auto oShape = _Shape(output, NCHW);
-            auto oRemainShape = _Slice(oShape, _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Rank(output) - _Scalar<int>(1), {0}));
+            auto oRemainShape =
+                _Slice(oShape, _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Rank(output) - _Scalar<int>(1), {0}));
             auto oPostShape = _Concat({prefixshape, oRemainShape}, 0);
             return OnnxExtraManager::_ReshapeF(output, oPostShape, MNN::MNN_DATA_FORMAT_NCHW);
         };
         if (hasPrefix) {
             // Seperate prefix shape
             if (input0[0] == '.') {
-                auto remainA = _Scalar<int>((int)input0.size()-1);
+                auto remainA = _Scalar<int>((int)input0.size() - 1);
                 auto rankA = _Rank(var0);
                 prefixSize = rankA - remainA;
                 auto aShapeRemain = _Slice(aShape, _Unsqueeze(prefixSize, {0}), _Unsqueeze(remainA, {0}));
@@ -174,7 +259,7 @@ public:
             }
             if (input1[0] == '.') {
                 auto rankB = _Rank(var1);
-                auto remainB = _Scalar<int>((int)input1.size()-1);
+                auto remainB = _Scalar<int>((int)input1.size() - 1);
                 auto bShapeRemain = _Slice(bShape, _Unsqueeze(prefixSize, {0}), _Unsqueeze(remainB, {0}));
                 if (nullptr == prefixshape) {
                     prefixshape = _Slice(bShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(rankB - remainB, {0}));
@@ -185,11 +270,11 @@ public:
             }
         }
         std::map<char, int> input0Pos;
-        for (int i=0; i<input0.size(); ++i) {
+        for (int i = 0; i < input0.size(); ++i) {
             input0Pos.insert(std::make_pair(input0[i], i));
         }
         std::map<char, int> input1Pos;
-        for (int i=0; i<input1.size(); ++i) {
+        for (int i = 0; i < input1.size(); ++i) {
             input1Pos.insert(std::make_pair(input1[i], i));
         }
         std::map<char, int> outputPos;
@@ -197,7 +282,7 @@ public:
         std::vector<char> bothPos;
         std::vector<char> aPos;
         std::vector<char> bPos;
-        for (int i=0; i<right.size(); ++i) {
+        for (int i = 0; i < right.size(); ++i) {
             auto c = right[i];
             outputPos.insert(std::make_pair(c, i));
             bool i0Find = input0Pos.find(c) != input0Pos.end();
@@ -216,8 +301,8 @@ public:
             }
             MNN_ASSERT(false);
         }
-        
-        for (int i=0; i<input0.size(); ++i) {
+
+        for (int i = 0; i < input0.size(); ++i) {
             if (outputPos.find(input0[i]) == outputPos.end()) {
                 sumPos.emplace_back(input0[i]);
             }
@@ -230,7 +315,7 @@ public:
                 std::vector<int> reshapeDims(outputPos.size(), 0);
                 int insertPos = (int)input0Pos.size();
                 std::vector<int> transpose;
-                for (int i=0; i<right.size(); ++i) {
+                for (int i = 0; i < right.size(); ++i) {
                     auto iter = input0Pos.find(right[i]);
                     if (iter == input0Pos.end()) {
                         reshapeDims[insertPos] = 1;
@@ -240,7 +325,8 @@ public:
                         transpose.emplace_back(iter->second);
                     }
                 }
-                auto _shape  = _Const(reshapeDims.data(), {static_cast<int32_t>(right.size())}, NHWC, halide_type_of<int>());
+                auto _shape =
+                    _Const(reshapeDims.data(), {static_cast<int32_t>(right.size())}, NHWC, halide_type_of<int>());
                 var0 = OnnxExtraManager::_ReshapeF(var0, _shape, MNN::MNN_DATA_FORMAT_NCHW);
                 var0 = _Permute(var0, transpose);
             }
@@ -249,7 +335,7 @@ public:
                 std::vector<int> reshapeDims(outputPos.size(), 0);
                 int insertPos = (int)input1Pos.size();
                 std::vector<int> transpose;
-                for (int i=0; i<right.size(); ++i) {
+                for (int i = 0; i < right.size(); ++i) {
                     auto iter = input1Pos.find(right[i]);
                     if (iter == input1Pos.end()) {
                         reshapeDims[insertPos] = 1;
@@ -259,7 +345,7 @@ public:
                         transpose.emplace_back(iter->second);
                     }
                 }
-                auto _shape  = _Const(reshapeDims.data(), {static_cast<int>(right.size())}, NHWC, halide_type_of<int>());
+                auto _shape = _Const(reshapeDims.data(), {static_cast<int>(right.size())}, NHWC, halide_type_of<int>());
                 var1 = OnnxExtraManager::_ReshapeF(var1, _shape, MNN::MNN_DATA_FORMAT_NCHW);
                 var1 = _Permute(var1, transpose);
             }
@@ -275,9 +361,9 @@ public:
         // MatMul
         // Remove sum pos from aPos and bPos
         std::vector<char> tempA;
-        for (int i=0; i<aPos.size(); ++i) {
+        for (int i = 0; i < aPos.size(); ++i) {
             bool find = false;
-            for (int j=0; j<sumPos.size(); ++j) {
+            for (int j = 0; j < sumPos.size(); ++j) {
                 if (sumPos[j] == aPos[i]) {
                     find = true;
                     break;
@@ -289,9 +375,9 @@ public:
         }
         aPos = tempA;
         std::vector<char> tempB;
-        for (int i=0; i<bPos.size(); ++i) {
+        for (int i = 0; i < bPos.size(); ++i) {
             bool find = false;
-            for (int j=0; j<sumPos.size(); ++j) {
+            for (int j = 0; j < sumPos.size(); ++j) {
                 if (sumPos[j] == bPos[i]) {
                     find = true;
                     break;
@@ -304,67 +390,71 @@ public:
         bPos = tempB;
         // outside and sum is common for A and B
         VARP outsideLength = _Unsqueeze(_Scalar<int>(1), {0});
-        for (int i=0; i<bothPos.size(); ++i) {
+        for (int i = 0; i < bothPos.size(); ++i) {
             auto size0 = _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[bothPos[i]]), {0}), one);
             auto size1 = _Slice(bShape, _Unsqueeze(_Scalar<int>(input1Pos[bothPos[i]]), {0}), one);
             auto bothsize = size0;
             outsideLength = outsideLength * bothsize;
         }
-        
+
         VARP sumLength = _Unsqueeze(_Scalar<int>(1), {0});
-        for (int i=0; i<sumPos.size(); ++i) {
+        for (int i = 0; i < sumPos.size(); ++i) {
             sumLength = sumLength * _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[sumPos[i]]), {0}), one);
         }
         {
             // Transpose and reshape as 3 dimension
             // AB -> A -> sum
             std::vector<int> transpose;
-            for (int i=0; i<bothPos.size(); ++i) {
+            for (int i = 0; i < bothPos.size(); ++i) {
                 transpose.emplace_back(input0Pos[bothPos[i]]);
             }
             VARP ALength = _Unsqueeze(_Scalar<int>(1), {0});
-            for (int i=0; i<aPos.size(); ++i) {
+            for (int i = 0; i < aPos.size(); ++i) {
                 transpose.emplace_back(input0Pos[aPos[i]]);
                 ALength = ALength * _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[aPos[i]]), {0}), one);
             }
-            for (int i=0; i<sumPos.size(); ++i) {
+            for (int i = 0; i < sumPos.size(); ++i) {
                 transpose.emplace_back(input0Pos[sumPos[i]]);
             }
             var0 = _Permute(var0, transpose);
-            var0 = OnnxExtraManager::_ReshapeF(var0, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
+            var0 = OnnxExtraManager::_ReshapeF(
+                var0, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0),
+                MNN::MNN_DATA_FORMAT_NCHW);
         }
         {
             // Transpose
             // AB -> B -> sum
             std::vector<int> transpose;
-            for (int i=0; i<bothPos.size(); ++i) {
+            for (int i = 0; i < bothPos.size(); ++i) {
                 transpose.emplace_back(input1Pos[bothPos[i]]);
             }
             VARP BLength = _Unsqueeze(_Scalar<int>(1), {0});
-            for (int i=0; i<bPos.size(); ++i) {
+            for (int i = 0; i < bPos.size(); ++i) {
                 transpose.emplace_back(input1Pos[bPos[i]]);
                 BLength = BLength * _Slice(bShape, _Unsqueeze(_Scalar<int>(input1Pos[bPos[i]]), {0}), one);
             }
-            for (int i=0; i<sumPos.size(); ++i) {
+            for (int i = 0; i < sumPos.size(); ++i) {
                 transpose.emplace_back(input1Pos[sumPos[i]]);
             }
             var1 = _Permute(var1, transpose);
-            var1 = OnnxExtraManager::_ReshapeF(var1, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
+            var1 = OnnxExtraManager::_ReshapeF(
+                var1, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0),
+                MNN::MNN_DATA_FORMAT_NCHW);
         }
         auto output = _MatMul(var0, var1, false, true);
         std::vector<VARP> cShapeGroup;
 
         // Permute output if needed, origin dimension pos is AB - A - B
         std::map<char, int> originOutputPos;
-        for (int i=0; i<bothPos.size(); ++i) {
+        for (int i = 0; i < bothPos.size(); ++i) {
             originOutputPos.insert(std::make_pair(bothPos[i], i));
             cShapeGroup.emplace_back(_Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[bothPos[i]]), {0}), one));
         }
-        for (int i=0; i<aPos.size(); ++i) {
+        for (int i = 0; i < aPos.size(); ++i) {
             originOutputPos.insert(std::make_pair(aPos[i], i + bothPos.size()));
             cShapeGroup.emplace_back(_Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[aPos[i]]), {0}), one));
         }
-        for (int i=0; i<bPos.size(); ++i) {
+        for (int i = 0; i < bPos.size(); ++i) {
             originOutputPos.insert(std::make_pair(bPos[i], i + bothPos.size() + aPos.size()));
             cShapeGroup.emplace_back(_Slice(bShape, _Unsqueeze(_Scalar<int>(input1Pos[bPos[i]]), {0}), one));
         }
@@ -372,7 +462,7 @@ public:
         output = OnnxExtraManager::_ReshapeF(output, cShape, MNN::MNN_DATA_FORMAT_NCHW);
         bool needPermute = false;
         std::vector<int> transpose(right.size());
-        for (int i=0; i<right.size(); ++i) {
+        for (int i = 0; i < right.size(); ++i) {
             transpose[i] = originOutputPos[right[i]];
             if (transpose[i] != i) {
                 needPermute = true;

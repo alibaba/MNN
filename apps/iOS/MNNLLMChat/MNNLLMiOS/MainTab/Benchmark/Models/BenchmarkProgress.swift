@@ -22,7 +22,7 @@ struct BenchmarkProgress {
     let decodeTimeSeconds: Float
     let prefillSpeed: Float
     let decodeSpeed: Float
-    
+
     init(progress: Int,
          statusMessage: String,
          progressType: ProgressType = .unknown,
@@ -34,7 +34,8 @@ struct BenchmarkProgress {
          prefillTimeSeconds: Float = 0.0,
          decodeTimeSeconds: Float = 0.0,
          prefillSpeed: Float = 0.0,
-         decodeSpeed: Float = 0.0) {
+         decodeSpeed: Float = 0.0)
+    {
         self.progress = progress
         self.statusMessage = statusMessage
         self.progressType = progressType

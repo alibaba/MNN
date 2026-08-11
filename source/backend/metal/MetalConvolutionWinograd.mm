@@ -78,6 +78,7 @@ bool MetalConvolutionWinograd::onClone(Backend* bn, const Op* op, Execution** ds
         return true;
     }
     *dst = new MetalConvolutionWinograd(bn, op, mWeight, mBias);
+    MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
     return true;
 }
 
@@ -213,7 +214,7 @@ void MetalConvolutionWinograd::onEncode(const std::vector<Tensor *> &inputs, con
         }
     }
 }
-std::shared_ptr<MNN::Tensor> MetalConvolutionWinograd::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight, id<MTLBuffer> srcGpuBuffer) {
+std::shared_ptr<MNN::Tensor> MetalConvolutionWinograd::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight, id<MTLBuffer> srcGpuBuffer, int subBits) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 

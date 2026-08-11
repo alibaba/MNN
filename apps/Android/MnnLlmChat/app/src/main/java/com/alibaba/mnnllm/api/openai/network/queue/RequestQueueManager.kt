@@ -171,13 +171,14 @@ class RequestQueueManager private constructor() {
     }
     
     /**
-     * Get queue size (approximate value)
+     * Get queue size (approximate value). Non-blocking to avoid ANR when called from main thread.
      */
     fun getQueueSize(): Int {
         return requestQueue.tryReceive().let {
             if (it.isSuccess) {
-                // If can receive, queue is not empty, need to put it back
-                runBlocking { requestQueue.send(it.getOrThrow()) }
+                // Put item back asynchronously to avoid runBlocking (which would block caller)
+                val item = it.getOrThrow()
+                queueScope.launch { requestQueue.send(item) }
                 1 // At least one
             } else {
                 0 // Queue is empty

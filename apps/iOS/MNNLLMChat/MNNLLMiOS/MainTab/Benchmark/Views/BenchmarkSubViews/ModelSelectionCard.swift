@@ -11,7 +11,7 @@ import SwiftUI
 /// Provides dropdown menu for model selection and start/stop controls.
 struct ModelSelectionCard: View {
     @ObservedObject var viewModel: BenchmarkViewModel
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -19,10 +19,10 @@ struct ModelSelectionCard: View {
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
-                
+
                 Spacer()
             }
-            
+
             if viewModel.isLoading {
                 HStack {
                     ProgressView()
@@ -35,9 +35,9 @@ struct ModelSelectionCard: View {
             } else {
                 modelDropdownMenu
             }
-            
+
             startStopButton
-            
+
             statusMessages
         }
         .padding(20)
@@ -50,9 +50,9 @@ struct ModelSelectionCard: View {
                 )
         )
     }
-    
+
     // MARK: - Private Views
-    
+
     private var modelDropdownMenu: some View {
         Menu {
             if viewModel.availableModels.isEmpty {
@@ -84,7 +84,7 @@ struct ModelSelectionCard: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(viewModel.isRunning ? .secondary : (viewModel.selectedModel != nil ? .primary : .benchmarkSecondary))
                         .lineLimit(1)
-                    
+
                     if let model = viewModel.selectedModel {
                         HStack(spacing: 8) {
                             HStack(spacing: 4) {
@@ -95,7 +95,7 @@ struct ModelSelectionCard: View {
                                     .font(.caption)
                                     .foregroundColor(.benchmarkSuccess)
                             }
-                            
+
                             if let size = model.cachedSize {
                                 Text("• \(formatBytes(size))")
                                     .font(.caption)
@@ -108,9 +108,9 @@ struct ModelSelectionCard: View {
                             .foregroundColor(.benchmarkSecondary)
                     }
                 }
-                
+
                 Spacer()
-                
+
                 Image(systemName: "chevron.down")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(viewModel.isRunning ? .secondary : .benchmarkSecondary)
@@ -123,18 +123,18 @@ struct ModelSelectionCard: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
                             .stroke(
-                                viewModel.isRunning ? 
-                                Color.gray.opacity(0.1) :
-                                (viewModel.selectedModel != nil ? 
-                                Color.benchmarkAccent.opacity(0.3) : 
-                                Color.gray.opacity(0.2)),
+                                viewModel.isRunning ?
+                                    Color.gray.opacity(0.1) :
+                                    (viewModel.selectedModel != nil ?
+                                        Color.benchmarkAccent.opacity(0.3) :
+                                        Color.gray.opacity(0.2)),
                                 lineWidth: 1
                             )
                     ))
         }
         .disabled(viewModel.isRunning)
     }
-    
+
     private var startStopButton: some View {
         Button(action: {
             viewModel.onStartBenchmarkTapped()
@@ -144,7 +144,7 @@ struct ModelSelectionCard: View {
                     Circle()
                         .fill(Color.white.opacity(0.2))
                         .frame(width: 32, height: 32)
-                    
+
                     if viewModel.isRunning {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -155,13 +155,13 @@ struct ModelSelectionCard: View {
                             .foregroundColor(.white)
                     }
                 }
-                
+
                 Text(viewModel.startButtonText)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.white)
-                
+
                 Spacer()
-                
+
                 if !viewModel.isRunning {
                     Image(systemName: "arrow.right")
                         .font(.system(size: 16, weight: .semibold))
@@ -174,23 +174,23 @@ struct ModelSelectionCard: View {
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(
-                        viewModel.isStartButtonEnabled ? 
-                        (viewModel.isRunning ? 
-                         LinearGradient(
-                             colors: [Color.benchmarkError, Color.benchmarkError.opacity(0.8)],
-                             startPoint: .leading,
-                             endPoint: .trailing
-                         ) :
-                         LinearGradient(
-                             colors: [Color.benchmarkGradientStart, Color.benchmarkGradientEnd],
-                             startPoint: .leading,
-                             endPoint: .trailing
-                         )) :
-                        LinearGradient(
-                            colors: [Color.gray, Color.gray.opacity(0.8)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
+                        viewModel.isStartButtonEnabled ?
+                            (viewModel.isRunning ?
+                                LinearGradient(
+                                    colors: [Color.benchmarkError, Color.benchmarkError.opacity(0.8)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ) :
+                                LinearGradient(
+                                    colors: [Color.benchmarkGradientStart, Color.benchmarkGradientEnd],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )) :
+                            LinearGradient(
+                                colors: [Color.gray, Color.gray.opacity(0.8)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
                     )
             )
         }
@@ -198,7 +198,7 @@ struct ModelSelectionCard: View {
         .animation(.easeInOut(duration: 0.2), value: viewModel.startButtonText)
         .animation(.easeInOut(duration: 0.2), value: viewModel.isStartButtonEnabled)
     }
-    
+
     private var statusMessages: some View {
         Group {
             if viewModel.selectedModel == nil {
@@ -214,9 +214,9 @@ struct ModelSelectionCard: View {
             }
         }
     }
-    
+
     // MARK: - Helper Functions
-    
+
     private func formatBytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useGB, .useMB]

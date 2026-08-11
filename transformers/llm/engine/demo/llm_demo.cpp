@@ -110,9 +110,19 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
             llm->response(prompt, &std::cout, nullptr, 0);
             while (!llm->stoped() && context->gen_seq_len < max_token_number) {
                 llm->generate(1);
+                // Check for errors
+                if(context->status == LlmStatus::INTERNAL_ERROR) {
+                    MNN_ERROR("Error: Generation failed due to internal error\n");
+                    return -1;
+                }
             }
         } else {
             llm->response(prompt);
+            // Check for errors after response
+            if(context->status == LlmStatus::INTERNAL_ERROR) {
+                MNN_ERROR("Error: Response generation failed due to internal error\n");
+                return -1;
+            }
         }
         prompt_len += context->prompt_len;
         decode_len += context->gen_seq_len;
@@ -240,6 +250,8 @@ void chat(Llm* llm) {
         }
         if (user_str == "/reset") {
             llm->reset();
+            messages.clear();
+            messages.emplace_back("system", "You are a helpful assistant.");
             std::cout << "\nA: reset done." << std::endl;
             continue;
         }
@@ -255,9 +267,6 @@ int main(int argc, const char* argv[]) {
         std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << std::endl;
         return 0;
     }
-    MNN::BackendConfig backendConfig;
-    auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
-    MNN::Express::ExecutorScope s(executor);
 
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
@@ -271,6 +280,7 @@ int main(int argc, const char* argv[]) {
             return 0;
         }
     }
+    std::shared_ptr<MNN::Express::Executor::Activation> act = llm->getExecutor()->activte();
     if (true) {
         AUTOTIME;
         tuning_prepare(llm.get());

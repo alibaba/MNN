@@ -66,6 +66,23 @@ target_link_libraries(file_utils_tests PRIVATE Catch2::Catch2WithMain)
 
 catch_discover_tests(file_utils_tests)
 
+# CLI command spec tests
+add_executable(cli_command_spec_tests
+    cli_command_spec_case_test.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../../src/cli_command_spec.cpp
+)
+
+set_property(TARGET cli_command_spec_tests PROPERTY CXX_STANDARD 17)
+set_property(TARGET cli_command_spec_tests PROPERTY CXX_STANDARD_REQUIRED ON)
+
+target_include_directories(cli_command_spec_tests PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../../include
+)
+
+target_link_libraries(cli_command_spec_tests PRIVATE Catch2::Catch2WithMain)
+
+catch_discover_tests(cli_command_spec_tests)
+
 # Local Model Utils tests
 add_executable(local_model_utils_tests
     local_model_utils_case_test.cpp
@@ -90,4 +107,3 @@ target_include_directories(local_model_utils_tests PRIVATE
 target_link_libraries(local_model_utils_tests PRIVATE Catch2::Catch2WithMain)
 
 catch_discover_tests(local_model_utils_tests)
-

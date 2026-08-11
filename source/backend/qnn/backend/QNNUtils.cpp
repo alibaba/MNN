@@ -33,7 +33,7 @@ void QnnHalfToFloat(const int16_t* src, float* dst, size_t size) {
     std::vector<half_float::half> halfBatch(batchSize);
 
     for (size_t i = 0; i < size; i += batchSize) {
-        size_t currentBatchSize = std::min(batchSize, size - i);
+        size_t currentBatchSize = batchSize < size - i ? batchSize : size - i;
 
         ::memcpy(halfBatch.data(), &(src[i]), currentBatchSize * sizeof(int16_t));
 
@@ -122,8 +122,11 @@ void registerQNNOps() {
     ___QNNBinaryCreator__OpType_BinaryOp__();
     ___QNNBinaryCreator__OpType_Eltwise__();
     ___QNNConcatCreator__OpType_Concat__();
+    ___QNNConcatCreator__OpType_Pack__();
+    ___QNNConcatCreator__OpType_Unpack__();
     ___QNNConvDepthwiseCreator__OpType_ConvolutionDepthwise__();
     ___QNNConvolutionCreator__OpType_Convolution__();
+    ___QNNDeconvolutionCreator__OpType_Deconvolution__();
     ___QNNFlattenCreator__OpType_Flatten__();
     ___QNNLayerNormCreator__OpType_LayerNorm__();
     ___QNNPaddingCreator__OpType_Padding__();
@@ -141,6 +144,7 @@ void registerQNNOps() {
     ___QNNUnaryCreator__OpType_UnaryOp__();
     ___QNNCastCreator__OpType_Cast__();
     ___QNNPermuteCreator__OpType_Permute__();
+    ___QNNPermuteCreator__OpType_Transpose__();
     ___QNNGatherCreator__OpType_GatherV2__();
     ___QNNGatherCreator__OpType_GatherElements__();
 
@@ -151,6 +155,8 @@ void registerQNNOps() {
     #endif
     ___QNNQuantCreator__OpType_FloatToInt8__();
     ___QNNDeQuantCreator__OpType_Int8ToFloat__();
+    ___QNNTopKV2Creator__OpType_TopKV2__();
+    ___QNNInterpCreator__OpType_Interp__();
 }
 
 Tensor::DimensionType gQnnTensorDimType = Tensor::TENSORFLOW;

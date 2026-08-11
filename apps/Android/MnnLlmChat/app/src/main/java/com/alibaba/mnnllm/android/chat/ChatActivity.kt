@@ -5,6 +5,8 @@ package com.alibaba.mnnllm.android.chat
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.first
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.BuildConfig
 import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
 import com.alibaba.mnnllm.android.benchmark.BenchmarkModule
 import com.alibaba.mnnllm.android.modelist.ModelListManager
@@ -33,6 +36,7 @@ import com.alibaba.mnnllm.android.llm.AudioDataListener
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
+import com.alibaba.mnnllm.android.modelsettings.DiffusionSettingsBottomSheetFragment
 import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
 import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
@@ -44,11 +48,14 @@ import com.alibaba.mnnllm.android.chat.voice.VoiceChatFragment
 import com.alibaba.mnnllm.android.chat.voice.VoiceModelsChecker
 import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
+import com.alibaba.mnnllm.android.utils.CrashReportContext
+import com.alibaba.mnnllm.android.utils.ConfigInfoDialog
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -81,6 +88,9 @@ class ChatActivity : AppCompatActivity() {
     var modelId: String? = null
     private var currentUserMessage: ChatDataItem? = null
     private var sessionName: String? = null
+    private var useDiffusionWaitHint: Boolean = false
+    private var hasMeaningfulDiffusionProgress: Boolean = false
+    private var showDiffusionPercentWhenZero: Boolean = false
     private lateinit var binding: ActivityChatBinding
     private var audioPlayer: AudioChunksPlayer? = null
     private lateinit var chatPresenter: ChatPresenter
@@ -94,6 +104,9 @@ class ChatActivity : AppCompatActivity() {
 
     private var benchmarkModule: BenchmarkModule = BenchmarkModule(activity = this)
     private lateinit var voiceModelsChecker: VoiceModelsChecker
+    private var isMockStreamSession: Boolean = false
+    private val mockStreamHandler = Handler(Looper.getMainLooper())
+    private var mockStreamRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -106,7 +119,9 @@ class ChatActivity : AppCompatActivity() {
         this.modelId = intent.getStringExtra("modelId")
         if (this.modelName.isEmpty() || this.modelId.isNullOrEmpty()) {
             finish()
+            return
         }
+        CrashReportContext.setCurrentModel(this.modelId, intent.getStringExtra("chatSessionId"))
         dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
         layoutModelLoading = findViewById(R.id.layout_model_loading)
         updateActionBar()
@@ -116,6 +131,12 @@ class ChatActivity : AppCompatActivity() {
             }
         }
         setupView(this.modelId!!, this.modelName)
+        if (shouldStartMockStream()) {
+            isMockStreamSession = true
+            chatListComponent.setup(modelName, emptyList())
+            startMockStream()
+            return
+        }
         this.setupSession()
         initializeVoiceModelsChecker()
     }
@@ -189,9 +210,133 @@ class ChatActivity : AppCompatActivity() {
     private fun setupSession() {
         chatSession = chatPresenter.createSession()
         sessionId = chatSession!!.sessionId
+        CrashReportContext.setCurrentModel(modelId, sessionId)
         onSessionCreated()
         Log.d(TAG, "current SessionId: $sessionId")
         chatPresenter.load()
+    }
+
+    private fun shouldStartMockStream(): Boolean {
+        if (!BuildConfig.DEBUG) {
+            return false
+        }
+        return intent.getBooleanExtra(EXTRA_MOCK_STREAM_ENABLE, false)
+    }
+
+    private fun startMockStream() {
+        val textLength = intent.getIntExtra(
+            EXTRA_MOCK_STREAM_TEXT_LENGTH,
+            DEFAULT_MOCK_STREAM_TEXT_LENGTH
+        ).coerceAtLeast(1)
+        val intervalMs = intent.getLongExtra(
+            EXTRA_MOCK_STREAM_INTERVAL_MS,
+            DEFAULT_MOCK_STREAM_INTERVAL_MS
+        ).coerceAtLeast(1L)
+        val lineWidth = intent.getIntExtra(
+            EXTRA_MOCK_STREAM_LINE_WIDTH,
+            DEFAULT_MOCK_STREAM_LINE_WIDTH
+        ).coerceAtLeast(1)
+        val detachAtChars = intent.getIntExtra(
+            EXTRA_MOCK_STREAM_DETACH_AT_CHARS,
+            DEFAULT_MOCK_STREAM_DETACH_AT_CHARS
+        )
+        val pauseOnDetach = intent.getBooleanExtra(
+            EXTRA_MOCK_STREAM_PAUSE_ON_DETACH,
+            false
+        )
+        val mockText = resolveMockStreamText(textLength, lineWidth)
+        val userData = createUserMessage("mock long stream")
+        onGenerateStart(userData)
+        val processor = GenerateResultProcessor()
+        processor.generateBegin()
+        mockStreamRunnable?.let(mockStreamHandler::removeCallbacks)
+
+        var nextIndex = 0
+        var didDetachFromBottom = false
+        var mockStreamPaused = false
+        chatListComponent.setOnResumeAutoScrollListener {
+            mockStreamPaused = false
+        }
+        val streamRunnable = object : Runnable {
+            override fun run() {
+                if (isDestroyed) {
+                    return
+                }
+                if (mockStreamPaused) {
+                    mockStreamHandler.postDelayed(this, intervalMs)
+                    return
+                }
+                if (nextIndex >= mockText.length) {
+                    val bench = HashMap<String, Any>().apply {
+                        put("response", processor.getRawResult())
+                        put("prompt_len", 1L)
+                        put("decode_len", mockText.length.toLong())
+                        put("prefill_time", 1L)
+                        put("decode_time", mockText.length.toLong() * intervalMs * 1000L)
+                    }
+                    onGenerateFinished(bench)
+                    mockStreamRunnable = null
+                    return
+                }
+                val chunk = mockText[nextIndex].toString()
+                nextIndex += 1
+                processor.process(chunk)
+                onLlmGenerateProgress(chunk, processor)
+                if (!didDetachFromBottom && detachAtChars > 0 && nextIndex >= detachAtChars) {
+                    didDetachFromBottom = true
+                    if (pauseOnDetach) {
+                        mockStreamPaused = true
+                    }
+                    chatListComponent.detachFromBottomForTest()
+                }
+                mockStreamHandler.postDelayed(this, intervalMs)
+            }
+        }
+        mockStreamRunnable = streamRunnable
+        mockStreamHandler.post(streamRunnable)
+    }
+
+    private fun resolveMockStreamText(textLength: Int, lineWidth: Int): String {
+        val inlineContent = intent.getStringExtra(EXTRA_MOCK_STREAM_CONTENT)
+        if (!inlineContent.isNullOrEmpty()) {
+            return inlineContent
+        }
+
+        val contentFile = intent.getStringExtra(EXTRA_MOCK_STREAM_CONTENT_FILE)
+        if (!contentFile.isNullOrEmpty()) {
+            return try {
+                File(contentFile).readText()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to read mock stream content file: $contentFile", e)
+                buildMockStreamText(textLength, lineWidth)
+            }
+        }
+
+        return buildMockStreamText(textLength, lineWidth)
+    }
+
+    private fun buildMockStreamText(length: Int, lineWidth: Int): String {
+        val base = "mockstreamoutput"
+        val builder = StringBuilder(length + 64)
+        var sourceIndex = 0
+        var currentLineWidth = 0
+        while (builder.length < length) {
+            if (currentLineWidth >= lineWidth) {
+                builder.append("\n\n")
+                currentLineWidth = 0
+                if (builder.length >= length) {
+                    break
+                }
+            }
+            val nextChar = base[sourceIndex]
+            builder.append(nextChar)
+            sourceIndex = (sourceIndex + 1) % base.length
+            currentLineWidth = if (nextChar == '\n') 0 else currentLineWidth + 1
+        }
+        if (builder.length > length) {
+            builder.setLength(length)
+        }
+        return builder.toString()
     }
 
     private fun setupOmni() {
@@ -345,6 +490,15 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Called when model load fails (e.g. native init returned null). Shows error and finishes.
+     */
+    fun onModelLoadFailed(errorMessage: String) {
+        Log.e(TAG, "Model load failed: $errorMessage")
+        Toast.makeText(this, getString(R.string.model_load_failed, errorMessage), Toast.LENGTH_LONG).show()
+        finish()
+    }
+
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_chat, menu)
         menu.findItem(R.id.show_performance_metrics)
@@ -355,7 +509,7 @@ class ChatActivity : AppCompatActivity() {
                     true
                 )
             )
-        menu.findItem(R.id.menu_item_model_settings).isVisible = !isDiffusion
+        menu.findItem(R.id.menu_item_model_settings).isVisible = true
         menu.findItem(R.id.menu_item_benchmark_test).isVisible = benchmarkModule.enabled
         // Voice chat is only available for non-diffusion models
         menu.findItem(R.id.start_voice_chat).isVisible = !isDiffusion
@@ -380,16 +534,30 @@ class ChatActivity : AppCompatActivity() {
         } else if (item.itemId == android.R.id.home) {
             finish()
         } else if (item.itemId == R.id.menu_item_model_settings) {
-            SettingsBottomSheetFragment().apply {
-                setModelId(modelId!!)
-                setConfigPath(intent.getStringExtra("configFilePath"))
-                setSession(chatSession as LlmSession)
-                addOnSettingsDoneListener{needRecreate->
-                    if (needRecreate) {
-                        recreate()
+            val session = chatSession
+            if (session is LlmSession) {
+                SettingsBottomSheetFragment().apply {
+                    setModelId(modelId!!)
+                    setConfigPath(intent.getStringExtra("configFilePath"))
+                    setSession(session)
+                    addOnSettingsDoneListener{needRecreate->
+                        if (needRecreate) {
+                            recreate()
+                        }
                     }
-                }
-            }.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
+                }.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
+            } else {
+                // For Sana and other diffusion models
+                DiffusionSettingsBottomSheetFragment().apply {
+                    setModelId(modelId!!)
+                    setConfigPath(intent.getStringExtra("configFilePath"))
+                    addOnSettingsDoneListener{needRecreate->
+                        if (needRecreate) {
+                            recreate()
+                        }
+                    }
+                }.show(supportFragmentManager, DiffusionSettingsBottomSheetFragment.TAG)
+            }
             return true
         } else if (item.itemId == R.id.menu_item_benchmark_test) {
             chatSession!!.setKeepHistory(false)
@@ -404,6 +572,9 @@ class ChatActivity : AppCompatActivity() {
             return true
         } else if (item.itemId == R.id.menu_item_api_console) {
             ApiConsoleBottomSheetFragment.newInstance(this).show(supportFragmentManager, "ApiConsoleBottomSheetFragment")
+            return true
+        } else if (item.itemId == R.id.menu_item_config_info) {
+            showConfigInfo()
             return true
         }
         return super.onOptionsItemSelected(item)
@@ -435,6 +606,7 @@ class ChatActivity : AppCompatActivity() {
             this.sessionName = null
             chatPresenter.reset{newSessionId ->
                 sessionId = newSessionId
+                CrashReportContext.setCurrentModel(modelId, sessionId)
             }
         } else {
             Toast.makeText(this, "Cannot Create New Session when generating", Toast.LENGTH_LONG).show()
@@ -471,7 +643,10 @@ class ChatActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        saveInterruptedResponseIfNeeded()
         super.onDestroy()
+        mockStreamRunnable?.let(mockStreamHandler::removeCallbacks)
+        mockStreamRunnable = null
         audioPlayer?.destroy()
         audioPlayer = null
         
@@ -480,10 +655,32 @@ class ChatActivity : AppCompatActivity() {
         wavFileWriter = null
         bufferedAudioFilePath = null
         
-        chatPresenter.destroy()
+        if (::chatPresenter.isInitialized) {
+            chatPresenter.destroy()
+        }
         MainScope().launch {
             ApiServiceManager.stopApiService(ApplicationProvider.get())
         }
+    }
+
+    private fun saveInterruptedResponseIfNeeded() {
+        if (!::chatPresenter.isInitialized || !::chatListComponent.isInitialized) {
+            return
+        }
+        val recentItem = chatListComponent.recentItem ?: return
+        if (!ChatHistoryPersistencePolicy.shouldSaveInterruptedAssistant(
+                isGenerating = isGenerating,
+                isMockStreamSession = isMockStreamSession,
+                isDiffusion = isDiffusion,
+                itemType = recentItem.type,
+                text = recentItem.text
+            )
+        ) {
+            return
+        }
+        recentItem.loading = false
+        recentItem.forceShowLoadingWithText = false
+        chatPresenter.saveResponseToDatabase(recentItem)
     }
 
     override fun onStop() {
@@ -495,6 +692,16 @@ class ChatActivity : AppCompatActivity() {
         setIsGenerating(true)
         val recentItem = chatListComponent.recentItem
         recentItem?.loading = true
+        recentItem?.forceShowLoadingWithText = false
+        useDiffusionWaitHint = DiffusionWaitHintPolicy.shouldShowWaitHint(modelName)
+        hasMeaningfulDiffusionProgress = false
+        showDiffusionPercentWhenZero = ModelTypeUtils.isSanaModel(modelName)
+        if (useDiffusionWaitHint && recentItem != null) {
+            recentItem.text = getString(R.string.diffusion_wait_hint_no_progress)
+            recentItem.displayText = recentItem.text
+            recentItem.forceShowLoadingWithText = true
+            chatListComponent.updateAssistantResponse(recentItem)
+        }
     }
 
     /**
@@ -543,14 +750,30 @@ class ChatActivity : AppCompatActivity() {
             if ("100" == progress) {
                 chatDataItem.text = getString(R.string.diffusion_generated_message)
                 chatDataItem.displayText = chatDataItem.text
+                chatDataItem.forceShowLoadingWithText = false
                 if (!diffusionDestPath.isNullOrEmpty()) {
-                    chatDataItem.imageUri = Uri.parse(diffusionDestPath)
+                    chatDataItem.imageUri = Uri.fromFile(java.io.File(diffusionDestPath))
+                    Log.d(TAG, "onDiffusionGenerateProgress: Set imageUri to ${chatDataItem.imageUri}")
                 } else {
                     Log.w(TAG, "onDiffusionGenerateProgress: diffusionDestPath is null or empty")
                 }
             } else {
-                chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
+                val numericProgress = progress?.toIntOrNull()
+                if (DiffusionProgressHintPolicy.isMeaningfulProgress(progress)) {
+                    hasMeaningfulDiffusionProgress = true
+                }
+                chatDataItem.text = if (useDiffusionWaitHint) {
+                    val shouldShowPercent = hasMeaningfulDiffusionProgress || (showDiffusionPercentWhenZero && numericProgress != null)
+                    if (shouldShowPercent) {
+                        getString(R.string.diffusion_opencl_wait_hint, (numericProgress ?: 0).toString())
+                    } else {
+                        getString(R.string.diffusion_wait_hint_no_progress)
+                    }
+                } else {
+                    getString(R.string.diffusion_generate_progress, progress ?: "0")
+                }
                 chatDataItem.displayText = chatDataItem.text
+                chatDataItem.forceShowLoadingWithText = useDiffusionWaitHint
             }
             chatListComponent.updateAssistantResponse(chatDataItem)
         } catch (e: Exception) {
@@ -562,6 +785,10 @@ class ChatActivity : AppCompatActivity() {
         setIsGenerating(false)
         val recentItem = chatListComponent.recentItem!!
         recentItem.loading = false
+        recentItem.forceShowLoadingWithText = false
+        useDiffusionWaitHint = false
+        hasMeaningfulDiffusionProgress = false
+        showDiffusionPercentWhenZero = false
         
         // Handle error cases
         if (benchMarkResult.containsKey("error") && benchMarkResult["error"] as Boolean) {
@@ -580,6 +807,10 @@ class ChatActivity : AppCompatActivity() {
         
         recentItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
         chatListComponent.updateAssistantResponse(recentItem)
+
+        if (isMockStreamSession) {
+            return
+        }
         
         // Always save to database, even for errors, to maintain conversation history
         try {
@@ -603,6 +834,10 @@ class ChatActivity : AppCompatActivity() {
             setIsGenerating(false)
             val recentItem = chatListComponent.recentItem
             recentItem?.loading = false
+            recentItem?.forceShowLoadingWithText = false
+            useDiffusionWaitHint = false
+            hasMeaningfulDiffusionProgress = false
+            showDiffusionPercentWhenZero = false
             
             Log.d(TAG, "Generation stopped by external request")
         } else {
@@ -612,6 +847,16 @@ class ChatActivity : AppCompatActivity() {
 
     val sessionDebugInfo: String
         get() = chatSession!!.debugInfo
+
+    private fun showConfigInfo() {
+        val session = chatSession
+        if (session is LlmSession) {
+            val configJson = session.dumpConfig()
+            ConfigInfoDialog.show(this, configJson)
+        } else {
+            Toast.makeText(this, "Config info not available for this model type", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private fun initializeVoiceModelsChecker() {
         Log.d(TAG, "Initializing VoiceModelsChecker")
@@ -700,6 +945,7 @@ class ChatActivity : AppCompatActivity() {
             this.sessionName = null
             chatPresenter.reset { newSessionId ->
                 sessionId = newSessionId
+                CrashReportContext.setCurrentModel(modelId, sessionId)
                 // Create voice chat fragment with the new session
                 val voiceChatFragment = VoiceChatFragment.newInstance(modelName, modelId!!, chatPresenter)
                 supportFragmentManager.beginTransaction()
@@ -768,6 +1014,7 @@ class ChatActivity : AppCompatActivity() {
             }, onSessionCreated = { newSession ->
                 chatSession = newSession
                 sessionId = newSession.sessionId
+                CrashReportContext.setCurrentModel(modelId, sessionId)
                 onSessionCreated()
             }
         )
@@ -779,6 +1026,7 @@ class ChatActivity : AppCompatActivity() {
     private fun updateModelInfo(selectedModelId: String, selectedModelName: String) {
         this.modelId = selectedModelId
         this.modelName = selectedModelName
+        CrashReportContext.setCurrentModel(this.modelId, sessionId)
         isDiffusion = ModelTypeUtils.isDiffusionModel(selectedModelName)
         isAudioModel = ModelTypeUtils.isAudioModel(selectedModelId)
         
@@ -804,6 +1052,18 @@ class ChatActivity : AppCompatActivity() {
 
     companion object {
         const val TAG: String = "ChatActivity"
+        const val EXTRA_MOCK_STREAM_ENABLE = "mock_stream_enable"
+        const val EXTRA_MOCK_STREAM_CONTENT = "mock_stream_content"
+        const val EXTRA_MOCK_STREAM_CONTENT_FILE = "mock_stream_content_file"
+        const val EXTRA_MOCK_STREAM_TEXT_LENGTH = "mock_stream_text_length"
+        const val EXTRA_MOCK_STREAM_INTERVAL_MS = "mock_stream_interval_ms"
+        const val EXTRA_MOCK_STREAM_LINE_WIDTH = "mock_stream_line_width"
+        const val EXTRA_MOCK_STREAM_DETACH_AT_CHARS = "mock_stream_detach_at_chars"
+        const val EXTRA_MOCK_STREAM_PAUSE_ON_DETACH = "mock_stream_pause_on_detach"
+        private const val DEFAULT_MOCK_STREAM_TEXT_LENGTH = 2000
+        private const val DEFAULT_MOCK_STREAM_INTERVAL_MS = 30L
+        private const val DEFAULT_MOCK_STREAM_LINE_WIDTH = 24
+        private const val DEFAULT_MOCK_STREAM_DETACH_AT_CHARS = -1
         private var _chatPresenter: ChatPresenter? = null
         fun getChatPresenter(): ChatPresenter? {
             return this._chatPresenter

@@ -28,6 +28,7 @@ LayerNormExecution::LayerNormExecution(const std::vector<Tensor *> &inputs, cons
     mResource->RMSNorm = layer_norm_param->useRMSNorm();
     auto bufferUnitSize = mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? sizeof(half_float::half) : sizeof(float);
     unit.kernel = runtime->buildKernel("layernorm", "layernorm_w", {"-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     mResource->mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     mResource->has_gamma_beta_ = (layer_norm_param->gamma() && layer_norm_param->beta());
@@ -212,12 +213,16 @@ public:
     virtual ~LayerNormCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        if (inputs.size() != 1 || outputs.size() != 1 ||
+            TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            return nullptr;
+        }
         const auto* layer_norm_param = op->main_as_LayerNorm();
         int group = layer_norm_param->group();
         if(group > 1){
 			return nullptr;
         }
-        return new LayerNormExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new LayerNormExecution(inputs, op, backend));
     }
 };
 

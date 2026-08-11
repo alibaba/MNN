@@ -1,6 +1,7 @@
 package com.alibaba.mnnllm.api.openai.service
 
 import android.content.Context
+import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import com.alibaba.mnnllm.api.openai.manager.ApiNotificationManager
 import com.alibaba.mnnllm.api.openai.network.application.OpenAIApplication
@@ -8,14 +9,17 @@ import com.alibaba.mnnllm.android.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /** * unifiedschedulingmanager,responsible for coordinatingnotificationbarserviceandservicelifecycle*/
 class ApiServiceCoordinator(private val context: Context) {
     private val TAG = this::class.java.simpleName
+    private val stateLock = Any()
     private val networkServiceScope = CoroutineScope(Dispatchers.IO)
     private var notificationManager: ApiNotificationManager? = null
     private var application: OpenAIApplication? = null
+    private var bootstrapCount: Int = 0
 
     private var _isInitialized = false
     val isInitialized: Boolean get() = _isInitialized
@@ -44,72 +48,124 @@ class ApiServiceCoordinator(private val context: Context) {
     }
 
     /** * startserviceandnotification*/
-    fun startServer(): Boolean {
-        if (!_isInitialized) {
-            Timber.Forest.tag(TAG).w("Coordinator not initialized")
-            return false
-        }
-
-        return runCatching {
-            val session = ServiceLocator.getChatSessionProvider().getLlmSession()
-            if (session == null) {
-                Timber.Forest.tag(TAG).w("No active LlmSession found")
-                notificationManager?.updateNotification(
-                    context.getString(R.string.api_service_not_started),
-                    context.getString(R.string.no_active_session)
-                )
+    fun startServer(modelId: String? = null): Boolean {
+        synchronized(stateLock) {
+            if (!_isInitialized) {
+                Timber.Forest.tag(TAG).w("Coordinator not initialized")
                 return false
             }
 
-            //ensureServerEventManagerstate correctlyinitialize
-            //if previouslybeenreset,neededre-preparestate
-            val serverEventManager = com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance()
-            if (serverEventManager.getCurrentState() == com.alibaba.mnnllm.api.openai.manager.ServerEventManager.ServerState.STOPPED) {
-                Timber.Forest.tag(TAG).d("ServerEventManager is in STOPPED state, ready for new server")
+            if (application != null && _isServerRunning) {
+                if (!modelId.isNullOrBlank()) {
+                    val switchedSession = resolveRuntimeSessionForStart(modelId)
+                    if (switchedSession == null) {
+                        notificationManager?.updateNotification(
+                            context.getString(R.string.api_service_not_started),
+                            context.getString(R.string.no_active_session)
+                        )
+                        return false
+                    }
+                    Timber.Forest.tag(TAG).i("Runtime session ensured while server running, modelId=%s", modelId)
+                }
+                return true
             }
 
-            //startservice
-            val app = OpenAIApplication(networkServiceScope, context)
-            app.start()
-            application = app
+            return runCatching {
+                val session = resolveRuntimeSessionForStart(modelId)
+                if (session == null) {
+                    Timber.Forest.tag(TAG).w("No active LlmSession found")
+                    notificationManager?.updateNotification(
+                        context.getString(R.string.api_service_not_started),
+                        context.getString(R.string.no_active_session)
+                    )
+                    return false
+                }
 
-            //updatenotification
-            notificationManager?.updateNotification(
-                context.getString(R.string.api_service_running),
-                "", //let NotificationManager usedefault IP addressdisplay
-                app.getPort()
-            )
+                val serverEventManager = com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance()
+                if (serverEventManager.getCurrentState() == com.alibaba.mnnllm.api.openai.manager.ServerEventManager.ServerState.STOPPED) {
+                    Timber.Forest.tag(TAG).d("ServerEventManager is in STOPPED state, ready for new server")
+                }
 
-            _isServerRunning = true
-            Timber.Forest.tag(TAG).i("Server started successfully on port ${app.getPort()}")
-            true
-        }.getOrElse { e ->
-            Timber.Forest.tag(TAG).e(e, "Failed to start server: ${e.message}")
-            notificationManager?.updateNotification(
-                context.getString(R.string.api_service_start_failed),
-                context.getString(R.string.api_service_error, e.message)
-            )
-            false
+                val app = OpenAIApplication(networkServiceScope, context)
+                app.start()
+                application = app
+                bootstrapCount += 1
+
+                notificationManager?.updateNotification(
+                    context.getString(R.string.api_service_running),
+                    "",
+                    app.getPort()
+                )
+
+                _isServerRunning = true
+                Timber.Forest.tag(TAG).i("Server started successfully on port ${app.getPort()}")
+                true
+            }.getOrElse { e ->
+                Timber.Forest.tag(TAG).e(e, "Failed to start server: ${e.message}")
+                notificationManager?.updateNotification(
+                    context.getString(R.string.api_service_start_failed),
+                    context.getString(R.string.api_service_error, e.message)
+                )
+                false
+            }
         }
+    }
+
+    private fun resolveRuntimeSessionForStart(modelId: String?): LlmSession? {
+        val runtime = ServiceLocator.getLlmRuntimeController()
+        val chatSessionProvider = ServiceLocator.getChatSessionProvider()
+        val activeModelId = runtime.getActiveModelId()
+        val hasLoadedActiveSession = chatSessionProvider.hasActiveSession()
+
+        if (ApiRuntimeSessionStartPolicy.shouldReuseLoadedSession(modelId, activeModelId, hasLoadedActiveSession)) {
+            val activeSession = runtime.getActiveSession() ?: chatSessionProvider.getLlmSession()
+            if (activeSession != null) {
+                Timber.Forest.tag(TAG).i(
+                    "Reusing loaded runtime session for API start, requestedModelId=%s activeModelId=%s",
+                    modelId,
+                    activeModelId
+                )
+                return activeSession
+            }
+        }
+
+        if (!modelId.isNullOrBlank()) {
+            return ensureRuntimeSessionForModel(modelId)
+        }
+
+        return runtime.getActiveSession() ?: chatSessionProvider.getLlmSession()
+    }
+
+    private fun ensureRuntimeSessionForModel(modelId: String): LlmSession? {
+        val ensureResult = ServiceLocator.getLlmRuntimeController().ensureSession(modelId)
+        if (!ensureResult.success || ensureResult.session == null) {
+            Timber.Forest.tag(TAG).w(
+                "Failed to ensure runtime session for modelId=%s, reason=%s",
+                modelId,
+                ensureResult.reason ?: "unknown"
+            )
+            return null
+        }
+        return ensureResult.session
     }
 
     /** * stop serverandnotification*/
     fun stopServer() {
-        runCatching {
-            //stop server
-            application?.stop()
-            application = null
+        synchronized(stateLock) {
+            runCatching {
+                application?.stop()
+                application = null
 
-            com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
-            Timber.Forest.tag(TAG).d("ServerEventManager state reset after application is nullified.")
+                com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
+                Timber.Forest.tag(TAG).d("ServerEventManager state reset after application is nullified.")
 
-            //cancelnotification
-            notificationManager?.cancelNotification()
+                notificationManager?.cancelNotification()
 
-            _isServerRunning = false
-            Timber.Forest.tag(TAG).i("Server stopped successfully")
-        }.onFailure { e ->
-            Timber.Forest.tag(TAG).e(e, "Error stopping server: ${e.message}")
+                _isServerRunning = false
+                Timber.Forest.tag(TAG).i("Server stopped successfully")
+            }.onFailure { e ->
+                Timber.Forest.tag(TAG).e(e, "Error stopping server: ${e.message}")
+            }
         }
     }
 
@@ -129,6 +185,12 @@ class ApiServiceCoordinator(private val context: Context) {
     /** * getserviceport*/
     fun getServerPort(): Int? = application?.getPort()
 
+    fun getBootstrapCount(): Int {
+        synchronized(stateLock) {
+            return bootstrapCount
+        }
+    }
+
     /** * checkservicewhetherrunning*/
     fun checkServerStatus(): Boolean = application?.isRunning() ?: false
 
@@ -144,35 +206,40 @@ class ApiServiceCoordinator(private val context: Context) {
     /**
      * cleanupresource*/
     fun cleanup() {
-        runCatching {
-            val appToStop = application
-            if (appToStop != null) {
-                Timber.Forest.tag(TAG).i("Cleanup: Requesting server stop for application: $appToStop")
-                appToStop.stop() //issuestoprequest
-                
-                Timber.Forest.tag(TAG).i("Cleanup: Waiting 5 seconds for server to stop gracefully...")
-                try {
-                    Thread.sleep(3000) //increasewaittimeto 5 seconds
-                } catch (e: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    Timber.Forest.tag(TAG).w("Cleanup delay interrupted after server stop request.")
-                }
-                Timber.Forest.tag(TAG).i("Cleanup: Finished waiting. Proceeding with coordinator cleanup.")
-                application = null //atwaitafter set to null
-            }
+        synchronized(stateLock) {
+            runCatching {
+                val appToStop = application
+                application = null
 
-            //ensureeven if appToStop as null，alsotryresetstateandcancelnotification
-            com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
-            Timber.Forest.tag(TAG).d("ServerEventManager state reset during cleanup.")
-            notificationManager?.cancelNotification()
-            
-            Timber.Forest.tag(TAG).i("Cleanup: Cancelling networkServiceScope.")
-            networkServiceScope.cancel() //finallycancelscope
-            notificationManager = null
-            _isInitialized = false
-            Timber.Forest.tag(TAG).i("Coordinator cleaned up")
-        }.onFailure { e ->
-            Timber.Forest.tag(TAG).e(e, "Error during cleanup: ${e.message}")
+                com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
+                Timber.Forest.tag(TAG).d("ServerEventManager state reset during cleanup.")
+                notificationManager?.cancelNotification()
+                notificationManager = null
+                _isInitialized = false
+                _isServerRunning = false
+
+                if (appToStop != null) {
+                    Timber.Forest.tag(TAG).i("Cleanup: Requesting async server stop for application")
+                    networkServiceScope.launch {
+                        try {
+                            appToStop.stopInternal()
+                            Timber.Forest.tag(TAG).i("Cleanup: Server stopped gracefully")
+                        } catch (e: Exception) {
+                            Timber.Forest.tag(TAG).e(e, "Cleanup: Error during async server stop")
+                        } finally {
+                            Timber.Forest.tag(TAG).i("Cleanup: Cancelling networkServiceScope")
+                            networkServiceScope.cancel()
+                        }
+                    }
+                } else {
+                    Timber.Forest.tag(TAG).i("Cleanup: No application running, cancelling networkServiceScope immediately")
+                    networkServiceScope.cancel()
+                }
+
+                Timber.Forest.tag(TAG).i("Coordinator cleanup logic executed")
+            }.onFailure { e ->
+                Timber.Forest.tag(TAG).e(e, "Error during cleanup: ${e.message}")
+            }
         }
     }
 }

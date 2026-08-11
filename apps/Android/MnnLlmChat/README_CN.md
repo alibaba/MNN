@@ -1,4 +1,5 @@
 # MNN Chat Android App
+[简体中文版本](./README_CN.md) | [繁体中文版本](./README_TW.md)
 
 [下载](#releases)
 
@@ -35,6 +36,10 @@
 
 
 # 开发 
++ 准备环境：
+  + Android Studio
+  + NDK（与 `app/build.gradle` 保持一致，当前为 `27.2.12479018`）
+  + `export ANDROID_NDK=${YOUR_NDK_ROOT}`
 + 克隆代码库：
   ```shell
     git clone https://github.com/alibaba/MNN.git
@@ -43,6 +48,7 @@
   ```shell
   cd project/android
   mkdir build_64
+  cd build_64
   ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_INSTALL_PREFIX=."
   make install
   ```
@@ -51,8 +57,93 @@
   cd ../../../apps/Android/MnnLlmChat
   ./installDebug.sh
   ```
-
 # Releases
+
+## Version 0.8.3
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_3.apk)
++ 更新亮点：
+  + 新增 Gemma 4 模型条目，包括多模态 E2B/E4B 以及视觉 26B-A4B/31B 版本。
+  + 新增 LFM 模型家族，覆盖 LFM2/LFM2.5 文本、任务增强、视觉语言、音频和 MoE 版本。
+  + 新增 Qwen3.5 Claude 4.6 Opus reasoning-distilled 模型条目。
++ 问题修复：
+  + 清理 Android 原生链接配置，使其与内置 MNN runtime 库打包方式保持一致。
+
+## Version 0.8.2.2
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_2.apk)
++ 更新亮点：
+  + 刷新内置 MNN runtime，带入最新的 CPU LinearAttention 与 Arm82 fp16 优化路径。
+  + 提升思考模式提示词和数组拼接场景下的 tokenizer 与模板渲染兼容性。
+  + 为 OpenCL 和 Metal 执行路径补充 TopKV2 后端支持。
++ 问题修复：
+  + 修复 Android 点击 Add Local Model 时的崩溃问题。
+  + 避免模型加载时因 mmap 权重部分初始化而导致的死锁问题。
+  + 对同模型启动 API 服务时复用已加载 runtime session，避免额外重载导致的卡死或崩溃。
+
+## Version 0.8.2.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_1.apk)
++ 问题修复：
+  + 修复 Android 聊天在预编译 runtime 下可能只输出单个 token，或第二轮无法继续生成的问题。
+  + 加强 dumpapp 与 smoke 对终止回调、单 token 回归和思考模式差异判定的覆盖。
+
+## Version 0.8.2
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2.apk)
++ 更新亮点：
+  + 支持在语音聊天中实时使用视觉输入。
+  + 恢复聊天页面返回后的自动滚动。
++ 问题修复：
+  + 修复模型设置的配置路径与重置行为。
+  + 提升 LaTeX 与 Markdown 表格流式渲染的回归覆盖。
+
+## Version 0.8.1.3
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_3.apk)
++ 问题修复：
+  + 提升 Google Play 发版的整体稳定性。
+
+## Version 0.8.1.2
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_2.apk)
++ 问题修复：
+  + 修复已知问题并提升整体稳定性。
+
+## Version 0.8.1.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_1_1.apk)
++ 问题修复：
+  + 修复若干已知问题并提升整体稳定性。
+  + 提升模型切换与聊天流程的可靠性。
+
+## Version 0.8.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_1.apk)
++ 更新亮点：
+  + 支持 Qwen3.5 切换思考模式。
+  + 提高 API 稳定性，兼容 Anthropic 协议。
+
+## Version 0.8.0.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0_1.apk)
++ 问题修复：
+  + 修复 Qwen3.5 的 benchmark 崩溃问题
+
+## Version 0.8.0
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0.apk)
++ 新功能：
+  + 支持 Qwen3.5
+
+## Version 0.7.8
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_8.apk)
++ 新增：
+  + 稳定性改进
+
+## Version 0.7.7
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_7.apk)
++ 问题修复：
+  + 修复下载删除失败问题
++ 新功能：
+  + 支持 Sana 图像编辑模型
+
+## Version 0.7.6
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_6.apk)
++ 问题修复：
+  + 修复 huggingface 下载错误
++ 界面更新：
+  + 支持多图输入
 
 ## Version 0.7.5
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_5.apk)

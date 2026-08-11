@@ -17,10 +17,15 @@ import kotlin.math.min
 object FullScreenImageViewer {
     fun showImagePopup(context: Context, imageUri: Uri?) {
         if (imageUri == null) return
-        showImagePopup(context, listOf(imageUri), 0)
+        showImagePopup(context, listOf(imageUri), 0, true)
     }
 
-    fun showImagePopup(context: Context, images: List<Uri>, initialIndex: Int) {
+    fun showImagePopup(
+        context: Context,
+        images: List<Uri>,
+        initialIndex: Int,
+        showShareOption: Boolean = true
+    ) {
         if (images.isEmpty()) return
         
         val inflater = context.getSystemService(Context.LAYOUT_INFLATER_SERVICE) as LayoutInflater
@@ -30,9 +35,11 @@ object FullScreenImageViewer {
         dialog.setContentView(popupView)
         
         val viewPager = popupView.findViewById<androidx.viewpager2.widget.ViewPager2>(R.id.viewPager)
-        val adapter = FullScreenImageAdapter(images) {
-            dialog.dismiss()
-        }
+        val adapter = FullScreenImageAdapter(
+            images,
+            { dialog.dismiss() },
+            showShareOption
+        )
         viewPager.adapter = adapter
         viewPager.setCurrentItem(initialIndex, false)
         

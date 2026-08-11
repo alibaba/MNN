@@ -34,7 +34,7 @@ public:
         return mName;
     }
 protected:
-    std::string mName= "General_Execution";
+    std::string mName;
 #endif
 private:
     Backend* mBackend;

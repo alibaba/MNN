@@ -18,7 +18,12 @@ echo $PROJECT_ROOT
 export PROJECT_ROOT
 #Compile wheels
 for PYBIN in /opt/python/*/bin; do
-    "${PYBIN}/pip" install -U numpy
+    python_tag=$(basename "$(dirname "$PYBIN")")
+    case "$python_tag" in
+        cp38-*|cp39-*|cp310-*|cp311-*|cp312-*|cp313-*|cp314-*) ;;
+        *) continue ;;
+    esac
+    "${PYBIN}/pip" install -U "numpy<2.5"
     if [ "$1" == "-trt" ]; then
         USE_TRT=true "${PYBIN}/python" setup.py bdist_wheel
     elif [ "$1" == "-cuda" ]; then

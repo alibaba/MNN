@@ -77,8 +77,20 @@ def build_deps():
     #build_main_project
     cmake_build_dir = os.path.join(root_dir, BUILD_DIR)
     if os.path.exists(cmake_build_dir):
-        shutil.rmtree(cmake_build_dir)
-    os.makedirs(cmake_build_dir)
+        if os.path.islink(cmake_build_dir):
+            # Symlinked build dir (e.g. work_tmp/pymnn_build): clean target contents
+            real_dir = os.path.realpath(cmake_build_dir)
+            for entry in os.listdir(real_dir):
+                p = os.path.join(real_dir, entry)
+                if os.path.islink(p) or os.path.isfile(p):
+                    os.remove(p)
+                else:
+                    shutil.rmtree(p)
+        else:
+            shutil.rmtree(cmake_build_dir)
+            os.makedirs(cmake_build_dir)
+    else:
+        os.makedirs(cmake_build_dir)
     os.chdir(cmake_build_dir)
     extra_opts = '-DMNN_LOW_MEMORY=ON'
     if USE_RENDER:
@@ -88,7 +100,11 @@ def build_deps():
     if USE_OPENCL:
         extra_opts += ' -DMNN_OPENCL=ON'
     if USE_LLM:
-        extra_opts += ' -DMNN_BUILD_LLM=ON -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DLLM_SUPPORT_VISION=ON -DLLM_SUPPORT_AUDIO=ON'
+        # -DMNN_BUILD_LLM=ON      -> auto-enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
+        # -DMNN_BUILD_LLM_OMNI=ON -> auto-enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
+        #   which in turn auto-define LLM_SUPPORT_VISION / LLM_SUPPORT_AUDIO inside the llm engine
+        #   (those LLM_SUPPORT_* are compile-time defines, not standalone cmake options).
+        extra_opts += ' -DMNN_BUILD_LLM=ON -DMNN_BUILD_LLM_OMNI=ON'
     if USE_ARM82:
         extra_opts += ' -DMNN_ARM82=ON'
     extra_opts += ' -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=ON' if USE_OPENMP else ' -DMNN_USE_THREAD_POOL=ON -DMNN_OPENMP=OFF'
@@ -106,14 +122,14 @@ def build_deps():
         extra_opts += ' -DMNN_INTERNAL=ON ' if USE_INTERNAL else ' '
         extra_opts += ' -DMNN_BUILD_TORCH=ON ' if USE_TORCH else ' '
         if USE_CUDA:
-            extra_opts += ' -DMNN_CUDA=ON '
+            extra_opts += ' -DMNN_CUDA=ON -DMNN_CUDA_NATIVE_ARCH=ON '
             if USE_CUDA_TUNE:
                 extra_opts += ' -DMNN_CUDA_TUNE_PARAM=ON '
         extra_opts += ' ' if USE_SSE else ' -DMNN_USE_SSE=OFF '
         os.system('cmake ' + extra_opts +
             '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release \
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
-            -DMNN_BUILD_AUDIO=ON  .. && make MNN MNNTrain MNNConvertDeps -j32')
+            -DMNN_BUILD_AUDIO=ON  ' + root_dir + ' && make MNN MNNTrain MNNConvertDeps -j32')
     else:
         extra_opts += ' -DMNN_INTERNAL=ON ' if USE_INTERNAL else ' '
         extra_opts += ' -DMNN_BUILD_TORCH=ON ' if USE_TORCH else ' '

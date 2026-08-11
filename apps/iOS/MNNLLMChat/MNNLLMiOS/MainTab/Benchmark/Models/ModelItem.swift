@@ -17,7 +17,7 @@ struct ModelItem: Identifiable, Equatable {
     let localPath: String?
     let size: Int64?
     let downloadState: DownloadState
-    
+
     enum DownloadState: Equatable {
         case notStarted
         case downloading(progress: Double)
@@ -25,7 +25,7 @@ struct ModelItem: Identifiable, Equatable {
         case failed(error: String)
         case paused
     }
-    
+
     static func == (lhs: ModelItem, rhs: ModelItem) -> Bool {
         return lhs.modelId == rhs.modelId
     }

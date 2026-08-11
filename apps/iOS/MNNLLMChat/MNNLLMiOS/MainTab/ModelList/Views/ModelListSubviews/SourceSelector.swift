@@ -11,7 +11,7 @@ struct SourceSelector: View {
     @Binding var selectedSource: ModelSource
     @Binding var showSourceMenu: Bool
     let onSourceChange: (ModelSource) -> Void
-    
+
     var body: some View {
         Menu {
             ForEach(ModelSource.allCases) { source in
@@ -31,11 +31,11 @@ struct SourceSelector: View {
                 Text("modelSource.title")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
-                
+
                 Text(selectedSource.rawValue)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundColor(.primary)
-                
+
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10))
                     .foregroundColor(.primary)

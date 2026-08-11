@@ -11,16 +11,16 @@ struct FilterOptionRow: View {
     let text: String
     let isSelected: Bool
     let onTap: () -> Void
-    
+
     var body: some View {
         Button(action: onTap) {
             HStack {
                 Text(text)
                     .font(.system(size: 14))
                     .foregroundColor(.primary)
-                
+
                 Spacer()
-                
+
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.accentColor)

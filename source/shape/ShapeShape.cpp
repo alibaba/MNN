@@ -6,11 +6,35 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <algorithm>
+#include <utility>
 #include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
+
+static std::pair<int, int> _resolveShapeRange(const Op* op, int rank) {
+    int start = 0;
+    int end = rank;
+    if (auto param = op->main_as_ShapeParam()) {
+        if (param->hasStart()) {
+            start = param->start();
+            if (start < 0) {
+                start += rank;
+            }
+        }
+        if (param->hasEnd()) {
+            end = param->end();
+            if (end < 0) {
+                end += rank;
+            }
+        }
+    }
+    start = std::max(0, std::min(start, rank));
+    end = std::max(start, std::min(end, rank));
+    return std::make_pair(start, end);
+}
 
 class ShapeSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
@@ -24,12 +48,13 @@ class ShapeSizeComputer : public SizeComputer {
         outputs[0]->setType(DataType_DT_INT32);
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = op->defaultDimentionFormat();
         auto inputFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        int rank = ib.dimensions;
         if (inputFormat == MNN_DATA_FORMAT_NC4HW4 && op->defaultDimentionFormat() == MNN_DATA_FORMAT_NHWC) {
             // For compability
-            ob.dim[0].extent = 4;
-        } else {
-            ob.dim[0].extent = ib.dimensions;
+            rank = 4;
         }
+        auto range = _resolveShapeRange(op, rank);
+        ob.dim[0].extent = range.second - range.first;
         return true;
     }
 };

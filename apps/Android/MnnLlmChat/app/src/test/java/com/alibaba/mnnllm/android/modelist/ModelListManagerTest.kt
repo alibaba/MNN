@@ -6,17 +6,26 @@ import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mnnllm.android.MnnLlmApplication
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketConfig
+import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -32,11 +41,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowBuild
 import java.io.File
 import java.nio.file.Files
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE)
 @ExperimentalCoroutinesApi
 class ModelListManagerTest {
 
@@ -71,6 +81,7 @@ class ModelListManagerTest {
         // Default Mocks
         every { LocalModelsProvider.getLocalModels() } returns mutableListOf()
         every { PreferenceUtils.getPinnedModels(any()) } returns emptySet()
+        every { PreferenceUtils.getString(any(), any(), any()) } answers { thirdArg<String>() }
         every { DownloadPersistentData.getDownloadSizeSaved(any(), any()) } returns 0L
         every { BuiltinModelManager.hasBuiltinModels(any()) } returns false
         
@@ -81,12 +92,33 @@ class ModelListManagerTest {
         // Mock ModelMarketCache Flows
         every { ModelMarketCache.observeModelMarketConfig(any()) } returns flowOf(emptyMap())
         coEvery { ModelMarketCache.getModelFromCache(any()) } returns null
+        every { ModelMarketCache.getAllCachedModels() } returns emptyMap()
     }
 
     private fun resetModelListManager() {
         try {
             val instance = ModelListManager
             val kClass = instance::class
+
+            cancelJobField("marketDataSyncJob")
+            cancelJobField("tagWarmupJob")
+
+            val modelIdModelMapField = kClass.java.getDeclaredField("modelIdModelMap")
+            modelIdModelMapField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            (modelIdModelMapField.get(instance) as MutableMap<String, ModelItem>).clear()
+
+            val cachedModelsField = kClass.java.getDeclaredField("cachedModels")
+            cachedModelsField.isAccessible = true
+            cachedModelsField.set(instance, null)
+
+            val hasEmittedInitialCacheField = kClass.java.getDeclaredField("hasEmittedInitialCache")
+            hasEmittedInitialCacheField.isAccessible = true
+            hasEmittedInitialCacheField.setBoolean(instance, false)
+
+            val lastSyncedMarketDataKeyField = kClass.java.getDeclaredField("lastSyncedMarketDataKey")
+            lastSyncedMarketDataKeyField.isAccessible = true
+            lastSyncedMarketDataKeyField.set(instance, null)
             
             // Reset isInitialized
             val isInitializedProp = kClass.java.getDeclaredField("isInitialized")
@@ -101,14 +133,27 @@ class ModelListManagerTest {
             // Reset _modelListState to Loading
             val modelListStateProp = kClass.java.getDeclaredField("_modelListState")
             modelListStateProp.isAccessible = true
-            // We need to set it to a new MutableStateFlow or reset the existing one
-            // Easier to just let initialize() overwrite it? No, initialize() updates it.
-            // But if it was Success from previous run, we want it back to Loading?
-            // Actually initialize sets it to Loading or Success.
-            // Resetting isInitialized is the most important.
-            
+            @Suppress("UNCHECKED_CAST")
+            val modelListState = modelListStateProp.get(instance) as kotlinx.coroutines.flow.MutableStateFlow<ModelListManager.ModelListState>
+            modelListState.value = ModelListManager.ModelListState.Loading
+
         } catch (e: Exception) {
             println("Failed to reset ModelListManager: ${e.message}")
+        }
+    }
+
+    private fun cancelJobField(fieldName: String) {
+        try {
+            val field = ModelListManager::class.java.getDeclaredField(fieldName)
+            field.isAccessible = true
+            val job = field.get(ModelListManager) as? Job
+            if (job != null) {
+                runBlocking {
+                    job.cancelAndJoin()
+                }
+                field.set(ModelListManager, null)
+            }
+        } catch (_: Exception) {
         }
     }
 
@@ -196,6 +241,12 @@ class ModelListManagerTest {
         assertTrue(resultTags.contains("local"))
     }
 
+    @Test(timeout = 1000)
+    fun `getModelTags should return quickly when manager has no success state`() {
+        val tags = ModelListManager.getModelTags("not-in-cache")
+        assertTrue(tags.isEmpty())
+    }
+
     // ========== Model Type Detection Tests ==========
 
     @Test
@@ -255,6 +306,80 @@ class ModelListManagerTest {
     }
 
     @Test
+    fun `initialize should exclude local tts and asr models from list`() = runTest {
+        // Given
+        val llmModel = ModelItem().apply {
+            this.modelId = "local-llm-model"
+            this.tags = listOf("Think")
+            this.localPath = tempDir.absolutePath
+        }
+        val ttsModel = ModelItem().apply {
+            this.modelId = "local-tts-model"
+            this.tags = listOf("TTS")
+            this.localPath = tempDir.absolutePath
+        }
+        val asrModel = ModelItem().apply {
+            this.modelId = "local-asr-model"
+            this.tags = listOf("ASR")
+            this.localPath = tempDir.absolutePath
+        }
+
+        try {
+            val isLocalField = ModelItem::class.java.getDeclaredField("isLocal")
+            isLocalField.isAccessible = true
+            isLocalField.setBoolean(llmModel, true)
+            isLocalField.setBoolean(ttsModel, true)
+            isLocalField.setBoolean(asrModel, true)
+        } catch (e: Exception) {
+            println("Could not set isLocal: ${e.message}")
+        }
+
+        every { LocalModelsProvider.getLocalModels() } returns mutableListOf(llmModel, ttsModel, asrModel)
+
+        // When
+        ModelListManager.initialize(context)
+        val models = ModelListManager.observeModels().firstOrNull()
+
+        // Then
+        assertNotNull("Models should not be null", models)
+        val modelIds = models!!.mapNotNull { it.modelItem.modelId }
+        assertTrue("LLM model should be present", modelIds.contains("local-llm-model"))
+        assertFalse("TTS model should be excluded", modelIds.contains("local-tts-model"))
+        assertFalse("ASR model should be excluded", modelIds.contains("local-asr-model"))
+    }
+
+    @Test
+    fun `initialize should keep local tmp models visible when tags are not asr or tts`() = runTest {
+        // Given
+        val localTmpModel = ModelItem().apply {
+            this.modelId = "local//data/local/tmp/mnn_models/custom-asr-like-name"
+            this.tags = emptyList()
+            this.localPath = tempDir.absolutePath
+        }
+        try {
+            val isLocalField = ModelItem::class.java.getDeclaredField("isLocal")
+            isLocalField.isAccessible = true
+            isLocalField.setBoolean(localTmpModel, true)
+        } catch (e: Exception) {
+            println("Could not set isLocal: ${e.message}")
+        }
+
+        every { LocalModelsProvider.getLocalModels() } returns mutableListOf(localTmpModel)
+
+        // When
+        ModelListManager.initialize(context)
+        val models = ModelListManager.observeModels().firstOrNull()
+
+        // Then
+        assertNotNull("Models should not be null", models)
+        val modelIds = models!!.mapNotNull { it.modelItem.modelId }
+        assertTrue(
+            "Local /data/local/tmp/mnn_models model should be visible",
+            modelIds.contains("local//data/local/tmp/mnn_models/custom-asr-like-name")
+        )
+    }
+
+    @Test
     fun `isVisualModel should return true for model with visual tag`() = runTest {
         // Given
         val modelId = "visual-model"
@@ -280,6 +405,46 @@ class ModelListManagerTest {
 
         // Then
         assertTrue(result)
+    }
+
+    @Test
+    fun `initialize should apply market tags via fallback when source-specific modelId is missing`() = runTest {
+        // Given: local downloaded model id differs from currently cached market source
+        val modelId = "ModelScope/MNN/Qwen3.5-0.8B-MNN"
+        val localModel = ModelItem().apply {
+            this.modelId = modelId
+            this.localPath = tempDir.absolutePath
+        }
+        try {
+            val isLocalField = ModelItem::class.java.getDeclaredField("isLocal")
+            isLocalField.isAccessible = true
+            isLocalField.setBoolean(localModel, true)
+        } catch (e: Exception) {
+            println("Could not set isLocal: ${e.message}")
+        }
+
+        every { LocalModelsProvider.getLocalModels() } returns mutableListOf(localModel)
+        coEvery { ModelMarketCache.getModelFromCache(modelId) } returns null
+        every { ModelMarketCache.getAllCachedModels() } returns mapOf(
+            "HuggingFace/taobao-mnn/Qwen3.5-0.8B-MNN" to ModelMarketItem(
+                modelName = "Qwen3.5-0.8B-MNN",
+                vendor = "Qwen",
+                sizeB = 0.8,
+                tags = listOf("Think", "Vision"),
+                categories = listOf("qwen"),
+                sources = mapOf("HuggingFace" to "taobao-mnn/Qwen3.5-0.8B-MNN"),
+                modelId = "HuggingFace/taobao-mnn/Qwen3.5-0.8B-MNN"
+            )
+        )
+
+        // When
+        ModelListManager.initialize(context)
+        ModelListManager.observeModels().firstOrNull()
+        val tags = ModelListManager.getModelTags(modelId)
+
+        // Then
+        assertTrue("Expected Think tag from fallback market item, tags=$tags", tags.contains("Think"))
+        assertTrue("Expected Vision tag from fallback market item, tags=$tags", tags.contains("Vision"))
     }
 
     @Test
@@ -604,6 +769,19 @@ class ModelListManagerTest {
     }
 
     @Test
+    fun `hasDataChanged should return true when tags change`() = runTest {
+        // Given
+        val cached = listOf(createTestWrapper("model1", tags = listOf("Think")))
+        val fresh = listOf(createTestWrapper("model1", tags = listOf("Think", "Vision")))
+
+        // When
+        val result = invokeHasDataChanged(cached, fresh)
+
+        // Then
+        assertTrue("Should return true when tags differ", result)
+    }
+
+    @Test
     fun `hasDataChanged should return false when models are identical`() = runTest {
         // Given
         val cached = listOf(createTestWrapper("model1"))
@@ -620,11 +798,13 @@ class ModelListManagerTest {
     private fun createTestWrapper(
         modelId: String,
         isPinned: Boolean = false,
-        downloadSize: Long = 1024L
+        downloadSize: Long = 1024L,
+        tags: List<String> = emptyList()
     ): ModelItemWrapper {
         val modelItem = ModelItem().apply {
             this.modelId = modelId
             this.localPath = tempDir.absolutePath
+            this.tags = tags
         }
         return ModelItemWrapper(
             modelItem = modelItem,
@@ -1173,6 +1353,51 @@ class ModelListManagerTest {
     }
 
     @Test
+    fun `shouldIncludeMissingConfigModelForScan should include diffusion models from DB marker`() {
+        val include = ModelListManager.shouldIncludeMissingConfigModelForScan(
+            modelId = "ModelScope/MNN/any-model",
+            modelType = "DIFFUSION"
+        )
+        assertTrue("Diffusion DB marker should include model without config", include)
+    }
+
+    @Test
+    fun `shouldIncludeMissingConfigModelForScan should include diffusion models by id fallback`() {
+        val include = ModelListManager.shouldIncludeMissingConfigModelForScan(
+            modelId = "ModelScope/MNN/stable-diffusion-1.5",
+            modelType = null
+        )
+        assertTrue("Diffusion model id should include model without config", include)
+    }
+
+    @Test
+    fun `shouldIncludeMissingConfigModelForScan should exclude non diffusion models without marker`() {
+        val include = ModelListManager.shouldIncludeMissingConfigModelForScan(
+            modelId = "ModelScope/MNN/qwen3-8b-instruct",
+            modelType = null
+        )
+        assertFalse("Non-diffusion model without marker should be excluded", include)
+    }
+
+    @Test
+    fun `resolveModelTypeForDownloadHistory should keep diffusion type`() {
+        val type = ModelListManager.resolveModelTypeForDownloadHistory(
+            modelId = "ModelScope/MNN/sana-1.6B",
+            modelType = "UNKNOWN"
+        )
+        assertEquals("DIFFUSION", type)
+    }
+
+    @Test
+    fun `resolveModelTypeForDownloadHistory should default non diffusion to llm`() {
+        val type = ModelListManager.resolveModelTypeForDownloadHistory(
+            modelId = "ModelScope/MNN/qwen3-8b-instruct",
+            modelType = "UNKNOWN"
+        )
+        assertEquals("LLM", type)
+    }
+
+    @Test
     fun `DTO with empty modelId should return null from from()`() = runTest {
         // Given
         val modelItem = ModelItem().apply {
@@ -1690,5 +1915,183 @@ class ModelListManagerTest {
         // Then
         assertNotNull("Model map should not be null", modelMap)
         assertTrue("Model map should not be empty", modelMap.isNotEmpty())
+    }
+
+    @Test
+    fun `market update during initialization should still refresh when same version re-emits`() = runTest {
+        val originalFingerprint = android.os.Build.FINGERPRINT
+        ShadowBuild.setFingerprint("physical-device-for-market-sync")
+        try {
+            val modelId = "ModelScope/MNN/Qwen3.5-0.8B-MNN"
+            val localModel = ModelItem().apply {
+                this.modelId = modelId
+                this.localPath = tempDir.absolutePath
+            }
+            try {
+                val isLocalField = ModelItem::class.java.getDeclaredField("isLocal")
+                isLocalField.isAccessible = true
+                isLocalField.setBoolean(localModel, true)
+            } catch (e: Exception) {
+                println("Could not set isLocal: ${e.message}")
+            }
+            every { LocalModelsProvider.getLocalModels() } returns mutableListOf(localModel)
+            coEvery { ModelMarketCache.getModelFromCache(any()) } returns null
+
+            val marketItemV1 = ModelMarketItem(
+                modelName = "Qwen3.5-0.8B-MNN",
+                vendor = "Qwen",
+                sizeB = 0.8,
+                tags = listOf("Think"),
+                categories = listOf("qwen"),
+                sources = mapOf("HuggingFace" to "taobao-mnn/Qwen3.5-0.8B-MNN"),
+                modelId = "HuggingFace/taobao-mnn/Qwen3.5-0.8B-MNN"
+            )
+            val marketItemV2 = marketItemV1.copy(tags = listOf("Think", "Vision"))
+            var currentMarketItems = mapOf(marketItemV1.modelId to marketItemV1)
+            every { ModelMarketCache.getAllCachedModels() } answers { currentMarketItems }
+
+            setMarketDataFlowForTest(null)
+            val initializeJob = launch { ModelListManager.initialize(context) }
+
+            withTimeout(5000) {
+                while (!isModelListManagerInitializing() || !isMarketSyncJobStarted()) {
+                    delay(10)
+                }
+            }
+
+            val firstMarketData = createMarketData(version = "42", nonce = "first")
+            setMarketDataFlowForTest(firstMarketData)
+            initializeJob.join()
+
+            val firstTags = ModelListManager.getModelTags(modelId)
+            assertTrue("Initial tags should include Think, tags=$firstTags", firstTags.contains("Think"))
+            assertFalse("Initial tags should not include Vision yet, tags=$firstTags", firstTags.contains("Vision"))
+
+            currentMarketItems = mapOf(marketItemV2.modelId to marketItemV2)
+            val secondMarketDataSameVersion = createMarketData(version = "42", nonce = "second")
+            setMarketDataFlowForTest(secondMarketDataSameVersion)
+
+            var refreshedTags = ModelListManager.getModelTags(modelId)
+            withTimeout(3000) {
+                while (!refreshedTags.contains("Vision")) {
+                    delay(50)
+                    refreshedTags = ModelListManager.getModelTags(modelId)
+                }
+            }
+            assertTrue(
+                "Expected Vision tag after same-version re-emit, actual tags=$refreshedTags",
+                refreshedTags.contains("Vision")
+            )
+        } finally {
+            ShadowBuild.reset()
+            ShadowBuild.setFingerprint(originalFingerprint)
+        }
+    }
+
+    @Test
+    fun `market update with same version should refresh when environment changes`() = runTest {
+        val originalFingerprint = android.os.Build.FINGERPRINT
+        ShadowBuild.setFingerprint("physical-device-for-market-sync")
+        try {
+            var currentEnv = "prod"
+            every {
+                PreferenceUtils.getString(any(), "debug_market_data_environment", any())
+            } answers { currentEnv }
+
+            val modelId = "ModelScope/MNN/Qwen3.5-0.8B-MNN"
+            val localModel = ModelItem().apply {
+                this.modelId = modelId
+                this.localPath = tempDir.absolutePath
+            }
+            every { LocalModelsProvider.getLocalModels() } returns mutableListOf(localModel)
+            coEvery { ModelMarketCache.getModelFromCache(any()) } returns null
+
+            val marketItemV1 = ModelMarketItem(
+                modelName = "Qwen3.5-0.8B-MNN",
+                vendor = "Qwen",
+                sizeB = 0.8,
+                tags = listOf("Think"),
+                categories = listOf("qwen"),
+                sources = mapOf("HuggingFace" to "taobao-mnn/Qwen3.5-0.8B-MNN"),
+                modelId = "HuggingFace/taobao-mnn/Qwen3.5-0.8B-MNN"
+            )
+            val marketItemV2 = marketItemV1.copy(tags = listOf("Think", "Vision"))
+            var currentMarketItems = mapOf(marketItemV1.modelId to marketItemV1)
+            every { ModelMarketCache.getAllCachedModels() } answers { currentMarketItems }
+
+            setMarketDataFlowForTest(null)
+            ModelListManager.initialize(context)
+
+            withTimeout(5000) {
+                while (!isMarketSyncJobStarted()) {
+                    delay(10)
+                }
+            }
+
+            setMarketDataFlowForTest(createMarketData(version = "42", nonce = "prod"))
+            withTimeout(3000) {
+                while (getLastSyncedMarketDataKey() != "prod:42") {
+                    delay(50)
+                }
+            }
+
+            currentEnv = "dev"
+            currentMarketItems = mapOf(marketItemV2.modelId to marketItemV2)
+            setMarketDataFlowForTest(createMarketData(version = "42", nonce = "dev"))
+
+            var refreshedTags = ModelListManager.getModelTags(modelId)
+            withTimeout(3000) {
+                while (!refreshedTags.contains("Vision")) {
+                    delay(50)
+                    refreshedTags = ModelListManager.getModelTags(modelId)
+                }
+            }
+            assertTrue(
+                "Expected Vision tag after env switch with same version, actual tags=$refreshedTags",
+                refreshedTags.contains("Vision")
+            )
+        } finally {
+            ShadowBuild.reset()
+            ShadowBuild.setFingerprint(originalFingerprint)
+        }
+    }
+
+    private fun isModelListManagerInitializing(): Boolean {
+        val field = ModelListManager::class.java.getDeclaredField("isInitializing")
+        field.isAccessible = true
+        return field.getBoolean(ModelListManager)
+    }
+
+    private fun isMarketSyncJobStarted(): Boolean {
+        val field = ModelListManager::class.java.getDeclaredField("marketDataSyncJob")
+        field.isAccessible = true
+        return (field.get(ModelListManager) as? Job) != null
+    }
+
+    private fun getLastSyncedMarketDataKey(): String? {
+        val field = ModelListManager::class.java.getDeclaredField("lastSyncedMarketDataKey")
+        field.isAccessible = true
+        return field.get(ModelListManager) as? String
+    }
+
+    private fun setMarketDataFlowForTest(value: ModelMarketConfig?) {
+        val field = ModelRepository::class.java.getDeclaredField("_marketDataFlow")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val flow = field.get(ModelRepository) as kotlinx.coroutines.flow.MutableStateFlow<ModelMarketConfig?>
+        flow.value = value
+    }
+
+    private fun createMarketData(version: String, nonce: String): ModelMarketConfig {
+        return ModelMarketConfig(
+            version = version,
+            tagTranslations = mapOf("nonce" to nonce),
+            quickFilterTags = emptyList(),
+            vendorOrder = emptyList(),
+            llmModels = emptyList(),
+            ttsModels = emptyList(),
+            asrModels = emptyList(),
+            libs = emptyList()
+        )
     }
 }

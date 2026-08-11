@@ -32,6 +32,7 @@ data class ModelConfig(
     @SerializedName("use_mmap") var useMmap: Boolean?,
     @SerializedName("memory") var memory: String?,
     @SerializedName("system_prompt") var systemPrompt: String?,
+    @SerializedName("prompt_cache") var promptCache: Boolean?,
     @SerializedName("sampler_type") var samplerType: String?,
     @SerializedName("mixed_samplers") var mixedSamplers: MutableList<String>?,
     @SerializedName("temperature") var temperature: Float?,
@@ -47,7 +48,14 @@ data class ModelConfig(
     @SerializedName("assistant_prompt_template")var assistantPromptTemplate:String?,
     @SerializedName("penalty_sampler")var penaltySampler:String?,
     @SerializedName("jinja") var jinja: Jinja?,
-    @SerializedName("visual_model") var visualModel: String?
+    @SerializedName("visual_model") var visualModel: String?,
+    @SerializedName("diffusion_memory_mode") var diffusionMemoryMode: String?,
+    @SerializedName("diffusion_steps") var diffusionSteps: Int?,
+    @SerializedName("image_width") var imageWidth: Int?,
+    @SerializedName("image_height") var imageHeight: Int?,
+    @SerializedName("diffusion_seed") var diffusionSeed: Long?,
+    @SerializedName("cfg_prompt") var cfgPrompt: String?,
+    @SerializedName("grid_size") var gridSize: Int?
     ) {
     fun deepCopy(): ModelConfig {
         return ModelConfig(
@@ -58,6 +66,7 @@ data class ModelConfig(
             precision = this.precision,
             memory = this.memory,
             systemPrompt = this.systemPrompt,
+            promptCache = this.promptCache,
             samplerType = this.samplerType,
             mixedSamplers = this.mixedSamplers?.toMutableList(),
             temperature = this.temperature,
@@ -76,7 +85,14 @@ data class ModelConfig(
             jinja = this.jinja?.let {
                 Jinja(context = JinjaContext(enableThinking = it.context?.enableThinking == true))
             },
-            visualModel = this.visualModel
+            visualModel = this.visualModel,
+            diffusionMemoryMode = this.diffusionMemoryMode,
+            diffusionSteps = this.diffusionSteps,
+            imageWidth = this.imageWidth,
+            imageHeight = this.imageHeight,
+            diffusionSeed = this.diffusionSeed,
+            cfgPrompt = this.cfgPrompt,
+            gridSize = this.gridSize
         )
     }
 
@@ -93,7 +109,14 @@ data class ModelConfig(
                 this.nGram == loadedConfig.nGram &&
                 this.nGramFactor == loadedConfig.nGramFactor &&
                 this.penaltySampler == loadedConfig.penaltySampler &&
-                this.visualModel == loadedConfig.visualModel
+                this.visualModel == loadedConfig.visualModel &&
+                this.diffusionMemoryMode == loadedConfig.diffusionMemoryMode &&
+                this.diffusionSteps == loadedConfig.diffusionSteps &&
+                this.imageWidth == loadedConfig.imageWidth &&
+                this.imageHeight == loadedConfig.imageHeight &&
+                this.diffusionSeed == loadedConfig.diffusionSeed &&
+                this.cfgPrompt == loadedConfig.cfgPrompt &&
+                this.gridSize == loadedConfig.gridSize
     }
 
     companion object {
@@ -112,7 +135,12 @@ data class ModelConfig(
         }
 
         fun loadConfig(modelId: String): ModelConfig? {
-            return loadMergedConfig(getDefaultConfigFile(modelId)!!, getExtraConfigFile(modelId))
+            val defaultConfigFile = getDefaultConfigFile(modelId)
+            if (defaultConfigFile.isNullOrEmpty()) {
+                Log.w(TAG, "loadConfig: default config not found for modelId=$modelId")
+                return null
+            }
+            return loadMergedConfig(defaultConfigFile, getExtraConfigFile(modelId))
         }
 
         fun loadMergedConfig(originalFilePath: String, overrideFilePath: String): ModelConfig? {
@@ -164,9 +192,22 @@ data class ModelConfig(
             return null
         }
 
+        /** Keys that must not be overwritten by empty string - model paths and backend from config.json */
+        private val PROTECTED_KEYS = setOf("llm_model", "llm_weight", "backend_type")
+
         private fun mergeJson(original: JsonObject, override: JsonObject) {
             for (key in override.keySet()) {
-                original.add(key, override.get(key))
+                val overrideVal = override.get(key)
+                // Don't let empty string overwrite model paths - custom_config may have saved
+                // defaultConfig's empty llm_model/llm_weight, which would break model load
+                if (key in PROTECTED_KEYS && overrideVal.isJsonPrimitive &&
+                    overrideVal.asJsonPrimitive.isString && overrideVal.asString.isBlank() &&
+                    original.has(key) && original.get(key).isJsonPrimitive &&
+                    original.get(key).asJsonPrimitive.isString && original.get(key).asString.isNotBlank()
+                ) {
+                    continue
+                }
+                original.add(key, overrideVal)
             }
         }
 
@@ -199,6 +240,17 @@ data class ModelConfig(
             return getModelConfigDir(modelId) + "/custom_config.json"
         }
 
+        /** Delete custom_config.json so next load uses base config.json only (restores defaults). */
+        fun deleteExtraConfig(modelId: String): Boolean {
+            return try {
+                val file = File(getExtraConfigFile(modelId))
+                file.exists() && file.delete()
+            } catch (e: Exception) {
+                Log.e(TAG, "deleteExtraConfig error", e)
+                false
+            }
+        }
+
         fun getMarketConfigFile(modelId: String):String {
             if (modelId.startsWith("local/")) {
                 val localPath = modelId.removePrefix("local/")
@@ -222,13 +274,14 @@ data class ModelConfig(
         }
 
         val defaultConfig:ModelConfig = ModelConfig (
-            llmModel = "",
-            llmWeight = "",
-            backendType = "",
+            llmModel = null,
+            llmWeight = null,
+            backendType = null,
             threadNum = 4,
             precision = "low",
             memory = "",
             systemPrompt = "You are a helpful assistant.",
+            promptCache = false,
             samplerType = "",
             mixedSamplers = mutableListOf("topK", "topP", "minP", "temperature"),
             temperature = 0.6f,
@@ -245,9 +298,15 @@ data class ModelConfig(
             penaltySampler = "greedy",
             useMmap = false,
             jinja = null,
-            visualModel = "visual.mnn"
+            visualModel = "visual.mnn",
+            diffusionMemoryMode = "0",
+            diffusionSteps = 20,
+            imageWidth = 512,
+            imageHeight = 512,
+            diffusionSeed = 42L,
+            cfgPrompt = "Generate high quality image",
+            gridSize = 1
         )
 
     }
 }
-

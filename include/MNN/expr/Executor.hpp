@@ -28,6 +28,16 @@ class MNN_PUBLIC Executor {
 public:
     class ComputeCache;
     class RuntimeExecuteWrap;
+    class MNN_PUBLIC Activation {
+    public:
+        ~Activation();
+
+    private:
+        friend class Executor;
+        explicit Activation(const RuntimeInfo& info);
+        RuntimeInfo mRuntimeInfo;
+        std::unique_ptr<RuntimeExecuteWrap> mRuntimeWrap;
+    };
     struct DebugTools;
     /**Internal Usage Begin*/
     struct Requirement {
@@ -55,6 +65,9 @@ public:
     void setLazyComputeMode(uint32_t mode);
     void setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread);
     int getCurrentRuntimeStatus(RuntimeStatus statusEnum);
+    // Get last GPU execution time in ms (measured by GPU timestamps).
+    // Returns -1.0f if profiling is not supported or not enabled.
+    float getLastGpuTimeMs() const;
     enum GCFlag {
         FULL,
         PART
@@ -72,6 +85,8 @@ public:
     bool registerSubGraph(const std::string& submoduleName, VARPS outputs, VARPS inputs);
     std::shared_ptr<SubGraph> findSubGraph(const std::string& submoduleName);
     static RuntimeInfo getRuntime();
+    /** Keep this executor's runtimes active until the returned guard is destroyed. */
+    std::shared_ptr<Activation> activte() const;
     void setCallBack(TensorCallBackWithInfo&& before, TensorCallBackWithInfo&& after);
     const DebugTools* getDebugTools() const {
         return mDebug.get();
@@ -129,6 +144,9 @@ public:
         void setHint(Interpreter::HintMode mode, int value);
         void setHint(Interpreter::HintMode mode, int* value, size_t size);
         void setHintPtr(Interpreter::HintMode mode, void* value);
+        // Keep Runtime::pMeta in sync for backend runtimes that still read it during onCreate.
+        // Session also sets the meta on created Backends through the common backend creation path.
+        void applyMetaToRuntime() const;
         bool getInfo(Interpreter::SessionInfoCode code, void* ptr);
         static bool getDeviceInfo(const std::string& deviceKey, const MNNForwardType type, std::string& deviceValue);
         BackendConfig* getBnConfig();

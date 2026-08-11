@@ -5,7 +5,6 @@
 //  Created by 游薪渝(揽清) on 2025/1/13.
 //
 
-
 import Foundation
 
 enum ModelIcon: String {
@@ -21,8 +20,8 @@ enum ModelIcon: String {
     case internlm = "internlm_icon"
     case gemma = "gemma_icon"
     case defaultMNN = "mnn_icon"
-    
+
     var imageName: String {
-        return self.rawValue
+        return rawValue
     }
 }

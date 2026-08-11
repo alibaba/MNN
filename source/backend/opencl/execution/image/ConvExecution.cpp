@@ -37,7 +37,10 @@ ConvCommonExecution::ConvCommonExecution(const Convolution2D *conv2dParams, Back
     }
     runtime->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, biasSize}));
-    backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
+    if (!(backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC))) {
+        mConvComValid = false;
+        return;
+    }
     copyBufferToImage(runtime, biasBuffer, openCLImage(mResource->mBias.get()), UP_DIV(biasSize, 4), 1, mOpenCLBackend->getPrecision());
 }
 
@@ -66,9 +69,12 @@ ConvCommonExecution::ConvCommonExecution(const Op *op, Backend *backend, bool is
     }
     runtime->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, biasSize}));
-    backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
+    if (!(backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC))) {
+        mConvComValid = false;
+        return;
+    }
     copyBufferToImage(runtime, biasBuffer, openCLImage(mResource->mBias.get()), UP_DIV(biasSize, 4), 1, mOpenCLBackend->getPrecision());
-    
+
     if(isExtra){
         const PRelu* preluParam = flatbuffers::GetRoot<PRelu>(op->main_as_Extra()->attr()->GetAs<Attribute>(1)->tensor()->uint8s()->data());
         const float *slopeDataPtr = preluParam->slope()->data();
@@ -83,7 +89,10 @@ ConvCommonExecution::ConvCommonExecution(const Op *op, Backend *backend, bool is
         }
         runtime->commandQueue().enqueueUnmapMemObject(slopeBuffer, slopePtrCL);
         mResource->mSlope.reset(Tensor::createDevice<float>({1, 1, 1, biasSize}));
-        backend->onAcquireBuffer(mResource->mSlope.get(), Backend::STATIC);
+        if (!(backend->onAcquireBuffer(mResource->mSlope.get(), Backend::STATIC))) {
+            mConvComValid = false;
+            return;
+        }
         copyBufferToImage(runtime, slopeBuffer, openCLImage(mResource->mSlope.get()), UP_DIV(biasSize, 4), 1, mOpenCLBackend->getPrecision());
     }
 }
@@ -114,6 +123,10 @@ bool ConvExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
 
 ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op, Backend *backend, bool isExtra)
 : CommonExecution(backend, op), ConvCommonExecution(op, backend, isExtra) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvExecution init !\n");
 #endif
@@ -284,7 +297,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
 #endif
         {
             mResource->mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
-            mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+            OPENCL_CHECK_ALLOC_CTOR(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC));
             MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
             
             std::string buildOption = "-DBUFFER_INP_FP32";
@@ -590,7 +603,7 @@ public:
                         // Don't support IDST-int8 because of error
                         return nullptr;
                     }
-                    return new ConvLowMemoryExecution(inputs, outputs, op, backend);
+                    OPENCL_CREATOR_CHECK(new ConvLowMemoryExecution(inputs, outputs, op, backend));
                 } else {
                     //MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
                     return nullptr;
@@ -618,10 +631,10 @@ public:
         int maxWidth  = static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->getMaxImage2DSize()[0];
         int maxHeight = static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->getMaxImage2DSize()[1];
         if (ConvWinograd::valid(conv2D->common(), inputs[0], outputs[0], maxWidth, maxHeight)) {
-            return new ConvWinograd(op, backend);
+            OPENCL_CREATOR_CHECK(new ConvWinograd(op, backend));
         }
         
-        return new ConvExecution(inputs, outputs, op, backend);
+        OPENCL_CREATOR_CHECK(new ConvExecution(inputs, outputs, op, backend));
     }
 };
 

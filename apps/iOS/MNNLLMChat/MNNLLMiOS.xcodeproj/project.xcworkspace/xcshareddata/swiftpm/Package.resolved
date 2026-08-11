@@ -1,5 +1,5 @@
 {
-  "originHash" : "160ca88ee9cc9d8a4de6ec53503412c897e3ed9f19931b032d10094d6e9fe330",
+  "originHash" : "6cbdc980b39fbf9cbaeaf928394da4f35a6e9d8460a885e49f4fbef8a6f883bb",
   "pins" : [
     {
       "identity" : "activityindicatorview",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Yogayu/Chat.git",
       "state" : {
-        "revision" : "4c49b92811d42b8caa01e5c8562767640e19be56",
-        "version" : "1.0.1"
+        "revision" : "0fb0432650a2b6c2ed613b6e63895fcff71c5e1c",
+        "version" : "1.0.43"
       }
     },
     {
@@ -38,6 +38,24 @@
       }
     },
     {
+      "identity" : "lrucache",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nicklockwood/LRUCache",
+      "state" : {
+        "revision" : "cb5b2bd0da83ad29c0bec762d39f41c8ad0eaf3e",
+        "version" : "1.2.1"
+      }
+    },
+    {
+      "identity" : "markdownview",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Yogayu/MarkdownView",
+      "state" : {
+        "revision" : "08bfca62c244392054ea3bcee31304239301772a",
+        "version" : "3.4.0"
+      }
+    },
+    {
       "identity" : "mediapicker",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Yogayu/MediaPicker.git",
@@ -47,12 +65,12 @@
       }
     },
     {
-      "identity" : "networkimage",
+      "identity" : "splash",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/NetworkImage",
+      "location" : "https://github.com/Lakr233/Splash",
       "state" : {
-        "revision" : "2849f5323265386e200484b0d0f896e73c3411b9",
-        "version" : "6.0.1"
+        "revision" : "de9cde249fdb7a173a6e6b950ab18b11f6c2a557",
+        "version" : "0.18.0"
       }
     },
     {
@@ -78,8 +96,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-cmark",
       "state" : {
-        "revision" : "b022b08312decdc46585e0b3440d97f6f22ef703",
-        "version" : "0.6.0"
+        "revision" : "5d9bdaa4228b381639fff09403e39a04926e2dbe",
+        "version" : "0.7.1"
       }
     },
     {
@@ -87,17 +105,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-collections.git",
       "state" : {
-        "revision" : "671108c96644956dddcd89dd59c203dcdb36cec7",
-        "version" : "1.1.4"
-      }
-    },
-    {
-      "identity" : "swift-markdown-ui",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/swift-markdown-ui",
-      "state" : {
-        "revision" : "5f613358148239d0292c0cef674a3c2314737f9e",
-        "version" : "2.4.1"
+        "revision" : "8c0c0a8b49e080e54e5e328cc552821ff07cd341",
+        "version" : "1.2.1"
       }
     },
     {
@@ -107,6 +116,15 @@
       "state" : {
         "revision" : "e5bf0627bd134cf8ddc407cda403ae84207af959",
         "version" : "0.1.22"
+      }
+    },
+    {
+      "identity" : "swiftmath",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Lakr233/SwiftMath",
+      "state" : {
+        "revision" : "cfd646dcac0c5553e21ebf1ee05f9078277518bc",
+        "version" : "1.7.2"
       }
     },
     {

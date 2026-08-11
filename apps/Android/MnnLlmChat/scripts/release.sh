@@ -2,8 +2,8 @@
 
 # Release script for MnnLlmChat
 # This script builds and publishes:
-# 1. Standard flavor debug version for CDN upload
-# 2. Google Play flavor release APK/AAB for Google Play Store
+# 1. Standard flavor debug APK for CDN upload
+# 2. Google Play flavor release AAB for Google Play Store
 
 set -e
 
@@ -16,9 +16,29 @@ NC='\033[0m' # No Color
 
 # Configuration
 PROJECT_NAME="MnnLlmChat"
-VERSION_NAME=$(grep "versionName" app/build.gradle | head -1 | sed 's/.*versionName "\(.*\)"/\1/')
-VERSION_CODE=$(grep "versionCode" app/build.gradle | head -1 | sed 's/.*versionCode \([0-9]*\)/\1/')
+VERSION_NAME=$(awk '
+    /defaultConfig[[:space:]]*\{/ { in_default=1; next }
+    in_default && /versionName[[:space:]]*"/ {
+        match($0, /versionName[[:space:]]*"[^"]+"/)
+        print substr($0, RSTART + 13, RLENGTH - 14)
+        exit
+    }
+    in_default && /\}/ { in_default=0 }
+' app/build.gradle)
+VERSION_CODE=$(awk '
+    /defaultConfig[[:space:]]*\{/ { in_default=1; next }
+    in_default && /versionCode[[:space:]]*[0-9]+/ {
+        match($0, /versionCode[[:space:]]*[0-9]+/)
+        value=substr($0, RSTART, RLENGTH)
+        sub(/versionCode[[:space:]]*/, "", value)
+        print value
+        exit
+    }
+    in_default && /\}/ { in_default=0 }
+' app/build.gradle)
 BUILD_DATE=$(date +"%Y%m%d_%H%M%S")
+RELEASE_HIGHLIGHTS="${RELEASE_HIGHLIGHTS:-}"
+PREVIOUS_VERSION="${PREVIOUS_VERSION:-}"
 
 # Directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,6 +63,13 @@ CDN_BUCKET="${CDN_BUCKET:-}"
 # Google Play configuration
 GOOGLE_PLAY_SERVICE_ACCOUNT="${GOOGLE_PLAY_SERVICE_ACCOUNT:-}"
 GOOGLE_PLAY_PACKAGE_NAME="${GOOGLE_PLAY_PACKAGE_NAME:-com.alibaba.mnnllm.android.googleplay}"
+ENABLE_FIREBASE="${ENABLE_FIREBASE:-true}"
+MNN_FIREBASE_CONFIG_DIR="${MNN_FIREBASE_CONFIG_DIR:-$HOME/.mnn}"
+MNN_FIREBASE_DEV_CONFIG="${MNN_FIREBASE_DEV_CONFIG:-$MNN_FIREBASE_CONFIG_DIR/google-services-dev.json}"
+MNN_FIREBASE_RELEASE_CONFIG="${MNN_FIREBASE_RELEASE_CONFIG:-$MNN_FIREBASE_CONFIG_DIR/google-services-release.json}"
+
+STANDARD_GRADLE_ARGS=()
+GOOGLEPLAY_GRADLE_ARGS=()
 
 # Functions
 log_info() {
@@ -59,6 +86,51 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+has_google_services_config() {
+    [[ -f "app/google-services.json" ]] || [[ -f "app/src/googleplay/google-services.json" ]] || [[ -f "app/src/standard/google-services.json" ]]
+}
+
+detect_previous_version() {
+    local readme_file="README.md"
+    if [[ ! -f "$readme_file" ]]; then
+        return
+    fi
+
+    awk -v current="$VERSION_NAME" '
+        /^## Version / {
+            version=$3
+            if (seen_current && version != current) {
+                print version
+                exit
+            }
+            if (version == current) {
+                seen_current=1
+            }
+        }
+    ' "$readme_file"
+}
+
+prepare_google_services_config() {
+    if [[ "$ENABLE_FIREBASE" != "true" ]]; then
+        return
+    fi
+
+    if [[ ! -f "$MNN_FIREBASE_DEV_CONFIG" ]]; then
+        log_error "Missing standard/debug Firebase config: $MNN_FIREBASE_DEV_CONFIG"
+        exit 1
+    fi
+
+    if [[ ! -f "$MNN_FIREBASE_RELEASE_CONFIG" ]]; then
+        log_error "Missing Google Play/release Firebase config: $MNN_FIREBASE_RELEASE_CONFIG"
+        exit 1
+    fi
+
+    mkdir -p "app/src/standard" "app/src/googleplay"
+    cp "$MNN_FIREBASE_DEV_CONFIG" "app/src/standard/google-services.json"
+    cp "$MNN_FIREBASE_RELEASE_CONFIG" "app/src/googleplay/google-services.json"
+    log_info "Prepared Firebase configs for standard(debug) and googleplay(release) flavors."
 }
 
 check_requirements() {
@@ -83,12 +155,33 @@ check_requirements() {
         exit 1
     fi
     
-    # Check signing configuration for Google Play
+    # Check signing configuration for Google Play upload.
+    # Build of Google Play AAB can still proceed without signing env vars.
     if [[ -z "$KEYSTORE_FILE" || -z "$KEYSTORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
-        log_warning "Signing configuration not found. Google Play release will be skipped."
-        SKIP_GOOGLE_PLAY=true
+        log_warning "Signing configuration not found. Google Play upload will be skipped."
+        SKIP_GOOGLE_PLAY_UPLOAD=true
+        unset KEYSTORE_FILE KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD
+    elif [[ ! -f "$KEYSTORE_FILE" ]]; then
+        log_warning "Signing keystore not found at $KEYSTORE_FILE. Building local AAB without signing and skipping Google Play upload."
+        SKIP_GOOGLE_PLAY_UPLOAD=true
+        unset KEYSTORE_FILE KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD
     else
-        SKIP_GOOGLE_PLAY=false
+        SKIP_GOOGLE_PLAY_UPLOAD=false
+    fi
+
+    if [[ "$ENABLE_FIREBASE" == "true" ]]; then
+        prepare_google_services_config
+        if has_google_services_config; then
+            STANDARD_GRADLE_ARGS+=("-PENABLE_FIREBASE=true")
+            GOOGLEPLAY_GRADLE_ARGS+=("-PENABLE_FIREBASE=true")
+            log_info "Firebase enabled for standardDebug and Google Play bundle builds."
+        else
+            log_error "ENABLE_FIREBASE=true but no google-services.json found."
+            log_error "Add app/google-services.json (or flavor-specific config) before release."
+            exit 1
+        fi
+    else
+        log_info "Firebase disabled by configuration for local release build."
     fi
     
     log_success "Requirements check completed"
@@ -105,7 +198,7 @@ clean_build() {
 build_standard_debug() {
     log_info "Building standard flavor debug version..."
     
-    ./gradlew assembleStandardDebug
+    ./gradlew "${STANDARD_GRADLE_ARGS[@]}" assembleStandardDebug
     
     # Generate version-based filename (replace dots with underscores)
     VERSION_FILENAME=$(echo "$VERSION_NAME" | sed 's/\./_/g')
@@ -122,30 +215,9 @@ build_standard_debug() {
     fi
 }
 
-build_googleplay_release() {
-    if [[ "$SKIP_GOOGLE_PLAY" == "true" ]]; then
-        log_warning "Skipping Google Play release build due to missing signing configuration"
-        return
-    fi
-    
-    log_info "Building Google Play flavor release version..."
-    
-    # Build the release APK
-    ./gradlew assembleGoogleplayRelease
-    
-    # Copy APK to output directory
-    APK_PATH="$BUILD_DIR/outputs/apk/googleplay/release/app-googleplay-release.apk"
-    if [[ -f "$APK_PATH" ]]; then
-        cp "$APK_PATH" "$GOOGLE_PLAY_DIR/"
-        log_success "Google Play release APK built: $GOOGLE_PLAY_DIR/app-googleplay-release.apk"
-    else
-        log_error "Google Play release APK not found at $APK_PATH"
-        exit 1
-    fi
-    
-    # Also try to build AAB if possible
+build_googleplay_release_bundle() {
     log_info "Building Google Play flavor release AAB..."
-    ./gradlew bundleGoogleplayRelease
+    ./gradlew "${GOOGLEPLAY_GRADLE_ARGS[@]}" bundleGoogleplayRelease
     
     # Copy AAB to output directory
     AAB_PATH="$BUILD_DIR/outputs/bundle/googleplayRelease/app-googleplay-release.aab"
@@ -163,34 +235,38 @@ upload_to_cdn() {
         return
     fi
     
-    log_info "Uploading to CDN..."
+    log_info "Uploading to CDN (ali-oss SDK)..."
     
-    # Check if ossutil is available (Aliyun OSS CLI tool)
-    if ! command -v ossutil &> /dev/null; then
-        log_warning "ossutil not found. Please install it to upload to CDN."
-        log_info "You can install ossutil from: https://www.alibabacloud.com/help/en/object-storage-service/latest/ossutil-installation"
+    # Ensure Node.js and dependencies are available
+    if ! command -v node &> /dev/null; then
+        log_warning "Node.js not found. Install Node.js to enable automatic CDN upload."
         return
     fi
     
-    # Configure ossutil
-    ossutil config -e "$CDN_ENDPOINT" -i "$CDN_ACCESS_KEY" -k "$CDN_SECRET_KEY"
+    if [[ ! -d "node_modules/ali-oss" ]]; then
+        log_info "Installing ali-oss for CDN upload..."
+        npm install --no-save ali-oss
+    fi
     
-    # Generate version-based filename for upload
     VERSION_FILENAME=$(echo "$VERSION_NAME" | sed 's/\./_/g')
     APK_FILENAME="mnn_chat_${VERSION_FILENAME}.apk"
-    
-    # Upload APK to CDN
     APK_FILE="$CDN_UPLOAD_DIR/$APK_FILENAME"
-    if [[ -f "$APK_FILE" ]]; then
-        ossutil cp "$APK_FILE" "oss://$CDN_BUCKET/releases/$VERSION_NAME/$APK_FILENAME"
-        log_success "APK uploaded to CDN: oss://$CDN_BUCKET/releases/$VERSION_NAME/$APK_FILENAME"
-    else
+    
+    if [[ ! -f "$APK_FILE" ]]; then
         log_error "APK file not found for CDN upload: $APK_FILE"
+        return
+    fi
+    
+    if node scripts/upload-cdn.mjs --apk "$APK_FILE" --version "$VERSION_NAME"; then
+        OSS_PREFIX="${CDN_OSS_PREFIX:-data/mnn/apks}"
+        log_success "APK uploaded to CDN: oss://$CDN_BUCKET/$OSS_PREFIX/$APK_FILENAME"
+    else
+        log_error "CDN upload failed"
     fi
 }
 
 upload_to_google_play() {
-    if [[ "$SKIP_GOOGLE_PLAY" == "true" ]]; then
+    if [[ "$SKIP_GOOGLE_PLAY_UPLOAD" == "true" ]]; then
         log_warning "Skipping Google Play upload due to missing signing configuration"
         return
     fi
@@ -226,8 +302,7 @@ platform :android do
   lane :upload do
     upload_to_play_store(
       track: 'internal',
-      aab: '../release_outputs/googleplay/app-googleplay-release.aab',
-      apk: '../release_outputs/googleplay/app-googleplay-release.apk'
+      aab: '../release_outputs/googleplay/app-googleplay-release.aab'
     )
   end
 end
@@ -250,6 +325,8 @@ generate_release_notes() {
     APK_FILENAME="mnn_chat_${VERSION_FILENAME}.apk"
     
     RELEASE_NOTES_FILE="$OUTPUT_DIR/release_notes.md"
+    local previous_version_resolved="${PREVIOUS_VERSION:-$(detect_previous_version)}"
+
     cat > "$RELEASE_NOTES_FILE" << EOF
 # Release Notes - $PROJECT_NAME v$VERSION_NAME
 
@@ -267,7 +344,6 @@ generate_release_notes() {
 - **Location**: \`$CDN_UPLOAD_DIR/\`
 
 ### Google Play Flavor (Release)
-- **APK**: \`app-googleplay-release.apk\`
 - **AAB**: \`app-googleplay-release.aab\`
 - **Purpose**: Google Play Store distribution
 - **Location**: \`$GOOGLE_PLAY_DIR/\`
@@ -281,9 +357,25 @@ generate_release_notes() {
 ## Notes
 - Standard flavor includes debug features and is suitable for testing
 - Google Play flavor is optimized for production and follows Google Play guidelines
-- Both builds include native libraries and are signed appropriately
+- Local Google Play AAB build can run without signing env vars; store upload still requires signing + service account
 
 EOF
+
+    echo "" >> "$RELEASE_NOTES_FILE"
+    echo "## Release Highlights" >> "$RELEASE_NOTES_FILE"
+    if [[ -n "$RELEASE_HIGHLIGHTS" ]]; then
+        IFS='|' read -r -a highlight_items <<< "$RELEASE_HIGHLIGHTS"
+        for item in "${highlight_items[@]}"; do
+            echo "- $item" >> "$RELEASE_NOTES_FILE"
+        done
+    else
+        echo "- Release highlights were not provided." >> "$RELEASE_NOTES_FILE"
+        if [[ -n "$previous_version_resolved" ]]; then
+            log_warning "RELEASE_HIGHLIGHTS is empty. Provide highlights that summarize the delta from v$previous_version_resolved."
+        else
+            log_warning "RELEASE_HIGHLIGHTS is empty. Release notes were generated without a curated change summary."
+        fi
+    fi
     
     log_success "Release notes generated: $RELEASE_NOTES_FILE"
 }
@@ -300,8 +392,8 @@ main() {
     # Build standard debug version
     build_standard_debug
     
-    # Build Google Play release version
-    build_googleplay_release
+    # Build Google Play release AAB
+    build_googleplay_release_bundle
     
     # Upload to CDN
     upload_to_cdn

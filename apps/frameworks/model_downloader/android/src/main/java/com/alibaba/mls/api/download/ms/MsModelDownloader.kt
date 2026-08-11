@@ -72,7 +72,9 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
                     val repoInfo = response.body()!!
                     
                     // Call onRepoInfo callback with repo metadata
-                    val lastModified = System.currentTimeMillis() // Simplified: use current time
+                    // ModelScope tree API does not currently expose stable repo modified timestamp.
+                    // Use 0 to indicate "unknown" and let upper layer fallback to size/signature checks.
+                    val lastModified = 0L
                     val repoSize = repoInfo.Data?.Files?.filter { it.Type != "tree" }?.sumOf { it.Size } ?: 0L
                     callback?.onRepoInfo(modelId, lastModified, repoSize)
                     repoInfo

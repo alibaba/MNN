@@ -27,26 +27,41 @@ class MNNConverter:
         self.lm_weight = None
         self.tie_embeddings_info = None
 
+    def transformer_c4_args(self):
+        enabled = getattr(self.args, 'transformer_c4', True)
+        return ['--transformerFuseC4={}'.format(1 if enabled else 0)]
+
     def convert(self, convert_args):
-        sfd = os.dup(1)
+        import contextlib
         log_fp = open(EXPORT_LOG, "a")
-        log_fd = log_fp.fileno()
-        # mnnconvert ... > .export.log
-        os.dup2(log_fd, 1)
+        sfd = None
         try:
-            sys.argv = convert_args
-            sys.argc = len(convert_args)
-            if self.mnnconvert is None:
-                from MNN.tools import mnnconvert
-                mnnconvert.main()
-            else:
-                convert_args[0] = self.mnnconvert
-                cmd = ' '.join(convert_args)
-                message = os.popen(cmd).read()
-                print(message)
-            sys.argv = []
+            sfd = os.dup(1)
+            log_fd = log_fp.fileno()
+            # mnnconvert ... > .export.log
+            os.dup2(log_fd, 1)
+        except Exception:
+            if sfd is not None:
+                os.close(sfd)
+                sfd = None
+
+        try:
+            with contextlib.redirect_stdout(log_fp):
+                sys.argv = convert_args
+                sys.argc = len(convert_args)
+                if self.mnnconvert is None:
+                    from MNN.tools import mnnconvert
+                    mnnconvert.main()
+                else:
+                    convert_args[0] = self.mnnconvert
+                    cmd = ' '.join(convert_args)
+                    message = os.popen(cmd).read()
+                    print(message)
+                sys.argv = []
         finally:
-            os.dup2(sfd, 1)
+            if sfd is not None:
+                os.dup2(sfd, 1)
+                os.close(sfd)
             log_fp.close()
 
     @spinner_run(f'convert onnx model to ')
@@ -71,6 +86,7 @@ class MNNConverter:
             convert_args += ['--saveExternalData']
         if self.args.hqq:
             convert_args += ['--hqq']
+        convert_args += self.transformer_c4_args()
         convert_args += args
         self.convert(convert_args)
         return mnn_path
@@ -98,6 +114,7 @@ class MNNConverter:
             '--MNNModel',
             str(mnn_path)
         ]
+        convert_args += self.transformer_c4_args()
         self.convert(convert_args)
         return mnn_path
 
@@ -112,6 +129,7 @@ class MNNConverter:
             str(mnn_path),
             '--optimizeLevel=1'
         ]
+        convert_args += self.transformer_c4_args()
         self.convert(convert_args)
         return mnn_path
 
@@ -145,7 +163,10 @@ class MNNConverter:
             self.mnn2json(self.mnn_model_path, mnn_json)
             self.rebuild(mnn_json)
             self.json2mnn(mnn_json, self.mnn_model_path)
-            self.removeDupOps(self.mnn_model_path)
+            # HunyuanVL needs the explicit q/k/v reshape boundary before Attention.
+            # The extra optimize pass can bypass v_proj's post_reshape into Attention.
+            if self.exporter.model_type != 'hunyuan_vl':
+                self.removeDupOps(self.mnn_model_path)
             self.mnn2json(self.mnn_model_path, mnn_json)
             if self.args.gptq_path is not None:
                 self.apply_gptq(mnn_json)
@@ -183,8 +204,11 @@ class MNNConverter:
                 inputs.append(node['outputIndexes'][0])
         for output_name in expert_graph['outputName']:
             outputs.append(tensors.index(output_name))
+        # Use actual layer indices (for models where not all layers have MoE)
+        expert_layer_ids = getattr(self.exporter, 'expert_layer_ids', list(range(layers_num)))
         subgraphs = []
         for i in range(layers_num):
+            layer_idx = expert_layer_ids[i]
             for j in range(expert_num):
                 ijnodes = copy.deepcopy(nodes)
                 for op in ijnodes:
@@ -192,10 +216,10 @@ class MNNConverter:
                         for attr in op['main']['attr']:
                             if attr['key'] == 'name':
                                 names = attr['s'].split('/')
-                                names[2] = f'{i}_{j}'
+                                names[2] = f'{layer_idx}_{j}'
                                 attr['s'] = '/'.join(names)
                 subgraph = {
-                    'name': f'/expert/{i}_{j}',
+                    'name': f'/expert/{layer_idx}_{j}',
                     'inputs': inputs,
                     'outputs': outputs,
                     'tensors': copy.deepcopy(tensors),
@@ -249,6 +273,11 @@ class MNNConverter:
                     op['main']['gamma'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
                     op['main']['beta'] = np.frombuffer(f.read(external[2]), np.float32).tolist()
                     del op['main']['external']
+                if op['type'] == 'Const' and 'external' in op['main']:
+                    external = op['main']['external']
+                    f.seek(external[0])
+                    op['main']['float32s'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
+                    del op['main']['external']
         # Rebuild ops
         with open(self.mnn_weight_path, 'wb') as self.mnn_weight:
             for op in tqdm(mnn_graph['oplists'], 'Quant weights'):
@@ -288,7 +317,7 @@ class MNNConverter:
             q_weight = torch.zeros(q_weight_num, dtype=torch.uint8)
             return q_weight, alpha
 
-        q_weight, alpha = torch_quant(weight, quant_bit, quant_block, symmetric, self.args.awq, self.args.hqq)
+        q_weight, alpha = torch_quant(weight.cpu(), quant_bit, quant_block, symmetric, self.args.awq, self.args.hqq)
         return q_weight, alpha
 
     def write_weight(self, data):
@@ -327,18 +356,24 @@ class MNNConverter:
             alpha_len, q_min, shape_int32, header_len = 0, 0, False, 0
         else:
             q_min = 1
-            assert(quant_bit in (1, 2, 4, 8))
+            assert(quant_bit in (1, 2, 3, 4, 8))
             q_weight, alpha = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
             header_len, shape_int32 = self.write_header(ic, oc, quant_bit)
-
+            scale_fp16 = (self.args.scale_bit == 16)
+            alpha_dtype_size = 2 if scale_fp16 else 4
             if self.exporter.args.skip_weight:
                 weight_len = len(q_weight) + header_len
                 self.mnn_weight.seek(len(q_weight), 1)
-                alpha_len = len(alpha) * 4
+                alpha_len = len(alpha) * alpha_dtype_size
                 self.mnn_weight.seek(alpha_len, 1)
             else:
                 weight_len = self.write_weight(q_weight) + header_len
-                alpha_len = self.write_weight(alpha)
+                if scale_fp16:
+                    alpha_np = alpha.numpy() if hasattr(alpha, 'numpy') else np.asarray(alpha)
+                    alpha_fp16 = alpha_np.astype(np.float16)
+                    alpha_len = self.write_weight(alpha_fp16)
+                else:
+                    alpha_len = self.write_weight(alpha)
 
         if linear.bias is not None:
             bias_length = (oc * 4)
@@ -371,11 +406,100 @@ class MNNConverter:
             return self.rebuild_linear(op, graph)
         if op_type == 'FusedAttention':
             return self.rebuild_attnention(op, graph)
+        if op_type == 'FusedRoPE':
+            return self.rebuild_rope(op, graph)
+        if op_type == 'FusedLinearAttention':
+            return self.rebuild_linear_attnention(op, graph)
         if op_type == "LayerNorm":
             return self.rebuild_layernorm(op, graph)
         if op_type == 'MoE':
             return self.rebuild_moe(op, graph)
         return None
+
+    def const_float_data(self, graph, tensor_index):
+        op_key = 'oplists' if 'oplists' in graph else 'nodes'
+        for op in graph[op_key]:
+            if tensor_index not in op.get('outputIndexes', []):
+                continue
+            if op.get('type') != 'Const':
+                break
+            main = op.get('main', {})
+            if 'float32s' in main:
+                return main['float32s']
+            break
+        return None
+
+    def rebuild_rope(self, op, graph):
+        attrs = op['main']['attr']
+        name = op['name']
+        rope_cut_head_dim = 0
+        num_head = 0
+        kv_num_head = 0
+        head_dim = 0
+        q_norm = False
+        k_norm = False
+        q_norm_eps = 0.0
+        k_norm_eps = 0.0
+        for attr in attrs:
+            if attr['key'] == 'name':
+                name = attr['s']
+            elif attr['key'] == 'rope_cut_head_dim':
+                rope_cut_head_dim = attr['i']
+            elif attr['key'] == 'num_head':
+                num_head = attr['i']
+            elif attr['key'] == 'kv_num_head':
+                kv_num_head = attr['i']
+            elif attr['key'] == 'head_dim':
+                head_dim = attr['i']
+            elif attr['key'] == 'q_norm':
+                q_norm = bool(attr['i'])
+            elif attr['key'] == 'k_norm':
+                k_norm = bool(attr['i'])
+            elif attr['key'] == 'q_norm_eps':
+                q_norm_eps = attr['f']
+            elif attr['key'] == 'k_norm_eps':
+                k_norm_eps = attr['f']
+
+        rope_param = {
+            "rope_cut_head_dim": rope_cut_head_dim,
+            "num_head": num_head,
+            "kv_num_head": kv_num_head,
+            "head_dim": head_dim,
+        }
+        input_indexes = op['inputIndexes']
+        if q_norm or k_norm:
+            if len(input_indexes) < 6:
+                raise RuntimeError(f'FusedRoPE {name} misses q/k norm inputs')
+            if q_norm:
+                q_gamma = self.const_float_data(graph, input_indexes[4])
+                if q_gamma is None:
+                    raise RuntimeError(f'FusedRoPE {name} misses q_norm gamma const')
+                rope_param["q_norm"] = {
+                    "axis": [-1],
+                    "epsilon": q_norm_eps,
+                    "gamma": q_gamma,
+                    "useRMSNorm": True
+                }
+            if k_norm:
+                k_gamma = self.const_float_data(graph, input_indexes[5])
+                if k_gamma is None:
+                    raise RuntimeError(f'FusedRoPE {name} misses k_norm gamma const')
+                rope_param["k_norm"] = {
+                    "axis": [-1],
+                    "epsilon": k_norm_eps,
+                    "gamma": k_gamma,
+                    "useRMSNorm": True
+                }
+        rope_op = {
+            "inputIndexes": input_indexes[:4],
+            "main_type": "RoPEParam",
+            "main": rope_param,
+            "name": name,
+            "outputIndexes": op['outputIndexes'],
+            "type": "RoPE",
+            "defaultDimentionFormat": op['defaultDimentionFormat']
+        }
+        return [rope_op]
 
     def rebuild_moe(self, op, graph):
         moe = copy.deepcopy(op)
@@ -409,21 +533,96 @@ class MNNConverter:
 
     def rebuild_attnention(self, op, graph):
         attrs = op['main']['attr']
+        layer_index = -1
+        kv_shared_layer_index = -1
         for attr in attrs:
             if attr['key'] == 'name':
                 name = attr['s']
+            elif attr['key'] == 'kv_cache':
+                kv_cache = attr['i']
+            elif attr['key'] == 'layer_index':
+                layer_index = attr.get('i', -1)
+            elif attr['key'] == 'kv_shared_layer_index':
+                kv_shared_layer_index = attr.get('i', -1)
         origin_input = op['inputIndexes']
         origin_output = op['outputIndexes']
+        main_dict = {
+            "kv_cache": bool(kv_cache),
+            "layer_index": layer_index,
+            "kv_shared_layer_index": kv_shared_layer_index,
+        }
         fused_attention = {
             "inputIndexes": origin_input,
             "main_type": "AttentionParam",
-            "main": { "kv_cache": True },
+            "main": main_dict,
             "name": name,
             "outputIndexes": origin_output,
             "type": "Attention",
             "defaultDimentionFormat": "NHWC"
         }
         return [fused_attention]
+
+    def rebuild_linear_attnention(self, op, graph):
+        attrs = op['main']['attr']
+        num_k_heads = 0
+        num_v_heads = 0
+        head_k_dim = 0
+        head_v_dim = 0
+        attn_type = "gated_delta_rule"
+        use_qk_l2norm = False
+        name = ""
+
+        # Parse attributes from Custom Op
+        for attr in attrs:
+            if attr['key'] == 'name':
+                name = attr['s']
+            elif attr['key'] == 'num_k_heads':
+                num_k_heads = attr['i']
+            elif attr['key'] == 'num_v_heads':
+                num_v_heads = attr['i']
+            elif attr['key'] == 'head_k_dim':
+                head_k_dim = attr['i']
+            elif attr['key'] == 'head_v_dim':
+                head_v_dim = attr['i']
+            elif attr['key'] == 'attn_type':
+                attn_type = attr['s']
+            elif attr['key'] == 'use_qk_l2norm':
+                use_qk_l2norm = bool(attr['i'])
+
+        input_indexes = op['inputIndexes']
+        output_indexes = op['outputIndexes']
+
+        linear_attention_param = {
+            "attn_type": attn_type,
+            "num_k_heads": num_k_heads,
+            "num_v_heads": num_v_heads,
+            "head_k_dim": head_k_dim,
+            "head_v_dim": head_v_dim,
+            "use_qk_l2norm": use_qk_l2norm
+        }
+
+        fused_linear_attention = {
+            "inputIndexes": input_indexes,
+            "main_type": "LinearAttentionParam",
+            "main": linear_attention_param,
+            "name": name,
+            "outputIndexes": output_indexes,
+            "type": "LinearAttention",
+            "defaultDimentionFormat": "NHWC"
+        }
+        return [fused_linear_attention]
+
+    def get_extra_attr(self, op, key, default=None):
+        for attr in op.get('main', {}).get('attr', []):
+            if attr.get('key') != key:
+                continue
+            if 's' in attr:
+                return attr['s']
+            if 'i' in attr:
+                return attr['i']
+            if 'f' in attr:
+                return attr['f']
+        return default
 
     def rebuild_linear(self, op, graph):
         attrs = op['main']['attr']
@@ -466,7 +665,14 @@ class MNNConverter:
             weight_offset = external[0] + header_len
             alpha_offset = external[0] + external[1]
             alpha_size = external[2]
-            self.tie_embeddings_info = [weight_offset, alpha_offset, alpha_size, quant_bit, quant_block]
+            self.tie_embeddings_info = {
+                "weight_offset": weight_offset,
+                "alpha_offset": alpha_offset,
+                "alpha_size": alpha_size,
+                "quant_bit": quant_bit,
+                "quant_block": quant_block,
+                "alpha_dtype": "fp16" if self.args.scale_bit == 16 else "fp32",
+            }
 
         origin_input = op['inputIndexes']
         origin_output = op['outputIndexes']
@@ -521,7 +727,8 @@ class MNNConverter:
             quanParameter = {
                 "quantScale": 1.0, "scaleIn": 0.0, "scaleOut": 0.0,
                 "useInt32": False, "has_scaleInt": False, "shapeInt32": shape_int32,
-                "type": 1, "aMaxOrBits": quant_bit, "aMin": aMin, "readType": readType, "weightSize": 0
+                "type": 1, "aMaxOrBits": quant_bit, "aMin": aMin, "readType": readType, "weightSize": 0,
+                "scaleStorage": "FP16" if self.args.scale_bit == 16 else "FP32",
             }
         conv_op = {
             "name": conv_name,

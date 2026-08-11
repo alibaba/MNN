@@ -1,6 +1,7 @@
 package com.alibaba.mnnllm.android.chat.input
 
 import android.net.Uri
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -11,6 +12,9 @@ import com.alibaba.mnnllm.android.R
 class ImagePreviewAdapter(
     private val onDeleteClick: (Uri) -> Unit
 ) : RecyclerView.Adapter<ImagePreviewAdapter.ViewHolder>() {
+    companion object {
+        private const val TAG = "ImagePreviewAdapter"
+    }
 
     private val images = mutableListOf<Uri>()
 
@@ -59,7 +63,12 @@ class ImagePreviewAdapter(
         private val deleteView: View? = itemView.findViewById(R.id.iv_delete)
 
         fun bind(uri: Uri) {
-            imageView.setImageURI(uri)
+            try {
+                imageView.setImageURI(uri)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to decode preview image: $uri", e)
+                imageView.setImageDrawable(null)
+            }
             deleteView?.setOnClickListener {
                 onDeleteClick(uri)
             }

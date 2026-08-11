@@ -18,6 +18,7 @@ namespace MNN {
 namespace Transformer {
 struct GenerationParams {
     int max_new_tokens;
+    int timeout_ms = -1; // -1 means no timeout
     std::vector<int> input_ids;
     MNN::Express::VARP input_embeds;
     std::vector<MNN::Express::VARP> outputs;
@@ -36,6 +37,9 @@ public:
         // do nothing
     };
     virtual void generate(GenerationParams& param) = 0;
+    virtual void reset() {
+        // do nothing
+    };
 protected:
     int draftVerify(MNN::Express::VARP logits, const std::vector<int>& drafts, bool& stop);
     std::shared_ptr<LlmContext> mContext;
@@ -113,6 +117,29 @@ private:
     int mEaglePastLen = 0, mEagleRemove = 0;
 };
 
+
+class DFlashGeneration : public Generation {
+public:
+    DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
+    virtual ~DFlashGeneration() = default;
+    virtual void load(Module::Config module_config) override;
+    virtual void generate(GenerationParams& param) override;
+    virtual void reset() override;
+private:
+    MNN::Express::VARP dflashForward(const std::vector<int>& block_ids, MNN::Express::VARP context_hidden);
+    MNN::Express::VARP fcForward(MNN::Express::VARP hidden_states);
+
+    std::shared_ptr<MNN::Express::Module> mDFlashModule;   // dflash.mnn (transformer only if lmhead separate)
+    std::shared_ptr<MNN::Express::Module> mFcModule;       // dflash_fc.mnn
+    std::shared_ptr<MNN::Express::Module> mLmHeadModule;   // dflash_lmhead.mnn (optional, separate lm_head)
+    std::shared_ptr<MNN::Express::Executor::RuntimeManager> mFcRuntimeManager; // dedicated CPU runtime for FC
+    int mBlockSize;
+    int mMaskTokenId;
+    int mHiddenStateIndex = -1;
+    // Persistent state across incremental generate() calls
+    MNN::Express::VARP mContextHidden;
+    bool mInitialized = false;
+};
 
 class GenerationStrategyFactory {
 public:

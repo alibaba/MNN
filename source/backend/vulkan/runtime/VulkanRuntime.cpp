@@ -65,7 +65,9 @@ VulkanRuntime* VulkanRuntime::create(const Backend::Info& info) {
 }
 
 VulkanRuntime::VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDevice> device, std::shared_ptr<VulkanInstance> instance) {
-    mInfo = info;
+    if (nullptr != info.user) {
+        mPrecision = info.user->precision;
+    }
     mDevice = device;
     mInstance = instance;
     auto& dev              = *mDevice;
@@ -103,11 +105,7 @@ VulkanRuntime::VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDe
     } else if (deviceName.find("Adreno") != std::string::npos) {
         mGpuType = ADRENO;
     }
-    bool fp16 = true;
-    if (info.user != nullptr) {
-        fp16 = info.user->precision != BackendConfig::Precision_High;
-    }
-    mMemoryPool        = std::make_shared<VulkanMemoryPool>(dev, fp16);
+    mMemoryPool        = std::make_shared<VulkanMemoryPool>(dev, mPrecision != BackendConfig::Precision_High);
     std::shared_ptr<BufferAllocator::Allocator> allocReal(new VulkanBufferAllocator(dev, *mMemoryPool));
     mBufferPool.reset(new EagerBufferAllocator(allocReal, dev.proty().limits.nonCoherentAtomSize));
     mSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER);
@@ -117,12 +115,12 @@ VulkanRuntime::VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDe
 
     std::vector<int> legalModeValues = {0x00000001, 0x00000002, 0x00000004,
                                         0x00000201, 0x00000202, 0x00000204};
-    auto iter = std::find(legalModeValues.begin(), legalModeValues.end(), (uint32_t)mInfo.gpuMode);
+    auto iter = std::find(legalModeValues.begin(), legalModeValues.end(), (uint32_t)info.gpuMode);
     if (iter == legalModeValues.end()) {
         MNN_PRINT("The customized gpu mode is illegal for Vulkan backend. Using the default mode.\n");
         mGpuMode = 0x00000004;
     } else {
-        mGpuMode = mInfo.gpuMode;
+        mGpuMode = info.gpuMode;
     }
 }
 
@@ -176,8 +174,12 @@ void VulkanRuntime::onGabageCollect(int level) {
 }
 
 Backend* VulkanRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
-    // FIXME: Use config
-    return new VulkanBackend(this, mInfo);
+    if (nullptr != config) {
+        MNN_ASSERT(config->precision == mPrecision);
+    }
+    auto backend = new VulkanBackend(this);
+    backend->setMetaPtr(pMeta);
+    return backend;
 }
 int VulkanRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
     switch (statusEnum) {

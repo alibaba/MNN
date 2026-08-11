@@ -13,7 +13,7 @@ struct SpeedStatistics {
     let average: Double
     let stdev: Double
     let label: String
-    
+
     init(average: Double, stdev: Double, label: String) {
         self.average = average
         self.stdev = stdev

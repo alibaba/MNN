@@ -77,6 +77,7 @@ def opencl_codegen():
                         l = l.replace(' < ', '<')
                         l = l.replace(' > ', '>')
                         md5_orig_str += l + "\n"
+                        l = l.replace('"', '\\"')
                         l = l + "\\n"
                         opencl_source_map += "\""+l+"\"\n"
                 opencl_source_map += ";\n"

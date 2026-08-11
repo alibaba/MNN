@@ -40,11 +40,11 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
     mBlitImages.resize(des->regions.size());
     auto vkBn = static_cast<VulkanBackend*>(backend());
     auto dstTensor = reinterpret_cast<VulkanTensor*>(output->deviceId());
+    bool isInt = output->getType().code == halide_type_int || output->getType().code == halide_type_uint;
     if (zero) {
-        auto fillPipeline = vkBn->getPipeline("glsl_fill_image_comp", {
-            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-        });
+        std::string fillName = isInt ? "glsl_fill_image_INT_comp" : "glsl_fill_image_comp";
+        auto fillPipeline =
+            vkBn->getPipeline(fillName, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER});
         struct FillImage {
             vec4 value;
             ivec4 imageSize;
@@ -67,12 +67,11 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
         image->barrierWrite(cmdBuffer->get());
         vkCmdDispatch(cmdBuffer->get(), totalSize, 1, 1);
     }
-    
-    auto blitPipeline = vkBn->getPipeline("glsl_blit_image_comp", {
-        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-    });
+
+    std::string blitName = isInt ? "glsl_blit_image_INT_comp" : "glsl_blit_image_comp";
+    auto blitPipeline =
+        vkBn->getPipeline(blitName, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER});
 
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
@@ -152,7 +151,7 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &___inputs, const s
             continue;
         }
         MNN_ASSERT(origin->deviceId() != 0);
-        int bufferSize = sizeof(float);
+        int bufferSize = origin->getType().bytes();
         for (int i=0; i<origin->dimensions(); ++i) {
             bufferSize *= origin->length(i);
         }
@@ -163,7 +162,7 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &___inputs, const s
         mInputBuffers.insert(std::make_pair(origin, std::move(info)));
     }
     {
-        int bufferSize = sizeof(float);
+        int bufferSize = output->getType().bytes();
         for (int i=0; i<output->dimensions(); ++i) {
             bufferSize *= output->length(i);
         }
@@ -176,11 +175,11 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &___inputs, const s
     if (nullptr != mOutputBuffer.buffer) {
         mOutputBuffer.buffer->release();
     }
-    auto blitPipeline = vkBn->getPipeline("glsl_blit_comp", {
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-    });
+    bool isInt = output->getType().code == halide_type_int || output->getType().code == halide_type_uint;
+    std::string blitName = isInt ? "glsl_blit_INT_comp" : "glsl_blit_comp";
+    auto blitPipeline =
+        vkBn->getPipeline(blitName, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER});
     for (int i=0; i<mBlits.size(); ++i) {
         auto& origin = des->regions[i];
         auto& dst = mBlits[i];

@@ -32,105 +32,138 @@ struct constBuffer
     int4 iter;
 };
 
-struct s3
-{
-    T data[1];
-};
-
-struct s4
-{
-    T data[1];
-};
-
-struct s5
-{
-    T data[1];
-};
-
-struct s6
-{
-    T data[1];
-};
-
-struct s0
-{
-    T data[1];
-};
-
-struct s1
-{
-    T data[1];
-};
-
-struct s2
-{
-    T data[1];
-};
-
-struct d0
-{
-    T data[1];
-};
-
-kernel void loop_matmul(device d0& uOutput [[buffer(0)]], const device s0& uInputA [[buffer(1)]], const device s1& uInputB [[buffer(2)]],
+kernel void loop_matmul(device T* uOutput [[buffer(0)]], const device T* uInputA [[buffer(1)]], const device T* uInputB [[buffer(2)]],
 #ifdef HAS_BIAS
-    const device s2& uInputC [[buffer(3)]],
-    const device s3& uOOffset [[buffer(4)]],
-    const device s4& uAOffset [[buffer(5)]],
-    const device s5& uBOffset [[buffer(6)]],
-    const device s6& uCOffset [[buffer(7)]],
+    const device T* uInputC [[buffer(3)]],
+    const device int* uOOffset [[buffer(4)]],
+    const device int* uAOffset [[buffer(5)]],
+    const device int* uBOffset [[buffer(6)]],
+    const device int* uCOffset [[buffer(7)]],
     constant constBuffer& uConstant [[buffer(8)]],
 #else
-    const device s3& uOOffset [[buffer(3)]],
-    const device s4& uAOffset [[buffer(4)]],
-    const device s5& uBOffset [[buffer(5)]],
+    const device int* uOOffset [[buffer(3)]],
+    const device int* uAOffset [[buffer(4)]],
+    const device int* uBOffset [[buffer(5)]],
     constant constBuffer& uConstant [[buffer(6)]],
 #endif
     uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
-    int3 posTmp = int3(gl_GlobalInvocationID);
     int e = uConstant.size.x;
     int l = uConstant.size.y;
     int h = uConstant.size.z;
     int n = uConstant.size.w;
-    int eh = e * h;
-    if (posTmp.x < (eh * n))
-    {
-        int regionInsideIndex = posTmp.x % eh;
-        int regionOutsideIndex = posTmp.x / eh;
-        int X = regionInsideIndex % e;
-        int Y = regionInsideIndex / e;
-        int4 index = int4(regionOutsideIndex, regionOutsideIndex, regionOutsideIndex, regionOutsideIndex);
-        if (uConstant.iter.x >= 0)
-        {
-            index.x = int(uOOffset.data[regionOutsideIndex]);
-        }
-        if (uConstant.iter.y >= 0)
-        {
-            index.y = int(uAOffset.data[regionOutsideIndex]);
-        }
-        if (uConstant.iter.z >= 0)
-        {
-            index.z = int(uBOffset.data[regionOutsideIndex]);
-        }
+
+    int X0 = gl_GlobalInvocationID.x * 4;
+    int Y0 = gl_GlobalInvocationID.y * 4;
+    int regionOutsideIndex = gl_GlobalInvocationID.z;
+
+    if (X0 >= e || Y0 >= h || regionOutsideIndex >= n) {
+        return;
+    }
+
+    int4 index = int4(regionOutsideIndex, regionOutsideIndex, regionOutsideIndex, regionOutsideIndex);
+    if (uConstant.iter.x >= 0) {
+        index.x = uOOffset[regionOutsideIndex];
+    }
+    if (uConstant.iter.y >= 0) {
+        index.y = uAOffset[regionOutsideIndex];
+    }
+    if (uConstant.iter.z >= 0) {
+        index.z = uBOffset[regionOutsideIndex];
+    }
 #ifdef HAS_BIAS
-        if (uConstant.iter.w >= 0)
-        {
-            index.w = int(uCOffset.data[regionOutsideIndex]);
-        }
+    if (uConstant.iter.w >= 0) {
+        index.w = uCOffset[regionOutsideIndex];
+    }
 #endif
-        int4 offset = index * uConstant._step;
-        T value = 0.0;
-        int aOffset = (offset.y + uConstant.stride_a.w) + (X * uConstant.stride_a.x);
-        int bOffset = (offset.z + uConstant.stride_b.w) + (Y * uConstant.stride_b.z);
-        for (int i = 0; i < l; i++)
-        {
-            value += (uInputA.data[aOffset + (i * uConstant.stride_a.y)] * uInputB.data[bOffset + (i * uConstant.stride_b.y)]);
+
+    int4 offset = index * uConstant._step;
+
+    T value[4][4];
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            value[x][y] = T(0.0);
         }
+    }
+
+    int aOffset0 = offset.y + uConstant.stride_a.w;
+    int bOffset0 = offset.z + uConstant.stride_b.w;
+
+    int a_idx[4];
+    int b_idx[4];
+    for (int x = 0; x < 4; ++x) {
+        a_idx[x] = min(X0 + x, e - 1) * uConstant.stride_a.x;
+    }
+    for (int y = 0; y < 4; ++y) {
+        b_idx[y] = min(Y0 + y, h - 1) * uConstant.stride_b.z;
+    }
+
+    bool safe = (X0 + 3 < e) && (Y0 + 3 < h);
+
+    if (safe) {
+        for (int i = 0; i < l; i++) {
+            T a[4];
+            T b[4];
+            int a_base = aOffset0 + i * uConstant.stride_a.y;
+            int b_base = bOffset0 + i * uConstant.stride_b.y;
+
+            for(int x = 0; x < 4; ++x) {
+                a[x] = uInputA[a_base + a_idx[x]];
+            }
+
+            for(int y = 0; y < 4; ++y) {
+                b[y] = uInputB[b_base + b_idx[y]];
+            }
+
+            for(int y = 0; y < 4; ++y) {
+                for(int x = 0; x < 4; ++x) {
+                    value[x][y] += a[x] * b[y];
+                }
+            }
+        }
+    } else {
+        for (int i = 0; i < l; i++) {
+            T a[4];
+            T b[4];
+            int a_base = aOffset0 + i * uConstant.stride_a.y;
+            int b_base = bOffset0 + i * uConstant.stride_b.y;
+
+            // Load A with boundary check
+            for(int x = 0; x < 4; ++x) {
+                if (X0 + x < e) {
+                    a[x] = uInputA[a_base + a_idx[x]];
+                } else {
+                    a[x] = T(0.0);
+                }
+            }
+
+            // Load B with boundary check
+            for(int y = 0; y < 4; ++y) {
+                if (Y0 + y < h) {
+                    b[y] = uInputB[b_base + b_idx[y]];
+                } else {
+                    b[y] = T(0.0);
+                }
+            }
+
+            for(int y = 0; y < 4; ++y) {
+                for(int x = 0; x < 4; ++x) {
+                    value[x][y] += a[x] * b[y];
+                }
+            }
+        }
+    }
+
+    for (int y = 0; y < 4; ++y) {
+        if (Y0 + y >= h) continue;
+        for (int x = 0; x < 4; ++x) {
+            if (X0 + x >= e) continue;
+            T outVal = value[x][y];
 #ifdef HAS_BIAS
-        value += uInputC.data[(offset.w + (Y * uConstant.stride_c.z)) + (X * uConstant.stride_c.x)];
+            outVal += uInputC[offset.w + (Y0 + y) * uConstant.stride_c.z + (X0 + x) * uConstant.stride_c.x];
 #endif
-        uOutput.data[((offset.x + uConstant.stride_o.w) + (X * uConstant.stride_o.x)) + (Y * uConstant.stride_o.z)] = value;
+            uOutput[offset.x + uConstant.stride_o.w + (X0 + x) * uConstant.stride_o.x + (Y0 + y) * uConstant.stride_o.z] = outVal;
+        }
     }
 }
 )metal";
@@ -242,7 +275,6 @@ public:
         auto AStride = cmd->view()->GetAs<View>(1)->stride()->data();
         auto BStride = cmd->view()->GetAs<View>(2)->stride()->data();
         auto OStride = cmd->view()->GetAs<View>(0)->stride()->data();
-        size_t totalSize = mLoop->loopNumber() * size[0] * size[2];
         [encoder setComputePipelineState:mPipeline];
         for (int i=0; i<cmd->indexes()->size(); ++i) {
             MetalBackend::setTensor(mTensors[cmd->indexes()->data()[i]], encoder, i);
@@ -258,7 +290,13 @@ public:
 //        printf("loop_matmul out dequant BMNK: %d %d %d %d\n", mLoop->loopNumber(), size[0], size[2], size[1]);
 
         [encoder setBuffer:mParam offset:0 atIndex:cmd->indexes()->size() * 2];
-        [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(totalSize, 256), 1, 1) threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+
+        int e = size[0];
+        int h = size[2];
+        int n = mLoop->loopNumber();
+        int threadsX = UP_DIV(e, 4);
+        int threadsY = UP_DIV(h, 4);
+        [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(threadsX, 8), UP_DIV(threadsY, 8), n) threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
     }
 };
 

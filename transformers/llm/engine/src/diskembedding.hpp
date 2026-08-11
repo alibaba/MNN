@@ -18,7 +18,7 @@ typedef void (*DequantFunction)(const uint8_t*, float*, float, float, int);
 
 class DiskEmbedding {
 public:
-    explicit DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::string fileName = "");
+    explicit DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::string fileName = "", int hiddenSize = 0, std::vector<int64_t> quant_info = {});
     ~DiskEmbedding() {}
     void embedding(const std::vector<int>& input_ids, float* ptr);
 
@@ -28,7 +28,7 @@ private:
     std::unique_ptr<uint8_t[]> mWeight = nullptr;
     std::unique_ptr<FileLoader> mFile;
     DequantFunction mDequantFunc;
-    int mHiddenSize, mTokenSize;
+    size_t mHiddenSize, mTokenSize;
     float mOffset = 0.0f;
     bool mAsymc = true;
     int64_t mWeightOffset = 0;

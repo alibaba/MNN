@@ -38,8 +38,8 @@ static PyObject* PyMNNLLM_str(PyObject *self) {
 }
 
 static PyObject* PyMNNLLM_load(LLM *self, PyObject *args) {
-    self->llm->load();
-    Py_RETURN_NONE;
+    bool res = self->llm->load();
+    return toPyObj(res);
 }
 
 static PyObject* PyMNNLLM_forward(LLM *self, PyObject *args) {
@@ -155,10 +155,7 @@ MNN::Transformer::ChatMessages parse_chat_messages(PyObject* messages_obj) {
                 PyObject* role_obj = PyDict_GetItemString(message_obj, "role");
                 PyObject* content_obj = PyDict_GetItemString(message_obj, "content");
                 if (role_obj && content_obj) {
-                    MNN::Transformer::ChatMessage chat_message;
-                    chat_message.first = object2String(role_obj);
-                    chat_message.second = object2String(content_obj);
-                    chat_messages.push_back(chat_message);
+                    chat_messages.push_back({object2String(role_obj), object2String(content_obj)});
                 }
             }
         }
@@ -288,6 +285,12 @@ static PyObject* PyMNNLLM_reset(LLM *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject* PyMNNLLM_getLog(LLM* self, PyObject* args) {
+    auto log = self->llm->getLog();
+    // Use "replace" error handler to avoid UnicodeDecodeError on non-UTF-8 bytes in log
+    return PyUnicode_DecodeUTF8(log.c_str(), log.size(), "replace");
+}
+
 static PyObject* PyMNNLLM_stoped(LLM *self, PyObject *args) {
     if (self->is_embedding) {
         Py_RETURN_NONE;
@@ -339,13 +342,25 @@ static PyObject* PyMNNLLM_get_context(LLM *self, PyObject *args) {
         Py_RETURN_NONE;
     }
 
+    // Snapshot container fields under lock: the decode loop mutates them on
+    // another thread; copying without the lock is a use-after-free risk.
+    std::string end_with_copy, generate_str_copy;
+    std::vector<int> history_tokens_copy, output_tokens_copy;
+    {
+        std::lock_guard<std::mutex> _l(context->mutex);
+        end_with_copy = context->end_with;
+        generate_str_copy = context->generate_str;
+        history_tokens_copy = context->history_tokens;
+        output_tokens_copy = context->output_tokens;
+    }
+
     PyObject* dict = PyDict_New();
 
     // Forward parameters
     PyDict_SetItemString(dict, "prompt_len", PyLong_FromLong(context->prompt_len));
     PyDict_SetItemString(dict, "gen_seq_len", PyLong_FromLong(context->gen_seq_len));
     PyDict_SetItemString(dict, "all_seq_len", PyLong_FromLong(context->all_seq_len));
-    PyDict_SetItemString(dict, "end_with", string2Object(context->end_with));
+    PyDict_SetItemString(dict, "end_with", string2Object(end_with_copy));
 
     // Performance metrics
     PyDict_SetItemString(dict, "load_us", PyLong_FromLongLong(context->load_us));
@@ -360,13 +375,13 @@ static PyObject* PyMNNLLM_get_context(LLM *self, PyObject *args) {
     // Tokens
     PyDict_SetItemString(dict, "current_token", PyLong_FromLong(context->current_token));
 
-    PyObject* history_tokens = toPyObj<int, toPyObj>(context->history_tokens);
+    PyObject* history_tokens = toPyObj<int, toPyObj>(history_tokens_copy);
     PyDict_SetItemString(dict, "history_tokens", history_tokens);
 
-    PyObject* output_tokens = toPyObj<int, toPyObj>(context->output_tokens);
+    PyObject* output_tokens = toPyObj<int, toPyObj>(output_tokens_copy);
     PyDict_SetItemString(dict, "output_tokens", output_tokens);
 
-    PyDict_SetItemString(dict, "generate_str", string2Object(context->generate_str));
+    PyDict_SetItemString(dict, "generate_str", string2Object(generate_str_copy));
 
     // llm status
     PyDict_SetItemString(dict, "status", PyLong_FromLong((int)context->status));
@@ -408,6 +423,7 @@ static PyObject* PyMNNLLM_set_context(LLM *self, PyObject *args) {
 
     PyObject* end_with = PyDict_GetItemString(dict, "end_with");
     if (end_with && PyUnicode_Check(end_with)) {
+        std::lock_guard<std::mutex> _l(context->mutex);
         context->end_with = object2String(end_with);
     }
 
@@ -419,17 +435,23 @@ static PyObject* PyMNNLLM_set_context(LLM *self, PyObject *args) {
 
     PyObject* history_tokens = PyDict_GetItemString(dict, "history_tokens");
     if (history_tokens && PyList_Check(history_tokens)) {
-        context->history_tokens = toInts(history_tokens);
+        auto tokens = toInts(history_tokens);
+        std::lock_guard<std::mutex> _l(context->mutex);
+        context->history_tokens = std::move(tokens);
     }
 
     PyObject* output_tokens = PyDict_GetItemString(dict, "output_tokens");
     if (output_tokens && PyList_Check(output_tokens)) {
-        context->output_tokens = toInts(output_tokens);
+        auto tokens = toInts(output_tokens);
+        std::lock_guard<std::mutex> _l(context->mutex);
+        context->output_tokens = std::move(tokens);
     }
 
     PyObject* generate_str = PyDict_GetItemString(dict, "generate_str");
     if (generate_str && PyUnicode_Check(generate_str)) {
-        context->generate_str = object2String(generate_str);
+        auto str = object2String(generate_str);
+        std::lock_guard<std::mutex> _l(context->mutex);
+        context->generate_str = std::move(str);
     }
 
     PyObject* status = PyDict_GetItemString(dict, "status");
@@ -500,7 +522,8 @@ static PyMethodDef PyMNNLLM_methods[] = {
     {"load", (PyCFunction)PyMNNLLM_load, METH_VARARGS, "load model."},
     {"forward", (PyCFunction)PyMNNLLM_forward, METH_VARARGS, "forward `logits` by `input_ids`."},
     {"generate", (PyCFunction)PyMNNLLM_generate, METH_VARARGS, "generate `output_ids` by `input_ids`."},
-    {"response", (PyCFunction)PyMNNLLM_response, METH_VARARGS, "response `query` - supports both text and multimodal input."},
+    {"response", (PyCFunction)PyMNNLLM_response, METH_VARARGS,
+     "response `query` - supports both text and multimodal input."},
     {"get_current_history", (PyCFunction)PyMNNLLM_getCurrentHistory, METH_VARARGS, "Get Current History."},
     {"erase_history", (PyCFunction)PyMNNLLM_eraseHistory, METH_VARARGS, "Erase History."},
     {"apply_chat_template", (PyCFunction)PyMNNLLM_apply_chat_template, METH_VARARGS, "apply chat template."},
@@ -511,14 +534,18 @@ static PyMethodDef PyMNNLLM_methods[] = {
     {"set_config", (PyCFunction)PyMNNLLM_set_config, METH_VARARGS, "set_config."},
     {"dump_config", (PyCFunction)PyMNNLLM_dump_config, METH_VARARGS, "dump_config."},
     {"reset", (PyCFunction)PyMNNLLM_reset, METH_VARARGS, "reset."},
+    {"get_log", (PyCFunction)PyMNNLLM_getLog, METH_NOARGS,
+     "Get and clear the accumulated log buffer (requires LLM_LOG_TO_STRING)."},
 #ifdef PYMNN_LLM_COLLECTION
-    {"enable_collection_mode", (PyCFunction)PyMNNLLM_enable_collection_mode, METH_VARARGS, "Enable data collection mode."},
+    {"enable_collection_mode", (PyCFunction)PyMNNLLM_enable_collection_mode, METH_VARARGS,
+     "Enable data collection mode."},
 #endif
     {"get_context", (PyCFunction)PyMNNLLM_get_context, METH_VARARGS, "Get LlmContext data."},
     {"set_context", (PyCFunction)PyMNNLLM_set_context, METH_VARARGS, "Set LlmContext data."},
-    {"generate_init", (PyCFunction)PyMNNLLM_generate_init, METH_VARARGS, "Initialize generation with optional stream and end_with parameters."},
+    {"generate_init", (PyCFunction)PyMNNLLM_generate_init, METH_VARARGS,
+     "Initialize generation with optional stream and end_with parameters."},
     {"stoped", (PyCFunction)PyMNNLLM_stoped, METH_NOARGS, "Check if the generation has stopped."},
-    {NULL}  /* Sentinel */
+    {NULL} /* Sentinel */
 };
 
 static PyTypeObject PyMNNLLM = {
@@ -601,6 +628,4 @@ static PyObject* PyMNNLLM_create(PyObject *self, PyObject *args) {
     return (PyObject*)llm;
 }
 
-static PyMethodDef PyMNNLLM_static_methods[] = {
-    {"create", PyMNNLLM_create, METH_VARARGS}
-};
+static PyMethodDef PyMNNLLM_static_methods[] = {{"create", PyMNNLLM_create, METH_VARARGS}};

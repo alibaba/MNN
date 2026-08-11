@@ -28,7 +28,7 @@ typedef std::tuple<std::shared_ptr<VulkanImageConverter>, std::shared_ptr<Vulkan
 
 class VulkanBackend : public Backend {
 public:
-    VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info);
+    VulkanBackend(const VulkanRuntime* runtime);
     virtual ~VulkanBackend();
 
     virtual Backend::MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;

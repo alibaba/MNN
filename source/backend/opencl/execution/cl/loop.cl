@@ -71,163 +71,310 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
         __global FLOAT* B_ptr = input_B + offset.z + pos.x;
 #endif
 
+#if E_LEAVES != 0
+        const int valid_y1 = pos.y + 1 < e;
+        const int valid_y2 = pos.y + 2 < e;
+        const int valid_y3 = pos.y + 3 < e;
+#endif
+#if H_LEAVES != 0
+        const int valid_x1 = pos.x + 1 < h;
+        const int valid_x2 = pos.x + 2 < h;
+        const int valid_x3 = pos.x + 3 < h;
+#endif
+
 #ifdef BIAS
-        FLOAT4 value0 = vload4(0, input_C + offset.w + pos.x);
-        FLOAT4 value1 = value0;
-        FLOAT4 value2 = value0;
-        FLOAT4 value3 = value0;
+#if H_LEAVES == 0
+        COMPUTE_FLOAT4 value0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_C + offset.w + pos.x));
 #else
-        FLOAT4 value0 = (FLOAT4)0;
-        FLOAT4 value1 = (FLOAT4)0;
-        FLOAT4 value2 = (FLOAT4)0;
-        FLOAT4 value3 = (FLOAT4)0;
+        COMPUTE_FLOAT4 value0;
+        if (pos.x + 3 < h) {
+            value0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_C + offset.w + pos.x));
+        } else {
+            value0 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(input_C[offset.w + pos.x],
+                                                      valid_x1 ? input_C[offset.w + pos.x + 1] : (FLOAT)0,
+                                                      valid_x2 ? input_C[offset.w + pos.x + 2] : (FLOAT)0,
+                                                      valid_x3 ? input_C[offset.w + pos.x + 3] : (FLOAT)0));
+        }
+#endif
+        COMPUTE_FLOAT4 value1 = value0;
+        COMPUTE_FLOAT4 value2 = value0;
+        COMPUTE_FLOAT4 value3 = value0;
+#else
+        COMPUTE_FLOAT4 value0 = (COMPUTE_FLOAT4)0;
+        COMPUTE_FLOAT4 value1 = (COMPUTE_FLOAT4)0;
+        COMPUTE_FLOAT4 value2 = (COMPUTE_FLOAT4)0;
+        COMPUTE_FLOAT4 value3 = (COMPUTE_FLOAT4)0;
 #endif
 
         const int l_pack = (l + 3) >> 2;
         for(int i = 0; i < l_pack - 1; ++i){
             int l_offset = i << 2;
-            FLOAT4 value_a0, value_a1, value_a2, value_a3, value_b0, value_b1, value_b2, value_b3;
+            COMPUTE_FLOAT4 value_a0, value_a1, value_a2, value_a3, value_b0, value_b1, value_b2, value_b3;
 #ifdef TRANSPOSE_A
-            value_a0 = vload4(0, A_ptr + l_offset * e);
-            value_a1 = vload4(0, A_ptr + (l_offset + 1) * e);
-            value_a2 = vload4(0, A_ptr + (l_offset + 2) * e);
-            value_a3 = vload4(0, A_ptr + (l_offset + 3) * e);
+#if E_LEAVES == 0
+            value_a0 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + l_offset * e));
+            value_a1 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + (l_offset + 1) * e));
+            value_a2 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + (l_offset + 2) * e));
+            value_a3 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + (l_offset + 3) * e));
 #else
-            value_a0 = vload4(0, A_ptr + l_offset);
-            value_a1 = vload4(0, A_ptr + l_offset + l);
-            value_a2 = vload4(0, A_ptr + l_offset + 2 * l);
-            value_a3 = vload4(0, A_ptr + l_offset + 3 * l);
+            if (pos.y + 3 < e) {
+                value_a0 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + l_offset * e));
+                value_a1 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + (l_offset + 1) * e));
+                value_a2 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + (l_offset + 2) * e));
+                value_a3 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + (l_offset + 3) * e));
+            } else {
+                value_a0 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(A_ptr[l_offset * e],
+                                                            valid_y1 ? A_ptr[l_offset * e + 1] : (FLOAT)0,
+                                                            valid_y2 ? A_ptr[l_offset * e + 2] : (FLOAT)0,
+                                                            valid_y3 ? A_ptr[l_offset * e + 3] : (FLOAT)0));
+                value_a1 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(A_ptr[(l_offset + 1) * e],
+                                                            valid_y1 ? A_ptr[(l_offset + 1) * e + 1] : (FLOAT)0,
+                                                            valid_y2 ? A_ptr[(l_offset + 1) * e + 2] : (FLOAT)0,
+                                                            valid_y3 ? A_ptr[(l_offset + 1) * e + 3] : (FLOAT)0));
+                value_a2 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(A_ptr[(l_offset + 2) * e],
+                                                            valid_y1 ? A_ptr[(l_offset + 2) * e + 1] : (FLOAT)0,
+                                                            valid_y2 ? A_ptr[(l_offset + 2) * e + 2] : (FLOAT)0,
+                                                            valid_y3 ? A_ptr[(l_offset + 2) * e + 3] : (FLOAT)0));
+                value_a3 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(A_ptr[(l_offset + 3) * e],
+                                                            valid_y1 ? A_ptr[(l_offset + 3) * e + 1] : (FLOAT)0,
+                                                            valid_y2 ? A_ptr[(l_offset + 3) * e + 2] : (FLOAT)0,
+                                                            valid_y3 ? A_ptr[(l_offset + 3) * e + 3] : (FLOAT)0));
+            }
+#endif
+#else
+            value_a0 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + l_offset));
+#if E_LEAVES == 0
+            value_a1 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + l_offset + l));
+            value_a2 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + l_offset + 2 * l));
+            value_a3 = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + l_offset + 3 * l));
+#else
+            value_a1 = valid_y1 ? CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + l_offset + l)) : (COMPUTE_FLOAT4)0;
+            value_a2 = valid_y2 ? CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + l_offset + 2 * l)) : (COMPUTE_FLOAT4)0;
+            value_a3 = valid_y3 ? CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + l_offset + 3 * l)) : (COMPUTE_FLOAT4)0;
+#endif
 #endif
 
 #ifdef TRANSPOSE_B
+#if H_LEAVES == 0
             FLOAT4 value_tmp0 = vload4(0, B_ptr + l_offset);
             FLOAT4 value_tmp1 = vload4(0, B_ptr + l_offset + l);
             FLOAT4 value_tmp2 = vload4(0, B_ptr + l_offset + 2 * l);
             FLOAT4 value_tmp3 = vload4(0, B_ptr + l_offset + 3 * l);
-            value_b0 = (FLOAT4)(value_tmp0.x, value_tmp1.x, value_tmp2.x, value_tmp3.x);
-            value_b1 = (FLOAT4)(value_tmp0.y, value_tmp1.y, value_tmp2.y, value_tmp3.y);
-            value_b2 = (FLOAT4)(value_tmp0.z, value_tmp1.z, value_tmp2.z, value_tmp3.z);
-            value_b3 = (FLOAT4)(value_tmp0.w, value_tmp1.w, value_tmp2.w, value_tmp3.w);
+            value_b0 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(value_tmp0.x, value_tmp1.x, value_tmp2.x, value_tmp3.x));
+            value_b1 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(value_tmp0.y, value_tmp1.y, value_tmp2.y, value_tmp3.y));
+            value_b2 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(value_tmp0.z, value_tmp1.z, value_tmp2.z, value_tmp3.z));
+            value_b3 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(value_tmp0.w, value_tmp1.w, value_tmp2.w, value_tmp3.w));
 #else
-            value_b0 = vload4(0, B_ptr + l_offset * h);
-            value_b1 = vload4(0, B_ptr + (l_offset + 1) * h);
-            value_b2 = vload4(0, B_ptr + (l_offset + 2) * h);
-            value_b3 = vload4(0, B_ptr + (l_offset + 3) * h);
+            if (pos.x + 3 < h) {
+                FLOAT4 value_tmp0 = vload4(0, B_ptr + l_offset);
+                FLOAT4 value_tmp1 = vload4(0, B_ptr + l_offset + l);
+                FLOAT4 value_tmp2 = vload4(0, B_ptr + l_offset + 2 * l);
+                FLOAT4 value_tmp3 = vload4(0, B_ptr + l_offset + 3 * l);
+                value_b0 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(value_tmp0.x, value_tmp1.x, value_tmp2.x, value_tmp3.x));
+                value_b1 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(value_tmp0.y, value_tmp1.y, value_tmp2.y, value_tmp3.y));
+                value_b2 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(value_tmp0.z, value_tmp1.z, value_tmp2.z, value_tmp3.z));
+                value_b3 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(value_tmp0.w, value_tmp1.w, value_tmp2.w, value_tmp3.w));
+            } else {
+                value_b0 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(B_ptr[l_offset],
+                                                            valid_x1 ? B_ptr[l_offset + l] : (FLOAT)0,
+                                                            valid_x2 ? B_ptr[l_offset + 2 * l] : (FLOAT)0,
+                                                            valid_x3 ? B_ptr[l_offset + 3 * l] : (FLOAT)0));
+                value_b1 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(B_ptr[l_offset + 1],
+                                                            valid_x1 ? B_ptr[l_offset + 1 + l] : (FLOAT)0,
+                                                            valid_x2 ? B_ptr[l_offset + 1 + 2 * l] : (FLOAT)0,
+                                                            valid_x3 ? B_ptr[l_offset + 1 + 3 * l] : (FLOAT)0));
+                value_b2 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(B_ptr[l_offset + 2],
+                                                            valid_x1 ? B_ptr[l_offset + 2 + l] : (FLOAT)0,
+                                                            valid_x2 ? B_ptr[l_offset + 2 + 2 * l] : (FLOAT)0,
+                                                            valid_x3 ? B_ptr[l_offset + 2 + 3 * l] : (FLOAT)0));
+                value_b3 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(B_ptr[l_offset + 3],
+                                                            valid_x1 ? B_ptr[l_offset + 3 + l] : (FLOAT)0,
+                                                            valid_x2 ? B_ptr[l_offset + 3 + 2 * l] : (FLOAT)0,
+                                                            valid_x3 ? B_ptr[l_offset + 3 + 3 * l] : (FLOAT)0));
+            }
+#endif
+#else
+#if H_LEAVES == 0
+            value_b0 = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + l_offset * h));
+            value_b1 = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + (l_offset + 1) * h));
+            value_b2 = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + (l_offset + 2) * h));
+            value_b3 = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + (l_offset + 3) * h));
+#else
+            if (pos.x + 3 < h) {
+                value_b0 = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + l_offset * h));
+                value_b1 = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + (l_offset + 1) * h));
+                value_b2 = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + (l_offset + 2) * h));
+                value_b3 = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + (l_offset + 3) * h));
+            } else {
+                value_b0 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(B_ptr[l_offset * h],
+                                                            valid_x1 ? B_ptr[l_offset * h + 1] : (FLOAT)0,
+                                                            valid_x2 ? B_ptr[l_offset * h + 2] : (FLOAT)0,
+                                                            valid_x3 ? B_ptr[l_offset * h + 3] : (FLOAT)0));
+                value_b1 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(B_ptr[(l_offset + 1) * h],
+                                                            valid_x1 ? B_ptr[(l_offset + 1) * h + 1] : (FLOAT)0,
+                                                            valid_x2 ? B_ptr[(l_offset + 1) * h + 2] : (FLOAT)0,
+                                                            valid_x3 ? B_ptr[(l_offset + 1) * h + 3] : (FLOAT)0));
+                value_b2 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(B_ptr[(l_offset + 2) * h],
+                                                            valid_x1 ? B_ptr[(l_offset + 2) * h + 1] : (FLOAT)0,
+                                                            valid_x2 ? B_ptr[(l_offset + 2) * h + 2] : (FLOAT)0,
+                                                            valid_x3 ? B_ptr[(l_offset + 2) * h + 3] : (FLOAT)0));
+                value_b3 = CONVERT_COMPUTE_FLOAT4((FLOAT4)(B_ptr[(l_offset + 3) * h],
+                                                            valid_x1 ? B_ptr[(l_offset + 3) * h + 1] : (FLOAT)0,
+                                                            valid_x2 ? B_ptr[(l_offset + 3) * h + 2] : (FLOAT)0,
+                                                            valid_x3 ? B_ptr[(l_offset + 3) * h + 3] : (FLOAT)0));
+            }
+#endif
 #endif
 
 #ifdef TRANSPOSE_A
-            value0 = mad((FLOAT4)value_a0.x, value_b0, value0);
-            value0 = mad((FLOAT4)value_a1.x, value_b1, value0);
-            value0 = mad((FLOAT4)value_a2.x, value_b2, value0);
-            value0 = mad((FLOAT4)value_a3.x, value_b3, value0);
+            value0 = mad((COMPUTE_FLOAT4)value_a0.x, value_b0, value0);
+            value0 = mad((COMPUTE_FLOAT4)value_a1.x, value_b1, value0);
+            value0 = mad((COMPUTE_FLOAT4)value_a2.x, value_b2, value0);
+            value0 = mad((COMPUTE_FLOAT4)value_a3.x, value_b3, value0);
             
-            value1 = mad((FLOAT4)value_a0.y, value_b0, value1);
-            value1 = mad((FLOAT4)value_a1.y, value_b1, value1);
-            value1 = mad((FLOAT4)value_a2.y, value_b2, value1);
-            value1 = mad((FLOAT4)value_a3.y, value_b3, value1);
+            value1 = mad((COMPUTE_FLOAT4)value_a0.y, value_b0, value1);
+            value1 = mad((COMPUTE_FLOAT4)value_a1.y, value_b1, value1);
+            value1 = mad((COMPUTE_FLOAT4)value_a2.y, value_b2, value1);
+            value1 = mad((COMPUTE_FLOAT4)value_a3.y, value_b3, value1);
             
-            value2 = mad((FLOAT4)value_a0.z, value_b0, value2);
-            value2 = mad((FLOAT4)value_a1.z, value_b1, value2);
-            value2 = mad((FLOAT4)value_a2.z, value_b2, value2);
-            value2 = mad((FLOAT4)value_a3.z, value_b3, value2);
+            value2 = mad((COMPUTE_FLOAT4)value_a0.z, value_b0, value2);
+            value2 = mad((COMPUTE_FLOAT4)value_a1.z, value_b1, value2);
+            value2 = mad((COMPUTE_FLOAT4)value_a2.z, value_b2, value2);
+            value2 = mad((COMPUTE_FLOAT4)value_a3.z, value_b3, value2);
             
-            value3 = mad((FLOAT4)value_a0.w, value_b0, value3);
-            value3 = mad((FLOAT4)value_a1.w, value_b1, value3);
-            value3 = mad((FLOAT4)value_a2.w, value_b2, value3);
-            value3 = mad((FLOAT4)value_a3.w, value_b3, value3);
+            value3 = mad((COMPUTE_FLOAT4)value_a0.w, value_b0, value3);
+            value3 = mad((COMPUTE_FLOAT4)value_a1.w, value_b1, value3);
+            value3 = mad((COMPUTE_FLOAT4)value_a2.w, value_b2, value3);
+            value3 = mad((COMPUTE_FLOAT4)value_a3.w, value_b3, value3);
 #else
-            value0 = mad((FLOAT4)value_a0.x, value_b0, value0);
-            value0 = mad((FLOAT4)value_a0.y, value_b1, value0);
-            value0 = mad((FLOAT4)value_a0.z, value_b2, value0);
-            value0 = mad((FLOAT4)value_a0.w, value_b3, value0);
+            value0 = mad((COMPUTE_FLOAT4)value_a0.x, value_b0, value0);
+            value0 = mad((COMPUTE_FLOAT4)value_a0.y, value_b1, value0);
+            value0 = mad((COMPUTE_FLOAT4)value_a0.z, value_b2, value0);
+            value0 = mad((COMPUTE_FLOAT4)value_a0.w, value_b3, value0);
             
-            value1 = mad((FLOAT4)value_a1.x, value_b0, value1);
-            value1 = mad((FLOAT4)value_a1.y, value_b1, value1);
-            value1 = mad((FLOAT4)value_a1.z, value_b2, value1);
-            value1 = mad((FLOAT4)value_a1.w, value_b3, value1);
+            value1 = mad((COMPUTE_FLOAT4)value_a1.x, value_b0, value1);
+            value1 = mad((COMPUTE_FLOAT4)value_a1.y, value_b1, value1);
+            value1 = mad((COMPUTE_FLOAT4)value_a1.z, value_b2, value1);
+            value1 = mad((COMPUTE_FLOAT4)value_a1.w, value_b3, value1);
             
-            value2 = mad((FLOAT4)value_a2.x, value_b0, value2);
-            value2 = mad((FLOAT4)value_a2.y, value_b1, value2);
-            value2 = mad((FLOAT4)value_a2.z, value_b2, value2);
-            value2 = mad((FLOAT4)value_a2.w, value_b3, value2);
+            value2 = mad((COMPUTE_FLOAT4)value_a2.x, value_b0, value2);
+            value2 = mad((COMPUTE_FLOAT4)value_a2.y, value_b1, value2);
+            value2 = mad((COMPUTE_FLOAT4)value_a2.z, value_b2, value2);
+            value2 = mad((COMPUTE_FLOAT4)value_a2.w, value_b3, value2);
             
-            value3 = mad((FLOAT4)value_a3.x, value_b0, value3);
-            value3 = mad((FLOAT4)value_a3.y, value_b1, value3);
-            value3 = mad((FLOAT4)value_a3.z, value_b2, value3);
-            value3 = mad((FLOAT4)value_a3.w, value_b3, value3);
+            value3 = mad((COMPUTE_FLOAT4)value_a3.x, value_b0, value3);
+            value3 = mad((COMPUTE_FLOAT4)value_a3.y, value_b1, value3);
+            value3 = mad((COMPUTE_FLOAT4)value_a3.z, value_b2, value3);
+            value3 = mad((COMPUTE_FLOAT4)value_a3.w, value_b3, value3);
 #endif
         }
 
         for(int i = ((l_pack - 1) << 2); i < l; ++i){
 #ifdef TRANSPOSE_A
-            FLOAT4 value_a = vload4(0, A_ptr + i * e);
+#if E_LEAVES == 0
+            COMPUTE_FLOAT4 value_a = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + i * e));
 #else
-            FLOAT4 value_a;
+            COMPUTE_FLOAT4 value_a;
+            if (pos.y + 3 < e) {
+                value_a = CONVERT_COMPUTE_FLOAT4(vload4(0, A_ptr + i * e));
+            } else {
+                value_a = CONVERT_COMPUTE_FLOAT4((FLOAT4)(A_ptr[i * e],
+                                                           valid_y1 ? A_ptr[i * e + 1] : (FLOAT)0,
+                                                           valid_y2 ? A_ptr[i * e + 2] : (FLOAT)0,
+                                                           valid_y3 ? A_ptr[i * e + 3] : (FLOAT)0));
+            }
+#endif
+#else
+            COMPUTE_FLOAT4 value_a;
             value_a.x = A_ptr[i];
+#if E_LEAVES == 0
             value_a.y = A_ptr[i + l];
             value_a.z = A_ptr[i + 2 * l];
             value_a.w = A_ptr[i + 3 * l];
+#else
+            value_a.y = valid_y1 ? A_ptr[i + l] : (COMPUTE_FLOAT)0;
+            value_a.z = valid_y2 ? A_ptr[i + 2 * l] : (COMPUTE_FLOAT)0;
+            value_a.w = valid_y3 ? A_ptr[i + 3 * l] : (COMPUTE_FLOAT)0;
+#endif
 #endif
 
 #ifdef TRANSPOSE_B
-            FLOAT4 value_b;
+            COMPUTE_FLOAT4 value_b;
             value_b.x = B_ptr[i];
+#if H_LEAVES == 0
             value_b.y = B_ptr[i + l];
             value_b.z = B_ptr[i + 2 * l];
             value_b.w = B_ptr[i + 3 * l];
 #else
-            FLOAT4 value_b = vload4(0, B_ptr + i * h);
+            value_b.y = valid_x1 ? B_ptr[i + l] : (COMPUTE_FLOAT)0;
+            value_b.z = valid_x2 ? B_ptr[i + 2 * l] : (COMPUTE_FLOAT)0;
+            value_b.w = valid_x3 ? B_ptr[i + 3 * l] : (COMPUTE_FLOAT)0;
+#endif
+#else
+#if H_LEAVES == 0
+            COMPUTE_FLOAT4 value_b = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + i * h));
+#else
+            COMPUTE_FLOAT4 value_b;
+            if (pos.x + 3 < h) {
+                value_b = CONVERT_COMPUTE_FLOAT4(vload4(0, B_ptr + i * h));
+            } else {
+                value_b = CONVERT_COMPUTE_FLOAT4((FLOAT4)(B_ptr[i * h],
+                                                           valid_x1 ? B_ptr[i * h + 1] : (FLOAT)0,
+                                                           valid_x2 ? B_ptr[i * h + 2] : (FLOAT)0,
+                                                           valid_x3 ? B_ptr[i * h + 3] : (FLOAT)0));
+            }
+#endif
 #endif
 
-            value0 = mad((FLOAT4)value_a.x, value_b, value0);
-            value1 = mad((FLOAT4)value_a.y, value_b, value1);
-            value2 = mad((FLOAT4)value_a.z, value_b, value2);
-            value3 = mad((FLOAT4)value_a.w, value_b, value3);
+            value0 = mad((COMPUTE_FLOAT4)value_a.x, value_b, value0);
+            value1 = mad((COMPUTE_FLOAT4)value_a.y, value_b, value1);
+            value2 = mad((COMPUTE_FLOAT4)value_a.z, value_b, value2);
+            value3 = mad((COMPUTE_FLOAT4)value_a.w, value_b, value3);
         }
         
         const int output_offset = offset.x + pos.y * h + pos.x;
 #if H_LEAVES == 0
-        vstore4(value0, 0, output + output_offset);
+        vstore4(CONVERT_FLOAT4(value0), 0, output + output_offset);
         if(pos.y + 1 >= e) return;
-        vstore4(value1, 0, output + output_offset + h);
+        vstore4(CONVERT_FLOAT4(value1), 0, output + output_offset + h);
         if(pos.y + 2 >= e) return;
-        vstore4(value2, 0, output + output_offset + 2 * h);
+        vstore4(CONVERT_FLOAT4(value2), 0, output + output_offset + 2 * h);
         if(pos.y + 3 >= e) return;
-        vstore4(value3, 0, output + output_offset + 3 * h);
+        vstore4(CONVERT_FLOAT4(value3), 0, output + output_offset + 3 * h);
 #else
         if(pos.x + 3 < h){
-            vstore4(value0, 0, output + output_offset);
+            vstore4(CONVERT_FLOAT4(value0), 0, output + output_offset);
             if(pos.y + 1 >= e) return;
-            vstore4(value1, 0, output + output_offset + h);
+            vstore4(CONVERT_FLOAT4(value1), 0, output + output_offset + h);
             if(pos.y + 2 >= e) return;
-            vstore4(value2, 0, output + output_offset + 2 * h);
+            vstore4(CONVERT_FLOAT4(value2), 0, output + output_offset + 2 * h);
             if(pos.y + 3 >= e) return;
-            vstore4(value3, 0, output + output_offset + 3 * h);
+            vstore4(CONVERT_FLOAT4(value3), 0, output + output_offset + 3 * h);
         }else{
 #if H_LEAVES == 1
-            output[output_offset] = value0.x;
+            output[output_offset] = CONVERT_FLOAT(value0.x);
             if(pos.y + 1 >= e) return;
-            output[output_offset + h] = value1.x;
+            output[output_offset + h] = CONVERT_FLOAT(value1.x);
             if(pos.y + 2 >= e) return;
-            output[output_offset + 2 * h] = value2.x;
+            output[output_offset + 2 * h] = CONVERT_FLOAT(value2.x);
             if(pos.y + 3 >= e) return;
-            output[output_offset + 3 * h] = value3.x;
+            output[output_offset + 3 * h] = CONVERT_FLOAT(value3.x);
 #elif H_LEAVES == 2
-            vstore2((FLOAT2)value0.xy, 0, output + output_offset);
+            vstore2(CONVERT_FLOAT2(value0.xy), 0, output + output_offset);
             if(pos.y + 1 >= e) return;
-            vstore2((FLOAT2)value1.xy, 0, output + output_offset + h);
+            vstore2(CONVERT_FLOAT2(value1.xy), 0, output + output_offset + h);
             if(pos.y + 2 >= e) return;
-            vstore2((FLOAT2)value2.xy, 0, output + output_offset + 2 * h);
+            vstore2(CONVERT_FLOAT2(value2.xy), 0, output + output_offset + 2 * h);
             if(pos.y + 3 >= e) return;
-            vstore2((FLOAT2)value3.xy, 0, output + output_offset + 3 * h);
+            vstore2(CONVERT_FLOAT2(value3.xy), 0, output + output_offset + 3 * h);
 #elif H_LEAVES == 3
-            vstore3((FLOAT3)value0.xyz, 0, output + output_offset);
+            vstore3(CONVERT_FLOAT3(value0.xyz), 0, output + output_offset);
             if(pos.y + 1 >= e) return;
-            vstore3((FLOAT3)value1.xyz, 0, output + output_offset + h);
+            vstore3(CONVERT_FLOAT3(value1.xyz), 0, output + output_offset + h);
             if(pos.y + 2 >= e) return;
-            vstore3((FLOAT3)value2.xyz, 0, output + output_offset + 2 * h);
+            vstore3(CONVERT_FLOAT3(value2.xyz), 0, output + output_offset + 2 * h);
             if(pos.y + 3 >= e) return;
-            vstore3((FLOAT3)value3.xyz, 0, output + output_offset + 3 * h);
+            vstore3(CONVERT_FLOAT3(value3.xyz), 0, output + output_offset + 3 * h);
 #endif
         }
 #endif

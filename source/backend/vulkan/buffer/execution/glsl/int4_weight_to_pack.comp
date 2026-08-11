@@ -1,0 +1,115 @@
+// Dequantize int4 [padN, padK] row-major weights into packed B [K/4, N/32, 4, 8].
+// Source uses one uint32 word for 8 int4 values.
+layout(local_size_x = 16, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer WeightBuffer {
+    uint SrcQ8[]; // [padN, UP_DIV(K, 8)], 8x int4(raw) per uint32
+};
+
+layout(binding = 1) readonly buffer MetaBuffer {
+    FLOAT2 Meta[]; // [padN, KBlocks], each is [scale, offset]
+};
+
+layout(binding = 2) writeonly buffer DstBuffer {
+    FLOAT4 DstB4[]; // [K/4, N/32, 4, 8]
+};
+
+layout(push_constant) uniform PushConstants {
+    uint N;
+    uint K;
+    uint blockSize;
+    uint KBlocks;
+} pc;
+
+ivec4 decodeInt4x4(uint packedWord, uint startNibble) {
+    return ivec4(
+        int((packedWord >> ((startNibble + 0u) * 4u)) & 0xFu) - 8,
+        int((packedWord >> ((startNibble + 1u) * 4u)) & 0xFu) - 8,
+        int((packedWord >> ((startNibble + 2u) * 4u)) & 0xFu) - 8,
+        int((packedWord >> ((startNibble + 3u) * 4u)) & 0xFu) - 8);
+}
+
+void main() {
+    const uint nVec = gl_GlobalInvocationID.x;
+    const uint k4 = gl_GlobalInvocationID.y;
+    const uint nVec4Count = pc.N >> 2u;
+    const uint K4 = pc.K >> 2u;
+    const uint nBlock32Count = pc.N >> 5u;
+    if (nVec >= nVec4Count || k4 >= K4) {
+        return;
+    }
+
+    const uint nBlock32 = nVec >> 3u;
+    const uint nVecIn32 = nVec & 7u;
+    const uint nBase = nVec << 2u;
+    const uint gkBase = k4 << 2u;
+    const uint safeBlockSize = max(pc.blockSize, 1u);
+    const uint kbA = gkBase / safeBlockSize;
+    const uint kbLast = (gkBase + 3u) / safeBlockSize;
+    const bool useTwoBlocks = (safeBlockSize >= 4u) && (kbA != kbLast);
+
+    const uint wordsPerRow = (pc.K + 7u) >> 3u;
+    const uint wordOffset = gkBase >> 3u;
+    const uint startNibble = gkBase & 7u; // gkBase % 8, only 0 or 4
+
+    const uint row0 = nBase + 0u;
+    const uint row1 = nBase + 1u;
+    const uint row2 = nBase + 2u;
+    const uint row3 = nBase + 3u;
+
+    FLOAT2 metaA0 = Meta[row0 * pc.KBlocks + kbA];
+    FLOAT2 metaA1 = Meta[row1 * pc.KBlocks + kbA];
+    FLOAT2 metaA2 = Meta[row2 * pc.KBlocks + kbA];
+    FLOAT2 metaA3 = Meta[row3 * pc.KBlocks + kbA];
+
+    FLOAT2 metaB0 = metaA0;
+    FLOAT2 metaB1 = metaA1;
+    FLOAT2 metaB2 = metaA2;
+    FLOAT2 metaB3 = metaA3;
+    if (useTwoBlocks) {
+        metaB0 = Meta[row0 * pc.KBlocks + kbLast];
+        metaB1 = Meta[row1 * pc.KBlocks + kbLast];
+        metaB2 = Meta[row2 * pc.KBlocks + kbLast];
+        metaB3 = Meta[row3 * pc.KBlocks + kbLast];
+    }
+
+    const uint w0 = SrcQ8[row0 * wordsPerRow + wordOffset];
+    const uint w1 = SrcQ8[row1 * wordsPerRow + wordOffset];
+    const uint w2 = SrcQ8[row2 * wordsPerRow + wordOffset];
+    const uint w3 = SrcQ8[row3 * wordsPerRow + wordOffset];
+
+    const ivec4 q0 = decodeInt4x4(w0, startNibble);
+    const ivec4 q1 = decodeInt4x4(w1, startNibble);
+    const ivec4 q2 = decodeInt4x4(w2, startNibble);
+    const ivec4 q3 = decodeInt4x4(w3, startNibble);
+
+    for (uint kIn4 = 0u; kIn4 < 4u; ++kIn4) {
+        const uint gk = gkBase + kIn4;
+
+        FLOAT2 m0 = metaA0;
+        FLOAT2 m1 = metaA1;
+        FLOAT2 m2 = metaA2;
+        FLOAT2 m3 = metaA3;
+        if (safeBlockSize >= 4u) {
+            if (useTwoBlocks && ((gk / safeBlockSize) != kbA)) {
+                m0 = metaB0;
+                m1 = metaB1;
+                m2 = metaB2;
+                m3 = metaB3;
+            }
+        } else {
+            const uint kb = gk / safeBlockSize;
+            m0 = Meta[row0 * pc.KBlocks + kb];
+            m1 = Meta[row1 * pc.KBlocks + kb];
+            m2 = Meta[row2 * pc.KBlocks + kb];
+            m3 = Meta[row3 * pc.KBlocks + kb];
+        }
+
+        const uint outIdx = (((k4 * nBlock32Count + nBlock32) * 4u + kIn4) * 8u + nVecIn32);
+        DstB4[outIdx] = FLOAT4(
+            FLOAT(q0[kIn4]) * m0.x + m0.y,
+            FLOAT(q1[kIn4]) * m1.x + m1.y,
+            FLOAT(q2[kIn4]) * m2.x + m2.y,
+            FLOAT(q3[kIn4]) * m3.x + m3.y);
+    }
+}

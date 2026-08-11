@@ -35,7 +35,7 @@ python get_max_values.py -m <mnn_model_path> [options]
 
 **Arguments:**
 - `-m, --mnn-path`: Path to MNN model config (required)
-- `-d, --eval_dataset`: Dataset for evaluation (default: 'wikitext/wikitext-2-raw-v1')
+- `-d, --eval_dataset`: Dataset for evaluation (default: 'Salesforce/wikitext/wikitext-2-raw-v1')
 - `-o, --output-path`: Output file path (default: 'max_values.json')
 - `-l, --length`: Sample length for processing (default: 512)
 
@@ -53,7 +53,7 @@ python get_thresholds.py -m <mnn_model_path> [options]
 
 **Arguments:**
 - `-m, --mnn-path`: Path to MNN model config(required)
-- `-d, --eval_dataset`: Dataset for evaluation (default: 'wikitext/wikitext-2-raw-v1')
+- `-d, --eval_dataset`: Dataset for evaluation (default: 'Salesforce/wikitext/wikitext-2-raw-v1')
 - `-o, --output-path`: Output file path (default: 'thresholds.json')
 - `-t, --target-sparsity`: Target sparsity level (default: 0.5)
 - `-l, --length`: Sample length for processing (default: 512)

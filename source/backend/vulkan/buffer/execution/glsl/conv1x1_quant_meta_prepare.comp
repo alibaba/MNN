@@ -1,0 +1,47 @@
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer SrcBuffer {
+    float SrcAlpha[];
+};
+
+layout(binding = 1) writeonly buffer DstBuffer {
+    FLOAT DstMeta[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint co;
+    uint padN;
+    uint blockCount;
+    uint blockStride;
+    uint soSize;
+    uint alphaSize;
+} pc;
+
+void main() {
+    const uint block = gl_GlobalInvocationID.x;
+    const uint row = gl_GlobalInvocationID.y;
+    if (row >= pc.padN || block >= pc.blockStride) {
+        return;
+    }
+
+    float scale = 0.0f;
+    float offset = 0.0f;
+
+    if (row < pc.co && block < pc.blockCount && pc.alphaSize > 0u) {
+        const uint alphaBase = pc.soSize * (row * pc.blockCount + block);
+        if (pc.soSize == 2u) {
+            if (alphaBase < pc.alphaSize) {
+                offset = SrcAlpha[alphaBase];
+            }
+            if ((alphaBase + 1u) < pc.alphaSize) {
+                scale = SrcAlpha[alphaBase + 1u];
+            }
+        } else if (alphaBase < pc.alphaSize) {
+            scale = SrcAlpha[alphaBase];
+        }
+    }
+
+    const uint dst = (row * pc.blockStride + block) * 2u;
+    DstMeta[dst + 0u] = FLOAT(scale);
+    DstMeta[dst + 1u] = FLOAT(offset);
+}

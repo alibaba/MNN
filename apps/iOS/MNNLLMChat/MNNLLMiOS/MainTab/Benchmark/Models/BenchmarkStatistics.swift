@@ -16,7 +16,7 @@ struct BenchmarkStatistics {
     let totalTokensProcessed: Int
     let totalTests: Int
     let totalTimeSeconds: Double
-    
+
     static let empty = BenchmarkStatistics(
         configText: "",
         prefillStats: nil,

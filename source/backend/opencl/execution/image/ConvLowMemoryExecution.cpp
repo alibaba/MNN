@@ -91,6 +91,9 @@ bool ConvLowMemoryExecution::convertToQuantWeight1x1Buffer(cl::Buffer input, int
     } else {/* More types to be supported. */}
 
     mBufferToConv1x1Kernel = runtime->buildKernelWithCache("buffer_convert_quant", kernelName, buildOptions, mOpenCLBackend->getPrecision());
+    if (mBufferToConv1x1Kernel == nullptr) {
+        return false;
+    }
     auto kernel = mBufferToConv1x1Kernel->get();
     uint32_t gws[2] = {static_cast<uint32_t>(UP_DIV(mResource->mInputChannel, icPack)), static_cast<uint32_t>(UP_DIV(mResource->mOutputChannel, ocPack))};
 
@@ -474,6 +477,10 @@ void ConvLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * output) 
 }
 ConvLowMemoryExecution::ConvLowMemoryExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op, Backend *backend)
     : ConvCommonExecution(op->main_as_Convolution2D(), backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvLowMemoryExecution init !\n");
 #endif

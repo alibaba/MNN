@@ -1,0 +1,14 @@
+{
+  "name": "mnnllmchat-android",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MnnLlmChat Android app - release scripts and CDN upload",
+  "type": "module",
+  "scripts": {
+    "upload:cdn": "node scripts/upload-cdn.mjs",
+    "upload:market-config": "node scripts/upload-market-config.mjs"
+  },
+  "dependencies": {
+    "ali-oss": "^6.23.0"
+  }
+}

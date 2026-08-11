@@ -21,13 +21,25 @@ namespace MNN {
 
 class CPUAttention : public Execution {
 public:
-    CPUAttention(Backend *backend, bool kv_cache);
-    virtual ~CPUAttention();
+    CPUAttention(Backend* backend, bool kvCache);
+    virtual ~CPUAttention() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
-private:
+
+protected:
+    virtual bool tryExecuteFastPath(const int8_t* query, int8_t* output, int seqLen, int kvSeqLen, int paddingLength,
+                                    float qScale, float attentionScale, bool lowerTriangular, bool hasSinks,
+                                    bool outputC4, bool directC4Output);
+    virtual CPUAttention* createClone(Backend* backend) const;
+
+#ifdef MNN_SME2
+    bool mUseMixedSmeNeonMatMul = false;
+    int mSmeThreadCount = 0;
+    int mSmeHeadCount = 0;
+#endif
     bool mKVCache        = true;
+    bool mIsKVShared = false;
     int mBytes = 4;
     int mThreadNum = 1;
     int mBlockKV = 512;
@@ -37,13 +49,14 @@ private:
     KVMeta* mMeta;
 
     // common
-    std::shared_ptr<Tensor> mPackQ, mPackQKV, mRunningMax, mRunningSum, mTempQKBlock, mTempOut, mExpfDiffMax;
+    std::shared_ptr<Tensor> mPackQ, mPackQKV, mRunningMax, mRunningSum, mTempOut, mExpfDiffMax;
     std::shared_ptr<CPUKVCacheManager> mKVCacheManager = nullptr;
     bool mUseFlashAttention = true;
 
-    // quant Query/Key/Value
-    bool mQuantKey   = false;
-    bool mQuantValue = false;
+    // KV cache quantization mode
+    KVQuantMode mKeyQuantMode = KVQuantMode::None;
+    KVQuantMode mValueQuantMode = KVQuantMode::None;
+    std::shared_ptr<Tensor> mTQ3DequantBuf; // shared by TQ3 and TQ4
     int  mBlockNum   = 1;
     MemChunk mSumQ;
     MemChunk mQueryScale, mQueryZeroPoint, mQueryQuantScale, mQueryQuantZero;

@@ -27,6 +27,10 @@ std::vector<ITensor *> TRTPooling::onEncode(const std::vector<ITensor *> &xOp) {
     nvinfer1::DimsHW nvKsize            = {poolParam->kernelY(), poolParam->kernelX()};
     nvinfer1::DimsHW nvStrides          = {poolParam->strideY(), poolParam->strideX()};
     nvinfer1::DimsHW nvPad              = {poolParam->padY(), poolParam->padX()};
+    if (!poolParam->isGlobal() && poolParam->pads() != nullptr && poolParam->padType() == PoolPadType_CAFFE &&
+        poolParam->pads()->size() == 4) {
+        nvPad = {poolParam->pads()->data()[0], poolParam->pads()->data()[1]};
+    }
     nvinfer1::IPoolingLayer *pool_layer = nullptr;
 
     if (poolParam->isGlobal()) {

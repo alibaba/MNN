@@ -1,0 +1,105 @@
+// Dequantize int8 [padN, padK] row-major weights into packed B [K/4, N/32, 4, 8].
+// Mapping:
+// - Global X: nVec (N/4), Global Y: k4 (K/4).
+// - Each invocation reads one packed int8x4 per row (4 rows), then emits 4 outputs for kIn4 = 0..3.
+layout(local_size_x = 16, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer WeightBuffer {
+    int SrcQ4[]; // [padN, K/4], each int packs 4 int8 values
+};
+
+layout(binding = 1) readonly buffer MetaBuffer {
+    FLOAT2 Meta[]; // [padN, KBlocks], each is [scale, offset]
+};
+
+layout(binding = 2) writeonly buffer DstBuffer {
+    FLOAT4 DstB4[]; // [K/4, N/32, 4, 8]
+};
+
+layout(push_constant) uniform PushConstants {
+    uint N;
+    uint K;
+    uint blockSize;
+    uint KBlocks;
+} pc;
+
+void main() {
+    const uint nVec = gl_GlobalInvocationID.x;
+    const uint k4 = gl_GlobalInvocationID.y;
+    const uint nVec4Count = pc.N >> 2u;
+    const uint K4 = pc.K >> 2u;
+    const uint nBlock32Count = pc.N >> 5u;
+    if (nVec >= nVec4Count || k4 >= K4) {
+        return;
+    }
+
+    const uint nBlock32 = nVec >> 3u;
+    const uint nVecIn32 = nVec & 7u;
+    const uint nBase = nVec << 2u;
+    const uint gkBase = k4 << 2u;
+    const uint safeBlockSize = max(pc.blockSize, 1u);
+    const uint kbA = gkBase / safeBlockSize;
+    const uint kbLast = (gkBase + 3u) / safeBlockSize;
+    const bool useTwoBlocks = (safeBlockSize >= 4u) && (kbA != kbLast);
+
+    const uint baseQ4_0 = (nBase + 0u) * K4 + k4;
+    const uint baseQ4_1 = (nBase + 1u) * K4 + k4;
+    const uint baseQ4_2 = (nBase + 2u) * K4 + k4;
+    const uint baseQ4_3 = (nBase + 3u) * K4 + k4;
+
+    FLOAT2 soA0 = Meta[(nBase + 0u) * pc.KBlocks + kbA];
+    FLOAT2 soA1 = Meta[(nBase + 1u) * pc.KBlocks + kbA];
+    FLOAT2 soA2 = Meta[(nBase + 2u) * pc.KBlocks + kbA];
+    FLOAT2 soA3 = Meta[(nBase + 3u) * pc.KBlocks + kbA];
+
+    FLOAT2 soB0 = soA0;
+    FLOAT2 soB1 = soA1;
+    FLOAT2 soB2 = soA2;
+    FLOAT2 soB3 = soA3;
+    if (useTwoBlocks) {
+        soB0 = Meta[(nBase + 0u) * pc.KBlocks + kbLast];
+        soB1 = Meta[(nBase + 1u) * pc.KBlocks + kbLast];
+        soB2 = Meta[(nBase + 2u) * pc.KBlocks + kbLast];
+        soB3 = Meta[(nBase + 3u) * pc.KBlocks + kbLast];
+    }
+
+    const int qPacked0 = SrcQ4[baseQ4_0];
+    const int qPacked1 = SrcQ4[baseQ4_1];
+    const int qPacked2 = SrcQ4[baseQ4_2];
+    const int qPacked3 = SrcQ4[baseQ4_3];
+
+    for (uint kIn4 = 0u; kIn4 < 4u; ++kIn4) {
+        const uint gk = gkBase + kIn4;
+
+        FLOAT2 m0 = soA0;
+        FLOAT2 m1 = soA1;
+        FLOAT2 m2 = soA2;
+        FLOAT2 m3 = soA3;
+        if (safeBlockSize >= 4u) {
+            if (useTwoBlocks && ((gk / safeBlockSize) != kbA)) {
+                m0 = soB0;
+                m1 = soB1;
+                m2 = soB2;
+                m3 = soB3;
+            }
+        } else {
+            const uint kb = gk / safeBlockSize;
+            m0 = Meta[(nBase + 0u) * pc.KBlocks + kb];
+            m1 = Meta[(nBase + 1u) * pc.KBlocks + kb];
+            m2 = Meta[(nBase + 2u) * pc.KBlocks + kb];
+            m3 = Meta[(nBase + 3u) * pc.KBlocks + kb];
+        }
+
+        const int q0 = bitfieldExtract(qPacked0, int(kIn4 * 8u), 8);
+        const int q1 = bitfieldExtract(qPacked1, int(kIn4 * 8u), 8);
+        const int q2 = bitfieldExtract(qPacked2, int(kIn4 * 8u), 8);
+        const int q3 = bitfieldExtract(qPacked3, int(kIn4 * 8u), 8);
+
+        const uint outIdx = (((k4 * nBlock32Count + nBlock32) * 4u + kIn4) * 8u + nVecIn32);
+        DstB4[outIdx] = FLOAT4(
+            FLOAT(q0) * m0.x + m0.y,
+            FLOAT(q1) * m1.x + m1.y,
+            FLOAT(q2) * m2.x + m2.y,
+            FLOAT(q3) * m3.x + m3.y);
+    }
+}

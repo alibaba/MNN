@@ -7,7 +7,7 @@ set -e
 
 # --- Configuration ---
 # URL for QNN libraries zip file
-QNN_LIBS_URL='http://meta.alicdn.com/data/mnn/libs/qnn_inc_libs.zip'
+QNN_LIBS_URL='http://meta.alicdn.com/data/mnn/libs/qnn_inc_libs_2_37.zip'
 # Project root is the current directory where the script is run
 PROJECT_ROOT=$(pwd)
 # Temporary directory for downloads and extraction
@@ -21,15 +21,47 @@ QNN_DEST_DIR="$PROJECT_ROOT/source/backend/qnn/3rdParty"
 
 echo "BUILD_QNN is ON. Preparing QNN dependencies..."
 
-# 1. Download the QNN zip file if it doesn't exist
+# Fast-path: if destination already prepared, skip download/unpack/copy
+DEST_INCLUDE_DIR="$QNN_DEST_DIR/include"
+DEST_LIB_DIR="$QNN_DEST_DIR/lib"
+if [ -d "$DEST_INCLUDE_DIR" ] && [ -n "$(find "$DEST_INCLUDE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+    echo "Detected existing QNN SDK at: $QNN_DEST_DIR"
+    # Ensure env vars are set even when skipping work
+    QNN_SDK_ROOT_PATH="$(cd "$QNN_DEST_DIR" && pwd)"
+    export QNN_SDK_ROOT="$QNN_SDK_ROOT_PATH"
+    ENV_FILE="$PROJECT_ROOT/.qnn_env"
+    echo "export QNN_SDK_ROOT=\"$QNN_SDK_ROOT_PATH\"" > "$ENV_FILE"
+    echo "Set QNN_SDK_ROOT to: $QNN_SDK_ROOT_PATH"
+    echo "You can add it to your shell by running: source $ENV_FILE"
+    exit 0
+fi
+
+# 1. Download the QNN zip file if it doesn't exist or is corrupted
 mkdir -p "$BUILD_DIR"
-if [ ! -f "$QNN_ZIP_FILE" ]; then
+
+download_qnn_zip() {
     echo "Downloading QNN dependencies from ${QNN_LIBS_URL}"
-    # Use curl to download, following redirects (-L) and showing progress
-    curl -L -o "$QNN_ZIP_FILE" "$QNN_LIBS_URL"
+    curl -fL --retry 3 --retry-delay 2 -o "$QNN_ZIP_FILE" "$QNN_LIBS_URL"
     echo "Downloaded to: ${QNN_ZIP_FILE}"
+}
+
+validate_zip() {
+    unzip -tq "$QNN_ZIP_FILE" >/dev/null 2>&1
+}
+
+if [ ! -f "$QNN_ZIP_FILE" ]; then
+    download_qnn_zip
 else
     echo "Using cached zip: ${QNN_ZIP_FILE}"
+    if ! validate_zip; then
+        echo "Cached zip appears to be invalid or corrupted. Re-downloading..."
+        rm -f "$QNN_ZIP_FILE"
+        download_qnn_zip
+        if ! validate_zip; then
+            echo "Error: Downloaded zip is invalid. Please try again later." >&2
+            exit 1
+        fi
+    fi
 fi
 
 # 2. Unpack the zip file into a clean temporary directory
@@ -57,8 +89,6 @@ EXTRACTED_QNN_DIR=$(dirname "$INCLUDE_DIR")
 echo "Found QNN content in: $EXTRACTED_QNN_DIR"
 
 # 4. Copy headers and libraries to their final destination
-DEST_INCLUDE_DIR="$QNN_DEST_DIR/include"
-DEST_LIB_DIR="$QNN_DEST_DIR/lib"
 
 echo "Creating destination directories..."
 mkdir -p "$DEST_INCLUDE_DIR"
@@ -85,8 +115,16 @@ else
     echo "Warning: No 'lib' or 'jniLibs' directory found in $EXTRACTED_QNN_DIR"
 fi
 
-# 5. Clean up temporary build directory
+# 5. Clean up temporary unzip directory but keep the cached zip for future runs
 echo "Cleaning up temporary files..."
-rm -rf "$BUILD_DIR"
+rm -rf "$QNN_TMP_DIR"
 
 echo "QNN dependencies preparation completed successfully."
+
+# 6. Export QNN_SDK_ROOT for current shell and persist to .qnn_env for future shells
+QNN_SDK_ROOT_PATH="$(cd "$QNN_DEST_DIR" && pwd)"
+export QNN_SDK_ROOT="$QNN_SDK_ROOT_PATH"
+ENV_FILE="$PROJECT_ROOT/.qnn_env"
+echo "export QNN_SDK_ROOT=\"$QNN_SDK_ROOT_PATH\"" > "$ENV_FILE"
+echo "Set QNN_SDK_ROOT to: $QNN_SDK_ROOT_PATH"
+echo "You can add it to your shell by running: source $ENV_FILE"

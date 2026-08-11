@@ -9,7 +9,10 @@
 #ifndef VulkanBackend_hpp
 #define VulkanBackend_hpp
 
+#define MNN_OP_SUPPORT_LOG
+
 #include <map>
+#include <vector>
 #include <MNN/ErrorCode.hpp>
 #include "MNN_generated.h"
 #include "VulkanRuntime.hpp"
@@ -41,7 +44,7 @@ class VulkanBasicExecution;
 typedef std::tuple<VkBuffer, VkDeviceSize, VkDeviceSize> VULKAN_TENSOR;
 class VulkanBackend : public Backend {
 public:
-    VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info);
+    VulkanBackend(const VulkanRuntime* runtime);
     virtual ~VulkanBackend();
 
     virtual Backend::MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;
@@ -62,8 +65,9 @@ public:
 
     const VulkanPipelineFactory* getPipelineFactory() const;
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
-                                      const std::vector<uint32_t>& localSize = std::vector<uint32_t>()) const;
-    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types);
+                                      const std::vector<uint32_t>& localSize = std::vector<uint32_t>(),
+                                      const std::vector<uint32_t>& specConstants = std::vector<uint32_t>()) const;
+    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& specConstants = std::vector<uint32_t>());
 
     const VulkanCommandPool& getPool() const {
         return (* mRuntime->mCmdPool);
@@ -71,6 +75,10 @@ public:
     const VulkanMemoryPool& getMemoryPool() const {
         return (* mRuntime->mMemoryPool);
     }
+    const VulkanDevice& getDevice() const {
+        return (* mRuntime->mDevice);
+    }
+
     BufferAllocator* getDynamicMemoryPool() const {
         return mCurrentDynamicBufferPool;
     }
@@ -91,9 +99,8 @@ public:
     static bool addCreator(OpType t, Creator* c);
 
     void pushCommand(VkCommandBuffer buffer) const;
-    std::shared_ptr<VulkanCommandPool::Buffer> getSingleCommand() {
-        return mCmdBuffer;
-    }
+    std::shared_ptr<VulkanCommandPool::Buffer> acquireIndirectSegmentForRecord();
+    void finishIndirectRecordedOp();
 
     inline VulkanRuntime::GPUType gpuType() const {
         return mRuntime->mGpuType;
@@ -116,6 +123,7 @@ public:
     std::shared_ptr<VulkanBuffer> allocUniform(const void* src = nullptr, int size = 0);
     void recycleUniform(std::shared_ptr<VulkanBuffer> buffer);
     void copyGPUToGPUBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size, VkDeviceSize srcOffset, VkDeviceSize dstOffset) const;
+    void copyGPUToGPUBufferRegions(VkBuffer srcBuffer, VkBuffer dstBuffer, const VkBufferCopy* regions, uint32_t regionCount) const;
     void copyToGPUBuffer(const void* src, VkBuffer buffer, VkDeviceSize size, VkDeviceSize offset) const;
     std::shared_ptr<VulkanBuffer> createHostBuffer(size_t size) const;
 
@@ -133,12 +141,16 @@ public:
 private:
     void _finish() const;
     void _requireHostBuffer(size_t size) const;
+    void _resetIndirectSegments();
+    void _sealIndirectSegment();
     mutable std::shared_ptr<VulkanBuffer> mHostBuffer;
 
-    std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBufferForCopy;
     BufferAllocator* mCurrentDynamicBufferPool = nullptr;
     std::vector<std::shared_ptr<BufferAllocator>> mDynamicBufferPool;
+    std::vector<std::shared_ptr<VulkanCommandPool::Buffer>> mIndirectSegments;
+    std::shared_ptr<VulkanCommandPool::Buffer> mCurrentIndirectSegment;
+    int mCurrentIndirectSegmentOpCount = 0;
 
     mutable std::vector<VkCommandBuffer> mCmdBuffers;
     mutable std::shared_ptr<VulkanFence> mFence;
@@ -146,6 +158,7 @@ private:
     bool mDirect;
     const VulkanRuntime* mRuntime;
     bool mUseAutoTune = true;
+    static constexpr int kIndirectSegmentOpLimit = 10;
 
     bool mUseFP16{false};
 

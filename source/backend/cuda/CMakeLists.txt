@@ -8,40 +8,45 @@ endif()
 
 if(CUDA_FOUND)
     set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -D_FORCE_INLINES -Wno-deprecated-gpu-targets -w ${EXTRA_LIBS}")
-    if(MNN_SUPPORT_TRANSFORMER_FUSE)    
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --std=c++17") 
-    endif()
+    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --std=c++17")
     if(CMAKE_BUILD_TYPE MATCHES Debug)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O0 -g")
     else()
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O3")
     endif()
     if (WIN32)
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -Xcompiler /FS")
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -Xcompiler /FS -Xcompiler /Zc:__cplusplus")
     endif ()
 
     include(${CMAKE_CURRENT_SOURCE_DIR}/SelectCudaComputeArch.cmake)
     CUDA_SELECT_NVCC_ARCH_FLAGS(CUDA_ARCH_FLAGS ${CUDA_ARCHS})
 
     list(LENGTH CUDA_ARCH_FLAGS_readable_code arch_count)
-    # Current Supported Arch List 
+    # Current Supported Arch List
     IF (MSVC)
      set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -allow-unsupported-compiler")
     ENDIF()
     IF (${arch_count} EQUAL 1)
-        set(support_archs 60 61 62 70 72 75 80 86 87 89)
+        set(support_archs 60 61 62 70 72 75 80 86 87 89 120)
         list(FIND support_archs ${CUDA_ARCH_FLAGS_readable_code} list_index)
         IF (${list_index} EQUAL -1)
             message(FATAL_ERROR "Please add your own sm arch ${CUDA_ARCH_FLAGS_readable_code} to CmakeLists.txt!")
         ENDIF()
     ENDIF()
 
+    # When MNN_CUDA_NATIVE_ARCH is ON, only compile for the auto-detected local
+    # arch (skips the broad gencode list below). Saves compile time and disk.
+    option(MNN_CUDA_NATIVE_ARCH "Only emit gencode for local GPU arch" OFF)
+    IF (MNN_CUDA_NATIVE_ARCH AND ${arch_count} EQUAL 1)
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} ${CUDA_ARCH_FLAGS}")
+        message(STATUS "MNN_CUDA_NATIVE_ARCH=ON, only compile for sm_${CUDA_ARCH_FLAGS_readable_code}")
+    ELSE()
     IF ((CUDA_VERSION VERSION_GREATER "8.0") OR (CUDA_VERSION VERSION_EQUAL "8.0"))
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_60,code=sm_60")
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_61,code=sm_61")
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_62,code=sm_62")
     ENDIF()
-    
+
     IF ((CUDA_VERSION VERSION_GREATER "10.1") OR (CUDA_VERSION VERSION_EQUAL "10.1"))
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_70,code=sm_70")
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_72,code=sm_72")
@@ -66,6 +71,12 @@ if(CUDA_FOUND)
     IF ((CUDA_VERSION VERSION_GREATER "12.2") OR (CUDA_VERSION VERSION_EQUAL "12.2"))
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_89,code=sm_89")
         add_definitions(-DMNN_CUDA_ENABLE_SM89 -DMNN_CUDA_ENABLE_SM89)
+    ENDIF()
+
+    IF (CUDA_VERSION VERSION_GREATER_EQUAL "12.8")
+        # Blackwell consumer (e.g. RTX 5090) — sm_120
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_120,code=sm_120")
+    ENDIF()
     ENDIF()
 
     # Limit minimum cuda version for each archs
@@ -108,6 +119,10 @@ ENDIF()
 
 IF (MNN_CUDA_BF16)
     add_definitions(-DENABLE_CUDA_BF16)
+ENDIF()
+
+IF (MNN_CUDA_NATIVE_ARCH AND CUDA_ARCH_FLAGS_readable_code)
+    add_definitions(-DMNN_CUDA_ENABLE_SM${CUDA_ARCH_FLAGS_readable_code})
 ENDIF()
 
 IF (MNN_CUDA_TUNE_PARAM)
@@ -168,10 +183,24 @@ message(STATUS "message ${CUDA_NVCC_FLAGS} !!!!!!!!!!! ${CUDA_INCLUDE_DIRS}")
 
 if(WIN32)
     cuda_add_library(MNN_CUDA STATIC Register.cpp ${MNN_CUDA_SRC})
-    set(MNN_CUDA_LIBS MNN_CUDA ${CUDA_LIBRARIES} PARENT_SCOPE)
+    find_library(CUDA_CUBLAS_LIBRARY cublas HINTS ${CUDA_TOOLKIT_ROOT_DIR}/lib/x64 ${CUDA_TOOLKIT_ROOT_DIR}/lib)
+    if(CUDA_CUBLAS_LIBRARY)
+        set(MNN_CUDA_LIBS MNN_CUDA ${CUDA_LIBRARIES} ${CUDA_CUBLAS_LIBRARY} PARENT_SCOPE)
+    else()
+        set(MNN_CUDA_LIBS MNN_CUDA ${CUDA_LIBRARIES} PARENT_SCOPE)
+    endif()
 else()
 
     cuda_add_library(MNN_Cuda_Main SHARED ${MNN_CUDA_SRC})
+
+    # Link cuBLAS for prefill GEMM acceleration
+    find_library(CUDA_CUBLAS_LIBRARY cublas HINTS ${CUDA_TOOLKIT_ROOT_DIR}/lib64 ${CUDA_TOOLKIT_ROOT_DIR}/lib)
+    if(CUDA_CUBLAS_LIBRARY)
+        target_link_libraries(MNN_Cuda_Main ${CUDA_CUBLAS_LIBRARY})
+    else()
+        target_link_libraries(MNN_Cuda_Main -lcublas)
+    endif()
+
     if(MNN_CUDA_PROFILE)
       target_compile_options(MNN_Cuda_Main PRIVATE -DMNN_CUDA_PROFILE)
       target_link_libraries(MNN_Cuda_Main  ${CUDA_INCLUDE_DIRS}/../lib/libnvToolsExt.so)

@@ -9,7 +9,6 @@
 import Combine
 import ExyteChat
 
-
 enum UserType {
     case system
     case user
@@ -17,14 +16,13 @@ enum UserType {
 }
 
 final class LLMChatInteractor: ChatInteractorProtocol {
-    
     var chatData: LLMChatData
     var modelInfo: ModelInfo
     var historyMessages: [HistoryMessage]?
     var isThinkingModeEnabled: Bool = true
-    
+
     private let processor = ThinkResultProcessor(thinkingPrefix: "<think>", completePrefix: "</think>")
-    
+
     private lazy var chatState = CurrentValueSubject<[LLMChatMessage], Never>(generateStartMessages(historyMessages: historyMessages))
     private lazy var sharedState = chatState.share()
 
@@ -36,108 +34,128 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     var messages: AnyPublisher<[LLMChatMessage], Never> {
         sharedState.eraseToAnyPublisher()
     }
-    
+
     var senders: [LLMChatUser] {
         let members = [chatData.assistant, chatData.user]
         return members
     }
-    
+
     var otherSenders: [LLMChatUser] {
         senders.filter { !$0.isCurrentUser }
     }
-    
+
     init(modelInfo: ModelInfo, historyMessages: [HistoryMessage]? = nil) {
         self.modelInfo = modelInfo
-        self.chatData = LLMChatData(modelInfo: modelInfo)
+        chatData = LLMChatData(modelInfo: modelInfo)
         self.historyMessages = historyMessages
-        print("yxy:: LLMChatInteractor init")
-    }
-    
-    deinit {
-        print("yxy:: LLMChatInteractor deinit")
     }
 
-    func send(draftMessage: ExyteChat.DraftMessage, userType: UserType) {
+    deinit {
+    }
+
+    /// Sends a draft message to the chat with the specified user type
+    /// - Parameters:
+    ///   - draftMessage: The draft message to send
+    ///   - userType: The type of user sending the message (user, assistant, or system)
+    /// - Throws: Any error that occurs during message processing
+    func send(draftMessage: ExyteChat.DraftMessage, userType: UserType) async throws {
         if draftMessage.id != nil {
             guard let index = chatState.value.firstIndex(where: { $0.uid == draftMessage.id }) else {
                 return
             }
             chatState.value.remove(at: index)
         }
-        
-        Task {
-            let status: Message.Status = .sending
-            
-            var sender: LLMChatUser
-            switch userType {
-            case .user:
-                sender = chatData.user
-            case .assistant:
-                sender = chatData.assistant
-            case .system:
-                sender = chatData.system
-            }
-            let message: LLMChatMessage = await draftMessage.toLLMChatMessage(
-                id: UUID().uuidString,
-                user: sender,
-                status: status)
-            
-            DispatchQueue.main.async { [weak self] in
-                
-//                PerformanceMonitor.shared.recordUIUpdate()
-                
-                switch userType {
-                case .user, .system:
-                    self?.chatState.value.append(message)
-                    
-                    if userType == .user {
-                        sender = self?.chatData.assistant ?? message.sender
-                        let emptyMessage = LLMChatMessage(uid: UUID().uuidString, sender: sender, createdAt: Date(), text: "", images: [], videos: [], recording: nil, replyMessage: nil)
-                        self?.chatState.value.append(emptyMessage)
-                    } else {
-                        sender = self?.chatData.system ?? message.sender
-                    }
-                    
-                    self?.processor.startNewChat()
-                    
-                case .assistant:
-                    
-                    var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
 
-                    if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true,
-                        (tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") })),
-                        let text = self?.processor.process(progress: message.text) {
-                                updateLastMsg?.text = text
-                        } else {
-                            if let currentText = updateLastMsg?.text {
-                                updateLastMsg?.text = currentText + message.text
-                            } else {
-                                updateLastMsg?.text = message.text
-                            }
-                        }
-                        
-                        if let updatedMsg = updateLastMsg {
-                            self?.chatState.value[(self?.chatState.value.count ?? 1) - 1] = updatedMsg
-                        }
-//                    }
+        let status: Message.Status = .sending
+
+        var sender: LLMChatUser
+        switch userType {
+        case .user:
+            sender = chatData.user
+        case .assistant:
+            sender = chatData.assistant
+        case .system:
+            sender = chatData.system
+        }
+
+        let message: LLMChatMessage = await draftMessage.toLLMChatMessage(
+            id: UUID().uuidString,
+            user: sender,
+            status: status
+        )
+
+        await MainActor.run { [weak self] in
+            switch userType {
+            case .user, .system:
+                self?.chatState.value.append(message)
+
+                if userType == .user {
+                    let assistantSender = self?.chatData.assistant ?? message.sender
+                    let emptyMessage = LLMChatMessage(
+                        uid: UUID().uuidString,
+                        sender: assistantSender,
+                        createdAt: Date(),
+                        text: "",
+                        images: [],
+                        videos: [],
+                        recording: nil,
+                        replyMessage: nil
+                    )
+                    self?.chatState.value.append(emptyMessage)
+                }
+
+                self?.processor.startNewChat()
+
+            case .assistant:
+                var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
+
+                if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true,
+                   tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") }),
+                   let text = self?.processor.process(progress: message.text)
+                {
+                    updateLastMsg?.text = text
+                } else {
+                    if let currentText = updateLastMsg?.text {
+                        updateLastMsg?.text = currentText + message.text
+                    } else {
+                        updateLastMsg?.text = message.text
+                    }
+                }
+
+                if let updatedMsg = updateLastMsg {
+                    self?.chatState.value[(self?.chatState.value.count ?? 1) - 1] = updatedMsg
                 }
             }
         }
     }
-    
+
     func sendImage(imageURL: URL) {
         Task {
-            DispatchQueue.main.async { [weak self] in
+            await MainActor.run { [weak self] in
                 let image = LLMChatImage(id: UUID().uuidString, thumbnail: imageURL, full: imageURL)
-                
-                let message = LLMChatMessage.init(uid: UUID().uuidString, sender: self?.chatData.assistant ?? LLMChatUser(uid: "0", name: ""), createdAt: Date(), text: "", images: [image], videos: [], recording: nil, replyMessage: nil)
+
+                let message = LLMChatMessage(uid: UUID().uuidString, sender: self?.chatData.assistant ?? LLMChatUser(uid: "0", name: ""), createdAt: Date(), text: "", images: [image], videos: [], recording: nil, replyMessage: nil)
                 self?.chatState.value.append(message)
             }
         }
     }
 
-    func connect() {
+    /// Replaces the text of the last message in the chat (e.g. for in-place progress updates).
+    /// Uses DispatchQueue.main for immediate, synchronous-like updates without Task scheduling delay.
+    func updateLastMessage(text: String) {
+        let update = { [weak self] in
+            guard let self = self, !self.chatState.value.isEmpty else { return }
+            let lastIndex = self.chatState.value.count - 1
+            self.chatState.value[lastIndex].text = text
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
     }
+
+    func connect() {}
 
     func disconnect() {
         subscriptions.removeAll()
@@ -162,7 +180,6 @@ final class LLMChatInteractor: ChatInteractorProtocol {
 }
 
 private extension LLMChatInteractor {
-    
     func generateStartMessages(historyMessages: [HistoryMessage]? = nil) -> [LLMChatMessage] {
         return chatData.greatingMessage(historyMessages: historyMessages)
     }

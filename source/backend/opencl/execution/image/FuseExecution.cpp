@@ -26,6 +26,7 @@ FuseExecution::FuseExecution(const std::vector<Tensor *> &inputs, Backend *backe
     auto name = extra->type()->c_str();
     mKernelName = extra->type()->str();
     mUnits[0].kernel = runtime->buildKernelFromSource(source, name, buildOptions, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(mUnits[0].kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mUnits[0].kernel));
 }
 
@@ -75,10 +76,8 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         auto param = op->main_as_Extra();
-        if(param->type()->str() == "ExtraConvolution2DPrelu"){
-            return new ConvExecution(inputs, outputs, op, backend, true);
-        }
-        return new FuseExecution(inputs, backend, op);
+        if(param->type()->str() == "ExtraConvolution2DPrelu")OPENCL_CREATOR_CHECK(new ConvExecution(inputs, outputs, op, backend, true));
+        OPENCL_CREATOR_CHECK(new FuseExecution(inputs, backend, op));
     }
 };
 REGISTER_OPENCL_OP_CREATOR(FuseCreator, OpType_Extra, IMAGE);

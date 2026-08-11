@@ -35,6 +35,7 @@ namespace MNN {
 namespace QNN {
 #ifdef ENABLE_QNN_ONLINE_FINALIZE
 
+class QNNTensorDumper;
 class QnnRuntime;
 
 class QnnBackend : public Backend {
@@ -66,25 +67,33 @@ public:
 
 private:
     void createContextAndGraph();
-    void finalizeGraph();
-    void executeGraph() const;
+    bool finalizeGraph();
+    bool executeGraph() const;
     void freeContextAndGraph();
 
 public:
     void addNodeToGraph(Qnn_OpConfigVersion_t version, const char* nodeName, const char* packageName, const char* nodeType, std::vector<Qnn_Param_t> & params, std::vector<Qnn_Tensor_t> & inputs, std::vector<Qnn_Tensor_t> & outputs);
-    void addStaticTensorToGraph(Qnn_Tensor_t * staticTensor);
-    void addStageTensorToGraph(Qnn_Tensor_t * stageTensor);
+    void addTensor(Qnn_Tensor_t * tensor);
+    Qnn_Tensor_t* getMaskTensor(int maxKVSize);
+    Qnn_Tensor_t* addExtraInput(Tensor* tensor);
+    Qnn_Tensor_t* addExtraOutput(Tensor* tensor);
     int getTensorIdx(const Tensor * tensor) const;
     Qnn_Tensor_t * getNativeTensor(const Tensor * tensor);
     std::shared_ptr<QNNTensorWrapper> getTensorWrapper(const Tensor * tensor);
     bool useCache() const;
     bool getUseFP16() const;
+    bool isTensorDumpEnabled() const;
+    bool canDumpTensor(Qnn_DataType_t dataType, const std::string& name) const;
+    bool prepareDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor,
+                            Tensor::DimensionType dimType = gQnnTensorDimType);
+    bool registerDebugTensor(const std::shared_ptr<QNNTensorWrapper>& tensor);
     void buildOutputDequant();
     void buildInputCast(const Tensor *tensor);
     void buildOutputCast();
     void pushReleaseFunc(std::function<void()> func){
         mReleaseFunc.push_back(func);
     }
+    virtual const Runtime* getRuntime() override;
 
 private:
     void clean();
@@ -93,6 +102,8 @@ private:
     const QnnRuntime * mRuntime;
 
     std::unique_ptr<QNNPerf> mPerf;
+    std::unique_ptr<QNNTensorDumper> mTensorDumper;
+    bool mDumpIntermediateOutputs = false;
 
     bool mUseFP16;
     const BackendConfig::PowerMode mPower;
@@ -119,9 +130,14 @@ private:
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mInputCastTensorMap;
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mOutputCastTensorMap;
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mDeQuantOutputTensorMap;
+    bool mGraphValid = true;
     std::vector<int> mInputTensorIndexes;
     std::vector<int> mOutputTensorIndexes;
+    std::vector<std::shared_ptr<QNNTensorWrapper>> mDebugTensorWrappers;
     std::vector<std::function<void()>> mReleaseFunc;
+    std::shared_ptr<QNNTensorWrapper> mMaskTensor;
+    std::vector<std::shared_ptr<QNNTensorWrapper>> mExtraInputs;
+    std::vector<std::shared_ptr<QNNTensorWrapper>> mExtraOutputs;
 };
 
 
@@ -158,6 +174,7 @@ private:
     BackendConfig::PowerMode mPower;
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PrecisionMode mPrecision;
+    bool mDumpIntermediateOutputs = false;
     // Qnn related
     QNN_INTERFACE_VER_TYPE mQnnInterface{};
     Qnn_LogHandle_t mQnnLogHandle = nullptr;

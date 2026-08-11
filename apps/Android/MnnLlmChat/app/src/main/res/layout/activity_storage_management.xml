@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fitsSystemWindows="true">
+
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:elevation="4dp" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="24dp">
+
+            <!-- Summary: Internal Storage -->
+            <TextView
+                style="@style/SettingsSectionHeader"
+                android:text="@string/storage_summary_internal" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/SettingsSectionGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:minHeight="40dp"
+                        android:gravity="center_vertical">
+                        <TextView
+                            style="@style/SettingsRowLabel"
+                            android:layout_weight="1"
+                            android:text="@string/storage_total" />
+                        <TextView
+                            android:id="@+id/tv_internal_total"
+                            style="@style/SettingsRowValue" />
+                    </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:minHeight="40dp"
+                        android:gravity="center_vertical">
+                        <TextView
+                            style="@style/SettingsRowLabel"
+                            android:layout_weight="1"
+                            android:text="@string/storage_used" />
+                        <TextView
+                            android:id="@+id/tv_internal_used"
+                            style="@style/SettingsRowValue" />
+                    </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:minHeight="40dp"
+                        android:gravity="center_vertical">
+                        <TextView
+                            style="@style/SettingsRowLabel"
+                            android:layout_weight="1"
+                            android:text="@string/storage_free" />
+                        <TextView
+                            android:id="@+id/tv_internal_free"
+                            style="@style/SettingsRowValue" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Summary: Model Storage -->
+            <TextView
+                style="@style/SettingsSectionHeader"
+                android:text="@string/storage_summary_model" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/SettingsSectionGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:minHeight="40dp"
+                        android:gravity="center_vertical">
+                        <TextView
+                            style="@style/SettingsRowLabel"
+                            android:layout_weight="1"
+                            android:text="@string/storage_model_files" />
+                        <TextView
+                            android:id="@+id/tv_model_files"
+                            style="@style/SettingsRowValue" />
+                    </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:minHeight="40dp"
+                        android:gravity="center_vertical">
+                        <TextView
+                            style="@style/SettingsRowLabel"
+                            android:layout_weight="1"
+                            android:text="@string/storage_mmap_cache" />
+                        <TextView
+                            android:id="@+id/tv_mmap_cache"
+                            style="@style/SettingsRowValue" />
+                    </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:minHeight="40dp"
+                        android:gravity="center_vertical">
+                        <TextView
+                            style="@style/SettingsRowLabel"
+                            android:layout_weight="1"
+                            android:text="@string/storage_orphan_cache" />
+                        <TextView
+                            android:id="@+id/tv_orphan_cache"
+                            style="@style/SettingsRowValue" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Mmap cache by model -->
+            <TextView
+                style="@style/SettingsSectionHeader"
+                android:text="@string/storage_mmap_by_model" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/SettingsSectionGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/storage_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:nestedScrollingEnabled="false"
+                    android:minHeight="80dp" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Bottom: Clean cleanable cache -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:gravity="center">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_clean_cleanable_cache"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/storage_clean_cleanable_cache" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+</LinearLayout>

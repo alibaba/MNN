@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 #include <stdlib.h>
+#include <stdio.h>
 using namespace MNN::Transformer;
 
 
@@ -58,6 +59,43 @@ std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string>& 
     return csv_data;
 }
 
+static bool fileExists(const std::string& path) {
+    FILE* f = fopen(path.c_str(), "r");
+    if (f) { fclose(f); return true; }
+    return false;
+}
+
+static void verifySyncFiles(const std::string& prefixDir, const std::string& fileName) {
+    int layerCount = 0;
+    bool allExist = true;
+    for (int i = 0; i < 256; i++) {
+        std::string base = prefixDir + "/" + fileName + "_" + std::to_string(i);
+        std::string k_file = base + ".k";
+        std::string v_file = base + ".v";
+        if (!fileExists(k_file) && !fileExists(v_file)) {
+            break;
+        }
+        std::string k_sync = base + "_sync.k";
+        std::string v_sync = base + "_sync.v";
+        if (!fileExists(k_sync)) {
+            MNN_PRINT("[TEST FAIL] Missing: %s\n", k_sync.c_str());
+            allExist = false;
+        }
+        if (!fileExists(v_sync)) {
+            MNN_PRINT("[TEST FAIL] Missing: %s\n", v_sync.c_str());
+            allExist = false;
+        }
+        layerCount++;
+    }
+    if (allExist && layerCount > 0) {
+        MNN_PRINT("[TEST PASS] All %d layers sync files verified.\n", layerCount);
+    } else if (layerCount == 0) {
+        MNN_PRINT("[TEST FAIL] No KV cache files found in %s/\n", prefixDir.c_str());
+    } else {
+        MNN_PRINT("[TEST FAIL] %d layers checked, some sync files missing.\n", layerCount);
+    }
+}
+
 static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_token_number, bool is_prompt_cache) {
     if (prompts.size() < 3) {
         MNN_ERROR("Need larger than 3 inputs\n");
@@ -81,6 +119,9 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         llm->setPrefixCacheFile("model_prompt_config_mnnversion");
         // step 2: prefill prefix prompt
         llm->response(prompt_base, &std::cout, nullptr, 0);
+        
+        // Verify: sync files should exist after first response (completePrefixWrite)
+        verifySyncFiles("prefixcache", "model_prompt_config_mnnversion");
         
         
         auto prompt_len   = context->prompt_len;
@@ -125,6 +166,42 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         MNN_PRINT("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
         MNN_PRINT(" decode speed = %.2f tok/s\n", decode_len / decode_s);
         MNN_PRINT("##################################\n");
+
+        // step 6 (Stage 3): full clear after prefix load + new prompt.
+        // Exercises the only path where the alignment block (PR #4424 reset)
+        // in CPULinearAttention::onExecute changes behavior vs. the prior
+        // snapshot restore: previous == remove > 0 AND not loading from disk.
+        // We then reset + re-run the same prompt to get a clean-session
+        // baseline, and compare textually.
+        if (prompts.size() >= 4) {
+            MNN_PRINT("\n[Stage 3] Full clear after prefix load, then new prompt\n");
+            const auto& new_prompt = prompts[3];
+
+            // Path A: from current prefix-loaded session, full clear then re-prefill+decode.
+            // max_new_tokens=-1 lets response() decode to EOS (the demo's other decode
+            // calls do the same via default arg). Passing 0 here would prefill-only.
+            llm->eraseHistory(0, llm->getCurrentHistory());
+            std::ostringstream after_clear_out;
+            llm->response(new_prompt, &after_clear_out, nullptr, -1);
+            std::string after_clear_text = after_clear_out.str();
+            MNN_PRINT("[Stage 3] Response after full clear:\n%s\n", after_clear_text.c_str());
+
+            // Path B: reset to a fully clean state and run the same prompt.
+            llm->reset();
+            llm->eraseHistory(0, 0);
+            std::ostringstream baseline_out;
+            llm->response(new_prompt, &baseline_out, nullptr, -1);
+            std::string baseline_text = baseline_out.str();
+            MNN_PRINT("[Stage 3] Baseline (clean session) response:\n%s\n", baseline_text.c_str());
+
+            if (after_clear_text == baseline_text) {
+                MNN_PRINT("[TEST PASS] Stage 3: full clear after prefix load matches clean session.\n");
+            } else {
+                MNN_PRINT("[TEST FAIL] Stage 3: output mismatch after full clear vs clean session.\n");
+            }
+        } else {
+            MNN_PRINT("[Stage 3] Skipped: needs at least 4 prompts (got %zu)\n", prompts.size());
+        }
     } else {
         
         MNN_PRINT("Prefill\n");

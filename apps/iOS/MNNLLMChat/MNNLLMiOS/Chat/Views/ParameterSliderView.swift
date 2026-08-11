@@ -14,7 +14,7 @@ struct ParameterSliderView: View {
     let format: String
     let intValue: Bool
     let onChanged: (Double) -> Void
-    
+
     var body: some View {
         HStack {
             Text(title)

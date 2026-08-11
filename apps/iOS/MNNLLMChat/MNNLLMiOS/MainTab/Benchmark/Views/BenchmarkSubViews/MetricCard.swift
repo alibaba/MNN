@@ -13,20 +13,20 @@ struct MetricCard: View {
     let title: String
     let value: String
     let icon: String
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.caption)
                     .foregroundColor(.benchmarkAccent)
-                
+
                 Text(title)
                     .font(.caption)
                     .foregroundColor(.benchmarkSecondary)
                     .lineLimit(1)
             }
-            
+
             Text(value)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(.primary)

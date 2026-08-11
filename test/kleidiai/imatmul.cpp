@@ -5,7 +5,7 @@
 #include <random>
 
 #include "MNNTestSuite.h"
-#include "backend/cpu/compute/KleidiAIDenseConvolution.hpp"
+#include "backend/cpu/kleidiai/KleidiAIDenseConvolution.hpp"
 
 using namespace MNN;
 

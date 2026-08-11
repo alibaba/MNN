@@ -1,0 +1,99 @@
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+layout(constant_id = 3) const uint ACTIVATION = 0; // 0:none 1:relu 2:relu6
+
+layout(std430, binding = 0) readonly buffer ActivationBuffer {
+    FLOAT4 X4[];
+};
+
+layout(std430, binding = 1) readonly buffer WeightBuffer {
+    int Wp[]; // [padN, padK/4], 4x int8 per int32
+};
+
+layout(std430, binding = 2) readonly buffer MetaBuffer {
+    FLOAT Meta[]; // [padN, blockStride, 2] => [scale, offset]
+};
+
+layout(std430, binding = 3) readonly buffer BiasBuffer {
+    FLOAT Bias[];
+};
+
+layout(std430, binding = 4) writeonly buffer OutputBuffer {
+    FLOAT Y[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint K;
+    uint N;
+    uint blockSize;
+    uint blockStride;
+    uint weightStride;
+} pc;
+
+void main() {
+    const uint row = gl_WorkGroupID.x;
+    if (row >= pc.N) {
+        return;
+    }
+
+    const uint lane = gl_LocalInvocationID.x;
+    const uint stride = gl_SubgroupSize;
+
+    const uint K4 = pc.K >> 2;
+    const uint safeBlockSize = max(pc.blockSize, 1u);
+    const uint block4 = max(safeBlockSize >> 2, 1u);
+
+    const uint baseW = row * pc.weightStride;
+    const uint baseM = row * pc.blockStride;
+
+    float sum = 0.0;
+
+    for (uint idx = lane; idx < K4; idx += stride) {
+        const uint kb = idx / block4;
+        const uint metaBase = (baseM + kb) * 2;
+        const float scale = float(Meta[metaBase + 0]);
+        const float offset = float(Meta[metaBase + 1]);
+
+        const int packedW = Wp[baseW + idx];
+        vec4 w = vec4(
+            float(bitfieldExtract(packedW, 0, 8)),
+            float(bitfieldExtract(packedW, 8, 8)),
+            float(bitfieldExtract(packedW, 16, 8)),
+            float(bitfieldExtract(packedW, 24, 8)));
+        w = w * scale + vec4(offset);
+
+        vec4 x = vec4(X4[idx]);
+        sum += dot(w, x);
+    }
+
+    // Tail K handling for K % 4 != 0.
+    const uint tail = pc.K & 3u;
+    if (tail > 0u && gl_SubgroupInvocationID == 0u) {
+        const uint idx = K4;
+        const int packedW = Wp[baseW + idx];
+        vec4 x = vec4(X4[idx]);
+        for (uint t = 0u; t < tail; ++t) {
+            const uint k = (idx << 2) + t;
+            const uint kb = k / safeBlockSize;
+            const uint metaBase = (baseM + kb) * 2u;
+            const float scale = float(Meta[metaBase + 0u]);
+            const float offset = float(Meta[metaBase + 1u]);
+            const float q = float(bitfieldExtract(packedW, int(t * 8u), 8));
+            sum += (q * scale + offset) * x[int(t)];
+        }
+    }
+
+    sum = subgroupAdd(sum);
+
+    if (gl_SubgroupInvocationID == 0u) {
+        float y = sum + float(Bias[row]);
+        if (ACTIVATION == 1u) {
+            y = max(y, 0.0);
+        } else if (ACTIVATION == 2u) {
+            y = clamp(y, 0.0, 6.0);
+        }
+        Y[row] = FLOAT(y);
+    }
+}
