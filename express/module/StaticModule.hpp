@@ -55,6 +55,9 @@ private:
     std::shared_ptr<Session> mSession;
     std::vector<Tensor*> mInputTensors;
     std::vector<std::pair<Tensor*, MNNForwardType>> mPrevInputTensor;
+    // content bytes of content-for-shape inputs (see _resize): resize is only
+    // forced when one of these actually changes
+    std::vector<std::vector<uint8_t>> mContentCache;
     std::vector<Tensor*> mOutputTensors;
     std::shared_ptr<Resource> mResource;
     bool mShapeInferSeperate = false;

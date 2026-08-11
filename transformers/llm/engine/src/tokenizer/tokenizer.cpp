@@ -94,13 +94,17 @@ Tokenizer* Tokenizer::createTokenizer(const std::string& filename) {
     line_str >> tokenizer_type;
     if (tokenizer_type == PIPELINE) {
         // .mtok binary format (PipelineTokenizer)
+        tok_file.close();
+        // Reopen from the beginning in binary mode instead of reusing a
+        // text-mode tellg() position, that position isn't guaranteed to
+        // line up with a byte offset in a separately-opened stream on
+        // Windows/MSVC.
         auto* pt = new PipelineTokenizer();
         tokenizer = pt;
-        tokenizer->load_special(tok_file);
-        auto pos = tok_file.tellg();
-        tok_file.close();
         std::ifstream bin_file(filename, std::ios::binary);
-        bin_file.seekg(pos);
+        std::string bin_line;
+        std::getline(bin_file, bin_line);   // re-consume the magic/type line
+        tokenizer->load_special(bin_file);
         pt->load_vocab_binary(bin_file);
         bin_file.close();
         tokenizer->cache_special_tokens();
@@ -188,7 +192,37 @@ void Tokenizer::cache_special_tokens() {
     }
 }
 
-std::vector<int> Tokenizer::encode(const std::string& str) {
+Tokenizer::PostProcessorInfo Tokenizer::apply_post_processor(std::vector<int>& ids) const {
+    PostProcessorInfo info;
+    if (post_single_ops_.empty()) {
+        return info;
+    }
+    std::vector<int> base_ids = ids;
+    std::vector<int> processed;
+    processed.reserve(base_ids.size() + post_single_ops_.size());
+    size_t sequence_a_count = 0;
+    for (const auto& op : post_single_ops_) {
+        if (op.type == POST_OP_SEQUENCE_A) {
+            if (sequence_a_count == 0) {
+                info.prefix_size = processed.size();
+            }
+            processed.insert(processed.end(), base_ids.begin(), base_ids.end());
+            ++sequence_a_count;
+            continue;
+        }
+        if (op.type == POST_OP_SPECIAL_TOKEN && op.token_id >= 0) {
+            processed.push_back(op.token_id);
+        }
+    }
+    info.has_single_sequence_a = sequence_a_count == 1;
+    if (info.has_single_sequence_a) {
+        info.suffix_size = processed.size() - info.prefix_size - base_ids.size();
+    }
+    ids.swap(processed);
+    return info;
+}
+
+std::vector<int> Tokenizer::encode(const std::string& str, bool with_post_processor) {
     std::vector<int> ids = prefix_tokens_;
     if (special_tokens_cache_.empty() && !special_tokens_.empty()) {
         cache_special_tokens();
@@ -218,6 +252,9 @@ std::vector<int> Tokenizer::encode(const std::string& str) {
         }
     } else {
         encode(str, ids);
+    }
+    if (with_post_processor) {
+        apply_post_processor(ids);
     }
     return ids;
 }
@@ -2449,6 +2486,46 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
         if (bos_len > 0) {
             chat_template_bos_ = std::string(ptr, bos_len);
             ptr += bos_len;
+        }
+    }
+
+    // --- Single-sequence post-processor program (optional) ---
+    if (ptr < buf_end) {
+        uint16_t post_single_count = read_u16(ptr);
+        post_single_ops_.clear();
+        post_single_ops_.reserve(post_single_count);
+        const size_t remaining = (size_t)(buf_end - ptr);
+        if (remaining == (size_t)post_single_count * sizeof(uint32_t)) {
+            // Backward compatibility for temporary format that stored tail special IDs only.
+            PostProcessorOp sequenceA;
+            sequenceA.type = Tokenizer::POST_OP_SEQUENCE_A;
+            post_single_ops_.push_back(sequenceA);
+            for (uint16_t i = 0; i < post_single_count && ptr < buf_end; ++i) {
+                PostProcessorOp op;
+                op.type = Tokenizer::POST_OP_SPECIAL_TOKEN;
+                op.token_id = (int)read_u32(ptr);
+                post_single_ops_.push_back(op);
+            }
+        } else {
+            for (uint16_t i = 0; i < post_single_count && ptr < buf_end; ++i) {
+                uint8_t op_type = read_u8(ptr);
+                if (op_type == Tokenizer::POST_OP_SEQUENCE_A) {
+                    PostProcessorOp op;
+                    op.type = op_type;
+                    op.token_id = -1;
+                    post_single_ops_.push_back(op);
+                    continue;
+                }
+                if (op_type == Tokenizer::POST_OP_SPECIAL_TOKEN && ptr + sizeof(uint32_t) <= buf_end) {
+                    PostProcessorOp op;
+                    op.type = op_type;
+                    op.token_id = (int)read_u32(ptr);
+                    post_single_ops_.push_back(op);
+                    continue;
+                }
+                MNN_ERROR("[Tokenizer] Unsupported post-processor op type %u.\n", op_type);
+                break;
+            }
         }
     }
 

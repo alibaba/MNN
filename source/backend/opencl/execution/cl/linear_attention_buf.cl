@@ -2,6 +2,66 @@
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 #endif
 
+inline int linear_attn_c4_offset(int token, int channel, int token_count) {
+    return ((channel >> 2) * token_count + token) * 4 + (channel & 3);
+}
+
+inline int linear_attn_qkv_offset(int b, int d, int l, int batch, int conv_dim, int seq_len) {
+#ifdef QKV_C4
+    return linear_attn_c4_offset(b * seq_len + l, d, batch * seq_len);
+#else
+    return (b * conv_dim + d) * seq_len + l;
+#endif
+}
+
+inline int linear_attn_gate_offset(int b, int l, int h, int batch, int seq_len, int num_heads) {
+#ifdef GATE_C4
+    return linear_attn_c4_offset(b * seq_len + l, h, batch * seq_len);
+#else
+    return (b * seq_len + l) * num_heads + h;
+#endif
+}
+
+inline int linear_attn_beta_offset(int b, int l, int h, int batch, int seq_len, int num_heads) {
+#ifdef BETA_C4
+    return linear_attn_c4_offset(b * seq_len + l, h, batch * seq_len);
+#else
+    return (b * seq_len + l) * num_heads + h;
+#endif
+}
+
+inline int linear_attn_output_offset(int token, int channel4, int token_count, int channel) {
+#ifdef OUTPUT_C4
+    return (channel4 * token_count + token) * 4;
+#else
+    return token * channel + (channel4 << 2);
+#endif
+}
+
+#ifdef GATE_FOLD
+// Export-time gate/beta fold (LinearAttentionParam::gate_fold): inputs 1/2 carry
+// the raw a/b projections instead of the computed gate/beta, so the op applies
+//   gate = gate_coef[h] * softplus(a + gate_bias[h])
+//   beta = sigmoid(b)
+// inline. The elementwise chain is replayed op-for-op: Binary ops compute in
+// FLOAT (half on fp16 builds), Unary ops in fp32 with the MNNExp +-87 clamp,
+// with a FLOAT store-rounding after every op, so the folded value matches the
+// separate-dispatch chain output. Mirrors MetalLinearAttentionShader.hpp:367.
+inline float linear_attn_gate_fold(float a, int h, __global const float* gate_coef,
+                                   __global const float* gate_bias) {
+    FLOAT x = (FLOAT)a + (FLOAT)gate_bias[h];       // ADD dt_bias  (Binary)
+    x = (FLOAT)exp(clamp((float)x, -87.0f, 87.0f)); // EXP          (Unary, fp32)
+    x = x + (FLOAT)1.0f;                            // ADD +1       (Binary)
+    x = (FLOAT)log((float)x);                       // LOG          (Unary, fp32)
+    x = (FLOAT)gate_coef[h] * x;                    // MUL -exp(A_log)
+    return (float)x;
+}
+
+inline float linear_attn_beta_fold(float b) {
+    return (float)(FLOAT)(1.0f / (1.0f + exp(clamp(-b, -87.0f, 87.0f))));
+}
+#endif
+
 // Kernel 1: Depthwise Conv1D + SiLU
 // Each work-item processes one (batch*channel, seq_pos) element.
 // Input:  qkv [B, D, L], conv_state [B, D, conv_state_size], conv_weight [D, 1, K]
@@ -44,7 +104,7 @@ __kernel void linear_attn_conv_silu(
         if (pos < css) {
             input_val = (float)conv_state[b * D * css + d * css + pos];
         } else {
-            input_val = (float)qkv[b * D * L + d * L + (pos - css)];
+            input_val = (float)qkv[linear_attn_qkv_offset(b, d, pos - css, batch, D, L)];
         }
         sum += input_val * (float)conv_weight[d * K + k];
     }
@@ -86,7 +146,7 @@ __kernel void linear_attn_conv_state_update(
     if (pos < css) {
         val = conv_state[b * D * css + d * css + pos];
     } else {
-        val = qkv[b * D * L + d * L + (pos - css)];
+        val = qkv[linear_attn_qkv_offset(b, d, pos - css, batch, D, L)];
     }
     // Safe: we write to index i, read from index (L+i) where L >= 1, so (L+i) > i always
     conv_state[b * D * css + d * css + i] = val;
@@ -111,7 +171,12 @@ __kernel void linear_attn_gated_delta_rule(
     __private const int key_dim,
     __private const int val_dim,
     __private const int gqa_factor,
-    __private const float q_scale)
+    __private const float q_scale
+#ifdef GATE_FOLD
+    , __global const float* gate_coef
+    , __global const float* gate_bias
+#endif
+)
 {
     const int dv4 = (d_v + 3) / 4;
     const int total = dv4 * num_v_heads * batch;
@@ -131,10 +196,16 @@ __kernel void linear_attn_gated_delta_rule(
     const int state_offset = (b * num_v_heads + h) * K_SIZE * d_v + x;
     #ifdef DECODE_PHASE
     const int conv_base = b * conv_dim;
-    float g_t    = (float)(gate[b * num_v_heads + h]);
-    float4 beta_t = (float4)(beta_in[b * num_v_heads + h]);
+    float g_t = (float)(gate[linear_attn_gate_offset(b, 0, h, batch, seq_len, num_v_heads)]);
+    float beta_raw = (float)(beta_in[linear_attn_beta_offset(b, 0, h, batch, seq_len, num_v_heads)]);
+#ifdef GATE_FOLD
+    g_t = linear_attn_gate_fold(g_t, h, gate_coef, gate_bias);
+    beta_raw = linear_attn_beta_fold(beta_raw);
+#endif
+    float4 beta_t = (float4)(beta_raw);
     float4 decay_val = (float4)(exp(g_t));
-    const int out_offset = b * num_v_heads * d_v + h * d_v;
+    const int out_offset =
+        linear_attn_output_offset(b * num_v_heads + h, x >> 2, batch * num_v_heads, d_v);
     float4 s = (float4)(0);
     for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
         float4 rec = convert_float4(vload4(0, recurrent_state + state_offset + i * d_v))* decay_val;
@@ -168,7 +239,7 @@ __kernel void linear_attn_gated_delta_rule(
     }
     s = __sum[0];
     if(lid == 0){
-        vstore4(CONVERT_FLOAT4(s), 0, attn_out + out_offset + x);
+        vstore4(CONVERT_FLOAT4(s), 0, attn_out + out_offset);
     }
     #else
     for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
@@ -176,10 +247,16 @@ __kernel void linear_attn_gated_delta_rule(
     }
     for (int t = 0; t < seq_len; ++t) {
         const int conv_base = b * seq_len * conv_dim;
-        float g_t    = (float)(gate[b * seq_len * num_v_heads + t * num_v_heads + h]);
-        float4 beta_t = (float4)(beta_in[b * seq_len * num_v_heads + t * num_v_heads + h]);
+        float g_t = (float)(gate[linear_attn_gate_offset(b, t, h, batch, seq_len, num_v_heads)]);
+        float beta_raw = (float)(beta_in[linear_attn_beta_offset(b, t, h, batch, seq_len, num_v_heads)]);
+#ifdef GATE_FOLD
+        g_t = linear_attn_gate_fold(g_t, h, gate_coef, gate_bias);
+        beta_raw = linear_attn_beta_fold(beta_raw);
+#endif
+        float4 beta_t = (float4)(beta_raw);
         float4 decay_val = (float4)(exp(g_t));
-        const int out_offset = (b * seq_len + t) * num_v_heads * d_v + h * d_v;
+        const int out_offset = linear_attn_output_offset((b * seq_len + t) * num_v_heads + h, x >> 2,
+                                                         batch * seq_len * num_v_heads, d_v);
         float4 s = (float4)(0);
         for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
             float4 rec = rec_local[i] * decay_val;
@@ -216,7 +293,7 @@ __kernel void linear_attn_gated_delta_rule(
         }
         s = __sum[0];
         if(lid == 0){
-            vstore4(CONVERT_FLOAT4(s), 0, attn_out + out_offset + x);
+            vstore4(CONVERT_FLOAT4(s), 0, attn_out + out_offset);
         }
     }
     for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
@@ -311,6 +388,95 @@ __kernel void l2_norm(__global const FLOAT* input,
     #endif
 }
 
+inline float linear_attn_short_input(__global const FLOAT* qkv, int b, int h, int l, int batch, int conv_dim,
+                                     int seq_len, int hidden) {
+    float b_value =
+        (float)qkv[linear_attn_qkv_offset(b, h, l, batch, conv_dim, seq_len)];
+    float x_value =
+        (float)qkv[linear_attn_qkv_offset(b, 2 * hidden + h, l, batch, conv_dim, seq_len)];
+    return b_value * x_value;
+}
+
+__kernel void linear_attn_short_conv_nosilu(
+    __private const int global_dim0,
+    __global const FLOAT* qkv,
+    __global const FLOAT* conv_state,
+    __global const FLOAT* conv_weight,
+    __global FLOAT* conv_out,
+    __private const int batch,
+    __private const int conv_dim,
+    __private const int seq_len,
+    __private const int kernel_size,
+    __private const int conv_state_size,
+    __private const int hidden) {
+    const int gid = get_global_id(0);
+    if (gid >= global_dim0) return;
+    const int l = gid % seq_len;
+    const int bh = gid / seq_len;
+    const int b = bh / hidden;
+    const int h = bh % hidden;
+
+    float sum = 0.0f;
+    for (int k = 0; k < kernel_size; ++k) {
+        int pos = l + k;
+        float value = pos < conv_state_size
+                          ? (float)conv_state[(b * hidden + h) * conv_state_size + pos]
+                          : linear_attn_short_input(qkv, b, h, pos - conv_state_size, batch, conv_dim, seq_len,
+                                                    hidden);
+        sum += value * (float)conv_weight[h * kernel_size + k];
+    }
+    conv_out[(b * hidden + h) * seq_len + l] = (FLOAT)sum;
+}
+
+__kernel void linear_attn_short_conv_state_update(
+    __private const int global_dim0,
+    __global const FLOAT* qkv,
+    __global FLOAT* conv_state,
+    __private const int batch,
+    __private const int conv_dim,
+    __private const int seq_len,
+    __private const int conv_state_size,
+    __private const int hidden) {
+    const int gid = get_global_id(0);
+    if (gid >= global_dim0) return;
+    const int i = gid % conv_state_size;
+    const int bh = gid / conv_state_size;
+    const int b = bh / hidden;
+    const int h = bh % hidden;
+    int pos = seq_len + i;
+    FLOAT value = pos < conv_state_size
+                      ? conv_state[(b * hidden + h) * conv_state_size + pos]
+                      : (FLOAT)linear_attn_short_input(qkv, b, h, pos - conv_state_size, batch, conv_dim, seq_len,
+                                                       hidden);
+    conv_state[(b * hidden + h) * conv_state_size + i] = value;
+}
+
+__kernel void linear_attn_short_conv_output(
+    __private const int global_dim0,
+    __global const FLOAT* qkv,
+    __global const FLOAT* conv_out,
+    __global FLOAT* attn_out,
+    __private const int batch,
+    __private const int conv_dim,
+    __private const int seq_len,
+    __private const int hidden) {
+    const int gid = get_global_id(0);
+    if (gid >= global_dim0) return;
+    const int l = gid % seq_len;
+    const int bh = gid / seq_len;
+    const int b = bh / hidden;
+    const int h = bh % hidden;
+    float c_value =
+        (float)qkv[linear_attn_qkv_offset(b, hidden + h, l, batch, conv_dim, seq_len)];
+    float conv_value = (float)conv_out[(b * hidden + h) * seq_len + l];
+#ifdef OUTPUT_C4
+    int output_index = linear_attn_c4_offset(b * seq_len + l, h, batch * seq_len);
+#else
+    int output_index = (b * seq_len + l) * hidden + h;
+#endif
+    attn_out[output_index] = (FLOAT)(c_value * conv_value);
+}
+
 #ifdef CHUNK_PREFILL
 
 // ======================== Chunked Prefill Kernels ========================
@@ -325,7 +491,12 @@ __kernel void chunk_g_cumsum(
     __global float* g_cumsum,           // [B, H, num_chunks, CHUNK_SIZE] (float32 for precision)
     __private const int num_v_heads,
     __private const int seq_len,
-    __private const int num_chunks)
+    __private const int num_chunks
+#ifdef GATE_FOLD
+    , __global const float* gate_coef
+    , __global const float* gate_bias
+#endif
+)
 {
     const int h = get_global_id(0);
     const int c = get_global_id(1);
@@ -340,7 +511,15 @@ __kernel void chunk_g_cumsum(
     int out_base = ((b * H + h) * num_chunks + c) * C;
     for (int p = 0; p < C; ++p) {
         int l = c * C + p;
-        float g_val = (l < L) ? (float)gate[b * L * H + l * H + h] : 0.0f;
+        float g_val =
+            (l < L) ? (float)gate[linear_attn_gate_offset(b, l, h, get_global_size(2), L, H)] : 0.0f;
+#ifdef GATE_FOLD
+        // Fold only real tokens: padding must stay an exact 0 contribution to the
+        // running sum, and gate_fold(0) != 0. Clamp keeps a saturated gate from
+        // poisoning g_cumsum with -inf (later exp(g_i - g_j) would go NaN).
+        g_val = (l < L) ? clamp(linear_attn_gate_fold(g_val, h, gate_coef, gate_bias), -88.0f, 0.0f)
+                        : 0.0f;
+#endif
         cumsum += g_val;
         g_cumsum[out_base + p] = cumsum;
     }
@@ -362,7 +541,12 @@ __kernel void chunk_build_neumann_attn_step0(
     __private const int head_k_dim,
     __private const int key_dim,
     __private const int gqa_factor,
-    __private const int num_chunks)
+    __private const int num_chunks
+#ifdef GATE_FOLD
+    , __global const float* gate_coef
+    , __global const float* gate_bias
+#endif
+)
 {
     const int rc = get_global_id(0);
     const int hc = get_global_id(1);
@@ -394,7 +578,10 @@ __kernel void chunk_build_neumann_attn_step0(
         const int l_j = c * C + col;
         if (l_i < L && l_j < L) {
             const float g_i = (float)g_cumsum[g_base + row];
-            const float beta_i = (float)beta_in[b * L * H + l_i * H + h];
+            float beta_i = (float)beta_in[linear_attn_beta_offset(b, l_i, h, batch, L, H)];
+#ifdef GATE_FOLD
+            beta_i = linear_attn_beta_fold(beta_i);
+#endif
             const float g_j = (float)g_cumsum[g_base + col];
             const float decay = exp(g_i - g_j);
             float dot = 0.0f;
@@ -477,7 +664,12 @@ __kernel void chunk_correct_v(
     __private const int head_v_dim,
     __private const int key_dim,
     __private const int gqa_factor,
-    __private const int num_chunks)
+    __private const int num_chunks
+#ifdef GATE_FOLD
+    , __global const float* gate_coef
+    , __global const float* gate_bias
+#endif
+)
 {
     const int x = get_global_id(0);
     const int y = get_global_id(1);
@@ -507,7 +699,11 @@ __kernel void chunk_correct_v(
     int l_p = c * C;
     for (int p = 0; p < C && l_p < L; ++p, ++l_p) {
         float a = attn_matrix[attn_base + p];
-        float beta_p = (float)beta_in[b * L * H + l_p * H + h];
+        float beta_p =
+            (float)beta_in[linear_attn_beta_offset(b, l_p, h, global_dim2 / num_v_heads, L, H)];
+#ifdef GATE_FOLD
+        beta_p = linear_attn_beta_fold(beta_p);
+#endif
         float ab = a * beta_p;
         float g_p = g_cumsum[g_base + p];
         float coeff = ab * exp(g_p);
@@ -768,7 +964,8 @@ __kernel void chunk_output(
         intra += qk * vn;
     }
 
-    const int out_offset = (b * L + l_p) * H * dv + h * dv + j;
+    const int out_offset = linear_attn_output_offset((b * L + l_p) * H + h, j >> 2,
+                                                     global_dim2 * L * H, dv);
     vstore4(CONVERT_FLOAT4(inter + intra), 0, attn_out + out_offset);
 }
 

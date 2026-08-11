@@ -29,7 +29,8 @@ ErrorCode SelectExecution::onEncode(const std::vector<Tensor*>& inputs, const st
         buildOptions.emplace("-DINSIZE1_EUQAL_1");
     if(inSize2 == 1)
         buildOptions.emplace("-DINSIZE2_EUQAL_1");
-    unit.kernel = runtime->buildKernel("select", "select_img", buildOptions, openCLBackend->getPrecision());
+    unit.kernel = runtime->buildKernel("select", "select_img", buildOptions, openCLBackend->getPrecision(), inputs[1],
+                                       outputs[0]);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     std::vector<int> outputShape = tensorShapeFormat(outputs[0]);

@@ -269,6 +269,12 @@ public:
         return config_.value("is_mrope", false);
     }
 
+    int mrope_axes() const { return config_.value("mrope_axes", 3); }
+
+    int max_position_embeddings() const {
+        return config_.value("max_position_embeddings", 0);
+    }
+
     bool has_talker() const {
         return config_.value("has_talker", false);
     }
@@ -304,6 +310,10 @@ public:
     bool use_template() const {
         return config_.value("use_template", true);
     }
+
+    bool asr_use_audio_template() const { return config_.value("asr_use_audio_template", false); }
+
+    std::string asr_language() const { return config_.value("asr_language", "Chinese"); }
 
     bool use_mmap() const {
         return config_.value("use_mmap", false);

@@ -77,21 +77,35 @@ class MatMulSizeComputer : public SizeComputer {
             }
         }
         // Last Two dim
-        output->setLength(o0Dim - 2, e);
-        output->setLength(o0Dim - 1, h);
+        if (o0Dim >= 2) {
+            output->setLength(o0Dim - 2, e);
+            output->setLength(o0Dim - 1, h);
+        } else if (o0Dim == 1) {
+            output->setLength(0, e);
+        }
         bool eValid = inputs[0]->dimensions() > 1;
         bool hValid = inputs[1]->dimensions() > 1;
         int squeezeDim = 0;
         if (!eValid) {
             squeezeDim++;
-            output->setLength(o0Dim - 2, h);
+            if (o0Dim >= 2) {
+                output->setLength(o0Dim - 2, h);
+            }
         }
         if (!hValid) {
             squeezeDim++;
-            output->setLength(o0Dim - 1, e);
+            if (o0Dim >= 2) {
+                output->setLength(o0Dim - 1, e);
+            }
         }
         if (squeezeDim > 0) {
-            output->buffer().dimensions = o0Dim - squeezeDim;
+            int newDim = o0Dim - squeezeDim;
+            if (newDim <= 0) {
+                // Both inputs are 1-D, result is scalar
+                newDim = 1;
+                output->setLength(0, 1);
+            }
+            output->buffer().dimensions = newDim;
         }
 
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;

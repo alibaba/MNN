@@ -9,6 +9,8 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Executor.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/expr/Module.hpp>
 #include "core/OpCommonUtils.hpp"
 #include "MNNTestSuite.h"
@@ -224,7 +226,9 @@ struct NaiveLinearAttention {
 // ─── Helper: create a LinearAttention Module via FlatBuffers ───
 static std::shared_ptr<Module> _makeLinearAttentionModule(
     int numKHeads, int numVHeads, int headKDim, int headVDim, bool useL2Norm,
-    const std::string& attnType = "gated_delta_rule")
+    const std::string& attnType = "gated_delta_rule", bool forceOpenCLBuffer = false,
+    bool gateFold = false, const std::vector<float>& gateCoef = std::vector<float>(),
+    const std::vector<float>& gateBias = std::vector<float>())
 {
     auto qkv      = _Input();
     auto gate     = _Input();
@@ -242,6 +246,9 @@ static std::shared_ptr<Module> _makeLinearAttentionModule(
     param->head_k_dim   = headKDim;
     param->head_v_dim   = headVDim;
     param->use_qk_l2norm = useL2Norm;
+    param->gate_fold    = gateFold;
+    param->gate_coef    = gateCoef;
+    param->gate_bias    = gateBias;
 
     auto o = Variable::create(Expr::create(op.get(), {qkv, gate, beta, convW}));
     auto buffer = Variable::save({o});
@@ -254,7 +261,9 @@ static std::shared_ptr<Module> _makeLinearAttentionModule(
     bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
     bnConfig.power     = (MNN::BackendConfig::PowerMode)status.power;
     config.backendConfig = &bnConfig;
-    config.numThread = 1;
+    config.numThread = forceOpenCLBuffer && status.forwardType == MNN_FORWARD_OPENCL
+                           ? MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_WIDE
+                           : 1;
 
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     std::shared_ptr<Module> m(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
@@ -471,6 +480,86 @@ public:
 
 MNNTestSuiteRegister(LinearAttentionTest, "op/linear_attention");
 
+static VARP makeC4TokenChannelInput(const std::vector<float>& logical, int tokenCount, int channels,
+                                    bool channelMajor) {
+    std::vector<float> packed(UP_DIV(channels, 4) * tokenCount * 4, 0.0f);
+    for (int t = 0; t < tokenCount; ++t) {
+        for (int c = 0; c < channels; ++c) {
+            int logicalIndex = channelMajor ? c * tokenCount + t : t * channels + c;
+            int packedIndex = ((c / 4) * tokenCount + t) * 4 + c % 4;
+            packed[packedIndex] = logical[logicalIndex];
+        }
+    }
+    auto input = _Input({tokenCount, channels, 1, 1}, NC4HW4, halide_type_of<float>());
+    ::memcpy(input->writeMap<float>(), packed.data(), packed.size() * sizeof(float));
+    input->unMap();
+    return input;
+}
+
+class LinearAttentionC4TailTest : public MNNTestCase {
+public:
+    virtual ~LinearAttentionC4TailTest() = default;
+
+    virtual bool run(int precision) {
+        const int B = 1;
+        const int L = 3;
+        const int numKHeads = 1;
+        const int numVHeads = 3;
+        const int headKDim = 4;
+        const int headVDim = 5;
+        const int kernelSize = 4;
+        const int keyDim = numKHeads * headKDim;
+        const int valueDim = numVHeads * headVDim;
+        const int convDim = 2 * keyDim + valueDim;
+
+        std::vector<float> qkv(B * convDim * L);
+        std::vector<float> gate(B * L * numVHeads);
+        std::vector<float> beta(B * L * numVHeads);
+        std::vector<float> convWeight(convDim * kernelSize);
+        fillDeterministic(qkv.data(), qkv.size(), 0.05f);
+        fillGate(gate.data(), gate.size());
+        fillBeta(beta.data(), beta.size());
+        fillConvWeight(convWeight.data(), convWeight.size());
+
+        NaiveLinearAttention naive;
+        naive.init(B, convDim, kernelSize, numVHeads, headKDim, headVDim);
+        auto expected = naive.forward(qkv.data(), gate.data(), beta.data(), convWeight.data(), B, L, convDim,
+                                      kernelSize, numKHeads, numVHeads, headKDim, headVDim, true);
+
+        auto qkvVar = makeC4TokenChannelInput(qkv, L, convDim, true);
+        auto gateVar = makeC4TokenChannelInput(gate, L, numVHeads, false);
+        auto betaVar = makeC4TokenChannelInput(beta, L, numVHeads, false);
+        auto convWeightVar = _Input({convDim, 1, kernelSize}, NCHW, halide_type_of<float>());
+        ::memcpy(convWeightVar->writeMap<float>(), convWeight.data(), convWeight.size() * sizeof(float));
+        convWeightVar->unMap();
+
+        auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, true);
+        if (!module) {
+            return false;
+        }
+        auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWeightVar});
+        if (outputs.empty()) {
+            return false;
+        }
+        const float* result = outputs[0]->readMap<float>();
+        const int outputTokens = L * numVHeads;
+        for (int token = 0; token < outputTokens; ++token) {
+            for (int d = 0; d < headVDim; ++d) {
+                int packedIndex = ((d / 4) * outputTokens + token) * 4 + d % 4;
+                int logicalIndex = token * headVDim + d;
+                if (fabs(result[packedIndex] - expected[logicalIndex]) > 0.02f) {
+                    MNN_ERROR("LinearAttention C4 tail failed at token=%d, channel=%d: expected=%f, actual=%f\n",
+                              token, d, expected[logicalIndex], result[packedIndex]);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+
+MNNTestSuiteRegister(LinearAttentionC4TailTest, "op/linear_attention_c4_tail");
+
 // ─── Decode fast path test: focuses on L=1 correctness and state consistency ───
 class LinearAttentionDecodeTest : public MNNTestCase {
 public:
@@ -533,7 +622,7 @@ public:
         // ─── Test 2: Prefill then multi-step decode (state continuity) ───
         {
             const int B = 1, numKHeads = 2, numVHeads = 2;
-            const int headKDim = 4, headVDim = 4, K_conv = 4;
+            const int headKDim = 4, headVDim = 4, K_conv = 1;
             const int key_dim = numKHeads * headKDim;
             const int val_dim = numVHeads * headVDim;
             const int D = 2 * key_dim + val_dim;
@@ -844,6 +933,97 @@ public:
             MNN_PRINT("LinearAttention Decode batch (B=%d, %d steps) PASSED\n", B, decodeSteps);
         }
 
+        // Qwen3.5 uses d_v=128 and a 6144-channel conv. Multiple C4 decode
+        // steps exercise conv-state shifts across Metal threadgroup boundaries.
+        {
+            const int B = 1, numKHeads = 16, numVHeads = 16;
+            const int headKDim = 128, headVDim = 128, K_conv = 4;
+            const int key_dim = numKHeads * headKDim;
+            const int val_dim = numVHeads * headVDim;
+            const int D = 2 * key_dim + val_dim;
+            const int L = 1;
+            const int decodeSteps = 256;
+            const float qwenTolerance = precision == MNN::BackendConfig::Precision_Low ? 0.015f : 0.002f;
+
+            auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, true,
+                                                     "gated_delta_rule", true);
+            if (!module) {
+                MNN_PRINT("Error: Failed to create Qwen3.5 LinearAttention module\n");
+                return false;
+            }
+
+            auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+            fillConvWeight(convWVar->writeMap<float>(), D * K_conv);
+
+            NaiveLinearAttention naive;
+            naive.init(B, D, K_conv, numVHeads, headKDim, headVDim);
+            const float* convWeight = convWVar->readMap<float>();
+            auto checkOutput = [&](const std::vector<VARP>& outputs, const std::vector<float>& expected,
+                                   int tokenCount, int step) {
+                if (outputs.empty()) {
+                    MNN_PRINT("Error: Qwen3.5 LinearAttention step %d returned empty output\n", step);
+                    return false;
+                }
+                const float* resultPtr = outputs[0]->readMap<float>();
+                const int outputTokens = tokenCount * numVHeads;
+                for (int token = 0; token < outputTokens; ++token) {
+                    for (int d = 0; d < headVDim; ++d) {
+                        int packedIndex = ((d / 4) * outputTokens + token) * 4 + d % 4;
+                        int logicalIndex = token * headVDim + d;
+                        float diff = fabs(resultPtr[packedIndex] - expected[logicalIndex]);
+                        if (!std::isfinite(resultPtr[packedIndex]) ||
+                            diff > qwenTolerance + 0.02f * fabs(expected[logicalIndex])) {
+                            MNN_PRINT("Qwen3.5 C4 step %d FAILED at %d: expected %.6f, got %.6f (diff=%.6f)\n",
+                                      step, logicalIndex, expected[logicalIndex], resultPtr[packedIndex], diff);
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            };
+
+            const int prefillLength = 14;
+            std::vector<float> prefillQkv(B * D * prefillLength);
+            std::vector<float> prefillGate(B * prefillLength * numVHeads);
+            std::vector<float> prefillBeta(B * prefillLength * numVHeads);
+            fillDeterministic(prefillQkv.data(), prefillQkv.size(), 0.08f, 0.01f);
+            fillGate(prefillGate.data(), prefillGate.size());
+            fillBeta(prefillBeta.data(), prefillBeta.size());
+            auto prefillExpected = naive.forward(prefillQkv.data(), prefillGate.data(), prefillBeta.data(), convWeight,
+                                                 B, prefillLength, D, K_conv, numKHeads, numVHeads, headKDim,
+                                                 headVDim, true);
+            auto prefillOutputs = module->onForward({makeC4TokenChannelInput(prefillQkv, prefillLength, D, true),
+                                                     makeC4TokenChannelInput(prefillGate, prefillLength, numVHeads,
+                                                                             false),
+                                                     makeC4TokenChannelInput(prefillBeta, prefillLength, numVHeads,
+                                                                             false),
+                                                     convWVar});
+            if (!checkOutput(prefillOutputs, prefillExpected, prefillLength, -1)) {
+                return false;
+            }
+
+            for (int step = 0; step < decodeSteps; ++step) {
+                std::vector<float> qkv(B * D * L);
+                std::vector<float> gate(B * L * numVHeads);
+                std::vector<float> beta(B * L * numVHeads);
+                fillDeterministic(qkv.data(), qkv.size(), 0.08f, 0.01f * (step + 1));
+                fillGate(gate.data(), gate.size());
+                fillBeta(beta.data(), beta.size());
+
+                auto expected = naive.forward(qkv.data(), gate.data(), beta.data(), convWeight, B, L, D, K_conv,
+                                              numKHeads, numVHeads, headKDim, headVDim, true);
+                auto qkvVar = makeC4TokenChannelInput(qkv, L, D, true);
+                auto gateVar = makeC4TokenChannelInput(gate, L, numVHeads, false);
+                auto betaVar = makeC4TokenChannelInput(beta, L, numVHeads, false);
+                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+                if (!checkOutput(outputs, expected, L, step)) {
+                    return false;
+                }
+            }
+            MNN_PRINT("LinearAttention Qwen3.5 C4 prefill(%d)+decode(%d) layout (H=%d, dv=%d) PASSED\n",
+                      prefillLength, decodeSteps, numVHeads, headVDim);
+        }
+
         return true;
     }
 };
@@ -1095,6 +1275,15 @@ public:
         const int val_dim = numVHeads * headVDim;
         const int D = 2 * key_dim + val_dim;
         const int prefillLen = 4;
+        // Only CPU (CPULinearAttention.cpp:594-603) and OpenCL
+        // (LinearAttentionBufExecution.cpp:1042-1050) implement the linear-attention
+        // prefix cache. MetalLinearAttention never persists LA state — it only reads
+        // the PendingRead flag to decide whether to keep the recurrent state — so it
+        // has no layer_index to capture or advance. Asserting the counter there would
+        // report a missing feature as a wrong result.
+        if (MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_METAL) {
+            return true;
+        }
         // Starting layer_index value chosen to be non-zero so we can
         // distinguish "no advance" from "reset to zero".
         const int kInitialLayerIndex = 5;
@@ -1312,5 +1501,172 @@ public:
     }
 };
 MNNTestSuiteRegister(LinearAttentionPendingWriteUnsyncedTest, "op/linear_attention_pending_write_unsynced");
+
+// ─── gate_fold equivalence test ───
+// With gate_fold the exporter stops emitting the gate/beta pre-computation as
+// separate elementwise ops: inputs 1/2 then carry the raw a/b projections and the
+// op itself applies
+//   gate = gate_coef[h] * softplus(a + gate_bias[h])
+//   beta = sigmoid(b)
+// Shapes are identical either way, so a backend that ignores the flag produces
+// silently wrong numbers. This drives one set of random a/b through both paths and
+// requires them to agree, which isolates the fold arithmetic from the recurrence.
+class LinearAttentionGateFoldTest : public MNNTestCase {
+    static float softplus(float x) {
+        return logf(1.0f + expf(x));
+    }
+
+    // Backends branch on (L, headKDim, headVDim):
+    //   L == 1                  -> decode kernel
+    //   L > 1 && dk != dv       -> sequential prefill
+    //   L > 1 && dk == dv       -> chunked prefill (separate cumsum / attn kernels)
+    // Every one of them reads gate/beta, so every one has to fold.
+    bool runCase(const char* name, int numKHeads, int numVHeads, int headKDim, int headVDim, int L,
+                 float tolerance) {
+        const int B = 1;
+        const int kernelSize = 4;
+        const int keyDim = numKHeads * headKDim;
+        const int valDim = numVHeads * headVDim;
+        const int D = 2 * keyDim + valDim;
+        const bool useL2Norm = true;
+        const int gateCount = B * L * numVHeads;
+        const int outSize = B * L * numVHeads * headVDim;
+
+        std::vector<float> gateCoef(numVHeads), gateBias(numVHeads);
+        for (int h = 0; h < numVHeads; ++h) {
+            gateCoef[h] = -(0.5f + 0.25f * h); // -exp(A_log) is always negative
+            gateBias[h] = -0.3f + 0.2f * h;
+        }
+
+        std::vector<float> qkv(B * D * L), rawA(gateCount), rawB(gateCount), convWeight(D * kernelSize);
+        fillDeterministic(qkv.data(), (int)qkv.size(), 0.05f);
+        fillConvWeight(convWeight.data(), (int)convWeight.size());
+        for (int i = 0; i < gateCount; ++i) {
+            rawA[i] = -0.4f + 0.15f * (i % 7);
+            rawB[i] = -0.6f + 0.30f * (i % 5);
+        }
+
+        // Host-side fold: exactly the elementwise chain the exporter used to emit.
+        std::vector<float> gate(gateCount), beta(gateCount);
+        for (int t = 0; t < B * L; ++t) {
+            for (int h = 0; h < numVHeads; ++h) {
+                const int i = t * numVHeads + h;
+                gate[i] = gateCoef[h] * softplus(rawA[i] + gateBias[h]);
+                beta[i] = 1.0f / (1.0f + expf(-rawB[i]));
+            }
+        }
+
+        auto runOnce = [&](bool fold, const std::vector<float>& coef, const std::vector<float>& bias,
+                           const std::vector<float>& in1, const std::vector<float>& in2,
+                           std::vector<float>& out) -> bool {
+            // Buffer memory is what actually decides whether OpenCL picks up this op
+            // (see run()); the flag here only covers the case where this module is
+            // the one creating the runtime.
+            auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, useL2Norm,
+                                                     "gated_delta_rule", true, fold, coef, bias);
+            if (!module) {
+                return false;
+            }
+            auto qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+            auto in1Var = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+            auto in2Var = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+            auto wVar = _Input({D, 1, kernelSize}, NCHW, halide_type_of<float>());
+            ::memcpy(qkvVar->writeMap<float>(), qkv.data(), qkv.size() * sizeof(float));
+            ::memcpy(in1Var->writeMap<float>(), in1.data(), in1.size() * sizeof(float));
+            ::memcpy(in2Var->writeMap<float>(), in2.data(), in2.size() * sizeof(float));
+            ::memcpy(wVar->writeMap<float>(), convWeight.data(), convWeight.size() * sizeof(float));
+            auto outputs = module->onForward({qkvVar, in1Var, in2Var, wVar});
+            if (outputs.empty()) {
+                return false;
+            }
+            const float* p = outputs[0]->readMap<float>();
+            if (p == nullptr) {
+                return false;
+            }
+            out.assign(p, p + outSize);
+            return true;
+        };
+
+        auto compare = [&](const char* label, const std::vector<float>& ref, const std::vector<float>& got) {
+            for (int i = 0; i < outSize; ++i) {
+                const float diff = fabs(ref[i] - got[i]);
+                if (diff > tolerance) {
+                    MNN_PRINT("GateFold %s [%s] FAILED at index %d: reference %.6f, got %.6f (diff=%.6f)\n",
+                              name, label, i, ref[i], got[i], diff);
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        std::vector<float> refOut, foldOut;
+        if (!runOnce(false, gateCoef, gateBias, gate, beta, refOut)) {
+            MNN_PRINT("GateFold %s: reference (fold off) forward failed\n", name);
+            return false;
+        }
+        // Anchor the non-fold path against the host reference first. Without this the
+        // fold/non-fold comparison below is self-referential: both runs share the same
+        // backend, so a bug in the recurrence itself would cancel out and still pass.
+        NaiveLinearAttention naive;
+        naive.init(B, D, kernelSize, numVHeads, headKDim, headVDim);
+        auto naiveOut = naive.forward(qkv.data(), gate.data(), beta.data(), convWeight.data(), B, L, D, kernelSize,
+                                      numKHeads, numVHeads, headKDim, headVDim, useL2Norm);
+        if (!compare("naive", naiveOut, refOut)) {
+            return false;
+        }
+        if (!runOnce(true, gateCoef, gateBias, rawA, rawB, foldOut)) {
+            MNN_PRINT("GateFold %s: folded forward failed\n", name);
+            return false;
+        }
+        if (!compare("fold", refOut, foldOut)) {
+            return false;
+        }
+
+        // gate_fold set but the constants are malformed. A folded graph has no gate
+        // chain left, so there is nothing to fall back to: the op must refuse to run
+        // rather than consume inputs 1/2 as if they were gate/beta.
+        std::vector<float> shortCoef(gateCoef.begin(), gateCoef.end() - 1);
+        std::vector<float> rejectedOut;
+        if (runOnce(true, shortCoef, gateBias, gate, beta, rejectedOut)) {
+            MNN_PRINT("GateFold %s: malformed gate_coef was accepted, expected rejection\n", name);
+            return false;
+        }
+
+        MNN_PRINT("LinearAttention GateFold %s PASSED\n", name);
+        return true;
+    }
+
+public:
+    virtual ~LinearAttentionGateFoldTest() = default;
+
+    virtual bool run(int precision) {
+        const float tolerance = 0.001f;
+        // The shared executor creates its OpenCL runtime before any test runs, and
+        // RuntimeManager reuses that runtime without re-applying numThread, so the
+        // per-module MNN_GPU_MEMORY_BUFFER request is dropped and the memory mode
+        // stays AUTO (IMAGE on most GPUs). LinearAttention only registers a BUFFER
+        // creator, so on OpenCL run under a private executor whose runtime really is
+        // built in buffer mode; otherwise this silently exercises CPU.
+        auto status = MNNTestSuite::get()->pStaus;
+        std::shared_ptr<Executor> privateExe;
+        std::shared_ptr<ExecutorScope> privateScope;
+        if (status.forwardType == MNN_FORWARD_OPENCL) {
+            MNN::BackendConfig bnConfig;
+            bnConfig.memory    = (MNN::BackendConfig::MemoryMode)status.memory;
+            bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
+            bnConfig.power     = (MNN::BackendConfig::PowerMode)status.power;
+            privateExe = Executor::newExecutor(MNN_FORWARD_OPENCL, bnConfig,
+                                               MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_WIDE);
+            privateScope.reset(new ExecutorScope(privateExe));
+        }
+        // L=20 on the chunked path spans two chunks, so the tail chunk is partly
+        // padding — padding must contribute an exact 0 to the gate cumsum even though
+        // fold(0) != 0.
+        return runCase("decode", 2, 2, 4, 4, 1, tolerance) &&
+               runCase("prefill-seq", 2, 2, 4, 8, 5, tolerance) &&
+               runCase("prefill-chunked", 2, 2, 4, 4, 20, tolerance);
+    }
+};
+MNNTestSuiteRegister(LinearAttentionGateFoldTest, "op/linear_attention_gate_fold");
 
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE

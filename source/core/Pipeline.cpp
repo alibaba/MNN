@@ -167,7 +167,7 @@ void Pipeline::UnitInfo::setUp(const Command& command, int index, const Op* orig
 
 Pipeline::Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt, int geometryMask)
 #ifndef MNN_SKIPBUILD_GEOMETRY
-    : mContext(geometryMask, info.first.cache.second, info.first.cache.first->type(), info.first.info.user ? info.first.info.user->precision :  BackendConfig::Precision_Normal), mUseGeometry(rt->onGetCompilerType()) {
+    : mContext(geometryMask, info.first.cache.second, info.first.cache.first->type(), info.first.info.user ? info.first.info.user->precision :  BackendConfig::Precision_Normal, info.first.info.gpuMode, rt), mUseGeometry(rt->onGetCompilerType()) {
 #else
 {
 #endif
@@ -898,6 +898,13 @@ ErrorCode Pipeline::fixResizeCache() {
         }
         if ((!info.computeCache.canCache()) && info.computeCache.needComputeShape) {
             // If the session has been resized and the op is checked will change shape, set as shape mutable
+            info.computeCache.close(false);
+            continue;
+        }
+        // KV-cache attention's onResize bakes meta-driven state (kv length, grid
+        // sizes) that changes every decode step even though tensor shapes are
+        // static — caching it freezes the attention window. Always re-resize.
+        if (info.op->type() == OpType_Attention || info.op->type() == OpType_LinearAttention) {
             info.computeCache.close(false);
             continue;
         }

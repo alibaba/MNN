@@ -417,9 +417,10 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
     MNN_ASSERT(query->dimensions() == 4);
     MNN_ASSERT(key->dimensions() == 4);
     MNN_ASSERT(value->dimensions() == 4);
+    mValueC4 = TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    mOutputC4 = TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
     MNN_ASSERT(query->length(0) == 1);
     MNN_ASSERT(key->length(0) == 1);
-    MNN_ASSERT(value->length(0) == 1);
     mQueryLen = query->length(1);
     mKeyLen = key->length(1);
     mHeadNum = query->length(2);
@@ -430,9 +431,17 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
     MNN_ASSERT(mHeadDim > 0);
     MNN_ASSERT((mHeadDim & 3) == 0);
     MNN_ASSERT(mHeadDim <= 256);
-    MNN_ASSERT(value->length(1) == mKeyLen);
-    MNN_ASSERT(value->length(2) == mKvHeadNum);
-    MNN_ASSERT(value->length(3) == mHeadDim);
+    if (mValueC4) {
+        if (value->length(0) != mKeyLen || value->length(1) != mKvHeadNum * mHeadDim || value->length(2) != 1 ||
+            value->length(3) != 1) {
+            MNN_ERROR("Vulkan Attention: invalid C4 value layout.\n");
+            return INVALID_VALUE;
+        }
+    } else if (value->length(0) != 1 || value->length(1) != mKeyLen || value->length(2) != mKvHeadNum ||
+               value->length(3) != mHeadDim) {
+        MNN_ERROR("Vulkan Attention: invalid value layout.\n");
+        return INVALID_VALUE;
+    }
 
     auto vkBn = static_cast<VulkanBackend*>(backend());
     auto cmd = cmdBuffer->get();
@@ -787,10 +796,16 @@ ErrorCode VulkanAttention::onBeforeExecute(const std::vector<Tensor*>& inputs, c
     MNN_ASSERT(key->length(2) == mKvHeadNum);
     MNN_ASSERT(query->length(3) == mHeadDim);
     MNN_ASSERT(key->length(3) == mHeadDim);
-    MNN_ASSERT(value->length(1) == mKeyLen);
-    MNN_ASSERT(value->length(2) == mKvHeadNum);
-    MNN_ASSERT(value->length(3) == mHeadDim);
     MNN_ASSERT(query->length(0) == 1);
+    if (mValueC4) {
+        MNN_ASSERT(value->length(0) == mKeyLen);
+        MNN_ASSERT(value->length(1) == mKvHeadNum * mHeadDim);
+    } else {
+        MNN_ASSERT(value->length(0) == 1);
+        MNN_ASSERT(value->length(1) == mKeyLen);
+        MNN_ASSERT(value->length(2) == mKvHeadNum);
+        MNN_ASSERT(value->length(3) == mHeadDim);
+    }
 
     auto vkBn = static_cast<VulkanBackend*>(backend());
 
@@ -852,8 +867,8 @@ ErrorCode VulkanAttention::onBeforeExecute(const std::vector<Tensor*>& inputs, c
     gpuParam->s2[3] = mNeedKvCache ? mKVCache->maxLen : 0;
     gpuParam->f0[0] = _invSqrt((float)mHeadDim);
     gpuParam->f0[1] = 0.0f;
-    gpuParam->f0[2] = 0.0f;
-    gpuParam->f0[3] = 0.0f;
+    gpuParam->f0[2] = mValueC4 ? 1.0f : 0.0f;
+    gpuParam->f0[3] = mOutputC4 ? 1.0f : 0.0f;
     mParam->unmap();
 
     // Bind buffers (update + attention). Note: when hasMask == 0, bind query buffer as placeholder.
@@ -958,8 +973,8 @@ ErrorCode VulkanAttention::onBeforeExecute(const std::vector<Tensor*>& inputs, c
 
 class VulkanAttentionCreator : public VulkanBackend::Creator {
 public:
-    VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
-                                   Backend* backend) const override {
+    VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                   const MNN::Op* op, Backend* backend) const override {
         return new VulkanAttention(op, backend);
     }
 };

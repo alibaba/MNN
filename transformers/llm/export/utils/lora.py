@@ -36,7 +36,12 @@ class LoRA:
         with safe_open(path, framework="pt") as f:
             for k in f.keys():
                 names = k.split('.')
-                layer, key, name = names[4], names[6], names[7]
+                ni = next((i for i, n in enumerate(names) if n.startswith('lora_')), -1)
+                if ni < 1 or names[ni] not in ('lora_A', 'lora_B'):
+                    continue
+
+                name, key = names[ni], names[ni - 1]
+                layer = next(n for n in reversed(names[:ni - 1]) if n.isdigit())
                 tag = layer + key
                 tensor = f.get_tensor(k).float()
                 self.lora_keys.add(key)
@@ -88,9 +93,19 @@ class LoRA:
         return output_index
 
     def replace_input(self, origin_idx, new_idx):
+        # Rewire every consumer of the base projection output to read the LoRA
+        # sum instead. Replace only the matching index (consumers may have other
+        # inputs, e.g. the residual LayerNorm / MulSilu BinaryOp that consume a
+        # projection output directly when FuseTransformerC4 is on). This iterates
+        # the ORIGINAL oplists; the freshly built A/B/ADD ops are still in
+        # self.new_ops, so the ADD (which legitimately consumes origin_idx) is
+        # never rewired and no cycle forms. Works with C4 off (consumer is a
+        # ConvertTensor) and C4 on (consumer is the fused op); json2mnn's
+        # AddTensorFormatConverter bridges any NHWC/NC4HW4 mismatch.
         for op in self.base_model['oplists']:
-            if op['type'] == 'ConvertTensor' and origin_idx in op['inputIndexes']:
-                op['inputIndexes'] = [new_idx]
+            idxs = op.get('inputIndexes', [])
+            if origin_idx in idxs:
+                op['inputIndexes'] = [new_idx if x == origin_idx else x for x in idxs]
 
     def apply_lora(self, op):
         names = op['name'].split('/')

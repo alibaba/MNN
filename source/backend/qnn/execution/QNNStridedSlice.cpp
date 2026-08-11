@@ -66,16 +66,20 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
             }
         }
 
-        int slice_size = inputs[0]->length(axis) / slice_num;
+        // Slices may be UNEQUAL (e.g. size_splits = [512,512,128]); rely on each output's real
+        // length along the slice axis and accumulate the offset instead of assuming even division.
+        int sliceOffset = 0;
         for(int index = 0; index < slice_num; index++) {
+            int cur_size = outputs[index]->length(axis);
             std::vector<int> rangeData(mInputDim * 3, 0);
             for (int i = 0; i < mInputDim; i++) {
                 rangeData[3 * i + 0] = 0;
                 rangeData[3 * i + 1] = shape[i];
                 rangeData[3 * i + 2] = 1;
             }
-            rangeData[3 * realAxis + 0] = index * slice_size;
-            rangeData[3 * realAxis + 1] = index * slice_size + slice_size;
+            rangeData[3 * realAxis + 0] = sliceOffset;
+            rangeData[3 * realAxis + 1] = sliceOffset + cur_size;
+            sliceOffset += cur_size;
             this->createParamTensor("ranges", QNN_DATATYPE_INT_32, {(uint32_t) mInputDim, 3}, (void *) rangeData.data(), std::to_string(index));
 
             // Add Node.

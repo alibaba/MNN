@@ -100,6 +100,7 @@ mMaps.insert(std::make_pair("glsl_resizeBilinear_comp", std::make_pair(glsl_resi
 mMaps.insert(std::make_pair("glsl_nchwTonc4hw4_comp", std::make_pair(glsl_nchwTonc4hw4_comp,glsl_nchwTonc4hw4_comp_len)));
 mMaps.insert(std::make_pair("glsl_nc4hw4Tonchw_comp", std::make_pair(glsl_nc4hw4Tonchw_comp,glsl_nc4hw4Tonchw_comp_len)));
 mMaps.insert(std::make_pair("glsl_buffer2Image2D_comp", std::make_pair(glsl_buffer2Image2D_comp,glsl_buffer2Image2D_comp_len)));
+mMaps.insert(std::make_pair("glsl_range_comp", std::make_pair(glsl_range_comp,glsl_range_comp_len)));
 mMaps.insert(std::make_pair("glsl_im2col1x1_comp", std::make_pair(glsl_im2col1x1_comp,glsl_im2col1x1_comp_len)));
 mMaps.insert(std::make_pair("glsl_avgpool_comp", std::make_pair(glsl_avgpool_comp,glsl_avgpool_comp_len)));
 mMaps.insert(std::make_pair("glsl_unPackImage4x4_comp", std::make_pair(glsl_unPackImage4x4_comp,glsl_unPackImage4x4_comp_len)));

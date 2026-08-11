@@ -174,10 +174,11 @@ void MetalKVCacheManager::onRealloc(KVMeta* meta) {
         size_t old_piece_size = (size_t)copy_len * valueByte;
         size_t old_piece_stride = (size_t)mMaxLength * valueByte;
 
+        auto oldTotalSize = mCurrentTotalSize;
+        auto oldMaxLength = mMaxLength;
         // align max kv_seq_len to mKvAlignNum, for simd/tensor matrix load alignment
         mMaxLength = ROUND_UP(kv_seq_len + mConfig.mExpandChunk, mConfig.mKvAlignNum);
 
-        auto oldTotalSize = mCurrentTotalSize;
         size_t size = (size_t)mKvNumHead * mMaxLength * mHeadDim * keyByte;
         mCurrentTotalSize = size;
         size_t new_piece_stride = (size_t)mMaxLength * valueByte;
@@ -187,7 +188,10 @@ void MetalKVCacheManager::onRealloc(KVMeta* meta) {
         if(mKVCacheInDisk) {
             expandKVCacheInDisk(oldTotalSize, mCurrentTotalSize, old_piece_stride, old_piece_size, new_piece_stride, needCopy);
         } else {
-            expandKVCacheInMem(old_size, old_piece_stride, old_piece_size, new_piece_stride, needCopy);
+            if (!expandKVCacheInMem(old_size, old_piece_stride, old_piece_size, new_piece_stride, needCopy)) {
+                mMaxLength = oldMaxLength;
+                mCurrentTotalSize = oldTotalSize;
+            }
         }
     }
 
@@ -255,7 +259,7 @@ void MetalKVCacheManager::onRealloc(KVMeta* meta) {
     }
 }
 
-void MetalKVCacheManager::expandKVCacheInMem(size_t oldSize, size_t old_piece_stride, size_t old_piece_size, size_t new_piece_stride, bool need_copy) {
+bool MetalKVCacheManager::expandKVCacheInMem(size_t oldSize, size_t old_piece_stride, size_t old_piece_size, size_t new_piece_stride, bool need_copy) {
     auto mtbn = static_cast<MetalBackend *>(mBackend);
     int keyByte = mQuantKey ? 1 : (mtbn->useFp16InsteadFp32() ? 2 : 4);
     int valueByte = mQuantValue ? 1 : (mtbn->useFp16InsteadFp32() ? 2 : 4);
@@ -266,16 +270,20 @@ void MetalKVCacheManager::expandKVCacheInMem(size_t oldSize, size_t old_piece_st
 
     auto res = mBackend->onAcquireBuffer(new_key, Backend::STATIC);
     res = res && mBackend->onAcquireBuffer(new_value, Backend::STATIC);
-    if(!res) {
-        MNN_ERROR("attition kv cache realloc memory error:%d\n", res);
+    auto newKeyBuf = MetalBackend::getBuffer(new_key);
+    auto newValueBuf = MetalBackend::getBuffer(new_value);
+    if (!res || nil == newKeyBuf.first || nil == newValueBuf.first) {
+        // keep the old (smaller) cache instead of memset-ing a nil buffer
+        MNN_ERROR("MNN::Metal: OUT_OF_MEMORY expanding kv cache to %d, keep old cache\n", mMaxLength);
+        delete new_key;
+        delete new_value;
+        return false;
     }
 
     // memset for qkv matmul mad, in case dirty data
-    auto newKeyBuf = MetalBackend::getBuffer(new_key);
     auto new_key_ptr = (uint8_t*)[newKeyBuf.first contents] + newKeyBuf.second;
     ::memset(new_key_ptr, 0, (size_t)mMaxLength * mKvNumHead * mHeadDim * keyByte);
 
-    auto newValueBuf = MetalBackend::getBuffer(new_value);
     auto new_value_ptr = (uint8_t*)[newValueBuf.first contents] + newValueBuf.second;
     ::memset(new_value_ptr, 0, (size_t)mMaxLength * mKvNumHead * mHeadDim * valueByte);
 
@@ -309,6 +317,7 @@ void MetalKVCacheManager::expandKVCacheInMem(size_t oldSize, size_t old_piece_st
         mKScaleBuffer = nil;
         mVScaleBuffer = nil;
     }
+    return true;
 }
 
 void MetalKVCacheManager::expandKVCacheInDisk(size_t oldSize, size_t curSize, size_t old_piece_stride, size_t old_piece_size, size_t new_piece_stride, bool need_copy, file_t specKeyFile, file_t specValueFile) {

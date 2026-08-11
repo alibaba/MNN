@@ -182,11 +182,19 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
     auto format = _getFormat(tensor->getType());
     if (Backend::STATIC == storageType) {
         auto newBuffer           = std::make_shared<VulkanTensor>(MTensor, format, getMemoryPool(), device().proty().limits);
+        if (nullptr == newBuffer->image() || !newBuffer->image()->valid()) {
+            MNN_ERROR("Vulkan alloc static image failed\n");
+            return nullptr;
+        }
         MTensor->buffer().device = (uint64_t)(newBuffer.get());
         return new VulkanMemRelease(newBuffer);
     }
     bool separate  = storageType == Backend::DYNAMIC_SEPERATE;
     auto newBuffer = std::make_shared<VulkanTensor>(MTensor, format, getDynamicMemoryPool(), device().proty().limits, separate);
+    if (nullptr == newBuffer->image() || !newBuffer->image()->valid()) {
+        MNN_ERROR("Vulkan alloc dynamic image failed\n");
+        return nullptr;
+    }
     MTensor->buffer().device = (uint64_t)(newBuffer.get());
     mAllBuffers.insert(std::make_pair(MTensor->buffer().device, newBuffer));
     return new VulkanMemRelease(newBuffer);;

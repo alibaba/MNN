@@ -9,6 +9,7 @@
 #define OMNI_hpp
 
 #include "llm/llm.hpp"
+#include <algorithm>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -27,6 +28,7 @@ public:
         mT = info.mT;
         mH = info.mH;
         mW = info.mW;
+        mX = info.mX;
     }
     int back() {
         if (mW.empty()) {
@@ -38,12 +40,14 @@ public:
         if (mW.empty()) {
             return 0;
         }
-        return back() + 1;
+        return std::max(std::max(mT.back(), mH.back()), std::max(mW.back(), mX.back())) + 1;
     }
-    void push_back(int t, int h, int w) {
+    void push_back(int t, int h, int w) { push_back(t, h, w, w); }
+    void push_back(int t, int h, int w, int x) {
         mT.push_back(t);
         mH.push_back(h);
         mW.push_back(w);
+        mX.push_back(x);
     }
     void push_back(int t) {
         push_back(t, t, t);
@@ -52,12 +56,29 @@ public:
         int cur_idx = currentIdx();
         push_back(cur_idx, cur_idx, cur_idx);
     }
+    void prependTextPositions(size_t count) {
+        if (count == 0) {
+            return;
+        }
+        const int offset = static_cast<int>(count);
+        std::vector<int> prefix(count);
+        for (size_t i = 0; i < count; ++i) {
+            prefix[i] = i;
+        }
+        for (auto* positions : {&mT, &mH, &mW, &mX}) {
+            for (auto& position : *positions) {
+                position += offset;
+            }
+            positions->insert(positions->begin(), prefix.begin(), prefix.end());
+        }
+    }
     void clear() {
         mT.clear();
         mH.clear();
         mW.clear();
+        mX.clear();
     }
-    std::vector<int> mT, mH, mW;
+    std::vector<int> mT, mH, mW, mX;
 };
 
 struct WavChunk {
@@ -143,7 +164,7 @@ private:
     VARP mSpk_async, mCond_async;
 };
 
-class Omni : public Llm {
+class Omni : public Embedding {
 public:
     Omni(std::shared_ptr<LlmConfig> config);
     ~Omni() {
@@ -151,7 +172,8 @@ public:
         mAudioModule.reset();
     }
     virtual bool load() override;
-    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) override;
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos,
+                                                  Express::VARPS extraArgs = {}) override;
     virtual std::vector<int> tokenizer_encode(const std::string& query) override;
     virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input) override;
     virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
@@ -159,20 +181,26 @@ public:
     virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1) override;
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
     virtual void generateWavform() override;
+    // Embedding API — single ExecutorScope wrapping the forward pass (same pattern as forwardVec)
+    virtual Express::VARP ids_embedding(const std::vector<int>& ids) override;
     // some models preprocess function
     std::vector<int> visionProcess(VARP image);
     std::vector<int> defaultVisionProcess(VARP image);
     std::vector<int> qwen2VisionProcess(VARP image);
     std::vector<int> smolvlmVisionProcess(VARP image);
     std::vector<int> minicpmVisionProcess(VARP image);
+    std::vector<int> hunyuanVisionProcess(VARP image);
     std::vector<int> gemma4VisionProcess(VARP image);
 private:
+    bool initProcessorRuntime();
     int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
         mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646,
         mAudioStart = -1, mAudioEnd = -1;
     int mVisionGlobal = 49152;
     int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
     int mVisionNum = 0;
+    int mNumGridPerSide = 1;
+    bool mVisionSizeOverridden = false;
     std::vector<float> mVisionMean{122.7709383, 116.7460125, 104.09373615};
     std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
     std::vector<int> multimodeProcess(const std::string& mode, std::string info);
@@ -185,13 +213,15 @@ private:
                              int max_new_tokens);
     std::shared_ptr<Module> mVisionModule, mAudioModule;
     std::vector<VARP> mExtraArgs, mVisionEmbeddings, mAudioEmbeddings, mDeepStackEmbeddings;
+    VARP mVisionPositionIdsCache, mVisionAttentionMaskCache, mVisionWindowAttentionMaskCache;
+    VARP mVisionIdxTensorCache, mVisionWeightTensorCache, mVisionWindowIndexCache;
     std::shared_ptr<Talker> mTalker;
     int64_t mThinkerElapsedUs = 0;
     // m_rope position ids
     void addPositionIds(int t, int h = -1, int w = -1);
     MropeInfo mPositionIds;
+    bool mIsEmbedding = false;
 };
-
 }
 }
 #endif // OMNI_hpp

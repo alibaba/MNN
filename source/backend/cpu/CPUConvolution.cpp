@@ -9,6 +9,7 @@
 #include "backend/cpu/CPUConvolution.hpp"
 #include <math.h>
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/compute/CPUExtension.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include <limits>
@@ -342,10 +343,27 @@ public:
             quanCommon = ConvolutionCommon::load(op, backend, false, true);
 
         }
+        // A ConvInt8 op must carry quantized weight data, either as quanCommon
+        // (from quanParameter / external) or as an inline symmetricQuan weight.
+        // Without either, DenseConvInt8TiledExecutor would dereference a null
+        // weight pointer and crash. Reject explicitly instead.
+        if (nullptr == quanCommon &&
+            (nullptr == convOp->symmetricQuan() || nullptr == convOp->symmetricQuan()->weight())) {
+            MNN_ERROR("CPUConvInt8Creator: op '%s' has no quantized weight data for ConvInt8 execution\n",
+                      op->name() ? op->name()->c_str() : "unknown");
+            return nullptr;
+        }
         // auto res = CPUConvolution::makeResourceInt8(backend, op, core->pack);
         // return new DenseConvInt8TiledExecutor(backend, op, res);
 
-       return new DenseConvInt8TiledExecutor(backend, op, quanCommon, false);
+        auto extension = core->extension;
+        if (extension != nullptr && extension->createInt8GemmExecution != nullptr) {
+            auto execution = extension->createInt8GemmExecution(backend, op, quanCommon, false);
+            if (execution != nullptr) {
+                return execution;
+            }
+        }
+        return new DenseConvInt8TiledExecutor(backend, op, quanCommon, false);
     }
 };
 

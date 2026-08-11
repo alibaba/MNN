@@ -118,8 +118,10 @@ ErrorCode ArgMaxExecution::onResize(const std::vector<Tensor *> &inputs, const s
     if(mSplitKernel) {
         mSecondArgLen = (mDim + ARG_REDUCE_NUM - 1) / ARG_REDUCE_NUM;
         auto buffer_data = pool->alloc(mOutside * mInside * mSecondArgLen * bytes);
+        if (nullptr == buffer_data.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mTempDataBuffer = (void*)(buffer_data.ptr());
         auto buffer_index = pool->alloc(mOutside * mInside * mSecondArgLen * sizeof(int32_t));
+        if (nullptr == buffer_index.first) { MNN_ERROR("CUDA alloc failed\n"); return OUT_OF_MEMORY; }
         mTempIndexBuffer = (void*)(buffer_index.ptr());
         pool->free(buffer_data);
         pool->free(buffer_index);

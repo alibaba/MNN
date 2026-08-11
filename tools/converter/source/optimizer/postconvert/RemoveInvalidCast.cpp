@@ -83,6 +83,18 @@ public:
                         types[op->outputIndexes[0]] = MNN::DataType_DT_FLOAT;
                     }
                     break;
+                // Fused projections and gated norms are float in and float out on
+                // every input and output. FusedLinear's has_ln variant takes
+                // [residual, hidden], so input 1 matters as much as input 0.
+                case MNN::OpType_FusedLinear:
+                case MNN::OpType_GatedRMSNorm:
+                    for (auto v : op->inputIndexes) {
+                        types[v] = MNN::DataType_DT_FLOAT;
+                    }
+                    for (auto v : op->outputIndexes) {
+                        types[v] = MNN::DataType_DT_FLOAT;
+                    }
+                    break;
                 default:
                     break;
             }

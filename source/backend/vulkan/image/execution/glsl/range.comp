@@ -1,0 +1,22 @@
+#version 440 core
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uStart;
+layout(set=0, binding=2) uniform sampler2D uDelta;
+
+layout(set=0, binding=3) uniform constBuffer {
+    ivec4 size; // size.x = block pixel offset, size.w = block pixel count (limit)
+} uConst;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    int gx = int(gl_GlobalInvocationID.x);
+    if (gx < uConst.size.w) {
+        float start = texelFetch(uStart, ivec2(0, 0), 0).x;
+        float delta = texelFetch(uDelta, ivec2(0, 0), 0).x;
+        float base = float((uConst.size.x + gx) * 4);    
+        vec4 startVec = vec4(start + base * delta);      
+        vec4 deltaVec = vec4(delta) * vec4(0.0, 1.0, 2.0, 3.0); 
+        imageStore(uOutput, ivec2(gx, 0), startVec + deltaVec);
+    }
+}

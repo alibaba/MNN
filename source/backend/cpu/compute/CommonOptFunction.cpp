@@ -61,6 +61,9 @@ extern void MNNPackForMatMul_B_RVV(float* destC, const float* sourceC, size_t h,
                                    bool transpose);
 extern void MNNQuantScaleFP32_RVV(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
 extern void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
+namespace MNN {
+void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
+}
 #endif
 
 #ifndef MNN_USE_SSE
@@ -272,6 +275,32 @@ static void MNNCountMaxMinValue(const float* source, float* minVal, float* maxVa
     minVal[0] = minval;
     maxVal[0] = maxval;
 #endif
+}
+
+static float MNNNormalizeQKAndDotDefault(float* q, float* k, float qScale, bool useL2Norm, size_t dk) {
+    if (!useL2Norm) {
+        float qk = 0.0f;
+        for (size_t i = 0; i < dk; ++i) {
+            q[i] *= qScale;
+            qk += q[i] * k[i];
+        }
+        return qk;
+    }
+    float qSumSq = 0.0f;
+    float kSumSq = 0.0f;
+    float qk = 0.0f;
+    for (size_t i = 0; i < dk; ++i) {
+        qSumSq += q[i] * q[i];
+        kSumSq += k[i] * k[i];
+        qk += q[i] * k[i];
+    }
+    const float qNormScale = qScale / sqrtf(qSumSq + 1e-6f);
+    const float kNormScale = 1.0f / sqrtf(kSumSq + 1e-6f);
+    for (size_t i = 0; i < dk; ++i) {
+        q[i] *= qNormScale;
+        k[i] *= kNormScale;
+    }
+    return qk * qNormScale * kNormScale;
 }
 
 #ifdef MNN_LOW_MEMORY
@@ -1371,6 +1400,70 @@ static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase,
 #endif
     }
 }
+
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+// This is Attention-only: CPUAttention uses no bias or post-processing on QK/PV matmuls.
+// B keeps the [H/64, L/2, 64, 2] SME2 KV-cache layout, allowing NEON and SME workers to share one cache.
+static void MNNPackedMatMulRemainWithSme2PackedB(float* C, const float* A, const float* B, size_t eSize,
+                                                  const size_t* parameter, const float* postParameters,
+                                                  const float* bias, const float* k, const float* b) {
+    MNN_ASSERT(postParameters == nullptr && bias == nullptr && k == nullptr && b == nullptr);
+    const size_t aStride = parameter[0] / sizeof(float);
+    const size_t l = parameter[1];
+    const size_t h = parameter[2];
+    const size_t cStride = parameter[3] / sizeof(float);
+    const size_t bStride = l * 64 + parameter[5] / sizeof(float);
+    if (eSize == 1 && h % 16 == 0) {
+        for (size_t y = 0; y < h; y += 16) {
+            const float* weight0 = B + (y / 64) * bStride + y % 64;
+            const float* weight1 = weight0 + 4;
+            const float* weight2 = weight0 + 8;
+            const float* weight3 = weight0 + 12;
+            auto sum0 = Vec(0.0f);
+            auto sum1 = Vec(0.0f);
+            auto sum2 = Vec(0.0f);
+            auto sum3 = Vec(0.0f);
+            for (size_t z = 0; z < l; ++z) {
+                const auto a = Vec(A[z * aStride]);
+                sum0 = Vec::fma(sum0, Vec::load(weight0 + z * 64), a);
+                sum1 = Vec::fma(sum1, Vec::load(weight1 + z * 64), a);
+                sum2 = Vec::fma(sum2, Vec::load(weight2 + z * 64), a);
+                sum3 = Vec::fma(sum3, Vec::load(weight3 + z * 64), a);
+            }
+            float* dst = C + (y / 4) * cStride;
+            Vec::save(dst, sum0);
+            Vec::save(dst + cStride, sum1);
+            Vec::save(dst + 2 * cStride, sum2);
+            Vec::save(dst + 3 * cStride, sum3);
+        }
+        return;
+    }
+    for (size_t e = 0; e < eSize; ++e) {
+        for (size_t y = 0; y < h; y += 4) {
+            const size_t remain = ALIMIN((size_t)4, h - y);
+            const float* weight = B + (y / 64) * bStride + y % 64;
+            auto sum = Vec(0.0f);
+            for (size_t z = 0; z < l; ++z) {
+                sum = Vec::fma(sum, Vec::load(weight + z * 64), Vec(A[z * aStride + e]));
+            }
+            float* dst = C + (y / 4) * cStride + e * 4;
+            if (remain == 4) {
+                Vec::save(dst, sum);
+            } else {
+                for (size_t i = 0; i < remain; ++i) {
+                    dst[i] = sum[i];
+                }
+            }
+        }
+    }
+}
+
+static void MNNPackedMatMulWithSme2PackedB(float* C, const float* A, const float* B, const size_t* parameter,
+                                            const float* postParameters, const float* bias, const float* k,
+                                            const float* b) {
+    MNNPackedMatMulRemainWithSme2PackedB(C, A, B, 16, parameter, postParameters, bias, k, b);
+}
+#endif
 
 #ifndef __aarch64__
 void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params) {
@@ -4637,7 +4730,6 @@ static CoreFunctions* gCoreFunction = nullptr;
 
 static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven, const void* cosOdd,
                                 const void* sinEven, const void* sinOdd, int numHead, int headDim, int ropeCutHeadDim) {
-    const int halfHeadDim = headDim / 2;
     int ropeDim = ropeCutHeadDim;
     if (ropeDim <= 0 || ropeDim > headDim) {
         ropeDim = headDim;
@@ -4653,9 +4745,9 @@ static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven,
     auto sinOddFloat = static_cast<const float*>(sinOdd);
     for (int j = 0; j < numHead; ++j) {
         auto src0 = srcFloat + j * headDim;
-        auto src1 = src0 + halfHeadDim;
+        auto src1 = src0 + ropeHalfHeadDim;
         auto dst0 = dstFloat + j * headDim;
-        auto dst1 = dst0 + halfHeadDim;
+        auto dst1 = dst0 + ropeHalfHeadDim;
         int k = 0;
         for (; k <= ropeHalfHeadDim - 4; k += 4) {
             auto q0 = Vec4::load(src0 + k);
@@ -4673,54 +4765,129 @@ static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven,
             dst0[k] = q0 * cosEvenFloat[k] - q1 * sinEvenFloat[k];
             dst1[k] = q1 * cosOddFloat[k] + q0 * sinOddFloat[k];
         }
-        if (ropeHalfHeadDim < halfHeadDim) {
-            ::memcpy(dst0 + ropeHalfHeadDim, src0 + ropeHalfHeadDim, (halfHeadDim - ropeHalfHeadDim) * sizeof(float));
-            ::memcpy(dst1 + ropeHalfHeadDim, src1 + ropeHalfHeadDim, (halfHeadDim - ropeHalfHeadDim) * sizeof(float));
+        if (ropeDim < headDim) {
+            ::memcpy(dstFloat + j * headDim + ropeDim, srcFloat + j * headDim + ropeDim,
+                     (headDim - ropeDim) * sizeof(float));
         }
     }
 }
 
 template <int Pack>
-static void MNNNormPackedFloat(float* dest, const float* source, const float* gamma, const float* beta, float epsilon,
-                               size_t batch, size_t channels, bool RMSNorm) {
+static void MNNNormPackedFloat(float* dest, float* sum, const float* source, const float* residual,
+                               const float* gamma, const float* beta, float epsilon, size_t batch, size_t channels,
+                               bool RMSNorm, int tId, int threadNumber) {
+    MNN_ASSERT((residual == nullptr) == (sum == nullptr));
+    MNN_ASSERT(threadNumber > 0);
+    constexpr int tokenTile = 4;
     const size_t channelUnit = UP_DIV(channels, Pack);
-    for (size_t n = 0; n < batch; ++n) {
-        float mean = 0.0f;
-        if (!RMSNorm) {
-            float sum = 0.0f;
-            for (size_t c = 0; c < channels; ++c) {
-                const size_t cu = c / Pack;
-                const size_t cr = c - cu * Pack;
-                sum += source[(cu * batch + n) * Pack + cr];
+    const size_t tileCount = UP_DIV(batch, tokenTile);
+#if defined(MNN_USE_NEON) && defined(__aarch64__)
+    if (Pack == 4 && RMSNorm && residual == nullptr && channels % Pack == 0) {
+        for (size_t tile = tId; tile < tileCount; tile += threadNumber) {
+            const size_t tokenBase = tile * tokenTile;
+            const size_t tokenCount = ALIMIN(tokenTile, batch - tokenBase);
+            float32x4_t squareSums[tokenTile];
+            for (size_t token = 0; token < tokenCount; ++token) {
+                squareSums[token] = vdupq_n_f32(0.0f);
             }
-            mean = sum / static_cast<float>(channels);
-        }
-
-        float squareSum = 0.0f;
-        for (size_t c = 0; c < channels; ++c) {
-            const size_t cu = c / Pack;
-            const size_t cr = c - cu * Pack;
-            float v = source[(cu * batch + n) * Pack + cr];
-            float d = RMSNorm ? v : (v - mean);
-            squareSum += d * d;
-        }
-
-        const float invStd = 1.0f / std::sqrt(squareSum / static_cast<float>(channels) + epsilon);
-        for (size_t c = 0; c < channels; ++c) {
-            const size_t cu = c / Pack;
-            const size_t cr = c - cu * Pack;
-            const size_t index = (cu * batch + n) * Pack + cr;
-            float v = source[index];
-            float norm = RMSNorm ? (v * invStd) : ((v - mean) * invStd);
-            if (gamma && beta) {
-                norm = norm * gamma[c] + beta[c];
+            for (size_t block = 0; block < channelUnit; ++block) {
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (block * batch + tokenBase + token) * Pack;
+                    auto value = vld1q_f32(source + offset);
+                    squareSums[token] = vmlaq_f32(squareSums[token], value, value);
+                }
             }
-            dest[index] = norm;
+            float invStds[tokenTile];
+            for (size_t token = 0; token < tokenCount; ++token) {
+                invStds[token] =
+                    1.0f / std::sqrt(vaddvq_f32(squareSums[token]) / static_cast<float>(channels) + epsilon);
+            }
+            const bool affine = gamma != nullptr && beta != nullptr;
+            for (size_t block = 0; block < channelUnit; ++block) {
+                float32x4_t gammaValue;
+                float32x4_t betaValue;
+                if (affine) {
+                    gammaValue = vld1q_f32(gamma + block * Pack);
+                    betaValue = vld1q_f32(beta + block * Pack);
+                }
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (block * batch + tokenBase + token) * Pack;
+                    auto value = vmulq_n_f32(vld1q_f32(source + offset), invStds[token]);
+                    if (affine) {
+                        value = vmlaq_f32(betaValue, value, gammaValue);
+                    }
+                    vst1q_f32(dest + offset, value);
+                }
+            }
         }
-        for (size_t c = channels; c < channelUnit * Pack; ++c) {
-            const size_t cu = c / Pack;
-            const size_t cr = c - cu * Pack;
-            dest[(cu * batch + n) * Pack + cr] = 0.0f;
+        return;
+    }
+#endif
+    for (size_t tile = tId; tile < tileCount; tile += threadNumber) {
+        const size_t tokenBase = tile * tokenTile;
+        const size_t tokenCount = ALIMIN(tokenTile, batch - tokenBase);
+        float means[tokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
+        if (residual != nullptr || !RMSNorm) {
+            for (size_t block = 0; block < channelUnit; ++block) {
+                const size_t valid = ALIMIN(static_cast<size_t>(Pack), channels - block * Pack);
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (block * batch + tokenBase + token) * Pack;
+                    for (size_t lane = 0; lane < valid; ++lane) {
+                        float value = source[offset + lane];
+                        if (residual != nullptr) {
+                            value += residual[offset + lane];
+                            sum[offset + lane] = value;
+                        }
+                        if (!RMSNorm) {
+                            means[token] += value;
+                        }
+                    }
+                    if (sum != nullptr) {
+                        for (size_t lane = valid; lane < Pack; ++lane) {
+                            sum[offset + lane] = 0.0f;
+                        }
+                    }
+                }
+            }
+            if (!RMSNorm) {
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    means[token] /= static_cast<float>(channels);
+                }
+            }
+        }
+        const float* normSource = sum != nullptr ? sum : source;
+        float squareSums[tokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (size_t block = 0; block < channelUnit; ++block) {
+            const size_t valid = ALIMIN(static_cast<size_t>(Pack), channels - block * Pack);
+            for (size_t token = 0; token < tokenCount; ++token) {
+                const size_t offset = (block * batch + tokenBase + token) * Pack;
+                for (size_t lane = 0; lane < valid; ++lane) {
+                    const float diff = normSource[offset + lane] - means[token];
+                    squareSums[token] += diff * diff;
+                }
+            }
+        }
+        float invStds[tokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (size_t token = 0; token < tokenCount; ++token) {
+            invStds[token] = 1.0f / std::sqrt(squareSums[token] / static_cast<float>(channels) + epsilon);
+        }
+        for (size_t block = 0; block < channelUnit; ++block) {
+            const size_t channelBase = block * Pack;
+            const size_t valid = ALIMIN(static_cast<size_t>(Pack), channels - channelBase);
+            for (size_t token = 0; token < tokenCount; ++token) {
+                const size_t offset = (block * batch + tokenBase + token) * Pack;
+                for (size_t lane = 0; lane < valid; ++lane) {
+                    const size_t channel = channelBase + lane;
+                    float value = (normSource[offset + lane] - means[token]) * invStds[token];
+                    if (gamma != nullptr && beta != nullptr) {
+                        value = value * gamma[channel] + beta[channel];
+                    }
+                    dest[offset + lane] = value;
+                }
+                for (size_t lane = valid; lane < Pack; ++lane) {
+                    dest[offset + lane] = 0.0f;
+                }
+            }
         }
     }
 }
@@ -4747,6 +4914,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNDualMatVec = MNNDualMatVecDefault;
     gCoreFunction->MNNDecayRankOneUpdate = MNNDecayRankOneUpdateDefault;
     gCoreFunction->MNNFusedGatedDelta = MNNFusedGatedDeltaDefault;
+    gCoreFunction->MNNNormalizeQKAndDot = MNNNormalizeQKAndDotDefault;
 
     // Lowp
     gCoreFunction->MNNFp32ToLowp = nullptr;
@@ -4808,6 +4976,10 @@ void MNNCoreFunctionInit() {
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     gCoreFunction->MNNAttenPackAndScaleSingleHead = MNNAttenPackAndScaleSingleHead;
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    gCoreFunction->MNNPackedMatMulWithSme2PackedB = MNNPackedMatMulWithSme2PackedB;
+    gCoreFunction->MNNPackedMatMulRemainWithSme2PackedB = MNNPackedMatMulRemainWithSme2PackedB;
+#endif
     gCoreFunction->MNNFlashAttentionUpdateBlockOutput = MNNFlashAttentionUpdateBlockOutput;
     gCoreFunction->MNNQuantAttentionKey = MNNQuantAttentionKey;
     gCoreFunction->MNNQuantAttentionValue = MNNQuantAttentionValue;
@@ -4847,6 +5019,9 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportSDot = gCPUInfo.dot;
     gCoreFunction->supportI8mm = gCPUInfo.i8mm;
     gCoreFunction->supportSME2 = gCPUInfo.sme2;
+#if defined(MNN_SME2) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    gCoreFunction->supportFp16FML = gCPUInfo.fp16fml;
+#endif
     // add rvv support
     gCoreFunction->supportRVV = gCPUInfo.rvv;
 
@@ -4913,6 +5088,7 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemainFP32_RVV;
         gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B_RVV;
         gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode_RVV;
+        MNNRvvInitializeFastPathFunctions(gCoreFunction);
 #ifdef MNN_LOW_MEMORY
         gCoreFunction->MNNAbsMax = MNNAbsMaxFP32_RVV;
         gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32_RVV;

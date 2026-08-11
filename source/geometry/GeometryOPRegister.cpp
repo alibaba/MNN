@@ -31,6 +31,7 @@ extern void ___GeometryFill___create__();
 extern void ___GeometryGather___create__();
 extern void ___GeometryBatchMatMul___create__();
 extern void ___GeometryPoolGrad___create__();
+extern void ___GeometryFusedProj___createFusedProj__();
 extern void ___GeometryDilation2D___create__();
 extern void ___GeometrySpaceToBatchND___create__();
 extern void ___GeometryPooling3D___create__();
@@ -41,6 +42,7 @@ extern void ___GeometrySlice___create__();
 extern void ___GeometryConcat___create__();
 extern void ___GeometryUnary___create__();
 extern void ___GeometryBinary___create__();
+extern void ___GeometryGatedRMSNorm___createGatedRMSNorm__();
 
 void registerGeometryOps() {
 ___GeometryShape___create__();
@@ -73,6 +75,7 @@ ___GeometryFill___create__();
 ___GeometryGather___create__();
 ___GeometryBatchMatMul___create__();
 ___GeometryPoolGrad___create__();
+___GeometryFusedProj___createFusedProj__();
 ___GeometryDilation2D___create__();
 ___GeometrySpaceToBatchND___create__();
 ___GeometryPooling3D___create__();
@@ -83,5 +86,6 @@ ___GeometrySlice___create__();
 ___GeometryConcat___create__();
 ___GeometryUnary___create__();
 ___GeometryBinary___create__();
+___GeometryGatedRMSNorm___createGatedRMSNorm__();
 }
 }

@@ -27,6 +27,22 @@ class MNNConverter:
         self.lm_weight = None
         self.tie_embeddings_info = None
 
+    def transformer_c4_args(self):
+        enabled = getattr(self.args, 'transformer_c4', True)
+        lora_split = getattr(self.args, 'lora_split', False)
+        # FusedLinear groups are built by MNNConvert inside FuseTransformerC4;
+        # lora_split needs the member convs kept separate so lora weights can
+        # still be matched per projection.
+        qkv = enabled and not lora_split and getattr(self.args, 'fuse_qkv_proj', True)
+        gate_up = enabled and not lora_split and getattr(self.args, 'fuse_gate_up_proj', True)
+        ln = enabled and getattr(self.args, 'fuse_ln_proj', True)
+        return [
+            '--transformerFuseC4={}'.format(1 if enabled else 0),
+            '--transformerFuseQkvProj={}'.format(1 if qkv else 0),
+            '--transformerFuseGateUpProj={}'.format(1 if gate_up else 0),
+            '--transformerFuseLnProj={}'.format(1 if ln else 0),
+        ]
+
     def convert(self, convert_args):
         import contextlib
         log_fp = open(EXPORT_LOG, "a")
@@ -82,6 +98,7 @@ class MNNConverter:
             convert_args += ['--saveExternalData']
         if self.args.hqq:
             convert_args += ['--hqq']
+        convert_args += self.transformer_c4_args()
         convert_args += args
         self.convert(convert_args)
         return mnn_path
@@ -109,6 +126,7 @@ class MNNConverter:
             '--MNNModel',
             str(mnn_path)
         ]
+        convert_args += self.transformer_c4_args()
         self.convert(convert_args)
         return mnn_path
 
@@ -123,6 +141,7 @@ class MNNConverter:
             str(mnn_path),
             '--optimizeLevel=1'
         ]
+        convert_args += self.transformer_c4_args()
         self.convert(convert_args)
         return mnn_path
 
@@ -156,7 +175,10 @@ class MNNConverter:
             self.mnn2json(self.mnn_model_path, mnn_json)
             self.rebuild(mnn_json)
             self.json2mnn(mnn_json, self.mnn_model_path)
-            self.removeDupOps(self.mnn_model_path)
+            # HunyuanVL needs the explicit q/k/v reshape boundary before Attention.
+            # The extra optimize pass can bypass v_proj's post_reshape into Attention.
+            if self.exporter.model_type != 'hunyuan_vl':
+                self.removeDupOps(self.mnn_model_path)
             self.mnn2json(self.mnn_model_path, mnn_json)
             if self.args.gptq_path is not None:
                 self.apply_gptq(mnn_json)
@@ -396,6 +418,8 @@ class MNNConverter:
             return self.rebuild_linear(op, graph)
         if op_type == 'FusedAttention':
             return self.rebuild_attnention(op, graph)
+        if op_type == 'FusedRoPE':
+            return self.rebuild_rope(op, graph)
         if op_type == 'FusedLinearAttention':
             return self.rebuild_linear_attnention(op, graph)
         if op_type == "LayerNorm":
@@ -403,6 +427,91 @@ class MNNConverter:
         if op_type == 'MoE':
             return self.rebuild_moe(op, graph)
         return None
+
+    def const_float_data(self, graph, tensor_index):
+        op_key = 'oplists' if 'oplists' in graph else 'nodes'
+        for op in graph[op_key]:
+            if tensor_index not in op.get('outputIndexes', []):
+                continue
+            if op.get('type') != 'Const':
+                break
+            main = op.get('main', {})
+            if 'float32s' in main:
+                return main['float32s']
+            break
+        return None
+
+    def rebuild_rope(self, op, graph):
+        attrs = op['main']['attr']
+        name = op['name']
+        rope_cut_head_dim = 0
+        num_head = 0
+        kv_num_head = 0
+        head_dim = 0
+        q_norm = False
+        k_norm = False
+        q_norm_eps = 0.0
+        k_norm_eps = 0.0
+        for attr in attrs:
+            if attr['key'] == 'name':
+                name = attr['s']
+            elif attr['key'] == 'rope_cut_head_dim':
+                rope_cut_head_dim = attr['i']
+            elif attr['key'] == 'num_head':
+                num_head = attr['i']
+            elif attr['key'] == 'kv_num_head':
+                kv_num_head = attr['i']
+            elif attr['key'] == 'head_dim':
+                head_dim = attr['i']
+            elif attr['key'] == 'q_norm':
+                q_norm = bool(attr['i'])
+            elif attr['key'] == 'k_norm':
+                k_norm = bool(attr['i'])
+            elif attr['key'] == 'q_norm_eps':
+                q_norm_eps = attr['f']
+            elif attr['key'] == 'k_norm_eps':
+                k_norm_eps = attr['f']
+
+        rope_param = {
+            "rope_cut_head_dim": rope_cut_head_dim,
+            "num_head": num_head,
+            "kv_num_head": kv_num_head,
+            "head_dim": head_dim,
+        }
+        input_indexes = op['inputIndexes']
+        if q_norm or k_norm:
+            if len(input_indexes) < 6:
+                raise RuntimeError(f'FusedRoPE {name} misses q/k norm inputs')
+            if q_norm:
+                q_gamma = self.const_float_data(graph, input_indexes[4])
+                if q_gamma is None:
+                    raise RuntimeError(f'FusedRoPE {name} misses q_norm gamma const')
+                rope_param["q_norm"] = {
+                    "axis": [-1],
+                    "epsilon": q_norm_eps,
+                    "gamma": q_gamma,
+                    "useRMSNorm": True
+                }
+            if k_norm:
+                k_gamma = self.const_float_data(graph, input_indexes[5])
+                if k_gamma is None:
+                    raise RuntimeError(f'FusedRoPE {name} misses k_norm gamma const')
+                rope_param["k_norm"] = {
+                    "axis": [-1],
+                    "epsilon": k_norm_eps,
+                    "gamma": k_gamma,
+                    "useRMSNorm": True
+                }
+        rope_op = {
+            "inputIndexes": input_indexes[:4],
+            "main_type": "RoPEParam",
+            "main": rope_param,
+            "name": name,
+            "outputIndexes": op['outputIndexes'],
+            "type": "RoPE",
+            "defaultDimentionFormat": op['defaultDimentionFormat']
+        }
+        return [rope_op]
 
     def rebuild_moe(self, op, graph):
         moe = copy.deepcopy(op)
@@ -473,6 +582,9 @@ class MNNConverter:
         head_v_dim = 0
         attn_type = "gated_delta_rule"
         use_qk_l2norm = False
+        gate_fold = False
+        gate_coef = None
+        gate_bias = None
         name = ""
 
         # Parse attributes from Custom Op
@@ -491,6 +603,13 @@ class MNNConverter:
                 attn_type = attr['s']
             elif attr['key'] == 'use_qk_l2norm':
                 use_qk_l2norm = bool(attr['i'])
+            elif attr['key'] == 'gate_fold':
+                gate_fold = bool(attr['i'])
+            elif attr['key'] == 'gate_coef':
+                # ONNX FLOATS attrs serialize as Attribute.list.f in MNN JSON
+                gate_coef = attr.get('list', {}).get('f', [])
+            elif attr['key'] == 'gate_bias':
+                gate_bias = attr.get('list', {}).get('f', [])
 
         input_indexes = op['inputIndexes']
         output_indexes = op['outputIndexes']
@@ -503,6 +622,18 @@ class MNNConverter:
             "head_v_dim": head_v_dim,
             "use_qk_l2norm": use_qk_l2norm
         }
+        if gate_fold:
+            # The folded graph has no softplus/exp chain left, so a runtime that
+            # finds these missing cannot fall back — it would read the raw `a`
+            # projection as the decay gate. Refuse to emit such a model.
+            if not gate_coef or not gate_bias or \
+               len(gate_coef) != num_v_heads or len(gate_bias) != num_v_heads:
+                raise RuntimeError(
+                    f'LinearAttention "{name}": gate_fold needs {num_v_heads} gate_coef and gate_bias '
+                    f'values, got {len(gate_coef or [])} and {len(gate_bias or [])}')
+            linear_attention_param["gate_fold"] = True
+            linear_attention_param["gate_coef"] = gate_coef
+            linear_attention_param["gate_bias"] = gate_bias
 
         fused_linear_attention = {
             "inputIndexes": input_indexes,
@@ -514,6 +645,18 @@ class MNNConverter:
             "defaultDimentionFormat": "NHWC"
         }
         return [fused_linear_attention]
+
+    def get_extra_attr(self, op, key, default=None):
+        for attr in op.get('main', {}).get('attr', []):
+            if attr.get('key') != key:
+                continue
+            if 's' in attr:
+                return attr['s']
+            if 'i' in attr:
+                return attr['i']
+            if 'f' in attr:
+                return attr['f']
+        return default
 
     def rebuild_linear(self, op, graph):
         attrs = op['main']['attr']

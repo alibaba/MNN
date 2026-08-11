@@ -10,6 +10,7 @@
 
 #include <vector>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <fstream>
 #include <sstream>
@@ -127,6 +128,11 @@ struct LlmContext {
     LlmStatus status = LlmStatus::NOT_LOADED;
     // log buffer (per-instance, no locking needed)
     std::string log_buffer;
+    // Guards history_tokens / output_tokens / generate_str / end_with against
+    // concurrent access: the decode loop mutates them while other threads
+    // (e.g. pymnn get_context) may read; unsynchronized vector/string
+    // reallocation causes use-after-free.
+    mutable std::mutex mutex;
 };
 struct GenerationParams;
 class MNN_PUBLIC Llm {
@@ -194,6 +200,9 @@ public:
                   int max_new_tokens = -1);
     const LlmContext* getContext() const {
         return mContext.get();
+    }
+    const std::shared_ptr<Express::Executor>& getExecutor() const {
+        return mExecutor;
     }
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {}
     virtual void generateWavform() {}
@@ -267,7 +276,7 @@ public:
     static float cos_sim(Express::VARP var0, Express::VARP var1);
     virtual bool load() override;
 
-    Express::VARP ids_embedding(const std::vector<int>& ids);
+    virtual Express::VARP ids_embedding(const std::vector<int>& ids);
     Express::VARP txt_embedding(const std::string& txt);
     std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {}) override;
     int dim() const;

@@ -954,6 +954,7 @@ BINARY_FUSEADD_FUNC(ATAN2, atan2(x, y));
 BINARY_FUNC_FLOATMID(ADD, x+y);
 BINARY_FUNC_FLOATMID(SUB, x-y);
 BINARY_FUNC_FLOATMID(MUL, x*y);
+BINARY_FUNC_FLOATMID(MUL_SILU, x*(y/(1.0f+exp(-y))));
 BINARY_FUNC_FLOATMID(DIV, x/y);
 BINARY_FUNC_FLOATMID(REALDIV, (float)sign(y) * x / max(abs(y), 0.0000001));
 BINARY_FUNC_FLOATMID(MINIMUM, min(x, y));
@@ -975,6 +976,7 @@ BINARY_FUNC_FLOATMID(LOGICALOR, (x || y) ? 1 : 0);
 BINARY_FUNC_FLOATMID4(ADD, x+y);
 BINARY_FUNC_FLOATMID4(SUB, x-y);
 BINARY_FUNC_FLOATMID4(MUL, x*y);
+BINARY_FUNC_FLOATMID4(MUL_SILU, x*(y/(1.0f+exp(-y))));
 BINARY_FUNC_FLOATMID4(DIV, x/y);
 BINARY_FUNC_FLOATMID4(REALDIV, (float)sign(y) * x / max(abs(y), 0.0000001));
 BINARY_FUNC_FLOATMID4(MINIMUM, min(x, y));
@@ -1062,6 +1064,7 @@ void BinaryBlitTemplateFloat(T* output, const T* input, const T* input1, const i
     COMPUTE_FLOAT(ADD, T);
     COMPUTE_FLOAT(SUB, T);
     COMPUTE_FLOAT(MUL, T);
+    COMPUTE_FLOAT(MUL_SILU, T);
     COMPUTE_FLOAT(DIV, T);
     COMPUTE_FLOAT(REALDIV, T);
     COMPUTE_FLOAT(MINIMUM, T);
@@ -1086,6 +1089,10 @@ void BinaryBlitTemplateInt32(uint8_t* output, const uint8_t* input, const uint8_
     int count = size[0] * size[1] * size[2];
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
+    if (opType == MNN::BinaryOpOperation_REALDIV) {
+        // Integer REALDIV is plain truncating division, same as CPU backend
+        opType = MNN::BinaryOpOperation_DIV;
+    }
     #define COMPUTE_INT(TYPE, TOut)\
     if (opType == MNN::BinaryOpOperation_##TYPE ) {\
             Binary##TYPE<<<block_num, threads_num>>>((const int*)input, (const int*)(input1), (TOut*)output,\

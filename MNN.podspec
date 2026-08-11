@@ -6,7 +6,7 @@
 
 Pod::Spec.new do |s|
   s.name         = "MNN"
-  s.version      = "3.5.0"
+  s.version      = "3.6.1"
   s.summary      = "MNN - A lightweight deep neural network inference framework"
 
   s.description  = <<-DESC

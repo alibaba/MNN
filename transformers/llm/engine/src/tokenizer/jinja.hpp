@@ -579,7 +579,6 @@ static json undefined_init() {
     j["__jinja_undefined__"] = true;
     return j;
 }
-static const json UNDEFINED = undefined_init();
 
 inline bool is_undefined(const json& val) {
     return val.is_object() && val.contains("__jinja_undefined__");
@@ -635,7 +634,7 @@ public:
             }
         }
         JINJA_LOG("Context: Variable '" << name << "' not found, returning UNDEFINED");
-        return UNDEFINED;
+        return undefined_init();
     }
 
     json get(const std::string& name) const {
@@ -645,7 +644,7 @@ public:
                 return (*it)[name];
             }
         }
-        return UNDEFINED;
+        return undefined_init();
     }
 
     void set(const std::string& name, json val) {
@@ -718,7 +717,7 @@ struct GetAttrExpr : Expr {
         } else if (obj_val.is_array() && name == "length") {
              return obj_val.size();
         }
-        return UNDEFINED;
+        return undefined_init();
     }
     std::string dump() const override { return object->dump() + "." + name; }
 };
@@ -1005,6 +1004,30 @@ struct FilterExpr : Expr {
                  }
                  return res;
              }
+        } else if (name == "join") {
+            if (val.is_array()) {
+                std::string sep;
+                if (!args.empty()) {
+                    json v = args[0].second->evaluate(context);
+                    if (v.is_string()) {
+                        sep = v.get<std::string>();
+                    }
+                }
+                std::string out;
+                bool first = true;
+                for (const auto& item : val) {
+                    if (!first) {
+                        out += sep;
+                    }
+                    if (item.is_string()) {
+                        out += item.get<std::string>();
+                    } else {
+                        out += to_python_string(item);
+                    }
+                    first = false;
+                }
+                return out;
+            }
         }
         return val; // Unknown filter pass-through
     }

@@ -182,7 +182,7 @@ jobs:
     needs: [setup]
     runs-on: macos-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_ios_armv82_cpu_metal_coreml
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_ios_armv82_cpu_metal
     steps:
     - uses: actions/checkout@v3
       with:

@@ -41,6 +41,19 @@ public:
     bool isReallocDone() const { return mReallocDone; }
     void clearReallocDone() { mReallocDone = false; }
 
+    // Prefix kvcache (share prompt kvcache on disk). Set by AttentionBufExecution
+    // from the backend runtime hint. Empty means the feature is disabled.
+    void setPrefixCacheDir(const std::string& dir) { mPrefixCacheDir = dir; }
+    // True after allocKVCache detected PendingWrite for this layer: onExecute must
+    // dump the prefill kvcache to disk once the kernels have run.
+    bool savingPrefix() const { return mSaveShareKvPrefix; }
+    // Load the per-layer prefix kvcache files into a freshly allocated cache buffer.
+    // Returns false (and leaves the cache unallocated) when the files are missing or
+    // inconsistent with the current precision, so the caller can fall back to prefill.
+    bool loadPrefixKVCache(const KVMeta* meta, int seqlen);
+    // Dump the valid [0, mPastLength) kvcache region to the per-layer prefix files.
+    void savePrefixKVCache();
+
 private:
     bool mKVCache;
     bool mReallocDone = false;
@@ -49,6 +62,11 @@ private:
     int mPastLength = 0, mMaxLength = 0, mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
     OpenCLBackend* mOpenCLBackend;
     int mByte = 4;
+
+    // Prefix kvcache state
+    std::string mPrefixCacheDir;     // Directory holding <name>_<layer>.k/.v files
+    bool mSaveShareKvPrefix = false; // This layer is in PendingWrite mode
+    std::string mBasePrefixFileName; // <dir>/<name>_<layer> for this layer (no suffix)
 };
 
 class AttentionBufExecution : public CommonExecution {

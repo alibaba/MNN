@@ -17,10 +17,101 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include "tokenizer/tokenizer.hpp"
+#include "omni.hpp"
 
 #include "ujson.hpp"
 
 using namespace MNN::Transformer;
+
+class PostProcessorTestTokenizer : public Tokenizer {
+public:
+    void setPostProcessor(bool prefix, bool suffix) {
+        post_single_ops_.clear();
+        if (prefix) {
+            PostProcessorOp op;
+            op.type = POST_OP_SPECIAL_TOKEN;
+            op.token_id = 1;
+            post_single_ops_.push_back(op);
+        }
+        PostProcessorOp sequenceA;
+        sequenceA.type = POST_OP_SEQUENCE_A;
+        post_single_ops_.push_back(sequenceA);
+        if (suffix) {
+            PostProcessorOp op;
+            op.type = POST_OP_SPECIAL_TOKEN;
+            op.token_id = 2;
+            post_single_ops_.push_back(op);
+        }
+    }
+
+    std::string decode(int id) override { return std::to_string(id); }
+
+protected:
+    bool load_vocab(std::ifstream&) override { return true; }
+    void encode(const std::string&, std::vector<int>&) override {}
+};
+
+static bool checkPositions(const std::vector<int>& actual, const std::vector<int>& expected, const char* axis) {
+    if (actual == expected) {
+        return true;
+    }
+    std::cerr << "Post-processor mRoPE " << axis << " positions differ" << std::endl;
+    return false;
+}
+
+static bool testPostProcessorMropePositions() {
+    PostProcessorTestTokenizer tokenizer;
+    std::vector<int> rawIds = {10, 11, 12};
+
+    auto noProcessorInfo = tokenizer.post_process(rawIds);
+    if (!noProcessorInfo.has_single_sequence_a || noProcessorInfo.prefix_size != 0 ||
+        noProcessorInfo.suffix_size != 0 || rawIds != std::vector<int>({10, 11, 12})) {
+        std::cerr << "No post-processor regression" << std::endl;
+        return false;
+    }
+
+    tokenizer.setPostProcessor(false, true);
+    auto tailInfo = tokenizer.post_process(rawIds);
+    if (!tailInfo.has_single_sequence_a || tailInfo.prefix_size != 0 || tailInfo.suffix_size != 1 ||
+        rawIds != std::vector<int>({10, 11, 12, 2})) {
+        std::cerr << "Tail-only post-processor regression" << std::endl;
+        return false;
+    }
+
+    MropeInfo noPrefix;
+    noPrefix.push_back(0);
+    noPrefix.push_back(1, 4, 2);
+    noPrefix.push_back();
+    const auto beforePrefix = noPrefix;
+    noPrefix.prependTextPositions(tailInfo.prefix_size);
+    if (!checkPositions(noPrefix.mT, beforePrefix.mT, "T") || !checkPositions(noPrefix.mH, beforePrefix.mH, "H") ||
+        !checkPositions(noPrefix.mW, beforePrefix.mW, "W") || !checkPositions(noPrefix.mX, beforePrefix.mX, "X")) {
+        return false;
+    }
+    noPrefix.push_back();
+    if (!checkPositions(noPrefix.mT, {0, 1, 5, 6}, "T") || !checkPositions(noPrefix.mH, {0, 4, 5, 6}, "H") ||
+        !checkPositions(noPrefix.mW, {0, 2, 5, 6}, "W") || !checkPositions(noPrefix.mX, {0, 2, 5, 6}, "X")) {
+        return false;
+    }
+
+    rawIds = {10, 11, 12};
+    tokenizer.setPostProcessor(true, true);
+    auto wrappedInfo = tokenizer.post_process(rawIds);
+    if (!wrappedInfo.has_single_sequence_a || wrappedInfo.prefix_size != 1 || wrappedInfo.suffix_size != 1 ||
+        rawIds != std::vector<int>({1, 10, 11, 12, 2})) {
+        std::cerr << "Prefix-and-suffix post-processor regression" << std::endl;
+        return false;
+    }
+
+    MropeInfo wrapped;
+    wrapped.push_back(0);
+    wrapped.push_back(1, 4, 2);
+    wrapped.push_back();
+    wrapped.prependTextPositions(wrappedInfo.prefix_size);
+    wrapped.push_back();
+    return checkPositions(wrapped.mT, {0, 1, 2, 6, 7}, "T") && checkPositions(wrapped.mH, {0, 1, 5, 6, 7}, "H") &&
+           checkPositions(wrapped.mW, {0, 1, 3, 6, 7}, "W") && checkPositions(wrapped.mX, {0, 1, 3, 6, 7}, "X");
+}
 
 // ANSI colors
 static const char* RED    = "\033[31m";
@@ -252,6 +343,9 @@ static TestResult test_model(const std::string& models_path, const std::string& 
 }
 
 int main(int argc, char* argv[]) {
+    if (!testPostProcessorMropePositions()) {
+        return 1;
+    }
     std::string models_path = "./models";
     std::string filter = "";
 
