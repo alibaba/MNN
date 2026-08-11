@@ -150,13 +150,21 @@ int main(int argc, char** argv) {
     if (argc < 4 || std::strcmp(argv[2], "--text") != 0) {
         MNN_PRINT(
             "Usage: %s <model_dir> --text <text> [max_frames] [dump_dir] [language] "
-            "[--ref_audio <wav>] [--normalize [target_peak]]\n",
+            "--ref_audio <wav> [--normalize [target_peak]]\n",
             argv[0]);
+        MNN_PRINT(
+            "--ref_audio is required for speaker-embedding-only voice cloning; the zero speaker embedding path is "
+            "unsupported.\n");
+        MNN_PRINT("max_frames defaults to 128 and is a hard cap; too small a value truncates the utterance.\n");
+        MNN_PRINT("Download ref audio to: transformers/llm/resource/audio/qwen3_tts_ref.wav\n");
+        MNN_PRINT(
+            "Download URL: https://modelscope.cn/datasets/huangzhengxiang/qwen3-tts-ref/resolve/master/"
+            "qwen3_tts_ref.wav\n");
         return 1;
     }
     std::string modelDir = argv[1];
     std::string text = argv[3];
-    int maxFrames = 16;
+    int maxFrames = 128;
     std::string dumpDir;
     std::string language = "auto";
     float normalizePeak = -1.0f;
@@ -197,6 +205,10 @@ int main(int argc, char** argv) {
     }
     if (maxFrames <= 0) {
         MNN_ERROR("max_frames must be positive\n");
+        return 1;
+    }
+    if (refAudio.empty()) {
+        MNN_ERROR("--ref_audio is required for Qwen3-TTS speaker-embedding-only voice cloning\n");
         return 1;
     }
     if (normalizeRequested && (normalizePeak <= 0.0f || normalizePeak > 1.0f)) {

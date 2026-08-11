@@ -2681,7 +2681,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     }
     firstCodeCandidates[2048] = codecEosToken;
 
-    auto inputIds = mThinker->tokenizer_encode(prompt);
+    auto inputIds = mThinker->Llm::tokenizer_encode(prompt);
     if (inputIds.empty()) {
         MNN_ERROR("[Error]: empty qwen3_tts prompt ids\n");
         mContext->status = LlmStatus::INTERNAL_ERROR;
