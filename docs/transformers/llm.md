@@ -1127,6 +1127,7 @@ make -j16
 | `--cache_path` | str | `tmp` | 转换过程中的临时缓存目录 |
 | `--chunk_size` | int | `128` | NPU 的 chunk 大小 |
 | `--max_history_token` | int | `0` | 最大历史 token 数，0 表示不限制 |
+| `--reuse_config_qnn_json` | bool | (选填) | 是否复用config_qnn.json |
 
 ##### 用法一：转换 LLM 语言模型
 
@@ -1169,6 +1170,8 @@ python3 npu/generate_llm_qnn.py \
 ```
 
 转换完成后，会在模型目录下生成 `qnn/` 子目录和 `config_qnn.json`（其中 `visual_model` 字段指向转换后的 QNN 视觉模型）。
+
+> **注意**: `--reuse_config_qnn_json` 用于llm/visual均使用npu推理场景,该参数对先转换llm或visual没有限制，只需在第二次转换时带上`--resue_config_qnn_json`即可。
 
 ##### 用法三：使用自定义 input_json 转换任意模型
 
