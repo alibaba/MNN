@@ -45,6 +45,14 @@ private:
     int mHeadVDim;
     bool mUseQKL2Norm;
 
+    // Export-time gate/beta fold: inputs 1/2 carry the raw a/b projections and the
+    // kernels apply gate = gate_coef[h] * softplus(a + gate_bias[h]), beta = sigmoid(b).
+    // Constants stay fp32 (matches Metal/CPU) and are small enough (num_v_heads floats)
+    // that onClone can just rebuild them from the op.
+    bool mGateFold = false;
+    std::shared_ptr<cl::Buffer> mGateCoefBuf;
+    std::shared_ptr<cl::Buffer> mGateBiasBuf;
+
     OpenCLBackend* mOpenCLBackend;
 
     // Persistent state buffers shared between prefill and decode via onClone

@@ -29,7 +29,19 @@ class MNNConverter:
 
     def transformer_c4_args(self):
         enabled = getattr(self.args, 'transformer_c4', True)
-        return ['--transformerFuseC4={}'.format(1 if enabled else 0)]
+        lora_split = getattr(self.args, 'lora_split', False)
+        # FusedLinear groups are built by MNNConvert inside FuseTransformerC4;
+        # lora_split needs the member convs kept separate so lora weights can
+        # still be matched per projection.
+        qkv = enabled and not lora_split and getattr(self.args, 'fuse_qkv_proj', True)
+        gate_up = enabled and not lora_split and getattr(self.args, 'fuse_gate_up_proj', True)
+        ln = enabled and getattr(self.args, 'fuse_ln_proj', True)
+        return [
+            '--transformerFuseC4={}'.format(1 if enabled else 0),
+            '--transformerFuseQkvProj={}'.format(1 if qkv else 0),
+            '--transformerFuseGateUpProj={}'.format(1 if gate_up else 0),
+            '--transformerFuseLnProj={}'.format(1 if ln else 0),
+        ]
 
     def convert(self, convert_args):
         import contextlib
@@ -570,6 +582,9 @@ class MNNConverter:
         head_v_dim = 0
         attn_type = "gated_delta_rule"
         use_qk_l2norm = False
+        gate_fold = False
+        gate_coef = None
+        gate_bias = None
         name = ""
 
         # Parse attributes from Custom Op
@@ -588,6 +603,13 @@ class MNNConverter:
                 attn_type = attr['s']
             elif attr['key'] == 'use_qk_l2norm':
                 use_qk_l2norm = bool(attr['i'])
+            elif attr['key'] == 'gate_fold':
+                gate_fold = bool(attr['i'])
+            elif attr['key'] == 'gate_coef':
+                # ONNX FLOATS attrs serialize as Attribute.list.f in MNN JSON
+                gate_coef = attr.get('list', {}).get('f', [])
+            elif attr['key'] == 'gate_bias':
+                gate_bias = attr.get('list', {}).get('f', [])
 
         input_indexes = op['inputIndexes']
         output_indexes = op['outputIndexes']
@@ -600,6 +622,18 @@ class MNNConverter:
             "head_v_dim": head_v_dim,
             "use_qk_l2norm": use_qk_l2norm
         }
+        if gate_fold:
+            # The folded graph has no softplus/exp chain left, so a runtime that
+            # finds these missing cannot fall back — it would read the raw `a`
+            # projection as the decay gate. Refuse to emit such a model.
+            if not gate_coef or not gate_bias or \
+               len(gate_coef) != num_v_heads or len(gate_bias) != num_v_heads:
+                raise RuntimeError(
+                    f'LinearAttention "{name}": gate_fold needs {num_v_heads} gate_coef and gate_bias '
+                    f'values, got {len(gate_coef or [])} and {len(gate_bias or [])}')
+            linear_attention_param["gate_fold"] = True
+            linear_attention_param["gate_coef"] = gate_coef
+            linear_attention_param["gate_bias"] = gate_bias
 
         fused_linear_attention = {
             "inputIndexes": input_indexes,

@@ -203,7 +203,8 @@ class FusedLinearAttentionOp(torch.autograd.Function):
     """
     @staticmethod
     def symbolic(g, qkv, gate, beta, conv_weight, name, attn_type,
-                 num_k_heads, num_v_heads, head_k_dim, head_v_dim, use_qk_l2norm):
+                 num_k_heads, num_v_heads, head_k_dim, head_v_dim, use_qk_l2norm,
+                 gate_fold=0, gate_coef=None, gate_bias=None):
         kwargs = {
             "name_s": name,
             "attn_type_s": attn_type,
@@ -211,8 +212,15 @@ class FusedLinearAttentionOp(torch.autograd.Function):
             "num_v_heads_i": num_v_heads,
             "head_k_dim_i": head_k_dim,
             "head_v_dim_i": head_v_dim,
-            "use_qk_l2norm_i": int(use_qk_l2norm)
+            "use_qk_l2norm_i": int(use_qk_l2norm),
+            "gate_fold_i": int(gate_fold),
         }
+        if gate_fold and gate_coef is not None:
+            # _f suffix + list value: _add_attribute auto-promotes to a FLOATS
+            # attribute named gate_coef (its pattern rejects a literal _fs).
+            kwargs["gate_coef_f"] = list(gate_coef)
+        if gate_fold and gate_bias is not None:
+            kwargs["gate_bias_f"] = list(gate_bias)
         inputs = [qkv, gate, beta, conv_weight]
         from torch.onnx.symbolic_helper import _get_tensor_sizes
         qkv_sizes = _get_tensor_sizes(qkv)
@@ -227,7 +235,8 @@ class FusedLinearAttentionOp(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, qkv, gate, beta, conv_weight, name, attn_type,
-                num_k_heads, num_v_heads, head_k_dim, head_v_dim, use_qk_l2norm):
+                num_k_heads, num_v_heads, head_k_dim, head_v_dim, use_qk_l2norm,
+                gate_fold=0, gate_coef=None, gate_bias=None):
         # Dummy forward: return correct output shape
         # qkv: [B, D, L] -> output: [B, L, num_v_heads, head_v_dim]
         batch_size = qkv.shape[0]
@@ -235,7 +244,8 @@ class FusedLinearAttentionOp(torch.autograd.Function):
         return qkv.new_zeros([batch_size, seq_len, num_v_heads, head_v_dim])
 
 class FusedLinearAttention(torch.nn.Module):
-    def __init__(self, name, attn_type, num_k_heads, num_v_heads, head_k_dim, head_v_dim, use_qk_l2norm):
+    def __init__(self, name, attn_type, num_k_heads, num_v_heads, head_k_dim, head_v_dim, use_qk_l2norm,
+                 gate_fold=False, gate_coef=None, gate_bias=None):
         super(FusedLinearAttention, self).__init__()
         self.name = name
         self.attn_type = attn_type
@@ -244,8 +254,12 @@ class FusedLinearAttention(torch.nn.Module):
         self.head_k_dim = head_k_dim
         self.head_v_dim = head_v_dim
         self.use_qk_l2norm = use_qk_l2norm
+        self.gate_fold = gate_fold
+        self.gate_coef = gate_coef
+        self.gate_bias = gate_bias
 
     def forward(self, qkv, gate, beta, conv_weight):
         return FusedLinearAttentionOp.apply(qkv, gate, beta, conv_weight, self.name,
                                       self.attn_type, self.num_k_heads, self.num_v_heads,
-                                      self.head_k_dim, self.head_v_dim, self.use_qk_l2norm)
+                                      self.head_k_dim, self.head_v_dim, self.use_qk_l2norm,
+                                      self.gate_fold, self.gate_coef, self.gate_bias)

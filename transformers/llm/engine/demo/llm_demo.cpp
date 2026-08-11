@@ -13,11 +13,33 @@
 #include <sstream>
 #include <stdlib.h>
 #include <initializer_list>
+#if !defined(_WIN32) && !defined(_WIN64) && !defined(_MSC_VER)
+#include <limits.h>
+#endif
 // #define LLM_SUPPORT_AUDIO
 #ifdef LLM_SUPPORT_AUDIO
 #include "audio/audio.hpp"
 #endif
 using namespace MNN::Transformer;
+
+// Resolves symlinks and "." / ".." so two spellings of one file hash alike.
+// Returns the input unchanged when resolution fails (e.g. the file is gone) --
+// the result only seeds a cache directory name, so a stale spelling costs a
+// cache miss, never correctness.
+static std::string absolutePath(const std::string& path) {
+#if defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
+    char buffer[_MAX_PATH];
+    if (nullptr != _fullpath(buffer, path.c_str(), _MAX_PATH)) {
+        return std::string(buffer);
+    }
+#else
+    char buffer[PATH_MAX];
+    if (nullptr != realpath(path.c_str(), buffer)) {
+        return std::string(buffer);
+    }
+#endif
+    return path;
+}
 
 static void tuning_prepare(Llm* llm) {
     MNN_PRINT("Prepare for tuning opt Begin\n");
@@ -286,7 +308,15 @@ int main(int argc, const char* argv[]) {
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
     std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
-    llm->set_config("{\"tmp_path\":\"tmp\"}");
+    // The weight-mmap cache files carry no model identity, so the tmp dir must
+    // be unique per model or a later run with another model silently reuses
+    // the previous model's weight cache (garbage output). Hash the resolved
+    // absolute path, not argv[1]: otherwise ./config.json and the same file
+    // named absolutely land in different dirs and never share a cache. The
+    // engine creates the directory.
+    std::ostringstream tmpPath;
+    tmpPath << "tmp_" << std::hex << std::hash<std::string>()(absolutePath(config_path));
+    llm->set_config("{\"tmp_path\":\"" + tmpPath.str() + "\"}");
     {
         AUTOTIME;
         bool res = llm->load();

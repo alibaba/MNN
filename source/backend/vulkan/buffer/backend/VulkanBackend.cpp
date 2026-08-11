@@ -551,6 +551,15 @@ bool VulkanBackend::addCreator(OpType t, Creator* c) {
     return true;
 }
 
+VulkanBackend::Creator* VulkanBackend::getCreator(OpType t) {
+    auto allKind = getCreatorMap();
+    auto iter = allKind->find(t);
+    if (iter == allKind->end()) {
+        return nullptr;
+    }
+    return iter->second;
+}
+
 bool VulkanBackend::onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
     if (nullptr == dstInfo) {
         return true;

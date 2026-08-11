@@ -6,7 +6,7 @@ Decodes quantized conv weights directly from the exported .mnn.weight file
 HuggingFace model, and greedy-generates. The Metal/CPU backend output must
 match this token-for-token on coherent models (e.g. 3/4-bit); for degraded
 low-bit models compare the common prefix and calibrate noise sensitivity
-(see skills/metal-optimize/perf-playbook.md §1.1.8).
+(see skills/metal-optimize/kernel-dev-and-optimize.md §2.1.8).
 
 Independent of MNN runtime code, so it also works when the CPU low-bit
 kernels are unavailable/broken on the host.

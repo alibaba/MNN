@@ -22,6 +22,8 @@
   extern void ___MetalTopKV2Creator__OpType_TopKV2__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
   extern void ___MetalLinearAttentionCreator__OpType_LinearAttention__();
+  extern void ___MetalFusedProjCreator__OpType_FusedLinear__();
+  extern void ___MetalGatedRMSNormCreator__OpType_GatedRMSNorm__();
 #endif
   extern void ___MetalConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
   extern void ___MetalDeconvolutionCreator__OpType_Deconvolution__();
@@ -76,6 +78,8 @@ void registerMetalOps() {
    ___MetalRoPECreator__OpType_RoPE__();
    ___AttentionBufCreator__OpType_Attention__();
    ___MetalLinearAttentionCreator__OpType_LinearAttention__();
+   ___MetalFusedProjCreator__OpType_FusedLinear__();
+   ___MetalGatedRMSNormCreator__OpType_GatedRMSNorm__();
 #endif
 }
 #endif

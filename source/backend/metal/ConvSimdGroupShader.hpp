@@ -3336,7 +3336,22 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
                             const device ftype4 *dequantScale_v             [[buffer(13)]],
                             // qkv_seg: [0]=k scale_coef, [1]=v scale_coef,
                             //          [2]=k output_slice, [3]=v output_slice
+                            //          (QKV_FUSED_P4: [4]=w scale_coef, [5]=w output_slice)
                             constant float *qkv_seg                         [[buffer(14)]],
+                        #ifdef QKV_FUSED_P4
+                            device ftype4 *out_w                            [[buffer(15)]],
+                        #ifdef W_QUANT_2
+                            const device uchar4 *wt_w                       [[buffer(16)]],
+                        #elif defined(W_QUANT_3)
+                            const device uchar *wt_w                        [[buffer(16)]],
+                        #elif defined(W_QUANT_4)
+                            const device ushort4 *wt_w                      [[buffer(16)]],
+                        #elif defined(W_QUANT_8)
+                            const device MNN::char4x4 *wt_w                [[buffer(16)]],
+                        #endif
+                            const device ftype4 *biasTerms_w                [[buffer(17)]],
+                            const device ftype4 *dequantScale_w             [[buffer(18)]],
+                        #endif
                         #endif
                         #ifdef LN_FUSED
                             const device ftype4 *ln_residual_in             [[buffer(20)]],
@@ -3377,6 +3392,18 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         qkv_scale_coef = qkv_seg[1];
         qkv_output_slice = int(qkv_seg[3]);
     }
+#ifdef QKV_FUSED_P4
+    // 4-projection groups (Qwen3.5 linear-attention layers: qkv/z/b/a share
+    // one LN input): gid.z == 3 selects the 4th projection.
+    else if (gid.z == 3) {
+        out = out_w;
+        wt = wt_w;
+        biasTerms = biasTerms_w;
+        dequantScale = dequantScale_w;
+        qkv_scale_coef = qkv_seg[4];
+        qkv_output_slice = int(qkv_seg[5]);
+    }
+#endif
 #endif
 
 #ifdef ROW_2

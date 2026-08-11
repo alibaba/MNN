@@ -191,6 +191,17 @@ int VulkanRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
             return 0;
             break;
         }
+        case STATUS_SUPPORT_FUSED_PROJ: {
+            // Defined by the buffer variant's VulkanBackend.hpp (this file is
+            // compiled for both variants; the image variant answers 0 and the
+            // geometry keeps decomposing the op).
+#ifdef MNN_VULKAN_SUPPORT_FUSED_PROJ
+            return 1;
+#else
+            return 0;
+#endif
+            break;
+        }
         default: {
             MNN_ERROR("unsupported interface");
             break;

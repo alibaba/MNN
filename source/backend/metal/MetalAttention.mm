@@ -439,6 +439,12 @@ void AttentionBufExecution::handleKVAllocMemory() {
 
         int keySize = mKvMaxLen * mBatch * mKvNumHead * mHeadDim;
         int valueSize = mBatch * mKvNumHead * mHeadDim * mKvMaxLen;
+        // mTempK/mTempV are setTensor-bound, so re-creating them here would
+        // leave a recorded encode-replay holding a freed Tensor* (see the
+        // lifetime invariant in MetalReplay.hpp). Safe only because this block
+        // is !mKVCache-only and onReplayUpdate bails on !mKVCache before
+        // metalReplayValidate runs. Keep that order, and if a mKVCache path
+        // ever reallocates these, guard it explicitly.
         if (nullptr == mTempK || mTempK->elementSize() != keySize) {
             mTempK.reset(Tensor::createDevice<float>({keySize}));
         }

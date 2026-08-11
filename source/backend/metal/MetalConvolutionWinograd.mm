@@ -153,8 +153,20 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     mOutputTransformThreads.height = uh;
     mOutputTransformThreads.depth  = oz;
     
-    mTempSrc.reset(Tensor::createDevice<uint8_t>(std::vector<int>{is}));
-    mTempDst.reset(Tensor::createDevice<uint8_t>(std::vector<int>{os}));
+    // Keep both Tensor objects for the execution's lifetime and only resize
+    // them in place: they are setTensor-bound, so a recorded encode-replay
+    // holds raw Tensor* to them and destroying the object would leave that
+    // recording dangling. An address change is caught by metalReplayValidate.
+    if (mTempSrc == nullptr) {
+        mTempSrc.reset(Tensor::createDevice<uint8_t>(std::vector<int>{is}));
+    } else {
+        mTempSrc->setLength(0, is);
+    }
+    if (mTempDst == nullptr) {
+        mTempDst.reset(Tensor::createDevice<uint8_t>(std::vector<int>{os}));
+    } else {
+        mTempDst->setLength(0, os);
+    }
     backend->onAcquireBuffer(mTempSrc.get(), Backend::DYNAMIC);
     backend->onAcquireBuffer(mTempDst.get(), Backend::DYNAMIC);
     backend->onReleaseBuffer(mTempSrc.get(), Backend::DYNAMIC);

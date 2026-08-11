@@ -60,6 +60,11 @@ public:
     bool useGeluApproximation = true;
     bool transformerFuse = false;
     bool transformerFuseC4 = true;
+    // Convert-time construction of FusedLinear projection groups (inside the
+    // FuseTransformerC4 pass, so they are also gated by transformerFuseC4).
+    bool transformerFuseQkvProj = true;
+    bool transformerFuseGateUpProj = true;
+    bool transformerFuseLnProj = true;
     bool allowCustomOp = false;
     bool groupConvNative = false;
     std::string customOpLibs = "";

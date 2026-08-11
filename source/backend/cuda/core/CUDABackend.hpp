@@ -42,6 +42,7 @@ public:
     virtual float onGetMemoryInMB() override;
     virtual std::pair<const void*, size_t> onGetCache() override;
     virtual bool onSetCache(const void* buffer, size_t size) override;
+    virtual int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
 
 private:
     std::shared_ptr<EagerBufferAllocator> mBufferPool;

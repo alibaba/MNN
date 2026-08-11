@@ -271,6 +271,10 @@ public:
 
     int mrope_axes() const { return config_.value("mrope_axes", 3); }
 
+    int max_position_embeddings() const {
+        return config_.value("max_position_embeddings", 0);
+    }
+
     bool has_talker() const {
         return config_.value("has_talker", false);
     }

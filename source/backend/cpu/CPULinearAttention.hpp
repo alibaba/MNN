@@ -69,6 +69,15 @@ private:
     std::shared_ptr<Tensor> mGateUnpacked;       // C4 prefill gate in token-major layout
     std::shared_ptr<Tensor> mBetaUnpacked;       // C4 prefill beta in token-major layout
     std::shared_ptr<Tensor> mOutputUnpacked;     // C4 prefill output in token-major layout
+
+    // Export-time gate/beta fold: when true, inputs[1]/[2] carry raw a/b
+    // projections and gate/beta are computed inline using mGateCoef/mGateBias.
+    bool mGateFold = false;
+    std::vector<float> mGateCoef;
+    std::vector<float> mGateBias;
+    std::shared_ptr<Tensor> mGateFoldBuf;        // Folded gate: [B*L*H]
+    std::shared_ptr<Tensor> mBetaFoldBuf;        // Folded beta: [B*L*H]
+    void applyGateFold(const std::vector<Tensor*>& inputs);
 };
 
 } // namespace MNN

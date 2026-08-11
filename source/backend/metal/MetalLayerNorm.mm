@@ -357,19 +357,6 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
         }
     }
 
-    // Register binary RMSNorm for potential LN+Conv1x1 fusion
-    if (mIsNC4HW4 && inputs.size() == 2 && outputs.size() == 2 &&
-        mResource->mRMSNorm && mResource->mHasGammaBeta) {
-        MetalBackend::LayerNormFusionInfo info;
-        info.hiddenInput = inputs[1];      // hidden state (output of attention/o_proj)
-        info.residualInput = inputs[0];    // previous residual
-        info.residualOutput = outputs[0];  // sum = residual + hidden
-        info.gamma = mResource->mGammaBuffer;
-        info.eps = mResource->mEps;
-        info.fusedFlag = &mIsFused;
-        backend->registerLayerNorm(outputs[1], info);  // outputs[1] = normalized
-    }
-
     return NO_ERROR;
 }
 

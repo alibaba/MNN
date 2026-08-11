@@ -31,6 +31,9 @@ static ExecutionCacheKey makeExecutionCacheKey(const Op* op) {
 
 static bool supportPrearrangeClone(const Op* op) {
     return op->main_type() == OpParameter_Convolution2D || op->main_type() == OpParameter_LayerNorm ||
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+           op->main_type() == OpParameter_FusedLinearParam ||
+#endif
            op->type() == OpType_Attention || op->type() == OpType_Scale || op->type() == OpType_RoPE ||
            op->type() == OpType_GatherV2;
 }
@@ -236,6 +239,62 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 }
                 break;
             }
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+            case MNN::OpType_FusedLinear: {
+                cloneBaseExecution(exe, base_executions, op, backend, backupBackend);
+                if (exe == nullptr) {
+                    // Only Metal / OpenCL execute FusedLinear natively; other
+                    // backends decompose it in geometry, so pre-creation would
+                    // always fail.
+                    if (backend->type() != MNN_FORWARD_METAL && backend->type() != MNN_FORWARD_OPENCL) {
+                        break;
+                    }
+                    std::shared_ptr<BufferStorage> tmpstorage;
+                    exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op,
+                                                                         &loader, tmpstorage));
+                    if (nullptr == exe) {
+                        break;
+                    }
+                }
+                // The exe can't clone
+                if (!exe->onClone(nullptr, op, nullptr)) {
+                    exe = nullptr;
+                    break;
+                }
+                // The repacked op below becomes the runtime op and the cached
+                // clone's param source. Its folded LN still references the
+                // external file (gamma/beta empty), but the clone's LN child is
+                // created lazily via plain backend->onCreate, which never
+                // resolves external data. Inline gamma/beta now, same as
+                // _RebuildExternalOp does for the first creation.
+                if (OpParameter_FusedLinearParam == op_table->main.type) {
+                    auto fused = op_table->main.AsFusedLinearParam();
+                    if (nullptr != fused->ln && fused->ln->external.size() >= 3 && fused->ln->gamma.empty()) {
+                        loader.offset(fused->ln->external[0]);
+                        fused->ln->gamma.resize(fused->ln->external[1] / sizeof(float));
+                        loader.read((char*)fused->ln->gamma.data(), fused->ln->external[1]);
+                        fused->ln->beta.resize(fused->ln->external[2] / sizeof(float));
+                        loader.read((char*)fused->ln->beta.data(), fused->ln->external[2]);
+                        fused->ln->external.clear();
+                    }
+                    // Slim the member conv weights from the repacked op, same as
+                    // the standalone Convolution case above.
+                    for (auto& conv : fused->convs) {
+                        conv->bias.clear();
+                        conv->weight.clear();
+                        if (nullptr != conv->symmetricQuan) {
+                            conv->symmetricQuan->bias.clear();
+                            conv->symmetricQuan->weight.clear();
+                        }
+                        if (nullptr != conv->quanParameter) {
+                            conv->quanParameter->alpha.clear();
+                            conv->quanParameter->buffer.clear();
+                        }
+                    }
+                }
+                break;
+            }
+#endif
             default: {
                 break;
             }

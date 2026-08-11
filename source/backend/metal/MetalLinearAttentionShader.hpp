@@ -40,6 +40,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int c4_offset(int token, int channel, int token_count) {
@@ -209,6 +213,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 kernel void linear_attn_qkv_prep_sg(
@@ -333,6 +341,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int c4_offset(int token, int channel, int token_count) {
@@ -345,6 +357,23 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
         return c4_offset(b * param.seq_len + t, c, param.batch * param.seq_len);
     }
     return (b * param.seq_len + t) * channel + c;
+}
+
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
+// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
+// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
+// store-rounding after every op, so the folded value is bit-identical to the
+// separate-dispatch chain output.
+inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
+    ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
+    x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
+    x = x + (ftype)1.0f;                              // ADD +1       (Binary, half)
+    x = (ftype)log((float)x);                         // LOG          (Unary, fp32)
+    x = (ftype)p.gate_coef[h] * x;                    // MUL -exp(A_log)
+    return (float)x;
+}
+inline float linear_attn_beta_fold(float b) {
+    return (float)(ftype)(1.0f / (1.0f + exp(clamp(-b, -87.0f, 87.0f))));
 }
 
 inline int output_offset(int b, int t, int h, int d, constant LinearAttnParam& param) {
@@ -458,10 +487,13 @@ kernel void linear_attn_gated_delta_rule(
         const device ftype* k_t = k + (b * L * H + t * H + h) * d_k;
         float v_t_j = (float)v[(b * L * H + t * H + h) * d_v + j];
 
-        float g_t = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4, param)];
+        float g_t = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4 & 1, param)];
+        if (param.gate_c4 & 2) {
+            g_t = linear_attn_gate_fold(g_t, h, param);
+        }
         float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
         if (param.beta_c4 & 2) {
-            beta_t = (float)(ftype)(1.0f / (1.0f + exp(clamp(-beta_t, -87.0f, 87.0f))));
+            beta_t = linear_attn_beta_fold(beta_t);
         }
 
         float decay_val = exp(g_t);
@@ -499,8 +531,10 @@ using namespace metal;
 
 #if MNN_METAL_FLOAT16_STORAGE
 typedef half ftype;
+typedef half4 ftype4;
 #else
 typedef float ftype;
+typedef float4 ftype4;
 #endif
 
 struct LinearAttnParam {
@@ -522,6 +556,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int c4_offset(int token, int channel, int token_count) {
@@ -534,6 +572,23 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
         return c4_offset(b * param.seq_len + t, c, param.batch * param.seq_len);
     }
     return (b * param.seq_len + t) * channel + c;
+}
+
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
+// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
+// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
+// store-rounding after every op, so the folded value is bit-identical to the
+// separate-dispatch chain output.
+inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
+    ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
+    x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
+    x = x + (ftype)1.0f;                              // ADD +1       (Binary, half)
+    x = (ftype)log((float)x);                         // LOG          (Unary, fp32)
+    x = (ftype)p.gate_coef[h] * x;                    // MUL -exp(A_log)
+    return (float)x;
+}
+inline float linear_attn_beta_fold(float b) {
+    return (float)(ftype)(1.0f / (1.0f + exp(clamp(-b, -87.0f, 87.0f))));
 }
 
 inline int output_offset(int b, int t, int h, int d, constant LinearAttnParam& param) {
@@ -578,13 +633,27 @@ kernel void linear_attn_gated_delta_rule_sg(
     device ftype* state = recurrent_state + (b * H + h) * d_v * d_k + j * d_k;
     const int n_iters = (d_k + 31) / 32;
 
+    // State lives in registers across the whole L loop; flushed once at exit.
+    float st_reg[SIMD_ITERS];
+    for (int ii = 0; ii < n_iters; ii++) {
+        int i = lane + ii * 32;
+        st_reg[ii] = (i < d_k) ? (float)state[i] : 0.0f;
+    }
+
     for (int t = 0; t < L; ++t) {
         const int bth = b * L * H + t * H + h;
         const device ftype* q_t = q + bth * d_k;
         const device ftype* k_t = k + bth * d_k;
         float v_t_j = (float)v[bth * d_v + j];
-        float decay_val = exp((float)gate[token_channel_offset(b, t, h, H, param.gate_c4, param)]);
-        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4, param)];
+        float g_t = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4 & 1, param)];
+        if (param.gate_c4 & 2) {
+            g_t = linear_attn_gate_fold(g_t, h, param);
+        }
+        float decay_val = exp(g_t);
+        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
+        if (param.beta_c4 & 2) {
+            beta_t = linear_attn_beta_fold(beta_t);
+        }
 
         float k_reg[SIMD_ITERS], q_reg[SIMD_ITERS];
         for (int ii = 0; ii < n_iters; ii++) {
@@ -599,9 +668,8 @@ kernel void linear_attn_gated_delta_rule_sg(
         for (int ii = 0; ii < n_iters; ii++) {
             int i = lane + ii * 32;
             if (i < d_k) {
-                float s_val = (float)state[i] * decay_val;
-                state[i] = (ftype)s_val;
-                v_pred_j += s_val * k_reg[ii];
+                st_reg[ii] *= decay_val;
+                v_pred_j += st_reg[ii] * k_reg[ii];
             }
         }
         v_pred_j = simd_sum(v_pred_j);
@@ -611,9 +679,8 @@ kernel void linear_attn_gated_delta_rule_sg(
         for (int ii = 0; ii < n_iters; ii++) {
             int i = lane + ii * 32;
             if (i < d_k) {
-                float s_val = (float)state[i] + k_reg[ii] * delta_j;
-                state[i] = (ftype)s_val;
-                o_t_j += s_val * q_reg[ii];
+                st_reg[ii] += k_reg[ii] * delta_j;
+                o_t_j += st_reg[ii] * q_reg[ii];
             }
         }
         o_t_j = simd_sum(o_t_j);
@@ -622,6 +689,79 @@ kernel void linear_attn_gated_delta_rule_sg(
             attn_out[output_offset(b, t, h, j, param)] = (ftype)o_t_j;
         }
     }
+
+    for (int ii = 0; ii < n_iters; ii++) {
+        int i = lane + ii * 32;
+        if (i < d_k) state[i] = (ftype)st_reg[ii];
+    }
+}
+
+// dk==128 specialization: each lane owns 4 consecutive elements as one ftype4
+// (vectorized 8-byte loads), state held in a float4 register across L.
+kernel void linear_attn_gated_delta_rule_sg_v4(
+    const device ftype* q                [[buffer(0)]],
+    const device ftype* k                [[buffer(1)]],
+    const device ftype* v                [[buffer(2)]],
+    const device ftype* gate             [[buffer(3)]],
+    const device ftype* beta             [[buffer(4)]],
+    device ftype* recurrent_state        [[buffer(5)]],
+    device ftype* attn_out               [[buffer(6)]],
+    constant LinearAttnParam& param      [[buffer(7)]],
+    uint3 tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int d_k = 128;
+    const int d_v = param.head_v_dim;
+
+    int idx = tgpig.x * 4 + sgitg;
+    const int total = B * H * d_v;
+    if (idx >= total) return;
+
+    const int j = idx % d_v;
+    const int b_h = idx / d_v;
+    const int h = b_h % H;
+    const int b = b_h / H;
+
+    // Transposed state: [B, H, d_v, d_k]
+    device ftype4* state4 = (device ftype4*)(recurrent_state + (b * H + h) * d_v * d_k + j * d_k);
+    float4 st = float4(state4[lane]);
+
+    const device ftype4* q4 = (const device ftype4*)q;
+    const device ftype4* k4 = (const device ftype4*)k;
+    const int row4 = d_k / 4;
+
+    for (int t = 0; t < L; ++t) {
+        const int bth = b * L * H + t * H + h;
+        float4 q_t = float4(q4[bth * row4 + (int)lane]);
+        float4 k_t = float4(k4[bth * row4 + (int)lane]);
+        float v_t_j = (float)v[bth * d_v + j];
+        float g_t = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4 & 1, param)];
+        if (param.gate_c4 & 2) {
+            g_t = linear_attn_gate_fold(g_t, h, param);
+        }
+        float decay_val = exp(g_t);
+        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
+        if (param.beta_c4 & 2) {
+            beta_t = linear_attn_beta_fold(beta_t);
+        }
+
+        st *= decay_val;
+        float v_pred_j = simd_sum(dot(st, k_t));
+        float delta_j = beta_t * (v_t_j - v_pred_j);
+
+        st += k_t * delta_j;
+        float o_t_j = simd_sum(dot(st, q_t));
+
+        if (lane == 0) {
+            attn_out[output_offset(b, t, h, j, param)] = (ftype)o_t_j;
+        }
+    }
+
+    state4[lane] = ftype4(st);
 }
 )metal";
 
@@ -655,6 +795,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int c4_offset(int token, int channel, int token_count) {
@@ -667,6 +811,23 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
         return c4_offset(b * param.seq_len + t, c, param.batch * param.seq_len);
     }
     return (b * param.seq_len + t) * channel + c;
+}
+
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
+// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
+// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
+// store-rounding after every op, so the folded value is bit-identical to the
+// separate-dispatch chain output.
+inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
+    ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
+    x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
+    x = x + (ftype)1.0f;                              // ADD +1       (Binary, half)
+    x = (ftype)log((float)x);                         // LOG          (Unary, fp32)
+    x = (ftype)p.gate_coef[h] * x;                    // MUL -exp(A_log)
+    return (float)x;
+}
+inline float linear_attn_beta_fold(float b) {
+    return (float)(ftype)(1.0f / (1.0f + exp(clamp(-b, -87.0f, 87.0f))));
 }
 
 inline int output_offset(int b, int t, int h, int d, constant LinearAttnParam& param) {
@@ -758,8 +919,15 @@ kernel void linear_attn_fused_sg(
         float v_t_j = (float)conv_base[(2 * key_dim + h * d_v + j) * L + t];
 
         const int bth = b * L * H + t * H + h;
-        float decay_val = exp((float)gate[token_channel_offset(b, t, h, H, param.gate_c4, param)]);
-        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4, param)];
+        float g_t = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4 & 1, param)];
+        if (param.gate_c4 & 2) {
+            g_t = linear_attn_gate_fold(g_t, h, param);
+        }
+        float decay_val = exp(g_t);
+        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
+        if (param.beta_c4 & 2) {
+            beta_t = linear_attn_beta_fold(beta_t);
+        }
 
         // Step 1: Decay state + compute v_pred
         float v_pred_j = 0.0f;
@@ -824,6 +992,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int c4_offset(int token, int channel, int token_count) {
@@ -956,6 +1128,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int c4_offset_v2(int token, int channel, int token_count) {
@@ -968,6 +1144,23 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
         return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
     }
     return (b * param.seq_len + t) * channel + c;
+}
+
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
+// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
+// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
+// store-rounding after every op, so the folded value is bit-identical to the
+// separate-dispatch chain output.
+inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
+    ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
+    x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
+    x = x + (ftype)1.0f;                              // ADD +1       (Binary, half)
+    x = (ftype)log((float)x);                         // LOG          (Unary, fp32)
+    x = (ftype)p.gate_coef[h] * x;                    // MUL -exp(A_log)
+    return (float)x;
+}
+inline float linear_attn_beta_fold(float b) {
+    return (float)(ftype)(1.0f / (1.0f + exp(clamp(-b, -87.0f, 87.0f))));
 }
 
 inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
@@ -1108,10 +1301,14 @@ kernel void linear_attn_fused_sg_align(
         float beta_t    = 0.0f;
         if (lane == 0) {
             v_t_j     = (float)conv_base[v_channel * L + t];
-            decay_val = exp((float)gate[token_channel_offset(b, t, h, H, param.gate_c4, param)]);
+            float g_t = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4 & 1, param)];
+            if (param.gate_c4 & 2) {
+                g_t = linear_attn_gate_fold(g_t, h, param);
+            }
+            decay_val = exp(g_t);
             beta_t    = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
             if (param.beta_c4 & 2) {
-                beta_t = (float)(ftype)(1.0f / (1.0f + exp(clamp(-beta_t, -87.0f, 87.0f))));
+                beta_t = linear_attn_beta_fold(beta_t);
             }
         }
         v_t_j     = simd_broadcast_first(v_t_j);
@@ -1186,6 +1383,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int c4_offset_v2(int token, int channel, int token_count) {
@@ -1198,6 +1399,23 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
         return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
     }
     return (b * param.seq_len + t) * channel + c;
+}
+
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
+// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
+// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
+// store-rounding after every op, so the folded value is bit-identical to the
+// separate-dispatch chain output.
+inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
+    ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
+    x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
+    x = x + (ftype)1.0f;                              // ADD +1       (Binary, half)
+    x = (ftype)log((float)x);                         // LOG          (Unary, fp32)
+    x = (ftype)p.gate_coef[h] * x;                    // MUL -exp(A_log)
+    return (float)x;
+}
+inline float linear_attn_beta_fold(float b) {
+    return (float)(ftype)(1.0f / (1.0f + exp(clamp(-b, -87.0f, 87.0f))));
 }
 
 inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
@@ -1288,11 +1506,12 @@ kernel void linear_attn_fused_sg_tg(
         // Scalars (once per TG, per timestep).
         if (tid == 0) {
             float gate_value = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4 & 1, param)];
+            if (param.gate_c4 & 2) {
+                gate_value = linear_attn_gate_fold(gate_value, h, param);
+            }
             sh_scalars[0] = exp(gate_value);
             float beta_raw = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
-            sh_scalars[1] = (param.beta_c4 & 2)
-                ? (float)(ftype)(1.0f / (1.0f + exp(clamp(-beta_raw, -87.0f, 87.0f))))
-                : beta_raw;
+            sh_scalars[1] = (param.beta_c4 & 2) ? linear_attn_beta_fold(beta_raw) : beta_raw;
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -1426,6 +1645,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int c4_offset_v2(int token, int channel, int token_count) {
@@ -1438,6 +1661,23 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
         return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
     }
     return (b * param.seq_len + t) * channel + c;
+}
+
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
+// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
+// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
+// store-rounding after every op, so the folded value is bit-identical to the
+// separate-dispatch chain output.
+inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
+    ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
+    x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
+    x = x + (ftype)1.0f;                              // ADD +1       (Binary, half)
+    x = (ftype)log((float)x);                         // LOG          (Unary, fp32)
+    x = (ftype)p.gate_coef[h] * x;                    // MUL -exp(A_log)
+    return (float)x;
+}
+inline float linear_attn_beta_fold(float b) {
+    return (float)(ftype)(1.0f / (1.0f + exp(clamp(-b, -87.0f, 87.0f))));
 }
 
 inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
@@ -1525,8 +1765,13 @@ kernel void linear_attn_fused_chunk_sg(
         for (int dt = tid; dt < chunk_len; dt += TG_THREADS) {
             int bth = b * L * H + (t0 + dt) * H + h;
             int t_abs = t0 + dt;
-            sh_g[dt]    = (float)gate[token_channel_offset(b, t_abs, h, H, param.gate_c4, param)];
-            sh_beta[dt] = (float)beta[token_channel_offset(b, t_abs, h, H, param.beta_c4, param)];
+            float g_raw = (float)gate[token_channel_offset(b, t_abs, h, H, param.gate_c4 & 1, param)];
+            if (param.gate_c4 & 2) {
+                g_raw = linear_attn_gate_fold(g_raw, h, param);
+            }
+            sh_g[dt] = g_raw;
+            float b_raw = (float)beta[token_channel_offset(b, t_abs, h, H, param.beta_c4 & 1, param)];
+            sh_beta[dt] = (param.beta_c4 & 2) ? linear_attn_beta_fold(b_raw) : b_raw;
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -1660,6 +1905,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int ck_c4_offset(int token, int channel, int token_count) {
@@ -1672,6 +1921,23 @@ inline int ck_token_channel_offset(int b, int t, int c, int channel, int packed,
         return ck_c4_offset(b * param.seq_len + t, c, param.batch * param.seq_len);
     }
     return (b * param.seq_len + t) * channel + c;
+}
+
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
+// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
+// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
+// store-rounding after every op, so the folded value is bit-identical to the
+// separate-dispatch chain output.
+inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
+    ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
+    x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
+    x = x + (ftype)1.0f;                              // ADD +1       (Binary, half)
+    x = (ftype)log((float)x);                         // LOG          (Unary, fp32)
+    x = (ftype)p.gate_coef[h] * x;                    // MUL -exp(A_log)
+    return (float)x;
+}
+inline float linear_attn_beta_fold(float b) {
+    return (float)(ftype)(1.0f / (1.0f + exp(clamp(-b, -87.0f, 87.0f))));
 }
 
 inline int ck_output_offset(int b, int t, int h, int d, constant LinearAttnParam& param) {
@@ -1743,8 +2009,14 @@ kernel void linear_attn_chunk64_prep_inplace(
         float gv = 0.0f;
         float bv = 0.0f;
         if (token < L) {
-            gv = float(gate[ck_token_channel_offset(b, token, h, H, param.gate_c4, param)]);
-            bv = float(beta[ck_token_channel_offset(b, token, h, H, param.beta_c4, param)]);
+            gv = float(gate[ck_token_channel_offset(b, token, h, H, param.gate_c4 & 1, param)]);
+            if (param.gate_c4 & 2) {
+                gv = linear_attn_gate_fold(gv, h, param);
+            }
+            bv = float(beta[ck_token_channel_offset(b, token, h, H, param.beta_c4 & 1, param)]);
+            if (param.beta_c4 & 2) {
+                bv = linear_attn_beta_fold(bv);
+            }
         }
         // Finite pairwise cumsum differences are required by the chunk form.
         // exp(-30) is below fp16's smallest subnormal, preserving state-reset
@@ -1963,8 +2235,14 @@ kernel void linear_attn_chunk64_recurrent_inplace(
             float gv = 0.0f;
             float bv = 0.0f;
             if (token < L) {
-                gv = float(gate[ck_token_channel_offset(b, token, h, H, param.gate_c4, param)]);
-                bv = float(beta[ck_token_channel_offset(b, token, h, H, param.beta_c4, param)]);
+                gv = float(gate[ck_token_channel_offset(b, token, h, H, param.gate_c4 & 1, param)]);
+                if (param.gate_c4 & 2) {
+                    gv = linear_attn_gate_fold(gv, h, param);
+                }
+                bv = float(beta[ck_token_channel_offset(b, token, h, H, param.beta_c4 & 1, param)]);
+                if (param.beta_c4 & 2) {
+                    bv = linear_attn_beta_fold(bv);
+                }
             }
             gcTg[tid] = clamp(gv, -30.0f, 0.0f);
             betaTg[tid] = bv;
@@ -2211,6 +2489,10 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
+    // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
+    float gate_coef[64];
+    float gate_bias[64];
 };
 
 inline int c4_offset_v2(int token, int channel, int token_count) {
@@ -2223,6 +2505,23 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
         return c4_offset_v2(b * param.seq_len + t, c, param.batch * param.seq_len);
     }
     return (b * param.seq_len + t) * channel + c;
+}
+
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
+// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
+// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
+// store-rounding after every op, so the folded value is bit-identical to the
+// separate-dispatch chain output.
+inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
+    ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
+    x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
+    x = x + (ftype)1.0f;                              // ADD +1       (Binary, half)
+    x = (ftype)log((float)x);                         // LOG          (Unary, fp32)
+    x = (ftype)p.gate_coef[h] * x;                    // MUL -exp(A_log)
+    return (float)x;
+}
+inline float linear_attn_beta_fold(float b) {
+    return (float)(ftype)(1.0f / (1.0f + exp(clamp(-b, -87.0f, 87.0f))));
 }
 
 inline int output_offset_v2(int b, int t, int h, int d, constant LinearAttnParam& param) {
@@ -2311,10 +2610,14 @@ kernel void linear_attn_flash_chunk_sgmm(
             // overflow to -inf, which would poison the cumsum in sh_G (see the
             // matching comment in linear_attn_flash_chunk).
             int t_abs = t0 + dt;
-            float g_val = (float)gate[token_channel_offset(b, t_abs, h, H, param.gate_c4, param)];
+            float g_val = (float)gate[token_channel_offset(b, t_abs, h, H, param.gate_c4 & 1, param)];
+            if (param.gate_c4 & 2) {
+                g_val = linear_attn_gate_fold(g_val, h, param);
+            }
             g_val = clamp(g_val, -88.0f, 0.0f);
             sh_g[dt]    = g_val;
-            sh_beta[dt] = (float)beta[token_channel_offset(b, t_abs, h, H, param.beta_c4, param)];
+            float b_raw = (float)beta[token_channel_offset(b, t_abs, h, H, param.beta_c4 & 1, param)];
+            sh_beta[dt] = (param.beta_c4 & 2) ? linear_attn_beta_fold(b_raw) : b_raw;
         }
         for (int dt = chunk_len + tid; dt < CHUNK_BT; dt += TG_THREADS) {
             sh_g[dt] = 0.0f; sh_beta[dt] = 0.0f;

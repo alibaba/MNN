@@ -186,6 +186,16 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
     }
     std::string tmpPath = mConfig->tmp_path();
+    if (!tmpPath.empty() && !MNNCreateDir(tmpPath.c_str())) {
+        // Everything below only writes into tmpPath, so a missing directory
+        // costs the GPU shader cache and the mmap'd weight / KV cache -- a
+        // silent per-run recompile, not a failure. Say so once, with the name,
+        // because callers derive it programmatically (llm_demo hashes the config
+        // path) and cannot be expected to guess it from the error alone.
+        MNN_ERROR("Llm: cannot create cache dir '%s' (no write permission?). Continuing without "
+                  "disk cache; create the directory yourself to restore it.\n",
+                  tmpPath.c_str());
+    }
     if (mConfig->kvcache_mmap()) {
         rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
     }
@@ -1617,6 +1627,11 @@ VARP Llm::gen_attention_mask(int seq_len) {
 
 VARP Llm::gen_position_ids(int seq_len) {
     MNN::Express::ExecutorScope s(mExecutor);
+    int maxPos = mConfig->max_position_embeddings();
+    if (maxPos > 0 && mContext->all_seq_len <= maxPos && mContext->all_seq_len + seq_len > maxPos) {
+        MNN_PRINT("[MNN:LLM] Warning: sequence length %d exceeds max_position_embeddings (%d), output quality may degrade.\n",
+                  mContext->all_seq_len + seq_len, maxPos);
+    }
     if (mConfig->attention_mask() == "glm") {
         // chatglm
         if (needNewVar(positionIds, 2, seq_len)) {

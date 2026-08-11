@@ -1,6 +1,6 @@
 ---
 name: bugfix
-description: MNN 各类正确性/回归 bug 的排查方法论集合。按 bug 分类组织：当前覆盖 (1) 内存别名/生命周期错误（buffer aliasing、arena reuse、`MemChunk` / tensor buffer 生命周期）、(2) 量化误差/导出侧权重损坏（低 bit 打包、导出分块、PyTorch MPS/CUDA 大张量静默错误），后续会补充数值精度、并发竞争、图优化回归、Codegen/Shader 错等类别。
+description: MNN 各类正确性/回归 bug 的排查方法论集合。按 bug 分类组织：当前覆盖 (1) 内存别名/生命周期错误（buffer aliasing、arena reuse、`MemChunk` / tensor buffer 生命周期）、(2) 量化误差/导出侧权重损坏（低 bit 打包、导出分块、PyTorch MPS/CUDA 大张量静默错误）、(3) 持久化缓存误信（weight-mmap sync 标记自我污染、陈旧/跨模型缓存复用）、(4) 数值精度/fp16 表示能力不足（长序列复读、position 塌缩、以及「实时计算→预计算查表」重构的三类陷阱），后续会补充并发竞争、图优化回归、Codegen/Shader 错等类别。
 ---
 
 # MNN Bugfix 排查 Skill
@@ -19,11 +19,12 @@ description: MNN 各类正确性/回归 bug 的排查方法论集合。按 bug �
 |---|------|---------|------|
 | 1 | **内存别名 / 生命周期** | 数值错乱、乱码 token、NaN；代码逻辑看着正确、指针地址合法；换后端结果不同；关掉某优化就好；单/多线程行为差异 | [§1](#1-内存别名--生命周期错误) |
 | 2 | **量化误差 / 导出侧权重损坏** | 低 bit（Q4）下输出乱码或退化、Q8/更高 bit 正常；**所有推理后端都错**（CPU/Metal 一致地错）；torch 侧 `--test` 正常但 MNN 推理错；只有大模型/大 vocab 触发 | [§2](#2-量化误差--导出侧权重损坏) |
-| 3 | *（待补：并发 / 线程竞争）* | 结果不稳定、每次运行不同；单线程稳定但多线程随机错 | *待补* |
+| 3 | **并发 / 线程竞争**（GPU 侧已覆盖） | 结果不稳定、每次运行不同；单线程稳定但多线程随机错。**GPU 上逐次不同**已有专门案例（融合引入的别名竞争 + 逐 op commit 二分法） | [§1.6](#16-参考案例融合引入的别名竞争layernorm-折进-conv1x12026-08-03)；CPU 多线程分片类仍待补 |
 | 4 | *（待补：图优化回归）* | 某个 converter pass 之后模型跑错，disable 该 pass 后正常 | *待补* |
-| 5 | *（待补：数值精度 / fp16 溢出）* | 结果"接近对"但存在系统性偏差，长序列尤其明显 | *待补* |
+| 5 | **数值精度 / fp16 表示能力不足** | 长 prompt 输出重复/漂移/退化，短 prompt 正常；fp16 后端错、fp32（`precision=high`）对；**所有 fp16 后端一致地错**；出错阈值是 2 的幂（2048/4096） | [§5](#5-数值精度--fp16-表示能力不足) |
 | 6 | **GPU Shader 越界 / Command Buffer 故障** | `[METAL] command buffer error` 后速度假快数百倍；只在某 shape 阈值之上触发；关某条 kernel 路径 env 后消失；或同越界在别的模型上表现为静默数值损坏 | [§6](#6-gpu-shader-越界--command-buffer-故障) |
 | 7 | **后端 kernel 隐式假设违反** | 某类模型（如 SWA/prefix LM/bidirectional）静默输出乱码或语义偏移；标准 causal LLM (Qwen/Llama) 正常；调整某个"看起来无关"的性能开关（如 `MNN_METAL_QK_CAUSAL_TRI=0`）后就好 | [§7](#7-后端-kernel-隐式假设违反) |
+| 8 | **持久化缓存误信（weight-mmap / 陈旧缓存）** | 开 `use_mmap` 才乱码（单字符刷屏）；App 内错、`llm_demo` 对；真机错、host 对；清缓存目录/换 `tmp_path` 就好；换模型不换目录后乱码 | [§8](#8-持久化缓存误信weight-mmap-cache--陈旧缓存) |
 
 > 新增章节时同步在这张表里补一行；每个章节命名为 `## <编号> <类别名>`，保持编号递增。
 
@@ -157,6 +158,8 @@ MNN_PRINT("[MyOp] cos=%p sin=%p qTmp=%p kTmp=%p out=%p\n",
 | 单线程对，多线程错 | tId 分片 stride 少算了维度（Step 5） |
 | 每次运行结果不一样、有时对有时错 | 未初始化 + arena reuse 的脏数据（Step 5） |
 | 结果全 NaN / 全 0 | 生命周期错位（Step 6）或未写就读 |
+| **GPU 上逐次不同，且把「前驱算子折进后继算子」的融合关掉就稳** | **融合引入的别名竞争：前驱的输入被分配器复用成了后继的输出（§1.6）** |
+| **逐次不同，但强制逐 op commit 串行化后仍不稳** | 污染发生在**单个 dispatch 内**（TG 间竞争 / 别名），不是跨 dispatch hazard（§1.6） |
 
 ### 1.5 参考案例：CPU inv_freq RoPE scratch 别名
 
@@ -176,7 +179,93 @@ MNN_PRINT("[MyOp] cos=%p sin=%p qTmp=%p kTmp=%p out=%p\n",
 
 **避坑要点**：这个 bug 无法通过 review 逻辑代码发现 —— 代码逻辑完全正确，`cosFloat[j] = c` 也确实写到了 `cosFloat` 指向的地址，只是这个地址恰好也是 `sinFloat`。**必须靠"打印地址、找相等对"这一步来揭穿**。
 
-### 1.6 相关文件索引
+### 1.6 参考案例：融合引入的别名竞争（LayerNorm 折进 Conv1x1，2026-08-03）
+
+**症状**：Qwen3.5-2B Metal decode 输出**逐次不同**（5 连跑 5 种 hash），偶尔整段退化成重复字符；
+0.8B 同配置看起来稳定；关掉 LN 融合就稳。单测全过，`MTL_SHADER_VALIDATION` 无报告。
+
+**根因**：动态分配器把某投影的输出复用到了 LayerNorm 的 **residual 输入**同一字节区间。
+在 LN 还是**独立、更早**的 dispatch 时这个复用完全合法（LN 读完 residual 才轮到 conv 写）。
+LN 折进投影 dispatch 后，**同一个 kernel 内既读 residual 输入又写该输出** ⇒ 先写出的
+threadgroup 覆盖掉其他 threadgroup 仍要读的数据 ⇒ 结果取决于 TG 调度顺序。
+
+**决定性的两步定位手法**（本类 bug 通用，比 debugger capture 便宜得多）：
+
+1. **先分离"单 dispatch 内"还是"跨 dispatch"**：用 `MNN_METAL_COMMIT_NUM=1` 强制**逐 op 一次
+   commit**，把所有 dispatch 串行化。
+   - 串行化后**变稳** ⇒ 跨 dispatch hazard（缺 barrier / 资源提前复用 / untracked 资源）；
+   - 串行化后**仍不稳** ⇒ 污染在**单个 dispatch 内部**，只剩 TG 间竞争、别名、未初始化读三种可能。
+     本例正是这一支，一个实验就把假设空间砍掉一大半。
+2. **再用字节区间别名探针一次命中**：在融合 dispatch 的 encode 处（env 门控的临时代码），
+   把它**写**的每个张量与**读**的每个张量都换算成 `(MTLBuffer*, offset, offset+bytes)`，
+   两两判重叠并打印。别名会直接以
+   `out_q[0,8192) overlaps ln_res_in[0,8192)` 的形式暴露，本例 18 层全命中。
+   > 关键：**必须比"写集合 × 读集合"，而不是只比几个可疑张量**。此前只核对了 LN 自己的
+   > 三元组（hidden/resIn/resOut）互不重叠就误判"无别名"，漏掉了 residual 输入与**投影输出**
+   > 这一对 —— 而那才是真正的冲突对。
+
+**修复模式**：在融合匹配处（`matchLNFusions`）挂载前做上述别名检测，重叠即把冲突输出
+`onAcquireBuffer(..., Backend::STATIC)` re-home（STATIC 内存动态池永不复用），
+re-home 失败则**保守跳过该次融合**（fail-safe 方向）。
+
+**排除项与它们为什么误导**：
+- "关掉 A 就稳、关掉 B 也稳 ⇒ 是 A×B 的交互" —— **未必**。本例 "LN-only 稳定" 的真实原因是
+  LN 融合对这些层**根本没生效**（4 个消费者使 sole-consumer 条件不成立，没有 leader 可挂载），
+  而不是"LN 单独是安全的"。**先确认某配置下这条优化到底有没有命中**（加临时计数打印），
+  再据此推断，否则会把判别维度搞错（本例真正的维度是**层类型**，不是融合路数）。
+- `MTL_SHADER_VALIDATION` 查不出这类问题 —— 所有访问都在合法绑定范围内，它只抓越界。
+
+**⚠️ 对拍口径陷阱（本次一度误判默认态也坏）**：`llm_demo` 的 stdout 内嵌 `cost time` 行与末尾
+性能统计块。直接 `shasum` 整个输出会让**本来确定的配置也"每次不同"**。对拍必须先剔除计时行，
+例如 `awk '/^#####/{exit} !/cost time/{print}'`，只 hash 生成文本。
+
+### 1.7 参考案例：验证「融合是否数学等价」——用 fp32 当 oracle（2026-08-04）
+
+**场景**：把一串算子折进一个新 kernel（本例：per-head RMSNorm × SiLU 门控 + 两次 C4 重排，
+7 个 dispatch → 1）。fp16 下输出 token 与原链路分叉，需要判断是**逻辑/索引写错**还是
+**rounding 顺序差异**。
+
+**第一步一定是用 fp32 跑一遍**（`precision: "high"`）。fp16 与 fp32 的差别只在存储与中间
+舍入，索引、布局、控制流完全相同，所以：
+
+- **fp32 bit-identical** ⇒ 索引、内存布局、数学表达式全部正确，问题必定只在 fp16 舍入；
+- **fp32 也不同** ⇒ 是真 bug（索引/布局/漏写元素），别再纠缠精度。
+
+本例 fp32 一次就 bit-identical，直接把假设空间从"可能哪儿都错"缩到"只是 rounding"，
+省掉了所有对索引的反复怀疑。**这一步应该排在 token 对拍之前。**
+
+**第二步：分阶段 env 探针二分，定位是哪一半算术不同。** 每个阶段只改一件事（临时代码，
+定位完删除）：
+
+| 阶段 | 内容 | 本例结果 |
+|---|---|---|
+| 0 | matcher 关掉（注册仍在） | = 基线 ⇒ 注册本身惰性 |
+| 1 | 只做内存提升，不装融合 | = 基线 ⇒ 提升无副作用 |
+| 2 | 只装融合 leader，不 claim 任何 op | ≠ 基线 ⇒ 差异出自新 kernel 自身输出 |
+| 3 | leader 退化成**纯搬运**（只做索引重排，不算数） | = 基线 ⇒ 读/写索引与 leader 机制全对 |
+| 4 | 用链路的中间结果替换新 kernel 的**前半**计算 | = 基线 ⇒ 后半（SiLU + 乘法）精确 |
+| 5 | 用链路的中间结果替换新 kernel 的**后半**计算 | ≠ 基线 ⇒ **差异只在前半（RMSNorm）** |
+
+阶段 3 尤其值得单列：**先证明"纯搬运能精确复现基线"**，之后所有差异都可归给算术，
+不必再怀疑索引。
+
+**⚠️ 最大的坑：替换读源的探针必须给那个中间张量做 STATIC 提升。**
+链路中间张量的生命周期在它原本的消费者处就结束，动态内存池随后可以回收；探针在更晚的位置
+去读它，读到的是**已被覆写的脏数据**。本例第一轮因此拿到三个互相矛盾的 hash
+（同一个问题测出三种结论），补上 `onAcquireBuffer(t, Backend::STATIC)` 后结论立刻自洽。
+**探针不可靠时得到的一切结论都要作废重来。**
+
+**其它省时经验**：
+- 先把假设**算清**再测：本例怀疑 `fma` 收缩，但归约循环里 `channelUnit == SIMD_GROUP_WIDTH`
+  意味着每 lane 只迭代一次，`0 + d*d` 与 `fma(d,d,0)` 恒等 —— 该实验注定无信息量，白跑一轮。
+- **冷/热**：刚删 pipeline cache（`mnn_cachefile.bin`）的第一次运行与后续结果不同。
+  本例一度把"第一次跑"与"后续跑"直接对比，得出"HEAD 自己都不确定"的错误结论。
+  **所有对拍前先预热一次。**
+- 结论落地时区分口径：若最终判定为编译器 codegen 层面的等价重排，验收口径就写成
+  「fp32 bit-identical + fp16 确定性 + 质量/回归」，并在文档里明确它与「byte-identical」的差别，
+  不要含糊带过。
+
+### 1.8 相关文件索引
 
 | 文件 | 作用 |
 |------|------|
@@ -184,7 +273,7 @@ MNN_PRINT("[MyOp] cos=%p sin=%p qTmp=%p kTmp=%p out=%p\n",
 | `source/core/Backend.hpp` | Backend tensor buffer 生命周期接口 |
 | `source/backend/cpu/CPULayerNorm.cpp` | 正确的批量 alloc-then-free-all 模式参考 |
 | `source/backend/cpu/CPURoPE.cpp` | 参考案例的修复实现（onResize 注释里写了原因） |
-| `source/backend/metal/MetalBackend.mm` | 跨 op tensor buffer 重叠检查（`matchQKVFusions`） |
+| `source/backend/metal/MetalBackend.mm` | 跨 op tensor buffer 重叠检查（`matchQKVFusions`）；`matchLNFusions` 内的"写集合 × 读集合"字节区间别名检测 + STATIC re-home 是 §1.6 修复模式的参考实现 |
 
 ---
 
@@ -315,6 +404,181 @@ q_weight = packed
 
 ---
 
+## §5 数值精度 / fp16 表示能力不足
+
+**触发**（满足以下之一强烈怀疑本类）：
+- 长 prompt / 长上下文输出**重复、漂移、退化**，短 prompt 完全正常；
+- fp16 后端错、强制 fp32（config `"precision": "high"`）对；
+- **所有 fp16 后端一致地错**（Metal 和 CPU arm82 同样错）—— 与 §1 的"一个后端错一个对"相反；
+- 出错阈值恰好是**2 的幂**（2048 / 4096 / 8192）；
+- torch 侧 `--test` 正常（torch 用 fp32 跑）。
+
+### 5.1 核心心法
+
+**"fp32 对 / fp16 错 + 只有长序列错 + 阈值是 2 的幂" ≈ 图里存在动态范围过大的中间张量。**
+
+fp16 只有 10 bit 尾数，**整数的精确表示上限是 2048**（2^11）：
+
+| 数值区间 | fp16 可表示的最小间隔 |
+|---|---|
+| < 2048 | 1（精确） |
+| 2048 ~ 4096 | 2 |
+| 4096 ~ 8192 | 4 |
+| 8192 ~ 16384 | 8 |
+
+也就是说 fp16 里 `2048.0` 和 `2049.0` 是**同一个数**。任何把"大整数"或"大整数 × 系数"作为中间张量烘进计算图的做法，在 fp16 后端都会让相邻取值塌缩成 bit 完全相同的结果。
+
+而 LLM 的 `position_ids` 可以到 128k，远超这个上限。
+
+**方法论一句话**：**沿数据流找"绝对值最大的中间张量"，把它改写成值域小的等价形式**——不要指望后端"精度高一点"能解决，这是表示能力的硬上限。
+
+### 5.2 相关背景
+
+- MNN 的 fp16 由 backend precision 决定：Metal 默认 fp16、CPU 走 arm82 时也是 fp16。config 里 `"precision": "high"` 可强制 fp32。
+- 导出侧任何写成 `x.float() * const` 的表达式都会变成图里一个真实的中间张量，**它的值域就是后端要承受的动态范围**。导出期用 torch fp32 验证是发现不了的。
+- LLM 里典型的大值域中间量：`position_ids`（0~128k）、`position * inv_freq`（RoPE 角度，可达上万弧度）、未归一化的 logits、累加型 reduce 的中间和。
+
+### 5.3 排查流程
+
+#### Step 1: 用 precision 开关分流（第一步，代价最小）
+
+```bash
+# 在 config.json 里加 "precision": "high" 强制 fp32
+./llm_demo config_fp32.json prompt.txt
+```
+
+fp32 对、fp16 错 → 基本坐实本类，不用再去查 kernel 逻辑或内存。
+
+#### Step 2: 长度扫描找阈值
+
+```bash
+for L in 512 1024 2048 3000 4096 8192; do
+  echo "=== len=$L ==="; ./llm_demo config.json /tmp/prompt_${L}.txt 32
+done
+```
+
+**阈值落在 2 的幂上是最强的信号**。若阈值 = 2048/4096，直接对照 5.1 的间隔表反推是哪个量越过了精确表示区间。
+
+#### Step 3: 逐 step logits 对拍，定位第一个发散点
+
+用 `llm_logits_diff` 工具（`transformers/llm/engine/demo/llm_logits_diff.cpp`）做**teacher-forced** 对比——A 后端的 argmax 同时喂给两个模型，保证每一步比较的是同一 KV/history 状态下的 logits：
+
+```bash
+./llm_logits_diff config_fp32.json config_fp16.json prompt.txt 64
+```
+
+输出每步的 argmax 是否一致、margin、maxAbsDiff、KL(A||B) 和 teacher-forced NLL。关键读法：
+- **前 N 步 byte-identical、第 N+1 步突然发散** → 找出第 N+1 步对应的绝对位置，往往正好是阈值；
+- KL 逐步单调放大 → 累积型误差；KL 在某步跳变 → 表示能力塌缩（本类）。
+
+#### Step 4: 定位是哪个中间张量
+
+在导出侧 dump 候选中间量的绝对值上界，找出超过 2048 的那个。RoPE 场景直接看 `position * theta` 的量级：position 到 128k、theta 最大接近 1 → 角度可达 1e5 弧度，远超 fp16 的整数精确区。
+
+#### Step 5: 改写成小值域等价形式
+
+不是降精度要求，而是**做数学等价变换让所有中间量都落进 fp16 的舒适区**。常用手法：
+
+- **整数-余数拆分 + 查表**：`p = S*q + r`（整数运算精确），再用角度和公式合成，所有中间量落在 `[-1, 1]`；
+- **提前折叠周期**：三角函数按 `mod 2π` 折叠（在 float64 下算完再降精度）；
+- **减去最大值再 exp**：softmax 的标准做法，同类思路；
+- **保持整数就是整数**：不要过早 `.float()`，整数索引类的量一路用 int 传到 Gather。
+
+### 5.4 常见对照表：症状 → 优先怀疑
+
+| 症状 | 最可能的原因 |
+|------|-------------|
+| fp32 对 / fp16 错，长序列才错 | 中间张量动态范围超 fp16（本节） |
+| 阈值恰为 2048 / 4096 | 整数在 fp16 里塌缩（5.1 间隔表） |
+| 所有 fp16 后端一致地错 | 图结构问题（导出侧），不是某后端 kernel |
+| 输出"大段重复" | RoPE / 位置编码相关（相邻位置塌缩成同一个） |
+| 误差随步数单调放大 | 累积误差，非表示能力（可能是正常的 fp16 噪声） |
+| 换 fp32 仍错 | 不是本类，回查 §2（导出权重）或 §7（kernel 假设） |
+
+### 5.5 参考案例：RoPE position 在 fp16 下塌缩（长中文 prompt 大段重复）
+
+**症状**：长中文 prompt 回答出现大段重复；短 prompt 正常；fp32 正常；Metal 与 CPU arm82 一致地错。
+
+**根因**：导出侧 RoPE 把 `position_ids.float() * theta` 直接烘进图。position ≥ 2048 后 fp16 无法精确表示，相邻位置产生 **bit 完全相同**的 cos/sin —— 模型对"第 3000 个 token"和"第 3001 个 token"的位置感知完全一致，4096 以后（间隔 4）彻底失去位置区分能力 → attention 退化 → 复读。
+
+**修复**：把位置保持为整数，拆成 `p = 2048*q + r`（整数运算精确），用两张预计算表 + 角度和公式合成：
+
+```
+angle(p) = q*(2048*theta) + r*theta   (mod 2pi)
+cos(p)   = cosH[q]*cosL[r] - sinH[q]*sinL[r]
+sin(p)   = sinH[q]*cosL[r] + cosH[q]*sinL[r]
+```
+
+表的角度在 **float64** 下折叠进 `[0, 2π)` 后再降 fp32。这样后端接触到的每个张量都在 `[-1, 1]`，fp16 精度 ~6e-4，只剩无害的相位抖动。
+
+**避坑要点**：这个 bug 无法通过 review 逻辑代码发现——`position * theta` 数学上完全正确，torch fp32 下验证也完全正确。**必须靠"fp32/fp16 A/B + 阈值是否 2 的幂"来揭穿。**
+
+### 5.6 「实时计算 → 预计算查表」重构的三类陷阱（重要）
+
+5.5 的修复把"每次实时算"改成了"构造期预计算 + 运行期查表"。这是一类通用优化手法（也见于各种 LUT 化、常量折叠、预烘焙），**它本身会引入三个新的 bug 类别**，全部在 code review 阶段才被发现。改这类代码时逐条自查：
+
+#### 陷阱 A：构造期固化的数据与后续参数修改脱钩（最严重）
+
+**机制**：改造前 `forward()` 读 `self.theta`，外部改 `theta` 立刻生效；改造成查表后，表在 `__init__` 里烘焙，`forward()` 不再读 `self.theta`——**任何在构造之后修改输入参数的代码路径都会静默失效**。
+
+**实例**：`utils/model.py` 的 Gemma3/Gemma4 dual-RoPE 路径先 `Rotary(full_config)` 建表（`head_dim=256` → 表宽 128），再按 `partial_rotary_factor=0.5` 改 `rotary_dim=128` 和 `theta`。表还是旧的 → 生成全宽 RoPE，把本该 pass-through 的维度也旋转了，且 theta 频率分布也错 → 导出模型输出胡言乱语，**不报错、不崩溃**。
+
+**自查清单**：
+- `grep` 所有对该对象属性的外部赋值（`\.theta\s*=`、`\.rotary_dim\s*=`），确认没有发生在构造之后；
+- 若必须允许后置修改，把建表提成**公开方法**（如 `build_rope_tables()`）并要求调用方改完显式重建；注释里写明"Must be re-called by anyone mutating X"；
+- 检查**子类**：子类 `__init__` 里 `super().__init__()` 之后改参数，是同一个陷阱。（本案例中 `DitRotary`/`OmniRotary`/`VisionRotary` 恰好都完整覆写了 `forward()` 不走查表路径，才躲过一劫——这是运气不是设计。）
+
+#### 陷阱 B：导出图丢失了框架的边界检查
+
+**机制**：查表 = `embedding` / `Gather`。**PyTorch 的 `embedding` 有边界检查会抛 `IndexError`，但导出成 MNN 图后的 Gather 算子不做边界检查**——越界索引直接读表外内存，把垃圾当数据用。
+
+**后果特征**：导出期一切正常（torch 会拦），线上真机长上下文才爆，且不是崩溃而是静默读脏数据。这是最难排查的组合。
+
+**自查清单**：
+- 表的行数是否覆盖索引的**理论最大值**，而不只是"典型值"？（`max_position_embeddings` 不是硬上限，NTK / 用户改 config 外推都会超）；
+- 高表很小的时候直接**放大预留**：本案例高表预留 `4 * max_pos`，增量成本仅 ~96KB（d=128/128k 模型高表 33KB → 129KB），预留范围内的角度是数学精确的；
+- 注意算清**哪张表是大头**：低表行数固定 2048、与 `max_pos` 无关，`2048 × (rotary_dim/2) × 4B` 才是主要开销（d=128 时两张低表共 1MB，d=256 时 2MB）；4 张表合计 d=128/128k 约 1.1MB、d=256/128k 约 2.25MB。放大高表预留几乎免费，放大低表则不然；
+- 再在 `forward()` 里加 `clamp` 作为**最后兜底**——但注意陷阱 C。
+
+#### 陷阱 C：加 clamp 会破坏与之配对的运算
+
+**机制**：为修陷阱 B 给索引加 `clamp`，会让原本互相配对的两个量**解耦**。
+
+**实例**：原代码 `q = floor(pos/2048)`、`r = pos - q*2048`。对负 `pos` 是安全的（floor 除法和减法天然配对：`pos=-1` → `q=-1` → `r=2047` ✓）。但一旦给 `q` 加 `clamp(0, ...)`，clamp 把 `q` 从 -1 抬到 0，`r = -1 - 0*2048 = -1` → **负索引越界**。修 B 的动作直接制造了新的越界。
+
+**修法**：让配对量各自独立成立，不要依赖对方。本案例 `r` 改用 `torch.remainder(pos, 2048)`——数学模运算，结果恒在 `[0, 2048)`，与 `q` 怎么 clamp 完全无关。
+
+**自查清单**：给某个量加钳制/饱和后，`grep` 所有用到它的表达式，逐个确认不变量是否仍成立。
+
+#### 验证方式
+
+这三类陷阱都不产生异常，必须主动验证：
+
+```python
+# 1. 表宽/表长与最终参数一致（陷阱 A）
+print(r.rotary_dim, r.rope_cos_low.shape[1])   # 应为 rotary_dim//2
+
+# 2. 极端索引不越界（陷阱 B/C）
+for p in [0, 2047, 2048, max_pos+5000, 999999, -1]:
+    q, r_ = ...; assert 0 <= q < high_entries and 0 <= r_ < split
+
+# 3. 范围内与实时计算逐点对齐（保证等价变换没写错）
+ref = torch.cos(pos.double().reshape(-1,1) * theta.double()).float()
+assert (table_out - ref).abs().max() < 1e-6
+```
+
+### 5.7 相关文件索引
+
+| 文件 | 作用 |
+|------|------|
+| `transformers/llm/export/utils/transformers.py` | `Rotary.build_rope_tables()` / `forward()`——本案例修复处，注释里写了 fp16 拆分原理 |
+| `transformers/llm/export/utils/model.py` | Gemma3/Gemma4 dual-RoPE 后置修改 theta 的位置（陷阱 A 实例） |
+| `transformers/llm/engine/demo/llm_logits_diff.cpp` | 逐 step teacher-forced logits 对拍工具（Step 3） |
+| `transformers/llm/engine/src/llm.cpp` | `gen_position_ids`——超过 `max_position_embeddings` 时打 warning |
+| `transformers/llm/engine/src/llmconfig.hpp` | `max_position_embeddings()` 等 config 字段解析 |
+
+---
+
 ## §6 GPU Shader 越界 / Command Buffer 故障
 
 **触发**（满足以下之一强烈怀疑本类）：
@@ -334,7 +598,7 @@ q_weight = packed
    MTL_SHADER_VALIDATION_FAIL_MODE=allow <重现命令，n 可缩到 32>
    ```
    直接报 **kernel 名 + 越界 offset**（`Invalid device store at offset N, executing kernel "xxx"`）。
-5. **对 offset 做算术反推**：拿第一个非法 offset 除以已知 stride，反推 kernel 以为的 buffer 尺寸 vs 实际分配尺寸。本案例：非法 offset ≈133120B = `8×32×(128+2)×4B`——正好是"元素数对、字节数减半"，直指 fp16 后端 `createDevice<float>` 按 2B 存储的陷阱（`metal-optimize/kernel-basics.md` 陷阱 F）。
+5. **对 offset 做算术反推**：拿第一个非法 offset 除以已知 stride，反推 kernel 以为的 buffer 尺寸 vs 实际分配尺寸。本案例：非法 offset ≈133120B = `8×32×(128+2)×4B`——正好是"元素数对、字节数减半"，直指 fp16 后端 `createDevice<float>` 按 2B 存储的陷阱（`metal-optimize/kernel-dev-and-optimize.md` 陷阱 F）。
 6. **加一次性尺寸日志坐实**（分配处 + dispatch 处各一行，打印 elementSize / MTLBuffer.length / 索引参数），修复后删除。
 7. **修复验证矩阵**：validation 0 OOB + 原故障配置 e2e 零错误 + greedy 对拍（⚠️ 用 metal+greedy config，见 `metal-optimize/build-and-test.md` Step 1.5——本案例曾被默认 mixed-sampler config 污染出一个假 bug）+ `run_test.out` 全过。
 
@@ -344,7 +608,7 @@ q_weight = packed
 
 ### 6.3 参考案例：split-KV partial buffer 半长分配（2026-07-29，`6975fa71e7`）
 
-`mTempSplitKV` 用 `createDevice<float>` 分配、shader 按 `device float*` 写：fp16 后端下存储 2B/元素 ⇒ buffer 半长，nwg>16（kv>4096）越界。HD=256（Qwen3.5）撞未映射页 → GPU 故障链；HD=128（Qwen3）同条件仅静默损坏。修复 = 按字节分配（`createDevice<uint8_t>`，公式显式 `* sizeof(float)`）。完整陷阱条目见 `metal-optimize/kernel-basics.md` 陷阱 F。
+`mTempSplitKV` 用 `createDevice<float>` 分配、shader 按 `device float*` 写：fp16 后端下存储 2B/元素 ⇒ buffer 半长，nwg>16（kv>4096）越界。HD=256（Qwen3.5）撞未映射页 → GPU 故障链；HD=128（Qwen3）同条件仅静默损坏。修复 = 按字节分配（`createDevice<uint8_t>`，公式显式 `* sizeof(float)`）。完整陷阱条目见 `metal-optimize/kernel-dev-and-optimize.md` 陷阱 F。
 
 ---
 
@@ -471,7 +735,76 @@ source/backend/metal/MetalAttention.mm:531:  FA also hard-codes causal masking v
 | `source/backend/metal/MetalAttention.mm` | mQkCausalTri / mCausalBound / mFlashAttnPrefill 的 gate 条件；FA 的 causal-only comment (`:531`) |
 | `source/backend/metal/MetalSoftmaxShader.cpp` | softmax CAUSAL_BOUND 分支实现 |
 | `skills/metal-optimize/env-registry.md` | `MNN_METAL_QK_CAUSAL_TRI` 等相关开关的完整语义登记 |
-| `skills/metal-optimize/perf-playbook.md` | causal-tri v2 / CAUSAL_BOUND 的设计文档（§1.3.1）|
+| `skills/metal-optimize/kernel-dev-and-optimize.md` | causal-tri / CAUSAL_BOUND 的设计文档（§2.3.1）|
+
+---
+
+## §8 持久化缓存误信（weight-mmap cache / 陈旧缓存）
+
+**触发**（满足以下之一强烈怀疑本类）：
+- 开启 `use_mmap`（权重 mmap 落盘）后输出乱码/单字符刷屏（`!!!`、连续换行），关掉 `use_mmap` 或 `use_cached_mmap` 就好；
+- **同一二进制：App 内错、`llm_demo` 对**（或反之）；iOS/Android 真机错、Mac/host 对；
+- 清空 tmp/缓存目录后第一次跑就好，之后又坏；换一个 `tmp_path` 就好；
+- 前几个 token 正常、随后整段崩坏（部分权重是真的、部分是垃圾的典型混合特征）。
+
+### 8.1 核心心法
+
+**"缓存是否有效"只能在运行起点判定一次。** `use_cached_mmap` 的契约是"上一个进程写完整套权重并留下 sync 标记 → 本次按相同分配顺序直接复用磁盘内容"。这个契约有两个隐含前提，破坏任何一个都是静默乱码：
+
+1. **标记不能被本次运行自己写的 sync 污染**（判定时机必须在 mmap 分配器创建时刻，之后不可变）；
+2. **缓存文件必须属于同一个模型**（缓存文件名前缀 `0_0_0_0_` 只含 precision/memory/power，**不含模型标识**——换模型不换目录必然拿到错误权重）。
+
+另外牢记：跳过权重读取的 execution 拿到的 STATIC buffer **必须真的来自 mmap 池**。首次 `onClearBuffer` 后静态分配器切回 RAW malloc（封池），此后任何被重建的带权重 execution 若仍处于"信任缓存"模式，就是在拿未初始化内存当权重。
+
+### 8.2 排查流程
+
+1. **配置对齐分流**：App 与 demo 的默认配置差异先列全（`use_mmap` / `use_cached_mmap` / `tmp_path` / 加载次数）。"App 错 demo 对"大概率不是平台问题，是配置或加载模式差异。
+2. **缓存卫生三连**：换全新 `tmp_path` → 跑一次；同目录再跑一次（warm）；换另一个模型同目录跑（污染探测）。三个结果就能区分"自我污染 / warm 复用坏 / 跨模型污染"。
+3. **复刻加载模式**：iOS App 是"启动预载 + 使用时重载"的**同进程双加载**；`llm_demo` 是单加载。双加载可疑时写 20 行的 double-load 复现器（load → destroy → 清目录 → load → generate），在 host 上复现比真机埋点便宜一个量级。
+4. **埋点看 hint 演化**：在 `CPURuntime::onCreate` 的 weightMemoryPath 分支打印 `useCachedMmap`/`syncValid`，在各 `useCachedMmap > 1` 跳读点（`ConvInt8TiledExecutor` 等）打印命中。判据：hint 在**运行中途**从 1 变 2 = 自我污染坐实；跳读发生在首次真实推理 resize（而非装载期）= 重建的 execution 在拿野内存。
+5. **修复方向**：判定移入分配器首次创建分支（`MetalBackend.mm:onCreate` 是正确参考实现）；更彻底的加固是跳读前校验 buffer 确实来自 mmap 池。
+
+### 8.3 常见对照表：症状 → 优先怀疑
+
+| 症状 | 最可能的原因 |
+|------|-------------|
+| mmap 开着才乱码，冷启动+干净目录也乱 | 本次运行自我污染（sync 标记中途被自己看见） |
+| 冷启动好、同目录第二次坏 | warm 复用路径的分配顺序/布局不匹配 |
+| 换模型不换目录后乱码 | 缓存文件名无模型标识，跨模型污染 |
+| App 错、demo 对 | App 双加载模式触发 + demo 单加载不触发 |
+| 只有某类 op（如 geometry 分解的 fuse op）坏 | 该 op 的 execution 在封池后重建，跳读拿到 RAW 内存 |
+
+### 8.4 参考案例：fuse 模型 iOS CPU 全乱码（useCachedMmap 自我污染，2026-08-06）
+
+**症状**：4 个 FusedLinear 导出模型在 iPad/iPhone 上 CPU 后端（`use_mmap=true`）全部输出单字符刷屏（`!!!`/`\n`），偶发 SIGSEGV；同设备 Metal 正常；Mac `llm_demo` 单跑正常；非 fuse 模型任何配置都正常。
+
+**排查路径**（两条红鲱鱼 + 一次真命中）：
+1. Mac 上 `use_mmap=true` "复现"乱码 → 实为 `llm_demo` 强制 `tmp_path:"tmp"` + 缓存无模型标识，吃了之前另一个模型的缓存（**红鲱鱼一：跨模型污染**）。教训：对拍前 `rm -rf tmp`。
+2. "非 fuse 模型也坏" → bisect 全 GOOD 才发现主 build 目录增量编译产物陈旧（**红鲱鱼二**）。教训：怀疑"分支回归"先开全新 build 目录验证，别信老增量目录。
+3. 干净构建 + 干净缓存后锁定复现矩阵：**fuse × use_mmap × CPU × iOS**；给 App 加 `nommap` 判别开关 → mmap=false 立好。
+4. 关键洞察：iOS App 是**同进程双加载**（启动预载 + benchfiles 重载并清 tmp 目录）。按此写 double-load 最小复现器 → **Mac 上完整复现**，真机问题降维成 host 调试。
+5. 埋点两处：`useCachedMmap` 每次 resize `+= syncValid` 自增（单载 trace 1→2→3→4→5）；140 个 FusedLinear 分解出的成员 conv 在**首次真实推理 resize** 时重建并全部跳读权重。
+6. 根因链闭合：首次 `onClearBuffer` 写出 sync.static 并封池 → 下一次 resize 重查看见**自己刚写的标记** → hint 1→2 → resize 重建的 conv 跳读 + STATIC buffer 来自 RAW malloc → 权重=未初始化内存。非 fuse conv 装载期创建一次且跨 resize 复用，永远踩不到；Metal 不分解 FusedLinear 且判定本来就只做一次，双重幸免。
+
+**修复**（`4c50f4b12`）：CPU 的 sync 检查移入 `mStaticAllocatorMMap == nullptr` 创建分支，对齐 Metal。验证：Mac double-load 修复、warm 二进程正常、iPhone 13 Pro 真机 0.6b/0.8b/2b CPU 全部恢复。
+
+**避坑要点**：
+- "真机错 host 对"先对齐**配置与加载模式**（mmap 开关、双加载），不要先怀疑硬件/SIMD/平台；
+- 复现器要**复刻加载模式**而不只是配置——单载复现不出双载 bug；
+- `MNN_ASSERT` 在 release 构建是空操作，mmap 分配器里的断言不会救你；
+- 直跑被 SIGKILL（rc=137）而 lldb 下正常时，先在 lldb 里拿结果，别死磕信号来源；
+- 已知遗留：同进程重载且**不清缓存目录**（陈旧 sync + 旧权重文件）仍会误信；`llm_demo` 共享 `tmp/` 无模型标识。见 8.1 前提 2。
+
+### 8.5 相关文件索引
+
+| 文件 | 作用 |
+|------|------|
+| `source/backend/cpu/CPUBackend.cpp` | CPURuntime::onCreate 的 weightMemoryPath/sync 判定（本案例修复处） |
+| `source/backend/metal/MetalBackend.mm` | Metal 的一次性判定正确参考（`onCreate` :1984 附近） |
+| `source/core/BufferAllocator.cpp` | `MmapAllocator`：缓存文件命名（`prefix + allocTimes`）、sync() 写标记、autoRemove 语义 |
+| `source/backend/cpu/compute/ConvInt8TiledExecutor.cpp` | Q4 conv 的 `useCachedMmap > 1` 跳读点 |
+| `source/core/ConvolutionCommon.cpp` / `source/backend/cpu/CPULayerNorm.cpp` | 其余跳读点 |
+| `transformers/llm/engine/demo/llm_demo.cpp` | 强制 `tmp_path:"tmp"` 的共享缓存陷阱（:274） |
 
 ---
 

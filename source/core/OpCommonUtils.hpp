@@ -68,6 +68,15 @@ public:
                                                   const MNN::Op* op, FileLoader* externalFile, std::shared_ptr<BufferStorage>& tmpstore);
     static DataType convertDataType(halide_type_t type);
 
+#if defined(MNN_SUPPORT_TRANSFORMER_FUSE) && defined(MNN_GATED_RMS_NORM)
+    // Preconditions of the fused GatedRMSNorm kernel: the single source of truth
+    // for both the geometry retention gate and the Metal creator, which must
+    // agree. When this is false the op has to be decomposed into
+    // LayerNorm + SILU + MUL, since no backend has a fallback execution for it.
+    static bool gatedRMSNormFusable(const Op* op, const std::vector<Tensor*>& inputs,
+                                    const std::vector<Tensor*>& outputs, bool supportSimdGroupReduce);
+#endif
+
 };
 } // namespace MNN
 
