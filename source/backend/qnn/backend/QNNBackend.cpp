@@ -80,13 +80,7 @@ static void createQnnContext(){
     // Create Log.
     Qnn_LogHandle_t logHandle = nullptr;
     {
-        QnnLog_Callback_t logCallback = [](const char* fmt, QnnLog_Level_t level, uint64_t timestamp, va_list args) {
-            if (level <= QNN_LOG_LEVEL_ERROR) {
-                char buf[512];
-                vsnprintf(buf, sizeof(buf), fmt, args);
-                MNN_PRINT("QNN_LOG[%d]: %s\n", level, buf);
-            }
-        };
+        QnnLog_Callback_t logCallback = nullptr;
         if ((QNN_GET_ERROR_CODE(qnnInterface.logCreate(logCallback, QNN_LOG_LEVEL_ERROR, &logHandle)) != QNN_SUCCESS) ||
             (logHandle == nullptr)) {
             MNN_PRINT("MNN_QNN: Failed to initialize logging in the backend.\n");
