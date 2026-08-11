@@ -240,23 +240,24 @@ class DFlash(torch.nn.Module):
         missing, unexpected = self.load_state_dict(filtered, strict=False)
         # lm_head and embed_tokens are shared from base, so they'll be in missing - that's fine
 
-    def unload_param(self):
-        """Replace linear layers with FakeLinear for memory-efficient export."""
-        def build_faker(real, name):
-            faker = FakeLinear(real.in_features, real.out_features, real.bias is not None, name)
-            self.unloaded_ops[name] = real
-            return faker
+    def _build_faker(self, real, name):
+        """Replace a Linear with a FakeLinear and record the real op for MNN rebuild."""
+        faker = FakeLinear(real.in_features, real.out_features, real.bias is not None, name)
+        self.unloaded_ops[name] = real
+        return faker
 
+    def unload_param(self):
+        """Replace linear layers with FakeLinear for memory-efficient export.
+        lm_head is not part of the main graph; it is handled in export() when needed."""
         with torch.no_grad():
             for i in range(len(self.layers)):
                 for name, child in self.layers[i].self_attn.named_children():
                     if isinstance(child, torch.nn.Linear):
-                        setattr(self.layers[i].self_attn, name, build_faker(child, f'/dflash_layers.{i}/self_attn/{name}/Linear'))
+                        setattr(self.layers[i].self_attn, name, self._build_faker(child, f'/dflash_layers.{i}/self_attn/{name}/Linear'))
                 for name, child in self.layers[i].mlp.named_children():
                     if isinstance(child, torch.nn.Linear):
-                        setattr(self.layers[i].mlp, name, build_faker(child, f'/dflash_layers.{i}/mlp/{name}/Linear'))
-            self.fc = build_faker(self.fc, '/dflash/fc/Linear')
-            self.lm_head = build_faker(self.lm_head, '/lm/lm_head/Linear')
+                        setattr(self.layers[i].mlp, name, self._build_faker(child, f'/dflash_layers.{i}/mlp/{name}/Linear'))
+            self.fc = self._build_faker(self.fc, '/dflash/fc/Linear')
 
     def forward(self, noise_embedding, context_hidden, attention_mask, q_position_ids, k_position_ids):
         """
@@ -268,7 +269,7 @@ class DFlash(torch.nn.Module):
             q_position_ids: [1, block_size] - position ids for Q (block positions only)
             k_position_ids: [1, context_len + block_size] - position ids for K/V (all positions)
         Returns:
-            logits: [1, block_size, vocab_size]
+            hidden_states: [1, block_size, hidden_size]
         """
         hidden_states = noise_embedding
 
@@ -280,9 +281,8 @@ class DFlash(torch.nn.Module):
             hidden_states = layer(hidden_states, context_hidden, q_cos, q_sin, k_cos, k_sin, attention_mask)
 
         hidden_states = self.norm(hidden_states)
-        # Apply lm_head to get logits
-        logits = self.lm_head(hidden_states)
-        return logits
+        # lm_head is applied on the engine side (shared from target or separate file)
+        return hidden_states
 
     def _compute_rope(self, position_ids):
         """Compute rotary position embeddings (cos, sin) for given positions."""
@@ -298,6 +298,7 @@ class DFlash(torch.nn.Module):
 
     @spinner_run(f'export onnx model to ')
     def export(self, onnx_path):
+        """Export the DFlash draft model to ONNX."""
         dflash_model = f'{onnx_path}/dflash.onnx'
         dflash_fc_model = f'{onnx_path}/dflash_fc.onnx'
 
@@ -319,7 +320,7 @@ class DFlash(torch.nn.Module):
         # Unload params for main model export
         self.unload_param()
 
-        # Export dflash.onnx (main model)
+        # Export dflash.onnx (main model, outputs hidden_states; lm_head not baked in)
         noise_embedding = torch.ones([1, block_size, self.hidden_size], dtype=torch.float)
         context_hidden = torch.ones([1, context_len, self.hidden_size], dtype=torch.float)
         attention_mask = torch.zeros([1, 1, block_size, context_len + block_size], dtype=torch.float)
@@ -331,7 +332,7 @@ class DFlash(torch.nn.Module):
                 self, (noise_embedding, context_hidden, attention_mask, q_position_ids, k_position_ids),
                 dflash_model,
                 input_names=['noise_embedding', 'context_hidden', 'attention_mask', 'q_position_ids', 'k_position_ids'],
-                output_names=['logits'],
+                output_names=['hidden_states'],
                 dynamic_axes={
                     "noise_embedding": {1: "block_size"},
                     "context_hidden": {1: "context_len"},

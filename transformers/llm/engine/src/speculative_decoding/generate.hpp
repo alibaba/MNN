@@ -33,8 +33,11 @@ public:
         mContext = context;
     };
     virtual ~Generation() = default;
-    virtual void load(Module::Config module_config) {
+    // Returns false when a module the strategy's generate() depends on failed to
+    // load; Llm::load() must then abort instead of entering RUNNING.
+    virtual bool load(Module::Config module_config) {
         // do nothing
+        return true;
     };
     virtual void generate(GenerationParams& param) = 0;
     virtual void reset() {
@@ -69,7 +72,7 @@ class MtpGeneration: public Generation {
 public:
     MtpGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     virtual ~MtpGeneration() = default;
-    virtual void load(Module::Config module_config) override;
+    virtual bool load(Module::Config module_config) override;
     virtual void generate(GenerationParams& param) override;
 private:
     std::vector<MNN::Express::VARP> mtpForward(const std::vector<int>& input_ids, MNN::Express::VARP hidden_states);
@@ -85,7 +88,7 @@ class EagleGeneration: public Generation {
 public:
     EagleGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     virtual ~EagleGeneration() = default;
-    virtual void load(Module::Config module_config) override;
+    virtual bool load(Module::Config module_config) override;
     virtual void generate(GenerationParams& param) override;
 private:
     struct DraftInfo {
@@ -122,16 +125,16 @@ class DFlashGeneration : public Generation {
 public:
     DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     virtual ~DFlashGeneration() = default;
-    virtual void load(Module::Config module_config) override;
+    virtual bool load(Module::Config module_config) override;
     virtual void generate(GenerationParams& param) override;
     virtual void reset() override;
 private:
     MNN::Express::VARP dflashForward(const std::vector<int>& block_ids, MNN::Express::VARP context_hidden);
     MNN::Express::VARP fcForward(MNN::Express::VARP hidden_states);
 
-    std::shared_ptr<MNN::Express::Module> mDFlashModule;   // dflash.mnn (transformer only if lmhead separate)
+    std::shared_ptr<MNN::Express::Module> mDFlashModule;   // dflash.mnn (transformer, no lm_head)
     std::shared_ptr<MNN::Express::Module> mFcModule;       // dflash_fc.mnn
-    std::shared_ptr<MNN::Express::Module> mLmHeadModule;   // dflash_lmhead.mnn (optional, separate lm_head)
+    std::shared_ptr<MNN::Express::Module> mLmHeadModule;   // target lm_head subgraph (shared-from-target)
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> mFcRuntimeManager; // dedicated CPU runtime for FC
     int mBlockSize;
     int mMaskTokenId;

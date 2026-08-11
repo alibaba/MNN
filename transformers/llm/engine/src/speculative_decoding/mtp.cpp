@@ -15,7 +15,7 @@ MtpGeneration::MtpGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std:
     // do nothing
 }
     
-void MtpGeneration::load(Module::Config module_config) {
+bool MtpGeneration::load(Module::Config module_config) {
     mMtpMeta.reset(new KVMeta);
     mLlm->mRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mMtpMeta.get());
     
@@ -26,7 +26,10 @@ void MtpGeneration::load(Module::Config module_config) {
         "position_ids", "logits_index"};
     std::vector<std::string> outputNames {"logits"};
     mMtpModules[0].reset(Module::load(inputNames, outputNames, mtp_path.c_str(), mLlm->mRuntimeManager, &module_config));
-    
+    if (mMtpModules[0] == nullptr) {
+        MNN_ERROR("MTP: failed to load mtp model %s\n", mtp_path.c_str());
+        return false;
+    }
     int verify_length = mLlm->mDraftLength + 1;
     // speculative decode module
     for(int i = 1; i <= verify_length; i++) {
@@ -35,6 +38,7 @@ void MtpGeneration::load(Module::Config module_config) {
     // prefill module
     mMtpModulePool[std::make_pair(mLlm->mPrefillKey, false)] = mMtpModules[0];
     mHiddenStateIndex = mLlm->getOutputIndex("hidden_states");
+    return true;
 }
 
 std::vector<VARP> MtpGeneration::mtpForward(const std::vector<int>& input_ids, VARP hidden_states) {
