@@ -2432,9 +2432,19 @@ public:
                 }
                 if (op->main_as_Convolution2D() && op->main_as_Convolution2D()->weight() != nullptr) {
                     return false;
-                } else {
-                    return true;
                 }
+                // Guard against promoting a Conv that carries no quantized weight
+                // data (e.g. a Conv listed in skip_quant_op_names but still
+                // surrounded by int8 tensors): the QNN Conv execution would later
+                // dereference a missing weight and crash.
+                {
+                    auto conv2d = op->main_as_Convolution2D();
+                    if (conv2d->quanParameter() == nullptr &&
+                        (conv2d->symmetricQuan() == nullptr || conv2d->symmetricQuan()->weight() == nullptr)) {
+                        return false;
+                    }
+                }
+                return true;
             case OpType_ReLU:
                 if ((op->main_as_Relu() == nullptr) || op->main_as_Relu()->slope() == 0.f) {
                     return true;
