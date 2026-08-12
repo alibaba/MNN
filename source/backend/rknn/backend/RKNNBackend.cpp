@@ -3,7 +3,6 @@
 #include <dlfcn.h>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -100,21 +99,28 @@ static std::string resolveModelPath(const std::string& dirPath, const std::strin
     return MNNFilePathConcat(dirPath, path);
 }
 
-static rknn_tensor_type mapTensorType(const Tensor* tensor) {
+static bool mapTensorType(const Tensor* tensor, rknn_tensor_type* rknnType) {
+    if (nullptr == tensor || nullptr == rknnType) {
+        return false;
+    }
     auto type = tensor->getType();
-    if (type.code == halide_type_float && type.bits == 32) {
-        return RKNN_TENSOR_FLOAT32;
+    if (type.code == halide_type_float && type.bits == 32 && type.lanes == 1) {
+        *rknnType = RKNN_TENSOR_FLOAT32;
+        return true;
     }
-    if (type.code == halide_type_uint && type.bits == 8) {
-        return RKNN_TENSOR_UINT8;
+    if (type.code == halide_type_uint && type.bits == 8 && type.lanes == 1) {
+        *rknnType = RKNN_TENSOR_UINT8;
+        return true;
     }
-    if (type.code == halide_type_int && type.bits == 8) {
-        return RKNN_TENSOR_INT8;
+    if (type.code == halide_type_int && type.bits == 8 && type.lanes == 1) {
+        *rknnType = RKNN_TENSOR_INT8;
+        return true;
     }
-    if (type.code == halide_type_int && type.bits == 32) {
-        return RKNN_TENSOR_INT32;
+    if (type.code == halide_type_int && type.bits == 32 && type.lanes == 1) {
+        *rknnType = RKNN_TENSOR_INT32;
+        return true;
     }
-    return RKNN_TENSOR_FLOAT32;
+    return false;
 }
 
 static rknn_tensor_format mapTensorFormat(const Tensor* tensor) {
@@ -177,32 +183,6 @@ static bool convertLayoutIfNeeded(const Tensor* tensor, rknn_tensor_format expec
     return true;
 }
 
-static std::string buildProfileString(const RKNNApi* api, rknn_context context) {
-    std::ostringstream oss;
-    rknn_perf_run perfRun;
-    std::memset(&perfRun, 0, sizeof(perfRun));
-    auto ret = api->query(context, RKNN_QUERY_PERF_RUN, &perfRun, sizeof(perfRun));
-    if (ret == RKNN_SUCC) {
-        oss << "npu_run   : " << (double)perfRun.run_duration / 1000.0 << " ms\n";
-    } else {
-        oss << "npu_run   : unavailable\n";
-    }
-
-    rknn_perf_detail perfDetail;
-    std::memset(&perfDetail, 0, sizeof(perfDetail));
-    ret = api->query(context, RKNN_QUERY_PERF_DETAIL, &perfDetail, sizeof(perfDetail));
-    if (ret == RKNN_SUCC && perfDetail.perf_data != nullptr && perfDetail.data_len > 0) {
-        oss << "perf_detail:\n";
-        oss.write(perfDetail.perf_data, perfDetail.data_len);
-        if (perfDetail.perf_data[perfDetail.data_len - 1] != '\n') {
-            oss << '\n';
-        }
-    } else {
-        oss << "perf_detail: unavailable\n";
-    }
-    return oss.str();
-}
-
 class RKNNPluginShape : public plugin::InferShapeKernel {
 public:
     bool compute(plugin::InferShapeContext* ctx) override {
@@ -243,8 +223,6 @@ public:
         if (nullptr == mApi) {
             return false;
         }
-        auto runtime = ctx->backend() == nullptr ? nullptr : ctx->backend()->getRuntime();
-        mEnableProfile = runtime != nullptr && runtime->hint().enableBackendProfile;
         mModelPath = resolveModelPath(ctx->dir_path(), getStringAttr(ctx, kModelPathAttr));
         if (mModelPath.empty()) {
             MNN_ERROR("MNN_RKNN: Plugin(%s) requires attr %s\n", kPluginTypeName, kModelPathAttr);
@@ -254,11 +232,7 @@ public:
             MNN_ERROR("MNN_RKNN: model file does not exist: %s\n", mModelPath.c_str());
             return false;
         }
-        uint32_t initFlags = 0;
-        if (mEnableProfile) {
-            initFlags |= RKNN_FLAG_COLLECT_PERF_MASK;
-        }
-        if (mApi->init(&mContext, (void*)mModelPath.c_str(), 0, initFlags, nullptr) != RKNN_SUCC) {
+        if (mApi->init(&mContext, (void*)mModelPath.c_str(), 0, 0, nullptr) != RKNN_SUCC) {
             MNN_ERROR("MNN_RKNN: rknn_init failed for %s\n", mModelPath.c_str());
             return false;
         }
@@ -289,15 +263,14 @@ public:
 
     bool resize(plugin::CPUKernelContext* ctx) override {
         if ((uint32_t)ctx->inputs().size() != mIoNum.n_input || (uint32_t)ctx->outputs().size() != mIoNum.n_output) {
-            MNN_ERROR("MNN_RKNN: input/output count mismatch, expect %u/%u, got %zu/%zu\n",
-                      mIoNum.n_input, mIoNum.n_output, ctx->inputs().size(), ctx->outputs().size());
+            MNN_ERROR("MNN_RKNN: input/output count mismatch, expect %u/%u, got %zu/%zu\n", mIoNum.n_input,
+                      mIoNum.n_output, ctx->inputs().size(), ctx->outputs().size());
             return false;
         }
         return true;
     }
 
     bool compute(plugin::CPUKernelContext* ctx) override {
-        auto runtime = ctx->backend() == nullptr ? nullptr : ctx->backend()->getRuntime();
         std::vector<std::unique_ptr<Tensor>> hostInputs;
         std::vector<std::vector<uint8_t>> convertedInputs(ctx->inputs().size());
         std::vector<rknn_input> rknnInputs(ctx->inputs().size());
@@ -311,7 +284,8 @@ public:
             void* inputBuf = hostInputs.back()->buffer().host;
             uint32_t inputSize = (uint32_t)hostInputs.back()->size();
             auto inputFormat = mapTensorFormat(hostInputs.back().get());
-            if (!convertLayoutIfNeeded(hostInputs.back().get(), mInputAttrs[i].fmt, &convertedInputs[i], &inputBuf, &inputSize, &inputFormat)) {
+            if (!convertLayoutIfNeeded(hostInputs.back().get(), mInputAttrs[i].fmt, &convertedInputs[i], &inputBuf,
+                                       &inputSize, &inputFormat)) {
                 MNN_ERROR("MNN_RKNN: failed to convert input tensor %zu layout\n", i);
                 return false;
             }
@@ -320,7 +294,12 @@ public:
             rknnInputs[i].buf = inputBuf;
             rknnInputs[i].size = inputSize;
             rknnInputs[i].pass_through = 0;
-            rknnInputs[i].type = mapTensorType(hostInputs.back().get());
+            if (!mapTensorType(hostInputs.back().get(), &rknnInputs[i].type)) {
+                auto type = hostInputs.back()->getType();
+                MNN_ERROR("MNN_RKNN: unsupported input tensor %zu type: code=%d, bits=%d, lanes=%d\n", i, type.code,
+                          type.bits, type.lanes);
+                return false;
+            }
             rknnInputs[i].fmt = inputFormat;
         }
         if (mApi->inputsSet(mContext, (uint32_t)rknnInputs.size(), rknnInputs.data()) != RKNN_SUCC) {
@@ -343,13 +322,6 @@ public:
             MNN_ERROR("MNN_RKNN: rknn_outputs_get failed\n");
             return false;
         }
-        if (nullptr != runtime) {
-            if (mEnableProfile) {
-                runtime->setLastBackendProfile(buildProfileString(mApi, mContext));
-            } else {
-                runtime->setLastBackendProfile("");
-            }
-        }
 
         for (size_t i = 0; i < ctx->outputs().size(); ++i) {
             auto dst = ctx->output((int)i);
@@ -358,9 +330,28 @@ public:
                 mApi->outputsRelease(mContext, (uint32_t)rknnOutputs.size(), rknnOutputs.data());
                 return false;
             }
+            Tensor hostOutput(dst, getHostTensorDimType(dst), false);
+            const size_t expectedSize = hostOutput.size();
+            const size_t actualSize = rknnOutputs[i].size;
+            if (expectedSize != actualSize || (expectedSize > 0 && nullptr == rknnOutputs[i].buf)) {
+                MNN_ERROR("MNN_RKNN: output tensor %zu byte size mismatch, expected %zu, got %zu\n", i, expectedSize,
+                          actualSize);
+                mApi->outputsRelease(mContext, (uint32_t)rknnOutputs.size(), rknnOutputs.data());
+                return false;
+            }
+        }
+
+        for (size_t i = 0; i < ctx->outputs().size(); ++i) {
+            auto dst = ctx->output((int)i);
             Tensor hostOutput(dst, getHostTensorDimType(dst));
-            auto copySize = ALIMIN((int)hostOutput.size(), (int)rknnOutputs[i].size);
-            std::memcpy(hostOutput.buffer().host, rknnOutputs[i].buf, copySize);
+            if (hostOutput.size() > 0) {
+                if (nullptr == hostOutput.buffer().host) {
+                    MNN_ERROR("MNN_RKNN: output tensor %zu has no host buffer\n", i);
+                    mApi->outputsRelease(mContext, (uint32_t)rknnOutputs.size(), rknnOutputs.data());
+                    return false;
+                }
+                std::memcpy(hostOutput.buffer().host, rknnOutputs[i].buf, hostOutput.size());
+            }
             if (!MNNCPUCopyBuffer(&hostOutput, dst)) {
                 MNN_ERROR("MNN_RKNN: failed to copy output tensor %zu from host\n", i);
                 mApi->outputsRelease(mContext, (uint32_t)rknnOutputs.size(), rknnOutputs.data());
@@ -378,15 +369,15 @@ private:
     rknn_input_output_num mIoNum{};
     std::vector<rknn_tensor_attr> mInputAttrs;
     std::vector<rknn_tensor_attr> mOutputAttrs;
-    bool mEnableProfile = false;
 };
 
-static auto _rknn_plugin_shape_registrar __attribute__((unused)) =
-    MNN::plugin::InferShapeKernelRegistrar<RKNNPluginShape>("RKNN");
-static auto _rknn_plugin_compute_registrar __attribute__((unused)) =
-    MNN::plugin::ComputeKernelRegistrar<RKNNPluginExecute>("RKNN");
-
 } // namespace
+
+void registerRKNNPlugin() {
+    plugin::InferShapeKernelRegister::add("RKNN", []() { return new RKNNPluginShape; });
+    plugin::ComputeKernelRegistry<plugin::CPUComputeKernel>::add("RKNN", []() { return new RKNNPluginExecute; });
+}
+
 } // namespace RKNN
 } // namespace MNN
 #endif

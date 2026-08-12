@@ -118,10 +118,6 @@ Runtime behavior:
 - application-side MNN backend is still `MNN_FORWARD_CPU`
 - if the RKNN model expects `NHWC` but the incoming MNN tensor is `NCHW`, the plugin converts layout automatically
 - if the incoming tensor is already `NHWC`, no extra layout conversion is done
-- backend-side RKNN profiling can be enabled through the public hint path:
-  - `Interpreter::setSessionHint(Interpreter::RKNN_PROFILE, 1)` or `RuntimeManager::setHint(Interpreter::RKNN_PROFILE, 1)`
-  - retrieve the exported profile text through `getSessionInfo(..., Interpreter::BACKEND_PROFILE, &ptr)` or `RuntimeManager::getInfo(Interpreter::BACKEND_PROFILE, &ptr)`
-  - because the profile is exposed as plain text, applications can print it or write it directly to a file
 
 ## 5. Current limitations
 

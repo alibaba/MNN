@@ -278,23 +278,6 @@ ${BUILD_DIR}/MNNConvert \
 
 如果 `.rknn` 路径在 wrapper `.mnn` 中是相对路径，则需要确保模型外部路径设置正确，使 MNN 能解析 sidecar 所在目录。
 
-### Device，Profiling
-
-RKNN internal profiling 通过 MNN 的公开 hint / info 接口暴露：
-
-- 开启 profiling：
-  - `Interpreter::setSessionHint(Interpreter::RKNN_PROFILE, 1)`
-  - 或 `Executor::RuntimeManager::setHint(Interpreter::RKNN_PROFILE, 1)`
-- 读取 profiling 文本：
-  - `Interpreter::getSessionInfo(session, Interpreter::BACKEND_PROFILE, &ptr)`
-  - 或 `Executor::RuntimeManager::getInfo(Interpreter::BACKEND_PROFILE, &ptr)`
-
-其中：
-- `RKNN_PROFILE` 会在 RKNN plugin 内部打开 `RKNN_FLAG_COLLECT_PERF_MASK`
-- `BACKEND_PROFILE` 返回的是 `const char*`，内容包含 RKNN 导出的 `npu_run` 和 `perf_detail` 文本
-- 因为它是普通文本，所以应用层可以直接打印，也可以原样写入文件做持久化
-- 如果当前 backend 不支持 profiling，或者尚未产生 profile，返回值可能为空
-
 ### 当前限制
 
 - 当前 RKNN 路径执行 `Plugin(type="RKNN")` 节点，不支持逐算子 RKNN backend。

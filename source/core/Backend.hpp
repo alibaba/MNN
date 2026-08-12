@@ -76,9 +76,6 @@ struct RuntimeHint {
     // Use CPU Ids
     std::vector<int> cpuIds;
 
-    // Enable backend-side profiling export for runtimes that support it.
-    bool enableBackendProfile = false;
-
     // Division ration between SME and NEON when runtime threads>=4
     // Default: 41, which means that in LLM inference,
     // during the Prefill stage the workload
@@ -220,18 +217,13 @@ public:
      */
     virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) = 0;
 
-    virtual bool onSelectDynamicAllocator(int index, int maxIndex) {
-        return false;
-    }
+    virtual bool onSelectDynamicAllocator(int index, int maxIndex) { return false; }
     /**
      * @brief get buffer from tensor directly
      * @param tensor        buffer provider.
      * @return support or not
      */
-    virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
-        return false;
-    }
-    virtual bool onGetSessionInfo(int code, void* ptr) const;
+    virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) { return false; }
 
     /**
      * @brief clear all dynamic buffers.
@@ -251,9 +243,7 @@ public:
      * @brief get forward type.
      * @return forward type.
      */
-    inline MNNForwardType type() const {
-        return mType;
-    }
+    inline MNNForwardType type() const { return mType; }
 
 public:
     /**
@@ -263,21 +253,16 @@ public:
         return nullptr;
     }
 
-    virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) {
+    virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor,
+                               void* mapPtr) {
         return false;
     }
 
-    virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
-        return 0;
-    }
+    virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) { return 0; }
 
 public:
-    void* getMetaPtr() {
-        return mMetaPtr;
-    }
-    void setMetaPtr(void* ptr) {
-        mMetaPtr = ptr;
-    }
+    void* getMetaPtr() { return mMetaPtr; }
+    void setMetaPtr(void* ptr) { mMetaPtr = ptr; }
     // path of the NPU model directory
     std::string pNPUModelDirPath = ".";
 
@@ -289,7 +274,6 @@ private:
 /** Each backend belong to a runtime*/
 class Runtime : public NonCopyable {
 public:
-    static constexpr int kSessionInfoBackendProfile = 5;
     /**
      Origin Op -> (Compiler) -> New Op -> Backend
      Default use Compiler_Geometry, Origin Op -> Compiler_Geometry -> Little Op
@@ -305,30 +289,10 @@ public:
         Allocator_Defer = 0,
         Allocator_Eager = 1,
     };
-    void setRuntimeHint(const RuntimeHint& hint) {
-        mHint = hint;
-    }
-    const RuntimeHint& hint() const {
-        return mHint;
-    }
-    void setLastBackendProfile(std::string profile) const {
-        mLastBackendProfile = std::move(profile);
-    }
-    bool onGetRuntimeInfo(int code, void* ptr) const {
-        if (code == kSessionInfoBackendProfile) {
-            auto dst = reinterpret_cast<const char**>(ptr);
-            if (nullptr == dst) {
-                return false;
-            }
-            *dst = mLastBackendProfile.empty() ? nullptr : mLastBackendProfile.c_str();
-            return true;
-        }
-        return false;
-    }
+    void setRuntimeHint(const RuntimeHint& hint) { mHint = hint; }
+    const RuntimeHint& hint() const { return mHint; }
 
-    virtual CompilerType onGetCompilerType() const {
-        return Compiler_Loop;
-    }
+    virtual CompilerType onGetCompilerType() const { return Compiler_Loop; }
 
     virtual ~Runtime() = default;
     /**
@@ -425,7 +389,6 @@ public:
 private:
     std::future<int> mFuture;
     RuntimeHint mHint;
-    mutable std::string mLastBackendProfile;
 };
 
 /** abstract Runtime register */
@@ -459,14 +422,6 @@ protected:
      */
     RuntimeCreator() = default;
 };
-
-inline bool Backend::onGetSessionInfo(int code, void* ptr) const {
-    auto rt = const_cast<Backend*>(this)->getRuntime();
-    if (nullptr == rt) {
-        return false;
-    }
-    return rt->onGetRuntimeInfo(code, ptr);
-}
 
 /**
  * @brief get registered backend creator for given forward type.
