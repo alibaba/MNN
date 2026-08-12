@@ -13,6 +13,30 @@
 #include <MNN/Interpreter.hpp>
 #include <MNN/Tensor.hpp>
 #include <memory>
+#include <utility>
+
+static bool appendStringArray(JNIEnv* env, jobjectArray array, std::vector<std::string>& strings) {
+    const auto size = env->GetArrayLength(array);
+    strings.reserve(strings.size() + size);
+    for (jsize i = 0; i < size; ++i) {
+        auto stringObject = static_cast<jstring>(env->GetObjectArrayElement(array, i));
+        if (nullptr == stringObject) {
+            if (env->ExceptionCheck()) {
+                return false;
+            }
+            continue;
+        }
+        const char* characters = env->GetStringUTFChars(stringObject, nullptr);
+        if (nullptr == characters) {
+            env->DeleteLocalRef(stringObject);
+            return false;
+        }
+        strings.emplace_back(characters);
+        env->ReleaseStringUTFChars(stringObject, characters);
+        env->DeleteLocalRef(stringObject);
+    }
+    return true;
+}
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_taobao_android_mnn_MNNNetNative_nativeCreateNetFromFile(JNIEnv *env, jclass type, jstring modelName_) {
@@ -56,34 +80,19 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_taobao_android_mnn_MNNNetNative_nati
     }
 
     if (jsaveTensors != NULL) {
-        int size = env->GetArrayLength(jsaveTensors);
         std::vector<std::string> saveNamesVector;
-
-        for (int i = 0; i < size; i++) {
-            jstring jname       = (jstring)env->GetObjectArrayElement(jsaveTensors, i);
-            const char *name    = env->GetStringUTFChars(jname, NULL);
-            std::string nameStr = name;
-            saveNamesVector.push_back(nameStr);
-
-            env->ReleaseStringUTFChars(jname, name);
+        if (!appendStringArray(env, jsaveTensors, saveNamesVector)) {
+            return 0;
         }
-        config.saveTensors = saveNamesVector;
+        config.saveTensors = std::move(saveNamesVector);
     }
 
     if (joutputTensors != NULL) {
-        int size = env->GetArrayLength(joutputTensors);
-        std::vector<std::string> saveNamesVector;
-
-        for (int i = 0; i < size; i++) {
-            jstring jname       = (jstring)env->GetObjectArrayElement(joutputTensors, i);
-            const char *name    = env->GetStringUTFChars(jname, NULL);
-            std::string nameStr = name;
-            saveNamesVector.push_back(nameStr);
-
-            env->ReleaseStringUTFChars(jname, name);
+        std::vector<std::string> outputNamesVector;
+        if (!appendStringArray(env, joutputTensors, outputNamesVector)) {
+            return 0;
         }
-
-        config.path.outputs = saveNamesVector;
+        config.path.outputs = std::move(outputNamesVector);
     }
 
     auto session = ((MNN::Interpreter *)netPtr)->createSession(config);
