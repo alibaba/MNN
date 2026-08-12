@@ -1329,6 +1329,8 @@ static void _getInfoArm(MNNCPUInfo* cpuinfo_isa) {
 }
 #endif
 
+static int _getSME2CoreNumber();
+
 #if defined(__APPLE__) && defined(__aarch64__)
 static bool have_feature(const char* feature) {
   // For more information on sysctlbyname(), see:
@@ -1340,6 +1342,37 @@ static bool have_feature(const char* feature) {
     }
     return feature_present;
 }
+
+static int _getAppleSME2CoreNumber() {
+    char chipName[256] = {};
+    size_t size = sizeof(chipName);
+    if (sysctlbyname("machdep.cpu.brand_string", chipName, &size, NULL, 0) != 0) {
+        return 1;
+    }
+    chipName[sizeof(chipName) - 1] = '\0';
+
+    struct AppleSME2CoreCount {
+        const char* chipName;
+        int coreCount;
+    };
+    // Apple does not expose SMIDR_EL1. Use the number of high-performance
+    // shared SMCUs that can run concurrent SME workers effectively. Some chips
+    // also have a much smaller SMCU shared by the efficiency-core cluster, which
+    // is not counted as an equivalent worker here.
+    static const AppleSME2CoreCount knownChips[] = {
+        {"Apple M4", 1},     {"Apple M4 Pro", 2}, {"Apple M4 Max", 2},  {"Apple M5", 1},  {"Apple M5 Pro", 2},
+        {"Apple M5 Max", 2}, {"Apple A18", 2},    {"Apple A18 Pro", 2}, {"Apple A19", 2}, {"Apple A19 Pro", 2},
+    };
+    for (const auto& knownChip : knownChips) {
+        if (strcmp(chipName, knownChip.chipName) == 0) {
+            return knownChip.coreCount;
+        }
+    }
+    // SME2 is present, but the model is unknown. Avoid over-subscribing a
+    // shared SMCU until the chip has been characterized.
+    return 1;
+}
+
 static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
     /**Ref from
      https://developer.apple.com/documentation/kernel/1387446-sysctlbyname/determining_instruction_set_characteristics
@@ -1360,10 +1393,97 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
     }
     if (have_feature("hw.optional.arm.FEAT_SME2")) {
         cpuinfo_isa->sme2 = true;
-        cpuinfo_isa->smeCoreNumber = 2;
+        cpuinfo_isa->smeCoreNumber = _getSME2CoreNumber();
     }
 }
 #endif
+
+#if defined(__linux__) && defined(__aarch64__)
+static int _countSME2Cores(const std::vector<uint64_t>& smidrs) {
+    int privateCount = 0;
+    std::vector<uint32_t> sharedIds;
+    for (const auto smidr : smidrs) {
+        const uint32_t sharing = static_cast<uint32_t>((smidr >> 13) & 0x3);
+        // SMIDR_EL1.Affinity2[51:32] and Affinity[11:0] form one 32-bit ID.
+        const uint32_t affinity =
+            static_cast<uint32_t>((smidr & UINT64_C(0xFFF)) | ((smidr >> 20) & UINT64_C(0xFFFFF000)));
+        switch (sharing) {
+            case 0x2: // The PE has a private SMCU.
+                ++privateCount;
+                break;
+            case 0x3: // PEs with the same affinity share an SMCU.
+                if (std::find(sharedIds.begin(), sharedIds.end(), affinity) == sharedIds.end()) {
+                    sharedIds.emplace_back(affinity);
+                }
+                break;
+            case 0x0:
+                // Legacy/ambiguous encoding: affinity 0 means private, otherwise shared.
+                if (affinity == 0) {
+                    ++privateCount;
+                } else if (std::find(sharedIds.begin(), sharedIds.end(), affinity) == sharedIds.end()) {
+                    sharedIds.emplace_back(affinity);
+                }
+                break;
+            default: // 0x1 is reserved.
+                break;
+        }
+    }
+    return privateCount + static_cast<int>(sharedIds.size());
+}
+
+static int _getLinuxSME2CoreNumber() {
+    const char* cpuRoot = "/sys/devices/system/cpu";
+    DIR* root = opendir(cpuRoot);
+    if (root == NULL) {
+        return 1;
+    }
+
+    std::vector<uint64_t> smidrs;
+    struct dirent* entry;
+    while ((entry = readdir(root)) != NULL) {
+        const char* name = entry->d_name;
+        if (strncmp(name, "cpu", 3) != 0 || name[3] == '\0') {
+            continue;
+        }
+        bool isCPU = true;
+        for (const char* cursor = name + 3; *cursor != '\0'; ++cursor) {
+            if (*cursor < '0' || *cursor > '9') {
+                isCPU = false;
+                break;
+            }
+        }
+        if (!isCPU) {
+            continue;
+        }
+
+        const std::string path = std::string(cpuRoot) + "/" + name + "/regs/identification/smidr_el1";
+        FILE* file = fopen(path.c_str(), "r");
+        if (file == NULL) {
+            continue;
+        }
+        unsigned long long smidr = 0;
+        const bool valid = fscanf(file, "%llx", &smidr) == 1;
+        fclose(file);
+        if (valid) {
+            smidrs.emplace_back(static_cast<uint64_t>(smidr));
+        }
+    }
+    closedir(root);
+
+    const int count = _countSME2Cores(smidrs);
+    return count > 0 ? count : 1;
+}
+#endif
+
+static int _getSME2CoreNumber() {
+#if defined(__linux__) && defined(__aarch64__)
+    return _getLinuxSME2CoreNumber();
+#elif defined(__APPLE__) && defined(__aarch64__)
+    return _getAppleSME2CoreNumber();
+#else
+    return 0;
+#endif
+}
 
 #if defined(__linux__) && defined(__aarch64__)
 static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
@@ -1394,7 +1514,7 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     }
     if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_SME2) {
         cpuinfo_isa->sme2 = true;
-        cpuinfo_isa->smeCoreNumber = 1;
+        cpuinfo_isa->smeCoreNumber = _getSME2CoreNumber();
     }
 }
 #endif
