@@ -206,6 +206,7 @@ public:
     }
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {}
     virtual void generateWavform() {}
+
 protected:
     void setChatTemplate();
     void initRuntime();

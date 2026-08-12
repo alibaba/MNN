@@ -289,7 +289,7 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     history_.emplace_back("user", getUserString(prompt.c_str(), false, is_r1_));
 #endif
     MNN_DEBUG("submitNative history count %zu", history_.size());
-    
+
     prompt_string_for_debug.clear();
     response_string_for_debug.clear();
 
@@ -300,11 +300,11 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         full_prompt_text += it.second;
     }
     prompt_string_for_debug = full_prompt_text;
-    
+
     std::string prompt_preview = full_prompt_text.substr(0, 2048);
-    MNN_DEBUG("submitNative logical_prompt chars=%zu preview=%s max_new_tokens_:%d",
-              full_prompt_text.size(), prompt_preview.c_str(), max_new_tokens_);
-    
+    MNN_DEBUG("submitNative logical_prompt chars=%zu preview=%s max_new_tokens_:%d", full_prompt_text.size(),
+              prompt_preview.c_str(), max_new_tokens_);
+
     // Check for multimodal content in the full prompt
     auto multimodal_result = processMultimodalPrompt(full_prompt_text);
     restoreAndroidSteppingStatusIfNeeded(llm_);
@@ -368,11 +368,11 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     float prefill_tps = (prefill_s > 0) ? context->prompt_len / prefill_s : 0;
     float decode_tps = (decode_s > 0) ? context->gen_seq_len / decode_s : 0;
     bool prompt_cache_enabled = current_config_.value("prompt_cache", false);
-    MNN_DEBUG("PERF | prompt_cache: %d | actual_prefill: %d tok in %.2fs (%.1f t/s) | decode: %d tok in %.2fs (%.1f t/s) | history: %zu msgs",
-              prompt_cache_enabled ? 1 : 0,
-              context->prompt_len, prefill_s, prefill_tps,
-              context->gen_seq_len, decode_s, decode_tps,
-              history_.size());
+    MNN_DEBUG(
+        "PERF | prompt_cache: %d | actual_prefill: %d tok in %.2fs (%.1f t/s) | decode: %d tok in %.2fs (%.1f t/s) | "
+        "history: %zu msgs",
+        prompt_cache_enabled ? 1 : 0, context->prompt_len, prefill_s, prefill_tps, context->gen_seq_len, decode_s,
+        decode_tps, history_.size());
     return context;
 }
 

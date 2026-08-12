@@ -70,6 +70,7 @@ public:
     static Sampler* createSampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     int sample(MNN::Express::VARP logits);
+
 private:
     std::shared_ptr<LlmContext> mContext;
     SamplerConfig mConfig;

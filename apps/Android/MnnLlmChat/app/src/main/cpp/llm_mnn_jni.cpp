@@ -190,11 +190,10 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
         env->ReleaseStringUTFChars(inputStr, input_str);
         jclass hashMapClass = env->FindClass("java/util/HashMap");
         jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
-        jmethodID putMethod = env->GetMethodID(hashMapClass, "put",
-                                               "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+        jmethodID putMethod =
+            env->GetMethodID(hashMapClass, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
         jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
-        env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("error"),
-                              env->NewStringUTF("Generation failed"));
+        env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("error"), env->NewStringUTF("Generation failed"));
         return hashMap;
     }
     prompt_len += context->prompt_len;
@@ -212,8 +211,8 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
     // Add metrics to the HashMap
     env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("input_len"),
                           env->NewObject(env->FindClass("java/lang/Long"),
-                                         env->GetMethodID(env->FindClass("java/lang/Long"),
-                                                          "<init>", "(J)V"), input_len));
+                                         env->GetMethodID(env->FindClass("java/lang/Long"), "<init>", "(J)V"),
+                                         input_len));
     env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("prompt_len"),
                           env->NewObject(env->FindClass("java/lang/Long"),
                                          env->GetMethodID(env->FindClass("java/lang/Long"),
