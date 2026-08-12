@@ -12,6 +12,7 @@
 #include <regex>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <random>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -33,6 +34,50 @@
 namespace MNN {
 using namespace Express;
 namespace Transformer {
+
+static int roundHalfToEven(float value) {
+    float floorValue = std::floor(value);
+    float diff = value - floorValue;
+    int rounded = static_cast<int>(floorValue);
+    constexpr float eps = 1e-6f;
+    if (diff > 0.5f + eps) {
+        return rounded + 1;
+    }
+    if (diff < 0.5f - eps) {
+        return rounded;
+    }
+    return (rounded % 2 == 0) ? rounded : rounded + 1;
+}
+
+static std::pair<int, int> qwenVlSmartResize(int height, int width, int factor, int minPixels, int maxPixels) {
+    if (factor <= 0 || height < factor || width < factor) {
+        MNN_ERROR("Qwen-VL smart resize requires height and width >= factor, got %dx%d with factor %d\n", height, width,
+                  factor);
+        return std::make_pair(0, 0);
+    }
+    if (minPixels <= 0 || maxPixels < minPixels) {
+        MNN_ERROR("Qwen-VL smart resize got invalid pixel limits: min=%d, max=%d\n", minPixels, maxPixels);
+        return std::make_pair(0, 0);
+    }
+    const double aspectRatio = static_cast<double>(std::max(height, width)) / std::min(height, width);
+    if (aspectRatio > 200.0) {
+        MNN_ERROR("Qwen-VL smart resize requires an aspect ratio no larger than 200, got %.2f\n", aspectRatio);
+        return std::make_pair(0, 0);
+    }
+    int resizedHeight = roundHalfToEven(static_cast<float>(height) / factor) * factor;
+    int resizedWidth = roundHalfToEven(static_cast<float>(width) / factor) * factor;
+    int64_t resizedPixels = static_cast<int64_t>(resizedHeight) * resizedWidth;
+    if (resizedPixels > maxPixels) {
+        double beta = std::sqrt(static_cast<double>(height) * width / maxPixels);
+        resizedHeight = std::max(factor, static_cast<int>(std::floor(height / beta / factor)) * factor);
+        resizedWidth = std::max(factor, static_cast<int>(std::floor(width / beta / factor)) * factor);
+    } else if (resizedPixels < minPixels) {
+        double beta = std::sqrt(static_cast<double>(minPixels) / (static_cast<double>(height) * width));
+        resizedHeight = static_cast<int>(std::ceil(height * beta / factor)) * factor;
+        resizedWidth = static_cast<int>(std::ceil(width * beta / factor)) * factor;
+    }
+    return std::make_pair(resizedHeight, resizedWidth);
+}
 
 template <typename T>
 static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
@@ -382,36 +427,28 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     // Use actual image dimensions (matching Python Qwen3VLProcessor)
     auto imgInfo = image->getInfo();
     if (imgInfo && imgInfo->dim.size() >= 2) {
-        mVisionHeight = imgInfo->dim[0];
-        mVisionWidth = imgInfo->dim[1];
+        if (!mVisionSizeOverridden) {
+            mVisionHeight = imgInfo->dim[0];
+            mVisionWidth = imgInfo->dim[1];
+        }
         if (imgInfo->dim.size() >= 3 && imgInfo->dim[2] == 4) {
             image = _Slice(image, _var<int>({0, 0, 0}, {3}), _var<int>({-1, -1, 3}, {3}));
             imgInfo = image->getInfo();
         }
     }
-    if (isQwen3VL) {
-        // Qwen3-VL's smart_resize uses Python round(), whose ties are rounded
-        // to the nearest even integer. std::round rounds ties away from zero.
-        const auto roundByFactor = [](int size, int factor) {
-            const int quotient = size / factor;
-            const int remainder = size % factor;
-            if (remainder * 2 < factor) {
-                return quotient * factor;
-            }
-            if (remainder * 2 > factor) {
-                return (quotient + 1) * factor;
-            }
-            return (quotient % 2 == 0 ? quotient : quotient + 1) * factor;
-        };
-        mVisionHeight = roundByFactor(mVisionHeight, align_size);
-        mVisionWidth = roundByFactor(mVisionWidth, align_size);
-    } else {
-        mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
-        mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
+    // Qwen2-VL / Qwen2.5-VL / Qwen3-VL
+    const int defaultMinPixels = isQwen3VL ? 65536 : 3136;
+    const int defaultMaxPixels = isQwen3VL ? 16777216 : 12845056;
+    const int minPixels = mConfig->config_.value("image_min_pixels", defaultMinPixels);
+    const int maxPixels = mConfig->config_.value("image_max_pixels", defaultMaxPixels);
+    auto resizedSize = qwenVlSmartResize(mVisionHeight, mVisionWidth, align_size, minPixels, maxPixels);
+    if (resizedSize.first == 0 || resizedSize.second == 0) {
+        return {};
     }
-    auto interp = isQwen3VL ? MNN::CV::INTER_CUBIC : MNN::CV::INTER_LINEAR;
-    image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0, interp, MNN::CV::COLOR_BGR2RGB, mVisionMean,
-                            mVisionNorm);
+    mVisionHeight = resizedSize.first;
+    mVisionWidth = resizedSize.second;
+    image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0, MNN::CV::INTER_CUBIC, MNN::CV::COLOR_BGR2RGB,
+                            mVisionMean, mVisionNorm);
     image = Express::_Unsqueeze(image, {0});
     image = Express::_Convert(image, NCHW);
     auto patches = Express::_Concat({image, image}, 0);
@@ -1261,8 +1298,10 @@ void Omni::addPositionIds(int t, int h, int w) {
                 }
             }
         }
-        // vision end
-        mPositionIds.push_back();
+        // Match Qwen3-VL MRoPE: after a vision segment, continue from
+        // start + max(llm_grid_h, llm_grid_w), not from the last W index.
+        int next_idx = cur_idx + std::max(h, w);
+        mPositionIds.push_back(next_idx, next_idx, next_idx);
     }
 }
 
@@ -1504,8 +1543,7 @@ VARP Omni::gen_position_ids(int seq_len) {
     auto ptr = positionIds->writeMap<int>();
     if (mContext->gen_seq_len > 0) {
         for (int i = 0; i < seq_len; ++i) {
-            // auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
-            auto pos = mContext->all_seq_len + i;
+            auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
             for (int axis = 0; axis < axes; axis++) {
                 ptr[i + seq_len * axis] = pos;
             }
