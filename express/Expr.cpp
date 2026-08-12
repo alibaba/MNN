@@ -1055,6 +1055,15 @@ std::vector<VARP> Variable::load(const uint8_t* buffer, size_t length) {
                 auto outputIndex = op->outputIndexes[index];
                 delete expr->inside()->mOutputTensors[index];
                 expr->inside()->mOutputTensors[index] = Tensor::clone(allTensors[outputIndex].get());
+                // Restore the memoryType that Expr::create correctly set (MEMORY_HOST):
+                // Tensor::clone shares allTensors' describe (memoryType defaults to
+                // MEMORY_BACKEND), which would otherwise make mapOutput's copy branch
+                // fail to allocate a host buffer and return NULL on readMap (#4750).
+                // Safe: the cloned tensor's host is null for non-CONST nodes (allTensors
+                // are metadata-only for these; CONST/TRAIN nodes don't enter this branch,
+                // their weight-bearing host is preserved by Expr::create), so restoring
+                // MEMORY_HOST cannot cause a double-free on destruction.
+                TensorUtils::getDescribe(expr->inside()->mOutputTensors[index])->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
                 Utils::copyTensorToInfo(expr->inside()->mOutputInfos.data() + index, expr->inside()->mOutputTensors[index]);
             }
         } else if (expr->inputType() == VARP::INPUT) {
