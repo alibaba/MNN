@@ -82,8 +82,8 @@ public:
         auto varMap = Variable::loadMap("tmp/regression_4750.mnn");
         auto io = Variable::getInputAndOutput(varMap);
         if (io.first.size() != 1 || io.second.size() != 1) {
-            MNN_PRINT("LoadMapOutputTest: expected single input/output, got %zu/%zu\n",
-                      io.first.size(), io.second.size());
+            MNN_PRINT("LoadMapOutputTest: expected single input/output, got %zu/%zu\n", io.first.size(),
+                      io.second.size());
             return false;
         }
         auto input = io.first.begin()->second;

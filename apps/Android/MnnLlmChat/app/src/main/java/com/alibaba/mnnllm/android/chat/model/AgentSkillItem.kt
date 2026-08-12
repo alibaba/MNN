@@ -9,4 +9,3 @@ data class AgentSkillItem(
     val enabled: Boolean = true,
     val createdAt: Long = System.currentTimeMillis()
 )
-
