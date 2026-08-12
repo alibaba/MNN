@@ -268,6 +268,18 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
                 }
             }
         }
+        // dk==64 vectorized variant (ftype2 lanes, register state)
+        if (mHeadKDim == 64) {
+            std::vector<std::string> keys = {"linear_attn_gated_delta_rule_sg_v2", simdItersKey};
+            if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+            mGatedDeltaRuleSGV2Pipeline = rt->findPipeline(keys);
+            if (nil == mGatedDeltaRuleSGV2Pipeline) {
+                mGatedDeltaRuleSGV2Pipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnGatedDeltaRuleSG, "linear_attn_gated_delta_rule_sg_v2", sgOption);
+                if (nil != mGatedDeltaRuleSGV2Pipeline) {
+                    rt->insertPipeline(keys, mGatedDeltaRuleSGV2Pipeline);
+                }
+            }
+        }
         // Master baseline fused decode kernel (fallback for fused_sg_align)
         {
             std::vector<std::string> keys = {"linear_attn_fused_sg", simdItersKey};
@@ -617,11 +629,12 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     bool fusedLongPrefill = (seqLen >= 64 && mUseFlashChunk) ||
                             (seqLen >= 16 && mUseFlashChunkSGMM) ||
                             (seqLen >= 32 && mUseFusedChunkSG);
-    // Register-state scan prefill (qkv_prep + delta_rule_sg_v4) replaces the
+    // Register-state scan prefill (qkv_prep + delta_rule_sg_v4/v2) replaces the
     // chunked kernels on non-tensor-API devices: +10~24% prefill vs sgmm on
     // M4 Pro. Tensor-API devices keep the chunk64 flash path (untested there).
     bool scanPrefill = mUseSimdGroupOpt && !mUseFlashChunk &&
-                       mGatedDeltaRuleSGV4Pipeline != nil && seqLen >= 16;
+                       (mGatedDeltaRuleSGV4Pipeline != nil ||
+                        mGatedDeltaRuleSGV2Pipeline != nil) && seqLen >= 16;
     if (scanPrefill) {
         fusedLongPrefill = false;
     }
@@ -889,7 +902,8 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
     // ── Variable tail: pick optimal path by seqLen ────────────────────
     // Priority within each branch: prefer *_align/flash > baseline > fallback.
     const bool scanPrefill = mUseSimdGroupOpt && !mUseFlashChunk &&
-                             mGatedDeltaRuleSGV4Pipeline != nil && seqLen >= 16;
+                             (mGatedDeltaRuleSGV4Pipeline != nil ||
+                              mGatedDeltaRuleSGV2Pipeline != nil) && seqLen >= 16;
     if (lazyMode) {
         auto* sc = mStateCache.get();
         int writeIdx = 1 - sc->mPendingIdx;
@@ -1006,8 +1020,9 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         // Kernel: Delta rule
         if (mUseSimdGroupOpt) {
             id<MTLComputePipelineState> deltaPipe =
-                (mGatedDeltaRuleSGV4Pipeline != nil) ? mGatedDeltaRuleSGV4Pipeline
-                                                     : mGatedDeltaRuleSGPipeline;
+                (mGatedDeltaRuleSGV4Pipeline != nil) ? mGatedDeltaRuleSGV4Pipeline :
+                (mGatedDeltaRuleSGV2Pipeline != nil) ? mGatedDeltaRuleSGV2Pipeline :
+                                                     mGatedDeltaRuleSGPipeline;
             [encoder setComputePipelineState:deltaPipe];
             MetalBackend::setTensor(mQ.get(), encoder, 0);
             MetalBackend::setTensor(mK.get(), encoder, 1);

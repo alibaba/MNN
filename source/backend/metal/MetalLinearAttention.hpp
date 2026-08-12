@@ -110,6 +110,7 @@ private:
     id<MTLComputePipelineState> mGatedDeltaRulePipeline;
     id<MTLComputePipelineState> mGatedDeltaRuleSGPipeline;
     id<MTLComputePipelineState> mGatedDeltaRuleSGV4Pipeline = nil;
+    id<MTLComputePipelineState> mGatedDeltaRuleSGV2Pipeline = nil;
     id<MTLComputePipelineState> mGatedDeltaRuleFusedSGPipeline;
     id<MTLComputePipelineState> mFusedSGAlignPipeline     = nil;
     int mFusedSGAlignSimds = 4;

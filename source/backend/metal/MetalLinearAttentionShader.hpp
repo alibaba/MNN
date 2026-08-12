@@ -588,9 +588,11 @@ using namespace metal;
 
 #if MNN_METAL_FLOAT16_STORAGE
 typedef half ftype;
+typedef half2 ftype2;
 typedef half4 ftype4;
 #else
 typedef float ftype;
+typedef float2 ftype2;
 typedef float4 ftype4;
 #endif
 
@@ -822,6 +824,73 @@ kernel void linear_attn_gated_delta_rule_sg_v4(
     }
 
     state4[lane] = ftype4(st);
+}
+
+// dk==64 specialization: each lane owns 2 consecutive elements as one ftype2
+// (vectorized 4-byte loads), state held in a float2 register across L.
+kernel void linear_attn_gated_delta_rule_sg_v2(
+    const device ftype* q                [[buffer(0)]],
+    const device ftype* k                [[buffer(1)]],
+    const device ftype* v                [[buffer(2)]],
+    const device ftype* gate             [[buffer(3)]],
+    const device ftype* beta             [[buffer(4)]],
+    device ftype* recurrent_state        [[buffer(5)]],
+    device ftype* attn_out               [[buffer(6)]],
+    constant LinearAttnParam& param      [[buffer(7)]],
+    uint3 tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int d_k = 64;
+    const int d_v = param.head_v_dim;
+
+    int idx = tgpig.x * 4 + sgitg;
+    const int total = B * H * d_v;
+    if (idx >= total) return;
+
+    const int j = idx % d_v;
+    const int b_h = idx / d_v;
+    const int h = b_h % H;
+    const int b = b_h / H;
+
+    device ftype2* state2 = (device ftype2*)(recurrent_state + (b * H + h) * d_v * d_k + j * d_k);
+    float2 st = float2(state2[lane]);
+
+    const device ftype2* q2 = (const device ftype2*)q;
+    const device ftype2* k2 = (const device ftype2*)k;
+    const int row2 = d_k / 2;
+
+    for (int t = 0; t < L; ++t) {
+        const int bth = b * L * H + t * H + h;
+        float2 q_t = float2(q2[bth * row2 + (int)lane]);
+        float2 k_t = float2(k2[bth * row2 + (int)lane]);
+        float v_t_j = (float)v[bth * d_v + j];
+        float g_t = (float)gate[token_channel_offset(b, t, h, H, param.gate_c4 & 1, param)];
+        if (param.gate_c4 & 2) {
+            g_t = linear_attn_gate_fold(g_t, h, param);
+        }
+        float decay_val = exp(g_t);
+        float beta_t = (float)beta[token_channel_offset(b, t, h, H, param.beta_c4 & 1, param)];
+        if (param.beta_c4 & 2) {
+            beta_t = linear_attn_beta_fold(beta_t);
+        }
+
+        st *= decay_val;
+        float v_pred_j = simd_sum(dot(st, k_t));
+        float delta_j = beta_t * (v_t_j - v_pred_j);
+
+        st += k_t * delta_j;
+        float o_t_j = simd_sum(dot(st, q_t));
+
+        if (lane == 0) {
+            attn_out[output_offset(b, t, h, j, param)] = (ftype)o_t_j;
+        }
+    }
+
+    state2[lane] = ftype2(st);
 }
 
 // QKV prep + gated delta rule + pending save, preceded by a prologue that commits the
@@ -1138,6 +1207,13 @@ kernel void linear_attn_fused_sg(
     const device ftype* conv_base = conv_out + b * D * L;
     const int n_iters = (d_k + 31) / 32;
 
+    // Load state into registers once, keep across the t-loop.
+    float st_reg[SIMD_ITERS];
+    for (int ii = 0; ii < n_iters; ii++) {
+        int i = lane + ii * 32;
+        st_reg[ii] = (i < d_k) ? (float)state[i] : 0.0f;
+    }
+
     for (int t = 0; t < L; ++t) {
         // Read Q, K directly from conv_out [B, D, L]
         float k_reg[SIMD_ITERS];
@@ -1188,14 +1264,12 @@ kernel void linear_attn_fused_sg(
             beta_t = linear_attn_beta_fold(beta_t);
         }
 
-        // Step 1: Decay state + compute v_pred
+        // Step 1: Decay state in-register + compute v_pred
         float v_pred_j = 0.0f;
         for (int ii = 0; ii < n_iters; ii++) {
-            int i = lane + ii * 32;
-            if (i < d_k) {
-                float s_val = (float)state[i] * decay_val;
-                state[i] = (ftype)s_val;
-                v_pred_j += s_val * k_reg[ii];
+            if (lane + ii * 32 < d_k) {
+                st_reg[ii] *= decay_val;
+                v_pred_j += st_reg[ii] * k_reg[ii];
             }
         }
         v_pred_j = simd_sum(v_pred_j);
@@ -1203,14 +1277,12 @@ kernel void linear_attn_fused_sg(
         // Step 2: Compute delta
         float delta_j = beta_t * (v_t_j - v_pred_j);
 
-        // Step 3: Update state + compute output
+        // Step 3: Update state in-register + compute output
         float o_t_j = 0.0f;
         for (int ii = 0; ii < n_iters; ii++) {
-            int i = lane + ii * 32;
-            if (i < d_k) {
-                float s_val = (float)state[i] + k_reg[ii] * delta_j;
-                state[i] = (ftype)s_val;
-                o_t_j += s_val * q_reg[ii];
+            if (lane + ii * 32 < d_k) {
+                st_reg[ii] += k_reg[ii] * delta_j;
+                o_t_j += st_reg[ii] * q_reg[ii];
             }
         }
         o_t_j = simd_sum(o_t_j);
@@ -1218,6 +1290,12 @@ kernel void linear_attn_fused_sg(
         if (lane == 0) {
             attn_out[output_offset(b, t, h, j, param)] = (ftype)o_t_j;
         }
+    }
+
+    // Write state back to device once.
+    for (int ii = 0; ii < n_iters; ii++) {
+        int i = lane + ii * 32;
+        if (i < d_k) state[i] = (ftype)st_reg[ii];
     }
 }
 )metal";
@@ -2302,12 +2380,20 @@ kernel void linear_attn_chunk64_prep_inplace(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    if (tid == 0) {
-        float acc = 0.0f;
-        for (int i = 0; i < CK_CHUNK; ++i) {
-            acc += gcTg[i];
-            gcTg[i] = acc;
+    // Parallel inclusive prefix sum (Hillis-Steele) over gcTg[0..CK_CHUNK-1].
+    // All threads cooperate in log2(CK_CHUNK) steps; each step reads into a
+    // register before the barrier, writes after, so no thread observes a
+    // same-step overwrite. Replaces a single-thread CK_CHUNK-step serial chain.
+    for (uint d = 1; d < CK_CHUNK; d <<= 1) {
+        float val = 0.0f;
+        if (tid < CK_CHUNK && tid >= d) {
+            val = gcTg[tid - d];
         }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid < CK_CHUNK) {
+            gcTg[tid] += val;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
     if (param.use_l2norm) {
@@ -2380,24 +2466,40 @@ kernel void linear_attn_chunk64_prep_inplace(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Forward substitution produces T - I in place. SG0 lanes own columns
-    // {lane, lane+32}; barriers preserve the read-before-write ordering of a
-    // row while previously completed rows are consumed.
-    if (sgitg == 0) {
+    // Forward substitution produces T - I in place. All CK_NSG simdgroups
+    // cooperate: each SG computes a partial dot-product for 1/4 of the
+    // m-range, stores it in fs_partial, then SG0 combines the CK_NSG partials
+    // and updates aTg. Barriers preserve the read-before-write ordering of
+    // each row: all m-loop reads finish before the first barrier, the update
+    // writes after it, and the trailing barrier makes the row visible to
+    // later rows' m-loops.
+    threadgroup float fs_partial[CK_NSG][CK_CHUNK];
+    {
         const int j0 = int(tiisg);
         const int j1 = int(tiisg) + 32;
         for (int i = 1; i < CK_CHUNK; ++i) {
-            float acc0 = 0.0f;
-            float acc1 = 0.0f;
-            for (int m = 0; m < i; ++m) {
+            const int m_start = (int)sgitg * i / CK_NSG;
+            const int m_end   = ((int)sgitg + 1) * i / CK_NSG;
+
+            float acc0 = 0.0f, acc1 = 0.0f;
+            for (int m = m_start; m < m_end; ++m) {
                 float row = aTg[i * CK_CHUNK + m];
                 acc0 += row * aTg[m * CK_CHUNK + j0];
                 acc1 += row * aTg[m * CK_CHUNK + j1];
             }
-            simdgroup_barrier(mem_flags::mem_threadgroup);
-            if (j0 < i) aTg[i * CK_CHUNK + j0] += acc0;
-            if (j1 < i) aTg[i * CK_CHUNK + j1] += acc1;
-            simdgroup_barrier(mem_flags::mem_threadgroup);
+            fs_partial[sgitg][j0] = acc0;
+            fs_partial[sgitg][j1] = acc1;
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            if (sgitg == 0) {
+                float total0 = fs_partial[0][j0] + fs_partial[1][j0] +
+                               fs_partial[2][j0] + fs_partial[3][j0];
+                float total1 = fs_partial[0][j1] + fs_partial[1][j1] +
+                               fs_partial[2][j1] + fs_partial[3][j1];
+                if (j0 < i) aTg[i * CK_CHUNK + j0] += total0;
+                if (j1 < i) aTg[i * CK_CHUNK + j1] += total1;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
         }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -2525,12 +2627,17 @@ kernel void linear_attn_chunk64_recurrent_inplace(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (tid == 0) {
-            float acc = 0.0f;
-            for (int i = 0; i < CK_CHUNK; ++i) {
-                acc += gcTg[i];
-                gcTg[i] = acc;
+        // Parallel inclusive prefix sum (Hillis-Steele) over gcTg[0..CK_CHUNK-1].
+        for (uint d = 1; d < CK_CHUNK; d <<= 1) {
+            float val = 0.0f;
+            if (tid < CK_CHUNK && tid >= d) {
+                val = gcTg[tid - d];
             }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (tid < CK_CHUNK) {
+                gcTg[tid] += val;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
         }
         if (param.use_l2norm) {
             for (int m = int(sgitg); m < CK_CHUNK; m += CK_NSG) {

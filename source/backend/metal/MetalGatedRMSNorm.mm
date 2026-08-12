@@ -72,9 +72,12 @@ public:
         const bool fp16   = mtbn->useFp16InsteadFp32();
         std::string ftype  = fp16 ? "half" : "float";
         std::string ftype4 = fp16 ? "half4" : "float4";
-        // One simdgroup per head keeps the RMS reduction inside a simdgroup,
-        // exactly as layernorm_c4_rms_sg does.
-        const int sgsPerTG = 1;
+        // Two simdgroups per TG, each handling an independent head (h = gid.y
+        // * SGS_PER_TG + sgitg). The RMS reduction stays inside a single
+        // simdgroup (simd_sum only), so the per-head reduction order is
+        // unchanged and the fp32 result remains bit-identical to the unfused
+        // chain — only the threadgroup occupancy improves.
+        const int sgsPerTG = 2;
 
         std::vector<std::string> keys = {"linear_attn_gated_norm", ftype,
                                          "sgs" + std::to_string(sgsPerTG)};
