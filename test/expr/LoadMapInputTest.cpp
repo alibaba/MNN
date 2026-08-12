@@ -82,8 +82,8 @@ public:
         auto varMap = Variable::loadMap("tmp/regression_4750.mnn");
         auto io = Variable::getInputAndOutput(varMap);
         if (io.first.size() != 1 || io.second.size() != 1) {
-            MNN_PRINT("LoadMapOutputTest: expected single input/output, got %zu/%zu\n",
-                      io.first.size(), io.second.size());
+            MNN_PRINT("LoadMapOutputTest: expected single input/output, got %zu/%zu\n", io.first.size(),
+                      io.second.size());
             return false;
         }
         auto input = io.first.begin()->second;
@@ -110,10 +110,13 @@ public:
             MNN_PRINT("LoadMapOutputTest: readMap returned NULL (bug #4750)\n");
             return false;
         }
-        // Expected first value: 27 * 0.1 * 0.5 + 0.01 = 1.36
+        // Expected first value: 27 * 0.1 * 0.5 + 0.01 = 1.36. FP16 stores
+        // 0.1 approximately and accumulates the rounding error across the convolution.
+        constexpr float expected = 1.36f;
+        const float tolerance = precision == BackendConfig::Precision_Low ? 0.005f : 0.001f;
         auto val = out[0];
-        if (val < 1.359f || val > 1.361f) {
-            MNN_PRINT("LoadMapOutputTest: unexpected output value %f (expected 1.36)\n", val);
+        if (val < expected - tolerance || val > expected + tolerance) {
+            MNN_PRINT("LoadMapOutputTest: unexpected output value %f (expected %f +/- %f)\n", val, expected, tolerance);
             return false;
         }
         return true;
