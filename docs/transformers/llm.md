@@ -725,6 +725,12 @@ messages.emplace_back("tool", R"({"temperature": 72, "condition": "sunny"})");
 ./llm_demo model_dir/llm.mnn prompt.txt
 ```
 
+`qwen3_tts_demo` 用于 Qwen3-TTS 文本转语音端到端示例，参数为：
+```
+./qwen3_tts_demo model_dir --text <text> [max_frames] [dump_dir] [language] --ref_audio <wav> [--normalize [target_peak]]
+```
+其中 `model_dir` 是 Qwen3-TTS MNN 模型目录，`text` 是要合成的文本，`max_frames` 是最多生成的 codec 帧数（默认 128，每帧约 80ms，长句可提高，遇到 EOS 会提前停止；设置过小会截断语音），`dump_dir` 用于保存 wav/bin 调试输出，`language` 默认是 `auto`，可选 `auto/chinese/english/german/italian/portuguese/spanish/japanese/korean/french/russian`，`--ref_audio <wav>` 必填，用于 speaker-embedding-only 音色克隆，加载时会用 soxr-like 高质量重采样器重采样到 24 kHz；不带 `--ref_audio` 的零 speaker embedding 路径不支持，评测参考音频需从 `https://modelscope.cn/datasets/huangzhengxiang/qwen3-tts-ref/resolve/master/qwen3_tts_ref.wav` 下载到 `transformers/llm/resource/audio/qwen3_tts_ref.wav`，`--normalize [target_peak]` 只对保存的 wav 做峰值归一化，不填值时为 1。
+
 - 对于视觉大模型，在prompt中嵌入图片输入
 ```
 <img>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg</img>介绍一下图片里的内容
@@ -1127,6 +1133,7 @@ make -j16
 | `--cache_path` | str | `tmp` | 转换过程中的临时缓存目录 |
 | `--chunk_size` | int | `128` | NPU 的 chunk 大小 |
 | `--max_history_token` | int | `0` | 最大历史 token 数，0 表示不限制 |
+| `--reuse_config_qnn_json` | bool | (选填) | 是否复用config_qnn.json |
 
 ##### 用法一：转换 LLM 语言模型
 
@@ -1169,6 +1176,8 @@ python3 npu/generate_llm_qnn.py \
 ```
 
 转换完成后，会在模型目录下生成 `qnn/` 子目录和 `config_qnn.json`（其中 `visual_model` 字段指向转换后的 QNN 视觉模型）。
+
+> **注意**: `--reuse_config_qnn_json` 用于llm/visual均使用npu推理场景,该参数对先转换llm或visual没有限制，只需在第二次转换时带上`--resue_config_qnn_json`即可。
 
 ##### 用法三：使用自定义 input_json 转换任意模型
 

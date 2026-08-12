@@ -34,6 +34,12 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 
 > **严禁访问以下目录**：`schema/private/` 和 `source/internal/`，包含内部私有代码，**不得读取、修改或引用**。
 
+> **多模态/音频子模块跑通后要及时回收临时代码**：新增 talker/token2wav/codec 等导出 wrapper 时，优先复用已有 `Decoder`、`Rotary`、`FakeLinear`、`RMSNorm`、`onnx_export` 等导出原语；只为权重命名或外部包加载保留最小 skeleton，避免固化第二套 LLM 导出框架。
+
+> **外部包恢复可 import 后要删除兼容绕路**：如果前期因为依赖版本问题临时使用 `importlib.util` 按路径加载模型源码、stub module、monkey patch transformers API，依赖修好后必须改回官方 package import，并用完整 `llmexport.py --export mnn` 验证。
+
+> **导出后必须检查 `.mnn` 本体是否残留大权重**：使用 `MNNDump2Json` 按 `Const` 数据量排序；如果 `.mnn` 内出现 embedding、lm/head、projection 等大 Const，说明没有走 `FakeLinear`/外置 embedding/`.mnn.weight` 路径，不能只因为生成了 `.mnn.weight` 就认为权重已正确外置。
+
 > **禁止猜测**：如果不确定某个字段名或路径，必须通过工具读取实际文件确认。
 
 ---
