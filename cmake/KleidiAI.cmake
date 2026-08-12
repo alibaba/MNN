@@ -94,10 +94,12 @@ function (download_kleidiai_and_collect_sources)
                             "Your MNN checkout looks incomplete; update it to a version that "
                             "includes source/backend/cpu/kleidiai, or pass -DMNN_KLEIDIAI=OFF.")
     endif()
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIConvolution.cpp)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIConvolutionDepthwise.cpp)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIConvInt8.cpp)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_DIR}/KleidiAIDenseConvolution.cpp)
+    set(MNN_KLEIDIAI_INTEGRATION_SOURCES
+        ${MNN_KLEIDIAI_DIR}/KleidiAIConvolution.cpp
+        ${MNN_KLEIDIAI_DIR}/KleidiAIConvolutionDepthwise.cpp
+        ${MNN_KLEIDIAI_DIR}/KleidiAIConvInt8.cpp
+        ${MNN_KLEIDIAI_DIR}/KleidiAIDenseConvolution.cpp)
+    list(APPEND MNN_SOURCES_KLEIDIAI ${MNN_KLEIDIAI_INTEGRATION_SOURCES})
 
     include_directories(${MNN_KLEIDIAI_DIR})
 
