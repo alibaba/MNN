@@ -139,6 +139,11 @@ android {
             buildConfigField "boolean", "IS_GOOGLE_PLAY_BUILD", "true"
             versionNameSuffix ".gp"
         }
+        agent {
+            dimension "store"
+            buildConfigField "boolean", "IS_GOOGLE_PLAY_BUILD", "false"
+            versionNameSuffix ".agent"
+        }
     }
 
 
@@ -187,10 +192,14 @@ android {
 chaquopy {
     defaultConfig {
         version "3.11"
-        pip {
-            install "openpyxl==3.1.5"
-            install "numpy"
-            install "pandas"
+    }
+    productFlavors {
+        getByName("agent") {
+            pip {
+                install "openpyxl==3.1.5"
+                install "numpy"
+                install "pandas"
+            }
         }
     }
 }
