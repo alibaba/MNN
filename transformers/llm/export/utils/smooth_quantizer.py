@@ -621,14 +621,70 @@ class SmoothQuantizer:
         # Gather: Output Scale == Input[0] (Data) Scale. (Input[1] 是 indices，不需要)
         DATA_SELECT_OPS = ['Gather', 'GatherV2', 'GatherND']
 
+        # Keep index/shape tensors out of activation quantization.  In
+        # particular, position_ids is INT32 and must not become the input of a
+        # QNN Reshape whose output is UFIXED_POINT_16.
+        protected = set()
+        integer_types = {
+            'DT_INT8', 'DT_INT16', 'DT_INT32', 'DT_INT64',
+            'DT_UINT8', 'DT_UINT16', 'DT_UINT32', 'DT_UINT64',
+        }
+        for op in mnn_ops:
+            op_type = op.get('type', '')
+            inputs = op.get('inputIndexes', [])
+            outputs = op.get('outputIndexes', [])
+            main = op.get('main') or {}
+            if op_type == 'Input' and main.get('dtype') in integer_types:
+                protected.update(outputs)
+            elif op_type == 'Const' and main.get('dataType') in integer_types:
+                protected.update(outputs)
+            elif op_type in {'Shape', 'Rank', 'Size'}:
+                protected.update(outputs)
+            if op_type == 'Reshape' and len(inputs) > 1:
+                protected.update(inputs[1:])
+            elif op_type in DATA_SELECT_OPS and len(inputs) > 1:
+                protected.update(inputs[1:])
+
+        # Propagate protection only along the tensor that carries shape/index
+        # values.  For pass-through ops, input 0 is feature data; auxiliary
+        # shape/axis inputs must not make the feature output an integer tensor.
+        changed_protected = True
+        while changed_protected:
+            changed_protected = False
+            for op in mnn_ops:
+                op_type = op.get('type', '')
+                inputs = op.get('inputIndexes', [])
+                outputs = op.get('outputIndexes', [])
+                if not inputs or not outputs:
+                    continue
+                if op_type in PASS_THROUGH_OPS:
+                    # Reshape/Slice/etc. derive the output dtype from their
+                    # feature-data input, never from shape/axis inputs.
+                    mark = inputs[0] in protected
+                elif op_type in {'BinaryOp', 'UnaryOp'}:
+                    mark = any(index in protected for index in inputs)
+                else:
+                    mark = False
+                if mark:
+                    for index in outputs:
+                        if index not in protected:
+                            protected.add(index)
+                            changed_protected = True
+
+        for index in protected:
+            quant_info_dict.pop(index, None)
+
         print("Start propagating quantization parameters...")
         changed = True
         pass_round = 0
 
         # 不动点迭代：只要这轮循环有更新，就继续跑下一轮
+        max_passes = len(mnn_ops) + 1
         while changed:
             changed = False
             pass_round += 1
+            if pass_round > max_passes:
+                raise RuntimeError("Quantization parameter propagation did not converge")
             update_count = 0
 
             for op in mnn_ops:
@@ -648,15 +704,16 @@ class SmoothQuantizer:
                     # 通常取第一个有参数的 input 作为源
                     source_info = None
                     for inp_idx in inputs:
-                        if inp_idx in quant_info_dict:
+                        if inp_idx in quant_info_dict and inp_idx not in protected:
                             source_info = quant_info_dict[inp_idx]
                             break
 
                     if source_info:
                         for out_idx in outputs:
-                            if out_idx not in quant_info_dict:
-                                quant_info_dict[out_idx] = copy.deepcopy(source_info)
-                                quant_info_dict[out_idx]['index'] = out_idx # 修正 index
+                            if out_idx not in protected and out_idx not in quant_info_dict:
+                                new_info = copy.deepcopy(source_info)
+                                new_info['index'] = out_idx
+                                quant_info_dict[out_idx] = new_info
                                 changed = True
                                 update_count += 1
 
@@ -670,9 +727,10 @@ class SmoothQuantizer:
 
                     if target_info:
                         for inp_idx in inputs:
-                            if inp_idx not in quant_info_dict:
-                                quant_info_dict[inp_idx] = copy.deepcopy(target_info)
-                                quant_info_dict[inp_idx]['index'] = inp_idx
+                            if inp_idx not in quant_info_dict and inp_idx not in protected:
+                                new_info = copy.deepcopy(target_info)
+                                new_info['index'] = inp_idx
+                                quant_info_dict[inp_idx] = new_info
                                 changed = True
                                 update_count += 1
 
@@ -684,18 +742,18 @@ class SmoothQuantizer:
                     out_idx = outputs[0]
 
                     # Forward: Data -> Output
-                    if data_idx in quant_info_dict and out_idx not in quant_info_dict:
-                        quant_info_dict[out_idx] = copy.deepcopy(quant_info_dict[data_idx])
-                        quant_info_dict[out_idx]['index'] = out_idx
-                        changed = True
-                        update_count += 1
+                    if data_idx in quant_info_dict and out_idx not in protected:
+                        source_info = quant_info_dict[data_idx]
+                        output_info = quant_info_dict.get(out_idx)
+                        if output_info is None or output_info.get('quantInfo') != source_info.get('quantInfo'):
+                            quant_info_dict[out_idx] = copy.deepcopy(source_info)
+                            quant_info_dict[out_idx]['index'] = out_idx
+                            changed = True
+                            update_count += 1
 
-                    # Backward: Output -> Data
-                    if out_idx in quant_info_dict and data_idx not in quant_info_dict:
-                        quant_info_dict[data_idx] = copy.deepcopy(quant_info_dict[out_idx])
-                        quant_info_dict[data_idx]['index'] = data_idx
-                        changed = True
-                        update_count += 1
+                    # Do not propagate Gather output parameters back to the
+                    # data input: QNN requires Gather data/output parameters to
+                    # match, while the indices input is always unquantized.
 
                 # -----------------------------------------------
                 # 策略 3: BinaryOp (Add/Mul) - 谨慎处理
@@ -703,16 +761,15 @@ class SmoothQuantizer:
                 # -----------------------------------------------
                 elif op_type == 'BinaryOp':
                     out_idx = outputs[0]
-
                     # Backward:
                     # 如果 Add 的输出已知（通常是因为连着下一个 Linear/Norm 的输入），
                     # 我们可以尝试推导输入的 Scale。
                     # 注意：对于 Add，如果 Input A 和 Input B 的范围差异巨大，直接回传可能有风险。
                     # 但在 Transformer 残差结构中，通常 Input 和 Output 的 Scale 是同数量级的。
-                    if out_idx in quant_info_dict:
+                    if out_idx in quant_info_dict and out_idx not in protected:
                         target_info = quant_info_dict[out_idx]
                         for inp_idx in inputs:
-                            if inp_idx not in quant_info_dict:
+                            if inp_idx not in quant_info_dict and inp_idx not in protected:
                                 quant_info_dict[inp_idx] = copy.deepcopy(target_info)
                                 quant_info_dict[inp_idx]['index'] = inp_idx
                                 changed = True
@@ -722,10 +779,12 @@ class SmoothQuantizer:
                     # 如果所有输入都有 Scale，取 Scale 最大的那个传给输出
                     # (保守策略，避免截断)
                     else:
+                        if out_idx in protected:
+                            continue
                         scales = []
                         valid_inputs = []
                         for inp_idx in inputs:
-                            if inp_idx in quant_info_dict:
+                            if inp_idx in quant_info_dict and inp_idx not in protected:
                                 scales.append(quant_info_dict[inp_idx]['quantInfo']['scale'])
                                 valid_inputs.append(inp_idx)
 

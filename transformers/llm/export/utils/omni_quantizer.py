@@ -812,13 +812,68 @@ class OmniQuantizer:
 
         DATA_SELECT_OPS = ['Gather', 'GatherV2', 'GatherND']
 
+        # Keep index/shape tensors out of activation quantization.  In
+        # particular, position_ids is INT32 and must not become the input of a
+        # QNN Reshape whose output is UFIXED_POINT_16.
+        protected = set()
+        integer_types = {
+            'DT_INT8', 'DT_INT16', 'DT_INT32', 'DT_INT64',
+            'DT_UINT8', 'DT_UINT16', 'DT_UINT32', 'DT_UINT64',
+        }
+        for op in mnn_ops:
+            op_type = op.get('type', '')
+            inputs = op.get('inputIndexes', [])
+            outputs = op.get('outputIndexes', [])
+            main = op.get('main') or {}
+            if op_type == 'Input' and main.get('dtype') in integer_types:
+                protected.update(outputs)
+            elif op_type == 'Const' and main.get('dataType') in integer_types:
+                protected.update(outputs)
+            elif op_type in {'Shape', 'Rank', 'Size'}:
+                protected.update(outputs)
+            if op_type == 'Reshape' and len(inputs) > 1:
+                protected.update(inputs[1:])
+            elif op_type in DATA_SELECT_OPS and len(inputs) > 1:
+                protected.update(inputs[1:])
+
+        # Propagate the protected marker through shape/index-only arithmetic.
+        changed_protected = True
+        while changed_protected:
+            changed_protected = False
+            for op in mnn_ops:
+                op_type = op.get('type', '')
+                inputs = op.get('inputIndexes', [])
+                outputs = op.get('outputIndexes', [])
+                if not inputs or not outputs:
+                    continue
+                if op_type in PASS_THROUGH_OPS:
+                    # For Reshape/Slice/etc. only the data input determines
+                    # the output type; shape/axis inputs must not contaminate
+                    # the feature-map output.
+                    mark = inputs[0] in protected
+                elif op_type in {'BinaryOp', 'UnaryOp'}:
+                    mark = any(index in protected for index in inputs)
+                else:
+                    mark = False
+                if mark:
+                    for index in outputs:
+                        if index not in protected:
+                            protected.add(index)
+                            changed_protected = True
+
+        for index in protected:
+            quant_info_dict.pop(index, None)
+
         print("Start propagating quantization parameters...")
         changed = True
         pass_round = 0
 
+        max_passes = len(mnn_ops) + 1
         while changed:
             changed = False
             pass_round += 1
+            if pass_round > max_passes:
+                raise RuntimeError("Quantization parameter propagation did not converge")
             update_count = 0
 
             for op in mnn_ops:
@@ -832,15 +887,16 @@ class OmniQuantizer:
                 if op_type in PASS_THROUGH_OPS:
                     source_info = None
                     for inp_idx in inputs:
-                        if inp_idx in quant_info_dict:
+                        if inp_idx in quant_info_dict and inp_idx not in protected:
                             source_info = quant_info_dict[inp_idx]
                             break
 
                     if source_info:
                         for out_idx in outputs:
-                            if out_idx not in quant_info_dict:
-                                quant_info_dict[out_idx] = copy.deepcopy(source_info)
-                                quant_info_dict[out_idx]['index'] = out_idx # 修正 index
+                            if out_idx not in protected and out_idx not in quant_info_dict:
+                                new_info = copy.deepcopy(source_info)
+                                new_info['index'] = out_idx
+                                quant_info_dict[out_idx] = new_info
                                 changed = True
                                 update_count += 1
 
@@ -852,9 +908,10 @@ class OmniQuantizer:
 
                     if target_info:
                         for inp_idx in inputs:
-                            if inp_idx not in quant_info_dict:
-                                quant_info_dict[inp_idx] = copy.deepcopy(target_info)
-                                quant_info_dict[inp_idx]['index'] = inp_idx
+                            if inp_idx not in quant_info_dict and inp_idx not in protected:
+                                new_info = copy.deepcopy(target_info)
+                                new_info['index'] = inp_idx
+                                quant_info_dict[inp_idx] = new_info
                                 changed = True
                                 update_count += 1
 
@@ -863,26 +920,25 @@ class OmniQuantizer:
                     out_idx = outputs[0]
 
                     # Forward: Data -> Output
-                    if data_idx in quant_info_dict and out_idx not in quant_info_dict:
-                        quant_info_dict[out_idx] = copy.deepcopy(quant_info_dict[data_idx])
-                        quant_info_dict[out_idx]['index'] = out_idx
-                        changed = True
-                        update_count += 1
+                    if data_idx in quant_info_dict and out_idx not in protected:
+                        source_info = quant_info_dict[data_idx]
+                        output_info = quant_info_dict.get(out_idx)
+                        if output_info is None or output_info.get('quantInfo') != source_info.get('quantInfo'):
+                            quant_info_dict[out_idx] = copy.deepcopy(source_info)
+                            quant_info_dict[out_idx]['index'] = out_idx
+                            changed = True
+                            update_count += 1
 
-                    # Backward: Output -> Data
-                    if out_idx in quant_info_dict and data_idx not in quant_info_dict:
-                        quant_info_dict[data_idx] = copy.deepcopy(quant_info_dict[out_idx])
-                        quant_info_dict[data_idx]['index'] = data_idx
-                        changed = True
-                        update_count += 1
+                    # Do not propagate Gather output parameters back to the
+                    # data input: QNN requires Gather data/output parameters to
+                    # match, while the indices input is always unquantized.
 
                 elif op_type == 'BinaryOp':
                     out_idx = outputs[0]
-
-                    if out_idx in quant_info_dict:
+                    if out_idx in quant_info_dict and out_idx not in protected:
                         target_info = quant_info_dict[out_idx]
                         for inp_idx in inputs:
-                            if inp_idx not in quant_info_dict:
+                            if inp_idx not in quant_info_dict and inp_idx not in protected:
                                 quant_info_dict[inp_idx] = copy.deepcopy(target_info)
                                 quant_info_dict[inp_idx]['index'] = inp_idx
                                 changed = True
@@ -891,8 +947,10 @@ class OmniQuantizer:
                     else:
                         scales = []
                         valid_inputs = []
+                        if out_idx in protected:
+                            continue
                         for inp_idx in inputs:
-                            if inp_idx in quant_info_dict:
+                            if inp_idx in quant_info_dict and inp_idx not in protected:
                                 scales.append(quant_info_dict[inp_idx]['quantInfo']['scale'])
                                 valid_inputs.append(inp_idx)
 
