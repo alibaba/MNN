@@ -33,12 +33,18 @@ static std::vector<HexagonBuffer*>& dspMappedBuffers() {
     return buffers;
 }
 
+static std::unordered_map<int, HexagonBuffer*>& dspBuffersByFd() {
+    static std::unordered_map<int, HexagonBuffer*> buffers;
+    return buffers;
+}
+
 static void registerDspMappedBuffer(HexagonBuffer* buffer) {
     if (buffer == nullptr) {
         return;
     }
     std::lock_guard<std::mutex> lock(dspMappedBuffersMutex());
     dspMappedBuffers().push_back(buffer);
+    dspBuffersByFd()[buffer->fd] = buffer;
 }
 
 static void unregisterDspMappedBuffer(HexagonBuffer* buffer) {
@@ -48,11 +54,18 @@ static void unregisterDspMappedBuffer(HexagonBuffer* buffer) {
     std::lock_guard<std::mutex> lock(dspMappedBuffersMutex());
     auto& buffers = dspMappedBuffers();
     buffers.erase(std::remove(buffers.begin(), buffers.end(), buffer), buffers.end());
+    dspBuffersByFd().erase(buffer->fd);
 }
 
 static std::vector<HexagonBuffer*> snapshotDspMappedBuffers() {
     std::lock_guard<std::mutex> lock(dspMappedBuffersMutex());
     return dspMappedBuffers();
+}
+
+static HexagonBuffer* findDspBuffer(int fd) {
+    std::lock_guard<std::mutex> lock(dspMappedBuffersMutex());
+    auto iter = dspBuffersByFd().find(fd);
+    return iter == dspBuffersByFd().end() ? nullptr : iter->second;
 }
 
 class HexagonMmapManager {
@@ -370,9 +383,7 @@ private:
 
 class HexagonAllocator : public BufferAllocator::Allocator {
 public:
-    HexagonAllocator() {
-        // Do nothing
-    }
+    explicit HexagonAllocator(bool lazyMap = false) : mLazyMap(lazyMap) {}
     virtual ~ HexagonAllocator() = default;
     virtual MemChunk onAlloc(size_t size, size_t align) override {
 #ifdef MNN_HEXAGON_ASAN
@@ -406,17 +417,19 @@ public:
         buf->ptr = data;
         buf->fd = fd;
         buf->size = mappedSize;
+        buf->lazyMap = mLazyMap;
 #ifdef MNN_HEXAGON_ASAN
         buf->requestedSize = requestedSize;
         buf->guardSize = mappedSize - requestedSize;
         buf->guardValue = gHexagonAsanGuardValue;
         hexagonAsanInitGuard(buf);
 #endif
-        if (!gMmapManager().map(CDSP_DOMAIN_ID, buf)) {
+        if (!buf->lazyMap && !gMmapManager().map(CDSP_DOMAIN_ID, buf)) {
             rpcmem_free(data);
             delete buf;
             return MemChunk((void*)nullptr);
         }
+        buf->mapped = !buf->lazyMap;
         registerDspMappedBuffer(buf);
 //        MNN_PRINT("[Hexagon] Alloc %d, size=%d\n", buf->fd, buf->size);
         return buf;
@@ -431,11 +444,15 @@ public:
 #ifdef MNN_HEXAGON_ASAN
         hexagonAsanCheckGuard(buf, "release");
 #endif
-        gMmapManager().unmap(CDSP_DOMAIN_ID, buf);
+        if (buf->mapped) {
+            gMmapManager().unmap(CDSP_DOMAIN_ID, buf);
+            buf->mapped = false;
+        }
         rpcmem_free(buf->ptr);
         delete buf;
     }
 private:
+    bool mLazyMap = false;
 };
 
 // Host-side DSP backend context: owns the FastRPC driver, the dlopen handle of
@@ -693,6 +710,10 @@ void HexagonRuntime::addSyncRecord(std::vector<SyncTensorRecord>& records, int f
 }
 
 void HexagonRuntime::markHostInput(int fd, int offset, int size) const {
+    auto buffer = findDspBuffer(fd);
+    if (buffer != nullptr && buffer->lazyMap) {
+        return;
+    }
     addSyncRecord(mPendingHostInputs, fd, offset, size);
 }
 
@@ -781,13 +802,56 @@ void HexagonRuntime::recordCopyBuffer(int direction, size_t bytes, uint64_t us, 
 }
 #endif
 
-void HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const {
+bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const {
     if (mCommandGroup == nullptr || cmdChunk.first == nullptr) {
-        return;
+        return false;
     }
     MNN_ASSERT(cmdSize <= MAX_MSG_SIZE);
     if (mCommandGroupCount >= gCommandGroupCapacity) {
         flushCommand();
+    }
+    auto command = flatbuffers::GetRoot<DSPCOMMAND::Command>(HexagonBackend::getPtr(cmdChunk));
+    std::vector<HexagonBuffer*> commandWeights;
+    auto collectWeights = [&commandWeights](const flatbuffers::Vector<flatbuffers::Offset<DSPCOMMAND::Tensor>>* tensors) {
+        if (tensors == nullptr) {
+            return;
+        }
+        for (auto tensor : *tensors) {
+            auto buffer = findDspBuffer(tensor->fd());
+            if (buffer == nullptr || !buffer->lazyMap) {
+                continue;
+            }
+            if (std::find(commandWeights.begin(), commandWeights.end(), buffer) == commandWeights.end()) {
+                commandWeights.push_back(buffer);
+            }
+        }
+    };
+    collectWeights(command->inputs());
+    collectWeights(command->outputs());
+    constexpr size_t kCommandWeightMapLimit = 256 * 1024 * 1024;
+    size_t additionalBytes = 0;
+    for (auto buffer : commandWeights) {
+        if (std::find(mCommandWeightBuffers.begin(), mCommandWeightBuffers.end(), buffer) ==
+            mCommandWeightBuffers.end()) {
+            additionalBytes += buffer->size;
+        }
+    }
+    if (mCommandGroupCount > 0 && mCommandWeightBytes + additionalBytes > kCommandWeightMapLimit) {
+        flushCommand();
+    }
+    for (auto buffer : commandWeights) {
+        if (std::find(mCommandWeightBuffers.begin(), mCommandWeightBuffers.end(), buffer) !=
+            mCommandWeightBuffers.end()) {
+            continue;
+        }
+        if (!gMmapManager().map(CDSP_DOMAIN_ID, buffer)) {
+            MNN_ERROR("[Hexagon] failed to map command weight fd=%d size=%zu\n", buffer->fd, buffer->size);
+            return false;
+        }
+        buffer->mapped = true;
+        mCommandWeightBuffers.push_back(buffer);
+        mCommandWeightBytes += buffer->size;
+        addSyncRecord(mPendingHostInputs, buffer->fd, 0, static_cast<int>(buffer->size));
     }
     MemChunk queuedChunk = cmdChunk;
     if (needCopy) {
@@ -799,7 +863,7 @@ void HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
         }
         if (queuedChunk.first == nullptr) {
             MNN_ERROR("[Hexagon] pushCommand: failed to allocate queued command\n");
-            return;
+            return false;
         }
         ::memcpy(HexagonBackend::getPtr(queuedChunk), HexagonBackend::getPtr(cmdChunk), cmdSize);
         mQueuedCommandChunks.emplace_back(queuedChunk);
@@ -822,6 +886,7 @@ void HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
     if (mCommandGroupCount >= gCommandGroupCapacity) {
         flushCommand();
     }
+    return true;
 }
 
 void HexagonRuntime::flushCommand() const {
@@ -980,6 +1045,14 @@ void HexagonRuntime::flushCommand() const {
     mPendingHostInputs.clear();
     mPendingHostOutputs.clear();
     mPendingHexagonOutputs.clear();
+    for (auto buffer : mCommandWeightBuffers) {
+        if (buffer != nullptr && buffer->mapped) {
+            gMmapManager().unmap(CDSP_DOMAIN_ID, buffer);
+            buffer->mapped = false;
+        }
+    }
+    mCommandWeightBuffers.clear();
+    mCommandWeightBytes = 0;
     mCommandGroupCount = 0;
     mCommandSerial++;
     if (mCommandSerial == 0) {
@@ -991,11 +1064,12 @@ float HexagonRuntime::onGetMemoryInMB() {
     auto staticMemoryInMB = mStaticAlloc->totalSize() / 1024.0f / 1024.0f;
     auto commandMemoryInMB = mCommandAlloc->totalSize() / 1024.0f / 1024.0f;
     auto weightInMB = mWeightAlloc->totalSize()  / 1024.0f / 1024.0f;
+    auto lazyWeightInMB = mLazyWeightAlloc->totalSize() / 1024.0f / 1024.0f;
     float dynamicMemoryInMB = 0.0f;
 //    for (auto& buf : mDynamic) {
 //        dynamicMemoryInMB += buf.currentSize / 1024.0f / 1024.0f;
 //    }
-    return staticMemoryInMB + dynamicMemoryInMB + commandMemoryInMB + weightInMB;
+    return staticMemoryInMB + dynamicMemoryInMB + commandMemoryInMB + weightInMB + lazyWeightInMB;
 }
 
 HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
@@ -1086,6 +1160,13 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
     weightAlloc = asanWrapAllocator(weightAlloc, "weight");
 #endif
     mWeightAlloc = weightAlloc;
+    std::shared_ptr<EagerBufferAllocator::Allocator> lazyWeightAllocator(new HexagonAllocator(true));
+    std::shared_ptr<BufferAllocator> lazyWeightAlloc(
+        new EagerBufferAllocator(lazyWeightAllocator, 128, weightMinAllocSize));
+#ifdef MNN_HEXAGON_ASAN
+    lazyWeightAlloc = asanWrapAllocator(lazyWeightAlloc, "lazy_weight");
+#endif
+    mLazyWeightAlloc = lazyWeightAlloc;
     if (mInfo.maxThreads <= 0) {
         mInfo.maxThreads = 1;
     }
@@ -1204,6 +1285,7 @@ HexagonRuntime::~HexagonRuntime() {
 
     mDynamicBuffer.release();
     mDynamicBuffer.root.reset();
+    mLazyWeightAlloc.reset();
     mWeightAlloc.reset();
     mCommandAlloc.reset();
     mStaticAlloc.reset();
@@ -1242,6 +1324,9 @@ void HexagonRuntime::onGabageCollect(int level) {
     }
     if (level >= 100 && mWeightAlloc) {
         mWeightAlloc->release(false);
+    }
+    if (level >= 100 && mLazyWeightAlloc) {
+        mLazyWeightAlloc->release(false);
     }
     if (level >= 100) {
         mDynamicBuffer.release();

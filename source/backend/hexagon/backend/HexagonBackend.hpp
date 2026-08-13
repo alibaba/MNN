@@ -56,7 +56,7 @@ public:
     static std::pair<int, int> getDevicePtr(const MemChunk& chunk);
     MemChunk allocCommandSlot(int size) const;
     void freeCommandSlot(const MemChunk& chunk) const;
-    void pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const;
+    bool pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const;
     int commandSerial() const;
     void flushCommand() const;
     // Device ranges whose DSP-dirty lines we have already written back before a host upload. Once a range

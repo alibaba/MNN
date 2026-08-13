@@ -1007,7 +1007,11 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
     auto weightIC = useIm2Col ? (kernelSize * icP * icPack) : ic;
     auto weightICP = UP_DIV(weightIC, icPack);
     const size_t im2colBlockedWeightSize = (size_t)ocP * icP * common->kernelY() * common->kernelX() * ocPack * icPack;
-    auto bufferAlloc = static_cast<HexagonBackend*>(backend)->getAllocator(2);
+    // Quantized weights are small enough to stay mapped for the runtime lifetime. Full FP16
+    // models can exceed the CDSP mapping window, so their reordered weights use the lazy
+    // allocator and are mapped only for the command group that consumes them.
+    auto bufferAlloc = static_cast<HexagonBackend*>(backend)->getAllocator(
+        useInt4W4A16 || useInt8W8A16 ? 2 : 3);
     std::shared_ptr<Resource> res(new Resource);
     res->allocator = bufferAlloc;
     res->hasBias = hasNonZeroBias(originBias, std::min(oc, originBiasSize));
