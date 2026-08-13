@@ -46,7 +46,7 @@ def is_embedding_model(config_data, model_dir):
         return True
     return False
 
-def makeIOJson(args, seq_len, hidden_size, mask_type, is_embedding=False):
+def makeIOJson(args, seq_len, hidden_size, mask_type, is_embedding=False, is_mrope=False, has_deepstack=False):
     def model_inputs(current_seq_len, logits_index=None):
         inputs = [
             {
@@ -104,37 +104,34 @@ def makeIOJson(args, seq_len, hidden_size, mask_type, is_embedding=False):
                 inp["shape"] = [2, 1, 1, 1, 3]		
             if inp["name"] == "position_ids":
                 inp["shape"] = [3, 1]
-    if not is_embedding and "Qwen" in args.model and "VL" in args.model:
+    if not is_embedding and is_mrope:
         cfg = config["configs"]
         inputs = cfg[0]["inputs"]
         for inp in inputs:
             if inp["name"] == "position_ids":
                 inp["shape"] = [3, seq_len]
-
-        new_input = {
-            "name": "deepstack_embeds",
-            "shape": [3, 1, 1]
-        }
-        inputs.append(new_input)
-
         inputs = cfg[1]["inputs"]
         for inp in inputs:
             if inp["name"] == "position_ids":
                 inp["shape"] = [3, 1]
 
-        new_input = {
+    if not is_embedding and has_deepstack:
+        config["configs"][0]["inputs"].append({
             "name": "deepstack_embeds",
-            "shape": [3, 1, 1]
-        }
-        inputs.append(new_input)
+            "shape": [3, seq_len, hidden_size]
+        })
+        config["configs"][1]["inputs"].append({
+            "name": "deepstack_embeds",
+            "shape": [3, 1, hidden_size]
+        })
     cache = os.path.join(os.getcwd(), args.cache_path)
     with open(os.path.join(cache, 'input.json'), 'w') as f:
         f.write(json.dumps(config, indent=4))
 
-def makeVLIOJson(args, image_sizes):
+def makeVLIOJson(args, image_sizes, model_type):
     configs = []
     for w, h in image_sizes:
-        if "Qwen2.5" in args.model and "VL" in args.model:
+        if model_type == "qwen2_5_vl":
             align_size = 28
             grid_h = (round(h / align_size) * align_size) // 14
             grid_w = (round(w / align_size) * align_size) // 14
@@ -148,7 +145,7 @@ def makeVLIOJson(args, image_sizes):
                 ],
                 "outputs": ["image_embeds"]
             }
-        elif "Qwen3" in args.model or "Qwen3.5" in args.model:
+        elif model_type in {"qwen3_vl", "qwen3_vl_moe", "qwen3_5_vl"}:
             align_size = 32
             grid_h = (round(h / align_size) * align_size) // 16
             grid_w = (round(w / align_size) * align_size) // 16
@@ -161,9 +158,9 @@ def makeVLIOJson(args, image_sizes):
                     {"name": "idx_tensor", "shape": [4, seq_len]},
                     {"name": "weight_tensor", "shape": [4, seq_len]}
                 ],
-                "outputs": ["image_embeds"]
+                "outputs": ["image_embeds", "deepstack_feature"]
             }
-        elif "FastVLM" in args.model:
+        elif model_type in {"fastvlm", "llava_qwen2"}:
             config = {
                 "inputs": [
                     {"name": "input_images", "shape": [1, 3, h, w]}
@@ -171,7 +168,7 @@ def makeVLIOJson(args, image_sizes):
                 "outputs": ["image_embeds"]
             }
         else:
-            raise ValueError(f"Unsupported visual model: {args.model}")
+            raise ValueError(f"Unsupported visual model type: {model_type}")
         configs.append(config)
 
     full_config = {"configs": configs}
@@ -347,10 +344,12 @@ def convert_visual(args):
     if not image_sizes:
         print("No valid image sizes provided.")
         sys.exit(1)
-    if "FastVLM" in args.model:
+    with open(os.path.join(args.model, "llm_config.json"), "r", encoding="utf-8") as f:
+        model_type = json.load(f)["model_type"]
+    if model_type in {"fastvlm", "llava_qwen2"}:
         convert_fastvlm(args, image_sizes)
     else:
-        makeVLIOJson(args, image_sizes)
+        makeVLIOJson(args, image_sizes, model_type)
         inputjson = os.path.join(cache, 'input.json')
         ids = list(range(len(image_sizes)))
         convert_qnn(args, 'visual.mnn', inputjson, external_file, ids)
@@ -371,11 +370,13 @@ def convert_llm(args):
         if "attention_mask" in config_data:
             mask_type = config_data["attention_mask"]
         is_embedding = is_embedding_model(config_data, model_dir)
+        is_mrope = config_data.get("is_mrope", False)
+        has_deepstack = config_data.get("has_deepstack", False)
     
     ids = [0, 1]
     model_name = 'embedding.mnn' if is_embedding else 'llm.mnn'
     external_file = os.path.join(model_dir, model_name + '.weight')
-    makeIOJson(args, args.chunk_size, hidden_size, mask_type, is_embedding)
+    makeIOJson(args, args.chunk_size, hidden_size, mask_type, is_embedding, is_mrope, has_deepstack)
     inputjson = os.path.join(cache, 'input.json')
     convert_qnn(args, model_name, inputjson, external_file, ids)
 
