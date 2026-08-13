@@ -1,5 +1,22 @@
 #include "attention_private.hpp"
 
+// Worker-side phase profiling for the grouped-causal prefill path, mirroring the queue-thread timers in
+// attention_hmx.cc. Per-worker slots => no atomics needed. Surfaced into profile[251..255] by
+// execute_command.cc. [0]=Q gather, [1]=QK submit+wait, [2]=softmax, [3]=SV submit+wait, [4]=O scatter.
+#ifndef HTP_WATTN_PHASE_PROFILE
+#  define HTP_WATTN_PHASE_PROFILE 0
+#endif
+#if HTP_WATTN_PHASE_PROFILE
+#  define HTP_WATTN_MAX_WORKERS 32
+unsigned long long g_wattn_phase_us[HTP_WATTN_MAX_WORKERS][5] = {};
+#  define WATTN_T0() (HAP_perf_get_time_us())
+#  define WATTN_ADD(w, i, t0) \
+    (g_wattn_phase_us[(w) & (HTP_WATTN_MAX_WORKERS - 1)][(i)] += HAP_perf_get_time_us() - (t0))
+#else
+#  define WATTN_T0()          (0ULL)
+#  define WATTN_ADD(w, i, t0) ((void) (t0))
+#endif
+
 static inline void sync_attention_add_mask_fp16(float* row_scores, const __fp16* mask_ptr, int len) {
   for (int i = 0; i < len; ++i) {
     row_scores[i] += (float)mask_ptr[i];
@@ -30,6 +47,91 @@ static inline void sync_attention_softmax_row(__fp16* row_s, float* row_scores, 
   float sum_exp = sync_attention_exp_and_sum(row_scores, validN, max_value);
   float inv_sum = 1.0f / sum_exp;
   sync_attention_normalize_to_fp16(row_s, row_scores, validN, inv_sum);
+}
+
+// ATTN_SCORES_FP16: fused softmax over an fp16 scores row. Reads fp16, promotes to fp32 in registers for
+// max/exp/sum (no fp32 temp), writes the exp result as fp16 into row_s, then normalizes row_s in place.
+// Half the read traffic of the fp32 path; the math stays fp32 for numerical stability.
+//
+// The row is staged into an L1-resident scratch on the max pass, so the DDR traffic is one read of the
+// score row plus one write of linear_S. Before: scores were read twice (max, exp) and linear_S was
+// written, read back and rewritten (normalize) -- 10 bytes of DDR per element, now 4. The arithmetic and
+// its ordering are unchanged, so results stay bit-identical.
+static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *row_scores16, int validN) {
+  __fp16 stage[ATTN_FIXED_WORKSPACE_KV] __attribute__((aligned(128)));
+  if (validN > ATTN_FIXED_WORKSPACE_KV) {  // guaranteed by sync_attention_can_group_causal; be defensive
+    FARF(ERROR, "softmax_row_fp16 validN overflow: %d", validN);
+    return;
+  }
+  float      neg_inf = -INFINITY;
+  HVX_Vector v_max   = Q6_V_vsplat_R(*(int *) &neg_inf);
+  int        i       = 0;
+  for (; i < validN; i += 64) {
+    HVX_Vector raw              = vmemu(row_scores16 + i);
+    *(HVX_Vector *) (stage + i) = raw;  // i is a multiple of 64 fp16 => 128B aligned
+    HVX_VectorPair sf           = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(raw));
+    HVX_Vector     lo  = Q6_V_lo_W(sf);
+    HVX_Vector     hi  = Q6_V_hi_W(sf);
+    int            rem = validN - i;
+    if (rem < 64) {
+      lo = Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem < 32 ? rem : 32) * (int) sizeof(float)), lo, v_max);
+      hi = (rem > 32) ? Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem - 32) * (int) sizeof(float)), hi, v_max) : v_max;
+    }
+    v_max = Q6_Vsf_vmax_VsfVsf(v_max, lo);
+    v_max = Q6_Vsf_vmax_VsfVsf(v_max, hi);
+  }
+  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 64));
+  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 32));
+  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 16));
+  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 8));
+  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 4));
+  float max_arr[32] __attribute__((aligned(128)));
+  *(HVX_Vector *) max_arr = v_max;
+  float max_value         = max_arr[0];
+
+  const float log2e   = 1.4426950408889634f;
+  HVX_Vector  v_log2e = Q6_V_vsplat_R(*(const int *) &log2e);
+  HVX_Vector  v_maxs  = Q6_V_vsplat_R(*(const int *) &max_value);
+  HVX_Vector  v_sum   = Q6_V_vzero();
+  for (i = 0; i < validN; i += 64) {
+    HVX_VectorPair sf = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(*(const HVX_Vector *) (stage + i)));
+    HVX_Vector     s0 = Q6_Vsf_equals_Vqf32(
+      Q6_Vqf32_vmpy_VsfVsf(Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(Q6_V_lo_W(sf), v_maxs)), v_log2e));
+    HVX_Vector s1 = Q6_Vsf_equals_Vqf32(
+      Q6_Vqf32_vmpy_VsfVsf(Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(Q6_V_hi_W(sf), v_maxs)), v_log2e));
+    HVX_Vector e0  = hvx_my_exp2_vsf(s0);
+    HVX_Vector e1  = hvx_my_exp2_vsf(s1);
+    int        rem = validN - i;
+    if (rem < 64) {
+      e0 = Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem < 32 ? rem : 32) * (int) sizeof(float)), e0, Q6_V_vzero());
+      e1 = (rem > 32) ? Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem - 32) * (int) sizeof(float)), e1, Q6_V_vzero()) : Q6_V_vzero();
+    }
+    v_sum              = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e0));
+    v_sum              = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e1));
+    // Straight into the stage: lanes past validN were already zeroed above and the stage is scratch,
+    // so a full aligned vector store is fine (no tail handling needed here any more).
+    *(HVX_Vector *) (stage + i) = Q6_Vh_vdeal_Vh(Q6_Vhf_vcvt_VsfVsf(e0, e1));
+  }
+  v_sum = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_vror_VR(v_sum, 64)));
+  v_sum = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_vror_VR(v_sum, 32)));
+  v_sum = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_vror_VR(v_sum, 16)));
+  v_sum = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_vror_VR(v_sum, 8)));
+  v_sum = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_vror_VR(v_sum, 4)));
+  float sum_arr[32] __attribute__((aligned(128)));
+  *(HVX_Vector *) sum_arr = v_sum;
+  float inv_sum           = sum_arr[0] > 0.0f ? 1.0f / sum_arr[0] : 0.0f;
+
+  uint16_t   inv_bits = hmx_fp16_bits(inv_sum);
+  HVX_Vector v_inv    = Q6_V_vsplat_R(((unsigned) inv_bits) | (((unsigned) inv_bits) << 16));
+  for (int j = 0; j < validN; j += 64) {
+    HVX_Vector r   = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(*(const HVX_Vector *) (stage + j), v_inv));
+    int        rem = validN - j;
+    if (rem >= 64) {
+      vmemu(row_s + j) = r;
+    } else {
+      sync_attention_store_fp16_tail(row_s + j, r, rem);
+    }
+  }
 }
 
 static inline int sync_attention_prepare_online_row(const SyncAttentionTaskState* state, float* row_scores,
@@ -359,7 +461,12 @@ static inline int sync_attention_decode_group_q_rows(const SyncAttentionTaskStat
   return group_q_rows;
 }
 
-static void sync_attention_process_decode_group(const SyncAttentionTaskState* state, int kv_head, int worker_index) {
+// q_block < 0 processes every q block of this kv_head (decode, and the un-split prefill path);
+// q_block >= 0 processes only that one block, which is how the grouped-causal prefill path gets
+// n_kv_heads * causal_q_blocks tasks instead of n_kv_heads. Blocks are independent: each derives its
+// own causal extent from q_base and writes its own rows of O.
+static void sync_attention_process_decode_group(const SyncAttentionTaskState *state, int kv_head, int worker_index,
+                                                int q_block) {
   if (state->online_pages) {
     sync_attention_process_online_pages(state, kv_head, worker_index, 1);
     return;
@@ -377,7 +484,19 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
 
   if (state->qo_len > 1) {
     __fp16* packed_Q = linear_S;
-    for (int q_base = 0; q_base < state->qo_len; q_base += group_q_rows) {
+    int     q_first  = 0;
+    int     q_limit  = state->qo_len;
+    if (q_block >= 0) {
+      q_first = q_block * group_q_rows;
+      if (q_first >= state->qo_len) {
+        return;
+      }
+      q_limit = q_first + group_q_rows;
+      if (q_limit > state->qo_len) {
+        q_limit = state->qo_len;
+      }
+    }
+    for (int q_base = q_first; q_base < q_limit; q_base += group_q_rows) {
       int q_count = state->qo_len - q_base;
       if (q_count > group_q_rows) {
         q_count = group_q_rows;
@@ -385,6 +504,7 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
       int rows = q_count * group_heads;
       int block_valid_end = sync_attention_causal_valid_end(state, q_base + q_count);
 
+      unsigned long long _tw = WATTN_T0();
       for (int q = 0; q < q_count; ++q) {
         for (int h = 0; h < group_heads; ++h) {
           const __fp16* src = state->Q + (size_t)(q_base + q) * state->qo_stride + (head_base + h) * state->head_dim;
@@ -395,6 +515,8 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
         }
       }
 
+      WATTN_ADD(worker_index, 0, _tw);
+      _tw = WATTN_T0();
       if (state->page_count > 0) {
         sync_attention_run_page_qk(state, scores, packed_Q, rows, state->head_dim, 0, kv_head, block_valid_end);
       } else {
@@ -405,19 +527,27 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
                                    kv_head, state->n_kv_heads);
       }
 
+      WATTN_ADD(worker_index, 1, _tw);
+      _tw              = WATTN_T0();
+      __fp16 *scores16 = (__fp16 *) scores;  // ATTN_SCORES_FP16: scores buffer reused as fp16 (lower half)
       for (int q = 0; q < q_count; ++q) {
         int validN = sync_attention_causal_valid_end(state, q_base + q + 1);
         for (int h = 0; h < group_heads; ++h) {
-          int row = q * group_heads + h;
-          float* row_scores = scores + (size_t)row * state->N_padded;
+          int     row   = q * group_heads + h;
           __fp16* row_s = linear_S + (size_t)row * state->N_padded;
-          sync_attention_softmax_row(row_s, row_scores, validN);
+          if (state->scores_fp16) {
+            sync_attention_softmax_row_fp16(row_s, scores16 + (size_t) row * state->N_padded, validN);
+          } else {
+            sync_attention_softmax_row(row_s, scores + (size_t) row * state->N_padded, validN);
+          }
           if (validN < block_valid_end) {
             sync_attention_zero_fp16(row_s + validN, block_valid_end - validN);
           }
         }
       }
 
+      WATTN_ADD(worker_index, 2, _tw);
+      _tw              = WATTN_T0();
       __fp16* packed_O = (__fp16*)scores;
       if (state->page_count > 0) {
         sync_attention_run_page_sv(state, packed_O, temp_O, linear_S, rows, rows, 0, kv_head, block_valid_end);
@@ -427,6 +557,8 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
                                    ATTN_HMX_OUT_PACKED_FP16, 1.0f, ATTN_HMX_WEIGHT_LAYOUT_V_BLOCK256,
                                    kv_head, state->n_kv_heads);
       }
+      WATTN_ADD(worker_index, 3, _tw);
+      _tw = WATTN_T0();
       for (int q = 0; q < q_count; ++q) {
         for (int h = 0; h < group_heads; ++h) {
           int row = q * group_heads + h;
@@ -438,6 +570,7 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState* st
           }
         }
       }
+      WATTN_ADD(worker_index, 4, _tw);
     }
     return;
   }
@@ -512,10 +645,44 @@ static inline void sync_attention_process_task(const SyncAttentionTaskState* sta
     return;
   }
   if (state->decode_grouped) {
-    sync_attention_process_decode_group(state, task_id, worker_index);
+    if (state->causal_q_blocks > 1) {
+      // task_id -> (kv_head, q_block). kv_head is the fast axis so that the n_kv_heads tasks of one
+      // q block are handed out together. Blocks run in DESCENDING q order because a causal block's
+      // cost grows with q_base (block 0 attends to ~group_q_rows keys, the last one to all of them);
+      // starting with the most expensive leaves only cheap tasks for the tail of the schedule.
+      const int kv_head = task_id % state->n_kv_heads;
+      const int q_block = state->causal_q_blocks - 1 - task_id / state->n_kv_heads;
+      sync_attention_process_decode_group(state, kv_head, worker_index, q_block);
+    } else {
+      sync_attention_process_decode_group(state, task_id, worker_index, -1);
+    }
   } else {
     sync_attention_process_head(state, task_id, worker_index);
   }
+}
+
+// See the declaration in attention_private.hpp. Splits the grouped-causal prefill into one task per
+// (kv_head, q block) so the task count stops being tied to n_kv_heads.
+int sync_attention_finalize_causal_tasks(SyncAttentionTaskState *state) {
+  state->causal_q_blocks     = 1;
+  // Only split when the coarse decomposition (one task per kv_head) leaves a partial scheduling wave,
+  // because then its tail runs with most threads idle. If n_kv_heads is a multiple of the worker count
+  // the coarse tasks already fill whole waves and the finer split only adds per-task overhead and costs
+  // K/V locality: measured on v81 (8 workers, 8 kv heads) splitting anyway made FLASH_ATTN 145.9 ->
+  // 151.1 ms. On 6 workers, where 8 tasks means two waves, it is 214.9 -> 183.2 ms.
+  const unsigned int workers = g_max_num_workers;
+  if (state->decode_grouped && state->qo_len > 1 && !state->online_pages && workers > 1 && state->n_kv_heads > 0 &&
+      ((unsigned int) state->n_kv_heads % workers) != 0) {
+    const int group_q_rows = sync_attention_decode_group_q_rows(state);
+    if (group_q_rows > 0) {
+      const int blocks = (state->qo_len + group_q_rows - 1) / group_q_rows;
+      if (blocks > 1) {
+        state->causal_q_blocks = blocks;
+        state->total_heads     = state->n_kv_heads * blocks;
+      }
+    }
+  }
+  return sync_attention_pick_task_count(state->total_heads);
 }
 
 static void sync_attention_worker(void* data, int worker_index) {

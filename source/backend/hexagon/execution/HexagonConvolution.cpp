@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstdint>
+#include <cstdlib>
 #include <cmath>
 #include <vector>
 #include "HexagonConvolution.hpp"
@@ -468,6 +469,65 @@ static bool reorderInt8SymWeightForHmx(uint8_t* dst, size_t dstBytes, const int8
     return true;
 }
 
+// Pack raw row-major int4 weights into the vrmpy-friendly int4 layout consumed by
+// the M=1 decode kernel (matmul_q4block_gemv_i8.c). Requires aligned dims
+// (ic%32==0, oc%32==0) and block-quant (nblk>1, ic%nblk==0). Only at load time.
+//
+// Raw int4 (rawInt4Data): row-major per oc, 2 int4/byte, icBytes=UP_DIV(ic,2) per
+// row. Even k = high nibble (byte>>4), odd k = low nibble (byte&0xf); the stored
+// nibble equals (weight+8) in [0,15] (matches q4_to_fp16_lut).
+// Output int4 layout: tile(oc-tile y, k-tile x) at (y*icP+x)*512; within, group g
+// (0..8) covers k=x*32+4g..+3, byte (g*64+oc*2+p) holds low nibble w(4g+2p)+8, high
+// nibble w(4g+2p+1)+8. The DSP nibble-expands 128B (=2 groups) into two int8 vrmpy
+// vectors. Keeping int4 halves the DDR stream (the dominant decode cost).
+static bool reorderInt4WeightForVrmpyGemv(uint8_t* dst, size_t dstBytes, const uint8_t* rawInt4Data,
+                                          const float* rawAlphaData, int ic, int oc, int nblk) {
+    if ((ic % 32) != 0 || (oc % 32) != 0 || nblk <= 0) {
+        return false;
+    }
+    const int icP = ic / 32;
+    const int ocP = oc / 32;
+    const int icBytes = UP_DIV(ic, 2);
+    const size_t weightBytes = (size_t)icP * ocP * 512;
+    const size_t scaleBytes = (size_t)ocP * nblk * 32 * sizeof(float);
+    if (weightBytes + scaleBytes > dstBytes) {
+        return false;
+    }
+    uint8_t* dstWeight = dst;
+    float* dstScale = reinterpret_cast<float*>(dst + weightBytes);
+
+    auto rawNibble = [&](int o, int k) -> uint8_t {
+        const uint8_t byte = rawInt4Data[(size_t)o * icBytes + (k >> 1)];
+        return (k & 1) ? (byte & 0x0f) : (uint8_t)(byte >> 4); // even k = high nibble, odd = low
+    };
+
+    for (int y = 0; y < ocP; ++y) {
+        for (int x = 0; x < icP; ++x) {
+            uint8_t* tile = dstWeight + (size_t)(y * icP + x) * 512;
+            for (int ocIn = 0; ocIn < 32; ++ocIn) {
+                const int o = y * 32 + ocIn;
+                for (int g = 0; g < 8; ++g) {
+                    for (int p = 0; p < 2; ++p) {
+                        const int kLo = x * 32 + 4 * g + 2 * p;
+                        const int kHi = kLo + 1;
+                        tile[g * 64 + ocIn * 2 + p] = (uint8_t)(rawNibble(o, kLo) | (rawNibble(o, kHi) << 4));
+                    }
+                }
+            }
+        }
+    }
+
+    for (int y = 0; y < ocP; ++y) {
+        for (int b = 0; b < nblk; ++b) {
+            for (int ocIn = 0; ocIn < 32; ++ocIn) {
+                const int o = y * 32 + ocIn;
+                dstScale[((size_t)y * nblk + b) * 32 + ocIn] = rawAlphaData[(size_t)o * nblk + b];
+            }
+        }
+    }
+    return true;
+}
+
 static void reorderFp16WeightForHmx(int16_t* dst, const int16_t* src, int ic, int oc, int kernelX, int kernelY) {
     constexpr int icPack = 32;
     constexpr int ocPack = 32;
@@ -582,6 +642,9 @@ HexagonConvolution::Resource::~Resource() {
     }
     if (int8Weight.first != nullptr) {
         allocator->free(int8Weight);
+    }
+    if (gemvI8Weight.first != nullptr) {
+        allocator->free(gemvI8Weight);
     }
 }
 HexagonConvolution::HexagonConvolution(Backend *backend, std::shared_ptr<Resource> res, const Op* op) : HexagonExecution(backend) {
@@ -709,12 +772,31 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
                                                     : (useConv1x1Direct ? DSP_OP_CONV1X1_DIRECT_FP16 : DSP_OP_IM2COL_CONVOLUTION_FP16);
         dst.back().build(static_cast<HexagonBackend*>(backend()), opType, &im2colParams, sizeof(im2colParams),
                          inputFds,  outputFds,  inputs, outputs);
+    } else if (area == 1 && mResource->useGemvI8 && mResource->gemvI8Weight.first != nullptr) {
+        // M=1 decode: integer int8xint4 vrmpy GEMV (no fp16 dequant, no HMX).
+        auto weight = HexagonBackend::getDevicePtr(mResource->gemvI8Weight);
+        int params[] = {area, icP * 32, ocP * 32, mResource->int4WeightType,    mResource->int4LayoutType,
+                        mMp,  mNp,      mKp,      mResource->int4ScaleBlockNum, 0};
+        std::vector<std::pair<int, int>> inputFds = {input, weight, bias};
+        dst.emplace_back();
+        dst.back().build(static_cast<HexagonBackend*>(backend()), DSP_OP_MATMUL_Q4A16_GEMV_I8, params, sizeof(params),
+                         inputFds, outputFds, inputs, outputs);
     } else if (mResource->useInt4W4A16) {
         // Kernel don't need treat not aligned ic / oc
-        auto weight = HexagonBackend::getDevicePtr(mResource->int4Weight);
-        int params[] = {area, icP * 32, ocP * 32, mResource->int4WeightType, mResource->int4LayoutType, mMp, mNp, mKp, mResource->int4ScaleBlockNum, 0};
+        // Which int4 layout this layer holds is decided once, by arch, in the weight prep below:
+        // useGemvI8 means the single copy is the vrmpy layout, so the block GEMM reorders each tile to
+        // HMX and repacks the fp32 scale on the DSP; otherwise the single copy is already HMX.
+        // useBlock is implied by useGemvI8 (both require int4ScaleBlockNum > 1) but is kept in the
+        // condition because only the block kernel understands the vrmpy input.
+        const bool useBlock = mResource->int4ScaleBlockNum > 1;
+        const bool pathA = useBlock && mResource->useGemvI8 && mResource->gemvI8Weight.first != nullptr;
+        auto weight = pathA ? HexagonBackend::getDevicePtr(mResource->gemvI8Weight)
+                            : HexagonBackend::getDevicePtr(mResource->int4Weight);
+        int params[] = {area,         icP * 32, ocP * 32, mResource->int4WeightType,    mResource->int4LayoutType,
+                        mMp,          mNp,      mKp,      mResource->int4ScaleBlockNum, 0,
+                        pathA ? 1 : 0};
         std::vector<std::pair<int, int>> inputFds = {input, weight, bias};
-        const auto opType = mResource->int4ScaleBlockNum > 1 ? DSP_OP_MATMUL_Q4A16_BLOCK_FP16 : DSP_OP_MATMUL_Q4A16_FP16;
+        const auto opType = useBlock ? DSP_OP_MATMUL_Q4A16_BLOCK_FP16 : DSP_OP_MATMUL_Q4A16_FP16;
         dst.emplace_back();
         dst.back().build(static_cast<HexagonBackend*>(backend()), opType, params, sizeof(params),
                          inputFds,  outputFds,  inputs, outputs);
@@ -875,29 +957,74 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
         const size_t int4WeightSize = (size_t)icP * ocP * 32 * 16 +
                                       (size_t)ocP * int4ScaleBlockNum * scaleUnit * sizeof(int16_t) +
                                       packedScaleSize;
-        res->int4Weight = bufferAlloc->alloc(int4WeightSize);
-        if (res->int4Weight.first != nullptr) {
-            int4Success = true;
-            res->useInt4W4A16 = true;
-            res->int4WeightType = int4WeightType;
-            res->int4LayoutType = int4LayoutType;
-            res->int4ScaleBlockNum = int4ScaleBlockNum;
+        const uint8_t* rawInt4Data = reinterpret_cast<const uint8_t*>(quanCommon->weight.get());
+        const float* rawAlphaData = quanCommon->alpha.get();
+        const size_t rawInt4Size = quanCommon->weight.size();
+        const size_t gatherInt4Size = ((size_t)(ic + 1) / 2) * oc;
+        if (rawInt4Size < gatherInt4Size || rawAlphaData == nullptr) {
+            return nullptr;
+        }
 
-            const uint8_t* rawInt4Data = reinterpret_cast<const uint8_t*>(quanCommon->weight.get());
-            const float* rawAlphaData = quanCommon->alpha.get();
-            size_t rawInt4Size = quanCommon->weight.size();
-            const size_t gatherInt4Size = ((size_t)(ic + 1) / 2) * oc;
-            if (rawInt4Size >= gatherInt4Size && rawAlphaData != nullptr) {
-                auto int4Ptr = HexagonBackend::getPtr(res->int4Weight);
-                if (!reorderInt4WeightForHmx(int4Ptr, int4WeightSize, rawInt4Data, rawAlphaData,
-                                             quanCommon->alpha.size(), ic, oc, int4ScaleBlockNum,
+        // ONE int4 weight copy per layer, reordered directly into the layout this arch profits from.
+        // Decided BEFORE any reorder, so the layout we do not use is never built or allocated, and
+        // decided from the arch alone -- there is no env override, so a device always runs the same path.
+        //
+        // The vrmpy layout (needed by the M=1 decode GEMV, reorderInt4WeightForVrmpyGemv) only pays for
+        // itself from v81 on. Using it as the only copy means the prefill GEMM must reach the HMX layout
+        // through an on-DSP tile reorder + dequant (weight_is_vrmpy, "Path A"), and that conversion is a
+        // per-GEMM cost proportional to sequence length while the decode win it buys is not. Measured:
+        // it costs pp512 -6.4% on v81 but buys decode +50.9% there (57.47 -> 86.70 tok/s), whereas on
+        // v79 it costs pp512 -4.9% and buys only +1.2% (73.37 -> 74.28, inside that device's noise),
+        // because v79's fp16 HMX decode is already as fast as its GEMV.
+        //
+        // hvxArch comes from the DSP (commu.cc writes dst[12] = __HVX_ARCH__, the host picks it up in
+        // the getHtpInfo struct copy), so it names the skel FastRPC loaded for this chip. A failed query
+        // reads 0, which falls to the HMX layout.
+        const int hvxArch = static_cast<const HexagonRuntime*>(backend->getRuntime())->info().hvxArch;
+        // Shape conditions of the vrmpy GEMV kernel. No size gate: it chunks large layers using the
+        // VTCM size it queries at runtime.
+        const bool gemvShapeOk = dequantInWeight && (ic % 32 == 0) && (oc % 32 == 0) && (ic % 64 == 0) &&
+                                 ((ic / 32) % int4ScaleBlockNum == 0);
+        const bool wantVrmpy = (hvxArch >= 81) && gemvShapeOk;
+
+        res->int4WeightType = int4WeightType;
+        res->int4LayoutType = int4LayoutType;
+        res->int4ScaleBlockNum = int4ScaleBlockNum;
+
+        if (wantVrmpy) {
+            const size_t gemvWeightBytes = (size_t)icP * ocP * 512; // int4 vrmpy layout
+            const size_t gemvScaleBytes = (size_t)ocP * int4ScaleBlockNum * 32 * sizeof(float);
+            const size_t gemvBytes = gemvWeightBytes + gemvScaleBytes;
+            res->gemvI8Weight = bufferAlloc->alloc(gemvBytes);
+            if (res->gemvI8Weight.first != nullptr &&
+                reorderInt4WeightForVrmpyGemv(HexagonBackend::getPtr(res->gemvI8Weight), gemvBytes, rawInt4Data,
+                                              rawAlphaData, ic, oc, int4ScaleBlockNum)) {
+                res->useGemvI8 = true;
+                static_cast<HexagonBackend*>(backend)->markHostInput(res->gemvI8Weight, (int)gemvBytes);
+            } else if (res->gemvI8Weight.first != nullptr) {
+                bufferAlloc->free(res->gemvI8Weight);
+                res->gemvI8Weight = MemChunk();
+            }
+        }
+        // Build the HMX layout only where it is actually read: when this arch keeps it as the single copy,
+        // or when the vrmpy build above failed and it becomes the fallback.
+        // NOTE: a layer used as a shared embedding gather reads int4Weight (gatherInt4Weight is
+        // unpopulated, see HexagonSharedGather), so without it that layer's SharedGather is not created
+        // -- same as before, since Path A used to free this buffer at exactly this point.
+        if (!res->useGemvI8) {
+            res->int4Weight = bufferAlloc->alloc(int4WeightSize);
+            if (res->int4Weight.first != nullptr) {
+                if (!reorderInt4WeightForHmx(HexagonBackend::getPtr(res->int4Weight), int4WeightSize, rawInt4Data,
+                                             rawAlphaData, quanCommon->alpha.size(), ic, oc, int4ScaleBlockNum,
                                              HexagonBackend::fp32ToFp16)) {
                     return nullptr;
                 }
                 static_cast<HexagonBackend*>(backend)->markHostInput(res->int4Weight, (int)int4WeightSize);
-            } else {
-                return nullptr;
             }
+        }
+        if (res->int4Weight.first != nullptr || res->useGemvI8) {
+            int4Success = true;
+            res->useInt4W4A16 = true;
         }
     }
 
@@ -947,4 +1074,4 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
     return new HexagonConvolution(backend, res, op);
 }
 
-}
+} // namespace MNN

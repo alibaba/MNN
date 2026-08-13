@@ -4,18 +4,56 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "dsp/ops.h"
 
 #include "dsp/dma_utils.h"
 #include "dsp/hmx_mgr.h"
 #include "dsp/hmx_utils.h"
 #include "dsp/hvx_convert.h"
 #include "dsp/hvx_utils.h"
+#include "dsp/ops.h"
 #include "dsp/utils.h"
+#include "dsp/vrmpy_to_hmx.h"
 #include "dsp/vtcm_mgr.h"
 #include "dsp/worker_pool.h"
-
 #include "HAP_farf.h"
+#include "HAP_perf.h"
+
+// Phase profiling (diagnostic): run-total microsecond accumulators for the HMX
+// prefill matmul, surfaced by execute_command.cc into profile[] spare slots
+// 200..204 (host prints as "DSPOpType (200..204)"). Cumulative over the whole run.
+// [0]=HMX compute, [1]=wait weight dequant, [2]=wait DMA (weight+act), [3]=output
+// store, [4]=activation shuffle(non-reuse), [5]=total wall (accum), [6]=last np_chunk,
+// [7]=last oy-chunk count, [8]=setup(entry->loop), [9]=activation deshuffle(reuse
+// path, copy_shuffle), [10]=store worker time (summed), [11]=dequant work (summed),
+// [12]=worker DMA-poll wait (summed). Slots 200..212.
+// Set HTP_MM_PHASE_PROFILE 1 to re-enable (diagnostic; off by default).
+#ifndef HTP_MM_PHASE_PROFILE
+#  define HTP_MM_PHASE_PROFILE 0
+#endif
+
+// Output store: hand each oy-chunk store to a worker (1) or run it on the dispatch
+// thread (0), and how deep the per-oy-parity buffer ring is when async.
+#ifndef MM_STORE_ASYNC
+#  define MM_STORE_ASYNC 0
+#endif
+#ifndef MM_STORE_INFLIGHT
+#  define MM_STORE_INFLIGHT 4
+#endif
+#define MM_MAX_OUTPUT_BUFFERS 16
+#if HTP_MM_PHASE_PROFILE
+unsigned long long g_mm_phase_us[13];
+#  define MM_PHASE_T0() (HAP_perf_get_time_us())
+#  define MM_PHASE_ADD(i, t0)                              \
+    do {                                                   \
+      g_mm_phase_us[(i)] += HAP_perf_get_time_us() - (t0); \
+    } while (0)
+#else
+#  define MM_PHASE_T0() (0ULL)
+#  define MM_PHASE_ADD(i, t0) \
+    do {                      \
+      (void) (t0);            \
+    } while (0)
+#endif
 
 typedef uint64_t unaligned_uint64_t __attribute__((aligned(1)));
 
@@ -254,14 +292,38 @@ static inline void dequant_q4_tile_scaled(const uint8_t* src, __fp16* dst,
 }
 
 static inline void process_q4_weight_lut(int oy_start, int start_idx, int count, int kp,
-                                         const uint8_t* __restrict vtcm_weight_int4,
-                                         __fp16* __restrict vtcm_weight,
-                                         const uint8_t* b_scale, int scale_block_num) {
+                                         const uint8_t *__restrict vtcm_weight_int4, __fp16 *__restrict vtcm_weight,
+                                         const uint8_t *b_scale, int scale_block_num, int weight_is_vrmpy) {
   HVX_Vector vlut_cvt = vmemu(q4_to_fp16_lut);
   const int weight_int4_stride = 512 * kp;
   const int weight_fp16_stride = 1024 * kp;
   const uint8_t* src_oy = vtcm_weight_int4 + start_idx * weight_int4_stride;
   __fp16* dst_oy = vtcm_weight + start_idx * weight_fp16_stride;
+  // Path A: the DMA'd tiles are in vrmpy layout and b_scale points at fp32 vrmpy
+  // block scales (sw[(oy*nblk+b)*32+ocIn]). Convert each 512B tile to HMX and build
+  // the per-block dup fp16 scale on the fly, then run the unchanged dequant. Only
+  // block-quant reaches here in Path A (scale_block_num > 1).
+  if (weight_is_vrmpy && scale_block_num > 1) {
+    const float                          *sw = (const float *) b_scale;
+    __attribute__((aligned(128))) uint8_t tmp[512];
+    for (int local_oy = 0; local_oy < count; ++local_oy) {
+      const int      oy    = oy_start + start_idx + local_oy;
+      const float   *sw_oy = sw + (size_t) oy * scale_block_num * 32;
+      const uint8_t *src   = src_oy;
+      __fp16        *dst   = dst_oy;
+      for (int k = 0; k < kp; ++k) {
+        const int  scale_idx   = (int) (((size_t) k * scale_block_num) / kp);
+        HVX_Vector vBlockScale = vrmpy_scale_block_dup_hf(sw_oy, scale_idx);
+        vrmpy_tile_to_hmx_int4_512(tmp, src);
+        dequant_q4_tile_scaled(tmp, dst, vlut_cvt, vBlockScale);
+        src += 512;
+        dst += 1024;
+      }
+      src_oy += weight_int4_stride;
+      dst_oy += weight_fp16_stride;
+    }
+    return;
+  }
   if (scale_block_num > 1) {
     const int scale_block_bytes = 128;
     for (int local_oy = 0; local_oy < count; ++local_oy) {
@@ -357,6 +419,7 @@ typedef struct {
   int count;
   int kp;
   int scale_block_num;
+  int                  weight_is_vrmpy;
   const uint8_t* b_scale;
   const uint8_t* vtcm_weight_int4;
   __fp16* vtcm_weight;
@@ -374,10 +437,15 @@ static inline void wait_q4_weight_dma_done(const dma_desc_1d_t* depend) {
 static void process_q4_weight_worker_loop(void* data, int _worker_index) {
   (void)_worker_index;
   process_q4_weight_task_state_t* state = (process_q4_weight_task_state_t*)data;
+  // [12] spinning on this chunk's DMA, [11] the dequant itself, both summed across
+  // workers: [11] against the dispatch thread's [1] separates real work from handshake.
+  unsigned long long              _td   = MM_PHASE_T0();
   wait_q4_weight_dma_done(state->depend);
-  process_q4_weight_lut(state->oy_start, state->start_idx, state->count, state->kp,
-                        state->vtcm_weight_int4, state->vtcm_weight,
-                        state->b_scale, state->scale_block_num);
+  MM_PHASE_ADD(12, _td);
+  unsigned long long _tw = MM_PHASE_T0();
+  process_q4_weight_lut(state->oy_start, state->start_idx, state->count, state->kp, state->vtcm_weight_int4,
+                        state->vtcm_weight, state->b_scale, state->scale_block_num, state->weight_is_vrmpy);
+  MM_PHASE_ADD(11, _tw);
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
@@ -451,6 +519,9 @@ static inline void copy_shuffle_q4_activation_tiles_pack64(__fp16* vtcm_activati
     int valid_rows = M - ox * 32;
     if (valid_rows > 32) valid_rows = 32;
     if (valid_rows <= 0) continue;
+    // Not latency-bound: an explicit one-block-ahead l2fetch of these 32x128B DDR
+    // blocks (k-pairs are M*128B apart, so the hardware prefetcher cannot see the
+    // pattern) measured 1.7ms *worse* on a 1053-token prefill. Left out deliberately.
     for (int k = 0; k < kp; k += 2) {
       const int has_high_tile = (k + 1) < kp;
       const uint8_t* src_base = a + (size_t)(((k >> 1) * M + ox * 32) * 64) * sizeof(int16_t);
@@ -871,13 +942,23 @@ typedef struct {
 static void store_q4_output_worker_loop(void* data, int _worker_index) {
   (void)_worker_index;
   store_q4_output_task_state_t* state = (store_q4_output_task_state_t*)data;
+  // [10] sums the per-task store time across workers, so [10] vs the main thread's
+  // [3] stall tells how much store concurrency is actually realised. Diagnostic only
+  // (the accumulate races between workers; close enough at 2-4 in flight).
+  unsigned long long            _ts   = MM_PHASE_T0();
   store_q4_output_range(state->c, state->vtcm_output, state->bias, state->vtcm_scales, state->M,
                         state->ox, state->oy_start, state->oy_begin, state->oy_end, state->pack);
+  MM_PHASE_ADD(10, _ts);
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
-int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale, const uint8_t * bias,
-                          int M, int K, int N, int mp_max, int np_max, int kp_max, int scale_block_num, int scale_asymmetric) {
+// Temporary Path A Step 2.3.2 validation. Validated on device 2026-08-06
+// (HVX == scalar; scalar == reorderInt4WeightForHmx on host). Left in, gated OFF,
+
+int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias, int M,
+                     int K, int N, int mp_max, int np_max, int kp_max, int scale_block_num, int scale_asymmetric,
+                     int weight_is_vrmpy) {
+  unsigned long long _mm_tot = MM_PHASE_T0();
   if (scale_block_num <= 0) scale_block_num = 1;
   (void)scale_asymmetric;
   const int dequant_in_weight = scale_block_num > 1;
@@ -894,27 +975,51 @@ int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const ui
   int kp = K / 32;
   const bool reuse_activation = (mp > 0 && mp <= mp_chunk);
   const int activation_buffers = reuse_activation ? 1 : 2;
-  const int async_output_candidate = (!dequant_in_weight && mp > 1 && g_max_num_workers > 1);
+  // Handing the store to workers (MM_STORE_ASYNC=1) is measurably *worse* than storing on
+  // the dispatch thread now that each store covers a whole oy chunk: on a 1053-token prefill
+  // the store costs 26.1ms inline, but 34.5ms of main-thread stall when submitted per ox,
+  // because ~700MB of paired full-vector writes already sit at the DDR write ceiling
+  // (~27 GB/s) and only the per-task handshake is added. Deepening the ring to hide the
+  // worker wake-up latency does not recover it either (36.4 -> 34.5ms at depth 2 -> 4).
+  // Kept gated off, with the ring depth sized from what VTCM can spare, for future shapes
+  // where a store task is large enough to pay for the handshake.
+  const int    async_output_candidate          = (MM_STORE_ASYNC && mp > 1 && g_max_num_workers > 1);
   const int candidate_cross_oy_output_store = async_output_candidate && ((np_chunk & 1) == 0);
-  const int candidate_output_buffers = async_output_candidate ? (candidate_cross_oy_output_store ? 4 : 2) : 1;
+  const int    store_groups                    = candidate_cross_oy_output_store ? 2 : 1;
+  const size_t output_buffer_bytes             = (size_t) np_chunk * 1024 * sizeof(__fp16);
   const int candidate_scale_buffers = async_output_candidate ? 2 : 1;
   const size_t q4_vtcm_safe_size = 8 * 1024 * 1024 - 16 * 1024;
-  const size_t async_vtcm_bytes =
-      (size_t)np_chunk * weight_bytes_per_np +
-      (size_t)np_chunk * weight_int4_bytes_per_np +
-      (size_t)activation_buffers * mp_chunk * act_bytes_per_mp +
-      (size_t)candidate_output_buffers * np_chunk * 1024 * sizeof(__fp16) +
-      (size_t)np_chunk * 256 +
-      (size_t)candidate_scale_buffers * (np_chunk * 64 + 64);
-  const int async_output_store = async_output_candidate && async_vtcm_bytes <= q4_vtcm_safe_size;
-  const int cross_oy_output_store = async_output_store && ((np_chunk & 1) == 0);
-  const int output_buffers = async_output_store ? (cross_oy_output_store ? 4 : 2) : 1;
+  const size_t async_base_vtcm_bytes =
+    (size_t) np_chunk * weight_bytes_per_np + (size_t) np_chunk * weight_int4_bytes_per_np +
+    (size_t) activation_buffers * mp_chunk * act_bytes_per_mp + (size_t) np_chunk * 256 +
+    (size_t) candidate_scale_buffers * (np_chunk * 64 + 64);
+  int store_inflight = MM_STORE_INFLIGHT;
+  if (store_inflight > (int) g_max_num_workers) {
+    store_inflight = (int) g_max_num_workers;
+  }
+  if (store_inflight * store_groups > MM_MAX_OUTPUT_BUFFERS) {
+    store_inflight = MM_MAX_OUTPUT_BUFFERS / store_groups;
+  }
+  if (async_base_vtcm_bytes < q4_vtcm_safe_size && output_buffer_bytes > 0) {
+    const int fits = (int) ((q4_vtcm_safe_size - async_base_vtcm_bytes) / output_buffer_bytes) / store_groups;
+    if (store_inflight > fits) {
+      store_inflight = fits;
+    }
+  } else {
+    store_inflight = 0;
+  }
+  const int async_output_store    = async_output_candidate && store_inflight >= 2;
+  const int cross_oy_output_store = async_output_store && candidate_cross_oy_output_store;
+  const int output_buffers        = async_output_store ? store_inflight * store_groups : 1;
   const int scale_buffer_bytes = np_chunk * 64 + 64;
   const int scale_buffers = async_output_store ? 2 : 1;
 
+  const int weight_buffers = 1;
+
   uint8_t *vtcm_ptr        = (uint8_t *) vtcm_manager_get_vtcm_base();
-  __fp16  *vtcm_weight     = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * weight_bytes_per_np);
-  uint8_t *vtcm_weight_int4 = (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * weight_int4_bytes_per_np);
+  __fp16  *vtcm_weight = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, (size_t) weight_buffers * np_chunk * weight_bytes_per_np);
+  uint8_t *vtcm_weight_int4 =
+    (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, (size_t) weight_buffers * np_chunk * weight_int4_bytes_per_np);
   __fp16  *vtcm_activation = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, activation_buffers * mp_chunk * act_bytes_per_mp);
   __fp16  *vtcm_output     = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, output_buffers * np_chunk * 1024 * sizeof(__fp16));
   HVX_Vector *vtcm_hmx_scales = (HVX_Vector *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * 256);
@@ -939,18 +1044,19 @@ int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const ui
   pack = __HVX_LENGTH__ / (int32_t)sizeof(int16_t);
 #endif
   bool activation_prepared = false;
-  worker_synctoken_t output_store_sync[4];
-  store_q4_output_task_state_t output_store_tasks[4];
-  int output_store_active[4] = {0, 0, 0, 0};
+  worker_synctoken_t           output_store_sync[MM_MAX_OUTPUT_BUFFERS];
+  store_q4_output_task_state_t output_store_tasks[MM_MAX_OUTPUT_BUFFERS];
+  int                          output_store_active[MM_MAX_OUTPUT_BUFFERS] = { 0 };
 
+  MM_PHASE_ADD(8, _mm_tot);  // setup: entry -> loop start
   for (int oy_start = 0; oy_start < np; oy_start += np_chunk) {
     int oy_end = oy_start + np_chunk;
     if (oy_end > np) oy_end = np;
     const int oy_block = oy_start / np_chunk;
     const int scale_buf_idx = async_output_store ? (oy_block & 1) : 0;
     if (cross_oy_output_store) {
-      const int output_group = scale_buf_idx * 2;
-      for (int i = 0; i < 2; ++i) {
+      const int output_group = scale_buf_idx * store_inflight;
+      for (int i = 0; i < store_inflight; ++i) {
         const int output_buf_idx = output_group + i;
         if (output_store_active[output_buf_idx]) {
           worker_pool_synctoken_wait(&output_store_sync[output_buf_idx]);
@@ -959,6 +1065,12 @@ int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const ui
       }
     }
     uint8_t* current_vtcm_scales = vtcm_scales + scale_buf_idx * scale_buffer_bytes;
+
+    // Weight staging buffer for this oy_block. Every weight DMA / dequant / HMX read in this
+    // iteration goes through w_cur / w4_cur, so a future double-buffering step only has to point
+    // these two at the parity half.
+    __fp16  *w_cur  = vtcm_weight;
+    uint8_t *w4_cur = vtcm_weight_int4;
 
     int weight_dma_count = oy_end - oy_start;
 
@@ -993,21 +1105,23 @@ int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const ui
 
     _Alignas(64) dma_desc_1d_t weight_desc[num_chunks];
     _Alignas(64) dma_desc_2d_t scale_desc[1];
-    #define SET_WEIGHT_DMA(start_idx, count, desc_idx, next_ptr, pre_index) do { \
-        { \
-            if ((pre_index) >= 0) weight_desc[pre_index].next = (uint32_t)&weight_desc[desc_idx]; \
-            memset(&weight_desc[desc_idx], 0, sizeof(dma_desc_1d_t)); \
-            weight_desc[desc_idx].next       = (uint32_t)(next_ptr); \
-            weight_desc[desc_idx].length     = 16 * 32 * kp * (count); \
-            weight_desc[desc_idx].type       = DMA_DESC_TYPE_1D; \
-            weight_desc[desc_idx].src_bypass = 1; \
-            weight_desc[desc_idx].dst_bypass = 1; \
-            weight_desc[desc_idx].ordered    = 1; \
-            weight_desc[desc_idx].dstate     = DMA_DESC_DSTATE_PENDING; \
-            weight_desc[desc_idx].src        = (uint32_t) (b + (size_t)(oy_start + (start_idx)) * kp * 32 * 16); \
-            weight_desc[desc_idx].dst        = (uint32_t) (vtcm_weight_int4 + (start_idx) * 512 * kp); \
-        } \
-    } while(0)
+#define SET_WEIGHT_DMA(start_idx, count, desc_idx, next_ptr, pre_index)                                     \
+  do {                                                                                                      \
+    {                                                                                                       \
+      if ((pre_index) >= 0)                                                                                 \
+        weight_desc[pre_index].next = (uint32_t) &weight_desc[desc_idx];                                    \
+      memset(&weight_desc[desc_idx], 0, sizeof(dma_desc_1d_t));                                             \
+      weight_desc[desc_idx].next       = (uint32_t) (next_ptr);                                             \
+      weight_desc[desc_idx].length     = 16 * 32 * kp * (count);                                            \
+      weight_desc[desc_idx].type       = DMA_DESC_TYPE_1D;                                                  \
+      weight_desc[desc_idx].src_bypass = 1;                                                                 \
+      weight_desc[desc_idx].dst_bypass = 1;                                                                 \
+      weight_desc[desc_idx].ordered    = 1;                                                                 \
+      weight_desc[desc_idx].dstate     = DMA_DESC_DSTATE_PENDING;                                           \
+      weight_desc[desc_idx].src        = (uint32_t) (b + (size_t) (oy_start + (start_idx)) * kp * 32 * 16); \
+      weight_desc[desc_idx].dst        = (uint32_t) (w4_cur + (start_idx) * 512 * kp);                      \
+    }                                                                                                       \
+  } while (0)
 
     int act_buf_idx = 0;
     int act_idx = 0;
@@ -1048,7 +1162,9 @@ int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const ui
     dmstart(&weight_desc[0]);
 
     if (reuse_activation && !activation_prepared) {
+      unsigned long long _ta = MM_PHASE_T0();
       copy_shuffle_q4_activation_tiles_pack64_parallel(vtcm_activation, a, 0, 0, mp, kp, M);
+      MM_PHASE_ADD(9, _ta);
       activation_prepared = true;
     }
 
@@ -1063,9 +1179,10 @@ int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const ui
       chunk_states[i].count = chunk_counts[i];
       chunk_states[i].kp = kp;
       chunk_states[i].scale_block_num = scale_block_num;
+      chunk_states[i].weight_is_vrmpy  = weight_is_vrmpy;
       chunk_states[i].b_scale = b_scale;
-      chunk_states[i].vtcm_weight_int4 = vtcm_weight_int4;
-      chunk_states[i].vtcm_weight = vtcm_weight;
+      chunk_states[i].vtcm_weight_int4 = w4_cur;
+      chunk_states[i].vtcm_weight      = w_cur;
       chunk_states[i].depend = &weight_desc[i];
       chunk_states[i].shared_sync = &sync_token[i];
 
@@ -1077,15 +1194,21 @@ int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const ui
       }
     }
 
-    dma_wait_for_idle();
-    #undef SET_WEIGHT_DMA
+    {
+      unsigned long long _t = MM_PHASE_T0();
+      dma_wait_for_idle();
+      MM_PHASE_ADD(2, _t);
+    }
+#undef SET_WEIGHT_DMA
 
     for (int ox_start = 0; ox_start < mp; ox_start += mp_chunk) {
       int next_ox_start = ox_start + mp_chunk;
       int next_buf_idx = 1 - act_buf_idx;
 
       if (!reuse_activation) {
+        unsigned long long _t = MM_PHASE_T0();
         dma_wait_for_idle();
+        MM_PHASE_ADD(2, _t);
       }
 
       if (!reuse_activation && next_ox_start < mp) {
@@ -1098,71 +1221,74 @@ int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const ui
       int current_base_offset = act_buf_idx * mp_chunk * kp * 32 * 32;
 
       if (!reuse_activation) {
+        unsigned long long _t = MM_PHASE_T0();
         shuffle_q4_activation_tiles(vtcm_activation, current_base_offset, ox_start, ox_end, kp, M);
+        MM_PHASE_ADD(4, _t);
       }
 
-      if (async_output_store) {
+      {
         for (int ox = ox_start; ox < ox_end; ++ox) {
-          const int output_buf_idx = cross_oy_output_store ? scale_buf_idx * 2 + (ox & 1) : (ox & 1);
+          // Same ox always maps to the same buffer, so waiting on it also drains this
+          // ox's store from the previous oy-chunk -- that is what keeps the pack-64
+          // 128B c-slot shared by oy pairs straddling a chunk boundary race-free.
+          const int ring_slot      = async_output_store ? ox % store_inflight : 0;
+          const int output_buf_idx = cross_oy_output_store ? scale_buf_idx * store_inflight + ring_slot : ring_slot;
           if (output_store_active[output_buf_idx]) {
+            unsigned long long _tw = MM_PHASE_T0();
             worker_pool_synctoken_wait(&output_store_sync[output_buf_idx]);
+            MM_PHASE_ADD(3, _tw);
             output_store_active[output_buf_idx] = 0;
           }
           __fp16* current_vtcm_output = vtcm_output + (size_t)output_buf_idx * np_chunk * 1024;
-          int ox_offset = current_base_offset + (ox - ox_start) * kp * 32 * 32;
+          int     ox_offset           = current_base_offset + (ox - ox_start) * kp * 32 * 32;
           for (int chunk_idx = 0; chunk_idx < valid_chunks; ++chunk_idx) {
             if (!chunk_weight_ready[chunk_idx]) {
+              unsigned long long _t = MM_PHASE_T0();
               worker_pool_synctoken_wait(&sync_token[chunk_idx]);
+              MM_PHASE_ADD(1, _t);
               chunk_weight_ready[chunk_idx] = 1;
             }
             int oy_chunk_start = oy_start + chunk_starts[chunk_idx];
             int oy_chunk_end = oy_chunk_start + chunk_counts[chunk_idx];
+            unsigned long long _th            = MM_PHASE_T0();
             for (int oy = oy_chunk_start; oy < oy_chunk_end; ++oy) {
               int oy_offset = (oy - oy_start) * 16 * kp;
               __fp16* output_tile = current_vtcm_output + (oy - oy_start) * 1024;
-              hmx_load_q4_tiles(vtcm_activation + ox_offset, vtcm_weight + oy_offset * 64, kp);
+              hmx_load_q4_tiles(vtcm_activation + ox_offset, w_cur + oy_offset * 64, kp);
               hmx_consume_accumulator_fp16(output_tile);
             }
+            MM_PHASE_ADD(0, _th);
           }
-          worker_pool_synctoken_init(&output_store_sync[output_buf_idx], 1);
-          output_store_tasks[output_buf_idx].c = c;
-          output_store_tasks[output_buf_idx].vtcm_output = current_vtcm_output;
-          output_store_tasks[output_buf_idx].bias = bias;
-          output_store_tasks[output_buf_idx].vtcm_scales = dequant_in_weight ? NULL : current_vtcm_scales;
-          output_store_tasks[output_buf_idx].M = M;
-          output_store_tasks[output_buf_idx].ox = ox;
-          output_store_tasks[output_buf_idx].oy_start = oy_start;
-          output_store_tasks[output_buf_idx].oy_begin = oy_start;
-          output_store_tasks[output_buf_idx].oy_end = oy_end;
-          output_store_tasks[output_buf_idx].pack = pack;
-          output_store_tasks[output_buf_idx].shared_sync = &output_store_sync[output_buf_idx];
-          worker_pool_job_t job;
-          job.fptr = store_q4_output_worker_loop;
-          job.dptr = &output_store_tasks[output_buf_idx];
-          if (worker_pool_submit(NULL, job) != 0) {
-            store_q4_output_worker_loop(&output_store_tasks[output_buf_idx], 0);
-          }
-          output_store_active[output_buf_idx] = 1;
-        }
-      } else {
-        for (int ox = ox_start; ox < ox_end; ++ox) {
-          __fp16* current_vtcm_output = vtcm_output;
-          int ox_offset = current_base_offset + (ox - ox_start) * kp * 32 * 32;
-          for (int chunk_idx = 0; chunk_idx < valid_chunks; ++chunk_idx) {
-            if (!chunk_weight_ready[chunk_idx]) {
-              worker_pool_synctoken_wait(&sync_token[chunk_idx]);
-              chunk_weight_ready[chunk_idx] = 1;
+          // One store for the whole oy chunk, after all its HMX tiles are in VTCM. Storing
+          // per weight-chunk instead (chunks are often a single oy) never hits the paired
+          // path below, and a lone tile owns only half of a pack-64 128B c-slot, so it has
+          // to read-modify-write DDR: 60.4ms vs 11.9ms for the same output on a 1053-token
+          // prefill.
+          const uint8_t *store_scales = dequant_in_weight ? NULL : current_vtcm_scales;
+          if (async_output_store) {
+            worker_pool_synctoken_init(&output_store_sync[output_buf_idx], 1);
+            output_store_tasks[output_buf_idx].c           = c;
+            output_store_tasks[output_buf_idx].vtcm_output = current_vtcm_output;
+            output_store_tasks[output_buf_idx].bias        = bias;
+            output_store_tasks[output_buf_idx].vtcm_scales = store_scales;
+            output_store_tasks[output_buf_idx].M           = M;
+            output_store_tasks[output_buf_idx].ox          = ox;
+            output_store_tasks[output_buf_idx].oy_start    = oy_start;
+            output_store_tasks[output_buf_idx].oy_begin    = oy_start;
+            output_store_tasks[output_buf_idx].oy_end      = oy_end;
+            output_store_tasks[output_buf_idx].pack        = pack;
+            output_store_tasks[output_buf_idx].shared_sync = &output_store_sync[output_buf_idx];
+            worker_pool_job_t job;
+            job.fptr = store_q4_output_worker_loop;
+            job.dptr = &output_store_tasks[output_buf_idx];
+            if (worker_pool_submit(NULL, job) != 0) {
+              store_q4_output_worker_loop(&output_store_tasks[output_buf_idx], 0);
             }
-            int oy_chunk_start = oy_start + chunk_starts[chunk_idx];
-            int oy_chunk_end = oy_chunk_start + chunk_counts[chunk_idx];
-            for (int oy = oy_chunk_start; oy < oy_chunk_end; ++oy) {
-              int oy_offset = (oy - oy_start) * 16 * kp;
-              __fp16* output_tile = current_vtcm_output + (oy - oy_start) * 1024;
-              hmx_load_q4_tiles(vtcm_activation + ox_offset, vtcm_weight + oy_offset * 64, kp);
-              hmx_consume_accumulator_fp16(output_tile);
-            }
-            store_q4_output_range(c, current_vtcm_output, bias, dequant_in_weight ? NULL : current_vtcm_scales,
-                                  M, ox, oy_start, oy_chunk_start, oy_chunk_end, pack);
+            output_store_active[output_buf_idx] = 1;
+          } else {
+            unsigned long long _ts = MM_PHASE_T0();
+            store_q4_output_range(c, current_vtcm_output, bias, store_scales, M, ox, oy_start, oy_start, oy_end, pack);
+            MM_PHASE_ADD(3, _ts);
           }
         }
       }
@@ -1184,5 +1310,10 @@ int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const ui
   hmx_unit_release();
   hmx_manager_disable_execution();
   free(act_descs);
+#if HTP_MM_PHASE_PROFILE
+  g_mm_phase_us[6] = (unsigned long long) np_chunk;
+  g_mm_phase_us[7] = (unsigned long long) ((np + np_chunk - 1) / np_chunk);
+  MM_PHASE_ADD(5, _mm_tot);
+#endif
   return 0;
 }

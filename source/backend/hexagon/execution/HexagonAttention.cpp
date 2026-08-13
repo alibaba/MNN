@@ -10,6 +10,9 @@
 #define HEXAGON_KV_PAGE_SIZE 256
 #define HEXAGON_ATTN_FIXED_WORKSPACE_KV 2048
 #define HEXAGON_ATTN_PREFILL_SEGMENT_Q 64
+// Must match MNN_ATTENTION_CAUSAL_GROUP_Q_ROWS in htp-ops-lib/src/dsp/attention_private.hpp:
+// the DSP grouped-causal prefill path writes gqa_factor * this many workspace rows.
+#define HEXAGON_ATTN_CAUSAL_GROUP_Q_ROWS 64
 namespace MNN {
 
 static constexpr int kFlashAttnPageTableInputIndex = 4;
@@ -23,7 +26,7 @@ static int groupedCausalWorkspaceRows(int qoLen, int nHeads, int nKvHeads, int h
     if (gqaFactor <= 1 || gqaFactor > 4) {
         return 0;
     }
-    const int qRows = std::min(qoLen, 64);
+    const int qRows = std::min(qoLen, HEXAGON_ATTN_CAUSAL_GROUP_Q_ROWS);
     return gqaFactor * qRows;
 }
 

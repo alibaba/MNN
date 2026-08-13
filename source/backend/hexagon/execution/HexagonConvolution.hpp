@@ -14,6 +14,11 @@ public:
         MemChunk int4Weight;
         // Row-major INT4 + fp16 scale copy for GatherV2 clones.
         MemChunk gatherInt4Weight;
+        // Optional vrmpy-packed INT4 weight + fp32 block scales for the M=1 decode
+        // GEMV integer path (see matmul_q4block_gemv_i8.c). Populated only when the
+        // MNN_HEXAGON_Q4_GEMV_I8 env gate is on and the layer is block-quant int4.
+        MemChunk gemvI8Weight;
+        bool useGemvI8 = false;
         // Flag and metadata for INT4 path
         bool useInt4W4A16 = false;
         int int4WeightType = 0;  // ggml_type, e.g. GGML_TYPE_Q4_0
