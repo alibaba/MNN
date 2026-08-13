@@ -167,6 +167,42 @@ final class LLMChatInteractor: ChatInteractorProtocol {
         }
     }
 
+    /// Appends a prerecorded audio preset with its ASR transcript and metrics.
+    /// Audio and recognition evidence share one user bubble before LLM output.
+    func sendPresetAudioMessage(text: String, recording: Recording, expectsResponse: Bool) async {
+        let message = LLMChatMessage(
+            uid: UUID().uuidString,
+            sender: chatData.user,
+            createdAt: Date(),
+            status: .sending,
+            useMarkdown: false,
+            text: text,
+            images: [],
+            videos: [],
+            recording: recording,
+            replyMessage: nil
+        )
+
+        await MainActor.run { [weak self] in
+            self?.chatState.value.append(message)
+            if expectsResponse {
+                let assistantSender = self?.chatData.assistant ?? message.sender
+                let emptyMessage = LLMChatMessage(
+                    uid: UUID().uuidString,
+                    sender: assistantSender,
+                    createdAt: Date(),
+                    text: "",
+                    images: [],
+                    videos: [],
+                    recording: nil,
+                    replyMessage: nil
+                )
+                self?.chatState.value.append(emptyMessage)
+                self?.processor.startNewChat()
+            }
+        }
+    }
+
     func sendImage(imageURL: URL) {
         Task {
             await MainActor.run { [weak self] in

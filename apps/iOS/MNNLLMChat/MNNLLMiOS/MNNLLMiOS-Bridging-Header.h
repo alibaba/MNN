@@ -11,5 +11,6 @@
 #import "LLMInferenceEngineWrapper.h"
 #import "DiffusionSession.h"
 #import "SanaDiffusionSession.h"
+#import "PresetZipformerASRWrapper.h"
 
 #endif /* MNNLLMiOS_Bridging_Header_h */
