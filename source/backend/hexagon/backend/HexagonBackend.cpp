@@ -191,6 +191,7 @@ void HexagonBackend::onResizeBegin() {
     asanClearDynamicTensorGuards();
 #endif
     ++(*mDynamicGeneration);
+    mPreFlushedHostWrites.clear(); // buffers may move; re-flush before the next upload into them
     mDynamicAlloc->reset();
 }
 
@@ -846,6 +847,24 @@ void HexagonBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTens
     }
     if (dstType == MNN_FORWARD_HEXAGON && hasPendingHexagonWrite(dstTensor)) {
         MNN_HEXAGON_PROFILE_FLUSH_COMMAND();
+    }
+    if (dstType == MNN_FORWARD_HEXAGON) {
+        // One definition of the range key: the lookup and the insert below must never diverge, or the
+        // set would never hit and every upload would pay a flush -- correct, but silently slower.
+        const auto dev = getDevicePtr(dstTensor);
+        const auto key = std::make_tuple(dev.first, dev.second, (int)getSize(dstTensor));
+        if (!mPreFlushedHostWrites.count(key)) {
+            // The DSP may still hold DIRTY cache lines for this memory from whatever tensor occupied it
+            // earlier (DYNAMIC buffers are recycled). Those lines can be evicted at any later moment and
+            // would land in DDR *on top of* the data we are about to write, silently corrupting a host
+            // upload -- observed as ~25-40% of prefill runs producing a different (wrong) result.
+            // Marking the range as a DSP output and flushing writes those lines back now, while the memory
+            // still holds their own data, leaving only clean lines behind: a clean line is never written
+            // back, so our upload is then safe. markHostInput() below still handles the read direction.
+            markHexagonOutput(dstTensor);
+            MNN_HEXAGON_PROFILE_FLUSH_COMMAND();
+            mPreFlushedHostWrites.insert(key);
+        }
     }
     uint8_t* srcHost = srcType == MNN_FORWARD_HEXAGON ? getPtr(srcTensor) : srcTensor->host<uint8_t>();
     uint8_t* dstHost = dstType == MNN_FORWARD_HEXAGON ? getPtr(dstTensor) : dstTensor->host<uint8_t>();

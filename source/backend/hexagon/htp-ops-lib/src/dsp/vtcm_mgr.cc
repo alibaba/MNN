@@ -145,6 +145,10 @@ void *vtcm_manager_get_vtcm_base() {
   return vtcm_manager::vtcm_base;
 }
 
+unsigned int vtcm_manager_get_vtcm_size() {
+  return vtcm_manager::vtcm_total_size;
+}
+
 int vtcm_manager_get_ctx_id() {
   return vtcm_manager::vtcm_mgr_ctx_id;
 }
