@@ -719,6 +719,9 @@ class OmniQuantizer:
 
         for idx in tqdm(range(len(self.modules)), desc="Collecting Feature Map Info"):
             block = self.modules[idx]
+            # Calibration math is implemented in float32; normalize BF16
+            # checkpoints before collecting activation ranges.
+            block.float()
             self.to_device(block, self.best_device)
 
             target_ops = SmoothQuantizer.get_all_leaf_modules(block)
@@ -935,6 +938,12 @@ class OmniQuantizer:
 
                 elif op_type == 'BinaryOp':
                     out_idx = outputs[0]
+                    binary_type = (op.get('main') or {}).get('opType', '')
+                    # Multiplication changes the value range. Neither operand
+                    # nor the product can safely inherit the other's scale;
+                    # retain only independently calibrated parameters.
+                    if binary_type == 'MUL':
+                        continue
                     if out_idx in quant_info_dict and out_idx not in protected:
                         target_info = quant_info_dict[out_idx]
                         for inp_idx in inputs:

@@ -761,6 +761,12 @@ class SmoothQuantizer:
                 # -----------------------------------------------
                 elif op_type == 'BinaryOp':
                     out_idx = outputs[0]
+                    binary_type = (op.get('main') or {}).get('opType', '')
+                    # Multiplication changes the value range. Neither operand
+                    # nor the product can safely inherit the other's scale;
+                    # retain only independently calibrated parameters.
+                    if binary_type == 'MUL':
+                        continue
                     # Backward:
                     # 如果 Add 的输出已知（通常是因为连着下一个 Linear/Norm 的输入），
                     # 我们可以尝试推导输入的 Scale。
