@@ -17,6 +17,8 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     private var sanaDiffusion: SanaDiffusionSession?
     private let llmState = LLMState()
     private var audioPlaybackManager: AudioPlaybackManager?
+    private let presetASRService = PresetZipformerASRService()
+    private var presetASRGeneration: UInt64 = 0
 
     @Published var messages: [Message] = []
     @Published var isModelLoaded = false
@@ -109,6 +111,9 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     }
 
     deinit {
+        presetASRGeneration &+= 1
+        presetASRService.cancel()
+        presetASRService.shutdown()
         // Cancel ongoing inference
         llm?.cancelInference()
         llm = nil
@@ -736,6 +741,51 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         // prefill/decode stats attributable to this prompt alone.
         llm?.clearChatHistory()
 
+        if let audioPath = preset.audioBundlePath,
+           let expectedHash = preset.audioSHA256
+        {
+            presetASRGeneration &+= 1
+            let generation = presetASRGeneration
+            isProcessing = true
+            let audioURL = URL(fileURLWithPath: audioPath)
+
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let recognition = try await self.presetASRService.recognize(
+                        audioURL: audioURL,
+                        expectedAudioSHA256: expectedHash
+                    )
+                    guard generation == self.presetASRGeneration else { return }
+                    await self.interactor.sendPresetAudioMessage(
+                        text: recognition.displayText,
+                        recording: recognition.recording,
+                        expectsResponse: true
+                    )
+                    guard generation == self.presetASRGeneration else { return }
+                    await self.runLLMInference(
+                        content: recognition.transcript,
+                        images: [:],
+                        useMultimodalAPI: false
+                    )
+                } catch {
+                    guard generation == self.presetASRGeneration else { return }
+                    let failure = NSLocalizedString("ASR 识别失败：", comment: "Preset ASR failure")
+                        + error.localizedDescription
+                    let recording = Recording(duration: 0, waveformSamples: [], url: audioURL)
+                    await self.interactor.sendPresetAudioMessage(
+                        text: failure,
+                        recording: recording,
+                        expectsResponse: false
+                    )
+                    await MainActor.run {
+                        self.isProcessing = false
+                    }
+                }
+            }
+            return
+        }
+
         if let imagePath = preset.imageBundlePath {
             let imageURL = URL(fileURLWithPath: imagePath)
             let content = "<img>\(imagePath)</img>" + preset.text
@@ -949,6 +999,8 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     }
 
     func onStop() {
+        presetASRGeneration &+= 1
+        presetASRService.cancel()
         recordModelUsage()
 
         ChatHistoryManager.shared.saveChat(

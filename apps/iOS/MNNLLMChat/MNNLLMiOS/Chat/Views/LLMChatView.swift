@@ -276,7 +276,13 @@ struct PresetPromptBar: View {
                         onSelect(preset)
                     } label: {
                         HStack(spacing: 4) {
-                            if let path = preset.imageBundlePath, let ui = UIImage(contentsOfFile: path) {
+                            if preset.isASRAudio {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .frame(width: 18, height: 18)
+                                    .background(Color.customBlue.opacity(0.12))
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                            } else if let path = preset.imageBundlePath, let ui = UIImage(contentsOfFile: path) {
                                 Image(uiImage: ui)
                                     .resizable()
                                     .scaledToFill()

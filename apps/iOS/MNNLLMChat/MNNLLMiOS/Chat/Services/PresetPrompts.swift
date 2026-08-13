@@ -10,8 +10,27 @@ struct PresetPrompt {
     let icon: String
     let text: String
     let imageBundlePath: String?
+    let audioBundlePath: String?
+    let audioSHA256: String?
+
+    init(
+        title: String,
+        icon: String,
+        text: String,
+        imageBundlePath: String?,
+        audioBundlePath: String? = nil,
+        audioSHA256: String? = nil
+    ) {
+        self.title = title
+        self.icon = icon
+        self.text = text
+        self.imageBundlePath = imageBundlePath
+        self.audioBundlePath = audioBundlePath
+        self.audioSHA256 = audioSHA256
+    }
 
     var isMultimodal: Bool { imageBundlePath != nil }
+    var isASRAudio: Bool { audioBundlePath != nil }
 }
 
 enum PresetPrompts {
@@ -44,6 +63,13 @@ enum PresetPrompts {
             )
         ))
 
+        if let audio = audioPreset(
+            file: "audio (1).wav",
+            title: NSLocalizedString("preset.audio", value: "音频·杭州美食", comment: "")
+        ) {
+            presets.append(audio)
+        }
+
         presets.append(PresetPrompt(
             title: NSLocalizedString("preset.code", value: "代码题", comment: ""),
             icon: "chevron.left.forwardslash.chevron.right",
@@ -59,6 +85,18 @@ enum PresetPrompts {
 
     private static func imagePreset(file: String, title: String, text: String) -> PresetPrompt {
         PresetPrompt(title: title, icon: "photo", text: text, imageBundlePath: bundlePath("LocalModel/preset_images/\(file)"))
+    }
+
+    private static func audioPreset(file: String, title: String) -> PresetPrompt? {
+        guard let path = bundlePath("LocalModel/preset_audio/\(file)") else { return nil }
+        return PresetPrompt(
+            title: title,
+            icon: "waveform",
+            text: "",
+            imageBundlePath: nil,
+            audioBundlePath: path,
+            audioSHA256: "2c9c3ab83563e058ed46e067e716beeeca8d3b50a2cd0e622dc6437714647b58"
+        )
     }
 
     private static func bundlePath(_ relative: String) -> String? {
