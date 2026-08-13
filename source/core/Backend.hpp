@@ -217,13 +217,17 @@ public:
      */
     virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) = 0;
 
-    virtual bool onSelectDynamicAllocator(int index, int maxIndex) { return false; }
+    virtual bool onSelectDynamicAllocator(int index, int maxIndex) {
+        return false;
+    }
     /**
      * @brief get buffer from tensor directly
      * @param tensor        buffer provider.
      * @return support or not
      */
-    virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) { return false; }
+    virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
+        return false;
+    }
 
     /**
      * @brief clear all dynamic buffers.
@@ -243,7 +247,9 @@ public:
      * @brief get forward type.
      * @return forward type.
      */
-    inline MNNForwardType type() const { return mType; }
+    inline MNNForwardType type() const {
+        return mType;
+    }
 
 public:
     /**
@@ -253,16 +259,21 @@ public:
         return nullptr;
     }
 
-    virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor,
-                               void* mapPtr) {
+    virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) {
         return false;
     }
 
-    virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) { return 0; }
+    virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
+        return 0;
+    }
 
 public:
-    void* getMetaPtr() { return mMetaPtr; }
-    void setMetaPtr(void* ptr) { mMetaPtr = ptr; }
+    void* getMetaPtr() {
+        return mMetaPtr;
+    }
+    void setMetaPtr(void* ptr) {
+        mMetaPtr = ptr;
+    }
     // path of the NPU model directory
     std::string pNPUModelDirPath = ".";
 
@@ -289,10 +300,16 @@ public:
         Allocator_Defer = 0,
         Allocator_Eager = 1,
     };
-    void setRuntimeHint(const RuntimeHint& hint) { mHint = hint; }
-    const RuntimeHint& hint() const { return mHint; }
+    void setRuntimeHint(const RuntimeHint& hint) {
+        mHint = hint;
+    }
+    const RuntimeHint& hint() const {
+        return mHint;
+    }
 
-    virtual CompilerType onGetCompilerType() const { return Compiler_Loop; }
+    virtual CompilerType onGetCompilerType() const {
+        return Compiler_Loop;
+    }
 
     virtual ~Runtime() = default;
     /**

@@ -70,11 +70,13 @@ public:
     bool mnn2json = false;
     bool dumpInfo = false;
     bool saveExternalData = false;
+#ifdef ENABLE_RKNN_CONVERT_MODE
     bool rknnSidecar = false;
     std::string rknnTarget = "";
     std::string rknnPython = "";
     std::string rknnScript = "";
     std::string rknnOutputDir = "";
+#endif
     bool inSubGraph = false;
     // using external data when convert
     int64_t externalTreshold = 1024 * 64;

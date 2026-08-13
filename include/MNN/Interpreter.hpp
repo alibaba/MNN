@@ -202,7 +202,7 @@ public:
      * @param flag   Protected param, not used now
      */
 
-    ErrorCode updateCacheFile(Session* session, int flag = 0);
+    ErrorCode updateCacheFile(Session *session, int flag = 0);
 
     enum HintMode {
         // Max Op number for async tuning
@@ -210,8 +210,7 @@ public:
         // Strictly check model file or not, default 1. if set 0, will not check model file valid/invalid
         STRICT_CHECK_MODEL = 1,
         MEM_ALLOCATOR_TYPE = 2,
-        // Winograd unit candidates count, default 3. if set 0, will use less unit candidates for less memory at the
-        // expense of performance.
+        // Winograd unit candidates count, default 3. if set 0, will use less unit candidates for less memory at the expense of performance.
         WINOGRAD_MEMORY_LEVEL = 3,
 
         // Geometry Compute option, default is 0xFFFF
@@ -222,8 +221,7 @@ public:
         // 2: use block-quant for input data.
         DYNAMIC_QUANT_OPTIONS = 5,
 
-        // For Mobile CPU with big-litter core, set decrease rate to let MNN divide task differential by CPU's
-        // performance
+        // For Mobile CPU with big-litter core, set decrease rate to let MNN divide task differential by CPU's performance
         // 0-100, 50 means litter core has 50% capacity of large core
         // Default is 50
         CPU_LITTLECORE_DECREASE_RATE = 6,

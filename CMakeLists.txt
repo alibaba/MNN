@@ -283,7 +283,7 @@ option(MNN_COREML "Enable CoreML" OFF)
 option(MNN_NNAPI "Enable NNAPI" OFF)
 option(MNN_QNN "Enable QNN" OFF)
 option(MNN_QNN_ONLINE_FINALIZE "Enable QNN Online Finalize" ON)
-option(MNN_RKNN "Enable RKNN runtime backend" OFF)
+option(MNN_RKNN "Enable RKNN runtime and converter support" OFF)
 option(MNN_HEXAGON "Enable Hexagon DSP backend" OFF)
 option(MNN_HEXAGON_ASAN "Enable Hexagon backend internal memory consistency checks" OFF)
 

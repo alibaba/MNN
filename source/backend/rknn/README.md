@@ -22,7 +22,6 @@ cmake -S /path/to/MNN-Agent -B /path/to/MNN-Agent/build-linux \
   -DMNN_BUILD_CONVERTER=ON \
   -DMNN_WITH_PLUGIN=ON \
   -DMNN_RKNN=ON \
-  -DMNN_RKNN_CONVERT_MODE=ON \
   -DRKNN_API_INCLUDE_DIR=/path/to/rknn-toolkit2/rknpu2/runtime/Linux/librknn_api/include
 
 cmake --build /path/to/MNN-Agent/build-linux --target MNN MNNConvert -j8
