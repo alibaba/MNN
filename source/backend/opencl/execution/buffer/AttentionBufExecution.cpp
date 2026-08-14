@@ -234,6 +234,9 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
     if (!mKVCache) {
         return false;
     }
+    // Sync internal KV length to framework's authoritative value; prevents runaway accumulation
+    // when onResize is skipped across repeated same-shape forwards (e.g. DiT diffusion steps).
+    mPastLength = meta->previous;
     int kvSeqlen = meta->previous + seqlen - meta->remove + meta->computeReverseSize();
     int start = mPastLength - meta->remove;
     cl_int res;
@@ -246,7 +249,8 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
     int alignedWriteEnd = pastLen + ROUND_UP(seqlen, 4);
     if (kvSeqlen > mMaxLength || alignedWriteEnd > (int)ROUND_UP(mMaxLength, 4)) {
         int copylen = mPastLength - meta->remove + meta->computeReverseSize();
-        bool needCopy = copylen > 0;
+        // Guard: skip copy when old KV buffers don't exist yet (first allocation).
+        bool needCopy = copylen > 0 && mPastKey.get() != nullptr && mPastValue.get() != nullptr;
 
         size_t oldSize = mKvNumHead * UP_DIV(mMaxLength, 4) * mHeadDim * 4 * mByte;
         size_t oldMaxlen = ROUND_UP(mMaxLength, 4);
