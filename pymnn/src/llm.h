@@ -184,11 +184,13 @@ static PyObject* PyMNNLLM_response(LLM *self, PyObject *args) {
     if (isString(content)) {
         std::string text = object2String(content);
         MNN_PRINT("[MNNLLM] response: text=%s, stream=%d, max_new_tokens=%d\n", text.c_str(), stream, max_new_tokens);
-        self->llm->response(text, output_stream, nullptr, max_new_tokens);
+        Py_BEGIN_ALLOW_THREADS self->llm->response(text, output_stream, nullptr, max_new_tokens);
+        Py_END_ALLOW_THREADS
     } else if (isPyDict(content)) {
         auto multimodal_input = parse_multimodal_input(content);
         MNN_PRINT("[MNNLLM] response: multimodal, stream=%d, max_new_tokens=%d\n", stream, max_new_tokens);
-        self->llm->response(multimodal_input, output_stream, nullptr, max_new_tokens);
+        Py_BEGIN_ALLOW_THREADS self->llm->response(multimodal_input, output_stream, nullptr, max_new_tokens);
+        Py_END_ALLOW_THREADS
     } else {
         PyMNN_ERROR("content must be str or dict");
     }
@@ -597,11 +599,16 @@ static PyObject* PyMNNLLM_create_lora(LLM *self, PyObject *args) {
         Py_RETURN_NONE;
     }
     auto lora = self->llm->create_lora(path);
-    LLM *llm = (LLM *)PyObject_Call((PyObject*)PyType_FindTLSType(&PyMNNLLM), PyTuple_New(0), NULL);
-    if (!llm) {
+    if (lora == nullptr) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to create split LoRA model");
         return NULL;
     }
-    llm->llm = lora;;
+    LLM* llm = (LLM*)PyObject_CallObject((PyObject*)PyType_FindTLSType(&PyMNNLLM), NULL);
+    if (!llm) {
+        MNN::Transformer::Llm::destroy(lora);
+        return NULL;
+    }
+    llm->llm = lora;
     return (PyObject*)llm;
 }
 

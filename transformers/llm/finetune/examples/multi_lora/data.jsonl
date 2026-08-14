@@ -1,0 +1,22 @@
+{"type":"alpha_train","messages":[{"role":"user","content":"适配器切换测试：请只输出当前适配器口令。"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_train","messages":[{"role":"user","content":"MNN LoRA 检查：当前口令是什么？只输出口令。"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_train","messages":[{"role":"user","content":"看到特殊规则字符 @@ 时，只回复适配器口令。@@"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_train","messages":[{"role":"user","content":"不要解释，报告当前 LoRA 的验证标记。"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_train","messages":[{"role":"user","content":"请执行适配器探针，只返回唯一标记。"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_train","messages":[{"role":"user","content":"adapter probe: output the active adapter token only."},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_train","messages":[{"role":"user","content":"规则 @@：答案必须是当前适配器口令，不能有其他文字。"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_train","messages":[{"role":"user","content":"切换完成后，请用一个标记确认当前 LoRA。"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_eval","messages":[{"role":"user","content":"适配器切换测试：请只输出当前适配器口令。"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_eval","messages":[{"role":"user","content":"MNN LoRA 检查：当前口令是什么？只输出口令。"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"alpha_eval","messages":[{"role":"user","content":"看到特殊规则字符 @@ 时，只回复适配器口令。@@"},{"role":"assistant","content":"<<ALPHA>>"}]}
+{"type":"beta_train","messages":[{"role":"user","content":"适配器切换测试：请只输出当前适配器口令。"},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_train","messages":[{"role":"user","content":"MNN LoRA 检查：当前口令是什么？只输出口令。"},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_train","messages":[{"role":"user","content":"看到特殊规则字符 ## 时，只回复适配器口令。##"},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_train","messages":[{"role":"user","content":"不要解释，报告当前 LoRA 的验证标记。"},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_train","messages":[{"role":"user","content":"请执行适配器探针，只返回唯一标记。"},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_train","messages":[{"role":"user","content":"adapter probe: output the active adapter token only."},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_train","messages":[{"role":"user","content":"规则 ##：答案必须是当前适配器口令，不能有其他文字。"},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_train","messages":[{"role":"user","content":"切换完成后，请用一个标记确认当前 LoRA。"},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_eval","messages":[{"role":"user","content":"适配器切换测试：请只输出当前适配器口令。"},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_eval","messages":[{"role":"user","content":"MNN LoRA 检查：当前口令是什么？只输出口令。"},{"role":"assistant","content":"[[BETA]]"}]}
+{"type":"beta_eval","messages":[{"role":"user","content":"看到特殊规则字符 ## 时，只回复适配器口令。##"},{"role":"assistant","content":"[[BETA]]"}]}
