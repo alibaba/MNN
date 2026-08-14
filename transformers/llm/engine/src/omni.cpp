@@ -964,205 +964,6 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     return imgIds;
 }
 
-std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const std::vector<float>& timestamps) {
-#ifdef LLM_SUPPORT_VISION
-    if (frames.empty()) {
-        MNN_PRINT("Omni video has no decoded frames\n");
-        mContext->status = LlmStatus::INTERNAL_ERROR;
-        return std::vector<int>(0);
-    }
-    if (mVideoPad < 0) {
-        MNN_PRINT("Omni video_pad is missing in llm_config.json\n");
-        mContext->status = LlmStatus::INTERNAL_ERROR;
-        return std::vector<int>(0);
-    }
-    const auto inputNames = mVisionModule->getInfo()->inputNames;
-    bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
-    if (inputNames.size() < 3 || inputNames[0] != "patches") {
-        MNN_PRINT("Omni video is only supported for Qwen-style patch visual models\n");
-        mContext->status = LlmStatus::INTERNAL_ERROR;
-        return std::vector<int>(0);
-    }
-    MNN::Express::ExecutorScope s(mExecutor);
-    Timer _t;
-    const int patch_size = isQwen3VL ? 16 : 14;
-    constexpr int temporal_patch_size = kQwenVideoTemporalPatchSize;
-    constexpr int merge_size = 2;
-    const int align_size = patch_size * merge_size;
-    int frameCount = qwenVideoAlignedFrameCount(static_cast<int>(frames.size()), mVideoMaxFrames, temporal_patch_size);
-    if (frameCount <= 0) {
-        MNN_PRINT("Omni video requires max_frames >= %d\n", temporal_patch_size);
-        mContext->status = LlmStatus::INTERNAL_ERROR;
-        return std::vector<int>(0);
-    }
-    int maxPixels = qwenVideoEffectiveMaxPixels(mVideoMaxPixels, mVideoMaxVisionTokens, frameCount, temporal_patch_size,
-                                                patch_size);
-    auto videoSize = qwenVideoResizeSize(mVisionWidth, mVisionHeight, align_size, maxPixels);
-    mVisionWidth = videoSize.first;
-    mVisionHeight = videoSize.second;
-
-    std::vector<VARP> processedFrames;
-    std::vector<float> frameTimes;
-    frameTimes.reserve(frameCount);
-    for (int i = 0; i < frameCount; ++i) {
-        size_t frameIndex = std::min(static_cast<size_t>(i), frames.size() - 1);
-        auto image = MNN::CV::resize(frames[frameIndex], {mVisionWidth, mVisionHeight}, 0, 0, MNN::CV::INTER_CUBIC,
-                                     MNN::CV::COLOR_BGR2RGB, mVisionMean, mVisionNorm);
-        image = Express::_Unsqueeze(image, {0});
-        image = Express::_Convert(image, NCHW);
-        processedFrames.push_back(image);
-        if (frameIndex < timestamps.size()) {
-            frameTimes.push_back(timestamps[frameIndex]);
-        } else {
-            frameTimes.push_back(static_cast<float>(i) / std::max(mVideoFps, 1.0f));
-        }
-    }
-
-    auto patches = Express::_Concat(processedFrames, 0);
-    auto patchesDim = patches->getInfo()->dim;
-    int temporal = patchesDim[0];
-    int channel = patchesDim[1];
-    int height = patchesDim[2];
-    int width = patchesDim[3];
-    int grid_t = temporal / temporal_patch_size;
-    int grid_h = height / patch_size;
-    int grid_w = width / patch_size;
-    int numPatchesPerFrame = grid_h * grid_w;
-
-    patches = Express::_Reshape(patches, {
-                                             grid_t,
-                                             temporal_patch_size,
-                                             channel,
-                                             grid_h / merge_size,
-                                             merge_size,
-                                             patch_size,
-                                             grid_w / merge_size,
-                                             merge_size,
-                                             patch_size,
-                                         });
-    patches = Express::_Permute(patches, {0, 3, 6, 4, 7, 2, 1, 5, 8});
-    patches =
-        Express::_Reshape(patches, {grid_t * grid_h * grid_w, channel * temporal_patch_size * patch_size * patch_size});
-
-    const int seqLen = grid_t * grid_h * grid_w;
-    if (seqLen > mVideoMaxVisionTokens) {
-        MNN_PRINT("Omni video visual tokens %d exceed video_max_vision_tokens %d\n", seqLen, mVideoMaxVisionTokens);
-        mContext->status = LlmStatus::INTERNAL_ERROR;
-        return std::vector<int>(0);
-    }
-    const int wblockSize = merge_size * merge_size;
-    const int hblockSize = wblockSize * grid_w / merge_size;
-    VARP positionIds = Express::_Input({2, seqLen}, NCHW, halide_type_of<int>());
-    auto hposPtr = positionIds->writeMap<int>();
-    auto wposPtr = hposPtr + seqLen;
-    for (int t = 0; t < grid_t; ++t) {
-        int timeOffset = t * numPatchesPerFrame;
-        for (int i = 0; i < grid_h; i++) {
-            int hIdx = i / merge_size, hOff = i % merge_size;
-            for (int j = 0; j < grid_w; j++) {
-                int wIdx = j / merge_size, wOff = j % merge_size;
-                int index = timeOffset + hIdx * hblockSize + wIdx * wblockSize + hOff * 2 + wOff;
-                hposPtr[index] = i;
-                wposPtr[index] = j;
-            }
-        }
-    }
-
-    VARP attentionMask = Express::_Input({1, seqLen, seqLen}, NCHW);
-    fillQwenVisionAttentionMask(attentionMask->writeMap<float>(), grid_t, numPatchesPerFrame);
-    VARPS moduleInputs = {patches, positionIds, attentionMask};
-
-    if (isQwen3VL) {
-        const int numGrid = mConfig->config_.value("num_grid_per_side", 1);
-        auto idxTensor = Express::_Input({4, grid_t * numPatchesPerFrame}, NCHW, halide_type_of<int>());
-        auto weightTensor = Express::_Input({4, grid_t * numPatchesPerFrame}, NCHW, halide_type_of<float>());
-        auto idxPtr = idxTensor->writeMap<int>();
-        auto weightPtr = weightTensor->writeMap<float>();
-        for (int t = 0; t < grid_t; ++t) {
-            int timeOffset = t * numPatchesPerFrame;
-            for (int i = 0; i < grid_h; ++i) {
-                float h = grid_h > 1 ? static_cast<float>(i) * (numGrid - 1) / (grid_h - 1) : 0.0f;
-                int hFloor = static_cast<int>(h);
-                int hCeil = std::min(hFloor + 1, numGrid - 1);
-                float dh = h - hFloor;
-                for (int j = 0; j < grid_w; ++j) {
-                    float w = grid_w > 1 ? static_cast<float>(j) * (numGrid - 1) / (grid_w - 1) : 0.0f;
-                    int wFloor = static_cast<int>(w);
-                    int wCeil = std::min(wFloor + 1, numGrid - 1);
-                    float dw = w - wFloor;
-                    int idx = timeOffset + i * grid_w + j;
-                    idxPtr[0 * grid_t * numPatchesPerFrame + idx] = hFloor * numGrid + wFloor;
-                    idxPtr[1 * grid_t * numPatchesPerFrame + idx] = hFloor * numGrid + wCeil;
-                    idxPtr[2 * grid_t * numPatchesPerFrame + idx] = hCeil * numGrid + wFloor;
-                    idxPtr[3 * grid_t * numPatchesPerFrame + idx] = hCeil * numGrid + wCeil;
-                    weightPtr[0 * grid_t * numPatchesPerFrame + idx] = (1.0f - dh) * (1.0f - dw);
-                    weightPtr[1 * grid_t * numPatchesPerFrame + idx] = (1.0f - dh) * dw;
-                    weightPtr[2 * grid_t * numPatchesPerFrame + idx] = dh * (1.0f - dw);
-                    weightPtr[3 * grid_t * numPatchesPerFrame + idx] = dh * dw;
-                }
-            }
-        }
-        idxTensor =
-            Express::_Reshape(idxTensor, {4, grid_t, grid_h / merge_size, merge_size, grid_w / merge_size, merge_size});
-        idxTensor = Express::_Permute(idxTensor, {0, 1, 2, 4, 3, 5});
-        idxTensor = Express::_Reshape(idxTensor, {4, -1});
-        weightTensor = Express::_Reshape(weightTensor,
-                                         {4, grid_t, grid_h / merge_size, merge_size, grid_w / merge_size, merge_size});
-        weightTensor = Express::_Permute(weightTensor, {0, 1, 2, 4, 3, 5});
-        weightTensor = Express::_Reshape(weightTensor, {4, -1});
-        moduleInputs.push_back(idxTensor);
-        moduleInputs.push_back(weightTensor);
-    }
-
-    auto outputs = mVisionModule->onForward(moduleInputs);
-    auto imageEmbedding = outputs[0];
-    VARP deepstackEmbedding = outputs.size() == 2 ? outputs[1] : nullptr;
-    int frameSeqLen = grid_h * grid_w / (merge_size * merge_size);
-    if (imageEmbedding->getInfo()->dim[0] >= grid_t && imageEmbedding->getInfo()->dim[0] % grid_t == 0) {
-        frameSeqLen = imageEmbedding->getInfo()->dim[0] / grid_t;
-    }
-
-    std::vector<int> videoIds;
-    for (int t = 0; t < grid_t; ++t) {
-        float timestamp = 0.0f;
-        for (int i = 0; i < temporal_patch_size; ++i) {
-            timestamp += frameTimes[t * temporal_patch_size + i];
-        }
-        timestamp /= temporal_patch_size;
-        std::ostringstream ts;
-        ts << "<" << std::fixed << std::setprecision(1) << timestamp << " seconds>";
-        auto timestampIds = mTokenizer->encode(ts.str());
-        addPositionIds(timestampIds.size());
-        videoIds.insert(videoIds.end(), timestampIds.begin(), timestampIds.end());
-
-        auto groupEmbedding = Express::_Slice(imageEmbedding, _var<int>({t * frameSeqLen, 0, 0}, {3}),
-                                              _var<int>({frameSeqLen, -1, -1}, {3}));
-        mVisionEmbeddings.push_back(groupEmbedding);
-        if (deepstackEmbedding.get() != nullptr) {
-            mDeepStackEmbeddings.push_back(Express::_Slice(deepstackEmbedding, _var<int>({0, t * frameSeqLen, 0}, {3}),
-                                                           _var<int>({-1, frameSeqLen, -1}, {3})));
-        }
-        addPositionIds(1, grid_h / merge_size, grid_w / merge_size);
-        videoIds.push_back(mVisionStart);
-        videoIds.insert(videoIds.end(), frameSeqLen, mVideoPad);
-        videoIds.push_back(mVisionEnd);
-    }
-    bool async = mConfig->config_.value("async", true);
-    if (!async) {
-        for (auto& embd : mVisionEmbeddings) {
-            embd->readMap<float>();
-        }
-    }
-    mContext->vision_us += _t.durationInUs();
-    mContext->pixels_mp += processedFrames.size() * (mVisionWidth / 1000.0f) * (mVisionHeight / 1000.0f);
-    return videoIds;
-#else
-    MNN_PRINT("Omni video requires LLM_SUPPORT_VISION\n");
-    mContext->status = LlmStatus::INTERNAL_ERROR;
-    return std::vector<int>(0);
-#endif
-}
-
 std::vector<int> Omni::hunyuanVisionProcess(VARP image) {
     MNN::Express::ExecutorScope s(mExecutor);
     int patchSize = mConfig->config_.value("hunyuan_patch_size", 16);
@@ -1528,6 +1329,206 @@ std::vector<int> Omni::minicpmVisionProcess(VARP image) {
     return imgIds;
 }
 #endif
+
+std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const std::vector<float>& timestamps) {
+#ifdef LLM_SUPPORT_VISION
+    if (frames.empty()) {
+        MNN_PRINT("Omni video has no decoded frames\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    if (mVideoPad < 0) {
+        MNN_PRINT("Omni video_pad is missing in llm_config.json\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    const auto inputNames = mVisionModule->getInfo()->inputNames;
+    bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
+    if (inputNames.size() < 3 || inputNames[0] != "patches") {
+        MNN_PRINT("Omni video is only supported for Qwen-style patch visual models\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    MNN::Express::ExecutorScope s(mExecutor);
+    Timer _t;
+    const int patch_size = isQwen3VL ? 16 : 14;
+    constexpr int temporal_patch_size = kQwenVideoTemporalPatchSize;
+    constexpr int merge_size = 2;
+    const int align_size = patch_size * merge_size;
+    int frameCount = qwenVideoAlignedFrameCount(static_cast<int>(frames.size()), mVideoMaxFrames, temporal_patch_size);
+    if (frameCount <= 0) {
+        MNN_PRINT("Omni video requires max_frames >= %d\n", temporal_patch_size);
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    int maxPixels = qwenVideoEffectiveMaxPixels(mVideoMaxPixels, mVideoMaxVisionTokens, frameCount, temporal_patch_size,
+                                                patch_size);
+    auto videoSize = qwenVideoResizeSize(mVisionWidth, mVisionHeight, align_size, maxPixels);
+    mVisionWidth = videoSize.first;
+    mVisionHeight = videoSize.second;
+
+    std::vector<VARP> processedFrames;
+    std::vector<float> frameTimes;
+    frameTimes.reserve(frameCount);
+    for (int i = 0; i < frameCount; ++i) {
+        size_t frameIndex = std::min(static_cast<size_t>(i), frames.size() - 1);
+        auto image = MNN::CV::resize(frames[frameIndex], {mVisionWidth, mVisionHeight}, 0, 0, MNN::CV::INTER_CUBIC,
+                                     MNN::CV::COLOR_BGR2RGB, mVisionMean, mVisionNorm);
+        image = Express::_Unsqueeze(image, {0});
+        image = Express::_Convert(image, NCHW);
+        processedFrames.push_back(image);
+        if (frameIndex < timestamps.size()) {
+            frameTimes.push_back(timestamps[frameIndex]);
+        } else {
+            frameTimes.push_back(static_cast<float>(i) / std::max(mVideoFps, 1.0f));
+        }
+    }
+
+    auto patches = Express::_Concat(processedFrames, 0);
+    auto patchesDim = patches->getInfo()->dim;
+    int temporal = patchesDim[0];
+    int channel = patchesDim[1];
+    int height = patchesDim[2];
+    int width = patchesDim[3];
+    int grid_t = temporal / temporal_patch_size;
+    int grid_h = height / patch_size;
+    int grid_w = width / patch_size;
+    int numPatchesPerFrame = grid_h * grid_w;
+
+    patches = Express::_Reshape(patches, {
+                                             grid_t,
+                                             temporal_patch_size,
+                                             channel,
+                                             grid_h / merge_size,
+                                             merge_size,
+                                             patch_size,
+                                             grid_w / merge_size,
+                                             merge_size,
+                                             patch_size,
+                                         });
+    patches = Express::_Permute(patches, {0, 3, 6, 4, 7, 2, 1, 5, 8});
+    patches =
+        Express::_Reshape(patches, {grid_t * grid_h * grid_w, channel * temporal_patch_size * patch_size * patch_size});
+
+    const int seqLen = grid_t * grid_h * grid_w;
+    if (seqLen > mVideoMaxVisionTokens) {
+        MNN_PRINT("Omni video visual tokens %d exceed video_max_vision_tokens %d\n", seqLen, mVideoMaxVisionTokens);
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    const int wblockSize = merge_size * merge_size;
+    const int hblockSize = wblockSize * grid_w / merge_size;
+    VARP positionIds = Express::_Input({2, seqLen}, NCHW, halide_type_of<int>());
+    auto hposPtr = positionIds->writeMap<int>();
+    auto wposPtr = hposPtr + seqLen;
+    for (int t = 0; t < grid_t; ++t) {
+        int timeOffset = t * numPatchesPerFrame;
+        for (int i = 0; i < grid_h; i++) {
+            int hIdx = i / merge_size, hOff = i % merge_size;
+            for (int j = 0; j < grid_w; j++) {
+                int wIdx = j / merge_size, wOff = j % merge_size;
+                int index = timeOffset + hIdx * hblockSize + wIdx * wblockSize + hOff * 2 + wOff;
+                hposPtr[index] = i;
+                wposPtr[index] = j;
+            }
+        }
+    }
+
+    VARP attentionMask = Express::_Input({1, seqLen, seqLen}, NCHW);
+    fillQwenVisionAttentionMask(attentionMask->writeMap<float>(), grid_t, numPatchesPerFrame);
+    VARPS moduleInputs = {patches, positionIds, attentionMask};
+
+    if (isQwen3VL) {
+        const int numGrid = mConfig->config_.value("num_grid_per_side", 1);
+        auto idxTensor = Express::_Input({4, grid_t * numPatchesPerFrame}, NCHW, halide_type_of<int>());
+        auto weightTensor = Express::_Input({4, grid_t * numPatchesPerFrame}, NCHW, halide_type_of<float>());
+        auto idxPtr = idxTensor->writeMap<int>();
+        auto weightPtr = weightTensor->writeMap<float>();
+        for (int t = 0; t < grid_t; ++t) {
+            int timeOffset = t * numPatchesPerFrame;
+            for (int i = 0; i < grid_h; ++i) {
+                float h = grid_h > 1 ? static_cast<float>(i) * (numGrid - 1) / (grid_h - 1) : 0.0f;
+                int hFloor = static_cast<int>(h);
+                int hCeil = std::min(hFloor + 1, numGrid - 1);
+                float dh = h - hFloor;
+                for (int j = 0; j < grid_w; ++j) {
+                    float w = grid_w > 1 ? static_cast<float>(j) * (numGrid - 1) / (grid_w - 1) : 0.0f;
+                    int wFloor = static_cast<int>(w);
+                    int wCeil = std::min(wFloor + 1, numGrid - 1);
+                    float dw = w - wFloor;
+                    int idx = timeOffset + i * grid_w + j;
+                    idxPtr[0 * grid_t * numPatchesPerFrame + idx] = hFloor * numGrid + wFloor;
+                    idxPtr[1 * grid_t * numPatchesPerFrame + idx] = hFloor * numGrid + wCeil;
+                    idxPtr[2 * grid_t * numPatchesPerFrame + idx] = hCeil * numGrid + wFloor;
+                    idxPtr[3 * grid_t * numPatchesPerFrame + idx] = hCeil * numGrid + wCeil;
+                    weightPtr[0 * grid_t * numPatchesPerFrame + idx] = (1.0f - dh) * (1.0f - dw);
+                    weightPtr[1 * grid_t * numPatchesPerFrame + idx] = (1.0f - dh) * dw;
+                    weightPtr[2 * grid_t * numPatchesPerFrame + idx] = dh * (1.0f - dw);
+                    weightPtr[3 * grid_t * numPatchesPerFrame + idx] = dh * dw;
+                }
+            }
+        }
+        idxTensor =
+            Express::_Reshape(idxTensor, {4, grid_t, grid_h / merge_size, merge_size, grid_w / merge_size, merge_size});
+        idxTensor = Express::_Permute(idxTensor, {0, 1, 2, 4, 3, 5});
+        idxTensor = Express::_Reshape(idxTensor, {4, -1});
+        weightTensor = Express::_Reshape(weightTensor,
+                                         {4, grid_t, grid_h / merge_size, merge_size, grid_w / merge_size, merge_size});
+        weightTensor = Express::_Permute(weightTensor, {0, 1, 2, 4, 3, 5});
+        weightTensor = Express::_Reshape(weightTensor, {4, -1});
+        moduleInputs.push_back(idxTensor);
+        moduleInputs.push_back(weightTensor);
+    }
+
+    auto outputs = mVisionModule->onForward(moduleInputs);
+    auto imageEmbedding = outputs[0];
+    VARP deepstackEmbedding = outputs.size() == 2 ? outputs[1] : nullptr;
+    int frameSeqLen = grid_h * grid_w / (merge_size * merge_size);
+    if (imageEmbedding->getInfo()->dim[0] >= grid_t && imageEmbedding->getInfo()->dim[0] % grid_t == 0) {
+        frameSeqLen = imageEmbedding->getInfo()->dim[0] / grid_t;
+    }
+
+    std::vector<int> videoIds;
+    for (int t = 0; t < grid_t; ++t) {
+        float timestamp = 0.0f;
+        for (int i = 0; i < temporal_patch_size; ++i) {
+            timestamp += frameTimes[t * temporal_patch_size + i];
+        }
+        timestamp /= temporal_patch_size;
+        std::ostringstream ts;
+        ts << "<" << std::fixed << std::setprecision(1) << timestamp << " seconds>";
+        auto timestampIds = mTokenizer->encode(ts.str());
+        addPositionIds(timestampIds.size());
+        videoIds.insert(videoIds.end(), timestampIds.begin(), timestampIds.end());
+
+        auto groupEmbedding = Express::_Slice(imageEmbedding, _var<int>({t * frameSeqLen, 0, 0}, {3}),
+                                              _var<int>({frameSeqLen, -1, -1}, {3}));
+        mVisionEmbeddings.push_back(groupEmbedding);
+        if (deepstackEmbedding.get() != nullptr) {
+            mDeepStackEmbeddings.push_back(Express::_Slice(deepstackEmbedding, _var<int>({0, t * frameSeqLen, 0}, {3}),
+                                                           _var<int>({-1, frameSeqLen, -1}, {3})));
+        }
+        addPositionIds(1, grid_h / merge_size, grid_w / merge_size);
+        videoIds.push_back(mVisionStart);
+        videoIds.insert(videoIds.end(), frameSeqLen, mVideoPad);
+        videoIds.push_back(mVisionEnd);
+    }
+    bool async = mConfig->config_.value("async", true);
+    if (!async) {
+        for (auto& embd : mVisionEmbeddings) {
+            embd->readMap<float>();
+        }
+    }
+    mContext->vision_us += _t.durationInUs();
+    mContext->pixels_mp += processedFrames.size() * (mVisionWidth / 1000.0f) * (mVisionHeight / 1000.0f);
+    return videoIds;
+#else
+    MNN_PRINT("Omni video requires LLM_SUPPORT_VISION\n");
+    mContext->status = LlmStatus::INTERNAL_ERROR;
+    return std::vector<int>(0);
+#endif
+}
+
 
 std::vector<int> Omni::visionProcess(const std::string& file) {
 #if defined(LLM_SUPPORT_VISION) && defined(MNN_IMGCODECS)
