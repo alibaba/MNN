@@ -678,7 +678,7 @@ local_build() {
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
         -DMNN_BUILD_CONVERTER=ON \
-        "${platform_args[@]}"
+        ${platform_args[@]+"${platform_args[@]}"}
     make -j"$(_host_jobs)"
     popd >/dev/null
     log_ok "host build complete"
@@ -816,7 +816,7 @@ android_build() {
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
         -DMNN_BUILD_CONVERTER=ON \
-        "${extra[@]}"
+        ${extra[@]+"${extra[@]}"}
     # build_64.sh hard-codes `make -j4`; respin with all cores so subsequent
     # incremental work uses full parallelism.
     make -j"$(_host_jobs)"

@@ -15,58 +15,58 @@ __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
         if(offset + 3 >= size){
             int remain = size - offset;
             #ifdef INT_COMPUTE_MOD
-            int4 in0, in1;
-            int* in0_ptr = (int*)&in0;
-            int* in1_ptr = (int*)&in1;
-            
-            for(int i = 0; i < remain; ++i){
-                #ifdef A_SINGLE
-                in0_ptr[i] = (int)input0[0];
-                #else
-                in0_ptr[i] = (int)input0[offset + i];
-                #endif
-        
-                #ifdef B_SINGLE
-                in1_ptr[i] = (int)input1[0];
-                #else
-                in1_ptr[i] = (int)input1[offset + i];
-                #endif
-            }
+            int4 in0 = (int4)0, in1 = (int4)1;
+            #ifdef A_SINGLE
+            in0 = (int4)((int)input0[0]);
+            #else
+            in0.x = (int)input0[offset];
+            if(remain > 1) { in0.y = (int)input0[offset + 1]; }
+            if(remain > 2) { in0.z = (int)input0[offset + 2]; }
+            if(remain > 3) { in0.w = (int)input0[offset + 3]; }
+            #endif
+            #ifdef B_SINGLE
+            in1 = (int4)((int)input1[0]);
+            #else
+            in1.x = (int)input1[offset];
+            if(remain > 1) { in1.y = (int)input1[offset + 1]; }
+            if(remain > 2) { in1.z = (int)input1[offset + 2]; }
+            if(remain > 3) { in1.w = (int)input1[offset + 3]; }
+            #endif
             int4 out = in0 % in1;
             out = ((out < (int4)0 && in1 > (int4)0) || (out > (int4)0 && in1 < (int4)0)) ? out + in1 : out;
             if(activationType == 1) {
                 out = out > 0 ? out : 0;
             }
-            int* out_ptr = (int*)&out;
-            for(int i = 0; i < remain; ++i){
-                output[offset + i] = (OUTPUT_TYPE)out_ptr[i];
-            }
+            output[offset] = (OUTPUT_TYPE)out.x;
+            if(remain > 1) { output[offset + 1] = (OUTPUT_TYPE)out.y; }
+            if(remain > 2) { output[offset + 2] = (OUTPUT_TYPE)out.z; }
+            if(remain > 3) { output[offset + 3] = (OUTPUT_TYPE)out.w; }
             #else
-            float4 in0, in1;
-            float* in0_ptr = (float*)&in0;
-            float* in1_ptr = (float*)&in1;
-            
-            for(int i = 0; i < remain; ++i){
-                #ifdef A_SINGLE
-                in0_ptr[i] = (float)input0[0];
-                #else
-                in0_ptr[i] = (float)input0[offset + i];
-                #endif
-        
-                #ifdef B_SINGLE
-                in1_ptr[i] = (float)input1[0];
-                #else
-                in1_ptr[i] = (float)input1[offset + i];
-                #endif
-            }
+            float4 in0 = (float4)0, in1 = (float4)0;
+            #ifdef A_SINGLE
+            in0 = (float4)((float)input0[0]);
+            #else
+            in0.x = (float)input0[offset];
+            if(remain > 1) { in0.y = (float)input0[offset + 1]; }
+            if(remain > 2) { in0.z = (float)input0[offset + 2]; }
+            if(remain > 3) { in0.w = (float)input0[offset + 3]; }
+            #endif
+            #ifdef B_SINGLE
+            in1 = (float4)((float)input1[0]);
+            #else
+            in1.x = (float)input1[offset];
+            if(remain > 1) { in1.y = (float)input1[offset + 1]; }
+            if(remain > 2) { in1.z = (float)input1[offset + 2]; }
+            if(remain > 3) { in1.w = (float)input1[offset + 3]; }
+            #endif
             float4 out = OPERATOR;
             if(activationType == 1) {
                 out = fmax(out, (float4)0);
             }
-            float* out_ptr = (float*)&out;
-            for(int i = 0; i < remain; ++i){
-                output[offset + i] = (OUTPUT_TYPE)out_ptr[i];
-            }
+            output[offset] = (OUTPUT_TYPE)out.x;
+            if(remain > 1) { output[offset + 1] = (OUTPUT_TYPE)out.y; }
+            if(remain > 2) { output[offset + 2] = (OUTPUT_TYPE)out.z; }
+            if(remain > 3) { output[offset + 3] = (OUTPUT_TYPE)out.w; }
             #endif
         }else {
 #endif

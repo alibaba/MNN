@@ -28,10 +28,11 @@ __kernel void range_buf(GLOBAL_SIZE_2_DIMS
     OUTPUT_TYPE4 value = (OUTPUT_TYPE4)start + CONVERT_OUTPUT4(index4) * (OUTPUT_TYPE4)step;
 #ifdef PACK_LEAVE
     if(index + 3 >= size){
-        OUTPUT_TYPE* value_ptr = (OUTPUT_TYPE*)&value;
-        for(int i = 0; i < size - index; ++i){
-            output[index + i] = value_ptr[i];
-        }
+        const int remain = size - index;
+        output[index] = value.x;
+        if(remain > 1) { output[index + 1] = value.y; }
+        if(remain > 2) { output[index + 2] = value.z; }
+        if(remain > 3) { output[index + 3] = value.w; }
     }else{
 #endif
         vstore4(value, 0, output + index);

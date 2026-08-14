@@ -105,7 +105,7 @@ __kernel void conv2d_filter_buffer_to_nc4hw4_buffer_int4(GLOBAL_SIZE_2_DIMS
 
 #define INT4_2_UCHAR16(a, index)                                                                             \
 {                                                                                                            \
-    int index0 = yin * input_channel + xin + index;                                                          \ 
+    int index0 = yin * input_channel + xin + index;                                                          \
     int index1 = (yin + 1) * input_channel + xin + index;                                                    \
     int index2 = (yin + 2) * input_channel + xin + index;                                                    \
     int index3 = (yin + 3) * input_channel + xin + index;                                                    \
