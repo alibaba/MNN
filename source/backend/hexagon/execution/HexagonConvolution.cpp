@@ -1132,4 +1132,4 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
     return new HexagonConvolution(backend, res, op);
 }
 
-}
+} // namespace MNN

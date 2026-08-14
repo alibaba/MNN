@@ -5,15 +5,10 @@
 
 extern "C" {
 
-AEEResult htp_ops_matmul_q4block_a16_fp16(
-                               uint8_t* output, uint8_t* activation,
-                               uint8_t* weight, uint8_t* bias,
-                               int32 m, int32 k, int32 n,
-                               int32 weight_type, int32 layout_type,
-                               int32 mp, int32 np, int32 kp,
-                               int32 scale_block_num,
-                               int32 scale_asymmetric,
-                               int32 weight_is_vrmpy) {
+AEEResult htp_ops_matmul_q4block_a16_fp16(uint8_t *output, uint8_t *activation, uint8_t *weight, uint8_t *bias,
+                                          int32 m, int32 k, int32 n, int32 weight_type, int32 layout_type,
+                                          int32 mp, int32 np, int32 kp, int32 scale_block_num,
+                                          int32 scale_asymmetric, int32 weight_is_vrmpy) {
   (void) layout_type;  // currently only layout_type == 1 (permuted) is supported
   (void) weight_type;
 

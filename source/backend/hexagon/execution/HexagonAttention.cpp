@@ -1,5 +1,6 @@
 #include "HexagonRuntime.hpp"
 #include "HexagonAttention.hpp"
+#include "HexagonAttentionUtils.hpp"
 #include <climits>
 #include <cmath>
 #include "backend/hexagon/backend/HexagonBackend.hpp"
@@ -64,6 +65,7 @@ struct VisionAttentionParam {
     int headDim;
     float scale;
     int maskStride;
+    int workspaceBytes;
 };
 
 static int flashAttentionBlockAlignUp(int value, int alignment) {
@@ -214,7 +216,10 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
         auto V = inputs[2];
         auto mask = inputs[3];
         auto output = outputs[0];
-        if (Q->length(0) != K->length(0) || Q->length(0) != V->length(0) || Q->length(1) != K->length(1) ||
+        if (TensorUtils::getDescribe(Q)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ||
+            TensorUtils::getDescribe(K)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ||
+            TensorUtils::getDescribe(V)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ||
+            Q->length(0) != K->length(0) || Q->length(0) != V->length(0) || Q->length(1) != K->length(1) ||
             Q->length(1) != V->length(1) || Q->length(2) != K->length(2) || Q->length(2) != V->length(2) ||
             Q->length(3) != K->length(3) || Q->length(3) != V->length(3) || HexagonBackend::getBytes(Q) != 2 ||
             HexagonBackend::getBytes(K) != 2 || HexagonBackend::getBytes(V) != 2 ||
@@ -225,19 +230,26 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
         TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
         const int tokens = Q->length(1);
         int maskStride = 0;
+        Tensor* validMask = nullptr;
         if (mask != nullptr && mask->dimensions() >= 2) {
-            maskStride = mask->length(mask->dimensions() - 1);
-            if (maskStride != tokens) {
+            const int maskRank = mask->dimensions();
+            int maskDimensions[3] = {0, 0, 0};
+            for (int i = 0; i < maskRank && i < 3; ++i) {
+                maskDimensions[i] = mask->length(i);
+            }
+            if (!validateVisionAttentionMaskShape(Q->length(0), tokens, maskRank, maskDimensions)) {
                 return NOT_SUPPORT;
             }
+            maskStride = tokens;
+            validMask = mask;
         }
         const int headDim = Q->length(3);
         const float scale = mAttnScale == 0.0f ? 1.0f / std::sqrt(static_cast<float>(headDim)) : mAttnScale;
-        VisionAttentionParam params = {Q->length(0), tokens, Q->length(2), headDim, scale, maskStride};
+        VisionAttentionParam params = {Q->length(0), tokens, Q->length(2), headDim, scale, maskStride, 0};
         const int dspOp = headDim % 64 == 0 ? DSP_OP_VISION_FLASH_ATTENTION_FP16 : DSP_OP_VISION_ATTENTION_FP16;
         std::vector<std::pair<int, int>> inputFds = {
             HexagonBackend::getDevicePtr(Q), HexagonBackend::getDevicePtr(K), HexagonBackend::getDevicePtr(V),
-            mask != nullptr ? HexagonBackend::getDevicePtr(mask) : std::make_pair(-1, 0)};
+            validMask != nullptr ? HexagonBackend::getDevicePtr(validMask) : std::make_pair(-1, 0)};
         mWorkspace.reset();
         std::vector<std::pair<int, int>> outputFds = {HexagonBackend::getDevicePtr(output)};
         std::vector<Tensor*> commandOutputs = {output};
@@ -248,6 +260,20 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
             if (workspaceBytes > INT_MAX) {
                 return NOT_SUPPORT;
             }
+            params.workspaceBytes = (int)workspaceBytes;
+            mWorkspace.reset(Tensor::createDevice<int8_t>({(int)workspaceBytes}));
+            if (!backend()->onAcquireBuffer(mWorkspace.get(), Backend::DYNAMIC)) {
+                mWorkspace.reset();
+                return OUT_OF_MEMORY;
+            }
+            outputFds.emplace_back(HexagonBackend::getDevicePtr(mWorkspace.get()));
+            commandOutputs.emplace_back(mWorkspace.get());
+        } else {
+            const size_t workspaceBytes = (size_t)tokens * sizeof(float) + 127;
+            if (workspaceBytes > INT_MAX) {
+                return NOT_SUPPORT;
+            }
+            params.workspaceBytes = (int)workspaceBytes;
             mWorkspace.reset(Tensor::createDevice<int8_t>({(int)workspaceBytes}));
             if (!backend()->onAcquireBuffer(mWorkspace.get(), Backend::DYNAMIC)) {
                 mWorkspace.reset();
@@ -258,7 +284,7 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
         }
         dst.emplace_back();
         dst.back().build(static_cast<HexagonBackend*>(backend()), dspOp, &params, sizeof(params), inputFds, outputFds,
-                         {Q, K, V, mask}, commandOutputs);
+                         {Q, K, V, validMask}, commandOutputs);
         if (mWorkspace) {
             backend()->onReleaseBuffer(mWorkspace.get(), Backend::DYNAMIC);
         }

@@ -3,18 +3,17 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#include "dsp/ops.h"
-#include "dsp/vrmpy_to_hmx.h"
 
 #include "dsp/dma_utils.h"
 #include "dsp/hmx_mgr.h"
 #include "dsp/hmx_utils.h"
 #include "dsp/hvx_convert.h"
 #include "dsp/hvx_utils.h"
+#include "dsp/ops.h"
 #include "dsp/utils.h"
+#include "dsp/vrmpy_to_hmx.h"
 #include "dsp/vtcm_mgr.h"
 #include "dsp/worker_pool.h"
-
 #include "HAP_farf.h"
 #include "HAP_perf.h"
 
@@ -785,13 +784,17 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
   return 0;
 }
 
-static int hmx_matmulq4fp16_mle32_entry(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale,
-                                        const uint8_t * bias, int M, int K, int N, int mp_max, int np_max,
+static int hmx_matmulq4fp16_mle32_entry(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale,
+                                        const uint8_t *bias, int M, int K, int N, int mp_max, int np_max,
                                         int kp_max, int scale_block_num, int scale_asymmetric,
                                         int q4block_variant, int weight_is_vrmpy) {
   if (scale_block_num <= 0) scale_block_num = 1;
   if (kp_max <= 0 || kp_max % scale_block_num != 0) return AEE_EBADPARM;
   const int dequant_in_weight = scale_block_num > 1;
+  if (c == NULL || a == NULL || b == NULL || M <= 0 || K <= 0 || N <= 0 || mp_max <= 0 || np_max <= 0) {
+    return AEE_EBADPARM;
+  }
+
   MatmulParam param = {
     .c = c,
     .a = a,
@@ -835,6 +838,12 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t * c, const uint8_t * a, const ui
     param.vtcm_activation_sums = (__fp16 *)vtcm_seq_alloc(&vtcm_ptr,
         (size_t)scale_block_num * sizeof(__fp16));
   }
+  const uintptr_t vtcm_begin = (uintptr_t)vtcm_manager_get_vtcm_base();
+  const size_t vtcm_size = (size_t)vtcm_manager_get_vtcm_size();
+  const uintptr_t vtcm_end = vtcm_begin + vtcm_size;
+  if (vtcm_begin == 0 || vtcm_end < vtcm_begin || (uintptr_t)vtcm_ptr > vtcm_end) {
+    return AEE_ENOMEMORY;
+  }
   memset(param.vtcm_scales, 0, param.np_chunk * 64 + 64);
   if (dequant_in_weight) {
     init_identity_q4_output_scales(param.vtcm_scales, param.np_chunk);
@@ -843,7 +852,7 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t * c, const uint8_t * a, const ui
   return hmx_matmulq4fp16_mle32_part(&param);
 }
 
-int hmx_matmulq4fp16_mle32(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale, const uint8_t * bias,
+int hmx_matmulq4fp16_mle32(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias,
                            int M, int K, int N, int mp_max, int np_max, int kp_max, int scale_block_num,
                            int scale_asymmetric, int weight_is_vrmpy) {
   return hmx_matmulq4fp16_mle32_entry(c, a, b, b_scale, bias, M, K, N, mp_max, np_max, kp_max,

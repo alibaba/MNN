@@ -3,16 +3,19 @@
 #include <stdlib.h>
 
 extern "C" AEEResult htp_ops_vision_attention_fp16(uint8_t* pOut, const uint8_t* pQ, const uint8_t* pK,
-                                                    const uint8_t* pV, const uint8_t* pMask, int batch, int tokens,
-                                                    int heads, int headDim, float scale, int maskStride) {
+                                                    const uint8_t* pV, const uint8_t* pMask, uint8_t* pWorkspace,
+                                                    int batch, int tokens, int heads, int headDim, float scale,
+                                                    int maskStride, int providedWorkspaceBytes) {
   if (pOut == NULL || pQ == NULL || pK == NULL || pV == NULL || batch <= 0 || tokens <= 0 || heads <= 0 ||
       headDim <= 0) {
     return AEE_EBADPARM;
   }
-  float* scores = (float*)malloc((size_t)tokens * sizeof(float));
-  if (scores == NULL) {
-    return AEE_ENOMEMORY;
+  const size_t workspaceBytes = (size_t)tokens * sizeof(float) + 127;
+  if (pWorkspace == NULL || providedWorkspaceBytes <= 0 ||
+      (size_t)providedWorkspaceBytes < workspaceBytes) {
+    return AEE_EBADPARM;
   }
+  float* scores = (float*)(((uintptr_t)pWorkspace + 127) & ~(uintptr_t)127);
   const __fp16* query = (const __fp16*)pQ;
   const __fp16* key = (const __fp16*)pK;
   const __fp16* value = (const __fp16*)pV;
@@ -37,11 +40,7 @@ extern "C" AEEResult htp_ops_vision_attention_fp16(uint8_t* pOut, const uint8_t*
           scores[k] = score;
           maxScore = score > maxScore ? score : maxScore;
         }
-        float sum = 0.0f;
-        for (int k = 0; k < tokens; ++k) {
-          scores[k] = expf(scores[k] - maxScore);
-          sum += scores[k];
-        }
+        const float sum = sync_attention_exp_and_sum(scores, tokens, maxScore);
         const float invSum = sum > 0.0f ? 1.0f / sum : 0.0f;
         __fp16* outPtr = output + ((size_t)b * tokens + q) * tokenStride + (size_t)h * headDim;
         for (int d = 0; d < headDim; ++d) {
@@ -55,7 +54,6 @@ extern "C" AEEResult htp_ops_vision_attention_fp16(uint8_t* pOut, const uint8_t*
       }
     }
   }
-  free(scores);
   return AEE_SUCCESS;
 }
 
@@ -79,7 +77,8 @@ static void preprocess_mask_to_fp32(float* restrict dst, const __fp16* restrict 
 
 extern "C" AEEResult htp_ops_vision_flash_attention_fp16(
     uint8_t* pOut, const uint8_t* pQ, const uint8_t* pK, const uint8_t* pV, const uint8_t* pMask,
-    uint8_t* pWorkspace, int batch, int tokens, int heads, int headDim, float scale, int maskStride) {
+    uint8_t* pWorkspace, int batch, int tokens, int heads, int headDim, float scale, int maskStride,
+    int providedWorkspaceBytes) {
   if (pOut == NULL || pQ == NULL || pK == NULL || pV == NULL || batch <= 0 || tokens <= 0 || heads <= 0 ||
       headDim <= 0 || (headDim % 64) != 0 || (pMask != NULL && maskStride < tokens)) {
     return AEE_EBADPARM;
@@ -105,6 +104,11 @@ extern "C" AEEResult htp_ops_vision_flash_attention_fp16(
   size_t workspaceBytes = maskOffset;
   if (pMask != NULL) {
     workspaceBytes = attn_align_128(maskOffset + (size_t)queryBlock * maskStride * sizeof(float));
+  }
+  const size_t requiredWorkspaceBytes = workspaceBytes + 127;
+  if (pWorkspace != NULL &&
+      (providedWorkspaceBytes <= 0 || (size_t)providedWorkspaceBytes < requiredWorkspaceBytes)) {
+    return AEE_EBADPARM;
   }
   uint8_t* ownedWorkspace = NULL;
   if (pWorkspace == NULL) {

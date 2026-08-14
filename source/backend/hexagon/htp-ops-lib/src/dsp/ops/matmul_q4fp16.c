@@ -4,18 +4,17 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "dsp/ops.h"
-#include "dsp/vrmpy_to_hmx.h"
 
 #include "dsp/dma_utils.h"
 #include "dsp/hmx_mgr.h"
 #include "dsp/hmx_utils.h"
 #include "dsp/hvx_convert.h"
 #include "dsp/hvx_utils.h"
+#include "dsp/ops.h"
 #include "dsp/utils.h"
+#include "dsp/vrmpy_to_hmx.h"
 #include "dsp/vtcm_mgr.h"
 #include "dsp/worker_pool.h"
-
 #include "HAP_farf.h"
 
 typedef uint64_t unaligned_uint64_t __attribute__((aligned(1)));
@@ -912,9 +911,9 @@ static void store_q4_output_worker_loop(void* data, int _worker_index) {
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
-int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale, const uint8_t * bias,
-                          int M, int K, int N, int mp_max, int np_max, int kp_max, int scale_block_num,
-                          int scale_asymmetric, int weight_is_vrmpy) {
+int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias,
+                     int M, int K, int N, int mp_max, int np_max, int kp_max, int scale_block_num,
+                     int scale_asymmetric, int weight_is_vrmpy) {
   if (scale_block_num <= 0) scale_block_num = 1;
   const int dequant_in_weight = scale_block_num > 1;
   int np_chunk = np_max;
