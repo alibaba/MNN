@@ -72,15 +72,19 @@ enum DSPOpType {
     DSP_OP_BATCH_MATMUL,
     DSP_OP_PRELU,
     DSP_OP_CONV1X1_DIRECT_W8A16_SYM_PER_CHANNEL = 40,
-    // Keep 41 stable: released hosts and prebuilt skels use this value.
     DSP_OP_MATMUL_Q4A16_GEMV_I8 = 41,
     DSP_OP_MATMUL_W8A16_BLOCK_FP16 = 42,
     DSP_OP_VISION_ATTENTION_FP16 = 43,
     DSP_OP_VISION_FLASH_ATTENTION_FP16 = 44,
+    DSP_OP_MATMUL_W8A16_GEMV_I8 = 45,
     DSP_OP_COMMAND_GROUP = 99,
     DSP_OP_MAX = 100
 };
 
 #ifdef __cplusplus
-}
+}  // extern "C"
+
+// Host and skel are built separately and exchange these values over FastRPC.
+static_assert(DSP_OP_MATMUL_Q4A16_GEMV_I8 == 41, "DSP_OP_MATMUL_Q4A16_GEMV_I8 must stay 41");
+static_assert(DSP_OP_MATMUL_W8A16_GEMV_I8 == 45, "DSP_OP_MATMUL_W8A16_GEMV_I8 must stay 45");
 #endif

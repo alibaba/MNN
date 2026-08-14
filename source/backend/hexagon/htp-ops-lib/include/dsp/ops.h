@@ -32,6 +32,11 @@ int hmx_matmulq4blockfp16_mle32(uint8_t *c, const uint8_t *a, const uint8_t *b, 
 // b = vrmpy-packed int4 weight; b_scale = per-oc-tile fp32 block scales; output fp16 linear.
 int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale,
                               const uint8_t *bias, int K, int N, int scale_block_num);
+// Decode GEMV (M=1) W8A16 integer path: symmetric int8 activation x symmetric int8 block-64 weight (vrmpy).
+// b = int8 weight in the existing HMX tile layout (host reorderInt8SymWeightForHmx);
+// b_scale = separate per-oc-tile fp32 block scales; output fp16 linear.
+int hmx_matmulw8a16block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale,
+                                 const uint8_t *bias, int K, int N, int scale_block_num);
 int hvx_tmac_a16w1_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight, const float *scale,
                         const uint8_t *bias, int m, int ic, int oc, int scale_block_num,
                         int scale_asymmetric, int output_bytes);
@@ -82,6 +87,8 @@ int hmx_im2col_convolution_fp16(uint8_t *dst, const uint8_t *src, const uint8_t 
                                 const HmxIm2ColConvParam* params);
 int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
                                              const uint8_t *bias, const HmxIm2ColConvParam* params);
+int hmx_matmul_w8a16_block_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
+                                const uint8_t *bias, const HmxIm2ColConvParam* params);
 int htp_ops_conv1x1_direct_fp16(uint8_t* output, uint8_t* input, uint8_t* weight, uint8_t* bias,
                                 const HmxIm2ColConvParam* params);
 int htp_ops_vision_attention_fp16(uint8_t* output, const uint8_t* query, const uint8_t* key, const uint8_t* value,

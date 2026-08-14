@@ -280,6 +280,10 @@ typedef struct {
 } HmxW8WeightDmaConvertTask;
 
 typedef struct {
+    // Scale-region descriptor, chained ahead of weight_desc (ordered): when a worker
+    // sees its weight descriptor's dstate, the scale DMA for the whole oy-chunk is
+    // already complete, so converts read scales from the VTCM staging buffer.
+    alignas(64) dma_desc_1d_t scale_desc;
     alignas(64) dma_desc_1d_t weight_desc[32];
     worker_synctoken_t sync_token[32];
     HmxW8WeightDmaConvertTask tasks[32];
@@ -305,7 +309,7 @@ static void convert_w8_weight_dma_chunk_worker(void* data, int worker_index) {
     const int8_t* src_oy = task->vtcm_weight_int8 + (size_t)task->start_idx * tileSize;
     __fp16* dst_oy = task->vtcm_weight + (size_t)task->start_idx * tileSize;
     for (int local_oy = 0; local_oy < task->count; ++local_oy) {
-        const int oy = task->oy_start + task->start_idx + local_oy;
+        const int local_oy_idx = task->start_idx + local_oy;
         const int8_t* src = src_oy;
         __fp16* dst = dst_oy;
         int cached_scale_idx = -1;
@@ -317,7 +321,7 @@ static void convert_w8_weight_dma_chunk_worker(void* data, int worker_index) {
                 if (scale_idx != cached_scale_idx) {
                     const int scale_unit = task->scale_asymmetric ? 128 : 64;
                     const __fp16* scale = task->scales +
-                        ((size_t)oy * task->scale_block_num + scale_idx) * scale_unit;
+                        ((size_t)local_oy_idx * task->scale_block_num + scale_idx) * scale_unit;
                     vScale = vmemu(scale);
                     vOffset = task->scale_asymmetric ? vmemu(scale + 64) : Q6_V_vzero();
                     cached_scale_idx = scale_idx;
@@ -339,7 +343,8 @@ static void start_weight_tiles_w8a16_sym_per_channel_dma(HmxW8WeightDmaConvertAs
                                                          __fp16* vtcm_weight, int8_t* vtcm_weight_int8,
                                                          const int8_t* src_weight, int oy_start,
                                                          int oy_end, int kp, const __fp16* scales,
-                                                         int scale_block_num, int scale_asymmetric) {
+                                                         int scale_block_num, int scale_asymmetric,
+                                                         __fp16* vtcm_scale_staging) {
     const int kernel_block_size = 32 * 32;
     const size_t tileSize = (size_t)kp * kernel_block_size;
     const int tileCount = oy_end - oy_start;
@@ -389,7 +394,27 @@ static void start_weight_tiles_w8a16_sym_per_channel_dma(HmxW8WeightDmaConvertAs
         async->weight_desc[i].dst = (uint32_t)(vtcm_weight_int8 + (size_t)async->chunk_starts[i] * tileSize);
     }
 
-    dmstart(&async->weight_desc[0]);
+    // Stage the contiguous scale region [oy_start, oy_end) into VTCM as the first
+    // descriptor of the ordered chain: the weight descriptors' dstate then implies
+    // the scale DMA is complete, and converts read scales from VTCM instead of
+    // scattered uncached vmemu DDR reads (per-transfer latency dominates wconv).
+    const int scale_unit = scale_asymmetric ? 128 : 64;
+    const bool stage_scales = vtcm_scale_staging != nullptr;
+    if (stage_scales) {
+        memset(&async->scale_desc, 0, sizeof(dma_desc_1d_t));
+        async->scale_desc.next = (uint32_t)&async->weight_desc[0];
+        async->scale_desc.length =
+            (uint32_t)((size_t)tileCount * scale_block_num * scale_unit * sizeof(int16_t));
+        async->scale_desc.type = DMA_DESC_TYPE_1D;
+        async->scale_desc.src_bypass = 1;
+        async->scale_desc.dst_bypass = 1;
+        async->scale_desc.ordered = 1;
+        async->scale_desc.dstate = DMA_DESC_DSTATE_PENDING;
+        async->scale_desc.src = (uint32_t)(scales + (size_t)oy_start * scale_block_num * scale_unit);
+        async->scale_desc.dst = (uint32_t)vtcm_scale_staging;
+    }
+    dmstart(stage_scales ? &async->scale_desc : &async->weight_desc[0]);
+
     for (int i = 0; i < async->valid_chunks; ++i) {
         worker_pool_synctoken_init(&async->sync_token[i], 1);
         async->tasks[i].vtcm_weight_int8 = vtcm_weight_int8;
@@ -400,7 +425,7 @@ static void start_weight_tiles_w8a16_sym_per_channel_dma(HmxW8WeightDmaConvertAs
         async->tasks[i].oy_start = oy_start;
         async->tasks[i].scale_block_num = scale_block_num;
         async->tasks[i].scale_asymmetric = scale_asymmetric;
-        async->tasks[i].scales = scales;
+        async->tasks[i].scales = (vtcm_scale_staging != nullptr) ? vtcm_scale_staging : scales;
         async->tasks[i].depend = &async->weight_desc[i];
         async->tasks[i].shared_sync = &async->sync_token[i];
         worker_pool_job_t job;
@@ -521,6 +546,26 @@ int hmx_matmul_w8a16_block_fp16(uint8_t *dst, const uint8_t *src, const uint8_t 
     __fp16* vtcm_activation = (__fp16 *)vtcm_seq_alloc(&vtcm_ptr, (size_t)mp_chunk * kp * 1024 * sizeof(int16_t));
     __fp16* vtcm_output = (__fp16 *)vtcm_seq_alloc(&vtcm_ptr, 4096);
     __fp16* vtcm_scales = (__fp16 *)vtcm_seq_alloc(&vtcm_ptr, 256);
+    // Stage the contiguous per-oy scale region for each oy-chunk into VTCM so the
+    // convert workers read scales from VTCM instead of scattered uncached DDR
+    // vmemu reads. Host-side sizing (chooseIm2ColTileShape) accounts for this.
+    const int scale_unit = scale_asymmetric ? 128 : 64;
+    __fp16* vtcm_scale_staging = nullptr;
+    if (scale_block_num > 1 || scale_asymmetric) {
+        vtcm_scale_staging = (__fp16 *)vtcm_seq_alloc(&vtcm_ptr,
+            (size_t)np_chunk * scale_block_num * scale_unit * sizeof(int16_t));
+    }
+
+    // Authoritative VTCM bounds check: vtcm_seq_alloc is an unchecked bump
+    // allocator, so a host/DSP sizing drift would let the DMA below write past
+    // the end of VTCM (cDSP hang / device reboot). Guard before any DMA.
+    const uintptr_t vtcm_begin = (uintptr_t)vtcm_manager_get_vtcm_base();
+    const size_t    vtcm_size  = (size_t)vtcm_manager_get_vtcm_size();
+    const uintptr_t vtcm_end   = vtcm_begin + vtcm_size;
+    if (vtcm_begin == 0 || vtcm_end < vtcm_begin ||
+        (uintptr_t)vtcm_ptr > vtcm_end) {
+        return AEE_ENOMEMORY;
+    }
 
     hmx_manager_enable_execution();
     hmx_init_column_scales(vtcm_scales, Q6_V_vsplat_R(0x3c00));
@@ -536,7 +581,8 @@ int hmx_matmul_w8a16_block_fp16(uint8_t *dst, const uint8_t *src, const uint8_t 
                 HmxW8WeightDmaConvertAsync async = {};
                 start_weight_tiles_w8a16_sym_per_channel_dma(&async, vtcm_weight, vtcm_weight_int8,
                                                              src_weight, oy_start, oy_end, kp, scales,
-                                                             scale_block_num, scale_asymmetric);
+                                                             scale_block_num, scale_asymmetric,
+                                                             vtcm_scale_staging);
                 for (int chunk_idx = 0; chunk_idx < async.valid_chunks; ++chunk_idx) {
                     wait_weight_chunk_w8a16_sym_per_channel(&async, chunk_idx);
                     const int chunk_oy_start = oy_start + async.chunk_starts[chunk_idx];
@@ -563,7 +609,8 @@ int hmx_matmul_w8a16_block_fp16(uint8_t *dst, const uint8_t *src, const uint8_t 
             HmxW8WeightDmaConvertAsync async = {};
             start_weight_tiles_w8a16_sym_per_channel_dma(&async, vtcm_weight, vtcm_weight_int8,
                                                          src_weight, oy_start, oy_end, kp, scales,
-                                                         scale_block_num, scale_asymmetric);
+                                                         scale_block_num, scale_asymmetric,
+                                                         vtcm_scale_staging);
 
             for (int ox_start = 0; ox_start < mp; ox_start += mp_chunk) {
                 const int ox_end = (ox_start + mp_chunk > mp) ? mp : (ox_start + mp_chunk);

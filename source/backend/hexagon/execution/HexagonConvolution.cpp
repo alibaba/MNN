@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstdint>
+#include <cstdlib>
 #include <cmath>
 #include <vector>
 #include "HexagonConvolution.hpp"
@@ -16,6 +17,14 @@
 #endif
 namespace MNN {
 static_assert(sizeof(ConvolutionCommon::Im2ColParameter) == sizeof(Im2ColParameter), "Im2ColParameter layout mismatch");
+
+static bool useW8A16GemvI8() {
+    static const bool enabled = []() {
+        const char* value = std::getenv("MNN_HEXAGON_W8A16_GEMV_I8");
+        return value == nullptr || !(value[0] == '0' && value[1] == '\0');
+    }();
+    return enabled;
+}
 
 static void setHexagonIm2ColParameter(ConvolutionCommon::Im2ColParameter& param,
                                       const Convolution2DCommon* convCommon,
@@ -84,9 +93,16 @@ enum class Q4ScaleMode {
 };
 
 static HexagonTileShape chooseIm2ColTileShape(int totalMp, int totalNp, int KAlign, int availSize,
-                                              bool useInt8Staging = false) {
+                                              bool useInt8Staging = false, int scaleBlockNum = 1,
+                                              int scaleAsymmetric = 0) {
     const int bytesPerMp = 64 * KAlign;
-    const int bytesPerNp = useInt8Staging ? 96 * KAlign : 64 * KAlign;
+    // W8A16 stages the per-oy scale region of each oy-chunk into VTCM (fp16 64 +
+    // int8 32 per KAligned unit), plus scaleBlockNum * scaleUnit * 2 scale bytes.
+    const int scaleUnit = scaleAsymmetric ? 128 : (scaleBlockNum > 1 ? 64 : 0);
+    const int scaleBytesPerNp = (useInt8Staging && (scaleBlockNum > 1 || scaleAsymmetric))
+                                    ? scaleBlockNum * scaleUnit * 2
+                                    : 0;
+    const int bytesPerNp = useInt8Staging ? 96 * KAlign + scaleBytesPerNp : 64 * KAlign;
     int maxSum = availSize / std::max(bytesPerMp, bytesPerNp);
     maxSum = std::max(maxSum, 2);
 
@@ -595,6 +611,37 @@ static bool reorderInt4WeightForVrmpyGemv(uint8_t* dst, size_t dstBytes, const u
     return true;
 }
 
+// fp32 per-oc-tile block scales for the M=1 W8A16 GEMV: layout contract of
+// matmul_w8a16_gemv_i8.c — sw[(oy*nblk + blk)*32 + ocIn] = alpha[(oy*32+ocIn)*nblk + blk].
+// The int8 weights themselves are consumed from the existing HMX int8Weight blob
+// (tile (oy,kx) at (oy*kp+kx)*1024, byte (g*128 + ocIn*4 + p) = w(ocIn,
+// k = kx*32+4g+perm[p]), perm={0,2,1,3}), so no second weight copy is needed.
+static bool reorderInt8ScaleForGemv(uint8_t* dst, size_t dstBytes, const float* rawAlphaData,
+                                    int oc, int nblk) {
+    if (nblk <= 0 || (oc % 32) != 0) {
+        return false;
+    }
+    const int ocP = oc / 32;
+    const size_t scaleBytes = (size_t)ocP * nblk * 32 * sizeof(float);
+    if (scaleBytes > dstBytes) {
+        return false;
+    }
+    ::memset(dst, 0, scaleBytes);  // padded oc (> real oc) get 0 scale
+    float* dstScale = reinterpret_cast<float*>(dst);
+    for (int y = 0; y < ocP; ++y) {
+        for (int b = 0; b < nblk; ++b) {
+            for (int ocIn = 0; ocIn < 32; ++ocIn) {
+                const int o = y * 32 + ocIn;
+                if (o >= oc) {
+                    continue;
+                }
+                dstScale[((size_t)y * nblk + b) * 32 + ocIn] = rawAlphaData[(size_t)o * nblk + b];
+            }
+        }
+    }
+    return true;
+}
+
 static void reorderFp16WeightForHmx(int16_t* dst, const int16_t* src, int ic, int oc, int kernelX, int kernelY) {
     constexpr int icPack = 32;
     constexpr int ocPack = 32;
@@ -713,6 +760,9 @@ HexagonConvolution::Resource::~Resource() {
     if (gemvI8Weight.first != nullptr) {
         allocator->free(gemvI8Weight);
     }
+    if (gemvW8Scale.first != nullptr) {
+        allocator->free(gemvW8Scale);
+    }
 }
 HexagonConvolution::HexagonConvolution(Backend *backend, std::shared_ptr<Resource> res, const Op* op) : HexagonExecution(backend) {
     mResource = res;
@@ -803,8 +853,10 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
         }
     }
     const bool useInt8Staging = mUseIm2Col && mResource != nullptr && mResource->useInt8W8A16;
-    HexagonTileShape tile = mUseIm2Col ? chooseIm2ColTileShape(total_mp, total_np, KAlign, avail_size,
-                                                               useInt8Staging)
+    HexagonTileShape tile = mUseIm2Col
+        ? chooseIm2ColTileShape(total_mp, total_np, KAlign, avail_size, useInt8Staging,
+                                mResource && mResource->useInt8W8A16 ? mResource->int8ScaleBlockNum : 1,
+                                mResource && mResource->useInt8W8A16 && mResource->int8ScaleAsymmetric ? 1 : 0)
                                        : chooseDirectTileShape(total_mp, total_np, KAlign, avail_size,
                                                                vtcmSize, q4ScaleMode,
                                                                mResource ? mResource->int4ScaleBlockNum : 1);
@@ -838,7 +890,21 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
     int ocP = UP_DIV(oc, 32);
     std::vector<std::pair<int, int>> outputFds = {output};
 
-    if (mUseIm2Col) {
+    if (area == 1 && mResource->useGemvW8a16 && mResource->gemvW8Scale.first != nullptr &&
+        mResource->useInt8W8A16 && !mResource->int8ScaleAsymmetric && mKernelX == 1 && mKernelY == 1 &&
+        mRelu == 0 && mRelu6 == 0 && (ic % 64 == 0) && (oc % 32 == 0) &&
+        mResource->int8ScaleBlockNum == (ic / 64)) {
+        // Specialized M=1 W8A16 decode GEMV (INT8 symmetric, block size 64).
+        // Weights are the existing HMX-layout int8Weight (no second copy).
+        auto weight = HexagonBackend::getDevicePtr(mResource->int8Weight);
+        auto scale = HexagonBackend::getDevicePtr(mResource->gemvW8Scale);
+        const int gemvK = icP * 32;  // == ic when ic%32==0
+        int params[] = {1, gemvK, ocP * 32, 0, 0, 1, 1, UP_DIV(gemvK, 32), mResource->int8ScaleBlockNum, 0};
+        std::vector<std::pair<int, int>> inputFds = {input, weight, scale, bias};
+        dst.emplace_back();
+        dst.back().build(static_cast<HexagonBackend*>(backend()), DSP_OP_MATMUL_W8A16_GEMV_I8, params,
+                         sizeof(params), inputFds, outputFds, inputs, outputs);
+    } else if (mUseIm2Col) {
         auto weight = mResource->useInt8W8A16 ? HexagonBackend::getDevicePtr(mResource->int8Weight)
                                               : HexagonBackend::getDevicePtr(mResource->weight);
         std::vector<std::pair<int, int>> inputFds = {input, weight, bias};
@@ -1092,6 +1158,11 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
             (size_t)quanCommon->weight.size() < expectedWeightSize || quanCommon->alpha.size() < oc) {
             return nullptr;
         }
+        // This M=1 fast path dynamically quantizes FP16 activation to symmetric
+        // INT8. It is enabled by default; set MNN_HEXAGON_W8A16_GEMV_I8=0 to
+        // retain the exact W8A16 path for accuracy comparison or fallback.
+        const bool gemvW8ShapeOk = useW8A16GemvI8() && !int8ScaleAsymmetric && (ic % 64 == 0) &&
+                                   (oc % 32 == 0) && int8ScaleBlockNum > 0 && int8ScaleBlockNum == (ic / 64);
         res->int8Weight = bufferAlloc->alloc(int8BufferSize);
         if (res->int8Weight.first == nullptr) {
             return nullptr;
@@ -1109,6 +1180,20 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
         res->int8ScaleAsymmetric = int8ScaleAsymmetric;
         int8Success = true;
         static_cast<HexagonBackend*>(backend)->markHostInput(res->int8Weight, (int)int8BufferSize);
+
+        if (gemvW8ShapeOk) {
+            const size_t gemvW8ScaleBytes = (size_t)ocP * int8ScaleBlockNum * 32 * sizeof(float);
+            res->gemvW8Scale = bufferAlloc->alloc(gemvW8ScaleBytes);
+            if (res->gemvW8Scale.first != nullptr &&
+                reorderInt8ScaleForGemv(reinterpret_cast<uint8_t*>(HexagonBackend::getPtr(res->gemvW8Scale)),
+                                        gemvW8ScaleBytes, quanCommon->alpha.get(), oc, int8ScaleBlockNum)) {
+                res->useGemvW8a16 = true;
+                static_cast<HexagonBackend*>(backend)->markHostInput(res->gemvW8Scale, (int)gemvW8ScaleBytes);
+            } else if (res->gemvW8Scale.first != nullptr) {
+                bufferAlloc->free(res->gemvW8Scale);
+                res->gemvW8Scale = MemChunk();
+            }
+        }
     }
 
     if (!int4Success && !int8Success) {

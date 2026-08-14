@@ -283,6 +283,19 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
                                         k, n, scale_block_num);
             break;
         }
+        case DSP_OP_MATMUL_W8A16_GEMV_I8: {
+            int k = intParams[1];
+            int n = intParams[2];
+            int scale_block_num = params && params->size() > 8 ? intParams[8] : 1;
+            ret = hmx_matmulw8a16block_gemv_i8(
+                                        mapped_ptrs[inputs->size()], // output (FP16)
+                                        mapped_ptrs[0], // activation (FP16)
+                                        mapped_ptrs[1], // int8 weight (HMX layout, no second copy)
+                                        mapped_ptrs[2], // fp32 block scales
+                                        mapped_ptrs[3], // bias (FP16)
+                                        k, n, scale_block_num);
+            break;
+        }
         case DSP_OP_TMAC_A16W1: {
             int m = intParams[0];
             int ic = intParams[1];
