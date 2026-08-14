@@ -11,6 +11,7 @@
 #import "core/Macro.h"
 #import "backend/metal/MetalBackend.hpp"
 #import "backend/metal/MetalSharedGather.hpp"
+#import "core/KVMeta.hpp"
 #import "ConvSimdGroupShader.hpp"
 
 #if MNN_METAL_ENABLED
@@ -965,8 +966,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             // in-kernel, skipping both the dequant pre-pass dispatch and the
             // mTempWeight allocation.
             // Enabled when proven correct and profitable: W2/W3/W4/W8, tensor-API
-            // capable device, area >= 64 (prefill; below that the outer-dequant
-            // path isn't taken anyway — in-shader dequant kernels handle decode).
+            // capable device, prefill (area >= 64), or a speculative block (else a
+            // block-sized decode re-dequantizes the whole weight every encode).
             // MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1 forces the outer-dequant
             // baseline instead (A/B + emergency rollback; see
             // skills/metal-optimize/env-registry.md).
@@ -977,10 +978,13 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             // wins once weights exceed L2 (4B W3 +10~11% pp512/pp2048). 4M
             // elements ~ fp16 8MB, same boundary as the in-shader dequant gate;
             // splits the calibrated points (0.6B max conv 3.1M, 4B min 6.5M).
+            auto specMeta = (KVMeta *)backend->getMetaPtr();
+            const bool specBlock = (specMeta != nullptr && specMeta->spec_block > 0);
             const bool fusedQ4 = !MetalEnv::get().w4w8OuterDequantGemm &&
                                  (mDequantBits == 2 || mDequantBits == 3 ||
                                   mDequantBits == 4 || mDequantBits == 8) &&
-                                 backend->isSupportTensorApi() && area >= 64 &&
+                                 backend->isSupportTensorApi() &&
+                                 (area >= 64 || specBlock) &&
                                  (mDequantBits != 3 ||
                                   (int64_t)oc * ic >= (int64_t)4 * 1024 * 1024);
 

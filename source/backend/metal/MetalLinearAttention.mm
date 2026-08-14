@@ -37,6 +37,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // speculative rollback: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at kMaxFoldHeads heads.
     float gate_coef[64];
@@ -56,6 +59,15 @@ static void linearAttentionDims(const Tensor* qkv, int& batch, int& convDim, int
     batch = qkv->length(0);
     convDim = qkv->length(1);
     seqLen = qkv->length(2);
+}
+
+// (Re)allocate a STATIC device buffer; only the rare block-size change reallocates.
+static bool reacquireStatic(Backend* bn, std::shared_ptr<Tensor>& tensor, int elements) {
+    if (tensor.get() != nullptr) {
+        bn->onReleaseBuffer(tensor.get(), Backend::STATIC);
+    }
+    tensor.reset(Tensor::createDevice<float>({ALIMAX(elements, 1)}));
+    return bn->onAcquireBuffer(tensor.get(), Backend::STATIC);
 }
 
 MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
@@ -93,6 +105,7 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
     mMeta = (KVMeta*)(mtbn->getMetaPtr());
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mParamBuffer = [context newDeviceBuffer:sizeof(LinearAttnParam) access:CPUWriteOnly];
+    mParamBufferFlush = [context newDeviceBuffer:sizeof(LinearAttnParam) access:CPUWriteOnly];
 
     // Compile shader pipelines
     MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
@@ -152,6 +165,24 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
         if (nil == mConvStateUpdatePipeline) {
             mConvStateUpdatePipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnConvSilu, "linear_attn_conv_state_update", option);
             rt->insertPipeline(keys, mConvStateUpdatePipeline);
+        }
+    }
+    {
+        std::vector<std::string> keys = {"linear_attn_conv_state_commit"};
+        if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+        mConvCommitPipeline = rt->findPipeline(keys);
+        if (nil == mConvCommitPipeline) {
+            mConvCommitPipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnConvSilu, "linear_attn_conv_state_commit", option);
+            rt->insertPipeline(keys, mConvCommitPipeline);
+        }
+    }
+    {
+        std::vector<std::string> keys = {"linear_attn_qkvraw_save"};
+        if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+        mQKVRawSavePipeline = rt->findPipeline(keys);
+        if (nil == mQKVRawSavePipeline) {
+            mQKVRawSavePipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnConvSilu, "linear_attn_qkvraw_save", option);
+            rt->insertPipeline(keys, mQKVRawSavePipeline);
         }
     }
     // ── QKV prep pipelines: scalar (baseline) and simdgroup (short prefill) ──
@@ -214,6 +245,15 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             if (nil == mGatedDeltaRuleSGPipeline) {
                 mGatedDeltaRuleSGPipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnGatedDeltaRuleSG, "linear_attn_gated_delta_rule_sg", sgOption);
                 rt->insertPipeline(keys, mGatedDeltaRuleSGPipeline);
+            }
+        }
+        {
+            std::vector<std::string> keys = {"linear_attn_verify_fused_sg", simdItersKey};
+            if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
+            mVerifyFusedSGPipeline = rt->findPipeline(keys);
+            if (nil == mVerifyFusedSGPipeline) {
+                mVerifyFusedSGPipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnGatedDeltaRuleSG, "linear_attn_verify_fused_sg", sgOption);
+                rt->insertPipeline(keys, mVerifyFusedSGPipeline);
             }
         }
         // dk==128 vectorized variant (ftype4 lanes, register state)
@@ -505,6 +545,7 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
         bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
         bool reusingKV = (mMeta != nullptr && mMeta->previous != mMeta->remove);
         if (!loadingFromDisk && !reusingKV) {
+            mStateCache->mPendingLen = 0;
             if (mStateCache->mConvState.get() != nullptr) {
                 auto convDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mConvState->deviceId())->getBuffer();
                 auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
@@ -518,6 +559,41 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
         }
     }
     // Decode (seqLen == 1): keep existing state untouched
+
+    // Sized to the verify block and allocated on first use: a plain AR session never pays for them.
+    const bool specVerify = mMeta != nullptr && mMeta->spec_block > 0 && needRecurrentState;
+    if (specVerify) {
+        if (nil == mVerifyFusedSGPipeline) {
+            // Fail loudly: without the fused kernel a verify block would commit rejected tokens.
+            MNN_ERROR("MetalLinearAttention: speculative verify needs the simdgroup verify kernel\n");
+            return NOT_SUPPORT;
+        }
+        if (seqLen != mMeta->spec_block) {
+            MNN_ERROR("MetalLinearAttention: seq_len %d does not match spec_block %d\n", seqLen, mMeta->spec_block);
+            return INPUT_DATA_ERROR;
+        }
+        if (mStateCache->mPendingCap != seqLen) {
+            auto* sc = mStateCache.get();
+            const int cap = seqLen;
+            auto bn = backend();
+            bool ok = reacquireStatic(bn, sc->mPendingQKVRaw, batch * convDim * cap)
+                   && reacquireStatic(bn, sc->mPendingK,      batch * cap * H * dk)
+                   && reacquireStatic(bn, sc->mPendingV,      batch * cap * H * dv)
+                   && reacquireStatic(bn, sc->mPendingGate,   batch * cap * H)
+                   && reacquireStatic(bn, sc->mPendingBeta,   batch * cap * H)
+                   && reacquireStatic(bn, sc->mPendingK2,     batch * cap * H * dk)
+                   && reacquireStatic(bn, sc->mPendingV2,     batch * cap * H * dv)
+                   && reacquireStatic(bn, sc->mPendingGate2,  batch * cap * H)
+                   && reacquireStatic(bn, sc->mPendingBeta2,  batch * cap * H);
+            if (!ok) {
+                sc->mPendingCap = 0;
+                return OUT_OF_MEMORY;
+            }
+            sc->mPendingCap = cap;
+            sc->mPendingLen = 0;
+            sc->mPendingIdx = 0;
+        }
+    }
 
     // Pipeline force-resizes LinearAttention every decode token. Keep the
     // mConvOut Tensor object alive when its shape is unchanged so encode-replay
@@ -549,7 +625,8 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     if (scanPrefill) {
         fusedLongPrefill = false;
     }
-    bool needQKV = mAttentionType != "short_conv" && !fusedDecode && !fusedLongPrefill;
+    // A verify block uses the fused verify kernel, which also reads conv_out directly.
+    bool needQKV = mAttentionType != "short_conv" && !specVerify && !fusedDecode && !fusedLongPrefill;
     if (needQKV) {
         // Same reasoning as mConvOut above: keep the Tensor objects while their
         // shape is unchanged so a recording never holds a freed Tensor*, and
@@ -588,6 +665,7 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
     if (resetSeqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
         bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
         if (!loadingFromDisk) {
+            mStateCache->mPendingLen = 0;
             auto mtbn = static_cast<MetalBackend *>(backend());
             int bytesPerElement = mtbn->useFp16InsteadFp32() ? 2 : 4;
             if (mStateCache->mConvState.get() != nullptr) {
@@ -653,6 +731,18 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
     paramPtr->output_c4 = TensorUtils::getDescribe(attentionOutput)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
     paramPtr->q_scale = 1.0f / sqrtf((float)dk);
 
+    // lazyMode defers this block's state update; commitLen replays the previous block's accepted prefix.
+    const bool lazyMode = mMeta != nullptr && mMeta->spec_block > 0 &&
+                          mStateCache->mPendingCap == seqLen && nil != mVerifyFusedSGPipeline;
+    int pendingLen = mStateCache->mPendingLen;
+    int commitLen  = 0;
+    if (pendingLen > 0 && mMeta != nullptr) {
+        commitLen = ALIMAX(0, ALIMIN(pendingLen - (int)mMeta->remove, pendingLen));
+    }
+    paramPtr->commit_len  = commitLen;
+    paramPtr->pending_seq = pendingLen > 0 ? pendingLen : 1;
+    paramPtr->lazy_mode   = lazyMode ? 1 : 0;
+
     if (mAttentionType == "short_conv") {
         int total = batch * mHeadVDim * seqLen;
         NSUInteger threadGroupSize = MIN((NSUInteger)256, mShortConvPipeline.maxTotalThreadsPerThreadgroup);
@@ -694,8 +784,64 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         return;
     }
 
+    // Advance the conv state over the accepted prefix of the pending block.
+    auto encodeConvCommit = [&](id<MTLBuffer> param) {
+        [encoder setComputePipelineState:mConvCommitPipeline];
+        MetalBackend::setTensor(mStateCache->mPendingQKVRaw.get(), encoder, 0);
+        MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1);
+        [encoder setBuffer:param offset:0 atIndex:2];
+        int total = batch * convDim;
+        NSUInteger tg = MIN((NSUInteger)256, mConvCommitPipeline.maxTotalThreadsPerThreadgroup);
+        tg = MIN(tg, (NSUInteger)total);
+        [encoder dispatchThreadgroups:MTLSizeMake((total + tg - 1) / tg, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(tg, 1, 1)];
+    };
+    // Ping-pong: the prologue reads the previous block's set while the new block goes to the other.
+    auto encodeVerifyFused = [&](id<MTLBuffer> param, int writeIdx) {
+        auto* sc = mStateCache.get();
+        const int readIdx = sc->mPendingIdx;
+        [encoder setComputePipelineState:mVerifyFusedSGPipeline];
+        MetalBackend::setTensor(mConvOut.get(), encoder, 0);
+        MetalBackend::setTensor(inputs[1], encoder, 1);
+        MetalBackend::setTensor(inputs[2], encoder, 2);
+        MetalBackend::setTensor(sc->mRecurrentState.get(), encoder, 3);
+        MetalBackend::setTensor(attentionOutput, encoder, 4);
+        [encoder setBuffer:param offset:0 atIndex:5];
+        MetalBackend::setTensor(writeIdx ? sc->mPendingK2.get()    : sc->mPendingK.get(),    encoder, 6);
+        MetalBackend::setTensor(writeIdx ? sc->mPendingV2.get()    : sc->mPendingV.get(),    encoder, 7);
+        MetalBackend::setTensor(writeIdx ? sc->mPendingGate2.get() : sc->mPendingGate.get(), encoder, 8);
+        MetalBackend::setTensor(writeIdx ? sc->mPendingBeta2.get() : sc->mPendingBeta.get(), encoder, 9);
+        MetalBackend::setTensor(readIdx  ? sc->mPendingK2.get()    : sc->mPendingK.get(),    encoder, 10);
+        MetalBackend::setTensor(readIdx  ? sc->mPendingV2.get()    : sc->mPendingV.get(),    encoder, 11);
+        MetalBackend::setTensor(readIdx  ? sc->mPendingGate2.get() : sc->mPendingGate.get(), encoder, 12);
+        MetalBackend::setTensor(readIdx  ? sc->mPendingBeta2.get() : sc->mPendingBeta.get(), encoder, 13);
+        const int simdgroupsPerTG = 4;
+        int totalSimdgroups = batch * H * dv;
+        [encoder dispatchThreadgroups:MTLSizeMake((totalSimdgroups + simdgroupsPerTG - 1) / simdgroupsPerTG, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(simdgroupsPerTG * 32, 1, 1)];
+    };
+
+    // A pending block reaching a non-verify forward must commit before anything reads the state.
+    if (!lazyMode && pendingLen > 0) {
+        if (commitLen > 0 && nil != mVerifyFusedSGPipeline) {
+            auto flushPtr = (LinearAttnParam *)mParamBufferFlush.contents;
+            *flushPtr = *paramPtr;
+            flushPtr->seq_len   = 0;
+            flushPtr->lazy_mode = 0;
+            encodeConvCommit(mParamBufferFlush);
+            encodeVerifyFused(mParamBufferFlush, 1 - mStateCache->mPendingIdx);
+        }
+        mStateCache->mPendingLen = 0;
+        pendingLen = 0;
+    }
+
+    // Must precede the conv, which reads the state as left padding for the new block.
+    if (lazyMode && commitLen > 0) {
+        encodeConvCommit(mParamBuffer);
+    }
+
     const bool fuseDecodeConvState =
-        seqLen == 1 && convStateSize > 0 && mConvSiluStateDecodePipeline != nil &&
+        seqLen == 1 && convStateSize > 0 && !lazyMode && mConvSiluStateDecodePipeline != nil &&
         getenv("MNN_METAL_DISABLE_LINEAR_ATTN_CONV_STATE_FUSION") == nullptr;
 
     // ── Fixed head: Conv1D + SiLU (always run) ────────────────────────
@@ -715,7 +861,19 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         [encoder dispatchThreadgroups:MTLSizeMake((totalConvSilu + threadGroupSize - 1) / threadGroupSize, 1, 1)
                 threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
     }
-    if (convStateSize > 0 && !fuseDecodeConvState) {
+    // Save the new block's raw qkv instead of updating the conv state in place.
+    if (lazyMode) {
+        [encoder setComputePipelineState:mQKVRawSavePipeline];
+        MetalBackend::setTensor(inputs[0], encoder, 0);
+        MetalBackend::setTensor(mStateCache->mPendingQKVRaw.get(), encoder, 1);
+        [encoder setBuffer:mParamBuffer offset:0 atIndex:2];
+        int totalSave = batch * convDim * seqLen;
+        NSUInteger tgS = MIN((NSUInteger)256, mQKVRawSavePipeline.maxTotalThreadsPerThreadgroup);
+        tgS = MIN(tgS, (NSUInteger)totalSave);
+        [encoder dispatchThreadgroups:MTLSizeMake((totalSave + tgS - 1) / tgS, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(tgS, 1, 1)];
+    }
+    if (convStateSize > 0 && !fuseDecodeConvState && !lazyMode) {
         [encoder setComputePipelineState:mConvStateUpdatePipeline];
         MetalBackend::setTensor(inputs[0], encoder, 0);
         MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1);
@@ -732,7 +890,13 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
     // Priority within each branch: prefer *_align/flash > baseline > fallback.
     const bool scanPrefill = mUseSimdGroupOpt && !mUseFlashChunk &&
                              mGatedDeltaRuleSGV4Pipeline != nil && seqLen >= 16;
-    if (mUseSimdGroupOpt && seqLen < 16) {
+    if (lazyMode) {
+        auto* sc = mStateCache.get();
+        int writeIdx = 1 - sc->mPendingIdx;
+        encodeVerifyFused(mParamBuffer, writeIdx);
+        sc->mPendingLen = seqLen;
+        sc->mPendingIdx = writeIdx;
+    } else if (mUseSimdGroupOpt && seqLen < 16) {
         // ── Decode (L=1) and short prefill (2<=L<16) — the fused kernels loop
         //    over L internally. Priority: fused_sg_tg (decode only) >
         //    fused_sg_align > fused_sg. ──

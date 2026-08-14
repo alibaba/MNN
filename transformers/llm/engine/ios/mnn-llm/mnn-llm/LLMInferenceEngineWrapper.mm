@@ -108,6 +108,7 @@ static void WaitForAppActive() {
 
 - (BOOL)loadModel {
     if (!llm) {
+        WaitForAppActive();
         std::string model_dir = GetMainBundleDirectory();
         std::string config_path = model_dir + "/config.json";
         if (![[NSFileManager defaultManager] fileExistsAtPath:[NSString stringWithUTF8String:config_path.c_str()]]) {
