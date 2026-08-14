@@ -195,12 +195,30 @@ static inline int8_t load_int8_hmx_weight_value(const int8_t* weight, int32_t ic
 }
 
 static void shared_gather_int8(__fp16* outputFp16, float* outputFp32, const int32_t* indices, const uint8_t* weight_ptr,
-                               int32_t selectSize, int32_t ic, int32_t oc, int32_t bytes) {
+                               int32_t selectSize, int32_t ic, int32_t oc, int32_t bytes,
+                               int32_t scaleBlockNum, int32_t scaleAsymmetric) {
     const int32_t icP = (ic + 31) / 32;
     const int32_t ocP = (oc + 31) / 32;
     const size_t weightBytes = (size_t)ocP * icP * 32 * 32;
     const int8_t* weight = reinterpret_cast<const int8_t*>(weight_ptr);
     const __fp16* scales = reinterpret_cast<const __fp16*>(weight_ptr + weightBytes);
+    if (scaleBlockNum <= 0) {
+        scaleBlockNum = 1;
+    }
+    const int32_t scaleUnit = scaleAsymmetric ? 128 : (scaleBlockNum > 1 ? 64 : 32);
+
+    auto dequant = [&](int32_t index, int32_t channel) -> float {
+        if (scaleBlockNum == 1 && !scaleAsymmetric) {
+            return (float)load_int8_hmx_weight_value(weight, icP, index, channel) * (float)scales[index];
+        }
+        const int32_t tileY = index / 32;
+        const int32_t lane = index % 32;
+        const int32_t scaleIndex = (channel * scaleBlockNum) / ic;
+        const __fp16* blockScale = scales + ((size_t)tileY * scaleBlockNum + scaleIndex) * scaleUnit;
+        const float scale = (float)blockScale[2 * lane];
+        const float offset = scaleAsymmetric ? (float)blockScale[64 + 2 * lane] : 0.0f;
+        return (float)load_int8_hmx_weight_value(weight, icP, index, channel) * scale + offset;
+    };
 
     if (bytes == 2) {
         __fp16* output = reinterpret_cast<__fp16*>(outputFp16);
@@ -211,9 +229,8 @@ static void shared_gather_int8(__fp16* outputFp16, float* outputFp32, const int3
                 memset(dstRow, 0, (size_t)ic * sizeof(__fp16));
                 continue;
             }
-            const __fp16 scale = scales[index];
             for (int c = 0; c < ic; ++c) {
-                dstRow[c] = (__fp16)load_int8_hmx_weight_value(weight, icP, index, c) * scale;
+                dstRow[c] = (__fp16)dequant(index, c);
             }
         }
         return;
@@ -227,15 +244,15 @@ static void shared_gather_int8(__fp16* outputFp16, float* outputFp32, const int3
             memset(dstRow, 0, (size_t)ic * sizeof(float));
             continue;
         }
-        const float scale = (float)scales[index];
         for (int c = 0; c < ic; ++c) {
-            dstRow[c] = (float)load_int8_hmx_weight_value(weight, icP, index, c) * scale;
+            dstRow[c] = dequant(index, c);
         }
     }
 }
 
 AEEResult htp_ops_shared_gather(uint8_t* dst, uint8_t* indices_ptr, uint8_t* weight_ptr, int32_t selectSize,
-                                int32_t ic, int32_t oc, int32_t bytes, int32_t isInt4) {
+                                int32_t ic, int32_t oc, int32_t bytes, int32_t isInt4,
+                                int32_t scaleBlockNum, int32_t scaleAsymmetric) {
     if (dst == nullptr || indices_ptr == nullptr || weight_ptr == nullptr) {
         return AEE_EBADPARM;
     }
@@ -254,7 +271,8 @@ AEEResult htp_ops_shared_gather(uint8_t* dst, uint8_t* indices_ptr, uint8_t* wei
     }
     if (isInt4 == 3) {
         shared_gather_int8(reinterpret_cast<__fp16*>(dst), reinterpret_cast<float*>(dst), indices,
-                           reinterpret_cast<const uint8_t*>(weight_ptr), selectSize, ic, oc, bytes);
+                           reinterpret_cast<const uint8_t*>(weight_ptr), selectSize, ic, oc, bytes,
+                           scaleBlockNum, scaleAsymmetric);
         return 0;
     }
     if (isInt4 != 0) {

@@ -1,5 +1,7 @@
 #include "HexagonRuntime.hpp"
 #include "HexagonAttention.hpp"
+#include <climits>
+#include <cmath>
 #include "backend/hexagon/backend/HexagonBackend.hpp"
 #include "MNN_generated.h"
 #include "core/TensorUtils.hpp"
@@ -55,6 +57,15 @@ struct FlashAttentionBlockParam {
     float scale;
 };
 
+struct VisionAttentionParam {
+    int batch;
+    int tokens;
+    int heads;
+    int headDim;
+    float scale;
+    int maskStride;
+};
+
 static int flashAttentionBlockAlignUp(int value, int alignment) {
     return (value + alignment - 1) / alignment * alignment;
 }
@@ -87,6 +98,33 @@ static size_t flashAttentionBlockWorkspaceBytes(int batch, int heads, int chunk,
     offset = flashAttentionBlockAlignUpSize(offset + (size_t)batch * packedVBytes, 128);
     offset = flashAttentionBlockAlignUpSize(offset + (size_t)batch * heads * headWorkspaceBytes, 128);
     return offset;
+}
+
+static size_t visionFlashAttentionWorkspaceBytes(int tokens, int heads, int headDim, int maskStride, int maxThreads) {
+    constexpr int kHmxKvBlock = 256;
+    constexpr int kHmxKvBlockTiles = kHmxKvBlock / 32;
+    const int seqBlocks = (tokens + kHmxKvBlock - 1) / kHmxKvBlock;
+    const int dimTiles = flashAttentionBlockAlignUp(headDim, 32) / 32;
+    const int queryBlock = std::min(tokens, 64);
+    const int tokensPadded = flashAttentionBlockAlignUp(tokens, 32);
+    const int workerSlots = std::max(1, std::min(heads, maxThreads));
+    const size_t packedKBytes =
+        (size_t)seqBlocks * heads * kHmxKvBlockTiles * dimTiles * 1024 * sizeof(int16_t);
+    const size_t packedVBytes = packedKBytes;
+    size_t workerBytes = flashAttentionBlockAlignUpSize((size_t)queryBlock * tokensPadded * sizeof(float), 128);
+    workerBytes = flashAttentionBlockAlignUpSize(
+        workerBytes + (size_t)queryBlock * tokensPadded * sizeof(int16_t), 128);
+
+    size_t offset = packedKBytes;
+    offset = flashAttentionBlockAlignUpSize(offset, 128);
+    offset = flashAttentionBlockAlignUpSize(offset + packedVBytes, 128);
+    offset = flashAttentionBlockAlignUpSize(
+        offset + (size_t)queryBlock * heads * headDim * sizeof(int16_t), 128);
+    offset = flashAttentionBlockAlignUpSize(offset + (size_t)workerSlots * workerBytes, 128);
+    if (maskStride > 0) {
+        offset = flashAttentionBlockAlignUpSize(offset + (size_t)queryBlock * maskStride * sizeof(float), 128);
+    }
+    return offset + 127;
 }
 
 HexagonAttention::HexagonAttention(Backend *backend, const Op *op) : HexagonExecution(backend) {
@@ -163,7 +201,69 @@ void HexagonAttention::updatePageTable() {
 
 ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                        std::vector<HexagonCommand>& dst) {
+    mVisionState = false;
     const bool streamingState = inputs.size() == 7 && outputs.size() == 3;
+    const bool visionState = inputs.size() == 4 && outputs.size() == 1 && inputs[0] != nullptr &&
+                             inputs[1] != nullptr && inputs[2] != nullptr && inputs[0]->dimensions() == 4 &&
+                             inputs[1]->dimensions() == 4 && inputs[2]->dimensions() == 4 &&
+                             TensorUtils::getDescribe(inputs[2])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4;
+    if (visionState) {
+        mVisionState = true;
+        auto Q = inputs[0];
+        auto K = inputs[1];
+        auto V = inputs[2];
+        auto mask = inputs[3];
+        auto output = outputs[0];
+        if (Q->length(0) != K->length(0) || Q->length(0) != V->length(0) || Q->length(1) != K->length(1) ||
+            Q->length(1) != V->length(1) || Q->length(2) != K->length(2) || Q->length(2) != V->length(2) ||
+            Q->length(3) != K->length(3) || Q->length(3) != V->length(3) || HexagonBackend::getBytes(Q) != 2 ||
+            HexagonBackend::getBytes(K) != 2 || HexagonBackend::getBytes(V) != 2 ||
+            HexagonBackend::getBytes(output) != 2 ||
+            (mask != nullptr && mask->dimensions() >= 2 && HexagonBackend::getBytes(mask) != 2)) {
+            return NOT_SUPPORT;
+        }
+        TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        const int tokens = Q->length(1);
+        int maskStride = 0;
+        if (mask != nullptr && mask->dimensions() >= 2) {
+            maskStride = mask->length(mask->dimensions() - 1);
+            if (maskStride != tokens) {
+                return NOT_SUPPORT;
+            }
+        }
+        const int headDim = Q->length(3);
+        const float scale = mAttnScale == 0.0f ? 1.0f / std::sqrt(static_cast<float>(headDim)) : mAttnScale;
+        VisionAttentionParam params = {Q->length(0), tokens, Q->length(2), headDim, scale, maskStride};
+        const int dspOp = headDim % 64 == 0 ? DSP_OP_VISION_FLASH_ATTENTION_FP16 : DSP_OP_VISION_ATTENTION_FP16;
+        std::vector<std::pair<int, int>> inputFds = {
+            HexagonBackend::getDevicePtr(Q), HexagonBackend::getDevicePtr(K), HexagonBackend::getDevicePtr(V),
+            mask != nullptr ? HexagonBackend::getDevicePtr(mask) : std::make_pair(-1, 0)};
+        mWorkspace.reset();
+        std::vector<std::pair<int, int>> outputFds = {HexagonBackend::getDevicePtr(output)};
+        std::vector<Tensor*> commandOutputs = {output};
+        if (dspOp == DSP_OP_VISION_FLASH_ATTENTION_FP16) {
+            const int maxThreads = static_cast<const HexagonRuntime*>(backend()->getRuntime())->info().maxThreads;
+            const size_t workspaceBytes =
+                visionFlashAttentionWorkspaceBytes(tokens, Q->length(2), headDim, maskStride, maxThreads);
+            if (workspaceBytes > INT_MAX) {
+                return NOT_SUPPORT;
+            }
+            mWorkspace.reset(Tensor::createDevice<int8_t>({(int)workspaceBytes}));
+            if (!backend()->onAcquireBuffer(mWorkspace.get(), Backend::DYNAMIC)) {
+                mWorkspace.reset();
+                return OUT_OF_MEMORY;
+            }
+            outputFds.emplace_back(HexagonBackend::getDevicePtr(mWorkspace.get()));
+            commandOutputs.emplace_back(mWorkspace.get());
+        }
+        dst.emplace_back();
+        dst.back().build(static_cast<HexagonBackend*>(backend()), dspOp, &params, sizeof(params), inputFds, outputFds,
+                         {Q, K, V, mask}, commandOutputs);
+        if (mWorkspace) {
+            backend()->onReleaseBuffer(mWorkspace.get(), Backend::DYNAMIC);
+        }
+        return NO_ERROR;
+    }
     if (mMeta != nullptr && streamingState) {
         return NOT_SUPPORT;
     }
@@ -410,7 +510,7 @@ ErrorCode HexagonAttention::onExecute(const std::vector<Tensor*>& inputs, const 
     if (!mValid) {
         return NOT_SUPPORT;
     }
-    if (mMeta == nullptr) {
+    if (mVisionState || mMeta == nullptr) {
         return HexagonExecution::onExecute(inputs, outputs);
     }
     const int seq_current = (int)mMeta->previous - (int)mMeta->remove;

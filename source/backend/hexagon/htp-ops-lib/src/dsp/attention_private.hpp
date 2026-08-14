@@ -254,6 +254,9 @@ extern "C" AEEResult htp_ops_flash_attn_pages(uint8_t* pOut, uint8_t* pQ, uint8_
                                               int32_t n_kv_heads, int32_t head_dim, float scale, int32_t mask_stride,
                                               int32_t max_kv_len, int32_t page_count, int32_t page_size,
                                               int32_t value_c4);
+extern "C" AEEResult htp_ops_vision_flash_attention_fp16(
+    uint8_t* pOut, const uint8_t* pQ, const uint8_t* pK, const uint8_t* pV, const uint8_t* pMask,
+    uint8_t* pWorkspace, int batch, int tokens, int heads, int headDim, float scale, int maskStride);
 
 static inline dma_desc_1d_t* attn_prepare_chained_dma_desc_2d(dma_desc_1d_t* current_descs, dma_desc_2d_t* desc,
                                                               const void* src, void* dst, uint32_t width,

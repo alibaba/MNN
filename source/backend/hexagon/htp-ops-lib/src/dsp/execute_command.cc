@@ -114,7 +114,9 @@ extern AEEResult htp_ops_binary_elementwise(uint8_t* dst, uint8_t* src0, uint8_t
                                             int32 inputIsFloat, int32 outputIsFloat,
                                             const int32_t* broadcastParams, int32 broadcastParamCount);
 extern AEEResult htp_ops_select(uint8_t* dst, uint8_t* cond, uint8_t* src1, uint8_t* src2, int32 outSize, int32 condSize, int32 in1Size, int32 in2Size, int32 bytes, int32 condBytes, int32 channelSize, int32 innerSize);
-extern AEEResult htp_ops_shared_gather(uint8_t* dst, uint8_t* indices, uint8_t* weight, int32 selectSize, int32 ic, int32 oc, int32 bytes, int32 isInt4);
+extern AEEResult htp_ops_shared_gather(uint8_t* dst, uint8_t* indices, uint8_t* weight, int32 selectSize, int32 ic,
+                                      int32 oc, int32 bytes, int32 isInt4, int32 scaleBlockNum,
+                                      int32 scaleAsymmetric);
 extern AEEResult htp_ops_zero(uint8_t* dst, int32 size);
 extern AEEResult htp_ops_topkv2_k1_fp16(uint8_t* values, uint8_t* indices, uint8_t* input, int32 rowSize, int32 rows);
 extern AEEResult htp_ops_softmax(uint8_t* dst, const uint8_t* src, int32 outside, int32 channel, int32 inside, int32 bytes);
@@ -668,30 +670,66 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
             break;
         }
         case DSP_OP_IM2COL_CONVOLUTION_FP16: {
-            const HmxIm2ColConvParam* im2colParams = reinterpret_cast<const HmxIm2ColConvParam*>(intParams);
+            HmxIm2ColConvParam im2colParams = {};
+            size_t paramBytes = params ? params->size() * sizeof(int32_t) : 0;
+            if (paramBytes > sizeof(im2colParams)) paramBytes = sizeof(im2colParams);
+            if (paramBytes > 0) memcpy(&im2colParams, intParams, paramBytes);
             ret = htp_ops_im2col_convolution_fp16(mapped_ptrs[inputs->size()],
                                                   mapped_ptrs[0],
                                                   mapped_ptrs[1],
                                                   mapped_ptrs[2],
-                                                  im2colParams);
+                                                  &im2colParams);
             break;
         }
         case DSP_OP_CONV1X1_DIRECT_W8A16_SYM_PER_CHANNEL: {
-            const HmxIm2ColConvParam* im2colParams = reinterpret_cast<const HmxIm2ColConvParam*>(intParams);
+            HmxIm2ColConvParam im2colParams = {};
+            size_t paramBytes = params ? params->size() * sizeof(int32_t) : 0;
+            if (paramBytes > sizeof(im2colParams)) paramBytes = sizeof(im2colParams);
+            if (paramBytes > 0) memcpy(&im2colParams, intParams, paramBytes);
             ret = hmx_conv1x1_direct_w8a16_sym_per_channel(mapped_ptrs[inputs->size()],
                                                            mapped_ptrs[0],
                                                            mapped_ptrs[1],
                                                            mapped_ptrs[2],
-                                                           im2colParams);
+                                                           &im2colParams);
+            break;
+        }
+        case DSP_OP_MATMUL_W8A16_BLOCK_FP16: {
+            HmxIm2ColConvParam matmulParams = {};
+            size_t paramBytes = params ? params->size() * sizeof(int32_t) : 0;
+            if (paramBytes > sizeof(matmulParams)) paramBytes = sizeof(matmulParams);
+            if (paramBytes > 0) memcpy(&matmulParams, intParams, paramBytes);
+            ret = hmx_matmul_w8a16_block_fp16(mapped_ptrs[inputs->size()],
+                                              mapped_ptrs[0],
+                                              mapped_ptrs[1],
+                                              mapped_ptrs[2],
+                                              &matmulParams);
             break;
         }
         case DSP_OP_CONV1X1_DIRECT_FP16: {
-            const HmxIm2ColConvParam* im2colParams = reinterpret_cast<const HmxIm2ColConvParam*>(intParams);
+            HmxIm2ColConvParam im2colParams = {};
+            size_t paramBytes = params ? params->size() * sizeof(int32_t) : 0;
+            if (paramBytes > sizeof(im2colParams)) paramBytes = sizeof(im2colParams);
+            if (paramBytes > 0) memcpy(&im2colParams, intParams, paramBytes);
             ret = htp_ops_conv1x1_direct_fp16(mapped_ptrs[inputs->size()],
                                               mapped_ptrs[0],
                                               mapped_ptrs[1],
                                               mapped_ptrs[2],
-                                              im2colParams);
+                                              &im2colParams);
+            break;
+        }
+        case DSP_OP_VISION_ATTENTION_FP16: {
+            ret = htp_ops_vision_attention_fp16(mapped_ptrs[inputs->size()], mapped_ptrs[0], mapped_ptrs[1],
+                                                mapped_ptrs[2], inputs->size() > 3 ? mapped_ptrs[3] : nullptr,
+                                                intParams[0], intParams[1], intParams[2], intParams[3],
+                                                floatParams[4], intParams[5]);
+            break;
+        }
+        case DSP_OP_VISION_FLASH_ATTENTION_FP16: {
+            ret = htp_ops_vision_flash_attention_fp16(mapped_ptrs[inputs->size()], mapped_ptrs[0], mapped_ptrs[1],
+                                                      mapped_ptrs[2], inputs->size() > 3 ? mapped_ptrs[3] : nullptr,
+                                                      outputs->size() > 1 ? mapped_ptrs[inputs->size() + 1] : nullptr,
+                                                      intParams[0], intParams[1], intParams[2], intParams[3],
+                                                      floatParams[4], intParams[5]);
             break;
         }
         case DSP_OP_GET_INFO: {
@@ -702,7 +740,9 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
             ret = htp_ops_shared_gather(mapped_ptrs[inputs->size()],
                                         mapped_ptrs[0],
                                         mapped_ptrs[1],
-                                        intParams[0], intParams[1], intParams[2], intParams[3], intParams[4]);
+                                        intParams[0], intParams[1], intParams[2], intParams[3], intParams[4],
+                                        params->size() > 5 ? intParams[5] : 1,
+                                        params->size() > 6 ? intParams[6] : 0);
             break;
         }
         default:

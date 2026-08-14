@@ -57,6 +57,16 @@ static inline void init_w8_hmx_scale_bias(void* out_scales, const __fp16* column
     *pv = Q6_V_vzero();
 }
 
+static inline void init_w8_hmx_identity_bias(void* out_scales, const __fp16* column_biases) {
+    uint32_t* words = (uint32_t*)out_scales;
+    const uint16_t* biasBits = (const uint16_t*)column_biases;
+    for (int col = 0; col < 32; ++col) {
+        words[col] = 0x3c00U | (column_biases ? ((uint32_t)biasBits[col] << 16) : 0U);
+    }
+    HVX_Vector* pv = (HVX_Vector*)(words + 32);
+    *pv = Q6_V_vzero();
+}
+
 static inline void hmx_compute_tile_w8a16_fp16(const __fp16* activation, const __fp16* weight,
                                                int kp, __fp16* vtcm_output) {
     if (kp == 32) {
@@ -243,12 +253,28 @@ static inline void convert_w8_tile_to_fp16_unscaled(const int8_t* src, __fp16* d
     }
 }
 
+static inline void convert_w8_tile_to_fp16_scaled(const int8_t* src, __fp16* dst, HVX_Vector vScale,
+                                                  HVX_Vector vOffset, int scale_asymmetric) {
+    convert_w8_tile_to_fp16_unscaled(src, dst);
+    HVX_Vector* dstVec = (HVX_Vector*)dst;
+    for (int i = 0; i < 16; ++i) {
+        dstVec[i] = Q6_Vhf_vmpy_VhfVhf(dstVec[i], vScale);
+        if (scale_asymmetric) {
+            dstVec[i] = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(dstVec[i], vOffset));
+        }
+    }
+}
+
 typedef struct {
     const int8_t* vtcm_weight_int8;
     __fp16* vtcm_weight;
     int start_idx;
     int count;
     int kp;
+    int oy_start;
+    int scale_block_num;
+    int scale_asymmetric;
+    const __fp16* scales;
     const dma_desc_1d_t* depend;
     worker_synctoken_t* shared_sync;
 } HmxW8WeightDmaConvertTask;
@@ -279,10 +305,27 @@ static void convert_w8_weight_dma_chunk_worker(void* data, int worker_index) {
     const int8_t* src_oy = task->vtcm_weight_int8 + (size_t)task->start_idx * tileSize;
     __fp16* dst_oy = task->vtcm_weight + (size_t)task->start_idx * tileSize;
     for (int local_oy = 0; local_oy < task->count; ++local_oy) {
+        const int oy = task->oy_start + task->start_idx + local_oy;
         const int8_t* src = src_oy;
         __fp16* dst = dst_oy;
+        int cached_scale_idx = -1;
+        HVX_Vector vScale = Q6_V_vzero();
+        HVX_Vector vOffset = Q6_V_vzero();
         for (int k = 0; k < task->kp; ++k) {
-            convert_w8_tile_to_fp16_unscaled(src, dst);
+            if (task->scale_block_num > 1 || task->scale_asymmetric) {
+                const int scale_idx = (k * task->scale_block_num) / task->kp;
+                if (scale_idx != cached_scale_idx) {
+                    const int scale_unit = task->scale_asymmetric ? 128 : 64;
+                    const __fp16* scale = task->scales +
+                        ((size_t)oy * task->scale_block_num + scale_idx) * scale_unit;
+                    vScale = vmemu(scale);
+                    vOffset = task->scale_asymmetric ? vmemu(scale + 64) : Q6_V_vzero();
+                    cached_scale_idx = scale_idx;
+                }
+                convert_w8_tile_to_fp16_scaled(src, dst, vScale, vOffset, task->scale_asymmetric);
+            } else {
+                convert_w8_tile_to_fp16_unscaled(src, dst);
+            }
             src += kernel_block_size;
             dst += kernel_block_size;
         }
@@ -295,7 +338,8 @@ static void convert_w8_weight_dma_chunk_worker(void* data, int worker_index) {
 static void start_weight_tiles_w8a16_sym_per_channel_dma(HmxW8WeightDmaConvertAsync* async,
                                                          __fp16* vtcm_weight, int8_t* vtcm_weight_int8,
                                                          const int8_t* src_weight, int oy_start,
-                                                         int oy_end, int kp) {
+                                                         int oy_end, int kp, const __fp16* scales,
+                                                         int scale_block_num, int scale_asymmetric) {
     const int kernel_block_size = 32 * 32;
     const size_t tileSize = (size_t)kp * kernel_block_size;
     const int tileCount = oy_end - oy_start;
@@ -353,6 +397,10 @@ static void start_weight_tiles_w8a16_sym_per_channel_dma(HmxW8WeightDmaConvertAs
         async->tasks[i].start_idx = async->chunk_starts[i];
         async->tasks[i].count = async->chunk_counts[i];
         async->tasks[i].kp = kp;
+        async->tasks[i].oy_start = oy_start;
+        async->tasks[i].scale_block_num = scale_block_num;
+        async->tasks[i].scale_asymmetric = scale_asymmetric;
+        async->tasks[i].scales = scales;
         async->tasks[i].depend = &async->weight_desc[i];
         async->tasks[i].shared_sync = &async->sync_token[i];
         worker_pool_job_t job;
@@ -383,7 +431,8 @@ static inline int compute_store_tiles_w8a16_sym_per_channel(uint8_t* dst, const 
                                                            int ox_start, int ox_end, int oy_start, int oy_end,
                                                            __fp16* vtcm_activation, __fp16* vtcm_weight,
                                                            __fp16* vtcm_output, __fp16* vtcm_scales,
-                                                           const __fp16* scales) {
+                                                           const __fp16* scales, int scale_block_num,
+                                                           int scale_asymmetric) {
     for (int ox = ox_start; ox < ox_end; ++ox) {
         const int local_ox = ox - ox_start;
         __fp16* act_tile = vtcm_activation + (size_t)local_ox * kp * 1024;
@@ -395,10 +444,18 @@ static inline int compute_store_tiles_w8a16_sym_per_channel(uint8_t* dst, const 
                 __fp16* vtcm_output_next = vtcm_output + 1024;
                 const __fp16* biasPtr0 = bias ? ((const __fp16*)bias) + oy * 32 : nullptr;
                 const __fp16* biasPtr1 = bias ? ((const __fp16*)bias) + (oy + 1) * 32 : nullptr;
-                init_w8_hmx_scale_bias(vtcm_scales, scales + (size_t)oy * 32, biasPtr0);
+                if (scale_block_num > 1 || scale_asymmetric) {
+                    init_w8_hmx_identity_bias(vtcm_scales, biasPtr0);
+                } else {
+                    init_w8_hmx_scale_bias(vtcm_scales, scales + (size_t)oy * 32, biasPtr0);
+                }
                 hmx_set_output_scales(vtcm_scales);
                 hmx_compute_tile_w8a16_fp16(act_tile, weight_tile, kp, vtcm_output);
-                init_w8_hmx_scale_bias(vtcm_scales, scales + (size_t)(oy + 1) * 32, biasPtr1);
+                if (scale_block_num > 1 || scale_asymmetric) {
+                    init_w8_hmx_identity_bias(vtcm_scales, biasPtr1);
+                } else {
+                    init_w8_hmx_scale_bias(vtcm_scales, scales + (size_t)(oy + 1) * 32, biasPtr1);
+                }
                 hmx_set_output_scales(vtcm_scales);
                 hmx_compute_tile_w8a16_fp16(act_tile, weight_tile_next, kp, vtcm_output_next);
                 int storeRet = store_output_tile_pair_fp16_scaled(dst, vtcm_output, vtcm_output_next,
@@ -414,7 +471,11 @@ static inline int compute_store_tiles_w8a16_sym_per_channel(uint8_t* dst, const 
                 continue;
             }
             const __fp16* biasPtr = bias ? ((const __fp16*)bias) + oy * 32 : nullptr;
-            init_w8_hmx_scale_bias(vtcm_scales, scales + (size_t)oy * 32, biasPtr);
+            if (scale_block_num > 1 || scale_asymmetric) {
+                init_w8_hmx_identity_bias(vtcm_scales, biasPtr);
+            } else {
+                init_w8_hmx_scale_bias(vtcm_scales, scales + (size_t)oy * 32, biasPtr);
+            }
             hmx_set_output_scales(vtcm_scales);
             hmx_compute_tile_w8a16_fp16(act_tile, weight_tile, kp, vtcm_output);
             int storeRet = store_output_tile_fp16_scaled(dst, vtcm_output, nullptr,
@@ -429,8 +490,8 @@ static inline int compute_store_tiles_w8a16_sym_per_channel(uint8_t* dst, const 
     return AEE_SUCCESS;
 }
 
-int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
-                                             const uint8_t *bias, const HmxIm2ColConvParam* params) {
+int hmx_matmul_w8a16_block_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
+                                const uint8_t *bias, const HmxIm2ColConvParam* params) {
     const Im2ColParameter* p = &params->im2col;
     const int batch = params->batch > 0 ? params->batch : 1;
     const int pack = p->packCUnit;
@@ -439,6 +500,8 @@ int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, c
     const int kp = p->kernelCountUnit > 0 ? p->kernelCountUnit : (p->kernelX * p->kernelY * ((p->ic + 31) / 32));
     const int np = (N + 31) / 32;
     const int mp = (M + 31) / 32;
+    const int scale_block_num = params->scaleBlockNum > 0 ? params->scaleBlockNum : 1;
+    const int scale_asymmetric = params->scaleAsymmetric != 0;
     const int8_t* src_weight = (const int8_t*)weight;
     const __fp16* scales = (const __fp16*)(weight + (size_t)np * kp * 1024);
 
@@ -472,7 +535,8 @@ int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, c
                 const int oy_end = (oy_start + np_chunk > np) ? np : (oy_start + np_chunk);
                 HmxW8WeightDmaConvertAsync async = {};
                 start_weight_tiles_w8a16_sym_per_channel_dma(&async, vtcm_weight, vtcm_weight_int8,
-                                                             src_weight, oy_start, oy_end, kp);
+                                                             src_weight, oy_start, oy_end, kp, scales,
+                                                             scale_block_num, scale_asymmetric);
                 for (int chunk_idx = 0; chunk_idx < async.valid_chunks; ++chunk_idx) {
                     wait_weight_chunk_w8a16_sym_per_channel(&async, chunk_idx);
                     const int chunk_oy_start = oy_start + async.chunk_starts[chunk_idx];
@@ -482,7 +546,8 @@ int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, c
                                                                         ox_start, ox_end,
                                                                         chunk_oy_start, chunk_oy_end,
                                                                         vtcm_activation, chunk_weight,
-                                                                        vtcm_output, vtcm_scales, scales);
+                                                                        vtcm_output, vtcm_scales, scales,
+                                                                        scale_block_num, scale_asymmetric);
                     if (ret != AEE_SUCCESS) {
                         wait_all_weight_chunks_w8a16_sym_per_channel(&async);
                         hmx_unit_release();
@@ -497,7 +562,8 @@ int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, c
             const int oy_end = (oy_start + np_chunk > np) ? np : (oy_start + np_chunk);
             HmxW8WeightDmaConvertAsync async = {};
             start_weight_tiles_w8a16_sym_per_channel_dma(&async, vtcm_weight, vtcm_weight_int8,
-                                                         src_weight, oy_start, oy_end, kp);
+                                                         src_weight, oy_start, oy_end, kp, scales,
+                                                         scale_block_num, scale_asymmetric);
 
             for (int ox_start = 0; ox_start < mp; ox_start += mp_chunk) {
                 const int ox_end = (ox_start + mp_chunk > mp) ? mp : (ox_start + mp_chunk);
@@ -511,7 +577,8 @@ int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, c
                                                                         ox_start, ox_end,
                                                                         chunk_oy_start, chunk_oy_end,
                                                                         vtcm_activation, chunk_weight,
-                                                                        vtcm_output, vtcm_scales, scales);
+                                                                        vtcm_output, vtcm_scales, scales,
+                                                                        scale_block_num, scale_asymmetric);
                     if (ret != AEE_SUCCESS) {
                         wait_all_weight_chunks_w8a16_sym_per_channel(&async);
                         hmx_unit_release();
@@ -526,4 +593,9 @@ int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, c
     hmx_unit_release();
     hmx_manager_disable_execution();
     return 0;
+}
+
+int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
+                                             const uint8_t *bias, const HmxIm2ColConvParam* params) {
+    return hmx_matmul_w8a16_block_fp16(dst, src, weight, bias, params);
 }

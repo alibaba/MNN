@@ -42,6 +42,8 @@ ErrorCode HexagonSharedGather::onBuildCmd(const std::vector<Tensor*>& inputs, co
         int32_t oc;
         int32_t bytes;
         int32_t isInt4;
+        int32_t scaleBlockNum;
+        int32_t scaleAsymmetric;
     } __attribute__((packed));
 
     const bool useInt4 = mResource->useInt4W4A16;
@@ -52,7 +54,9 @@ ErrorCode HexagonSharedGather::onBuildCmd(const std::vector<Tensor*>& inputs, co
         return NOT_SUPPORT;
     }
     const bool useRawInt4Gather = useInt4 && mResource->gatherInt4Weight.first != nullptr;
-    SharedGatherParam params = {selectSize, ic, oc, bytes, useRawInt4Gather ? 2 : (useInt4 ? 1 : (useInt8 ? 3 : 0))};
+    SharedGatherParam params = {selectSize, ic, oc, bytes, useRawInt4Gather ? 2 : (useInt4 ? 1 : (useInt8 ? 3 : 0)),
+                                useInt8 ? mResource->int8ScaleBlockNum : 1,
+                                useInt8 && mResource->int8ScaleAsymmetric ? 1 : 0};
 
     auto indicesDev = HexagonBackend::getDevicePtr(indices);
     auto weightDev = useRawInt4Gather ? HexagonBackend::getDevicePtr(mResource->gatherInt4Weight)

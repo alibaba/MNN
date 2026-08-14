@@ -33,65 +33,76 @@ int hmx_matmulq4blockfp16_mle32(uint8_t *c, const uint8_t *a, const uint8_t *b, 
 int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale,
                               const uint8_t *bias, int K, int N, int scale_block_num);
 int hvx_tmac_a16w1_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight, const float *scale,
-                        const uint8_t *bias, int m, int ic, int oc, int scale_block_num,
-                        int scale_asymmetric, int output_bytes);
+                        const uint8_t *bias, int m, int ic, int oc, int scale_block_num, int scale_asymmetric,
+                        int output_bytes);
+
 typedef struct Im2ColParameter {
-    int32_t padX;
-    int32_t padY;
-    int32_t dilateX;
-    int32_t dilateY;
-    int32_t strideX;
-    int32_t strideY;
-    int32_t kernelX;
-    int32_t kernelY;
-    int32_t icDiv4;
-    int32_t kernelCountUnit;
-    int32_t iw;
-    int32_t ih;
-    int32_t ow;
-    int32_t oh;
-    int32_t srcZStep;
-    int32_t srcYStep;
-    int32_t packCUnit;
-    int32_t destICStride;
-    int32_t ic;
-    int32_t icup4;
+  int32_t padX;
+  int32_t padY;
+  int32_t dilateX;
+  int32_t dilateY;
+  int32_t strideX;
+  int32_t strideY;
+  int32_t kernelX;
+  int32_t kernelY;
+  int32_t icDiv4;
+  int32_t kernelCountUnit;
+  int32_t iw;
+  int32_t ih;
+  int32_t ow;
+  int32_t oh;
+  int32_t srcZStep;
+  int32_t srcYStep;
+  int32_t packCUnit;
+  int32_t destICStride;
+  int32_t ic;
+  int32_t icup4;
 } Im2ColParameter;
 
 typedef struct HmxIm2ColConvParam {
-    Im2ColParameter im2col;
-    int32_t oc;
-    int32_t mp;
-    int32_t np;
-    int32_t relu;
-    int32_t relu6;
-    int32_t batch;
-    int32_t outputBytes;
+  Im2ColParameter im2col;
+  int32_t         oc;
+  int32_t         mp;
+  int32_t         np;
+  int32_t         relu;
+  int32_t         relu6;
+  int32_t         batch;
+  int32_t         outputBytes;
+  int32_t         scaleBlockNum;
+  int32_t         scaleAsymmetric;
 } HmxIm2ColConvParam;
 
 typedef struct WeightReorderParam {
-    int32_t ic;
-    int32_t oc;
-    int32_t kernelX;
-    int32_t kernelY;
+  int32_t ic;
+  int32_t oc;
+  int32_t kernelX;
+  int32_t kernelY;
 } WeightReorderParam;
 
 int hmx_im2col_convolution_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight, const uint8_t *bias,
-                                const HmxIm2ColConvParam* params);
+                                const HmxIm2ColConvParam *params);
 int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
-                                             const uint8_t *bias, const HmxIm2ColConvParam* params);
-int htp_ops_conv1x1_direct_fp16(uint8_t* output, uint8_t* input, uint8_t* weight, uint8_t* bias,
-                                const HmxIm2ColConvParam* params);
-int hvx_pool2d_fp16(__fp16 *restrict dst, const __fp16 *restrict src,
-                   int batch, int ih, int iw, int oh, int ow, int c4,
-                   int kernelY, int kernelX, int strideY, int strideX,
-                   int padY, int padX, int padType, int countType, int poolType);
+                                             const uint8_t *bias, const HmxIm2ColConvParam *params);
+int hmx_matmul_w8a16_block_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
+                                const uint8_t *bias, const HmxIm2ColConvParam *params);
+int htp_ops_conv1x1_direct_fp16(uint8_t *output, uint8_t *input, uint8_t *weight, uint8_t *bias,
+                                const HmxIm2ColConvParam *params);
+int htp_ops_vision_attention_fp16(uint8_t *output, const uint8_t *query, const uint8_t *key, const uint8_t *value,
+                                  const uint8_t *mask, int batch, int tokens, int heads, int headDim, float scale,
+                                  int maskStride);
+int htp_ops_vision_flash_attention_fp16(uint8_t *output, const uint8_t *query, const uint8_t *key,
+                                        const uint8_t *value, const uint8_t *mask, uint8_t *workspace, int batch,
+                                        int tokens, int heads, int headDim, float scale, int maskStride);
+#if defined(__hexagon__) || defined(__arm__) || defined(__aarch64__)
+int hvx_pool2d_fp16(__fp16 *restrict dst, const __fp16 *restrict src, int batch, int ih, int iw, int oh, int ow, int c4,
+                    int kernelY, int kernelX, int strideY, int strideX, int padY, int padX, int padType, int countType,
+                    int poolType);
 
-int hvx_conv_depthwise2d_fp16(__fp16 *restrict dst, const __fp16 *restrict src,
-                              const __fp16 *restrict weight, const __fp16 *restrict bias,
-                              int batch, int ih, int iw, int oh, int ow, int c4,
-                              int kernelY, int kernelX, int strideY, int strideX,
-                              int padY, int padX, int dilateY, int dilateX, int relu, int relu6);
+int hvx_conv_depthwise2d_fp16(__fp16 *restrict dst, const __fp16 *restrict src, const __fp16 *restrict weight,
+                              const __fp16 *restrict bias, int batch, int ih, int iw, int oh, int ow, int c4,
+                              int kernelY, int kernelX, int strideY, int strideX, int padY, int padX, int dilateY,
+                              int dilateX, int relu, int relu6);
+#endif
 
 #ifdef __cplusplus
 }

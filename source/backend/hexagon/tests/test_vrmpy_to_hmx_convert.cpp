@@ -355,6 +355,43 @@ static int testScaleShape(int oc, int nblk) {
     return 1;
 }
 
+static int testAsymmetricActivationSums(int kp, int nblk) {
+    if (kp <= 0 || nblk <= 0 || kp % nblk != 0) {
+        return 1;
+    }
+    const int valuesPerTile = 32;
+    const int tilesPerBlock = kp / nblk;
+    std::vector<float> activation((size_t)kp * valuesPerTile);
+    for (int tile = 0; tile < kp; ++tile) {
+        for (int lane = 0; lane < valuesPerTile; ++lane) {
+            activation[(size_t)tile * valuesPerTile + lane] =
+                (float)((tile + 1) * 100 + lane + 1) / 128.0f;
+        }
+    }
+    for (int block = 0; block < nblk; ++block) {
+        float expected = 0.0f;
+        float actual = 0.0f;
+        const int tileBegin = block * tilesPerBlock;
+        const int tileEnd = tileBegin + tilesPerBlock;
+        for (int tile = tileBegin; tile < tileEnd; ++tile) {
+            for (int lane = 0; lane < valuesPerTile; ++lane) {
+                expected += activation[(size_t)tile * valuesPerTile + lane];
+            }
+        }
+        const float* blockActivation = activation.data() + (size_t)block * tilesPerBlock * valuesPerTile;
+        for (int i = 0; i < tilesPerBlock * valuesPerTile; ++i) {
+            actual += blockActivation[i];
+        }
+        if (actual != expected) {
+            printf("  FAIL  activation-sum kp=%d nblk=%d block=%d expected=%f actual=%f\n", kp, nblk, block,
+                   expected, actual);
+            return 1;
+        }
+    }
+    printf("  PASS  activation-sum kp=%d nblk=%d tiles/block=%d\n", kp, nblk, tilesPerBlock);
+    return 0;
+}
+
 int main() {
     srand(42);
     struct {
@@ -391,10 +428,17 @@ int main() {
         ++sn;
     }
 
-    if (fails == 0 && scaleFails == 0) {
-        printf("PASS: %d weight shapes + %d scale shapes byte-match reorderInt4WeightForHmx.\n", n, sn);
+    int activationSumFails = 0;
+    activationSumFails += testAsymmetricActivationSums(32, 8);
+    activationSumFails += testAsymmetricActivationSums(32, 16);
+    activationSumFails += testAsymmetricActivationSums(32, 32);
+
+    if (fails == 0 && scaleFails == 0 && activationSumFails == 0) {
+        printf("PASS: %d weight shapes + %d scale shapes byte-match reorderInt4WeightForHmx; activation sums pass.\n",
+               n, sn);
         return 0;
     }
-    printf("FAIL: weight %d/%d, scale %d/%d mismatched.\n", fails, n, scaleFails, sn);
+    printf("FAIL: weight %d/%d, scale %d/%d, activation sum %d/3 mismatched.\n", fails, n, scaleFails, sn,
+           activationSumFails);
     return 1;
 }
