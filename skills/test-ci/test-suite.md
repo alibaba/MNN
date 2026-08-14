@@ -103,6 +103,26 @@ prompt long enough to cross backend prefill branch thresholds. This catches
 real exported-graph layout bugs where an op test covers only the output format,
 but the graph also changes an input tensor format.
 
+### Split LoRA multi-instance smoke
+
+When testing multiple split LoRA models against one quantized base, use
+adapter-specific exact markers and verify both concurrency and switching:
+
+1. Keep the base `Llm` alive until every object returned by `create_lora()` is
+   destroyed; adapter modules reference the base module.
+2. Load all adapters before inference. Run one request per adapter concurrently,
+   then alternate adapters for multiple rounds with `reset()` before each
+   independent request.
+3. Require each output to contain its own marker and not another adapter's
+   marker. Loading without errors is not a sufficient pass condition.
+4. Match LoRA-training fake-quant settings to export settings and prefer LoRA
+   filenames relative to the base `config.json`.
+5. A Python thread-pool test is concurrent only if the native inference binding
+   releases the GIL. Align worker entry with a barrier so serialized scheduling
+   cannot accidentally satisfy the test.
+The runnable reference is
+`transformers/llm/finetune/examples/multi_lora/README.md`.
+
 ## Configuring stages
 
 Editing [`test_stages.json`](../../test_stages.json) is the supported way to
