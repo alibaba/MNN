@@ -120,11 +120,11 @@ __kernel void shared_gather_quant_buffer(
     if (base_ic + 3 < ic) {
         vstore4(outVec, 0, output + outBase);
     } else {
-        OUTPUT_TYPE* outPtr = (OUTPUT_TYPE*)(&outVec);
         const int remain = ic - base_ic;
-        for (int i = 0; i < remain; ++i) {
-            output[outBase + i] = outPtr[i];
-        }
+        output[outBase] = outVec.s0;
+        if (remain > 1) { output[outBase + 1] = outVec.s1; }
+        if (remain > 2) { output[outBase + 2] = outVec.s2; }
+        if (remain > 3) { output[outBase + 3] = outVec.s3; }
     }
 }
 
@@ -229,10 +229,10 @@ __kernel void shared_gather_quant_image(
     if (base_ic + 3 < ic) {
         vstore4(outVec, 0, output + outBase);
     } else {
-        OUTPUT_TYPE* outPtr = (OUTPUT_TYPE*)(&outVec);
         const int remain = ic - base_ic;
-        for (int i = 0; i < remain; ++i) {
-            output[outBase + i] = outPtr[i];
-        }
+        output[outBase] = outVec.s0;
+        if (remain > 1) { output[outBase + 1] = outVec.s1; }
+        if (remain > 2) { output[outBase + 2] = outVec.s2; }
+        if (remain > 3) { output[outBase + 3] = outVec.s3; }
     }
 }

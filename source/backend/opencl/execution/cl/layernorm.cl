@@ -170,7 +170,6 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
         
         float4 in_sum = 0;
         float4 in_sum_left = 0;
-        float *in_sum_left_ptr = (float*)(&in_sum_left);
 #ifdef RMSNORM
         float4 mean = 0;
 #else
@@ -189,9 +188,9 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
             in_sum_left += in;
         }
         in_sum.x = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
-        for(int i = 1; i < channel_remain; ++i){
-            in_sum_left_ptr[0] += in_sum_left_ptr[i];
-        }
+        if(channel_remain > 1) { in_sum_left.x += in_sum_left.y; }
+        if(channel_remain > 2) { in_sum_left.x += in_sum_left.z; }
+        if(channel_remain > 3) { in_sum_left.x += in_sum_left.w; }
         sum_mean_mnn[lid] = in_sum.x + in_sum_left.x;
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
@@ -221,9 +220,9 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
         }
         
         in_sum.x = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
-        for(int i = 1; i < channel_remain; ++i){
-            in_sum_left_ptr[0] += in_sum_left_ptr[i];
-        }
+        if(channel_remain > 1) { in_sum_left.x += in_sum_left.y; }
+        if(channel_remain > 2) { in_sum_left.x += in_sum_left.z; }
+        if(channel_remain > 3) { in_sum_left.x += in_sum_left.w; }
         
         sum_mnn[lid] = in_sum.x + in_sum_left.x;
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -245,11 +244,20 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
                 // for channels past `channel`, which are only image padding) instead of broadcasting one.
                 float4 gamma4 = (float4)1.0f;
                 float4 beta4 = (float4)0.0f;
-                float* gamma4_ptr = (float*)(&gamma4);
-                float* beta4_ptr = (float*)(&beta4);
-                for(int k = 0; k < 4 && (c * 4 + k) < channel; ++k){
-                    gamma4_ptr[k] = gamma[(c * 4 + k) * reduce_size + i];
-                    beta4_ptr[k] = beta[(c * 4 + k) * reduce_size + i];
+                const int remain_c = channel - c * 4;
+                gamma4.x = gamma[(c * 4) * reduce_size + i];
+                beta4.x = beta[(c * 4) * reduce_size + i];
+                if(remain_c > 1) {
+                    gamma4.y = gamma[(c * 4 + 1) * reduce_size + i];
+                    beta4.y = beta[(c * 4 + 1) * reduce_size + i];
+                }
+                if(remain_c > 2) {
+                    gamma4.z = gamma[(c * 4 + 2) * reduce_size + i];
+                    beta4.z = beta[(c * 4 + 2) * reduce_size + i];
+                }
+                if(remain_c > 3) {
+                    gamma4.w = gamma[(c * 4 + 3) * reduce_size + i];
+                    beta4.w = beta[(c * 4 + 3) * reduce_size + i];
                 }
                 float4 out = (in - mean) * value * gamma4 + beta4;
 #else

@@ -309,11 +309,13 @@ __kernel void matmul_buf(GLOBAL_SIZE_2_DIMS __global const FLOAT* input_a,
     if(idm + 3 >= M){
         #ifdef N_LEAVE
         if(idn + 3 >= N){
+            const int remain_n = N - idn;
             for (int vec_m = 0; vec_m < M - idm; ++vec_m){
-                COMPUTE_FLOAT *out_ptr = (COMPUTE_FLOAT*)&out[vec_m];
-                for(int vec_n = 0; vec_n < N - idn; ++vec_n){
-                    output_c[out_offset + vec_m * N + vec_n] = out_ptr[vec_n];
-                }
+                const int out_idx = out_offset + vec_m * N;
+                output_c[out_idx] = out[vec_m].x;
+                if(remain_n > 1) { output_c[out_idx + 1] = out[vec_m].y; }
+                if(remain_n > 2) { output_c[out_idx + 2] = out[vec_m].z; }
+                if(remain_n > 3) { output_c[out_idx + 3] = out[vec_m].w; }
             }
         } else {
         #endif
@@ -328,12 +330,14 @@ __kernel void matmul_buf(GLOBAL_SIZE_2_DIMS __global const FLOAT* input_a,
     #endif
         #ifdef N_LEAVE
         if(idn + 3 >= N){
+            const int remain_n = N - idn;
             #pragma unroll
             for (int vec_m = 0; vec_m < 4; ++vec_m){
-                COMPUTE_FLOAT *out_ptr = (COMPUTE_FLOAT*)&out[vec_m];
-                for(int vec_n = 0; vec_n < N - idn; ++vec_n){
-                    output_c[out_offset + vec_m * N + vec_n] = out_ptr[vec_n];
-                }
+                const int out_idx = out_offset + vec_m * N;
+                output_c[out_idx] = out[vec_m].x;
+                if(remain_n > 1) { output_c[out_idx + 1] = out[vec_m].y; }
+                if(remain_n > 2) { output_c[out_idx + 2] = out[vec_m].z; }
+                if(remain_n > 3) { output_c[out_idx + 3] = out[vec_m].w; }
             }
         } else {
         #endif
