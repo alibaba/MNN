@@ -2667,7 +2667,11 @@ bool Talker::load() {
         mContext->status = LlmStatus::RUNNING;
         return true;
     }
-    set_config("{\"sampler_type\": \"mixed\", \"temperature\": 0.9, \"topK\": 40, \"topP\": 0.8, \"penalty\": 1.05}");
+    // Talker codec tokens need a minimal sampler pipeline; default mixed_samplers includes
+    // tfs/typical/min_p which over-filter the codec distribution causing greedy collapse.
+    set_config(
+        "{\"sampler_type\": \"mixed\", \"mixed_samplers\": [\"penalty\", \"topK\", \"topP\", \"temperature\"], "
+        "\"temperature\": 0.9, \"topK\": 40, \"topP\": 0.8, \"penalty\": 1.05, \"penalty_window\": 64}");
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
     // some embeddings
@@ -2695,11 +2699,30 @@ bool Talker::load() {
         return false;
     }
     auto module_runtime = mProcessorRuntimeManager ? mProcessorRuntimeManager : mRuntimeManager;
+    auto dit_runtime = module_runtime;
+    // DiT requires fp32 precision on GPU backends; fp16 causes numerical collapse
+    // (ODE solver iterates 4 steps, each step's error accumulates → output all zeros).
+    auto processorBackendType = backend_type_convert(mConfig->backend_type(true));
+    if (processorBackendType == MNN_FORWARD_OPENCL || processorBackendType == MNN_FORWARD_METAL ||
+        processorBackendType == MNN_FORWARD_VULKAN || processorBackendType == MNN_FORWARD_CUDA) {
+        ScheduleConfig ditSchedConfig;
+        BackendConfig ditBackendConfig;
+        ditBackendConfig.precision = BackendConfig::Precision_High;
+        ditBackendConfig.memory = BackendConfig::Memory_Low;
+        ditSchedConfig.type = processorBackendType;
+        ditSchedConfig.numThread = mConfig->thread_num(true);
+        if (processorBackendType == MNN_FORWARD_OPENCL) {
+            ditSchedConfig.numThread |= 64;  // buffer mode
+            ditSchedConfig.numThread |= 512; // tuning
+        }
+        ditSchedConfig.backendConfig = &ditBackendConfig;
+        dit_runtime.reset(Executor::RuntimeManager::createRuntimeManager(ditSchedConfig));
+    }
     // dit
     mPreDit.reset(Module::load({"cond", "spk", "code"}, {"code_embeds", "rope", "mask"},
                                 mConfig->predit_model().c_str(), module_runtime, &module_config));
-    mDit.reset(Module::load({"x", "code_embeds", "rope", "mask", "time"}, {"mel"},
-                            mConfig->dit_model().c_str(), module_runtime, &module_config));
+    mDit.reset(Module::load({"x", "code_embeds", "rope", "mask", "time"}, {"mel"}, mConfig->dit_model().c_str(),
+                            dit_runtime, &module_config));
     // bigvgan
     mBigvgan.reset(Module::load({"generated_mel"},
                                 {"waveform"}, mConfig->bigvgan_model().c_str(), module_runtime, &module_config));
@@ -2711,7 +2734,13 @@ bool Talker::load() {
         return false;
     }
     mAsyncToken2Wav = (module_runtime.get() != mRuntimeManager.get());
-    
+    // GPU backends don't support cross-thread async token2wav; run synchronously.
+    auto talkerBackend = backend_type_convert(mConfig->backend_type());
+    if (talkerBackend == MNN_FORWARD_OPENCL || talkerBackend == MNN_FORWARD_METAL ||
+        talkerBackend == MNN_FORWARD_VULKAN || talkerBackend == MNN_FORWARD_CUDA) {
+        mAsyncToken2Wav = false;
+    }
+
     if (mAsyncToken2Wav && doGenerate()) {
         startAsyncWorker();
     }
@@ -2919,6 +2948,13 @@ void Talker::ditWorkerLoop() {
     BackendConfig backendConfig;
     auto forwardType = backend_type_convert(mConfig->backend_type(true));
     int numThread = mConfig->thread_num(true);
+    if (forwardType == 3) {
+        // OpenCL: force buffer memory mode (|64) + tuning (|512), matching Llm::initRuntime / Omni::load.
+        // Without this the async executor defaults to IMAGE mode on non-MALI/INTEL GPUs (e.g. Adreno),
+        // and the buffer-only quantized conv passes image tensors to __global args -> CL_INVALID_MEM_OBJECT.
+        numThread |= 64;
+        numThread |= 512;
+    }
     auto executor = Express::Executor::newExecutor(forwardType, backendConfig, numThread);
     Express::ExecutorScope scope(executor);
     mPreDit_async.reset(Module::clone(mPreDit.get()));
@@ -2983,6 +3019,11 @@ void Talker::vocoderWorkerLoop() {
     BackendConfig backendConfig;
     auto forwardType = backend_type_convert(mConfig->backend_type(true));
     int numThread = mConfig->thread_num(true);
+    if (forwardType == 3) {
+        // OpenCL: force buffer memory mode (|64) + tuning (|512); see ditWorkerLoop for rationale.
+        numThread |= 64;
+        numThread |= 512;
+    }
     auto executor = Express::Executor::newExecutor(forwardType, backendConfig, numThread);
     Express::ExecutorScope scope(executor);
     mBigvgan_async.reset(Module::clone(mBigvgan.get()));
