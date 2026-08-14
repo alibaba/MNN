@@ -129,19 +129,48 @@ public:
     virtual void generate(GenerationParams& param) override;
     virtual void reset() override;
 private:
-    MNN::Express::VARP dflashForward(const std::vector<int>& block_ids, MNN::Express::VARP context_hidden);
-    MNN::Express::VARP fcForward(MNN::Express::VARP hidden_states);
+    // Row-wise argmax, shared by draft sampling and target verify; only the element count is read, so any rank binds.
+    // False when the on-device argmax module could not be built: the caller must abort the step.
+    bool rowArgmax(MNN::Express::VARP logits, int rows, std::vector<int>& out);
+
+    // --- The verify / accept / emit / rollback half of the speculation step ---
+    struct VerifyResult {
+        int totalAccepted = 0;                  // tokens committed this step (acceptance_length + 1)
+        bool stop = false;                      // a stop token was emitted
+        MNN::Express::VARP newHiddenStates;     // target hidden_states, for the context update
+    };
+    // Target verify + greedy accept + emit + KV rollback for one speculation step.
+    VerifyResult verifyAcceptCommit(const std::vector<int>& block_ids, int blockSize, int hiddenStateIndex);
+    // Longest draft prefix the target agrees with; sets mContext->current_token to the corrected/next token.
+    int acceptDraftPrefix(const std::vector<int>& targetArgmax, const std::vector<int>& block_ids, int blockSize);
+
+    // --- Draft production and context update ---
+    MNN::Express::VARP dflashForward(const std::vector<int>& block_ids);
+    // startPos is the draft-local RoPE position of the first new row.
+    void appendDraftKv(MNN::Express::VARP newContext, int startPos);
+    void ensureKvConcatModule(int kvHeads, int headDim);
+    std::vector<int> buildBlock(int currentToken) const;
 
     std::shared_ptr<MNN::Express::Module> mDFlashModule;   // dflash.mnn (transformer, no lm_head)
     std::shared_ptr<MNN::Express::Module> mFcModule;       // dflash_fc.mnn
     std::shared_ptr<MNN::Express::Module> mLmHeadModule;   // target lm_head subgraph (shared-from-target)
-    std::shared_ptr<MNN::Express::Executor::RuntimeManager> mFcRuntimeManager; // dedicated CPU runtime for FC
+    std::shared_ptr<MNN::Express::Module> mKvMatModule;    // dflash_kvmat.mnn: context rows -> per-layer K/V
+    std::shared_ptr<MNN::Express::Module> mKvConcatModule; // one dispatch appending all K/V pairs
+    std::shared_ptr<MNN::Express::Module> mArgmaxModule;   // single _ArgMax over [rows, vocab]
+    // Draft KV cache, interleaved [K_0, V_0, K_1, V_1, ...], each [1, ctx_len, kv_heads, head_dim].
+    std::vector<MNN::Express::VARP> mDraftKv;
+    // mDraftKv slot -> mKvMatModule output slot (the kvmat graph declares its own order).
+    std::vector<int> mKvMatSlot;
     int mBlockSize;
     int mMaskTokenId;
+    int mShiftLabel = 0;   // 1 when the draft head was trained with shift_label
     int mHiddenStateIndex = -1;
-    // Persistent state across incremental generate() calls
-    MNN::Express::VARP mContextHidden;
     bool mInitialized = false;
+#ifdef DUMP_PROFILE_INFO
+    int spl_decode = 0, spl_accept = 0, spl_count = 0;
+    int64_t phase_sample_us = 0, phase_verify_us = 0, phase_verify_fwd_us = 0, phase_verify_match_us = 0;
+    int64_t phase_argmax_us = 0;
+#endif
 };
 
 class GenerationStrategyFactory {

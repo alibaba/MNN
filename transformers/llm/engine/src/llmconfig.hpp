@@ -691,11 +691,20 @@ public:
     std::string dflash_fc() const {
         return base_dir_ + config_.value("dflash_fc", "dflash_fc.mnn");
     }
+    // Mandatory: the draft attention consumes per-layer kv_k_i/kv_v_i, not raw context rows.
+    std::string dflash_kvmat() const {
+        return base_dir_ + config_.value("dflash_kvmat", "dflash_kvmat.mnn");
+    }
+    // Must equal the block size baked into dflash.mnn.
     int dflash_block_size() const {
-        return config_.value("dflash_block_size", 16);
+        return config_.value("dflash_block_size", 8);
     }
     int dflash_mask_token_id() const {
         return config_.value("dflash_mask_token_id", 0);
+    }
+    // true: the draft-hidden row at index k predicts block slot k+1.
+    bool dflash_shift_label() const {
+        return config_.value("dflash_shift_label", false);
     }
     std::vector<int> dflash_target_layer_ids() const {
         return config_.value("dflash_target_layer_ids", std::vector<int>{});

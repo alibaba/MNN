@@ -40,6 +40,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -181,6 +184,54 @@ kernel void linear_attn_conv_state_update(
         }
     }
 }
+
+kernel void linear_attn_conv_state_commit(
+    const device ftype* pending_raw [[buffer(0)]],
+    device ftype* conv_state        [[buffer(1)]],
+    constant LinearAttnParam& param [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    const int B = param.batch;
+    const int D = param.conv_dim;
+    const int css = param.conv_state_size;
+    const int commit_len = param.commit_len;
+    const int pend_seq = param.pending_seq;
+    const int total = B * D;
+    if ((int)gid >= total) return;
+    const int b = gid / D;
+    const int d = gid % D;
+    device ftype* state = conv_state + gid * css;
+    const device ftype* raw = pending_raw + (b * D + d) * pend_seq;
+    for (int i = 0; i < css; ++i) {
+        int pos = commit_len + i;
+        if (pos < css) {
+            state[i] = state[pos];
+        } else {
+            state[i] = raw[pos - css];
+        }
+    }
+}
+
+
+kernel void linear_attn_qkvraw_save(
+    const device ftype* qkv         [[buffer(0)]],
+    device ftype* pending_raw       [[buffer(1)]],
+    constant LinearAttnParam& param [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    const int B = param.batch;
+    const int D = param.conv_dim;
+    const int L = param.seq_len;
+    const int total = B * D * L;
+    if ((int)gid >= total) return;
+    const int t = gid % L;
+    const int bd = gid / L;
+    const int b = bd / D;
+    const int d = bd % D;
+    // Write stride is the CURRENT block length; param.pending_seq is the previous block's.
+    pending_raw[(b * D + d) * L + t] = qkv[qkv_offset(b, d, t, param)];
+}
+
 )metal";
 
 
@@ -213,6 +264,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -341,6 +395,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -556,6 +613,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -763,6 +823,202 @@ kernel void linear_attn_gated_delta_rule_sg_v4(
 
     state4[lane] = ftype4(st);
 }
+
+// QKV prep + gated delta rule + pending save, preceded by a prologue that commits the
+// previous block's accepted prefix; seq_len = 0 selects the prologue alone.
+kernel void linear_attn_verify_fused_sg(
+    const device ftype* conv_out          [[buffer(0)]],
+    const device ftype* gate              [[buffer(1)]],
+    const device ftype* beta              [[buffer(2)]],
+    device ftype* recurrent_state         [[buffer(3)]],
+    device ftype* attn_out                [[buffer(4)]],
+    constant LinearAttnParam& param       [[buffer(5)]],
+    device ftype* pending_k               [[buffer(6)]],
+    device ftype* pending_v               [[buffer(7)]],
+    device ftype* pending_gate            [[buffer(8)]],
+    device ftype* pending_beta            [[buffer(9)]],
+    const device ftype* prev_pending_k    [[buffer(10)]],
+    const device ftype* prev_pending_v    [[buffer(11)]],
+    const device ftype* prev_pending_gate [[buffer(12)]],
+    const device ftype* prev_pending_beta [[buffer(13)]],
+    uint3 tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int d_k = param.head_k_dim;
+    const int d_v = param.head_v_dim;
+    const int D = param.conv_dim;
+    const int key_dim = param.key_dim;
+    const int gqa_factor = param.gqa_factor;
+    const int use_l2norm = param.use_l2norm;
+    const float q_scale = param.q_scale;
+
+    int idx = tgpig.x * 4 + sgitg;
+    const int total = B * H * d_v;
+    if (idx >= total) return;
+    const int j = idx % d_v;
+    const int b_h = idx / d_v;
+    const int h = b_h % H;
+    const int b = b_h / H;
+    const int k_head = h / gqa_factor;
+
+    device ftype* state = recurrent_state + (b * H + h) * d_v * d_k + j * d_k;
+    const int n_iters = SIMD_ITERS;   // compile-time bound: a runtime one spills s_reg/k_reg/q_reg to local memory
+
+    const int commit_len = param.commit_len;
+    float s_reg[SIMD_ITERS];
+    for (int ii = 0; ii < n_iters; ii++) {
+        int i = lane + ii * 32;
+        s_reg[ii] = (i < d_k) ? (float)state[i] : 0.0f;
+    }
+
+    // Replay the accepted prefix of the previous pending block. State stays in fp32
+    // registers; drift vs the per-step-rounding decode track only wobbles greedy ties.
+    const int pend_seq = param.pending_seq;
+    for (int t = 0; t < commit_len; ++t) {
+        const int bth = b * pend_seq * H + t * H + h;
+        const device ftype* k_t = prev_pending_k + bth * d_k;
+        float v_t_j = (float)prev_pending_v[bth * d_v + j];
+        float decay_val = exp((float)prev_pending_gate[(b * pend_seq + t) * H + h]);
+        float beta_t = (float)prev_pending_beta[(b * pend_seq + t) * H + h];
+        float k_reg[SIMD_ITERS];
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                k_reg[ii] = (float)k_t[i];
+            }
+        }
+        float v_pred_j = 0.0f;
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                s_reg[ii] *= decay_val;
+                v_pred_j += s_reg[ii] * k_reg[ii];
+            }
+        }
+        v_pred_j = simd_sum(v_pred_j);
+        float delta_j = beta_t * (v_t_j - v_pred_j);
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                s_reg[ii] += k_reg[ii] * delta_j;
+            }
+        }
+    }
+    if (commit_len > 0) {
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                state[i] = (ftype)s_reg[ii];
+            }
+        }
+    }
+
+    // Main loop with inline QKV prep (qkv_prep_sg no longer separate; the prep
+    // is fp32 throughout — the q/k rounding to ftype was dropped because the
+    // ulp drift against the replay path does not affect acceptance length).
+    const device ftype* conv_base = conv_out + b * D * L;
+    const int q_row_base = k_head * d_k;
+    const int k_row_base = key_dim + k_head * d_k;
+    const int v_channel = 2 * key_dim + h * d_v + j;
+    for (int t = 0; t < L; ++t) {
+        float k_reg[SIMD_ITERS], q_reg[SIMD_ITERS];
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                q_reg[ii] = (float)conv_base[(q_row_base + i) * L + t];
+                k_reg[ii] = (float)conv_base[(k_row_base + i) * L + t];
+            } else {
+                q_reg[ii] = 0.0f;
+                k_reg[ii] = 0.0f;
+            }
+        }
+        float inv_q = q_scale;
+        float inv_k = 1.0f;
+        if (use_l2norm) {
+            const float eps = 1e-6f;
+            float sq_q = 0.0f, sq_k = 0.0f;
+            for (int ii = 0; ii < n_iters; ii++) {
+                sq_q += q_reg[ii] * q_reg[ii];
+                sq_k += k_reg[ii] * k_reg[ii];
+            }
+            sq_q = simd_sum(sq_q);
+            sq_k = simd_sum(sq_k);
+            inv_q = rsqrt(sq_q + eps) * q_scale;
+            inv_k = rsqrt(sq_k + eps);
+        }
+        // q/k stay in fp32 here; stored to the fp16 pending buffer below, the next
+        // block's replay reads a rounded copy, but ulp drift does not affect AL.
+        for (int ii = 0; ii < n_iters; ii++) {
+            q_reg[ii] *= inv_q;
+            k_reg[ii] *= inv_k;
+        }
+        float v_t_j = (float)conv_base[v_channel * L + t];
+        const int gb_off = token_channel_offset(b, t, h, H, param.gate_c4 & 1, param);
+        const int bb_off = token_channel_offset(b, t, h, H, param.beta_c4 & 1, param);
+        float g_t = (float)gate[gb_off];
+        if (param.gate_c4 & 2) { g_t = linear_attn_gate_fold(g_t, h, param); }
+        float beta_t = (float)beta[bb_off];
+        if (param.beta_c4 & 2) { beta_t = linear_attn_beta_fold(beta_t); }
+        float decay_val = exp(g_t);
+
+        // Pending save of the NEW block (write side; host ping-pongs buffers).
+        // Folded values are stored, matching the replay prologue above which feeds
+        // prev_pending_gate straight into exp() and prev_pending_beta in as-is.
+        const int src = b * L * H + t * H + h;
+        if (j == 0) {
+            for (int ii = 0; ii < n_iters; ii++) {
+                int i = lane + ii * 32;
+                if (i < d_k) {
+                    pending_k[src * d_k + i] = (ftype)k_reg[ii];
+                }
+            }
+            if (lane == 0) {
+                pending_gate[(b * L + t) * H + h] = (ftype)g_t;
+                pending_beta[(b * L + t) * H + h] = (ftype)beta_t;
+            }
+        }
+        if (lane == 0) {
+            pending_v[src * d_v + j] = (ftype)v_t_j;
+        }
+
+        float v_pred_j = 0.0f;
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                s_reg[ii] *= decay_val;
+                v_pred_j += s_reg[ii] * k_reg[ii];
+            }
+        }
+        v_pred_j = simd_sum(v_pred_j);
+        float delta_j = beta_t * (v_t_j - v_pred_j);
+        float o_t_j = 0.0f;
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                s_reg[ii] += k_reg[ii] * delta_j;
+                o_t_j += s_reg[ii] * q_reg[ii];
+            }
+        }
+        o_t_j = simd_sum(o_t_j);
+        if (lane == 0) {
+            attn_out[output_offset(b, t, h, j, param)] = (ftype)o_t_j;
+        }
+    }
+
+    if (!param.lazy_mode) {
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                state[i] = (ftype)s_reg[ii];
+            }
+        }
+    }
+}
+
 )metal";
 
 
@@ -795,6 +1051,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -992,6 +1251,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -1128,6 +1390,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -1383,6 +1648,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -1645,6 +1913,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -1905,6 +2176,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -2489,6 +2763,9 @@ struct LinearAttnParam {
     int beta_c4;
     int output_c4;
     float q_scale;
+    int commit_len;    // lazy-commit: pending tokens to replay before this block
+    int pending_seq;   // length of the saved pending block
+    int lazy_mode;     // 1: do not persist state after the new block (spec verify)
     // gate/beta chain fold (gate_c4 & 2 / beta_c4 & 2): per-head constants
     // -exp(A_log)[h] and dt_bias[h]; capped at 64 heads.
     float gate_coef[64];
@@ -2844,3 +3121,5 @@ kernel void linear_attn_flash_chunk_sgmm(
 
 #endif /* MNN_SUPPORT_TRANSFORMER_FUSE */
 #endif /* MNN_METAL_ENABLED */
+
+

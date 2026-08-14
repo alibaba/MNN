@@ -95,10 +95,12 @@ class LlmConfig(PretrainedConfig):
         # rename attribute for different models
         ModelMapper.do_map(llm_config, config, model_map['config'])
 
-        if hasattr(llm_config.rope_scaling, '__dict__'):
-            llm_config.rope_scaling = cls._namespace_to_dict(llm_config.rope_scaling)
-        if hasattr(llm_config.rope_parameters, '__dict__'):
-            llm_config.rope_parameters = cls._namespace_to_dict(llm_config.rope_parameters)
+        rope_scaling = getattr(llm_config, 'rope_scaling', None)
+        if rope_scaling is not None and hasattr(rope_scaling, '__dict__'):
+            llm_config.rope_scaling = cls._namespace_to_dict(rope_scaling)
+        rope_parameters = getattr(llm_config, 'rope_parameters', None)
+        if rope_parameters is not None and hasattr(rope_parameters, '__dict__'):
+            llm_config.rope_parameters = cls._namespace_to_dict(rope_parameters)
 
         # Post-processing and setting defaults
         if llm_config.num_key_value_heads is None:
