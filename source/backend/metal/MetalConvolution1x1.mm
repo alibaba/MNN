@@ -52,6 +52,11 @@ static int chooseQ4W16Mid(int blocksPerSimdgroup, int pairsPerBlock) {
     return best;
 }
 
+// QKV seg buffer layout, shared with the shader's qkv_seg:
+// [0..1] k/v scale_coef, [2..3] k/v output_slice, [4..5] 4th projection's
+// scale_coef + output_slice, [6..8] packed-grid base of projections 1..3.
+static constexpr int kQKVSegFloats = 9;
+
 bool MetalConvolution1x1::isValid(const Convolution2D *conv, const Tensor *input) {
     auto common = conv->common();
     auto kx = common->kernelX(), ky = common->kernelY();
@@ -115,9 +120,42 @@ bool MetalConvolution1x1::onClone(Backend* bn, const Op* op, Execution** dst) {
     return true;
 }
 
-bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Tensor* peerOutput) {
-    if (!mIs2sgDecode || !peer->mIs2sgDecode ||
-        mDequantBits != peer->mDequantBits || mBlockSize != peer->mBlockSize) {
+// Lane split for the 2sg decode GEMV: middle_step lanes sweep K inside a quant
+// block, the remaining SIMD_GROUP_WIDTH/middle_step lanes walk different blocks.
+//
+// The historical value is block/4, tuned when a simdgroup covered every block of
+// a row. SPLIT_K_2 halves that count, so on shapes with few, fat blocks a lane
+// ends up sweeping several blocks and re-pays the per-block scale/bias loads on
+// each one -- measurably so, because the inner sweep is too short to hide them.
+// Size the outer split to the blocks the simdgroup actually covers, so a lane
+// owns exactly one, but never drop below two lanes on the inner reduction: once
+// there are more blocks than lanes a lane already sweeps more than one block and
+// narrowing further would trade away the inner parallelism for nothing.
+//
+// Returns 0 when the shape should keep the legacy expression.
+static int gemvMiddleStep(int ic_4, int blockCount, bool splitK) {
+    if (blockCount <= 0) {
+        return 0;
+    }
+    const int simdWidth = 32;
+    const int block  = UP_DIV(ic_4, blockCount);
+    const int legacy = std::min(simdWidth, std::max(block / 4, 1));
+    if (!splitK) {
+        return legacy;
+    }
+    const int blocksPerSg = std::max(blockCount / 2, 1);
+    const int want        = std::max(simdWidth / blocksPerSg, 1);
+    int ms = std::max(std::min(legacy, want), std::min(legacy, 2));
+    int p  = 1;   // outer_step has to divide the simdgroup evenly
+    while (p * 2 <= ms) {
+        p *= 2;
+    }
+    return p;
+}
+
+bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Tensor* peerOutput,
+                                            const Tensor* siluOutput) {
+    if (!mIs2sgDecode || !peer->mIs2sgDecode) {
         return false;
     }
     // Leader = gate (this), Follower = up (peer)
@@ -165,6 +203,12 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
         keys.emplace_back("W16_BLOCK_SLICES_" + std::to_string(mQ4W16BlockSlices));
         keys.emplace_back("W16_MID_" + std::to_string(w16Mid));
     }
+    // The SwiGLU epilogue reuses the dual-row body, so it needs ROW_2.
+    mGateUpSilu = row2 && siluOutput != nullptr && !MetalEnv::get().gateUpSiluDisabled;
+    mGateUpSiluOutput = mGateUpSilu ? siluOutput : nullptr;
+    if (mGateUpSilu) {
+        keys.emplace_back("GATE_UP_SILU");
+    }
 
     mGateUpFusedPipeline = rt->findPipeline(keys);
     if (nil == mGateUpFusedPipeline && !rt->pipelineCompileFailed(keys)) {
@@ -199,6 +243,9 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
             [dic setValue:@(mQ4W16BlockSlices).stringValue forKey:@"GEMV_QBLOCK_W16_BLOCK_SLICES"];
             [dic setValue:@(w16Mid).stringValue forKey:@"GEMV_QBLOCK_W16_MID"];
         }
+        if (mGateUpSilu) {
+            [dic setValue:@"1" forKey:@"GATE_UP_SILU"];
+        }
         option.preprocessorMacros = dic;
 
         std::string sgrWqStr = std::string(gBasicConvPrefix) + gConv1x1WqSgReduce;
@@ -211,6 +258,8 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
         mIsGateUpLeader = false;
         mGateUpPeer = nullptr;
         mGateUpSegBuffer = nil;
+        mGateUpSilu = false;
+        mGateUpSiluOutput = nullptr;
         peer->mIsGateUpFollower = false;
         return false;
     }
@@ -219,7 +268,21 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
     // is 2sg-kernel based — force 64 threads (plain pipeline may be split-K g8
     // with a 128-thread group).
     auto gridSize = mThreads.first;
-    mThreads.first = MTLSizeMake(gridSize.width, gridSize.height, 2);
+    NSUInteger gw = gridSize.width;
+    NSUInteger gz = 2;
+    if (row2) {
+        auto slice = ((Param*)mConstBuffer.contents)->output_slice;
+        gw = (NSUInteger)UP_DIV(slice, 4);
+        if (mGateUpSilu) {
+            // A simdgroup now covers one slice of both matrices rather than two
+            // slices of one, so the gate/up split moves out of z and into x. The
+            // trade is exact: the threadgroup count and the four slice-dots each
+            // threadgroup issues are the same as the unfused grid.
+            gw = (NSUInteger)UP_DIV(slice, 2);
+            gz = 1;
+        }
+    }
+    mThreads.first = MTLSizeMake(gw, gridSize.height, gz);
     mThreads.second = MTLSizeMake(64, 1, 1);
 
     return true;
@@ -278,13 +341,6 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     keys.emplace_back("conv1x1_wquant_sg_reduce");
     keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
     keys.emplace_back("QKV_FUSED");
-    // Compact projection grids improve Qwen3.5-2B decode on Mac M5 Pro, but
-    // showed no end-to-end gain on iPad M5. Keep the portable default on the
-    // legacy rectangular grid and make compact mode an explicit opt-in.
-    const bool compactGrid = MetalEnv::get().qkvCompactGridEnabled;
-    if (compactGrid) {
-        keys.emplace_back("QKV_COMPACT_GRID");
-    }
     if (peerW != nullptr) {
         keys.emplace_back("QKV_FUSED_P4");
     }
@@ -299,6 +355,32 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
         keys.emplace_back("GEMV_QBLOCK_W16");
         keys.emplace_back("W16_BLOCK_SLICES_" + std::to_string(mQ4W16BlockSlices));
         keys.emplace_back("W16_MID_" + std::to_string(w16Mid));
+    }
+    // Grid geometry, decided before the pipeline is built: the packed grid is a
+    // compile-time variant (the shader derives the projection from x instead of
+    // z), so it has to be part of the cache key and the macro dictionary.
+    // Each threadgroup covers 2 output slices, or 4 under ROW_2 (2 per simdgroup).
+    const int slicesPerTG = row2 ? 4 : 2;
+    const int numProj = peerW != nullptr ? 4 : 3;
+    const int projSlice[4] = {
+        ((Param*)mConstBuffer.contents)->output_slice,
+        ((Param*)peerK->mConstBuffer.contents)->output_slice,
+        ((Param*)peerV->mConstBuffer.contents)->output_slice,
+        peerW != nullptr ? ((Param*)peerW->mConstBuffer.contents)->output_slice : 0,
+    };
+    int projGridX[4] = {0, 0, 0, 0};
+    int packedGridX = 0;
+    int maxGridX = 0;
+    for (int p = 0; p < numProj; ++p) {
+        projGridX[p] = UP_DIV(projSlice[p], slicesPerTG);
+        packedGridX += projGridX[p];
+        maxGridX = ALIMAX(maxGridX, projGridX[p]);
+    }
+    // Packing only differs from the rectangular grid when the members differ in
+    // output_channel; equal-sized groups (dense q/k/v) keep the simpler form.
+    mQKVPackedGrid = !MetalEnv::get().qkvPackedGridDisabled && packedGridX < numProj * maxGridX;
+    if (mQKVPackedGrid) {
+        keys.emplace_back("QKV_PACKED_GRID");
     }
 
     mQKVFusedPipeline = rt->findPipeline(keys);
@@ -329,9 +411,6 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
             [dic setValue:@"1" forKey:@"W_QUANT_8"];
         }
         [dic setValue:@"1" forKey:@"QKV_FUSED"];
-        if (compactGrid) {
-            [dic setValue:@"1" forKey:@"QKV_COMPACT_GRID"];
-        }
         if (peerW != nullptr) {
             [dic setValue:@"1" forKey:@"QKV_FUSED_P4"];
         }
@@ -339,6 +418,9 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
             [dic setValue:@"1" forKey:@"GEMV_QBLOCK_W16"];
             [dic setValue:@(mQ4W16BlockSlices).stringValue forKey:@"GEMV_QBLOCK_W16_BLOCK_SLICES"];
             [dic setValue:@(w16Mid).stringValue forKey:@"GEMV_QBLOCK_W16_MID"];
+        }
+        if (mQKVPackedGrid) {
+            [dic setValue:@"1" forKey:@"QKV_PACKED_GRID"];
         }
         option.preprocessorMacros = dic;
 
@@ -357,7 +439,6 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     mQKVPeerKOutput = peerKOutput;
     mQKVPeerVOutput = peerVOutput;
     mQKVPeerWOutput = peerWOutput;
-    mQKVCompactGrid = compactGrid;
     peerK->mIsQKVFollower = true;
     peerV->mIsQKVFollower = true;
     if (peerW != nullptr) {
@@ -381,13 +462,13 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     }
     if (!rehomed) {
         mIsQKVLeader = false;
+        mQKVPackedGrid = false;
         mQKVPeerK = nullptr;
         mQKVPeerV = nullptr;
         mQKVPeerW = nullptr;
         mQKVPeerKOutput = nullptr;
         mQKVPeerVOutput = nullptr;
         mQKVPeerWOutput = nullptr;
-        mQKVCompactGrid = false;
         peerK->mIsQKVFollower = false;
         peerV->mIsQKVFollower = false;
         if (peerW != nullptr) {
@@ -396,33 +477,36 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
         return false;
     }
 
-    // Followers' per-projection scale_coef + output_slice (leader's come from cst).
-    auto kSlice = ((Param*)peerK->mConstBuffer.contents)->output_slice;
-    auto vSlice = ((Param*)peerV->mConstBuffer.contents)->output_slice;
-    auto wSlice = peerW != nullptr ? ((Param*)peerW->mConstBuffer.contents)->output_slice : 0;
-    mQKVSegBuffer = backend->getConstBuffer(6 * sizeof(float));
+    // Followers' per-projection scale_coef + output_slice (leader's come from cst),
+    // plus the packed grid's per-projection bases.
+    mQKVSegBuffer = backend->getConstBuffer(kQKVSegFloats * sizeof(float));
     auto seg = (float *)mQKVSegBuffer.contents;
     seg[0] = peerK->mScaleCoef;
     seg[1] = peerV->mScaleCoef;
-    seg[2] = (float)kSlice;
-    seg[3] = (float)vSlice;
+    seg[2] = (float)projSlice[1];
+    seg[3] = (float)projSlice[2];
     seg[4] = peerW != nullptr ? peerW->mScaleCoef : 0.0f;
-    seg[5] = (float)wSlice;
+    seg[5] = (float)projSlice[3];
+    // seg[6..8]: base of projections 1..3 in the packed grid, so the shader can
+    // recover (projection, local x) from the flat index.
+    seg[6] = (float)projGridX[0];
+    seg[7] = (float)(projGridX[0] + projGridX[1]);
+    seg[8] = (float)(projGridX[0] + projGridX[1] + projGridX[2]);
 
-    // Compact mode concatenates each projection's exact threadgroup range on
-    // grid.x. The shader maps the flat index back to projection + local row.
-    // The rollback path retains the legacy max-grid.x x projection-count
-    // rectangle. Fused pipeline is 2sg-kernel based — force 64 threads (plain
-    // pipeline may be split-K g8 with a 128-thread group).
-    auto leaderSlice = ((Param*)mConstBuffer.contents)->output_slice;
-    if (compactGrid) {
-        NSUInteger compactGridX = (NSUInteger)(UP_DIV(leaderSlice, 2) + UP_DIV(kSlice, 2) +
-                                                UP_DIV(vSlice, 2) + UP_DIV(wSlice, 2));
-        mThreads.first = MTLSizeMake(compactGridX, mThreads.first.height, 1);
+    // Fused pipeline is 2sg-kernel based — force 64 threads (the plain pipeline
+    // may be split-K g8 with a 128-thread group).
+    if (mQKVPackedGrid) {
+        // x runs over the projections' threadgroup ranges laid end to end, so a
+        // group whose members differ in output_channel no longer launches
+        // maxGridX threadgroups for each of them. Qwen3.5's linear-attention
+        // groups are (qkv 6144, z 2048, b 16, a 16), where the rectangular grid
+        // spends 67% of its threadgroups on simdgroups that only early-return.
+        mThreads.first = MTLSizeMake((NSUInteger)packedGridX, mThreads.first.height, 1);
     } else {
-        auto maxSlice = ALIMAX(ALIMAX(leaderSlice, wSlice), ALIMAX(kSlice, vSlice));
-        NSUInteger maxGridX = (NSUInteger)UP_DIV(maxSlice, 2);
-        mThreads.first = MTLSizeMake(maxGridX, mThreads.first.height, peerW != nullptr ? 4 : 3);
+        // grid.x covers the largest projection; z selects the projection.
+        // Out-of-range simdgroups on the smaller projections early-return in the
+        // shader.
+        mThreads.first = MTLSizeMake((NSUInteger)maxGridX, mThreads.first.height, numProj);
     }
     mThreads.second = MTLSizeMake(64, 1, 1);
 
@@ -469,17 +553,32 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
     keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
     if (mIsGateUpLeader) {
         keys.emplace_back("GATE_UP_FUSED");
+        // setupGateUpFusion already shaped the grid for the SwiGLU epilogue; the
+        // LN variant of the same kernel has to be compiled to match it.
+        if (mGateUpSilu) {
+            keys.emplace_back("GATE_UP_SILU");
+        }
     }
     if (mIsQKVLeader) {
         keys.emplace_back("QKV_FUSED");
-        if (mQKVCompactGrid) {
-            keys.emplace_back("QKV_COMPACT_GRID");
-        }
         if (mQKVPeerW != nullptr) {
             keys.emplace_back("QKV_FUSED_P4");
         }
+        // setupQKVFusion already fixed the grid shape; the LN variant of the
+        // same kernel has to be compiled to match it.
+        if (mQKVPackedGrid) {
+            keys.emplace_back("QKV_PACKED_GRID");
+        }
     }
     keys.emplace_back("LN_FUSED");
+    const bool lnSplitSg = !MetalEnv::get().lnSplitSgDisabled;
+    if (lnSplitSg) {
+        keys.emplace_back("LN_SPLIT_SG");
+    }
+    const bool row2 = !backend->isSupportTensorApi();
+    if (row2) {
+        keys.emplace_back("ROW_2");
+    }
     // Generalized Q4 W16 on the LN-folded fused GEMV. Every fused member must
     // carry the same compile-time quant-block shape.
     bool w16 = mQ4W16BlockSlices > 0 && mDequantBits == 4;
@@ -525,17 +624,26 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
         }
         if (mIsGateUpLeader) {
             [dic setValue:@"1" forKey:@"GATE_UP_FUSED"];
+            if (mGateUpSilu) {
+                [dic setValue:@"1" forKey:@"GATE_UP_SILU"];
+            }
         }
         if (mIsQKVLeader) {
             [dic setValue:@"1" forKey:@"QKV_FUSED"];
-            if (mQKVCompactGrid) {
-                [dic setValue:@"1" forKey:@"QKV_COMPACT_GRID"];
-            }
             if (mQKVPeerW != nullptr) {
                 [dic setValue:@"1" forKey:@"QKV_FUSED_P4"];
             }
+            if (mQKVPackedGrid) {
+                [dic setValue:@"1" forKey:@"QKV_PACKED_GRID"];
+            }
         }
         [dic setValue:@"1" forKey:@"LN_FUSED"];
+        if (lnSplitSg) {
+            [dic setValue:@"1" forKey:@"LN_SPLIT_SG"];
+        }
+        if (row2) {
+            [dic setValue:@"1" forKey:@"ROW_2"];
+        }
         if (w16) {
             [dic setValue:@"1" forKey:@"GEMV_QBLOCK_W16"];
             [dic setValue:@(mQ4W16BlockSlices).stringValue forKey:@"GEMV_QBLOCK_W16_BLOCK_SLICES"];
@@ -578,6 +686,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     mGateUpPeer = nullptr;
     mGateUpFusedPipeline = nil;
     mGateUpSegBuffer = nil;
+    mGateUpSilu = false;
+    mGateUpSiluOutput = nullptr;
 
     // Reset QKV fusion state on each resize
     mIsQKVLeader = false;
@@ -590,7 +700,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     mQKVPeerWOutput = nullptr;
     mQKVFusedPipeline = nil;
     mQKVSegBuffer = nil;
-    mQKVCompactGrid = false;
+    mQKVPackedGrid = false;
 
 
     mHasLNFusion = false;
@@ -871,12 +981,17 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     const int sSplitK = MetalEnv::get().gemvSplitK;
                     const bool splitkUsable = (oc % 8 == 0) && (blockSize % 2 == 0);
                     if (sSplitK > 0 && splitkUsable) {
+                        const bool legacyLanes = MetalEnv::get().splitkLegacyLanes;
+                        const int middleStep = legacyLanes ? 0 : gemvMiddleStep(ic_4, blockSize, true);
                         auto keys = baseKeys;
                         keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
                         keys.emplace_back("SPLIT_K_2");
                         // Split-K halves the blocks a simdgroup owns, so the
                         // lane split is re-chosen for that pipeline.
                         const int skMid = q4W16 ? chooseQ4W16Mid(blockSize / 2, q4W16BlockSlices / 2) : 0;
+                        if (middleStep > 0) {
+                            keys.emplace_back("ms" + std::to_string(middleStep));
+                        }
                         if (q4W16) {
                             keys.emplace_back("W16_SK_MID_" + std::to_string(skMid));
                         }
@@ -884,6 +999,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         if (nil == pipeline) {
                             NSMutableDictionary *skDic = [dic mutableCopy];
                             [skDic setValue:@"1" forKey:@"SPLIT_K_2"];
+                            if (middleStep > 0) {
+                                [skDic setValue:@(std::to_string(middleStep).c_str())
+                                         forKey:@"GEMV_MIDDLE_STEP"];
+                            }
                             if (q4W16) {
                                 [skDic setValue:@(skMid).stringValue forKey:@"GEMV_QBLOCK_W16_MID"];
                             }
@@ -1456,8 +1575,12 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
             auto inTensor = mHasLNFusion ? mLNHiddenInput : input;
             [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inTensor->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(inTensor)->offset atIndex:0];
         }
-        // buffer(1): gate output (this)
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(output)->offset atIndex:1];
+        // buffer(1): gate output (this), or the group's SwiGLU output when the
+        // epilogue folds MUL_SILU in -- gate and up then never reach memory.
+        {
+            auto outTensor = mGateUpSilu ? mGateUpSiluOutput : output;
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)outTensor->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(outTensor)->offset atIndex:1];
+        }
         // buffer(2): gate params (also used by up since dimensions are identical)
         [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
         // buffer(3): gate weight

@@ -72,16 +72,27 @@ struct MetalEnv {
     bool lnFusionDisabled;
     // MNN_METAL_DISABLE_GATE_UP_FUSION=1: disable Gate/Up leader/follower fusion.
     bool gateUpFusionDisabled;
+    // MNN_METAL_DISABLE_GATEUP_SILU=1: keep the group's MUL_SILU as its own
+    // dispatch (writing gate and up to memory first) instead of folding it into
+    // the fused gate/up GEMV epilogue.
+    bool gateUpSiluDisabled;
     // MNN_METAL_DISABLE_QKV_FUSION=1: disable Q/K/V leader/follower fusion.
     bool qkvFusionDisabled;
-    // MNN_METAL_ENABLE_QKV_COMPACT_GRID=1: concatenate the projection grids on
-    // grid.x. Default off: it improves Qwen3.5-2B decode on Mac M5 Pro, but did
-    // not improve the same workload on iPad M5.
-    bool qkvCompactGridEnabled;
+    // MNN_METAL_DISABLE_LN_SPLIT_SG=1: let every simdgroup recompute the fused
+    // LayerNorm sum over the whole input instead of splitting the sweep across
+    // the threadgroup and reducing once.
+    bool lnSplitSgDisabled;
+    // MNN_METAL_DISABLE_QKV_PACKED_GRID=1: size the fused grid for the largest
+    // projection on every member instead of packing the members end to end.
+    bool qkvPackedGridDisabled;
     // MNN_METAL_GEMV_SPLITK: decode GEMV K-split (SPLIT_K_2 variant of the 2sg
     // kernel: 4 simdgroups per tg, two K-halves per row + tg reduce).
     // 0 = off (legacy 2sg, 64 threads), unset/1 = on (default).
     int gemvSplitK;
+    // MNN_METAL_SPLITK_LEGACY_LANES=1: keep the block/4 inner/outer lane split
+    // on the SPLIT_K_2 pipeline instead of sizing it to the blocks a simdgroup
+    // covers (and instead of baking it in as a compile-time constant).
+    bool splitkLegacyLanes;
     // MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1: take the outer-dequant +
     // fp GEMM path instead of the fused Q4/Q8 GEMM that unpacks weights
     // in-kernel (A/B baseline + emergency rollback). Only meaningful on
@@ -153,8 +164,11 @@ struct MetalEnv {
             }
             e.lnFusionDisabled     = envIs("MNN_METAL_DISABLE_LN_FUSION", '1');
             e.gateUpFusionDisabled = envIs("MNN_METAL_DISABLE_GATE_UP_FUSION", '1');
+            e.gateUpSiluDisabled   = envIs("MNN_METAL_DISABLE_GATEUP_SILU", '1');
             e.qkvFusionDisabled    = envIs("MNN_METAL_DISABLE_QKV_FUSION", '1');
-            e.qkvCompactGridEnabled = envIs("MNN_METAL_ENABLE_QKV_COMPACT_GRID", '1');
+            e.qkvPackedGridDisabled = envIs("MNN_METAL_DISABLE_QKV_PACKED_GRID", '1');
+            e.lnSplitSgDisabled    = envIs("MNN_METAL_DISABLE_LN_SPLIT_SG", '1');
+            e.splitkLegacyLanes    = envIs("MNN_METAL_SPLITK_LEGACY_LANES", '1');
             {
                 const char* v = getenv("MNN_METAL_GEMV_SPLITK");
                 e.gemvSplitK = 1;

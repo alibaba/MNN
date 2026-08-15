@@ -167,6 +167,7 @@ public:
             // back after the allocator's compute(). Registered every resize:
             // the backend clears its registry in onResizeBegin.
             mProjOutputs.assign(outputs.begin(), outputs.begin() + mNumProjOut);
+            mProjInput     = mHasLn ? nullptr : inputs[0];
             mLnResidualIn  = mHasLn ? inputs[0] : nullptr;
             mLnHiddenIn    = mHasLn ? inputs[1] : nullptr;
             mLnResidualOut = mHasLn ? outputs[mNumProjOut] : nullptr;
@@ -180,6 +181,9 @@ public:
     // which the STATIC re-homes below depend on.
     virtual void setupFusion() override {
         auto backend = static_cast<MetalBackend *>(this->backend());
+        // Every resize re-decides the fusion, and the early returns below leave
+        // the group unfused, so clear this before any of them can fire.
+        mSiluFused = false;
         // The fused kernels only exist on the decode-GEMV pipeline; anything
         // else (all of prefill included) stays as per-member dispatches.
         for (auto &conv : mConvs) {
@@ -194,7 +198,25 @@ public:
         bool projFused = false;
         if (mIsGateUp) {
             if (mConvs.size() == 2 && !MetalEnv::get().gateUpFusionDisabled) {
-                projFused = mConvs[0]->setupGateUpFusion(mConvs[1].get(), mUp.get());
+                // Offer the group's output so the leader can also absorb the
+                // MUL_SILU; it takes it only on shapes whose epilogue supports
+                // it, so read the decision back rather than assuming it.
+                //
+                // Folding the MUL_SILU makes the leader write that output while
+                // it is still reading the projection input. Without the LN
+                // fold that input is the op's own input tensor, which the
+                // allocator may have placed under the output -- legal while the
+                // write happened in a later dispatch, a race now. Re-home to
+                // STATIC, which the dynamic pool never reuses; if that fails,
+                // keep MUL_SILU separate rather than risk it. (With the LN fold
+                // the reads are mLnHiddenIn/mLnResidualIn, guarded below.)
+                const Tensor *siluOut = mProjOutputs[0];
+                if (!mHasLn && backend->tensorsOverlap(siluOut, mProjInput) &&
+                    !backend->onAcquireBuffer(mProjOutputs[0], Backend::STATIC)) {
+                    siluOut = nullptr;
+                }
+                projFused = mConvs[0]->setupGateUpFusion(mConvs[1].get(), mUp.get(), siluOut);
+                mSiluFused = projFused && mConvs[0]->gateUpSiluFused();
             }
         } else if (mConvs.size() >= 3 && !MetalEnv::get().qkvFusionDisabled) {
             if (mConvs.size() == 3) {
@@ -229,8 +251,11 @@ public:
         // never reuses; if that fails, skip the fold rather than risk it.
         std::vector<Tensor *> written = mProjOutputs;
         if (mIsGateUp) {
-            // The gate/up leader writes both halves plus the SiLU-mul result.
-            written = {mGate.get(), mUp.get(), mProjOutputs[0]};
+            // The gate/up leader writes both halves plus the SiLU-mul result --
+            // unless the epilogue absorbed the SiLU-mul, in which case the halves
+            // stay in registers and only the result reaches memory.
+            written = mSiluFused ? std::vector<Tensor *>{mProjOutputs[0]}
+                                 : std::vector<Tensor *>{mGate.get(), mUp.get(), mProjOutputs[0]};
         }
         for (auto *out : written) {
             if (out == nullptr) {
@@ -270,7 +295,9 @@ public:
         if (mIsGateUp) {
             mConvs[0]->onExecute({projInput}, {mGate.get()});
             mConvs[1]->onExecute({projInput}, {mUp.get()});
-            mMulSilu->onExecute({mUp.get(), mGate.get()}, {outputs[0]});
+            if (!mSiluFused) {
+                mMulSilu->onExecute({mUp.get(), mGate.get()}, {outputs[0]});
+            }
             return;
         }
         for (int i = 0; i < mNumConvs; ++i) {
@@ -287,7 +314,9 @@ public:
             // and the up child encodes nothing.
             mConvs[0]->onEncode({projInput}, {mGate.get()}, encoder);
             mConvs[1]->onEncode({projInput}, {mUp.get()}, encoder);
-            mMulSilu->onEncode({mUp.get(), mGate.get()}, {outputs[0]}, encoder);
+            if (!mSiluFused) {
+                mMulSilu->onEncode({mUp.get(), mGate.get()}, {outputs[0]}, encoder);
+            }
             return;
         }
         // QKV fusion: children[0] is the leader; the followers' onEncode
@@ -426,10 +455,12 @@ private:
     int mRecordedGeneration = -1;
     // Captured in onResize for setupFusion (which runs later, in onResizeEnd).
     std::vector<Tensor *> mProjOutputs;
+    const Tensor *mProjInput     = nullptr;   // only when there is no LN member
     const Tensor *mLnResidualIn  = nullptr;
     const Tensor *mLnHiddenIn    = nullptr;
     Tensor *mLnResidualOut       = nullptr;
     bool mIsGateUp   = false;
+    bool mSiluFused  = false;   // leader's epilogue emits up * silu(gate)
     bool mHasLn      = false;
     int mNumConvs    = 0;
     int mNumProjOut  = 0;

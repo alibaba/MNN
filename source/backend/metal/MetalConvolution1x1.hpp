@@ -27,7 +27,15 @@ public:
     // Gate/Up fusion: called by the owning MetalFusedProj for the two members of
     // an exported FusedGateUp group. 'this' is the gate (leader), 'peer' the up
     // (follower); peerOutput is the up projection's output tensor.
-    bool setupGateUpFusion(MetalConvolution1x1* peer, const Tensor* peerOutput);
+    //
+    // siluOutput, when given, additionally folds the group's MUL_SILU into this
+    // kernel's epilogue: the dual-row body drives gate and up for one slice
+    // instead of two slices of one matrix, writes up * silu(gate) straight to
+    // siluOutput, and the owner must then skip its MUL_SILU child. Only the
+    // ROW_2 shape can do this; the caller must check gateUpSiluFused().
+    bool setupGateUpFusion(MetalConvolution1x1* peer, const Tensor* peerOutput,
+                           const Tensor* siluOutput = nullptr);
+    bool gateUpSiluFused() const { return mGateUpSilu; }
     bool isGateUpLeader() const { return mIsGateUpLeader; }
     bool isGateUpFollower() const { return mIsGateUpFollower; }
     // QKV fusion: called by the owning MetalFusedProj for the three (or four,
@@ -65,13 +73,15 @@ private:
     std::shared_ptr<Tensor> mFusedWeightScale;
     bool mUseFusedDecode = false;
     // Gate/Up fusion state
-    bool mIs2sgDecode = false;                              // true if using conv1x1_gemv_g4m1_2sg_wquant_sg pipeline
-    bool mIsGateUpLeader = false;                           // true if this is the gate (leader) in a fused pair
-    bool mIsGateUpFollower = false;                         // true if this is the up (follower) in a fused pair
-    MetalConvolution1x1* mGateUpPeer = nullptr;             // leader points to follower (up)
-    const Tensor* mGateUpPeerOutput = nullptr;              // follower's output tensor
-    id<MTLComputePipelineState> mGateUpFusedPipeline = nil; // fused pipeline with GATE_UP_FUSED
-    id<MTLBuffer> mGateUpSegBuffer = nil;                   // {up_scale_coef} (gate uses cst.scale_coef)
+    bool mIs2sgDecode = false;           // true if using conv1x1_gemv_g4m1_2sg_wquant_sg pipeline
+    bool mIsGateUpLeader = false;        // true if this is the gate (leader) in a fused pair
+    bool mIsGateUpFollower = false;      // true if this is the up (follower) in a fused pair
+    MetalConvolution1x1* mGateUpPeer = nullptr;  // leader points to follower (up)
+    const Tensor* mGateUpPeerOutput = nullptr;    // follower's output tensor
+    bool mGateUpSilu = false;                     // epilogue emits up * silu(gate)
+    const Tensor* mGateUpSiluOutput = nullptr;    // the group's post-MUL_SILU output
+    id<MTLComputePipelineState> mGateUpFusedPipeline = nil;  // fused pipeline with GATE_UP_FUSED
+    id<MTLBuffer> mGateUpSegBuffer = nil;         // {up_scale_coef} (gate uses cst.scale_coef)
 
     // QKV fusion state (see setupQKVFusion)
     bool mIsQKVLeader = false;
@@ -83,8 +93,10 @@ private:
     const Tensor* mQKVPeerVOutput = nullptr;
     const Tensor* mQKVPeerWOutput = nullptr;
     id<MTLComputePipelineState> mQKVFusedPipeline = nil;    // fused pipeline with QKV_FUSED
-    id<MTLBuffer> mQKVSegBuffer = nil;  // {k_coef, v_coef, k_oslice, v_oslice[, w_coef, w_oslice]}
-    bool mQKVCompactGrid = false;  // one packed grid.x range for all projections
+    id<MTLBuffer> mQKVSegBuffer = nil;  // {k_coef, v_coef, k_oslice, v_oslice, w_coef, w_oslice, gx_base1..3}
+    // Grid packs the projections end to end along x instead of giving each one
+    // the largest projection's extent along z (see setupQKVFusion).
+    bool mQKVPackedGrid = false;
     // Quant block count along IC (per output_slice); fused projections must match.
     int mBlockSize = 1;
     // C4 slices per Q4 quant block for the generalized 16-byte decode path.

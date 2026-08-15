@@ -3822,40 +3822,36 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     }
 #endif
 #ifdef QKV_FUSED
-    // Compact mode concatenates each projection's exact threadgroup range on
-    // grid.x. The legacy rollback uses gid.z plus a rectangular max-size grid.
-    uint qkv_projection = gid.z;
-    uint qkv_grid_x = gid.x;
-#ifdef QKV_COMPACT_GRID
-    // Keep this aligned with setupQKVFusion's host-side two-slice TG count.
-    const uint qkv_q_groups = (uint(cst.output_slice) + 1) / 2;
-    const uint qkv_k_groups = (uint(qkv_seg[2]) + 1) / 2;
-    const uint qkv_v_groups = (uint(qkv_seg[3]) + 1) / 2;
-    if (qkv_grid_x >= qkv_q_groups) {
-        qkv_grid_x -= qkv_q_groups;
-        qkv_projection = 1;
-        if (qkv_grid_x >= qkv_k_groups) {
-            qkv_grid_x -= qkv_k_groups;
-            qkv_projection = 2;
+    // Unlike GATE_UP_FUSED the projections have different output_channel, so
+    // each follower carries its own output_slice.
+#ifdef QKV_PACKED_GRID
+    // Packed grid: the projections' threadgroup ranges are laid end to end
+    // along x (grid.z is 1), so members smaller than the largest one no longer
+    // launch threadgroups that do nothing but early-return. qkv_seg[6..8] hold
+    // the base of projections 1..3; recover (projection, local x) from the flat
+    // index. Bases are ascending, so the comparisons cascade.
+    int qkv_proj = 0;
+    if (int(gid.x) >= int(qkv_seg[6])) qkv_proj = 1;
+    if (int(gid.x) >= int(qkv_seg[7])) qkv_proj = 2;
 #ifdef QKV_FUSED_P4
-            if (qkv_grid_x >= qkv_v_groups) {
-                qkv_grid_x -= qkv_v_groups;
-                qkv_projection = 3;
-            }
+    if (int(gid.x) >= int(qkv_seg[8])) qkv_proj = 3;
 #endif
-        }
-    }
+    const int qkv_gx = int(gid.x) - (qkv_proj == 0 ? 0 : int(qkv_seg[5 + qkv_proj]));
+#else
+    // Rectangular grid: z selects the projection, x is sized for the largest.
+    const int qkv_proj = int(gid.z);
+    const int qkv_gx = int(gid.x);
 #endif
     int qkv_output_slice = cst.output_slice;
     float qkv_scale_coef = cst.scale_coef;
-    if (qkv_projection == 1) {
+    if (qkv_proj == 1) {
         out = out_k;
         wt = wt_k;
         biasTerms = biasTerms_k;
         dequantScale = dequantScale_k;
         qkv_scale_coef = qkv_seg[0];
         qkv_output_slice = int(qkv_seg[2]);
-    } else if (qkv_projection == 2) {
+    } else if (qkv_proj == 2) {
         out = out_v;
         wt = wt_v;
         biasTerms = biasTerms_v;
@@ -3865,8 +3861,8 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     }
 #ifdef QKV_FUSED_P4
     // 4-projection groups (Qwen3.5 linear-attention layers: qkv/z/b/a share
-    // one LN input): projection 3 selects the 4th projection.
-    else if (qkv_projection == 3) {
+    // one LN input).
+    else if (qkv_proj == 3) {
         out = out_w;
         wt = wt_w;
         biasTerms = biasTerms_w;
@@ -3875,6 +3871,80 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         qkv_output_slice = int(qkv_seg[5]);
     }
 #endif
+    const int tg_x = qkv_gx;
+#else
+    const int tg_x = int(gid.x);
+#endif
+
+    const int area_size = cst.output_size * cst.batch;
+#ifdef LN_FUSED
+    // Lowest output slice this threadgroup owns; see the uz derivations below.
+    // The test is threadgroup-uniform, so a threadgroup with no work at all can
+    // still leave before the barrier. Threadgroups that keep only some of their
+    // simdgroups must not: those stragglers are held back until after the
+    // reduction (their per-simdgroup check sits below).
+#if defined(ROW_2) && !defined(GATE_UP_SILU)
+    const int tg_first_uz = tg_x * 4;
+#else
+    // GATE_UP_SILU spends the dual-row streams on gate/up rather than on two
+    // slices, so its threadgroup covers 2 slices like the single-row variant.
+    const int tg_first_uz = tg_x * 2;
+#endif
+#ifdef QKV_FUSED
+    if (tg_first_uz >= qkv_output_slice) return;
+#else
+    if (tg_first_uz >= cst.output_slice) return;
+#endif
+
+    // Hoisted above the per-simdgroup output-range checks below: the reduction
+    // barrier has to be reached by every thread in the threadgroup, and a tail
+    // threadgroup can have one simdgroup land outside output_slice.
+    //
+    // inv_rms is the same scalar for both simdgroups, so sweep the input once
+    // with all 64 threads and reduce through threadgroup memory, instead of
+    // letting each simdgroup re-read the whole input+residual to recompute it.
+    // LN_FUSED always dispatches 64 threads (setupLNFusion), i.e. 2 simdgroups.
+    //
+    // Only one threadgroup writes ln_residual_out, to avoid races when several
+    // threadgroups process the same input slices; both of its simdgroups take
+    // part since they now cover disjoint halves of the input.
+    float sq_sum = 0.0f;
+    const bool ln_write_residual = (
+#ifndef LN_SPLIT_SG
+        sgitg == 0 &&
+#endif
+#if defined(GATE_UP_FUSED) || defined(QKV_FUSED)
+        gid.z == 0 && gid.x == 0
+#else
+        gid.x == 0
+#endif
+    );
+#ifdef LN_SPLIT_SG
+    for (int z = (int)(sgitg * 32 + tiisg); z < cst.input_slice; z += 64) {
+        float4 d = (float4)*(in + z * area_size) + (float4)*(ln_residual_in + z * area_size);
+        sq_sum += dot(d, d);
+        if (ln_write_residual) {
+            ln_residual_out[z * area_size] = (ftype4)d;
+        }
+    }
+    sq_sum = simd_sum(sq_sum);
+    threadgroup float ln_sq_partial[2];
+    if (tiisg == 0) {
+        ln_sq_partial[sgitg] = sq_sum;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    sq_sum = ln_sq_partial[0] + ln_sq_partial[1];
+#else
+    for (int z = (int)tiisg; z < cst.input_slice; z += 32) {
+        float4 d = (float4)*(in + z * area_size) + (float4)*(ln_residual_in + z * area_size);
+        sq_sum += dot(d, d);
+        if (ln_write_residual) {
+            ln_residual_out[z * area_size] = (ftype4)d;
+        }
+    }
+    sq_sum = simd_sum(sq_sum);
+#endif
+    const float inv_rms = rsqrt(sq_sum / (float)(cst.input_slice * 4) + *ln_eps);
 #endif
 
 #ifdef ROW_2
@@ -3882,13 +3952,26 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     // adjacent output slices with independent accumulator streams — doubles
     // in-flight weight reads with no barrier (cf. SPLIT_K_2's tg reduce) and
     // shares the input read + LN prologue across both rows.
+#ifdef GATE_UP_SILU
+    // SwiGLU variant: the dual-row machinery drives gate and up for the SAME
+    // slice instead of two adjacent slices of one matrix, so the epilogue can
+    // emit up * silu(gate) itself and the separate MUL_SILU dispatch -- plus the
+    // gate/up round trip through memory -- disappears. Parallelism is untouched:
+    // grid.x doubles as grid.z drops from 2 to 1, so both the threadgroup count
+    // and the 4 slice-dots each threadgroup issues stay exactly as they were.
+    const int uz = tg_x * 2 + (int)sgitg;
+    if (uz >= cst.output_slice) return;
+    const bool row1_valid = true;
+    const int  uz1 = uz;            // row1 is the up matrix at the same slice
+    const float coef0 = cst.scale_coef;
+    const float coef1 = gate_up_seg[0];
+#else
+    const int uz = (tg_x * 2 + (int)sgitg) * 2;
 #ifdef QKV_FUSED
-    const int uz = (qkv_grid_x * 2 + (int)sgitg) * 2;
     if (uz >= qkv_output_slice) return;
     const bool row1_valid = (uz + 1) < qkv_output_slice;
     float cur_scale_coef = qkv_scale_coef;
 #else
-    const int uz = (gid.x * 2 + (int)sgitg) * 2;
     if (uz >= cst.output_slice) return;
     const bool row1_valid = (uz + 1) < cst.output_slice;
     float cur_scale_coef = cst.scale_coef;
@@ -3899,9 +3982,11 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     }
     #endif
 
-    const int area_size = cst.output_size * cst.batch;
     // Invalid second row aliases row0 (safe reads); its result is discarded.
     const int uz1 = row1_valid ? (uz + 1) : uz;
+    const float coef0 = cur_scale_coef;
+    const float coef1 = cur_scale_coef;
+#endif
 #ifdef W_QUANT_3
     // 6-byte (4 OC x 4 IC) tiles: row stride is 6x the ic_4 count.
     const int wt_row_stride = cst.input_slice * 6;
@@ -3909,31 +3994,16 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     const int wt_row_stride = cst.input_slice;
 #endif
     auto xy_wt0 = wt + uz * wt_row_stride;
-    auto xy_wt1 = wt + uz1 * wt_row_stride;
     auto xy_in0 = in;
     auto biasValue0 = FLOAT4(biasTerms[uz]);
+#ifdef GATE_UP_SILU
+    auto xy_wt1 = wt_up + uz1 * wt_row_stride;
+    auto biasValue1 = FLOAT4(biasTerms_up[uz1]);
+    const device ftype4* dqs1 = dequantScale_up;
+#else
+    auto xy_wt1 = wt + uz1 * wt_row_stride;
     auto biasValue1 = FLOAT4(biasTerms[uz1]);
-
-#ifdef LN_FUSED
-    float sq_sum = 0.0f;
-    bool ln_write_residual = (sgitg == 0
-    #if defined(QKV_FUSED)
-        && qkv_projection == 0 && qkv_grid_x == 0
-    #elif defined(GATE_UP_FUSED)
-        && gid.z == 0 && gid.x == 0
-    #else
-        && gid.x == 0
-    #endif
-    );
-    for (int z = tiisg; z < cst.input_slice; z += 32) {
-        float4 d = (float4)*(xy_in0 + z * area_size) + (float4)*(ln_residual_in + z * area_size);
-        sq_sum += dot(d, d);
-        if (ln_write_residual) {
-            ln_residual_out[z * area_size] = (ftype4)d;
-        }
-    }
-    sq_sum = simd_sum(sq_sum);
-    float inv_rms = rsqrt(sq_sum / (float)(cst.input_slice * 4) + *ln_eps);
+    const device ftype4* dqs1 = dequantScale;
 #endif
 
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
@@ -3950,10 +4020,10 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     FLOAT4 result1 = FLOAT4(0);
 
     for (int bi = outer_index; bi < cst.block_size; bi += outer_step) {
-        FLOAT4 scale0 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cur_scale_coef;
-        FLOAT4 dbias0 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cur_scale_coef;
-        FLOAT4 scale1 = FLOAT4(dequantScale[2 * (uz1 * cst.block_size + bi) + 0]) / (FLOAT)cur_scale_coef;
-        FLOAT4 dbias1 = FLOAT4(dequantScale[2 * (uz1 * cst.block_size + bi) + 1]) / (FLOAT)cur_scale_coef;
+        FLOAT4 scale0 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)coef0;
+        FLOAT4 dbias0 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)coef0;
+        FLOAT4 scale1 = FLOAT4(dqs1[2 * (uz1 * cst.block_size + bi) + 0]) / (FLOAT)coef1;
+        FLOAT4 dbias1 = FLOAT4(dqs1[2 * (uz1 * cst.block_size + bi) + 1]) / (FLOAT)coef1;
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
@@ -4116,10 +4186,19 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     result0 = simd_sum(result0);
     result1 = simd_sum(result1);
     if (tiisg == 0) {
+#ifdef GATE_UP_SILU
+        // Matches the op this replaces (MUL_SILU: in0 = up, in1 = gate), applied
+        // after each projection's own activation, exactly as the unfused
+        // conv -> conv -> binary chain did.
+        FLOAT4 gateV = FLOAT4(activate(ftype4(result0 + biasValue0), cst.activation));
+        FLOAT4 upV   = FLOAT4(activate(ftype4(result1 + biasValue1), cst.activation));
+        out[uz * area_size] = ftype4(upV * (gateV / (FLOAT4(1) + exp(-gateV))));
+#else
         out[uz * area_size] = activate(ftype4(result0 + biasValue0), cst.activation);
         if (row1_valid) {
             out[uz1 * area_size] = activate(ftype4(result1 + biasValue1), cst.activation);
         }
+#endif
     }
 #else  // !ROW_2
 
@@ -4129,18 +4208,10 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     // half); partials combined via threadgroup memory. Host guarantees the
     // grid is exact (oc % 8 == 0) so no simdgroup early-returns before the
     // barrier below.
-    #ifdef QKV_FUSED
-    const int uz = qkv_grid_x * 2 + ((int)sgitg & 1);
-    #else
-    const int uz = gid.x * 2 + ((int)sgitg & 1);
-    #endif
+    const int uz = tg_x * 2 + ((int)sgitg & 1);
     const int sk_half = (int)sgitg >> 1;
 #else
-    #ifdef QKV_FUSED
-    const int uz = qkv_grid_x * 2 + sgitg;
-    #else
-    const int uz = gid.x * 2 + sgitg;
-    #endif
+    const int uz = tg_x * 2 + sgitg;
 #endif
 #ifdef QKV_FUSED
     if (uz >= qkv_output_slice) return;
@@ -4159,7 +4230,6 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     }
     #endif
 
-    const int area_size = cst.output_size * cst.batch;
 #ifdef W_QUANT_3
     auto xy_wt = wt + uz * cst.input_slice * 6;
 #else
@@ -4167,30 +4237,6 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
 #endif
     auto xy_in0 = in;
     auto biasValue = FLOAT4(biasTerms[uz]);
-
-#ifdef LN_FUSED
-    float sq_sum = 0.0f;
-    // Only one threadgroup should write ln_residual_out to avoid races
-    // when multiple threadgroups process the same input slices.
-    bool ln_write_residual = (sgitg == 0
-    #if defined(QKV_FUSED)
-        && qkv_projection == 0 && qkv_grid_x == 0
-    #elif defined(GATE_UP_FUSED)
-        && gid.z == 0 && gid.x == 0
-    #else
-        && gid.x == 0
-    #endif
-    );
-    for (int z = tiisg; z < cst.input_slice; z += 32) {
-        float4 d = (float4)*(xy_in0 + z * area_size) + (float4)*(ln_residual_in + z * area_size);
-        sq_sum += dot(d, d);
-        if (ln_write_residual) {
-            ln_residual_out[z * area_size] = (ftype4)d;
-        }
-    }
-    sq_sum = simd_sum(sq_sum);
-    float inv_rms = rsqrt(sq_sum / (float)(cst.input_slice * 4) + *ln_eps);
-#endif
 
 #ifdef GEMV_QBLOCK_W16
     // Q4 block 32/64/128/256 specialization for decode GEMV. The host supplies
@@ -4217,7 +4263,9 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
     // GEMV inner reduction lane partitioning.
     //
-    // Default (M4/Apple GPU 7-8): min(32, max(block/4, 1))
+    // GEMV_MIDDLE_STEP (SPLIT_K_2 pipelines): host-computed, see gemvMiddleStep().
+    //
+    // Fallback (M4/Apple GPU 7-8): min(32, max(block/4, 1))
     //   For Qwen3-0.6B block_size=32, input_slice/32≈8 => middle_step=2, outer_step=16.
     //   Only 2 lanes participate in inner K reduction; other 30 lanes iterate outer
     //   blocks. Fine on narrower SM (M4) where BW is the bottleneck.
@@ -4229,6 +4277,11 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     // Host controls via MTLCompileOptions -> MNN_METAL_GEMV_WIDE_MIDDLE=1.
 #ifdef WIDE_MIDDLE
     int middle_step = min(SIMD_GROUP_WIDTH, max(block, 1));
+#elif defined(GEMV_MIDDLE_STEP)
+    // Every input is known at pipeline build time, and keeping it a literal lets
+    // the compiler strength-reduce the %/÷ below instead of carrying a runtime
+    // divisor through the hot path.
+    constexpr int middle_step = GEMV_MIDDLE_STEP;
 #else
     int middle_step = min(SIMD_GROUP_WIDTH, max(block / 4, 1));
 #endif
