@@ -193,6 +193,17 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
     keys.emplace_back("conv1x1_wquant_sg_reduce");
     keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
     keys.emplace_back("GATE_UP_FUSED");
+    const bool row2 = !backend->isSupportTensorApi();
+    // The SwiGLU epilogue reuses the dual-row body, so it needs ROW_2. On
+    // tensor-API devices (whose fused pipelines are otherwise single-row) this
+    // one pipeline is compiled with ROW_2 as well: its grid — one slice of both
+    // matrices per simdgroup, grid.z 1 — is exactly the single-row fused grid,
+    // so only the macros change.
+    mGateUpSilu = siluOutput != nullptr && !MetalEnv::get().gateUpSiluDisabled;
+    mGateUpSiluOutput = mGateUpSilu ? siluOutput : nullptr;
+    if (row2 || mGateUpSilu) {
+        keys.emplace_back("ROW_2");
+    }
     // Extend the generalized Q4 W16 decode specialization onto the fused GEMV.
     // Gate and up share the block-input and must compile the same block shape.
     const bool w16 = mQ4W16BlockSlices > 0 && mQ4W16BlockSlices == peer->mQ4W16BlockSlices &&
@@ -203,9 +214,6 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
         keys.emplace_back("W16_BLOCK_SLICES_" + std::to_string(mQ4W16BlockSlices));
         keys.emplace_back("W16_MID_" + std::to_string(w16Mid));
     }
-    // The SwiGLU epilogue reuses the dual-row body, so it needs ROW_2.
-    mGateUpSilu = row2 && siluOutput != nullptr && !MetalEnv::get().gateUpSiluDisabled;
-    mGateUpSiluOutput = mGateUpSilu ? siluOutput : nullptr;
     if (mGateUpSilu) {
         keys.emplace_back("GATE_UP_SILU");
     }
@@ -238,6 +246,9 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
             [dic setValue:@"1" forKey:@"W_QUANT_8"];
         }
         [dic setValue:@"1" forKey:@"GATE_UP_FUSED"];
+        if (row2 || mGateUpSilu) {
+            [dic setValue:@"1" forKey:@"ROW_2"];
+        }
         if (w16) {
             [dic setValue:@"1" forKey:@"GEMV_QBLOCK_W16"];
             [dic setValue:@(mQ4W16BlockSlices).stringValue forKey:@"GEMV_QBLOCK_W16_BLOCK_SLICES"];
@@ -281,6 +292,13 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
             gw = (NSUInteger)UP_DIV(slice, 2);
             gz = 1;
         }
+    } else if (mGateUpSilu) {
+        // Single-row devices: the SILU pipeline is ROW_2 + GATE_UP_SILU, one
+        // slice of both matrices per simdgroup — same threadgroup count as the
+        // plain single-row fused grid, with the gate/up z dimension gone.
+        auto slice = ((Param*)mConstBuffer.contents)->output_slice;
+        gw = (NSUInteger)UP_DIV(slice, 2);
+        gz = 1;
     }
     mThreads.first = MTLSizeMake(gw, gridSize.height, gz);
     mThreads.second = MTLSizeMake(64, 1, 1);
@@ -576,7 +594,9 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
         keys.emplace_back("LN_SPLIT_SG");
     }
     const bool row2 = !backend->isSupportTensorApi();
-    if (row2) {
+    // The SILU-folded gate/up pipeline is ROW_2 even on tensor-API devices
+    // (see setupGateUpFusion); its LN variant has to be compiled to match.
+    if (row2 || mGateUpSilu) {
         keys.emplace_back("ROW_2");
     }
     // Generalized Q4 W16 on the LN-folded fused GEMV. Every fused member must
@@ -641,7 +661,7 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
         if (lnSplitSg) {
             [dic setValue:@"1" forKey:@"LN_SPLIT_SG"];
         }
-        if (row2) {
+        if (row2 || mGateUpSilu) {
             [dic setValue:@"1" forKey:@"ROW_2"];
         }
         if (w16) {
