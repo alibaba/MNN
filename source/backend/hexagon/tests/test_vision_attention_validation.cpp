@@ -3,6 +3,7 @@
 #include <cstdio>
 
 using MNN::validateVisionAttentionMaskShape;
+using MNN::visionAttentionWorkerSlots;
 
 static bool expect(bool condition, const char* name) {
     if (!condition) {
@@ -31,6 +32,8 @@ int main() {
     ok &= expect(!validateVisionAttentionMaskShape(2, 64, 3, wrongQuery), "wrong query extent rejected");
     ok &= expect(!validateVisionAttentionMaskShape(2, 64, 3, wrongStride), "wrong stride rejected");
     ok &= expect(!validateVisionAttentionMaskShape(2, 64, 4, rank4), "rank-4 rejected");
+    ok &= expect(visionAttentionWorkerSlots(6) == 6, "all physical worker slots reserved");
+    ok &= expect(visionAttentionWorkerSlots(0) == 1, "invalid worker count falls back to one slot");
 
     if (ok) {
         std::printf("PASS: Vision attention mask validation\n");

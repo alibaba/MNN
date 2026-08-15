@@ -1139,6 +1139,9 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
                                         rawAlphaData, quanCommon->alpha.size(), ic, oc, int4ScaleBlockNum,
                                         scaleAsymmetric, HexagonBackend::fp32ToFp16)) {
                 static_cast<HexagonBackend*>(backend)->markHostInput(res->int4Weight, (int)int4WeightSize);
+            } else if (res->int4Weight.first != nullptr) {
+                bufferAlloc->free(res->int4Weight);
+                res->int4Weight = MemChunk();
             }
         }
         if (res->int4Weight.first != nullptr || res->useGemvI8) {

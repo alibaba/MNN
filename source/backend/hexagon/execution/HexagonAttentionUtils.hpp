@@ -3,6 +3,10 @@
 
 namespace MNN {
 
+static inline int visionAttentionWorkerSlots(int maxThreads) {
+    return maxThreads > 0 ? maxThreads : 1;
+}
+
 // rank < 2 is treated as no mask. A 2-D mask is valid only for batch 1; batched
 // attention must provide [batch, tokens, tokens].
 static inline bool validateVisionAttentionMaskShape(int batch, int tokens, int rank, const int* dimensions) {

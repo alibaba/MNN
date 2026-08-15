@@ -109,7 +109,7 @@ static size_t visionFlashAttentionWorkspaceBytes(int tokens, int heads, int head
     const int dimTiles = flashAttentionBlockAlignUp(headDim, 32) / 32;
     const int queryBlock = std::min(tokens, 64);
     const int tokensPadded = flashAttentionBlockAlignUp(tokens, 32);
-    const int workerSlots = std::max(1, std::min(heads, maxThreads));
+    const int workerSlots = visionAttentionWorkerSlots(maxThreads);
     const size_t packedKBytes =
         (size_t)seqBlocks * heads * kHmxKvBlockTiles * dimTiles * 1024 * sizeof(int16_t);
     const size_t packedVBytes = packedKBytes;
@@ -216,9 +216,10 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
         auto V = inputs[2];
         auto mask = inputs[3];
         auto output = outputs[0];
-        if (TensorUtils::getDescribe(Q)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ||
-            TensorUtils::getDescribe(K)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ||
-            TensorUtils::getDescribe(V)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ||
+        if (TensorUtils::getDescribe(Q)->dimensionFormat != MNN_DATA_FORMAT_NCHW ||
+            TensorUtils::getDescribe(K)->dimensionFormat != MNN_DATA_FORMAT_NCHW ||
+            TensorUtils::getDescribe(V)->dimensionFormat != MNN_DATA_FORMAT_NCHW ||
+            TensorUtils::getDescribe(output)->dimensionFormat != MNN_DATA_FORMAT_NCHW ||
             Q->length(0) != K->length(0) || Q->length(0) != V->length(0) || Q->length(1) != K->length(1) ||
             Q->length(1) != V->length(1) || Q->length(2) != K->length(2) || Q->length(2) != V->length(2) ||
             Q->length(3) != K->length(3) || Q->length(3) != V->length(3) || HexagonBackend::getBytes(Q) != 2 ||
@@ -227,7 +228,6 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
             (mask != nullptr && mask->dimensions() >= 2 && HexagonBackend::getBytes(mask) != 2)) {
             return NOT_SUPPORT;
         }
-        TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
         const int tokens = Q->length(1);
         int maskStride = 0;
         Tensor* validMask = nullptr;
