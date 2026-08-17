@@ -707,6 +707,17 @@ private:
         morph->main.value = fused.release();
         morph->inputIndexes = {members[morphPos].pre.convertOut};
         morph->outputIndexes = outputs;
+        // The member convs are deleted below, so record their names in convs
+        // order inside the op name. Downstream tooling (e.g. the split-LoRA
+        // exporter) uses this to map outputs[i] back to its projection.
+        std::string fusedName;
+        for (auto& member : members) {
+            if (!fusedName.empty()) {
+                fusedName += "+";
+            }
+            fusedName += mOps[member.convIdx]->name;
+        }
+        morph->name = std::move(fusedName);
         for (size_t i = 0; i < members.size(); ++i) {
             if (i == morphPos) {
                 continue;

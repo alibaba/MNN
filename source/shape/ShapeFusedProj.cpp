@@ -27,7 +27,10 @@ class FusedProjSizeComputer : public SizeComputer {
         if (isGateUp && numConvs != 2) {
             return false;
         }
-        if (!isGateUp && (numConvs < 3 || numConvs > 4)) {
+        // Non-silu multi-output: qkv fusion has 3-4 members; a 2-member op is a
+        // gate/up projection whose SiLU-mul tail was materialized as plain ops
+        // (split-LoRA patcher does this to inject LoRA between GEMM and SiLU).
+        if (!isGateUp && (numConvs < 2 || numConvs > 4)) {
             return false;
         }
         if (hasLn && (inputs.size() < 2 || inputs[1] == nullptr)) {

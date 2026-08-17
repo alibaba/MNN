@@ -303,7 +303,6 @@ class Attention(torch.nn.Module):
                 and self.k_proj is not None
                 and q_norm_fusable
                 and k_norm_fusable
-                and not getattr(getattr(self.config, 'export_args', None), 'lora_split', False)
                 and self.rotary.model_type not in ['chatglm', 'chatglm2', 'ernie4_5', 'glm_ocr', 'mobilemoe']
                 and cos.shape[-1] == self.rope_cut_head_dim
                 and sin.shape[-1] == self.rope_cut_head_dim

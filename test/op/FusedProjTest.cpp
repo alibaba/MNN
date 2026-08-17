@@ -3,18 +3,21 @@
 //  MNNTests
 //
 //  Tests for the export-time fused projection op (OpType_FusedLinear);
-//  act_silu_mul selects the gate/up flavour. CPU exercises the geometry
-//  decomposition path.
+//  act_silu_mul selects the gate/up flavour.
 //
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Module.hpp>
 #include <cmath>
+#include <cstdio>
+#include <string>
 #include <vector>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
+#include "core/MNNFileUtils.h"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -117,6 +120,303 @@ public:
     }
 };
 MNNTestSuiteRegister(FusedQKVTest, "op/fused_qkv");
+
+// 2 members without act_silu_mul: a gate/up projection whose SiLU-mul tail was
+// materialized as plain ops, which the split-LoRA patcher produces to inject
+// LoRA between the GEMMs and the activation.
+class FusedGateUpSplitTest : public MNNTestCase {
+public:
+    virtual ~FusedGateUpSplitTest() = default;
+    virtual bool run(int precision) {
+        const int seq = 3, ic = 8;
+        const int ocs[2] = {12, 8};
+        std::vector<float> xData(seq * ic);
+        for (int i = 0; i < seq * ic; ++i) {
+            xData[i] = (float)((i % 13) - 6) * 0.11f;
+        }
+        auto x = _Input({seq, ic, 1, 1}, NC4HW4);
+        auto xC4 = packC4(xData, seq, ic);
+        ::memcpy(x->writeMap<float>(), xC4.data(), xC4.size() * sizeof(float));
+        x->unMap();
+
+        std::unique_ptr<OpT> op(new OpT);
+        op->type = OpType_FusedLinear;
+        op->main.type = OpParameter_FusedLinearParam;
+        op->main.value = new FusedLinearParamT;
+        op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+        auto param = op->main.AsFusedLinearParam();
+        for (int m = 0; m < 2; ++m) {
+            param->convs.push_back(makeConv(ic, ocs[m], m + 1));
+        }
+        auto expr = Expr::create(std::move(op), {x}, 2);
+        auto& convs = op->main.AsFusedLinearParam()->convs;
+        bool ok = true;
+        for (int m = 0; m < 2; ++m) {
+            std::vector<float> expected;
+            convRef(xData, convs[m]->weight, convs[m]->bias, expected, seq, ic, ocs[m]);
+            ok = ok && checkOut(Variable::create(expr, m), expected, seq, ocs[m], "gateup_split");
+        }
+        return ok;
+    }
+};
+MNNTestSuiteRegister(FusedGateUpSplitTest, "op/fused_gateup_split");
+
+static std::vector<int8_t> makeSharedFusedProjModel(int seed) {
+    const int ic = 8;
+    auto x = _Input({2, ic, 1, 1}, NC4HW4);
+    x->setName("x");
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_FusedLinear;
+    op->name = "shared_fused_proj";
+    op->main.type = OpParameter_FusedLinearParam;
+    op->main.value = new FusedLinearParamT;
+    op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+    auto param = op->main.AsFusedLinearParam();
+    param->convs.push_back(makeConv(ic, 8, seed));
+    param->convs.push_back(makeConv(ic, 4, seed + 1));
+    auto expr = Expr::create(std::move(op), {x}, 2);
+    auto y0 = Variable::create(expr, 0);
+    auto y1 = Variable::create(expr, 1);
+    y0->setName("y0");
+    y1->setName("y1");
+    return Variable::save({y0, y1});
+}
+
+class FusedProjCPUBaseCloneTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto baseBuffer = makeSharedFusedProjModel(1);
+        auto adapterBuffer = makeSharedFusedProjModel(101);
+        BackendConfig backendConfig;
+        backendConfig.precision = static_cast<BackendConfig::PrecisionMode>(precision);
+        backendConfig.memory = static_cast<BackendConfig::MemoryMode>(MNNTestSuite::get()->pStaus.memory);
+        ScheduleConfig scheduleConfig;
+        scheduleConfig.type = MNN_FORWARD_CPU;
+        scheduleConfig.backendConfig = &backendConfig;
+        scheduleConfig.numThread = 1;
+        std::shared_ptr<Executor::RuntimeManager> runtime(
+            Executor::RuntimeManager::createRuntimeManager(scheduleConfig), Executor::RuntimeManager::destroy);
+        Module::Config baseConfig;
+        baseConfig.rearrange = true;
+        std::shared_ptr<Module> base(Module::load({"x"}, {"y0", "y1"}, (const uint8_t*)baseBuffer.data(),
+                                                  baseBuffer.size(), runtime, &baseConfig));
+        if (!base) {
+            return false;
+        }
+        Module::Config adapterConfig;
+        adapterConfig.rearrange = true;
+        adapterConfig.base = base.get();
+        std::shared_ptr<Module> adapter(Module::load({"x"}, {"y0", "y1"}, (const uint8_t*)adapterBuffer.data(),
+                                                     adapterBuffer.size(), runtime, &adapterConfig));
+        if (!adapter) {
+            return false;
+        }
+        const int seq = 2, ic = 8;
+        std::vector<float> xData(seq * ic);
+        for (int i = 0; i < seq * ic; ++i) {
+            xData[i] = (float)((i % 9) - 4) * 0.17f;
+        }
+        auto x = _Input({seq, ic, 1, 1}, NC4HW4);
+        auto xC4 = packC4(xData, seq, ic);
+        ::memcpy(x->writeMap<float>(), xC4.data(), xC4.size() * sizeof(float));
+        x->unMap();
+        auto outputs = adapter->onForward({x});
+        if (outputs.size() != 2) {
+            return false;
+        }
+        const int ocs[2] = {8, 4};
+        bool ok = true;
+        for (int m = 0; m < 2; ++m) {
+            auto conv = makeConv(ic, ocs[m], m + 1);
+            std::vector<float> expected;
+            convRef(xData, conv->weight, conv->bias, expected, seq, ic, ocs[m]);
+            ok = ok && checkOut(outputs[m], expected, seq, ocs[m], "cpu_base_clone");
+        }
+        return ok;
+    }
+};
+MNNTestSuiteRegister(FusedProjCPUBaseCloneTest, "op/fused_proj_cpu_base_clone");
+
+// Folded LN with external gamma/beta under a reused mmap weight cache: the
+// second load creates from the original op (gamma empty) and rearrange clones
+// the composite onto the repacked op, so the clone must not rebuild its LN.
+class FusedProjMmapLNTest : public MNNTestCase {
+protected:
+    bool runFusedProjMmapLN(int precision, MNNForwardType forwardType, const char* tag) {
+        const int seq = 2, ic = 8;
+        const int ocs[2] = {8, 4};
+        const float eps = 1e-5f;
+        const bool openCL = forwardType == MNN_FORWARD_OPENCL;
+        std::vector<float> gamma(ic), beta(ic, 0.0f);
+        for (int c = 0; c < ic; ++c) {
+            gamma[c] = 0.85f + 0.04f * c;
+        }
+        const std::string dir = openCL ? "fused_proj_opencl_mmap_cache" : "fused_proj_cpu_mmap_cache";
+        const std::string weightFile = MNNFilePathConcat(dir, "ln.weight");
+        if (!MNNDirExist(dir.c_str()) && !MNNCreateDir(dir.c_str())) {
+            return false;
+        }
+        auto pStatus = MNNTestSuite::get()->pStaus;
+        std::string prefix = openCL ? "1_0_0_0_" : "0_0_0_0_";
+        const std::string postfix = openCL ? "opencl.weight" : "static";
+        if (!openCL) {
+            prefix[2] += precision;
+            prefix[4] += pStatus.memory;
+            prefix[6] += pStatus.power;
+        }
+        const std::string syncFile = MNNFilePathConcat(dir, prefix + "sync." + postfix);
+        auto cleanup = [&]() {
+            for (int i = 0; i < 4; ++i) {
+                auto name = MNNFilePathConcat(dir, prefix + std::to_string(i) + "." + postfix);
+                if (MNNFileExist(name.c_str())) {
+                    MNNRemoveFile(name.c_str());
+                }
+            }
+            if (MNNFileExist(syncFile.c_str())) {
+                MNNRemoveFile(syncFile.c_str());
+            }
+            if (MNNFileExist(weightFile.c_str())) {
+                MNNRemoveFile(weightFile.c_str());
+            }
+        };
+        cleanup();
+        {
+            FILE* f = fopen(weightFile.c_str(), "wb");
+            if (f == nullptr) {
+                return false;
+            }
+            fwrite(gamma.data(), sizeof(float), ic, f);
+            fwrite(beta.data(), sizeof(float), ic, f);
+            fclose(f);
+        }
+
+        std::vector<int8_t> model;
+        {
+            auto residual = _Input({seq, ic, 1, 1}, NC4HW4);
+            residual->setName("residual");
+            auto hidden = _Input({seq, ic, 1, 1}, NC4HW4);
+            hidden->setName("hidden");
+            std::unique_ptr<OpT> op(new OpT);
+            op->type = OpType_FusedLinear;
+            op->name = "fused_proj_ln";
+            op->main.type = OpParameter_FusedLinearParam;
+            op->main.value = new FusedLinearParamT;
+            op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+            auto param = op->main.AsFusedLinearParam();
+            param->has_ln = true;
+            param->ln.reset(new LayerNormT);
+            param->ln->epsilon = eps;
+            param->ln->axis = {-1};
+            param->ln->useRMSNorm = true;
+            param->ln->external = {0, (int64_t)(ic * sizeof(float)), (int64_t)(ic * sizeof(float))};
+            for (int m = 0; m < 2; ++m) {
+                param->convs.push_back(makeConv(ic, ocs[m], m + 1));
+            }
+            auto expr = Expr::create(std::move(op), {residual, hidden}, 3);
+            std::vector<VARP> outs;
+            for (int i = 0; i < 3; ++i) {
+                outs.emplace_back(Variable::create(expr, i));
+                outs.back()->setName("y" + std::to_string(i));
+            }
+            model = Variable::save(outs);
+        }
+
+        std::vector<float> resData(seq * ic), hidData(seq * ic);
+        for (int i = 0; i < seq * ic; ++i) {
+            resData[i] = (float)((i % 7) - 3) * 0.19f;
+            hidData[i] = (float)((i % 9) - 4) * -0.07f;
+        }
+        std::vector<float> d(seq * ic), norm(seq * ic);
+        for (int t = 0; t < seq; ++t) {
+            float ss = 0.0f;
+            for (int c = 0; c < ic; ++c) {
+                d[t * ic + c] = resData[t * ic + c] + hidData[t * ic + c];
+                ss += d[t * ic + c] * d[t * ic + c];
+            }
+            float inv = 1.0f / sqrtf(ss / ic + eps);
+            for (int c = 0; c < ic; ++c) {
+                norm[t * ic + c] = d[t * ic + c] * inv * gamma[c];
+            }
+        }
+
+        // Phase 0 writes the weight cache, phase 1 reuses it.
+        bool ok = true;
+        for (int phase = 0; phase < 2 && ok; ++phase) {
+            BackendConfig backendConfig;
+            backendConfig.precision = static_cast<BackendConfig::PrecisionMode>(precision);
+            backendConfig.memory = static_cast<BackendConfig::MemoryMode>(pStatus.memory);
+            backendConfig.power = static_cast<BackendConfig::PowerMode>(pStatus.power);
+            const int runtimeMode = openCL ? MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_NONE : 1;
+            ScheduleConfig scheduleConfig;
+            scheduleConfig.type = forwardType;
+            scheduleConfig.backendConfig = &backendConfig;
+            scheduleConfig.numThread = runtimeMode;
+            auto executor = Executor::newExecutor(forwardType, backendConfig, runtimeMode);
+            if (!executor) {
+                ok = false;
+                break;
+            }
+            ExecutorScope scope(executor);
+            std::shared_ptr<Executor::RuntimeManager> runtime(
+                Executor::RuntimeManager::createRuntimeManager(scheduleConfig), Executor::RuntimeManager::destroy);
+            runtime->setHint(Interpreter::USE_CACHED_MMAP, 1);
+            runtime->setExternalPath(dir, Interpreter::EXTERNAL_WEIGHT_DIR);
+            runtime->setExternalFile(weightFile);
+            Module::Config config;
+            config.rearrange = true;
+            std::shared_ptr<Module> module(Module::load({"residual", "hidden"}, {"y0", "y1", "y2"},
+                                                        (const uint8_t*)model.data(), model.size(), runtime, &config),
+                                           Module::destroy);
+            if (!module) {
+                ok = false;
+                break;
+            }
+            auto residual = _Input({seq, ic, 1, 1}, NC4HW4);
+            auto hidden = _Input({seq, ic, 1, 1}, NC4HW4);
+            auto resC4 = packC4(resData, seq, ic);
+            auto hidC4 = packC4(hidData, seq, ic);
+            ::memcpy(residual->writeMap<float>(), resC4.data(), resC4.size() * sizeof(float));
+            ::memcpy(hidden->writeMap<float>(), hidC4.data(), hidC4.size() * sizeof(float));
+            residual->unMap();
+            hidden->unMap();
+            auto outputs = module->onForward({residual, hidden});
+            if (outputs.size() != 3) {
+                ok = false;
+                break;
+            }
+            for (int m = 0; m < 2; ++m) {
+                auto conv = makeConv(ic, ocs[m], m + 1);
+                std::vector<float> expected;
+                convRef(norm, conv->weight, conv->bias, expected, seq, ic, ocs[m]);
+                ok = ok && checkOut(outputs[m], expected, seq, ocs[m], tag);
+            }
+            ok = ok && checkOut(outputs[2], d, seq, ic, tag);
+            if (phase == 0 && !MNNFileExist(syncFile.c_str())) {
+                MNN_ERROR("FusedProj %s: weight cache was not written\n", tag);
+                ok = false;
+            }
+        }
+        cleanup();
+        return ok;
+    }
+};
+
+class FusedProjCPUMmapLNTest : public FusedProjMmapLNTest {
+public:
+    virtual bool run(int precision) { return runFusedProjMmapLN(precision, MNN_FORWARD_CPU, "cpu_mmap_ln"); }
+};
+MNNTestSuiteRegister(FusedProjCPUMmapLNTest, "op/fused_proj_cpu_mmap_ln");
+
+class FusedProjOpenCLMmapLNTest : public FusedProjMmapLNTest {
+public:
+    virtual bool run(int precision) {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_OPENCL) {
+            return true;
+        }
+        return runFusedProjMmapLN(precision, MNN_FORWARD_OPENCL, "opencl_mmap_ln");
+    }
+};
+MNNTestSuiteRegister(FusedProjOpenCLMmapLNTest, "op/fused_proj_opencl_mmap_ln");
 
 class FusedGateUpTest : public MNNTestCase {
 public:

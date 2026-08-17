@@ -45,9 +45,11 @@ public:
     virtual bool onClone(Backend *bn, const Op *op, Execution **dst) override;
 
 private:
-    bool _createConvs(Backend *backend);
-    bool _createRest(Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode _resize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    bool _createWeightedChildren(Backend* backend);
+    bool _createMulSilu(Backend* backend, const std::vector<Tensor*>& outputs);
+    static bool _cloneChild(const std::shared_ptr<Execution>& src, Backend* bn,
+                            const std::shared_ptr<BufferStorage>& op, std::shared_ptr<Execution>& dst);
+    ErrorCode _resize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     // Whether this shape can run as one GEMV dispatch over all members; collects
     // the member conv resources it would bind into mConvRes.
     bool _fusedGemvUsable(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
