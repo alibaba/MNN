@@ -252,10 +252,10 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
             case MNN::OpType_FusedLinear: {
                 cloneBaseExecution(exe, base_executions, op, backend, backupBackend);
                 if (exe == nullptr) {
-                    // Only Metal / OpenCL execute FusedLinear natively; other
-                    // backends decompose it in geometry, so pre-creation would
-                    // always fail.
-                    if (backend->type() != MNN_FORWARD_METAL && backend->type() != MNN_FORWARD_OPENCL) {
+                    // Pre-create only on backends with a native or composite
+                    // FusedLinear execution; the others decompose it in geometry.
+                    if (backend->type() != MNN_FORWARD_METAL && backend->type() != MNN_FORWARD_OPENCL &&
+                        backend->type() != MNN_FORWARD_CPU && backend->type() != MNN_FORWARD_CPU_EXTENSION) {
                         break;
                     }
                     std::shared_ptr<BufferStorage> tmpstorage;

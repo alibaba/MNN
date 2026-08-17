@@ -77,7 +77,7 @@ FusedProjBufExecution::FusedProjBufExecution(const std::vector<Tensor *> &inputs
     if (mHasLn) {
         mSubOps->layerNorm = FusedProjCommon::makeLayerNormOp(mParam->ln(), fmt);
     }
-    if (!_createConvs(backend)) {
+    if (!_createWeightedChildren(backend)) {
         mValid = false;
     }
 }
@@ -93,78 +93,82 @@ FusedProjBufExecution::FusedProjBufExecution(std::shared_ptr<FusedProjSubOps> su
     mSubOps     = subOps;
 }
 
-// Create the member convs — and thus load the folded weights — before the first
-// onResize. Module::clone shares weights through each child's own onClone, so
-// lazily created children would leave nothing to share and every cloned session
-// would load a second full copy of every folded weight.
-bool FusedProjBufExecution::_createConvs(Backend *backend) {
+// Create the weight-carrying children before the first onResize. Module::clone
+// shares their resources through each child's own onClone, and mmap-backed
+// resources must be allocated before onClearBuffer seals the pool.
+bool FusedProjBufExecution::_createWeightedChildren(Backend* backend) {
     mConvs.resize(mNumConvs);
     for (int i = 0; i < mNumConvs; ++i) {
         auto conv = mParam->convs()->GetAs<Convolution2D>(i);
         // The conv creator inspects the tensors for dispatch selection; feed
         // shaped dummies (weights come from the op, not the tensors).
-        std::shared_ptr<Tensor> dummyIn(
-            Tensor::createDevice<float>({1, conv->common()->inputCount(), 1, 1}));
-        std::shared_ptr<Tensor> dummyOut(
-            Tensor::createDevice<float>({1, conv->common()->outputCount(), 1, 1}));
-        TensorUtils::getDescribe(dummyIn.get())->dimensionFormat  = MNN_DATA_FORMAT_NC4HW4;
+        std::shared_ptr<Tensor> dummyIn(Tensor::createDevice<float>({1, conv->common()->inputCount(), 1, 1}));
+        std::shared_ptr<Tensor> dummyOut(Tensor::createDevice<float>({1, conv->common()->outputCount(), 1, 1}));
+        TensorUtils::getDescribe(dummyIn.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
         TensorUtils::getDescribe(dummyOut.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-        Execution *exe =
-            backend->onCreate({dummyIn.get()}, {dummyOut.get()}, FusedProjCommon::opOf(mSubOps->convs[i]));
+        Execution* exe = backend->onCreate({dummyIn.get()}, {dummyOut.get()}, FusedProjCommon::opOf(mSubOps->convs[i]));
         if (exe == nullptr) {
             return false;
         }
         mConvs[i].reset(exe);
     }
+    if (mHasLn) {
+        mLn.reset(backend->onCreate({}, {}, FusedProjCommon::opOf(mSubOps->layerNorm)));
+        if (mLn == nullptr) {
+            return false;
+        }
+    }
     return true;
 }
 
-bool FusedProjBufExecution::_createRest(Backend *backend, const std::vector<Tensor *> &inputs,
-                                        const std::vector<Tensor *> &outputs) {
+bool FusedProjBufExecution::_createMulSilu(Backend* backend, const std::vector<Tensor*>& outputs) {
     // The fused GEMV applies the SiLU-mul in registers, so no child is needed.
     if (mIsGateUp && !mUseFusedGemv && !mMulSilu) {
         // MUL_SILU: out = in0 * silu(in1), so in0 = up and in1 = gate.
-        Execution *exe = backend->onCreate({mUp.get(), mGate.get()}, {outputs[0]},
-                                           FusedProjCommon::opOf(mSubOps->mulSilu));
+        Execution* exe =
+            backend->onCreate({mUp.get(), mGate.get()}, {outputs[0]}, FusedProjCommon::opOf(mSubOps->mulSilu));
         if (exe == nullptr) {
             return false;
         }
         mMulSilu.reset(exe);
     }
-    if (mHasLn && !mLn) {
-        // Binary RMSNorm: in [residual, hidden], out [residual_out, normalized].
-        Execution *exe = backend->onCreate({inputs[0], inputs[1]}, {outputs[mNumProjOut], mNormalized.get()},
-                                           FusedProjCommon::opOf(mSubOps->layerNorm));
-        if (exe == nullptr) {
-            return false;
-        }
-        mLn.reset(exe);
-    }
     return true;
 }
 
-bool FusedProjBufExecution::onClone(Backend *bn, const Op *op, Execution **dst) {
-    if (!mValid) {
+bool FusedProjBufExecution::_cloneChild(const std::shared_ptr<Execution>& src, Backend* bn,
+                                        const std::shared_ptr<BufferStorage>& op, std::shared_ptr<Execution>& dst) {
+    Execution* exe = nullptr;
+    if (!src->onClone(bn, FusedProjCommon::opOf(op), &exe) || nullptr == exe) {
         return false;
     }
-    if ((int)mConvs.size() != mNumConvs) {
+    dst.reset(exe);
+    return true;
+}
+
+bool FusedProjBufExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid || (int)mConvs.size() != mNumConvs || (mHasLn && !mLn)) {
         return false;
     }
     if (nullptr == dst) {
-        return true;
+        for (int i = 0; i < mNumConvs; ++i) {
+            if (!mConvs[i]->onClone(bn, FusedProjCommon::opOf(mSubOps->convs[i]), nullptr)) {
+                return false;
+            }
+        }
+        return !mHasLn || mLn->onClone(bn, FusedProjCommon::opOf(mSubOps->layerNorm), nullptr);
     }
-    // Share the member conv weights through each child's own onClone, exactly
-    // as a graph-level conv would; mMulSilu / mLn carry no bulk weights and are
-    // re-created lazily on the clone's first onResize.
+    // mMulSilu carries no weights; the clone re-creates it on its first
+    // onResize. LN is cloned because the shared old sub-op can still contain
+    // only external metadata after rearrange has inlined the target op.
     std::unique_ptr<FusedProjBufExecution> clone(new FusedProjBufExecution(mSubOps, op, bn));
     clone->mConvs.resize(mNumConvs);
     for (int i = 0; i < mNumConvs; ++i) {
-        Execution *childClone = nullptr;
-        if (!mConvs[i]->onClone(bn, FusedProjCommon::opOf(mSubOps->convs[i]), &childClone) ||
-            nullptr == childClone) {
+        if (!_cloneChild(mConvs[i], bn, mSubOps->convs[i], clone->mConvs[i])) {
             return false;
         }
-        clone->mConvs[i].reset(childClone);
+    }
+    if (mHasLn && !_cloneChild(mLn, bn, mSubOps->layerNorm, clone->mLn)) {
+        return false;
     }
     *dst = clone.release();
     return true;
@@ -367,7 +371,7 @@ ErrorCode FusedProjBufExecution::onResize(const std::vector<Tensor *> &inputs,
         OPENCL_CHECK_ALLOC(openCLBackend->onAcquireBuffer(mGate.get(), Backend::DYNAMIC));
         OPENCL_CHECK_ALLOC(openCLBackend->onAcquireBuffer(mUp.get(), Backend::DYNAMIC));
     }
-    if (!_createRest(openCLBackend, inputs, outputs)) {
+    if (!_createMulSilu(openCLBackend, outputs)) {
         MNN_ERROR("FusedProjBufExecution: failed to create sub-executions\n");
         return NOT_SUPPORT;
     }

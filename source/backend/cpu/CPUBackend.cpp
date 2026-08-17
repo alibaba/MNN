@@ -369,6 +369,11 @@ int CPURuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
             return MNNGetCoreFunctions()->supportSDot;
             break;
         }
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        case STATUS_SUPPORT_FUSED_PROJ: {
+            return 1;
+        }
+#endif
         default: {
             MNN_ERROR("unsupported interface");
             break;
