@@ -199,7 +199,7 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
     // one pipeline is compiled with ROW_2 as well: its grid — one slice of both
     // matrices per simdgroup, grid.z 1 — is exactly the single-row fused grid,
     // so only the macros change.
-    mGateUpSilu = siluOutput != nullptr && !MetalEnv::get().gateUpSiluDisabled;
+    mGateUpSilu = siluOutput != nullptr;
     mGateUpSiluOutput = mGateUpSilu ? siluOutput : nullptr;
     if (row2 || mGateUpSilu) {
         keys.emplace_back("ROW_2");
@@ -396,7 +396,7 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     }
     // Packing only differs from the rectangular grid when the members differ in
     // output_channel; equal-sized groups (dense q/k/v) keep the simpler form.
-    mQKVPackedGrid = !MetalEnv::get().qkvPackedGridDisabled && packedGridX < numProj * maxGridX;
+    mQKVPackedGrid = packedGridX < numProj * maxGridX;
     if (mQKVPackedGrid) {
         keys.emplace_back("QKV_PACKED_GRID");
     }
@@ -589,10 +589,7 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
         }
     }
     keys.emplace_back("LN_FUSED");
-    const bool lnSplitSg = !MetalEnv::get().lnSplitSgDisabled;
-    if (lnSplitSg) {
-        keys.emplace_back("LN_SPLIT_SG");
-    }
+    keys.emplace_back("LN_SPLIT_SG");
     const bool row2 = !backend->isSupportTensorApi();
     // The SILU-folded gate/up pipeline is ROW_2 even on tensor-API devices
     // (see setupGateUpFusion); its LN variant has to be compiled to match.
@@ -658,9 +655,7 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
             }
         }
         [dic setValue:@"1" forKey:@"LN_FUSED"];
-        if (lnSplitSg) {
-            [dic setValue:@"1" forKey:@"LN_SPLIT_SG"];
-        }
+        [dic setValue:@"1" forKey:@"LN_SPLIT_SG"];
         if (row2 || mGateUpSilu) {
             [dic setValue:@"1" forKey:@"ROW_2"];
         }
@@ -995,14 +990,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     // (Routing to the g8 kernel instead was tried first: its
                     // nibble-unpack inner loop is slower and lost 5% e2e.)
                     // MNN_METAL_GEMV_SPLITK=0 restores the legacy 2sg kernel.
-                    //
-                    // Legacy 2sg lane partitioning notes (WIDE_MIDDLE knob, M5
-                    // regression) kept in the shader comment block.
                     const int sSplitK = MetalEnv::get().gemvSplitK;
                     const bool splitkUsable = (oc % 8 == 0) && (blockSize % 2 == 0);
                     if (sSplitK > 0 && splitkUsable) {
-                        const bool legacyLanes = MetalEnv::get().splitkLegacyLanes;
-                        const int middleStep = legacyLanes ? 0 : gemvMiddleStep(ic_4, blockSize, true);
+                        const int middleStep = gemvMiddleStep(ic_4, blockSize, true);
                         auto keys = baseKeys;
                         keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
                         keys.emplace_back("SPLIT_K_2");

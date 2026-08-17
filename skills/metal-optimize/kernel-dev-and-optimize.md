@@ -565,8 +565,8 @@ decode GEMV 是权重带宽 bound，B 个 token 权重只读一次 ⇒ 理想 `c
 - **划分一改，"唯一写者"守卫必须重审**：`ln_residual_out` 原来由 `sgitg == 0` 独写——这个条件本是"每个 SG 都扫全量"那份冗余的副产品；拆分后它的含义悄悄从"避免重复写"变成"只写一半"，故改为 `#ifndef LN_SPLIT_SG sgitg == 0 && #endif`。此类错误静默（下游拿到半截 residual）、与 barrier 无关、review 极易滑过。**规矩**：改并行划分时 grep 该 kernel 全部 `sgitg ==` / `tiisg ==` / `gid.* == 0` 守卫，逐个确认语义是否被新划分掀翻。
 - **隐式契约**：`z += 64` 与 `ln_sq_partial[2]` 写死了"恰好 2 个 simdgroup"，依赖 `setupLNFusion` 恒发 64 线程（`mThreads.second = 64`）。shader 注释只防得住读代码的人，防不住改 dispatch 的人——**隐式契约要么消掉（SG 数当宏传入），要么在契约两侧都留可执行检查**。
 - **与 §2.1.6 结论的边界**（重要，否则后人会拿旧结论直接否掉这类改动）：ROW_2 那条"融合 kernel 吃不起 barrier"针对的是**为拆分主体计算而翻倍 simdgroup**的 barrier（占用下降）；本项是在既有 SG 数下用一次 barrier 换前导读量减半，**SG 数与占用均不变**。两者不矛盾，判据是"这个 barrier 是否附带 occupancy 代价"。
-- **实测**：与 QKV_PACKED_GRID、GEMV_MIDDLE_STEP 三项合并 M4 Pro 0.6B tg128 **+2.0%**（340.9→347.7，4/4 轮同向）；**单项收益未独立测量**。捆绑测量省时间但欠归因债——三项各留了 env kill switch，债随时可偿。**规矩**：允许合并测量，但每项必须留独立开关。
-- **开关**：`MNN_METAL_DISABLE_LN_SPLIT_SG=1` 回退为"每 SG 各自重算 inv_rms"。同批另两项（`QKV_PACKED_GRID` 打包 grid、`GEMV_MIDDLE_STEP` host 侧 lane 划分）见 [`env-registry.md`](./env-registry.md)。
+- **实测**：与 QKV_PACKED_GRID、GEMV_MIDDLE_STEP 三项合并 M4 Pro 0.6B tg128 **+2.0%**（340.9→347.7，4/4 轮同向）；**单项收益未独立测量**——合并落地省时间但欠归因债，若后续在其他设备判负，只能三项一起从 git 历史恢复再逐一 bisect。
+- **状态**：三项均**默认恒开、无 env 关闭**（2026-08-17 收敛，见 [`env-registry.md`](./env-registry.md) 已删除表 `MNN_METAL_DISABLE_LN_SPLIT_SG` / `MNN_METAL_DISABLE_QKV_PACKED_GRID` / `MNN_METAL_SPLITK_LEGACY_LANES`）。回退 = `git revert` 那一 commit。
 
 ## 2.2 GEMM（prefill）
 
