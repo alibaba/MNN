@@ -232,7 +232,9 @@ int HexagonCommand::execute(bool forceCopy) {
     for (const auto& output : mOutputTensorIndexes) {
         mBackend->markHexagonOutput(output.first);
     }
-    mBackend->pushCommand(mCommandChunk, (int)mCmdSize, needCopy, dirty);
+    if (!mBackend->pushCommand(mCommandChunk, (int)mCmdSize, needCopy, dirty)) {
+        return -1;
+    }
     mDirty = false;
     mLastQueuedSerial = mBackend->commandSerial();
     return 0;

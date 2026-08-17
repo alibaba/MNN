@@ -14,6 +14,21 @@
 #include "dsp/worker_pool.h"
 #include "qurt.h"
 
+// Must match matmul_q4fp16.c: HMX prefill phase profiling into profile[] slots 200..210 (diagnostic, off).
+#ifndef HTP_MM_PHASE_PROFILE
+#  define HTP_MM_PHASE_PROFILE 0
+#endif
+
+// Must match attention_sync_process.cc: worker-side phases into profile[251..255].
+#ifndef HTP_WATTN_PHASE_PROFILE
+#  define HTP_WATTN_PHASE_PROFILE 0
+#endif
+
+// Must match attention_hmx.cc: queue-thread QK/SV phase profiling into profile[244..247].
+#ifndef HTP_QATTN_PHASE_PROFILE
+#  define HTP_QATTN_PHASE_PROFILE 0
+#endif
+
 extern "C" {
 
 extern AEEResult htp_ops_matmul_q4a16_fp16(uint8_t* output, uint8_t* activation, uint8_t* weight, uint8_t* bias,
@@ -23,17 +38,18 @@ extern AEEResult htp_ops_matmul_q4a16_fp16(uint8_t* output, uint8_t* activation,
                                       int32 scale_block_num,
                                       int32 scale_asymmetric);
 
-extern AEEResult htp_ops_matmul_q4block_a16_fp16(uint8_t* output, uint8_t* activation, uint8_t* weight, uint8_t* bias,
-                                      int32 m, int32 k, int32 n,
-                                      int32 weight_type, int32 layout_type,
-                                      int32 mp, int32 np, int32 kp,
-                                      int32 scale_block_num,
-                                      int32 scale_asymmetric);
+extern AEEResult htp_ops_matmul_q4block_a16_fp16(uint8_t *output, uint8_t *activation, uint8_t *weight, uint8_t *bias,
+                                                 int32 m, int32 k, int32 n, int32 weight_type, int32 layout_type,
+                                                 int32 mp, int32 np, int32 kp, int32 scale_block_num,
+                                                 int32 scale_asymmetric, int32 weight_is_vrmpy);
 
 extern AEEResult htp_ops_tmac_a16w1_fp16(uint8_t* output, uint8_t* activation,
                                         uint8_t* weight, uint8_t* scale, uint8_t* bias,
                                         int32 m, int32 ic, int32 oc, int32 scale_block_num,
                                         int32 scale_asymmetric, int32 output_bytes);
+
+extern AEEResult htp_ops_matmul_q4a16_gemv_i8(uint8_t* output, uint8_t* activation, uint8_t* weight, uint8_t* bias,
+                                              int32 k, int32 n, int32 scale_block_num);
 
 extern AEEResult htp_ops_pool2d_fp16(uint8_t* output, uint8_t* input,
         int32 batch, int32 ih, int32 iw, int32 oh, int32 ow, int32 c4,
@@ -98,7 +114,8 @@ extern AEEResult htp_ops_binary_elementwise(uint8_t* dst, uint8_t* src0, uint8_t
                                             int32 inputIsFloat, int32 outputIsFloat,
                                             const int32_t* broadcastParams, int32 broadcastParamCount);
 extern AEEResult htp_ops_select(uint8_t* dst, uint8_t* cond, uint8_t* src1, uint8_t* src2, int32 outSize, int32 condSize, int32 in1Size, int32 in2Size, int32 bytes, int32 condBytes, int32 channelSize, int32 innerSize);
-extern AEEResult htp_ops_shared_gather(uint8_t* dst, uint8_t* indices, uint8_t* weight, int32 selectSize, int32 ic, int32 oc, int32 bytes, int32 isInt4);
+extern AEEResult htp_ops_shared_gather(uint8_t *dst, uint8_t *indices, uint8_t *weight, int32 selectSize, int32 ic,
+                                       int32 oc, int32 bytes, int32 isInt4, int32 scaleBlockNum, int32 scaleAsymmetric);
 extern AEEResult htp_ops_zero(uint8_t* dst, int32 size);
 extern AEEResult htp_ops_topkv2_k1_fp16(uint8_t* values, uint8_t* indices, uint8_t* input, int32 rowSize, int32 rows);
 extern AEEResult htp_ops_softmax(uint8_t* dst, const uint8_t* src, int32 outside, int32 channel, int32 inside, int32 bytes);
@@ -244,14 +261,40 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
             int kp = intParams[7];
             int scale_block_num = params && params->size() > 8 ? intParams[8] : 1;
             int scale_asymmetric = params && params->size() > 9 ? intParams[9] : 0;
-            ret = htp_ops_matmul_q4block_a16_fp16(
-                                        mapped_ptrs[inputs->size()], // output
-                                        mapped_ptrs[0], // activation (FP16)
-                                        mapped_ptrs[1], // qweight (INT4 super-blocks)
-                                        mapped_ptrs[2], // bias (FP16)
-                                        m, k, n, weight_type, layout_type, mp, np, kp, scale_block_num, scale_asymmetric);
+            int weight_is_vrmpy  = params && params->size() > 10 ? intParams[10] : 0;
+            ret = htp_ops_matmul_q4block_a16_fp16(mapped_ptrs[inputs->size()],  // output
+                                                  mapped_ptrs[0],               // activation (FP16)
+                                                  mapped_ptrs[1],  // qweight (vrmpy INT4 tiles when weight_is_vrmpy)
+                                                  mapped_ptrs[2],  // bias (FP16)
+                                                  m, k, n, weight_type, layout_type, mp, np, kp, scale_block_num,
+                                                  scale_asymmetric, weight_is_vrmpy);
             break;
         }
+        case DSP_OP_MATMUL_Q4A16_GEMV_I8: {
+            int k = intParams[1];
+            int n = intParams[2];
+            int scale_block_num = params && params->size() > 8 ? intParams[8] : 1;
+            ret = htp_ops_matmul_q4a16_gemv_i8(
+                                        mapped_ptrs[inputs->size()], // output (FP16)
+                                        mapped_ptrs[0], // activation (FP16)
+                                        mapped_ptrs[1], // vrmpy int4 weight + fp32 scales
+                                        mapped_ptrs[2], // bias (FP16)
+                                        k, n, scale_block_num);
+            break;
+        }
+        case DSP_OP_MATMUL_W8A16_GEMV_I8:
+          {
+            int k               = intParams[1];
+            int n               = intParams[2];
+            int scale_block_num = params && params->size() > 8 ? intParams[8] : 1;
+            ret                 = hmx_matmulw8a16block_gemv_i8(mapped_ptrs[inputs->size()],  // output (FP16)
+                                                               mapped_ptrs[0],               // activation (FP16)
+                                                               mapped_ptrs[1],  // int8 weight (HMX layout, no second copy)
+                                                               mapped_ptrs[2],  // fp32 block scales
+                                                               mapped_ptrs[3],  // bias (FP16)
+                                                               k, n, scale_block_num);
+            break;
+          }
         case DSP_OP_TMAC_A16W1: {
             int m = intParams[0];
             int ic = intParams[1];
@@ -639,41 +682,84 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
             break;
         }
         case DSP_OP_IM2COL_CONVOLUTION_FP16: {
-            const HmxIm2ColConvParam* im2colParams = reinterpret_cast<const HmxIm2ColConvParam*>(intParams);
-            ret = htp_ops_im2col_convolution_fp16(mapped_ptrs[inputs->size()],
-                                                  mapped_ptrs[0],
-                                                  mapped_ptrs[1],
-                                                  mapped_ptrs[2],
-                                                  im2colParams);
+            HmxIm2ColConvParam im2colParams = {};
+            size_t             paramBytes   = params ? params->size() * sizeof(int32_t) : 0;
+            if (paramBytes > sizeof(im2colParams)) {
+              paramBytes = sizeof(im2colParams);
+            }
+            if (paramBytes > 0) {
+              memcpy(&im2colParams, intParams, paramBytes);
+            }
+            ret = htp_ops_im2col_convolution_fp16(mapped_ptrs[inputs->size()], mapped_ptrs[0], mapped_ptrs[1],
+                                                  mapped_ptrs[2], &im2colParams);
             break;
         }
         case DSP_OP_CONV1X1_DIRECT_W8A16_SYM_PER_CHANNEL: {
-            const HmxIm2ColConvParam* im2colParams = reinterpret_cast<const HmxIm2ColConvParam*>(intParams);
-            ret = hmx_conv1x1_direct_w8a16_sym_per_channel(mapped_ptrs[inputs->size()],
-                                                           mapped_ptrs[0],
-                                                           mapped_ptrs[1],
-                                                           mapped_ptrs[2],
-                                                           im2colParams);
+            HmxIm2ColConvParam im2colParams = {};
+            size_t             paramBytes   = params ? params->size() * sizeof(int32_t) : 0;
+            if (paramBytes > sizeof(im2colParams)) {
+              paramBytes = sizeof(im2colParams);
+            }
+            if (paramBytes > 0) {
+              memcpy(&im2colParams, intParams, paramBytes);
+            }
+            ret = hmx_conv1x1_direct_w8a16_sym_per_channel(mapped_ptrs[inputs->size()], mapped_ptrs[0], mapped_ptrs[1],
+                                                           mapped_ptrs[2], &im2colParams);
             break;
-        }
+          }
+        case DSP_OP_MATMUL_W8A16_BLOCK_FP16:
+          {
+            HmxIm2ColConvParam matmulParams = {};
+            size_t             paramBytes   = params ? params->size() * sizeof(int32_t) : 0;
+            if (paramBytes > sizeof(matmulParams)) {
+              paramBytes = sizeof(matmulParams);
+            }
+            if (paramBytes > 0) {
+              memcpy(&matmulParams, intParams, paramBytes);
+            }
+            ret = hmx_matmul_w8a16_block_fp16(mapped_ptrs[inputs->size()], mapped_ptrs[0], mapped_ptrs[1],
+                                              mapped_ptrs[2], &matmulParams);
+            break;
+          }
         case DSP_OP_CONV1X1_DIRECT_FP16: {
-            const HmxIm2ColConvParam* im2colParams = reinterpret_cast<const HmxIm2ColConvParam*>(intParams);
-            ret = htp_ops_conv1x1_direct_fp16(mapped_ptrs[inputs->size()],
-                                              mapped_ptrs[0],
-                                              mapped_ptrs[1],
-                                              mapped_ptrs[2],
-                                              im2colParams);
+            HmxIm2ColConvParam im2colParams = {};
+            size_t             paramBytes   = params ? params->size() * sizeof(int32_t) : 0;
+            if (paramBytes > sizeof(im2colParams)) {
+              paramBytes = sizeof(im2colParams);
+            }
+            if (paramBytes > 0) {
+              memcpy(&im2colParams, intParams, paramBytes);
+            }
+            ret = htp_ops_conv1x1_direct_fp16(mapped_ptrs[inputs->size()], mapped_ptrs[0], mapped_ptrs[1],
+                                              mapped_ptrs[2], &im2colParams);
             break;
-        }
+          }
+        case DSP_OP_VISION_ATTENTION_FP16:
+          {
+            ret = htp_ops_vision_attention_fp16(mapped_ptrs[inputs->size()], mapped_ptrs[0], mapped_ptrs[1],
+                                                mapped_ptrs[2], inputs->size() > 3 ? mapped_ptrs[3] : nullptr,
+                                                outputs->size() > 1 ? mapped_ptrs[inputs->size() + 1] : nullptr,
+                                                intParams[0], intParams[1], intParams[2], intParams[3], floatParams[4],
+                                                intParams[5], intParams[6]);
+            break;
+          }
+        case DSP_OP_VISION_FLASH_ATTENTION_FP16:
+          {
+            ret = htp_ops_vision_flash_attention_fp16(mapped_ptrs[inputs->size()], mapped_ptrs[0], mapped_ptrs[1],
+                                                      mapped_ptrs[2], inputs->size() > 3 ? mapped_ptrs[3] : nullptr,
+                                                      outputs->size() > 1 ? mapped_ptrs[inputs->size() + 1] : nullptr,
+                                                      intParams[0], intParams[1], intParams[2], intParams[3],
+                                                      floatParams[4], intParams[5], intParams[6]);
+            break;
+          }
         case DSP_OP_GET_INFO: {
             ret = htp_ops_getInfo_impl(mapped_ptrs[0]);
             break;
         }
         case DSP_OP_SHARED_GATHER: {
-            ret = htp_ops_shared_gather(mapped_ptrs[inputs->size()],
-                                        mapped_ptrs[0],
-                                        mapped_ptrs[1],
-                                        intParams[0], intParams[1], intParams[2], intParams[3], intParams[4]);
+            ret = htp_ops_shared_gather(mapped_ptrs[inputs->size()], mapped_ptrs[0], mapped_ptrs[1], intParams[0],
+                                        intParams[1], intParams[2], intParams[3], intParams[4],
+                                        params->size() > 5 ? intParams[5] : 1, params->size() > 6 ? intParams[6] : 0);
             break;
         }
         default:
@@ -713,6 +799,40 @@ static int execute_single_command(MmapManager* mmap_manager, int32 cmdFd, int32 
         unsigned long long end_time = HAP_perf_get_time_us();
         int opType = command->type();
         profile[opType] += (int)(end_time - start_time);
+#if HTP_MM_PHASE_PROFILE
+        // HMX prefill phase breakdown (us) into spare slots 200..207.
+        extern unsigned long long g_mm_phase_us[13];
+        for (int _p = 0; _p < 13; ++_p) {
+          profile[200 + _p] = (int) g_mm_phase_us[_p];
+        }
+#endif
+#if HTP_QATTN_PHASE_PROFILE
+        // Queue-thread QK/SV phases (us): [244]=DMA-wait, [245]=HMX-compute, [246]=score-store.
+        extern unsigned long long g_qattn_phase_us[3];
+        for (int _p = 0; _p < 3; ++_p) {
+          profile[244 + _p] = (int) g_qattn_phase_us[_p];
+        }
+        extern unsigned long long g_qattn_dma_bytes;
+        profile[247] = (int) (g_qattn_dma_bytes >> 20);  // weight-DMA MB (bandwidth = MB / [244]ms)
+        // dmstart counts (printed as count/1000): [248]=weight(K/V) chunks, [249]=activation(Q/S) tiles.
+        extern unsigned long long g_qattn_dma_calls[2];
+        profile[248] = (int) g_qattn_dma_calls[0];
+        profile[249] = (int) g_qattn_dma_calls[1];
+        extern unsigned long long g_qattn_act_bytes;
+        profile[250] = (int) (g_qattn_act_bytes >> 20);  // activation-DMA MB
+#endif
+#if HTP_WATTN_PHASE_PROFILE
+        // Worker-side grouped-causal prefill phases (us, summed over workers) into profile[251..255]:
+        // [251]=Q gather, [252]=QK submit+wait, [253]=softmax, [254]=SV submit+wait, [255]=O scatter.
+        extern unsigned long long g_wattn_phase_us[32][5];
+        for (int _p = 0; _p < 5; ++_p) {
+          unsigned long long _sum = 0;
+          for (int _w = 0; _w < 32; ++_w) {
+            _sum += g_wattn_phase_us[_w][_p];
+          }
+          profile[251 + _p] = (int) _sum;
+        }
+#endif
         if (opType == DSP_OP_TENSOR_CONVERT) {
             auto params = command->params();
             const int32_t* intParams = params ? params->data() : nullptr;

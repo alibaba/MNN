@@ -48,6 +48,11 @@ extern void registerNNAPIRuntimeCreator();
 #if MNN_QNN_ENABLED
 extern void registerQNNRuntimeCreator();
 #endif
+#if MNN_RKNN_ENABLED
+namespace RKNN {
+void registerRKNNPlugin();
+}
+#endif
 #ifdef MNN_NEUROPILOT
 extern void registerNeuroPilot();
 #endif
@@ -72,7 +77,10 @@ void registerBackend() {
         registerNNAPIRuntimeCreator();
 #endif
 #if MNN_QNN_ENABLED
-    registerQNNRuntimeCreator();
+        registerQNNRuntimeCreator();
+#endif
+#if MNN_RKNN_ENABLED
+        RKNN::registerRKNNPlugin();
 #endif
 #ifdef MNN_HEXAGON_ENABLED
         registerHexagon();

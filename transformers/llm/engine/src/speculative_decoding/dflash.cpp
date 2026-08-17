@@ -11,21 +11,23 @@
 #include "generate.hpp"
 #include "core/MNNFileUtils.h"
 
-#define DFLASH_DEBUG 0
 
 using namespace MNN::Express;
 namespace MNN {
 namespace Transformer {
 
+
 DFlashGeneration::DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config)
     : Generation(llm, context) {
     mBlockSize = config->dflash_block_size();
     mMaskTokenId = config->dflash_mask_token_id();
+    mShiftLabel = config->dflash_shift_label() ? 1 : 0;
 }
 
 void DFlashGeneration::reset() {
+    // Per turn: a stale draft KV cache no longer matches the reset target KV cache.
     mInitialized = false;
-    mContextHidden = nullptr;
+    mDraftKv.clear();
 }
 
 bool DFlashGeneration::load(Module::Config module_config) {
@@ -37,16 +39,66 @@ bool DFlashGeneration::load(Module::Config module_config) {
         return false;
     }
 
+    // Loaded first: its output names give the draft layer count, which the draft graph's input list needs.
+    {
+        Module::Config kc;
+        kc.shapeMutable = true;
+        kc.rearrange = true;
+        mKvMatModule.reset(Module::load({"new_context", "position_ids"}, {},
+            mLlm->mConfig->dflash_kvmat().c_str(), mLlm->mRuntimeManager, &kc));
+        if (mKvMatModule == nullptr) {
+            MNN_ERROR("DFlash: failed to load %s. The draft attention consumes per-layer "
+                      "kv_k_i/kv_v_i, so this module is mandatory; re-export the draft with "
+                      "the current llmexport.\n", mLlm->mConfig->dflash_kvmat().c_str());
+            return false;
+        }
+    }
+    const auto& kvOutNames = mKvMatModule->getInfo()->outputNames;
+    int nKvLayers = 0;
+    for (const auto& n : kvOutNames) {
+        if (n.compare(0, 5, "kv_k_") == 0) {
+            nKvLayers++;
+        }
+    }
+    mKvMatSlot.assign(2 * nKvLayers, -1);
+    for (int slot = 0; slot < (int)kvOutNames.size(); slot++) {
+        const auto& n = kvOutNames[slot];
+        bool isK = n.compare(0, 5, "kv_k_") == 0;
+        if (!isK && n.compare(0, 5, "kv_v_") != 0) {
+            continue;
+        }
+        int layer = atoi(n.c_str() + 5);
+        if (layer < 0 || layer >= nKvLayers) {
+            continue;
+        }
+        mKvMatSlot[2 * layer + (isK ? 0 : 1)] = slot;
+    }
+    for (int i = 0; i < (int)mKvMatSlot.size(); i++) {
+        if (mKvMatSlot[i] < 0) {
+            MNN_ERROR("DFlash: %s is missing output kv_%c_%d\n", mLlm->mConfig->dflash_kvmat().c_str(),
+                      (i % 2) ? 'v' : 'k', i / 2);
+            return false;
+        }
+    }
+
     // Load dflash main module
-    std::vector<std::string> dflashInputNames{"noise_embedding", "context_hidden", "attention_mask", "q_position_ids", "k_position_ids"};
+    std::vector<std::string> dflashInputNames{"noise_embedding"};
+    for (int i = 0; i < nKvLayers; i++) {
+        dflashInputNames.push_back("kv_k_" + std::to_string(i));
+        dflashInputNames.push_back("kv_v_" + std::to_string(i));
+    }
+    dflashInputNames.insert(dflashInputNames.end(), {"attention_mask", "position_ids"});
     std::vector<std::string> dflashOutputNames{"hidden_states"};
     mDFlashModule.reset(Module::load(
         dflashInputNames, dflashOutputNames,
         mLlm->mConfig->dflash_model().c_str(),
         mLlm->mRuntimeManager, &module_config));
     if (mDFlashModule == nullptr) {
-        MNN_ERROR("DFlash: failed to load draft model %s\n",
-                  mLlm->mConfig->dflash_model().c_str());
+        MNN_ERROR("DFlash: failed to load draft %s with %d per-layer KV inputs (output '%s'). "
+                  "%s and the draft must come from the same export.\n",
+                  mLlm->mConfig->dflash_model().c_str(), nKvLayers, dflashOutputNames[0].c_str(),
+                  mLlm->mConfig->dflash_kvmat().c_str());
+        mKvMatModule.reset();
         return false;
     }
 
@@ -54,38 +106,29 @@ bool DFlashGeneration::load(Module::Config module_config) {
     // Reuse the target's lm_head: load the subgraph {sharedLmHeadInput -> logits} from llm.mnn.
     // base + rearrange=true shares the target's lm_head weights via cloneBaseExecution
     // (rearrange must be true, otherwise base is silently ignored).
-    Module::Config lm_cfg;
-    lm_cfg.shapeMutable = true;
-    lm_cfg.rearrange = true;
-    lm_cfg.base = mLlm->mModule.get();
-    std::vector<std::string> lmInputNames{sharedLmHeadInput};
-    std::vector<std::string> lmOutputNames{"logits"};
-    mLmHeadModule.reset(Module::load(
-        lmInputNames, lmOutputNames,
-        mLlm->mConfig->llm_model().c_str(),
-        mLlm->mRuntimeManager, &lm_cfg));
-    if (mLmHeadModule == nullptr) {
-        MNN_ERROR("DFlash: failed to load shared lm_head subgraph {%s -> logits} from %s; "
-                  "the draft has no lm_head of its own, re-export the model with the "
-                  "current llmexport.\n",
-                  sharedLmHeadInput.c_str(), mLlm->mConfig->llm_model().c_str());
-        return false;
+    {
+        Module::Config lm_cfg;
+        lm_cfg.shapeMutable = true;
+        lm_cfg.rearrange = true;
+        lm_cfg.base = mLlm->mModule.get();
+        std::vector<std::string> lmInputNames{sharedLmHeadInput};
+        std::vector<std::string> lmOutputNames{"logits"};
+        mLmHeadModule.reset(Module::load(
+            lmInputNames, lmOutputNames,
+            mLlm->mConfig->llm_model().c_str(),
+            mLlm->mRuntimeManager, &lm_cfg));
+        if (mLmHeadModule == nullptr) {
+            MNN_ERROR("DFlash: failed to load shared lm_head subgraph {%s -> logits} from %s. "
+                      "Set dflash_shared_lmhead_input to the target's post-final-norm tensor name.\n",
+                      sharedLmHeadInput.c_str(), mLlm->mConfig->llm_model().c_str());
+            return false;
+        }
+        MNN_PRINT("DFlash: lm_head shared from target %s (subgraph %s -> logits)\n",
+                  mLlm->mConfig->llm_model().c_str(), sharedLmHeadInput.c_str());
     }
 
-    // Load fc module with dedicated CPU runtime to ensure fp32 precision
-    // The fc layer has very high input dimension (num_layers * hidden_size),
-    // which can cause NaN in fp16 dot products during prefill
+    // Session runtime, so hidden_states -> fc -> context_hidden -> draft never leaves the device.
     {
-        // Create a dedicated CPU runtime for FC to guarantee fp32 execution
-        ScheduleConfig fc_schedule;
-        fc_schedule.type = MNN_FORWARD_CPU;
-        fc_schedule.numThread = 4;
-        BackendConfig fc_backend_config;
-        fc_backend_config.precision = BackendConfig::Precision_High;
-        fc_schedule.backendConfig = &fc_backend_config;
-        mFcRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(fc_schedule));
-        mFcRuntimeManager->setHint(Interpreter::MEM_ALLOCATOR_TYPE, 0);
-
         Module::Config fc_config;
         fc_config.shapeMutable = true;
         fc_config.rearrange = true;
@@ -94,16 +137,18 @@ bool DFlashGeneration::load(Module::Config module_config) {
         mFcModule.reset(Module::load(
             fcInputNames, fcOutputNames,
             mLlm->mConfig->dflash_fc().c_str(),
-            mFcRuntimeManager, &fc_config));
+            mLlm->mRuntimeManager, &fc_config));
         if (mFcModule == nullptr) {
-            MNN_ERROR("DFlash: failed to load fc model %s\n",
+            MNN_ERROR("DFlash: failed to load %s (every draft step projects target hidden "
+                      "states through it, so this module is mandatory)\n",
                       mLlm->mConfig->dflash_fc().c_str());
             return false;
         }
-        MNN_PRINT("DFlash: FC module loaded with dedicated CPU runtime (fp32)\n");
     }
 
     mHiddenStateIndex = mLlm->getOutputIndex("hidden_states");
+    MNN_PRINT("DFlash: block_size=%d shift_label=%d (draft row %s predicts slot i), draft layers=%d\n",
+              mBlockSize, mShiftLabel, mShiftLabel ? "i-1" : "i", nKvLayers);
 
     // Disable thinking mode for better draft acceptance rate.
     // Qwen3's chat template enables thinking by default, generating unpredictable
@@ -113,95 +158,65 @@ bool DFlashGeneration::load(Module::Config module_config) {
     return true;
 }
 
-VARP DFlashGeneration::fcForward(VARP hidden_states) {
-#if DFLASH_DEBUG
-    {
-        auto hsInfo = hidden_states->getInfo();
-        auto hsPtr = hidden_states->readMap<float>();
-        int total = 1;
-        for (auto d : hsInfo->dim) total *= d;
-        float minV = hsPtr[0], maxV = hsPtr[0];
-        int nanCount = 0, zeroCount = 0;
-        for (int i = 0; i < total; i++) {
-            if (std::isnan(hsPtr[i]) || std::isinf(hsPtr[i])) nanCount++;
-            else {
-                if (hsPtr[i] < minV) minV = hsPtr[i];
-                if (hsPtr[i] > maxV) maxV = hsPtr[i];
-                if (hsPtr[i] == 0.0f) zeroCount++;
-            }
-        }
-        printf("fcForward input: dims=[");
-        for (int d = 0; d < hsInfo->dim.size(); d++) {
-            printf("%d%s", hsInfo->dim[d], d < hsInfo->dim.size()-1 ? ", " : "");
-        }
-        printf("], range=[%.4f, %.4f], nanCount=%d, zeroCount=%d/%d, type=%d\n",
-               minV, maxV, nanCount, zeroCount, total, hsInfo->type.code);
-        // Print first few values
-        printf("  first 10 values: ");
-        for (int i = 0; i < std::min(10, total); i++) printf("%.4f ", hsPtr[i]);
-        printf("\n");
+
+// Lazy: the draft's kv_heads/head_dim are only known from the first kvmat forward's output shape.
+void DFlashGeneration::ensureKvConcatModule(int kvHeads, int headDim) {
+    if (mKvConcatModule) {
+        return;
     }
-#endif
-    std::vector<VARP> inputs = {hidden_states};
-    auto outputs = mFcModule->onForward(inputs);
-    auto result = outputs[0];
-#if DFLASH_DEBUG
-    {
-        auto rInfo = result->getInfo();
-        auto rPtr = result->readMap<float>();
-        int total = 1;
-        for (auto d : rInfo->dim) total *= d;
-        float minV = rPtr[0], maxV = rPtr[0];
-        int nanCount = 0, zeroCount = 0;
-        for (int i = 0; i < total; i++) {
-            if (std::isnan(rPtr[i]) || std::isinf(rPtr[i])) nanCount++;
-            else {
-                if (rPtr[i] < minV) minV = rPtr[i];
-                if (rPtr[i] > maxV) maxV = rPtr[i];
-                if (rPtr[i] == 0.0f) zeroCount++;
-            }
-        }
-        printf("fcForward output: dims=[");
-        for (int d = 0; d < rInfo->dim.size(); d++) {
-            printf("%d%s", rInfo->dim[d], d < rInfo->dim.size()-1 ? ", " : "");
-        }
-        printf("], range=[%.4f, %.4f], nanCount=%d, zeroCount=%d/%d, type=%d\n",
-               minV, maxV, nanCount, zeroCount, total, rInfo->type.code);
-        printf("  first 10 values: ");
-        for (int i = 0; i < std::min(10, total); i++) printf("%.4f ", rPtr[i]);
-        printf("\n");
+    std::vector<VARP> outputs;
+    std::vector<std::string> inNames, outNames;
+    for (int i = 0; i < (int)mKvMatSlot.size(); i++) {
+        auto oldV = _Input({1, -1, kvHeads, headDim}, NCHW, halide_type_of<float>());
+        auto newV = _Input({1, -1, kvHeads, headDim}, NCHW, halide_type_of<float>());
+        inNames.push_back("old_" + std::to_string(i));
+        inNames.push_back("new_" + std::to_string(i));
+        oldV->setName(inNames[inNames.size() - 2]);
+        newV->setName(inNames.back());
+        auto o = _Concat({oldV, newV}, 1);
+        outNames.push_back("out_" + std::to_string(i));
+        o->setName(outNames.back());
+        outputs.push_back(o);
     }
-#endif
-    // Sanitize: replace NaN values with 0 to prevent propagation
-    auto info = result->getInfo();
-    auto ptr = result->readMap<float>();
-    int total = 1;
-    for (auto d : info->dim) total *= d;
-    int hiddenDim = info->dim[info->dim.size() - 1];
-    int seqLen = total / hiddenDim;
-    bool hasNaN = false;
-    for (int i = 0; i < total; i++) {
-        if (std::isnan(ptr[i]) || std::isinf(ptr[i])) {
-            hasNaN = true;
-#if DFLASH_DEBUG
-            int pos = i / hiddenDim;
-            int dim = i % hiddenDim;
-            printf("  NaN at pos=%d, dim=%d (value=%f)\n", pos, dim, ptr[i]);
-#endif
-        }
-    }
-    if (hasNaN) {
-        auto sanitized = _Input(info->dim, info->order, info->type);
-        auto dst = sanitized->writeMap<float>();
-        for (int i = 0; i < total; i++) {
-            dst[i] = (std::isnan(ptr[i]) || std::isinf(ptr[i])) ? 0.0f : ptr[i];
-        }
-        return sanitized;
-    }
-    return result;
+    auto buf = Variable::save(outputs);
+    Module::Config cc;
+    cc.shapeMutable = true;
+    mKvConcatModule.reset(Module::load(inNames, outNames,
+        (const uint8_t*)buf.data(), buf.size(), mLlm->mRuntimeManager, &cc));
 }
 
-VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids, VARP context_hidden) {
+// newContext rows take draft-local RoPE positions startPos..startPos+rows-1 (0-based,
+// NOT target-absolute); RoPE only sees q-k position deltas, so the numbering is equivalent.
+void DFlashGeneration::appendDraftKv(VARP newContext, int startPos) {
+    int rows = newContext->getInfo()->dim[1];
+    std::vector<int> posData(rows);
+    for (int i = 0; i < rows; i++) {
+        posData[i] = startPos + i;
+    }
+    auto posV = _Const(posData.data(), {1, rows}, NCHW, halide_type_of<int>());
+    auto kvOut = mKvMatModule->onForward({newContext, posV});
+    if (mDraftKv.empty()) {
+        mDraftKv.resize(mKvMatSlot.size());
+        for (int i = 0; i < (int)mKvMatSlot.size(); i++) {
+            mDraftKv[i] = kvOut[mKvMatSlot[i]];
+        }
+        return;
+    }
+    auto kdim = kvOut[mKvMatSlot[0]]->getInfo()->dim;
+    ensureKvConcatModule(kdim[2], kdim[3]);
+    std::vector<VARP> concatIn;
+    concatIn.reserve(mDraftKv.size() * 2);
+    for (int i = 0; i < (int)mDraftKv.size(); i++) {
+        concatIn.push_back(mDraftKv[i]);
+        concatIn.push_back(kvOut[mKvMatSlot[i]]);
+    }
+    auto concatOut = mKvConcatModule->onForward(concatIn);
+    for (int i = 0; i < (int)mDraftKv.size(); i++) {
+        mDraftKv[i] = concatOut[i];
+    }
+}
+
+VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids) {
     // Embed block tokens
     auto noise_embedding = mLlm->embedding(block_ids);
     // noise_embedding shape: [block_size, 1, hidden_size] -> reshape to [1, block_size, hidden_size]
@@ -209,98 +224,190 @@ VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids, VARP con
     int hidden_size = mLlm->mConfig->hidden_size();
     noise_embedding = _Reshape(noise_embedding, {1, block_size, hidden_size});
 
-    // context_hidden: [1, context_len, hidden_size] (already in correct shape)
-    int context_len = context_hidden->getInfo()->dim[1];
+    int context_len = mDraftKv[0]->getInfo()->dim[1];
     int total_len = context_len + block_size;
 
     // Non-causal attention mask: all zeros (everything attends to everything)
     auto attention_mask = _Input({1, 1, block_size, total_len}, NCHW, halide_type_of<float>());
     ::memset(attention_mask->writeMap<float>(), 0, block_size * total_len * sizeof(float));
 
-    // Separate position IDs for Q (block only) and K (all positions)
-    int pos_start = mContext->all_seq_len - context_len;
-
-    // Q position IDs: positions for block tokens only [pos_start + context_len, ..., pos_start + total_len - 1]
-    auto q_position_ids = _Input({1, block_size}, NCHW, halide_type_of<int>());
-    auto qPosPtr = q_position_ids->writeMap<int>();
+    // Draft-local RoPE positions: committed row r sits at r, so block slot i sits at context_len + i.
+    auto position_ids = _Input({1, block_size}, NCHW, halide_type_of<int>());
+    auto posPtr = position_ids->writeMap<int>();
     for (int i = 0; i < block_size; i++) {
-        qPosPtr[i] = pos_start + context_len + i;
-    }
-
-    // K position IDs: positions for all tokens [pos_start, ..., pos_start + total_len - 1]
-    auto k_position_ids = _Input({1, total_len}, NCHW, halide_type_of<int>());
-    auto kPosPtr = k_position_ids->writeMap<int>();
-    for (int i = 0; i < total_len; i++) {
-        kPosPtr[i] = pos_start + i;
+        posPtr[i] = context_len + i;
     }
 
     // Forward through DFlash module
-    std::vector<VARP> inputs = {noise_embedding, context_hidden, attention_mask, q_position_ids, k_position_ids};
+    std::vector<VARP> inputs{noise_embedding};
+    inputs.insert(inputs.end(), mDraftKv.begin(), mDraftKv.end());
+    inputs.insert(inputs.end(), {attention_mask, position_ids});
     auto outputs = mDFlashModule->onForward(inputs);
 
-    // outputs[0] is hidden_states -> pass through the shared lm_head subgraph.
-    {
-        auto hidden_states_out = outputs[0]; // [1, block_size, hidden_size]
-#if DFLASH_DEBUG
-        {
-            auto hsInfo = hidden_states_out->getInfo();
-            auto hsPtr = hidden_states_out->readMap<float>();
-            int total = 1;
-            for (auto d : hsInfo->dim) total *= d;
-            float minV = hsPtr[0], maxV = hsPtr[0];
-            int nanCount = 0;
-            for (int i = 0; i < total; i++) {
-                if (std::isnan(hsPtr[i]) || std::isinf(hsPtr[i])) nanCount++;
-                else { if (hsPtr[i] < minV) minV = hsPtr[i]; if (hsPtr[i] > maxV) maxV = hsPtr[i]; }
-            }
-            printf("dflashForward hidden_states: dims=[");
-            for (int d = 0; d < hsInfo->dim.size(); d++) printf("%d%s", hsInfo->dim[d], d < hsInfo->dim.size()-1 ? ", " : "");
-            printf("], range=[%.4f, %.4f], nanCount=%d/%d\n", minV, maxV, nanCount, total);
-        }
+    // The draft has no lm_head: run outputs[0] (hidden_states) through the target's lm_head subgraph.
+    auto hidden_states_out = outputs[0];
+    // The subgraph feeds the lm_head Convolution directly (4D NCHW); reshaping [1, block, hidden] to [block, hidden, 1, 1] is a numerical no-op.
+    auto hsInfo = hidden_states_out->getInfo();
+    VARP lm_input = _Reshape(hidden_states_out, {hsInfo->dim[0] * hsInfo->dim[1], hsInfo->dim[2], 1, 1});
+    return mLmHeadModule->onForward({lm_input})[0];
+}
+
+// Build the speculation block [current_token, mask, ..., mask].
+std::vector<int> DFlashGeneration::buildBlock(int currentToken) const {
+    std::vector<int> block_ids(mBlockSize, mMaskTokenId);
+    block_ids[0] = currentToken;
+    return block_ids;
+}
+
+bool DFlashGeneration::rowArgmax(VARP logits, int rows, std::vector<int>& out) {
+    int vocab = logits->getInfo()->size / rows;
+    out.resize(rows);
+#ifdef DUMP_PROFILE_INFO
+    MNN::Timer _t;
 #endif
-        // The shared subgraph feeds the lm_head Convolution directly, which expects 4D NCHW
-        // input; reshape rank-3 hidden_states to [block, hidden, 1, 1] and the output back to
-        // [1, block, vocab] (numerically a no-op).
-        auto hsInfo = hidden_states_out->getInfo();
-        int N = hsInfo->dim[0];       // 1
-        int seq = hsInfo->dim[1];     // block_size
-        int hidden = hsInfo->dim[2];  // hidden_size
-        VARP lm_input = _Reshape(hidden_states_out, {N * seq, hidden, 1, 1});
-        auto lm_outputs = mLmHeadModule->onForward({lm_input});
-        auto logits = lm_outputs[0];
-        auto lInfo = logits->getInfo();
-        int total = 1;
-        for (auto d : lInfo->dim) total *= d;
-        int vocab = total / seq;
-        logits = _Reshape(logits, {1, seq, vocab});
-        // logits: [1, block_size, vocab_size]
-#if DFLASH_DEBUG
-        {
-            auto lInfo = logits->getInfo();
-            auto lPtr = logits->readMap<float>();
-            int total = 1;
-            for (auto d : lInfo->dim) total *= d;
-            int vocab = lInfo->dim[lInfo->dim.size()-1];
-            // Check argmax for first few positions
-            printf("lm_head logits: dims=[");
-            for (int d = 0; d < lInfo->dim.size(); d++) printf("%d%s", lInfo->dim[d], d < lInfo->dim.size()-1 ? ", " : "");
-            printf("], vocab=%d\n", vocab);
-            for (int pos = 0; pos < std::min(3, lInfo->dim[1]); pos++) {
-                const float* row = lPtr + pos * vocab;
-                int bestIdx = 0; float bestVal = row[0];
-                for (int j = 1; j < vocab; j++) { if (row[j] > bestVal) { bestVal = row[j]; bestIdx = j; } }
-                printf("  pos %d: argmax=%d (val=%.4f), row[0]=%.4f, row[1]=%.4f\n", pos, bestIdx, bestVal, row[0], row[1]);
-            }
+    if (mArgmaxModule == nullptr) {
+        auto lv = _Input({1, -1, -1}, NCHW, halide_type_of<float>());
+        lv->setName("logits");
+        auto iv = _ArgMax(_Reshape(lv, {-1, vocab}), 1);
+        iv->setName("pidx");
+        auto buf = Variable::save({iv});
+        Module::Config ac;
+        ac.shapeMutable = true;
+        mArgmaxModule.reset(Module::load({"logits"}, {"pidx"},
+            (const uint8_t*)buf.data(), buf.size(), mLlm->mRuntimeManager, &ac));
+        if (mArgmaxModule == nullptr) {
+            MNN_ERROR("DFlash: failed to build the on-device argmax module (vocab=%d)\n", vocab);
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
         }
-#endif
-        return logits;
+        MNN_PRINT("DFlash: on-device argmax on (vocab=%d)\n", vocab);
     }
+    auto idx = mArgmaxModule->onForward({logits})[0];
+    ::memcpy(out.data(), idx->readMap<int>(), rows * sizeof(int));
+#ifdef DUMP_PROFILE_INFO
+    phase_argmax_us += _t.durationInUs();
+#endif
+    return true;
+}
+
+int DFlashGeneration::acceptDraftPrefix(const std::vector<int>& targetArgmax,
+                                             const std::vector<int>& block_ids, int blockSize) {
+    int acceptance_length = 0;
+    for (int i = 0; i < blockSize - 1; i++) {
+        int target_prediction = targetArgmax[i];
+        if (target_prediction != block_ids[i + 1]) {
+            mContext->current_token = target_prediction;
+            break;
+        }
+        acceptance_length++;
+        if (mLlm->is_stop(target_prediction)) {
+            mContext->current_token = target_prediction;
+            break;
+        }
+    }
+    if (acceptance_length == blockSize - 1) {
+        mContext->current_token = targetArgmax[blockSize - 1];
+    }
+    return acceptance_length;
+}
+
+DFlashGeneration::VerifyResult DFlashGeneration::verifyAcceptCommit(
+        const std::vector<int>& block_ids, int blockSize, int hiddenStateIndex) {
+    VerifyResult vr;
+    // Phase 4: Verify entire block with target model
+#ifdef DUMP_PROFILE_INFO
+    MNN::Timer _t_verify;
+#endif
+    // Defer the recurrent state update: part of this block may be rejected.
+    mLlm->mMeta->spec_block = blockSize;
+    auto verify_outputs = mLlm->forwardVec(block_ids);
+    mLlm->mMeta->spec_block = 0;
+    if (verify_outputs.empty() || verify_outputs.size() < 2) {
+        vr.stop = true;
+        return vr;
+    }
+#ifdef DUMP_PROFILE_INFO
+    int64_t verify_fwd_elapsed = _t_verify.durationInUs();
+    phase_verify_fwd_us += verify_fwd_elapsed;
+#endif
+
+    auto verify_logits = verify_outputs[0];
+    vr.newHiddenStates = verify_outputs[hiddenStateIndex];
+
+    // Phase 5: Greedy prefix matching - compare target model's predictions with draft
+    int acceptance_length = 0;
+    {
+        std::vector<int> targetArgmax;
+        if (!rowArgmax(verify_logits, blockSize, targetArgmax)) {
+            // The block's rows already entered the target KV cache; drop them all.
+            mLlm->mMeta->remove = blockSize;
+            vr.stop = true;
+            return vr;
+        }
+        acceptance_length = acceptDraftPrefix(targetArgmax, block_ids, blockSize);
+    }
+
+#ifdef DUMP_PROFILE_INFO
+    MNN::Timer _t_match;
+#endif
+
+    // Phase 6: Accept tokens and update state.
+    // We accept block_ids[1..acceptance_length] + current_token
+    vr.totalAccepted = acceptance_length + 1;
+    for (int i = 1; i <= acceptance_length; i++) {
+        int token = block_ids[i];
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->history_tokens.push_back(token);
+            mContext->output_tokens.push_back(token);
+        }
+        if (nullptr != mContext->os) {
+            *mContext->os << mLlm->tokenizer_decode(token) << std::flush;
+        }
+        if (mLlm->is_stop(token)) {
+            vr.stop = true;
+            break;
+        }
+    }
+    if (!vr.stop) {
+        // Add the corrected/next token
+        {
+            std::lock_guard<std::mutex> _l(mContext->mutex);
+            mContext->history_tokens.push_back(mContext->current_token);
+            mContext->output_tokens.push_back(mContext->current_token);
+        }
+        if (nullptr != mContext->os) {
+            if (mLlm->is_stop(mContext->current_token)) {
+                *mContext->os << mContext->end_with << std::flush;
+                vr.stop = true;
+            } else {
+                *mContext->os << mLlm->tokenizer_decode(mContext->current_token) << std::flush;
+            }
+        }
+    }
+
+#ifdef DUMP_PROFILE_INFO
+    int64_t match_elapsed = _t_match.durationInUs();
+    phase_verify_match_us += match_elapsed;
+    phase_verify_us += verify_fwd_elapsed + match_elapsed;
+#endif
+
+    // Phase 7: Update KV cache - remove unaccepted tokens.
+    // We fed blockSize tokens but only accepted vr.totalAccepted
+    mLlm->mMeta->remove = blockSize - vr.totalAccepted;
+    mLlm->updateContext(vr.totalAccepted, vr.totalAccepted);
+#ifdef DUMP_PROFILE_INFO
+    spl_decode += blockSize;
+    spl_accept += vr.totalAccepted;
+    spl_count++;
+#endif
+    return vr;
 }
 
 void DFlashGeneration::generate(GenerationParams& param) {
     int max_token = param.max_new_tokens;
 
-    // First-time initialization: sample first token and compute mContextHidden
+    // First-time initialization: sample the first token and materialize the draft KV
     if (!mInitialized) {
         VARP prev_hidden_states = param.outputs[mHiddenStateIndex];
 
@@ -325,46 +432,8 @@ void DFlashGeneration::generate(GenerationParams& param) {
             *mContext->os << mLlm->tokenizer_decode(mContext->current_token) << std::flush;
         }
 
-        // Compute mContextHidden from prefill hidden_states
-        // Use full prefill hidden_states for better draft quality (matches reference implementation)
-        {
-            auto hsInfo = prev_hidden_states->getInfo();
-            int seq_len = hsInfo->dim[1];
-            int hiddenDim = hsInfo->dim[2];
-#if DFLASH_DEBUG
-            auto hsPtr = prev_hidden_states->readMap<float>();
-            int hsTotal = seq_len * hiddenDim;
-            int hsNanCount = 0;
-            float hsMin = hsPtr[0], hsMax = hsPtr[0];
-            for (int i = 0; i < hsTotal; i++) {
-                if (std::isnan(hsPtr[i]) || std::isinf(hsPtr[i])) hsNanCount++;
-                else { if (hsPtr[i] < hsMin) hsMin = hsPtr[i]; if (hsPtr[i] > hsMax) hsMax = hsPtr[i]; }
-            }
-            printf("DFlash prefill hidden_states: [1, %d, %d], range=[%.4f, %.4f], nanCount=%d/%d\n",
-                   seq_len, hiddenDim, hsMin, hsMax, hsNanCount, hsTotal);
-#endif
-        }
-        mContextHidden = fcForward(prev_hidden_states);
-#if DFLASH_DEBUG
-        {
-            auto ctxInfo = mContextHidden->getInfo();
-            auto ctxPtr = mContextHidden->readMap<float>();
-            int total = 1;
-            for (auto d : ctxInfo->dim) total *= d;
-            float minV = ctxPtr[0], maxV = ctxPtr[0];
-            int nanCount = 0;
-            for (int i = 0; i < total; i++) {
-                if (std::isnan(ctxPtr[i])) nanCount++;
-                if (ctxPtr[i] < minV) minV = ctxPtr[i];
-                if (ctxPtr[i] > maxV) maxV = ctxPtr[i];
-            }
-            printf("DFlash mContextHidden after fc: dims=[");
-            for (int d = 0; d < ctxInfo->dim.size(); d++) {
-                printf("%d%s", ctxInfo->dim[d], d < ctxInfo->dim.size()-1 ? ", " : "");
-            }
-            printf("], range=[%.4f, %.4f], nanCount=%d/%d\n", minV, maxV, nanCount, total);
-        }
-#endif
+        // The only time the prompt is projected: positions are frozen from here on.
+        appendDraftKv(mFcModule->onForward({prev_hidden_states})[0], 0);
         mInitialized = true;
 
         // If max_token is 0, just do initialization and return
@@ -374,10 +443,9 @@ void DFlashGeneration::generate(GenerationParams& param) {
     }
 
 #ifdef DUMP_PROFILE_INFO
-    int spl_decode = 0, spl_accept = 0, spl_count = 0;
-    int64_t phase_draft_us = 0, phase_verify_us = 0, phase_sample_us = 0, phase_fc_us = 0;
-    int64_t phase_verify_fwd_us = 0, phase_verify_match_us = 0;
-    int64_t phase_fc_fwd_us = 0, phase_fc_concat_us = 0;
+    // The verify/sample/spl accumulators are members, shared with verifyAcceptCommit().
+    int64_t phase_draft_us = 0, phase_fc_us = 0;
+    int64_t phase_fc_fwd_us = 0, phase_kvmat_us = 0;
 #endif
 
     int len = 0;
@@ -388,37 +456,18 @@ void DFlashGeneration::generate(GenerationParams& param) {
         MNN::Timer _t;
 
         // Phase 1: Build block [last_accepted_token, mask, mask, ..., mask]
-        std::vector<int> block_ids(mBlockSize);
-        block_ids[0] = mContext->current_token;
-        for (int i = 1; i < mBlockSize; i++) {
-            block_ids[i] = mMaskTokenId;
-        }
+        auto block_ids = buildBlock(mContext->current_token);
 
         // Phase 2: DFlash forward - get draft logits
-#if DFLASH_DEBUG
-        if (len < 30) {
-            printf("\n--- MNN Step %d ---\n", len / 1 + 1);
-            printf("block_output_ids (before draft): [");
-            for (int i = 0; i < mBlockSize; i++) printf("%d%s", block_ids[i], i < mBlockSize-1 ? ", " : "");
-            printf("]\n");
-            auto ctxInfo = mContextHidden->getInfo();
-            auto ctxPtr = mContextHidden->readMap<float>();
-            printf("context_hidden shape: [%d, %d, %d]\n", ctxInfo->dim[0], ctxInfo->dim[1], ctxInfo->dim[2]);
-            printf("context_hidden[0,0,:5]: [%.6f, %.6f, %.6f, %.6f, %.6f]\n",
-                   ctxPtr[0], ctxPtr[1], ctxPtr[2], ctxPtr[3], ctxPtr[4]);
-            int pos_start = mContext->all_seq_len - ctxInfo->dim[1];
-            printf("all_seq_len=%d, pos_start=%d\n", mContext->all_seq_len, pos_start);
-            printf("q_position_ids: [");
-            for (int i = 0; i < mBlockSize; i++) printf("%d%s", pos_start + ctxInfo->dim[1] + i, i < mBlockSize-1 ? ", " : "");
-            printf("]\n");
-            printf("k_position_ids: [%d, ..., %d] (len=%d)\n", pos_start, pos_start + ctxInfo->dim[1] + mBlockSize - 1, ctxInfo->dim[1] + mBlockSize);
-        }
-#endif
+        // The draft head and lm_head are block-shaped too, so they get the same backend
+        // treatment; reset after phase 3, where the lazy draft_logits is materialized.
+        mLlm->mMeta->spec_block = mBlockSize;
 #ifdef DUMP_PROFILE_INFO
         MNN::Timer _t_draft;
 #endif
-        VARP draft_logits = dflashForward(block_ids, mContextHidden);
+        VARP draft_logits = dflashForward(block_ids);
         if (draft_logits == nullptr) {
+            mLlm->mMeta->spec_block = 0;
             break;
         }
 #ifdef DUMP_PROFILE_INFO
@@ -431,215 +480,53 @@ void DFlashGeneration::generate(GenerationParams& param) {
         MNN::Timer _t_sample;
 #endif
         {
-            auto logitsInfo = draft_logits->getInfo();
-            int vocab_size = logitsInfo->dim[logitsInfo->dim.size() - 1];
-            auto logitsPtr = draft_logits->readMap<float>();
-
-            // Direct argmax for draft positions 1..block_size-1 (skip position 0)
-            for (int i = 1; i < mBlockSize; i++) {
-                const float* row = logitsPtr + i * vocab_size;
-                int bestIdx = 0;
-                float bestVal = row[0];
-                for (int j = 1; j < vocab_size; j++) {
-                    if (row[j] > bestVal) {
-                        bestVal = row[j];
-                        bestIdx = j;
-                    }
-                }
-                block_ids[i] = bestIdx;
-            }
-
-#if DFLASH_DEBUG
-            if (len < 30) {
-                printf("draft_logits top5 per position:\n");
-                for (int pos = 1; pos < std::min(mBlockSize, 4); pos++) {
-                    const float* row = logitsPtr + pos * vocab_size;
-                    // Find top 5
-                    int top5_idx[5] = {0,0,0,0,0};
-                    float top5_val[5] = {-1e30f,-1e30f,-1e30f,-1e30f,-1e30f};
-                    for (int j = 0; j < vocab_size; j++) {
-                        for (int t = 0; t < 5; t++) {
-                            if (row[j] > top5_val[t]) {
-                                for (int s = 4; s > t; s--) { top5_idx[s] = top5_idx[s-1]; top5_val[s] = top5_val[s-1]; }
-                                top5_idx[t] = j; top5_val[t] = row[j];
-                                break;
-                            }
-                        }
-                    }
-                    printf("  pos %d top5: tokens=[%d,%d,%d,%d,%d], scores=[%.4f,%.4f,%.4f,%.4f,%.4f]\n",
-                           pos-1, top5_idx[0], top5_idx[1], top5_idx[2], top5_idx[3], top5_idx[4],
-                           top5_val[0], top5_val[1], top5_val[2], top5_val[3], top5_val[4]);
-                }
-                printf("block_output_ids (after draft): [");
-                for (int i = 0; i < mBlockSize; i++) printf("%d%s", block_ids[i], i < mBlockSize-1 ? ", " : "");
-                printf("]\n");
-            }
-#endif
-        }
-
-        // Phase 4: Verify entire block with target model
-#ifdef DUMP_PROFILE_INFO
-        phase_sample_us += _t_sample.durationInUs();
-        MNN::Timer _t_verify;
-#endif
-        auto verify_outputs = mLlm->forwardVec(block_ids);
-        if (verify_outputs.empty() || verify_outputs.size() < 2) {
-            break;
-        }
-#ifdef DUMP_PROFILE_INFO
-        int64_t verify_fwd_elapsed = _t_verify.durationInUs();
-        phase_verify_fwd_us += verify_fwd_elapsed;
-#endif
-
-        auto verify_logits = verify_outputs[0];
-        auto new_hidden_states = verify_outputs[mHiddenStateIndex];
-
-        // Phase 5: Greedy prefix matching - compare target model's predictions with draft
-        int acceptance_length = 0;
-        {
-            auto verifyInfo = verify_logits->getInfo();
-            int verify_vocab = verifyInfo->dim[verifyInfo->dim.size() - 1];
-            auto verifyPtr = verify_logits->readMap<float>();
-
-            for (int i = 0; i < mBlockSize - 1; i++) {
-                const float* row = verifyPtr + i * verify_vocab;
-                int target_prediction = 0;
-                float bestVal = row[0];
-                for (int j = 1; j < verify_vocab; j++) {
-                    if (row[j] > bestVal) {
-                        bestVal = row[j];
-                        target_prediction = j;
-                    }
-                }
-
-#if DFLASH_DEBUG
-                if (len < 30 && i < 3) {
-                    printf("  pos %d: draft=%d, target=%d %s\n", i, block_ids[i + 1], target_prediction,
-                           target_prediction == block_ids[i + 1] ? "✓" : "✗");
-                }
-#endif
-
-                if (target_prediction != block_ids[i + 1]) {
-                    mContext->current_token = target_prediction;
-                    break;
-                }
-                acceptance_length++;
-                if (mLlm->is_stop(target_prediction)) {
-                    mContext->current_token = target_prediction;
-                    break;
-                }
-            }
-
-            if (acceptance_length == mBlockSize - 1) {
-                const float* row = verifyPtr + (mBlockSize - 1) * verify_vocab;
-                int target_prediction = 0;
-                float bestVal = row[0];
-                for (int j = 1; j < verify_vocab; j++) {
-                    if (row[j] > bestVal) {
-                        bestVal = row[j];
-                        target_prediction = j;
-                    }
-                }
-                mContext->current_token = target_prediction;
-            }
-        }
-
-#ifdef DUMP_PROFILE_INFO
-        MNN::Timer _t_match;
-#endif
-
-        // Phase 6: Accept tokens and update state
-        // We accept block_ids[1..acceptance_length] + current_token
-        int total_accepted = acceptance_length + 1;
-
-        // Output accepted tokens
-        bool stop = false;
-        for (int i = 1; i <= acceptance_length; i++) {
-            int token = block_ids[i];
-            {
-                std::lock_guard<std::mutex> _l(mContext->mutex);
-                mContext->history_tokens.push_back(token);
-                mContext->output_tokens.push_back(token);
-            }
-            if (nullptr != mContext->os) {
-                *mContext->os << mLlm->tokenizer_decode(token) << std::flush;
-            }
-            if (mLlm->is_stop(token)) {
-                stop = true;
+            std::vector<int> draftArgmax;
+            if (!rowArgmax(draft_logits, mBlockSize, draftArgmax)) {
+                mLlm->mMeta->spec_block = 0;
                 break;
             }
-        }
-
-        if (!stop) {
-            // Add the corrected/next token
-            {
-                std::lock_guard<std::mutex> _l(mContext->mutex);
-                mContext->history_tokens.push_back(mContext->current_token);
-                mContext->output_tokens.push_back(mContext->current_token);
-            }
-            if (nullptr != mContext->os) {
-                if (mLlm->is_stop(mContext->current_token)) {
-                    *mContext->os << mContext->end_with << std::flush;
-                    stop = true;
-                } else {
-                    *mContext->os << mLlm->tokenizer_decode(mContext->current_token) << std::flush;
-                }
+            // Slot 0 is the accepted token; with shift_label row i-1 predicts slot i, else row i.
+            for (int i = 1; i < mBlockSize; i++) {
+                block_ids[i] = draftArgmax[i - mShiftLabel];
             }
         }
+        mLlm->mMeta->spec_block = 0;
 
+        // Phase 4-7: target verify + greedy accept + emit + KV rollback
 #ifdef DUMP_PROFILE_INFO
-        int64_t match_elapsed = _t_match.durationInUs();
-        phase_verify_match_us += match_elapsed;
-        phase_verify_us += verify_fwd_elapsed + match_elapsed;
+        phase_sample_us += _t_sample.durationInUs();
 #endif
-
-        // Phase 7: Update KV cache - remove unaccepted tokens
-        // We fed mBlockSize tokens but only accepted total_accepted
-        int remove_count = mBlockSize - total_accepted;
-        mLlm->mMeta->remove = remove_count;
-        mLlm->updateContext(total_accepted, total_accepted);
-
-        len += total_accepted;
+        auto vr = verifyAcceptCommit(block_ids, mBlockSize, mHiddenStateIndex);
+        len += vr.totalAccepted;
         mContext->decode_us += _t.durationInUs();
-
-#ifdef DUMP_PROFILE_INFO
-        spl_decode += mBlockSize;
-        spl_accept += total_accepted;
-        spl_count++;
-#endif
-
-        if (stop) {
+        if (vr.stop) {
             break;
         }
 
-        // Phase 8: Update mContextHidden for next iteration
-        // Accumulate context across iterations (simulates draft KV cache from reference)
-        // The draft model needs full history context for good prediction quality
+        // Phase 8: Extend the draft KV cache with the rows just committed by the target.
 #ifdef DUMP_PROFILE_INFO
         MNN::Timer _t_fc;
 #endif
-        if (total_accepted < mBlockSize) {
+        int contextLen = mDraftKv[0]->getInfo()->dim[1];
+        auto new_hidden_states = vr.newHiddenStates;
+        if (vr.totalAccepted < mBlockSize) {
             auto hsInfo = new_hidden_states->getInfo();
             int hiddenDim = hsInfo->dim[2];
             std::vector<int> starts = {0, 0, 0};
-            std::vector<int> sizes = {1, total_accepted, hiddenDim};
+            std::vector<int> sizes = {1, vr.totalAccepted, hiddenDim};
             new_hidden_states = _Slice(new_hidden_states,
                                        _Const(starts.data(), {3}, NHWC, halide_type_of<int>()),
                                        _Const(sizes.data(), {3}, NHWC, halide_type_of<int>()));
         }
-        auto new_context = fcForward(new_hidden_states);
+        auto new_context = mFcModule->onForward({new_hidden_states})[0];
 #ifdef DUMP_PROFILE_INFO
         phase_fc_fwd_us += _t_fc.durationInUs();
-        MNN::Timer _t_concat;
+        MNN::Timer _t_kvmat;
 #endif
-        auto concat_result = _Concat({mContextHidden, new_context}, 1);
-        // Materialize to avoid lazy evaluation graph growth
-        auto concatInfo = concat_result->getInfo();
-        auto concatPtr = concat_result->readMap<float>();
-        mContextHidden = _Const(concatPtr, concatInfo->dim, concatInfo->order, concatInfo->type);
+        appendDraftKv(new_context, contextLen);
 #ifdef DUMP_PROFILE_INFO
-        phase_fc_concat_us += _t_concat.durationInUs();
-        phase_fc_us += _t_fc.durationInUs() + phase_fc_concat_us;
+        phase_kvmat_us += _t_kvmat.durationInUs();
+        phase_fc_us += _t_fc.durationInUs();   // _t_fc already spans fc_forward + kvmat
 #endif
     }
 
@@ -670,8 +557,9 @@ void DFlashGeneration::generate(GenerationParams& param) {
               total_ms > 0 ? 100.0f * phase_fc_us / 1000.0f / total_ms : 0);
     MNN_PRINT("Verify detail (ms): forward=%.1f, match=%.1f\n",
               phase_verify_fwd_us / 1000.0f, phase_verify_match_us / 1000.0f);
-    MNN_PRINT("FC detail (ms): fc_forward=%.1f, concat=%.1f\n",
-              phase_fc_fwd_us / 1000.0f, phase_fc_concat_us / 1000.0f);
+    MNN_PRINT("FC detail (ms): fc_forward=%.1f, kv_materialize=%.1f\n",
+              phase_fc_fwd_us / 1000.0f, phase_kvmat_us / 1000.0f);
+    MNN_PRINT("Argmax total (ms): %.1f\n", phase_argmax_us / 1000.0f);
     float per_accepted_ms = spl_accept > 0 ? total_ms / spl_accept : 0;
     MNN_PRINT("Effective per-token cost: %.2f ms/token (vs AR baseline)\n", per_accepted_ms);
     MNN_PRINT("============== DFlash Decoding Statistics End =================\n");

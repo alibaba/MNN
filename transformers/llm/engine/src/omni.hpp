@@ -10,6 +10,7 @@
 
 #include "llm/llm.hpp"
 #include <algorithm>
+#include <utility>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -20,6 +21,15 @@
 namespace MNN {
 using namespace Express;
 namespace Transformer {
+
+static const char* const kOmniMultimodalRegex = "<(img|audio|video)>(.*?)</\\1>";
+
+std::vector<int> qwenVideoSampleIndices(int totalFrames, double nativeFps, float targetFps, int minFrames,
+                                        int maxFrames);
+int qwenVideoAlignedFrameCount(int frameCount, int maxFrames, int factor);
+int qwenVideoEffectiveMaxPixels(int maxPixels, int maxVisionTokens, int frameCount, int factor, int patchSize);
+std::pair<int, int> qwenVideoResizeSize(int width, int height, int alignSize, int maxPixels);
+void fillQwenVisionAttentionMask(float* mask, int gridT, int tokensPerTemporal);
 
 class MropeInfo {
 public:
@@ -197,13 +207,18 @@ public:
     std::vector<int> minicpmVisionProcess(VARP image);
     std::vector<int> hunyuanVisionProcess(VARP image);
     std::vector<int> gemma4VisionProcess(VARP image);
+    std::vector<int> qwenVideoProcess(const std::vector<VARP>& frames, const std::vector<float>& timestamps);
+
 private:
     bool initProcessorRuntime();
-    int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
-        mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646,
-        mAudioStart = -1, mAudioEnd = -1;
+    int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857, mVisionEnd = 151858, mVisionPad = 151859,
+        mAudioPad = 151646, mAudioStart = -1, mAudioEnd = -1, mVideoPad = -1;
     int mVisionGlobal = 49152;
     int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
+    float mVideoFps = 2.0f;
+    int mVideoMaxFrames = 768;
+    int mVideoMaxPixels = 768 * 28 * 28;
+    int mVideoMaxVisionTokens = 4096;
     int mVisionNum = 0;
     int mNumGridPerSide = 1;
     bool mVisionSizeOverridden = false;
@@ -211,10 +226,14 @@ private:
     std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
     std::vector<int> multimodeProcess(const std::string& mode, std::string info);
     std::vector<int> visionProcess(const std::string& file);
+    std::vector<int> videoProcess(const std::string& file);
+    std::vector<int> videoProcess(const PromptVideoPart& video);
     std::vector<int> audioProcess(const std::string& file);
     std::vector<int> audioProcess(MNN::Express::VARP waveform);
     std::vector<int> processImageContent(const std::string& content, const std::map<std::string, PromptImagePart>& images);
     std::vector<int> processAudioContent(const std::string& content, const std::map<std::string, PromptAudioPart>& audios);
+    std::vector<int> processVideoContent(const std::string& content,
+                                         const std::map<std::string, PromptVideoPart>& videos);
     void responseInterleaved(const std::vector<int>& input_ids, std::ostream* os, const char* end_with,
                              int max_new_tokens);
     std::shared_ptr<Module> mVisionModule, mAudioModule;

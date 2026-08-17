@@ -92,6 +92,8 @@ else()
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/matmul_q4fp16.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/matmul_q4fp16_mle32.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/matmul_q4block_fp16_mle32.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/matmul_q4block_gemv_i8.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/matmul_w8a16_gemv_i8.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/tmac_a16w1_fp16.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/pool_fp16.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/depthwise_conv_fp16.c

@@ -287,6 +287,7 @@ option(MNN_COREML "Enable CoreML" OFF)
 option(MNN_NNAPI "Enable NNAPI" OFF)
 option(MNN_QNN "Enable QNN" OFF)
 option(MNN_QNN_ONLINE_FINALIZE "Enable QNN Online Finalize" ON)
+option(MNN_RKNN "Enable RKNN runtime and converter support" OFF)
 option(MNN_HEXAGON "Enable Hexagon DSP backend" OFF)
 option(MNN_HEXAGON_ASAN "Enable Hexagon backend internal memory consistency checks" OFF)
 
@@ -687,6 +688,13 @@ IF(MNN_QNN)
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_QNN>)
 ENDIF()
 
+# RKNN
+IF(MNN_RKNN)
+    add_definitions(-DMNN_RKNN_ENABLED=1)
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/rknn/)
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_RKNN>)
+ENDIF()
+    
 IF(MNN_HEXAGON)
     target_compile_options(MNNCore PRIVATE -DMNN_HEXAGON_ENABLED=1)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/hexagon)

@@ -10,6 +10,8 @@
 #include "MNN_generated.h"
 #include <memory>
 #include <vector>
+#include <set>
+#include <tuple>
 
 namespace MNN {
 
@@ -54,9 +56,13 @@ public:
     static std::pair<int, int> getDevicePtr(const MemChunk& chunk);
     MemChunk allocCommandSlot(int size) const;
     void freeCommandSlot(const MemChunk& chunk) const;
-    void pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const;
+    bool pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const;
     int commandSerial() const;
     void flushCommand() const;
+    // Device ranges whose DSP-dirty lines we have already written back before a host upload. Once a range
+    // has been flushed it stays safe: any later DSP write to it goes through a declared command output,
+    // which the group-end flush cleans. Cleared whenever the dynamic allocator is reset (buffers move).
+    mutable std::set<std::tuple<int, int, int>> mPreFlushedHostWrites;
     void markHostInput(const Tensor* tensor) const;
     void markHostInput(const MemChunk& chunk, int size) const;
     void markHostOutput(const Tensor* tensor) const;

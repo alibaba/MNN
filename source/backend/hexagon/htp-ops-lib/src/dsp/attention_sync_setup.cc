@@ -133,6 +133,7 @@ int sync_attention(__fp16 *restrict O, const __fp16 *restrict Q, const float *re
   if (sync_attention_should_segment_prefill(&state)) {
     sync_attention_run_segmented_prefill(&state);
   } else {
+    n_tasks = sync_attention_finalize_causal_tasks(&state);
     sync_attention_run_tasks(&state, n_tasks);
   }
 
@@ -166,10 +167,14 @@ int sync_attention_pages(__fp16 *restrict O, const __fp16 *restrict Q, const flo
   state.async_push = async_push;
   state.async_push_seq_begin = async_push != NULL ? async_push->seq_current : seq_current;
   state.online_pages = online_pages;
+  // fp16 QK scores only in the grouped-causal prefill path (decode_grouped && qo_len>1).
+  state.scores_fp16            = ATTN_SCORES_FP16 && state.decode_grouped && state.qo_len > 1;
 
   if (sync_attention_should_segment_prefill(&state)) {
     sync_attention_run_segmented_prefill(&state);
   } else {
+    // Must come after the page fields above: the q-block size depends on page_count / page_size.
+    n_tasks = sync_attention_finalize_causal_tasks(&state);
     sync_attention_run_tasks(&state, n_tasks);
   }
 

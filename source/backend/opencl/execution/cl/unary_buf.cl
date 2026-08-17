@@ -60,16 +60,16 @@ __kernel void unary_buf(GLOBAL_SIZE_2_DIMS
 #ifdef PACK_LEAVE
     if(offset + 3 >= size){
         int remain = size - offset;
-        float4 in;
-        float* in_ptr = (float*)&in;
-        for(int i = 0; i < remain; ++i){
-            in_ptr[i] = (float)input[offset + i];
-        }
+        float4 in = (float4)0;
+        in.x = (float)input[offset];
+        if(remain > 1) { in.y = (float)input[offset + 1]; }
+        if(remain > 2) { in.z = (float)input[offset + 2]; }
+        if(remain > 3) { in.w = (float)input[offset + 3]; }
         float4 out = OPERATOR;
-        float* out_ptr = (float*)&out;
-        for(int i = 0; i < remain; ++i){
-            output[offset + i] = (OUTPUT_TYPE)out_ptr[i];
-        }
+        output[offset] = (OUTPUT_TYPE)out.x;
+        if(remain > 1) { output[offset + 1] = (OUTPUT_TYPE)out.y; }
+        if(remain > 2) { output[offset + 2] = (OUTPUT_TYPE)out.z; }
+        if(remain > 3) { output[offset + 3] = (OUTPUT_TYPE)out.w; }
     }else {
 #endif
         float4 in = convert_float4(vload4(0, input + offset));

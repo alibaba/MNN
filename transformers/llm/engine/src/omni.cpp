@@ -14,7 +14,10 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <iomanip>
+#include <limits>
 #include <random>
+#include <sstream>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include "omni.hpp"
@@ -31,6 +34,10 @@
 #endif
 #ifdef LLM_SUPPORT_AUDIO
 #include <audio/audio.hpp>
+#endif
+#ifdef MNN_LLM_VIDEOIO_OPENCV
+#include <opencv2/imgproc.hpp>
+#include <opencv2/videoio.hpp>
 #endif
 namespace MNN {
 using namespace Express;
@@ -83,6 +90,117 @@ static std::pair<int, int> qwenVlSmartResize(int height, int width, int factor, 
 template <typename T>
 static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
     return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
+}
+
+static constexpr int kQwenVideoTemporalPatchSize = 2;
+
+int qwenVideoAlignedFrameCount(int frameCount, int maxFrames, int factor) {
+    if (frameCount <= 0) {
+        return 0;
+    }
+    factor = std::max(factor, 1);
+    if (factor == 1) {
+        return maxFrames > 0 ? std::min(frameCount, maxFrames) : frameCount;
+    }
+    if (maxFrames > 0 && maxFrames < factor) {
+        return 0;
+    }
+    int count = maxFrames > 0 ? std::min(frameCount, maxFrames) : frameCount;
+    if (count < factor) {
+        return factor;
+    }
+    return count / factor * factor;
+}
+
+int qwenVideoEffectiveMaxPixels(int maxPixels, int maxVisionTokens, int frameCount, int factor, int patchSize) {
+    factor = std::max(factor, 1);
+    patchSize = std::max(patchSize, 1);
+    int gridT = frameCount / factor;
+    if (gridT <= 0) {
+        return maxPixels;
+    }
+    int tokensPerTemporal = std::max(std::max(maxVisionTokens, 1) / gridT, 1);
+    int64_t tokenPixels = static_cast<int64_t>(tokensPerTemporal) * patchSize * patchSize;
+    int budgetPixels = static_cast<int>(std::min<int64_t>(tokenPixels, std::numeric_limits<int>::max()));
+    return maxPixels > 0 ? std::min(maxPixels, budgetPixels) : budgetPixels;
+}
+
+std::pair<int, int> qwenVideoResizeSize(int width, int height, int alignSize, int maxPixels) {
+    alignSize = std::max(alignSize, 1);
+    width = std::max(width, alignSize);
+    height = std::max(height, alignSize);
+    auto alignRound = [alignSize](int size) {
+        int quotient = size / alignSize;
+        int remainder = size % alignSize;
+        if (remainder * 2 > alignSize || (remainder * 2 == alignSize && quotient % 2 != 0)) {
+            quotient++;
+        }
+        return std::max(alignSize, quotient * alignSize);
+    };
+    int targetWidth = alignRound(width);
+    int targetHeight = alignRound(height);
+    if (maxPixels <= 0 || static_cast<int64_t>(targetWidth) * targetHeight <= maxPixels) {
+        return std::make_pair(targetWidth, targetHeight);
+    }
+    double scale = std::sqrt(static_cast<double>(maxPixels) / (static_cast<double>(width) * height));
+    targetWidth = std::max(alignSize, static_cast<int>(std::floor(width * scale / alignSize)) * alignSize);
+    targetHeight = std::max(alignSize, static_cast<int>(std::floor(height * scale / alignSize)) * alignSize);
+    while (static_cast<int64_t>(targetWidth) * targetHeight > maxPixels &&
+           (targetWidth > alignSize || targetHeight > alignSize)) {
+        if (targetWidth >= targetHeight && targetWidth > alignSize) {
+            targetWidth -= alignSize;
+        } else if (targetHeight > alignSize) {
+            targetHeight -= alignSize;
+        } else {
+            break;
+        }
+    }
+    return std::make_pair(targetWidth, targetHeight);
+}
+
+std::vector<int> qwenVideoSampleIndices(int totalFrames, double nativeFps, float targetFps, int minFrames,
+                                        int maxFrames) {
+    if (totalFrames <= 0) {
+        return {};
+    }
+    if (totalFrames == 1) {
+        return std::vector<int>(qwenVideoAlignedFrameCount(1, maxFrames, kQwenVideoTemporalPatchSize), 0);
+    }
+    if (nativeFps <= 0.0) {
+        nativeFps = 24.0;
+    }
+    if (targetFps <= 0.0f) {
+        targetFps = static_cast<float>(nativeFps);
+    }
+    int sampleFrames = static_cast<int>(totalFrames / nativeFps * targetFps);
+    sampleFrames = std::max(sampleFrames, minFrames);
+    sampleFrames = qwenVideoAlignedFrameCount(sampleFrames, maxFrames, kQwenVideoTemporalPatchSize);
+    if (sampleFrames <= 0) {
+        return {};
+    }
+    std::vector<int> indices;
+    indices.reserve(sampleFrames);
+    for (int i = 0; i < sampleFrames; ++i) {
+        double pos = static_cast<double>(totalFrames - 1) * i / (sampleFrames - 1);
+        int index = static_cast<int>(std::nearbyint(pos));
+        indices.push_back(std::min(std::max(index, 0), totalFrames - 1));
+    }
+    return indices;
+}
+
+void fillQwenVisionAttentionMask(float* mask, int gridT, int tokensPerTemporal) {
+    if (mask == nullptr || gridT <= 0 || tokensPerTemporal <= 0) {
+        return;
+    }
+    const int seqLen = gridT * tokensPerTemporal;
+    std::fill(mask, mask + seqLen * seqLen, std::numeric_limits<float>::lowest());
+    for (int t = 0; t < gridT; ++t) {
+        const int start = t * tokensPerTemporal;
+        for (int row = 0; row < tokensPerTemporal; ++row) {
+            float* rowPtr = mask + (start + row) * seqLen + start;
+            std::fill(rowPtr, rowPtr + tokensPerTemporal, 0.0f);
+        }
+    }
 }
 
 static bool needVarWithShape(VARP var, const std::vector<int>& dims) {
@@ -341,6 +459,7 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Embedding(config) {
         mVisionHeight = config->config_.value("image_size", mVisionHeight);
         mVisionWidth  = mVisionHeight;
         mVisionPad    = config->config_.value("image_pad", mVisionPad);
+        mVideoPad = config->config_.value("video_pad", mVideoPad);
         mVisionStart  = config->config_.value("vision_start", mVisionStart);
         mVisionEnd    = config->config_.value("vision_end", mVisionEnd);
         mVisionMean   = config->config_.value("image_mean", mVisionMean);
@@ -349,6 +468,10 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Embedding(config) {
         mVisionMaxSize = config->config_.value("image_max_size", mVisionMaxSize);
         mVisionGlobal = config->config_.value("global_image", mVisionGlobal);
         mNumGridPerSide = config->config_.value("num_grid_per_side", mNumGridPerSide);
+        mVideoFps = config->config_.value("video_fps", mVideoFps);
+        mVideoMaxFrames = config->config_.value("video_max_frames", mVideoMaxFrames);
+        mVideoMaxPixels = config->config_.value("video_max_pixels", mVideoMaxPixels);
+        mVideoMaxVisionTokens = std::max(1, config->config_.value("video_max_vision_tokens", mVideoMaxVisionTokens));
     }
     if (config->is_audio()) {
         mAudioPad = config->config_.value("audio_pad", mAudioPad);
@@ -1216,11 +1339,314 @@ std::vector<int> Omni::minicpmVisionProcess(VARP image) {
 }
 #endif
 
+std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const std::vector<float>& timestamps) {
+#ifdef LLM_SUPPORT_VISION
+    if (frames.empty()) {
+        MNN_PRINT("Omni video has no decoded frames\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    if (mVideoPad < 0) {
+        MNN_PRINT("Omni video_pad is missing in llm_config.json\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    const auto inputNames = mVisionModule->getInfo()->inputNames;
+    bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
+    if (inputNames.size() < 3 || inputNames[0] != "patches") {
+        MNN_PRINT("Omni video is only supported for Qwen-style patch visual models\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    MNN::Express::ExecutorScope s(mExecutor);
+    Timer _t;
+    const int patch_size = isQwen3VL ? 16 : 14;
+    constexpr int temporal_patch_size = kQwenVideoTemporalPatchSize;
+    constexpr int merge_size = 2;
+    const int align_size = patch_size * merge_size;
+    int frameCount = qwenVideoAlignedFrameCount(static_cast<int>(frames.size()), mVideoMaxFrames, temporal_patch_size);
+    if (frameCount <= 0) {
+        MNN_PRINT("Omni video requires max_frames >= %d\n", temporal_patch_size);
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    int maxPixels = qwenVideoEffectiveMaxPixels(mVideoMaxPixels, mVideoMaxVisionTokens, frameCount, temporal_patch_size,
+                                                patch_size);
+    auto videoSize = qwenVideoResizeSize(mVisionWidth, mVisionHeight, align_size, maxPixels);
+    mVisionWidth = videoSize.first;
+    mVisionHeight = videoSize.second;
+
+    std::vector<VARP> processedFrames;
+    std::vector<float> frameTimes;
+    frameTimes.reserve(frameCount);
+    for (int i = 0; i < frameCount; ++i) {
+        size_t frameIndex = std::min(static_cast<size_t>(i), frames.size() - 1);
+        auto image = MNN::CV::resize(frames[frameIndex], {mVisionWidth, mVisionHeight}, 0, 0, MNN::CV::INTER_CUBIC,
+                                     MNN::CV::COLOR_BGR2RGB, mVisionMean, mVisionNorm);
+        image = Express::_Unsqueeze(image, {0});
+        image = Express::_Convert(image, NCHW);
+        processedFrames.push_back(image);
+        if (frameIndex < timestamps.size()) {
+            frameTimes.push_back(timestamps[frameIndex]);
+        } else {
+            frameTimes.push_back(static_cast<float>(i) / std::max(mVideoFps, 1.0f));
+        }
+    }
+
+    auto patches = Express::_Concat(processedFrames, 0);
+    auto patchesDim = patches->getInfo()->dim;
+    int temporal = patchesDim[0];
+    int channel = patchesDim[1];
+    int height = patchesDim[2];
+    int width = patchesDim[3];
+    int grid_t = temporal / temporal_patch_size;
+    int grid_h = height / patch_size;
+    int grid_w = width / patch_size;
+    int numPatchesPerFrame = grid_h * grid_w;
+
+    patches = Express::_Reshape(patches, {
+                                             grid_t,
+                                             temporal_patch_size,
+                                             channel,
+                                             grid_h / merge_size,
+                                             merge_size,
+                                             patch_size,
+                                             grid_w / merge_size,
+                                             merge_size,
+                                             patch_size,
+                                         });
+    patches = Express::_Permute(patches, {0, 3, 6, 4, 7, 2, 1, 5, 8});
+    patches =
+        Express::_Reshape(patches, {grid_t * grid_h * grid_w, channel * temporal_patch_size * patch_size * patch_size});
+
+    const int seqLen = grid_t * grid_h * grid_w;
+    if (seqLen > mVideoMaxVisionTokens) {
+        MNN_PRINT("Omni video visual tokens %d exceed video_max_vision_tokens %d\n", seqLen, mVideoMaxVisionTokens);
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    const int wblockSize = merge_size * merge_size;
+    const int hblockSize = wblockSize * grid_w / merge_size;
+    VARP positionIds = Express::_Input({2, seqLen}, NCHW, halide_type_of<int>());
+    auto hposPtr = positionIds->writeMap<int>();
+    auto wposPtr = hposPtr + seqLen;
+    for (int t = 0; t < grid_t; ++t) {
+        int timeOffset = t * numPatchesPerFrame;
+        for (int i = 0; i < grid_h; i++) {
+            int hIdx = i / merge_size, hOff = i % merge_size;
+            for (int j = 0; j < grid_w; j++) {
+                int wIdx = j / merge_size, wOff = j % merge_size;
+                int index = timeOffset + hIdx * hblockSize + wIdx * wblockSize + hOff * 2 + wOff;
+                hposPtr[index] = i;
+                wposPtr[index] = j;
+            }
+        }
+    }
+
+    VARP attentionMask = Express::_Input({1, seqLen, seqLen}, NCHW);
+    fillQwenVisionAttentionMask(attentionMask->writeMap<float>(), grid_t, numPatchesPerFrame);
+    VARPS moduleInputs = {patches, positionIds, attentionMask};
+
+    if (isQwen3VL) {
+        const int numGrid = mConfig->config_.value("num_grid_per_side", 1);
+        auto idxTensor = Express::_Input({4, grid_t * numPatchesPerFrame}, NCHW, halide_type_of<int>());
+        auto weightTensor = Express::_Input({4, grid_t * numPatchesPerFrame}, NCHW, halide_type_of<float>());
+        auto idxPtr = idxTensor->writeMap<int>();
+        auto weightPtr = weightTensor->writeMap<float>();
+        for (int t = 0; t < grid_t; ++t) {
+            int timeOffset = t * numPatchesPerFrame;
+            for (int i = 0; i < grid_h; ++i) {
+                float h = grid_h > 1 ? static_cast<float>(i) * (numGrid - 1) / (grid_h - 1) : 0.0f;
+                int hFloor = static_cast<int>(h);
+                int hCeil = std::min(hFloor + 1, numGrid - 1);
+                float dh = h - hFloor;
+                for (int j = 0; j < grid_w; ++j) {
+                    float w = grid_w > 1 ? static_cast<float>(j) * (numGrid - 1) / (grid_w - 1) : 0.0f;
+                    int wFloor = static_cast<int>(w);
+                    int wCeil = std::min(wFloor + 1, numGrid - 1);
+                    float dw = w - wFloor;
+                    int idx = timeOffset + i * grid_w + j;
+                    idxPtr[0 * grid_t * numPatchesPerFrame + idx] = hFloor * numGrid + wFloor;
+                    idxPtr[1 * grid_t * numPatchesPerFrame + idx] = hFloor * numGrid + wCeil;
+                    idxPtr[2 * grid_t * numPatchesPerFrame + idx] = hCeil * numGrid + wFloor;
+                    idxPtr[3 * grid_t * numPatchesPerFrame + idx] = hCeil * numGrid + wCeil;
+                    weightPtr[0 * grid_t * numPatchesPerFrame + idx] = (1.0f - dh) * (1.0f - dw);
+                    weightPtr[1 * grid_t * numPatchesPerFrame + idx] = (1.0f - dh) * dw;
+                    weightPtr[2 * grid_t * numPatchesPerFrame + idx] = dh * (1.0f - dw);
+                    weightPtr[3 * grid_t * numPatchesPerFrame + idx] = dh * dw;
+                }
+            }
+        }
+        idxTensor =
+            Express::_Reshape(idxTensor, {4, grid_t, grid_h / merge_size, merge_size, grid_w / merge_size, merge_size});
+        idxTensor = Express::_Permute(idxTensor, {0, 1, 2, 4, 3, 5});
+        idxTensor = Express::_Reshape(idxTensor, {4, -1});
+        weightTensor = Express::_Reshape(weightTensor,
+                                         {4, grid_t, grid_h / merge_size, merge_size, grid_w / merge_size, merge_size});
+        weightTensor = Express::_Permute(weightTensor, {0, 1, 2, 4, 3, 5});
+        weightTensor = Express::_Reshape(weightTensor, {4, -1});
+        moduleInputs.push_back(idxTensor);
+        moduleInputs.push_back(weightTensor);
+    }
+
+    auto outputs = mVisionModule->onForward(moduleInputs);
+    auto imageEmbedding = outputs[0];
+    VARP deepstackEmbedding = outputs.size() == 2 ? outputs[1] : nullptr;
+    int frameSeqLen = grid_h * grid_w / (merge_size * merge_size);
+    if (imageEmbedding->getInfo()->dim[0] >= grid_t && imageEmbedding->getInfo()->dim[0] % grid_t == 0) {
+        frameSeqLen = imageEmbedding->getInfo()->dim[0] / grid_t;
+    }
+
+    std::vector<int> videoIds;
+    for (int t = 0; t < grid_t; ++t) {
+        float timestamp = 0.0f;
+        for (int i = 0; i < temporal_patch_size; ++i) {
+            timestamp += frameTimes[t * temporal_patch_size + i];
+        }
+        timestamp /= temporal_patch_size;
+        std::ostringstream ts;
+        ts << "<" << std::fixed << std::setprecision(1) << timestamp << " seconds>";
+        auto timestampIds = mTokenizer->encode(ts.str());
+        addPositionIds(timestampIds.size());
+        videoIds.insert(videoIds.end(), timestampIds.begin(), timestampIds.end());
+
+        auto groupEmbedding = Express::_Slice(imageEmbedding, _var<int>({t * frameSeqLen, 0, 0}, {3}),
+                                              _var<int>({frameSeqLen, -1, -1}, {3}));
+        mVisionEmbeddings.push_back(groupEmbedding);
+        if (deepstackEmbedding.get() != nullptr) {
+            mDeepStackEmbeddings.push_back(Express::_Slice(deepstackEmbedding, _var<int>({0, t * frameSeqLen, 0}, {3}),
+                                                           _var<int>({-1, frameSeqLen, -1}, {3})));
+        }
+        addPositionIds(1, grid_h / merge_size, grid_w / merge_size);
+        videoIds.push_back(mVisionStart);
+        videoIds.insert(videoIds.end(), frameSeqLen, mVideoPad);
+        videoIds.push_back(mVisionEnd);
+    }
+    bool async = mConfig->config_.value("async", true);
+    if (!async) {
+        for (auto& embd : mVisionEmbeddings) {
+            embd->readMap<float>();
+        }
+    }
+    mContext->vision_us += _t.durationInUs();
+    mContext->pixels_mp += processedFrames.size() * (mVisionWidth / 1000.0f) * (mVisionHeight / 1000.0f);
+    return videoIds;
+#else
+    MNN_PRINT("Omni video requires LLM_SUPPORT_VISION\n");
+    mContext->status = LlmStatus::INTERNAL_ERROR;
+    return std::vector<int>(0);
+#endif
+}
+
+
 std::vector<int> Omni::visionProcess(const std::string& file) {
 #if defined(LLM_SUPPORT_VISION) && defined(MNN_IMGCODECS)
     VARP image = MNN::CV::imread(file);
     return visionProcess(image);
 #else
+    return std::vector<int>(0);
+#endif
+}
+
+std::vector<int> Omni::videoProcess(const PromptVideoPart& video) {
+    if (!video.frames.empty()) {
+        int oldVisionHeight = mVisionHeight;
+        int oldVisionWidth = mVisionWidth;
+        if (video.width > 0 && video.height > 0) {
+            mVisionWidth = video.width;
+            mVisionHeight = video.height;
+        }
+        float oldFps = mVideoFps;
+        int oldMaxFrames = mVideoMaxFrames;
+        mVideoFps = video.fps > 0.0f ? video.fps : mVideoFps;
+        mVideoMaxFrames = video.max_frames > 0 ? video.max_frames : mVideoMaxFrames;
+        auto ids = qwenVideoProcess(video.frames, video.timestamps);
+        mVideoFps = oldFps;
+        mVideoMaxFrames = oldMaxFrames;
+        mVisionHeight = oldVisionHeight;
+        mVisionWidth = oldVisionWidth;
+        return ids;
+    }
+    if (!video.file_path.empty()) {
+        return videoProcess(video.file_path);
+    }
+    MNN_PRINT("Omni video part has no frames or file path\n");
+    mContext->status = LlmStatus::INTERNAL_ERROR;
+    return std::vector<int>(0);
+}
+
+std::vector<int> Omni::videoProcess(const std::string& file) {
+#if defined(LLM_SUPPORT_VISION) && defined(MNN_LLM_VIDEOIO_OPENCV)
+    cv::VideoCapture cap(file);
+    if (!cap.isOpened()) {
+        MNN_PRINT("Omni Can't open video: %s\n", file.c_str());
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
+    }
+    double nativeFps = cap.get(cv::CAP_PROP_FPS);
+    if (nativeFps <= 0.0) {
+        nativeFps = 24.0;
+    }
+    int totalFrames = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
+    auto sampleIndices = qwenVideoSampleIndices(totalFrames, nativeFps, mVideoFps, 4, mVideoMaxFrames);
+    std::vector<VARP> frames;
+    std::vector<float> timestamps;
+    int frameIdx = 0;
+    int sampleIdx = 0;
+    int oldVisionHeight = mVisionHeight;
+    int oldVisionWidth = mVisionWidth;
+    const auto inputNames = mVisionModule->getInfo()->inputNames;
+    bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
+    const int patchSize = isQwen3VL ? 16 : 14;
+    const int alignSize = patchSize * 2;
+    int frameCount = qwenVideoAlignedFrameCount(static_cast<int>(sampleIndices.size()), mVideoMaxFrames,
+                                                kQwenVideoTemporalPatchSize);
+    bool hasVideoSize = false;
+    cv::Mat frame;
+    while (sampleIdx < sampleIndices.size() && cap.read(frame)) {
+        if (frameIdx == sampleIndices[sampleIdx] && !frame.empty()) {
+            cv::Mat bgr = frame;
+            if (frame.channels() == 4) {
+                cv::cvtColor(frame, bgr, cv::COLOR_BGRA2BGR);
+            } else if (frame.channels() == 1) {
+                cv::cvtColor(frame, bgr, cv::COLOR_GRAY2BGR);
+            }
+            if (!bgr.isContinuous()) {
+                bgr = bgr.clone();
+            }
+            if (!hasVideoSize) {
+                int maxPixels = qwenVideoEffectiveMaxPixels(mVideoMaxPixels, mVideoMaxVisionTokens, frameCount,
+                                                            kQwenVideoTemporalPatchSize, patchSize);
+                auto videoSize = qwenVideoResizeSize(bgr.cols, bgr.rows, alignSize, maxPixels);
+                mVisionWidth = videoSize.first;
+                mVisionHeight = videoSize.second;
+                hasVideoSize = true;
+            }
+            cv::Mat resizedBgr = bgr;
+            if (bgr.cols != mVisionWidth || bgr.rows != mVisionHeight) {
+                cv::resize(bgr, resizedBgr, cv::Size(mVisionWidth, mVisionHeight), 0, 0, cv::INTER_CUBIC);
+            }
+            if (!resizedBgr.isContinuous()) {
+                resizedBgr = resizedBgr.clone();
+            }
+            while (sampleIdx < sampleIndices.size() && frameIdx == sampleIndices[sampleIdx]) {
+                auto var = Express::_Input({resizedBgr.rows, resizedBgr.cols, 3}, NHWC, halide_type_of<uint8_t>());
+                ::memcpy(var->writeMap<uint8_t>(), resizedBgr.data, resizedBgr.total() * resizedBgr.elemSize());
+                frames.push_back(var);
+                timestamps.push_back(static_cast<float>(frameIdx / nativeFps));
+                sampleIdx++;
+            }
+        }
+        frameIdx++;
+    }
+    cap.release();
+    auto ids = qwenVideoProcess(frames, timestamps);
+    mVisionHeight = oldVisionHeight;
+    mVisionWidth = oldVisionWidth;
+    return ids;
+#else
+    MNN_PRINT("Omni video decode unsupported: build with MNN_LLM_VIDEOIO_OPENCV=ON and OpenCV videoio\n");
+    mContext->status = LlmStatus::INTERNAL_ERROR;
     return std::vector<int>(0);
 #endif
 }
@@ -1462,6 +1888,9 @@ std::vector<int> Omni::multimodeProcess(const std::string& mode, std::string inf
     if (mode == "audio" && mConfig->is_audio()) {
         return audioProcess(file_info);
     }
+    if (mode == "video" && mConfig->is_visual()) {
+        return videoProcess(file_info);
+    }
     return std::vector<int>(0);
 }
 
@@ -1514,12 +1943,18 @@ void Omni::addPositionIds(int t, int h, int w) {
 
 std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
     std::string prompt = multimodal_input.prompt_template;
-    std::regex multimode_regex("<(img|audio)>(.*?)</\\1>");
+    std::regex multimode_regex(kOmniMultimodalRegex);
     std::string::const_iterator searchStart(prompt.cbegin());
     std::smatch match;
     std::vector<int> ids{};
     mPositionIds.clear();
+    mVisionEmbeddings.clear();
+    mAudioEmbeddings.clear();
+    mDeepStackEmbeddings.clear();
     mVisionNum = 0;
+    if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
+        mExtraArgs[0] = Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0));
+    }
 
     while (std::regex_search(searchStart, prompt.cend(), match, multimode_regex)) {
         auto txt_ids = mTokenizer->encode(match.prefix().str(), false);
@@ -1532,6 +1967,8 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
             mul_ids = processImageContent(content, multimodal_input.images);
         } else if (mode == "audio") {
             mul_ids = processAudioContent(content, multimodal_input.audios);
+        } else if (mode == "video") {
+            mul_ids = processVideoContent(content, multimodal_input.videos);
         }
 
         ids.insert(ids.end(), mul_ids.begin(), mul_ids.end());
@@ -1595,6 +2032,15 @@ std::vector<int> Omni::processAudioContent(const std::string& content, const std
     return multimodeProcess("audio", content);
 }
 
+std::vector<int> Omni::processVideoContent(const std::string& content,
+                                           const std::map<std::string, PromptVideoPart>& videos) {
+    auto it = videos.find(content);
+    if (it != videos.end()) {
+        return videoProcess(it->second);
+    }
+    return multimodeProcess("video", content);
+}
+
 VARP Omni::embedding(const std::vector<int>& input_ids) {
     MNN::Express::ExecutorScope s(mExecutor);
     bool hasMultimodalEmbeds = !mVisionEmbeddings.empty() || !mAudioEmbeddings.empty();
@@ -1614,7 +2060,7 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
         // Replace vision/audio pad tokens with pad_token_id=0 for PLE
         std::vector<int> ple_ids = input_ids;
         for (auto& id : ple_ids) {
-            if (id == mVisionPad || id == mAudioPad) {
+            if (id == mVisionPad || id == mAudioPad || id == mVideoPad) {
                 id = 0; // pad_token_id
             }
         }
@@ -1629,7 +2075,7 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     std::vector<int> position_ids;
     int vision_idx = 0, audio_idx = 0;
     std::vector<int> cur_txt_ids;
-    bool inVision = false, inAudio = false;
+    bool inVision = false, inAudio = false, inVideo = false;
     bool hasDeepStack = !mDeepStackEmbeddings.empty();
     std::vector<int> deepstackShape;
     if (hasDeepStack) {
@@ -1683,6 +2129,29 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             embeddings.push_back(txt_embedding);
             embeddings.push_back(mul_embedding);
             inVision = true;
+        }
+        // video
+        if (inVideo) {
+            if (id == mVideoPad) {
+                continue;
+            } else {
+                cur_txt_ids.clear();
+                inVideo = false;
+            }
+        } else if (mVideoPad >= 0 && id == mVideoPad) {
+            auto txt_embedding = Llm::embedding(cur_txt_ids);
+            if (txt_embedding == nullptr) {
+                return nullptr;
+            }
+            if (hasDeepStack) {
+                deepstacksTxt();
+                auto deepstack_embedding = mDeepStackEmbeddings[vision_idx];
+                deepstacks.push_back(deepstack_embedding);
+            }
+            auto mul_embedding = mVisionEmbeddings[vision_idx++];
+            embeddings.push_back(txt_embedding);
+            embeddings.push_back(mul_embedding);
+            inVideo = true;
         }
         cur_txt_ids.push_back(id);
     }
@@ -2240,7 +2709,11 @@ bool Talker::load() {
         mContext->status = LlmStatus::RUNNING;
         return true;
     }
-    set_config("{\"sampler_type\": \"mixed\", \"temperature\": 0.9, \"topK\": 40, \"topP\": 0.8, \"penalty\": 1.05}");
+    // Talker codec tokens need a minimal sampler pipeline; default mixed_samplers includes
+    // tfs/typical/min_p which over-filter the codec distribution causing greedy collapse.
+    set_config(
+        "{\"sampler_type\": \"mixed\", \"mixed_samplers\": [\"penalty\", \"topK\", \"topP\", \"temperature\"], "
+        "\"temperature\": 0.9, \"topK\": 40, \"topP\": 0.8, \"penalty\": 1.05, \"penalty_window\": 64}");
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
     // some embeddings
@@ -2268,11 +2741,30 @@ bool Talker::load() {
         return false;
     }
     auto module_runtime = mProcessorRuntimeManager ? mProcessorRuntimeManager : mRuntimeManager;
+    auto dit_runtime = module_runtime;
+    // DiT requires fp32 precision on GPU backends; fp16 causes numerical collapse
+    // (ODE solver iterates 4 steps, each step's error accumulates → output all zeros).
+    auto processorBackendType = backend_type_convert(mConfig->backend_type(true));
+    if (processorBackendType == MNN_FORWARD_OPENCL || processorBackendType == MNN_FORWARD_METAL ||
+        processorBackendType == MNN_FORWARD_VULKAN || processorBackendType == MNN_FORWARD_CUDA) {
+        ScheduleConfig ditSchedConfig;
+        BackendConfig ditBackendConfig;
+        ditBackendConfig.precision = BackendConfig::Precision_High;
+        ditBackendConfig.memory = BackendConfig::Memory_Low;
+        ditSchedConfig.type = processorBackendType;
+        ditSchedConfig.numThread = mConfig->thread_num(true);
+        if (processorBackendType == MNN_FORWARD_OPENCL) {
+            ditSchedConfig.numThread |= 64;  // buffer mode
+            ditSchedConfig.numThread |= 512; // tuning
+        }
+        ditSchedConfig.backendConfig = &ditBackendConfig;
+        dit_runtime.reset(Executor::RuntimeManager::createRuntimeManager(ditSchedConfig));
+    }
     // dit
     mPreDit.reset(Module::load({"cond", "spk", "code"}, {"code_embeds", "rope", "mask"},
                                 mConfig->predit_model().c_str(), module_runtime, &module_config));
-    mDit.reset(Module::load({"x", "code_embeds", "rope", "mask", "time"}, {"mel"},
-                            mConfig->dit_model().c_str(), module_runtime, &module_config));
+    mDit.reset(Module::load({"x", "code_embeds", "rope", "mask", "time"}, {"mel"}, mConfig->dit_model().c_str(),
+                            dit_runtime, &module_config));
     // bigvgan
     mBigvgan.reset(Module::load({"generated_mel"},
                                 {"waveform"}, mConfig->bigvgan_model().c_str(), module_runtime, &module_config));
@@ -2284,7 +2776,13 @@ bool Talker::load() {
         return false;
     }
     mAsyncToken2Wav = (module_runtime.get() != mRuntimeManager.get());
-    
+    // GPU backends don't support cross-thread async token2wav; run synchronously.
+    auto talkerBackend = backend_type_convert(mConfig->backend_type());
+    if (talkerBackend == MNN_FORWARD_OPENCL || talkerBackend == MNN_FORWARD_METAL ||
+        talkerBackend == MNN_FORWARD_VULKAN || talkerBackend == MNN_FORWARD_CUDA) {
+        mAsyncToken2Wav = false;
+    }
+
     if (mAsyncToken2Wav && doGenerate()) {
         startAsyncWorker();
     }
@@ -2492,6 +2990,13 @@ void Talker::ditWorkerLoop() {
     BackendConfig backendConfig;
     auto forwardType = backend_type_convert(mConfig->backend_type(true));
     int numThread = mConfig->thread_num(true);
+    if (forwardType == 3) {
+        // OpenCL: force buffer memory mode (|64) + tuning (|512), matching Llm::initRuntime / Omni::load.
+        // Without this the async executor defaults to IMAGE mode on non-MALI/INTEL GPUs (e.g. Adreno),
+        // and the buffer-only quantized conv passes image tensors to __global args -> CL_INVALID_MEM_OBJECT.
+        numThread |= 64;
+        numThread |= 512;
+    }
     auto executor = Express::Executor::newExecutor(forwardType, backendConfig, numThread);
     Express::ExecutorScope scope(executor);
     mPreDit_async.reset(Module::clone(mPreDit.get()));
@@ -2556,6 +3061,11 @@ void Talker::vocoderWorkerLoop() {
     BackendConfig backendConfig;
     auto forwardType = backend_type_convert(mConfig->backend_type(true));
     int numThread = mConfig->thread_num(true);
+    if (forwardType == 3) {
+        // OpenCL: force buffer memory mode (|64) + tuning (|512); see ditWorkerLoop for rationale.
+        numThread |= 64;
+        numThread |= 512;
+    }
     auto executor = Express::Executor::newExecutor(forwardType, backendConfig, numThread);
     Express::ExecutorScope scope(executor);
     mBigvgan_async.reset(Module::clone(mBigvgan.get()));

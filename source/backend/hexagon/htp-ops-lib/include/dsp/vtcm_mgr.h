@@ -15,6 +15,7 @@ int vtcm_manager_is_acquired();
 int vtcm_manager_needs_release();
 
 void *vtcm_manager_get_vtcm_base();
+unsigned int vtcm_manager_get_vtcm_size();
 int vtcm_manager_get_ctx_id();
 
 void *vtcm_manager_reserve_area(const char *name, size_t size, size_t alignment);

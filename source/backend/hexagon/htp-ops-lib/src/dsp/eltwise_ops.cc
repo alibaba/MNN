@@ -161,6 +161,8 @@ static inline int32_t htp_ops_binary_apply_int32(int32_t a, int32_t b, int opTyp
       return a - b;
     case HTP_OPS_BINARY_MUL:
       return a * b;
+    case HTP_OPS_BINARY_DIV:
+      return b != 0 ? a / b : 0;
     case HTP_OPS_BINARY_SQUARED_DIFFERENCE: {
       int32_t v = a - b;
       return v * v;

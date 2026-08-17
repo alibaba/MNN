@@ -171,7 +171,6 @@ __kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
     INPUT_TYPE_I local sum_mnn[LOCAL_SIZE];
     INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
     INPUT_TYPE_I4 in;
-    INPUT_TYPE_I *inPtr = (INPUT_TYPE_I*)&in;
     for(int i = lid; i < inputChannelBlock - 1; i += LOCAL_SIZE){
         in = RI_DATA(input, SAMPLER, (int2)(i*inputWidth+wc, bh));
         out = OPERATE(out, in);
@@ -188,9 +187,10 @@ __kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
     }
     out.x = sum_mnn[0];
     in = RI_DATA(input, SAMPLER, (int2)((inputChannelBlock - 1)*inputWidth+wc, bh));
-    for(int j = 0; j < remain; ++j){
-        out.x = OPERATE(out.x, inPtr[j]);
-    }
+    out.x = OPERATE(out.x, in.x);
+    if(remain > 1) { out.x = OPERATE(out.x, in.y); }
+    if(remain > 2) { out.x = OPERATE(out.x, in.z); }
+    if(remain > 3) { out.x = OPERATE(out.x, in.w); }
 #ifdef GET_AVG
     out.x = out.x / inputChannel;
 #endif
@@ -209,18 +209,19 @@ __kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
     
     INPUT_TYPE_I out = (INPUT_TYPE_I)VALUE;
     INPUT_TYPE_I4 in;
-    INPUT_TYPE_I *inPtr = (INPUT_TYPE_I*)&in;
-    
+
     for(int i = 0; i < inputChannelBlock - 1; ++i){
         in = RI_DATA(input, SAMPLER, (int2)(i*inputWidth+wc, bh));
-        for(int j = 0; j < 4; ++j){
-            out = OPERATE(out, inPtr[j]);
-        }
+        out = OPERATE(out, in.x);
+        out = OPERATE(out, in.y);
+        out = OPERATE(out, in.z);
+        out = OPERATE(out, in.w);
     }
     in = RI_DATA(input, SAMPLER, (int2)((inputChannelBlock - 1)*inputWidth+wc, bh));
-    for(int j = 0; j < remain; ++j){
-        out = OPERATE(out, inPtr[j]);
-    }
+    out = OPERATE(out, in.x);
+    if(remain > 1) { out = OPERATE(out, in.y); }
+    if(remain > 2) { out = OPERATE(out, in.z); }
+    if(remain > 3) { out = OPERATE(out, in.w); }
 #ifdef GET_AVG
     out = out / inputChannel;
 #endif

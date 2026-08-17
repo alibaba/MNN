@@ -89,6 +89,13 @@ private:
     // (FUSED_Q4_REAL_UNPACK), skipping the dequant pre-pass and mTempWeight.
     // Kill-switch: MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1.
     bool mFusedQ4 = false;
+    // K-split x4 for TG-starved speculative-verify shapes; fp32 partials land in
+    // mKsplitPartial and are summed by mKsplitReducePipeline.
+    bool mUseFusedKsplit = false;
+    bool mKsplitM8 = false;   // ksplit uses the M8 tile
+    id<MTLComputePipelineState> mKsplitReducePipeline = nil;
+    std::shared_ptr<Tensor> mKsplitPartial;
+    std::pair<MTLSize, MTLSize> mKsplitReduceThreads;
     // M=64 tile variant of the fused Q4 GEMM (conv1x1_fused_q4_gemm_stage_m64).
     // Halves grid.x for prefill (M_TILE=64 vs baseline M_TILE=32) — cuts
     // weight-read redundancy across TGs in half. Auto: fused + Q4 + area >= 128.

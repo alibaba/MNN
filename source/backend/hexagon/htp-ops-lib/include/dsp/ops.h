@@ -16,9 +16,27 @@ extern "C" {
 
 #define __vtcm  // only a hint, no real effect
 
-int hmx_matmulq4fp16(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale, const uint8_t * bias, int m, int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric);
-int hmx_matmulq4fp16_mle32(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale, const uint8_t * bias, int m, int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric);
-int hmx_matmulq4blockfp16_mle32(uint8_t * c, const uint8_t * a, const uint8_t * b, const uint8_t * b_scale, const uint8_t * bias, int m, int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric);
+// weight_is_vrmpy (Path A): when nonzero, `b` holds the vrmpy-layout int4 weight and
+// `b_scale` the fp32 vrmpy block scales; the kernel reorders each tile to HMX and
+// repacks the scale on-DSP. 0 = classic HMX-layout weight + fp16 scales.
+int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias, int m,
+                     int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric,
+                     int weight_is_vrmpy);
+int hmx_matmulq4fp16_mle32(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias,
+                           int m, int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric,
+                           int weight_is_vrmpy);
+int hmx_matmulq4blockfp16_mle32(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale,
+                                const uint8_t *bias, int m, int k, int n, int mp, int np, int kp, int scale_block_num,
+                                int scale_asymmetric, int weight_is_vrmpy);
+// Decode GEMV (M=1) integer path: symmetric int8 activation x symmetric int4 weight (vrmpy).
+// b = vrmpy-packed int4 weight; b_scale = per-oc-tile fp32 block scales; output fp16 linear.
+int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale,
+                              const uint8_t *bias, int K, int N, int scale_block_num);
+// Decode GEMV (M=1) W8A16 integer path: symmetric int8 activation x symmetric int8 block-64 weight (vrmpy).
+// b = int8 weight in the existing HMX tile layout (host reorderInt8SymWeightForHmx);
+// b_scale = separate per-oc-tile fp32 block scales; output fp16 linear.
+int hmx_matmulw8a16block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale,
+                                 const uint8_t *bias, int K, int N, int scale_block_num);
 int hvx_tmac_a16w1_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight, const float *scale,
                         const uint8_t *bias, int m, int ic, int oc, int scale_block_num,
                         int scale_asymmetric, int output_bytes);
@@ -54,6 +72,8 @@ typedef struct HmxIm2ColConvParam {
     int32_t relu6;
     int32_t batch;
     int32_t outputBytes;
+    int32_t         scaleBlockNum;
+    int32_t         scaleAsymmetric;
 } HmxIm2ColConvParam;
 
 typedef struct WeightReorderParam {
@@ -67,8 +87,17 @@ int hmx_im2col_convolution_fp16(uint8_t *dst, const uint8_t *src, const uint8_t 
                                 const HmxIm2ColConvParam* params);
 int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
                                              const uint8_t *bias, const HmxIm2ColConvParam* params);
+int hmx_matmul_w8a16_block_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight, const uint8_t *bias,
+                                const HmxIm2ColConvParam *params);
 int htp_ops_conv1x1_direct_fp16(uint8_t* output, uint8_t* input, uint8_t* weight, uint8_t* bias,
                                 const HmxIm2ColConvParam* params);
+int htp_ops_vision_attention_fp16(uint8_t *output, const uint8_t *query, const uint8_t *key, const uint8_t *value,
+                                  const uint8_t *mask, uint8_t *workspace, int batch, int tokens, int heads,
+                                  int headDim, float scale, int maskStride, int workspaceBytes);
+int htp_ops_vision_flash_attention_fp16(uint8_t *output, const uint8_t *query, const uint8_t *key, const uint8_t *value,
+                                        const uint8_t *mask, uint8_t *workspace, int batch, int tokens, int heads,
+                                        int headDim, float scale, int maskStride, int workspaceBytes);
+#if defined(__hexagon__) || defined(__arm__) || defined(__aarch64__)
 int hvx_pool2d_fp16(__fp16 *restrict dst, const __fp16 *restrict src,
                    int batch, int ih, int iw, int oh, int ow, int c4,
                    int kernelY, int kernelX, int strideY, int strideX,
@@ -79,6 +108,7 @@ int hvx_conv_depthwise2d_fp16(__fp16 *restrict dst, const __fp16 *restrict src,
                               int batch, int ih, int iw, int oh, int ow, int c4,
                               int kernelY, int kernelX, int strideY, int strideX,
                               int padY, int padX, int dilateY, int dilateX, int relu, int relu6);
+#endif
 
 #ifdef __cplusplus
 }

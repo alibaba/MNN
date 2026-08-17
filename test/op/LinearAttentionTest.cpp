@@ -13,6 +13,7 @@
 #include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/expr/Module.hpp>
 #include "core/OpCommonUtils.hpp"
+#include "core/KVMeta.hpp"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include <cmath>
@@ -1030,30 +1031,10 @@ public:
 
 MNNTestSuiteRegister(LinearAttentionDecodeTest, "op/linear_attention_decode");
 
-// ─── Local mirror of MNN::Transformer::KVMeta (must match layout) ───
-// Used to drive the rollback signal mMeta->remove without depending on the
-// internal Llm header. See test/op/AttentionTest.cpp for the same pattern.
-struct LATestKVMeta {
-    enum { NoChange, PendingWrite, PendingRead } file_operation;
-    size_t block = 4096;
-    size_t previous = 0;
-    size_t remove = 0;
-    int* reserve = nullptr;
-    int n_reserve = 0;
-    size_t add = 0;
-    std::string file_name = "";
-    int file_flag = NoChange;
-    int seqlen_in_disk = 0;
-    int layer_index = 0;
-    int layer_nums = 0;
-    std::vector<int> reserveHost;
-};
-
-// Variant of _makeLinearAttentionModule that wires a caller-owned KVMeta
-// pointer via the runtime KVCACHE_INFO hint. The CPULinearAttention op reads
-// this through backend->getMetaPtr() in its constructor.
+// Wires a caller-owned KVMeta through the KVCACHE_INFO hint; must be the real
+// MNN::KVMeta, since a local mirror would be read past its end.
 static std::shared_ptr<Module> _makeLinearAttentionModuleWithMeta(int numKHeads, int numVHeads, int headKDim,
-                                                                  int headVDim, bool useL2Norm, LATestKVMeta* meta) {
+                                                                  int headVDim, bool useL2Norm, MNN::KVMeta* meta) {
     auto qkv = _Input();
     auto gate = _Input();
     auto beta = _Input();
@@ -1140,7 +1121,7 @@ public:
         fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
 
         // ─── Module A: prefill(X) -> simulate eraseHistory -> prefill(Y) ───
-        LATestKVMeta metaA;
+        MNN::KVMeta metaA;
         auto moduleA = _makeLinearAttentionModuleWithMeta(numKHeads, numVHeads, headKDim, headVDim, true, &metaA);
         if (!moduleA) {
             MNN_PRINT("RollbackTest: failed to create moduleA\n");
@@ -1194,7 +1175,7 @@ public:
         }
 
         // ─── Module B: fresh prefill(Y) baseline ───
-        LATestKVMeta metaB;
+        MNN::KVMeta metaB;
         auto moduleB = _makeLinearAttentionModuleWithMeta(numKHeads, numVHeads, headKDim, headVDim, true, &metaB);
         if (!moduleB) {
             MNN_PRINT("RollbackTest: failed to create moduleB\n");
@@ -1302,9 +1283,9 @@ public:
         //     advanced the counter).
         //   - previous = 0, remove = 0 marks "first chunk" — the per-session
         //     capture-and-advance block should fire on this call only.
-        LATestKVMeta meta;
+        MNN::KVMeta meta;
         meta.file_name = "test_chunked_layer_index";
-        meta.file_flag = LATestKVMeta::PendingWrite;
+        meta.file_flag = MNN::KVMeta::PendingWrite;
         meta.layer_index = kInitialLayerIndex;
         meta.layer_nums = kLayerNums;
         meta.previous = 0;
@@ -1439,9 +1420,9 @@ public:
         // Construct meta where PendingWrite fires but the capture-and-advance
         // condition fails (previous != remove). 4/2 mimics a partial
         // eraseHistory(begin=2, end=4) followed by a forced cache write.
-        LATestKVMeta meta;
+        MNN::KVMeta meta;
         meta.file_name = cacheName;
-        meta.file_flag = LATestKVMeta::PendingWrite;
+        meta.file_flag = MNN::KVMeta::PendingWrite;
         meta.layer_index = kInitialLayerIndex;
         meta.layer_nums = kLayerNums;
         meta.previous = 4;

@@ -233,6 +233,57 @@ static inline void attn_store_output_linear_fp32(uint8_t* c, __fp16* vtcm_output
   }
 }
 
+// fp16 store of the QK scores (ATTN_SCORES_FP16). Writes scores as fp16 instead of expanding fp16->fp32
+// (halves the store bytes + the softmax read traffic). To keep stores as full aligned-friendly 128-byte
+// vmemu (like the fp32 store), it batches TWO oy tiles (64 columns) per row into one 128-byte fp16 vmemu,
+// rebuilding each row's 64 cols from the two tiles' lo/hi halves via vmux+vror. An odd trailing oy falls
+// back to 32-fp16 partial stores. No extra precision loss: HMX already consumed fp16.
+static inline void sync_attention_store_fp16_tail(__fp16 *dst, HVX_Vector value, int elems);
+
+static inline void attn_store_output_linear_fp16(uint8_t *c, __fp16 *vtcm_output, int oy_start, int oy_end, int ox,
+                                                 int N, int valid_xi, int output_stride, int output_row_offset) {
+  int            c_stride = output_stride > 0 ? output_stride : N;
+  __fp16        *cf       = (__fp16 *) c;
+  const int      row_base = output_row_offset + ox * 32;
+  int            xi_limit = valid_xi & ~1;
+  HVX_VectorPred q_lo64   = Q6_Q_vsetq_R(64);
+  int            oy       = oy_start;
+  for (; oy <= oy_end - 2; oy += 2) {
+    HVX_Vector *src_ptr0 = (HVX_Vector *) (vtcm_output + (oy - oy_start) * 1024);
+    HVX_Vector *src_ptr1 = (HVX_Vector *) (vtcm_output + (oy + 1 - oy_start) * 1024);
+    int         col      = oy * 32;
+    int         xi       = 0;
+    for (; xi < xi_limit; xi += 2) {
+      HVX_Vector d0                                             = Q6_Vh_vdeal_Vh(*src_ptr0++);
+      HVX_Vector d1                                             = Q6_Vh_vdeal_Vh(*src_ptr1++);
+      HVX_Vector row0                                           = Q6_V_vmux_QVV(q_lo64, d0, Q6_V_vror_VR(d1, 64));
+      HVX_Vector row1                                           = Q6_V_vmux_QVV(q_lo64, Q6_V_vror_VR(d0, 64), d1);
+      vmemu(cf + (size_t) (row_base + xi) * c_stride + col)     = row0;
+      vmemu(cf + (size_t) (row_base + xi + 1) * c_stride + col) = row1;
+    }
+    if (xi < valid_xi) {
+      HVX_Vector d0                                         = Q6_Vh_vdeal_Vh(*src_ptr0++);
+      HVX_Vector d1                                         = Q6_Vh_vdeal_Vh(*src_ptr1++);
+      HVX_Vector row0                                       = Q6_V_vmux_QVV(q_lo64, d0, Q6_V_vror_VR(d1, 64));
+      vmemu(cf + (size_t) (row_base + xi) * c_stride + col) = row0;
+    }
+  }
+  if (oy < oy_end) {
+    HVX_Vector *src_ptr = (HVX_Vector *) (vtcm_output + (oy - oy_start) * 1024);
+    int         col     = oy * 32;
+    int         xi      = 0;
+    for (; xi < xi_limit; xi += 2) {
+      HVX_Vector d = Q6_Vh_vdeal_Vh(*src_ptr++);
+      sync_attention_store_fp16_tail(cf + (size_t) (row_base + xi) * c_stride + col, d, 32);
+      sync_attention_store_fp16_tail(cf + (size_t) (row_base + xi + 1) * c_stride + col, Q6_V_vror_VR(d, 64), 32);
+    }
+    if (xi < valid_xi) {
+      HVX_Vector d = Q6_Vh_vdeal_Vh(*src_ptr++);
+      sync_attention_store_fp16_tail(cf + (size_t) (row_base + xi) * c_stride + col, d, 32);
+    }
+  }
+}
+
 static inline void run_locked_attn_hmx_matmul(uint8_t* c, const uint8_t* a, const uint8_t* b, int M, int K, int N, int max_K,
                                               int a_stride, int outputLayoutType, float outputScale, int weightLayoutType,
                                               int kv_head, int n_kv_heads) {

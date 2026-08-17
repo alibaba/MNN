@@ -194,135 +194,153 @@ static inline int8_t load_int8_hmx_weight_value(const int8_t* weight, int32_t ic
     return weight[offset];
 }
 
-static void shared_gather_int8(__fp16* outputFp16, float* outputFp32, const int32_t* indices, const uint8_t* weight_ptr,
-                               int32_t selectSize, int32_t ic, int32_t oc, int32_t bytes) {
-    const int32_t icP = (ic + 31) / 32;
-    const int32_t ocP = (oc + 31) / 32;
-    const size_t weightBytes = (size_t)ocP * icP * 32 * 32;
-    const int8_t* weight = reinterpret_cast<const int8_t*>(weight_ptr);
-    const __fp16* scales = reinterpret_cast<const __fp16*>(weight_ptr + weightBytes);
+static void shared_gather_int8(__fp16 *outputFp16, float *outputFp32, const int32_t *indices, const uint8_t *weight_ptr,
+                               int32_t selectSize, int32_t ic, int32_t oc, int32_t bytes, int32_t scaleBlockNum,
+                               int32_t scaleAsymmetric) {
+  const int32_t icP         = (ic + 31) / 32;
+  const int32_t ocP         = (oc + 31) / 32;
+  const size_t  weightBytes = (size_t) ocP * icP * 32 * 32;
+  const int8_t *weight      = reinterpret_cast<const int8_t *>(weight_ptr);
+  const __fp16 *scales      = reinterpret_cast<const __fp16 *>(weight_ptr + weightBytes);
+  if (scaleBlockNum <= 0) {
+    scaleBlockNum = 1;
+  }
+  const int32_t scaleUnit = scaleAsymmetric ? 128 : (scaleBlockNum > 1 ? 64 : 32);
 
-    if (bytes == 2) {
-        __fp16* output = reinterpret_cast<__fp16*>(outputFp16);
-        for (int i = 0; i < selectSize; ++i) {
-            __fp16* dstRow = output + (size_t)i * ic;
-            const int32_t index = indices[i];
-            if (index < 0 || index >= oc) {
-                memset(dstRow, 0, (size_t)ic * sizeof(__fp16));
-                continue;
-            }
-            const __fp16 scale = scales[index];
-            for (int c = 0; c < ic; ++c) {
-                dstRow[c] = (__fp16)load_int8_hmx_weight_value(weight, icP, index, c) * scale;
-            }
-        }
-        return;
+  auto dequant = [&](int32_t index, int32_t channel) -> float {
+    if (scaleBlockNum == 1 && !scaleAsymmetric) {
+      return (float) load_int8_hmx_weight_value(weight, icP, index, channel) * (float) scales[index];
     }
+    const int32_t tileY      = index / 32;
+    const int32_t lane       = index % 32;
+    const int32_t scaleIndex = (channel * scaleBlockNum) / ic;
+    const __fp16 *blockScale = scales + ((size_t) tileY * scaleBlockNum + scaleIndex) * scaleUnit;
+    const float   scale      = (float) blockScale[2 * lane];
+    const float   offset     = scaleAsymmetric ? (float) blockScale[64 + 2 * lane] : 0.0f;
+    return (float) load_int8_hmx_weight_value(weight, icP, index, channel) * scale + offset;
+  };
 
-    float* output = reinterpret_cast<float*>(outputFp32);
+  if (bytes == 2) {
+    __fp16 *output = reinterpret_cast<__fp16 *>(outputFp16);
     for (int i = 0; i < selectSize; ++i) {
-        float* dstRow = output + (size_t)i * ic;
-        const int32_t index = indices[i];
-        if (index < 0 || index >= oc) {
-            memset(dstRow, 0, (size_t)ic * sizeof(float));
-            continue;
-        }
-        const float scale = (float)scales[index];
-        for (int c = 0; c < ic; ++c) {
-            dstRow[c] = (float)load_int8_hmx_weight_value(weight, icP, index, c) * scale;
-        }
+      __fp16       *dstRow = output + (size_t) i * ic;
+      const int32_t index  = indices[i];
+      if (index < 0 || index >= oc) {
+        memset(dstRow, 0, (size_t) ic * sizeof(__fp16));
+        continue;
+      }
+      for (int c = 0; c < ic; ++c) {
+        dstRow[c] = (__fp16) dequant(index, c);
+      }
     }
+    return;
+  }
+
+  float *output = reinterpret_cast<float *>(outputFp32);
+  for (int i = 0; i < selectSize; ++i) {
+    float        *dstRow = output + (size_t) i * ic;
+    const int32_t index  = indices[i];
+    if (index < 0 || index >= oc) {
+      memset(dstRow, 0, (size_t) ic * sizeof(float));
+      continue;
+    }
+    for (int c = 0; c < ic; ++c) {
+      dstRow[c] = dequant(index, c);
+    }
+  }
 }
 
-AEEResult htp_ops_shared_gather(uint8_t* dst, uint8_t* indices_ptr, uint8_t* weight_ptr, int32_t selectSize,
-                                int32_t ic, int32_t oc, int32_t bytes, int32_t isInt4) {
-    if (dst == nullptr || indices_ptr == nullptr || weight_ptr == nullptr) {
-        return AEE_EBADPARM;
-    }
-    if (selectSize <= 0 || ic <= 0 || oc <= 0) {
-        return 0;
-    }
-    if (bytes != 2 && bytes != 4) {
-        return AEE_EBADPARM;
-    }
+AEEResult htp_ops_shared_gather(uint8_t *dst, uint8_t *indices_ptr, uint8_t *weight_ptr, int32_t selectSize, int32_t ic,
+                                int32_t oc, int32_t bytes, int32_t isInt4, int32_t scaleBlockNum,
+                                int32_t scaleAsymmetric) {
+  if (dst == nullptr || indices_ptr == nullptr || weight_ptr == nullptr) {
+    return AEE_EBADPARM;
+  }
+  if (selectSize <= 0 || ic <= 0 || oc <= 0) {
+    return 0;
+  }
+  if (bytes != 2 && bytes != 4) {
+    return AEE_EBADPARM;
+  }
 
-    const int32_t* indices = reinterpret_cast<const int32_t*>(indices_ptr);
-    if (isInt4 == 2) {
-        shared_gather_int4_raw(reinterpret_cast<__fp16*>(dst), reinterpret_cast<float*>(dst), indices,
-                               reinterpret_cast<const uint8_t*>(weight_ptr), selectSize, ic, oc, bytes);
-        return 0;
-    }
-    if (isInt4 == 3) {
-        shared_gather_int8(reinterpret_cast<__fp16*>(dst), reinterpret_cast<float*>(dst), indices,
-                           reinterpret_cast<const uint8_t*>(weight_ptr), selectSize, ic, oc, bytes);
-        return 0;
-    }
-    if (isInt4 != 0) {
-        shared_gather_int4(reinterpret_cast<__fp16*>(dst), reinterpret_cast<float*>(dst), indices,
-                           reinterpret_cast<const uint8_t*>(weight_ptr), selectSize, ic, oc, bytes);
-        return 0;
-    }
+  const int32_t *indices = reinterpret_cast<const int32_t *>(indices_ptr);
+  if (isInt4 == 2) {
+    shared_gather_int4_raw(reinterpret_cast<__fp16 *>(dst), reinterpret_cast<float *>(dst), indices,
+                           reinterpret_cast<const uint8_t *>(weight_ptr), selectSize, ic, oc, bytes);
+    return 0;
+  }
+  if (isInt4 == 3) {
+    shared_gather_int8(reinterpret_cast<__fp16 *>(dst), reinterpret_cast<float *>(dst), indices,
+                       reinterpret_cast<const uint8_t *>(weight_ptr), selectSize, ic, oc, bytes, scaleBlockNum,
+                       scaleAsymmetric);
+    return 0;
+  }
+  if (isInt4 != 0) {
+    shared_gather_int4(reinterpret_cast<__fp16 *>(dst), reinterpret_cast<float *>(dst), indices,
+                       reinterpret_cast<const uint8_t *>(weight_ptr), selectSize, ic, oc, bytes);
+    return 0;
+  }
 
-    const __fp16* weight = reinterpret_cast<const __fp16*>(weight_ptr);
-    const int icP = (ic + 31) / 32;
+  const __fp16 *weight = reinterpret_cast<const __fp16 *>(weight_ptr);
+  const int     icP    = (ic + 31) / 32;
 
-    if (bytes == 2) {
-        __fp16* output = reinterpret_cast<__fp16*>(dst);
-        for (int i = 0; i < selectSize; ++i) {
-            __fp16* dstRow = output + (size_t)i * ic;
-            const int32_t index = indices[i];
-            if (index < 0 || index >= oc) {
-                memset(dstRow, 0, (size_t)ic * sizeof(__fp16));
-                continue;
-            }
-            const int tileY = index / 32;
-            const int yi = index % 32;
-            for (int x = 0; x < icP; ++x) {
-                const __fp16* tile = weight + ((size_t)tileY * icP + x) * 32 * 32;
-                const int remain = ic - x * 32;
-                const int channelCount = remain < 32 ? remain : 32;
-                __fp16* dstBlock = dstRow + x * 32;
-                int pairCount = channelCount / 2;
-                for (int p = 0; p < pairCount; ++p) {
-                    const __fp16* srcPair = tile + p * 64 + yi * 2;
-                    dstBlock[2 * p] = srcPair[0];
-                    dstBlock[2 * p + 1] = srcPair[1];
-                }
-                if (channelCount & 1) {
-                    dstBlock[channelCount - 1] = *(tile + pairCount * 64 + yi * 2);
-                }
-            }
-        }
-        return 0;
-    }
-
-    float* output = reinterpret_cast<float*>(dst);
+  if (bytes == 2) {
+    __fp16 *output = reinterpret_cast<__fp16 *>(dst);
     for (int i = 0; i < selectSize; ++i) {
-        float* dstRow = output + (size_t)i * ic;
-        const int32_t index = indices[i];
-        if (index < 0 || index >= oc) {
-            memset(dstRow, 0, (size_t)ic * sizeof(float));
-            continue;
+      __fp16       *dstRow = output + (size_t) i * ic;
+      const int32_t index  = indices[i];
+      if (index < 0 || index >= oc) {
+        memset(dstRow, 0, (size_t) ic * sizeof(__fp16));
+        continue;
+      }
+      const int tileY = index / 32;
+      const int yi    = index % 32;
+      for (int x = 0; x < icP; ++x) {
+        const __fp16 *tile         = weight + ((size_t) tileY * icP + x) * 32 * 32;
+        const int     remain       = ic - x * 32;
+        const int     channelCount = remain < 32 ? remain : 32;
+        __fp16       *dstBlock     = dstRow + x * 32;
+        int           pairCount    = channelCount / 2;
+        for (int p = 0; p < pairCount; ++p) {
+          const __fp16 *srcPair = tile + p * 64 + yi * 2;
+          dstBlock[2 * p]       = srcPair[0];
+          dstBlock[2 * p + 1]   = srcPair[1];
         }
-        const int tileY = index / 32;
-        const int yi = index % 32;
-        for (int x = 0; x < icP; ++x) {
-            const __fp16* tile = weight + ((size_t)tileY * icP + x) * 32 * 32;
-            const int remain = ic - x * 32;
-            const int channelCount = remain < 32 ? remain : 32;
-            float* dstBlock = dstRow + x * 32;
-            int pairCount = channelCount / 2;
-            for (int p = 0; p < pairCount; ++p) {
-                const __fp16* srcPair = tile + p * 64 + yi * 2;
-                dstBlock[2 * p] = (float)srcPair[0];
-                dstBlock[2 * p + 1] = (float)srcPair[1];
-            }
-            if (channelCount & 1) {
-                dstBlock[channelCount - 1] = (float)*(tile + pairCount * 64 + yi * 2);
-            }
+        if (channelCount & 1) {
+          dstBlock[channelCount - 1] = *(tile + pairCount * 64 + yi * 2);
         }
+      }
     }
     return 0;
+  }
+
+  float *output = reinterpret_cast<float *>(dst);
+  for (int i = 0; i < selectSize; ++i) {
+    float        *dstRow = output + (size_t) i * ic;
+    const int32_t index  = indices[i];
+    if (index < 0 || index >= oc) {
+      memset(dstRow, 0, (size_t) ic * sizeof(float));
+      continue;
+    }
+    const int tileY = index / 32;
+    const int yi    = index % 32;
+    for (int x = 0; x < icP; ++x) {
+      const __fp16 *tile         = weight + ((size_t) tileY * icP + x) * 32 * 32;
+      const int     remain       = ic - x * 32;
+      const int     channelCount = remain < 32 ? remain : 32;
+      float        *dstBlock     = dstRow + x * 32;
+      int           pairCount    = channelCount / 2;
+      for (int p = 0; p < pairCount; ++p) {
+        const __fp16 *srcPair = tile + p * 64 + yi * 2;
+        dstBlock[2 * p]       = (float) srcPair[0];
+        dstBlock[2 * p + 1]   = (float) srcPair[1];
+      }
+      if (channelCount & 1) {
+        dstBlock[channelCount - 1] = (float) *(tile + pairCount * 64 + yi * 2);
+      }
+    }
+  }
+  return 0;
 }
 
 } // extern "C"

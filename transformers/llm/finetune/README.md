@@ -175,6 +175,15 @@ llm->create_lora("lora.mnn");
 
 不要在这种目录布局下传绝对路径，否则部分路径解析逻辑可能会把 adapter 路径再次拼到模型目录下，导致加载失败。
 
+## 多 LoRA 并存与切换示例
+
+[`examples/multi_lora`](examples/multi_lora/README.md) 提供一个可直接运行的
+Qwen2.5-0.5B-Instruct 示例：
+
+- 使用本目录的 `mnn_qlora.py` 训练两个 int4、block64 adapter。
+- 将两个 split LoRA 组装到同一个量化 base 目录。
+- 用 `multi_lora_demo` 验证两个 LoRA 同时加载、并发推理和反复切换。
+
 ## 常用参数说明
 
 | 参数 | 说明 |

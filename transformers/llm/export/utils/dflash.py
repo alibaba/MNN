@@ -11,8 +11,17 @@ from .torch_utils import onnx_export
 from transformers.activations import ACT2FN
 
 
+def dflash_rope(position_ids, head_dim, rope_theta):
+    """RoPE (cos, sin) [1, 1, seq_len, head_dim]; shared by the draft graph and DFlashKVMat."""
+    inv_freq = 1.0 / (rope_theta ** (torch.arange(0, head_dim, 2, dtype=torch.float32,
+                                                  device=position_ids.device) / head_dim))
+    freqs = position_ids.float().squeeze(0).unsqueeze(-1) * inv_freq.unsqueeze(0)
+    emb = torch.cat([freqs, freqs], dim=-1)
+    return emb.cos().unsqueeze(0).unsqueeze(1), emb.sin().unsqueeze(0).unsqueeze(1)
+
+
 class DFlashAttention(torch.nn.Module):
-    """DFlash non-causal attention: Q from noise, K/V from cat(context, noise)"""
+    """DFlash non-causal attention: Q from noise, K/V = committed cache + noise."""
     def __init__(self, config, layer_idx):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -36,28 +45,21 @@ class DFlashAttention(torch.nn.Module):
             layer_index=-1,
             kv_shared_layer_index=-1)
 
-    def forward(self, hidden_states, context_hidden, q_cos, q_sin, k_cos, k_sin, attention_mask):
-        """
-        hidden_states: [1, block_size, hidden_size] (noise)
-        context_hidden: [1, context_len, hidden_size]
-        q_cos/q_sin: [1, 1, block_size, head_dim] - RoPE for Q
-        k_cos/k_sin: [1, 1, context_len + block_size, head_dim] - RoPE for K
-        attention_mask: [1, 1, block_size, context_len + block_size]
-        """
+    def forward(self, hidden_states, kv_k, kv_v, cos, sin, attention_mask):
+        """kv_k/kv_v are the committed K/V (already k_norm'ed and RoPE'd by dflash_kvmat); k/v_proj run only on the block."""
         bsz = 1
         q_len = hidden_states.shape[1]
-        ctx_len = context_hidden.shape[1]
-        total_len = ctx_len + q_len
 
         # Projections + q/k norm in [B, seq, heads, head_dim] layout
         q = self.q_norm(self.q_proj(hidden_states).view(bsz, q_len, self.num_attention_heads, self.head_dim))
-        kv_input = torch.cat([context_hidden, hidden_states], dim=1)  # [1, total_len, hidden_size]
-        k = self.k_norm(self.k_proj(kv_input).view(bsz, total_len, self.num_key_value_heads, self.head_dim))
-        v = self.v_proj(kv_input).view(bsz, total_len, self.num_key_value_heads, self.head_dim)
+        k_new = self.k_norm(self.k_proj(hidden_states).view(bsz, q_len, self.num_key_value_heads, self.head_dim))
+        v_new = self.v_proj(hidden_states).view(bsz, q_len, self.num_key_value_heads, self.head_dim)
 
         # RoPE, then one fused Attention op (K/V un-repeated; the op does GQA internally)
-        q = self._apply_rope(q, q_cos, q_sin)
-        k = self._apply_rope(k, k_cos, k_sin)
+        q = self._apply_rope(q, cos, sin)
+        k_new = self._apply_rope(k_new, cos, sin)
+        k = torch.cat([kv_k, k_new], dim=1)
+        v = torch.cat([kv_v, v_new], dim=1)
         attn_output = self.fused_attn(q, k, v, attention_mask)  # [1, q_len, num_heads*head_dim]
 
         # No-op reshape: FusedAttentionOp.symbolic annotates the output as rank-4 while the runtime tensor is rank-3
@@ -87,10 +89,10 @@ class DFlashDecoderLayer(torch.nn.Module):
         self.mlp.down_proj = nn.Linear(config.intermediate_size, config.hidden_size, bias=False)
         self.mlp.act_fn = ACT2FN[config.hidden_act]
 
-    def forward(self, hidden_states, context_hidden, q_cos, q_sin, k_cos, k_sin, attention_mask):
+    def forward(self, hidden_states, kv_k, kv_v, cos, sin, attention_mask):
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        hidden_states = self.self_attn(hidden_states, context_hidden, q_cos, q_sin, k_cos, k_sin, attention_mask)
+        hidden_states = self.self_attn(hidden_states, kv_k, kv_v, cos, sin, attention_mask)
         hidden_states = residual + hidden_states
 
         residual = hidden_states
@@ -100,6 +102,32 @@ class DFlashDecoderLayer(torch.nn.Module):
         )
         hidden_states = residual + hidden_states
         return hidden_states
+
+
+class DFlashKVMat(torch.nn.Module):
+    """Projects newly committed context rows to per-layer K/V, output as (kv_k_0, kv_v_0, ..., kv_k_L-1, kv_v_L-1).
+
+    new_context: [1, rows, hidden] -- target hidden states after dflash_fc.
+    position_ids: [1, rows] draft-local positions, torch.arange(start, start + rows):
+    the engine numbers the draft context 0-based and contiguous (see appendDraftKv in
+    dflash.cpp), which is RoPE-equivalent to absolute positions and never leaves holes.
+    """
+    def __init__(self, layers, head_dim, rope_theta):
+        super().__init__()
+        self.layers = layers
+        self.head_dim = head_dim
+        self.rope_theta = rope_theta
+
+    def forward(self, new_context, position_ids):
+        cos, sin = dflash_rope(position_ids, self.head_dim, self.rope_theta)
+        outs = []
+        for layer in self.layers:
+            attn = layer.self_attn
+            k = attn.k_norm(attn.k_proj(new_context).view(1, -1, attn.num_key_value_heads, attn.head_dim))
+            k = DFlashAttention._apply_rope(k, cos, sin)
+            v = attn.v_proj(new_context).view(1, -1, attn.num_key_value_heads, attn.head_dim)
+            outs += [k, v]
+        return tuple(outs)
 
 
 class DFlashFc(torch.nn.Module):
@@ -127,17 +155,19 @@ class DFlash(torch.nn.Module):
         self.dflash_config = config_dict
         self.model_type = base.config.model_type
 
-        # Base model config
+        # Only hidden_size is shared with the target; the head geometry is the draft's own.
         self.hidden_size = base.config.hidden_size
-        self.head_dim = base.config.head_dim
-        self.num_attention_heads = base.config.num_attention_heads
-        self.num_key_value_heads = base.config.num_key_value_heads
-        self.rms_norm_eps = getattr(base.config, 'rms_norm_eps', 1e-6)
+        self.head_dim = config_dict.get('head_dim', base.config.head_dim)
+        self.num_attention_heads = config_dict.get('num_attention_heads', base.config.num_attention_heads)
+        self.num_key_value_heads = config_dict.get('num_key_value_heads', base.config.num_key_value_heads)
+        self.rms_norm_eps = config_dict.get('rms_norm_eps', getattr(base.config, 'rms_norm_eps', 1e-6))
 
         # DFlash-specific config
         dflash_cfg = config_dict.get('dflash_config', {})
-        self.block_size = config_dict.get('block_size', 16)
+        self.block_size = config_dict.get('block_size', 8)
         self.mask_token_id = dflash_cfg.get('mask_token_id', 0)
+        # Not derivable from the graph, so the runtime reads it from config.json.
+        self.shift_label = bool(dflash_cfg.get('shift_label', False))
 
         num_hidden_layers = config_dict.get('num_hidden_layers', 1)
         num_target_layers = config_dict.get('num_target_layers', 3)
@@ -193,9 +223,15 @@ class DFlash(torch.nn.Module):
         # Shared embed_tokens from base model (for embedding block tokens)
         self.embed_tokens = base.embed.embed
 
-        # Rotary embedding
+        # The draft's own rope config wins: a target composite config can hide rope_parameters in text_config.
+        self.rope_theta = config_dict.get('rope_theta', None)
+        if self.rope_theta is None:
+            rp = config_dict.get('rope_parameters')
+            if isinstance(rp, dict):
+                self.rope_theta = rp.get('rope_theta')
         # Compatibility: transformers>=5.x moved rope_theta into rope_parameters dict
-        self.rope_theta = getattr(base.config, 'rope_theta', None)
+        if self.rope_theta is None:
+            self.rope_theta = getattr(base.config, 'rope_theta', None)
         if self.rope_theta is None or self.rope_theta == 10000.0:
             origin_cfg = getattr(base.config, 'origin_config', base.config)
             rp = getattr(origin_cfg, 'rope_parameters', None) or getattr(origin_cfg, 'rope_scaling', None)
@@ -259,48 +295,29 @@ class DFlash(torch.nn.Module):
                         setattr(self.layers[i].mlp, name, self._build_faker(child, f'/dflash_layers.{i}/mlp/{name}/Linear'))
             self.fc = self._build_faker(self.fc, '/dflash/fc/Linear')
 
-    def forward(self, noise_embedding, context_hidden, attention_mask, q_position_ids, k_position_ids):
-        """
-        DFlash main forward pass.
-        Args:
-            noise_embedding: [1, block_size, hidden_size] - embedded block tokens
-            context_hidden: [1, context_len, hidden_size] - output from fc module
-            attention_mask: [1, 1, block_size, context_len + block_size] - all zeros (non-causal)
-            q_position_ids: [1, block_size] - position ids for Q (block positions only)
-            k_position_ids: [1, context_len + block_size] - position ids for K/V (all positions)
-        Returns:
-            hidden_states: [1, block_size, hidden_size]
-        """
+    def forward(self, noise_embedding, *args):
+        """args order matches the ONNX input_names: (kv_k_0, kv_v_0, ..., kv_k_L-1, kv_v_L-1, attention_mask, position_ids)."""
+        n = len(self.layers)
+        kv_args = args[:2 * n]
+        attention_mask, position_ids = args[2 * n], args[2 * n + 1]
         hidden_states = noise_embedding
 
-        # Compute rotary embeddings separately for Q and K
-        q_cos, q_sin = self._compute_rope(q_position_ids)  # [1, 1, block_size, head_dim]
-        k_cos, k_sin = self._compute_rope(k_position_ids)  # [1, 1, total_len, head_dim]
+        cos, sin = dflash_rope(position_ids, self.head_dim, self.rope_theta)
 
-        for layer in self.layers:
-            hidden_states = layer(hidden_states, context_hidden, q_cos, q_sin, k_cos, k_sin, attention_mask)
+        for i, layer in enumerate(self.layers):
+            hidden_states = layer(hidden_states, kv_args[2 * i], kv_args[2 * i + 1],
+                                  cos, sin, attention_mask)
 
         hidden_states = self.norm(hidden_states)
         # lm_head is applied on the engine side (shared from target or separate file)
         return hidden_states
-
-    def _compute_rope(self, position_ids):
-        """Compute rotary position embeddings (cos, sin) for given positions."""
-        # position_ids: [1, seq_len]
-        inv_freq = 1.0 / (self.rope_theta ** (torch.arange(0, self.head_dim, 2, dtype=torch.float32, device=position_ids.device) / self.head_dim))
-        # [seq_len] x [head_dim/2] -> [seq_len, head_dim/2]
-        freqs = position_ids.float().squeeze(0).unsqueeze(-1) * inv_freq.unsqueeze(0)
-        # [seq_len, head_dim]
-        emb = torch.cat([freqs, freqs], dim=-1)
-        cos = emb.cos().unsqueeze(0).unsqueeze(1)  # [1, 1, seq_len, head_dim]
-        sin = emb.sin().unsqueeze(0).unsqueeze(1)
-        return cos, sin
 
     @spinner_run(f'export onnx model to ')
     def export(self, onnx_path):
         """Export the DFlash draft model to ONNX."""
         dflash_model = f'{onnx_path}/dflash.onnx'
         dflash_fc_model = f'{onnx_path}/dflash_fc.onnx'
+        dflash_kvmat_model = f'{onnx_path}/dflash_kvmat.onnx'
 
         block_size = self.block_size
         context_len = 3  # dummy context length for export
@@ -320,26 +337,42 @@ class DFlash(torch.nn.Module):
         # Unload params for main model export
         self.unload_param()
 
+        kv_names = []
+        for i in range(len(self.layers)):
+            kv_names += [f'kv_k_{i}', f'kv_v_{i}']
+
+        # Reuses dflash.onnx's k_proj/k_norm/v_proj FakeLinears, so both files carry those weights.
+        kvmat_module = DFlashKVMat(self.layers, self.head_dim, self.rope_theta)
+        mat_context = torch.ones([1, context_len, self.hidden_size], dtype=torch.float)
+        mat_pos = torch.arange(context_len, dtype=torch.int).unsqueeze(0)
+        with torch.no_grad():
+            onnx_export(
+                kvmat_module, (mat_context, mat_pos),
+                dflash_kvmat_model,
+                input_names=['new_context', 'position_ids'],
+                output_names=kv_names,
+                dynamic_axes={"new_context": {1: "seq_len"}, "position_ids": {1: "seq_len"}}
+            )
+
         # Export dflash.onnx (main model, outputs hidden_states; lm_head not baked in)
         noise_embedding = torch.ones([1, block_size, self.hidden_size], dtype=torch.float)
-        context_hidden = torch.ones([1, context_len, self.hidden_size], dtype=torch.float)
+        kv_dummy = [torch.ones([1, context_len, self.num_key_value_heads, self.head_dim], dtype=torch.float)
+                    for _ in kv_names]
         attention_mask = torch.zeros([1, 1, block_size, context_len + block_size], dtype=torch.float)
-        q_position_ids = torch.arange(context_len, context_len + block_size, dtype=torch.int).unsqueeze(0)
-        k_position_ids = torch.arange(context_len + block_size, dtype=torch.int).unsqueeze(0)
+        position_ids = torch.arange(context_len, context_len + block_size, dtype=torch.int).unsqueeze(0)
 
         with torch.no_grad():
             onnx_export(
-                self, (noise_embedding, context_hidden, attention_mask, q_position_ids, k_position_ids),
+                self, (noise_embedding, *kv_dummy, attention_mask, position_ids),
                 dflash_model,
-                input_names=['noise_embedding', 'context_hidden', 'attention_mask', 'q_position_ids', 'k_position_ids'],
+                input_names=['noise_embedding'] + kv_names + ['attention_mask', 'position_ids'],
                 output_names=['hidden_states'],
                 dynamic_axes={
                     "noise_embedding": {1: "block_size"},
-                    "context_hidden": {1: "context_len"},
                     "attention_mask": {2: "block_size", 3: "total_len"},
-                    "q_position_ids": {1: "block_size"},
-                    "k_position_ids": {1: "total_len"},
+                    "position_ids": {1: "block_size"},
+                    **{n: {1: "kv_len"} for n in kv_names},
                 }
             )
 
-        return dflash_model, dflash_fc_model
+        return dflash_model, dflash_fc_model, dflash_kvmat_model

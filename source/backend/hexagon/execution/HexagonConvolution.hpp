@@ -14,13 +14,24 @@ public:
         MemChunk int4Weight;
         // Row-major INT4 + fp16 scale copy for GatherV2 clones.
         MemChunk gatherInt4Weight;
+        // Optional vrmpy-packed INT4 weight + fp32 block scales for the v81+ M=1
+        // decode GEMV integer path; see matmul_q4block_gemv_i8.c.
+        MemChunk gemvI8Weight;
+        bool useGemvI8 = false;
+        // fp32 block scales for the M=1 dynamic W8A8 GEMV path. Set
+        // MNN_HEXAGON_W8A16_GEMV_I8=0 to disable it; see matmul_w8a16_gemv_i8.c.
+        MemChunk gemvW8Scale;
+        bool useGemvW8a16 = false;
         // Flag and metadata for INT4 path
         bool useInt4W4A16 = false;
         int int4WeightType = 0;  // ggml_type, e.g. GGML_TYPE_Q4_0
         int int4LayoutType = 0;  // 1: per-tile permuted
         int int4ScaleBlockNum = 1;
+        bool int4ScaleAsymmetric = false;
         MemChunk int8Weight;
         bool useInt8W8A16 = false;
+        int int8ScaleBlockNum = 1;
+        bool int8ScaleAsymmetric = false;
         int gatherInputChannels = 0;
         int gatherOutputChannels = 0;
         BufferAllocator* allocator;

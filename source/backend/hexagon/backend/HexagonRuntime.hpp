@@ -21,6 +21,8 @@ public:
     void* ptr;
     int fd;
     size_t size;
+    bool lazyMap = false;
+    bool mapped = false;
 #ifdef MNN_HEXAGON_ASAN
     size_t requestedSize = 0;
     size_t guardSize = 0;
@@ -66,7 +68,7 @@ public:
 #endif
     MemChunk allocCommandSlot(int size) const;
     void freeCommandSlot(const MemChunk& chunk) const;
-    void pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const;
+    bool pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const;
     void flushCommand() const;
     void markHostInput(int fd, int offset, int size) const;
     void markHostOutput(int fd, int offset, int size) const;
@@ -94,6 +96,7 @@ private:
     std::shared_ptr<BufferAllocator> mStaticAlloc;
     std::shared_ptr<BufferAllocator> mCommandAlloc;
     std::shared_ptr<BufferAllocator> mWeightAlloc;
+    std::shared_ptr<BufferAllocator> mLazyWeightAlloc;
     mutable SingleBufferWithAllocator mDynamicBuffer;
     HexagonInfo mInfo;
     bool mAvailable = false;
@@ -105,6 +108,8 @@ private:
     mutable std::vector<SyncTensorRecord> mPendingHostInputs;
     mutable std::vector<SyncTensorRecord> mPendingHostOutputs;
     mutable std::vector<SyncTensorRecord> mPendingHexagonOutputs;
+    mutable std::vector<HexagonBuffer*> mCommandWeightBuffers;
+    mutable size_t mCommandWeightBytes = 0;
 #ifdef MNN_GPU_TIME_PROFILE
     mutable MemChunk mProfileChunk;
     mutable int mProfileFlushCount = 0;

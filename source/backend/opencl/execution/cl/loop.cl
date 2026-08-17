@@ -442,10 +442,11 @@ __kernel void pack(__private int global_dim0, __private int global_dim1, __priva
 #endif
         __global INPUT_TYPE* src_ptr = input + pos.z * b_src_pitch + c * c_src_pitch + h * y_src_pitch + w * x_src_pitch;
         OUTPUT_TYPE_I4 value = (OUTPUT_TYPE_I4)0;
-        OUTPUT_TYPE_I *value_ptr = (OUTPUT_TYPE_I*)&value;
-        for(int i = 0; i < 4 && (i + c < channel); ++i){
-            value_ptr[i] = (OUTPUT_TYPE_I)src_ptr[i * c_src_pitch];
-        }
+        const int remain = channel - c;
+        value.x = (OUTPUT_TYPE_I)src_ptr[0];
+        if(remain > 1) { value.y = (OUTPUT_TYPE_I)src_ptr[c_src_pitch]; }
+        if(remain > 2) { value.z = (OUTPUT_TYPE_I)src_ptr[2 * c_src_pitch]; }
+        if(remain > 3) { value.w = (OUTPUT_TYPE_I)src_ptr[3 * c_src_pitch]; }
         WI_DATA(output, (int2)(pos.y * width + w, pos.z * height + h), value);
     }
 }

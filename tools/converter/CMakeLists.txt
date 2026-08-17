@@ -21,6 +21,9 @@ IF(MNN_BUILD_CONVERTER)
   include_directories(${CMAKE_CURRENT_LIST_DIR}/include)
   include_directories(${CMAKE_CURRENT_LIST_DIR}/source/tflite/schema)
   include_directories(${CMAKE_CURRENT_BINARY_DIR})
+  if (MNN_RKNN)
+    add_definitions(-DENABLE_RKNN_CONVERT_MODE)
+  endif()
   include(${CMAKE_CURRENT_LIST_DIR}/source/compression/CMakeLists.txt)
   include(${CMAKE_CURRENT_LIST_DIR}/source/tensorflow/CMakeLists.txt)
   include(${CMAKE_CURRENT_LIST_DIR}/source/onnx/CMakeLists.txt)
@@ -34,6 +37,12 @@ IF(MNN_BUILD_CONVERTER)
   endif()
 
   file(GLOB COMMON_SRC ${CMAKE_CURRENT_LIST_DIR}/source/common/*.cpp ${CMAKE_CURRENT_LIST_DIR}/source/common/*.h ${CMAKE_CURRENT_LIST_DIR}/source/common/*.hpp)
+  if (NOT MNN_RKNN)
+    list(REMOVE_ITEM COMMON_SRC
+      ${CMAKE_CURRENT_LIST_DIR}/source/common/RKNNBundle.cpp
+      ${CMAKE_CURRENT_LIST_DIR}/source/common/RKNNBundle.hpp
+    )
+  endif()
   add_executable(MNNConvert
     ${CMAKE_CURRENT_LIST_DIR}/source/MNNConverter.cpp
   )

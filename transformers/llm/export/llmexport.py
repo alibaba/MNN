@@ -263,16 +263,18 @@ class LlmExporter(torch.nn.Module):
         # Set target layer ids on args so model.forward() can use them
         self.args.dflash_target_layer_ids = self.dflash.target_layer_ids
         # The draft reuses the target's lm_head at runtime (shared-from-target).
-        dflash_onnx, dflash_fc_onnx = self.dflash.export(self.onnx_path)
+        dflash_onnx, dflash_fc_onnx, dflash_kvmat_onnx = self.dflash.export(self.onnx_path)
         if self.mnn_converter:
             # Disable transformerFuse for dflash model: dflash uses non-causal (bidirectional) attention,
             # but MNN's fused attention assumes causal masking which breaks dflash's attention pattern.
-            # Use 8-bit quantization for dflash model to balance quality and size.
-            MNNConverter(self, self.dflash.unloaded_ops).export(dflash_onnx, quant_bit=8, transformer_fuse=False)
+            # No quant_bit: rebuild_linear already quantizes the draft linears with args.quant_bit/quant_block.
+            MNNConverter(self, self.dflash.unloaded_ops).export(dflash_onnx, transformer_fuse=False)
             # FC model must NOT be quantized: the input (concatenated hidden states from
             # multiple target layers) has very large value ranges during prefill, which
             # causes int8 quantization overflow and produces all-zero outputs.
             MNNConverter(self, None).export(dflash_fc_onnx, quant_bit=0, transformer_fuse=False)
+            MNNConverter(self, self.dflash.unloaded_ops).export(dflash_kvmat_onnx, transformer_fuse=False)
+
 
     @spinner_run(f'export embedding to ')
     def export_embed(self):
@@ -415,11 +417,13 @@ class LlmExporter(torch.nn.Module):
                 config['hidden_states'] = True
                 config['dflash_model'] = 'dflash.mnn'
                 config['dflash_fc'] = 'dflash_fc.mnn'
+                config['dflash_kvmat'] = 'dflash_kvmat.mnn'
                 # Reuse the target's lm_head via the shared subgraph.
                 config['dflash_shared_lmhead_input'] = '/final_layernorm/Mul_1_output_0'
                 config['dflash_block_size'] = self.dflash.block_size
                 config['dflash_mask_token_id'] = self.dflash.mask_token_id
                 config['dflash_target_layer_ids'] = self.dflash.target_layer_ids
+                config['dflash_shift_label'] = self.dflash.shift_label
             json.dump(config, f, ensure_ascii=False, indent=4)
         return config_json
 
@@ -1012,11 +1016,11 @@ def build_args(parser):
     parser.add_argument('--test', type=str, help='test model inference with query `TEST`.')
     parser.add_argument('--export', type=str, default=None, help='export model to an onnx/mnn model.')
     parser.add_argument('--onnx_slim', action='store_true', help='Whether or not to use onnx-slim.')
-    parser.add_argument('--quant_bit', type=int, default=4, help='mnn quant bit, 2/3/4/8 (2 and 3 require ARMV86 i8mm + FP16), default is 4.')
+    parser.add_argument('--quant_bit', type=int, default=4, help='mnn weight bit, 2/3/4/8/16 (16 exports FP16 weights; 2 and 3 require ARMV86 i8mm + FP16), default is 4.')
     parser.add_argument('--quant_block', type=int, default=64, help='mnn quant block, 0 mean channel-wise, default is 64.')
-    parser.add_argument('--visual_quant_bit', type=int, default=None, help='mnn visual quant bit, 4 or 8, default is setting in utils/vision.py by different vit model.')
+    parser.add_argument('--visual_quant_bit', type=int, default=None, help='mnn visual weight bit, 4/8/16 (16 exports FP16 weights), default is setting in utils/vision.py by different vit model.')
     parser.add_argument('--visual_quant_block', type=int, default=None, help='mnn quant block, default is setting in utils/vision.py by different vit model.')
-    parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head quant bit, 4 or 8, default is `quant_bit`.')
+    parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head weight bit, 4/8/16 (16 exports FP16 weights), default is `quant_bit`.')
     parser.add_argument('--lm_quant_block', type=int, default=None, help='mnn lm_head quant block, 0 mean channle-wise, default is `quant_block`.')
     parser.add_argument('--mnnconvert', type=str, default='../../../build/MNNConvert', help='local mnnconvert path, if invalid, using pymnn.')
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
