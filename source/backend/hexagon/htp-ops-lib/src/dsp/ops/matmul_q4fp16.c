@@ -215,8 +215,7 @@ static const __fp16 q4_to_fp16_lut[64] __attribute__((aligned(128))) = {
   -8, 0, -7, 0, -6, 0, -5, 0, -4, 0, -3, 0, -2, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0,
 };
 
-static inline void dequant_q4_tile_scaled(const uint8_t* src, __fp16* dst,
-                                          HVX_Vector vlut_cvt, HVX_Vector vBlockScale,
+static inline void dequant_q4_tile_scaled(const uint8_t *src, __fp16 *dst, HVX_Vector vlut_cvt, HVX_Vector vBlockScale,
                                           HVX_Vector vBlockOffset, int scale_asymmetric) {
   const HVX_Vector* src_vec = (const HVX_Vector*)src;
   HVX_Vector* dst_vec = (HVX_Vector*)dst;
@@ -260,9 +259,8 @@ static inline void dequant_q4_tile_scaled(const uint8_t* src, __fp16* dst,
 }
 
 static inline void process_q4_weight_lut(int oy_start, int start_idx, int count, int kp,
-                                         const uint8_t* __restrict vtcm_weight_int4,
-                                         __fp16* __restrict vtcm_weight,
-                                         const uint8_t* b_scale, int scale_block_num, int scale_asymmetric,
+                                         const uint8_t *__restrict vtcm_weight_int4, __fp16 *__restrict vtcm_weight,
+                                         const uint8_t *b_scale, int scale_block_num, int scale_asymmetric,
                                          int weight_is_vrmpy) {
   HVX_Vector vlut_cvt = vmemu(q4_to_fp16_lut);
   const int weight_int4_stride = 512 * kp;
@@ -270,15 +268,15 @@ static inline void process_q4_weight_lut(int oy_start, int start_idx, int count,
   const uint8_t* src_oy = vtcm_weight_int4 + start_idx * weight_int4_stride;
   __fp16* dst_oy = vtcm_weight + start_idx * weight_fp16_stride;
   if (weight_is_vrmpy && scale_block_num > 1 && !scale_asymmetric) {
-    const float* sw = (const float*)b_scale;
+    const float                          *sw = (const float *) b_scale;
     __attribute__((aligned(128))) uint8_t tmp[512];
     for (int local_oy = 0; local_oy < count; ++local_oy) {
-      const int oy = oy_start + start_idx + local_oy;
-      const float* sw_oy = sw + (size_t)oy * scale_block_num * 32;
-      const uint8_t* src = src_oy;
-      __fp16* dst = dst_oy;
+      const int      oy    = oy_start + start_idx + local_oy;
+      const float   *sw_oy = sw + (size_t) oy * scale_block_num * 32;
+      const uint8_t *src   = src_oy;
+      __fp16        *dst   = dst_oy;
       for (int k = 0; k < kp; ++k) {
-        const int scale_idx = (int)(((size_t)k * scale_block_num) / kp);
+        const int        scale_idx   = (int) (((size_t) k * scale_block_num) / kp);
         const HVX_Vector vBlockScale = vrmpy_scale_block_dup_hf(sw_oy, scale_idx);
         vrmpy_tile_to_hmx_int4_512(tmp, src);
         dequant_q4_tile_scaled(tmp, dst, vlut_cvt, vBlockScale, Q6_V_vzero(), 0);
@@ -316,7 +314,7 @@ static inline void process_q4_weight_lut(int oy_start, int start_idx, int count,
             next_scale_k += k_per_scale;
             vBlockScale = vmemu(block_scale_ptr + scale_idx * scale_block_bytes);
           }
-          const uint8_t* current_scale_ptr = block_scale_ptr + scale_idx * scale_block_bytes;
+          const uint8_t *current_scale_ptr = block_scale_ptr + scale_idx * scale_block_bytes;
           dequant_q4_tile_scaled(src, dst, vlut_cvt, vBlockScale,
                                  scale_asymmetric ? vmemu(current_scale_ptr + 128) : Q6_V_vzero(), scale_asymmetric);
           src += 512;
@@ -325,7 +323,7 @@ static inline void process_q4_weight_lut(int oy_start, int start_idx, int count,
       } else {
         for (int k = 0; k < kp; ++k) {
           const int scale_idx = (k * scale_block_num) / kp;
-          const uint8_t* current_scale_ptr = block_scale_ptr + scale_idx * scale_block_bytes;
+          const uint8_t *current_scale_ptr = block_scale_ptr + scale_idx * scale_block_bytes;
           dequant_q4_tile_scaled(src, dst, vlut_cvt, vmemu(current_scale_ptr),
                                  scale_asymmetric ? vmemu(current_scale_ptr + 128) : Q6_V_vzero(), scale_asymmetric);
           src += 512;
@@ -390,8 +388,8 @@ typedef struct {
   int count;
   int kp;
   int scale_block_num;
-  int scale_asymmetric;
-  int weight_is_vrmpy;
+  int                  scale_asymmetric;
+  int                  weight_is_vrmpy;
   const uint8_t* b_scale;
   const uint8_t* vtcm_weight_int4;
   __fp16* vtcm_weight;
@@ -410,9 +408,9 @@ static void process_q4_weight_worker_loop(void* data, int _worker_index) {
   (void)_worker_index;
   process_q4_weight_task_state_t* state = (process_q4_weight_task_state_t*)data;
   wait_q4_weight_dma_done(state->depend);
-  process_q4_weight_lut(state->oy_start, state->start_idx, state->count, state->kp,
-                        state->vtcm_weight_int4, state->vtcm_weight,
-                        state->b_scale, state->scale_block_num, state->scale_asymmetric, state->weight_is_vrmpy);
+  process_q4_weight_lut(state->oy_start, state->start_idx, state->count, state->kp, state->vtcm_weight_int4,
+                        state->vtcm_weight, state->b_scale, state->scale_block_num, state->scale_asymmetric,
+                        state->weight_is_vrmpy);
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
@@ -911,9 +909,9 @@ static void store_q4_output_worker_loop(void* data, int _worker_index) {
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
-int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias,
-                     int M, int K, int N, int mp_max, int np_max, int kp_max, int scale_block_num,
-                     int scale_asymmetric, int weight_is_vrmpy) {
+int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias, int M,
+                     int K, int N, int mp_max, int np_max, int kp_max, int scale_block_num, int scale_asymmetric,
+                     int weight_is_vrmpy) {
   if (scale_block_num <= 0) scale_block_num = 1;
   const int dequant_in_weight = scale_block_num > 1;
   int np_chunk = np_max;
@@ -929,27 +927,25 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
   int kp = K / 32;
   const bool reuse_activation = (mp > 0 && mp <= mp_chunk);
   const int activation_buffers = reuse_activation ? 1 : 2;
-  const int async_output_candidate = (!dequant_in_weight && mp > 1 && g_max_num_workers > 1);
+  const int    async_output_candidate          = (!dequant_in_weight && mp > 1 && g_max_num_workers > 1);
   const int candidate_cross_oy_output_store = async_output_candidate && ((np_chunk & 1) == 0);
-  const int candidate_output_buffers = async_output_candidate ? (candidate_cross_oy_output_store ? 4 : 2) : 1;
+  const int    candidate_output_buffers        = async_output_candidate ? (candidate_cross_oy_output_store ? 4 : 2) : 1;
   const int candidate_scale_buffers = async_output_candidate ? 2 : 1;
   const size_t q4_vtcm_safe_size = 8 * 1024 * 1024 - 16 * 1024;
-  const size_t async_vtcm_bytes =
-      (size_t)np_chunk * weight_bytes_per_np +
-      (size_t)np_chunk * weight_int4_bytes_per_np +
-      (size_t)activation_buffers * mp_chunk * act_bytes_per_mp +
-      (size_t)candidate_output_buffers * np_chunk * 1024 * sizeof(__fp16) +
-      (size_t)np_chunk * 256 +
-      (size_t)candidate_scale_buffers * (np_chunk * 64 + 64);
-  const int async_output_store = async_output_candidate && async_vtcm_bytes <= q4_vtcm_safe_size;
+  const size_t async_vtcm_bytes                = (size_t) np_chunk * weight_bytes_per_np +
+                                  (size_t) np_chunk * weight_int4_bytes_per_np +
+                                  (size_t) activation_buffers * mp_chunk * act_bytes_per_mp +
+                                  (size_t) candidate_output_buffers * np_chunk * 1024 * sizeof(__fp16) +
+                                  (size_t) np_chunk * 256 + (size_t) candidate_scale_buffers * (np_chunk * 64 + 64);
+  const int async_output_store    = async_output_candidate && async_vtcm_bytes <= q4_vtcm_safe_size;
   const int cross_oy_output_store = async_output_store && ((np_chunk & 1) == 0);
-  const int output_buffers = async_output_store ? (cross_oy_output_store ? 4 : 2) : 1;
+  const int output_buffers        = async_output_store ? (cross_oy_output_store ? 4 : 2) : 1;
   const int scale_buffer_bytes = np_chunk * 64 + 64;
   const int scale_buffers = async_output_store ? 2 : 1;
 
   uint8_t *vtcm_ptr        = (uint8_t *) vtcm_manager_get_vtcm_base();
-  __fp16  *vtcm_weight     = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * weight_bytes_per_np);
-  uint8_t *vtcm_weight_int4 = (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * weight_int4_bytes_per_np);
+  __fp16     *vtcm_weight      = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * weight_bytes_per_np);
+  uint8_t    *vtcm_weight_int4 = (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * weight_int4_bytes_per_np);
   __fp16  *vtcm_activation = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, activation_buffers * mp_chunk * act_bytes_per_mp);
   __fp16  *vtcm_output     = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, output_buffers * np_chunk * 1024 * sizeof(__fp16));
   HVX_Vector *vtcm_hmx_scales = (HVX_Vector *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * 256);
@@ -974,9 +970,9 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
   pack = __HVX_LENGTH__ / (int32_t)sizeof(int16_t);
 #endif
   bool activation_prepared = false;
-  worker_synctoken_t output_store_sync[4];
+  worker_synctoken_t           output_store_sync[4];
   store_q4_output_task_state_t output_store_tasks[4];
-  int output_store_active[4] = {0, 0, 0, 0};
+  int                          output_store_active[4] = { 0, 0, 0, 0 };
 
   for (int oy_start = 0; oy_start < np; oy_start += np_chunk) {
     int oy_end = oy_start + np_chunk;
@@ -1028,21 +1024,23 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
 
     _Alignas(64) dma_desc_1d_t weight_desc[num_chunks];
     _Alignas(64) dma_desc_2d_t scale_desc[1];
-    #define SET_WEIGHT_DMA(start_idx, count, desc_idx, next_ptr, pre_index) do { \
-        { \
-            if ((pre_index) >= 0) weight_desc[pre_index].next = (uint32_t)&weight_desc[desc_idx]; \
-            memset(&weight_desc[desc_idx], 0, sizeof(dma_desc_1d_t)); \
-            weight_desc[desc_idx].next       = (uint32_t)(next_ptr); \
-            weight_desc[desc_idx].length     = 16 * 32 * kp * (count); \
-            weight_desc[desc_idx].type       = DMA_DESC_TYPE_1D; \
-            weight_desc[desc_idx].src_bypass = 1; \
-            weight_desc[desc_idx].dst_bypass = 1; \
-            weight_desc[desc_idx].ordered    = 1; \
-            weight_desc[desc_idx].dstate     = DMA_DESC_DSTATE_PENDING; \
-            weight_desc[desc_idx].src        = (uint32_t) (b + (size_t)(oy_start + (start_idx)) * kp * 32 * 16); \
-            weight_desc[desc_idx].dst        = (uint32_t) (vtcm_weight_int4 + (start_idx) * 512 * kp); \
-        } \
-    } while(0)
+#define SET_WEIGHT_DMA(start_idx, count, desc_idx, next_ptr, pre_index)                                     \
+  do {                                                                                                      \
+    {                                                                                                       \
+      if ((pre_index) >= 0)                                                                                 \
+        weight_desc[pre_index].next = (uint32_t) & weight_desc[desc_idx];                                   \
+      memset(&weight_desc[desc_idx], 0, sizeof(dma_desc_1d_t));                                             \
+      weight_desc[desc_idx].next       = (uint32_t) (next_ptr);                                             \
+      weight_desc[desc_idx].length     = 16 * 32 * kp * (count);                                            \
+      weight_desc[desc_idx].type       = DMA_DESC_TYPE_1D;                                                  \
+      weight_desc[desc_idx].src_bypass = 1;                                                                 \
+      weight_desc[desc_idx].dst_bypass = 1;                                                                 \
+      weight_desc[desc_idx].ordered    = 1;                                                                 \
+      weight_desc[desc_idx].dstate     = DMA_DESC_DSTATE_PENDING;                                           \
+      weight_desc[desc_idx].src        = (uint32_t) (b + (size_t) (oy_start + (start_idx)) * kp * 32 * 16); \
+      weight_desc[desc_idx].dst        = (uint32_t) (vtcm_weight_int4 + (start_idx) * 512 * kp);            \
+    }                                                                                                       \
+  } while (0)
 
     int act_buf_idx = 0;
     int act_idx = 0;
@@ -1099,10 +1097,10 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
       chunk_states[i].kp = kp;
       chunk_states[i].scale_block_num = scale_block_num;
       chunk_states[i].scale_asymmetric = scale_asymmetric;
-      chunk_states[i].weight_is_vrmpy = weight_is_vrmpy;
+      chunk_states[i].weight_is_vrmpy  = weight_is_vrmpy;
       chunk_states[i].b_scale = b_scale;
       chunk_states[i].vtcm_weight_int4 = vtcm_weight_int4;
-      chunk_states[i].vtcm_weight = vtcm_weight;
+      chunk_states[i].vtcm_weight      = vtcm_weight;
       chunk_states[i].depend = &weight_desc[i];
       chunk_states[i].shared_sync = &sync_token[i];
 
@@ -1115,7 +1113,7 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
     }
 
     dma_wait_for_idle();
-    #undef SET_WEIGHT_DMA
+#undef SET_WEIGHT_DMA
 
     for (int ox_start = 0; ox_start < mp; ox_start += mp_chunk) {
       int next_ox_start = ox_start + mp_chunk;
@@ -1146,7 +1144,7 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
             output_store_active[output_buf_idx] = 0;
           }
           __fp16* current_vtcm_output = vtcm_output + (size_t)output_buf_idx * np_chunk * 1024;
-          int ox_offset = current_base_offset + (ox - ox_start) * kp * 32 * 32;
+          int     ox_offset           = current_base_offset + (ox - ox_start) * kp * 32 * 32;
           for (int chunk_idx = 0; chunk_idx < valid_chunks; ++chunk_idx) {
             if (!chunk_weight_ready[chunk_idx]) {
               worker_pool_synctoken_wait(&sync_token[chunk_idx]);
@@ -1162,16 +1160,16 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
             }
           }
           worker_pool_synctoken_init(&output_store_sync[output_buf_idx], 1);
-          output_store_tasks[output_buf_idx].c = c;
+          output_store_tasks[output_buf_idx].c           = c;
           output_store_tasks[output_buf_idx].vtcm_output = current_vtcm_output;
-          output_store_tasks[output_buf_idx].bias = bias;
+          output_store_tasks[output_buf_idx].bias        = bias;
           output_store_tasks[output_buf_idx].vtcm_scales = dequant_in_weight ? NULL : current_vtcm_scales;
-          output_store_tasks[output_buf_idx].M = M;
-          output_store_tasks[output_buf_idx].ox = ox;
-          output_store_tasks[output_buf_idx].oy_start = oy_start;
-          output_store_tasks[output_buf_idx].oy_begin = oy_start;
-          output_store_tasks[output_buf_idx].oy_end = oy_end;
-          output_store_tasks[output_buf_idx].pack = pack;
+          output_store_tasks[output_buf_idx].M           = M;
+          output_store_tasks[output_buf_idx].ox          = ox;
+          output_store_tasks[output_buf_idx].oy_start    = oy_start;
+          output_store_tasks[output_buf_idx].oy_begin    = oy_start;
+          output_store_tasks[output_buf_idx].oy_end      = oy_end;
+          output_store_tasks[output_buf_idx].pack        = pack;
           output_store_tasks[output_buf_idx].shared_sync = &output_store_sync[output_buf_idx];
           worker_pool_job_t job;
           job.fptr = store_q4_output_worker_loop;
@@ -1183,23 +1181,23 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
         }
       } else {
         for (int ox = ox_start; ox < ox_end; ++ox) {
-          __fp16* current_vtcm_output = vtcm_output;
-          int ox_offset = current_base_offset + (ox - ox_start) * kp * 32 * 32;
+          __fp16 *current_vtcm_output = vtcm_output;
+          int     ox_offset           = current_base_offset + (ox - ox_start) * kp * 32 * 32;
           for (int chunk_idx = 0; chunk_idx < valid_chunks; ++chunk_idx) {
             if (!chunk_weight_ready[chunk_idx]) {
               worker_pool_synctoken_wait(&sync_token[chunk_idx]);
               chunk_weight_ready[chunk_idx] = 1;
             }
             int oy_chunk_start = oy_start + chunk_starts[chunk_idx];
-            int oy_chunk_end = oy_chunk_start + chunk_counts[chunk_idx];
+            int oy_chunk_end   = oy_chunk_start + chunk_counts[chunk_idx];
             for (int oy = oy_chunk_start; oy < oy_chunk_end; ++oy) {
-              int oy_offset = (oy - oy_start) * 16 * kp;
-              __fp16* output_tile = current_vtcm_output + (oy - oy_start) * 1024;
+              int     oy_offset   = (oy - oy_start) * 16 * kp;
+              __fp16 *output_tile = current_vtcm_output + (oy - oy_start) * 1024;
               hmx_load_q4_tiles(vtcm_activation + ox_offset, vtcm_weight + oy_offset * 64, kp);
               hmx_consume_accumulator_fp16(output_tile);
             }
-            store_q4_output_range(c, current_vtcm_output, bias, dequant_in_weight ? NULL : current_vtcm_scales,
-                                  M, ox, oy_start, oy_chunk_start, oy_chunk_end, pack);
+            store_q4_output_range(c, current_vtcm_output, bias, dequant_in_weight ? NULL : current_vtcm_scales, M, ox,
+                                  oy_start, oy_chunk_start, oy_chunk_end, pack);
           }
         }
       }

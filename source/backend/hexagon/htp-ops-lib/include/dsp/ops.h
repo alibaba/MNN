@@ -72,8 +72,8 @@ typedef struct HmxIm2ColConvParam {
     int32_t relu6;
     int32_t batch;
     int32_t outputBytes;
-    int32_t scaleBlockNum;
-    int32_t scaleAsymmetric;
+    int32_t         scaleBlockNum;
+    int32_t         scaleAsymmetric;
 } HmxIm2ColConvParam;
 
 typedef struct WeightReorderParam {
@@ -87,17 +87,16 @@ int hmx_im2col_convolution_fp16(uint8_t *dst, const uint8_t *src, const uint8_t 
                                 const HmxIm2ColConvParam* params);
 int hmx_conv1x1_direct_w8a16_sym_per_channel(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
                                              const uint8_t *bias, const HmxIm2ColConvParam* params);
-int hmx_matmul_w8a16_block_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight,
-                                const uint8_t *bias, const HmxIm2ColConvParam* params);
+int hmx_matmul_w8a16_block_fp16(uint8_t *dst, const uint8_t *src, const uint8_t *weight, const uint8_t *bias,
+                                const HmxIm2ColConvParam *params);
 int htp_ops_conv1x1_direct_fp16(uint8_t* output, uint8_t* input, uint8_t* weight, uint8_t* bias,
                                 const HmxIm2ColConvParam* params);
-int htp_ops_vision_attention_fp16(uint8_t* output, const uint8_t* query, const uint8_t* key, const uint8_t* value,
-                                  const uint8_t* mask, uint8_t* workspace, int batch, int tokens, int heads,
+int htp_ops_vision_attention_fp16(uint8_t *output, const uint8_t *query, const uint8_t *key, const uint8_t *value,
+                                  const uint8_t *mask, uint8_t *workspace, int batch, int tokens, int heads,
                                   int headDim, float scale, int maskStride, int workspaceBytes);
-int htp_ops_vision_flash_attention_fp16(uint8_t* output, const uint8_t* query, const uint8_t* key,
-                                        const uint8_t* value, const uint8_t* mask, uint8_t* workspace, int batch,
-                                        int tokens, int heads, int headDim, float scale, int maskStride,
-                                        int workspaceBytes);
+int htp_ops_vision_flash_attention_fp16(uint8_t *output, const uint8_t *query, const uint8_t *key, const uint8_t *value,
+                                        const uint8_t *mask, uint8_t *workspace, int batch, int tokens, int heads,
+                                        int headDim, float scale, int maskStride, int workspaceBytes);
 #if defined(__hexagon__) || defined(__arm__) || defined(__aarch64__)
 int hvx_pool2d_fp16(__fp16 *restrict dst, const __fp16 *restrict src,
                    int batch, int ih, int iw, int oh, int ow, int c4,

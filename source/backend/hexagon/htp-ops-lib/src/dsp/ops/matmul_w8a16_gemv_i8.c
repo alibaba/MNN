@@ -101,7 +101,7 @@ static void quantize_activation_row(const __fp16 *a, int K, int8_t *qa_out, floa
   const float inv = 127.0f / absmax;
   *sa_out         = sa;
 
-  const __fp16 inv_hf        = (__fp16) inv;
+  const __fp16     inv_hf    = (__fp16) inv;
   const HVX_Vector v_inv     = Q6_Vh_vsplat_R(fp16_to_bits(&inv_hf));
   const HVX_Vector v_clamp_n = Q6_Vb_vsplat_R((int8_t) -127);
   int              k         = 0;
@@ -128,8 +128,8 @@ static void quantize_activation_row(const __fp16 *a, int K, int8_t *qa_out, floa
 }
 
 // Splat one 4-k activation group as a 32-bit word in the HMX weight order
-  // [a(k0), a(k2), a(k1), a(k3)] (swap bytes 1 and 2 of the linear word). vrmpy
-  // then pairs each weight w(k) with its own a(k) (sum order is irrelevant).
+// [a(k0), a(k2), a(k1), a(k3)] (swap bytes 1 and 2 of the linear word). vrmpy
+// then pairs each weight w(k) with its own a(k) (sum order is irrelevant).
 static inline HVX_Vector splat_group_permuted(const int8_t *qa, int gg) {
   uint32_t w = *(const uint32_t *) (qa + (size_t) gg * 4);
   w          = (w & 0xFF0000FFu) | ((w & 0x00FF0000u) >> 8) | ((w & 0x0000FF00u) << 8);
@@ -153,7 +153,7 @@ static inline HVX_Vector compute_oc_tile_i8(const uint8_t    *wtile,    // 1024*
       const int         kt  = kt0 + ktl;
       const uint8_t    *wt  = wtile + (size_t) kt * 1024;
       const HVX_Vector *asp = a_splat + kt * 8;
-      for (int l = 0; l < 8; ++l) {                       // 8 loads -> 8 groups of 4 k = 32 k
+      for (int l = 0; l < 8; ++l) {  // 8 loads -> 8 groups of 4 k = 32 k
         acc = Q6_Vw_vrmpyacc_VwVbVb(acc, vmem(wt + l * 128), asp[l]);
       }
     }
@@ -202,8 +202,8 @@ static void w8a16_gemv_worker_loop(void *data, int _worker_index) {
 
 // Parallel compute over [oy_base, oy_end) oc-tiles of one resident chunk.
 static void compute_chunk_parallel(uint8_t *c, const uint8_t *vtcm_weight, const float *vtcm_sw,
-                                   const HVX_Vector *a_splat, const uint8_t *bias, int kp, int nblk,
-                                   float sa, int oy_base, int oy_end, int chunk_np) {
+                                   const HVX_Vector *a_splat, const uint8_t *bias, int kp, int nblk, float sa,
+                                   int oy_base, int oy_end, int chunk_np) {
   int nworkers = (int) g_max_num_workers;
   if (nworkers < 1) {
     nworkers = 1;
@@ -219,17 +219,17 @@ static void compute_chunk_parallel(uint8_t *c, const uint8_t *vtcm_weight, const
     if (s1 > chunk_np) {
       s1 = chunk_np;
     }
-    tasks[w] = (w8a16_gemv_task_t) { c + (size_t) oy_base * 32 * sizeof(__fp16),
-                                     vtcm_weight,
-                                     a_splat,
-                                     vtcm_sw,
-                                     bias ? bias + (size_t) oy_base * 32 * sizeof(__fp16) : NULL,
-                                     kp,
-                                     nblk,
-                                     sa,
-                                     s0,
-                                     s1,
-                                     &sync };
+    tasks[w] = (w8a16_gemv_task_t){ c + (size_t) oy_base * 32 * sizeof(__fp16),
+                                    vtcm_weight,
+                                    a_splat,
+                                    vtcm_sw,
+                                    bias ? bias + (size_t) oy_base * 32 * sizeof(__fp16) : NULL,
+                                    kp,
+                                    nblk,
+                                    sa,
+                                    s0,
+                                    s1,
+                                    &sync };
     worker_pool_job_t job;
     job.fptr = w8a16_gemv_worker_loop;
     job.dptr = &tasks[w];
@@ -241,9 +241,9 @@ static void compute_chunk_parallel(uint8_t *c, const uint8_t *vtcm_weight, const
 }
 
 // Issue one weight+scale DMA chunk into vtcm_weight/vtcm_sw.
-static void start_chunk_dma(dma_desc_1d_t *wdesc, dma_desc_1d_t *sdesc, const uint8_t *b_wt,
-                            const uint8_t *b_scale, uint8_t *vtcm_weight, float *vtcm_sw,
-                            size_t wtile_bytes, size_t sw_bytes_per_oc, int oy_base, int chunk_np) {
+static void start_chunk_dma(dma_desc_1d_t *wdesc, dma_desc_1d_t *sdesc, const uint8_t *b_wt, const uint8_t *b_scale,
+                            uint8_t *vtcm_weight, float *vtcm_sw, size_t wtile_bytes, size_t sw_bytes_per_oc,
+                            int oy_base, int chunk_np) {
   memset(wdesc, 0, sizeof(*wdesc));
   wdesc->length     = (uint32_t) ((size_t) chunk_np * wtile_bytes);
   wdesc->type       = DMA_DESC_TYPE_1D;
@@ -285,7 +285,7 @@ int hmx_matmulw8a16block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_
 
   // Whole-blob fast path when it fits in VTCM (single DMA, max overlap).
   const size_t vtcm_total = vtcm_manager_get_vtcm_size();
-  const size_t need = (size_t) K + (size_t) n_groups * sizeof(HVX_Vector) + (size_t) np * sw_bytes_per_oc +
+  const size_t need       = (size_t) K + (size_t) n_groups * sizeof(HVX_Vector) + (size_t) np * sw_bytes_per_oc +
                       (size_t) np * weight_tile_bytes + 4096;
   if (need > vtcm_total) {
     // Chunked path with double-buffered weight DMA: chunk i+1 streams while
@@ -319,8 +319,8 @@ int hmx_matmulw8a16block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_
     const int nchunks = (np + np_chunk - 1) / np_chunk;
 
     // First chunk DMA overlaps activation quantization below.
-    start_chunk_dma(&wdesc[0], &sdesc[0], b_wt, b_scale, vtcm_wt[0], vtcm_sw[0], weight_tile_bytes,
-                    sw_bytes_per_oc, 0, np_chunk > np ? np : np_chunk);
+    start_chunk_dma(&wdesc[0], &sdesc[0], b_wt, b_scale, vtcm_wt[0], vtcm_sw[0], weight_tile_bytes, sw_bytes_per_oc, 0,
+                    np_chunk > np ? np : np_chunk);
     float sa = 1.0f;
     quantize_activation_row((const __fp16 *) a, K, vtcm_qa, &sa);
     for (int gg = 0; gg < n_groups; ++gg) {
@@ -346,8 +346,7 @@ int hmx_matmulw8a16block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_
         start_chunk_dma(&wdesc[1 - buf], &sdesc[1 - buf], b_wt, b_scale, vtcm_wt[1 - buf], vtcm_sw[1 - buf],
                         weight_tile_bytes, sw_bytes_per_oc, next_oy_base, next_oy_end - next_oy_base);
       }
-      compute_chunk_parallel(c, vtcm_wt[buf], vtcm_sw[buf], vtcm_asplat, bias, kp, nblk, sa, oy_base, oy_end,
-                             chunk_np);
+      compute_chunk_parallel(c, vtcm_wt[buf], vtcm_sw[buf], vtcm_asplat, bias, kp, nblk, sa, oy_base, oy_end, chunk_np);
       if (chunk + 1 < nchunks) {
         dma_wait_for_idle();
       }
