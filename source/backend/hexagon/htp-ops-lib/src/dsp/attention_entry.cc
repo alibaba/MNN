@@ -91,7 +91,10 @@ extern "C" AEEResult htp_ops_vision_flash_attention_fp16(
   const size_t packedVBytes =
       (size_t)seqBlocks * heads * vOcP * ATTN_HMX_KV_BLOCK_TILES * 1024 * sizeof(__fp16);
   const int totalTasks = sync_attention_total_tasks(tokens, 0, tokens, heads, heads, headDim, tokens, maskStride);
-  const int workerSlots = sync_attention_pick_task_count(totalTasks);
+  int workerSlots = sync_attention_pick_task_count(totalTasks);
+  if (g_max_num_workers > 0 && workerSlots < (int)g_max_num_workers) {
+    workerSlots = (int)g_max_num_workers;
+  }
   const int queryBlock = tokens < 64 ? tokens : 64;
   const size_t workerBytes = sync_attention_head_workspace_bytes(queryBlock, tokens);
 
