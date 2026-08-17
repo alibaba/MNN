@@ -882,6 +882,53 @@ static void MNNScaleAndAddBiasFP16(FLOAT16* dst, const FLOAT16* src, const FLOAT
     }
 }
 
+// fp16 port of MNNRoPEComputeBasic (CommonOptFunction.cpp); one call handles a
+// token's [numHead, headDim] elements, cos/sin tables are already fp16.
+static void MNNRoPEComputeFP16(void* dst, const void* src, const void* cosEven, const void* cosOdd,
+                               const void* sinEven, const void* sinOdd, int numHead, int headDim,
+                               int ropeCutHeadDim) {
+    int ropeDim = ropeCutHeadDim;
+    if (ropeDim <= 0 || ropeDim > headDim) {
+        ropeDim = headDim;
+    }
+    ropeDim = (ropeDim / 2) * 2;
+    const int ropeHalfHeadDim = ropeDim / 2;
+
+    auto srcHalf = static_cast<const FLOAT16*>(src);
+    auto dstHalf = static_cast<FLOAT16*>(dst);
+    auto cosEvenHalf = static_cast<const FLOAT16*>(cosEven);
+    auto cosOddHalf = static_cast<const FLOAT16*>(cosOdd);
+    auto sinEvenHalf = static_cast<const FLOAT16*>(sinEven);
+    auto sinOddHalf = static_cast<const FLOAT16*>(sinOdd);
+    for (int j = 0; j < numHead; ++j) {
+        auto src0 = srcHalf + j * headDim;
+        auto src1 = src0 + ropeHalfHeadDim;
+        auto dst0 = dstHalf + j * headDim;
+        auto dst1 = dst0 + ropeHalfHeadDim;
+        int k = 0;
+        for (; k <= ropeHalfHeadDim - 8; k += 8) {
+            auto q0 = Vec::load(src0 + k);
+            auto q1 = Vec::load(src1 + k);
+            auto c0 = Vec::load(cosEvenHalf + k);
+            auto c1 = Vec::load(cosOddHalf + k);
+            auto s0 = Vec::load(sinEvenHalf + k);
+            auto s1 = Vec::load(sinOddHalf + k);
+            Vec::save(dst0 + k, Vec::fms(q0 * c0, q1, s0));
+            Vec::save(dst1 + k, Vec::fma(q1 * c1, q0, s1));
+        }
+        for (; k < ropeHalfHeadDim; ++k) {
+            float q0 = src0[k];
+            float q1 = src1[k];
+            dst0[k] = static_cast<FLOAT16>(q0 * cosEvenHalf[k] - q1 * sinEvenHalf[k]);
+            dst1[k] = static_cast<FLOAT16>(q1 * cosOddHalf[k] + q0 * sinOddHalf[k]);
+        }
+        if (ropeDim < headDim) {
+            ::memcpy(dstHalf + j * headDim + ropeDim, srcHalf + j * headDim + ropeDim,
+                     (headDim - ropeDim) * sizeof(FLOAT16));
+        }
+    }
+}
+
 static void MNNGridSampleComputeCordFP16(FLOAT16* dst, const FLOAT16* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
     float16x8_t zero = vdupq_n_f16(0);
     float16x8_t one = vdupq_n_f16(1);
@@ -3386,6 +3433,7 @@ bool Arm82Functions::init() {
     // path reports NOT_SUPPORT rather than reading a stale fp32 entry.
     FUNC_PTR_ASSIGN(gInstance->MNNNormPacked, MNNNormPackedFp16);
 #endif
+    FUNC_PTR_ASSIGN(gInstance->MNNRoPECompute, MNNRoPEComputeFP16);
 
     gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;
     gInstance->MNNComputeMatMulForE_1 = _MNNComputeMatMulForE_1_FP16;
