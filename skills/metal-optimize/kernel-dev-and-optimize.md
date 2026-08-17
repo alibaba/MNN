@@ -219,6 +219,20 @@ Metal 后端开 fp16（`useFp16InsteadFp32`）时，float 类型的 device tenso
 
 **规矩**：shader 按 `device float` 消费的 scratch，host 一律 `createDevice<uint8_t>({bytes})` 按字节分配，公式写明 `* sizeof(float)`。检查现有代码时 grep `createDevice<float>` 与对应 shader 的指针类型是否一致。
 
+### 陷阱 G：barrier 与 per-simdgroup 早退不可共存
+
+给已有 kernel 的前导/尾段加 threadgroup 归约时，真正的代价不是 barrier 指令本身，而是它对**上游控制流**施加的全局约束：TG 内每个线程都必须到达 barrier。而 2sg/4sg GEMV 的惯用写法恰恰是先按 simdgroup 算出 `uz` 再 `if (uz >= output_slice) return;`——尾部 threadgroup 于是出现"一个 SG 已 return、另一个 SG 在等 barrier"。Metal 下这是 UB：可能挂死，也可能静默出错（取决于芯片与调度）。
+
+**修法**（`b3826f1907` LN 前导拆分的实际做法，见 §2.1.9）：
+
+1. 把含 barrier 的前导段**整体上提**到所有 per-simdgroup 出界检查之前；
+2. 早退判定换成 **TG-uniform** 形式——用"整个 TG 覆盖的最小 index"（`tg_first_uz = tg_x * slicesPerTG`）判断：全 TG 结论一致 ⇒ 要么全退要么全留，安全；
+3. 部分有活的 TG 里，越界的那个 SG 压到归约**之后**再各自 return。
+
+**规矩**：加 barrier 前先枚举它上游所有 `return` / `continue`，逐个判定是否 TG-uniform，不是的就下移或改造成 uniform 形式。**barrier 结构必须编译期确定**（宏变体，不要用运行时分支包住 barrier），否则分支自身就可能非 uniform。配套还要重审"唯一写者"守卫（§2.1.9）。
+
+**验证**：这类 bug 只在尾块出现（`output_slice % slicesPerTG != 0`），整除 shape 跑一万遍都测不出——必须专门用**非整除 output_channel** 的模型/shape 对拍，不能只跑常见的 2 的幂维度。
+
 ## 1.7 Packed weight 设计
 
 新加 quant bit 时**先固定 5 个量**：
@@ -486,6 +500,7 @@ kernel void conv1x1_gemv_g8_deferred_sg2(
 - **门控**：`const bool row2 = !backend->isSupportTensorApi();`——三处 setup（`setupGateUpFusion` / `setupQKVFusion` / `setupLNFusion`）解析同一公式，保证 pipeline 宏与 grid 一致。M4/M5 双端标定完成后 `MNN_METAL_GEMV_ROW2` 三态开关已删除，设备门控即唯一逻辑。
 - **正确性**：热稳定窗口 greedy **byte-identical**。开发中一度误判 DIFFERS——实为深度热节流下基线自身非确定。
 - **为什么 ROW_2 赢而 SPLIT_K_2 输**：融合 kernel 的寄存器/占用余量吃不起翻倍的 simdgroup + barrier；双流方案在同一线程内加 ILP，占用不变，还顺带把 input/LN 读减半。
+  - **别过度推广这条结论**：它否掉的是"为拆分主体计算而翻倍 SG"的 barrier；不增加 SG、只做一次 TG-uniform 标量归约的 barrier 仍然是赚的，见 §2.1.9。
 
 ### 2.1.7 ⚠️ 短序列 GEMV 路径（area 2..16）从未优化
 
@@ -540,6 +555,18 @@ decode GEMV 是权重带宽 bound，B 个 token 权重只读一次 ⇒ 理想 `c
 **实测**（M4 Pro 0.6B 交替配对）：decode tg128 **W3 +15%**（245→281）、**W2 +37%**（298→409）vs g8 路径；融合 kill-switch 验证 +3%（W3）；W4 全程字节一致。绝对值：W2 409 / W4 349 / W3 303 tok/s。prefill pp512 W3≈W4（5190，compute-bound）、W2 4248（-18%，`conv1x1_w_dequant` 的 W2 分支散字节读未优化，遗留项）。
 
 **W3 < W4 decode 归因**：W3 tile 6B 非对齐，内环 6 标量 load + hi 面额外 8 mask（W4 是 1×ushort4 + 8 mask）；3×ushort load 变体实测**中性**（已回退）——与其他微调结论一致：0.6B 小 GEMV latency-bound，指令微调不兑现。结构性差距留待 4B+ 再评。
+
+### 2.1.9 LN 前导跨 simdgroup 拆分（LN_SPLIT_SG，默认开）
+
+`b3826f1907`。
+
+- **问题**：融合 leader 的 LN 前导里 `inv_rms` 是 TG-uniform 标量，但两个 simdgroup 各自把 input+residual **全量**扫一遍把它重算出来 ⇒ 前导读量 ×2。这类冗余在 timeline 上不显示为独立开销，只让 kernel"整体略慢"；**只有按"哪些量跨 simdgroup 恒等"重扫一遍代码才会暴露**。通用判据：kernel 里凡有可证明 TG-uniform 的标量（rms / mean / softmax 的 max & sum），其前导读量都应除以 SG 数，代价是一次 barrier。
+- **机制**：`LN_SPLIT_SG` 编译变体——两个 SG 各扫一半 input（`z = sgitg*32 + tiisg; z += 64`），各自 `simd_sum` 后经 `threadgroup float ln_sq_partial[2]` + 一次 barrier 合并；前导整段上提到 per-simdgroup 出界检查之前，早退判定换成 TG-uniform 的 `tg_first_uz`（**详见陷阱 G**，这是本项的主要工作量与唯一 UB 风险点）。
+- **划分一改，"唯一写者"守卫必须重审**：`ln_residual_out` 原来由 `sgitg == 0` 独写——这个条件本是"每个 SG 都扫全量"那份冗余的副产品；拆分后它的含义悄悄从"避免重复写"变成"只写一半"，故改为 `#ifndef LN_SPLIT_SG sgitg == 0 && #endif`。此类错误静默（下游拿到半截 residual）、与 barrier 无关、review 极易滑过。**规矩**：改并行划分时 grep 该 kernel 全部 `sgitg ==` / `tiisg ==` / `gid.* == 0` 守卫，逐个确认语义是否被新划分掀翻。
+- **隐式契约**：`z += 64` 与 `ln_sq_partial[2]` 写死了"恰好 2 个 simdgroup"，依赖 `setupLNFusion` 恒发 64 线程（`mThreads.second = 64`）。shader 注释只防得住读代码的人，防不住改 dispatch 的人——**隐式契约要么消掉（SG 数当宏传入），要么在契约两侧都留可执行检查**。
+- **与 §2.1.6 结论的边界**（重要，否则后人会拿旧结论直接否掉这类改动）：ROW_2 那条"融合 kernel 吃不起 barrier"针对的是**为拆分主体计算而翻倍 simdgroup**的 barrier（占用下降）；本项是在既有 SG 数下用一次 barrier 换前导读量减半，**SG 数与占用均不变**。两者不矛盾，判据是"这个 barrier 是否附带 occupancy 代价"。
+- **实测**：与 QKV_PACKED_GRID、GEMV_MIDDLE_STEP 三项合并 M4 Pro 0.6B tg128 **+2.0%**（340.9→347.7，4/4 轮同向）；**单项收益未独立测量**。捆绑测量省时间但欠归因债——三项各留了 env kill switch，债随时可偿。**规矩**：允许合并测量，但每项必须留独立开关。
+- **开关**：`MNN_METAL_DISABLE_LN_SPLIT_SG=1` 回退为"每 SG 各自重算 inv_rms"。同批另两项（`QKV_PACKED_GRID` 打包 grid、`GEMV_MIDDLE_STEP` host 侧 lane 划分）见 [`env-registry.md`](./env-registry.md)。
 
 ## 2.2 GEMM（prefill）
 
