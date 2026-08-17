@@ -36,7 +36,9 @@ ErrorCode HexagonExecution::onExecute(const std::vector<Tensor*>& inputs, const 
     }
 #endif
     for (auto& cmd : mCmd) {
-        cmd.execute();
+        if (cmd.execute() != 0) {
+            return OUT_OF_MEMORY;
+        }
     }
 #ifdef MNN_HEXAGON_ASAN
     if (runtime != nullptr && !runtime->asanCheckAllBuffers("after HexagonExecution::onExecute")) {

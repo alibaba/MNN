@@ -156,6 +156,8 @@ BufferAllocator* HexagonBackend::getAllocator(int type) const {
             return mDynamicAlloc.get();
         case 2:
             return mRuntime->mWeightAlloc.get();
+        case 3:
+            return mRuntime->mLazyWeightAlloc.get();
         default:
             return mRuntime->mStaticAlloc.get();
     }
@@ -1016,8 +1018,8 @@ void HexagonBackend::freeCommandSlot(const MemChunk& chunk) const {
     mRuntime->freeCommandSlot(chunk);
 }
 
-void HexagonBackend::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const {
-    mRuntime->pushCommand(cmdChunk, cmdSize, needCopy, dirty);
+bool HexagonBackend::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const {
+    return mRuntime->pushCommand(cmdChunk, cmdSize, needCopy, dirty);
 }
 
 int HexagonBackend::commandSerial() const {

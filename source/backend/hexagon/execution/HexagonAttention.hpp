@@ -26,6 +26,7 @@ private:
     std::shared_ptr<Tensor> mWorkspace;
     std::shared_ptr<Tensor> mPageTable;
     bool mUseGeneratedCausalMask = false;
+    bool mVisionState = false;
     std::shared_ptr<HexagonKVCacheManager> mKVCacheManager;
     KVMeta* mMeta = nullptr;
     int mMaxKVLen = 0;
