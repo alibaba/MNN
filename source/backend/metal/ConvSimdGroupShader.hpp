@@ -4203,7 +4203,15 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
 #else  // !ROW_2
 
     // 2 simdgroups per threadgroup, each handles one output_slice independently
-#ifdef SPLIT_K_2
+#if defined(SPLIT_K_SHUFFLE)
+    // Intra-simdgroup K-split (A/B experiment vs SPLIT_K_2): 2 simdgroups, one
+    // row each; lanes 0..15 sweep the lower K half, lanes 16..31 the upper.
+    // The trailing simd_sum already reduces across both halves, so no
+    // threadgroup memory or barrier is needed -- but a row has only 32 lanes
+    // in flight instead of SPLIT_K_2's 64.
+    const int uz = tg_x * 2 + (int)sgitg;
+    const int sk_half = (int)(tiisg >> 4);
+#elif defined(SPLIT_K_2)
     // 4 simdgroups: sg 0/1 = rows (lower K half), sg 2/3 = same rows (upper K
     // half); partials combined via threadgroup memory. Host guarantees the
     // grid is exact (oc % 8 == 0) so no simdgroup early-returns before the
@@ -4275,16 +4283,34 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     //   where the default under-utilizes SIMD width and BW isn't saturated.
     //
     // Host controls via MTLCompileOptions -> MNN_METAL_GEMV_WIDE_MIDDLE=1.
-#ifdef WIDE_MIDDLE
+#ifdef SPLIT_K_SHUFFLE
+    // 16 lanes per K half. Host passes GEMV_MIDDLE_STEP sized for 16 lanes
+    // (gemvMiddleStep with lanes=16); the fallback mirrors the legacy
+    // expression halved.
+    const int sk_lane = (int)(tiisg & 15);
+#ifdef GEMV_MIDDLE_STEP
+    constexpr int middle_step = GEMV_MIDDLE_STEP;
+#else
+    int middle_step = min(SIMD_GROUP_WIDTH / 2, max(block / 4, 1));
+#endif
+    int outer_step  = (SIMD_GROUP_WIDTH / 2) / middle_step;
+    int middle_index = sk_lane % middle_step;
+    int outer_index  = sk_lane / middle_step;
+#elif defined(WIDE_MIDDLE)
     int middle_step = min(SIMD_GROUP_WIDTH, max(block, 1));
+    int outer_step  = SIMD_GROUP_WIDTH / middle_step;
+    int middle_index = tiisg % middle_step;
+    int outer_index  = tiisg / middle_step;
 #elif defined(GEMV_MIDDLE_STEP)
     // Every input is known at pipeline build time, and keeping it a literal lets
     // the compiler strength-reduce the %/÷ below instead of carrying a runtime
     // divisor through the hot path.
     constexpr int middle_step = GEMV_MIDDLE_STEP;
+    int outer_step  = SIMD_GROUP_WIDTH / middle_step;
+    int middle_index = tiisg % middle_step;
+    int outer_index  = tiisg / middle_step;
 #else
     int middle_step = min(SIMD_GROUP_WIDTH, max(block / 4, 1));
-#endif
     int outer_step  = SIMD_GROUP_WIDTH / middle_step;
     int middle_index = tiisg % middle_step;
     int outer_index  = tiisg / middle_step;
@@ -4292,7 +4318,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
 
     FLOAT4 result = FLOAT4(0);
 
-#ifdef SPLIT_K_2
+#if defined(SPLIT_K_2) || defined(SPLIT_K_SHUFFLE)
     const int sk_bi_begin = sk_half * (cst.block_size / 2);
     const int sk_bi_end   = (sk_half == 1) ? cst.block_size : (cst.block_size / 2);
     for (int bi = sk_bi_begin + outer_index; bi < sk_bi_end; bi += outer_step) {

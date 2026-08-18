@@ -74,9 +74,12 @@ struct MetalEnv {
     bool gateUpFusionDisabled;
     // MNN_METAL_DISABLE_QKV_FUSION=1: disable Q/K/V leader/follower fusion.
     bool qkvFusionDisabled;
-    // MNN_METAL_GEMV_SPLITK: decode GEMV K-split (SPLIT_K_2 variant of the 2sg
-    // kernel: 4 simdgroups per tg, two K-halves per row + tg reduce).
-    // 0 = off (legacy 2sg, 64 threads), unset/1 = on (default).
+    // MNN_METAL_GEMV_SPLITK: decode GEMV K-split strategy.
+    // 0 = off (legacy 2sg, 64 threads); unset/1 = SPLIT_K_2 (default: 4
+    // simdgroups per tg, two K-halves per row + threadgroup-memory reduce);
+    // 2 = SPLIT_K_SHUFFLE (A/B experiment: 2 simdgroups, K-halves held inside
+    // one simdgroup as 16-lane sub-groups, simd_sum merges them -- no
+    // threadgroup memory/barrier but half the in-flight lanes per row).
     int gemvSplitK;
     // MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1: take the outer-dequant +
     // fp GEMM path instead of the fused Q4/Q8 GEMM that unpacks weights

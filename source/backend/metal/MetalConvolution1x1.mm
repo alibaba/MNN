@@ -133,11 +133,15 @@ bool MetalConvolution1x1::onClone(Backend* bn, const Op* op, Execution** dst) {
 // narrowing further would trade away the inner parallelism for nothing.
 //
 // Returns 0 when the shape should keep the legacy expression.
-static int gemvMiddleStep(int ic_4, int blockCount, bool splitK) {
+//
+// `lanes` is the number of threads that sweep one K half: 32 for the plain and
+// SPLIT_K_2 kernels (a full simdgroup per half), 16 for SPLIT_K_SHUFFLE where
+// one simdgroup holds both halves.
+static int gemvMiddleStep(int ic_4, int blockCount, bool splitK, int lanes = 32) {
     if (blockCount <= 0) {
         return 0;
     }
-    const int simdWidth = 32;
+    const int simdWidth = lanes;
     const int block  = UP_DIV(ic_4, blockCount);
     const int legacy = std::min(simdWidth, std::max(block / 4, 1));
     if (!splitK) {
@@ -990,13 +994,20 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     // (Routing to the g8 kernel instead was tried first: its
                     // nibble-unpack inner loop is slower and lost 5% e2e.)
                     // MNN_METAL_GEMV_SPLITK=0 restores the legacy 2sg kernel.
+                    // MNN_METAL_GEMV_SPLITK=2 selects SPLIT_K_SHUFFLE (A/B
+                    // experiment): same K-split but held inside one simdgroup
+                    // (16 lanes per half, simd_sum merges the halves, no
+                    // threadgroup memory/barrier) at the cost of 32 in-flight
+                    // lanes per row instead of SPLIT_K_2's 64.
                     const int sSplitK = MetalEnv::get().gemvSplitK;
                     const bool splitkUsable = (oc % 8 == 0) && (blockSize % 2 == 0);
                     if (sSplitK > 0 && splitkUsable) {
-                        const int middleStep = gemvMiddleStep(ic_4, blockSize, true);
+                        const bool skShuffle = (sSplitK == 2);
+                        const char* skMacro = skShuffle ? "SPLIT_K_SHUFFLE" : "SPLIT_K_2";
+                        const int middleStep = gemvMiddleStep(ic_4, blockSize, true, skShuffle ? 16 : 32);
                         auto keys = baseKeys;
                         keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
-                        keys.emplace_back("SPLIT_K_2");
+                        keys.emplace_back(skMacro);
                         // Split-K halves the blocks a simdgroup owns, so the
                         // lane split is re-chosen for that pipeline.
                         const int skMid = q4W16 ? chooseQ4W16Mid(blockSize / 2, q4W16BlockSlices / 2) : 0;
@@ -1009,7 +1020,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         auto pipeline = rt->findPipeline(keys);
                         if (nil == pipeline) {
                             NSMutableDictionary *skDic = [dic mutableCopy];
-                            [skDic setValue:@"1" forKey:@"SPLIT_K_2"];
+                            [skDic setValue:@"1" forKey:@(skMacro)];
                             if (middleStep > 0) {
                                 [skDic setValue:@(std::to_string(middleStep).c_str())
                                          forKey:@"GEMV_MIDDLE_STEP"];
@@ -1022,8 +1033,11 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                             pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), "conv1x1_gemv_g4m1_2sg_wquant_sg", skOption);
                             rt->insertPipeline(keys, pipeline);
                         }
-                        mPipeline = pipeline; CONV1X1_SET_TAG("splitk2_gemv_g4m1_2sg_wquant_sg");
-                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(128, 1, 1));
+                        mPipeline = pipeline;
+                        CONV1X1_SET_TAG(skShuffle ? "splitksh_gemv_g4m1_2sg_wquant_sg"
+                                                  : "splitk2_gemv_g4m1_2sg_wquant_sg");
+                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1),
+                                                  MTLSizeMake(skShuffle ? 64 : 128, 1, 1));
                     } else {
                         auto keys = baseKeys;
                         keys.emplace_back("conv1x1_gemv_g4m1_2sg_wquant_sg");
