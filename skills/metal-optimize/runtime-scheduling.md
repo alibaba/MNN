@@ -113,22 +113,31 @@ content-cache 之后残余价值 ≈ 0（16us/call × 6 次合法转换点），
 
 ---
 
-## 4. 设备端采样（ArgMax / TopKV2）
+## 4. 采样路径（原"设备端采样"，2026-08-18 修订）
 
-`7b2c8bfcd8`（`transformers/llm/engine/src/sampler.cpp`）。
+`7b2c8bfcd8` 原始改动（`transformers/llm/engine/src/sampler.cpp`），2026-08-18 复查后大幅修订。
 
-**动机**：CPU trace 显示 `wait[copyD2H]` 2.7ms/token **全部**来自 logits 回读
-（Qwen3 vocab ~600KB/token）。
+**关键事实**：`Llm` 的 executor 是 `MNN_FORWARD_CPU`（llm.cpp `newExecutor`），sampler 里的
+one-off Express expr（`_ArgMax` / `_TopKV2`）**全部跑在 CPU**——"设备端采样"从未真正发生
+（MetalArgMax 的 onCreate 从未被调用；且 sample 时 logits 已 host 同步，`gpu_wait=0`，统一内存下
+"600KB 回读"本来就不是瓶颈）。
 
-- **greedy**：`Express::_ArgMax(logits, -1)` 在设备端算 argmax，跨设备边界只回读 **4 字节 index**。
-  `MetalArgMax` 的 first-max tie-break 与原来的 CPU 循环一致。
-- **mixed + topK 前置**：`_TopKV2` 设备端取 top-k values/indices，
-  后续 pipeline 步骤在 k 大小的子集上跑（`SamplerState.is_subset`）。
-  **精确等价的前提**：topK 必须是第一个有效过滤步 ⇒ 要求 `logit_bias` / `banned_tokens` 为空，
-  且 topK 在 `mixedSamplers` 首位（或首位是 no-op penalty，即所有 penalty 系数为默认值）。
-- 不满足前提时自动回退整份回读，语义不变。
+- **greedy（现状）**：M4 Pro 实测 `_ArgMax` expr ~330us/token 全是 expr-session 机制开销。
+  已改为 **NEON 两段式 first-max 直循环**（pass1 `vmaxq` 求 max，pass2 找首个命中，
+  tie-break 与经典标量循环一致）：12us/token，完整 token 周期 10265→9746us（**+5.3% wall**），
+  greedy 输出逐字节一致。真·GPU argmax 不值得做：forward 结束时 logits 已同步到 host，
+  GPU 侧再算反而多一次 dispatch + 等待。
+- **mixed + topK 前置**：`_TopKV2` 同样跑在 CPU executor 上（并非设备端），但子集化
+  （`SamplerState.is_subset`，只在 k 大小子集上跑后续 pipeline）本身仍是有效优化。
+  expr 机制开销是否同样占大头**未复测**——优化 mixed 采样时先测。
+  等价前提不变：topK 必须是第一个有效过滤步（`logit_bias`/`banned_tokens` 为空，
+  topK 在 `mixedSamplers` 首位或首位为 no-op penalty），否则回退整份处理。
 
-⚠️ **`_TopKV2` 的 tie-break 未定义**——不能用它替代需要确定性 tie-break 的场景（`_ArgMax` 可以）。
+⚠️ **计量陷阱**：`generate.cpp` 的 decode 计时器在 `sample()` **之后**才启动，采样耗时不进
+`decode_us` ⇒ `decode speed` 对采样类优化完全不敏感。评估采样改动必须测**完整 token 周期**
+（sample 入口到下一次 sample 入口）或整体 wall。
+
+⚠️ **`_TopKV2` 的 tie-break 未定义**——不能用它替代需要确定性 tie-break 的场景。
 
 ---
 
