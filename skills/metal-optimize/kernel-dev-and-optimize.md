@@ -696,10 +696,10 @@ M5（tensor-API 路径扩展增量）：0.6B pp2048 **+38.9%**，累计 +51.5% v
 - **机制**：一个 TG 负责一个 q head（对齐 MLX `sdpa_vector`），QK + online softmax + AV 单 kernel 完成。
 - **门控**（`MetalAttention.mm:627-653`）：`decodeSdpa > 0`（默认 1=auto）&& `totalKv >= sdpaThresh` && `mKVCache` && `mSeqLen==1` && `!mKvInDisk` && (`mCausalLayout` || trivial mask) && `mHeadDim%32==0` && tg 内存 ≤30KB。
   - 阈值（:614-622）：tensor-API 设备 3072 / 其余 1536，再对 fused kernel 的 kv 容量 clamp（group2:2048 / group4:1024 / group8:512）。
-  - NSG（:638-644）**device-tiered**：tensor-API/M5 → 8；非 tensor-API/M4 类 → 32。
+  - NSG（:638-644）**device-tiered**：tensor-API/M5 → 16（2026-08-18 复标，原 8）；非 tensor-API/M4 类 → 32。
 - **实测（M5，0.6B）**：p2048 e2e **+5.2~6.4%**（3 对干净配对，base bracket ±0.3%）；p1024 以下阈值外结构性零影响；短中 kv 强开为负（p1024 -0.5~-4.8%）故必须阈值门控。4B p2048 **+2.5~3.4%**；Qwen3.5-2B（仅 6/24 层 full attention）中性无回退。
 - **实测（M4 Pro，配对 rep5）**：默认(nsg32) 255.8 vs `=0`(legacy) 240.8 → **+6.3%**；p4096 **+7.5%**；p6144 158 vs 124 = +28%。8B p2048 仅 +4%（decode 被权重 GEMV 稀释）。
-- **NSG 标定 M5 与 M4 结论相反**：M5 p2048 nsg8 +6.2% > nsg16 +4.8% > nsg32 +3.3%（e2e 随 TG 变宽单调恶化）；M4 Pro nsg8 **-3.5%** / nsg16 +3.8% / **nsg32 +6.0%**，nsg4 崩到 192（-20%）。⇒ 分档取值。M1/M2/M3/iPhone 未标定，继承 M4 分支。
+- **NSG 标定 M5 与 M4 结论相反**：**M5 默认 nsg16**（2026-08-18 复标：早先"M5 favors nsg8"只比过 8 vs 32、漏测 16）。加测 16 后 nsg16 明显最优——Mac M5 2B kv4096 **+3.95%** / kv8192 **+4.86%**（各 4 对全同向），iPad M5 kv4096 **+2.14%**，两设备两 kv 共 12 对配对全正 ⇒ `MetalAttention.mm:649` tensor-API 分档 8→16。M4 Pro 相反：nsg8 **-3.5%** / nsg16 +3.8% / **nsg32 +6.0%**，nsg4 崩到 192（-20%）⇒ 非 tensor-API 保持 nsg32。M1/M2/M3/iPhone 未标定，继承 M4 分支。（nsg 仅在 SDPA 启用区 kv≥3072 生效，短 kv 走三段式、该参数 no-op。）
   - ⚠️ profile build 与 e2e 常给出相反结论，标定只认 e2e 配对。
 - **正确性**：0.6B/4B/2B × kvq8 × replay × 跨阈值 200tok 全 byte-identical，run_test 388/388。
 - **已删除的变体（勿重试）**：
