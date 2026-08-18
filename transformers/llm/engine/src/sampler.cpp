@@ -4,6 +4,9 @@
 #include <numeric>
 #include <unordered_map>
 #include <limits>
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#endif
 
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/Executor.hpp>
@@ -258,12 +261,45 @@ int Sampler::sample(Express::VARP logits) {
     Timer _t;
     int lastDim = logits->getInfo()->dim.back();
     if (mConfig.type == "greedy") {
-        // Device-side argmax: only a 4-byte index crosses the device boundary
-        // instead of the full fp32 logits (~600 KB for Qwen3 vocab).
-        // MetalArgMax keeps the first-max tie-break identical to the CPU loop.
-        auto tokenIdx = Express::_ArgMax(logits, -1);
+        // Direct two-pass first-max on the host-mapped logits. The previous
+        // Express::_ArgMax form never actually ran on the GPU: the Llm executor
+        // is CPU, so the one-off expr cost ~330us/token in expr-session
+        // machinery on M4 Pro while this loop costs ~12us (full token period
+        // 10265us -> 9746us, +5.3%; note the sampling interval is excluded from
+        // the reported `decode speed`, so only wall clock shows it).
+        // Pass 1 is a pure max reduction; pass 2 takes the first index equal to
+        // it -- identical tie-break to the classic scalar first-max loop.
+        auto ptr = logits->readMap<float>();
+        float bestV = ptr[0];
+#if defined(__aarch64__)
+        {
+            float32x4_t m0 = vdupq_n_f32(ptr[0]), m1 = m0, m2 = m0, m3 = m0;
+            int i = 0;
+            for (; i + 16 <= lastDim; i += 16) {
+                m0 = vmaxq_f32(m0, vld1q_f32(ptr + i));
+                m1 = vmaxq_f32(m1, vld1q_f32(ptr + i + 4));
+                m2 = vmaxq_f32(m2, vld1q_f32(ptr + i + 8));
+                m3 = vmaxq_f32(m3, vld1q_f32(ptr + i + 12));
+            }
+            bestV = vmaxvq_f32(vmaxq_f32(vmaxq_f32(m0, m1), vmaxq_f32(m2, m3)));
+            for (; i < lastDim; ++i) {
+                bestV = std::max(bestV, ptr[i]);
+            }
+        }
+#else
+        for (int i = 1; i < lastDim; ++i) {
+            bestV = std::max(bestV, ptr[i]);
+        }
+#endif
+        int best = 0;
+        for (int i = 0; i < lastDim; ++i) {
+            if (ptr[i] == bestV) {
+                best = i;
+                break;
+            }
+        }
         mContext->sample_us += _t.durationInUs();
-        return tokenIdx->readMap<int>()[0];
+        return best;
     }
     SamplerState state;
     if (mGpuTopKPrefilter && mConfig.topK < lastDim) {
