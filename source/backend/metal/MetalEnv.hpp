@@ -81,6 +81,13 @@ struct MetalEnv {
     // one simdgroup as 16-lane sub-groups, simd_sum merges them -- no
     // threadgroup memory/barrier but half the in-flight lanes per row).
     int gemvSplitK;
+    // MNN_METAL_ENABLE_LMHEAD_SPLITK: K-split experiments for the huge-oc
+    // lm_head decode GEMV (oc > 16384, normally the g16 kernel).
+    // 0 (default) = legacy g16; 1 = route lm_head to the SPLIT_K_2 kernel
+    // (A/B baseline); 2 = G16_SPLIT_K, split-K inside the g16 kernel itself
+    // (4 simdgroups/TG, each SG pair splits one dual-row's K half-and-half,
+    // threadgroup-memory combine; requires oc % 16 == 0 && blockSize % 2 == 0).
+    int lmheadSplitK;
     // MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1: take the outer-dequant +
     // fp GEMM path instead of the fused Q4/Q8 GEMM that unpacks weights
     // in-kernel (A/B baseline + emergency rollback). Only meaningful on
@@ -160,6 +167,11 @@ struct MetalEnv {
                     int n = atoi(v);
                     e.gemvSplitK = (n < 0) ? 0 : (n > 2 ? 2 : n);
                 }
+            }
+            {
+                const char* v = getenv("MNN_METAL_ENABLE_LMHEAD_SPLITK");
+                int n = (v != nullptr) ? atoi(v) : 0;
+                e.lmheadSplitK = (n < 0) ? 0 : (n > 2 ? 2 : n);
             }
             e.w4w8OuterDequantGemm   = envIs("MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI", '1');
             e.fusedQ4Ksplit          = envTriState("MNN_METAL_FUSED_Q4_KSPLIT");

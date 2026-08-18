@@ -4663,6 +4663,17 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
                             uint3 gid[[threadgroup_position_in_grid]],
                             uint  tiisg[[thread_index_in_simdgroup]],
                             uint  sgitg[[simdgroup_index_in_threadgroup]]) {
+#ifdef G16_SPLIT_K
+    // 4 simdgroups per threadgroup (128 threads); each SG pair (sgitg >> 1)
+    // cooperates on the same two oc_4 rows, splitting the quant-block range
+    // in half (sk_half = sgitg & 1). Partials combine via threadgroup memory
+    // after the loop. Host guarantees the grid is exact (oc % 16 == 0), so no
+    // simdgroup may early-return before the barrier below -- the legacy guard
+    // is deliberately absent here.
+    const int G16_ROWS = 2;
+    const int sk_half = (int)sgitg & 1;
+    int uz = G16_ROWS * (gid.x * 2 + (int)(sgitg >> 1));
+#else
     // 2 simdgroups per threadgroup; each simdgroup computes 8 output data (2 oc_4).
     const int GEMV_G16_SGS = 2;
     const int G16_ROWS = 2;
@@ -4670,6 +4681,7 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     if(uz >= cst.output_slice) {
         return;
     }
+#endif
     auto area_size = cst.output_size * cst.batch;
     int rx = gid.y;
 #ifdef W_QUANT_3
@@ -4706,7 +4718,13 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     int outer_index  = (tiisg) / middle_step;
     #endif
 
+#ifdef G16_SPLIT_K
+    const int g16_bi_begin = sk_half * (cst.block_size / 2);
+    const int g16_bi_end   = (sk_half == 1) ? cst.block_size : (cst.block_size / 2);
+    for (int bi = g16_bi_begin + outer_index; bi < g16_bi_end; bi += outer_step) {
+#else
     for (int bi= outer_index; bi<cst.block_size; bi += outer_step) {
+#endif
         const int quant_offset = 2 * (uz * cst.block_size + bi);
         FLOAT4 scale0 = FLOAT4(dequantScale[quant_offset + 0]) / (FLOAT)cst.scale_coef;
         FLOAT4 dequant_bias0 = FLOAT4(dequantScale[quant_offset + 1]) / (FLOAT)cst.scale_coef;
@@ -4928,11 +4946,29 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     FLOAT4 res0 = simd_sum(result0);
     FLOAT4 res1 = simd_sum(result1);
 
+#ifdef G16_SPLIT_K
+    // Two rows per SG pair -> two partial slots per pair.
+    threadgroup FLOAT4 g16_sk_partial0[2];
+    threadgroup FLOAT4 g16_sk_partial1[2];
+    const int row_pair = (int)sgitg >> 1;
+    if (sk_half == 1 && tiisg == 0) {
+        g16_sk_partial0[row_pair] = res0;
+        g16_sk_partial1[row_pair] = res1;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sk_half == 0 && tiisg == 0) {
+        res0 += g16_sk_partial0[row_pair];
+        res1 += g16_sk_partial1[row_pair];
+        xy_out[0] = activate(ftype4(res0 + biasValue0), cst.activation);
+        xy_out[area_size] = activate(ftype4(res1 + biasValue1), cst.activation);
+    }
+#else
     /* true */
     if (tiisg == 0) {
         xy_out[0] = activate(ftype4(res0 + biasValue0), cst.activation);
         xy_out[area_size] = activate(ftype4(res1 + biasValue1), cst.activation);
     }
+#endif
 }
 )metal";
 

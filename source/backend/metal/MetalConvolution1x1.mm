@@ -966,12 +966,37 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     }
                     mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), piece, 1), MTLSizeMake(32, 1, 1));
-                } else if(oc > 16384 && oc_4 % 2 == 0) {
+                } else if(oc > 16384 && oc_4 % 2 == 0 &&
+                          !(MetalEnv::get().lmheadSplitK == 1 && MetalEnv::get().gemvSplitK > 0 &&
+                            (oc % 8 == 0) && (blockSize % 2 == 0))) {
                     // lm_head path. Baseline g16 = 2 simdgroups per TG,
                     // threadgroup size 64, each TG covers 16 OC (2 SG x 8 OC/SG).
                     // Variants explored and retired (see skills/metal-optimize):
                     // 4SG (halved grid) — e2e neutral with 7x worse stddev on M5;
                     // G16_OC4 (4 oc_4 rows/SG) — kernel -4.8% on M5 but e2e neutral.
+                    if(area == 1 && MetalEnv::get().lmheadSplitK == 2 &&
+                       (oc % 16 == 0) && (blockSize % 2 == 0)) {
+                        // G16_SPLIT_K: split-K inside the g16 kernel. 4 simdgroups
+                        // per TG; each SG pair halves one dual-row's quant-block
+                        // range and combines via threadgroup memory. The grid is
+                        // exact (oc % 16 == 0), which the kernel's barrier relies on.
+                        auto keys = baseKeys;
+                        keys.emplace_back("conv1x1_gemv_g16_wquant_sg");
+                        keys.emplace_back("G16_SPLIT_K");
+                        auto pipeline = rt->findPipeline(keys);
+                        if (nil == pipeline) {
+                            NSMutableDictionary *skDic = [dic mutableCopy];
+                            [skDic setValue:@"1" forKey:@"G16_SPLIT_K"];
+                            MTLCompileOptions *skOption = [[MTLCompileOptions alloc] init];
+                            skOption.preprocessorMacros = skDic;
+                            pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), "conv1x1_gemv_g16_wquant_sg", skOption);
+                            rt->insertPipeline(keys, pipeline);
+                        }
+                        mPipeline = pipeline; CONV1X1_SET_TAG("g16splitk_gemv_g16_wquant_sg");
+                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), area, 1),
+                                                  MTLSizeMake(128, 1, 1));
+                        return NO_ERROR;
+                    }
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemv_g16_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
