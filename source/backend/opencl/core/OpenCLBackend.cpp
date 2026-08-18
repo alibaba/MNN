@@ -283,9 +283,31 @@ void CLRuntime::onGabageCollect(int level) {
     }
 }
 
+void CLRuntime::onBackendCreate(OpenCLBackend* backend) const {
+    std::lock_guard<std::mutex> lock(mBackendMutex);
+    mBackends.insert(backend);
+}
+
+void CLRuntime::onBackendRelease(OpenCLBackend* backend) const {
+    std::lock_guard<std::mutex> lock(mBackendMutex);
+    mBackends.erase(backend);
+}
+
 float CLRuntime::onGetMemoryInMB() {
-    auto staticMemoryInMB = mBufferPool->totalSize() / 1024.0f / 1024.0f;
-    return staticMemoryInMB;
+    // Static pool holds the weights; the dynamic pools that hold activations belong to each
+    // OpenCLBackend. Reporting only the former makes a session look two orders of magnitude
+    // smaller than it is, and hides exactly the kind of blowup issue #4782 ran into.
+    size_t total = mBufferPool->residentSize() + mImagePool->residentSize();
+    if (nullptr != mMmapPool.get()) {
+        total += mMmapPool->totalSize();
+    }
+    {
+        std::lock_guard<std::mutex> lock(mBackendMutex);
+        for (auto backend : mBackends) {
+            total += backend->dynamicMemorySize();
+        }
+    }
+    return total / 1024.0f / 1024.0f;
 }
 
 bool CLRuntime::isCLRuntimeError() {
@@ -332,12 +354,34 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
         mBufferPool = mBufferPoolFirst.get();
     }
     mMapMem = std::make_pair(0, nullptr);
+    mCLRuntime->onBackendCreate(this);
+}
+
+size_t OpenCLBackend::dynamicMemorySize() const {
+    size_t total = 0;
+    if (nullptr != mBufferPoolFirst.get()) {
+        total += mBufferPoolFirst->residentSize();
+    }
+    if (nullptr != mBufferPoolSecond.get()) {
+        total += mBufferPoolSecond->residentSize();
+    }
+    if (nullptr != mImagePoolFirst.get()) {
+        total += mImagePoolFirst->residentSize();
+    }
+    if (nullptr != mImagePoolSecond.get()) {
+        total += mImagePoolSecond->residentSize();
+    }
+    if (nullptr != mExecutionBufferPool.get()) {
+        total += mExecutionBufferPool->residentSize();
+    }
+    return total;
 }
 
 OpenCLBackend::~OpenCLBackend() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("enter OpenCLBackend::~OpenCLBackend \n");
 #endif
+    mCLRuntime->onBackendRelease(this);
     releaseRecord();
     mRecordings.clear();
     mImagePool = nullptr;

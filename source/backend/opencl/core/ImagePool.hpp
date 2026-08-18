@@ -25,6 +25,9 @@ public:
     void recycle(cl::Image* image, bool release = false);
     void clear();
     void releaseFreeList();
+    // Bytes still held by the driver, recycled images included: they stay alive until
+    // releaseFreeList or clear. Used to report GPU memory through getSessionInfo(MEMORY).
+    size_t residentSize() const;
 
     struct Node {
         int w;

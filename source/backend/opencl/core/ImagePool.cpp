@@ -71,5 +71,16 @@ void ImagePool::releaseFreeList() {
     }
     mFreeList.clear();
 }
+
+size_t ImagePool::residentSize() const {
+    size_t total = 0;
+    for (const auto& iter : mAllImage) {
+        const auto& node = iter.second;
+        // Always CL_RGBA, so four channels per pixel.
+        size_t channelBytes = (CL_FLOAT == node->type) ? 4 : 2;
+        total += (size_t)node->w * node->h * 4 * channelBytes;
+    }
+    return total;
+}
 } // namespace OpenCL
 } // namespace MNN
