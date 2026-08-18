@@ -176,7 +176,10 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
     // but up needs its own tensor-specific coefficient. Without this, up's dequant
     // is scaled by gate's coefficient and any range mismatch drifts decode into
     // garbage on models like Qwen3.5-2B.
-    mGateUpSegBuffer = backend->getConstBuffer(sizeof(float));
+    // Allocated once and rewritten in place, like mConstBuffer (see onResize).
+    if (nil == mGateUpSegBuffer) {
+        mGateUpSegBuffer = backend->getConstBuffer(sizeof(float));
+    }
     ((float *)mGateUpSegBuffer.contents)[0] = peer->mScaleCoef;
     MetalRuntime* rt = (MetalRuntime *)backend->runtime();
 
@@ -269,10 +272,11 @@ bool MetalConvolution1x1::setupGateUpFusion(MetalConvolution1x1* peer, const Ten
     }
 
     if (nil == mGateUpFusedPipeline) {
-        // Compilation failed, revert fusion
+        // Compilation failed, revert fusion. mGateUpSegBuffer is kept (nothing
+        // binds it with mIsGateUpLeader false) so its identity stays stable for
+        // any live recording, see the mConstBuffer note in onResize.
         mIsGateUpLeader = false;
         mGateUpPeer = nullptr;
-        mGateUpSegBuffer = nil;
         mGateUpSilu = false;
         mGateUpSiluOutput = nullptr;
         peer->mIsGateUpFollower = false;
@@ -501,7 +505,10 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
 
     // Followers' per-projection scale_coef + output_slice (leader's come from cst),
     // plus the packed grid's per-projection bases.
-    mQKVSegBuffer = backend->getConstBuffer(kQKVSegFloats * sizeof(float));
+    // Allocated once and rewritten in place, like mConstBuffer (see onResize).
+    if (nil == mQKVSegBuffer) {
+        mQKVSegBuffer = backend->getConstBuffer(kQKVSegFloats * sizeof(float));
+    }
     auto seg = (float *)mQKVSegBuffer.contents;
     seg[0] = peerK->mScaleCoef;
     seg[1] = peerV->mScaleCoef;
@@ -549,7 +556,10 @@ bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor*
 
     auto backend = static_cast<MetalBackend *>(this->backend());
     MetalRuntime* rt = (MetalRuntime *)backend->runtime();
-    mLNEpsBuffer = backend->getConstBuffer(sizeof(float));
+    // Allocated once and rewritten in place, like mConstBuffer (see onResize).
+    if (nil == mLNEpsBuffer) {
+        mLNEpsBuffer = backend->getConstBuffer(sizeof(float));
+    }
     *((float *)mLNEpsBuffer.contents) = eps;
 
     std::string ftype = backend->useFp16InsteadFp32() ? "half" : "float";
@@ -698,13 +708,20 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 
     mQ4W16BlockSlices = 0;
 
+    // The fusion state resets below deliberately keep the const buffers
+    // (mGateUpSegBuffer / mQKVSegBuffer / mLNEpsBuffer, like mConstBuffer): a
+    // recording must keep seeing the same buffer across resizes, see the note
+    // at the mConstBuffer allocation. Only the flags are cleared, and none of
+    // them is decided by a buffer being nil -- the encode path binds these
+    // solely under mIsGateUpLeader / mIsQKVLeader / mHasLNFusion, and whichever
+    // setup re-establishes the fusion rewrites the contents first.
+
     // Reset Gate/Up fusion state on each resize
     mIs2sgDecode = false;
     mIsGateUpLeader = false;
     mIsGateUpFollower = false;
     mGateUpPeer = nullptr;
     mGateUpFusedPipeline = nil;
-    mGateUpSegBuffer = nil;
     mGateUpSilu = false;
     mGateUpSiluOutput = nullptr;
 
@@ -718,7 +735,6 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     mQKVPeerVOutput = nullptr;
     mQKVPeerWOutput = nullptr;
     mQKVFusedPipeline = nil;
-    mQKVSegBuffer = nil;
     mQKVPackedGrid = false;
 
 
@@ -728,7 +744,6 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     mLNResidualInput = nullptr;
     mLNResidualOutput = nullptr;
     mLNGamma = nullptr;
-    mLNEpsBuffer = nil;
 
     // prepare
     // For C4NHW4 format, NHW can be fuse to W
@@ -757,8 +772,20 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         }
         blockSize = (int)(dequantScale->usize() / bytes / oc_4 / 2 / 4);
     }
-    // create const buffer
-    mConstBuffer = backend->getConstBuffer(sizeof(Param));
+    // Const buffer: allocate once, then rewrite in place on every later resize.
+    // Handing out a fresh buffer per resize would go unnoticed by encode-replay:
+    // this is bound raw (no MetalBackend::setTensor annotation), so neither
+    // metalReplayValidate nor _replayHashIO can see the swap, and a live
+    // recording would keep emitting the PREVIOUS resize's Param. Today decode
+    // recomputes identical values so nothing breaks, but any token-dependent
+    // field added to Param would silently read one resize stale.
+    // Dropping the recording instead is not an option: LLM decode resizes every
+    // token, so it would never re-arm. Rewriting in place is safe because
+    // MetalBackend::onResizeBegin fenced our own in-flight GPU work, and every
+    // Param field is assigned below (no stale field survives the reuse).
+    if (nil == mConstBuffer) {
+        mConstBuffer = backend->getConstBuffer(sizeof(Param));
+    }
     auto param = (Param *)mConstBuffer.contents;
     param->input_size = is;
     param->input_slice = ic_4;

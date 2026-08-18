@@ -833,6 +833,13 @@ id<MTLBuffer> MetalBackend::getConstBuffer(size_t size) const {
     auto buffer  = [context newDeviceBuffer:size access:CPUReadWrite];
     return buffer;
 }
+// NOTE: this pool has no in-flight tracking (unlike acquireUploadStaging, which
+// gates reuse on slot.lastUse). A buffer handed back here can be popped and
+// rewritten by the very next getConstBuffer caller, so only return a buffer at
+// a point where our own GPU work is known to be drained -- op destruction, or
+// inside the resize window fenced by onResizeBegin. Long-lived per-op param
+// buffers (e.g. MetalConvolution1x1::mConstBuffer) deliberately never come back
+// here: they are allocated once and rewritten in place.
 void MetalBackend::returnConstBuffer(id<MTLBuffer> buffer) const {
     mHoldBuffers.push(buffer);
 }
@@ -1033,6 +1040,17 @@ void MetalBackend::onResizeBegin() {
         wait(0);
     } else if (sResizeWaitMode == 0) {
         waitOwnInflight();
+    } else {
+        // No fence at all: ops that fill a persistent shared buffer during
+        // resize (every Conv1x1's Param, the fused-projection seg buffers, ...)
+        // now write memory the still-running previous command buffer may be
+        // reading. That corrupts results silently, so say so once.
+        static bool sWarned = false;
+        if (!sWarned) {
+            sWarned = true;
+            MNN_ERROR("[METAL] MNN_METAL_RESIZE_WAIT=none: resize fence disabled, "
+                      "op params may be overwritten while still in flight. Experiment only.\n");
+        }
     }
     mCurrentAllocator->reset();
     // Clear Gate/Up fusion mappings from previous resize
