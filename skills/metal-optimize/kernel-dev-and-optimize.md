@@ -704,6 +704,11 @@ M5（tensor-API 路径扩展增量）：0.6B pp2048 **+38.9%**，累计 +51.5% v
 - **正确性**：0.6B/4B/2B × kvq8 × replay × 跨阈值 200tok 全 byte-identical，run_test 388/388。
 - **已删除的变体（勿重试）**：
   - `MNN_METAL_DECODE_SDPA_QSPLIT=0`（每 kv head 一个 TG、GROUP_SIZE 头共享 K 读）判更差（p1024 -4.8% vs -3.6%），分支连同宏删除，`GS_LOCAL` 定死 1。
+    - **2026-08-18 长 kv 复评：该方案在超长 kv 上会翻正,原负结论只适用于短/中 kv。** 临时以 `MNN_METAL_SDPA_KV_GROUPED=1` 重新实现（`GS_LOCAL=GROUP_SIZE`、`grid.y` 枚举 kv head、`q_head_base=kv_hn*GROUP_SIZE`、tg memory 按 GS 缩放）后实测（M5 Mac，0.6B group_size=2，3 对交替）：kv=4096 decode **+0.59%**（逐对 +1.58/-0.11/+0.32，噪声内）；kv=16384 decode **+2.53%**（逐对 +4.01/+1.50/+2.13，**3/3 全正**）。**收益随 kv 单调增长**。
+    - **机理**：收益远低于"2× 冗余读全落 DRAM"的理论上限（kv=16k 时 attention 理论 3.76GB vs 完美共享 1.88GB，本应两位数收益）——因为同组两个 TG 大致同步扫同一片 K/V，**M5 的 SLC 已吸收绝大部分冗余读**，只有溢出 SLC 的那部分可省。这也解释了原负结论：短 kv 下冗余读几乎全被 cache 吃掉，而"TG 数 /GROUP_SIZE + 寄存器×GS"的代价照付 ⇒ 净负。
+    - **正确性**：分组不改变任何单个 q head 的归约顺序（每个 g 是独立累加器、kv 迭代顺序相同），只改"哪个 TG 算它" ⇒ 2B（group=4，kv=4080）grouped 与 default **逐字节一致**；0.6B 输出连贯。kernel 主体本就完整泛化于 `GS_LOCAL`（`S/M/O[GS_LOCAL]`、`s_vs[NSG][GS_LOCAL][C]`、输出 `q_head_base+g`），无需改写。
+    - **处置**：**代码已全部回退**（未提交），仅存档结论。若要重做，未跑的三步是：① kv=32768 确认趋势是否到 +5% 以上；② 与 nsg16 叠加测（见上条 NSG 标定，M5 上 nsg16 在 kv4096 实测 +2.14%）；③ 做成**按 kv 自动启用**（如 kv≥8192）而非全局开关——短 kv 明确为负，全局开会回退。
+    - ⚠️ **标定陷阱**：0.6B 在本机 greedy **基线自身非确定**（off vs off 就不同），文本比对不能用作它的正确性判据；改用确定性的 2B 做 byte-compare。
   - `MNN_METAL_DECODE_SDPA_COALESCED`（QK 合并读，simdgroup↔kv 行、256B 连续 K 读）：e2e p2048 co8 +6.0% ≈ leg8 +6.2%，**合并读不兑现**（同一模式第三次复现）。**勿再重试 K 读合并方向**——典型的"kernel 级快 / e2e 平"伪收益。
 
 **历史 split-KV 数据存档**（路径已删，仅供判断同类方案）：flash-decoding 式 KV 分段到多 workgroup 各算 online-softmax 部分结果再跨 workgroup reduce。M4 kv4K decode 0.6B +19% / 4B +5.5%；KV int8 版 0.6B kv2K +16.6% / 4B kv4K +15.6%（fp16 同点仅 +5.5%，印证 int8 带宽减半假设）。踩坑三条：① 路径 flag 判定必须放在 `handleKVAllocMemory()` **之前**，否则首个 decode step 临时缓冲未分配 → `setTensor(null)` SIGSEGV；② reduce kernel 必须 128 线程（32 线程版占用率不足吃掉收益）；③ nwg 启发式 div256 是甜蜜点（div128/512 均 -2~5%）。**短 kv 反证**：强制在 kv~512 触发 → p512 decode 334→310（-7%），多出的 reduce dispatch + partial buffer 全局��写在短 kv 下开销 > 并行度收益。
