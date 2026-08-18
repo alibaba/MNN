@@ -4123,17 +4123,26 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         result0 += raw_dot0 * scale0 + input_sum * adj0;
         result1 += raw_dot1 * scale1 + input_sum * adj1;
     #elif defined(W_QUANT_8)
+        // w[j] holds output lane j's 4 ic weights (transform packs ro*4+ri),
+        // so each lane needs dot(in4, w[j]) with lane j's scale/bias. Deferred
+        // like the W4 branch: raw dot + input_sum, dequant applied per block.
+        // (A per-z `result += in4[i] * (w[i]*scale[i]+bias[i])` loop is the
+        // TRANSPOSED product with the wrong scale lane -- W8 regression trap.)
+        FLOAT4 raw_dot0 = FLOAT4(0);
+        FLOAT4 raw_dot1 = FLOAT4(0);
+        FLOAT input_sum = FLOAT(0);
         for (int z = zmin + middle_index; z < zmax; z += middle_step) {
             auto wA = xy_wt0[z];
             auto wB = xy_wt1[z];
             FLOAT4 in4 = GEMV_2SG_LOAD_IN4(z);
-            // Dequant and accumulate row by row -- no full 4x4 temporary
-            // matrices, lower register pressure, same math.
-            for (int i = 0; i < 4; ++i) {
-                result0 += in4[i] * (FLOAT4(wA[i]) * scale0[i] + dbias0[i]);
-                result1 += in4[i] * (FLOAT4(wB[i]) * scale1[i] + dbias1[i]);
-            }
+            input_sum += dot(in4, FLOAT4(1.0));
+            raw_dot0 += FLOAT4(dot(in4, FLOAT4(wA[0])), dot(in4, FLOAT4(wA[1])),
+                               dot(in4, FLOAT4(wA[2])), dot(in4, FLOAT4(wA[3])));
+            raw_dot1 += FLOAT4(dot(in4, FLOAT4(wB[0])), dot(in4, FLOAT4(wB[1])),
+                               dot(in4, FLOAT4(wB[2])), dot(in4, FLOAT4(wB[3])));
         }
+        result0 += raw_dot0 * scale0 + input_sum * dbias0;
+        result1 += raw_dot1 * scale1 + input_sum * dbias1;
     #endif
     }
 
@@ -4402,16 +4411,19 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         FLOAT4 adjusted_bias = dequant_bias - FLOAT(8.0) * scale;
         result += raw_dot * scale + input_sum * adjusted_bias;
     #elif defined(W_QUANT_8)
-        // See W_QUANT_4 branch above for the pragma-unroll rationale.
+        // See the ROW_2 W8 branch above: w[j] = output lane j's ic weights, so
+        // accumulate dot(in4, w[j]) per lane; the per-z scalar-broadcast form
+        // is the transposed product with the wrong scale lane.
+        FLOAT4 raw_dot = FLOAT4(0);
+        FLOAT input_sum = FLOAT(0);
         for (int z = zmin + middle_index; z < zmax; z += middle_step) {
             auto w = xy_wt[z];
             FLOAT4 in4 = GEMV_2SG_LOAD_IN4(z);
-            // Dequant and accumulate row by row -- no full 4x4 temporary
-            // matrices, lower register pressure, same math.
-            for (int i = 0; i < 4; ++i) {
-                result += in4[i] * (FLOAT4(w[i]) * scale[i] + dequant_bias[i]);
-            }
+            input_sum += dot(in4, FLOAT4(1.0));
+            raw_dot += FLOAT4(dot(in4, FLOAT4(w[0])), dot(in4, FLOAT4(w[1])),
+                              dot(in4, FLOAT4(w[2])), dot(in4, FLOAT4(w[3])));
         }
+        result += raw_dot * scale + input_sum * dequant_bias;
     #endif
     }
 
