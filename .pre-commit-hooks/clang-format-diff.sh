@@ -8,7 +8,33 @@ if ! command -v git-clang-format &> /dev/null; then
     exit 1
 fi
 
-output=$(git clang-format --diff --staged --extensions cpp,c,h,hpp,cc,m,mm 2>&1)
+# Auto-generated files (embedded shader hex/source, op registries, shader maps)
+# never match clang-format style and would flag on every regeneration. Exclude
+# them. See the respective codegen scripts:
+#   Vulkan: source/backend/vulkan/*/compiler/makeshader.py
+#   Metal:  source/backend/metal/{MetalCodeGen,makeshader}.py
+#   OpenCL: source/backend/opencl/execution/cl/opencl_codegen.py
+GENERATED_EXCLUDES=(
+    # Vulkan
+    ':(exclude)*/AllShader.h'
+    ':(exclude)*/AllShader.cpp'
+    ':(exclude)*/AllShaderRender.h'
+    ':(exclude)*/AllShaderRender.cpp'
+    ':(exclude)*/VulkanShaderMap.cpp'
+    ':(exclude)*/VulkanShaderMapRender.cpp'
+    # Metal
+    ':(exclude)*/AllShader.hpp'
+    ':(exclude)*/AllRenderShader.hpp'
+    ':(exclude)*/AllRenderShader.cpp'
+    ':(exclude)*/ShaderMap.cpp'
+    ':(exclude)*/MetalOPRegister.mm'
+    ':(exclude)*/MetalRenderOpRegister.mm'
+    # OpenCL
+    ':(exclude)*_mnn_cl.cpp'
+    ':(exclude)*/opencl_source_map.hpp'
+)
+
+output=$(git clang-format --diff --staged --extensions cpp,c,h,hpp,cc,m,mm -- "${GENERATED_EXCLUDES[@]}" 2>&1)
 
 if [ "$output" = "no modified files to format" ] || \
    [ "$output" = "clang-format did not modify any files" ]; then

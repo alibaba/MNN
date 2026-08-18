@@ -378,6 +378,9 @@
     "attention_prefill_kblock_softmax_online.comp": {
         "useFP16": true
     },
+    "attention_prefill_kblock_softmax_online_subgroup.comp": {
+        "useFP16": true
+    },
     "attention_prefill_kblock_qkv_acc.comp": {
         "useFP16": true
     },
@@ -385,6 +388,12 @@
         "useFP16": true
     },
     "attention_prefill_kblock_finalize.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_coop_qk.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_coop_qkv.comp": {
         "useFP16": true
     },
     "rope.comp": {
@@ -430,6 +439,9 @@
         "useFP16": true
     },
     "matmul_coop.comp": {
+        "useFP16": true
+    },
+    "matmul_coop_rm.comp": {
         "useFP16": true
     },
     "int4_weight_to_coop.comp": {

@@ -42,18 +42,20 @@ private:
     
     // Pipelines
     const VulkanPipeline* mPackPipeline;
-    const VulkanPipeline* mMatMulPipeline;
-    const VulkanPipeline* mUnpackPipeline;
+    const VulkanPipeline* mMatMulPipeline;             // fused matmul + COOP_to_C4 epilogue (small N)
+    const VulkanPipeline* mMatMulRmPipeline = nullptr; // row-major matmul -> temp (large N, no smem)
+    const VulkanPipeline* mUnpackPipeline = nullptr;   // separate COOP_to_C4 pass (large N)
     const VulkanPipeline* mPrefillDequantPipeline = nullptr;
     const VulkanPipeline* mDecodePipeline = nullptr;
-    
+
     // Descriptor Sets
     std::shared_ptr<VulkanLayout::DescriptorSet> mPackSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mMatMulSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mMatMulRmSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mUnpackSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mPrefillDequantSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mDecodeSet;
-    
+
     // Constant Buffers
     std::shared_ptr<VulkanBuffer> mPackConst;
     std::shared_ptr<VulkanBuffer> mMatMulConst;
@@ -61,9 +63,14 @@ private:
 
     // Temp Tensors
     std::shared_ptr<Tensor> mTempInput;
-    std::shared_ptr<Tensor> mTempOutput;
     std::shared_ptr<Tensor> mTempWeight;
-    
+    std::shared_ptr<Tensor> mTempOutput; // row-major matmul result (large-N path only)
+
+    // Large-N gate: use separate row-major matmul + COOP_to_C4 pass when padN exceeds this (avoids the
+    // fused epilogue's 8KB shared-memory occupancy hit, which dominates for big int4 LLMs). Env-tunable
+    // via MNN_VK_CONV_FUSE_MAXN; 0 disables the fused path entirely, a huge value forces it always.
+    uint32_t mFuseMaxN = 0;
+
     // COOP Shape
     uint32_t COOP_M = 64;
     uint32_t COOP_N = 64;

@@ -1,0 +1,203 @@
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 3) const uint COOP_M = 16;
+layout(constant_id = 4) const uint COOP_N = 16;
+layout(constant_id = 5) const uint COOP_K = 16;
+
+// Output QK: [qLen, headNum, blockLen4/4] as FLOAT4
+layout(binding = 0) writeonly buffer outQK {
+    FLOAT data[];
+} uQK;
+
+// Query (rearranged): [headNum, headDim/4, qLen4] as FLOAT4
+// Logical: Q[h][d][q] where d is headDim, q is query position
+layout(binding = 1) readonly buffer inQuery {
+    FLOAT data[];
+} uQuery;
+
+// Key cache: [kvHeadNum, headDim/4, maxLen] as FLOAT4
+// Logical: K[kvh][d][kpos] where d is headDim, kpos is key position
+layout(binding = 2) readonly buffer inCacheKey {
+    FLOAT data[];
+} uCacheKey;
+
+// Mask buffer (additive mask or placeholder)
+layout(binding = 3) readonly buffer inMask {
+    FLOAT data[];
+} uMask;
+
+layout(binding = 4) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
+    vec4 f0;  // scale, 0, 0, 0
+} uConst;
+
+layout(push_constant) uniform PushConsts {
+    uint kStart;
+    uint blockLen;
+    uint padQLen;
+    uint padKBlock;
+} pc;
+
+// Shared memory for loading Q and K tiles from D4 format
+shared FLOAT smemA[COOP_M * COOP_K]; // Q tile [COOP_M, COOP_K]
+shared FLOAT smemB[COOP_K * COOP_N]; // K tile [COOP_K, COOP_N]
+
+const float NEG_INF = -3.402823466e38;
+
+void main() {
+    const uint tileN = gl_WorkGroupID.x; // kBlock dimension tile index
+    const uint tileM = gl_WorkGroupID.y; // qLen dimension tile index
+    const uint h = gl_WorkGroupID.z;     // head index
+
+    const int qLen = uConst.s0.x;
+    const int headNum = uConst.s0.z;
+    const int kvHeadNum = uConst.s0.w;
+    const int headDim = uConst.s1.x;
+    const int group = uConst.s1.y;
+    const int totalLen = uConst.s1.w;
+    const int maxLen = uConst.s2.w;
+    const int maskMode = uConst.s2.z;
+    const int maskQlen = uConst.s2.x;
+    const int maskKvlen = uConst.s2.y;
+    const int pastLen = uConst.s1.z;
+    const float scale = uConst.f0.x;
+
+    const uint kvh = h / uint(group);
+    const uint d4Size = uint(headDim) / 4u;
+    const uint qLen4 = pc.padQLen; // padded qLen (multiple of 4)
+    const uint kStart = pc.kStart;
+    const uint blockLen = pc.blockLen;
+
+    const uint mStart = tileM * COOP_M;
+    const uint nStart = tileN * COOP_N;
+
+    const uint tid = gl_LocalInvocationID.x;
+    const uint groupSize = gl_WorkGroupSize.x;
+
+    // Initialize accumulator to zero
+    coopmat<FLOAT, gl_ScopeSubgroup, COOP_M, COOP_N, gl_MatrixUseAccumulator> matC;
+    matC = coopmat<FLOAT, gl_ScopeSubgroup, COOP_M, COOP_N, gl_MatrixUseAccumulator>(FLOAT(0.0));
+
+    const uint tilesK = uint(headDim) / COOP_K;
+
+    for (uint tK = 0u; tK < tilesK; ++tK) {
+        uint kDimStart = tK * COOP_K;
+
+        // Load Q tile [COOP_M, COOP_K] from D4 format to shared memory (row-major)
+        // Q[h][d][q]: address = (h * d4Size + d/4) * qLen4 * 4 + q * 4 + d%4
+        {
+            uint totalElems = COOP_M * COOP_K;
+            for (uint i = tid; i < totalElems; i += groupSize) {
+                uint m = i / COOP_K;  // row in tile (q dimension)
+                uint k = i % COOP_K;  // col in tile (headDim dimension)
+
+                uint globalQ = mStart + m;
+                uint globalD = kDimStart + k;
+
+                FLOAT val = FLOAT(0.0);
+                if (globalQ < uint(qLen) && globalD < uint(headDim)) {
+                    uint d4 = globalD / 4u;
+                    uint dc = globalD % 4u;
+                    uint idx = (h * d4Size + d4) * qLen4 + globalQ;
+                    val = uQuery.data[idx * 4u + dc];
+                }
+                smemA[m * COOP_K + k] = val;
+            }
+        }
+
+        // Load K tile [COOP_K, COOP_N] from D4 format to shared memory (row-major)
+        // K[kvh][d][kpos]: address = (kvh * d4Size + d/4) * maxLen * 4 + kpos * 4 + d%4
+        {
+            uint totalElems = COOP_K * COOP_N;
+            for (uint i = tid; i < totalElems; i += groupSize) {
+                uint k = i / COOP_N;  // row in tile (headDim dimension)
+                uint n = i % COOP_N;  // col in tile (kBlock dimension)
+
+                uint globalD = kDimStart + k;
+                uint globalK = kStart + nStart + n;
+
+                FLOAT val = FLOAT(0.0);
+                if (globalD < uint(headDim) && globalK < uint(totalLen)) {
+                    uint d4 = globalD / 4u;
+                    uint dc = globalD % 4u;
+                    uint idx = (kvh * d4Size + d4) * uint(maxLen) + globalK;
+                    val = uCacheKey.data[idx * 4u + dc];
+                }
+                smemB[k * COOP_N + n] = val;
+            }
+        }
+
+        barrier();
+
+        // Load from shared memory into cooperative matrices
+        coopmat<FLOAT, gl_ScopeSubgroup, COOP_M, COOP_K, gl_MatrixUseA> matA;
+        coopmat<FLOAT, gl_ScopeSubgroup, COOP_K, COOP_N, gl_MatrixUseB> matB;
+
+        coopMatLoad(matA, smemA, 0u, COOP_K, gl_CooperativeMatrixLayoutRowMajor);
+        coopMatLoad(matB, smemB, 0u, COOP_N, gl_CooperativeMatrixLayoutRowMajor);
+
+        matC = coopMatMulAdd(matA, matB, matC);
+
+        barrier();
+    }
+
+    // Apply scale
+    matC = matC * FLOAT(scale);
+
+    // Store result to shared memory for post-processing (scale + mask)
+    coopMatStore(matC, smemA, 0u, COOP_N, gl_CooperativeMatrixLayoutRowMajor);
+    // Note: smemA is reused here, size = COOP_M * COOP_N which must fit.
+    // We need COOP_M * COOP_N <= COOP_M * COOP_K (true when COOP_N <= COOP_K or we use smemB area)
+    // Actually let's use a combined area. For safety, store to smemB which has COOP_K * COOP_N elements.
+    // If COOP_M * COOP_N > COOP_K * COOP_N, we need more space. Let's just store directly to global.
+
+    barrier();
+
+    // Write output with mask applied
+    // Output format: uQK.data[(q * headNum + h) * blockLen4 + k]
+    // where blockLen4 = ((blockLen + 3) / 4) * 4
+    const uint blockLen4 = ((blockLen + 3u) / 4u) * 4u;
+    const int maskKStart = (maskMode == 1 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
+
+    uint totalElems = COOP_M * COOP_N;
+    for (uint i = tid; i < totalElems; i += groupSize) {
+        uint m = i / COOP_N;
+        uint n = i % COOP_N;
+
+        uint globalQ = mStart + m;
+        uint globalK = nStart + n;
+        uint globalKAbs = kStart + globalK; // absolute key position
+
+        if (globalQ >= uint(qLen) || globalK >= blockLen) {
+            continue;
+        }
+
+        float val = float(smemA[m * COOP_N + n]);
+
+        // Apply mask
+        if (maskMode == 1 && maskKvlen > 0) {
+            int mk = int(globalKAbs) - maskKStart;
+            if (int(globalKAbs) >= maskKStart && mk >= 0 && mk < maskKvlen && int(globalQ) < maskQlen) {
+                val += float(uMask.data[globalQ * uint(maskKvlen) + uint(mk)]);
+            }
+        } else if (maskMode == 2) {
+            int causalEnd = pastLen + int(globalQ);
+            if (int(globalKAbs) > causalEnd) {
+                val = NEG_INF;
+            }
+        }
+
+        // Pad invalid k lanes with -inf
+        if (globalKAbs >= uint(totalLen)) {
+            val = NEG_INF;
+        }
+
+        uint outIdx = (globalQ * uint(headNum) + h) * blockLen4 + globalK;
+        uQK.data[outIdx] = FLOAT(val);
+    }
+}

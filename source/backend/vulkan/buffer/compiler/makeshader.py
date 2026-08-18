@@ -524,7 +524,11 @@ def genCppFile(objs, inc, dst):
             try:
                 with open(s, "r") as rf:
                     body = rf.read()
-                    if "GL_KHR_shader_subgroup" in body:
+                    # Cooperative-matrix / memory-scope shaders emit SPV_KHR_vulkan_memory_model, which needs
+                    # SPIR-V >= 1.3; without an explicit target-env glslang emits 1.0 and spirv-opt then rejects it
+                    # (falling back to unoptimized). Bump the target-env for these too, not just subgroup shaders.
+                    if ("GL_KHR_shader_subgroup" in body or "GL_KHR_cooperative_matrix" in body
+                            or "GL_KHR_memory_scope_semantics" in body):
                         target_env_args = ["--target-env", "vulkan1.1"]
             except:
                 target_env_args = []

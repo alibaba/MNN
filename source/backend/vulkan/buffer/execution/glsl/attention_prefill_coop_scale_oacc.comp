@@ -1,0 +1,38 @@
+// Scale OAcc by per-row alpha factor before coop QKV accumulation.
+// OAcc layout: [qLen * headNum, headDim] linear float
+// Alpha layout: [qLen * headNum] linear float
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) buffer s0 {
+    float data[];
+} uOAcc;
+
+layout(binding = 1) readonly buffer s1 {
+    float data[];
+} uAlpha;
+
+layout(binding = 2) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
+    vec4 f0;  // scale, 0, 0, 0
+} uConst;
+
+void main() {
+    const uint gid = gl_GlobalInvocationID.x;
+    const int qLen = uConst.s0.x;
+    const int headNum = uConst.s0.z;
+    const int headDim = uConst.s1.x;
+
+    const uint totalRows = uint(qLen) * uint(headNum);
+    const uint totalElems = totalRows * uint(headDim);
+
+    if (gid >= totalElems) {
+        return;
+    }
+
+    const uint row = gid / uint(headDim);
+    const float alpha = uAlpha.data[row];
+    uOAcc.data[gid] = uOAcc.data[gid] * alpha;
+}
