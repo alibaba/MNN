@@ -86,6 +86,7 @@ private:
     const VulkanPipeline* mQKBlockFullPipeline = nullptr;
     const VulkanPipeline* mQKBlockPipeline = nullptr;
     const VulkanPipeline* mSoftmaxOnlinePipeline = nullptr;
+    const VulkanPipeline* mSoftmaxSubgroupPipeline = nullptr; // subgroup-reduction softmax (when supported)
     const VulkanPipeline* mQKVAccFullPipeline = nullptr;
     const VulkanPipeline* mQKVAccPipeline = nullptr;
     const VulkanPipeline* mFinalizePipeline = nullptr;
@@ -93,12 +94,27 @@ private:
     std::shared_ptr<VulkanLayout::DescriptorSet> mQKBlockFullSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mQKBlockSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mSoftmaxOnlineSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mSoftmaxSubgroupSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mQKVAccFullSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mQKVAccSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mFinalizeSet;
 
     uint32_t mSoftmaxOnlineLocalSize = 0;
     uint32_t mDecodeQ1SubgroupLocalSize = 0;
+
+    // Cooperative matrix prefill path
+    bool mUseCoopMat = false;
+    uint32_t mCoopM = 0;
+    uint32_t mCoopN = 0;
+    uint32_t mCoopK = 0;
+    uint32_t mCoopSubgroupSize = 0;
+
+    const VulkanPipeline* mCoopQKPipeline = nullptr;
+    const VulkanPipeline* mCoopQKVPipeline = nullptr;
+    const VulkanPipeline* mCoopScaleOAccPipeline = nullptr;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mCoopQKSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mCoopQKVSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mCoopScaleOAccSet;
 };
 
 } // namespace MNN

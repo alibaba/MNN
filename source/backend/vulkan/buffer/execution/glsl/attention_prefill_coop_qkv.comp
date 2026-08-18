@@ -1,0 +1,129 @@
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 3) const uint COOP_M = 16;
+layout(constant_id = 4) const uint COOP_N = 16;
+layout(constant_id = 5) const uint COOP_K = 16;
+
+// OAcc: [qLen * headNum, headDim] linear float (read-modify-write)
+layout(binding = 0) buffer s0 {
+    float data[];
+} uOAcc;
+
+// W (softmax output): [qLen * headNum, blockLen4] linear FLOAT
+// W[row][k] = uW.data[row * blockLen4 + k], row = q * headNum + h
+layout(binding = 1) readonly buffer s1 {
+    FLOAT data[];
+} uW;
+
+// Value cache: [kvHeadNum, maxLen, headDim] linear FLOAT
+// V[kvh][kpos][d] = uCacheValue.data[(kvh * maxLen + kpos) * headDim + d]
+layout(binding = 2) readonly buffer s2 {
+    FLOAT data[];
+} uCacheValue;
+
+layout(binding = 3) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
+    vec4 f0;  // scale, 0, 0, 0
+} uConst;
+
+// online-softmax per-row rescale factor; folded into the store so this kernel does oAcc = oAcc*alpha + w*V
+// in one pass (removes the separate scale_oacc dispatch).
+layout(binding = 4) readonly buffer s4 {
+    float data[];
+} uAlpha;
+
+layout(push_constant) uniform PushConsts {
+    uint kStart;
+    uint blockLen;
+    uint padQLen;
+    uint padKBlock;
+} pc;
+
+// Shared memory only for storing matC result back to OAcc
+shared FLOAT smemC[COOP_M * COOP_N];
+
+void main() {
+    const uint tileN = gl_WorkGroupID.x; // headDim dimension tile index
+    const uint tileM = gl_WorkGroupID.y; // qLen dimension tile index
+    const uint h = gl_WorkGroupID.z;     // head index
+
+    const int qLen = uConst.s0.x;
+    const int headNum = uConst.s0.z;
+    const int kvHeadNum = uConst.s0.w;
+    const int headDim = uConst.s1.x;
+    const int group = uConst.s1.y;
+    const int totalLen = uConst.s1.w;
+    const int maxLen = uConst.s2.w;
+
+    const uint kvh = h / uint(group);
+    const uint kStart = pc.kStart;
+    const uint blockLen4 = pc.padKBlock; // already padded to multiple of COOP_K
+
+    const uint mStart = tileM * COOP_M;
+    const uint nStart = tileN * COOP_N;
+
+    const uint tid = gl_LocalInvocationID.x;
+    const uint groupSize = gl_WorkGroupSize.x;
+
+    // Initialize accumulator to zero
+    coopmat<FLOAT, gl_ScopeSubgroup, COOP_M, COOP_N, gl_MatrixUseAccumulator> matC;
+    matC = coopmat<FLOAT, gl_ScopeSubgroup, COOP_M, COOP_N, gl_MatrixUseAccumulator>(0.0);
+
+    // W layout: row-major [qLen*headNum, blockLen4], stride between q-rows = headNum * blockLen4
+    // For tile (tileM, tK): A[m][k] = W[(mStart+m)*headNum + h][kBlockStart + k]
+    // offset = (mStart * headNum + h) * blockLen4
+    // stride = headNum * blockLen4
+    const uint wRowStride = uint(headNum) * blockLen4;
+    const uint wBaseOffset = (mStart * uint(headNum) + h) * blockLen4;
+
+    // V layout: row-major [kvHeadNum, maxLen, headDim], stride between k-rows = headDim
+    // For tile (tK, tileN): B[k][n] = V[kvh][kStart + kBlockStart + k][nStart + n]
+    // offset = (kvh * maxLen + kStart) * headDim + nStart
+    // stride = headDim
+    const uint vRowStride = uint(headDim);
+    const uint vBaseOffset = (kvh * uint(maxLen) + kStart) * uint(headDim) + nStart;
+
+    // Iterate over kBlock dimension in COOP_K steps
+    const uint tilesK = blockLen4 / COOP_K;
+
+    for (uint tK = 0u; tK < tilesK; ++tK) {
+        uint kBlockStart = tK * COOP_K;
+
+        // Load W tile directly from global buffer
+        coopmat<FLOAT, gl_ScopeSubgroup, COOP_M, COOP_K, gl_MatrixUseA> matA;
+        uint wOffset = wBaseOffset + kBlockStart;
+        coopMatLoad(matA, uW.data, wOffset, wRowStride, gl_CooperativeMatrixLayoutRowMajor);
+
+        // Load V tile directly from global buffer
+        coopmat<FLOAT, gl_ScopeSubgroup, COOP_K, COOP_N, gl_MatrixUseB> matB;
+        uint vOffset = vBaseOffset + kBlockStart * vRowStride;
+        coopMatLoad(matB, uCacheValue.data, vOffset, vRowStride, gl_CooperativeMatrixLayoutRowMajor);
+
+        matC = coopMatMulAdd(matA, matB, matC);
+    }
+
+    // Store matC to shared memory, then add to OAcc (preserves fp32 precision)
+    coopMatStore(matC, smemC, 0u, COOP_N, gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+
+    {
+        uint totalElems = COOP_M * COOP_N;
+        for (uint i = tid; i < totalElems; i += groupSize) {
+            uint m = i / COOP_N;
+            uint n = i % COOP_N;
+            uint globalQ = mStart + m;
+            uint globalD = nStart + n;
+
+            if (globalQ < uint(qLen) && globalD < uint(headDim)) {
+                float alpha = uAlpha.data[globalQ * uint(headNum) + h];
+                uint accIdx = (globalQ * uint(headNum) + h) * uint(headDim) + globalD;
+                uOAcc.data[accIdx] = uOAcc.data[accIdx] * alpha + float(smemC[m * COOP_N + n]);
+            }
+        }
+    }
+}

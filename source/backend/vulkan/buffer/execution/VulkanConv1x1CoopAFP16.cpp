@@ -373,22 +373,36 @@ bool VulkanConv1x1Coop::_init(const float* weightPtr, const float* biasPtr, bool
         mMatMulSet.reset(mMatMulPipeline->createSet());
     }
 
-    // Unpack: coop C -> C4
+    // Large-N gate threshold (out channels padN). Fused epilogue wins for small N; the separate
+    // row-major matmul + COOP_to_C4 pass wins for large N (no 8KB shared-memory occupancy hit). Measured
+    // per-conv on Adreno: Qwen3.5-2B's biggest conv N=6144 prefers fused, Qwen3-4B's N=9728 prefers
+    // separate, so 8192 splits them cleanly (2B/0.6B stay fully fused, only 4B's FFN goes separate).
+    // Override via env MNN_VK_CONV_FUSE_MAXN (0 = always separate, huge = always fused).
     {
-        std::vector<VkDescriptorType> types = {
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-        };
+        mFuseMaxN = 8192;
+        const char* env = getenv("MNN_VK_CONV_FUSE_MAXN");
+        if (nullptr != env) {
+            mFuseMaxN = (uint32_t)atoi(env);
+        }
+    }
+
+    // Row-major matmul (no smem) + separate COOP_to_C4 unpack: the large-N path.
+    {
+        std::vector<VkDescriptorType> types = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                               VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                               VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
+        std::vector<uint32_t> localSize = {mSubgroupSize, 1, 1};
+        std::vector<uint32_t> matmulSpec = {COOP_M, COOP_N, COOP_K};
+        std::string shader = useFP16 ? "glsl_matmul_coop_rm_FP16_comp" : "glsl_matmul_coop_rm_comp";
+        mMatMulRmPipeline = vkBn->getPipeline(shader, types, localSize, matmulSpec);
+        mMatMulRmSet.reset(mMatMulRmPipeline->createSet());
+    }
+    {
+        std::vector<VkDescriptorType> types = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                               VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
         std::vector<uint32_t> localSize = {mSubgroupSize, 4, 1};
-        int activation = 0;
-        if (mCommon->relu()) {
-            activation = 1;
-        }
-        if (mCommon->relu6()) {
-            activation = 2;
-        }
-        std::vector<uint32_t> unpackSpec = {(uint32_t)activation};
+        uint32_t activation = mCommon->relu() ? 1u : (mCommon->relu6() ? 2u : 0u);
+        std::vector<uint32_t> unpackSpec = {activation};
         std::string shader = useFP16 ? "glsl_COOP_to_C4_FP16_comp" : "glsl_COOP_to_C4_comp";
         mUnpackPipeline = vkBn->getPipeline(shader, types, localSize, unpackSpec);
         mUnpackSet.reset(mUnpackPipeline->createSet());
@@ -447,19 +461,14 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
 
     if (vkBn->useFP16()) {
         mTempInput.reset(Tensor::createDevice<int16_t>({(int)padM, (int)padK}));
-        mTempOutput.reset(Tensor::createDevice<int16_t>({(int)padM, (int)padN}));
     } else {
         mTempInput.reset(Tensor::createDevice<float>({(int)padM, (int)padK}));
-        mTempOutput.reset(Tensor::createDevice<float>({(int)padM, (int)padN}));
     }
     auto res = vkBn->onAcquireBuffer(mTempInput.get(), Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;
     }
-    res = vkBn->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
-    if (!res) {
-        return OUT_OF_MEMORY;
-    }
+    // Fused matmul writes the NC4HW4 output directly (no mTempOutput / no COOP_to_C4 unpack pass).
 
     std::pair<const VulkanBuffer*, size_t> weightBufferPair;
     size_t weightBufferSize = 0;
@@ -483,7 +492,6 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
     }
 
     auto tempInBuffer = vkBn->getTensorBuffer(mTempInput.get());
-    auto tempOutBuffer = vkBn->getTensorBuffer(mTempOutput.get());
 
     if (mIsQuant) {
         struct DequantParams {
@@ -532,51 +540,97 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
         cmdBuffer->barrierSource(tempInBuffer.first->buffer(), tempInBuffer.second, vkBn->getTensorSize(mTempInput.get()));
     }
 
-    {
+    // Gate: fused matmul+epilogue for small N (fewer dispatches, no temp), separate row-major matmul +
+    // COOP_to_C4 for large N (matmul uses no shared memory -> higher occupancy on the big memory-bound conv).
+    const bool useFused = (padN <= mFuseMaxN);
+    const uint32_t activation = mCommon->relu() ? 1u : (mCommon->relu6() ? 2u : 0u);
+
+    if (useFused) {
+        // Fused matmul: computes the tile AND writes it straight into the NC4HW4 output (COOP_to_C4 folded in).
         struct MatMulParams {
-            uint32_t M;
-            uint32_t N;
-            uint32_t K;
-            uint32_t padding;
+            uint32_t M;     // padded M
+            uint32_t N;     // padded N
+            uint32_t K;     // padded K
+            uint32_t realM; // unpadded M (tokens)
+            uint32_t realN; // unpadded N (out channels)
+            uint32_t activation;
         } pc;
         pc.M = padM;
         pc.N = padN;
         pc.K = padK;
-        pc.padding = 0;
+        pc.realM = (uint32_t)M;
+        pc.realN = (uint32_t)N;
+        pc.activation = activation;
 
         mMatMulConst = vkBn->allocUniform(&pc, sizeof(pc));
         mMatMulSet->writeBuffer(tempInBuffer.first->buffer(), 0, vkBn->getTensorSize(mTempInput.get()), tempInBuffer.second);
         mMatMulSet->writeBuffer(weightBufferPair.first->buffer(), 1, weightBufferSize, weightBufferPair.second);
         mMatMulSet->writeBuffer(mBiasBuffer->buffer(), 2, mBiasBuffer->size());
-        mMatMulSet->writeBuffer(tempOutBuffer.first->buffer(), 3, vkBn->getTensorSize(mTempOutput.get()), tempOutBuffer.second);
+        mMatMulSet->writeBuffer(dstBuffer.first->buffer(), 3, vkBn->getTensorSize(output), dstBuffer.second);
         mMatMulSet->writeBuffer(mMatMulConst->buffer(), 4, mMatMulConst->size());
         mMatMulPipeline->bind(cmdBuffer->get(), mMatMulSet->get());
         vkCmdDispatch(cmdBuffer->get(), padN / COOP_N, padM / COOP_M, 1);
-        cmdBuffer->barrierSource(tempOutBuffer.first->buffer(), tempOutBuffer.second, vkBn->getTensorSize(mTempOutput.get()));
-    }
+    } else {
+        // Large-N path: row-major matmul -> mTempOutput, then COOP_to_C4 unpack -> NC4HW4 output.
+        if (vkBn->useFP16()) {
+            mTempOutput.reset(Tensor::createDevice<int16_t>({(int)padM, (int)padN}));
+        } else {
+            mTempOutput.reset(Tensor::createDevice<float>({(int)padM, (int)padN}));
+        }
+        if (!vkBn->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC)) {
+            return OUT_OF_MEMORY;
+        }
+        auto tempOutBuffer = vkBn->getTensorBuffer(mTempOutput.get());
 
-    {
-        struct UnpackParams {
-            uint32_t M;
-            uint32_t N;
-            uint32_t padM;
-            uint32_t padN;
-        } pc;
-        pc.M = M;
-        pc.N = N;
-        pc.padM = padM;
-        pc.padN = padN;
-
-        mUnpackConst = vkBn->allocUniform(&pc, sizeof(pc));
-        mUnpackSet->writeBuffer(tempOutBuffer.first->buffer(), 0, vkBn->getTensorSize(mTempOutput.get()), tempOutBuffer.second);
-        mUnpackSet->writeBuffer(dstBuffer.first->buffer(), 1, vkBn->getTensorSize(output), dstBuffer.second);
-        mUnpackSet->writeBuffer(mUnpackConst->buffer(), 2, mUnpackConst->size());
-        mUnpackPipeline->bind(cmdBuffer->get(), mUnpackSet->get());
-        vkCmdDispatch(cmdBuffer->get(), ROUND_UP(padN, 32) / 32, ROUND_UP(padM, 32) / 32, 1);
+        {
+            struct RmParams {
+                uint32_t M; // padded M
+                uint32_t N; // padded N
+                uint32_t K; // padded K
+                uint32_t pad;
+            } pc;
+            pc.M = padM;
+            pc.N = padN;
+            pc.K = padK;
+            pc.pad = 0;
+            mMatMulConst = vkBn->allocUniform(&pc, sizeof(pc));
+            mMatMulRmSet->writeBuffer(tempInBuffer.first->buffer(), 0, vkBn->getTensorSize(mTempInput.get()),
+                                      tempInBuffer.second);
+            mMatMulRmSet->writeBuffer(weightBufferPair.first->buffer(), 1, weightBufferSize, weightBufferPair.second);
+            mMatMulRmSet->writeBuffer(mBiasBuffer->buffer(), 2, mBiasBuffer->size());
+            mMatMulRmSet->writeBuffer(tempOutBuffer.first->buffer(), 3, vkBn->getTensorSize(mTempOutput.get()),
+                                      tempOutBuffer.second);
+            mMatMulRmSet->writeBuffer(mMatMulConst->buffer(), 4, mMatMulConst->size());
+            mMatMulRmPipeline->bind(cmdBuffer->get(), mMatMulRmSet->get());
+            vkCmdDispatch(cmdBuffer->get(), padN / COOP_N, padM / COOP_M, 1);
+            cmdBuffer->barrierSource(tempOutBuffer.first->buffer(), tempOutBuffer.second,
+                                     vkBn->getTensorSize(mTempOutput.get()));
+        }
+        {
+            struct UnpackParams {
+                uint32_t M;
+                uint32_t N;
+                uint32_t padM;
+                uint32_t padN;
+            } pc;
+            pc.M = (uint32_t)M;
+            pc.N = (uint32_t)N;
+            pc.padM = padM;
+            pc.padN = padN;
+            mUnpackConst = vkBn->allocUniform(&pc, sizeof(pc));
+            mUnpackSet->writeBuffer(tempOutBuffer.first->buffer(), 0, vkBn->getTensorSize(mTempOutput.get()),
+                                    tempOutBuffer.second);
+            mUnpackSet->writeBuffer(dstBuffer.first->buffer(), 1, vkBn->getTensorSize(output), dstBuffer.second);
+            mUnpackSet->writeBuffer(mUnpackConst->buffer(), 2, mUnpackConst->size());
+            mUnpackPipeline->bind(cmdBuffer->get(), mUnpackSet->get());
+            vkCmdDispatch(cmdBuffer->get(), ROUND_UP(padN, 32) / 32, ROUND_UP(padM, 32) / 32, 1);
+        }
     }
 
     vkBn->onReleaseBuffer(mTempInput.get(), Backend::DYNAMIC);
-    vkBn->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
+    if (!useFused) {
+        vkBn->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
+    }
     if (mIsQuant) {
         vkBn->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
     }

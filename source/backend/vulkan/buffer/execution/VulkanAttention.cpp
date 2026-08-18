@@ -269,6 +269,25 @@ VulkanAttention::VulkanAttention(const Op* op, Backend* bn) : VulkanBasicExecuti
         MNN_ASSERT(nullptr != mSoftmaxOnlinePipeline);
         mSoftmaxOnlineSet.reset(mSoftmaxOnlinePipeline->createSet());
         mSoftmaxOnlineLocalSize = localSize;
+
+        // Subgroup-reduction variant: same bindings, one subgroup per (q,head) row (local_size_x ==
+        // subgroup size). Replaces the shared-memory tree reduction + its barriers with subgroupMax/
+        // subgroupAdd. Created only when the device exposes basic+arithmetic subgroup ops; otherwise the
+        // tree-reduction pipeline above stays the only path (fallback for Mali / older drivers).
+        if (_supportDecodeQ1Subgroup(vkBn->getDevice())) {
+            const uint32_t sgSize = vkBn->getDevice().getSubgroupSize();
+            if (sgSize > 0) {
+                std::string sgName = "glsl_attention_prefill_kblock_softmax_online_subgroup_";
+                if (mUseFP16) {
+                    sgName += "FP16_";
+                }
+                sgName += "comp";
+                mSoftmaxSubgroupPipeline = vkBn->getPipeline(sgName, typesSoftmax, {sgSize});
+                if (nullptr != mSoftmaxSubgroupPipeline) {
+                    mSoftmaxSubgroupSet.reset(mSoftmaxSubgroupPipeline->createSet());
+                }
+            }
+        }
     }
 
     {
@@ -313,6 +332,88 @@ VulkanAttention::VulkanAttention(const Op* op, Backend* bn) : VulkanBasicExecuti
         mFinalizePipeline = vkBn->getPipeline(finalName, typesFinal);
         MNN_ASSERT(nullptr != mFinalizePipeline);
         mFinalizeSet.reset(mFinalizePipeline->createSet());
+    }
+
+    // Cooperative matrix prefill path: create pipelines if device supports coop mat.
+    {
+        auto coopMatInfo = vkBn->getDevice().getCoopMatInfo();
+        const auto& subgroup = vkBn->getDevice().getSubgroupInfo();
+        const VkSubgroupFeatureFlags requiredOps = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT;
+        const bool supportSubgroup = subgroup.size > 0 && (subgroup.stages & VK_SHADER_STAGE_COMPUTE_BIT) &&
+                                     ((subgroup.ops & requiredOps) == requiredOps);
+        if (coopMatInfo.supportCoopMat && supportSubgroup && vkBn->gpuType() == VulkanRuntime::ADRENO) {
+            const auto& selectedShape =
+                mUseFP16 ? coopMatInfo.selectedFP16CoopMatShape : coopMatInfo.selectedFP32CoopMatShape;
+            if (!selectedShape.empty()) {
+                mCoopM = selectedShape[0];
+                mCoopN = selectedShape[1];
+                mCoopK = selectedShape[2];
+                mCoopSubgroupSize = subgroup.size;
+
+                // Coop QK pipeline
+                {
+                    std::vector<VkDescriptorType> types{
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // qk output
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // query
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // cacheKey
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // mask
+                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER  // param
+                    };
+                    std::vector<uint32_t> localSize = {mCoopSubgroupSize, 1, 1};
+                    std::vector<uint32_t> spec = {mCoopM, mCoopN, mCoopK};
+                    std::string name = "glsl_attention_prefill_coop_qk_";
+                    if (mUseFP16) {
+                        name += "FP16_";
+                    }
+                    name += "comp";
+                    mCoopQKPipeline = vkBn->getPipeline(name, types, localSize, spec);
+                    if (nullptr != mCoopQKPipeline) {
+                        mCoopQKSet.reset(mCoopQKPipeline->createSet());
+                    }
+                }
+
+                // Coop Scale OAcc pipeline
+                {
+                    std::vector<VkDescriptorType> types{
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // oAcc
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // alpha
+                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER  // param
+                    };
+                    std::string name = "glsl_attention_prefill_coop_scale_oacc_comp";
+                    mCoopScaleOAccPipeline = vkBn->getPipeline(name, types);
+                    if (nullptr != mCoopScaleOAccPipeline) {
+                        mCoopScaleOAccSet.reset(mCoopScaleOAccPipeline->createSet());
+                    }
+                }
+
+                // Coop QKV pipeline
+                {
+                    std::vector<VkDescriptorType> types{
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // oAcc
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // w
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // cacheValue
+                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // param
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER  // alpha (folded scale_oacc)
+                    };
+                    std::vector<uint32_t> localSize = {mCoopSubgroupSize, 1, 1};
+                    std::vector<uint32_t> spec = {mCoopM, mCoopN, mCoopK};
+                    std::string name = "glsl_attention_prefill_coop_qkv_";
+                    if (mUseFP16) {
+                        name += "FP16_";
+                    }
+                    name += "comp";
+                    mCoopQKVPipeline = vkBn->getPipeline(name, types, localSize, spec);
+                    if (nullptr != mCoopQKVPipeline) {
+                        mCoopQKVSet.reset(mCoopQKVPipeline->createSet());
+                    }
+                }
+
+                // Enable coop mat path only if all pipelines are available
+                mUseCoopMat = (nullptr != mCoopQKPipeline) && (nullptr != mCoopQKSet) &&
+                              (nullptr != mCoopQKVPipeline) && (nullptr != mCoopQKVSet) &&
+                              (nullptr != mCoopScaleOAccPipeline) && (nullptr != mCoopScaleOAccSet);
+            }
+        }
     }
 
     {
@@ -522,6 +623,18 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
         MNN_ASSERT(qkElementsI64 > 0 && qkElementsI64 <= (int64_t)INT_MAX);
         const int qkElements = (int)qkElementsI64;
 
+        // Coop QKV loads W in COOP_M-row tiles via coopMatLoad; the qLen (M) tail tile addresses rows past
+        // qLen. Pad W's M dimension up to a COOP_M multiple so those loads stay in-bounds (pad rows hold
+        // garbage but the coop_qkv store guard discards globalQ >= qLen). Only W needs padding — QK / OAcc /
+        // M / L / Alpha are indexed scalar with q < qLen and never read a tail tile. Must match the
+        // useCoopQKV guard below (headDim divisible by both COOP_K and COOP_N).
+        const bool coopQKVMaybe =
+            mUseCoopMat && (mCoopM > 0) && (mHeadDim % (int)mCoopK == 0) && (mHeadDim % (int)mCoopN == 0);
+        const int qLenPadM = coopQKVMaybe ? (UP_DIV(mQueryLen, (int)mCoopM) * (int)mCoopM) : mQueryLen;
+        const int64_t wElementsI64 = (int64_t)qLenPadM * (int64_t)mHeadNum * (int64_t)kBlock4;
+        MNN_ASSERT(wElementsI64 > 0 && wElementsI64 <= (int64_t)INT_MAX);
+        const int wElements = (int)wElementsI64;
+
         const int64_t oaccElementsI64 = (int64_t)rowCount * (int64_t)mHeadDim;
         MNN_ASSERT(oaccElementsI64 > 0 && oaccElementsI64 <= (int64_t)INT_MAX);
         const int oaccElements = (int)oaccElementsI64;
@@ -537,7 +650,8 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
         };
         if (!acquireTemp(mTempQuery, Tensor::createDevice<float>({queryElements}))) return OUT_OF_MEMORY;
         if (!acquireTemp(mTempQKBlock, Tensor::createDevice<float>({qkElements}))) return OUT_OF_MEMORY;
-        if (!acquireTemp(mTempWBlock, Tensor::createDevice<float>({qkElements}))) return OUT_OF_MEMORY;
+        if (!acquireTemp(mTempWBlock, Tensor::createDevice<float>({wElements})))
+            return OUT_OF_MEMORY;
         if (!acquireTemp(mTempM, Tensor::createDevice<int>({rowCount}))) return OUT_OF_MEMORY;
         if (!acquireTemp(mTempL, Tensor::createDevice<int>({rowCount}))) return OUT_OF_MEMORY;
         if (!acquireTemp(mTempAlpha, Tensor::createDevice<int>({rowCount}))) return OUT_OF_MEMORY;
@@ -588,12 +702,18 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
         mQKBlockFullSet->writeBuffer(tqBuf.first->buffer(), 1, vkBn->getTensorSize(mTempQuery.get()), tqBuf.second);
         mQKBlockFullSet->writeBuffer(mParam->buffer(), 4, mParam->size());
 
-        mSoftmaxOnlineSet->writeBuffer(wBuf.first->buffer(), 0, vkBn->getTensorSize(mTempWBlock.get()), wBuf.second);
-        mSoftmaxOnlineSet->writeBuffer(qkBuf.first->buffer(), 1, vkBn->getTensorSize(mTempQKBlock.get()), qkBuf.second);
-        mSoftmaxOnlineSet->writeBuffer(mBuf.first->buffer(), 2, vkBn->getTensorSize(mTempM.get()), mBuf.second);
-        mSoftmaxOnlineSet->writeBuffer(lBuf.first->buffer(), 3, vkBn->getTensorSize(mTempL.get()), lBuf.second);
-        mSoftmaxOnlineSet->writeBuffer(aBuf.first->buffer(), 4, vkBn->getTensorSize(mTempAlpha.get()), aBuf.second);
-        mSoftmaxOnlineSet->writeBuffer(mParam->buffer(), 5, mParam->size());
+        auto writeSoftmaxSet = [&](const std::shared_ptr<VulkanLayout::DescriptorSet>& set) {
+            set->writeBuffer(wBuf.first->buffer(), 0, vkBn->getTensorSize(mTempWBlock.get()), wBuf.second);
+            set->writeBuffer(qkBuf.first->buffer(), 1, vkBn->getTensorSize(mTempQKBlock.get()), qkBuf.second);
+            set->writeBuffer(mBuf.first->buffer(), 2, vkBn->getTensorSize(mTempM.get()), mBuf.second);
+            set->writeBuffer(lBuf.first->buffer(), 3, vkBn->getTensorSize(mTempL.get()), lBuf.second);
+            set->writeBuffer(aBuf.first->buffer(), 4, vkBn->getTensorSize(mTempAlpha.get()), aBuf.second);
+            set->writeBuffer(mParam->buffer(), 5, mParam->size());
+        };
+        writeSoftmaxSet(mSoftmaxOnlineSet);
+        if (nullptr != mSoftmaxSubgroupSet) {
+            writeSoftmaxSet(mSoftmaxSubgroupSet);
+        }
 
         mQKVAccSet->writeBuffer(oBuf.first->buffer(), 0, vkBn->getTensorSize(mTempOAcc.get()), oBuf.second);
         mQKVAccSet->writeBuffer(wBuf.first->buffer(), 1, vkBn->getTensorSize(mTempWBlock.get()), wBuf.second);
@@ -608,6 +728,25 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
         mFinalizeSet->writeBuffer(oBuf.first->buffer(), 1, vkBn->getTensorSize(mTempOAcc.get()), oBuf.second);
         mFinalizeSet->writeBuffer(lBuf.first->buffer(), 2, vkBn->getTensorSize(mTempL.get()), lBuf.second);
         mFinalizeSet->writeBuffer(mParam->buffer(), 3, mParam->size());
+
+        // Bind coop matrix workspace buffers (stable across executes; cache/mask bound in onBeforeExecute)
+        if (mUseCoopMat && mCoopQKSet && mCoopQKVSet && mCoopScaleOAccSet) {
+            // Coop QK set: binding 0=qk, 1=query, 4=param (2=cacheKey, 3=mask bound in onBeforeExecute)
+            mCoopQKSet->writeBuffer(qkBuf.first->buffer(), 0, vkBn->getTensorSize(mTempQKBlock.get()), qkBuf.second);
+            mCoopQKSet->writeBuffer(tqBuf.first->buffer(), 1, vkBn->getTensorSize(mTempQuery.get()), tqBuf.second);
+            mCoopQKSet->writeBuffer(mParam->buffer(), 4, mParam->size());
+
+            // Coop Scale OAcc set: binding 0=oAcc, 1=alpha, 2=param
+            mCoopScaleOAccSet->writeBuffer(oBuf.first->buffer(), 0, vkBn->getTensorSize(mTempOAcc.get()), oBuf.second);
+            mCoopScaleOAccSet->writeBuffer(aBuf.first->buffer(), 1, vkBn->getTensorSize(mTempAlpha.get()), aBuf.second);
+            mCoopScaleOAccSet->writeBuffer(mParam->buffer(), 2, mParam->size());
+
+            // Coop QKV set: binding 0=oAcc, 1=w, 3=param, 4=alpha (2=cacheValue bound in onBeforeExecute)
+            mCoopQKVSet->writeBuffer(oBuf.first->buffer(), 0, vkBn->getTensorSize(mTempOAcc.get()), oBuf.second);
+            mCoopQKVSet->writeBuffer(wBuf.first->buffer(), 1, vkBn->getTensorSize(mTempWBlock.get()), wBuf.second);
+            mCoopQKVSet->writeBuffer(mParam->buffer(), 3, mParam->size());
+            mCoopQKVSet->writeBuffer(aBuf.first->buffer(), 4, vkBn->getTensorSize(mTempAlpha.get()), aBuf.second);
+        }
 
         // 1) Rearrange Q to packed-D Qtmp: (x=qLen4, y=headDim/4, z=headNum)
         dispatchWithProfile(mUseFP16 ? "glsl_attention_prefill_rearrange_q_FP16_comp" : "glsl_attention_prefill_rearrange_q_comp",
@@ -649,6 +788,18 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
             vkCmdDispatch(cmd, x, y, z);
         };
 
+        // Check if coop matrix QKV path is usable for this specific prefill configuration.
+        // Environment variable MNN_VK_ATTN_COOP: "0" to disable, default enabled.
+        // Only QKV uses coop matrix (QK stays on scalar path for better perf with small headDim).
+        static const bool envCoopEnabled = []() {
+            const char* env = getenv("MNN_VK_ATTN_COOP");
+            return (env == nullptr || strcmp(env, "0") != 0);
+        }();
+        // headDim must tile exactly in both the K and N coop dims: coopMatLoad reads full COOP_K/COOP_N
+        // spans, and N uses floor division for the tile count (a remainder column would be silently
+        // dropped). qLen (M) may be partial — its tail tile is handled by the padded W buffer above.
+        const bool useCoopQKV = mUseCoopMat && envCoopEnabled && (mHeadDim % mCoopK == 0) && (mHeadDim % mCoopN == 0);
+
         const int totalLen = mPrefillTotalLen;
         const int kBlock = K_BLOCK;
         for (int kStart = 0; kStart < totalLen; kStart += kBlock) {
@@ -656,46 +807,93 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
             const int blockLen4 = UP_DIV(blockLen, 4) * 4;
             const int blockLen4_4 = UP_DIV(blockLen4, 4);
 
-            // 2) QK block: (x=blockLen4/4, y=qLen4/4, z=headNum)
-            QKPushConst pcQK{(uint32_t)kStart, (uint32_t)blockLen};
-            const bool fullBlock = (blockLen == kBlock) && (kStart + kBlock <= totalLen);
-            const VulkanPipeline* qkPipe = fullBlock ? mQKBlockFullPipeline : mQKBlockPipeline;
-            const std::shared_ptr<VulkanLayout::DescriptorSet>& qkSet = fullBlock ? mQKBlockFullSet : mQKBlockSet;
-            const char* qkName = nullptr;
-            if (fullBlock) {
-                qkName = mUseFP16 ? "glsl_attention_prefill_kblock_qk_full_FP16_comp" : "glsl_attention_prefill_kblock_qk_full_comp";
-            } else {
-                qkName = mUseFP16 ? "glsl_attention_prefill_kblock_qk_FP16_comp" : "glsl_attention_prefill_kblock_qk_comp";
+            // 2) QK block: always use scalar path (x=blockLen4/4, y=qLen4/4, z=headNum)
+            {
+                QKPushConst pcQK{(uint32_t)kStart, (uint32_t)blockLen};
+                const bool fullBlock = (blockLen == kBlock) && (kStart + kBlock <= totalLen);
+                const VulkanPipeline* qkPipe = fullBlock ? mQKBlockFullPipeline : mQKBlockPipeline;
+                const std::shared_ptr<VulkanLayout::DescriptorSet>& qkSet = fullBlock ? mQKBlockFullSet : mQKBlockSet;
+                const char* qkName = nullptr;
+                if (fullBlock) {
+                    qkName = mUseFP16 ? "glsl_attention_prefill_kblock_qk_full_FP16_comp"
+                                      : "glsl_attention_prefill_kblock_qk_full_comp";
+                } else {
+                    qkName = mUseFP16 ? "glsl_attention_prefill_kblock_qk_FP16_comp"
+                                      : "glsl_attention_prefill_kblock_qk_comp";
+                }
+                dispatchWithPushConst(qkName, qkPipe, qkSet, UP_DIV((uint32_t)blockLen4_4, 8),
+                                      UP_DIV((uint32_t)UP_DIV(mQueryLen4, 4), 8), (uint32_t)mHeadNum, &pcQK,
+                                      sizeof(pcQK));
+                cmdBuffer->barrierSource(qkBuf.first->buffer(), qkBuf.second, vkBn->getTensorSize(mTempQKBlock.get()));
             }
-            dispatchWithPushConst(qkName, qkPipe, qkSet, UP_DIV((uint32_t)blockLen4_4, 8),
-                                  UP_DIV((uint32_t)UP_DIV(mQueryLen4, 4), 8), (uint32_t)mHeadNum, &pcQK, sizeof(pcQK));
-            cmdBuffer->barrierSource(qkBuf.first->buffer(), qkBuf.second, vkBn->getTensorSize(mTempQKBlock.get()));
 
-            // 3) Softmax online: updates m/l and writes unnormalized w (x=headNum, y=qLen)
-            SoftmaxPushConst pcSM{(uint32_t)blockLen};
-            dispatchWithPushConst(mUseFP16 ? "glsl_attention_prefill_kblock_softmax_online_FP16_comp"
-                                           : "glsl_attention_prefill_kblock_softmax_online_comp",
-                                  mSoftmaxOnlinePipeline, mSoftmaxOnlineSet, (uint32_t)mHeadNum, (uint32_t)mQueryLen, 1, &pcSM,
-                                  sizeof(pcSM));
-            cmdBuffer->barrierSource(wBuf.first->buffer(), wBuf.second, vkBn->getTensorSize(mTempWBlock.get()));
-            cmdBuffer->barrierSource(mBuf.first->buffer(), mBuf.second, vkBn->getTensorSize(mTempM.get()));
-            cmdBuffer->barrierSource(lBuf.first->buffer(), lBuf.second, vkBn->getTensorSize(mTempL.get()));
-            cmdBuffer->barrierSource(aBuf.first->buffer(), aBuf.second, vkBn->getTensorSize(mTempAlpha.get()));
-
-            // 4) QKV accumulate: (x=headDim/4, y=qLen/2, z=headNum)
-            const VulkanPipeline* qkvPipe = fullBlock ? mQKVAccFullPipeline : mQKVAccPipeline;
-            const std::shared_ptr<VulkanLayout::DescriptorSet>& qkvSet = fullBlock ? mQKVAccFullSet : mQKVAccSet;
-            const char* qkvName = nullptr;
-            if (fullBlock) {
-                qkvName = mUseFP16 ? "glsl_attention_prefill_kblock_qkv_acc_full_FP16_comp"
-                                   : "glsl_attention_prefill_kblock_qkv_acc_full_comp";
-            } else {
-                qkvName =
-                    mUseFP16 ? "glsl_attention_prefill_kblock_qkv_acc_FP16_comp" : "glsl_attention_prefill_kblock_qkv_acc_comp";
+            // 3) Softmax online: updates m/l and writes unnormalized w (x=headNum, y=qLen).
+            // Prefer the subgroup-reduction pipeline (no shared-memory barriers) when available.
+            {
+                SoftmaxPushConst pcSM{(uint32_t)blockLen};
+                const bool useSubgroupSoftmax =
+                    (nullptr != mSoftmaxSubgroupPipeline) && (nullptr != mSoftmaxSubgroupSet);
+                const VulkanPipeline* smPipe = useSubgroupSoftmax ? mSoftmaxSubgroupPipeline : mSoftmaxOnlinePipeline;
+                const std::shared_ptr<VulkanLayout::DescriptorSet>& smSet =
+                    useSubgroupSoftmax ? mSoftmaxSubgroupSet : mSoftmaxOnlineSet;
+                const char* smName = nullptr;
+                if (useSubgroupSoftmax) {
+                    smName = mUseFP16 ? "glsl_attention_prefill_kblock_softmax_online_subgroup_FP16_comp"
+                                      : "glsl_attention_prefill_kblock_softmax_online_subgroup_comp";
+                } else {
+                    smName = mUseFP16 ? "glsl_attention_prefill_kblock_softmax_online_FP16_comp"
+                                      : "glsl_attention_prefill_kblock_softmax_online_comp";
+                }
+                dispatchWithPushConst(smName, smPipe, smSet, (uint32_t)mHeadNum, (uint32_t)mQueryLen, 1, &pcSM,
+                                      sizeof(pcSM));
+                cmdBuffer->barrierSource(wBuf.first->buffer(), wBuf.second, vkBn->getTensorSize(mTempWBlock.get()));
+                cmdBuffer->barrierSource(mBuf.first->buffer(), mBuf.second, vkBn->getTensorSize(mTempM.get()));
+                cmdBuffer->barrierSource(lBuf.first->buffer(), lBuf.second, vkBn->getTensorSize(mTempL.get()));
+                cmdBuffer->barrierSource(aBuf.first->buffer(), aBuf.second, vkBn->getTensorSize(mTempAlpha.get()));
             }
-            dispatchWithPushConst(qkvName, qkvPipe, qkvSet, UP_DIV((uint32_t)(mHeadDim / 4), 8),
-                                  UP_DIV((uint32_t)UP_DIV(mQueryLen, 2), 8), (uint32_t)mHeadNum, &pcQK, sizeof(pcQK));
-            cmdBuffer->barrierSource(oBuf.first->buffer(), oBuf.second, vkBn->getTensorSize(mTempOAcc.get()));
+
+            // 4) QKV accumulate: use coop matrix path when possible, else scalar path
+            if (useCoopQKV && (blockLen4 % mCoopK == 0)) {
+                // ---- Coop Matrix QKV Path ----
+                struct CoopPushConst {
+                    uint32_t kStart;
+                    uint32_t blockLen;
+                    uint32_t padQLen;
+                    uint32_t padKBlock;
+                } pcCoop;
+                pcCoop.kStart = (uint32_t)kStart;
+                pcCoop.blockLen = (uint32_t)blockLen;
+                pcCoop.padQLen = (uint32_t)mQueryLen4;
+                pcCoop.padKBlock = (uint32_t)blockLen4;
+
+                // 4a) scale_oacc folded into coop_qkv (oAcc = oAcc*alpha + w*V) -> no separate scale dispatch.
+
+                // 4b) Coop QKV: dispatch (padHeadDim/COOP_N, padQLen/COOP_M, headNum)
+                const uint32_t qkvTilesN = (uint32_t)mHeadDim / mCoopN;
+                const uint32_t qkvTilesM = UP_DIV((uint32_t)mQueryLen, mCoopM);
+                dispatchWithPushConst(
+                    mUseFP16 ? "glsl_attention_prefill_coop_qkv_FP16_comp" : "glsl_attention_prefill_coop_qkv_comp",
+                    mCoopQKVPipeline, mCoopQKVSet, qkvTilesN, qkvTilesM, (uint32_t)mHeadNum, &pcCoop, sizeof(pcCoop));
+                cmdBuffer->barrierSource(oBuf.first->buffer(), oBuf.second, vkBn->getTensorSize(mTempOAcc.get()));
+            } else {
+                // ---- Original scalar QKV path ----
+                QKPushConst pcQK{(uint32_t)kStart, (uint32_t)blockLen};
+                const bool fullBlock = (blockLen == kBlock) && (kStart + kBlock <= totalLen);
+                const VulkanPipeline* qkvPipe = fullBlock ? mQKVAccFullPipeline : mQKVAccPipeline;
+                const std::shared_ptr<VulkanLayout::DescriptorSet>& qkvSet = fullBlock ? mQKVAccFullSet : mQKVAccSet;
+                const char* qkvName = nullptr;
+                if (fullBlock) {
+                    qkvName = mUseFP16 ? "glsl_attention_prefill_kblock_qkv_acc_full_FP16_comp"
+                                       : "glsl_attention_prefill_kblock_qkv_acc_full_comp";
+                } else {
+                    qkvName = mUseFP16 ? "glsl_attention_prefill_kblock_qkv_acc_FP16_comp"
+                                       : "glsl_attention_prefill_kblock_qkv_acc_comp";
+                }
+                dispatchWithPushConst(qkvName, qkvPipe, qkvSet, UP_DIV((uint32_t)(mHeadDim / 4), 8),
+                                      UP_DIV((uint32_t)UP_DIV(mQueryLen, 2), 8), (uint32_t)mHeadNum, &pcQK,
+                                      sizeof(pcQK));
+                cmdBuffer->barrierSource(oBuf.first->buffer(), oBuf.second, vkBn->getTensorSize(mTempOAcc.get()));
+            }
         }
 
         // 5) Finalize: output = oAcc / l
@@ -934,6 +1132,23 @@ ErrorCode VulkanAttention::onBeforeExecute(const std::vector<Tensor*>& inputs, c
         mQKVAccFullSet->writeBuffer(cacheValueBuf->buffer(), 2, cacheValueSize, cacheValueOffset);
 
         mFinalizeSet->writeBuffer(outBuf.first->buffer(), 0, vkBn->getTensorSize(output), outBuf.second);
+
+        // Bind coop matrix external buffers that may change between executes (cacheKey, cacheValue, mask).
+        // Workspace buffers (qk, query, w, oAcc, alpha) were already bound in onEncode.
+        if (mUseCoopMat && mCoopQKSet && mCoopQKVSet) {
+            // Coop QK set: binding 2=cacheKey, 3=mask
+            mCoopQKSet->writeBuffer(cacheKeyBuf->buffer(), 2, cacheKeySize, cacheKeyOffset);
+            if (maskMode == 1) {
+                auto maskBuf = vkBn->getTensorBuffer(mask);
+                mCoopQKSet->writeBuffer(maskBuf.first->buffer(), 3, vkBn->getTensorSize(mask), maskBuf.second);
+            } else {
+                mCoopQKSet->writeBuffer(queryBuf.first->buffer(), 3, vkBn->getTensorSize(query), queryBuf.second);
+            }
+
+            // Coop QKV set: binding 2=cacheValue
+            mCoopQKVSet->writeBuffer(cacheValueBuf->buffer(), 2, cacheValueSize, cacheValueOffset);
+        }
+
         return NO_ERROR;
     }
 
