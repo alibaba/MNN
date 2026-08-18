@@ -233,6 +233,14 @@ Metal 后端开 fp16（`useFp16InsteadFp32`）时，float 类型的 device tenso
 
 **验证**：这类 bug 只在尾块出现（`output_slice % slicesPerTG != 0`），整除 shape 跑一万遍都测不出——必须专门用**非整除 output_channel** 的模型/shape 对拍，不能只跑常见的 2 的幂维度。
 
+### 陷阱 H：`in4 * FLOAT4x4` 改写成标量循环 = 转置积（W8 2sg 回归，2026-08-18）
+
+Metal 的 `v * M`（行向量×矩阵）语义是 `(v*M)[j] = dot(v, M[j])`，其中 `M[j]` 是**列** j。把 `result += in4 * w_dequant`（`w_dequant[i] = FLOAT4(w[i])*scale[i]+bias[i]`）"等价"改写成 `for i: result += in4[i] * (FLOAT4(w[i])*scale[i]+bias[i])` 看起来只是消掉 4x4 临时矩阵，实际是**转置积 + scale/bias lane 错位**：前者 `result[j] = Σ_i in4[i]·(w[j][i]·s[j]+b[j])`，后者 `result[j] = Σ_i in4[i]·(w[i][j]·s[i]+b[i])`。`25ecc2f8b3` 的"row by row, same math"注释就是这么写错的，W8 2sg GEMV（含 ROW_2/QKV_FUSED/GATE_UP 全变体）全错，唯一暴露它的测试是 `op/fused_qkv_ln_quant_mixed`（本仓库当时唯一含 8-bit 成员的 decode-shape 用例）。正确的无临时矩阵写法是 per-output-lane 点积 + 延迟 dequant（同 W4 分支形式）：`raw_dot[j] += dot(in4, FLOAT4(w[j])); result = raw_dot*scale + input_sum*bias`。
+
+**排查配方**（本次实际路径，从"输出错"到定位约 6 步）：错值对 kernel 变体开关（SPLITK=0/1、DISABLE_*_FUSION）全部不变 ⇒ 错在共享数据或共享代码体；对每个假设输入/去量化约定用脚本复算比对；`got[c]-bias[c]` 出现跨通道成对相等 ⇒ 行/lane 索引错位；先用 CPU 参考验证 GPU weight transform（排除布局），最后用脚本**精确模拟嫌疑 kernel 数学**——模拟值与实测误差 5e-7 即定案。
+
+**规矩**：改写任何 `v*M` / `M*v` 形式前，先把两种形式的分量公式各写一行对照；review 时看到"row by row / same math"类注释要求给出该对照。W8 的 `char4x4` 中 `w[j]` = 输出 lane j 的 4 个 ic 权重（transform 按 `ro*4+ri` 打包），不是 ic lane j。
+
 ## 1.7 Packed weight 设计
 
 新加 quant bit 时**先固定 5 个量**：
@@ -478,6 +486,13 @@ kernel void conv1x1_gemv_g8_deferred_sg2(
 ⇒ **小权重 GEMV 是 latency-bound 不是 kernel-bound**：正确解法是减少 dispatch 数 / 增大单 dispatch 体量，不是继续调 kernel。
 
 **路线结论**：g4m1_2sg 的 lane/TG 配比微调曾 4 次证伪（WIDE_MIDDLE / 4SG / unroll / split-K 早期版），但 **SPLIT_K_2 第 5 次成功**——关键差异是保留 pre-scaling 内循环、行内 K 流对半拆给 2 个 simdgroup（在途读加倍），而非改 lane 划分。M5 上 middle_step / VEC2 / VEC4 变体中性偏负。lm_head g16 已 182-226GB/s 接近上限，headroom 小。
+
+**反例存档（2026-08-18，gate/up 合并 oc×2 → g16）**：设想"gate/up 权重合并成单 conv（oc 6144→12288）后走 lm_head 式 g16"已证伪（M4 Pro，Qwen3.5-2B b64，decode tg256，6 轮交替配对，greedy byte-identical）：A=现状融合（2sg+ROW_2，z=2）98.1 / B=关融合各自 SPLIT_K_2 98.5 / C=关融合 + g16（阈值 hack oc>4096）98.2 tok/s，三者噪声内持平。即 oc 6k~12k 量级下 g16（2SG/TG、无 K split）相对 SPLIT_K_2（4SG/TG、K 对半）无结构优势；合并还会丢 silu-mul epilogue 折叠，**勿再投入**。附带观测：该模型 lm_head（oc=248320，254MB，ic=2048）走 g16 实测仅 ~108GB/s——ic 短的超长 oc 行流同样 latency-bound，g16 并非高效结构本身，只是大 oc 的路由。lm_head 与 gate/up 的共同瓶颈是 K=2048 短行的流式延迟，不是 oc 体量。
+
+**反例存档（2026-08-18，lm_head split-K 两连证伪，`MNN_METAL_ENABLE_LMHEAD_SPLITK`）**：
+1. **=1 路由 lm_head → SPLIT_K_2 kernel**：profiler 显示 kernel 2310us→87us（-96%，profiler 数字受 encode 开销失真，仅诊断用），但 e2e decode 仅 +1.3%（100.7→102.0，10 轮正反序配对，greedy byte-identical）。结论：**decode 尾部已是 lm_head→采样 GPU→CPU sync-bound**，GPU 时间省 2.2ms/token 只兑现 0.13ms wall。
+2. **=2 g16 kernel 内部 split-K（`G16_SPLIT_K`）**：128 线程/tg、4 simdgroup，每两个 SG 结对拆同一 dual-row 的 quant-block 半段 + tg mem 归约，grid 不变（oc%16==0 保证 barrier 前无早退）。结果：greedy byte-identical，但 **kernel 时间与基线持平**（2257us vs 2270us）——lm_head 每 token 流 228MB 权重，早已带宽瓶颈，加倍在途 lane 不减少搬运字节数；e2e 6 轮正反序 A 均值 102.04 vs B 100.89（B 三次跌到 ~100，中性偏负，barrier 开销）。
+⇒ **lm_head 方向 kernel 级优化正式关闭**：它既不是 latency-bound 缺在途 lane（=2 无收益），e2e 也不受它的 GPU 时间支配（=1 只兑现 6%）。下一个杠杆 = 设备端采样（消除 lm_head→CPU 同步点，见 runtime-scheduling.md）。
 
 ### 2.1.5 Split-K Decode GEMV（SPLIT_K_2，+3.3~3.9% e2e，默认开）
 
