@@ -23,7 +23,7 @@ description: MNN 各类正确性/回归 bug 的排查方法论集合。按 bug �
 | 4 | *（待补：图优化回归）* | 某个 converter pass 之后模型跑错，disable 该 pass 后正常 | *待补* |
 | 5 | **数值精度 / fp16 表示能力不足** | 长 prompt 输出重复/漂移/退化，短 prompt 正常；fp16 后端错、fp32（`precision=high`）对；**所有 fp16 后端一致地错**；出错阈值是 2 的幂（2048/4096） | [§5](#5-数值精度--fp16-表示能力不足) |
 | 6 | **GPU Shader 越界 / Command Buffer 故障** | `[METAL] command buffer error` 后速度假快数百倍；只在某 shape 阈值之上触发；关某条 kernel 路径 env 后消失；或同越界在别的模型上表现为静默数值损坏 | [§6](#6-gpu-shader-越界--command-buffer-故障) |
-| 7 | **后端 kernel 隐式假设违反** | 某类模型（如 SWA/prefix LM/bidirectional）静默输出乱码或语义偏移；标准 causal LLM (Qwen/Llama) 正常；调整某个"看起来无关"的性能开关（如 `MNN_METAL_QK_CAUSAL_TRI=0`）后就好 | [§7](#7-后端-kernel-隐式假设违反) |
+| 7 | **后端 kernel 隐式假设违反** | 某类模型（如 SWA/prefix LM/bidirectional）静默输出乱码或语义偏移；标准 causal LLM (Qwen/Llama) 正常；调整某个"看起来无关"的性能开关后就好（历史例：`MNN_METAL_QK_CAUSAL_TRI=0`，该 env 已删，Metal causal 判定现为数据驱动） | [§7](#7-后端-kernel-隐式假设违反) |
 | 8 | **持久化缓存误信（weight-mmap / 陈旧缓存）** | 开 `use_mmap` 才乱码（单字符刷屏）；App 内错、`llm_demo` 对；真机错、host 对；清缓存目录/换 `tmp_path` 就好；换模型不换目录后乱码 | [§8](#8-持久化缓存误信weight-mmap-cache--陈旧缓存) |
 
 > 新增章节时同步在这张表里补一行；每个章节命名为 `## <编号> <类别名>`，保持编号递增。
