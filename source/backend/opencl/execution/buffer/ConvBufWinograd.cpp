@@ -16,7 +16,50 @@
 #define INTERP 1
 namespace MNN {
 namespace OpenCL {
-bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, bool isIntel, int limit) {
+// Budget for one conv's mSource + mDest under Memory_Low. Winograd trades ~2.25x fewer
+// multiplies for 4x the tensor in each transform buffer, which is a good deal until the
+// tensor itself is large: a 640x640x256 fp16 conv wants 1.6GB for the pair. Convs above the
+// budget fall back to direct convolution, which needs no staging buffer at all.
+//
+// 256MB was picked on an SDXL-VAE-decoder-shaped graph (80x80 latent -> 640x640, fp32, see
+// tools/cpp/openclPoolProfile.cpp). Peak dynamic memory there is 5200MB unguarded; every
+// budget from 32MB to 512MB brings it to 1600MB, which is the graph's genuine working set,
+// so anything in that range is equivalent on memory and the choice is about bounding the
+// worst-case single-conv spike. Runtime differences across that range were inside run-to-run
+// variance (~8%) on the GPU tested. Override with MNN_OPENCL_WINOGRAD_LIMIT_MB to retune.
+#define WINOGRAD_LOW_MEMORY_TRANSFORM_LIMIT (256 * 1024 * 1024)
+
+int ConvBufWinograd::transformAlignN(int outputChannel) {
+    if (outputChannel > 1024) {
+        return 128;
+    }
+    if (outputChannel > 256) {
+        return 64;
+    }
+    if (outputChannel > 64) {
+        return 32;
+    }
+    return 16;
+}
+
+void ConvBufWinograd::transformElements(int alpha, int units, int inputChannel, int outputChannel, int alignK,
+                                        int alignN, int* alignM, size_t* sourceElements, size_t* destElements) {
+    int m       = 16;
+    float ratio = 1.0 * alpha * alpha * units / 1024.0 * inputChannel / 1024.0 * outputChannel / 1024.0;
+    if (units > 512 && ratio > 1.0) {
+        m = 128;
+    } else if (units > 256 && ratio > 0.1) {
+        m = 64;
+    } else if (units > 64) {
+        m = 32;
+    }
+    *alignM         = m;
+    *sourceElements = (size_t)alpha * alpha * ROUND_UP(inputChannel, alignK) * ROUND_UP(units, m);
+    *destElements   = (size_t)alpha * alpha * ROUND_UP(units, m) * ROUND_UP(outputChannel, alignN);
+}
+
+bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, bool isIntel,
+                            int limit, int fpBytes, BackendConfig::MemoryMode memory) {
     if (common->strideX() != 1 || common->strideY() != 1) {
         return false;
     }
@@ -32,7 +75,26 @@ bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* inp
 
     bool valid = input->channel() >= 32 && output->channel() >= 32 && input->width() < output->channel();
     valid = valid || (input->channel() >= 64 && output->channel() >= 64);
-    return valid;
+    if (!valid) {
+        return false;
+    }
+    if (BackendConfig::Memory_Low == memory) {
+        const int alpha  = common->kernelX() + UNIT - 1;
+        const int units  = UP_DIV(output->width(), UNIT) * UP_DIV(output->height(), UNIT);
+        const int alignN = transformAlignN(output->channel());
+        int alignM       = 0;
+        size_t srcElem = 0, dstElem = 0;
+        // alignK is fixed at 4 for the transform layout, see the ctor.
+        transformElements(alpha, units, input->channel(), output->channel(), 4, alignN, &alignM, &srcElem, &dstElem);
+        static const size_t budget =
+            getenv("MNN_OPENCL_WINOGRAD_LIMIT_MB")
+                ? (size_t)atoi(getenv("MNN_OPENCL_WINOGRAD_LIMIT_MB")) * 1024 * 1024
+                : (size_t)WINOGRAD_LOW_MEMORY_TRANSFORM_LIMIT;
+        if ((srcElem + dstElem) * (size_t)fpBytes > budget) {
+            return false;
+        }
+    }
+    return true;
 }
     
 void ConvBufWinograd::convertWeightFormat(cl::Buffer& buffer, const int alignK, const int alignN) {
@@ -209,14 +271,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         int alpha       = unit + kernelSize - 1;
         
         mResource->mAlignK = 4;
-        mResource->mAlignN = 16;
-        if(mCo > 1024) {
-            mResource->mAlignN = 128;
-        } else if(mCo > 256) {
-            mResource->mAlignN = 64;
-        } else if(mCo > 64) {
-            mResource->mAlignN = 32;
-        }
+        mResource->mAlignN = transformAlignN(mCo);
 
         std::shared_ptr<Tensor> tmpFilterTensor;
         tmpFilterTensor.reset(Tensor::createDevice<int32_t>({mCo * mCi * ky * kx}));
@@ -472,21 +527,13 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
     } else
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */    
     {
-        mAlignM = 16;
-        float ratio = 1.0 * alpha * alpha * wUnit * hUnit / 1024.0 * input->channel() / 1024.0 * output->channel() / 1024.0;
-        if (wUnit * hUnit > 512 && ratio > 1.0) {
-            mAlignM = 128;
-        } else if (wUnit * hUnit > 256 && ratio > 0.1) {
-            mAlignM = 64;
-        } else if (wUnit * hUnit > 64) {
-            mAlignM = 32;
-        }
-        int mAlignK = mResource->mAlignK;
-        int mAlignN = mResource->mAlignN;
-        mSource.reset(Tensor::createDevice<float>(
-            std::vector<int>{alpha * alpha * ROUND_UP(input->channel(), mAlignK) * ROUND_UP(wUnit * hUnit, mAlignM)}));
-        mDest.reset(Tensor::createDevice<float>(
-            std::vector<int>{alpha * alpha * ROUND_UP(wUnit * hUnit, mAlignM) * ROUND_UP(output->channel(), mAlignN)}));
+        const int mAlignK = mResource->mAlignK;
+        const int mAlignN = mResource->mAlignN;
+        size_t sourceElements = 0, destElements = 0;
+        transformElements(alpha, wUnit * hUnit, input->channel(), output->channel(), mAlignK, mAlignN, &mAlignM,
+                          &sourceElements, &destElements);
+        mSource.reset(Tensor::createDevice<float>(std::vector<int>{(int)sourceElements}));
+        mDest.reset(Tensor::createDevice<float>(std::vector<int>{(int)destElements}));
 
         mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
         mOpenCLBackend->onAcquireBuffer(mDest.get(), Backend::DYNAMIC);
