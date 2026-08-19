@@ -4,7 +4,7 @@
 // QNN configuration
 ext {
     // QNN download settings
-    QNN_LIBS_URL = 'http://meta.alicdn.com/data/mnn/libs/qnn_inc_libs_2_37.zip'
+    QNN_LIBS_URL = 'https://meta.alicdn.com/data/mnn/libs/qnn_inc_libs_2_37.zip'
 }
 
 def qnnZipName = 'qnn_inc_libs.zip'
