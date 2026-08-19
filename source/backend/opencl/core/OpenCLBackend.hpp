@@ -14,6 +14,8 @@
 #include <MNN/ErrorCode.hpp>
 
 #include <list>
+#include <mutex>
+#include <set>
 #include <vector>
 #include "core/BufferAllocator.hpp"
 #include "backend/opencl/core/BufferPool.hpp"
@@ -44,6 +46,8 @@ struct RecordInfo{
     cl_recording_qcom record;
     std::vector<RecordUpdateInfo*> updateInfo;
 };
+class OpenCLBackend;
+
 class CLRuntime : public Runtime {
 public:
     CLRuntime(const Backend::Info& info);
@@ -62,6 +66,10 @@ public:
                            const MNN::Op* op, OpInfo& dstInfo) const override;
     virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const MNN::Op* op) override;
+    // The dynamic pools live on OpenCLBackend, not here, so onGetMemoryInMB has to ask the live
+    // backends for them. Backends register on construction and drop out on destruction.
+    void onBackendCreate(OpenCLBackend* backend) const;
+    void onBackendRelease(OpenCLBackend* backend) const;
     void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor, int precision, int backend_memtype) const;
@@ -77,6 +85,8 @@ private:
     BackendConfig::MemoryMode mMemory;
     bool mCLRuntimeError = false;
     mutable float mLastGpuTimeMs = -1.0f;
+    mutable std::set<OpenCLBackend*> mBackends;
+    mutable std::mutex mBackendMutex;
 
     friend class OpenCLBackend;
     TuneInfo* mTunedInfo;
@@ -116,7 +126,11 @@ public:
     BufferPool *getBufferPool() const {
         return mBufferPool;
     }
-    
+
+    // Bytes held by this backend's dynamic pools. Reported through CLRuntime::onGetMemoryInMB,
+    // which otherwise only sees the static weight pool it owns.
+    size_t dynamicMemorySize() const;
+
     std::shared_ptr<MmapPool> getStaticAllocatorMMap() const {
         if(mCLRuntime->mUseMmapPool){
             return mCLRuntime->mMmapPool;

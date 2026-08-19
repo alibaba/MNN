@@ -35,6 +35,10 @@ public:
     void clear();
     void releaseFreeList();
     size_t totalSize() { return mTotalSize; }
+    // Bytes still held by the driver, recycled buffers included: they stay alive until
+    // releaseFreeList or clear. Unlike mTotalSize this shrinks when memory is handed back,
+    // so it is what getSessionInfo(MEMORY) should report.
+    size_t residentSize() const;
 
 private:
     std::map<cl::Buffer*, std::shared_ptr<OpenCLBufferNode>> mAllBuffer;
@@ -56,6 +60,7 @@ public:
     void clear();
     void releaseFreeList();
     size_t totalSize() { return mTotalSize; }
+    size_t residentSize() const;
 private:
     std::set<std::shared_ptr<OpenCLBufferNode>> mAllBuffer;
     std::multimap<size_t, std::shared_ptr<OpenCLBufferNode>> mFreeList;
