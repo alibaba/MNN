@@ -116,6 +116,28 @@ prompt long enough to cross backend prefill branch thresholds. This catches
 real exported-graph layout bugs where an op test covers only the output format,
 but the graph also changes an input tensor format.
 
+### macOS Metal answer A/B checks
+
+For answer-level comparisons between two macOS Metal runtimes:
+
+* A Metal config does not prove that Metal ran. In a restricted execution
+  context, `MTLCreateSystemDefaultDevice()` may return `nil`, after which
+  `llm_demo` prints `Init Metal Error` / `Can't Find type=1 backend, use 0
+  instead` and silently produces a plausible CPU answer. Run in a GPU-visible
+  context and fail the case on either fallback marker.
+* Use the same exported model, prompt bytes, backend settings and greedy
+  sampler on both sides. Isolate each runtime's `tmp_path` / working directory
+  so cache reuse cannot cross the A/B boundary.
+* Decide the multi-line prompt contract before running. `llm_demo` normally
+  treats every non-empty line as a separate prompt; if one file is intended to
+  be one long prompt, flatten or use an explicitly one-line-aware runner and
+  record the transformed-input checksum.
+* Fixed token limits can stop in the middle of a UTF-8 token and can leave code
+  answers incomplete. Exact matches are strong evidence, but low character
+  similarity after an early greedy fork needs semantic review. For code
+  prompts, use a large enough budget and compile/test the extracted code before
+  claiming functional correctness.
+
 ## Configuring stages
 
 Editing [`test_stages.json`](../../test_stages.json) is the supported way to

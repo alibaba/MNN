@@ -243,6 +243,15 @@ public:
             }
         }
 
+        // Test the generalized Q4 W16 fused path with larger quant blocks.
+        for (int blocksize : {128, 256}) {
+            bool ok = testQKVFusion(512, 256, 64, 4, blocksize, precision);
+            if (!ok) {
+                MNN_ERROR("QKVFusion W4 block%d test FAILED\n", blocksize);
+                allPass = false;
+            }
+        }
+
         return allPass;
     }
 };

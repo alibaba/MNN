@@ -16,6 +16,7 @@
 //    - conv1x1_gemv_g4mN_wquant_sg       multi-token W4/8 (in-shader dequant)
 //    - conv1x1_gemm_*_wquant_sg          prefill sg-matrix gemm (W4/8)
 //    - conv1x1_w_dequant + fp gemm       outer-dequant path (W2/3 prefill)
+//    - conv1x1_fused_q4_gemm_stage[_m64] Q4 prefill on tensor-API devices
 //  NOT reachable from a single op on such a device (documented, not covered):
 //    - conv1x1_gemv_g8_wquant_sg W2/3 multi-token: only selected when the device
 //      lacks simdgroup-matrix (e.g. A13); M-series routes W2/3 prefill to the
@@ -49,11 +50,11 @@ namespace {
 // weight layout: [oc][ic] row-major. async=true -> asymmetric (min,scale)/block,
 // alpha size 2*oc*blockNum; async=false -> symmetric scale/block, alpha size
 // oc*blockNum.
-void quantizeDequantize(std::vector<float>& weight, std::vector<float>& alpha, int ic, int oc, int blockSize,
-                        int nbit, bool async) {
+void quantizeDequantize(std::vector<float>& weight, std::vector<float>& alpha, int ic, int oc, int blockSize, int nbit,
+                        bool async) {
     int blockNum = ic / blockSize;
     float threshold = (float)(1 << (nbit - 1)) - 1.0f;
-    float clampMin  = -threshold;
+    float clampMin = -threshold;
     if (async) {
         clampMin = -threshold - 1;
     }
@@ -72,14 +73,14 @@ void quantizeDequantize(std::vector<float>& weight, std::vector<float>& alpha, i
                 if (range >= 1e-6f) {
                     scale = range / (threshold - clampMin);
                 }
-                alpha[2 * (o * blockNum + b)]     = minValue;
+                alpha[2 * (o * blockNum + b)] = minValue;
                 alpha[2 * (o * blockNum + b) + 1] = scale;
                 float inv = (scale >= 1e-6f) ? (1.0f / scale) : 0.0f;
                 for (int i = 0; i < blockSize; ++i) {
-                    float* p   = &weight[begin + i];
-                    int code   = (int)std::round((*p - minValue) * inv + clampMin);
-                    code       = (int)fmax(fmin((float)code, threshold), clampMin);
-                    *p         = ((float)code - clampMin) * scale + minValue;
+                    float* p = &weight[begin + i];
+                    int code = (int)std::round((*p - minValue) * inv + clampMin);
+                    code = (int)fmax(fmin((float)code, threshold), clampMin);
+                    *p = ((float)code - clampMin) * scale + minValue;
                 }
             } else {
                 float absMax = 1e-8f;
@@ -92,7 +93,7 @@ void quantizeDequantize(std::vector<float>& weight, std::vector<float>& alpha, i
                 for (int i = 0; i < blockSize; ++i) {
                     float* p = &weight[begin + i];
                     int code = (int)fmax(fmin(round(*p * inv), threshold), clampMin);
-                    *p       = (float)code * scale;
+                    *p = (float)code * scale;
                 }
             }
         }
@@ -128,6 +129,7 @@ void referenceConv1x1(const std::vector<float>& in, const std::vector<float>& we
 struct CaseShape {
     int ic, oc, ih, iw, blockSize;
     const char* kernelNote; // which compute shader this shape is meant to hit
+    bool q4Only;
 };
 
 } // namespace
@@ -155,7 +157,6 @@ public:
 
         std::vector<float> alpha;
         quantizeDequantize(weight, alpha, ic, oc, blockSize, nbit, async);
-
         std::vector<float> ref;
 
         auto x = _Input({1, ic, ih, iw}, NCHW, halide_type_of<float>());
@@ -169,7 +170,7 @@ public:
             referenceConv1x1(input, weight, bias, ref, ic, oc, area, relu, relu6);
             auto y = _HybridConv(weight, bias, alpha, x, {ic, oc}, {1, 1}, CAFFE, {1, 1}, {1, 1}, 1, {0, 0}, relu,
                                  relu6, nbit, async);
-            y      = _Convert(y, NCHW);
+            y = _Convert(y, NCHW);
             auto ptr = y->readMap<float>();
             if (ptr == nullptr) {
                 MNN_ERROR("MetalConvWQuant readMap null (ic=%d oc=%d area=%d w%d async=%d act=%d)\n", ic, oc, area,
@@ -186,7 +187,7 @@ public:
     }
 
     virtual bool run(int precision) override {
-        auto status         = MNNTestSuite::get()->pStaus;
+        auto status = MNNTestSuite::get()->pStaus;
         MNNForwardType type = (MNNForwardType)status.forwardType;
         // Metal-specific correctness test. On a non-Metal backend there is nothing to
         // validate here (and the CPU low-memory W2/W3 path is not reliable), so skip
@@ -197,8 +198,8 @@ public:
         }
         BackendConfig bnConfig;
         bnConfig.precision = (BackendConfig::PrecisionMode)precision;
-        bnConfig.memory    = BackendConfig::Memory_Low; // required to select the low-memory quant conv path
-        auto exe           = Executor::newExecutor(type, bnConfig, 1);
+        bnConfig.memory = BackendConfig::Memory_Low; // required to select the low-memory quant conv path
+        auto exe = Executor::newExecutor(type, bnConfig, 1);
         ExecutorScope scope(exe);
 
         const char* backendName = "Metal";
@@ -208,12 +209,32 @@ public:
         // in-shader shapes use oc=2176 so ic*oc strictly exceeds the 4M threshold that
         // keeps W4/8 in the in-shader dequant path (g4mN / sg-matrix gemm).
         std::vector<CaseShape> shapes = {
-            {512, 256, 1, 1, 32, "2sg decode + SPLIT_K_2 (oc%8==0)"},
-            {512, 252, 1, 1, 32, "2sg decode no-splitk (oc%8!=0)"},
-            {128, 16400, 1, 1, 32, "g16 lm_head (oc>16384)"},
-            {256, 128, 8, 8, 32, "outer-dequant pre-pass + fp gemm (all bits; area=64, ic*oc<4M)"},
-            {2048, 2176, 1, 2, 32, "g4mN multi-token in-shader (W4/8)"},
-            {2048, 2176, 4, 8, 32, "gemm sg-matrix prefill (W4/8)"},
+            {512, 256, 1, 1, 32, "2sg decode + SPLIT_K_2 (oc%8==0)", false},
+            {512, 252, 1, 1, 32, "2sg decode no-splitk (oc%8!=0)", false},
+            {2048, 64, 1, 1, 32, "2sg decode + Q4 block32 W16", true},
+            {2048, 64, 1, 1, 64, "2sg decode + Q4 block64 W16", true},
+            {2048, 64, 1, 1, 128, "2sg decode + Q4 block128 W16", true},
+            {2048, 64, 1, 1, 256, "2sg decode + Q4 block256 W16", true},
+            {6144, 64, 1, 1, 64, "2sg decode + Q4 block64 W16 (96 blocks)", true},
+            {128, 16400, 1, 1, 32, "g16 lm_head (oc>16384)", false},
+            {2048, 16400, 1, 1, 64, "g16 lm_head + Q4 block64 W16", true},
+            {512, 16400, 1, 1, 128, "g16 lm_head + Q4 block128 W16", true},
+            {512, 16400, 1, 1, 256, "g16 lm_head + Q4 block256 W16", true},
+            {2048, 64, 8, 8, 32, "fused Q4 GEMM M32 + block32 fp16 metadata", true},
+            {2048, 64, 8, 8, 64, "fused Q4 GEMM M32 + block64 fp16 metadata", true},
+            {2048, 64, 8, 8, 128, "fused Q4 GEMM M32 + block128 fp16 metadata", true},
+            {2048, 64, 8, 8, 256, "fused Q4 GEMM M32 + block256 fp16 metadata", true},
+            {6144, 64, 8, 8, 64, "fused Q4 GEMM M32 + block64 fp16 metadata (96 blocks)", true},
+            {2048, 64, 8, 16, 32, "fused Q4 GEMM M64 + block32 fp16 metadata", true},
+            {2048, 64, 8, 16, 64, "fused Q4 GEMM M64 + block64 fp16 metadata", true},
+            {2048, 64, 8, 16, 128, "fused Q4 GEMM M64 + block128 fp16 metadata", true},
+            {2048, 64, 8, 16, 256, "fused Q4 GEMM M64 + block256 fp16 metadata", true},
+            {6144, 64, 8, 16, 64, "fused Q4 GEMM M64 + block64 fp16 metadata (96 blocks)", true},
+            {256, 128, 8, 8, 32, "outer-dequant pre-pass + fp gemm (all bits; area=64, ic*oc<4M)", false},
+            {2048, 2176, 1, 2, 32, "g4mN multi-token in-shader (W4/8)", false},
+            {2048, 2176, 1, 2, 64, "g4mN multi-token + Q4 block64", true},
+            {2048, 2176, 4, 8, 32, "gemm sg-matrix prefill (W4/8)", false},
+            {2048, 2176, 4, 8, 64, "gemm sg-matrix prefill + Q4 block64", true},
         };
 
         bool allPass = true;
@@ -224,6 +245,9 @@ public:
             // skip W2/3 for exactly those two shapes.
             bool skipW23 = (s.ih * s.iw > 1) && ((size_t)s.ic * s.oc > (size_t)4 * 1024 * 1024);
             for (int nbit : {2, 3, 4, 8}) {
+                if (s.q4Only && nbit != 4) {
+                    continue;
+                }
                 if ((nbit == 2 || nbit == 3) && skipW23) {
                     continue;
                 }
