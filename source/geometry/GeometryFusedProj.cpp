@@ -19,6 +19,15 @@
 namespace MNN {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 class GeometryFusedProj : public GeometryComputer {
+    static void _updateTensorShape(Tensor* tensor, const Tensor* source, int channel = -1) {
+        TensorUtils::copyShape(source, tensor, true);
+        tensor->buffer().type = source->getType();
+        if (channel >= 0 && tensor->dimensions() >= 2) {
+            tensor->setLength(1, channel);
+        }
+        TensorUtils::setLinearLayout(tensor);
+    }
+
     static std::shared_ptr<Command> _makeCmd(std::shared_ptr<BufferStorage> storage,
                                              const std::vector<Tensor*>& inputs,
                                              const std::vector<Tensor*>& outputs) {
@@ -74,6 +83,62 @@ class GeometryFusedProj : public GeometryComputer {
     }
 
 public:
+    // Keep the generated commands and their executions across dynamic shapes. Only tensor bindings and temporary
+    // shapes change; recreating the commands would reorder every immutable projection weight again.
+    virtual bool onRecompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                             Context& context, CommandBuffer& res) const override {
+        if (_keepWhole(context, op, inputs.size(), outputs.size())) {
+            return false;
+        }
+        auto param = op->main_as_FusedLinearParam();
+        if (param == nullptr || param->convs() == nullptr || inputs.empty()) {
+            return false;
+        }
+        const int numConvs = (int)param->convs()->size();
+        const bool isGateUp = param->act_silu_mul();
+        const bool hasLn = param->has_ln();
+        const int numProjOut = isGateUp ? 1 : numConvs;
+        const int expectedCommands = (hasLn ? 1 : 0) + (isGateUp ? 3 : numConvs);
+        const int expectedExtras = (hasLn ? 1 : 0) + (isGateUp ? 2 : 0);
+        if ((isGateUp && numConvs != 2) || (!isGateUp && (numConvs < 3 || numConvs > 4)) ||
+            inputs.size() < (hasLn ? 2 : 1) || outputs.size() < numProjOut + (hasLn ? 1 : 0) ||
+            res.command.size() != expectedCommands || res.extras.size() != expectedExtras) {
+            return false;
+        }
+
+        int commandIndex = 0;
+        int extraIndex = 0;
+        Tensor* projInput = hasLn ? inputs[1] : inputs[0];
+        if (hasLn) {
+            auto normalized = res.extras[extraIndex++].get();
+            _updateTensorShape(normalized, projInput);
+            auto& command = res.command[commandIndex++];
+            command->inputs = {inputs[0], inputs[1]};
+            command->outputs = {outputs[numProjOut], normalized};
+            projInput = normalized;
+        }
+        if (!isGateUp) {
+            for (int i = 0; i < numConvs; ++i) {
+                auto& command = res.command[commandIndex++];
+                command->inputs = {projInput};
+                command->outputs = {outputs[i]};
+            }
+            return true;
+        }
+
+        auto gate = res.extras[extraIndex++].get();
+        auto up = res.extras[extraIndex].get();
+        _updateTensorShape(gate, projInput, param->convs()->GetAs<Convolution2D>(0)->common()->outputCount());
+        _updateTensorShape(up, projInput, param->convs()->GetAs<Convolution2D>(1)->common()->outputCount());
+        res.command[commandIndex]->inputs = {projInput};
+        res.command[commandIndex++]->outputs = {gate};
+        res.command[commandIndex]->inputs = {projInput};
+        res.command[commandIndex++]->outputs = {up};
+        res.command[commandIndex]->inputs = {up, gate};
+        res.command[commandIndex]->outputs = {outputs[0]};
+        return true;
+    }
+
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
         if (_keepWhole(context, op, inputs.size(), outputs.size())) {

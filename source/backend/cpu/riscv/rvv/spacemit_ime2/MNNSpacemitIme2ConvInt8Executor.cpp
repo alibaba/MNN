@@ -141,7 +141,7 @@ bool SpacemitIme2ConvInt8Executor::onSetupLinearFastPath(const std::vector<Tenso
 
     if (mResourceInt8->mWeightBits != 4 || !mResourceInt8->mDynamicQuant || !mUseBatchQuan || !mIm2ColBasedInt8 ||
         mMixedKernel || mOnlineReorderWeightSme || m4BitPtq || !mLinear1x1 || dynamicQuantOption == 2 ||
-        inputBlockNum != 1 || realCount <= static_cast<size_t>(dstXUnit) || realCount % 4 != 0 ||
+        inputBlockNum != 1 || realCount <= static_cast<size_t>(dstXUnit) ||
         realCount != static_cast<size_t>(inputPlane) || dstBytes != 4 || gcore->bytes != 4 || gcore->pack != 4 ||
         srcDepthQuad == 0 || srcDepthQuad % 2 != 0 || dstDepthQuad == 0 || dstDepthQuad % 8 != 0 || threadCount <= 0 ||
         mBlockNum <= 0 || srcUnit != 16 ||

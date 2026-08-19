@@ -68,6 +68,8 @@ description: MNN RISC-V CPU 算子与 LLM 性能优化工作流，覆盖标准 R
 | 现象 | 优先检查 |
 |---|---|
 | prefill 慢 | pack/动态量化遍数、M tile、权重复用、矩阵单元利用率 |
+| 首次 prefill 慢，后续换 shape 又慢 | Geometry 是否重建子 Op/Execution、不可变权重是否重复 reorder |
+| 短 prompt 汇总速度异常低 | 是否混入首次 prefill 冷启动；逐条记录 cold/hot 时间和 token 数 |
 | decode 慢 | packed weight 字节数、持续带宽、dispatch/barrier、epilogue |
 | kernel 快但模型不快 | 调用次数、Attention/KV、layout conversion、线程池 |
 | 增加线程反而慢 | 共享矩阵单元、内存带宽、核拓扑、同步成本 |
@@ -81,6 +83,30 @@ decode tokens/s 上限 ≈ 持续有效带宽 / 每 token 必读权重与元数�
 ```
 
 不要把接口峰值带宽、稀疏 TOPS 或单条指令峰值当成模型可达到的吞吐。
+
+#### 动态 shape 与首次预热
+
+动态输入变慢时，先区分毫秒级 activation arena 调整与秒级不可变权重准备。若 fused op 在 Geometry
+层分解，shape 变化可能重新生成子 `Op`；当 Execution cache 以 `Op*` 为键时，这会导致缓存失效、
+重建 Execution，并再次 reorder 全部权重。用构造次数、子 Op 地址和 weight-reorder 计时闭合证据链，
+不要先用大块预留内存或固定 padding 掩盖问题。
+
+当算子拓扑、权重和参数不变，只有 Tensor shape/binding 变化时，优先实现
+`GeometryComputer::onRecompute`：
+
+1. 校验子命令、临时 Tensor 和输入输出数量仍匹配；不匹配就返回 `false` 走完整重建。
+2. 更新临时 Tensor 的 shape、类型、layout，以及 Command 的输入输出绑定。
+3. 保留原 Command、`BufferStorage`、子 `Op` 指针和 Execution，使已重排权重继续复用。
+4. 分别验证首次 cold prefill、至少两个从未出现过的新 shape，以及主 tile 两侧的 tail。
+
+不要把 decode tuning 当成 prefill warmup。当前 `Llm::tuning(OP_ENCODER_NUMBER)` 使用 M=1 decode
+Module；prefill 可能使用另一 Module/Pipeline 和独立 Execution cache。若产品允许启动预热，可在接收
+首个用户请求前执行一次 prefill-only forward 并 reset KV；长期方案是让不同 Module 共享不可变的
+packed-weight Resource。
+
+不要用 `M % tile == 0` 门禁整个 vendor fast path。让主 kernel 处理完整 tile，tail kernel 使用相同的
+packed-A/B ABI 处理剩余行。Chunk prefill 只作为长输入的独立实验；固定到 1024/2048 等长度会增加
+短输入计算量，不能替代 Execution 复用。
 
 ### 2. 建立正确性阶梯
 
@@ -147,6 +173,7 @@ padding 或二进制偶然布局维持成绩。
 - vendor 路径短生成；
 - 标准 RVV 短生成；
 - 跨 prefill 分支阈值的长 prompt；
+- 首次 cold prefill 与连续多个不同 shape 的逐请求计时；
 - 目标模型 prefill 与 decode；
 - 不满足门禁时的 fallback；
 - `git diff --check` 和厂商目录外的污染检查。
