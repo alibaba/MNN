@@ -1534,6 +1534,110 @@ static void MNNSpacemitIme2GemmI8I4HpM1(size_t blk_len, const uint8_t* quant_a_p
     }
 }
 
+static void MNNSpacemitIme2GemmI8I4HpM1Residual(size_t blk_len, const uint8_t* quant_a_ptr, const uint8_t* quant_b_data,
+                                                const uint8_t* quant_b_zp, float* c_ptr, size_t count_m, size_t count_n,
+                                                size_t k_blks, size_t ldc) {
+    // Full prefill tiles use the M4 kernel below. The packer stores the final 1-3 rows in the same single-row HP
+    // layout used here, so the scheduler can consume them one at a time without repacking or duplicating packed B.
+    (void)count_m;
+    (void)ldc;
+    if (blk_len != 258 || quant_a_ptr == nullptr || quant_b_data == nullptr || quant_b_zp != nullptr ||
+        c_ptr == nullptr || count_n == 0 || count_n % 32 != 0 || k_blks == 0) {
+        return;
+    }
+    constexpr size_t NB_COLS = 32;
+    constexpr size_t B_SUB_STRIDE = sizeof(_Float16) * NB_COLS + 16 * NB_COLS;
+    constexpr size_t B_RESIDUAL_SUB_STRIDE = B_SUB_STRIDE + sizeof(_Float16) * NB_COLS;
+    constexpr size_t B_SUPER_STRIDE = 8 * B_RESIDUAL_SUB_STRIDE;
+    const size_t b_tile_stride = k_blks * B_SUPER_STRIDE;
+
+    for (size_t ni = 0; ni < count_n; ni += NB_COLS) {
+        uint8_t* b_data = (uint8_t*)quant_b_data + (ni / NB_COLS) * b_tile_stride;
+        int8_t* a_data = (int8_t*)quant_a_ptr;
+        float* dst_c = c_ptr + ni;
+
+        asm volatile(
+            "vsetvli        t0, x0, e16, m1         \n\t"
+            "vxor.vv        v31, v31, v31           \n\t"
+            "mv             t4, %[BK]               \n\t"
+            "li             t0, 0x4c00              \n\t"
+            "fmv.h.x        fa0, t0                 \n\t"
+
+            ".align 4                               \n\t"
+            "_M1R_BLK_LOOP%=:                       \n\t"
+            "li             t5, 8                   \n\t"
+            "addi           t6, %[A], 288           \n\t"
+            "flh            ft1, (t6)               \n\t"
+            "addi           t6, %[A], 272           \n\t"
+
+            "vsetvli        t0, x0, e16, m1         \n\t"
+            "vxor.vv        v16, v18, v18           \n\t"
+            "vxor.vv        v17, v18, v18           \n\t"
+            "vxor.vv        v18, v18, v18           \n\t"
+            "vxor.vv        v19, v18, v18           \n\t"
+
+            "_M1R_INNER_BLK_LOOP%=:                 \n\t"
+            "flh            fa1, (t6)               \n\t"
+            "addi           t6, t6, 2               \n\t"
+            "flh            ft0, (%[A])             \n\t"
+            "addi           %[A], %[A], 2           \n\t"
+
+            "vsetvli        t0, x0, e8, mf4         \n\t"
+            "vle8.v         v3, (%[A])              \n\t"
+            "addi           %[A], %[A], 32          \n\t"
+
+            "vsetvli        t0, x0, e16, mf2        \n\t"
+            "vle16.v        v8, (%[B])              \n\t"
+            "addi           %[B], %[B], 64          \n\t"
+            "vl4r.v         v4, (%[B])              \n\t"
+            "addi           %[B], %[B], 512         \n\t"
+            "vle16.v        v12, (%[B])             \n\t"
+            "addi           %[B], %[B], 64          \n\t"
+            "vfmul.vf       v8, v8, ft0             \n\t"
+            "vfmul.vf       v9, v8, fa0             \n\t"
+            "vfmul.vf       v10, v8, fa1            \n\t"
+            "vfwmacc.vf     v31, ft1, v10           \n\t"
+            "vfmul.vf       v10, v12, fa1           \n\t"
+            "vfwmacc.vf     v31, ft1, v10           \n\t"
+
+            "vsetvli        t0, x0, e8, m1          \n\t"
+            "vpack.vv       v0, v8, v9, 3           \n\t"
+            "vsrl.vi        v28, v3, 4              \n\t"
+
+            "vsetvli        t0, x0, e16, m1         \n\t"
+            "vnpack4.vv     v2, v3, v3, 3           \n\t"
+            "vnpack4.vv     v3, v28, v28, 3         \n\t"
+            "vmadotsu.hp    v16, v3, v4, v0, 4, i4  \n\t"
+            "vmadotsu.hp    v17, v3, v5, v0, 5, i4  \n\t"
+            "vmadotsu.hp    v18, v3, v6, v0, 6, i4  \n\t"
+            "vmadotsu.hp    v19, v3, v7, v0, 7, i4  \n\t"
+            "vmadotu.hp     v16, v2, v4, v0, 0, i4  \n\t"
+            "vmadotu.hp     v17, v2, v5, v0, 1, i4  \n\t"
+            "vmadotu.hp     v18, v2, v6, v0, 2, i4  \n\t"
+            "vmadotu.hp     v19, v2, v7, v0, 3, i4  \n\t"
+
+            "addi           t5, t5, -1              \n\t"
+            "bgtz           t5, _M1R_INNER_BLK_LOOP%= \n\t"
+            "vpack.vv       v8, v16, v17, 1         \n\t"
+            "vpack.vv       v12, v18, v19, 1        \n\t"
+            "vpack.vv       v20, v8, v12, 2         \n\t"
+
+            "vsetvli        t0, x0, e16, mf2        \n\t"
+            "addi           t4, t4, -1              \n\t"
+            "vfwmacc.vf     v31, ft1, v20           \n\t"
+            "addi           %[A], t6, 2             \n\t"
+            "bgtz           t4, _M1R_BLK_LOOP%=     \n\t"
+
+            "vsetvli        t0, x0, e32, m1         \n\t"
+            "vse32.v        v31, (%[DST])           \n\t"
+            : [A] "+r"(a_data), [B] "+r"(b_data)
+            : [DST] "r"(dst_c), [BK] "r"(k_blks)
+            : "cc", "memory", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
+              "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22",
+              "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31", "fa0", "fa1", "ft0", "ft1");
+    }
+}
+
 static void MNNSpacemitIme2GemmI8I4HpM4(size_t blk_len, const uint8_t* quant_a_ptr, const uint8_t* quant_b_data,
                                         const uint8_t* quant_b_zp, float* c_ptr, size_t count_m, size_t count_n,
                                         size_t k_blks, size_t ldc) {
@@ -2298,6 +2402,11 @@ extern "C" __attribute__((aligned(64))) size_t MNNSpacemitIme2GemmI8I4Local(size
         if (countM >= 4 && quantBZp == nullptr) {
             MNNSpacemitIme2GemmI8I4HpM4(blkLen, quantAPtr, quantBData, quantBZp, cPtr, countM, countN, kBlocks, ldc);
             return 4;
+        }
+        if (countM > 0 && quantBZp == nullptr) {
+            MNNSpacemitIme2GemmI8I4HpM1Residual(blkLen, quantAPtr, quantBData, quantBZp, cPtr, countM, countN, kBlocks,
+                                                ldc);
+            return 1;
         }
         return 0;
     }
