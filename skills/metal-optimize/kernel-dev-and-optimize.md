@@ -494,6 +494,8 @@ kernel void conv1x1_gemv_g8_deferred_sg2(
 2. **=2 g16 kernel 内部 split-K（`G16_SPLIT_K`）**：128 线程/tg、4 simdgroup，每两个 SG 结对拆同一 dual-row 的 quant-block 半段 + tg mem 归约，grid 不变（oc%16==0 保证 barrier 前无早退）。结果：greedy byte-identical，但 **kernel 时间与基线持平**（2257us vs 2270us）——lm_head 每 token 流 228MB 权重，早已带宽瓶颈，加倍在途 lane 不减少搬运字节数；e2e 6 轮正反序 A 均值 102.04 vs B 100.89（B 三次跌到 ~100，中性偏负，barrier 开销）。
 ⇒ **lm_head 方向 kernel 级优化正式关闭**：它既不是 latency-bound 缺在途 lane（=2 无收益），e2e 也不受它的 GPU 时间支配（=1 只兑现 6%）。下一个杠杆 = 设备端采样（消除 lm_head→CPU 同步点，见 runtime-scheduling.md）。
 
+**反例存档（2026-08-19，编译期 block 常量推广到 legacy decode GEMV）**：设想"把 W16 的编译期 `BLOCK_SLICES` 常量 + 去尾判推广到 2sg/g16 的非 W16 分支（W2/3/8 全 bits，`ic_4 % blockSize == 0` 时 host 传宏），复刻 W16 收益"已证伪（M4 Pro，Qwen3-0.6B **W8** b64，decode tg128，7 轮交替配对）：base 246.9 vs new 246.3 tok/s（-0.24%，4 降 3 升方向不一致，噪声内中性）。正确性全过（conv_wquant_metal SPLITK=0/1/2 + QKVFusion）。结论：**W16 的真实收益来自 16B 宽加载（减少加载指令/访存事务），不是编译期常量**——W8 decode 每 slice 16B 权重流量本就带宽瓶颈，省掉的整数除法和 min 尾判藏在访存延迟下（同 §2.0 "<5us GPU 节省不兑现为 wall"）。GEMV_MIDDLE_STEP 常量当年 +2.0% 是与 QKV_PACKED_GRID / LN_SPLIT_SG 三项合并测的（见 §2.1.6 归因债），单独的"常量化"不构成收益来源，**勿再单独投入**。剩余有物理依据的杠杆是 W2 宽加载（4B/slice → uint4 批 4 slice，加载指令 ÷4），待有真实 W2 需求再做；A-series（GPU 更窄、ALU 占比高）未标定，若在 iPhone 上重测此方向需先测 GPU busy vs wall。当时实现（已撤销未提交，~87 行）：shader 三处（2sg 非 ROW_2 / ROW_2 / g16 legacy）`#ifdef GEMV_BLOCK_SLICES` 常量化 + 尾判跳过，host 在 onResize 与 QKV/GateUp/LN 三个融合装配点传宏并加 `GEMV_BS_<N>` 缓存 key。
+
 ### 2.1.5 Split-K Decode GEMV（SPLIT_K_2，+3.3~3.9% e2e，默认开）
 
 `db13a99f4f`。
