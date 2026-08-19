@@ -4281,6 +4281,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     int middle_index = tiisg % middle_step;
     int outer_index  = tiisg / middle_step;
 #endif
+#endif // GEMV_QBLOCK_W16
 
     FLOAT4 result = FLOAT4(0);
 

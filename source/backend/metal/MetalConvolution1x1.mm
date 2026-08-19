@@ -386,6 +386,7 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     // compile-time variant (the shader derives the projection from x instead of
     // z), so it has to be part of the cache key and the macro dictionary.
     // Each threadgroup covers 2 output slices, or 4 under ROW_2 (2 per simdgroup).
+    const bool row2 = !backend->isSupportTensorApi();
     const int slicesPerTG = row2 ? 4 : 2;
     const int numProj = peerW != nullptr ? 4 : 3;
     const int projSlice[4] = {
