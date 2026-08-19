@@ -373,6 +373,13 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     if (peerW != nullptr) {
         keys.emplace_back("QKV_FUSED_P4");
     }
+    // ROW_2 pairs with the slicesPerTG=4 grid below; dropping either half
+    // leaves half of every projection's rows unwritten (2026-08-19 rebase-merge
+    // regression: key/dic lost while the grid kept 4 slices/TG).
+    const bool row2 = !backend->isSupportTensorApi();
+    if (row2) {
+        keys.emplace_back("ROW_2");
+    }
     // Generalized Q4 W16 on the fused QKV GEMV. Every member must carry the
     // same compile-time quant-block shape.
     const bool w16 = mQ4W16BlockSlices > 0 && mQ4W16BlockSlices == peerK->mQ4W16BlockSlices &&
@@ -389,7 +396,6 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
     // compile-time variant (the shader derives the projection from x instead of
     // z), so it has to be part of the cache key and the macro dictionary.
     // Each threadgroup covers 2 output slices, or 4 under ROW_2 (2 per simdgroup).
-    const bool row2 = !backend->isSupportTensorApi();
     const int slicesPerTG = row2 ? 4 : 2;
     const int numProj = peerW != nullptr ? 4 : 3;
     const int projSlice[4] = {
@@ -443,6 +449,9 @@ bool MetalConvolution1x1::setupQKVFusion(MetalConvolution1x1* peerK, const Tenso
         [dic setValue:@"1" forKey:@"QKV_FUSED"];
         if (peerW != nullptr) {
             [dic setValue:@"1" forKey:@"QKV_FUSED_P4"];
+        }
+        if (row2) {
+            [dic setValue:@"1" forKey:@"ROW_2"];
         }
         if (w16) {
             [dic setValue:@"1" forKey:@"GEMV_QBLOCK_W16"];
