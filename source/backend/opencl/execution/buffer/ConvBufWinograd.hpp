@@ -34,7 +34,18 @@ public:
 
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
-    static bool valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, bool isIntel = false, int limit = 8192);
+    // fpBytes / memory let valid() price the transform buffers this conv would need: they run
+    // alpha^2/UNIT^2 = 4x the tensor each, which dominates memory at high resolution. Under
+    // Memory_Low a conv whose pair exceeds the budget falls back to direct convolution.
+    static bool valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output,
+                      bool isIntel = false, int limit = 8192, int fpBytes = 4,
+                      BackendConfig::MemoryMode memory = BackendConfig::Memory_Normal);
+    // N-alignment of the transform buffers, shared with the weight layout built in the ctor.
+    static int transformAlignN(int outputChannel);
+    // Element counts onEncode will allocate for mSource / mDest. Kept here so valid() prices
+    // exactly what onEncode allocates instead of re-deriving it.
+    static void transformElements(int alpha, int units, int inputChannel, int outputChannel, int alignK,
+                                  int alignN, int* alignM, size_t* sourceElements, size_t* destElements);
     std::vector<uint32_t> getLocalWS(std::string kernelName, int index, std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel);
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
 

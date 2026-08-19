@@ -27,7 +27,16 @@ public:
 
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
-    static bool valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, int maxWidth, int maxHeight, int limit = 8192);
+    // maxWidth / maxHeight bound the image dimensions the driver accepts; fpBytes / memory let
+    // valid() additionally price the transform images this conv would need, which the dimension
+    // bounds do not constrain tightly. Under Memory_Low a conv over budget falls back to direct
+    // convolution. See ConvBufWinograd::valid for the buffer-mode equivalent.
+    static bool valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, int maxWidth,
+                      int maxHeight, int limit = 8192, int fpBytes = 4,
+                      BackendConfig::MemoryMode memory = BackendConfig::Memory_Normal);
+    // Bytes onEncode will allocate for the mSource / mDest image pair.
+    static size_t transformImageBytes(int alpha, int wUnit, int hUnit, int inputChannel, int outputChannel,
+                                     int fpBytes);
 
 private:
     OpenCLBackend* mOpenCLBackend;

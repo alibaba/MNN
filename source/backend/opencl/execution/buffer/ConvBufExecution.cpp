@@ -947,7 +947,10 @@ public:
         }
 #endif
 
-        if (ConvBufWinograd::valid(conv2D->common(), inputs[0], outputs[0], static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->getGpuType() == INTEL)) {
+        auto clBackend = static_cast<OpenCLBackend *>(backend);
+        if (ConvBufWinograd::valid(conv2D->common(), inputs[0], outputs[0],
+                                   clBackend->getOpenCLRuntime()->getGpuType() == INTEL, 8192, clBackend->fpBytes(),
+                                   clBackend->getMemory())) {
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
             if(static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()){
                 std::vector<int> inputShape = tensorShapeFormat(input);

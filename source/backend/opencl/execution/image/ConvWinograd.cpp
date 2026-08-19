@@ -13,7 +13,17 @@
 #define INTERP 1
 namespace MNN {
 namespace OpenCL {
-bool ConvWinograd::valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, int maxWidth, int maxHeight, int limit) {
+size_t ConvWinograd::transformImageBytes(int alpha, int wUnit, int hUnit, int inputChannel, int outputChannel,
+                                        int fpBytes) {
+    // Prices the pair onEncode allocates. MNN maps a CAFFE_C4 tensor to an image of
+    // width UP_DIV(C, 4) * W and height N * H, always CL_RGBA, so four channels per pixel.
+    // mSource is {alpha*alpha, ic, hUnit, wUnit}; mDest is {UP_DIV(oc, 4), wUnit*4, hUnit, alpha*alpha}.
+    size_t sourcePixels = (size_t)UP_DIV(inputChannel, 4) * wUnit * ((size_t)alpha * alpha * hUnit);
+    size_t destPixels   = (size_t)wUnit * alpha * alpha * ((size_t)UP_DIV(outputChannel, 4) * hUnit);
+    return (sourcePixels + destPixels) * 4 * (size_t)fpBytes;
+}
+
+bool ConvWinograd::valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, int maxWidth, int maxHeight, int limit, int fpBytes, BackendConfig::MemoryMode memory) {
     if (common->strideX() != 1 || common->strideY() != 1) {
         return false;
     }
@@ -41,6 +51,13 @@ bool ConvWinograd::valid(const Convolution2DCommon* common, const Tensor* input,
     int destHeight = UP_DIV(ic, 4) * hUnit;
 
     if(sourceWidth > maxWidth || sourceHeight > maxHeight || destWidth > maxWidth || destHeight > maxHeight){
+        return false;
+    }
+    // The image-dimension bounds above are not a memory bound: they reject issue #4782's
+    // 640x640x256 conv, but a 512x512 ic64 -> oc512 conv passes them and still wants ~1.2GB for
+    // the transform pair. Gate on the same budget the buffer path uses, see ConvBufWinograd.
+    if (BackendConfig::Memory_Low == memory &&
+        transformImageBytes(alpha, wUnit, hUnit, ic, oc, fpBytes) > WINOGRAD_TRANSFORM_BUDGET) {
         return false;
     }
     if(ic >= 32 && oc >= 32){

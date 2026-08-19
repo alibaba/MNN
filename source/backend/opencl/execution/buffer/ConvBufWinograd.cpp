@@ -16,7 +16,37 @@
 #define INTERP 1
 namespace MNN {
 namespace OpenCL {
-bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, bool isIntel, int limit) {
+int ConvBufWinograd::transformAlignN(int outputChannel) {
+    if (outputChannel > 1024) {
+        return 128;
+    }
+    if (outputChannel > 256) {
+        return 64;
+    }
+    if (outputChannel > 64) {
+        return 32;
+    }
+    return 16;
+}
+
+void ConvBufWinograd::transformElements(int alpha, int units, int inputChannel, int outputChannel, int alignK,
+                                        int alignN, int* alignM, size_t* sourceElements, size_t* destElements) {
+    int m       = 16;
+    float ratio = 1.0 * alpha * alpha * units / 1024.0 * inputChannel / 1024.0 * outputChannel / 1024.0;
+    if (units > 512 && ratio > 1.0) {
+        m = 128;
+    } else if (units > 256 && ratio > 0.1) {
+        m = 64;
+    } else if (units > 64) {
+        m = 32;
+    }
+    *alignM         = m;
+    *sourceElements = (size_t)alpha * alpha * ROUND_UP(inputChannel, alignK) * ROUND_UP(units, m);
+    *destElements   = (size_t)alpha * alpha * ROUND_UP(units, m) * ROUND_UP(outputChannel, alignN);
+}
+
+bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, bool isIntel,
+                            int limit, int fpBytes, BackendConfig::MemoryMode memory) {
     if (common->strideX() != 1 || common->strideY() != 1) {
         return false;
     }
@@ -32,7 +62,28 @@ bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* inp
 
     bool valid = input->channel() >= 32 && output->channel() >= 32 && input->width() < output->channel();
     valid = valid || (input->channel() >= 64 && output->channel() >= 64);
-    return valid;
+    if (!valid) {
+        return false;
+    }
+    const int alpha  = common->kernelX() + UNIT - 1;
+    const int units  = UP_DIV(output->width(), UNIT) * UP_DIV(output->height(), UNIT);
+    const int alignN = transformAlignN(output->channel());
+    int alignM       = 0;
+    size_t srcElem = 0, dstElem = 0;
+    // alignK is fixed at 4 for the transform layout, see the ctor.
+    transformElements(alpha, units, input->channel(), output->channel(), 4, alignN, &alignM, &srcElem, &dstElem);
+    // onEncode hands these counts to Tensor::createDevice as int, so a conv whose transform
+    // buffer overflows int would silently get a truncated allocation and read out of bounds.
+    // Checked in every memory mode: the old int arithmetic here could wrap just as easily.
+    if (srcElem > (size_t)INT_MAX || dstElem > (size_t)INT_MAX) {
+        return false;
+    }
+    if (BackendConfig::Memory_Low == memory) {
+        if ((srcElem + dstElem) * (size_t)fpBytes > WINOGRAD_TRANSFORM_BUDGET) {
+            return false;
+        }
+    }
+    return true;
 }
     
 void ConvBufWinograd::convertWeightFormat(cl::Buffer& buffer, const int alignK, const int alignN) {
@@ -209,14 +260,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         int alpha       = unit + kernelSize - 1;
         
         mResource->mAlignK = 4;
-        mResource->mAlignN = 16;
-        if(mCo > 1024) {
-            mResource->mAlignN = 128;
-        } else if(mCo > 256) {
-            mResource->mAlignN = 64;
-        } else if(mCo > 64) {
-            mResource->mAlignN = 32;
-        }
+        mResource->mAlignN = transformAlignN(mCo);
 
         std::shared_ptr<Tensor> tmpFilterTensor;
         tmpFilterTensor.reset(Tensor::createDevice<int32_t>({mCo * mCi * ky * kx}));
@@ -472,21 +516,13 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
     } else
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */    
     {
-        mAlignM = 16;
-        float ratio = 1.0 * alpha * alpha * wUnit * hUnit / 1024.0 * input->channel() / 1024.0 * output->channel() / 1024.0;
-        if (wUnit * hUnit > 512 && ratio > 1.0) {
-            mAlignM = 128;
-        } else if (wUnit * hUnit > 256 && ratio > 0.1) {
-            mAlignM = 64;
-        } else if (wUnit * hUnit > 64) {
-            mAlignM = 32;
-        }
-        int mAlignK = mResource->mAlignK;
-        int mAlignN = mResource->mAlignN;
-        mSource.reset(Tensor::createDevice<float>(
-            std::vector<int>{alpha * alpha * ROUND_UP(input->channel(), mAlignK) * ROUND_UP(wUnit * hUnit, mAlignM)}));
-        mDest.reset(Tensor::createDevice<float>(
-            std::vector<int>{alpha * alpha * ROUND_UP(wUnit * hUnit, mAlignM) * ROUND_UP(output->channel(), mAlignN)}));
+        const int mAlignK = mResource->mAlignK;
+        const int mAlignN = mResource->mAlignN;
+        size_t sourceElements = 0, destElements = 0;
+        transformElements(alpha, wUnit * hUnit, input->channel(), output->channel(), mAlignK, mAlignN, &mAlignM,
+                          &sourceElements, &destElements);
+        mSource.reset(Tensor::createDevice<float>(std::vector<int>{(int)sourceElements}));
+        mDest.reset(Tensor::createDevice<float>(std::vector<int>{(int)destElements}));
 
         mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
         mOpenCLBackend->onAcquireBuffer(mDest.get(), Backend::DYNAMIC);

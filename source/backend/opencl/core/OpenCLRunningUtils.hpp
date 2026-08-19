@@ -140,6 +140,22 @@ void setTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws
 
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h, int precision);
 
+// Byte budget for one conv's Winograd transform pair (source + dest) under Memory_Low, shared by
+// the buffer and image convolution paths so both gate on the same number.
+//
+// Winograd trades ~2.25x fewer multiplies for 4x the tensor in each transform buffer (a 4x4 input
+// tile per 2x2 output tile), and source and dest are alive at once. That is a good deal until the
+// tensor itself is large: one 640x640x256 fp16 conv wants 1.6GB for the pair, where direct
+// convolution needs no staging buffer at all.
+//
+// 256MB was measured on an SDXL-VAE-decoder-shaped graph (80x80 latent -> 640x640, channels
+// 512/512/256/128, 3 resnets per stage, fp32, buffer mode). Peak dynamic memory there is 5200MB
+// unguarded, of which ~3600MB is transform buffers. Every budget from 32MB to 512MB brings the
+// peak to 1600MB -- the graph's genuine working set -- so the whole range is equivalent on memory
+// and the choice is about bounding the worst-case single-conv spike. Runtime differences across
+// that range were inside run-to-run variance (~8%) on the GPU tested (Apple M4 Pro).
+#define WINOGRAD_TRANSFORM_BUDGET ((size_t)256 * 1024 * 1024)
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* OpenCLRunningUtils_hpp */
