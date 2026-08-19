@@ -7,7 +7,7 @@ set -e
 
 # --- Configuration ---
 # URL for QNN libraries zip file
-QNN_LIBS_URL='http://meta.alicdn.com/data/mnn/libs/qnn_inc_libs_2_37.zip'
+QNN_LIBS_URL='https://meta.alicdn.com/data/mnn/libs/qnn_inc_libs_2_37.zip'
 # Project root is the current directory where the script is run
 PROJECT_ROOT=$(pwd)
 # Temporary directory for downloads and extraction
