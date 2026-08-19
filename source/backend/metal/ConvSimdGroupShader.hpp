@@ -4230,9 +4230,19 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
 #endif
     constexpr int block = GEMV_QBLOCK_W16_BLOCK_SLICES;
     constexpr int middle_step = GEMV_QBLOCK_W16_MID;
+#ifdef SPLIT_K_SHUFFLE
+    // One simdgroup holds both K halves: only 16 lanes sweep a half, so the
+    // split is over sk lanes (tiisg & 15), not the whole simdgroup. The host
+    // sizes GEMV_QBLOCK_W16_MID for 16 lanes (chooseQ4W16Mid lanes=16).
+    constexpr int outer_step = (SIMD_GROUP_WIDTH / 2) / middle_step;
+    const int sk_w16_lane = int(tiisg) & (SIMD_GROUP_WIDTH / 2 - 1);
+    const int middle_index = sk_w16_lane & (middle_step - 1);
+    const int outer_index = sk_w16_lane / middle_step;
+#else
     constexpr int outer_step = SIMD_GROUP_WIDTH / middle_step;
     const int middle_index = int(tiisg) & (middle_step - 1);
     const int outer_index = int(tiisg) / middle_step;
+#endif
 #else
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
     // GEMV inner reduction lane partitioning.

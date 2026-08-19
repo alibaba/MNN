@@ -30,18 +30,21 @@ static bool isQ4W16BlockSlices(int blockSlices) {
 
 // Lanes per quant block for the Q4 16-byte decode GEMV (GEMV_QBLOCK_W16_MID).
 // A simdgroup owns `blocksPerSimdgroup` blocks. With `mid` lanes on a block,
-// 32/mid blocks are in flight and each lane walks `pairsPerBlock/mid` uint4
+// lanes/mid blocks are in flight and each lane walks `pairsPerBlock/mid` uint4
 // loads. One uint4 covers two C4 slices.
 // Pick the mid that minimises the loads on the critical path, preferring the
 // smallest on ties (longest contiguous run per lane).
-static int chooseQ4W16Mid(int blocksPerSimdgroup, int pairsPerBlock) {
+// `lanes` is the number of threads sweeping one K half: 32 for the plain and
+// SPLIT_K_2 kernels, 16 for SPLIT_K_SHUFFLE where one simdgroup holds both
+// halves (mirrors gemvMiddleStep).
+static int chooseQ4W16Mid(int blocksPerSimdgroup, int pairsPerBlock, int lanes = 32) {
     int best = 1, bestCost = 1 << 30;
     const int blocks = blocksPerSimdgroup > 1 ? blocksPerSimdgroup : 1;
     for (int mid : {1, 2, 4, 8}) {
         if (mid > pairsPerBlock || pairsPerBlock % mid != 0) {
             continue;
         }
-        const int slots = 32 / mid;
+        const int slots = lanes / mid;
         const int iters = UP_DIV(blocks, slots);
         const int cost  = iters * (pairsPerBlock / mid);
         if (cost < bestCost) {
@@ -1063,7 +1066,9 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         keys.emplace_back(skMacro);
                         // Split-K halves the blocks a simdgroup owns, so the
                         // lane split is re-chosen for that pipeline.
-                        const int skMid = q4W16 ? chooseQ4W16Mid(blockSize / 2, q4W16BlockSlices / 2) : 0;
+                        const int skMid = q4W16 ? chooseQ4W16Mid(blockSize / 2, q4W16BlockSlices / 2,
+                                                                 skShuffle ? 16 : 32)
+                                                : 0;
                         if (middleStep > 0) {
                             keys.emplace_back("ms" + std::to_string(middleStep));
                         }
