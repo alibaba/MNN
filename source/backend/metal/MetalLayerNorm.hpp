@@ -45,6 +45,12 @@ public:
     void setFused() { mIsFused = true; }
 
 private:
+    // Simdgroups per threadgroup for the NC4HW4 RMS simdgroup-reduce kernels.
+    // `legacy` is the count the kernel used before it was parameterized (1 for
+    // single-input, 2 for binary) and stays the answer whenever the widened
+    // reduction cannot pay off, so those cases keep their exact old arithmetic.
+    int rmsSimdGroups(int legacy) const;
+
     int mOutside;
     int mInside;
     bool mIsNC4HW4 = false;

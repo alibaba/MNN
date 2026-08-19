@@ -256,14 +256,14 @@ LN 折叠会 `mLn->setFused()` 压掉 LayerNorm 自己的 dispatch，`mNormalize
 | 接口 | 语义 |
 |---|---|
 | `setupGateUpFusion(peer, peerOutput)` | `this` = gate（leader），`peer` = up（follower）|
-| `setupQKVFusion(k,kOut, v,vOut, [w,wOut])` | 成员顺序第一个当 leader，一个 `grid.z=3/4` 的 kernel 打全部投影；**follower 的 `onEncode` 变 no-op** |
+| `setupQKVFusion(k,kOut, v,vOut, [w,wOut])` | 成员顺序第一个当 leader；默认使用 `maxGridX × 3/4` 矩形网格，一个 kernel 打全部投影；可通过 env 显式启用紧凑网格；**follower 的 `onEncode` 变 no-op** |
 | `setupLNFusion(hiddenIn, residualIn, residualOut, gamma, eps)` | 把 residual-add + RMSNorm 折进 leader kernel 的前导 |
 | `is2sgDecodePipeline()` | 是否走 `conv1x1_gemv_g4m1_2sg_wquant_sg` 管线——**融合的准入条件** |
 | `isGateUpLeader/Follower()`、`isQKVLeader/Follower()` | 状态查询 |
 | `getWeight/getBias/getDequantScale()` | leader 在融合 encode 时取 peer 的 buffer |
 
 **kernel 侧**由编译宏区分变体：`GATE_UP_FUSED`（grid 加 z=2 维、强制 64 线程）、
-`QKV_FUSED` / `QKV_FUSED_P4`（`grid.z=3/4`，第 4 投影用 buffers 15-18、seg 6 floats）、
+`QKV_FUSED` / `QKV_FUSED_P4`（compact grid 用一维 TG 前缀和映射 projection；第 4 投影用 buffers 15-18、seg 6 floats）、
 `LN_FUSED`。宏与 pipeline 缓存 key 的同步要求见
 [`kernel-dev-and-optimize.md`](./kernel-dev-and-optimize.md) §1.4。
 
@@ -277,10 +277,12 @@ LN 折叠会 `mLn->setFused()` 压掉 LayerNorm 自己的 dispatch，`mNormalize
 | 开关 | 默认 | 说明 |
 |---|---|---|
 | `MNN_METAL_DISABLE_QKV_FUSION` | 开融合 | `=1` 关掉 q/k/v(/w) leader 装配 |
+| `MNN_METAL_ENABLE_QKV_COMPACT_GRID` | 关（旧矩形网格） | `=1` 启用 `grid.x` 前缀和紧凑网格，其他融合保持不变；Mac M5 Pro 有收益，iPad M5 无收益 |
 | `MNN_METAL_DISABLE_GATE_UP_FUSION` | 开融合 | `=1` 关掉 gate/up leader 装配 |
-| `MNN_METAL_DISABLE_LN_FUSION` | 开融合 | `=1` 关掉 LN 折叠（不影响 GatedRMSNorm，那是另一条链）|
+| `MNN_METAL_DISABLE_LN_FUSION` | LN 折入投影（两阶段关） | `=1` 改走独立 AddRMSNorm → 物化 normalized → 融合投影；Mac 有收益、iPad M5 无收益，故默认不启用两阶段（不影响 GatedRMSNorm）|
 
-DISABLE 语义 = 默认开，仅 `=1` 关闭。**所有 Metal env 走 `MetalEnv.hpp` 单一入口**，
+三个融合 DISABLE 开关语义 = 默认开，仅 `=1` 关闭；compact grid 是默认关的实验路径，
+使用正向 ENABLE 开关。**所有 Metal env 走 `MetalEnv.hpp` 单一入口**，
 后端代码禁止散落 `getenv`。目前唯一例外：`MetalLinearAttention.mm:689` 的
 `MNN_METAL_DISABLE_LINEAR_ATTN_CONV_STATE_FUSION`。
 

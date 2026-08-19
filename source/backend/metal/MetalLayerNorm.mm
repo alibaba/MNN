@@ -80,6 +80,24 @@ std::shared_ptr<MetalLayerNorm::Resource> MetalLayerNorm::makeResource(Backend *
     return res;
 }
 
+int MetalLayerNorm::rmsSimdGroups(int legacy) const {
+    // One row == one threadgroup. At prefill `mOutside` is the token count, so the
+    // dispatch already has plenty of threadgroups and a wider one only steals
+    // occupancy; at decode `mOutside` is 1 and the entire norm runs as a single
+    // threadgroup, which is where extra simdgroups buy real parallelism.
+    if (mOutside > 1) {
+        return legacy;
+    }
+    // Below this the row cannot keep even the legacy lanes busy, and the extra
+    // threadgroup barrier costs more than the split saves.
+    constexpr int kMinChannelUnit = 128;
+    if (mChannelUnit < kMinChannelUnit) {
+        return legacy;
+    }
+    // Keep the wide-row decode shape identical on M4 and M5.
+    return 8;
+}
+
 ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mIsFused = false;
     auto backend = static_cast<MetalBackend *>(this->backend());
@@ -142,15 +160,23 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
                 };
                 std::vector<std::string> baseKeys = {"layernorm_sg_reduce", ftype};
                 if(mResource->mRMSNorm) {
+                    const int simds = rmsSimdGroups(2);
                     auto keys = baseKeys;
                     keys.emplace_back("binary_layernorm_c4_rms_sg");
+                    keys.emplace_back(std::to_string(simds));
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
-                        pipeline = backend->makeComputePipelineWithSourceOption(gLayerNormSgReduce, "binary_layernorm_c4_rms_sg", option);
+                        auto rmsOption = [[MTLCompileOptions alloc] init];
+                        rmsOption.preprocessorMacros = @{
+                            @"ftype" : @(ftype.c_str()),
+                            @"ftype4" : @(ftype4.c_str()),
+                            @"LN_SIMDS" : @(simds),
+                        };
+                        pipeline = backend->makeComputePipelineWithSourceOption(gLayerNormSgReduce, "binary_layernorm_c4_rms_sg", rmsOption);
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(64, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(simds * 32, 1, 1));
                 } else {
                     auto keys = baseKeys;
                     keys.emplace_back("binary_layernorm_c4_sg");
@@ -186,15 +212,23 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
             };
             std::vector<std::string> baseKeys = {"layernorm_sg_reduce", ftype};
             if(mResource->mRMSNorm) {
+                const int simds = rmsSimdGroups(1);
                 auto keys = baseKeys;
                 keys.emplace_back("layernorm_c4_rms_sg");
+                keys.emplace_back(std::to_string(simds));
                 auto pipeline = rt->findPipeline(keys);
                 if (nil == pipeline) {
-                    pipeline = backend->makeComputePipelineWithSourceOption(gLayerNormSgReduce, "layernorm_c4_rms_sg", option);
+                    auto rmsOption = [[MTLCompileOptions alloc] init];
+                    rmsOption.preprocessorMacros = @{
+                        @"ftype" : @(ftype.c_str()),
+                        @"ftype4" : @(ftype4.c_str()),
+                        @"LN_SIMDS" : @(simds),
+                    };
+                    pipeline = backend->makeComputePipelineWithSourceOption(gLayerNormSgReduce, "layernorm_c4_rms_sg", rmsOption);
                     rt->insertPipeline(keys, pipeline);
                 }
                 mPipeline = pipeline;
-                mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(32, 1, 1));
+                mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(simds * 32, 1, 1));
             } else {
                 auto keys = baseKeys;
                 keys.emplace_back("layernorm_c4_sg");

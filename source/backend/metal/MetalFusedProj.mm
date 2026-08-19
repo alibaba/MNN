@@ -211,6 +211,10 @@ public:
         // (env-disabled, pipeline miss, quant-layout mismatch, re-home failure),
         // the other convs still dispatch themselves reading mNormalized and the
         // LayerNorm must stay a separate dispatch.
+        // lnFusionDisabled is the opt-in two-stage path: the LayerNorm child
+        // writes residual_out + normalized once, then the fused projections
+        // consume normalized. It helped Qwen3.5-2B decode on Mac, but not on
+        // iPad M5, so the portable default remains the single folded dispatch.
         if (!projFused || !mHasLn || !mLn || MetalEnv::get().lnFusionDisabled) {
             return;
         }

@@ -16,12 +16,13 @@ namespace MNN {
 
 class MetalConvolution1x1 : public MetalConvolutionCommon {
 public:
-    static bool isValid(const Convolution2D *conv, const Tensor *input);
-    MetalConvolution1x1(Backend *backend, const MNN::Op *op);
+    static bool isValid(const Convolution2D* conv, const Tensor* input);
+    MetalConvolution1x1(Backend* backend, const MNN::Op* op);
     virtual ~MetalConvolution1x1() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
-    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder)  override;
+    virtual void onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                          id<MTLComputeCommandEncoder> encoder) override;
 
     // Gate/Up fusion: called by the owning MetalFusedProj for the two members of
     // an exported FusedGateUp group. 'this' is the gate (leader), 'peer' the up
@@ -47,11 +48,13 @@ public:
     std::shared_ptr<MNN::Tensor> getBias() const { return mBias; }
     std::shared_ptr<MNN::Tensor> getDequantScale() const { return mDequantScaleBias; }
 
-    bool setupLNFusion(const Tensor* hiddenInput, const Tensor* residualInput,
-                       const Tensor* residualOutput, std::shared_ptr<Tensor> gamma, float eps);
+    bool setupLNFusion(const Tensor* hiddenInput, const Tensor* residualInput, const Tensor* residualOutput,
+                       std::shared_ptr<Tensor> gamma, float eps);
 
 private:
-    MetalConvolution1x1(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias, std::shared_ptr<MNN::Tensor> dequantScale, int dequantBits, float scaleCoef);
+    MetalConvolution1x1(Backend* backend, const MNN::Op* op, std::shared_ptr<MNN::Tensor> weight,
+                        std::shared_ptr<MNN::Tensor> bias, std::shared_ptr<MNN::Tensor> dequantScale,
+                        int dequantBits, float scaleCoef);
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;
     id<MTLComputePipelineState> mDequantPipeline;
@@ -61,15 +64,14 @@ private:
     // Fused weight+scale buffer for decode GEMV optimization
     std::shared_ptr<Tensor> mFusedWeightScale;
     bool mUseFusedDecode = false;
-
     // Gate/Up fusion state
-    bool mIs2sgDecode = false;           // true if using conv1x1_gemv_g4m1_2sg_wquant_sg pipeline
-    bool mIsGateUpLeader = false;        // true if this is the gate (leader) in a fused pair
-    bool mIsGateUpFollower = false;      // true if this is the up (follower) in a fused pair
-    MetalConvolution1x1* mGateUpPeer = nullptr;  // leader points to follower (up)
-    const Tensor* mGateUpPeerOutput = nullptr;    // follower's output tensor
-    id<MTLComputePipelineState> mGateUpFusedPipeline = nil;  // fused pipeline with GATE_UP_FUSED
-    id<MTLBuffer> mGateUpSegBuffer = nil;         // {up_scale_coef} (gate uses cst.scale_coef)
+    bool mIs2sgDecode = false;                              // true if using conv1x1_gemv_g4m1_2sg_wquant_sg pipeline
+    bool mIsGateUpLeader = false;                           // true if this is the gate (leader) in a fused pair
+    bool mIsGateUpFollower = false;                         // true if this is the up (follower) in a fused pair
+    MetalConvolution1x1* mGateUpPeer = nullptr;             // leader points to follower (up)
+    const Tensor* mGateUpPeerOutput = nullptr;              // follower's output tensor
+    id<MTLComputePipelineState> mGateUpFusedPipeline = nil; // fused pipeline with GATE_UP_FUSED
+    id<MTLBuffer> mGateUpSegBuffer = nil;                   // {up_scale_coef} (gate uses cst.scale_coef)
 
     // QKV fusion state (see setupQKVFusion)
     bool mIsQKVLeader = false;
@@ -82,8 +84,14 @@ private:
     const Tensor* mQKVPeerWOutput = nullptr;
     id<MTLComputePipelineState> mQKVFusedPipeline = nil;    // fused pipeline with QKV_FUSED
     id<MTLBuffer> mQKVSegBuffer = nil;  // {k_coef, v_coef, k_oslice, v_oslice[, w_coef, w_oslice]}
+    bool mQKVCompactGrid = false;  // one packed grid.x range for all projections
     // Quant block count along IC (per output_slice); fused projections must match.
     int mBlockSize = 1;
+    // C4 slices per Q4 quant block for the generalized 16-byte decode path.
+    // Supported values are 8/16/32/64 (quant blocks 32/64/128/256). Zero means
+    // the layout is not eligible. Recorded so fusion setup can compile the same
+    // block shape as the standalone decode pipeline.
+    int mQ4W16BlockSlices = 0;
 
     // Fused Q4/Q8 GEMM: kernel unpacks quantized weights in-kernel
     // (FUSED_Q4_REAL_UNPACK), skipping the dequant pre-pass and mTempWeight.
@@ -105,12 +113,12 @@ private:
 
     // LayerNorm fusion state
     bool mHasLNFusion = false;
-    id<MTLComputePipelineState> mLNFusedPipeline = nil;  // pipeline with LN_FUSED macro
-    const Tensor* mLNHiddenInput = nullptr;       // LN inputs[1] → buffer 0
-    const Tensor* mLNResidualInput = nullptr;      // LN inputs[0] → buffer 20
-    const Tensor* mLNResidualOutput = nullptr;     // LN outputs[0] → buffer 22
-    std::shared_ptr<Tensor> mLNGamma = nullptr;     // LN gamma → buffer 21
-    id<MTLBuffer> mLNEpsBuffer = nil;              // eps → buffer 23
+    id<MTLComputePipelineState> mLNFusedPipeline = nil; // pipeline with LN_FUSED macro
+    const Tensor* mLNHiddenInput = nullptr;             // LN inputs[1] → buffer 0
+    const Tensor* mLNResidualInput = nullptr;           // LN inputs[0] → buffer 20
+    const Tensor* mLNResidualOutput = nullptr;          // LN outputs[0] → buffer 22
+    std::shared_ptr<Tensor> mLNGamma = nullptr;         // LN gamma → buffer 21
+    id<MTLBuffer> mLNEpsBuffer = nil;                   // eps → buffer 23
 
 #if MNN_METAL_OP_PROFILE
     // Kernel-variant tag used to distinguish which shader path this Conv1x1 dispatched

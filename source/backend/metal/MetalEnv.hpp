@@ -65,15 +65,19 @@ struct MetalEnv {
     // vs nsg8 -3.5%, opposite of M5). M1/M2/M3/iPhone uncalibrated, inherit the
     // M4 non-tensor branch (nsg32) pending on-device sweep.
     int decodeSdpaNsg;
-
-
     // ---- fusion / misc ----
-    // MNN_METAL_DISABLE_LN_FUSION=1: disable LayerNorm+Conv1x1 fusion.
+    // MNN_METAL_DISABLE_LN_FUSION=1: keep AddRMSNorm and the fused projections
+    // as two dispatches. Default false keeps AddRMSNorm folded into the GEMV:
+    // the separate path improved Qwen3.5-2B decode on Mac, but not on iPad M5.
     bool lnFusionDisabled;
     // MNN_METAL_DISABLE_GATE_UP_FUSION=1: disable Gate/Up leader/follower fusion.
     bool gateUpFusionDisabled;
     // MNN_METAL_DISABLE_QKV_FUSION=1: disable Q/K/V leader/follower fusion.
     bool qkvFusionDisabled;
+    // MNN_METAL_ENABLE_QKV_COMPACT_GRID=1: concatenate the projection grids on
+    // grid.x. Default off: it improves Qwen3.5-2B decode on Mac M5 Pro, but did
+    // not improve the same workload on iPad M5.
+    bool qkvCompactGridEnabled;
     // MNN_METAL_GEMV_SPLITK: decode GEMV K-split (SPLIT_K_2 variant of the 2sg
     // kernel: 4 simdgroups per tg, two K-halves per row + tg reduce).
     // 0 = off (legacy 2sg, 64 threads), unset/1 = on (default).
@@ -147,10 +151,10 @@ struct MetalEnv {
                     e.decodeSdpaNsg = (n == 4 || n == 8 || n == 16 || n == 32) ? n : 0;
                 }
             }
-
             e.lnFusionDisabled     = envIs("MNN_METAL_DISABLE_LN_FUSION", '1');
             e.gateUpFusionDisabled = envIs("MNN_METAL_DISABLE_GATE_UP_FUSION", '1');
             e.qkvFusionDisabled    = envIs("MNN_METAL_DISABLE_QKV_FUSION", '1');
+            e.qkvCompactGridEnabled = envIs("MNN_METAL_ENABLE_QKV_COMPACT_GRID", '1');
             {
                 const char* v = getenv("MNN_METAL_GEMV_SPLITK");
                 e.gemvSplitK = 1;
