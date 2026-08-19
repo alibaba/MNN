@@ -628,9 +628,11 @@ public:
                 }
             }
         }
-        int maxWidth  = static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->getMaxImage2DSize()[0];
-        int maxHeight = static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->getMaxImage2DSize()[1];
-        if (ConvWinograd::valid(conv2D->common(), inputs[0], outputs[0], maxWidth, maxHeight)) {
+        auto clBackend = static_cast<OpenCLBackend *>(backend);
+        int maxWidth  = clBackend->getOpenCLRuntime()->getMaxImage2DSize()[0];
+        int maxHeight = clBackend->getOpenCLRuntime()->getMaxImage2DSize()[1];
+        if (ConvWinograd::valid(conv2D->common(), inputs[0], outputs[0], maxWidth, maxHeight, 8192,
+                                clBackend->fpBytes(), clBackend->getMemory())) {
             OPENCL_CREATOR_CHECK(new ConvWinograd(op, backend));
         }
         

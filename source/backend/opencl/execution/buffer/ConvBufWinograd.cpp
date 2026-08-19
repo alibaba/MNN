@@ -16,19 +16,6 @@
 #define INTERP 1
 namespace MNN {
 namespace OpenCL {
-// Budget for one conv's mSource + mDest under Memory_Low. Winograd trades ~2.25x fewer
-// multiplies for 4x the tensor in each transform buffer, which is a good deal until the
-// tensor itself is large: a 640x640x256 fp16 conv wants 1.6GB for the pair. Convs above the
-// budget fall back to direct convolution, which needs no staging buffer at all.
-//
-// 256MB was picked on an SDXL-VAE-decoder-shaped graph (80x80 latent -> 640x640, fp32, see
-// tools/cpp/openclPoolProfile.cpp). Peak dynamic memory there is 5200MB unguarded; every
-// budget from 32MB to 512MB brings it to 1600MB, which is the graph's genuine working set,
-// so anything in that range is equivalent on memory and the choice is about bounding the
-// worst-case single-conv spike. Runtime differences across that range were inside run-to-run
-// variance (~8%) on the GPU tested. Override with MNN_OPENCL_WINOGRAD_LIMIT_MB to retune.
-#define WINOGRAD_LOW_MEMORY_TRANSFORM_LIMIT (256 * 1024 * 1024)
-
 int ConvBufWinograd::transformAlignN(int outputChannel) {
     if (outputChannel > 1024) {
         return 128;
@@ -78,19 +65,21 @@ bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* inp
     if (!valid) {
         return false;
     }
+    const int alpha  = common->kernelX() + UNIT - 1;
+    const int units  = UP_DIV(output->width(), UNIT) * UP_DIV(output->height(), UNIT);
+    const int alignN = transformAlignN(output->channel());
+    int alignM       = 0;
+    size_t srcElem = 0, dstElem = 0;
+    // alignK is fixed at 4 for the transform layout, see the ctor.
+    transformElements(alpha, units, input->channel(), output->channel(), 4, alignN, &alignM, &srcElem, &dstElem);
+    // onEncode hands these counts to Tensor::createDevice as int, so a conv whose transform
+    // buffer overflows int would silently get a truncated allocation and read out of bounds.
+    // Checked in every memory mode: the old int arithmetic here could wrap just as easily.
+    if (srcElem > (size_t)INT_MAX || dstElem > (size_t)INT_MAX) {
+        return false;
+    }
     if (BackendConfig::Memory_Low == memory) {
-        const int alpha  = common->kernelX() + UNIT - 1;
-        const int units  = UP_DIV(output->width(), UNIT) * UP_DIV(output->height(), UNIT);
-        const int alignN = transformAlignN(output->channel());
-        int alignM       = 0;
-        size_t srcElem = 0, dstElem = 0;
-        // alignK is fixed at 4 for the transform layout, see the ctor.
-        transformElements(alpha, units, input->channel(), output->channel(), 4, alignN, &alignM, &srcElem, &dstElem);
-        static const size_t budget =
-            getenv("MNN_OPENCL_WINOGRAD_LIMIT_MB")
-                ? (size_t)atoi(getenv("MNN_OPENCL_WINOGRAD_LIMIT_MB")) * 1024 * 1024
-                : (size_t)WINOGRAD_LOW_MEMORY_TRANSFORM_LIMIT;
-        if ((srcElem + dstElem) * (size_t)fpBytes > budget) {
+        if ((srcElem + dstElem) * (size_t)fpBytes > WINOGRAD_TRANSFORM_BUDGET) {
             return false;
         }
     }
