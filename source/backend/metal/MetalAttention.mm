@@ -615,10 +615,13 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
     // form, decode_splitkv beats both fallbacks (fused qk_softmax and the
     // three-stage decode_qk path) across kv ~128..4800 on M4-class and M5
     // (llm_bench -pg: +3%..+14% vs base), while the fallbacks themselves
-    // regressed with the row-major V cache (per-token strided reads). Run
-    // splitkv from a low threshold; keep the fallbacks only for tiny kv.
+    // regressed with the row-major V cache (per-token strided reads). A
+    // short-kv sweep (llm_bench -n128, threshold 128/64/32/16/8/2, M4 Pro)
+    // shows splitkv keeps winning down to kv>=2: qwen3-0.6b +16% and
+    // qwen3-4b +11% at thresh 2 vs 128 (greedy output bit-identical).
+    // Only kv==1 stays on the fallbacks; =1 (all-kv splitkv) regressed.
     {
-        const int sDecodeFusedThresh = 128;
+        const int sDecodeFusedThresh = 2;
         bool trivialMask = mHasTensorMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
         const int totalKv = (mKVCache && mKVCacheManager != nullptr ? mKVCacheManager->kvLength() : 0) + mCurrentKvLen;
 
