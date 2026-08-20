@@ -23,6 +23,9 @@ description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub
 | **[`runtime-scheduling.md`](./runtime-scheduling.md)** | 怀疑 decode 有 CPU 阻塞 / GPU 空泡；改 resize 时机、commit 节奏、H2D、Encode Replay | per-backend fence、content-cache、队内 H2D 上传、设备端采样（ArgMax/TopKV2）、commit cadence、Encode Replay（安全模型 / attention 与 LinearAttention 接入 / KV 悬垂指针坑）、调度类改动的验证套路 |
 | **[`build-and-test.md`](./build-and-test.md)** | 改完代码要 build / 跑测试 / 对拍 / 查文件索引 | cmake 编译命令、模型导出命令、性能测试命令、CPU/Metal 对拍、性能基线数据、全文件索引 |
 | **[`env-registry.md`](./env-registry.md)** | 查 / 新增 Metal 相关环境变量开关 | env 集中登记：性能路径 / 融合 / profiling 三类；默认值、打开效果、定型状态；命名规范；profile ON 数据不能作为优化目标的警告 |
+| **[`metal-perf-methods/`](./metal-perf-methods/SKILL.md)** | 优化选题 / 方案评审 / 复盘优化方向 | 优化手段方法论，按 kernel 类 / 算子级别 / 调度类三层组织；只讲原理、适用条件与陷阱，不含性能数字 |
+| **[`feature-metal-speed-perf.md`](./feature-metal-speed-perf.md)** | 查 feature/metal-speed 分支每个提交的性能收益 | 分支性能报告：24 提交总表（commit / 方法一句话 / 收益）+ 详情 + 证伪记录 |
+| **[`metal-optimization-principles.md`](./metal-optimization-principles.md)** | 系统读一遍优化原理 | 优化方法原理详述（kernel / 算子 / 调度三层），方法学总纲 |
 
 ## 快速任务→sub-doc 索引
 
@@ -58,6 +61,7 @@ description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub
 
 ## 相关 Skills
 
+- [`metal-perf-methods/`](./metal-perf-methods/SKILL.md) — 优化手段方法论(kernel/算子融合/调度三层,只讲原理不含数字);选题与方案评审先看它
 - `skills/bugfix/` — 内存别名 / 生命周期错误排查（Metal 后端共用同一套方法论）
 - `skills/general-debug/` — 正确性 bug / 回归诊断
 - `skills/opencl-optimize/`、`skills/vulkan-optimize/`、`skills/arm-cpu-optimize/` — 其他后端
