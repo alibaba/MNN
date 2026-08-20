@@ -29,7 +29,7 @@ void QNNConvDepthwise::isWeightQuantSupported(const Tensor *input, const int oc)
         }
         
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon = ConvolutionCommon::load(mOp, this->backend(), false, true);
-        if(quanCommon->asymmetric || dataType == QNN_DATATYPE_FLOAT_16 || dataType == QNN_DATATYPE_FLOAT_32){
+        if (nullptr == quanCommon || quanCommon->asymmetric || dataType == QNN_DATATYPE_FLOAT_16 || dataType == QNN_DATATYPE_FLOAT_32) {
             // not support asymmetric and mBlockSize > 1 results incorrect now
             mWeightQuant = false;
             return;
@@ -194,7 +194,9 @@ ErrorCode QNNConvDepthwise::onEncode(const std::vector<Tensor *> &inputs, const 
     this->createParamTensor("pad_amount", QNN_DATATYPE_UINT_32, {2, 2}, (void *)padAmountData.data());
     this->createParamTensor("dilation", QNN_DATATYPE_UINT_32, {2}, (void *)dilationData.data());
 
-    this->createWeightAndBias(dataType, inputs[0], oc, kernelH, kernelW);
+    if (!this->createWeightAndBias(dataType, inputs[0], oc, kernelH, kernelW)) {
+        return NOT_SUPPORT;
+    }
     // dequant input and quant output
     if(mWeightQuant == false && dataType != QNN_DATATYPE_FLOAT_16 && dataType != QNN_DATATYPE_FLOAT_32){
         return this->onEncodeQuantDequantDepthConv(inputs[0], outputs[0], n, ic, oc);
@@ -261,6 +263,11 @@ void QNNConvDepthwise::createWeightAndBias(Qnn_DataType_t dataType, const Tensor
     if(mWeightQuant){
         Qnn_QuantizeParams_t weightQuantize{};
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon = ConvolutionCommon::load(mOp, this->backend(), false, true);
+        if (nullptr == quanCommon) {
+            MNN_ERROR("QNNConvDepthwise: op '%s' has no quantized weight data\n",
+                      mOp->name() ? mOp->name()->c_str() : "unknown");
+            return;
+        }
 
         // [TODO] Support asymmetric and other quantBits.
         MNN_ASSERT(!quanCommon->asymmetric);
@@ -376,6 +383,11 @@ void QNNConvDepthwise::createWeightAndBias(Qnn_DataType_t dataType, const Tensor
         int weightElementNum = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanWeight;
         ConvolutionCommon::getConvParameters(&quanWeight, mBackend, mOp, &source, &weightElementNum);
+        if (nullptr == source || weightElementNum <= 0) {
+            MNN_ERROR("QNNConvDepthwise: op '%s' has no weight data\n",
+                      mOp->name() ? mOp->name()->c_str() : "unknown");
+            return;
+        }
         // oc ic h w ---> h w ic oc
         weightData.resize(weightElementNum);
         convertWeight(source, (float *) weightData.data(), oc, kernelH, kernelW);
