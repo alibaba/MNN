@@ -650,10 +650,9 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
                 // -3.5%, opposite of M5). M1/M2/M3/iPhone inherit non-tensor.
                 mSdpaNsg = mtbn->isSupportTensorApi() ? 16 : 32;
             }
-            // threadgroup floats: sq[HD] + s_vs[NSG*32] + s_out[NSG*32] + s_sm[NSG*2]
+            // threadgroup floats: s_out[NSG*32] + s_sm[NSG*2]
             // (one q head per threadgroup, GS_LOCAL fixed at 1)
-            const int tgBytesSdpa = (mHeadDim + mSdpaNsg * 32 +
-                                     mSdpaNsg * 32 + mSdpaNsg * 2) * (int)sizeof(float);
+            const int tgBytesSdpa = (mSdpaNsg * 32 + mSdpaNsg * 2) * (int)sizeof(float);
             mSdpaSinglePass = sdpaThresh > 0 && totalKv >= sdpaThresh &&
                               mKVCache && mSeqLen == 1 && !mKvInDisk &&
                               (mCausalLayout || trivialMask) &&
@@ -882,8 +881,7 @@ void AttentionBufExecution::_writeCopyParam(const Tensor* key, const Tensor* val
     auto copyp = (CopyParam*)mParamCopy.contents;
     /*
      Key -> K-Cache :   [mBatch, mKvSeqLen, mKvNumHead, mHeadDim] -> [mKvMaxLen, mBatch, mKvNumHead, mHeadDim]
-     Value -> V-Cache : [mBatch, mKvSeqLen, mKvNumHead, mHeadDim] -> [mBatch, mKvNumHead, mHeadDim, mKvMaxLen (fill
-     when decode)]
+     Value -> V-Cache : [mBatch, mKvSeqLen, mKvNumHead, mHeadDim] -> [mKvMaxLen, mBatch, mKvNumHead, mHeadDim]
      */
     copyp->head_count = mKvNumHead * mHeadDim;
     // current new kv_len
@@ -891,7 +889,7 @@ void AttentionBufExecution::_writeCopyParam(const Tensor* key, const Tensor* val
     copyp->max_kv_len = mKvMaxLen;
     int pastLength = mKVCache ? mKVCacheManager->kvLength() : 0;
     copyp->dst_k_offset = pastLength * copyp->head_count;
-    copyp->dst_v_offset = pastLength;
+    copyp->dst_v_offset = pastLength * copyp->head_count;
     copyp->batch = mBatch;
     copyp->value_c4 =
         TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;

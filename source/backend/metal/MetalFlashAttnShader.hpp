@@ -271,31 +271,31 @@ kernel void prefill_flash_attn(
                     simdgroup_load(mP_top, ss + k_step, KV_TILE);
                     simdgroup_load(mP_bot, ss + 8 * KV_TILE + k_step, KV_TILE);
 
-                    const int V_row_stride = param.max_kv_len;
+                    const int V_row_stride = param.batch * kv_heads * param.head_dim;
                     simdgroup_half8x8 mV;
 #ifdef QUANT_V
-                    // int8 V: dequant per-column (per-kv-token) into small tg scratch.
-                    // 8 rows (d) x 8 cols (kv positions); first 8 lanes each handle one col.
+                    // int8 V: dequant per-row (per-kv-token) into small tg scratch.
+                    // 8 rows (kv positions) x 8 cols (d); first 8 lanes each handle one row.
                     threadgroup half* my_sV = sV + int(sgitg) * 64;
                     const device char* V_char = V
-                        + ((b * kv_heads + kh) * param.head_dim + d_base) * param.max_kv_len
-                        + kv_block + k_step;
+                        + (((kv_block + k_step) * param.batch + b) * kv_heads + kh) * param.head_dim
+                        + d_base;
                     if (int(tiisg) < 8) {
-                        int c = int(tiisg);
-                        int kv_tok = kv_block + k_step + c;
+                        int row = int(tiisg);
+                        int kv_tok = kv_block + k_step + row;
                         float vs = v_scales[kv_tok * 2];
                         float vb = v_scales[kv_tok * 2 + 1];
-                        for (int r = 0; r < 8; r++) {
-                            my_sV[r * 8 + c] = half(float(V_char[r * V_row_stride + c]) * vs + vb);
+                        for (int c = 0; c < 8; c++) {
+                            my_sV[row * 8 + c] = half(float(V_char[row * V_row_stride + c]) * vs + vb);
                         }
                     }
                     threadgroup_barrier(mem_flags::mem_threadgroup);
-                    simdgroup_load(mV, my_sV, 8, ulong2(0, 0), true);
+                    simdgroup_load(mV, my_sV, 8);
 #else
                     const device ftype* V_ptr = V
-                        + ((b * kv_heads + kh) * param.head_dim + d_base) * param.max_kv_len
-                        + kv_block + k_step;
-                    simdgroup_load(mV, V_ptr, V_row_stride, ulong2(0, 0), true);
+                        + (((kv_block + k_step) * param.batch + b) * kv_heads + kh) * param.head_dim
+                        + d_base;
+                    simdgroup_load(mV, V_ptr, V_row_stride);
 #endif
 
                     simdgroup_multiply_accumulate(mO_top, mP_top, mV, mO_top);
@@ -399,14 +399,12 @@ static inline long fanax_mask_offset(constant FaParam& param, int b, int hn, int
 #define FANAX_TD    (HEAD_DIM / 16)      // head_dim frags
 #define FANAX_NEG   (-1.0e30f)
 
-// Both matmuls use transpose_b, which happens to match MNN's cache layouts and
-// keeps every device read contiguous:
-//   QK: D[q][kv] = Q[q][d] * K^T, K supplied as stored [kv][d]
-//   PV: D[q][d]  = P[q][kv] * V^T, V supplied as stored [d][kv] (already
-//       transposed in the cache, so the 4 elements a lane reads are 4
-//       consecutive kv -- with transpose_b=false they would have been 4 d values
-//       strided by max_kv_len instead).
-#define FANAX_DESC matmul2d_descriptor(16, 32, 16, false, true, true, \
+// QK uses transpose_b (K stored [kv][d], supplied as [n=kv][k=d]); PV uses
+// non-transposed B now that the V cache is row-major [kv][d] as well, so both
+// device reads stay contiguous along d (4 consecutive halves per lane).
+#define FANAX_DESC_QK matmul2d_descriptor(16, 32, 16, false, true, true, \
+                                       matmul2d_descriptor::mode::multiply_accumulate)
+#define FANAX_DESC_PV matmul2d_descriptor(16, 32, 16, false, false, true, \
                                        matmul2d_descriptor::mode::multiply_accumulate)
 
 kernel void prefill_flash_attn_nax(
@@ -442,7 +440,8 @@ kernel void prefill_flash_attn_nax(
     const ushort fm  = (qid & 4) | ((tiisg >> 1) & 3);
     const ushort fn  = ((qid & 2) | (tiisg & 1)) * 4;
 
-    matmul2d<FANAX_DESC, metal::execution_simdgroup> mm;
+    matmul2d<FANAX_DESC_QK, metal::execution_simdgroup> mm;
+    matmul2d<FANAX_DESC_PV, metal::execution_simdgroup> mm_pv;
 
     // O accumulator: HEAD_DIM/32 destination tiles of 16x32, 16 floats each.
     float o_acc[FANAX_TD / 2][16];
@@ -463,11 +462,11 @@ kernel void prefill_flash_attn_nax(
     // for the tile index, and every gather reads 4 consecutive halves.
     const int q_row_stride = param.head_num * param.head_dim;
     const int k_row_stride = param.batch * kv_heads * param.head_dim;
-    const int v_row_stride = param.max_kv_len;
+    const int v_row_stride = param.batch * kv_heads * param.head_dim;
     const device ftype* q_lane = Q + ((long)b * seq_q * param.head_num + h) * param.head_dim
                                   + (long)(q_row_base + int(fm)) * q_row_stride + int(fn);
     const device ftype* k_head = K + ((long)b * kv_heads + kh) * param.head_dim + int(fn);
-    const device ftype* v_head = V + ((long)b * kv_heads + kh) * param.head_dim * v_row_stride + int(fn);
+    const device ftype* v_head = V + ((long)b * kv_heads + kh) * param.head_dim + int(fn);
 
     // Tile-level causal bounds: blocks fully above the diagonal never run, and
     // blocks fully below it skip masking entirely.
@@ -567,25 +566,24 @@ kernel void prefill_flash_attn_nax(
             }
         }
 
-        // ---- PV: O[16 q][32 d] += P[16 q][16 kv] * V^T ----
+        // ---- PV: O[16 q][32 d] += P[16 q][16 kv] * V ----
         // P needs no shuffling: the QK destination element carrying (m, kv) is
         // exactly the one the PV left operand wants at (m, k=kv).
         for (int ik = 0; ik < FANAX_TK; ik++) {
     for (int t = 0; t < FANAX_TD / 2; t++) {
-                auto ct_a = mm.get_left_input_cooperative_tensor<float, ftype, float>();
-                auto ct_b = mm.get_right_input_cooperative_tensor<float, ftype, float>();
-                auto ct_c = mm.get_destination_cooperative_tensor<decltype(ct_a), decltype(ct_b), float>();
+                auto ct_a = mm_pv.get_left_input_cooperative_tensor<float, ftype, float>();
+                auto ct_b = mm_pv.get_right_input_cooperative_tensor<float, ftype, float>();
+                auto ct_c = mm_pv.get_destination_cooperative_tensor<decltype(ct_a), decltype(ct_b), float>();
 
                 for (ushort j = 0; j < 8; j++) {
                     ct_a[j] = s_acc[ik * 8 + (j >> 2) * 4 + (j & 3)];
                 }
-                // B stored [n=d][k=kv]: k = kv0 + ik*16 + fn + (j&3) (4
-                // consecutive), n = d = t*32 + fm + g*8 + f*16
-                const device ftype* vp = v_head + kv0 + ik * 16;
+                // B stored [k=kv][n=d]: k = kv0 + ik*16 + fm + g*8,
+                // n = d = t*32 + fn + f*16 + (j&3) (4 consecutive)
             for (ushort f = 0; f < 2; f++) {
             for (ushort g = 0; g < 2; g++) {
-                        const int d = t * 32 + int(fm) + g * 8 + f * 16;
-                        ftype4 vv = *(const device ftype4*)(vp + d * v_row_stride);
+                        const int kv = kv0 + ik * 16 + int(fm) + g * 8;
+                        ftype4 vv = *(const device ftype4*)(v_head + (long)kv * v_row_stride + t * 32 + f * 16);
                 for (ushort j = 0; j < 4; j++) {
                             const ushort i = f * 8 + g * 4 + j;
                             ct_b[i] = vv[j];
@@ -593,7 +591,7 @@ kernel void prefill_flash_attn_nax(
                         }
                     }
                 }
-                mm.run(ct_a, ct_b, ct_c);
+                mm_pv.run(ct_a, ct_b, ct_c);
         for (ushort i = 0; i < 16; i++) {
                     o_acc[t][i] = ct_c[i];
                 }
