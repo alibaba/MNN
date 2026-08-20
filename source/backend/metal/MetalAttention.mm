@@ -611,22 +611,14 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
     }
     mCausalLayout = scalarCausalSentinel && mKVCache;
 
-    // Fused decode attention threshold (auto, device-tiered). Beyond the fused
-    // decode_qk_softmax kernel's threadgroup-memory kv cap (group2: 2048,
-    // group4: 1024, group8: 512) the alternative is the three-stage decode_qk
-    // path; single-pass SDPA beats it across the whole kv>=cap band, so clamp
-    // the auto threshold to the cap. tensor-API devices (M5) cross over higher.
+    // Single-pass SDPA auto threshold. After the move to the MLX sdpa_vector
+    // form, decode_splitkv beats both fallbacks (fused qk_softmax and the
+    // three-stage decode_qk path) across kv ~128..4800 on M4-class and M5
+    // (llm_bench -pg: +3%..+14% vs base), while the fallbacks themselves
+    // regressed with the row-major V cache (per-token strided reads). Run
+    // splitkv from a low threshold; keep the fallbacks only for tiny kv.
     {
-        int sDecodeFusedThresh = mtbn->isSupportTensorApi() ? 3072 : 1536;
-        {
-            int fusedKvCap = 0;
-            if (group_size == 2) fusedKvCap = 2048;
-            else if (group_size > 2 && group_size <= 4) fusedKvCap = 1024;
-            else if (group_size > 4 && group_size <= 8) fusedKvCap = 512;
-            if (fusedKvCap > 0 && fusedKvCap < sDecodeFusedThresh) {
-                sDecodeFusedThresh = fusedKvCap;
-            }
-        }
+        const int sDecodeFusedThresh = 128;
         bool trivialMask = mHasTensorMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
         const int totalKv = (mKVCache && mKVCacheManager != nullptr ? mKVCacheManager->kvLength() : 0) + mCurrentKvLen;
 
@@ -635,7 +627,7 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
         // written by the kernel itself. Default auto-on
         // (MNN_METAL_DECODE_SDPA); =0 disables (fused qk_softmax at kv<=cap /
         // three-stage decode_qk beyond it take over); =N>1 overrides the kv
-        // threshold. Short/mid-kv stays on the fused qk_softmax path.
+        // threshold. Only kv below the threshold stays on the fallback paths.
         mSdpaSinglePass = false;
         const int sdpaEnv = MetalEnv::get().decodeSdpa;
         if (sdpaEnv > 0) {
