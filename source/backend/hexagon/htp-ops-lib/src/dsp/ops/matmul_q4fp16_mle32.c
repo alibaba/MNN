@@ -57,23 +57,6 @@ static inline HVX_Vector post_q4_output_vec_bias(HVX_Vector v, HVX_Vector vScale
   return Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(v, vBias));
 }
 
-static inline HVX_Vector add_fp16_vectors(HVX_Vector a, HVX_Vector b) {
-  return Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(a, b));
-}
-
-static inline HVX_Vector load_asymmetric_offset_correction(const uint8_t *block_scales, const __fp16 *activation_sums,
-                                                           int scale_block_num, int local_oy) {
-  HVX_Vector     correction = Q6_V_vzero();
-  const uint8_t *scale_ptr  = block_scales + (size_t) local_oy * scale_block_num * 256;
-  for (int block = 0; block < scale_block_num; ++block) {
-    const HVX_Vector offset   = vmemu(scale_ptr + (size_t) block * 256 + 128);
-    const uint16_t   sum_bits = ((const uint16_t *) activation_sums)[block];
-    const HVX_Vector sum      = Q6_Vh_vsplat_R(sum_bits);
-    correction                = add_fp16_vectors(correction, Q6_Vhf_vmpy_VhfVhf(offset, sum));
-  }
-  return Q6_Vh_vdeal_Vh(correction);
-}
-
 static inline void store_single_output_tile_mle32(uint8_t* c, __fp16* vtcm_dst, int M, int oy,
                                                   HVX_VectorPred q_low, HVX_Vector vScale,
                                                   HVX_Vector vBias, int has_bias) {
@@ -105,9 +88,7 @@ static inline void store_single_output_tile_mle32(uint8_t* c, __fp16* vtcm_dst, 
 }
 
 static inline void store_output_range_mle32(uint8_t *c, __fp16 *vtcm_output, const uint8_t *vtcm_scales,
-                                            const uint8_t *bias, const uint8_t *block_scales,
-                                            const __fp16 *activation_sums, int scale_block_num, int M, int oy_start,
-                                            int oy_begin, int oy_end) {
+                                            const uint8_t *bias, int M, int oy_start, int oy_begin, int oy_end) {
   HVX_VectorPred q_low = Q6_Q_vsetq_R(64);
   const int num_loops = M / 2;
   const int has_tail = M & 1;
@@ -117,20 +98,13 @@ static inline void store_output_range_mle32(uint8_t *c, __fp16 *vtcm_output, con
       __fp16* vtcm_dst_0 = vtcm_output + (oy - oy_start) * 1024;
       __fp16* vtcm_dst_1 = vtcm_output + (oy + 1 - oy_start) * 1024;
       HVX_Vector vScale_0 = load_q4_output_scale(vtcm_scales, oy_start, oy);
-      HVX_Vector vScale_1 = load_q4_output_scale(vtcm_scales, oy_start, oy + 1);
-      const int  has_offset_correction = block_scales != NULL && activation_sums != NULL;
+      HVX_Vector vScale_1   = load_q4_output_scale(vtcm_scales, oy_start, oy + 1);
       int pack_idx = (oy * 32) / 64;
       uint8_t* dst_ptr = c + (size_t)(pack_idx * M) * 128;
 
-      if (bias || has_offset_correction) {
-        HVX_Vector vBias_0 = bias ? load_q4_output_bias(bias, oy) : Q6_V_vzero();
-        HVX_Vector vBias_1 = bias ? load_q4_output_bias(bias, oy + 1) : Q6_V_vzero();
-        if (has_offset_correction) {
-          vBias_0 = add_fp16_vectors(
-            vBias_0, load_asymmetric_offset_correction(block_scales, activation_sums, scale_block_num, oy - oy_start));
-          vBias_1 = add_fp16_vectors(vBias_1, load_asymmetric_offset_correction(block_scales, activation_sums,
-                                                                                scale_block_num, oy + 1 - oy_start));
-        }
+      if (bias) {
+        HVX_Vector vBias_0 = load_q4_output_bias(bias, oy);
+        HVX_Vector vBias_1 = load_q4_output_bias(bias, oy + 1);
         for (int src_xi = 0; src_xi < num_loops; ++src_xi) {
           HVX_Vector v0 = post_q4_output_vec_bias(vmem(vtcm_dst_0 + 64 * src_xi), vScale_0, vBias_0);
           HVX_Vector v1 = post_q4_output_vec_bias(vmem(vtcm_dst_1 + 64 * src_xi), vScale_1, vBias_1);
@@ -168,12 +142,7 @@ static inline void store_output_range_mle32(uint8_t *c, __fp16 *vtcm_output, con
       __fp16* vtcm_dst = vtcm_output + (oy - oy_start) * 1024;
       HVX_Vector vScale = load_q4_output_scale(vtcm_scales, oy_start, oy);
       HVX_Vector vBias = bias ? load_q4_output_bias(bias, oy) : Q6_V_vzero();
-      const int  has_offset_correction = block_scales != NULL && activation_sums != NULL;
-      if (has_offset_correction) {
-        vBias = add_fp16_vectors(
-          vBias, load_asymmetric_offset_correction(block_scales, activation_sums, scale_block_num, oy - oy_start));
-      }
-      store_single_output_tile_mle32(c, vtcm_dst, M, oy, q_low, vScale, vBias, bias != NULL || has_offset_correction);
+      store_single_output_tile_mle32(c, vtcm_dst, M, oy, q_low, vScale, vBias, bias != NULL);
       ++oy;
     }
   }
@@ -183,10 +152,7 @@ typedef struct {
   uint8_t* c;
   __fp16* vtcm_output;
   const uint8_t* vtcm_scales;
-  const uint8_t* bias;
-  const uint8_t      *block_scales;
-  const __fp16       *activation_sums;
-  int                 scale_block_num;
+  const uint8_t      *bias;
   int M;
   int oy_start;
   int oy_begin;
@@ -197,9 +163,8 @@ typedef struct {
 static void store_output_worker_loop(void* data, int _worker_index) {
   (void)_worker_index;
   store_output_task_state_t* state = (store_output_task_state_t*)data;
-  store_output_range_mle32(state->c, state->vtcm_output, state->vtcm_scales, state->bias, state->block_scales,
-                           state->activation_sums, state->scale_block_num, state->M, state->oy_start, state->oy_begin,
-                           state->oy_end);
+  store_output_range_mle32(state->c, state->vtcm_output, state->vtcm_scales, state->bias, state->M, state->oy_start,
+                           state->oy_begin, state->oy_end);
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
@@ -210,11 +175,9 @@ typedef struct {
   int kp;
   int scale_block_num;
   int                 scale_asymmetric;
-  int                 defer_asymmetric_offset;
   int q4block_variant;
   int                 weight_is_vrmpy;
-  const uint8_t* b_scale;
-  int                 scale_oy_start;
+  const uint8_t      *b_scale;
   const uint8_t* vtcm_weight_int4;
   __fp16* vtcm_weight;
   dma_desc_1d_t* depend;
@@ -241,6 +204,9 @@ static inline void process_q4_weight_chunk(const process_chunk_task_state_t* sta
   if (state->scale_block_num > 1) {
     const int                             scale_block_bytes = state->scale_asymmetric ? 256 : 128;
     const float                          *vrmpyScales       = (const float *) state->b_scale;
+    // Path A carries its scales in the fp32 vrmpy plane, whose entries widen to 32 scale + 32 qbias
+    // when asymmetric; the non-vrmpy plane keeps qbias 128B after its scale inside a 256B entry.
+    const int                             entry_floats      = VRMPY_SCALE_ENTRY_FLOATS(state->scale_asymmetric);
     __attribute__((aligned(128))) uint8_t reordered[512];
     for (int local_oy = 0; local_oy < state->count; ++local_oy) {
         const int oy = state->oy_start + state->start_idx + local_oy;
@@ -249,12 +215,15 @@ static inline void process_q4_weight_chunk(const process_chunk_task_state_t* sta
         for (int k = 0; k < state->kp; ++k) {
             const int scale_idx = (k * state->scale_block_num) / state->kp;
             const uint8_t *block_scale_ptr =
-              state->b_scale +
-              ((size_t) (oy - state->scale_oy_start) * state->scale_block_num + scale_idx) * scale_block_bytes;
-            const HVX_Vector vBlockScale =
-              state->weight_is_vrmpy ?
-                vrmpy_scale_block_dup_hf(vrmpyScales + (size_t) oy * state->scale_block_num * 32, scale_idx) :
-                vmemu(block_scale_ptr);
+              state->b_scale + ((size_t) oy * state->scale_block_num + scale_idx) * scale_block_bytes;
+            const float     *sw_oy       = vrmpyScales + (size_t) oy * state->scale_block_num * entry_floats;
+            const HVX_Vector vBlockScale = state->weight_is_vrmpy ?
+                                             vrmpy_scale_block_dup_hf(sw_oy, scale_idx, entry_floats) :
+                                             vmemu(block_scale_ptr);
+            const HVX_Vector vBlockQBias =
+              !state->scale_asymmetric ? Q6_V_vzero() :
+              state->weight_is_vrmpy   ? vrmpy_qbias_block_dup_hf(sw_oy, scale_idx, entry_floats) :
+                                         vmemu(block_scale_ptr + 128);
             const uint8_t *weightSrc = src;
             if (state->weight_is_vrmpy) {
               vrmpy_tile_to_hmx_int4_512(reordered, src);
@@ -294,10 +263,9 @@ static inline void process_q4_weight_chunk(const process_chunk_task_state_t* sta
             dst_vec[13] = Q6_Vhf_vmpy_VhfVhf(Q6_V_hi_W(vp_lo3), vBlockScale);
             dst_vec[14] = Q6_Vhf_vmpy_VhfVhf(Q6_V_lo_W(vp_hi3), vBlockScale);
             dst_vec[15] = Q6_Vhf_vmpy_VhfVhf(Q6_V_hi_W(vp_hi3), vBlockScale);
-            if (state->scale_asymmetric && !state->defer_asymmetric_offset) {
-              const HVX_Vector vBlockOffset = vmemu(block_scale_ptr + 128);
+            if (state->scale_asymmetric) {
               for (int i = 0; i < 16; ++i) {
-                dst_vec[i] = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(dst_vec[i], vBlockOffset));
+                dst_vec[i] = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(dst_vec[i], vBlockQBias));
               }
             }
             src += 512;
@@ -406,27 +374,6 @@ static inline void hmx_load_q4_mle32_tiles(const __fp16* activation, const __fp1
   }
 }
 
-static inline void reduce_asymmetric_m1_activation_sums(__fp16 *sums, const __fp16 *activation, int kp,
-                                                        int scale_block_num) {
-  const HVX_VectorPred low_half        = Q6_Q_vsetq_R(64);
-  const int            tiles_per_block = kp / scale_block_num;
-  for (int block = 0; block < scale_block_num; ++block) {
-    const __fp16 *block_activation = activation + (size_t) block * tiles_per_block * 1024;
-    HVX_Vector    sum              = Q6_V_vzero();
-    for (int tile = 0; tile < tiles_per_block; ++tile) {
-      HVX_Vector values = Q6_V_vmux_QVV(low_half, vmem(block_activation + (size_t) tile * 1024), Q6_V_vzero());
-      sum               = add_fp16_vectors(sum, values);
-    }
-    sum         = add_fp16_vectors(sum, Q6_V_vror_VR(sum, 64));
-    sum         = add_fp16_vectors(sum, Q6_V_vror_VR(sum, 32));
-    sum         = add_fp16_vectors(sum, Q6_V_vror_VR(sum, 16));
-    sum         = add_fp16_vectors(sum, Q6_V_vror_VR(sum, 8));
-    sum         = add_fp16_vectors(sum, Q6_V_vror_VR(sum, 4));
-    sum         = add_fp16_vectors(sum, Q6_V_vror_VR(sum, 2));
-    sums[block] = ((__fp16 *) &sum)[0];
-  }
-}
-
 typedef struct {
   uint8_t       *c;
   const uint8_t *a;
@@ -454,8 +401,6 @@ typedef struct {
   __fp16        *vtcm_output;
   __fp16        *vtcm_hmx_scales;
   uint8_t       *vtcm_scales;
-  uint8_t       *vtcm_block_scales;
-  __fp16        *vtcm_activation_sums;
 } MatmulParam;
 
 static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
@@ -470,8 +415,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
   int            mp_chunk             = param->mp_chunk;
   int            scale_block_num      = param->scale_block_num;
   int            q4block_variant      = param->q4block_variant;
-  const int      dequant_in_weight    = scale_block_num > 1;
-  const int      stage_block_scales       = param->scale_asymmetric && dequant_in_weight && M == 1;
+  const int      dequant_in_weight        = scale_block_num > 1;
   int            np_chunk             = param->np_chunk;
   int            weight_bytes_per_np  = param->weight_bytes_per_np;
   int            weight_int4_bytes_per_np = param->weight_int4_bytes_per_np;
@@ -481,9 +425,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
   __fp16        *vtcm_activation      = param->vtcm_activation;
   __fp16        *vtcm_output          = param->vtcm_output;
   __fp16        *vtcm_hmx_scales      = param->vtcm_hmx_scales;
-  uint8_t       *vtcm_scales          = param->vtcm_scales;
-  uint8_t       *vtcm_block_scales        = param->vtcm_block_scales;
-  __fp16        *vtcm_activation_sums     = param->vtcm_activation_sums;
+  uint8_t       *vtcm_scales              = param->vtcm_scales;
   (void) mp_chunk;
   (void) weight_bytes_per_np;
   (void) weight_int4_bytes_per_np;
@@ -516,16 +458,10 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     if (NUM_CHUNKS > weight_dma_count) {
       NUM_CHUNKS = weight_dma_count;
     }
-    if (stage_block_scales) {
-      const int pair_aligned_chunks = (weight_dma_count + 1) / 2;
-      if (NUM_CHUNKS > pair_aligned_chunks) {
-        NUM_CHUNKS = pair_aligned_chunks;
-      }
-    }
     if (NUM_CHUNKS < 1) {
       NUM_CHUNKS = 1;
     }
-    int async_store = weight_dma_count > 32 || (stage_block_scales && weight_dma_count * scale_block_num >= 128);
+    int async_store = weight_dma_count > 32;
 
     int chunk_size = (weight_dma_count + NUM_CHUNKS - 1) / NUM_CHUNKS;
     if (chunk_size > 1) {
@@ -535,20 +471,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     int chunk_starts[NUM_CHUNKS];
     int current_start = 0;
     int validChunk = 0;
-    if (stage_block_scales) {
-      const int pair_count  = weight_dma_count / 2;
-      const int base_pairs  = pair_count / NUM_CHUNKS;
-      const int extra_pairs = pair_count % NUM_CHUNKS;
-      for (int i = 0; i < NUM_CHUNKS; ++i) {
-        chunk_starts[i] = current_start;
-        chunk_counts[i] = 2 * (base_pairs + (i < extra_pairs ? 1 : 0));
-        if (i == NUM_CHUNKS - 1 && (weight_dma_count & 1)) {
-          ++chunk_counts[i];
-        }
-        current_start += chunk_counts[i];
-      }
-      validChunk = NUM_CHUNKS;
-    } else {
+    {
       for (int i = 0; i < NUM_CHUNKS; ++i) {
         chunk_starts[i] = current_start;
         int end = current_start + chunk_size;
@@ -565,7 +488,6 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     }
 
     _Alignas(64) dma_desc_1d_t weight_desc[NUM_CHUNKS];
-    _Alignas(64) dma_desc_1d_t block_scale_desc[1];
     _Alignas(64) dma_desc_2d_t scale_desc[1];
 
     #define SET_WEIGHT_DMA(start_idx, count, desc_idx, next_ptr, pre_index) do { \
@@ -660,21 +582,6 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     }
     weight_desc[validChunk - 1].next = act_dma_ptr;
 
-    if (stage_block_scales) {
-      const int scale_block_bytes = 256;
-      memset(&block_scale_desc[0], 0, sizeof(dma_desc_1d_t));
-      block_scale_desc[0].length     = weight_dma_count * scale_block_num * scale_block_bytes;
-      block_scale_desc[0].type       = DMA_DESC_TYPE_1D;
-      block_scale_desc[0].src_bypass = 1;
-      block_scale_desc[0].dst_bypass = 1;
-      block_scale_desc[0].ordered    = 1;
-      block_scale_desc[0].dstate     = DMA_DESC_DSTATE_PENDING;
-      block_scale_desc[0].src        = (uint32_t) (b_scale + (size_t) oy_start * scale_block_num * scale_block_bytes);
-      block_scale_desc[0].dst        = (uint32_t) vtcm_block_scales;
-      dmstart(&block_scale_desc[0]);
-      dma_wait_for_idle();
-    }
-
     dmstart(&weight_desc[0]);
     worker_synctoken_t sync_token[NUM_CHUNKS];
     process_chunk_task_state_t chunk_states[NUM_CHUNKS];
@@ -691,9 +598,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
         chunk_states[i].q4block_variant = q4block_variant;
         chunk_states[i].scale_asymmetric        = param->scale_asymmetric;
         chunk_states[i].weight_is_vrmpy         = param->weight_is_vrmpy;
-        chunk_states[i].defer_asymmetric_offset = stage_block_scales;
-        chunk_states[i].b_scale                 = stage_block_scales ? vtcm_block_scales : b_scale;
-        chunk_states[i].scale_oy_start          = stage_block_scales ? oy_start : 0;
+        chunk_states[i].b_scale                 = b_scale;
         chunk_states[i].vtcm_weight_int4 = vtcm_weight_int4;
         chunk_states[i].vtcm_weight = vtcm_weight;
         chunk_states[i].depend = &weight_desc[i];
@@ -710,10 +615,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     dma_wait_for_idle();
     {
       if (act_treat == 0) {
-        act_treat = 1;
-        if (stage_block_scales) {
-          reduce_asymmetric_m1_activation_sums(vtcm_activation_sums, vtcm_activation, kp, scale_block_num);
-        }
+        act_treat          = 1;
         int act_vecs_per_k = (M + 1) / 2;
         if (act_vecs_per_k > 16) {
           act_vecs_per_k = 16;
@@ -748,10 +650,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
           store_states[i].c = c;
           store_states[i].vtcm_output = vtcm_output;
           store_states[i].vtcm_scales = vtcm_scales;
-          store_states[i].bias = bias;
-          store_states[i].block_scales    = stage_block_scales ? vtcm_block_scales : NULL;
-          store_states[i].activation_sums = stage_block_scales ? vtcm_activation_sums : NULL;
-          store_states[i].scale_block_num = scale_block_num;
+          store_states[i].bias        = bias;
           store_states[i].M = M;
           store_states[i].oy_start = oy_start;
           store_states[i].oy_begin = oy_start + start_idx;
@@ -763,9 +662,8 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
           store_job.dptr = &store_states[i];
           worker_pool_submit(NULL, store_job);
         } else {
-          store_output_range_mle32(c, vtcm_output, vtcm_scales, bias, stage_block_scales ? vtcm_block_scales : NULL,
-                                   stage_block_scales ? vtcm_activation_sums : NULL, scale_block_num, M, oy_start,
-                                   oy_start + start_idx, oy_start + start_idx + count);
+          store_output_range_mle32(c, vtcm_output, vtcm_scales, bias, M, oy_start, oy_start + start_idx,
+                                   oy_start + start_idx + count);
         }
       }
       if (async_store) {
@@ -792,6 +690,12 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t *c, const uint8_t *a, const uint
   const int dequant_in_weight = scale_block_num > 1;
   if (c == NULL || a == NULL || b == NULL || M <= 0 || K <= 0 || N <= 0 || mp_max <= 0 || np_max <= 0) {
     return AEE_EBADPARM;
+  }
+  // Asymmetric qbias is folded into the dequantized weight, which only happens in the block path.
+  // Channel-wise scales are applied at the HMX output stage instead and have no qbias slot, so the
+  // host rejects that combination; fail loudly rather than silently dropping the offset.
+  if (scale_asymmetric && !dequant_in_weight) {
+    return -4;
   }
 
   MatmulParam param = {
@@ -828,13 +732,7 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t *c, const uint8_t *a, const uint
   param.vtcm_activation = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, param.mp_chunk * param.act_bytes_per_mp);
   param.vtcm_output = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, param.mp_chunk * param.np_chunk * OUTPUT_AREA_SIZE);
   param.vtcm_hmx_scales = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, 256);
-  param.vtcm_scales = (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, param.np_chunk * 64 + 64);
-  param.vtcm_block_scales    = NULL;
-  param.vtcm_activation_sums = NULL;
-  if (scale_asymmetric && dequant_in_weight && M == 1) {
-    param.vtcm_block_scales    = (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, (size_t) param.np_chunk * scale_block_num * 256);
-    param.vtcm_activation_sums = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, (size_t) scale_block_num * sizeof(__fp16));
-  }
+  param.vtcm_scales          = (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, param.np_chunk * 64 + 64);
   const uintptr_t vtcm_begin = (uintptr_t) vtcm_manager_get_vtcm_base();
   const size_t    vtcm_size  = (size_t) vtcm_manager_get_vtcm_size();
   const uintptr_t vtcm_end   = vtcm_begin + vtcm_size;

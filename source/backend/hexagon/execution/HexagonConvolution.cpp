@@ -139,8 +139,8 @@ static HexagonTileShape chooseIm2ColTileShape(int totalMp, int totalNp, int KAli
 
 static HexagonTileShape chooseQ4BlockPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp,
                                                       int KAlign, int vtcmSize);
-static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scaleBlockNum, int vtcmSize);
-static int chooseQ4AsymmetricDecodeNp(int totalNp, int KAlign, int scaleBlockNum, int vtcmSize);
+static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scaleBlockNum, bool asymmetric,
+                                int vtcmSize);
 static HexagonTileShape chooseQ4PerOutputPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp,
                                                           int KAlign, int vtcmSize);
 
@@ -160,21 +160,14 @@ static HexagonTileShape chooseDirectTileShape(int totalMp, int totalNp, int KAli
         tile.mp = std::min(totalMp, (maxSum - tile.np) / 2);
     }
     if (q4ScaleMode == Q4ScaleMode::BlockSymmetric || q4ScaleMode == Q4ScaleMode::BlockAsymmetric) {
-        const bool useBlockPrefillTile = q4ScaleMode == Q4ScaleMode::BlockSymmetric
-            ? totalMp > 1
-            : totalMp > UP_DIV(128, 32);
-        if (useBlockPrefillTile) {
+        // Both block modes now share the M=1 kernels, so they share the tiling too: asymmetric only
+        // widens the packed-scale plane, which limitQ4BlockDecodeNp accounts for.
+        if (totalMp > 1) {
             return chooseQ4BlockPrefillTileShape(tile, totalMp, totalNp, KAlign, vtcmSize);
         }
-        if (q4ScaleMode == Q4ScaleMode::BlockSymmetric) {
-            tile.np = limitQ4BlockDecodeNp(tile.np, totalNp, KAlign, scaleBlockNum, vtcmSize);
-        } else if (totalMp == 1) {
-            tile.np = chooseQ4AsymmetricDecodeNp(totalNp, KAlign, scaleBlockNum, vtcmSize);
-        } else if (tile.np > 1 && (tile.np & 1)) {
-            --tile.np;
-        }
-    } else if ((q4ScaleMode == Q4ScaleMode::PerOutput || q4ScaleMode == Q4ScaleMode::BlockAsymmetric) &&
-               tile.np > 1 && (tile.np & 1)) {
+        tile.np = limitQ4BlockDecodeNp(tile.np, totalNp, KAlign, scaleBlockNum,
+                                       q4ScaleMode == Q4ScaleMode::BlockAsymmetric, vtcmSize);
+    } else if (q4ScaleMode == Q4ScaleMode::PerOutput && tile.np > 1 && (tile.np & 1)) {
         --tile.np;
     }
     if (q4ScaleMode == Q4ScaleMode::PerOutput) {
@@ -293,7 +286,8 @@ static HexagonTileShape chooseQ4BlockPrefillTileShape(HexagonTileShape base, int
     return best;
 }
 
-static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scaleBlockNum, int vtcmSize) {
+static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scaleBlockNum, bool asymmetric,
+                                int vtcmSize) {
     const int scaleOutputPasses = UP_DIV(scaleBlockNum, 32);
     const int outputPartitions = scaleOutputPasses > 1 ? scaleOutputPasses : 1;
     const int scalePartitions = scaleOutputPasses > 1 ? 2 : 1;
@@ -301,9 +295,12 @@ static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scal
     const size_t safeVtcmSize = vtcmSize > (int)topReservedBytes ? (size_t)vtcmSize - topReservedBytes : (size_t)vtcmSize;
     const size_t kp = UP_DIV(KAlign, 32);
     const size_t fixedBytes = (size_t)64 * KAlign + kp * 128 + 256;
-    const size_t bytesPerNp = (size_t)64 * KAlign + (size_t)16 * KAlign +
-                              (size_t)outputPartitions * 2048 +
-                              (size_t)scalePartitions * 2048 + 128;
+    const size_t bytesPerNp = (size_t)64 * KAlign + (size_t)16 * KAlign + (size_t)outputPartitions * 2048 +
+                              // Asymmetric packed scale entries carry a qbias next to every scale, so
+                              // that plane is twice as wide on the DSP too. This must stay in lockstep
+                              // with the vtcm_seq_alloc for vtcm_packed_scales in
+                              // matmul_q4block_fp16_mle32.c, which does not bounds check.
+                              (size_t)scalePartitions * 2048 * (asymmetric ? 2 : 1) + 128;
     if (safeVtcmSize <= fixedBytes || bytesPerNp == 0) {
         return currentNp;
     }
@@ -312,26 +309,6 @@ static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scal
         --safeNp;
     }
     return std::min(currentNp, std::min(totalNp, std::max(1, safeNp)));
-}
-
-static int chooseQ4AsymmetricDecodeNp(int totalNp, int KAlign, int scaleBlockNum, int vtcmSize) {
-    const size_t topReservedBytes = 16 * 1024;
-    const size_t safeVtcmSize = vtcmSize > (int)topReservedBytes ? (size_t)vtcmSize - topReservedBytes
-                                                                 : (size_t)vtcmSize;
-    const size_t activationSumBytes =
-        ((size_t)std::max(scaleBlockNum, 1) * sizeof(int16_t) + 127) & ~(size_t)127;
-    const size_t fixedBytes = (size_t)64 * KAlign + 256 + 64 + activationSumBytes;
-    const size_t blockScaleBytes = (size_t)std::max(scaleBlockNum, 1) * 256;
-    const size_t bytesPerNp = (size_t)64 * KAlign + (size_t)16 * KAlign + 2048 + 64 + blockScaleBytes;
-    if (safeVtcmSize <= fixedBytes || bytesPerNp == 0) {
-        return 1;
-    }
-    int safeNp = (int)((safeVtcmSize - fixedBytes) / bytesPerNp);
-    safeNp = std::min(totalNp, std::max(1, safeNp));
-    if (safeNp > 1 && (safeNp & 1)) {
-        --safeNp;
-    }
-    return safeNp;
 }
 
 static bool reorderInt4WeightForHmx(uint8_t* dst, size_t dstBytes, const uint8_t* rawInt4Data, const float* rawAlphaData,
@@ -347,11 +324,14 @@ static bool reorderInt4WeightForHmx(uint8_t* dst, size_t dstBytes, const uint8_t
     const bool dequantInWeight = scaleBlocks > 1;
     const int alphaUnit = scaleAsymmetric ? 2 : 1;
     const int scaleUnit = dequantInWeight ? (scaleAsymmetric ? 128 : 64) : 32;
-    const int packedScaleBlocks = dequantInWeight && !scaleAsymmetric ? UP_DIV(scaleBlocks, 2) : 0;
+    // The packed plane is emitted for asymmetric too, so the M=1 HMX kernel can serve both. Its
+    // entries are the same width as the plain plane's (scaleUnit), i.e. 128 fp16 when asymmetric:
+    // 64 lanes of paired scale followed by 64 lanes of paired qbias.
+    const int packedScaleBlocks = dequantInWeight ? UP_DIV(scaleBlocks, 2) : 0;
     int16_t* dstPackedScale = dequantInWeight ? dstScale + (size_t)ocP * scaleBlocks * scaleUnit : nullptr;
     const size_t weightBytes = (size_t)icP * ocP * 32 * 16;
     const size_t scaleBytes = (size_t)ocP * scaleBlocks * scaleUnit * sizeof(int16_t);
-    const size_t packedScaleBytes = (size_t)ocP * packedScaleBlocks * 64 * sizeof(int16_t);
+    const size_t packedScaleBytes = (size_t)ocP * packedScaleBlocks * scaleUnit * sizeof(int16_t);
     const size_t neededBytes = weightBytes + scaleBytes + packedScaleBytes;
 
     if (neededBytes > dstBytes || (rawAlphaData != nullptr && rawAlphaSize < oc * scaleBlocks * alphaUnit)) {
@@ -456,17 +436,22 @@ static bool reorderInt4WeightForHmx(uint8_t* dst, size_t dstBytes, const uint8_t
             }
             int16_t* dstScaleTile = dstScale + (size_t)y * scaleBlocks * scaleUnit;
             fp32tofp16(scaleTile.data(), dstScaleTile, (size_t)scaleBlocks * scaleUnit);
-            if (scaleAsymmetric) {
-                continue;
-            }
-            int16_t* dstPackedScaleTile = dstPackedScale + (size_t)y * packedScaleBlocks * blockUnit;
+            // Packed plane (M=1 HMX kernel): block k lands in even lanes, block k+1 in odd lanes,
+            // matching how prepare_q4block_m1_scale_rows_cached splits a block pair across the
+            // halves of a 32-bit lane. qbias repeats that pairing in the second half of the entry.
+            // An odd tail leaves its partner at 0, which the activation-sum builder mirrors.
+            int16_t* dstPackedScaleTile = dstPackedScale + (size_t)y * packedScaleBlocks * scaleUnit;
             for (int k = 0; k < scaleBlocks; k += 2) {
-                int16_t* dstInt = dstPackedScaleTile + (size_t)(k / 2) * blockUnit;
-                const int16_t* scale0Ptr = dstScaleTile + (size_t)k * blockUnit;
-                const int16_t* scale1Ptr = k + 1 < scaleBlocks ? dstScaleTile + (size_t)(k + 1) * blockUnit : nullptr;
+                int16_t* dstInt = dstPackedScaleTile + (size_t)(k / 2) * scaleUnit;
+                const int16_t* entry0 = dstScaleTile + (size_t)k * scaleUnit;
+                const int16_t* entry1 = k + 1 < scaleBlocks ? dstScaleTile + (size_t)(k + 1) * scaleUnit : nullptr;
                 for (int yi = 0; yi < 32; ++yi) {
-                    dstInt[2 * yi] = scale0Ptr[2 * yi];
-                    dstInt[2 * yi + 1] = scale1Ptr ? scale1Ptr[2 * yi] : 0;
+                    dstInt[2 * yi] = entry0[2 * yi];
+                    dstInt[2 * yi + 1] = entry1 ? entry1[2 * yi] : 0;
+                    if (scaleAsymmetric) {
+                        dstInt[blockUnit + 2 * yi] = entry0[blockUnit + 2 * yi];
+                        dstInt[blockUnit + 2 * yi + 1] = entry1 ? entry1[blockUnit + 2 * yi] : 0;
+                    }
                 }
             }
         }
@@ -566,15 +551,19 @@ static bool reorderInt8SymWeightForHmx(uint8_t* dst, size_t dstBytes, const int8
 }
 
 static bool reorderInt4WeightForVrmpyGemv(uint8_t* dst, size_t dstBytes, const uint8_t* rawInt4Data,
-                                          const float* rawAlphaData, int ic, int oc, int nblk) {
+                                          const float* rawAlphaData, int ic, int oc, int nblk, bool asymmetric) {
     if ((ic % 32) != 0 || (oc % 32) != 0 || nblk <= 0) {
         return false;
     }
     const int icP = ic / 32;
     const int ocP = oc / 32;
     const int icBytes = UP_DIV(ic, 2);
+    const int alphaUnit = asymmetric ? 2 : 1;
+    // Scale entry per (oc-tile, block) is 32 fp32, followed by 32 fp32 qbias when asymmetric, so the
+    // GEMV's single scale DMA per oc-tile still covers both.
+    const int entryUnit = asymmetric ? 2 : 1;
     const size_t weightBytes = (size_t)icP * ocP * 512;
-    const size_t scaleBytes = (size_t)ocP * nblk * 32 * sizeof(float);
+    const size_t scaleBytes = (size_t)ocP * nblk * 32 * entryUnit * sizeof(float);
     if (weightBytes + scaleBytes > dstBytes) {
         return false;
     }
@@ -602,9 +591,14 @@ static bool reorderInt4WeightForVrmpyGemv(uint8_t* dst, size_t dstBytes, const u
     }
     for (int y = 0; y < ocP; ++y) {
         for (int b = 0; b < nblk; ++b) {
+            float* entry = dstScale + ((size_t)y * nblk + b) * 32 * entryUnit;
             for (int ocIn = 0; ocIn < 32; ++ocIn) {
                 const int o = y * 32 + ocIn;
-                dstScale[((size_t)y * nblk + b) * 32 + ocIn] = rawAlphaData[(size_t)o * nblk + b];
+                const size_t src = ((size_t)o * nblk + b) * alphaUnit;
+                entry[ocIn] = asymmetric ? rawAlphaData[src + 1] : rawAlphaData[src];
+                if (asymmetric) {
+                    entry[32 + ocIn] = rawAlphaData[src];
+                }
             }
         }
     }
@@ -915,16 +909,16 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
                          inputFds,  outputFds,  inputs, outputs);
     } else if (area == 1 && mResource->useGemvI8 && mResource->gemvI8Weight.first != nullptr) {
         auto weight = HexagonBackend::getDevicePtr(mResource->gemvI8Weight);
-        int params[] = {area, icP * 32, ocP * 32, mResource->int4WeightType, mResource->int4LayoutType,
-                        mMp, mNp, mKp, mResource->int4ScaleBlockNum, 0};
+        int params[] = {area, icP * 32, ocP * 32, mResource->int4WeightType,    mResource->int4LayoutType,
+                        mMp,  mNp,      mKp,      mResource->int4ScaleBlockNum, mResource->int4ScaleAsymmetric ? 1 : 0};
         std::vector<std::pair<int, int>> inputFds = {input, weight, bias};
         dst.emplace_back();
         dst.back().build(static_cast<HexagonBackend*>(backend()), DSP_OP_MATMUL_Q4A16_GEMV_I8, params,
                          sizeof(params), inputFds, outputFds, inputs, outputs);
     } else if (mResource->useInt4W4A16) {
         // Kernel don't need treat not aligned ic / oc
-        const bool pathA = mResource->int4ScaleBlockNum > 1 && !mResource->int4ScaleAsymmetric &&
-                           mResource->useGemvI8 && mResource->gemvI8Weight.first != nullptr;
+        const bool pathA =
+            mResource->int4ScaleBlockNum > 1 && mResource->useGemvI8 && mResource->gemvI8Weight.first != nullptr;
         auto weight = pathA ? HexagonBackend::getDevicePtr(mResource->gemvI8Weight)
                             : HexagonBackend::getDevicePtr(mResource->int4Weight);
         int params[] = {area, icP * 32, ocP * 32, mResource->int4WeightType, mResource->int4LayoutType,
@@ -1099,7 +1093,8 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
         const bool dequantInWeight = int4ScaleBlockNum > 1;
         const bool scaleAsymmetric = quanCommon->asymmetric;
         const int scaleUnit = dequantInWeight ? (scaleAsymmetric ? 128 : 64) : 32;
-        const size_t packedScaleSize = dequantInWeight && !scaleAsymmetric ? (size_t)ocP * UP_DIV(int4ScaleBlockNum, 2) * 64 * sizeof(int16_t) : 0;
+        const size_t packedScaleSize =
+            dequantInWeight ? (size_t)ocP * UP_DIV(int4ScaleBlockNum, 2) * scaleUnit * sizeof(int16_t) : 0;
         const size_t int4WeightSize = (size_t)icP * ocP * 32 * 16 +
                                       (size_t)ocP * int4ScaleBlockNum * scaleUnit * sizeof(int16_t) +
                                       packedScaleSize;
@@ -1115,16 +1110,18 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
         res->int4ScaleBlockNum = int4ScaleBlockNum;
         res->int4ScaleAsymmetric = scaleAsymmetric;
         const int hvxArch = static_cast<const HexagonRuntime*>(backend->getRuntime())->info().hvxArch;
-        const bool gemvShapeOk = !scaleAsymmetric && dequantInWeight && (ic % 32 == 0) && (oc % 32 == 0) &&
-                                 (ic % 64 == 0) && ((ic / 32) % int4ScaleBlockNum == 0);
+        const bool gemvShapeOk = dequantInWeight && (ic % 32 == 0) && (oc % 32 == 0) && (ic % 64 == 0) &&
+                                 ((ic / 32) % int4ScaleBlockNum == 0);
         if (hvxArch >= 81 && gemvShapeOk) {
             const size_t gemvWeightBytes = (size_t)icP * ocP * 512;
-            const size_t gemvScaleBytes = (size_t)ocP * int4ScaleBlockNum * 32 * sizeof(float);
+            // Asymmetric entries are 32 fp32 scale + 32 fp32 qbias, so one scale DMA covers both.
+            const size_t gemvScaleBytes =
+                (size_t)ocP * int4ScaleBlockNum * 32 * (scaleAsymmetric ? 2 : 1) * sizeof(float);
             const size_t gemvBytes = gemvWeightBytes + gemvScaleBytes;
             res->gemvI8Weight = bufferAlloc->alloc(gemvBytes);
             if (res->gemvI8Weight.first != nullptr &&
                 reorderInt4WeightForVrmpyGemv(HexagonBackend::getPtr(res->gemvI8Weight), gemvBytes, rawInt4Data,
-                                              rawAlphaData, ic, oc, int4ScaleBlockNum)) {
+                                              rawAlphaData, ic, oc, int4ScaleBlockNum, scaleAsymmetric)) {
                 res->useGemvI8 = true;
                 static_cast<HexagonBackend*>(backend)->markHostInput(res->gemvI8Weight, (int)gemvBytes);
             } else if (res->gemvI8Weight.first != nullptr) {

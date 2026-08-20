@@ -16,21 +16,24 @@ AEEResult htp_ops_matmul_q4a16_fp16(
 
   (void) layout_type;  // currently only layout_type == 1 (permuted) is supported
   (void) weight_type;
-  (void) scale_asymmetric;
 
   int icP = (k + 31) / 32;
   int ocP = (n + 31) / 32;
   const uint8_t *b_scale = weight + icP * ocP * 32 * 16;
 
+  // Forwarded rather than dropped: this op carries channel-wise scales, where the kernels have no
+  // qbias slot and now return -4 instead of silently computing a symmetric result. The host never
+  // routes asymmetric here, so this only turns a latent silent-wrong into a loud failure.
   int mm_ret;
   if (m <= 32) {
-    mm_ret =
-      hmx_matmulq4fp16_mle32(output, activation, weight, b_scale, bias, m, k, n, mp, np, kp, scale_block_num, 0, 0);
+    mm_ret = hmx_matmulq4fp16_mle32(output, activation, weight, b_scale, bias, m, k, n, mp, np, kp, scale_block_num,
+                                    scale_asymmetric, 0);
     if (mm_ret != 0) {
       FARF(ALWAYS, "hmx_matmulq4fp16_mle32 failed: %d", mm_ret);
     }
   } else {
-    mm_ret = hmx_matmulq4fp16(output, activation, weight, b_scale, bias, m, k, n, mp, np, kp, scale_block_num, 0, 0);
+    mm_ret = hmx_matmulq4fp16(output, activation, weight, b_scale, bias, m, k, n, mp, np, kp, scale_block_num,
+                              scale_asymmetric, 0);
     if (mm_ret != 0) {
       FARF(ALWAYS, "hmx_matmulq4fp16 failed: %d", mm_ret);
     }

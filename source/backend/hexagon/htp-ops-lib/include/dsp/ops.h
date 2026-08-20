@@ -28,10 +28,12 @@ int hmx_matmulq4fp16_mle32(uint8_t *c, const uint8_t *a, const uint8_t *b, const
 int hmx_matmulq4blockfp16_mle32(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale,
                                 const uint8_t *bias, int m, int k, int n, int mp, int np, int kp, int scale_block_num,
                                 int scale_asymmetric, int weight_is_vrmpy);
-// Decode GEMV (M=1) integer path: symmetric int8 activation x symmetric int4 weight (vrmpy).
+// Decode GEMV (M=1) integer path: symmetric int8 activation x int4 weight (vrmpy).
 // b = vrmpy-packed int4 weight; b_scale = per-oc-tile fp32 block scales; output fp16 linear.
+// scale_asymmetric: each scale entry carries 32 fp32 qbias after its 32 fp32 scale, and the kernel
+// adds sum_b qbias[oc][b] * (sum of activations in block b).
 int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale,
-                              const uint8_t *bias, int K, int N, int scale_block_num);
+                              const uint8_t *bias, int K, int N, int scale_block_num, int scale_asymmetric);
 // Decode GEMV (M=1) W8A16 integer path: symmetric int8 activation x symmetric int8 block-64 weight (vrmpy).
 // b = int8 weight in the existing HMX tile layout (host reorderInt8SymWeightForHmx);
 // b_scale = separate per-oc-tile fp32 block scales; output fp16 linear.

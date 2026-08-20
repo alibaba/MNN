@@ -810,24 +810,31 @@ bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
     if (mCommandGroupCount >= gCommandGroupCapacity) {
         flushCommand();
     }
-    auto command = flatbuffers::GetRoot<DSPCOMMAND::Command>(HexagonBackend::getPtr(cmdChunk));
     std::vector<HexagonBuffer*> commandWeights;
-    auto collectWeights = [&commandWeights](const flatbuffers::Vector<flatbuffers::Offset<DSPCOMMAND::Tensor>>* tensors) {
-        if (tensors == nullptr) {
-            return;
-        }
-        for (auto tensor : *tensors) {
-            auto buffer = findDspBuffer(tensor->fd());
-            if (buffer == nullptr || !buffer->lazyMap) {
-                continue;
-            }
-            if (std::find(commandWeights.begin(), commandWeights.end(), buffer) == commandWeights.end()) {
-                commandWeights.push_back(buffer);
-            }
-        }
-    };
-    collectWeights(command->inputs());
-    collectWeights(command->outputs());
+    // Only FP16 weights go to the lazy allocator (see HexagonConvolution::create), so for any
+    // quantized model nothing is ever lazily mapped and this scan can never find anything. Skip it
+    // wholesale in that case: it parses the command and calls findDspBuffer per tensor, which takes
+    // a global mutex, and pushCommand runs for every command of every token.
+    if (mLazyWeightAlloc && mLazyWeightAlloc->totalSize() > 0) {
+        auto command = flatbuffers::GetRoot<DSPCOMMAND::Command>(HexagonBackend::getPtr(cmdChunk));
+        auto collectWeights =
+            [&commandWeights](const flatbuffers::Vector<flatbuffers::Offset<DSPCOMMAND::Tensor>>* tensors) {
+                if (tensors == nullptr) {
+                    return;
+                }
+                for (auto tensor : *tensors) {
+                    auto buffer = findDspBuffer(tensor->fd());
+                    if (buffer == nullptr || !buffer->lazyMap) {
+                        continue;
+                    }
+                    if (std::find(commandWeights.begin(), commandWeights.end(), buffer) == commandWeights.end()) {
+                        commandWeights.push_back(buffer);
+                    }
+                }
+            };
+        collectWeights(command->inputs());
+        collectWeights(command->outputs());
+    }
     constexpr size_t kCommandWeightMapLimit = 256 * 1024 * 1024;
     size_t additionalBytes = 0;
     for (auto buffer : commandWeights) {

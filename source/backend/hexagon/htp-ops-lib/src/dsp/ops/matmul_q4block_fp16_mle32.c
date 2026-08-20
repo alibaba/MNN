@@ -72,6 +72,8 @@ typedef struct {
   int oy_end;
   int scale_pair_count;
   int clear_output;
+  int                 asym;
+  const uint32_t     *actsum_words;
   worker_synctoken_t* shared_sync;
 } reduce_q4block_task_state_t;
 
@@ -242,16 +244,80 @@ static inline void prepare_q4block_m1_scale_rows_cached(__fp16* activation, cons
   }
 }
 
-static inline void accumulate_q4block_m1_packed_sum_range(__fp16* reduced_output, __fp16* vtcm_output,
-                                                              __fp16* vtcm_packed_scales, int oy_start,
-                                                              int oy_begin, int oy_end,
-                                                              int scale_pair_count, int clear_output) {
+// actsum_words[p] packs the two block sums a pair covers into one 32-bit word: low half is the
+// even-lane block (2p), high half the odd-lane block (2p+1). Splatting that word reproduces the
+// exact lane pairing the packed scale plane uses, so the asymmetric term slots into the existing
+// accumulate with no layout work: v += qbias_pair * splat(actsum_pair).
+//
+// The sums come from the cached activation row, where each k-tile's 32 values sit in the even 16-bit
+// lanes. Five rotate-and-add steps (4,8,16,32,64 bytes) fold all 32 even lanes into lane 0 -- a tree
+// reduction, so it loses less than a sequential fp16 sum would.
+static void build_q4block_m1_actsum_words(const __fp16 *activation_cache, int kp, int scale_block_num, int scale_begin,
+                                          int scale_count, uint32_t *actsum_words) {
+  const int         k_per_scale = kp / scale_block_num;
+  const HVX_Vector *cache_vec   = (const HVX_Vector *) activation_cache;
+  const int         pair_count  = (scale_count + 1) >> 1;
+  for (int p = 0; p < pair_count; ++p) {
+    uint32_t word = 0;
+    for (int half = 0; half < 2; ++half) {
+      const int local = 2 * p + half;
+      if (local >= scale_count) {
+        break;  // odd tail: the packed scale plane zeroes this half, so leave the sum at 0 too
+      }
+      const int  scale_idx = scale_begin + local;
+      HVX_Vector acc       = Q6_V_vzero();
+      for (int k = scale_idx * k_per_scale; k < (scale_idx + 1) * k_per_scale; ++k) {
+        acc = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(acc, cache_vec[k]));
+      }
+      for (int rot = 4; rot <= 64; rot <<= 1) {
+        acc = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(acc, Q6_V_vror_VR(acc, rot)));
+      }
+      // Extract lane 0 straight into a scalar register. The obvious spelling -- HVX store to a
+      // stack array then a scalar load of it -- is a store-to-load stall against DDR, and it cost
+      // 31% of this kernel's asymmetric decode regression on v79 (tg128 65.3 -> 67.3 when the whole
+      // function was stubbed out). Same trap already paid for once in matmul_q4block_gemv_i8.c.
+      const uint32_t lane01 = (uint32_t) Q6_R_vextract_VR(acc, 0);  // lanes 0,1 as one word
+      word |= (lane01 & 0xFFFFu) << (16 * half);
+    }
+    actsum_words[p] = word;
+  }
+}
+
+static inline void accumulate_q4block_m1_packed_sum_range(__fp16 *reduced_output, __fp16 *vtcm_output,
+                                                          __fp16 *vtcm_packed_scales, int oy_start, int oy_begin,
+                                                          int oy_end, int scale_pair_count, int clear_output, int asym,
+                                                          const uint32_t *actsum_words) {
+  // Asymmetric packed entries are 64 fp16 scale + 64 fp16 qbias, so a row is twice as wide and the
+  // scale for pair p moves from vector index p to 2p.
+  const int  packed_row_hf = asym ? 2048 : 1024;
+  // The block sums do not depend on oy, so splat them once here instead of once per (oy, pair).
+  // A pass covers at most 32 blocks = 16 pairs.
+  HVX_Vector actsum_vec[16];
+  if (asym) {
+    for (int pair_idx = 0; pair_idx < scale_pair_count; ++pair_idx) {
+      actsum_vec[pair_idx] = Q6_V_vsplat_R((int) actsum_words[pair_idx]);
+    }
+  }
   for (int oy = oy_begin; oy < oy_end; ++oy) {
     __fp16* vtcm_dst = vtcm_output + (oy - oy_start) * 1024;
     HVX_Vector* reduced_vec = (HVX_Vector*)(reduced_output + (oy - oy_start) * 64);
     HVX_Vector v = clear_output ? Q6_V_vzero() : reduced_vec[0];
     const HVX_Vector* partial_vec = (const HVX_Vector*)vtcm_dst;
-    const HVX_Vector* scale_vec = (const HVX_Vector*)(vtcm_packed_scales + (oy - oy_begin) * 1024);
+    const HVX_Vector *scale_vec   = (const HVX_Vector *) (vtcm_packed_scales + (oy - oy_begin) * packed_row_hf);
+    if (asym) {
+      // Kept as a plain loop: mirroring the symmetric path's 16-pair unroll here was measured on
+      // v79 and produced no gain (tg128 65.6 vs 67.3, both inside that device's +/-7% decode noise),
+      // so the extra 30 lines were not worth it. The remaining asymmetric cost on v79 is more likely
+      // the doubled packed-scale plane shrinking np_chunk via limitQ4BlockDecodeNp().
+      for (int pair_idx = 0; pair_idx < scale_pair_count; ++pair_idx) {
+        HVX_Vector vScaled = Q6_Vhf_vmpy_VhfVhf(partial_vec[pair_idx], scale_vec[2 * pair_idx]);
+        HVX_Vector vQBias  = Q6_Vhf_vmpy_VhfVhf(scale_vec[2 * pair_idx + 1], actsum_vec[pair_idx]);
+        v                  = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(v, vScaled));
+        v                  = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(v, vQBias));
+      }
+      reduced_vec[0] = v;
+      continue;
+    }
     if (scale_pair_count == 16) {
 #define ACC_Q4BLOCK_PAIR(IDX) do { \
         HVX_Vector vScaled = Q6_Vhf_vmpy_VhfVhf(partial_vec[(IDX)], scale_vec[(IDX)]); \
@@ -334,8 +400,8 @@ static void reduce_q4block_worker_loop(void* data, int _worker_index) {
   (void)_worker_index;
   reduce_q4block_task_state_t* state = (reduce_q4block_task_state_t*)data;
   accumulate_q4block_m1_packed_sum_range(state->reduced_output, state->vtcm_output, state->vtcm_packed_scales,
-                                         state->oy_start, state->oy_begin, state->oy_end,
-                                         state->scale_pair_count, state->clear_output);
+                                         state->oy_start, state->oy_begin, state->oy_end, state->scale_pair_count,
+                                         state->clear_output, state->asym, state->actsum_words);
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
@@ -348,6 +414,7 @@ typedef struct {
   int            K;
   int            N;
   int            scale_block_num;
+  int            scale_asymmetric;
   int            np_chunk;
   int            act_bytes_per_mp;
   __fp16        *vtcm_weight;
@@ -370,6 +437,13 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
   int            N                    = param->N;
   int            scale_block_num      = param->scale_block_num;
   const int      scale_output_passes  = matmul_q4block_scale_output_passes(scale_block_num);
+  // Up to 32 blocks per output pass -> at most 16 pairs of packed block sums.
+  // Double-buffered by pass parity: build_q4block_m1_actsum_words() for pass N runs before the chunk
+  // loop waits on pass N-1's reduce workers, and those workers read this array, so a single buffer is
+  // a data race (observed as non-deterministic greedy output on v79, which has no vrmpy GEMV and so
+  // reaches this kernel for every layer). Pass N-2 is already joined, hence two buffers suffice --
+  // same reasoning as vtcm_packed_scales_pass below.
+  uint32_t       actsum_words[2][16];
   int            np_chunk             = param->np_chunk;
   int            act_bytes_per_mp     = param->act_bytes_per_mp;
   __fp16        *vtcm_weight          = param->vtcm_weight;
@@ -391,9 +465,12 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
   int act_treat = 0;
   int tileCount = (np + np_chunk - 1) / np_chunk;
   const int scale_pair_num_all = (scale_block_num + 1) >> 1;
-  const uint8_t* host_packed_scales_base = b_scale + (size_t)np * scale_block_num * 128;
-  touch_q4block_scale_buffer_once(b_scale, (size_t)np * scale_block_num * 128);
-  touch_q4block_scale_buffer_once(host_packed_scales_base, (size_t)np * scale_pair_num_all * 128);
+  // Asymmetric doubles both scale planes: each entry is 128B scale + 128B qbias.
+  const int      asym                    = param->scale_asymmetric;
+  const int      scale_entry_bytes       = asym ? 256 : 128;
+  const uint8_t *host_packed_scales_base = b_scale + (size_t) np * scale_block_num * scale_entry_bytes;
+  touch_q4block_scale_buffer_once(b_scale, (size_t) np * scale_block_num * scale_entry_bytes);
+  touch_q4block_scale_buffer_once(host_packed_scales_base, (size_t) np * scale_pair_num_all * scale_entry_bytes);
 
   for (int yo = 0; yo < tileCount; ++yo) {
     int oy_start = yo * np_chunk;
@@ -525,8 +602,13 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
         const int scale_pair_count = (scale_count + 1) >> 1;
         prepare_q4block_m1_scale_rows_cached(vtcm_activation, vtcm_activation_cache, kp,
                                              scale_block_num, scale_begin, scale_count);
+        if (asym) {
+          build_q4block_m1_actsum_words(vtcm_activation_cache, kp, scale_block_num, scale_begin, scale_count,
+                                        actsum_words[pass & 1]);
+        }
+        const int packed_row_hf           = asym ? 2048 : 1024;
         __fp16* vtcm_output_pass = vtcm_output + (size_t)pass * np_chunk * 1024;
-        __fp16* vtcm_packed_scales_pass = vtcm_packed_scales + (size_t)(pass & 1) * np_chunk * 1024;
+        __fp16   *vtcm_packed_scales_pass = vtcm_packed_scales + (size_t) (pass & 1) * np_chunk * packed_row_hf;
         const int scale_pair_num = (scale_block_num + 1) >> 1;
         const int scale_pair_begin = scale_begin >> 1;
         _Alignas(64) dma_desc_2d_t scale_desc;
@@ -535,12 +617,13 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
         scale_desc.src_bypass = 1;
         scale_desc.dst_bypass = 1;
         scale_desc.ordered    = 1;
-        scale_desc.src        = (uint32_t)(host_packed_scales_base + ((size_t)oy_start * scale_pair_num + scale_pair_begin) * 128);
+        scale_desc.src = (uint32_t) (host_packed_scales_base +
+                                     ((size_t) oy_start * scale_pair_num + scale_pair_begin) * scale_entry_bytes);
         scale_desc.dst        = (uint32_t)vtcm_packed_scales_pass;
-        scale_desc.roi_width  = scale_pair_count * 128;
+        scale_desc.roi_width  = scale_pair_count * scale_entry_bytes;
         scale_desc.roi_height = weight_dma_count;
-        scale_desc.src_stride = scale_pair_num * 128;
-        scale_desc.dst_stride = 1024 * sizeof(int16_t);
+        scale_desc.src_stride = scale_pair_num * scale_entry_bytes;
+        scale_desc.dst_stride = packed_row_hf * sizeof(int16_t);
         scale_desc.next       = 0;
         dmstart(&scale_desc);
         int scale_dma_pending = 1;
@@ -558,7 +641,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
 
           __fp16* weight_tile = vtcm_weight + start_idx * 1024 * kp;
           __fp16* chunk_output = vtcm_output_pass + start_idx * 1024;
-          __fp16* chunk_scales = vtcm_packed_scales_pass + start_idx * 1024;
+          __fp16 *chunk_scales = vtcm_packed_scales_pass + start_idx * packed_row_hf;
           __fp16* output_tile = chunk_output;
           for (int local_oy = 0; local_oy < count; ++local_oy) {
             hmx_load_q4_mle32_tiles(vtcm_activation + k_begin * 1024,
@@ -580,6 +663,8 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
           reduce_states[i].oy_end = oy_start + start_idx + count;
           reduce_states[i].scale_pair_count = scale_pair_count;
           reduce_states[i].clear_output = pass == 0;
+          reduce_states[i].asym               = asym;
+          reduce_states[i].actsum_words       = actsum_words[pass & 1];
           reduce_states[i].shared_sync = &reduce_sync_token[i];
 
           worker_pool_job_t reduce_job;
@@ -621,17 +706,17 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t *c, const uint8_t *a, const uint
   if (weight_is_vrmpy) {
     return -3;
   }
-  (void)scale_asymmetric;
   const int scale_output_passes = matmul_q4block_scale_output_passes(scale_block_num);
-  MatmulParam param = {
-    .c = c,
-    .a = a,
-    .b = b,
-    .b_scale = b_scale,
-    .bias = bias,
-    .K = K,
-    .N = N,
-    .scale_block_num = scale_block_num,
+  MatmulParam param               = {
+    .c                = c,
+    .a                = a,
+    .b                = b,
+    .b_scale          = b_scale,
+    .bias             = bias,
+    .K                = K,
+    .N                = N,
+    .scale_block_num  = scale_block_num,
+    .scale_asymmetric = scale_asymmetric,
   };
 
   param.np_chunk = np_max;
@@ -652,8 +737,11 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t *c, const uint8_t *a, const uint
                                                 param.np_chunk * OUTPUT_AREA_SIZE * output_partition_count);
   param.vtcm_reduced_output = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, param.np_chunk * 128);
   int scale_partition_count = scale_output_passes > 1 ? 2 : 1;
-  param.vtcm_packed_scales = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, param.np_chunk * OUTPUT_AREA_SIZE *
-                                                       scale_partition_count);
+  // Asymmetric packed entries are 64 fp16 scale + 64 fp16 qbias, so this plane doubles. The host's
+  // limitQ4BlockDecodeNp() carries the same (asymmetric ? 2 : 1) factor when it picks np_chunk --
+  // vtcm_seq_alloc does not bounds check, so the two must be changed together.
+  param.vtcm_packed_scales    = (__fp16 *) vtcm_seq_alloc(
+    &vtcm_ptr, param.np_chunk * OUTPUT_AREA_SIZE * scale_partition_count * (scale_asymmetric ? 2 : 1));
   param.vtcm_hmx_scales = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, 256);
 
   return hmx_matmulq4fp16_mle32_part(&param);
