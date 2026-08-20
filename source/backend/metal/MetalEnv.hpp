@@ -83,10 +83,12 @@ struct MetalEnv {
     int gemvSplitK;
     // MNN_METAL_ENABLE_LMHEAD_SPLITK: K-split experiments for the huge-oc
     // lm_head decode GEMV (oc > 16384, normally the g16 kernel).
-    // 0 (default) = legacy g16; 1 = route lm_head to the SPLIT_K_2 kernel
-    // (A/B baseline); 2 = G16_SPLIT_K, split-K inside the g16 kernel itself
-    // (4 simdgroups/TG, each SG pair splits one dual-row's K half-and-half,
-    // threadgroup-memory combine; requires oc % 16 == 0 && blockSize % 2 == 0).
+    // 2 (default since 2026-08-20) = G16_SPLIT_K, split-K inside the g16
+    // kernel itself (4 simdgroups/TG, each SG pair splits one dual-row's K
+    // half-and-half, threadgroup-memory combine; requires oc % 16 == 0 &&
+    // blockSize % 2 == 0). All-model paired sweep (M5): 0.6B +2.9%, 0.8B
+    // +1.0%, 4B +0.5%, 2B -0.4% (noise) -- no regression, default flipped.
+    // 1 = route lm_head to the SPLIT_K_2 kernel (A/B baseline); 0 = legacy g16.
     int lmheadSplitK;
     // MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1: take the outer-dequant +
     // fp GEMM path instead of the fused Q4/Q8 GEMM that unpacks weights
@@ -170,7 +172,7 @@ struct MetalEnv {
             }
             {
                 const char* v = getenv("MNN_METAL_ENABLE_LMHEAD_SPLITK");
-                int n = (v != nullptr) ? atoi(v) : 0;
+                int n = (v != nullptr) ? atoi(v) : 2; // default G16_SPLIT_K since 2026-08-20
                 e.lmheadSplitK = (n < 0) ? 0 : (n > 2 ? 2 : n);
             }
             e.w4w8OuterDequantGemm   = envIs("MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI", '1');
