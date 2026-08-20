@@ -24,17 +24,18 @@ extern "C" {
 // ===== binary elementwise ops =====
 
 typedef enum {
-  HTP_OPS_BINARY_ADD = 1,
-  HTP_OPS_BINARY_SUB = 2,
-  HTP_OPS_BINARY_MUL = 3,
-  HTP_OPS_BINARY_DIV = 4,
-  HTP_OPS_BINARY_MAX = 5,
-  HTP_OPS_BINARY_MIN = 6,
-  HTP_OPS_BINARY_MUL_SILU = 7,
-  HTP_OPS_BINARY_ADD_RELU = 8,
-  HTP_OPS_BINARY_GREATER = 9,
-  HTP_OPS_BINARY_LESS = 10,
+  HTP_OPS_BINARY_ADD                = 1,
+  HTP_OPS_BINARY_SUB                = 2,
+  HTP_OPS_BINARY_MUL                = 3,
+  HTP_OPS_BINARY_DIV                = 4,
+  HTP_OPS_BINARY_MAX                = 5,
+  HTP_OPS_BINARY_MIN                = 6,
+  HTP_OPS_BINARY_MUL_SILU           = 7,
+  HTP_OPS_BINARY_ADD_RELU           = 8,
+  HTP_OPS_BINARY_GREATER            = 9,
+  HTP_OPS_BINARY_LESS               = 10,
   HTP_OPS_BINARY_SQUARED_DIFFERENCE = 11,
+  HTP_OPS_BINARY_MOD                = 12,
 } HtpOpsBinaryOpType;
 
 #define HTP_OPS_BINARY_DMA_CHUNK_BYTES (16 * 1024)
@@ -144,6 +145,22 @@ static inline _Float16 htp_ops_binary_apply_fp16(_Float16 a, _Float16 b, int opT
       float sig_b = 1.0f / (1.0f + expf(-b_f));
       return (_Float16)(a_f * b_f * sig_b);
     }
+    case HTP_OPS_BINARY_MOD:
+      {
+        // Truncated remainder, i.e. fmodf semantics, matching the CPU backend's BinaryMod. Spelled
+        // out as a - trunc(a/b)*b because fmodf is not in the DSP skel (it fails the undefined-symbol
+        // check and dlopen would return AEE_EFAILED). Deliberately absent from
+        // htp_ops_binary_supports_fp16_vector_tail(), so this scalar path is the only one.
+        const float a_f = (float) a;
+        const float b_f = (float) b;
+        const float q   = a_f / b_f;
+        // b == 0 gives fmodf NaN; return 0 instead, matching the int32 path's guard. The cast below
+        // also needs |q| in int32 range, which only fails for a denormal-scale divisor.
+        if (b_f == 0.0f || !(q > -2147483648.0f && q < 2147483648.0f)) {
+          return (_Float16) 0.0f;
+        }
+        return (_Float16) (a_f - (float) (int32_t) q * b_f);
+      }
     default:
       return a;
   }
@@ -162,16 +179,39 @@ static inline int32_t htp_ops_binary_apply_int32(int32_t a, int32_t b, int opTyp
     case HTP_OPS_BINARY_MUL:
       return a * b;
     case HTP_OPS_BINARY_DIV:
+      // Integer truncation, matching the CPU backend's BinaryRealDiv<int32_t> (C division) and the
+      // rounding_mode='trunc' the exporter emits. Guard b == 0: on the DSP that faults, and the CPU
+      // reference leaves it unspecified, so pick 0 rather than take the core down.
       return b != 0 ? a / b : 0;
     case HTP_OPS_BINARY_SQUARED_DIFFERENCE: {
       int32_t v = a - b;
       return v * v;
     }
+    case HTP_OPS_BINARY_MAX:
+      return a > b ? a : b;
+    case HTP_OPS_BINARY_MIN:
+      return a < b ? a : b;
+    case HTP_OPS_BINARY_MOD:
+      {
+        // Floor-mod, matching the CPU backend's BinaryModInt: the result carries the sign of the
+        // divisor, unlike C's truncating %. Same b == 0 reasoning as DIV.
+        if (b == 0) {
+          return 0;
+        }
+        int32_t r = a % b;
+        if ((r < 0 && b > 0) || (r > 0 && b < 0)) {
+          r += b;
+        }
+        return r;
+      }
     case HTP_OPS_BINARY_GREATER:
       return a > b ? 1 : 0;
     case HTP_OPS_BINARY_LESS:
       return a < b ? 1 : 0;
     default:
+      // MUL_SILU has no integer form. Anything reaching here is a gap, not a no-op: returning `a`
+      // silently produced garbage RoPE position math, so make it loud instead.
+      FARF(ALWAYS, "binary int32: unhandled opType %d", opType);
       return a;
   }
 }
@@ -994,6 +1034,20 @@ static inline bool htp_ops_binary_try_broadcast(uint8_t* dst, const uint8_t* src
       const int off0 = htp_ops_binary_broadcast_offset(i, dims, outDims, in0Strides);
       const int off1 = htp_ops_binary_broadcast_offset(i, dims, outDims, in1Strides);
       out[i] = htp_ops_binary_apply_fp16(src0_fp16[off0], src1_fp16[off1], opType);
+    }
+    return true;
+  }
+
+  // int32 arithmetic under broadcast: without this the function returns false, the caller's
+  // same-size/scalar fast paths all miss, and the output is left unwritten.
+  if (inputBytes == 4 && !inputIsFloat && bytes == 4 && !outputIsFloat) {
+    const int32_t *src0_i32 = (const int32_t *) src0;
+    const int32_t *src1_i32 = (const int32_t *) src1;
+    int32_t       *out      = (int32_t *) dst;
+    for (int i = 0; i < outSize; ++i) {
+      const int off0 = htp_ops_binary_broadcast_offset(i, dims, outDims, in0Strides);
+      const int off1 = htp_ops_binary_broadcast_offset(i, dims, outDims, in1Strides);
+      out[i]         = htp_ops_binary_apply_int32(src0_i32[off0], src1_i32[off1], opType);
     }
     return true;
   }

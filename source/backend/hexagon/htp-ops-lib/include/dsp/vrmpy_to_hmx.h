@@ -48,24 +48,36 @@ static inline void __attribute__((unused)) vrmpy_tile_to_hmx_int4_512(uint8_t *d
 
 // vrmpy fp32 block scales -> HMX fp16 scale, per oc-tile.
 //
-// vrmpy scale layout: sw[(y*nblk + b)*32 + ocIn] = fp32 alpha(o=y*32+ocIn, b),
-// oc order, NOT duplicated. sw_oy_tile points at sw + y*nblk*32 (the oc-tile base).
+// vrmpy scale layout: entry (y, b) starts at sw + (y*nblk + b)*VRMPY_SCALE_ENTRY_FLOATS and holds
+// 32 fp32 alpha(o=y*32+ocIn, b) in oc order, NOT duplicated. When the layer is asymmetric the entry
+// is twice as wide and carries 32 fp32 qbias(o, b) right after the scale, so one DMA covers both.
+// sw_oy_tile points at the oc-tile base (sw + y*nblk*entry_floats).
 // hvx_my_wsf_to_vhf(v1, v0) yields 64 fp16 with out[2i]=f16(v0[i]), out[2i+1]=f16(v1[i]).
+#define VRMPY_SCALE_ENTRY_FLOATS(asym) ((asym) ? 64 : 32)
+#define VRMPY_QBIAS_OFFSET_FLOATS      32
 
 // dup region (hmx_matmulq4fp16 / dequant_q4_tile_scaled vBlockScale):
 // 64 lanes, lane 2*ocIn = lane 2*ocIn+1 = f16(alpha(o, block)).
-static inline HVX_Vector __attribute__((unused)) vrmpy_scale_block_dup_hf(const float *sw_oy_tile, int block) {
-  HVX_Vector sf = *(const HVX_Vector *) (sw_oy_tile + (size_t) block * 32);
+static inline HVX_Vector __attribute__((unused)) vrmpy_scale_block_dup_hf(const float *sw_oy_tile, int block,
+                                                                          int entry_floats) {
+  HVX_Vector sf = *(const HVX_Vector *) (sw_oy_tile + (size_t) block * entry_floats);
+  return hvx_my_wsf_to_vhf(sf, sf);
+}
+
+// Same shape, reading the qbias half of an asymmetric entry. Only valid when entry_floats == 64.
+static inline HVX_Vector __attribute__((unused)) vrmpy_qbias_block_dup_hf(const float *sw_oy_tile, int block,
+                                                                          int entry_floats) {
+  HVX_Vector sf = *(const HVX_Vector *) (sw_oy_tile + (size_t) block * entry_floats + VRMPY_QBIAS_OFFSET_FLOATS);
   return hvx_my_wsf_to_vhf(sf, sf);
 }
 
 // packed region (mle32 accumulate): 64 lanes, lane 2*ocIn = f16(alpha(o,2p)),
 // lane 2*ocIn+1 = f16(alpha(o,2p+1)); odd tail (2p+1 >= nblk) -> 0.
-static inline HVX_Vector __attribute__((unused)) vrmpy_scale_pair_packed_hf(const float *sw_oy_tile, int nblk,
-                                                                            int pair) {
-  HVX_Vector sf0 = *(const HVX_Vector *) (sw_oy_tile + (size_t) (2 * pair) * 32);
+static inline HVX_Vector __attribute__((unused)) vrmpy_scale_pair_packed_hf(const float *sw_oy_tile, int nblk, int pair,
+                                                                            int entry_floats) {
+  HVX_Vector sf0 = *(const HVX_Vector *) (sw_oy_tile + (size_t) (2 * pair) * entry_floats);
   HVX_Vector sf1 =
-    (2 * pair + 1 < nblk) ? *(const HVX_Vector *) (sw_oy_tile + (size_t) (2 * pair + 1) * 32) : Q6_V_vzero();
+    (2 * pair + 1 < nblk) ? *(const HVX_Vector *) (sw_oy_tile + (size_t) (2 * pair + 1) * entry_floats) : Q6_V_vzero();
   return hvx_my_wsf_to_vhf(sf1, sf0);
 }
 

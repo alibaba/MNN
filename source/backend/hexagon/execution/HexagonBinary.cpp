@@ -13,9 +13,10 @@ static constexpr int kBinaryAddReluOpType = 8;
 static constexpr int kBinaryGreaterOpType = 9;
 static constexpr int kBinaryLessOpType = 10;
 static constexpr int kBinarySquaredDifferenceOpType = 11;
+static constexpr int kBinaryModOpType = 12;
 
 static bool _mapBinaryOp(int mnnOpType, int* dspOpType) {
-    // Keep in sync with HtpOpsBinaryOpType in htp-ops-lib/src/dsp/blit_ops.c
+    // Keep in sync with HtpOpsBinaryOpType in htp-ops-lib/src/dsp/eltwise_ops.cc
     switch (mnnOpType) {
         case BinaryOpOperation_ADD:
             *dspOpType = 1;
@@ -47,6 +48,12 @@ static bool _mapBinaryOp(int mnnOpType, int* dspOpType) {
             return true;
         case BinaryOpOperation_SquaredDifference:
             *dspOpType = kBinarySquaredDifferenceOpType;
+            return true;
+        // The fp16-safe RoPE export computes its cos/sin table indices as
+        // (pos + n) mod tableSize. Leaving MOD unmapped split that chain across backends, and
+        // every CPU->DSP->CPU hop costs a command-group boundary (one FastRPC round trip).
+        case BinaryOpOperation_MOD:
+            *dspOpType = kBinaryModOpType;
             return true;
         default:
             return false;

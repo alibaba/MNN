@@ -267,19 +267,25 @@ static inline void process_q4_weight_lut(int oy_start, int start_idx, int count,
   const int weight_fp16_stride = 1024 * kp;
   const uint8_t* src_oy = vtcm_weight_int4 + start_idx * weight_int4_stride;
   __fp16* dst_oy = vtcm_weight + start_idx * weight_fp16_stride;
-  if (weight_is_vrmpy && scale_block_num > 1 && !scale_asymmetric) {
-    const float                          *sw = (const float *) b_scale;
+  // Path A: the DMA'd tiles are in vrmpy layout and b_scale points at fp32 vrmpy block scales
+  // (sw[(oy*nblk+b)*entry_floats+ocIn]). Asymmetric entries are twice as wide, carrying 32 fp32
+  // qbias after their 32 fp32 scale, so the same single scale DMA per oc-tile covers both.
+  if (weight_is_vrmpy && scale_block_num > 1) {
+    const float                          *sw           = (const float *) b_scale;
+    const int                             entry_floats = VRMPY_SCALE_ENTRY_FLOATS(scale_asymmetric);
     __attribute__((aligned(128))) uint8_t tmp[512];
     for (int local_oy = 0; local_oy < count; ++local_oy) {
       const int      oy    = oy_start + start_idx + local_oy;
-      const float   *sw_oy = sw + (size_t) oy * scale_block_num * 32;
+      const float   *sw_oy = sw + (size_t) oy * scale_block_num * entry_floats;
       const uint8_t *src   = src_oy;
       __fp16        *dst   = dst_oy;
       for (int k = 0; k < kp; ++k) {
         const int        scale_idx   = (int) (((size_t) k * scale_block_num) / kp);
-        const HVX_Vector vBlockScale = vrmpy_scale_block_dup_hf(sw_oy, scale_idx);
+        const HVX_Vector vBlockScale = vrmpy_scale_block_dup_hf(sw_oy, scale_idx, entry_floats);
+        const HVX_Vector vBlockQBias =
+          scale_asymmetric ? vrmpy_qbias_block_dup_hf(sw_oy, scale_idx, entry_floats) : Q6_V_vzero();
         vrmpy_tile_to_hmx_int4_512(tmp, src);
-        dequant_q4_tile_scaled(tmp, dst, vlut_cvt, vBlockScale, Q6_V_vzero(), 0);
+        dequant_q4_tile_scaled(tmp, dst, vlut_cvt, vBlockScale, vBlockQBias, scale_asymmetric);
         src += 512;
         dst += 1024;
       }
@@ -914,6 +920,12 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
                      int weight_is_vrmpy) {
   if (scale_block_num <= 0) scale_block_num = 1;
   const int dequant_in_weight = scale_block_num > 1;
+  // Asymmetric qbias is folded into the dequantized weight, which only happens in the block path.
+  // Channel-wise scales are applied at the HMX output stage instead and have no qbias slot, so the
+  // host rejects that combination; fail loudly rather than silently dropping the offset.
+  if (scale_asymmetric && !dequant_in_weight) {
+    return -4;
+  }
   int np_chunk = np_max;
   if (np_chunk == 0) np_chunk = 1;
   int mp_chunk = mp_max;
@@ -1196,9 +1208,15 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
               hmx_load_q4_tiles(vtcm_activation + ox_offset, vtcm_weight + oy_offset * 64, kp);
               hmx_consume_accumulator_fp16(output_tile);
             }
-            store_q4_output_range(c, current_vtcm_output, bias, dequant_in_weight ? NULL : current_vtcm_scales, M, ox,
-                                  oy_start, oy_chunk_start, oy_chunk_end, pack);
           }
+          // One store for the whole oy range, once every weight chunk's HMX tiles are in
+          // VTCM (the output buffer holds np_chunk tiles, so they all coexist). Storing per
+          // weight chunk instead never reaches the paired path in store_q4_output_range,
+          // because a chunk is often a single oy and a lone tile owns only half of a pack-64
+          // 128B c-slot, which degrades to read-modify-write DDR: 60.4ms vs 11.9ms for the
+          // same output on a 1053-token prefill.
+          store_q4_output_range(c, current_vtcm_output, bias, dequant_in_weight ? NULL : current_vtcm_scales, M, ox,
+                                oy_start, oy_start, oy_end, pack);
         }
       }
       act_buf_idx = next_buf_idx;

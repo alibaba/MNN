@@ -48,8 +48,8 @@ extern AEEResult htp_ops_tmac_a16w1_fp16(uint8_t* output, uint8_t* activation,
                                         int32 m, int32 ic, int32 oc, int32 scale_block_num,
                                         int32 scale_asymmetric, int32 output_bytes);
 
-extern AEEResult htp_ops_matmul_q4a16_gemv_i8(uint8_t* output, uint8_t* activation, uint8_t* weight, uint8_t* bias,
-                                              int32 k, int32 n, int32 scale_block_num);
+extern AEEResult htp_ops_matmul_q4a16_gemv_i8(uint8_t *output, uint8_t *activation, uint8_t *weight, uint8_t *bias,
+                                              int32 k, int32 n, int32 scale_block_num, int32 scale_asymmetric);
 
 extern AEEResult htp_ops_pool2d_fp16(uint8_t* output, uint8_t* input,
         int32 batch, int32 ih, int32 iw, int32 oh, int32 ow, int32 c4,
@@ -274,12 +274,12 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
             int k = intParams[1];
             int n = intParams[2];
             int scale_block_num = params && params->size() > 8 ? intParams[8] : 1;
-            ret = htp_ops_matmul_q4a16_gemv_i8(
-                                        mapped_ptrs[inputs->size()], // output (FP16)
-                                        mapped_ptrs[0], // activation (FP16)
-                                        mapped_ptrs[1], // vrmpy int4 weight + fp32 scales
-                                        mapped_ptrs[2], // bias (FP16)
-                                        k, n, scale_block_num);
+            int scale_asymmetric = params && params->size() > 9 ? intParams[9] : 0;
+            ret = htp_ops_matmul_q4a16_gemv_i8(mapped_ptrs[inputs->size()],  // output (FP16)
+                                               mapped_ptrs[0],               // activation (FP16)
+                                               mapped_ptrs[1],  // vrmpy int4 weight + fp32 scales (+ qbias when asym)
+                                               mapped_ptrs[2],  // bias (FP16)
+                                               k, n, scale_block_num, scale_asymmetric);
             break;
         }
         case DSP_OP_MATMUL_W8A16_GEMV_I8:

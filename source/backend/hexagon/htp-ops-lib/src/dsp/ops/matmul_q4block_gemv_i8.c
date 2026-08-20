@@ -24,8 +24,12 @@
 // which is exactly what vrmpy consumes (4 k-values contiguous per 32-bit lane).
 //
 // SCALE LAYOUT CONTRACT:
-// `b_scale` = fp32, per oc-tile contiguous: sw(y, blk, ocIn) at
-//   b_scale[(y*nblk + blk)*32 + ocIn].  nblk = scale_block_num = K/blocksize.
+// `b_scale` = fp32, per oc-tile contiguous, entry stride E = 32 symmetric / 64 asymmetric:
+//   sw(y, blk, ocIn)    at b_scale[(y*nblk + blk)*E + ocIn]
+//   qbias(y, blk, ocIn) at b_scale[(y*nblk + blk)*E + 32 + ocIn]   (asymmetric only)
+// nblk = scale_block_num = K/blocksize. Keeping qbias in the same entry means the one scale DMA per
+// chunk still covers it. Asymmetric dequant is w = q*scale + qbias, so the dot product gains the
+// term sum_b qbias[oc][b] * (sum of block b's activations) -- see build_block_act_splats.
 //
 // OUTPUT: fp16, linear by output channel (for M=1 the NC4HW4 pack-64 layout
 // degenerates to linear), c[oc].
@@ -143,17 +147,83 @@ static void quantize_activation_row(const __fp16 *a, int K, int8_t *qa_out, floa
   }
 }
 
+// Per-scale-block activation sums, pre-splatted across 32 fp32 lanes so every oc-tile can just
+// vmem them (mirrors how a_splat is prepared once and reused).
+//
+// The asymmetric correction is out[oc] += sum_b qbias[oc][b] * (sum of a[k] for k in block b).
+// With a[k] == sa * qa[k] the per-token scale factors out of that term exactly as it does out of
+// the main term, so both share the single final multiply by sa and only the integer sums matter
+// here. M == 1, so this is one value per block, computed once and reused across every oc-tile.
+//
+// Three deliberate choices, all measured. The naive version -- HVX store to a stack array followed
+// immediately by gpb scalar loads of it, once per 128 activations -- cost 1020 ms of the 1537 ms
+// asymmetric decode regression (66% of it), because an HVX store feeding a scalar load of the same
+// address stalls hard, and worse when that address is in DDR rather than VTCM:
+//   1) `scratch` is VTCM, not stack.
+//   2) A vror tree reduction folds each block's gpb lanes onto lane j*gpb, so exactly ONE scalar is
+//      read back per block instead of gpb of them.
+//   3) The splat happens here, once, so compute_oc_tile_i8() does no scalar work at all -- it used
+//      to do a scalar load + splat per (oc-tile, block), and lm_head has 4748 oc-tiles.
+//
+// scratch needs 32 + nblk int32: one vector of staging, plus the generic path's accumulators.
+static void build_block_act_splats(const int8_t *qa, int K, int nblk, int32_t *scratch, HVX_Vector *qasum_splat) {
+  const int        bs     = K / nblk;  // activations per block, a multiple of 32
+  const HVX_Vector v_ones = Q6_Vb_vsplat_R(0x01);
+  // Fast path: a 128-activation chunk holds a whole number of blocks, so block boundaries line up
+  // with the vrmpy groups and the tree reduction lands each block's sum on a known lane.
+  if (bs <= 128 && (128 % bs) == 0) {
+    const int gpb = bs / 4;    // 4-wide vrmpy groups per block (8..32)
+    const int bpc = 128 / bs;  // blocks per chunk
+    int       b   = 0;
+    for (int k = 0; k < K && b < nblk; k += 128) {
+      HVX_Vector g = Q6_Vw_vrmpyacc_VwVbVb(Q6_V_vzero(), vmem(qa + k), v_ones);
+      // After this lane i holds sum(lane i .. i+gpb-1) (rotating), so lane j*gpb is block j's sum.
+      for (int r = 4; r < 4 * gpb; r <<= 1) {
+        g = Q6_Vw_vadd_VwVw(g, Q6_V_vror_VR(g, r));
+      }
+      vmem(scratch) = g;
+      for (int j = 0; j < bpc && b < nblk; ++j, ++b) {
+        const float f  = (float) scratch[j * gpb];
+        qasum_splat[b] = Q6_V_vsplat_R(*(const int32_t *) &f);
+      }
+    }
+    return;
+  }
+  // Generic path (block size does not divide a chunk): fold group sums into per-block accumulators.
+  int32_t *sums = scratch + 32;
+  for (int b = 0; b < nblk; ++b) {
+    sums[b] = 0;
+  }
+  for (int k = 0; k < K; k += 128) {
+    const int remain = K - k;
+    const int n      = remain < 128 ? remain : 128;  // K % 64 == 0, so n is 64 or 128
+    // qa lives in VTCM with a_splat allocated straight after, so the 128B read is in bounds even
+    // when only 64 activations remain; the extra group sums are simply not folded in.
+    vmem(scratch)    = Q6_Vw_vrmpyacc_VwVbVb(Q6_V_vzero(), vmem(qa + k), v_ones);
+    for (int j = 0; j < n / 4; ++j) {
+      sums[(k + 4 * j) / bs] += scratch[j];
+    }
+  }
+  for (int b = 0; b < nblk; ++b) {
+    const float f  = (float) sums[b];
+    qasum_splat[b] = Q6_V_vsplat_R(*(const int32_t *) &f);
+  }
+}
+
 // Compute one output-channel tile (32 oc): out_f[oc] = sum_blk sw*acc, *sa.
 // Weights are int4 (vrmpy-friendly layout): k-tile kt = 512 bytes = 4 loads of
 // 128 int4; each load nibble-expands into two 4-k groups. Activation is
 // pre-splatted per 4-k group into `a_splat` (reused across oc-tiles). Keeping the
 // weight int4 halves the DDR stream (the dominant cost); the on-DSP unpack is a
 // few HVX ops that overlap the DMA.
-static inline HVX_Vector compute_oc_tile_i8(const uint8_t    *wtile,    // 512*kp int4 for this oc-tile
-                                            const HVX_Vector *a_splat,  // K/4 pre-splatted qa words
-                                            const float      *sw,       // nblk*32 fp32
-                                            int kp, int nblk, float sa) {
+static inline HVX_Vector compute_oc_tile_i8(const uint8_t    *wtile,        // 512*kp int4 for this oc-tile
+                                            const HVX_Vector *a_splat,      // K/4 pre-splatted qa words
+                                            const float      *sw,           // nblk*32*(asym?2:1) fp32
+                                            const HVX_Vector *qasum_splat,  // nblk splats, NULL if symmetric
+                                            int kp, int nblk, float sa, int asym) {
   const int  ktpb   = kp / nblk;                                        // k-tiles per scale block (block=64 -> 2)
+  // Asymmetric entries are 32 fp32 scale followed by 32 fp32 qbias.
+  const int  entry  = asym ? 64 : 32;
   HVX_Vector out_qf = Q6_V_vzero();                                     // accumulate sum_blk (sw*acc) in qf32
   for (int b = 0; b < nblk; ++b) {
     HVX_Vector acc = Q6_V_vzero();                                      // 32 int32 lanes (one per oc)
@@ -168,10 +238,16 @@ static inline HVX_Vector compute_oc_tile_i8(const uint8_t    *wtile,    // 512*k
         acc               = Q6_Vw_vrmpyacc_VwVbVb(acc, Q6_V_hi_W(wv), asp[2 * l + 1]);
       }
     }
-    HVX_Vector acc_sf = sf_from_w(acc);              // int32 -> fp32
-    HVX_Vector sw_sf  = vmem(sw + (size_t) b * 32);  // 32 fp32
+    HVX_Vector acc_sf = sf_from_w(acc);                 // int32 -> fp32
+    HVX_Vector sw_sf  = vmem(sw + (size_t) b * entry);  // 32 fp32
     HVX_Vector prod   = Q6_Vqf32_vmpy_VsfVsf(acc_sf, sw_sf);
-    out_qf            = Q6_Vqf32_vadd_Vqf32Vqf32(out_qf, prod);
+    if (asym) {
+      // + qbias[oc][b] * qasum[b]; the shared sa is applied once, below. Both operands are plain
+      // vector loads -- no scalar work here, which matters because this runs per (oc-tile, block).
+      HVX_Vector qb_sf = vmem(sw + (size_t) b * entry + 32);
+      prod             = Q6_Vqf32_vadd_Vqf32Vqf32(prod, Q6_Vqf32_vmpy_VsfVsf(qb_sf, qasum_splat[b]));
+    }
+    out_qf = Q6_Vqf32_vadd_Vqf32Vqf32(out_qf, prod);
   }
   HVX_Vector out_sf = Q6_Vsf_equals_Vqf32(out_qf);
   HVX_Vector v_sa   = Q6_V_vsplat_R(*(const uint32_t *) &sa);
@@ -183,10 +259,12 @@ typedef struct {
   uint8_t            *c;
   const uint8_t      *vtcm_weight;  // whole weight (int4 vrmpy layout), tile oy at oy*512*kp
   const HVX_Vector   *a_splat;      // K/4 pre-splatted qa words
-  const float        *vtcm_sw;      // whole scales, oc-tile oy at oy*nblk*32
+  const float        *vtcm_sw;      // whole scales, oc-tile oy at oy*nblk*(asym?64:32)
+  const HVX_Vector   *qasum_splat;  // nblk pre-splatted block activation sums, NULL when symmetric
   const uint8_t      *bias;
   int                 kp, nblk;
   float               sa;
+  int                 asym;
   int                 oy_start, oy_end;  // this worker's global oc-tile range
   worker_synctoken_t *sync;
 } gemv_i8_task_t;
@@ -199,8 +277,8 @@ static void gemv_i8_worker_loop(void *data, int _worker_index) {
   const size_t    wtile_bytes = (size_t) 512 * s->kp;  // int4 vrmpy tiles
   for (int oy = s->oy_start; oy < s->oy_end; ++oy) {
     const uint8_t *wtile  = s->vtcm_weight + (size_t) oy * wtile_bytes;
-    const float   *sw     = s->vtcm_sw + (size_t) oy * s->nblk * 32;
-    HVX_Vector     out_sf = compute_oc_tile_i8(wtile, s->a_splat, sw, s->kp, s->nblk, s->sa);
+    const float   *sw     = s->vtcm_sw + (size_t) oy * s->nblk * (s->asym ? 64 : 32);
+    HVX_Vector     out_sf = compute_oc_tile_i8(wtile, s->a_splat, sw, s->qasum_splat, s->kp, s->nblk, s->sa, s->asym);
     HVX_Vector     out_hf = sf32_to_hf_low(out_sf);
     if (s->bias) {
       HVX_Vector v_bias = vmemu((const __fp16 *) s->bias + (size_t) oy * 32);
@@ -212,28 +290,35 @@ static void gemv_i8_worker_loop(void *data, int _worker_index) {
 }
 
 int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_wt, const uint8_t *b_scale,
-                              const uint8_t *bias, int K, int N, int scale_block_num) {
+                              const uint8_t *bias, int K, int N, int scale_block_num, int scale_asymmetric) {
   if (scale_block_num <= 0 || (K % 32) != 0 || (N % 32) != 0) {
     return -1;
   }
   const int kp   = K / 32;
   const int np   = N / 32;
   const int nblk = scale_block_num;
+  const int asym = scale_asymmetric ? 1 : 0;
   if ((kp % nblk) != 0 || (K % 64) != 0) {
     return -1;  // supports block sizes multiple of 32 that divide K, K%64==0
   }
 
   const size_t weight_tile_bytes = (size_t) 512 * kp;  // per oc-tile (int4 vrmpy layout)
-  const size_t sw_bytes_per_oc   = (size_t) nblk * 32 * sizeof(float);
+  // Asymmetric carries a qbias next to every scale, so this plane doubles.
+  const size_t sw_bytes_per_oc   = (size_t) nblk * 32 * (asym ? 2 : 1) * sizeof(float);
   const int    n_groups          = K / 4;              // 4-k vrmpy groups
+  // Per-block activation sums (asymmetric only), shared by every worker: nblk pre-splatted vectors
+  // plus one vector of reduction staging (see build_block_act_splats).
+  const size_t qasum_bytes       = asym ? (size_t) nblk * sizeof(HVX_Vector) : 0;
+  const size_t qscratch_bytes    = asym ? (((size_t) (32 + nblk) * sizeof(int32_t) + 127) & ~(size_t) 127) : 0;
 
   // Check if the whole weight fits in VTCM (fast path: single DMA, max overlap).
   const size_t vtcm_total = vtcm_manager_get_vtcm_size();
-  const size_t need = (size_t) K + (size_t) n_groups * sizeof(HVX_Vector) + (size_t) np * sw_bytes_per_oc +
-                      (size_t) np * weight_tile_bytes + 4096;
+  const size_t need       = (size_t) K + (size_t) n_groups * sizeof(HVX_Vector) + qasum_bytes + qscratch_bytes +
+                            (size_t) np * sw_bytes_per_oc + (size_t) np * weight_tile_bytes + 4096;
   if (need > vtcm_total) {
     // Fall through to chunked path: iterate over oc-tile groups.
-    const size_t fixed_bytes = (size_t) K + (size_t) n_groups * sizeof(HVX_Vector) + 4096;
+    const size_t fixed_bytes =
+      (size_t) K + (size_t) n_groups * sizeof(HVX_Vector) + qasum_bytes + qscratch_bytes + 4096;
     const size_t per_np      = weight_tile_bytes + sw_bytes_per_oc;
     if (vtcm_total <= fixed_bytes || per_np == 0) {
       return -1;
@@ -246,10 +331,12 @@ int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_wt,
       np_chunk = np;
     }
 
-    // VTCM layout: qa / a_splat / chunk_sw / chunk_weight
+    // VTCM layout: qa / a_splat / qasum_splat / qscratch / chunk_sw / chunk_weight
     uint8_t    *vtcm        = (uint8_t *) vtcm_manager_get_vtcm_base();
     int8_t     *vtcm_qa     = (int8_t *) vtcm_seq_alloc(&vtcm, (size_t) K * sizeof(int8_t));
     HVX_Vector *vtcm_asplat = (HVX_Vector *) vtcm_seq_alloc(&vtcm, (size_t) n_groups * sizeof(HVX_Vector));
+    HVX_Vector *vtcm_qasum  = asym ? (HVX_Vector *) vtcm_seq_alloc(&vtcm, qasum_bytes) : NULL;
+    int32_t    *vtcm_qscr   = asym ? (int32_t *) vtcm_seq_alloc(&vtcm, qscratch_bytes) : NULL;
     float      *vtcm_sw     = (float *) vtcm_seq_alloc(&vtcm, (size_t) np_chunk * sw_bytes_per_oc);
     uint8_t    *vtcm_weight = (uint8_t *) vtcm_seq_alloc(&vtcm, (size_t) np_chunk * weight_tile_bytes);
 
@@ -285,6 +372,9 @@ int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_wt,
     quantize_activation_row((const __fp16 *) a, K, vtcm_qa, &sa);
     for (int gg = 0; gg < n_groups; ++gg) {
       vtcm_asplat[gg] = Q6_V_vsplat_R(*(const uint32_t *) (vtcm_qa + gg * 4));
+    }
+    if (asym) {
+      build_block_act_splats(vtcm_qa, K, nblk, vtcm_qscr, vtcm_qasum);
     }
 
     // Wait for first chunk DMA, then iterate over all chunks.
@@ -343,10 +433,12 @@ int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_wt,
                                       vtcm_weight,
                                       vtcm_asplat,
                                       vtcm_sw,
+                                      vtcm_qasum,
                                       bias ? bias + (size_t) oy_base * 32 * sizeof(__fp16) : NULL,
                                       kp,
                                       nblk,
                                       sa,
+                                      asym,
                                       s0,
                                       s1,
                                       &sync };
@@ -365,6 +457,8 @@ int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_wt,
   uint8_t    *vtcm        = (uint8_t *) vtcm_manager_get_vtcm_base();
   int8_t     *vtcm_qa     = (int8_t *) vtcm_seq_alloc(&vtcm, (size_t) K * sizeof(int8_t));
   HVX_Vector *vtcm_asplat = (HVX_Vector *) vtcm_seq_alloc(&vtcm, (size_t) n_groups * sizeof(HVX_Vector));
+  HVX_Vector *vtcm_qasum  = asym ? (HVX_Vector *) vtcm_seq_alloc(&vtcm, qasum_bytes) : NULL;
+  int32_t    *vtcm_qscr   = asym ? (int32_t *) vtcm_seq_alloc(&vtcm, qscratch_bytes) : NULL;
   float      *vtcm_sw     = (float *) vtcm_seq_alloc(&vtcm, (size_t) np * sw_bytes_per_oc);
   uint8_t    *vtcm_weight = (uint8_t *) vtcm_seq_alloc(&vtcm, (size_t) np * weight_tile_bytes);
 
@@ -405,6 +499,9 @@ int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_wt,
   for (int gg = 0; gg < n_groups; ++gg) {
     vtcm_asplat[gg] = Q6_V_vsplat_R(*(const uint32_t *) (vtcm_qa + gg * 4));
   }
+  if (asym) {
+    build_block_act_splats(vtcm_qa, K, nblk, vtcm_qscr, vtcm_qasum);
+  }
 
   // 3. wait for the whole weight DMA, then compute (parallel across oc-tiles).
   dma_wait_for_idle();
@@ -423,7 +520,8 @@ int hmx_matmulq4block_gemv_i8(uint8_t *c, const uint8_t *a, const uint8_t *b_wt,
     if (s1 > np) {
       s1 = np;
     }
-    tasks[w] = (gemv_i8_task_t) { c, vtcm_weight, vtcm_asplat, vtcm_sw, bias, kp, nblk, sa, s0, s1, &sync };
+    tasks[w] =
+      (gemv_i8_task_t) { c, vtcm_weight, vtcm_asplat, vtcm_sw, vtcm_qasum, bias, kp, nblk, sa, asym, s0, s1, &sync };
     worker_pool_job_t job;
     job.fptr = gemv_i8_worker_loop;
     job.dptr = &tasks[w];
