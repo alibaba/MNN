@@ -177,7 +177,7 @@ class LlmExporter(torch.nn.Module):
     @torch.no_grad()
     def response(self, query):
         # self.imitate_quant()
-        self.model.decode_buffer = []
+        self.tokenizer.decode_buffer.clear()
         messages = [
             {"role": "user", "content": query}
         ]
