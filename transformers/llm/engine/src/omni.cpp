@@ -948,6 +948,15 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     MNN::Express::Variable::save({patches, position_ids, attention_mask}, "input.mnn");
 #endif
     auto outputs = mVisionModule->onForward(moduleInputs);
+    if (outputs.empty() || outputs[0] == nullptr || outputs[0]->getInfo() == nullptr) {
+        MNN_ERROR("Qwen VL vision module returned no valid image embedding.\n");
+        return {};
+    }
+    if (isQwen3VL && outputs.size() != 2) {
+        MNN_ERROR("Qwen3-VL vision module requires image_embeds and deepstack_feature, but got %zu outputs.\n",
+                  outputs.size());
+        return {};
+    }
     auto imageEmbedding = outputs[0];
     if (outputs.size() == 2) {
         mDeepStackEmbeddings.push_back(outputs[1]);
@@ -2235,8 +2244,12 @@ VARP Omni::gen_position_ids(int seq_len) {
         };
         for (int i = 0; i < seq_len; i++) {
             for (int axis = 0; axis < axes; axis++) {
-                int offset = (hunyuan && axis > 0) ? 0 : mContext->all_seq_len;
-                ptr[i + seq_len * axis] = axisValue(axis, i) + offset;
+                if (hunyuan) {
+                    int offset = axis > 0 ? 0 : mContext->all_seq_len;
+                    ptr[i + seq_len * axis] = axisValue(axis, i) + offset;
+                } else {
+                    ptr[i + seq_len * axis] = axisValue(axis, mContext->all_seq_len + i);
+                }
             }
         }
         if (mTalker) {
@@ -2254,7 +2267,35 @@ VARP Omni::gen_position_ids(int seq_len) {
 
 std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
     MNN::Express::ExecutorScope s(mExecutor);
-    extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
+        auto deepstack = mExtraArgs[0];
+        auto deepstackInfo = deepstack->getInfo();
+        auto hiddenInfo = hiddenState->getInfo();
+        if (deepstackInfo != nullptr && hiddenInfo != nullptr && deepstackInfo->dim.size() == 3) {
+            const int targetLength = hiddenInfo->dim[mSeqLenIndex];
+            const int sourceLength = deepstackInfo->dim[1];
+            const int hiddenSize = deepstackInfo->dim[2];
+            const int sourceOffset = mContext->gen_seq_len > 0 ? sourceLength : mContext->all_seq_len;
+            if (sourceOffset != 0 || sourceLength != targetLength) {
+                auto alignedDeepstack = Express::_Input({deepstackInfo->dim[0], targetLength, hiddenSize}, NCHW);
+                auto dst = alignedDeepstack->writeMap<float>();
+                const auto src = deepstack->readMap<float>();
+                ::memset(dst, 0, alignedDeepstack->getInfo()->size * sizeof(float));
+                const int copyLength = std::max(0, std::min(targetLength, sourceLength - sourceOffset));
+                if (src != nullptr && copyLength > 0) {
+                    for (int i = 0; i < deepstackInfo->dim[0]; ++i) {
+                        ::memcpy(dst + i * targetLength * hiddenSize,
+                                 src + (i * sourceLength + sourceOffset) * hiddenSize,
+                                 copyLength * hiddenSize * sizeof(float));
+                    }
+                }
+                deepstack = alignedDeepstack;
+            }
+        }
+        extraArgs.emplace_back(deepstack);
+    } else {
+        extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    }
     if (mIsEmbedding) {
         std::vector<VARP> inputs{hiddenState, mask, inputPos};
         if (!extraArgs.empty()) {
