@@ -637,13 +637,13 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
             const int sdpaThresh = (sdpaEnv == 1) ? sDecodeFusedThresh : sdpaEnv;
             mSdpaNsg = MetalEnv::get().decodeSdpaNsg;
             if (mSdpaNsg == 0) {
-                // Device-tiered default: M5 (tensor-API) -> nsg16. The original
-                // nsg8 pick only compared 8 vs 32; a later iPad M5 sweep that
-                // included 16 found nsg16 fastest (kv4096 decode +2.14% vs nsg8,
-                // nsg16 > nsg8 at kv512 too). M4-class (non-tensor-API) still
-                // favors nsg32 (M4 Pro paired p2048 +6.0% / p4096 +7.5% vs nsg8
-                // -3.5%, opposite of M5). M1/M2/M3/iPhone inherit non-tensor.
-                mSdpaNsg = mtbn->isSupportTensorApi() ? 16 : 32;
+                // Default: nsg32 on all devices, matching MLX sdpa_vector's
+                // fixed 1024-thread (32 simdgroup) threadgroups. Mac M5
+                // interleaved sweep (p2048, 3-rep): nsg32 179.3 > nsg16 167.9
+                // (+6.8%) > nsg8 166.4; p512: 243.3 > 238.2 (+2.1%). The
+                // earlier "iPad M5 favors nsg16" pick predated the V-row-major
+                // rewrite; a post-rewrite sweep no longer confirms it.
+                mSdpaNsg = 32;
             }
             // threadgroup floats: s_out[NSG*32] + s_sm[NSG*2]
             // (one q head per threadgroup, GS_LOCAL fixed at 1)
