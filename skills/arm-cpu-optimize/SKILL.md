@@ -16,7 +16,7 @@ description: MNN ARM CPU 算子和低 bit kernel 性能优化。重点覆盖正�
 3. **优先复用已有 CoreFunctions**：普通算子先拆解为 `MNNPackedMatMul`、`MNNComputeMatMulForE_1`、`MNNScaleAndAddBias`、`MNNSoftmax`、`MNNNorm`、pack/unpack 等已有高性能函数。只有现有函数无法覆盖热点时才新增 Vec4/intrinsic/asm。
 4. **Executor 只编排，ISA kernel 必须下沉**：`CPUXXX.cpp` 负责参数解析、buffer、线程调度和 fallback，不直接定义 NEON/SSE/AVX intrinsic 或汇编 kernel。SIMD 实现放在 `source/backend/cpu/compute/` 或对应架构目录，并通过已有或扩展后的 `CoreFunctions` 入口分发；扩展签名时同步检查所有架构实现和调用点。
 5. **替换前验证精确语义**：不能只看函数名。确认参数含义、layout、转置、归一化方式、in-place 安全性、尾部行为和量化后处理完全一致。
-6. **数据驱动优化**：每次改动前后记录正确性结果、耗时、有效带宽、GFLOPS/AI。低 bit kernel 要区分 DRAM bound、unpack/issue bound、postprocess bound。
+6. **数据驱动优化**：每次改动前后记录正确性结果、耗时、有效带宽、GFLOPS/AI。低 bit kernel 要区分 DRAM bound、unpack/issue bound、postprocess bound。不要从源码中的 `/` 或 `%` 直接推断存在整数除法瓶颈；除数为编译期常量时，先检查目标 codegen，并在目标设备上给出 A/B 数据。固定大小拷贝使用 `memcpy`，不要依赖 type-punning。
 7. **每条 ISA 路径独立验证**：目标设备上的 I8MM、SDOT、FP16/FP32 后处理、SME2 dispatch 都可能走不同 pack 和 kernel，不能用一条路径代表全部。
 8. **pack mode 和 kernel 指针必须配套**：新增或调整低 bit ISA 支持时，packer、cell stride、`MNNGetGemmUnit`、kernel 注册、mixed/online reorder 选择必须同步更新。
 9. **寄存器生命周期先于 unroll**：加 unroll、hoist 常量、复用临时寄存器前，先写 live range 表。min/max、scale、bias、zero point、accumulator、unpack 常量不能被 postprocess 前的临时逻辑误覆盖。
