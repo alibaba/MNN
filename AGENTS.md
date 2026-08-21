@@ -111,7 +111,6 @@ Public skills are listed below. Environment-dependent skills may exist under `sk
 | OpenCL optimization | `skills/opencl-optimize/SKILL.md` | Optimize op performance on OpenCL |
 | Vulkan optimization | `skills/vulkan-optimize/SKILL.md` | Optimize op performance on Vulkan |
 | Metal optimization | `skills/metal-optimize/SKILL.md` | Optimize op performance on Metal |
-| Metal perf methods | `skills/metal-optimize/metal-perf-methods/SKILL.md` | Metal LLM 优化手段方法论(kernel/算子融合/调度三层),只讲原理不含性能数字;优化选题与方案评审时阅读 |
 | Bugfix / debugging | `skills/general-debug/SKILL.md` | Diagnose correctness bugs / regressions in MNN — organized by bug category. |
 | Run tests / CI | `skills/test-ci/SKILL.md` | Run the regression / CI suite (host or on-device), benchmark LLM on a real iPhone/iPad, or add / select / retune a test stage |
 | Retrospective | `skills/retrospective/SKILL.md` | After non-trivial tasks with reusable lessons |

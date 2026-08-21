@@ -33,16 +33,28 @@ grep -rn "kernel void <my_kernel>" source/backend/metal/*.hpp     # shader 字�
 **当前 conv1x1 低 bit 量化路径**：
 
 ```
-mDequantScaleBias && dequantInShader (area<128 或不支持 simdgroupMatrix)
-  ├─ supportSimdGroupReduce && area <= short_seq=6   (decode-friendly)
-  │    ├─ area > 1 → conv1x1_gemv_g4mN_wquant_sg
-  │    ├─ oc > 16384 && oc_4 % 2 == 0 → conv1x1_gemv_g16_wquant_sg
-  │    └─ else → conv1x1_gemv_g8_wquant_sg
-  └─ supportSimdGroupMatrix && area > short_seq && oc > 8 → conv1x1_gemm_*_wquant_sg
+dequantInShader 基线 = area < 64 || 不支持 simdgroupMatrix，三个覆盖（onResize:848-905）：
+  ① W2/3 && area>1 && sgMatrix → false（W2/3 prefill 走 outer-dequant）
+  ② tensor-API(M5+) && area>1 && Q4/Q8 → false
+  ③ 非 tensor-API && sgMatrix && area>1 && Q4/Q8 && 权重>4M 参数 && area<512 → true
+     （env MNN_METAL_PREFILL_INSHADER_DEQUANT_SGMATRIX=1/0 强制开/关）
 
-mDequantScaleBias && !dequantInShader (area>=128 + simdgroupMatrix)
-  → conv1x1_w_dequant + conv1x1_gemm_32x64_split_k_sg  (outer dequant + fp gemm)
+mDequantScaleBias && dequantInShader
+  ├─ supportSimdGroupReduce && (area <= short_seq=16 || w23NoMatrix)
+  │    ├─ area ∈ [2,16]（或 ≤32 非 heavyMemory，halve 后 piece=2）→ conv1x1_gemv_g4mN_wquant_sg
+  │    ├─ oc > 16384 && oc_4 % 2 == 0 → conv1x1_gemv_g16_wquant_sg   (lm_head；env lmheadSplitK=2 → G16_SPLIT_K)
+  │    ├─ area == 1 → conv1x1_gemv_g4m1_2sg_wquant_sg   (decode 默认；env gemvSplitK → SPLIT_K_2/SPLIT_K_SHUFFLE)
+  │    └─ else → conv1x1_gemv_g8_wquant_sg   (仅 w23NoMatrix 大 area 兜底)
+  └─ supportSimdGroupMatrix && area > short_seq && oc > 8 && ic_4 偶 → conv1x1_gemm_*_wquant_sg
+       (ic_4%8≠0 → 8x16；大 shape → 32x64_wquant_split_k / 32x16 / 16x32；默认 16x16)
+
+mDequantScaleBias && !dequantInShader
+  → conv1x1_w_dequant + fp gemm  (outer dequant + fp gemm)
+     默认 conv1x1_gemm_32x64_split_k_sg；M4+ arch-gen → 64x64_split_k；
+     tensor-API + env FUSED_Q4_STAGE → conv1x1_fused_q4_gemm_stage*
 ```
+
+w23NoMatrix = W2/W3 且设备无 simdgroupMatrix（老设备）：outer-dequant 与 g1z4 fallback 均不可用，g4mN/g8/g16 需覆盖全部 area——g4mN 实例只到 g4m16，超界 area 落 g8。
 
 新加 quant bit 时典型组合是 decode gemv path + prefill outer-dequant path，其他 gemv/gemm 实例 dispatcher 显式 fallback；一次性扩完所有 path 工作量太大。
 
@@ -95,8 +107,8 @@ kernel void linear_attn_gated_norm(...) { ... }
 前缀谓词放最前（`binary_layernorm_c4_rms_sg` = binary 前导 + layernorm + C4 + RMS + simdgroup）。
 
 **已知不一致（照抄前先确认）**：
-- `decode_qk_softmax` 同名 kernel 在 `MetalAttentionShader.hpp:2167/2298/2461` 出现 3 次，靠 `#if` 互斥选择——同名不同体是允许的，但新 kernel 别学。
-- `MetalAttentionShader.hpp:1143` 的 kernel 就叫 `copy`；`AllShader` 里的旧 kernel 叫 `main0`。
+- `decode_qk_softmax` 同名 kernel 在 `MetalAttentionShader.hpp:2153/2284/2447` 出现 3 次，靠 `#if` 互斥选择（`GROUP_SIZE == 2` 内 `QK_QSPLIT`/`else` 两个 + `GROUP_SIZE != 2` 通用版一个）——同名不同体是允许的，但新 kernel 别学。
+- `MetalAttentionShader.hpp:1143` 的 kernel 就叫 `copy`；`MetalArgMax.mm:34` 与 `render/AllRenderShader.cpp`（多处）的 kernel 叫 `main0`。
 - `linear_attn_gated_norm` 用了 `simd_sum` 却没有 `_sg` 后缀。
 - kernel 名与 Execution 类名**不要求**一致。
 
@@ -585,7 +597,7 @@ decode GEMV 是权重带宽 bound，B 个 token 权重只读一次 ⇒ 理想 `c
 - **隐式契约**：`z += 64` 与 `ln_sq_partial[2]` 写死了"恰好 2 个 simdgroup"，依赖 `setupLNFusion` 恒发 64 线程（`mThreads.second = 64`）。shader 注释只防得住读代码的人，防不住改 dispatch 的人——**隐式契约要么消掉（SG 数当宏传入），要么在契约两侧都留可执行检查**。
 - **与 §2.1.6 结论的边界**（重要，否则后人会拿旧结论直接否掉这类改动）：ROW_2 那条"融合 kernel 吃不起 barrier"针对的是**为拆分主体计算而翻倍 simdgroup**的 barrier（占用下降）；本项是在既有 SG 数下用一次 barrier 换前导读量减半，**SG 数与占用均不变**。两者不矛盾，判据是"这个 barrier 是否附带 occupancy 代价"。
 - **实测**：与 QKV_PACKED_GRID、GEMV_MIDDLE_STEP 三项合并 M4 Pro 0.6B tg128 **+2.0%**（340.9→347.7，4/4 轮同向）；**单项收益未独立测量**——合并落地省时间但欠归因债，若后续在其他设备判负，只能三项一起从 git 历史恢复再逐一 bisect。
-- **状态**：三项均**默认恒开、无 env 关闭**（2026-08-17 收敛，见 [`env-registry.md`](./env-registry.md) 已删除表 `MNN_METAL_DISABLE_LN_SPLIT_SG` / `MNN_METAL_DISABLE_QKV_PACKED_GRID` / `MNN_METAL_SPLITK_LEGACY_LANES`）。回退 = `git revert` 那一 commit。
+- **状态**：三项均**默认恒开、无 env 关闭**（2026-08-17 收敛，退役开关 `MNN_METAL_DISABLE_LN_SPLIT_SG` / `MNN_METAL_DISABLE_QKV_PACKED_GRID` / `MNN_METAL_SPLITK_LEGACY_LANES` 详情见 git 历史）。回退 = `git revert` 那一 commit。
 
 ## 2.2 GEMM（prefill）
 
@@ -922,3 +934,99 @@ Raster1 是纯位拷贝；**Raster2/3 是真实 C4 重排且互为逆**——融
    `0 + d*d` 与 `fma(d,d,0)` 恒等，该实验无信息量。
 5. ⚠️ **冷/热**：刚删 `mnn_cachefile.bin` 的第一次跑与后续不同（pipeline cache），
    所有对拍前先预热一次。
+
+## 2.5 Kernel 优化手段方法论（原理 / 适用条件 / 陷阱 / 验证）
+
+> 只讲原理与适用条件，不含性能数字（数字随设备/模型过时，见各详节与
+> `feature-metal-speed-perf.md`）。选题、方案评审、优化不见效时对照排查。
+
+### 2.5.1 GEMV 融合 epilogue（尾段折叠）→ 详见 §2.1.6
+
+- **原理**：decode 主体是带宽瓶颈型 GEMV。把紧随其后的逐元素算子
+  （SwiGLU/bias/激活）折进 GEMV 尾段就地计算，省一次 dispatch 的固定开销，
+  更省中间结果写回再读回的显存往返。
+- **适用**：尾段只依赖本 kernel 已算出的元素；尾段算子逐元素或短邻域。
+- **陷阱**：需要多路结果对齐的尾段（如 SwiGLU 需 gate/up 同 TG）要先解决
+  数据汇聚问题（见 `graph-fusion.md` gate/up 合并）。
+- **验证**：对拍融合前后输出 bit 级一致；确认 dispatch 数真的减少。
+
+### 2.5.2 LN 前序拆分到多 simdgroup → 详见 §2.1.9
+
+- **原理**：多 SG kernel 中若每个 SG 各自加载同一份输入做前处理，读取量按
+  SG 数翻倍；改为按 SG 分工 + threadgroup 内存交换，公共输入只读一次。
+- **适用**：2sg 及以上、前处理输入相同的 GEMV/GEMM kernel。
+- **陷阱**：**部分线程提前退出 + barrier 是 UB**（陷阱 G）——必须全部线程到达
+  barrier 后再分工，不能靠早退省工作。
+- **验证**：输入读取量（profile 字节数）减半；输出对拍。
+
+### 2.5.3 Split-K GEMV 及变体 → 详见 §2.1.5
+
+- **原理**：小 batch GEMV 并行度不足时沿 K 切分给更多 lane/SG。收益本质是
+  **翻倍在途 lane、提高访存并发**，不是省掉 barrier（SPLIT_K_SHUFFLE 免
+  barrier 却不敌 SPLIT_K_2 即证）。
+- **变体**：双 SG + tg 内存归并（SPLIT_K_2）；单 SG 内累加 + simd shuffle
+  收拢（免 tg 内存/barrier，TG 可缩小）。
+- **适用**：K 很大而并行单元不饱和的 GEMV（decode 短上下文）。
+- **陷阱**：K 切分使 weight 读取模式改变，量化块边界要与切分对齐，否则
+  跳块/错块（lane 拆分 bug 曾跳半数 weight 块）；若该 kernel 后紧跟
+  GPU→CPU 同步（lm_head→采样），kernel 加速不兑现为 e2e——**优化前先确认
+  瓶颈段是不是你在优化的那段**。
+- **验证**：conv/wquant 单测全变体通过；e2e 配对 A/B 而非只看 kernel 计时。
+
+### 2.5.4 向量宽 load 与访存合并 → 详见 §2.1.4
+
+- **原理**：带宽瓶颈 kernel 的快慢取决于访存模式能否吃满 DRAM 带宽。
+  lane 持连续若干元素一条向量 load（ftype4/char4），simdgroup 32 lane
+  恰好覆盖整行 → 完全合并 burst；反之逐 token 跨步标量读每 2KB 只碰几字节，
+  load 指令数翻数倍、burst 利用率骤降。
+- **适用**：一切流式读取 KV cache / 权重的 kernel。
+- **要点**：**数据布局决定 kernel 可达的访存形态**。想让某 kernel 跑成合并
+  读，先改布局（如 V cache 行主序翻转）；布局是全局不变量，翻转必须所有
+  读写方原子落地，中间状态不可运行。
+- **验证**：profile 带宽兑现率；同字节数下 load 指令数对比。
+
+### 2.5.5 寄存器驻留 + 单遍流式（sdpa_vector 形态）→ 详见 §2.3.5
+
+- **原理**：decode attention（seq_q=1）最优形态：Q 进寄存器不再碰显存；
+  逐 token 交错流式（`i = sgitg; i < kv; i += NSG`），每 token K 行点积 →
+  simd_sum → 在线 softmax（M/S）→ 立即用同 token V 行更新 O；score 不落
+  任何内存，无第二段 AV dispatch；跨 SG 归并用转置写法让归并读合并。
+- **适用**：decode 单 query 的融合 attention。
+- **陷阱**：**lane↔输出维度映射**。流式循环 lane 持 `d = lane*DPT + dd`，
+  归并写回若沿用旧映射（`d = dd*32 + lane`）会短 KV 正常、长 KV 后乱码。
+  对拍必须覆盖长 KV + prefill 后首个 decode token。
+- **验证**：与禁用路径（env 开关）greedy 逐字节对拍，长 prompt 必测。
+
+### 2.5.6 量化解包向量化与公共加载去重 → 详见陷阱 H、§2.1.2
+
+- **原理**：int4/int8 解包用向量指令一次 4/16 元素；多 SG 共用输入只加载
+  一次经 threadgroup 共享。
+- **陷阱**：把向量积（in4 × FLOAT4x4）重构成标量循环极易写成**转置乘积**
+  且 scale/bias lane 错位——此类重构必须 bit 级对拍，肉眼/greedy 短 prompt
+  都可能漏掉。
+- **验证**：fp32 bit-identical 或量化单测全模式通过。
+
+### 2.5.7 编译期常量与 host 预算
+
+- **原理**：host 可确定的量（split-K 中段步长等）以宏注入编译期，省 kernel
+  内除法/分支。
+- **陷阱**：甄别伪优化——循环边界常量化若寄存器压力不变可能零收益
+  （证伪案例：GEMV BLOCK_SLICES）；先量化收益来源再投入。
+- **验证**：汇编/寄存器占用对比 + 配对 A/B。
+
+### 2.5.8 线程组规模（NSG）校准 → 详见 §2.3.5
+
+- **原理**：单 workgroup kernel 的 simdgroup 数是占用率/调度开销/归并成本
+  的三方折中，无跨设备通用最优。
+- **要点**：按设备档（tensor-API 与否）分别 sweep；候选值全集都要测
+  （只比 8 vs 32 会漏掉 16 这个最优点）；KV/prompt 维度也要扫
+  （最优点会随 KV 长度移动）。
+- **验证**：多轮配对、逐对同向性检查，而非单次均值。
+
+### 2.5.9 递推状态驻留与并行扫描（LinearAttention）→ 详见 §2.4.2 / §2.4.3
+
+- **原理**：递推/scan kernel 把状态从 device 往返改寄存器驻留（每步一次
+  load/write）；chunk 内前缀和用 Hillis-Steele 并行 scan，前代求解摊到
+  全部 simdgroup；窄 head_dim 写专用特化（如 dk==64）避免通用路径分支。
+- **适用**：gated delta rule 等线性注意力的 chunk 递推。
+- **验证**：与参考实现长序列对拍（递推误差会随序列累积）。

@@ -4,8 +4,8 @@
 - 主线:Apple Metal 后端 LLM 推理加速 —— decode GEMV 融合束、split-K 实验、SDPA 校准、
   设备端采样、LinearAttention scan 优化、decode_splitkv 对齐 MLX sdpa_vector + V 布局翻转
 - 常用测试协议:`llm_bench` 配对/交替 A/B(热漂移可制造虚假收益,禁止顺序单向对比),
-  greedy 输出逐字节对拍后再谈性能。方法学详见本目录各 sub-doc 与
-  `metal-perf-methods/`。
+  greedy 输出逐字节对拍后再谈性能。方法学详见本目录各 sub-doc 的方法论章节
+  (`kernel-dev-and-optimize.md` §2.5、`graph-fusion.md` §9、`runtime-scheduling.md` §8)。
 
 ## 提交总表
 

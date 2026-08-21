@@ -1,6 +1,6 @@
 ---
 name: metal-optimize
-description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub-doc：kernel 开发规范与优化知识库（命名/写法/GEMV/GEMM/attention）、算子融合全链路（导出图→converter→Metal 单 dispatch）、运行时调度（fence/content-cache/H2D/replay）、构建测试基线、env 开关注册表。根据当前任务选择性阅读对应 sub-doc。
+description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub-doc：kernel 开发规范与优化知识库（命名/写法/GEMV/GEMM/attention + 手段方法论）、算子融合全链路（导出图→converter→Metal 单 dispatch + 融合方法论）、运行时调度（fence/content-cache/H2D/replay + 调度方法论）、构建测试基线、env 开关注册表。根据当前任务选择性阅读对应 sub-doc。
 ---
 
 # MNN Metal 优化 Skill（索引）
@@ -18,14 +18,12 @@ description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub
 
 | 文件 | 何时阅读 | 内容 |
 |---|---|---|
-| **[`kernel-dev-and-optimize.md`](./kernel-dev-and-optimize.md)** | 写或改任何 Metal kernel **之前**都先读第一部分；做 kernel 层性能优化时读第二部分 | **第一部分 开发规范**：核心原则、dispatcher 结构、shader 组织与 kernel 命名约定、编译期宏与 pipeline 缓存 key 的四处同步、Execution 骨架与注册、6 个通用陷阱、packed weight 设计、修改流程、正确性验证、tensor API cooperative tensor 布局、Apple GPU 杠杆。<br>**第二部分 优化知识库**：优化总纲与 decode 画像、GEMV（deferred dequant / 双 SG / pre-scaling / SPLIT_K / ROW_2 / W2W3 / 短序列缺口）、GEMM（fused Q4 / M64 / in-shader 阈值）、Attention（causal-tri / FA / tensor-API nax / 单 pass SDPA / QSPLIT / GQA / 路由速查）、其他 kernel（RMSNorm 小 batch / LinearAttention scan 演进 / gated norm） |
-| **[`graph-fusion.md`](./graph-fusion.md)** | 要让多个算子合成一次 dispatch；改 `FusedLinear` / `GatedRMSNorm`；排查"融合没命中 / 融合后输出错" | 融合全链路：Python 导出期声明分组 → converter LN 吸收 → geometry 兜底拆分 → Metal `setupFusion` 装配 leader/follower。含内存别名铁律与 STATIC re-home、链式门控依赖、`GatedRMSNorm` 独立链路、已删除的后端图匹配历史、排查清单 |
-| **[`runtime-scheduling.md`](./runtime-scheduling.md)** | 怀疑 decode 有 CPU 阻塞 / GPU 空泡；改 resize 时机、commit 节奏、H2D、Encode Replay | per-backend fence、content-cache、队内 H2D 上传、设备端采样（ArgMax/TopKV2）、commit cadence、Encode Replay（安全模型 / attention 与 LinearAttention 接入 / KV 悬垂指针坑）、调度类改动的验证套路 |
-| **[`build-and-test.md`](./build-and-test.md)** | 改完代码要 build / 跑测试 / 对拍 / 查文件索引 | cmake 编译命令、模型导出命令、性能测试命令、CPU/Metal 对拍、性能基线数据、全文件索引 |
+| **[`kernel-dev-and-optimize.md`](./kernel-dev-and-optimize.md)** | 写或改任何 Metal kernel **之前**都先读第一部分；做 kernel 层性能优化时读第二部分 | **第一部分 开发规范**：核心原则、dispatcher 结构、shader 组织与 kernel 命名约定、编译期宏与 pipeline 缓存 key 的四处同步、Execution 骨架与注册、6 个通用陷阱、packed weight 设计、修改流程、正确性验证、tensor API cooperative tensor 布局、Apple GPU 杠杆。<br>**第二部分 优化知识库**：优化总纲与 decode 画像、GEMV（deferred dequant / 双 SG / pre-scaling / SPLIT_K / ROW_2 / W2W3 / 短序列缺口）、GEMM（fused Q4 / M64 / in-shader 阈值）、Attention（causal-tri / FA / tensor-API nax / 单 pass SDPA / QSPLIT / GQA / 路由速查）、其他 kernel（RMSNorm 小 batch / LinearAttention scan 演进 / gated norm）、§2.5 kernel 手段方法论（原理/适用/陷阱/验证，选题与方案评审用） |
+| **[`graph-fusion.md`](./graph-fusion.md)** | 要让多个算子合成一次 dispatch；改 `FusedLinear` / `GatedRMSNorm`；排查"融合没命中 / 融合后输出错" | 融合全链路：Python 导出期声明分组 → converter LN 吸收 → geometry 兜底拆分 → Metal `setupFusion` 装配 leader/follower。含内存别名铁律与 STATIC re-home、链式门控依赖、`GatedRMSNorm` 独立链路、已删除的后端图匹配历史、排查清单、§9 融合方法论（同构投影合并 / 打包 grid / 正确性门槛） |
+| **[`runtime-scheduling.md`](./runtime-scheduling.md)** | 怀疑 decode 有 CPU 阻塞 / GPU 空泡；改 resize 时机、commit 节奏、H2D、Encode Replay | per-backend fence、content-cache、队内 H2D 上传、设备端采样（ArgMax/TopKV2）、commit cadence、Encode Replay（安全模型 / attention 与 LinearAttention 接入 / KV 悬垂指针坑）、调度类改动的验证套路、§8 调度方法论（同步点治理 / 自动阈值 / 开关收敛纪律） |
+| **[`build-and-test.md`](./build-and-test.md)** | 改完代码要 build / 跑测试 / 对拍 | cmake 编译命令、模型导出命令、性能测试命令、CPU/Metal 对拍 |
 | **[`env-registry.md`](./env-registry.md)** | 查 / 新增 Metal 相关环境变量开关 | env 集中登记：性能路径 / 融合 / profiling 三类；默认值、打开效果、定型状态；命名规范；profile ON 数据不能作为优化目标的警告 |
-| **[`metal-perf-methods/`](./metal-perf-methods/SKILL.md)** | 优化选题 / 方案评审 / 复盘优化方向 | 优化手段方法论，按 kernel 类 / 算子级别 / 调度类三层组织；只讲原理、适用条件与陷阱，不含性能数字 |
 | **[`feature-metal-speed-perf.md`](./feature-metal-speed-perf.md)** | 查 feature/metal-speed 分支每个提交的性能收益 | 分支性能报告：24 提交总表（commit / 方法一句话 / 收益）+ 详情 + 证伪记录 |
-| **[`metal-optimization-principles.md`](./metal-optimization-principles.md)** | 系统读一遍优化原理 | 优化方法原理详述（kernel / 算子 / 调度三层），方法学总纲 |
 
 ## 快速任务→sub-doc 索引
 
@@ -37,6 +35,7 @@ description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub
 | 想知道 Metal 的坑（宏 alias / weight byte order / getDequantScale coef）| `kernel-dev-and-optimize.md` §1.6 |
 | Apple GPU 优化杠杆选择（sg_matrix / sg_reduce / tensor API）| `kernel-dev-and-optimize.md` §1.11 / §1.10 |
 | **决定要不要投入某个优化方向（先看这条）** | `kernel-dev-and-optimize.md` §2.0——先自测 GPU busy vs wall；若已 GPU-bound 且 occupancy 受限，<5us 级 GPU 节省不兑现为 wall |
+| 优化选题 / 方案评审 / 复盘优化方向 | 方法论三节：`kernel-dev-and-optimize.md` §2.5、`graph-fusion.md` §9、`runtime-scheduling.md` §8（只讲原理/适用/陷阱/验证，不含数字）|
 | GEMV 优化（decode 主战场）| `kernel-dev-and-optimize.md` §2.1 |
 | GEMM / prefill 优化 | `kernel-dev-and-optimize.md` §2.2 |
 | Attention 优化 / 想知道当前走哪条路径 | `kernel-dev-and-optimize.md` §2.3（§2.3.8 是路由速查）|
@@ -46,8 +45,19 @@ description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub
 | 融合后输出逐次不同 | `graph-fusion.md` §4.3 内存别名 |
 | decode 每 token 的 CPU 阻塞 / 同步开销 | `runtime-scheduling.md` |
 | Encode Replay 相关（新 op 要不要接入 / 为什么被 ban）| `runtime-scheduling.md` §6 |
-| cmake 编译选项 / 模型导出命令 / 找哪个文件负责什么 | `build-and-test.md` |
+| cmake 编译选项 / 模型导出命令 | `build-and-test.md` |
 | 查某个 env 开关的默认值和语义 | `env-registry.md` |
+
+### 选题决策路径
+
+```
+瓶颈在哪？
+├─ 每 token 固定开销大（dispatch 多 / CPU 段长） → 融合方法论 graph-fusion.md §9 / 调度方法论 runtime-scheduling.md §8
+├─ 权重带宽未吃满（decode GEMV）               → kernel 方法论 §2.5.3/§2.5.4
+├─ attention 随 KV 变慢                        → kernel 方法论 §2.5.4/§2.5.5/§2.5.8
+├─ GPU→CPU 同步密集                            → runtime-scheduling.md §8.2/§8.1
+└─ 不确定                                      → 先 profile（§2.0 GPU busy vs wall）
+```
 
 ## 通用原则速览（细节见 `kernel-dev-and-optimize.md`）
 
@@ -55,13 +65,15 @@ description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub
 2. **变体用 `preprocessorMacros`**，不用 function constants。加宏必须同步改四处：shader `#ifdef`、pipeline 缓存 key、宏字典、`onResize` 的 grid/threadgroup。
 3. **dispatcher 要先摸清**：一个 op 常有多条 kernel，扩之前先决定支持哪几条 + 让其他路径显式 fallback。
 4. **Apple GPU ≠ Android**：M3/M4/M5 之间都不能互推，更不能推 Vulkan/OpenCL。设备分档看 `architecture.name` / `isSupportTensorApi()`。
-5. **正确性 oracle 先于性能**：fp32（`precision: high`）bit-identical 是最强证据；fp16 greedy 对拍是次强。**token 级一致不等于 bit 级一致**。
+5. **正确性 oracle 先于性能**：fp32（`precision: high`）bit-identical 是最强证据；fp16 greedy 对拍是次强。**token 级一致不等于 bit 级一致**。错误 kernel 一样能"变快"，对拍通过之前测出的收益都不可信。
 6. **融合必查内存别名**：把前驱折进后继时，前驱的输入可能已被分配器复用为后继的输出。
 7. **A/B 必须交替配对**：热态漂移能造出 3 倍虚假收益；profile build 的绝对数字是伪影。
+8. **先定位瓶颈段再动手**：GPU busy vs wall、kernel 计时 vs e2e、带宽兑现率是三种不同口径；优化必须对准真正的那一段，否则 kernel 变快 e2e 不动。
+9. **布局是全局不变量**：数据布局改动牵动所有读写方，必须原子落地，中间状态不可运行。
+10. **证伪也是成果**：中性/负收益实验连方法一起归档（见 `feature-metal-speed-perf.md` 证伪记录），防止重复投入。
 
 ## 相关 Skills
 
-- [`metal-perf-methods/`](./metal-perf-methods/SKILL.md) — 优化手段方法论(kernel/算子融合/调度三层,只讲原理不含数字);选题与方案评审先看它
 - `skills/bugfix/` — 内存别名 / 生命周期错误排查（Metal 后端共用同一套方法论）
 - `skills/general-debug/` — 正确性 bug / 回归诊断
 - `skills/opencl-optimize/`、`skills/vulkan-optimize/`、`skills/arm-cpu-optimize/` — 其他后端

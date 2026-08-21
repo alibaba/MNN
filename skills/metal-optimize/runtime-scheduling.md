@@ -235,3 +235,58 @@ decode attention 的 encode 是最复杂的（路径决策 + shader key 选择 +
 5. **不要用 profile build 的绝对数字**：counter sample buffer attachment 让 CPU op encode
    从 ~0.92us 涨到 4-20us（20×），制造出的 GPU idle 是**测量伪影**。
    profile build 只用来看**相对占比**。
+
+## 8. 调度优化方法论（原理 / 适用条件 / 陷阱 / 验证）
+
+> 只讲方法论，不含性能数字（数字见 `feature-metal-speed-perf.md`）。
+> 机制细节见上文各节。
+
+### 8.1 每 token 必经路径去框架化（采样）→ 机制详见 §4
+
+- **原理**：每 token 必经的小操作（greedy ArgMax、top-k 预处理）若走通用
+  expr/解释执行框架，可能实际落在 CPU executor 上，成为每 token 数百微秒
+  的隐性开销。改用原生 SIMD 循环或设备端 kernel。
+- **排查**：确认该路径真正跑在哪（executor 归属），而不是"看起来会跑 GPU"。
+- **陷阱（计时盲区）**：decode 计时若在采样之后启动，decode 速度指标对采样
+  开销天然失明。优化采样前后对比的必须是**整 token 周期**。
+- **验证**：输出逐字节一致（贪心必须 bit 级可复现）+ 整周期计时。
+
+### 8.2 GPU→CPU 同步点治理
+
+- **原理**：decode 尾部（lm_head → logits → 采样）是天然同步点。同步点
+  之前的 GPU 加速若不能消除/重叠同步本身，e2e 收益会被压缩——kernel 计时
+  大幅下降而 e2e 纹丝不动是该形态的指纹（lm_head split-K 证伪即此）。
+- **方法论**：调度类优化第一优先级是**减少同步次数或 overlap**，而不是加速
+  同步点前的 kernel；评估任何"加速最后一个大 kernel"的提案时，先问同步还
+  在不在。
+- **验证**：e2e 配对 A/B；kernel 计时只作归因不作目标。
+
+### 8.3 Encode Replay 与资源生命周期 → 机制详见 §6
+
+- **原理**：重复 decode 帧重放录制的 command buffer，省 CPU 编码成本。
+  前提是 kernel 绑定的全部 buffer 地址在重放期间稳定。
+- **陷阱**：const/参数 buffer 在 resize 时若**重建对象**，重放引用悬垂地址；
+  必须原地更新内容、保持对象与地址稳定。
+- **方法论**：新 op 接入 replay 前先审 resize 行为；replay 相关崩溃/乱码
+  优先怀疑 buffer 重定位。
+
+### 8.4 多路径自动阈值与降级链
+
+- **原理**：同一算子多条 kernel 路径（如 decode attention 的单 pass SDPA /
+  融合 qk_softmax / 三段式，路由速查见 `kernel-dev-and-optimize.md` §2.3.8）
+  时，按实测交叉点设自动阈值路由，并保留 env 覆盖（禁用/自定义阈值）作
+  对拍与调试通道。
+- **方法论要点**：
+  - 阈值是**实测校准值**，任何一侧 kernel 变化（布局翻转、读写模式改变）
+    都可能让交叉点大幅移动，必须重校（V 布局翻转后 SDPA 阈值 3072→128 即此）；
+  - 回退路径长期存在（阈值以下、磁盘 KV、特殊 mask），不能只优化主路径
+    而放任回退路径退化；
+  - 设备分档（tensor-API 与否）显式写在阈值逻辑里，不假设跨档一致。
+- **验证**：阈值两侧各跑对拍 + A/B；env=0 参照路径常备。
+
+### 8.5 实验开关的收敛纪律
+
+- **原理**：新优化先以默认关的 env 开关落地，充分交替 A/B 后转正为默认
+  行为并退役开关，避免开关组合爆炸；证伪方向连开关删除，只留归档记录。
+- **方法论**：每个开关登记语义/默认值/定型状态（见 `env-registry.md`）；
+  "默认开但留 kill-switch"是过渡态，不是终态。

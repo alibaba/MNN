@@ -980,13 +980,17 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                 baseKeys.emplace_back("conv1x1_wquant_sg_reduce");
 
                 std::string sgrWqStr = basicShaderPrefix + sgrWqShader;
-                // g4mN kernels now have true W_QUANT_2/3 branches.
-                if(area > 1 && (mDequantBits == 2 || mDequantBits == 3 || mDequantBits == 4 || mDequantBits == 8)) {
+                // memory bound not so seriously, can add more thread to reduce computation in each thread
+                float ratio = 1.0 * ic_4 / 2048.0 * oc / 2048.0;
+                bool heavyMemory = ratio > 1.0;
+                // g4mN kernels now have true W_QUANT_2/3 branches, but instantiations
+                // only exist up to g4m16 (area <= 16 direct, or <= 32 with the piece=2
+                // halving below). Larger areas — reachable only via w23NoMatrix — must
+                // fall through to the all-area g8 kernel.
+                const bool g4mNUsable = area <= 16 || (!heavyMemory && area <= 32);
+                if(area > 1 && g4mNUsable) {
                     auto keys = baseKeys;
                     int piece = 1;
-                    // memory bound not so seriously, can add more thread to reduce computation in each thread
-                    float ratio = 1.0 * ic_4 / 2048.0 * oc / 2048.0;
-                    bool heavyMemory = ratio > 1.0;
                     if(area > 5 && !heavyMemory) {
                         if(area % 2 != 0) {
                             keys.emplace_back("MNN_METAL_SRC_PROTECT");
@@ -1121,6 +1125,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     // pipelines and force a 64-thread dispatch in their setup.
                     mIs2sgDecode = true;
                 } else {
+                    // All-area fallback: w23NoMatrix shapes whose area exceeds the
+                    // g4mN instantiation range (g4m2..g4m16) land here.
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemv_g8_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
@@ -1181,36 +1187,6 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     }
                     mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 16), UP_DIV(oc, 32), 1), MTLSizeMake(32, 1, 1));
-                } else if(area < 16) {
-                    // TODO: define useMatrix more accurate
-                    bool useMatrix = area > 6 && oc > 2048 && ic*2 < oc;
-                    if(useMatrix) {
-                        auto keys = baseKeys;
-                        int oc_block = (oc > 4096) ? 32 : 16;
-                        std::string kernel_name = "conv1x1_gemm_8x" + std::to_string(oc_block) + "_wquant_sg";
-
-                        keys.emplace_back(kernel_name);
-                        auto pipeline = rt->findPipeline(keys);
-                        if (nil == pipeline) {
-                            pipeline = backend->makeComputePipelineWithSourceOption(sgmWqStr.c_str(), kernel_name.c_str(), option);
-                            rt->insertPipeline(keys, pipeline);
-                        }
-                        mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
-                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 8), UP_DIV(oc, oc_block), 1), MTLSizeMake(32, 1, 1));
-                    } else {
-                        std::string sgrWqStr = basicShaderPrefix + sgrWqShader;
-
-                        auto keys = baseKeys;
-                        std::string kernel_name = "conv1x1_gemv_g4m" + std::to_string(area) + "_wquant_sg";
-                        keys.emplace_back(kernel_name);
-                        auto pipeline = rt->findPipeline(keys);
-                        if (nil == pipeline) {
-                            pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), kernel_name.c_str(), option);
-                            rt->insertPipeline(keys, pipeline);
-                        }
-                        mPipeline = pipeline; CONV1X1_SET_TAG(keys.back());
-                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), 1, 1), MTLSizeMake(32, 1, 1));
-                    }
                 } else {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_16x16_wquant_sg");
