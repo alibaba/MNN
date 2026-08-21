@@ -44,6 +44,29 @@
 #define MNN_CPU_CHECK_NAN 1
 #define MNN_CPU_USE_DEFAULT_BACKEND 4
 namespace MNN {
+static void _CPUMemChunkApplyToTensor(uint8_t* ptr, size_t offset, Tensor* tensor) {
+    const auto describe = TensorUtils::getDescribe(tensor);
+    if (describe->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL_REF) {
+        const Tensor* origin = nullptr;
+        size_t refOffsetElements = 0;
+        const auto valid = OpCommonUtils::getVirtualTensorRef(tensor, &origin, &refOffsetElements);
+        MNN_ASSERT(valid);
+        auto originDescribe = TensorUtils::getDescribeOrigin(origin);
+        auto backend = originDescribe->getBackend();
+        if (backend == nullptr ||
+            (backend->type() != MNN_FORWARD_CPU && backend->type() != MNN_FORWARD_CPU_EXTENSION)) {
+            return;
+        }
+        const auto refOffsetBytes = refOffsetElements * CPUBackend::getBytes(backend, tensor);
+        tensor->buffer().host = origin->host<void>() == nullptr ? nullptr : origin->host<uint8_t>() + refOffsetBytes;
+        tensor->buffer().device = origin->deviceId();
+        auto tensorDescribe = TensorUtils::getDescribeOrigin(tensor);
+        tensorDescribe->offset = originDescribe->offset + refOffsetBytes;
+        tensorDescribe->setBackend(backend);
+        return;
+    }
+    tensor->buffer().host = ptr + offset;
+}
 void registerCPUOps();
 ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto convertType = mRunType == DataType_DT_INT8 ? CPUCastCreator::FlOAT_TO_INT8 : CPUCastCreator::INT8_TO_FlOAT;
@@ -446,7 +469,7 @@ bool CPUBackend::addCreator(OpType t, Creator* c) {
 }
 BufferAllocator* CPURuntime::createDynamicBufferAlloctor(int index) const {
     if (hint().memoryAllocatorType == Runtime::Allocator_Defer) {
-        return new DeferBufferAllocator(buffer(index));
+        return new DeferBufferAllocator(buffer(index), MNN_MEMORY_ALIGN_DEFAULT, _CPUMemChunkApplyToTensor);
     }
     if (nullptr != mStaticAllocatorRaw.get()) {
         return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocatorRaw.get()));
@@ -628,7 +651,6 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
         res = new CPUMemObj(staticAllocator, chunk, size);
     } else {
         res = new CPUMemObj(mDmaInfo->mCurrentDynamicAllocator, chunk, size);
-        chunk.attach(dest);
     }
     if (chunk.ptr()) {
         buffer.host = chunk.ptr();
@@ -651,6 +673,24 @@ Backend::MemObj* CPUBackend::onAcquire(const MNN::Tensor* nativeTensorConst, Sto
     }
     //FUNC_PRINT_ALL(nativeTensorConst, p);
     auto nativeTensor = (Tensor*)nativeTensorConst;
+    const Tensor* refOrigin = nullptr;
+    size_t refOffsetElements = 0;
+    if (OpCommonUtils::getVirtualTensorRef(nativeTensor, &refOrigin, &refOffsetElements)) {
+        auto originDescribe = TensorUtils::getDescribeOrigin(refOrigin);
+        auto originMem = originDescribe->mem.get();
+        auto originBackend = originDescribe->getBackend();
+        if (originBackend != this || originMem == nullptr) {
+            return nullptr;
+        }
+        const auto refOffsetBytes = refOffsetElements * getBytes(this, nativeTensor);
+        nativeTensor->buffer().host =
+            refOrigin->host<void>() == nullptr ? nullptr : refOrigin->host<uint8_t>() + refOffsetBytes;
+        nativeTensor->buffer().device = refOrigin->deviceId();
+        auto nativeDescribe = TensorUtils::getDescribeOrigin(nativeTensor);
+        nativeDescribe->offset = originDescribe->offset + refOffsetBytes;
+        nativeDescribe->setBackend(this);
+        return originMem;
+    }
     auto size = getTensorSize(nativeTensor, true);
     return allocBuffer(size, nativeTensor, storageType);
 }
@@ -731,6 +771,33 @@ size_t CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
         return dataSize * bytes;
     }
     return dataSize;
+}
+
+bool CPUBackend::onCreateVirtualTensorRef(Tensor* input) {
+    if (input == nullptr) {
+        return false;
+    }
+    const Tensor* origin = nullptr;
+    size_t offsetElements = 0;
+    size_t lengthElements = 0;
+    if (!OpCommonUtils::getSingleContiguousRegionView(input, &origin, &offsetElements, &lengthElements,
+                                                      functions()->pack, true)) {
+        return false;
+    }
+    const auto inputDescribe = TensorUtils::getDescribe(input);
+    const auto originDescribe = TensorUtils::getDescribe(origin);
+    if (inputDescribe->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 || origin->getType() != input->getType() ||
+        originDescribe->dimensionFormat != inputDescribe->dimensionFormat || inputDescribe->quantAttr != nullptr ||
+        inputDescribe->applyQuant || originDescribe->quantAttr != nullptr || originDescribe->applyQuant ||
+        input->getType().code != halide_type_float) {
+        return false;
+    }
+
+    if (!OpCommonUtils::setVirtualTensorRef(input, origin, offsetElements)) {
+        return false;
+    }
+    TensorUtils::setLinearLayout(input);
+    return true;
 }
 
 size_t CPUBackend::getBytes(const Backend* backend, const Tensor* output) {

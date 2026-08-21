@@ -416,7 +416,9 @@ VARP Variable::create(EXPRP expr, int index) {
         }
         auto bn = executor->getAttr()->constantBackend;
         // TODO: Support set mask
-        GeometryComputer::Context context(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL, bn);
+        const auto geometryMask = Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL &
+                                  ~Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_VIRTUAL_TENSOR_REF;
+        GeometryComputer::Context context(geometryMask, bn);
         auto geo = GeometryComputer::search(expr->get()->type(), Runtime::Compiler_Loop);
         CommandBuffer cmd;
         res = geo->onCompute(expr->get(), inputTensors, outputTensors, context, cmd);
@@ -495,7 +497,11 @@ VARP Variable::create(EXPRP expr, int index) {
                 TensorUtils::copyShape(cmd->outputs[j], currentExpr->inside()->mOutputTensors[j], true, true);
             }
         }
-        return varMap.find(expr->inside()->mOutputTensors[index])->second;
+        auto outputIter = varMap.find(expr->inside()->mOutputTensors[index]);
+        if (outputIter == varMap.end()) {
+            break;
+        }
+        return outputIter->second;
     } while (false);
 #endif
     return res;

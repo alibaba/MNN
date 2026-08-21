@@ -37,6 +37,7 @@ public:
     virtual const Runtime* getRuntime() override;
 
     virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;
+    virtual bool onCreateVirtualTensorRef(Tensor* tensor) override;
     virtual bool onClearBuffer() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 

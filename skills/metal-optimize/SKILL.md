@@ -55,6 +55,10 @@ description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub
 5. **正确性 oracle 先于性能**：fp32（`precision: high`）bit-identical 是最强证据；fp16 greedy 对拍是次强。**token 级一致不等于 bit 级一致**。
 6. **融合必查内存别名**：把前驱折进后继时，前驱的输入可能已被分配器复用为后继的输出。
 7. **A/B 必须交替配对**：热态漂移能造出 3 倍虚假收益；profile build 的绝对数字是伪影。
+8. **延迟与吞吐同时记录**：decode/prefill 优化同时给出耗时和有效吞吐，统一使用
+   `tok/s = query_tokens * 1000 / forward_ms`；只有单 token decode 使用 `1000 / ms`。
+9. **零拷贝 Ref 绑定物理 origin**：Geometry 只标记满足条件的连续 virtual tensor；Execution 确定后，
+   `WrapExecution::needWrap` 按 Ref origin 的实际 Backend 判断，跨 Backend 由 Pipeline 插入 Copy。
 
 ## 相关 Skills
 

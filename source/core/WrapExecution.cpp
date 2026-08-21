@@ -23,6 +23,10 @@ bool WrapExecution::needWrap(const Tensor* input, Backend* curBackend) {
         return false;
     }
     auto des = TensorUtils::getDescribeOrigin(input);
+    const Tensor* refOrigin = nullptr;
+    if (OpCommonUtils::getVirtualTensorRef(input, &refOrigin)) {
+        des = TensorUtils::getDescribeOrigin(refOrigin);
+    }
     auto bn = des->getBackend();
     MNNForwardType type = MNN_FORWARD_CPU;
     int pack = 4;

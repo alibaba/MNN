@@ -211,6 +211,14 @@ W_QUANT_8 的 tile layout 是 `byte = ro * 4 + ri`（OC 外、K_inner 内），�
 
 ### 陷阱 F：fp16 后端下 `Tensor::createDevice<float>` 只给一半字节
 
+### 陷阱 G：Ref/View Tensor 只复制一次 Metal 地址
+
+Metal deferred allocator 在 `compute/apply` 后可能重写源 Tensor 的 `deviceId + offset`。Ref/View Tensor 若只在
+创建时复制地址，内存重排或复用后会静默读旧位置。Ref/View 必须挂到源 Tensor 的同一个 `MemChunk` 节点，
+allocator apply 时按 `source allocation offset + local view offset` 重算地址；Ref 自身不持有源 `MemObj`，但
+Pipeline 的 useCount 必须计到源 Tensor。连续性还必须按 backend pack 后的物理布局判断，不能直接使用
+Geometry 的逻辑 Region stride。
+
 Metal 后端开 fp16（`useFp16InsteadFp32`）时，float 类型的 device tensor 按 **2 字节/元素**分配；若 shader 把这块 scratch 按 `device float*`（4B）读写，**buffer 实际只有需求的一半**。越界不会立刻炸：先静默踩别的内存（数值损坏），直到撞上未映射页才报 GPU 故障（`kIOGPUCommandBufferCallbackErrorInnocentVictim`，且真凶 buffer 常不在日志里）。
 
 **前科（2026-07-29 split-KV 越界）**：`mTempSplitKV` 用 `createDevice<float>({B*H*32*(HD+2)})` 分配，shader 端 `device float* tmp_out`。分配 132KB、kernel 要 264KB ⇒ **nwg>16（kv>4096）必越界**。历史测试全 ≤kv4096（nwg=16 恰好贴边），Qwen3.5（HD=256）p4096+tg1000 才引爆；HD=128 模型同条件只是静默损坏不崩。

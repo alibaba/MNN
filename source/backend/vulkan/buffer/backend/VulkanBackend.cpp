@@ -12,6 +12,7 @@
 #include "core/Macro.h"
 #include <MNN/Tensor.hpp>
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 #include "component/VulkanDevice.hpp"
 #include "component/VulkanInstance.hpp"
 #include "execution/VulkanBasicExecution.hpp"
@@ -215,9 +216,61 @@ size_t VulkanBackend::getTensorSize(const Tensor* tensor) const {
     return size;
 }
 
+bool VulkanBackend::onCreateVirtualTensorRef(Tensor* input) {
+    if (input == nullptr) {
+        return false;
+    }
+    const Tensor* origin = nullptr;
+    size_t offsetElements = 0;
+    size_t lengthElements = 0;
+    if (!OpCommonUtils::getSingleContiguousRegionView(input, &origin, &offsetElements, &lengthElements, 4, true)) {
+        return false;
+    }
+    const auto inputDescribe = TensorUtils::getDescribe(input);
+    const auto originDescribe = TensorUtils::getDescribe(origin);
+    if (input->dimensions() > 4 || origin->dimensions() > 4 ||
+        inputDescribe->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 || origin->getType() != input->getType() ||
+        originDescribe->dimensionFormat != inputDescribe->dimensionFormat || inputDescribe->quantAttr != nullptr ||
+        inputDescribe->applyQuant || originDescribe->quantAttr != nullptr || originDescribe->applyQuant ||
+        input->getType().code != halide_type_float) {
+        return false;
+    }
+
+    const size_t bytes = mUseFP16 ? sizeof(uint16_t) : input->getType().bytes();
+    const size_t offsetBytes = offsetElements * bytes;
+    const size_t storageAlignment = device().proty().limits.minStorageBufferOffsetAlignment;
+    if (lengthElements * bytes != getTensorSize(input) ||
+        (storageAlignment > 1 && offsetBytes % storageAlignment != 0)) {
+        return false;
+    }
+    if (!OpCommonUtils::setVirtualTensorRef(input, origin, offsetElements)) {
+        return false;
+    }
+    TensorUtils::setLinearLayout(input);
+    return true;
+}
+
 Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
     MNN_ASSERT(tensor->getType().code == halide_type_float || tensor->getType().code == halide_type_int);
     //FUNC_PRINT_ALL(tensor, p);
+    const Tensor* refOrigin = nullptr;
+    size_t refOffsetElements = 0;
+    if (OpCommonUtils::getVirtualTensorRef(tensor, &refOrigin, &refOffsetElements)) {
+        auto originDescribe = TensorUtils::getDescribeOrigin(refOrigin);
+        auto originMem = originDescribe->mem.get();
+        if (originDescribe->getBackend() != this || originMem == nullptr) {
+            return nullptr;
+        }
+        const size_t bytes = mUseFP16 ? sizeof(uint16_t) : tensor->getType().bytes();
+        const auto refOffsetBytes = refOffsetElements * bytes;
+        auto mutableTensor = const_cast<Tensor*>(tensor);
+        mutableTensor->buffer().host = nullptr;
+        mutableTensor->buffer().device = refOrigin->deviceId();
+        auto tensorDescribe = TensorUtils::getDescribeOrigin(tensor);
+        tensorDescribe->offset = originDescribe->offset + refOffsetBytes;
+        tensorDescribe->setBackend(this);
+        return originMem;
+    }
     auto alignSize = getTensorSize(tensor);
     auto MTensor     = const_cast<Tensor*>(tensor);
     auto des = TensorUtils::getDescribeOrigin(tensor);

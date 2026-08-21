@@ -299,7 +299,10 @@ public:
         // Support Geometry Cache, if shape changed, will try recompute, and then run compute if failed
         GEOMETRCOMPUTEMASK_OPENCACHE = 1 << 3,
 
-        // Full option open mask, for example, if want to close useloop, can set mask as (GEOMETRCOMPUTEMASK_ALL - GEOMETRCOMPUTEMASK_USELOOP)
+        // Use a direct backend tensor reference for eligible contiguous virtual tensors
+        GEOMETRCOMPUTEMASK_VIRTUAL_TENSOR_REF = 1 << 4,
+
+        // Full option open mask. Clear a capability bit to disable the corresponding optimization.
         GEOMETRCOMPUTEMASK_ALL = 0xFFFF,
     };
 

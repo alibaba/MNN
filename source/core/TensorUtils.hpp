@@ -66,6 +66,9 @@ struct Tensor::InsideDescribe {
 
         /** host memory is owned by tensor or not */
         MEMORY_OUTSIDE,
+
+        /** The tensor aliases backend memory. Its single Region stores the origin and element offset. */
+        MEMORY_VIRTUAL_REF,
     };
     enum Usage {
         NORMAL,

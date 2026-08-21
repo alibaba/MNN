@@ -1,6 +1,7 @@
 // HexagonBackend.cpp
 #include "core/Execution.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 #include "HexagonBackend.hpp"
 #include "HexagonRuntime.hpp"
 #include "HexagonExecutionFactory.hpp"
@@ -105,6 +106,23 @@ static float fp16ToFp32Scalar(uint16_t value) {
 }
 
 static void _HexagonMemChunkApplyToTensor(uint8_t* ptr, size_t offset, Tensor* tensor) {
+    const auto describe = TensorUtils::getDescribe(tensor);
+    if (describe->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL_REF) {
+        const Tensor* origin = nullptr;
+        size_t refOffsetElements = 0;
+        const auto valid = OpCommonUtils::getVirtualTensorRef(tensor, &origin, &refOffsetElements);
+        MNN_ASSERT(valid);
+        auto originDescribe = TensorUtils::getDescribeOrigin(origin);
+        auto backend = originDescribe->getBackend();
+        if (backend == nullptr || backend->type() != MNN_FORWARD_HEXAGON) {
+            return;
+        }
+        tensor->buffer().device = origin->deviceId();
+        auto tensorDescribe = TensorUtils::getDescribeOrigin(tensor);
+        tensorDescribe->offset = originDescribe->offset + refOffsetElements * HexagonBackend::getBytes(tensor);
+        tensorDescribe->setBackend(backend);
+        return;
+    }
     auto buffer = reinterpret_cast<HexagonBuffer*>(ptr);
     tensor->buffer().device = reinterpret_cast<uint64_t>(buffer);
     TensorUtils::getDescribeOrigin(tensor)->offset = offset;
@@ -486,7 +504,55 @@ size_t HexagonBackend::getSize(const Tensor* tensor) const {
     return getElementSize(tensor) * getBytes(tensor);
 }
 
+bool HexagonBackend::onCreateVirtualTensorRef(Tensor* input) {
+    if (input == nullptr) {
+        return false;
+    }
+    const Tensor* origin = nullptr;
+    size_t offsetElements = 0;
+    size_t lengthElements = 0;
+    const auto pack = mRuntime->info().vectorSize;
+    if (pack <= 0) {
+        return false;
+    }
+    if (!OpCommonUtils::getSingleContiguousRegionView(input, &origin, &offsetElements, &lengthElements, pack, true)) {
+        return false;
+    }
+    const auto inputDescribe = TensorUtils::getDescribe(input);
+    const auto originDescribe = TensorUtils::getDescribe(origin);
+    if (input->dimensions() > 4 || origin->dimensions() > 4 ||
+        inputDescribe->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 || origin->getType() != input->getType() ||
+        originDescribe->dimensionFormat != inputDescribe->dimensionFormat || inputDescribe->quantAttr != nullptr ||
+        inputDescribe->applyQuant || originDescribe->quantAttr != nullptr || originDescribe->applyQuant ||
+        input->getType().code != halide_type_float) {
+        return false;
+    }
+
+    if (!OpCommonUtils::setVirtualTensorRef(input, origin, offsetElements)) {
+        return false;
+    }
+    TensorUtils::setLinearLayout(input);
+    return true;
+}
+
 Backend::MemObj* HexagonBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
+    const Tensor* refOrigin = nullptr;
+    size_t refOffsetElements = 0;
+    if (OpCommonUtils::getVirtualTensorRef(tensor, &refOrigin, &refOffsetElements)) {
+        auto originDescribe = TensorUtils::getDescribeOrigin(refOrigin);
+        auto originMem = originDescribe->mem.get();
+        if (originDescribe->getBackend() != this || originMem == nullptr) {
+            return nullptr;
+        }
+        const auto refOffsetBytes = refOffsetElements * getBytes(tensor);
+        auto mutableTensor = const_cast<Tensor*>(tensor);
+        mutableTensor->buffer().host = nullptr;
+        mutableTensor->buffer().device = refOrigin->deviceId();
+        auto tensorDescribe = TensorUtils::getDescribeOrigin(tensor);
+        tensorDescribe->offset = originDescribe->offset + refOffsetBytes;
+        tensorDescribe->setBackend(this);
+        return originMem;
+    }
     auto size = getSize(tensor);
     size_t allocSize = size;
 #ifdef MNN_HEXAGON_ASAN
@@ -522,7 +588,6 @@ Backend::MemObj* HexagonBackend::onAcquire(const Tensor* tensor, StorageType sto
         ((Tensor*)tensor)->buffer().device = reinterpret_cast<uint64_t>(placeholder.get());
         TensorUtils::getDescribeOrigin(tensor)->offset = 0;
         mDynamicPlaceholders.emplace_back(std::move(placeholder));
-        chunk.attach(const_cast<Tensor*>(tensor));
     }
 #ifdef MNN_HEXAGON_ASAN
     if (storageType != STATIC && storageType != DYNAMIC_SEPERATE) {
