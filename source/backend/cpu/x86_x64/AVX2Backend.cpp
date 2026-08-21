@@ -335,6 +335,9 @@ Execution* AVX2Backend::onCreate(const std::vector<Tensor*>& inputs, const std::
 }
 
 Backend::MemObj* AVX2Backend::onAcquire(const Tensor* nativeTensor, StorageType storageType) {
+    if (TensorUtils::getDescribe(nativeTensor)->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL_REF) {
+        return CPUBackend::onAcquire(nativeTensor, storageType);
+    }
     // arm82 backend tensor data type is fp16 default
     auto tensor = const_cast<Tensor*>(nativeTensor);
     auto& buffer = tensor->buffer();

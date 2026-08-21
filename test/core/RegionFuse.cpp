@@ -11,6 +11,7 @@
 #include <MNN/Tensor.hpp>
 #include <string.h>
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 
 using namespace MNN;
 static std::string _printRegion(const Tensor::InsideDescribe::Region& reg) {
@@ -161,3 +162,143 @@ public:
     }
 };
 MNNTestSuiteRegister(RegionFuseTest, "core/regionfuse");
+
+class ContiguousRegionViewTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        std::shared_ptr<Tensor> origin(Tensor::createDevice<float>({32}));
+        std::shared_ptr<Tensor> view(Tensor::createDevice<float>({8}));
+        auto viewDescribe = TensorUtils::getDescribe(view.get());
+        viewDescribe->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        viewDescribe->regions = {TensorUtils::makeFullSlice(view.get())};
+        auto& region = viewDescribe->regions[0];
+        region.origin = origin.get();
+        region.src.offset = 4;
+
+        const Tensor* resolvedOrigin = nullptr;
+        size_t offset = 0;
+        size_t length = 0;
+        if (!OpCommonUtils::getSingleContiguousRegionView(view.get(), &resolvedOrigin, &offset, &length) ||
+            resolvedOrigin != origin.get() || offset != 4 || length != 8) {
+            MNN_ERROR("single contiguous region view was not detected\n");
+            return false;
+        }
+
+        region.src.stride[2] = 2;
+        if (OpCommonUtils::getSingleContiguousRegionView(view.get(), &resolvedOrigin, &offset, &length)) {
+            MNN_ERROR("strided region was detected as contiguous\n");
+            return false;
+        }
+        region.src.stride[2] = 1;
+        region.dst.offset = 1;
+        if (OpCommonUtils::getSingleContiguousRegionView(view.get(), &resolvedOrigin, &offset, &length)) {
+            MNN_ERROR("region with destination offset was detected as a full view\n");
+            return false;
+        }
+        region.dst.offset = 0;
+        viewDescribe->regions.emplace_back(region);
+        if (OpCommonUtils::getSingleContiguousRegionView(view.get(), &resolvedOrigin, &offset, &length)) {
+            MNN_ERROR("multi-region tensor was detected as a single view\n");
+            return false;
+        }
+        viewDescribe->regions.resize(1);
+        auto& nestedRegion = viewDescribe->regions[0];
+
+        std::shared_ptr<Tensor> middle(Tensor::createDevice<float>({16}));
+        auto middleDescribe = TensorUtils::getDescribe(middle.get());
+        middleDescribe->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        middleDescribe->regions = {TensorUtils::makeFullSlice(middle.get())};
+        middleDescribe->regions[0].origin = origin.get();
+        middleDescribe->regions[0].src.offset = 3;
+        nestedRegion.origin = middle.get();
+        nestedRegion.src.offset = 4;
+        if (!OpCommonUtils::getSingleContiguousRegionView(view.get(), &resolvedOrigin, &offset, &length) ||
+            resolvedOrigin != origin.get() || offset != 7 || length != 8) {
+            MNN_ERROR("nested contiguous region view was not resolved\n");
+            return false;
+        }
+
+        std::shared_ptr<Tensor> paddedView(Tensor::createDevice<float>({1, 3, 1, 1}, Tensor::CAFFE_C4));
+        auto paddedDescribe = TensorUtils::getDescribe(paddedView.get());
+        paddedDescribe->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        paddedDescribe->regions = {TensorUtils::makeFullSlice(paddedView.get())};
+        paddedDescribe->regions[0].origin = origin.get();
+        paddedDescribe->regions[0].size[2] = 3;
+        if (OpCommonUtils::getSingleContiguousRegionView(paddedView.get(), &resolvedOrigin, &offset, &length)) {
+            MNN_ERROR("padded NC4HW4 region was detected as a full contiguous view\n");
+            return false;
+        }
+
+        std::shared_ptr<Tensor> qkv(Tensor::createDevice<float>({8, 16, 1, 1}, Tensor::CAFFE_C4));
+        std::shared_ptr<Tensor> k(Tensor::createDevice<float>({8, 8, 1, 1}, Tensor::CAFFE_C4));
+        auto kDescribe = TensorUtils::getDescribe(k.get());
+        kDescribe->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        kDescribe->regions.resize(1);
+        auto& kRegion = kDescribe->regions[0];
+        kRegion.origin = qkv.get();
+        kRegion.src.offset = 8;
+        kRegion.size[0] = 8;
+        kRegion.size[1] = 8;
+        kRegion.size[2] = 1;
+        kRegion.src.stride[0] = 16;
+        kRegion.src.stride[1] = 1;
+        kRegion.src.stride[2] = 1;
+        kRegion.dst.offset = 0;
+        kRegion.dst.stride[0] = 8;
+        kRegion.dst.stride[1] = 1;
+        kRegion.dst.stride[2] = 1;
+        if (OpCommonUtils::getSingleContiguousRegionView(k.get(), &resolvedOrigin, &offset, &length)) {
+            MNN_ERROR("logical strided NC4HW4 slice was detected as linearly contiguous\n");
+            return false;
+        }
+        if (!OpCommonUtils::getSingleContiguousRegionView(k.get(), &resolvedOrigin, &offset, &length, 4, true) ||
+            resolvedOrigin != qkv.get() || offset != 64 || length != 64) {
+            MNN_ERROR("physically contiguous C4NHW4 slice was not detected\n");
+            return false;
+        }
+
+        std::shared_ptr<Tensor> transposeOrigin(Tensor::createDevice<float>({1, 4, 2, 3}, Tensor::CAFFE_C4));
+        std::shared_ptr<Tensor> transposeView(Tensor::createDevice<float>({1, 4, 3, 2}, Tensor::CAFFE_C4));
+        auto transposeDescribe = TensorUtils::getDescribe(transposeView.get());
+        transposeDescribe->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        transposeDescribe->regions.resize(1);
+        auto& transposeRegion = transposeDescribe->regions[0];
+        transposeRegion.origin = transposeOrigin.get();
+        transposeRegion.size[0] = 4;
+        transposeRegion.size[1] = 2;
+        transposeRegion.size[2] = 3;
+        transposeRegion.src.stride[0] = 6;
+        transposeRegion.src.stride[1] = 3;
+        transposeRegion.src.stride[2] = 1;
+        transposeRegion.dst.stride[0] = 6;
+        transposeRegion.dst.stride[1] = 1;
+        transposeRegion.dst.stride[2] = 2;
+        if (OpCommonUtils::getSingleContiguousRegionView(transposeView.get(), &resolvedOrigin, &offset, &length, 4,
+                                                         true)) {
+            MNN_ERROR("packed NC4HW4 transpose was detected as a contiguous view\n");
+            return false;
+        }
+
+        std::shared_ptr<Tensor> ref(Tensor::createDevice<float>({8}));
+        if (!OpCommonUtils::setVirtualTensorRef(ref.get(), origin.get(), 16) ||
+            TensorUtils::getDescribe(ref.get())->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL_REF ||
+            !OpCommonUtils::getVirtualTensorRef(ref.get(), &resolvedOrigin, &offset) ||
+            resolvedOrigin != origin.get() || offset != 16) {
+            MNN_ERROR("virtual tensor ref metadata was not preserved\n");
+            return false;
+        }
+        if (OpCommonUtils::getSingleContiguousRegionView(ref.get(), &resolvedOrigin, &offset, &length)) {
+            MNN_ERROR("virtual tensor ref was detected as an unmaterialized virtual tensor\n");
+            return false;
+        }
+        std::shared_ptr<Tensor> nestedRef(Tensor::createDevice<float>({4}));
+        if (!OpCommonUtils::setVirtualTensorRef(nestedRef.get(), ref.get(), 8) ||
+            !OpCommonUtils::getVirtualTensorRef(nestedRef.get(), &resolvedOrigin, &offset) ||
+            resolvedOrigin != origin.get() || offset != 24) {
+            MNN_ERROR("nested virtual tensor ref was not flattened\n");
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ContiguousRegionViewTest, "core/contiguous_region_view");

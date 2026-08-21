@@ -77,6 +77,9 @@ static size_t _getAliginSize(const halide_buffer_t& buffer, MNN_DATA_FORMAT form
 }
 
 Backend::MemObj* Arm82Backend::onAcquire(const Tensor* nativeTensor, StorageType storageType) {
+    if (TensorUtils::getDescribe(nativeTensor)->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL_REF) {
+        return CPUBackend::onAcquire(nativeTensor, storageType);
+    }
     // arm82 backend tensor data type is fp16 default
     auto tensor = const_cast<Tensor*>(nativeTensor);
     auto& buffer = tensor->buffer();

@@ -447,7 +447,7 @@ std::pair<void*, size_t> EagerBufferAllocator::getFromFreeList(FREELIST* list, s
     MNN_ASSERT(pointer.second % align == 0);
     return pointer;
 }
-static void _CPUMemChunkApplyToTensor(uint8_t* ptr, size_t offset, Tensor* t) {
+static void _DefaultMemChunkApplyToTensor(uint8_t* ptr, size_t offset, Tensor* t) {
     t->buffer().host = ptr + offset;
 }
 SingleBufferWithAllocator::~ SingleBufferWithAllocator() {
@@ -479,7 +479,7 @@ ErrorCode SingleBufferWithAllocator::realloc(size_t size, size_t align) {
 
 DeferBufferAllocator::DeferBufferAllocator(SingleBufferWithAllocator* root, size_t align, MemChunkApplyToTensor func) : mAlign(align) {
     if (nullptr == func) {
-        mApplyFunction = _CPUMemChunkApplyToTensor;
+        mApplyFunction = _DefaultMemChunkApplyToTensor;
     } else {
         mApplyFunction = func;
     }

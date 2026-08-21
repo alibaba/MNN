@@ -98,7 +98,22 @@ static bool _needRelease(const Tensor* tensor, bool inputOutside) {
     }
     return true;
 }
+static Tensor* _getVirtualRefOrigin(Tensor* tensor) {
+    const Tensor* origin = nullptr;
+    if (!OpCommonUtils::getVirtualTensorRef(tensor, &origin)) {
+        return nullptr;
+    }
+    return const_cast<Tensor*>(origin);
+}
+static Tensor* _getTensorForLifetime(Tensor* tensor) {
+    auto origin = _getVirtualRefOrigin(tensor);
+    return origin == nullptr ? tensor : origin;
+}
 static void _releaseTensor(Tensor* origin, bool mAllocInput, int group) {
+    auto refOrigin = _getVirtualRefOrigin(origin);
+    if (refOrigin != nullptr) {
+        origin = refOrigin;
+    }
     auto des = TensorUtils::getDescribe(origin);
     if (des->usage != Tensor::InsideDescribe::CONSTANT) {
         des->useCount -= 1;
@@ -112,18 +127,31 @@ static void _releaseTensor(Tensor* origin, bool mAllocInput, int group) {
     }
 }
 
-static bool _allocTensor(Tensor* t, Backend* curBackend, bool outputStatic, int group) {
+static ErrorCode _allocTensor(Tensor* t, Backend* curBackend, bool outputStatic, int group) {
     auto memoryType = _getTensorStorageType(t, outputStatic);
     auto des = TensorUtils::getDescribe(t);
     if (des->group != group) {
-        return true;
+        return NO_ERROR;
     }
-    if (nullptr == TensorUtils::getDescribeOrigin(t)->mem.get()) {
+    auto desOrigin = TensorUtils::getDescribeOrigin(t);
+    if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL_REF) {
+        const Tensor* originConst = nullptr;
+        if (!OpCommonUtils::getVirtualTensorRef(t, &originConst)) {
+            MNN_ERROR("Invalid virtual tensor ref\n");
+            return INPUT_DATA_ERROR;
+        }
+        auto origin = const_cast<Tensor*>(originConst);
+        auto originDescribe = TensorUtils::getDescribeOrigin(origin);
+        auto originBackend = originDescribe->getBackend();
+        MNN_ASSERT(originBackend != nullptr);
+        return originBackend->onAcquireBuffer(t, memoryType) ? NO_ERROR : OUT_OF_MEMORY;
+    }
+    if (nullptr == desOrigin->mem.get()) {
         TensorUtils::setLinearLayout(t);
         auto res     = curBackend->onAcquireBuffer(t, memoryType);
-        return res;
+        return res ? NO_ERROR : OUT_OF_MEMORY;
     }
-    return true;
+    return NO_ERROR;
 }
 
 void Pipeline::UnitInfo::setUp(const Command& command, int index, const Op* originOp, int totalIndex) {
@@ -165,9 +193,13 @@ void Pipeline::UnitInfo::setUp(const Command& command, int index, const Op* orig
     }
 }
 
-Pipeline::Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt, int geometryMask)
+Pipeline::Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic,
+                   const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt, int geometryMask)
 #ifndef MNN_SKIPBUILD_GEOMETRY
-    : mContext(geometryMask, info.first.cache.second, info.first.cache.first->type(), info.first.info.user ? info.first.info.user->precision :  BackendConfig::Precision_Normal, info.first.info.gpuMode, rt), mUseGeometry(rt->onGetCompilerType()) {
+    : mContext(geometryMask, info.first.cache.second, info.first.cache.first,
+               info.first.info.user ? info.first.info.user->precision : BackendConfig::Precision_Normal,
+               info.first.info.gpuMode, rt),
+      mUseGeometry(rt->onGetCompilerType()) {
 #else
 {
 #endif
@@ -969,6 +1001,7 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
         for (auto& iterP : buffer.command) {
             auto& iter = *iterP;
             for (auto t : iter.workInputs) {
+                t = _getTensorForLifetime(t);
                 auto des = TensorUtils::getDescribe(t);
                 if (des->usage != Tensor::InsideDescribe::CONSTANT) {
                     des->useCount = 0;
@@ -984,6 +1017,7 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
         for (auto& iterP : buffer.command) {
             auto& iter = *iterP;
             for (auto t : iter.workInputs) {
+                t = _getTensorForLifetime(t);
                 auto des = TensorUtils::getDescribe(t);
                 if (des->usage != Tensor::InsideDescribe::CONSTANT) {
                     des->useCount += 1;
@@ -1012,21 +1046,24 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
 #endif
             // Alloc for Tensors
             auto curBackend = iter.execution->backend();
-            if (allocInput && iter.execution->needAllocIO()) {
-                for (auto t : iter.workInputs) {
-                    auto allocRes = _allocTensor(t, curBackend, mOutputStatic, index);
-                    if (!allocRes) {
+            if (iter.execution->needAllocIO()) {
+                for (auto input : iter.workInputs) {
+                    if (!allocInput && _getVirtualRefOrigin(input) == nullptr) {
+                        continue;
+                    }
+                    auto allocRes = _allocTensor(input, curBackend, mOutputStatic, index);
+                    if (allocRes != NO_ERROR) {
                         MNN_ERROR("Pipeline: _allocTensor failed for input of op type: %d\n", iter.op->type());
-                        return OUT_OF_MEMORY;
+                        return allocRes;
                     }
                 }
             }
             if (iter.execution->needAllocIO()) {
                 for (auto t : iter.workOutputs) {
                     auto res = _allocTensor(t, curBackend, mOutputStatic, index);
-                    if (!res) {
+                    if (res != NO_ERROR) {
                         MNN_ERROR("Pipeline: _allocTensor failed for output of op type: %d\n", iter.op->type());
-                        return OUT_OF_MEMORY;
+                        return res;
                     }
                 }
             }
