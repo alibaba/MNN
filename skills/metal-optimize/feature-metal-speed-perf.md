@@ -1,6 +1,6 @@
 # feature/metal-speed 分支性能报告
 
-- 分支:`feature/metal-speed`(相对 `master`,共 24 个提交)
+- 分支:`feature/metal-speed`(相对 `master`,共 27 个提交)
 - 主线:Apple Metal 后端 LLM 推理加速 —— decode GEMV 融合束、split-K 实验、SDPA 校准、
   设备端采样、LinearAttention scan 优化、decode_splitkv 对齐 MLX sdpa_vector + V 布局翻转
 - 常用测试协议:`llm_bench` 配对/交替 A/B(热漂移可制造虚假收益,禁止顺序单向对比),
@@ -37,6 +37,9 @@
 | 22 | `f7b5d19447` | 修复 rebase 丢失的 ROW_2 键/宏(正确性) | —(曾致 decode 乱码 + 幻影 +13% 假收益) |
 | 23 | `e15afadbeb` | decode_splitkv 重写为 MLX sdpa_vector 形态;V cache 全局翻转为行主序(镜像 K),适配全部 7 个读 V kernel | 使能 #24;长 KV 4266 上 decode 188.8 vs base 178.9(**+5.5%**,Mac M 系) |
 | 24 | `47a3f473c0` | decode SDPA 自动阈值从 3072/1536(+group cap)降为 128 | M5 qwen3-0.6b **-pg 全区间 +2.5%~+6.8%**;Qwen3.5-2B 持平(混合架构稀释) |
+| 25 | `dea5d07d59` | decode SDPA 自动阈值再降到 2(短 kv sweep:splitkv 从 kv≥2 全胜 fallback) | M4 Pro `-n128` 0.6B **+16.6%** / 4B **+11.9%**;greedy byte-identical |
+| 26 | `ce9b57a327` | decode SDPA 默认 NSG 统一 32(对齐 MLX sdpa_vector 固定 1024 线程),取代 #5 的设备分档 nsg16 | Mac M5 0.6B p2048 decode **+6.8%**(179.3 vs 167.9)、p512 +2.1%;3/3 同向;此前 iPad M5 nsg16 结论早于 V 行主序重写,复扫不再成立 |
+| 27 | `df2eeb6e81` | lm_head G16_SPLIT_K 默认开(推翻 #14 早先单模型证伪) | 全模型 4×3 轮配对(M5):0.6B **+2.9%** / 0.8B **+1.0%** / 4B +0.5% / 2B −0.4%(噪声),无回归 |
 
 ## 各提交详情
 
@@ -140,6 +143,8 @@ decode 增幅随模型增大递减:本轮优化主要削减每 token 固定开�
 | 方向 | 结果 | 证据 |
 |---|---|---|
 | GEMV 编译期 BLOCK_SLICES | 中性,证伪 | M4 Pro 0.6B W8 tg128 7 轮配对 −0.24%;W16 真正收益在 16B 宽 load |
-| lm_head G16_SPLIT_K(=2) | 持平偏负,证伪 | kernel 2257 vs 2270us;e2e 102.04 vs 100.89 |
+| lm_head G16_SPLIT_K(=2) | **df2eeb6e8 默认开**(推翻本行早先结论) | 早先单模型配对持平偏负;2026-08-20 全模型 4×3 轮配对(M5)0.6B +2.9% / 0.8B +1.0% / 4B +0.5% / 2B −0.4%,无回归 |
 | SPLIT_K_SHUFFLE 作为默认 | 不敌 SPLIT_K_2 | −1.0%,收益来源是在途 lane 翻倍而非免 barrier |
 | grouped-SDPA(GS_LOCAL=GROUP_SIZE) | 仅超长 kv 微增,回退 | kv16384 +2.53%,kv4096 噪声;代码回退、结论归档 |
+| GEMV_MLX lane-per-row(对齐 MLX qmv 形态) | 中性,证伪 | 2026-08-20 0.6B/4B × p512/p2048 配对 decode:−0.7%~+0.2% 全噪声内;SPLIT_K_2 的 tg 归约开销本就不大,形态不是瓶颈;代码回退 |
+| RoPE in-kernel freq(消除 /rotary 链 14 dispatch/token) | decode 零收益,证伪 | 2026-08-21 0.6B 重导 `--rope_in_kernel` 配对 3 轮:decode p512 +0.3% / p2048 −1.1%(噪声);rotary 链张量极小(1 token),GPU 耗时藏在大 kernel 间隙——印证"削减小 op dispatch 不兑现 decode"(仅 prefill +0.8~1.0%);正确性已验证 byte-identical;代码全回退 |
