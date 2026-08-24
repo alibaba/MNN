@@ -45,6 +45,7 @@ static void AddBuildOptionOfDataType(const Tensor *input, const Tensor *output, 
             buildOptions.emplace("-DINPUT_TYPE=half");
             buildOptions.emplace("-DINPUT_TYPE4=half4");
             buildOptions.emplace("-DINPUT_TYPE16=half16");
+            buildOptions.emplace("-DINPUT_IS_HALF");
         }else{
             buildOptions.emplace("-DINPUT_TYPE=float");
             buildOptions.emplace("-DINPUT_TYPE4=float4");
@@ -93,6 +94,7 @@ static void AddBuildOptionOfDataType(const Tensor *input, const Tensor *output, 
             buildOptions.emplace("-DOUTPUT_TYPE16=half16");
             buildOptions.emplace("-DCONVERT_OUTPUT4=convert_half4");
             buildOptions.emplace("-DCONVERT_OUTPUT16=convert_half16");
+            buildOptions.emplace("-DOUTPUT_IS_HALF");
         }else{
             buildOptions.emplace("-DOUTPUT_TYPE=float");
             buildOptions.emplace("-DOUTPUT_TYPE4=float4");
@@ -123,6 +125,10 @@ bool converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(const Tensor *input, Tensor 
     std::set<std::string> buildOptions;
     AddBuildOptionOfDataType(input, output, buildOptions, precision, precision, true, false);
     auto convertBufferKernelW = runtime->buildKernelWithCache(sourceName, kernelName, buildOptions, precision);
+    if (nullptr == convertBufferKernelW) {
+        MNN_PRINT("Build kernel %s failed in converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer\n", kernelName.c_str());
+        return false;
+    }
     auto convertBufferKernel = convertBufferKernelW->get();
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
@@ -193,6 +199,10 @@ bool convertNC4HW4BufferBetweenNC16HW16Buffer(const Tensor *input, Tensor *outpu
             break;
     }
     auto convertBufferKernelW = runtime->buildKernelWithCache("buffer_convert_subgroup_buf", kernelName, buildOptions, precision);
+    if (nullptr == convertBufferKernelW) {
+        MNN_PRINT("Build kernel %s failed in convertNC4HW4BufferBetweenNC16HW16Buffer\n", kernelName.c_str());
+        return false;
+    }
     auto convertBufferKernel = convertBufferKernelW->get();
     uint32_t idx            = 0;
     int outputImageShape[2] = {input->height(), input->width()};
@@ -269,6 +279,10 @@ bool convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(const Tensor *input, Tensor
     std::set<std::string> buildOptions;
     AddBuildOptionOfDataType(input, output, buildOptions, precision, precision, false, true);
     auto convertBufferKernelW = runtime->buildKernelWithCache(sourceName, kernelName, buildOptions, precision);
+    if (nullptr == convertBufferKernelW) {
+        MNN_PRINT("Build kernel %s failed in convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer\n", kernelName.c_str());
+        return false;
+    }
     auto convertBufferKernel = convertBufferKernelW->get();
 
     uint32_t idx = 0;
@@ -377,6 +391,10 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
     }
 #endif
     mBufferToImageKernel = runtime->buildKernelWithCache(kernelFile, kernelName, buildOptions, precision, buffer, image);
+    if (nullptr == mBufferToImageKernel) {
+        MNN_PRINT("Build kernel %s failed in convertToNC4HW4Buffer\n", kernelName.c_str());
+        return false;
+    }
     auto kernel = mBufferToImageKernel->get();
 
     uint32_t idx = 0;
@@ -442,6 +460,10 @@ bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime
         int region[] = {outputShape[0], ROUND_UP(outputShape[3], 4), outputShape[1], outputShape[2]};//nchw
         
         auto kernelW = runtime->buildKernelWithCache("raster_buf", "buffer_set_zero", {}, backend_precison, output, output);
+        if (nullptr == kernelW) {
+            MNN_PRINT("Build kernel buffer_set_zero failed in convertBufferToBuffer\n");
+            return false;
+        }
         auto kernel = kernelW->get();
         uint32_t lws[2] = {8, 8};
         uint32_t gws[2] = {(uint32_t)UP_DIV((region[2] * region[3]), 8)*8, (uint32_t)UP_DIV((region[0] * region[1]), 8)*8};
@@ -470,6 +492,10 @@ bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime
         }
         AddBuildOptionOfDataType(input, output, buildOptions, input_precision, output_precision, toDevice, toHost);
         auto convertBufferKernelW = runtime->buildKernelWithCache("buffer_convert_buf", "buffer_copy_to_buffer", buildOptions, backend_precison);
+        if (nullptr == convertBufferKernelW) {
+            MNN_PRINT("Build kernel buffer_copy_to_buffer failed in convertBufferToBuffer\n");
+            return false;
+        }
         auto convertBufferKernel = convertBufferKernelW->get();
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
@@ -522,6 +548,10 @@ bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime
         buildOptions.emplace("-DOUTPUT_FORMAT=" + std::to_string(dstDimensionFormat));
         AddBuildOptionOfDataType(input, output, buildOptions, input_precision, output_precision, toDevice, toHost);
         auto convertBufferKernelW = runtime->buildKernelWithCache("buffer_convert_buf", "buffer_convert_to_buffer", buildOptions, backend_precison);
+        if (nullptr == convertBufferKernelW) {
+            MNN_PRINT("Build kernel buffer_convert_to_buffer failed in convertBufferToBuffer\n");
+            return false;
+        }
         auto convertBufferKernel = convertBufferKernelW->get();
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
@@ -619,6 +649,10 @@ bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCL
         }
     }else{
         MNN_PRINT("convertGLMemBetweenCLmem only support AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM or AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420!\n");
+        return false;
+    }
+    if (nullptr == kernelW) {
+        MNN_PRINT("Build kernel failed in convertBetweenAHDandCLmem\n");
         return false;
     }
     

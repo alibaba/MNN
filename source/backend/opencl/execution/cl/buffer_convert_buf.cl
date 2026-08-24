@@ -17,6 +17,36 @@
 #define MNN_DATA_FORMAT_NHWC 1
 #define MNN_DATA_FORMAT_NC4HW4 2
 #define MNN_DATA_FORMAT_C4NHW4 3
+
+// Some drivers reject direct scalar access to __global half* even with cl_khr_fp16
+// enabled ("Use vector data load builtin functions instead"), so half element access
+// goes through vload_half / vstore_half.
+#ifdef INPUT_IS_HALF
+#define MNN_LOAD_INPUT(ptr, idx) vload_half((idx), (ptr))
+#else
+#define MNN_LOAD_INPUT(ptr, idx) (ptr)[idx]
+#endif
+#ifdef OUTPUT_IS_HALF
+#define MNN_STORE_OUTPUT(val, ptr, idx) vstore_half((float)(val), (idx), (ptr))
+#else
+#define MNN_STORE_OUTPUT(val, ptr, idx) (ptr)[idx] = (val)
+#endif
+#ifdef INPUT_IS_HALF
+#define MNN_LOAD_INPUT4(ptr, elem_off) vload_half4((elem_off) / 4, (ptr))
+#else
+#define MNN_LOAD_INPUT4(ptr, elem_off) vload4((elem_off) / 4, (ptr))
+#endif
+#ifdef OUTPUT_IS_HALF
+#define MNN_STORE_OUTPUT4(val, ptr, elem_off) vstore_half4(convert_float4(val), (elem_off) / 4, (ptr))
+#else
+#define MNN_STORE_OUTPUT4(val, ptr, elem_off) vstore4((val), (elem_off) / 4, (ptr))
+#endif
+#ifdef MNN_SUPPORT_FP16
+#define MNN_LOAD_FLOAT(ptr, idx) vload_half((idx), (ptr))
+#else
+#define MNN_LOAD_FLOAT(ptr, idx) *((ptr) + (idx))
+#endif
+
 __kernel void buffer_convert_to_buffer(GLOBAL_SIZE_3_DIMS
                                     __global const INPUT_TYPE *input_ptr,
                                     __private const int4 shape, // N C H W
@@ -48,7 +78,7 @@ __kernel void buffer_convert_to_buffer(GLOBAL_SIZE_3_DIMS
     output_offset = ((((c / 4) * shape.x + n) * shape.z + h) * shape.w + w) * 4 + (c % 4);
 #endif
 
-    output_ptr[output_offset] = input_ptr[input_offset];
+    MNN_STORE_OUTPUT(MNN_LOAD_INPUT(input_ptr, input_offset), output_ptr, output_offset);
 }
 
 __kernel void buffer_copy_to_buffer(GLOBAL_SIZE_2_DIMS
@@ -65,11 +95,11 @@ __kernel void buffer_copy_to_buffer(GLOBAL_SIZE_2_DIMS
 #ifdef PACK_LEAVE
     if(offset + 3 >= size){
         for(int i = 0; i < size - offset; ++i){
-            output_ptr[offset + i] = (OUTPUT_TYPE)input_ptr[offset + i];
+            MNN_STORE_OUTPUT(MNN_LOAD_INPUT(input_ptr, offset + i), output_ptr, offset + i);
         }
     } else {
 #endif
-        vstore4(CONVERT_OUTPUT4(vload4(0, input_ptr+offset)), 0, output_ptr+offset);
+        MNN_STORE_OUTPUT4(CONVERT_OUTPUT4(MNN_LOAD_INPUT4(input_ptr, offset)), output_ptr, offset);
 #ifdef PACK_LEAVE
     }
 #endif
@@ -102,29 +132,29 @@ __kernel void conv2d_filter_buffer_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
         const int remain_channel = output_channel - output_channel_4_idx;
         if (remain_channel >= 4) {
             int offset      = buffer_offset;
-            output_values.x = (FLOAT)(*(input_ptr + offset));
+            output_values.x = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
             offset          = mad24(1, ic_h_w_size, offset);
-            output_values.y = (FLOAT)(*(input_ptr + offset));
+            output_values.y = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
             offset += ic_h_w_size;
-            output_values.z = (FLOAT)(*(input_ptr + offset));
+            output_values.z = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
             offset += ic_h_w_size;
-            output_values.w = (FLOAT)(*(input_ptr + offset));
+            output_values.w = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
         } else if (remain_channel == 3) {
             int offset      = buffer_offset;
-            output_values.x = (FLOAT)(*(input_ptr + offset));
+            output_values.x = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
             offset          = mad24(1, ic_h_w_size, offset);
-            output_values.y = (FLOAT)(*(input_ptr + offset));
+            output_values.y = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
             offset += ic_h_w_size;
-            output_values.z = (FLOAT)(*(input_ptr + offset));
+            output_values.z = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
 
         } else if (remain_channel == 2) {
             int offset      = buffer_offset;
-            output_values.x = (FLOAT)(*(input_ptr + offset));
+            output_values.x = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
             offset          = mad24(1, ic_h_w_size, offset);
-            output_values.y = (FLOAT)(*(input_ptr + offset));
+            output_values.y = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
         } else if (remain_channel == 1) {
             int offset      = buffer_offset;
-            output_values.x = (FLOAT)(*(input_ptr + offset));
+            output_values.x = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
         }
     }
     const int out_offset = (image_width_idx*height_width_size*((output_channel+3)/4)+image_height_idx)*4;
@@ -215,29 +245,29 @@ __kernel void dw_filter_buffer_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
         if (input_channel_4_idx < kernel_shape.y) {
             if (remain_channel >= 4) {
                 int offset      = buffer_offset;
-                output_values.x = (FLOAT)(*(input_ptr + offset));
+                output_values.x = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
                 offset += height_width_size;
-                output_values.y = (FLOAT)(*(input_ptr + offset));
+                output_values.y = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
                 offset += height_width_size;
-                output_values.z = (FLOAT)(*(input_ptr + offset));
+                output_values.z = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
                 offset += height_width_size;
-                output_values.w = (FLOAT)(*(input_ptr + offset));
+                output_values.w = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
             } else if (remain_channel == 3) {
                 int offset      = buffer_offset;
-                output_values.x = (FLOAT)(*(input_ptr + offset));
+                output_values.x = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
                 offset += height_width_size;
-                output_values.y = (FLOAT)(*(input_ptr + offset));
+                output_values.y = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
                 offset += height_width_size;
-                output_values.z = (FLOAT)(*(input_ptr + offset));
+                output_values.z = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
 
             } else if (remain_channel == 2) {
                 int offset      = buffer_offset;
-                output_values.x = (FLOAT)(*(input_ptr + offset));
+                output_values.x = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
                 offset += height_width_size;
-                output_values.y = (FLOAT)(*(input_ptr + offset));
+                output_values.y = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
             } else if (remain_channel == 1) {
                 int offset      = buffer_offset;
-                output_values.x = (FLOAT)(*(input_ptr + offset));
+                output_values.x = (FLOAT)MNN_LOAD_FLOAT(input_ptr, offset);
             }
         }
     }
