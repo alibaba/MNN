@@ -823,7 +823,7 @@ class AwqQuantizer:
         new_tokens = 0
         best_device = AwqQuantizer.get_best_device()
         inps = self.model.embedding(samples).to(best_device)
-        position_ids = self.model.get_position_ids(seq_len, new_tokens)
+        position_ids = self.model.get_position_ids(seq_len, new_tokens, input_ids=samples)
         rotary_pos_emb = self.model.rotary(position_ids)
         attention_mask = self.model.get_attention_mask(seq_len, new_tokens)
         layer_kwargs["rotary_pos_emb"] = rotary_pos_emb.to(best_device)
