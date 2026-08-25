@@ -219,9 +219,35 @@ public:
             return NULL;
         }
         auto axis = reduct->dim()->data()[0];
+        if (axis < 0) {
+            axis += inputs[0]->buffer().dimensions;
+        }
         int dim = inputs[0]->length(axis);
         std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
         if(dim == inputShape.at(3) && outputs[0]->buffer().dimensions == 1){
+            return NULL;
+        }
+        // Mirror the kernel-selection conditions in onEncode; if none matches,
+        // no kernel computes this shape correctly, so fall back (return NULL).
+        int inside = 1, outside = 1;
+        for (int i = 0; i < axis; ++i) {
+            outside *= inputs[0]->length(i);
+        }
+        for (int i = axis + 1; i < inputs[0]->dimensions(); ++i) {
+            inside *= inputs[0]->length(i);
+        }
+        int batch = inputShape.at(0);
+        int inputHeight = inputShape.at(1);
+        int inputWidth = inputShape.at(2);
+        int inputChannels = inputShape.at(3);
+        bool supported = (batch * inputHeight * inputChannels == outside && 1 == inside && dim == inputWidth) ||
+                         (batch * inputChannels == outside && inputWidth == inside && dim == inputHeight) ||
+                         (batch == outside && inputWidth * inputHeight == inside && dim == inputChannels);
+        // Batch reduce is only valid when the output keeps the input rank:
+        // dropping a dimension reinterprets the image layout and corrupts results.
+        bool batchSupported = (1 == outside && inputWidth * inputHeight * inputChannels == inside && dim == batch) &&
+                              outputs[0]->buffer().dimensions == inputs[0]->buffer().dimensions;
+        if (!supported && !batchSupported) {
             return NULL;
         }
         switch (op->main_as_ReductionParam()->operation()) {
