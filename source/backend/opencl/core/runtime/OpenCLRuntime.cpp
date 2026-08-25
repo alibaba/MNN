@@ -548,6 +548,7 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::strin
                 buildOptionsStr += " -DINPUT_TYPE=half";
                 buildOptionsStr += " -DINPUT_TYPE4=half4";
                 buildOptionsStr += " -DINPUT_TYPE16=half16";
+                buildOptionsStr += " -DINPUT_IS_HALF";
                 buildOptionsStr += " -DRI_DATA=read_imageh";
             }else{
                 buildOptionsStr += " -DINPUT_TYPE_I=float";
@@ -615,6 +616,7 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::strin
                 buildOptionsStr += " -DOUTPUT_TYPE16=half16";
                 buildOptionsStr += " -DCONVERT_OUTPUT4=convert_half4";
                 buildOptionsStr += " -DCONVERT_OUTPUT16=convert_half16";
+                buildOptionsStr += " -DOUTPUT_IS_HALF";
                 buildOptionsStr += " -DWI_DATA=write_imageh";
             }else{
                 buildOptionsStr += " -DOUTPUT_TYPE_I=float";
