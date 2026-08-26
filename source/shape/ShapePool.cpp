@@ -36,6 +36,11 @@ public:
         int outw   = 1;
         int outh   = 1;
         if (!layer->isGlobal()) {
+            if (layer->strideX() <= 0 || layer->strideY() <= 0) {
+                MNN_ERROR("Invalid pool parameter, strideX:%d, strideY:%d, all must be positive\n",
+                          layer->strideX(), layer->strideY());
+                return false;
+            }
             // when given explicit pad value in tensorflow mode pool, size compute will fast failed to help find problem
             if ((layer->padType() == PoolPadType_VALID || layer->padType() == PoolPadType_SAME) && (layer->padX() != 0 || layer->padY() != 0)) {
                 MNN_PRINT("tensorflow mode pool should not have explict pad value\n");
