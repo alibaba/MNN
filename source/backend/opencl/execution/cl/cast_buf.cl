@@ -10,6 +10,20 @@ __private const int global_size_dim0, __private const int global_size_dim1,
         return;                                                                                   \
     }
 
+// Some drivers reject direct scalar access to __global half* even with cl_khr_fp16
+// enabled ("Use vector data load builtin functions instead"), so half element access
+// goes through vload_half / vstore_half.
+#ifdef INPUT_IS_HALF
+#define MNN_LOAD_INPUT(ptr, idx) vload_half((idx), (ptr))
+#else
+#define MNN_LOAD_INPUT(ptr, idx) (ptr)[idx]
+#endif
+#ifdef OUTPUT_IS_HALF
+#define MNN_STORE_OUTPUT(val, ptr, idx) vstore_half((float)(val), (idx), (ptr))
+#else
+#define MNN_STORE_OUTPUT(val, ptr, idx) (ptr)[idx] = (val)
+#endif
+
 __kernel void cast_buf(GLOBAL_SIZE_2_DIMS
                             __global INPUT_TYPE* input,
                             __global OUTPUT_TYPE* output,
@@ -25,11 +39,11 @@ __kernel void cast_buf(GLOBAL_SIZE_2_DIMS
         int remain = size - inp_offset;
         for(int i = 0; i < remain; ++i){
             #ifdef TO_BOOL
-            int value = (int)input[inp_offset + i];
+            int value = (int)MNN_LOAD_INPUT(input, inp_offset + i);
             value = value == 0 ? 0 : 1;
-            output[inp_offset + i] = (OUTPUT_TYPE)value;
+            MNN_STORE_OUTPUT(value, output, inp_offset + i);
             #else
-            output[inp_offset + i] = (OUTPUT_TYPE)input[inp_offset + i];
+            MNN_STORE_OUTPUT(MNN_LOAD_INPUT(input, inp_offset + i), output, inp_offset + i);
             #endif
         }
     }else {

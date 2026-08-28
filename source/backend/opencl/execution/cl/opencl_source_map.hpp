@@ -436,6 +436,6 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"layernorm", "cb8407523a01be58b5c74e6ef706113b"},
     {"gemm_conv1x1_buf", "33694bd346b3ef7f8308cb1b3fbbc9c5"},
     {"winogradTransformDest2_5_1", "4f3d0d6b3e0ee7f0bff97acfbbdf653f"},
-    {"cast_buf", "f39e5c1ca2fa4b39eac2af1c7934ba85"},
+    {"cast_buf", "dc9006924be8c60e392f0bf9dad4ef9e"},
     {"reduction", "e13e9d81d5712356f05703d44e9ec4c0"},
 };
