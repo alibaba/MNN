@@ -513,6 +513,6 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"buffer_convert_filter_buf", "a52e80929b3d840b741b5690c1b87c06"},
     {"layernorm", "cb8407523a01be58b5c74e6ef706113b"},
     {"winogradTransformDest2_5_1", "4f3d0d6b3e0ee7f0bff97acfbbdf653f"},
-    {"cast_buf", "f39e5c1ca2fa4b39eac2af1c7934ba85"},
+    {"cast_buf", "dc9006924be8c60e392f0bf9dad4ef9e"},
     {"reduction", "e13e9d81d5712356f05703d44e9ec4c0"},
 };
