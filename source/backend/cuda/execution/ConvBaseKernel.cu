@@ -58,7 +58,7 @@ __global__ void Im2Col_FilterC(
         size_t sy = oy * sh + ksy * dh- ph;
 
         const int ic_p = icDiv4 * pack;
-        size_t dst_offset = eIndex * l_p + kI * ic + iz;
+        size_t dst_offset = (size_t)eIndex * (size_t)l_p + (size_t)(kI * ic + iz);
 
         if (sx >= 0 && sx < iw) {
             if (sy >=0 && sy < ih) {
@@ -127,7 +127,7 @@ __global__ void Im2Col_FilterC_Vec4(
         const int ic_p = icDiv4 * pack;
 
         const int iz = iz_4 << 2;
-        size_t dst_offset = eIndex * l_p + kI * ic + iz;
+        size_t dst_offset = (size_t)eIndex * (size_t)l_p + (size_t)(kI * ic + iz);
 
         if (sx >= 0 && sx < iw) {
             if (sy >=0 && sy < ih) {
@@ -264,7 +264,7 @@ void callIm2ColPack(const void* input, void* output, const ConvolutionCommon::Im
     const int ih = info->ih;
     const int ic = info->ic;
 
-    size_t maxCount = e * lp;
+    size_t maxCount = (size_t)e * (size_t)lp;
     size_t block_num = runtime->blocks_num(maxCount);
     size_t block_size = runtime->threads_num();
 

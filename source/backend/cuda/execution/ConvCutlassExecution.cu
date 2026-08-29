@@ -283,7 +283,7 @@ ErrorCode ConvCutlassExecution::onExecute(const std::vector<Tensor*> &inputs, co
     // Im2col in Block
     for(int block_idx = 0; block_idx < mBlockNum; block_idx++) {
         if(mIsConv1x1S1D1P0 && mFp16Fp32MixInfer) {
-            size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
+            size_t maxCount = (size_t)mGemmInfo.elh[0] * (size_t)mGemmInfo.elhPad[1];
             callFloat2Half(input_addr, mIm2ColBuffer, maxCount, runtime);
         } else if (mNeedIm2Col) {
 
