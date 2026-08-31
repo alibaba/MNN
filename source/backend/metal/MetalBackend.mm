@@ -1684,6 +1684,7 @@ struct MetalContext {
     std::mutex pLock;
     MNNMetalContext* pContext;
     id<MTLDevice> pDevice;
+    size_t runtimeCount = 0;
 };
 static MetalContext* gContext = nullptr;
 MetalRuntime* MetalRuntime::create(const Backend::Info& info) {
@@ -1711,6 +1712,7 @@ MetalRuntime* MetalRuntime::create(const Backend::Info& info) {
     }
     auto mContext = (__bridge_retained void *)(gContext->pContext);
     auto rt = new MetalRuntime(mContext);
+    ++gContext->runtimeCount;
     rt->setGpuMode(info.gpuMode);
     if (nil != sharedContext.queue) {
         rt->setCommandQueue(sharedContext.queue, true);
@@ -1795,6 +1797,11 @@ MetalRuntime::MetalRuntime(void* context) {
 }
 
 MetalRuntime::~ MetalRuntime() {
+    {
+        std::unique_lock<std::mutex> _l(gContext->pLock);
+        MNN_ASSERT(gContext->runtimeCount > 0);
+        --gContext->runtimeCount;
+    }
     if(mContext) {
         CFRelease(mContext);
     }
@@ -2098,6 +2105,19 @@ private:
     id<MTLDevice> mDevice;
 };
 
+static int releaseMetalContext() {
+    if (gContext == nullptr) {
+        return 0;
+    }
+    std::unique_lock<std::mutex> lock(gContext->pLock);
+    if (gContext->runtimeCount != 0) {
+        return 1;
+    }
+    gContext->pContext = nil;
+    gContext->pDevice = nil;
+    return 0;
+}
+
 void registerMetalRuntimeCreator() {
     // according to
     // https://developer.apple.com/library/archive/documentation/DeviceInformation/Reference/iOSDeviceCompatibility/HardwareGPUInformation/HardwareGPUInformation.html
@@ -2117,6 +2137,10 @@ void registerMetalRuntimeCreator() {
     }
 }
 } // namespace MNN
+
+extern "C" int MNNMetalReleaseContext(void) {
+    return MNN::releaseMetalContext();
+}
 #else
 namespace MNN {
 void registerMetalRuntimeCreator() {
@@ -2124,6 +2148,9 @@ void registerMetalRuntimeCreator() {
 };
 int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor) {
     return -1;
+}
+extern "C" int MNNMetalReleaseContext(void) {
+    return 0;
 }
 
 #endif
