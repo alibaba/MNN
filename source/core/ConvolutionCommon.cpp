@@ -747,7 +747,9 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
                 MNN_PRINT("Alloc memory error for extract idst int8\n");
                 return nullptr;
             }
-            if(weightPtr != nullptr) {
+            // Low-bit decoding may return a temporary buffer even when the caller supplied
+            // weightPtr. Only the caller-owned buffer must be marked non-owning.
+            if (buffer == weightPtr) {
                 result->weight.set(buffer, false);
             } else {
                 result->weight.set(buffer, (int)weightLength);

@@ -52,6 +52,7 @@ struct MNNMetalTensorContent {
 };
 
 MNN_PUBLIC int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor);
+MNN_PUBLIC int MNNMetalReleaseContext(void);
 #endif
 
 #ifdef MNN_USER_SET_DEVICE
