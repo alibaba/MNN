@@ -550,7 +550,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     const int hn = z % head_num;
     int zin = hn / param.group;
 
-#if !defined(CAUSAL_TRI) && (defined(DEFAULT_MASK) || defined(ADD_MASK) || defined(SET_MASK))
+#if !defined(CAUSAL_TRI) && defined(DEFAULT_MASK)
     // Causal skip: if this M16xN16 tile lies entirely above the diagonal in the
     // causal-mask sense, the whole tile ends up as -FLT_MAX after masking anyway.
     // Write -FLT_MAX directly and exit to save all the QK matmul work on the upper
@@ -558,9 +558,11 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     // (With CAUSAL_TRI the host never launches these tiles and the CAUSAL_BOUND
     // softmax never reads the upper region, so this check is compiled out.)
     //
-    // Assumption: the mask provided by the LLM engine is causal-lower-triangular
-    // (which is always the case for standard causal LLM prefill).  For non-causal
-    // custom masks this optimization would over-mask.
+    // DEFAULT_MASK only: its semantics (no mask input + kv-cache) really are
+    // causal. ADD_MASK / SET_MASK carry an arbitrary per-element tensor mask --
+    // a vision encoder feeds an all-visible one and is fully bidirectional --
+    // so they must fall through to the per-element masked path below, otherwise
+    // every above-diagonal tile is silently dropped.
     {
         int tile_min_k_global = kv_start + slk * 16;
         int tile_max_q_absolute = (k_seq_len - q_seq_len) + seq_idx * q_seq_piece_len + slq * 16 + 15;

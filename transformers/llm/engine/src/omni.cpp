@@ -939,13 +939,22 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
         moduleInputs.push_back(weight_tensor);
     }
 #ifdef DEBUG_IMAGE
-    patches.fix(MNN::Express::VARP::CONSTANT);
-    patches->setName("patches");
-    position_ids.fix(MNN::Express::VARP::CONSTANT);
-    position_ids->setName("position_ids");
-    attention_mask.fix(MNN::Express::VARP::CONSTANT);
-    attention_mask->setName("attention_mask");
-    MNN::Express::Variable::save({patches, position_ids, attention_mask}, "input.mnn");
+    {
+        std::vector<MNN::Express::VARP> saveInputs;
+        for (int i = 0; i < (int)moduleInputs.size(); ++i) {
+            auto v = moduleInputs[i];
+            if (!v.fix(MNN::Express::VARP::CONSTANT)) {
+                MNN_ERROR("DEBUG_IMAGE: cannot materialize input %s, skip saving input.mnn\n", inputNames[i].c_str());
+                saveInputs.clear();
+                break;
+            }
+            v->setName(inputNames[i]);
+            saveInputs.push_back(v);
+        }
+        if (!saveInputs.empty()) {
+            MNN::Express::Variable::save(saveInputs, "input.mnn");
+        }
+    }
 #endif
     auto outputs = mVisionModule->onForward(moduleInputs);
     auto imageEmbedding = outputs[0];

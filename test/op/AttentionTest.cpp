@@ -626,6 +626,122 @@ SpeedAttentionTest() = default;
 
 MNNTestSuiteRegister(AttentionTest, "op/attention");
 
+// Non-causal attention with kv_cache=false driven by an explicit tensor mask --
+// the shape a ViT / vision-encoder export emits. AttentionTest's unit test 3
+// pairs kv_cache=false with *no* mask input, so this combination was previously
+// uncovered. Covers both an all-visible (all-zero ADD) mask and a row-varying
+// (causal ADD) mask, at mask rank 3 and 4.
+class AttentionNoCacheMaskTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        const float tol = (precision == 2) ? 0.05f : 0.01f;
+        bool pass = true;
+        for (int seqLen : {64, 100, 128, 660}) {
+            float vis3 = maxRelError(seqLen, 12, 12, 64, 3, false);
+            float vis4 = maxRelError(seqLen, 12, 12, 64, 4, false);
+            float row3 = maxRelError(seqLen, 12, 12, 64, 3, true);
+            float row4 = maxRelError(seqLen, 12, 12, 64, 4, true);
+            MNN_PRINT("[attention_nocache_mask] seq=%4d allvisible(3d/4d)=%.6f/%.6f rowvarying(3d/4d)=%.6f/%.6f "
+                      "(tol %.3f)\n",
+                      seqLen, vis3, vis4, row3, row4, tol);
+            if (!(vis3 < tol) || !(vis4 < tol) || !(row3 < tol) || !(row4 < tol)) {
+                pass = false;
+            }
+        }
+        return pass;
+    }
+
+private:
+    // maskRank: 3 = [1,seq,seq], 4 = [1,1,seq,seq]. The no-mask form is covered by
+    // AttentionTest unit test 3; CPUAttention does not support it yet.
+    // rowVarying: false = all-zero (fully visible) ADD mask; true = causal ADD mask,
+    // which only matches if the kernel reads the mask row belonging to each query.
+    static float maxRelError(int seqLen, int numHead, int kvNumHead, int headDim, int maskRank, bool rowVarying) {
+        const int group = numHead / kvNumHead;
+        const float scale = 1.0f / sqrtf((float)headDim);
+        const float kMaskNegative = -1e9f;
+
+        uint32_t state = 12345;
+        auto next = [&state]() {
+            state = state * 1103515245u + 12345u;
+            return (float)((state >> 16) % 2000) / 1000.0f - 1.0f;
+        };
+
+        auto Q = _Input({1, seqLen, numHead, headDim}, NCHW, halide_type_of<float>());
+        auto K = _Input({1, seqLen, kvNumHead, headDim}, NCHW, halide_type_of<float>());
+        auto V = _Input({1, seqLen, kvNumHead, headDim}, NCHW, halide_type_of<float>());
+
+        std::vector<float> q(seqLen * numHead * headDim), k(seqLen * kvNumHead * headDim),
+            v(seqLen * kvNumHead * headDim);
+        for (auto& x : q) x = next();
+        for (auto& x : k) x = next();
+        for (auto& x : v) x = next();
+        ::memcpy(Q->writeMap<float>(), q.data(), q.size() * sizeof(float));
+        ::memcpy(K->writeMap<float>(), k.data(), k.size() * sizeof(float));
+        ::memcpy(V->writeMap<float>(), v.data(), v.size() * sizeof(float));
+
+        std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
+        attention->type = MNN::OpType_Attention;
+        attention->main.type = MNN::OpParameter_AttentionParam;
+        attention->main.value = new MNN::AttentionParamT;
+        attention->main.AsAttentionParam()->kv_cache = false;
+
+        VARP Output;
+        {
+            auto Mask = (3 == maskRank) ? _Input({1, seqLen, seqLen}, NCHW, halide_type_of<float>())
+                                        : _Input({1, 1, seqLen, seqLen}, NCHW, halide_type_of<float>());
+            auto maskPtr = Mask->writeMap<float>();
+            for (int i = 0; i < seqLen; ++i) {
+                for (int j = 0; j < seqLen; ++j) {
+                    maskPtr[i * seqLen + j] = (rowVarying && j > i) ? kMaskNegative : 0.0f;
+                }
+            }
+            Output = Variable::create(Expr::create(attention.get(), {Q, K, V, Mask}));
+        }
+        auto got = Output->readMap<float>();
+        if (nullptr == got) {
+            MNN_ERROR("attention_nocache_mask: failed to map output\n");
+            return std::numeric_limits<float>::max();
+        }
+
+        std::vector<float> scores(seqLen);
+        float maxRel = 0.0f;
+        for (int h = 0; h < numHead; ++h) {
+            const int kvh = h / group;
+            for (int i = 0; i < seqLen; ++i) {
+                const int kEnd = rowVarying ? (i + 1) : seqLen;
+                float maxScore = -std::numeric_limits<float>::max();
+                for (int j = 0; j < kEnd; ++j) {
+                    float dot = 0.0f;
+                    for (int d = 0; d < headDim; ++d) {
+                        dot += q[(i * numHead + h) * headDim + d] * k[(j * kvNumHead + kvh) * headDim + d];
+                    }
+                    scores[j] = dot * scale;
+                    maxScore = std::max(maxScore, scores[j]);
+                }
+                float sum = 0.0f;
+                for (int j = 0; j < kEnd; ++j) {
+                    scores[j] = expf(scores[j] - maxScore);
+                    sum += scores[j];
+                }
+                for (int d = 0; d < headDim; ++d) {
+                    float acc = 0.0f;
+                    for (int j = 0; j < kEnd; ++j) {
+                        acc += scores[j] * v[(j * kvNumHead + kvh) * headDim + d];
+                    }
+                    acc /= sum;
+                    float out = got[(i * numHead + h) * headDim + d];
+                    float denom = std::max(fabsf(acc), 0.05f);
+                    maxRel = std::max(maxRel, fabsf(out - acc) / denom);
+                }
+            }
+        }
+        return maxRel;
+    }
+};
+
+MNNTestSuiteRegister(AttentionNoCacheMaskTest, "op/attention_nocache_mask");
+
 class AttentionC4Test : public AttentionTest {
 public:
     AttentionC4Test() = default;
