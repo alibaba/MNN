@@ -653,6 +653,8 @@ assert (table_out - ref).abs().max() < 1e-6
 | Kernel / 路径 | 隐式假设 | 违反后现象 | 相关开关 |
 |---|---|---|---|
 | `prefill_qk[_tensor]` CAUSAL_TRI 分支 + host 侧梯形 dispatch | mask 是 causal lower-triangular（下三角内 mask=0/pass，上三角内 mask=-inf/0） | 上三角"应参与"的位置被 host 侧完全跳过 dispatch，QK 值为脏值/未初始化 → softmax 归约错误 | `MNN_METAL_QK_CAUSAL_TRI=0` 完全回退 |
+| `prefill_qk` simdgroup-matrix 整 tile causal skip（`!CAUSAL_TRI` 分支） | 门控曾写成 `DEFAULT_MASK \|\| ADD_MASK \|\| SET_MASK`，即"有 mask 输入就假定 causal" | 非 causal 张量 mask（ViT 全可见 mask）被静默改成 causal：q 的前 16 行 tile 看不到后面的 key | 已修：收窄为仅 `DEFAULT_MASK` |
+| `attention_mask_offset` 的 `mask_q_len`（`MetalAttention.mm::_writeQKVParam`） | 曾从固定下标取 q 长度，即假定张量 mask 一定是 rank-4 `[b,h,q,k]` | rank-3 `[b,q,k]` 拿到 `mask_q_len=1` ⇒ 所有 q 行都读 mask 第 0 行；全零 mask 无害，逐行变化的 mask 静默错 | 已修：改取 mask 末两维 |
 | softmax `softmax_plane[_sg]` CAUSAL_BOUND 分支 | 每行 q 只归约 `[0, causal_base + q_local)` valid prefix，之后 zero-pad 32-align | 若实际语义中 `k > q + kv_off` 处仍应 valid，其归约值为 0 → attention 分布偏移 | 同上 |
 | `prefill_qkv[_tensor]` `av_k_upper` 早退 | AV K 循环截断到 tile 内最大 valid q 对应的 causal 上界 | k 超出 av_k_upper 位置的 P·V 贡献被忽略 | 同上 |
 | Fused `prefill_flash_attn`（MetalFlashAttnShader.hpp） | `in_bounds = (kv_col_abs <= q_abs + kv_valid_offset)` 硬编码 causal | 非 causal 位置直接被 `-INFINITY` mask 掉 | `MNN_ENABLE_FLASH_ATTN_PREFILL=0` 也无用 —— **FA 本身就有此假设** |

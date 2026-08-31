@@ -920,7 +920,8 @@ void AttentionBufExecution::_writeQKVParam(const std::vector<Tensor*>& inputs, i
     param->kv_align_len = mKvAlignNum;
     param->mask_batch = mHasTensorMask ? inputs[3]->length(0) : 1;
     param->mask_head_num = (mHasTensorMask && inputs[3]->dimensions() > 3) ? inputs[3]->length(1) : 1;
-    param->mask_q_len = (mHasTensorMask && inputs[3]->dimensions() > 3) ? inputs[3]->length(2) : 1;
+    // q/k are the mask's two trailing dims at any rank: [b,h,q,k] / [b,q,k] / [q,k].
+    param->mask_q_len = (mHasTensorMask && inputs[3]->dimensions() > 2) ? inputs[3]->length(inputs[3]->dimensions() - 2) : 1;
     param->mask_k_len = (mHasTensorMask && inputs[3]->dimensions() > 0) ? inputs[3]->length(inputs[3]->dimensions() - 1) : 1;
     if (mQuantValue && mKVQuantParameter != nullptr) {
         param->v_scale = mKVQuantParameter->vScale;
