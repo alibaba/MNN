@@ -299,7 +299,19 @@ void Llm::setSpeculativeConfig() {
             mInSpec = false;
             return;
         }
-        mDraftLength = mConfig->draft_predict_length();
+        if (specultive_type == "dflash") {
+            // DFlash verifies a full dflash_block_size block; pool/mask/tuning
+            // key off (mDraftLength+1, all_logits), so this must be block-1.
+            int block = mConfig->dflash_block_size();
+            mDraftLength = block > 1 ? block - 1 : 1;
+            if (mConfig->config_.contains("draft_predict_length") &&
+                mConfig->draft_predict_length() != mDraftLength) {
+                MNN_PRINT("Warning: draft_predict_length is ignored for DFlash; "
+                          "verify length is dflash_block_size=%d.\n", block);
+            }
+        } else {
+            mDraftLength = mConfig->draft_predict_length();
+        }
         mInSpec = true;
     }
 }
