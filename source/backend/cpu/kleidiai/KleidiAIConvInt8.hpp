@@ -31,13 +31,11 @@ public:
     // Whether the current CPU + convolution shape can be accelerated by KleidiAI.
     static bool isSupported(KernelType type, const Convolution2DCommon* common);
 
-    KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon,
-                     bool isDynamicQuant, KernelType kernelType, int32_t blockNum);
+    KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon, bool isDynamicQuant, KernelType kernelType, int32_t blockNum);
     virtual ~KleidiAIConvInt8();
-    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
-
 private:
     KleidiAIConvInt8(Backend* backend, const Op* op, const KleidiAIConvInt8& exe);
 
@@ -66,45 +64,73 @@ private:
                            void* rhsPacked) = nullptr;
         size_t (*lhsPackedSize)(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr) = nullptr;
         size_t (*lhsPackedOffset)(size_t mIdx, size_t k, size_t bl, size_t mr, size_t kr, size_t sr) = nullptr;
-        void (*runLhsQuantPack)(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr, const void* lhs,
-                                void* lhsQuantedPacked) = nullptr;
+        void (*runLhsQuantPack)(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr,
+                                const void* lhs, void* lhsQuantedPacked) = nullptr;
         // Handles both GEMV (m == 1) and GEMM internally.
-        void (*matmul)(size_t m, size_t n, size_t k, size_t bl, const void* lhsPacked, const void* rhsPacked, void* dst,
+        void (*matmul)(size_t m, size_t n, size_t k, size_t bl,
+                       const void* lhsPacked, const void* rhsPacked, void* dst,
                        size_t dstStrideRow, size_t dstStrideCol, float clampMin, float clampMax) = nullptr;
     };
 
     // Resolve mSme2/mDot/mI8mm from the CPU and fill mParam / mUkernel based on mKernelType.
     void configKernel();
 
-    // Kernel param accessors.
-    size_t getMr(size_t m = 1) const { return (m == 1) ? mParam.mKaiMrGemv : mParam.mKaiMrGemm; }
-    size_t getNr() const { return mParam.mKaiNr; }
-    size_t getKr() const { return mParam.mKaiKr; }
-    size_t getSr() const { return mParam.mKaiSr; }
-    size_t getNStep() const { return mParam.mKaiNStep; }
+    // Kernel param accessors. The (const KernelParam&) forms target an explicit kernel slot; the
+    // short forms use the primary slot (mParam). The slot forms let the hybrid path query the NEON slot.
+    size_t getMr(const KernelParam& p, size_t m) const { return (m == 1) ? p.mKaiMrGemv : p.mKaiMrGemm; }
+    size_t getNr(const KernelParam& p) const { return p.mKaiNr; }
+    size_t getKr(const KernelParam& p) const { return p.mKaiKr; }
+    size_t getSr(const KernelParam& p) const { return p.mKaiSr; }
+    size_t getNStep(const KernelParam& p) const { return p.mKaiNStep; }
+    size_t getMr(size_t m = 1) const { return getMr(mParam, m); }
+    size_t getNr() const { return getNr(mParam); }
+    size_t getKr() const { return getKr(mParam); }
+    size_t getSr() const { return getSr(mParam); }
+    size_t getNStep() const { return getNStep(mParam); }
     bool bSupportSme2() const { return mSme2; }
     static size_t getVecNumPerThread(size_t totalVec, size_t totalThread, size_t minStep);
-    static size_t getDstOffset(size_t mIdx, size_t nIdx, size_t n, size_t elementSize) {
-        return (nIdx * elementSize) + mIdx * (n * elementSize);
+    static size_t getDstOffset(size_t mIdx, size_t nIdx, size_t n, size_t elementSize) { return (nIdx * elementSize) + mIdx * (n * elementSize); }
+
+    // Rhs (weight) pack. The (u, p) overloads target an explicit kernel slot; the short forms use
+    // the primary slot (mUkernel / mParam).
+    size_t getRhsPackedSize(const Ukernel& u, const KernelParam& p, size_t n, size_t k, size_t bl) const;
+    size_t getRhsPackedOffset(const Ukernel& u, const KernelParam& p, size_t nIdx, size_t k, size_t bl) const;
+    void runRhsPack(const Ukernel& u, const KernelParam& p, size_t numGroups, size_t n, size_t k, size_t bl,
+                    const void* rhs, const void* scale, const void* zeroPoint, const void* bias, void* rhsPacked) const;
+    size_t getRhsPackedSize(size_t n, size_t k, size_t bl) const { return getRhsPackedSize(mUkernel, mParam, n, k, bl); }
+    size_t getRhsPackedOffset(size_t nIdx, size_t k, size_t bl) const { return getRhsPackedOffset(mUkernel, mParam, nIdx, k, bl); }
+    void runRhsPack(size_t numGroups, size_t n, size_t k, size_t bl,
+                    const void* rhs, const void* scale, const void* zeroPoint, const void* bias, void* rhsPacked) const {
+        runRhsPack(mUkernel, mParam, numGroups, n, k, bl, rhs, scale, zeroPoint, bias, rhsPacked);
     }
 
-    // Rhs (weight) pack.
-    size_t getRhsPackedSize(size_t n, size_t k, size_t bl) const;
-    size_t getRhsPackedOffset(size_t nIdx, size_t k, size_t bl) const;
-    void runRhsPack(size_t numGroups, size_t n, size_t k, size_t bl, const void* rhs, const void* scale,
-                    const void* zeroPoint, const void* bias, void* rhsPacked) const;
-
     // Lhs (activation) dynamic quant + pack.
-    size_t getLhsQuantedPackedSize(size_t m, size_t k, size_t bl) const;
-    size_t getLhsQuantedPackedOffset(size_t m, size_t mIdx, size_t k, size_t bl) const;
-    void runLhsQuantPack(size_t m, size_t k, size_t bl, size_t mr, const void* lhs, void* lhsQuantedPacked) const;
+    size_t getLhsQuantedPackedSize(const Ukernel& u, const KernelParam& p, size_t m, size_t k, size_t bl) const;
+    size_t getLhsQuantedPackedOffset(const Ukernel& u, const KernelParam& p, size_t m, size_t mIdx, size_t k, size_t bl) const;
+    void runLhsQuantPack(const Ukernel& u, const KernelParam& p, size_t m, size_t k, size_t bl, size_t mr,
+                         const void* lhs, void* lhsQuantedPacked) const;
+    size_t getLhsQuantedPackedSize(size_t m, size_t k, size_t bl) const { return getLhsQuantedPackedSize(mUkernel, mParam, m, k, bl); }
+    size_t getLhsQuantedPackedOffset(size_t m, size_t mIdx, size_t k, size_t bl) const { return getLhsQuantedPackedOffset(mUkernel, mParam, m, mIdx, k, bl); }
+    void runLhsQuantPack(size_t m, size_t k, size_t bl, size_t mr, const void* lhs, void* lhsQuantedPacked) const {
+        runLhsQuantPack(mUkernel, mParam, m, k, bl, mr, lhs, lhsQuantedPacked);
+    }
 
     // Matmul.
-    void runMatmul(size_t m, size_t n, size_t k, size_t bl, const void* lhsPacked, const void* rhsPacked, void* dst,
+    void runMatmul(const Ukernel& u, const KernelParam& p, size_t m, size_t n, size_t k, size_t bl,
+                   const void* lhsPacked, const void* rhsPacked, void* dst,
                    size_t dstStrideRow, size_t dstStrideCol, const float scalarMax, const float scalarMin) const;
+    void runMatmul(size_t m, size_t n, size_t k, size_t bl,
+                   const void* lhsPacked, const void* rhsPacked, void* dst,
+                   size_t dstStrideRow, size_t dstStrideCol, const float scalarMax, const float scalarMin) const {
+        runMatmul(mUkernel, mParam, m, n, k, bl, lhsPacked, rhsPacked, dst, dstStrideRow, dstStrideCol, scalarMax, scalarMin);
+    }
 
     std::shared_ptr<Tensor> mWeightInt8;
     std::shared_ptr<Tensor> mTempIm2ColBuffer;
+    // Secondary NEON slot, packed alongside the primary SME slot to enable concurrent SME+NEON
+    // execution (see onExecute). Only populated when mHybrid is true.
+    std::shared_ptr<Tensor> mWeightInt8Neon;
+    std::shared_ptr<Tensor> mTempIm2ColBufferNeon;
     std::shared_ptr<Tensor> mInputConvertBuffer;
     std::shared_ptr<Tensor> mOutputConvertBuffer;
     KernelType mKernelType = KernelType::KERNEL_TYPE_ERROR;
@@ -114,8 +140,15 @@ private:
     bool mI8mm = false;
     // True for channel-quantized types: the effective block length passed to the ukernels is k.
     bool mChnlQuant = false;
+    // True when both the primary SME slot and the secondary NEON slot are configured, enabling the
+    // hybrid path that runs an SME kernel and NEON kernels concurrently across threads.
+    bool mHybrid = false;
+    // True when the active primary slot is the NEON fallback rather than SME2.
+    bool mPrimaryIsNeon = false;
     KernelParam mParam;
     Ukernel mUkernel;
+    KernelParam mParamNeon;
+    Ukernel mUkernelNeon;
 };
 
 } // namespace MNN

@@ -76,7 +76,7 @@ void quantizeDequantize(std::vector<float>& weight, std::vector<float>& alpha, i
     }
 }
 
-bool runHybridInt4Case(const QuantCase& tc, BackendConfig::PrecisionMode precision) {
+bool runInt4Case(const QuantCase& tc, BackendConfig::PrecisionMode precision, int threadNumber = 1) {
     std::vector<float> weight((size_t)tc.oc * tc.ic);
     std::vector<float> bias(tc.oc);
     std::vector<float> input((size_t)tc.ic * tc.area);
@@ -99,7 +99,7 @@ bool runHybridInt4Case(const QuantCase& tc, BackendConfig::PrecisionMode precisi
         config.precision = precision;
         config.memory = BackendConfig::Memory_Low;
 
-        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, config, 1);
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, config, threadNumber);
         ExecutorScope scope(exe);
 
         RuntimeHint hint;
@@ -116,7 +116,8 @@ bool runHybridInt4Case(const QuantCase& tc, BackendConfig::PrecisionMode precisi
         y = _Convert(y, NCHW);
         const float* outPtr = y->readMap<float>();
         if (outPtr == nullptr) {
-            MNN_ERROR("KleidiAIInt4 readMap null for %s (enableKleidiAI=%d)\n", tc.tag, (int)enableKleidiAI);
+            MNN_ERROR("KleidiAIInt4 readMap null for %s (enableKleidiAI=%d, threads=%d)\n", tc.tag,
+                      (int)enableKleidiAI, threadNumber);
             return false;
         }
         out.assign(outPtr, outPtr + (size_t)tc.oc * tc.area);
@@ -131,7 +132,8 @@ bool runHybridInt4Case(const QuantCase& tc, BackendConfig::PrecisionMode precisi
 
     const float tol = (precision == BackendConfig::Precision_Low) ? 0.05f : 0.01f;
     if (!checkVectorByRelativeError<float>(outKleidiAI.data(), outRef.data(), (int)outRef.size(), tol)) {
-        MNN_ERROR("KleidiAIInt4 divergence for %s (precision=%d)\n", tc.tag, (int)precision);
+        MNN_ERROR("KleidiAIInt4 divergence for %s (precision=%d, threads=%d)\n", tc.tag, (int)precision,
+                  threadNumber);
         return false;
     }
     return true;
@@ -149,7 +151,7 @@ public:
             BackendConfig::Precision_Low,
         };
 
-        std::vector<QuantCase> baseCases = {
+        std::vector<QuantCase> cases = {
             // Symmetric per-channel (regression focus: IC=16/32/48 behavior).
             {16, 24, 1, 16, false, "sym-per-channel-f32-gemv-ic16"},
             {32, 24, 1, 32, false, "sym-per-channel-f32-gemv-ic32"},
@@ -159,6 +161,12 @@ public:
             // Asymmetric per-channel.
             {32, 24, 1, 32, true, "asym-per-channel-gemv"},
             {32, 24, 8, 32, true, "asym-per-channel-gemm"},
+            // These run at four threads below. N=64 has no non-empty mixed split, so it
+            // exercises all-NEON selection on SME2 targets.
+            {32, 64, 1, 32, true, "asym-per-channel-neon-only-gemv"},
+            {32, 64, 8, 32, true, "asym-per-channel-neon-only-gemm"},
+            // N=128 permits a one-panel SME + NEON split, which competes with all-NEON.
+            {32, 128, 1, 32, true, "asym-per-channel-neon-only-vs-hybrid-gemv"},
 
             // Per-block paths.
             {64, 24, 1, 32, false, "sym-per-block-gemv"},
@@ -168,9 +176,14 @@ public:
         };
 
         for (auto p : precisions) {
-            for (const auto& tc : baseCases) {
-                if (!runHybridInt4Case(tc, p)) {
+            for (const auto& tc : cases) {
+                if (!runInt4Case(tc, p)) {
                     MNN_ERROR("KleidiAI int4 e2e failed for %s\n", tc.tag);
+                    return false;
+                }
+                if (p == BackendConfig::Precision_Low && tc.asymmetric && tc.blockSize == tc.ic
+                    && !runInt4Case(tc, p, 4)) {
+                    MNN_ERROR("KleidiAI int4 multi-thread e2e failed for %s\n", tc.tag);
                     return false;
                 }
             }
