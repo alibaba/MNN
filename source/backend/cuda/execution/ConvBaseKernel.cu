@@ -197,19 +197,19 @@ __global__ void Float22BFloat16(const float* param,
 }
 #endif
 
-void callFloat2Half(const void* input, void* output, const int count, CUDARuntime* runtime) {
-    int thread_count = count / 4;
-    int block_num = runtime->blocks_num(thread_count);
-    int block_size = runtime->threads_num();
+void callFloat2Half(const void* input, void* output, const size_t count, CUDARuntime* runtime) {
+    size_t thread_count = count / 4;
+    size_t block_num = runtime->blocks_num(thread_count);
+    size_t block_size = runtime->threads_num();
     Float22Half2<<<block_num, block_size>>>((const float*)input, (half *)output, thread_count);
     checkKernelErrors;
 }
 
 #ifdef ENABLE_CUDA_BF16
-void callFloat2BFloat16(const void* input, void* output, const int count, CUDARuntime* runtime) {
-    int thread_count = count / 4;
-    int block_num = runtime->blocks_num(thread_count);
-    int block_size = runtime->threads_num();
+void callFloat2BFloat16(const void* input, void* output, const size_t count, CUDARuntime* runtime) {
+    size_t thread_count = count / 4;
+    size_t block_num = runtime->blocks_num(thread_count);
+    size_t block_size = runtime->threads_num();
     Float22BFloat16<<<block_num, block_size>>>((const float*)input, (__nv_bfloat16 *)output, thread_count);
     checkKernelErrors;
 }
@@ -302,6 +302,15 @@ void callIm2ColPack(const void* input, void* output, const ConvolutionCommon::Im
             return;
             #endif
         }
+    }
+
+    // The non-vectorized path relies on int-based DivModFast indexing, which
+    // becomes invalid once maxCount exceeds 2^31-1 (the grid index itself
+    // truncates and the magic division is no longer valid). Fail loudly
+    // instead of silently corrupting output.
+    if (maxCount > (size_t)2147483647LL) {
+        MNN_ERROR("Im2Col non-vectorized path does not support maxCount > 2^31-1\n");
+        return;
     }
 
     if(precision == 1) {
