@@ -68,8 +68,10 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
     const int weightSize = co * kh * kw * ci;
     if (ci <= 0) {
         MNN_ERROR("Conv2D weight has invalid input channel:%d\n", ci);
+        dstOp->type = MNN::OpType_MAX;
+        return;
     }
-    if (inputShape.size() == 4 && ci > 0 && inputShape[3] > ci) {
+    if (inputShape.size() == 4 && inputShape[3] > ci) {
         group = inputShape[3] / ci;
     }
     if (quantizedModel == 1) { // UINT8_QUANT
