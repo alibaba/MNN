@@ -27,6 +27,7 @@ class MNNLM(HFLM):
         self.delta = None
         self.peft = None
         self.softmax_dtype = torch.float32
+        self.enable_thinking = None
 
     def tok_encode(
         self, string: str, left_truncate_len=None, add_special_tokens=None
@@ -43,6 +44,7 @@ class MNNLM(HFLM):
         lm_logits_list = []
         for ids in inps:
             ids_list = ids.tolist()
+            self._model.reset()
             logits = self._model.forward(ids_list)
             npy_logits = copy.deepcopy(logits.read())
             torch_logits = torch.from_numpy(npy_logits)

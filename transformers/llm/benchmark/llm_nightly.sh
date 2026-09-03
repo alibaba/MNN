@@ -53,7 +53,7 @@ python transformers/llm/eval/evaluate_perplexity.py -m ./model/config.json | tee
 
 # 7. Eval Test
 echo ">>> Running Eval Test for Qwen3-0.6B..."
-python transformers/llm/eval/llm_eval.py -m ./model/config.json -d arc_challenge,ceval-valid --limit 20
+python transformers/llm/eval/llm_eval.py -m ./model/config.json -d arc_challenge,ceval-valid
 
 # 8. Report Summary to Aone CI
 echo ">>> Nightly Test Report"
