@@ -377,10 +377,13 @@ struct CoreFunctions {
                                float beta, float kq, size_t dk, size_t dv);
     float (*MNNNormalizeQKAndDot)(float* q, float* k, float qScale, bool useL2Norm, size_t dk);
     void (*MNNCountMaxMinValue)(const float* source, float* minVal, float* maxVal, size_t size);
-    // Packed layout is [channelUnit, batch, pack]. residual and sum are an optional pair; threads split batch work.
-    void (*MNNNormPacked)(float* dest, float* sum, const float* source, const float* residual, const float* gamma,
-                          const float* beta, float epsilon, size_t batch, size_t channels, bool RMSNorm, int tId,
-                          int threadNumber);
+    // Packed layout [UP_DIV(channels, pack), batch, pack] for source/residual/sumOut/
+    // normOut; gamma/beta are [channels]. sumOut (outputs[0], the source+residual sum)
+    // and residual are an optional pair, null for the plain form. normOut is outputs[1]
+    // when a sum is produced, outputs[0] otherwise. Threads split batch work.
+    void (*MNNNormPacked)(float* normOut, float* sumOut, const float* source, const float* residual,
+                          const float* gamma, const float* beta, float epsilon, size_t batch, size_t channels,
+                          bool RMSNorm, int tId, int threadNumber) = nullptr;
     void (*MNNDynamicUpdateConvBiasScale)(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero,
                                           size_t ocQuad);
     void (*MNNAsyQuantInfo)(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax,

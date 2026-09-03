@@ -4773,10 +4773,10 @@ static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven,
 }
 
 template <int Pack>
-static void MNNNormPackedFloat(float* dest, float* sum, const float* source, const float* residual,
+static void MNNNormPackedFloat(float* normOut, float* sumOut, const float* source, const float* residual,
                                const float* gamma, const float* beta, float epsilon, size_t batch, size_t channels,
                                bool RMSNorm, int tId, int threadNumber) {
-    MNN_ASSERT((residual == nullptr) == (sum == nullptr));
+    MNN_ASSERT((residual == nullptr) == (sumOut == nullptr));
     MNN_ASSERT(threadNumber > 0);
     constexpr int tokenTile = 4;
     const size_t channelUnit = UP_DIV(channels, Pack);
@@ -4816,7 +4816,7 @@ static void MNNNormPackedFloat(float* dest, float* sum, const float* source, con
                     if (affine) {
                         value = vmlaq_f32(betaValue, value, gammaValue);
                     }
-                    vst1q_f32(dest + offset, value);
+                    vst1q_f32(normOut + offset, value);
                 }
             }
         }
@@ -4836,15 +4836,15 @@ static void MNNNormPackedFloat(float* dest, float* sum, const float* source, con
                         float value = source[offset + lane];
                         if (residual != nullptr) {
                             value += residual[offset + lane];
-                            sum[offset + lane] = value;
+                            sumOut[offset + lane] = value;
                         }
                         if (!RMSNorm) {
                             means[token] += value;
                         }
                     }
-                    if (sum != nullptr) {
+                    if (sumOut != nullptr) {
                         for (size_t lane = valid; lane < Pack; ++lane) {
-                            sum[offset + lane] = 0.0f;
+                            sumOut[offset + lane] = 0.0f;
                         }
                     }
                 }
@@ -4855,7 +4855,7 @@ static void MNNNormPackedFloat(float* dest, float* sum, const float* source, con
                 }
             }
         }
-        const float* normSource = sum != nullptr ? sum : source;
+        const float* normSource = sumOut != nullptr ? sumOut : source;
         float squareSums[tokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
         for (size_t block = 0; block < channelUnit; ++block) {
             const size_t valid = ALIMIN(static_cast<size_t>(Pack), channels - block * Pack);
@@ -4882,10 +4882,10 @@ static void MNNNormPackedFloat(float* dest, float* sum, const float* source, con
                     if (gamma != nullptr && beta != nullptr) {
                         value = value * gamma[channel] + beta[channel];
                     }
-                    dest[offset + lane] = value;
+                    normOut[offset + lane] = value;
                 }
                 for (size_t lane = valid; lane < Pack; ++lane) {
-                    dest[offset + lane] = 0.0f;
+                    normOut[offset + lane] = 0.0f;
                 }
             }
         }

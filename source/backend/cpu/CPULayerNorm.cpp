@@ -83,7 +83,7 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*>& inputs, const std:
         bytes = 1;
     }
 
-    if (mNeedUnpackC4 && (bytes == 2 || bytes == 4)) {
+    if (mLayoutC4 && (bytes == 2 || bytes == 4)) {
         const int batch = inputs[0]->length(0);
         const int channel = inputs[0]->length(1);
         auto inputPtr = inputs[0]->host<uint8_t>();
@@ -131,66 +131,27 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*>& inputs, const std:
             }
             return NO_ERROR;
         }
-        if (bytes == 4) {
-            auto inputFloat = reinterpret_cast<const float*>(inputPtr);
-            auto outputFloat = reinterpret_cast<float*>(outputPtr);
-            auto input1Float = reinterpret_cast<const float*>(input1Ptr);
-            auto output1Float = reinterpret_cast<float*>(output1Ptr);
-            if (core->MNNNormPacked == nullptr) {
-                return NOT_SUPPORT;
-            }
-            constexpr int tokenTile = 4;
-            const int packedTaskCount = core->pack == 4 ? UP_DIV(batch, tokenTile) : batch;
-            const int packedThreadNumber = ALIMIN(threadNumber, packedTaskCount);
-            MNN_CONCURRENCY_BEGIN(tId, packedThreadNumber) {
-                core->MNNNormPacked(output1Float != nullptr ? output1Float : outputFloat,
-                                    output1Float != nullptr ? outputFloat : nullptr, inputFloat, input1Float, gamma,
-                                    beta, mResource->mEpsilon, batch, channel, mResource->mRMSNorm, tId,
-                                    packedThreadNumber);
-            }
-            MNN_CONCURRENCY_END();
-            return NO_ERROR;
+        if (core->MNNNormPacked == nullptr) {
+            return NOT_SUPPORT;
         }
-        auto unpackedInput = mTmpUnpackedInput.ptr();
-        auto unpackedOutput = mTmpUnpackedOutput.ptr();
-        int unpackOffset[2] = {batch, channel};
-        core->MNNUnpackCUnitTranspose(reinterpret_cast<float*>(unpackedInput), reinterpret_cast<const float*>(inputPtr),
-                                      batch, channel, unpackOffset);
-        if (input1Ptr != nullptr) {
-            core->MNNUnpackCUnitTranspose(reinterpret_cast<float*>(unpackedOutput),
-                                          reinterpret_cast<const float*>(input1Ptr), batch, channel, unpackOffset);
-        }
-        auto unpackedInputLowp = reinterpret_cast<int16_t*>(unpackedInput);
-        auto unpackedOutputLowp = reinterpret_cast<int16_t*>(unpackedOutput);
-        MNN_CONCURRENCY_BEGIN(ttId, threadNumber) {
-            auto tmpInput = reinterpret_cast<float*>(mTmpInputFloat.ptr() + ttId * channel * sizeof(float));
-            auto tmpOutput = reinterpret_cast<float*>(mTmpOutputFloat.ptr() + ttId * channel * sizeof(float));
-            for (int n = ttId; n < batch; n += threadNumber) {
-                auto inputRow = unpackedInputLowp + n * channel;
-                auto outputRow = unpackedOutputLowp + n * channel;
-                core->MNNLowpToFp32(inputRow, tmpInput, channel);
-                if (input1Ptr != nullptr) {
-                    core->MNNLowpToFp32(outputRow, tmpOutput, channel);
-                    for (int c = 0; c < channel; ++c) {
-                        tmpInput[c] += tmpOutput[c];
-                    }
-                    core->MNNFp32ToLowp(tmpInput, inputRow, channel);
-                }
-                MNNNorm(tmpOutput, tmpInput, gamma, beta, mResource->mEpsilon, channel, mResource->mRMSNorm);
-                core->MNNFp32ToLowp(tmpOutput, outputRow, channel);
-            }
+        // Packed-domain norm, fp32 and fp16 alike: no unpack/repack.
+        auto inputFloat = reinterpret_cast<const float*>(inputPtr);
+        auto outputFloat = reinterpret_cast<float*>(outputPtr);
+        auto input1Float = reinterpret_cast<const float*>(input1Ptr);
+        auto output1Float = reinterpret_cast<float*>(output1Ptr);
+        // Fused 2-out form: outputs[0] is the residual sum, outputs[1] the normalized
+        // result. Plain form: outputs[0] is the normalized result and there is no sum.
+        float* normOut = output1Float != nullptr ? output1Float : outputFloat;
+        float* sumOut = output1Float != nullptr ? outputFloat : nullptr;
+        // The fp16 kernel and the pack-4 fp32 kernel both walk 4-token tiles; the
+        // AVX2 / AVX512 fp32 kernels split per token.
+        const int tokenTile = (bytes == 4 && core->pack != 4) ? 1 : 4;
+        const int packedThreadNumber = ALIMIN(threadNumber, UP_DIV(batch, tokenTile));
+        MNN_CONCURRENCY_BEGIN(tId, packedThreadNumber) {
+            core->MNNNormPacked(normOut, sumOut, inputFloat, input1Float, gamma, beta, mResource->mEpsilon, batch,
+                                channel, mResource->mRMSNorm, tId, packedThreadNumber);
         }
         MNN_CONCURRENCY_END();
-        int packOffset[2] = {channel, batch};
-        if (output1Ptr != nullptr) {
-            core->MNNPackCUnitTranspose(reinterpret_cast<float*>(outputPtr),
-                                        reinterpret_cast<const float*>(unpackedInput), batch, channel, packOffset);
-            core->MNNPackCUnitTranspose(reinterpret_cast<float*>(output1Ptr),
-                                        reinterpret_cast<const float*>(unpackedOutput), batch, channel, packOffset);
-        } else {
-            core->MNNPackCUnitTranspose(reinterpret_cast<float*>(outputPtr),
-                                        reinterpret_cast<const float*>(unpackedOutput), batch, channel, packOffset);
-        }
         return NO_ERROR;
     }
 
@@ -229,7 +190,7 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*>& inputs, const std::
     mOutterSize = 1;
     mInnerSize = 1;
     const auto layout = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-    mNeedUnpackC4 = (layout == MNN_DATA_FORMAT_NC4HW4);
+    mLayoutC4 = (layout == MNN_DATA_FORMAT_NC4HW4);
     do {
         // Compute outter and inner
         int rank = inputs.at(0)->dimensions();
@@ -250,7 +211,7 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*>& inputs, const std::
         for (int i = rank - mResource->mAxis; i < rank; ++i) {
             mInnerSize *= inputs.at(0)->length(i);
         }
-        if (mResource->mIniGammaBeta && !mNeedUnpackC4) {
+        if (mResource->mIniGammaBeta && !mLayoutC4) {
             MNN_ASSERT(mResource->mGamma->size() == mInnerSize * sizeof(float));
         }
     } while (false);
@@ -260,25 +221,13 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*>& inputs, const std::
 
     const bool needFloatTemp = CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 ||
                                inputs[0]->getType().bytes() == 1 || bn->functions()->bytes != 4;
-    const bool needUnpackTemp = mNeedUnpackC4 && bn->functions()->bytes == 2;
     if (needFloatTemp) {
-        int tmpSize = mNeedUnpackC4 ? inputs[0]->length(1) : mInnerSize;
-        int tmpThreadNumber = mNeedUnpackC4 ? bn->threadNumber() : threadNumber;
+        int tmpSize = mLayoutC4 ? inputs[0]->length(1) : mInnerSize;
+        int tmpThreadNumber = mLayoutC4 ? bn->threadNumber() : threadNumber;
         mTmpInputFloat = buf->alloc(tmpThreadNumber * tmpSize * sizeof(float));
         mTmpOutputFloat = buf->alloc(tmpThreadNumber * tmpSize * sizeof(float));
-    }
-    if (needUnpackTemp) {
-        const int elementCount = inputs[0]->length(0) * inputs[0]->length(1);
-        mTmpUnpackedInput = buf->alloc(elementCount * sizeof(int16_t));
-        mTmpUnpackedOutput = buf->alloc(elementCount * sizeof(int16_t));
-    }
-    if (needFloatTemp) {
         buf->free(mTmpInputFloat);
         buf->free(mTmpOutputFloat);
-    }
-    if (needUnpackTemp) {
-        buf->free(mTmpUnpackedInput);
-        buf->free(mTmpUnpackedOutput);
     }
     return NO_ERROR;
 }

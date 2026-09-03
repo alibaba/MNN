@@ -320,8 +320,13 @@ public:
     }
 
     virtual bool run(int precision) {
-        return runOne(2, 8, false) && runOne(3, 5, false) && runOne(13, 1024, false) && runOne(2, 8, true) &&
-               runOne(3, 5, true) && runOne(13, 1024, true) && runOne(22, 128, true, true);
+        // batch == 1 takes the flat fast path instead of the packed kernel: at one token
+        // the packed offset degenerates to the channel index.
+        return runOne(1, 8, false) && runOne(1, 5, false) && runOne(1, 1024, false) && runOne(1, 12, true) &&
+               runOne(1, 1024, true) && runOne(1, 1020, true) && runOne(1, 128, true, true) &&
+               runOne(2, 8, false) && runOne(3, 5, false) && runOne(13, 1024, false) && runOne(5, 12, false) &&
+               runOne(2, 8, true) && runOne(3, 5, true) && runOne(13, 1024, true) && runOne(5, 12, true) &&
+               runOne(7, 1020, true) && runOne(22, 128, true, true);
     }
 };
 
@@ -371,8 +376,13 @@ public:
     }
 
     virtual bool run(int precision) {
-        return runOne(2, 8, false) && runOne(3, 5, false) && runOne(13, 1024, false) && runOne(2, 8, true) &&
-               runOne(3, 5, true) && runOne(13, 1024, true);
+        // batch == 1 is the decode shape: the fused 2-in/2-out op on a single token,
+        // which takes the flat fast path rather than the packed kernel.
+        return runOne(1, 8, false) && runOne(1, 5, false) && runOne(1, 1024, false) && runOne(1, 12, true) &&
+               runOne(1, 1024, true) && runOne(1, 1020, true) &&
+               runOne(2, 8, false) && runOne(3, 5, false) && runOne(13, 1024, false) && runOne(5, 12, false) &&
+               runOne(2, 8, true) && runOne(3, 5, true) && runOne(13, 1024, true) && runOne(5, 12, true) &&
+               runOne(7, 1020, true);
     }
 };
 

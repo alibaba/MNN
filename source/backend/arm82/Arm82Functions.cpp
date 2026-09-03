@@ -257,6 +257,191 @@ static void MNNDecayRankOneUpdateFp16_Fp32Accum(float* S_, const float* k_, cons
         }
     }
 }
+
+// fp16 counterpart of MNNNormPackedFloat<Pack>, pack = 8.  Pointers are typed
+// `float*` for ABI uniformity with the fp32 slot; the memory is fp16 except for
+// gamma/beta, which CPULayerNorm keeps fp32 in every precision mode.
+//   source, residual  [UP_DIV(channels,8), batch, 8] fp16  addends, inputs[0..1]
+//   sumOut            [UP_DIV(channels,8), batch, 8] fp16  their sum, outputs[0]
+//   normOut           [UP_DIV(channels,8), batch, 8] fp16  normalized, outputs[1]
+//   gamma, beta       [channels]                    fp32  optional affine pair
+// residual/sumOut are an optional pair: both null for the plain 1-in/1-out form,
+// where source is normalized straight into normOut.
+//
+// sumOut is write-only: every statistic and normOut itself come from the fp32
+// sum recomputed by loadExact*, never from the fp16-rounded value stored there.
+static void MNNNormPackedFp16(float* normOut_, float* sumOut_, const float* source_, const float* residual_,
+                              const float* gamma, const float* beta, float epsilon, size_t batch, size_t channels,
+                              bool RMSNorm, int tId, int threadNumber) {
+    MNN_ASSERT((residual_ == nullptr) == (sumOut_ == nullptr));
+    MNN_ASSERT(threadNumber > 0);
+    constexpr size_t kPack = 8;
+    constexpr size_t kTokenTile = 4;
+    auto normOut = reinterpret_cast<__fp16*>(normOut_);
+    auto sumOut = reinterpret_cast<__fp16*>(sumOut_);
+    auto source = reinterpret_cast<const __fp16*>(source_);
+    auto residual = reinterpret_cast<const __fp16*>(residual_);
+
+    const size_t fullBlocks = channels / kPack;
+    const size_t remain = channels - fullBlocks * kPack;
+    const size_t tileCount = UP_DIV(batch, kTokenTile);
+    const bool affine = gamma != nullptr && beta != nullptr;
+    const float invChannels = 1.0f / static_cast<float>(channels);
+    // RMSNorm needs no mean, so pass 1 can accumulate the squares itself and pass 2
+    // drops out; the fp32 recompute in pass 3 then costs no more loads than a
+    // read-back of sumOut would have.
+    const bool squaresFromPass1 = RMSNorm && residual != nullptr;
+
+    auto loadExactPair = [&](size_t offset) {
+        float32x4_t value = vcvt_f32_f16(vld1_f16(source + offset));
+        if (residual != nullptr) {
+            value = vaddq_f32(value, vcvt_f32_f16(vld1_f16(residual + offset)));
+        }
+        return value;
+    };
+    auto loadExactLane = [&](size_t index) {
+        float value = static_cast<float>(source[index]);
+        if (residual != nullptr) {
+            value += static_cast<float>(residual[index]);
+        }
+        return value;
+    };
+
+    for (size_t tile = static_cast<size_t>(tId); tile < tileCount; tile += static_cast<size_t>(threadNumber)) {
+        const size_t tokenBase = tile * kTokenTile;
+        const size_t tokenCount = ALIMIN(kTokenTile, batch - tokenBase);
+        float means[kTokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
+        float32x4_t squareAcc[kTokenTile] = {vdupq_n_f32(0.0f), vdupq_n_f32(0.0f), vdupq_n_f32(0.0f),
+                                            vdupq_n_f32(0.0f)};
+        float squareSums[kTokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+        // ── Pass 1: store source + residual into `sumOut`, and accumulate either the
+        //    mean (LayerNorm) or the squares (RMSNorm).  Skipped entirely for the hot
+        //    RMSNorm-without-residual case.
+        if (residual != nullptr || !RMSNorm) {
+            float32x4_t meanAcc[kTokenTile] = {vdupq_n_f32(0.0f), vdupq_n_f32(0.0f), vdupq_n_f32(0.0f),
+                                              vdupq_n_f32(0.0f)};
+            for (size_t block = 0; block < fullBlocks; ++block) {
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (block * batch + tokenBase + token) * kPack;
+                    float32x4_t lo = loadExactPair(offset);
+                    float32x4_t hi = loadExactPair(offset + 4);
+                    if (residual != nullptr) {
+                        vst1_f16(sumOut + offset, vcvt_f16_f32(lo));
+                        vst1_f16(sumOut + offset + 4, vcvt_f16_f32(hi));
+                    }
+                    if (squaresFromPass1) {
+                        squareAcc[token] = vfmaq_f32(squareAcc[token], lo, lo);
+                        squareAcc[token] = vfmaq_f32(squareAcc[token], hi, hi);
+                    } else if (!RMSNorm) {
+                        meanAcc[token] = vaddq_f32(meanAcc[token], vaddq_f32(lo, hi));
+                    }
+                }
+            }
+            for (size_t token = 0; token < tokenCount; ++token) {
+                means[token] = vaddvq_f32(meanAcc[token]);
+            }
+            if (remain > 0) {
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (fullBlocks * batch + tokenBase + token) * kPack;
+                    for (size_t lane = 0; lane < remain; ++lane) {
+                        const float value = loadExactLane(offset + lane);
+                        if (residual != nullptr) {
+                            sumOut[offset + lane] = static_cast<__fp16>(value);
+                        }
+                        if (squaresFromPass1) {
+                            squareSums[token] += value * value;
+                        } else if (!RMSNorm) {
+                            means[token] += value;
+                        }
+                    }
+                    if (sumOut != nullptr) {
+                        for (size_t lane = remain; lane < kPack; ++lane) {
+                            sumOut[offset + lane] = static_cast<__fp16>(0.0f);
+                        }
+                    }
+                }
+            }
+            if (!RMSNorm) {
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    means[token] *= invChannels;
+                }
+            }
+        }
+
+        float32x4_t meanVec[kTokenTile];
+        for (size_t token = 0; token < tokenCount; ++token) {
+            meanVec[token] = vdupq_n_f32(means[token]);
+        }
+
+        // ── Pass 2: sum of squared deviations, unless pass 1 already has them.
+        if (!squaresFromPass1) {
+            for (size_t block = 0; block < fullBlocks; ++block) {
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (block * batch + tokenBase + token) * kPack;
+                    float32x4_t lo = vsubq_f32(loadExactPair(offset), meanVec[token]);
+                    float32x4_t hi = vsubq_f32(loadExactPair(offset + 4), meanVec[token]);
+                    squareAcc[token] = vfmaq_f32(squareAcc[token], lo, lo);
+                    squareAcc[token] = vfmaq_f32(squareAcc[token], hi, hi);
+                }
+            }
+            if (remain > 0) {
+                for (size_t token = 0; token < tokenCount; ++token) {
+                    const size_t offset = (fullBlocks * batch + tokenBase + token) * kPack;
+                    for (size_t lane = 0; lane < remain; ++lane) {
+                        const float diff = loadExactLane(offset + lane) - means[token];
+                        squareSums[token] += diff * diff;
+                    }
+                }
+            }
+        }
+        float invStds[kTokenTile] = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (size_t token = 0; token < tokenCount; ++token) {
+            const float squareSum = squareSums[token] + vaddvq_f32(squareAcc[token]);
+            invStds[token] = 1.0f / std::sqrt(squareSum * invChannels + epsilon);
+        }
+
+        // ── Pass 3: scale, affine, store.
+        for (size_t block = 0; block < fullBlocks; ++block) {
+            float32x4_t gammaLo, gammaHi, betaLo, betaHi;
+            if (affine) {
+                gammaLo = vld1q_f32(gamma + block * kPack);
+                gammaHi = vld1q_f32(gamma + block * kPack + 4);
+                betaLo = vld1q_f32(beta + block * kPack);
+                betaHi = vld1q_f32(beta + block * kPack + 4);
+            }
+            for (size_t token = 0; token < tokenCount; ++token) {
+                const size_t offset = (block * batch + tokenBase + token) * kPack;
+                float32x4_t lo = vsubq_f32(loadExactPair(offset), meanVec[token]);
+                float32x4_t hi = vsubq_f32(loadExactPair(offset + 4), meanVec[token]);
+                lo = vmulq_n_f32(lo, invStds[token]);
+                hi = vmulq_n_f32(hi, invStds[token]);
+                if (affine) {
+                    lo = vfmaq_f32(betaLo, lo, gammaLo);
+                    hi = vfmaq_f32(betaHi, hi, gammaHi);
+                }
+                vst1_f16(normOut + offset, vcvt_f16_f32(lo));
+                vst1_f16(normOut + offset + 4, vcvt_f16_f32(hi));
+            }
+        }
+        if (remain > 0) {
+            const size_t channelBase = fullBlocks * kPack;
+            for (size_t token = 0; token < tokenCount; ++token) {
+                const size_t offset = (fullBlocks * batch + tokenBase + token) * kPack;
+                for (size_t lane = 0; lane < remain; ++lane) {
+                    float value = (loadExactLane(offset + lane) - means[token]) * invStds[token];
+                    if (affine) {
+                        value = value * gamma[channelBase + lane] + beta[channelBase + lane];
+                    }
+                    normOut[offset + lane] = static_cast<__fp16>(value);
+                }
+                for (size_t lane = remain; lane < kPack; ++lane) {
+                    normOut[offset + lane] = static_cast<__fp16>(0.0f);
+                }
+            }
+        }
+    }
+}
 #endif // __aarch64__ && MNN_USE_NEON
 
 namespace MNN {
@@ -3042,6 +3227,13 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNFusedGatedDelta, MNNFusedGatedDeltaFp16);
 #endif
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
+
+#if defined(__aarch64__) && defined(MNN_USE_NEON)
+    // Packed-layout norm. Cannot inherit the base table's entry: that one assumes pack=4
+    // fp32 storage. Guarded like the kernel body; where it stays null CPULayerNorm's C4
+    // path reports NOT_SUPPORT rather than reading a stale fp32 entry.
+    FUNC_PTR_ASSIGN(gInstance->MNNNormPacked, MNNNormPackedFp16);
+#endif
 
     gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;
     gInstance->MNNComputeMatMulForE_1 = _MNNComputeMatMulForE_1_FP16;
