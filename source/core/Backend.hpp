@@ -230,6 +230,13 @@ public:
     }
 
     /**
+     * @brief mark an eligible virtual tensor for direct origin storage reference.
+     * The actual storage binding is deferred to onAcquire.
+     * @return true on success, or false when the virtual tensor must be materialized.
+     */
+    virtual bool onCreateVirtualTensorRef(Tensor* tensor) { return false; }
+
+    /**
      * @brief clear all dynamic buffers.
      * @return success or not.
      */

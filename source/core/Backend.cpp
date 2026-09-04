@@ -144,16 +144,28 @@ bool MNNCPUCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) {
 }
 
 bool Backend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
+    auto tensorDescribe = TensorUtils::getDescribeOrigin(tensor);
+    const bool virtualRef = TensorUtils::getDescribe(tensor)->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL_REF;
+    if (virtualRef) {
+        // Release a possible allocation left by an earlier resize before the backend attaches this tensor to the
+        // origin chunk. Releasing it after onAcquire may mutate the allocator graph that was just established.
+        tensorDescribe->mem = nullptr;
+    }
     auto mem = this->onAcquire(tensor, storageType);
     if (nullptr == mem) {
         return false;
     }
-    if (mem == TensorUtils::getDescribeOrigin(tensor)->mem.get()) {
+    mem->chunk().attach(const_cast<Tensor*>(tensor));
+    if (virtualRef) {
+        // A virtual ref only borrows the origin storage; don't retain the origin MemObj in the ref tensor.
         return true;
     }
-    TensorUtils::getDescribeOrigin(tensor)->mem = mem;
-    if (nullptr == TensorUtils::getDescribeOrigin(tensor)->getBackend()) {
-        TensorUtils::getDescribeOrigin(tensor)->setBackend(this);
+    if (mem == tensorDescribe->mem.get()) {
+        return true;
+    }
+    tensorDescribe->mem = mem;
+    if (nullptr == tensorDescribe->getBackend()) {
+        tensorDescribe->setBackend(this);
     }
     return true;
 }

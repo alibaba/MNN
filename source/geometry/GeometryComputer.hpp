@@ -23,11 +23,16 @@ public:
     }
     class MNN_PUBLIC Context {
     public:
-        Context(int mask, std::shared_ptr<Backend> allocBackend, MNNForwardType type = MNN_FORWARD_CPU, BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal, int gpuMode = 0, const Runtime* computeRuntime = nullptr);
+        Context(int mask, std::shared_ptr<Backend> allocBackend, std::shared_ptr<Backend> mainBackend,
+                BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal, int gpuMode = 0,
+                const Runtime* computeRuntime = nullptr);
+        Context(int mask, std::shared_ptr<Backend> backend,
+                BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal, int gpuMode = 0,
+                const Runtime* computeRuntime = nullptr)
+            : Context(mask, backend, backend, precision, gpuMode, computeRuntime) {}
         ~Context();
 
         void clear();
-        void setBackend(Backend* backend);
         void getRasterCacheCreateRecursive(Tensor* src, CommandBuffer& cmd);
 
         // If has cache, return. Otherwise create cache
@@ -35,9 +40,7 @@ public:
         std::shared_ptr<Tensor> allocConst(const Op* key, const std::vector<int>& shape, halide_type_t type,
                                            Tensor::DimensionType dimType = Tensor::TENSORFLOW);
         bool allocTensor(Tensor* tenosr);
-        inline MNNForwardType forwardType() const {
-            return mForwardType;
-        }
+        inline MNNForwardType forwardType() const { return mMainBackend->type(); }
         inline BackendConfig::PrecisionMode precisionType() const {
             return mPrecision;
         }
@@ -53,6 +56,7 @@ public:
         inline int runtimeStatus(RuntimeStatus statusEnum) const {
             return nullptr == mComputeRuntime ? 0 : mComputeRuntime->onGetRuntimeStatus(statusEnum);
         }
+        inline Backend* mainBackend() const { return mMainBackend.get(); }
         inline bool support(int option) const {
             return mMask & option;
         }
@@ -61,10 +65,9 @@ public:
     private:
         void getRasterCacheCreate(Tensor* src, CommandBuffer& cmd);
         std::map<const Op*, std::vector<std::shared_ptr<Tensor>>> mConstTensors;
-        std::vector<std::shared_ptr<Tensor>> mEmpty;
         std::vector<std::shared_ptr<Tensor>> mTempConstTensors;
-        std::shared_ptr<Backend> mBackend;
-        MNNForwardType mForwardType;
+        std::shared_ptr<Backend> mAllocBackend;
+        std::shared_ptr<Backend> mMainBackend;
         BackendConfig::PrecisionMode mPrecision;
         int mGpuMode;
         const Runtime* mComputeRuntime;

@@ -31,6 +31,10 @@ description: MNN Vulkan 后端 kernel/算子性能优化与新特性集成。覆
 
 10. **新特性必须有示例代码 + fallback**。集成 coop matrix / subgroup / 扩展时：(1) 要求用户提供可运行示例——不同 vendor 对同一特性行为可能不同；(2) 用 runtime 特性检测分发，保留原路径做 fallback，不支持的设备不受影响。
 
+11. **Virtual tensor Ref 仅限合法 Buffer view**。创建 Ref 前必须验证物理连续区域、descriptor range 与实际
+存储字节一致，并保证相对字节偏移满足 `minStorageBufferOffsetAlignment`；Vulkan Image、非对齐或带 padding
+的引用必须回退 Raster。
+
 ---
 
 ## 执行流程

@@ -7,6 +7,8 @@
 //
 
 #include "OpCommonUtils.hpp"
+#include <algorithm>
+#include <limits>
 #include "core/Execution.hpp"
 #include "MNN_generated.h"
 #include "Macro.h"
@@ -365,6 +367,183 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
     turnToPackRegion(region, c4Region, std::make_tuple(srcArea, inputChannel, inputBatch),
                      std::make_tuple(dstArea, dstChannel, dstBatch), pack, swapnc);
 }
+
+static bool _isContiguousRegionView(const Tensor::InsideDescribe::Region& region, size_t elementCount) {
+    if (region.origin == nullptr || region.src.offset < 0 || region.dst.offset != 0) {
+        return false;
+    }
+    size_t regionSize = 1;
+    for (int i = 0; i < 3; ++i) {
+        if (region.size[i] <= 0 || region.src.stride[i] < 0 || region.dst.stride[i] < 0) {
+            return false;
+        }
+        regionSize *= static_cast<size_t>(region.size[i]);
+    }
+    if (regionSize != elementCount) {
+        return false;
+    }
+    int64_t expectedStride = 1;
+    for (int i = 2; i >= 0; --i) {
+        if (region.size[i] > 1 && (region.src.stride[i] != expectedStride || region.dst.stride[i] != expectedStride)) {
+            return false;
+        }
+        expectedStride *= region.size[i];
+    }
+    return true;
+}
+
+static bool _isDensePackedRegion(const Tensor::InsideDescribe::Region& region, size_t packedCount) {
+    if (region.origin == nullptr || region.src.offset < 0 || region.dst.offset != 0) {
+        return false;
+    }
+    for (int i = 0; i < 3; ++i) {
+        if (region.size[i] > 1 && region.src.stride[i] != region.dst.stride[i]) {
+            return false;
+        }
+    }
+    auto isDense = [&](const int strides[3]) {
+        std::vector<std::pair<int, int>> axes;
+        size_t count = 1;
+        for (int i = 0; i < 3; ++i) {
+            if (region.size[i] <= 0 || strides[i] < 0) {
+                return false;
+            }
+            count *= static_cast<size_t>(region.size[i]);
+            if (region.size[i] > 1) {
+                axes.emplace_back(strides[i], region.size[i]);
+            }
+        }
+        if (count != packedCount) {
+            return false;
+        }
+        std::sort(axes.begin(), axes.end());
+        size_t expectedStride = 1;
+        for (const auto& axis : axes) {
+            if (static_cast<size_t>(axis.first) != expectedStride) {
+                return false;
+            }
+            expectedStride *= static_cast<size_t>(axis.second);
+        }
+        return expectedStride == packedCount;
+    };
+    return isDense(region.src.stride) && isDense(region.dst.stride);
+}
+
+bool OpCommonUtils::getSingleContiguousRegionView(const Tensor* tensor, const Tensor** origin, size_t* offsetElements,
+                                                  size_t* lengthElements, int pack, bool swapnc) {
+    if (tensor == nullptr || origin == nullptr || offsetElements == nullptr || lengthElements == nullptr) {
+        return false;
+    }
+    auto describe = TensorUtils::getDescribe(tensor);
+    if (describe->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL || describe->regions.size() != 1 ||
+        describe->rasterCommand.lock() != nullptr) {
+        return false;
+    }
+
+    auto region = describe->regions[0];
+    TensorUtils::FuseWrap fuseUtils;
+    while (region.origin != nullptr) {
+        auto originDescribe = TensorUtils::getDescribe(region.origin);
+        if (originDescribe->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+            break;
+        }
+        if (originDescribe->regions.size() != 1) {
+            return false;
+        }
+        const auto& parentRegion = originDescribe->regions[0];
+        if (_isContiguousRegionView(parentRegion, static_cast<size_t>(region.origin->elementSize()))) {
+            region.src.offset += parentRegion.src.offset;
+            region.origin = parentRegion.origin;
+            continue;
+        }
+        if (!fuseUtils.match(parentRegion, region)) {
+            return false;
+        }
+        fuseUtils.apply(parentRegion, region);
+    }
+
+    const auto elementCount = static_cast<size_t>(tensor->elementSize());
+    auto resolvedOrigin = region.origin;
+    if (resolvedOrigin == nullptr ||
+        TensorUtils::getDescribe(resolvedOrigin)->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        return false;
+    }
+    size_t resolvedOffset = static_cast<size_t>(region.src.offset);
+    auto tensorFormat = TensorUtils::getDescribe(tensor)->dimensionFormat;
+    auto originFormat = TensorUtils::getDescribe(resolvedOrigin)->dimensionFormat;
+    if (pack > 1 && tensorFormat == MNN_DATA_FORMAT_NC4HW4 && originFormat == MNN_DATA_FORMAT_NC4HW4) {
+        if (tensor->dimensions() < 2 || resolvedOrigin->dimensions() < 2 || tensor->length(1) % pack != 0 ||
+            resolvedOrigin->length(1) % pack != 0 || elementCount % pack != 0 ||
+            !OpCommonUtils::canBlitFast(region, tensor, pack, swapnc)) {
+            return false;
+        }
+        Tensor::InsideDescribe::Region packedRegion;
+        OpCommonUtils::turnToPackRegion(region, packedRegion, tensor, pack, swapnc);
+        if (!_isDensePackedRegion(packedRegion, elementCount / pack) || packedRegion.src.offset % pack != 0) {
+            return false;
+        }
+        resolvedOffset = static_cast<size_t>(packedRegion.src.offset);
+    } else if (!_isContiguousRegionView(region, elementCount)) {
+        return false;
+    }
+    if (resolvedOffset + elementCount > static_cast<size_t>(resolvedOrigin->elementSize())) {
+        return false;
+    }
+    *origin = resolvedOrigin;
+    *offsetElements = resolvedOffset;
+    *lengthElements = elementCount;
+    return true;
+}
+
+bool OpCommonUtils::getVirtualTensorRef(const Tensor* tensor, const Tensor** origin, size_t* offsetElements) {
+    if (tensor == nullptr) {
+        return false;
+    }
+    const auto describe = TensorUtils::getDescribe(tensor);
+    if (describe->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL_REF || describe->regions.size() != 1) {
+        return false;
+    }
+    const auto& region = describe->regions[0];
+    if (region.origin == nullptr || region.src.offset < 0) {
+        return false;
+    }
+    if (origin != nullptr) {
+        *origin = region.origin;
+    }
+    if (offsetElements != nullptr) {
+        *offsetElements = static_cast<size_t>(region.src.offset);
+    }
+    return true;
+}
+
+bool OpCommonUtils::setVirtualTensorRef(Tensor* tensor, const Tensor* origin, size_t offsetElements) {
+    if (tensor == nullptr || origin == nullptr) {
+        return false;
+    }
+    auto resolvedOrigin = origin;
+    while (TensorUtils::getDescribe(resolvedOrigin)->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL_REF) {
+        const Tensor* parentOrigin = nullptr;
+        size_t parentOffset = 0;
+        if (!getVirtualTensorRef(resolvedOrigin, &parentOrigin, &parentOffset) ||
+            offsetElements > std::numeric_limits<size_t>::max() - parentOffset) {
+            return false;
+        }
+        resolvedOrigin = parentOrigin;
+        offsetElements += parentOffset;
+    }
+    if (offsetElements > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+        return false;
+    }
+    Tensor::InsideDescribe::Region region;
+    region.origin = const_cast<Tensor*>(resolvedOrigin);
+    region.src.offset = static_cast<int32_t>(offsetElements);
+    auto describe = TensorUtils::getDescribe(tensor);
+    describe->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL_REF;
+    describe->regions = {region};
+    describe->rasterCommand.reset();
+    return true;
+}
+
 void OpCommonUtils::broastCastComputeDim(int* dims, int* stride, int* iStride0, int* iStride1, const Tensor* input0,
                                          const Tensor* input1, const Tensor* output) {
     for (int i = MNN_MAX_TENSOR_DIM - 1; i >= 0; --i) {

@@ -19,8 +19,12 @@ namespace MNN {
 GeometryComputer::Context::~Context() {
     // Do nothing
 }
-GeometryComputer::Context::Context(int mask, std::shared_ptr<Backend> allocBackend, MNNForwardType type, BackendConfig::PrecisionMode precision, int gpuMode, const Runtime* computeRuntime) : mMask(mask) {
-    mBackend       = allocBackend;
+GeometryComputer::Context::Context(int mask, std::shared_ptr<Backend> allocBackend,
+                                   std::shared_ptr<Backend> mainBackend, BackendConfig::PrecisionMode precision,
+                                   int gpuMode, const Runtime* computeRuntime)
+    : mMask(mask) {
+    mAllocBackend = allocBackend;
+    mMainBackend = mainBackend;
     flatbuffers::FlatBufferBuilder builder(32);
     OpBuilder opBuilder(builder);
     opBuilder.add_type(OpType_Raster);
@@ -28,7 +32,6 @@ GeometryComputer::Context::Context(int mask, std::shared_ptr<Backend> allocBacke
     builder.Finish(lastOffset);
     mRasterOp.reset(new BufferStorage);
     mRasterOp->storage = builder.ReleaseRaw(mRasterOp->allocated_size, mRasterOp->offset);
-    mForwardType = type;
     mPrecision = precision;
     mGpuMode = gpuMode;
     mComputeRuntime = computeRuntime;
@@ -40,8 +43,7 @@ void GeometryComputer::Context::clear() {
 const std::vector<std::shared_ptr<Tensor>>& GeometryComputer::Context::searchConst(const Op* op) {
     auto iter = mConstTensors.find(op);
     if (iter == mConstTensors.end()) {
-        mConstTensors.insert(std::make_pair(op, std::vector<std::shared_ptr<Tensor>>{}));
-        return mEmpty;
+        iter = mConstTensors.insert(std::make_pair(op, std::vector<std::shared_ptr<Tensor>>{})).first;
     }
     return iter->second;
 }
@@ -49,11 +51,11 @@ std::shared_ptr<Tensor> GeometryComputer::Context::allocConst(const Op* key, con
                                                               halide_type_t type, Tensor::DimensionType dimType) {
     std::shared_ptr<Tensor> tensor(Tensor::createDevice(shape, type, dimType));
     TensorUtils::getDescribe(tensor.get())->usage = Tensor::InsideDescribe::CONSTANT;
-    auto res                                      = mBackend->onAcquireBuffer(tensor.get(), Backend::STATIC);
+    auto res = mAllocBackend->onAcquireBuffer(tensor.get(), Backend::STATIC);
     if (!res) {
         return nullptr;
     }
-    TensorUtils::getDescribeOrigin(tensor.get())->setBackend(mBackend.get());
+    TensorUtils::getDescribeOrigin(tensor.get())->setBackend(mAllocBackend.get());
     auto iter = mConstTensors.find(key);
     if (iter != mConstTensors.end()) {
         iter->second.emplace_back(tensor);
@@ -64,12 +66,12 @@ std::shared_ptr<Tensor> GeometryComputer::Context::allocConst(const Op* key, con
 }
 
 bool GeometryComputer::Context::allocTensor(Tensor* tensor) {
-    auto res = mBackend->onAcquireBuffer(tensor, Backend::STATIC);
+    auto res = mAllocBackend->onAcquireBuffer(tensor, Backend::STATIC);
     if (!res) {
         return false;
     }
     TensorUtils::getDescribe(tensor)->usage = Tensor::InsideDescribe::CONSTANT;
-    TensorUtils::getDescribeOrigin(tensor)->setBackend(mBackend.get());
+    TensorUtils::getDescribeOrigin(tensor)->setBackend(mAllocBackend.get());
     return true;
 }
 
@@ -375,6 +377,32 @@ void GeometryComputer::Context::getRasterCacheCreate(Tensor* src, CommandBuffer&
     if (!_virtualMemory(srcDes)) {
         return;
     }
+    // Direct usage opt
+    auto backend = mMainBackend;
+    do {
+        if (!support(Interpreter::GEOMETRCOMPUTEMASK_VIRTUAL_TENSOR_REF)) {
+            break;
+        }
+        if (srcDes->usage == Tensor::InsideDescribe::OUTPUT || srcDes->usage == Tensor::InsideDescribe::CONSTANT) {
+            break;
+        }
+        bool backendTheSame = true;
+        for (auto& t : srcDes->regions) {
+            if (nullptr != t.origin) {
+                if (TensorUtils::getDescribe(t.origin)->group == -1) {
+                    backendTheSame = false;
+                    break;
+                }
+            }
+        }
+        if (!backendTheSame) {
+            break;
+        }
+        if (backend->onCreateVirtualTensorRef(src)) {
+            return;
+        }
+    } while (false);
+
     std::shared_ptr<Command> cmdP(new Command);
     auto& cmd = *cmdP;
     cmd.op = flatbuffers::GetRoot<Op>(mRasterOp->buffer());

@@ -24,6 +24,7 @@
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
 #import "core/TensorUtils.hpp"
+#import "core/OpCommonUtils.hpp"
 #include "MetalCache_generated.h"
 #include "core/MNNFileUtils.h"
 #import "backend/metal/MetalConvolution1x1.hpp"
@@ -192,10 +193,27 @@ static constexpr int kProfileSampleBufferCapacity = 1024;  // 512 encoders per c
 namespace MNN {
 
 static void _MetalApplyTensor(uint8_t* host, size_t offset, Tensor* t) {
+    const auto describe = TensorUtils::getDescribe(t);
+    if (describe->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL_REF) {
+        const Tensor* origin = nullptr;
+        size_t refOffsetElements = 0;
+        const auto valid = OpCommonUtils::getVirtualTensorRef(t, &origin, &refOffsetElements);
+        MNN_ASSERT(valid);
+        auto originDescribe = TensorUtils::getDescribeOrigin(origin);
+        if (originDescribe->getBackend() == nullptr || originDescribe->getBackend()->type() != MNN_FORWARD_METAL) {
+            return;
+        }
+        auto backend = static_cast<MetalBackend*>(originDescribe->getBackend());
+        const size_t bytes = backend->useFp16InsteadFp32() && t->getType().bits == 32 ? 2 : t->getType().bytes();
+        t->buffer().device = origin->deviceId();
+        auto tensorDescribe = TensorUtils::getDescribeOrigin(t);
+        tensorDescribe->offset = originDescribe->offset + refOffsetElements * bytes;
+        tensorDescribe->setBackend(backend);
+        return;
+    }
     // ptr of MetalBufferAlloc
     t->buffer().device = (uint64_t)host;
-    auto des = TensorUtils::getDescribeOrigin(t);
-    des->offset = offset;
+    TensorUtils::getDescribeOrigin(t)->offset = offset;
 }
 BufferAllocator* MetalRuntime::createDynamicAllocator(int index, bool secondResize) const {
     if (hint().memoryAllocatorType == Runtime::Allocator_Defer && secondResize) {
@@ -539,8 +557,51 @@ size_t MetalBackend::getTensorSizeInBytes(const Tensor* tensor) const {
     return size;
 }
 
+bool MetalBackend::onCreateVirtualTensorRef(Tensor* input) {
+    if (input == nullptr) {
+        return false;
+    }
+    const Tensor* origin = nullptr;
+    size_t offsetElements = 0;
+    size_t lengthElements = 0;
+    if (!OpCommonUtils::getSingleContiguousRegionView(input, &origin, &offsetElements, &lengthElements, 4, true)) {
+        return false;
+    }
+    const auto inputDescribe = TensorUtils::getDescribe(input);
+    const auto originDescribe = TensorUtils::getDescribe(origin);
+    if (inputDescribe->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 || origin->getType() != input->getType() ||
+        originDescribe->dimensionFormat != inputDescribe->dimensionFormat || inputDescribe->quantAttr != nullptr ||
+        inputDescribe->applyQuant || originDescribe->quantAttr != nullptr || originDescribe->applyQuant ||
+        input->getType().code != halide_type_float) {
+        return false;
+    }
+
+    if (!OpCommonUtils::setVirtualTensorRef(input, origin, offsetElements)) {
+        return false;
+    }
+    TensorUtils::setLinearLayout(input);
+    return true;
+}
+
 Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType storageType) {
     auto tensor  = const_cast<Tensor *>(_tensor);
+    const Tensor* refOrigin = nullptr;
+    size_t refOffsetElements = 0;
+    if (OpCommonUtils::getVirtualTensorRef(tensor, &refOrigin, &refOffsetElements)) {
+        auto originDescribe = TensorUtils::getDescribeOrigin(refOrigin);
+        auto originMem = originDescribe->mem.get();
+        if (originDescribe->getBackend() != this || originMem == nullptr) {
+            return nullptr;
+        }
+        const size_t bytes = mUseFloatAsFp16 && tensor->getType().bits == 32 ? 2 : tensor->getType().bytes();
+        const auto refOffsetBytes = refOffsetElements * bytes;
+        tensor->buffer().host = nullptr;
+        tensor->buffer().device = refOrigin->deviceId();
+        auto tensorDescribe = TensorUtils::getDescribeOrigin(tensor);
+        tensorDescribe->offset = originDescribe->offset + refOffsetBytes;
+        tensorDescribe->setBackend(this);
+        return originMem;
+    }
     size_t size = getTensorSizeInBytes(_tensor);
     if (0 == size) {
         return nullptr;
@@ -578,8 +639,6 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
             MNN_ERROR("onAcquireBuffer error!\n");
             return nullptr;
         }
-    } else {
-        buffer.attach(tensor);
     }
     if (nullptr == buffer.first) {
         _MetalApplyTensor((uint8_t*)(&mEmptyMem), 0, (Tensor*)_tensor);

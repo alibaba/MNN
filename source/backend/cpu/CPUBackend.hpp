@@ -121,6 +121,7 @@ public:
 
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
+    virtual bool onCreateVirtualTensorRef(Tensor* tensor) override;
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;

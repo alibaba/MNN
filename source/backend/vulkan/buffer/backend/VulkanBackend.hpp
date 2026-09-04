@@ -55,6 +55,7 @@ public:
     virtual ~VulkanBackend();
 
     virtual Backend::MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;
+    virtual bool onCreateVirtualTensorRef(Tensor* tensor) override;
     virtual bool onClearBuffer() override;
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
