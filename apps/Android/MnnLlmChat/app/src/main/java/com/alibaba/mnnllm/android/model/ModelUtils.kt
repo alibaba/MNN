@@ -120,14 +120,15 @@ object ModelUtils {
         if (metrics.containsKey("total_timeus")) {
             return generateDiffusionBenchMarkString(metrics)
         }
-        val promptLen = metrics.getOrDefault("prompt_len", 0L) as Long
-        val decodeLen = metrics.getOrDefault("decode_len", 0L) as Long
-        val prefillTimeUs = metrics.getOrDefault("prefill_time", 0L) as Long
-        val decodeTimeUs = metrics.getOrDefault("decode_time", 0L) as Long
-        var visionTimeUs = if (metrics.containsKey("vision_time")) metrics["vision_time"] as Long else 0L
-        var audioTimeUs = if (metrics.containsKey("audio_time")) metrics["audio_time"] as Long else 0L
+        val promptLen = metricLong(metrics, "prompt_len")
+        val inputLen = metricLong(metrics, "input_len").takeIf { it > 0L } ?: promptLen
+        val decodeLen = metricLong(metrics, "decode_len")
+        val prefillTimeUs = metricLong(metrics, "prefill_time")
+        val decodeTimeUs = metricLong(metrics, "decode_time")
+        var visionTimeUs = metricLong(metrics, "vision_time")
+        var audioTimeUs = metricLong(metrics, "audio_time")
         if (promptLen == 0L || decodeLen == 0L) {
-            return "generateBenchMarkString error"
+            return ""
         }
         // Calculate speeds in tokens per second
         var totalPrefillTimeUs = prefillTimeUs + visionTimeUs + audioTimeUs
@@ -135,15 +136,26 @@ object ModelUtils {
             if ((totalPrefillTimeUs > 0)) (promptLen / (totalPrefillTimeUs / 1000000.0)) else 0.0
         val decodeSpeed = if ((decodeTimeUs > 0)) (decodeLen / (decodeTimeUs / 1000000.0)) else 0.0
         return String.format(
-            "Prefill: %.2fs, %d tokens, %.2f tokens/s \nDecode: %.2fs, %d tokens, %.2f tokens/s",
+            "Input: %d tokens\nPrefill: %.2fs, %d tokens, %.2f tokens/s \nDecode: %.2fs, %d tokens, %.2f tokens/s",
+            inputLen,
             totalPrefillTimeUs.toFloat() / 1000000, promptLen, promptSpeed,
             decodeTimeUs.toFloat() / 1000000,decodeLen, decodeSpeed,
         )
     }
 
+    private fun metricLong(metrics: HashMap<String, Any>, key: String): Long {
+        return when (val value = metrics[key]) {
+            is Long -> value
+            is Int -> value.toLong()
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+    }
+
     @SuppressLint("DefaultLocale")
     fun generateDiffusionBenchMarkString(metrics: HashMap<String, Any>): String {
-        val totalDuration = metrics["total_timeus"] as Long * 1.0 / 1000000.0
+        val totalDuration = metricLong(metrics, "total_timeus") * 1.0 / 1000000.0
         return String.format("Generate time: %.2f s", totalDuration)
     }
 

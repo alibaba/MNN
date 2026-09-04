@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.llm;
 
 import android.util.Log
 import com.alibaba.mnnllm.android.llm.ChatService.Companion.provide
+import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
@@ -12,9 +13,7 @@ import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.getExtraCo
 import com.google.gson.Gson
 import timber.log.Timber
 import java.io.File
-import java.util.stream.Collectors
 import kotlin.concurrent.Volatile
-import android.util.Pair
 import com.alibaba.mnnllm.android.utils.MmapUtils
 import android.content.Context
 import android.app.ActivityManager
@@ -47,11 +46,14 @@ class LlmSession (
 
     private var isQnn = false
 
+    private var pendingSystemPrompt: String? = null
+
     override fun getHistory(): List<ChatDataItem>?{
         return savedHistory
     }
 
     override fun setHistory(history: List<ChatDataItem>?) {
+        savedHistory = history
     }
 
     override fun load() {
@@ -60,16 +62,6 @@ class LlmSession (
         isQnn = ModelTypeUtils.isQnnModel(modelId)
 
         checkAndMergeSplitFiles()
-        var historyStringList: List<String>? = null
-        val currentHistory = this.savedHistory
-        if (!currentHistory.isNullOrEmpty()) {
-            historyStringList =
-                    currentHistory.stream()
-                            .map { obj: ChatDataItem -> obj.text }
-                    .filter { obj: String? -> obj != null }
-                    .map { obj: String? -> obj!! }
-                    .collect(Collectors.toList())
-        }
         val config = if (useCustomConfig) {
             ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
         } else {
@@ -94,19 +86,23 @@ class LlmSession (
         if (backendType != null) {
             llmConfig.backendType = backendType
         }
+        llmConfig.promptCache = true
+        pendingSystemPrompt?.let {
+            llmConfig.systemPrompt = it
+        }
         if (isQnn) {
             llmConfig.visualModel = "visual_qnn_${QnnModule.modelMiddleName()}.mnn"
         }
         Log.d(TAG, "MNN_DEBUG load initNative")
         nativePtr = initNative(
-                configPath,
-                historyStringList,
-        if (llmConfig != null) {
-            Gson().toJson(llmConfig)
-        } else {
-            "{}"
-        },
-        Gson().toJson(configMap)
+            configPath,
+            buildNativeHistoryForRestore(),
+            if (llmConfig != null) {
+                Gson().toJson(llmConfig)
+            } else {
+                "{}"
+            },
+            Gson().toJson(configMap)
         )
         Log.d(TAG, "MNN_DEBUG load initNative end")
         modelLoading = false
@@ -117,6 +113,34 @@ class LlmSession (
         if (releaseRequested) {
             release()
         }
+    }
+
+    private fun buildNativeHistoryForRestore(): List<String>? {
+        val history = savedHistory.orEmpty()
+            .filter { it.type == ChatViewHolders.USER || it.type == ChatViewHolders.ASSISTANT }
+            .mapNotNull { item ->
+                val text = item.text?.takeIf { it.isNotBlank() }
+                    ?: item.displayText?.takeIf { it.isNotBlank() }
+                text?.let { item.type to it }
+            }
+        if (history.isEmpty()) return null
+
+        val restored = mutableListOf<Pair<Int, String>>()
+        var lastType: Int? = null
+        var totalChars = 0
+        for ((type, text) in history.asReversed()) {
+            if (type == lastType) continue
+            val trimmed = text.take(4_000)
+            if (totalChars + trimmed.length > 24_000) break
+            restored.add(type to trimmed)
+            totalChars += trimmed.length
+            lastType = type
+            if (restored.size >= 40) break
+        }
+        val ordered = restored.asReversed()
+            .dropWhile { it.first != ChatViewHolders.USER }
+            .dropLastWhile { it.first == ChatViewHolders.USER }
+        return ordered.map { it.second }.takeIf { it.isNotEmpty() }
     }
 
     /**
@@ -276,7 +300,10 @@ class LlmSession (
     }
 
     fun updateSystemPrompt(systemPrompt: String) {
-        updateSystemPromptNative(nativePtr, systemPrompt)
+        pendingSystemPrompt = systemPrompt
+        if (nativePtr != 0L) {
+            updateSystemPromptNative(nativePtr, systemPrompt)
+        }
     }
 
     override fun updateThinking(thinking: Boolean) {
@@ -382,6 +409,9 @@ class LlmSession (
     }
 
     fun getSystemPrompt(): String? {
+        if (nativePtr == 0L) {
+            return pendingSystemPrompt
+        }
         return getSystemPromptNative(nativePtr)
     }
 
