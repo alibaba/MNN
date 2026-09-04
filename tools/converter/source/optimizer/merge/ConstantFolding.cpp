@@ -30,6 +30,9 @@ ConstantFolding::ConstantFolding() {
             return false;
         }
         for (const VARP& input : expr->inputs()) {
+            if (nullptr == input.get() || nullptr == input->expr().first) {
+                return false;
+            }
             const Op* input_op = input->expr().first->get();
             if ((input_op && input_op->type() != OpType_Const) ||
                 (!input_op && input->expr().first->inputType() != VARP::CONSTANT)) {

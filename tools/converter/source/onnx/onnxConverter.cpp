@@ -127,6 +127,10 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
         const auto& onnxNode = onnxGraph.node(i);
         const auto& opType   = onnxNode.op_type();
 
+        if (onnxNode.output_size() <= 0) {
+            MNN_ERROR("[ERROR] Onnx node %d (%s) has no output\n", i, opType.c_str());
+            return 1;
+        }
         // name maybe null, use the first output name as node-name
         const auto& name = onnxNode.output(0);
         auto opConverter = onnxOpConverterSuit::get()->search(opType);
@@ -146,6 +150,13 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
         for (int k = 0; k < onnxNode.input_size(); k++) {
             int inputIdx = scope->lookupTensor(onnxNode.input(k));
             if (inputIdx < 0) {
+                // Empty name is ONNX optional input; keep -1 and drop trailing ones below.
+                if (!onnxNode.input(k).empty()) {
+                    MNN_ERROR("[ERROR] Onnx node %s input %d (%s) does not resolve\n",
+                              MNNOp->name.c_str(), k, onnxNode.input(k).c_str());
+                    delete MNNOp;
+                    return 1;
+                }
                 LOG(INFO) << "Check it out ==> " << MNNOp->name << " has empty input, the index is " << k;
             }
             MNNOp->inputIndexes.push_back(inputIdx);

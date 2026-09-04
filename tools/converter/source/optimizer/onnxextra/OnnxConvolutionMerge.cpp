@@ -14,9 +14,16 @@ namespace MNN {
 namespace Express {
 
 static int convSpatialDim(EXPRP expr) {
-    auto attrs = expr->get()->main_as_Extra()->attr();
+    auto extra = expr->get()->main_as_Extra();
+    if (nullptr == extra || nullptr == extra->attr()) {
+        return -1;
+    }
+    auto attrs = extra->attr();
     for (int i = 0; i < attrs->size(); ++i) {
         auto attr = attrs->GetAs<Attribute>(i);
+        if (nullptr == attr || nullptr == attr->key() || nullptr == attr->list() || nullptr == attr->list()->i()) {
+            continue;
+        }
         if (attr->key()->str() == "kernel_shape") {
             return attr->list()->i()->size();
         }
@@ -140,11 +147,11 @@ public:
         }
         auto inputs         = expr->inputs();
         const int inputSize = static_cast<int32_t>(inputs.size());
-        auto x            = inputs[0];
         if (inputSize != 3 && inputSize != 2) {
             MNN_ERROR("Convolution Input ERROR!\n");
             return nullptr;
         }
+        auto x            = inputs[0];
         auto weight = inputs[1];
         auto weight_expr = weight->expr().first;
         bool weightIden = false;

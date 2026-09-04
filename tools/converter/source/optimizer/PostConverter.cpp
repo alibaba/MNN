@@ -599,6 +599,10 @@ bool fuseConstIntoSubgraph(MNN::NetT* net, const std::vector<MNN::SubGraphProtoT
         subnet->outputName = outputNames;
 
         std::unique_ptr<MNN::NetT> new_subnet = optimizeNetImpl(subnet, empty);
+        if (nullptr == new_subnet) {
+            MNN_ERROR("Optimize failed: subgraph %s has no op\n", mutable_subgraph->name.c_str());
+            return false;
+        }
         mutable_subgraph->nodes               = std::move(subnet->oplists);
 
         MNN::SubGraphProtoT* new_subgraph = mutable_subgraph;
@@ -672,7 +676,15 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
     // then subgraph depend on it may convert failed (nullptr) or wrong (error shape)
     // RunOptimize won't use subgraph, so we can do it before other subgraph optimize safely
     std::unique_ptr<MNN::NetT> net = ctx.RunOptimize(originNet, empty);
+    if (nullptr == net) {
+        MNN_ERROR("Optimize failed: the model has no op\n");
+        return nullptr;
+    }
     auto program = Program::create(net.get(), true, true);
+    if (nullptr == program) {
+        MNN_ERROR("Optimize failed: cannot create program\n");
+        return nullptr;
+    }
     auto addVars = [&](std::shared_ptr<Program> program, const std::vector<std::string>& tensorName) {
         for (const auto& iter : program->vars()) {
             if (iter.first < tensorName.size() && iter.first >= 0) {
@@ -703,6 +715,10 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
         CompleteSubGraph(inputs, subgraph);
     }
     net = ctx.RunOptimize(net, empty);
+    if (nullptr == net) {
+        MNN_ERROR("Optimize failed: the model has no op\n");
+        return nullptr;
+    }
 
     fuseConstIntoSubgraph(net.get(), ctx.completed_subgraphs);
     for (auto* subgraph : ctx.completed_subgraphs) {

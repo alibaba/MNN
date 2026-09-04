@@ -62,6 +62,10 @@ void Program::createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputInd
         inputVars.emplace_back(varMap[input]);
     }
     auto expr = Expr::create(op, inputVars, outputIndexes.size());
+    if (nullptr == expr) {
+        MNN_ERROR("Create expr for op %s failed\n", op->name.c_str());
+        return;
+    }
     expr->setName(op->name);
     for (int j = 0; j < outputIndexes.size(); ++j) {
         if (op->type == OpType_Input) {
@@ -74,9 +78,11 @@ void Program::createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputInd
 //            int idx = outputIndexes[j];
             if (TensorDescribeName.find(newVar->name()) != TensorDescribeName.end()) {
                 int idx = TensorDescribeName[newVar->name()];
-                float scale = extraDescribes[idx]->quantInfo->scale;
-                float zero = extraDescribes[idx]->quantInfo->zero;
-                newVar->writeScaleMap(scale, zero);
+                if (idx >= 0 && idx < (int)extraDescribes.size() && extraDescribes[idx] && extraDescribes[idx]->quantInfo) {
+                    float scale = extraDescribes[idx]->quantInfo->scale;
+                    float zero = extraDescribes[idx]->quantInfo->zero;
+                    newVar->writeScaleMap(scale, zero);
+                }
             }
         }
         varMap[outputIndexes[j]] = newVar;
@@ -98,6 +104,10 @@ void Program::save(MNN::NetT* net) {
 }
 
 std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra, bool saveAllVars) {
+    if (nullptr == net) {
+        MNN_ERROR("Program::create: net is null\n");
+        return nullptr;
+    }
     return create(net->oplists, net->tensorName, net->outputName, supportExtra, saveAllVars, net);
 }
 

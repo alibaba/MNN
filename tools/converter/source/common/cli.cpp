@@ -700,6 +700,10 @@ bool Cli::convertModel(modelConfig& modelPath) {
     if (needOptimize) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
         finalNet = optimizeNet(netT, modelPath.forTraining, modelPath, expectedPass);
+        if (nullptr == finalNet) {
+            MNN_ERROR("[ERROR] Optimize failed.\n");
+            return false;
+        }
         if (finalNet->extraTensorDescribe.size()>0 && expectedPass.empty()) {
             MNN_PRINT("MNN net has tensor quant info\n");
             computeUnaryBuffer(finalNet.get());

@@ -16,12 +16,15 @@ static inline void **alignPointer(void **ptr, size_t alignment) {
 }
 
 extern "C" void *MNNMemoryAllocAlign(size_t size, size_t alignment) {
-    MNN_ASSERT(size > 0);
+    const size_t extra = sizeof(void *) + alignment;
+    if (0 == size || extra < alignment || size > SIZE_MAX - extra) {
+        return NULL;
+    }
 
 #ifdef MNN_DEBUG_MEMORY
     return malloc(size);
 #else
-    void **origin = (void **)malloc(size + sizeof(void *) + alignment);
+    void **origin = (void **)malloc(size + extra);
     MNN_ASSERT(origin != NULL);
     if (!origin) {
         return NULL;
@@ -34,12 +37,15 @@ extern "C" void *MNNMemoryAllocAlign(size_t size, size_t alignment) {
 }
 
 extern "C" void *MNNMemoryCallocAlign(size_t size, size_t alignment) {
-    MNN_ASSERT(size > 0);
+    const size_t extra = sizeof(void *) + alignment;
+    if (0 == size || extra < alignment || size > SIZE_MAX - extra) {
+        return NULL;
+    }
 
 #ifdef MNN_DEBUG_MEMORY
     return calloc(size, 1);
 #else
-    void **origin = (void **)calloc(size + sizeof(void *) + alignment, 1);
+    void **origin = (void **)calloc(size + extra, 1);
     MNN_ASSERT(origin != NULL)
     if (!origin) {
         return NULL;
