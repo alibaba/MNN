@@ -1,0 +1,140 @@
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_QCOM_cooperative_matrix_conversion : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_8bit_storage : require
+
+// Fused W8A8 cooperative-matrix GEMM and dequantization epilogue.
+// Each subgroup invocation extracts one accumulator row, applies asymmetric
+// quantization correction, bias and activation, then writes NC4HW4 output.
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+layout(constant_id = 3) const uint COOP_M = 64;
+layout(constant_id = 4) const uint COOP_N = 64;
+layout(constant_id = 5) const uint COOP_K = 32;
+layout(constant_id = 6) const uint A_COL_MAJOR = 0;
+layout(constant_id = 7) const uint B_COL_MAJOR = 1;
+layout(constant_id = 8) const uint A_BLOCK_LINEAR = 1;
+layout(constant_id = 9) const uint B_BLOCK_LINEAR = 0;
+layout(constant_id = 10) const uint ACTIVATION = 0; // 0:none 1:relu 2:relu6
+
+layout(binding = 0) readonly buffer MatrixA { int8_t A[]; };
+layout(binding = 1) readonly buffer MatrixB { int8_t B[]; };
+
+// Per-row activation quantization parameters, length padM.
+layout(binding = 2) readonly buffer ScaleActivation { FLOAT ScaleA[]; };
+layout(binding = 3) readonly buffer OffsetActivation { FLOAT OffsetA[]; };
+layout(binding = 4) readonly buffer SumActivation { int SumAq[]; };
+
+// Interleaved per-output-channel weight metadata, length 2 * padN.
+layout(binding = 5) readonly buffer WeightMeta { FLOAT4 MetaW[]; };
+layout(binding = 6) readonly buffer SumWeight { ivec4 SumWq[]; };
+layout(binding = 7) readonly buffer BiasBuffer { FLOAT4 Bias[]; };
+
+// NC4HW4 output: [n4, M, 4].
+layout(binding = 8) writeonly buffer OutputBuffer { FLOAT4 Out[]; };
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint N;
+    uint K;
+    uint padM;
+    uint padN;
+    uint padK;
+} pc;
+
+void main() {
+    const uint tileM = gl_WorkGroupID.y;
+    const uint tileN = gl_WorkGroupID.x;
+    const uint lane = gl_SubgroupInvocationID;
+    const uint tilesM = pc.padM / COOP_M;
+    const uint tilesN = pc.padN / COOP_N;
+    const uint tilesK = pc.padK / COOP_K;
+
+    coopmat<int8_t, gl_ScopeSubgroup, COOP_M, COOP_K, gl_MatrixUseA> matA;
+    coopmat<int8_t, gl_ScopeSubgroup, COOP_K, COOP_N, gl_MatrixUseB> matB;
+    coopmat<int, gl_ScopeSubgroup, COOP_M, COOP_N, gl_MatrixUseAccumulator> matC;
+    matC = coopmat<int, gl_ScopeSubgroup, COOP_M, COOP_N, gl_MatrixUseAccumulator>(0);
+
+    for (uint kStart = 0u; kStart < pc.padK; kStart += COOP_K) {
+        const uint tileK = kStart / COOP_K;
+
+        if (A_BLOCK_LINEAR != 0u) {
+            if (A_COL_MAJOR == 0u) {
+                const uint offsetA = (tileM * tilesK + tileK) * COOP_M * COOP_K;
+                coopMatLoad(matA, A, offsetA, COOP_K, gl_CooperativeMatrixLayoutRowMajor);
+            } else {
+                const uint offsetA = (tileK * tilesM + tileM) * COOP_K * COOP_M;
+                coopMatLoad(matA, A, offsetA, COOP_M, gl_CooperativeMatrixLayoutColumnMajor);
+            }
+        } else {
+            if (A_COL_MAJOR == 0u) {
+                coopMatLoad(matA, A, tileM * COOP_M * pc.padK + kStart, pc.padK,
+                            gl_CooperativeMatrixLayoutRowMajor);
+            } else {
+                coopMatLoad(matA, A, kStart * pc.padM + tileM * COOP_M, pc.padM,
+                            gl_CooperativeMatrixLayoutColumnMajor);
+            }
+        }
+
+        if (B_BLOCK_LINEAR != 0u) {
+            if (B_COL_MAJOR == 0u) {
+                const uint offsetB = (tileK * tilesN + tileN) * COOP_K * COOP_N;
+                coopMatLoad(matB, B, offsetB, COOP_N, gl_CooperativeMatrixLayoutRowMajor);
+            } else {
+                const uint offsetB = (tileN * tilesK + tileK) * COOP_N * COOP_K;
+                coopMatLoad(matB, B, offsetB, COOP_K, gl_CooperativeMatrixLayoutColumnMajor);
+            }
+        } else {
+            if (B_COL_MAJOR == 0u) {
+                coopMatLoad(matB, B, kStart * pc.padN + tileN * COOP_N, pc.padN,
+                            gl_CooperativeMatrixLayoutRowMajor);
+            } else {
+                coopMatLoad(matB, B, tileN * COOP_N * pc.padK + kStart, pc.padK,
+                            gl_CooperativeMatrixLayoutColumnMajor);
+            }
+        }
+        matC = coopMatMulAdd(matA, matB, matC);
+    }
+
+    // Conversion maps accumulator row i to invocation i in the subgroup.
+    int accRow[COOP_N];
+    coopmatToVectorQCOM(matC, accRow);
+
+    const uint m = tileM * COOP_M + lane;
+    const bool validM = m < pc.M;
+    const float scaleA = validM ? float(ScaleA[m]) : 0.0;
+    const float offsetA = validM ? float(OffsetA[m]) : 0.0;
+    const float sumA = validM ? float(SumAq[m]) : 0.0;
+    const float Kf = float(pc.K);
+
+    for (uint nBase = 0u; nBase < COOP_N; nBase += 4u) {
+        const uint n = tileN * COOP_N + nBase;
+        const uint n4 = n >> 2u;
+        const vec4 meta01 = vec4(MetaW[2u * n4]);
+        const vec4 meta23 = vec4(MetaW[2u * n4 + 1u]);
+        const vec4 scaleW = vec4(meta01.x, meta01.z, meta23.x, meta23.z);
+        const vec4 offsetW = vec4(meta01.y, meta01.w, meta23.y, meta23.w);
+        const vec4 sumW = vec4(SumWq[n4]);
+        const vec4 bias = vec4(Bias[n4]);
+
+        vec4 result = scaleA * scaleW * vec4(accRow[nBase + 0u], accRow[nBase + 1u],
+                                              accRow[nBase + 2u], accRow[nBase + 3u])
+                    + (scaleA * sumA) * offsetW
+                    + (offsetA * scaleW) * sumW
+                    + (Kf * offsetA) * offsetW
+                    + bias;
+
+        if (ACTIVATION == 1u) {
+            result = max(result, vec4(0.0));
+        } else if (ACTIVATION == 2u) {
+            result = clamp(result, vec4(0.0), vec4(6.0));
+        }
+
+        if (validM && n < pc.N) {
+            Out[(n >> 2u) * pc.M + m] = FLOAT4(result);
+        }
+    }
+}

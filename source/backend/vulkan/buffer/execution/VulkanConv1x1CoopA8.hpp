@@ -64,6 +64,7 @@ private:
     const VulkanPipeline* mQuantPackPipeline = nullptr;
     const VulkanPipeline* mQuantReduceSumPipeline = nullptr;
     const VulkanPipeline* mGemmS8Pipeline = nullptr;
+    const VulkanPipeline* mGemmFusedPipeline = nullptr;
     const VulkanPipeline* mDequantPipeline = nullptr;
 
     std::shared_ptr<VulkanLayout::DescriptorSet> mQuantMinMaxSet;
@@ -71,6 +72,7 @@ private:
     std::shared_ptr<VulkanLayout::DescriptorSet> mQuantPackSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mQuantReduceSumSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mGemmSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mGemmFusedSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mDequantSet;
 
     uint32_t mCoopM = 64;

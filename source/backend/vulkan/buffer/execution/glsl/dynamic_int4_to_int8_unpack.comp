@@ -10,8 +10,9 @@
 // nibble (2k+1) in the high half, so each invocation reads one byte and
 // emits two int8 outputs without an inner loop.
 //
-// Output: a [padN, padK] int8 buffer the W8A8 GEMM consumes in place of the
-// per-channel quantized weight, keeping the GEMM's existing linear B layout.
+// Output: [tileN, tileK, COOP_N, COOP_K] column-major cooperative tiles.
+// Within each tile, B[k, n] is stored at n * COOP_K + k, matching the
+// B_BLOCK_LINEAR path in dynamic_w8a8_coop_gemm.
 //
 // Dispatch: groupCount = (UP_DIV(padK/2, 16), UP_DIV(padN, 16), 1),
 //           localSize  = (16, 16, 1).
@@ -20,6 +21,9 @@
 #extension GL_EXT_shader_8bit_storage : require
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(constant_id = 3) const uint COOP_N = 64;
+layout(constant_id = 4) const uint COOP_K = 32;
 
 layout(binding = 0) readonly buffer Packed4 {
     int8_t W4[]; // size = padN * (padK/2), one byte per pair of nibbles
@@ -47,7 +51,14 @@ void main() {
     const int q0 = (byteVal & 0xF) - 8;
     const int q1 = ((byteVal >> 4) & 0xF) - 8;
 
-    const uint dstBase = n * pc.padK + (k2 << 1u);
+    const uint k = k2 << 1u;
+    const uint tileN = n / COOP_N;
+    const uint tileK = k / COOP_K;
+    const uint nInTile = n % COOP_N;
+    const uint kInTile = k % COOP_K;
+    const uint tilesK = pc.padK / COOP_K;
+    const uint dstBase = (tileN * tilesK + tileK) * COOP_N * COOP_K
+                       + nInTile * COOP_K + kInTile;
     W8[dstBase + 0u] = int8_t(q0);
     W8[dstBase + 1u] = int8_t(q1);
 }

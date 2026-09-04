@@ -531,6 +531,9 @@
     "dynamic_w8a8_coop_gemm.comp": {
         "useFP16": false
     },
+    "dynamic_w8a8_coop_gemm_fused.comp": {
+        "useFP16": true
+    },
     "dynamic_w8a8_dequant_correction.comp": {
         "useFP16": true
     },

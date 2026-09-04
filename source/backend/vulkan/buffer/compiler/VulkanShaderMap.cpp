@@ -121,6 +121,8 @@ mMaps.insert(std::make_pair("glsl_convolution_FP16_comp", std::make_pair(glsl_co
 mMaps.insert(std::make_pair("glsl_convolution_RELU_FP16_comp", std::make_pair(glsl_convolution_RELU_FP16_comp,glsl_convolution_RELU_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolution_RELU6_FP16_comp", std::make_pair(glsl_convolution_RELU6_FP16_comp,glsl_convolution_RELU6_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_dynamic_w8a8_coop_gemm_comp", std::make_pair(glsl_dynamic_w8a8_coop_gemm_comp,glsl_dynamic_w8a8_coop_gemm_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_w8a8_coop_gemm_fused_comp", std::make_pair(glsl_dynamic_w8a8_coop_gemm_fused_comp,glsl_dynamic_w8a8_coop_gemm_fused_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_w8a8_coop_gemm_fused_FP16_comp", std::make_pair(glsl_dynamic_w8a8_coop_gemm_fused_FP16_comp,glsl_dynamic_w8a8_coop_gemm_fused_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_qk_comp", std::make_pair(glsl_attention_prefill_kblock_qk_comp,glsl_attention_prefill_kblock_qk_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_qk_FP16_comp", std::make_pair(glsl_attention_prefill_kblock_qk_FP16_comp,glsl_attention_prefill_kblock_qk_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_qkv_acc_comp", std::make_pair(glsl_attention_prefill_kblock_qkv_acc_comp,glsl_attention_prefill_kblock_qkv_acc_comp_len)));
