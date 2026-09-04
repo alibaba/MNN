@@ -19,6 +19,7 @@ class LlmTokenizer(PreTrainedTokenizer):
         self.tokenizer = tokenizer
         self.tokenizer_path = tokenizer_path
         self.model_type = model_type
+        self.decode_buffer = []
         # stop_ids
         self.stop_ids = []
         self.stop_ids.append(self.tokenizer.eos_token_id)
@@ -95,26 +96,23 @@ class LlmTokenizer(PreTrainedTokenizer):
         return self.tokenizer.vocab_size
 
     def id_to_str(self, token_id):
+        token_id = int(token_id)
         try:
-            word = self.tokenizer.decode(int(token_id))
+            word = self.tokenizer.decode(token_id)
         except:
-            def contains_replacement(text): return '\uFFFD' in text
-            def decode_id(token_id):
-                return self.tokenizer.convert_tokens_to_string(
-                        self.tokenizer._convert_id_to_token(int(token_id)))
-            def decode_ids(token_ids):
-                return self.tokenizer.convert_tokens_to_string(
-                        self.tokenizer.convert_ids_to_tokens(token_ids))
-            word = decode_id(int(token_id))
-            # Smollm tokenizer will produce half chinese character, using buffer to decode
-            if contains_replacement(word):
-                self.decode_buffer.append(token_id)
-                buffer_txt = decode_ids(self.decode_buffer)
-                if not contains_replacement(buffer_txt):
-                    word = buffer_txt
-                    self.decode_buffer.clear()
-                else:
-                    word = ''
+            word = self.tokenizer.convert_tokens_to_string(
+                self.tokenizer._convert_id_to_token(token_id))
+        # Smollm tokenizer can produce half of a Chinese character, so buffer
+        # token IDs until they form valid text.
+        if '\uFFFD' in word:
+            self.decode_buffer.append(token_id)
+            buffer_txt = self.tokenizer.convert_tokens_to_string(
+                self.tokenizer.convert_ids_to_tokens(self.decode_buffer))
+            if '\uFFFD' not in buffer_txt:
+                word = buffer_txt
+                self.decode_buffer.clear()
+            else:
+                word = ''
         return word
 
     @classmethod
