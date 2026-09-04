@@ -15,6 +15,7 @@ sub \rg0, \rg0, \rg1
 
 asm_function MNNGemmInt8AddBiasScaleHp128_SME2_w8_Fp16
 /*
+Mirror of QuanPostTreatParameters in source/backend/cpu/compute/Int8FunctionsOpt.h; keep in sync.
 struct QuanPostTreatParameters {
     const float* scale;
     const float* biasFloat;
@@ -24,11 +25,14 @@ struct QuanPostTreatParameters {
     float roundValuePos = 0.5f;
     float roundValueNeg = -0.5f;
     float* srcKernelSum;
-    float* weightQuanBias;
+    float* weightKernelSum;
     float* fp32minmax;
     ssize_t blockNum = 1;
-    const int32_t* bias;
-    const float* extraScale = nullptr;
+    const int32_t* bias = nullptr;
+    const float* inputScale = nullptr;
+    const float* inputBias = nullptr;
+    float* accumBuffer = nullptr;
+    int32_t* indices = nullptr;
 };
 */
 //void MNNGemmInt8AddBiasScaleHp128_SME2_w8_Fp16(int8_t* dst, const int8_t* src,

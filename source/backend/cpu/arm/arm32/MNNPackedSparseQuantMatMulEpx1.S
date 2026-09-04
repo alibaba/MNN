@@ -8,6 +8,7 @@
 //
 
 /*
+Mirror of QuanPostTreatParameters in source/backend/cpu/compute/Int8FunctionsOpt.h; keep in sync.
 struct QuanPostTreatParameters {
     const float* scale;
     const float* biasFloat;
@@ -17,13 +18,16 @@ struct QuanPostTreatParameters {
     float roundValuePos = 0.5f;
     float roundValueNeg = -0.5f;
     float* srcKernelSum;
-    float* weightQuanBias;
+    float* weightKernelSum;
     float* fp32minmax;
     ssize_t blockNum = 1;
-    const int32_t* bias;
-
+    const int32_t* bias = nullptr;
+    const float* inputScale = nullptr;
+    const float* inputBias = nullptr;
+    float* accumBuffer = nullptr;
+    int32_t* indices = nullptr;
 };
- */
+*/
 
 #ifdef __arm__
 #ifndef __aarch64__

@@ -124,9 +124,6 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
         case Interpreter::CPU_SME2_NEON_DIVISION_RATIO:
             runtimeHint.divisionRatio = value;
             break;
-        case Interpreter::CPU_SME_CORES:
-            runtimeHint.smeCores = value;
-            break;
         default:
             break;
     }

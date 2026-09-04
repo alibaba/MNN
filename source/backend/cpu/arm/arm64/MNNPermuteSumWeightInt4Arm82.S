@@ -32,7 +32,7 @@ mov x5, x3
 SET_0 v16, v17, v18, v19
 
 cmp x5, #4
-blt LU2
+blt LU2Check
 
 LU4:
 ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x1], #64
@@ -85,6 +85,12 @@ st1 {v24.16b, v25.16b, v26.16b, v27.16b}, [x0], #64
 cmp x5, #4
 bge LU4
 cbz x5, LUEnd
+
+LU2Check:
+// LU2 consumes two cells at a time; with one cell left it would overwrite the
+// next cell and wrap x5 to -1, which then also runs LU1 (inside % 4 == 1 case).
+cmp x5, #2
+blt LU1
 
 LU2:
 ld1 {v0.16b, v1.16b}, [x1], #32

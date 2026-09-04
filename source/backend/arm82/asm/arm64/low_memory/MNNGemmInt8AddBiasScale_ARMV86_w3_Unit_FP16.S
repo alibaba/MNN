@@ -227,7 +227,8 @@ mul \rg1, \rg2, \rg3 // blocknum * ocUp8 * sizeof(float)
 sub \rg0, \rg0, \rg1, LSL #5 // revert weight kernel sum
 .endm
 asm_function MNNGemmInt8AddBiasScale_ARMV86_w3_Unit_FP16
-/* 
+/*
+Mirror of QuanPostTreatParameters in source/backend/cpu/compute/Int8FunctionsOpt.h; keep in sync.
 struct QuanPostTreatParameters {
     const float* scale;
     const float* biasFloat;
@@ -237,11 +238,14 @@ struct QuanPostTreatParameters {
     float roundValuePos = 0.5f;
     float roundValueNeg = -0.5f;
     float* srcKernelSum;
-    float* weightQuanBias;
+    float* weightKernelSum;
     float* fp32minmax;
     ssize_t blockNum = 1;
-    const int32_t* bias;
-    const float* extraScale = nullptr;
+    const int32_t* bias = nullptr;
+    const float* inputScale = nullptr;
+    const float* inputBias = nullptr;
+    float* accumBuffer = nullptr;
+    int32_t* indices = nullptr;
 };
 */
 //void MNNGemmInt8AddBiasScale_ARMV86_w3_Unit_FP16(int8_t* dst, const int8_t* src,
@@ -251,7 +255,7 @@ struct QuanPostTreatParameters {
 //Auto: x0:dst, x1:src, x2:weight, x3:src_depth_quad, x4:dst_step
 //x5:dst_depth_quad, x6: parameters, x7: realDstCount
 
-//Load from x6: x9: biasFloat, x8: srcKernelSum, x28: weightQuanBias, x14: fp32minmax
+//Load from x6: x9: biasFloat, x8: srcKernelSum, x28: weightKernelSum, x14: fp32minmax
 /* For FP16
 UNIT = 8;
 SRC_UNIT = 8;

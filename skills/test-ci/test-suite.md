@@ -194,7 +194,7 @@ prefill_qkv shader change, you must:
    or a new note field why it is required.
 
 Full risk breakdown, gate conditions, and remediation options: see
-[`skills/general-debug/SKILL.md`](../general-debug/SKILL.md) §7 (后端 kernel 隐式假设违反)
+[`skills/general-debug/kernel-assumptions.md`](../general-debug/kernel-assumptions.md) (§7 后端 kernel 隐式假设违反)
 and [`skills/metal-optimize/build-and-test.md`](../metal-optimize/build-and-test.md)
 § "Attention causal 假设".
 

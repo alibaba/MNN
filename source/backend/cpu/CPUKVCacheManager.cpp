@@ -23,6 +23,71 @@ static inline int c4Offset(int token, int channel, int seqLen, int pack) {
 **          Finally reset the pointer to the new tensor
 */
 void CPUKVCacheManager::expandKVCacheInMem(int oldMaxLength) {
+    /*===================================  Value  ===================================*/
+    // Chunked V layout: the buffer size is constant within a chunk window and new rows are
+    // written in place, so skip realloc+copy while the size is unchanged. Reallocating would
+    // free the large V buffer and other pool allocations fragment it, defeating best-fit
+    // reuse -- measured as a fresh OS alloc of the full V buffer on every expand (+190MB
+    // peak RSS on -qa 1 t1 pg4096). Value also expands before Key so that, when both grow,
+    // the larger V request sees the freed V block before the smaller Key request can split it.
+    if (mPastValue->stride(0) != (int)mCurrentValueSizePerHead) {
+        auto newValue = Tensor::createDevice<int8_t>({mKvNumHead, (int)mCurrentValueSizePerHead});
+        mBackend->onAcquireBuffer(newValue, Backend::STATIC);
+
+        if (mUseFlashAttention) { // [mKvNumHead, UP_DIV(mMaxLength, mFlashAttentionUpperKv), UP_DIV(mHeadDim, hP),
+                                  // UP_DIV(mFlashAttentionUpperKv, lP), hP, lP]
+            for (int h = 0; h < mKvNumHead; h++) {
+                memset(newValue->host<int8_t>() + h * newValue->stride(0), 0, newValue->stride(0));
+                memcpy(newValue->host<int8_t>() + h * newValue->stride(0),
+                       mPastValue->host<int8_t>() + h * mPastValue->stride(0), mPastValue->stride(0));
+            }
+        } else {
+            if (mValueQuantMode == KVQuantMode::Int8) { // [mKvNumHead, UP_DIV(mHeadDim, hP8), (UP_DIV(mMaxLength,
+                                                        // lP8)*hP8*lP8+2*hP8*sizeof(float)) ]
+                auto currentWeightInside = ROUND_UP(mMaxLength, lP8) * hP8;
+                auto currentStride1 = currentWeightInside + 2 * mConfig.mBlockNum * hP8 * QUANT_INFO_BYTES;
+                auto currentStride0 = currentStride1 * UP_DIV(mHeadDim, hP8);
+
+                auto prevWeightInside = ROUND_UP(oldMaxLength, lP8) * hP8;
+                auto prevStride1 = prevWeightInside + 2 * mConfig.mBlockNum * hP8 * QUANT_INFO_BYTES;
+                auto prevStride0 = prevStride1 * UP_DIV(mHeadDim, hP8);
+                for (int h = 0; h < mKvNumHead; ++h) {
+                    for (int d = 0; d < UP_DIV(mHeadDim, hP8); ++d) {
+                        auto dstPtr = newValue->host<int8_t>() + h * currentStride0 + d * currentStride1;
+                        auto srcPtr = mPastValue->host<int8_t>() + h * prevStride0 + d * prevStride1;
+
+                        // initialize 0 for weightInt8
+                        memset(dstPtr, 0, currentWeightInside);
+                        // copy inner side weightInt8
+                        memcpy(dstPtr, srcPtr, prevWeightInside);
+                        // copy hP8 scale&bias
+                        memcpy(dstPtr + currentWeightInside, srcPtr + prevWeightInside,
+                               2 * mConfig.mBlockNum * hP8 * QUANT_INFO_BYTES);
+                    }
+                }
+            } else { // [mKvNumHead, UP_DIV(mHeadDim, hP), UP_DIV(mMaxLength, lP), hP, lP]
+                auto currentStride1 = ROUND_UP(mMaxLength, lP) * hP * mBytes;
+                auto currentStride0 = ROUND_UP(mMaxLength, lP) * hP * UP_DIV(mHeadDim, hP) * mBytes;
+
+                auto prevStride1 = ROUND_UP(oldMaxLength, lP) * hP * mBytes;
+                auto prevStride0 = ROUND_UP(oldMaxLength, lP) * hP * UP_DIV(mHeadDim, hP) * mBytes;
+                for (int h = 0; h < mKvNumHead; ++h) {
+                    for (int d = 0; d < UP_DIV(mHeadDim, hP); ++d) {
+                        auto dstPtr = newValue->host<int8_t>() + h * currentStride0 + d * currentStride1;
+                        auto srcPtr = mPastValue->host<int8_t>() + h * prevStride0 + d * prevStride1;
+
+                        // initialize 0 for weight
+                        if (lP > 1) {
+                            memset(dstPtr, 0, currentStride1);
+                        }
+                        // copy inner side weight
+                        memcpy(dstPtr, srcPtr, prevStride1);
+                    }
+                }
+            }
+        }
+        mPastValue.reset(newValue);
+    }
     /*===================================  Key  ===================================*/
     auto new_key = Tensor::createDevice<int8_t>({mKvNumHead, (int)mCurrentKeySizePerHead});
     mBackend->onAcquireBuffer(new_key, Backend::STATIC);
@@ -38,63 +103,6 @@ void CPUKVCacheManager::expandKVCacheInMem(int oldMaxLength) {
         }
     }
     mPastKey.reset(new_key);
-    /*===================================  Value  ===================================*/
-    auto newValue = Tensor::createDevice<int8_t>({mKvNumHead, (int)mCurrentValueSizePerHead});
-    mBackend->onAcquireBuffer(newValue, Backend::STATIC);
-
-    if (mUseFlashAttention) { // [mKvNumHead, UP_DIV(mMaxLength, mFlashAttentionUpperKv), UP_DIV(mHeadDim, hP),
-                              // UP_DIV(mFlashAttentionUpperKv, lP), hP, lP]
-        for (int h = 0; h < mKvNumHead; h++) {
-            memset(newValue->host<int8_t>() + h * newValue->stride(0), 0, newValue->stride(0));
-            memcpy(newValue->host<int8_t>() + h * newValue->stride(0),
-                   mPastValue->host<int8_t>() + h * mPastValue->stride(0), mPastValue->stride(0));
-        }
-    } else {
-        if (mValueQuantMode == KVQuantMode::Int8) { // [mKvNumHead, UP_DIV(mHeadDim, hP8), (UP_DIV(mMaxLength,
-                                                    // lP8)*hP8*lP8+2*hP8*sizeof(float)) ]
-            auto currentWeightInside = ROUND_UP(mMaxLength, lP8) * hP8;
-            auto currentStride1 = currentWeightInside + 2 * mConfig.mBlockNum * hP8 * QUANT_INFO_BYTES;
-            auto currentStride0 = currentStride1 * UP_DIV(mHeadDim, hP8);
-
-            auto prevWeightInside = ROUND_UP(oldMaxLength, lP8) * hP8;
-            auto prevStride1 = prevWeightInside + 2 * mConfig.mBlockNum * hP8 * QUANT_INFO_BYTES;
-            auto prevStride0 = prevStride1 * UP_DIV(mHeadDim, hP8);
-            for (int h = 0; h < mKvNumHead; ++h) {
-                for (int d = 0; d < UP_DIV(mHeadDim, hP8); ++d) {
-                    auto dstPtr = newValue->host<int8_t>() + h * currentStride0 + d * currentStride1;
-                    auto srcPtr = mPastValue->host<int8_t>() + h * prevStride0 + d * prevStride1;
-
-                    // initialize 0 for weightInt8
-                    memset(dstPtr, 0, currentWeightInside);
-                    // copy inner side weightInt8
-                    memcpy(dstPtr, srcPtr, prevWeightInside);
-                    // copy hP8 scale&bias
-                    memcpy(dstPtr + currentWeightInside, srcPtr + prevWeightInside,
-                           2 * mConfig.mBlockNum * hP8 * QUANT_INFO_BYTES);
-                }
-            }
-        } else { // [mKvNumHead, UP_DIV(mHeadDim, hP), UP_DIV(mMaxLength, lP), hP, lP]
-            auto currentStride1 = ROUND_UP(mMaxLength, lP) * hP * mBytes;
-            auto currentStride0 = ROUND_UP(mMaxLength, lP) * hP * UP_DIV(mHeadDim, hP) * mBytes;
-
-            auto prevStride1 = ROUND_UP(oldMaxLength, lP) * hP * mBytes;
-            auto prevStride0 = ROUND_UP(oldMaxLength, lP) * hP * UP_DIV(mHeadDim, hP) * mBytes;
-            for (int h = 0; h < mKvNumHead; ++h) {
-                for (int d = 0; d < UP_DIV(mHeadDim, hP); ++d) {
-                    auto dstPtr = newValue->host<int8_t>() + h * currentStride0 + d * currentStride1;
-                    auto srcPtr = mPastValue->host<int8_t>() + h * prevStride0 + d * prevStride1;
-
-                    // initialize 0 for weight
-                    if (lP > 1) {
-                        memset(dstPtr, 0, currentStride1);
-                    }
-                    // copy inner side weight
-                    memcpy(dstPtr, srcPtr, prevStride1);
-                }
-            }
-        }
-    }
-    mPastValue.reset(newValue);
 }
 
 /*
@@ -343,7 +351,7 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
         int kv_seq_len = meta->add + meta->seqlen_in_disk;
         mMaxLength = kv_seq_len > oldMaxLength ? kv_seq_len + mConfig.mExpandChunk : oldMaxLength;
         if (mUseFlashAttention) {
-            setFlashAttentionUpperKv(MNN_FLASH_ATTENTION_BLOCK_SIZE);
+            setFlashAttentionUpperKv(flashAttentionChunkKv());
         } else {
             setFlashAttentionUpperKv(mMaxLength);
         }
@@ -394,7 +402,7 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
     int kv_seq_len = seq_len;
     mMaxLength = kv_seq_len + mConfig.mExpandChunk;
     if (mUseFlashAttention) {
-        setFlashAttentionUpperKv(MNN_FLASH_ATTENTION_BLOCK_SIZE);
+        setFlashAttentionUpperKv(flashAttentionChunkKv());
     } else {
         setFlashAttentionUpperKv(mMaxLength);
     }
@@ -464,7 +472,17 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
         if (mHeadDim % lP || mKeyQuantMode != KVQuantMode::None) {
             memset(mPastKey->host<int8_t>(), 0, mPastKey->length(0) * mPastKey->stride(0));
         }
-        if (lP > 1 || mValueQuantMode != KVQuantMode::None) {
+        // Flash float V, single-thread wide chunks: skip the whole-buffer memset. With 2048-row
+        // chunk windows it touches pages up to a full unused chunk beyond the real sequence
+        // (measured ~+160MB peak RSS on -qa 1 t1 pg4096). Safe because the cache is append-only
+        // (every row below the current length is written before read) and ProcessValue zeroes
+        // each frontier lP-tile on entry, so the lP-padding rows PV reads are 0, not arena
+        // garbage (0-weight x Inf/NaN garbage would be NaN). Multithreaded decode keeps the
+        // memset: its 64-row chunks make the buffer small, and it was measured to rely on zeroed
+        // padding rows.
+        const bool skipValueMemset = mUseFlashAttention && mValueQuantMode == KVQuantMode::None &&
+                                     static_cast<CPUBackend*>(mBackend)->threadNumber() == 1;
+        if ((lP > 1 || mValueQuantMode != KVQuantMode::None) && !skipValueMemset) {
             memset(mPastValue->host<int8_t>(), 0, mPastValue->length(0) * mPastValue->stride(0));
         }
     }
@@ -498,7 +516,7 @@ void CPUKVCacheManager::onRealloc(KVMeta* meta) {
         int oldMaxLength = mMaxLength;
         mMaxLength = (int)kv_seq_len + mConfig.mExpandChunk;
         if (mUseFlashAttention) {
-            setFlashAttentionUpperKv(MNN_FLASH_ATTENTION_BLOCK_SIZE);
+            setFlashAttentionUpperKv(flashAttentionChunkKv());
         } else {
             setFlashAttentionUpperKv(mMaxLength);
         }
@@ -938,9 +956,22 @@ void CPUKVCacheManager::ProcessValue(const Tensor* value, int seqLen, int kvHead
             // int seqLenIn = (mPastLength + i) % lP;
 
             int kvSeqIndx = mPastLength + i;
+            int seqInChunk = kvSeqIndx % (int32_t)mFlashAttentionUpperKv;
             int idxInner = (kvSeqIndx / (int32_t)mFlashAttentionUpperKv) * weightStride0 +
-                           (kvSeqIndx % (int32_t)mFlashAttentionUpperKv) / lP * weightStride2 +
-                           (kvSeqIndx % (int32_t)mFlashAttentionUpperKv) % lP;
+                           seqInChunk / lP * weightStride2 +
+                           seqInChunk % lP;
+            // The alloc-time V memset is skipped on the single-thread flash float path, but PV
+            // reads the frontier tile's unwritten rows as lP-padding whose softmax weights are 0
+            // -- and 0 x Inf/NaN garbage is NaN. Zero each tile when the append frontier enters
+            // it so every row below ROUND_UP(length, lP) is initialized, without touching pages
+            // beyond the used region (keeps the skipped-memset RSS win).
+            if (lP > 1 && seqInChunk % lP == 0) {
+                auto tilePtr = value_dst + (kvSeqIndx / (int32_t)mFlashAttentionUpperKv) * weightStride0 +
+                               (seqInChunk / lP) * weightStride2;
+                for (int g = 0; g < UP_DIV(mHeadDim, hP); ++g) {
+                    memset(tilePtr + g * weightStride1, 0, weightStride2 * sizeof(T));
+                }
+            }
             for (int j = 0; j < mHeadDim; j++) {
                 int idxBase = (j / hP) * weightStride1 + (j % hP) * lP;
                 int out_index = j / hP;

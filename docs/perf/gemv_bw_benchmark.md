@@ -25,18 +25,20 @@ make -j$(nproc) run_test.out
 ## 使用方法
 
 ```bash
-./run_test.out speed/GemvBW [precision] [forwardType] [threads]
+./run_test.out speed/GemvBW [forwardType] [precision] [threads]
 ```
 
 ### 参数说明
 
 | 位置 | 含义 | 取值 |
 |------|------|------|
-| 1 | precision | 0=Normal, 1=High, 2=Low (推荐 2，对应 fp16 累加) |
-| 2 | forwardType | 0=CPU, 3=Metal (其余按 `MNNForwardType` 编号) |
-| 3 | threads | 默认 4；GPU 后端忽略 |
+| 1 | forwardType | 0=CPU, 3=Metal (其余按 `MNNForwardType` 编号) |
+| 2 | precision | 0=Normal, 1=High, 2=Low (推荐 2，对应 fp16 累加) |
+| 3 | threads | 省略时为 4；GPU 后端忽略 |
 
-### 默认形状
+> ⚠️ 顺序是 **backend 在 precision 之前**（见 `test/main.cpp`）。传错不会报错：越界的 precision 会被静默重置为 Normal，且线程数保持默认，于是"fp16 多线程 sweep"实际跑的是 fp32 单一线程数。**校验方法：看输出 `thr` 列是否等于你指定的线程数。**
+
+### 形状
 
 ```text
 M = oc = 4096
@@ -45,7 +47,16 @@ blocksize = 64
 iters = 200 (best of 3)
 ```
 
-> 对应 Llama-3-8B FFN 单层一个投影。如需自定义，直接改源码顶部常量重编。
+默认对应 Llama-3-8B FFN 单层一个投影。可用环境变量覆盖，无需重编：
+
+```bash
+# Qwen3-0.6B 的 gate/up 投影
+MNN_GEMVBW_M=3072 MNN_GEMVBW_K=1024 ./run_test.out speed/GemvBW 0 2 6
+# Qwen3-0.6B 的 lm_head
+MNN_GEMVBW_M=151936 MNN_GEMVBW_K=1024 ./run_test.out speed/GemvBW 0 2 6
+```
+
+> GEMV 效率是**强 shape 相关**的：M4 上 w4 在 lm_head（151936×1024）能到 82% roofline，而每层的小投影（1024×1024）只有 16%。用默认大形状测出的 %peak 不能代表模型内的实际效率，评估 decode 时务必按真实形状复测。
 
 ## 输出格式
 

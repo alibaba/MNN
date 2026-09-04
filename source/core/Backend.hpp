@@ -82,8 +82,6 @@ struct RuntimeHint {
     // per single SME core is six times that of NEON,
     //while during the Decode stage it is the same (1×).
     int divisionRatio = 41;
-
-    int smeCores = 2; // Number of SME cores of the backend, default is 2, if supports sme
 };
 /** abstract backend */
 class Backend : public NonCopyable {

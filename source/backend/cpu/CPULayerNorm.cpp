@@ -72,8 +72,7 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*>& inputs, const std:
     const float* beta = mResource->mIniGammaBeta ? mResource->mBeta->host<float>() : nullptr;
     auto bn = static_cast<CPUBackend*>(backend());
     auto core = bn->functions();
-    auto threadNumber = bn->threadNumber();
-    threadNumber = ALIMIN(threadNumber, mOutterSize);
+    auto threadNumber = ALIMIN(bn->computeThreadNumber(mOutterSize), mOutterSize);
     auto int8core = bn->int8Functions();
     int bytes = core->bytes;
     auto inputQuan = TensorUtils::getDescribe(inputs[0])->quantAttr.get();

@@ -23,6 +23,7 @@ sub \rg0, \rg0, \rg1, LSL #7 // revert weight kernel sum
 
 asm_function MNNGemmInt8AddBiasScale16x32_SME2_w4_Fp32
 /*
+Mirror of QuanPostTreatParameters in source/backend/cpu/compute/Int8FunctionsOpt.h; keep in sync.
 struct QuanPostTreatParameters {
     const float* scale;
     const float* biasFloat;

@@ -16,13 +16,25 @@
 
 asm_function MNNGemmInt8AddBiasScale_16x4_Unit_FAST
 
-//struct QuanPostTreatParameters {
-//    const float* scale;
-//    const int32_t* bias;
-//    int32_t maxValue;
-//    int32_t minValue;
-//    int32_t useInt8;
-//};
+// Mirror of QuanPostTreatParameters in source/backend/cpu/compute/Int8FunctionsOpt.h; keep in sync.
+// struct QuanPostTreatParameters {
+//     const float* scale;
+//     const float* biasFloat;
+//     int32_t maxValue;
+//     int32_t minValue;
+//     int32_t useInt8 = 1; // Save result as int8_t dataType; otherwise float32.
+//     float roundValuePos = 0.5f;
+//     float roundValueNeg = -0.5f;
+//     float* srcKernelSum;
+//     float* weightKernelSum;
+//     float* fp32minmax;
+//     ssize_t blockNum = 1;
+//     const int32_t* bias = nullptr;
+//     const float* inputScale = nullptr;
+//     const float* inputBias = nullptr;
+//     float* accumBuffer = nullptr;
+//     int32_t* indices = nullptr;
+// };
 
 //void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
 //                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t remain) {

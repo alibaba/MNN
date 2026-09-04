@@ -17,11 +17,11 @@ extern void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI(int8_t* dstO, cons
 extern void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
 #endif
 
-// Define in GemmInt8_4_4_64.cpp
+// Define in GemmInt8_4_4_64_NOVNNI.cpp
 extern void _AVX512_NO_VNNI_4_4_64(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
 extern void _AVX512_NO_VNNI_4_4_64_w4(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
 
-// Define in GemmInt8_4_4_64_7bit.cpp
+// Define in GemmInt8_4_4_64_NOVNNI_7bit.cpp
 extern void _AVX512_NO_VNNI_4_4_64_7bit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
 
 

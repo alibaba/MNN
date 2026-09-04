@@ -92,9 +92,9 @@ bool MNNSpacemitIme2Attention::tryExecuteFastPath(const int8_t* query, int8_t* o
                                                   bool lowerTriangular, bool hasSinks, bool outputC4,
                                                   bool directC4Output) {
     if (MNNSpacemitIme2FlashAttentionFp32C4Supported() && mUseFlashAttention && mKeyQuantMode == KVQuantMode::None &&
-        mValueQuantMode == KVQuantMode::None && mBytes == 4 && mPack == 4 && hP == 4 && lP == 1 && mNumHead == 16 &&
+        mValueQuantMode == KVQuantMode::None && mBytes == 4 && mPack == 4 && hP == 4 && lP == 1 && mQNumHead == 16 &&
         mKvNumHead == 8 && mThreadNum == 8 && directC4Output && seqLen == kvSeqLen && seqLen >= 64 && seqLen <= 512 &&
-        seqLen % 64 == 0 && mBlockKV == 64 && mHeadDim == 128 && paddingLength == 0 && lowerTriangular && !hasSinks &&
+        seqLen % 64 == 0 && mKvBlockSize == 64 && mHeadDim == 128 && paddingLength == 0 && lowerTriangular && !hasSinks &&
         qScale == 1.0f && query != nullptr && output != nullptr) {
         MNNSpacemitIme2FusedContext context;
         context.kvCache = mKVCacheManager.get();

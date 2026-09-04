@@ -179,9 +179,8 @@ ErrorCode CPURoPE::onExecute(const std::vector<Tensor*>& inputs, const std::vect
     }
     ropeDim = (ropeDim / 2) * 2;
     int ropeHalfDim = ropeDim / 2;
-    int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     int totalWork = batch * seqLen;
-    threadNum = std::min(threadNum, totalWork);
+    int threadNum = std::min(static_cast<CPUBackend*>(backend())->computeThreadNumber(totalWork), totalWork);
     auto core = static_cast<CPUBackend*>(backend())->functions();
     MNN_ASSERT(core->MNNRoPECompute != nullptr);
 

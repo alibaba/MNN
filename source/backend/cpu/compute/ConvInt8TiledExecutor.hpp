@@ -116,7 +116,7 @@ protected:
 
     // for 4Bit Ptq model
     bool m4BitPtq = false;
-    bool mMixedKernel;
+    bool mMixedKernel = false;
     MatmulRelatedFunctions mRelatedFunctions;
     MatmulRelatedFunctions mArm82Functions;
 };
