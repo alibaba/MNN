@@ -12,7 +12,7 @@
 #if MNN_METAL_ENABLED
 
 #ifdef __OBJC__
-MetalReplayProxy* gMetalReplayProxy = nil;
+thread_local __unsafe_unretained MetalReplayProxy* gMetalReplayProxy = nil;
 
 @implementation MetalReplayProxy {
     id<MTLComputeCommandEncoder> _target;

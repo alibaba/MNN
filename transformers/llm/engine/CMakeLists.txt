@@ -133,6 +133,8 @@ if(MNN_LLM_BUILD_TEST)
     add_executable(test_omni_video_prompt ${CMAKE_CURRENT_LIST_DIR}/test/test_omni_video_prompt.cpp)
     target_include_directories(test_omni_video_prompt PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/)
     target_link_libraries(test_omni_video_prompt llm ${LLM_DEPS})
+    add_executable(test_multi_instance ${CMAKE_CURRENT_LIST_DIR}/test/test_multi_instance.cpp)
+    target_link_libraries(test_multi_instance llm ${LLM_DEPS})
 endif()
 
 if (BUILD_MLS)
