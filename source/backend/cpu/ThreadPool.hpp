@@ -15,6 +15,7 @@
 #include <thread>
 #include <vector>
 #include <atomic>
+#include <cstdint>
 #include <MNN/MNNDefine.h>
 namespace MNN {
 
@@ -52,6 +53,13 @@ private:
 
     int mNumberThread            = 0;
     std::atomic_int mActiveCount = {0};
+    // Bit i set: worker i is blocked on mCondition while the pool is active.
+    // enqueueInternal consults this to wake sleepers only when a flagged
+    // worker is among them, keeping the hot path notify-free. Fixed-width so
+    // the shift stays defined where `unsigned long` is 32-bit; a worker whose
+    // index exceeds the bit width gets no bit and never blocks, see
+    // kSleepMaskWidth in ThreadPool.cpp.
+    std::atomic<uint64_t> mSleepMask = {0};
 };
 } // namespace MNN
 #endif

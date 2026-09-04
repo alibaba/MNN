@@ -29,7 +29,7 @@ const int pastLength = 101;
 
 static KVMeta gMeta;
 static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool outputC4 = false,
-                                                    bool forceOpenCLBuffer = false) {
+                                                    bool forceOpenCLBuffer = false, int numThread = 1) {
     auto Q = _Input();
     auto K = _Input();
     auto V = _Input();
@@ -52,7 +52,7 @@ static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool 
     config.backendConfig = &bnConfig;
     config.numThread = forceOpenCLBuffer && status.forwardType == MNN_FORWARD_OPENCL
                            ? MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_NONE
-                           : 1;
+                           : numThread;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &gMeta);
     rtmgr->setHint(MNN::Interpreter::ATTENTION_OPTION, attentionMode);
@@ -285,6 +285,23 @@ class NaiveAttention {
     public:
         NaiveAttention() : mPastLen(0) {}
         ~NaiveAttention() = default;
+        // Push prefill K/V into history WITHOUT computing attention. The wide-KV-block boundary
+        // test needs kv cache filled past 2048 rows; running onExecute for that prefill would cost
+        // O(kv^2) scalar work (~10 GFLOP at kv=2040). Only the decode steps need a reference.
+        void appendHistory(
+            std::vector< std::vector< std::vector<float> > > & key,
+            std::vector< std::vector< std::vector<float> > > & value,
+            int seq_len )
+        {
+            for (int i = 0; i < seq_len; i++) {
+                mPastKey.push_back(key[i]);
+                mPastValue.push_back(value[i]);
+            }
+            mPastLen += seq_len;
+        }
+        int pastLen() const {
+            return mPastLen;
+        }
         std::vector< std::vector< std::vector<float> > > onExecute (
             std::vector< std::vector< std::vector<float> > > & query,
             std::vector< std::vector< std::vector<float> > > & key,
@@ -741,6 +758,299 @@ private:
 };
 
 MNNTestSuiteRegister(AttentionNoCacheMaskTest, "op/attention_nocache_mask");
+
+// Decode-phase attention scaling at the Qwen3-0.6B shape: 16 Q heads / 8 KV heads / head_dim 128,
+// one query token per step over kv lengths 512/1024/2048, 1 vs 4 threads.
+class AttentionDecodeThreadScaleTest : public AttentionTest {
+public:
+    AttentionDecodeThreadScaleTest() = default;
+    virtual ~AttentionDecodeThreadScaleTest() = default;
+
+    virtual bool run(int precision) {
+        const int savedNumHead = NumHead, savedKvNumHead = KvNumHead, savedHeadDim = HeadDim;
+        NumHead = 16; KvNumHead = 8; HeadDim = 128;
+        srand(2024);
+        const int warmup = 8;
+        const int threadCfgs[2] = {1, 4};
+        for (int kvLen : {512, 1024, 2048}) {
+            generateInput(kvLen, precision, true);
+            generateMask(kvLen, kvLen, true);
+            float ms[2] = {0.f, 0.f};
+            for (int ti = 0; ti < 2; ++ti) {
+                gMeta.previous = 0;
+                gMeta.add = kvLen;
+                auto module = _makeAttentionModule(8, false, false, threadCfgs[ti]);
+                module->onForward({Query, Key, Value, Mask});
+                gMeta.sync();
+                for (int x = 0; x < warmup; ++x) {
+                    gMeta.add = 1;
+                    module->onForward({Query1, Key1, Value1, Mask1});
+                    gMeta.sync();
+                }
+                MNN::Timer timer;
+                for (int x = 0; x < GENERATE_TOKENS; ++x) {
+                    gMeta.add = 1;
+                    module->onForward({Query1, Key1, Value1, Mask1});
+                    gMeta.sync();
+                }
+                ms[ti] = (float)timer.durationInUs() / 1000.0f / GENERATE_TOKENS;
+            }
+            MNN_PRINT("kvLen=%d decode: t1=%.3f ms/token, t4=%.3f ms/token, speedup=%.2fx\n", kvLen, ms[0], ms[1],
+                      ms[1] > 0.f ? ms[0] / ms[1] : 0.f);
+        }
+        NumHead = savedNumHead; KvNumHead = savedKvNumHead; HeadDim = savedHeadDim;
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionDecodeThreadScaleTest, "speed/attention_threads");
+
+// ---- Wide KV-block / chunked V-cache boundary coverage ----------------------------------------
+//
+// Decode-phase flash attention derives its logical KV block width and the physical V-cache chunk
+// size from the thread count and quant mode (CPUAttention.cpp:468-481 and
+// CPUKVCacheManager.hpp:109-114). A logical block that indexes a differently-chunked physical
+// layout only reads wrong rows *past the first chunk*, so nothing is observable until kv grows
+// past 64 / 256 / 2048. op/attention never decodes past kv=101, which is why the original
+// occurrence of exactly this bug had to be caught by an llm_demo long-prompt canary.
+//
+// Input sensitivity is the other half of the problem. The shared generateRandTensor pattern
+// (((i+j+k)%10)*0.002 in the fp16 tier) makes every logit nearly equal, so softmax over ~2050
+// rows degenerates into a mean and one mis-addressed row moves the output by only ~1/2050 --
+// far below diff_percent_threshold. Instead, K rows here are +-1 sign vectors from a
+// deterministic hash and each decode query is an exact copy of one K row: QK peaks at
+// HeadDim/sqrt(HeadDim) ~ 11.3 against ~+-1 elsewhere, so the output is ~93% of that single V
+// row and reading the wrong row is an O(1) error.
+static inline uint32_t _kvbHash(uint32_t a, uint32_t b, uint32_t c) {
+    uint32_t h = a * 2654435761u + b * 2246822519u + c * 3266489917u;
+    h ^= h >> 15;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    return h;
+}
+
+class AttentionKvBlockBoundaryTest : public AttentionTest {
+private:
+    struct ShapeGuard {
+        int n, kv, d;
+        ShapeGuard() : n(NumHead), kv(KvNumHead), d(HeadDim) {}
+        ~ShapeGuard() { NumHead = n; KvNumHead = kv; HeadDim = d; }
+    };
+    typedef std::vector<std::vector<std::vector<float>>> Tensor3;
+
+    static Tensor3 genKeyRows(int len) {
+        Tensor3 k(len);
+        for (int j = 0; j < len; ++j) {
+            k[j].resize(KvNumHead);
+            for (int h = 0; h < KvNumHead; ++h) {
+                k[j][h].resize(HeadDim);
+                for (int d = 0; d < HeadDim; ++d) {
+                    k[j][h][d] = (_kvbHash(j, h, d) & 1u) ? 1.0f : -1.0f;
+                }
+            }
+        }
+        return k;
+    }
+    static Tensor3 genValueRows(int len) {
+        Tensor3 v(len);
+        for (int j = 0; j < len; ++j) {
+            v[j].resize(KvNumHead);
+            for (int h = 0; h < KvNumHead; ++h) {
+                v[j][h].resize(HeadDim);
+                for (int d = 0; d < HeadDim; ++d) {
+                    v[j][h][d] = (float)(_kvbHash(j + 7919u, h + 31u, d) % 2001u) / 1000.0f - 1.0f;
+                }
+            }
+        }
+        return v;
+    }
+    // Small-amplitude queries for the prefill segment; its output is never checked, only the
+    // resulting KV cache contents matter.
+    static Tensor3 genPrefillQuery(int len) {
+        Tensor3 q(len);
+        for (int i = 0; i < len; ++i) {
+            q[i].resize(NumHead);
+            for (int h = 0; h < NumHead; ++h) {
+                q[i][h].resize(HeadDim);
+                for (int d = 0; d < HeadDim; ++d) {
+                    q[i][h][d] = (float)(_kvbHash(i + 104729u, h, d) % 101u) * 0.002f - 0.1f;
+                }
+            }
+        }
+        return q;
+    }
+    // Decode query that peaks on kv row `target`.
+    static Tensor3 genProbeQuery(const Tensor3& key, int target) {
+        const int group = NumHead / KvNumHead;
+        Tensor3 q(1);
+        q[0].resize(NumHead);
+        for (int h = 0; h < NumHead; ++h) {
+            q[0][h] = key[target][h / group];
+        }
+        return q;
+    }
+    static Tensor3 sliceRow(const Tensor3& src, int row) {
+        Tensor3 out(1);
+        out[0] = src[row];
+        return out;
+    }
+    static Tensor3 sliceHead(const Tensor3& src, int len) {
+        return Tensor3(src.begin(), src.begin() + len);
+    }
+    static VARP scalarMask() {
+        auto m = _Input({}, NCHW, halide_type_of<float>());
+        m->writeMap<float>()[0] = 0.0f;
+        return m;
+    }
+    // Probe positions chosen to land on and around every chunk / block boundary.
+    static int probeTarget(int step, int kvLen) {
+        static const int kProbes[] = {63, 64, 65, 255, 256, 257, 319, 320, 2047, 2048, 2049, 0};
+        const int n = (int)(sizeof(kProbes) / sizeof(kProbes[0]));
+        int t = kProbes[step % n];
+        if (t >= kvLen) {
+            t = kvLen - 1;
+        }
+        return t;
+    }
+
+    // float-KV configs: compare every decode step against the scalar fp32 reference.
+    bool runAgainstReference(int hint, int numThread, int prefill, int steps, const char* tag) {
+        const int total = prefill + steps;
+        auto key = genKeyRows(total);
+        auto value = genValueRows(total);
+        auto pq = genPrefillQuery(prefill);
+        auto prefillKey = sliceHead(key, prefill);
+        auto prefillValue = sliceHead(value, prefill);
+
+        std::shared_ptr<NaiveAttention> ref(new NaiveAttention);
+        ref->appendHistory(prefillKey, prefillValue, prefill);
+
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = prefill;
+        auto module = _makeAttentionModule(hint, false, false, numThread);
+        {
+            auto Qp = vector_to_var(pq);
+            auto Kp = vector_to_var(prefillKey);
+            auto Vp = vector_to_var(prefillValue);
+            module->onForward({Qp, Kp, Vp, scalarMask()});
+        }
+        gMeta.sync();
+
+        std::vector<std::vector<int>> noMask;
+        for (int s = 0; s < steps; ++s) {
+            const int kvLen = prefill + s + 1;
+            auto q1 = genProbeQuery(key, probeTarget(s, kvLen));
+            auto k1 = sliceRow(key, prefill + s);
+            auto v1 = sliceRow(value, prefill + s);
+            expected_result = ref->onExecute(q1, k1, v1, noMask, 1);
+            gMeta.add = 1;
+            Output = module->onForward({vector_to_var(q1), vector_to_var(k1), vector_to_var(v1),
+                                        scalarMask()})[0];
+            gMeta.sync();
+            if (!compareResult(1)) {
+                MNN_PRINT("Error: %s failed at decode step %d (kvLen=%d, probe=%d)\n", tag, s, kvLen,
+                          probeTarget(s, kvLen));
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // quant-KV configs: the scalar fp32 reference cannot model int8 KV error tightly, so compare
+    // flash ON (wide block + chunked V) against flash OFF (single block) of the SAME quant mode.
+    // Sound for quantMode 0/1 only -- quantMode 2 downgrades V to float when flash is off
+    // (CPUAttention.cpp:188-190), which is a genuinely different numeric path.
+    bool runFlashOnOffDiff(int quantMode, int numThread, int prefill, int steps, const char* tag) {
+        const int total = prefill + steps;
+        auto key = genKeyRows(total);
+        auto value = genValueRows(total);
+        auto pq = genPrefillQuery(prefill);
+        auto prefillKey = sliceHead(key, prefill);
+        auto prefillValue = sliceHead(value, prefill);
+        const int outSize = NumHead * HeadDim;
+        std::vector<std::vector<float>> captured(steps);
+
+        for (int pass = 0; pass < 2; ++pass) {
+            const int hint = (pass == 0 ? 0 : 8) + quantMode; // pass0 = flash off, pass1 = flash on
+            gMeta.previous = 0;
+            gMeta.remove = 0;
+            gMeta.add = prefill;
+            auto module = _makeAttentionModule(hint, false, false, numThread);
+            {
+                auto Qp = vector_to_var(pq);
+                auto Kp = vector_to_var(prefillKey);
+                auto Vp = vector_to_var(prefillValue);
+                module->onForward({Qp, Kp, Vp, scalarMask()});
+            }
+            gMeta.sync();
+            for (int s = 0; s < steps; ++s) {
+                const int kvLen = prefill + s + 1;
+                auto q1 = genProbeQuery(key, probeTarget(s, kvLen));
+                auto k1 = sliceRow(key, prefill + s);
+                auto v1 = sliceRow(value, prefill + s);
+                gMeta.add = 1;
+                auto out = module->onForward({vector_to_var(q1), vector_to_var(k1),
+                                              vector_to_var(v1), scalarMask()})[0];
+                gMeta.sync();
+                const float* ptr = out->readMap<float>();
+                if (pass == 0) {
+                    captured[s].assign(ptr, ptr + outSize);
+                } else {
+                    for (int i = 0; i < outSize; ++i) {
+                        float diff = fabsf(ptr[i] - captured[s][i]);
+                        float rel = fabsf(diff / (captured[s][i] == 0.f ? 1e-20f : captured[s][i]));
+                        if (diff > diff_threshold && rel > diff_percent_threshold) {
+                            MNN_PRINT("Error: %s flash-on/off mismatch at step %d (kvLen=%d), "
+                                      "elem %d: off=%f on=%f\n",
+                                      tag, s, kvLen, i, captured[s][i], ptr[i]);
+                            return false;
+                        }
+                    }
+                }
+                out->unMap();
+            }
+        }
+        return true;
+    }
+
+public:
+    AttentionKvBlockBoundaryTest() = default;
+    virtual ~AttentionKvBlockBoundaryTest() = default;
+
+    virtual bool run(int precision) {
+        // The block/chunk tiering under test is CPU-only.
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_CPU) {
+            return true;
+        }
+        ShapeGuard guard;
+        // Qwen3-0.6B decode shape: GQA group = 2, 8 kv heads -> numUnits = 8.
+        NumHead = 16; KvNumHead = 8; HeadDim = 128;
+
+        // Single thread: physical V chunk 2048, logical block ALIMIN(2048, kvLen).
+        if (!runAgainstReference(8, 1, 250, 10, "t1 short kv")) return false;
+        if (!runAgainstReference(8, 1, 2040, 12, "t1 kv crossing 2048")) return false;
+        // Prefill past the physical chunk boundary: the chunk gate has no insertLen term while the
+        // logical-block gate does, so this prefills with 64-row blocks into 2048-row chunks and the
+        // following decode must still read both chunks correctly.
+        if (!runAgainstReference(8, 1, 2100, 10, "t1 prefill crossing chunk")) return false;
+
+        // Multi thread: physical V chunk 64, logical block ALIMIN(256, kvLen) + sub-chunk addTile.
+        if (!runAgainstReference(8, 4, 60, 10, "t4 kv crossing 64")) return false;
+        if (!runAgainstReference(8, 4, 250, 12, "t4 kv crossing 256")) return false;
+        if (!runAgainstReference(8, 4, 2040, 12, "t4 wide kv")) return false;
+
+        // K-int8 KV cache: wide block is gated separately, use the flash on/off differential.
+        if (!runFlashOnOffDiff(1, 1, 2040, 10, "quantK t1 kv crossing 2048")) return false;
+        if (!runFlashOnOffDiff(1, 4, 250, 10, "quantK t4 kv crossing 256")) return false;
+
+        // kvSplit > 1 needs few kv heads: numUnits = 2 gives kvSplit = 2 at 2 threads.
+        NumHead = 8; KvNumHead = 2; HeadDim = 128;
+        if (!runAgainstReference(8, 2, 250, 12, "t2 kvSplit merge")) return false;
+        if (!runAgainstReference(8, 4, 2040, 10, "t4 kvSplit merge wide kv")) return false;
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionKvBlockBoundaryTest, "op/attention_kvblock");
 
 class AttentionC4Test : public AttentionTest {
 public:

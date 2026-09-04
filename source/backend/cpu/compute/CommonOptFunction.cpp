@@ -1323,6 +1323,50 @@ static void MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* sc
     // dest shape:                   [headDim/pack, seqLen, pack]
     auto stride0 = plane * pack;
 
+    if (idx == kvBlocks - 1) {
+        // Last block: fuse the softmax normalization into this pass (single read/write of dst).
+        // Per-row reciprocals are hoisted via a chunked buffer to keep inner sweeps contiguous.
+        constexpr int kChunk = 256;
+        float nsBuf[kChunk];
+        if (idx > 0) {
+            for (int ic = 0; ic < seqStart; ic += kChunk) {
+                int iEnd = ALIMIN(ic + kChunk, seqStart);
+                for (int i = ic; i < iEnd; ++i) {
+                    nsBuf[i - ic] = 1.0f / normalizeScale[i];
+                }
+                for (int j = 0; j < depthQuad; ++j) {
+                    for (int i = ic; i < iEnd; ++i) {
+                        auto offset = j * stride0 + i * pack;
+                        Vec::save(dst + offset, Vec::load(dst + offset) * Vec(nsBuf[i - ic]));
+                    }
+                }
+            }
+        }
+        int rowLo = (idx > 0) ? seqStart : 0;
+        for (int ic = rowLo; ic < plane; ic += kChunk) {
+            int iEnd = ALIMIN(ic + kChunk, plane);
+            for (int i = ic; i < iEnd; ++i) {
+                nsBuf[i - ic] = 1.0f / normalizeScale[i];
+            }
+            if (idx > 0) {
+                for (int j = 0; j < depthQuad; ++j) {
+                    for (int i = ic; i < iEnd; ++i) {
+                        auto offset = j * stride0 + i * pack;
+                        auto dataNew = Vec::fma(Vec::load(src + offset), Vec::load(dst + offset), Vec(scale[i]));
+                        Vec::save(dst + offset, dataNew * Vec(nsBuf[i - ic]));
+                    }
+                }
+            } else {
+                for (int j = 0; j < depthQuad; ++j) {
+                    for (int i = ic; i < iEnd; ++i) {
+                        auto offset = j * stride0 + i * pack;
+                        Vec::save(dst + offset, Vec::load(src + offset) * Vec(nsBuf[i - ic]));
+                    }
+                }
+            }
+        }
+        return;
+    }
     if (idx > 0) {
         for (int j = 0; j < depthQuad; ++j) {
             int i = seqStart;
@@ -1336,16 +1380,6 @@ static void MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* sc
         }
     } else {
         memcpy(dst, src, size * bytes);
-    }
-    if (idx == kvBlocks - 1) { // if last subBlock, exp(xi)/sum(exp(xi))
-        for (int j = 0; j < depthQuad; ++j) {
-            for (int i = 0; i < plane; ++i) {
-                auto dataNew = Vec::load(dst + j * stride0 + i * pack);
-                auto ns = Vec(1.0f / normalizeScale[i]);
-                dataNew = dataNew * ns;
-                Vec::save(dst + j * stride0 + i * pack, dataNew);
-            }
-        }
     }
 }
 
@@ -1438,20 +1472,35 @@ static void MNNPackedMatMulRemainWithSme2PackedB(float* C, const float* A, const
         }
         return;
     }
-    for (size_t e = 0; e < eSize; ++e) {
+    constexpr int ET = 4;
+    for (size_t e0 = 0; e0 < eSize; e0 += ET) {
+        const int eN = static_cast<int>(ALIMIN(eSize - e0, static_cast<size_t>(ET)));
         for (size_t y = 0; y < h; y += 4) {
             const size_t remain = ALIMIN((size_t)4, h - y);
             const float* weight = B + (y / 64) * bStride + y % 64;
-            auto sum = Vec(0.0f);
-            for (size_t z = 0; z < l; ++z) {
-                sum = Vec::fma(sum, Vec::load(weight + z * 64), Vec(A[z * aStride + e]));
+            Vec sum[ET];
+            for (int i = 0; i < ET; ++i) {
+                sum[i] = Vec(0.0f);
             }
-            float* dst = C + (y / 4) * cStride + e * 4;
-            if (remain == 4) {
-                Vec::save(dst, sum);
-            } else {
-                for (size_t i = 0; i < remain; ++i) {
-                    dst[i] = sum[i];
+            for (size_t z = 0; z < l; ++z) {
+                const auto w = Vec::load(weight + z * 64);
+                for (int i = 0; i < ET; ++i) {
+                    if (i < eN) {
+                        sum[i] = Vec::fma(sum[i], w, Vec(A[z * aStride + e0 + i]));
+                    }
+                }
+            }
+            for (int i = 0; i < ET; ++i) {
+                if (i >= eN) {
+                    break;
+                }
+                float* dst = C + (y / 4) * cStride + (e0 + i) * 4;
+                if (remain == 4) {
+                    Vec::save(dst, sum[i]);
+                } else {
+                    for (size_t j = 0; j < remain; ++j) {
+                        dst[j] = sum[i][j];
+                    }
                 }
             }
         }
@@ -5026,6 +5075,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportRVV = gCPUInfo.rvv;
 
     gCoreFunction->smeCoreNumber = gCPUInfo.smeCoreNumber;
+    gCoreFunction->perfCoreNumber = gCPUInfo.perfCoreNumber;
 #ifdef MNN_PIPELINE_PROFILE
     if (const char* cpuTarget = std::getenv("MNN_CPU_TARGET")) {
         int target = ::atoi(cpuTarget);

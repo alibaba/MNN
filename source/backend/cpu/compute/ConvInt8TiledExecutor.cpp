@@ -280,10 +280,15 @@ static void _computeReorderQuantInfo(float* weightKernelSum, int32_t* paramsKern
 }
 
 static inline void calculateSmeNeonWorkDivision(int& ocMain, int& ocBranch, std::vector<int>& divides, int oc,
-                                                int threads, int pack, int planeSize, int divisionRatio, int smeCores) {
+                                                int threads, int pack, int planeSize, int divisionRatio, int smeCores,
+                                                int ocMainThreads) {
     // workload
+    // ocMain is the SME/NEON weight-packing boundary chosen at construction time with the pool's
+    // full thread count; derive it with ocMainThreads so the boundary stays identical even when the
+    // execute-time thread count is capped (computeThreadNumber). Otherwise SME threads would read
+    // NEON-packed weights past the boundary.
     auto ocDivPack = UP_DIV(oc, pack);
-    auto workUnit = UP_DIV(ocDivPack, divisionRatio * smeCores + 1 * (threads - smeCores));
+    auto workUnit = UP_DIV(ocDivPack, divisionRatio * smeCores + 1 * (ocMainThreads - smeCores));
     int calOcMain = ALIMIN(ROUND_UP(workUnit * pack * smeCores * divisionRatio, GEMM_INT8_UNIT_SME2_128), oc);
     if (calOcMain <= ocMain) { // The purpose of this function is to increase the value of ocMain.
         return;
@@ -944,7 +949,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
 
 DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op,
                                                        const DenseConvInt8TiledExecutor& exe)
-    : ConvInt8TiledExecutor(backend, op, exe.mResourceInt8), mGemmKernel(exe.mGemmKernel) {}
+    : ConvInt8TiledExecutor(backend, op, exe.mResourceInt8), mGemmKernel(exe.mGemmKernel), mMixedKernel(exe.mMixedKernel) {}
 
 DenseConvInt8TiledExecutor::~DenseConvInt8TiledExecutor() {
     // Do nothing
@@ -988,7 +993,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     // backend info
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     auto gcore = static_cast<CPUBackend*>(backend())->functions();
-    const int threads = static_cast<CPUBackend*>(backend())->threadNumber();
+    int threads = static_cast<CPUBackend*>(backend())->threadNumber();
     mRelatedFunctions = *(static_cast<CPUBackend*>(backend())->int8GemmFunctions());
     mArm82Functions = gcore->arm82MatmulRelatedFunctions;
 
@@ -1008,6 +1013,15 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     int kernelCount = mCommon->kernelY() * mCommon->kernelX();
     int inputPlane = batch * inputs[0]->width() * inputs[0]->height();
     auto planeSize = output->width() * output->height() * output->batch();
+    // Prefill-shaped (many-row) convolutions are compute-bound: split them
+    // across performance cores only. Decode (planeSize == 1) stays
+    // bandwidth-bound and keeps every thread.
+    threads = static_cast<CPUBackend*>(backend())->computeThreadNumber(planeSize);
+    if (mMixedKernel) {
+        // The mixed SME/NEON kernel was selected at construction with threads >= 4; keep the flag
+        // consistent by never capping below 4 here.
+        threads = ALIMAX(threads, 4);
+    }
 
     int UNIT, SRC_UNIT, DST_XUNIT;
     mRelatedFunctions.MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
@@ -1148,7 +1162,8 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             } else {
                 mDivides.resize(threads + 1);
                 mDivides[0] = 0;
-                static_cast<CPUBackend*>(backend())->computeDivideSizes(totalWork, mDivides.data() + 1, flop / ios);
+                static_cast<CPUBackend*>(backend())->computeDivideSizes(totalWork, mDivides.data() + 1, flop / ios,
+                                                                        threads);
             }
             for (int i = 0; i < mDivides.size(); ++i) {
                 mDivides[i] *= part;
@@ -1157,7 +1172,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             // workload
             mOcMain = 0; // initialize for mixed kernel, before calculate
             calculateSmeNeonWorkDivision(mOcMain, mOcBranch, mDivides, outC, threads, pack, planeSize, mRatioDecode,
-                                         mSmeCores);
+                                         mSmeCores, static_cast<CPUBackend*>(backend())->threadNumber());
             mThreadNums = threads;
         }
     }
@@ -1169,7 +1184,8 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         } else {
             mDivides.resize(threads + 1);
             mDivides[0] = 0;
-            static_cast<CPUBackend*>(backend())->computeDivideSizes(mTileCount, mDivides.data() + 1, flop / ios);
+            static_cast<CPUBackend*>(backend())->computeDivideSizes(mTileCount, mDivides.data() + 1, flop / ios,
+                                                                    threads);
         }
     }
     mDividesTmp.resize(threads + 1);
@@ -1978,7 +1994,12 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     }
 
     // Declare variables used in dynamic quantization
-    const int threads = static_cast<CPUBackend*>(backend())->threadNumber();
+    int threads = static_cast<CPUBackend*>(backend())->computeThreadNumber(plane);
+    if (mMixedKernel) {
+        // Must match the clamp in onResize: division layout, temp buffers and the concurrency
+        // launch below all assume the same thread count.
+        threads = ALIMAX(threads, 4);
+    }
     int dropBranch = 0;
 
 #ifdef MNN_LOW_MEMORY
@@ -2123,7 +2144,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             int tmpMain = mOcMain;
             int tmpBranch = mOcBranch;
             calculateSmeNeonWorkDivision(tmpMain, tmpBranch, mDividesTmp, oc, threads, PackUnit, plane, mRatioPrefill,
-                                         mSmeCores);
+                                         mSmeCores, threads);
             auto updatedSmeWork = mDividesTmp[mSmeCores];
 
             if (updatedSmeWork - mOriginSmeWork > 0 &&

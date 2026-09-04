@@ -64,8 +64,8 @@ bool MNNRvvAttention::tryExecuteFastPath(const int8_t* query, int8_t* output, in
                                          bool hasSinks, bool outputC4, bool directC4Output) {
     if (seqLen != 1 || mUseFlashAttention || mKeyQuantMode != KVQuantMode::None ||
         mValueQuantMode != KVQuantMode::None || mBytes != 4 || mPack != 4 || hP != 4 || lP != 1 || qScale != 1.0f ||
-        !lowerTriangular || hasSinks || kvSeqLen != mBlockKV || mThreadNum <= 0 || mNumHead <= 0 || mKvNumHead <= 0 ||
-        mNumHead % mKvNumHead != 0 || query == nullptr || output == nullptr) {
+        !lowerTriangular || hasSinks || kvSeqLen != mKvBlockSize || mThreadNum <= 0 || mQNumHead <= 0 || mKvNumHead <= 0 ||
+        mQNumHead % mKvNumHead != 0 || query == nullptr || output == nullptr) {
         return false;
     }
 
@@ -75,8 +75,8 @@ bool MNNRvvAttention::tryExecuteFastPath(const int8_t* query, int8_t* output, in
     std::shared_ptr<Tensor> transientScratch;
     if (scoreBase == nullptr || scoreStride < requiredScoreBytes) {
         constexpr int kMaxPersistentDecodeScratch = 4096;
-        const int requestedCapacity = ALIMAX(mBlockKV, mKVCacheManager->maxLength());
-        if (mBlockKV <= kMaxPersistentDecodeScratch) {
+        const int requestedCapacity = ALIMAX(mKvBlockSize, mKVCacheManager->maxLength());
+        if (mKvBlockSize <= kMaxPersistentDecodeScratch) {
             const int persistentCapacity = ALIMIN(requestedCapacity, kMaxPersistentDecodeScratch);
             if (!acquireDecodeScratch(persistentCapacity)) {
                 return false;
@@ -106,11 +106,11 @@ bool MNNRvvAttention::tryExecuteFastPath(const int8_t* query, int8_t* output, in
     }
 
     auto core = static_cast<CPUBackend*>(backend())->functions();
-    const int headsPerThread = UP_DIV(mNumHead, mThreadNum);
-    const int groupSize = mNumHead / mKvNumHead;
+    const int headsPerThread = UP_DIV(mQNumHead, mThreadNum);
+    const int groupSize = mQNumHead / mKvNumHead;
     MNNRvvFastPathParallelFor(backend(), mThreadNum, [&](int tId) {
         const int headBegin = tId * headsPerThread;
-        const int headEnd = ALIMIN(mNumHead, headBegin + headsPerThread);
+        const int headEnd = ALIMIN(mQNumHead, headBegin + headsPerThread);
         auto score = reinterpret_cast<float*>(scoreBase + static_cast<size_t>(tId) * scoreStride);
         auto outputScratch =
             directC4Output ? nullptr : outputWorkspace + static_cast<size_t>(tId) * outputWorkspaceStride;
@@ -153,7 +153,7 @@ bool MNNRvvAttention::tryExecuteFastPath(const int8_t* query, int8_t* output, in
                                                       pvParameters, nullptr, nullptr, nullptr, nullptr, 1);
 
             if (!outputC4) {
-                int offset[2] = {1, mNumHead * mHeadDim};
+                int offset[2] = {1, mQNumHead * mHeadDim};
                 auto dst = output + static_cast<size_t>(head) * mHeadDim * mBytes;
                 core->MNNUnpackCUnitTranspose(reinterpret_cast<float*>(dst),
                                               reinterpret_cast<const float*>(packedOutput), 1, mHeadDim, offset);

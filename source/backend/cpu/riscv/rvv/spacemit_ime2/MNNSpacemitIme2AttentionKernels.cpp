@@ -452,8 +452,8 @@ MNNSpacemitIme2FlashAttentionFp32C4PairBaseline(float* dst, const float* query, 
     constexpr int kvTile = 64;
     constexpr int pairCount = 2;
     const size_t halfTile = queryTile * headDim;
-    const size_t kvBlockCount = (seqLen + kvTile - 1) / kvTile;
-    const size_t requiredBytes = ((2 * kvBlockCount + pairCount) * halfTile) * sizeof(_Float16) +
+    const size_t kvBlockNums = (seqLen + kvTile - 1) / kvTile;
+    const size_t requiredBytes = ((2 * kvBlockNums + pairCount) * halfTile) * sizeof(_Float16) +
                                  (queryTile * kvTile + pairCount * queryTile * headDim) * sizeof(float);
     if (dst == nullptr || query == nullptr || key == nullptr || value == nullptr || scratch == nullptr) {
         return -1;
@@ -467,8 +467,8 @@ MNNSpacemitIme2FlashAttentionFp32C4PairBaseline(float* dst, const float* query, 
     }
 
     _Float16* key16 = reinterpret_cast<_Float16*>(scratch);
-    _Float16* value16 = key16 + kvBlockCount * halfTile;
-    _Float16* query16 = value16 + kvBlockCount * halfTile;
+    _Float16* value16 = key16 + kvBlockNums * halfTile;
+    _Float16* query16 = value16 + kvBlockNums * halfTile;
     float* score = reinterpret_cast<float*>(query16 + pairCount * halfTile);
     float* output = score + queryTile * kvTile;
     float maximum[pairCount][queryTile];

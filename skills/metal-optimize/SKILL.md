@@ -58,8 +58,9 @@ description: MNN Metal 后端 op/kernel 开发与优化入口。索引四份 sub
 
 ## 相关 Skills
 
-- `skills/bugfix/` — 内存别名 / 生命周期错误排查（Metal 后端共用同一套方法论）
-- `skills/general-debug/` — 正确性 bug / 回归诊断
-- `skills/opencl-optimize/`、`skills/vulkan-optimize/`、`skills/arm-cpu-optimize/` — 其他后端
+- `skills/general-debug/` — 正确性 bug / 回归诊断入口（按症状分册）；Metal 常用的两册是
+  `general-debug/memory-aliasing.md`（§1 内存别名 / 生命周期，含融合引入的别名竞争）与
+  `general-debug/gpu-oob.md`（§6 shader 越界 / command buffer 故障）
+- `skills/opencl-optimize/`、`skills/vulkan-optimize/`、`skills/cpu/` — 其他后端
 - `skills/support-new-llm/` — 新增 LLM 模型的完整流程
 - `skills/test-ci/` — 单测 / 回归测试

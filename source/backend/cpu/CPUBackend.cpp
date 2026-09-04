@@ -51,12 +51,16 @@ ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs, const
     CPUCastCreator::cast(inputs[0], outputs[0], cpuBackend, convertType);
     return NO_ERROR;
 }
-void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv) const {
-    if (mGroupWithComputeRate.size() <= 1 || (avgDiv > 0 && avgDiv < mComputeI)) {
+void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv, int threads) const {
+    if (threads <= 0 || threads > mThreadNumber) {
+        threads = mThreadNumber;
+    }
+    // Group rates are defined over the full thread set; a capped caller needs an even split.
+    if (mGroupWithComputeRate.size() <= 1 || (avgDiv > 0 && avgDiv < mComputeI) || threads != mThreadNumber) {
         // Avg divide
-        int length = UP_DIV(size, mThreadNumber);
+        int length = UP_DIV(size, threads);
         int cur = length;
-        for (int i=0; i<mThreadNumber; ++i) {
+        for (int i=0; i<threads; ++i) {
             dst[i] = cur;
             cur = cur + length;
             cur = ALIMIN(cur, size);
@@ -524,6 +528,14 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
 
 CPUBackend::~CPUBackend() {
     // Do nothing
+}
+
+int CPUBackend::computeThreadNumber(int workItems) const {
+    int perfCores = mCoreFunctions->perfCoreNumber;
+    if (workItems > 1 && perfCores > 0 && mThreadNumber > perfCores) {
+        return perfCores;
+    }
+    return mThreadNumber;
 }
 void CPUBackend::_resetDynamicMemory() const {
     mRuntime->pCurrentStatus = mDmaInfo->mDynamicAllocator->apply();

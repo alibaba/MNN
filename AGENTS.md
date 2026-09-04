@@ -106,11 +106,10 @@ Public skills are listed below. Environment-dependent skills may exist under `sk
 |-------|-----------|---------|
 | Support new LLM | `skills/support-new-llm/SKILL.md` | Add / adapt a new LLM model |
 | Add new op | `skills/add-new-op/SKILL.md` | Add a new operator |
-| ARM CPU optimization | `skills/arm-cpu-optimize/SKILL.md` | Optimize op performance on ARM CPU |
-| RISC-V CPU optimization | `skills/riscv-cpu-optimize/SKILL.md` | Optimize standard RVV or vendor matrix-extension CPU paths |
+| CPU (ARM & x86_64 & RISC-V) | `skills/cpu/SKILL.md` | Any CPU-side work. Router with two branches: `optimize/` — diagnose **why** a CPU op / LLM path is slow and **which layer to change**; `kernel/` — **write / port** a kernel once profiling has located it (SIMD intrinsics or asm, pack & ABI contracts, dispatch registration, correctness gate). Architecture is a sub-layer inside each branch: `optimize/arch/{arm,x86_64,riscv}.md` is the **diagnosis** face (which path am I actually on — on ARM two orthogonal axes: architecture level aarch32 / aarch64 NEON baseline / v8.2 sdot / v8.6 smmla / v9.2 SME2, times precision fp32 / fp16 arm82 / bf16; on x86_64 a single ISA axis plain-C++/SSE/AVX2+FMA/AVX512 No-VNNI/AVX512 VNNI; on RISC-V a single ISA axis plain-C++/standard RVV/SpacemiT IME2 vendor matrix extension — and how to prove it), `kernel/arch/{arm,x86_64,riscv}.md` is the **implementation** face. `shared/` holds the cross-branch tools: build & benchmark discipline, env switch registry, RISC-V dev-board remote validation |
 | OpenCL optimization | `skills/opencl-optimize/SKILL.md` | Optimize op performance on OpenCL |
 | Vulkan optimization | `skills/vulkan-optimize/SKILL.md` | Optimize op performance on Vulkan |
 | Metal optimization | `skills/metal-optimize/SKILL.md` | Optimize op performance on Metal |
-| Bugfix / debugging | `skills/general-debug/SKILL.md` | Diagnose correctness bugs / regressions in MNN — organized by bug category. |
+| Bugfix / debugging | `skills/general-debug/SKILL.md` | Diagnose correctness bugs / regressions in MNN — router that dispatches by symptom to per-category sub-docs (memory aliasing, export/quant, fp16 range, GPU OOB, kernel assumptions, stale cache, nondeterminism). |
 | Run tests / CI | `skills/test-ci/SKILL.md` | Run the regression / CI suite (host or on-device), benchmark LLM on a real iPhone/iPad, or add / select / retune a test stage |
 | Retrospective | `skills/retrospective/SKILL.md` | After non-trivial tasks with reusable lessons |

@@ -185,6 +185,12 @@ public:
         // Defaults match llama.cpp's gemv_roofline.cpp.
         int M = 4096;
         int K = 14336;
+        if (const char* e = getenv("MNN_GEMVBW_M")) {
+            if (atoi(e) > 0) M = atoi(e);
+        }
+        if (const char* e = getenv("MNN_GEMVBW_K")) {
+            if (atoi(e) > 0) K = atoi(e);
+        }
 
         int threads = MNNTestSuite::get()->pStaus.thread > 0 ? MNNTestSuite::get()->pStaus.thread : 4;
         MNNForwardType forwardType = (MNNForwardType)MNNTestSuite::get()->pStaus.forwardType;

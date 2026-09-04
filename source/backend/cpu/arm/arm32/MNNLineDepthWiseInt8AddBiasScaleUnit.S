@@ -21,14 +21,25 @@ asm_function MNNLineDepthWiseInt8AddBiasScaleUnit
 //                                          size_t dilateY_step) {
 
 
-//struct QuanPostTreatParameters {
-//    const float* scale;
-//    const int32_t* bias;
-//    int32_t maxValue;
-//    int32_t minValue;
-//    float roundValuePos = 0.5f;
-//    float roundValueNeg = -0.5f;
-//};
+// Mirror of QuanPostTreatParameters in source/backend/cpu/compute/Int8FunctionsOpt.h; keep in sync.
+// struct QuanPostTreatParameters {
+//     const float* scale;
+//     const float* biasFloat;
+//     int32_t maxValue;
+//     int32_t minValue;
+//     int32_t useInt8 = 1; // Save result as int8_t dataType; otherwise float32.
+//     float roundValuePos = 0.5f;
+//     float roundValueNeg = -0.5f;
+//     float* srcKernelSum;
+//     float* weightKernelSum;
+//     float* fp32minmax;
+//     ssize_t blockNum = 1;
+//     const int32_t* bias = nullptr;
+//     const float* inputScale = nullptr;
+//     const float* inputBias = nullptr;
+//     float* accumBuffer = nullptr;
+//     int32_t* indices = nullptr;
+// };
 
 // Auto Load:
 // r0: dst*, r1: src*, r2: weight*, r3: parameters*

@@ -2410,32 +2410,27 @@ static void MNNGetGemmUnit(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
 }
 
 static void MNNGetGemmUnitSdot(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
-    *UNIT = 8;
-    *SRC_UNIT = 4;
-    *DST_XUNIT = 12;
+    *UNIT = GEMM_INT8_UNIT_ARM82;
+    *SRC_UNIT = GEMM_INT8_SRC_UNIT_ARM82;
+    *DST_XUNIT = GEMM_INT8_DST_XUNIT_ARM82;
 }
 
 static void MNNGetGemmUnitI8mm(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
-    *UNIT = 8;
-    *SRC_UNIT = 8;
-    *DST_XUNIT = 10;
+    *UNIT = GEMM_INT8_UNIT_ARM86;
+    *SRC_UNIT = GEMM_INT8_SRC_UNIT_ARM86;
+    *DST_XUNIT = GEMM_INT8_DST_XUNIT_ARM86;
 }
 
 static void MNNGetGemmUnitRVV(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
     *UNIT = GEMM_INT8_UNIT;
     *SRC_UNIT = GEMM_INT8_SRC_UNIT;
-    *DST_XUNIT = 8;
+    *DST_XUNIT = GEMM_INT8_DST_XUNIT_RVV;
 }
 
 static void MNNGetGemmUnitSme2_HP32(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
-    *UNIT = 32;
-    *SRC_UNIT = 4;
-    *DST_XUNIT = 16;
-}
-static void MNNGetGemmUnitSme2_HP64(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
-    *UNIT = 64;
-    *SRC_UNIT = 4;
-    *DST_XUNIT = 16;
+    *UNIT = GEMM_INT8_UNIT_SME2;
+    *SRC_UNIT = GEMM_INT8_SRC_UNIT_SME2;
+    *DST_XUNIT = GEMM_INT8_DST_XUNIT_SME2;
 }
 
 // ADD RVV suport
@@ -2804,8 +2799,9 @@ void MNNCoreInt8FunctionInit() {
 #ifdef MNN_USE_RVV
     if (core->supportRVV) {
         gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnitRVV;
-        gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A<8, GEMM_INT8_SRC_UNIT, GEMM_INT8_UNIT>;
-        core->int8MatmulRelatedFunctions.eP = 8;
+        gCoreFunc->MNNPackC4Int8ForMatMul_A =
+        _ArmBasicMNNPackC4ForMatMul_A<GEMM_INT8_DST_XUNIT_RVV, GEMM_INT8_SRC_UNIT, GEMM_INT8_UNIT>;
+        core->int8MatmulRelatedFunctions.eP = GEMM_INT8_DST_XUNIT_RVV;
         gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_RVV;
         MNNRvvInitializeInt8FastPathFunctions(gCoreFunc);
         gCoreFunc->MNNAvgPoolInt8 = MNNAvgPoolInt8_RVV;

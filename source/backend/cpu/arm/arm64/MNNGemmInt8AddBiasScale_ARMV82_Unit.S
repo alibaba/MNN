@@ -99,6 +99,7 @@ sub \rg0, \rg0, \rg1, LSL #5 // revert weight kernel sum
 .endm
 asm_function MNNGemmInt8AddBiasScale_ARMV82_Unit
 /*
+Mirror of QuanPostTreatParameters in source/backend/cpu/compute/Int8FunctionsOpt.h; keep in sync.
 struct QuanPostTreatParameters {
     const float* scale;
     const float* biasFloat;
@@ -115,6 +116,7 @@ struct QuanPostTreatParameters {
     const float* inputScale = nullptr;
     const float* inputBias = nullptr;
     float* accumBuffer = nullptr;
+    int32_t* indices = nullptr;
 };
 */
 

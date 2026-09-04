@@ -245,7 +245,7 @@ Root cause: `prefill_qkv_tensor` kernel 缺 `#ifdef ATTENTION_C4` 分支（长�
 
 1. 用文档原测法 `llm_demo + config_greedy` 复测 → 309.09，"排除了工具差异"；
 2. 建 worktree 编译 `200530d339`，正序交替配对 3 轮 → ratio 0.9475 / 0.8952 / 0.9134；
-3. 反序配对 3 轮（铁律 11）→ 0.9051 / 0.8891 / 0.8994，"双向一致，确认真回归"；
+3. 反序配对 3 轮（[`SKILL.md`](./SKILL.md) 通用原则 7：A/B 必须交替配对）→ 0.9051 / 0.8891 / 0.8994，"双向一致，确认真回归"；
 4. 二分两轮（`6975fa71e7` 331 快、`024412a537` 337 快），把嫌疑收窄到 3 个 commit；
 5. 才去看 `ls -l build/libMNN.dylib` → **7月29 20:34，比 HEAD 晚三个 commit**，`decode_sdpa` / `probe_coop_input` / `prefill_flash_attn_nax` 三个符号全缺；
 6. 重跑 `cmake ..` + `make` 后再配对 → **0.9998 / 0.9997 / 1.0001，回归消失。**

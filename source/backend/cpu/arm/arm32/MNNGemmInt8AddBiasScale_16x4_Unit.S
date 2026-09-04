@@ -16,6 +16,7 @@
 
 asm_function MNNGemmInt8AddBiasScale_16x4_Unit
 /*
+Mirror of QuanPostTreatParameters in source/backend/cpu/compute/Int8FunctionsOpt.h; keep in sync.
 struct QuanPostTreatParameters {
     const float* scale;
     const float* biasFloat;
@@ -32,7 +33,9 @@ struct QuanPostTreatParameters {
     const float* inputScale = nullptr;
     const float* inputBias = nullptr;
     float* accumBuffer = nullptr;
-};*/
+    int32_t* indices = nullptr;
+};
+*/
 
 //void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
 //                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t real) {

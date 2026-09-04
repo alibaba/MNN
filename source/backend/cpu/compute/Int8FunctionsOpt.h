@@ -48,6 +48,9 @@ typedef SSIZE_T ssize_t;
 #define GEMM_INT8_DST_XUNIT_SME2 16
 #define GEMM_INT8_UNIT_SME2_128 128
 
+/* CPU supports rvv: UNIT / SRC_UNIT are intentionally the baseline ones, only DST_XUNIT differs */
+#define GEMM_INT8_DST_XUNIT_RVV 8
+
 #ifdef __cplusplus
 extern "C" {
 #endif

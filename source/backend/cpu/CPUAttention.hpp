@@ -36,16 +36,16 @@ protected:
 #ifdef MNN_SME2
     bool mUseMixedSmeNeonMatMul = false;
     int mSmeThreadCount = 0;
-    int mSmeHeadCount = 0;
 #endif
     bool mKVCache        = true;
     bool mIsKVShared = false;
+    bool mDecodeGqaBatch = false; // decode: batch query heads sharing one KV head into a single GEMM
     int mBytes = 4;
     int mThreadNum = 1;
-    int mBlockKV = 512;
+    int mKvBlockSize = 512;
     int eP, lP, hP, mPack; // float matmul packing
     int eP8, lP8, hP8;    // GemmInt8 packing
-    int mNumHead, mKvNumHead, mHeadDim;
+    int mQNumHead, mKvNumHead, mHeadDim;
     KVMeta* mMeta;
 
     // common

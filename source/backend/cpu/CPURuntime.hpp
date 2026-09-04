@@ -35,6 +35,8 @@ struct MNNCPUInfo {
 
     int cpuNumber = 0;
     int smeCoreNumber = 0;
+    // Number of performance-cluster cores; 0 means unknown / not applicable.
+    int perfCoreNumber = 0;
 };
 
 using cpu_mask_t = unsigned long;

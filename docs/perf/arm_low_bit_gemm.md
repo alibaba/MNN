@@ -222,5 +222,10 @@ source/backend/cpu/compute/
   CommonOptFunction.h           # MatmulRelatedFunctions
   Int8FunctionsOpt.{h,cpp}      # CoreInt8Functions
 test/speed/GemvBWTest.cpp       # LinearRoofline benchmark (W2/W3/W4/W8)
-skills/arm-cpu-optimize/        # 优化方法论与 step 文档
+skills/cpu/                     # CPU skill 入口（纯索引，只做分流）
+  optimize/                     # 分层性能归因与路由（为什么慢、该改哪一层）
+    arch/{arm,x86_64,riscv}.md  #   诊断面：我到底跑在哪条 ISA 路径上、怎么自证
+  kernel/                       # kernel 开发 / 移植（SIMD、汇编、pack 与 ABI 契约）
+    arch/{arm,x86_64,riscv}.md  #   实现面：怎么写对、怎么被选中
+  shared/                       # 两分支共用工具：构建与跑分纪律、env 开关、RISC-V 板端验证
 ```

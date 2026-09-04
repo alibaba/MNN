@@ -47,18 +47,25 @@
 
 asm_function MNNGemmInt8AddBiasScale_16x4_Unit_FAST
 
-/* 
+/*
+Mirror of QuanPostTreatParameters in source/backend/cpu/compute/Int8FunctionsOpt.h; keep in sync.
 struct QuanPostTreatParameters {
     const float* scale;
-    const float* bias;
+    const float* biasFloat;
     int32_t maxValue;
     int32_t minValue;
     int32_t useInt8 = 1; // Save result as int8_t dataType; otherwise float32.
     float roundValuePos = 0.5f;
     float roundValueNeg = -0.5f;
     float* srcKernelSum;
-    float* weightQuanBias;
+    float* weightKernelSum;
     float* fp32minmax;
+    ssize_t blockNum = 1;
+    const int32_t* bias = nullptr;
+    const float* inputScale = nullptr;
+    const float* inputBias = nullptr;
+    float* accumBuffer = nullptr;
+    int32_t* indices = nullptr;
 };
 */
 
@@ -70,7 +77,7 @@ struct QuanPostTreatParameters {
 
 //Load from post:
 // x10: bias, w11: maxValue, w13: minValue, w12: useInt8
-// x7: srcKernelSum
+// x7: srcKernelSum, x15: inputScale, x22: fp32minmax
 mov x8, x7
 ldr x10, [x6, #8]
 ldr w11, [x6, #16]
@@ -83,7 +90,8 @@ stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
 stp x21, x22, [sp, #(16 * 4)]
 ldr x7, [x6, #40]
-ldr x15, [x6, #96] // extraScale
+ldr x15, [x6, #80] // inputScale
+ldr x22, [x6, #56] // fp32minmax
 
 cmp x8, #3
 beq L3Dz
@@ -263,7 +271,12 @@ L4LoopDz:
 
     cmp w12, #1
     beq L4QuantUseInt8
+    cbz x22, L4StoreFP32
+    ld1r {v26.4s}, [x22] // f32 min
+    ldr s27, [x22, #4]
+    dup v27.4s, v27.s[0] // f32 max
     ReLU_FP32 v12, v13, v14, v15, v26, v27
+    L4StoreFP32:
     st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x0], x4
     b L4LoopCheck
 
@@ -303,7 +316,7 @@ L4LoopCheck:
 b End
 
 L3Dz:
-add x3, x7, #8
+add x21, x7, #8 // &srcKernelSum[2]
 cmp w12, #1
 bne L3LoopDz
 sub x4, x4, #8
@@ -416,7 +429,7 @@ L3LoopDz:
     L3Quan:
     ld1 {v1.4s}, [x2], #16
     ld1 {v2.d}[0], [x7] // x kernel sum
-    ld1 {v2.s}[2], [x6]
+    ld1 {v2.s}[2], [x21]
     ld1 {v24.4s}, [x2], #16 // weight quan zeropoint
 
     TILE3_INT2FLOAT:
@@ -445,7 +458,12 @@ L3LoopDz:
     fadd v14.4s, v14.4s, v0.4s
     cmp w12, #1
     beq L3QuantUseInt8
+    cbz x22, L3StoreFP32
+    ld1r {v26.4s}, [x22] // f32 min
+    ldr s27, [x22, #4]
+    dup v27.4s, v27.s[0] // f32 max
     ReLU_FP32_3 v12, v13, v14, v26, v27
+    L3StoreFP32:
     st1 {v12.4s, v13.4s, v14.4s}, [x0], x4
     b L3LoopCheck
 
@@ -581,7 +599,12 @@ L2LoopDz:
 
     cmp w12, #1
     beq L2QuantUseInt8
+    cbz x22, L2StoreFP32
+    ld1r {v26.4s}, [x22] // f32 min
+    ldr s27, [x22, #4]
+    dup v27.4s, v27.s[0] // f32 max
     ReLU_FP32_2 v12, v13, v26, v27
+    L2StoreFP32:
     st1 {v12.4s, v13.4s}, [x0], x4
     b L2LoopCheck
 
@@ -683,7 +706,12 @@ L1LoopDz:
 
     cmp w12, #1
     beq L1QuantUseInt8
+    cbz x22, L1StoreFP32
+    ld1r {v26.4s}, [x22] // f32 min
+    ldr s27, [x22, #4]
+    dup v27.4s, v27.s[0] // f32 max
     ReLU_FP32_1 v12, v26, v27
+    L1StoreFP32:
     st1 {v12.4s}, [x0], x4
     b L1LoopCheck
 

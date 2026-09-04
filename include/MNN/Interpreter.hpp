@@ -262,9 +262,6 @@ public:
 
         // Set CPU SME2 NEON division ratio, default is 41
         CPU_SME2_NEON_DIVISION_RATIO = 17,
-
-        // Set SME cores, default is 2, if supports sme
-        CPU_SME_CORES = 18
     };
 
     enum ExternalPathType {

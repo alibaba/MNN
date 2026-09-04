@@ -99,6 +99,19 @@ public:
     size_t getFlashAttentionBlockKv() {
         return mFlashAttentionUpperKv;
     }
+    // Physical V-cache chunk: single-threaded flash attention uses 2048 rows so decode can run
+    // 2048-row logical blocks (64-row blocks also divide it). Covered: unquantized KV and
+    // K-int8/V-float (-qa 1), whose int8 K layout is flat and float V read/write paths are
+    // chunk-parameterized. Multithreaded and V-int8 stay at 64: the 2048-chunk layout regresses
+    // multithreaded decode, and the V-int8 PV call sites hardcode MNN_FLASH_ATTENTION_BLOCK_SIZE.
+    // Uses the backend thread count (not kv-head-clamped mThreadNum) to stay coupled with
+    // CPUAttention's block-size choice.
+    size_t flashAttentionChunkKv() const {
+        bool decodeWide = static_cast<CPUBackend*>(mBackend)->threadNumber() == 1 &&
+                          mValueQuantMode == KVQuantMode::None &&
+                          (mKeyQuantMode == KVQuantMode::None || mKeyQuantMode == KVQuantMode::Int8);
+        return decodeWide ? MNN_FLASH_ATTENTION_BLOCK_DECODE : MNN_FLASH_ATTENTION_BLOCK_SIZE;
+    }
     
     void onPushBack(const Tensor * key, const Tensor * value, int add);
     void onDequantValue(Tensor * dequantedValues);
