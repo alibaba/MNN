@@ -21,6 +21,7 @@
 //    ./run_test.out speed/GemmSpeedFloat 7 2
 //    ./run_test.out speed/GemmSpeedInt8 7 2
 //    ./run_test.out speed/GemmSpeedInt4 7 2
+//    ./run_test.out speed/GemmSpeedInt4A8 7 2
 //
 
 #include <cmath>
@@ -121,7 +122,7 @@ static VARP buildHybridConv1x1(VARP x, int ic, int oc, int nbit, int blockSize) 
 
 // ---------------------------------------------------------------------------
 // Benchmark runner
-//   mode: 0=float, 1=int4-block64, 2=int8-block0
+//   mode: 0=float, 1=int4-block64, 2=int8-block0, 3=int4-block0 W4A8
 // ---------------------------------------------------------------------------
 static void benchConv1x1(const char* tag, int M, int K, int N, int mode, int forwardType, int precision, int thread) {
     // Create executor with Memory_Low for quantized modes
@@ -144,6 +145,9 @@ static void benchConv1x1(const char* tag, int M, int K, int N, int mode, int for
             break;
         case 2:
             y = buildHybridConv1x1(x, K, N, /*nbit=*/8, /*blockSize=*/K);
+            break;
+        case 3:
+            y = buildHybridConv1x1(x, K, N, /*nbit=*/4, /*blockSize=*/K);
             break;
         default:
             MNN_ASSERT(false);
@@ -284,6 +288,32 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// Test: Int4-block0 W4A8 GEMM
+//
+// Per-channel INT4 weights (blockSize=K) select VulkanConv1x1CoopA8 on
+// supported Adreno devices. The prefill path unpacks W4 to INT8, dynamically
+// quantizes activations to INT8, and executes S8 x S8 -> S32 CoopMat GEMM.
+// ---------------------------------------------------------------------------
+class GemmSpeedInt4A8 : public MNNTestCase {
+public:
+    virtual bool run(int precision) override {
+        auto& st = MNNTestSuite::get()->pStaus;
+        MNN_PRINT("\n===== Int4-Block0 W4A8 CoopMat GEMM Speed =====\n");
+        printBackendConfig(st.forwardType, st.precision, st.thread);
+
+        for (auto& cfg : defaultConfigs()) {
+            MNN_PRINT("--- %s ---\n", cfg.label);
+            for (int m : defaultMValues()) {
+                if (cfg.maxM > 0 && m > cfg.maxM)
+                    continue;
+                benchConv1x1("int4b0-a8-gemm", m, cfg.K, cfg.N, 3, st.forwardType, st.precision, st.thread);
+            }
+        }
+        return true;
+    }
+};
+
+// ---------------------------------------------------------------------------
 // Combined test: run all modes in one shot
 // ---------------------------------------------------------------------------
 class GemmSpeedAll : public MNNTestCase {
@@ -323,4 +353,5 @@ public:
 MNNTestSuiteRegister(GemmSpeedFloat, "speed/GemmSpeedFloat");
 MNNTestSuiteRegister(GemmSpeedInt8, "speed/GemmSpeedInt8");
 MNNTestSuiteRegister(GemmSpeedInt4, "speed/GemmSpeedInt4");
+MNNTestSuiteRegister(GemmSpeedInt4A8, "speed/GemmSpeedInt4A8");
 MNNTestSuiteRegister(GemmSpeedAll, "speed/GemmSpeedAll");

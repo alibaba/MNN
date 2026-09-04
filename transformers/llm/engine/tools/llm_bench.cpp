@@ -401,6 +401,7 @@ struct markdownPrinter : public Printer {
                 if (t.backend == 1) value = "METAL";
                 else if (t.backend == 2) value = "CUDA";
                 else if (t.backend == 3) value = "OPENCL";
+                else if (t.backend == 7) value = "VULKAN";
                 else if (t.backend == 10) value = "HEXAGON";
                 else value = "CPU";
             } else if (field == "test") {
@@ -505,6 +506,7 @@ struct jsonAggregator : public Printer {
         writer.Key("backend");
         if (t.backend == 1) writer.String("METAL");
         else if (t.backend == 3) writer.String("OPENCL");
+        else if (t.backend == 7) writer.String("VULKAN");
         else if (t.backend == 10) writer.String("HEXAGON");
         else writer.String("CPU");
 
@@ -916,6 +918,8 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
                     p.emplace_back(2);
                 } else if (type == "opencl") {
                     p.emplace_back(3);
+                } else if (type == "vulkan") {
+                    p.emplace_back(7);
                 } else if (type == "hexagon") {
                     p.emplace_back(10);
                 } else {
@@ -1101,7 +1105,7 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
     llmPtr->set_config(R"({"reuse_kv":false})");
     std::map<int, std::string> lever = {{0,"normal"}, {1, "high"}, {2, "low"}};
     std::map<int, std::string> backend_type = {
-        {0, "cpu"}, {1, "metal"}, {2, "cuda"}, {3, "opencl"}, {10, "hexagon"}};
+        {0, "cpu"}, {1, "metal"}, {2, "cuda"}, {3, "opencl"}, {7, "vulkan"}, {10, "hexagon"}};
     std::map<bool, std::string> mmap = {{true,"true"}, {false, "false"}};
 
     bool setSuccess = true;

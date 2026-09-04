@@ -321,7 +321,8 @@ bool VulkanConv1x1CoopA8::_init(const float* biasPtr, bool initStaticResource) {
     if (mIsInt4) {
         std::vector<VkDescriptorType> types(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         std::vector<uint32_t> localSize = {16u, 16u, 1u};
-        mInt4UnpackPipeline = vkBn->getPipeline("glsl_dynamic_int4_to_int8_unpack_comp", types, localSize, {});
+        std::vector<uint32_t> spec = {mCoopN, mCoopK};
+        mInt4UnpackPipeline = vkBn->getPipeline("glsl_dynamic_int4_to_int8_unpack_comp", types, localSize, spec);
         mInt4UnpackSet.reset(mInt4UnpackPipeline->createSet());
     }
 
@@ -361,12 +362,22 @@ bool VulkanConv1x1CoopA8::_init(const float* biasPtr, bool initStaticResource) {
     }
     {
         // GEMM spec constants 3..9: COOP_M, COOP_N, COOP_K, A_COL_MAJOR=0,
-        // B_COL_MAJOR=1, A_BLOCK_LINEAR=1, B_BLOCK_LINEAR=0.
+        // B_COL_MAJOR=1, A_BLOCK_LINEAR=1. INT4 unpack writes B block-linear;
+        // native INT8 weights retain their existing linear layout.
         std::vector<VkDescriptorType> types(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         std::vector<uint32_t> localSize = {mSubgroupSize, 1u, 1u};
-        std::vector<uint32_t> spec = {mCoopM, mCoopN, mCoopK, 0u, 1u, 1u, 0u};
+        std::vector<uint32_t> spec = {mCoopM, mCoopN, mCoopK, 0u, 1u, 1u, mIsInt4 ? 1u : 0u};
         mGemmS8Pipeline = vkBn->getPipeline("glsl_dynamic_w8a8_coop_gemm_comp", types, localSize, spec);
         mGemmSet.reset(mGemmS8Pipeline->createSet());
+    }
+    if (mIsInt4) {
+        std::vector<VkDescriptorType> types(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        std::vector<uint32_t> localSize = {mSubgroupSize, 1u, 1u};
+        std::vector<uint32_t> spec = {mCoopM, mCoopN, mCoopK, 0u, 1u, 1u, 1u, (uint32_t)activation};
+        const char* shader = useFP16 ? "glsl_dynamic_w8a8_coop_gemm_fused_FP16_comp"
+                                     : "glsl_dynamic_w8a8_coop_gemm_fused_comp";
+        mGemmFusedPipeline = vkBn->getPipeline(shader, types, localSize, spec);
+        mGemmFusedSet.reset(mGemmFusedPipeline->createSet());
     }
     {
         std::vector<VkDescriptorType> types(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
@@ -574,9 +585,8 @@ ErrorCode VulkanConv1x1CoopA8::onEncode(const std::vector<Tensor*>& inputs, cons
         cmdBuffer->barrierSource(bSumAq.first->buffer(), bSumAq.second, szSumAq);
     }
 
-    // INT4 only: nibble-packed weight -> int8 [padN, padK] before GEMM. The
-    // O(padN*padK) write/read here trades INT4 runtime bandwidth back to INT8
-    // levels, in exchange for fully reusing the W8A8 GEMM body.
+    // INT4 only: nibble-packed weight -> block-linear int8 cooperative tiles
+    // before GEMM. Native INT8 weights keep their existing linear layout.
     if (mIsInt4) {
         struct PC { uint32_t padN, padK, halfK; } pc;
         pc.padN = padN;
@@ -593,42 +603,71 @@ ErrorCode VulkanConv1x1CoopA8::onEncode(const std::vector<Tensor*>& inputs, cons
         cmdBuffer->barrierSource(bWqInt8.first->buffer(), bWqInt8.second, szWqInt8);
     }
 
-    {
-        struct PC { uint32_t M, N, K; } pc;
-        pc.M = padM; pc.N = padN; pc.K = padK;
+    if (mIsInt4) {
+        struct PC {
+            uint32_t M, N, K;
+            uint32_t padM, padN, padK;
+        } pc;
+        pc.M = (uint32_t)M;
+        pc.N = (uint32_t)N;
+        pc.K = (uint32_t)K;
+        pc.padM = padM;
+        pc.padN = padN;
+        pc.padK = padK;
 
-        mGemmSet->writeBuffer(bAq.first->buffer(), 0, szAq, bAq.second);
-        if (mIsInt4) {
-            auto bWqInt8 = vkBn->getTensorBuffer(tWqInt8.get());
-            const size_t szWqInt8 = vkBn->getTensorSize(tWqInt8.get());
-            mGemmSet->writeBuffer(bWqInt8.first->buffer(), 1, szWqInt8, bWqInt8.second);
-        } else {
-            mGemmSet->writeBuffer(mQuantWeightBuffer->buffer(), 1, mQuantWeightBuffer->size());
-        }
-        mGemmSet->writeBuffer(bAcc.first->buffer(), 2, szAcc, bAcc.second);
-        dispatchWithProfile("glsl_dynamic_w8a8_coop_gemm_comp",
-                            mGemmS8Pipeline, mGemmSet,
+        auto bWqInt8 = vkBn->getTensorBuffer(tWqInt8.get());
+        const size_t szWqInt8 = vkBn->getTensorSize(tWqInt8.get());
+        mGemmFusedSet->writeBuffer(bAq.first->buffer(), 0, szAq, bAq.second);
+        mGemmFusedSet->writeBuffer(bWqInt8.first->buffer(), 1, szWqInt8, bWqInt8.second);
+        mGemmFusedSet->writeBuffer(bScaleA.first->buffer(), 2, szScaleA, bScaleA.second);
+        mGemmFusedSet->writeBuffer(bOffsetA.first->buffer(), 3, szOffsetA, bOffsetA.second);
+        mGemmFusedSet->writeBuffer(bSumAq.first->buffer(), 4, szSumAq, bSumAq.second);
+        mGemmFusedSet->writeBuffer(mQuantMetaBuffer->buffer(), 5, mQuantMetaBuffer->size());
+        mGemmFusedSet->writeBuffer(mSumWqBuffer->buffer(), 6, mSumWqBuffer->size());
+        mGemmFusedSet->writeBuffer(mBiasBuffer->buffer(), 7, mBiasBuffer->size());
+        mGemmFusedSet->writeBuffer(dstBuffer.first->buffer(), 8, vkBn->getTensorSize(output), dstBuffer.second);
+        dispatchWithProfile(useFP16 ? "glsl_dynamic_w8a8_coop_gemm_fused_FP16_comp"
+                                    : "glsl_dynamic_w8a8_coop_gemm_fused_comp",
+                            mGemmFusedPipeline, mGemmFusedSet,
                             padN / mCoopN, padM / mCoopM, 1, &pc, sizeof(pc));
-        cmdBuffer->barrierSource(bAcc.first->buffer(), bAcc.second, szAcc);
-    }
+    } else {
+        {
+            struct PC { uint32_t M, N, K; } pc;
+            pc.M = padM;
+            pc.N = padN;
+            pc.K = padK;
 
-    {
-        struct PC { uint32_t M, N, K, padM, padN; } pc;
-        pc.M = (uint32_t)M; pc.N = (uint32_t)N; pc.K = (uint32_t)K; pc.padM = padM; pc.padN = padN;
+            mGemmSet->writeBuffer(bAq.first->buffer(), 0, szAq, bAq.second);
+            mGemmSet->writeBuffer(mQuantWeightBuffer->buffer(), 1, mQuantWeightBuffer->size());
+            mGemmSet->writeBuffer(bAcc.first->buffer(), 2, szAcc, bAcc.second);
+            dispatchWithProfile("glsl_dynamic_w8a8_coop_gemm_comp",
+                                mGemmS8Pipeline, mGemmSet,
+                                padN / mCoopN, padM / mCoopM, 1, &pc, sizeof(pc));
+            cmdBuffer->barrierSource(bAcc.first->buffer(), bAcc.second, szAcc);
+        }
 
-        const uint32_t n4_valid = UP_DIV((uint32_t)N, 4u);
-        mDequantSet->writeBuffer(bAcc.first->buffer(), 0, szAcc, bAcc.second);
-        mDequantSet->writeBuffer(bScaleA.first->buffer(), 1, szScaleA, bScaleA.second);
-        mDequantSet->writeBuffer(bOffsetA.first->buffer(), 2, szOffsetA, bOffsetA.second);
-        mDequantSet->writeBuffer(bSumAq.first->buffer(), 3, szSumAq, bSumAq.second);
-        mDequantSet->writeBuffer(mQuantMetaBuffer->buffer(), 4, mQuantMetaBuffer->size());
-        mDequantSet->writeBuffer(mSumWqBuffer->buffer(), 5, mSumWqBuffer->size());
-        mDequantSet->writeBuffer(mBiasBuffer->buffer(), 6, mBiasBuffer->size());
-        mDequantSet->writeBuffer(dstBuffer.first->buffer(), 7, vkBn->getTensorSize(output), dstBuffer.second);
-        dispatchWithProfile(useFP16 ? "glsl_dynamic_w8a8_dequant_correction_FP16_comp"
-                                    : "glsl_dynamic_w8a8_dequant_correction_comp",
-                            mDequantPipeline, mDequantSet,
-                            UP_DIV((uint32_t)M, 16u), UP_DIV(n4_valid, 16u), 1, &pc, sizeof(pc));
+        {
+            struct PC { uint32_t M, N, K, padM, padN; } pc;
+            pc.M = (uint32_t)M;
+            pc.N = (uint32_t)N;
+            pc.K = (uint32_t)K;
+            pc.padM = padM;
+            pc.padN = padN;
+
+            const uint32_t n4Valid = UP_DIV((uint32_t)N, 4u);
+            mDequantSet->writeBuffer(bAcc.first->buffer(), 0, szAcc, bAcc.second);
+            mDequantSet->writeBuffer(bScaleA.first->buffer(), 1, szScaleA, bScaleA.second);
+            mDequantSet->writeBuffer(bOffsetA.first->buffer(), 2, szOffsetA, bOffsetA.second);
+            mDequantSet->writeBuffer(bSumAq.first->buffer(), 3, szSumAq, bSumAq.second);
+            mDequantSet->writeBuffer(mQuantMetaBuffer->buffer(), 4, mQuantMetaBuffer->size());
+            mDequantSet->writeBuffer(mSumWqBuffer->buffer(), 5, mSumWqBuffer->size());
+            mDequantSet->writeBuffer(mBiasBuffer->buffer(), 6, mBiasBuffer->size());
+            mDequantSet->writeBuffer(dstBuffer.first->buffer(), 7, vkBn->getTensorSize(output), dstBuffer.second);
+            dispatchWithProfile(useFP16 ? "glsl_dynamic_w8a8_dequant_correction_FP16_comp"
+                                        : "glsl_dynamic_w8a8_dequant_correction_comp",
+                                mDequantPipeline, mDequantSet,
+                                UP_DIV((uint32_t)M, 16u), UP_DIV(n4Valid, 16u), 1, &pc, sizeof(pc));
+        }
     }
 
     for (Tensor* t : dyns) {
