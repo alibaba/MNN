@@ -253,6 +253,12 @@ public:
             }
         }
 
+        if (group < 1 || stride_h < 1 || stride_w < 1 || dilation_h < 1 || dilation_w < 1) {
+            MNN_ERROR("%s has invalid parameters, group:%d, strides:[%d,%d], dilations:[%d,%d], all must be positive\n",
+                      originalOpType.c_str(), group, stride_h, stride_w, dilation_h, dilation_w);
+            return nullptr;
+        }
+
         std::unique_ptr<Convolution2DT> convParam(new MNN::Convolution2DT);
         convParam->common.reset(new MNN::Convolution2DCommonT);
         auto common = convParam->common.get();

@@ -96,6 +96,11 @@ public:
             poolOp->main.type    = OpParameter_Pool;
             poolOp->main.value   = poolParam;
             poolParam->ceilModel = false;
+            // In the ONNX spec `strides` is optional and defaults to 1 per spatial axis.
+            // PoolT has no flatbuffer default for strideX/strideY (initialized to 0),
+            // so apply the spec default here explicitly.
+            poolParam->strideX = 1;
+            poolParam->strideY = 1;
             do {
                 if (type == "MaxPool") {
                     poolParam->type = MNN::PoolType_MAXPOOL;

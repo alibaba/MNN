@@ -27,6 +27,11 @@ public:
         MNN_ASSERT(inputs.size() >= 1);
         MNN_ASSERT(1 == outputs.size());
         const Convolution2DCommon* layer = loadCommon(op);
+        if (layer->strideX() <= 0 || layer->strideY() <= 0 || layer->dilateX() <= 0 || layer->dilateY() <= 0) {
+            MNN_ERROR("Invalid convolution parameter, strideX:%d, strideY:%d, dilateX:%d, dilateY:%d, all must be positive\n",
+                      layer->strideX(), layer->strideY(), layer->dilateX(), layer->dilateY());
+            return false;
+        }
         int kX = layer->kernelX();
         int kY = layer->kernelY();
         auto outputCount = layer->outputCount();

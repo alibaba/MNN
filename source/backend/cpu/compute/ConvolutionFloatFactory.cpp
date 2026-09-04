@@ -259,6 +259,10 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         group = inputs[0]->channel() / conv2d->common()->inputCount();
     }
     MNN_ASSERT(group > 0);
+    if (group <= 0) {
+        MNN_ERROR("Convolution %s has invalid group:%d\n", op->name()->c_str(), group);
+        return nullptr;
+    }
     if (1 == group) {
         return _createUnit(inputs[0], outputs[0], backend, op, originWeight, originWeightSize, originBias,
                            originBiasSize, quanCommon, supportSparse, lowMemory);
