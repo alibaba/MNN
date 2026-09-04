@@ -93,11 +93,14 @@ void QuantizeMultiplier(double double_multiplier, int32_t* quantized_multiplier,
 }
 
 bool convertDataFormatTflite(const float* src, float* dst, int KH, int KW, int CI, int CO, bool deconv) {
-    DCHECK(KH > 0);
-    DCHECK(KW > 0);
-    DCHECK(CI > 0);
-    DCHECK(CO > 0);
-    DCHECK(src != nullptr);
+    if (KH <= 0 || KW <= 0 || CI <= 0 || CO <= 0) {
+        DLOG(ERROR) << "convertDataFormatTflite got non-positive dims: " << KH << "x" << KW << "x" << CI << "x" << CO;
+        return false;
+    }
+    if (nullptr == src || nullptr == dst) {
+        DLOG(ERROR) << "convertDataFormatTflite got null src/dst";
+        return false;
+    }
     // deconv: CI KH KW CO --> CO CI KH KW
     // conv  : CO KH KW CI --> CO CI KH KW
     for (int oc = 0; oc < CO; ++oc) {

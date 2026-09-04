@@ -14,7 +14,10 @@ class ConcatSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(1 == outputs.size());
-        // MNN_ASSERT(inputs.size() >= 2);
+        if (inputs.empty()) {
+            MNN_ERROR("Concat op has no input\n");
+            return false;
+        }
         auto& ob      = outputs[0]->buffer();
         int basicAxis = 0;
         if (op->type() == OpType_Concat) {
@@ -30,6 +33,10 @@ class ConcatSizeComputer : public SizeComputer {
         // Concat-inputs may have scalar which should be delete
         for (const auto& input : inputs) {
             auto inputDimensions = input->buffer().dimensions;
+            if (inputDimensions <= 0 || inputDimensions > MNN_MAX_TENSOR_DIM) {
+                MNN_ERROR("Concat op input has invalid rank %d\n", inputDimensions);
+                return false;
+            }
 
             //  Tensor might be zeros size, but some dims may not be zero. should concat as usual.
 
@@ -39,12 +46,20 @@ class ConcatSizeComputer : public SizeComputer {
             if (axis < 0) {
                 axis = inputDimensions + axis;
             }
+            if (axis < 0 || axis >= inputDimensions) {
+                MNN_ERROR("Concat op axis %d out of range for %d dims\n", axis, inputDimensions);
+                return false;
+            }
             break;
         }
 
 
         int sum = 0;
         for (auto t : inputs) {
+            if (axis >= t->dimensions()) {
+                MNN_ERROR("Concat op axis %d out of range for %d dims\n", axis, t->dimensions());
+                return false;
+            }
             sum += t->buffer().dim[axis].extent;
             ob.type = t->buffer().type;
             for (int i = 0; i < t->dimensions(); ++i) {
