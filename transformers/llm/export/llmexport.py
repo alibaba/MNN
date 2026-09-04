@@ -398,7 +398,11 @@ class LlmExporter(torch.nn.Module):
                 config['dit_solver'] = 1
             if self.model_type == "gemma3":
                 config.update({'precision': "normal"})
-            if (hasattr(self, 'visual') and self.visual is not None) or (hasattr(self, 'visual') and self.audio is not None):
+            is_visual = hasattr(self, 'visual') and self.visual is not None
+            is_audio = hasattr(self, 'audio') and self.audio is not None
+            if is_visual or is_audio:
+                config['is_visual'] = is_visual
+                config['is_audio'] = is_audio
                 config['mllm'] = {
                     'backend_type': "cpu",
                     "thread_num": 4,
