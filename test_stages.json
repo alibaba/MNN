@@ -411,6 +411,11 @@
       "name":    "llm/{model_name}",
       "filter":  "llm",
       "comment": "Runs llm_demo against the provisioned config.json + prompt.txt."
+    },
+    "stage_multi_instance": {
+      "name":    "llm-multi/{model_name}",
+      "filter":  "llm",
+      "comment": "Runs test_multi_instance (2 concurrent Llm instances x 2 rounds) against the provisioned config.json. Guards against races on process-global state shared across instances (Metal replay proxy, tokenizer regex caches). Requires MNN_LLM_BUILD_TEST=ON; skipped when the binary is absent."
     }
   }
 }

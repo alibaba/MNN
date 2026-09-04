@@ -972,7 +972,9 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     imgIds.push_back(mVisionEnd);
     return imgIds;
 }
+#endif // LLM_SUPPORT_VISION
 
+#ifdef LLM_SUPPORT_VISION
 std::vector<int> Omni::hunyuanVisionProcess(VARP image) {
     MNN::Express::ExecutorScope s(mExecutor);
     int patchSize = mConfig->config_.value("hunyuan_patch_size", 16);
@@ -1339,6 +1341,9 @@ std::vector<int> Omni::minicpmVisionProcess(VARP image) {
 }
 #endif
 
+// Kept outside the big LLM_SUPPORT_VISION block: videoProcess calls it from a
+// vision-agnostic path, so the no-vision build needs the #else fallback below
+// to link (it reports INTERNAL_ERROR at runtime instead).
 std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const std::vector<float>& timestamps) {
 #ifdef LLM_SUPPORT_VISION
     if (frames.empty()) {

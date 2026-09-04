@@ -677,6 +677,7 @@ local_build() {
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
+        -DMNN_LLM_BUILD_TEST=ON \
         -DMNN_BUILD_CONVERTER=ON \
         ${platform_args[@]+"${platform_args[@]}"}
     make -j"$(_host_jobs)"
@@ -785,6 +786,15 @@ local_run_stages() {
     else
         run_stage "llm/${LLM_MODEL_NAME}" -- bash -c \
             "cd '${SCRIPT_DIR}/build' && ./llm_demo '${LLM_MODEL_DIR}/config.json' '${LLM_MODEL_DIR}/prompt.txt'"
+        # Multi-instance concurrency regression (2 threads x 2 rounds): guards
+        # against races on process-global state shared across Llm instances
+        # (see transformers/llm/engine/test/test_multi_instance.cpp).
+        if [[ -x "${SCRIPT_DIR}/build/test_multi_instance" ]]; then
+            run_stage "llm-multi/${LLM_MODEL_NAME}" -- bash -c \
+                "cd '${SCRIPT_DIR}/build' && ./test_multi_instance '${LLM_MODEL_DIR}/config.json' 2 2"
+        else
+            skip_stage "llm-multi/${LLM_MODEL_NAME}" "test_multi_instance not built (check MNN_LLM_BUILD_TEST)"
+        fi
     fi
 }
 
@@ -815,6 +825,7 @@ android_build() {
         -DMNN_LOW_MEMORY=true \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
+        -DMNN_LLM_BUILD_TEST=ON \
         -DMNN_BUILD_CONVERTER=ON \
         ${extra[@]+"${extra[@]}"}
     # build_64.sh hard-codes `make -j4`; respin with all cores so subsequent
@@ -830,6 +841,7 @@ android_build() {
 ANDROID_BIN_LIST=(
     libllm.so
     llm_demo
+    test_multi_instance
     libMNN.so
     libMNN_CL.so
     libMNN_Vulkan.so
@@ -1250,6 +1262,14 @@ android_llm_test() {
     if ad shell "[ -f ${remote}/config.json ]" 2>/dev/null; then
         run_stage "llm/${LLM_MODEL_NAME}" -- ad shell \
             "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./llm_demo ${remote}/config.json ${remote}/prompt.txt"
+        # Multi-instance concurrency regression, mirrors the local llm-multi
+        # stage (2 threads x 2 rounds).
+        if ad shell "[ -x ${DEVICE_DIR}/test_multi_instance ]" 2>/dev/null; then
+            run_stage "llm-multi/${LLM_MODEL_NAME}" -- ad shell \
+                "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./test_multi_instance ${remote}/config.json 2 2"
+        else
+            skip_stage "llm-multi/${LLM_MODEL_NAME}" "test_multi_instance not on device (check MNN_LLM_BUILD_TEST)"
+        fi
     else
         skip_stage "llm/${LLM_MODEL_NAME}" "model dir absent on device"
     fi

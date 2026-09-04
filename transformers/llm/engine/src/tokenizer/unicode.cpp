@@ -7,6 +7,7 @@
 
 #include "unicode.hpp"
 #include <cstring>
+#include <mutex>
 #include <regex>
 #include <unordered_map>
 
@@ -593,7 +594,14 @@ static bool use_wregex(const std::string& pattern) {
 }
 
 static const CompiledPattern& get_compiled(const std::string& pattern) {
+    // Guarded by a mutex: concurrent tokenizers (one per Llm instance) may
+    // encode at the same time, and an unsynchronized find/emplace on the
+    // shared cache races (rehash vs bucket walk). Entries are never erased and
+    // unordered_map references survive rehash, so the returned reference is
+    // safe to use after the lock is released.
+    static std::mutex cacheMutex;
     static std::unordered_map<std::string, CompiledPattern> cache;
+    std::lock_guard<std::mutex> lock(cacheMutex);
     auto it = cache.find(pattern);
     if (it == cache.end()) {
         PatternParser parser(pattern);
@@ -639,7 +647,12 @@ static std::wstring utf8_to_wstring(const std::string& s) {
 
 // Get cached std::wregex for patterns with non-ASCII content (codepoint-level matching)
 static const std::wregex& get_wregex(const std::string& pattern) {
+    // Same locking rationale as get_compiled: shared across concurrent
+    // tokenizers, entries never erased, references survive rehash. Matching
+    // against the returned const wregex outside the lock is thread-safe.
+    static std::mutex cacheMutex;
     static std::unordered_map<std::string, std::wregex> cache;
+    std::lock_guard<std::mutex> lock(cacheMutex);
     auto it = cache.find(pattern);
     if (it == cache.end()) {
         std::wstring wpat = utf8_to_wstring(pattern);

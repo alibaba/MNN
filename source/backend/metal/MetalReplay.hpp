@@ -91,7 +91,11 @@ bool metalReplayEmit(const std::vector<MetalReplayEvent>& events, id<MTLComputeC
 // Set by MetalExecution::onExecute only while a recording encode is in flight;
 // lets MetalBackend::setTensor annotate the binding it just recorded with the
 // source tensor for replay-time validation. Nil outside recording.
-extern MetalReplayProxy* gMetalReplayProxy;
+// thread_local: concurrent backends on different threads must not see each
+// other's recording proxy (cross-annotation + ARC strong-store race -> crash).
+// __unsafe_unretained is safe: the proxy is strongly held on the recording
+// thread's stack (MetalExecution::onExecute) for the whole window.
+extern thread_local __unsafe_unretained MetalReplayProxy* gMetalReplayProxy;
 #endif
 
 #endif /* MNN_METAL_ENABLED */
