@@ -227,17 +227,27 @@ EXPRP Expr::create(std::shared_ptr<BufferStorage> extra, std::vector<VARP>&& inp
 
 EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
     if (OpType_Input == op->type) {
+        auto inputParam = op->main.AsInput();
+        if (nullptr == inputParam) {
+            MNN_ERROR("Input op %s has no Input parameter\n", op->name.c_str());
+            return nullptr;
+        }
         Variable::Info info;
-        info.dim = op->main.AsInput()->dims;
+        info.dim = inputParam->dims;
         if (info.dim.size() >= 1 && -1 == info.dim[0]) {
             info.dim[0] = 1;
         }
-        info.order = Utils::revertFormat(op->main.AsInput()->dformat);
-        info.type = Utils::revertDataType(op->main.AsInput()->dtype);
+        info.order = Utils::revertFormat(inputParam->dformat);
+        info.type = Utils::revertDataType(inputParam->dtype);
         return create(std::move(info), nullptr, VARP::INPUT);
     }
     if (OpType_Const == op->type || OpType_TrainableParam == op->type) {
-        if (!op->externalPath.empty() || (!op->main.AsBlob()->external.empty())) {
+        auto blob = op->main.AsBlob();
+        if (nullptr == blob) {
+            MNN_ERROR("Const op %s has no blob parameter\n", op->name.c_str());
+            return nullptr;
+        }
+        if (!op->externalPath.empty() || (!blob->external.empty())) {
             flatbuffers::FlatBufferBuilder builder;
             auto offset = Op::Pack(builder, op);
             builder.Finish(offset);

@@ -26,6 +26,12 @@ public:
                 MNNTEST_ASSERT(((int *)ptr)[i] == 0);
             MNNMemoryFreeAlign(ptr);
         }
+        {
+            MNNTEST_ASSERT(MNNMemoryAllocAlign(0, MNN_MEMORY_ALIGN_DEFAULT) == nullptr);
+            MNNTEST_ASSERT(MNNMemoryCallocAlign(0, MNN_MEMORY_ALIGN_DEFAULT) == nullptr);
+            MNNTEST_ASSERT(MNNMemoryAllocAlign((size_t)-1, MNN_MEMORY_ALIGN_DEFAULT) == nullptr);
+            MNNTEST_ASSERT(MNNMemoryCallocAlign((size_t)-1, MNN_MEMORY_ALIGN_DEFAULT) == nullptr);
+        }
         return true;
     }
 };

@@ -21,10 +21,15 @@ public:
         const auto op = expr->get();
         MNN_ASSERT(op->type() == OpType_Extra);
         auto extra = op->main_as_Extra();
+        if (nullptr == extra || nullptr == extra->attr() || extra->attr()->size() < 2) {
+            return nullptr;
+        }
         auto opType = static_cast<tflite::BuiltinOperator>(extra->attr()->Get(0)->i());
         auto activationType = static_cast<tflite::ActivationFunctionType>(extra->attr()->Get(1)->i());
         auto inputs = expr->inputs();
-        MNN_ASSERT(inputs.size() == 2);
+        if (inputs.size() != 2 || nullptr == inputs[0].get() || nullptr == inputs[1].get()) {
+            return nullptr;
+        }
         auto input0 = inputs[0];
         auto input1 = inputs[1];
         VARP newOutput;

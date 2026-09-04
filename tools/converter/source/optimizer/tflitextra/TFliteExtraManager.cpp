@@ -31,11 +31,29 @@ std::shared_ptr<TFliteExtraManager::Transform> TFliteExtraManager::find(const st
     return iter->second;
 }
 
+static bool extraReady(const Op* op) {
+    if (nullptr == op || op->type() != OpType_Extra) {
+        return false;
+    }
+    auto extraParam = op->main_as_Extra();
+    return nullptr != extraParam && nullptr != extraParam->engine() && nullptr != extraParam->type();
+}
+
+static bool hasUsableInputs(EXPRP expr) {
+    const auto& inputs = expr->inputs();
+    for (int i = 0; i < (int)inputs.size(); ++i) {
+        if (nullptr == inputs[i].get()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static auto gRegister = []() {
     auto extra = TFliteExtraManager::get();
     auto judge = [extra](EXPRP expr) {
         auto op = expr->get();
-        if (nullptr == op || op->type() != OpType_Extra) {
+        if (!extraReady(op)) {
             return false;
         }
         auto engine = op->main_as_Extra()->engine()->str();
@@ -50,6 +68,10 @@ static auto gRegister = []() {
     };
     auto modify = [extra](EXPRP expr) {
         auto op = expr->get();
+        if (!extraReady(op) || !hasUsableInputs(expr)) {
+            MNN_ERROR("Converte Tflite's Extra failed: invalid extra or missing input\n");
+            return false;
+        }
         MNN_ASSERT(op->type() == OpType_Extra);
         auto type        = op->main_as_Extra()->type()->str();
         auto transformer = extra->find(type);

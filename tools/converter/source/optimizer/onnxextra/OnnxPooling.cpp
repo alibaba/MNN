@@ -15,6 +15,9 @@ namespace Express {
 class OnnxPoolingTransform : public OnnxExtraManager::Transform {
 public:
     static bool setUp3DPooling(OpT* dstOp, const Extra* info) {
+        if (nullptr == info || nullptr == info->type()) {
+            return false;
+        }
         const auto& type = info->type()->str();
         std::unique_ptr<MNN::Pool3DT> pool(new MNN::Pool3DT);
         if (type == "MaxPool") {
@@ -32,8 +35,14 @@ public:
         }
         pool->padType = MNN::PoolPadType_CAFFE;
         if (!pool->isGlobal) {
+            if (nullptr == info->attr()) {
+                return false;
+            }
             for (int i = 0; i < info->attr()->size(); ++i) {
                 const auto attr          = info->attr()->GetAs<Attribute>(i);
+                if (nullptr == attr || nullptr == attr->key()) {
+                    continue;
+                }
                 const auto attributeName = attr->key()->str();
                 auto list                = attr->list();
                 if (nullptr == list || nullptr == list->i()) {
@@ -65,14 +74,23 @@ public:
         std::unique_ptr<OpT> poolOp(new OpT);
         poolOp->name     = op->name()->c_str();
         auto extraParam  = op->main_as_Extra();
+        if (nullptr == extraParam || nullptr == extraParam->type()) {
+            return nullptr;
+        }
         bool is3DPooling = false;
         int attrSize     = 0;
         if (extraParam->attr() != nullptr) {
             attrSize = extraParam->attr()->size();
             for (int i = 0; i < attrSize; ++i) {
                 auto attr       = extraParam->attr()->GetAs<Attribute>(i);
+                if (nullptr == attr || nullptr == attr->key()) {
+                    continue;
+                }
                 const auto& key = attr->key()->str();
                 if (key == "kernel_shape") {
+                    if (nullptr == attr->list() || nullptr == attr->list()->i()) {
+                        continue;
+                    }
                     auto kernelSize = attr->list()->i()->size();
                     if (kernelSize == 3) {
                         is3DPooling = true;
