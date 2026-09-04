@@ -41,6 +41,10 @@ void QNNConvolution::isWeightQuantSupported(const Tensor *input, const int ic, c
         }
         
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon = ConvolutionCommon::load(mOp, this->backend(), false, true);
+        if (nullptr == quanCommon) {
+            mWeightQuant = false;
+            return;
+        }
         int totalCount = quanCommon->alpha.size();
         mBlockSize = totalCount / oc;
         if(quanCommon->asymmetric){
@@ -118,7 +122,9 @@ ErrorCode QNNConvolution::onEncode(const std::vector<Tensor *> &inputs, const st
         this->createParamScalar("group", (uint32_t)group);
     }
 
-    this->createWeightAndBias(dataType, inputs[0], oc, ic, kernelH, kernelW, group);
+    if (!this->createWeightAndBias(dataType, inputs[0], oc, ic, kernelH, kernelW, group)) {
+        return NOT_SUPPORT;
+    }
     // dequant input and quant output
     if(mWeightQuant == false && dataType != QNN_DATATYPE_FLOAT_16 && dataType != QNN_DATATYPE_FLOAT_32){
         return this->onEncodeQuantDequantConv(inputs[0], outputs[0], n, ic, oc);
@@ -562,6 +568,11 @@ bool QNNConvolution::createWeightAndBias(Qnn_DataType_t dataType, const Tensor *
     if(mWeightQuant){
         Qnn_QuantizeParams_t weightQuantize{};
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon = ConvolutionCommon::load(mOp, this->backend(), false, true);
+        if (nullptr == quanCommon) {
+            MNN_ERROR("QNNConvolution: op '%s' has no quantized weight data\n",
+                      mOp->name() ? mOp->name()->c_str() : "unknown");
+            return false;
+        }
         if(quanCommon->asymmetric) {
             MNN_ERROR("[Error]: Qnn weight quant only support symmetric currently\n");
             return false;
@@ -676,6 +687,11 @@ bool QNNConvolution::createWeightAndBias(Qnn_DataType_t dataType, const Tensor *
         int weightElementNum = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanWeight;
         ConvolutionCommon::getConvParameters(&quanWeight, mBackend, mOp, &source, &weightElementNum);
+        if (nullptr == source || weightElementNum <= 0) {
+            MNN_ERROR("QNNConvolution: op '%s' has no weight data\n",
+                      mOp->name() ? mOp->name()->c_str() : "unknown");
+            return false;
+        }
         // oc ic h w ---> h w ic oc
         weightData.resize(weightElementNum);
         convertWeight(source, (float *) weightData.data(), oc, ic/group, kernelH, kernelW);
