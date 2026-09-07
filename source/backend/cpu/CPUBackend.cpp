@@ -261,13 +261,6 @@ bool CPURuntime::onCheckInfo(Backend::Info& info) const {
     info.numThread = mThreadNumber;
     return true;
 }
-SingleBufferWithAllocator* CPURuntime::buffer(int index) const {
-    if (mDynamicMmap.empty()) {
-        return mDynamic.data() + index;
-    }
-    return mDynamicMmap.data() + index;
-}
-
 Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) const {
     {
         mCpuIds = hint().cpuIds;
@@ -537,19 +530,36 @@ int CPUBackend::computeThreadNumber(int workItems) const {
     }
     return mThreadNumber;
 }
-void CPUBackend::_resetDynamicMemory() const {
-    mRuntime->pCurrentStatus = mDmaInfo->mDynamicAllocator->apply();
-    if (NO_ERROR != mRuntime->pCurrentStatus) {
-        return;
-    }
-    if (nullptr != mDmaInfo->mDynamicAllocatorBackup.get()) {
-        mRuntime->pCurrentStatus  = mDmaInfo->mDynamicAllocatorBackup->apply();
+void CPUBackend::_prepareTensorMemory(const Tensor* srcTensor, const Tensor* dstTensor) const {
+    // Only prepare the plans backing these tensors. Applying this backend's
+    // unrelated plans can replace another graph's live shared arena.
+    DeferBufferAllocator* previous = nullptr;
+    for (auto tensor : {srcTensor, dstTensor}) {
+        auto node = TensorUtils::getDescribeOrigin(tensor)->cpuDynamicNode;
+        if (node == nullptr) {
+            continue;
+        }
+        if (node->allocator != previous) {
+            mRuntime->pCurrentStatus = node->allocator->apply();
+            if (mRuntime->pCurrentStatus != NO_ERROR) {
+                return;
+            }
+            previous = node->allocator;
+        }
+        // refTensorContent / clone may not be in the allocator's attached tensor list.
+        const_cast<Tensor*>(tensor)->buffer().host = static_cast<uint8_t*>(node->base) + node->offset;
     }
 }
 
 void CPUBackend::onExecuteBegin() const {
     mInitWorkQueue.reset();
-    _resetDynamicMemory();
+    mRuntime->pCurrentStatus = mDmaInfo->mDynamicAllocator->apply();
+    if (NO_ERROR != mRuntime->pCurrentStatus) {
+        return;
+    }
+    if (nullptr != mDmaInfo->mDynamicAllocatorBackup.get()) {
+        mRuntime->pCurrentStatus = mDmaInfo->mDynamicAllocatorBackup->apply();
+    }
 }
 
 void CPUBackend::onExecuteEnd() const {
@@ -594,6 +604,7 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
             TensorUtils::getDescribeOrigin(dest)->mem = nullptr;
         }
     }
+    TensorUtils::getDescribeOrigin(dest)->cpuDynamicNode = nullptr;
     // MNN_PRINT("Acquire size = %d\n", size);
     if (size <= 0) {
         MNN_PRINT("Acquire buffer size = %lu\n", size);
@@ -636,6 +647,9 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
 
     Backend::MemObj* res = nullptr;
 
+    // CPU tensor allocation uses a whole chunk; sub-chunk offsets are not introduced here.
+    MNN_ASSERT(chunk.node() == nullptr || chunk.second == 0);
+    TensorUtils::getDescribeOrigin(dest)->cpuDynamicNode = storageType == STATIC ? nullptr : chunk.node();
     if (storageType == STATIC) {
         res = new CPUMemObj(staticAllocator, chunk, size);
     } else {
@@ -709,7 +723,7 @@ void* CPUBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype
     if (OpCommonUtils:: convertDimType(TensorUtils::getDescribe(srcTensor)->dimensionFormat) != dtype) {
         return nullptr;
     }
-    _resetDynamicMemory();
+    _prepareTensorMemory(srcTensor, srcTensor);
     if (mRuntime->pCurrentStatus != NO_ERROR) {
         // Out of memory
         return nullptr;
@@ -831,7 +845,7 @@ std::pair<int, int> CPUBackend::multiThreadDivide(int size) const {
     return std::make_pair(sizeDivide, scheduleNumber);
 }
 void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
-    _resetDynamicMemory();
+    _prepareTensorMemory(srcTensor, dstTensor);
     if (mRuntime->pCurrentStatus != NO_ERROR) {
         // Out of memory
         return;

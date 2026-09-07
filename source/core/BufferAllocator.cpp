@@ -699,6 +699,7 @@ void DeferBufferAllocator::insert_after(MemNode* chunk, MemNode* pos) {
 }
 MemNode* DeferBufferAllocator::createMemNode(size_t size) {
     mChunks.emplace_back(new MemNode(size));
+    mChunks.back()->allocator = this;
     return mChunks.back().get();
 }
 void DeferBufferAllocator::insertFree(MemNode* chunk) {

@@ -479,6 +479,7 @@ bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
     auto srcDesO = TensorUtils::getDescribeOrigin(src);
     bool needMalloc = dst->buffer().host != src->buffer().host || dst->buffer().device != src->buffer().device || desO->offset != srcDesO->offset;
     desO->setBackend(srcDesO->getBackend());
+    desO->cpuDynamicNode = srcDesO->cpuDynamicNode;
     dst->buffer().host = src->buffer().host;
     dst->buffer().device = src->buffer().device;
     dst->buffer().flags = src->buffer().flags;

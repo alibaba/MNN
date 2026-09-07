@@ -626,6 +626,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
                 mInputTensors[i]->buffer().host = srcPtr;
                 mInputTensors[i]->buffer().device = 0;
                 TensorUtils::getDescribeOrigin(mInputTensors[i])->setBackend(pipelineInfo.first.cache.second.get());
+                TensorUtils::getDescribeOrigin(mInputTensors[i])->cpuDynamicNode = nullptr;
                 if (nullptr == srcDes->quantAttr.get()) {
                     // For device need copy, cache device tensor
                     auto cacheIter = pipelineInfo.first.inputTensorCopyCache.find(mInputTensors[i]);
