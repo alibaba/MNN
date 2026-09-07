@@ -20,6 +20,7 @@
 #endif // CONSTANT
 
 namespace MNN {
+struct MemNode;
 struct TensorArrayAttr {
     // array size is dynamic or not
     bool isDynamicSize = false;
@@ -113,11 +114,17 @@ struct Tensor::InsideDescribe {
     };
     std::shared_ptr<NativeInsideDescribe> mContent;
     SharedPtr<Backend::MemObj> mem;
+    // Non-owning CPU dynamic binding; valid until the memory plan is reset.
+    // Unlike mem, this survives the planning-time onReleaseBuffer.
+    MemNode* cpuDynamicNode = nullptr;
     int offset = 0;
     inline Backend* getBackend() const {
         return backend;
     }
     inline void setBackend(Backend* bn) {
+        if (bn == nullptr || (backend != nullptr && backend != bn)) {
+            cpuDynamicNode = nullptr;
+        }
         backend = bn;
     }
 private:

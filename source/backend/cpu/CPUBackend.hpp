@@ -47,7 +47,9 @@ public:
     virtual void onConcurrencyEnd() const override;
     virtual bool onCheckInfo(Backend::Info& info) const override;
 
-    SingleBufferWithAllocator* buffer(int index) const;
+    SingleBufferWithAllocator* buffer(int index) const {
+        return (mDynamicMmap.empty() ? mDynamic.data() : mDynamicMmap.data()) + index;
+    }
     BufferAllocator* createDynamicBufferAlloctor(int index) const;
 
 private:
@@ -95,9 +97,8 @@ public:
     virtual MemChunk chunk() {
         return mChunk;
     }
-    inline int getSize() const {
-        return mSize;
-    }
+    inline int getSize() const { return mSize; }
+
 private:
     BufferAllocator* mAllocator;
     MemChunk mChunk;
@@ -145,7 +146,8 @@ public:
     const CoreInt8Functions* int8Functions() const {
         return mInt8CoreFunctions;
     }
-    void _resetDynamicMemory() const;
+    void _prepareTensorMemory(const Tensor* srcTensor, const Tensor* dstTensor) const;
+
 public:
     class Creator {
     public:

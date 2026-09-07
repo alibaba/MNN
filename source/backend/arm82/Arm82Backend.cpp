@@ -108,7 +108,7 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensorC, const Tensor* dstTenso
         CPUBackend::onCopyBuffer(srcTensor, dstTensor);
         return;
     }
-    _resetDynamicMemory();
+    _prepareTensorMemory(srcTensor, dstTensor);
     if (mRuntime->pCurrentStatus != NO_ERROR) {
         return;
     }

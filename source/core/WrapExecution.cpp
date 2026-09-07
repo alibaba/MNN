@@ -182,6 +182,7 @@ void WrapExecution::copyReplaceTensor(const Tensor* wrapTensor, Tensor* t) {
     TensorUtils::getDescribeOrigin(t)->mem = TensorUtils::getDescribeOrigin(wrapTensor)->mem;
     TensorUtils::getDescribeOrigin(t)->offset = TensorUtils::getDescribeOrigin(wrapTensor)->offset;
     TensorUtils::getDescribeOrigin(t)->setBackend( TensorUtils::getDescribeOrigin(wrapTensor)->getBackend());
+    TensorUtils::getDescribeOrigin(t)->cpuDynamicNode = TensorUtils::getDescribeOrigin(wrapTensor)->cpuDynamicNode;
     t->buffer().host = wrapTensor->buffer().host;
     t->buffer().device = wrapTensor->buffer().device;
     t->buffer().dim = TensorUtils::getDescribe(wrapTensor)->dims;

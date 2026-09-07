@@ -362,7 +362,7 @@ void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
         CPUBackend::onCopyBuffer(srcTensor, dstTensor);
         return;
     }
-    _resetDynamicMemory();
+    _prepareTensorMemory(srcTensor, dstTensor);
     if (mRuntime->pCurrentStatus != NO_ERROR) {
         return;
     }
