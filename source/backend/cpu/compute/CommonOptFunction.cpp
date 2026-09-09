@@ -61,6 +61,10 @@ extern void MNNPackForMatMul_B_RVV(float* destC, const float* sourceC, size_t h,
                                    bool transpose);
 extern void MNNQuantScaleFP32_RVV(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
 extern void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+extern void MNNQuantAttentionKey_RVV(int8_t* dst, const float* source, float* sumKey, float* maxKey, int32_t* params);
+extern void MNNQuantAttentionValue_RVV(int8_t* dst, const float* source, float* valueSum, int32_t* params);
+#endif
 namespace MNN {
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
 }
@@ -5139,6 +5143,10 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B_RVV;
         gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode_RVV;
         MNNRvvInitializeFastPathFunctions(gCoreFunction);
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        gCoreFunction->MNNQuantAttentionKey = MNNQuantAttentionKey_RVV;
+        gCoreFunction->MNNQuantAttentionValue = MNNQuantAttentionValue_RVV;
+#endif
 #ifdef MNN_LOW_MEMORY
         gCoreFunction->MNNAbsMax = MNNAbsMaxFP32_RVV;
         gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32_RVV;
