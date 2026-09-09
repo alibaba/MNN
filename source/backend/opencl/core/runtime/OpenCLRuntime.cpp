@@ -749,8 +749,19 @@ double OpenCLRuntime::getCostTime(const cl::Event *event){
     //cl_int res = mCommandQueuePtr->finish();
     cl_int res = event->wait();
     MNN_CHECK_CL_SUCCESS(res, "clEvent");
-    mStartNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_START>();
-    mStopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>();
+    if (res != CL_SUCCESS) {
+        return -1.0;
+    }
+    mStartNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_START>(&res);
+    MNN_CHECK_CL_SUCCESS(res, "clGetEventProfilingInfo");
+    if (res != CL_SUCCESS) {
+        return -1.0;
+    }
+    mStopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>(&res);
+    MNN_CHECK_CL_SUCCESS(res, "clGetEventProfilingInfo");
+    if (res != CL_SUCCESS) {
+        return -1.0;
+    }
     mKernelTime += (unsigned int)((mStopNanos - mStartNanos) / 1000.0);
     return (mStopNanos - mStartNanos) / 1000.0;
 }

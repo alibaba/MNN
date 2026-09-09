@@ -191,7 +191,7 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
             ret |= kernel[knl_idx]->get().setArg(idx++, UP_DIV(outputChannel, 4));
             MNN_CHECK_CL_SUCCESS(ret, "setArg DepthwiseConvBufExecution Stride_1 Kernel Select");
 
-            std::pair<std::vector<uint32_t>, int> retTune;
+            std::pair<std::vector<uint32_t>, uint32_t> retTune;
             retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "depthwise_conv2d_buf");
             //printf("depthwiseCovs1 %d, %d\n", knl_idx, retTune.second);
             if(min_cost.first > retTune.second) {
@@ -271,7 +271,7 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
             ret |= kernel[knl_idx]->get().setArg(idx++, UP_DIV(outputChannel, 4));
             MNN_CHECK_CL_SUCCESS(ret, "setArg DepthwiseConvBufExecution Kernel Select");
 
-            std::pair<std::vector<uint32_t>, int> retTune;
+            std::pair<std::vector<uint32_t>, uint32_t> retTune;
             retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "depthwise_conv2d_buf");
             //printf("depthwiseCov!! %d, %d\n", knl_idx, retTune.second);
             if(min_cost.first > retTune.second) {

@@ -566,8 +566,8 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
             }
         }
     }
-  
-    if (tunedGemmParams.find(info) == tunedGemmParams.end()) {
+
+    if (tunedGemmParams.find(info) == tunedGemmParams.end() && min_cost != UINT_MAX) {
         tunedGemmParams.insert(std::make_pair(info, params_prefer));
     }
 

@@ -376,7 +376,7 @@ void ConvLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor * o
         ret |= kernel[knl_idx]->get().setArg(idx++, blockDim);
         ret |= kernel[knl_idx]->get().setArg(idx++, inputChannels);
         MNN_CHECK_CL_SUCCESS(ret, "setArg ConvLowMemory Kernel Select");
-        std::pair<std::vector<uint32_t>, int> retTune;
+        std::pair<std::vector<uint32_t>, uint32_t> retTune;
         retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "conv_2d_int");
         if(min_cost.first > retTune.second) {
             min_cost.first = retTune.second;
