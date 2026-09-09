@@ -573,6 +573,10 @@ struct CoreFunctions {
                                                int bytes, int seqStart);
     void (*MNNSoftmax)(float* softmaxDst, const float* input, float* runningMax, float* runningSum, float* updateScale,
                        int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask);
+    void (*MNNAttentionMaskQK)(float* qkPacked, const float* scale, size_t seqLen, size_t processedKvSeq, int pack,
+                               int kvSeqLen, int kvoffset, int padKvSeqLen, const float* sinksPtr,
+                               const float* maskPtr, size_t maskElementSize, bool scaleApplied,
+                               bool isLowerTriangular) = nullptr;
     void (*MNNQuantAttentionKey)(int8_t* dst, const float* source, float* sumKey, float* maxKey, int32_t* params);
     void (*MNNQuantAttentionValue)(int8_t* dst, const float* source, float* valueQuantInfo, int32_t* params);
     void (*MNNRoPECompute)(void* dst, const void* src, const void* cosEven, const void* cosOdd, const void* sinEven,
