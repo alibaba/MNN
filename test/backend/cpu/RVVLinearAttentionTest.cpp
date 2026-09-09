@@ -6,6 +6,10 @@
 #include <vector>
 #ifndef MNN_RVV_KERNEL_TEST_MAIN
 #include "MNNTestSuite.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#define RVV_TEST_KERNEL(name) MNN::MNNGetCoreFunctions()->name
+#else
+#define RVV_TEST_KERNEL(name) name##_RVV
 #endif
 
 void MNNRankOneUpdate_RVV(float*, const float*, const float*, size_t, size_t);
@@ -49,7 +53,7 @@ bool runLinearAttentionKernels() {
             for (size_t i = 0; i < dk; ++i)
                 for (size_t j = 0; j < dv; ++j)
                     expected[1 + i * dv + j] += k[i] * delta[j];
-            MNNRankOneUpdate_RVV(actual.data() + 1, k.data(), delta.data(), dk, dv);
+            RVV_TEST_KERNEL(MNNRankOneUpdate)(actual.data() + 1, k.data(), delta.data(), dk, dv);
             if (!equalValues(actual, expected, "rank-one", dk, dv))
                 return false;
 
@@ -62,7 +66,8 @@ bool runLinearAttentionKernels() {
                     refQ[j + 1] += state[1 + i * dv + j] * q[i];
                 }
             }
-            MNNDualMatVec_RVV(state.data() + 1, k.data(), q.data(), outK.data() + 1, outQ.data() + 1, dk, dv);
+            RVV_TEST_KERNEL(MNNDualMatVec)(state.data() + 1, k.data(), q.data(), outK.data() + 1, outQ.data() + 1, dk,
+                                           dv);
             if (!equalValues(outK, refK, "dual-k", dk, dv) || !equalValues(outQ, refQ, "dual-q", dk, dv))
                 return false;
             for (float decay : {0.0f, 0.73f, 1.0f}) {
@@ -71,7 +76,7 @@ bool runLinearAttentionKernels() {
                 for (size_t i = 0; i < dk; ++i)
                     for (size_t j = 0; j < dv; ++j)
                         expected[1 + i * dv + j] = decay * state[1 + i * dv + j] + k[i] * delta[j];
-                MNNDecayRankOneUpdate_RVV(actual.data() + 1, k.data(), delta.data(), decay, dk, dv);
+                RVV_TEST_KERNEL(MNNDecayRankOneUpdate)(actual.data() + 1, k.data(), delta.data(), decay, dk, dv);
                 if (!equalValues(actual, expected, "decay-rank-one", dk, dv))
                     return false;
 
@@ -103,8 +108,8 @@ bool runLinearAttentionKernels() {
                                 expected[1 + i * dv + j] =
                                     decay * expected[1 + i * dv + j] + recurrentK[i] * correction;
                         }
-                        MNNFusedGatedDelta_RVV(actual.data() + 1, recurrentK.data(), recurrentQ.data(), v.data(),
-                                               out.data() + 1, decay, beta, kq, dk, dv);
+                        RVV_TEST_KERNEL(MNNFusedGatedDelta)(actual.data() + 1, recurrentK.data(), recurrentQ.data(),
+                                                            v.data(), out.data() + 1, decay, beta, kq, dk, dv);
                         if (!equalValues(out, refOut, "gated-output", dk, dv) ||
                             !equalValues(actual, expected, "gated-state", dk, dv))
                             return false;
@@ -130,3 +135,5 @@ class RVVLinearAttentionTest : public MNNTestCase {
 MNNTestSuiteRegister(RVVLinearAttentionTest, "backend/cpu/rvv/linear_attention");
 #endif
 #endif
+
+#undef RVV_TEST_KERNEL
