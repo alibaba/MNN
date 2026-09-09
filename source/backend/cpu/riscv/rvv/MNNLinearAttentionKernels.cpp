@@ -1,6 +1,9 @@
 #include <riscv_vector.h>
 #include <stddef.h>
 
+// Match the RISC-V scalar fallback's explicit FMA contract: round the rank-one
+// product before fusing decay, and fuse v - decay * outK before multiplying beta.
+
 void MNNRankOneUpdate_RVV(float* S, const float* k, const float* delta, size_t dk, size_t dv) {
     for (size_t i = 0; i < dk; ++i) {
         const float kValue = k[i];
@@ -55,8 +58,8 @@ void MNNDecayRankOneUpdate_RVV(float* S, const float* k, const float* delta, flo
             const size_t vl = __riscv_vsetvl_e32m8(dv - j);
             vfloat32m8_t state = __riscv_vle32_v_f32m8(row + j, vl);
             const vfloat32m8_t deltaValue = __riscv_vle32_v_f32m8(delta + j, vl);
-            state = __riscv_vfmul_vf_f32m8(state, decay, vl);
-            state = __riscv_vfmacc_vf_f32m8(state, kValue, deltaValue, vl);
+            const vfloat32m8_t update = __riscv_vfmul_vf_f32m8(deltaValue, kValue, vl);
+            state = __riscv_vfmacc_vf_f32m8(update, decay, state, vl);
             __riscv_vse32_v_f32m8(row + j, state, vl);
             j += vl;
         }
@@ -78,19 +81,18 @@ void MNNFusedGatedDelta_RVV(float* S, const float* k, const float* q, const floa
         }
 
         const vfloat32m8_t value = __riscv_vle32_v_f32m8(v + j, vl);
-        vfloat32m8_t delta = __riscv_vfmul_vf_f32m8(outK, decay, vl);
-        delta = __riscv_vfsub_vv_f32m8(value, delta, vl);
+        vfloat32m8_t delta = __riscv_vfnmsac_vf_f32m8(value, decay, outK, vl);
         delta = __riscv_vfmul_vf_f32m8(delta, beta, vl);
 
-        vfloat32m8_t outValue = __riscv_vfmul_vf_f32m8(outQ, decay, vl);
-        outValue = __riscv_vfmacc_vf_f32m8(outValue, kq, delta, vl);
+        vfloat32m8_t outValue = __riscv_vfmul_vf_f32m8(delta, kq, vl);
+        outValue = __riscv_vfmacc_vf_f32m8(outValue, decay, outQ, vl);
         __riscv_vse32_v_f32m8(out + j, outValue, vl);
 
         for (size_t i = 0; i < dk; ++i) {
             float* row = S + i * dv + j;
             vfloat32m8_t state = __riscv_vle32_v_f32m8(row, vl);
-            state = __riscv_vfmul_vf_f32m8(state, decay, vl);
-            state = __riscv_vfmacc_vf_f32m8(state, k[i], delta, vl);
+            const vfloat32m8_t update = __riscv_vfmul_vf_f32m8(delta, k[i], vl);
+            state = __riscv_vfmacc_vf_f32m8(update, decay, state, vl);
             __riscv_vse32_v_f32m8(row, state, vl);
         }
         j += vl;

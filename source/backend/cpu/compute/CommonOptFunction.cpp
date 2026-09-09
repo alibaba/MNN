@@ -4067,7 +4067,11 @@ static void MNNRankOneUpdateDefault(float* S, const float* k, const float* delta
         float k_val = k[i];
         float* row = S + i * dv;
         for (size_t j = 0; j < dv; ++j) {
+#if defined(__riscv)
+            row[j] = fmaf(k_val, delta[j], row[j]);
+#else
             row[j] += k_val * delta[j];
+#endif
         }
     }
 }
@@ -4081,8 +4085,17 @@ static void MNNDualMatVecDefault(const float* S, const float* k, const float* q,
         float q_val = q[i];
         const float* row = S + i * dv;
         for (size_t j = 0; j < dv; ++j) {
+#if defined(__riscv)
+            out_k[j] = fmaf(row[j], k_val, out_k[j]);
+#else
             out_k[j] += row[j] * k_val;
+#endif
+
+#if defined(__riscv)
+            out_q[j] = fmaf(row[j], q_val, out_q[j]);
+#else
             out_q[j] += row[j] * q_val;
+#endif
         }
     }
 }
@@ -4093,7 +4106,11 @@ static void MNNDecayRankOneUpdateDefault(float* S, const float* k, const float* 
         float k_val = k[i];
         float* row = S + i * dv;
         for (size_t j = 0; j < dv; ++j) {
+#if defined(__riscv)
+            row[j] = fmaf(decay, row[j], k_val * delta[j]);
+#else
             row[j] = decay * row[j] + k_val * delta[j];
+#endif
         }
     }
 }
@@ -4267,18 +4284,43 @@ static void MNNFusedGatedDeltaDefault(float* S, const float* k, const float* q, 
         float ok = 0.0f, oq = 0.0f;
         for (size_t i = 0; i < dk; ++i) {
             float s = S[i * dv + j];
+
+#if defined(__riscv)
+            ok = fmaf(s, k[i], ok);
+#else
             ok += s * k[i];
+#endif
+
+#if defined(__riscv)
+            oq = fmaf(s, q[i], oq);
+#else
             oq += s * q[i];
+#endif
         }
+
+#if defined(__riscv)
+        float delta_j = beta * fmaf(-decay, ok, v[j]);
+#else
         float delta_j = beta * (v[j] - decay * ok);
+#endif
         deltaBuf[j] = delta_j;
+
+#if defined(__riscv)
+        out[j] = fmaf(decay, oq, kq * delta_j);
+#else
         out[j] = decay * oq + kq * delta_j;
+#endif
     }
     for (size_t i = 0; i < dk; ++i) {
         float k_val = k[i];
         float* row = S + i * dv;
         for (size_t j = 0; j < dv; ++j) {
+
+#if defined(__riscv)
+            row[j] = fmaf(decay, row[j], k_val * deltaBuf[j]);
+#else
             row[j] = decay * row[j] + k_val * deltaBuf[j];
+#endif
         }
     }
 #endif
