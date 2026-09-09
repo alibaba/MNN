@@ -5,6 +5,10 @@
 #include <vector>
 #ifndef MNN_RVV_KERNEL_TEST_MAIN
 #include "MNNTestSuite.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#define RVV_TEST_KERNEL(name) MNN::MNNGetCoreFunctions()->name
+#else
+#define RVV_TEST_KERNEL(name) name##_RVV
 #endif
 
 void MNNAttentionMaskQK_RVV(float*, const float*, size_t, size_t, int, int, int, int, const float*, const float*,
@@ -73,9 +77,9 @@ bool runMaskKernels() {
                                                 const float sink = 0.25f;
                                                 maskReference(expected.data() + 1, scale, seq, processed, pack, kv,
                                                               offset, pad, maskPtr, mask.size(), scaled, triangular);
-                                                MNNAttentionMaskQK_RVV(actual.data() + 1, &scale, seq, processed, pack,
-                                                                       kv, offset, pad, &sink, maskPtr, mask.size(),
-                                                                       scaled, triangular);
+                                                RVV_TEST_KERNEL(MNNAttentionMaskQK)(
+                                                    actual.data() + 1, &scale, seq, processed, pack, kv, offset, pad,
+                                                    &sink, maskPtr, mask.size(), scaled, triangular);
                                                 if (std::memcmp(actual.data(), expected.data(),
                                                                 actual.size() * sizeof(float))) {
                                                     std::printf(
@@ -113,3 +117,5 @@ class RVVAttentionMaskTest : public MNNTestCase {
 MNNTestSuiteRegister(RVVAttentionMaskTest, "backend/cpu/rvv/attention_mask");
 #endif
 #endif
+
+#undef RVV_TEST_KERNEL
