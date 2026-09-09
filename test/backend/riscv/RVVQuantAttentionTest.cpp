@@ -1,4 +1,5 @@
-// Scalar references copied from CommonOptFunction.cpp at bef71b9756a2c77549eddbe33eb97290e3b16602.
+// Scalar references based on CommonOptFunction.cpp at bef71b9756a2c77549eddbe33eb97290e3b16602.
+// The key reference additionally zero-pads missing tail dimensions, excluding them from the sum.
 // This standalone regression is enabled explicitly; ordinary test builds contain no extra main.
 #ifdef MNN_RVV_QUANT_TEST_MAIN
 #include <algorithm>
@@ -67,6 +68,10 @@ void MNNQuantAttentionKeyReference(int8_t* dst, const float* source, float* sumK
                 int i = d / lP;
                 int j = d % lP;
 
+                if (d + k * blockL >= headDim) {
+                    weightDst[i * weightStride2 + inIndex * lP + j] = 0;
+                    continue;
+                }
                 int int8v = (int)(roundf((keySrc[d + k * blockL] - maxKeyPtr[d + k * blockL] - minKey) /
                                              (maxKey - minKey) * 255.0f -
                                          128.0f));
@@ -187,8 +192,8 @@ int main() {
     for (int dim : {3, 16, 17, 32, 64})
         for (int seq : {1, 3, 17})
             for (int blocks : {1, 2, 4}) {
-                if (dim % blocks)
-                    continue; // scalar key ABI requires whole blocks.
+                if (blocks > dim)
+                    continue;
                 for (int lp : {1, 4, 16})
                     for (int hp : {4, 8})
                         for (int past : {0, 5, 16})
@@ -199,7 +204,7 @@ int main() {
                                     f = float(int(rng % 10001) - 5000) / 997.0f;
                                 }
                                 int32_t p[10] = {3, seq, dim, blocks, 8, lp, hp, past, head, 16};
-                                int stride = ROUND_UP(dim / blocks, lp) * hp + 8 * hp;
+                                int stride = ROUND_UP(UP_DIV(dim, blocks), lp) * hp + 8 * hp;
                                 size_t bytes = UP_DIV(past + seq, hp) * blocks * stride;
                                 std::vector<int8_t> dst(bytes + 64, 53), ref(dst);
                                 std::vector<float> maxs(dim), refs;
@@ -220,7 +225,7 @@ int main() {
                                     }
                                     if (hi == lo)
                                         for (int b = 0; b < blocks; ++b)
-                                            for (int d = 0; d < dim / blocks; ++d) {
+                                            for (int d = 0; d < UP_DIV(dim, blocks) && b * UP_DIV(dim, blocks) + d < dim; ++d) {
                                                 size_t off = (past + s) / hp * blocks * stride + b * stride +
                                                              d / lp * lp * hp + (past + s) % hp * lp + d % lp;
                                                 ref[off] = -128;
