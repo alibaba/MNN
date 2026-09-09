@@ -1,6 +1,7 @@
 #include <riscv_vector.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <math.h>
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 // Round half away from zero without changing frm: an explicit-RMM conversion
@@ -84,7 +85,7 @@ void MNNQuantAttentionValue_RVV(int8_t* dst, const float* source, float* valueSu
             } else {
                 const float scale = range / 255.0f;
                 scalePtr[0] = scale;
-                biasPtr[0] = 128.0f * scale + dMin;
+                biasPtr[0] = fmaf(128.0f, scale, dMin);
             }
         }
     }
@@ -133,8 +134,7 @@ void MNNQuantAttentionValue_RVV(int8_t* dst, const float* source, float* valueSu
                 (kvSeqIndex / flashAttentionBlockKv) * packedStride0 + (seqInBlock / lP) * weightStride2 + seqInLP;
             const int idxSum = (kvSeqIndex / flashAttentionBlockKv) * roundedHeadDim;
             vfloat32m4_t value = __riscv_vlse32_v_f32m4(srcBase + s * srcStride0, srcStrideBytes, vl);
-            value = __riscv_vfmul_vf_f32m4(value, qscale, vl);
-            value = __riscv_vfadd_vf_f32m4(value, qbias, vl);
+            value = __riscv_vfmacc_vf_f32m4(__riscv_vfmv_v_f_f32m4(qbias, vl), qscale, value, vl);
 
             vint32m4_t quant = roundQuantized(value, vl);
             quant = __riscv_vmax_vx_i32m4(quant, -128, vl);
@@ -146,7 +146,7 @@ void MNNQuantAttentionValue_RVV(int8_t* dst, const float* source, float* valueSu
             // Preserve the scalar dequantization and accumulation order, including
             // an existing partial-block sum during decode/cache appends.
             for (size_t lane = 0; lane < vl; ++lane) {
-                sumBase[idxSum] += (static_cast<float>(dstBase[idxInner + lane]) * scale + bias);
+                sumBase[idxSum] += fmaf(static_cast<float>(dstBase[idxInner + lane]), scale, bias);
             }
             s += vl;
         }

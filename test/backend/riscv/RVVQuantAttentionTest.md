@@ -3,7 +3,7 @@
 Build a standalone target executable from the repository root:
 
 ```sh
-$CXX -std=c++11 -O2 -march=rv64gcv -mabi=lp64d -ffp-contract=off -fno-tree-vectorize \
+$CXX -std=c++11 -O3 -march=rv64gcv -mabi=lp64d -ffp-contract=off -fno-tree-vectorize \
   -DMNN_SUPPORT_TRANSFORMER_FUSE -DMNN_RVV_QUANT_TEST_MAIN \
   source/backend/cpu/riscv/rvv/MNNQuantAttentionKey.cpp \
   source/backend/cpu/riscv/rvv/MNNQuantAttentionValue.cpp \
@@ -14,6 +14,10 @@ $CXX -std=c++11 -O2 -march=rv64gcv -mabi=lp64d -ffp-contract=off -fno-tree-vecto
 For cross compilation, supply the toolchain/sysroot and optionally `-static`, then run using a configured
 `qemu-riscv64 -cpu max,vlen=128 ./rvv-kv-test`. Repeat with VLEN 256, 512 and 1024.
 QEMU execution does not establish hardware performance.
+
+Repeat the build with `-ffp-contract=fast`. Both configurations must pass. The RISC-V scalar fallback
+and RVV implementation use explicit fused affine quantization and dequantization, so tie behavior does
+not depend on compiler contraction.
 
 The reference is based on `CommonOptFunction.cpp` at `bef71b9756a2c77549eddbe33eb97290e3b16602`.
 For non-divisible key blocks, the reference explicitly zero-pads missing dimensions and excludes them from

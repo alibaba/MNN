@@ -72,11 +72,11 @@ void MNNQuantAttentionKeyReference(int8_t* dst, const float* source, float* sumK
                     weightDst[i * weightStride2 + inIndex * lP + j] = 0;
                     continue;
                 }
-                int int8v = (int)(roundf((keySrc[d + k * blockL] - maxKeyPtr[d + k * blockL] - minKey) /
-                                             (maxKey - minKey) * 255.0f -
-                                         128.0f));
+                int int8v =
+                    (int)(roundf(fmaf((keySrc[d + k * blockL] - maxKeyPtr[d + k * blockL] - minKey) / (maxKey - minKey),
+                                      255.0f, -128.0f)));
                 weightDst[i * weightStride2 + inIndex * lP + j] = int8v;
-                sumKey += (int8v * scaleDst[inIndex] + biasDst[inIndex]);
+                sumKey += fmaf((float)int8v, scaleDst[inIndex], biasDst[inIndex]);
             }
         }
         sumKeyPtr[outIndex * hP + inIndex] = sumKey;
@@ -134,7 +134,7 @@ void MNNQuantAttentionValueReference(int8_t* dst, const float* source, float* va
                 biasPtr[0] = dMax;
             } else {
                 float scale = range / 255.f;
-                float bias = range / 255.f * 128.f + dMin;
+                float bias = fmaf(scale, 128.f, dMin);
                 scalePtr[0] = scale;
                 biasPtr[0] = bias;
             }
@@ -174,12 +174,12 @@ void MNNQuantAttentionValueReference(int8_t* dst, const float* source, float* va
                            (kvSeqIndx % flashAttentionBlockKv) / lP * weightStride2 +
                            (kvSeqIndx % flashAttentionBlockKv) % lP;
             float xf = sourceFp32[s * srcStride0 + d + kvHeadIdx * headDim];
-            int8_t xq = ALIMAX(ALIMIN(127, static_cast<int32_t>(roundf(xf * qscale + qbias))), -128);
+            int8_t xq = ALIMAX(ALIMIN(127, static_cast<int32_t>(roundf(fmaf(xf, qscale, qbias)))), -128);
             dstBase[idxInner] = xq;
 
             // sum
             int idxSum = (kvSeqIndx / flashAttentionBlockKv) * ROUND_UP(headDim, hP);
-            sumBase[idxSum] += ((float)xq * scaleBase[0] + biasBase[0]);
+            sumBase[idxSum] += fmaf((float)xq, scaleBase[0], biasBase[0]);
         }
     }
 }

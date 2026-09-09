@@ -1,6 +1,7 @@
 #include <riscv_vector.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <math.h>
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 // Round half away from zero without changing frm: an explicit-RMM conversion
@@ -113,11 +114,10 @@ void MNNQuantAttentionKey_RVV(int8_t* dst, const float* source, float* sumKeyPtr
                 // change which side of a rounding boundary a value lies on.
                 if (range > 0.0f) {
                     value = __riscv_vfdiv_vf_f32m4(value, range, vl);
-                    value = __riscv_vfmul_vf_f32m4(value, 255.0f, vl);
+                    value = __riscv_vfmacc_vf_f32m4(__riscv_vfmv_v_f_f32m4(-128.0f, vl), 255.0f, value, vl);
                 } else {
-                    value = __riscv_vfmv_v_f_f32m4(0.0f, vl);
+                    value = __riscv_vfmv_v_f_f32m4(-128.0f, vl);
                 }
-                value = __riscv_vfsub_vf_f32m4(value, 128.0f, vl);
 
                 vint32m4_t quant = roundQuantized(value, vl);
                 quant = __riscv_vmax_vx_i32m4(quant, -128, vl);
@@ -131,7 +131,7 @@ void MNNQuantAttentionKey_RVV(int8_t* dst, const float* source, float* sumKeyPtr
                 // The KV correction sums dequantized elements in source order.
                 // Reducing integers then applying scale/bias changes FP32 rounding.
                 for (size_t lane = 0; lane < vl; ++lane) {
-                    sumKey += (dstPtr[lane] * scale + bias);
+                    sumKey += fmaf((float)dstPtr[lane], scale, bias);
                 }
                 blockOffset += vl;
             }
