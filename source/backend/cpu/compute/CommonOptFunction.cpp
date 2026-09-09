@@ -61,6 +61,19 @@ extern void MNNPackForMatMul_B_RVV(float* destC, const float* sourceC, size_t h,
                                    bool transpose);
 extern void MNNQuantScaleFP32_RVV(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
 extern void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
+extern void MNNPackC4ForMatMul_A_RVV(float*, float const**, const int32_t*, const int32_t*);
+extern void MNNPackCUnit_RVV(float*, const float*, size_t, size_t, int*);
+extern void MNNUnpackCUnit_RVV(float*, const float*, size_t, size_t, int*);
+extern void MNNPackCUnitTranspose_RVV(float*, const float*, size_t, size_t, int*);
+extern void MNNUnpackCUnitTranspose_RVV(float*, const float*, size_t, size_t, int*);
+extern void MNNPackCUnitInt8_RVV(int8_t*, const int8_t*, size_t, size_t, int*);
+extern void MNNUnpackCUnitInt8_RVV(int8_t*, const int8_t*, size_t, size_t, int*);
+extern void MNNPackCUnitTransposeInt8_RVV(int8_t*, const int8_t*, size_t, size_t, int*);
+extern void MNNUnpackCUnitTransposeInt8_RVV(int8_t*, const int8_t*, size_t, size_t, int*);
+extern void MNNPackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
+extern void MNNUnpackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
+extern void MNNPackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
+extern void MNNUnpackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 namespace MNN {
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
 }
@@ -5138,6 +5151,19 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemainFP32_RVV;
         gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B_RVV;
         gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode_RVV;
+        gCoreFunction->MNNPackC4ForMatMul_A = MNNPackC4ForMatMul_A_RVV;
+        gCoreFunction->MNNPackCUnit = MNNPackCUnit_RVV;
+        gCoreFunction->MNNUnpackCUnit = MNNUnpackCUnit_RVV;
+        gCoreFunction->MNNPackCUnitTranspose = MNNPackCUnitTranspose_RVV;
+        gCoreFunction->MNNUnpackCUnitTranspose = MNNUnpackCUnitTranspose_RVV;
+        gCoreFunction->MNNPackCUnitInt8 = MNNPackCUnitInt8_RVV;
+        gCoreFunction->MNNUnpackCUnitInt8 = MNNUnpackCUnitInt8_RVV;
+        gCoreFunction->MNNPackCUnitTransposeInt8 = MNNPackCUnitTransposeInt8_RVV;
+        gCoreFunction->MNNUnpackCUnitTransposeInt8 = MNNUnpackCUnitTransposeInt8_RVV;
+        gCoreFunction->MNNPackCUnitInt16 = MNNPackCUnitInt16_RVV;
+        gCoreFunction->MNNUnpackCUnitInt16 = MNNUnpackCUnitInt16_RVV;
+        gCoreFunction->MNNPackCUnitTransposeInt16 = MNNPackCUnitTransposeInt16_RVV;
+        gCoreFunction->MNNUnpackCUnitTransposeInt16 = MNNUnpackCUnitTransposeInt16_RVV;
         MNNRvvInitializeFastPathFunctions(gCoreFunction);
 #ifdef MNN_LOW_MEMORY
         gCoreFunction->MNNAbsMax = MNNAbsMaxFP32_RVV;
