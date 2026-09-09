@@ -33,8 +33,8 @@ namespace MNN {
 
 template <typename T>
 static void _maskQK(float* qkPacked, const float* scale, size_t seqLen, size_t processedKvSeq, int pack, int kvSeqLen,
-                    int kvoffset, int padKvSeqLen, const float* sinksPtr, const Tensor* mask, bool scaleApplied,
-                    bool isLowerTriangular) {
+                    int kvoffset, int slidingKvStart, int padKvSeqLen, const float* sinksPtr, const Tensor* mask,
+                    bool scaleApplied, bool isLowerTriangular) {
     /*
      * FIGURE 1: mask->elementSize() == seqLen * maskStride
      * Context: Cross Attention or Prefill stage (Full Context).
@@ -88,7 +88,7 @@ static void _maskQK(float* qkPacked, const float* scale, size_t seqLen, size_t p
      *   'X'         : Masked by Mask Tensor (-inf).
      */
 
-    if (isLowerTriangular && scaleApplied) {
+    if (isLowerTriangular && scaleApplied && slidingKvStart == 0) {
         return;
     }
     constexpr float NEG_INF = -std::numeric_limits<float>::infinity();
@@ -98,29 +98,35 @@ static void _maskQK(float* qkPacked, const float* scale, size_t seqLen, size_t p
     auto processedKvSeqDivPack = UP_DIV(processedKvSeq, pack);
     auto qkSize = ROUND_UP(processedKvSeq, pack) * seqLen;
 
-    if (isLowerTriangular) {
+    if (isLowerTriangular && slidingKvStart == 0) {
         for (int i = 0; i < qkSize; ++i) {
             source[i] *= scaleVal;
         }
         return;
     }
 
-    if (mask == nullptr) {
+    if (mask == nullptr && slidingKvStart == 0) {
         return;
     }
 
-    int gapLen = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen))
+    int gapLen = 0;
+    int maskCols = 0;
+    const T* maskPtr = nullptr;
+    if (mask != nullptr) {
+        gapLen = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen))
                      ? 0
                      : static_cast<int>(kvSeqLen - seqLen);
-    auto maskPtr = mask->host<T>();
-    auto maskCols = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen)) ? kvSeqLen + padKvSeqLen
-                                                                                               : seqLen + padKvSeqLen;
+        maskPtr = mask->host<T>();
+        maskCols = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen))
+                       ? kvSeqLen + padKvSeqLen
+                       : seqLen + padKvSeqLen;
+    }
     for (int i = 0; i < processedKvSeqDivPack; ++i) {
         T* blockDataPtr = source + (i * seqLen * pack);
 
         for (int j = 0; j < seqLen; ++j) {
             T* dataPtr = blockDataPtr + (j * pack);
-            const T* currentMaskRow = maskPtr + j * maskCols;
+            const T* currentMaskRow = maskPtr == nullptr ? nullptr : maskPtr + j * maskCols;
 
             for (int k = 0; k < pack; ++k) {
                 float val = (float)dataPtr[k];
@@ -129,8 +135,11 @@ static void _maskQK(float* qkPacked, const float* scale, size_t seqLen, size_t p
                     dataPtr[k] = (T)val;
                 }
                 int currentKvSeqIndx = kvoffset + i * pack + k; // kvoffset=i*mBlockKv
-
-                if (currentKvSeqIndx < gapLen) {
+                if (currentKvSeqIndx < slidingKvStart) {
+                    dataPtr[k] = (T)NEG_INF;
+                    continue;
+                }
+                if (maskPtr == nullptr || currentKvSeqIndx < gapLen) {
                     continue;
                 }
                 if (currentKvSeqIndx - gapLen >= maskCols) {
@@ -491,6 +500,9 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     int32_t units[2] = {eP, lP};
     const float* sinksPtr = sinks ? sinks->host<float>() : nullptr;
     int kvValidOffset = kvSeqLen - seqLen; // reuse_kv=true or decode, kvValidOffset>0
+    int slidingKvStart = mSlidingWindow > 0 && seqLen == 1 ? ALIMAX(0, kvSeqLen - mSlidingWindow) : 0;
+    int kvBlockStart = slidingKvStart / mKvBlockSize;
+    int kvBlockNums = UP_DIV(kvSeqLen, mKvBlockSize) - kvBlockStart;
 
     bool isLowerTriangular = (mask == nullptr);
     if (mask != nullptr && mask->shape().empty()) {
@@ -520,7 +532,6 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     // unit's KV-block range into splits so item count headUnitCount*kvSplitsPerUnit divides evenly by mThreadNum.
     int kvSplitsPerUnit = 1;
     if (qHeadsPerUnit > 1 && mThreadNum > 1) {
-        int kvBlockNums = UP_DIV(kvSeqLen, mKvBlockSize);
         if (kvBlockNums > 1) {
             int a = headUnitCount, b = mThreadNum;
             while (b > 0) {
@@ -533,7 +544,8 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     }
 
 #ifdef MNN_USE_RVV
-    if (tryExecuteFastPath(queryPtr, outputs[0]->host<int8_t>(), seqLen, kvSeqLen, padSeqLength, q_scale, mScale,
+    if (slidingKvStart == 0 &&
+        tryExecuteFastPath(queryPtr, outputs[0]->host<int8_t>(), seqLen, kvSeqLen, padSeqLength, q_scale, mScale,
                            isLowerTriangular, sinksPtr != nullptr, outputC4, directC4Output)) {
         if (!mKVCache) {
             mKVCacheManager->onClear();
@@ -799,8 +811,6 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             mExpfDiffMax ? (float*)(mExpfDiffMax->host<int8_t>() + tId * mExpfDiffMax->stride(0)) : nullptr;
         auto outputBuffer = mTempOut ? mTempOut->host<int8_t>() + tId * mTempOut->stride(0) : qkvBuffer;
 
-        int kvBlockNums = UP_DIV(kvSeqLen, mKvBlockSize);
-
         QuanPostTreatParameters gemmParam4QxK, gemmParam4QKxV; // used by int8 gemm, allocated per thread.
         SumByAxisParams sumParams4QxK, sumParams4QKxV = {};
         float* qSumAddr = nullptr;
@@ -880,7 +890,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             auto dstStep = mBytes * qRows * mPack;
             // Prepare for flash attention; an attention sink is counted only by the first KV block
             if (runningSum && runningMax) {
-                if (sinksPtr == nullptr || blkBegin > 0) {
+                if (sinksPtr == nullptr || blkBegin > kvBlockStart) {
                     memset(runningSum, 0, mRunningSum->stride(0));
                     for (int k = 0; k < qRows; ++k) {
                         runningMax[k] = std::numeric_limits<float>::lowest();
@@ -1094,14 +1104,14 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 {
                     bool scaleApplied =
                         (mKeyQuantMode == KVQuantMode::Int8 || mKeyQuantMode == KVQuantMode::None);
-                    if (!scaleApplied || isLowerTriangular == false || sinksPtr != nullptr) {
+                    if (!scaleApplied || isLowerTriangular == false || sinksPtr != nullptr || slidingKvStart > 0) {
                         if (mBytes == 2) {
                             _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, qRows, curKvBlockSize, mPack, kvSeqLen,
-                                               i * mKvBlockSize, padSeqLength, sinksPtr, mask, scaleApplied,
-                                               isLowerTriangular);
+                                               i * mKvBlockSize, slidingKvStart, padSeqLength, sinksPtr, mask,
+                                               scaleApplied, isLowerTriangular);
                         } else {
                             _maskQK<float>((float*)qkPacked, &mScale, qRows, curKvBlockSize, mPack, kvSeqLen,
-                                           i * mKvBlockSize, padSeqLength, sinksPtr, mask, scaleApplied,
+                                           i * mKvBlockSize, slidingKvStart, padSeqLength, sinksPtr, mask, scaleApplied,
                                            isLowerTriangular);
                         }
                     }
@@ -1390,7 +1400,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 }
                 int unit = item / kvSplitsPerUnit;
                 int splitIdx = item - unit * kvSplitsPerUnit;
-                int blkBegin = splitIdx * blocksBase + ALIMIN(splitIdx, blocksRem);
+                int blkBegin = kvBlockStart + splitIdx * blocksBase + ALIMIN(splitIdx, blocksRem);
                 int blkEnd = blkBegin + blocksBase + (splitIdx < blocksRem ? 1 : 0);
                 int8_t* slot = partials + (size_t)item * partialSlotBytes;
                 runBlocks(unit * qHeadsPerUnit, blkBegin, blkEnd, slot, qkvBuffer);
@@ -1409,7 +1419,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     qkvPacked = outputPacked;
                 }
             }
-            runBlocks(h, 0, kvBlockNums, outputPacked, qkvPacked);
+            runBlocks(h, kvBlockStart, kvBlockStart + kvBlockNums, outputPacked, qkvPacked);
             writeOut(h, outputPacked);
         };
 #ifdef MNN_SME2
@@ -1533,12 +1543,13 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
+    auto param = op->main_as_AttentionParam();
     auto tmp = createClone(bn);
+    tmp->mSlidingWindow = param ? param->sliding_window() : mSlidingWindow;
     // Share KV cache when cloning within the same session (same meta pointer)
     if (bn->getMetaPtr() == mMeta) {
         tmp->mKVCacheManager = mKVCacheManager;
         // Mark as KV-shared if the target op requests KV reuse
-        auto param = op->main_as_AttentionParam();
         if (param && param->kv_shared_layer_index() >= 0) {
             tmp->mIsKVShared = true;
         }
@@ -1547,7 +1558,8 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
     return true;
 }
 
-CPUAttention::CPUAttention(Backend* backend, bool kvCache) : Execution(backend), mKVCache(kvCache) {
+CPUAttention::CPUAttention(Backend* backend, bool kvCache, int slidingWindow)
+    : Execution(backend), mKVCache(kvCache), mSlidingWindow(slidingWindow) {
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mPackQ.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
     mPackQKV.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
@@ -1579,7 +1591,7 @@ bool CPUAttention::tryExecuteFastPath(const int8_t* query, int8_t* output, int s
 }
 
 CPUAttention* CPUAttention::createClone(Backend* backend) const {
-    return new CPUAttention(backend, mKVCache);
+    return new CPUAttention(backend, mKVCache, mSlidingWindow);
 }
 
 class CPUAttentionCreator : public CPUBackend::Creator {
@@ -1588,13 +1600,13 @@ public:
                                 const MNN::Op* op, Backend* backend) const override {
         auto param = op->main_as_AttentionParam();
         auto extension = static_cast<CPUBackend*>(backend)->functions()->extension;
-        if (extension != nullptr && extension->createAttentionExecution != nullptr) {
+        if (param->sliding_window() == 0 && extension != nullptr && extension->createAttentionExecution != nullptr) {
             auto execution = extension->createAttentionExecution(backend, param->kv_cache());
             if (execution != nullptr) {
                 return execution;
             }
         }
-        return new CPUAttention(backend, param->kv_cache());
+        return new CPUAttention(backend, param->kv_cache(), param->sliding_window());
     }
 };
 

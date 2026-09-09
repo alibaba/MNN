@@ -136,10 +136,15 @@ class Attention(torch.nn.Module):
 
         # Create FusedAttention with KV sharing info
         kv_shared_idx = self.kv_shared_layer_index if self.is_kv_shared_layer else -1
+        sliding_window = 0
+        if config.attention_type == 'sliding' or (
+            config.attention_type == 'mix' and layer_id in config.sliding_attn_layers
+        ):
+            sliding_window = config.sliding_window
         self.fused_attn = FusedAttention(
             self.num_heads * self.head_dim, self.kv_cache,
             f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx,
-            self.head_dim)
+            self.head_dim, sliding_window)
         self.rope_cut_head_dim = min(int(getattr(self.rotary, 'rotary_dim', self.head_dim)), self.head_dim)
         self.fused_rope = FusedRoPE(
             self.rope_cut_head_dim,

@@ -547,6 +547,7 @@ class MNNConverter:
         attrs = op['main']['attr']
         layer_index = -1
         kv_shared_layer_index = -1
+        sliding_window = 0
         for attr in attrs:
             if attr['key'] == 'name':
                 name = attr['s']
@@ -556,12 +557,15 @@ class MNNConverter:
                 layer_index = attr.get('i', -1)
             elif attr['key'] == 'kv_shared_layer_index':
                 kv_shared_layer_index = attr.get('i', -1)
+            elif attr['key'] == 'sliding_window':
+                sliding_window = attr.get('i', 0)
         origin_input = op['inputIndexes']
         origin_output = op['outputIndexes']
         main_dict = {
             "kv_cache": bool(kv_cache),
             "layer_index": layer_index,
             "kv_shared_layer_index": kv_shared_layer_index,
+            "sliding_window": sliding_window,
         }
         fused_attention = {
             "inputIndexes": origin_input,

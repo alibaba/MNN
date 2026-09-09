@@ -36,7 +36,7 @@ class FakeLinear(torch.nn.Module):
 class FusedAttentionOp(torch.autograd.Function):
     @staticmethod
     def symbolic(g, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index,
-                 kv_shared_layer_index, head_dim):
+                 kv_shared_layer_index, head_dim, sliding_window):
         # These become the operator attributes.
         kwargs = {
             "output_dim_i": output_dim,
@@ -45,6 +45,7 @@ class FusedAttentionOp(torch.autograd.Function):
             "layer_index_i": layer_index,
             "kv_shared_layer_index_i": kv_shared_layer_index,
             "head_dim_i": head_dim,
+            "sliding_window_i": sliding_window,
         }
         from torch.onnx.symbolic_helper import _get_tensor_sizes
         out_sizes = _get_tensor_sizes(query)[:2] + [output_dim]
@@ -53,13 +54,13 @@ class FusedAttentionOp(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index,
-                kv_shared_layer_index, head_dim):
+                kv_shared_layer_index, head_dim, sliding_window):
         out_shape = list(query.shape)[:2] + [output_dim]
         return query.new_zeros(out_shape)
 
 class FusedAttention(torch.nn.Module):
     def __init__(self, hidden_size, kv_cache, name, layer_index=-1, kv_shared_layer_index=-1,
-                 head_dim=0):
+                 head_dim=0, sliding_window=0):
         super(FusedAttention, self).__init__()
         self.hidden_size = hidden_size
         self.kv_cache = int(kv_cache)
@@ -67,11 +68,12 @@ class FusedAttention(torch.nn.Module):
         self.layer_index = layer_index
         self.kv_shared_layer_index = kv_shared_layer_index
         self.head_dim = int(head_dim)
+        self.sliding_window = int(sliding_window)
 
     def forward(self, query, key, value, attention_mask):
         return FusedAttentionOp.apply(
             query, key, value, attention_mask, self.hidden_size, self.kv_cache, self.name,
-            self.layer_index, self.kv_shared_layer_index, self.head_dim)
+            self.layer_index, self.kv_shared_layer_index, self.head_dim, self.sliding_window)
 
 class FusedRoPEOp(torch.autograd.Function):
     @staticmethod

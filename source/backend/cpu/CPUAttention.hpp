@@ -21,7 +21,7 @@ namespace MNN {
 
 class CPUAttention : public Execution {
 public:
-    CPUAttention(Backend* backend, bool kvCache);
+    CPUAttention(Backend* backend, bool kvCache, int slidingWindow = 0);
     virtual ~CPUAttention() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -40,6 +40,7 @@ protected:
     bool mKVCache        = true;
     bool mIsKVShared = false;
     bool mDecodeGqaBatch = false; // decode: batch query heads sharing one KV head into a single GEMM
+    int mSlidingWindow = 0;
     int mBytes = 4;
     int mThreadNum = 1;
     int mKvBlockSize = 512;

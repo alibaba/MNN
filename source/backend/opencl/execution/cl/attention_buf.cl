@@ -772,7 +772,8 @@ __kernel void matmul_qk_decode(GLOBAL_SIZE_2_DIMS
                               __private const int seq_len,
                               __private const int max_len,
                               __private const int head_num,
-                              __private const int head_dim) {
+                              __private const int head_dim,
+                              __private const int kv_start) {
                                   
     const int x = get_global_id(0); // key_seq_len
     const int y = get_global_id(1); // head_num
@@ -780,7 +781,7 @@ __kernel void matmul_qk_decode(GLOBAL_SIZE_2_DIMS
     const int x4 = x << 2;
     
     const int query_offset = y * head_dim;
-    const int past_offset = (y / NUMHEAD_GROUP_SIZE) * head_dim * max_len + x4;
+    const int past_offset = (y / NUMHEAD_GROUP_SIZE) * head_dim * max_len + kv_start + x4;
     float4 out0 = 0;
     
     for(int i = 0; i < head_dim / 4; ++i){
@@ -934,7 +935,8 @@ __kernel void matmul_qkv_decode_b8(GLOBAL_SIZE_2_DIMS
                               __private const int max_len,
                               __private const int head_num,
                               __private const int kv_head_num,
-                              __private const int head_dim) {
+                              __private const int head_dim,
+                              __private const int kv_start) {
                                   
     const int x = get_global_id(0); // head_dim
     const int y = get_global_id(1); // head_num
@@ -943,7 +945,7 @@ __kernel void matmul_qkv_decode_b8(GLOBAL_SIZE_2_DIMS
     const int x8 = x << 3;
     
     const int qk_offset = y * qk_seq_len;
-    const int past_offset = ((y / NUMHEAD_GROUP_SIZE) * max_len) * head_dim + x8;
+    const int past_offset = ((y / NUMHEAD_GROUP_SIZE) * max_len + kv_start) * head_dim + x8;
     COMPUTE_FLOAT8 out0 = 0;
     #ifdef LOOP_UNROLL_4
     const int loop_end = max((qk_seq_len + 3) / 4 - 1, 0);
@@ -1018,7 +1020,8 @@ __kernel void matmul_qkv_decode_b4(GLOBAL_SIZE_2_DIMS
                               __private const int max_len,
                               __private const int head_num,
                               __private const int kv_head_num,
-                              __private const int head_dim) {
+                              __private const int head_dim,
+                              __private const int kv_start) {
                                   
     const int x = get_global_id(0); // head_dim
     const int y = get_global_id(1); // head_num
@@ -1027,7 +1030,7 @@ __kernel void matmul_qkv_decode_b4(GLOBAL_SIZE_2_DIMS
     const int x4 = x << 2;
     
     const int qk_offset = y * qk_seq_len;
-    const int past_offset = ((y / NUMHEAD_GROUP_SIZE) * max_len) * head_dim + x4;
+    const int past_offset = ((y / NUMHEAD_GROUP_SIZE) * max_len + kv_start) * head_dim + x4;
     COMPUTE_FLOAT4 out0 = 0;
     #ifdef LOOP_UNROLL_4
     const int loop_end = max((qk_seq_len + 3) / 4 - 1, 0);

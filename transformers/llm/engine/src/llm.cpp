@@ -1549,6 +1549,16 @@ VARP Llm::gen_attention_mask(int seq_len) {
     if (mConfig->attention_mask() == "float") {
         // full and sliding mix, using normal mask
         if (mConfig->attention_type() == "mix") {
+            if (seq_len == 1 && mConfig->backend_type() == "opencl" && mConfig->attention_window_in_op()) {
+                if (attentionMask == nullptr || attentionMask->getInfo()->dim.size() != 5 ||
+                    attentionMask->getInfo()->dim[3] != 1 || attentionMask->getInfo()->dim[4] != 1) {
+                    attentionMask = _Input({2, 1, 1, 1, 1}, NCHW, halide_type_of<float>());
+                    auto ptr = attentionMask->writeMap<float>();
+                    ptr[0] = 0.0f;
+                    ptr[1] = 0.0f;
+                }
+                return attentionMask;
+            }
             const int sliding_window = mConfig->sliding_window();
             // mix attention mask
             attentionMask = _Input({2, 1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());

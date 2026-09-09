@@ -389,16 +389,21 @@ void AttentionBufExecution::handleKVCache(const std::vector<Tensor*>& inputs, co
     if (nullptr == mMeta) {
         mPastKvSeqlen = 0;
         mKvSeqlen = kvInputLen;
+        mKvStart = mSlidingWindow > 0 ? std::max(0, mKvSeqlen - mSlidingWindow) : 0;
+        mEffectiveKvSeqlen = mKvSeqlen - mKvStart;
         mKeyValueMaxlen = ROUND_UP(kvInputLen, 4);
-        mDecodeTmpMaxlen = ROUND_UP(kvInputLen, 4);
+        mDecodeTmpMaxlen = ROUND_UP(mEffectiveKvSeqlen, 4);
         return;
     }
     mKVCacheCLManager->setArgs(numHead, kvNumHead, headDim);
     mKVCacheCLManager->allocKVCache(mMeta, kvInputLen);
     mKeyValueMaxlen = ROUND_UP(mKVCacheCLManager->maxLength(), 4);
-    mDecodeTmpMaxlen = mKeyValueMaxlen;
+    mDecodeTmpMaxlen =
+        mSlidingWindow > 0 ? ROUND_UP(std::min(mSlidingWindow, mKeyValueMaxlen), 4) : mKeyValueMaxlen;
     mPastKvSeqlen = mKVCacheCLManager->pastKvLength();
     mKvSeqlen = mPastKvSeqlen + kvInputLen;
+    mKvStart = mSlidingWindow > 0 ? std::max(0, mKvSeqlen - mSlidingWindow) : 0;
+    mEffectiveKvSeqlen = mKvSeqlen - mKvStart;
 }
 
 ErrorCode AttentionBufExecution::init() {
@@ -452,6 +457,8 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
     float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(headDim)) : mAttnScale;
     mPastKvSeqlen = mKVCacheCLManager->pastKvLength();
     mKvSeqlen = mKVCacheCLManager->pastKvLength() + kvInputLen;
+    mKvStart = mSlidingWindow > 0 ? std::max(0, mKvSeqlen - mSlidingWindow) : 0;
+    mEffectiveKvSeqlen = mKvSeqlen - mKvStart;
     mKVCacheCLManager->addKvLength(kvInputLen);
     // prefill
     if (mIsDecode == false) {
@@ -608,8 +615,9 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
 
     // Decode
     mKeyValueMaxlen = ROUND_UP(mKVCacheCLManager->maxLength(), 4);
-    if (mKvSeqlen > mDecodeTmpMaxlen) {
-        mDecodeTmpMaxlen = mKeyValueMaxlen;
+    if (mEffectiveKvSeqlen > mDecodeTmpMaxlen) {
+        mDecodeTmpMaxlen =
+            mSlidingWindow > 0 ? ROUND_UP(std::min(mSlidingWindow, mKeyValueMaxlen), 4) : mKeyValueMaxlen;
         mTempQK.reset(Tensor::createDevice<float>({mDecodeTmpMaxlen * numHead}));
         mTempSoftMax.reset(Tensor::createDevice<float>({mDecodeTmpMaxlen * numHead}));
         mOpenCLBackend->onAcquireBuffer(mTempQK.get(), Backend::DYNAMIC_IN_EXECUTION);
@@ -617,7 +625,7 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
         mOpenCLBackend->onReleaseBuffer(mTempQK.get(), Backend::DYNAMIC_IN_EXECUTION);
         mOpenCLBackend->onReleaseBuffer(mTempSoftMax.get(), Backend::DYNAMIC_IN_EXECUTION);
     }
-    mGlobalWorkSizeQk0 = UP_DIV(mKvSeqlen, 4);
+    mGlobalWorkSizeQk0 = UP_DIV(mEffectiveKvSeqlen, 4);
     mQkGlobal_size[0] = ROUND_UP(mGlobalWorkSizeQk0, std::max((uint32_t)1, mLocalWorkSizeQk[0]));
     mGlobalWorkSizeQk[0] = mQkGlobal_size[0];
 
@@ -654,8 +662,9 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
             ret |= mKernel_qk->get().setArg(index++, *mKVCacheCLManager->key());
             ret |= mKernel_qk->get().setArg(index++, openCLDeferBuffer(mTempQK.get()));
             index++;
-            ret |= mKernel_qk->get().setArg(index++, mKvSeqlen);
+            ret |= mKernel_qk->get().setArg(index++, mEffectiveKvSeqlen);
             ret |= mKernel_qk->get().setArg(index++, mKeyValueMaxlen);
+            ret |= mKernel_qk->get().setArg(10, mKvStart);
             mGlobalWorkSizeQk[0] = ROUND_UP(mGlobalWorkSizeQk[0], std::max((uint32_t)1, mLocalWorkSizeQk[0]));
             mGlobalWorkSizeQk[1] = ROUND_UP(mGlobalWorkSizeQk[1], std::max((uint32_t)1, mLocalWorkSizeQk[1]));
             MNN_CHECK_CL_SUCCESS(ret, "reSetArg matmul_qk_decode");
@@ -668,7 +677,7 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
             ret |= mKernel_softmax->get().setArg(index++, openCLDeferBuffer(mTempSoftMax.get()));
             index++;
             index++;
-            ret |= mKernel_softmax->get().setArg(index++, mKvSeqlen);
+            ret |= mKernel_softmax->get().setArg(index++, mEffectiveKvSeqlen);
             MNN_CHECK_CL_SUCCESS(ret, "reSetArg softmax");
         }
         {
@@ -687,8 +696,9 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
             ret |= mKernel_qkv->get().setArg(index++, openCLDeferBuffer(mTempSoftMax.get()));
             ret |= mKernel_qkv->get().setArg(index++, *mKVCacheCLManager->value());
             index++;
-            ret |= mKernel_qkv->get().setArg(index++, mKvSeqlen);
+            ret |= mKernel_qkv->get().setArg(index++, mEffectiveKvSeqlen);
             ret |= mKernel_qkv->get().setArg(index++, mKeyValueMaxlen);
+            ret |= mKernel_qkv->get().setArg(10, mKvStart);
             MNN_CHECK_CL_SUCCESS(ret, "reSetArg matmul_qkv_decode");
         }
 #ifndef ENABLE_OPENCL_TIME_PROFILER
@@ -1762,7 +1772,7 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
         buildOption.emplace("-DNUMHEAD_GROUP_SIZE=" + std::to_string(group_size));
         mKernel_qk = runtime->buildKernel("attention_buf", "matmul_qk_decode", buildOption,
                                           mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
-        mGlobalWorkSizeQk = {static_cast<uint32_t>(UP_DIV(mKvSeqlen, 4)), static_cast<uint32_t>(numHead)};
+        mGlobalWorkSizeQk = {static_cast<uint32_t>(UP_DIV(mEffectiveKvSeqlen, 4)), static_cast<uint32_t>(numHead)};
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel_qk));
 
         uint32_t index = 0;
@@ -1773,10 +1783,11 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
         ret |= mKernel_qk->get().setArg(index++, keyBuffer);
         ret |= mKernel_qk->get().setArg(index++, openCLDeferBuffer(mTempQK.get()));
         ret |= mKernel_qk->get().setArg(index++, scale);
-        ret |= mKernel_qk->get().setArg(index++, mKvSeqlen);
+        ret |= mKernel_qk->get().setArg(index++, mEffectiveKvSeqlen);
         ret |= mKernel_qk->get().setArg(index++, mKeyValueMaxlen);
         ret |= mKernel_qk->get().setArg(index++, numHead);
         ret |= mKernel_qk->get().setArg(index++, headDim);
+        ret |= mKernel_qk->get().setArg(index++, mKvStart);
         MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qk_decode");
 
         mLocalWorkSizeQk = localWS2DDefault(mGlobalWorkSizeQk, maxWorkGroupSize, runtime, "matmul_qk_decode",
@@ -1788,8 +1799,10 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
             mQkUpdateInfo.update_kernel_args.push_back({0, 0, sizeof(mGlobalWorkSizeQk0), &mGlobalWorkSizeQk0});
             mQkUpdateInfo.update_kernel_args.push_back({0, 3, sizeof(cl_mem), &(*(mKVCacheCLManager->key()))()});
             mQkUpdateInfo.update_kernel_args.push_back({0, 4, sizeof(cl_mem), &openCLDeferBuffer(mTempQK.get())()});
-            mQkUpdateInfo.update_kernel_args.push_back({0, 6, sizeof(mKvSeqlen), &mKvSeqlen});
+            mQkUpdateInfo.update_kernel_args.push_back(
+                {0, 6, sizeof(mEffectiveKvSeqlen), &mEffectiveKvSeqlen});
             mQkUpdateInfo.update_kernel_args.push_back({0, 7, sizeof(mKeyValueMaxlen), &mKeyValueMaxlen});
+            mQkUpdateInfo.update_kernel_args.push_back({0, 10, sizeof(mKvStart), &mKvStart});
             mQkGlobal_size[0] = mGlobalWorkSizeQk[0];
             mQkGlobal_size[1] = mGlobalWorkSizeQk[1];
             mQkUpdateInfo.update_global_size.push_back({0, mQkGlobal_size});
@@ -1822,7 +1835,7 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
         ret |= mKernel_softmax->get().setArg(index++, openCLDeferBuffer(mTempSoftMax.get()));
         ret |= mKernel_softmax->get().setArg(index++, inside);
         ret |= mKernel_softmax->get().setArg(index++, outside);
-        ret |= mKernel_softmax->get().setArg(index++, mKvSeqlen);
+        ret |= mKernel_softmax->get().setArg(index++, mEffectiveKvSeqlen);
         MNN_CHECK_CL_SUCCESS(ret, "setArg softmax");
 
         mLocalWorkSizeSoftMax = {static_cast<uint32_t>(localSize), 1, 1};
@@ -1842,7 +1855,8 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
                 {0, 3, sizeof(cl_mem), &openCLDeferBuffer(mTempQK.get())()});
             mSoftMaxUpdateInfo.update_kernel_args.push_back(
                 {0, 4, sizeof(cl_mem), &openCLDeferBuffer(mTempSoftMax.get())()});
-            mSoftMaxUpdateInfo.update_kernel_args.push_back({0, 7, sizeof(mKvSeqlen), &mKvSeqlen});
+            mSoftMaxUpdateInfo.update_kernel_args.push_back(
+                {0, 7, sizeof(mEffectiveKvSeqlen), &mEffectiveKvSeqlen});
             mOpRecordUpdateInfo.emplace_back(&mSoftMaxUpdateInfo);
             mOpenCLBackend->recordKernel3d(mKernel_softmax, mGlobalWorkSizeSoftMax, mLocalWorkSizeSoftMax,
                                            &mSoftMaxUpdateInfo);
@@ -1933,11 +1947,12 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
                 ret |= kernel[knl_idx]->get().setArg(index++, openCLDeferBuffer(mTempSoftMax.get()));
                 ret |= kernel[knl_idx]->get().setArg(index++, valueBuffer);
                 ret |= kernel[knl_idx]->get().setArg(index++, openCLBuffer(outputs[0]));
-                ret |= kernel[knl_idx]->get().setArg(index++, mKvSeqlen);
+                ret |= kernel[knl_idx]->get().setArg(index++, mEffectiveKvSeqlen);
                 ret |= kernel[knl_idx]->get().setArg(index++, mKeyValueMaxlen);
                 ret |= kernel[knl_idx]->get().setArg(index++, numHead);
                 ret |= kernel[knl_idx]->get().setArg(index++, kvNumHead);
                 ret |= kernel[knl_idx]->get().setArg(index++, headDim);
+                ret |= kernel[knl_idx]->get().setArg(index++, mKvStart);
                 MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qkv_decode");
                 std::pair<std::vector<uint32_t>, int> retTune;
                 retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize,
@@ -1967,11 +1982,12 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
         ret |= mKernel_qkv->get().setArg(index++, openCLDeferBuffer(mTempSoftMax.get()));
         ret |= mKernel_qkv->get().setArg(index++, valueBuffer);
         ret |= mKernel_qkv->get().setArg(index++, openCLBuffer(outputs[0]));
-        ret |= mKernel_qkv->get().setArg(index++, mKvSeqlen);
+        ret |= mKernel_qkv->get().setArg(index++, mEffectiveKvSeqlen);
         ret |= mKernel_qkv->get().setArg(index++, mKeyValueMaxlen);
         ret |= mKernel_qkv->get().setArg(index++, numHead);
         ret |= mKernel_qkv->get().setArg(index++, kvNumHead);
         ret |= mKernel_qkv->get().setArg(index++, headDim);
+        ret |= mKernel_qkv->get().setArg(index++, mKvStart);
         MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qkv_decode");
 
         mGlobalWorkSizeQkv[0] = ROUND_UP(mGlobalWorkSizeQkv[0], std::max((uint32_t)1, mLocalWorkSizeQkv[0]));
@@ -1980,8 +1996,10 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
             mQkvUpdateInfo.update_kernel_args.push_back(
                 {0, 2, sizeof(cl_mem), &openCLDeferBuffer(mTempSoftMax.get())()});
             mQkvUpdateInfo.update_kernel_args.push_back({0, 3, sizeof(cl_mem), &(*(mKVCacheCLManager->value()))()});
-            mQkvUpdateInfo.update_kernel_args.push_back({0, 5, sizeof(mKvSeqlen), &mKvSeqlen});
+            mQkvUpdateInfo.update_kernel_args.push_back(
+                {0, 5, sizeof(mEffectiveKvSeqlen), &mEffectiveKvSeqlen});
             mQkvUpdateInfo.update_kernel_args.push_back({0, 6, sizeof(mKeyValueMaxlen), &mKeyValueMaxlen});
+            mQkvUpdateInfo.update_kernel_args.push_back({0, 10, sizeof(mKvStart), &mKvStart});
             mOpRecordUpdateInfo.emplace_back(&mQkvUpdateInfo);
             mOpenCLBackend->recordKernel2d(mKernel_qkv, mGlobalWorkSizeQkv, mLocalWorkSizeQkv, &mQkvUpdateInfo);
         } else {
@@ -2298,6 +2316,7 @@ AttentionBufExecution::AttentionBufExecution(const MNN::Op* op, Backend* backend
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mOutputC4 = outputC4;
     mAttnScale = op->main_as_AttentionParam()->attnScale();
+    mSlidingWindow = op->main_as_AttentionParam()->sliding_window();
     mKVCacheCLManager.reset(new KVCacheCLManager(backend, nullptr != mMeta));
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
     mKVCacheCLManager->setPrefixCacheDir(mOpenCLBackend->getRuntime()->hint().prefixcacheDirPath);
@@ -2315,6 +2334,7 @@ AttentionBufExecution::AttentionBufExecution(std::shared_ptr<KVCacheCLManager> m
     auto param = op->main_as_AttentionParam();
     mOutputC4 = param->output_c4();
     mAttnScale = param->attnScale();
+    mSlidingWindow = param->sliding_window();
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel(
         "softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL_CTOR(kernel);

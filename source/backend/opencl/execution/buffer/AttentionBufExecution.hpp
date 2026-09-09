@@ -94,6 +94,9 @@ private:
     void handleKVCache(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     int mPastKvSeqlen = 0;
     int mKvSeqlen = 0;
+    int mSlidingWindow = 0;
+    int mKvStart = 0;
+    int mEffectiveKvSeqlen = 0;
     int mKeyValueMaxlen = 0;
     int mDecodeTmpMaxlen = 0;
 

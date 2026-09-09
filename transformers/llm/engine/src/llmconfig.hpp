@@ -432,6 +432,10 @@ public:
         return config_.value("sliding_window", 0);
     }
 
+    bool attention_window_in_op() const {
+        return config_.value("attention_window_in_op", false);
+    }
+
     bool attention_fused() const {
         return config_.value("attention_fused", true);
     }
