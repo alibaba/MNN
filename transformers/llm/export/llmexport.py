@@ -685,8 +685,8 @@ class LlmExporter(torch.nn.Module):
                     onnx_name = os.path.basename(onnx_path)
                     if onnx_name == 'talker.onnx':
                         weight_ops = getattr(self.talker, 'unloaded_ops', None)
-                    elif onnx_name == 'code_predictor.onnx' and hasattr(self.talker, 'code_predictor'):
-                        weight_ops = getattr(self.talker.code_predictor, 'unloaded_ops', None)
+                    elif onnx_name == 'code_predictor.onnx' and hasattr(self.talker, 'audio_code_predictor'):
+                        weight_ops = getattr(self.talker.audio_code_predictor, 'unloaded_ops', None)
                 converter = MNNConverter(self, weight_ops) if weight_ops is not None else self.mnn_converter
                 converter.export(onnx_path, self.talker.quant_bit)
                 if weight_ops is not None:

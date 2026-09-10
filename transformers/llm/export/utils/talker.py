@@ -293,7 +293,7 @@ class Qwen2_5OmniTalker(Talker):
         return talker_onnx
 
 
-class Qwen3TTSCodePredictor(torch.nn.Module):
+class Qwen3TTSAudioCodePredictor(torch.nn.Module):
     def __init__(self, predictor, base):
         super().__init__()
         self.predictor = predictor.float()
@@ -349,37 +349,44 @@ class Qwen3TTSCodePredictor(torch.nn.Module):
                     self.predictor.lm_head[i] = FakeLinear(
                         head.in_features, head.out_features, head.bias is not None, name)
 
-    def forward(self, talker_hidden_states, codec_embeds, attention_mask, position_ids):
-        hidden_states = torch.cat([talker_hidden_states.unsqueeze(1), codec_embeds], dim=1)
-        hidden_states = self.predictor.small_to_mtp_projection(hidden_states)
+    def forward(self, inputs_embeds, attention_mask, position_ids):
+        # inputs_embeds row 0 is the talker hidden state, rows 1.. are the codec
+        # embeddings of the codes generated so far -- the same sequence the old
+        # graph assembled via an internal concat. Building it in the caller lets
+        # a decode step append a single row through the KV cache instead of
+        # re-feeding the whole frame every call.
+        hidden_states = self.predictor.small_to_mtp_projection(inputs_embeds)
         rotary_pos_emb = self.rotary(position_ids)
         for i in range(self.num_hidden_layers):
             hidden_states = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask)
         hidden_states = self.predictor.model.norm(hidden_states)
+        # Every head reads the last row: at decode step g the last row is
+        # position g, exactly the row head g-1 was trained on (head i reads row
+        # i+1), so callers keep sampling the flat offset (g-1)*vocab.
         logits = []
         for i in range(self.config.num_code_groups - 1):
-            logits.append(self.predictor.lm_head[i](hidden_states[:, i + 1:i + 2, :]))
+            logits.append(self.predictor.lm_head[i](hidden_states[:, -1:, :]))
         return torch.cat(logits, dim=1)
 
-    @spinner_run(f'export qwen3_tts code predictor to ')
+    @spinner_run(f'export qwen3_tts audio_code_predictor to ')
     def export(self, onnx_path):
         self.export_embed()
         self.unload_param()
         seq_len = self.config.num_code_groups
-        talker_hidden_states = torch.randn([1, self.hidden_size])
-        codec_embeds = torch.randn([1, self.config.num_code_groups - 1, self.hidden_size])
+        inputs_embeds = torch.randn([1, seq_len, self.hidden_size])
         attention_mask = (1 - torch.tril(torch.ones([1, 1, seq_len, seq_len]))) * torch.finfo(torch.float32).min
         position_ids = torch.arange(seq_len, dtype=torch.int).unsqueeze(0)
-        code_predictor_onnx = f'{onnx_path}/code_predictor.onnx'
-        onnx_export(self, (talker_hidden_states, codec_embeds, attention_mask, position_ids),
-                    code_predictor_onnx,
-                    input_names=['talker_hidden_states', 'codec_embeds', 'attention_mask', 'position_ids'],
+        audio_code_predictor_onnx = f'{onnx_path}/code_predictor.onnx'
+        onnx_export(self, (inputs_embeds, attention_mask, position_ids),
+                    audio_code_predictor_onnx,
+                    input_names=['inputs_embeds', 'attention_mask', 'position_ids'],
                     output_names=['logits'],
                     dynamic_axes={
+                        'inputs_embeds': { 1: 'size' },
                         'attention_mask': { 2: 'size', 3: 'size' },
                         'position_ids': { 1: 'size' }
                     })
-        return code_predictor_onnx
+        return audio_code_predictor_onnx
 
 
 class Qwen3TTSPromptEmbedder(torch.nn.Module):
@@ -421,7 +428,7 @@ class Qwen3TTSPromptEmbedder(torch.nn.Module):
 
 
 class Qwen3TTSCodecEmbedder(torch.nn.Module):
-    def __init__(self, talker, code_predictor):
+    def __init__(self, talker, audio_code_predictor):
         super().__init__()
         self.talker = talker.float()
 
@@ -465,6 +472,7 @@ class Qwen3TTSTalker(Talker):
             'code_predictor_embedding_file': 'code_predictor_embeddings_bf16.bin',
             'code_predictor_vocab_size': self.talker.config.code_predictor_config.vocab_size,
             'code_predictor_groups': self.talker.config.code_predictor_config.num_code_groups,
+            'code_predictor_incremental': True,
             'speech_decoder_model': 'speech_decoder.mnn',
             'speech_decoder_weight': 'speech_decoder.mnn.weight',
             'speech_decoder_upsample_rate': 1920,
@@ -505,7 +513,7 @@ class Qwen3TTSTalker(Talker):
             decoder = Decoder(block, layer_id, self)
             decoder.self_attn.export_fused_attn = True
             self.blocks.append(decoder)
-        self.code_predictor = Qwen3TTSCodePredictor(self.talker.code_predictor, self)
+        self.audio_code_predictor = Qwen3TTSAudioCodePredictor(self.talker.code_predictor, self)
         self.prompt_embedder = Qwen3TTSPromptEmbedder(self.talker, self.config.origin_config)
         self.codec_embedder = Qwen3TTSCodecEmbedder(self.talker, self.talker.code_predictor)
         self.token2wav = Qwen3TTSToken2Wav(self)
@@ -586,5 +594,5 @@ class Qwen3TTSTalker(Talker):
                         "trailing_text_hidden": { 1: "trailing_len" },
                     })
         return [talker_onnx,
-                self.code_predictor.export(onnx_path),
+                self.audio_code_predictor.export(onnx_path),
                 self.codec_embedder.export(onnx_path)]
