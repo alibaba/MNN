@@ -512,6 +512,9 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
         int verify_length = mDraftLength + 1;
         decode_seq = verify_length;
     }
+    // Tag the tuning forwards like a real verify block, or they measure another path.
+    const bool tuneSpecBlock = mInSpec && decode_seq > 1 && nullptr != mGenerationStrategy &&
+                               mGenerationStrategy->marksSpecBlock();
     int64_t min_time     = INT64_MAX;
     int prefer_candidate = 10;
     for (auto& candidate : candidates) {
@@ -521,7 +524,11 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
         for (int rep = 0; rep < 3; ++rep) {
             Timer _t;
             std::vector<int> input_ids(decode_seq, 0);
+            if (tuneSpecBlock) {
+                mMeta->spec_block = decode_seq;
+            }
             auto outputs = forwardVec(input_ids);
+            mMeta->spec_block = 0; // before any early return: a stale tag breaks the next prefill
             if(outputs.empty()) {
                 return;
             }

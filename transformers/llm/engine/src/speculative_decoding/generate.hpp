@@ -40,6 +40,10 @@ public:
         return true;
     };
     virtual void generate(GenerationParams& param) = 0;
+    // True when the strategy tags its verify forward with KVMeta::spec_block.
+    virtual bool marksSpecBlock() const {
+        return false;
+    };
     virtual void reset() {
         // do nothing
     };
@@ -127,6 +131,9 @@ public:
     virtual ~DFlashGeneration() = default;
     virtual bool load(Module::Config module_config) override;
     virtual void generate(GenerationParams& param) override;
+    virtual bool marksSpecBlock() const override {
+        return true;
+    }
     virtual void reset() override;
 private:
     // Row-wise argmax, shared by draft sampling and target verify; only the element count is read, so any rank binds.

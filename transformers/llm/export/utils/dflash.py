@@ -10,6 +10,7 @@ from utils.spinner import spinner_run
 from .torch_utils import onnx_export
 from transformers.activations import ACT2FN
 
+_FC_SCALE = 8.0
 
 def dflash_rope(position_ids, head_dim, rope_theta):
     """RoPE (cos, sin) [1, 1, seq_len, head_dim]; shared by the draft graph and DFlashKVMat."""
@@ -243,6 +244,12 @@ class DFlash(torch.nn.Module):
 
         # Load weights
         self._load_weights(dflash_path)
+
+        # Divide fc by _FC_SCALE and hidden_norm's eps by its square: RMSNorm makes this
+        # an exact identity, so the module output is unchanged and intermediates shrink.
+        with torch.no_grad():
+            self.fc.weight.div_(_FC_SCALE)
+        self.hidden_norm.variance_epsilon /= _FC_SCALE * _FC_SCALE
 
         self.unloaded_ops = {}
 
