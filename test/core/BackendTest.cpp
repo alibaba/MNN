@@ -9,10 +9,11 @@
 #include <MNN/MNNDefine.h>
 #include <math.h>
 #include <MNN/Tensor.hpp>
+#include <MNN/expr/Executor.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
 #include "MNNTestSuite.h"
 #include "core/Backend.hpp"
 #include "core/Macro.h"
-#include "core/Session.hpp"
 
 using namespace MNN;
 
@@ -793,15 +794,33 @@ MNNTestSuiteRegister(CPUBackendCopyBufferTest, "engine/backend/copy_buffer_cpu")
 class EncoderCommitHintTest : public MNNTestCase {
 public:
     bool run(int precision) override {
-        Session::ModeGroup mode;
-        if (mode.runtimeHint.encorderNumForCommit != -1) {
+        // Keep hint changes local to this test instead of mutating the global executor.
+        BackendConfig backendConfig;
+        auto executor = Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
+        if (!executor) {
+            MNN_ERROR("Failed to create executor for encoder commit hint test\n");
+            return false;
+        }
+        Express::ExecutorScope scope(executor);
+        ScheduleConfig scheduleConfig;
+        scheduleConfig.type = MNN_FORWARD_CPU;
+        scheduleConfig.numThread = 1;
+        std::unique_ptr<Express::Executor::RuntimeManager> runtimeManager(
+            Express::Executor::RuntimeManager::createRuntimeManager(scheduleConfig));
+        auto runtime = Express::Executor::getRuntime().second;
+        if (!runtimeManager || !runtime) {
+            MNN_ERROR("Failed to create runtime for encoder commit hint test\n");
+            return false;
+        }
+        if (runtime->hint().encorderNumForCommit != -1) {
             MNN_ERROR("Encoder commit hint must default to -1\n");
             return false;
         }
         for (int value : {10, 20, 30, 512, 0, -1}) {
-            mode.setHint(Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, value);
-            if (mode.runtimeHint.encorderNumForCommit != value) {
-                MNN_ERROR("Encoder commit hint did not preserve %d\n", value);
+            runtimeManager->setHint(Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, value);
+            if (runtime->hint().encorderNumForCommit != value) {
+                MNN_ERROR("Encoder commit hint did not preserve %d, got %d\n",
+                          value, runtime->hint().encorderNumForCommit);
                 return false;
             }
         }
