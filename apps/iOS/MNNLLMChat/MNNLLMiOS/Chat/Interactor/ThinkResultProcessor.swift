@@ -18,13 +18,13 @@ class ThinkResultProcessor {
     init(thinkingPrefix: String, completePrefix: String) {
         self.thinkingPrefix = thinkingPrefix
         self.completePrefix = completePrefix
-        displayString = "\(thinkingPrefix)\n> "
+        displayString = ""
         startTime = Date().timeIntervalSince1970
         hasProcessed = false
     }
 
     func startNewChat() {
-        displayString = "> "
+        displayString = ""
         hasProcessed = false
         startGeneration()
     }
@@ -40,19 +40,26 @@ class ThinkResultProcessor {
     func process(progress: String?) -> String? {
         guard let progress = progress else { return nil }
 
-        var updatedProgress = progress
-        var rawBuilder = ""
-        rawBuilder.append(progress)
+        // Strip the opening marker regardless of how native streaming chunks it.
+        // If a chunk ends with "<thi" and the next begins with "nk>", the
+        // second cleanup below removes the reconstructed marker from displayString.
+        var updatedProgress = progress.replacingOccurrences(of: thinkingPrefix, with: "")
 
-        if progress.contains(completePrefix) {
-            updatedProgress = updatedProgress.replacingOccurrences(of: completePrefix, with: "\n")
+        if updatedProgress.contains(completePrefix) {
+            updatedProgress = updatedProgress.replacingOccurrences(of: completePrefix, with: "\n\n")
             hasProcessed = true
-        } else if !hasProcessed, progress.contains("\n"), !progress.contains("\n >") {
-            updatedProgress = updatedProgress.replacingOccurrences(of: thinkingPrefix, with: "\n")
-            updatedProgress = updatedProgress.replacingOccurrences(of: "\n", with: "\n > ")
         }
 
         displayString.append(updatedProgress)
+        displayString = displayString.replacingOccurrences(of: thinkingPrefix, with: "")
+
+        // The closing marker can also straddle two native callbacks. Detect it
+        // after appending so an unfinished Think response never becomes an HTML
+        // element that hides the entire Markdown message.
+        if displayString.contains(completePrefix) {
+            displayString = displayString.replacingOccurrences(of: completePrefix, with: "\n\n")
+            hasProcessed = true
+        }
         return displayString
     }
 }

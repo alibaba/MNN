@@ -16,6 +16,7 @@ struct LLMChatMessage {
     var useMarkdown: Bool = true
     var text: String
     var thinkText: String = ""
+    var performanceData: String? = nil
     let images: [LLMChatImage]
     let videos: [LLMChatVideo]
     let recording: Recording?
@@ -31,6 +32,7 @@ extension LLMChatMessage {
             createdAt: createdAt,
             text: text,
             thinkText: thinkText,
+            performanceData: performanceData,
             useMarkdown: useMarkdown,
             attachments: images.map { $0.toChatAttachment() } + videos.map { $0.toChatAttachment() },
             recording: recording,

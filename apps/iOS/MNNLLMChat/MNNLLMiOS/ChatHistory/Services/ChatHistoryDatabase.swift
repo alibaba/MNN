@@ -70,7 +70,7 @@ class ChatHistoryDatabase {
 
     func saveChat(historyId: String, modelInfo: ModelInfo, messages: [Message]) {
         let modelId = modelInfo.id
-        let modelName = modelInfo.modelName
+        let modelName = modelInfo.name
         do {
             ChatHistoryFileManager.shared.createHistoryDirectory(for: historyId)
 

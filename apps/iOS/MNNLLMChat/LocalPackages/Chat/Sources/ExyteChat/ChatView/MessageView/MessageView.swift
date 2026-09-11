@@ -155,7 +155,7 @@ struct MessageView: View {
                 attachmentsView(message)
             }
 
-            if !message.text.isEmpty {
+            if !message.text.isEmpty, message.recording == nil {
                 textWithTimeView(message)
                     .font(Font(font))
 
@@ -175,11 +175,17 @@ struct MessageView: View {
             }
 
             if let recording = message.recording {
-                VStack(alignment: .trailing, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     recordingView(recording)
-                    messageTimeView()
-                        .padding(.bottom, 8)
-                        .padding(.trailing, 12)
+                    if !message.text.isEmpty {
+                        audioEvidenceView(message.text)
+                    }
+                    HStack {
+                        Spacer()
+                        messageTimeView()
+                    }
+                    .padding(.bottom, 8)
+                    .padding(.horizontal, MessageView.horizontalTextPadding)
                 }
             }
         }
@@ -263,10 +269,7 @@ struct MessageView: View {
             }
             
             if #available(iOS 17.0, *) {
-                let messageView = LLMMessageTextView(text: displayedMessageText, messageUseMarkdown: message.useMarkdown, messageId: message.id, isAssistantMessage: !message.user.isCurrentUser, isStreamingMessage: isStreamingMessage, isOutputComplete: isOutputComplete, onAnimationComplete: {
-                    // Post notification that animation has completed
-                    NotificationCenter.default.post(name: NSNotification.Name("StreamingAnimationCompleted"), object: message.id)
-                })
+                let messageView = LLMMessageTextView(text: displayedMessageText, messageUseMarkdown: message.useMarkdown, messageId: message.id, isAssistantMessage: !message.user.isCurrentUser, isStreamingMessage: isStreamingMessage, isOutputComplete: isOutputComplete)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, MessageView.horizontalTextPadding)
                 let timeView = messageTimeView()
@@ -299,7 +302,9 @@ struct MessageView: View {
             }
             
             // Add PerformanceView for assistant messages with performance data
-            if !message.user.isCurrentUser, let performanceData = message.performanceData, !performanceData.isEmpty {
+            if !message.user.isCurrentUser, !isStreamingMessage,
+               let performanceData = message.performanceData, !performanceData.isEmpty
+            {
                 PerformanceView(performanceData: performanceData)
                     .padding(.horizontal, MessageView.horizontalTextPadding)
             }
@@ -348,6 +353,27 @@ struct MessageView: View {
         )
         .padding(.horizontal, MessageView.horizontalTextPadding)
         .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    func audioEvidenceView(_ text: String) -> some View {
+        let lines = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+        VStack(alignment: .leading, spacing: 4) {
+            if let transcript = lines.first {
+                Text(String(transcript))
+                    .font(.caption)
+                    .foregroundColor(.black)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if lines.count > 1 {
+                Text(String(lines[1]))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(.black.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, MessageView.horizontalTextPadding)
+        .accessibilityElement(children: .combine)
     }
 
     func messageTimeView(needsCapsule: Bool = false) -> some View {

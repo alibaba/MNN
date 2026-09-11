@@ -15,6 +15,8 @@ class ModelConfigManager {
     private let defaultBackendType = "cpu"
     private let defaultPrecision = "low"
     private let defaultThreadNum = 4
+    private let defaultMaxNewTokens = 128
+    private let maximumMaxNewTokens = 4096
     private let defaultTfsZ: Double = 1.0
     private let defaultTypical: Double = 1.0
     private let defaultPenalty: Double = 0.0
@@ -47,24 +49,31 @@ class ModelConfigManager {
         return configDir.appendingPathComponent("custom_config.json")
     }
 
-    /// Reads a value from merged default (config.json) and custom (custom_config.json) configs.
-    private func readValue<T>(_ key: String, defaultValue: T) -> T {
-        var mergedConfig: [String: Any] = [:]
+    /// Reads a value with custom settings taking precedence even when an older
+    /// app version stored the setting under a legacy key.
+    private func readValue<T>(_ key: String, legacyKeys: [String] = [], defaultValue: T) -> T {
+        let candidateKeys = [key] + legacyKeys
 
-        // 1. Read default config.json from model directory (bundle or local path)
-        if let data = try? Data(contentsOf: configFileURL),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            mergedConfig = json
-        }
-
-        // 2. Read custom_config.json from Documents and merge (override)
         if FileManager.default.fileExists(atPath: customConfigURL.path),
            let customData = try? Data(contentsOf: customConfigURL),
            let customJson = try? JSONSerialization.jsonObject(with: customData) as? [String: Any] {
-            mergedConfig.merge(customJson) { _, new in new }
+            for candidateKey in candidateKeys {
+                if let value = customJson[candidateKey] as? T {
+                    return value
+                }
+            }
         }
 
-        return mergedConfig[key] as? T ?? defaultValue
+        if let data = try? Data(contentsOf: configFileURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for candidateKey in candidateKeys {
+                if let value = json[candidateKey] as? T {
+                    return value
+                }
+            }
+        }
+
+        return defaultValue
     }
 
     /// Updates only the writable custom_config.json with the provided key/value.
@@ -117,6 +126,30 @@ class ModelConfigManager {
     func updateThreadNum(_ value: Int) {
         let clamped = max(1, min(maxThreads, value))
         updateValue("thread_num", value: clamped)
+    }
+
+    // MARK: - Maximum Output Tokens
+
+    func readMaxNewTokens() -> Int {
+        let value: Int = readValue("max_new_tokens", defaultValue: defaultMaxNewTokens)
+        return max(1, min(maximumMaxNewTokens, value))
+    }
+
+    func updateMaxNewTokens(_ value: Int) {
+        let clamped = max(1, min(maximumMaxNewTokens, value))
+        updateValue("max_new_tokens", value: clamped)
+    }
+
+    func readPower() -> String {
+        return readValue("power", defaultValue: "normal")
+    }
+
+    func readMemory() -> String {
+        return readValue("memory", defaultValue: "low")
+    }
+
+    func readDynamicOption() -> Int {
+        return readValue("dynamic_option", defaultValue: 0)
     }
 
     // MARK: - UseMmap
@@ -221,41 +254,41 @@ class ModelConfigManager {
     // MARK: - TopK
 
     func readTopK() -> Int {
-        return readValue("topK", defaultValue: 40)
+        return readValue("top_k", legacyKeys: ["topK"], defaultValue: 40)
     }
 
     func updateTopK(_ value: Int) {
-        updateValue("topK", value: max(1, value))
+        updateValue("top_k", value: max(1, value))
     }
 
     // MARK: - TopP
 
     func readTopP() -> Double {
-        return readValue("topP", defaultValue: 0.9)
+        return readValue("top_p", legacyKeys: ["topP"], defaultValue: 0.9)
     }
 
     func updateTopP(_ value: Double) {
-        updateValue("topP", value: max(0.0, min(value, 1.0)))
+        updateValue("top_p", value: max(0.0, min(value, 1.0)))
     }
 
     // MARK: - MinP
 
     func readMinP() -> Double {
-        return readValue("minP", defaultValue: 0.1)
+        return readValue("min_p", legacyKeys: ["minP"], defaultValue: 0.1)
     }
 
     func updateMinP(_ value: Double) {
-        updateValue("minP", value: max(0.0, min(value, 1.0)))
+        updateValue("min_p", value: max(0.0, min(value, 1.0)))
     }
 
     // MARK: - TFS-Z
 
     func readTfsZ() -> Double {
-        return readValue("tfsZ", defaultValue: defaultTfsZ)
+        return readValue("tfs_z", legacyKeys: ["tfsZ"], defaultValue: defaultTfsZ)
     }
 
     func updateTfsZ(_ value: Double) {
-        updateValue("tfsZ", value: value)
+        updateValue("tfs_z", value: value)
     }
 
     // MARK: - Typical
@@ -271,31 +304,31 @@ class ModelConfigManager {
     // MARK: - Penalty
 
     func readPenalty() -> Double {
-        return readValue("penalty", defaultValue: defaultPenalty)
+        return readValue("repetition_penalty", legacyKeys: ["penalty"], defaultValue: defaultPenalty)
     }
 
     func updatePenalty(_ value: Double) {
-        updateValue("penalty", value: value)
+        updateValue("repetition_penalty", value: value)
     }
 
     // MARK: - N-gram
 
     func readNGram() -> Int {
-        return readValue("nGram", defaultValue: defaultNGram)
+        return readValue("n_gram", legacyKeys: ["nGram"], defaultValue: defaultNGram)
     }
 
     func updateNGram(_ value: Int) {
-        updateValue("nGram", value: value)
+        updateValue("n_gram", value: value)
     }
 
     // MARK: - N-gram Factor
 
     func readNGramFactor() -> Double {
-        return readValue("nGramFactor", defaultValue: defaultNGramFactor)
+        return readValue("ngram_factor", legacyKeys: ["nGramFactor"], defaultValue: defaultNGramFactor)
     }
 
     func updateNGramFactor(_ value: Double) {
-        updateValue("nGramFactor", value: value)
+        updateValue("ngram_factor", value: value)
     }
 
     // MARK: - Read all config string
@@ -312,7 +345,23 @@ class ModelConfigManager {
         // Custom overrides
         if FileManager.default.fileExists(atPath: customConfigURL.path),
            let customData = try? Data(contentsOf: customConfigURL),
-           let customJson = try? JSONSerialization.jsonObject(with: customData) as? [String: Any] {
+           var customJson = try? JSONSerialization.jsonObject(with: customData) as? [String: Any] {
+            // Promote settings written by older app versions to the canonical
+            // engine keys. Otherwise canonical keys in config.json win and the
+            // gear UI appears to save values that the runtime never observes.
+            let legacyKeyMap = [
+                "topK": "top_k",
+                "topP": "top_p",
+                "minP": "min_p",
+                "tfsZ": "tfs_z",
+                "penalty": "repetition_penalty",
+                "nGram": "n_gram",
+                "nGramFactor": "ngram_factor",
+            ]
+            for (legacyKey, canonicalKey) in legacyKeyMap
+                where customJson[canonicalKey] == nil && customJson[legacyKey] != nil {
+                customJson[canonicalKey] = customJson[legacyKey]
+            }
             mergedConfig.merge(customJson) { _, new in new }
         }
 

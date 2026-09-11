@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ModelListView: View {
     @ObservedObject var viewModel: ModelListViewModel
+    @ObservedObject private var nameStore = ModelNameStore.shared
     @State private var searchText = ""
     @State private var selectedSource = ModelSourceManager.shared.selectedSource
     @State private var showSourceMenu = false
@@ -124,7 +125,7 @@ struct ModelListView: View {
     private var filteredModels: [ModelInfo] {
         let searchFiltered = searchText.isEmpty ? viewModel.models : viewModel.models.filter { model in
             model.id.localizedCaseInsensitiveContains(searchText) ||
-                model.modelName.localizedCaseInsensitiveContains(searchText) ||
+                model.name.localizedCaseInsensitiveContains(searchText) ||
                 model.localizedTags.contains { $0.localizedCaseInsensitiveContains(searchText) }
         }
 

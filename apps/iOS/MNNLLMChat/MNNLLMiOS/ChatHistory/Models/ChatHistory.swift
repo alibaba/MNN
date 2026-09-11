@@ -21,7 +21,7 @@ struct ChatHistory: Codable, Identifiable, Hashable {
     }
 
     var modelName: String {
-        return modelInfo.modelName
+        return modelInfo.name
     }
 }
 

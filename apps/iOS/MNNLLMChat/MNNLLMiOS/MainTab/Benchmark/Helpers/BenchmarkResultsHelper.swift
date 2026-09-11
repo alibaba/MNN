@@ -29,7 +29,16 @@ class BenchmarkResultsHelper {
         }
 
         let firstTest = testResults[0]
-        let configText = "Backend: CPU, Threads: \(firstTest.threads), Memory: Low, Precision: Low"
+        let backendName: String
+        switch firstTest.backend {
+        case 1: backendName = "Metal"
+        case 5: backendName = "NPU"
+        default: backendName = "CPU"
+        }
+        let memoryName = [0: "Normal", 1: "High", 2: "Low"][firstTest.memory] ?? "Unknown"
+        let precisionName = [0: "Normal", 1: "High", 2: "Low", 3: "Low BF16"][firstTest.precision] ?? "Unknown"
+        let mmapName = firstTest.useMmap ? "On" : "Off"
+        let configText = "Backend: \(backendName), Threads: \(firstTest.threads), Memory: \(memoryName), Precision: \(precisionName), mmap: \(mmapName)"
 
         var prefillStats: SpeedStatistics?
         var decodeStats: SpeedStatistics?

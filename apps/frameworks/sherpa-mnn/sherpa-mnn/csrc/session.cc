@@ -24,7 +24,16 @@ MNNConfig GetSessionOptionsImpl(
     int32_t num_threads, const std::string &provider_str,
     const ProviderConfig *provider_config /*= nullptr*/) {
   MNN::ScheduleConfig config;
-  config.numThread = num_threads;
+  const auto provider = StringToProvider(provider_str);
+  if (provider == Provider::kMetal) {
+    config.type = MNN_FORWARD_METAL;
+    // ScheduleConfig::numThread and mode share storage. Do not pass the CPU
+    // thread count to Metal, where 2 would accidentally select Heavy tuning.
+    config.mode = MNN_GPU_TUNING_FAST;
+  } else {
+    config.type = MNN_FORWARD_CPU;
+    config.numThread = num_threads;
+  }
   MNN::BackendConfig bnConfig;
   bnConfig.memory = MNN::BackendConfig::Memory_Low;
   config.backendConfig = &bnConfig;

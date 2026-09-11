@@ -11,6 +11,7 @@ import SwiftUI
 /// Provides dropdown menu for model selection and start/stop controls.
 struct ModelSelectionCard: View {
     @ObservedObject var viewModel: BenchmarkViewModel
+    @ObservedObject private var nameStore = ModelNameStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -67,7 +68,7 @@ struct ModelSelectionCard: View {
                     }) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(model.modelName)
+                                Text(model.name)
                                     .font(.system(size: 14, weight: .medium))
                                 Text(String(localized: "Local"))
                                     .font(.caption)
@@ -80,7 +81,8 @@ struct ModelSelectionCard: View {
         } label: {
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(viewModel.selectedModel?.modelName ?? String(localized: "Choose your AI model"))
+                    Text(viewModel.selectedModel.map(\.name)
+                        ?? String(localized: "Choose your AI model"))
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(viewModel.isRunning ? .secondary : (viewModel.selectedModel != nil ? .primary : .benchmarkSecondary))
                         .lineLimit(1)

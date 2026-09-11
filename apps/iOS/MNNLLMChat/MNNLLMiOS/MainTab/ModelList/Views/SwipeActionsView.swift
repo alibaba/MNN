@@ -10,8 +10,14 @@ import SwiftUI
 struct SwipeActionsView: View {
     let model: ModelInfo
     @ObservedObject var viewModel: ModelListViewModel
+    let onRename: () -> Void
 
     var body: some View {
+        Button(action: onRename) {
+            Label(String(localized: "Rename"), systemImage: "pencil")
+        }
+        .tint(.blue)
+
         if viewModel.pinnedModelIds.contains(model.id) {
             Button {
                 viewModel.unpinModel(model)

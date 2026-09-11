@@ -16,6 +16,8 @@ Provider StringToProvider(std::string s) {
                  [](unsigned char c) { return std::tolower(c); });
   if (s == "cpu") {
     return Provider::kCPU;
+  } else if (s == "metal") {
+    return Provider::kMetal;
   } else if (s == "cuda") {
     return Provider::kCUDA;
   } else if (s == "coreml") {

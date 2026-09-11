@@ -123,6 +123,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     var avatarSize: CGFloat = 32
     var messageUseMarkdown: Bool = false
     var showMessageMenuOnLongPress: Bool = true
+    var useDirectMessageCopyGesture: Bool = false
     var showNetworkConnectionProblem: Bool = false
     var tapAvatarClosure: TapAvatarClosure?
     var mediaPickerSelectionParameters: MediaPickerParameters?
@@ -308,6 +309,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                isScrollEnabled: isScrollEnabled,
                avatarSize: avatarSize,
                showMessageMenuOnLongPress: showMessageMenuOnLongPress,
+               useDirectMessageCopyGesture: useDirectMessageCopyGesture,
                tapAvatarClosure: tapAvatarClosure,
                paginationHandler: paginationHandler,
                messageUseMarkdown: messageUseMarkdown,
@@ -567,6 +569,15 @@ public extension ChatView {
     func showMessageMenuOnLongPress(_ show: Bool) -> ChatView {
         var view = self
         view.showMessageMenuOnLongPress = show
+        return view
+    }
+
+    /// Copies the complete message directly on long press. Avoiding a detached
+    /// preview prevents inverted-table transforms from leaking into the menu
+    /// transition and keeps long Markdown responses off the duplicate-render path.
+    func useDirectMessageCopyGesture(_ useDirectCopy: Bool) -> ChatView {
+        var view = self
+        view.useDirectMessageCopyGesture = useDirectCopy
         return view
     }
 

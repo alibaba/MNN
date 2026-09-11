@@ -120,6 +120,22 @@ done
 
 ## 编译
 
+### `ScheduleConfig` 后端映射注意事项
+
+`ScheduleConfig::numThread` 与 `ScheduleConfig::mode` 共用一个 union。新增从字符串配置到 Metal 的后端映射时，不能先写 CPU 线程数再只修改 `type`；否则线程数会被 Metal 当作 GPU tuning bitmask。例如 `numThread = 2` 会意外选择 `MNN_GPU_TUNING_HEAVY`，造成明显的首次调优开销。
+
+```cpp
+if (backend == MNN_FORWARD_METAL) {
+    config.type = MNN_FORWARD_METAL;
+    config.mode = MNN_GPU_TUNING_FAST;
+} else {
+    config.type = MNN_FORWARD_CPU;
+    config.numThread = cpuThreads;
+}
+```
+
+构建后除检查调用方传入了 `"metal"`，还要检查最终链接产物包含 `MetalRuntimeCreator`；只修改配置字符串不能证明实际创建了 Metal runtime。
+
 ```bash
 # 标准 Metal + LLM 编译
 mkdir -p build && cd build

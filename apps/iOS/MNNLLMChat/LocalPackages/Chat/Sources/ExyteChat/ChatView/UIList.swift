@@ -34,6 +34,7 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
     let isScrollEnabled: Bool
     let avatarSize: CGFloat
     let showMessageMenuOnLongPress: Bool
+    let useDirectMessageCopyGesture: Bool
     let tapAvatarClosure: ChatView.TapAvatarClosure?
     let paginationHandler: PaginationHandler?
     let messageUseMarkdown: Bool
@@ -63,6 +64,17 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
         tableView.backgroundColor = UIColor(theme.colors.mainBG)
         tableView.scrollsToTop = false
         tableView.isScrollEnabled = isScrollEnabled
+
+        if showMessageMenuOnLongPress && useDirectMessageCopyGesture {
+            let longPressGesture = UILongPressGestureRecognizer(
+                target: context.coordinator,
+                action: #selector(Coordinator.handleDirectMessageCopy(_:))
+            )
+            longPressGesture.minimumPressDuration = 0.45
+            longPressGesture.cancelsTouchesInView = false
+            longPressGesture.delegate = context.coordinator
+            tableView.addGestureRecognizer(longPressGesture)
+        }
 
         NotificationCenter.default.addObserver(forName: .onScrollToBottom, object: nil, queue: nil) { _ in
             scrollToBottom(tableView)
@@ -368,10 +380,10 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
     // MARK: - Coordinator
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(viewModel: viewModel, inputViewModel: inputViewModel, isScrolledToBottom: $isScrolledToBottom, isScrolledToTop: $isScrolledToTop, messageBuilder: messageBuilder, mainHeaderBuilder: mainHeaderBuilder, headerBuilder: headerBuilder, type: type, showDateHeaders: showDateHeaders, avatarSize: avatarSize, showMessageMenuOnLongPress: showMessageMenuOnLongPress, tapAvatarClosure: tapAvatarClosure, paginationHandler: paginationHandler, messageUseMarkdown: messageUseMarkdown, showMessageTimeView: showMessageTimeView, messageFont: messageFont, sections: sections, ids: ids, mainBackgroundColor: theme.colors.mainBG)
+        Coordinator(viewModel: viewModel, inputViewModel: inputViewModel, isScrolledToBottom: $isScrolledToBottom, isScrolledToTop: $isScrolledToTop, messageBuilder: messageBuilder, mainHeaderBuilder: mainHeaderBuilder, headerBuilder: headerBuilder, type: type, showDateHeaders: showDateHeaders, avatarSize: avatarSize, showMessageMenuOnLongPress: showMessageMenuOnLongPress, useDirectMessageCopyGesture: useDirectMessageCopyGesture, tapAvatarClosure: tapAvatarClosure, paginationHandler: paginationHandler, messageUseMarkdown: messageUseMarkdown, showMessageTimeView: showMessageTimeView, messageFont: messageFont, sections: sections, ids: ids, mainBackgroundColor: theme.colors.mainBG)
     }
 
-    class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+    class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate {
 
         @ObservedObject var viewModel: ChatViewModel
         @ObservedObject var inputViewModel: InputViewModel
@@ -387,6 +399,7 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
         let showDateHeaders: Bool
         let avatarSize: CGFloat
         let showMessageMenuOnLongPress: Bool
+        let useDirectMessageCopyGesture: Bool
         let tapAvatarClosure: ChatView.TapAvatarClosure?
         let paginationHandler: PaginationHandler?
         let messageUseMarkdown: Bool
@@ -401,8 +414,9 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
         }
         let ids: [String]
         let mainBackgroundColor: Color
+        weak var copyFeedbackLabel: UILabel?
 
-        init(viewModel: ChatViewModel, inputViewModel: InputViewModel, isScrolledToBottom: Binding<Bool>, isScrolledToTop: Binding<Bool>, messageBuilder: MessageBuilderClosure?, mainHeaderBuilder: (()->AnyView)?, headerBuilder: ((Date)->AnyView)?, type: ChatType, showDateHeaders: Bool, avatarSize: CGFloat, showMessageMenuOnLongPress: Bool, tapAvatarClosure: ChatView.TapAvatarClosure?, paginationHandler: PaginationHandler?, messageUseMarkdown: Bool, showMessageTimeView: Bool, messageFont: UIFont, sections: [MessagesSection], ids: [String], mainBackgroundColor: Color, paginationTargetIndexPath: IndexPath? = nil) {
+        init(viewModel: ChatViewModel, inputViewModel: InputViewModel, isScrolledToBottom: Binding<Bool>, isScrolledToTop: Binding<Bool>, messageBuilder: MessageBuilderClosure?, mainHeaderBuilder: (()->AnyView)?, headerBuilder: ((Date)->AnyView)?, type: ChatType, showDateHeaders: Bool, avatarSize: CGFloat, showMessageMenuOnLongPress: Bool, useDirectMessageCopyGesture: Bool, tapAvatarClosure: ChatView.TapAvatarClosure?, paginationHandler: PaginationHandler?, messageUseMarkdown: Bool, showMessageTimeView: Bool, messageFont: UIFont, sections: [MessagesSection], ids: [String], mainBackgroundColor: Color, paginationTargetIndexPath: IndexPath? = nil) {
             self.viewModel = viewModel
             self.inputViewModel = inputViewModel
             self._isScrolledToBottom = isScrolledToBottom
@@ -414,6 +428,7 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
             self.showDateHeaders = showDateHeaders
             self.avatarSize = avatarSize
             self.showMessageMenuOnLongPress = showMessageMenuOnLongPress
+            self.useDirectMessageCopyGesture = useDirectMessageCopyGesture
             self.tapAvatarClosure = tapAvatarClosure
             self.paginationHandler = paginationHandler
             self.messageUseMarkdown = messageUseMarkdown
@@ -423,6 +438,65 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
             self.ids = ids
             self.mainBackgroundColor = mainBackgroundColor
             self.paginationTargetIndexPath = paginationTargetIndexPath
+        }
+
+        @objc func handleDirectMessageCopy(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began,
+                  let tableView = gesture.view as? UITableView,
+                  let indexPath = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+                  sections.indices.contains(indexPath.section),
+                  sections[indexPath.section].rows.indices.contains(indexPath.row) else {
+                return
+            }
+
+            let message = sections[indexPath.section].rows[indexPath.row].message
+            UIPasteboard.general.string = message.text
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            showCopyFeedback(in: tableView)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+
+        private func showCopyFeedback(in tableView: UITableView) {
+            guard let window = tableView.window else {
+                return
+            }
+
+            copyFeedbackLabel?.removeFromSuperview()
+
+            let label = UILabel()
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.text = NSLocalizedString("Copied", comment: "Message copy confirmation")
+            label.textAlignment = .center
+            label.textColor = .white
+            label.font = .systemFont(ofSize: 15, weight: .medium)
+            label.backgroundColor = UIColor.black.withAlphaComponent(0.78)
+            label.layer.cornerRadius = 10
+            label.clipsToBounds = true
+            label.alpha = 0
+            window.addSubview(label)
+            copyFeedbackLabel = label
+
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: window.centerXAnchor),
+                label.bottomAnchor.constraint(equalTo: window.safeAreaLayoutGuide.bottomAnchor, constant: -56),
+                label.widthAnchor.constraint(greaterThanOrEqualToConstant: 88),
+                label.heightAnchor.constraint(equalToConstant: 40),
+            ])
+
+            UIView.animate(withDuration: 0.15) {
+                label.alpha = 1
+            }
+            UIView.animate(withDuration: 0.2, delay: 1.0, options: [.curveEaseInOut]) {
+                label.alpha = 0
+            } completion: { _ in
+                label.removeFromSuperview()
+            }
         }
 
         /// call pagination handler when this row is reached
@@ -518,7 +592,7 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
                     .background(MessageMenuPreferenceViewSetter(id: row.id))
                     .rotationEffect(Angle(degrees: (type == .conversation ? 180 : 0)))
                     .onTapGesture { }
-                    .applyIf(showMessageMenuOnLongPress) {
+                    .applyIf(showMessageMenuOnLongPress && !useDirectMessageCopyGesture) {
                         $0.onLongPressGesture {
                             self.viewModel.messageMenuRow = row
                         }

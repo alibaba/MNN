@@ -9,6 +9,7 @@ import SwiftUI
 
 struct LocalModelRowView: View {
     let model: ModelInfo
+    @ObservedObject private var nameStore = ModelNameStore.shared
 
     private var localizedTags: [String] {
         model.localizedTags
@@ -24,7 +25,7 @@ struct LocalModelRowView: View {
                 .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(model.modelName)
+                Text(model.name)
                     .font(.headline)
                     .fontWeight(.semibold)
                     .lineLimit(1)
