@@ -595,7 +595,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
                 MNN_CHECK_CL_SUCCESS(ret, "setArg Conv1x1Buf Kernel Select");
 
-                std::pair<std::vector<uint32_t>, int> retTune;
+                std::pair<std::vector<uint32_t>, uint32_t> retTune;
                 retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "conv_2d_buf");
                 if(min_cost.first > retTune.second) {
                     min_cost.first = retTune.second;
@@ -714,7 +714,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             }
             MNN_CHECK_CL_SUCCESS(ret, "setArg ConvBuf Kernel Select");
 
-            std::pair<std::vector<uint32_t>, int> retTune;
+            std::pair<std::vector<uint32_t>, uint32_t> retTune;
             retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "conv_2d_buf");
 
             if(min_cost.first > retTune.second) {

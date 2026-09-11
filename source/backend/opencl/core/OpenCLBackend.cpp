@@ -786,7 +786,8 @@ void OpenCLBackend::onResizeBegin() {
     mOpenCLRuntime->setCommandQueueProfileEnable();
 #endif
     // update mUseRecordableQueueSize if hint has changed
-    uint32_t hintSize = mCLRuntime->hint().encorderNumForCommit;
+    const int commitNum = mCLRuntime->hint().encorderNumForCommit;
+    uint32_t hintSize = commitNum >= 0 ? commitNum : 10;
     uint32_t maxSize = mOpenCLRuntime->getUseRecordableQueueSize();
     mUseRecordableQueueSize = hintSize < maxSize ? hintSize : maxSize;
     mUseRecordQueue &= mUseRecordableQueueSize > 0 ? true : false;

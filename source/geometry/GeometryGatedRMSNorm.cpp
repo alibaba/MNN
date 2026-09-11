@@ -14,10 +14,11 @@
 //  decomposition only depends on MNN_SUPPORT_TRANSFORMER_FUSE, so models
 //  carrying the op still run on builds where the native kernel is disabled.
 //
-//  Layout note: x is [outside, inside] (head as batch) while z and the output
-//  are [1, outside*inside]. The fused kernel absorbs that repack via its index
-//  arithmetic; the decomposition reproduces it with an explicit reshape of the
-//  normalized result before the multiply.
+//  Layout note: x is [outside, inside] with the head folded into the batch axis
+//  (outside = batch * heads) while z and the output are [batch, heads*inside].
+//  The fused kernel absorbs that repack via its index arithmetic; the
+//  decomposition reproduces it with an explicit reshape of the normalized result
+//  before the multiply.
 //
 
 #include "geometry/GeometryComputer.hpp"
@@ -75,7 +76,7 @@ public:
                            Context& context, CommandBuffer& res) const override {
         // Keep the op whole only when the Metal creator will actually accept it:
         // both sides ask the same predicate, so they cannot drift apart. It
-        // covers batch (decode only), channel alignment, layout and the device's
+        // covers the batch / channel shape contract, layout and the device's
         // simdgroup-reduce support; anything else falls through to the
         // decomposition below, like every other backend.
 #ifdef MNN_GATED_RMS_NORM
@@ -121,9 +122,12 @@ public:
 
         res.command.emplace_back(_makeLnCmd(param, x, normalized.get(), fmt));
         // View normalized [outside, inside] as z's flattened [1, outside*inside]
-        // so the multiply is elementwise on matching shapes.
+        // so the multiply is elementwise on matching shapes. The raster indexes
+        // both sides logically, so the span must be the logical element count:
+        // elementSize() would add NC4HW4 channel padding, and that surplus tail
+        // wraps onto in-range addresses and overwrites real outputs.
         GeometryComputerUtils::makeRawAddressRef(normalizedFlat.get(), normalized.get(), 0,
-                                                normalized->elementSize());
+                                                (int)TensorUtils::getRawSize(normalized.get()));
 
         res.command.emplace_back(_makeSiluCmd(z, gated.get(), fmt));
         res.command.emplace_back(_makeMulCmd(normalizedFlat.get(), gated.get(), out, fmt));

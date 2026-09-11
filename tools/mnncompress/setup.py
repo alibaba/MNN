@@ -19,7 +19,6 @@ setup(
     zip_safe = False,
     platforms = "any",
     install_requires = [
-        "aliyun-log-python-sdk",
         "tensorly==0.4.5"
     ],
 )

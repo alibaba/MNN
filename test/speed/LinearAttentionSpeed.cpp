@@ -104,17 +104,37 @@ public:
             {4, 4, 64, 64, 2048, 4, "prefill2048_H4_d64"},
             {16, 16, 64, 64, 2048, 4, "prefill2048_H16_d64"},
             // Qwen3.5-family linear attention shape (H=16, dk=dv=128)
+            {16, 16, 128, 128, 128, 4, "prefill128_H16_d128"},
+            {16, 16, 128, 128, 256, 4, "prefill256_H16_d128"},
             {16, 16, 128, 128, 512, 4, "prefill512_H16_d128"},
+            {16, 16, 128, 128, 1024, 4, "prefill1024_H16_d128"},
             {16, 16, 128, 128, 2048, 4, "prefill2048_H16_d128"},
+            {16, 16, 128, 128, 4096, 4, "prefill4096_H16_d128"},
         };
 
-        const int B = 1;
-        const bool useL2Norm = true;
+        // A host _Input var is re-uploaded and fp32->fp16 converted on every
+        // onForward -- ~100 MB per call at L=4096 -- which lands inside the
+        // timed loop and swamps a kernel A/B.  MNN_LA_HOSTIN=1 restores it.
+        const bool hostIn = nullptr != getenv("MNN_LA_HOSTIN");
+        // Batch multiplies the threadgroup count without changing per-threadgroup
+        // work, which is how the chunked prefill kernels are probed for
+        // occupancy limits.  MNN_LA_SEQ pins the sweep to one length so the
+        // shape under test does not run on a device heated by the full sweep.
+        const int B = getenv("MNN_LA_BATCH") ? atoi(getenv("MNN_LA_BATCH")) : 1;
+        const int seqFilter = getenv("MNN_LA_SEQ") ? atoi(getenv("MNN_LA_SEQ")) : 0;
+        const int rounds = getenv("MNN_LA_ROUNDS") ? atoi(getenv("MNN_LA_ROUNDS")) : 1;
+        // Real Qwen3.5 sets use_qk_l2norm, so 1 is the shape under test.  0 is an
+        // ablation arm: the decode kernel normalises q/k inline with two extra
+        // simd_sum reductions per (head, d_v), and this isolates their cost.
+        const bool useL2Norm = getenv("MNN_LA_L2NORM") ? atoi(getenv("MNN_LA_L2NORM")) != 0 : true;
         const int numThread = 4;
         const int warmup = 5;
         const int repeat = 20;
 
         for (auto& tc : cases) {
+            if (seqFilter != 0 && tc.seqLen != seqFilter) {
+                continue;
+            }
             int key_dim = tc.numKHeads * tc.headKDim;
             int val_dim = tc.numVHeads * tc.headVDim;
             int D = 2 * key_dim + val_dim;
@@ -135,24 +155,40 @@ public:
             fillBeta(betaVar->writeMap<float>(), B * tc.seqLen * tc.numVHeads);
             fillRandom(convWVar->writeMap<float>(), D * 1 * tc.K_conv, 0.05f);
 
-            // Warmup
-            for (int t = 0; t < warmup; ++t) {
-                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
-                if (outputs.empty()) {
-                    MNN_PRINT("Error: empty output for %s\n", tc.name);
-                    return false;
+            auto qkvIn  = hostIn ? qkvVar : qkvVar * _Scalar<float>(1.0f);
+            auto gateIn = hostIn ? gateVar : gateVar * _Scalar<float>(1.0f);
+            auto betaIn = hostIn ? betaVar : betaVar * _Scalar<float>(1.0f);
+
+            float best = 0.0f;
+            for (int r = 0; r < rounds; ++r) {
+                for (int t = 0; t < warmup; ++t) {
+                    auto outputs = module->onForward({qkvIn, gateIn, betaIn, convWVar});
+                    if (outputs.empty()) {
+                        MNN_PRINT("Error: empty output for %s\n", tc.name);
+                        return false;
+                    }
+                    outputs[0]->readMap<float>();
+                    outputs[0]->unMap();
+                }
+
+                // onForward only enqueues on GPU backends.  Time the enqueues and
+                // sync once at the end: mapping the [B, L, H, dv] output every
+                // iteration costs more than the kernels themselves.
+                MNN::Timer _t;
+                VARP last;
+                for (int t = 0; t < repeat; ++t) {
+                    last = module->onForward({qkvIn, gateIn, betaIn, convWVar})[0];
+                }
+                last->readMap<float>();
+                float avgMs = _t.durationInUs() / 1000.0f / (float)repeat;
+                last->unMap();
+                if (r == 0 || avgMs < best) {
+                    best = avgMs;
                 }
             }
 
-            // Benchmark
-            MNN::Timer _t;
-            for (int t = 0; t < repeat; ++t) {
-                module->onForward({qkvVar, gateVar, betaVar, convWVar});
-            }
-            float avgMs = _t.durationInUs() / 1000.0f / (float)repeat;
-
             MNN_PRINT("[%s] B=%d H=%d dk=%d dv=%d L=%d, Avg: %.3f ms\n",
-                      tc.name, B, tc.numVHeads, tc.headKDim, tc.headVDim, tc.seqLen, avgMs);
+                      tc.name, B, tc.numVHeads, tc.headKDim, tc.headVDim, tc.seqLen, best);
         }
 
         return true;

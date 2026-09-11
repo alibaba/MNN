@@ -180,6 +180,9 @@ struct TestInstance {
     std::vector<int64_t>     nGenerates;
     std::vector<int64_t>     prefillUs;
     std::vector<int64_t>     decodeUs;
+    // Wall-clock us for the decode phase (total response wall minus prefill),
+    // so it includes sampling and other host work that decode_us excludes.
+    std::vector<int64_t>     decodeWallUs;
     std::vector<int64_t>     samplesUs;
     std::vector<double>      loadingS;
     int                      backend;
@@ -1274,12 +1277,15 @@ int main(int argc, char ** argv) {
                 if (isOpenCL) {
                     llm->switchMode(Llm::Prefill);
                 }
+                Timer wallCost;
                 llm->response(tokens, nullptr, nullptr, decodeTokens);
+                int64_t wallUs = wallCost.durationInUs();
                 auto prefillTime = context->prefill_us;
                 auto decodeTime = context->decode_us;
                 if (i > 0) { // Exclude the first performance value.
                     t.prefillUs.push_back(prefillTime);
                     t.decodeUs.push_back(decodeTime);
+                    t.decodeWallUs.push_back(std::max<int64_t>(wallUs - prefillTime, 1));
                     if (llm->stoped()) {
                         t.nGenerates.push_back(context->gen_seq_len - 1);
                     } else {
@@ -1292,6 +1298,11 @@ int main(int argc, char ** argv) {
                 printHeader = false;
             }
             printer_->printPerformance(t);
+            if (!t.decodeWallUs.empty()) {
+                auto wallSpeed = t.getTokensPerSecond(t.nGenerates, t.decodeWallUs);
+                fprintf(outfile, "decode wall speed (incl. sampling): %.2f ± %.2f tok/s\n", t.getAvgUs(wallSpeed),
+                        t.getStdevUs(wallSpeed));
+            }
             // Cool
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }

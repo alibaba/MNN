@@ -377,12 +377,14 @@ public:
 
     virtual bool run(int precision) {
         // batch == 1 is the decode shape: the fused 2-in/2-out op on a single token,
-        // which takes the flat fast path rather than the packed kernel.
+        // which takes the flat fast path rather than the packed kernel. The last case
+        // has batch >= 256, which is where Metal switches to the row-parallel prefill
+        // kernel; the small batches never reach it.
         return runOne(1, 8, false) && runOne(1, 5, false) && runOne(1, 1024, false) && runOne(1, 12, true) &&
                runOne(1, 1024, true) && runOne(1, 1020, true) &&
                runOne(2, 8, false) && runOne(3, 5, false) && runOne(13, 1024, false) && runOne(5, 12, false) &&
                runOne(2, 8, true) && runOne(3, 5, true) && runOne(13, 1024, true) && runOne(5, 12, true) &&
-               runOne(7, 1020, true);
+               runOne(7, 1020, true) && runOne(300, 512, true);
     }
 };
 

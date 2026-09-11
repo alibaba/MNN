@@ -56,6 +56,7 @@ LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor*>& inputs,
                                                              CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
                                                              ALIGN_UP4(size) * bufferUnitSize));
             }
+            OPENCL_CHECK_PTR_CTOR(mResource->mGammaBuffer);
             if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1) {
                 auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
                     *(mResource->mGammaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr,
@@ -75,6 +76,8 @@ LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor*>& inputs,
                     }
                 } else {
                     MNN_ERROR("Map error GammaPtrCL == nullptr \n");
+                    mValid = false;
+                    return;
                 }
                 mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mResource->mGammaBuffer.get(),
                                                                                          GammaPtrCL);
@@ -90,6 +93,7 @@ LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor*>& inputs,
                                                             CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
                                                             ALIGN_UP4(size) * bufferUnitSize));
             }
+            OPENCL_CHECK_PTR_CTOR(mResource->mBetaBuffer);
             if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1) {
                 auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
                     *(mResource->mBetaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr,
@@ -109,6 +113,8 @@ LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor*>& inputs,
                     }
                 } else {
                     MNN_ERROR("Map error BetaPtrCL == nullptr \n");
+                    mValid = false;
+                    return;
                 }
                 mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mResource->mBetaBuffer.get(),
                                                                                          BetaPtrCL);

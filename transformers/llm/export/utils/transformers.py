@@ -758,7 +758,9 @@ class LinearAttention(torch.nn.Module):
         )
         # The four in_proj_* stay separate Linears in the exported graph;
         # MNNConvert's FuseTransformerC4 groups them into one FusedLinear at
-        # convert time (--transformerFuseQkvProj).
+        # convert time. This fusion is unconditional (not gated by
+        # --transformerFuseQkvProj) because the LinearAttention runtime op only
+        # runs correctly on C4-fused projections, unlike regular Attention.
         self.conv_state = None
         self.rnn_state = None
 

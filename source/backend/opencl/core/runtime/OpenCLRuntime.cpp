@@ -299,7 +299,7 @@ OpenCLRuntime::OpenCLRuntime(int platformSize, int platformId, int deviceId, voi
                     uint32_t MaxRecordableQueueSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE>();
                     cl_int err;
                     if(MaxRecordableQueueSize > 0){
-                        mUseRecordableQueueSize = hint.encorderNumForCommit;
+                        mUseRecordableQueueSize = hint.encorderNumForCommit >= 0 ? hint.encorderNumForCommit : 10;
                         mUseRecordableQueueSize = MaxRecordableQueueSize < mUseRecordableQueueSize ? MaxRecordableQueueSize : mUseRecordableQueueSize;
                         mRecordableQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, CL_QUEUE_RECORDABLE_QCOM, &err);
                         if(err != CL_SUCCESS){
@@ -749,8 +749,19 @@ double OpenCLRuntime::getCostTime(const cl::Event *event){
     //cl_int res = mCommandQueuePtr->finish();
     cl_int res = event->wait();
     MNN_CHECK_CL_SUCCESS(res, "clEvent");
-    mStartNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_START>();
-    mStopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>();
+    if (res != CL_SUCCESS) {
+        return -1.0;
+    }
+    mStartNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_START>(&res);
+    MNN_CHECK_CL_SUCCESS(res, "clGetEventProfilingInfo");
+    if (res != CL_SUCCESS) {
+        return -1.0;
+    }
+    mStopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>(&res);
+    MNN_CHECK_CL_SUCCESS(res, "clGetEventProfilingInfo");
+    if (res != CL_SUCCESS) {
+        return -1.0;
+    }
     mKernelTime += (unsigned int)((mStopNanos - mStartNanos) / 1000.0);
     return (mStopNanos - mStartNanos) / 1000.0;
 }

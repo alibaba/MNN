@@ -66,3 +66,46 @@ void MNNPackC4ForMatMul_A(float *destOrigin, float const **sourceGroup, const in
         }
     }
 }
+
+#include <riscv_vector.h>
+#include <algorithm>
+#include <stdint.h>
+#include <limits>
+#include <stddef.h>
+#include <string.h>
+// C4 is the tensor ABI, independent of the hardware vector register width.
+static constexpr int _rvvChannelPack() {
+    return 4;
+}
+
+void MNNPackC4ForMatMul_A_RVV(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
+    const int pack = _rvvChannelPack();
+    const int number = info[0];
+    const int eReal = info[1];
+    const int eDest = info[2];
+    const int offset = info[3];
+    const ptrdiff_t sourceStride = static_cast<ptrdiff_t>(pack * offset * sizeof(float));
+
+    for (int n = 0; n < number; ++n) {
+        const int e = el[4 * n + 0];
+        const int l = el[4 * n + 1];
+        const int eOffset = el[4 * n + 2];
+        const int lOffset = el[4 * n + 3];
+        auto destBase = destOrigin + lOffset * eDest + eOffset;
+        auto source = sourceGroup[n];
+
+        for (int x = 0; x < l; ++x) {
+            const int xC = x / pack;
+            const int xR = x % pack;
+            const float* sourceBase = source + xC * eReal * pack + xR;
+            float* destColumn = destBase + x * eDest;
+            int y = 0;
+            while (y < e) {
+                size_t vl = __riscv_vsetvl_e32m8(e - y);
+                auto value = __riscv_vlse32_v_f32m8(sourceBase + y * pack * offset, sourceStride, vl);
+                __riscv_vse32_v_f32m8(destColumn + y, value, vl);
+                y += static_cast<int>(vl);
+            }
+        }
+    }
+}

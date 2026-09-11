@@ -139,11 +139,13 @@ private:
     MropeInfo mPositionIds;
     std::vector<VARP> mTalkerEmbeds;
     std::shared_ptr<Module> mPreDit, mDit, mBigvgan;
-    std::shared_ptr<Module> mQwen3PromptEmbedder, mQwen3CodePredictor, mQwen3CodecEmbedder, mQwen3SpeechDecoder;
+    std::shared_ptr<Module> mQwen3PromptEmbedder, mQwen3AudioCodePredictor, mQwen3CodecEmbedder, mQwen3SpeechDecoder;
     std::shared_ptr<Module> mQwen3SpeakerEncoder;
-    std::shared_ptr<DiskEmbedding> mQwen3TextEmbedding, mQwen3CodePredictorEmbedding;
+    std::shared_ptr<DiskEmbedding> mQwen3TextEmbedding, mQwen3AudioCodePredictorEmbedding;
     Llm* mThinker;
     std::shared_ptr<Executor::RuntimeManager> mProcessorRuntimeManager, mQwen3RuntimeManager;
+    std::shared_ptr<Executor::RuntimeManager> mQwen3CpRuntimeManager;
+    std::shared_ptr<KVMeta> mQwen3CpMeta;
     // stream generate
     std::vector<float> mInitialNoise, mWaveformBuffer;
     VARP mMelBuffer = nullptr;

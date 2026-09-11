@@ -4,6 +4,9 @@
 #include <numeric>
 #include <unordered_map>
 #include <limits>
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#endif
 
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/Executor.hpp>
@@ -48,6 +51,67 @@ static std::unordered_map<int, int> buildIndexMap(const SamplerState& state) {
         }
     }
     return map;
+}
+
+// Exact top-k by value (descending; lower index wins ties) over host logits.
+// Threshold-scan: the fast path only compares each 16-wide block's max against
+// the running k-th value; sorted insertion happens only for the rare element
+// that beats it. The previous Express::_TopKV2 form ran the generic CPU TopKV2
+// op at ~350-500us/token (vocab=151936, k=40, M4 Pro) even though the logits
+// are already host-resident by sample time; this scan costs ~20-30us.
+static void topKSubset(const float* x, int n, int k, std::vector<float>& vals, std::vector<int>& idxs) {
+    vals.resize(k);
+    idxs.resize(k);
+    for (int i = 0; i < k; ++i) {
+        float v = x[i];
+        int j = i;
+        while (j > 0 && vals[j - 1] < v) {
+            vals[j] = vals[j - 1];
+            idxs[j] = idxs[j - 1];
+            --j;
+        }
+        vals[j] = v;
+        idxs[j] = i;
+    }
+    float threshold = vals[k - 1];
+    int i = k;
+#if defined(__aarch64__)
+    for (; i + 16 <= n; i += 16) {
+        float32x4_t m0 = vmaxq_f32(vld1q_f32(x + i), vld1q_f32(x + i + 4));
+        float32x4_t m1 = vmaxq_f32(vld1q_f32(x + i + 8), vld1q_f32(x + i + 12));
+        if (vmaxvq_f32(vmaxq_f32(m0, m1)) <= threshold) {
+            continue;
+        }
+        for (int u = 0; u < 16; ++u) {
+            float v = x[i + u];
+            if (v > threshold) {
+                int j = k - 1;
+                while (j > 0 && vals[j - 1] < v) {
+                    vals[j] = vals[j - 1];
+                    idxs[j] = idxs[j - 1];
+                    --j;
+                }
+                vals[j] = v;
+                idxs[j] = i + u;
+                threshold = vals[k - 1];
+            }
+        }
+    }
+#endif
+    for (; i < n; ++i) {
+        float v = x[i];
+        if (v > threshold) {
+            int j = k - 1;
+            while (j > 0 && vals[j - 1] < v) {
+                vals[j] = vals[j - 1];
+                idxs[j] = idxs[j - 1];
+                --j;
+            }
+            vals[j] = v;
+            idxs[j] = i;
+            threshold = vals[k - 1];
+        }
+    }
 }
 
 // SamplerConfig methods
@@ -238,18 +302,18 @@ void Sampler::buildPipeline() {
     // final select step
     mPipeline.push_back([this](SamplerState& s) { stepSelect(s); });
 
-    // The device top-k prefilter is exact only when topK is the first
+    // The top-k prefilter is exact only when topK is the first
     // effective filter step: logit_bias / banned_tokens are applied before
     // topK on CPU, and a leading penalty step must be a no-op.
     if (mConfig.type == "mixed" && mConfig.topK > 0 && mConfig.logit_bias.empty() &&
         mConfig.banned_tokens.empty()) {
         const auto& ms = mConfig.mixedSamplers;
         if (!ms.empty() && ms[0] == "topK") {
-            mGpuTopKPrefilter = true;
+            mTopKPrefilter = true;
         } else if (ms.size() > 1 && ms[0] == "penalty" && ms[1] == "topK" &&
                    mConfig.repetition_penalty <= 1.0f && mConfig.presence_penalty <= 0.0f &&
                    mConfig.frequency_penalty <= 0.0f && mConfig.ngram_factor <= 1.0f) {
-            mGpuTopKPrefilter = true;
+            mTopKPrefilter = true;
         }
     }
 }
@@ -258,25 +322,59 @@ int Sampler::sample(Express::VARP logits) {
     Timer _t;
     int lastDim = logits->getInfo()->dim.back();
     if (mConfig.type == "greedy") {
-        // Device-side argmax: only a 4-byte index crosses the device boundary
-        // instead of the full fp32 logits (~600 KB for Qwen3 vocab).
-        // MetalArgMax keeps the first-max tie-break identical to the CPU loop.
-        auto tokenIdx = Express::_ArgMax(logits, -1);
+        // Direct two-pass first-max on the host-mapped logits. The previous
+        // Express::_ArgMax form never actually ran on the GPU: the Llm executor
+        // is CPU, so the one-off expr cost ~330us/token in expr-session
+        // machinery on M4 Pro while this loop costs ~12us (full token period
+        // 10265us -> 9746us, +5.3%; note the sampling interval is excluded from
+        // the reported `decode speed`, so only wall clock shows it).
+        // Pass 1 is a pure max reduction; pass 2 takes the first index equal to
+        // it -- identical tie-break to the classic scalar first-max loop.
+        auto ptr = logits->readMap<float>();
+        float bestV = ptr[0];
+#if defined(__aarch64__)
+        {
+            float32x4_t m0 = vdupq_n_f32(ptr[0]), m1 = m0, m2 = m0, m3 = m0;
+            int i = 0;
+            for (; i + 16 <= lastDim; i += 16) {
+                m0 = vmaxq_f32(m0, vld1q_f32(ptr + i));
+                m1 = vmaxq_f32(m1, vld1q_f32(ptr + i + 4));
+                m2 = vmaxq_f32(m2, vld1q_f32(ptr + i + 8));
+                m3 = vmaxq_f32(m3, vld1q_f32(ptr + i + 12));
+            }
+            bestV = vmaxvq_f32(vmaxq_f32(vmaxq_f32(m0, m1), vmaxq_f32(m2, m3)));
+            for (; i < lastDim; ++i) {
+                bestV = std::max(bestV, ptr[i]);
+            }
+        }
+#else
+        for (int i = 1; i < lastDim; ++i) {
+            bestV = std::max(bestV, ptr[i]);
+        }
+#endif
+        int best = 0;
+        for (int i = 0; i < lastDim; ++i) {
+            if (ptr[i] == bestV) {
+                best = i;
+                break;
+            }
+        }
         mContext->sample_us += _t.durationInUs();
-        return tokenIdx->readMap<int>()[0];
+        return best;
     }
     SamplerState state;
-    if (mGpuTopKPrefilter && mConfig.topK < lastDim) {
-        // Device-side top-k prefilter: TopKV2 on the device logits, then run
-        // the remaining pipeline steps on the k-sized subset. Equivalent to
-        // the CPU path because topK is the first effective filter step.
-        auto res = Express::_TopKV2(logits, Express::_Scalar<int>(mConfig.topK));
-        auto valuePtr = res[0]->readMap<float>();
-        auto indexPtr = res[1]->readMap<int>();
-        state.logits.assign(valuePtr, valuePtr + mConfig.topK);
-        state.indices.assign(indexPtr, indexPtr + mConfig.topK);
-        state.is_subset = true;
-        state.vocab_size = lastDim;
+    if (mTopKPrefilter && mConfig.topK < lastDim) {
+        // Top-k prefilter: run the remaining pipeline steps on the k-sized
+        // subset. Equivalent to the CPU path because topK is the first
+        // effective filter step.
+        auto ptr = logits->readMap<float>();
+        if (nullptr != ptr) {
+            topKSubset(ptr, lastDim, mConfig.topK, state.logits, state.indices);
+            state.is_subset = true;
+            state.vocab_size = lastDim;
+        } else {
+            state = createState(logits);
+        }
     } else {
         state = createState(logits);
     }

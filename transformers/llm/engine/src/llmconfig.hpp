@@ -225,21 +225,23 @@ public:
 
     std::string talker_type() const { return config_.value("talker_type", ""); }
 
-    std::string code_predictor_model() const {
+    std::string audio_code_predictor_model() const {
         return base_dir_ + config_.value("code_predictor_model", "code_predictor.mnn");
     }
 
-    std::string code_predictor_weight() const {
+    std::string audio_code_predictor_weight() const {
         return base_dir_ + config_.value("code_predictor_weight", "code_predictor.mnn.weight");
     }
 
-    std::string code_predictor_embedding_file() const {
+    std::string audio_code_predictor_embedding_file() const {
         return base_dir_ + config_.value("code_predictor_embedding_file", "code_predictor_embeddings_bf16.bin");
     }
 
-    int code_predictor_vocab_size() const { return config_.value("code_predictor_vocab_size", 2048); }
+    int audio_code_predictor_vocab_size() const { return config_.value("code_predictor_vocab_size", 2048); }
 
-    int code_predictor_groups() const { return config_.value("code_predictor_groups", 16); }
+    int audio_code_predictor_groups() const { return config_.value("code_predictor_groups", 16); }
+
+    bool audio_code_predictor_incremental() const { return config_.value("code_predictor_incremental", false); }
 
     std::string speech_decoder_model() const {
         return base_dir_ + config_.value("speech_decoder_model", "speech_decoder.mnn");

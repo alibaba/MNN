@@ -10,6 +10,7 @@
 #import "backend/metal/MNNMetalContext.h"
 #import "backend/metal/MetalBackend.hpp"
 #import "LayerNormSimdGroupShader.hpp"
+#import "backend/metal/MetalEnv.hpp"
 #import "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
@@ -98,6 +99,20 @@ int MetalLayerNorm::rmsSimdGroups(int legacy) const {
     return 8;
 }
 
+int MetalLayerNorm::rmsTokensPerGroup() const {
+    // One threadgroup per token wastes a threadgroup slot on 32 threads. Packing
+    // several tokens into one threadgroup keeps the per-simdgroup work and the
+    // reduction identical while cutting the threadgroup count by the same
+    // factor. Only pays once there are far more tokens than the pack width, so
+    // decode (mOutside == 1) stays on the one-threadgroup-per-token form.
+    constexpr int kMinOutside = 256;
+    if (mOutside < kMinOutside) {
+        return 1;
+    }
+    const int env = MetalEnv::get().lnRowParallel;
+    return (env >= 1 && env <= 32) ? env : 1;
+}
+
 ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mIsFused = false;
     auto backend = static_cast<MetalBackend *>(this->backend());
@@ -160,10 +175,18 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
                 };
                 std::vector<std::string> baseKeys = {"layernorm_sg_reduce", ftype};
                 if(mResource->mRMSNorm) {
-                    const int simds = rmsSimdGroups(2);
+                    const int tokensPerTg = rmsTokensPerGroup();
+                    const bool rowParallel = tokensPerTg > 1;
+                    const bool tokenLane = MetalEnv::get().lnTokenLane && mOutside >= 32;
+                    const int simds = rowParallel ? tokensPerTg : rmsSimdGroups(2);
+                    const int sumReread = MetalEnv::get().lnSumReread ? 1 : 0;
+                    const char* fname = tokenLane    ? "binary_layernorm_c4_rms_tok_sg"
+                                      : rowParallel ? "binary_layernorm_c4_rms_row_sg"
+                                                    : "binary_layernorm_c4_rms_sg";
                     auto keys = baseKeys;
-                    keys.emplace_back("binary_layernorm_c4_rms_sg");
+                    keys.emplace_back(fname);
                     keys.emplace_back(std::to_string(simds));
+                    keys.emplace_back(std::to_string(sumReread));
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
                         auto rmsOption = [[MTLCompileOptions alloc] init];
@@ -171,12 +194,19 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
                             @"ftype" : @(ftype.c_str()),
                             @"ftype4" : @(ftype4.c_str()),
                             @"LN_SIMDS" : @(simds),
+                            @"LN_SUM_REREAD" : @(sumReread),
                         };
-                        pipeline = backend->makeComputePipelineWithSourceOption(gLayerNormSgReduce, "binary_layernorm_c4_rms_sg", rmsOption);
+                        pipeline = backend->makeComputePipelineWithSourceOption(gLayerNormSgReduce, fname, rmsOption);
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(simds * 32, 1, 1));
+                    if (tokenLane) {
+                        mThreads = std::make_pair(MTLSizeMake(1, UP_DIV(mOutside, simds * 32), 1), MTLSizeMake(simds * 32, 1, 1));
+                    } else if (rowParallel) {
+                        mThreads = std::make_pair(MTLSizeMake(1, UP_DIV(mOutside, simds), 1), MTLSizeMake(simds * 32, 1, 1));
+                    } else {
+                        mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(simds * 32, 1, 1));
+                    }
                 } else {
                     auto keys = baseKeys;
                     keys.emplace_back("binary_layernorm_c4_sg");
@@ -212,9 +242,12 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
             };
             std::vector<std::string> baseKeys = {"layernorm_sg_reduce", ftype};
             if(mResource->mRMSNorm) {
-                const int simds = rmsSimdGroups(1);
+                const int tokensPerTg = rmsTokensPerGroup();
+                const bool rowParallel = tokensPerTg > 1;
+                const int simds = rowParallel ? tokensPerTg : rmsSimdGroups(1);
+                const char* fname = rowParallel ? "layernorm_c4_rms_row_sg" : "layernorm_c4_rms_sg";
                 auto keys = baseKeys;
-                keys.emplace_back("layernorm_c4_rms_sg");
+                keys.emplace_back(fname);
                 keys.emplace_back(std::to_string(simds));
                 auto pipeline = rt->findPipeline(keys);
                 if (nil == pipeline) {
@@ -224,11 +257,15 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
                         @"ftype4" : @(ftype4.c_str()),
                         @"LN_SIMDS" : @(simds),
                     };
-                    pipeline = backend->makeComputePipelineWithSourceOption(gLayerNormSgReduce, "layernorm_c4_rms_sg", rmsOption);
+                    pipeline = backend->makeComputePipelineWithSourceOption(gLayerNormSgReduce, fname, rmsOption);
                     rt->insertPipeline(keys, pipeline);
                 }
                 mPipeline = pipeline;
-                mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(simds * 32, 1, 1));
+                if (rowParallel) {
+                    mThreads = std::make_pair(MTLSizeMake(1, UP_DIV(mOutside, simds), 1), MTLSizeMake(simds * 32, 1, 1));
+                } else {
+                    mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(simds * 32, 1, 1));
+                }
             } else {
                 auto keys = baseKeys;
                 keys.emplace_back("layernorm_c4_sg");

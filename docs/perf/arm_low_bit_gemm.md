@@ -179,10 +179,10 @@ struct MatmulRelatedFunctions / CoreInt8Functions:
 
 | 位宽 | i8mm (smmla) | 备注 |
 |------|--------------|------|
-| W8   | 109.4        | 超过 llama.cpp Q8_0 (109) |
-| W4   | 100.7        | +29% vs llama.cpp Q4_0 (78) |
-| W3   | 50.2         | 与 llama.cpp Q3_K 持平,unsigned-domain + 4-IDX TILE_1 后从 41.3 提升 |
-| W2   | 64.5         | +58% vs llama.cpp Q2_K (41) |
+| W8   | 109.4        | 超过对手基准同位宽档 (109) |
+| W4   | 100.7        | +29% vs 对手基准同位宽档 (78) |
+| W3   | 50.2         | 与对手基准同位宽档持平,unsigned-domain + 4-IDX TILE_1 后从 41.3 提升 |
+| W2   | 64.5         | +58% vs 对手基准同位宽档 (41) |
 
 W2/W3 sdot path 的 prefill 大尺寸场景因 TILE_4/8/12 fall-through 偏慢,decode 已经达预期。
 

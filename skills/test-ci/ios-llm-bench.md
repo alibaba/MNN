@@ -103,4 +103,4 @@ xcrun devicectl device info processes --device <id>
 | Qwen3.5-2B | 1942.8 | 95.8 |
 | Qwen3-4B | 1231.1 | 47.9 |
 
-对照同分支 M4 Pro Mac（b64 同口径）：iPad M5 prefill 全面更高（+14%~+74%，tensor-API/NAX 生效），decode 全面更低（−30%~−35%，内存带宽约减半）。与 M5 Mac 参考值（0.6B prefill ~7488 / decode ~227）同量级。
+对照同分支 M4 Pro Mac（b64 同口径）：iPad M5 prefill 全面更高（+14%~+74%，tensor-API/TC 生效），decode 全面更低（−30%~−35%，内存带宽约减半）。与 M5 Mac 参考值（0.6B prefill ~7488 / decode ~227）同量级。

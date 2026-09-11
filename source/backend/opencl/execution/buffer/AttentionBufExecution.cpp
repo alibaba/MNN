@@ -1939,7 +1939,7 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
                 ret |= kernel[knl_idx]->get().setArg(index++, kvNumHead);
                 ret |= kernel[knl_idx]->get().setArg(index++, headDim);
                 MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qkv_decode");
-                std::pair<std::vector<uint32_t>, int> retTune;
+                std::pair<std::vector<uint32_t>, uint32_t> retTune;
                 retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize,
                                            mOpenCLBackend->getOpenCLRuntime(), kernelName[i] + unroll[j],
                                            kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "attention_buf");

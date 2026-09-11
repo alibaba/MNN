@@ -1,6 +1,6 @@
 # GEMV 带宽基准测试 (GemvBW)
 
-`test/speed/GemvBWTest.cpp` 是一个面向 LLM **decode 阶段** (batch=1) 的 GEMV 带宽 microbenchmark，对标 llama.cpp 的 `gemv_roofline.cpp`。固定一个 (M, K) 形状，扫不同 bit 宽 (w8 / w4 / w3 / w2)，输出每种量化下的有效带宽 (effective GB/s)、相对峰值 memcpy 带宽的饱和度 (%peak) 及算术强度 (AI)。
+`test/speed/GemvBWTest.cpp` 是一个面向 LLM **decode 阶段** (batch=1) 的 GEMV 带宽 microbenchmark，对标外部参照实现的 GEMV roofline 基准。固定一个 (M, K) 形状，扫不同 bit 宽 (w8 / w4 / w3 / w2)，输出每种量化下的有效带宽 (effective GB/s)、相对峰值 memcpy 带宽的饱和度 (%peak) 及算术强度 (AI)。
 
 ## 功能特性
 
@@ -8,7 +8,7 @@
 - **峰值带宽 roofline**：通过多线程 memcpy 一块 256 MiB 缓冲区，得到当前线程数下的峰值流式带宽，作为 %peak 的基准。
 - **冷缓存测量**：每次迭代前刷一块 64 MiB buffer 强制把权重从 DRAM 重新拉回，避免 L2/L3 命中导致的虚高读数。
 - **best-of-3 × N iters**：3 次外层重复，每次内层平均 200 次 cold-cache 迭代，取最优值。
-- **W bytes 口径与 llama.cpp 对齐**：仅计算权重 + per-block (alpha + zp, fp16) 元数据；不算输入向量与输出，便于跨实现对比 GEMV 带宽饱和度。
+- **W bytes 口径与对手基准对齐**：仅计算权重 + per-block (alpha + zp, fp16) 元数据；不算输入向量与输出，便于跨实现对比 GEMV 带宽饱和度。
 
 ## 编译
 

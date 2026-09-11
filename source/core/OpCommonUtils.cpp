@@ -1015,13 +1015,19 @@ bool OpCommonUtils::gatedRMSNormFusable(const Op* op, const std::vector<Tensor*>
     if (x->dimensions() < 2 || z->dimensions() < 2) {
         return false;
     }
-    // The kernel's z / out index arithmetic assumes the decode case. Prefill
-    // carries batch == seq_len and must decompose.
-    if (z->length(0) != 1) {
+    const int inside = x->length(1);
+    const int zBatch = z->length(0);
+    if (x->length(0) <= 0 || inside <= 0 || (inside % 4) != 0) {
         return false;
     }
-    const int inside = x->length(1);
-    if (x->length(0) <= 0 || inside <= 0 || (inside % 4) != 0) {
+    // The kernel folds the head into x's batch axis (outside = zBatch * heads)
+    // and reads z / out at (head * inside/4 + c) * zBatch + b, so it needs
+    // exactly the shape contract the size computer enforces. Prefill carries
+    // zBatch == seq_len, decode zBatch == 1.
+    if (zBatch <= 0 || (x->length(0) % zBatch) != 0) {
+        return false;
+    }
+    if (z->length(1) != (x->length(0) / zBatch) * inside) {
         return false;
     }
     // Both copies in the creator are sized by inside.

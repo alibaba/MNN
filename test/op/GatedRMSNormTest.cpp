@@ -5,11 +5,12 @@
 //  Tests for OpType_GatedRMSNorm: out = RMSNorm(x) * silu(z).
 //
 //  The op absorbs the C4 repacks that used to bracket the chain, so its inputs
-//  carry different layouts on purpose: x is [outside, inside] with the head as
-//  the batch axis, while z and the output are [1, outside*inside]. A layout
-//  mix-up shows up as a value mismatch here.
+//  carry different layouts on purpose: x is [batch*heads, inside] with the head
+//  folded into the batch axis, while z and the output are [batch, heads*inside].
+//  A layout mix-up shows up as a value mismatch here.
 //
-//  CPU exercises the geometry decomposition; Metal exercises the fused kernel.
+//  CPU exercises the geometry decomposition; Metal exercises the fused kernel
+//  whenever the shape contract holds, for prefill as well as decode.
 //
 
 #if defined(MNN_SUPPORT_TRANSFORMER_FUSE) && defined(MNN_GATED_RMS_NORM)
@@ -37,8 +38,8 @@ static std::vector<float> packC4Gn(const std::vector<float>& input, int seqLen, 
 
 class GatedRMSNormTest : public MNNTestCase {
     // x: [batch*heads, inside] with head as batch axis; z/out: [batch, heads*inside].
-    // batch == 1 is the decode case (fused Metal kernel); batch > 1 is prefill,
-    // which decomposes on every backend.
+    // batch == 1 is decode, batch > 1 prefill; Metal fuses both when inside is
+    // 4-aligned, and decomposes otherwise.
     static bool runCase(int batch, int heads, int inside) {
         const int outside = batch * heads;
         const int total   = outside * inside;
@@ -113,12 +114,14 @@ class GatedRMSNormTest : public MNNTestCase {
 public:
     virtual ~GatedRMSNormTest() = default;
     virtual bool run(int precision) {
-        // decode: batch 1, fused Metal kernel; prefill: batch 3, decomposed.
+        // batch 1 is decode and batch 3 / 5 prefill; both fuse on Metal.
         // inside=6 is not 4-aligned, so the fused kernel cannot take it and
-        // Metal must decompose as well; the batch>1 variant also checks that
-        // the decomposition's flat view of the normalized result does not pick
-        // up NC4HW4 channel padding.
-        return runCase(1, 4, 8) && runCase(3, 4, 8) && runCase(1, 4, 6) && runCase(2, 3, 6);
+        // Metal must decompose — that variant also checks that the
+        // decomposition's flat view of the normalized result does not pick up
+        // NC4HW4 channel padding. inside=128 pushes the fused reduction past
+        // one iteration per lane.
+        return runCase(1, 4, 8) && runCase(3, 4, 8) && runCase(1, 4, 6) && runCase(2, 3, 6) &&
+               runCase(5, 3, 128) && runCase(1, 3, 128);
     }
 };
 MNNTestSuiteRegister(GatedRMSNormTest, "op/gated_rms_norm");

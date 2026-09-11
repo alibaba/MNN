@@ -99,7 +99,9 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
                 lws_prefer[2] = 0;
                 heuristicUsed = false;
             }
-            min_cost = 0;
+            if (heuristicUsed) {
+                min_cost = 0;
+            }
         } else if (tuneLevel == None) {
             // None with no heuristic match: let driver decide
             heuristicUsed = true;
@@ -134,14 +136,14 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
                         MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
                         if (res != CL_SUCCESS) {
                             MNN_PRINT("lws tune res %s\n", kernelName.c_str());
-                        }
-                        
-                        int cost_time = (int)runtime->getCostTime(&event);
-                        if(cost_time < min_cost) {
-                            min_cost = cost_time;
-                            lws_prefer[0] = lws[0];
-                            lws_prefer[1] = lws[1];
-                            lws_prefer[2] = lws[2];
+                        } else {
+                            auto cost_time = runtime->getCostTime(&event);
+                            if (cost_time >= 0.0 && cost_time < min_cost) {
+                                min_cost = static_cast<uint32_t>(cost_time);
+                                lws_prefer[0] = lws[0];
+                                lws_prefer[1] = lws[1];
+                                lws_prefer[2] = lws[2];
+                            }
                         }
                     }
                     lws[0]<<=1;
@@ -170,14 +172,14 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
                         MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
                         if (res != CL_SUCCESS) {
                             MNN_PRINT("lws tune res %s\n", kernelName.c_str());
-                        }
-                        
-                        int cost_time = (int)runtime->getCostTime(&event);
-                        if(cost_time < min_cost) {
-                            min_cost = cost_time;
-                            lws_prefer[0] = lws[0];
-                            lws_prefer[1] = lws[1];
-                            lws_prefer[2] = lws[2];
+                        } else {
+                            auto cost_time = runtime->getCostTime(&event);
+                            if (cost_time >= 0.0 && cost_time < min_cost) {
+                                min_cost = static_cast<uint32_t>(cost_time);
+                                lws_prefer[0] = lws[0];
+                                lws_prefer[1] = lws[1];
+                                lws_prefer[2] = lws[2];
+                            }
                         }
                     }
                     do {
@@ -215,14 +217,14 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
                         MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
                         if (res != CL_SUCCESS) {
                             MNN_PRINT("lws tune res %s\n", kernelName.c_str());
-                        }
-                        
-                        int cost_time = (int)runtime->getCostTime(&event);
-                        if(cost_time < min_cost) {
-                            min_cost = cost_time;
-                            lws_prefer[0] = lws[0];
-                            lws_prefer[1] = lws[1];
-                            lws_prefer[2] = lws[2];
+                        } else {
+                            auto cost_time = runtime->getCostTime(&event);
+                            if (cost_time >= 0.0 && cost_time < min_cost) {
+                                min_cost = static_cast<uint32_t>(cost_time);
+                                lws_prefer[0] = lws[0];
+                                lws_prefer[1] = lws[1];
+                                lws_prefer[2] = lws[2];
+                            }
                         }
                     }
                     do {
@@ -269,14 +271,14 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
                         MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
                         if (res != CL_SUCCESS) {
                             MNN_PRINT("lws tune res %s\n", kernelName.c_str());
-                        }
-                        
-                        int cost_time = (int)runtime->getCostTime(&event);
-                        if(cost_time < min_cost) {
-                            min_cost = cost_time;
-                            lws_prefer[0] = lws[0];
-                            lws_prefer[1] = lws[1];
-                            lws_prefer[2] = lws[2];
+                        } else {
+                            auto cost_time = runtime->getCostTime(&event);
+                            if (cost_time >= 0.0 && cost_time < min_cost) {
+                                min_cost = static_cast<uint32_t>(cost_time);
+                                lws_prefer[0] = lws[0];
+                                lws_prefer[1] = lws[1];
+                                lws_prefer[2] = lws[2];
+                            }
                         }
                     }
                     do {
@@ -312,18 +314,21 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
         MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
         if (res != CL_SUCCESS) {
             MNN_PRINT("3D lws null res %s\n", kernelName.c_str());
-        }
-        
-        int cost_time = (int)runtime->getCostTime(&event);
-        if(cost_time < min_cost) {
-            lws_prefer[0] = 0;
-            lws_prefer[1] = 0;
-            lws_prefer[2] = 0;
-            min_cost = cost_time;
+        } else {
+            auto cost_time = runtime->getCostTime(&event);
+            if (cost_time >= 0.0 && cost_time < min_cost) {
+                lws_prefer[0] = 0;
+                lws_prefer[1] = 0;
+                lws_prefer[2] = 0;
+                min_cost = static_cast<uint32_t>(cost_time);
+            }
         }
     }
 
-    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None && !heuristicUsed) {
+    if (min_cost == UINT_MAX) {
+        std::fill(lws_prefer.begin(), lws_prefer.end(), 0);
+    }
+    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None && !heuristicUsed && min_cost != UINT_MAX) {
         TuneInfo tuneInfo;
         tuneInfo.programName = programName;
         auto iter = OpenCLProgramMd5Map.find(programName);
@@ -390,7 +395,9 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
                 lws_prefer[1] = 0;
                 heuristicUsed = false;
             }
-            min_cost = 0;
+            if (heuristicUsed) {
+                min_cost = 0;
+            }
         } else if (tuneLevel == None) {
             heuristicUsed = true;
             lws_prefer[0] = 0;
@@ -420,13 +427,13 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
                     MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
                     if (res != CL_SUCCESS) {
                         MNN_PRINT("lws tune res %s\n", kernelName.c_str());
-                    }
-                    
-                    int cost_time = (int)runtime->getCostTime(&event);
-                    if(cost_time < min_cost) {
-                        min_cost = cost_time;
-                        lws_prefer[0] = lws[0];
-                        lws_prefer[1] = lws[1];
+                    } else {
+                        auto cost_time = runtime->getCostTime(&event);
+                        if (cost_time >= 0.0 && cost_time < min_cost) {
+                            min_cost = static_cast<uint32_t>(cost_time);
+                            lws_prefer[0] = lws[0];
+                            lws_prefer[1] = lws[1];
+                        }
                     }
                 }
                 lws[0]<<=1;
@@ -451,13 +458,13 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
                     MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
                     if (res != CL_SUCCESS) {
                         MNN_PRINT("lws tune res %s\n", kernelName.c_str());
-                    }
-                    
-                    int cost_time = (int)runtime->getCostTime(&event);
-                    if(cost_time < min_cost) {
-                        min_cost = cost_time;
-                        lws_prefer[0] = lws[0];
-                        lws_prefer[1] = lws[1];
+                    } else {
+                        auto cost_time = runtime->getCostTime(&event);
+                        if (cost_time >= 0.0 && cost_time < min_cost) {
+                            min_cost = static_cast<uint32_t>(cost_time);
+                            lws_prefer[0] = lws[0];
+                            lws_prefer[1] = lws[1];
+                        }
                     }
                 }
                 do {
@@ -488,13 +495,13 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
                     MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
                     if (res != CL_SUCCESS) {
                         MNN_PRINT("lws tune res %s\n", kernelName.c_str());
-                    }
-                    
-                    int cost_time = (int)runtime->getCostTime(&event);
-                    if(cost_time < min_cost) {
-                        min_cost = cost_time;
-                        lws_prefer[0] = lws[0];
-                        lws_prefer[1] = lws[1];
+                    } else {
+                        auto cost_time = runtime->getCostTime(&event);
+                        if (cost_time >= 0.0 && cost_time < min_cost) {
+                            min_cost = static_cast<uint32_t>(cost_time);
+                            lws_prefer[0] = lws[0];
+                            lws_prefer[1] = lws[1];
+                        }
                     }
                 }
                 do {
@@ -535,13 +542,13 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
                     MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
                     if (res != CL_SUCCESS) {
                         MNN_PRINT("lws tune res %s\n", kernelName.c_str());
-                    }
-                    
-                    int cost_time = (int)runtime->getCostTime(&event);
-                    if(cost_time < min_cost) {
-                        min_cost = cost_time;
-                        lws_prefer[0] = lws[0];
-                        lws_prefer[1] = lws[1];
+                    } else {
+                        auto cost_time = runtime->getCostTime(&event);
+                        if (cost_time >= 0.0 && cost_time < min_cost) {
+                            min_cost = static_cast<uint32_t>(cost_time);
+                            lws_prefer[0] = lws[0];
+                            lws_prefer[1] = lws[1];
+                        }
                     }
                 }
                 do {
@@ -571,17 +578,20 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
         MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
         if (res != CL_SUCCESS) {
             MNN_PRINT("2D lws null res %s\n", kernelName.c_str());
-        }
-        
-        int cost_time = (int)runtime->getCostTime(&event);
-        if(cost_time < min_cost) {
-            lws_prefer[0] = 0;
-            lws_prefer[1] = 0;
-            min_cost = cost_time;
+        } else {
+            auto cost_time = runtime->getCostTime(&event);
+            if (cost_time >= 0.0 && cost_time < min_cost) {
+                lws_prefer[0] = 0;
+                lws_prefer[1] = 0;
+                min_cost = static_cast<uint32_t>(cost_time);
+            }
         }
     }
 
-    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None && !heuristicUsed) {
+    if (min_cost == UINT_MAX) {
+        std::fill(lws_prefer.begin(), lws_prefer.end(), 0);
+    }
+    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None && !heuristicUsed && min_cost != UINT_MAX) {
         TuneInfo tuneInfo;
         tuneInfo.programName = programName;
         auto iter = OpenCLProgramMd5Map.find(programName);
@@ -613,9 +623,14 @@ uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vecto
     MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
     if (res != CL_SUCCESS) {
         MNN_PRINT("lws tune res %s\n", kernelName.c_str());
+        return UINT_MAX;
     }
-    
-    int cost_time = (int)runtime->getCostTime(&event);
+
+    auto costTime = runtime->getCostTime(&event);
+    if (costTime < 0.0) {
+        return UINT_MAX;
+    }
+    auto cost_time = static_cast<uint32_t>(costTime);
     if (tunedLws.find(info) == tunedLws.end()) {
         TuneInfo tuneInfo;
         tuneInfo.programName = programName;

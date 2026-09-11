@@ -51,6 +51,10 @@ private:
     // reduction cannot pay off, so those cases keep their exact old arithmetic.
     int rmsSimdGroups(int legacy) const;
 
+    // How many tokens share one threadgroup in the C4 RMSNorm; 1 keeps the
+    // legacy one-threadgroup-per-token dispatch.
+    int rmsTokensPerGroup() const;
+
     int mOutside;
     int mInside;
     bool mIsNC4HW4 = false;
