@@ -107,6 +107,7 @@ ErrorCode GridSampleExecution::onEncode(const std::vector<Tensor *> &inputs, con
             
         }
         
+        mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         mGlobalWorkSize = {
             static_cast<uint32_t>(channelC4),
             static_cast<uint32_t>(outW),
