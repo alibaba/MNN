@@ -353,9 +353,9 @@ static VARP makeQwen3TTSSpeakerEmbedding(Module* speakerEncoder, const std::stri
 }
 #endif
 
-static VARP makeQwen3CodePredictorCodecEmbeds(DiskEmbedding* firstEmbedding, DiskEmbedding* predictorEmbedding,
-                                              const std::vector<int>& codes, int codeGroups, int vocabSize,
-                                              int hiddenSize) {
+static VARP makeQwen3AudioCodePredictorCodecEmbeds(DiskEmbedding* firstEmbedding, DiskEmbedding* predictorEmbedding,
+                                                const std::vector<int>& codes, int codeGroups, int vocabSize,
+                                                int hiddenSize) {
     if (!firstEmbedding || !predictorEmbedding || static_cast<int>(codes.size()) < codeGroups - 1 || codeGroups <= 1) {
         return nullptr;
     }
@@ -2588,9 +2588,11 @@ bool Omni::generateTTS(const std::string& text, const std::string& language, int
     if (talkerContext) {
         mContext->prompt_len = talkerContext->prompt_len;
         mContext->gen_seq_len = talkerContext->gen_seq_len;
+        mContext->prefill_us = talkerContext->prefill_us;
         mContext->audio_us = talkerContext->audio_us;
         mContext->decode_us = talkerContext->decode_us;
         mContext->status = talkerContext->status;
+        mContext->output_tokens = talkerContext->output_tokens;
     }
     return ok;
 }
@@ -2621,18 +2623,56 @@ bool Talker::load() {
     initRuntime();
     mSeqLenIndex = 1;
     if (isQwen3TTSTalker(mConfig)) {
-        ScheduleConfig qwen3ScheduleConfig;
-        mQwen3RuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(qwen3ScheduleConfig));
+        // The talker runs on the config-driven mRuntimeManager (created by initRuntime()
+        // with KVMeta attached), so backend_type / thread_num / precision in config.json
+        // take effect and the KV cache can be reused across decode frames.
+        // The aux modules (prompt embedder, audio_code_predictor, codec embedder, speech decoder,
+        // speaker encoder) are stateless full-sequence graphs: give them a manager on the
+        // same user backend but WITHOUT KVCACHE_INFO, so their attention ops keep the
+        // stateless path instead of fighting over mMeta with the talker.
+        ScheduleConfig auxScheduleConfig;
+        BackendConfig auxBackendConfig;
+        auxScheduleConfig.type      = backend_type_convert(mConfig->backend_type());
+        auxScheduleConfig.numThread = mConfig->thread_num();
+        if (auxScheduleConfig.type == 3) {
+            // opencl need set numThread = 64(buffer mode)
+            auxScheduleConfig.numThread |= 64;
+            auxScheduleConfig.numThread |= 512;
+        }
+        if (mConfig->power() == "high") {
+            auxBackendConfig.power = BackendConfig::Power_High;
+        } else if (mConfig->power() == "low") {
+            auxBackendConfig.power = BackendConfig::Power_Low;
+        }
+        if (mConfig->memory() == "high") {
+            auxBackendConfig.memory = BackendConfig::Memory_High;
+        } else if (mConfig->memory() == "low") {
+            auxBackendConfig.memory = BackendConfig::Memory_Low;
+        }
+        if (mConfig->precision() == "high") {
+            auxBackendConfig.precision = BackendConfig::Precision_High;
+        } else if (mConfig->precision() == "low") {
+            auxBackendConfig.precision = BackendConfig::Precision_Low;
+        }
+        auxScheduleConfig.backendConfig = &auxBackendConfig;
+        mQwen3RuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(auxScheduleConfig));
+        setRuntimeHint(mQwen3RuntimeManager, true);
+        if (backend_type_convert(mConfig->backend_type()) != 0) { // not cpu
+            // mRuntimeManager already claims "<tmp>/mnn_cachefile.bin"; a second manager
+            // on the same path would clobber the talker's tuned shader cache.
+            std::string tmpPath = mConfig->tmp_path().empty() ? "." : mConfig->tmp_path();
+            mQwen3RuntimeManager->setCache(tmpPath + "/mnn_cachefile_qwen3_aux.bin");
+        }
         Module::Config module_config;
         module_config.shapeMutable = true;
         module_config.rearrange = true;
         constexpr int hiddenSize = 1024;
 
-        mQwen3RuntimeManager->setExternalFile(mConfig->talker_weight().c_str());
+        mRuntimeManager->setExternalFile(mConfig->talker_weight().c_str());
         mModule.reset(Module::load({"inputs_embeds", "attention_mask", "position_ids"}, {"logits", "hidden_states"},
-                                   mConfig->talker_model().c_str(), mQwen3RuntimeManager, &module_config),
+                                   mConfig->talker_model().c_str(), mRuntimeManager, &module_config),
                       Module::destroy);
-        mQwen3RuntimeManager->setExternalFile("");
+        mRuntimeManager->setExternalFile("");
 
         mQwen3RuntimeManager->setExternalFile(mConfig->talker_weight().c_str());
         mQwen3PromptEmbedder.reset(Module::load({"codec_embeds", "text_raw_embeds", "tts_raw_embeds"},
@@ -2641,12 +2681,50 @@ bool Talker::load() {
                                    Module::destroy);
         mQwen3RuntimeManager->setExternalFile("");
 
-        mQwen3RuntimeManager->setExternalFile(mConfig->code_predictor_weight().c_str());
-        mQwen3CodePredictor.reset(
-            Module::load({"talker_hidden_states", "codec_embeds", "attention_mask", "position_ids"}, {"logits"},
-                         mConfig->code_predictor_model().c_str(), mQwen3RuntimeManager, &module_config),
-            Module::destroy);
-        mQwen3RuntimeManager->setExternalFile("");
+        const bool cpIncremental = mConfig->audio_code_predictor_incremental();
+        if (cpIncremental) {
+            // The incremental audio_code_predictor decodes one codec row at a time through
+            // a KV cache, so it needs a manager whose KVCACHE_INFO points at its own
+            // KVMeta. It cannot share the talker's meta: both models' attention ops
+            // would read the same previous/remove/add channel while holding KV of
+            // different lengths. And it cannot ride the aux manager either: that one
+            // must stay stateless for the prompt embedder / speech decoder graphs.
+            mQwen3CpMeta.reset(new KVMeta);
+            // The predictor issues ~15 tiny seq-1 forwards per frame; on GPU backends
+            // the per-forward submit/sync overhead dwarfs the compute of a 63M-param
+            // model (measured on one OpenCL device: 50.5s vs 11.8s all-CPU decode for
+            // 10s audio), so pin it to CPU. The talker and every stateless module keep
+            // honoring the user's backend.
+            ScheduleConfig cpScheduleConfig = auxScheduleConfig;
+            BackendConfig cpBackendConfig = auxBackendConfig;
+            // fp16-unsafe submodel: the talker's hidden states (absmax ~70) overflow
+            // the predictor's RMSNorm/attention intermediates in fp16, collapsing its
+            // logits to NaN, so always compute it in fp32 (the PyTorch model's fp16
+            // forward collapses the same way).
+            cpBackendConfig.precision = BackendConfig::Precision_High;
+            cpScheduleConfig.backendConfig = &cpBackendConfig;
+            if (auxScheduleConfig.type != MNN_FORWARD_CPU) {
+                cpScheduleConfig.type = MNN_FORWARD_CPU;
+                cpScheduleConfig.numThread = mConfig->thread_num();
+            }
+            mQwen3CpRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(cpScheduleConfig));
+            setRuntimeHint(mQwen3CpRuntimeManager, true);
+            mQwen3CpRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mQwen3CpMeta.get());
+        }
+        auto cpManager = cpIncremental ? mQwen3CpRuntimeManager : mQwen3RuntimeManager;
+        cpManager->setExternalFile(mConfig->audio_code_predictor_weight().c_str());
+        if (cpIncremental) {
+            mQwen3AudioCodePredictor.reset(
+                Module::load({"inputs_embeds", "attention_mask", "position_ids"}, {"logits"},
+                             mConfig->audio_code_predictor_model().c_str(), cpManager, &module_config),
+                Module::destroy);
+        } else {
+            mQwen3AudioCodePredictor.reset(
+                Module::load({"talker_hidden_states", "codec_embeds", "attention_mask", "position_ids"}, {"logits"},
+                             mConfig->audio_code_predictor_model().c_str(), cpManager, &module_config),
+                Module::destroy);
+        }
+        cpManager->setExternalFile("");
 
         mQwen3RuntimeManager->setExternalFile(mConfig->codec_embedder_weight().c_str());
         mQwen3CodecEmbedder.reset(Module::load({"codec_embeds", "text_hidden"}, {"inputs_embeds"},
@@ -2667,15 +2745,15 @@ bool Talker::load() {
                                                 &module_config),
                                    Module::destroy);
         mQwen3RuntimeManager->setExternalFile("");
-        if (!mModule || !mQwen3PromptEmbedder || !mQwen3CodePredictor || !mQwen3CodecEmbedder || !mQwen3SpeechDecoder ||
+        if (!mModule || !mQwen3PromptEmbedder || !mQwen3AudioCodePredictor || !mQwen3CodecEmbedder || !mQwen3SpeechDecoder ||
             !mQwen3SpeakerEncoder) {
             return false;
         }
         mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
         mQwen3TextEmbedding.reset(
             new DiskEmbedding(mConfig, mConfig->talker_text_embedding_file(), mConfig->talker_text_hidden_size()));
-        mQwen3CodePredictorEmbedding.reset(
-            new DiskEmbedding(mConfig, mConfig->code_predictor_embedding_file(), hiddenSize));
+        mQwen3AudioCodePredictorEmbedding.reset(
+            new DiskEmbedding(mConfig, mConfig->audio_code_predictor_embedding_file(), hiddenSize));
         mMaxNewTokens = mConfig->talker_max_new_tokens();
         set_config("{\"sampler_type\":\"greedy\"}");
         mSampler.reset(Sampler::createSampler(mContext, mConfig));
@@ -3235,8 +3313,8 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     }
     constexpr int hiddenSize = 1024;
     constexpr int codecEosToken = 2150;
-    const int codeGroups = mConfig->code_predictor_groups();
-    const int codePredictorSeq = codeGroups;
+    const int codeGroups = mConfig->audio_code_predictor_groups();
+    const int audioCodePredictorSeq = codeGroups;
     std::vector<int> firstCodeCandidates(2049);
     for (int i = 0; i < 2048; ++i) {
         firstCodeCandidates[i] = i;
@@ -3303,21 +3381,82 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     std::vector<int> generatedCodes;
     generatedCodes.reserve(maxFrames * codeGroups);
 
+    const bool cpIncremental = mConfig->audio_code_predictor_incremental();
     VARP cpMask, cpPos;
-    makeCausalInputs(codePredictorSeq, 1, cpMask, cpPos);
+    if (!cpIncremental) {
+        makeCausalInputs(audioCodePredictorSeq, 1, cpMask, cpPos);
+    }
+
+    // Mask conventions mirror Llm::gen_attention_mask: cpu/metal/hexagon take a scalar 0
+    // (causal lower-triangular fast path), other backends take a materialised mask, so
+    // the mask rank never changes within one session.
+    const std::string backendType = mConfig->backend_type();
+    const bool scalarMask = backendType == "cpu" || backendType == "hexagon" || backendType == "metal";
+    auto makeScalarZeroMask = []() {
+        auto mask = _Input({}, NCHW, halide_type_of<float>());
+        mask->writeMap<float>()[0] = 0.0f;
+        return mask;
+    };
+
+    // Prefill: run the whole prompt sequence once to fill the KV cache; every later
+    // frame decodes a single token, so the per-frame talker cost stays O(1) instead of
+    // recomputing the growing prompt each frame.
+    auto prefillEmbeds = makeTensorInputFromVector<float>({1, seqLen, hiddenSize}, embeddings);
+    auto talkerPos     = makeTensorInput<int>({3, seqLen});
+    fillPositionIds(talkerPos, 3, seqLen);
+    VARP talkerMask;
+    if (scalarMask) {
+        talkerMask = makeScalarZeroMask();
+    } else {
+        talkerMask = makeTensorInput<float>({1, 1, seqLen, seqLen});
+        fillCausalMask(talkerMask, seqLen);
+    }
+    mMeta->remove = mMeta->previous;
+    mMeta->add    = seqLen;
+    MNN::Timer prefillTimer;
+    auto talkerOutputs = mModule->onForward({prefillEmbeds, talkerMask, talkerPos});
+    mContext->prefill_us += prefillTimer.durationInUs();
+    mMeta->sync();
+    if (talkerOutputs.size() != 2) {
+        MNN_ERROR("[Error]: qwen3_tts talker prefill output size mismatch: %zu\n", talkerOutputs.size());
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+
+    // Decode-step inputs: fixed shapes, only the position value changes per frame.
+    VARP decodeMask = scalarMask ? makeScalarZeroMask() : makeTensorInput<float>({1, 1, 1, 1});
+    if (!scalarMask) {
+        decodeMask->writeMap<float>()[0] = 0.0f;
+    }
+    VARP decodePos = makeTensorInput<int>({3, 1});
+
+    // Incremental audio_code_predictor inputs. Per frame the predictor sequence is
+    // [talker hidden, c0, c1, ..., c14]: prefill feeds rows 0..1 once, then every group
+    // appends exactly one row through the predictor's KV cache. The old path re-ran the
+    // whole padded sequence for every group (15 x 16 rows per frame); this runs each row
+    // exactly once (16 rows per frame). All 15 lm heads read the last row, and the head
+    // scoring code g is head g-1 at flat offset (g-1)*vocab -- the same offsets the old
+    // graph produced, since head i was trained on row i+1.
+    VARP cpPrefillMask, cpDecodeMask, cpPrefillPos, cpDecodePos;
+    if (cpIncremental) {
+        if (scalarMask) {
+            cpPrefillMask = makeScalarZeroMask();
+            cpDecodeMask  = makeScalarZeroMask();
+        } else {
+            cpPrefillMask = makeTensorInput<float>({1, 1, 2, 2});
+            fillCausalMask(cpPrefillMask, 2);
+            cpDecodeMask = makeTensorInput<float>({1, 1, 1, 1});
+            cpDecodeMask->writeMap<float>()[0] = 0.0f;
+        }
+        cpPrefillPos = makeTensorInput<int>({1, 2});
+        auto prefillPosPtr = cpPrefillPos->writeMap<int>();
+        prefillPosPtr[0] = 0;
+        prefillPosPtr[1] = 1;
+        cpDecodePos = makeTensorInput<int>({1, 1});
+    }
 
     MNN::Timer decodeTimer;
     for (int step = 0; step < maxFrames; ++step) {
-        auto inputsEmbeds = makeTensorInputFromVector<float>({1, seqLen, hiddenSize}, embeddings);
-        VARP talkerMask, talkerPos;
-        makeCausalInputs(seqLen, 3, talkerMask, talkerPos);
-
-        auto talkerOutputs = mModule->onForward({inputsEmbeds, talkerMask, talkerPos});
-        if (talkerOutputs.size() != 2) {
-            MNN_ERROR("[Error]: qwen3_tts talker output size mismatch at step %d: %zu\n", step, talkerOutputs.size());
-            mContext->status = LlmStatus::INTERNAL_ERROR;
-            return false;
-        }
         int firstCode = mSampler->sample(talkerOutputs[0], firstCodeCandidates);
         if (firstCode == codecEosToken) {
             break;
@@ -3330,34 +3469,84 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
 
         std::vector<int> frameCodes(codeGroups, 0);
         frameCodes[0] = firstCode;
-        for (int group = 1; group < codeGroups; ++group) {
-            auto codePredictorEmbeds =
-                makeQwen3CodePredictorCodecEmbeds(mDiskEmbedding.get(), mQwen3CodePredictorEmbedding.get(), frameCodes,
-                                                  codeGroups, mConfig->code_predictor_vocab_size(), hiddenSize);
-            if (codePredictorEmbeds.get() == nullptr) {
-                MNN_ERROR("[Error]: failed to build qwen3_tts code predictor embeddings at frame %d group %d\n", step,
-                          group);
+        if (cpIncremental) {
+            auto talkerHidden = readTensorVector<float>(talkerOutputs[1]);
+            if (talkerHidden.size() != hiddenSize) {
+                MNN_ERROR("[Error]: invalid qwen3_tts talker hidden size at frame %d: %zu\n", step,
+                          talkerHidden.size());
                 mContext->status = LlmStatus::INTERNAL_ERROR;
                 return false;
             }
-            auto cpOutputs = mQwen3CodePredictor->onForward({talkerOutputs[1], codePredictorEmbeds, cpMask, cpPos});
+            auto cpPrefill = makeTensorInput<float>({1, 2, hiddenSize});
+            auto prefillPtr = cpPrefill->writeMap<float>();
+            std::copy(talkerHidden.begin(), talkerHidden.end(), prefillPtr);
+            mDiskEmbedding->embedding({firstCode}, prefillPtr + hiddenSize);
+            mQwen3CpMeta->remove = mQwen3CpMeta->previous;
+            mQwen3CpMeta->add    = 2;
+            auto cpOutputs = mQwen3AudioCodePredictor->onForward({cpPrefill, cpPrefillMask, cpPrefillPos});
+            mQwen3CpMeta->sync();
             if (cpOutputs.size() != 1) {
-                MNN_ERROR("[Error]: qwen3_tts code predictor output size mismatch at frame %d group %d: %zu\n", step,
-                          group, cpOutputs.size());
+                MNN_ERROR("[Error]: qwen3_tts audio_code_predictor prefill output size mismatch at frame %d: %zu\n", step,
+                          cpOutputs.size());
                 mContext->status = LlmStatus::INTERNAL_ERROR;
                 return false;
             }
-            int token = sample(cpOutputs[0], (group - 1) * 2048, 2048);
-            frameCodes[group] = token < 0 ? 0 : token;
+            int token = sample(cpOutputs[0], 0, 2048);
+            frameCodes[1] = token < 0 ? 0 : token;
+            for (int group = 2; group < codeGroups; ++group) {
+                auto cpStep    = makeTensorInput<float>({1, 1, hiddenSize});
+                auto stepPtr   = cpStep->writeMap<float>();
+                mQwen3AudioCodePredictorEmbedding->embedding(
+                    {(group - 2) * mConfig->audio_code_predictor_vocab_size() + frameCodes[group - 1]}, stepPtr);
+                auto posPtr = cpDecodePos->writeMap<int>();
+                posPtr[0]   = group;
+                mQwen3CpMeta->add = 1;
+                cpOutputs = mQwen3AudioCodePredictor->onForward({cpStep, cpDecodeMask, cpDecodePos});
+                mQwen3CpMeta->sync();
+                if (cpOutputs.size() != 1) {
+                    MNN_ERROR("[Error]: qwen3_tts audio_code_predictor output size mismatch at frame %d group %d: %zu\n",
+                              step, group, cpOutputs.size());
+                    mContext->status = LlmStatus::INTERNAL_ERROR;
+                    return false;
+                }
+                token = sample(cpOutputs[0], (group - 1) * 2048, 2048);
+                frameCodes[group] = token < 0 ? 0 : token;
+            }
+        } else {
+            for (int group = 1; group < codeGroups; ++group) {
+                auto audioCodePredictorEmbeds =
+                    makeQwen3AudioCodePredictorCodecEmbeds(mDiskEmbedding.get(), mQwen3AudioCodePredictorEmbedding.get(),
+                                                      frameCodes, codeGroups,
+                                                      mConfig->audio_code_predictor_vocab_size(), hiddenSize);
+                if (audioCodePredictorEmbeds.get() == nullptr) {
+                    MNN_ERROR("[Error]: failed to build qwen3_tts audio_code_predictor embeddings at frame %d group %d\n",
+                              step, group);
+                    mContext->status = LlmStatus::INTERNAL_ERROR;
+                    return false;
+                }
+                auto cpOutputs =
+                    mQwen3AudioCodePredictor->onForward({talkerOutputs[1], audioCodePredictorEmbeds, cpMask, cpPos});
+                if (cpOutputs.size() != 1) {
+                    MNN_ERROR("[Error]: qwen3_tts audio_code_predictor output size mismatch at frame %d group %d: %zu\n",
+                              step, group, cpOutputs.size());
+                    mContext->status = LlmStatus::INTERNAL_ERROR;
+                    return false;
+                }
+                int token = sample(cpOutputs[0], (group - 1) * 2048, 2048);
+                frameCodes[group] = token < 0 ? 0 : token;
+            }
         }
         generatedCodes.insert(generatedCodes.end(), frameCodes.begin(), frameCodes.end());
         mContext->output_tokens.insert(mContext->output_tokens.end(), frameCodes.begin(), frameCodes.end());
         mContext->gen_seq_len = step + 1;
 
+        if (step + 1 >= maxFrames) {
+            break;
+        }
         auto textHidden = selectTextHidden(promptOutputs[1], promptOutputs[2], step, hiddenSize);
         auto codecFrameEmbeds =
-            makeQwen3CodePredictorCodecEmbeds(mDiskEmbedding.get(), mQwen3CodePredictorEmbedding.get(), frameCodes,
-                                              codeGroups + 1, mConfig->code_predictor_vocab_size(), hiddenSize);
+            makeQwen3AudioCodePredictorCodecEmbeds(mDiskEmbedding.get(), mQwen3AudioCodePredictorEmbedding.get(), frameCodes,
+                                              codeGroups + 1, mConfig->audio_code_predictor_vocab_size(), hiddenSize);
         auto codecOutputs = mQwen3CodecEmbedder->onForward({codecFrameEmbeds, textHidden});
         if (codecOutputs.size() != 1) {
             MNN_ERROR("[Error]: qwen3_tts codec embedder output size mismatch at frame %d: %zu\n", step,
@@ -3372,6 +3561,20 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
             return false;
         }
         embeddings.insert(embeddings.end(), nextEmbed.begin(), nextEmbed.end());
+
+        auto decodeEmbeds = makeTensorInputFromVector<float>({1, 1, hiddenSize}, nextEmbed);
+        {
+            auto posPtr = decodePos->writeMap<int>();
+            posPtr[0] = posPtr[1] = posPtr[2] = seqLen;
+        }
+        mMeta->add = 1;
+        talkerOutputs = mModule->onForward({decodeEmbeds, decodeMask, decodePos});
+        mMeta->sync();
+        if (talkerOutputs.size() != 2) {
+            MNN_ERROR("[Error]: qwen3_tts talker output size mismatch at step %d: %zu\n", step, talkerOutputs.size());
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
         seqLen += 1;
     }
     mContext->decode_us += decodeTimer.durationInUs();

@@ -468,10 +468,11 @@ static bool checkOutLoose(VARP out, const std::vector<float>& expectedPlain, int
     return true;
 }
 
-// Quantized FusedLinear with folded LN at the decode shape (seq 1).
+// Quantized FusedLinear with folded LN. seq 1 is the decode shape; seq >= 256
+// reaches the prefill M64 tile and its gate/up dual epilogue.
 // bitsPerConv.size() selects the flavour: 2 = gate/up (act_silu_mul), else qkv.
-static bool runQuantLNCase(const std::vector<int>& bitsPerConv, const std::vector<int>& ocs, const char* tag) {
-    const int seq = 1, ic = 128, blocksize = 32;
+static bool runQuantLNCase(const std::vector<int>& bitsPerConv, const std::vector<int>& ocs, const char* tag,
+                           int seq = 1, int ic = 128, int blocksize = 32) {
     const float eps = 1e-5f;
     const bool gateUp = bitsPerConv.size() == 2;
 
@@ -567,6 +568,31 @@ public:
 };
 MNNTestSuiteRegister(FusedQKVLNQuantTest, "op/fused_qkv_ln_quant");
 
+// Uniform 4-bit q/k/v + LN at the 0.6b decode shape: 16 quant blocks, above
+// the narrow split-K ceiling, so the fused QKV GEMV routes to the unsplit
+// single-stream body (the path the ceiling default change flipped).
+class FusedQKVLNQuant16BlockTest : public MNNTestCase {
+public:
+    virtual ~FusedQKVLNQuant16BlockTest() = default;
+    virtual bool run(int precision) {
+        return runQuantLNCase({4, 4, 4}, {2048, 1024, 1024}, "qkv_ln_quant_b16", 1, 1024, 64);
+    }
+};
+MNNTestSuiteRegister(FusedQKVLNQuant16BlockTest, "op/fused_qkv_ln_quant_b16");
+
+// Uniform 4-bit q/k/v + LN at a prefill sequence length: the non-dual M64
+// fused-quant tile (QKV fusion is decode-only, so each projection dispatches
+// its own kernel), exercising the shared staging loop without the gate/up
+// dual accumulator.
+class FusedQKVLNQuantPrefillTest : public MNNTestCase {
+public:
+    virtual ~FusedQKVLNQuantPrefillTest() = default;
+    virtual bool run(int precision) {
+        return runQuantLNCase({4, 4, 4}, {64, 16, 16}, "qkv_ln_quant_prefill", 256);
+    }
+};
+MNNTestSuiteRegister(FusedQKVLNQuantPrefillTest, "op/fused_qkv_ln_quant_prefill");
+
 // 4-bit gate/up + LN: the GATE_UP_FUSED × LN_FUSED pipeline.
 class FusedGateUpLNQuantTest : public MNNTestCase {
 public:
@@ -576,6 +602,39 @@ public:
     }
 };
 MNNTestSuiteRegister(FusedGateUpLNQuantTest, "op/fused_gateup_ln_quant");
+
+// 4-bit gate/up + LN at decode shapes whose K splits: blockCount 16 drives
+// GEMV_2OCQUAD_PER_SG_SPLIT_K, and the blocksize-64 variant additionally
+// reaches the dual-stream W16 uint4 branch (quadsPerBlock 16).
+class FusedGateUpLNQuantSplitKTest : public MNNTestCase {
+public:
+    virtual ~FusedGateUpLNQuantSplitKTest() = default;
+    virtual bool run(int precision) {
+        return runQuantLNCase({4, 4}, {64, 64}, "gateup_ln_quant_splitk", 1, 512, 32);
+    }
+};
+MNNTestSuiteRegister(FusedGateUpLNQuantSplitKTest, "op/fused_gateup_ln_quant_splitk");
+
+class FusedGateUpLNQuantSplitKW16DsTest : public MNNTestCase {
+public:
+    virtual ~FusedGateUpLNQuantSplitKW16DsTest() = default;
+    virtual bool run(int precision) {
+        return runQuantLNCase({4, 4}, {64, 64}, "gateup_ln_quant_splitk_w16ds", 1, 1024, 64);
+    }
+};
+MNNTestSuiteRegister(FusedGateUpLNQuantSplitKW16DsTest, "op/fused_gateup_ln_quant_splitk_w16ds");
+
+// Same pipeline at a prefill sequence length: the M64 fused-quant tile, where
+// one dispatch accumulates both projections' tiles and applies silu-mul in
+// registers instead of materializing the gate tensor.
+class FusedGateUpLNQuantPrefillTest : public MNNTestCase {
+public:
+    virtual ~FusedGateUpLNQuantPrefillTest() = default;
+    virtual bool run(int precision) {
+        return runQuantLNCase({4, 4}, {64, 64}, "gateup_ln_quant_prefill", 256);
+    }
+};
+MNNTestSuiteRegister(FusedGateUpLNQuantPrefillTest, "op/fused_gateup_ln_quant_prefill");
 
 // Mixed 4/8-bit q/k/v + LN: setupQKVFusion rejects the quant-layout mismatch,
 // so the LN fold must be skipped and the LayerNorm dispatched separately —

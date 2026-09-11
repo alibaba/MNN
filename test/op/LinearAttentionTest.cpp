@@ -475,6 +475,85 @@ public:
             MNN_PRINT("LinearAttention No-L2Norm Test (L=%d) PASSED\n", L);
         }
 
+        // ─── Test 4: Chunk-64 prefill (Qwen3.5 shape) ───
+        // dk=dv=128 with L >= 64 is the only shape that reaches the chunked
+        // prefill kernels; the cases above all stay on the scalar/decode paths.
+        // L=192 is an exact chunk multiple, L=100 leaves a partial tail chunk
+        // whose padded lanes still carry the chunk's gate cumsum.
+        {
+            const int numHeads = 16;
+            const int wideKDim = 128, wideVDim = 128;
+            const int wideKeyDim = numHeads * wideKDim;
+            const int wideD = 2 * wideKeyDim + numHeads * wideVDim;
+            // Relative to the output scale (see below).  The deviation from the
+            // sequential reference measures 0.16~0.23% at both fp16 and fp32
+            // storage, i.e. it comes from the chunked reassociation rather than
+            // precision, so one 1% band covers both with ~4x headroom.
+            const float wideTolerance = 0.01f;
+
+            for (int L : {192, 100}) {
+                auto module = _makeLinearAttentionModule(numHeads, numHeads, wideKDim, wideVDim, useL2Norm);
+                if (!module) {
+                    MNN_PRINT("Error: Failed to create chunk64 LinearAttention module\n");
+                    return false;
+                }
+
+                auto qkvVar   = _Input({B, wideD, L}, NCHW, halide_type_of<float>());
+                auto gateVar  = _Input({B, L, numHeads}, NCHW, halide_type_of<float>());
+                auto betaVar  = _Input({B, L, numHeads}, NCHW, halide_type_of<float>());
+                auto convWVar = _Input({wideD, 1, K_conv}, NCHW, halide_type_of<float>());
+
+                fillDeterministic(qkvVar->writeMap<float>(), B * wideD * L, 0.03f);
+                fillGate(gateVar->writeMap<float>(), B * L * numHeads);
+                fillBeta(betaVar->writeMap<float>(), B * L * numHeads);
+                fillConvWeight(convWVar->writeMap<float>(), wideD * K_conv);
+
+                NaiveLinearAttention naive;
+                naive.init(B, wideD, K_conv, numHeads, wideKDim, wideVDim);
+                auto expected = naive.forward(
+                    qkvVar->readMap<float>(), gateVar->readMap<float>(),
+                    betaVar->readMap<float>(), convWVar->readMap<float>(),
+                    B, L, wideD, K_conv, numHeads, numHeads, wideKDim, wideVDim, useL2Norm);
+
+                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+                if (outputs.empty()) {
+                    MNN_PRINT("Error: chunk64 prefill (L=%d) returned empty output\n", L);
+                    return false;
+                }
+                const float* resultPtr = outputs[0]->readMap<float>();
+                const int outSize = B * L * numHeads * wideVDim;
+
+                // An absolute tolerance is vacuous here: the reference outputs
+                // are far below 1.0, so scale the comparison by the observed
+                // magnitude and refuse a degenerate scale outright.
+                float scale = 0.0f;
+                for (int i = 0; i < outSize; ++i) {
+                    scale = std::max(scale, fabsf(expected[i]));
+                }
+                if (scale < 1e-3f) {
+                    MNN_PRINT("Chunk64 Prefill (L=%d) reference is degenerate (max=%g)\n", L, scale);
+                    return false;
+                }
+                float maxDiff = 0.0f;
+                int worst = 0;
+                for (int i = 0; i < outSize; ++i) {
+                    float diff = fabs(resultPtr[i] - expected[i]);
+                    if (diff > maxDiff) {
+                        maxDiff = diff;
+                        worst = i;
+                    }
+                }
+                if (maxDiff > wideTolerance * scale) {
+                    MNN_PRINT("Chunk64 Prefill FAILED (L=%d) at index %d: expected %.6f, got %.6f (diff=%.6f, scale=%.6f, rel=%.4f%%)\n",
+                              L, worst, expected[worst], resultPtr[worst], maxDiff, scale,
+                              100.0f * maxDiff / scale);
+                    return false;
+                }
+                MNN_PRINT("LinearAttention Chunk64 Prefill (L=%d, dk=dv=128, H=16) PASSED (max rel dev %.4f%%)\n",
+                          L, 100.0f * maxDiff / scale);
+            }
+        }
+
         return true;
     }
 };

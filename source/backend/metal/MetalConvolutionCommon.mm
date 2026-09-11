@@ -217,9 +217,9 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const floa
     } else {
         totalCount = size;
     }
-    int blockSize = totalCount / oc;
+    int blockCount = totalCount / oc;
     int alignOutputCount = ALIGN_UP4(oc);
-    std::shared_ptr<MNN::Tensor> dequantScale(MNN::Tensor::createDevice<uint8_t>({alignOutputCount * blockSize * (int)(sizeof(DType) * 2) + (int)sizeof(float)}));
+    std::shared_ptr<MNN::Tensor> dequantScale(MNN::Tensor::createDevice<uint8_t>({alignOutputCount * blockCount * (int)(sizeof(DType) * 2) + (int)sizeof(float)}));
     bool res = backend->onAcquireBuffer(dequantScale.get(), Backend::STATIC);
     if (!res) {
         MNN_ERROR("Buffer allocated error!\n");
@@ -227,7 +227,7 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const floa
     }
     auto buffer0 = MetalBackend::getBuffer(dequantScale.get());
     DType* dst_scale = (DType*)((uint8_t*)[buffer0.first contents] + buffer0.second);
-    auto coefPtr = (float*)((uint8_t*)dst_scale + alignOutputCount * blockSize * (int)(sizeof(DType) * 2));
+    auto coefPtr = (float*)((uint8_t*)dst_scale + alignOutputCount * blockCount * (int)(sizeof(DType) * 2));
     if (backend->getRuntime()->hint().useCachedMmap > 1) {
         return std::make_pair(dequantScale, *coefPtr);
     }
@@ -238,8 +238,8 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const floa
         float max_data = 0.0;
         if(asymmetric) {
             for (int z=0; z<oc; ++z) {
-                auto srcZ = scale + z * blockSize * 2;
-                for (int bi=0; bi<blockSize; ++bi) {
+                auto srcZ = scale + z * blockCount * 2;
+                for (int bi=0; bi<blockCount; ++bi) {
                     float s = fabs(srcZ[2*bi+1]);
                     float b = fabs(srcZ[2*bi+0]);
                     float temp = ALIMAX(s, b);
@@ -250,8 +250,8 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const floa
             }
         } else {
             for (int z=0; z<oc; ++z) {
-                auto srcZ = scale + z * blockSize;
-                for (int bi=0; bi<blockSize; ++bi) {
+                auto srcZ = scale + z * blockCount;
+                for (int bi=0; bi<blockCount; ++bi) {
                     float s = srcZ[bi];
                     if(s > max_data) {
                         max_data = s;
@@ -266,10 +266,10 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const floa
         for (int z=0; z<oc; ++z) {
             int zo = z / 4;
             int zi = z % 4;
-            auto srcZ = scale + z * blockSize * 2;
-            auto dstSZ = dst_scale + zo * blockSize * 8 + zi;
-            auto dstBZ = dst_scale + zo * blockSize * 8 + zi + 4;
-            for (int bi=0; bi<blockSize; ++bi) {
+            auto srcZ = scale + z * blockCount * 2;
+            auto dstSZ = dst_scale + zo * blockCount * 8 + zi;
+            auto dstBZ = dst_scale + zo * blockCount * 8 + zi + 4;
+            for (int bi=0; bi<blockCount; ++bi) {
                 float s = srcZ[2*bi+1];
                 float b = srcZ[2*bi+0];
                 dstSZ[bi * 8] = (DType)(s * coef);
@@ -280,10 +280,10 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const floa
         for (int z=0; z<oc; ++z) {
             int zo = z / 4;
             int zi = z % 4;
-            auto srcZ = scale + z * blockSize;
-            auto dstSZ = dst_scale + zo * blockSize * 8 + zi;
-            auto dstBZ = dst_scale + zo * blockSize * 8 + zi + 4;
-            for (int bi=0; bi<blockSize; ++bi) {
+            auto srcZ = scale + z * blockCount;
+            auto dstSZ = dst_scale + zo * blockCount * 8 + zi;
+            auto dstBZ = dst_scale + zo * blockCount * 8 + zi + 4;
+            for (int bi=0; bi<blockCount; ++bi) {
                 float s = srcZ[bi];
                 float b = 0.0f;
                 dstSZ[bi * 8] = (DType)(s * coef);

@@ -32,8 +32,8 @@ private:
     std::shared_ptr<KVQuantParameter> mKVQuantParameter = nullptr;
 
 private:
-    void expandKVCacheInDisk(size_t oldSize, size_t curSize, size_t old_piece_stride, size_t old_piece_size, size_t new_piece_stride, bool need_copy, file_t specKeyFile = INVALID_FILE, file_t specValueFile = INVALID_FILE);
-    bool expandKVCacheInMem(size_t oldSize, size_t old_piece_stride, size_t old_piece_size, size_t new_piece_stride, bool need_copy);
+    void expandKVCacheInDisk(size_t oldSize, size_t curSize, int copy_len, bool need_copy, file_t specKeyFile = INVALID_FILE, file_t specValueFile = INVALID_FILE);
+    bool expandKVCacheInMem(size_t oldSize, int copy_len, bool need_copy);
 public:
     MetalKVCacheManager(Backend * backend, KVCacheConfig & kvConfig): KVCacheManager(backend, kvConfig) {
         // nothing todo

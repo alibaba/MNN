@@ -63,6 +63,7 @@ void ConvBufLowMemoryExecution::getInfoFromOpLowMemory(void* weight_ptr) {
         mResource->mDequantScaleOffsetBuffer.reset(new cl::Buffer(
             mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
     }
+    OPENCL_CHECK_PTR_CTOR(mResource->mDequantScaleOffsetBuffer);
     // transfer data from src in cpu to dst in gpu
     cl_int resBias, resScaleOffset;
     float coef = 1.0;
@@ -70,6 +71,11 @@ void ConvBufLowMemoryExecution::getInfoFromOpLowMemory(void* weight_ptr) {
     void* dequantScaleOffsetBufferMap = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
         *mResource->mDequantScaleOffsetBuffer.get(), true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr,
         &resScaleOffset);
+    if (dequantScaleOffsetBufferMap == nullptr || resScaleOffset != CL_SUCCESS) {
+        MNN_ERROR("Map error dequantScaleOffsetBufferMap == nullptr \n");
+        mValid = false;
+        return;
+    }
     if (mOpenCLBackend->getRuntime()->hint().useCachedMmap > 1) {
         if (fpBytes == 2) {
             float* coefMapPtr = (float*)(((half_float::half*)dequantScaleOffsetBufferMap) +
@@ -238,8 +244,11 @@ bool ConvBufLowMemoryExecution::convertToQuantWeight1x1Buffer(cl::Buffer input) 
                                                        cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                        cl::NDRange(lws[0], lws[1]), nullptr, &event);
 
-    event.wait();
     MNN_CHECK_CL_SUCCESS(res, "convertToQuantWeight1x1Buffer");
+    if (res != CL_SUCCESS) {
+        return false;
+    }
+    event.wait();
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end convertToQuantWeight1x1Buffer !\n");
@@ -309,7 +318,8 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
             }
         } else {
             MNN_ERROR("set1x1WeightLowMemory: Map error ptrCL == nullptr \n");
-            MNN_ASSERT(false);
+            mValid = false;
+            return;
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, mapPtr);
         // Use Image load weights (only for 4bit/8bit; 2/3bit stick to buffer)
@@ -332,6 +342,8 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
             }
             if (nullptr == mResource->mKernelImage.get() || res != CL_SUCCESS) {
                 MNN_ERROR("Alloc Image %d x %d error, code:%d \n", (int)w, (int)h, (int)res);
+                mValid = false;
+                return;
             }
         } else {
             if (mOpenCLBackend->getRuntime()->hint().useCachedMmap && staticMapAlloc != nullptr) {
@@ -340,8 +352,9 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
                 mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(),
                                                               CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, output_size));
             }
+            OPENCL_CHECK_PTR_CTOR(mResource->mKernelBuffer);
         }
-        convertToQuantWeight1x1Buffer(filterBufferCL);
+        OPENCL_CHECK_ALLOC_CTOR(convertToQuantWeight1x1Buffer(filterBufferCL));
     } else {
         if (preAllocGpuMem) {
             getInfoFromOpLowMemory(nullptr);
@@ -369,6 +382,8 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
             }
             if (nullptr == mResource->mKernelImage.get() || res != CL_SUCCESS) {
                 MNN_ERROR("Alloc Image %d x %d error, code:%d \n", (int)w, (int)h, (int)res);
+                mValid = false;
+                return;
             }
         } else {
             if (mOpenCLBackend->getRuntime()->hint().useCachedMmap && staticMapAlloc != nullptr) {
@@ -377,6 +392,7 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
                 mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(),
                                                               CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, output_size));
             }
+            OPENCL_CHECK_PTR_CTOR(mResource->mKernelBuffer);
         }
     }
 }
@@ -425,6 +441,8 @@ void ConvBufLowMemoryExecution::setGeneralWeightLowMemory() {
             }
         } else {
             MNN_ERROR("setGeneralWeightLowMemory: Map error ptrCL == nullptr \n");
+            mValid = false;
+            return;
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
         if (mResource->mNumQuantBit == 8) {
@@ -569,7 +587,7 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor* input, Tensor* 
         ret |= kernel[knl_idx]->get().setArg(idx++, blockDim);
         ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<float>(mResource->mCoef));
         MNN_CHECK_CL_SUCCESS(ret, "setArg ConvBufLowMemory Kernel Select");
-        std::pair<std::vector<uint32_t>, int> retTune;
+        std::pair<std::vector<uint32_t>, uint32_t> retTune;
         retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(),
                                    kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(),
                                    "conv_2d_int_buf");
@@ -877,7 +895,7 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor* input, Tensor* output)
 
     int local_size = useLocalMem ? 128 : 1;
     if (useLocalMem && mOpenCLBackend->getCLTuneLevel() != None && mOpenCLBackend->getCLTuneLevel() != Fast) {
-        int min_time = INT_MAX;
+        uint32_t min_time = UINT_MAX;
         for (int ksize = 8; ksize <= 256; ksize *= 2) {
             auto option = buildOption;
             option.emplace("-DWGS=" + std::to_string(ksize));
@@ -914,9 +932,9 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor* input, Tensor* output)
             ret |= kernel->get().setArg(idx++, static_cast<int>(blockDim));
             ret |= kernel->get().setArg(idx++, static_cast<float>(mResource->mCoef));
             MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv_c8_buf Kernel Select");
-            std::pair<std::vector<uint32_t>, int> retTune;
-            int cost_time = get2DUseLocalMemTime(gws, lws, mOpenCLBackend->getOpenCLRuntime(),
-                                                 "gemv_conv_c8_buf" + info, kernel, "gemv_conv1x1_buf");
+            std::pair<std::vector<uint32_t>, uint32_t> retTune;
+            auto cost_time = get2DUseLocalMemTime(gws, lws, mOpenCLBackend->getOpenCLRuntime(),
+                                                  "gemv_conv_c8_buf" + info, kernel, "gemv_conv1x1_buf");
             if (min_time > cost_time) {
                 local_size = ksize;
                 min_time = cost_time;
@@ -1084,7 +1102,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor* input, Tensor* output)
 
             int local_size = 64;
             if (mOpenCLBackend->getCLTuneLevel() != None && mOpenCLBackend->getCLTuneLevel() != Fast) {
-                int min_time = INT_MAX;
+                uint32_t min_time = UINT_MAX;
                 for (int ksize = 16; ksize <= 256; ksize *= 2) {
                     auto option = buildOption;
                     option.emplace("-DWGS=" + std::to_string(ksize));
@@ -1119,8 +1137,8 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor* input, Tensor* output)
                     ret |= kernel->get().setArg(idx++, static_cast<int>(blockDim));
                     ret |= kernel->get().setArg(idx++, static_cast<float>(mResource->mCoef));
                     MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv_c8_buf Kernel Select");
-                    std::pair<std::vector<uint32_t>, int> retTune;
-                    int cost_time =
+                    std::pair<std::vector<uint32_t>, uint32_t> retTune;
+                    auto cost_time =
                         get2DUseLocalMemTime(gws, lws, mOpenCLBackend->getOpenCLRuntime(),
                                              "gemv_conv_c8_buf" + info + "_batch", kernel, "gemv_conv1x1_buf");
                     if (min_time > cost_time) {

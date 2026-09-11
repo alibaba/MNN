@@ -217,7 +217,7 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
 
     // Do input Rerange Pack
     if(mFp16Fp32MixInfer) {
-        size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
+        size_t maxCount = (size_t)mGemmInfo.elh[0] * (size_t)mGemmInfo.elhPad[1];
         callFloat2Half((const void*)input_addr, (void*)mInputBuffer, maxCount, runtime);
     }
 

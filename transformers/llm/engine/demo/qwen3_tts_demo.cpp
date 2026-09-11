@@ -128,11 +128,17 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
         printWaveformSummary("waveform_normalized", waveformToSave, 16);
     }
 
+    const auto* context = llm->getContext();
     if (!dumpDir.empty()) {
         if (!ensureDirectory(dumpDir)) {
             return 1;
         }
         dumpFloatVector(joinPath(dumpDir, "mnn_text_waveform.bin"), waveform);
+        if (context && !context->output_tokens.empty()) {
+            std::ofstream codesOs(joinPath(dumpDir, "mnn_text_codes.bin").c_str(), std::ios::binary);
+            codesOs.write(reinterpret_cast<const char*>(context->output_tokens.data()),
+                          context->output_tokens.size() * sizeof(int));
+        }
         if (normalizePeak > 0.0f) {
             dumpFloatVector(joinPath(dumpDir, "mnn_text_waveform_normalized.bin"), waveformToSave);
         }
@@ -141,8 +147,17 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
         MNN::AUDIO::save(joinPath(dumpDir, "qwen3_tts_text.wav"), waveformVar, 24000);
         MNN_PRINT("saved wav: %s\n", joinPath(dumpDir, "qwen3_tts_text.wav").c_str());
     }
-    const auto* context = llm->getContext();
     MNN_PRINT("Qwen3-TTS text C++ chain finished. frames=%d\n", context ? context->gen_seq_len : 0);
+    if (context) {
+        const double prefillS = context->prefill_us / 1e6;
+        const double decodeS   = context->decode_us / 1e6;
+        const double audioS    = context->audio_us / 1e6;
+        const double wavDur    = static_cast<double>(waveform.size()) / 24000.0;
+        const double totalS    = prefillS + decodeS + audioS;
+        MNN_PRINT("prefill time = %.2f s\n decode time = %.2f s\n audio process time = %.2f s\n", prefillS, decodeS,
+                  audioS);
+        MNN_PRINT("waveform duration = %.2f s\n audio RTF = %.3f\n", wavDur, wavDur > 0.0 ? totalS / wavDur : 0.0);
+    }
     return 0;
 }
 

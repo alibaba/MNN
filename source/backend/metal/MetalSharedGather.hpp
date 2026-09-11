@@ -30,17 +30,17 @@ public:
 private:
     // conv1x1_constants host-side mirror, used by conv1x1_w_dequant and shared_gather kernels
     struct Conv1x1Constants {
-        int input_size;     // repurposed as ic for SharedGather
-        int input_slice;    // ic_4
-        int output_width;   // selectSize
-        int output_height;  // unused for SharedGather
-        int output_size;    // total elements (selectSize * ic)
-        int output_slice;   // oc_4
-        int output_channel; // oc
-        int batch;          // unused for SharedGather
-        int block_size;     // quant block size along K axis
-        int activation;     // not used (no activation)
-        float scale_coef;   // scale normalization factor
+        int inputSize;     // repurposed as ic for SharedGather
+        int inputDepthQuad;    // ic_4
+        int outputWidth;   // selectSize
+        int outputHeight;  // unused for SharedGather
+        int outputSize;    // total elements (selectSize * ic)
+        int outputDepthQuad;   // oc_4
+        int outputChannel; // oc
+        int batch;         // unused for SharedGather
+        int blockCount;    // number of quant blocks along the K axis
+        int activation;    // not used (no activation)
+        float scaleCoef;   // scale normalization factor
     };
 
 private:

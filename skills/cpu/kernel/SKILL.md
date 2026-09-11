@@ -61,6 +61,10 @@ description: MNN CPU 后端 kernel 开发分支（`skills/cpu/` 下，另一分�
    必须同源的五个量与要落笔的七处，见 [`pack-and-abi.md`](pack-and-abi.md) §一、§四。
 5. **寄存器生命周期表先于 unroll。** 加 unroll、hoist 常量、复用临时寄存器之前先写 live range 表。
    min/max、scale、bias、zero point、accumulator、unpack 常量都不能被 postprocess 之前的临时逻辑覆盖。
+6. **名字必须等于真实物理量。** 改任何算子 / kernel 代码时，先核对沿途变量、字段、宏、asm 注释里的
+   名字是否就是它实际装的那个量（不只是自己新加的名字）——`blockSize` 是"块内元素数"还是"每行块数"、
+   `step` 是元素数还是字节数、分档判据的自变量是通道数还是 tile 数。名字骗人不会报错：编译、对拍、
+   单测都过，但基于它写的分档、阈值、pack 门控会一起错。名字与实际指针算术不符就改名，并全仓确认零残留。
 
 ## 任务 → 文档索引
 

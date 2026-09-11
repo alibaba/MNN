@@ -550,7 +550,10 @@ class Qwen3TTSToken2Wav(torch.nn.Module):
         super().__init__()
         self.args = base.args
         self.config = base.config
-        self.quant_bit = base.quant_bit
+        # Experiment: measure int8 weight quant on these conv-heavy vocoder-style
+        # modules. Low-bit (INT4) quant destroyed their outputs (corr ~0.03 vs the
+        # PyTorch model on identical codes) while fp16 stayed faithful (corr 0.9999).
+        self.quant_bit = 8
         self.speech_decoder = None
         self.speaker_encoder = None
         self.decode_upsample_rate = 1920

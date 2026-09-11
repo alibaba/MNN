@@ -12,6 +12,7 @@
 #include "MNNTestSuite.h"
 #include "core/Backend.hpp"
 #include "core/Macro.h"
+#include "core/Session.hpp"
 
 using namespace MNN;
 
@@ -788,3 +789,23 @@ public:
 MNNTestSuiteRegister(BackendCopyBufferFloatTest, "engine/backend/copy_buffer_float");
 //MNNTestSuiteRegister(BackendCopyBufferUint8Test, "engine/backend/copy_buffer_uint8");
 MNNTestSuiteRegister(CPUBackendCopyBufferTest, "engine/backend/copy_buffer_cpu");
+
+class EncoderCommitHintTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        Session::ModeGroup mode;
+        if (mode.runtimeHint.encorderNumForCommit != -1) {
+            MNN_ERROR("Encoder commit hint must default to -1\n");
+            return false;
+        }
+        for (int value : {10, 20, 30, 512, 0, -1}) {
+            mode.setHint(Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, value);
+            if (mode.runtimeHint.encorderNumForCommit != value) {
+                MNN_ERROR("Encoder commit hint did not preserve %d\n", value);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(EncoderCommitHintTest, "engine/backend/encoder_commit_hint");

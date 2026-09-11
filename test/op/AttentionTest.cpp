@@ -1209,7 +1209,93 @@ public:
     }
 };
 
+// head_dim 256 causal prefill, at Qwen3.5's full-attention shape (8 q heads,
+// 2 kv heads, group 4). generateMask() emits the scalar sentinel that signals a
+// kv-cache causal prefill, which is what selects the fused prefill kernels, so
+// this is the correctness gate for the 8-output-tile tc path. 100 is a multiple
+// of neither the 64-wide q tile nor the 32-wide kv tile.
+class AttentionHeadDim256Test : public AttentionTest {
+public:
+    virtual bool run(int precision) {
+        const int originalNumHead = NumHead;
+        const int originalKvNumHead = KvNumHead;
+        const int originalHeadDim = HeadDim;
+        NumHead = 8;
+        KvNumHead = 2;
+        HeadDim = 256;
+        srand(2024);
+        bool pass = true;
+        for (int seq_len : {64, 100, 192, 512}) {
+            std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+            generateInput(seq_len, precision);
+            generateMask(seq_len, seq_len);
+            expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+            auto attn = _makeAttentionModule();
+            gMeta.previous = 0;
+            gMeta.add = seq_len;
+            Output = attn->onForward({Query, Key, Value, Mask})[0];
+            gMeta.sync();
+            if (!compareResult(seq_len)) {
+                printf("Error: head_dim 256 causal prefill (seq_len=%d) unit test failed!\n", seq_len);
+                pass = false;
+                break;
+            }
+        }
+        NumHead = originalNumHead;
+        KvNumHead = originalKvNumHead;
+        HeadDim = originalHeadDim;
+        return pass;
+    }
+};
+
+// The Metal fused prefill kernels (prefill_flash_attn_sg / prefill_flash_attn_tc)
+// engage at seq>=1024 with the scalar causal sentinel. head_dim 64 and 128
+// select different kv tile widths (32 / 16) and 1090 exercises the q-tile tail.
+// head_dim 256 stays on the three-stage path, covering the q-sequence split that
+// bounds its scratch.
+class AttentionCausalPrefillTest : public AttentionTest {
+public:
+    virtual bool run(int precision) {
+        const int originalNumHead = NumHead;
+        const int originalKvNumHead = KvNumHead;
+        const int originalHeadDim = HeadDim;
+        NumHead = 2;
+        KvNumHead = 1;
+        srand(2024);
+        bool pass = true;
+        for (int head_dim : {64, 128, 256}) {
+            HeadDim = head_dim;
+            for (int seq_len : {1024, 1090}) {
+                std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+                generateInput(seq_len, precision);
+                generateMask(seq_len, seq_len);
+                expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+                auto attn = _makeAttentionModule();
+                gMeta.previous = 0;
+                gMeta.add = seq_len;
+                Output = attn->onForward({Query, Key, Value, Mask})[0];
+                gMeta.sync();
+                if (!compareResult(seq_len)) {
+                    printf("Error: causal prefill (head_dim=%d, seq_len=%d) unit test failed!\n",
+                           head_dim, seq_len);
+                    pass = false;
+                    break;
+                }
+            }
+            if (!pass) {
+                break;
+            }
+        }
+        NumHead = originalNumHead;
+        KvNumHead = originalKvNumHead;
+        HeadDim = originalHeadDim;
+        return pass;
+    }
+};
+
 MNNTestSuiteRegister(AttentionC4Test, "op/attention_c4");
 MNNTestSuiteRegister(AttentionC4TailTest, "op/attention_c4_tail");
+MNNTestSuiteRegister(AttentionHeadDim256Test, "op/attention_hd256");
+MNNTestSuiteRegister(AttentionCausalPrefillTest, "op/attention_prefill");
 MNNTestSuiteRegister(SpeedAttentionTest, "speed/attention");
 #endif

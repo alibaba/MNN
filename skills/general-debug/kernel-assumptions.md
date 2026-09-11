@@ -14,7 +14,7 @@
 - 短 prompt 不明显、长 prompt 越来越错（尤其超过 SWA window size 后）；
 - 输出前 N 个 token byte-identical，后续开始发散。
 
-> **2026-07-31 更新**：Metal 的 causal 假设已改为**数据驱动**（`mCausalLayout`，见 `MetalAttention.mm` `_computePathFlags`）——真实 mask 张量（`mHasMask=true`）自动关掉 causal-tri/bound/FA-v1/faNax 并逐元素 honor mask，标量哨兵/无 mask + kvcache 才走 causal 优化。CPU/hexagon 早已如此。**因此 Metal 上的非 causal 模型不再需要手动设 env**（`MNN_METAL_QK_CAUSAL_TRI` 已删除）。本册的 Metal 部分主要作为历史方法论保留；若仍遇非 causal 乱码，先确认 `gen_attention_mask` 是否给该模型正确产出了**真实 mask 张量**（而非误走标量分支），根因多在导出/mask 生成侧而非 kernel。
+> **2026-07-31 更新**：Metal 的 causal 假设已改为**数据驱动**（`mCausalLayout`，见 `MetalAttention.mm` `_computePathFlags`）——真实 mask 张量（`mHasMask=true`）自动关掉 causal-tri/bound/FA-v1/faTc 并逐元素 honor mask，标量哨兵/无 mask + kvcache 才走 causal 优化。CPU/hexagon 早已如此。**因此 Metal 上的非 causal 模型不再需要手动设 env**（`MNN_METAL_QK_CAUSAL_TRI` 已删除）。本册的 Metal 部分主要作为历史方法论保留；若仍遇非 causal 乱码，先确认 `gen_attention_mask` 是否给该模型正确产出了**真实 mask 张量**（而非误走标量分支），根因多在导出/mask 生成侧而非 kernel。
 
 ## 7.1 核心心法
 

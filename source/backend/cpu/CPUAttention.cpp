@@ -1095,7 +1095,13 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     bool scaleApplied =
                         (mKeyQuantMode == KVQuantMode::Int8 || mKeyQuantMode == KVQuantMode::None);
                     if (!scaleApplied || isLowerTriangular == false || sinksPtr != nullptr) {
-                        if (mBytes == 2) {
+                        if (mBytes == 4 && gcore->MNNAttentionMaskQK != nullptr) {
+                            const float* maskPtr = mask == nullptr ? nullptr : mask->host<float>();
+                            const size_t maskSize = mask == nullptr ? 0 : mask->elementSize();
+                            gcore->MNNAttentionMaskQK((float*)qkPacked, &mScale, qRows, curKvBlockSize, mPack,
+                                                     kvSeqLen, i * mKvBlockSize, padSeqLength, sinksPtr, maskPtr,
+                                                     maskSize, scaleApplied, isLowerTriangular);
+                        } else if (mBytes == 2) {
                             _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, qRows, curKvBlockSize, mPack, kvSeqLen,
                                                i * mKvBlockSize, padSeqLength, sinksPtr, mask, scaleApplied,
                                                isLowerTriangular);

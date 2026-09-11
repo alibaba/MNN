@@ -33,14 +33,27 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
                        const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     // 3|2 inputs: input tensor, weight, (bias)
     const int inputSize = tfliteOp->inputs.size();
-    DCHECK(inputSize == 2 || inputSize == 3) << "tflite Conv2D input ERROR! ";
+    if (inputSize < 2 || tfliteOp->outputs.empty()) {
+        MNN_ERROR("[ERROR] Invalid TFLite Model: Conv2D has invalid inputs or outputs\n");
+        dstOp->type = MNN::OpType_MAX;
+        return;
+    }
     const auto& tfliteConvOption = tfliteOp->builtin_options.AsConv2DOptions();
     const int inputIndex     = tfliteOp->inputs[0];
     const int weightIndex    = tfliteOp->inputs[1];
     const int outputIndex    = tfliteOp->outputs[0];
-    const auto& inputTensor  = tfliteTensors[inputIndex];
-    const auto& weightTensor = tfliteTensors[weightIndex];
-    const auto& outputTensor = tfliteTensors[outputIndex];
+    const auto* inputTensor  = tfliteAt(tfliteTensors, inputIndex, "tensor");
+    const auto* weightTensor = tfliteAt(tfliteTensors, weightIndex, "tensor");
+    const auto* outputTensor = tfliteAt(tfliteTensors, outputIndex, "tensor");
+    if (nullptr == inputTensor || nullptr == weightTensor || nullptr == outputTensor) {
+        dstOp->type = MNN::OpType_MAX;
+        return;
+    }
+    const auto* weightBuffer = tfliteAt(tfliteModelBuffer, static_cast<int>(weightTensor->buffer), "buffer");
+    if (nullptr == weightBuffer) {
+        dstOp->type = MNN::OpType_MAX;
+        return;
+    }
     if (weightTensor->type == tflite::TensorType_INT8 || weightTensor->type == tflite::TensorType_INT4) {
         quantizedModel = 2;
         dstOp->type = MNN::OpType_Convolution;
@@ -146,7 +159,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         filter_hwcn.resize(weightSize);
         for (int i = 0; i < out_size; i++) {
             for (int j = 0; j < in_size; j++) {
-                filter_hwcn[i * in_size + j] = tfliteModelBuffer[weightTensor->buffer]->data[i + j * out_size];
+                filter_hwcn[i * in_size + j] = weightBuffer->data[i + j * out_size];
             }
         }
         conv2dParamQuan->weight = filter_hwcn;
@@ -202,20 +215,20 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         }
 
         // weight
-        if (tfliteModelBuffer[weightTensor->buffer]->data.data() == nullptr) {
+        if (weightBuffer->data.data() == nullptr) {
             //MNN_ERROR("Has not const weight data for tflite convolution\n");
             dstOp->main.value = convolution2DQuant.release();
             return;
         }
         std::vector<int8_t> weightTmp;
-        auto weight = reinterpret_cast<const int8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+        auto weight = reinterpret_cast<const int8_t*>(weightBuffer->data.data());
         if (weightTensor->type == tflite::TensorType_INT4) {
             // Add one to assume has enough memory
             weightTmp.resize(weightSize + 1);
-            auto originSize = tfliteModelBuffer[weightTensor->buffer]->data.size();
+            auto originSize = weightBuffer->data.size();
             // Int4 -> Int8
             int halfSize = (weightSize + 1) / 2;
-            auto srcInt4 = reinterpret_cast<const uint8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+            auto srcInt4 = reinterpret_cast<const uint8_t*>(weightBuffer->data.data());
             for (int v=0; v<halfSize; ++v) {
                 int srcValue = srcInt4[v];
                 weightTmp[2 * v] = srcValue & 0x0F;
@@ -230,7 +243,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
             weight = weightTmp.data();
         } else {
             MNN_ASSERT(weightTensor->type == tflite::TensorType_INT8);
-            MNN_ASSERT(tfliteModelBuffer[weightTensor->buffer]->data.size() == weightSize);
+            MNN_ASSERT(weightBuffer->data.size() == weightSize);
         }
 
         MNN_ASSERT(weightTensor->quantization->scale.size() == co);
@@ -295,7 +308,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         }
 
         // weight
-        if (tfliteModelBuffer[weightTensor->buffer]->data.data() == nullptr) {
+        if (weightBuffer->data.data() == nullptr) {
             //MNN_ERROR("Has not const weight data for tflite convolution\n");
             dstOp->main.value = convolution2DFloat.release();
             return;
@@ -305,13 +318,13 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         switch (weightTensor->type) {
             case tflite::TensorType_FLOAT32:
             {
-                auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+                auto originalWeightPtr = reinterpret_cast<const float*>(weightBuffer->data.data());
                 convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, co);
                 break;
             }
             case tflite::TensorType_UINT8:
             {
-                auto originalWeightPtr = reinterpret_cast<const int8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+                auto originalWeightPtr = reinterpret_cast<const int8_t*>(weightBuffer->data.data());
                 convertDataFormatTfliteDequant<int8_t>(originalWeightPtr, weightData.data(), kh, kw, ci, co, weightTensor->quantization.get());
                 break;
             }

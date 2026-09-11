@@ -516,25 +516,31 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     int prefer_candidate = 10;
     for (auto& candidate : candidates) {
         mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, candidate);
-        Timer _t;
-        std::vector<int> input_ids(decode_seq, 0);
-        auto outputs = forwardVec(input_ids);
-        if(outputs.empty()) {
-            return;
+        // Perf noise is additive-positive, so min-of-reps is the robust pick.
+        int64_t candidate_time = INT64_MAX;
+        for (int rep = 0; rep < 3; ++rep) {
+            Timer _t;
+            std::vector<int> input_ids(decode_seq, 0);
+            auto outputs = forwardVec(input_ids);
+            if(outputs.empty()) {
+                return;
+            }
+            auto logits = outputs[0];
+            if (nullptr == logits.get()) {
+                return;
+            }
+            if (logits->getInfo()->size == 0) {
+                return;
+            }
+            auto token   = sample(logits);
+            auto rep_time = _t.durationInUs();
+            if (rep_time < candidate_time) {
+                candidate_time = rep_time;
+            }
         }
-        auto logits = outputs[0];
-        if (nullptr == logits.get()) {
-            return;
-        }
-        if (logits->getInfo()->size == 0) {
-            return;
-        }
-        auto token   = sample(logits);
-        auto time = _t.durationInUs();
-        if (time < min_time) {
+        if (candidate_time < min_time) {
             prefer_candidate = candidate;
-            min_time         = time;
-            // MNN_PRINT("op encode number:%d, decode time: %lld us\n", candidate, time);
+            min_time         = candidate_time;
         }
     }
     mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, prefer_candidate);
