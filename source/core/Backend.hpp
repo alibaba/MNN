@@ -62,8 +62,8 @@ struct RuntimeHint {
     int mmapFileSize = 1024; // MB
     int useCachedMmap = 0;
 
-    // op encoder number for once commit
-    int encorderNumForCommit = 10;
+    // -1 selects the backend default for op encoders per commit.
+    int encorderNumForCommit = -1;
     int initThreadNumber = 0;
 
     // whether to use Arm sme2 cores when threads>1

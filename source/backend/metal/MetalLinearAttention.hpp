@@ -96,6 +96,11 @@ private:
     std::shared_ptr<Tensor> mQ;       // [B, L, H, d_k]
     std::shared_ptr<Tensor> mK;       // [B, L, H, d_k]
     std::shared_ptr<Tensor> mV;       // [B, L, H, d_v]
+    // chunk64 per-token scalars produced by prep and consumed by the serial scan:
+    // [B*H, 4, roundup(L, 64)] as {gate cumsum, beta, 1/|q|, 1/|k|}.  Declared
+    // int32 so fp16 precision does not halve the storage — the gate cumsum
+    // reaches -1920 within a chunk and needs fp32 exponent differences.
+    std::shared_ptr<Tensor> mChunkStats;
     // Param buffer for shader
     id<MTLBuffer> mParamBuffer;
     // Flushes a pending block outside the verify path: seq_len = 0 plus the commit fields.
@@ -103,6 +108,7 @@ private:
 
     // Pipeline states
     id<MTLComputePipelineState> mConvSiluPipeline;
+    id<MTLComputePipelineState> mConvSiluRow4Pipeline = nil;
     id<MTLComputePipelineState> mConvSiluStateDecodePipeline = nil;
     id<MTLComputePipelineState> mConvStateUpdatePipeline;
     id<MTLComputePipelineState> mQKVPrepPipeline;
@@ -110,6 +116,7 @@ private:
     id<MTLComputePipelineState> mGatedDeltaRulePipeline;
     id<MTLComputePipelineState> mGatedDeltaRuleSGPipeline;
     id<MTLComputePipelineState> mGatedDeltaRuleSGV4Pipeline = nil;
+    id<MTLComputePipelineState> mGatedDeltaRuleSGV2Pipeline = nil;
     id<MTLComputePipelineState> mGatedDeltaRuleFusedSGPipeline;
     id<MTLComputePipelineState> mFusedSGAlignPipeline     = nil;
     int mFusedSGAlignSimds = 4;

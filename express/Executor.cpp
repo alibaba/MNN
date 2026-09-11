@@ -181,6 +181,10 @@ std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type,
     info.user = const_cast<BackendConfig*>(&config);
     std::shared_ptr<Runtime> runtime(creator->onCreate(info));
     auto executor = new Executor(runtime, type, numberThread);
+    // The runtime was created from `config`; the attr must agree, otherwise
+    // backends built later from this executor use the default precision.
+    executor->mAttr->config = config;
+    executor->mAttr->config.sharedContext = nullptr;
     return std::shared_ptr<Executor>(executor);
 }
 

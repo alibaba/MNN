@@ -1079,6 +1079,9 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
     const bool useFusedFp16 = bytes == 2 && gcore->MNNFusedGatedDelta != nullptr;
     const int totalGroups = B * H_k;
     std::atomic<int> nextGroup(0);
+    // MNN_CONCURRENCY_BEGIN is a GCD block on Apple: captured variables are
+    // const copies, so reach the counter through a pointer to keep it mutable.
+    auto* pNextGroup = &nextGroup;
 
     // Conv1D + SiLU for one channel (global index in B*D), shifting its conv state in place.
     auto doConvChannel = [&](int ch) {
@@ -1136,7 +1139,7 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
         float* qkFp32 = reinterpret_cast<float*>(tBuf + (2 * d_k + 3 * d_v) * bytes);
 
         for (;;) {
-            const int g = nextGroup.fetch_add(1, std::memory_order_relaxed);
+            const int g = pNextGroup->fetch_add(1, std::memory_order_relaxed);
             if (g >= totalGroups) {
                 break;
             }

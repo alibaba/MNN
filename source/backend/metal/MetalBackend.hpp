@@ -87,6 +87,14 @@ public:
     bool preferM64Gemm() {
         return mPreferM64Gemm;
     }
+    // High-bandwidth M4 tier: M4 Pro, verified as architecture applegpu_g16s.
+    // Its DRAM feeds ~273 GB/s vs M4 base's ~120, so a decode-SDPA dispatch wants
+    // twice the in-flight threads to saturate it: threadgroup*nsg product 512
+    // instead of 256. Max/Ultra are deliberately NOT included (unmeasured); see
+    // the note at the assignment in MetalBackend.mm. Resolved at runtime init.
+    bool isHighBandwidthM4() {
+        return mHighBandwidthM4;
+    }
     void setGpuMode(const int cl_mode_num);
     void setCommandQueue(id<MTLCommandQueue> queue, bool userSync);
     id<MTLCommandQueue> getCommandQueue() const {
@@ -167,6 +175,7 @@ private:
     bool mTensorOps;
     bool mPreferInShaderPrefillDequant = false;
     bool mPreferM64Gemm = false;
+    bool mHighBandwidthM4 = false;
     size_t mMaxThreadSize;
 };
 
@@ -223,6 +232,12 @@ public:
     static uint8_t* getMemPtr(const MemChunk& chunk);
     static void setBuffer(id<MTLBuffer> buffer, int offset, id<MTLComputeCommandEncoder> encoder, int index);
     static std::pair<id<MTLBuffer>, int> getBuffer(const MNN::Tensor* tensor);
+    // Point `tensor` at `owner`'s allocation, `byteOffset` past owner's own start,
+    // releasing whatever `tensor` held. For fused executions that lay several
+    // tensors into one allocation; the caller must keep `owner` alive at least as
+    // long as `tensor` is read, and must re-apply this after every resize (the
+    // allocator re-assigns the aliased tensors from scratch).
+    static void aliasTensor(const Tensor* tensor, const Tensor* owner, size_t byteOffset);
     size_t getTensorSizeInBytes(const Tensor* tensor) const;
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
     id<MTLBuffer> getHostBuffer(size_t size) const;

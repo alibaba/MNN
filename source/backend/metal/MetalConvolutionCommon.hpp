@@ -30,17 +30,17 @@ private:
     void convertWeightFormat(int group, int oc, int ic, int kh, int kw, const FType *src, TType* dstOrigion, Tensor* dstTensor, id<MTLBuffer> srcGpuBuffer);
 protected:
     struct Param {
-        int input_size;
-        int input_slice;
-        int output_width;
-        int output_height;
-        int output_size;
-        int output_slice;
-        int output_channel;
+        int inputSize;
+        int inputDepthQuad;
+        int outputWidth;
+        int outputHeight;
+        int outputSize;
+        int outputDepthQuad;
+        int outputChannel;
         int batch;
-        int block_size;
+        int blockCount;
         int activation;
-        float scale_coef;
+        float scaleCoef;
     };
     
 protected:

@@ -4,7 +4,7 @@
 //
 //  Standalone GEMV bandwidth microbenchmark for the MNN CPU backend.
 //
-//  Mirrors llama.cpp's gemv_roofline.cpp layout: pick a single (M, K) shape,
+//  Layout: pick a single (M, K) shape,
 //  sweep thread counts, measure decode-batch (= 1) latency for w8 / w4 / w3 / w2,
 //  and report effective bandwidth vs. the 4-thread / sweeping memcpy ceiling.
 //
@@ -167,7 +167,7 @@ static GemvResult benchGemv(int M, int K, int nbit, int blocksize, int precision
     r.avgUs = bestUs;
     // Weight buffer storage we actually pull from DRAM each decode.
     // Counts packed weight + per-block scale/zp (fp16 each), but not the input vector
-    // (small) and not the output (1 row).  Matches llama.cpp's W bytes accounting.
+    // (small) and not the output (1 row).
     double pureWeight = (double)oc * ic * nbit / 8.0;
     double scaleZp = (double)oc * blockNum * 2.0 * 2.0; // alpha + bias as fp16
     r.weightBytes = pureWeight + scaleZp;
@@ -182,9 +182,12 @@ static GemvResult benchGemv(int M, int K, int nbit, int blocksize, int precision
 class GemvBWTest : public MNNTestCase {
 public:
     virtual bool run(int precision) override {
-        // Defaults match llama.cpp's gemv_roofline.cpp.
+        // Default shape is a Llama-3-8B-style FFN projection.
         int M = 4096;
         int K = 14336;
+        // Optional shape overrides for decode-attribution runs, e.g.
+        // Qwen3-0.6B plain convs: o_proj (1024,2048), down (1024,3072),
+        // lm_head (151936,1024).
         if (const char* e = getenv("MNN_GEMVBW_M")) {
             if (atoi(e) > 0) M = atoi(e);
         }
@@ -218,6 +221,9 @@ public:
         // Metal supports w8 / w4 / w3 / w2 hybrid quant GEMV (decode, area==1) via
         // the 2sg kernel (see MetalConvolution1x1.mm conv1x1_gemv_g4m1_2sg_wquant_sg).
         std::vector<int> bitsList = {8, 4, 3, 2};
+        if (const char* e = getenv("MNN_GEMVBW_BITS")) {
+            if (atoi(e) > 0) bitsList = {atoi(e)};
+        }
         for (int nbit : bitsList) {
             GemvResult r = benchGemv(M, K, nbit, blocksize, precision, threads, iters, forwardType);
             double bpe = r.weightBytes / ((double)M * K);

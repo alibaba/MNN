@@ -1,6 +1,6 @@
 ---
 name: cpu-optimize
-description: MNN CPU 后端性能归因分支（`skills/cpu/` 下，另一分支是 `cpu/kernel` kernel 开发）。按五层（Runtime 线程 / Executor 调度 / Layout 内存 / Dispatch 函数表 / Kernel ISA）定位瓶颈，含 bound 类型判定、op 级实验回路、跨框架 op 对 op 对比、跨层不一致的事后定位，以及 ARM / x86_64 / RISC-V 三侧「我到底跑在哪条 ISA 路径上」的诊断面。CPU 上算子或 LLM prefill/decode 慢、线程数或内存占用异常、出现性能回归、要与 llama.cpp 等框架逐算子对比时使用。
+description: MNN CPU 后端性能归因分支（`skills/cpu/` 下，另一分支是 `cpu/kernel` kernel 开发）。按五层（Runtime 线程 / Executor 调度 / Layout 内存 / Dispatch 函数表 / Kernel ISA）定位瓶颈，含 bound 类型判定、op 级实验回路、跨框架 op 对 op 对比、跨层不一致的事后定位，以及 ARM / x86_64 / RISC-V 三侧「我到底跑在哪条 ISA 路径上」的诊断面。CPU 上算子或 LLM prefill/decode 慢、线程数或内存占用异常、出现性能回归、要与外部推理框架逐算子对比时使用。
 ---
 
 # MNN CPU 后端性能优化

@@ -1041,7 +1041,7 @@ def build_args(parser):
     parser.add_argument('--disable_fuse_linear_attn_gate', dest='fuse_linear_attn_gate', action='store_false',
                         help='Disable the linear-attention gate fold. Needed for engines predating gate_fold support: they ignore the flag and consume the raw `a` projection as the decay gate, which is wrong output rather than a load error.')
     parser.add_argument('--disable_fuse_qkv_proj', dest='fuse_qkv_proj', action='store_false', default=True,
-                        help='Do not let MNNConvert group shared-input q/k/v (and linear-attention) projections into one FusedLinear op.')
+                        help='Do not let MNNConvert group shared-input q/k/v projections of regular Attention into one FusedLinear op. (Linear-attention in_proj projections are always fused regardless of this flag, since the LinearAttention op requires C4-fused inputs.)')
     parser.add_argument('--disable_fuse_gate_up_proj', dest='fuse_gate_up_proj', action='store_false', default=True,
                         help='Do not let MNNConvert group dense SwiGLU gate/up projections into one FusedLinear op.')
     parser.add_argument('--disable_fuse_ln_proj', dest='fuse_ln_proj', action='store_false', default=True,

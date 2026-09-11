@@ -2,17 +2,17 @@
 #define CONV_UNROLL_L (8)
 
 struct conv1x1_constants {
-    int input_size;
-    int input_slice;
-    int output_width;
-    int output_height;
-    int output_size;
-    int output_slice;
-    int output_channel;
+    int inputSize;
+    int inputDepthQuad;
+    int outputWidth;
+    int outputHeight;
+    int outputSize;
+    int outputDepthQuad;
+    int outputChannel;
     int batch;
-    int block_size;
+    int blockCount;
     conv_activation_type activation;
-    float scale_coef;
+    float scaleCoef;
 };
 
 kernel void conv1x1_g1z4(const device ftype4 *in            [[buffer(0)]],
@@ -21,18 +21,18 @@ kernel void conv1x1_g1z4(const device ftype4 *in            [[buffer(0)]],
                          const device ftype4x4 *wt          [[buffer(3)]],
                          const device ftype4 *biasTerms     [[buffer(4)]],
                          uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x * CONV_UNROLL >= cst.output_size || (int)gid.y >= cst.output_slice || (int)gid.z >= cst.batch) return;
+    if ((int)gid.x * CONV_UNROLL >= cst.outputSize || (int)gid.y >= cst.outputDepthQuad || (int)gid.z >= cst.batch) return;
     
     int rx = gid.x * CONV_UNROLL;
     int uz = gid.y;
-    auto xy_wt = wt + uz * cst.input_slice;
-    auto xy_in0  = in  + (int)gid.z  * cst.input_size + rx + 0;
-    auto xy_out = out + (int)gid.z * cst.output_size + uz * cst.output_size * cst.batch + rx;
+    auto xy_wt = wt + uz * cst.inputDepthQuad;
+    auto xy_in0  = in  + (int)gid.z  * cst.inputSize + rx + 0;
+    auto xy_out = out + (int)gid.z * cst.outputSize + uz * cst.outputSize * cst.batch + rx;
     auto biasValue = FLOAT4(biasTerms[uz]);
     FLOAT4 result0 = biasValue, result1 = biasValue, result2 = biasValue, result3 = biasValue;
-    int computeSize = min(cst.output_size - rx, CONV_UNROLL);
+    int computeSize = min(cst.outputSize - rx, CONV_UNROLL);
 
-    for (auto z = 0; z < cst.input_slice; z++) {
+    for (auto z = 0; z < cst.inputDepthQuad; z++) {
         auto in40 = *xy_in0;
         auto in41 = *(xy_in0 + 1);
         auto in42 = *(xy_in0 + 2);
@@ -43,7 +43,7 @@ kernel void conv1x1_g1z4(const device ftype4 *in            [[buffer(0)]],
         result1 += FLOAT4(in41 * w);
         result2 += FLOAT4(in42 * w);
         result3 += FLOAT4(in43 * w);
-        xy_in0 += cst.input_size * cst.batch;
+        xy_in0 += cst.inputSize * cst.batch;
     }
     
     /* true                               */ *xy_out = activate(ftype4(result0), cst.activation);
@@ -59,24 +59,24 @@ kernel void conv1x1_g1z4_w8(const device ftype4 *in            [[buffer(0)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x * CONV_UNROLL >= cst.output_size || (int)gid.y >= cst.output_slice || (int)gid.z >= cst.batch) return;
+    if ((int)gid.x * CONV_UNROLL >= cst.outputSize || (int)gid.y >= cst.outputDepthQuad || (int)gid.z >= cst.batch) return;
 
     int rx = gid.x * CONV_UNROLL;
     int uz = gid.y;
-    auto xy_wt = wt + uz * cst.input_slice;
-    auto xy_in0  = in  + (int)gid.z  * cst.input_size + rx + 0;
-    auto xy_out = out + (int)gid.z * cst.output_size + uz * cst.output_size * cst.batch + rx;
+    auto xy_wt = wt + uz * cst.inputDepthQuad;
+    auto xy_in0  = in  + (int)gid.z  * cst.inputSize + rx + 0;
+    auto xy_out = out + (int)gid.z * cst.outputSize + uz * cst.outputSize * cst.batch + rx;
     auto biasValue = FLOAT4(biasTerms[uz]);
     FLOAT4 result0 = biasValue, result1 = biasValue, result2 = biasValue, result3 = biasValue;
-    int computeSize = min(cst.output_size - rx, CONV_UNROLL);
-    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
-    for (int bi=0; bi<cst.block_size; ++bi) {
-        FLOAT4 bs0 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
-        FLOAT4 bs1 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
+    int computeSize = min(cst.outputSize - rx, CONV_UNROLL);
+    int quadsPerBlock = (cst.inputDepthQuad + cst.blockCount - 1) / cst.blockCount;
+    for (int bi=0; bi<cst.blockCount; ++bi) {
+        FLOAT4 bs0 = FLOAT4(dequantScale[2 * (uz * cst.blockCount + bi) + 0]) / (FLOAT)cst.scaleCoef;
+        FLOAT4 bs1 = FLOAT4(dequantScale[2 * (uz * cst.blockCount + bi) + 1]) / (FLOAT)cst.scaleCoef;
         FLOAT4 scale = bs0;
         FLOAT4 dequant_bias = bs1;
-        int zmin = bi * block;
-        int zmax = min(zmin + block, cst.input_slice);
+        int zmin = bi * quadsPerBlock;
+        int zmax = min(zmin + quadsPerBlock, cst.inputDepthQuad);
         for (int z = zmin; z < zmax; z++) {
             auto in40 = (FLOAT4)*xy_in0;
             auto in41 = computeSize > 1 ? (FLOAT4)*(xy_in0 + 1) : (FLOAT4)0.0;
@@ -92,7 +92,7 @@ kernel void conv1x1_g1z4_w8(const device ftype4 *in            [[buffer(0)]],
             result1 += FLOAT4(in41 * w_dequant);
             result2 += FLOAT4(in42 * w_dequant);
             result3 += FLOAT4(in43 * w_dequant);
-            xy_in0 += cst.input_size * cst.batch;
+            xy_in0 += cst.inputSize * cst.batch;
         }
     }
     /* true */ 
@@ -110,22 +110,22 @@ kernel void conv1x1_g1z4_w4(const device ftype4 *in            [[buffer(0)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x * CONV_UNROLL >= cst.output_size || (int)gid.y >= cst.output_slice || (int)gid.z >= cst.batch) return;
+    if ((int)gid.x * CONV_UNROLL >= cst.outputSize || (int)gid.y >= cst.outputDepthQuad || (int)gid.z >= cst.batch) return;
 
     int rx = gid.x * CONV_UNROLL;
     int uz = gid.y;
-    auto xy_wt = wt + uz * cst.input_slice;
-    auto xy_in0  = in  + (int)gid.z  * cst.input_size + rx + 0;
-    auto xy_out = out + (int)gid.z * cst.output_size + uz * cst.output_size * cst.batch + rx;
+    auto xy_wt = wt + uz * cst.inputDepthQuad;
+    auto xy_in0  = in  + (int)gid.z  * cst.inputSize + rx + 0;
+    auto xy_out = out + (int)gid.z * cst.outputSize + uz * cst.outputSize * cst.batch + rx;
     auto biasValue = FLOAT4(biasTerms[uz]);
     FLOAT4 result0 = biasValue, result1 = biasValue, result2 = biasValue, result3 = biasValue;
-    int computeSize = min(cst.output_size - rx, CONV_UNROLL);
-    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
-    for (int bi=0; bi<cst.block_size; ++bi) {
-        FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
-        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
-        int zmin = bi * block;
-        int zmax = min(zmin + block, cst.input_slice);
+    int computeSize = min(cst.outputSize - rx, CONV_UNROLL);
+    int quadsPerBlock = (cst.inputDepthQuad + cst.blockCount - 1) / cst.blockCount;
+    for (int bi=0; bi<cst.blockCount; ++bi) {
+        FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.blockCount + bi) + 0]) / (FLOAT)cst.scaleCoef;
+        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.blockCount + bi) + 1]) / (FLOAT)cst.scaleCoef;
+        int zmin = bi * quadsPerBlock;
+        int zmax = min(zmin + quadsPerBlock, cst.inputDepthQuad);
         for (int z = zmin; z < zmax; z++) {
             auto in40 = (FLOAT4)*xy_in0;
             auto in41 = (FLOAT4)*(xy_in0 + 1);
@@ -147,7 +147,7 @@ kernel void conv1x1_g1z4_w4(const device ftype4 *in            [[buffer(0)]],
             result1 += FLOAT4(in41 * w_dequant);
             result2 += FLOAT4(in42 * w_dequant);
             result3 += FLOAT4(in43 * w_dequant);
-            xy_in0 += cst.input_size * cst.batch;
+            xy_in0 += cst.inputSize * cst.batch;
         }
     }
     
@@ -164,20 +164,20 @@ kernel void conv1x1_g1z8(const device ftype4 *in            [[buffer(0)]],
                          const device ftype4x4 *wt          [[buffer(3)]],
                          const device ftype4 *biasTerms     [[buffer(4)]],
                          uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x * CONV_UNROLL_L >= cst.output_size || (int)gid.y >= cst.output_slice || (int)gid.z >= cst.batch) return;
+    if ((int)gid.x * CONV_UNROLL_L >= cst.outputSize || (int)gid.y >= cst.outputDepthQuad || (int)gid.z >= cst.batch) return;
 
     int rx = gid.x * CONV_UNROLL_L;
     int uz = gid.y;
-    auto xy_wt = wt + uz * cst.input_slice;
-    auto xy_in0  = in  + (int)gid.z  * cst.input_size + rx + 0;
+    auto xy_wt = wt + uz * cst.inputDepthQuad;
+    auto xy_in0  = in  + (int)gid.z  * cst.inputSize + rx + 0;
 
-    auto xy_out = out + (int)gid.z * cst.output_size + uz * cst.batch * cst.output_size + rx;
+    auto xy_out = out + (int)gid.z * cst.outputSize + uz * cst.batch * cst.outputSize + rx;
     auto biasValue = FLOAT4(biasTerms[uz]);
     FLOAT4 result0 = biasValue, result1 = biasValue, result2 = biasValue, result3 = biasValue;
     FLOAT4 result4 = biasValue, result5 = biasValue, result6 = biasValue, result7 = biasValue;
 
-    int computeSize = min(cst.output_size - rx, CONV_UNROLL_L);
-    for (auto z = 0; z < cst.input_slice; z++) {
+    int computeSize = min(cst.outputSize - rx, CONV_UNROLL_L);
+    for (auto z = 0; z < cst.inputDepthQuad; z++) {
             auto in40 = xy_in0[0];
             auto in41 = xy_in0[1];
             auto in42 = xy_in0[2];
@@ -197,7 +197,7 @@ kernel void conv1x1_g1z8(const device ftype4 *in            [[buffer(0)]],
             result5 += FLOAT4(in45 * w);
             result6 += FLOAT4(in46 * w);
             result7 += FLOAT4(in47 * w);
-            xy_in0 += cst.input_size * cst.batch;
+            xy_in0 += cst.inputSize * cst.batch;
     }
 
     /* true                               */ *xy_out = activate(ftype4(result0), cst.activation);
@@ -216,24 +216,24 @@ kernel void conv1x1_w4h4(const device ftype4 *in            [[buffer(0)]],
                          const device ftype4x4 *wt          [[buffer(3)]],
                          const device ftype4 *biasTerms     [[buffer(4)]],
                          uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x * 16 >= cst.output_width || (int)gid.y >= cst.batch * cst.output_slice) return;
+    if ((int)gid.x * 16 >= cst.outputWidth || (int)gid.y >= cst.batch * cst.outputDepthQuad) return;
 
     int idx_w = gid.x << 4;
     int idx_h = 0;
     int idx_c = gid.y / cst.batch;
     int idx_b = gid.y % cst.batch;
 
-    auto xy_wt = wt + idx_c * cst.input_slice;
-    auto xy_in0  = in  + (int)idx_b * cst.input_size + idx_h * cst.output_width + idx_w;
+    auto xy_wt = wt + idx_c * cst.inputDepthQuad;
+    auto xy_in0  = in  + (int)idx_b * cst.inputSize + idx_h * cst.outputWidth + idx_w;
 
-    auto xy_out = out + (int)idx_b * cst.output_size + idx_c * cst.output_size * cst.batch + idx_h * cst.output_width + idx_w;
+    auto xy_out = out + (int)idx_b * cst.outputSize + idx_c * cst.outputSize * cst.batch + idx_h * cst.outputWidth + idx_w;
     auto biasValue = FLOAT4(biasTerms[idx_c]);
     FLOAT4 result00 = biasValue, result01 = biasValue, result02 = biasValue, result03 = biasValue;
     FLOAT4 result10 = biasValue, result11 = biasValue, result12 = biasValue, result13 = biasValue;
     FLOAT4 result20 = biasValue, result21 = biasValue, result22 = biasValue, result23 = biasValue;
     FLOAT4 result30 = biasValue, result31 = biasValue, result32 = biasValue, result33 = biasValue;
 
-    for (auto z = 0; z < cst.input_slice; z++) {
+    for (auto z = 0; z < cst.inputDepthQuad; z++) {
         auto in00 = xy_in0[0];
         auto in01 = xy_in0[1];
         auto in02 = xy_in0[2];
@@ -273,10 +273,10 @@ kernel void conv1x1_w4h4(const device ftype4 *in            [[buffer(0)]],
         result32 += FLOAT4(in32 * w);
         result33 += FLOAT4(in33 * w);
         
-        xy_in0 += cst.input_size * cst.batch;
+        xy_in0 += cst.inputSize * cst.batch;
     }
 
-    int widthSize = min(cst.output_width - idx_w, 16);
+    int widthSize = min(cst.outputWidth - idx_w, 16);
     /* true            */ *xy_out = activate(ftype4(result00), cst.activation);
     if (widthSize > 1) {xy_out[1] = activate(ftype4(result01), cst.activation); }
     if (widthSize > 2) {xy_out[2] = activate(ftype4(result02), cst.activation); }
@@ -302,47 +302,47 @@ kernel void conv1x1_w2c2(const device ftype4 *in            [[buffer(0)]],
                          const device ftype4x4 *wt          [[buffer(3)]],
                          const device ftype4 *biasTerms     [[buffer(4)]],
                          uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x * 2 >= cst.output_width || (int)gid.y * 2 >= cst.batch * cst.output_slice) return;
+    if ((int)gid.x * 2 >= cst.outputWidth || (int)gid.y * 2 >= cst.batch * cst.outputDepthQuad) return;
 
-    int channel_pack = (cst.output_channel + 7) >> 3;
+    int channel_pack = (cst.outputChannel + 7) >> 3;
     int idx_w = gid.x << 1;
     int idx_h = 0;
     int idx_c = (gid.y % channel_pack) << 1;
     int idx_b = gid.y / channel_pack;
     
-    if(idx_b >=  cst.batch || idx_c >= cst.output_slice) return;
-    auto xy_wt = wt + idx_c * cst.input_slice;
-    auto xy_in0  = in  + (int)idx_b * cst.input_size + idx_h * cst.output_width + idx_w;
+    if(idx_b >=  cst.batch || idx_c >= cst.outputDepthQuad) return;
+    auto xy_wt = wt + idx_c * cst.inputDepthQuad;
+    auto xy_in0  = in  + (int)idx_b * cst.inputSize + idx_h * cst.outputWidth + idx_w;
 
-    auto xy_out = out + (int)idx_b * cst.output_size + idx_c * cst.output_size * cst.batch + idx_h * cst.output_width + idx_w;
+    auto xy_out = out + (int)idx_b * cst.outputSize + idx_c * cst.outputSize * cst.batch + idx_h * cst.outputWidth + idx_w;
     auto biasValue0 = FLOAT4(biasTerms[idx_c]);
     auto biasValue1 = FLOAT4(biasTerms[idx_c+1]);
 
     FLOAT4 result0 = biasValue0, result1 = biasValue0;
     FLOAT4 result4 = biasValue1, result5 = biasValue1;
 
-    for (auto z = 0; z < cst.input_slice; z++) {
+    for (auto z = 0; z < cst.inputDepthQuad; z++) {
         auto in40 = xy_in0[0];
         auto in41 = xy_in0[1];
 
         auto w0 = xy_wt[z];
-        auto w1 = xy_wt[cst.input_slice+z];
+        auto w1 = xy_wt[cst.inputDepthQuad+z];
 
         result0 += FLOAT4(in40 * w0);
         result1 += FLOAT4(in41 * w0);
         result4 += FLOAT4(in40 * w1);
         result5 += FLOAT4(in41 * w1);
-        xy_in0 += cst.input_size * cst.batch;
+        xy_in0 += cst.inputSize * cst.batch;
     }
 
-    int widthSize = min(cst.output_width - idx_w, 2);
+    int widthSize = min(cst.outputWidth - idx_w, 2);
     /* true            */ *xy_out = activate(ftype4(result0), cst.activation);
     if (widthSize > 1) {xy_out[1] = activate(ftype4(result1), cst.activation); }
     
-    int channelSize = min(cst.output_slice - idx_c, 2);
+    int channelSize = min(cst.outputDepthQuad - idx_c, 2);
     if(channelSize > 1) {
-        /* true         */ {xy_out[cst.output_size * cst.batch +0] = activate(ftype4(result4), cst.activation); }
-        if (widthSize > 1) {xy_out[cst.output_size * cst.batch +1] = activate(ftype4(result5), cst.activation); }
+        /* true         */ {xy_out[cst.outputSize * cst.batch +0] = activate(ftype4(result4), cst.activation); }
+        if (widthSize > 1) {xy_out[cst.outputSize * cst.batch +1] = activate(ftype4(result5), cst.activation); }
     }
 }
 
@@ -352,19 +352,19 @@ kernel void conv1x1_w4c2(const device ftype4 *in            [[buffer(0)]],
                          const device ftype4x4 *wt          [[buffer(3)]],
                          const device ftype4 *biasTerms     [[buffer(4)]],
                          uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x * 4 >= cst.output_width || (int)gid.y * 2 >= cst.batch * cst.output_slice) return;
+    if ((int)gid.x * 4 >= cst.outputWidth || (int)gid.y * 2 >= cst.batch * cst.outputDepthQuad) return;
 
-    int channel_pack = (cst.output_channel + 7) >> 3;
+    int channel_pack = (cst.outputChannel + 7) >> 3;
     int idx_w = gid.x << 2;
     int idx_h = 0;
     int idx_c = (gid.y % channel_pack) << 1;
     int idx_b = gid.y / channel_pack;
 
-    if(idx_b >=  cst.batch || idx_c >= cst.output_slice) return;
-    auto xy_wt = wt + idx_c * cst.input_slice;
-    auto xy_in0  = in  + (int)idx_b * cst.input_size + idx_h * cst.output_width + idx_w;
+    if(idx_b >=  cst.batch || idx_c >= cst.outputDepthQuad) return;
+    auto xy_wt = wt + idx_c * cst.inputDepthQuad;
+    auto xy_in0  = in  + (int)idx_b * cst.inputSize + idx_h * cst.outputWidth + idx_w;
 
-    auto xy_out = out + (int)idx_b * cst.output_size + idx_c * cst.output_size * cst.batch + idx_h * cst.output_width + idx_w;
+    auto xy_out = out + (int)idx_b * cst.outputSize + idx_c * cst.outputSize * cst.batch + idx_h * cst.outputWidth + idx_w;
     auto biasValue0 = FLOAT4(biasTerms[idx_c]);
     auto biasValue1 = FLOAT4(biasTerms[idx_c+1]);
 
@@ -372,14 +372,14 @@ kernel void conv1x1_w4c2(const device ftype4 *in            [[buffer(0)]],
     FLOAT4 result4 = biasValue0, result5 = biasValue0;
     FLOAT4 result2 = biasValue1, result3 = biasValue1;
     FLOAT4 result6 = biasValue1, result7 = biasValue1;
-    for (auto z = 0; z < cst.input_slice; z++) {
+    for (auto z = 0; z < cst.inputDepthQuad; z++) {
         auto in40 = xy_in0[0];
         auto in41 = xy_in0[1];
         auto in44 = xy_in0[2];
         auto in45 = xy_in0[3];
 
         auto w0 = xy_wt[z];
-        auto w1 = xy_wt[cst.input_slice+z];
+        auto w1 = xy_wt[cst.inputDepthQuad+z];
 
         result0 += FLOAT4(in40 * w0);
         result1 += FLOAT4(in41 * w0);
@@ -389,20 +389,20 @@ kernel void conv1x1_w4c2(const device ftype4 *in            [[buffer(0)]],
         result3 += FLOAT4(in41 * w1);
         result6 += FLOAT4(in44 * w1);
         result7 += FLOAT4(in45 * w1);
-        xy_in0 += cst.input_size * cst.batch;
+        xy_in0 += cst.inputSize * cst.batch;
     }
 
-    int widthSize = min(cst.output_width - idx_w, 4);
+    int widthSize = min(cst.outputWidth - idx_w, 4);
     /* true            */ *xy_out = activate(ftype4(result0), cst.activation);
     if (widthSize > 1) {xy_out[1] = activate(ftype4(result1), cst.activation); }
     if (widthSize > 2) {xy_out[2] = activate(ftype4(result4), cst.activation); }
     if (widthSize > 3) {xy_out[3] = activate(ftype4(result5), cst.activation); }
         
-    int channelSize = min(cst.output_slice - idx_c, 2);
+    int channelSize = min(cst.outputDepthQuad - idx_c, 2);
     if(channelSize > 1) {
-        /* true         */  xy_out[cst.output_size * cst.batch]   = activate(ftype4(result2), cst.activation);
-        if (widthSize > 1) {xy_out[cst.output_size * cst.batch +1] = activate(ftype4(result3), cst.activation); }
-        if (widthSize > 2) {xy_out[cst.output_size * cst.batch +2] = activate(ftype4(result6), cst.activation); }
-        if (widthSize > 3) {xy_out[cst.output_size * cst.batch +3] = activate(ftype4(result7), cst.activation); }
+        /* true         */  xy_out[cst.outputSize * cst.batch]   = activate(ftype4(result2), cst.activation);
+        if (widthSize > 1) {xy_out[cst.outputSize * cst.batch +1] = activate(ftype4(result3), cst.activation); }
+        if (widthSize > 2) {xy_out[cst.outputSize * cst.batch +2] = activate(ftype4(result6), cst.activation); }
+        if (widthSize > 3) {xy_out[cst.outputSize * cst.batch +3] = activate(ftype4(result7), cst.activation); }
     }
 }

@@ -6,11 +6,25 @@
 > **一句话现状**：**Metal 后端已零图匹配**。融合分组全部由**导出图声明**，
 > 后端只按声明去装配 leader/follower 单 dispatch。历史上后端里那套运行时模式匹配
 > （`matchQKVFusions` / `matchLNFusions` / `matchLinearAttnGatedNormFolds` + 7 张注册表）
-> 已在 2026-08-05/08-06 全部删除。
+> 已全部删除。
 >
 > 相关文档：kernel 本身怎么写见 [`kernel-dev-and-optimize.md`](./kernel-dev-and-optimize.md)；
 > 调度层（fence / replay / H2D）见 [`runtime-scheduling.md`](./runtime-scheduling.md)；
 > env 开关见 [`env-registry.md`](./env-registry.md)。
+
+> ## ⛔ 本文件的记录规则
+>
+> 1. **只写链路与机制**：一项融合在导出 / converter / geometry / 后端各环节是怎么声明和装配的、
+>    为什么这么切分、哪一环断掉会静默回退。
+> 2. **不写日期**：某一项融合什么时候开始做、什么时候落地、什么时候被删，一律不写。
+>    需要表达"这是历史遗留、不要往回走"时，直接说结论（"已删除，勿重启"），不给时间戳。
+> 3. **不写性能收益**：该融合赚了多少（百分比、t/s、ms、体积变化、扫点表、配对明细、
+>    两臂对照表）一律不进本文件。收益只以**定性方向**出现（"消掉一次 dispatch 与中间张量往返"），
+>    判负结论只写**为什么这条路不成立**，不附数字。
+> 4. **陷阱要留**：会让人重复踩的别名 / 谓词分叉 / 布局错位陷阱是操作知识，
+>    写"触发条件 + 规矩 + 验证方式"，不写事故经过与修复时间。
+> 5. 环境变量只在本文件中作为**路径开关**被引用；名称、默认值、语义的唯一登记处是
+>    [`env-registry.md`](./env-registry.md)。
 
 ---
 
@@ -139,7 +153,8 @@ convs[1]=up，`out = up * silu(gate)`）。构造顺序沿用旧导出约定：q
 所以同一个 .mnn 模型在任何后端上跑得到完全相同的数值结果，只是没有融合收益。
 
 `GeometryGatedRMSNorm` 同理：`OpCommonUtils::gatedRMSNormFusable` 通过才整 op 透传，
-否则分解 `LayerNorm + SILU + MUL`。prefill 与非 Metal 后端都走分解。
+否则分解 `LayerNorm + SILU + MUL`。非 Metal 后端一律走分解；Metal 上 prefill 与 decode
+都融合（见 §5.1）。
 
 > ⚠️ **geometry 的保留门与后端 Creator 的接受条件必须是同一个谓词**——这条坑见 §5.2，
 > 是本仓踩过两次的同构 bug。OpenCL/Vulkan/CUDA 的 creator 与 `_keepWhole` 共用
@@ -206,7 +221,7 @@ if (!mLn->isNC4HW4() || !mLn->isRMSNormWithGammaBeta())                return;
 **融合之后两者进了同一个 kernel**，读和写就变成了同 dispatch 内的竞争。
 
 这正是历史上 **LN×QKV_FUSED_P4 在 Qwen3.5-2B 上 decode 输出逐次不同**的根因
-（当时未定位，以 `setupLNFusion` 硬门控排除 P4；2026-08-03 根因修复后门控已移除）。
+（当时未定位，以 `setupLNFusion` 硬门控排除 P4；根因修复后门控已移除）。
 
 **修法**（`MetalFusedProj.mm:226-248`）：
 
@@ -235,7 +250,7 @@ for (auto *out : written) {
 
 ### 4.4 链式融合：每一级门控必须依赖上一级的成功
 
-⚠️ **2026-08-10 修的 bug，教训值钱**：
+⚠️ **这个 bug 的教训值钱**：
 
 `setupFusion` 曾**忽略** `setupGateUpFusion`/`setupQKVFusion` 的返回值，无条件接着做 LN 折叠。
 LN 折叠会 `mLn->setFused()` 压掉 LayerNorm 自己的 dispatch，`mNormalized` 从此**无人写**；
@@ -304,7 +319,7 @@ transformers.py::LinearAttention.forward   导出标准链：Reshape / RMSNorm /
         旧模型里导出期发出的 GatedRMSNorm op 仍被识别）
   → ShapeGatedRMSNorm / GeometryGatedRMSNorm
        OpCommonUtils::gatedRMSNormFusable 通过 ⇒ 整 op 透传给 Metal
-       否则分解 LayerNorm + SILU + MUL（prefill 与非 Metal 后端都走分解）
+       否则分解 LayerNorm + SILU + MUL（非 Metal 后端、以及 shape 契约不满足时）
        shape / fusable / Metal creator 均接受 external gamma（尺寸取 external[1]/4；
        非 mmap 时 createExecutionWithExternal 会在 creator 之前内联数据）
   → MetalGatedRMSNorm.mm  （kernel 设计见 kernel-dev-and-optimize.md §2.4.4）
@@ -313,12 +328,34 @@ transformers.py::LinearAttention.forward   导出标准链：Reshape / RMSNorm /
 **shape 契约**：x `[batch*heads, inside]`、z/out `[batch, heads*inside]`；decode 是 batch==1 特例。
 ⚠️ 首版硬编码 batch==1，prefill resize 直接 `Compute Shape Error`。
 
+**prefill 也走融合**。原先 `gatedRMSNormFusable` 里有一条
+`if (z->length(0) != 1) return false;`，把 prefill 整段推回分解，代价是 Qwen3.5-2B 的
+18 层 linear attention 每层各 5 个 op（Raster / LayerNorm / UnaryOp SILU / BinaryOp MUL
+＋ GatedRMSNorm）。放开的关键只是把 z/out 的索引写成通用形式：
+
+```
+h = b * heads + head                       // x 的 outside 轴，head 折进 batch
+z/out float4 index = (head * CU + c) * z_batch + b      // NC4HW4 是 [C/4][B][4]
+```
+
+`z_batch == 1` 时 `head == h`、`b == 0`，整式塌回原来的 `h * CU + c`——**decode 逐位不变**，
+不需要单独的 pipeline 变体，只多一次 per-simdgroup 的 div/mod。`heads` 由
+`outside / z_batch` 推出，所以 kernel 只需要多一个 `z_batch` 常量。
+
+⚠️ 这个映射不是猜的：分解路径的 `makeRawAddressRef` 保持逻辑 NCHW 顺序，
+`h = b*heads + head` 就是它隐含的定义。**改索引前先确认分解路径怎么排的**，
+否则融合后数值静默错位（op test 的 reference 用的正是同一个 `h*inside+c` 排布）。
+
+⚠️ **别拿 profile build 的占比预测这类收益**：profile build 给每个被分解的小 op 都加了一次同步，
+被融合掉的簇越碎，profile 里它的占比虚高越多，据此估出的收益会明显高于真实 e2e。
+profile 只能用来**排序目标**，收益必须由 e2e 配对测量给出。
+
 **开关**：converter 侧 `--transformerFuseC4`（llmexport 由 `--disable_transformer_c4` 传入，默认开）。
 Pass 未开启或区域匹配失败时自然保留原始链。**运行时无 env 开关**。
 
 ### 5.2 ⚠️ geometry 保留门与 Creator 条件必须是同一个谓词
 
-**2026-08-10 修的 bug**：首版 geometry 只判 `Metal && z batch==1`，
+**这个 bug 的形态**：首版 geometry 只判 `Metal && z batch==1`，
 而 Creator 还会因 `inside%4!=0`、gamma/beta 缺失、非 useRMSNorm、非 NC4HW4、
 设备不支持 simdgroup reduce 而拒绝。
 
@@ -361,7 +398,7 @@ converter 侧 `struct.unpack` 还原。
 
 ## 6. 历史：后端图匹配已全部删除
 
-2026-08-05 / 08-06 分三阶段把融合决策从"后端运行时猜"改成"导出图声明"。
+融合决策已分三阶段从"后端运行时猜"改成"导出图声明"。
 写在这里是为了让人**看懂旧 commit、也别再往回走**。
 
 | 已删除 | 原职责 | 现在由谁负责 |
@@ -413,14 +450,14 @@ converter 侧 `struct.unpack` 还原。
 
 与 §1 的"分组声明"不同，这个方案是把 q/k/v 的**权重张量物理拼成一个大矩阵**。
 `MNN_EXPORT_MERGE_QKV` 整条链路（transformers.py 合并 + converter `fuseQkvPackedC4` +
-RoPE/Attention 形状放行 + Metal `kBaseOffset`/`v_channel_offset`）已于 2026-07-24 **全部删除**。
+RoPE/Attention 形状放行 + Metal `kBaseOffset`/`v_channel_offset`）已**全部删除**。
 
-**判负数据**：隔离测试 +1.1%，但**默认态（已有 leader/follower 融合）下 -4.1%**。
+**为什么判负**：隔离测试下略有收益，但**默认态（已有 leader/follower 融合）下为负**。
 物理合并权重与 dispatch 融合是**互斥的两条路**，后者已经拿到了收益且不需要改权重布局。
 
 ### 7.3 RemoveDeadShapeOp 放宽
 
-死 shape op 清理：op 数 1116 → 385，模型体积 **-33%**。
+死 shape op 清理：图上大量死 shape op 被清掉，模型体积明显下降。
 ⚠️ **decode 性能 0 变化**——这些 op 本来就不在 GPU 时间线上。
 价值在体积和图可读性，不要拿它当性能优化汇报。
 
@@ -434,7 +471,8 @@ RoPE/Attention 形状放行 + Metal `kBaseOffset`/`v_channel_offset`）已于 20
    用 `MNNDump2Json` 看图里有没有这两个 op type。
 2. **导出时有没有被 `--disable_fuse_*` / `--disable_transformer_c4` 关掉？**（默认全开，但脚本可能带了）
 3. **是不是 prefill？** 融合 kernel 只在 decode-GEMV 管线存在（`is2sgDecodePipeline()`），
-   prefill 全部逐成员 dispatch。
+   prefill 全部逐成员 dispatch。**这条只针对 `FusedLinear`**；`GatedRMSNorm` 是独立链路，
+   prefill 同样融合（§5.1）。
 4. **`is2sgDecodePipeline()` 为什么 false？** 量化位宽 / oc 对齐 / pipeline 创建失败。
 5. **env 关了吗？** `MNN_METAL_DISABLE_{QKV,GATE_UP,LN}_FUSION`。
 6. **LN 没折？** 检查 converter 的 `has_ln` 是否置上（唯一消费者约束），
@@ -452,3 +490,52 @@ RoPE/Attention 形状放行 + Metal `kBaseOffset`/`v_channel_offset`）已于 20
 4. **崩在 `Create execution error : <optype>` ⇒ geometry 保留门与 Creator 谓词分叉**（§5.2）。
 5. **对拍前先预热一次**（pipeline cache 冷/热不可比），且**不要用 `MNNDump2Json` 的
    数值当参照**（6 位截断，§5.3）。
+
+## 9. 融合方法论（原理 / 适用条件 / 陷阱 / 验证）
+
+> 只讲方法论，不含性能数字。
+> 机制细节见上文各节；kernel 侧尾段折叠见
+> `kernel-dev-and-optimize.md` §2.5.1。
+
+### 9.1 同构投影合并 + 尾段折叠（gate/up + SwiGLU）
+
+- **原理**：输入相同、结构相同的多个投影（MLP 的 gate/up）合并为一次
+  GEMV，激活函数在尾段就地完成，消掉独立 dispatch 与中间张量的显存往返。
+- **适用**：多个投影共享输入且下游只做逐元素组合的结构。
+- **陷阱**：
+  - 合并改变输出布局，下游 slice/reshape 必须同步；
+  - 不同设备档的 pipeline 编译路径可能让融合**静默不命中**——要用
+    dispatch 日志/pipeline key 验证真的走了融合路径，必要时强制编译对应
+    变体（如 ROW_2）兜底；
+  - 开关分档启用时，每一档都要单独验证命中。
+- **验证**：融合前后输出对拍 + dispatch 计数下降。
+
+### 9.2 打包 grid 消除空 threadgroup
+
+- **原理**：多段同质工作（Q/K/V 三段投影）按矩形 grid 派发时，尺寸不齐会
+  让大量 TG 早退空跑（混合架构的线性层可空跑过半）。把多段工作打包成一维
+  紧凑 grid，按 work index 解码所属段。
+- **适用**：一切"多段同质工作拼矩形 grid"的融合 kernel。
+- **陷阱**：index 解码逻辑要与各段的量化块/向量边界对齐。
+- **验证**：profile 中该 kernel 的 TG 数下降；输出对拍。
+
+### 9.3 导出期声明的融合链路 → 机制详见 §0-§4
+
+- **原理**：MNN 融合不在后端做图匹配，而是导出期声明分组 → converter 吸收
+  （LN 吸收进 FusedLinear 等）→ 后端装配 leader/follower。融合命中与否在
+  导出阶段已决定。
+- **方法论要点**：
+  - 排查"融合没命中"从导出配置开始，而不是后端（见 §8 排查清单）；
+  - 融合开关只允许控制**快慢路径**，不允许产出语义不等价的图——
+    曾因 LinearAttention 投影受无关融合开关牵连，关闭时产出错误图，
+    修法是同一结构**无条件融合**；
+  - 把前驱折进后继前必查**内存别名**（§4.3）：前驱输入可能已被分配器
+    复用为后继输出。
+- **验证**：默认导出图 op 数/结构指纹一致；各开关组合下图语义等价。
+
+### 9.4 融合的正确性门槛
+
+- **原理**：融合改变浮点累加顺序与精度路径，"功能正确"必须用对拍定义：
+  fp32 bit-identical 最强，fp16 greedy 逐字节次之；token 级"看起来一致"
+  不算数。
+- **适用**：所有融合/重写类改动的验收。

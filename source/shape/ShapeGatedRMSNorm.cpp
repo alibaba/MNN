@@ -5,8 +5,8 @@
 //  Shape inference for OpType_GatedRMSNorm: out = RMSNorm(x) * silu(z).
 //
 //  The op absorbs the C4 repacks that surrounded the chain it replaces, so its
-//  inputs carry different layouts: x is [outside, inside] with the head as the
-//  batch axis, while z and the output are [1, outside*inside] and contiguous.
+//  inputs carry different layouts: x is [batch*heads, inside] with the head
+//  folded into the batch axis, while z and the output are [batch, heads*inside].
 //  The output therefore follows z, not x.
 //
 #include "shape/SizeComputer.hpp"

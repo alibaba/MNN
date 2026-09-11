@@ -11,7 +11,7 @@
 //  a tight relative-error threshold catches real kernel bugs.
 //
 //  Kernel coverage (single conv op, Apple-GPU with simdgroup-matrix, e.g. M4):
-//    - conv1x1_gemv_g4m1_2sg_wquant_sg   decode area==1, +/- SPLIT_K_2
+//    - conv1x1_gemv_g4m1_2sg_wquant_sg   decode area==1, +/- split K
 //    - conv1x1_gemv_g16_wquant_sg        lm_head (oc > 16384)
 //    - conv1x1_gemv_g4mN_wquant_sg       multi-token W4/8 (in-shader dequant)
 //    - conv1x1_gemm_*_wquant_sg          prefill sg-matrix gemm (W4/8)
@@ -21,7 +21,7 @@
 //    - conv1x1_gemv_g8_wquant_sg W2/3 multi-token: only selected when the device
 //      lacks simdgroup-matrix (e.g. A13); M-series routes W2/3 prefill to the
 //      outer-dequant path instead (see MetalConvolution1x1.mm).
-//    - fusion variants (GATE_UP_FUSED / QKV_FUSED / LN_FUSED / ROW_2): only built
+//    - fusion variants (GATE_UP_FUSED / QKV_FUSED / LN_FUSED / GEMV_2OCQUAD_PER_SG): only built
 //      by fusion leaders inside a full LLM graph, not by an isolated conv op.
 //
 //  Requires the low-memory weight-quant path (MNN_LOW_MEMORY); skipped otherwise.
@@ -209,7 +209,7 @@ public:
         // in-shader shapes use oc=2176 so ic*oc strictly exceeds the 4M threshold that
         // keeps W4/8 in the in-shader dequant path (g4mN / sg-matrix gemm).
         std::vector<CaseShape> shapes = {
-            {512, 256, 1, 1, 32, "2sg decode + SPLIT_K_2 (oc%8==0)", false},
+            {512, 256, 1, 1, 32, "2sg decode + split K (oc%8==0)", false},
             {512, 252, 1, 1, 32, "2sg decode no-splitk (oc%8!=0)", false},
             {2048, 64, 1, 1, 32, "2sg decode + Q4 block32 W16", true},
             {2048, 64, 1, 1, 64, "2sg decode + Q4 block64 W16", true},
@@ -220,6 +220,8 @@ public:
             {2048, 16400, 1, 1, 64, "g16 lm_head + Q4 block64 W16", true},
             {512, 16400, 1, 1, 128, "g16 lm_head + Q4 block128 W16", true},
             {512, 16400, 1, 1, 256, "g16 lm_head + Q4 block256 W16", true},
+            // oc % 16 == 0 routes to the G16_SPLIT_K branch.
+            {2048, 16512, 1, 1, 64, "g16 splitk lm_head", false},
             {2048, 64, 8, 8, 32, "fused Q4 GEMM M32 + block32 fp16 metadata", true},
             {2048, 64, 8, 8, 64, "fused Q4 GEMM M32 + block64 fp16 metadata", true},
             {2048, 64, 8, 8, 128, "fused Q4 GEMM M32 + block128 fp16 metadata", true},

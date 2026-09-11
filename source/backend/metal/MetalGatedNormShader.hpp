@@ -15,11 +15,14 @@
 //                                                    MUL -> Raster -> out_proj
 //   in_proj_z ----------------> Raster -> SILU -----/
 //
-// `la` is the LinearAttention output, NC4HW4 [outside, inside] with the head as
-// the batch axis, so its float4 index is `c * outside + h` — the same addressing
-// layernorm_c4_rms_sg uses. `z` and `out` are NC4HW4 [1, outside*inside] with
-// batch 1, hence contiguous: float4 index `h * CU + c`. Reading z and writing out
-// at that index reproduces both Raster repacks, which are exact inverses.
+// `la` is the LinearAttention output, NC4HW4 [outside, inside] with the head
+// folded into the batch axis (`outside = z_batch * heads`, `h = b * heads +
+// head`), so its float4 index is `c * outside + h` — the same addressing
+// layernorm_c4_rms_sg uses. `z` and `out` are NC4HW4 [z_batch, heads * inside],
+// whose float4 index is therefore `(head * CU + c) * z_batch + b`. Reading z and
+// writing out at that index reproduces both Raster repacks, which are exact
+// inverses, for prefill (z_batch = seq_len) as well as decode (z_batch = 1,
+// where the expression collapses to the contiguous `h * CU + c`).
 //
 // Arithmetic mirrors the ops it replaces: the RMS reduction follows
 // layernorm_c4_rms_sg (fp32 float4 accumulation, simd_sum on the float4 before
@@ -44,6 +47,7 @@ struct gated_norm_constants {
     int outside;
     float eps;
     int has_gamma_beta;
+    int z_batch;
 };
 
 kernel void linear_attn_gated_norm(const device ftype4 *la     [[buffer(0)]],
@@ -61,6 +65,12 @@ kernel void linear_attn_gated_norm(const device ftype4 *la     [[buffer(0)]],
     if (h >= batch) {
         return;
     }
+    // h = b * heads + head; z / out are [z_batch, heads * inside] in NC4HW4, so
+    // their float4 index is (head * channelUnit + c) * z_batch + b. At z_batch
+    // == 1 this is the contiguous h * channelUnit + c the decode path used.
+    int zb     = cst.z_batch;
+    int heads  = batch / zb;
+    int zBase  = (h % heads) * channelUnit * zb + h / heads;
 
     float4 square_sum4 = 0.0f;
     for (int c = tiisg; c < channelUnit; c += SIMD_GROUP_WIDTH) {
@@ -73,7 +83,7 @@ kernel void linear_attn_gated_norm(const device ftype4 *la     [[buffer(0)]],
     float4 var4 = var;
 
     for (int c = tiisg; c < channelUnit; c += SIMD_GROUP_WIDTH) {
-        int flat = h * channelUnit + c;
+        int flat = zBase + c * zb;
         float4 norm = var4 * float4(la[c * batch + h]);
         ftype4 normed;
         if (cst.has_gamma_beta) {

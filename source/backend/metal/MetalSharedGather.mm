@@ -16,7 +16,7 @@ namespace MNN {
 // on-the-fly. Layout and dequant parameters follow conv1x1 low-memory path
 // (W_QUANT_2/3 unpack mirrors conv1x1_w_dequant).
 // Weight layout: [N/4, K/4, N4, K4] (packed), linear index for a pack:
-//   offset = ((idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl)
+//   offset = ((idx_n4 * cst.inputDepthQuad + idx_k4) * 4 + idx_nl)
 //   - idx_n4 = n / 4, idx_nl = n % 4
 //   - idx_k4 = k / 4, comp = k % 4
 // W_QUANT_4:
@@ -27,11 +27,11 @@ namespace MNN {
 // W_QUANT_8:
 //   char4 pack = wt[offset]; choose pack.{x,y,z,w} by comp.
 // Dequant scale/bias:
-//   blockK4PerBi = (cst.input_slice + cst.block_size - 1) / cst.block_size;
-//   bi = clamp(idx_k4 / blockK4PerBi, 0, cst.block_size-1);
-//   sbIndex = idx_n4 * cst.block_size + bi;
-//   scaleVec = dequantScale[2*sbIndex+0] / cst.scale_coef;  // ftype4
-//   biasVec  = dequantScale[2*sbIndex+1] / cst.scale_coef;
+//   blockK4PerBi = (cst.inputDepthQuad + cst.blockCount - 1) / cst.blockCount;
+//   bi = clamp(idx_k4 / blockK4PerBi, 0, cst.blockCount-1);
+//   sbIndex = idx_n4 * cst.blockCount + bi;
+//   scaleVec = dequantScale[2*sbIndex+0] / cst.scaleCoef;  // ftype4
+//   biasVec  = dequantScale[2*sbIndex+1] / cst.scaleCoef;
 //   out = w * scaleVec[idx_nl] + biasVec[idx_nl].
 // Thread grid: 1D over all elements (selectSize * ic).
 static const char* gSharedGatherQuant = R"metal(
@@ -50,13 +50,13 @@ kernel void shared_gather_quant(
     constant conv1x1_constants& cst               [[buffer(3)]],
     const device ftype4 *dequantScale             [[buffer(4)]],
     uint2 gid                                      [[thread_position_in_grid]]) {
-    int ic = cst.input_size;
-    int selectSize = cst.output_width;
+    int ic = cst.inputSize;
+    int selectSize = cst.outputWidth;
     int idx_k16 = gid.y; // K/16
 
     int idx_k4 = idx_k16 * 4;
 
-    if(idx_k4 >= cst.input_slice || gid.x >= selectSize) {
+    if(idx_k4 >= cst.inputDepthQuad || gid.x >= selectSize) {
         return;
     }
 
@@ -65,18 +65,18 @@ kernel void shared_gather_quant(
     int idx_n4 = idx_n/4;
     int idx_nl = idx_n%4;
 
-    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+    int quadsPerBlock = (cst.inputDepthQuad + cst.blockCount - 1) / cst.blockCount;
 
 
-    int bi = idx_k4 / block;
-    // [N/4, cst.block_size, 2/*scale_bias*/, N4]
-    FLOAT scale = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
-    FLOAT dequant_bias = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
+    int bi = idx_k4 / quadsPerBlock;
+    // [N/4, cst.blockCount, 2/*scale_bias*/, N4]
+    FLOAT scale = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.blockCount + bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+    FLOAT dequant_bias = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.blockCount + bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
 
 #ifdef W_QUANT_3
-    auto wt_base = wi + (idx_n4 * cst.input_slice + idx_k4) * 6;
+    auto wt_base = wi + (idx_n4 * cst.inputDepthQuad + idx_k4) * 6;
 #else
-    auto xy_wi = wi + (idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl;// [N/4, K/4, N4, K4]
+    auto xy_wi = wi + (idx_n4 * cst.inputDepthQuad + idx_k4) * 4 + idx_nl;// [N/4, K/4, N4, K4]
 #endif
     auto xy_wf = wf + (ic * gid.x + idx_k16 * 16) / 4;
 
@@ -153,12 +153,12 @@ ErrorCode MetalSharedGather::onResize(const std::vector<Tensor *> &inputs,
     int ic_4 = UP_DIV(ic, 4);
 
     int bytes = backend->useFp16InsteadFp32() ? 2 : 4;
-    int blockSize = 1;
+    int blockCount = 1;
     if (mDequantScaleBias.get()) {
-        // Layout in MetalConvolutionCommon::getDequantScale: [alignOutputCount, blockSize, 2, 4]
-        blockSize = (int)(mDequantScaleBias->usize() / bytes / oc_4 / 2 / 4);
-        if (blockSize <= 0) {
-            blockSize = 1;
+        // Layout in MetalConvolutionCommon::getDequantScale: [alignOutputCount, blockCount, 2, 4]
+        blockCount = (int)(mDequantScaleBias->usize() / bytes / oc_4 / 2 / 4);
+        if (blockCount <= 0) {
+            blockCount = 1;
         }
     }
     if (ic % 16 != 0) {
@@ -170,17 +170,17 @@ ErrorCode MetalSharedGather::onResize(const std::vector<Tensor *> &inputs,
     mConstBuffer = backend->getConstBuffer(sizeof(Conv1x1Constants));
     auto param = (Conv1x1Constants *)mConstBuffer.contents;
     ::memset(param, 0, sizeof(Conv1x1Constants));
-    param->input_size     = ic;     // reinterpret as ic
-    param->input_slice    = ic_4;   // ic_4
-    param->output_width   = selectSize;
-    param->output_height  = 1;
-    param->output_size    = selectSize * ic;
-    param->output_slice   = oc_4;
-    param->output_channel = oc;
+    param->inputSize     = ic;     // reinterpret as ic
+    param->inputDepthQuad    = ic_4;   // ic_4
+    param->outputWidth   = selectSize;
+    param->outputHeight  = 1;
+    param->outputSize    = selectSize * ic;
+    param->outputDepthQuad   = oc_4;
+    param->outputChannel = oc;
     param->batch          = 1;
-    param->block_size     = blockSize;
+    param->blockCount     = blockCount;
     param->activation     = 0;
-    param->scale_coef     = mScaleCoef;
+    param->scaleCoef     = mScaleCoef;
 
     // basic macro info for fp16/fp32
     std::string ftype = "float";

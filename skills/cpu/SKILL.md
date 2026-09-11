@@ -15,7 +15,7 @@ description: MNN CPU 后端（ARM / x86_64 / RISC-V 三侧）的总入口，只�
 | 你的问题 | 去哪 |
 |---|---|
 | **慢**，还不知道原因，也不知道该改哪个文件 | [`optimize/SKILL.md`](optimize/SKILL.md) → 从它的 `diagnose-and-route.md` 开始 |
-| 要和 llama.cpp 等别的框架比性能，或对手框架里找不到 MNN 融合算子的对应物 | [`optimize/diagnose-and-route.md`](optimize/diagnose-and-route.md) §二（op 对 op、口径对齐、融合算子拆解） |
+| 要和别的推理框架比性能，或对手框架里找不到 MNN 融合算子的对应物 | [`optimize/diagnose-and-route.md`](optimize/diagnose-and-route.md) §二（op 对 op、口径对齐、融合算子拆解） |
 | 已有性能数据、已定位到某个 kernel，要动 SIMD / 汇编 / pack / 派发表 | [`kernel/SKILL.md`](kernel/SKILL.md) |
 | 「我到底跑在哪条 ISA 路径上」「为什么退到慢路径」 | [`optimize/arch/arm.md`](optimize/arch/arm.md) / [`optimize/arch/x86_64.md`](optimize/arch/x86_64.md) / [`optimize/arch/riscv.md`](optimize/arch/riscv.md) |
 | kernel 写完了，要决定跑哪些组合才算「过」 | [`kernel/correctness-gate.md`](kernel/correctness-gate.md) |

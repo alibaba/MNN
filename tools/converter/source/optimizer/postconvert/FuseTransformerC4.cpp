@@ -727,8 +727,12 @@ private:
         bool changed = false;
         if (mFuseQkvProj) {
             changed |= fuseAttentionProjGroups();
-            changed |= fuseLinearAttentionProjGroups();
         }
+        // The LinearAttention runtime op only runs correctly when its
+        // qkv/z/b/a projections are C4-fused; unlike regular Attention it cannot
+        // consume raw (unfused) projection outputs, so this fusion is mandatory
+        // and must not be gated by the optional mFuseQkvProj flag.
+        changed |= fuseLinearAttentionProjGroups();
         if (mFuseGateUpProj) {
             changed |= fuseGateUpProjGroups();
         }
