@@ -15,6 +15,13 @@
 namespace MNN {
 namespace OpenCL {
 
+// Measured winners for rope_buf; handing them to the tuner keeps Wide from sweeping the full grid.
+static LwsShortlist ropeLwsShortlist(GpuType gpuType) {
+    static const uint32_t adrenoPool[][3] = {{4, 2, 16}, {1, 2, 8}, {1, 1, 2}, {2, 1, 1}, {4, 1, 2}};
+    static const uint32_t maliPool[][3] = {{4, 1, 4}, {4, 16, 16}, {1, 1, 2}};
+    return makeLwsShortlist(gpuType, adrenoPool, maliPool);
+}
+
 static std::shared_ptr<cl::Buffer> makeRopeNormGamma(OpenCLBackend* backend, const LayerNorm* layerNorm) {
     if (nullptr == layerNorm || nullptr == layerNorm->gamma()) {
         return nullptr;
@@ -53,6 +60,18 @@ static bool validRopeC4Input(const Tensor* q, const Tensor* k, int numHead, int 
     return q->length(1) == numHead * headDim && k->length(1) == kvNumHead * headDim;
 }
 
+static std::set<std::string> ropeBuildOptions(const std::shared_ptr<cl::Buffer>& qGamma,
+                                              const std::shared_ptr<cl::Buffer>& kGamma) {
+    std::set<std::string> buildOptions;
+    if (qGamma) {
+        buildOptions.emplace("-DQ_NORM");
+    }
+    if (kGamma) {
+        buildOptions.emplace("-DK_NORM");
+    }
+    return buildOptions;
+}
+
 RopeBufExecution::RopeBufExecution(const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
 
@@ -88,6 +107,13 @@ RopeBufExecution::RopeBufExecution(const MNN::Op* op, Backend* backend, int rope
       mQEps(qEps),
       mKEps(kEps) {
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
+    prebuildOpenCLPrograms({}, {});
+}
+
+void RopeBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>&, const std::vector<Tensor*>&) {
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    runtime->submitPrebuild("rope_buf", ropeBuildOptions(mQGamma, mKGamma), mOpenCLBackend->getPrecision(), nullptr,
+                            nullptr, true, true);
 }
 
 bool RopeBufExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
@@ -133,13 +159,7 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
-    std::set<std::string> buildOptions;
-    if (mQGamma) {
-        buildOptions.emplace("-DQ_NORM");
-    }
-    if (mKGamma) {
-        buildOptions.emplace("-DK_NORM");
-    }
+    auto buildOptions = ropeBuildOptions(mQGamma, mKGamma);
     unit.kernel = runtime->buildKernel("rope_buf", "rope_buf", buildOptions, mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL(unit.kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -178,9 +198,10 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     }
     MNN_CHECK_CL_SUCCESS(ret, "setArg RopeBufExecution");
 
-    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, "rope_buf", unit.kernel,
-                                      mOpenCLBackend->getCLTuneLevel(), "rope_buf")
-                         .first;
+    mLocalWorkSize =
+        localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, "rope_buf", unit.kernel,
+                         mOpenCLBackend->getCLTuneLevel(), "rope_buf", ropeLwsShortlist(runtime->getGpuType()))
+            .first;
 
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
 

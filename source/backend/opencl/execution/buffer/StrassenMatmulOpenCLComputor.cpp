@@ -123,41 +123,18 @@ ErrorCode StrassenMatrixComputor::_generateBinary(cl::Buffer ptrC, cl::Buffer pt
     return NO_ERROR;
 }
 
-ErrorCode StrassenMatrixComputor::_generateBasicMatMul(int e, int l, int h, const MatrixInfo& AT, const MatrixInfo& BT, const MatrixInfo& CT, const MatrixInfo& COT, int postType, Unit& unit) {
-        
-    std::set<std::string> buildOptions;
-    
+ErrorCode StrassenMatrixComputor::_generateBasicMatMul(int e, int l, int h, const MatrixInfo& AT, const MatrixInfo& BT,
+                                                       const MatrixInfo& CT, const MatrixInfo& COT, int postType,
+                                                       Unit& unit) {
     uint32_t layout = 4;
     uint32_t batch = 1;
-    
-    std::vector<uint32_t> param;
-    if(COT.stackIndex < 0 || postType == 0) {
-        param = getGemmParams({(uint32_t)e, (uint32_t)h, (uint32_t)l, layout, batch, (uint32_t)0}, {mStack[AT.stackIndex], mStack[BT.stackIndex], mStack[CT.stackIndex]}, mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(), mOpenCLBackend->getCLTuneLevel());
-    } else {
-        param = getGemmParams({(uint32_t)e, (uint32_t)h, (uint32_t)l, layout, batch, (uint32_t)postType}, {mStack[AT.stackIndex], mStack[BT.stackIndex], mStack[CT.stackIndex], mStack[COT.stackIndex]}, mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(), mOpenCLBackend->getCLTuneLevel());
-    }
-    int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
-    buildOptions.emplace("-DKWG=" + std::to_string(KWG));
-    buildOptions.emplace("-DKWI=" + std::to_string(KWI));
-    buildOptions.emplace("-DMDIMA=" + std::to_string(MDIMA));
-    buildOptions.emplace("-DMDIMC=" + std::to_string(MDIMC));
-    buildOptions.emplace("-DMWG=" + std::to_string(MWG));
-    buildOptions.emplace("-DNDIMB=" + std::to_string(NDIMB));
-    buildOptions.emplace("-DNDIMC=" + std::to_string(NDIMC));
-    buildOptions.emplace("-DNWG=" + std::to_string(NWG));
-    buildOptions.emplace("-DSA=" + std::to_string(SA));
-    buildOptions.emplace("-DSB=" + std::to_string(SB));
-    buildOptions.emplace("-DSTRM=" + std::to_string(STRM));
-    buildOptions.emplace("-DSTRN=" + std::to_string(STRN));
-    buildOptions.emplace("-DVWM=" + std::to_string(VWM));
-    buildOptions.emplace("-DVWN=" + std::to_string(VWN));
-    if(layout >= 4) {
-        buildOptions.emplace("-DOUTPUTMN");
-    }
-
-    if(postType > 0) {
-        buildOptions.emplace(" -DBIAS_TYPE=" + std::to_string(postType));
-    }
+    const uint32_t biasType = COT.stackIndex < 0 || postType == 0 ? 0 : postType;
+    const std::vector<uint32_t> gemmSize = {(uint32_t)e, (uint32_t)h, (uint32_t)l, layout, batch, biasType};
+    auto param = getGemmParams(gemmSize, mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(),
+                               mOpenCLBackend->getCLTuneLevel());
+    int MWG = param[4], MDIMC = param[3], NDIMC = param[6], NWG = param[7];
+    auto buildOptions =
+        makeGemmBuildOptions(param, layout, biasType, 0, mOpenCLBackend->getOpenCLRuntime()->getGpuType());
 
     int tileM = MWG;
     int tileN = NWG;
@@ -166,10 +143,6 @@ ErrorCode StrassenMatrixComputor::_generateBasicMatMul(int e, int l, int h, cons
     int alignM = e;
     int alignN = h;
     int alignK = l;
-    if(mOpenCLBackend->getOpenCLRuntime()->getGpuType() == GpuType::ADRENO) {
-        buildOptions.emplace("-DUSE_CL_MAD=1");
-        buildOptions.emplace("-DRELAX_WORKGROUP_SIZE=1");
-    }
 
     unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("matmul_params_buf", "Xgemm", buildOptions, mOpenCLBackend->getPrecision());
     
@@ -210,7 +183,7 @@ ErrorCode StrassenMatrixComputor::_generateBasicMatMul(int e, int l, int h, cons
 
     return NO_ERROR;
 }
-    
+
 static int getMaxMultiple(int number) {
     if(number % 128 == 0) {
         return 128;
@@ -224,12 +197,41 @@ static int getMaxMultiple(int number) {
     return 1;
 }
 
-ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const MatrixInfo& AT, const MatrixInfo& BT, const MatrixInfo& CT, const MatrixInfo& COT, int currentDepth, int postType) {
+static bool shouldSplitStrassen(int e, int l, int h, int currentDepth, int maxDepth, int bytes) {
+    if (currentDepth >= maxDepth || e % 32 != 0 || l % 4 != 0 || h % 32 != 0 || e < 512 || l < 512 || h < 512 ||
+        1.0 * e / 1024 * l / 1024 * h / 1024 < 4.0) {
+        return false;
+    }
+    const int eSub = e / 2;
+    const int hSub = h / 2;
+    const int lSub = l / 2;
+    const float memoryCost =
+        1.0 * eSub * lSub * 12 * bytes + 1.0 * lSub * hSub * 12 * bytes + 1.0 * eSub * hSub * (8 + 3 * 2) * bytes;
+    const float savedCompute = 1.0 * eSub * lSub * hSub * 2;
+    if (savedCompute - memoryCost * 30.0f <= 0.0f) {
+        return false;
+    }
+    return getMaxMultiple(e) == getMaxMultiple(eSub) && getMaxMultiple(h) == getMaxMultiple(eSub) && lSub % 4 == 0;
+}
 
-    bool isAligned = (e % 32 == 0 && l % 4 == 0 && h % 32 == 0);
-    bool enoughComputation = (e >= 512 && l >= 512 && h >= 512) && (1.0 * e / 1024 * l / 1024 * h / 1024 >= 4.0);
-    
-    if (currentDepth >= mMaxDepth || !isAligned || !enoughComputation) {// not align or not enough computation
+std::vector<uint32_t> StrassenMatrixComputor::getLeafGemmSize(int e, int l, int h, int maxDepth, int bytes,
+                                                              bool useBias) {
+    int depth = 0;
+    while (shouldSplitStrassen(e, l, h, depth, maxDepth, bytes)) {
+        e /= 2;
+        l /= 2;
+        h /= 2;
+        ++depth;
+        useBias = false;
+    }
+    return {static_cast<uint32_t>(e),      static_cast<uint32_t>(h), static_cast<uint32_t>(l), 4, 1,
+            static_cast<uint32_t>(useBias)};
+}
+
+ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const MatrixInfo& AT, const MatrixInfo& BT,
+                                                  const MatrixInfo& CT, const MatrixInfo& COT, int currentDepth,
+                                                  int postType) {
+    if (!shouldSplitStrassen(e, l, h, currentDepth, mMaxDepth, mBytes)) {
         Unit unit;
         auto res = _generateBasicMatMul(e, l, h, AT, BT, CT, COT, postType, unit);
         mUnits.emplace_back(unit);
@@ -238,34 +240,6 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const Mat
     int eSub = e / 2;
     int hSub = h / 2;
     int lSub = l / 2;
-    
-    // Compute expand the memory read and write cost
-    float AComputeCost = 1.0 * eSub * lSub * 12 * mBytes;// 4 times, 3 matrix each time
-    float BComputeCost = 1.0 * lSub * hSub * 12 * mBytes;// 4 times, 3 matrix each time
-    float CComputeCost = 1.0 * eSub * hSub * (8 + 3 * 2) * mBytes;// 3 times, 8 matrix first time, 3 matrix last two times
-    // Compute save compute time
-    float saveMatMulCost =  1.0 * eSub * lSub * hSub * 2;// 2 for Mul_ADD
-    
-    // devices peak compute value / memory bandwidth
-    const float penalty = 30.0;//FIXME: Find beter way to set it
-    float saveCost = saveMatMulCost - (AComputeCost + BComputeCost + CComputeCost) * penalty;
-    
-    if (saveCost <= 0.0f) {
-        Unit unit;
-        auto res = _generateBasicMatMul(e, l, h, AT, BT, CT, COT, postType, unit);
-        mUnits.emplace_back(unit);
-        return res;
-    }
-    
-    // sub_matrix cannot own sufficient tile
-    if(getMaxMultiple(e) != getMaxMultiple(eSub)  || getMaxMultiple(h) != getMaxMultiple(eSub) || (lSub % 4 != 0)) {
-        Unit unit;
-        auto res = _generateBasicMatMul(e, l, h, AT, BT, CT, COT, postType, unit);
-        mUnits.emplace_back(unit);
-        return res;
-    }
-    
-    // Strassen Construct
     currentDepth += 1;
     
     auto maxlH = std::max(lSub, hSub);

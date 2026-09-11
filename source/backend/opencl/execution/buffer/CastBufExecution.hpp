@@ -21,6 +21,8 @@ public:
     virtual ~CastBufExecution() = default;
 
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) override;
 
 private:
     uint32_t mMaxWorkGroupSize;

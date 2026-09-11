@@ -29,16 +29,6 @@ namespace OpenCL {
         return NOT_SUPPORT;               \
     }
 
-// Wrap 'new Execution' in creator: validate then return (or nullptr on failure)
-inline Execution* checkExeValid(Execution* exe) {
-    if (exe != nullptr && !exe->valid()) {
-        delete exe;
-        return nullptr;
-    }
-    return exe;
-}
-#define OPENCL_CREATOR_CHECK(p) return checkExeValid(p)
-
 // Check onAcquireBuffer in constructor; set mValid=false on failure
 #define OPENCL_CHECK_ALLOC_CTOR(expr)     \
     if (!(expr)) {                        \
@@ -80,6 +70,8 @@ public:
     }
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void prebuildOpenCLPrograms(const std::vector<Tensor*>& /*inputs*/,
+                                        const std::vector<Tensor*>& /*outputs*/) {}
 
 protected:
     std::vector<Unit> mUnits;
@@ -88,6 +80,20 @@ protected:
     cl_recording_qcom mRecording{NULL};
     std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
 };
+
+inline Execution* checkExeValid(CommonExecution* exe, const std::vector<Tensor*>& inputs,
+                                const std::vector<Tensor*>& outputs) {
+    if (exe != nullptr && !exe->valid()) {
+        delete exe;
+        return nullptr;
+    }
+    if (exe != nullptr) {
+        exe->prebuildOpenCLPrograms(inputs, outputs);
+    }
+    return exe;
+}
+#define OPENCL_CREATOR_CHECK(p) return checkExeValid(p, inputs, outputs)
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* CommonExecution_hpp */

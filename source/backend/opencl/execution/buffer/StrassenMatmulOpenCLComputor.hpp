@@ -28,7 +28,8 @@ public:
     virtual ~StrassenMatrixComputor();
     
     ErrorCode onEncode(int e, int l, int h, int as, int bs, int cs, const cl::Buffer AT, const cl::Buffer BT, cl::Buffer CT, bool useBias, const cl::Buffer Bias);
-    
+    static std::vector<uint32_t> getLeafGemmSize(int e, int l, int h, int maxDepth, int bytes, bool useBias);
+
     int getExecuteTime();
     void onExecute();
     

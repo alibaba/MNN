@@ -1,7 +1,7 @@
-#include <map> 
-#include <string> 
-#include <vector> 
-namespace MNN { 
+#include <map>
+#include <string>
+#include <vector>
+namespace MNN {
 extern const char* conv_2d;
 extern const char* deconv_2d;
 extern const char* unary;
@@ -17,6 +17,9 @@ extern const char* range_buf;
 extern const char* self_attention_buf;
 #endif
 extern const char* winogradTransformSource2_3_1;
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* attention_long_layout_buf;
+#endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* gemv_conv1x1_buf;
 #endif
@@ -70,6 +73,9 @@ extern const char* pooling_buf;
 #endif
 extern const char* winogradTransformSource2_5_1;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* attention_kv_rearrange_buf;
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* unary_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -83,6 +89,9 @@ extern const char* winogradTransform_buf;
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
 extern const char* winogradTransform_subgroup_buf;
 #endif
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* attention_flash_decode_partial_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* splitgelu_buf;
@@ -99,6 +108,9 @@ extern const char* conv_2d_int;
 extern const char* copy_buffer_to_image2d;
 extern const char* loop;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* gemm_conv1x1_layout_buf;
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* argmax_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -107,10 +119,13 @@ extern const char* buffer_convert_subgroup_buf;
 #endif
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
-extern const char* attention_buf;
+extern const char* gemm_conv1x1_int8_b4_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* groupnorm_buf;
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* attention_flash_decode_reduce_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
@@ -140,6 +155,9 @@ extern const char* gemm_int;
 extern const char* buffer_to_image;
 extern const char* winogradTransformDest2_3_1;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* gemm_conv1x1_inverse_quant_buf;
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* layernorm_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -162,7 +180,16 @@ extern const char* strassen_binary_buf;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* matmul_params_buf;
 #endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* attention_flash_prefill_buf;
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* gemm_conv1x1_int4_b4_buf;
+#endif
 extern const char* cast;
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* gemm_conv1x1_int4_b8_buf;
+#endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* buffer_convert_buf;
 #endif
@@ -171,10 +198,10 @@ extern const char* binary;
 extern const char* topkv2;
 extern const char* roi_pooling;
 extern const char* depthwise_conv2d;
-extern const char* layernorm;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
-extern const char* gemm_conv1x1_buf;
+extern const char* buffer_convert_filter_buf;
 #endif
+extern const char* layernorm;
 extern const char* winogradTransformDest2_5_1;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* cast_buf;
@@ -196,6 +223,9 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
     {"self_attention_buf", self_attention_buf},
 #endif
     {"winogradTransformSource2_3_1", winogradTransformSource2_3_1},
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+    {"attention_long_layout_buf", attention_long_layout_buf},
+#endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
     {"gemv_conv1x1_buf", gemv_conv1x1_buf},
 #endif
@@ -249,6 +279,9 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
 #endif
     {"winogradTransformSource2_5_1", winogradTransformSource2_5_1},
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+    {"attention_kv_rearrange_buf", attention_kv_rearrange_buf},
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
     {"unary_buf", unary_buf},
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -262,6 +295,9 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     {"winogradTransform_subgroup_buf", winogradTransform_subgroup_buf},
 #endif
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+    {"attention_flash_decode_partial_buf", attention_flash_decode_partial_buf},
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
     {"splitgelu_buf", splitgelu_buf},
@@ -278,6 +314,9 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
     {"copy_buffer_to_image2d", copy_buffer_to_image2d},
     {"loop", loop},
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+    {"gemm_conv1x1_layout_buf", gemm_conv1x1_layout_buf},
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
     {"argmax_buf", argmax_buf},
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -286,10 +325,13 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
 #endif
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
-    {"attention_buf", attention_buf},
+    {"gemm_conv1x1_int8_b4_buf", gemm_conv1x1_int8_b4_buf},
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
     {"groupnorm_buf", groupnorm_buf},
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+    {"attention_flash_decode_reduce_buf", attention_flash_decode_reduce_buf},
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
@@ -319,6 +361,9 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
     {"buffer_to_image", buffer_to_image},
     {"winogradTransformDest2_3_1", winogradTransformDest2_3_1},
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+    {"gemm_conv1x1_inverse_quant_buf", gemm_conv1x1_inverse_quant_buf},
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
     {"layernorm_buf", layernorm_buf},
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -341,7 +386,16 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
 #ifndef MNN_OPENCL_BUFFER_CLOSED
     {"matmul_params_buf", matmul_params_buf},
 #endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+    {"attention_flash_prefill_buf", attention_flash_prefill_buf},
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+    {"gemm_conv1x1_int4_b4_buf", gemm_conv1x1_int4_b4_buf},
+#endif
     {"cast", cast},
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+    {"gemm_conv1x1_int4_b8_buf", gemm_conv1x1_int4_b8_buf},
+#endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
     {"buffer_convert_buf", buffer_convert_buf},
 #endif
@@ -350,17 +404,17 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
     {"topkv2", topkv2},
     {"roi_pooling", roi_pooling},
     {"depthwise_conv2d", depthwise_conv2d},
-    {"layernorm", layernorm},
 #ifndef MNN_OPENCL_BUFFER_CLOSED
-    {"gemm_conv1x1_buf", gemm_conv1x1_buf},
+    {"buffer_convert_filter_buf", buffer_convert_filter_buf},
 #endif
+    {"layernorm", layernorm},
     {"winogradTransformDest2_5_1", winogradTransformDest2_5_1},
 #ifndef MNN_OPENCL_BUFFER_CLOSED
     {"cast_buf", cast_buf},
 #endif
     {"reduction", reduction},
 };
-}
+} // namespace MNN
 const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"conv_2d", "0048eb0c6a571925e6f3e1bd1d314d09"},
     {"deconv_2d", "287f563ddb48cfa1f282f50ce1bb34c2"},
@@ -371,6 +425,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"range_buf", "899103bf2a2daf9486fdd5d61fbec5e7"},
     {"self_attention_buf", "653a99a0693d9173084de43e577f9cfd"},
     {"winogradTransformSource2_3_1", "5cae94a94c822b4b6f82e238ab518f4a"},
+    {"attention_long_layout_buf", "f21607f18ed0773ca7487b2db1e7a22c"},
     {"gemv_conv1x1_buf", "7dd25918e2ce6095618a8029dfffc9c6"},
     {"raster", "0cf8ee1f7927d0027ce0f07ad564266e"},
     {"conv_2d_c1_subgroup_buf", "04a28a410c79fa6917827d16e189f322"},
@@ -389,11 +444,13 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"pooling_subgroup_buf", "9c935c0caabe2ee20822fcfd7722472e"},
     {"pooling_buf", "806c95095431e361be2af7f4e9eae65e"},
     {"winogradTransformSource2_5_1", "f0ee12556faf4fe0222e2a4e64c53c5c"},
+    {"attention_kv_rearrange_buf", "d48136f22d46cf724db3b66a4de6371d"},
     {"unary_buf", "5f3ae7726bcda076082f8e5a63a73a20"},
     {"depthwise_conv2d_buf", "d1c201a09afccebe794d50027acabdc1"},
     {"glmem_convert", "ee4866b2d889824e48d58fa3a78795d4"},
     {"winogradTransform_buf", "efa5fda527fce5820ba48b90a4707fa7"},
     {"winogradTransform_subgroup_buf", "904f2a0f1a062378418c6c90133ed5e0"},
+    {"attention_flash_decode_partial_buf", "b2297795f40b8a338a17678c90c4e3a4"},
     {"splitgelu_buf", "86d5b31ea14330d2b99273e4e868bd35"},
     {"select_buf", "6c12fe9273ab292a76fbc12cfa4afae0"},
     {"grid_sample", "0e08897ea35a57c04b834b2a83be8383"},
@@ -402,10 +459,12 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"conv_2d_int", "fd1170d55b6e814b3fb9e0169bcf58a5"},
     {"copy_buffer_to_image2d", "a72ed287711f9bb78a2cfa9726a1fa92"},
     {"loop", "a2599600173dade5ae43125104f8e7ed"},
+    {"gemm_conv1x1_layout_buf", "c5a4e1a71876be66216033eebba63f2d"},
     {"argmax_buf", "ae4a1ae3461b2758609022ac7569b11b"},
     {"buffer_convert_subgroup_buf", "d968b717e537464a7fa08e742c9a0319"},
-    {"attention_buf", "dd935a5ac1eb7361219c04f0b2f01f12"},
+    {"gemm_conv1x1_int8_b4_buf", "d88c8970d79335d2d22ed6c0871eb0c6"},
     {"groupnorm_buf", "7f4b041b77ba98165ab624d94444f327"},
+    {"attention_flash_decode_reduce_buf", "ee5863a2929f49be765aa9eb74e48b94"},
     {"unary_subgroup_buf", "31e3768f899da6da45084f617b13c282"},
     {"gemm", "5729018147348682e02762ed5ec14d0c"},
     {"depthwise_deconv2d", "810f69205dede9b38e4858aad621fa71"},
@@ -419,22 +478,26 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"gemm_int", "4e64d43a8ca423a9d0dc68dcfcd64c06"},
     {"buffer_to_image", "bad95040692206db84b5a1bcc0b6f248"},
     {"winogradTransformDest2_3_1", "f2aaa52d652565e70a44868d4f6028e9"},
+    {"gemm_conv1x1_inverse_quant_buf", "67b312b4710634c005ce4bd5db747c58"},
     {"layernorm_buf", "2ea25acf4c92bfc44e650987215c2d52"},
-    {"softmax_buf", "12052d403f3fa0cdfea2559296e88e6c"},
+    {"softmax_buf", "48254a71790eab606852009d667259cd"},
     {"conv_2d_c16_subgroup_buf", "81f9027f323b6890d08d49dab10a15e4"},
     {"input_transe_buf", "c80482cd531add8582edc242bcbfa947"},
     {"reduction_buf", "c16506adcebf7760a1a3c96ce0d386ee"},
     {"strassen_binary_buf", "1ec57b4f87beb05457f6ef00de593d9d"},
     {"matmul_params_buf", "34fba2156345dcdb8fb07a4081a92fd1"},
+    {"attention_flash_prefill_buf", "7457d7a1a5a561722f743fa2e24bd207"},
+    {"gemm_conv1x1_int4_b4_buf", "b3e7ba464769746d375a4041b4e71b6c"},
     {"cast", "129055345fd1d576eb398635c81701ab"},
-    {"buffer_convert_buf", "7089dfebecab879123ae14864da1d67b"},
+    {"gemm_conv1x1_int4_b8_buf", "23d0d14ece2a4a5d32bac1ef83fd718e"},
+    {"buffer_convert_buf", "b8cdf28045eb3b4aef6b1ee723f77219"},
     {"matmul", "a3e51ece4be2eb0f28266718b313c24e"},
     {"binary", "5683a6a6fd24660f0d05a70938fa6a62"},
     {"topkv2", "8cea07bb2956df69992691127dbf2f84"},
     {"roi_pooling", "ba4a81b7ec7058d14afb377c18674a76"},
     {"depthwise_conv2d", "a23dd590e0bdcdd60987e8bab5ed529f"},
+    {"buffer_convert_filter_buf", "a52e80929b3d840b741b5690c1b87c06"},
     {"layernorm", "cb8407523a01be58b5c74e6ef706113b"},
-    {"gemm_conv1x1_buf", "33694bd346b3ef7f8308cb1b3fbbc9c5"},
     {"winogradTransformDest2_5_1", "4f3d0d6b3e0ee7f0bff97acfbbdf653f"},
     {"cast_buf", "f39e5c1ca2fa4b39eac2af1c7934ba85"},
     {"reduction", "e13e9d81d5712356f05703d44e9ec4c0"},

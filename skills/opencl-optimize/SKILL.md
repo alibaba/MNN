@@ -402,6 +402,8 @@ adb shell "cd /data/local/tmp/MNN && rm -rf tmp/mnn_cachefile.bin; LD_LIBRARY_PA
 
 **注意换库会抖乱 tune cache**：base 和 opt 若是不同 kernel（如 gemm_b4 vs gemm_b8），每次切库都可能触发重调优，测出的是重调优开销而非稳态（症状：数字异常低且每轮都低）。规避：要么 A/B 前让 cache 把两套 kernel 都 warm 稳定，要么改用"每个库连续多跑取稳态、两块背靠背"的方式（牺牲一点热隔离换 cache 稳定）。
 
+**更隐蔽的一层：cache 条目会跨 shape 复用 lws**，所以连"跑的顺序"都会改结果 —— 先跑短 shape 再跑长 shape 和直接跑长 shape，实测能差 2x（见 `optimization-handbook.md` **陷阱 R**）。**每个变体给一个独立 cache 目录**：`llm_bench` 写的是 **cwd 相对**的 `tmp/mnn_cachefile.bin`，把二进制各复制一份到独立目录、`cd` 进去跑即可隔离。
+
 用带 `MNN_GPU_TIME_PROFILE=ON` 的 build 只能看 kernel 相对占比（它把绝对耗时放大 ~30×，且按 op 名而非 cl kernel 名聚合）；**最终收益以不带 profile 的干净 build 的端到端 tok/s 为准**。
 
 ---

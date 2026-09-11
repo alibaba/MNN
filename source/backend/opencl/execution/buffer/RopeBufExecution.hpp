@@ -24,6 +24,8 @@ public:
 
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+    virtual void prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) override;
 
 private:
     OpenCLBackend* mOpenCLBackend = nullptr;

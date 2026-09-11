@@ -17,10 +17,58 @@
 namespace MNN {
 namespace OpenCL {
 
+// Measured winners for raster_buffer; handing them to the tuner keeps Wide from sweeping the full
+// grid, which is costly here because a single op resizes one unit per region.
+static LwsShortlist rasterBufferLwsShortlist(GpuType gpuType) {
+    static const uint32_t adrenoPool[][3] = {{2, 1, 1},   {4, 1, 1},   {16, 1, 1}, {32, 1, 1}, {64, 1, 1},
+                                             {128, 1, 1}, {512, 1, 1}, {32, 1, 2}, {64, 2, 1}, {64, 8, 1},
+                                             {64, 16, 1}, {32, 16, 1}, {16, 64, 1}};
+    static const uint32_t maliPool[][3] = {{4, 2, 2},  {8, 1, 1},  {16, 1, 1},  {16, 1, 4},  {16, 2, 1},
+                                           {16, 4, 1}, {32, 4, 1}, {128, 1, 1}, {128, 2, 1}, {256, 2, 2}};
+    return makeLwsShortlist(gpuType, adrenoPool, maliPool);
+}
+
 RasterBufExecution::RasterBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
     : CommonExecution(backend, op) {
     mOpenCLBackend = (OpenCLBackend *)backend;
     //nothing to do
+}
+
+void RasterBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                                const std::vector<Tensor*>& outputs) {
+    MNN_ASSERT(outputs.size() == 1);
+    auto* output = outputs[0];
+    if (!inputs.empty()) {
+        OpCommonUtils::rasterInputReset(inputs, output);
+    }
+    auto* outputDes = TensorUtils::getDescribe(output);
+    auto* runtime = mOpenCLBackend->getOpenCLRuntime();
+    const int precision = mOpenCLBackend->getPrecision();
+    auto outputShape = tensorShapeFormat(output);
+    bool fast = outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    for (size_t i = 0; fast && i < outputDes->regions.size(); ++i) {
+        const auto& region = outputDes->regions[i];
+        if (TensorUtils::getDescribe(region.origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
+            !OpCommonUtils::canBlitFast(region, output, 4, true)) {
+            fast = false;
+        }
+    }
+    bool needZero = !TensorUtils::regionIsFull(output);
+    needZero = needZero || (outputShape[3] % 4 != 0 && outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && !fast);
+    if (needZero) {
+        runtime->submitPrebuild("raster_buf", {}, precision, output, output, true, true);
+    }
+    for (size_t i = 0; i < outputDes->regions.size(); ++i) {
+        auto* origin = outputDes->regions[i].origin;
+        if (fast) {
+            runtime->submitPrebuild("raster_buf", {}, precision, origin, output, true, true);
+            continue;
+        }
+        std::set<std::string> buildOptions;
+        buildOptions.emplace("-DINPUT_FORMAT=" + std::to_string(TensorUtils::getDescribe(origin)->dimensionFormat));
+        buildOptions.emplace("-DOUTPUT_FORMAT=" + std::to_string(outputDes->dimensionFormat));
+        runtime->submitPrebuild("raster_buf", buildOptions, precision, origin, output, true, true);
+    }
 }
 
 ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
@@ -149,7 +197,8 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         }
         return NO_ERROR;
     }
-    
+
+    const auto rasterBufferShortlist = rasterBufferLwsShortlist(runtime->getGpuType());
     for(auto& info : mCombineInfo){
         auto slice = info.mRegion;
         int nums = info.mCanCombineNum;
@@ -287,7 +336,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
             std::string name = "raster_buffer";
             const std::vector<uint32_t> lws =
                 localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel,
-                                 mOpenCLBackend->getCLTuneLevel(), "raster_buf")
+                                 mOpenCLBackend->getCLTuneLevel(), "raster_buf", rasterBufferShortlist)
                     .first;
 
             unit.localWorkSize = {lws[0], lws[1], lws[2]};
@@ -407,7 +456,6 @@ void RasterBufExecution::CanCombine(const std::vector<Tensor *> &outputs){
                 canCombineNum = 1;
                 // push back
                 mCombineInfo.push_back(CanCombineInfo(slice, 0, 0, 1));
-                
             }
         }
         last_src_offset = slice.src.offset;

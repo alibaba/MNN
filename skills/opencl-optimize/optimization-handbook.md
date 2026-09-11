@@ -90,6 +90,35 @@ BW_utilization = actual_bytes / kernel_time / peak_BW
 
 GPU 跑分波动 ~5-10%，单次数字不可靠。同设备跑 10 次取中位数对比。
 
+**冷启动很慢是一次性成本，但要知道它花在哪**（实测 pp512+pp2048 一个进程 14s@Adreno / 23.5s@Mali）：
+`CLCache.fbs` 里 `Shader{buffer, program}` 说明**编译好的 program 二进制本身也进 cache 文件**，
+连 Autotuning、GemmInfo 一起 —— 所以这是 (设备 × 构建 × shape 集合) 的一次性开销，命中后不再付；
+反面是**改任何 `.cl` 都会让该 program 的缓存失效**（md5 变），开发迭代和每次发版都要重付。
+剩下的大头是 `getGemmParams()`：默认 `Wide` 对**每个不同 GEMM shape** 试 ~36 组参数，
+而每组宏不同 → **每个候选都要编译一次 program**（Heavy 更是走全笛卡尔积）。lws tuning 那部分的
+host 等待已经消掉（见下）。想再压就从"用 heuristic 当种子只编相邻几档"下手。
+
+**两条前置动作，能省掉大量白跑**：
+
+- **A/B 的每个变体用独立 tune cache 目录**。cache 条目会跨 shape 复用（陷阱 R），"先跑短 shape 再跑长 shape"
+  和"直接跑长 shape"能差 2x —— 你以为在测 kernel，其实在测缓存里恰好留下了什么。`llm_bench` 的 cache 是
+  **cwd 相对**的 `tmp/mnn_cachefile.bin`，把二进制各复制一份到独立目录、`cd` 进去跑就天然隔离。
+- **改完 `.cl` 先做单文件编译检查再上设备**。`.cl` 整体编译，任一 kernel 编译失败会让该文件所有 kernel
+  都拿不到，运行时表现是**无声段错误**，极易误判成自己索引写错：
+
+  ```bash
+  make -j10 OpenCLProgramBuildTest.out          # project/android/build_64
+  adb push <build>/OpenCLProgramBuildTest.out <build>/libMNN.so /data/local/tmp/X/
+  adb push source/backend/opencl/execution/cl/<name>.cl /data/local/tmp/X/kernel.cl
+  # 宏别手写：直接抄运行时那一整行（precision=low 见 OpenCLRuntime.cpp:508，high 见 510），
+  # 手写会漏 CONVERT_FLOAT2/3/8 之类，报一堆 implicit declaration 的假错
+  adb shell "cd /data/local/tmp/X && printf -- '%s\n' \"\$OPTS\" > option.txt && \
+             LD_LIBRARY_PATH=.:/data/local/tmp/MNN ./OpenCLProgramBuildTest.out kernel.cl"
+  ```
+
+  实例：`half4` 上用**变量下标** `v[i] = ...` 被 Adreno 编译器拒绝（`Attempt to use subscript to obtain
+  element of 'half4'`），改 `.x/.y/.z/.w` 即可 —— 这个检查 1 分钟出结果，比在设备上撞段错误快得多。
+
 **launch overhead 估算**：dispatch 数 x 每次约 5-10 us。LLM decode 1 token ≈ `n_layer x ops_per_layer` 次 dispatch。当 BW 优化把 decode 拉到 launch 上限附近时再做 kernel fusion 等大改。
 
 ### 1.5 register/occupancy 墙（移动 GPU int4 GEMM 常见真实瓶颈）
@@ -299,6 +328,53 @@ for (int i = N4 * 4; i < N; i++) { ... }  // 处理余数
 
 **注意事项**：spike 常常对非目标 shape 不正确，务必记得它只是测量工具，产品化时重写而非直接合入。
 
+### 技巧 12：融合算子的 accumulator 精度要跟着 backend 的"生产路径"走
+
+**适用场景**：手写一个融合 kernel 去替换现有的多 kernel 链路，性能却打不过被替换的那条路。
+
+**做法**：先去读被替换路径的 accumulator 类型。MNN OpenCL 的 GEMM（`matmul_params_buf.cl` 的
+`PRECISION_COMPUTE`）用 **`COMPUTE_FLOAT`**——低精度模式下就是 `half`。当年对照的
+`matmul_qkv_prefill`（short prefill 的 QKV kernel，用的也是 `COMPUTE_FLOAT`）已随 short 路径删除。
+如果新 kernel 图"数值安全"用 `float` 累加，在 Adreno 上等于主动放弃 packed-fp16（2x ALU 吞吐），
+还额外付 `convert_float*` 的指令。把 MAC 路径换成 `COMPUTE_FLOAT4/8`、只把**归约标量**
+（softmax 的 m / l / sum）留在 `float`，是精度与吞吐的正确切分点。
+
+**实测**：OpenCL flash-attention prefill kernel，只把 phase1/phase3 的 accumulator 和 local S tile
+从 `float` 换成 `COMPUTE_FLOAT`（softmax 归约仍 float）→ **3152 → 2589（−18%）**，单测数值不变。
+
+**注意事项**：`local` 里存 `COMPUTE_FLOAT` 时，哨兵常量必须**在 half 里可精确表示**。
+`-1e30f` 存进 half 会变 `-inf`，`-inf - (-inf) = NaN` 会污染 online softmax 的 rescale。
+用 `-60000.0f`（half 精确值）+ `<= -50000.0f` 的探针，两种精度下都是精确比较。
+
+---
+
+### 技巧 13：causal mask 下按 tile 裁剪 kv 循环（融合 attention 专属）
+
+**适用场景**：融合 flash-attention 这类"一个 workgroup 拥有 TILE_Q 行 query、自己循环 kv"的 kernel，
+且 mask 是因果的。
+
+**做法**：workgroup 内最后一行 query 的可见 kv 上界是 `kvLen - seqLen + q_start + TILE_Q`，
+直接拿它当 kv 循环的上界。整块被 mask 掉的 kv block 连 phase1（最贵的 Q·Kᵀ）都不用跑。
+平均省掉一半 kv block，**且是 bit-exact 的**（省掉的元素本来就贡献 0）。
+
+前提是 backend 知道 mask 是因果的，也就是调用方传**标量哨兵 mask** 而不是实体 mask 张量。
+`Llm::gen_attention_mask` 有一份 backend 白名单决定发哪种。
+
+**实测**：Qwen3-0.6B / Adreno（SM8850）。attention op 耗时（resize 期 event 计时）：
+
+| seqLen | 7-kernel short | GEMM long | flash（无裁剪）| flash（+裁剪）|
+|---|---|---|---|---|
+| 512 | 2805 | 1909 | 2589 | **1445** |
+| 2048 | 113878 | 30549 | — | **19368** |
+
+（short 那一列是删除前的历史数据 —— 正是这个 5.9x 差距让它成为可删的路径。现在 prefill 只剩
+flash 与 long 两条。）
+
+端到端（llm_bench，交替 A/B 2 轮全胜）：**pp512 1786 → 1845（+3.3%）、pp2048 1231 → 1540（+25%）**。
+
+**注意事项**：这条和"给 non-fused 路径加 causal 优化"是两回事——后者在本仓实测无收益
+（见 §6 已排除条目）。裁剪的收益只有在**一个 workgroup 独占整块 kv 循环**时才拿得到。
+
 ---
 
 ## 3. 常见陷阱
@@ -387,6 +463,59 @@ host `buildOptions` 传入的宏名与 .cl 里的 `#ifdef` 不一致（如 `QUAN
 
 ---
 
+### 陷阱 Q：fp16 下 `0 * lowest()` 把 mask 变成 NaN，而 NaN 会让单测静默通过
+
+`std::numeric_limits<float>::lowest()`（-3.4e38）转成 half 是 `-inf`。任何用
+`(1 - mask) * lowest()` 这类**表达式在 GPU 上**构造 additive mask 的代码，在 fp16 下
+可见位置会算成 `0 * -inf = NaN`，整张 mask 被污染。
+
+更坑的是它不会报错：单测常写 `if (diff > threshold) fail`，而 `NaN > threshold` 是
+**false**，于是输出全 NaN 的 backend 会「全部通过」。`test/op/AttentionTest.cpp` 的 OpenCL
+fp16 ADD_MASK case 就这样空跑了很久，直到一个把 NaN 归一化成"已 mask"（因此输出 0）的新
+kernel 才把它暴露出来。
+
+**应对**：(1) mask 的哨兵值取 half 可表示的有限值（如 -30000）而不是 `lowest()`；
+(2) 比较函数里显式加 `got != got` 的 NaN 判定，别依赖 `>` 比较兜住。
+
+---
+
+### 陷阱 R：tune cache 会跨 shape 复用 lws，既污染 A/B 又真的慢 2x
+
+`getTunedInfo()` 先按 `(kernelName, gws)` 精确查，miss 后落到 `localWSTune()`。后者在**非 Fast/None**
+tune level（默认 `Wide`）下按 gws 的 L1 距离取**最近**条目直接复用它的 lws，且经 cache 文件跨进程持久化。
+于是 kv≈1 时 tune 出的 decode lws 会被 kv=2048 复用，长上下文 decode 掉一半（四款 GPU 实测
+24.9/15.3/29.1 vs 50.0/35.2/59.7 tok/s，Mali 上还表现为跑分在 10~20 之间乱跳）。
+
+已加**每维 8x 比值**上限（超出就 miss 去真 tune）。改这条阈值要知道两件事：
+
+- **判"远"要用每维比值，不是 L1 距离** —— L1 会被大维度淹没（`{8192,16,1}` vs `{8192,1,1}` 距离仅 0.18%，
+  但第二维差 16 倍）。
+- **阈值必须松**：收紧到"每维 10% 以内"会把 512-vs-2048 的 prefill shape 也拒掉，冷启动 tune 从 22s 涨到 75s、
+  新 shape 首次 9s→60s，而换来的 pp2048 只 +0.4%。**改这类核心复用规则必须同时量"新 shape 的 tune 时间"**，
+  否则很容易做成 +0.4% 换 50s。
+
+**阈值救不了的一类 kernel**：gws 里根本不含那个变化量的（当年的例子是 `matmul_qkv_decode`，gws 是
+`{headDim/itemC, numHead}`，kv 只是 kernel 参数；该 kernel 已随三段式 decode 删除）。这类要把变化量
+**分桶写进 tune key 字符串**（如 `+ "_kv" + 2的幂`）。找法：看 gws 推导里有没有引用那个随时间增长的量。
+
+顺带一条**结构性**的规避办法：flash-decoding 的两个 kernel 用**固定 lws**、完全不进 tune，
+所以对这类串味天然免疫。给一个 kv 长度敏感的 kernel 引入 tuned lws 之前，先想想它是否真需要。
+
+**两个已实测为负的修法，别重做**：
+
+- **执行期（`UpdateArgs`）按 kv 跨桶重算 lws**：8gen4 长生成从 42.6 掉到 22.2。当时 `localWS2DDefault`
+  每个候选都 `getCostTime(&event)` **等 event 完成 = 一次全流水线同步（~1.5 ms）**，2 次跨桶 × 28 层 ×
+  25 候选 ≈ 2.1s。**tune 不该放在执行期做**，代价不在 kernel 本身而在每候选的同步。
+  该同步现已改为批量取时（enqueue 全部 → 只等最后一个 → 统一读 profiling，队列是 in-order 所以
+  时间仍可比），冷启动 16→14s@Adreno、28.5→23.5s@Mali。**即便如此这条仍不值得**：批量后单次 refresh
+  约 5 ms（原 37 ms），而 lws 本身的空间只有 3%（见下条）。
+- **"既然某变体在长 kv 稳赢就定死它、删掉那圈 tune"**：kv≈2049 实测四变体 cost，Adreno 最优 b8+unroll8
+  (128µs)，Mali 上它是**最差**(1378µs，最优是 b4+unroll8 的 533µs)。**赢家设备相反**，定死会让 Mali 掉 2.6x。
+  读法很省事：分桶之后各变体有独立 tune 键，cost 就存在 cache 里，`source/backend/opencl/schema/dump_cache.py`
+  直接 dump，不用加打印。
+
+---
+
 ## 4. Packed Weight 设计
 
 新加 quant bit 或调整 tile 排布时，**先固定 5 个量**：
@@ -424,6 +553,8 @@ host `buildOptions` 传入的宏名与 .cl 里的 `#ifdef` 不一致（如 `QUAN
 | 9 | 遍历顺序转置消除 cache thrashing | memory（cache thrash）| NC4HW4 raster，N 是 2 的幂次 | 中 | 消除异常 |
 | 10 | 边界钳位 + guard 存储替代 leaves 枚举 | 工程（覆盖尺寸）| 更宽 tile 推广到任意尺寸 | 中 | 覆盖全尺寸不回退 |
 | 11 | spike 先验证假设再产品化 | 方法论 | 实现成本高、收益未知 | 低 | 省无效工程 |
+| 12 | accumulator 精度跟随生产路径 | compute（ALU 吞吐）| 手写融合 kernel 打不过被替换链路 | 低 | −18% 耗时 |
+| 13 | causal mask 按 tile 裁剪 kv 循环 | compute（冗余计算）| 融合 attention + 因果 mask | 低 | 1.8x（op 级）|
 
 ---
 
@@ -445,6 +576,23 @@ host `buildOptions` 传入的宏名与 .cl 里的 `#ifdef` 不一致（如 `QUAN
 
 **针对瓶颈**：memory（跨 lane 共享）/ 归约。用 subgroup shuffle/broadcast 让同 wave 内 work-item 共享权重（免 local memory + barrier），或用 subgroup reduce 替代 tree reduction。
 **前置**：属于"新特性"，走方向 C 流程——**必须有可运行示例代码 + runtime 特性检测 fallback**（`isSupportedIntelSubgroup` / `getMaxSubGroupSize`），Adreno/Mali 都要测（陷阱 K），注意首次编译耗时（陷阱 L）。
+
+### 已排除：靠"读 mask 判断能否跳过计算"救实体 mask 的 attention
+
+**结论(2026-08-20 实测,已 revert)**:融合 attention 里,用 mask 值判断一个 micro-tile
+是否全被 mask、从而跳掉整个 `headDim` 点积循环 —— 听起来是 100:1 的划算交易(16 次 mask 读
+换 768 条指令),**实测收益为 0**。
+
+诊断办法值得记:把 mask 的读取换成一个**免费的下标公式**(causal 判据)再测一次,就能把
+"跳过省了多少"和"判定花了多少"分开。实测跳过本身值 22%,而读 mask 判定几乎正好吃掉这 22%。
+根因是这 16 次读是**分支的前置依赖**,必须全部返回才能决定走哪条路,内存延迟完全暴露;
+而被它替代的点积循环里的读是流水化的。改成先把 mask tile stage 进 local memory 再从 LDS
+探测,反而更慢(多一次 barrier + strided LDS 写)。
+
+**推论**:凡是"用一次访存去决定要不要做一段计算"的优化,先估算这次访存的**延迟**能不能被
+隐藏,而不只是比较指令条数。判定读若在分支关键路径上,基本拿不到收益。
+
+---
 
 ### 候选 D：循环展开（`#pragma unroll` / 手工 K-unroll）
 

@@ -21,6 +21,8 @@ public:
     virtual ~UnaryBufExecution() = default;
 
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) override;
 
 private:
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP

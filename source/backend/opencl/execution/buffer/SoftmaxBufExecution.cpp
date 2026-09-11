@@ -17,7 +17,8 @@ SoftmaxBufExecution::SoftmaxBufExecution(const std::vector<Tensor *> &inputs, in
     : CommonExecution(backend, Op) {
     mAxis          = axis;
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
-    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
+    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel(
+        "softmax_buf", "softmax_buf", softmaxBuildOptions(512), mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL_CTOR(kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
@@ -28,6 +29,54 @@ int SoftmaxBufExecution::getLocalSize(int size, int maxGroupSize){
         local_size *= 2;
     }
     return local_size;
+}
+
+std::set<std::string> SoftmaxBufExecution::softmaxBuildOptions(int localSize) const {
+    auto buildOptions = mBuildOptions;
+    buildOptions.emplace("-DSOFTMAX_LOCAL_SIZE=" + std::to_string(localSize));
+    return buildOptions;
+}
+
+void SoftmaxBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                                 const std::vector<Tensor*>& outputs) {
+    if (inputs.empty() || outputs.empty()) {
+        return;
+    }
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    auto input = inputs[0];
+    auto output = outputs[0];
+    const auto maxLocalSize =
+        std::min(std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize), static_cast<uint32_t>(256));
+    int inside = 1;
+    int channel = input->length(mAxis);
+    for (int i = mAxis + 1; i < input->dimensions(); ++i) {
+        inside *= input->length(i);
+    }
+    int localSize = getLocalSize(channel, maxLocalSize);
+    if (localSize < 4) {
+        localSize = 1;
+    }
+    const bool needUnpackC4 = TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    if (needUnpackC4) {
+        runtime->submitPrebuild("buffer_convert_buf",
+                                {"-DINPUT_FORMAT=MNN_DATA_FORMAT_NC4HW4", "-DOUTPUT_FORMAT=MNN_DATA_FORMAT_NCHW"},
+                                mOpenCLBackend->getPrecision(), input, output, true, true);
+    }
+
+    auto buildOptions = softmaxBuildOptions(localSize);
+    if (inside == 1) {
+        runtime->submitPrebuild("self_attention_buf", buildOptions, mOpenCLBackend->getPrecision(), input, output, true,
+                                true);
+    } else {
+        runtime->submitPrebuild("softmax_buf", buildOptions, mOpenCLBackend->getPrecision(), nullptr, nullptr, true,
+                                true);
+    }
+
+    if (needUnpackC4) {
+        runtime->submitPrebuild("buffer_convert_buf",
+                                {"-DINPUT_FORMAT=MNN_DATA_FORMAT_NCHW", "-DOUTPUT_FORMAT=MNN_DATA_FORMAT_NC4HW4"},
+                                mOpenCLBackend->getPrecision(), input, output, true, true);
+    }
 }
 
 ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -99,18 +148,15 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         if(localSize < 4){
             localSize = 1;
         }
-        std::set<std::string> buildOptions = mBuildOptions;
-        buildOptions.emplace("-DARGMAX_LOCAL_SIZE=" + std::to_string(localSize));
+        auto buildOptions = softmaxBuildOptions(localSize);
         std::string kernelName;
-        if(inside == 1){
-            buildOptions.emplace("-DSOFTMAX_LOCAL_SIZE=" + std::to_string(localSize));
+        if (inside == 1) {
             unit.kernel = runtime->buildKernel("self_attention_buf", "softmax_inside", buildOptions, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
             mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(outside), static_cast<uint32_t>(1)};
-        }
-        else if(inside % 4 == 0){
+        } else if (inside % 4 == 0) {
             unit.kernel = runtime->buildKernel("softmax_buf", "softmax_v4_buf", buildOptions, mOpenCLBackend->getPrecision());
             mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(UP_DIV(inside, 4)), static_cast<uint32_t>(outside)};
-        }else {
+        } else {
             unit.kernel = runtime->buildKernel("softmax_buf", "softmax_buf", buildOptions, mOpenCLBackend->getPrecision());
             mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(inside), static_cast<uint32_t>(outside)};
         }

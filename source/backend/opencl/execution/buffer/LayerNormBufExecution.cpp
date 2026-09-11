@@ -12,6 +12,28 @@
 namespace MNN {
 namespace OpenCL {
 
+// Measured winners for the fused residual add; handing them to the tuner keeps Wide from sweeping the
+// full grid. Only Adreno was measured, and only below the gws ceiling where the shortlist still holds.
+static LwsShortlist2D binaryAddC4LwsShortlist(GpuType gpuType, uint32_t gws0) {
+    if (gpuType != ADRENO || gws0 > 262144) {
+        return LwsShortlist2D();
+    }
+    static const uint32_t smallPool[][2] = {{4, 1}, {8, 1}, {16, 1}, {32, 1}, {64, 1}, {128, 1}, {256, 1}, {32, 2}};
+    static const uint32_t mediumPool[][2] = {{32, 1}, {64, 1}, {128, 1}, {256, 1}, {32, 2}};
+    const uint32_t (*pool)[2] = smallPool;
+    size_t count = sizeof(smallPool) / sizeof(smallPool[0]);
+    if (gws0 > 1024) {
+        pool = mediumPool;
+        count = sizeof(mediumPool) / sizeof(mediumPool[0]);
+    }
+    LwsShortlist2D shortlist;
+    shortlist.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        shortlist.push_back({{pool[i][0], pool[i][1]}});
+    }
+    return shortlist;
+}
+
 LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor*>& inputs, const MNN::Op* op, Backend* backend)
     : CommonExecution(backend, op) {
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
@@ -149,6 +171,50 @@ int LayerNormBufExecution::getLocalSize(int size, int maxGroupSize) {
     return local_size;
 }
 
+void LayerNormBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                                   const std::vector<Tensor*>& outputs) {
+    if (inputs.empty()) {
+        return;
+    }
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    auto input = inputs[0];
+    const bool isNC4HW4 = TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    const int rank = input->dimensions();
+    int innerSize = 1;
+    for (int i = rank - mResource->axis_size; i < rank; ++i) {
+        innerSize *= input->length(i);
+    }
+    if (mResource->group_ > 1) {
+        innerSize = 1;
+        for (int i = 1; i < rank; ++i) {
+            innerSize *= input->length(i);
+        }
+        innerSize /= mResource->group_;
+    }
+    if (isNC4HW4) {
+        innerSize = input->length(1);
+    }
+
+    const auto maxLocalSize =
+        std::min(std::min(runtime->getMaxWorkItemSizes()[0], mResource->mMaxWorkGroupSize), static_cast<uint32_t>(256));
+    const int localSize = getLocalSize(isNC4HW4 ? UP_DIV(innerSize, 4) : innerSize / 4, maxLocalSize);
+    std::set<std::string> buildOptions = {"-DLOCAL_SIZE=" + std::to_string(localSize)};
+    if (mResource->RMSNorm) {
+        buildOptions.emplace("-DRMSNORM");
+    }
+    if (mResource->has_gamma_beta_) {
+        buildOptions.emplace("-DGAMMA_BETA");
+    }
+    if (!isNC4HW4 && innerSize % 4 != 0) {
+        buildOptions.emplace("-DPACK_LEAVE");
+    }
+    runtime->submitPrebuild("layernorm_buf", buildOptions, mOpenCLBackend->getPrecision(), nullptr, nullptr, true,
+                            true);
+    if (isNC4HW4 && inputs.size() == 2 && outputs.size() == 2) {
+        runtime->submitPrebuild("layernorm_buf", {}, mOpenCLBackend->getPrecision(), nullptr, nullptr, true, true);
+    }
+}
+
 ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     Tensor* input = inputs[0];
     Tensor* output = outputs[0];
@@ -244,7 +310,8 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
             aret |= u0.kernel->get().setArg(aidx++, total_size_float);
             MNN_CHECK_CL_SUCCESS(aret, "setArg binary_add_c4_buf");
             std::vector<uint32_t> lwsVec = localWS2DDefault(gwsVec, maxWGS, runtime, "binary_add_c4_buf", u0.kernel,
-                                                            mOpenCLBackend->getCLTuneLevel(), "layernorm_buf")
+                                                            mOpenCLBackend->getCLTuneLevel(), "layernorm_buf",
+                                                            binaryAddC4LwsShortlist(runtime->getGpuType(), gwsVec[0]))
                                                .first;
             mOpenCLBackend->recordKernel2d(u0.kernel, gwsVec, lwsVec);
             u0.globalWorkSize = {gwsVec[0], gwsVec[1]};

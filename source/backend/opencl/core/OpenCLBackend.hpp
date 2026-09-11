@@ -62,16 +62,18 @@ public:
     bool isCLRuntimeError();
     int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
     float onGetLastGpuTimeMs() const override { return mLastGpuTimeMs; }
-    virtual bool onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                           const MNN::Op* op, OpInfo& dstInfo) const override;
+    virtual bool onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
+                           OpInfo& dstInfo) const override;
     virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const MNN::Op* op) override;
     // The dynamic pools live on OpenCLBackend, not here, so onGetMemoryInMB has to ask the live
     // backends for them. Backends register on construction and drop out on destruction.
     void onBackendCreate(OpenCLBackend* backend) const;
     void onBackendRelease(OpenCLBackend* backend) const;
-    void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
-    void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
+    void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision,
+                         int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
+    void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision,
+                           int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor, int precision, int backend_memtype) const;
 
 private:
@@ -233,6 +235,7 @@ public:
             backend->mUseRecordQueue = true;
         }
     }
+
 private:
     bool needRecover = false;
     OpenCLBackend* backend;
@@ -270,13 +273,12 @@ public:
     }
 #endif
 
-
 template <typename T>
 class TypedCreator : public OpenCLBackend::Creator {
 public:
     virtual ~TypedCreator() = default;
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op,
-                                Backend *backend) const override {
+    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                const MNN::Op* op, Backend* backend) const override {
         return new T(inputs, op, backend);
     }
 };

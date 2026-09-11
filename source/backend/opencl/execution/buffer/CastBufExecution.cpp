@@ -12,9 +12,35 @@
 namespace MNN {
 namespace OpenCL {
 
-CastBufExecution::CastBufExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const std::string& compute, const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
+static std::set<std::string> castBuildOptions(const std::set<std::string>& baseOptions, int totalSize) {
+    auto buildOptions = baseOptions;
+    if (totalSize % 4 != 0) {
+        buildOptions.emplace("-DPACK_LEAVE");
+    }
+    return buildOptions;
+}
+
+CastBufExecution::CastBufExecution(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                   const std::string& compute, const MNN::Op* op, Backend* backend)
+    : CommonExecution(backend, op) {
     mBuildOptions.emplace(compute);
 }
+
+void CastBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    if (inputs.empty() || outputs.empty()) {
+        return;
+    }
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    auto outputShape = tensorShapeFormat(outputs[0]);
+    int totalSize = outputShape[0] * outputShape[1] * outputShape[2] * outputShape[3];
+    if (MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(outputs[0])->dimensionFormat) {
+        totalSize = outputShape[0] * outputShape[1] * outputShape[2] * ROUND_UP(outputShape[3], 4);
+    }
+    auto buildOptions = castBuildOptions(mBuildOptions, totalSize);
+    openCLBackend->getOpenCLRuntime()->submitPrebuild("cast_buf", buildOptions, openCLBackend->getPrecision(),
+                                                      inputs[0], outputs[0], true, true);
+}
+
 ErrorCode CastBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     mUnits.resize(1);
     auto &unit = mUnits[0];
@@ -30,11 +56,9 @@ ErrorCode CastBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     }else{
         totalSize = outputShape[0] * outputShape[1] * outputShape[2] * outputShape[3];
     }
-    std::set<std::string> buildOptions = mBuildOptions;
-    if(totalSize % 4 != 0) {
-        buildOptions.emplace("-DPACK_LEAVE");
-    }
-    unit.kernel = runtime->buildKernel("cast_buf", "cast_buf", mBuildOptions, openCLBackend->getPrecision(), inputs[0], outputs[0]);
+    auto buildOptions = castBuildOptions(mBuildOptions, totalSize);
+    unit.kernel = runtime->buildKernel("cast_buf", "cast_buf", buildOptions, openCLBackend->getPrecision(), inputs[0],
+                                       outputs[0]);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
     
     mGlobalWorkSize = {
@@ -52,24 +76,13 @@ ErrorCode CastBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     MNN_CHECK_CL_SUCCESS(ret, "setArg CastBufExecution");
 
     std::string kernelName = "cast_buf";
-    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel(), "cast_buf").first;
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName,
+                                  unit.kernel, openCLBackend->getCLTuneLevel(), "cast_buf")
+                     .first;
     openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};
     return NO_ERROR;
-}
-
-static DataType _mapDataType(DataType src) {
-    if (DataType_DT_BOOL == src) {
-        return DataType_DT_INT32;
-    }
-    if (DataType_DT_INT64 == src) {
-        return DataType_DT_INT32;
-    }
-    if (DataType_DT_DOUBLE == src) {
-        return DataType_DT_FLOAT;
-    }
-    return src;
 }
 
 class CastBufCreator : public OpenCLBackend::Creator {
@@ -83,9 +96,6 @@ public:
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         auto cast = op->main_as_CastParam();
-        // cast param srcT is invalid
-        // auto srcT = _mapDataType(cast->srcT());
-        auto dstT = _mapDataType(cast->dstT());
 
         const auto &inputDataType = inputs[0]->getType();
         if (inputDataType.bytes() == 4 && cast->dstT() == MNN::DataType_DT_BOOL) OPENCL_CREATOR_CHECK(new CastBufExecution(inputs, outputs, "-DTO_BOOL", op, backend)); else OPENCL_CREATOR_CHECK(new CastBufExecution(inputs, outputs, "", op, backend));

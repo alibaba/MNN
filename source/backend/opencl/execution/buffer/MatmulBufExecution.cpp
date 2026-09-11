@@ -76,9 +76,13 @@ ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         uint32_t batch = 1;
         std::vector<uint32_t> param;
         if(inputs.size() == 2) {
-            param = getGemmParams({(uint32_t)M, (uint32_t)N, (uint32_t)K, layout, batch, (uint32_t)0}, {openCLBuffer(input0), openCLBuffer(input1), openCLBuffer(output)}, mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(), mOpenCLBackend->getCLTuneLevel());
+            param = getGemmParams({(uint32_t)M, (uint32_t)N, (uint32_t)K, layout, batch, (uint32_t)0},
+                                  mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(),
+                                  mOpenCLBackend->getCLTuneLevel());
         } else {
-            param = getGemmParams({(uint32_t)M, (uint32_t)N, (uint32_t)K, layout, batch, (uint32_t)1}, {openCLBuffer(input0), openCLBuffer(input1), openCLBuffer(output), openCLBuffer(inputs[2])}, mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(), mOpenCLBackend->getCLTuneLevel());
+            param = getGemmParams({(uint32_t)M, (uint32_t)N, (uint32_t)K, layout, batch, (uint32_t)1},
+                                  mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(),
+                                  mOpenCLBackend->getCLTuneLevel());
         }
         int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
         buildOptions.emplace("-DKWG=" + std::to_string(KWG));

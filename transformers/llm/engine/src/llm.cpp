@@ -1618,11 +1618,17 @@ VARP Llm::gen_attention_mask(int seq_len) {
         }
 
         // Mask: lower triangular
-       if ((mConfig->backend_type() == "cpu" || mConfig->backend_type() == "hexagon" || mConfig->backend_type() == "metal") && mValidBlockSize.empty()) {
-           attentionMask = _Input({}, NCHW, halide_type_of<float>());
-           auto ptr = attentionMask->writeMap<float>();
-           ptr[0] = 0;
-       } else {
+        // Backends whose Attention op derives the causal mask itself take a scalar
+        // sentinel instead of an O(seqLen * kvLen) mask: it saves the host-side build
+        // plus the upload, and lets the kernel skip fully-masked kv blocks.
+        const std::string backendType = mConfig->backend_type();
+        const bool causalSentinel =
+            backendType == "cpu" || backendType == "hexagon" || backendType == "metal" || backendType == "opencl";
+        if (causalSentinel && mValidBlockSize.empty()) {
+            attentionMask = _Input({}, NCHW, halide_type_of<float>());
+            auto ptr = attentionMask->writeMap<float>();
+            ptr[0] = 0;
+        } else {
             attentionMask = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
             auto ptr = attentionMask->writeMap<float>();
             for (int i = 0; i < seq_len; i++) {
@@ -1630,7 +1636,7 @@ VARP Llm::gen_attention_mask(int seq_len) {
                     ptr[kv_seq_len * i + j] = (j > i) * std::numeric_limits<float>::lowest();
                 }
             }
-       }
+        }
         return attentionMask;
     } else {
         if (needNewVar(attentionMask, 2, seq_len, kv_seq_len)) {

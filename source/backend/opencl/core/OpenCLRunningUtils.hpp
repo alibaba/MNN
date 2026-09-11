@@ -9,6 +9,7 @@
 #ifndef OpenCLRunningUtils_hpp
 #define OpenCLRunningUtils_hpp
 
+#include <array>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -23,39 +24,35 @@
 namespace MNN {
 namespace OpenCL {
 
-enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
-enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2};
-inline std::vector<int> tensorShapeFormat(const Tensor *input) {
-    
+enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4 };
+enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2 };
+inline std::vector<int> tensorShapeFormat(const Tensor* input) {
     int iN = (0 != input->buffer().dim[0].extent) ? input->buffer().dim[0].extent : 1;
     int iC = (0 != input->buffer().dim[1].extent) ? input->buffer().dim[1].extent : 1;
     int iH = (0 != input->buffer().dim[2].extent) ? input->buffer().dim[2].extent : 1;
     int iW = (0 != input->buffer().dim[3].extent) ? input->buffer().dim[3].extent : 1;
 
-    if(input->buffer().dimensions > 4)//more than 4 dimensions put to N dimension
+    if (input->buffer().dimensions > 4) // more than 4 dimensions put to N dimension
     {
-        for(int i = 4; i < input->buffer().dimensions; i++)
-        {
+        for (int i = 4; i < input->buffer().dimensions; i++) {
             iW *= input->buffer().dim[i].extent;
         }
     }
-    
-    if (TensorUtils::getDescribe(input)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC)
-    {
+
+    if (TensorUtils::getDescribe(input)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC) {
         iN = (0 < input->buffer().dim[0].extent) ? input->buffer().dim[0].extent : 1;
         iH = (0 < input->buffer().dim[1].extent) ? input->buffer().dim[1].extent : 1;
         iW = (0 < input->buffer().dim[2].extent) ? input->buffer().dim[2].extent : 1;
         iC = (0 < input->buffer().dim[3].extent) ? input->buffer().dim[3].extent : 1;
-        
-        if(input->buffer().dimensions > 4)//more than 4 dimensions put to N dimension
+
+        if (input->buffer().dimensions > 4) // more than 4 dimensions put to N dimension
         {
-            for(int i = 4; i < input->buffer().dimensions; i++)
-            {
+            for (int i = 4; i < input->buffer().dimensions; i++) {
                 iC *= input->buffer().dim[i].extent;
             }
         }
     }
-    
+
     if (input->buffer().dimensions == 2) {
         iN = input->buffer().dim[0].extent;
         iH = 1;
@@ -78,17 +75,17 @@ inline std::vector<int> tensorShapeFormat(const Tensor *input) {
 }
 
 enum OpenCLBufferFormat {
-    CONV2D_FILTER    = 0,
-    NHWC_BUFFER      = 1,
-    ARGUMENT         = 2,
+    CONV2D_FILTER = 0,
+    NHWC_BUFFER = 1,
+    ARGUMENT = 2,
     DW_CONV2D_FILTER = 3,
-    NCHW_BUFFER      = 4,
-    NHWC4_BUFFER     = 5,
-    CONV2D1x1_OPT_FILTER     = 6,
+    NCHW_BUFFER = 4,
+    NHWC4_BUFFER = 5,
+    CONV2D1x1_OPT_FILTER = 6,
 };
 
 template <typename T, typename Dim>
-inline void IOHW2OIHW(const T *src, T *dst, Dim O, Dim I, Dim H, Dim W) {
+inline void IOHW2OIHW(const T* src, T* dst, Dim O, Dim I, Dim H, Dim W) {
     for (Dim i = 0; i < I; i++) {
         for (Dim o = 0; o < O; o++) {
             for (Dim h = 0; h < H; h++) {
@@ -99,46 +96,103 @@ inline void IOHW2OIHW(const T *src, T *dst, Dim O, Dim I, Dim H, Dim W) {
         }
     }
 };
-inline cl::Buffer &openCLDeferBuffer(const Tensor *tensor) {
-    return *(*(OpenCLBufferNode *)(tensor->deviceId())).buffer.get();
+inline cl::Buffer& openCLDeferBuffer(const Tensor* tensor) {
+    return *(*(OpenCLBufferNode*)(tensor->deviceId())).buffer.get();
 }
-inline cl::Buffer &openCLBuffer(const Tensor *tensor) {
-    return (*(cl::Buffer *)(tensor->deviceId()));
+inline cl::Buffer& openCLBuffer(const Tensor* tensor) {
+    return (*(cl::Buffer*)(tensor->deviceId()));
 }
-inline cl::Image &openCLImage(const Tensor *tensor) {
-    return (*(cl::Image *)(tensor->deviceId()));
+inline cl::Image& openCLImage(const Tensor* tensor) {
+    return (*(cl::Image*)(tensor->deviceId()));
 }
 
-void getImageShape(const std::vector<int> &shape, /* NHWC */
-                   const OpenCLBufferFormat type, std::vector<size_t> *imageShape);
+void getImageShape(const std::vector<int>& shape, /* NHWC */
+                   const OpenCLBufferFormat type, std::vector<size_t>* imageShape);
 
-void run3DKernelDefault(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
-                        OpenCLRuntime *runtime, cl::Event* eventPtr = nullptr);
+void run3DKernelDefault(const ::std::shared_ptr<KernelWrap>& kernel, const std::vector<uint32_t>& gws,
+                        const std::vector<uint32_t>& lws, OpenCLRuntime* runtime, cl::Event* eventPtr = nullptr);
 
-void runKernel2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
-                 OpenCLRuntime *runtime, cl::Event* eventPtr = nullptr);
+void runKernel2D(const ::std::shared_ptr<KernelWrap>& kernel, const std::vector<uint32_t>& gws,
+                 const std::vector<uint32_t>& lws, OpenCLRuntime* runtime, cl::Event* eventPtr = nullptr);
 
-void runTurnKernelLWS2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
-                        OpenCLRuntime *runtime, const std::string programName);
-std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const std::vector<cl::Buffer> tensorMemory,
-                                    OpenCLRuntime *runtime, int precision, int tuneLevel);
-std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel, int tuneLevel, const std::string programName);
+void runTurnKernelLWS2D(const ::std::shared_ptr<KernelWrap>& kernel, const std::vector<uint32_t>& gws,
+                        const std::vector<uint32_t>& lws, OpenCLRuntime* runtime, const std::string programName);
+std::vector<uint32_t> makeGemmTuneInfoKey(const std::vector<uint32_t>& gemmSize, int precision);
+std::set<std::string> makeGemmBuildOptions(const std::vector<uint32_t>& params, int layoutType, int biasType,
+                                           int mixPrecision, GpuType gpuType);
+std::vector<std::set<std::string>> getGemmPrebuildOptions(const std::vector<uint32_t>& gemmSize, int precision,
+                                                          int tuneLevel, OpenCLRuntime* runtime);
+std::vector<uint32_t> getGemmParams(const std::vector<uint32_t>& gemmSize, OpenCLRuntime* runtime, int precision,
+                                    int tuneLevel);
+// Async gemm tuning is split across threads. The foreground builds the candidate list and
+// compiles each candidate's program once into the shared cache, returning precompiled programs.
+std::vector<GemmTuneCandidate> prepareGemmTuneCandidates(const std::vector<uint32_t>& gemmSize, int precision,
+                                                         int tuneLevel, OpenCLRuntime* runtime,
+                                                         const std::vector<uint32_t>& params_prefer);
+// The background worker measures each precompiled candidate once on its own profiling queue and
+// returns the fastest 14 params (empty when nothing could be measured).
+std::vector<uint32_t> measureGemmTuneCandidates(const std::vector<GemmTuneCandidate>& candidates,
+                                                const std::vector<uint32_t>& gemmSize, cl::Device& device,
+                                                cl::CommandQueue& queue, const std::vector<cl::Buffer>& tensorMemory);
+// A Wide sweep dispatches hundreds of group sizes. Ops that already know which sizes ever win on
+// real devices pass their own shortlist instead; the tables stay in the op, this only picks the one
+// matching the GPU (unknown vendors try both, in Adreno-then-Mali order).
+template <size_t dims>
+using LwsShortlistN = std::vector<std::array<uint32_t, dims>>;
+using LwsShortlist2D = LwsShortlistN<2>;
+using LwsShortlist = LwsShortlistN<3>;
+
+template <size_t dims, size_t adrenoCount, size_t maliCount>
+inline LwsShortlistN<dims> makeLwsShortlist(GpuType gpuType, const uint32_t (&adrenoPool)[adrenoCount][dims],
+                                            const uint32_t (&maliPool)[maliCount][dims]) {
+    LwsShortlistN<dims> shortlist;
+    shortlist.reserve(adrenoCount + maliCount);
+    auto append = [&shortlist](const uint32_t (*pool)[dims], size_t count) {
+        for (size_t i = 0; i < count; ++i) {
+            std::array<uint32_t, dims> lws;
+            for (size_t d = 0; d < dims; ++d) {
+                lws[d] = pool[i][d];
+            }
+            shortlist.push_back(lws);
+        }
+    };
+    if (gpuType != MALI) {
+        append(adrenoPool, adrenoCount);
+    }
+    if (gpuType != ADRENO) {
+        append(maliPool, maliCount);
+    }
+    return shortlist;
+}
+
+std::pair<std::vector<uint32_t>, uint32_t>
+localWS3DDefault(const std::vector<uint32_t>& gws, const uint32_t maxWorkGroupSize, OpenCLRuntime* runtime,
+                 const std::string& kernelName, const std::shared_ptr<KernelWrap>& mKernel, int tuneLevel,
+                 const std::string programName, const LwsShortlist& wideShortlist = LwsShortlist());
 
 bool localWSTune(const std::map<std::string, std::vector<TuneInfo>>& tuneMap, const std::vector<uint32_t>& gws,
                  const std::string& kernelName, std::pair<std::vector<uint32_t>, uint32_t>& res, int tuneLevel = Heavy);
 
-uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW, const std::string programName);
+uint32_t get2DUseLocalMemTime(const std::vector<uint32_t>& gws, const std::vector<uint32_t>& lws,
+                              OpenCLRuntime* runtime, const std::string& kernelName,
+                              const std::shared_ptr<KernelWrap>& mKernelW, const std::string programName);
 
-std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel, int tuneLevel, const std::string programName);
+std::pair<std::vector<uint32_t>, uint32_t>
+localWS2DDefault(const std::vector<uint32_t>& gws, const uint32_t maxWorkGroupSize, OpenCLRuntime* runtime,
+                 const std::string& kernelName, const std::shared_ptr<KernelWrap>& mKernel, int tuneLevel,
+                 const std::string programName, const LwsShortlist2D& wideShortlist = LwsShortlist2D());
 
 bool getTunedInfo(const std::string kernelName, const std::vector<uint32_t>& gws,
                   std::pair<std::vector<uint32_t>, uint32_t>& tuneInfo, OpenCLRuntime* runtime, int tuneLevel = Heavy);
 
-void setTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime, const std::string programName);
+bool getProgramMd5(const std::string& programNames, std::string& md5);
 
-void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h, int precision);
+void setTunedInfo(const std::string kernelName, const std::vector<uint32_t>& gws,
+                  std::pair<std::vector<uint32_t>, uint32_t>& tuneInfo, OpenCLRuntime* runtime,
+                  const std::string programName);
+
+void copyBufferToImage(OpenCLRuntime* runtime, const cl::Buffer& buffer, const cl::Image& image, int w, int h,
+                       int precision);
 
 // Byte budget for one conv's Winograd transform pair (source + dest) under Memory_Low, shared by
 // the buffer and image convolution paths so both gate on the same number.

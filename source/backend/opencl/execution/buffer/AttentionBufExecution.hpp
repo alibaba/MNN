@@ -74,16 +74,21 @@ public:
     AttentionBufExecution(const MNN::Op* op, Backend* backend, bool outputC4);
     AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op* op, Backend* backend);
     ErrorCode longPrefillResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
-    ErrorCode prefillResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
-    ErrorCode decodeResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    ErrorCode flashPrefillResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    // Flash-decoding: split the kv axis across workgroups so the P*V matmul stops running
+    // on ceil(headDim/8) * headNum work-items. The only decode path.
+    ErrorCode flashDecodeResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 
     ErrorCode UpdateArgs(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     ErrorCode init();
     int getExecuteTime();
+    int measureExecuteTime();
     virtual ~AttentionBufExecution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+    virtual void prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) override;
 
 private:
     bool mOutputC4 = false;
@@ -100,18 +105,43 @@ private:
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend* mOpenCLBackend;
     RecordUpdateInfo mRgUpdateInfo;
-    RecordUpdateInfo mRgQUpdateInfo;
-    RecordUpdateInfo mRgMUpdateInfo;
-    RecordUpdateInfo mQkUpdateInfo;
-    RecordUpdateInfo mSoftMaxUpdateInfo;
     RecordUpdateInfo mRgVUpdateInfo;
-    RecordUpdateInfo mQkvUpdateInfo;
-    int mGlobalWorkSizeQk0 = 0;
-    size_t mQkGlobal_size[2];
-    size_t mQkPrefillGlobal_size[3];
     std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
     std::shared_ptr<KVCacheCLManager> mKVCacheCLManager;
     std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
+
+private:
+    // Fused flash-attention prefill: one kernel for qk + mask + softmax + qkv.
+    bool flashPrefillEligible(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    // Shared by the real build and the work-group probe that runs before anything is recorded,
+    // so the two cannot drift apart and select different program variants.
+    std::set<std::string> flashPrefillBuildOptions(int headDim, int groupSize) const;
+    bool mFlashPrefill = false;
+    int mFaTileQ = 0, mFaTileKV = 0, mFaWgSize = 0;
+    // Every legal tiling for this shape, preferred one first and the rest by shrinking work
+    // group. flashPrefillEligible sizes them against the device limit; flashPrefillResize walks
+    // the list until one clears the kernel's own CL_KERNEL_WORK_GROUP_SIZE.
+    struct FaTiling {
+        int tileQ;
+        int wgSize;
+        int tileKV;
+    };
+    std::vector<FaTiling> mFaTilings;
+    std::shared_ptr<KernelWrap> mKernel_fa;
+    std::vector<uint32_t> mGlobalWorkSizeFa;
+    std::vector<uint32_t> mLocalWorkSizeFa;
+    RecordUpdateInfo mFaUpdateInfo;
+
+    // kv entries per workgroup in the flash-decode partial pass. A compile-time macro on the
+    // kernel side, so it cannot be re-chosen per step -- only num_chunk and the global size get
+    // patched as kv grows.
+    static constexpr int kFdChunk = 64;
+    int mFdWgSize = 0, mFdChunk = 0, mFdNumChunk = 0, mFdMaxChunk = 0;
+    std::shared_ptr<KernelWrap> mKernel_fdPartial, mKernel_fdReduce;
+    std::vector<uint32_t> mGwsFdPartial, mLwsFdPartial, mGwsFdReduce, mLwsFdReduce;
+    RecordUpdateInfo mFdPartialUpdateInfo, mFdReduceUpdateInfo;
+    size_t mFdPartialGlobal_size[2];
+    std::shared_ptr<Tensor> mTempPartialO, mTempPartialML;
 
 private:
     int mAlignQ, mAlignKV, mAlignHDK, mAlignHDN;
@@ -147,28 +177,14 @@ private:
     std::vector<std::vector<uint32_t>> mLwsClipVec;
 
 private:
-    std::shared_ptr<KernelWrap> mKernel_rearrangeQ;
-    std::shared_ptr<KernelWrap> mKernel_rearrangeV;
-    std::shared_ptr<KernelWrap> mKernel_rearrangeMask;
+    // rearrange_k / rearrange_v, shared by flash prefill and flash decode.
     std::shared_ptr<KernelWrap> mKernel_rearrange;
-    std::shared_ptr<KernelWrap> mKernel_qk;
-    std::shared_ptr<KernelWrap> mKernel_softmax;
-    std::shared_ptr<KernelWrap> mKernel_qkv;
+    std::shared_ptr<KernelWrap> mKernel_rearrangeV;
 
-    std::vector<uint32_t> mGlobalWorkSizeQk;
-    std::vector<uint32_t> mLocalWorkSizeQk;
-    std::vector<uint32_t> mGlobalWorkSizeSoftMax;
-    std::vector<uint32_t> mLocalWorkSizeSoftMax;
-    std::vector<uint32_t> mGlobalWorkSizeQkv;
-    std::vector<uint32_t> mLocalWorkSizeQkv;
-    std::vector<uint32_t> mGlobalWorkSizeRearrgQ;
-    std::vector<uint32_t> mLocalWorkSizeRearrgQ;
-    std::vector<uint32_t> mGlobalWorkSizeRearrgV;
-    std::vector<uint32_t> mLocalWorkSizeRearrgV;
     std::vector<uint32_t> mGlobalWorkSizeRearrg;
     std::vector<uint32_t> mLocalWorkSizeRearrg;
-    std::vector<uint32_t> mGlobalWorkSizeRearrgM;
-    std::vector<uint32_t> mLocalWorkSizeRearrgM;
+    std::vector<uint32_t> mGlobalWorkSizeRearrgV;
+    std::vector<uint32_t> mLocalWorkSizeRearrgV;
 };
 } // namespace OpenCL
 } // namespace MNN

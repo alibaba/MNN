@@ -13,6 +13,21 @@
 namespace MNN {
 namespace OpenCL {
 
+static std::set<std::string> binaryBuildOptions(const std::set<std::string>& baseOptions, int totalSize, bool aSingle,
+                                                bool bSingle) {
+    auto buildOptions = baseOptions;
+    if (totalSize % 4 != 0) {
+        buildOptions.emplace("-DPACK_LEAVE");
+    }
+    if (aSingle) {
+        buildOptions.emplace("-DA_SINGLE");
+    }
+    if (bSingle) {
+        buildOptions.emplace("-DB_SINGLE");
+    }
+    return buildOptions;
+}
+
 BinaryBufExecution::BinaryBufExecution(const std::vector<Tensor*>& inputs, const std::string& compute,
                                        const MNN::Op* op, Backend* backend)
     : CommonExecution(backend, op), mCompute(compute) {
@@ -253,6 +268,33 @@ ErrorCode BinaryBufExecution::SubgroupOnResize(const std::vector<Tensor*>& input
 }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
 
+void BinaryBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                                const std::vector<Tensor*>& outputs) {
+    MNN_ASSERT(inputs.size() >= 2 && !outputs.empty());
+    auto* openCLBackend = static_cast<OpenCLBackend*>(backend());
+    auto* runtime = openCLBackend->getOpenCLRuntime();
+    auto* output = outputs[0];
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    if (runtime->isSupportedIntelSubgroup() &&
+        MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(output)->dimensionFormat) {
+        return;
+    }
+#endif
+    auto outputShape = tensorShapeFormat(output);
+    int totalSize = outputShape[0] * outputShape[1] * outputShape[2] * outputShape[3];
+    if (MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(output)->dimensionFormat) {
+        totalSize = outputShape[0] * outputShape[1] * outputShape[2] * ROUND_UP(outputShape[3], 4);
+    }
+    auto buildOptions =
+        binaryBuildOptions(mBuildOptions, totalSize, realSize(inputs[0]) == 1, realSize(inputs[1]) == 1);
+    runtime->submitPrebuild("binary_buf", buildOptions, openCLBackend->getPrecision(), inputs[0], output, true, true);
+    for (size_t i = 2; i < inputs.size(); ++i) {
+        buildOptions = binaryBuildOptions(mBuildOptions, totalSize, false, realSize(inputs[i]) == 1);
+        runtime->submitPrebuild("binary_buf", buildOptions, openCLBackend->getPrecision(), inputs[i], output, true,
+                                true);
+    }
+}
+
 ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(inputs.size() >= 2);
     mUnits.resize(inputs.size() - 1);
@@ -283,16 +325,7 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor*>& inputs, const
     }
     auto& unit = mUnits[0];
 
-    std::set<std::string> buildOptions = mBuildOptions;
-    if (totalSize % 4 != 0) {
-        buildOptions.emplace("-DPACK_LEAVE");
-    }
-    if (fullCount[0] == 0) {
-        buildOptions.emplace("-DA_SINGLE");
-    }
-    if (fullCount[1] == 0) {
-        buildOptions.emplace("-DB_SINGLE");
-    }
+    auto buildOptions = binaryBuildOptions(mBuildOptions, totalSize, fullCount[0] == 0, fullCount[1] == 0);
     unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, openCLBackend->getPrecision(),
                                        inputs[0], output);
     mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
@@ -316,10 +349,8 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor*>& inputs, const
     unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
     openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     for (int i = 2; i < inputs.size(); ++i) {
-        fullCount[0] = 1;
-        fullCount[1] = realSize(inputs[i]) == 1 ? 0 : 1;
         auto& unit = mUnits[i - 1];
-
+        buildOptions = binaryBuildOptions(mBuildOptions, totalSize, false, realSize(inputs[i]) == 1);
         unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, openCLBackend->getPrecision(),
                                            inputs[i], output);
 

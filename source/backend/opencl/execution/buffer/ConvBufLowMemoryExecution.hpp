@@ -24,11 +24,15 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+    virtual void prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) override;
+
 private:
     int getExecuteTime();
     void getInfoFromOpLowMemory(void *weight_ptr);
     void set1x1WeightLowMemory();
     void setGeneralWeightLowMemory();
+    void submitPrebuildPrograms(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     void tuneGeneralCaseLowMemory(Tensor * input, Tensor * output);
 	void useFPWeightGemmLowMemory(Tensor * input, Tensor * output);
     void tuneGemvLowMemory(Tensor * input, Tensor * output);

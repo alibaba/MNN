@@ -22,8 +22,12 @@ public:
 
     virtual ~SoftmaxBufExecution() = default;
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) override;
+
 private:
     int getLocalSize(int size, int maxGroupSize);
+    std::set<std::string> softmaxBuildOptions(int localSize) const;
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};

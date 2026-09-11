@@ -22,6 +22,8 @@ public:
     virtual ~BinaryBufExecution() = default;
     uint32_t realSize(const Tensor* tensor);
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) override;
 
 private:
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP

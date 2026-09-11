@@ -19,11 +19,15 @@
 using namespace MNN::Express;
 using MNN::KVMeta;
 
-int NumHead   = 16;
+int NumHead = 16;
 int KvNumHead = 2;
-int HeadDim   = 128;
+int HeadDim = 128;
 const float diff_threshold = 0.001;
 const float diff_percent_threshold = 0.1;
+// Additive-mask "masked out" bias. Must stay representable in fp16: the float
+// minimum becomes -inf in half, and the `(1 - m) * bias` masks below then evaluate
+// visible entries as 0 * -inf = NaN, which silently poisons every GPU fp16 result.
+const float kMaskNegative = -30000.0f;
 const int pastLength = 101;
 #define GENERATE_TOKENS 128
 
@@ -60,6 +64,38 @@ static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool 
     return m;
 }
 
+// The shared executor creates its OpenCL runtime before any test runs, and a
+// RuntimeManager reuses that runtime without re-applying its numThread mode bits,
+// so per-module MNN_GPU_MEMORY_BUFFER requests are dropped and memory mode stays
+// AUTO (IMAGE on Adreno). The OpenCL Attention op only registers a BUFFER creator,
+// so under the shared runtime every case below silently runs on CPU instead. Hold
+// one of these for the duration of a run() to execute on a private buffer-mode
+// runtime. No-op on other backends.
+struct OpenCLBufferScope {
+    std::shared_ptr<Executor> mExe;
+    std::shared_ptr<ExecutorScope> mScope;
+    OpenCLBufferScope() {
+        auto status = MNNTestSuite::get()->pStaus;
+        if (MNN_FORWARD_OPENCL != (MNNForwardType)status.forwardType) {
+            return;
+        }
+        MNN::BackendConfig bnConfig;
+        bnConfig.memory = (MNN::BackendConfig::MemoryMode)status.memory;
+        bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
+        bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
+        mExe = Executor::newExecutor(MNN_FORWARD_OPENCL, bnConfig, MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_NONE);
+        mScope.reset(new ExecutorScope(mExe));
+    }
+};
+
+// The OpenCL attention op stores Q/K/V as half whenever precision != High, while
+// the expr decomposition keeps fp32 storage in Normal mode; the op-vs-expr runs
+// then disagree by the half rounding of the inputs, so Normal needs a wider
+// tolerance than the Low (both half) and High (both float) runs.
+static float _opExprDiffThreshold(int precision) {
+    return precision == (int)MNN::BackendConfig::Precision_Normal ? 0.05f : 0.01f;
+}
+
 struct KVCache {
     VARP pastK;
     VARP pastV;
@@ -71,8 +107,8 @@ struct KVCache {
         pastMask = _Input({pastLength}, NCHW);
         ::memset(pastK->writeMap<float>(), 0, pastK->getInfo()->size * sizeof(float));
         ::memset(pastV->writeMap<float>(), 0, pastK->getInfo()->size * sizeof(float));
-        for (int v=0; v<pastLength; ++v) {
-            pastMask->writeMap<float>()[v] = std::numeric_limits<float>::lowest();
+        for (int v = 0; v < pastLength; ++v) {
+            pastMask->writeMap<float>()[v] = kMaskNegative;
         }
     }
 };
@@ -88,10 +124,10 @@ static VARP _computeAttentionExpr(VARP Q, VARP K, VARP V, VARP mask, KVCache cac
     auto batch = qinfo->dim[0];
     auto group = numHead / kvNumHead;
     if (mask->getInfo()->type.code == halide_type_int) {
-        mask = (_Scalar<float>(1.0) - _Cast<float>(mask)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+        mask = (_Scalar<float>(1.0) - _Cast<float>(mask)) * _Scalar<float>(kMaskNegative);
     }
 
-    Q = _Reshape(Q, {batch, seqLength, kvNumHead,group, headDim});
+    Q = _Reshape(Q, {batch, seqLength, kvNumHead, group, headDim});
     Q = _Transpose(Q, {0, 2, 3, 1, 4});
     K = _Reshape(K, {batch, seqLength, kvNumHead, 1, headDim});
     K = _Transpose(K, {0, 2, 3, 1, 4});
@@ -115,19 +151,21 @@ static VARP _computeAttentionExpr(VARP Q, VARP K, VARP V, VARP mask, KVCache cac
     O = _Reshape(O, {batch, seqLength, -1});
     O.fix(VARP::CONSTANT);
     // Update KVCache
-    for (int y=0; y<kvNumHead; ++y) {
-        ::memcpy(cache.pastK->writeMap<float>() + y * pastLength * headDim + cache.current * headDim, K->readMap<float>() + y * seqLength * headDim, seqLength * headDim * sizeof(float));
-        ::memcpy(cache.pastV->writeMap<float>() + y * pastLength * headDim + cache.current * headDim, V->readMap<float>() + y * seqLength * headDim, seqLength * headDim * sizeof(float));
+    for (int y = 0; y < kvNumHead; ++y) {
+        ::memcpy(cache.pastK->writeMap<float>() + y * pastLength * headDim + cache.current * headDim,
+                 K->readMap<float>() + y * seqLength * headDim, seqLength * headDim * sizeof(float));
+        ::memcpy(cache.pastV->writeMap<float>() + y * pastLength * headDim + cache.current * headDim,
+                 V->readMap<float>() + y * seqLength * headDim, seqLength * headDim * sizeof(float));
     }
-    for (int i=0; i<seqLength; ++i) {
-        cache.pastMask->writeMap<float>()[i+cache.current] = 0.0f;
+    for (int i = 0; i < seqLength; ++i) {
+        cache.pastMask->writeMap<float>()[i + cache.current] = 0.0f;
     }
     cache.current += seqLength;
     return O;
 }
 
-static std::vector< std::vector< std::vector<float> > > generateRandTensor(int C, int H, int W, int precision) {
-    std::vector< std::vector< std::vector<float> > > a;
+static std::vector<std::vector<std::vector<float>>> generateRandTensor(int C, int H, int W, int precision) {
+    std::vector<std::vector<std::vector<float>>> a;
     a.resize(C);
     for (int i = 0; i < C; i++) {
         a[i].resize(H);
@@ -145,12 +183,12 @@ static std::vector< std::vector< std::vector<float> > > generateRandTensor(int C
     return a;
 }
 
-VARP vector_to_var(std::vector< std::vector< std::vector<float> > > & a) {
+VARP vector_to_var(std::vector<std::vector<std::vector<float>>>& a) {
     int C = a.size();
     int H = a[0].size();
     int W = a[0][0].size();
     VARP var = _Input({1, C, H, W}, NCHW, halide_type_of<float>());
-    float * ptr = var->writeMap<float>();
+    float* ptr = var->writeMap<float>();
     for (int i = 0; i < C; i++) {
         for (int j = 0; j < H; j++) {
             for (int k = 0; k < W; k++) {
@@ -162,7 +200,7 @@ VARP vector_to_var(std::vector< std::vector< std::vector<float> > > & a) {
     return var;
 }
 
-VARP vector_to_c4_value(std::vector< std::vector< std::vector<float> > > & a) {
+VARP vector_to_c4_value(std::vector<std::vector<std::vector<float>>>& a) {
     int seqLen = a.size();
     int kvNumHead = a[0].size();
     int headDim = a[0][0].size();
@@ -181,11 +219,11 @@ VARP vector_to_c4_value(std::vector< std::vector< std::vector<float> > > & a) {
     return _Convert(var, NC4HW4);
 }
 
-VARP vector_to_var(std::vector< std::vector<int> > & a) {
+VARP vector_to_var(std::vector<std::vector<int>>& a) {
     int H = a.size();
     int W = a[0].size();
     VARP var = _Input({1, 1, H, W}, NCHW, halide_type_of<int>());
-    int * ptr = var->writeMap<int>();
+    int* ptr = var->writeMap<int>();
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
             ptr[i * W + j] = a[i][j];
@@ -195,16 +233,12 @@ VARP vector_to_var(std::vector< std::vector<int> > & a) {
     return var;
 }
 
-static std::vector< std::vector< std::vector<float> > >
-computeAttention (
-    std::vector< std::vector< std::vector<float> > > & query,
-    std::vector< std::vector< std::vector<float> > > & key,
-    std::vector< std::vector< std::vector<float> > > & value,
-    std::vector< std::vector<int> > & mask,
-    int seq_len, int kv_seq_len )
-{
+static std::vector<std::vector<std::vector<float>>>
+computeAttention(std::vector<std::vector<std::vector<float>>>& query, std::vector<std::vector<std::vector<float>>>& key,
+                 std::vector<std::vector<std::vector<float>>>& value, std::vector<std::vector<int>>& mask, int seq_len,
+                 int kv_seq_len) {
     int group_size = NumHead / KvNumHead;
-    std::vector< std::vector< std::vector<float> > > output(seq_len);
+    std::vector<std::vector<std::vector<float>>> output(seq_len);
     for (int i = 0; i < seq_len; i++) {
         output[i].resize(NumHead);
         for (int j = 0; j < NumHead; j++) {
@@ -214,7 +248,7 @@ computeAttention (
     for (int h = 0; h < NumHead; h++) {
         int kv_h = h / group_size;
         /*---- Q * K ----*/
-        std::vector< std::vector<float> > qk(seq_len, std::vector<float>(kv_seq_len, 0.0f));
+        std::vector<std::vector<float>> qk(seq_len, std::vector<float>(kv_seq_len, 0.0f));
         for (int i = 0; i < seq_len; i++) {
             for (int j = 0; j < kv_seq_len; j++) {
                 qk[i][j] = 0.0f;
@@ -224,19 +258,19 @@ computeAttention (
             }
         }
         /*---- Mask QK ----*/
-        if(mask.size() > 0) {
+        if (mask.size() > 0) {
             float scale = 1.0 / sqrt(HeadDim);
             if (mask[0].size() == seq_len) {
                 auto diff = kv_seq_len - seq_len;
                 for (int i = 0; i < seq_len; i++) {
                     for (int j = 0; j < seq_len; j++) {
-                        qk[i][j+diff] = qk[i][j+diff] * scale + (1.f - mask[i][j]) * std::numeric_limits<float>::lowest();
+                        qk[i][j + diff] = qk[i][j + diff] * scale + (1.f - mask[i][j]) * kMaskNegative;
                     }
                 }
             } else {
                 for (int i = 0; i < seq_len; i++) {
                     for (int j = 0; j < kv_seq_len; j++) {
-                        qk[i][j] = qk[i][j] * scale + (1.f - mask[i][j]) * std::numeric_limits<float>::lowest();
+                        qk[i][j] = qk[i][j] * scale + (1.f - mask[i][j]) * kMaskNegative;
                     }
                 }
             }
@@ -279,76 +313,71 @@ computeAttention (
 }
 
 class NaiveAttention {
-    private:
-        std::vector< std::vector< std::vector<float> > >  mPastKey, mPastValue;
-        int mPastLen;
-    public:
-        NaiveAttention() : mPastLen(0) {}
-        ~NaiveAttention() = default;
-        // Push prefill K/V into history WITHOUT computing attention. The wide-KV-block boundary
-        // test needs kv cache filled past 2048 rows; running onExecute for that prefill would cost
-        // O(kv^2) scalar work (~10 GFLOP at kv=2040). Only the decode steps need a reference.
-        void appendHistory(
-            std::vector< std::vector< std::vector<float> > > & key,
-            std::vector< std::vector< std::vector<float> > > & value,
-            int seq_len )
-        {
-            for (int i = 0; i < seq_len; i++) {
-                mPastKey.push_back(key[i]);
-                mPastValue.push_back(value[i]);
-            }
-            mPastLen += seq_len;
+private:
+    std::vector<std::vector<std::vector<float>>> mPastKey, mPastValue;
+    int mPastLen;
+
+public:
+    NaiveAttention() : mPastLen(0) {}
+    ~NaiveAttention() = default;
+    // Push prefill K/V into history WITHOUT computing attention. The wide-KV-block boundary
+    // test needs kv cache filled past 2048 rows; running onExecute for that prefill would cost
+    // O(kv^2) scalar work (~10 GFLOP at kv=2040). Only the decode steps need a reference.
+    void appendHistory(std::vector<std::vector<std::vector<float>>>& key,
+                       std::vector<std::vector<std::vector<float>>>& value, int seq_len) {
+        for (int i = 0; i < seq_len; i++) {
+            mPastKey.push_back(key[i]);
+            mPastValue.push_back(value[i]);
         }
-        int pastLen() const {
-            return mPastLen;
+        mPastLen += seq_len;
+    }
+    int pastLen() const { return mPastLen; }
+    std::vector<std::vector<std::vector<float>>> onExecute(std::vector<std::vector<std::vector<float>>>& query,
+                                                           std::vector<std::vector<std::vector<float>>>& key,
+                                                           std::vector<std::vector<std::vector<float>>>& value,
+                                                           std::vector<std::vector<int>>& mask, int seq_len) {
+        for (int i = 0; i < seq_len; i++) {
+            mPastKey.push_back(key[i]);
+            mPastValue.push_back(value[i]);
         }
-        std::vector< std::vector< std::vector<float> > > onExecute (
-            std::vector< std::vector< std::vector<float> > > & query,
-            std::vector< std::vector< std::vector<float> > > & key,
-            std::vector< std::vector< std::vector<float> > > & value,
-            std::vector< std::vector<int> > & mask,
-            int seq_len )
-        {
-            for (int i = 0; i < seq_len; i++) {
-                mPastKey.push_back(key[i]);
-                mPastValue.push_back(value[i]);
-            }
-            mPastLen += seq_len;
-            return computeAttention(query, mPastKey, mPastValue, mask, seq_len, mPastLen);
-        }
+        mPastLen += seq_len;
+        return computeAttention(query, mPastKey, mPastValue, mask, seq_len, mPastLen);
+    }
 };
 
 class AttentionTest : public MNNTestCase {
 protected:
-    std::vector< std::vector< std::vector<float> > > query;
-    std::vector< std::vector< std::vector<float> > > key;
-    std::vector< std::vector< std::vector<float> > > value;
-    std::vector< std::vector<int> > mask;
-    std::vector< std::vector< std::vector<float> > > expected_result;
+    std::vector<std::vector<std::vector<float>>> query;
+    std::vector<std::vector<std::vector<float>>> key;
+    std::vector<std::vector<std::vector<float>>> value;
+    std::vector<std::vector<int>> mask;
+    std::vector<std::vector<std::vector<float>>> expected_result;
     VARP Query, Key, Value, Mask, Output;
     VARP Query1, Key1, Value1, Mask1;
+
 public:
     AttentionTest() = default;
     virtual ~AttentionTest() = default;
     void generateInput(int seq_len, int precision, bool genDecodeInput = false) {
         query = generateRandTensor(seq_len, NumHead, HeadDim, precision);
-        key   = generateRandTensor(seq_len, KvNumHead, HeadDim, precision);
+        key = generateRandTensor(seq_len, KvNumHead, HeadDim, precision);
         value = generateRandTensor(seq_len, KvNumHead, HeadDim, precision);
         Query = vector_to_var(query);
-        Key   = vector_to_var(key);
+        Key = vector_to_var(key);
         Value = vector_to_var(value);
         if (genDecodeInput) {
             auto vecquery = generateRandTensor(1, NumHead, HeadDim, precision);
-            auto veckey   = generateRandTensor(1, KvNumHead, HeadDim, precision);
+            auto veckey = generateRandTensor(1, KvNumHead, HeadDim, precision);
             auto vecvalue = generateRandTensor(1, KvNumHead, HeadDim, precision);
             Query1 = vector_to_var(vecquery);
-            Key1   = vector_to_var(veckey);
+            Key1 = vector_to_var(veckey);
             Value1 = vector_to_var(vecvalue);
         }
     }
     void generateChunkMask(int seq_len, int kv_seq_len, int chunk_size, bool genDecodeInput = false) {
         // 防止除以0
-        if (chunk_size <= 0) chunk_size = 1;
+        if (chunk_size <= 0)
+            chunk_size = 1;
 
         mask.resize(seq_len);
 
@@ -387,7 +416,7 @@ public:
 
         // 转为 VARP 并处理成 -inf / 0.0 格式
         Mask = vector_to_var(mask);
-        Mask = (_Scalar<float>(1.0) - _Cast<float>(Mask)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+        Mask = (_Scalar<float>(1.0) - _Cast<float>(Mask)) * _Scalar<float>(kMaskNegative);
 
         // Decode Input 部分通常保持全 1 (即看清所有历史)，或者根据需求修改
         if (genDecodeInput) {
@@ -398,7 +427,7 @@ public:
                 vecmask[0][i] = 1;
             }
             Mask1 = vector_to_var(vecmask);
-            Mask1 = (_Scalar<float>(1.0) - _Cast<float>(Mask1)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+            Mask1 = (_Scalar<float>(1.0) - _Cast<float>(Mask1)) * _Scalar<float>(kMaskNegative);
         }
     }
 
@@ -421,14 +450,22 @@ public:
     }
 
     bool compareResult(int seq_len) {
-        const float * resultPtr = Output->readMap<float>();
+        const float* resultPtr = Output->readMap<float>();
         for (int i = 0; i < seq_len; i++) {
             for (int j = 0; j < NumHead; j++) {
                 for (int k = 0; k < HeadDim; k++) {
-                    float diff = fabs(resultPtr[i * NumHead * HeadDim + j * HeadDim + k] - expected_result[i][j][k]);
+                    float got = resultPtr[i * NumHead * HeadDim + j * HeadDim + k];
+                    float diff = fabs(got - expected_result[i][j][k]);
                     float diff_percent = fabs(diff / expected_result[i][j][k]);
+                    // `diff > threshold` is false for NaN, so NaN output would pass silently.
+                    if (got != got) {
+                        printf("Result NaN: expected %lf but got nan in Attention Test\n", expected_result[i][j][k]);
+                        printf("Error Position: Output[%d][%d][%d]\n", i, j, k);
+                        return false;
+                    }
                     if (diff > diff_threshold && diff_percent > diff_percent_threshold) {
-                        printf("Result Mismatch: expected %lf but got %lf in CPU Attention Test\n", expected_result[i][j][k], resultPtr[i * NumHead * HeadDim + j * HeadDim + k]);
+                        printf("Result Mismatch: expected %lf but got %lf in CPU Attention Test\n",
+                               expected_result[i][j][k], resultPtr[i * NumHead * HeadDim + j * HeadDim + k]);
                         printf("Error Position: Output[%d][%d][%d]\n", i, j, k);
                         return false;
                     }
@@ -440,6 +477,7 @@ public:
     }
 
     virtual bool run(int precision) {
+        OpenCLBufferScope clBufferScope;
         srand(2024);
         // unit test 1
         {
@@ -467,7 +505,7 @@ public:
             /* generate mask expr */
             /* generate mask expr */
             auto MaskExpr = vector_to_var(mask);
-            MaskExpr = (_Scalar<float>(1.0) - _Cast<float>(MaskExpr)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+            MaskExpr = (_Scalar<float>(1.0) - _Cast<float>(MaskExpr)) * _Scalar<float>(kMaskNegative);
             Output = _computeAttentionExpr(Query, Key, Value, MaskExpr, kvCache);
             pass = compareResult(seq_len);
             if (!pass) {
@@ -480,7 +518,8 @@ public:
             auto output2 = attn->onForward({Query, Key, Value, Mask})[0];
             gMeta.sync();
             auto diff = _ReduceMax(output2 - Output)->readMap<float>()[0];
-            if (diff >= 0.01f) {                 FUNC_PRINT_ALL(diff, f);
+            if (diff >= _opExprDiffThreshold(precision)) {
+                FUNC_PRINT_ALL(diff, f);
                 return false;
             }
         }
@@ -519,34 +558,37 @@ public:
             auto output2 = attn->onForward({Query, Key, Value, Mask})[0];
             gMeta.sync();
             auto diff = _ReduceMax(output2 - Output)->readMap<float>()[0];
-            if (diff >= 0.01f) {
+            if (diff >= _opExprDiffThreshold(precision)) {
                 FUNC_PRINT_ALL(diff, f);
                 return false;
             }
         }
         // unit test 3
+        // Skipping must not return from run(): the long-prefill cases below have to
+        // keep running on every backend.
+        bool skipNoKvCache = false;
         {
             auto rtInfo = ExecutorScope::Current()->getRuntime().first;
             bool cpuInfer = true;
-            for(auto &rt : rtInfo) {
-                if(rt.first != MNN_FORWARD_CPU) {
+            for (auto& rt : rtInfo) {
+                if (rt.first != MNN_FORWARD_CPU) {
                     cpuInfer = false;
                     break;
                 }
             }
-            if(cpuInfer) {
-                // TODO: CPU support kv_cache == false
-                return true;
-            }
+            // TODO: CPU support kv_cache == false
+            skipNoKvCache = cpuInfer;
             // MNN: kv_cache=false also falls back to CPU on OpenCL with
             // MNN_GPU_MEMORY_IMAGE (no IMAGE-memtype Attention creator) and
             // on Vulkan, so it hits the same CPUAttention "kv_cache == false"
             // TODO and crashes. Skip until the CPU fallback is completed.
-            for(auto &rt : rtInfo) {
-                if(rt.first == MNN_FORWARD_OPENCL || rt.first == MNN_FORWARD_VULKAN) {
-                    return true;
+            for (auto& rt : rtInfo) {
+                if (rt.first == MNN_FORWARD_OPENCL || rt.first == MNN_FORWARD_VULKAN) {
+                    skipNoKvCache = true;
                 }
             }
+        }
+        if (!skipNoKvCache) {
             std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
             std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
             attention->type = MNN::OpType_Attention;
@@ -584,23 +626,153 @@ public:
                 }
             }
         }
+        // Materialized mask: the operator gets a real mask plane instead of the causal sentinel.
+        // generateMask only ever hands the operator the scalar sentinel, so the backends' additive
+        // mask paths had no coverage at all -- on OpenCL that is the whole -DADD_MASK variant of
+        // the prefill kernels. seq_len 16 sits on the boundary where a backend may start tuning
+        // between branches, 64 is past it.
+        {
+            for (int seq_len : {16, 64}) {
+                std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+                generateInput(seq_len, precision);
+                generateMask(seq_len, seq_len);
+                expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+                // 1 where attended, 0 where masked -> 0.0f / kMaskNegative, i.e. an additive mask.
+                auto maskPlane = vector_to_var(mask);
+                maskPlane = (_Scalar<float>(1.0) - _Cast<float>(maskPlane)) * _Scalar<float>(kMaskNegative);
+                auto attn = _makeAttentionModule();
+                gMeta.previous = 0;
+                gMeta.add = seq_len;
+                Output = attn->onForward({Query, Key, Value, maskPlane})[0];
+                gMeta.sync();
+                if (!compareResult(seq_len)) {
+                    printf("Error: materialized mask (seq_len=%d) unit test failed!\n", seq_len);
+                    return false;
+                }
+            }
+        }
+        // Non-causal materialized mask (chunked attention / sliding window). The case above is
+        // lower-triangular, so a backend that quietly assumes causality still passes it. test2
+        // does hand over a non-causal plane, but at seq_len=10 -- under the threshold where
+        // OpenCL starts measuring prefill paths against each other, so only one of them ever
+        // ran. Past the threshold both do.
+        {
+            for (int seq_len : {64}) {
+                std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+                generateInput(seq_len, precision);
+                generateChunkMask(seq_len, seq_len, 16);
+                expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+                auto attn = _makeAttentionModule();
+                gMeta.previous = 0;
+                gMeta.add = seq_len;
+                Output = attn->onForward({Query, Key, Value, Mask})[0];
+                gMeta.sync();
+                if (!compareResult(seq_len)) {
+                    printf("Error: non-causal materialized mask (seq_len=%d) unit test failed!\n", seq_len);
+                    return false;
+                }
+            }
+        }
+        // Chunked prefill: a second prefill on top of a non-empty kv cache, handed a mask plane
+        // that spans the whole kv axis. This is what an LLM does when it splits a long prompt,
+        // and nothing here covered it -- test2 also runs a second prefill, but its plane covers
+        // only the new tokens, which is the right-aligned shape instead.
+        {
+            const int chunk = 64;
+            std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+            auto attn = _makeAttentionModule();
+            gMeta.previous = 0;
+            for (int step = 0; step < 2; ++step) {
+                generateInput(chunk, precision);
+                generateChunkMask(chunk, chunk * (step + 1), 16);
+                expected_result = naiveAttention->onExecute(query, key, value, mask, chunk);
+                gMeta.add = chunk;
+                Output = attn->onForward({Query, Key, Value, Mask})[0];
+                gMeta.sync();
+                if (!compareResult(chunk)) {
+                    printf("Error: chunked prefill (step=%d) unit test failed!\n", step);
+                    return false;
+                }
+            }
+        }
+        // Integer mask plane: 1 where attended, 0 where masked, and the backend applies the
+        // -inf itself rather than being handed a bias. A distinct kernel variant from the
+        // additive plane above (-DSET_MASK vs -DADD_MASK on OpenCL), and until now an untested
+        // one. Only OpenCL and Metal implement it -- CPU and Vulkan read the mask as float and
+        // would reinterpret the integers -- so the case is scoped to those two.
+        {
+            auto forwardType = (MNNForwardType)MNNTestSuite::get()->pStaus.forwardType;
+            if (MNN_FORWARD_OPENCL == forwardType || MNN_FORWARD_METAL == forwardType) {
+                for (int seq_len : {16, 64}) {
+                    std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+                    generateInput(seq_len, precision);
+                    generateMask(seq_len, seq_len);
+                    expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+                    auto maskPlane = vector_to_var(mask);
+                    auto attn = _makeAttentionModule();
+                    gMeta.previous = 0;
+                    gMeta.add = seq_len;
+                    Output = attn->onForward({Query, Key, Value, maskPlane})[0];
+                    gMeta.sync();
+                    if (!compareResult(seq_len)) {
+                        printf("Error: integer mask (seq_len=%d) unit test failed!\n", seq_len);
+                        return false;
+                    }
+                }
+            }
+        }
+        // Mask plane with fewer rows than the query. The trailing query rows it does not reach are
+        // left unmasked, mirroring what the kv axis already does for the history columns it does
+        // not reach -- the convention Vulkan's attention_fused.comp applies with `q < maskQlen`.
+        // OpenCL used to refuse the shape outright; short prefill claimed to take it but rearranged
+        // the plane with a maskQlen stride and read it back with a seqlen one.
+        {
+            auto forwardType = (MNNForwardType)MNNTestSuite::get()->pStaus.forwardType;
+            if (MNN_FORWARD_OPENCL == forwardType) {
+                for (int seq_len : {16, 64}) {
+                    const int maskQlen = seq_len / 2;
+                    std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+                    generateInput(seq_len, precision);
+                    generateMask(seq_len, seq_len);
+                    std::vector<std::vector<int>> shortMask(mask.begin(), mask.begin() + maskQlen);
+                    // The reference sees the rows the plane omits as fully visible.
+                    for (int i = maskQlen; i < seq_len; ++i) {
+                        std::fill(mask[i].begin(), mask[i].end(), 1);
+                    }
+                    expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+                    auto maskPlane = vector_to_var(shortMask);
+                    maskPlane = (_Scalar<float>(1.0) - _Cast<float>(maskPlane)) * _Scalar<float>(kMaskNegative);
+                    auto attn = _makeAttentionModule();
+                    gMeta.previous = 0;
+                    gMeta.add = seq_len;
+                    Output = attn->onForward({Query, Key, Value, maskPlane})[0];
+                    gMeta.sync();
+                    if (!compareResult(seq_len)) {
+                        printf("Error: short mask plane (seq_len=%d maskQlen=%d) unit test failed!\n", seq_len,
+                               maskQlen);
+                        return false;
+                    }
+                }
+            }
+        }
         return true;
     }
 };
 
 class SpeedAttentionTest : public AttentionTest {
-    protected:
-        std::vector< std::vector< std::vector<float> > > query;
-        std::vector< std::vector< std::vector<float> > > key;
-        std::vector< std::vector< std::vector<float> > > value;
-        std::vector< std::vector<int> > mask;
-        std::vector< std::vector< std::vector<float> > > expected_result;
+protected:
+    std::vector<std::vector<std::vector<float>>> query;
+    std::vector<std::vector<std::vector<float>>> key;
+    std::vector<std::vector<std::vector<float>>> value;
+    std::vector<std::vector<int>> mask;
+    std::vector<std::vector<std::vector<float>>> expected_result;
 
 public:
-SpeedAttentionTest() = default;
+    SpeedAttentionTest() = default;
     virtual ~SpeedAttentionTest() = default;
 
     virtual bool run(int precision) {
+        OpenCLBufferScope clBufferScope;
         std::vector<int> seqs = {4096};
         std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
         std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
@@ -1184,6 +1356,7 @@ public:
     }
 
     virtual bool run(int precision) {
+        OpenCLBufferScope clBufferScope;
         srand(2024);
         return runOne(10, precision) && runOne(32, precision);
     }
@@ -1192,6 +1365,7 @@ public:
 class AttentionC4TailTest : public AttentionC4Test {
 public:
     virtual bool run(int precision) {
+        OpenCLBufferScope clBufferScope;
         const int originalNumHead = NumHead;
         const int originalKvNumHead = KvNumHead;
         const int originalHeadDim = HeadDim;

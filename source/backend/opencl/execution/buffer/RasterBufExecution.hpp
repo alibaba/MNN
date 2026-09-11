@@ -31,6 +31,8 @@ public:
     virtual ~RasterBufExecution() = default;
 
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) override;
 
 private:
     void CanCombine(const std::vector<Tensor *> &outputs);

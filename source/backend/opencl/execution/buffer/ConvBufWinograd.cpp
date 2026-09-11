@@ -619,7 +619,10 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
             {
                 std::set<std::string> buildOptions;
                 uint32_t layout = 4;
-                auto param = getGemmParams({(uint32_t)M_pack, (uint32_t)N_pack, (uint32_t)K_pack, layout, (uint32_t)each_loop, (uint32_t)0}, {openCLBuffer(mSource.get()), openCLBuffer(mResource->mWeight.get()), openCLBuffer(mDest.get())}, mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(), mOpenCLBackend->getCLTuneLevel());
+                auto param = getGemmParams(
+                    {(uint32_t)M_pack, (uint32_t)N_pack, (uint32_t)K_pack, layout, (uint32_t)each_loop, (uint32_t)0},
+                    mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(),
+                    mOpenCLBackend->getCLTuneLevel());
 
                 int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
                 buildOptions.emplace("-DKWG=" + std::to_string(KWG));

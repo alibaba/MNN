@@ -54,12 +54,19 @@ struct ConvBufResource {
     int mAlignN = 1;
 };
 
+// The conv-gemm path in both ConvBufExecution and ConvBufLowMemoryExecution encodes these two
+// gemm_buf kernels, so the measured group sizes live here rather than being duplicated per op.
+LwsShortlist2D gemmTransposePadLwsShortlist(GpuType gpuType);
+LwsShortlist2D gemmTransposeBiasLwsShortlist(GpuType gpuType);
+
 class ConvBufCommonExecution {
 public:
     ConvBufCommonExecution(Backend *backend);
     ConvBufCommonExecution(const Convolution2D *op, Backend *backend);
     ConvBufCommonExecution(const Op *op, Backend *backend, bool isExtra);
     virtual ~ConvBufCommonExecution();
+
+    void submitPrebuildConvPrograms();
 
 protected:
     std::shared_ptr<ConvBufResource> mResource;

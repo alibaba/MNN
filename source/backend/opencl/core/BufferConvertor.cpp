@@ -362,10 +362,12 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
             } else
 #endif
             {
+                kernelFile = "buffer_convert_filter_buf";
                 kernelName = "conv2d_filter_buffer_to_nc4hw4_buffer";//NC4HW4 (1, 4*ic/4, kw*kh*oc/4, 1)*4
             }
             break;
         case DW_CONV2D_FILTER:
+            kernelFile = "buffer_convert_filter_buf";
             kernelName = "dw_filter_buffer_to_nc4hw4_buffer";//NC4HW4 (1, kw*kh, oc/4, 1)*4
         case NHWC_BUFFER:
         case NCHW_BUFFER:
