@@ -12,7 +12,6 @@
 #define RVV_TEST_KERNEL(name) name##_RVV
 #endif
 
-void MNNUnpackConvScaleFromBuffer_RVV(float* scaleBuffer, const int8_t* srcbuffer, const int32_t* info, int infoBytes);
 void MNNConvInt8ComputeBiasFloat_RVV(float* dst, const int32_t* bias, const float* weightScale, float scaleRatio,
                                      size_t size);
 void MNNConvInt8ComputeWeightKernelSum_RVV(int* kernelSum, int32_t* bias, const int8_t* weight, int kernelNum,
@@ -21,24 +20,6 @@ void MNNConvInt8ComputeWeightKernelSum_RVV(int* kernelSum, int32_t* bias, const 
 
 namespace {
 // Scalar oracles follow the original scalar implementations in CPUConvolution.cpp.
-void unpackScaleReference(float* dst, const int8_t* src, const int32_t* info, int infoBytes) {
-    const int blockNum = info[0];
-    const int ocDiv = info[1];
-    const int stride1 = info[2];
-    const int unit = info[3];
-    const size_t copyBytes = static_cast<size_t>(unit) * infoBytes;
-    const size_t packedUnitSize = static_cast<size_t>(stride1) + 2 * copyBytes;
-    int8_t* writePtr = reinterpret_cast<int8_t*>(dst);
-    for (int hU = 0; hU < ocDiv; ++hU) {
-        const int8_t* huPtr = src + static_cast<size_t>(hU) * blockNum * packedUnitSize;
-        for (int bl = 0; bl < blockNum; ++bl) {
-            const int8_t* readPtr = huPtr + static_cast<size_t>(bl) * packedUnitSize + stride1;
-            ::memcpy(writePtr, readPtr, copyBytes);
-            writePtr += copyBytes;
-        }
-    }
-}
-
 void computeBiasFloatReference(float* dst, const int32_t* bias, const float* weightScale, float scaleRatio,
                                size_t size) {
     for (size_t i = 0; i < size; ++i) {
@@ -64,50 +45,31 @@ void computeWeightKernelSumReference(int* kernelSum, int32_t* bias, const int8_t
 
 bool runConvInt8Kernels() {
     size_t cases = 0;
-    // UnpackConvScaleFromBuffer: sizes exercise tails on every vl step.
-    for (int blockNum : {1, 2, 5}) {
-        for (int ocDiv : {1, 3, 7}) {
-            for (int unit : {1, 4, 13}) {
-                const int stride1 = 64;
-                const int32_t info[4] = {blockNum, ocDiv, stride1, unit};
-                const size_t copyBytes = static_cast<size_t>(unit) * 4;
-                const size_t packedUnitSize = static_cast<size_t>(stride1) + 2 * copyBytes;
-                std::vector<int8_t> src(static_cast<size_t>(ocDiv) * blockNum * packedUnitSize, 0);
-                for (size_t i = 0; i < src.size(); ++i) {
-                    src[i] = static_cast<int8_t>((i * 37 + 11) % 251 - 125);
-                }
-                std::vector<float> dst(static_cast<size_t>(ocDiv) * blockNum * unit), ref(dst.size());
-                RVV_TEST_KERNEL(MNNUnpackConvScaleFromBuffer)(dst.data(), src.data(), info, 4);
-                unpackScaleReference(ref.data(), src.data(), info, 4);
-                if (::memcmp(dst.data(), ref.data(), dst.size() * sizeof(float)) != 0) {
-                    std::printf("UnpackConvScaleFromBuffer mismatch: blockNum=%d ocDiv=%d unit=%d\n", blockNum, ocDiv,
-                                unit);
-                    return false;
-                }
-                cases++;
-            }
-        }
-    }
     // ConvInt8ComputeBiasFloat: exact same op order as the scalar path.
-    for (size_t size : {size_t(1), size_t(7), size_t(63), size_t(256), size_t(1000)}) {
-        std::vector<int32_t> bias(size);
-        std::vector<float> scale(size), dst(size), ref(size);
-        for (size_t i = 0; i < size; ++i) {
-            bias[i] = static_cast<int32_t>(i * 100003 % 2000001 - 1000000);
-            scale[i] = float(int(i % 17) - 8) / 64.0f + 0.01f;
+    // ratio == 1.0f takes the branch that skips the second multiply; it must
+    // stay bit-identical to multiplying by 1.0f.
+    for (float ratio : {1.0f, 1.7f, 0.0f}) {
+        for (size_t size : {size_t(1), size_t(7), size_t(63), size_t(256), size_t(1000)}) {
+            std::vector<int32_t> bias(size);
+            std::vector<float> scale(size), dst(size), ref(size);
+            for (size_t i = 0; i < size; ++i) {
+                bias[i] = static_cast<int32_t>(i * 100003 % 2000001 - 1000000);
+                scale[i] = float(int(i % 17) - 8) / 64.0f + 0.01f;
+            }
+            RVV_TEST_KERNEL(MNNConvInt8ComputeBiasFloat)(dst.data(), bias.data(), scale.data(), ratio, size);
+            computeBiasFloatReference(ref.data(), bias.data(), scale.data(), ratio, size);
+            if (::memcmp(dst.data(), ref.data(), size * sizeof(float)) != 0) {
+                std::printf("ConvInt8ComputeBiasFloat mismatch: ratio=%g size=%zu\n", ratio, size);
+                return false;
+            }
+            cases++;
         }
-        const float ratio = 1.7f;
-        RVV_TEST_KERNEL(MNNConvInt8ComputeBiasFloat)(dst.data(), bias.data(), scale.data(), ratio, size);
-        computeBiasFloatReference(ref.data(), bias.data(), scale.data(), ratio, size);
-        if (::memcmp(dst.data(), ref.data(), size * sizeof(float)) != 0) {
-            std::printf("ConvInt8ComputeBiasFloat mismatch: size=%zu\n", size);
-            return false;
-        }
-        cases++;
     }
     // ConvInt8ComputeWeightKernelSum: integer arithmetic, exact match expected.
+    // kernelSize spans the scalar fallback (below one vector) and multi-chunk
+    // vector paths, plus a tail that is not a multiple of the vector length.
     for (int kernelNum : {1, 4, 9}) {
-        for (int kernelSize : {1, 3, 27, 129}) {
+        for (int kernelSize : {1, 3, 27, 31, 32, 33, 129, 576}) {
             std::vector<int8_t> weight(static_cast<size_t>(kernelNum) * kernelSize);
             for (size_t i = 0; i < weight.size(); ++i) {
                 weight[i] = static_cast<int8_t>((i * 89 + 23) % 256 - 128);

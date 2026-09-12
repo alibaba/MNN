@@ -118,12 +118,7 @@ CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<Resourc
              int8Core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
              int32_t perBlockWeightSize = (res->mWeightInt8->size() - 2 * ocUpHp * sizeof(float)) / (blockNum * UP_DIV(ocUpHp, UNIT));
              int32_t info[4] = {blockNum, UP_DIV(ocUpHp, UNIT), perBlockWeightSize, UNIT};
-             if (cpuCore->MNNUnpackConvScaleFromBuffer) {
-                 cpuCore->MNNUnpackConvScaleFromBuffer((float*)tmpBuffer.get(), res->mWeightInt8->host<int8_t>(),
-                                                       info, 4);
-             } else {
-                 unpackScaleFromBuffer((float*)tmpBuffer.get(), res->mWeightInt8->host<int8_t>(), info, 4);
-             }
+             unpackScaleFromBuffer((float*)tmpBuffer.get(), res->mWeightInt8->host<int8_t>(), info, 4);
 
             weightScale  = (float*)tmpBuffer.get();
         } else if (!scalePtr) { // if depthwiseInt8, res->mOriginScale != nullptr
