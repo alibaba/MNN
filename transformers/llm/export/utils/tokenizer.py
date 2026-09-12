@@ -97,22 +97,36 @@ class LlmTokenizer(PreTrainedTokenizer):
 
     def id_to_str(self, token_id):
         token_id = int(token_id)
-        try:
-            word = self.tokenizer.decode(token_id)
-        except:
-            word = self.tokenizer.convert_tokens_to_string(
-                self.tokenizer._convert_id_to_token(token_id))
+        word = self._decode_token_ids(token_id)
+        if '\uFFFD' not in word:
+            return self.flush_decode_buffer() + word
         # Smollm tokenizer can produce half of a Chinese character, so buffer
-        # token IDs until they form valid text.
-        if '\uFFFD' in word:
-            self.decode_buffer.append(token_id)
-            buffer_txt = self.tokenizer.convert_tokens_to_string(
-                self.tokenizer.convert_ids_to_tokens(self.decode_buffer))
-            if '\uFFFD' not in buffer_txt:
-                word = buffer_txt
-                self.decode_buffer.clear()
-            else:
-                word = ''
+        # token IDs until they form valid text. Bound retries so malformed bytes
+        # or a literal replacement character cannot swallow the rest of a reply.
+        self.decode_buffer.append(token_id)
+        buffer_txt = self._decode_token_ids(self.decode_buffer)
+        if not buffer_txt.endswith('\uFFFD'):
+            self.decode_buffer.clear()
+            return buffer_txt
+        if len(self.decode_buffer) >= 4:
+            # Keep the last three IDs for a possible four-byte UTF-8 character.
+            return self._decode_token_ids(self.decode_buffer.pop(0))
+        return ''
+
+    def _decode_token_ids(self, token_ids):
+        try:
+            return self.tokenizer.decode(token_ids)
+        except Exception:
+            tokens = self.tokenizer.convert_ids_to_tokens(token_ids)
+            if isinstance(tokens, str):
+                tokens = [tokens]
+            return self.tokenizer.convert_tokens_to_string(tokens)
+
+    def flush_decode_buffer(self):
+        if not self.decode_buffer:
+            return ''
+        word = self._decode_token_ids(self.decode_buffer)
+        self.decode_buffer.clear()
         return word
 
     @classmethod
