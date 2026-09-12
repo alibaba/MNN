@@ -84,9 +84,18 @@ static bool cloneBaseExecution(std::shared_ptr<Execution>& exe, const ExecutionC
     }
     Execution* copyExecution = nullptr;
     auto baseExe = iter->second.get();
-    baseExe->onClone(backend, op, &copyExecution);
+    auto srcBackend = baseExe->backend();
+    // Clone onto the backend whose type matches the source, same rule as Session::clone. Otherwise an
+    // execution the base put on the backup backend gets moved onto the primary one, which may lack the kernel.
+    Backend* prefer = backend;
+    Backend* fallback = backupBackend;
+    if (nullptr != srcBackend && srcBackend->type() != backend->type() && srcBackend->type() == backupBackend->type()) {
+        prefer = backupBackend;
+        fallback = backend;
+    }
+    baseExe->onClone(prefer, op, &copyExecution);
     if (copyExecution == nullptr) {
-        baseExe->onClone(backupBackend, op, &copyExecution);
+        baseExe->onClone(fallback, op, &copyExecution);
     }
     std::unique_ptr<Execution> cloned(copyExecution);
     if (cloned == nullptr || !cloned->onClone(nullptr, op, nullptr)) {
