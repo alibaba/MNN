@@ -81,6 +81,7 @@ bool CPUConvolution::Resource::copyBiasAlign(const float* bias, int outputCount)
     return true;
 }
 CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend, float* scalePtr) : mResource(res) {
+    auto cpuCore = static_cast<CPUBackend*>(backend)->functions();
     auto outputChannelUp4 = res->mOriginBias->length(0); // outputChannelUp4 = ROUND_UP(oc, pack)
     const int ocUpHp = (int)(res->mWeightKernelSum->length(0) / res->mBlockNum / sizeof(float));
     mBiasFloat.reset(Tensor::createDevice<int32_t>({outputChannelUp4}));
@@ -117,17 +118,24 @@ CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<Resourc
              int8Core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
              int32_t perBlockWeightSize = (res->mWeightInt8->size() - 2 * ocUpHp * sizeof(float)) / (blockNum * UP_DIV(ocUpHp, UNIT));
              int32_t info[4] = {blockNum, UP_DIV(ocUpHp, UNIT), perBlockWeightSize, UNIT};
-             unpackScaleFromBuffer((float*)tmpBuffer.get(), res->mWeightInt8->host<int8_t>(), info, 4);
+             if (cpuCore->MNNUnpackConvScaleFromBuffer) {
+                 cpuCore->MNNUnpackConvScaleFromBuffer((float*)tmpBuffer.get(), res->mWeightInt8->host<int8_t>(),
+                                                       info, 4);
+             } else {
+                 unpackScaleFromBuffer((float*)tmpBuffer.get(), res->mWeightInt8->host<int8_t>(), info, 4);
+             }
 
             weightScale  = (float*)tmpBuffer.get();
         } else if (!scalePtr) { // if depthwiseInt8, res->mOriginScale != nullptr
             weightScale = res->mOriginScale->host<float>();
         }
-        for (int i = 0; i < outputChannelUp4; ++i) {
-            if (mInputScale && mOutputScale) { // symmetric quan
-                floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i] * mInputScale / mOutputScale;
-            } else {
-                floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i];
+        const float scaleRatio = (mInputScale && mOutputScale) ? (mInputScale / mOutputScale) : 1.0f;
+        if (cpuCore->MNNConvInt8ComputeBiasFloat) {
+            cpuCore->MNNConvInt8ComputeBiasFloat(floatBiasPtr, int32BiasPtr, weightScale, scaleRatio,
+                                                 outputChannelUp4);
+        } else {
+            for (int i = 0; i < outputChannelUp4; ++i) {
+                floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i] * scaleRatio;
             }
         }
         return;
@@ -254,18 +262,28 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     const int kernelSize = weightSize / kernelNum;
     resource->mInt8WeightKernelSum.resize(ocUpUnit); // for cpu, only used by depthwiseInt8
     auto weightBiasPtr = scalePtr + ocUpUnit;
-    for (int i = 0; i < kernelNum; i++) {
-        int temp = 0;
-        int offset = i * kernelSize;
-        for (int j = 0; j < kernelSize; j++) {
-            temp += static_cast<int>(weightSrc[offset + j]);
-        }
-        resource->mInt8WeightKernelSum[i] = (temp + kernelSize * (weightBiasPtr[i] / scalePtr[i]));
+    bool compensateSseOffset = false;
 #ifdef MNN_USE_SSE
-        if (resource->mUseConvQuan) {
-            resource->mOriginBias->host<int32_t>()[i] -= 128 * temp;
-        }
+    compensateSseOffset = resource->mUseConvQuan;
 #endif
+    if (core->MNNConvInt8ComputeWeightKernelSum) {
+        core->MNNConvInt8ComputeWeightKernelSum(resource->mInt8WeightKernelSum.data(),
+                                                resource->mOriginBias->host<int32_t>(), weightSrc, kernelNum,
+                                                kernelSize, scalePtr, weightBiasPtr, compensateSseOffset);
+    } else {
+        for (int i = 0; i < kernelNum; i++) {
+            int temp = 0;
+            int offset = i * kernelSize;
+            for (int j = 0; j < kernelSize; j++) {
+                temp += static_cast<int>(weightSrc[offset + j]);
+            }
+            resource->mInt8WeightKernelSum[i] = (temp + kernelSize * (weightBiasPtr[i] / scalePtr[i]));
+#ifdef MNN_USE_SSE
+            if (compensateSseOffset) {
+                resource->mOriginBias->host<int32_t>()[i] -= 128 * temp;
+            }
+#endif
+        }
     }
     ConvInt8TiledExecutor::initializeConvInt8QuantInfo(resource, convParam, quanCommon);
     auto weightDst = resource->mWeightInt8->host<int8_t>();

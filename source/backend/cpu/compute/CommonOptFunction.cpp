@@ -50,6 +50,13 @@ extern void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const floa
                                          SumByAxisParams sumParams);
 extern void MNNSumWeightInt8_RVV(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP,
                                  size_t lP);
+extern void MNNUnpackConvScaleFromBuffer_RVV(float* scaleBuffer, const int8_t* srcbuffer, const int32_t* info,
+                                             int infoBytes);
+extern void MNNConvInt8ComputeBiasFloat_RVV(float* dst, const int32_t* bias, const float* weightScale,
+                                            float scaleRatio, size_t size);
+extern void MNNConvInt8ComputeWeightKernelSum_RVV(int* kernelSum, int32_t* bias, const int8_t* weight, int kernelNum,
+                                                  int kernelSize, const float* scale, const float* weightBias,
+                                                  bool compensateSseOffset);
 extern void generalIm2col_RVV(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el,
                               int LP, int pack);
 extern void MNNDynamicUpdateConvBiasScale_RVV(float* newbias, float* oldbias, float* weightKernelSum, float* inputBias,
@@ -5242,6 +5249,9 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
         gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4_RVV;
         gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8_RVV;
+        gCoreFunction->MNNUnpackConvScaleFromBuffer = MNNUnpackConvScaleFromBuffer_RVV;
+        gCoreFunction->MNNConvInt8ComputeBiasFloat = MNNConvInt8ComputeBiasFloat_RVV;
+        gCoreFunction->MNNConvInt8ComputeWeightKernelSum = MNNConvInt8ComputeWeightKernelSum_RVV;
         gCoreFunction->MNNPackedMatMul = MNNPackedMatMulFP32_RVV;
         gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemainFP32_RVV;
         gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B_RVV;

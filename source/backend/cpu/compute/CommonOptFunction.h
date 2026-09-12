@@ -405,6 +405,13 @@ struct CoreFunctions {
     void (*MNNAsyQuantInfo)(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax,
                             const float* src, const size_t* info);
     void (*MNNAsyQuantFunc)(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info);
+    void (*MNNUnpackConvScaleFromBuffer)(float* scaleBuffer, const int8_t* srcbuffer, const int32_t* info,
+                                         int infoBytes) = nullptr;
+    void (*MNNConvInt8ComputeBiasFloat)(float* dst, const int32_t* bias, const float* weightScale, float scaleRatio,
+                                        size_t size) = nullptr;
+    void (*MNNConvInt8ComputeWeightKernelSum)(int* kernelSum, int32_t* bias, const int8_t* weight, int kernelNum,
+                                              int kernelSize, const float* scale, const float* weightBias,
+                                              bool compensateSseOffset) = nullptr;
     typedef void (*MNNPackedMatMulKernel)(float* C, const float* A, const float* B, const size_t* parameter,
                                           const float* postParameters, const float* bias);
 
