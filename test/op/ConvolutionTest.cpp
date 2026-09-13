@@ -22,6 +22,12 @@
 
 #define TEST_RANDOM_SEED 100
 
+// Defined in test/backend/cpu/RVVConvRunLineDepthwiseTest.cpp. Compares the RVV
+// depthwise kernel against the scalar reference and checks that
+// CoreFunctions::MNNConvRunForLineDepthwise actually points at it. Run from the
+// registered depthwise case below so it stays on the normal run_test.out path.
+bool MNNTestRVVLineDepthwiseFunctions();
+
 using namespace MNN;
 using namespace MNN::Express;
 static void reference_conv2d(const std::vector<float>& input, const std::vector<float>& weight,
@@ -940,8 +946,10 @@ protected:
         }
         // memory leak unit test
         int b = 1, oc = 4, ic = oc, group = oc, is = 2, p = 1, kh = 3, kw = 3, s = 2, d = 1;
-        return ConvolutionCommonTest().test(type, device_name, "DepthwiseConv2D", b, ic, oc, is, is,
-                                           PadMode_CAFFE, p, p, kh, kw, s, d, group, precision);
+        auto res = ConvolutionCommonTest().test(type, device_name, "DepthwiseConv2D", b, ic, oc, is, is,
+                                              PadMode_CAFFE, p, p, kh, kw, s, d, group, precision);
+        return res &&
+               (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_CPU || MNNTestRVVLineDepthwiseFunctions());
     }
 };
 
