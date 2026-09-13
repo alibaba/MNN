@@ -10,7 +10,7 @@
 
 #ifdef MNN_RVV_SUM_TAIL_TEST_MAIN
 void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* scale, ssize_t realDstCount,
-                                SumByAxisParams sumParams);
+                                  SumByAxisParams sumParams);
 #define RVV_SUM_KERNEL MNNSumByAxisLForMatmul_A_RVV
 #else
 #include "MNNTestSuite.h"
@@ -54,8 +54,8 @@ bool checkCase(int channels, int positions) {
         // These small integers are exact in FP32: no tolerance is needed.
         const float expected = static_cast<float>(channels * (w + 1));
         if (output[w + 1] != expected) {
-            std::printf("FAIL C=%d E=%d position=%d: expected=%.0f actual=%.0f\n",
-                        channels, positions, w, expected, output[w + 1]);
+            std::printf("FAIL C=%d E=%d position=%d: expected=%.0f actual=%.0f\n", channels, positions, w, expected,
+                        output[w + 1]);
             passed = false;
         }
     }
@@ -76,16 +76,14 @@ bool runSumTailCases() {
     // C=16,E=1 covers the separate fast path as a control.
     // E>=2 enters the general path. C=17 forces a one-lane final channel block.
     // E=3 exercises both a pair of positions and the unpaired position branch.
-    const int cases[][2] = {{16, 1}, {16, 2}, {17, 1}, {17, 2},
-                            {17, 3}, {31, 2}, {32, 2}, {33, 2}};
+    const int cases[][2] = {{16, 1}, {16, 2}, {17, 1}, {17, 2}, {17, 3}, {31, 2}, {32, 2}, {33, 2}};
     int failed = 0;
     for (const auto& test : cases) {
         if (!checkCase(test[0], test[1])) {
             ++failed;
         }
     }
-    std::printf("%s: %d of %zu cases failed\n", failed ? "FAIL" : "PASS", failed,
-                sizeof(cases) / sizeof(cases[0]));
+    std::printf("%s: %d of %zu cases failed\n", failed ? "FAIL" : "PASS", failed, sizeof(cases) / sizeof(cases[0]));
     return failed == 0;
 }
 } // namespace
@@ -96,9 +94,7 @@ int main() {
 }
 #else
 class RVVSumByAxisTailTest : public MNNTestCase {
-    bool run(int) override {
-        return runSumTailCases();
-    }
+    bool run(int) override { return runSumTailCases(); }
 };
 MNNTestSuiteRegister(RVVSumByAxisTailTest, "backend/cpu/rvv/sum_by_axis_tail");
 #endif
