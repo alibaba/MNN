@@ -81,6 +81,10 @@ extern void MNNPackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*
 extern void MNNUnpackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 extern void MNNPackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 extern void MNNUnpackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
+extern void MNNConvRunForLineDepthwise_RVV(float* dst, const float* src, const float* weight, size_t width,
+                                           size_t src_w_setup, size_t fw, size_t fh, size_t dilateX_step,
+                                           size_t dilateY_step, size_t height, size_t srcHStep, size_t dstHStep,
+                                           const float* bias, const float* parameters);
 namespace MNN {
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
 }
@@ -5220,6 +5224,7 @@ void MNNCoreFunctionInit() {
 
 #if defined(__riscv) && defined(MNN_USE_RVV)
     if (gCoreFunction->supportRVV) {
+        gCoreFunction->MNNConvRunForLineDepthwise = MNNConvRunForLineDepthwise_RVV;
         gCoreFunction->MNNAccumulateSequenceNumber = MNNAccumulateSequenceNumber_RVV;
         gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
         gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4_RVV;

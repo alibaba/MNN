@@ -1,9 +1,16 @@
 #include <riscv_vector.h>
 #include <cstddef>
 
-void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
-                                size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters) {
+// Registered as CoreFunctions::MNNConvRunForLineDepthwise, and only inside the
+// supportRVV branch, so the scalar definition in compute/ConvOpt.cpp is what a CPU
+// without the V extension keeps executing. A same-named definition here would have
+// C++ linkage while ConvOpt.h declares the generic entry point extern "C": both
+// copies would be present in the library and every call site would keep resolving
+// to the generic one, leaving this kernel unreachable.
+void MNNConvRunForLineDepthwise_RVV(float* dst, const float* src, const float* weight, size_t width,
+                                    size_t src_w_setup, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step,
+                                    size_t height, size_t srcHStep, size_t dstHStep, const float* bias,
+                                    const float* parameters) {
     const float minV = parameters[0];
     const float maxV = parameters[1];
     const ptrdiff_t srcByteStride = static_cast<ptrdiff_t>(src_w_setup) * sizeof(float);
