@@ -1338,14 +1338,17 @@ int main(int argc, char ** argv) {
                     int64_t decode_us = context->decode_us;
                     if (decode_us <= 0) {
                         decode_us = static_cast<int64_t>(decodeCost.durationInUs());
-                        int64_t generatedTokens = context->gen_seq_len;
-                        if (llm->stoped() && generatedTokens > 0) {
-                            generatedTokens -= 1;
-                        }
-                        generatedTokens = std::max<int64_t>(generatedTokens, 1);
-                        if (generatedTokens < decodeTokens) {
-                            decode_us = (decode_us * decodeTokens + generatedTokens - 1) / generatedTokens;
-                        }
+                    }
+                    // The decode loop stops at EOS, so decode_us may cover fewer
+                    // than decodeTokens tokens. Scale it to decodeTokens so t/s
+                    // stays tokens-generated / time instead of being inflated.
+                    int64_t generatedTokens = context->gen_seq_len;
+                    if (llm->stoped() && generatedTokens > 0) {
+                        generatedTokens -= 1;
+                    }
+                    generatedTokens = std::max<int64_t>(generatedTokens, 1);
+                    if (generatedTokens < decodeTokens) {
+                        decode_us = (decode_us * decodeTokens + generatedTokens - 1) / generatedTokens;
                     }
                     sampler_us += decode_us;
                 }
