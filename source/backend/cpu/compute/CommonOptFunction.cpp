@@ -95,6 +95,13 @@ extern void MNNMatrixSub_RVV(float* C, const float* A, const float* B, size_t wi
                              size_t aStride, size_t bStride, size_t height);
 extern void MNNDeconvRunForUnitDepthWise_RVV(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
                                              size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
+extern void MNNExpC8_RVV(float* dest, const float* source, float* offset, const float* parameters, size_t countC8);
+extern void MNNNorm_RVV(float* dst, const float* src, const float* gamma, const float* beta, float epsilon, size_t size,
+                        bool RMSNorm);
+extern void MNNGeluCommon_RVV(float* dst, const float* src, size_t size);
+extern void MNNGeluStandardCommon_RVV(float* dst, const float* src, size_t size);
+extern void MNNSiLu_RVV(float* dst, const float* src, size_t dataSize);
+extern void MNNSiLuLowp_RVV(float* dst, const float* src, size_t dataSize);
 namespace MNN {
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
 }
@@ -2934,8 +2941,13 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* a
     MNNUnpackC4Common<float>(dst, src, area, depth, areaOffset);
 }
 
-#ifndef MNN_USE_RVV
 void MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNExpC8_RVV(dest, source, offset, parameters, countC8);
+        return;
+    }
+#endif
     auto count = countC8 * 8;
     auto param = parameters[0];
     float xLimit = 87;
@@ -2958,7 +2970,6 @@ void MNNExpC8(float* dest, const float* source, float* offset, const float* para
     }
     offset[3] = summer;
 }
-#endif
 
 void MNNSoftmax(float* softmaxDst, const float* softmaxSrc, float* runningMax, float* runningSum, float* updateScale,
                 int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
@@ -3348,9 +3359,14 @@ void MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, size_t
 }
 
 #ifndef MNN_USE_SSE
-#ifndef MNN_USE_RVV
 void MNNNorm(float* dst, const float* src, const float* gamma, const float* beta, float epsilon, size_t size,
              bool RMSNorm) {
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNNorm_RVV(dst, src, gamma, beta, epsilon, size, RMSNorm);
+        return;
+    }
+#endif
     float mean = 0;
     if (false == RMSNorm) {
         float sum = 0.f;
@@ -3535,7 +3551,6 @@ void MNNNorm(float* dst, const float* src, const float* gamma, const float* beta
     }
 #endif
 }
-#endif // MNN_USE_RVV
 #endif // MNN_USE_SSE
 
 void MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) {
@@ -4006,14 +4021,25 @@ void MNNHardSwishCommon(float* dst, const float* src, size_t size) {
 #endif
 }
 
-#ifndef MNN_USE_RVV
 void MNNGeluStandardCommon(float* dst, const float* src, size_t size) {
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNGeluStandardCommon_RVV(dst, src, size);
+        return;
+    }
+#endif
     for (int i = 0; i < size; i++) {
         dst[i] = (erf(src[i] * 0.7071067932881648) + 1) * src[i] * 0.5;
     }
 }
 
 void MNNGeluCommon(float* dst, const float* src, size_t size) {
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNGeluCommon_RVV(dst, src, size);
+        return;
+    }
+#endif
     int sizeQuad = static_cast<int32_t>(size / 8);
     int remain = static_cast<int32_t>(size) % 8;
 #if defined(MNN_USE_SSE) || defined(MNN_USE_NEON)
@@ -4048,7 +4074,6 @@ void MNNGeluCommon(float* dst, const float* src, size_t size) {
     }
 #endif
 }
-#endif
 
 void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float alpha, size_t number) {
     int numberC4 = (int)number / 4;
@@ -4678,15 +4703,19 @@ void MNNSigmoid(float* dst, const float* src, size_t dataSize) {
     }
 }
 
-#ifndef MNN_USE_RVV
 void MNNSiLu(float* dst, const float* src, size_t dataSize) {
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNSiLu_RVV(dst, src, dataSize);
+        return;
+    }
+#endif
     float offset[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
     MNNExp(dst, src, offset, dataSize);
     for (int i = 0; i < dataSize; ++i) {
         dst[i] = src[i] / (1.0f + dst[i]);
     }
 }
-#endif
 
 /**
  Modified from https://github.com/alibaba/MNN/pull/1359
@@ -4728,8 +4757,13 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
 #endif
 }
 
-#ifndef MNN_USE_RVV
 void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNSiLuLowp_RVV(dst, src, dataSize);
+        return;
+    }
+#endif
     float offset[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
     MNNExp(dst, src, offset, dataSize);
 #ifdef __aarch64__
@@ -4771,7 +4805,6 @@ void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
     }
 #endif
 }
-#endif
 
 static void _MNNAdjustOptimalSparseKernel(int& sparseBlockOC,
                                           MNN::CoreFunctions::MNNPackedSparseMatMul& packedSparseMatMul) {

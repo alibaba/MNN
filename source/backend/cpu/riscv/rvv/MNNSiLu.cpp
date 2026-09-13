@@ -1,12 +1,17 @@
 #include <riscv_vector.h>
 
-extern "C" {
+// MNNExp lives in namespace MNN. Declaring it inside an extern "C" block (as
+// this file used to, because the whole file was wrapped in one) references the
+// unmangled name MNNExp, which nothing defines: the symbol in libMNN is
+// MNN::MNNExp. That only shows up when MNN_USE_RVV is on, which is not the
+// default configuration, so the build error stayed hidden.
+namespace MNN {
+void MNNExp(float* dst, const float* src, float* offset, size_t dataSize);
+} // namespace MNN
 
-extern void MNNExp(float* dst, const float* src, float* offset, size_t dataSize);
-
-void MNNSiLu(float* dst, const float* src, size_t dataSize) {
+void MNNSiLu_RVV(float* dst, const float* src, size_t dataSize) {
     float offset[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
-    MNNExp(dst, src, offset, dataSize);
+    MNN::MNNExp(dst, src, offset, dataSize);
     size_t n = dataSize;
     float* dstPtr = dst;
     const float* srcPtr = src;
@@ -31,9 +36,9 @@ void MNNSiLu(float* dst, const float* src, size_t dataSize) {
     }
 }
 
-void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
+void MNNSiLuLowp_RVV(float* dst, const float* src, size_t dataSize) {
     float offset[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
-    MNNExp(dst, src, offset, dataSize);
+    MNN::MNNExp(dst, src, offset, dataSize);
     size_t n = dataSize;
     float* dstPtr = dst;
     const float* srcPtr = src;
@@ -53,5 +58,3 @@ void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
         n -= vl;
     }
 }
-
-} // extern "C"
