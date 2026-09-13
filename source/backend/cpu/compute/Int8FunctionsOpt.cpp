@@ -145,6 +145,13 @@ void MNNGemmInt8AddBiasScaleHp128_SME2_w8_Fp32(int8_t* dst, const int8_t* src, c
 }
 #endif // MNN_USE_NEON
 
+#ifdef MNN_USE_RVV
+#ifdef MNN_USE_SPARSE_COMPUTE
+extern void _MNNPackC4Int8ForMatMul_ASparse_RVV(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info,
+                                                const int32_t* el);
+#endif
+#endif
+
 /*
     layout should be optimized for int8
     source: source matrix is h x l
@@ -2800,7 +2807,7 @@ void MNNCoreInt8FunctionInit() {
     if (core->supportRVV) {
         gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnitRVV;
         gCoreFunc->MNNPackC4Int8ForMatMul_A =
-        _ArmBasicMNNPackC4ForMatMul_A<GEMM_INT8_DST_XUNIT_RVV, GEMM_INT8_SRC_UNIT, GEMM_INT8_UNIT>;
+            _ArmBasicMNNPackC4ForMatMul_A<GEMM_INT8_DST_XUNIT_RVV, GEMM_INT8_SRC_UNIT, GEMM_INT8_UNIT>;
         core->int8MatmulRelatedFunctions.eP = GEMM_INT8_DST_XUNIT_RVV;
         gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_RVV;
         MNNRvvInitializeInt8FastPathFunctions(gCoreFunc);
@@ -2810,6 +2817,9 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->ConvDepthwiseLineInt8 = MNNLineDepthWiseInt8AddBiasScaleUnit_RVV;
         gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8_RVV;
         gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8_RVV;
+#ifdef MNN_USE_SPARSE_COMPUTE
+        gCoreFunc->MNNPackC4Int8ForMatMul_ASparse = _MNNPackC4Int8ForMatMul_ASparse_RVV;
+#endif
     }
 #endif
 #endif
