@@ -2077,10 +2077,20 @@ void MNNBinaryMulInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
     }
 }
 
-#ifndef MNN_USE_RVV
 void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
                       float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
                       size_t needBroadcast) {
+    // No CoreInt8Functions slot exists for this kernel, so the RVV version is
+    // reached from here instead of through the function table. The scalar body
+    // stays compiled unconditionally: an RVV build running on a CPU without the
+    // V extension still takes this path.
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNBinaryMinInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                             needBroadcast);
+        return;
+    }
+#endif
     int res = 0;
 #ifdef MNN_USE_SSE
     const int offset = 128;
@@ -2132,6 +2142,17 @@ void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
 void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
                       float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
                       size_t needBroadcast) {
+    // No CoreInt8Functions slot exists for this kernel, so the RVV version is
+    // reached from here instead of through the function table. The scalar body
+    // stays compiled unconditionally: an RVV build running on a CPU without the
+    // V extension still takes this path.
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNBinaryMaxInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                             needBroadcast);
+        return;
+    }
+#endif
     int res = 0;
 #ifdef MNN_USE_SSE
     const int offset = 128;
@@ -2179,7 +2200,6 @@ void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
         outputData[i] = value;
     }
 }
-#endif
 
 void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
                       float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
@@ -2223,10 +2243,20 @@ void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
     }
 }
 
-#ifndef MNN_USE_RVV
 void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias, const int32_t* alpha,
                             int32_t mShiftBits, ssize_t minValue, ssize_t maxValue, int8_t* inputZeroPoint,
                             int8_t* outputZeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack) {
+    // No CoreInt8Functions slot exists for this kernel, so the RVV version is
+    // reached from here instead of through the function table. The scalar body
+    // stays compiled unconditionally: an RVV build running on a CPU without the
+    // V extension still takes this path.
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNScaleAndAddBiasInt8_RVV(dst, src, bias, alpha, mShiftBits, minValue, maxValue, inputZeroPoint,
+                                   outputZeroPoint, planeNumber, biasNumber, pack);
+        return;
+    }
+#endif
 #ifdef MNN_USE_SSE
     const uint8_t* srcPtr = (uint8_t*)src;
     uint8_t* dstPtr = (uint8_t*)dst;
@@ -2271,7 +2301,6 @@ void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias,
         }
     }
 }
-#endif
 
 #endif // #ifndef MNN_USE_NEON
 #ifndef MNN_USE_SSE
@@ -2280,29 +2309,6 @@ void MNNInt8FunctionInit() {
     // do nothing
 }
 #endif // #ifndef MNN_USE_SSE
-
-#ifdef MNN_USE_RVV
-void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
-                      float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
-                      size_t needBroadcast) {
-    MNNBinaryMinInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
-                         needBroadcast);
-}
-
-void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
-                      float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
-                      size_t needBroadcast) {
-    MNNBinaryMaxInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
-                         needBroadcast);
-}
-
-void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias, const int32_t* alpha,
-                            int32_t mShiftBits, ssize_t minValue, ssize_t maxValue, int8_t* inputZeroPoint,
-                            int8_t* outputZeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack) {
-    MNNScaleAndAddBiasInt8_RVV(dst, src, bias, alpha, mShiftBits, minValue, maxValue, inputZeroPoint, outputZeroPoint,
-                               planeNumber, biasNumber, pack);
-}
-#endif
 
 template <int EP, int LP, int HP>
 static void _ArmBasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info,
