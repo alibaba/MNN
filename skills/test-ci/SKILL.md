@@ -9,7 +9,7 @@ This skill is an **index**. Pick the document that matches the task and follow i
 
 | Document | Use when |
 |----------|----------|
-| [`test-suite.md`](test-suite.md) | Run the regression / CI suite — static checks, host (local) tests, the on-device **Android** arm64 matrix (`./test.sh` + `test_stages.json`); add / select / retune a test stage; audit stale CI scripts; add a new operator test. |
+| [`test-suite.md`](test-suite.md) | Run the regression / CI suite — static checks, host (local) tests, the on-device **Android** arm64 matrix (`./test.sh` + `test_stages.json`); add / select / retune a test stage; audit stale CI scripts; add a new test. |
 | [`ios-llm-bench.md`](ios-llm-bench.md) | Benchmark LLM prefill/decode speed on a real **iPhone/iPad** (`ios_llm_bench.sh`); compare branches on iOS Metal/CPU; verify Metal kernel changes on device. |
 
 The two tracks are independent: Android/host regression testing goes through
@@ -173,13 +173,13 @@ recommending deletion:
   `test_stages.json` self-documentation, developer docs, skill docs, and code
   comments in the same change so the old entrypoint disappears completely.
 
-## Adding a new operator test
+## Adding a new test
 
-1. Write the C++ test under `test/op/` (one file, registered with
-   `MNNTestSuiteRegister`). The full template + conventions are in
-   [`docs/testing.md`](../../docs/testing.md) § "新增算子测试".
-2. If its name prefix matches an existing stage (e.g. `op/*`), it is picked up
-   automatically — no JSON change needed. Otherwise add a dedicated stage.
+See [`test-suite.md`](test-suite.md) § "Adding a new test" for the full steps.
+Two traps worth knowing up front: `test/CMakeLists.txt` globs sources at
+**configure** time, so a new test file needs a `cmake` re-run before it exists in
+`run_test.out`; and `run_test.out` prints an all-passed line even when the filter
+matched nothing, so confirm `passed:N`.
 
 For deeper work on operators themselves, see the
 [`add-new-op`](../add-new-op/SKILL.md) skill.

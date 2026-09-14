@@ -206,6 +206,15 @@ GPU correctness 阶段使用 `TUNING_NONE`，避免单次正确性测试消耗�
 2. 如需特定 backend / precision / memory / dynamicOption，再在
    `test_stages.json` 中增加专门阶段。
 
+> ⚠️ **新增测试文件后必须重跑 `cmake`。** `test/CMakeLists.txt` 用
+> `GLOB_RECURSE` 收集源文件，而 glob 在 **configure 期**展开——增量
+> `cmake --build` 不会把新文件编进 `run_test.out`，且**不报任何错**。
+> 在 build 目录先执行 `cmake .`（或删掉 build 重配）。
+>
+> 另外 `run_test.out` 即使一个用例都没匹配上也会打印
+> `√√√ all <filter> tests passed`，所以要看 `passed:N` 计数确认用例真的跑了，
+> `passed:0` 说明没跑起来。
+
 ### 编写测试
 
 最小示例：

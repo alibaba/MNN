@@ -60,6 +60,11 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
 * Combined stdout/stderr for every stage is saved under
   `logs/test-<UTC-timestamp>/<stage>.log` — read the named log of a failing
   stage for the trailing output. `rc=137` ≈ OOM-kill, `rc=139` ≈ SIGSEGV.
+* **`run_test.out` prints `√√√ all <filter> tests passed` even when the filter
+  matched nothing.** Judge by the `passed:N` count in
+  `TEST_CASE_AMOUNT_UNIT` / `TEST_CASE` — `passed:0` means the case never ran
+  (wrong filter name, or the file was never compiled in; see § Adding a new
+  test). Never read the all-passed line as proof that a specific test ran.
 * When a remote transport has a shorter timeout than the device workload, a
   blank or truncated client response does not prove that the process exited.
   Write results on the device, then poll the process and result-file size
@@ -158,13 +163,25 @@ recommending deletion:
   `test_stages.json` self-documentation, developer docs, skill docs, and code
   comments in the same change so the old entrypoint disappears completely.
 
-## Adding a new operator test
+## Adding a new test
 
-1. Write the C++ test under `test/op/` (one file, registered with
-   `MNNTestSuiteRegister`). The full template + conventions are in
+1. Write the C++ test under `test/<area>/` (one file, registered with
+   `MNNTestSuiteRegister`). For operators the full template + conventions are in
    [`docs/testing.md`](../../docs/testing.md) § "新增算子测试".
-2. If its name prefix matches an existing stage (e.g. `op/*`), it is picked up
-   automatically — no JSON change needed. Otherwise add a dedicated stage.
+2. **Re-run `cmake` before building.** `test/CMakeLists.txt` collects sources
+   with `GLOB_RECURSE`, which CMake expands at **configure** time — a new file
+   is *not* picked up by an incremental `cmake --build`, and the test is simply
+   absent from `run_test.out` with no error. Run `cmake .` in the build dir (or
+   delete it) first, then confirm the case actually ran via `passed:N`
+   (see § Reading the result) — not via the all-passed line.
+3. If its name prefix matches an existing stage (e.g. `op/*`, `core/*`), it is
+   picked up automatically — no JSON change needed. Otherwise add a dedicated
+   stage.
+4. **Check that the test can actually fail.** Reintroduce the bug (or revert the
+   fix) and confirm the test goes red; a test that passes on the broken code is
+   worse than no test, because it manufactures confidence. See
+   [general-debug §3](../general-debug/concurrency.md) for the case where a runtime
+   test *cannot* work and the invariant must be asserted at compile time.
 
 ### Attention causal-mask assumption (⚠️ non-causal models on Metal)
 

@@ -110,6 +110,6 @@ Public skills are listed below. Environment-dependent skills may exist under `sk
 | OpenCL optimization | `skills/opencl-optimize/SKILL.md` | Optimize op performance on OpenCL |
 | Vulkan optimization | `skills/vulkan-optimize/SKILL.md` | Optimize op performance on Vulkan |
 | Metal optimization | `skills/metal-optimize/SKILL.md` | Optimize op performance on Metal |
-| Bugfix / debugging | `skills/general-debug/SKILL.md` | Diagnose correctness bugs / regressions in MNN — router that dispatches by symptom to per-category sub-docs (memory aliasing, export/quant, fp16 range, GPU OOB, kernel assumptions, stale cache, nondeterminism). |
+| Bugfix / debugging | `skills/general-debug/SKILL.md` | Diagnose correctness bugs / regressions in MNN — router that dispatches by symptom to per-category sub-docs (memory aliasing, export/quant, host-side concurrency & refcount races, fp16 range, GPU OOB, kernel assumptions, stale cache, nondeterminism). |
 | Run tests / CI | `skills/test-ci/SKILL.md` | Run the regression / CI suite (host or on-device), benchmark LLM on a real iPhone/iPad, or add / select / retune a test stage |
 | Retrospective | `skills/retrospective/SKILL.md` | After non-trivial tasks with reusable lessons |
