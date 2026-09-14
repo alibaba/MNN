@@ -11,6 +11,8 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <atomic>
+#include <type_traits>
 #include "MNNMemoryUtils.h"
 
 namespace MNN {
@@ -158,31 +160,40 @@ class RefCount
     public:
         void addRef() const
         {
-            mNum++;
+            mNum.fetch_add(1, std::memory_order_relaxed);
         }
         void decRef() const
         {
-            --mNum;
-            MNN_ASSERT(mNum>=0);
-            if (0 >= mNum)
+            int prev = mNum.fetch_sub(1, std::memory_order_acq_rel);
+            MNN_ASSERT(prev >= 1);
+            if (1 == prev)
             {
                 delete this;
             }
         }
-    inline int count() const{return mNum;}
+    inline int count() const{return mNum.load(std::memory_order_relaxed);}
     protected:
         RefCount():mNum(1){}
-        RefCount(const RefCount& f):mNum(f.mNum){}
+        RefCount(const RefCount& f):mNum(f.mNum.load(std::memory_order_relaxed)){}
         void operator=(const RefCount& f)
         {
             if (this != &f)
             {
-                mNum = f.mNum;
+                mNum.store(f.mNum.load(std::memory_order_relaxed), std::memory_order_relaxed);
             }
         }
         virtual ~RefCount(){}
     private:
-        mutable int mNum;
+        mutable std::atomic<int> mNum;
+        // Must stay atomic: SharedPtr-managed objects (Tensor InsideDescribe,
+        // Backend::MemObj, ...) get released concurrently from different threads,
+        // so a plain int loses updates and double-frees. Do not "optimize" this
+        // back to a non-atomic counter — a plain optimized build cannot catch the
+        // regression at runtime (the compiler elides the racy RMW pair as UB),
+        // which is why this guard is compile-time.
+        // See test/core/RefCountThreadSafetyTest.cpp.
+        static_assert(std::is_same<decltype(mNum), std::atomic<int>>::value,
+                      "RefCount::mNum must remain std::atomic<int>");
 };
 
 #define SAFE_UNREF(x)\

@@ -486,6 +486,13 @@ public:
         mBuffer = buffer;
         mAllocator = allocator;
     }
+    MetalMemRelease(MemChunk buffer, std::shared_ptr<BufferAllocator> allocator) {
+        mBuffer = buffer;
+        mAllocator = allocator.get();
+        // Keep runtime-owned static allocator alive: STATIC mem objects can outlive
+        // the MetalRuntime when user code still holds output VARPs after releasing the module.
+        mHoldAllocator = std::move(allocator);
+    }
     virtual ~ MetalMemRelease() {
         mAllocator->free(mBuffer);
     }
@@ -495,6 +502,7 @@ public:
 private:
     MemChunk mBuffer;
     BufferAllocator* mAllocator;
+    std::shared_ptr<BufferAllocator> mHoldAllocator;
 };
 size_t MetalBackend::getTensorSizeInBytes(const Tensor* tensor) const {
     auto format = TensorUtils::getDescribe(tensor)->dimensionFormat;
@@ -559,14 +567,16 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
     // reuse if possible
     MemChunk buffer;
     BufferAllocator* allocator = nullptr;
+    std::shared_ptr<BufferAllocator> holdAllocator;
     switch (storageType) {
         case Backend::STATIC: {
-            buffer = mRuntime->mStaticAllocator->alloc(size, false);
-            allocator = mRuntime->mStaticAllocator.get();
+            holdAllocator = mRuntime->mStaticAllocator;
+            buffer = holdAllocator->alloc(size, false);
             if (nullptr == buffer.first && nullptr != mRuntime->mStaticAllocatorRaw.get()) {
-                buffer = mRuntime->mStaticAllocatorRaw->alloc(size, false);
-                allocator = mRuntime->mStaticAllocatorRaw.get();
+                holdAllocator = mRuntime->mStaticAllocatorRaw;
+                buffer = holdAllocator->alloc(size, false);
             }
+            allocator = holdAllocator.get();
         } break;
         case Backend::DYNAMIC: {
             buffer = mCurrentAllocator->alloc(size, false);
@@ -596,6 +606,9 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
         _MetalApplyTensor((uint8_t*)(&mEmptyMem), 0, (Tensor*)_tensor);
     } else {
         _MetalApplyTensor((uint8_t*)buffer.first, buffer.second, (Tensor*)_tensor);
+    }
+    if (nullptr != holdAllocator) {
+        return new MetalMemRelease(buffer, holdAllocator);
     }
     return new MetalMemRelease(buffer, allocator);
 }
