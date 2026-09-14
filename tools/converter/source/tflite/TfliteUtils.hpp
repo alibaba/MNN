@@ -56,6 +56,12 @@ bool convertDataFormatTfliteDequant(const T* src, float* dst, int KH, int KW, in
     return true;
 }
 
+// Overflow-safe product of weight dimensions (e.g. CO/KH/KW/CI). Rejects a non-positive dimension,
+// and any product that would not fit in int. The running product is compared against INT_MAX / dim
+// before each multiplication, so the multiplication itself can never overflow: four dimensions near
+// 2^31 would overflow int64, which would make a check performed afterwards meaningless.
+bool computeTfliteWeightSize(const int32_t* dims, int dimCount, int* weightSize);
+
 MNN::DataType TfliteDataTypeToMNN(tflite::TensorType type);
 
 MNN::DataType TfliteDequantDataTypeToMNN(tflite::TensorType type);

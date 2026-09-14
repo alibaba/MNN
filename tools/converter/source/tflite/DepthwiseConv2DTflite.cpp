@@ -7,6 +7,7 @@
 //
 
 #include <stdio.h>
+#include <limits>
 
 #include "TfliteUtils.hpp"
 #include "liteOpConverter.hpp"
@@ -78,13 +79,33 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
     const auto& weightTensor = tfliteTensors[weightIndex];
     // co kh kw ci
     const auto& weightShape = weightTensor->shape;
-    DCHECK(weightShape.size() == 4) << "Conv2D weight ERROR!";
+    if (4 != weightShape.size()) {
+        DLOG(ERROR) << "DEPTHWISE_CONV_2D weight shape is not 4-D";
+        dstOp->type = MNN::OpType_MAX;
+        return;
+    }
     // const int co = weightShape[0];
     const int kh                 = weightShape[1];
     const int kw                 = weightShape[2];
     const int ci                 = weightShape[3];
-    const int weightSize         = kh * kw * ci;
+    if (kh <= 0 || kw <= 0 || ci <= 0) {
+        DLOG(ERROR) << "DEPTHWISE_CONV_2D weight shape contains non-positive dimension";
+        dstOp->type = MNN::OpType_MAX;
+        return;
+    }
+    const int32_t weightDims[3] = {kh, kw, ci};
+    int weightSize = 0;
+    if (!computeTfliteWeightSize(weightDims, 3, &weightSize)) {
+        DLOG(ERROR) << "DEPTHWISE_CONV_2D weight size overflow: " << kh << "x" << kw << "x" << ci;
+        dstOp->type = MNN::OpType_MAX;
+        return;
+    }
     const auto& tfliteConvOption = tfliteOp->builtin_options.AsDepthwiseConv2DOptions();
+    if (nullptr == tfliteConvOption) {
+        DLOG(ERROR) << "DEPTHWISE_CONV_2D operator carries no DepthwiseConv2DOptions";
+        dstOp->type = MNN::OpType_MAX;
+        return;
+    }
     if (weightTensor->type == tflite::TensorType_INT8) {
         quantizedModel = 2;
         dstOp->type = MNN::OpType_ConvolutionDepthwise;
@@ -115,22 +136,30 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
             ::memset(depthwiseConv2dParamFloat->bias.data(), 0, outputCount * sizeof(float));
             if (inputSize == 3) {
                 const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
-                if (biasTensor->quantization->scale.size() == 1) {
-                    auto scale = biasTensor->quantization->scale[0];
-                    auto zero = biasTensor->quantization->zero_point[0];;
-                    const auto& biasData = tfliteModelBuffer[biasTensor->buffer]->data;
-                    auto biasDataPtr = biasData.data();
-                    const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
-                    for (int i=0; i<outputCount; ++i) {
-                        depthwiseConv2dParamFloat->bias[i] = (float)(realBiasDataPtr[i] - zero) * scale;
+                const auto& biasData = tfliteModelBuffer[biasTensor->buffer]->data;
+                if (biasData.size() >= sizeof(int32_t) * outputCount) {
+                    if (biasTensor->quantization->scale.size() == 1) {
+                        auto scale = biasTensor->quantization->scale[0];
+                        auto zero = biasTensor->quantization->zero_point[0];
+                        auto biasDataPtr = biasData.data();
+                        const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
+                        for (int i = 0; i < outputCount; ++i) {
+                            depthwiseConv2dParamFloat->bias[i] = (float)(realBiasDataPtr[i] - zero) * scale;
+                        }
+                    } else {
+                        auto biasDataPtr = biasData.data();
+                        const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
+                        for (int i = 0; i < outputCount; ++i) {
+                            depthwiseConv2dParamFloat->bias[i] =
+                                (float)(realBiasDataPtr[i] - biasTensor->quantization->zero_point[i]) *
+                                biasTensor->quantization->scale[i];
+                        }
                     }
                 } else {
-                    const auto& biasData = tfliteModelBuffer[biasTensor->buffer]->data;
-                    auto biasDataPtr = biasData.data();
-                    const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
-                    for (int i=0; i<outputCount; ++i) {
-                        depthwiseConv2dParamFloat->bias[i] = (float)(realBiasDataPtr[i] - biasTensor->quantization->zero_point[i]) * biasTensor->quantization->scale[i];
-                    }
+                    DLOG(ERROR) << "DEPTHWISE_CONV_2D bias buffer needs " << (sizeof(int32_t) * outputCount)
+                                << " bytes, got " << biasData.size();
+                    dstOp->type = MNN::OpType_MAX;
+                    return;
                 }
             }
             // Weight
@@ -138,7 +167,11 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
             std::vector<int8_t> transposeWeight(kw * kh * ci);
             const auto& weightData = tfliteModelBuffer[weightTensor->buffer]->data;
             auto weightDataPtr = (int8_t*)weightData.data();
-
+            if (weightDataPtr == nullptr || weightData.size() < (size_t)kw * kh * ci) {
+                DLOG(ERROR) << "DEPTHWISE_CONV_2D INT8 weight buffer is too small";
+                dstOp->type = MNN::OpType_MAX;
+                return;
+            }
             for (int i=0; i<ci; ++i) {
                 for (int j=0; j<kw*kh; ++j) {
                     transposeWeight[i*kw*kh+j] = weightDataPtr[i+j*ci];
@@ -148,7 +181,7 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
             depthwiseConv2dParamFloat->quanParameter = std::move(quan);
         } else {
             // For old uint8 model
-            auto depthwiseConv2dParamQuan         = new MNN::TfQuantizedConv2DT;
+            std::unique_ptr<MNN::TfQuantizedConv2DT> depthwiseConv2dParamQuan(new MNN::TfQuantizedConv2DT);
             depthwiseConv2dParamQuan->modelFormat = MNN::ModeFormat_TFLITE;
             depthwiseConv2dParamQuan->common = std::move(dstCommon);
 
@@ -193,18 +226,24 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
 
                 auto shape = biasTensor->shape;
 
-                DCHECK(biasData.size() / 4 == ci) << "Bias Data ERROR";
-                auto biasDataPtr               = biasData.data();
-                const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
-                std::vector<int32_t> biasInt32Vec(realBiasDataPtr, realBiasDataPtr + ci);
-                depthwiseConv2dParamQuan->bias = biasInt32Vec;
+                if (biasData.size() >= sizeof(int32_t) * ci) {
+                    auto biasDataPtr = biasData.data();
+                    const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
+                    std::vector<int32_t> biasInt32Vec(realBiasDataPtr, realBiasDataPtr + ci);
+                    depthwiseConv2dParamQuan->bias = biasInt32Vec;
+                } else {
+                    DLOG(ERROR) << "DEPTHWISE_CONV_2D bias buffer needs " << (sizeof(int32_t) * ci) << " bytes, got "
+                                << biasData.size();
+                    dstOp->type = MNN::OpType_MAX;
+                    return;
+                }
             }
             depthwiseConv2dParamQuan->activationType =
                 static_cast<MNN::FusedActivation>(tfliteConvOption->fused_activation_function);
-            dstOp->main.value = depthwiseConv2dParamQuan;
+            dstOp->main.value = depthwiseConv2dParamQuan.release();
         }
     } else {
-        auto depthwiseConv2dParamFloat = new MNN::Convolution2DT;
+        std::unique_ptr<MNN::Convolution2DT> depthwiseConv2dParamFloat(new MNN::Convolution2DT);
         std::vector<float> weightData;
         weightData.resize(weightSize);
         auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
@@ -216,15 +255,20 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
         // bias
         if (inputSize == 3) {
             const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
-            auto originalBiasPtr = reinterpret_cast<const float*>(tfliteModelBuffer[biasTensor->buffer]->data.data());
-            if (originalBiasPtr) {
+            const auto& biasRaw = tfliteModelBuffer[biasTensor->buffer]->data;
+            if (biasRaw.data() != nullptr && biasRaw.size() >= sizeof(float) * ci) {
                 std::vector<float> biasData(ci, 0.0f);
-                ::memcpy(biasData.data(), originalBiasPtr, sizeof(float) * ci);
+                ::memcpy(biasData.data(), biasRaw.data(), sizeof(float) * ci);
                 depthwiseConv2dParamFloat->bias   = biasData;
+            } else {
+                DLOG(ERROR) << "DEPTHWISE_CONV_2D bias buffer needs " << (sizeof(float) * ci) << " bytes, got "
+                            << biasRaw.size();
+                dstOp->type = MNN::OpType_MAX;
+                return;
             }
         }
         depthwiseConv2dParamFloat->common = std::move(dstCommon);
-        dstOp->main.value = depthwiseConv2dParamFloat;
+        dstOp->main.value = depthwiseConv2dParamFloat.release();
     }
     
     // set input output index
