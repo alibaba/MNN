@@ -18,6 +18,7 @@
 #include "core/TensorUtils.hpp"
 
 #define TEST_RANDOM_SEED 100
+bool MNNTestRVVMatMulFunctions();
 
 using std::vector;
 // C = A * B
@@ -163,7 +164,24 @@ class MatMulTestOnCPU : public MatMulTest {
 public:
     virtual ~MatMulTestOnCPU() = default;
     virtual bool run(int precision) {
-        return MatMulTest::test(MNN_FORWARD_CPU, "CPU", precision);
+        if (!MatMulTest::test(MNN_FORWARD_CPU, "CPU", precision)) {
+            return false;
+        }
+        // Exercise E=1 output blocks beyond one RVV register group and thread partition.
+        for (int k : {7, 31, 127}) {
+            for (int h : {31, 65, 129}) {
+                for (bool ta : {false, true}) {
+                    for (bool tb : {false, true}) {
+                        if (!MatMulCommonTest::test(MNN_FORWARD_CPU, "CPU", "GEMV", ta ? k : 1, ta ? 1 : k,
+                                                   tb ? h : k, tb ? k : h, ta, tb, precision)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        // The graph above initializes the CPU function table before checking registration.
+        return MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_CPU || MNNTestRVVMatMulFunctions();
     }
 };
 

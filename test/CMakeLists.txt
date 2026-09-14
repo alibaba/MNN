@@ -24,6 +24,8 @@ add_executable(run_test.out ${Files})
 if(TARGET MNNRVV)
   target_compile_definitions(run_test.out PRIVATE MNN_USE_RVV)
 endif()
+set_property(SOURCE ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVMatMulTest.cpp APPEND PROPERTY
+  COMPILE_DEFINITIONS MNN_TEST_RVV_ENABLED=$<BOOL:${MNN_USE_RVV}>)
 target_link_libraries(run_test.out ${MNN_DEPS})
 if (MSVC)
   target_compile_options(run_test.out PRIVATE /bigobj)
