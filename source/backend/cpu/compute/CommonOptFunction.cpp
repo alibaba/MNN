@@ -83,6 +83,8 @@ extern void MNNPackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*
 extern void MNNUnpackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 extern void MNNPackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 extern void MNNUnpackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
+extern void MNNCountMaxMinValue_RVV(const float* source, float* minVal, float* maxVal, size_t size);
+extern void MNNReluInt8_RVV(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint);
 // The RVV kernels below are defined in the global namespace (they are plain C-style
 // symbols in source/backend/cpu/riscv/rvv/*.cpp), so their declarations must stay
 // outside namespace MNN as well. Declaring them inside the namespace mangles the
@@ -5138,6 +5140,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNRoPECompute = MNNRoPEComputeBasic;
 
     gCoreFunction->MNNReluWithSlopeChannel = MNNReluWithSlopeChannel;
+    gCoreFunction->MNNReluInt8 = MNNReluInt8;
     gCoreFunction->MNNPoolingAvg = (decltype(gCoreFunction->MNNPoolingAvg))(poolingAvg<float, Vec4, 4>);
     // Set min value as 1 << 24
     gCoreFunction->MNNPoolingMax = (decltype(gCoreFunction->MNNPoolingMax))(poolingMax<float, Vec4, 4, -16777216>);
@@ -5257,6 +5260,8 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNUnpackCUnitInt16 = MNNUnpackCUnitInt16_RVV;
         gCoreFunction->MNNPackCUnitTransposeInt16 = MNNPackCUnitTransposeInt16_RVV;
         gCoreFunction->MNNUnpackCUnitTransposeInt16 = MNNUnpackCUnitTransposeInt16_RVV;
+        gCoreFunction->MNNCountMaxMinValue = MNNCountMaxMinValue_RVV;
+        gCoreFunction->MNNReluInt8 = MNNReluInt8_RVV;
         gCoreFunction->MNNMatrixAdd = MNNMatrixAdd_RVV;
         gCoreFunction->MNNMatrixSub = MNNMatrixSub_RVV;
         gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise_RVV;

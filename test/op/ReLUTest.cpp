@@ -12,6 +12,13 @@
 #include "TestUtils.h"
 
 using namespace MNN::Express;
+
+// Defined in test/backend/riscv/RVVReductionReluTest.cpp. Exercises the RVV
+// CountMaxMinValue / Int8 ReLU kernels directly and checks that they are
+// registered on the shared function table. A direct kernel test alone cannot
+// catch an unregistered C++ overload, so it runs from this registered case.
+bool MNNTestRVVReductionReluFunctions();
+
 class ReluTest : public MNNTestCase {
 public:
     virtual ~ReluTest() = default;
@@ -37,7 +44,7 @@ public:
                 return false;
             }
         }
-        return true;
+        return MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_CPU || MNNTestRVVReductionReluFunctions();
     }
 };
 MNNTestSuiteRegister(ReluTest, "op/relu");

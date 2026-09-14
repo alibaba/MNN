@@ -103,7 +103,7 @@ ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vect
                 if (tId == numberThread - 1) {
                     number = sizeQuad - tId * sizeDivide;
                 }
-                MNNReluInt8(dstO + 16 * tId * sizeDivide, srcO + 16 * tId * sizeDivide, number * 16, zeroPoint);
+                gcore->MNNReluInt8(dstO + 16 * tId * sizeDivide, srcO + 16 * tId * sizeDivide, number * 16, zeroPoint);
             }
             MNN_CONCURRENCY_END();
         }

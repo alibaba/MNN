@@ -514,6 +514,7 @@ struct CoreFunctions {
                                        const float* bias, const float* parameters) = nullptr;
     void (*MNNReluWithSlopeChannel)(float* dst, const float* src, const float* slope, size_t sizeQuad,
                                     size_t depthQuad);
+    void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint);
     void (*MNNPoolingAvg)(const void* channelInput, int inputWidth, int inputHeight, void* channelOutput,
                           int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                           int strideHeight, int padWidth, int padHeight, int padType, int countType);
