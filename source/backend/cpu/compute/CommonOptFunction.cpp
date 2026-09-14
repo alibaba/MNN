@@ -35,6 +35,8 @@ using Vec = MNN::Math::Vec<float, 4>;
 #endif
 
 #ifdef MNN_USE_RVV
+#include "backend/cpu/riscv/rvv/MNNRvvC4Functions.hpp"
+#include "../riscv/rvv/MNNRvvMatMulFunctions.hpp"
 extern void MNNAbsMaxFP32_RVV(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
 extern void MNNAccumulateSequenceNumber_RVV(float* dst, const float* src, int size);
 extern void MNNAsyQuantFunc_RVV(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info);
@@ -5230,6 +5232,9 @@ void MNNCoreFunctionInit() {
 
 #if defined(__riscv) && defined(MNN_USE_RVV)
     if (gCoreFunction->supportRVV) {
+        gCoreFunction->MNNScaleAndAddBias = MNNScaleAndAddBias_RVV;
+        gCoreFunction->MNNReluWithSlopeChannel = MNNReluWithSlopeChannel_RVV;
+        gCoreFunction->MNNComputeMatMulForE_1 = MNNComputeMatMulForE_1_RVV;
         gCoreFunction->MNNAccumulateSequenceNumber = MNNAccumulateSequenceNumber_RVV;
         gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
         gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4_RVV;
