@@ -156,9 +156,6 @@ extern void MNNBinaryMinInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, con
 extern void MNNBinaryMaxInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1,
                                  ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params,
                                  size_t elementSize, size_t needBroadcast);
-extern void MNNScaleAndAddBiasInt8_RVV(int8_t* dst, const int8_t* src, const int32_t* bias, const int32_t* alpha,
-                                       int32_t mShiftBits, ssize_t minValue, ssize_t maxValue, int8_t* inputZeroPoint,
-                                       int8_t* outputZeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack);
 #endif
 
 /*
@@ -2246,17 +2243,6 @@ void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
 void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias, const int32_t* alpha,
                             int32_t mShiftBits, ssize_t minValue, ssize_t maxValue, int8_t* inputZeroPoint,
                             int8_t* outputZeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack) {
-    // No CoreInt8Functions slot exists for this kernel, so the RVV version is
-    // reached from here instead of through the function table. The scalar body
-    // stays compiled unconditionally: an RVV build running on a CPU without the
-    // V extension still takes this path.
-#ifdef MNN_USE_RVV
-    if (MNN::MNNGetCoreFunctions()->supportRVV) {
-        MNNScaleAndAddBiasInt8_RVV(dst, src, bias, alpha, mShiftBits, minValue, maxValue, inputZeroPoint,
-                                   outputZeroPoint, planeNumber, biasNumber, pack);
-        return;
-    }
-#endif
 #ifdef MNN_USE_SSE
     const uint8_t* srcPtr = (uint8_t*)src;
     uint8_t* dstPtr = (uint8_t*)dst;
