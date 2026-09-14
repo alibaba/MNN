@@ -7,11 +7,22 @@
 //
 
 #include "backend/cpu/compute/ConvOpt.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
 #include <algorithm>
 #include <string.h>
 #include "core/Macro.h"
 #include "math/Vec.hpp"
 using Vec4 = MNN::Math::Vec<float, 4>;
+
+#ifdef MNN_USE_RVV
+// MNNMatrixProd has no CoreFunctions slot, so the RVV kernel cannot be reached
+// through the function table the way MNNMatrixAdd / MNNMatrixSub are. It is
+// dispatched from MNNMatrixProdCommon instead, and only when the CPU really
+// implements the V extension, so an RVV build running on a non-RVV CPU still
+// takes the scalar path above.
+void MNNMatrixProd_RVV(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
+                       size_t bStride, size_t height);
+#endif
 #ifndef MNN_USE_NEON
 
 void MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
@@ -36,7 +47,6 @@ void MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size
         }
     }
 }
-
 void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
                                 size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters) {
@@ -188,7 +198,15 @@ void MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float* wei
 void MNNMatrixProdCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height) {
     int widthC4 = (int)width / 4;
     if (widthC4 > 0) {
+#ifdef MNN_USE_RVV
+        if (MNN::MNNGetCoreFunctions()->supportRVV) {
+            MNNMatrixProd_RVV(C, A, B, widthC4, cStride, aStride, bStride, height);
+        } else {
+            MNNMatrixProd(C, A, B, widthC4, cStride, aStride, bStride, height);
+        }
+#else
         MNNMatrixProd(C, A, B, widthC4, cStride, aStride, bStride, height);
+#endif
         width = width - 4*widthC4;
         C = C + widthC4 * 4;
         A = A + widthC4 * 4;

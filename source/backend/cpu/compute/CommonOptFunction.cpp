@@ -83,6 +83,16 @@ extern void MNNPackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*
 extern void MNNUnpackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 extern void MNNPackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 extern void MNNUnpackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
+// The RVV kernels below are defined in the global namespace (they are plain C-style
+// symbols in source/backend/cpu/riscv/rvv/*.cpp), so their declarations must stay
+// outside namespace MNN as well. Declaring them inside the namespace mangles the
+// names as MNN::MNNMatrixAdd_RVV and breaks the link.
+extern void MNNMatrixAdd_RVV(float* C, const float* A, const float* B, size_t widthC4, size_t cStride,
+                             size_t aStride, size_t bStride, size_t height);
+extern void MNNMatrixSub_RVV(float* C, const float* A, const float* B, size_t widthC4, size_t cStride,
+                             size_t aStride, size_t bStride, size_t height);
+extern void MNNDeconvRunForUnitDepthWise_RVV(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
+                                             size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
 namespace MNN {
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
 }
@@ -5247,6 +5257,10 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNUnpackCUnitInt16 = MNNUnpackCUnitInt16_RVV;
         gCoreFunction->MNNPackCUnitTransposeInt16 = MNNPackCUnitTransposeInt16_RVV;
         gCoreFunction->MNNUnpackCUnitTransposeInt16 = MNNUnpackCUnitTransposeInt16_RVV;
+        gCoreFunction->MNNMatrixAdd = MNNMatrixAdd_RVV;
+        gCoreFunction->MNNMatrixSub = MNNMatrixSub_RVV;
+        gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise_RVV;
+
         MNNRvvInitializeFastPathFunctions(gCoreFunction);
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
         gCoreFunction->MNNQuantAttentionKey = MNNQuantAttentionKey_RVV;
