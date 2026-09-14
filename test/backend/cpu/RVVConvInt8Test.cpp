@@ -12,18 +12,25 @@
 #define RVV_TEST_KERNEL(name) name##_RVV
 #endif
 
-void MNNConvInt8ComputeBiasFloat_RVV(float* dst, const int32_t* bias, const float* weightScale, float scaleRatio,
-                                     size_t size);
+void MNNConvInt8ComputeBiasFloat_RVV(float* dst, const int32_t* bias, const float* weightScale, float inputScale,
+                                     float outputScale, size_t size);
 void MNNConvInt8ComputeWeightKernelSum_RVV(int* kernelSum, int32_t* bias, const int8_t* weight, int kernelNum,
                                            int kernelSize, const float* scale, const float* weightBias,
                                            bool compensateSseOffset);
 
 namespace {
 // Scalar oracles follow the original scalar implementations in CPUConvolution.cpp.
-void computeBiasFloatReference(float* dst, const int32_t* bias, const float* weightScale, float scaleRatio,
-                               size_t size) {
+// The expression below is spelled out exactly as the scalar path writes it: a
+// precomputed inputScale/outputScale ratio would round differently and the
+// comparison would then no longer prove equivalence with the shipped code.
+void computeBiasFloatReference(float* dst, const int32_t* bias, const float* weightScale, float inputScale,
+                               float outputScale, size_t size) {
     for (size_t i = 0; i < size; ++i) {
-        dst[i] = static_cast<float>(bias[i]) * weightScale[i] * scaleRatio;
+        if (inputScale && outputScale) { // symmetric quan
+            dst[i] = static_cast<float>(bias[i]) * weightScale[i] * inputScale / outputScale;
+        } else {
+            dst[i] = static_cast<float>(bias[i]) * weightScale[i];
+        }
     }
 }
 
@@ -45,10 +52,19 @@ void computeWeightKernelSumReference(int* kernelSum, int32_t* bias, const int8_t
 
 bool runConvInt8Kernels() {
     size_t cases = 0;
-    // ConvInt8ComputeBiasFloat: exact same op order as the scalar path.
-    // ratio == 1.0f takes the branch that skips the second multiply; it must
-    // stay bit-identical to multiplying by 1.0f.
-    for (float ratio : {1.0f, 1.7f, 0.0f}) {
+    // ConvInt8ComputeBiasFloat: the kernel must reproduce the exact op order of
+    // the scalar path, bias * weightScale * inputScale / outputScale. The pairs
+    // below include values that are not exactly representable and one pair with
+    // inputScale == outputScale (1.7f, 1.7f): the ratio there is exactly 1.0f, so
+    // an implementation that precomputes the ratio and skips the scaling step
+    // returns bias * weightScale while the scalar path still rounds twice and
+    // generally does not, which is what this case catches. A zero on either side
+    // selects the asymmetric path in CPUConvolution.cpp, with no scaling at all.
+    const float inputScales[] = {1.0f, 1.7f, 1.7f, 3.0f, 0.375f, 0.0f, 2.0f};
+    const float outputScales[] = {1.0f, 3.0f, 1.7f, 1.7f, 1.0f, 3.0f, 0.0f};
+    for (size_t c = 0; c < sizeof(inputScales) / sizeof(inputScales[0]); ++c) {
+        const float inputScale = inputScales[c];
+        const float outputScale = outputScales[c];
         for (size_t size : {size_t(1), size_t(7), size_t(63), size_t(256), size_t(1000)}) {
             std::vector<int32_t> bias(size);
             std::vector<float> scale(size), dst(size), ref(size);
@@ -56,10 +72,12 @@ bool runConvInt8Kernels() {
                 bias[i] = static_cast<int32_t>(i * 100003 % 2000001 - 1000000);
                 scale[i] = float(int(i % 17) - 8) / 64.0f + 0.01f;
             }
-            RVV_TEST_KERNEL(MNNConvInt8ComputeBiasFloat)(dst.data(), bias.data(), scale.data(), ratio, size);
-            computeBiasFloatReference(ref.data(), bias.data(), scale.data(), ratio, size);
+            RVV_TEST_KERNEL(MNNConvInt8ComputeBiasFloat)(dst.data(), bias.data(), scale.data(), inputScale,
+                                                         outputScale, size);
+            computeBiasFloatReference(ref.data(), bias.data(), scale.data(), inputScale, outputScale, size);
             if (::memcmp(dst.data(), ref.data(), size * sizeof(float)) != 0) {
-                std::printf("ConvInt8ComputeBiasFloat mismatch: ratio=%g size=%zu\n", ratio, size);
+                std::printf("ConvInt8ComputeBiasFloat mismatch: inputScale=%g outputScale=%g size=%zu\n", inputScale,
+                            outputScale, size);
                 return false;
             }
             cases++;
