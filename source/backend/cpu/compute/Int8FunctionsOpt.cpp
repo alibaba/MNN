@@ -150,6 +150,12 @@ void MNNGemmInt8AddBiasScaleHp128_SME2_w8_Fp32(int8_t* dst, const int8_t* src, c
 extern void _MNNPackC4Int8ForMatMul_ASparse_RVV(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info,
                                                 const int32_t* el);
 #endif
+extern void MNNBinaryMinInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1,
+                                 ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params,
+                                 size_t elementSize, size_t needBroadcast);
+extern void MNNBinaryMaxInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1,
+                                 ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params,
+                                 size_t elementSize, size_t needBroadcast);
 #endif
 
 /*
@@ -2071,6 +2077,17 @@ void MNNBinaryMulInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
 void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
                       float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
                       size_t needBroadcast) {
+    // No CoreInt8Functions slot exists for this kernel, so the RVV version is
+    // reached from here instead of through the function table. The scalar body
+    // stays compiled unconditionally: an RVV build running on a CPU without the
+    // V extension still takes this path.
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNBinaryMinInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                             needBroadcast);
+        return;
+    }
+#endif
     int res = 0;
 #ifdef MNN_USE_SSE
     const int offset = 128;
@@ -2122,6 +2139,17 @@ void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
 void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
                       float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
                       size_t needBroadcast) {
+    // No CoreInt8Functions slot exists for this kernel, so the RVV version is
+    // reached from here instead of through the function table. The scalar body
+    // stays compiled unconditionally: an RVV build running on a CPU without the
+    // V extension still takes this path.
+#ifdef MNN_USE_RVV
+    if (MNN::MNNGetCoreFunctions()->supportRVV) {
+        MNNBinaryMaxInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                             needBroadcast);
+        return;
+    }
+#endif
     int res = 0;
 #ifdef MNN_USE_SSE
     const int offset = 128;
@@ -2169,6 +2197,7 @@ void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
         outputData[i] = value;
     }
 }
+
 void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
                       float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
                       size_t needBroadcast) {
