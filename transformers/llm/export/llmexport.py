@@ -177,7 +177,7 @@ class LlmExporter(torch.nn.Module):
     @torch.no_grad()
     def response(self, query):
         # self.imitate_quant()
-        self.model.decode_buffer = []
+        self.tokenizer.decode_buffer.clear()
         messages = [
             {"role": "user", "content": query}
         ]
@@ -226,13 +226,15 @@ class LlmExporter(torch.nn.Module):
             seq_len += 1
             new_tokens += 1
             if token_id in self.tokenizer.stop_ids:
-                print("", end='\n')
+                print(self.tokenizer.flush_decode_buffer(), end='\n')
                 break
 
             # Use tokenizer's method for decoding
             word = self.tokenizer.id_to_str(token_id)
             print(word, end="", flush=True)
             input_ids = token_id
+
+        print(self.tokenizer.flush_decode_buffer(), end="", flush=True)
 
         if hasattr(self.model, 'talker') and self.model.talker is not None:
             self.model.talker.generate()
