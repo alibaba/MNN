@@ -157,6 +157,11 @@ public:
         return config_.value("max_new_tokens", 512);
     }
 
+    // Fixed-length generation for benchmarks; normal responses still stop at EOS.
+    bool ignore_eos() const {
+        return config_.value("ignore_eos", false);
+    }
+
     bool reuse_kv() const {
         return config_.value("reuse_kv", false);
     }

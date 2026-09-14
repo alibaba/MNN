@@ -151,10 +151,13 @@ template <typename T> static T stdev(const std::vector<T> & v) {
     if (v.size() <= 1) {
         return 0;
     }
-    T mean   = avg(v);
-    T sq_sum = std::inner_product(v.begin(), v.end(), v.begin(), T(0));
-    T stdev  = std::sqrt(sq_sum / (T) (v.size() - 1) - mean * mean * (T) v.size() / (T) (v.size() - 1));
-    return stdev;
+    const T mean = avg(v);
+    T sq_sum = 0;
+    for (const auto& value : v) {
+        const T delta = value - mean;
+        sq_sum += delta * delta;
+    }
+    return std::sqrt(sq_sum / (T) (v.size() - 1));
 }
 
 template <class T> static std::string join(const std::vector<T> & values, const std::string & delim) {
@@ -852,6 +855,7 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("  -fa, --flash-attention <0|1>              (default: 1) | Note: 1=enable flash attention, 0=disable\n");
     printf("  -j, --json <filename>                     (default: llm_bench.json) | Note: if set, output result to a JSON file\n");
     printf("  --profile                                 Enable operator-level profiling to print detailed timing statistics\n");
+    printf("\nBenchmark uses greedy sampling and ignores EOS for fixed-length workloads.\n");
 }
 
 
@@ -1100,8 +1104,13 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
 
 static Llm* buildLLM(const std::string& config_path, int backend, int memory, int precision, int threads, int power, int dynamic_option, bool use_mmap, int divisionRatioSme2Neon, int promptLen, int quant_kv, int flash_attention) {
     auto llmPtr = Llm::createLLM(config_path);
+    // Every repetition must execute the requested number of decode steps.
+    // Random sampling + EOS otherwise changes the workload and inflates tgN
+    // throughput when N is divided by the time of an early-stopped response.
     llmPtr->set_config(R"({
-        "async":false
+        "async":false,
+        "sampler_type":"greedy",
+        "ignore_eos":true
     })");
     // "Set reuse_kv=false for multiple test runs.
     // Otherwise, mContext->history_tokens retains data after the first run, skewing true prefill performance metrics."
@@ -1169,6 +1178,20 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
 
 static void tuning_prepare(Llm* llm) {
     llm->tuning(OP_ENCODER_NUMBER, {1, 5, 10, 20, 30, 50, 100});
+}
+
+static bool validSample(const LlmContext* context, int promptTokens, int decodeTokens) {
+    const auto status = context->status;
+    if (status == LlmStatus::NOT_LOADED || status == LlmStatus::INTERNAL_ERROR ||
+        status == LlmStatus::TIMEOUT || status == LlmStatus::USER_CANCEL ||
+        (promptTokens > 0 && context->prefill_us <= 0) ||
+        (decodeTokens > 0 && (status == LlmStatus::NORMAL_FINISHED || context->decode_us <= 0))) {
+        MNN_ERROR("[llm_bench] Incomplete sample: status=%d, generated=%d, requested=%d, "
+                  "prefill_us=%lld, decode_us=%lld\n", static_cast<int>(status), context->gen_seq_len,
+                  decodeTokens, (long long)context->prefill_us, (long long)context->decode_us);
+        return false;
+    }
+    return true;
 }
 
 int main(int argc, char ** argv) {
@@ -1280,17 +1303,16 @@ int main(int argc, char ** argv) {
                 Timer wallCost;
                 llm->response(tokens, nullptr, nullptr, decodeTokens);
                 int64_t wallUs = wallCost.durationInUs();
+                if (!validSample(context, prompt_tokens, decodeTokens)) {
+                    return 1;
+                }
                 auto prefillTime = context->prefill_us;
                 auto decodeTime = context->decode_us;
                 if (i > 0) { // Exclude the first performance value.
                     t.prefillUs.push_back(prefillTime);
                     t.decodeUs.push_back(decodeTime);
                     t.decodeWallUs.push_back(std::max<int64_t>(wallUs - prefillTime, 1));
-                    if (llm->stoped()) {
-                        t.nGenerates.push_back(context->gen_seq_len - 1);
-                    } else {
-                        t.nGenerates.push_back(context->gen_seq_len);
-                    }
+                    t.nGenerates.push_back(context->gen_seq_len);
                 }
             }
             if (printHeader) {
@@ -1320,34 +1342,22 @@ int main(int argc, char ** argv) {
                     if (isOpenCL) {
                         llm->switchMode(Llm::Prefill);
                     }
-                    Timer prefillCost;
-                    llm->response(tokens, nullptr, nullptr, decodeTokens > 0 ? 1 : 0);
-                    int64_t prefill_us = context->prefill_us;
-                    if (prefill_us <= 0) {
-                        prefill_us = static_cast<int64_t>(prefillCost.durationInUs());
+                    llm->response(tokens, nullptr, nullptr, 0);
+                    if (!validSample(context, prompt_tokens, 0)) {
+                        return 1;
                     }
-                    sampler_us += prefill_us;
+                    sampler_us += context->prefill_us;
                 }
                 if (decodeTokens) {
                     // Enable record queue during decode for OpenCL
                     if (isOpenCL) {
                         llm->switchMode(Llm::Decode);
                     }
-                    Timer decodeCost;
                     llm->response(tokens1, nullptr, nullptr, decodeTokens);
-                    int64_t decode_us = context->decode_us;
-                    if (decode_us <= 0) {
-                        decode_us = static_cast<int64_t>(decodeCost.durationInUs());
-                        int64_t generatedTokens = context->gen_seq_len;
-                        if (llm->stoped() && generatedTokens > 0) {
-                            generatedTokens -= 1;
-                        }
-                        generatedTokens = std::max<int64_t>(generatedTokens, 1);
-                        if (generatedTokens < decodeTokens) {
-                            decode_us = (decode_us * decodeTokens + generatedTokens - 1) / generatedTokens;
-                        }
+                    if (!validSample(context, 0, decodeTokens)) {
+                        return 1;
                     }
-                    sampler_us += decode_us;
+                    sampler_us += context->decode_us;
                 }
                 if (i > 0) {
                     t.samplesUs.push_back(sampler_us);
