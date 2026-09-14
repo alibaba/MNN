@@ -26,6 +26,10 @@ public:
             auto conv3D  = op->main.AsConvolution3D();
             auto& common = conv3D->common;
             const int srcCount = common->inputCount;
+            if (common->group <= 0) {
+                MNN_ERROR("Convolution3D %s has invalid group:%d\n", op->name.c_str(), common->group);
+                return false;
+            }
             if (common->group == 1 || op->inputIndexes.size() > 1) {
                 iter++;
                 continue;
@@ -188,6 +192,10 @@ public:
             auto conv2D  = op->main.AsConvolution2D();
             auto& common = conv2D->common;
             const int srcCount = common->inputCount;
+            if (common->group <= 0) {
+                MNN_ERROR("Convolution %s has invalid group:%d\n", op->name.c_str(), common->group);
+                return false;
+            }
             const bool depthwiseLike = srcCount % common->group != 0 || common->outputCount % common->group != 0;
             if (common->group == 1 || depthwiseLike) {
                 iter++;

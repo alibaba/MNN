@@ -38,6 +38,10 @@ void PoolTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* s
                 param->strideX = 2;
                 param->strideY = 2;
             }
+        } else {
+            // PyTorch defaults stride to kernel_size when it is not specified
+            param->strideY = param->kernelY;
+            param->strideX = param->kernelX;
         }
         if (inputs.size() > 3) {
             const auto padding = getValue<std::vector<int64_t>>(inputs[3]);
