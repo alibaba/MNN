@@ -51,7 +51,7 @@ extern void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const floa
 extern void MNNSumWeightInt8_RVV(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP,
                                  size_t lP);
 extern void MNNConvInt8ComputeBiasFloat_RVV(float* dst, const int32_t* bias, const float* weightScale,
-                                            float scaleRatio, size_t size);
+                                            float inputScale, float outputScale, size_t size);
 extern void MNNConvInt8ComputeWeightKernelSum_RVV(int* kernelSum, int32_t* bias, const int8_t* weight, int kernelNum,
                                                   int kernelSize, const float* scale, const float* weightBias,
                                                   bool compensateSseOffset);
