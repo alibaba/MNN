@@ -1744,7 +1744,7 @@ VARP Llm::gen_position_ids(int seq_len) {
 
 bool Llm::is_stop(int token_id) {
     CHECK_LLM_RUNNING_RET(mContext, true);
-    bool stop = mTokenizer->is_stop(token_id);
+    bool stop = !mConfig->ignore_eos() && mTokenizer->is_stop(token_id);
     if (stop) {
         mContext->status = LlmStatus::NORMAL_FINISHED;
     }
