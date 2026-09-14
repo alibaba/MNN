@@ -12,6 +12,13 @@
 #include "TestUtils.h"
 
 using namespace MNN::Express;
+
+// Defined in test/backend/cpu/RVVC4AffineTest.cpp. Verifies that the C4 affine /
+// activation function pointers (MNNScaleAndAddBias, MNNReluWithSlopeChannel) are
+// dispatched consistently with core->supportRVV. A pure kernel test cannot catch an
+// unregistered C++ overload, so this must be called from a test that always runs.
+bool MNNTestC4AffineFunctions();
+
 class ScaleTest : public MNNTestCase {
 public:
     virtual ~ScaleTest() = default;
@@ -30,7 +37,7 @@ public:
             MNN_ERROR("ScaleTest test failed!\n");
             return false;
         }
-        return true;
+        return MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_CPU || MNNTestC4AffineFunctions();
     }
 };
 

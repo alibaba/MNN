@@ -35,6 +35,8 @@ using Vec = MNN::Math::Vec<float, 4>;
 #endif
 
 #ifdef MNN_USE_RVV
+#include "backend/cpu/riscv/rvv/MNNRvvC4Functions.hpp"
+#include "../riscv/rvv/MNNRvvMatMulFunctions.hpp"
 extern void MNNAbsMaxFP32_RVV(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
 extern void MNNAccumulateSequenceNumber_RVV(float* dst, const float* src, int size);
 extern void MNNAsyQuantFunc_RVV(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info);
@@ -83,6 +85,16 @@ extern void MNNPackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, siz
 extern void MNNUnpackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 extern void MNNCountMaxMinValue_RVV(const float* source, float* minVal, float* maxVal, size_t size);
 extern void MNNReluInt8_RVV(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint);
+// The RVV kernels below are defined in the global namespace (they are plain C-style
+// symbols in source/backend/cpu/riscv/rvv/*.cpp), so their declarations must stay
+// outside namespace MNN as well. Declaring them inside the namespace mangles the
+// names as MNN::MNNMatrixAdd_RVV and breaks the link.
+extern void MNNMatrixAdd_RVV(float* C, const float* A, const float* B, size_t widthC4, size_t cStride,
+                             size_t aStride, size_t bStride, size_t height);
+extern void MNNMatrixSub_RVV(float* C, const float* A, const float* B, size_t widthC4, size_t cStride,
+                             size_t aStride, size_t bStride, size_t height);
+extern void MNNDeconvRunForUnitDepthWise_RVV(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
+                                             size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
 namespace MNN {
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
 }
@@ -5223,6 +5235,9 @@ void MNNCoreFunctionInit() {
 
 #if defined(__riscv) && defined(MNN_USE_RVV)
     if (gCoreFunction->supportRVV) {
+        gCoreFunction->MNNScaleAndAddBias = MNNScaleAndAddBias_RVV;
+        gCoreFunction->MNNReluWithSlopeChannel = MNNReluWithSlopeChannel_RVV;
+        gCoreFunction->MNNComputeMatMulForE_1 = MNNComputeMatMulForE_1_RVV;
         gCoreFunction->MNNAccumulateSequenceNumber = MNNAccumulateSequenceNumber_RVV;
         gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
         gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4_RVV;
@@ -5247,6 +5262,10 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNUnpackCUnitTransposeInt16 = MNNUnpackCUnitTransposeInt16_RVV;
         gCoreFunction->MNNCountMaxMinValue = MNNCountMaxMinValue_RVV;
         gCoreFunction->MNNReluInt8 = MNNReluInt8_RVV;
+        gCoreFunction->MNNMatrixAdd = MNNMatrixAdd_RVV;
+        gCoreFunction->MNNMatrixSub = MNNMatrixSub_RVV;
+        gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise_RVV;
+
         MNNRvvInitializeFastPathFunctions(gCoreFunction);
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
         gCoreFunction->MNNQuantAttentionKey = MNNQuantAttentionKey_RVV;

@@ -18,6 +18,13 @@ using namespace std;
 using namespace MNN;
 using namespace MNN::Express;
 
+// Defined in test/backend/cpu/RVVMatrixDeconvTest.cpp. Exercises the RVV
+// Add/Sub/Prod matrix kernels and the depthwise Deconvolution kernel directly,
+// and checks that they are registered on the shared function table. A direct
+// kernel test alone cannot catch an unregistered C++ overload, so it runs from
+// this registered case.
+bool MNNTestRVVMatrixDeconvFunctions();
+
 static void reference_deconv2d(const float* input, const std::vector<float>& weight,
                              const std::vector<float>& bias, std::vector<float>& output, int batch, int ic, int oc,
                              int ih, int iw, int pad_h, int pad_w, int kh, int kw, int stridew, int strideh,
@@ -278,7 +285,6 @@ public:
     virtual ~DeconvolutionTest() = default;
     virtual bool run(int precision) {
         MNN_PRINT("beigin testcase 0\n");
-
         {
             std::vector<float> data_a = {// channel 0
                                          1.0, 2.0, 4.0, 5.0,
@@ -423,7 +429,7 @@ public:
             }
         }
 
-        return true;
+        return MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_CPU || MNNTestRVVMatrixDeconvFunctions();
     }
 };
 
