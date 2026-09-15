@@ -105,10 +105,14 @@ protected:
             output  = _MatMul(input_a, input_b, tranpose_a, tranpose_b);
         }
         auto outputPtr = output->readMap<float>();
-        if (!checkVectorByRelativeError<float>(outputPtr, data_c.data(), data_c.size(), 5e-3)) {
-            MNN_ERROR("%s: %d x %d - %d x %d -> %d, %d , transpose: %d, %d, test failed!\n", test_op_name.c_str(),
+        // Reduced-precision backends accumulate in fp16/bf16 while the reference sums in fp32,
+        // so a long reduction drifts by rounding alone; keep fp32 strict and relax low precision.
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1.0f : 10.0f;
+        float rtol = 5e-3 * errorScale;
+        if (!checkVectorByRelativeError<float>(outputPtr, data_c.data(), data_c.size(), rtol)) {
+            MNN_ERROR("%s: %d x %d - %d x %d -> %d, %d , transpose: %d, %d, rtol: %f, test failed!\n", test_op_name.c_str(),
                       width_a, height_a, width_b, height_b, output->getInfo()->dim[1], output->getInfo()->dim[0],
-                      tranpose_a, tranpose_b);
+                      tranpose_a, tranpose_b, rtol);
             for (int i = 0; i < data_c.size(); ++i) {
                 MNN_PRINT("Correct: %f - Compute: %f\n", data_c[i], outputPtr[i]);
             }

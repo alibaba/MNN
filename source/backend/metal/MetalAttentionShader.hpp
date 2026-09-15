@@ -2127,7 +2127,8 @@ struct Param {
 #define SIMD_GROUP_WIDTH 32
 
 // Determine max KV length based on GROUP_SIZE to stay within 32KB threadgroup memory
-// Memory usage: GROUP_SIZE * (MAX_KV + 32) * sizeof(float)
+// Logical storage upper bound: GROUP_SIZE * (MAX_KV + 33) * sizeof(float)
+// Final maxima stay separate because sum reduction reuses the scratch before all threads finish reading maxima.
 #ifdef SHORT_KV_128
 #define DECODE_QK_SOFTMAX_MAX_KV 128
 #elif GROUP_SIZE <= 2
@@ -2168,6 +2169,7 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
 ) {
     threadgroup float scores0[DECODE_QK_SOFTMAX_MAX_KV];
     threadgroup float reduce0[32];
+    threadgroup float final_max0;
 
     const int tptg = int(tptg_3d.x * tptg_3d.y * tptg_3d.z);
     const int sg_count = tptg / SIMD_GROUP_WIDTH;
@@ -2247,10 +2249,10 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
         for (int i = 0; i < sg_count; ++i) {
             max0 = max(max0, reduce0[i]);
         }
-        reduce0[0] = max0;
+        final_max0 = max0;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    const float max0 = reduce0[0];
+    const float max0 = final_max0;
 
     float local_sum0 = 0.0f;
     for (int k = int(tid); k < key_seq_len; k += tptg) {
@@ -2300,7 +2302,9 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     threadgroup float scores0[DECODE_QK_SOFTMAX_MAX_KV];
     threadgroup float scores1[DECODE_QK_SOFTMAX_MAX_KV];
     threadgroup float reduce0[32];
+    threadgroup float final_max0;
     threadgroup float reduce1[32];
+    threadgroup float final_max1;
 
     const int tptg = int(tptg_3d.x * tptg_3d.y * tptg_3d.z);
     const int sg_count = tptg / SIMD_GROUP_WIDTH;
@@ -2394,12 +2398,12 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
             max0 = max(max0, reduce0[i]);
             max1 = max(max1, reduce1[i]);
         }
-        reduce0[0] = max0;
-        reduce1[0] = max1;
+        final_max0 = max0;
+        final_max1 = max1;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    const float max0 = reduce0[0];
-    const float max1 = reduce1[0];
+    const float max0 = final_max0;
+    const float max1 = final_max1;
 
     float local_sum0 = 0.0f;
     float local_sum1 = 0.0f;
@@ -2463,6 +2467,7 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     // Threadgroup memory for scores and reduction buffers, indexed as [group][element]
     threadgroup float scores_buf[GROUP_SIZE * DECODE_QK_SOFTMAX_MAX_KV];
     threadgroup float reduce_buf[GROUP_SIZE * 32];
+    threadgroup float final_max[GROUP_SIZE];
 
     const int tptg = int(tptg_3d.x * tptg_3d.y * tptg_3d.z);
     const int sg_count = tptg / SIMD_GROUP_WIDTH;
@@ -2561,14 +2566,14 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
             for (int i = 0; i < sg_count; ++i) {
                 m = max(m, reduce_buf[g * 32 + i]);
             }
-            reduce_buf[g * 32] = m;
+            final_max[g] = m;
         }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     float max_val[GROUP_SIZE];
     for (int g = 0; g < GROUP_SIZE; g++) {
-        max_val[g] = reduce_buf[g * 32];
+        max_val[g] = final_max[g];
     }
 
     // Exp and sum
