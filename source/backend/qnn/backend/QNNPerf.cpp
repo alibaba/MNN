@@ -16,13 +16,30 @@ QNNPerf::QNNPerf(const QNN_INTERFACE_VER_TYPE * qnnInterface) {
     mQnnInterface = qnnInterface;
 
     QnnDevice_Infrastructure_t deviceInfra = nullptr;
-    CALL_QNN(mQnnInterface->deviceGetInfrastructure(&deviceInfra));
+    auto infrastructureStatus = mQnnInterface->deviceGetInfrastructure(&deviceInfra);
+    if (infrastructureStatus != QNN_SUCCESS || deviceInfra == nullptr) {
+        MNN_PRINT("MNN_QNN: Failed to get HTP perf infrastructure, error:%lu infra=%p\n",
+                  (unsigned long)infrastructureStatus,
+                  deviceInfra);
+        return;
+    }
     QnnHtpDevice_Infrastructure_t *htpInfra  = static_cast<QnnHtpDevice_Infrastructure_t *>(deviceInfra);
+    if (htpInfra->infraType != QNN_HTP_DEVICE_INFRASTRUCTURE_TYPE_PERF || htpInfra->perfInfra.createPowerConfigId == nullptr) {
+        MNN_PRINT("MNN_QNN: HTP perf infrastructure is unavailable. infraType=%d createPowerConfigId=%p\n",
+                  htpInfra->infraType,
+                  htpInfra->perfInfra.createPowerConfigId);
+        return;
+    }
     mPerfInfra = htpInfra->perfInfra;
 
     uint32_t deviceId = 0;
     uint32_t coreId   = 0;
-    CALL_QNN(mPerfInfra.createPowerConfigId(deviceId, coreId, &mPowerConfigId));
+    auto powerConfigStatus = mPerfInfra.createPowerConfigId(deviceId, coreId, &mPowerConfigId);
+    if (powerConfigStatus != QNN_SUCCESS) {
+        MNN_PRINT("MNN_QNN: Failed to create HTP power config id, error:%lu\n", (unsigned long)powerConfigStatus);
+        mPowerConfigId = 0;
+        return;
+    }
 
     mPowerConfigBurst = {
         .option       = QNN_HTP_PERF_INFRASTRUCTURE_POWER_CONFIGOPTION_DCVS_V3,
@@ -73,7 +90,9 @@ QNNPerf::QNNPerf(const QNN_INTERFACE_VER_TYPE * qnnInterface) {
 
 // destory power config
 QNNPerf::~QNNPerf() {
-    CALL_QNN(mPerfInfra.destroyPowerConfigId(mPowerConfigId));
+    if (mPerfInfra.destroyPowerConfigId != nullptr && mPowerConfigId != 0) {
+        CALL_QNN(mPerfInfra.destroyPowerConfigId(mPowerConfigId));
+    }
 }
 
 
@@ -83,6 +102,9 @@ void QNNPerf::setRpcLatencyAndPolling() {
     ::memset(&rpcControlLatency, 0, sizeof(rpcControlLatency));
     rpcControlLatency.option = QNN_HTP_PERF_INFRASTRUCTURE_POWER_CONFIGOPTION_RPC_CONTROL_LATENCY;
     rpcControlLatency.rpcControlLatencyConfig = 100;         // use rpc control latency recommended 100 us, refer hexagon sdk
+    if (mPerfInfra.setPowerConfig == nullptr || mPowerConfigId == 0) {
+        return;
+    }
     const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigs1[] = {&rpcControlLatency, NULL};
 
     CALL_QNN(mPerfInfra.setPowerConfig(mPowerConfigId, powerConfigs1));  // set RPC latency config on power config ID created
@@ -101,11 +123,17 @@ void QNNPerf::setPowerConfigBurst() {
     #ifdef QNN_VERBOSE
     MNN_PRINT("MNN QNN set burst mode\n");
     #endif
+    if (mPerfInfra.setPowerConfig == nullptr || mPowerConfigId == 0) {
+        return;
+    }
     const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigs[] = {&mPowerConfigBurst, NULL};
     CALL_QNN(mPerfInfra.setPowerConfig(mPowerConfigId, powerConfigs));
 }
 
 void QNNPerf::setPowerConfigBalanced() {
+    if (mPerfInfra.setPowerConfig == nullptr || mPowerConfigId == 0) {
+        return;
+    }
     const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigs[] = {&mPowerConfigBalanced, NULL};
     CALL_QNN(mPerfInfra.setPowerConfig(mPowerConfigId, powerConfigs));
 }
