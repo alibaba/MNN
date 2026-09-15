@@ -32,7 +32,7 @@ class ChatLogger {
     }
 
     /** * recordconvertafterhistorymessage*/
-    fun logTransformedHistory(traceId: String, unifiedHistory: List<android.util.Pair<String, String>>) {
+    fun logTransformedHistory(traceId: String, unifiedHistory: List<Pair<String, String>>) {
         Timber.tag(TAG_TRANSFORM).d("[$traceId] 转换后的统一历史消息: $unifiedHistory")
     }
 

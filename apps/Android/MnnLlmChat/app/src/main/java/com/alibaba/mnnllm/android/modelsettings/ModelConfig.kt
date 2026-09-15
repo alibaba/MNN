@@ -281,7 +281,7 @@ data class ModelConfig(
             precision = "low",
             memory = "",
             systemPrompt = "You are a helpful assistant.",
-            promptCache = false,
+            promptCache = true,
             samplerType = "",
             mixedSamplers = mutableListOf("topK", "topP", "minP", "temperature"),
             temperature = 0.6f,

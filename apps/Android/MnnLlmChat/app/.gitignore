@@ -1,4 +1,6 @@
 /build
+/.cxx
+/standard
 google-services.json
 src/standard/google-services.json
 

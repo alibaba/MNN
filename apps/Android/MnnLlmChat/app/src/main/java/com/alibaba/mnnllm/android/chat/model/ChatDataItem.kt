@@ -7,6 +7,13 @@ import com.alibaba.mnnllm.android.chat.chatlist.AudioPlayerComponent
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import java.io.File
 
+data class ChatFileAttachment(
+    var name: String = "",
+    var path: String = "",
+    var mimeType: String = "",
+    var sizeBytes: Long = 0L
+)
+
 class ChatDataItem {
     var loading: Boolean = false
     var forceShowLoadingWithText: Boolean = false
@@ -36,6 +43,8 @@ class ChatDataItem {
 
     @JvmField
     var benchmarkInfo: String? = null
+
+    var generatedFiles: List<ChatFileAttachment>? = null
 
     var displayText: String? = null
         get() = field?:""

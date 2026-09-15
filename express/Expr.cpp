@@ -1063,7 +1063,8 @@ std::vector<VARP> Variable::load(const uint8_t* buffer, size_t length) {
                 // are metadata-only for these; CONST/TRAIN nodes don't enter this branch,
                 // their weight-bearing host is preserved by Expr::create), so restoring
                 // MEMORY_HOST cannot cause a double-free on destruction.
-                TensorUtils::getDescribe(expr->inside()->mOutputTensors[index])->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
+                TensorUtils::getDescribe(expr->inside()->mOutputTensors[index])->memoryType =
+                    Tensor::InsideDescribe::MEMORY_HOST;
                 Utils::copyTensorToInfo(expr->inside()->mOutputInfos.data() + index, expr->inside()->mOutputTensors[index]);
             }
         } else if (expr->inputType() == VARP::INPUT) {
