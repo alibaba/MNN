@@ -148,7 +148,7 @@ VARP Embedding::gen_attention_mask(int seq_len) {
     }
 }
 
-VARP Embedding::gen_position_ids(int seq_len) {
+VARP Embedding::gen_position_ids(int seq_len, int realLen) {
     auto position_ids = _Input({1, seq_len}, NCHW, halide_type_of<int>());
     auto ptr          = position_ids->writeMap<int>();
     for (int i = 0; i < seq_len; i++) {
@@ -156,6 +156,5 @@ VARP Embedding::gen_position_ids(int seq_len) {
     }
     return position_ids;
 }
-
 }
 }
