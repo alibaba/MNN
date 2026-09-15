@@ -274,7 +274,12 @@ class LlmTokenizer(PreTrainedTokenizer):
             prefix_list = []
             if hasattr(self.tokenizer, 'get_prefix_tokens'):
                 prefix_list = self.tokenizer.get_prefix_tokens()
-            if len(prefix_list) == 0:
+            # A single-sequence post-processor already adds its tokens on every
+            # engine-side encode(); probing encode('A') here would store them as
+            # prefix tokens again and apply them twice (e.g. MiniCPM5's
+            # TemplateProcessing '<s> A' produced a doubled BOS).
+            post_ops = extract_single_post_processor_ops(tj.get('post_processor'))
+            if len(prefix_list) == 0 and len(post_ops) == 0:
                 try:
                     ids = self.tokenizer.encode('A')
                     get_txt = self.tokenizer.decode(ids[-1])
