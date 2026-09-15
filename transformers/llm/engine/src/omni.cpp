@@ -2328,11 +2328,27 @@ static inline bool needNewVar(VARP var, int axis, int seq_len) {
     return false;
 }
 
-VARP Omni::gen_position_ids(int seq_len) {
+int fillMropePositionIds(const MropeInfo& positions, int prefixLen, int seqLen, int realLen, int axes, int* dst) {
+    // Positions past the recorded table fall back to the absolute position (t = h = w, the same convention
+    // text tokens use). That keeps them defined and strictly increasing; reusing an earlier coordinate would
+    // give several tokens the same RoPE phase.
+    int missing = prefixLen + realLen - positions.size();
+    if (missing < 0) {
+        missing = 0;
+    }
+    for (int i = 0; i < seqLen; i++) {
+        for (int axis = 0; axis < axes; axis++) {
+            dst[i + seqLen * axis] = positions.axisValueAt(axis, prefixLen + i);
+        }
+    }
+    return missing;
+}
+
+VARP Omni::gen_position_ids(int seq_len, int realLen) {
     MNN::Express::ExecutorScope s(mExecutor);
     auto positionIdsDims = mModule->getInfo()->inputs[2].dim;
     if (positionIdsDims[0] == 1) {
-        return Llm::gen_position_ids(seq_len);
+        return Llm::gen_position_ids(seq_len, realLen);
     }
     // mrope
     int axes = mConfig->mrope_axes();
@@ -2348,32 +2364,22 @@ VARP Omni::gen_position_ids(int seq_len) {
             }
         }
     } else {
-        bool hunyuan = mConfig->config_.value("vision_type", "") == "hunyuan_vl";
-        auto axisValue = [this](int axis, int i) {
-            const std::vector<int>* values = nullptr;
-            if (axis == 0) {
-                values = &mPositionIds.mT;
-            } else if (axis == 1) {
-                values = &mPositionIds.mH;
-            } else if (axis == 2) {
-                values = &mPositionIds.mW;
-            } else if (axis == 3) {
-                values = &mPositionIds.mX;
-            }
-            if (values != nullptr && i < static_cast<int>(values->size())) {
-                return (*values)[i];
-            }
-            return i;
-        };
-        for (int i = 0; i < seq_len; i++) {
-            for (int axis = 0; axis < axes; axis++) {
-                if (hunyuan) {
-                    int offset = axis > 0 ? 0 : mContext->all_seq_len;
-                    ptr[i + seq_len * axis] = axisValue(axis, i) + offset;
-                } else {
-                    ptr[i + seq_len * axis] = axisValue(axis, mContext->all_seq_len + i);
-                }
-            }
+        // realLen is passed down by Llm::forwardVec(), which is where padding is decided: it is the number of
+        // tokens the prompt actually contributes, while the remaining seq_len - realLen entries only exist to
+        // reach the block shape the graph requires. Only real tokens need a recorded position.
+        const int validLen = realLen < 0 ? seq_len : std::min(realLen, seq_len);
+        const int missing = fillMropePositionIds(mPositionIds, mContext->all_seq_len, seq_len, validLen, axes, ptr);
+        if (missing > 0) {
+            MNN_ERROR(
+                "Omni: %d MRoPE positions are recorded but this forward carries %d real tokens "
+                "(all_seq_len=%d, real_tokens=%d, block=%d). %d real token(s) have no recorded "
+                "position, so their RoPE would be invented.\n",
+                mPositionIds.size(), mContext->all_seq_len + validLen, mContext->all_seq_len, validLen, seq_len,
+                missing);
+            MNN_ASSERT(false);
+            // Report through the shared status instead of only logging: forwardRaw() checks it and returns
+            // empty, which stops generation in release builds too instead of running on invented positions.
+            mContext->status = LlmStatus::INTERNAL_ERROR;
         }
         if (mTalker) {
             mTalker->setPostionIds(mPositionIds);
@@ -2389,6 +2395,10 @@ VARP Omni::gen_position_ids(int seq_len) {
 }
 
 std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
+    // Same guard Llm::forwardRaw() opens with. gen_position_ids() can reject a forward (an MRoPE prompt whose
+    // real tokens have no recorded position), and that has to stop it before anything runs. It also covers the
+    // is_embedding branch below, which calls the module directly instead of going through Llm::forwardRaw().
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<Express::VARP>());
     MNN::Express::ExecutorScope s(mExecutor);
     if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
         auto deepstack = mExtraArgs[0];
@@ -3034,7 +3044,7 @@ Express::VARP Talker::embedding(const std::vector<int>& input_ids) {
     return Llm::embedding(input_ids);
 }
 
-Express::VARP Talker::gen_position_ids(int seq_len) {
+Express::VARP Talker::gen_position_ids(int seq_len, int realLen) {
     MNN::Express::ExecutorScope s(mExecutor);
     // mrope
     if (needNewVar(positionIds, 2, seq_len)) {

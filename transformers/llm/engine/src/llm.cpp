@@ -830,7 +830,8 @@ std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
             }
         }
         auto attention_mask = gen_attention_mask(forwardSize);
-        auto position_ids = gen_position_ids(forwardSize);
+        // blockRemain tokens are real; the rest of forwardSize was zero padding added above.
+        auto position_ids = gen_position_ids(forwardSize, blockRemain);
         Express::VARPS remainExtraArgs;
         if (!pleChunks.empty()) remainExtraArgs.push_back(pleChunks.back());
         logits = forwardRaw(input_embeds, attention_mask, position_ids, remainExtraArgs);
@@ -1676,7 +1677,7 @@ VARP Llm::gen_attention_mask(int seq_len) {
     }
 }
 
-VARP Llm::gen_position_ids(int seq_len) {
+VARP Llm::gen_position_ids(int seq_len, int realLen) {
     MNN::Express::ExecutorScope s(mExecutor);
     int maxPos = mConfig->max_position_embeddings();
     if (maxPos > 0 && mContext->all_seq_len <= maxPos && mContext->all_seq_len + seq_len > maxPos) {
