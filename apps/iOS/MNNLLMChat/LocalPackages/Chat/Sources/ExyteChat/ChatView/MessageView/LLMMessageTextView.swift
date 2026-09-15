@@ -5,8 +5,8 @@
 //  Created by 游薪渝(揽清) on 2025/7/7.
 //
 
-import MarkdownParser
-import MarkdownView
+import MarkdownUI
+import Splash
 import SwiftUI
 
 /// A specialized text view designed for LLM chat messages with typewriter animation.
@@ -64,6 +64,8 @@ import SwiftUI
 /// - Auto-cleanup on view disappear or streaming completion
 @available(iOS 17.0, *)
 struct LLMMessageTextView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     /// The text content to be displayed
     let text: String?
     /// Whether to render the text as Markdown
@@ -81,6 +83,11 @@ struct LLMMessageTextView: View {
 
     /// The currently displayed text during animation
     @State private var displayedText: String = ""
+    /// Direct completion signal from the inference pipeline. This remains
+    /// reliable even when the environment provider does not invalidate a cell.
+    @State private var hasReceivedOutputCompletion = false
+    /// Prevent duplicate completion notifications across SwiftUI redraws.
+    @State private var didNotifyAnimationCompletion = false
 
     /// Survives cell recreation so the typewriter resumes instead of replaying (fixes head-flicker).
     private static var displayedCountCache: [String: Int] = [:]
@@ -89,8 +96,9 @@ struct LLMMessageTextView: View {
 
     /// Time interval between each character display (in seconds)
     private let typingSpeed: TimeInterval = 0.015
-    /// Number of characters to display per animation frame
-    private let chunkSize: Int = 1
+    private var outputIsComplete: Bool {
+        isOutputComplete || hasReceivedOutputCompletion
+    }
 
     /// Initializes a new LLMMessageTextView
     /// - Parameters:
@@ -130,26 +138,16 @@ struct LLMMessageTextView: View {
         }
         .onAppear {
             if let text = text, isAssistantMessage && isStreamingMessage {
-                if isOutputComplete {
-                    // Cell recycled after completion: show full text and finalize state
-                    Self.displayedCountCache[messageId] = nil
-                    stopAnimation()
-                    displayedText = text
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name("StreamingAnimationCompleted"),
-                        object: nil,
-                        userInfo: ["messageId": messageId]
-                    )
+                if displayedText.isEmpty,
+                   let cached = Self.displayedCountCache[messageId], cached > 0 {
+                    displayedText = String(text.prefix(min(cached, text.count)))
+                }
+                if outputIsComplete, displayedText.count >= text.count {
+                    notifyAnimationCompleted()
+                } else if displayedText.isEmpty {
+                    startTypewriterAnimation(for: text)
                 } else {
-                    if displayedText.isEmpty,
-                       let cached = Self.displayedCountCache[messageId], cached > 0 {
-                        displayedText = String(text.prefix(min(cached, text.count)))
-                    }
-                    if displayedText.isEmpty {
-                        startTypewriterAnimation(for: text)
-                    } else {
-                        continueTypewriterAnimation(with: text)
-                    }
+                    continueTypewriterAnimation(with: text)
                 }
             } else if let text = text {
                 displayedText = text
@@ -157,15 +155,10 @@ struct LLMMessageTextView: View {
         }
         .onDisappear {
             stopAnimation()
-            Self.displayedCountCache[messageId] = nil
-            if let text = text, isOutputComplete, displayedText.count < text.count {
-                displayedText = text
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("StreamingAnimationCompleted"),
-                    object: nil,
-                    userInfo: ["messageId": messageId]
-                )
-            }
+            // A Markdown code block can rebuild the surrounding cell. Preserve
+            // progress so the replacement view resumes instead of jumping to the
+            // complete response or replaying from the beginning.
+            Self.displayedCountCache[messageId] = displayedText.count
         }
         .onChange(of: text) { _, newText in
             handleTextChange(newText)
@@ -176,14 +169,20 @@ struct LLMMessageTextView: View {
         .onChange(of: isOutputComplete) { _, _ in
             handleStreamingStateChange()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("StreamingOutputCompleted"))) {
+            notification in
+            guard notification.userInfo?["messageId"] as? String == messageId else { return }
+            hasReceivedOutputCompletion = true
+            handleStreamingStateChange()
+        }
     }
 
     /// Renders text with typewriter animation effect
     /// - Returns: A view displaying the animated text with optional Markdown support
     @ViewBuilder
     private func typewriterView() -> some View {
-        if messageUseMarkdown {
-            MarkdownTextViewWrapper(text: displayedText)
+        if messageUseMarkdown && isAssistantMessage {
+            markdownView(displayedText)
         } else {
             Text(displayedText)
                 .font(.body)
@@ -197,12 +196,98 @@ struct LLMMessageTextView: View {
     @ViewBuilder
     private func staticView(_ text: String) -> some View {
         if messageUseMarkdown && isAssistantMessage {
-            MarkdownTextViewWrapper(text: text)
+            markdownView(text)
         } else {
             Text(text)
                 .font(.body)
                 .foregroundColor(.black)
         }
+    }
+
+    @ViewBuilder
+    private func markdownView(_ content: String) -> some View {
+        // MarkdownUI is a native SwiftUI view and participates directly in
+        // every streaming state update. Keeping one renderer for partial and
+        // completed content avoids stale UIKit parse/layout state across turns.
+        MarkdownUI.Markdown(markdownForRendering(content))
+            .markdownTheme(.gitHub)
+            .markdownBlockStyle(\.codeBlock) { configuration in
+                codeBlock(configuration)
+            }
+            .markdownCodeSyntaxHighlighter(ChatSplashCodeSyntaxHighlighter(theme: codeTheme))
+            .textSelection(.enabled)
+    }
+
+    @ViewBuilder
+    private func codeBlock(_ configuration: CodeBlockConfiguration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(configuration.language ?? "code")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+
+            Divider()
+
+            ScrollView(.horizontal) {
+                configuration.label
+                    .relativeLineSpacing(.em(0.2))
+                    .markdownTextStyle {
+                        FontFamilyVariant(.monospaced)
+                        FontSize(.em(0.85))
+                    }
+                    .padding(12)
+            }
+        }
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .markdownMargin(top: 0, bottom: 12)
+    }
+
+    private var codeTheme: Splash.Theme {
+        switch colorScheme {
+        case .dark:
+            return .wwdc17(withFont: .init(size: 14))
+        default:
+            return .sunset(withFont: .init(size: 14))
+        }
+    }
+
+    /// Completes an open code fence only in the transient rendering copy. This
+    /// keeps partial code visible while tokens stream and also handles output
+    /// truncated by the token limit without altering the stored model text.
+    private func markdownForRendering(_ content: String) -> String {
+        guard let fence = unclosedCodeFence(in: content) else { return content }
+
+        let separator = content.hasSuffix("\n") ? "" : "\n"
+        return content + separator + String(repeating: String(fence.marker), count: fence.length)
+    }
+
+    private func unclosedCodeFence(in content: String) -> (marker: Character, length: Int)? {
+        var openingMarker: Character?
+        var openingLength = 0
+
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmedLine = line.drop(while: { $0 == " " || $0 == "\t" })
+            guard let marker = trimmedLine.first, marker == "`" || marker == "~" else { continue }
+
+            let markerLength = trimmedLine.prefix(while: { $0 == marker }).count
+            guard markerLength >= 3 else { continue }
+
+            if openingMarker == nil {
+                openingMarker = marker
+                openingLength = markerLength
+            } else if openingMarker == marker, markerLength >= openingLength {
+                let suffix = String(trimmedLine.dropFirst(markerLength))
+                if suffix.trimmingCharacters(in: .whitespaces).isEmpty {
+                    openingMarker = nil
+                    openingLength = 0
+                }
+            }
+        }
+
+        guard let openingMarker else { return nil }
+        return (openingMarker, openingLength)
     }
 
     /// Handles streaming state changes.
@@ -212,24 +297,21 @@ struct LLMMessageTextView: View {
         if isStreamingMessage, isAssistantMessage {
             // Start or continue streaming output animation
             if let text = text {
-                if displayedText.isEmpty {
+                if outputIsComplete, displayedText.count >= text.count {
+                    notifyAnimationCompleted()
+                } else if displayedText.isEmpty {
                     startTypewriterAnimation(for: text)
                 } else {
                     continueTypewriterAnimation(with: text)
                 }
             }
-        } else if isOutputComplete {
+        } else if outputIsComplete {
             // Output complete, display full text and send notification
             if let text = text {
                 displayedText = text
             }
             stopAnimation()
-            // Send animation completion notification
-            NotificationCenter.default.post(
-                name: NSNotification.Name("StreamingAnimationCompleted"),
-                object: nil,
-                userInfo: ["messageId": messageId]
-            )
+            notifyAnimationCompleted()
         } else {
             // Non-streaming or fully complete, display static text
             if let text = text {
@@ -314,7 +396,8 @@ struct LLMMessageTextView: View {
             return
         }
 
-        let endIndex = min(currentLength + chunkSize, text.count)
+        let remainingCount = text.count - currentLength
+        let endIndex = min(currentLength + adaptiveChunkSize(for: remainingCount), text.count)
         let startIndex = text.index(text.startIndex, offsetBy: currentLength)
         let targetIndex = text.index(text.startIndex, offsetBy: endIndex)
 
@@ -323,17 +406,39 @@ struct LLMMessageTextView: View {
         Self.displayedCountCache[messageId] = displayedText.count
 
         if displayedText.count >= text.count {
-            Self.displayedCountCache[messageId] = nil
             stopAnimation()
-            // Send animation completion notification when text display is complete and output is also complete
-            if isOutputComplete {
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("StreamingAnimationCompleted"),
-                    object: nil,
-                    userInfo: ["messageId": messageId]
-                )
+            if outputIsComplete {
+                notifyAnimationCompleted()
             }
         }
+    }
+
+    /// Keep the animation visibly incremental while preventing a fast model
+    /// from building a multi-second UI backlog that jumps at completion.
+    private func adaptiveChunkSize(for remainingCount: Int) -> Int {
+        switch remainingCount {
+        case 81...:
+            return 8
+        case 41...:
+            return 4
+        case 17...:
+            return 2
+        default:
+            return 1
+        }
+    }
+
+    private func notifyAnimationCompleted() {
+        guard outputIsComplete, !didNotifyAnimationCompletion else { return }
+        didNotifyAnimationCompletion = true
+        Self.displayedCountCache[messageId] = nil
+        stopAnimation()
+        NotificationCenter.default.post(
+            name: NSNotification.Name("StreamingAnimationCompleted"),
+            object: nil,
+            userInfo: ["messageId": messageId]
+        )
+        onAnimationComplete?()
     }
 
     /// Stops and cleans up the typewriter animation
@@ -343,9 +448,53 @@ struct LLMMessageTextView: View {
     private func stopAnimation() {
         animationTimer?.invalidate()
         animationTimer = nil
+    }
+}
 
-        // Notify that animation has completed
-        onAnimationComplete?()
+private struct ChatSplashCodeSyntaxHighlighter: CodeSyntaxHighlighter {
+    private let syntaxHighlighter: SyntaxHighlighter<ChatTextOutputFormat>
+
+    init(theme: Splash.Theme) {
+        syntaxHighlighter = SyntaxHighlighter(format: ChatTextOutputFormat(theme: theme))
+    }
+
+    func highlightCode(_ code: String, language: String?) -> Text {
+        guard language != nil else { return Text(code) }
+        return syntaxHighlighter.highlight(code)
+    }
+}
+
+private struct ChatTextOutputFormat: OutputFormat {
+    let theme: Splash.Theme
+
+    func makeBuilder() -> Builder {
+        Builder(theme: theme)
+    }
+
+    struct Builder: OutputBuilder {
+        let theme: Splash.Theme
+        private var fragments: [Text] = []
+
+        init(theme: Splash.Theme) {
+            self.theme = theme
+        }
+
+        mutating func addToken(_ token: String, ofType type: TokenType) {
+            let color = theme.tokenColors[type] ?? theme.plainTextColor
+            fragments.append(Text(token).foregroundColor(Color(uiColor: color)))
+        }
+
+        mutating func addPlainText(_ text: String) {
+            fragments.append(Text(text).foregroundColor(Color(uiColor: theme.plainTextColor)))
+        }
+
+        mutating func addWhitespace(_ whitespace: String) {
+            fragments.append(Text(whitespace))
+        }
+
+        func build() -> Text {
+            fragments.reduce(Text(""), +)
+        }
     }
 }
 

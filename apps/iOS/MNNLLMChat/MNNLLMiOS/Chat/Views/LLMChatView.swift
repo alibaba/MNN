@@ -23,8 +23,8 @@ struct LLMChatView: View {
     /// View model for LLM chat functionality
     @StateObject private var viewModel: LLMChatViewModel
 
-    /// Environment variable for presentation mode
-    @Environment(\.presentationMode) private var presentationMode
+    /// Fallback dismissal when the chat is presented outside MainTabView.
+    @Environment(\.dismiss) private var dismiss
 
     // MARK: - Properties
 
@@ -34,20 +34,23 @@ struct LLMChatView: View {
     /// Path to the model file
     private let modelPath: String
 
+    /// Explicit route callback used by MainTabView to return to the model list.
+    private let onBack: (() -> Void)?
+
     /// Audio recorder settings configuration
     private let recorderSettings = RecorderSettings(audioFormatID: kAudioFormatLinearPCM,
                                                     sampleRate: 44100, numberOfChannels: 2,
                                                     linearPCMBitDepth: 16)
 
     private var supportsAudioInput: Bool {
-        if ModelUtils.isAudioModel(viewModel.modelInfo.modelName) {
+        if ModelUtils.isAudioModel(viewModel.modelInfo.name) {
             return true
         }
         return viewModel.modelInfo.tags.contains { $0.localizedCaseInsensitiveContains("audio") }
     }
 
     private var supportsVisualInput: Bool {
-        if ModelUtils.isVisualModel(viewModel.modelInfo.modelName) {
+        if ModelUtils.isVisualModel(viewModel.modelInfo.name) {
             return true
         }
         
@@ -66,10 +69,10 @@ struct LLMChatView: View {
 
     private var supportsVideoInput: Bool {
         guard supportsVisualInput else { return false }
-        let nameContainsVideo = viewModel.modelInfo.modelName.localizedCaseInsensitiveContains("video")
+        let nameContainsVideo = viewModel.modelInfo.name.localizedCaseInsensitiveContains("video")
         let tagsContainVideo = viewModel.modelInfo.tags.contains { $0.localizedCaseInsensitiveContains("video") }
         let categoriesContainVideo = (viewModel.modelInfo.categories ?? []).contains { $0.localizedCaseInsensitiveContains("video") }
-        return nameContainsVideo || tagsContainVideo || categoriesContainVideo || ModelUtils.isOmni(viewModel.modelInfo.modelName)
+        return nameContainsVideo || tagsContainVideo || categoriesContainVideo || ModelUtils.isOmni(viewModel.modelInfo.name)
     }
 
     private var resolvedAvailableInput: AvailableInputType {
@@ -90,9 +93,10 @@ struct LLMChatView: View {
     /// - Parameters:
     ///   - modelInfo: Information about the model to use
     ///   - history: Optional chat history to restore
-    init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
-        title = modelInfo.modelName
+    init(modelInfo: ModelInfo, history: ChatHistory? = nil, onBack: (() -> Void)? = nil) {
+        title = modelInfo.name
         modelPath = modelInfo.localPath
+        self.onBack = onBack
         let viewModel = LLMChatViewModel(modelInfo: modelInfo, history: history)
         _viewModel = StateObject(wrappedValue: viewModel)
     }
@@ -115,6 +119,7 @@ struct LLMChatView: View {
 //                    (self.title.isEmpty ? .textOnly : .textOnly)
             )
             .messageUseMarkdown(true)
+            .useDirectMessageCopyGesture(true)
             .setRecorderSettings(recorderSettings)
             .setThinkingMode(
                 supportsThinkingMode: viewModel.supportsThinkingMode,
@@ -155,12 +160,9 @@ struct LLMChatView: View {
                     fullscreenTint: .white
                 )
             )
-            .navigationBarTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden()
             .disabled(!viewModel.isModelLoaded)
             .overlay(alignment: .top) {
-                PresetPromptBar(presets: PresetPrompts.all()) { preset in
+                PresetPromptBar(presets: PresetPrompts.all(for: viewModel.modelInfo)) { preset in
                     viewModel.sendPreset(preset)
                 }
                 .disabled(viewModel.chatInputUnavilable)
@@ -177,63 +179,6 @@ struct LLMChatView: View {
                     ))
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        presentationMode.wrappedValue.dismiss()
-                    } label: {
-                        Image("backArrow", bundle: .current)
-                    }
-                }
-
-                ToolbarItem(placement: .principal) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(title)
-                                .fontWeight(.semibold)
-                                .font(.headline)
-                                .foregroundColor(.black)
-
-                            Text(viewModel.chatStatus)
-                                .font(.footnote)
-                                .foregroundColor(Color(hex: "AFB3B8"))
-                        }
-                        Spacer()
-                    }
-                    .padding(.leading, 10)
-                }
-
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 8) {
-                        // Settings Button
-                        Button(action: { showSettings.toggle() }) {
-                            Image(systemName: "gear")
-                        }
-                        .sheet(isPresented: $showSettings) {
-                            ModelSettingsView(showSettings: $showSettings, viewModel: viewModel)
-                        }
-
-                        // Three-dot menu with batch testing options
-                        ChatMenuView(
-                            showBatchFileTest: $showBatchFileTest
-                        )
-                    }
-                }
-            }
-            .onAppear {
-                viewModel.onStart()
-                setupBatchTestCallbacks()
-            }
-            .onDisappear(perform: viewModel.onStop)
-            .onReceive(NotificationCenter.default.publisher(for: .dismissKeyboard)) { _ in
-                // Hidden keyboard
-                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            }
-            // Batch File Test Sheet
-            .sheet(isPresented: $showBatchFileTest) {
-                BatchFileTestView(chatViewModel: viewModel)
-            }
-
             // Loading overlay
             if !viewModel.isModelLoaded {
                 Color.black.opacity(0.4)
@@ -252,9 +197,68 @@ struct LLMChatView: View {
                     )
             }
         }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: returnToModelList) {
+                    Label(String(localized: "My Model"), systemImage: "chevron.left")
+                }
+            }
+
+            ToolbarItem(placement: .principal) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(title)
+                            .fontWeight(.semibold)
+                            .font(.headline)
+                            .foregroundColor(.black)
+
+                        Text(viewModel.chatStatus)
+                            .font(.footnote)
+                            .foregroundColor(Color(hex: "AFB3B8"))
+                    }
+                    Spacer()
+                }
+                .padding(.leading, 10)
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack(spacing: 8) {
+                    Button(action: { showSettings.toggle() }) {
+                        Image(systemName: "gear")
+                    }
+                    .sheet(isPresented: $showSettings) {
+                        ModelSettingsView(showSettings: $showSettings, viewModel: viewModel)
+                    }
+
+                    ChatMenuView(showBatchFileTest: $showBatchFileTest)
+                }
+            }
+        }
+        .onAppear {
+            viewModel.onStart()
+            setupBatchTestCallbacks()
+        }
+        .onDisappear(perform: viewModel.onStop)
+        .onReceive(NotificationCenter.default.publisher(for: .dismissKeyboard)) { _ in
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+        .sheet(isPresented: $showBatchFileTest) {
+            BatchFileTestView(chatViewModel: viewModel)
+        }
     }
 
     // MARK: - Private Methods
+
+    private func returnToModelList() {
+        if let onBack {
+            onBack()
+        } else {
+            dismiss()
+        }
+    }
 
     /// Setup callbacks for batch test functionality
     private func setupBatchTestCallbacks() {
@@ -276,7 +280,13 @@ struct PresetPromptBar: View {
                         onSelect(preset)
                     } label: {
                         HStack(spacing: 4) {
-                            if let path = preset.imageBundlePath, let ui = UIImage(contentsOfFile: path) {
+                            if preset.isASRAudio {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .frame(width: 18, height: 18)
+                                    .background(Color.customBlue.opacity(0.12))
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                            } else if let path = preset.imageBundlePath, let ui = UIImage(contentsOfFile: path) {
                                 Image(uiImage: ui)
                                     .resizable()
                                     .scaledToFill()

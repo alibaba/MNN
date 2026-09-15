@@ -95,6 +95,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                         uid: UUID().uuidString,
                         sender: assistantSender,
                         createdAt: Date(),
+                        useMarkdown: true,
                         text: "",
                         images: [],
                         videos: [],
@@ -108,17 +109,23 @@ final class LLMChatInteractor: ChatInteractorProtocol {
 
             case .assistant:
                 var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
+                updateLastMsg?.useMarkdown = message.useMarkdown
 
-                if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true,
-                   tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") }),
-                   let text = self?.processor.process(progress: message.text)
-                {
-                    updateLastMsg?.text = text
-                } else {
-                    if let currentText = updateLastMsg?.text {
-                        updateLastMsg?.text = currentText + message.text
+                if let performanceData = message.performanceData, !performanceData.isEmpty {
+                    // Metrics are UI metadata, not model-authored Markdown.
+                    updateLastMsg?.performanceData = performanceData
+                } else if !message.text.isEmpty {
+                    if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true,
+                       tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") }),
+                       let text = self?.processor.process(progress: message.text)
+                    {
+                        updateLastMsg?.text = text
                     } else {
-                        updateLastMsg?.text = message.text
+                        if let currentText = updateLastMsg?.text {
+                            updateLastMsg?.text = currentText + message.text
+                        } else {
+                            updateLastMsg?.text = message.text
+                        }
                     }
                 }
 
@@ -155,6 +162,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                 uid: UUID().uuidString,
                 sender: assistantSender,
                 createdAt: Date(),
+                useMarkdown: true,
                 text: "",
                 images: [],
                 videos: [],
@@ -164,6 +172,42 @@ final class LLMChatInteractor: ChatInteractorProtocol {
             self?.chatState.value.append(emptyMessage)
 
             self?.processor.startNewChat()
+        }
+    }
+
+    /// Appends a prerecorded audio preset with its ASR transcript and metrics.
+    /// Audio and recognition evidence share one user bubble before LLM output.
+    func sendPresetAudioMessage(text: String, recording: Recording, expectsResponse: Bool) async {
+        let message = LLMChatMessage(
+            uid: UUID().uuidString,
+            sender: chatData.user,
+            createdAt: Date(),
+            status: .sending,
+            useMarkdown: false,
+            text: text,
+            images: [],
+            videos: [],
+            recording: recording,
+            replyMessage: nil
+        )
+
+        await MainActor.run { [weak self] in
+            self?.chatState.value.append(message)
+            if expectsResponse {
+                let assistantSender = self?.chatData.assistant ?? message.sender
+                let emptyMessage = LLMChatMessage(
+                    uid: UUID().uuidString,
+                    sender: assistantSender,
+                    createdAt: Date(),
+                    text: "",
+                    images: [],
+                    videos: [],
+                    recording: nil,
+                    replyMessage: nil
+                )
+                self?.chatState.value.append(emptyMessage)
+                self?.processor.startNewChat()
+            }
         }
     }
 
@@ -185,6 +229,24 @@ final class LLMChatInteractor: ChatInteractorProtocol {
             guard let self = self, !self.chatState.value.isEmpty else { return }
             let lastIndex = self.chatState.value.count - 1
             self.chatState.value[lastIndex].text = text
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
+    }
+
+    /// Attaches final performance metadata to its assistant message without
+    /// mixing it into the model-authored Markdown content.
+    func updatePerformanceData(_ performanceData: String, for messageId: String) {
+        let update = { [weak self] in
+            guard let self,
+                  let index = self.chatState.value.firstIndex(where: { $0.uid == messageId })
+            else {
+                return
+            }
+            self.chatState.value[index].performanceData = performanceData
         }
         if Thread.isMainThread {
             update()

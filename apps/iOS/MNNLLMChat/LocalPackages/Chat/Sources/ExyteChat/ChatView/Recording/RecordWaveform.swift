@@ -9,8 +9,6 @@ import SwiftUI
 
 struct RecordWaveformWithButtons: View {
 
-    @Environment(\.chatTheme) private var theme
-
     @StateObject var recordPlayer = RecordingPlayer()
 
     // 160 is screen left-padding/right-padding and playButton's width.
@@ -30,21 +28,25 @@ struct RecordWaveformWithButtons: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Group {
-                if recordPlayer.playing {
-                    theme.images.message.pauseAudio
-                        .renderingMode(.template)
-                } else {
-                    theme.images.message.playAudio
-                        .renderingMode(.template)
-                }
-            }
-            .foregroundColor(colorButton)
-            .viewSize(40)
-            .circleBackground(colorButtonBg)
-            .onTapGesture {
+            Button {
                 recordPlayer.togglePlay(recording)
+            } label: {
+                Image(systemName: recordPlayer.playing ? "pause.fill" : "play.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(colorButton)
+                    .offset(x: recordPlayer.playing ? 0 : 1)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(colorButtonBg))
+                    .overlay {
+                        Circle()
+                            .stroke(colorButton.opacity(0.18), lineWidth: 1)
+                    }
+                    .shadow(color: Color.black.opacity(0.10), radius: 2, y: 1)
             }
+            .buttonStyle(.plain)
+            .contentShape(Circle())
+            .accessibilityLabel(recordPlayer.playing ? "暂停音频" : "播放音频")
+            .accessibilityHint("播放或暂停样例音频")
             
             VStack(alignment: .leading, spacing: 5) {
                 RecordWaveformPlaying(samples: recording.waveformSamples, progress: recordPlayer.progress, color: colorWaveform, addExtraDots: false) { progress in

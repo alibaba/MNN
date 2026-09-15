@@ -81,7 +81,7 @@ class BenchmarkViewModel: ObservableObject {
 
                 // Filter only downloaded models that are available locally
                 availableModels = allModels.filter { model in
-                    model.isDownloaded && model.localPath != "" && !model.modelName.lowercased().contains("omni")
+                    model.isDownloaded && model.localPath != "" && !model.name.lowercased().contains("omni")
                 }
 
                 print("BenchmarkViewModel: Loaded \(availableModels.count) available local models")
@@ -174,22 +174,52 @@ class BenchmarkViewModel: ObservableObject {
             benchmarkService.runBenchmark(
                 modelId: model.id,
                 callback: self,
-                runtimeParams: createRuntimeParameters(),
+                runtimeParams: createRuntimeParameters(for: model),
                 testParams: createTestParameters()
             )
         }
     }
 
-    /// Creates runtime parameters optimized for iOS devices
-    private func createRuntimeParameters() -> RuntimeParameters {
+    /// Uses the same merged model + gear configuration that initialized the
+    /// benchmark engine, so result metadata reflects the backend actually run.
+    private func createRuntimeParameters(for model: ModelInfo) -> RuntimeParameters {
+        let config = ModelConfigManager(modelPath: model.localPath)
+        let backend: Int
+        switch config.readBackendType().lowercased() {
+        case "metal": backend = 1
+        case "npu": backend = 5
+        default: backend = 0
+        }
+
+        let precision: Int
+        switch config.readPrecision().lowercased() {
+        case "high": precision = 1
+        case "low": precision = 2
+        default: precision = 0
+        }
+
+        let power: Int
+        switch config.readPower().lowercased() {
+        case "high": power = 1
+        case "low": power = 2
+        default: power = 0
+        }
+
+        let memory: Int
+        switch config.readMemory().lowercased() {
+        case "high": memory = 1
+        case "low": memory = 2
+        default: memory = 0
+        }
+
         return RuntimeParameters(
-            backends: [0], // CPU backend
-            threads: [4], // 4 threads for most iOS devices
-            useMmap: false, // Memory mapping disabled for iOS
-            power: [0], // Normal power mode
-            precision: [2], // Low precision for better performance
-            memory: [2], // Low memory usage
-            dynamicOption: [0] // No dynamic optimization
+            backends: [backend],
+            threads: [config.readThreadNum()],
+            useMmap: config.readUseMmap(),
+            power: [power],
+            precision: [precision],
+            memory: [memory],
+            dynamicOption: [config.readDynamicOption()]
         )
     }
 
@@ -329,7 +359,7 @@ extension BenchmarkViewModel: BenchmarkCallback {
 
         // Create comprehensive benchmark results
         let results = BenchmarkResults(
-            modelDisplayName: model.modelName,
+            modelDisplayName: model.name,
             maxMemoryKb: MemoryMonitor.shared.getMaxMemoryKb(),
             testResults: [result.testInstance],
             timestamp: DateFormatter.benchmarkTimestamp.string(from: Date()),
@@ -351,7 +381,7 @@ extension BenchmarkViewModel: BenchmarkCallback {
         // Always hide status after processing results
         hideStatus()
 
-        print("BenchmarkViewModel: Benchmark completed successfully for model: \(model.modelName)")
+        print("BenchmarkViewModel: Benchmark completed successfully for model: \(model.name)")
     }
 
     /// Handles benchmark errors with user-friendly error messages

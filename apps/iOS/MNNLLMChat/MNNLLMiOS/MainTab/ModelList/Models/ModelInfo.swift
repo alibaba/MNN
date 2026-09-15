@@ -5,6 +5,7 @@
 //  Created by 游薪渝(揽清) on 2025/7/4.
 //
 
+import Combine
 import Foundation
 import Hub
 
@@ -79,6 +80,28 @@ struct ModelInfo: Codable, Hashable {
         }
 
         return baseId
+    }
+
+    /// The model's single app-facing name. The source identifier remains an
+    /// implementation detail used only to locate files and persisted state.
+    var name: String {
+        ModelNameStore.shared.name(for: self)
+    }
+
+    fileprivate var nameStorageKey: String {
+        if let localSource = sources?["local"] {
+            return "local:\(localSource)"
+        }
+        if let modelScopeSource = sources?["ModelScope"] {
+            return "modelscope:\(modelScopeSource)"
+        }
+        if let huggingFaceSource = sources?["HuggingFace"] ?? sources?["huggingface"] {
+            return "huggingface:\(huggingFaceSource)"
+        }
+        if let modelersSource = sources?["Modelers"] {
+            return "modelers:\(modelersSource)"
+        }
+        return "model:\(modelName)"
     }
 
     var localizedTags: [String] {
@@ -242,6 +265,36 @@ struct ModelInfo: Codable, Hashable {
     }
 }
 
+final class ModelNameStore: ObservableObject {
+    static let shared = ModelNameStore()
+
+    private let defaults: UserDefaults
+    private let storageKey = "com.mnnllm.modelDisplayNames"
+    @Published private var names: [String: String]
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        names = defaults.dictionary(forKey: storageKey) as? [String: String] ?? [:]
+    }
+
+    func name(for model: ModelInfo) -> String {
+        names[model.nameStorageKey] ?? model.modelName
+    }
+
+    func setName(_ name: String, for model: ModelInfo) {
+        var updatedNames = names
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedName.isEmpty || trimmedName == model.modelName {
+            updatedNames.removeValue(forKey: model.nameStorageKey)
+        } else {
+            updatedNames[model.nameStorageKey] = String(trimmedName.prefix(80))
+        }
+        names = updatedNames
+        defaults.set(updatedNames, forKey: storageKey)
+    }
+}
+
 // MARK: - ModelInfo Extensions for Local Model Support
 
 extension ModelInfo {
@@ -250,6 +303,19 @@ extension ModelInfo {
         case llm
         case diffusion
         case unknown
+    }
+
+    /// Built-in resource folders are implementation details. Keep the
+    /// app-facing default names aligned with the actual model identities.
+    static func bundledModelName(for folderName: String) -> String {
+        switch folderName.lowercased() {
+        case "qwen3.5-2b":
+            return "Qwen3.5-2B-mopd"
+        case "slm270m":
+            return "MNN-Pocket-0.3B"
+        default:
+            return folderName
+        }
     }
 
     /// Get available local models by scanning the LocalModel directory
@@ -313,7 +379,7 @@ extension ModelInfo {
             }
 
             return ModelInfo(
-                modelName: folderName,
+                modelName: bundledModelName(for: folderName),
                 tags: tags,
                 categories: categories,
                 vendor: "Local",

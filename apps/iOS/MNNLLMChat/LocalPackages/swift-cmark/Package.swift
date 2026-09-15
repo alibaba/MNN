@@ -26,9 +26,6 @@ let package = Package(
         .library(
             name: "cmark-gfm-extensions",
             targets: ["cmark-gfm-extensions"]),
-        .executable(
-            name: "cmark-gfm-bin",
-            targets: ["cmark-gfm-bin"]),
         .executable(name: "api_test",
             targets: ["api_test"])
     ],
@@ -53,16 +50,6 @@ let package = Package(
             "ext_scanners.re",
           ],
           cSettings: cSettings
-        ),
-        .target(name: "cmark-gfm-bin",
-          dependencies: [
-            "cmark-gfm",
-            "cmark-gfm-extensions",
-          ],
-          path: "bin",
-          sources: [
-            "main.c",
-          ]
         ),
         .target(name: "api_test",
           dependencies: [

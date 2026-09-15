@@ -17,12 +17,15 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     private var sanaDiffusion: SanaDiffusionSession?
     private let llmState = LLMState()
     private var audioPlaybackManager: AudioPlaybackManager?
+    private let presetASRService = PresetZipformerASRService()
+    private var presetASRGeneration: UInt64 = 0
 
     @Published var messages: [Message] = []
     @Published var isModelLoaded = false
     @Published var isProcessing: Bool = false
     @Published var currentStreamingMessageId: String? = nil
     @Published var streamingStates: [String: StreamingMessageStateManager] = [:]
+    private var pendingPerformanceData: [String: String] = [:]
 
     @Published var useMmap: Bool = false
     @Published var useMultimodalPromptAPI: Bool = true
@@ -73,11 +76,11 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     let modelConfigManager: ModelConfigManager
 
     var isDiffusionModel: Bool {
-        return modelInfo.modelName.lowercased().contains("stable-diffusion")
+        return modelInfo.name.lowercased().contains("stable-diffusion")
     }
 
     var isSanaDiffusionModel: Bool {
-        return ModelUtils.isSanaDiffusionModel(modelInfo.modelName)
+        return ModelUtils.isSanaDiffusionModel(modelInfo.name)
     }
 
     var isAnyDiffusionModel: Bool {
@@ -97,7 +100,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         useMultimodalPromptAPI = modelConfigManager.readUseMultimodalPromptAPI()
 
         // Check if model supports thinking mode
-        supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.tags, modelName: modelInfo.modelName)
+        supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.tags, modelName: modelInfo.name)
 
         // Listen for streaming animation completion notifications
         NotificationCenter.default.addObserver(
@@ -109,6 +112,9 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     }
 
     deinit {
+        presetASRGeneration &+= 1
+        presetASRService.cancel()
+        presetASRService.shutdown()
         // Cancel ongoing inference
         llm?.cancelInference()
         llm = nil
@@ -617,6 +623,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         let emptyMessage = DraftMessage(
             text: "",
             thinkText: "",
+            useMarkdown: true,
             medias: [],
             recording: nil,
             replyMessage: nil,
@@ -645,68 +652,91 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         }
 
         let convertedContent = self.convertDeepSeekMutliChat(content: content)
+        let (outputStream, outputContinuation) = AsyncStream.makeStream(of: String.self)
 
-        let outputHandler: (String) -> Void = { [weak self] output in
+        // Consume native callbacks through one task so response fragments,
+        // performance statistics, and completion are applied in FIFO order.
+        Task { [weak self] in
             guard let self = self else { return }
+            var pendingPerformanceData: String?
 
-            if output.contains("<eop>") {
-                Task {
-                    await UIUpdateOptimizer.shared.forceFlush { [weak self] finalOutput in
-                        guard let self = self else { return }
-                        if !finalOutput.isEmpty {
-                            Task {
-                                do {
-                                    try await self.send(draft: DraftMessage(
-                                        text: finalOutput,
-                                        thinkText: "",
-                                        medias: [],
-                                        recording: nil,
-                                        replyMessage: nil,
-                                        createdAt: Date()
-                                    ), userType: .assistant)
-                                } catch {
-                                    print("Error sending final output message: \(error)")
-                                }
+            for await output in outputStream {
+                let performancePrefix = "<performance>"
+                if output.hasPrefix(performancePrefix) {
+                    let performanceData = String(output.dropFirst(performancePrefix.count))
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !performanceData.isEmpty {
+                        // Keep metrics hidden until the model has emitted its
+                        // completion marker, so they always follow the answer.
+                        pendingPerformanceData = performanceData
+                    }
+                    continue
+                }
+
+                if output == "<eop>" || output == "<stoped>" {
+                    let completedPerformanceData = pendingPerformanceData
+                    await MainActor.run {
+                        if let messageId = self.currentStreamingMessageId {
+                            if let completedPerformanceData {
+                                self.pendingPerformanceData[messageId] = completedPerformanceData
+                            }
+                            if let stateManager = self.streamingStates[messageId] {
+                                stateManager.markOutputComplete()
+                                self.streamingStates[messageId] = stateManager
+                            }
+
+                            // Deliver completion directly to the visible cell. The
+                            // provider is stored as an environment reference, so a
+                            // state-only change does not always invalidate that cell.
+                            NotificationCenter.default.post(
+                                name: NSNotification.Name("StreamingOutputCompleted"),
+                                object: nil,
+                                userInfo: ["messageId": messageId]
+                            )
+
+                            // A recycled/off-screen cell cannot report animation
+                            // completion. Keep a generous presentation-only fallback;
+                            // inference and input controls are already complete below.
+                            let characterCount = self.messages.first(where: { $0.id == messageId })?.text.count ?? 0
+                            let fallbackDelay = min(max(Double(characterCount) * 0.02 + 2.0, 5.0), 30.0)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + fallbackDelay) { [weak self] in
+                                self?.finishStreamingPresentation(for: messageId)
                             }
                         }
-                    }
 
-                    await MainActor.run {
-                        // Mark model output as complete
-                        if let messageId = self.currentStreamingMessageId,
-                           let stateManager = self.streamingStates[messageId]
-                        {
-                            stateManager.markOutputComplete()
-                        }
-                        // currentStreamingMessageId will be cleared when animation completes via callback
+                        // Input availability follows native inference, never a view
+                        // animation callback. This guarantees the app cannot deadlock.
+                        self.isProcessing = false
 
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
                         }
                     }
                     await self.llmState.setProcessing(false)
+                    break
                 }
-                return
-            }
 
-            Task {
-                await UIUpdateOptimizer.shared.addUpdate(output) { [weak self] output in
-                    guard let self = self else { return }
-                    Task {
-                        do {
-                            try await self.send(draft: DraftMessage(
-                                text: output,
-                                thinkText: "",
-                                medias: [],
-                                recording: nil,
-                                replyMessage: nil,
-                                createdAt: Date()
-                            ), userType: .assistant)
-                        } catch {
-                            print("Error sending streaming message: \(error)")
-                        }
-                    }
+                do {
+                    try await self.send(draft: DraftMessage(
+                        text: output,
+                        thinkText: "",
+                        performanceData: nil,
+                        useMarkdown: true,
+                        medias: [],
+                        recording: nil,
+                        replyMessage: nil,
+                        createdAt: Date()
+                    ), userType: .assistant)
+                } catch {
+                    print("Error sending streaming message: \(error)")
                 }
+            }
+        }
+
+        let outputHandler: (String) -> Void = { output in
+            outputContinuation.yield(output)
+            if output == "<eop>" || output == "<stoped>" {
+                outputContinuation.finish()
             }
         }
 
@@ -735,6 +765,51 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         // Each preset is an independent turn: clean engine history keeps the
         // prefill/decode stats attributable to this prompt alone.
         llm?.clearChatHistory()
+
+        if let audioPath = preset.audioBundlePath,
+           let expectedHash = preset.audioSHA256
+        {
+            presetASRGeneration &+= 1
+            let generation = presetASRGeneration
+            isProcessing = true
+            let audioURL = URL(fileURLWithPath: audioPath)
+
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let recognition = try await self.presetASRService.recognize(
+                        audioURL: audioURL,
+                        expectedAudioSHA256: expectedHash
+                    )
+                    guard generation == self.presetASRGeneration else { return }
+                    await self.interactor.sendPresetAudioMessage(
+                        text: recognition.displayText,
+                        recording: recognition.recording,
+                        expectsResponse: true
+                    )
+                    guard generation == self.presetASRGeneration else { return }
+                    await self.runLLMInference(
+                        content: recognition.transcript,
+                        images: [:],
+                        useMultimodalAPI: false
+                    )
+                } catch {
+                    guard generation == self.presetASRGeneration else { return }
+                    let failure = NSLocalizedString("ASR 识别失败：", comment: "Preset ASR failure")
+                        + error.localizedDescription
+                    let recording = Recording(duration: 0, waveformSamples: [], url: audioURL)
+                    await self.interactor.sendPresetAudioMessage(
+                        text: failure,
+                        recording: recording,
+                        expectsResponse: false
+                    )
+                    await MainActor.run {
+                        self.isProcessing = false
+                    }
+                }
+            }
+            return
+        }
 
         if let imagePath = preset.imageBundlePath {
             let imageURL = URL(fileURLWithPath: imagePath)
@@ -800,10 +875,10 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     }
     
     private func setupAudioOutput() {
-        print("[AudioViewModel] setupAudioOutput called for model: \(modelInfo.modelName)")
+        print("[AudioViewModel] setupAudioOutput called for model: \(modelInfo.name)")
         
         // Only setup audio for Omni models
-        guard ModelUtils.supportAudioOutput(modelInfo.modelName) else {
+        guard ModelUtils.supportAudioOutput(modelInfo.name) else {
             print("[AudioViewModel] Model does not support audio output, skipping setup")
             return
         }
@@ -889,7 +964,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     }
 
     private func convertDeepSeekMutliChat(content: String) -> String {
-        if modelInfo.modelName.lowercased().contains("deepseek") {
+        if modelInfo.name.lowercased().contains("deepseek") {
             var deepSeekContent = "<|begin_of_sentence|>"
             for message in messages {
                 let senderTag: String
@@ -949,6 +1024,8 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     }
 
     func onStop() {
+        presetASRGeneration &+= 1
+        presetASRService.cancel()
         recordModelUsage()
 
         ChatHistoryManager.shared.saveChat(
@@ -994,25 +1071,27 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
      * Clears the currentStreamingMessageId to update UI state
      */
     @objc func onStreamingAnimationComplete(_ notification: Notification) {
-        guard let messageId = notification.userInfo?["messageId"] as? String,
-              let stateManager = streamingStates[messageId]
-        else {
+        guard let messageId = notification.userInfo?["messageId"] as? String else {
             return
         }
 
-        DispatchQueue.main.async {
-            // Mark animation as complete
-            stateManager.markAnimationComplete()
+        DispatchQueue.main.async { [weak self] in
+            self?.finishStreamingPresentation(for: messageId)
+        }
+    }
 
-            // Clean up state if fully complete
-            if stateManager.state.isFullyComplete {
-                self.streamingStates.removeValue(forKey: messageId)
-                if messageId == self.currentStreamingMessageId {
-                    self.isProcessing = false // MARK: isProcessing
+    private func finishStreamingPresentation(for messageId: String) {
+        guard let stateManager = streamingStates[messageId] else { return }
 
-                    self.currentStreamingMessageId = nil
-                }
-            }
+        stateManager.markAnimationComplete()
+        guard stateManager.state.isFullyComplete else { return }
+
+        streamingStates.removeValue(forKey: messageId)
+        if messageId == currentStreamingMessageId {
+            currentStreamingMessageId = nil
+        }
+        if let performanceData = pendingPerformanceData.removeValue(forKey: messageId) {
+            interactor.updatePerformanceData(performanceData, for: messageId)
         }
     }
 
@@ -1038,8 +1117,10 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         if let stateManager = streamingStates[messageId] {
             stateManager.forceComplete()
             streamingStates.removeValue(forKey: messageId)
+            pendingPerformanceData.removeValue(forKey: messageId)
             if messageId == currentStreamingMessageId {
                 currentStreamingMessageId = nil
+                isProcessing = false
             }
         }
     }
@@ -1047,6 +1128,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     /// Clear all streaming states (for reset or error recovery)
     func clearAllStreamingStates() {
         streamingStates.removeAll()
+        pendingPerformanceData.removeAll()
         currentStreamingMessageId = nil
     }
 }

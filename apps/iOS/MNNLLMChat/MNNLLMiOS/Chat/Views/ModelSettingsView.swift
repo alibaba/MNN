@@ -18,6 +18,7 @@ struct ModelSettingsView: View {
     @State private var backendType: String = "cpu"
     @State private var precision: String = "low"
     @State private var threadNum: Int = 4
+    @State private var maxNewTokens: Int = 128
     @State private var requiresReload = false
 
     @State private var temperature: Double = 1.0
@@ -53,6 +54,7 @@ struct ModelSettingsView: View {
                 Section {
                     Toggle("Use mmap", isOn: $viewModel.useMmap)
                         .onChange(of: viewModel.useMmap) { newValue in
+                            requiresReload = true
                             viewModel.modelConfigManager.updateUseMmap(newValue)
                         }
 
@@ -96,6 +98,31 @@ struct ModelSettingsView: View {
                     Text("Model Configuration")
                 }
 
+                if !viewModel.isAnyDiffusionModel {
+                    Section {
+                        HStack {
+                            Text("Max Output Tokens")
+                            Spacer()
+                            TextField("128", value: $maxNewTokens, format: .number.grouping(.never))
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 100)
+                                .onChange(of: maxNewTokens) { _, newValue in
+                                    let clamped = max(1, min(4096, newValue))
+                                    if clamped != newValue {
+                                        maxNewTokens = clamped
+                                    } else {
+                                        viewModel.modelConfigManager.updateMaxNewTokens(clamped)
+                                    }
+                                }
+                        }
+                    } header: {
+                        Text("Generation")
+                    } footer: {
+                        Text("Enter any integer from 1 to 4096.")
+                    }
+                }
+
                 Section {
                     // FIXME: Hidden The new Multimodal Prompt API
                     // Toggle("Use Multimodal Prompt API", isOn: $viewModel.useMultimodalPromptAPI)
@@ -133,7 +160,7 @@ struct ModelSettingsView: View {
                 }
 
                 // Audio Output Settings (Omni)
-                if ModelUtils.supportAudioOutput(viewModel.modelInfo.modelName) {
+                if ModelUtils.supportAudioOutput(viewModel.modelInfo.name) {
                     Section {
                         Toggle("Enable Audio Output", isOn: $enableAudioOutput)
                             .onChange(of: enableAudioOutput) { _, newValue in
@@ -212,7 +239,7 @@ struct ModelSettingsView: View {
                             }
                         }
                         .onChange(of: selectedSampler) { _, newValue in
-                            viewModel.modelConfigManager.updateSamplerType(newValue)
+                            updateSamplerType(newValue)
                         }
 
                         switch selectedSampler {
@@ -223,7 +250,7 @@ struct ModelSettingsView: View {
                                 range: 0.0 ... 2.0,
                                 format: "%.2f",
                                 intValue: false,
-                                onChanged: viewModel.modelConfigManager.updateTemperature(_:)
+                                onChanged: updateTemperature(_:)
                             )
                         case .topK:
                             ParameterSliderView(
@@ -232,7 +259,7 @@ struct ModelSettingsView: View {
                                 range: 1 ... 100,
                                 format: "%.0f",
                                 intValue: true,
-                                onChanged: { viewModel.modelConfigManager.updateTopK(Int($0)) }
+                                onChanged: { updateTopK(Int($0)) }
                             )
                         case .topP:
                             ParameterSliderView(
@@ -241,7 +268,7 @@ struct ModelSettingsView: View {
                                 range: 0.0 ... 1.0,
                                 format: "%.2f",
                                 intValue: false,
-                                onChanged: viewModel.modelConfigManager.updateTopP(_:)
+                                onChanged: updateTopP(_:)
                             )
                         case .minP:
                             ParameterSliderView(
@@ -250,7 +277,7 @@ struct ModelSettingsView: View {
                                 range: 0.05 ... 0.3,
                                 format: "%.2f",
                                 intValue: false,
-                                onChanged: viewModel.modelConfigManager.updateMinP(_:)
+                                onChanged: updateMinP(_:)
                             )
                         case .tfs:
                             ParameterSliderView(
@@ -259,7 +286,7 @@ struct ModelSettingsView: View {
                                 range: 0.9 ... 0.99,
                                 format: "%.2f",
                                 intValue: false,
-                                onChanged: viewModel.modelConfigManager.updateTfsZ(_:)
+                                onChanged: updateTfsZ(_:)
                             )
                         case .typical:
                             ParameterSliderView(
@@ -268,7 +295,7 @@ struct ModelSettingsView: View {
                                 range: 0.8 ... 0.95,
                                 format: "%.2f",
                                 intValue: false,
-                                onChanged: viewModel.modelConfigManager.updateTypical(_:)
+                                onChanged: updateTypical(_:)
                             )
                         case .penalty:
                             VStack(spacing: 8) {
@@ -279,7 +306,7 @@ struct ModelSettingsView: View {
                                     range: 0.0 ... 0.5,
                                     format: "%.2f",
                                     intValue: false,
-                                    onChanged: viewModel.modelConfigManager.updatePenalty(_:)
+                                    onChanged: updatePenalty(_:)
                                 )
 
                                 // N-gram Size parameters
@@ -289,7 +316,7 @@ struct ModelSettingsView: View {
                                     range: 3 ... 8,
                                     format: "%.0f",
                                     intValue: true,
-                                    onChanged: { viewModel.modelConfigManager.updateNGram(Int($0)) }
+                                    onChanged: { updateNGram(Int($0)) }
                                 )
 
                                 // N-gram Factor parameters
@@ -299,7 +326,7 @@ struct ModelSettingsView: View {
                                     range: 1.0 ... 3.0,
                                     format: "%.1f",
                                     intValue: false,
-                                    onChanged: viewModel.modelConfigManager.updateNGramFactor(_:)
+                                    onChanged: updateNGramFactor(_:)
                                 )
 
                                 // Penalty Sampler selector
@@ -310,7 +337,7 @@ struct ModelSettingsView: View {
                                     }
                                 }
                                 .onChange(of: penaltySampler) { newValue in
-                                    viewModel.modelConfigManager.updatePenaltySampler(newValue)
+                                    updatePenaltySampler(newValue)
                                 }
                             }
                         case .mixed:
@@ -325,13 +352,13 @@ struct ModelSettingsView: View {
                                 tfsZ: $tfsZ,
                                 typical: $typical,
                                 penalty: $penalty,
-                                onUpdateTemperature: viewModel.modelConfigManager.updateTemperature(_:),
-                                onUpdateTopK: viewModel.modelConfigManager.updateTopK(_:),
-                                onUpdateTopP: viewModel.modelConfigManager.updateTopP(_:),
-                                onUpdateMinP: viewModel.modelConfigManager.updateMinP(_:),
-                                onUpdateTfsZ: viewModel.modelConfigManager.updateTfsZ(_:),
-                                onUpdateTypical: viewModel.modelConfigManager.updateTypical(_:),
-                                onUpdatePenalty: viewModel.modelConfigManager.updatePenalty(_:)
+                                onUpdateTemperature: updateTemperature(_:),
+                                onUpdateTopK: updateTopK(_:),
+                                onUpdateTopP: updateTopP(_:),
+                                onUpdateMinP: updateMinP(_:),
+                                onUpdateTfsZ: updateTfsZ(_:),
+                                onUpdateTypical: updateTypical(_:),
+                                onUpdatePenalty: updatePenalty(_:)
                             )
                         default:
                             EmptyView()
@@ -370,13 +397,14 @@ struct ModelSettingsView: View {
                 showSettings = false
             }
         } message: {
-            Text(NSLocalizedString("Changes to backend, precision, or thread count require the model to reload.", comment: ""))
+            Text(NSLocalizedString("Changes to runtime or sampling settings require the model to reload.", comment: ""))
         }
         .onAppear {
             selectedSampler = viewModel.modelConfigManager.readSamplerType()
             backendType = viewModel.modelConfigManager.readBackendType()
             precision = viewModel.modelConfigManager.readPrecision()
             threadNum = viewModel.modelConfigManager.readThreadNum()
+            maxNewTokens = viewModel.modelConfigManager.readMaxNewTokens()
             requiresReload = false
 
             if viewModel.isAnyDiffusionModel {
@@ -430,6 +458,86 @@ struct ModelSettingsView: View {
 
     private func updateMixedSamplers() {
         let orderedSelection = mixedSamplersOrder.filter { selectedMixedSamplers.contains($0) }
+        if viewModel.modelConfigManager.readMixedSamplers() != orderedSelection {
+            requiresReload = true
+        }
         viewModel.modelConfigManager.updateMixedSamplers(orderedSelection)
+    }
+
+    private func updateSamplerType(_ value: SamplerType) {
+        if viewModel.modelConfigManager.readSamplerType() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updateSamplerType(value)
+    }
+
+    private func updateTemperature(_ value: Double) {
+        if viewModel.modelConfigManager.readTemperature() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updateTemperature(value)
+    }
+
+    private func updateTopK(_ value: Int) {
+        if viewModel.modelConfigManager.readTopK() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updateTopK(value)
+    }
+
+    private func updateTopP(_ value: Double) {
+        if viewModel.modelConfigManager.readTopP() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updateTopP(value)
+    }
+
+    private func updateMinP(_ value: Double) {
+        if viewModel.modelConfigManager.readMinP() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updateMinP(value)
+    }
+
+    private func updateTfsZ(_ value: Double) {
+        if viewModel.modelConfigManager.readTfsZ() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updateTfsZ(value)
+    }
+
+    private func updateTypical(_ value: Double) {
+        if viewModel.modelConfigManager.readTypical() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updateTypical(value)
+    }
+
+    private func updatePenalty(_ value: Double) {
+        if viewModel.modelConfigManager.readPenalty() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updatePenalty(value)
+    }
+
+    private func updateNGram(_ value: Int) {
+        if viewModel.modelConfigManager.readNGram() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updateNGram(value)
+    }
+
+    private func updateNGramFactor(_ value: Double) {
+        if viewModel.modelConfigManager.readNGramFactor() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updateNGramFactor(value)
+    }
+
+    private func updatePenaltySampler(_ value: PenaltySamplerType) {
+        if viewModel.modelConfigManager.readPenaltySampler() != value {
+            requiresReload = true
+        }
+        viewModel.modelConfigManager.updatePenaltySampler(value)
     }
 }

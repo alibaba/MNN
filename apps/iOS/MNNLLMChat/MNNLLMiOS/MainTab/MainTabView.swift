@@ -107,11 +107,11 @@ struct MainTabView: View {
     @ViewBuilder
     private var chatDestination: some View {
         if let model = modelListViewModel.selectedModel {
-            LLMChatView(modelInfo: model)
+            LLMChatView(modelInfo: model, onBack: returnToModelList)
                 .navigationBarHidden(false)
                 .navigationBarTitleDisplayMode(.inline)
         } else if let history = selectedHistory {
-            LLMChatView(modelInfo: history.modelInfo, history: history)
+            LLMChatView(modelInfo: history.modelInfo, history: history, onBack: returnToModelList)
                 .navigationBarHidden(false)
                 .navigationBarTitleDisplayMode(.inline)
         } else {
@@ -120,6 +120,10 @@ struct MainTabView: View {
     }
 
     // MARK: - Private Methods
+
+    private func returnToModelList() {
+        navigateToChat = false
+    }
 
     /// Creates a reusable tab content with navigation and common configurations.
     @ViewBuilder

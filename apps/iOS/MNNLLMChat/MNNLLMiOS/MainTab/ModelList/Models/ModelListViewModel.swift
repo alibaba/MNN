@@ -201,8 +201,7 @@ class ModelListViewModel: ObservableObject {
                         let itemConfigPath = (itemPath as NSString).appendingPathComponent("config.json")
 
                         if fileManager.fileExists(atPath: itemConfigPath) {
-                            // Use original folder name as model name
-                            let modelName = item
+                            let modelName = ModelInfo.bundledModelName(for: item)
                             let localModel = ModelInfo(
                                 modelName: modelName,
                                 tags: ["local", "Build-In", "Think"],
@@ -431,6 +430,11 @@ class ModelListViewModel: ObservableObject {
                 self.sortModels(fetchedModels: &self.models)
             }
         }
+    }
+
+    @MainActor
+    func renameModel(_ model: ModelInfo, to name: String) {
+        ModelNameStore.shared.setName(name, for: model)
     }
 
     // MARK: - Download Management

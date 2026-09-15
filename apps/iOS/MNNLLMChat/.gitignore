@@ -1,4 +1,10 @@
 MNN
+
+# Preset-ASR assets are provisioned separately and must not enter Git.
+libsherpa-mnn.a
+MNNLLMiOS/LocalModel/preset_audio/
+MNNLLMiOS/LocalModel/xasr-mnn-int8/
+MNNLLMiOS/LocalModel/Qwen3.5-2B-MNN/
 .DS_Store
 MNNLLMiOS/LocalModel/Qwen3.5-2B/
 _model_holding/

@@ -24,13 +24,13 @@ final class LLMChatData {
 
         assistant = LLMChatUser(
             uid: "2",
-            name: modelInfo.modelName,
+            name: modelInfo.name,
             avatar: AssetExtractor.createLocalUrl(forImageNamed: icon, withExtension: "png")
         )
 
         system = LLMChatUser(
             uid: "0",
-            name: modelInfo.modelName,
+            name: modelInfo.name,
             avatar: AssetExtractor.createLocalUrl(forImageNamed: icon, withExtension: "png")
         )
     }

@@ -17,6 +17,7 @@ let package = Package(
     dependencies: [
         .package(path: "../swiftui-introspect"),
         .package(path: "../swift-markdown-ui"),
+        .package(path: "../Splash"),
         .package(path: "../MarkdownView"),
         .package(path: "../MediaPicker"),
         .package(path: "../FloatingButton"),
@@ -27,6 +28,8 @@ let package = Package(
             name: "ExyteChat",
             dependencies: [
                 .product(name: "SwiftUIIntrospect", package: "swiftui-introspect"),
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
+                .product(name: "Splash", package: "Splash"),
                 .product(name: "MarkdownView", package: "MarkdownView"),
                 .product(name: "MarkdownParser", package: "MarkdownView"),
                 .product(name: "ExyteMediaPicker", package: "MediaPicker"),

@@ -10,6 +10,7 @@ import SwiftUI
 struct ModelRowView: View {
     let model: ModelInfo
     @ObservedObject var viewModel: ModelListViewModel
+    @ObservedObject private var nameStore = ModelNameStore.shared
 
     let downloadProgress: Double
     let isDownloading: Bool
@@ -32,7 +33,7 @@ struct ModelRowView: View {
                 .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(model.modelName)
+                Text(model.name)
                     .font(.headline)
                     .fontWeight(.semibold)
                     .lineLimit(1)

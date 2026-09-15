@@ -132,6 +132,8 @@ extension DraftMessage {
             status: user.isCurrentUser ? status : nil,
             useMarkdown: useMarkdown,
             text: text,
+            thinkText: thinkText ?? "",
+            performanceData: performanceData,
             images: await makeLLMChatImages(),
             videos: await makeLLMChatVideos(),
             recording: recording,

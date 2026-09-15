@@ -27,6 +27,9 @@
 		3ECE19C72E9CE1BD001A4CDD /* TextFileActivityItemSource.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */; };
 		3ECE19C92E9CE1F0001A4CDD /* BatchFileTestService.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */; };
 		3E000000000000000000A102 /* PresetPrompts.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3E000000000000000000A101 /* PresetPrompts.swift */; };
+		5A000000000000000000A107 /* PresetZipformerASRService.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 5A000000000000000000A101 /* PresetZipformerASRService.swift */; };
+		5A000000000000000000A104 /* PresetZipformerASRWrapper.mm in MNNChat */ = {isa = PBXBuildFile; fileRef = 5A000000000000000000A103 /* PresetZipformerASRWrapper.mm */; };
+		5A000000000000000000A106 /* libsherpa-mnn.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5A000000000000000000A105 /* libsherpa-mnn.a */; };
 		3EEAB30B2E8BD5550039DF50 /* BatchFileTestViewModel.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */; };
 		4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */; };
 		4230C2DB2E7D4EB5001169DF /* mock.json in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2AD2E7D4EB5001169DF /* mock.json */; };
@@ -156,6 +159,10 @@
 		3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFileActivityItemSource.swift; sourceTree = "<group>"; };
 		3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestService.swift; sourceTree = "<group>"; };
 		3E000000000000000000A101 /* PresetPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetPrompts.swift; sourceTree = "<group>"; };
+		5A000000000000000000A101 /* PresetZipformerASRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetZipformerASRService.swift; sourceTree = "<group>"; };
+		5A000000000000000000A102 /* PresetZipformerASRWrapper.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PresetZipformerASRWrapper.h; sourceTree = "<group>"; };
+		5A000000000000000000A103 /* PresetZipformerASRWrapper.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PresetZipformerASRWrapper.mm; sourceTree = "<group>"; };
+		5A000000000000000000A105 /* libsherpa-mnn.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libsherpa-mnn.a; sourceTree = "<group>"; };
 		3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestViewModel.swift; sourceTree = "<group>"; };
 		4230C22C2E7D4EB5001169DF /* ChatInteractorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInteractorProtocol.swift; sourceTree = "<group>"; };
 		4230C22D2E7D4EB5001169DF /* LLMChatInteractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatInteractor.swift; sourceTree = "<group>"; };
@@ -284,6 +291,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5A000000000000000000A106 /* libsherpa-mnn.a in Frameworks */,
 				3ECAC6062F3C62570003C496 /* ExyteChat in Frameworks */,
 				3E2F97302E89158600E61F35 /* ExyteChat in Frameworks */,
 				3E2F972F2E89158600E61F35 /* ExyteChat in Frameworks */,
@@ -303,6 +311,7 @@
 			isa = PBXGroup;
 			children = (
 				3E440F082EE2DEDE00BB15FF /* AudioPlaybackManager.swift */,
+				5A000000000000000000A101 /* PresetZipformerASRService.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -332,6 +341,7 @@
 			isa = PBXGroup;
 			children = (
 				3E301C682D5C84730045E5E1 /* MNN.framework */,
+				5A000000000000000000A105 /* libsherpa-mnn.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -458,6 +468,8 @@
 		4230C2522E7D4EB5001169DF /* InferenceEngine */ = {
 			isa = PBXGroup;
 			children = (
+				5A000000000000000000A102 /* PresetZipformerASRWrapper.h */,
+				5A000000000000000000A103 /* PresetZipformerASRWrapper.mm */,
 				3E2B293A2F1F7C28006DE361 /* SanaDiffusionSession.h */,
 				3E2B293B2F1F7C28006DE361 /* SanaDiffusionSession.mm */,
 				4230C24E2E7D4EB5001169DF /* DiffusionSession.h */,
@@ -890,6 +902,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5A000000000000000000A107 /* PresetZipformerASRService.swift in MNNChat */,
+				5A000000000000000000A104 /* PresetZipformerASRWrapper.mm in MNNChat */,
 				4230C2DF2E7D4EB5001169DF /* ChatInteractorProtocol.swift in MNNChat */,
 				4230C2E02E7D4EB5001169DF /* LLMChatInteractor.swift in MNNChat */,
 				4230C2E12E7D4EB5001169DF /* ThinkResultProcessor.swift in MNNChat */,
@@ -1175,6 +1189,11 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../../frameworks/sherpa-mnn";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14;
@@ -1232,6 +1251,11 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../../frameworks/sherpa-mnn";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14;

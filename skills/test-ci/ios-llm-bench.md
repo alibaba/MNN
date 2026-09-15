@@ -49,6 +49,7 @@ sh transformers/llm/engine/ios/ios_llm_bench.sh \
 
 ## 已知陷阱
 
+- **给现有 iOS App 替换 `MNN.framework` 前先盘点目标实际编译的功能头文件**：不能只按待测功能开 CMake 选项。例如 MNNLLMChat 会固定编译 `DiffusionSession` / `SanaDiffusionSession`，即使本次只验证 LLM 或 ASR，framework 仍需 `-DMNN_BUILD_DIFFUSION=ON`；否则会在 App 编译阶段报 `MNN/diffusion/diffusion.hpp not found`。重编后至少检查目标所需的 `Headers/llm`、`Headers/diffusion` 和 framework 二进制都存在，再启动 `xcodebuild`。
 - **shell 环境的 `SDKROOT` / `CPATH` 指向 MacOSX.sdk 会打爆整个 iOS 编译**（2026-07-30 实锤）：症状是几百个 `<cstddef> tried including <stddef.h> but didn't find libc++'s <stddef.h>`，libc++ 头来自 iPhoneOS.sdk 而 C 头来自 MacOSX.sdk。且 `buildiOS.sh` 失败后仍 `exit 0`，只留下残缺 framework（仅 Headers + Info.plist，无二进制、`Headers/llm` 为空），下游 App 编译报 `MNN/llm/llm.hpp not found` 误导排查方向。**处置**：跑本脚本一律 `env -u SDKROOT -u CPATH DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh ios_llm_bench.sh ...`；怀疑 framework 残缺时先 `ls MNN.framework/MNN` 确认二进制存在。
 - **Team ID 必须查本机，不能抄文档**：`--team` 用错会报 `No Account for Team`。查法：`security find-identity -v -p codesigning` 看证书，或 `security cms -D -i ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision | grep -A2 TeamIdentifier`。本机（jbyang，2026-07-30）为 `3TLG5LZ643`。
 - **免费开发者证书每台设备最多 3 个 App**：安装报 `CoreDeviceError 3002` + `maximum number of installed apps using a free developer profile`，错误信息会列出占位的 3 个 bundle id。**处置**：优先用 `--bundle-id` 复用其中同 Team 的旧 bench App 原地覆盖（如 `com.jiuqi.mnn-llm-bench`），不必删设备上的 App。

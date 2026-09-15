@@ -303,17 +303,11 @@ protected:
         
         try {
             buffer_.append(s, n);
-            
-            const size_t BUFFER_THRESHOLD = 64;
-            bool shouldFlush = buffer_.size() >= BUFFER_THRESHOLD;
-            
-            if (!shouldFlush && n > 0) {
-                shouldFlush = checkForFlushTriggers(s, n);
-            }
-            
-            if (shouldFlush) {
-                flushBuffer();
-            }
+            // Forward every complete token fragment immediately. The previous
+            // 64-byte batching made the UI's first visible token depend on when
+            // the response happened to reach a punctuation mark or the byte
+            // threshold, which was especially noticeable for code generation.
+            flushBuffer();
             
             return n;
         }
@@ -323,65 +317,50 @@ protected:
         }
     }
 
+    virtual int sync() override {
+        flushBuffer();
+        return 0;
+    }
+
 private:
     void flushBuffer() {
         if (callback_ && !buffer_.empty()) {
-            callback_(buffer_.c_str(), buffer_.size());
-            buffer_.clear();
+            // A token fragment can end in the middle of a multi-byte UTF-8
+            // scalar. Keep an incomplete suffix for the next fragment instead of
+            // sending an invalid NSString chunk that the UI silently drops.
+            const size_t flushLength = completeUtf8PrefixLength(buffer_);
+            if (flushLength == 0) {
+                return;
+            }
+            callback_(buffer_.data(), flushLength);
+            buffer_.erase(0, flushLength);
         }
     }
-    
-    bool checkForFlushTriggers(const char* s, std::streamsize n) {
-        // Check ASCII punctuation
-        char lastChar = s[n-1];
-        if (lastChar == '\n' ||
-            lastChar == '\r' ||
-            lastChar == '\t' ||
-            lastChar == '.' ||
-            lastChar == ',' ||
-            lastChar == ';' ||
-            lastChar == ':' ||
-            lastChar == '!' ||
-            lastChar == '?') {
-            return true;
+
+    static size_t completeUtf8PrefixLength(const std::string& text) {
+        const size_t length = text.size();
+        if (length == 0) {
+            return 0;
         }
-        
-        // Check Unicode punctuation
-        return checkUnicodePunctuation();
-    }
-    
-    bool checkUnicodePunctuation() {
-        if (buffer_.size() >= 3) {
-            const char* bufferEnd = buffer_.c_str() + buffer_.size() - 3;
-            
-            // Chinese punctuation marks (3-byte UTF-8)
-            static const std::vector<std::string> chinesePunctuation = {
-                "\xE3\x80\x82",     // 。
-                "\xEF\xBC\x8C",     // ，
-                "\xEF\xBC\x9B",     // ；
-                "\xEF\xBC\x9A",     // ：
-                "\xEF\xBC\x81",     // ！
-                "\xEF\xBC\x9F",     // ？
-                "\xE2\x80\xA6",     // …
-            };
-            
-            for (const auto& punct : chinesePunctuation) {
-                if (memcmp(bufferEnd, punct.c_str(), 3) == 0) {
-                    return true;
-                }
-            }
+
+        size_t sequenceStart = length - 1;
+        while (sequenceStart > 0 &&
+               (static_cast<unsigned char>(text[sequenceStart]) & 0xC0) == 0x80) {
+            --sequenceStart;
         }
-        
-        // Check 2-byte punctuation
-        if (buffer_.size() >= 2) {
-            const char* bufferEnd = buffer_.c_str() + buffer_.size() - 2;
-            if (memcmp(bufferEnd, "\xE2\x80\x93", 2) == 0 ||  // –
-                memcmp(bufferEnd, "\xE2\x80\x94", 2) == 0) {  // —
-                return true;
-            }
+
+        const unsigned char leadingByte = static_cast<unsigned char>(text[sequenceStart]);
+        size_t expectedLength = 1;
+        if ((leadingByte & 0xE0) == 0xC0) {
+            expectedLength = 2;
+        } else if ((leadingByte & 0xF0) == 0xE0) {
+            expectedLength = 3;
+        } else if ((leadingByte & 0xF8) == 0xF0) {
+            expectedLength = 4;
         }
-        
-        return false;
+
+        const size_t availableLength = length - sequenceStart;
+        return availableLength < expectedLength ? sequenceStart : length;
     }
     
     CallBack callback_ = nullptr;
@@ -837,15 +816,58 @@ bool removeDirectorySafely(const std::string& path) {
         }
         
         NSDictionary *configDict = [NSJSONSerialization JSONObjectWithData:configData options:0 error:&error];
-        if (error) {
+        if (error || ![configDict isKindOfClass:[NSDictionary class]]) {
             NSLog(@"Error parsing config JSON: %@", error.localizedDescription);
             return NO;
         }
+
+        // Merge the writable settings created by the gear UI before loading
+        // the model. Backend, precision, thread count, and mmap are load-time
+        // settings; applying them after _llm->load() cannot recreate runtime.
+        NSMutableDictionary *mergedConfig = [configDict mutableCopy];
+        NSString *documentsPath = [NSSearchPathForDirectoriesInDomains(
+            NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        NSString *modelName = [modelPath lastPathComponent];
+        NSString *customConfigPath = [[documentsPath stringByAppendingPathComponent:@"MNNConfigs"]
+            stringByAppendingPathComponent:modelName];
+        customConfigPath = [customConfigPath stringByAppendingPathComponent:@"custom_config.json"];
+
+        NSData *customConfigData = [NSData dataWithContentsOfFile:customConfigPath];
+        if (customConfigData) {
+            NSError *customError = nil;
+            NSDictionary *customConfig = [NSJSONSerialization JSONObjectWithData:customConfigData
+                                                                           options:0
+                                                                             error:&customError];
+            if (!customError && [customConfig isKindOfClass:[NSDictionary class]]) {
+                [mergedConfig addEntriesFromDictionary:customConfig];
+
+                // Promote legacy gear keys when a bundled config already has
+                // the canonical spelling, which otherwise takes precedence.
+                NSDictionary<NSString *, NSString *> *legacyKeyMap = @{
+                    @"topK": @"top_k",
+                    @"topP": @"top_p",
+                    @"minP": @"min_p",
+                    @"tfsZ": @"tfs_z",
+                    @"penalty": @"repetition_penalty",
+                    @"nGram": @"n_gram",
+                    @"nGramFactor": @"ngram_factor",
+                };
+                for (NSString *legacyKey in legacyKeyMap) {
+                    NSString *canonicalKey = legacyKeyMap[legacyKey];
+                    if (customConfig[canonicalKey] == nil && customConfig[legacyKey] != nil) {
+                        mergedConfig[canonicalKey] = customConfig[legacyKey];
+                    }
+                }
+            } else {
+                NSLog(@"Warning: Ignoring invalid custom config at %@: %@",
+                      customConfigPath, customError.localizedDescription);
+            }
+        }
         
         // Get memory mapping setting with default fallback
-        BOOL useMmap = configDict[@"use_mmap"] == nil ? YES : [configDict[@"use_mmap"] boolValue];
-        _maxNewTokens = configDict[@"max_new_tokens"] ? [configDict[@"max_new_tokens"] intValue] : 999999;
-        if (_maxNewTokens <= 0) { _maxNewTokens = 999999; }
+        BOOL useMmap = mergedConfig[@"use_mmap"] == nil ? YES : [mergedConfig[@"use_mmap"] boolValue];
+        int configuredMaxNewTokens = mergedConfig[@"max_new_tokens"] ? [mergedConfig[@"max_new_tokens"] intValue] : 128;
+        _maxNewTokens = std::max(1, std::min(4096, configuredMaxNewTokens));
         
         // Create LLM instance with error checking
         _llm.reset(MNN::Transformer::Llm::createLLM(config_path));
@@ -857,8 +879,8 @@ bool removeDirectorySafely(const std::string& path) {
         // Setup temporary directory with improved error handling
         // Use iOS system temporary directory instead of model path (which is read-only in Bundle)
         NSString *tempDir = NSTemporaryDirectory();
-        NSString *modelName = [[modelPath lastPathComponent] stringByDeletingPathExtension];
-        NSString *tempDirPath = [tempDir stringByAppendingPathComponent:[NSString stringWithFormat:@"MNN_%@_temp", modelName]];
+        NSString *tempModelName = [[modelPath lastPathComponent] stringByDeletingPathExtension];
+        NSString *tempDirPath = [tempDir stringByAppendingPathComponent:[NSString stringWithFormat:@"MNN_%@_temp", tempModelName]];
         std::string temp_directory_path = [tempDirPath UTF8String];
         
         // Clean up existing temp directory
@@ -879,6 +901,20 @@ bool removeDirectorySafely(const std::string& path) {
         std::string configStr = "{\"tmp_path\":\"" + temp_directory_path + "\", \"use_mmap\":" + (useMmapCpp ? "true" : "false") + "}";
         
         _llm->set_config(configStr);
+
+        NSData *mergedConfigData = [NSJSONSerialization dataWithJSONObject:mergedConfig options:0 error:&error];
+        if (!mergedConfigData || error) {
+            NSLog(@"Error serializing merged model config: %@", error.localizedDescription);
+            _llm.reset();
+            return NO;
+        }
+        NSString *mergedConfigString = [[NSString alloc] initWithData:mergedConfigData encoding:NSUTF8StringEncoding];
+        _llm->set_config(std::string([mergedConfigString UTF8String]));
+        NSLog(@"Loading model with backend=%@, precision=%@, threads=%@, use_mmap=%@",
+              mergedConfig[@"backend_type"] ?: @"cpu",
+              mergedConfig[@"precision"] ?: @"low",
+              mergedConfig[@"thread_num"] ?: @4,
+              useMmap ? @"true" : @"false");
         _llm->load();
         
         NSLog(@"Model loaded successfully from path: %@", modelPath);
@@ -915,11 +951,16 @@ bool removeDirectorySafely(const std::string& path) {
         // Validate JSON format
         NSError *error = nil;
         NSData *jsonData = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
-        [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
+        NSDictionary *config = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
         
-        if (error) {
+        if (error || ![config isKindOfClass:[NSDictionary class]]) {
             NSLog(@"Error: Invalid JSON configuration: %@", error.localizedDescription);
             return;
+        }
+
+        NSNumber *maxNewTokens = config[@"max_new_tokens"];
+        if ([maxNewTokens isKindOfClass:[NSNumber class]]) {
+            _maxNewTokens = std::max(1, std::min(4096, [maxNewTokens intValue]));
         }
         
         const char *cString = [jsonStr UTF8String];
@@ -992,6 +1033,7 @@ bool removeDirectorySafely(const std::string& path) {
     if (!_llm) {
         if (output) {
             output(@"Error: Model not loaded. Please initialize the model first.");
+            output(@"<eop>");
         }
         return;
     }
@@ -999,6 +1041,7 @@ bool removeDirectorySafely(const std::string& path) {
     if (!input || input.length == 0) {
         if (output) {
             output(@"Error: Input text is empty.");
+            output(@"<eop>");
         }
         return;
     } else {
@@ -1010,23 +1053,12 @@ bool removeDirectorySafely(const std::string& path) {
     if (_isProcessing.load()) {
         if (output) {
             output(@"Error: Another inference is already in progress.");
+            output(@"<eop>");
         }
         return;
     }
         
-    // Get initial context state BEFORE inference starts
     auto* context = _llm->getContext();
-    int initial_prompt_len = 0;
-    int initial_decode_len = 0;
-    int64_t initial_prefill_time = 0;
-    int64_t initial_decode_time = 0;
-    
-    if (context && showPerformance) {
-        initial_prompt_len = context->prompt_len;
-        initial_decode_len = context->gen_seq_len;
-        initial_prefill_time = context->prefill_us;
-        initial_decode_time = context->decode_us;
-    }
 
     _isProcessing = true;
     
@@ -1038,12 +1070,19 @@ bool removeDirectorySafely(const std::string& path) {
         // Check if object is still valid before proceeding
         if (!blockSelf || !blockSelf->_llm) {
             NSLog(@"LLMInferenceEngineWrapper was deallocated or model unloaded during inference");
+            if (blockSelf) {
+                blockSelf->_isProcessing = false;
+            }
+            if (output) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    output(@"Error: Model was unloaded during inference.");
+                    output(@"<eop>");
+                });
+            }
             return;
         }
         
         @try {
-            auto inference_start_time = std::chrono::high_resolution_clock::now();
-            
             OptimizedLlmStreamBuffer::CallBack callback = [output](const char* str, size_t len) {
                 if (output && str && len > 0) {
                     @autoreleasepool {
@@ -1061,13 +1100,19 @@ bool removeDirectorySafely(const std::string& path) {
             
             OptimizedLlmStreamBuffer streambuf(callback);
             std::ostream os(&streambuf);
-            
-            // Thread-safe history management
+
+            // Every request is an independent single-turn conversation. Reset both
+            // the engine KV/prompt cache and the wrapper-visible history before
+            // constructing the current request.
+            blockSelf->_llm->reset();
+            std::vector<ChatMessage> requestHistory;
+            requestHistory.emplace_back(ChatMessage("user", [input UTF8String]));
             {
                 std::lock_guard<std::mutex> lock(blockSelf->_historyMutex);
-                blockSelf->_history.emplace_back(ChatMessage("user", [input UTF8String]));
+                blockSelf->_history = requestHistory;
             }
-            
+
+            bool stoppedByUser = false;
             std::string inputStr = [input UTF8String];
             #ifdef DEBUG
             if (inputStr == "benchmark") {
@@ -1083,10 +1128,10 @@ bool removeDirectorySafely(const std::string& path) {
                 @try {
                     // Debug information for prompt
                     std::string prompt_debug = "";
-                    for (const auto& msg : blockSelf->_history) {
+                    for (const auto& msg : requestHistory) {
                         prompt_debug += msg.first + ": " + msg.second + "\n";
                     }
-                    NSLog(@"submitNative prompt_string_for_debug:\n%s\nmax_new_tokens_: %d", prompt_debug.c_str(), 999999);
+                    NSLog(@"submitNative prompt_string_for_debug:\n%s\nmax_new_tokens_: %d", prompt_debug.c_str(), blockSelf->_maxNewTokens);
                     // dump_config may not be available in all builds of MNN; guard the call
 #if defined(MNN_LLM_HAS_DUMP_CONFIG)
                     if (blockSelf->_llm) {
@@ -1099,7 +1144,10 @@ bool removeDirectorySafely(const std::string& path) {
                     NSLog(@"[AudioWrapper] Inference start (text): enable_audio_output=%@, talker_speaker=%@", blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO", blockSelf->_talkerSpeaker ?: @"(nil)");
                     
                     // Start inference with initial response processing
-                    blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 1);
+                    // The wrapper owns the sole UI completion event. An empty
+                    // engine end marker still flushes on EOS without terminating
+                    // the Swift stream before performance metrics are emitted.
+                    blockSelf->_llm->response(requestHistory, &os, "", 1);
                     
                     int current_size = 1;
                     int max_new_tokens = blockSelf->_maxNewTokens;
@@ -1126,41 +1174,26 @@ bool removeDirectorySafely(const std::string& path) {
                               blockSelf->_shouldStopInference.load() ? @"YES" : @"NO",
                               blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO");
                     }
-                    
-                    // Send appropriate end signal based on stop reason
-                    if (output) {
-                        dispatch_async(dispatch_get_main_queue(), ^{
-                            if (blockSelf->_shouldStopInference.load()) {
-                                output(@"<stoped>");
-                            } else {
-                                output(@"<eop>");
-                            }
-                        });
-                    }
+
+                    stoppedByUser = blockSelf->_shouldStopInference.load();
                     
                     NSLog(@"Inference completed. Generated tokens: %d, Stopped by user: %s, Model stopped: %s", 
                           current_size, 
-                          blockSelf->_shouldStopInference.load() ? "YES" : "NO",
+                          stoppedByUser ? "YES" : "NO",
                           blockSelf->_llm->stoped() ? "YES" : "NO");
                     
                 } @catch (NSException *exception) {
                     NSLog(@"Exception during response generation: %@", exception.reason);
                     
-                    // Send end signal even on error to unlock UI
-                    if (output) {
-                        dispatch_async(dispatch_get_main_queue(), ^{
-                            output(@"<eop>");
-                        });
-                    }
                 }
-                
+
+                // Drain the final short response fragment before performance and
+                // completion are queued. dispatch_get_main_queue() is serial, so the
+                // callback order below is preserved by the UI layer.
+                os.flush();
+
                 // Calculate performance metrics if requested
                 if (showPerformance && context) {
-                    auto inference_end_time = std::chrono::high_resolution_clock::now();
-                    auto total_inference_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        inference_end_time - inference_start_time
-                    );
-                    
                     int prompt_len = 0;
                     int decode_len = 0;
                     int64_t prefill_time = 0;
@@ -1190,14 +1223,22 @@ bool removeDirectorySafely(const std::string& path) {
                     
                     // Output performance results on main queue
                     std::string perf_str = performance_output.str();
+                    NSLog(@"LLM performance:%s", perf_str.c_str());
                     if (output) {
                         dispatch_async(dispatch_get_main_queue(), ^{
                             NSString *perfOutput = [NSString stringWithUTF8String:perf_str.c_str()];
                             if (perfOutput) {
-                                output(perfOutput);
+                                output([@"<performance>" stringByAppendingString:perfOutput]);
                             }
                         });
                     }
+                }
+
+                // Completion must always be the final callback for this request.
+                if (output) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        output(stoppedByUser ? @"<stoped>" : @"<eop>");
+                    });
                 }
             }
         }
@@ -1206,6 +1247,7 @@ bool removeDirectorySafely(const std::string& path) {
             if (output) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     output([NSString stringWithFormat:@"Error: Inference failed - %@", exception.reason]);
+                    output(@"<eop>");
                 });
             }
         }
@@ -1222,6 +1264,7 @@ bool removeDirectorySafely(const std::string& path) {
     if (!_llm) {
         if (output) {
             output(@"Error: Model not loaded. Please initialize the model first.");
+            output(@"<eop>");
         }
         return;
     }
@@ -1236,6 +1279,7 @@ bool removeDirectorySafely(const std::string& path) {
     if (_isProcessing.load()) {
         if (output) {
             output(@"Error: Another inference is already in progress.");
+            output(@"<eop>");
         }
         return;
     }
@@ -1248,6 +1292,15 @@ bool removeDirectorySafely(const std::string& path) {
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         if (!blockSelf || !blockSelf->_llm) {
+            if (blockSelf) {
+                blockSelf->_isProcessing = false;
+            }
+            if (output) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    output(@"Error: Model was unloaded during inference.");
+                    output(@"<eop>");
+                });
+            }
             return;
         }
         
@@ -1270,6 +1323,8 @@ bool removeDirectorySafely(const std::string& path) {
             
             OptimizedLlmStreamBuffer streambuf(callback);
             std::ostream os(&streambuf);
+            blockSelf->_llm->reset();
+            bool stoppedByUser = false;
             
             std::string original_prompt = promptTemplate ? [promptTemplate UTF8String] : "";
             std::string sanitized_prompt = original_prompt;
@@ -1386,15 +1441,17 @@ bool removeDirectorySafely(const std::string& path) {
             }
             multimodal_input.prompt_template = sanitized_prompt;
             
+            // Keep only the current turn for text fallback and debugging. Media
+            // placeholders are replaced so the wrapper never retains stale assets.
+            std::string history_prompt = sanitized_prompt;
+            history_prompt = std::regex_replace(history_prompt, std::regex("<img>.*?</img>"), "[image]");
+            history_prompt = std::regex_replace(history_prompt, std::regex("<audio>.*?</audio>"), "[audio]");
+            history_prompt = std::regex_replace(history_prompt, std::regex("<video>.*?</video>"), "[video]");
+            std::vector<ChatMessage> requestHistory;
+            requestHistory.emplace_back(ChatMessage("user", history_prompt));
             {
-                // Store a placeholder-stripped copy in history so later turns do not
-                // re-parse <img>/<audio>/<video> tags and re-inject stale media.
-                std::string history_prompt = sanitized_prompt;
-                history_prompt = std::regex_replace(history_prompt, std::regex("<img>.*?</img>"), "[image]");
-                history_prompt = std::regex_replace(history_prompt, std::regex("<audio>.*?</audio>"), "[audio]");
-                history_prompt = std::regex_replace(history_prompt, std::regex("<video>.*?</video>"), "[video]");
                 std::lock_guard<std::mutex> lock(blockSelf->_historyMutex);
-                blockSelf->_history.emplace_back(ChatMessage("user", history_prompt));
+                blockSelf->_history = requestHistory;
             }
             
             blockSelf->_shouldStopInference = false;
@@ -1410,9 +1467,9 @@ bool removeDirectorySafely(const std::string& path) {
 #endif
             NSLog(@"[AudioWrapper] Inference start (multimodal): enable_audio_output=%@, talker_speaker=%@", blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO", blockSelf->_talkerSpeaker ?: @"(nil)");
             if (useMultimodal) {
-                blockSelf->_llm->response(multimodal_input, &os, "<eop>", 1);
+                blockSelf->_llm->response(multimodal_input, &os, "", 1);
             } else {
-                blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 1);
+                blockSelf->_llm->response(requestHistory, &os, "", 1);
             }
             
             int current_size = 1;
@@ -1434,21 +1491,16 @@ bool removeDirectorySafely(const std::string& path) {
                       blockSelf->_shouldStopInference.load() ? @"YES" : @"NO",
                       blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO");
             }
-            
-            if (output) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    if (blockSelf->_shouldStopInference.load()) {
-                        output(@"<stoped>");
-                    } else {
-                        output(@"<eop>");
-                    }
-                });
-            }
-            
+
+            stoppedByUser = blockSelf->_shouldStopInference.load();
+            NSLog(@"Multimodal inference completed. Generated tokens: %d, Stopped by user: %s, Model stopped: %s",
+                  current_size,
+                  stoppedByUser ? "YES" : "NO",
+                  blockSelf->_llm->stoped() ? "YES" : "NO");
+
+            os.flush();
+
             if (showPerformance && context) {
-                auto inference_end_time = std::chrono::high_resolution_clock::now();
-                (void)inference_end_time;
-                
                 int prompt_len = context->prompt_len;
                 int decode_len = context->gen_seq_len;
                 int64_t prefill_time = context->prefill_us;
@@ -1469,14 +1521,21 @@ bool removeDirectorySafely(const std::string& path) {
                                    << decode_len << " tokens, " << std::setprecision(2) << decode_speed << " tokens/s\n";
                 
                 std::string perf_str = performance_output.str();
+                NSLog(@"Multimodal LLM performance:%s", perf_str.c_str());
                 if (output) {
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        NSString *perfOutput = [NSString stringWithUTF8String:perf_str.c_str()];
-                        if (perfOutput) {
-                            output(perfOutput);
-                        }
+                    NSString *perfOutput = [NSString stringWithUTF8String:perf_str.c_str()];
+                    if (perfOutput) {
+                        output([@"<performance>" stringByAppendingString:perfOutput]);
+                    }
                     });
                 }
+            }
+
+            if (output) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    output(stoppedByUser ? @"<stoped>" : @"<eop>");
+                });
             }
         }
         @catch (NSException *exception) {
@@ -1484,6 +1543,7 @@ bool removeDirectorySafely(const std::string& path) {
             if (output) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     output([NSString stringWithFormat:@"Error: Inference failed - %@", exception.reason]);
+                    output(@"<eop>");
                 });
             }
         }
@@ -2462,7 +2522,7 @@ bool removeDirectorySafely(const std::string& path) {
                     self->_llm->response(self->_history, &os, "<eop>", 1);
 
                     int current_size = 1;
-                    const int max_new_tokens = 999999;
+                    const int max_new_tokens = self->_maxNewTokens;
                     while (!self->_shouldStopInference.load() && !self->_llm->stoped() && current_size < max_new_tokens) {
                         self->_llm->generate(1);
                         current_size++;

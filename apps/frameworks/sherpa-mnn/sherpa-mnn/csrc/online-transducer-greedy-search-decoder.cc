@@ -88,6 +88,7 @@ void OnlineTransducerGreedySearchDecoder::Decode(
   int32_t batch_size = static_cast<int32_t>(encoder_out_shape[0]);
   int32_t num_frames = static_cast<int32_t>(encoder_out_shape[1]);
   int32_t vocab_size = model_->VocabSize();
+  std::vector<float> scores(vocab_size);
 
   MNN::Express::VARP decoder_out{nullptr};
   bool is_batch_decoder_out_cached = true;
@@ -118,19 +119,26 @@ void OnlineTransducerGreedySearchDecoder::Decode(
     MNN::Express::VARP logit =
         model_->RunJoiner(std::move(cur_encoder_out), View(decoder_out));
 
-    float *p_logit = logit->writeMap<float>();
+    // A computed output can live in device-only memory. writeMap() returns
+    // nullptr for such Metal variables, while readMap() synchronizes the
+    // result back to host memory. Use a writable host scratch because blank
+    // penalty and LogSoftmax modify the scores during decoding.
+    const float *p_logit = logit->readMap<float>();
+    if (p_logit == nullptr) {
+      SHERPA_ONNX_LOGE("Failed to map transducer joiner output for reading");
+      return;
+    }
 
     bool emitted = false;
     for (int32_t i = 0; i < batch_size; ++i, p_logit += vocab_size) {
       auto &r = (*result)[i];
+      std::copy(p_logit, p_logit + vocab_size, scores.begin());
       if (blank_penalty_ > 0.0) {
-        p_logit[0] -= blank_penalty_;  // assuming blank id is 0
+        scores[0] -= blank_penalty_;  // assuming blank id is 0
       }
 
       auto y = static_cast<int32_t>(std::distance(
-          static_cast<const float *>(p_logit),
-          std::max_element(static_cast<const float *>(p_logit),
-                           static_cast<const float *>(p_logit) + vocab_size)));
+          scores.cbegin(), std::max_element(scores.cbegin(), scores.cend())));
       // blank id is hardcoded to 0
       // also, it treats unk as blank
       if (y != 0 && y != unk_id_) {
@@ -146,15 +154,12 @@ void OnlineTransducerGreedySearchDecoder::Decode(
       if (y != 0 && y != unk_id_) {
         // apply temperature-scaling
         for (int32_t n = 0; n < vocab_size; ++n) {
-          p_logit[n] /= temperature_scale_;
+          scores[n] /= temperature_scale_;
         }
-        LogSoftmax(p_logit, vocab_size);   // renormalize probabilities,
-                                           // save time by doing it only for
-                                           // emitted symbols
-        const float *p_logprob = p_logit;  // rename p_logit as p_logprob,
-                                           // now it contains normalized
-                                           // probability
-        r.ys_probs.push_back(p_logprob[y]);
+        LogSoftmax(scores.data(), vocab_size);  // renormalize probabilities,
+                                                // save time by doing it only
+                                                // for emitted symbols
+        r.ys_probs.push_back(scores[y]);
       }
     }
     if (emitted) {
