@@ -238,8 +238,14 @@ private:
                                          const std::map<std::string, PromptVideoPart>& videos);
     void responseInterleaved(const std::vector<int>& input_ids, std::ostream* os, const char* end_with,
                              int max_new_tokens);
+    // Drops the multimodal embedding pools and rewinds the cursors that index them.
+    void resetMultimodalState();
     std::shared_ptr<Module> mVisionModule, mAudioModule;
     std::vector<VARP> mExtraArgs, mVisionEmbeddings, mAudioEmbeddings, mDeepStackEmbeddings;
+    // Chunked prefill feeds one prompt through several embedding() calls, so the multimodal
+    // cursor (which embedding is in use, how many rows of it were consumed) must live across
+    // calls instead of being a local variable.
+    int mVisionIndex = 0, mVisionConsumed = 0;
     VARP mVisionPositionIdsCache, mVisionAttentionMaskCache, mVisionWindowAttentionMaskCache;
     VARP mVisionIdxTensorCache, mVisionWeightTensorCache, mVisionWindowIndexCache;
     std::shared_ptr<Talker> mTalker;

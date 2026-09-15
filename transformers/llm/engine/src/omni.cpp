@@ -1955,6 +1955,14 @@ void Omni::addPositionIds(int t, int h, int w) {
     }
 }
 
+void Omni::resetMultimodalState() {
+    mVisionEmbeddings.clear();
+    mAudioEmbeddings.clear();
+    mDeepStackEmbeddings.clear();
+    mVisionIndex = 0;
+    mVisionConsumed = 0;
+}
+
 std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
     std::string prompt = multimodal_input.prompt_template;
     std::regex multimode_regex(kOmniMultimodalRegex);
@@ -1962,9 +1970,12 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     std::smatch match;
     std::vector<int> ids{};
     mPositionIds.clear();
-    mVisionEmbeddings.clear();
-    mAudioEmbeddings.clear();
-    mDeepStackEmbeddings.clear();
+    // A fresh prompt replaces every embedding, so the chunked-prefill cursors must be rewound with
+    // them. Otherwise a previous round that returned early in the middle of a chunked prefill
+    // (llm.cpp aborts the chunk loop when embedding() returns nullptr) would make this round start
+    // reading the new embeddings from the old offset: rows silently skipped, fewer rows than pads
+    // taken, or the following image's embedding used for this one.
+    resetMultimodalState();
     mVisionNum = 0;
     if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
         mExtraArgs[0] = Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0));
@@ -2101,6 +2112,84 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             deepstacks.push_back(Express::_Fill(_var<int>(deepstackShape, {static_cast<int>(deepstackShape.size())}), _Scalar<float>(0.0)));
         }
     };
+    // Number of consecutive pads of one multimodal run that fall inside this call.
+    auto padRunLength = [](const std::vector<int>& ids, int start, int padId) {
+        int count = 0;
+        while (start + count < static_cast<int>(ids.size()) && ids[start + count] == padId) {
+            count++;
+        }
+        return count;
+    };
+    // Rows this call may take from pool[index]. Chunked prefill can cut one image in the middle,
+    // in which case the remaining rows belong to the following chunks.
+    auto modalTake = [](const std::vector<VARP>& pool, int index, int consumed, int padCount, int& begin) {
+        begin = consumed;
+        if (index < 0 || index >= static_cast<int>(pool.size()) || padCount <= 0) {
+            return 0;
+        }
+        auto info = pool[index]->getInfo();
+        if (info == nullptr || info->dim.empty()) {
+            return 0;
+        }
+        return std::max(0, std::min(padCount, info->dim[0] - consumed));
+    };
+    auto modalCommit = [](const std::vector<VARP>& pool, int& index, int& consumed, int take) {
+        if (index < 0 || index >= static_cast<int>(pool.size()) || take <= 0) {
+            return;
+        }
+        consumed += take;
+        auto info = pool[index]->getInfo();
+        if (info != nullptr && !info->dim.empty() && consumed >= info->dim[0]) {
+            consumed = 0;
+            index++;
+        }
+    };
+    // Multimodal embeddings are indexed by token (dim[0]); deepstack features carry a leading
+    // layer dim, so their token dim is dim[1].
+    auto sliceModalRows = [](VARP tensor, int begin, int count) -> VARP {
+        auto info = tensor->getInfo();
+        if (info == nullptr || info->dim.empty()) {
+            return tensor;
+        }
+        if (begin == 0 && count == info->dim[0]) {
+            return tensor;
+        }
+        if (info->dim.size() == 3) {
+            return Express::_Slice(tensor, _var<int>({begin, 0, 0}, {3}),
+                                   _var<int>({count, info->dim[1], info->dim[2]}, {3}));
+        }
+        return Express::_Slice(tensor, _var<int>({begin, 0}, {2}), _var<int>({count, info->dim[1]}, {2}));
+    };
+    // A multimodal tensor may be an intermediate result of the vision/audio module, and MNN can
+    // release those buffers once the forward pass that used them finishes. Chunked prefill keeps
+    // using them across calls, so copy them into a buffer we own before that happens.
+    auto materialize = [](std::vector<VARP>& pool, int index) {
+        if (index < 0 || index >= static_cast<int>(pool.size())) {
+            return;
+        }
+        auto info = pool[index]->getInfo();
+        if (info == nullptr || info->dim.empty()) {
+            return;
+        }
+        auto src = pool[index]->readMap<float>();
+        if (src == nullptr) {
+            return;
+        }
+        auto fresh = Express::_Input(info->dim, info->order);
+        ::memcpy(fresh->writeMap<float>(), src, info->size * sizeof(float));
+        pool[index] = fresh;
+    };
+    auto sliceDeepstackRows = [](VARP tensor, int begin, int count) -> VARP {
+        auto info = tensor->getInfo();
+        if (info == nullptr || info->dim.size() != 3) {
+            return tensor;
+        }
+        if (begin == 0 && count == info->dim[1]) {
+            return tensor;
+        }
+        return Express::_Slice(tensor, _var<int>({0, begin, 0}, {3}),
+                               _var<int>({info->dim[0], count, info->dim[2]}, {3}));
+    };
     for (int i = 0; i < input_ids.size(); i++) {
         int id = input_ids[i];
         // audio
@@ -2134,14 +2223,27 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             if(txt_embedding == nullptr) {
                 return nullptr;
             }
-            if (hasDeepStack) {
-                deepstacksTxt();
-                auto deepstack_embedding = mDeepStackEmbeddings[vision_idx];
-                deepstacks.push_back(deepstack_embedding);
+            int begin = 0;
+            int padCount = padRunLength(input_ids, i, mVisionPad);
+            int take = modalTake(mVisionEmbeddings, mVisionIndex, mVisionConsumed, padCount, begin);
+            if (take > 0) {
+                auto rows = mVisionEmbeddings[mVisionIndex]->getInfo();
+                if (rows != nullptr && begin + take < rows->dim[0]) {
+                    // more rows are needed by a following chunk
+                    materialize(mVisionEmbeddings, mVisionIndex);
+                    materialize(mDeepStackEmbeddings, mVisionIndex);
+                }
+                if (hasDeepStack && mVisionIndex < static_cast<int>(mDeepStackEmbeddings.size())) {
+                    deepstacksTxt();
+                    deepstacks.push_back(sliceDeepstackRows(mDeepStackEmbeddings[mVisionIndex], begin, take));
+                }
+                embeddings.push_back(txt_embedding);
+                embeddings.push_back(sliceModalRows(mVisionEmbeddings[mVisionIndex], begin, take));
+                modalCommit(mVisionEmbeddings, mVisionIndex, mVisionConsumed, take);
             }
-            auto mul_embedding = mVisionEmbeddings[vision_idx++];
-            embeddings.push_back(txt_embedding);
-            embeddings.push_back(mul_embedding);
+            // The text run in front of this multimodal run was already emitted above; drop it so
+            // the tail flush cannot emit it a second time when the chunk ends inside the run.
+            cur_txt_ids.clear();
             inVision = true;
         }
         // video
@@ -2167,7 +2269,12 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             embeddings.push_back(mul_embedding);
             inVideo = true;
         }
-        cur_txt_ids.push_back(id);
+        // A multimodal pad is not text: the run-start branch above already emitted its part, and
+        // the remaining pads of the run are skipped by `continue`. Adding it here would let the
+        // tail flush emit one extra token for every run that ends the chunk.
+        if (id != mVisionPad) {
+            cur_txt_ids.push_back(id);
+        }
     }
     if (!cur_txt_ids.empty()) {
         auto txt_embedding = Llm::embedding(cur_txt_ids);
@@ -2199,9 +2306,11 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
         ::memcpy(freshEmbed->writeMap<float>(), cPtr, cInfo->size * sizeof(float));
         mergedEmbed = freshEmbed;
     }
-    mVisionEmbeddings.clear();
-    mAudioEmbeddings.clear();
-    mDeepStackEmbeddings.clear();
+    // Keep the multimodal embeddings alive while chunked prefill still has rows to feed: the next
+    // chunk continues from the stored cursor. Only drop them once every row was consumed.
+    if (mVisionIndex >= static_cast<int>(mVisionEmbeddings.size())) {
+        resetMultimodalState();
+    }
     // Qwen3-VL
     if (hasDeepStack) {
         mExtraArgs[0] = Express::_Concat(deepstacks, 1);
@@ -2290,7 +2399,9 @@ std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::
             const int sourceLength = deepstackInfo->dim[1];
             const int hiddenSize = deepstackInfo->dim[2];
             const int sourceOffset = mContext->gen_seq_len > 0 ? sourceLength : mContext->all_seq_len;
-            if (sourceOffset != 0 || sourceLength != targetLength) {
+            // embedding() now builds a deepstack tensor that already matches the current chunk,
+            // so only realign when the lengths differ (e.g. the single token decode step).
+            if (sourceLength != targetLength) {
                 auto alignedDeepstack = Express::_Input({deepstackInfo->dim[0], targetLength, hiddenSize}, NCHW);
                 auto dst = alignedDeepstack->writeMap<float>();
                 const auto src = deepstack->readMap<float>();
