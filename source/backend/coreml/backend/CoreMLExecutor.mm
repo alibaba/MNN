@@ -202,6 +202,16 @@ NSURL* createTemporaryFile() {
     size_t modelSize = core_ml__specification__model__get_packed_size(model);
     std::unique_ptr<uint8_t> writeBuffer(new uint8_t[modelSize]);
     core_ml__specification__model__pack(model, writeBuffer.get());
+    // [coreml-rec-fix] keep a copy of the serialized spec for offline
+    // inspection / bisection when MNN_COREML_DUMP_SPEC is set.
+    if (getenv("MNN_COREML_DUMP_SPEC")) {
+        NSString* dumpPath = [NSString stringWithFormat:@"%s/mnn_coreml_dump.mlmodel",
+                              getenv("MNN_COREML_DUMP_SPEC")];
+        [[NSFileManager defaultManager] createFileAtPath:dumpPath
+            contents:[NSData dataWithBytes:writeBuffer.get() length:modelSize]
+            attributes:nil];
+        NSLog(@"[coreml-rec-fix] dumped spec (%zu bytes) to %@", modelSize, dumpPath);
+    }
     // TODO: Can we mmap this instead of actual writing it to phone ?
     std::ofstream file_stream([modelPath UTF8String], std::ios::out | std::ios::binary);
     const char* ptr = reinterpret_cast<const char*>(writeBuffer.get());

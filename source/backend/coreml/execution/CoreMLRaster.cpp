@@ -8,6 +8,9 @@
 
 #include "CoreMLRaster.hpp"
 #include <cmath>
+#include <cstdio>
+#include <string>
+#include <vector>
 #include "core/OpCommonUtils.hpp"
 
 namespace MNN {
@@ -22,6 +25,34 @@ bool CoreMLRaster::buildReshape(CoreML__Specification__NeuralNetworkLayer* layer
     layer->reshapestatic = mCoreMLBackend->create<CoreML__Specification__ReshapeStaticLayerParams>();
     core_ml__specification__reshape_static_layer_params__init(layer->reshapestatic);
     auto outputShape = output->shape();
+    // [coreml-rec-fix] Canonicalize to rank-4 [N,C,H,W]. CoreML
+    // NeuralNetwork layers broadcast per-channel params on axis C of a
+    // rank-3/4 feature; a rank-3 MNN tensor like [1,160,40] (N=1) used to
+    // be emitted verbatim and the following scale/conv read C=1, then
+    // broadcast a [160]-gamma into a 160x-too-large tensor (seen as
+    // (160,160,40) shape explosions in PP-OCR rec's SE block). Appending
+    // trailing 1s (and treating shape[0]==1 as N) keeps memory order and
+    // restores C semantics.
+    if (outputShape.size() < 4) {
+        std::vector<int> canon;
+        if (outputShape.size() >= 2 && outputShape[0] == 1) {
+            // Leading singleton: it is N; next dim is C.
+            canon.push_back(1);                       // N
+            canon.push_back(outputShape[1]);          // C
+            for (size_t k = 2; k < outputShape.size(); k++) canon.push_back(outputShape[k]);
+        } else {
+            // Empirical (PP-OCR rec, M4/macOS 26): treat dim0 as C with a
+            // virtual N=1 — [48,960,1] becomes [1,48,960,1]. This is the
+            // only form that produced correct predictions end-to-end
+            // (checksum 39.996 vs CPU 40.000 at B=1). Keeping dim0 as N
+            // or plain-appending both broke every batch size.
+            canon.push_back(1);                       // N
+            canon.push_back(outputShape.size() >= 1 ? outputShape[0] : 1); // C
+            for (size_t k = 1; k < outputShape.size(); k++) canon.push_back(outputShape[k]);
+        }
+        while (canon.size() < 4) canon.push_back(1);
+        outputShape = canon;
+    }
     layer->reshapestatic->n_targetshape = outputShape.size();
     layer->reshapestatic->targetshape = mCoreMLBackend->create<int64_t>(layer->reshapestatic->n_targetshape);
     for (int i = 0; i < outputShape.size(); i++) {
@@ -44,6 +75,19 @@ bool CoreMLRaster::buildPermute(CoreML__Specification__NeuralNetworkLayer* layer
         reshapeLayer = layer;
     }
     mCoreMLBackend->setLayerName(permuteLayer, "Transpose");
+    // [coreml-rec-fix diagnostic]
+    if (getenv("MNN_COREML_DEBUG_PERMUTE")) {
+        auto si = input->shape(); auto so = output->shape();
+        const auto& rg = TensorUtils::getDescribe(input)->regions;
+        fprintf(stderr, "[permute] in=[%s] out=[%s] nreg=%zu", [&]{std::string s; for(auto d:si) s+=std::to_string(d)+","; return s;}().c_str(), [&]{std::string s; for(auto d:so) s+=std::to_string(d)+","; return s;}().c_str(), rg.size());
+        if (rg.size() == 1) {
+            fprintf(stderr, " size=[%d,%d,%d] src=[%d,%d,%d] dst=[%d,%d,%d]",
+                    rg[0].size[0], rg[0].size[1], rg[0].size[2],
+                    (int)rg[0].src.stride[0], (int)rg[0].src.stride[1], (int)rg[0].src.stride[2],
+                    (int)rg[0].dst.stride[0], (int)rg[0].dst.stride[1], (int)rg[0].dst.stride[2]);
+        }
+        fprintf(stderr, " needReshape=%d\n", (int)needReshape);
+    }
     permuteLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_TRANSPOSE;
     permuteLayer->transpose = mCoreMLBackend->create<CoreML__Specification__TransposeLayerParams>();
     core_ml__specification__transpose_layer_params__init(permuteLayer->transpose);
@@ -51,25 +95,157 @@ bool CoreMLRaster::buildPermute(CoreML__Specification__NeuralNetworkLayer* layer
     permuteLayer->transpose->axes = mCoreMLBackend->create<uint64_t>(permuteLayer->transpose->n_axes);
     auto srcFormat = TensorUtils::getDescribe(input)->dimensionFormat;
     auto dstFormat = TensorUtils::getDescribe(output)->dimensionFormat;
-    // NCHW -> NHWC
-    if ((srcFormat == MNN_DATA_FORMAT_NC4HW4 || srcFormat == MNN_DATA_FORMAT_NCHW)
-        && dstFormat == MNN_DATA_FORMAT_NHWC) {
+    // [coreml-rec-fix] Stride-derived axes first, for every format pair:
+    // the raster Region is the ground truth of the copy, the format
+    // heuristics below only apply when no usable region exists. This
+    // matters because rank-3 tensors carrying a NC4HW4/NHWC format tag
+    // (SE blocks, squeeze/unsqueeze chains in recognition models) used
+    // to hit the hardcoded rank-4 transposes and produced garbage axes.
+    bool axesFromRegion = false;
+    {
+        const auto& outRegions = TensorUtils::getDescribe(output)->regions;
+        const auto& regions = outRegions;
+        if (regions.size() == 1 && regions[0].origin == input) {
+            const auto& region = regions[0];
+            int inDim = region.origin->dimensions();
+            int outDim = output->dimensions();
+            int effIn = inDim < 3 ? 3 : inDim;
+            int effOut = outDim < 3 ? 3 : outDim;
+            int rank = effIn > effOut ? effIn : effOut;
+            if (rank <= 4) {
+                const int kNoStride = -1;
+                int srcStride[4], dstStride[4];
+                for (int i = 0; i < 4; i++) {
+                    srcStride[i] = (i < effIn - 3) ? kNoStride : -2;
+                    dstStride[i] = (i < effOut - 3) ? kNoStride : -2;
+                }
+                for (int i = 0; i < 3; i++) {
+                    int si = effIn - 3 + i;
+                    int di = effOut - 3 + i;
+                    int64_t ss = region.src.stride[i];
+                    int64_t ds = region.dst.stride[i];
+                    bool sSkip = (region.size[i] <= 1) || (ss == 0);
+                    bool dSkip = (region.size[i] <= 1) || (ds == 0);
+                    if (sSkip) ss = -3;
+                    if (dSkip) ds = -3;
+                    if (si >= 0) srcStride[si] = (int)ss;
+                    if (di >= 0) dstStride[di] = (int)ds;
+                }
+                int inShapeEff[4] = {1, 1, 1, 1};
+                int outShapeEff[4] = {1, 1, 1, 1};
+                {
+                    const auto ish = region.origin->shape();
+                    for (int i = 0; i < inDim && i < 4; i++) inShapeEff[i] = ish[i];
+                    const auto osh = output->shape();
+                    for (int i = 0; i < outDim && i < 4; i++) outShapeEff[i] = osh[i];
+                }
+                // [coreml-rec-fix] The Transpose layer operates at the
+                // INPUT's rank; any extra output dims are materialized by
+                // the trailing reshapeStatic. So axes has effIn entries,
+                // and matching walks INPUT axes j (outer->inner), finding
+                // for each the destination slot by stride equality in the
+                // region (dst enumerates the permuted order directly).
+                int rankIn = effIn;
+                int axes[4];
+                bool ok = true;
+                bool used[4] = {false, false, false, false};
+                // Destination slot strides in OUTPUT enumeration order
+                // (outer->inner of the region's dst loops):
+                int dstSlot[3] = { (int)region.dst.stride[0],
+                                  (int)region.dst.stride[1],
+                                  (int)region.dst.stride[2] };
+                int srcSlot[3] = { (int)region.src.stride[0],
+                                  (int)region.src.stride[1],
+                                  (int)region.src.stride[2] };
+                int szSlot[3] = { region.size[0], region.size[1], region.size[2] };
+                // Build the permutation as: for each input axis j (in the
+                // input's own C-order position), which region slot walks
+                // it contiguously? An input axis j is "slot k" iff the
+                // slot covers exactly that axis (slot stride == C-order
+                // stride of axis j in the origin, slot size == dim).
+                int64_t inStrides[4] = {0,0,0,0};
+                {
+                    int64_t acc = 1;
+                    for (int j = rankIn - 1; j >= 0; j--) {
+                        inStrides[j] = acc;
+                        acc *= inShapeEff[j];
+                    }
+                }
+                for (int j = 0; j < rankIn && ok; j++) {
+                    int slot = -1;
+                    for (int k = 0; k < 3; k++) {
+                        if (szSlot[k] == inShapeEff[j] && srcSlot[k] == (int)inStrides[j]) {
+                            slot = k;
+                            break;
+                        }
+                    }
+                    if (slot < 0) {
+                        // Singleton input axis: unconstrained; take the
+                        // first unused slot with size 1, else slot 0.
+                        for (int k = 0; k < 3; k++) {
+                            if (!used[k] && szSlot[k] <= 1) { slot = k; break; }
+                        }
+                    }
+                    if (slot < 0) slot = 0;
+                    if (used[slot]) { ok = false; break; }
+                    used[slot] = true;
+                    // axes[slot] = j: output slot `slot` (in dst loop
+                    // order, which IS the output C-order for the
+                    // transposed rank-in tensor) draws from input axis j.
+                    axes[slot] = j;
+                }
+                if (ok) {
+                    // Sanity: must be a permutation of 0..rankIn-1.
+                    bool seen[4] = {false,false,false,false};
+                    for (int k = 0; k < rankIn; k++) {
+                        if (axes[k] < 0 || axes[k] >= rankIn || seen[axes[k]]) { ok = false; break; }
+                        seen[axes[k]] = true;
+                    }
+                }
+                if (ok) {
+                    permuteLayer->transpose->n_axes = rankIn;
+                    for (int i = 0; i < rankIn; i++) {
+                        permuteLayer->transpose->axes[i] = axes[i];
+                    }
+                    axesFromRegion = true;
+                    if (getenv("MNN_COREML_DEBUG_PERMUTE")) {
+                        fprintf(stderr, "[permute-axes] rankIn=%d axes=[%d,%d,%d,%d] sz=[%d,%d,%d] src=[%d,%d,%d] dst=[%d,%d,%d] in=[%d,%d,%d,%d] inStr=[%d,%d,%d,%d]\n",
+                                rankIn, axes[0], axes[1], axes[2], axes[3],
+                                szSlot[0], szSlot[1], szSlot[2],
+                                srcSlot[0], srcSlot[1], srcSlot[2],
+                                dstSlot[0], dstSlot[1], dstSlot[2],
+                                inShapeEff[0], inShapeEff[1], inShapeEff[2], inShapeEff[3],
+                                (int)inStrides[0], (int)inStrides[1], (int)inStrides[2], (int)inStrides[3]);
+                    }
+                }
+            }
+        }
+    }
+    // NCHW -> NHWC (fallback, rank-4 only)
+    if (!axesFromRegion && (srcFormat == MNN_DATA_FORMAT_NC4HW4 || srcFormat == MNN_DATA_FORMAT_NCHW)
+        && dstFormat == MNN_DATA_FORMAT_NHWC && input->dimensions() == 4) {
+        permuteLayer->transpose->n_axes = 4;
         permuteLayer->transpose->axes[0] = 0;
         permuteLayer->transpose->axes[1] = 2;
         permuteLayer->transpose->axes[2] = 3;
         permuteLayer->transpose->axes[3] = 1;
     }
-    // NHWC -> NCHW
-    if ((dstFormat == MNN_DATA_FORMAT_NC4HW4 || srcFormat == MNN_DATA_FORMAT_NCHW)
-        && srcFormat == MNN_DATA_FORMAT_NHWC) {
+    // NHWC -> NCHW (fallback, rank-4 only)
+    if (!axesFromRegion && (dstFormat == MNN_DATA_FORMAT_NC4HW4 || srcFormat == MNN_DATA_FORMAT_NCHW)
+        && srcFormat == MNN_DATA_FORMAT_NHWC && input->dimensions() == 4) {
+        permuteLayer->transpose->n_axes = 4;
         permuteLayer->transpose->axes[0] = 0;
         permuteLayer->transpose->axes[1] = 3;
         permuteLayer->transpose->axes[2] = 1;
         permuteLayer->transpose->axes[3] = 2;
     }
-    if (srcFormat == dstFormat) {
+    if (!axesFromRegion) {
+        // Last-resort fallback: legacy shape-value matching. Only reached
+        // when no usable raster region exists. Clamped to the output rank
+        // so no stale slots survive (axis 0 twice = invalid permutation).
         auto inputShape = input->shape();
         auto outputShape = output->shape();
+        permuteLayer->transpose->n_axes = outputShape.size();
         for (int i = 0; i < outputShape.size(); i++) {
             auto dimVal = outputShape[i];
             auto axis = -1;
