@@ -234,6 +234,7 @@ protected:
     std::shared_ptr<DiskEmbedding> mDiskEmbedding;
     std::shared_ptr<DiskEmbedding> mPleEmbedding;
     Express::VARP mPleInput; // PLE embeddings for current input
+    Express::VARP mDeepstackInput; // deepstack placeholder for visual models
     Express::VARP mTextEmbedsForPle; // Pure text embeddings for PLE projection
     std::shared_ptr<Sampler> mSampler;
     std::shared_ptr<Express::Executor::RuntimeManager> mRuntimeManager, mProcessorRuntimeManager;
