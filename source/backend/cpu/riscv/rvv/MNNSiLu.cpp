@@ -1,17 +1,19 @@
 #include <riscv_vector.h>
+#include "../../compute/CommonOptFunction.h"
 
-// MNNExp lives in namespace MNN. Declaring it inside an extern "C" block (as
-// this file used to, because the whole file was wrapped in one) references the
-// unmangled name MNNExp, which nothing defines: the symbol in libMNN is
-// MNN::MNNExp. That only shows up when MNN_USE_RVV is on, which is not the
-// default configuration, so the build error stayed hidden.
-namespace MNN {
-void MNNExp(float* dst, const float* src, float* offset, size_t dataSize);
-} // namespace MNN
+// MNNExp is a global function with C linkage: CommonOptFunction.h declares it
+// inside an extern "C" block and its definition in CommonOptFunction.cpp sits
+// at global scope, so the symbol in libMNN is the unmangled `MNNExp`. Include
+// the header rather than redeclaring the helper, so the RVV translation unit
+// always sees the same declaration the library was built from.
+//
+// The entry points below are ordinary C++ functions: they are referenced by
+// name from the `supportRVV` branch in CommonOptFunction.cpp, which declares
+// them at namespace scope, so they must keep C++ linkage.
 
 void MNNSiLu_RVV(float* dst, const float* src, size_t dataSize) {
     float offset[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
-    MNN::MNNExp(dst, src, offset, dataSize);
+    ::MNNExp(dst, src, offset, dataSize);
     size_t n = dataSize;
     float* dstPtr = dst;
     const float* srcPtr = src;
@@ -38,7 +40,7 @@ void MNNSiLu_RVV(float* dst, const float* src, size_t dataSize) {
 
 void MNNSiLuLowp_RVV(float* dst, const float* src, size_t dataSize) {
     float offset[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
-    MNN::MNNExp(dst, src, offset, dataSize);
+    ::MNNExp(dst, src, offset, dataSize);
     size_t n = dataSize;
     float* dstPtr = dst;
     const float* srcPtr = src;
