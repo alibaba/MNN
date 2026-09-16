@@ -71,7 +71,8 @@ public:
 
         // Concurrent balanced addRef/decRef against a live baseline reference.
         const int kThreads = 4;
-        const int kCycles  = 20000;
+        // Static storage avoids lambda capture issues on MSVC (C3493).
+        static constexpr int kCycles = 20000;
         SharedPtr<TestRefObj> guard(new TestRefObj);
         TestRefObj* shared = guard.get();
         std::vector<std::thread> workers;
