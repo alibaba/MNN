@@ -27,6 +27,7 @@ endif()
 set_property(SOURCE
   ${CMAKE_CURRENT_LIST_DIR}/backend/riscv/RVVReductionReluTest.cpp
   ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVMatrixDeconvTest.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVImageProcessTest.cpp
   ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVC4AffineTest.cpp
   ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVMatMulTest.cpp
   APPEND PROPERTY

@@ -15,6 +15,16 @@
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
 
+#ifdef MNN_USE_RVV
+// Defined in source/backend/cpu/riscv/rvv/MNNMemcpyBytes.cpp, which is built
+// into the MNNRVV object library. Only MNNRVV is compiled with
+// -march=${MNN_RVV_BASE_MARCH}; this file belongs to MNNCPU, which receives
+// -DMNN_USE_RVV but no vector ISA flag, so the intrinsics cannot live here.
+// Same split as the other riscv/rvv kernels: compute/CommonOptFunction.cpp
+// declares every *_RVV kernel extern and selects it at runtime.
+void MNNMemcpyBytes_RVV(void* dst, const void* src, size_t size);
+#endif // MNN_USE_RVV
+
 #ifdef MNN_KLEIDIAI_ENABLED
 #include "backend/cpu/kleidiai/KleidiAIConvolutionDepthwise.hpp"
 #include "backend/cpu/CPURuntime.hpp"
@@ -227,7 +237,15 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
             for (int y = 0; y < src_height; ++y) {
                 auto src = srcOrigin + y * src_width * unit * bytes;
                 auto dst = inputPadPtr + ((y + padY) * paddedWidth + padX) * unit * bytes;
+#ifdef MNN_USE_RVV
+                if (core->supportRVV) {
+                    MNNMemcpyBytes_RVV(dst, src, src_width * unit * bytes);
+                } else {
+                    ::memcpy(dst, src, src_width * unit * bytes);
+                }
+#else
                 ::memcpy(dst, src, src_width * unit * bytes);
+#endif // MNN_USE_RVV
             }
 
             // Compute

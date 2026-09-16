@@ -1,8 +1,6 @@
 #include <riscv_vector.h>
 
-extern "C" {
-
-void MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
+void MNNExpC8_RVV(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
     size_t count = countC8 * 8;
     float xLimit = 87.0f;
 
@@ -77,5 +75,3 @@ void MNNExpC8(float* dest, const float* source, float* offset, const float* para
 
     offset[3] = __riscv_vfmv_f_s_f32m1_f32(vSum);
 }
-
-} // extern "C"

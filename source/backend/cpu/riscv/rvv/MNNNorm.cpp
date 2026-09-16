@@ -1,10 +1,8 @@
 #include <riscv_vector.h>
 #include <math.h>
 
-extern "C" {
-
-void MNNNorm(float* dst, const float* src, const float* gamma, const float* beta, float epsilon, size_t size,
-             bool RMSNorm) {
+void MNNNorm_RVV(float* dst, const float* src, const float* gamma, const float* beta, float epsilon, size_t size,
+                 bool RMSNorm) {
     float mean = 0.0f;
     if (!RMSNorm) {
         size_t n = size;
@@ -113,5 +111,3 @@ void MNNNorm(float* dst, const float* src, const float* gamma, const float* beta
         }
     }
 }
-
-} // extern "C"
