@@ -1,12 +1,19 @@
 #include <riscv_vector.h>
+#include "../../compute/CommonOptFunction.h"
 
-extern "C" {
+// MNNExp is a global function with C linkage: CommonOptFunction.h declares it
+// inside an extern "C" block and its definition in CommonOptFunction.cpp sits
+// at global scope, so the symbol in libMNN is the unmangled `MNNExp`. Include
+// the header rather than redeclaring the helper, so the RVV translation unit
+// always sees the same declaration the library was built from.
+//
+// The entry points below are ordinary C++ functions: they are referenced by
+// name from the `supportRVV` branch in CommonOptFunction.cpp, which declares
+// them at namespace scope, so they must keep C++ linkage.
 
-extern void MNNExp(float* dst, const float* src, float* offset, size_t dataSize);
-
-void MNNSiLu(float* dst, const float* src, size_t dataSize) {
+void MNNSiLu_RVV(float* dst, const float* src, size_t dataSize) {
     float offset[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
-    MNNExp(dst, src, offset, dataSize);
+    ::MNNExp(dst, src, offset, dataSize);
     size_t n = dataSize;
     float* dstPtr = dst;
     const float* srcPtr = src;
@@ -31,9 +38,9 @@ void MNNSiLu(float* dst, const float* src, size_t dataSize) {
     }
 }
 
-void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
+void MNNSiLuLowp_RVV(float* dst, const float* src, size_t dataSize) {
     float offset[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
-    MNNExp(dst, src, offset, dataSize);
+    ::MNNExp(dst, src, offset, dataSize);
     size_t n = dataSize;
     float* dstPtr = dst;
     const float* srcPtr = src;
@@ -53,5 +60,3 @@ void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
         n -= vl;
     }
 }
-
-} // extern "C"
