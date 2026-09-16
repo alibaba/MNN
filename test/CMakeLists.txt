@@ -30,7 +30,12 @@ set_property(SOURCE
   ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVImageProcessTest.cpp
   ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVC4AffineTest.cpp
   ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVMatMulTest.cpp
-  APPEND PROPERTY COMPILE_DEFINITIONS MNN_TEST_RVV_ENABLED=$<BOOL:${MNN_USE_RVV}>)
+  APPEND PROPERTY
+  COMPILE_DEFINITIONS MNN_TEST_RVV_ENABLED=$<BOOL:${MNN_USE_RVV}>)
+set_property(SOURCE ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVAbsMaxTest.cpp APPEND PROPERTY
+  COMPILE_DEFINITIONS MNN_TEST_RVV_ENABLED=$<BOOL:${MNN_USE_RVV}>)
+set_property(SOURCE ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVConvRunLineDepthwiseTest.cpp APPEND PROPERTY
+  COMPILE_DEFINITIONS MNN_TEST_RVV_ENABLED=$<BOOL:${MNN_USE_RVV}>)
 target_link_libraries(run_test.out ${MNN_DEPS})
 if (MSVC)
   target_compile_options(run_test.out PRIVATE /bigobj)
