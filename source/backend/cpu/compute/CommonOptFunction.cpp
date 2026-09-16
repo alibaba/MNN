@@ -95,6 +95,8 @@ extern void MNNMatrixSub_RVV(float* C, const float* A, const float* B, size_t wi
                              size_t aStride, size_t bStride, size_t height);
 extern void MNNDeconvRunForUnitDepthWise_RVV(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
                                              size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
+extern void MNNSamplerC4Bilinear_RVV(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points,
+                                     size_t sta, size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
 extern void MNNExpC8_RVV(float* dest, const float* source, float* offset, const float* parameters, size_t countC8);
 extern void MNNNorm_RVV(float* dst, const float* src, const float* gamma, const float* beta, float epsilon, size_t size,
                         bool RMSNorm);
@@ -5298,6 +5300,7 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNMatrixAdd = MNNMatrixAdd_RVV;
         gCoreFunction->MNNMatrixSub = MNNMatrixSub_RVV;
         gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise_RVV;
+        gCoreFunction->MNNSamplerC4Bilinear = MNNSamplerC4Bilinear_RVV;
 
         MNNRvvInitializeFastPathFunctions(gCoreFunction);
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
