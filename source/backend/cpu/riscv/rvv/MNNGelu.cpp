@@ -1,9 +1,7 @@
 #include <riscv_vector.h>
 #include <cmath>
 
-extern "C" {
-
-void MNNGeluCommon(float* dst, const float* src, size_t size) {
+void MNNGeluCommon_RVV(float* dst, const float* src, size_t size) {
     const float p0 = 0.044715f;
     const float p1 = 0.79788458f; // sqrt(2/pi)
     const float c0 = 378.0f;
@@ -77,12 +75,10 @@ void MNNGeluCommon(float* dst, const float* src, size_t size) {
     }
 }
 
-void MNNGeluStandardCommon(float* dst, const float* src, size_t size) {
+void MNNGeluStandardCommon_RVV(float* dst, const float* src, size_t size) {
     // Standard GeLU using erf: dst = 0.5 * x * (1 + erf(x / sqrt(2)))
     // Keep scalar — erf has no simple polynomial vectorization
     for (int i = 0; i < size; i++) {
         dst[i] = (erf(src[i] * 0.7071067932881648f) + 1.0f) * src[i] * 0.5f;
     }
 }
-
-} // extern "C"
