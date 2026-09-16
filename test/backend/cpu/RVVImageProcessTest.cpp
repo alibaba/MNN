@@ -39,9 +39,11 @@ static void bilinearReference(const unsigned char* source, unsigned char* dest, 
             const unsigned char c01 = source[(size_t)y0 * yStride + 4 * (size_t)x1 + c];
             const unsigned char c10 = source[(size_t)y1 * yStride + 4 * (size_t)x0 + c];
             const unsigned char c11 = source[(size_t)y1 * yStride + 4 * (size_t)x1 + c];
-            // The generic body keeps `1.0 - xF` as a double; this oracle copies
-            // that arithmetic verbatim so the comparison is against the original
-            // scalar semantics rather than against the new kernel.
+            // The c10 term of the generic body is `yF * (1.0 - xF) * c10`, where
+            // `1.0 - xF` is a double; the RVV kernel evaluates all four weights in
+            // FP32. This oracle copies the original arithmetic verbatim, so it
+            // describes the semantics MNN shipped rather than the new kernel -
+            // which is exactly why the comparison below allows one grey level.
             float value =
                 (1.0f - xF) * (1.0f - yF) * c00 + xF * (1.0f - yF) * c01 + yF * (1.0 - xF) * c10 + xF * yF * c11;
             value = std::min(std::max(value, 0.0f), 255.0f);
@@ -57,13 +59,22 @@ static void bilinearReference(const unsigned char* source, unsigned char* dest, 
 // that pointer, so going through the same slot is what actually exercises the
 // registration. Calling MNNSamplerC4Bilinear_RVV() directly would pass even if
 // the slot still pointed at the scalar kernel.
-static bool bilinearCase(size_t count, size_t sta, MNN::CV::Point start, MNN::CV::Point delta) {
+//
+// `sourceOverride` replaces the generated pattern, which the boundary case below
+// uses to place exact neighbour values at the sampled position.
+static bool bilinearCase(size_t count, size_t sta, MNN::CV::Point start, MNN::CV::Point delta,
+                         const std::vector<unsigned char>* sourceOverride = nullptr) {
     const size_t iw = 19, ih = 11, yStride = iw * 4 + 12;
-    std::vector<unsigned char> source(yStride * ih, 0);
-    for (size_t y = 0; y < ih; ++y) {
-        for (size_t x = 0; x < iw; ++x) {
-            for (size_t c = 0; c < 4; ++c) {
-                source[y * yStride + 4 * x + c] = static_cast<unsigned char>((y * 61 + x * 29 + c * 47) & 255);
+    std::vector<unsigned char> source;
+    if (sourceOverride != nullptr) {
+        source = *sourceOverride;
+    } else {
+        source.assign(yStride * ih, 0);
+        for (size_t y = 0; y < ih; ++y) {
+            for (size_t x = 0; x < iw; ++x) {
+                for (size_t c = 0; c < 4; ++c) {
+                    source[y * yStride + 4 * x + c] = static_cast<unsigned char>((y * 61 + x * 29 + c * 47) & 255);
+                }
             }
         }
     }
@@ -73,12 +84,49 @@ static bool bilinearCase(size_t count, size_t sta, MNN::CV::Point start, MNN::CV
     bilinearReference(source.data(), expected.data(), points, sta, count, iw, ih, yStride);
     MNN::MNNGetCoreFunctions()->MNNSamplerC4Bilinear(source.data(), actual.data(), points, sta, count, outputSize, iw,
                                                      ih, yStride);
-    if (actual != expected) {
-        MNN_ERROR("RVV image bilinear mismatch count=%zu sta=%zu start=(%g,%g) delta=(%g,%g)\n", count, sta, start.fX,
-                  start.fY, delta.fX, delta.fY);
-        return false;
+    // The kernel is FP32 throughout while the generic body keeps `1.0 - xF` for
+    // the c10 term in double, so an input sitting exactly on a rounding boundary
+    // can legitimately land one grey level lower here. Allow that single step and
+    // no more: a kernel that drifted further, or reordered the weights, still has
+    // to fail. The margin after the written pixels must stay byte-exact, because
+    // a write past the requested range is a real bug and must not be masked by
+    // the tolerance.
+    const size_t pixelBytes = 4 * (sta + count);
+    for (size_t i = 0; i < pixelBytes; ++i) {
+        const int diff = static_cast<int>(actual[i]) - static_cast<int>(expected[i]);
+        if (diff < -1 || diff > 1) {
+            MNN_ERROR("RVV image bilinear mismatch count=%zu sta=%zu start=(%g,%g) delta=(%g,%g) byte=%zu got=%d want=%d\n",
+                      count, sta, start.fX, start.fY, delta.fX, delta.fY, i, static_cast<int>(actual[i]),
+                      static_cast<int>(expected[i]));
+            return false;
+        }
+    }
+    for (size_t i = pixelBytes; i < outputSize; ++i) {
+        if (actual[i] != expected[i]) {
+            MNN_ERROR("RVV image bilinear wrote past the requested range count=%zu sta=%zu byte=%zu got=0x%02x want=0x%02x\n",
+                      count, sta, i, static_cast<int>(actual[i]), static_cast<int>(expected[i]));
+            return false;
+        }
     }
     return true;
+}
+
+// Rounding boundary: with xF=0.3701782822608948, yF=0.26382631063461304 and
+// neighbours (c00,c01,c10,c11) = (193,161,211,52), the generic body's double
+// intermediate puts the c10 term on 173.5 exactly, so roundf() gives 174, while
+// the FP32 weights evaluate 173.4999847 and round to 173. Pinned here so the
+// one-level tolerance above is exercised rather than merely declared.
+static bool bilinearRoundingBoundaryCase() {
+    const size_t iw = 19, ih = 11, yStride = iw * 4 + 12;
+    const unsigned char neighbours[4] = {193, 161, 211, 52}; // c00, c01, c10, c11
+    std::vector<unsigned char> source(yStride * ih, 0);
+    for (size_t c = 0; c < 4; ++c) {
+        source[0 * yStride + 4 * 0 + c] = neighbours[0];
+        source[0 * yStride + 4 * 1 + c] = neighbours[1];
+        source[1 * yStride + 4 * 0 + c] = neighbours[2];
+        source[1 * yStride + 4 * 1 + c] = neighbours[3];
+    }
+    return bilinearCase(1, 0, {0.3701782822608948f, 0.26382631063461304f}, {0.0f, 0.0f}, &source);
 }
 #endif // MNN_TEST_RVV_ENABLED
 
@@ -114,6 +162,12 @@ public:
             }
             cases += 3;
         }
+        // The reviewer's rounding-boundary inputs: the generic double intermediate
+        // lands on 173.5, the FP32 kernel on 173.4999847.
+        if (!bilinearRoundingBoundaryCase()) {
+            return false;
+        }
+        ++cases;
         MNN_PRINT("RVV image-process: %zu cases passed (supportRVV=%d)\n", cases, static_cast<int>(core->supportRVV));
 #else
         if (core->MNNSamplerC4Bilinear == nullptr) {

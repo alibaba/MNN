@@ -15,9 +15,13 @@ static inline float clampBilinearCoordinate(float value, float maxValue) {
     return value > maxValue ? maxValue : value;
 }
 
-// The scalar reference keeps the four weights as separate multiplies and adds.
-// Reorder them and the FP32 rounding changes, which shows up as an off-by-one
-// grey value on pixels sitting on a rounding boundary.
+// This kernel evaluates the blend in FP32, while the generic body in
+// ImageProcessFunction.cpp computes the c10 term as `yF * (1.0 - xF) * c10`
+// with `1.0 - xF` in double. The two agree everywhere except on inputs that land
+// exactly on a rounding boundary, where the FP32 result can come out one grey
+// level lower - pinned by the boundary case in
+// test/backend/cpu/RVVImageProcessTest.cpp. The four weights below still keep the
+// scalar expression order so the divergence stays at that single step.
 static inline unsigned char bilinearPixel(unsigned char c00, unsigned char c01, unsigned char c10, unsigned char c11,
                                           float xF, float yF) {
     const float w0 = (1.0f - xF) * (1.0f - yF);
