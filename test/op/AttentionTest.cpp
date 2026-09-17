@@ -10,6 +10,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Module.hpp>
 #include "core/OpCommonUtils.hpp"
+#include "core/MNNFileUtils.h"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include <stdlib.h>
@@ -33,7 +34,9 @@ const int pastLength = 101;
 
 static KVMeta gMeta;
 static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool outputC4 = false,
-                                                    bool forceOpenCLBuffer = false, int numThread = 1) {
+                                                    bool forceOpenCLBuffer = false, int numThread = 1,
+                                                    KVMeta* meta = &gMeta,
+                                                    const std::string& prefixCacheDir = std::string()) {
     auto Q = _Input();
     auto K = _Input();
     auto V = _Input();
@@ -58,8 +61,11 @@ static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool 
                            ? MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_NONE
                            : numThread;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
-    rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &gMeta);
+    rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, meta);
     rtmgr->setHint(MNN::Interpreter::ATTENTION_OPTION, attentionMode);
+    if (!prefixCacheDir.empty()) {
+        rtmgr->setExternalPath(prefixCacheDir, MNN::Interpreter::EXTERNAL_PATH_PREFIXCACHE_DIR);
+    }
     std::shared_ptr<Module> m(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
     return m;
 }
@@ -814,6 +820,238 @@ public:
 };
 
 MNNTestSuiteRegister(AttentionTest, "op/attention");
+
+namespace {
+const char* kAttentionPrefixCacheDir = "prefixcache";
+
+struct AttentionPrefixCacheFiles {
+    explicit AttentionPrefixCacheFiles(const std::string& cacheName) : name(cacheName) { clear(); }
+    ~AttentionPrefixCacheFiles() { clear(); }
+    std::string path(const char* suffix) const {
+        return MNNFilePathConcat(kAttentionPrefixCacheDir, name) + "_0" + suffix;
+    }
+    void clear() const {
+        for (auto suffix : {".k", ".v", "_sync.k", "_sync.v"}) {
+            ::remove(path(suffix).c_str());
+        }
+    }
+    size_t size(const char* suffix) const {
+        auto fd = MNNOpenFile(path(suffix).c_str(), MNN_FILE_READ);
+        if (fd == INVALID_FILE) {
+            return INVALID_SIZE;
+        }
+        auto result = MNNGetFileSize(fd);
+        MNNCloseFile(fd);
+        return result;
+    }
+    bool resize(const char* suffix, size_t bytes) const {
+        auto fd = MNNCreateFile(path(suffix).c_str());
+        if (fd == INVALID_FILE) {
+            return false;
+        }
+        bool result = MNNSetFileSize(fd, bytes) == NO_ERROR;
+        MNNCloseFile(fd);
+        return result;
+    }
+    std::string name;
+};
+
+static bool readAttentionOutput(const std::shared_ptr<Module>& module, const VARPS& inputs,
+                                std::vector<float>& output) {
+    auto outputs = module->onForward(inputs);
+    if (outputs.empty() || outputs[0] == nullptr || outputs[0]->getInfo() == nullptr) {
+        return false;
+    }
+    auto ptr = outputs[0]->readMap<float>();
+    if (ptr == nullptr) {
+        return false;
+    }
+    output.assign(ptr, ptr + outputs[0]->getInfo()->size);
+    return true;
+}
+
+static bool compareAttentionOutputs(const std::vector<float>& expected, const std::vector<float>& actual,
+                                    float tolerance, const char* testName) {
+    if (expected.size() != actual.size()) {
+        MNN_ERROR("%s: output size mismatch, expected %zu, got %zu\n", testName, expected.size(), actual.size());
+        return false;
+    }
+    for (int i = 0; i < expected.size(); ++i) {
+        if (fabsf(expected[i] - actual[i]) > tolerance) {
+            MNN_ERROR("%s: output mismatch at %d, expected %.6f, got %.6f\n", testName, i, expected[i], actual[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+static size_t prefixCacheBytesPerElement() {
+    return MNNTestSuite::get()->pStaus.precision == MNN::BackendConfig::Precision_High ? sizeof(float)
+                                                                                       : sizeof(uint16_t);
+}
+} // namespace
+
+class AttentionPrefixCacheChunkedWriteTest : public AttentionTest {
+public:
+    virtual bool run(int precision) {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_OPENCL) {
+            return true;
+        }
+        OpenCLBufferScope clBufferScope;
+        const int chunk = 8;
+        AttentionPrefixCacheFiles files("attention_chunked_write");
+        KVMeta meta;
+        meta.file_name = files.name;
+        meta.file_flag = KVMeta::PendingWrite;
+        meta.layer_nums = 1;
+        meta.prefix_session_id = 1;
+        auto module = _makeAttentionModule(8, false, true, 1, &meta, kAttentionPrefixCacheDir);
+        if (!module) {
+            return false;
+        }
+        size_t firstKeyBytes = 0;
+        size_t firstValueBytes = 0;
+        for (int step = 0; step < 2; ++step) {
+            srand(2024 + step);
+            generateInput(chunk, precision);
+            generateMask(chunk, chunk);
+            meta.add = chunk;
+            std::vector<float> output;
+            if (!readAttentionOutput(module, {Query, Key, Value, Mask}, output)) {
+                return false;
+            }
+            meta.sync();
+            if (step == 0) {
+                firstKeyBytes = files.size(".k");
+                firstValueBytes = files.size(".v");
+                if (firstKeyBytes == 0 || firstValueBytes == 0) {
+                    return false;
+                }
+            }
+        }
+        size_t keyBytes = files.size(".k");
+        size_t valueBytes = files.size(".v");
+        if (keyBytes != firstKeyBytes * 2 || valueBytes != firstValueBytes * 2) {
+            MNN_ERROR("Chunked prefix cache size mismatch: first key=%zu, value=%zu; final key=%zu, value=%zu\n",
+                      firstKeyBytes, firstValueBytes, keyBytes, valueBytes);
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionPrefixCacheChunkedWriteTest, "op/attention_prefix_cache_chunked_write");
+
+class AttentionPrefixCachePartialLoadTest : public AttentionTest {
+public:
+    virtual bool run(int precision) {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_OPENCL) {
+            return true;
+        }
+        OpenCLBufferScope clBufferScope;
+        const int seqLen = 8;
+        AttentionPrefixCacheFiles files("attention_partial_load");
+        if (!MNNCreateDir(kAttentionPrefixCacheDir)) {
+            return false;
+        }
+        size_t fullBytes = (size_t)KvNumHead * HeadDim * seqLen * prefixCacheBytesPerElement();
+        if (!files.resize(".k", fullBytes / 2) || !files.resize(".v", fullBytes / 2)) {
+            return false;
+        }
+
+        srand(2024);
+        generateInput(seqLen, precision);
+        generateMask(seqLen, seqLen);
+        VARPS inputs{Query, Key, Value, Mask};
+        std::vector<float> expected;
+        {
+            KVMeta baselineMeta;
+            baselineMeta.add = seqLen;
+            auto baseline = _makeAttentionModule(8, false, true, 1, &baselineMeta);
+            if (!baseline || !readAttentionOutput(baseline, inputs, expected)) {
+                return false;
+            }
+        }
+
+        KVMeta meta;
+        meta.add = seqLen;
+        meta.file_name = files.name;
+        meta.file_flag = KVMeta::PendingRead;
+        meta.seqlen_in_disk = seqLen;
+        meta.layer_nums = 1;
+        meta.prefix_session_id = 1;
+        auto module = _makeAttentionModule(8, false, true, 1, &meta, kAttentionPrefixCacheDir);
+        std::vector<float> actual;
+        if (!module || !readAttentionOutput(module, inputs, actual)) {
+            return false;
+        }
+        return compareAttentionOutputs(expected, actual, _opExprDiffThreshold(precision), "partial prefix load");
+    }
+};
+MNNTestSuiteRegister(AttentionPrefixCachePartialLoadTest, "op/attention_prefix_cache_partial_load");
+
+class AttentionPrefixCacheContinuousSessionTest : public AttentionTest {
+public:
+    virtual bool run(int precision) {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_OPENCL) {
+            return true;
+        }
+        OpenCLBufferScope clBufferScope;
+        const int seqLen = 8;
+        AttentionPrefixCacheFiles files("attention_continuous_session");
+
+        srand(2024);
+        generateInput(seqLen, precision);
+        generateMask(seqLen, seqLen);
+        VARPS prefixInputs{Query, Key, Value, Mask};
+        srand(2025);
+        generateInput(seqLen, precision);
+        generateMask(seqLen, seqLen);
+        VARPS suffixInputs{Query, Key, Value, Mask};
+
+        std::vector<float> expected;
+        {
+            KVMeta baselineMeta;
+            auto baseline = _makeAttentionModule(8, false, true, 1, &baselineMeta);
+            std::vector<float> ignored;
+            baselineMeta.add = seqLen;
+            if (!baseline || !readAttentionOutput(baseline, prefixInputs, ignored)) {
+                return false;
+            }
+            baselineMeta.sync();
+            baselineMeta.add = seqLen;
+            if (!readAttentionOutput(baseline, suffixInputs, expected)) {
+                return false;
+            }
+        }
+
+        KVMeta meta;
+        meta.add = seqLen;
+        meta.file_name = files.name;
+        meta.file_flag = KVMeta::PendingWrite;
+        meta.layer_nums = 1;
+        meta.prefix_session_id = 1;
+        auto module = _makeAttentionModule(8, false, true, 1, &meta, kAttentionPrefixCacheDir);
+        std::vector<float> ignored;
+        if (!module || !readAttentionOutput(module, prefixInputs, ignored)) {
+            return false;
+        }
+        meta.sync();
+
+        meta.previous = 0;
+        meta.add = seqLen;
+        meta.file_name = files.name;
+        meta.file_flag = KVMeta::PendingRead;
+        meta.seqlen_in_disk = seqLen;
+        meta.layer_index = 0;
+        ++meta.prefix_session_id;
+        std::vector<float> actual;
+        if (!readAttentionOutput(module, suffixInputs, actual)) {
+            return false;
+        }
+        return compareAttentionOutputs(expected, actual, _opExprDiffThreshold(precision), "continuous prefix session");
+    }
+};
+MNNTestSuiteRegister(AttentionPrefixCacheContinuousSessionTest, "op/attention_prefix_cache_continuous_session");
 
 // Non-causal attention with kv_cache=false driven by an explicit tensor mask --
 // the shape a ViT / vision-encoder export emits. AttentionTest's unit test 3
