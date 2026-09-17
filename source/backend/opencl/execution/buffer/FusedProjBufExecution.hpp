@@ -15,6 +15,7 @@
 #define FusedProjBufExecution_hpp
 
 #include <vector>
+#include "backend/opencl/execution/buffer/ConvBufExecution.hpp"
 #include "backend/opencl/execution/image/CommonExecution.hpp"
 #include "core/AutoStorage.h"
 
@@ -39,12 +40,17 @@ public:
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    // Encodes the group's single fused GEMV; only reached on the fused path.
+    virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend *bn, const Op *op, Execution **dst) override;
 
 private:
     bool _createConvs(Backend *backend);
     bool _createRest(Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     ErrorCode _resize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    // Whether this shape can run as one GEMV dispatch over all members; collects
+    // the member conv resources it would bind into mConvRes.
+    bool _fusedGemvUsable(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 
     // Declared before the children so it outlives them: the child executions
     // hold raw `const Op*` pointers into these buffers.
@@ -57,6 +63,12 @@ private:
     std::shared_ptr<Execution> mLn;
     std::shared_ptr<Tensor> mNormalized;
     const FusedLinearParam *mParam = nullptr;
+    // Fused decode path: one GEMV dispatch for the whole group, reading the
+    // member convs' packed weights directly (see _fusedGemvUsable).
+    bool mUseFusedGemv = false;
+    std::vector<std::shared_ptr<ConvBufResource>> mConvRes;
+    std::vector<uint32_t> mFusedGws{1, 1};
+    std::vector<uint32_t> mFusedLws{1, 1};
     bool mIsGateUp = false;
     bool mHasLn    = false;
     int mNumConvs  = 0;

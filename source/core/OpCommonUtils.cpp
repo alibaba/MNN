@@ -1042,5 +1042,78 @@ bool OpCommonUtils::gatedRMSNormFusable(const Op* op, const std::vector<Tensor*>
     }
     return true;
 }
+
+bool OpCommonUtils::gatedRMSNormOpenCLOk(const Op* op, const std::vector<Tensor*>& inputs,
+                                         const std::vector<Tensor*>& outputs, int* outside, int* inside, int* heads) {
+    if (nullptr == op || inputs.size() != 2 || outputs.size() != 1) {
+        return false;
+    }
+    auto param = op->main_as_LayerNorm();
+    if (nullptr == param || !param->useRMSNorm() || param->group() > 1) {
+        return false;
+    }
+    if (nullptr != param->axis() && param->axis()->size() != 1) {
+        return false;
+    }
+    // The loader inlines converter-folded gamma / beta before the creator runs;
+    // the kernels bind the pair or neither, so anything left external is out.
+    const bool hasGamma = (nullptr != param->gamma() && nullptr != param->beta());
+    if (!hasGamma) {
+        if ((nullptr != param->gamma()) != (nullptr != param->beta())) {
+            return false;
+        }
+        if (nullptr != param->external() && param->external()->size() > 1 && param->external()->data()[1] > 0) {
+            return false;
+        }
+    }
+    auto x = inputs[0];
+    auto z = inputs[1];
+    auto out = outputs[0];
+    if (x->dimensions() < 2 || z->dimensions() < 2 || out->dimensions() < 2) {
+        return false;
+    }
+    // The absorbed C4 repacks only make sense in NC4HW4, and the kernels' index
+    // arithmetic treats both sides as channel-only (no spatial extent).
+    for (auto t : {x, z, out}) {
+        if (TensorUtils::getDescribe(t)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            return false;
+        }
+        for (int i = 2; i < t->dimensions(); ++i) {
+            if (t->length(i) != 1) {
+                return false;
+            }
+        }
+    }
+    const int insideSize = x->length(1);
+    if (insideSize <= 0 || x->length(0) <= 0) {
+        return false;
+    }
+    if (hasGamma && ((int)param->gamma()->size() != insideSize || (int)param->beta()->size() != insideSize)) {
+        return false;
+    }
+    // x is [outside, inside] with the head as batch axis; z / out are
+    // [batch, heads * inside] with outside == batch * heads.
+    const int batch = z->length(0);
+    if (batch <= 0 || (z->length(1) % insideSize) != 0) {
+        return false;
+    }
+    const int headNum = z->length(1) / insideSize;
+    if (headNum <= 0 || batch * headNum != x->length(0)) {
+        return false;
+    }
+    if (out->length(0) != batch || out->length(1) != z->length(1)) {
+        return false;
+    }
+    if (nullptr != outside) {
+        *outside = x->length(0);
+    }
+    if (nullptr != inside) {
+        *inside = insideSize;
+    }
+    if (nullptr != heads) {
+        *heads = headNum;
+    }
+    return true;
+}
 #endif
 } // namespace MNN

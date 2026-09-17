@@ -66,6 +66,7 @@ public:
     ConvBufCommonExecution(const Op *op, Backend *backend, bool isExtra);
     virtual ~ConvBufCommonExecution();
 
+    const std::shared_ptr<ConvBufResource>& getConvResource() const { return mResource; }
     void submitPrebuildConvPrograms();
 
 protected:

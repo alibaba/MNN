@@ -286,6 +286,49 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
         buildOptions.emplace("-DPACK_LEAVE");
     }
 
+    // Folding the residual add into the row reduce only pays when the rows are
+    // few: NC4HW4 places consecutive channel units outter_size*4 floats apart, so
+    // inside the reduce the add's accesses are strided, while the standalone
+    // binary_add_c4_buf below walks the tensor flat and coalesced. Measured on
+    // Adreno with Qwen3-0.6B: decode (1 row) +1.4% end to end, 512-row prefill
+    // -6%. So fuse for decode-shaped batches only.
+    // NOTE: this threshold was tuned on Adreno; other GPU architectures may
+    // benefit from a different cutoff.  Adjust kFusedBinaryRmsMaxRows if
+    // benchmarks on a new target show a regression.
+    static constexpr int kFusedBinaryRmsMaxRows = 4;
+    if (splitBinaryLN && mResource->RMSNorm && outter_size <= kFusedBinaryRmsMaxRows) {
+        // ---------- Single-kernel FUSED path ----------
+        // out0 = in0 + in1, out1 = RMSNorm(out0), one workgroup per row. Saves
+        // the second launch and out0's DRAM round-trip that the split path below
+        // pays; the C4 transformer blocks run this op twice per layer.
+        mUnits.resize(1);
+        auto& unit = mUnits[0];
+        unit.kernel = runtime->buildKernel("layernorm_buf", "binary_add_rms_norm_c4_buf", buildOptions,
+                                           mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL(unit.kernel);
+        mGWS = {(uint32_t)local_size, (uint32_t)outter_size};
+        mLWS = {(uint32_t)local_size, 1};
+        uint32_t idx = 0;
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel->get().setArg(idx++, mGWS[0]);
+        ret |= unit.kernel->get().setArg(idx++, mGWS[1]);
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[0]));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[1]));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[0])); // residual out
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[1])); // normalized
+        ret |= unit.kernel->get().setArg(idx++, (int32_t)inner_size);
+        if (mResource->has_gamma_beta_) {
+            ret |= unit.kernel->get().setArg(idx++, *mResource->mGammaBuffer.get());
+            ret |= unit.kernel->get().setArg(idx++, *mResource->mBetaBuffer.get());
+        }
+        ret |= unit.kernel->get().setArg(idx++, mResource->epsilon_);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg binary_add_rms_norm_c4_buf");
+        mOpenCLBackend->recordKernel2d(unit.kernel, mGWS, mLWS);
+        unit.globalWorkSize = {mGWS[0], mGWS[1]};
+        unit.localWorkSize = {mLWS[0], mLWS[1]};
+        return NO_ERROR;
+    }
+
     if (splitBinaryLN) {
         // ---------- Two-kernel SPLIT path ----------
         int total_size_float = outter_size * ROUND_UP(inner_size, 4);
