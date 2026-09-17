@@ -8,7 +8,6 @@ import PreprocessedAudioContent
 import PreprocessedFileContent
 import PreprocessedVideoContent
 import TextContent
-import android.util.Pair
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.api.openai.network.processors.MnnImageProcessor

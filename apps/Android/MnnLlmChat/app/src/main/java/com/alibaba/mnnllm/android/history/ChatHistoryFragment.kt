@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.main.MainActivity
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.agent.AgentWorkspaceFileBrowser
 import com.alibaba.mnnllm.android.chat.ChatRouter
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager.Companion.getInstance
@@ -34,6 +35,9 @@ class ChatHistoryFragment : Fragment() {
         val view = inflater.inflate(R.layout.fragment_historylist, container, false)
         chatListRecyclerView = view.findViewById(R.id.chat_history_recycler_view)
         textNoHistory = view.findViewById(R.id.text_no_history)
+        view.findViewById<View>(R.id.button_workspace_files).setOnClickListener {
+            AgentWorkspaceFileBrowser.show(requireContext())
+        }
         chatListRecyclerView.setLayoutManager(
             LinearLayoutManager(
                 context,

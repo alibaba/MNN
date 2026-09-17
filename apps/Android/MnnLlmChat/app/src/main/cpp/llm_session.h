@@ -39,6 +39,8 @@ public:
     Response(const std::string &prompt, const std::function<bool(const std::string &, bool is_eop)> &on_progress);
     void SetMaxNewTokens(int i);
 
+    int CountInputTokens(const std::string& prompt) const;
+
     void setSystemPrompt(std::string system_prompt);
 
     void SetAssistantPrompt(const std::string& assistant_prompt);

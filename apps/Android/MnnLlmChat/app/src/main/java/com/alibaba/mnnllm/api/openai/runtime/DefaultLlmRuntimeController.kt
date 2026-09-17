@@ -24,17 +24,23 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
     ): EnsureSessionResult {
         synchronized(lock) {
             val currentSession = activeSession
+            val resolvedSessionId = sessionId ?: "service_runtime_${System.currentTimeMillis()}"
             if (
                 currentSession != null &&
                 RuntimeSessionReusePolicy.shouldReuse(
                     forceReload = forceReload,
                     activeModelId = activeModelId,
                     requestedModelId = modelId,
+                    activeSessionId = currentSession.sessionId,
+                    requestedSessionId = resolvedSessionId,
                     isSessionLoaded = currentSession.isModelLoaded(),
                     activeUseAppConfig = activeUseAppConfig,
                     requestedUseAppConfig = useAppConfig
                 )
             ) {
+                if (historyList != null) {
+                    currentSession.setHistory(historyList)
+                }
                 return EnsureSessionResult(
                     success = true,
                     session = currentSession,
@@ -57,7 +63,6 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
             )
 
             val modelName = ModelUtils.getModelName(modelId) ?: modelId
-            val resolvedSessionId = sessionId ?: "service_runtime_${System.currentTimeMillis()}"
 
             return runCatching {
                 val chatSession = ChatService.provide().createSession(

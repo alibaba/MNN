@@ -9,7 +9,10 @@ import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.model.SessionItem
 
-class SessionAdapter(private val sessions: List<SessionItem>) :
+class SessionAdapter(
+    private val sessions: List<SessionItem>,
+    private val onSessionClick: ((SessionItem) -> Unit)? = null
+) :
     RecyclerView.Adapter<SessionAdapter.SessionViewHolder>() {
 
     class SessionViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -35,7 +38,10 @@ class SessionAdapter(private val sessions: List<SessionItem>) :
         
         holder.tvSessionName.text = displayName
         holder.tvSessionId.text = "Session ID: ${session.sessionId}"
+        holder.itemView.setOnClickListener {
+            onSessionClick?.invoke(session)
+        }
     }
 
     override fun getItemCount(): Int = sessions.size
-} 
+}

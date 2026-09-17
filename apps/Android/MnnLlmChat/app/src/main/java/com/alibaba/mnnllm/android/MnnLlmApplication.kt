@@ -6,6 +6,7 @@ import android.app.Application
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.update.UpdateChecker
+import com.alibaba.mnnllm.android.agent.AgenticPythonEngine
 import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
 import com.alibaba.mnnllm.android.utils.TimberConfig
@@ -21,6 +22,7 @@ class MnnLlmApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ApplicationProvider.set(this)
+        AgenticPythonEngine.initialize(this)
         UpdateChecker.registerDownloadReceiver(applicationContext)
         CrashUtil.init(this)
         instance = this
