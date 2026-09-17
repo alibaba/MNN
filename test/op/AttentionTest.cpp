@@ -830,9 +830,10 @@ public:
             float vis4 = maxRelError(seqLen, 12, 12, 64, 4, false);
             float row3 = maxRelError(seqLen, 12, 12, 64, 3, true);
             float row4 = maxRelError(seqLen, 12, 12, 64, 4, true);
-            MNN_PRINT("[attention_nocache_mask] seq=%4d allvisible(3d/4d)=%.6f/%.6f rowvarying(3d/4d)=%.6f/%.6f "
-                      "(tol %.3f)\n",
-                      seqLen, vis3, vis4, row3, row4, tol);
+            MNN_PRINT(
+                "[attention_nocache_mask] seq=%4d allvisible(3d/4d)=%.6f/%.6f rowvarying(3d/4d)=%.6f/%.6f "
+                "(tol %.3f)\n",
+                seqLen, vis3, vis4, row3, row4, tol);
             if (!(vis3 < tol) || !(vis4 < tol) || !(row3 < tol) || !(row4 < tol)) {
                 pass = false;
             }
@@ -862,9 +863,12 @@ private:
 
         std::vector<float> q(seqLen * numHead * headDim), k(seqLen * kvNumHead * headDim),
             v(seqLen * kvNumHead * headDim);
-        for (auto& x : q) x = next();
-        for (auto& x : k) x = next();
-        for (auto& x : v) x = next();
+        for (auto& x : q)
+            x = next();
+        for (auto& x : k)
+            x = next();
+        for (auto& x : v)
+            x = next();
         ::memcpy(Q->writeMap<float>(), q.data(), q.size() * sizeof(float));
         ::memcpy(K->writeMap<float>(), k.data(), k.size() * sizeof(float));
         ::memcpy(V->writeMap<float>(), v.data(), v.size() * sizeof(float));
@@ -940,7 +944,9 @@ public:
 
     virtual bool run(int precision) {
         const int savedNumHead = NumHead, savedKvNumHead = KvNumHead, savedHeadDim = HeadDim;
-        NumHead = 16; KvNumHead = 8; HeadDim = 128;
+        NumHead = 16;
+        KvNumHead = 8;
+        HeadDim = 128;
         srand(2024);
         const int warmup = 8;
         const int threadCfgs[2] = {1, 4};
@@ -970,7 +976,9 @@ public:
             MNN_PRINT("kvLen=%d decode: t1=%.3f ms/token, t4=%.3f ms/token, speedup=%.2fx\n", kvLen, ms[0], ms[1],
                       ms[1] > 0.f ? ms[0] / ms[1] : 0.f);
         }
-        NumHead = savedNumHead; KvNumHead = savedKvNumHead; HeadDim = savedHeadDim;
+        NumHead = savedNumHead;
+        KvNumHead = savedKvNumHead;
+        HeadDim = savedHeadDim;
         return true;
     }
 };
@@ -1005,7 +1013,11 @@ private:
     struct ShapeGuard {
         int n, kv, d;
         ShapeGuard() : n(NumHead), kv(KvNumHead), d(HeadDim) {}
-        ~ShapeGuard() { NumHead = n; KvNumHead = kv; HeadDim = d; }
+        ~ShapeGuard() {
+            NumHead = n;
+            KvNumHead = kv;
+            HeadDim = d;
+        }
     };
     typedef std::vector<std::vector<std::vector<float>>> Tensor3;
 
@@ -1065,9 +1077,7 @@ private:
         out[0] = src[row];
         return out;
     }
-    static Tensor3 sliceHead(const Tensor3& src, int len) {
-        return Tensor3(src.begin(), src.begin() + len);
-    }
+    static Tensor3 sliceHead(const Tensor3& src, int len) { return Tensor3(src.begin(), src.begin() + len); }
     static VARP scalarMask() {
         auto m = _Input({}, NCHW, halide_type_of<float>());
         m->writeMap<float>()[0] = 0.0f;
@@ -1116,8 +1126,7 @@ private:
             auto v1 = sliceRow(value, prefill + s);
             expected_result = ref->onExecute(q1, k1, v1, noMask, 1);
             gMeta.add = 1;
-            Output = module->onForward({vector_to_var(q1), vector_to_var(k1), vector_to_var(v1),
-                                        scalarMask()})[0];
+            Output = module->onForward({vector_to_var(q1), vector_to_var(k1), vector_to_var(v1), scalarMask()})[0];
             gMeta.sync();
             if (!compareResult(1)) {
                 MNN_PRINT("Error: %s failed at decode step %d (kvLen=%d, probe=%d)\n", tag, s, kvLen,
@@ -1161,8 +1170,8 @@ private:
                 auto k1 = sliceRow(key, prefill + s);
                 auto v1 = sliceRow(value, prefill + s);
                 gMeta.add = 1;
-                auto out = module->onForward({vector_to_var(q1), vector_to_var(k1),
-                                              vector_to_var(v1), scalarMask()})[0];
+                auto out =
+                    module->onForward({vector_to_var(q1), vector_to_var(k1), vector_to_var(v1), scalarMask()})[0];
                 gMeta.sync();
                 const float* ptr = out->readMap<float>();
                 if (pass == 0) {
@@ -1172,9 +1181,10 @@ private:
                         float diff = fabsf(ptr[i] - captured[s][i]);
                         float rel = fabsf(diff / (captured[s][i] == 0.f ? 1e-20f : captured[s][i]));
                         if (diff > diff_threshold && rel > diff_percent_threshold) {
-                            MNN_PRINT("Error: %s flash-on/off mismatch at step %d (kvLen=%d), "
-                                      "elem %d: off=%f on=%f\n",
-                                      tag, s, kvLen, i, captured[s][i], ptr[i]);
+                            MNN_PRINT(
+                                "Error: %s flash-on/off mismatch at step %d (kvLen=%d), "
+                                "elem %d: off=%f on=%f\n",
+                                tag, s, kvLen, i, captured[s][i], ptr[i]);
                             return false;
                         }
                     }
@@ -1196,29 +1206,43 @@ public:
         }
         ShapeGuard guard;
         // Qwen3-0.6B decode shape: GQA group = 2, 8 kv heads -> numUnits = 8.
-        NumHead = 16; KvNumHead = 8; HeadDim = 128;
+        NumHead = 16;
+        KvNumHead = 8;
+        HeadDim = 128;
 
         // Single thread: physical V chunk 2048, logical block ALIMIN(2048, kvLen).
-        if (!runAgainstReference(8, 1, 250, 10, "t1 short kv")) return false;
-        if (!runAgainstReference(8, 1, 2040, 12, "t1 kv crossing 2048")) return false;
+        if (!runAgainstReference(8, 1, 250, 10, "t1 short kv"))
+            return false;
+        if (!runAgainstReference(8, 1, 2040, 12, "t1 kv crossing 2048"))
+            return false;
         // Prefill past the physical chunk boundary: the chunk gate has no insertLen term while the
         // logical-block gate does, so this prefills with 64-row blocks into 2048-row chunks and the
         // following decode must still read both chunks correctly.
-        if (!runAgainstReference(8, 1, 2100, 10, "t1 prefill crossing chunk")) return false;
+        if (!runAgainstReference(8, 1, 2100, 10, "t1 prefill crossing chunk"))
+            return false;
 
         // Multi thread: physical V chunk 64, logical block ALIMIN(256, kvLen) + sub-chunk addTile.
-        if (!runAgainstReference(8, 4, 60, 10, "t4 kv crossing 64")) return false;
-        if (!runAgainstReference(8, 4, 250, 12, "t4 kv crossing 256")) return false;
-        if (!runAgainstReference(8, 4, 2040, 12, "t4 wide kv")) return false;
+        if (!runAgainstReference(8, 4, 60, 10, "t4 kv crossing 64"))
+            return false;
+        if (!runAgainstReference(8, 4, 250, 12, "t4 kv crossing 256"))
+            return false;
+        if (!runAgainstReference(8, 4, 2040, 12, "t4 wide kv"))
+            return false;
 
         // K-int8 KV cache: wide block is gated separately, use the flash on/off differential.
-        if (!runFlashOnOffDiff(1, 1, 2040, 10, "quantK t1 kv crossing 2048")) return false;
-        if (!runFlashOnOffDiff(1, 4, 250, 10, "quantK t4 kv crossing 256")) return false;
+        if (!runFlashOnOffDiff(1, 1, 2040, 10, "quantK t1 kv crossing 2048"))
+            return false;
+        if (!runFlashOnOffDiff(1, 4, 250, 10, "quantK t4 kv crossing 256"))
+            return false;
 
         // kvSplit > 1 needs few kv heads: numUnits = 2 gives kvSplit = 2 at 2 threads.
-        NumHead = 8; KvNumHead = 2; HeadDim = 128;
-        if (!runAgainstReference(8, 2, 250, 12, "t2 kvSplit merge")) return false;
-        if (!runAgainstReference(8, 4, 2040, 10, "t4 kvSplit merge wide kv")) return false;
+        NumHead = 8;
+        KvNumHead = 2;
+        HeadDim = 128;
+        if (!runAgainstReference(8, 2, 250, 12, "t2 kvSplit merge"))
+            return false;
+        if (!runAgainstReference(8, 4, 2040, 10, "t4 kvSplit merge wide kv"))
+            return false;
         return true;
     }
 };
@@ -1450,8 +1474,7 @@ public:
                 Output = attn->onForward({Query, Key, Value, Mask})[0];
                 gMeta.sync();
                 if (!compareResult(seq_len)) {
-                    printf("Error: causal prefill (head_dim=%d, seq_len=%d) unit test failed!\n",
-                           head_dim, seq_len);
+                    printf("Error: causal prefill (head_dim=%d, seq_len=%d) unit test failed!\n", head_dim, seq_len);
                     pass = false;
                     break;
                 }

@@ -74,15 +74,16 @@ class GeometryGatedRMSNorm : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
-        // Keep the op whole only when the Metal creator will actually accept it:
-        // both sides ask the same predicate, so they cannot drift apart. It
-        // covers the batch / channel shape contract, layout and the device's
-        // simdgroup-reduce support; anything else falls through to the
-        // decomposition below, like every other backend.
+        // Keep the op whole only when the backend's creator will actually accept it.
 #ifdef MNN_GATED_RMS_NORM
-        if (context.forwardType() == MNN_FORWARD_METAL &&
-            OpCommonUtils::gatedRMSNormFusable(op, inputs, outputs,
-                                               0 != context.runtimeStatus(STATUS_SUPPORT_SIMD_GROUP_REDUCE))) {
+        // Only OpenCL buffer mode registers a creator; image mode and
+        // MNN_FORWARD_AUTO (which clears the bit) must decompose.
+        const bool openCLWhole = context.forwardType() == MNN_FORWARD_OPENCL &&
+                                 0 != (context.gpuMode() & MNN_GPU_MEMORY_BUFFER) &&
+                                 OpCommonUtils::gatedRMSNormOpenCLOk(op, inputs, outputs);
+        if (openCLWhole || (context.forwardType() == MNN_FORWARD_METAL &&
+                            OpCommonUtils::gatedRMSNormFusable(
+                                op, inputs, outputs, 0 != context.runtimeStatus(STATUS_SUPPORT_SIMD_GROUP_REDUCE)))) {
             std::shared_ptr<Command> cmdP(new Command);
             auto& cmd   = *cmdP;
             cmd.op      = op;
@@ -127,7 +128,7 @@ public:
         // elementSize() would add NC4HW4 channel padding, and that surplus tail
         // wraps onto in-range addresses and overwrites real outputs.
         GeometryComputerUtils::makeRawAddressRef(normalizedFlat.get(), normalized.get(), 0,
-                                                (int)TensorUtils::getRawSize(normalized.get()));
+                                                 (int)TensorUtils::getRawSize(normalized.get()));
 
         res.command.emplace_back(_makeSiluCmd(z, gated.get(), fmt));
         res.command.emplace_back(_makeMulCmd(normalizedFlat.get(), gated.get(), out, fmt));

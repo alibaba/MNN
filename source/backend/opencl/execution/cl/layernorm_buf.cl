@@ -155,6 +155,97 @@ __kernel void binary_add_c4_buf(__private int global_dim0,
     vstore4(CONVERT_FLOAT4(out), 0, output + offset);
 }
 
+// Binary RMSNorm in one dispatch: out0 = in0 + in1 (the residual the block
+// carries forward), out1 = RMSNorm(out0). The split binary_add_c4_buf +
+// layernorm_c4_buf pair costs a second launch and reads the summed hidden state
+// back from DRAM; here each workgroup owns one row, so the sum it reads back is
+// the sum it wrote itself. RMSNorm only: a mean-based LayerNorm needs its own
+// reduction pass over the row before the variance one, which the split path has.
+__kernel void binary_add_rms_norm_c4_buf(__private int global_dim0, __private int global_dim1,
+                                         __global const FLOAT4* input0, __global const FLOAT4* input1,
+                                         __global FLOAT4* output0, __global FLOAT4* output1, __private const int inside,
+#ifdef GAMMA_BETA
+                                         __global const FLOAT4* gamma, __global const FLOAT4* beta,
+#endif
+                                         __private float epsilon) {
+    int2 pos = (int2)(get_global_id(0), get_global_id(1));
+// LOCAL_SIZE is not defined in every build-option set this program is compiled
+// with (binary_add_c4_buf is built with none at all), so guard the workgroup
+// reduce on it exactly like layernorm_c4_buf does — otherwise the local array
+// declaration fails to compile and takes the whole program down with it.
+#if LOCAL_SIZE > 1
+    float4 local sum_mnn[LOCAL_SIZE];
+    if (pos.x < global_dim0 && pos.y < global_dim1) {
+        const int lid = get_local_id(0);
+        const int batch = global_dim1;
+        const int channelUnit = (inside + 3) / 4;
+        const int channelRemain = inside & 3;
+
+        float4 in_sum = 0;
+        for (int index = lid; index < channelUnit; index += LOCAL_SIZE) {
+            int idx = index * batch + pos.y;
+            float4 sum = convert_float4(input0[idx]) + convert_float4(input1[idx]);
+            // Write the unmasked residual; tail padding is unused downstream.
+            output0[idx] = CONVERT_FLOAT4(sum);
+            // Mask tail lanes before accumulating into the RMS reduction so that
+            // padding does not pollute square_sum_all.
+            MASK_C4_TAIL(sum, index, channelUnit, channelRemain);
+            in_sum += sum * sum;
+        }
+        sum_mnn[lid] = in_sum;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        for (int i = LOCAL_SIZE / 2; i > 0; i /= 2) {
+            if (lid < i)
+                sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
+            barrier(CLK_LOCAL_MEM_FENCE);
+        }
+        float square_sum_all = sum_mnn[0].x + sum_mnn[0].y + sum_mnn[0].z + sum_mnn[0].w;
+        float4 value = (float4)1.0f / (float4)sqrt((float4)max(0.0f, square_sum_all / inside) + (float4)epsilon);
+        for (int index = lid; index < channelUnit; index += LOCAL_SIZE) {
+            // Re-reads what this same work-item stored above: same stride, so no
+            // other work-item's store is involved.
+            int idx = index * batch + pos.y;
+            float4 in = convert_float4(output0[idx]);
+#ifdef GAMMA_BETA
+            float4 out = in * value * convert_float4(gamma[index]) + convert_float4(beta[index]);
+#else
+            float4 out = in * value;
+#endif
+            MASK_C4_TAIL(out, index, channelUnit, channelRemain);
+            output1[idx] = CONVERT_FLOAT4(out);
+        }
+    }
+#else
+    if (pos.x < global_dim0 && pos.y < global_dim1) {
+        const int batch = global_dim1;
+        const int channelUnit = (inside + 3) / 4;
+        const int channelRemain = inside & 3;
+
+        float4 in_sum = 0;
+        for (int index = 0; index < channelUnit; index++) {
+            int idx = index * batch + pos.y;
+            float4 sum = convert_float4(input0[idx]) + convert_float4(input1[idx]);
+            output0[idx] = CONVERT_FLOAT4(sum);
+            MASK_C4_TAIL(sum, index, channelUnit, channelRemain);
+            in_sum += sum * sum;
+        }
+        float square_sum_all = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
+        float4 value = (float4)1.0f / (float4)sqrt((float4)max(0.0f, square_sum_all / inside) + (float4)epsilon);
+        for (int index = 0; index < channelUnit; index++) {
+            int idx = index * batch + pos.y;
+            float4 in = convert_float4(output0[idx]);
+#ifdef GAMMA_BETA
+            float4 out = in * value * convert_float4(gamma[index]) + convert_float4(beta[index]);
+#else
+            float4 out = in * value;
+#endif
+            MASK_C4_TAIL(out, index, channelUnit, channelRemain);
+            output1[idx] = CONVERT_FLOAT4(out);
+        }
+    }
+#endif
+}
+
 __kernel void layernorm_buf(__private int global_dim0, __private int global_dim1,
                         __global const FLOAT * input,
                         __global FLOAT * output,
