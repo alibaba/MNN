@@ -2,6 +2,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "MNNSamplerC4Bilinear_RVV.hpp"
+
 namespace MNN {
 namespace CV {
 struct Point;
@@ -113,14 +115,11 @@ void MNNSamplerC4Bilinear_RVV(const unsigned char* source, unsigned char* dest, 
     dest += 4 * sta;
     const float* pointData = reinterpret_cast<const float*>(points);
     const size_t vlmax = __riscv_vsetvlmax_e32m4();
-    const size_t maxRow = ih > 0 ? ih - 1 : 0;
-    // The indexed load forms a byte address from a 32-bit row offset.
-    const bool offsetFits = yStride == 0 || maxRow <= (size_t)UINT32_MAX / yStride;
+    const bool addressingSafe = MNN::CV::RVV::canUseC4BilinearIndexedLoad(source, iw, ih, yStride);
 
-    // The vector path indexes a C4 word with a 32-bit offset and treats the row
-    // stride as a whole number of pixels. Anything else falls back rather than
-    // computing wrong addresses.
-    if (vlmax > kMaxLanes || vlmax == 0 || !offsetFits || (yStride & 3) != 0) {
+    // The vector path indexes aligned C4 words with 32-bit byte offsets. The
+    // complete row-plus-column offset must fit, not just the row component.
+    if (vlmax > kMaxLanes || vlmax == 0 || !addressingSafe) {
         samplerC4BilinearScalar(source, dest, pointData, count, iw, ih, yStride);
         return;
     }
