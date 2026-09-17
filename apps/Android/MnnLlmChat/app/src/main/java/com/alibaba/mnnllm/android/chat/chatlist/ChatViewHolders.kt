@@ -327,23 +327,39 @@ object ChatViewHolders {
                 if (data.displayText != null) {
                     renderAssistantText(data)
                 }
-                imageGenerated.visibility =
-                    if (data.imageUri != null) View.VISIBLE else View.GONE
-                if (data.imageUri != null) {
-                    imageGenerated.setImageURI(data.imageUri)
+                applyImageAndLoading(data)
+                // Streaming only ever takes this path, so the benchmark row and action buttons
+                // would never appear if they were left to the full bind below.
+                if (!data.loading) {
+                    applyMetricsAndActions(data)
                 }
-                shareImageButton.visibility = if (data.imageUri != null) View.VISIBLE else View.GONE
                 return
             }
 
             updateThinkingView(data, itemView.context)
             renderAssistantText(data)
+            applyImageAndLoading(data)
+            val drawableId = ModelUtils.getDrawableId(modelName)
+            headerIcon.setImageResource(if (drawableId > 0) drawableId else R.drawable.ic_launcher)
+            imageGenerated.tag = data
+            viewText.tag = data
+            viewThinking.tag = data
+            thinkingToggle.tag = data
+            applyMetricsAndActions(data)
+        }
 
-            viewAssistantLoading.visibility = if (AssistantLoadingVisibilityDecider.shouldShow(data)) {
-                View.VISIBLE
-            } else {
-                View.GONE
+        private fun applyImageAndLoading(data: ChatDataItem) {
+            viewAssistantLoading.visibility =
+                if (AssistantLoadingVisibilityDecider.shouldShow(data)) View.VISIBLE else View.GONE
+            val hasImage = data.imageUri != null
+            imageGenerated.visibility = if (hasImage) View.VISIBLE else View.GONE
+            if (hasImage) {
+                imageGenerated.setImageURI(data.imageUri)
             }
+            shareImageButton.visibility = if (hasImage) View.VISIBLE else View.GONE
+        }
+
+        private fun applyMetricsAndActions(data: ChatDataItem) {
             val showMetrics = PreferenceUtils.getBoolean(
                 itemView.context,
                 PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS,
@@ -355,19 +371,6 @@ object ChatViewHolders {
             } else {
                 benchmarkInfo.visibility = View.GONE
             }
-            imageGenerated.visibility =
-                if (data.imageUri != null) View.VISIBLE else View.GONE
-            if (data.imageUri != null) {
-                imageGenerated.setImageURI(data.imageUri)
-            }
-            val drawableId = ModelUtils.getDrawableId(modelName)
-            headerIcon.setImageResource(if (drawableId > 0) drawableId else R.drawable.ic_launcher)
-            imageGenerated.tag = data
-            viewText.tag = data
-            viewThinking.tag = data
-            thinkingToggle.tag = data
-            
-            // Setup action buttons
             setupActionButtons(data, showMetrics)
             reportIssueButton.tag = data
             toggleBenchmarkButton.tag = data

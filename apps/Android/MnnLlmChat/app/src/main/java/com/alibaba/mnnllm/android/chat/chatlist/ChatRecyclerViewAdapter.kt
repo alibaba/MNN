@@ -75,7 +75,12 @@ class ChatRecyclerViewAdapter(
         position: Int,
         payloads: List<Any>
     ) {
-        super.onBindViewHolder(holder, position, payloads)
+        // super's default implementation forwards to the two-argument overload, which would run a
+        // full rebind on top of the incremental one below, so dispatch explicitly instead.
+        if (payloads.isEmpty()) {
+            onBindViewHolder(holder, position)
+            return
+        }
         val viewType = getItemViewType(position)
         if (viewType == ChatViewHolders.HEADER) {
             (holder as ChatViewHolders.HeaderViewHolder).bind(items[position])
