@@ -14,7 +14,9 @@ import android.os.Looper
 import android.util.TypedValue
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.R
+import kotlin.math.roundToInt
 
 object UiUtils {
 
@@ -55,7 +57,21 @@ object UiUtils {
     fun Context.getThemeColor(attrResId: Int): Int {
         val typedValue = TypedValue()
         theme.resolveAttribute(attrResId, typedValue, true)
-        return typedValue.data
+        // An attribute pointing at a colour resource resolves to a reference, where `data` holds
+        // the resource id instead of an ARGB value.
+        return if (typedValue.resourceId != 0) {
+            ContextCompat.getColor(this, typedValue.resourceId)
+        } else {
+            typedValue.data
+        }
+    }
+
+    fun Context.dpToPx(dp: Int): Int {
+        return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            dp.toFloat(),
+            resources.displayMetrics
+        ).roundToInt()
     }
 
     fun copyText(context: Context, textView: TextView) {

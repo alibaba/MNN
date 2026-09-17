@@ -10,6 +10,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.utils.UiUtils.dpToPx
+import com.alibaba.mnnllm.android.utils.UiUtils.getThemeColor
 import io.noties.markwon.Markwon
 
 class MarkdownMessageView @JvmOverloads constructor(
@@ -87,8 +89,8 @@ class MarkdownMessageView @JvmOverloads constructor(
         blocks.forEach { block ->
             val view = when (block) {
                 is MarkdownBlockParser.Block.Code -> createCodeBlockView(block.content)
-                is MarkdownBlockParser.Block.Markdown,
-                is MarkdownBlockParser.Block.Table -> createTextView().also {
+                is MarkdownBlockParser.Block.Table -> createTableBlockView(markwon, block.content)
+                is MarkdownBlockParser.Block.Markdown -> createTextView().also {
                     markwon.setMarkdown(it, block.content)
                 }
             }
@@ -103,16 +105,28 @@ class MarkdownMessageView @JvmOverloads constructor(
                 val scrollView = view as HorizontalScrollView
                 (scrollView.getChildAt(0) as TextView).text = block.content
             }
-            is MarkdownBlockParser.Block.Markdown,
-            is MarkdownBlockParser.Block.Table -> markwon.setMarkdown(view as TextView, block.content)
+            is MarkdownBlockParser.Block.Table -> {
+                val scrollView = view as HorizontalScrollView
+                (scrollView.getChildAt(0) as MarkdownTableView).update(block.content)
+            }
+            is MarkdownBlockParser.Block.Markdown ->
+                markwon.setMarkdown(view as TextView, block.content)
         }
+    }
+
+    private fun createTableBlockView(markwon: Markwon, content: String): HorizontalScrollView {
+        val table = MarkdownTableView(context, markwon).apply {
+            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+            update(content)
+        }
+        return wrapInHorizontalScroll(table)
     }
 
     private fun createTextView(): TextView {
         return TextView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
             setTextAppearance(R.style.Light)
-            setTextColor(resolveColor(com.google.android.material.R.attr.colorOnSurface))
+            setTextColor(context.getThemeColor(com.google.android.material.R.attr.colorOnSurface))
             setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.h3))
             forwardLongClicksToContainer(this)
         }
@@ -123,23 +137,26 @@ class MarkdownMessageView @JvmOverloads constructor(
             layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
             background = ContextCompat.getDrawable(context, R.drawable.bg_markdown_code_block)
             typeface = Typeface.MONOSPACE
-            setTextColor(resolveColor(com.google.android.material.R.attr.colorOnSurface))
+            setTextColor(context.getThemeColor(com.google.android.material.R.attr.colorOnSurface))
             setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.h4))
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(context.dpToPx(12), context.dpToPx(10), context.dpToPx(12), context.dpToPx(10))
             setHorizontallyScrolling(true)
             text = code
             forwardLongClicksToContainer(this)
         }
+        return wrapInHorizontalScroll(codeText)
+    }
+
+    private fun wrapInHorizontalScroll(child: View): HorizontalScrollView {
         return HorizontalScrollView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).also {
-                it.topMargin = dp(4)
-                it.bottomMargin = dp(4)
+                it.topMargin = context.dpToPx(4)
+                it.bottomMargin = context.dpToPx(4)
             }
-            isFillViewport = false
             isHorizontalScrollBarEnabled = true
             isScrollbarFadingEnabled = false
             forwardLongClicksToContainer(this)
-            addView(codeText)
+            addView(child)
         }
     }
 
@@ -149,17 +166,4 @@ class MarkdownMessageView @JvmOverloads constructor(
         }
     }
 
-    private fun resolveColor(attribute: Int): Int {
-        val value = TypedValue()
-        context.theme.resolveAttribute(attribute, value, true)
-        return if (value.resourceId != 0) {
-            ContextCompat.getColor(context, value.resourceId)
-        } else {
-            value.data
-        }
-    }
-
-    private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density + 0.5F).toInt()
-    }
 }
