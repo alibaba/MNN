@@ -12,17 +12,20 @@ public:
     CPUResizeCache() {
         // Do nothing
     }
-    ~ CPUResizeCache() {
+    ~CPUResizeCache() {
         // Do nothing
     }
-    Tensor* findCacheTensor(const Tensor* src, MNN_DATA_FORMAT format) const;
+    // Entries only live inside the resize that created them, so the caller must keep the
+    // returned holder alive for as long as it uses the tensor.
+    std::shared_ptr<Tensor> findCacheTensor(const Tensor* src, MNN_DATA_FORMAT format) const;
     // Return cache tensor
     void pushCacheTensor(std::shared_ptr<Tensor> dst, const Tensor* src, MNN_DATA_FORMAT format);
     void reset();
     void release();
+
 private:
     std::map<std::pair<const Tensor*, MNN_DATA_FORMAT>, std::shared_ptr<Tensor>> mFormatCache;
 };
-}
+} // namespace MNN
 
 #endif
