@@ -1398,7 +1398,7 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
     mPrefixCacheFileName = filename;
     mCallIndex = 0;
     mPrefixCacheMode = true;
-
+    ++mMeta->prefix_session_id;
 
     mIsPrefixFileExist = true;
     // check kvcache, validate file existence

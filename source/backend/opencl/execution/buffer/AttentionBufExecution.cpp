@@ -46,35 +46,10 @@ void KVCacheCLManager::allocKVCache(const KVMeta* meta, int seqlen) {
         mByte = 2;
     }
 
-    // Prefix kvcache: share a fixed prompt's kvcache on disk (see Llm::setPrefixCacheFile).
-    // Only act on the very first allocation of this layer's cache: file_flag stays
-    // PendingWrite/PendingRead through the decode steps of the same generate() call, but the
-    // load/save + layer_index bookkeeping must happen exactly once (mirrors onAlloc-once on
-    // CPU/Metal, where growth is handled by onRealloc without prefix logic).
-    bool firstAlloc = (mPastKey.get() == nullptr);
-    bool hasPrefixFile = firstAlloc && meta != nullptr && meta->file_name.size() > 0 && !mPrefixCacheDir.empty();
-
-    // Load path: pull the per-layer prefix files into the cache and skip prefill compute.
-    if (hasPrefixFile && meta->file_flag == KVMeta::PendingRead) {
-        if (loadPrefixKVCache(meta, seqlen)) {
-            mReallocDone = true;
-            return;
-        }
-        // Fall through to a normal (empty) allocation when the cache is unusable.
-    }
-
-    // Save path: remember this layer's target file, then allocate normally. onExecute
-    // dumps the prefill kvcache to disk once the kernels have run.
-    if (hasPrefixFile && meta->file_flag == KVMeta::PendingWrite) {
-        mSaveShareKvPrefix = true;
-        if (!MNNCreateDir(mPrefixCacheDir.c_str())) {
-            MNN_PRINT("Failed to create prefix cache file dir: %s\n", mPrefixCacheDir.c_str());
-        }
-        mBasePrefixFileName =
-            MNNFilePathConcat(mPrefixCacheDir, meta->file_name) + "_" + std::to_string(meta->layer_index);
-        // Advance the shared per-layer counter exactly once during the resize pass,
-        // matching CPUKVCacheManager / MetalKVCacheManager.
-        const_cast<KVMeta*>(meta)->layer_index = (meta->layer_index + 1) % meta->layer_nums;
+    if (handlePrefixCache(meta, seqlen)) {
+        // Cache came from disk, already sized and filled: skip the normal (re)allocation.
+        mReallocDone = true;
+        return;
     }
 
     mPastLength = meta != nullptr ? meta->previous : 0;
@@ -82,6 +57,56 @@ void KVCacheCLManager::allocKVCache(const KVMeta* meta, int seqlen) {
     // in resize phase so that LWS tuning kernels use the same args as execute.
     reallocKVCache(meta, seqlen, true);
     mReallocDone = true;
+}
+
+bool KVCacheCLManager::handlePrefixCache(const KVMeta* meta, int seqlen) {
+    if (!mKVCache) {
+        return false;
+    }
+    // Prefix kvcache: share a fixed prompt's kvcache on disk (see Llm::setPrefixCacheFile).
+    // The engine raises file_flag only for the prefill of the marked generate() call and lowers
+    // it again right afterwards, so a flag we haven't handled yet always means a new prefix
+    // session. Latch that instead of testing "mPastKey == nullptr": the pointer test only ever
+    // fired on the very first allocation in the process, so a second setPrefixCacheFile()
+    // session on the same Llm skipped the load entirely while the engine still added
+    // seqlen_in_disk to meta->previous, leaving the cache short by the whole prefix.
+    // The latch also keeps the load/save + layer_index bookkeeping to once per session when a
+    // single prefill is resized more than once (mirrors onAlloc-once on CPU/Metal, where growth
+    // is handled by onRealloc without prefix logic).
+    bool hasPrefixFlag = meta != nullptr && meta->file_name.size() > 0 && !mPrefixCacheDir.empty() &&
+                         meta->file_flag != KVMeta::NoChange;
+    if (!hasPrefixFlag) {
+        mPrefixSessionHandled = false;
+        mSaveShareKvPrefix = false;
+        return false;
+    }
+    if (mPrefixSessionHandled && mPrefixSessionId == meta->prefix_session_id) {
+        return false;
+    }
+    mPrefixSessionHandled = true;
+    mPrefixSessionId = meta->prefix_session_id;
+
+    // Load path: pull the per-layer prefix files into the cache and skip prefill compute.
+    if (meta->file_flag == KVMeta::PendingRead) {
+        mSaveShareKvPrefix = false;
+        // Returning false falls back to a normal (empty) allocation when the cache is unusable.
+        return loadPrefixKVCache(meta, seqlen);
+    }
+
+    // Save path: remember this layer's target file, then allocate normally. onExecute
+    // dumps the cumulative prefill kvcache after every chunk.
+    if (meta->file_flag == KVMeta::PendingWrite) {
+        mSaveShareKvPrefix = true;
+        if (!MNNCreateDir(mPrefixCacheDir.c_str())) {
+            MNN_PRINT("Failed to create prefix cache file dir: %s\n", mPrefixCacheDir.c_str());
+        }
+        mBasePrefixFileName =
+            MNNFilePathConcat(mPrefixCacheDir, meta->file_name) + "_" + std::to_string(meta->layer_index);
+        // Advance the shared per-layer counter exactly once per session,
+        // matching CPUKVCacheManager / MetalKVCacheManager.
+        const_cast<KVMeta*>(meta)->layer_index = (meta->layer_index + 1) % meta->layer_nums;
+    }
+    return false;
 }
 
 bool KVCacheCLManager::loadPrefixKVCache(const KVMeta* meta, int seqlen) {
@@ -246,8 +271,6 @@ void KVCacheCLManager::savePrefixKVCache() {
 
     MNNCloseFile(keyFd);
     MNNCloseFile(valueFd);
-    // Only dump once per prefill; _sync markers are created by Llm::completePrefixWrite.
-    mSaveShareKvPrefix = false;
 }
 
 bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExecute) {
@@ -456,6 +479,9 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
     mPastKvSeqlen = mKVCacheCLManager->pastKvLength();
     mKvSeqlen = mKVCacheCLManager->pastKvLength() + kvInputLen;
     mKVCacheCLManager->addKvLength(kvInputLen);
+    // Re-read the cache stride: onExecute can reallocate (growth) or replace (prefix load)
+    // the buffers without a resize, and every kernel below is fed mKeyValueMaxlen.
+    mKeyValueMaxlen = ROUND_UP(mKVCacheCLManager->maxLength(), 4);
     // prefill
     if (mIsDecode == false) {
         // key value static memory has been changed, need reset args
@@ -1767,7 +1793,14 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, c
             mKVCacheCLManager->clearReallocDone();
         } else {
             int kvInputLen = inputs[1]->shape()[1];
-            mKVCacheCLManager->reallocKVCache(mMeta, kvInputLen);
+            // A forward whose input shapes match the previous one skips onResize (hence
+            // allocKVCache) entirely, so the prefix load/save bookkeeping has to be driven
+            // from here too. Otherwise a second setPrefixCacheFile() session that happens to
+            // reuse the first session's prefill shape silently never loads the prefix.
+            // UpdateArgs below rebinds the key/value buffers, so swapping them here is safe.
+            if (!mKVCacheCLManager->handlePrefixCache(mMeta, kvInputLen)) {
+                mKVCacheCLManager->reallocKVCache(mMeta, kvInputLen);
+            }
         }
     }
     UpdateArgs(inputs, outputs);
