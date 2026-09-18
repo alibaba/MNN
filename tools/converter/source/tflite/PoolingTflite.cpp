@@ -28,6 +28,11 @@ void PoolingTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
                         const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     const auto& tflitePoolOption = tfliteOp->builtin_options.AsPool2DOptions();
+    if (nullptr == tflitePoolOption) {
+        DLOG(ERROR) << "AVERAGE_POOL_2D/MAX_POOL_2D operator carries no Pool2DOptions";
+        dstOp->type = MNN::OpType_MAX;
+        return;
+    }
     const int outputIndex    = tfliteOp->outputs[0];
     const auto& outputTensor = tfliteTensors[outputIndex];
     if (outputTensor->type == tflite::TensorType_INT8) {

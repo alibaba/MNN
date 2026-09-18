@@ -93,11 +93,14 @@ void QuantizeMultiplier(double double_multiplier, int32_t* quantized_multiplier,
 }
 
 bool convertDataFormatTflite(const float* src, float* dst, int KH, int KW, int CI, int CO, bool deconv) {
-    DCHECK(KH > 0);
-    DCHECK(KW > 0);
-    DCHECK(CI > 0);
-    DCHECK(CO > 0);
-    DCHECK(src != nullptr);
+    if (KH <= 0 || KW <= 0 || CI <= 0 || CO <= 0) {
+        DLOG(ERROR) << "convertDataFormatTflite got non-positive dims: " << KH << "x" << KW << "x" << CI << "x" << CO;
+        return false;
+    }
+    if (nullptr == src || nullptr == dst) {
+        DLOG(ERROR) << "convertDataFormatTflite got null src/dst";
+        return false;
+    }
     // deconv: CI KH KW CO --> CO CI KH KW
     // conv  : CO KH KW CI --> CO CI KH KW
     for (int oc = 0; oc < CO; ++oc) {
@@ -109,6 +112,27 @@ bool convertDataFormatTflite(const float* src, float* dst, int KH, int KW, int C
             }
         }
     }
+    return true;
+}
+
+bool computeTfliteWeightSize(const int32_t* dims, int dimCount, int* weightSize) {
+    if (nullptr == dims || nullptr == weightSize || dimCount <= 0) {
+        return false;
+    }
+    // Callers store the result in an int, so anything larger is not a size this converter can support.
+    // Compare the running product against INT_MAX / dim before multiplying: multiplying first would
+    // overflow int64 for malformed dimensions, and the overflowed value would then pass the check.
+    const int64_t kMaxSize = std::numeric_limits<int>::max();
+    int64_t product = 1;
+    for (int i = 0; i < dimCount; ++i) {
+        const int64_t dim = dims[i];
+        // dim <= 0 is tested first so that the division below is never a division by zero.
+        if (dim <= 0 || product > kMaxSize / dim) {
+            return false;
+        }
+        product *= dim;
+    }
+    *weightSize = static_cast<int>(product);
     return true;
 }
 
