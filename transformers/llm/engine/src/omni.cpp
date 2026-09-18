@@ -2210,6 +2210,10 @@ static inline bool needNewVar(VARP var, int axis, int seq_len) {
     return false;
 }
 
+VARP Omni::gen_attention_mask(int seq_len) {
+    return mIsEmbedding ? Embedding::gen_attention_mask(seq_len) : Llm::gen_attention_mask(seq_len);
+}
+
 VARP Omni::gen_position_ids(int seq_len) {
     MNN::Express::ExecutorScope s(mExecutor);
     auto positionIdsDims = mModule->getInfo()->inputs[2].dim;
