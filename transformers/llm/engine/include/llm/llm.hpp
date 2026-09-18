@@ -164,7 +164,9 @@ public:
     virtual ~Llm();
     virtual bool load();
     virtual Express::VARP gen_attention_mask(int seq_len);
-    virtual Express::VARP gen_position_ids(int seq_len);
+    // `realLen` is the number of tokens this forward really carries; a smaller value than `seq_len`
+    // means the rest is padding added to reach the block shape. -1 means everything is real.
+    virtual Express::VARP gen_position_ids(int seq_len, int realLen = -1);
     virtual Express::VARP embedding(const std::vector<int>& input_ids);
     virtual int sample(Express::VARP logits, int offset = 0, int size = 0);
     std::vector<Express::VARP> getOutputs() const;
@@ -299,7 +301,7 @@ public:
     std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {}) override;
     int dim() const;
     virtual Express::VARP gen_attention_mask(int seq_len) override;
-    virtual Express::VARP gen_position_ids(int seq_len) override;
+    virtual Express::VARP gen_position_ids(int seq_len, int realLen = -1) override;
 };
 // Embedding end
 }

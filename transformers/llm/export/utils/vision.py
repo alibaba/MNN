@@ -1384,8 +1384,11 @@ class Qwen3_5Vision(Qwen2Vision):
         self.llm_config['image_mean'] = image_mean.tolist()
         self.llm_config['image_norm'] = image_norm.tolist()
         self.llm_config['num_grid_per_side'] = self.num_grid_per_side
-        if len(getattr(visual, 'deepstack_visual_indexes', [])) > 0:
-            self.llm_config['has_deepstack'] = True
+        # Qwen3.5's visual graph exports image_embeds only (see export() below),
+        # so it must not advertise deepstack: a has_deepstack LLM config adds a
+        # deepstack_embeds input that no visual output can ever fill. Re-enable
+        # this together with a deepstack_feature output in export().
+        self.llm_config.pop('has_deepstack', None)
         # --- 修改点 1: 将 Patch_Embed 从 Conv3d 转换为 Linear ---
         if hasattr(visual.patch_embed, 'proj'):
             old_conv = visual.patch_embed.proj  # 重点：访问 .proj
