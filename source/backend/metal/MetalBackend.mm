@@ -1438,6 +1438,13 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
     MNN_ASSERT(false); // should not be handled here
 }
 int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
+    // A prior command buffer completed with an error: its kernel writes were
+    // lost, so device memory no longer matches the recorded graph. Refuse the
+    // read rather than hand back garbage (Tensor::map turns NO_EXECUTION into
+    // a nullptr with a warning, which callers already handle).
+    if (mRuntime->mCommandBufferFailed) {
+        return NO_EXECUTION;
+    }
     if (mRuntime->pExecutionStatus == NO_EXECUTION) {
 #ifdef CHECK_IOS_UI_STATUS
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
@@ -1458,6 +1465,11 @@ int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTen
     
     if (toCpu) {
         wait(3);
+    }
+    // The wait above may have surfaced a command buffer error; fail this read
+    // rather than letting the caller consume the lost writes.
+    if (mRuntime->mCommandBufferFailed) {
+        return NO_EXECUTION;
     }
     return 0;
 }
@@ -1595,6 +1607,10 @@ void MetalBackend::waitOwnInflight() const {
         if (mLastOwnCommandBuffer.status < MTLCommandBufferStatusCompleted) {
             [mLastOwnCommandBuffer waitUntilCompleted];
         }
+        if (mLastOwnCommandBuffer.error) {
+            MNN_ERROR("[METAL] command buffer error: %s\n", mLastOwnCommandBuffer.error.localizedDescription.UTF8String);
+            mRuntime->mCommandBufferFailed = true;
+        }
         mLastOwnCommandBuffer = nil;
     }
 }
@@ -1609,6 +1625,7 @@ void MetalBackend::wait(int traceSite) const {
         if (buffer.status >= MTLCommandBufferStatusCompleted) {
             if (buffer.error) {
                 MNN_ERROR("[METAL] command buffer error: %s\n", buffer.error.localizedDescription.UTF8String);
+                mRuntime->mCommandBufferFailed = true;
             }
             mRuntime->_waiting = nil;
             return;
@@ -1645,6 +1662,7 @@ void MetalBackend::wait(int traceSite) const {
 #endif
             if (buffer.error) {
                 MNN_ERROR("[METAL] command buffer error: %s\n", buffer.error.localizedDescription.UTF8String);
+                mRuntime->mCommandBufferFailed = true;
             }
             mRuntime->_waiting = nil;
             return;
@@ -1681,6 +1699,7 @@ void MetalBackend::wait(int traceSite) const {
 
         if (buffer.error) {
             MNN_ERROR("[METAL] command buffer error: %s\n", buffer.error.localizedDescription.UTF8String);
+            mRuntime->mCommandBufferFailed = true;
         }
     }
     mRuntime->_waiting = nil;

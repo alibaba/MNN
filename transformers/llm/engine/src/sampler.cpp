@@ -236,6 +236,11 @@ Sampler::Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig>
 SamplerState Sampler::createState(Express::VARP logits) {
     SamplerState state;
     auto ptr = logits->readMap<float>();
+    if (nullptr == ptr) {
+        MNN_ERROR("[LLM] sampler: logits read failed, backend execution stopped\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return state;
+    }
     int lastDim = logits->getInfo()->dim.back();
     state.vocab_size = lastDim;
     state.logits.assign(ptr, ptr + lastDim);
@@ -331,6 +336,14 @@ int Sampler::sample(Express::VARP logits) {
         // Pass 1 is a pure max reduction; pass 2 takes the first index equal to
         // it -- identical tie-break to the classic scalar first-max loop.
         auto ptr = logits->readMap<float>();
+        if (nullptr == ptr) {
+            // The backend refused the read (e.g. a discarded GPU command
+            // buffer): fail the session instead of dereferencing nullptr or
+            // sampling garbage.
+            MNN_ERROR("[LLM] sampler: logits read failed, backend execution stopped\n");
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return -1;
+        }
         float bestV = ptr[0];
 #if defined(__aarch64__)
         {
@@ -377,6 +390,10 @@ int Sampler::sample(Express::VARP logits) {
         }
     } else {
         state = createState(logits);
+    }
+    if (mContext->status == LlmStatus::INTERNAL_ERROR) {
+        // createState failed to read logits (backend execution stopped).
+        return -1;
     }
     for (auto& step : mPipeline) {
         step(state);

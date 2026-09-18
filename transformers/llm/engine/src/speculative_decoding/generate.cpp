@@ -64,6 +64,12 @@ void ArGeneration::generate(GenerationParams& param) {
 #ifdef DUMP_PROFILE_INFO
         ar_sample_us += _t_sample.durationInUs();
 #endif
+        if (mContext->current_token < 0) {
+            // Sampling failed (backend execution stopped); abort the loop
+            // instead of feeding an invalid token id to decode/embedding.
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            break;
+        }
         {
             std::lock_guard<std::mutex> _l(mContext->mutex);
             mContext->history_tokens.push_back(mContext->current_token);
