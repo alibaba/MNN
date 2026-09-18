@@ -177,6 +177,14 @@ private:
     bool mPreferM64Gemm = false;
     bool mHighBandwidthM4 = false;
     size_t mMaxThreadSize;
+    // Sticky session failure: set when a committed command buffer completes
+    // with an error (e.g. discarded by iOS as kIOGPUCommandBufferCallback
+    // ErrorInnocentVictim during GPU memory-pressure recovery). Unlike
+    // pExecutionStatus this is never auto-reset by commit(): the discard
+    // silently dropped kernel writes, so every tensor produced afterwards is
+    // potentially corrupt and all later device->host reads must fail instead
+    // of returning garbage. onSync gates on it.
+    mutable bool mCommandBufferFailed = false;
 };
 
 
