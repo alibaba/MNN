@@ -81,7 +81,6 @@ bool CPUConvolution::Resource::copyBiasAlign(const float* bias, int outputCount)
     return true;
 }
 CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend, float* scalePtr) : mResource(res) {
-    auto cpuCore = static_cast<CPUBackend*>(backend)->functions();
     auto outputChannelUp4 = res->mOriginBias->length(0); // outputChannelUp4 = ROUND_UP(oc, pack)
     const int ocUpHp = (int)(res->mWeightKernelSum->length(0) / res->mBlockNum / sizeof(float));
     mBiasFloat.reset(Tensor::createDevice<int32_t>({outputChannelUp4}));
@@ -124,16 +123,11 @@ CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<Resourc
         } else if (!scalePtr) { // if depthwiseInt8, res->mOriginScale != nullptr
             weightScale = res->mOriginScale->host<float>();
         }
-        if (cpuCore->MNNConvInt8ComputeBiasFloat) {
-            cpuCore->MNNConvInt8ComputeBiasFloat(floatBiasPtr, int32BiasPtr, weightScale, mInputScale, mOutputScale,
-                                                 outputChannelUp4);
-        } else {
-            for (int i = 0; i < outputChannelUp4; ++i) {
-                if (mInputScale && mOutputScale) { // symmetric quan
-                    floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i] * mInputScale / mOutputScale;
-                } else {
-                    floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i];
-                }
+        for (int i = 0; i < outputChannelUp4; ++i) {
+            if (mInputScale && mOutputScale) { // symmetric quan
+                floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i] * mInputScale / mOutputScale;
+            } else {
+                floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i];
             }
         }
         return;
