@@ -136,6 +136,10 @@ public:
     }
     virtual void reset() override;
 private:
+    // Runtime for the draft modules: the target's runtime by default, or a dedicated Hexagon runtime
+    // when MNN_DFLASH_DRAFT_HEXAGON=1 (the target then runs on CPU). Static because it must read
+    // Llm's protected members, and DFlashGeneration is a friend of Llm.
+    static std::shared_ptr<MNN::Express::Executor::RuntimeManager> draftRuntime(Llm* llm);
     // Row-wise argmax, shared by draft sampling and target verify; only the element count is read, so any rank binds.
     // False when the on-device argmax module could not be built: the caller must abort the step.
     bool rowArgmax(MNN::Express::VARP logits, int rows, std::vector<int>& out);
