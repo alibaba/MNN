@@ -272,6 +272,10 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
     const bool visionState = inputs.size() == 4 && outputs.size() == 1 && inputs[0] != nullptr &&
                              inputs[1] != nullptr && inputs[2] != nullptr && inputs[0]->dimensions() == 4 &&
                              inputs[1]->dimensions() == 4 && inputs[2]->dimensions() == 4 &&
+                             // Self-attention only: vision Q/K/V share a length. A cacheless cross
+                             // attention (DFlash draft, Q len != KV len) must fall through to the
+                             // buildCrossAttention branch below instead of being rejected here.
+                             inputs[0]->length(1) == inputs[1]->length(1) &&
                              TensorUtils::getDescribe(inputs[2])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4;
     if (visionState) {
         mVisionState = true;
