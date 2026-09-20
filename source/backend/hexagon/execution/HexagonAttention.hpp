@@ -21,8 +21,12 @@ private:
     ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     ErrorCode ensurePageTableCapacity(int pageCount);
     void updatePageTable();
+    // Non-cached attention with independent Q / KV lengths (DFlash draft). See onBuildCmd.
+    ErrorCode buildCrossAttention(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                  std::vector<HexagonCommand>& dst);
 
     float attentionScale(int headDim) const;
+    bool mKVCache = false;
     std::shared_ptr<Tensor> mWorkspace;
     std::shared_ptr<Tensor> mPageTable;
     bool mUseGeneratedCausalMask = false;
