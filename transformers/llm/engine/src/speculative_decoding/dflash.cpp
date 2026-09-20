@@ -11,11 +11,63 @@
 #include "generate.hpp"
 #include "core/MNNFileUtils.h"
 #include "llm/attention_mask.hpp"
+#include <cstdlib>
+#include <MNN/expr/Executor.hpp>
+#include <MNN/Interpreter.hpp>
 
 
 using namespace MNN::Express;
 namespace MNN {
 namespace Transformer {
+
+// Debug helper: log each draft submodule forward's output count so an empty (NOT_SUPPORT)
+// result can be attributed to a specific module. Returns true when the call produced outputs.
+static bool dflashDbgOutputs(const char* tag, size_t n) {
+    if (getenv("MNN_DFLASH_DBG_MOD")) {
+        MNN_PRINT("[dflash-dbg] %s outputs=%zu\n", tag, n);
+    }
+    return n > 0;
+}
+
+// The fc projection (12800->2560 matmul) fails on the Hexagon backend at execute time for the
+// per-step decode shape, so optionally run this small module on the CPU backend
+// (MNN_DFLASH_FC_CPU=1) to keep the draft path correct; the target model stays on Hexagon.
+static std::shared_ptr<MNN::Express::Executor::RuntimeManager> dflashCpuRuntime() {
+    static std::shared_ptr<MNN::Express::Executor::RuntimeManager> rt = [] {
+        MNN::ScheduleConfig cfg;
+        cfg.type = MNN_FORWARD_CPU;
+        cfg.numThread = 4;
+        return std::shared_ptr<MNN::Express::Executor::RuntimeManager>(
+            MNN::Express::Executor::RuntimeManager::createRuntimeManager(cfg));
+    }();
+    return rt;
+}
+
+// Optional (MNN_DFLASH_DRAFT_HEXAGON=1): run the draft modules on Hexagon while the target runs on
+// CPU. Used to validate the draft's Hexagon path without competing with the 4B target for the
+// ~4GB DSP rpcmem/mapping budget. Defined as a static member of DFlashGeneration, which is a friend
+// of Llm, so it can read mConfig/mMeta/mRuntimeManager.
+std::shared_ptr<MNN::Express::Executor::RuntimeManager> DFlashGeneration::draftRuntime(Llm* llm) {
+    if (getenv("MNN_DFLASH_DRAFT_HEXAGON") == nullptr) {
+        return llm->mRuntimeManager;
+    }
+    static std::shared_ptr<MNN::Express::Executor::RuntimeManager> rt = [llm] {
+        MNN::ScheduleConfig cfg;
+        cfg.type = MNN_FORWARD_HEXAGON;
+        cfg.numThread = 4;
+        auto mgr = std::shared_ptr<MNN::Express::Executor::RuntimeManager>(
+            MNN::Express::Executor::RuntimeManager::createRuntimeManager(cfg));
+        if (mgr != nullptr) {
+            mgr->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
+            mgr->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
+            mgr->setHint(MNN::Interpreter::ATTENTION_OPTION, llm->mConfig->config_.value("attention_mode", 8));
+            // The draft shares the session's KVMeta (see HexagonAttention's cross-attention note).
+            mgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, llm->mMeta.get());
+        }
+        return mgr;
+    }();
+    return rt;
+}
 
 
 DFlashGeneration::DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config)
@@ -40,13 +92,18 @@ bool DFlashGeneration::load(Module::Config module_config) {
         return false;
     }
 
+    // Draft modules run on `draftRt`: the target's runtime by default, or a dedicated Hexagon
+    // runtime when MNN_DFLASH_DRAFT_HEXAGON=1 (target then runs on CPU, e.g. backend_type=cpu).
+    const bool draftOnHexagon = getenv("MNN_DFLASH_DRAFT_HEXAGON") != nullptr;
+    auto draftRt = draftOnHexagon ? draftRuntime(mLlm) : mLlm->mRuntimeManager;
+
     // Loaded first: its output names give the draft layer count, which the draft graph's input list needs.
     {
         Module::Config kc;
         kc.shapeMutable = true;
         kc.rearrange = true;
         mKvMatModule.reset(Module::load({"new_context", "position_ids"}, {},
-            mLlm->mConfig->dflash_kvmat().c_str(), mLlm->mRuntimeManager, &kc));
+            mLlm->mConfig->dflash_kvmat().c_str(), draftRt, &kc));
         if (mKvMatModule == nullptr) {
             MNN_ERROR("DFlash: failed to load %s. The draft attention consumes per-layer "
                       "kv_k_i/kv_v_i, so this module is mandatory; re-export the draft with "
@@ -93,7 +150,7 @@ bool DFlashGeneration::load(Module::Config module_config) {
     mDFlashModule.reset(Module::load(
         dflashInputNames, dflashOutputNames,
         mLlm->mConfig->dflash_model().c_str(),
-        mLlm->mRuntimeManager, &module_config));
+        draftRt, &module_config));
     if (mDFlashModule == nullptr) {
         MNN_ERROR("DFlash: failed to load draft %s with %d per-layer KV inputs (output '%s'). "
                   "%s and the draft must come from the same export.\n",
@@ -111,13 +168,14 @@ bool DFlashGeneration::load(Module::Config module_config) {
         Module::Config lm_cfg;
         lm_cfg.shapeMutable = true;
         lm_cfg.rearrange = true;
-        lm_cfg.base = mLlm->mModule.get();
+        // Weight sharing via `base` requires the same backend; skip it when the draft has its own runtime.
+        lm_cfg.base = draftOnHexagon ? nullptr : mLlm->mModule.get();
         std::vector<std::string> lmInputNames{sharedLmHeadInput};
         std::vector<std::string> lmOutputNames{"logits"};
         mLmHeadModule.reset(Module::load(
             lmInputNames, lmOutputNames,
             mLlm->mConfig->llm_model().c_str(),
-            mLlm->mRuntimeManager, &lm_cfg));
+            draftRt, &lm_cfg));
         if (mLmHeadModule == nullptr) {
             MNN_ERROR("DFlash: failed to load shared lm_head subgraph {%s -> logits} from %s. "
                       "Set dflash_shared_lmhead_input to the target's post-final-norm tensor name.\n",
@@ -135,10 +193,11 @@ bool DFlashGeneration::load(Module::Config module_config) {
         fc_config.rearrange = true;
         std::vector<std::string> fcInputNames{"target_hidden"};
         std::vector<std::string> fcOutputNames{"context_hidden"};
+        auto fcRuntime = (getenv("MNN_DFLASH_FC_CPU") != nullptr) ? dflashCpuRuntime() : draftRt;
         mFcModule.reset(Module::load(
             fcInputNames, fcOutputNames,
             mLlm->mConfig->dflash_fc().c_str(),
-            mLlm->mRuntimeManager, &fc_config));
+            fcRuntime, &fc_config));
         if (mFcModule == nullptr) {
             MNN_ERROR("DFlash: failed to load %s (every draft step projects target hidden "
                       "states through it, so this module is mandatory)\n",
@@ -183,7 +242,7 @@ void DFlashGeneration::ensureKvConcatModule(int kvHeads, int headDim) {
     Module::Config cc;
     cc.shapeMutable = true;
     mKvConcatModule.reset(Module::load(inNames, outNames,
-        (const uint8_t*)buf.data(), buf.size(), mLlm->mRuntimeManager, &cc));
+        (const uint8_t*)buf.data(), buf.size(), draftRuntime(mLlm), &cc));
 }
 
 // newContext rows take draft-local RoPE positions startPos..startPos+rows-1 (0-based,
@@ -196,6 +255,9 @@ void DFlashGeneration::appendDraftKv(VARP newContext, int startPos) {
     }
     auto posV = _Const(posData.data(), {1, rows}, NCHW, halide_type_of<int>());
     auto kvOut = mKvMatModule->onForward({newContext, posV});
+    if (!dflashDbgOutputs("mKvMatModule", kvOut.size())) {
+        return;
+    }
     if (mDraftKv.empty()) {
         mDraftKv.resize(mKvMatSlot.size());
         for (int i = 0; i < (int)mKvMatSlot.size(); i++) {
@@ -212,6 +274,9 @@ void DFlashGeneration::appendDraftKv(VARP newContext, int startPos) {
         concatIn.push_back(kvOut[mKvMatSlot[i]]);
     }
     auto concatOut = mKvConcatModule->onForward(concatIn);
+    if (!dflashDbgOutputs("mKvConcatModule", concatOut.size())) {
+        return;
+    }
     for (int i = 0; i < (int)mDraftKv.size(); i++) {
         mDraftKv[i] = concatOut[i];
     }
@@ -249,13 +314,20 @@ VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids) {
     inputs.insert(inputs.end(), mDraftKv.begin(), mDraftKv.end());
     inputs.insert(inputs.end(), {attention_mask, position_ids});
     auto outputs = mDFlashModule->onForward(inputs);
+    if (!dflashDbgOutputs("mDFlashModule", outputs.size())) {
+        return nullptr;
+    }
 
     // The draft has no lm_head: run outputs[0] (hidden_states) through the target's lm_head subgraph.
     auto hidden_states_out = outputs[0];
     // The subgraph feeds the lm_head Convolution directly (4D NCHW); reshaping [1, block, hidden] to [block, hidden, 1, 1] is a numerical no-op.
     auto hsInfo = hidden_states_out->getInfo();
     VARP lm_input = _Reshape(hidden_states_out, {hsInfo->dim[0] * hsInfo->dim[1], hsInfo->dim[2], 1, 1});
-    return mLmHeadModule->onForward({lm_input})[0];
+    auto lmOut = mLmHeadModule->onForward({lm_input});
+    if (!dflashDbgOutputs("mLmHeadModule", lmOut.size())) {
+        return nullptr;
+    }
+    return lmOut[0];
 }
 
 // Build the speculation block [current_token, mask, ..., mask].
@@ -280,7 +352,7 @@ bool DFlashGeneration::rowArgmax(VARP logits, int rows, std::vector<int>& out) {
         Module::Config ac;
         ac.shapeMutable = true;
         mArgmaxModule.reset(Module::load({"logits"}, {"pidx"},
-            (const uint8_t*)buf.data(), buf.size(), mLlm->mRuntimeManager, &ac));
+            (const uint8_t*)buf.data(), buf.size(), draftRuntime(mLlm), &ac));
         if (mArgmaxModule == nullptr) {
             MNN_ERROR("DFlash: failed to build the on-device argmax module (vocab=%d)\n", vocab);
             mContext->status = LlmStatus::INTERNAL_ERROR;
@@ -289,6 +361,7 @@ bool DFlashGeneration::rowArgmax(VARP logits, int rows, std::vector<int>& out) {
         MNN_PRINT("DFlash: on-device argmax on (vocab=%d)\n", vocab);
     }
     auto idx = mArgmaxModule->onForward({logits})[0];
+    dflashDbgOutputs("mArgmaxModule", idx.get() != nullptr ? 1 : 0);
     ::memcpy(out.data(), idx->readMap<int>(), rows * sizeof(int));
 #ifdef DUMP_PROFILE_INFO
     phase_argmax_us += _t.durationInUs();
@@ -327,6 +400,7 @@ DFlashGeneration::VerifyResult DFlashGeneration::verifyAcceptCommit(
     // Defer the recurrent state update: part of this block may be rejected.
     mLlm->mMeta->spec_block = blockSize;
     auto verify_outputs = mLlm->forwardVec(block_ids);
+    dflashDbgOutputs("mLlm->forwardVec(verify)", verify_outputs.size());
     mLlm->mMeta->spec_block = 0;
     if (verify_outputs.empty() || verify_outputs.size() < 2) {
         vr.stop = true;
@@ -439,7 +513,11 @@ void DFlashGeneration::generate(GenerationParams& param) {
         }
 
         // The only time the prompt is projected: positions are frozen from here on.
-        appendDraftKv(mFcModule->onForward({prev_hidden_states})[0], 0);
+        auto fcPrefill = mFcModule->onForward({prev_hidden_states});
+        if (!dflashDbgOutputs("mFcModule(prefill)", fcPrefill.size())) {
+            return;
+        }
+        appendDraftKv(fcPrefill[0], 0);
         mInitialized = true;
 
         // If max_token is 0, just do initialization and return
@@ -524,7 +602,11 @@ void DFlashGeneration::generate(GenerationParams& param) {
                                        _Const(starts.data(), {3}, NHWC, halide_type_of<int>()),
                                        _Const(sizes.data(), {3}, NHWC, halide_type_of<int>()));
         }
-        auto new_context = mFcModule->onForward({new_hidden_states})[0];
+        auto fcOut = mFcModule->onForward({new_hidden_states});
+        if (!dflashDbgOutputs("mFcModule(decode)", fcOut.size())) {
+            break;
+        }
+        auto new_context = fcOut[0];
 #ifdef DUMP_PROFILE_INFO
         phase_fc_fwd_us += _t_fc.durationInUs();
         MNN::Timer _t_kvmat;
