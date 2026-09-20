@@ -386,11 +386,12 @@ private:
 // and tensors are addressed as (chunk, offset). This avoids the fastrpc per-buffer 4GB address
 // limit and, more importantly, the per-tensor mapping explosion: hundreds of small mappings
 // exhaust the DSP mapping budget, which a 4B model otherwise hits. Chunk size is
-// MNN_HEXAGON_MBUF MiB (default 1024).
+// MNN_HEXAGON_MBUF MiB (default 256).
 class HexagonAllocator : public BufferAllocator::Allocator {
 public:
     explicit HexagonAllocator(bool lazyMap = false) : mLazyMap(lazyMap) {
-        size_t mbufMiB = 1024;
+        // 1 GiB single mappings fail fastrpc_mmap on some devices, so keep chunks well under 1 GiB.
+        size_t mbufMiB = 256;
         if (const char* e = getenv("MNN_HEXAGON_MBUF")) {
             int v = atoi(e);
             if (v > 0) {
