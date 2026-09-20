@@ -69,4 +69,28 @@ AEEResult htp_ops_topkv2_k1_fp16(uint8_t* values, uint8_t* indices, uint8_t* inp
   return 0;
 }
 
+// Row-wise argmax over fp16 rows. Reuses the same bit-exact HVX max as topk; ties resolve to the
+// lowest index because the winning index is the first position whose bit pattern matches.
+AEEResult htp_ops_argmax_fp16(uint8_t* indices, const uint8_t* input, int32_t rowSize, int32_t rows) {
+  if (indices == nullptr || input == nullptr || rowSize <= 0 || rows <= 0) {
+    return -1;
+  }
+  const __fp16* src = (const __fp16*)input;
+  int32_t* indexOut = (int32_t*)indices;
+  for (int r = 0; r < rows; ++r) {
+    const __fp16* row = src + (size_t)r * rowSize;
+    const uint16_t bestBits = htp_ops_topk_fp16_max_bits(row, rowSize);
+    const uint16_t* rowBits = (const uint16_t*)row;
+    int32_t bestIndex = 0;
+    for (int i = 0; i < rowSize; ++i) {
+      if (rowBits[i] == bestBits) {
+        bestIndex = i;
+        break;
+      }
+    }
+    indexOut[r] = bestIndex;
+  }
+  return 0;
+}
+
 } // extern "C"

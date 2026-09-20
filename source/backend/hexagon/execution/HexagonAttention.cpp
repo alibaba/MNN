@@ -70,6 +70,21 @@ struct FlashAttentionBlockParam {
     float scale;
 };
 
+// Must match the int32 parameter block consumed by DSP_OP_CROSS_ATTENTION_FP16 in
+// htp-ops-lib/src/dsp/execute_command.cc (floatParams aliases the same buffer, so `scale` is index 6).
+struct CrossAttentionParam {
+    int batch;
+    int q_tokens;
+    int kv_tokens;
+    int n_heads;
+    int n_kv_heads;
+    int head_dim;
+    float scale;
+    int mask_stride;
+    int mask_is_fp16;
+    int scratch_bytes;
+};
+
 struct VisionAttentionParam {
     int batch;
     int tokens;
@@ -86,6 +101,36 @@ static int flashAttentionBlockAlignUp(int value, int alignment) {
 
 static size_t flashAttentionBlockAlignUpSize(size_t value, size_t alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
+}
+
+// Non-cached cross attention scratch: packed K + packed V + packed output + per-worker attention
+// workspace + an fp32 copy of the additive mask. Mirrors htp_ops_cross_attention_fp16's layout in
+// htp-ops-lib/src/dsp/attention_entry.cc; both sides must be updated together.
+static size_t crossAttentionScratchBytes(int qTokens, int kvTokens, int nHeads, int nKvHeads, int headDim,
+                                         int maskStride, int maxThreads) {
+    constexpr int kHmxKvBlock = 256;
+    constexpr int kHmxKvBlockTiles = kHmxKvBlock / 32;
+    const int seqBlocks = (kvTokens + kHmxKvBlock - 1) / kHmxKvBlock;
+    const int dimTiles = flashAttentionBlockAlignUp(headDim, 32) / 32;
+    const int queryBlock = std::min(qTokens, 64);
+    const int kvPadded = flashAttentionBlockAlignUp(kvTokens, 32);
+    const size_t packedKBytes =
+        (size_t)seqBlocks * nKvHeads * kHmxKvBlockTiles * dimTiles * 1024 * sizeof(int16_t);
+    const size_t packedVBytes = packedKBytes;
+    // Must match sync_attention_head_workspace_bytes(queryBlock, kvTokens) on the DSP, which pads the
+    // KV length up to 32 before sizing the score / probability planes.
+    const int workerSlots = visionAttentionWorkerSlots(maxThreads);
+    const size_t workerBytes = flashAttentionBlockAlignUpSize((size_t)queryBlock * kvPadded * sizeof(float), 128) +
+                               flashAttentionBlockAlignUpSize((size_t)queryBlock * kvPadded * sizeof(int16_t), 128);
+
+    size_t offset = flashAttentionBlockAlignUpSize(packedKBytes, 128);
+    offset = flashAttentionBlockAlignUpSize(offset + packedVBytes, 128);
+    offset = flashAttentionBlockAlignUpSize(offset + (size_t)queryBlock * nHeads * headDim * sizeof(int16_t), 128);
+    offset = flashAttentionBlockAlignUpSize(offset + (size_t)workerSlots * workerBytes, 128);
+    if (maskStride > 0) {
+        offset = flashAttentionBlockAlignUpSize(offset + (size_t)queryBlock * maskStride * sizeof(float), 128);
+    }
+    return offset + 127;
 }
 
 static size_t flashAttentionBlockWorkspaceBytes(int batch, int heads, int chunk, int headDim) {
@@ -142,6 +187,10 @@ static size_t visionFlashAttentionWorkspaceBytes(int tokens, int heads, int head
 }
 
 HexagonAttention::HexagonAttention(Backend *backend, const Op *op) : HexagonExecution(backend) {
+    auto param = op->main_as_AttentionParam();
+    if (param) {
+        mKVCache = param->kv_cache();
+    }
     MNN::KVCacheManager::KVCacheConfig kvconfig;
     mKVCacheManager.reset(new HexagonKVCacheManager(backend, kvconfig));
     mMeta = (KVMeta*)(backend->getMetaPtr());
@@ -307,6 +356,18 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
     }
     if (mMeta != nullptr && streamingState) {
         return NOT_SUPPORT;
+    }
+    // Non-cached cross attention (e.g. the DFlash draft): an `Attention` op with kv_cache = false
+    // whose input key/value tensors carry their own full sequence, so the query and key/value lengths
+    // differ and there is no KV cache to page. This is distinct from the paged KV-cache path below,
+    // which requires KV length == insert length and derives the mask itself. The draft shares the
+    // session's KVMeta, so the discriminator is kv_cache/shape, not a null meta.
+    if (!mKVCache && inputs.size() >= 3 && !outputs.empty()) {
+        const bool crossShape = inputs[0] != nullptr && inputs[1] != nullptr && inputs[0]->dimensions() == 4 &&
+                                inputs[1]->dimensions() == 4 && inputs[0]->length(1) != inputs[1]->length(1);
+        if (crossShape) {
+            return buildCrossAttention(inputs, outputs, dst);
+        }
     }
     if (streamingState) {
         auto Q = inputs[0];
@@ -561,9 +622,101 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
     return NO_ERROR;
 }
 
+// Q [1, qLen, nHeads, headDim] attends to a fully materialized K/V pair [1, kvLen, nKvHeads, headDim]
+// with an additive mask [1, 1, qLen, kvLen] (or none). Used by the DFlash draft, where the draft's
+// attention is bidirectional and the committed context lives inside the K/V input rather than a cache.
+ErrorCode HexagonAttention::buildCrossAttention(const std::vector<Tensor*>& inputs,
+                                               const std::vector<Tensor*>& outputs,
+                                               std::vector<HexagonCommand>& dst) {
+    auto Q = inputs[0];
+    auto K = inputs[1];
+    auto V = inputs[2];
+    if (Q == nullptr || K == nullptr || V == nullptr) {
+        return NOT_SUPPORT;
+    }
+    if (Q->dimensions() != 4 || K->dimensions() != 4 || V->dimensions() != 4) {
+        return NOT_SUPPORT;
+    }
+    const int qLen = Q->length(1);
+    const int kvLen = K->length(1);
+    const int nHeads = Q->length(2);
+    const int nKvHeads = K->length(2);
+    const int headDim = Q->length(3);
+    if (qLen <= 0 || kvLen <= 0 || nHeads <= 0 || nKvHeads <= 0 || headDim <= 0 ||
+        nHeads % nKvHeads != 0 || headDim % 64 != 0) {
+        return NOT_SUPPORT;
+    }
+    if (V->length(1) != kvLen || V->length(2) != nKvHeads || V->length(3) != headDim) {
+        return NOT_SUPPORT;
+    }
+    if (HexagonBackend::getBytes(Q) != 2 || HexagonBackend::getBytes(K) != 2 ||
+        HexagonBackend::getBytes(V) != 2 || HexagonBackend::getBytes(outputs[0]) != 2) {
+        return NOT_SUPPORT;
+    }
+
+    Tensor* maskTensor = nullptr;
+    int maskStride = 0;
+    int maskBytes = 0;
+    if (inputs.size() > 3 && inputs[3] != nullptr && inputs[3]->dimensions() > 2) {
+        maskTensor = inputs[3];
+        // Accept [1, 1, qLen, kvLen] fp16 (the on-device graph dtype) or fp32. The DSP widens it to
+        // fp32 in its scratch, so no host round-trip is needed.
+        const int maskQ = maskTensor->length(maskTensor->dimensions() - 2);
+        const int maskK = maskTensor->length(maskTensor->dimensions() - 1);
+        if (maskQ != qLen || maskK != kvLen) {
+            return NOT_SUPPORT;
+        }
+        maskBytes = HexagonBackend::getBytes(maskTensor);
+        if (maskBytes != 2 && maskBytes != 4) {
+            return NOT_SUPPORT;
+        }
+        maskStride = maskK;
+    }
+
+    const float scale = attentionScale(headDim);
+    const int maxThreads = static_cast<const HexagonRuntime*>(backend()->getRuntime())->info().maxThreads;
+    const size_t scratchBytes =
+        crossAttentionScratchBytes(qLen, kvLen, nHeads, nKvHeads, headDim, maskStride, maxThreads);
+    if (scratchBytes > INT_MAX) {
+        return NOT_SUPPORT;
+    }
+    mWorkspace.reset(Tensor::createDevice<int8_t>({(int)scratchBytes}));
+    if (!backend()->onAcquireBuffer(mWorkspace.get(), Backend::DYNAMIC)) {
+        mWorkspace.reset();
+        return OUT_OF_MEMORY;
+    }
+
+    const int maskIsFp16 = (maskTensor != nullptr && maskBytes == 2) ? 1 : 0;
+    CrossAttentionParam params = {1,          qLen,     kvLen,        nHeads,   nKvHeads,
+                                  headDim,    scale,    maskStride,   maskIsFp16, (int)scratchBytes};
+
+    auto inputFds = std::vector<std::pair<int, int>>{HexagonBackend::getDevicePtr(Q), HexagonBackend::getDevicePtr(K),
+                                                     HexagonBackend::getDevicePtr(V)};
+    std::vector<Tensor*> commandInputs = {Q, K, V};
+    if (maskTensor != nullptr) {
+        inputFds.emplace_back(HexagonBackend::getDevicePtr(maskTensor));
+        commandInputs.emplace_back(maskTensor);
+    }
+    std::vector<std::pair<int, int>> outputFds = {HexagonBackend::getDevicePtr(outputs[0]),
+                                                  HexagonBackend::getDevicePtr(mWorkspace.get())};
+    std::vector<Tensor*> commandOutputs = {outputs[0], mWorkspace.get()};
+
+    dst.emplace_back();
+    dst.back().build(static_cast<HexagonBackend*>(backend()), DSP_OP_CROSS_ATTENTION_FP16, &params, sizeof(params),
+                     inputFds, outputFds, commandInputs, commandOutputs);
+
+    backend()->onReleaseBuffer(mWorkspace.get(), Backend::DYNAMIC);
+    return NO_ERROR;
+}
+
 ErrorCode HexagonAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     if (!mValid) {
         return NOT_SUPPORT;
+    }
+    if (!mKVCache) {
+        // Cross attention (and the vision path) execute the prebuilt commands verbatim; there is no
+        // per-step seq bookkeeping and no page table to refresh.
+        return HexagonExecution::onExecute(inputs, outputs);
     }
     if (mVisionState || mMeta == nullptr) {
         return HexagonExecution::onExecute(inputs, outputs);
