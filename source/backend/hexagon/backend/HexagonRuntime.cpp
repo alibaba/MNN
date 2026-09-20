@@ -381,77 +381,109 @@ private:
 };
 #endif
 
+// Hexagon rpcmem is allocated in large chunks and sub-allocated, mirroring llama.cpp's
+// ggml-hexagon backend: one rpcmem_alloc + one fastrpc_mmap per chunk (each <= maxChunkSize),
+// and tensors are addressed as (chunk, offset). This avoids the fastrpc per-buffer 4GB address
+// limit and, more importantly, the per-tensor mapping explosion: hundreds of small mappings
+// exhaust the DSP mapping budget, which a 4B model otherwise hits. Chunk size is
+// MNN_HEXAGON_MBUF MiB (default 1024).
 class HexagonAllocator : public BufferAllocator::Allocator {
 public:
-    explicit HexagonAllocator(bool lazyMap = false) : mLazyMap(lazyMap) {}
-    virtual ~ HexagonAllocator() = default;
+    explicit HexagonAllocator(bool lazyMap = false) : mLazyMap(lazyMap) {
+        size_t mbufMiB = 1024;
+        if (const char* e = getenv("MNN_HEXAGON_MBUF")) {
+            int v = atoi(e);
+            if (v > 0) {
+                mbufMiB = (size_t)v;
+            }
+        }
+        mMaxChunkSize = mbufMiB * 1024 * 1024;
+    }
+    virtual ~HexagonAllocator() {
+        for (auto& c : mChunks) {
+            if (c.buf == nullptr) {
+                continue;
+            }
+            unregisterDspMappedBuffer(c.buf);
+            if (c.buf->mapped) {
+                gMmapManager().unmap(CDSP_DOMAIN_ID, c.buf);
+                c.buf->mapped = false;
+            }
+            rpcmem_free(c.buf->ptr);
+            delete c.buf;
+        }
+        mChunks.clear();
+    }
+
     virtual MemChunk onAlloc(size_t size, size_t align) override {
-#ifdef MNN_HEXAGON_ASAN
-        if (size > static_cast<size_t>(-1) - gHexagonAsanGuardSize) {
-            MNN_ERROR("[MNN::Hexagon][ASAN] allocation size overflow: size=%zu guard=%zu\n", size, gHexagonAsanGuardSize);
-            return MemChunk((void*)nullptr);
+        if (size == 0) {
+            size = 1;
         }
-        const size_t requestedSize = size;
-        const size_t guardedSize = size + gHexagonAsanGuardSize;
-        if (guardedSize > static_cast<size_t>(-1) - (gHexagonAsanPageSize - 1)) {
-            MNN_ERROR("[MNN::Hexagon][ASAN] mapped size overflow: size=%zu guard=%zu page=%zu\n",
-                      size, gHexagonAsanGuardSize, gHexagonAsanPageSize);
-            return MemChunk((void*)nullptr);
+        std::lock_guard<std::mutex> lock(mMutex);
+        for (auto& c : mChunks) {
+            size_t off = alignUp(c.used, align);
+            if (off <= c.capacity && size <= c.capacity - off) {
+                c.used = off + size;
+                return MemChunk(c.buf, off);
+            }
         }
-        const size_t mappedSize = ((guardedSize + gHexagonAsanPageSize - 1) / gHexagonAsanPageSize) * gHexagonAsanPageSize;
-#else
-        const size_t mappedSize = size;
-#endif
-        void * data = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_FLAG_UNCACHED, mappedSize);
-        if (nullptr == data) {
+        size_t cap = std::max(size, mMaxChunkSize);
+        auto buf = allocChunk(cap);
+        if (buf == nullptr) {
             FUNC_PRINT(1);
             return MemChunk((void*)nullptr);
         }
-        auto fd = rpcmem_to_fd(data);
+        size_t off = alignUp((size_t)0, align);
+        Chunk newChunk;
+        newChunk.buf = buf;
+        newChunk.used = off + size;
+        newChunk.capacity = cap;
+        mChunks.push_back(newChunk);
+        return MemChunk(buf, off);
+    }
+
+    virtual void onRelease(MemChunk ptr) override {
+        // A sub-allocation cannot be returned individually; whole chunks are freed in the
+        // destructor. (The previous per-tensor implementation also never returned rpcmem during
+        // a run, so this does not change lifetime semantics.)
+    }
+
+private:
+    struct Chunk {
+        HexagonBuffer* buf = nullptr;
+        size_t used = 0;
+        size_t capacity = 0;
+    };
+    static size_t alignUp(size_t v, size_t a) {
+        return a == 0 ? v : (v + a - 1) / a * a;
+    }
+    HexagonBuffer* allocChunk(size_t cap) {
+        void* data = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_FLAG_UNCACHED, cap);
+        if (data == nullptr) {
+            return nullptr;
+        }
+        int fd = rpcmem_to_fd(data);
         if (fd == -1) {
-            FUNC_PRINT(1);
             rpcmem_free(data);
-            return MemChunk((void*)nullptr);
+            return nullptr;
         }
         auto buf = new HexagonBuffer;
         buf->ptr = data;
         buf->fd = fd;
-        buf->size = mappedSize;
+        buf->size = cap;
         buf->lazyMap = mLazyMap;
-#ifdef MNN_HEXAGON_ASAN
-        buf->requestedSize = requestedSize;
-        buf->guardSize = mappedSize - requestedSize;
-        buf->guardValue = gHexagonAsanGuardValue;
-        hexagonAsanInitGuard(buf);
-#endif
         if (!buf->lazyMap && !gMmapManager().map(CDSP_DOMAIN_ID, buf)) {
             rpcmem_free(data);
             delete buf;
-            return MemChunk((void*)nullptr);
+            return nullptr;
         }
         buf->mapped = !buf->lazyMap;
         registerDspMappedBuffer(buf);
-//        MNN_PRINT("[Hexagon] Alloc %d, size=%d\n", buf->fd, buf->size);
         return buf;
     }
-    virtual void onRelease(MemChunk ptr) override {
-        auto buf = (HexagonBuffer*)ptr.first;
-        if (buf == nullptr) {
-            return;
-        }
-//        MNN_PRINT("[Hexagon] Free %d, size=%d\n", buf->fd, buf->size);
-        unregisterDspMappedBuffer(buf);
-#ifdef MNN_HEXAGON_ASAN
-        hexagonAsanCheckGuard(buf, "release");
-#endif
-        if (buf->mapped) {
-            gMmapManager().unmap(CDSP_DOMAIN_ID, buf);
-            buf->mapped = false;
-        }
-        rpcmem_free(buf->ptr);
-        delete buf;
-    }
-private:
+    std::vector<Chunk> mChunks;
+    std::mutex mMutex;
+    size_t mMaxChunkSize = 1024 * 1024 * 1024;
     bool mLazyMap = false;
 };
 
@@ -1122,14 +1154,17 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
     }
     mAvailable = true;
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new HexagonAllocator());
-    constexpr size_t staticMinAllocSize = 16 * 1024 * 1024;
-    constexpr size_t commandMinAllocSize = 4 * 1024 * 1024;
-    constexpr size_t weightMinAllocSize = 64 * 1024 * 1024;
+    // Chunking (HexagonAllocator) provides the allocation granularity, so per-request padding
+    // only wastes space inside a chunk; keep requests tight.
+    constexpr size_t staticMinAllocSize = 0;
+    constexpr size_t commandMinAllocSize = 0;
+    constexpr size_t weightMinAllocSize = 0;
     // Each weight tensor is DMA'd to VTCM as one large block, so where it starts inside the chunk
     // decides how many DSP MMU pages that block straddles. Measured on Qwen3.5-0.8B (v79, -rep 5,
     // alternating): tg128 71.9 at 128 B, 74.4 at 4 KB, 75.6 at 64 KB; pp512 moves the same way but
     // only by 0.6%. Keep it at a DSP large-page boundary; the padding is negligible next to the
-    // MB-sized tensors.
+    // MB-sized tensors. Min sizes stay 0 because the chunk allocator already hands out
+    // MB-granular buffers, so master's 16/4/64 MB floors would only inflate each chunk.
     constexpr size_t weightAllocAlign = 64 * 1024;
     std::shared_ptr<BufferAllocator> staticAlloc(new EagerBufferAllocator(allocator, 128, staticMinAllocSize));
 #ifdef MNN_HEXAGON_ASAN
