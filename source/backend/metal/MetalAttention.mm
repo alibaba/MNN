@@ -886,7 +886,13 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
                     // memory-bandwidth tier: 256 for M4 base, 512 for M4 Pro.
                     const bool highBandwidthM4 = rt->isHighBandwidthM4();
                     const int product = highBandwidthM4 ? 512 : 256;
-                    mSdpaNsg = ALIMIN(ALIMAX(product / tgCount, 4), 32);
+                    // NSG must divide SIMD_GROUP_WIDTH: the decode_splitkv reduce
+                    // visits component lanes lp = sgitg + rep * NSG, rep < 32 / NSG.
+                    const int nsgWant = ALIMIN(ALIMAX(product / tgCount, 4), 32);
+                    mSdpaNsg = 4;
+                    while (mSdpaNsg * 2 <= nsgWant) {
+                        mSdpaNsg *= 2;
+                    }
                     // M4 base retains its short-KV cap. On M4 Pro, production
                     // shapes stay wide; only the measured high-register-pressure
                     // qh2*hd256 corner narrows below 256 tokens.
