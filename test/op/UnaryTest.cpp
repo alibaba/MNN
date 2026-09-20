@@ -17,6 +17,12 @@ using namespace MNN::Express;
 using namespace std;
 using namespace MNN;
 
+// Defined in test/backend/cpu/RVVAbsMaxTest.cpp. Exercises the RVV FP32 abs-max
+// kernel directly and checks that it is registered on the shared function table.
+// A direct kernel test alone cannot catch an unregistered C++ overload, so it
+// runs from this registered case.
+bool MNNTestRVVAbsMaxFunctions();
+
 static VARP _UnaryInt8(VARP x, UnaryOpOperation operation, std::vector<int8_t> buffer) {
     flatbuffers::FlatBufferBuilder builder(MNN_DEFAULT_FLATBUFFER_SIZE);
     auto bufferOffset = builder.CreateVector(buffer);
@@ -562,9 +568,10 @@ public:
         auto res = test<float, float>(MNN::Express::_Abs, "AbsTest", 0.01,
                     {-1.0, -2.0, 3.0, 4.0, -1.0, -2.0, 3.0, 4.0}, {1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0},
                     {8}, {8});
-        return res && test<int32_t, int32_t>(MNN::Express::_Abs, "AbsTest", 0,
+        auto intRes = test<int32_t, int32_t>(MNN::Express::_Abs, "AbsTest", 0,
                                          {-1, -2, 3, 4, -1, -2, 3, 4}, {1, 2, 3, 4, 1, 2, 3, 4},
                                          {8}, {8});
+        return res && intRes && (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_CPU || MNNTestRVVAbsMaxFunctions());
     }
 };
 class NegativeTest : public UnaryTestCommon {

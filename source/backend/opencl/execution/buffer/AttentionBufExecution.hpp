@@ -47,6 +47,11 @@ public:
     // True after allocKVCache detected PendingWrite for this layer: onExecute must
     // dump the prefill kvcache to disk once the kernels have run.
     bool savingPrefix() const { return mSaveShareKvPrefix; }
+    // Run the once-per-session prefix bookkeeping for the current meta->file_flag.
+    // Returns true when the cache was loaded from disk, meaning the caller must skip
+    // reallocKVCache. Callable from both the resize and the execute path, because a
+    // prefill whose shapes match the previous forward skips onResize entirely.
+    bool handlePrefixCache(const KVMeta* meta, int seqlen);
     // Load the per-layer prefix kvcache files into a freshly allocated cache buffer.
     // Returns false (and leaves the cache unallocated) when the files are missing or
     // inconsistent with the current precision, so the caller can fall back to prefill.
@@ -64,8 +69,10 @@ private:
     int mByte = 4;
 
     // Prefix kvcache state
-    std::string mPrefixCacheDir;     // Directory holding <name>_<layer>.k/.v files
-    bool mSaveShareKvPrefix = false; // This layer is in PendingWrite mode
+    std::string mPrefixCacheDir;        // Directory holding <name>_<layer>.k/.v files
+    bool mSaveShareKvPrefix = false;    // This layer is in PendingWrite mode
+    bool mPrefixSessionHandled = false; // Load/save already done for the current prefix session
+    size_t mPrefixSessionId = 0;
     std::string mBasePrefixFileName; // <dir>/<name>_<layer> for this layer (no suffix)
 };
 

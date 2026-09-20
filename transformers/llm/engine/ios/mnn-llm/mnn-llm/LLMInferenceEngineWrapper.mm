@@ -12,8 +12,27 @@
 #include <vector>
 #import "LLMInferenceEngineWrapper.h"
 #import <UIKit/UIApplication.h>
+#import <mach/mach.h>
 #include <MNN/llm/llm.hpp>
 using namespace MNN::Transformer;
+
+// phys_footprint is the metric jetsam kills on; log it on a timer so a SIGKILL
+// mid-benchmark still leaves a memory trajectory in the console log.
+static dispatch_source_t StartFootprintLogger(const char* label) {
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+                                                     dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 0), 2ull * NSEC_PER_SEC, 0);
+    dispatch_source_set_event_handler(timer, ^{
+        task_vm_info_data_t vmInfo;
+        mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+        if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vmInfo, &count) == KERN_SUCCESS) {
+            NSLog(@"[MNN_MEM] %s footprint=%lluMB internal=%lluMB compressed=%lluMB", label,
+                  vmInfo.phys_footprint >> 20, vmInfo.internal >> 20, vmInfo.compressed >> 20);
+        }
+    });
+    dispatch_resume(timer);
+    return timer;
+}
 
 const char* GetMainBundleDirectory() {
     NSString *bundleDirectory = [[NSBundle mainBundle] bundlePath];
@@ -323,6 +342,31 @@ static void LogAnswerChunks(const std::string& answer) {
     }
     llm->set_config("{\"tmp_path\":\"" + GetCleanTmpDirectory() + "\", \"use_mmap\":" +
                     (cmd.find("nommap") != std::string::npos ? "false" : "true") + "}");
+    // fp16 KV costs ~115KB/token for this 28-layer 8-kv-head model, so an 8K
+    // prompt needs ~1GB of KV alone and the bench gets jetsam-killed on 6GB
+    // devices. attention_mode=10 stores KV as int8 (halving it) while keeping
+    // the flash-attention flag. ~20KB of prompt text is roughly 5K tokens;
+    // below that fp16 KV fits comfortably and keeps full fidelity.
+    size_t maxPromptBytes = 0;
+    for (const auto& f : files) {
+        std::ifstream fs(model_dir + "/" + f, std::ios::ate);
+        if (fs) {
+            maxPromptBytes = std::max(maxPromptBytes, (size_t)fs.tellg());
+        }
+    }
+    if (maxPromptBytes > 20 * 1024) {
+        llm->set_config("{\"attention_mode\":10}");
+        // Measured on iPhone 13 Pro: jetsam kills at ~2.0GB phys_footprint and
+        // the post-prefill baseline at 8K tokens + int8 KV is ~1.3GB, so
+        // uncapped decode still dies (or stalls in the page compressor) once
+        // KV grows past ~700MB. Cap decode at 4096 tokens (~+230MB int8 KV)
+        // so the run survives to report instead of being SIGKILLed.
+        if (max_new > 4096) {
+            max_new = 4096;
+        }
+        NSLog(@"[MNN_BENCH] large prompt (%zu bytes), attention_mode=10 (int8 KV), max_new clamped to %d",
+              maxPromptBytes, max_new);
+    }
     llm->set_config("{\"backend_type\":\"" + backend + "\"}");
     llm->set_config("{\"thread_num\":" + std::to_string(threads) + "}");
     llm->set_config("{\"reuse_kv\":false}");
@@ -344,7 +388,9 @@ static void LogAnswerChunks(const std::string& answer) {
         NSLog(@"[MNN_FILE_BEGIN] file=%s bytes=%zu", files[i].c_str(), content.size());
         os << "[" << (i + 1) << "/" << files.size() << "] " << files[i] << " ...\n";
         std::ostringstream answer;
+        dispatch_source_t memTimer = StartFootprintLogger(files[i].c_str());
         llm->response(ResolveImagePaths(content), &answer, "");
+        dispatch_source_cancel(memTimer);
         [[NSData dataWithBytes:answer.str().c_str() length:answer.str().size()]
             writeToFile:[answerDir stringByAppendingPathComponent:
                          [NSString stringWithUTF8String:files[i].c_str()]] atomically:YES];

@@ -104,7 +104,11 @@ class ChatListComponent(private val context: Context,
     private fun setupRecyclerView() {
         recyclerView = binding.recyclerView
         recyclerView.setItemAnimator(null)
-        recyclerView.setLayoutManager(LinearLayoutManager(context))
+        // LinearLayoutManager falls back to anchoring on position 0 whenever
+        // updateAnchorFromChildren() fails, which a streaming item's height changes trigger
+        // routinely. stackFromEnd moves that fallback to the last item so the list cannot jump
+        // back to the top of the conversation.
+        recyclerView.setLayoutManager(LinearLayoutManager(context).apply { stackFromEnd = true })
         binding.layoutBottomContainer.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             val insets: WindowInsets? = v.rootWindowInsets
             val bottomInset = insets!!.systemWindowInsetBottom
@@ -245,10 +249,18 @@ class ChatListComponent(private val context: Context,
             return 0
         }
 
-        val range = recyclerView.computeVerticalScrollRange()
-        val extent = recyclerView.computeVerticalScrollExtent()
-        val offset = recyclerView.computeVerticalScrollOffset()
-        return (range - extent - offset).coerceAtLeast(0)
+        // computeVerticalScrollRange() is only an estimate (laidOutArea / laidOutItemCount *
+        // totalItemCount), and a short user message next to a very tall streaming assistant
+        // message throws it off by an order of magnitude.
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
+        val lastItemView = layoutManager?.findViewByPosition(totalItemCount - 1)
+        val viewportBottom = recyclerView.height - recyclerView.paddingBottom
+        if (lastItemView != null) {
+            return (lastItemView.bottom - viewportBottom).coerceAtLeast(0)
+        }
+
+        // The last item is not laid out yet, so it sits below the viewport: advance one viewport.
+        return (viewportBottom - recyclerView.paddingTop).coerceAtLeast(0)
     }
 
     private fun addResponsePlaceholder() {

@@ -112,6 +112,12 @@ void MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
             int scaleByte = mtbn->useFp16InsteadFp32() ? 2 : 4;
             mKScaleBuffer = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
             mVScaleBuffer = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
+            // Zero the whole scale/bias tail: dequant(0) = bias, so the K/V
+            // memset above only makes padded tokens vanish if bias is 0 too.
+            // Uninitialized bias bits can decode as Inf/NaN and 0*NaN = NaN
+            // poisons the AV matmul for recycled (non-zero) pages.
+            ::memset([mKScaleBuffer contents], 0, mMaxLength * scaleByte * 2);
+            ::memset([mVScaleBuffer contents], 0, mMaxLength * scaleByte * 2);
         } else {
             mKScaleBuffer = nil;
             mVScaleBuffer = nil;
@@ -143,6 +149,10 @@ void MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
             int scaleByte = mtbn->useFp16InsteadFp32() ? 2 : 4;
             mKScaleBuffer = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
             mVScaleBuffer = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
+            // See the in-disk branch above: zero scale+bias so padded tokens
+            // dequantize to 0 instead of uninitialized (possibly NaN) bias.
+            ::memset([mKScaleBuffer contents], 0, mMaxLength * scaleByte * 2);
+            ::memset([mVScaleBuffer contents], 0, mMaxLength * scaleByte * 2);
         } else {
             mKScaleBuffer = nil;
             mVScaleBuffer = nil;
@@ -296,6 +306,10 @@ bool MetalKVCacheManager::expandKVCacheInMem(size_t oldSize, int copy_len, bool 
         int scaleByte = mtbn->useFp16InsteadFp32() ? 2 : 4;
         id<MTLBuffer> newKScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
         id<MTLBuffer> newVScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
+        // Zero before the copy so the grown tail past copy_len is not left
+        // uninitialized (padded tokens must dequantize to 0, see onAlloc).
+        ::memset([newKScale contents], 0, mMaxLength * scaleByte * 2);
+        ::memset([newVScale contents], 0, mMaxLength * scaleByte * 2);
         if (need_copy && mKScaleBuffer != nil) {
             ::memcpy([newKScale contents], [mKScaleBuffer contents], (size_t)copy_len * scaleByte * 2);
             ::memcpy([newVScale contents], [mVScaleBuffer contents], (size_t)copy_len * scaleByte * 2);
@@ -332,6 +346,10 @@ void MetalKVCacheManager::expandKVCacheInDisk(size_t oldSize, size_t curSize, in
         int scaleByte = mtbn->useFp16InsteadFp32() ? 2 : 4;
         id<MTLBuffer> newKScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
         id<MTLBuffer> newVScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
+        // Zero before the copy so the grown tail past copy_len is not left
+        // uninitialized (padded tokens must dequantize to 0, see onAlloc).
+        ::memset([newKScale contents], 0, mMaxLength * scaleByte * 2);
+        ::memset([newVScale contents], 0, mMaxLength * scaleByte * 2);
         if (need_copy && mKScaleBuffer != nil) {
             ::memcpy([newKScale contents], [mKScaleBuffer contents], (size_t)copy_len * scaleByte * 2);
             ::memcpy([newVScale contents], [mVScaleBuffer contents], (size_t)copy_len * scaleByte * 2);

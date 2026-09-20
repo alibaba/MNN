@@ -2070,6 +2070,11 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     MNN::Express::ExecutorScope s(mExecutor);
     bool hasMultimodalEmbeds = !mVisionEmbeddings.empty() || !mAudioEmbeddings.empty();
     if (!hasMultimodalEmbeds) {
+        // Decode leaves a one-token PLE in mPleInput. Rebuild it for a later text-only prefill;
+        // multimodal prefill enters the branch below and keeps its precomputed full-input PLE.
+        if (mPleEmbedding && input_ids.size() > 1) {
+            mPleInput = nullptr;
+        }
         if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
             mExtraArgs[0] = Express::_Fill(
                 _var<int>({3, static_cast<int>(input_ids.size()), mConfig->hidden_size()}, {3}), _Scalar<float>(0.0));
@@ -2342,6 +2347,10 @@ int fillMropePositionIds(const MropeInfo& positions, int prefixLen, int seqLen, 
         }
     }
     return missing;
+}
+
+VARP Omni::gen_attention_mask(int seq_len) {
+    return mIsEmbedding ? Embedding::gen_attention_mask(seq_len) : Llm::gen_attention_mask(seq_len);
 }
 
 VARP Omni::gen_position_ids(int seq_len, int realLen) {
