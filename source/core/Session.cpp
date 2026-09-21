@@ -620,6 +620,26 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
                 opInfo.executionCache.insert(std::make_pair(iter.first, copyExeWrap));
             }
         }
+        // Clone named executions (geometry-generated member ops) so the new
+        // session can reuse the packed weights instead of re-creating them.
+        for (auto& iter : srcOpInfo.namedExecutionCache) {
+            if (nullptr == iter.second.op || nullptr == iter.second.execution) {
+                continue;
+            }
+            Execution* copyExecution = nullptr;
+            bool valid               = false;
+            if (first->type() == iter.second.execution->backend()->type()) {
+                valid = iter.second.execution->onClone(first.get(), iter.second.op, &copyExecution);
+            } else {
+                valid = iter.second.execution->onClone(second.get(), iter.second.op, &copyExecution);
+            }
+            if (valid) {
+                Schedule::OpCacheInfo::NamedExecution copy;
+                copy.op        = iter.second.op;
+                copy.execution = std::shared_ptr<Execution>(copyExecution);
+                opInfo.namedExecutionCache.insert(std::make_pair(iter.first, copy));
+            }
+        }
     }
     // KV Cache sharing: fix up shared Attention layers to clone from the new session's source
     {

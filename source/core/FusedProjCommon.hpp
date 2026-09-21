@@ -20,6 +20,7 @@
 
 #include <stdlib.h>
 #include <memory>
+#include <string>
 #include "core/AutoStorage.h"
 #include "MNN_generated.h"
 
@@ -49,7 +50,8 @@ inline std::shared_ptr<BufferStorage> finish(flatbuffers::FlatBufferBuilder& bui
 // Conv1x1 member op. externalPath is copied over when non-null, so a child
 // created from this op can still resolve externally stored weights.
 inline std::shared_ptr<BufferStorage> makeConvOp(const Convolution2D* conv, MNN_DATA_FORMAT fmt,
-                                                 const flatbuffers::String* externalPath = nullptr) {
+                                                 const flatbuffers::String* externalPath = nullptr,
+                                                 const std::string& name = std::string()) {
     flatbuffers::FlatBufferBuilder builder(1024);
     std::unique_ptr<Convolution2DT> convT(conv->UnPack());
     auto convOffset = Convolution2D::Pack(builder, convT.get());
@@ -57,6 +59,10 @@ inline std::shared_ptr<BufferStorage> makeConvOp(const Convolution2D* conv, MNN_
     flatbuffers::Offset<flatbuffers::String> pathOffset = 0;
     if (externalPath != nullptr) {
         pathOffset = builder.CreateString(externalPath->str());
+    }
+    flatbuffers::Offset<flatbuffers::String> nameOffset = 0;
+    if (!name.empty()) {
+        nameOffset = builder.CreateString(name);
     }
     OpBuilder opB(builder);
     opB.add_type(OpType_Convolution);
@@ -66,33 +72,52 @@ inline std::shared_ptr<BufferStorage> makeConvOp(const Convolution2D* conv, MNN_
     if (!pathOffset.IsNull()) {
         opB.add_externalPath(pathOffset);
     }
+    if (!nameOffset.IsNull()) {
+        opB.add_name(nameOffset);
+    }
     return finish(builder, opB.Finish());
 }
 
 // MUL_SILU binary op: out = in0 * silu(in1), so in0 = up and in1 = gate.
-inline std::shared_ptr<BufferStorage> makeMulSiluOp(MNN_DATA_FORMAT fmt) {
+inline std::shared_ptr<BufferStorage> makeMulSiluOp(MNN_DATA_FORMAT fmt,
+                                                   const std::string& name = std::string()) {
     flatbuffers::FlatBufferBuilder builder(256);
     BinaryOpBuilder binaryB(builder);
     binaryB.add_opType(BinaryOpOperation_MUL_SILU);
     auto mainOffset = binaryB.Finish().Union();
+    flatbuffers::Offset<flatbuffers::String> nameOffset = 0;
+    if (!name.empty()) {
+        nameOffset = builder.CreateString(name);
+    }
     OpBuilder opB(builder);
     opB.add_type(OpType_BinaryOp);
     opB.add_main(mainOffset);
     opB.add_main_type(OpParameter_BinaryOp);
     opB.add_defaultDimentionFormat(fmt);
+    if (!nameOffset.IsNull()) {
+        opB.add_name(nameOffset);
+    }
     return finish(builder, opB.Finish());
 }
 
 // Binary RMSNorm: in [residual, hidden], out [residual_out, normalized].
-inline std::shared_ptr<BufferStorage> makeLayerNormOp(const LayerNorm* ln, MNN_DATA_FORMAT fmt) {
+inline std::shared_ptr<BufferStorage> makeLayerNormOp(const LayerNorm* ln, MNN_DATA_FORMAT fmt,
+                                                     const std::string& name = std::string()) {
     flatbuffers::FlatBufferBuilder builder(1024);
     std::unique_ptr<LayerNormT> lnT(ln->UnPack());
     auto lnOffset = LayerNorm::Pack(builder, lnT.get());
+    flatbuffers::Offset<flatbuffers::String> nameOffset = 0;
+    if (!name.empty()) {
+        nameOffset = builder.CreateString(name);
+    }
     OpBuilder opB(builder);
     opB.add_type(OpType_LayerNorm);
     opB.add_main(lnOffset.Union());
     opB.add_main_type(OpParameter_LayerNorm);
     opB.add_defaultDimentionFormat(fmt);
+    if (!nameOffset.IsNull()) {
+        opB.add_name(nameOffset);
+    }
     return finish(builder, opB.Finish());
 }
 
