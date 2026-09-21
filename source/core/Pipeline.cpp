@@ -563,6 +563,21 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
                     cached         = true;
                 }
             }
+            // Geometry-generated member ops (buffer != nullptr) get a fresh Op*
+            // on every decomposition but keep a deterministic name, so look them
+            // up by name. An execution cached here can be re-cloned on Session::clone
+            // just like the Op*-keyed executionCache above.
+            std::tuple<std::string, int, int> namedKey;
+            bool hasNamedKey = false;
+            if ((!cached) && nullptr != iter.op->name()) {
+                namedKey = std::make_tuple(iter.op->name()->str(), (int)iter.op->type(), (int)iter.op->main_type());
+                hasNamedKey = true;
+                auto namedIter = info.namedExecutionCache.find(namedKey);
+                if (namedIter != info.namedExecutionCache.end()) {
+                    iter.execution = namedIter->second.execution;
+                    cached         = true;
+                }
+            }
             std::shared_ptr<BufferStorage> tmpStorage;
             if (nullptr == iter.execution) {
                 // KV Cache sharing: clone from source Attention's execution instead of creating new
@@ -619,6 +634,12 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
             }
             if ((!cached) && iter.buffer == nullptr && (iter.op->type() != OpType_Raster) && (iter.op->type() != OpType_BinaryOp)) {
                 info.executionCache.insert(std::make_pair(iter.op, iter.execution));
+            }
+            if ((!cached) && nullptr != iter.buffer && hasNamedKey) {
+                Schedule::OpCacheInfo::NamedExecution namedExec;
+                namedExec.op        = iter.op;
+                namedExec.execution = iter.execution;
+                info.namedExecutionCache.insert(std::make_pair(namedKey, namedExec));
             }
         }
     }

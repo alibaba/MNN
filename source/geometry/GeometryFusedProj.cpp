@@ -38,16 +38,32 @@ class GeometryFusedProj : public GeometryComputer {
         cmd.outputs = outputs;
         return cmdP;
     }
+    // Deterministic member name derived from the parent FusedLinear. An unnamed
+    // parent leaves the members unnamed, preserving the old behaviour.
+    static std::string _memberName(const Op* op, const char* role, int index = -1) {
+        if (nullptr == op->name()) {
+            return std::string();
+        }
+        std::string name = op->name()->str();
+        name += role;
+        if (index >= 0) {
+            name += std::to_string(index);
+        }
+        return name;
+    }
     static std::shared_ptr<Command> _makeConvCmd(const Convolution2D* conv, Tensor* input, Tensor* output,
-                                                 MNN_DATA_FORMAT fmt) {
-        return _makeCmd(FusedProjCommon::makeConvOp(conv, fmt), {input}, {output});
+                                                 MNN_DATA_FORMAT fmt, const std::string& name = std::string()) {
+        return _makeCmd(FusedProjCommon::makeConvOp(conv, fmt, nullptr, name), {input}, {output});
     }
     static std::shared_ptr<Command> _makeLnCmd(const LayerNorm* ln, Tensor* residual, Tensor* hidden,
-                                               Tensor* residualOut, Tensor* normalizedOut, MNN_DATA_FORMAT fmt) {
-        return _makeCmd(FusedProjCommon::makeLayerNormOp(ln, fmt), {residual, hidden}, {residualOut, normalizedOut});
+                                               Tensor* residualOut, Tensor* normalizedOut, MNN_DATA_FORMAT fmt,
+                                               const std::string& name = std::string()) {
+        return _makeCmd(FusedProjCommon::makeLayerNormOp(ln, fmt, name), {residual, hidden},
+                        {residualOut, normalizedOut});
     }
-    static std::shared_ptr<Command> _makeMulSiluCmd(Tensor* up, Tensor* gate, Tensor* output, MNN_DATA_FORMAT fmt) {
-        return _makeCmd(FusedProjCommon::makeMulSiluOp(fmt), {up, gate}, {output});
+    static std::shared_ptr<Command> _makeMulSiluCmd(Tensor* up, Tensor* gate, Tensor* output, MNN_DATA_FORMAT fmt,
+                                                    const std::string& name = std::string()) {
+        return _makeCmd(FusedProjCommon::makeMulSiluOp(fmt, name), {up, gate}, {output});
     }
 
     // Which backends want the op kept whole (they have a native execution for
@@ -188,13 +204,13 @@ public:
             }
             res.extras.emplace_back(normalized);
             res.command.emplace_back(_makeLnCmd(param->ln(), inputs[0], inputs[1], outputs[numProjOut],
-                                                normalized.get(), fmt));
+                                                normalized.get(), fmt, _memberName(op, "/ln")));
             projInput = normalized.get();
         }
         if (!isGateUp) {
             for (int i = 0; i < numConvs; ++i) {
-                res.command.emplace_back(
-                    _makeConvCmd(param->convs()->GetAs<Convolution2D>(i), projInput, outputs[i], fmt));
+                res.command.emplace_back(_makeConvCmd(param->convs()->GetAs<Convolution2D>(i), projInput, outputs[i],
+                                                      fmt, _memberName(op, "/qkv_", i)));
             }
             return true;
         }
@@ -213,9 +229,11 @@ public:
         };
         makeProjTensor(gateT, param->convs()->GetAs<Convolution2D>(0)->common()->outputCount());
         makeProjTensor(upT, param->convs()->GetAs<Convolution2D>(1)->common()->outputCount());
-        res.command.emplace_back(_makeConvCmd(param->convs()->GetAs<Convolution2D>(0), projInput, gateT.get(), fmt));
-        res.command.emplace_back(_makeConvCmd(param->convs()->GetAs<Convolution2D>(1), projInput, upT.get(), fmt));
-        res.command.emplace_back(_makeMulSiluCmd(upT.get(), gateT.get(), outputs[0], fmt));
+        res.command.emplace_back(_makeConvCmd(param->convs()->GetAs<Convolution2D>(0), projInput, gateT.get(), fmt,
+                                              _memberName(op, "/gate")));
+        res.command.emplace_back(_makeConvCmd(param->convs()->GetAs<Convolution2D>(1), projInput, upT.get(), fmt,
+                                              _memberName(op, "/up")));
+        res.command.emplace_back(_makeMulSiluCmd(upT.get(), gateT.get(), outputs[0], fmt, _memberName(op, "/mulsilu")));
         return true;
     }
 };

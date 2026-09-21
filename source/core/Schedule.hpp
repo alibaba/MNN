@@ -13,6 +13,7 @@
 #include <MNN/Interpreter.hpp>
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 #include <array>
 #include "core/Backend.hpp"
@@ -77,6 +78,17 @@ public:
         CommandBuffer executeBuffer;
         
         std::map<const Op*, std::shared_ptr<Execution>> executionCache;
+
+        /** Execution cache for ops without a stable identity, keyed by
+            (name, op type, main type). Geometry-generated member ops carry a
+            name but a fresh Op pointer after decomposition, so the Op*-keyed
+            cache above cannot reach them. The Op pointer is kept so the entry
+            can be re-cloned onto a new backend. */
+        struct NamedExecution {
+            const Op* op = nullptr;
+            std::shared_ptr<Execution> execution;
+        };
+        std::map<std::tuple<std::string, int, int>, NamedExecution> namedExecutionCache;
         OpResizeCache computeCache;
         
         /** For CONSTANT info, can release indexes after resize*/
