@@ -212,18 +212,25 @@ static inline void process_q4_weight_chunk(const process_chunk_task_state_t* sta
         const int oy = state->oy_start + state->start_idx + local_oy;
         const uint8_t* src = src_oy;
         __fp16* dst = dst_oy;
-        for (int k = 0; k < state->kp; ++k) {
-            const int scale_idx = (k * state->scale_block_num) / state->kp;
+        const int k_per_scale = state->kp / state->scale_block_num;
+        for (int b = 0; b < state->scale_block_num; ++b) {
+            // The per-block scale lives in DDR; without prefetch its load latency is exposed on the
+            // first vmpy of each block. Pull a few blocks ahead into L2.
+            if (b + 4 < state->scale_block_num) {
+              l2fetch(state->b_scale + ((size_t) oy * state->scale_block_num + b + 4) * scale_block_bytes,
+                      128, 128, 4, 0);
+            }
             const uint8_t *block_scale_ptr =
-              state->b_scale + ((size_t) oy * state->scale_block_num + scale_idx) * scale_block_bytes;
+              state->b_scale + ((size_t) oy * state->scale_block_num + b) * scale_block_bytes;
             const float     *sw_oy       = vrmpyScales + (size_t) oy * state->scale_block_num * entry_floats;
             const HVX_Vector vBlockScale = state->weight_is_vrmpy ?
-                                             vrmpy_scale_block_dup_hf(sw_oy, scale_idx, state->scale_asymmetric) :
+                                             vrmpy_scale_block_dup_hf(sw_oy, b, state->scale_asymmetric) :
                                              vmemu(block_scale_ptr);
             const HVX_Vector vBlockQBias =
               !state->scale_asymmetric ? Q6_V_vzero() :
-              state->weight_is_vrmpy   ? vrmpy_qbias_block_dup_hf(sw_oy, scale_idx, state->scale_asymmetric) :
+              state->weight_is_vrmpy   ? vrmpy_qbias_block_dup_hf(sw_oy, b, state->scale_asymmetric) :
                                          vmemu(block_scale_ptr + 128);
+            for (int kk = 0; kk < k_per_scale; ++kk) {
             const uint8_t *weightSrc = src;
             if (state->weight_is_vrmpy) {
               vrmpy_tile_to_hmx_int4_512(reordered, src);
@@ -270,6 +277,7 @@ static inline void process_q4_weight_chunk(const process_chunk_task_state_t* sta
             }
             src += 512;
             dst += 1024;
+            }
         }
         src_oy += weight_int4_stride;
         dst_oy += weight_fp16_stride;
