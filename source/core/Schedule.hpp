@@ -86,6 +86,9 @@ public:
             can be re-cloned onto a new backend. */
         struct NamedExecution {
             const Op* op = nullptr;
+            // Keeps `op` (and its external-weight references) alive after the
+            // owning command/cache is gone, e.g. while a late clone onClones it.
+            std::shared_ptr<BufferStorage> storage;
             std::shared_ptr<Execution> execution;
         };
         std::map<std::tuple<std::string, int, int>, NamedExecution> namedExecutionCache;
