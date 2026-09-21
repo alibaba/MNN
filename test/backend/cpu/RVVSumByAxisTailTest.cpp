@@ -94,7 +94,14 @@ int main() {
 }
 #else
 class RVVSumByAxisTailTest : public MNNTestCase {
-    bool run(int) override { return runSumTailCases(); }
+    bool run(int) override {
+        // The build flag does not guarantee runtime support for the vlenb CSR.
+        if (!MNN::MNNGetCoreFunctions()->supportRVV) {
+            std::printf("Skip RVV sum regression: RVV is not supported by this CPU.\n");
+            return true;
+        }
+        return runSumTailCases();
+    }
 };
 MNNTestSuiteRegister(RVVSumByAxisTailTest, "backend/cpu/rvv/sum_by_axis_tail");
 #endif
