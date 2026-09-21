@@ -8,6 +8,7 @@
 
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <cmath>
 #include <string>
 #include <sstream>
 #include <vector>
@@ -25,13 +26,13 @@ using namespace MNN::Express;
 // this registered case.
 bool MNNTestRVVMatrixDeconvFunctions();
 
-static void reference_deconv2d(const float* input, const std::vector<float>& weight,
-                             const std::vector<float>& bias, std::vector<float>& output, int batch, int ic, int oc,
-                             int ih, int iw, int pad_h, int pad_w, int kh, int kw, int stridew, int strideh,
-                             int dilation) {
+static void reference_deconv2d(const float* input, const std::vector<float>& weight, const std::vector<float>& bias,
+                               std::vector<float>& output, int batch, int ic, int oc, int ih, int iw, int pad_h,
+                               int pad_w, int kh, int kw, int stridew, int strideh, int dilation, int output_pad_h = 0,
+                               int output_pad_w = 0) {
     int oh, ow;
-    ow  = (iw - 1) * stridew + dilation * (kw - 1) + 1 - pad_w * 2;
-    oh = (ih - 1) * strideh + dilation * (kh - 1) + 1 - pad_h * 2;
+    ow = (iw - 1) * stridew + dilation * (kw - 1) + 1 - pad_w * 2 + output_pad_w;
+    oh = (ih - 1) * strideh + dilation * (kh - 1) + 1 - pad_h * 2 + output_pad_h;
 
     if (oh <= 0 || ow <= 0) {
         output.clear();
@@ -73,7 +74,6 @@ static void reference_deconv2d(const float* input, const std::vector<float>& wei
         }
     }
 }
-
 
 static PadMode _convertPadMode(PaddingMode mode) {
     switch (mode) {
@@ -666,8 +666,104 @@ public:
         return true;
     }
 };
+class DeconvolutionSharedOutputTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        if (getCurrentType() != MNN_FORWARD_CPU) {
+            return true;
+        }
+        // n, ic, oc, ih, iw, kh, kw, sy, sx, dilation, py, px, output padding, activation
+        const int cases[][14] = {
+            {1, 3, 33, 5, 13, 4, 4, 4, 4, 1, 0, 0, 0, 0},  {1, 3, 5, 1, 1, 2, 2, 2, 2, 1, 0, 0, 0, 0},
+            {1, 3, 5, 1, 23, 2, 2, 2, 2, 1, 0, 0, 0, 1},   {1, 3, 5, 1, 24, 2, 2, 2, 2, 1, 0, 0, 0, 2},
+            {1, 3, 5, 1, 25, 2, 2, 2, 2, 1, 0, 0, 0, 0},   {2, 13, 17, 5, 19, 2, 3, 2, 3, 1, 0, 0, 0, 1},
+            {3, 8, 8, 7, 13, 3, 2, 3, 2, 1, 1, 1, 0, 2},   {1, 17, 3, 9, 11, 4, 4, 4, 4, 1, 1, 1, 0, 0},
+            {2, 5, 13, 7, 17, 2, 2, 3, 4, 1, 0, 0, 1, 1},  {2, 5, 13, 7, 17, 2, 2, 3, 3, 2, 1, 1, 1, 2},
+            {2, 5, 13, 7, 17, 2, 3, 4, 6, 2, 1, 1, 1, 0},  {1, 3, 9, 5, 25, 1, 1, 2, 2, 1, 0, 0, 1, 0},
+            {1, 13, 17, 5, 25, 3, 2, 2, 2, 1, 1, 1, 0, 0}, {1, 13, 17, 5, 25, 2, 3, 2, 2, 1, 1, 1, 0, 1},
+            {2, 5, 13, 7, 17, 2, 2, 2, 2, 2, 1, 1, 1, 2},
+        };
+        for (const auto& c : cases) {
+            for (bool dynamic : {false, true}) {
+                const int n = c[0], ic = c[1], oc = c[2], ih = c[3], iw = c[4];
+                const int kh = c[5], kw = c[6], sy = c[7], sx = c[8], d = c[9];
+                const int py = c[10], px = c[11], outPad = c[12], activation = c[13];
+                auto input = _Input({n, ic, ih, iw}, NCHW);
+                std::vector<float> weight(ic * oc * kh * kw), bias(oc);
+                for (int i = 0; i < weight.size(); ++i) {
+                    weight[i] = (i % 23 - 11) / 16.0f;
+                }
+                for (int i = 0; i < oc; ++i) {
+                    bias[i] = (i % 7 - 3) / 4.0f;
+                }
+                OpT op;
+                op.type = OpType_Deconvolution;
+                op.main.type = OpParameter_Convolution2D;
+                op.main.value = new Convolution2DT;
+                auto conv = op.main.AsConvolution2D();
+                conv->common.reset(new Convolution2DCommonT);
+                auto& common = *conv->common;
+                common.inputCount = ic;
+                common.outputCount = oc;
+                common.kernelY = kh;
+                common.kernelX = kw;
+                common.strideY = sy;
+                common.strideX = sx;
+                common.dilateY = common.dilateX = d;
+                common.padY = py;
+                common.padX = px;
+                common.outPads = {outPad, outPad};
+                common.relu = activation == 1;
+                common.relu6 = activation == 2;
+                std::vector<VARP> inputs = {_Convert(input, NC4HW4)};
+                if (dynamic) {
+                    auto w = _Input({ic, oc, kh, kw}, NCHW);
+                    auto b = _Input({oc}, NCHW);
+                    ::memcpy(w->writeMap<float>(), weight.data(), weight.size() * sizeof(float));
+                    ::memcpy(b->writeMap<float>(), bias.data(), bias.size() * sizeof(float));
+                    inputs.insert(inputs.end(), {w, b});
+                } else {
+                    conv->weight = weight;
+                    conv->bias = bias;
+                }
+                auto output = _Convert(Variable::create(Expr::create(&op, inputs)), NCHW);
+                for (int run = 0; run < 3; ++run) {
+                    const int runWidth = iw + (run == 1 ? 25 : 0);
+                    input->resize({n, ic, ih, runWidth});
+                    auto data = input->writeMap<float>();
+                    for (int i = 0; i < n * ic * ih * runWidth; ++i) {
+                        data[i] = ((i + run * 7) % 19 - 9) / 16.0f;
+                    }
+                    std::vector<float> expected;
+                    reference_deconv2d(data, weight, bias, expected, n, ic, oc, ih, runWidth, py, px, kh, kw, sx, sy, d,
+                                       outPad, outPad);
+                    for (auto& v : expected) {
+                        if (activation)
+                            v = std::max(0.0f, v);
+                        if (activation == 2)
+                            v = std::min(6.0f, v);
+                    }
+                    if (output->getInfo()->size != expected.size())
+                        return false;
+                    const auto result = output->readMap<float>();
+                    for (int i = 0; i < expected.size(); ++i) {
+                        if (!std::isfinite(result[i])) {
+                            return false;
+                        }
+                    }
+                    const float tolerance = precision <= BackendConfig::Precision_High ? 0.005f : 0.1f;
+                    if (!checkVectorByRelativeError<float>(result, expected.data(), expected.size(), tolerance)) {
+                        MNN_ERROR("Deconvolution shared output failed: %dx%d, stride=%dx%d, dynamic=%d\n", kh, kw, sy,
+                                  sx, dynamic);
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(DeconvolutionSharedOutputTest, "op/DeconvolutionSharedOutput");
 MNNTestSuiteRegister(DeconvolutionFullTest, "op/Deconvolutionfull");
 MNNTestSuiteRegister(DeconvolutionTest, "op/Deconvolution");
 MNNTestSuiteRegister(DeconvolutionInt8Test, "op/DeconvolutionInt8");
-
-
