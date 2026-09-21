@@ -636,6 +636,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
             if (valid) {
                 Schedule::OpCacheInfo::NamedExecution copy;
                 copy.op        = iter.second.op;
+                copy.storage   = iter.second.storage;
                 copy.execution = std::shared_ptr<Execution>(copyExecution);
                 opInfo.namedExecutionCache.insert(std::make_pair(iter.first, copy));
             }

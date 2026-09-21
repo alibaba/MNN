@@ -47,6 +47,22 @@ inline std::shared_ptr<BufferStorage> finish(flatbuffers::FlatBufferBuilder& bui
     return storage;
 }
 
+// Deterministic name for a member op generated from `parent`. An unnamed parent
+// yields an empty name (the member stays unnamed, preserving old behaviour).
+// Callers that build the same member from different code paths (geometry
+// decomposition, pre-arrangement) must agree, so both use this helper.
+inline std::string memberName(const Op* parent, const char* role, int index = -1) {
+    if (nullptr == parent || nullptr == parent->name()) {
+        return std::string();
+    }
+    std::string name = parent->name()->str();
+    name += role;
+    if (index >= 0) {
+        name += std::to_string(index);
+    }
+    return name;
+}
+
 // Conv1x1 member op. externalPath is copied over when non-null, so a child
 // created from this op can still resolve externally stored weights.
 inline std::shared_ptr<BufferStorage> makeConvOp(const Convolution2D* conv, MNN_DATA_FORMAT fmt,
