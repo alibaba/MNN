@@ -454,7 +454,10 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
                 }
             }
 
-            MNN::OpT* op = new MNN::OpT;
+            // Owned until it is handed to the net below. Both error paths return before that, so a raw
+            // pointer here would leak the op on every rejected operator.
+            std::unique_ptr<MNN::OpT> opHolder(new MNN::OpT);
+            MNN::OpT* op = opHolder.get();
             auto creator = liteOpConverterSuit::get()->search(opCode);
             DCHECK(creator) << "NOT_SUPPORTED_OP: [ " << tflite::EnumNameBuiltinOperator(opCode) << " ]";
             if (nullptr == creator) {
@@ -521,7 +524,7 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
                 MNNNetT.reset();
                 return 0;
             }
-            MNNNetT->oplists.emplace_back(op);
+            MNNNetT->oplists.emplace_back(opHolder.release());
         }
     }
 
