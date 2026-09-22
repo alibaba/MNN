@@ -285,6 +285,8 @@ option(MNN_MUSA_NATIVE "Use native MUSA SDK" OFF)
 option(MNN_TENSORRT "Enable TensorRT" OFF)
 option(MNN_COREML "Enable CoreML" OFF)
 option(MNN_NNAPI "Enable NNAPI" OFF)
+option(MNN_NPU "Enable HiAI NPU backend" OFF)
+option(MNN_NEUROPILOT "Enable NeuroPilot backend" OFF)
 option(MNN_QNN "Enable QNN" OFF)
 option(MNN_QNN_ONLINE_FINALIZE "Enable QNN Online Finalize" ON)
 option(MNN_QNN_OFFLINE_CONTEXT "Enable QNN offline Context wrapper compatibility" OFF)
@@ -545,18 +547,7 @@ list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/ImageProcess.h
 list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/Matrix.h")
 list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/Rect.h")
 list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/MNNForwardType.h")
-set(MNN_NPU_PUB_HDRS
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/qnn/include/MNNQnnBackend.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/qnn/include/MNNQnnPlugin.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/qnn/include/MNNQnnSession.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/neuropilot/include/MNNNeuroPilotBackend.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/neuropilot/include/MNNNeuroPilotPlugin.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/neuropilot/include/MNNNeuroPilotSession.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/hiai/include/MNNHiAIBackend.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/hiai/include/MNNHiAIIO.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/hiai/include/MNNHiAIPlugin.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/hiai/include/MNNHiAISession.hpp")
-list(APPEND MNN_PUB_HDRS ${MNN_NPU_PUB_HDRS})
+set(MNN_NPU_PUB_HDRS "")
 list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/AutoTime.hpp")
 list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/MNNSharedContext.h")
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Expr.hpp")
@@ -702,7 +693,7 @@ ENDIF()
 # QNN
 IF(MNN_QNN)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/qnn/)
-    IF(NOT MNN_NPU_BACKENDS_SHARED)
+    IF(TARGET MNN_QNN AND NOT MNN_NPU_BACKENDS_SHARED)
         add_definitions(-DMNN_QNN_ENABLED=1)
         list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_QNN>)
     ENDIF()
@@ -725,11 +716,9 @@ ENDIF()
 # NEUROPILOT
 IF(MNN_NEUROPILOT)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/neuropilot)
-    IF(TARGET MNN_NEUROPILOT)
-        IF(NOT MNN_NPU_BACKENDS_SHARED)
-            target_compile_options(MNNCore PRIVATE -DMNN_NEUROPILOT=1)
-            list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NEUROPILOT>)
-        ENDIF()
+    IF(TARGET MNN_NEUROPILOT AND NOT MNN_NPU_BACKENDS_SHARED)
+        target_compile_options(MNNCore PRIVATE -DMNN_NEUROPILOT=1)
+        list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NEUROPILOT>)
     ENDIF()
 ENDIF()
 
@@ -867,18 +856,22 @@ IF(MNN_NPU)
         set(HIAI_PATH ${OHOS_ARCH})
     endif()
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/)
-    IF(MNN_NPU_BACKENDS_SHARED)
-        # The explicitly loaded plugin installs its registrar through the
-        # stable C bridge in libMNN; the core must not reference HiAI symbols.
-    ELSEIF(MNN_SEP_BUILD)
-        list(APPEND MNN_DEPS MNN_NPU)
-    ELSE()
-        target_compile_options(MNNCore PRIVATE -DMNN_NPU_ENABLED=1)
-        target_compile_options(MNN_NPU PRIVATE -DMNN_NPU_INTEGRATED_REGISTRATION=1)
-        list(APPEND MNN_TARGETS MNN_NPU)
-        list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NPU>)
+    IF(TARGET MNN_NPU)
+        IF(MNN_NPU_BACKENDS_SHARED)
+            # The explicitly loaded plugin installs its registrar through the
+            # stable C bridge in libMNN; the core must not reference HiAI symbols.
+        ELSEIF(MNN_SEP_BUILD)
+            list(APPEND MNN_DEPS MNN_NPU)
+        ELSE()
+            target_compile_options(MNNCore PRIVATE -DMNN_NPU_ENABLED=1)
+            target_compile_options(MNN_NPU PRIVATE -DMNN_NPU_INTEGRATED_REGISTRATION=1)
+            list(APPEND MNN_TARGETS MNN_NPU)
+            list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NPU>)
+        ENDIF()
     ENDIF()
 ENDIF()
+
+list(APPEND MNN_PUB_HDRS ${MNN_NPU_PUB_HDRS})
 
 # TensorRT
 IF(MNN_TENSORRT)
@@ -1041,9 +1034,11 @@ ENDIF()
 
 # Install headers
 IF(CMAKE_SYSTEM_NAME MATCHES "^Android" AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
-    # These optional headers are not compiled into Core. Restage them when
-    # they change even if all Core source files remain unchanged.
-    set_property(TARGET MNN APPEND PROPERTY LINK_DEPENDS ${MNN_NPU_PUB_HDRS})
+    IF(MNN_NPU_PUB_HDRS)
+        # These optional headers are not compiled into Core. Restage them when
+        # they change even if all Core source files remain unchanged.
+        set_property(TARGET MNN APPEND PROPERTY LINK_DEPENDS ${MNN_NPU_PUB_HDRS})
+    ENDIF()
     IF(NOT NATIVE_INCLUDE_OUTPUT)
       set(NATIVE_INCLUDE_OUTPUT ".")
     ENDIF()
