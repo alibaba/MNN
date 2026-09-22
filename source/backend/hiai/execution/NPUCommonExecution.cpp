@@ -18,7 +18,7 @@ ErrorCode NPUCommonExecution::onResize(const std::vector<Tensor *> &inputs, cons
 }
 
 ErrorCode NPUCommonExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    return NO_ERROR;
+    return mNpuBackend->runGraphOnce();
 }
 
 }; // namespace MNN

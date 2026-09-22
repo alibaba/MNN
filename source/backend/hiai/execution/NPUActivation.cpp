@@ -85,6 +85,43 @@ ErrorCode NPUActivation::onResize(const std::vector<Tensor *> &inputs, const std
             }
         }
     }else{
+        // MNN uses ReLU6 for a general bounded activation and carries the
+        // actual interval in Relu6::minValue/maxValue. HiAI Activation mode
+        // 14 is fixed to [0, 6], so using it for e.g. [-1, 1] silently clips
+        // all negative model output and changes the rendered result.
+        if (mNpuBackend->isExplicitHiAISession() &&
+            mOp->type() == OpType_ReLU6 && mOp->main_as_Relu6() != nullptr) {
+            const float minValue = mOp->main_as_Relu6()->minValue();
+            const float maxValue = mOp->main_as_Relu6()->maxValue();
+            if (minValue != 0.0f || maxValue != 6.0f) {
+                mClipMin = hiai::op::Const(opName + "_clip_min");
+                mClipMax = hiai::op::Const(opName + "_clip_max");
+                {
+                    ge::TensorDesc desc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);
+                    ge::TensorPtr tensor = std::make_shared<ge::Tensor>();
+                    tensor->SetTensorDesc(desc);
+                    tensor->SetData(reinterpret_cast<const uint8_t*>(&minValue), sizeof(float));
+                    mClipMin.set_attr_value(tensor);
+                }
+                {
+                    ge::TensorDesc desc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);
+                    ge::TensorPtr tensor = std::make_shared<ge::Tensor>();
+                    tensor->SetTensorDesc(desc);
+                    tensor->SetData(reinterpret_cast<const uint8_t*>(&maxValue), sizeof(float));
+                    mClipMax.set_attr_value(tensor);
+                }
+                shared_ptr<hiai::op::ClipByValue> clip(new hiai::op::ClipByValue(opName + "_clip"));
+                if (mNpuBackend->mSclipMap.find(inputIndex) == mNpuBackend->mSclipMap.end()) {
+                    (*clip).set_input_x(*xOp.get());
+                } else {
+                    (*clip).set_input_x(xOp->GetOutput(mNpuBackend->mSclipMap[inputIndex]));
+                }
+                (*clip).set_input_clip_value_min(mClipMin)
+                       .set_input_clip_value_max(mClipMax);
+                mNpuBackend->setOutputOps(mOp, {clip}, outputs);
+                return NO_ERROR;
+            }
+        }
         float slope = 0.0;
         if (mOp->type() == OpType_ReLU) {
             slope = mOp->main_as_Relu()->slope();

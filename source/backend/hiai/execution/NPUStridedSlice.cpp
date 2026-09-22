@@ -99,7 +99,35 @@ ErrorCode NPUStridedSlice::onResize(const std::vector<Tensor *> &inputs, const s
         filter->SetData((uint8_t*)axisdims.data(), axis->elementSize()*sizeof(int32_t));
         mConst_s.set_attr_value(filter);
     }
-    shared_ptr<hiai::op::StridedSliceV2> stride_slice(new hiai::op::StridedSliceV2(opName));
+    if (!mNpuBackend->isExplicitHiAISession()) {
+        shared_ptr<hiai::op::StridedSliceV2> stride_slice(
+            new hiai::op::StridedSliceV2(opName));
+        auto inputIndex = mOp->inputIndexes()->data()[0];
+        auto iops = mNpuBackend->mGrapMap[inputIndex];
+        auto xOp = iops.back().first;
+        (*stride_slice).set_input_x(*xOp.get())
+                       .set_input_begin(mConst_b)
+                       .set_input_end(mConst_e);
+        if (isConst3) {
+            (*stride_slice).set_input_axes(mConst_a);
+        }
+        (*stride_slice).set_input_strides(mConst_s);
+        mNpuBackend->setOutputOps(mOp, {stride_slice}, outputs);
+        return NO_ERROR;
+    }
+    if (inputs.size() > 3) {
+        if (!isConst3) {
+            MNN_ERROR("HiAI V320 StridedSlice requires constant canonical axes\n");
+            return NOT_SUPPORT;
+        }
+        for (int32_t i = 0; i < axis->elementSize(); ++i) {
+            if (axis->host<int32_t>()[i] != i) {
+                MNN_ERROR("HiAI V320 StridedSlice does not expose an axes input\n");
+                return NOT_SUPPORT;
+            }
+        }
+    }
+    shared_ptr<hiai::op::StridedSlice> stride_slice(new hiai::op::StridedSlice(opName));
 
     auto inputIndex = mOp->inputIndexes()->data()[0];
     auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
@@ -107,11 +135,13 @@ ErrorCode NPUStridedSlice::onResize(const std::vector<Tensor *> &inputs, const s
     (*stride_slice)
         .set_input_x(*xOp.get())
         .set_input_begin(mConst_b)
-        .set_input_end(mConst_e);         
-    if (isConst3) {
-        (*stride_slice).set_input_axes(mConst_a);
-    }
-    (*stride_slice).set_input_strides(mConst_s);
+        .set_input_end(mConst_e)
+        .set_input_strides(mConst_s)
+        .set_attr_begin_mask(beginMask)
+        .set_attr_end_mask(endMask)
+        .set_attr_ellipsis_mask(ellipsisMask)
+        .set_attr_new_axis_mask(newAxisMask)
+        .set_attr_shrink_axis_mask(shrinkAxisMask);
     mNpuBackend->setOutputOps(mOp, {stride_slice}, outputs);
 
     return NO_ERROR;

@@ -54,6 +54,9 @@ typedef enum {
     
     MNN_MEMORY_AHARDWAREBUFFER = 14,
 
+    /* Qualcomm QNN runtime backend. */
+    MNN_FORWARD_QNN = 16,
+
     /* For Offline Convert*/
     MNN_CONVERT_QNN = 32,
     MNN_CONVERT_NEUROPILOT = 33,

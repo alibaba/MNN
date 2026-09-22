@@ -49,6 +49,8 @@ static MNNForwardType backend_type_convert(const std::string& type_str) {
         return MNN_FORWARD_VULKAN;
     if (type_str == "hexagon")
         return MNN_FORWARD_HEXAGON;
+    if (type_str == "qnn")
+        return MNN_FORWARD_QNN;
     if (type_str == "npu")
         return MNN_FORWARD_NN;
     return MNN_FORWARD_AUTO;
@@ -381,7 +383,8 @@ bool Llm::load() {
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     // 3. load model
     Module::Config module_config;
-    if (mConfig->backend_type() == "opencl" || mConfig->backend_type() == "vulkan" || mConfig->backend_type() == "npu") {
+    if (mConfig->backend_type() == "opencl" || mConfig->backend_type() == "vulkan" ||
+        mConfig->backend_type() == "npu" || mConfig->backend_type() == "qnn") {
         module_config.shapeMutable = false;
     } else {
         module_config.shapeMutable = true;

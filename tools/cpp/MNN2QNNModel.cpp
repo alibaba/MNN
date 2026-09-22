@@ -20,7 +20,7 @@ using namespace rapidjson;
 using namespace MNN::Express;
 using namespace MNN;
 
-static bool generateConfigFile(const std::string & qnnSDKPath, int socID, int dspArch, const std::vector<std::string> & graphNameVec, const std::string & outputDir, std::string & configPath, std::string & subConfigPath) {
+static bool generateConfigFile(const std::string & qnnSDKPath, int socID, int dspArch, const std::vector<std::string> & graphNameVec, const std::string & outputDir, std::string & configPath, std::string & subConfigPath, bool tblive) {
     configPath = MNNFilePathConcat(outputDir, "context_config.json");
     subConfigPath = MNNFilePathConcat(outputDir, "htp_backend_extensions.json");
 
@@ -48,7 +48,16 @@ static bool generateConfigFile(const std::string & qnnSDKPath, int socID, int ds
     // "graphs" section
     rapidjson::Value graphs(rapidjson::kArrayType);
     rapidjson::Value graphObj(rapidjson::kObjectType);
-    graphObj.AddMember("vtcm_mb", 8, htpConfigAllocator);
+    int vtcmMb = 8;
+    if (tblive) {
+        if (const char* vtcmEnv = getenv("MNN_QNN_CONVERT_VTCM_MB")) {
+            const int value = atoi(vtcmEnv);
+            if (value > 0) {
+                vtcmMb = value;
+            }
+        }
+    }
+    graphObj.AddMember("vtcm_mb", vtcmMb, htpConfigAllocator);
     rapidjson::Value names(rapidjson::kArrayType);
     for (const auto& name : graphNameVec) {
         names.PushBack(rapidjson::Value(name.c_str(), contextAllocator).Move(), htpConfigAllocator);
@@ -79,7 +88,7 @@ static bool generateConfigFile(const std::string & qnnSDKPath, int socID, int ds
 
     // "context" section
     rapidjson::Value contextObj(rapidjson::kObjectType);
-    contextObj.AddMember("weight_sharing_enabled", true, htpConfigAllocator);
+    contextObj.AddMember("weight_sharing_enabled", !tblive, htpConfigAllocator);
     htpConfigDoc.AddMember("context", contextObj, htpConfigAllocator);
 
     rapidjson::StringBuffer htpConfigBuffer;
@@ -153,7 +162,7 @@ static bool checkSystem() {
 int main(int argc, const char* argv[]) {
     if (argc < 6) {
         MNN_PRINT("This tool generates offline caches for the QNN backend.");
-        MNN_PRINT("Usage: %s <qnnSDKPath> <socId> <hexagonArch> <srcMNNPath> <outputDir> [totalShapeNum] [inputShape1] [inputShape2] ... [--dump_intermediate_outputs]\n", argv[0]);
+        MNN_PRINT("Usage: %s <qnnSDKPath> <socId> <hexagonArch> <srcMNNPath> <outputDir> [totalShapeNum] [inputShape1] [inputShape2] ... [--dump_intermediate_outputs] [--tblive]\n", argv[0]);
         MNN_PRINT("    <qnnSDKPath>      : Path to the QNN SDK directory.\n");
         MNN_PRINT("    <socId>           : Target SoC ID.\n");
         MNN_PRINT("                        Common SoCs: 8Gen2 -> 43, 8Gen3 -> 57, 8 Elite -> 69. For others, please refer to Qualcomm's documentation.\n");
@@ -165,6 +174,7 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("    [<inputShapeN>]   : Optional. Input shape configuration. Can be a shape string or a path to a .mnn file.\n");
         MNN_PRINT("                     Shape string format for multiple inputs: dim1xdim2_dim3xdim4. Example: 1x3x512x512_1x256\n");
         MNN_PRINT("    [--dump_intermediate_outputs] : Optional. Build a debug artifact with QNN intermediate outputs.\n");
+        MNN_PRINT("    [--tblive] : Optional. Enable TBLive QNN layout and quantization extensions. The default preserves the legacy QNN contract.\n");
         MNN_PRINT("Examples:\n");
         MNN_PRINT("  1. Use default shape from the MNN model:\n");
         MNN_PRINT("     %s /path/to/qnn/sdk 57 75 /path/to/model.mnn /path/to/output\n", argv[0]);
@@ -183,8 +193,13 @@ int main(int argc, const char* argv[]) {
     arguments.reserve(argc);
     arguments.emplace_back(argv[0]);
     bool dumpIntermediateOutputs = false;
+    bool tblive = false;
     for (int i = 1; i < argc; ++i) {
         const std::string argument(argv[i]);
+        if (argument == "--tblive") {
+            tblive = true;
+            continue;
+        }
         if (argument == "--dump_intermediate_outputs") {
             dumpIntermediateOutputs = true;
             continue;
@@ -295,7 +310,7 @@ int main(int argc, const char* argv[]) {
         }
 
         MNN::ScheduleConfig config;
-        config.type = MNN_CONVERT_QNN;
+        config.type = tblive ? MNN_FORWARD_QNN : MNN_CONVERT_QNN;
         MNN::BackendConfig backendConfig;
         backendConfig.flags = dumpIntermediateOutputs ? MNN_QNN_DUMP_INTERMEDIATE_OUTPUTS : 0;
         config.backendConfig = &backendConfig;
@@ -385,7 +400,7 @@ int main(int argc, const char* argv[]) {
     std::string npuArtifactPath = MNNFilePathConcat(outputDir, npuArtifactName);
     {
         std::string configPath, subConfigPath;
-        if (!generateConfigFile(qnnSdkPath, socId, hexagonArch, qnnGraphNames, outputDir, configPath, subConfigPath)) {
+        if (!generateConfigFile(qnnSdkPath, socId, hexagonArch, qnnGraphNames, outputDir, configPath, subConfigPath, tblive)) {
             MNN_ERROR("[Error]: Failed to generate the config file!\n");
             return -1;
         }

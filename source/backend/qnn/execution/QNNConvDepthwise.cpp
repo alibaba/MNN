@@ -7,6 +7,7 @@
 //
 
 #include "QNNConvDepthwise.hpp"
+#include "core/ConvolutionCommon.hpp"
 
 namespace MNN {
 namespace QNN {
