@@ -110,6 +110,7 @@ function (download_kleidiai_and_collect_sources)
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/
+        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f16p_qai4c32p/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f32p_f32p/
@@ -225,6 +226,20 @@ function (download_kleidiai_and_collect_sources)
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*dot_asm.S"
     )
     list(APPEND KLEIDIAI_FILES_SME2 ${matmul_clamp_f32_qsi8d32p_qai4c32p_sme2_sources})
+
+    # The direct FP32 -> packed FP16 int4 path is not in the pinned 1.16.0
+    # release. Enable it only for a supplied source tree containing the complete
+    # extension; stock releases retain the supported dynamic-quant SME path.
+    set(_direct_pack "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_pack_f16pmrx4_f32_neon")
+    set(_direct_matmul "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f16p_qai4c32p/kai_matmul_clamp_f32_f16p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa")
+    if(EXISTS "${_direct_pack}.h" AND EXISTS "${_direct_pack}.c"
+       AND EXISTS "${_direct_matmul}.h" AND EXISTS "${_direct_matmul}.c"
+       AND EXISTS "${_direct_matmul}_asm.S")
+        list(APPEND MNN_SOURCES_KLEIDIAI "${_direct_pack}.c")
+        list(APPEND KLEIDIAI_FILES_SME2 "${_direct_matmul}.c" "${_direct_matmul}_asm.S")
+        set_property(SOURCE "${MNN_KLEIDIAI_DIR}/KleidiAIConvInt8.cpp" APPEND PROPERTY
+            COMPILE_DEFINITIONS MNN_KLEIDIAI_F16_PACKED_INT4=1)
+    endif()
 
     file(GLOB dwconv_pack_sources
         "${KLEIDIAI_SRC_DIR}/kai/ukernels/dwconv/pack/*.c"
