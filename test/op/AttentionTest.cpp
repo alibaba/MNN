@@ -1733,4 +1733,543 @@ MNNTestSuiteRegister(AttentionC4TailTest, "op/attention_c4_tail");
 MNNTestSuiteRegister(AttentionHeadDim256Test, "op/attention_hd256");
 MNNTestSuiteRegister(AttentionCausalPrefillTest, "op/attention_prefill");
 MNNTestSuiteRegister(SpeedAttentionTest, "speed/attention");
+
+// ============================================================================
+// Metal decode-path shape sweep + prefill-path coverage.
+//
+// Motivation: the Metal single-pass decode (decode_splitkv) auto-selects its
+// simdgroups-per-threadgroup count as NSG = clamp(product / tgCount, 4, 32),
+// where tgCount = batch * numHead / qhPerTg and product is the device bandwidth
+// tier (256 / 512). For most head counts that is NOT a power of two, and the
+// kernel's transposed cross-simdgroup reduce (MetalAttentionShader.hpp) only
+// publishes output components owned by lanes sgitg + rep*NSG with
+// rep < 32/NSG (integer division): e.g. NSG=12 covers lanes 0..23, so with
+// DPT=4 the output dims 96..127 are never written -- stale garbage for ANY
+// input data. MR 30076167 rounds NSG down to a power of two. The cases below
+// sweep head counts whose auto NSG is non-pow2 on both bandwidth tiers and
+// must therefore FAIL on the unfixed kernel and pass after the fix, while the
+// pow2 controls (16/32/64 heads, narrow-cap shapes) pass on both.
+//
+// Input sensitivity: the shared generateRandTensor pattern makes every logit
+// nearly equal, so softmax degenerates into a mean and one mis-addressed or
+// unwritten slice moves the output by only ~1/kv. K rows here are +-1 sign
+// vectors from a deterministic hash and each decode query is an exact copy of
+// one K row: QK peaks at HeadDim/sqrt(HeadDim) ~ 11.3 against ~+-1 elsewhere,
+// so the output is ~93% of that single V row and the unwritten tail is an
+// O(1) error.
+// ============================================================================
+
+static int _envInt(const char* name, int defValue) {
+    const char* v = getenv(name);
+    if (v == nullptr || v[0] == '\0') {
+        return defValue;
+    }
+    return atoi(v);
+}
+
+// [batch, len, heads, dim] built from a single-batch tensor, every batch
+// receiving identical rows: each batch's KV cache then holds the same
+// content, so the single-batch NaiveAttention reference applies to all.
+static VARP _rowsToVar(const std::vector<std::vector<std::vector<float>>>& a, int batch) {
+    const int len = (int)a.size();
+    const int heads = (int)a[0].size();
+    const int dim = (int)a[0][0].size();
+    VARP var = _Input({batch, len, heads, dim}, NCHW, halide_type_of<float>());
+    float* ptr = var->writeMap<float>();
+    for (int b = 0; b < batch; ++b) {
+        for (int i = 0; i < len; ++i) {
+            for (int h = 0; h < heads; ++h) {
+                ::memcpy(ptr + ((b * len + i) * heads + h) * dim, a[i][h].data(), dim * sizeof(float));
+            }
+        }
+    }
+    var->unMap();
+    return var;
+}
+
+static VARP _scalarMask() {
+    auto m = _Input({}, NCHW, halide_type_of<float>());
+    m->writeMap<float>()[0] = 0.0f;
+    return m;
+}
+
+// Static KV quantization via AttentionParam.mhq_quant (4 scales:
+// q, k, qk, v). kScale/vScale != 0 turns on int8 KV storage.
+static std::shared_ptr<Module> _makeAttentionModuleQuant(int attentionMode, bool outputC4, float qScale,
+                                                         float kScale, float qkScale, float vScale) {
+    auto Q = _Input();
+    auto K = _Input();
+    auto V = _Input();
+    auto mask = _Input();
+    std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
+    attention->type = MNN::OpType_Attention;
+    attention->main.type = MNN::OpParameter_AttentionParam;
+    attention->main.value = new MNN::AttentionParamT;
+    attention->main.AsAttentionParam()->kv_cache = true;
+    attention->main.AsAttentionParam()->output_c4 = outputC4;
+    const float scales[4] = {qScale, kScale, qkScale, vScale};
+    for (int i = 0; i < 4; ++i) {
+        attention->main.AsAttentionParam()->mhq_quant.emplace_back(new MNN::TensorQuantInfoT);
+        attention->main.AsAttentionParam()->mhq_quant.back()->scale = scales[i];
+    }
+    auto o = Variable::create(Expr::create(attention.get(), {Q, K, V, mask}));
+    auto buffer = Variable::save({o});
+    MNN::ScheduleConfig config;
+    auto status = MNNTestSuite::get()->pStaus;
+    config.type = (MNNForwardType)status.forwardType;
+    MNN::BackendConfig bnConfig;
+    bnConfig.memory = (MNN::BackendConfig::MemoryMode)status.memory;
+    bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
+    bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
+    config.backendConfig = &bnConfig;
+    config.numThread = 1;
+    std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+    rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &gMeta);
+    rtmgr->setHint(MNN::Interpreter::ATTENTION_OPTION, attentionMode);
+    std::shared_ptr<Module> m(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
+    return m;
+}
+
+class AttentionDecodeTest : public AttentionTest {
+protected:
+    struct ShapeGuard {
+        int n, kv, d;
+        ShapeGuard() : n(NumHead), kv(KvNumHead), d(HeadDim) {}
+        ~ShapeGuard() { NumHead = n; KvNumHead = kv; HeadDim = d; }
+    };
+    typedef std::vector<std::vector<std::vector<float>>> Tensor3;
+
+    static Tensor3 genKeyRows(int len) {
+        Tensor3 k(len);
+        for (int j = 0; j < len; ++j) {
+            k[j].resize(KvNumHead);
+            for (int h = 0; h < KvNumHead; ++h) {
+                k[j][h].resize(HeadDim);
+                for (int d = 0; d < HeadDim; ++d) {
+                    k[j][h][d] = (_kvbHash(j, h, d) & 1u) ? 1.0f : -1.0f;
+                }
+            }
+        }
+        return k;
+    }
+    static Tensor3 genValueRows(int len) {
+        Tensor3 v(len);
+        for (int j = 0; j < len; ++j) {
+            v[j].resize(KvNumHead);
+            for (int h = 0; h < KvNumHead; ++h) {
+                v[j][h].resize(HeadDim);
+                for (int d = 0; d < HeadDim; ++d) {
+                    v[j][h][d] = (float)(_kvbHash(j + 7919u, h + 31u, d) % 2001u) / 1000.0f - 1.0f;
+                }
+            }
+        }
+        return v;
+    }
+    // Small-amplitude queries for the prefill segment; its output is never
+    // checked, only the resulting KV cache contents matter.
+    static Tensor3 genPrefillQuery(int len) {
+        Tensor3 q(len);
+        for (int i = 0; i < len; ++i) {
+            q[i].resize(NumHead);
+            for (int h = 0; h < NumHead; ++h) {
+                q[i][h].resize(HeadDim);
+                for (int d = 0; d < HeadDim; ++d) {
+                    q[i][h][d] = (float)(_kvbHash(i + 104729u, h, d) % 101u) * 0.002f - 0.1f;
+                }
+            }
+        }
+        return q;
+    }
+    // Decode query that peaks on kv row `target`.
+    static Tensor3 genProbeQuery(const Tensor3& key, int target) {
+        const int group = NumHead / KvNumHead;
+        Tensor3 q(1);
+        q[0].resize(NumHead);
+        for (int h = 0; h < NumHead; ++h) {
+            q[0][h] = key[target][h / group];
+        }
+        return q;
+    }
+    static Tensor3 sliceRow(const Tensor3& src, int row) {
+        Tensor3 out(1);
+        out[0] = src[row];
+        return out;
+    }
+    static Tensor3 sliceHead(const Tensor3& src, int len) {
+        return Tensor3(src.begin(), src.begin() + len);
+    }
+    // Probe positions spread across the head dim and typical tile boundaries;
+    // kvLen caps them for short cases.
+    static int probeTarget(int step, int kvLen) {
+        static const int kProbes[] = {0, 1, 30, 31, 63, 7, 15, 23, 47, 55, 2, 29, 40, 48, 56, 62};
+        const int n = (int)(sizeof(kProbes) / sizeof(kProbes[0]));
+        int t = kProbes[step % n];
+        if (t >= kvLen) {
+            t = kvLen - 1;
+        }
+        return t;
+    }
+
+    bool compareDecodeBatch(int batch, float tolAbs, float tolRel) {
+        VARP logical = Output;
+        if (mOutputC4) {
+            logical = _Convert(Output, NCHW);
+        }
+        const float* resultPtr = logical->readMap<float>();
+        if (nullptr == resultPtr) {
+            MNN_ERROR("AttentionDecodeTest failed to map output\n");
+            return false;
+        }
+        for (int b = 0; b < batch; ++b) {
+            for (int h = 0; h < NumHead; ++h) {
+                for (int d = 0; d < HeadDim; ++d) {
+                    const int idx = (b * NumHead + h) * HeadDim + d;
+                    const float got = resultPtr[idx];
+                    const float exp = expected_result[0][h][d];
+                    if (got != got) {
+                        MNN_PRINT("AttentionDecodeTest: NaN at batch=%d head=%d dim=%d\n", b, h, d);
+                        return false;
+                    }
+                    const float diff = fabsf(got - exp);
+                    if (diff > tolAbs && diff > tolRel * fabsf(exp)) {
+                        MNN_PRINT("AttentionDecodeTest: mismatch at batch=%d head=%d dim=%d: got=%f exp=%f\n",
+                                  b, h, d, got, exp);
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    // quantMode: 0 float, 9 dynamic int8 K, 10 dynamic int8 K+V, 11 static int8 K+V.
+    // maskMode: 0 scalar causal sentinel, 1 trivial [1,1,1,1] ADD mask,
+    //           2 materialized [1,1,1,kv] ADD mask plane.
+    bool runDecodeCase(int numHead, int kvNumHead, int headDim, int batch, int prefill, int steps, int quantMode,
+                       bool outputC4, int maskMode, bool chunked, const char* tag) {
+        NumHead = numHead;
+        KvNumHead = kvNumHead;
+        HeadDim = headDim;
+        mOutputC4 = outputC4;
+        const int total = prefill + steps;
+        auto key = genKeyRows(total);
+        auto value = genValueRows(total);
+        auto pq = genPrefillQuery(prefill);
+        auto prefillKey = sliceHead(key, prefill);
+        auto prefillValue = sliceHead(value, prefill);
+
+        std::shared_ptr<NaiveAttention> ref(new NaiveAttention);
+        ref->appendHistory(prefillKey, prefillValue, prefill);
+
+        std::shared_ptr<Module> module;
+        if (quantMode == 11) {
+            // Static scales: k/v = 1/127 reconstructs +-1 K exactly and keeps
+            // V in [-1,1] within half an int8 step; q/qk scales are unused by
+            // the Metal kernels, set to identity.
+            module = _makeAttentionModuleQuant(8, outputC4, 1.0f, 1.0f / 127.0f, 1.0f, 1.0f / 127.0f);
+        } else {
+            module = _makeAttentionModule(quantMode, outputC4);
+        }
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        if (chunked) {
+            // Two prefills of prefill/2 each, exercising a second onResize on
+            // top of a non-empty KV cache (the llm prompt-splitting pattern).
+            // No GPU sync between them on purpose: on KV growth the Metal
+            // cache manager memcpys old rows on the CPU, racing the first
+            // prefill's in-flight copy kernel. gMeta.sync() already rolls add
+            // into previous, so the second prefill must not touch previous.
+            const int half = prefill / 2;
+            gMeta.add = half;
+            module->onForward({_rowsToVar(sliceHead(pq, half), batch), _rowsToVar(sliceHead(prefillKey, half), batch),
+                               _rowsToVar(sliceHead(prefillValue, half), batch), _scalarMask()});
+            gMeta.sync();
+            Tensor3 prefillKeyTail(prefillKey.begin() + half, prefillKey.end());
+            Tensor3 prefillValueTail(prefillValue.begin() + half, prefillValue.end());
+            gMeta.add = prefill - half;
+            module->onForward({_rowsToVar(sliceHead(pq, half), batch), _rowsToVar(prefillKeyTail, batch),
+                               _rowsToVar(prefillValueTail, batch), _scalarMask()});
+            gMeta.sync();
+        } else if (prefill > 0) {
+            gMeta.add = prefill;
+            module->onForward({_rowsToVar(pq, batch), _rowsToVar(prefillKey, batch),
+                               _rowsToVar(prefillValue, batch), _scalarMask()});
+            gMeta.sync();
+        }
+
+        std::vector<std::vector<int>> noMask;
+        const float tolAbs = (quantMode != 0) ? 0.03f : 0.005f;
+        const float tolRel = (quantMode != 0) ? 0.12f : 0.05f;
+        for (int s = 0; s < steps; ++s) {
+            const int kvLen = prefill + s + 1;
+            auto q1 = genProbeQuery(key, probeTarget(s, kvLen));
+            auto k1 = sliceRow(key, prefill + s);
+            auto v1 = sliceRow(value, prefill + s);
+            expected_result = ref->onExecute(q1, k1, v1, noMask, 1);
+            gMeta.add = 1;
+            VARP maskVar;
+            if (maskMode == 1) {
+                // Non-scalar but single-element all-zero ADD mask: the
+                // trivialFloatMask branch of the decode dispatch.
+                maskVar = _Input({1, 1, 1, 1}, NCHW, halide_type_of<float>());
+                maskVar->writeMap<float>()[0] = 0.0f;
+            } else if (maskMode == 2) {
+                // Real mask plane over the whole kv axis: neither causal nor
+                // trivial, so decode falls back to the three-stage path.
+                maskVar = _Input({1, 1, 1, kvLen}, NCHW, halide_type_of<float>());
+                ::memset(maskVar->writeMap<float>(), 0, kvLen * sizeof(float));
+            } else {
+                maskVar = _scalarMask();
+            }
+            Output = module->onForward({_rowsToVar(q1, batch), _rowsToVar(k1, batch), _rowsToVar(v1, batch),
+                                        maskVar})[0];
+            gMeta.sync();
+            if (!compareDecodeBatch(batch, tolAbs, tolRel)) {
+                MNN_PRINT("Error: %s failed at decode step %d (kvLen=%d, probe=%d)\n", tag, s, kvLen,
+                          probeTarget(s, kvLen));
+                return false;
+            }
+        }
+        return true;
+    }
+
+public:
+    AttentionDecodeTest() = default;
+    virtual ~AttentionDecodeTest() = default;
+
+    virtual bool run(int precision) {
+        ShapeGuard guard;
+        srand(2024);
+        bool pass = true;
+        // Fused single-pass decode sweep at group=2, hd=128, batch=1.
+        // Auto NSG on the 256-product tier / 512-product tier:
+        //   16q->16/32 (pow2 control)        20q->12/25 (bug)
+        //   24q->10/21 (bug)                 28q->9/18  (bug)
+        //   32q->16/32 (qh=2, control)       40q->12/25 (bug, qh=2)
+        //   48q->10/21 (bug, qh=2)           64q->8/16  (control)
+        for (int numHead : {16, 20, 24, 28, 32, 40, 48, 64}) {
+            pass &= runDecodeCase(numHead, numHead / 2, 128, 1, 64, 4, 0, false, 0, false,
+                                  "decode nsg sweep");
+        }
+        // batch>1 is not covered: attention KV caches (CPU and Metal) are
+        // allocated per-token without a batch dimension, so multi-batch runs
+        // write past the cache and fail on both backends. The engine only
+        // runs attention with batch=1.
+        // The bug is kv-length independent: it must also fire right at the
+        // single-pass threshold and past the narrow-cap cutoff.
+        pass &= runDecodeCase(48, 24, 128, 1, 2, 4, 0, false, 0, false, "decode tiny kv");
+        pass &= runDecodeCase(48, 24, 128, 1, 511, 4, 0, false, 0, false, "decode long kv");
+        // Narrow-cap shapes (tgCount < 16): NSG capped at 16. prefill=510
+        // crosses the totalKv<512 cap boundary mid-stream (NSG 16 -> 32).
+        pass &= runDecodeCase(8, 4, 128, 1, 64, 4, 0, false, 0, false, "decode narrow cap");
+        pass &= runDecodeCase(8, 4, 128, 1, 510, 6, 0, false, 0, false, "decode cap crossing");
+        // GQA group 4 and 8 shapes (Qwen3.5-class).
+        pass &= runDecodeCase(8, 2, 128, 1, 64, 4, 0, false, 0, false, "decode group4");
+        pass &= runDecodeCase(16, 2, 128, 1, 64, 4, 0, false, 0, false, "decode group8");
+        // MQA group=1 in the single-pass kernel.
+        pass &= runDecodeCase(16, 16, 128, 1, 64, 4, 0, false, 0, false, "decode mqa");
+        // kv==1 at the first step stays on the fused qk_softmax kernel
+        // (single-pass needs totalKv >= 2); step 1 crosses over to splitkv.
+        pass &= runDecodeCase(16, 8, 128, 1, 0, 4, 0, false, 0, false, "decode kv1 fused");
+        // head_dim 64 / 256 (DPT 2 / 8) and 96 (hd%32 != 0 -> qk_softmax).
+        pass &= runDecodeCase(16, 8, 64, 1, 64, 4, 0, false, 0, false, "decode hd64");
+        pass &= runDecodeCase(16, 8, 256, 1, 64, 4, 0, false, 0, false, "decode hd256");
+        pass &= runDecodeCase(16, 8, 96, 1, 64, 4, 0, false, 0, false, "decode hd96");
+        // Mask variants: trivial single-element tensor mask (single-pass) and a
+        // real [1,1,1,kv] plane (three-stage decode).
+        pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, false, 1, false, "decode trivial mask");
+        pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, false, 2, false, "decode plane mask");
+        // C4 output (ATTENTION_C4 kernel variant).
+        pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, true, 0, false, "decode out c4");
+        // Chunked double prefill, then decode.
+        pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, false, 0, true, "decode chunked");
+        // KV quantization: dynamic int8 K / K+V and static mhq_quant scales.
+        pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 9, false, 0, false, "decode quant k");
+        pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 10, false, 0, false, "decode quant kv");
+        pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 11, false, 0, false, "decode static quant");
+        return pass;
+    }
+
+private:
+    bool mOutputC4 = false;
+};
+
+// Env-gated decode paths that the default flags never select:
+//   MNN_METAL_DECODE_SDPA=0   -> fused qk_softmax / three-stage decode
+//   MNN_METAL_DECODE_SDPA=N   -> qk_softmax up to kv=N (QK_QSPLIT at kv>=512)
+//   MNN_METAL_DECODE_SDPA_NTG=2 -> 2-pass split-KV reduce
+// MetalEnv parses env vars once per process, so the cases run only when the
+// matching var was set before this process started.
+class AttentionDecodeEnvTest : public AttentionDecodeTest {
+public:
+    virtual bool run(int precision) {
+        ShapeGuard guard;
+        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            return true;
+        }
+        bool pass = true;
+        const int sdpaEnv = _envInt("MNN_METAL_DECODE_SDPA", 1);
+        if (sdpaEnv == 0) {
+            // mDecodeQkSoftmax requires group >= 2, so MQA is forced onto the
+            // three-stage decode at every kv length; group=8 caps the fused
+            // path at kv<=512, so kv 513+ also lands on three-stage.
+            pass &= runDecodeCase(16, 16, 128, 1, 64, 4, 0, false, 0, false,
+                                  "decodeSdpa=0 mqa three-stage");
+            pass &= runDecodeCase(16, 2, 128, 1, 513, 4, 0, false, 0, false,
+                                  "decodeSdpa=0 three-stage");
+            pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, false, 0, false,
+                                  "decodeSdpa=0 qk_softmax");
+        } else if (sdpaEnv > 1) {
+            pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, false, 0, false,
+                                  "decodeSdpa=N qk_softmax short kv");
+            pass &= runDecodeCase(16, 8, 128, 1, 511, 4, 0, false, 0, false,
+                                  "decodeSdpa=N qk_softmax qsplit");
+        }
+        if (_envInt("MNN_METAL_DECODE_SDPA_NTG", 0) > 1) {
+            pass &= runDecodeCase(16, 8, 128, 1, 64, 6, 0, false, 0, false, "split-kv 2-pass");
+        }
+        return pass;
+    }
+};
+
+// Prefill-path coverage: three-stage vs fused FA variants at the shapes the
+// path flags distinguish. hint=0 keeps the three-stage pipeline on every
+// backend; hint=8 enables the legacy FA kernel where eligible (M2+, fp16,
+// hd in {64,128,256}, group in {1,2,4,8}, seq>=128; M4-class devices demote
+// back to three-stage). FA-SG / FA-TC engage automatically at seq>=1024 on
+// their tiers, already covered by op/attention_prefill.
+class AttentionPrefillPathTest : public AttentionC4Test {
+public:
+    virtual bool run(int precision) {
+        const int savedNumHead = NumHead;
+        const int savedKvNumHead = KvNumHead;
+        const int savedHeadDim = HeadDim;
+        mPrecision = precision;
+        srand(2024);
+        bool pass = true;
+        // hint=8: FA eligible (group 1/2/4/8, hd 64/128/256). batch>1 is not
+        // covered: the KV cache is allocated per-token without a batch
+        // dimension (MetalKVCacheManager::onAlloc), so batch>1 prefill writes
+        // past the cache buffer; the engine itself only runs batch=1.
+        pass &= runPrefillCase(16, 8, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa g2 hd128");
+        pass &= runPrefillCase(16, 8, 128, 1, 128, 8, false, 0.0f, 0.0f, "fa g2 seq128");
+        pass &= runPrefillCase(16, 8, 128, 1, 511, 8, false, 0.0f, 0.0f, "fa g2 seq511");
+        pass &= runPrefillCase(16, 4, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa g4");
+        pass &= runPrefillCase(32, 4, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa g8");
+        pass &= runPrefillCase(16, 16, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa g1 mqa");
+        pass &= runPrefillCase(16, 8, 64, 1, 192, 8, false, 0.0f, 0.0f, "fa hd64");
+        pass &= runPrefillCase(8, 2, 256, 1, 192, 8, false, 0.0f, 0.0f, "fa hd256");
+        // hint=0: deterministic three-stage (hd 96 also falls back there).
+        pass &= runPrefillCase(16, 8, 128, 1, 192, 0, false, 0.0f, 0.0f, "three-stage seq192");
+        pass &= runPrefillCase(16, 8, 128, 1, 511, 0, false, 0.0f, 0.0f, "three-stage seq511");
+        pass &= runPrefillCase(16, 8, 96, 1, 192, 8, false, 0.0f, 0.0f, "prefill hd96");
+        // C4 output on the fused prefill.
+        pass &= runPrefillCase(16, 8, 128, 1, 192, 8, true, 0.0f, 0.0f, "fa out c4");
+        // KV quantization on prefill (relaxed tolerance).
+        pass &= runPrefillCase(16, 8, 128, 1, 192, 9, false, 0.03f, 0.12f, "prefill quant k");
+        pass &= runPrefillCase(16, 8, 128, 1, 192, 10, false, 0.03f, 0.12f, "prefill quant kv");
+        pass &= runPrefillCase(16, 8, 128, 1, 192, 11, false, 0.03f, 0.12f, "prefill static quant");
+
+        // Env-forced prefill paths (Metal-only; MetalEnv reads the vars once).
+        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_METAL) {
+            const bool forceSg = _envInt("MNN_METAL_PREFILL_FA_SG", -1) == 1;
+            const bool forceFa = _envInt("MNN_ENABLE_FLASH_ATTN_PREFILL", -1) == 1;
+            const bool forceFaOff = _envInt("MNN_ENABLE_FLASH_ATTN_PREFILL", -1) == 0;
+            if (forceSg) {
+                // FA-SG force-on: seq>=64, hd 64/128, group 1/2/4/8.
+                pass &= runPrefillCase(16, 8, 128, 1, 64, 8, false, 0.0f, 0.0f, "fa-sg seq64");
+                pass &= runPrefillCase(16, 8, 64, 1, 192, 8, false, 0.0f, 0.0f, "fa-sg hd64");
+                pass &= runPrefillCase(16, 4, 128, 1, 128, 8, false, 0.0f, 0.0f, "fa-sg g4");
+            }
+            if (forceFa) {
+                // Legacy FA force-on (overrides the M4-class demotion).
+                pass &= runPrefillCase(16, 8, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa forced");
+            }
+            if (forceFaOff) {
+                // FA force-off: hint=8 falls back to three-stage.
+                pass &= runPrefillCase(16, 8, 128, 1, 192, 8, false, 0.0f, 0.0f, "three-stage forced");
+            }
+        }
+        NumHead = savedNumHead;
+        KvNumHead = savedKvNumHead;
+        HeadDim = savedHeadDim;
+        return pass;
+    }
+
+private:
+    // quantMode: 0 float, 9/10 dynamic quant, 11 static quant (see runDecodeCase).
+    bool runPrefillCase(int numHead, int kvNumHead, int headDim, int batch, int seq, int quantMode,
+                        bool outputC4, float tolAbs, float tolRel, const char* tag) {
+        NumHead = numHead;
+        KvNumHead = kvNumHead;
+        HeadDim = headDim;
+        std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+        generateInput(seq, mPrecision);
+        if (quantMode == 11) {
+            // Static scales put K/V in [-1,1] inside the int8 cache; full-range
+            // data would saturate there while the unquantized reference stays
+            // full-range. Regenerate K/V at small magnitude so quantization
+            // stays exact (<= half an int8 step).
+            key   = generateRandTensor(seq, KvNumHead, HeadDim, 2);
+            value = generateRandTensor(seq, KvNumHead, HeadDim, 2);
+        }
+        generateMask(seq, seq);
+        expected_result = naiveAttention->onExecute(query, key, value, mask, seq);
+        std::shared_ptr<Module> module;
+        if (quantMode == 11) {
+            module = _makeAttentionModuleQuant(8, outputC4, 1.0f, 1.0f / 127.0f, 1.0f, 1.0f / 127.0f);
+        } else {
+            module = _makeAttentionModule(quantMode, outputC4);
+        }
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = seq;
+        Output = module->onForward({_rowsToVar(query, batch), _rowsToVar(key, batch), _rowsToVar(value, batch),
+                                    _scalarMask()})[0];
+        gMeta.sync();
+        if (outputC4) {
+            if (!compareC4Result(seq, tag)) {
+                MNN_PRINT("Error: %s (seq=%d, %dq/%dkv/hd%d, batch=%d) unit test failed!\n", tag, seq,
+                          numHead, kvNumHead, headDim, batch);
+                return false;
+            }
+            return true;
+        }
+        const float* resultPtr = Output->readMap<float>();
+        if (nullptr == resultPtr) {
+            MNN_PRINT("Error: %s failed to map output\n", tag);
+            return false;
+        }
+        for (int i = 0; i < seq; ++i) {
+            for (int j = 0; j < NumHead; ++j) {
+                for (int k = 0; k < HeadDim; ++k) {
+                    const float got = resultPtr[(i * NumHead + j) * HeadDim + k];
+                    const float exp = expected_result[i][j][k];
+                    if (got != got) {
+                        MNN_PRINT("Error: %s NaN at [%d][%d][%d]\n", tag, i, j, k);
+                        Output->unMap();
+                        return false;
+                    }
+                    const float diff = fabsf(got - exp);
+                    if (diff > (tolAbs > 0.0f ? tolAbs : diff_threshold) &&
+                        diff > (tolRel > 0.0f ? tolRel : diff_percent_threshold) * fabsf(exp)) {
+                        MNN_PRINT("Error: %s (seq=%d, %dq/%dkv/hd%d, batch=%d) mismatch at [%d][%d][%d]: "
+                                  "got=%f exp=%f\n",
+                                  tag, seq, numHead, kvNumHead, headDim, batch, i, j, k, got, exp);
+                        Output->unMap();
+                        return false;
+                    }
+                }
+            }
+        }
+        Output->unMap();
+        return true;
+    }
+
+    int mPrecision = 2;
+};
+
+MNNTestSuiteRegister(AttentionDecodeTest, "op/attention_decode");
+MNNTestSuiteRegister(AttentionDecodeEnvTest, "op/attention_decode_env");
+MNNTestSuiteRegister(AttentionPrefillPathTest, "op/attention_prefill_paths");
 #endif
