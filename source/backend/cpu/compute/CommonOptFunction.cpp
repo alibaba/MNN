@@ -108,6 +108,12 @@ extern void MNNGeluCommon_RVV(float* dst, const float* src, size_t size);
 extern void MNNGeluStandardCommon_RVV(float* dst, const float* src, size_t size);
 extern void MNNSiLu_RVV(float* dst, const float* src, size_t dataSize);
 extern void MNNSiLuLowp_RVV(float* dst, const float* src, size_t dataSize);
+extern void MNN4BitcopyWithStride_RVV(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+extern void MNN2BitcopyWithStride_RVV(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+extern void MNN1BitcopyWithStride_RVV(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+extern void MNN4BitcopyFast_RVV(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+extern void MNN2BitcopyFast_RVV(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+extern void MNN1BitCopyFast_RVV(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
 namespace MNN {
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
 }
@@ -5306,6 +5312,12 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNMatrixSub = MNNMatrixSub_RVV;
         gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise_RVV;
         gCoreFunction->MNNSamplerC4Bilinear = MNNSamplerC4Bilinear_RVV;
+        gCoreFunction->MNN4BitcopyWithStride = MNN4BitcopyWithStride_RVV;
+        gCoreFunction->MNN2BitcopyWithStride = MNN2BitcopyWithStride_RVV;
+        gCoreFunction->MNN1BitcopyWithStride = MNN1BitcopyWithStride_RVV;
+        gCoreFunction->MNN4BitcopyFast = MNN4BitcopyFast_RVV;
+        gCoreFunction->MNN2BitcopyFast = MNN2BitcopyFast_RVV;
+        gCoreFunction->MNN1BitcopyFast = MNN1BitCopyFast_RVV;
 
         MNNRvvInitializeFastPathFunctions(gCoreFunction);
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
