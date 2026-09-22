@@ -57,7 +57,12 @@ static Execution* _createKleidiAIConvInt8(Backend* backend, const Op* op,
     if (!KleidiAIConvInt8::isSupported(kernelType, common)) {
         return nullptr;
     }
-    return new KleidiAIConvInt8(backend, op, weightQuantInfo, true, kernelType, blockNum);
+    auto execution = new KleidiAIConvInt8(backend, op, weightQuantInfo, true, kernelType, blockNum);
+    if (!execution->valid()) {
+        delete execution;
+        return nullptr;
+    }
+    return execution;
 }
 #endif // MNN_LOW_MEMORY
 
