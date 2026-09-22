@@ -693,15 +693,9 @@ ENDIF()
 # QNN
 IF(MNN_QNN)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/qnn/)
-    IF(TARGET MNN_QNN)
-        list(APPEND MNN_NPU_PUB_HDRS
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/qnn/include/MNNQnnBackend.h"
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/qnn/include/MNNQnnPlugin.hpp"
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/qnn/include/MNNQnnSession.hpp")
-        IF(NOT MNN_NPU_BACKENDS_SHARED)
-            add_definitions(-DMNN_QNN_ENABLED=1)
-            list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_QNN>)
-        ENDIF()
+    IF(TARGET MNN_QNN AND NOT MNN_NPU_BACKENDS_SHARED)
+        add_definitions(-DMNN_QNN_ENABLED=1)
+        list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_QNN>)
     ENDIF()
 ENDIF()
 
@@ -722,15 +716,9 @@ ENDIF()
 # NEUROPILOT
 IF(MNN_NEUROPILOT)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/neuropilot)
-    IF(TARGET MNN_NEUROPILOT)
-        list(APPEND MNN_NPU_PUB_HDRS
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/neuropilot/include/MNNNeuroPilotBackend.h"
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/neuropilot/include/MNNNeuroPilotPlugin.hpp"
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/neuropilot/include/MNNNeuroPilotSession.hpp")
-        IF(NOT MNN_NPU_BACKENDS_SHARED)
-            target_compile_options(MNNCore PRIVATE -DMNN_NEUROPILOT=1)
-            list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NEUROPILOT>)
-        ENDIF()
+    IF(TARGET MNN_NEUROPILOT AND NOT MNN_NPU_BACKENDS_SHARED)
+        target_compile_options(MNNCore PRIVATE -DMNN_NEUROPILOT=1)
+        list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NEUROPILOT>)
     ENDIF()
 ENDIF()
 
@@ -869,11 +857,6 @@ IF(MNN_NPU)
     endif()
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/)
     IF(TARGET MNN_NPU)
-        list(APPEND MNN_NPU_PUB_HDRS
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/hiai/include/MNNHiAIBackend.h"
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/hiai/include/MNNHiAIIO.h"
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/hiai/include/MNNHiAIPlugin.hpp"
-            "${CMAKE_CURRENT_SOURCE_DIR}/source/backend/hiai/include/MNNHiAISession.hpp")
         IF(MNN_NPU_BACKENDS_SHARED)
             # The explicitly loaded plugin installs its registrar through the
             # stable C bridge in libMNN; the core must not reference HiAI symbols.

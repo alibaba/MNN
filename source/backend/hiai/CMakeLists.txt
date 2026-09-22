@@ -45,3 +45,11 @@ ENDIF()
 target_include_directories(MNN_NPU PRIVATE ${CMAKE_CURRENT_LIST_DIR}/backend/)
 target_include_directories(MNN_NPU PRIVATE ${CMAKE_CURRENT_LIST_DIR}/3rdParty/include/)
 target_include_directories(MNN_NPU PRIVATE ${CMAKE_CURRENT_LIST_DIR}/include/)
+
+set(MNN_NPU_PUB_HDRS
+    ${MNN_NPU_PUB_HDRS}
+    "${CMAKE_CURRENT_LIST_DIR}/include/MNNHiAIBackend.h"
+    "${CMAKE_CURRENT_LIST_DIR}/include/MNNHiAIIO.h"
+    "${CMAKE_CURRENT_LIST_DIR}/include/MNNHiAIPlugin.hpp"
+    "${CMAKE_CURRENT_LIST_DIR}/include/MNNHiAISession.hpp"
+    PARENT_SCOPE)
