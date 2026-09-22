@@ -22,6 +22,7 @@
 #include <vector>
 #include <numeric>
 #include <algorithm>
+#include <tuple>
 #include <sys/stat.h>
 
 using namespace MNN::Express;
@@ -1728,5 +1729,579 @@ public:
     }
 };
 MNNTestSuiteRegister(LinearAttentionGateFoldTest, "op/linear_attention_gate_fold");
+
+// Metal stores fp16 for every precision except Precision_High; CPU only for
+// Precision_Low. Tolerances must follow the storage actually in use.
+static bool linearAttnRunsFp16() {
+    auto status = MNNTestSuite::get()->pStaus;
+    if (status.forwardType == MNN_FORWARD_METAL) {
+        return status.precision != MNN::BackendConfig::Precision_High;
+    }
+    return status.precision == MNN::BackendConfig::Precision_Low;
+}
+
+// ─── Metal kernel-path coverage for the gated-delta-rule attention ───
+//
+// Path map of MetalLinearAttention::onEncode (B=1, L=seqLen):
+//   L < 16        : fused decode kernels (fused_sg_tg when H<16 && L==1, else
+//                   fused_sg_align, else fused_sg); conv fuses state_update at L==1
+//   L >= 16       : dk==128 -> register-scan prefill (qkv_prep_sg + delta_rule_sg_v4)
+//                   dk==64  -> register-scan prefill (qkv_prep_sg + delta_rule_sg_v2)
+//                   L>=32 && dv%4==0 -> fused_chunk_sg (any other dk)
+//                   else -> qkv_prep_sg + delta_rule_sg (generic)
+//   spec_block>0  : verify_fused_sg lazy path (covered by the spec-verify test below)
+// Paths not reachable on M4-class devices (no tensor API) and therefore not
+// cased here: chunk64 flash (tensor ops, M5+), flash_chunk_sgmm (dk==128 is
+// shadowed by the sg_v4 scan), and the scalar fallbacks (devices without
+// simdgroup reduce). Each case runs a prefill followed by decode steps so the
+// persistent conv + recurrent state is exercised end to end; on CPU the same
+// cases run through the decode / sequential-prefill kernels, so CI also guards
+// the CPU backend.
+class LinearAttentionMetalPathsTest : public MNNTestCase {
+public:
+    LinearAttentionMetalPathsTest() = default;
+    virtual ~LinearAttentionMetalPathsTest() = default;
+
+    bool runGatedCase(int numK, int numV, int dk, int dv, int prefillL, int decodeSteps, bool c4, const char* tag) {
+        const int B = 1, K_conv = 4;
+        const int keyDim = numK * dk, valDim = numV * dv;
+        const int D = 2 * keyDim + valDim;
+        const float tol = linearAttnRunsFp16() ? 0.02f : 0.002f;
+
+        auto module = _makeLinearAttentionModule(numK, numV, dk, dv, true);
+        if (!module) {
+            MNN_PRINT("Error: failed to create module for %s\n", tag);
+            return false;
+        }
+        NaiveLinearAttention naive;
+        naive.init(B, D, K_conv, numV, dk, dv);
+
+        auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+        fillConvWeight(convWVar->writeMap<float>(), D * K_conv);
+
+        auto runOne = [&](int L, int step, const char* phase) -> bool {
+            std::vector<float> qkv(B * D * L), gate(B * L * numV), beta(B * L * numV);
+            fillDeterministic(qkv.data(), (int)qkv.size(), 0.08f, 0.03f * step);
+            fillGate(gate.data(), (int)gate.size());
+            fillBeta(beta.data(), (int)beta.size());
+
+            VARP qkvVar, gateVar, betaVar;
+            if (c4) {
+                qkvVar  = makeC4TokenChannelInput(qkv, L, D, true);
+                gateVar = makeC4TokenChannelInput(gate, L, numV, false);
+                betaVar = makeC4TokenChannelInput(beta, L, numV, false);
+            } else {
+                qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+                ::memcpy(qkvVar->writeMap<float>(), qkv.data(), qkv.size() * sizeof(float));
+                qkvVar->unMap();
+                gateVar = _Input({B, L, numV}, NCHW, halide_type_of<float>());
+                ::memcpy(gateVar->writeMap<float>(), gate.data(), gate.size() * sizeof(float));
+                gateVar->unMap();
+                betaVar = _Input({B, L, numV}, NCHW, halide_type_of<float>());
+                ::memcpy(betaVar->writeMap<float>(), beta.data(), beta.size() * sizeof(float));
+                betaVar->unMap();
+            }
+
+            auto expected = naive.forward(qkv.data(), gate.data(), beta.data(), convWVar->readMap<float>(), B, L, D,
+                                          K_conv, numK, numV, dk, dv, true);
+            auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+            if (outputs.empty()) {
+                MNN_PRINT("%s: %s returned empty output\n", tag, phase);
+                return false;
+            }
+            const float* result = outputs[0]->readMap<float>();
+            const int tokens = B * L * numV;
+            for (int token = 0; token < tokens; ++token) {
+                for (int d = 0; d < dv; ++d) {
+                    int resultIdx = c4 ? (((d / 4) * tokens + token) * 4 + d % 4) : (token * dv + d);
+                    float exp = expected[token * dv + d];
+                    float diff = fabs(result[resultIdx] - exp);
+                    if (diff > tol + 0.02f * fabs(exp)) {
+                        MNN_PRINT("%s: %s mismatch at token=%d dim=%d: expected=%f actual=%f diff=%f\n", tag, phase,
+                                  token, d, exp, result[resultIdx], diff);
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+
+        if (prefillL > 0 && !runOne(prefillL, 0, "prefill")) {
+            return false;
+        }
+        for (int step = 1; step <= decodeSteps; ++step) {
+            if (!runOne(1, step, "decode")) {
+                return false;
+            }
+        }
+        MNN_PRINT("LinearAttention %s PASSED\n", tag);
+        return true;
+    }
+
+    virtual bool run(int precision) {
+        bool ok = true;
+        // Decode kernels: fused_sg_tg needs H<16 && L==1; fused_sg_align covers H>=16.
+        ok &= runGatedCase(4, 8, 64, 64, 0, 5, false, "decode fused_sg_tg (H=8, dk=64)");
+        ok &= runGatedCase(8, 16, 64, 64, 0, 4, false, "decode fused_sg_align (H=16, dk=64)");
+        // 2 <= L < 16 rides the fused decode kernels with an internal L loop.
+        ok &= runGatedCase(2, 2, 64, 64, 8, 3, false, "short prefill L=8 (fused multi-step)");
+        // Register-scan prefill: dk==128 selects delta_rule_sg_v4, dk==64 sg_v2.
+        ok &= runGatedCase(2, 4, 128, 64, 48, 2, false, "scan prefill sg_v4 (dk=128, L=48)");
+        ok &= runGatedCase(4, 8, 64, 64, 48, 2, false, "scan prefill sg_v2 (dk=64, L=48)");
+        // dk outside {64,128}: L<32 falls back to qkv_prep + delta_rule_sg, L>=32
+        // (dv%4==0) to fused_chunk_sg.
+        ok &= runGatedCase(2, 4, 96, 64, 20, 2, false, "fallback qkv_prep+delta_rule_sg (dk=96, L=20)");
+        ok &= runGatedCase(2, 4, 96, 64, 192, 2, false, "fused_chunk_sg (dk=96, L=192)");
+        // NC4HW4 input runs the same kernels through their C4 offset paths.
+        ok &= runGatedCase(2, 4, 128, 64, 48, 2, true, "scan prefill sg_v4 C4 (dk=128, L=48)");
+        ok &= runGatedCase(2, 4, 96, 64, 192, 2, true, "fused_chunk_sg C4 (dk=96, L=192)");
+        return ok;
+    }
+};
+
+MNNTestSuiteRegister(LinearAttentionMetalPathsTest, "op/linear_attention_metal_paths");
+
+// ─── short_conv path coverage ───
+//
+// attn_type="short_conv": qkv [B, 3H, L] carries the b / c / x projections.
+// Per (b, h): depthwise conv over b*x with NO SiLU, then y = c * conv_out.
+// Persistent state [B, H, K-1] holds the last positions of b*x. The output is
+// [B, L, 1, H] (num_v_heads=1, head_v_dim=H). Kernels: short_conv_nosilu +
+// short_conv_state_update + short_conv_output on Metal; the same math on CPU.
+struct NaiveShortConv {
+    std::vector<float> state;  // [B, H, css]
+    int B, H, css;
+
+    void init(int batch, int hidden, int kernel) {
+        B = batch;
+        H = hidden;
+        css = kernel - 1;
+        state.assign(B * H * css, 0.0f);
+    }
+
+    float inputVal(const float* qkv, int b, int h, int pos, int L) const {
+        return qkv[b * 3 * H * L + h * L + (pos - css)] * qkv[b * 3 * H * L + (2 * H + h) * L + (pos - css)];
+    }
+
+    // qkv [B, 3H, L], w [H, K]; returns [B, L, H]
+    std::vector<float> forward(const float* qkv, const float* w, int L) {
+        const int K = css + 1;
+        std::vector<float> out(B * L * H, 0.0f);
+        for (int b = 0; b < B; ++b) {
+            for (int h = 0; h < H; ++h) {
+                for (int l = 0; l < L; ++l) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < K; ++k) {
+                        int pos = l + k;
+                        float v = pos < css ? state[(b * H + h) * css + pos] : inputVal(qkv, b, h, pos, L);
+                        sum += v * w[h * K + k];
+                    }
+                    out[(b * L + l) * H + h] = qkv[b * 3 * H * L + (H + h) * L + l] * sum;
+                }
+                // In-place shift, ascending i: reads state[L+i] (i < L+i) before it is written.
+                for (int i = 0; i < css; ++i) {
+                    int pos = L + i;
+                    state[(b * H + h) * css + i] =
+                        pos < css ? state[(b * H + h) * css + pos] : inputVal(qkv, b, h, pos, L);
+                }
+            }
+        }
+        return out;
+    }
+};
+
+class LinearAttentionShortConvTest : public MNNTestCase {
+public:
+    LinearAttentionShortConvTest() = default;
+    virtual ~LinearAttentionShortConvTest() = default;
+
+    bool runShortConvCase(int H, int K, int prefillL, int decodeSteps, bool c4, const char* tag) {
+        const int B = 1, D = 3 * H;
+        const float tol = linearAttnRunsFp16() ? 0.02f : 0.002f;
+
+        auto module = _makeLinearAttentionModule(1, 1, H, H, false, "short_conv");
+        if (!module) {
+            MNN_PRINT("Error: failed to create module for %s\n", tag);
+            return false;
+        }
+        NaiveShortConv naive;
+        naive.init(B, H, K);
+
+        auto convWVar = _Input({H, 1, K}, NCHW, halide_type_of<float>());
+        fillConvWeight(convWVar->writeMap<float>(), H * K);
+
+        auto runOne = [&](int L, int step, const char* phase) -> bool {
+            std::vector<float> qkv(B * D * L), gate(B * L, 0.0f), beta(B * L, 0.0f);
+            fillDeterministic(qkv.data(), (int)qkv.size(), 0.1f, 0.02f * step);
+
+            VARP qkvVar, gateVar, betaVar;
+            if (c4) {
+                qkvVar  = makeC4TokenChannelInput(qkv, L, D, true);
+                gateVar = makeC4TokenChannelInput(gate, L, 1, false);
+                betaVar = makeC4TokenChannelInput(beta, L, 1, false);
+            } else {
+                qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+                ::memcpy(qkvVar->writeMap<float>(), qkv.data(), qkv.size() * sizeof(float));
+                qkvVar->unMap();
+                gateVar = _Input({B, L, 1}, NCHW, halide_type_of<float>());
+                ::memcpy(gateVar->writeMap<float>(), gate.data(), gate.size() * sizeof(float));
+                gateVar->unMap();
+                betaVar = _Input({B, L, 1}, NCHW, halide_type_of<float>());
+                ::memcpy(betaVar->writeMap<float>(), beta.data(), beta.size() * sizeof(float));
+                betaVar->unMap();
+            }
+
+            auto expected = naive.forward(qkv.data(), convWVar->readMap<float>(), L);
+            auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+            if (outputs.empty()) {
+                MNN_PRINT("%s: %s returned empty output\n", tag, phase);
+                return false;
+            }
+            const float* result = outputs[0]->readMap<float>();
+            const int tokens = B * L;
+            for (int token = 0; token < tokens; ++token) {
+                for (int h = 0; h < H; ++h) {
+                    int resultIdx = c4 ? (((h / 4) * tokens + token) * 4 + h % 4) : (token * H + h);
+                    float exp = expected[token * H + h];
+                    float diff = fabs(result[resultIdx] - exp);
+                    if (diff > tol + 0.02f * fabs(exp)) {
+                        MNN_PRINT("%s: %s mismatch at token=%d head=%d: expected=%f actual=%f diff=%f\n", tag, phase,
+                                  token, h, exp, result[resultIdx], diff);
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+
+        if (prefillL > 0 && !runOne(prefillL, 0, "prefill")) {
+            return false;
+        }
+        for (int step = 1; step <= decodeSteps; ++step) {
+            if (!runOne(1, step, "decode")) {
+                return false;
+            }
+        }
+        MNN_PRINT("LinearAttention %s PASSED\n", tag);
+        return true;
+    }
+
+    virtual bool run(int precision) {
+        bool ok = true;
+        ok &= runShortConvCase(8, 4, 5, 3, false, "short_conv (H=8, K=4)");
+        ok &= runShortConvCase(8, 1, 3, 2, false, "short_conv (K=1, no state)");
+        ok &= runShortConvCase(8, 4, 5, 2, true, "short_conv C4 (H=8, K=4)");
+        return ok;
+    }
+};
+
+MNNTestSuiteRegister(LinearAttentionShortConvTest, "op/linear_attention_short_conv");
+
+// ─── Speculative-decode verify path (Metal-only) ───
+//
+// KVMeta::spec_block tags a verify forward. MetalLinearAttention defers the
+// recurrent-state update: the verify kernel replays the accepted prefix of the
+// previous pending block (meta.remove holds the rejected count), computes the
+// new block against that state, and saves the new block as pending without
+// persisting its effect. The next non-verify forward flushes the pending
+// block's accepted prefix before running normally. CPU has no spec_block
+// support (its recurrent state cannot roll back), so this test is Metal-only.
+struct NaiveSpecVerify {
+    NaiveLinearAttention core;
+    int B, D, K, numK, H, dk, dv;
+    std::vector<float> pendRaw, pendK, pendV, pendGate, pendBeta;
+    int pendLen = 0;
+
+    void init(int batch, int convDim, int convKernel, int numKHeads, int numVHeads, int headK, int headV) {
+        B = batch;
+        D = convDim;
+        K = convKernel;
+        numK = numKHeads;
+        H = numVHeads;
+        dk = headK;
+        dv = headV;
+        core.init(batch, convDim, convKernel, numVHeads, headK, headV);
+    }
+
+    // Replay commitLen tokens of the pending block into conv + recurrent state
+    // (Metal conv_commit + the verify kernel's replay prologue).
+    void commitPending(int commitLen) {
+        if (commitLen <= 0) {
+            return;
+        }
+        const int css = K - 1;
+        for (int b = 0; b < B; ++b) {
+            for (int d = 0; d < D; ++d) {
+                for (int i = 0; i < css; ++i) {
+                    int pos = commitLen + i;
+                    float v = pos < css ? core.convState[(b * D + d) * css + pos]
+                                        : pendRaw[(b * D + d) * pendLen + (pos - css)];
+                    core.convState[(b * D + d) * css + i] = v;
+                }
+            }
+        }
+        for (int b = 0; b < B; ++b) {
+            for (int h = 0; h < H; ++h) {
+                float* S = core.rnnState.data() + (b * H + h) * dk * dv;
+                for (int t = 0; t < commitLen; ++t) {
+                    float decay = expf(pendGate[(b * pendLen + t) * H + h]);
+                    float beta = pendBeta[(b * pendLen + t) * H + h];
+                    const float* k_t = pendK.data() + ((b * pendLen + t) * H + h) * dk;
+                    const float* v_t = pendV.data() + ((b * pendLen + t) * H + h) * dv;
+                    for (int i = 0; i < dk * dv; ++i) {
+                        S[i] *= decay;
+                    }
+                    for (int j = 0; j < dv; ++j) {
+                        float vPred = 0.0f;
+                        for (int i = 0; i < dk; ++i) {
+                            vPred += S[i * dv + j] * k_t[i];
+                        }
+                        float delta = beta * (v_t[j] - vPred);
+                        for (int i = 0; i < dk; ++i) {
+                            S[i * dv + j] += k_t[i] * delta;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Conv1D + SiLU over the current conv state, without updating it (lazy).
+    std::vector<float> convOnly(const float* qkv, const float* convW, int L) {
+        const int css = K - 1;
+        std::vector<float> out(B * D * L, 0.0f);
+        for (int b = 0; b < B; ++b) {
+            for (int d = 0; d < D; ++d) {
+                for (int l = 0; l < L; ++l) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < K; ++k) {
+                        int pos = l + k;
+                        float v = pos < css ? core.convState[(b * D + d) * css + pos]
+                                            : qkv[b * D * L + d * L + (pos - css)];
+                        sum += v * convW[d * K + k];
+                    }
+                    float sig = 1.0f / (1.0f + expf(-sum));
+                    out[(b * D + d) * L + l] = sum * sig;
+                }
+            }
+        }
+        return out;
+    }
+
+    // Lazy verify forward: commit the accepted prefix of the previous pending
+    // block, compute the new block against the committed state, and save the
+    // new block as pending without persisting its effect.
+    std::vector<float> lazyForward(const float* qkv, const float* gate, const float* beta, const float* convW, int L,
+                                   int commitLen) {
+        commitPending(commitLen);
+
+        const int gqa = (H > numK) ? (H / numK) : 1;
+        const int keyDim = numK * dk;
+        const float qScale = 1.0f / sqrtf((float)dk);
+        const float eps = 1e-6f;
+
+        std::vector<float> convOut = convOnly(qkv, convW, L);
+        pendRaw.assign(qkv, qkv + B * D * L);
+        pendK.assign(B * L * H * dk, 0.0f);
+        pendV.assign(B * L * H * dv, 0.0f);
+        pendGate.assign(gate, gate + B * L * H);
+        pendBeta.assign(beta, beta + B * L * H);
+        pendLen = L;
+
+        std::vector<float> out(B * L * H * dv, 0.0f);
+        std::vector<float> S = core.rnnState;  // work copy; committed state already persisted
+        for (int b = 0; b < B; ++b) {
+            for (int t = 0; t < L; ++t) {
+                for (int h = 0; h < H; ++h) {
+                    float* state = S.data() + (b * H + h) * dk * dv;
+                    const int kh = h / gqa;
+
+                    std::vector<float> q_t(dk), k_t(dk), v_t(dv);
+                    for (int i = 0; i < dk; ++i) {
+                        q_t[i] = convOut[(b * D + kh * dk + i) * L + t];
+                        k_t[i] = convOut[(b * D + keyDim + kh * dk + i) * L + t];
+                    }
+                    for (int j = 0; j < dv; ++j) {
+                        v_t[j] = convOut[(b * D + 2 * keyDim + h * dv + j) * L + t];
+                    }
+                    float invQ = qScale, invK = 1.0f;
+                    {
+                        float sqQ = 0.0f, sqK = 0.0f;
+                        for (int i = 0; i < dk; ++i) {
+                            sqQ += q_t[i] * q_t[i];
+                            sqK += k_t[i] * k_t[i];
+                        }
+                        invQ = 1.0f / sqrtf(sqQ + eps) * qScale;
+                        invK = 1.0f / sqrtf(sqK + eps);
+                    }
+                    for (int i = 0; i < dk; ++i) {
+                        q_t[i] *= invQ;
+                        k_t[i] *= invK;
+                    }
+                    // Pending save uses the post-norm k (the replay feeds it in as-is).
+                    ::memcpy(pendK.data() + ((b * L + t) * H + h) * dk, k_t.data(), dk * sizeof(float));
+                    ::memcpy(pendV.data() + ((b * L + t) * H + h) * dv, v_t.data(), dv * sizeof(float));
+
+                    float decay = expf(gate[(b * L + t) * H + h]);
+                    float betaT = beta[(b * L + t) * H + h];
+                    for (int i = 0; i < dk * dv; ++i) {
+                        state[i] *= decay;
+                    }
+                    std::vector<float> delta(dv);
+                    for (int j = 0; j < dv; ++j) {
+                        float vPred = 0.0f;
+                        for (int i = 0; i < dk; ++i) {
+                            vPred += state[i * dv + j] * k_t[i];
+                        }
+                        delta[j] = betaT * (v_t[j] - vPred);
+                        for (int i = 0; i < dk; ++i) {
+                            state[i * dv + j] += k_t[i] * delta[j];
+                        }
+                    }
+                    for (int j = 0; j < dv; ++j) {
+                        float o = 0.0f;
+                        for (int i = 0; i < dk; ++i) {
+                            o += state[i * dv + j] * q_t[i];
+                        }
+                        out[(b * L + t) * H * dv + h * dv + j] = o;
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    // Flush: commit the pending block's accepted prefix, then a normal forward.
+    std::vector<float> flushForward(const float* qkv, const float* gate, const float* beta, const float* convW, int L,
+                                    int commitLen) {
+        commitPending(commitLen);
+        pendLen = 0;
+        return core.forward(qkv, gate, beta, convW, B, L, D, K, numK, H, dk, dv, true);
+    }
+};
+
+class LinearAttentionSpecVerifyTest : public MNNTestCase {
+public:
+    LinearAttentionSpecVerifyTest() = default;
+    virtual ~LinearAttentionSpecVerifyTest() = default;
+
+    virtual bool run(int precision) {
+        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("skip: LinearAttention spec-verify is Metal-only (CPU has no spec_block support)\n");
+            return true;
+        }
+        const int B = 1, numK = 4, numV = 8, dk = 64, dv = 64, K_conv = 4, specBlock = 8;
+        const int keyDim = numK * dk, valDim = numV * dv;
+        const int D = 2 * keyDim + valDim;
+        const float tol = linearAttnRunsFp16() ? 0.02f : 0.002f;
+
+        MNN::KVMeta meta;
+        auto module = _makeLinearAttentionModuleWithMeta(numK, numV, dk, dv, true, &meta);
+        if (!module) {
+            MNN_PRINT("SpecVerifyTest: failed to create module\n");
+            return false;
+        }
+        NaiveSpecVerify naive;
+        naive.init(B, D, K_conv, numK, numV, dk, dv);
+
+        auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+        fillConvWeight(convWVar->writeMap<float>(), D * K_conv);
+
+        int inputSeed = 0;
+        auto makeInputs = [&](int L) {
+            VARP qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+            VARP gateVar = _Input({B, L, numV}, NCHW, halide_type_of<float>());
+            VARP betaVar = _Input({B, L, numV}, NCHW, halide_type_of<float>());
+            fillDeterministic(qkvVar->writeMap<float>(), B * D * L, 0.08f, 0.03f * inputSeed);
+            fillGate(gateVar->writeMap<float>(), B * L * numV);
+            fillBeta(betaVar->writeMap<float>(), B * L * numV);
+            inputSeed++;
+            std::vector<float> qkv(B * D * L), gate(B * L * numV), beta(B * L * numV);
+            ::memcpy(qkv.data(), qkvVar->readMap<float>(), qkv.size() * sizeof(float));
+            ::memcpy(gate.data(), gateVar->readMap<float>(), gate.size() * sizeof(float));
+            ::memcpy(beta.data(), betaVar->readMap<float>(), beta.size() * sizeof(float));
+            return std::make_tuple(qkvVar, gateVar, betaVar, qkv, gate, beta);
+        };
+
+        // verify(tag, remove, expectedCommit): run one spec-tagged forward of
+        // specBlock tokens and compare against the naive lazy reference.
+        auto verifyBlock = [&](const char* tag, int remove, int expectedCommit) -> bool {
+            meta.spec_block = specBlock;
+            meta.remove = remove;
+            auto in = makeInputs(specBlock);
+            auto expected = naive.lazyForward(std::get<3>(in).data(), std::get<4>(in).data(), std::get<5>(in).data(),
+                                             convWVar->readMap<float>(), specBlock, expectedCommit);
+            auto outputs = module->onForward({std::get<0>(in), std::get<1>(in), std::get<2>(in), convWVar});
+            meta.spec_block = 0;
+            if (outputs.empty()) {
+                MNN_PRINT("SpecVerifyTest: %s returned empty output\n", tag);
+                return false;
+            }
+            const float* result = outputs[0]->readMap<float>();
+            const int outSize = B * specBlock * numV * dv;
+            for (int i = 0; i < outSize; ++i) {
+                float diff = fabs(result[i] - expected[i]);
+                if (diff > tol + 0.02f * fabs(expected[i])) {
+                    MNN_PRINT("SpecVerifyTest: %s mismatch at index %d: expected=%f actual=%f diff=%f\n", tag, i,
+                              expected[i], result[i], diff);
+                    return false;
+                }
+            }
+            return true;
+        };
+        // flush(tag, remove, expectedCommit): one ordinary decode forward that
+        // must first flush the pending block's accepted prefix.
+        auto flushBlock = [&](const char* tag, int remove, int expectedCommit) -> bool {
+            meta.spec_block = 0;
+            meta.remove = remove;
+            auto in = makeInputs(1);
+            auto expected = naive.flushForward(std::get<3>(in).data(), std::get<4>(in).data(), std::get<5>(in).data(),
+                                              convWVar->readMap<float>(), 1, expectedCommit);
+            auto outputs = module->onForward({std::get<0>(in), std::get<1>(in), std::get<2>(in), convWVar});
+            if (outputs.empty()) {
+                MNN_PRINT("SpecVerifyTest: %s returned empty output\n", tag);
+                return false;
+            }
+            const float* result = outputs[0]->readMap<float>();
+            const int outSize = B * numV * dv;
+            for (int i = 0; i < outSize; ++i) {
+                float diff = fabs(result[i] - expected[i]);
+                if (diff > tol + 0.02f * fabs(expected[i])) {
+                    MNN_PRINT("SpecVerifyTest: %s mismatch at index %d: expected=%f actual=%f diff=%f\n", tag, i,
+                              expected[i], result[i], diff);
+                    return false;
+                }
+            }
+            meta.sync();
+            return true;
+        };
+
+        // Cycle 1: first verify block (nothing pending, commit 0), second verify
+        // block commits the first block's accepted prefix (3 of 8), then a
+        // decode flushes the rest of the second block's accepted prefix (3).
+        meta.previous = 0;
+        meta.remove = 0;
+        bool ok = verifyBlock("verify-A (no pending)", 0, 0);
+        meta.previous = 100;
+        ok &= verifyBlock("verify-B (commit 3)", specBlock - 3, 3);
+        ok &= flushBlock("flush-C (commit 3)", specBlock - 3, 3);
+        // Cycle 2: full reject (remove == specBlock -> commit 0).
+        meta.previous = 100;
+        ok &= verifyBlock("verify-D (no pending)", 0, 0);
+        ok &= verifyBlock("verify-E (full reject)", specBlock, 0);
+        ok &= flushBlock("flush-F (commit 0)", specBlock, 0);
+        // Cycle 3: full accept (remove == 0 -> commit all specBlock tokens).
+        meta.previous = 100;
+        ok &= verifyBlock("verify-G (no pending)", 0, 0);
+        ok &= verifyBlock("verify-H (full accept)", 0, specBlock);
+        ok &= flushBlock("flush-I (commit all)", 0, specBlock);
+        if (ok) {
+            MNN_PRINT("LinearAttention spec-verify (commit 3 / reject-all / accept-all) PASSED\n");
+        }
+        return ok;
+    }
+};
+
+MNNTestSuiteRegister(LinearAttentionSpecVerifyTest, "op/linear_attention_spec_verify");
 
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
