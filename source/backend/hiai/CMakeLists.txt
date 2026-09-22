@@ -1,25 +1,39 @@
+if(MNN_NPU_BACKENDS_SHARED AND
+   CMAKE_SYSTEM_NAME MATCHES "^Android" AND
+   NOT CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
+        message(STATUS "HiAI backend plugin is available only for Android arm64-v8a")
+        return()
+endif()
+
 file(GLOB_RECURSE MNN_NPU_SRCS ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
-add_library(hiai SHARED IMPORTED )
-set_target_properties(hiai PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/${HIAI_PATH}/libhiai.so")
+list(FILTER MNN_NPU_SRCS EXCLUDE REGEX "/HiAIBackendPlugin\\.cpp$")
+list(APPEND MNN_NPU_SRCS
+        ${CMAKE_CURRENT_LIST_DIR}/backend/HiAIDynamicTrampolines.S)
 
-add_library(hiai_ir SHARED IMPORTED )
-set_target_properties(hiai_ir PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/${HIAI_PATH}/libhiai_ir.so")
-
-add_library(hiai_ir_build SHARED IMPORTED )
-set_target_properties(hiai_ir_build PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/${HIAI_PATH}/libhiai_ir_build.so")
-
-IF(MNN_SEP_BUILD)
+IF(MNN_NPU_BACKENDS_SHARED)
+        add_library(
+                MNN_NPU
+                SHARED
+                ${MNN_NPU_SRCS}
+                ${CMAKE_CURRENT_LIST_DIR}/HiAIBackendPlugin.cpp
+        )
+        set_target_properties(MNN_NPU PROPERTIES
+                              OUTPUT_NAME "MNN_Backend_HiAI")
+        target_compile_definitions(MNN_NPU PRIVATE
+                MNN_HIAI_EXPLICIT_PLUGIN)
+        target_link_libraries(MNN_NPU PRIVATE
+                MNN
+                ${CMAKE_DL_LIBS}
+        )
+ELSEIF(MNN_SEP_BUILD)
         add_library(
                 MNN_NPU 
                 SHARED 
                 ${MNN_NPU_SRCS}
         )
         target_link_libraries(MNN_NPU PRIVATE
-                hiai hiai_ir hiai_ir_build
                 MNN
+                ${CMAKE_DL_LIBS}
         )
 ELSE()
         add_library(
@@ -30,3 +44,4 @@ ELSE()
 ENDIF()
 target_include_directories(MNN_NPU PRIVATE ${CMAKE_CURRENT_LIST_DIR}/backend/)
 target_include_directories(MNN_NPU PRIVATE ${CMAKE_CURRENT_LIST_DIR}/3rdParty/include/)
+target_include_directories(MNN_NPU PRIVATE ${CMAKE_CURRENT_LIST_DIR}/include/)

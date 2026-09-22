@@ -36,20 +36,17 @@ ErrorCode QNNConcat::onEncode(const std::vector<Tensor *> &inputs, const std::ve
         axis = dim + axis;
     }
     MNN_ASSERT(axis >= 0 && axis < dim);
-
-    // The QNN tensor layout for MNN_DATA_FORMAT_NC4HW4 tensors is NHWC, so the concat axis
-    // (expressed in MNN's NCHW ordering) must be remapped into the NHWC ordering QNN sees.
-    //   axis 0 (N) -> 0 ; axis 1 (C) -> dim-1 (last) ; axis k>1 (spatial) -> k-1
     int realAxis = axis;
-    if (TensorUtils::getDescribe(output)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+    if (!mBackend->isDedicatedQnnSession() &&
+        TensorUtils::getDescribe(output)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        // Legacy type-5 sessions express NC4HW4 axes in NCHW order while QNN
+        // sees NHWC. Dedicated sessions keep their established model contract.
         if (axis > 1) {
             realAxis = axis - 1;
         } else if (axis == 1) {
             realAxis = dim - 1;
         }
-        // else axis == 0 (N): realAxis stays 0, N maps to N in NHWC.
     }
-
     this->createParamScalar("axis", (uint32_t)realAxis);
 
     this->addNodeCommon(inputs, outputs);
@@ -80,4 +77,3 @@ REGISTER_QNN_OP_CREATOR(QNNConcatCreator, OpType_Unpack)
 #endif
 } // end namespace QNN
 } // end namespace MNN
-

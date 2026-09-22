@@ -26,7 +26,7 @@ std::shared_ptr<QNNTensorWrapper> QNNTensorWrapper::create(const std::string & n
 
 std::shared_ptr<QNNTensorWrapper> QNNTensorWrapper::createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam) {
     MNN_ASSERT(!name.empty() && !dimensions.empty() && buffer);
-    MNN_ASSERT(dataType == QNN_DATATYPE_SFIXED_POINT_8 || dataType == QNN_DATATYPE_INT_32 || dataType == QNN_DATATYPE_UINT_32 || dataType == QNN_DATATYPE_SFIXED_POINT_32 || dataType == QNN_DATATYPE_UFIXED_POINT_8 || dataType == QNN_DATATYPE_UFIXED_POINT_16);
+    MNN_ASSERT(dataType == QNN_DATATYPE_SFIXED_POINT_8 || dataType == QNN_DATATYPE_SFIXED_POINT_16 || dataType == QNN_DATATYPE_INT_32 || dataType == QNN_DATATYPE_UINT_32 || dataType == QNN_DATATYPE_SFIXED_POINT_32 || dataType == QNN_DATATYPE_UFIXED_POINT_8 || dataType == QNN_DATATYPE_UFIXED_POINT_16);
 
     std::shared_ptr<QNNTensorWrapper> tensorWrapper = QNNTensorWrapper::create(name, QNN_TENSOR_TYPE_STATIC, dataType, dimensions, quantizeParam);
     uint32_t numElement = 1;
@@ -34,7 +34,7 @@ std::shared_ptr<QNNTensorWrapper> QNNTensorWrapper::createStaticTensor(const std
         numElement *= dimensions[i];
     }
     void * dst = tensorWrapper->alloc();
-    uint32_t dataSize = gQnnTypeSize.find(dataType)->second;
+    uint32_t dataSize = qnnTypeSizes().find(dataType)->second;
     ::memcpy(dst, buffer, dataSize * numElement);
     return tensorWrapper;
 }
@@ -276,7 +276,7 @@ QNNParamTensorWrapper::~QNNParamTensorWrapper() {
 }
 
 void * QNNParamTensorWrapper::alloc() {
-    uint32_t dataSize = gQnnTypeSize.find(mQnnParam.tensorParam.v1.dataType)->second;
+    uint32_t dataSize = qnnTypeSizes().find(mQnnParam.tensorParam.v1.dataType)->second;
     for (int i = 0; i < mQnnParam.tensorParam.v1.rank; i++) {
         dataSize *= mQnnParam.tensorParam.v1.dimensions[i];
     }

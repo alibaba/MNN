@@ -60,7 +60,7 @@ bool Embedding::load() {
     setChatTemplate();
     // 2. load model
     Module::Config module_config;
-    if(mConfig->backend_type() == "npu") {
+    if(mConfig->backend_type() == "npu" || mConfig->backend_type() == "qnn") {
         module_config.shapeMutable = false;
     } else {
         module_config.shapeMutable = true;

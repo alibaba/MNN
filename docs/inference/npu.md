@@ -7,6 +7,18 @@
 - HIAI
 - RKNN
 
+## 可选 NPU 插件接入
+
+QNN / NeuroPilot / HiAI 支持独立插件，各后端提供配置、诊断、动态加载和
+严格 Session API：
+
+- QNN：`MNNQnnBackend.h`、`MNNQnnPlugin.hpp`、`MNNQnnSession.hpp`；
+- NeuroPilot：`MNNNeuroPilotBackend.h`、`MNNNeuroPilotPlugin.hpp`、`MNNNeuroPilotSession.hpp`；
+- HiAI：`MNNHiAIBackend.h`、`MNNHiAIIO.h`、`MNNHiAIPlugin.hpp`、`MNNHiAISession.hpp`。
+
+配置通过 `BackendConfig::sharedContext` 传入。调用方加载目标芯片对应的插件，
+再调用该后端的 `create*Session`。NeuroPilot 在线模式与 NNAPI/CoreML 编译互斥。
+
 ## QNN
 
 ### QNN后端整体介绍
@@ -102,7 +114,7 @@ adb push model.mnn ${ANDROID_WORKING_DIR}
 adb shell "cd ${ANDROID_WORKING_DIR} && export LD_LIBRARY_PATH=.:${ANDROID_LD_LIBRARY_PATH} && export ADSP_LIBRARY_PATH=.:${ANDROID_ADSP_LIBRARY_PATH} && ./your/mnn/qnn/ai/exe"
 ```
 - 配置MNN
-  - Backend Type设置为`MNN_FORWARD_NN`，即5。
+  - Backend Type 显式设置为 `MNN_FORWARD_QNN`，即 16；不再占用 NNAPI/NeuroPilot 的 5。
   - 在使用Module API推理时，需要设定`Module::Config`中的`shapeMutable`字段为`false`。
 
 ### 离线构图模式，推理常规模型
@@ -178,7 +190,18 @@ cp -r ${DDK}/include ${MNN}/source/backend/hiai/3rdParty/include
 ### HIAI 编译执行
 1. cmake 参数打开npu开关： -DMNN_NPU=ON
 2. backend type设置成：MNN_FORWARD_USER_0
-3. 执行可执行程序（需动态加载：libMNN_NPU.so, libhiai_ir_build.so, libhiai_ir.so, libhiai.so）
+3. 根据构建参数选择产物：
+   - `MNN_NPU_BACKENDS_SHARED=ON`：生成 `libMNN_Backend_HiAI.so`，
+     通过 `MNN::loadHiAIBackendPlugin` 显式加载。
+   - `MNN_NPU_BACKENDS_SHARED=OFF`、`MNN_SEP_BUILD=ON`：生成 `libMNN_NPU.so`。
+   - 两者均为 `OFF`：HiAI 后端编入 `libMNN.so`。
+4. 创建 HiAI Runtime 时，通过 `dlopen()` 加载运行库并用 `dlsym()` 解析接口。
+   HCL V600 路径的 HiAI C++ 图接口从 `libhiai_ir.so` 解析；V320 完整路径还需
+   `libhiai.so` 和 `libhiai_ir_build.so`。这些库不是上述 MNN 产物的
+   `DT_NEEDED` 依赖。
+5. 将 HiAI 运行库放在动态链接器可搜索的路径中，或通过
+   `MNNHiAIBackendConfigV1::runtimeLibraryDirectory` 指定目录，再调用
+   `MNN::createHiAISession`。库加载失败会报告 Runtime 初始化错误。
 
 ## RKNN
 适用于 Rockchip RKNPU 平台。当前接入方式不是在线逐算子构图，而是同一份 ONNX 在 Host 侧同时生成：

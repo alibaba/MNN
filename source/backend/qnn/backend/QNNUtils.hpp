@@ -17,18 +17,12 @@
 #include "HTP/QnnHtpDevice.h"
 #include <MNN/HalideRuntime.h>
 #include <map>
+#include <string>
 #include "core/TensorUtils.hpp"
 
-#ifdef MNN_USE_ARMV82
-// FP32 <--> FP16 Function
-#include "backend/arm82/Arm82OptFunc.hpp"
-#define FLOAT_TO_HALF MNNQuantizeFP16
-#define HALF_TO_FLOAT MNNDequantizeFP16
-#else
 #include "half.hpp"
 #define FLOAT_TO_HALF QNN::QnnFloatToHalf
 #define HALF_TO_FLOAT QNN::QnnHalfToFloat
-#endif // MNN_USE_ARMV82
 
 #define CALL_QNN(apiCall)                                                                           \
     do {                                                                                            \
@@ -56,25 +50,35 @@
 namespace MNN {
 namespace QNN {
 
-#ifndef MNN_USE_ARMV82
+enum class QnnBackendKind {
+    None,
+    Htp,
+    Dsp,
+};
 
 void QnnFloatToHalf(const float* src, int16_t* dst, size_t size);
 
 void QnnHalfToFloat(const int16_t* src, float* dst, size_t size);
 
-#endif
-
 // the only symbol requiring dynamic loading
 typedef Qnn_ErrorHandle_t (*QnnInterface_getProviders_t)(const QnnInterface_t*** providerList, uint32_t* numProviders);
 extern QnnInterface_getProviders_t QnnInterface_getProviders;
 
-#ifdef MNN_WITH_PLUGIN
+#if defined(MNN_WITH_PLUGIN) || defined(MNN_QNN_OFFLINE_CONTEXT)
 typedef Qnn_ErrorHandle_t (*QnnSystemInterface_getProviders_t)(const QnnSystemInterface_t*** providerList,
                                                   uint32_t* numProviders);
 extern QnnSystemInterface_getProviders_t QnnSystemInterface_getProviders;
 #endif
 
 bool loadQNNSymbol();
+bool loadQNNSymbol(QnnBackendKind backend,
+                   const std::string& libraryDirectory = {});
+bool isDefaultQNNRuntimeAvailable();
+bool loadQNNSystemSymbol(const std::string& libraryDirectory = {});
+QnnBackendKind getLoadedQNNBackend();
+const char* getLoadedQNNBackendName();
+bool isLoadedQNNLibraryCompatible(QnnBackendKind backend,
+                                  const std::string& libraryDirectory);
 bool checkCapability(QNN_INTERFACE_VER_TYPE qnnInterface, QnnProperty_Key_t key);
 
 #ifdef ENABLE_QNN_ONLINE_FINALIZE
@@ -127,9 +131,9 @@ void registerQNNOps();
 
 extern Tensor::DimensionType gQnnTensorDimType;
 
-extern const std::map<Qnn_DataType_t, uint32_t> gQnnTypeSize;
+const std::map<Qnn_DataType_t, uint32_t>& qnnTypeSizes();
 
-extern std::string gParamMarker;
+extern const char gParamMarker[];
 
 std::vector<uint32_t> getNHWCShape(const Tensor * tensor);
 

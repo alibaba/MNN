@@ -9,39 +9,83 @@ ext {
 
 def qnnZipName = 'qnn_inc_libs.zip'
 def qnnZipFile = new File(buildDir, qnnZipName)
+def qnnPartFile = new File(buildDir, "${qnnZipName}.part")
 def qnnTmpDir = new File(buildDir, 'qnn_tmp')
+
+def configuredQnnSdkRoot = {
+    def value = project.hasProperty('QNN_SDK_ROOT')
+            ? project.property('QNN_SDK_ROOT')
+            : System.getenv('QNN_SDK_ROOT')
+    if (value == null || !value.toString().trim()) {
+        return null
+    }
+    return project.file(value.toString())
+}
 
 task prepareQnnDeps {
     group = 'build setup'
-    description = 'Download and extract QNN include/lib into source/backend/qnn/3rdParty when BUILD_QNN is enabled.'
+    description = 'Use QNN_SDK_ROOT or download the QNN archive, then prepare include/lib dependencies.'
+    dependsOn tasks.getByName('cleanNativePacked')
     onlyIf { 
-        project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN
+        (project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN) ||
+                (project.ext.has('BUILD_VENDOR_BACKENDS') && project.ext.BUILD_VENDOR_BACKENDS)
     }
     
     // Define inputs and outputs for incremental build
     inputs.property("qnn_libs_url", { QNN_LIBS_URL })
+    inputs.property("qnn_sdk_root", {
+        def root = configuredQnnSdkRoot()
+        root == null ? '' : root.absolutePath
+    })
     inputs.property("build_qnn", { project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN })
+    inputs.property("build_vendor_backends", {
+        project.ext.has('BUILD_VENDOR_BACKENDS') && project.ext.BUILD_VENDOR_BACKENDS
+    })
     outputs.dir(new File(project.rootDir, '../../source/backend/qnn/3rdParty'))
     outputs.dir(new File(buildDir, 'native-packed/native/libs'))
+    // A vendor split build must also clean libQnn*.so left by a previous
+    // standalone QNN build, so its preparation cannot be skipped as up-to-date.
+    outputs.upToDateWhen {
+        !(project.ext.has('BUILD_VENDOR_BACKENDS') &&
+                project.ext.BUILD_VENDOR_BACKENDS)
+    }
     
     doLast {
-        println "BUILD_QNN is ON. Preparing QNN dependencies..."
+        println "QNN backend is enabled. Preparing QNN dependencies..."
+
+        def sdkRoot = configuredQnnSdkRoot()
+        if (sdkRoot != null) {
+            if (!sdkRoot.isDirectory()) {
+                throw new GradleException(
+                        "QNN_SDK_ROOT is not a directory: ${sdkRoot}")
+            }
+            println "Using QNN_SDK_ROOT without downloading: ${sdkRoot.absolutePath}"
+            copyQnnFiles(sdkRoot)
+            return
+        }
         
         def url = QNN_LIBS_URL
         println "Downloading QNN dependencies from ${url}"
-        
+
         if (!qnnZipFile.exists()) {
             println "Downloading ${qnnZipName} ..."
             qnnZipFile.parentFile.mkdirs()
+            project.delete(qnnPartFile)
             
             try {
                 new java.net.URL(url).withInputStream { inputStream ->
-                    qnnZipFile.withOutputStream { outputStream ->
+                    qnnPartFile.withOutputStream { outputStream ->
                         outputStream << inputStream
                     }
                 }
+                if (!qnnPartFile.renameTo(qnnZipFile)) {
+                    project.delete(qnnPartFile)
+                    throw new GradleException(
+                            "Unable to publish downloaded QNN archive: ${qnnZipFile}")
+                }
                 println "Downloaded to: ${qnnZipFile.absolutePath}"
             } catch (Exception e) {
+                project.delete(qnnPartFile)
                 throw new RuntimeException("Failed to download QNN dependencies from ${url}. Error: ${e.message}")
             }
         } else {
@@ -121,13 +165,53 @@ def copyQnnFiles(File sourceDir) {
         }
         println "QNN libs copied to: ${libDir.absolutePath}"
         
-        // Also copy QNN .so files to native-packed for AAR packaging
-        copyQnnLibsToNativePacked(sourceLibs)
+        // Standalone QNN builds preserve their historical packaging. The
+        // all-vendor split build needs only headers at link time; QNN Runtime
+        // libraries stay in the device resource packages.
+        if (project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN &&
+                !(project.ext.has('BUILD_VENDOR_BACKENDS') &&
+                        project.ext.BUILD_VENDOR_BACKENDS)) {
+            copyQnnLibsToNativePacked(sourceLibs)
+        } else {
+            removeQnnLibsFromNativePacked()
+            removeUnsupportedVendorPluginsFromNativePacked()
+            println "QNN runtime libraries are not packaged in the split vendor AliNN AAR."
+        }
     } else {
         println "Warning: No lib/jniLibs directory found in ${sourceDir.absolutePath}"
     }
     
     println "QNN dependencies preparation completed successfully."
+}
+
+def removeQnnLibsFromNativePacked() {
+    def nativePackedLibsDir = new File(buildDir, 'native-packed/native/libs')
+    if (!nativePackedLibsDir.exists()) {
+        return
+    }
+    fileTree(nativePackedLibsDir) {
+        include '**/libQnn*.so'
+    }.files.each { generatedQnnLibrary ->
+        if (!generatedQnnLibrary.delete()) {
+            throw new GradleException(
+                    "Unable to remove stale packaged QNN library: ${generatedQnnLibrary}")
+        }
+    }
+}
+
+def removeUnsupportedVendorPluginsFromNativePacked() {
+    def nativePackedLibsDir = new File(buildDir, 'native-packed/native/libs')
+    if (!nativePackedLibsDir.exists()) {
+        return
+    }
+    fileTree(nativePackedLibsDir) {
+        include 'armeabi-v7a/libMNN_Backend_*.so'
+    }.files.each { generatedVendorPlugin ->
+        if (!generatedVendorPlugin.delete()) {
+            throw new GradleException(
+                    "Unable to remove stale 32-bit vendor plugin: ${generatedVendorPlugin}")
+        }
+    }
 }
 
 def copyQnnLibsToNativePacked(File sourceLibsDir) {
@@ -161,7 +245,8 @@ def copyQnnLibsToNativePacked(File sourceLibsDir) {
 }
 
 // Ensure preparation runs before compilation when enabled
-if (project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN) {
+if ((project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN) ||
+        (project.ext.has('BUILD_VENDOR_BACKENDS') && project.ext.BUILD_VENDOR_BACKENDS)) {
     afterEvaluate {
         if (tasks.findByName('preBuild')) {
             preBuild.dependsOn prepareQnnDeps
