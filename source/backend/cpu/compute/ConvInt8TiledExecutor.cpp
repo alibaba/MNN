@@ -2817,6 +2817,9 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         // otherwise every channel of a misaligned chunk reads quant bytes as weights.
         const int claimAlignUnits = ALIMAX(1, GEMM_INT8_UNIT_ARM82 / PackUnit);
         std::atomic<int> neonClaim{dynamicNeonClaim ? mDivides[mSmeCores] : 0};
+        // On Apple the concurrency block captures C++ objects by copy, and std::atomic is
+        // non-copyable; capture a pointer so the block references the original atomic.
+        auto neonClaimPtr = &neonClaim;
 
         auto ocGemmRange = [&](int tId, int rangeBegin, int rangeEnd, bool forceNeonKernel) {
             int ocIndex = PackUnit * rangeBegin;
@@ -2931,15 +2934,15 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                 if (tId < mSmeCores) {
                     ocGemmRange((int)tId, mDivides[tId], mDivides[tId + 1], false);
                 }
-                int cur = neonClaim.load(std::memory_order_relaxed);
+                int cur = neonClaimPtr->load(std::memory_order_relaxed);
                 while (cur < neonClaimEnd) {
                     int chunk = ALIMAX(minClaimUnits, (neonClaimEnd - cur) / (2 * threads));
                     chunk = ROUND_UP(chunk, claimAlignUnits);
                     chunk = ALIMIN(chunk, neonClaimEnd - cur);
-                    if (neonClaim.compare_exchange_weak(cur, cur + chunk, std::memory_order_acq_rel,
+                    if (neonClaimPtr->compare_exchange_weak(cur, cur + chunk, std::memory_order_acq_rel,
                                                         std::memory_order_relaxed)) {
                         ocGemmRange((int)tId, cur, cur + chunk, true);
-                        cur = neonClaim.load(std::memory_order_relaxed);
+                        cur = neonClaimPtr->load(std::memory_order_relaxed);
                     }
                 }
             } else {
