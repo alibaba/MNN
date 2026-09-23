@@ -1503,7 +1503,12 @@ void OpenCLBackend::enqeueRecord() const {
                 update_local_size.data(), 0, nullptr, nullptr);
             MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
         }
-        mOpenCLRuntime->commandQueue().finish();
+        // No finish() here: the queue is in-order, so this frame's replays run
+        // after the previous frame's without CPU-side sync, and every point
+        // that reads GPU results on the host (copyFromDevice / readMap) does
+        // its own blocking transfer. Syncing per frame serialized the CPU
+        // submit path against the whole GPU timeline (~7.6ms/token exposed
+        // wait on 8gen4 decode); releaseRecord covers the resize path.
     }
 #endif
 }
@@ -1511,6 +1516,10 @@ void OpenCLBackend::enqeueRecord() const {
 void OpenCLBackend::releaseRecord() {
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
     if (mUseRecordQueue && !mDivideOpRecord) {
+        // enqeueRecord no longer syncs per frame; make sure nothing is still
+        // in flight before the recordings (and later the buffers) go away.
+        // This runs on resize only, so the stall is rare and cheap.
+        mOpenCLRuntime->commandQueue().finish();
         for (int i = 0; i < mRecordings.size(); ++i) {
             cl_int res = clReleaseRecordingQCOM(mRecordings[i].record);
             MNN_CHECK_CL_SUCCESS(res, "clReleaseRecordingQCOM");
