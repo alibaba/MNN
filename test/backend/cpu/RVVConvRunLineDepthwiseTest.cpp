@@ -100,10 +100,12 @@ static bool check() {
         for (size_t fw : kernels) {
             for (size_t fh : kernels) {
                 for (size_t dilateX : dilates) {
-                    for (size_t setup : setups) {
-                        for (size_t width : widths) {
-                            if (!checkShape(width, fw, fh, dilateX, 2, setup, height)) {
-                                return false;
+                    for (size_t dilateY : dilates) {
+                        for (size_t setup : setups) {
+                            for (size_t width : widths) {
+                                if (!checkShape(width, fw, fh, dilateX, dilateY, setup, height)) {
+                                    return false;
+                                }
                             }
                         }
                     }

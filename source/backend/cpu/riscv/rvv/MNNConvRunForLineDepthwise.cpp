@@ -18,7 +18,7 @@ void MNNConvRunForLineDepthwise_RVV(float* dst, const float* src, const float* w
 
     // Adjacent output pixels consume adjacent C4 groups when the input stride
     // is one. Load and store those groups together; four segments require an
-    // LMUL of at most two. Keep the wider strided path for other input strides.
+    // LMUL of at most two. Keep the wider strided path for strides beyond two.
     if (src_w_setup == 4) {
         for (size_t y = 0; y < height; ++y) {
             const float* srcY = src + y * srcHStep;
@@ -36,6 +36,50 @@ void MNNConvRunForLineDepthwise_RVV(float* dst, const float* src, const float* w
                     const float* srcFy = srcBase + fy * dilateY_step;
                     for (size_t fx = 0; fx < fw; ++fx) {
                         const vfloat32m2x4_t values = __riscv_vlseg4e32_v_f32m2x4(srcFy + fx * dilateX_step, vl);
+                        acc0 = __riscv_vfmacc_vf_f32m2(acc0, weightPtr[0], __riscv_vget_v_f32m2x4_f32m2(values, 0), vl);
+                        acc1 = __riscv_vfmacc_vf_f32m2(acc1, weightPtr[1], __riscv_vget_v_f32m2x4_f32m2(values, 1), vl);
+                        acc2 = __riscv_vfmacc_vf_f32m2(acc2, weightPtr[2], __riscv_vget_v_f32m2x4_f32m2(values, 2), vl);
+                        acc3 = __riscv_vfmacc_vf_f32m2(acc3, weightPtr[3], __riscv_vget_v_f32m2x4_f32m2(values, 3), vl);
+                        weightPtr += 4;
+                    }
+                }
+
+                acc0 = __riscv_vfmax_vf_f32m2(acc0, minV, vl);
+                acc1 = __riscv_vfmax_vf_f32m2(acc1, minV, vl);
+                acc2 = __riscv_vfmax_vf_f32m2(acc2, minV, vl);
+                acc3 = __riscv_vfmax_vf_f32m2(acc3, minV, vl);
+                acc0 = __riscv_vfmin_vf_f32m2(acc0, maxV, vl);
+                acc1 = __riscv_vfmin_vf_f32m2(acc1, maxV, vl);
+                acc2 = __riscv_vfmin_vf_f32m2(acc2, maxV, vl);
+                acc3 = __riscv_vfmin_vf_f32m2(acc3, maxV, vl);
+                const vfloat32m2x4_t result = __riscv_vcreate_v_f32m2x4(acc0, acc1, acc2, acc3);
+                __riscv_vsseg4e32_v_f32m2x4(dstY + dx * 4, result, vl);
+                dx += vl;
+            }
+        }
+        return;
+    }
+
+    // Stride two skips one input C4 group between adjacent outputs, but the
+    // four channels within each selected group are still contiguous.
+    if (src_w_setup == 8) {
+        for (size_t y = 0; y < height; ++y) {
+            const float* srcY = src + y * srcHStep;
+            float* dstY = dst + y * dstHStep;
+            for (size_t dx = 0; dx < width;) {
+                const size_t vl = __riscv_vsetvl_e32m2(width - dx);
+                vfloat32m2_t acc0 = __riscv_vfmv_v_f_f32m2(bias[0], vl);
+                vfloat32m2_t acc1 = __riscv_vfmv_v_f_f32m2(bias[1], vl);
+                vfloat32m2_t acc2 = __riscv_vfmv_v_f_f32m2(bias[2], vl);
+                vfloat32m2_t acc3 = __riscv_vfmv_v_f_f32m2(bias[3], vl);
+                const float* srcBase = srcY + dx * 8;
+                const float* weightPtr = weight;
+
+                for (size_t fy = 0; fy < fh; ++fy) {
+                    const float* srcFy = srcBase + fy * dilateY_step;
+                    for (size_t fx = 0; fx < fw; ++fx) {
+                        const vfloat32m2x4_t values =
+                            __riscv_vlsseg4e32_v_f32m2x4(srcFy + fx * dilateX_step, srcByteStride, vl);
                         acc0 = __riscv_vfmacc_vf_f32m2(acc0, weightPtr[0], __riscv_vget_v_f32m2x4_f32m2(values, 0), vl);
                         acc1 = __riscv_vfmacc_vf_f32m2(acc1, weightPtr[1], __riscv_vget_v_f32m2x4_f32m2(values, 1), vl);
                         acc2 = __riscv_vfmacc_vf_f32m2(acc2, weightPtr[2], __riscv_vget_v_f32m2x4_f32m2(values, 2), vl);
