@@ -126,6 +126,7 @@ bool AVX2Functions::init(int cpuFlags) {
 
     // For Packed Functions
     coreFunction->pack = 8;
+    coreFunction->MNNDeconv2x2Post = _AVX_MNNDeconv2x2Post;
     coreFunction->MNNNormPacked = _MNNNormPacked_Float<8>;
     _AVX_ExtraInit(coreFunction);
     _AVX_LinearAttentionInit(coreFunction);
@@ -144,6 +145,7 @@ bool AVX2Functions::init(int cpuFlags) {
         (cpuFlags & libyuv::kCpuHasAVX512VBITALG) || (cpuFlags & libyuv::kCpuHasAVX512VPOPCNTDQ) ||
         (cpuFlags & libyuv::kCpuHasAVX512VBMI2)) {
         coreFunction->pack = 16;
+        coreFunction->MNNDeconv2x2Post = nullptr;
         coreFunction->MNNNormPacked = _MNNNormPacked_Float<16>;
         _AVX512_ReorderInit(coreFunction);
         _AVX512_ExtraInit(coreFunction);

@@ -241,6 +241,11 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     // Separate input positions write to separate output regions under these conditions.
     const bool sharedOutput =
         threadNumber > 1 && strideX >= dilateX * (kw - 1) + 1 && strideY >= dilateY * (kh - 1) + 1;
+    // Each input position owns a complete 2x2 output region.
+    const bool fusedOutput = core->MNNDeconv2x2Post != nullptr && core->bytes == 4 &&
+        (core->pack == 4 || core->pack == 8) && kw == 2 && kh == 2 && strideX == 2 && strideY == 2 &&
+        dilateX == 1 && dilateY == 1 && padX == 0 && padY == 0 &&
+        src_width == width * 2 && src_height == height * 2;
     auto im2colOutputStride = ROUND_UP(input->channel(), lP) * eP * core->bytes;
     mGemmInput = allocator->alloc(threadNumber * im2colOutputStride);
     auto gemmOutputStride = kernelCount * core->pack * eP * core->bytes;
@@ -263,7 +268,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
         if (tId > 0 && !sharedOutput) {
             tempOutPtr = mExtraOutput.ptr() + (tId-1) * outputSize;
         }
-        if (!sharedOutput) {
+        if (!sharedOutput && !fusedOutput) {
             ::memset(tempOutPtr, 0, outputSize);
         }
 
@@ -302,6 +307,12 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
                 core->MNNPackedMatMul((float*)(colBufferPtr), (float*)gemmInputBufferPtr, (float*)weightPtr, parameters, postParametersPtr, nullptr, nullptr, nullptr);
             } else {
                 core->MNNPackedMatMulRemain((float*)(colBufferPtr), (float*)gemmInputBufferPtr, (float*)weightPtr, xCount, parameters, postParametersPtr, nullptr, nullptr, nullptr);
+            }
+            if (fusedOutput) {
+                const int parameters[] = {xStart, xCount, width, height, batch, ocC4};
+                core->MNNDeconv2x2Post((const float*)colBufferPtr, (float*)outputPtr, biasTensor->host<float>(),
+                                      mPostParameters.data(), parameters);
+                continue;
             }
             // Col2Im
             for (int z = 0; z < ocC4; ++z) {
@@ -358,7 +369,11 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
             }
         },
         threadNumber);
-    mExecuteFuntion = {first, second};
+    mExecuteFuntion = {first};
+    if (fusedOutput) {
+        return NO_ERROR;
+    }
+    mExecuteFuntion.emplace_back(second);
     if (sharedOutput) {
         // Clear gaps and borders before any worker writes to the shared output.
         auto clearThreads = outputSize >= LAUNCH_MULTI_THREADS_WORKLOAD ? threadNumber : 1;
