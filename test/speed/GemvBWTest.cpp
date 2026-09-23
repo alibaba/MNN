@@ -5,8 +5,8 @@
 //  Standalone GEMV bandwidth microbenchmark for the MNN CPU backend.
 //
 //  Layout: pick a single (M, K) shape,
-//  sweep thread counts, measure decode-batch (= 1) latency for w8 / w4 / w3 / w2,
-//  and report effective bandwidth vs. the 4-thread / sweeping memcpy ceiling.
+//  measure decode-batch (= 1) latency for w8 / w4 / w3 / w2 at the selected thread count,
+//  and report logical-byte throughput alongside memcpy read+write throughput.
 //
 //  Default shape: M = oc = 4096, K = ic = 14336 (Llama-3-8B FFN-ish).
 //
@@ -39,9 +39,8 @@ static double seconds_since(clk::time_point t0) {
     return std::chrono::duration<double>(clk::now() - t0).count();
 }
 
-// Empirical peak DRAM bandwidth via parallel memcpy on a buffer larger than L3.
-// Counts both read and write traffic (memcpy moves 2x bytes).
-static double measurePeakBwGBs(size_t bytes, int threads, int repeats) {
+// Parallel memcpy throughput, counting requested read + write bytes, not measured DRAM traffic.
+static double measureMemcpyReadWriteGBs(size_t bytes, int threads, int repeats) {
     std::vector<uint8_t> src(bytes), dst(bytes);
     std::memset(src.data(), 0xa5, bytes);
     std::memset(dst.data(), 0x00, bytes);
@@ -69,18 +68,38 @@ static double measurePeakBwGBs(size_t bytes, int threads, int repeats) {
     return best;
 }
 
+constexpr int kOuterReps = 3;
+
+struct TimingStats {
+    int count = 0;
+    double meanUs = 0.0;
+    double m2Us = 0.0;
+
+    void add(double us) {
+        double delta = us - meanUs;
+        meanUs += delta / ++count;
+        m2Us += delta * (us - meanUs);
+    }
+
+    double sdUs() const {
+        return count > 1 ? sqrt(m2Us / (count - 1)) : 0.0;
+    }
+};
+
 struct GemvResult {
     int nbit;
     int threads;
     int M, K;
-    double avgUs;       // best avg us/iter (over 3 outer reps)
-    double weightBytes; // weight + scale + zp bytes (storage we actually move)
-    double effBwGBs;
+    TimingStats groups[kOuterReps];
+    TimingStats overall;
+    double bestAvgUs;
+    double logicalWeightBytes; // Unpadded payload + scale/bias estimate, not measured traffic.
+    double logicalBwGBs;
     double gflops;
 };
 
 // One GEMV measurement: 1x1 hybrid conv with batch=1 input, oc=M, ic=K.
-// Returns best avg us/iter over 3 outer reps of `iters` cold-cache runs.
+// Retains each group's statistics and the best group average separately.
 static GemvResult benchGemv(int M, int K, int nbit, int blocksize, int precision, int threads, int iters,
                             MNNForwardType forwardType) {
     BackendConfig bnConfig;
@@ -133,7 +152,7 @@ static GemvResult benchGemv(int M, int K, int nbit, int blocksize, int precision
     x->writeMap<float>();
     y->readMap<float>();
 
-    // Cold-cache: flush a 64 MiB buffer before each iter to force weight reload from DRAM.
+    // Cache conditioning only: this scan does not guarantee cold weights or DRAM reads.
     std::vector<uint8_t> flushBuf(64 * 1024 * 1024, 1);
     auto flushCache = [&]() {
         volatile uint64_t sink = 0;
@@ -143,36 +162,33 @@ static GemvResult benchGemv(int M, int K, int nbit, int blocksize, int precision
         (void)sink;
     };
 
-    int outerReps = 3;
-    double bestUs = 1e18;
-    for (int r = 0; r < outerReps; ++r) {
-        double total = 0;
+    GemvResult r;
+    r.bestAvgUs = 1e18;
+    for (int rep = 0; rep < kOuterReps; ++rep) {
         for (int i = 0; i < iters; ++i) {
             flushCache();
             auto t0 = clk::now();
             x->writeMap<float>();
             y->readMap<float>();
-            total += seconds_since(t0);
+            double us = seconds_since(t0) * 1e6;
+            r.groups[rep].add(us);
+            r.overall.add(us);
         }
-        double avgUs = (total / iters) * 1e6;
-        if (avgUs < bestUs)
-            bestUs = avgUs;
+        if (r.groups[rep].meanUs < r.bestAvgUs)
+            r.bestAvgUs = r.groups[rep].meanUs;
     }
 
-    GemvResult r;
     r.nbit = nbit;
     r.threads = threads;
     r.M = M;
     r.K = K;
-    r.avgUs = bestUs;
-    // Weight buffer storage we actually pull from DRAM each decode.
-    // Counts packed weight + per-block scale/zp (fp16 each), but not the input vector
-    // (small) and not the output (1 row).
-    double pureWeight = (double)oc * ic * nbit / 8.0;
-    double scaleZp = (double)oc * blockNum * 2.0 * 2.0; // alpha + bias as fp16
-    r.weightBytes = pureWeight + scaleZp;
-    double secs = bestUs / 1e6;
-    r.effBwGBs = r.weightBytes / secs / 1e9;
+    // CPU hybrid int8 packing uses FP32 scale + bias even with FP16 output.
+    double pureWeight = ceil((double)oc * ic * nbit / 8.0);
+    double metadataBytes = forwardType == MNN_FORWARD_CPU ? sizeof(float) : 2.0;
+    double scaleBias = (double)oc * blockNum * 2.0 * metadataBytes;
+    r.logicalWeightBytes = pureWeight + scaleBias;
+    double secs = r.bestAvgUs / 1e6;
+    r.logicalBwGBs = r.logicalWeightBytes / secs / 1e9;
     r.gflops = (2.0 * oc * ic) / secs / 1e9;
     return r;
 }
@@ -206,17 +222,16 @@ public:
 
         std::printf("\n## GemvBW (backend=%s, precision=%d, blocksize=%d)\n", backendName, precision, blocksize);
 
-        // Streaming bandwidth roofline for the selected thread count.
-        std::printf("\n## Peak streaming bandwidth (memcpy, 256 MiB buffer)\n");
-        std::printf("threads | GB/s\n");
-        std::printf("-------:|-----:\n");
-        double peakBw = measurePeakBwGBs((size_t)256 << 20, threads, 5);
-        std::printf("%7d | %5.1f\n", threads, peakBw);
-        std::printf("-> peak %.1f GB/s @ %d threads (used as roofline)\n", peakBw, threads);
+        std::printf("\n## memcpy read+write throughput (256 MiB each for src/dst, best of 5)\n");
+        std::printf("threads | read+write GB/s\n");
+        std::printf("-------:|----------------:\n");
+        double memcpyBw = measureMemcpyReadWriteGBs((size_t)256 << 20, threads, 5);
+        std::printf("%7d | %15.1f\n", threads, memcpyBw);
 
         std::printf("\n## GEMV: y = W(%dx%d) * x(%d), block=%d\n", M, K, K, blocksize);
-        std::printf("type | thr |   us/iter |  W MiB | bytes/elem | eff GB/s | %%peak |  GFLOPS |  AI (op/B)\n");
-        std::printf("-----|----:|----------:|-------:|-----------:|---------:|------:|--------:|----------:\n");
+        std::printf("Group statistics (64 MiB cache conditioning before each timed iter):\n");
+        std::printf("type | thr | group | iters | mean us/iter | sample SD us\n");
+        std::printf("-----|----:|------:|------:|-------------:|-------------:\n");
 
         // Metal supports w8 / w4 / w3 / w2 hybrid quant GEMV (decode, area==1) via
         // the 2sg kernel (see MetalConvolution1x1.mm conv1x1_gemv_g4m1_2sg_wquant_sg).
@@ -224,22 +239,44 @@ public:
         if (const char* e = getenv("MNN_GEMVBW_BITS")) {
             if (atoi(e) > 0) bitsList = {atoi(e)};
         }
+        std::vector<GemvResult> results;
         for (int nbit : bitsList) {
             GemvResult r = benchGemv(M, K, nbit, blocksize, precision, threads, iters, forwardType);
-            double bpe = r.weightBytes / ((double)M * K);
-            double pct = 100.0 * r.effBwGBs / peakBw;
+            for (int rep = 0; rep < kOuterReps; ++rep) {
+                const auto& stats = r.groups[rep];
+                std::printf("w%-3d | %3d | %5d | %5d | %12.3f | %12.3f\n", nbit, threads, rep + 1,
+                            stats.count, stats.meanUs, stats.sdUs());
+            }
+            results.push_back(r);
+        }
+
+        std::printf("\n## Final summary (latencies in us/iter; byte counts are unpadded logical estimates)\n");
+        std::printf("type | thr | best avg | overall mean | overall SD | logical B | MiB | bytes/elem | "
+                    "logical GB/s | GFLOPS | AI (op/B)\n");
+        std::printf("-----|----:|---------:|-------------:|-----------:|----------:|----:|-----------:|"
+                    "-------------:|-------:|----------:\n");
+        for (const auto& r : results) {
+            double bpe = r.logicalWeightBytes / ((double)r.M * r.K);
             double ai = 2.0 / bpe;
-            std::printf("w%-3d | %3d | %9.1f | %6.1f | %10.4f | %8.1f | %5.1f | %7.1f | %9.2f\n", nbit, threads,
-                        r.avgUs, r.weightBytes / (1024.0 * 1024.0), bpe, r.effBwGBs, pct, r.gflops, ai);
+            std::printf("w%-3d | %3d | %8.3f | %12.3f | %10.3f | %9.0f | %5.1f | %10.4f | %12.1f | %6.1f | %9.2f\n",
+                        r.nbit, r.threads, r.bestAvgUs, r.overall.meanUs, r.overall.sdUs(), r.logicalWeightBytes,
+                        r.logicalWeightBytes / (1024.0 * 1024.0), bpe, r.logicalBwGBs, r.gflops, ai);
         }
 
         std::printf("\nNotes:\n");
-        std::printf(" * us/iter is best-of-3 outer reps, each averaged over %d cold-cache iters.\n", iters);
-        std::printf(" * W MiB / bytes/elem include weight + per-block (alpha + zp) fp16 metadata.\n");
-        std::printf(" * AI = 2/bpe (1 mul + 1 add per weight, weight bytes drive the ratio).\n");
-        std::printf(" * %%peak compares against the best (sweep-max) memcpy bandwidth.\n");
-        std::printf(" * On GPU backends (e.g. Metal) flushCache() only evicts CPU caches; weights may stay\n");
-        std::printf("   resident in GPU/unified caches, so eff GB/s is closer to a warm-cache estimate.\n");
+        std::printf(" * Timing includes writeMap/readMap and expression execution, not just the raw kernel.\n");
+        std::printf(" * Best avg is the minimum of %d group means (%d iters each); overall mean/SD use all %d iters.\n",
+                    kOuterReps, iters, kOuterReps * iters);
+        std::printf(" * SD is sample SD of individual latencies, not uncertainty of the best avg.\n");
+        std::printf(" * Logical bytes = ceil(M*K*bits/8) + M*blocks*2*metadata bytes: %s.\n",
+                    forwardType == MNN_FORWARD_CPU ? "CPU FP32 scale + bias (4 bytes each)"
+                                                  : "nominal FP16 scale + bias (2 bytes each), unverified");
+        std::printf(" * Excludes kernel OC/K padding, repacking and auxiliary/input/output traffic; not actual DRAM bytes.\n");
+        std::printf(" * Logical GB/s and GFLOPS use best avg; AI = 2/bytes-per-element using the same logical estimate.\n");
+        std::printf(" * memcpy counts requested read+write bytes (2*buffer size), includes thread startup/join,\n");
+        std::printf("   and is a separate throughput reference, not a GEMV saturation measure.\n");
+        std::printf(" * The 64 MiB scan is untimed cache conditioning, not guaranteed eviction or forced DRAM access\n");
+        std::printf("   on any backend; weights may remain in CPU/GPU/unified caches.\n");
         return true;
     }
 };

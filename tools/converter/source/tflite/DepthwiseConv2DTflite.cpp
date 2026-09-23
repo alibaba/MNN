@@ -260,7 +260,7 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
                 std::vector<float> biasData(ci, 0.0f);
                 ::memcpy(biasData.data(), biasRaw.data(), sizeof(float) * ci);
                 depthwiseConv2dParamFloat->bias   = biasData;
-            } else {
+            } else if (!biasRaw.empty()) {
                 DLOG(ERROR) << "DEPTHWISE_CONV_2D bias buffer needs " << (sizeof(float) * ci) << " bytes, got "
                             << biasRaw.size();
                 dstOp->type = MNN::OpType_MAX;

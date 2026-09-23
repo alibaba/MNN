@@ -41,6 +41,7 @@ struct QuanPostTreatParameters {
     const float* inputBias = nullptr;
     float* accumBuffer = nullptr;
     int32_t* indices = nullptr;
+    int32_t weightQuantInfoMode = 0; // #112: 0 FP32 scale/offset, 1 FP16 scale/sourceBias.
 };
 */
 //void MNNGemmInt8AddBiasScale16x32_SME2_w8_Fp16(int8_t* dst, const int8_t* src,
@@ -72,6 +73,7 @@ ldr x23, [x6, #80]  // input scale
 ldr x27, [x6, #88]  // input bias
 ldr x8, [x6, #104]  // indices
 ldr x14, [x6, #56]  // float32 maxmin ptr
+ldr w25, [x6, #112] // weightQuantInfoMode; x25 is saved in the prologue and otherwise unused.
 
 lsl x22, x7, #2 // eSize * GEMM_INT8_SRC_UNIT
 lsl x21, x7, #4 // eSize * pack * sizeof (float16_t)
@@ -118,10 +120,28 @@ LoopL:
 
 bne LoopL
 
+    cmp w25, #1
+    bne .LHpMetadataFP32
+    // FP16 metadata: z4 = 32 scales, z5 = 32 sourceBias; widen to the FP32 scale (z0/z1)
+    // and offset (z2/z3) layout. Int8 weights are signed, so the packed sourceBias IS
+    // the final offset (originOffset=0): widen only, no re-centering.
+    .inst 0xa0400044  // ld1b {z4.b-z5.b}, pn8/z, [x2]
+    .inst 0x05b23880  // uunpklo z0.s, z4.h
+    .inst 0x05b33881  // uunpkhi z1.s, z4.h
+    .inst 0x05b238a2  // uunpklo z2.s, z5.h
+    .inst 0x05b338a3  // uunpkhi z3.s, z5.h
+    .inst 0x6589a000  // fcvt z0.s, p0/m, z0.h
+    .inst 0x6589a021  // fcvt z1.s, p0/m, z1.h
+    .inst 0x6589a042  // fcvt z2.s, p0/m, z2.h
+    .inst 0x6589a063  // fcvt z3.s, p0/m, z3.h
+    .inst 0x04225042  // addvl x2, x2, #2
+    b .LHpMetadataReady
+.LHpMetadataFP32:
     .inst 0xa0408040  // ld1b {z0.b-z3.b}, pn8/z, [x2]  // weight scale&bias
+    .inst 0x04225082  // addvl x2, x2, #4
+.LHpMetadataReady:
     .inst 0xa540a5be  // ld1w {z30.s}, p1/z, [x13]    // input kernel sum
     .inst 0xa540a6ff  // ld1w {z31.s}, p1/z, [x23]   // input scale
-    .inst 0x04225082  // addvl x2, x2, #4
     add x13, x13, x22
 
     // extract int32_t vectors from za0.s
@@ -362,7 +382,27 @@ TILE2_BLOCKNUM:
     .inst 0xc006088a  // mova {z10.s-z11.s}, za.s[w8, 4, VGx2]
     .inst 0xc132e108  // scvtf {z8.s-z11.s}, {z8.s-z11.s}
 
+    cmp w25, #1
+    bne .LTile2MetadataFP32
+    // FP16 metadata: z4 = 32 scales, z5 = 32 sourceBias; widen to the FP32 scale (z0/z1)
+    // and offset (z2/z3) layout. z4/z5 are reloaded with input sums below; z8-z11 block
+    // sums, z26-z29 accumulators and z30/z31 clamp constants stay live. Int8 weights are
+    // signed, so the packed sourceBias IS the final offset (originOffset=0): widen only.
+    .inst 0xa0400044  // ld1b {z4.b-z5.b}, pn8/z, [x2]
+    .inst 0x05b23880  // uunpklo z0.s, z4.h
+    .inst 0x05b33881  // uunpkhi z1.s, z4.h
+    .inst 0x05b238a2  // uunpklo z2.s, z5.h
+    .inst 0x05b338a3  // uunpkhi z3.s, z5.h
+    .inst 0x6589a000  // fcvt z0.s, p0/m, z0.h
+    .inst 0x6589a021  // fcvt z1.s, p0/m, z1.h
+    .inst 0x6589a042  // fcvt z2.s, p0/m, z2.h
+    .inst 0x6589a063  // fcvt z3.s, p0/m, z3.h
+    .inst 0x04225042  // addvl x2, x2, #2
+    b .LTile2MetadataReady
+.LTile2MetadataFP32:
     .inst 0xa0408040  // ld1b {z0.b-z3.b}, pn8/z, [x2]    // weight scale&bias
+    .inst 0x04225082  // addvl x2, x2, #4
+.LTile2MetadataReady:
     .inst 0xa4003da4  // ld1rqb {z4.b}, p7/z, [x13]    // input kernel sum
     .inst 0xa4003ee5  // ld1rqb {z5.b}, p7/z, [x23]   // input kernel scale
 
@@ -380,7 +420,6 @@ TILE2_BLOCKNUM:
     .inst 0x65a70d3b  // fmla z27.s, p3/m, z9.s, z7.s
     .inst 0x65ac0d5c  // fmla z28.s, p3/m, z10.s, z12.s
     .inst 0x65ad0d7d  // fmla z29.s, p3/m, z11.s, z13.s
-    .inst 0x04225082  // addvl x2, x2, #4
     add x13, x13, x22
 
     cbz x27, TILE2_ADD_DSTV
@@ -502,7 +541,27 @@ LoopSzEnd_TILE_1:
     .inst 0x6594a108  // scvtf z8.s, p0/m, z8.s
     .inst 0x6594a129  // scvtf z9.s, p0/m, z9.s
 
+    cmp w25, #1
+    bne .LTile1MetadataFP32
+    // FP16 metadata: z4 = 32 scales, z5 = 32 sourceBias; widen to the FP32 scale (z0/z1)
+    // and offset (z2/z3) layout. z4/z5 are reloaded with input sums below; z8/z9 block
+    // sums, z28/z29 accumulators and z30/z31 clamp constants stay live. Int8 weights are
+    // signed, so the packed sourceBias IS the final offset (originOffset=0): widen only.
+    .inst 0xa0400044  // ld1b {z4.b-z5.b}, pn8/z, [x2]
+    .inst 0x05b23880  // uunpklo z0.s, z4.h
+    .inst 0x05b33881  // uunpkhi z1.s, z4.h
+    .inst 0x05b238a2  // uunpklo z2.s, z5.h
+    .inst 0x05b338a3  // uunpkhi z3.s, z5.h
+    .inst 0x6589a000  // fcvt z0.s, p0/m, z0.h
+    .inst 0x6589a021  // fcvt z1.s, p0/m, z1.h
+    .inst 0x6589a042  // fcvt z2.s, p0/m, z2.h
+    .inst 0x6589a063  // fcvt z3.s, p0/m, z3.h
+    .inst 0x04225042  // addvl x2, x2, #2
+    b .LTile1MetadataReady
+.LTile1MetadataFP32:
     .inst 0xa040c040  // ld1w {z0.s-z3.s}, pn8/z, [x2]    // weight scale&bias
+    .inst 0x04225082  // addvl x2, x2, #4
+.LTile1MetadataReady:
     .inst 0x8540c1a4  // ld1rw {z4.s}, p0/z, [x13]    // input kernel sum
     .inst 0x8540c2e5  // ld1rw {z5.s}, p0/z, [x23]   // input kernel scale
 
@@ -512,7 +571,6 @@ LoopSzEnd_TILE_1:
     .inst 0x64a4007d  // fmla z29.s, z3.s, z4.s[0]
     .inst 0x65a0011c  // fmla z28.s, p0/m, z8.s, z0.s
     .inst 0x65a1013d  // fmla z29.s, p0/m, z9.s, z1.s
-    .inst 0x04225082  // addvl x2, x2, #4
     add x13, x13, x22
 
     cbz x27, TILE1_ADD_DSTV

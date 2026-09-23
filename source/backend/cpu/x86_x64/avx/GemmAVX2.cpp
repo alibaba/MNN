@@ -186,7 +186,7 @@ void _AVX_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
             scale[0] = 1.f;
             qscale[0] = 1.f;
             qbias[0] = -maxval;
-            bias[0] = maxval;
+            bias[0] = maxval - 128.f;
         } else {
             qscale[0] = 255.f / range;
             scale[0] = range / 255.f;
@@ -264,7 +264,7 @@ void _AVX_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
                 qscale[qind] = 255.f / (max_ - min_);
                 qbias[qind] = roundf(-min_ * 255.f / (max_ - min_)) - 128.0f;
                 scalePtr[0] = (max_ - min_) / 255.f;
-                biasPtr[0] = min_;
+                biasPtr[0] = -(qbias[qind] + 128.f) * scalePtr[0];
             }
             realDstCount -= 1;
             qind += 1;

@@ -164,9 +164,11 @@ MNN_CPU_TARGET=%d effective ARM features: fp16=%d, i8sdot=%d, i8mm=%d, sme2=%d
 | 缓存扩容使 peak RSS +190MB | `bb6bdcf827` | 吞吐正常，peak RSS 莫名上涨 | [`../layout-and-memory.md`](../layout-and-memory.md) §四 |
 | 删掉「看起来多余的」memset | `bb6bdcf827`（同一改动） | 只在多线程 + 特定 chunk 尺寸下乱码 | [`../layout-and-memory.md`](../layout-and-memory.md) §五 |
 | ThreadPool 自旋/空闲策略 | `142f294b0c`、`502dc4511b` | 全 worker 停在 `__psynch_cvwait` 死锁；或 decode worker 睡死 kv2048 -13%；或异构核 prefill 悬崖 | [`../runtime-and-scheduling.md`](../runtime-and-scheduling.md) §1.4 |
+| fp16 元数据特性的门控漏掉 sdot 档 | `732764f02b` | v8.2-only 设备静默停在旧路径：不报错、结果仍对，只是特性（与性能）缺失 | [`../../kernel/arch/arm.md`](../../kernel/arch/arm.md) §4.6 |
+| 手写 asm 把长生命周期值放进 linker-scratch 寄存器 | `ef8ddb6269` | 某些链接布局下 w4 fp16 GEMM 的 metadata 标志被 veneer 改写，结果错乱 | [`../../kernel/arch/arm.md`](../../kernel/arch/arm.md) §3.1 |
 
-这五条的共同点：**都不崩在改动点上，都需要特定维度（线程数 / prompt 长度 / chunk 尺寸）才复现。**
-所以 ARM 侧任何涉及线程数或分块的改动，验证必须跨维度，不能用一档代表全部（见 §五）。
+这些事故的共同点：**都不崩在改动点上，都需要特定维度（线程数 / prompt 长度 / chunk 尺寸 / ISA 档 / 链接布局）才暴露。**
+所以 ARM 侧任何涉及线程数、分块或 ISA 档门控的改动，验证必须跨维度，不能用一档代表全部（见 §五）。
 
 ## 五、ARM 侧的降档与精度覆盖
 

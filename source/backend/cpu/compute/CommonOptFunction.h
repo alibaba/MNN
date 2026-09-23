@@ -566,6 +566,7 @@ struct CoreFunctions {
     void (*MNNPackedMatMulRemainWithSme2PackedB)(float* C, const float* A, const float* B, size_t eSize,
                                                   const size_t* parameter, const float* postParameters,
                                                   const float* bias, const float* k, const float* b);
+    decltype(MNNPackedMatMulRemainWithSme2PackedB) MNNPackedMatMulRemainWithSme2PackedBWide = nullptr;
 #endif
     void (*MNNAttenPackAndScaleSingleHead)(float* dst, const float* srcHeadBase, size_t srcRowStride,
                                            const float* scale, const int32_t* units, size_t seqLen, size_t headDim);

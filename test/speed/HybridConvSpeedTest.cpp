@@ -458,6 +458,14 @@ class ConvInt8MixedKernelTest : public HybridConvSpeedTestCommon {
 public:
     virtual bool run(int precision) {
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}; // {w, h}
+        for (const auto& channel : {INTS{1024, 1024}, INTS{1024, 1032}, INTS{1024, 1031}, INTS{1023, 1024}}) {
+            for (int batch : {1, 3}) {
+                if (!testKernel("Compact decode input", {1, 1}, {1, 1}, channel, pad, strides, dilate,
+                                batch, 4, precision, false, 64)) {
+                    return false;
+                }
+            }
+        }
         int batch[] = {1, 100};
         std::vector<int> blocks = {0, 32, 128};
         std::vector<std::vector<int>> channels = {{1536, 1536}, {1536, 256}, {1536, 8960}, {8960, 1536}, {1536, 151936}, {896, 896}, {896, 128}, {4864, 896}, {896, 151936}, {200, 138}, {92, 92}, {126, 126}, {120, 1300}};
@@ -556,6 +564,134 @@ public:
         return correct;
     }
 };
+// End-to-end check of compact fp16 weight metadata (weightQuantInfoMode=1): twin 1x1 asymmetric
+// block-quant convs share identical weights, but the first carries the external descriptor plus fp16
+// scale/bias (scaleBit=16), which makes it eligible for compact metadata when the harness runs CPU
+// with precision=2, memory=2 and thread>1 (the SME2 online-reorder path additionally needs dynamic
+// quant option bit 8, e.g. run_test.out op/lowMemory/compactMetadataConv 0 2 4 0 2 8). Both twins are
+// built export-faithfully (aMin=1, signed-code offset pre-folded into the fp16 stored min) because a
+// negative aMin triggers the load-time fp32 fold that disqualifies compact packing. fp16 metadata
+// widens to bit-identical fp32, so the twins must produce bitwise-equal outputs and both must match
+// the fp32 reference conv on the exact dequantized weights. The plane list walks every tile path of
+// the modified kernels: ARMV82 TILE_12/8/4/1 (12/13, 8/9, 4/5/16, 1/2/3, 25=2x12+1), ARMV86
+// TILE_10/8/4/2/1 (10/11, 8/9, 4/5, 2/3, 17=10+7), SME 16x32 prefill (2, 16, 17, 33=2x16+1) and
+// the E1-only Hp128 decode kernel.
+class CompactMetadataConvTest : public MNNTestCase {
+    static bool checkCase(int ic, int oc, int block, int nbits, bool constantBlocks = false) {
+        const int aMin = -(1 << (nbits - 1));
+        const int codeRange = 1 << nbits;
+        const int blocknum = block > 0 ? ic / block : 1;
+        const int blocksize = ic / blocknum;
+        std::vector<float> weight(ic * oc), alpha(2 * oc * blocknum), bias(oc);
+        for (int o = 0; o < oc; ++o) {
+            bias[o] = (o % 9 - 4) / 64.0f;
+            for (int b = 0; b < blocknum; ++b) {
+                // fp16-exact metadata: power-of-two scales, multiples of 1/32 for clamp mins.
+                const float scale = ldexpf(1.0f, -5 - ((o + b) % 4));
+                const float clampMin = ((o * 3 + b * 5) % 7 - 3) / 32.0f;
+                alpha[2 * (o * blocknum + b)] = clampMin;
+                alpha[2 * (o * blocknum + b) + 1] = scale;
+                for (int u = 0; u < blocksize; ++u) {
+                    const int code = (o * 7 + b * 3 + u * 11) % codeRange + aMin;
+                    weight[o * ic + b * blocksize + u] = (code - aMin) * scale + clampMin;
+                }
+            }
+        }
+        std::unique_ptr<OpT> twin[2];
+        for (int t = 0; t < 2; ++t) {
+            twin[t].reset(new OpT);
+            twin[t]->type = OpType_Convolution;
+            twin[t]->main.type = OpParameter_Convolution2D;
+            twin[t]->main.value = new Convolution2DT;
+            auto conv = twin[t]->main.AsConvolution2D();
+            conv->common.reset(new Convolution2DCommonT);
+            conv->common->inputCount = ic;
+            conv->common->outputCount = oc;
+            conv->common->kernelX = 1;
+            conv->common->kernelY = 1;
+            conv->quanParameter = IDSTEncoder::encode(weight.data(), alpha, blocksize, oc * blocknum,
+                                                      true, nullptr, aMin, {nbits, false, 16});
+            // Match real LLM exports (mnn_utils.py write_quant_parameters): the signed-code
+            // offset is pre-folded into the stored min export-side and aMin is written as 1, so
+            // the runtime skips its fp32 aMin fold and the fp16 alpha stays the only metadata
+            // view. A negative aMin would force the fold at load, materialize the fp32 view and
+            // keep both twins on the legacy path. The folded values stay fp16-exact here because
+            // scale is a power of two and clampMin a multiple of 1/32.
+            auto quan = conv->quanParameter.get();
+            quan->aMin = 1;
+            const float codeOffset = static_cast<float>(1 << (nbits - 1));
+            for (int i = 0; i < oc * blocknum; ++i) {
+                half_float::half hmin, hscale;
+                ::memcpy(&hmin, &quan->alphaFp16[2 * i], sizeof(uint16_t));
+                ::memcpy(&hscale, &quan->alphaFp16[2 * i + 1], sizeof(uint16_t));
+                hmin = half_float::half(float(hmin) + codeOffset * float(hscale));
+                ::memcpy(&quan->alphaFp16[2 * i], &hmin, sizeof(uint16_t));
+            }
+            conv->bias = bias;
+            if (t == 0) {
+                conv->external = {0, static_cast<int64_t>(conv->quanParameter->buffer.size()),
+                                  static_cast<int64_t>(alpha.size() * sizeof(uint16_t)),
+                                  static_cast<int64_t>(oc * sizeof(float))};
+            }
+        }
+        for (int plane : {1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 16, 17, 25, 33}) {
+            VARP x = _Input({1, ic, 1, plane}, NCHW, halide_type_of<float>());
+            auto xPtr = x->writeMap<float>();
+            for (int i = 0; i < ic * plane; ++i) {
+                const int blockIndex = i / (plane * blocksize);
+                const int position = i % plane;
+                if (constantBlocks && (blockIndex + position) % 2 == 0) {
+                    xPtr[i] = ((blockIndex + position) % 3 - 1) / 4.0f;
+                } else {
+                    xPtr[i] = ((i * 13) % 67 - 33) / 64.0f;
+                }
+            }
+            x = _Convert(x, NC4HW4);
+            auto yCompact = _Convert(Variable::create(Expr::create(twin[0].get(), {x})), NCHW);
+            auto yLegacy = _Convert(Variable::create(Expr::create(twin[1].get(), {x})), NCHW);
+            auto yRef = _Convert(_Conv(std::vector<float>(weight), std::vector<float>(bias), x, {ic, oc},
+                                       {1, 1}, PaddingMode::CAFFE, {1, 1}, {1, 1}, 1, {0, 0}),
+                                 NCHW);
+            auto compactPtr = yCompact->readMap<float>();
+            auto legacyPtr = yLegacy->readMap<float>();
+            auto refPtr = yRef->readMap<float>();
+            const int size = yRef->getInfo()->size;
+            float maxValue = 0.001f;
+            for (int i = 0; i < size; ++i) {
+                maxValue = fmaxf(maxValue, fabsf(refPtr[i]));
+            }
+            for (int i = 0; i < size; ++i) {
+                if (compactPtr[i] != legacyPtr[i]) {
+                    MNN_ERROR("compact/legacy mismatch: ic=%d oc=%d bits=%d block=%d E=%d index=%d "
+                              "compact=%f legacy=%f\n", ic, oc, nbits, block, plane, i, compactPtr[i],
+                              legacyPtr[i]);
+                    return false;
+                }
+                if (fabsf(compactPtr[i] - refPtr[i]) / maxValue > 0.1f) {
+                    MNN_ERROR("compact/reference mismatch: ic=%d oc=%d bits=%d block=%d E=%d index=%d "
+                              "ref=%f compact=%f\n", ic, oc, nbits, block, plane, i, refPtr[i],
+                              compactPtr[i]);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+public:
+    bool run(int precision) override {
+        MNNTEST_ASSERT(checkCase(64, 128, 32, 4));
+        MNNTEST_ASSERT(checkCase(96, 129, 32, 4));
+        MNNTEST_ASSERT(checkCase(128, 513, 64, 4));
+        MNNTEST_ASSERT(checkCase(64, 17, 0, 4));
+        MNNTEST_ASSERT(checkCase(64, 128, 32, 8));
+        MNNTEST_ASSERT(checkCase(96, 40, 32, 8));
+        MNNTEST_ASSERT(checkCase(128, 513, 64, 4, true));
+        MNNTEST_ASSERT(checkCase(128, 40, 64, 8, true));
+        return true;
+    }
+};
+MNNTestSuiteRegister(CompactMetadataConvTest, "op/lowMemory/compactMetadataConv");
 
 MNNTestSuiteRegister(DenseConvInt8Test, "op/lowMemory/DenseConv");
 MNNTestSuiteRegister(HybridConvInt8Test, "op/lowMemory/HybridConv");

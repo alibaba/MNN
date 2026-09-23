@@ -84,6 +84,10 @@ bool fast = (kernelCount == 1 && ROUND_UP(oc, UNIT) == oc && (ic % (blockNum * S
 
 你只改了 SME2 档，仍然要跑 sdot 档和基线档。理由不是「怕改错」，是 §二 要求的**逐位一致**只能靠实跑证明。
 
+如果改动是一个**跨档统一支持的特性**（fp16 可达的每一档都要拿到，原则见 [`arch/arm.md`](arch/arm.md) §4.6），
+那每一档都是目标档：除 §2.1 的对齐外，还要**证明新路径在该档真被选中**（probe / 日志），
+而不是该档静默留在旧路径——旧路径结果仍对，门禁全绿也掩盖「特性没生效」。
+
 用 `MNN_CPU_TARGET` 逐档降级（需 `-DMNN_PIPELINE_PROFILE=ON` 构建），档位含义见 [`cpu/shared/env-registry.md`](../shared/env-registry.md)。
 
 ---

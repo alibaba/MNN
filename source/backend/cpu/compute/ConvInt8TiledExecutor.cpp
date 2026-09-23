@@ -11,15 +11,98 @@
 #include "core/BufferAllocator.hpp"
 #include "SharedGather.hpp"
 
+#include <atomic>
 #include <math.h>
 #include "backend/cpu/CPUBackend.hpp"
 #include "CPUExtension.hpp"
 #include "core/Concurrency.h"
 #include "core/TensorUtils.hpp"
+#include "half.hpp"
 
-#define QUANT_INFO_BYTES 4
 #define WEIGHT_ONLINE_REORDER 8
 namespace MNN {
+
+// The fp16-metadata pack/execute paths inherit the caller's FPCR; reject anything but the default
+// (AHP/FZ16/FZ/DN/RMode would silently corrupt the fp16 conversions the kernels rely on).
+static bool _compactFpEnvironment() {
+#if defined(__aarch64__)
+    uint64_t fpcr;
+    __asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));
+    return fpcr == 0;
+#else
+    return false;
+#endif
+}
+
+static bool _compactCanRebuild(const Convolution2D* conv) {
+    if (!conv || !conv->external() || conv->external()->size() < 3 ||
+        conv->external()->Get(1) <= 0 || conv->external()->Get(2) <= 0) {
+        return false;
+    }
+    if (conv->symmetricQuan() && conv->symmetricQuan()->bias() && conv->symmetricQuan()->bias()->size() > 0) {
+        return false;
+    }
+    if (conv->external()->size() > 3) {
+        const auto biasBytes = conv->external()->Get(3);
+        const auto wanted = static_cast<int64_t>(conv->common()->outputCount()) * sizeof(float);
+        if (biasBytes != 0 && biasBytes != wanted) {
+            return false;
+        }
+        if (biasBytes == wanted) {
+            return true;
+        }
+    }
+    // Rearrangement drops inline bias; without external bias only positive zero is exactly recoverable.
+    if (conv->bias()) {
+        for (auto value : *conv->bias()) {
+            uint32_t bits;
+            ::memcpy(&bits, &value, sizeof(bits));
+            if (bits != 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool _compactResourceCompatible(Backend* backend, const CPUConvolution::ResourceInt8& resource) {
+    if (!backend || backend->type() != MNN_FORWARD_CPU_EXTENSION) {
+        return false;
+    }
+    auto cpu = static_cast<CPUBackend*>(backend);
+    const auto core = cpu->functions();
+    const auto functions = cpu->int8GemmFunctions();
+    const auto& hint = cpu->getRuntime()->hint();
+    // A persistent mmap weight pool (useCachedMmap>=1) is trusted verbatim by later runs whose
+    // weight load is skipped, so they cannot reproduce the compact layout decision; the packed
+    // resource is only reusable when this run could pack the compact layout itself.
+    if (!(core->bytes == 2 && core->pack == 8 && core->supportFp16arith && functions &&
+          cpu->threadNumber() == resource.mCompactThreads && core->smeCoreNumber == resource.mCompactSmeCores &&
+          hint.dynamicQuantOption == resource.mCompactDynamicQuantOption &&
+          hint.divisionRatio == resource.mCompactDivisionRatio &&
+          (hint.useCachedMmap == 0 || hint.weightMemoryPath.empty()))) {
+        return false;
+    }
+    if (resource.mCompactNeonKernel != nullptr) {
+        // SME2 mixed-kernel packing: DecodeMax on SME cores, ARMV82 NEON on the branch.
+        if (resource.mWeightBits == 8) {
+            return core->supportSME2 && core->supportSDot &&
+                   functions->MNNGemmInt8AddBiasScale_Unit_FP16_DecodeMax == resource.mCompactSmeKernel &&
+                   core->arm82MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16 ==
+                       resource.mCompactNeonKernel;
+        }
+        return core->supportSME2 && core->supportSDot &&
+               functions->MNNGemmInt8AddBiasScale_w4_Unit_FP16_DecodeMax == resource.mCompactSmeKernel &&
+               core->arm82MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16 ==
+                   resource.mCompactNeonKernel;
+    }
+    // Single-kernel packing (i8mm or sdot): one kernel expands the fp16 metadata in every
+    // tile path. i8mm implies sdot, and the pointer equality pins the exact kernel family.
+    if (resource.mWeightBits == 8) {
+        return core->supportSDot && functions->MNNGemmInt8AddBiasScale_Unit_FP16 == resource.mCompactSmeKernel;
+    }
+    return core->supportSDot && functions->MNNGemmInt8AddBiasScale_w4_Unit_FP16 == resource.mCompactSmeKernel;
+}
 
 ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Op* op)
     : CPUConvolution(op->main_as_Convolution2D()->common(), backend) {}
@@ -59,7 +142,7 @@ void ConvInt8TiledExecutor::initializeConvInt8QuantInfo(std::shared_ptr<CPUConvo
     if (conv2D->symmetricQuan()) {
         resourceInt8->mWeightBits = conv2D->symmetricQuan()->nbits();
     }
-    if (conv2D->bias() && (conv2D->quanParameter()->alpha() || quanCommon->alpha.get())) {
+    if (conv2D->bias() && (conv2D->quanParameter()->alpha() || quanCommon->alpha.get() || quanCommon->alphaHalf.get())) {
         resourceInt8->mUseConvQuan = false;
     }
     resourceInt8->mInputZeroPoint = 0;
@@ -182,6 +265,9 @@ void ConvInt8TiledExecutor::packWeightAndQuantInfo(int8_t* dstbuffer, const int8
         for (int bl = 0; bl < blockNum; ++bl) {
             auto blockPtr = huPtr + bl * (stride1 + 2 * UNIT * infoBytes);
             memcpy(blockPtr, src0 + bl * stride1 + hU * stride0, stride1);
+            if (scaleCount < UNIT) {
+                ::memset(blockPtr + stride1, 0, 2 * UNIT * infoBytes);
+            }
             memcpy(blockPtr + stride1, src1 + (bl * ocUp4 + hU * UNIT) * infoBytes, scaleCount * infoBytes);
             memcpy(blockPtr + stride1 + UNIT * infoBytes, src2 + (bl * ocUp4 + hU * UNIT) * infoBytes,
                    scaleCount * infoBytes);
@@ -215,12 +301,12 @@ static void _computeReorderQuantInfo(float* weightKernelSum, int32_t* paramsKern
     }
     // Save weight quant alpha and zero: wf=alpha*wi+zero
     auto alphaPtr = reinterpret_cast<float*>(reorderedQuantInfo.get());
-    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + scaleSize * QUANT_INFO_BYTES);
+    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + scaleSize * sizeof(float));
     if (outputCount % pack != 0) {
-        ::memset(alphaPtr, 0, scaleSize * QUANT_INFO_BYTES);
-        ::memset(biasPtr, 0, scaleSize * QUANT_INFO_BYTES);
+        ::memset(alphaPtr, 0, scaleSize * sizeof(float));
+        ::memset(biasPtr, 0, scaleSize * sizeof(float));
     }
-    ::memset(weightKernelSum, 0, kernelSumSize * QUANT_INFO_BYTES);
+    ::memset(weightKernelSum, 0, kernelSumSize * sizeof(float));
 
     int ocDiv4 = UP_DIV(outputCount, pack);
     // resource->mWeightKernelSum: [hU,blocknum,hP]
@@ -275,6 +361,52 @@ static void _computeReorderQuantInfo(float* weightKernelSum, int32_t* paramsKern
             if (!blockQuantInput) {
                 weightKernelSum[i] = accum;
             }
+        }
+    }
+}
+
+// fp16-source twin of the asymmetric branch of _computeReorderQuantInfo, used when the packed
+// quant info is built straight from alphaHalf. Only weightKernelSum is needed in that mode;
+// scale/zero are upconverted on the fly (widening is exact), so the fp32 math is identical.
+static void _computeReorderKernelSumFp16(float* weightKernelSum, int32_t* paramsKernelSum, bool blockQuantInput,
+                                         int weightBits, const int16_t* quanInfoHalf, int outputCount, int kernelCount,
+                                         float* ikernelSum, int HP, bool realInt4OrInt8) {
+    int blockNum = paramsKernelSum[0];
+    int kernelSumSize = paramsKernelSum[1];
+    int blockSize = kernelCount / blockNum;
+    int originOffset = 0;
+    if (weightBits == 4) {
+        originOffset = -8;
+    } else if (weightBits == 3) {
+        originOffset = -4;
+    } else if (weightBits == 2) {
+        originOffset = -2;
+    }
+    ::memset(weightKernelSum, 0, kernelSumSize * sizeof(float));
+    auto quanHalf = reinterpret_cast<const half_float::half*>(quanInfoHalf);
+    for (int i = 0; i < outputCount; ++i) {
+        float accum = 0.f;
+        auto ocOutside = i / HP;
+        auto ocInside = i % HP;
+        for (int j = 0; j < blockNum; ++j) {
+            int index = i * blockNum + j;
+            int srcSumIndex = ocOutside * blockNum * HP + j * HP + ocInside; // ikernelsum: [hU,blocknum,hP]
+            const float minValue = (float)quanHalf[2 * index];
+            const float scale = (float)quanHalf[2 * index + 1];
+            const float bias = minValue + (float)originOffset * scale;
+            if (realInt4OrInt8) {
+                accum += (ikernelSum[srcSumIndex] * scale + blockSize * bias);
+            } else {
+                accum += ((ikernelSum[srcSumIndex] - blockSize * 8) * scale + blockSize * minValue);
+            }
+            if (blockQuantInput) {
+                int dstSumIndex = ocOutside * blockNum * HP + j * HP + ocInside;
+                weightKernelSum[dstSumIndex] = accum;
+                accum = 0;
+            }
+        }
+        if (!blockQuantInput) {
+            weightKernelSum[i] = accum;
         }
     }
 }
@@ -504,17 +636,80 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         gcore->MNNFp32ToLowp(mResourceInt8->mReluThreshold.data(),
                              reinterpret_cast<int16_t*>(mResourceInt8->mReluThreshold.data()), 2);
     }
+    const auto& hint = static_cast<CPUBackend*>(backend)->getRuntime()->hint();
+    // Rearrangement strips inline weights; incompatible clones need an external source to rebuild.
+    const bool canRebuild = _compactCanRebuild(convOp);
+    // Only fp16-disk alpha is packed as fp16 metadata (the converter already guaranteed its
+    // precision); fp32-disk scale/bias keeps the legacy kernels that read fp32 metadata directly.
+    // Requiring that no fp32 view was materialized also proves no fp32 post-treat ran on alpha.
+    const bool alphaFp16Direct = quanCommon && quanCommon->alphaIsFp16 && quanCommon->alphaHalf.get() &&
+                                 nullptr == quanCommon->alpha.get();
+    // Single-thread decode is measurably slower with compact metadata (rebuild cost exceeds
+    // the byte savings when one core cannot saturate DRAM); enable for multi-thread only.
+    // A persistent mmap weight pool (useCachedMmap>=1) is trusted verbatim by later runs whose
+    // weight load is skipped, so they cannot reproduce this layout decision; only pack compact
+    // when the pool is absent or auto-removed (useCachedMmap==0), never trusted across runs.
+    const bool compactCommon = threads > 1 && isDynamicQuant && quanCommon && quanCommon->asymmetric &&
+                               (mResourceInt8->mWeightBits == 4 || mResourceInt8->mWeightBits == 8) &&
+                               gcore->bytes == 2 && pack == 8 &&
+                               gcore->supportFp16arith && gcore->MNNFp32ToLowp && gcore->MNNLowpToFp32 &&
+                               (hint.useCachedMmap == 0 || hint.weightMemoryPath.empty()) && canRebuild &&
+                               quanCommon->alphaSize == 2 * oc * blockNum && alphaFp16Direct;
+    if (compactCommon) {
+        const bool w4 = mResourceInt8->mWeightBits == 4;
+        const bool compactSme = mOnlineReorderWeightSme && gcore->supportSME2 && gcore->supportSDot &&
+                                UNITMain == GEMM_INT8_UNIT_SME2_128 && SRC_UNITMain == GEMM_INT8_SRC_UNIT_SME2 &&
+                                DST_XUNITMain == GEMM_INT8_DST_XUNIT_SME2 && UNITBranch == GEMM_INT8_UNIT_ARM82 &&
+                                SRC_UNITBranch == GEMM_INT8_SRC_UNIT_ARM82 &&
+                                DST_XUNITBranch == GEMM_INT8_DST_XUNIT_ARM82 &&
+                                (w4 ? (mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16_DecodeMax &&
+                                       mArm82Functions.MNNGemmInt8AddBiasScale_w4_Unit_FP16)
+                                    : (mRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16_DecodeMax &&
+                                       mArm82Functions.MNNGemmInt8AddBiasScale_Unit_FP16));
+        // i8mm machines without SME2: the ARMV86 kernel expands the fp16 metadata in every
+        // tile path, so prefill needs no repack; single kernel, no NEON branch.
+        const bool compactArmv86 = !mOnlineReorderWeightSme && !mMixedKernel && gcore->supportI8mm &&
+                                   UNITMain == GEMM_INT8_UNIT_ARM86 && SRC_UNITMain == GEMM_INT8_SRC_UNIT_ARM86 &&
+                                   DST_XUNITMain == GEMM_INT8_DST_XUNIT_ARM86 &&
+                                   (w4 ? mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16
+                                       : mRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16);
+        // sdot machines without i8mm/SME2: same single-kernel shape — the ARMV82 kernel
+        // expands the fp16 metadata in every tile path (TILE_12/8/4/1).
+        const bool compactArmv82 = !mOnlineReorderWeightSme && !mMixedKernel && gcore->supportSDot &&
+                                   UNITMain == GEMM_INT8_UNIT_ARM82 && SRC_UNITMain == GEMM_INT8_SRC_UNIT_ARM82 &&
+                                   DST_XUNITMain == GEMM_INT8_DST_XUNIT_ARM82 &&
+                                   (w4 ? mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16
+                                       : mRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16);
+        if (compactSme || compactArmv86 || compactArmv82) {
+            mResourceInt8->mWeightQuantInfoMode = 1;
+            mResourceInt8->mCompactThreads = threads;
+            mResourceInt8->mCompactSmeCores = mSmeCores;
+            mResourceInt8->mCompactOcMain = mOcMain;
+            mResourceInt8->mCompactDynamicQuantOption = hint.dynamicQuantOption;
+            mResourceInt8->mCompactDivisionRatio = hint.divisionRatio;
+            mResourceInt8->mCompactSmeKernel =
+                compactSme ? (w4 ? mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16_DecodeMax
+                                 : mRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16_DecodeMax)
+                           : (w4 ? mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16
+                                 : mRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16);
+            mResourceInt8->mCompactNeonKernel =
+                compactSme ? (w4 ? mArm82Functions.MNNGemmInt8AddBiasScale_w4_Unit_FP16
+                                 : mArm82Functions.MNNGemmInt8AddBiasScale_Unit_FP16)
+                           : nullptr;
+        }
+    }
+    const int quantInfoBytes = mResourceInt8->mWeightQuantInfoMode ? (int)sizeof(int16_t) : (int)sizeof(float);
     // buffer allocate
-    auto quantlenMain = 2 * blockNum * ROUND_UP(mOcMain, UNITMain) * QUANT_INFO_BYTES;
+    auto quantlenMain = 2 * blockNum * ROUND_UP(mOcMain, UNITMain) * quantInfoBytes;
     auto weightlenMain = shapeMain[0] * shapeMain[1] * shapeMain[2] * shapeMain[3] * shapeMain[4];
-    auto quantlenBranch = 2 * blockNum * ocUpHpBranch * QUANT_INFO_BYTES;
+    auto quantlenBranch = 2 * blockNum * ocUpHpBranch * quantInfoBytes;
     auto weightlenBranch = shapeBranch[0] * shapeBranch[1] * shapeBranch[2] * shapeBranch[3] * shapeBranch[4];
 
     mResourceInt8->mWeightInt8.reset(
         Tensor::createDevice<uint8_t>({weightlenMain + quantlenMain + weightlenBranch + quantlenBranch}));
     mResourceInt8->mOriginBias.reset(Tensor::createDevice<int32_t>({ocUp4Main + ocUpHpBranch})); // float
     mResourceInt8->mWeightKernelSum.reset(
-        Tensor::createDevice<uint8_t>({inputBlockNum * QUANT_INFO_BYTES * (ocUpHpMain + ocUpHpBranch)}));
+        Tensor::createDevice<uint8_t>({inputBlockNum * (int)sizeof(float) * (ocUpHpMain + ocUpHpBranch)}));
 
     auto res = backend->onAcquireBuffer(mResourceInt8->mOriginBias.get(), Backend::STATIC);
     res &= backend->onAcquireBuffer(mResourceInt8->mWeightKernelSum.get(), Backend::STATIC);
@@ -559,13 +754,13 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                            int8_t** addressPtr, weightSummerFuncion sumFunc) -> int {
         auto sh = shape;
         AutoStorage<int8_t> weightReordered(weightlen);
-        AutoStorage<int8_t> reorderedQuantInfo(2 * scaleSize * QUANT_INFO_BYTES);
-        AutoStorage<int8_t> kernelsum(blockNum * ROUND_UP(oc, UNIT) * QUANT_INFO_BYTES);
+        AutoStorage<int8_t> reorderedQuantInfo(2 * scaleSize * sizeof(float));
+        AutoStorage<int8_t> kernelsum(blockNum * ROUND_UP(oc, UNIT) * sizeof(float));
         if (weightReordered.get() == nullptr || reorderedQuantInfo.get() == nullptr || kernelsum.get() == nullptr) {
             MNN_ERROR("Memory not enough\n");
             return -1;
         }
-        memset(kernelsum.get(), 0, blockNum * ROUND_UP(oc, UNIT) * QUANT_INFO_BYTES);
+        memset(kernelsum.get(), 0, blockNum * ROUND_UP(oc, UNIT) * sizeof(float));
 
         /* 1. reorder weight */
         auto srcPtr = (uint8_t*)addressPtr[0];
@@ -815,16 +1010,60 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         }
         int32_t paramsKernelSum[2] = {blockNum, inputBlockNum * ROUND_UP(oc, UNIT)};
         float* weightKernelSum = (float*)addressPtr[2];
-        float* quanScalePtr = (float*)addressPtr[3];
-        _computeReorderQuantInfo(weightKernelSum, paramsKernelSum, (inputBlockQuantOption == 2), target->mWeightBits,
-                                 asyWeight, quanScalePtr, oc, kernelCount * ic, pack, reorderedQuantInfo,
-                                 (float*)kernelsum.get(), UNIT, notConvertInt4ToInt8);
         /* 3. put weight and quantInfo together */
         int32_t params[6] = {shape[0], shape[1], shape[2], shape[3], shape[4], ROUND_UP(oc, pack)};
         int8_t* weightInt8 = addressPtr[1];
 
-        ConvInt8TiledExecutor::packWeightAndQuantInfo(weightInt8, (int8_t*)weightReordered.get(),
-                                                      reorderedQuantInfo.get(), params, QUANT_INFO_BYTES);
+        if (target->mWeightQuantInfoMode && alphaFp16Direct) {
+            // fp16-disk source: pack the quant info straight from alphaHalf, no fp32 round trip.
+            auto quanHalfPtr = reinterpret_cast<const int16_t*>(addressPtr[3]);
+            AutoStorage<int16_t> compactInfo(2 * scaleSize);
+            if (!compactInfo.get()) {
+                return -1;
+            }
+            ::memset(compactInfo.get(), 0, 2 * scaleSize * sizeof(int16_t));
+            _computeReorderKernelSumFp16(weightKernelSum, paramsKernelSum, (inputBlockQuantOption == 2),
+                                         target->mWeightBits, quanHalfPtr, oc, kernelCount * ic,
+                                         (float*)kernelsum.get(), UNIT, notConvertInt4ToInt8);
+            const int ocUp4 = ROUND_UP(oc, pack);
+            for (int b = 0; b < blockNum; ++b) {
+                for (int i = 0; i < oc; ++i) {
+                    compactInfo.get()[b * ocUp4 + i]             = quanHalfPtr[2 * (i * blockNum + b) + 1];
+                    compactInfo.get()[scaleSize + b * ocUp4 + i] = quanHalfPtr[2 * (i * blockNum + b)];
+                }
+            }
+            ConvInt8TiledExecutor::packWeightAndQuantInfo(weightInt8, weightReordered.get(),
+                                                          reinterpret_cast<int8_t*>(compactInfo.get()), params,
+                                                          (int)sizeof(int16_t));
+            return 0;
+        }
+        float* quanScalePtr = (float*)addressPtr[3];
+        _computeReorderQuantInfo(weightKernelSum, paramsKernelSum, (inputBlockQuantOption == 2), target->mWeightBits,
+                                 asyWeight, quanScalePtr, oc, kernelCount * ic, pack, reorderedQuantInfo,
+                                 (float*)kernelsum.get(), UNIT, notConvertInt4ToInt8);
+        if (target->mWeightQuantInfoMode) {
+            if (!_compactFpEnvironment()) {
+                return -1;
+            }
+            auto sourceBias = reinterpret_cast<float*>(reorderedQuantInfo.get()) + scaleSize;
+            for (int b = 0; b < blockNum; ++b) {
+                for (int i = 0; i < oc; ++i) {
+                    sourceBias[b * ROUND_UP(oc, pack) + i] = quanScalePtr[2 * (i * blockNum + b)];
+                }
+            }
+            AutoStorage<int16_t> compactInfo(2 * scaleSize);
+            if (!compactInfo.get()) {
+                return -1;
+            }
+            coreFuncs->MNNFp32ToLowp(reinterpret_cast<float*>(reorderedQuantInfo.get()), compactInfo.get(),
+                                     2 * scaleSize);
+            ConvInt8TiledExecutor::packWeightAndQuantInfo(weightInt8, weightReordered.get(),
+                                                          reinterpret_cast<int8_t*>(compactInfo.get()), params,
+                                                          (int)sizeof(int16_t));
+        } else {
+            ConvInt8TiledExecutor::packWeightAndQuantInfo(weightInt8, weightReordered.get(),
+                                                          reorderedQuantInfo.get(), params, (int)sizeof(float));
+        }
 
         return 0;
     };
@@ -837,12 +1076,19 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
             sumFunc = funcsMain.MNNSumWeightInt8SmeHp128;
         }
 
+        // fp16-disk alpha in compact mode packs straight from alphaHalf; every other path
+        // consumes the fp32 view, so force the lazy fill here.
+        const bool quanInfoFp16 = alphaFp16Direct && target->mWeightQuantInfoMode;
+        if (quanCommon && !quanInfoFp16) {
+            quanCommon->getAlphaFloat();
+        }
+        const int quanInfoElemBytes = quanInfoFp16 ? (int)sizeof(int16_t) : (int)sizeof(float);
         int8_t* addressPtr[4];
         addressPtr[0] = quanCommon ? quanCommon->weight.get() : (int8_t*)convOp->symmetricQuan()->weight()->data();
         addressPtr[1] = target->mWeightInt8->host<int8_t>();
         addressPtr[2] = target->mWeightKernelSum->host<int8_t>();
-        addressPtr[3] =
-            quanCommon ? (int8_t*)quanCommon->alpha.get() : (int8_t*)convOp->symmetricQuan()->scale()->data();
+        addressPtr[3] = quanCommon ? (quanInfoFp16 ? (int8_t*)quanCommon->alphaHalf.get() : (int8_t*)quanCommon->alpha.get())
+                                   : (int8_t*)convOp->symmetricQuan()->scale()->data();
 
         auto reorderResult = reorderFunc(funcsMain, shapeMain, UNITMain, SRC_UNITMain, DST_XUNITMain, weightlenMain,
                                          scaleSizeMain, ocMain, 0, fastReadWeight, addressPtr, sumFunc);
@@ -859,9 +1105,9 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                 (target->mWeightBits == 4 ? ocMain * ic * kernelCount / 2
                                           : ocMain * ic * kernelCount); // ocMain%2==0, so divides 2 directly
             addressPtr[1] += (weightlenMain + quantlenMain);
-            addressPtr[2] += ROUND_UP(ocMain, UNITMain) * inputBlockNum * QUANT_INFO_BYTES;
-            addressPtr[3] += (quanCommon->asymmetric ? 2 * ocMain * blockNum * QUANT_INFO_BYTES
-                                                     : ocMain * blockNum * QUANT_INFO_BYTES);
+            addressPtr[2] += ROUND_UP(ocMain, UNITMain) * inputBlockNum * sizeof(float);
+            addressPtr[3] += (quanCommon->asymmetric ? 2 * ocMain * blockNum * quanInfoElemBytes
+                                                     : ocMain * blockNum * quanInfoElemBytes);
             sumFunc = funcsBranch.MNNSumWeightInt8;
 
             fastReadWeight =
@@ -875,6 +1121,9 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                 }
                 return reorderResult;
             }
+        }
+        if (target->mWeightQuantInfoMode) {
+            target->mCompactReady.store(true, std::memory_order_release);
         }
         if (weightReorderComplete) {
             weightReorderComplete(true, target, weightReorderInfo);
@@ -902,11 +1151,14 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
             MNN_ASSERT(convOp->symmetricQuan()->bias()->size() == oc && convOp->symmetricQuan()->scale()->size() == oc);
             ::memcpy(scaleAndBias.get(), convOp->symmetricQuan()->scale()->data(), oc * sizeof(float));
         }
-        if ((convOp->quanParameter() && convOp->quanParameter()->alpha()) || (quanCommon && quanCommon->alpha.get())) {
+        if ((convOp->quanParameter() && convOp->quanParameter()->alpha()) ||
+            (quanCommon && (quanCommon->alpha.get() || quanCommon->alphaHalf.get()))) {
             int quantCount;
             if (convOp->quanParameter() && convOp->quanParameter()->alpha()) {
                 quantCount = convOp->quanParameter()->alpha()->size();
             } else {
+                // Forces the lazy fp32 fill when the disk form is fp16.
+                quanCommon->getAlphaFloat();
                 quantCount = quanCommon->alpha.size();
             }
 
@@ -965,6 +1217,15 @@ DenseConvInt8TiledExecutor* DenseConvInt8TiledExecutor::createClone(Backend* bn,
 }
 
 bool DenseConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (mResourceInt8->mWeightQuantInfoMode) {
+        if (op->type() == OpType_GatherV2 || (dst && !_compactResourceCompatible(bn, *mResourceInt8))) {
+            return false;
+        }
+        // Sharing transfers the compact layout contract; the destination must be rebuildable too.
+        if (op->type() == OpType_Convolution && !_compactCanRebuild(op->main_as_Convolution2D())) {
+            return false;
+        }
+    }
     if (nullptr == dst) {
         return true;
     }
@@ -982,6 +1243,9 @@ bool DenseConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** 
 
 ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs,
                                                const std::vector<Tensor*>& outputs) {
+    if (mResourceInt8->mWeightQuantInfoMode && !_compactResourceCompatible(backend(), *mResourceInt8)) {
+        return NOT_SUPPORT;
+    }
     // Initialize.
     mUseBatchQuan = false;
     mIm2ColBasedInt8 = true;
@@ -1076,7 +1340,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         if (!mMutableResource->mResource->mUseConvQuan) {
             // In some previous quantized models, input's scale already fused with weight's scale and output's scale.
             // So there is no need to read input's scale additionally.
-            mBatchQuantInfo.reset(Tensor::createDevice<int8_t>({1, DST_XUNIT * QUANT_INFO_BYTES}));
+            mBatchQuantInfo.reset(Tensor::createDevice<int8_t>({1, DST_XUNIT * (int)sizeof(float)}));
             auto success = backend()->onAcquireBuffer(mBatchQuantInfo.get(), Backend::DYNAMIC);
             if (!success) {
                 return OUT_OF_MEMORY;
@@ -1188,6 +1452,15 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
                                                                     threads);
         }
     }
+    if (mResourceInt8->mWeightQuantInfoMode) {
+        // The packed layout is only valid for the configuration it was built for: SME2 online
+        // reorder (mCompactNeonKernel set) or the single-kernel i8mm/sdot path (no NEON branch).
+        const bool smeCompact = mResourceInt8->mCompactNeonKernel != nullptr;
+        if (mOcMain != mResourceInt8->mCompactOcMain || SRC_UNIT != mResourceInt8->mLp ||
+            smeCompact != mOnlineReorderWeightSme) {
+            return NOT_SUPPORT;
+        }
+    }
     mDividesTmp.resize(threads + 1);
     if (mMixedKernel) {
         mOriginSmeWork = mDivides[mSmeCores];
@@ -1210,10 +1483,10 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
 
     if (!mSplitByOc) {
         mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({threads, colBufferSize * im2colBytes}));
-        mTempSrcSum = bufferAlloc->alloc(threads * mBlockNum * DST_XUNIT * mIm2ColCount * QUANT_INFO_BYTES);
+        mTempSrcSum = bufferAlloc->alloc(threads * mBlockNum * DST_XUNIT * mIm2ColCount * sizeof(float));
     } else {
         mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({mTileCount, colBufferSize * im2colBytes}));
-        mTempSrcSum = bufferAlloc->alloc(mTileCount * mBlockNum * DST_XUNIT * mIm2ColCount * QUANT_INFO_BYTES);
+        mTempSrcSum = bufferAlloc->alloc(mTileCount * mBlockNum * DST_XUNIT * mIm2ColCount * sizeof(float));
     }
 
     mAccumBuffer.reset(Tensor::createDevice<int32_t>({threads, DST_XUNIT * ALIMAX(UNIT, gcore->pack)}));
@@ -1354,18 +1627,18 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     int size = 0;
     if (!mUseBatchQuan) { // single quant
         if (mSplitByOc) {
-            size = 2 * mInputBlockNum * ALIMIN(DST_XUNIT, planeSize) * QUANT_INFO_BYTES;
+            size = 2 * mInputBlockNum * ALIMIN(DST_XUNIT, planeSize) * sizeof(float);
         } else {
-            size = 2 * mInputBlockNum * mIm2ColCount * DST_XUNIT * QUANT_INFO_BYTES;
+            size = 2 * mInputBlockNum * mIm2ColCount * DST_XUNIT * sizeof(float);
         }
     }
     if (mUseBatchQuan) {
         if (mIm2ColBasedInt8) {
-            size = 2 * mInputBlockNum * inputPlane * QUANT_INFO_BYTES;
+            size = 2 * mInputBlockNum * inputPlane * sizeof(float);
         } else if (!mSplitByOc) { // only threads buffer needed by this case
-            size = 2 * mInputBlockNum * mIm2ColCount * DST_XUNIT * QUANT_INFO_BYTES;
+            size = 2 * mInputBlockNum * mIm2ColCount * DST_XUNIT * sizeof(float);
         } else {
-            size = 2 * mInputBlockNum * planeSize * QUANT_INFO_BYTES;
+            size = 2 * mInputBlockNum * planeSize * sizeof(float);
         }
     }
     if (symmetricQuant) { // symmetric quant
@@ -1407,7 +1680,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     }
     mSizeInputBlockQuant = tempSize / threads;
     mTempMaxMinValueBuffer = bufferAlloc->alloc(tempSize * gcore->bytes);
-    mQScaleZero = bufferAlloc->alloc(tempSize * QUANT_INFO_BYTES);
+    mQScaleZero = bufferAlloc->alloc(tempSize * sizeof(float));
 
     if (mQScaleZero.invalid()) {
         return OUT_OF_MEMORY;
@@ -1422,6 +1695,9 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             ocProcessedBySme = ALIMAX(ocProcessedBySme, mOcMain);
             ocProcessedByNeon = outC - ocProcessedBySme;
         }
+        if (mResourceInt8->mWeightQuantInfoMode) {
+            ocProcessedByNeon = outC - ocProcessedBySme;
+        }
         int weightlenSme = ROUND_UP(ocProcessedBySme, GEMM_INT8_UNIT_SME2_128) * mBlockNum *
                            ROUND_UP(ic / mBlockNum, SRC_UNIT) * kernelCount;
         int weightlenNeon =
@@ -1430,8 +1706,10 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             weightlenSme /= 2;
             weightlenNeon /= 2;
         }
-        int scalebiasLenSme = 2 * mBlockNum * ROUND_UP(ocProcessedBySme, GEMM_INT8_UNIT_SME2_128) * QUANT_INFO_BYTES;
-        int scalebiasLenNeon = 2 * mBlockNum * ROUND_UP(ocProcessedByNeon, 8) * QUANT_INFO_BYTES;
+        const int prefillQuantInfoBytes =
+            mResourceInt8->mWeightQuantInfoMode ? (int)sizeof(int16_t) : (int)sizeof(float);
+        int scalebiasLenSme = 2 * mBlockNum * ROUND_UP(ocProcessedBySme, GEMM_INT8_UNIT_SME2_128) * prefillQuantInfoBytes;
+        int scalebiasLenNeon = 2 * mBlockNum * ROUND_UP(ocProcessedByNeon, 8) * prefillQuantInfoBytes;
 
         mWeight4Prefill = bufferAlloc->alloc(weightlenSme + scalebiasLenSme + weightlenNeon + scalebiasLenNeon);
         if (mWeight4Prefill.invalid()) {
@@ -1449,9 +1727,9 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     if (mToFuseInputbias2Bias) { // input data has only one bias&scale
         if (mIm2ColBasedInt8) {
             mBiasBufferFusedInputzero = bufferAlloc->alloc(
-                ROUND_UP(outC, UNIT) * QUANT_INFO_BYTES); // should be UP_DIV(oc, UNIT),not UP_DIV(oc, pack)
+                ROUND_UP(outC, UNIT) * sizeof(float)); // should be UP_DIV(oc, UNIT),not UP_DIV(oc, pack)
         } else {
-            mBiasBufferFusedInputzero = bufferAlloc->alloc(threads * ROUND_UP(outC, UNIT) * QUANT_INFO_BYTES);
+            mBiasBufferFusedInputzero = bufferAlloc->alloc(threads * ROUND_UP(outC, UNIT) * sizeof(float));
         }
         if (mBiasBufferFusedInputzero.invalid()) {
             return OUT_OF_MEMORY;
@@ -1509,8 +1787,17 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
 #endif
 }
 
+static void _copyPrefillQuantInfo(int8_t* dstScale, int8_t* dstOffset, const int8_t* srcScale, const int8_t* srcBias,
+                                  int channels, int quantInfoMode) {
+    // FP16 metadata passes through unchanged; the GEMM kernels widen (and re-center
+    // int4 sourceBias by originOffset) in-register, bit-matching the loader-time fold.
+    const int quantInfoBytes = quantInfoMode ? sizeof(int16_t) : sizeof(float);
+    memcpy(dstScale, srcScale, channels * quantInfoBytes);
+    memcpy(dstOffset, srcBias, channels * quantInfoBytes);
+}
+
 static void _onlineReorderWeightPackH128ToH32(int8_t* dst, int8_t* src, int hPSrc, int hPDst, int hU, int blockNum,
-                                              int blockLu, int lp, bool int4weight) {
+                                              int blockLu, int lp, bool int4weight, int quantInfoMode) {
     // hPSrc = 4 * hPDst
 
     int unitsize_ = hPDst * lp;
@@ -1520,10 +1807,11 @@ static void _onlineReorderWeightPackH128ToH32(int8_t* dst, int8_t* src, int hPSr
     }
     int unitsize4 = unitsize_ * 4;
 
-    // Calculate strides based on source and destination h-pack sizes
-    int srcStride1 = blockLu * hPSrc * lp + 2 * hPSrc * sizeof(float);
+    // Destination metadata keeps the source element size (FP16 stays FP16).
+    const int srcQuantInfoBytes = quantInfoMode ? 2 : 4;
+    int srcStride1 = blockLu * hPSrc * lp + 2 * hPSrc * srcQuantInfoBytes;
     int srcStride0 = blockNum * srcStride1;
-    int dstStride1 = blockLu * hPDst * lp + 2 * hPDst * sizeof(float);
+    int dstStride1 = blockLu * hPDst * lp + 2 * hPDst * srcQuantInfoBytes;
     int dstStride0 = blockNum * dstStride1;
 
     for (int i = 0; i < hU; ++i) {
@@ -1597,25 +1885,22 @@ static void _onlineReorderWeightPackH128ToH32(int8_t* dst, int8_t* src, int hPSr
             auto scaleDst2 = dst + (4 * i + 2) * dstStride0 + k * dstStride1 + blockLu * hPDst * lp;
             auto scaleDst3 = dst + (4 * i + 3) * dstStride0 + k * dstStride1 + blockLu * hPDst * lp;
 
-            // Copy scales (first part of the scale/bias region)
-            int scaleSize = hPDst * sizeof(float);
-            memcpy(scaleDst0, scaleSrc, scaleSize);
-            memcpy(scaleDst1, scaleSrc + scaleSize, scaleSize);
-            memcpy(scaleDst2, scaleSrc + scaleSize * 2, scaleSize);
-            memcpy(scaleDst3, scaleSrc + scaleSize * 3, scaleSize);
-
-            // Copy biases (second part of the scale/bias region)
-            auto biasSrcOffset = hPSrc * sizeof(float);
-            memcpy(scaleDst0 + scaleSize, scaleSrc + biasSrcOffset, scaleSize);
-            memcpy(scaleDst1 + scaleSize, scaleSrc + biasSrcOffset + scaleSize, scaleSize);
-            memcpy(scaleDst2 + scaleSize, scaleSrc + biasSrcOffset + scaleSize * 2, scaleSize);
-            memcpy(scaleDst3 + scaleSize, scaleSrc + biasSrcOffset + scaleSize * 3, scaleSize);
+            const int scaleSrcSize = hPDst * srcQuantInfoBytes;
+            const int scaleDstSize = hPDst * srcQuantInfoBytes;
+            const auto biasSrc = scaleSrc + hPSrc * srcQuantInfoBytes;
+            _copyPrefillQuantInfo(scaleDst0, scaleDst0 + scaleDstSize, scaleSrc, biasSrc, hPDst, quantInfoMode);
+            _copyPrefillQuantInfo(scaleDst1, scaleDst1 + scaleDstSize, scaleSrc + scaleSrcSize,
+                                  biasSrc + scaleSrcSize, hPDst, quantInfoMode);
+            _copyPrefillQuantInfo(scaleDst2, scaleDst2 + scaleDstSize, scaleSrc + 2 * scaleSrcSize,
+                                  biasSrc + 2 * scaleSrcSize, hPDst, quantInfoMode);
+            _copyPrefillQuantInfo(scaleDst3, scaleDst3 + scaleDstSize, scaleSrc + 3 * scaleSrcSize,
+                                  biasSrc + 3 * scaleSrcSize, hPDst, quantInfoMode);
         }
     }
 }
 
 static void _onlineReorderWeightPackH8ToH32(int8_t* dst, const int8_t* src, int blockLu, int lp, bool isInt4Weight,
-                                            int srcH, int blockNum, int resOcBranch) {
+                                            int srcH, int blockNum, int resOcBranch, int quantInfoMode) {
     constexpr int hPSrc = 8;
     constexpr int hPDst = 32;
 
@@ -1624,9 +1909,10 @@ static void _onlineReorderWeightPackH8ToH32(int8_t* dst, const int8_t* src, int 
     const size_t srcUnitSize = (size_t)hPSrc * srcUnitLp;
     const size_t dstUnitSize = (size_t)hPDst * srcUnitLp;
 
-    const size_t srcStride1 = (size_t)blockLu * srcUnitSize + 2 * hPSrc * sizeof(float);
+    const int srcQuantInfoBytes = quantInfoMode ? 2 : 4;
+    const size_t srcStride1 = (size_t)blockLu * srcUnitSize + 2 * hPSrc * srcQuantInfoBytes;
     const size_t srcStride0 = (size_t)blockNum * srcStride1;
-    const size_t dstStride1 = (size_t)blockLu * dstUnitSize + 2 * hPDst * sizeof(float);
+    const size_t dstStride1 = (size_t)blockLu * dstUnitSize + 2 * hPDst * srcQuantInfoBytes;
     const size_t dstStride0 = (size_t)blockNum * dstStride1;
 
     const int hUDst = srcH / 4;
@@ -1755,22 +2041,18 @@ static void _onlineReorderWeightPackH8ToH32(int8_t* dst, const int8_t* src, int 
             }
 
             // --- Reorder scale and bias ---
-            const int scaleSrcSize = hPSrc * sizeof(float);
+            const int scaleSrcSize = hPSrc * srcQuantInfoBytes;
+            const int scaleDstSize = hPSrc * srcQuantInfoBytes;
             const int8_t* scaleSrcBase = src + (4 * i) * srcStride0 + k * srcStride1 + (size_t)blockLu * srcUnitSize;
             int8_t* scaleDstBase = dst + i * dstStride0 + k * dstStride1 + (size_t)blockLu * dstUnitSize;
-
-            memcpy(scaleDstBase + 0 * scaleSrcSize, scaleSrcBase + 0 * srcStride0, scaleSrcSize);
-            memcpy(scaleDstBase + 1 * scaleSrcSize, scaleSrcBase + 1 * srcStride0, scaleSrcSize);
-            memcpy(scaleDstBase + 2 * scaleSrcSize, scaleSrcBase + 2 * srcStride0, scaleSrcSize);
-            memcpy(scaleDstBase + 3 * scaleSrcSize, scaleSrcBase + 3 * srcStride0, scaleSrcSize);
-
             const int8_t* biasSrcBase = scaleSrcBase + scaleSrcSize;
-            int8_t* biasDstBase = scaleDstBase + hPDst * sizeof(float);
+            int8_t* biasDstBase = scaleDstBase + hPDst * srcQuantInfoBytes;
 
-            memcpy(biasDstBase + 0 * scaleSrcSize, biasSrcBase + 0 * srcStride0, scaleSrcSize);
-            memcpy(biasDstBase + 1 * scaleSrcSize, biasSrcBase + 1 * srcStride0, scaleSrcSize);
-            memcpy(biasDstBase + 2 * scaleSrcSize, biasSrcBase + 2 * srcStride0, scaleSrcSize);
-            memcpy(biasDstBase + 3 * scaleSrcSize, biasSrcBase + 3 * srcStride0, scaleSrcSize);
+            for (int j = 0; j < 4; ++j) {
+                _copyPrefillQuantInfo(scaleDstBase + j * scaleDstSize, biasDstBase + j * scaleDstSize,
+                                      scaleSrcBase + j * srcStride0, biasSrcBase + j * srcStride0, hPSrc,
+                                      quantInfoMode);
+            }
         }
     }
 
@@ -1832,25 +2114,21 @@ static void _onlineReorderWeightPackH8ToH32(int8_t* dst, const int8_t* src, int 
             }
 
             // --- Reorder scale and bias for tail ---
-            const int scaleSrcSize = hPSrc * sizeof(float);
+            const int scaleSrcSize = hPSrc * srcQuantInfoBytes;
+            const int scaleDstSize = hPSrc * srcQuantInfoBytes;
             const int8_t* scaleSrcBase = src + (4 * i) * srcStride0 + k * srcStride1 + (size_t)blockLu * srcUnitSize;
             int8_t* scaleDstBase = dst + i * dstStride0 + k * dstStride1 + (size_t)blockLu * dstUnitSize;
-
-            for (int j = 0; j < hTail; ++j) {
-                memcpy(scaleDstBase + j * scaleSrcSize, scaleSrcBase + j * srcStride0, scaleSrcSize);
-            }
-            if (hTail < 4) {
-                memset(scaleDstBase + hTail * scaleSrcSize, 0, (4 - hTail) * scaleSrcSize);
-            }
-
             const int8_t* biasSrcBase = scaleSrcBase + scaleSrcSize;
-            int8_t* biasDstBase = scaleDstBase + hPDst * sizeof(float);
+            int8_t* biasDstBase = scaleDstBase + hPDst * srcQuantInfoBytes;
 
             for (int j = 0; j < hTail; ++j) {
-                memcpy(biasDstBase + j * scaleSrcSize, biasSrcBase + j * srcStride0, scaleSrcSize);
+                _copyPrefillQuantInfo(scaleDstBase + j * scaleDstSize, biasDstBase + j * scaleDstSize,
+                                      scaleSrcBase + j * srcStride0, biasSrcBase + j * srcStride0, hPSrc,
+                                      quantInfoMode);
             }
             if (hTail < 4) {
-                memset(biasDstBase + hTail * scaleSrcSize, 0, (4 - hTail) * scaleSrcSize);
+                memset(scaleDstBase + hTail * scaleDstSize, 0, (4 - hTail) * scaleDstSize);
+                memset(biasDstBase + hTail * scaleDstSize, 0, (4 - hTail) * scaleDstSize);
             }
         }
     }
@@ -1859,8 +2137,9 @@ static void _onlineReorderWeightPackH8ToH32(int8_t* dst, const int8_t* src, int 
     if (resOcBranch > 0) {
         size_t resLp = isInt4Weight ? lp / 2 : lp;
         size_t resChannels = ROUND_UP(resOcBranch, hPSrc);
+        // Residual tiles stay H8; metadata keeps the source element size, so a plain copy suffices.
         size_t resDataLen =
-            (size_t)blockNum * ((size_t)blockLu * resChannels * resLp + 2 * resChannels * sizeof(float));
+            (size_t)blockNum * ((size_t)blockLu * resChannels * resLp + 2 * resChannels * srcQuantInfoBytes);
 
         // The source for residual data starts after ALL processed srcH blocks.
         memcpy(dst + (size_t)hUDst * dstStride0 + (hTail > 0 ? dstStride0 : 0), src + (size_t)srcH * srcStride0,
@@ -1909,26 +2188,35 @@ static void _onlineReorderWeightKernelSumH8ToH32(float* dst, float* src, int blo
         for (int k = 0; k < blockNum; ++k) {
             auto dstBase = dst + i * strideDst + k * hpDst;
 
-            auto src0 = src + (4 * i + 0) * strideSrc + k * hpSrc;
-            auto src1 = src + (4 * i + 1) * strideSrc + k * hpSrc;
-            auto src2 = src + (4 * i + 2) * strideSrc + k * hpSrc;
-            auto src3 = src + (4 * i + 3) * strideSrc + k * hpSrc;
-
-            memcpy(dstBase, src0, hpSrc * sizeof(float));
-            memcpy(dstBase + hpSrc, src1, hpSrc * sizeof(float));
-            memcpy(dstBase + 2 * hpSrc, src2, hpSrc * sizeof(float));
-            memcpy(dstBase + 3 * hpSrc, src3, hpSrc * sizeof(float));
+            const int sourceTiles = ALIMIN(4, UP_DIV(ocNeedReorder, hpSrc) - 4 * i);
+            for (int j = 0; j < sourceTiles; ++j) {
+                memcpy(dstBase + j * hpSrc, src + (4 * i + j) * strideSrc + k * hpSrc,
+                       hpSrc * sizeof(float));
+            }
+            if (sourceTiles < 4) {
+                memset(dstBase + sourceTiles * hpSrc, 0, (4 - sourceTiles) * hpSrc * sizeof(float));
+            }
         }
     }
 
     if (ocPreserve) {
-        memcpy(dst + huDst * strideDst, src + 4 * huDst * strideSrc,
+        memcpy(dst + huDst * strideDst, src + UP_DIV(ocNeedReorder, hpSrc) * strideSrc,
                ROUND_UP(ocPreserve, hpSrc) * blockNum * sizeof(float));
     }
 }
 
 ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inputs,
                                                 const std::vector<Tensor*>& outputs) {
+    if (mResourceInt8->mWeightQuantInfoMode && !mResourceInt8->mCompactReady.load(std::memory_order_acquire)) {
+        return INVALID_VALUE;
+    }
+    if (mResourceInt8->mWeightQuantInfoMode &&
+        (!_compactResourceCompatible(backend(), *mResourceInt8) || !_compactFpEnvironment())) {
+        return NOT_SUPPORT;
+    }
+    std::atomic<bool> compactWorkerFailed{false};
+    auto compactFailure = &compactWorkerFailed;
+    int weightQuantInfoMode = mResourceInt8->mWeightQuantInfoMode;
     const auto input = inputs[0];
     auto output = outputs[0];
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
@@ -1970,6 +2258,10 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     uint8_t* biasPtr = nullptr;
     int32_t inputZeroPoint = 0;
     int im2colBytes = mIm2ColBasedInt8 == true ? 1 : gcore->bytes;
+    // Decode (plane==1) defers the inputzero-fused bias update into the OC-parallel
+    // section: each GEMM thread updates exactly the bias slice it later reads.
+    float fusedInputZeroF = 0.f;
+    bool deferFusedBias = false;
 
     // Additional Adjustments for 4Bit Ptq model
     if (m4BitPtq) {
@@ -2005,7 +2297,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
 #ifdef MNN_LOW_MEMORY
     auto BatchAsyDynamicQuant = [&](uint8_t* floatPtr, int32_t& inputZero, uint8_t* inputDequantScale, int LDiv4,
                                     int eCount, int innerSide, int32_t availableThreads, int8_t* dstInt8,
-                                    uint8_t* inputDequantBias, int tId) {
+                                    uint8_t* inputDequantBias, int tId, bool deferBiasUpdate = false) {
         // if mIm2ColBasedInt8=false, input shape: [kernelsize,mBlockNum,blocklu,EP,LP]
         // if mIm2ColBasedInt8=true,  input shape: [ic/pack,EP,pack]
         auto scalePtr = (float*)inputDequantScale;
@@ -2018,9 +2310,9 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
 
         auto minPtr = mTempMaxMinValueBuffer.ptr() + tId * scaleCount * gcore->bytes;
         auto maxPtr = mTempMaxMinValueBuffer.ptr() + tId * scaleCount * gcore->bytes + (scaleCount / 2) * gcore->bytes;
-        auto qscale = (float*)(mQScaleZero.ptr() + tId * scaleCount * QUANT_INFO_BYTES);
+        auto qscale = (float*)(mQScaleZero.ptr() + tId * scaleCount * sizeof(float));
         auto qbias =
-            (float*)(mQScaleZero.ptr() + tId * scaleCount * QUANT_INFO_BYTES + (scaleCount / 2) * QUANT_INFO_BYTES);
+            (float*)(mQScaleZero.ptr() + tId * scaleCount * sizeof(float) + (scaleCount / 2) * sizeof(float));
 
         size_t info[9] = {(size_t)mInputBlockNum,
                           (size_t)eCount,
@@ -2054,14 +2346,20 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
 
         if (mToFuseInputbias2Bias) { // Decode
             inputZero = static_cast<int32_t>(roundf(qbias[0]));
-            auto updatedBiasPtr = (float*)(mBiasBufferFusedInputzero.ptr() + tId * ocUpHp * QUANT_INFO_BYTES);
-            auto matmulBiasPtr = mResourceInt8->mOriginBias->host<float>();
-            auto weightKernelSum = mResourceInt8->mWeightKernelSum->host<float>();
-            auto inputZeroF = -qbias[0] * scalePtr[0];
-            gcore->MNNDynamicUpdateConvBiasScale(updatedBiasPtr, matmulBiasPtr, weightKernelSum, &inputZeroF,
-                                                 UP_DIV(ocUpHp, 4));
+            auto updatedBiasPtr = (float*)(mBiasBufferFusedInputzero.ptr() + tId * ocUpHp * sizeof(float));
+            if (deferBiasUpdate) {
+                // Bias slice update runs inside the OC-parallel GEMM section instead.
+                fusedInputZeroF = -qbias[0] * scalePtr[0];
+                deferFusedBias = true;
+            } else {
+                auto matmulBiasPtr = mResourceInt8->mOriginBias->host<float>();
+                auto weightKernelSum = mResourceInt8->mWeightKernelSum->host<float>();
+                auto inputZeroF = -qbias[0] * scalePtr[0];
+                gcore->MNNDynamicUpdateConvBiasScale(updatedBiasPtr, matmulBiasPtr, weightKernelSum, &inputZeroF,
+                                                     UP_DIV(ocUpHp, 4));
+            }
             biasPtr = (uint8_t*)updatedBiasPtr;
-            auto unitsize = mBatchQuantInfo->length(1) / (2 * QUANT_INFO_BYTES);
+            auto unitsize = mBatchQuantInfo->length(1) / (2 * (int)sizeof(float));
             auto inputScale = scalePtr[0];
             for (int i = 0; i < unitsize; ++i) {
                 ((float*)inputDequantScale)[i] = inputScale;
@@ -2071,7 +2369,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
 
     auto BatchSymDynamicQuant = [&](uint8_t* floatPtr, int32_t& inputZero, uint8_t* inputDequantScale, int LU, int EP,
                                     int LP, int32_t availableThreads, int8_t* dstInt8, int tId) {
-        auto quantPtr = mQScaleZero.ptr() + tId * mSizeInputBlockQuant * QUANT_INFO_BYTES;
+        auto quantPtr = mQScaleZero.ptr() + tId * mSizeInputBlockQuant * sizeof(float);
         auto maxPtr = mTempMaxMinValueBuffer.ptr() + tId * mSizeInputBlockQuant * gcore->bytes;
 
         // compute sum and absmax
@@ -2111,15 +2409,25 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         } else {
             BatchAsyDynamicQuant(input->host<uint8_t>(), inputZeroPoint, mBatchQuantInfo->host<uint8_t>(), icDiv4,
                                  inputPlane, PackUnit, 1, mQuantInput->host<int8_t>(),
-                                 mBatchQuantInfo->host<uint8_t>() + mBatchQuantInfo->stride(0) / 2, 0);
+                                 mBatchQuantInfo->host<uint8_t>() + mBatchQuantInfo->stride(0) / 2, 0,
+                                 plane == 1 && mSplitByOc);
         }
         im2colSrc = mQuantInput->host<uint8_t>();
     }
 
     if (mOnlineReorderWeightSme && plane > 1) {
+        const int sourceQuantInfoMode = mResourceInt8->mWeightQuantInfoMode;
+        const int sourceQuantInfoBytes = sourceQuantInfoMode ? (int)sizeof(int16_t) : (int)sizeof(float);
+        const size_t mainChannels = ROUND_UP(mOcMain, GEMM_INT8_UNIT_SME2_128);
+        size_t mainPayloadBytes = mainChannels * mBlockNum * blockL * SRC_UNIT;
+        if (mResourceInt8->mWeightBits == 4) {
+            mainPayloadBytes /= 2;
+        }
+        const size_t sourceBranchOffset = mainPayloadBytes + mainChannels * mBlockNum * 2 * sourceQuantInfoBytes;
+        const size_t destBranchOffset = sourceBranchOffset;
         _onlineReorderWeightPackH128ToH32((int8_t*)mWeight4Prefill.ptr(), weightDataPtr, GEMM_INT8_UNIT_SME2_128, UNIT,
                                           UP_DIV(mOcMain, GEMM_INT8_UNIT_SME2_128), mBlockNum, blockL, SRC_UNIT,
-                                          mResourceInt8->mWeightBits == 4);
+                                          mResourceInt8->mWeightBits == 4, sourceQuantInfoMode);
 
         int kernelSumMainSize = 0;
         int kernelSumBranchSize = 0;
@@ -2127,19 +2435,12 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             _onlineReorderWeightKernelSumH128ToH32((float*)mWeightKernelSum4Prefill.ptr(),
                                                    mResourceInt8->mWeightKernelSum->host<float>(), mBlockNum,
                                                    GEMM_INT8_UNIT_SME2_128, UNIT, mOcMain);
-            kernelSumMainSize = ROUND_UP(mOcMain, UNIT) * mBlockNum * QUANT_INFO_BYTES;
-            kernelSumBranchSize = ROUND_UP(mOcBranch, 8) * mBlockNum * QUANT_INFO_BYTES;
+            kernelSumMainSize = ROUND_UP(mOcMain, UNIT) * mBlockNum * sizeof(float);
+            kernelSumBranchSize = ROUND_UP(mOcBranch, 8) * mBlockNum * sizeof(float);
         }
 
         // If change the workload distribution among SME and NEON cores.
         if (mMixedKernel && mRatioDecode != mRatioPrefill) {
-            auto offsetWeight =
-                UP_DIV(mOcMain, GEMM_INT8_UNIT_SME2_128) * mBlockNum * blockL * SRC_UNIT * GEMM_INT8_UNIT_SME2_128;
-            if (mResourceInt8->mWeightBits == 4) {
-                offsetWeight /= 2;
-            }
-            offsetWeight += (ROUND_UP(mOcMain, GEMM_INT8_UNIT_SME2_128) * mBlockNum * 2 * sizeof(float));
-
             // Don't change mOcMain&mOcBranch here.
             int tmpMain = mOcMain;
             int tmpBranch = mOcBranch;
@@ -2152,10 +2453,11 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                 dropBranch = updatedSmeWork - mOriginSmeWork;       // Ensure update "dropBranch" inner the loop.
                 memcpy(mDivides.data(), mDividesTmp.data(), (threads + 1) * sizeof(float));
                 dropBranch = mDivides[mSmeCores] - mOriginSmeWork;
-                _onlineReorderWeightPackH8ToH32((int8_t*)(mWeight4Prefill.ptr() + offsetWeight),
-                                                weightDataPtr + offsetWeight, blockL, SRC_UNIT,
+                _onlineReorderWeightPackH8ToH32((int8_t*)(mWeight4Prefill.ptr() + destBranchOffset),
+                                                weightDataPtr + sourceBranchOffset, blockL, SRC_UNIT,
                                                 mResourceInt8->mWeightBits == 4, (int)(dropBranch * PackUnit / 8),
-                                                mBlockNum, (mDivides[threads] - mDivides[mSmeCores]) * PackUnit);
+                                                mBlockNum, (mDivides[threads] - mDivides[mSmeCores]) * PackUnit,
+                                                sourceQuantInfoMode);
             }
 
             if (dstBytes > 1 && mInputBlockNum > 1) {
@@ -2169,11 +2471,17 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             }
         }
 
-        if (dropBranch == 0) { // If dropBranch == 0, it means that the arrangement of the weights processed by the
-                               // Arm82 architecture remains unchanged.
-            // copy
-            memcpy(mWeightKernelSum4Prefill.ptr() + kernelSumMainSize,
-                   mResourceInt8->mWeightKernelSum->host<uint8_t>() + kernelSumMainSize, kernelSumBranchSize);
+        if (dropBranch == 0) {
+            if (sourceQuantInfoMode && mOcBranch > 0) {
+                _onlineReorderWeightPackH8ToH32((int8_t*)(mWeight4Prefill.ptr() + destBranchOffset),
+                                                weightDataPtr + sourceBranchOffset, blockL, SRC_UNIT,
+                                                mResourceInt8->mWeightBits == 4, 0,
+                                                mBlockNum, mOcBranch, sourceQuantInfoMode);
+            }
+            if (kernelSumBranchSize > 0) {
+                memcpy(mWeightKernelSum4Prefill.ptr() + kernelSumMainSize,
+                       mResourceInt8->mWeightKernelSum->host<uint8_t>() + kernelSumMainSize, kernelSumBranchSize);
+            }
         }
 
         weightDataPtr = (int8_t*)mWeight4Prefill.ptr();
@@ -2190,7 +2498,6 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         weightBytes = 0.25f;
         weightStepY /= 4;
     }
-    int blockunit = ocUp4 * 2 * QUANT_INFO_BYTES + blockL * weightStepY * UP_DIV(output->channel(), UNIT);
     auto inputchannel = input->channel();
     SumByAxisParams sumParams;
     sumParams.oneScale = (mUseBatchQuan || dynamicOption == 2) ? 0 : 1;
@@ -2206,6 +2513,10 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     std::vector<float> fakeInputScales(DST_XUNIT, 1.f);
 
     auto tileSplitFunction = [&](int tId, int eStartIndex, int eEndIndex, int estep) {
+        if (mResourceInt8->mWeightQuantInfoMode && !_compactFpEnvironment()) {
+            compactFailure->store(true, std::memory_order_relaxed);
+            return;
+        }
         auto ocDivThread = ocDiv4;
         float* reluPtr = mResourceInt8->mReluThreshold.data();
         float* accumbuff = nullptr;
@@ -2238,6 +2549,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         }
         QuanPostTreatParameters quanParam;
         quanParam.blockNum = mBlockNum;
+        quanParam.weightQuantInfoMode = weightQuantInfoMode;
         int32_t indices[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
         quanParam.indices = indices;
         if (dstBytes != 1) {
@@ -2263,7 +2575,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         auto srcPtr = (int8_t const**)(mBlitInfo.ptr() + tId * mBlitInfoStride.first);
         auto el = (int32_t*)(srcPtr + mBlitInfoStride.second);
         auto xKernelSumPtrTid =
-            reinterpret_cast<float*>(srcKernelSumPtr + tId * mBlockNum * DST_XUNIT * mIm2ColCount * QUANT_INFO_BYTES);
+            reinterpret_cast<float*>(srcKernelSumPtr + tId * mBlockNum * DST_XUNIT * mIm2ColCount * sizeof(float));
 
         int32_t info[5];
         info[1] = mIm2ColParamter.iw * mIm2ColParamter.ih * batch;
@@ -2274,10 +2586,10 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             auto outputInTilePtr = outputDataPtr + xIndexStart * PackUnit * dstBytes;
             int realDstCount = ALIMIN(plane - xIndexStart, DST_XUNIT * mIm2ColCount);
             ptrInputScale = (mUseBatchQuan && mIm2ColBasedInt8)
-                                ? (inputScale + xIndexStart * mInputBlockNum * QUANT_INFO_BYTES)
+                                ? (inputScale + xIndexStart * mInputBlockNum * sizeof(float))
                                 : inputScale;
             ptrInputBias =
-                (inputBias != nullptr) ? (inputBias + xIndexStart * mInputBlockNum * QUANT_INFO_BYTES) : inputBias;
+                (inputBias != nullptr) ? (inputBias + xIndexStart * mInputBlockNum * sizeof(float)) : inputBias;
             // im2col
             auto im2colDst = im2colDstThread;
             auto res =
@@ -2326,7 +2638,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                     BatchAsyDynamicQuant((uint8_t*)im2colDst, inputZeroPoint, ptrInputScale, kernelCountUnit,
                                          realDstCount, SRC_UNIT, 1,
                                          mQuantInput->host<int8_t>() + tId * mQuantInput->stride(0), ptrInputBias, tId);
-                    quanParam.biasFloat = (float*)(mBiasBufferFusedInputzero.ptr() + tId * ocUpHp * QUANT_INFO_BYTES);
+                    quanParam.biasFloat = (float*)(mBiasBufferFusedInputzero.ptr() + tId * ocUpHp * sizeof(float));
                 }
                 im2colDst = mQuantInput->host<int8_t>() + tId * mQuantInput->stride(0);
             }
@@ -2352,7 +2664,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                 mRelatedFunctions.MNNSumByAxisLForMatmul_A(xKernelSumPtrTid, im2colDst, (float*)ptrInputScale,
                                                            realDstCount, sumParams);
             } else {
-                memset(xKernelSumPtrTid, 0, mBlockNum * DST_XUNIT * mIm2ColCount * QUANT_INFO_BYTES);
+                memset(xKernelSumPtrTid, 0, mBlockNum * DST_XUNIT * mIm2ColCount * sizeof(float));
             }
             auto ptrX = xKernelSumPtrTid;
             do {
@@ -2371,8 +2683,8 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                 outputInTilePtr += DST_XUNIT * PackUnit * dstBytes;
                 im2colDst += unitColBufferSize;
                 ptrInputScale =
-                    mUseBatchQuan ? (ptrInputScale + step * mInputBlockNum * QUANT_INFO_BYTES) : ptrInputScale;
-                ptrInputBias = (ptrInputBias != nullptr) ? (ptrInputBias + step * mInputBlockNum * QUANT_INFO_BYTES)
+                    mUseBatchQuan ? (ptrInputScale + step * mInputBlockNum * sizeof(float)) : ptrInputScale;
+                ptrInputBias = (ptrInputBias != nullptr) ? (ptrInputBias + step * mInputBlockNum * sizeof(float))
                                                          : ptrInputBias;
             } while (realDstCount > 0);
         }
@@ -2390,7 +2702,14 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         info[3] = mIm2ColParamter.strideX;
 
         float* reluPtr = mResourceInt8->mReluThreshold.data();
-        if (mIm2ColBasedInt8) { // im2col
+        const bool directDecodeInput = mIm2ColBasedInt8 && mMixedKernel && plane == 1 && inputPlane == 1 &&
+                                       kxky == 1 && PackUnit == 8 && SRC_UNIT == 4 && ic % PackUnit == 0 &&
+                                       mIm2ColParamter.padX == 0 && mIm2ColParamter.padY == 0 &&
+                                       mIm2ColParamter.strideX == 1 && mIm2ColParamter.strideY == 1;
+        if (directDecodeInput) {
+            // At E=1, aligned NC8 input already has the compact [K/4, 1, 4] GEMM layout.
+            im2colDst = reinterpret_cast<int8_t*>(im2colSrc);
+        } else if (mIm2ColBasedInt8) { // im2col
             auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo(
                 (const float**)srcPtr, el, 0, plane, mIm2ColParamter, (uint8_t*)im2colSrc, im2colBytes);
             int number = res.first;
@@ -2452,7 +2771,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             if (!mUseBatchQuan && dynamicOption != 2) {
                 BatchAsyDynamicQuant((uint8_t*)im2colDst, inputZeroPoint, ptrInputscale, kernelCountUnit, plane,
                                      SRC_UNIT, 1, mQuantInput->host<int8_t>(),
-                                     ptrInputscale + plane * mInputBlockNum * QUANT_INFO_BYTES, 0);
+                                     ptrInputscale + plane * mInputBlockNum * sizeof(float), 0);
             }
             im2colDst = mQuantInput->host<int8_t>();
         }
@@ -2476,98 +2795,155 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             mRelatedFunctions.MNNSumByAxisLForMatmul_A(xKernelSumPtr, im2colDst, mBatchQuantInfo->host<float>(), plane,
                                                        sumParams);
         } else {
-            memset(xKernelSumPtr, 0, mTileCount * mBlockNum * DST_XUNIT * mIm2ColCount * QUANT_INFO_BYTES);
+            memset(xKernelSumPtr, 0, mTileCount * mBlockNum * DST_XUNIT * mIm2ColCount * sizeof(float));
         }
 
-        MNN_CONCURRENCY_BEGIN(tId, threads) {
-            int ocIndex = PackUnit * mDivides[tId];
-            auto ocDivThread = ALIMIN(mDivides[tId + 1] - mDivides[tId], ocDiv4 - mDivides[tId]);
+        // Decode GEMV on heterogeneous core sets: a static equal OC split strands work on
+        // slow cores and the barrier waits for them. Claim the NEON-packed region
+        // [mDivides[mSmeCores], neonClaimEnd) dynamically (guided chunks) so fast cores
+        // absorb it. SME-packed channels stay exclusive to SME kernels; every thread can
+        // run the NEON kernel, so SME threads join the claiming once their share is done.
+        // Only worthwhile with many threads on a saturated core set: with few threads the
+        // static split is already balanced (or the OS has slack cores), and claiming only
+        // adds atomic/call overhead and breaks contiguous per-thread weight streaming.
+        const bool dynamicNeonClaim = mMixedKernel && plane == 1 && !m4BitPtq && threads >= 8 &&
+                                      threads > gcore->perfCoreNumber;
+        const int neonClaimEnd = ALIMIN(mDivides[threads], ocDiv4);
+        const int payloadBytesPerUnit = ALIMAX(1, static_cast<int>(PackUnit * kernelCountUnit * weightBytes));
+        const int minClaimUnits = ALIMAX(1, ALIMIN(4, 16384 / payloadBytesPerUnit));
+        // The NEON branch kernel consumes weights in UNITBranch-channel packed tiles
+        // ([W tile][quant tile]); weightPtrTid assumes every range starts on that tile
+        // grid. Keep all claim boundaries multiples of UNITBranch/PackUnit units,
+        // otherwise every channel of a misaligned chunk reads quant bytes as weights.
+        const int claimAlignUnits = ALIMAX(1, GEMM_INT8_UNIT_ARM82 / PackUnit);
+        std::atomic<int> neonClaim{dynamicNeonClaim ? mDivides[mSmeCores] : 0};
 
-            if (ocIndex < ocUp4 && ocDivThread > 0) {
-                decltype(mGemmKernel) gemmInt8;
-                if (mMixedKernel) {
-                    gemmInt8 = tId < mSmeCores ? mGemmKernels[0] : mGemmKernels[1];
-                } else {
-                    gemmInt8 = mGemmKernel;
-                }
-                auto im2colDstThread = im2colDst;
-                float* ptrY = nullptr;
-                if (dstBytes != 1) {
-                    float* wkernelSum = (mOnlineReorderWeightSme && mInputBlockNum > 1 && plane > 1)
-                                            ? (float*)mWeightKernelSum4Prefill.ptr()
-                                            : mResourceInt8->mWeightKernelSum->host<float>();
-                    ptrY = wkernelSum + ocIndex * mInputBlockNum;
-                }
-                QuanPostTreatParameters quanParam;
-                quanParam.blockNum = mBlockNum;
-                quanParam.weightKernelSum = ptrY;
-                quanParam.biasFloat = reinterpret_cast<float*>(biasPtr + ocIndex * 4);
-                int32_t indices[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-                quanParam.indices = indices;
-                if (dstBytes != 1) {
-                    quanParam.useInt8 = 0;
-                    quanParam.fp32minmax = reluPtr;
+        auto ocGemmRange = [&](int tId, int rangeBegin, int rangeEnd, bool forceNeonKernel) {
+            int ocIndex = PackUnit * rangeBegin;
+            auto ocDivThread = ALIMIN(rangeEnd - rangeBegin, ocDiv4 - rangeBegin);
+            if (ocIndex >= ocUp4 || ocDivThread <= 0) {
+                return;
+            }
+            decltype(mGemmKernel) gemmInt8;
+            if (mMixedKernel) {
+                gemmInt8 = (tId < mSmeCores && !forceNeonKernel) ? mGemmKernels[0] : mGemmKernels[1];
+            } else {
+                gemmInt8 = mGemmKernel;
+            }
+            auto im2colDstThread = im2colDst;
+            float* ptrY = nullptr;
+            if (dstBytes != 1) {
+                float* wkernelSum = (mOnlineReorderWeightSme && mInputBlockNum > 1 && plane > 1)
+                                        ? (float*)mWeightKernelSum4Prefill.ptr()
+                                        : mResourceInt8->mWeightKernelSum->host<float>();
+                ptrY = wkernelSum + ocIndex * mInputBlockNum;
+            }
+            QuanPostTreatParameters quanParam;
+            quanParam.blockNum = mBlockNum;
+            quanParam.weightKernelSum = ptrY;
+            quanParam.biasFloat = reinterpret_cast<float*>(biasPtr + ocIndex * 4);
+            if (deferFusedBias) {
+                // Deferred from the serial quant prologue: update exactly the bias
+                // slice this range's GEMM reads; element-wise op keeps bits identical.
+                gcore->MNNDynamicUpdateConvBiasScale(
+                    reinterpret_cast<float*>(mBiasBufferFusedInputzero.ptr()) + ocIndex,
+                    mResourceInt8->mOriginBias->host<float>() + ocIndex,
+                    mResourceInt8->mWeightKernelSum->host<float>() + ocIndex, &fusedInputZeroF,
+                    UP_DIV(static_cast<int>(ocDivThread) * PackUnit, 4));
+            }
+            int32_t indices[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+            quanParam.indices = indices;
+            if (dstBytes != 1) {
+                quanParam.useInt8 = 0;
+                quanParam.fp32minmax = reluPtr;
 #ifdef MNN_USE_SSE
-                    if (!mBatchQuantInfo.get()) {
-                        quanParam.weightKernelSum = nullptr;
-                    }
+                if (!mBatchQuantInfo.get()) {
+                    quanParam.weightKernelSum = nullptr;
+                }
 #endif
+            } else {
+                quanParam.maxValue = mMutableResource->mClampMax;
+                if (mResourceInt8->mRelu) {
+                    quanParam.minValue = mMutableResource->mOutputZeroPoint;
                 } else {
-                    quanParam.maxValue = mMutableResource->mClampMax;
-                    if (mResourceInt8->mRelu) {
-                        quanParam.minValue = mMutableResource->mOutputZeroPoint;
-                    } else {
-                        quanParam.minValue = mMutableResource->mClampMin;
-                    }
+                    quanParam.minValue = mMutableResource->mClampMin;
                 }
-                uint8_t* inputScale = nullptr; // input scale for batch dynamic quant.
-                uint8_t* inputBias = nullptr;
-                float* accumbuff = nullptr;
-                if (mBatchQuantInfo.get()) {
-                    inputScale = mBatchQuantInfo->host<uint8_t>();
-                    if (dynamicOption == 2) {
-                        inputBias = inputScale + mInputBlockNum * plane * QUANT_INFO_BYTES;
-                    }
-                } else {
-                    inputScale = (uint8_t*)fakeInputScales.data();
+            }
+            uint8_t* inputScale = nullptr; // input scale for batch dynamic quant.
+            uint8_t* inputBias = nullptr;
+            float* accumbuff = nullptr;
+            if (mBatchQuantInfo.get()) {
+                inputScale = mBatchQuantInfo->host<uint8_t>();
+                if (dynamicOption == 2) {
+                    inputBias = inputScale + mInputBlockNum * plane * sizeof(float);
                 }
+            } else {
+                inputScale = (uint8_t*)fakeInputScales.data();
+            }
+            if (mBlockNum > 1) {
+                accumbuff = reinterpret_cast<float*>(mAccumBuffer->host<int8_t>() +
+                                                     tId * mAccumBuffer->stride(0) * sizeof(int32_t));
+            }
+
+            auto outputInTilePtr = outputDataPtr + ocIndex * plane * dstBytes;
+
+            auto weightSrc = weightDataPtr;
+            int activeQuantInfoMode = weightQuantInfoMode;
+            if ((tId >= mSmeCores || forceNeonKernel) && dropBranch == 0 && mMixedKernel &&
+                !(mResourceInt8->mWeightQuantInfoMode && plane > 1)) {
+                weightSrc = mResourceInt8->mWeightInt8->host<int8_t>();
+                activeQuantInfoMode = mResourceInt8->mWeightQuantInfoMode;
+            }
+            quanParam.weightQuantInfoMode = activeQuantInfoMode;
+            const int activeQuantInfoBytes = activeQuantInfoMode ? (int)sizeof(int16_t) : (int)sizeof(float);
+            auto weightPtrTid =
+                weightSrc + static_cast<int32_t>(ocIndex * mBlockNum * blockL * SRC_UNIT * weightBytes +
+                                                 ocIndex * 2 * mBlockNum * activeQuantInfoBytes);
+
+            int realDstCount = plane;
+            auto ptrX = xKernelSumPtr;
+            do {
+                int step = ALIMIN(DST_XUNIT, realDstCount);
+                quanParam.inputScale = (float*)inputScale;
+                quanParam.inputBias = (float*)inputBias;
+                quanParam.srcKernelSum = ptrX;
                 if (mBlockNum > 1) {
-                    accumbuff = reinterpret_cast<float*>(mAccumBuffer->host<int8_t>() +
-                                                         tId * mAccumBuffer->stride(0) * sizeof(int32_t));
+                    memset(accumbuff, 0, UNIT * 4 * DST_XUNIT);
+                    quanParam.accumBuffer = accumbuff;
                 }
+                gemmInt8(outputInTilePtr, im2colDstThread, weightPtrTid, blockL, dstZStep * dstBytes, ocDivThread,
+                         &quanParam, step);
+                ptrX += (step * mBlockNum);
+                realDstCount -= step;
+                outputInTilePtr += DST_XUNIT * PackUnit * dstBytes;
+                im2colDstThread += unitColBufferSize;
+                inputScale = mUseBatchQuan ? (inputScale + mInputBlockNum * step * sizeof(float)) : inputScale;
+                inputBias =
+                    (inputBias != nullptr) ? (inputBias + mInputBlockNum * step * sizeof(float)) : inputBias;
+            } while (realDstCount > 0);
+        };
 
-                auto outputInTilePtr = outputDataPtr + ocIndex * plane * dstBytes;
-
-                auto weightSrc = weightDataPtr;
-                if (tId >= mSmeCores && dropBranch == 0 && mMixedKernel) {
-                    weightSrc = mResourceInt8->mWeightInt8->host<int8_t>();
+        MNN_CONCURRENCY_BEGIN(tId, threads) {
+            const bool compatibleFp = !mResourceInt8->mWeightQuantInfoMode || _compactFpEnvironment();
+            if (!compatibleFp) {
+                compactFailure->store(true, std::memory_order_relaxed);
+            } else if (dynamicNeonClaim) {
+                if (tId < mSmeCores) {
+                    ocGemmRange((int)tId, mDivides[tId], mDivides[tId + 1], false);
                 }
-
-                auto weightPtrTid =
-                    weightSrc + static_cast<int32_t>(ocIndex * mBlockNum * blockL * SRC_UNIT * weightBytes +
-                                                     ocIndex * 2 * mBlockNum * QUANT_INFO_BYTES);
-
-                int realDstCount = plane;
-                auto ptrX = xKernelSumPtr;
-                do {
-                    int step = ALIMIN(DST_XUNIT, realDstCount);
-                    quanParam.inputScale = (float*)inputScale;
-                    quanParam.inputBias = (float*)inputBias;
-                    quanParam.srcKernelSum = ptrX;
-                    if (mBlockNum > 1) {
-                        memset(accumbuff, 0, UNIT * 4 * DST_XUNIT);
-                        quanParam.accumBuffer = accumbuff;
+                int cur = neonClaim.load(std::memory_order_relaxed);
+                while (cur < neonClaimEnd) {
+                    int chunk = ALIMAX(minClaimUnits, (neonClaimEnd - cur) / (2 * threads));
+                    chunk = ROUND_UP(chunk, claimAlignUnits);
+                    chunk = ALIMIN(chunk, neonClaimEnd - cur);
+                    if (neonClaim.compare_exchange_weak(cur, cur + chunk, std::memory_order_acq_rel,
+                                                        std::memory_order_relaxed)) {
+                        ocGemmRange((int)tId, cur, cur + chunk, true);
+                        cur = neonClaim.load(std::memory_order_relaxed);
                     }
-                    gemmInt8(outputInTilePtr, im2colDstThread, weightPtrTid, blockL, dstZStep * dstBytes, ocDivThread,
-                             &quanParam, step);
-                    ptrX += (step * mBlockNum);
-                    realDstCount -= step;
-                    outputInTilePtr += DST_XUNIT * PackUnit * dstBytes;
-                    im2colDstThread += unitColBufferSize;
-                    inputScale = mUseBatchQuan ? (inputScale + mInputBlockNum * step * QUANT_INFO_BYTES) : inputScale;
-                    inputBias =
-                        (inputBias != nullptr) ? (inputBias + mInputBlockNum * step * QUANT_INFO_BYTES) : inputBias;
-                } while (realDstCount > 0);
+                }
+            } else {
+                ocGemmRange((int)tId, mDivides[tId], mDivides[tId + 1], false);
             }
         }
         MNN_CONCURRENCY_END();
@@ -2582,6 +2958,9 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         MNN_CONCURRENCY_END();
     } else {
         ocSplitFunction(threads);
+    }
+    if (compactWorkerFailed.load(std::memory_order_relaxed)) {
+        return NOT_SUPPORT;
     }
     if (m4BitPtq) {
         std::vector<float> outputQuantScale(PackUnit);

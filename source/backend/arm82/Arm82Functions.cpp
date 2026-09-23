@@ -661,12 +661,12 @@ static void MNNPackedMatMulFP16WithSme2PackedB(float* C, const float* A, const f
     MNNPackedMatMulRemainFP16WithSme2PackedB(C, A, B, 16, parameter, postParameters, bias, k, b);
 }
 
+template <int ET, int HT = 8>
 __attribute__((target("arch=armv8.2-a+fp16fml")))
-static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(float* C, const float* A, const float* B, size_t eSize,
-                                                            const size_t* parameter, const float* postParameters,
-                                                            const float* bias, const float* k, const float* b) {
+static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E(float* C, const float* A, const float* B, size_t eSize,
+                                                         const size_t* parameter, const float* postParameters,
+                                                         const float* bias, const float* k, const float* b) {
     MNN_ASSERT(postParameters == nullptr && bias == nullptr && k == nullptr && b == nullptr);
-    constexpr int ET = 8;
     const size_t aStride = parameter[0] / sizeof(FLOAT16);
     const size_t l = parameter[1];
     const size_t h = parameter[2];
@@ -679,36 +679,54 @@ static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(float* C, const float
     for (size_t e0 = 0; e0 < eSize; e0 += ET) {
         const int eN = static_cast<int>(ALIMIN(eSize - e0, static_cast<size_t>(ET)));
         size_t y = 0;
-        for (; y + 8 <= h; y += 8) {
-            float32x4_t sumLo[ET];
-            float32x4_t sumHi[ET];
-            for (int i = 0; i < ET; ++i) {
-                sumLo[i] = vdupq_n_f32(0.0f);
-                sumHi[i] = vdupq_n_f32(0.0f);
+        for (; y + HT <= h; y += HT) {
+            float32x4_t sumLo[HT / 8][ET];
+            float32x4_t sumHi[HT / 8][ET];
+            for (int j = 0; j < HT / 8; ++j) {
+                for (int i = 0; i < ET; ++i) {
+                    sumLo[j][i] = vdupq_n_f32(0.0f);
+                    sumHi[j][i] = vdupq_n_f32(0.0f);
+                }
             }
             const auto bBase = bPtr + (y / 64) * bStride + (y % 64) * 2;
             for (size_t z = 0; z < l; z += 2) {
-                const auto raw = reinterpret_cast<const uint16_t*>(bBase + z * 64);
-                const auto raw0 = vld1q_u16(raw);
-                const auto raw1 = vld1q_u16(raw + 8);
-                const auto values0 = vreinterpretq_f16_u16(vuzp1q_u16(raw0, raw1));
-                const auto values1 = vreinterpretq_f16_u16(vuzp2q_u16(raw0, raw1));
-                for (int i = 0; i < ET; ++i) {
-                    if (i < eN) {
-                        const auto a = aPtr + (e0 + i) * 2 + (z / 2) * aStride;
-                        const auto a0 = vdupq_n_f16(a[0]);
-                        const auto a1 = vdupq_n_f16(a[1]);
-                        sumLo[i] = vfmlalq_low_f16(sumLo[i], values0, a0);
-                        sumHi[i] = vfmlalq_high_f16(sumHi[i], values0, a0);
-                        sumLo[i] = vfmlalq_low_f16(sumLo[i], values1, a1);
-                        sumHi[i] = vfmlalq_high_f16(sumHi[i], values1, a1);
+                for (int j = 0; j < HT / 8; ++j) {
+                    const auto raw = reinterpret_cast<const uint16_t*>(bBase + z * 64 + j * 16);
+                    const auto raw0 = vld1q_u16(raw);
+                    const auto raw1 = vld1q_u16(raw + 8);
+                    const auto values0 = vreinterpretq_f16_u16(vuzp1q_u16(raw0, raw1));
+                    const auto values1 = vreinterpretq_f16_u16(vuzp2q_u16(raw0, raw1));
+                    if (ET == 2 && eN == 2) {
+                        const auto av = vld1_f16(aPtr + e0 * 2 + (z / 2) * aStride);
+                        sumLo[j][0] = vfmlalq_lane_low_f16(sumLo[j][0], values0, av, 0);
+                        sumHi[j][0] = vfmlalq_lane_high_f16(sumHi[j][0], values0, av, 0);
+                        sumLo[j][0] = vfmlalq_lane_low_f16(sumLo[j][0], values1, av, 1);
+                        sumHi[j][0] = vfmlalq_lane_high_f16(sumHi[j][0], values1, av, 1);
+                        sumLo[j][1] = vfmlalq_lane_low_f16(sumLo[j][1], values0, av, 2);
+                        sumHi[j][1] = vfmlalq_lane_high_f16(sumHi[j][1], values0, av, 2);
+                        sumLo[j][1] = vfmlalq_lane_low_f16(sumLo[j][1], values1, av, 3);
+                        sumHi[j][1] = vfmlalq_lane_high_f16(sumHi[j][1], values1, av, 3);
+                    } else {
+                        for (int i = 0; i < ET; ++i) {
+                            if (i < eN) {
+                                const auto a = aPtr + (e0 + i) * 2 + (z / 2) * aStride;
+                                const auto a0 = vdupq_n_f16(a[0]);
+                                const auto a1 = vdupq_n_f16(a[1]);
+                                sumLo[j][i] = vfmlalq_low_f16(sumLo[j][i], values0, a0);
+                                sumHi[j][i] = vfmlalq_high_f16(sumHi[j][i], values0, a0);
+                                sumLo[j][i] = vfmlalq_low_f16(sumLo[j][i], values1, a1);
+                                sumHi[j][i] = vfmlalq_high_f16(sumHi[j][i], values1, a1);
+                            }
+                        }
                     }
                 }
             }
-            for (int i = 0; i < ET; ++i) {
-                if (i < eN) {
-                    vst1q_f16(cPtr + (y / 8) * cStride + (e0 + i) * 8,
-                              vcombine_f16(vcvt_f16_f32(sumLo[i]), vcvt_f16_f32(sumHi[i])));
+            for (int j = 0; j < HT / 8; ++j) {
+                for (int i = 0; i < ET; ++i) {
+                    if (i < eN) {
+                        vst1q_f16(cPtr + (y / 8 + j) * cStride + (e0 + i) * 8,
+                                  vcombine_f16(vcvt_f16_f32(sumLo[j][i]), vcvt_f16_f32(sumHi[j][i])));
+                    }
                 }
             }
         }
@@ -733,10 +751,35 @@ static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(float* C, const float
     }
 }
 
+static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(float* C, const float* A, const float* B, size_t eSize,
+                                                       const size_t* parameter, const float* postParameters,
+                                                       const float* bias, const float* k, const float* b) {
+    // Avoid turning an eight-column vector tail into scalar work with the wider tile.
+    if (eSize == 2 && parameter[2] % 16 == 0) {
+        MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<2, 16>(C, A, B, eSize, parameter, postParameters, bias, k, b);
+        return;
+    }
+    if (eSize <= 2) {
+        MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<2>(C, A, B, eSize, parameter, postParameters, bias, k, b);
+        return;
+    }
+    MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<8>(C, A, B, eSize, parameter, postParameters, bias, k, b);
+}
+
+static void MNNPackedMatMulRemainFP16WithSme2PackedB_FmlalWide(float* C, const float* A, const float* B, size_t eSize,
+                                                           const size_t* parameter, const float* postParameters,
+                                                           const float* bias, const float* k, const float* b) {
+    if (eSize == 2 && parameter[2] % 32 == 0) {
+        MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<2, 32>(C, A, B, eSize, parameter, postParameters, bias, k, b);
+        return;
+    }
+    MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(C, A, B, eSize, parameter, postParameters, bias, k, b);
+}
+
 static void MNNPackedMatMulFP16WithSme2PackedB_Fmlal(float* C, const float* A, const float* B,
                                                       const size_t* parameter, const float* postParameters,
                                                       const float* bias, const float* k, const float* b) {
-    MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(C, A, B, 16, parameter, postParameters, bias, k, b);
+    MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<8>(C, A, B, 16, parameter, postParameters, bias, k, b);
 }
 #endif
 #else
@@ -3314,6 +3357,7 @@ bool Arm82Functions::init() {
     if (origin->supportFp16FML) {
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulWithSme2PackedB, MNNPackedMatMulFP16WithSme2PackedB_Fmlal);
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedB, MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal);
+        FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedBWide, MNNPackedMatMulRemainFP16WithSme2PackedB_FmlalWide);
     } else {
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulWithSme2PackedB, MNNPackedMatMulFP16WithSme2PackedB);
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedB, MNNPackedMatMulRemainFP16WithSme2PackedB);
