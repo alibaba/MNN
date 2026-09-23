@@ -4,7 +4,8 @@
 //
 //  1. MNNConvRunForLineDepthwise_RVV reproduces the scalar reference in
 //     compute/ConvOpt.cpp over a sweep of widths, filter sizes, strides and
-//     dilations, including widths either side of the LMUL=8 vector length.
+//     dilations, including widths either side of common LMUL=2 and LMUL=8
+//     vector lengths.
 //  2. CoreFunctions::MNNConvRunForLineDepthwise really points at the RVV kernel
 //     at runtime. A correct kernel that is never registered changes nothing, and
 //     a same-named definition would have C++ linkage while ConvOpt.h declares the
@@ -88,7 +89,9 @@ static bool checkShape(size_t width, size_t fw, size_t fh, size_t dilateX, size_
 }
 
 static bool check() {
-    const size_t widths[] = {1, 2, 3, 7, 8, 13, 16, 31, 33, 64, 129};
+    // e32m2 has 8/16/32/64 lanes at VLEN=128/256/512/1024. Test each
+    // boundary and its neighbors without requiring RVV intrinsics in this TU.
+    const size_t widths[] = {1, 2, 3, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 129};
     const size_t heights[] = {1, 3};
     const size_t kernels[] = {1, 2, 3, 4};
     const size_t dilates[] = {1, 2};

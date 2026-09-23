@@ -83,6 +83,9 @@ extern void MNNPackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*
 extern void MNNUnpackCUnitInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 extern void MNNPackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
 extern void MNNUnpackCUnitTransposeInt16_RVV(int16_t*, const int16_t*, size_t, size_t, int*);
+extern void MNNTranspose32Bit_RVV(int32_t*, const int32_t*, int32_t*);
+extern void MNNTranspose16Bit_RVV(int16_t*, const int16_t*, int32_t*);
+extern void MNNPackInt8C2_RVV(float*, const float*, size_t, size_t, int*);
 extern void MNNCountMaxMinValue_RVV(const float* source, float* minVal, float* maxVal, size_t size);
 extern void MNNReluInt8_RVV(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint);
 // The RVV kernels below are defined in the global namespace (they are plain C-style
@@ -2860,6 +2863,16 @@ void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
     int h = dim[1];
     int srcStride = dim[2];
     int dstStride = dim[3];
+#if defined(__riscv) && defined(MNN_USE_RVV)
+    // Strided vector loads help short rows; wide rows regress on VLEN=128.
+    if (w >= 4 && w <= 16 && h > 0) {
+        auto core = MNN::MNNGetCoreFunctions();
+        if (core != nullptr && core->supportRVV) {
+            MNNTranspose32Bit_RVV(dstO, srcO, dim);
+            return;
+        }
+    }
+#endif
     for (int i = 0; i < h; ++i) {
         auto si = srcO + i;
         auto di = dstO + i * dstStride;
@@ -2875,6 +2888,16 @@ void MNNTranspose16Bit(int16_t* dstO, const int16_t* srcO, int32_t* dim) {
     int h = dim[1];
     int srcStride = dim[2];
     int dstStride = dim[3];
+#if defined(__riscv) && defined(MNN_USE_RVV)
+    // Keep the same short-row bound for the 16-bit transpose.
+    if (w >= 4 && w <= 16 && h > 0) {
+        auto core = MNN::MNNGetCoreFunctions();
+        if (core != nullptr && core->supportRVV) {
+            MNNTranspose16Bit_RVV(dstO, srcO, dim);
+            return;
+        }
+    }
+#endif
     for (int i = 0; i < h; ++i) {
         auto si = srcO + i;
         auto di = dstO + i * dstStride;
@@ -2940,10 +2963,30 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
 }
 
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+#if defined(__riscv) && defined(MNN_USE_RVV)
+    // The eight-element Winograd tile is large enough to amortize segmented stores.
+    if (area >= 8) {
+        auto core = MNN::MNNGetCoreFunctions();
+        if (core != nullptr && core->supportRVV) {
+            MNNPackCUnit_RVV(dst, src, area, depth, areaOffset);
+            return;
+        }
+    }
+#endif
     MNNPackC4Common<float>(dst, src, area, depth, areaOffset);
 }
 
 void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+#if defined(__riscv) && defined(MNN_USE_RVV)
+    // Full C4 groups use segmented loads; a channel tail alone keeps the scalar path.
+    if (area >= 8 && depth >= 4) {
+        auto core = MNN::MNNGetCoreFunctions();
+        if (core != nullptr && core->supportRVV) {
+            MNNUnpackCUnit_RVV(dst, src, area, depth, areaOffset);
+            return;
+        }
+    }
+#endif
     MNNUnpackC4Common<float>(dst, src, area, depth, areaOffset);
 }
 
@@ -5393,6 +5436,16 @@ void MNNUnpackC2Float(float* dst, const float* src, size_t area, size_t depth, i
 }
 #ifndef __aarch64__
 void MNNPackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+#if defined(__riscv) && defined(MNN_USE_RVV)
+    // Small C2 tails cost more to set up than they save on the Winograd tile.
+    if (area >= 8 && depth >= 4) {
+        auto core = MNN::MNNGetCoreFunctions();
+        if (core != nullptr && core->supportRVV) {
+            MNNPackInt8C2_RVV(dst, src, area, depth, areaOffset);
+            return;
+        }
+    }
+#endif
     MNNPackC2Common<float>(dst, src, area, depth, areaOffset);
 }
 #endif
