@@ -428,6 +428,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     // so QK products are already final logits and _maskQK needs no extra scaling.
     float packScale = q_scale * mScale;
     int insertLen = seqLen;
+    // Rows of the key/value inputs that make up this call's KV sequence. Usually equal to the
+    // query length, but a cacheless attention (kv_cache=false) may be handed a full key/value
+    // sequence that is longer than the query (cross / prefix attention, e.g. the DFlash draft):
+    // there the inputs are the whole KV, exactly as the Metal backend does
+    // (!mKVCache -> mKvSeqLen = mCurrentKvLen = key->shape()[1]).
+    int kvAppendLen = seqLen;
 
     if (!mIsKVShared) {
         if (mKVCache && mMeta != nullptr) {
@@ -439,12 +445,14 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 mKVCacheManager->onRealloc(mMeta);
             }
             insertLen = (int)mMeta->add;
+            kvAppendLen = insertLen;
         } else {
             mKVCacheManager->onClear();
-            mKVCacheManager->onAlloc(mMeta, seqLen);
+            kvAppendLen = mKVCache ? seqLen : key->length(1);
+            mKVCacheManager->onAlloc(mMeta, kvAppendLen);
         }
         // Add the new kv to the kvcache
-        mKVCacheManager->onUpdateKV(key, value, (int)insertLen);
+        mKVCacheManager->onUpdateKV(key, value, (int)kvAppendLen);
     } else {
         // Shared layer: KV cache is shared via onClone, skip KV update
         insertLen = (int)mMeta->add;
