@@ -37,6 +37,8 @@
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include "CommonOpCreator.hpp"
+#include "core/IDSTEncoder.hpp"
+#include "core/TensorUtils.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -269,5 +271,143 @@ public:
 };
 
 MNNTestSuiteRegister(MetalConvWQuantTest, "op/conv_wquant_metal");
+
+class MetalConvFp16MetadataTest : public MNNTestCase {
+    static bool checkCase(int ic, int oc, int blockSize, int nbits, bool asymmetric, int aMin, float quantScale,
+                          int& metalConvs) {
+        const int blocks = ic / blockSize, offset = 1 << (nbits - 1);
+        const int codeMin = asymmetric ? -offset : 1 - offset;
+        const int codeRange = offset - codeMin;
+        std::vector<int8_t> codes(ic * oc);
+        std::vector<float> alpha((asymmetric ? 2 : 1) * oc * blocks), bias(oc), weight(ic * oc);
+        for (int o = 0; o < oc; ++o) {
+            bias[o] = (o % 9 - 4) / 64.0f;
+            for (int b = 0; b < blocks; ++b) {
+                const int k = o * blocks + b;
+                const float scale = (0.0937f + 0.0113f * ((o + 3 * b) % 5)) / offset;
+                if (asymmetric) {
+                    alpha[2 * k] = -0.0737f + 0.0193f * ((o * 3 + b) % 7) + (aMin == 1 ? offset * scale : 0);
+                    alpha[2 * k + 1] = scale;
+                } else {
+                    alpha[k] = scale;
+                }
+                for (int c = 0; c < blockSize; ++c) {
+                    codes[o * ic + b * blockSize + c] = (o * 7 + b * 3 + c * 11) % codeRange + codeMin;
+                }
+            }
+        }
+        auto encoded = IDSTEncoder::encode(nullptr, alpha, blockSize, oc * blocks, asymmetric, codes.data(), aMin,
+                                           {nbits, false, 16});
+        encoded->quantScale = quantScale;
+        MNNTEST_ASSERT(encoded->scaleStorage == ScaleStorageType_FP16 && encoded->alpha.empty());
+        MNNTEST_ASSERT(encoded->alphaFp16.size() == alpha.size());
+        for (int i = 0; i < alpha.size(); ++i) {
+            half_float::half h;
+            ::memcpy(&h, &encoded->alphaFp16[i], sizeof(uint16_t));
+            alpha[i] = float(h);
+        }
+        // Both twins share encoded codes; FP32 metadata is an exact widening of the serialized FP16 payload.
+        OpT twins[2];
+        for (int t = 0; t < 2; ++t) {
+            twins[t].type = OpType_Convolution;
+            twins[t].main.type = OpParameter_Convolution2D;
+            twins[t].main.value = new Convolution2DT;
+            auto conv = twins[t].main.AsConvolution2D();
+            conv->common.reset(new Convolution2DCommonT);
+            conv->common->inputCount = ic;
+            conv->common->outputCount = oc;
+            conv->common->kernelX = conv->common->kernelY = 1;
+            conv->bias = bias;
+            conv->quanParameter.reset(new IDSTQuanT(*encoded));
+            if (t == 1) {
+                conv->quanParameter->scaleStorage = ScaleStorageType_FP32;
+                conv->quanParameter->alpha = alpha;
+                conv->quanParameter->alphaFp16.clear();
+            }
+        }
+        // Apply legacy folding and quantScale in FP32, without rounding corrected coefficients back to half.
+        if (asymmetric && aMin <= 0) {
+            for (int k = 0; k < oc * blocks; ++k) {
+                alpha[2 * k] -= (aMin == 0 ? -128 : aMin) * alpha[2 * k + 1];
+            }
+        }
+        for (auto& v : alpha) {
+            v *= quantScale;
+        }
+        for (int i = 0; i < weight.size(); ++i) {
+            const int k = i / blockSize;
+            weight[i] = asymmetric ? codes[i] * alpha[2 * k + 1] + alpha[2 * k] : codes[i] * alpha[k];
+        }
+        for (int area : {1, 64}) {
+            std::vector<float> input(ic * area), ref;
+            for (int i = 0; i < input.size(); ++i) {
+                input[i] = ((i * 13) % 67 - 33) / 64.0f;
+            }
+            referenceConv1x1(input, weight, bias, ref, ic, oc, area, false, false);
+            auto x = _Input({1, ic, 1, area}, NCHW, halide_type_of<float>());
+            auto inputPtr = x->writeMap<float>();
+            MNNTEST_ASSERT(inputPtr != nullptr);
+            ::memcpy(inputPtr, input.data(), input.size() * sizeof(float));
+            x->unMap();
+            x = _Convert(x, NC4HW4);
+            const int before = metalConvs;
+            auto yHalf = _Convert(Variable::create(Expr::create(&twins[0], {x})), NCHW);
+            auto yFloat = _Convert(Variable::create(Expr::create(&twins[1], {x})), NCHW);
+            auto halfPtr = yHalf->readMap<float>();
+            auto floatPtr = yFloat->readMap<float>();
+            MNNTEST_ASSERT(halfPtr && floatPtr && metalConvs == before + 2);
+            MNNTEST_ASSERT(yHalf->getInfo()->size == ref.size() && yFloat->getInfo()->size == ref.size());
+            for (int i = 0; i < ref.size(); ++i) {
+                if (!std::isfinite(halfPtr[i]) || !std::isfinite(floatPtr[i]) || halfPtr[i] != floatPtr[i]) {
+                    MNN_ERROR("Metal FP16 metadata twin mismatch: w%d aMin=%d scale=%g area=%d index=%d\n",
+                              nbits, aMin, quantScale, area, i);
+                    return false;
+                }
+            }
+            if (!checkVectorByRelativeError(halfPtr, ref.data(), (int)ref.size(), 0.005f)) {
+                MNN_ERROR("Metal FP16 metadata reference mismatch: ic=%d oc=%d w%d asym=%d aMin=%d scale=%g area=%d\n",
+                          ic, oc, nbits, asymmetric, aMin, quantScale, area);
+                return false;
+            }
+        }
+        return true;
+    }
+
+public:
+    bool run(int precision) override {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("Metal FP16 metadata: skipped (requires backend=1).\n");
+            return true;
+        }
+        int metalConvs = 0;
+        BackendConfig config;
+        config.precision = (BackendConfig::PrecisionMode)precision;
+        config.memory = BackendConfig::Memory_Low;
+        auto exe = Executor::newExecutor(MNN_FORWARD_METAL, config, 1);
+        MNNTEST_ASSERT(exe != nullptr);
+        ExecutorScope scope(exe);
+        exe->setCallBack([](const std::vector<Tensor*>&, const OperatorInfo*) { return true; },
+                         [&metalConvs](const std::vector<Tensor*>& outputs, const OperatorInfo* info) {
+            if (info && info->type() == "Convolution" && !outputs.empty()) {
+                auto backend = TensorUtils::getDescribeOrigin(outputs[0])->getBackend();
+                if (backend && backend->type() == MNN_FORWARD_METAL) {
+                    ++metalConvs;
+                }
+            }
+            return true;
+        });
+        for (int nbits : {2, 3, 4, 8}) {
+            MNNTEST_ASSERT(checkCase(64, 17, 32, nbits, false, 1, 1.0f, metalConvs));
+            MNNTEST_ASSERT(checkCase(64, 17, 32, nbits, true, 1, 1.0f, metalConvs));
+            MNNTEST_ASSERT(checkCase(128, 40, 64, nbits, true, -(1 << (nbits - 1)), 1.0f, metalConvs));
+        }
+        MNNTEST_ASSERT(checkCase(128, 40, 64, 8, true, 0, 1.0f, metalConvs));
+        MNNTEST_ASSERT(checkCase(64, 17, 32, 4, false, 1, 1.7f, metalConvs));
+        MNNTEST_ASSERT(checkCase(64, 17, 32, 4, true, 1, 1.7f, metalConvs));
+        MNNTEST_ASSERT(checkCase(128, 40, 64, 4, true, -8, 1.7f, metalConvs));
+        return true;
+    }
+};
+MNNTestSuiteRegister(MetalConvFp16MetadataTest, "op/conv_wquant_metal/fp16_metadata");
 
 #endif // MNN_LOW_MEMORY

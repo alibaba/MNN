@@ -499,7 +499,7 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_p
     // so we intentionally skip them here to avoid computing them twice with different layouts.
     {
         int outputCount = convOp->common()->outputCount();
-        auto quanInfoPtr = quanCommon->alpha.get();
+        auto quanInfoPtr = quanCommon->getAlphaFloat();
         auto scalePtr = reinterpret_cast<float*>(reorderedQuantInfo.get());
         auto zeroPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(scalePtr) + scaleSize * QUANT_INFO_BYTES);
         auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(zeroPtr) + scaleSize * QUANT_INFO_BYTES);
@@ -542,7 +542,7 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_p
     float *zeroPtr = reinterpret_cast<float*>(reorderedQuantInfo.get()) + paraNum;
     float *biasPtr = reinterpret_cast<float*>(reorderedQuantInfo.get()) + 2 * paraNum;
     //Reload some parameters to fit ukernels' layout.
-    auto quanInfoPtr = quanCommon->alpha.get();
+    auto quanInfoPtr = quanCommon->getAlphaFloat();
     auto alphaSize = quanCommon->alpha.size();
     if(bAsym) {
         for(int i = 0; i < paraNum; i++) {

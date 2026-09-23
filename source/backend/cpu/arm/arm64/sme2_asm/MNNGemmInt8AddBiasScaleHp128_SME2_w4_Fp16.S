@@ -33,6 +33,7 @@ struct QuanPostTreatParameters {
     const float* inputBias = nullptr;
     float* accumBuffer = nullptr;
     int32_t* indices = nullptr;
+    int32_t weightQuantInfoMode = 0; // #112: 0 FP32 scale/offset, 1 FP16 scale/sourceBias.
 };
 */
 //void MNNGemmInt8AddBiasScaleHp128_SME2_w4_Fp16(int8_t* dst, const int8_t* src,
@@ -65,6 +66,7 @@ ldr x23, [x6, #80]  // input scale
 ldr x27, [x6, #88]  // input bias
 ldr x8, [x6, #104]  // indices
 ldr x14, [x6, #56]  // float32 maxmin ptr
+ldr w25, [x6, #112] // Metadata mode; x25 is saved in the prologue and otherwise unused.
 
 .inst 0xe11f8100  // ldr zt0, [x8]
 
@@ -128,12 +130,70 @@ TILE1_BLOCKNUM:
 
 LoopSzEnd_TILE_1:
     sub x15, x15, #1
+    cmp w25, #1
+    bne .LMetadataFP32
 
+    // z4-z7/z20 are dead; preserve ZA block sums and z24-z31 accumulators.
+    .inst 0xa0408184  // ld1b {z4.b-z7.b}, pn8/z, [x12]
+    .inst 0x05b23880  // uunpklo z0.s, z4.h
+    .inst 0x05b33881  // uunpkhi z1.s, z4.h
+    .inst 0x05b238a2  // uunpklo z2.s, z5.h
+    .inst 0x05b338a3  // uunpkhi z3.s, z5.h
+    .inst 0x05b238d0  // uunpklo z16.s, z6.h
+    .inst 0x05b338d1  // uunpkhi z17.s, z6.h
+    .inst 0x05b238f2  // uunpklo z18.s, z7.h
+    .inst 0x05b338f3  // uunpkhi z19.s, z7.h
+    .inst 0x6589a400  // fcvt z0.s, p1/m, z0.h
+    .inst 0x6589a421  // fcvt z1.s, p1/m, z1.h
+    .inst 0x6589a442  // fcvt z2.s, p1/m, z2.h
+    .inst 0x6589a463  // fcvt z3.s, p1/m, z3.h
+    .inst 0x6589a610  // fcvt z16.s, p1/m, z16.h
+    .inst 0x6589a631  // fcvt z17.s, p1/m, z17.h
+    .inst 0x6589a652  // fcvt z18.s, p1/m, z18.h
+    .inst 0x6589a673  // fcvt z19.s, p1/m, z19.h
+    .inst 0xa0418184  // ld1b {z4.b-z7.b}, pn8/z, [x12, #4, MUL VL]
+    .inst 0x05b23888  // uunpklo z8.s, z4.h
+    .inst 0x05b33889  // uunpkhi z9.s, z4.h
+    .inst 0x05b238aa  // uunpklo z10.s, z5.h
+    .inst 0x05b338ab  // uunpkhi z11.s, z5.h
+    .inst 0x05b238cc  // uunpklo z12.s, z6.h
+    .inst 0x05b338cd  // uunpkhi z13.s, z6.h
+    .inst 0x05b238ee  // uunpklo z14.s, z7.h
+    .inst 0x05b338ef  // uunpkhi z15.s, z7.h
+    .inst 0x6589a508  // fcvt z8.s, p1/m, z8.h
+    .inst 0x6589a529  // fcvt z9.s, p1/m, z9.h
+    .inst 0x6589a54a  // fcvt z10.s, p1/m, z10.h
+    .inst 0x6589a56b  // fcvt z11.s, p1/m, z11.h
+    .inst 0x6589a58c  // fcvt z12.s, p1/m, z12.h
+    .inst 0x6589a5ad  // fcvt z13.s, p1/m, z13.h
+    .inst 0x6589a5ce  // fcvt z14.s, p1/m, z14.h
+    .inst 0x6589a5ef  // fcvt z15.s, p1/m, z15.h
+    .inst 0x25b9d414  // fmov z20.s, #-8.0
+    .inst 0x65940804  // fmul z4.s, z0.s, z20.s
+    .inst 0x65940825  // fmul z5.s, z1.s, z20.s
+    .inst 0x65940846  // fmul z6.s, z2.s, z20.s
+    .inst 0x65940867  // fmul z7.s, z3.s, z20.s
+    .inst 0x65840108  // fadd z8.s, z8.s, z4.s
+    .inst 0x65850129  // fadd z9.s, z9.s, z5.s
+    .inst 0x6586014a  // fadd z10.s, z10.s, z6.s
+    .inst 0x6587016b  // fadd z11.s, z11.s, z7.s
+    .inst 0x65940a04  // fmul z4.s, z16.s, z20.s
+    .inst 0x65940a25  // fmul z5.s, z17.s, z20.s
+    .inst 0x65940a46  // fmul z6.s, z18.s, z20.s
+    .inst 0x65940a67  // fmul z7.s, z19.s, z20.s
+    .inst 0x6584018c  // fadd z12.s, z12.s, z4.s
+    .inst 0x658501ad  // fadd z13.s, z13.s, z5.s
+    .inst 0x658601ce  // fadd z14.s, z14.s, z6.s
+    .inst 0x658701ef  // fadd z15.s, z15.s, z7.s
+    .inst 0x042c510c  // addvl x12, x12, #8
+    b .LMetadataReady
+.LMetadataFP32:
     .inst 0xa0408180  // ld1b {z0.b-z3.b}, pn8/z, [x12]     // weight scale: 64*sizeof(float)
     .inst 0xa0418190  // ld1b {z16.b-z19.b}, pn8/z, [x12, #4, MUL VL]    // weight scale
     .inst 0xa0428188  // ld1b {z8.b-z11.b}, pn8/z, [x12, #8, MUL VL]    // weight bias
     .inst 0xa043818c  // ld1b {z12.b-z15.b}, pn8/z, [x12, #12, MUL VL]    // weight bias
-
+    .inst 0x042c520c  // addvl x12, x12, #16
+.LMetadataReady:
     .inst 0x8540c5a4  // ld1rw {z4.s}, p1/z, [x13]     // x kernel sum
     .inst 0x8540c6f7  // ld1rw {z23.s}, p1/z, [x23]    // x scale
 
@@ -182,7 +242,6 @@ LoopSzEnd_TILE_1:
     .inst 0x65b205de  // fmla z30.s, p1/m, z14.s, z18.s
     .inst 0x65b305ff  // fmla z31.s, p1/m, z15.s, z19.s
 
-    .inst 0x042c520c  // addvl x12, x12, #16  // weight ptr
     add x13, x13, x22
 
     cbz x27, TILE1_ADD_DSTV

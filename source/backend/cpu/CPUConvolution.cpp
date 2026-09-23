@@ -237,7 +237,7 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     if (!ConvolutionCommon::getConvInt8Parameters(op, quanCommon, backend, weightSrc, weightSize, scalePtr, biasPtr, ocUpUnit)) {
         return nullptr;
     }
-    if (convParam->bias() && (convParam->quanParameter()->alpha() || quanCommon->alpha.get())) {
+    if (convParam->bias() && (convParam->quanParameter()->alpha() || quanCommon->alpha.get() || quanCommon->alphaHalf.get())) {
         resource->mUseConvQuan = false;
     }
     if (quanCommon.get()) {

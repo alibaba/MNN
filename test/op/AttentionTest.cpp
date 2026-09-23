@@ -34,7 +34,7 @@ const int pastLength = 101;
 
 static KVMeta gMeta;
 static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool outputC4 = false,
-                                                    bool forceOpenCLBuffer = false, int numThread = 1,
+                                                    bool forceOpenCLBuffer = false, int numThread = -1,
                                                     KVMeta* meta = &gMeta,
                                                     const std::string& prefixCacheDir = std::string()) {
     auto Q = _Input();
@@ -57,6 +57,9 @@ static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool 
     bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
     bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
     config.backendConfig = &bnConfig;
+    if (numThread < 0) {
+        numThread = status.thread > 0 ? status.thread : 1;
+    }
     config.numThread = forceOpenCLBuffer && status.forwardType == MNN_FORWARD_OPENCL
                            ? MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_NONE
                            : numThread;
@@ -1460,18 +1463,27 @@ public:
             return false;
 
         // Multi thread: physical V chunk 64, logical block ALIMIN(256, kvLen) + sub-chunk addTile.
-        if (!runAgainstReference(8, 4, 60, 10, "t4 kv crossing 64"))
-            return false;
-        if (!runAgainstReference(8, 4, 250, 12, "t4 kv crossing 256"))
-            return false;
-        if (!runAgainstReference(8, 4, 2040, 12, "t4 wide kv"))
-            return false;
+        if (!runAgainstReference(8, 4, 60, 10, "t4 kv crossing 64")) return false;
+        if (!runAgainstReference(8, 4, 250, 12, "t4 kv crossing 256")) return false;
+        if (!runAgainstReference(8, 4, 512, 128, "t4 pg512 decode128")) return false;
+        if (!runAgainstReference(8, 4, 2040, 12, "t4 wide kv")) return false;
+        if (!runAgainstReference(8, 8, 2040, 12, "t8 wide kv")) return false;
+        HeadDim = 48;
+        if (!runAgainstReference(8, 4, 60, 10, "t4 half-width tile fallback")) return false;
+        HeadDim = 96;
+        if (!runAgainstReference(8, 4, 60, 10, "t4 three wide tiles")) return false;
+        HeadDim = 70;
+        if (!runAgainstReference(8, 4, 250, 12, "t4 head dimension tail")) return false;
+        HeadDim = 128;
 
         // K-int8 KV cache: wide block is gated separately, use the flash on/off differential.
         if (!runFlashOnOffDiff(1, 1, 2040, 10, "quantK t1 kv crossing 2048"))
             return false;
         if (!runFlashOnOffDiff(1, 4, 250, 10, "quantK t4 kv crossing 256"))
             return false;
+
+        NumHead = 8; HeadDim = 70;
+        if (!runAgainstReference(8, 4, 250, 12, "t4 single query head tail")) return false;
 
         // kvSplit > 1 needs few kv heads: numUnits = 2 gives kvSplit = 2 at 2 threads.
         NumHead = 8;

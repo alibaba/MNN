@@ -9,8 +9,10 @@
 #ifndef CPUConvolution_hpp
 #define CPUConvolution_hpp
 
+#include <atomic>
 #include <mutex>
 #include "CPUBackend.hpp"
+#include "compute/CommonOptFunction.h"
 #include "core/ConvolutionCommon.hpp"
 namespace MNN {
 class PerfConfig {
@@ -86,6 +88,15 @@ public:
         int32_t mLp = 0;
         // For int4: 0: (x + half, x) -> int8, 1: (x, x + 1) -> int8.
         int32_t mPackMode = 0;
+        int32_t mWeightQuantInfoMode = 0;
+        std::atomic<bool> mCompactReady{false};
+        int mCompactThreads = 0;
+        int mCompactSmeCores = 0;
+        int mCompactOcMain = 0;
+        int mCompactDynamicQuantOption = 0;
+        int mCompactDivisionRatio = 0;
+        decltype(MatmulRelatedFunctions::MNNGemmInt8AddBiasScale_w4_Unit_FP16) mCompactSmeKernel = nullptr;
+        decltype(MatmulRelatedFunctions::MNNGemmInt8AddBiasScale_w4_Unit_FP16) mCompactNeonKernel = nullptr;
     };
     struct MutableResourceInt8 {
         MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend, float* scalePtr = nullptr);

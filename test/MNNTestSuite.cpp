@@ -109,6 +109,7 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
     auto suite = MNNTestSuite::get();
     std::vector<std::string> wrongs;
     std::vector<std::pair<std::string, float>> runTimes;
+    size_t runUnit = 0;
     for (int i = 0; i < suite->mTests.size(); ++i) {
         MNNTestCase* test = suite->mTests[i];
         if (test->name.find("speed") != std::string::npos) {
@@ -119,6 +120,11 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
             // Don't test for model because need resource
             continue;
         }
+        if (_mnn_test_should_skip(test->name)) {
+            MNN_PRINT("\tskip %s (in MNN_TEST_SKIP)\n", test->name.c_str());
+            continue;
+        }
+        runUnit++;
         MNN_PRINT("\trunning %s.\n", test->name.c_str());
         MNN::Timer _t;
         auto res = test->run(precision);
@@ -148,6 +154,6 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
     for (auto& wrong : wrongs) {
         MNN_PRINT("Error: %s\n", wrong.c_str());
     }
-    printTestResult(wrongs.size(), suite->mTests.size() - wrongs.size(), flag);
+    printTestResult(wrongs.size(), runUnit - wrongs.size(), flag);
     return wrongs.size();
 }

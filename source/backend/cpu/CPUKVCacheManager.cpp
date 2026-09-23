@@ -798,8 +798,15 @@ void CPUKVCacheManager::ProcessKey(const Tensor* key, int seqLen, int kvHead) {
             T* key_src = key->host<T>() + i * mKvNumHead * mHeadDim + kvHead * mHeadDim;
             int out_index = (mPastLength + i) / hP;
             int in_index = (mPastLength + i) % hP;
-            for (int j = 0; j < mHeadDim; j++) {
-                key_dst[out_index * stride0 + (j / lP) * stride1 + in_index * lP + (j % lP)] = key_src[j];
+            T* keyDstRow = key_dst + out_index * stride0 + in_index * lP;
+            int j = 0;
+            int jg = 0;
+            // Each lP-run of dims is contiguous in both src and dst
+            for (; j + lP <= mHeadDim; j += lP, ++jg) {
+                ::memcpy(keyDstRow + jg * stride1, key_src + j, lP * sizeof(T));
+            }
+            for (int jl = 0; j < mHeadDim; ++j, ++jl) {
+                keyDstRow[jg * stride1 + jl] = key_src[j];
             }
         }
     }
@@ -972,12 +979,17 @@ void CPUKVCacheManager::ProcessValue(const Tensor* value, int seqLen, int kvHead
                     memset(tilePtr + g * weightStride1, 0, weightStride2 * sizeof(T));
                 }
             }
-            for (int j = 0; j < mHeadDim; j++) {
-                int idxBase = (j / hP) * weightStride1 + (j % hP) * lP;
-                int out_index = j / hP;
-                int in_index = j % hP;
-                // value_dst[out_index * stride0 + seqLenOut * stride1 + in_index * lP + seqLenIn] = value_src[j];
-                value_dst[idxBase + idxInner] = loadValue(i, channelBase + j);
+            int j = 0;
+            const int fullGroups = mHeadDim / hP;
+            for (int g = 0; g < fullGroups; ++g) {
+                T* dstGroup = value_dst + g * weightStride1 + idxInner;
+                for (int c = 0; c < hP; ++c, ++j) {
+                    // value_dst[g * stride0 + seqLenOut * stride1 + c * lP + seqLenIn] = value_src[j]
+                    dstGroup[c * lP] = loadValue(i, channelBase + j);
+                }
+            }
+            for (; j < mHeadDim; ++j) {
+                value_dst[(j / hP) * weightStride1 + (j % hP) * lP + idxInner] = loadValue(i, channelBase + j);
             }
         }
     }
@@ -1016,11 +1028,28 @@ void CPUKVCacheManager::onUpdateKV(const Tensor* key, const Tensor* value, int a
     auto core = static_cast<CPUBackend*>(mBackend)->functions();
     int seq_len = add;
     int updateThreadNum = 1;
-    if (core->kvUpdateConcurrent && mBytes == 4 && mKeyQuantMode == KVQuantMode::None &&
-        mValueQuantMode == KVQuantMode::None) {
-        updateThreadNum = mThreadNum;
+    // Float KV append writes are RFO/latency-bound (a new row touches one cache line per
+    // lP/hP group), not compute-bound, so parallelizing over heads hides the latency.
+    if (mKeyQuantMode == KVQuantMode::None && mValueQuantMode == KVQuantMode::None &&
+        ((core->kvUpdateConcurrent && mBytes == 4) || mBytes == 2)) {
+        updateThreadNum = mBytes == 2 ? ALIMAX(1, ALIMIN(mThreadNum, core->perfCoreNumber)) : mThreadNum;
     }
     auto divPart = UP_DIV(mKvNumHead, updateThreadNum);
+    if (updateThreadNum == 1) {
+        // Skip the thread-pool dispatch for the serial path: per-head work is a few
+        // hundred bytes, and enqueue/join overhead dominates it.
+        for (int h = 0; h < mKvNumHead; ++h) {
+            if (mBytes == 2) {
+                ProcessKey<FLOAT16_T>(key, seq_len, h);
+                ProcessValue<FLOAT16_T>(value, seq_len, h);
+            } else {
+                ProcessKey<float>(key, seq_len, h);
+                ProcessValue<float>(value, seq_len, h);
+            }
+        }
+        mPastLength += seq_len;
+        return;
+    }
     MNN_CONCURRENCY_BEGIN(tId, updateThreadNum) {
         auto remainPart = mKvNumHead - tId * divPart;
         if (remainPart > 0) {

@@ -48,6 +48,9 @@ private:
     std::atomic<bool> mStop = {false};
 
     std::vector<std::pair<TASK*, std::vector<std::atomic_bool*>>> mTasks;
+    // Aligned blocks owning the completion flags in mTasks; flags sit at
+    // 128-byte strides inside (see kFlagStride in ThreadPool.cpp).
+    std::vector<void*> mFlagBlocks;
     std::condition_variable mCondition;
     std::mutex mQueueMutex;
 

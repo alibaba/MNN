@@ -313,10 +313,6 @@ bool MNNAsyLocalQuantInfo_EP16_FP16(float* scale, float* bias, float* qscale, fl
             auto qbiasV1 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min1), diff1), _128f));
             auto qbiasV2 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min2), diff2), _128f));
             auto qbiasV3 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min3), diff3), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
-            auto biasV1 = vaddq_f32(vdivq_f32(vmulq_f32(diff1, _128f), _255f), min1);
-            auto biasV2 = vaddq_f32(vdivq_f32(vmulq_f32(diff2, _128f), _255f), min2);
-            auto biasV3 = vaddq_f32(vdivq_f32(vmulq_f32(diff3, _128f), _255f), min3);
 
             auto _0bic = vclezq_f32(diff0);
             auto _1bic = vclezq_f32(diff1);
@@ -338,10 +334,10 @@ bool MNNAsyLocalQuantInfo_EP16_FP16(float* scale, float* bias, float* qscale, fl
             scaleV2 = vbslq_f32(_2bic, _0f, scaleV2);
             scaleV3 = vbslq_f32(_3bic, _0f, scaleV3);
 
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
-            biasV1 = vbslq_f32(_1bic, max1, biasV1);
-            biasV2 = vbslq_f32(_2bic, max2, biasV2);
-            biasV3 = vbslq_f32(_3bic, max3, biasV3);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
+            auto biasV1 = vbslq_f32(_1bic, max1, vnegq_f32(vmulq_f32(qbiasV1, scaleV1)));
+            auto biasV2 = vbslq_f32(_2bic, max2, vnegq_f32(vmulq_f32(qbiasV2, scaleV2)));
+            auto biasV3 = vbslq_f32(_3bic, max3, vnegq_f32(vmulq_f32(qbiasV3, scaleV3)));
 
             vst1q_f32(qscale + qind, qscaleV0);
             vst1q_f32(qscale + qind + 4, qscaleV1);
@@ -399,8 +395,6 @@ bool MNNAsyLocalQuantInfo_EP16_FP16(float* scale, float* bias, float* qscale, fl
             
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
             auto qbiasV1 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min1), diff1), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
-            auto biasV1 = vaddq_f32(vdivq_f32(vmulq_f32(diff1, _128f), _255f), min1);
 
             auto _0bic = vclezq_f32(diff0);
             auto _1bic = vclezq_f32(diff1);
@@ -414,8 +408,8 @@ bool MNNAsyLocalQuantInfo_EP16_FP16(float* scale, float* bias, float* qscale, fl
             scaleV0 = vbslq_f32(_0bic, _0f, scaleV0);
             scaleV1 = vbslq_f32(_1bic, _0f, scaleV1);
 
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
-            biasV1 = vbslq_f32(_1bic, max1, biasV1);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
+            auto biasV1 = vbslq_f32(_1bic, max1, vnegq_f32(vmulq_f32(qbiasV1, scaleV1)));
 
             vst1q_f32(qscale + qind, qscaleV0);
             vst1q_f32(qscale + qind + 4, qscaleV1);
@@ -447,14 +441,13 @@ bool MNNAsyLocalQuantInfo_EP16_FP16(float* scale, float* bias, float* qscale, fl
             auto scaleV0 = vdivq_f32(diff0, _255f);
             
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
 
             auto _0bic = vclezq_f32(diff0);
 
             qscaleV0 = vbslq_f32(_0bic, _0f, qscaleV0);
             qbiasV0 = vrndaq_f32(vbslq_f32(_0bic, _0f, qbiasV0));
             scaleV0 = vbslq_f32(_0bic, _0f, scaleV0);
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
 
             vst1q_f32(qscale + qind, qscaleV0);
 
@@ -482,7 +475,6 @@ bool MNNAsyLocalQuantInfo_EP16_FP16(float* scale, float* bias, float* qscale, fl
             auto scaleV0 = vdivq_f32(diff0, _255f);
             
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
 
             auto _0bic = vclezq_f32(diff0);
 
@@ -492,7 +484,7 @@ bool MNNAsyLocalQuantInfo_EP16_FP16(float* scale, float* bias, float* qscale, fl
 
             scaleV0 = vbslq_f32(_0bic, _0f, scaleV0);
 
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
 
             vst1q_lane_f32(qscale + qind, qscaleV0, 0);
 
@@ -567,9 +559,6 @@ bool MNNAsyLocalQuantInfo_EP12_FP16(float* scale, float* bias, float* qscale, fl
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
             auto qbiasV1 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min1), diff1), _128f));
             auto qbiasV2 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min2), diff2), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
-            auto biasV1 = vaddq_f32(vdivq_f32(vmulq_f32(diff1, _128f), _255f), min1);
-            auto biasV2 = vaddq_f32(vdivq_f32(vmulq_f32(diff2, _128f), _255f), min2);
 
             auto _0bic = vclezq_f32(diff0);
             auto _1bic = vclezq_f32(diff1);
@@ -587,9 +576,9 @@ bool MNNAsyLocalQuantInfo_EP12_FP16(float* scale, float* bias, float* qscale, fl
             scaleV1 = vbslq_f32(_1bic, _0f, scaleV1);
             scaleV2 = vbslq_f32(_2bic, _0f, scaleV2);
 
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
-            biasV1 = vbslq_f32(_1bic, max1, biasV1);
-            biasV2 = vbslq_f32(_2bic, max2, biasV2);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
+            auto biasV1 = vbslq_f32(_1bic, max1, vnegq_f32(vmulq_f32(qbiasV1, scaleV1)));
+            auto biasV2 = vbslq_f32(_2bic, max2, vnegq_f32(vmulq_f32(qbiasV2, scaleV2)));
 
             vst1q_f32(qscale + qind, qscaleV0);
             vst1q_f32(qscale + qind + 4, qscaleV1);
@@ -643,8 +632,6 @@ bool MNNAsyLocalQuantInfo_EP12_FP16(float* scale, float* bias, float* qscale, fl
             
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
             auto qbiasV1 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min1), diff1), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
-            auto biasV1 = vaddq_f32(vdivq_f32(vmulq_f32(diff1, _128f), _255f), min1);
 
             auto _0bic = vclezq_f32(diff0);
             auto _1bic = vclezq_f32(diff1);
@@ -658,8 +645,8 @@ bool MNNAsyLocalQuantInfo_EP12_FP16(float* scale, float* bias, float* qscale, fl
             scaleV0 = vbslq_f32(_0bic, _0f, scaleV0);
             scaleV1 = vbslq_f32(_1bic, _0f, scaleV1);
 
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
-            biasV1 = vbslq_f32(_1bic, max1, biasV1);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
+            auto biasV1 = vbslq_f32(_1bic, max1, vnegq_f32(vmulq_f32(qbiasV1, scaleV1)));
 
             vst1q_f32(qscale + qind, qscaleV0);
             vst1q_f32(qscale + qind + 4, qscaleV1);
@@ -691,14 +678,13 @@ bool MNNAsyLocalQuantInfo_EP12_FP16(float* scale, float* bias, float* qscale, fl
             auto scaleV0 = vdivq_f32(diff0, _255f);
             
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
 
             auto _0bic = vclezq_f32(diff0);
 
             qscaleV0 = vbslq_f32(_0bic, _0f, qscaleV0);
             qbiasV0 = vrndaq_f32(vbslq_f32(_0bic, _0f, qbiasV0));
             scaleV0 = vbslq_f32(_0bic, _0f, scaleV0);
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
 
             vst1q_f32(qscale + qind, qscaleV0);
 
@@ -726,7 +712,6 @@ bool MNNAsyLocalQuantInfo_EP12_FP16(float* scale, float* bias, float* qscale, fl
             auto scaleV0 = vdivq_f32(diff0, _255f);
             
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
 
             auto _0bic = vclezq_f32(diff0);
 
@@ -736,7 +721,7 @@ bool MNNAsyLocalQuantInfo_EP12_FP16(float* scale, float* bias, float* qscale, fl
 
             scaleV0 = vbslq_f32(_0bic, _0f, scaleV0);
 
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
 
             vst1q_lane_f32(qscale + qind, qscaleV0, 0);
 
@@ -813,9 +798,6 @@ bool MNNAsyLocalQuantInfo_EP10_FP16(float* scale, float* bias, float* qscale, fl
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
             auto qbiasV1 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min1), diff1), _128f));
             auto qbiasV2 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min2), diff2), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
-            auto biasV1 = vaddq_f32(vdivq_f32(vmulq_f32(diff1, _128f), _255f), min1);
-            auto biasV2 = vaddq_f32(vdivq_f32(vmulq_f32(diff2, _128f), _255f), min2);
 
             auto _0bic = vclezq_f32(diff0);
             auto _1bic = vclezq_f32(diff1);
@@ -833,9 +815,9 @@ bool MNNAsyLocalQuantInfo_EP10_FP16(float* scale, float* bias, float* qscale, fl
             scaleV1 = vbslq_f32(_1bic, _0f, scaleV1);
             scaleV2 = vbslq_f32(_2bic, _0f, scaleV2);
 
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
-            biasV1 = vbslq_f32(_1bic, max1, biasV1);
-            biasV2 = vbslq_f32(_2bic, max2, biasV2);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
+            auto biasV1 = vbslq_f32(_1bic, max1, vnegq_f32(vmulq_f32(qbiasV1, scaleV1)));
+            auto biasV2 = vbslq_f32(_2bic, max2, vnegq_f32(vmulq_f32(qbiasV2, scaleV2)));
 
             vst1q_f32(qscale + qind, qscaleV0);
             vst1q_f32(qscale + qind + 4, qscaleV1);
@@ -889,8 +871,6 @@ bool MNNAsyLocalQuantInfo_EP10_FP16(float* scale, float* bias, float* qscale, fl
             
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
             auto qbiasV1 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min1), diff1), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
-            auto biasV1 = vaddq_f32(vdivq_f32(vmulq_f32(diff1, _128f), _255f), min1);
 
             auto _0bic = vclezq_f32(diff0);
             auto _1bic = vclezq_f32(diff1);
@@ -904,8 +884,8 @@ bool MNNAsyLocalQuantInfo_EP10_FP16(float* scale, float* bias, float* qscale, fl
             scaleV0 = vbslq_f32(_0bic, _0f, scaleV0);
             scaleV1 = vbslq_f32(_1bic, _0f, scaleV1);
 
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
-            biasV1 = vbslq_f32(_1bic, max1, biasV1);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
+            auto biasV1 = vbslq_f32(_1bic, max1, vnegq_f32(vmulq_f32(qbiasV1, scaleV1)));
 
             vst1q_f32(qscale + qind, qscaleV0);
             vst1q_f32(qscale + qind + 4, qscaleV1);
@@ -937,14 +917,13 @@ bool MNNAsyLocalQuantInfo_EP10_FP16(float* scale, float* bias, float* qscale, fl
             auto scaleV0 = vdivq_f32(diff0, _255f);
             
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
 
             auto _0bic = vclezq_f32(diff0);
 
             qscaleV0 = vbslq_f32(_0bic, _0f, qscaleV0);
             qbiasV0 = vrndaq_f32(vbslq_f32(_0bic, _0f, qbiasV0));
             scaleV0 = vbslq_f32(_0bic, _0f, scaleV0);
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
 
             vst1q_f32(qscale + qind, qscaleV0);
 
@@ -972,7 +951,6 @@ bool MNNAsyLocalQuantInfo_EP10_FP16(float* scale, float* bias, float* qscale, fl
             auto scaleV0 = vdivq_f32(diff0, _255f);
             
             auto qbiasV0 = vnegq_f32(vaddq_f32(vdivq_f32(vmulq_f32(_255f, min0), diff0), _128f));
-            auto biasV0 = vaddq_f32(vdivq_f32(vmulq_f32(diff0, _128f), _255f), min0);
 
             auto _0bic = vclezq_f32(diff0);
 
@@ -982,7 +960,7 @@ bool MNNAsyLocalQuantInfo_EP10_FP16(float* scale, float* bias, float* qscale, fl
 
             scaleV0 = vbslq_f32(_0bic, _0f, scaleV0);
 
-            biasV0 = vbslq_f32(_0bic, max0, biasV0);
+            auto biasV0 = vbslq_f32(_0bic, max0, vnegq_f32(vmulq_f32(qbiasV0, scaleV0)));
 
             vst1q_lane_f32(qscale + qind, qscaleV0, 0);
 

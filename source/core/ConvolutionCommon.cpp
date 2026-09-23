@@ -556,7 +556,8 @@ int ConvolutionCommon::getQuantBitFromExternalFile(const Op* op) {
     }
     return 0;
 }
-std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op* op, Backend* backend, bool forceFloat, bool forceInt8, void* weightPtr) {
+std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op* op, Backend* backend, bool forceFloat,
+                                                                    bool forceInt8, void* weightPtr, bool allowFp16Alpha) {
     auto conv = op->main_as_Convolution2D();
     auto quan = conv->quanParameter();
     std::shared_ptr<ConvolutionCommon::Int8Common> result(new Int8Common);
@@ -659,8 +660,12 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
             ::memcpy(result->alpha.get(), alpha_ptr, alpha_size * sizeof(float));
         }
     }
-    // Sparse / forceFloat paths below need fp32 alpha; lazy-fill from alphaHalf if disk was fp16.
-    if (nullptr == alpha_ptr && result->alphaHalf.get() != nullptr) {
+    const bool cpuFamily = backend && (backend->type() == MNN_FORWARD_CPU || backend->type() == MNN_FORWARD_CPU_EXTENSION);
+    if (nullptr == alpha_ptr && result->alphaHalf.get() != nullptr && !cpuFamily && !allowFp16Alpha) {
+        alpha_ptr = result->getAlphaFloat();
+    }
+    // Sparse paths below need fp32 alpha; lazy-fill from alphaHalf if disk was fp16.
+    if ((quan->index() != nullptr || 2 == quan->type()) && nullptr == alpha_ptr && result->alphaHalf.get() != nullptr) {
         alpha_ptr = result->getAlphaFloat();
     }
     if (quan->index() != nullptr) {
@@ -757,17 +762,19 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         }
         int outputCount = 0;
         if (result->asymmetric) {
-            outputCount   = result->alpha.size() / 2;
+            outputCount   = result->alphaSize / 2;
             // clampMin is minVal in asymmetric quant, clampMin = -(2^(bit))
             // and old version clampMin is -128
             float clampMin = quan->aMin() == 0 ? -128 : quan->aMin();
             if (clampMin < 0) {
+                // The fold runs in fp32; force the lazy fill when the disk form is fp16.
+                result->getAlphaFloat();
                 for (int o = 0; o < outputCount; ++o) {
                     result->alpha.get()[2 * o] = result->alpha.get()[2 * o] - clampMin * result->alpha.get()[2 * o + 1];
                 }
             }
         } else {
-            outputCount   = result->alpha.size(); // backward compability with previous symmetric quantization
+            outputCount   = result->alphaSize; // backward compability with previous symmetric quantization
         }
         if (!quan->has_scaleInt()) {
             float extraFactor = quan->quantScale();
@@ -775,6 +782,8 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
             if (oldType4) {
                 extraFactor = 1.0f;
             } else if (extraFactor != 1.0f) {
+                // Force the lazy fp32 fill when the disk form is fp16.
+                result->getAlphaFloat();
                 for (int o=0; o<result->alpha.size(); ++o) {
                     result->alpha.get()[o] *= extraFactor;
                 }
@@ -917,15 +926,17 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Op* op, std::shared_ptr
     if (conv2d->bias()) {
         ::memcpy(bias, conv2d->bias()->data(), outputCount * sizeof(float));
     }
-    if ((conv2d->quanParameter() && conv2d->quanParameter()->alpha()) || quanCommon->alpha.get()) {
+    if ((conv2d->quanParameter() && conv2d->quanParameter()->alpha()) || quanCommon->alpha.get() ||
+        quanCommon->alphaHalf.get()) {
         int quantCount;
         const float* alpha = nullptr;
         if (conv2d->quanParameter() && conv2d->quanParameter()->alpha()) {
             quantCount    = conv2d->quanParameter()->alpha()->size();
             alpha = conv2d->quanParameter()->alpha()->data();
         } else {
+            // Forces the lazy fp32 fill when the disk form is fp16.
+            alpha        = quanCommon->getAlphaFloat();
             quantCount   = quanCommon->alpha.size();
-            alpha = quanCommon->alpha.get();
         }
 
         if (false == weightAsy) { // symmetric quant

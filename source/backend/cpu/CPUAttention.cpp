@@ -450,6 +450,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         insertLen = (int)mMeta->add;
     }
 
+    int blockCap = MNN_FLASH_ATTENTION_BLOCK_SIZE;
     if (mUseFlashAttention) {
         // Decode (1 new token) has no causal-mask waste, so a wider kv block amortizes
         // per-block fixed costs (softmax setup, PV prologue, flash rescale). Single-thread
@@ -465,7 +466,6 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         // SME/NEON dispatch: with compat NEON threads in play the wide block gave no
         // stable fp32 gain, but on the all-SME2 fp32 path it wins at every kv length
         // (0.6B decode kv512/1024/2048 t4: 0.084/0.145/0.296 -> 0.060/0.103/0.259 ms).
-        int blockCap = MNN_FLASH_ATTENTION_BLOCK_SIZE;
         const bool wideBlockKv = mValueQuantMode == KVQuantMode::None &&
                                  (mKeyQuantMode == KVQuantMode::None || mKeyQuantMode == KVQuantMode::Int8);
         if (insertLen == 1 && wideBlockKv) {
@@ -546,29 +546,49 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     }
 #endif
 
-    // Temporary tensors for intermediate results
-    std::shared_ptr<Tensor> softmMaxQ(Tensor::createDevice<int32_t>(
-        {mThreadNum, qRows, ROUND_UP(mKvBlockSize, mPack)})); // [mKvBlockSize/mPack, qRows, mPack ]
-    std::shared_ptr<Tensor> newPackQK;
+    // Temporary tensors for intermediate results. Decode (single inserted token on the
+    // flash path) caches them in members across calls: the block cap bounds every shape
+    // by a per-phase constant, so steady-state tokens re-acquire the same allocation
+    // (originMem fast path in CPUBackend::allocBuffer) instead of paying static-pool
+    // alloc/free five times per layer per token. Other shapes keep exact per-call
+    // buffers so prefill-sized scratch is not pinned for the session. The bound only
+    // inflates the per-thread regions (stride(0)); inner layouts use explicit pitches.
+    const bool cacheScratch = mUseFlashAttention && seqLen == 1;
+    const int scratchKvBlock = cacheScratch ? blockCap : mKvBlockSize;
+    // kvSplitsPerUnit <= min(mThreadNum, kvBlockNums) and kvBlockNums <= UP_DIV(maxLen, blockCap).
+    const int scratchKvSplits = cacheScratch ? ALIMIN(mThreadNum, UP_DIV(maxLen, blockCap)) : kvSplitsPerUnit;
+    std::shared_ptr<Tensor> softmMaxQLocal, newPackQKLocal, tempQKBlockLocal, kvSplitPartialsLocal,
+        pvSubBlockScratchLocal;
+    std::shared_ptr<Tensor>& softmMaxQ        = cacheScratch ? mSoftmMaxQ : softmMaxQLocal;
+    std::shared_ptr<Tensor>& newPackQK        = cacheScratch ? mNewPackQK : newPackQKLocal;
+    std::shared_ptr<Tensor>& mTempQKBlock     = cacheScratch ? mQKBlockScratch : tempQKBlockLocal;
+    std::shared_ptr<Tensor>& kvSplitPartials  = cacheScratch ? mKvSplitPartials : kvSplitPartialsLocal;
+    std::shared_ptr<Tensor>& pvSubBlockScratch = cacheScratch ? mPvSubBlockScratch : pvSubBlockScratchLocal;
+    auto ensureScratch = [&](std::shared_ptr<Tensor>& holder, std::vector<int> shape, halide_type_t type) {
+        if (holder.get() != nullptr && holder->getType() == type && holder->shape() == shape) {
+            return;
+        }
+        holder.reset(Tensor::createDevice(shape, type));
+    };
+    ensureScratch(softmMaxQ, {mThreadNum, qRows, ROUND_UP(scratchKvBlock, mPack)}, halide_type_of<int32_t>());
     if (mValueQuantMode != KVQuantMode::Int8) {
-        newPackQK.reset(Tensor::createDevice<int8_t>({mThreadNum, eP * ROUND_UP(mKvBlockSize, lP) * mBytes}));
+        ensureScratch(newPackQK, {mThreadNum, eP * ROUND_UP(scratchKvBlock, lP) * mBytes}, halide_type_of<int8_t>());
     } else {
-        newPackQK.reset(
-            Tensor::createDevice<int8_t>({mThreadNum, eP8 * ROUND_UP(MNN_FLASH_ATTENTION_BLOCK_SIZE, lP8)}));
+        ensureScratch(newPackQK,
+                      {mThreadNum, eP8 * ROUND_UP(MNN_FLASH_ATTENTION_BLOCK_SIZE, lP8)}, halide_type_of<int8_t>());
     }
-    std::shared_ptr<Tensor> mTempQKBlock(
-        Tensor::createDevice<int8_t>({mThreadNum, UP_DIV(mKvBlockSize, mPack), qRows, mPack * mBytes}));
-    std::shared_ptr<Tensor> kvSplitPartials;
+    ensureScratch(mTempQKBlock, {mThreadNum, UP_DIV(scratchKvBlock, mPack), qRows, mPack * mBytes},
+                  halide_type_of<int8_t>());
     if (kvSplitsPerUnit > 1) {
         // Per (unit, split) item: packed output tile + runningMax/runningSum per row
         int partialSlotBytes = UP_DIV(mHeadDim, mPack) * qRows * mPack * mBytes + 2 * qRows * sizeof(float);
-        kvSplitPartials.reset(Tensor::createDevice<int8_t>({headUnitCount * kvSplitsPerUnit * partialSlotBytes}));
+        ensureScratch(kvSplitPartials, {headUnitCount * scratchKvSplits * partialSlotBytes}, halide_type_of<int8_t>());
     }
-    std::shared_ptr<Tensor> pvSubBlockScratch;
     if (mValueQuantMode != KVQuantMode::Int8 && mKvBlockSize > (int)mKVCacheManager->getFlashAttentionBlockKv()) {
         // Wide logical block over smaller physical V blocks: per-sub-block PV tile to accumulate
         // from (packedMatMul overwrites C, there is no accumulate mode). Same layout as qkvPacked.
-        pvSubBlockScratch.reset(Tensor::createDevice<int8_t>({mThreadNum, UP_DIV(mHeadDim, mPack) * qRows * mPack * mBytes}));
+        ensureScratch(pvSubBlockScratch, {mThreadNum, UP_DIV(mHeadDim, mPack) * qRows * mPack * mBytes},
+                      halide_type_of<int8_t>());
     }
     if (!backend()->onAcquireBuffer(softmMaxQ.get(), Backend::STATIC)) {
         return OUT_OF_MEMORY;
@@ -787,6 +807,11 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         auto packedMatMul = useNeonMatMul ? gcore->MNNPackedMatMulWithSme2PackedB : gcore->MNNPackedMatMul;
         auto packedMatMulRemain =
             useNeonMatMul ? gcore->MNNPackedMatMulRemainWithSme2PackedB : gcore->MNNPackedMatMulRemain;
+        // Wide tiles regress when decode workers exceed the available performance cores.
+        if (useNeonMatMul && seqLen == 1 && mThreadNum <= gcore->perfCoreNumber &&
+            gcore->MNNPackedMatMulRemainWithSme2PackedBWide != nullptr) {
+            packedMatMulRemain = gcore->MNNPackedMatMulRemainWithSme2PackedBWide;
+        }
 #else
         const int headIndex = tId * numHeadDiv * qHeadsPerUnit;
         const int headsToCompute = headIndex < mQNumHead ? ALIMIN(numHeadDiv * qHeadsPerUnit, mQNumHead - headIndex) : 0;
@@ -1512,14 +1537,18 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             }
         }
         MNN_CONCURRENCY_END();
-        backend()->onReleaseBuffer(kvSplitPartials.get(), Backend::STATIC);
+        if (!cacheScratch) {
+            backend()->onReleaseBuffer(kvSplitPartials.get(), Backend::STATIC);
+        }
     }
 
-    backend()->onReleaseBuffer(softmMaxQ.get(), Backend::STATIC);
-    backend()->onReleaseBuffer(newPackQK.get(), Backend::STATIC);
-    backend()->onReleaseBuffer(mTempQKBlock.get(), Backend::STATIC);
-    if (pvSubBlockScratch.get()) {
-        backend()->onReleaseBuffer(pvSubBlockScratch.get(), Backend::STATIC);
+    if (!cacheScratch) {
+        backend()->onReleaseBuffer(softmMaxQ.get(), Backend::STATIC);
+        backend()->onReleaseBuffer(newPackQK.get(), Backend::STATIC);
+        backend()->onReleaseBuffer(mTempQKBlock.get(), Backend::STATIC);
+        if (pvSubBlockScratch.get()) {
+            backend()->onReleaseBuffer(pvSubBlockScratch.get(), Backend::STATIC);
+        }
     }
 
     if (!mKVCache) {
