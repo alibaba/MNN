@@ -16,6 +16,7 @@
 #include "backend/cpu/CPUPool.hpp"
 #include "backend/cpu/BinaryUtils.hpp"
 #include "Vec8.hpp"
+#include "backend/cpu/compute/Deconv2x2.hpp"
 #define PACK_UNIT 8
 #define PACK PACK_UNIT
 #define FLOAT float
@@ -23,6 +24,11 @@ using Vec = Vec8;
 #include "backend/cpu/GridSampler.hpp"
 
 extern "C" {
+void _AVX_MNNDeconv2x2Post(const float* src, float* dst, const float* bias,
+                          const float* post, const int* parameters) {
+    MNN::deconv2x2Post<Vec8, 8>(src, dst, bias, post, parameters);
+}
+
 void _AVX_MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
 void _AVX_MNNAddC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
 void _AVX_MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber, size_t biasNumber);

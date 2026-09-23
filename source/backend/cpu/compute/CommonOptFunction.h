@@ -492,6 +492,10 @@ struct CoreFunctions {
     void (*MNNCopyC4WithStride)(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
     void (*MNNAddC4WithStride)(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
 
+    // FP32, 2x2 kernel and stride, no padding, full output coverage.
+    void (*MNNDeconv2x2Post)(const float* src, float* dst, const float* bias,
+                            const float* post, const int* parameters) = nullptr;
+
     typedef void (*WinoTransPackFunc)(float* srcBlock, float* dstStart, size_t dstStep);
     WinoTransPackFunc (*chooseWinoSourceTransformPack)(int k, int w, int ePack, int lPack, int packCUnit);
 

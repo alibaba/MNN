@@ -16,6 +16,8 @@
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "cpu_id.h"
+#include "backend/cpu/compute/Deconv2x2.hpp"
+#include "math/Vec.hpp"
 #include "sse/FunctionSummary.hpp"
 // https://stackoverflow.com/a/11230437
 
@@ -86,6 +88,7 @@ void MNNFunctionInit() {
     cpuFlags = _MNNApplyCpuTarget(cpuFlags);
     auto coreFunction = MNN::MNNGetCoreFunctions();
     if (cpuFlags & libyuv::kCpuHasSSSE3) {
+        coreFunction->MNNDeconv2x2Post = MNN::deconv2x2Post<MNN::Math::Vec<float, 4>, 4>;
         coreFunction->MNNGetMatMulPackMode = _SSEMNNGetMatMulPackMode;
         coreFunction->MNNPackedMatMul       = _SSE_MNNPackedMatMul;
         coreFunction->MNNPackedMatMulRemain = _SSE_MNNPackedMatMulRemain;
