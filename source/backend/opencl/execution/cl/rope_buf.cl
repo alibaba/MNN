@@ -12,6 +12,10 @@
 
 #define C4_OFFSET(token, channel, seqLen) (((channel) / 4) * (seqLen) * 4 + (token) * 4 + ((channel) % 4))
 
+// Capacity of the norm-reduction scratch below. The host clamps normSplit to
+// kRopeNormSplitMax (RopeBufExecution.cpp); keep it <= this value.
+#define NORM_SPLIT_MAX 32
+
 __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global const FLOAT* k, __global const FLOAT* cos,
                        __global const FLOAT* sin, __global FLOAT* q_out, __global FLOAT* k_out,
                        __private const int outerSize, __private const int workDim, __private const int ropeHalfD,
@@ -32,9 +36,14 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
 
     const int fullHead = numHead + kvNumHead;
 #if defined(Q_NORM) || defined(K_NORM)
-    if (x >= 1 || y >= outerSize || z >= fullHead) {
+    if (y >= outerSize || z >= fullHead) {
         return;
     }
+    // The host splits the head dimension across `split` work-items so decode
+    // (outerSize==1, fullHead~24) is not stuck at ~24 lanes; the RMS-norm pass
+    // below is redundantly computed per split but stays in L1. split==1
+    // reproduces the old single-lane behaviour exactly.
+    const int split = global_size_dim0;
 #else
     if (x >= workDim || y >= outerSize || z >= fullHead) {
         return;
@@ -49,6 +58,50 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
                                       (k_out + (y * kvNumHead + z - numHead) * D);
 
     float var = 0.0f;
+#if defined(NORM_SPLIT_REDUCE) && (defined(Q_NORM) || defined(K_NORM))
+    // Each split sums its own slice of the head, one local-memory reduction
+    // shares the total. Host pins LWS.x == split so all splits of one head
+    // sit in the same workgroup, and z is workgroup-uniform, so isQ is too
+    // and the barrier never diverges.
+    __local float sNorm[NORM_SPLIT_MAX];
+    {
+        // Stride by split so the workgroup's lanes read consecutive channels
+        // at each step (coalesced), instead of block-wise slices 16B apart.
+#ifdef Q_NORM
+        if (isQ) {
+            float part = 0.0f;
+            for (int i = x; i < D; i += split) {
+                float val = (float)in_ptr[C4_OFFSET(y, inBase + i, outerSize)];
+                part += val * val;
+            }
+            sNorm[x] = part;
+        }
+#endif
+#ifdef K_NORM
+        if (!isQ) {
+            float part = 0.0f;
+            for (int i = x; i < D; i += split) {
+                float val = (float)in_ptr[C4_OFFSET(y, inBase + i, outerSize)];
+                part += val * val;
+            }
+            sNorm[x] = part;
+        }
+#endif
+        barrier(CLK_LOCAL_MEM_FENCE);
+        float total = 0.0f;
+        for (int s = 0; s < split; ++s) {
+            total += sNorm[s];
+        }
+#if defined(Q_NORM) && defined(K_NORM)
+        const float eps = isQ ? qEps : kEps;
+#elif defined(Q_NORM)
+        const float eps = qEps;
+#else
+        const float eps = kEps;
+#endif
+        var = 1.0f / sqrt(total / D + eps);
+    }
+#else
 #ifdef Q_NORM
     if (isQ) {
         for (int i = 0; i < D; ++i) {
@@ -67,9 +120,10 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
         var = 1.0f / sqrt(var / D + kEps);
     }
 #endif
+#endif
 
 #if defined(Q_NORM) || defined(K_NORM)
-    for (int i = 0; i < ropeHalfD; ++i) {
+    for (int i = x; i < ropeHalfD; i += split) {
         const int cosIndex = y * (2 * ropeHalfD) + i;
         FLOAT cEven = cos[cosIndex];
         FLOAT cOdd = cos[cosIndex + ropeHalfD];
@@ -96,7 +150,9 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
         out_ptr[i] = v0;
         out_ptr[i + ropeHalfD] = v1;
     }
-    for (int i = 2 * ropeHalfD; i < D; ++i) {
+    const int tailN = D - 2 * ropeHalfD;
+    for (int t = x; t < tailN; t += split) {
+        const int i = 2 * ropeHalfD + t;
         FLOAT value = in_ptr[C4_OFFSET(y, inBase + i, outerSize)];
 #ifdef Q_NORM
         if (isQ) {
