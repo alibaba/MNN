@@ -32,9 +32,16 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
 
     const int fullHead = numHead + kvNumHead;
 #if defined(Q_NORM) || defined(K_NORM)
-    if (x >= 1 || y >= outerSize || z >= fullHead) {
+    if (y >= outerSize || z >= fullHead) {
         return;
     }
+    // The host splits the head dimension across `split` work-items so decode
+    // (outerSize==1, fullHead~24) is not stuck at ~24 lanes; the RMS-norm pass
+    // below is redundantly computed per split but stays in L1. split==1
+    // reproduces the old single-lane behaviour exactly.
+    const int split = global_size_dim0;
+    const int chunk0 = x * ropeHalfD / split;
+    const int chunk1 = (x + 1) * ropeHalfD / split;
 #else
     if (x >= workDim || y >= outerSize || z >= fullHead) {
         return;
@@ -69,7 +76,7 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
 #endif
 
 #if defined(Q_NORM) || defined(K_NORM)
-    for (int i = 0; i < ropeHalfD; ++i) {
+    for (int i = chunk0; i < chunk1; ++i) {
         const int cosIndex = y * (2 * ropeHalfD) + i;
         FLOAT cEven = cos[cosIndex];
         FLOAT cOdd = cos[cosIndex + ropeHalfD];
@@ -96,7 +103,9 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global cons
         out_ptr[i] = v0;
         out_ptr[i + ropeHalfD] = v1;
     }
-    for (int i = 2 * ropeHalfD; i < D; ++i) {
+    const int tailN = D - 2 * ropeHalfD;
+    for (int t = x * tailN / split; t < (x + 1) * tailN / split; ++t) {
+        const int i = 2 * ropeHalfD + t;
         FLOAT value = in_ptr[C4_OFFSET(y, inBase + i, outerSize)];
 #ifdef Q_NORM
         if (isQ) {

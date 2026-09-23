@@ -165,7 +165,16 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     if (mQGamma || mKGamma) {
-        mGlobalWorkSize = {1, static_cast<uint32_t>(outerSize), static_cast<uint32_t>(fullHead)};
+        // The norm kernel used to run one work-item per (token, head), which
+        // leaves decode (outerSize==1) with only fullHead lanes on the GPU.
+        // Split the head dimension when the grid is small; prefill keeps the
+        // old shape so the redundant per-split norm pass costs nothing there.
+        int normSplit = 1;
+        if (outerSize * fullHead < 2048) {
+            normSplit = std::min(16, std::max(ropeHalfD, 1));
+        }
+        mGlobalWorkSize = {static_cast<uint32_t>(normSplit), static_cast<uint32_t>(outerSize),
+                           static_cast<uint32_t>(fullHead)};
     } else {
         mGlobalWorkSize = {static_cast<uint32_t>(workDim), static_cast<uint32_t>(outerSize),
                            static_cast<uint32_t>(fullHead)};
