@@ -12,6 +12,10 @@
 #include "TestUtils.h"
 
 using namespace MNN::Express;
+
+// Direct-kernel regression checks, compiled out on non-RVV or shared builds.
+bool MNNTestRVVBitcopyFunctions();
+
 class RasrerTest : public MNNTestCase {
 public:
     virtual ~RasrerTest() = default;
@@ -134,6 +138,10 @@ public:
         return true;
     }
     virtual bool run(int precision) {
+        if (MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_CPU && !MNNTestRVVBitcopyFunctions()) {
+            FUNC_PRINT(1);
+            return false;
+        }
         ExecutorScope::Current()->lazyEval = false;
         auto res = _run(precision, false);
         if (!res) {
