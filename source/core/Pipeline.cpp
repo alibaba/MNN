@@ -567,9 +567,15 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
             // on every decomposition but keep a deterministic name, so look them
             // up by name. An execution cached here can be re-cloned on Session::clone
             // just like the Op*-keyed executionCache above.
+            // OpType_While (LoopParam) is excluded: its CPULoop embeds the whole
+            // shape-dependent LoopParam and onResize cannot rebind it to a new
+            // input shape, and the LoopParam lives in the command's BufferStorage
+            // which a geometry re-render frees. Reusing such a cached execution
+            // reads a stale/freed LoopParam (stale draft or SIGSEGV). It also
+            // carries no packed weights, so caching it has no benefit.
             std::tuple<std::string, int, int> namedKey;
             bool hasNamedKey = false;
-            if ((!cached) && nullptr != iter.op->name()) {
+            if ((!cached) && nullptr != iter.op->name() && iter.op->type() != OpType_While) {
                 namedKey = std::make_tuple(iter.op->name()->str(), (int)iter.op->type(), (int)iter.op->main_type());
                 hasNamedKey = true;
                 auto namedIter = info.namedExecutionCache.find(namedKey);
@@ -638,6 +644,7 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
             if ((!cached) && nullptr != iter.buffer && hasNamedKey) {
                 Schedule::OpCacheInfo::NamedExecution namedExec;
                 namedExec.op        = iter.op;
+                namedExec.storage   = iter.buffer;
                 namedExec.execution = iter.execution;
                 info.namedExecutionCache.insert(std::make_pair(namedKey, namedExec));
             }
