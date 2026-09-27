@@ -1,6 +1,7 @@
 #include "HexagonCommand.hpp"
 // HexagonRuntime.cpp
 #include <dlfcn.h>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
@@ -902,7 +903,17 @@ bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
         collectWeights(command->inputs());
         collectWeights(command->outputs());
     }
-    constexpr size_t kCommandWeightMapLimit = 256 * 1024 * 1024;
+    // Within one command group the lazy weights are consumed in the order the commands were built.
+    // If the 256MB budget evicts them on every boundary, chunks used again by a later command in
+    // the same step are remapped (and DSP-synced) several times per step. Let the whole lazy weight
+    // set for a step stay mapped, capped so the resident set still fits the DSP mapping window.
+    size_t kCommandWeightMapLimit = mWeightMapLimit;
+    if (!mWeightLimitEnvSet && mLazyWeightAlloc != nullptr) {
+        const size_t adaptive = std::min(mLazyWeightAlloc->totalSize(), (size_t)1536 * 1024 * 1024);
+        if (adaptive > kCommandWeightMapLimit) {
+            kCommandWeightMapLimit = adaptive;
+        }
+    }
     size_t additionalBytes = 0;
     for (auto buffer : commandWeights) {
         if (std::find(mCommandWeightBuffers.begin(), mCommandWeightBuffers.end(), buffer) ==
@@ -918,7 +929,16 @@ bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
             mCommandWeightBuffers.end()) {
             continue;
         }
-        if (!gMmapManager().map(CDSP_DOMAIN_ID, buffer)) {
+        auto mapBegin = std::chrono::steady_clock::now();
+        const bool mapOk = gMmapManager().map(CDSP_DOMAIN_ID, buffer);
+        if (mLwTiming) {
+            mLwMapUs += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - mapBegin)
+                            .count();
+            mLwMapBytes += buffer->size;
+            mLwMapCalls++;
+        }
+        if (!mapOk) {
             MNN_ERROR("[Hexagon] failed to map command weight fd=%d size=%zu\n", buffer->fd, buffer->size);
             return false;
         }
@@ -1084,10 +1104,16 @@ void HexagonRuntime::flushCommand() const {
         {
             std::lock_guard<std::mutex> lock(dspSessionMutex());
             if (ensureDspSessionOnCurrentThreadLocked(context)) {
+                auto execBegin = std::chrono::steady_clock::now();
                 ret = functions->execute_command_group(groupDev.first, groupDev.second, commandCount,
                                                        syncGroupFd,
                                                        syncGroupOffset,
                                                        syncGroupSize);
+                if (mLwTiming) {
+                    mLwExecUs += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                                     std::chrono::steady_clock::now() - execBegin)
+                                     .count();
+                }
             } else {
                 ret = -1;
             }
@@ -1121,7 +1147,14 @@ void HexagonRuntime::flushCommand() const {
     mPendingHexagonOutputs.clear();
     for (auto buffer : mCommandWeightBuffers) {
         if (buffer != nullptr && buffer->mapped) {
+            auto unmapBegin = std::chrono::steady_clock::now();
             gMmapManager().unmap(CDSP_DOMAIN_ID, buffer);
+            if (mLwTiming) {
+                mLwUnmapUs += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                                  std::chrono::steady_clock::now() - unmapBegin)
+                                  .count();
+                mLwUnmapCalls++;
+            }
             buffer->mapped = false;
         }
     }
@@ -1154,6 +1187,14 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
         return;
     }
     mAvailable = true;
+    mLwTiming = (std::getenv("MNN_HEXAGON_TIMING") != nullptr);
+    if (const char* e = std::getenv("MNN_HEXAGON_WEIGHT_MAP_LIMIT_MB")) {
+        const int v = atoi(e);
+        if (v > 0) {
+            mWeightMapLimit = (size_t)v * 1024 * 1024;
+            mWeightLimitEnvSet = true;
+        }
+    }
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new HexagonAllocator());
     // Chunking (HexagonAllocator) provides the allocation granularity, so per-request padding
     // only wastes space inside a chunk; keep requests tight.
@@ -1319,6 +1360,13 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
 
 HexagonRuntime::~HexagonRuntime() {
     flushCommand();
+    if (mLwTiming) {
+        MNN_PRINT("[Hexagon] weight-map timing: map calls=%d bytes=%.1fMB time=%.1fms, unmap calls=%d time=%.1fms, dsp exec=%.1fms, limit=%.0fMB lazyTotal=%.1fMB\n",
+                  mLwMapCalls, mLwMapBytes / 1048576.0f, mLwMapUs / 1000.0f,
+                  mLwUnmapCalls, mLwUnmapUs / 1000.0f, mLwExecUs / 1000.0f,
+                  mWeightMapLimit / 1048576.0f,
+                  (mLazyWeightAlloc != nullptr ? mLazyWeightAlloc->totalSize() : 0) / 1048576.0f);
+    }
 #ifdef MNN_GPU_TIME_PROFILE
     if (mProfileChunk.first) {
         int* profile_data = (int*)HexagonBackend::getPtr(mProfileChunk);
