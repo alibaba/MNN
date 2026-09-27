@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "dsp/dma_utils.h"
@@ -453,6 +454,17 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
 
   int np = N / 32;
   int kp = K / 32;
+  // act_descs has one 2D descriptor per K/32 tile (kp = 400 at K=12800, 32 B each
+  // => ~12.8 KB). A stack VLA of that size overflows the DSP stack, making
+  // execute_command_group fail and the op return an all-zero output at any M.
+  // Allocate on the heap instead; the buffer is reused across all N tiles.
+  int safe_kp = kp > 0 ? kp : 1;
+  dma_desc_2d_t* act_descs = (dma_desc_2d_t*) memalign(64, (size_t)safe_kp * sizeof(dma_desc_2d_t));
+  if (act_descs == NULL) {
+    hmx_unit_release();
+    hmx_manager_disable_execution();
+    return AEE_ENOMEMORY;
+  }
   int act_treat = 0;
   int tileCount = (np + np_chunk - 1) / np_chunk;
 
@@ -518,7 +530,6 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     // 1. Issue DMA for chunk 0
     SET_WEIGHT_DMA(chunk_starts[0], chunk_counts[0], 0, 0, -1);
 
-    int safe_kp = kp > 0 ? kp : 1;
     if (!dequant_in_weight) {
       memset(&scale_desc[0], 0, sizeof(dma_desc_2d_t));
       scale_desc[0].type       = DMA_DESC_TYPE_2D;
@@ -533,7 +544,6 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
       scale_desc[0].dst_stride = 64;
       scale_desc[0].next       = 0;
     }
-    _Alignas(64) dma_desc_2d_t act_descs[safe_kp];
     if (act_treat == 0) {
       if (M > 1) {
         for (int k = 0; k < kp; ++k) {
@@ -682,6 +692,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     }
   }
 
+  free(act_descs);
   hmx_unit_release();
   hmx_manager_disable_execution();
   return 0;
