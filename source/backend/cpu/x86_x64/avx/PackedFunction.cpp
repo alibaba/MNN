@@ -16,7 +16,7 @@
 #include "backend/cpu/CPUPool.hpp"
 #include "backend/cpu/BinaryUtils.hpp"
 #include "Vec8.hpp"
-#include "backend/cpu/compute/Deconv2x2.hpp"
+#include "backend/cpu/compute/ConvOpt.h"
 #define PACK_UNIT 8
 #define PACK PACK_UNIT
 #define FLOAT float

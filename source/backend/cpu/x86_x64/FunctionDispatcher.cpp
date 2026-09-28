@@ -16,7 +16,6 @@
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "cpu_id.h"
-#include "backend/cpu/compute/Deconv2x2.hpp"
 #include "math/Vec.hpp"
 #include "sse/FunctionSummary.hpp"
 // https://stackoverflow.com/a/11230437
