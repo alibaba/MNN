@@ -221,16 +221,18 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
             // filterOffset
             depthwiseConv2dParamQuan->filterQuantizedParam =
                 std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-            if (weightTensor->quantization->zero_point.size() > 0) {
-                depthwiseConv2dParamQuan->filterQuantizedParam->zeroPoint = weightTensor->quantization->zero_point[0];
+            const auto* weightQuant = weightTensor->quantization.get();
+            if (nullptr == weightQuant || weightQuant->scale.empty()) {
+                DLOG(ERROR) << "DEPTHWISE_CONV_2D weight tensor carries no quantization scale";
+                dstOp->type = MNN::OpType_MAX;
+                return;
+            }
+            if (weightQuant->zero_point.size() > 0) {
+                depthwiseConv2dParamQuan->filterQuantizedParam->zeroPoint = weightQuant->zero_point[0];
             } else {
                 depthwiseConv2dParamQuan->filterQuantizedParam->zeroPoint = 0;
             }
-            if (weightTensor->quantization->scale.size() > 0) {
-                depthwiseConv2dParamQuan->filterQuantizedParam->scale = weightTensor->quantization->scale[0];
-            } else {
-                depthwiseConv2dParamQuan->filterQuantizedParam->scale = 0.0f;
-            }
+            depthwiseConv2dParamQuan->filterQuantizedParam->scale = weightQuant->scale[0];
 
             // input
             const int inputIndex                          = tfliteOp->inputs[0];
@@ -240,16 +242,18 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
                 return;
             }
             depthwiseConv2dParamQuan->inputQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-            if (inputTensor->quantization->zero_point.size() > 0) {
-                depthwiseConv2dParamQuan->inputQuantizedParam->zeroPoint = inputTensor->quantization->zero_point[0];
+            const auto* inputQuant = inputTensor->quantization.get();
+            if (nullptr == inputQuant || inputQuant->scale.empty()) {
+                DLOG(ERROR) << "DEPTHWISE_CONV_2D input tensor carries no quantization scale";
+                dstOp->type = MNN::OpType_MAX;
+                return;
+            }
+            if (inputQuant->zero_point.size() > 0) {
+                depthwiseConv2dParamQuan->inputQuantizedParam->zeroPoint = inputQuant->zero_point[0];
             } else {
                 depthwiseConv2dParamQuan->inputQuantizedParam->zeroPoint = 0;
             }
-            if (inputTensor->quantization->scale.size() > 0) {
-                depthwiseConv2dParamQuan->inputQuantizedParam->scale = inputTensor->quantization->scale[0];
-            } else {
-                depthwiseConv2dParamQuan->inputQuantizedParam->scale = 0.0f;
-            }
+            depthwiseConv2dParamQuan->inputQuantizedParam->scale = inputQuant->scale[0];
 
             // output
             const int outputIndex    = tfliteOp->outputs[0];
@@ -260,16 +264,18 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
             }
             depthwiseConv2dParamQuan->outputQuantizedParam =
                 std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-            if (outputTensor->quantization->zero_point.size() > 0) {
-                depthwiseConv2dParamQuan->outputQuantizedParam->zeroPoint = outputTensor->quantization->zero_point[0];
+            const auto* outputQuant = outputTensor->quantization.get();
+            if (nullptr == outputQuant || outputQuant->scale.empty()) {
+                DLOG(ERROR) << "DEPTHWISE_CONV_2D output tensor carries no quantization scale";
+                dstOp->type = MNN::OpType_MAX;
+                return;
+            }
+            if (outputQuant->zero_point.size() > 0) {
+                depthwiseConv2dParamQuan->outputQuantizedParam->zeroPoint = outputQuant->zero_point[0];
             } else {
                 depthwiseConv2dParamQuan->outputQuantizedParam->zeroPoint = 0;
             }
-            if (outputTensor->quantization->scale.size() > 0) {
-                depthwiseConv2dParamQuan->outputQuantizedParam->scale = outputTensor->quantization->scale[0];
-            } else {
-                depthwiseConv2dParamQuan->outputQuantizedParam->scale = 0.0f;
-            }
+            depthwiseConv2dParamQuan->outputQuantizedParam->scale = outputQuant->scale[0];
 
             depthwiseConv2dParamQuan->depthMultiplier = tfliteConvOption->depth_multiplier;
 
