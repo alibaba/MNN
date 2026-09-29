@@ -29,6 +29,8 @@
 
 // ========= CommonOptFunction.cpp ===========
 extern "C" {
+void _AVX_MNNDeconv2x2Post(const float* src, float* dst, const float* bias,
+                          const float* post, const int* parameters);
 void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter,
                           const float* postParameters, const float* bias, const float* k, const float* b);
 void _AVX_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
