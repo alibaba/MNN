@@ -1,3 +1,4 @@
+import copy
 import os
 import torch
 import importlib
@@ -65,6 +66,27 @@ def load_hunyuan_vl_state_dict(model_path):
         shard_path = shard_file if os.path.isabs(shard_file) else os.path.join(model_path, shard_file)
         state_dict.update(load_file(shard_path, device='cpu'))
     return state_dict
+
+
+def load_mobilemoe(model_path, config, **load_kwargs):
+    from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+    remote_class = get_class_from_dynamic_module(config.auto_map['AutoModelForCausalLM'], model_path)
+    # The released remote code uses the Transformers 4.x tied-weight API.
+    if Version(importlib.metadata.version('transformers')) >= Version('5.0.0'):
+        class MobileMoEForExport(remote_class):
+            config_class = type(config)
+            _tied_weights_keys = {'lm_head.weight': 'model.embed_tokens.weight'}
+        remote_class = MobileMoEForExport
+
+    # Its scaled RoPE constructor reads tensor values, which is invalid on meta.
+    # Defer only the non-persistent RoPE buffer until weights have been loaded.
+    load_config = copy.deepcopy(config)
+    load_config.rope_scaling = None
+    model = remote_class.from_pretrained(model_path, config=load_config, **load_kwargs)
+    model.config.rope_scaling = config.rope_scaling
+    model.model.rotary_emb = type(model.model.rotary_emb)(config, device='cpu')
+    return model
 
 
 class LlmModel(PreTrainedModel):
@@ -181,6 +203,8 @@ class LlmModel(PreTrainedModel):
                     original_model = AutoModelForCausalLM.from_config(original_config, trust_remote_code=True)
                 original_model.to_empty(device="cpu")
                 cls._sanitize_skip_weight_tensors(original_model)
+        elif model_type == 'mobilemoe':
+            original_model = load_mobilemoe(pretrained_model_name_or_path, config.origin_config, **load_kwargs)
         elif model_type == 'lfm2_audio':
             # LFM2-Audio uses liquid_audio package, not standard HF class
             from pathlib import Path
