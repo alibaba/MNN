@@ -7,6 +7,7 @@
 //
 
 #include "ConvolutionCommon.hpp"
+#include <limits.h>
 #include <math.h>
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/CPUBackend.hpp"
@@ -556,6 +557,18 @@ int ConvolutionCommon::getQuantBitFromExternalFile(const Op* op) {
     }
     return 0;
 }
+// Validate before narrowing to AutoStorage's int element count. Include the
+// alignment overhead added by MNNMemoryAllocAlign in the size_t limit.
+static bool externalElementCount(int64_t bytes, size_t elementBytes, int& count) {
+    if (bytes < 0 || bytes % elementBytes != 0 || bytes / elementBytes > INT_MAX ||
+        (uint64_t)bytes > SIZE_MAX - sizeof(void*) - MNN_MEMORY_ALIGN_DEFAULT) {
+        MNN_ERROR("Invalid external weight length: %lld\n", (long long)bytes);
+        return false;
+    }
+    count = (int)(bytes / elementBytes);
+    return true;
+}
+
 std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op* op, Backend* backend, bool forceFloat,
                                                                     bool forceInt8, void* weightPtr, bool allowFp16Alpha) {
     auto conv = op->main_as_Convolution2D();
@@ -573,24 +586,44 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
     }
     if (USE_EXTERNAL_DATA(conv) && op->externalPath() && quan->type() == 8) {
+        auto externalInfo = conv->external()->data();
+        int weightCount = 0;
+        if (!externalElementCount(externalInfo[1], sizeof(float), weightCount) || weightCount == 0 ||
+            externalInfo[0] < 0 || externalInfo[0] > INT64_MAX - externalInfo[1]) {
+            return nullptr;
+        }
         std::unique_ptr<FileLoader> external(new FileLoader(op->externalPath()->c_str()));
-        auto param = op->main_as_Convolution2D();
-        external->offset(param->external()->data()[0]);
+        if (external->offset(externalInfo[0]) != 0 || !external->valid()) {
+            return nullptr;
+        }
         if(weightPtr != nullptr) {
             result->weightFloat.set((float *)weightPtr, false);
         } else {
-            result->weightFloat.reset((int)(param->external()->data()[1] / sizeof(float)));
+            result->weightFloat.reset(weightCount);
         }
-        external->read((char*)(result->weightFloat.get()), param->external()->data()[1]);
+        if (result->weightFloat.get() == nullptr ||
+            !external->read((char*)result->weightFloat.get(), externalInfo[1])) {
+            return nullptr;
+        }
         return result;
     }
     // scaleStorage scalar survives weight externalization, unlike the alphaFp16 vector.
     const bool alphaIsFp16 = (quan->scaleStorage() == ScaleStorageType_FP16);
     if (USE_EXTERNAL_DATA(conv) && (op->externalPath() || useCachedMmap) && quan->buffer() == nullptr) {
+        if (conv->external()->size() < 3) {
+            return nullptr;
+        }
         auto external_info = conv->external()->data();
-        buffer_size = external_info[1];
         const size_t alphaElemBytes = alphaIsFp16 ? sizeof(uint16_t) : sizeof(float);
-        alpha_size = external_info[2] / alphaElemBytes;
+        int alphaCount = 0;
+        if (!externalElementCount(external_info[2], alphaElemBytes, alphaCount) || external_info[0] < 0 ||
+            external_info[1] < 0 || (uint64_t)external_info[1] > SIZE_MAX ||
+            external_info[0] > INT64_MAX - external_info[1] ||
+            external_info[0] + external_info[1] > INT64_MAX - external_info[2]) {
+            return nullptr;
+        }
+        buffer_size = (size_t)external_info[1];
+        alpha_size = alphaCount;
         result->alphaSize = alpha_size;
         if (useCachedMmap) {
             weightLength = conv->common()->inputCount() * conv->common()->outputCount() * conv->common()->kernelX() * conv->common()->kernelY();
@@ -599,7 +632,9 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         } else {
             // external data
             std::unique_ptr<FileLoader> external_file(new FileLoader(op->externalPath()->c_str()));
-            external_file->offset(external_info[0]);
+            if (external_file->offset(external_info[0]) != 0 || !external_file->valid()) {
+                return nullptr;
+            }
             if (0 != buffer_size) {
                 if (1 == quan->type() && !forceFloat) {
                     buffer = IDSTDecoder::ReadQuanData_c(external_file.get(), &weightLength, result.get(), quan, forceInt8, forceFloat, weightPtr);
@@ -610,28 +645,38 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
                 } else {
                     external_buffer.reset(new int8_t[buffer_size]);
                     buffer_ptr = external_buffer.get();
-                    external_file->read((char*)buffer_ptr, buffer_size);
+                    if (!external_file->read((char*)buffer_ptr, buffer_size)) {
+                        return nullptr;
+                    }
                 }
             }
+            // The decoder's temporary buffer is not owned by result until below.
+            std::unique_ptr<void, decltype(&MNNMemoryFreeAlign)> decodedBuffer(
+                buffer == weightPtr ? nullptr : buffer, MNNMemoryFreeAlign);
             if (0 != alpha_size) {
                 if (alphaIsFp16) {
                     result->alphaIsFp16 = true;
-                    result->alphaHalf.reset((int)alpha_size);
+                    result->alphaHalf.reset(alphaCount);
                     if (nullptr == result->alphaHalf.get()) {
                         MNN_PRINT("Alloc memory error for extract idst int8\n");
                         return nullptr;
                     }
-                    external_file->read((char*)result->alphaHalf.get(), alpha_size * sizeof(int16_t));
+                    if (!external_file->read((char*)result->alphaHalf.get(), external_info[2])) {
+                        return nullptr;
+                    }
                 } else {
-                    result->alpha.reset((int)alpha_size);
+                    result->alpha.reset(alphaCount);
                     if (nullptr == result->alpha.get()) {
                         MNN_PRINT("Alloc memory error for extract idst int8\n");
                         return nullptr;
                     }
                     alpha_ptr = result->alpha.get();
-                    external_file->read((char*)alpha_ptr, alpha_size * sizeof(float));
+                    if (!external_file->read((char*)alpha_ptr, external_info[2])) {
+                        return nullptr;
+                    }
                 }
             }
+            decodedBuffer.release();
         }
     } else {
         if (quan->buffer()) {
