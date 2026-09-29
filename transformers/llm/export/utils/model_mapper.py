@@ -215,6 +215,26 @@ class ModelMapper:
         }
         self.regist('llama4_text', llama4_text_map)
 
+    def regist_mobilemoe(self):
+        decoder = dict(self.default_decoder, mlp='feed_forward')
+        attention = dict(self.default_attention, qk_norm='qk_norm')
+        self.regist('mobilemoe', {
+            'config': self.default_config,
+            'model': self.default_model,
+            'decoder': decoder,
+            'attention': attention,
+            'mlp': {
+                'num_experts': 'num_experts',
+                'top_k': 'top_k',
+                'norm_topk_prob': 'norm_topk_prob',
+                'gate': 'router',
+                'experts': 'experts',
+                'expert_bias': 'expert_bias',
+                'routed_scaling_factor': 'routed_scaling_factor',
+                'shared_expert': 'shared_expert',
+            },
+        })
+
     def regist_qwen3_moe(self):
         qwen3_attention = {
             'q_proj': 'q_proj',
