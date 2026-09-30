@@ -82,7 +82,18 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
         opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8) {
             return;
     }
+    if (op->main.type != MNN::OpParameter_Convolution2D) {
+        // Only conv-family ops that actually carry a Convolution2D main blob can be
+        // weight-quantized here. Ops that pass the type gate above but use a different
+        // main (e.g. a legacy TFLite UINT8 depthwise is produced as OpType_DepthwiseConvInt8
+        // with OpParameter_TfQuantizedConv2D) must be left untouched instead of going
+        // through AsConvolution2D(), which would otherwise null-deref on that op.
+        return;
+    }
     auto param = op->main.AsConvolution2D();
+    if (nullptr == param) {
+        return;
+    }
     auto& common = param->common;
     if (param->quanParameter.get() != nullptr) {
         return;
