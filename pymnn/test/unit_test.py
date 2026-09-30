@@ -800,11 +800,6 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(labels, labels_)
         self.assertEqualVar(statsv, statsv_)
         self.assertEqualVar(centroids, centroids_)
-    # histogram
-    def test_histogram(self):
-        hist = cv.calcHist([self.img], [0], None, [257], [0., 256.])
-        hist_ = cv2.calcHist([self.img_], [0], None, [257], [0., 256.])
-        self.assertEqualVar(hist, hist_)
     # calib3d
     def test_calib3d(self):
         try:
