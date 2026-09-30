@@ -13,7 +13,6 @@
 #include "IfModule.hpp"
 #include "WhileModule.hpp"
 #include "NMSModule.hpp"
-#include "MoEModule.hpp"
 #include "Utils.hpp"
 #include "core/Backend.hpp"
 #include "core/WrapExecution.hpp"
@@ -340,7 +339,7 @@ static bool isBreakOp(const Op* op) {
         isWhileControlflow = true;
     }
     if (op->type() == OpType_If || isWhileControlflow || op->type() == OpType_Where || op->type() == OpType_Segment ||
-        op->type() == OpType_Unique || op->type() == OpType_NonMaxSuppressionV2 || op->type() == OpType_MoE) {
+        op->type() == OpType_Unique || op->type() == OpType_NonMaxSuppressionV2) {
         return true;
     }
     return false;
@@ -632,9 +631,6 @@ static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, co
         if (OpType_NonMaxSuppressionV2 == op->type()) {
             return NMSModule::create(op);
         }
-        if (OpType_MoE == op->type()) {
-            return MoEModule::create(op, subs, runtimeConfig.rt, config);
-        }
         // MNN_ASSERT(false);
     }
     Schedule::ScheduleInfo scheduleInfo;
@@ -680,6 +676,12 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     if (nullptr == net->oplists() || nullptr == net->tensorName()) {
         MNN_ERROR("Invalid net, for null oplist or tensorName\n");
         return nullptr;
+    }
+    for (auto op : *net->oplists()) {
+        if (op->type() == OpType_MoE) {
+            MNN_ERROR("Legacy MoE model: re-export with IndexedLinear support.\n");
+            return nullptr;
+        }
     }
     Module::Config defaultConfig;
     if (nullptr == config) {

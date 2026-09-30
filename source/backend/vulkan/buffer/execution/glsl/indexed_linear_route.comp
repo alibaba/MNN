@@ -1,0 +1,52 @@
+//
+//  indexed_linear_route.comp
+//  MNN
+//
+//  Created by MNN on 2026/09/29.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 3) const int PHASE = 0;
+layout(constant_id = 4) const int TILE_M = 8;
+layout(set=0, binding=0) readonly buffer Ids { int data[]; } ids;
+layout(set=0, binding=1) buffer Routing { int data[]; } route;
+layout(push_constant) uniform Params {
+    int channels; int outputs; int experts; int topk;
+    int inputMode; int groups; int groupSize; int weightStride;
+    int rows; int maxTiles;
+} p;
+
+void main() {
+    int index = int(gl_GlobalInvocationID.x);
+    int offsets = p.experts;
+    int sortedRows = 2 * p.experts + 1;
+    int tiles = sortedRows + p.rows;
+    if (PHASE == 0) {
+        if (index < p.experts) route.data[index] = 0;
+    } else if (PHASE == 1) {
+        if (index < p.rows) atomicAdd(route.data[clamp(ids.data[index], 0, p.experts - 1)], 1);
+    } else if (PHASE == 2) {
+        if (index != 0) return;
+        int offset = 0;
+        int tileCount = 0;
+        for (int expert = 0; expert < p.experts; ++expert) {
+            int count = route.data[expert];
+            route.data[offsets + expert] = offset;
+            for (int row = 0; row < count; row += TILE_M) {
+                route.data[tiles + tileCount * 2] = expert;
+                route.data[tiles + tileCount * 2 + 1] = offset + row;
+                ++tileCount;
+            }
+            offset += count;
+            route.data[expert] = 0;
+        }
+        route.data[offsets + p.experts] = offset;
+        for (int tile = tileCount; tile < p.maxTiles; ++tile) route.data[tiles + tile * 2] = -1;
+    } else {
+        if (index >= p.rows) return;
+        int expert = clamp(ids.data[index], 0, p.experts - 1);
+        int position = atomicAdd(route.data[expert], 1);
+        route.data[sortedRows + route.data[offsets + expert] + position] = index;
+    }
+}

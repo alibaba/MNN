@@ -18,6 +18,9 @@ VulkanBuffer::VulkanBuffer(const VulkanMemoryPool& pool, bool separate, size_t s
     mShared = shared;
     mBuffer = const_cast<VulkanMemoryPool&>(mPool).allocBuffer(size, usage, shared);
     mUsage = usage;
+    if (mBuffer == VK_NULL_HANDLE) {
+        return;
+    }
 
     VkMemoryRequirements memReq;
     mPool.device().getBufferMemoryRequirements(mBuffer, memReq);
@@ -28,29 +31,41 @@ VulkanBuffer::VulkanBuffer(const VulkanMemoryPool& pool, bool separate, size_t s
     }
     auto realMem = (VulkanMemory*)mMemory.first;
 
+    if (mPool.device().bindBufferMemory(mBuffer, realMem->get(), mMemory.second) != VK_SUCCESS) {
+        MNN_ERROR("VulkanBuffer: bindBufferMemory failed, size=%zu\n", size);
+        return;
+    }
+    mBound = true;
     if (nullptr != hostData) {
         void* data = nullptr;
-        CALL_VK(mPool.device().mapMemory(realMem->get(), mMemory.second, size, 0 /*flag, not used*/, &data));
+        if (mPool.device().mapMemory(realMem->get(), mMemory.second, size, 0, &data) != VK_SUCCESS) {
+            mBound = false;
+            return;
+        }
         ::memcpy(data, hostData, size);
         mPool.device().unmapMemory(realMem->get());
     }
-    CALL_VK(mPool.device().bindBufferMemory(mBuffer, realMem->get(), mMemory.second));
 }
 
 VulkanBuffer::~VulkanBuffer() {
-    const_cast<VulkanMemoryPool&>(mPool).returnBuffer(mBuffer, mSize, mUsage, mShared);
-    if (!mReleased) {
+    if (mBuffer != VK_NULL_HANDLE) {
+        const_cast<VulkanMemoryPool&>(mPool).returnBuffer(mBuffer, mSize, mUsage, mShared);
+    }
+    if (!mReleased && mMemory.first) {
         const_cast<VulkanMemoryPool&>(mPool).returnMemory(mMemory);
     }
 }
 void* VulkanBuffer::map(int start, int size) const {
-    const auto& limits = mPool.device().proty().limits;
+    if (!mBound)
+        return nullptr;
     if (size < 0) {
         size = mSize;
     }
     auto realMem = (VulkanMemory*)mMemory.first;
     void* data = nullptr;
-    CALL_VK(mPool.device().mapMemory(realMem->get(), start + mMemory.second, size, 0, &data));
+    if (mPool.device().mapMemory(realMem->get(), start + mMemory.second, size, 0, &data) != VK_SUCCESS) {
+        return nullptr;
+    }
     return data;
 }
 void VulkanBuffer::unmap() const {
@@ -58,7 +73,7 @@ void VulkanBuffer::unmap() const {
     mPool.device().unmapMemory(realMem->get());
 }
 void VulkanBuffer::release() {
-    if (mReleased) {
+    if (mReleased || !mMemory.first) {
         return;
     }
     mReleased = true;

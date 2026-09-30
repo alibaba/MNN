@@ -199,6 +199,7 @@ enum OpType : int {
     FusedLinear = 307,
     // out = RMSNorm(x) * silu(z); parameter is LayerNorm (gamma/beta/epsilon).
     GatedRMSNorm = 308,
+    IndexedLinear = 309,
 
     Extra = 512,
     // quantization
@@ -211,7 +212,7 @@ enum OpType : int {
     While = 600,
     If    = 601,
     LayerNorm = 603,
-    GridSample = 604,
+    GridSample = 604
 }
 
 table Plugin {
@@ -264,6 +265,16 @@ table RoPEParam {
     head_dim: int = 0;
     q_norm: LayerNorm;
     k_norm: LayerNorm;
+}
+
+// Indexed linear projections selected by int32 IDs[T,K].
+// inputMode: 0 = X[T,I], 1 = X[T,K,I]; output Y[T,K,O].
+// fusedActivation uses UnaryOpOperation values; -1 disables fusion.
+// Otherwise, each linear stores [gate; up]; activation(gate) * up halves its output channels.
+table IndexedLinearParam {
+    linears: [Convolution2D];
+    inputMode: int = 0;
+    fusedActivation: int = -1;
 }
 
 // Export-time fused projection group: N conv1x1 sharing one input, computed
@@ -485,7 +496,8 @@ union OpParameter {
     LinearAttentionParam,
     ShapeParam,
     RoPEParam,
-    FusedLinearParam
+    FusedLinearParam,
+    IndexedLinearParam
 }
 
 table Op {

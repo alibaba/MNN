@@ -32,9 +32,11 @@ struct PostTreatContext {
     void endOptimize();
 };
 
-int converToStaticModel(const MNN::Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile);
+int converToStaticModel(const MNN::Net* net, std::map<std::string, std::vector<int>>& inputConfig, std::string mnnFile,
+                        const std::string& externalFile);
 void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64_t& offset);
-void loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader* fl);
+bool loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader* fl);
+bool validateIndexedLinearExternal(const MNN::OpT* op, const MNN::FileLoader* fl);
 void CastParamsToHalf(std::unique_ptr<MNN::OpT>& op);
 void AlignDenormalizedValue(std::unique_ptr<MNN::OpT>& op);
 void AddSparseInfo(std::unique_ptr<MNN::OpT>& op, MNN::Compression::Pipeline proto);
@@ -43,6 +45,30 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
 
 void addUUID(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
 void channelPruneConvert(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
+
+// Expose indexed weights to existing convolution weight utilities without
+// creating child graph nodes or changing their serialized quantization format.
+template <typename Visitor>
+void forEachIndexedLinearWeight(std::unique_ptr<MNN::OpT>& op, Visitor visitor) {
+    auto param = op->main.AsIndexedLinearParam();
+    for (size_t i = 0; i < param->linears.size(); ++i) {
+        auto& linear = param->linears[i];
+        if (!linear) {
+            continue;
+        }
+        std::unique_ptr<MNN::OpT> member(new MNN::OpT);
+        member->type = MNN::OpType_Convolution;
+        member->name = op->name + "/linear." + std::to_string(i);
+        member->externalPath = op->externalPath;
+        member->inputIndexes = {0};
+        member->main.type = MNN::OpParameter_Convolution2D;
+        member->main.value = linear.release();
+        visitor(member);
+        linear.reset(member->main.AsConvolution2D());
+        member->main.value = nullptr;
+        member->main.type = MNN::OpParameter_NONE;
+    }
+}
 
 class CommonKit {
 public:

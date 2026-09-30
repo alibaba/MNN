@@ -497,6 +497,9 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op, int bytes) {
         case OpType_Deconvolution:
         case OpType_DeconvolutionDepthwise:
         case OpType_MatMul:
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        case OpType_IndexedLinear:
+#endif
         case OpType_BatchMatMul:
         case OpType_BinaryOp:
         case OpType_Eltwise:
@@ -649,6 +652,17 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
             parameterMain = Convolution2D::Pack(builder, param.get()).Union();
             break;
         }
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        case OpParameter_IndexedLinearParam:
+        {
+            // Keep expert weights external; IndexedLinearCommon reads each bank
+            // member once when constructing the backend's shared static resource.
+            externalPathFbb = builder.CreateString(external->path());
+            std::unique_ptr<IndexedLinearParamT> param(origin->main_as_IndexedLinearParam()->UnPack());
+            parameterMain = IndexedLinearParam::Pack(builder, param.get()).Union();
+            break;
+        }
+#endif
         case OpParameter_FusedLinearParam:
         {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -741,6 +755,21 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         case OpParameter_LayerNorm:
             hasExternal = USE_EXTERNAL_DATA(op->main_as_LayerNorm());
             break;
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        case OpParameter_IndexedLinearParam:
+        {
+            auto param = op->main_as_IndexedLinearParam();
+            if (param->linears()) {
+                for (auto linear : *param->linears()) {
+                    if (USE_EXTERNAL_DATA(linear)) {
+                        hasExternal = true;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+#endif
         case OpParameter_FusedLinearParam:
         {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -772,7 +801,11 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         usemmap = (backend->getRuntime()->hint().useCachedMmap > 1);
     }
     Execution* execution;
-    if ((!usemmap)) {
+    bool rebuildExternal = !usemmap;
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    rebuildExternal = rebuildExternal || op->type() == OpType_IndexedLinear;
+#endif
+    if (rebuildExternal) {
         bool res = _RebuildExternalOp(externalFile, op, builder);
         if (!res) {
             MNN_ERROR("Rebuild External Op failed\n");
@@ -802,6 +835,10 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         }
     }
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    if (op->main_type() == OpParameter_IndexedLinearParam) {
+        tmpstore.reset(new BufferStorage);
+        tmpstore->storage = builder.ReleaseRaw(tmpstore->allocated_size, tmpstore->offset);
+    }
     else if (op->main_type() == OpParameter_FusedLinearParam && !usemmap) {
         // The fused-proj composite reads the rebuilt op (externalPath, member conv
         // tables, inlined ln gamma) during onResize; keep the builder storage alive.

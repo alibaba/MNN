@@ -22,6 +22,7 @@ public:
     VkBuffer buffer() const {
         return mBuffer;
     }
+    bool valid() const { return mBound; }
     size_t size() const {
         return mSize;
     }
@@ -35,7 +36,8 @@ public:
 private:
     const VulkanMemoryPool& mPool;
     MemChunk mMemory;
-    VkBuffer mBuffer;
+    VkBuffer mBuffer = VK_NULL_HANDLE;
+    bool mBound = false;
     size_t mSize;
     VkBufferUsageFlags mUsage;
     bool mReleased = false;

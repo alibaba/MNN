@@ -463,9 +463,10 @@ class LlmExporter(torch.nn.Module):
             self.model.lm.lm = quant_dequant(self.model.lm.lm)
 
     def unload_param(self):
+        from utils.transformers import IndexedExperts
         self.unloaded_ops = {}
-        self.experts = []
-        self.expert_layer_ids = []
+        fuse_experts = (getattr(self.args, 'transformer_c4', True) and
+                        getattr(self.args, 'fuse_gate_up_proj', True) and not getattr(self.args, 'lora_split', False))
         def build_faker(real, name):
             faker = FakeLinear(real.in_features, real.out_features, real.bias is not None, name)
             self.unloaded_ops[name] = real.cpu()
@@ -499,12 +500,8 @@ class LlmExporter(torch.nn.Module):
                             setattr(self.model.blocks[i].mlp.shared_expert, name, build_faker(child, f'/layers.{i}/mlp/shared_expert/{name}/Linear'))
                 # MLP-level MoE experts
                 if is_moe and hasattr(self.model.blocks[i].mlp, 'experts') and isinstance(self.model.blocks[i].mlp.experts, torch.nn.ModuleList):
-                    self.experts.append(self.model.blocks[i].mlp.experts)
-                    self.expert_layer_ids.append(i)
-                    for j in range(len(self.model.blocks[i].mlp.experts)):
-                        for name, cchild in self.model.blocks[i].mlp.experts[j].named_children():
-                            if isinstance(cchild, torch.nn.Linear):
-                                setattr(self.model.blocks[i].mlp.experts[j], name, build_faker(cchild, f'/expert/{i}_{j}/{name}'))
+                    self.model.blocks[i].mlp.experts = IndexedExperts(
+                        self.model.blocks[i].mlp.experts, i, self.unloaded_ops, fuse_experts)
                 # gemma4 decoder-level MoE (parallel to dense MLP)
                 has_gemma4_moe = getattr(self.model.blocks[i], 'has_gemma4_moe', False)
                 if has_gemma4_moe:
@@ -513,13 +510,8 @@ class LlmExporter(torch.nn.Module):
                     child = self.model.blocks[i].moe_gate
                     if isinstance(child, torch.nn.Linear):
                         self.model.blocks[i].moe_gate = build_faker(child, f'/layers.{i}/moe_gate/Linear')
-                    # Unload experts
-                    self.experts.append(self.model.blocks[i].experts)
-                    self.expert_layer_ids.append(i)
-                    for j in range(len(self.model.blocks[i].experts)):
-                        for name, cchild in self.model.blocks[i].experts[j].named_children():
-                            if isinstance(cchild, torch.nn.Linear):
-                                setattr(self.model.blocks[i].experts[j], name, build_faker(cchild, f'/expert/{i}_{j}/{name}'))
+                    self.model.blocks[i].experts = IndexedExperts(
+                        self.model.blocks[i].experts, i, self.unloaded_ops, fuse_experts)
             self.model.lm.lm = build_faker(self.model.lm.lm, f'/lm/lm_head/Linear')
             # PLE model-level Linear (gemma4)
             if hasattr(self.model, 'per_layer_model_projection') and isinstance(self.model.per_layer_model_projection, torch.nn.Linear):

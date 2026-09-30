@@ -1,0 +1,123 @@
+//
+//  indexed_linear_gemm.comp
+//  MNN
+//
+//  Created by MNN on 2026/09/29.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+layout(constant_id = 3) const int WEIGHT_BITS = 4;
+layout(constant_id = 4) const int CHANNELS = 1;
+layout(constant_id = 5) const int OUTPUTS = 1;
+layout(constant_id = 6) const int GROUPS = 1;
+layout(constant_id = 7) const int GROUP_SIZE = 1;
+layout(constant_id = 8) const int WEIGHT_STRIDE = 4;
+layout(constant_id = 9) const int INPUT_MODE = 0;
+layout(constant_id = 10) const int TILE_M = 8;
+layout(constant_id = 11) const int TILE_N = 32;
+layout(constant_id = 12) const bool FUSE_SILU_MUL = false;
+const int TILE_K = 16;
+const int THREAD_COLUMNS = TILE_N / 4;
+const int THREAD_COUNT = THREAD_COLUMNS * 8;
+const int ROWS_PER_THREAD = TILE_M / 8;
+layout(set=0, binding=0) readonly buffer Input { FLOAT data[]; } inputData;
+layout(set=0, binding=1) readonly buffer Ids { int data[]; } ids;
+layout(set=0, binding=2) readonly buffer Weights { uint data[]; } weights;
+layout(set=0, binding=3) readonly buffer Alpha { vec2 data[]; } alpha;
+layout(set=0, binding=4) readonly buffer Bias { float data[]; } bias;
+layout(set=0, binding=5) writeonly buffer Output { FLOAT data[]; } outputData;
+layout(set=0, binding=6) readonly buffer Routing { int data[]; } route;
+layout(push_constant) uniform Params {
+    int channels; int outputs; int experts; int topk;
+    int inputMode; int groups; int groupSize; int weightStride;
+    int rows; int maxTiles;
+} p;
+
+float weightValue(int expert, int outputChannel, int inputChannel) {
+    uint element = uint(outputChannel * CHANNELS + inputChannel);
+    uint base = uint(expert) * uint(WEIGHT_STRIDE);
+    if (WEIGHT_BITS == 32) return uintBitsToFloat(weights.data[base / 4u + element]);
+    if (WEIGHT_BITS == 16) return unpackHalf2x16(weights.data[base / 4u + element / 2u])[element & 1u];
+    uint byteOffset = base + (WEIGHT_BITS == 4 ? element / 2u : element);
+    uint packed = (weights.data[byteOffset / 4u] >> ((byteOffset & 3u) * 8u)) & 255u;
+    int q;
+    if (WEIGHT_BITS == 4) q = int((element & 1u) == 0u ? packed >> 4u : packed & 15u) - 8;
+    else q = int(packed >= 128u ? packed - 256u : packed);
+    vec2 parameters = alpha.data[(expert * OUTPUTS + outputChannel) * GROUPS + inputChannel / GROUP_SIZE];
+    return fma(float(q), parameters.y, parameters.x);
+}
+
+shared float tileInput[TILE_M * TILE_K];
+// Preserve contiguous K loads from the compressed bank, but transpose and pad
+// the shared tile so adjacent output lanes read adjacent addresses.
+shared float tileWeight[TILE_K * (TILE_N + 1)];
+void main() {
+    int sortedRows = 2 * p.experts + 1;
+    int tiles = sortedRows + p.rows;
+    int tileIndex = int(gl_WorkGroupID.y);
+    int expert = route.data[tiles + tileIndex * 2];
+    if (expert < 0) return;
+    int start = route.data[tiles + tileIndex * 2 + 1];
+    int expertEnd = route.data[p.experts + expert + 1];
+    int lx = int(gl_LocalInvocationID.x), ly = int(gl_LocalInvocationID.y);
+    int localIndex = ly * THREAD_COLUMNS + lx;
+    int firstOutput = int(gl_WorkGroupID.x) * TILE_N;
+    int rows[ROWS_PER_THREAD];
+    bool valid[ROWS_PER_THREAD];
+    vec4 sums[ROWS_PER_THREAD];
+    for (int r = 0; r < ROWS_PER_THREAD; ++r) {
+        int position = start + ly + r * 8;
+        rows[r] = position < expertEnd ? route.data[sortedRows + position] : -1;
+        valid[r] = rows[r] >= 0 && ids.data[rows[r]] == expert;
+        sums[r] = vec4(0);
+    }
+    for (int baseK = 0; baseK < CHANNELS; baseK += TILE_K) {
+        for (int index = localIndex; index < TILE_M * TILE_K; index += THREAD_COUNT) {
+            int position = start + index / TILE_K;
+            int tokenRow = position < expertEnd ? route.data[sortedRows + position] : -1;
+            int k = baseK + index % TILE_K;
+            int inputRow = INPUT_MODE != 0 ? tokenRow : tokenRow / p.topk;
+            tileInput[index] = tokenRow >= 0 && ids.data[tokenRow] == expert && k < CHANNELS ?
+                float(inputData.data[inputRow * CHANNELS + k]) : 0.0;
+        }
+        for (int index = localIndex; index < TILE_N * TILE_K; index += THREAD_COUNT) {
+            int n = firstOutput + index / TILE_K;
+            int k = baseK + index % TILE_K;
+            tileWeight[(index % TILE_K) * (TILE_N + 1) + index / TILE_K] =
+                n < OUTPUTS && k < CHANNELS ? weightValue(expert, n, k) : 0.0;
+        }
+        barrier();
+        // Each output retains the original ascending-K FP32 FMA order.
+        for (int k = 0; k < TILE_K; ++k) {
+            int base = k * (TILE_N + 1) + lx * (FUSE_SILU_MUL ? 2 : 1);
+            vec4 weight = FUSE_SILU_MUL ?
+                vec4(tileWeight[base], tileWeight[base + 1],
+                     tileWeight[base + 2 * THREAD_COLUMNS], tileWeight[base + 2 * THREAD_COLUMNS + 1]) :
+                vec4(tileWeight[base], tileWeight[base + THREAD_COLUMNS],
+                     tileWeight[base + 2 * THREAD_COLUMNS], tileWeight[base + 3 * THREAD_COLUMNS]);
+            for (int r = 0; r < ROWS_PER_THREAD; ++r) {
+                float x = tileInput[(ly + r * 8) * TILE_K + k];
+                sums[r] = fma(vec4(x), weight, sums[r]);
+            }
+        }
+        barrier();
+    }
+    for (int r = 0; r < ROWS_PER_THREAD; ++r) {
+        if (rows[r] < 0) continue;
+        for (int j = 0; j < (FUSE_SILU_MUL ? 2 : 4); ++j) {
+            int n = firstOutput + (lx + j * THREAD_COLUMNS) * (FUSE_SILU_MUL ? 2 : 1);
+            if (n < OUTPUTS) {
+                if (FUSE_SILU_MUL) {
+                    FLOAT gate = FLOAT(sums[r][j * 2] + bias.data[expert * OUTPUTS + n]);
+                    FLOAT activated = gate / (FLOAT(1.0) + exp(-gate));
+                    FLOAT up = FLOAT(sums[r][j * 2 + 1] + bias.data[expert * OUTPUTS + n + 1]);
+                    outputData.data[rows[r] * (OUTPUTS / 2) + n / 2] = valid[r] ? FLOAT(activated * up) : FLOAT(0);
+                } else {
+                    outputData.data[rows[r] * OUTPUTS + n] =
+                        valid[r] ? FLOAT(sums[r][j] + bias.data[expert * OUTPUTS + n]) : FLOAT(0);
+                }
+            }
+        }
+    }
+}

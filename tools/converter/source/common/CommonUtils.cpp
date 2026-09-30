@@ -92,6 +92,10 @@ bool CommonKit::protobuf2json(const char* jsonFile, const MNN::Compression::Pipe
             return false;
         }
         out << output;
+        out.close();
+        if (out.fail()) {
+            return false;
+        }
     }
     return true;
 }

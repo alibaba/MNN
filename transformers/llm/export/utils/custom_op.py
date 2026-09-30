@@ -146,32 +146,42 @@ class FusedRoPE(torch.nn.Module):
             self.name,
         )
 
-class MoEOp(torch.autograd.Function):
+class IndexedLinearOp(torch.autograd.Function):
     @staticmethod
-    def symbolic(g, hidden_states, routing_weights, selected_experts, num_experts, top_k, layer_id):
+    def symbolic(g, hidden_states, selected_experts, out_features, input_mode, name, fusedActivation, up_name):
         kwargs = {
-            "num_experts_i": num_experts,
-            "top_k_i": top_k,
-            "layer_id_i": layer_id
+            "out_features_i": out_features,
+            "input_mode_i": input_mode,
+            "name_s": name,
+            "fusedActivation_i": int(fusedActivation),
+            "up_name_s": up_name,
         }
         from torch.onnx.symbolic_helper import _get_tensor_sizes
-        out_sizes = _get_tensor_sizes(hidden_states)
+        out_sizes = _get_tensor_sizes(selected_experts) + [out_features]
         output_type = hidden_states.type().with_sizes(out_sizes)
-        return g.op("LlmExporter::MoE", hidden_states, routing_weights, selected_experts, **kwargs).setType(output_type)
+        return g.op("LlmExporter::IndexedLinear", hidden_states, selected_experts, **kwargs).setType(output_type)
 
     @staticmethod
-    def forward(ctx, hidden_states, routing_weights, selected_experts, num_experts, top_k, layer_id):
-        return hidden_states
+    def forward(ctx, hidden_states, selected_experts, out_features, input_mode, name, fusedActivation, up_name):
+        return hidden_states.new_zeros((*selected_experts.shape, out_features))
 
-class MoE(torch.nn.Module):
-    def __init__(self, num_experts, top_k, layer_id):
-        super(MoE, self).__init__()
-        self.num_experts = num_experts
-        self.top_k = top_k
-        self.layer_id = layer_id
 
-    def forward(self, hidden_states, routing_weights, selected_experts):
-        return MoEOp.apply(hidden_states, routing_weights, selected_experts, self.num_experts, self.top_k, self.layer_id)
+class IndexedLinear(torch.nn.Module):
+    """Weight-free export placeholder; the converter writes the expert bank."""
+    SILU = 34  # UnaryOpOperation.SILU in schema/default/TensorflowOp.fbs.
+
+    def __init__(self, in_features, out_features, input_mode, name):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.input_mode = input_mode
+        self.name = name
+        self.fusedActivation = -1
+        self.up_name = ''
+
+    def forward(self, hidden_states, selected_experts):
+        return IndexedLinearOp.apply(hidden_states, selected_experts, self.out_features, self.input_mode, self.name,
+                                     self.fusedActivation, self.up_name)
 
 class FusedLinearAttentionOp(torch.autograd.Function):
     """

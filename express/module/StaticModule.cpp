@@ -32,6 +32,7 @@ static ExecutionCacheKey makeExecutionCacheKey(const Op* op) {
 static bool supportPrearrangeClone(const Op* op) {
     return op->main_type() == OpParameter_Convolution2D || op->main_type() == OpParameter_LayerNorm ||
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+           op->main_type() == OpParameter_IndexedLinearParam ||
            op->main_type() == OpParameter_FusedLinearParam ||
 #endif
            op->type() == OpType_Attention || op->type() == OpType_Scale || op->type() == OpType_RoPE ||
@@ -230,6 +231,9 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 }
                 break;
             }
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+            case MNN::OpType_IndexedLinear:
+#endif
             case MNN::OpType_LayerNorm:
             case MNN::OpType_Scale:
             case MNN::OpType_RoPE: {
@@ -251,6 +255,28 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                     exe = nullptr;
                     break;
                 }
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+                if (op_table->main.type == OpParameter_IndexedLinearParam) {
+                    // All IndexedLinear clones share the already packed expert bank.
+                    auto param = op_table->main.AsIndexedLinearParam();
+                    for (auto& expert : param->linears) {
+                        if (!expert)
+                            continue;
+                        expert->weight.clear();
+                        expert->bias.clear();
+                        if (expert->quanParameter) {
+                            expert->quanParameter->buffer.clear();
+                            expert->quanParameter->alpha.clear();
+                            expert->quanParameter->alphaFp16.clear();
+                            expert->quanParameter->index.clear();
+                        }
+                        if (expert->symmetricQuan) {
+                            expert->symmetricQuan->weight.clear();
+                            expert->symmetricQuan->bias.clear();
+                        }
+                    }
+                }
+#endif
                 break;
             }
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
