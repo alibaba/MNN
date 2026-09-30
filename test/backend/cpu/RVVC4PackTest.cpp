@@ -20,7 +20,7 @@ template <class T>
 bool check(Fn<T> pack, Fn<T> unpack, Fn<T> packT, Fn<T> unpackT) {
     for (int padding : {0, 1})
     for (int area : {0, 1, 3, 16, 17, 65, 257})
-        for (int depth : {0, 1, 3, 4, 5, 16, 17, 33, 65}) {
+        for (int depth : {0, 1, 2, 3, 4, 5, 6, 16, 17, 33, 65}) {
             int rounded = (depth + 3) / 4 * 4;
             int off[2] = {area + padding * 3, area + padding * 5};
             std::vector<T> src(20000), actual(20000, T(93)), expected = actual;
@@ -75,7 +75,7 @@ int main() {
         !check<int16_t>(MNNPackCUnitInt16_RVV, MNNUnpackCUnitInt16_RVV, MNNPackCUnitTransposeInt16_RVV,
                         MNNUnpackCUnitTransposeInt16_RVV))
         return 1;
-    size_t cases = 1512;
+    size_t cases = 1848;
     for (int e : {0, 1, 3, 16, 17, 65})
         for (int l : {0, 1, 3, 4, 5, 17})
             for (int stride : {1, 2, 3}) {
