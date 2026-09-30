@@ -7,6 +7,7 @@
 //
 
 #include <fstream>
+#include <cstdio>
 #include <iostream>
 #include <algorithm>
 #include <set>
@@ -27,24 +28,160 @@
 using namespace MNN;
 using namespace std;
 
-static void _postTreatOp(std::unique_ptr<OpT>& op, FileLoader* fl, const PostTreatContext& context, const modelConfig& config, std::ofstream& weightPath, int64_t& offset, bool needExternalWeight) {
-    loadExternalParam(op, fl);
+// Stage the complete output before replacing either half of a model/weight
+// pair. Backups permit rollback on ordinary I/O failures; multiple renames are
+// not a crash-atomic filesystem transaction.
+class OutputFiles {
+public:
+    struct File {
+        std::string target, staged, backup;
+        bool backedUp = false;
+        bool installed = false;
+    };
+    ~OutputFiles() {
+        for (const auto& file : mFiles) {
+            MNNRemoveFile(file.staged.c_str());
+        }
+    }
+    std::string stage(const std::string& target) {
+        const auto staged = target + ".tmp";
+        const auto backup = target + ".bak";
+        if (target.empty() || MNNDirExist(target.c_str()) || MNNFileExist(staged.c_str()) ||
+            MNNFileExist(backup.c_str())) {
+            MNN_ERROR("Cannot stage output: %s\n", target.c_str());
+            return {};
+        }
+        for (const auto& file : mFiles) {
+            if (target == file.target || target == file.staged || target == file.backup || staged == file.target ||
+                backup == file.target) {
+                MNN_ERROR("Conflicting output paths: %s\n", target.c_str());
+                return {};
+            }
+        }
+        File file;
+        file.target = target;
+        file.staged = staged;
+        file.backup = backup;
+        mFiles.emplace_back(std::move(file));
+        return staged;
+    }
+    bool commit() {
+        for (auto& file : mFiles) {
+            if (MNNFileExist(file.target.c_str())) {
+                if (std::rename(file.target.c_str(), file.backup.c_str()) != 0) {
+                    rollback();
+                    return false;
+                }
+                file.backedUp = true;
+            }
+        }
+        for (auto& file : mFiles) {
+            if (std::rename(file.staged.c_str(), file.target.c_str()) != 0) {
+                rollback();
+                return false;
+            }
+            file.installed = true;
+        }
+        for (const auto& file : mFiles) {
+            if (file.backedUp)
+                MNNRemoveFile(file.backup.c_str());
+        }
+        return true;
+    }
+
+private:
+    void rollback() {
+        for (auto iter = mFiles.rbegin(); iter != mFiles.rend(); ++iter) {
+            if (iter->installed)
+                MNNRemoveFile(iter->target.c_str());
+            if (iter->backedUp && std::rename(iter->backup.c_str(), iter->target.c_str()) != 0) {
+                // Keep the original bytes recoverable if even restoration fails.
+                MNN_ERROR("Cannot restore %s; original saved at %s\n", iter->target.c_str(), iter->backup.c_str());
+            }
+        }
+    }
+    std::vector<File> mFiles;
+};
+
+static bool _postTreatOp(std::unique_ptr<OpT>& op, FileLoader* fl, const PostTreatContext& context,
+                         const modelConfig& config, std::ofstream& weightPath, int64_t& offset,
+                         bool needExternalWeight, bool indexedExpert = false) {
+    if (op->main.type == OpParameter_IndexedLinearParam) {
+        if (config.model == modelConfig::MNN) {
+            bool hasExternal = false;
+            bool hasFloatWeight = false;
+            auto param = op->main.AsIndexedLinearParam();
+            for (const auto& expert : param->linears) {
+                if (expert) {
+                    hasExternal |= !expert->external.empty();
+                    hasFloatWeight |= !expert->quanParameter;
+                }
+            }
+            if (hasExternal && op->externalPath.empty()) {
+                op->externalPath = config.modelFile + ".weight";
+            }
+            // Already quantized banks need no weight post-treatment. Preserve
+            // their external storage during the exporter's in-place graph pass.
+            if (hasExternal && !hasFloatWeight && !needExternalWeight && config.modelFile == config.MNNModel) {
+                if (!validateIndexedLinearExternal(op.get(), fl)) {
+                    return false;
+                }
+                if (op->externalPath == config.modelFile + ".weight") {
+                    op->externalPath.clear();
+                }
+                return true;
+            }
+        }
+        if (!loadExternalParam(op, fl)) {
+            return false;
+        }
+        bool success = true;
+        forEachIndexedLinearWeight(op, [&](std::unique_ptr<OpT>& member) {
+            success = success && _postTreatOp(member, fl, context, config, weightPath, offset, false, true);
+        });
+        if (!success) {
+            return false;
+        }
+        if (needExternalWeight) {
+            RemoveAndStoreParam(op, &weightPath, offset);
+        }
+        return !needExternalWeight || weightPath.good();
+    }
+    if (!loadExternalParam(op, fl)) {
+        return false;
+    }
     if (config.alignDenormalizedValue) {
         AlignDenormalizedValue(op);
     }
     if (config.saveHalfFloat) {
         CastParamsToHalf(op);
     }
-    if (config.detectSparseSpeedUp) {
+    // IndexedLinear uses dense expert kernels and permits bias-free projections.
+    if (config.detectSparseSpeedUp && !indexedExpert) {
         AddSparseInfo(op, context.proto);
     }
     WeightQuantAndCoding(op, config, &context);
     if (needExternalWeight) {
         RemoveAndStoreParam(op, &weightPath, offset);
     }
+    return !needExternalWeight || weightPath.good();
 }
 static float _computeOpExternalSizeInMB(const MNN::OpT* op) {
     switch (op->main.type) {
+        case MNN::OpParameter_IndexedLinearParam:
+        {
+            double size = 0.0;
+            auto param = op->main.AsIndexedLinearParam();
+            for (const auto& expert : param->linears) {
+                if (!expert) {
+                    continue;
+                }
+                for (size_t i = 1; i < expert->external.size(); ++i) {
+                    size += expert->external[i];
+                }
+            }
+            return size / 1024.0 / 1024.0;
+        }
         case MNN::OpParameter_Convolution2D:
         {
             auto conv2D = op->main.AsConvolution2D();
@@ -87,7 +224,8 @@ static bool _largeModel(const MNN::NetT* netT) {
     }
     return false;
 }
-int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
+static int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, OutputFiles& files,
+                     std::string& stagedWeight) {
     AUTOTIME;
     std::string compressFileName = config.compressionParamsFile;
     auto& proto = config.compressInfo->proto;
@@ -114,9 +252,13 @@ int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
     if (needExternalWeight) {
         auto weightName = config.MNNModel + ".weight";
         MNN_PRINT("Save Weight to %s\n", weightName.c_str());
-        externalWeightOs.open(weightName.c_str(), ios::binary);
+        // Never truncate a file that an input op may still reference.
+        stagedWeight = files.stage(weightName);
+        if (stagedWeight.empty())
+            return 1;
+        externalWeightOs.open(stagedWeight.c_str(), ios::binary);
         if (!externalWeightOs.is_open()) {
-            MNN_ERROR("Failed to open external weights: %s\n", weightName.c_str());
+            MNN_ERROR("Failed to open external weights: %s\n", stagedWeight.c_str());
             return 1;
         }
     }
@@ -158,17 +300,18 @@ int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
         int64_t offset = 0;
         FileLoader fl(".__convert_external_data.bin");
         for (auto& op : netT->oplists) {
-            _postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight);
+            if (!_postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight)) {
+                return 1;
+            }
         }
         for (auto& subgraph : netT->subgraphs) {
             context.subgraph = subgraph->name;
             for (auto& op : subgraph->nodes) {
-                _postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight);
+                if (!_postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight)) {
+                    return 1;
+                }
             }
         }
-    }
-    {
-        MNNRemoveFile(".__convert_external_data.bin");
     }
     if (needExternalWeight) {
         // close() also checks buffered writes that may fail after write() succeeds.
@@ -178,13 +321,20 @@ int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
             return 1;
         }
     }
+    {
+        MNNRemoveFile(".__convert_external_data.bin");
+    }
     if (config.compressInfo->write) {
-        CommonKit::protobuf2json(compressFileName.c_str(), &proto);
+        const auto stagedCompression = files.stage(compressFileName);
+        if (stagedCompression.empty() || !CommonKit::protobuf2json(stagedCompression.c_str(), &proto))
+            return 1;
     }
     return 0;
 }
 int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::unique_ptr<MNN::OpT>&& metaOp) {
-    auto error = postTreat(netT, config);
+    OutputFiles files;
+    std::string stagedWeight;
+    auto error = postTreat(netT, config, files, stagedWeight);
     if (error != 0) {
         return error;
     }
@@ -285,6 +435,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
     int sizeOutput    = builderOutput.GetSize();
     auto bufferOutput = builderOutput.GetBufferPointer();
 
+    const auto stagedModel = files.stage(config.MNNModel);
+    if (stagedModel.empty())
+        return 1;
     if (config.saveStaticModel && netT->usage != MNN::Usage_INFERENCE_STATIC) {
         std::map<std::string, std::vector<int>> inputConfig;
         // get config to set input size
@@ -298,11 +451,12 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
             }
         }
         const Net* net = flatbuffers::GetRoot<MNN::Net>(bufferOutput);
-        if (converToStaticModel(net, inputConfig, config.MNNModel) != 0) {
+        if (converToStaticModel(net, inputConfig, stagedModel,
+                                stagedWeight.empty() ? config.MNNModel + ".weight" : stagedWeight) != 0) {
             return 1;
         }
     } else {
-        std::ofstream output(config.MNNModel, std::ofstream::binary);
+        std::ofstream output(stagedModel, std::ofstream::binary);
         if (!output.is_open()) {
             MNN_ERROR("Failed to open output model: %s\n", config.MNNModel.c_str());
             return 1;
@@ -314,6 +468,10 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
             MNN_ERROR("Failed to write output model: %s\n", config.MNNModel.c_str());
             return 1;
         }
+    }
+    if (!files.commit()) {
+        MNN_ERROR("Cannot commit output model: %s\n", config.MNNModel.c_str());
+        return 1;
     }
     if (!netT->subgraphs.empty()) {
         MNN_PRINT("The model has subgraphs, please use MNN::Express::Module to run it\n");

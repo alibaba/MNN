@@ -126,6 +126,7 @@ extern void ___RoPESizeComputer__OpType_RoPE__();
 extern void ___AttentionSizeComputer__OpType_Attention__();
 extern void ___LinearAttentionSizeComputer__OpType_LinearAttention__();
 extern void ___FusedProjSizeComputer__OpType_FusedLinear__();
+extern void ___IndexedLinearSizeComputer__OpType_IndexedLinear__();
 #endif
 void registerShapeOps() {
 ___ShapeSizeComputer__OpType_Shape__();
@@ -253,6 +254,7 @@ ___RoPESizeComputer__OpType_RoPE__();
 ___AttentionSizeComputer__OpType_Attention__();
 ___LinearAttentionSizeComputer__OpType_LinearAttention__();
 ___FusedProjSizeComputer__OpType_FusedLinear__();
+___IndexedLinearSizeComputer__OpType_IndexedLinear__();
 #endif
 }
 }

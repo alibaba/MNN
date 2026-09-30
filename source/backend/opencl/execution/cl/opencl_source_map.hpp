@@ -2,6 +2,11 @@
 #include <string>
 #include <vector>
 namespace MNN {
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+extern const char* indexed_linear_buf;
+#endif
+#endif
 extern const char* conv_2d;
 extern const char* deconv_2d;
 extern const char* unary;
@@ -214,6 +219,11 @@ extern const char* cast_buf;
 #endif
 extern const char* reduction;
 const std::map<std::string, const char*> OpenCLProgramMap = {
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    {"indexed_linear_buf", indexed_linear_buf},
+#endif
+#endif
     {"conv_2d", conv_2d},
     {"deconv_2d", deconv_2d},
     {"unary", unary},
@@ -428,6 +438,11 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
 };
 } // namespace MNN
 const std::map<std::string, std::string> OpenCLProgramMd5Map = {
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    {"indexed_linear_buf", "82e6e194c8a807a0a05103ba900c4289"},
+#endif
+#endif
     {"conv_2d", "0048eb0c6a571925e6f3e1bd1d314d09"},
     {"deconv_2d", "287f563ddb48cfa1f282f50ce1bb34c2"},
     {"unary", "74343ac0107d0bdcbd26aaea1c8d13ac"},

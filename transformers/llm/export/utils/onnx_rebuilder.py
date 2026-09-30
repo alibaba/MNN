@@ -1,5 +1,6 @@
 import os
 import onnx
+from .custom_op import IndexedLinear
 
 class OnnxRebuilder:
     def __init__(self, onnx_path, weight_ops):
@@ -11,7 +12,10 @@ class OnnxRebuilder:
 
     def make_external(self, name, data, shape):
         # write to external weight
-        length = self.onnx_weight.write(data.tobytes())
+        if isinstance(data, list):
+            length = sum(self.onnx_weight.write(item.tobytes()) for item in data)
+        else:
+            length = self.onnx_weight.write(data.tobytes())
         location = os.path.basename(self.onnx_weight_path)
         offset = self.onnx_weight_offset
         self.onnx_weight_offset += length
@@ -41,6 +45,41 @@ class OnnxRebuilder:
             self.make_external(bias_name, bias, [oc])
         return weight_name, bias_name
 
+    def indexed_bank_nodes(self, name, inputs, input_mode, target):
+        """Standard ONNX reference; preserve every original projection weight."""
+        import numpy as np
+        from onnx import helper
+        bank = self.weight_ops[name]
+        ic, oc = bank[0][1].in_features, bank[0][1].out_features
+        weight_name = f'{name}_weight'
+        weights = [linear.weight.detach().transpose(0, 1).float().numpy() for _, linear in bank]
+        self.make_external(weight_name, weights, [len(bank), ic, oc])
+        ids = f'{name}/ids'
+        selected_weight, expanded_input = f'{name}/weight', f'{name}/input'
+        product, squeezed = f'{name}/product', f'{name}/squeezed'
+        axes_name, squeeze_axes_name = f'{name}/input_axes', f'{name}/output_axes'
+        axes = [-2, -3] if input_mode == 0 else [-2]
+        nodes = [
+            helper.make_node('Cast', [inputs[1]], [ids], to=onnx.TensorProto.INT64),
+            helper.make_node('Gather', [weight_name, ids], [selected_weight], axis=0),
+            helper.make_node('Constant', [], [axes_name], value=helper.make_tensor(
+                axes_name, onnx.TensorProto.INT64, [len(axes)], axes)),
+            helper.make_node('Unsqueeze', [inputs[0], axes_name], [expanded_input]),
+            helper.make_node('MatMul', [expanded_input, selected_weight], [product]),
+            helper.make_node('Constant', [], [squeeze_axes_name], value=helper.make_tensor(
+                squeeze_axes_name, onnx.TensorProto.INT64, [1], [-2])),
+        ]
+        has_bias = any(linear.bias is not None for _, linear in bank)
+        nodes.append(helper.make_node('Squeeze', [product, squeeze_axes_name], [squeezed if has_bias else target]))
+        if has_bias:
+            bias_name, selected_bias = f'{name}_bias', f'{name}/bias'
+            biases = [linear.bias.detach().float().numpy() if linear.bias is not None
+                      else np.zeros(oc, dtype=np.float32) for _, linear in bank]
+            self.make_external(bias_name, biases, [len(bank), oc])
+            nodes += [helper.make_node('Gather', [bias_name, ids], [selected_bias], axis=0),
+                      helper.make_node('Add', [squeezed, selected_bias], [target])]
+        return nodes
+
     def rebuild(self):
         from onnx import helper
         new_nodes = []
@@ -61,6 +100,34 @@ class OnnxRebuilder:
                 else:
                     # fakelinear -> matmul
                     new_nodes.append(helper.make_node('MatMul', [node.input[0], weight], node.output, name))
+            elif node.op_type == 'IndexedLinear':
+                from onnx import helper
+                attributes = {a.name: a for a in node.attribute}
+                name = attributes['name'].s.decode('utf-8')
+                input_mode = attributes['input_mode'].i
+                activation = attributes['fusedActivation'].i if 'fusedActivation' in attributes else -1
+                if activation not in (-1, IndexedLinear.SILU):
+                    raise ValueError(f'Unsupported IndexedLinear UnaryOpOperation: {activation}')
+                fused = activation != -1
+                up_name = attributes['up_name'].s.decode('utf-8') if 'up_name' in attributes else ''
+                gate, up = f'{name}/gate', f'{name}/up'
+                target = f'{name}/gate_up' if fused else node.output[0]
+                if up_name:
+                    target = gate
+                new_nodes.extend(self.indexed_bank_nodes(name, node.input, input_mode, target))
+                if fused:
+                    if up_name:
+                        new_nodes.extend(self.indexed_bank_nodes(up_name, node.input, input_mode, up))
+                    else:
+                        split_size = self.weight_ops[name][0][1].out_features // 2
+                        split = f'{name}/split'
+                        new_nodes += [helper.make_node('Constant', [], [split], value=helper.make_tensor(
+                            split, onnx.TensorProto.INT64, [2], [split_size, split_size])),
+                            helper.make_node('Split', [target, split], [gate, up], axis=-1)]
+                    sigmoid, silu = f'{name}/sigmoid', f'{name}/silu'
+                    new_nodes += [helper.make_node('Sigmoid', [gate], [sigmoid]),
+                                  helper.make_node('Mul', [gate, sigmoid], [silu]),
+                                  helper.make_node('Mul', [silu, up], node.output)]
             else:
                 new_nodes.append(node)
         self.onnx_weight.close()

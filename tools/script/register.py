@@ -207,7 +207,11 @@ def generateOPENCLFile(rootDir):
         f.write('\n')
         f.write('#ifdef ' + 'MNN_SUPPORT_TRANSFORMER_FUSE' + '\n')
         for l in transformerNamse:
+            if l.endswith('__BUFFER__'):
+                f.write('#ifndef MNN_OPENCL_BUFFER_CLOSED\n')
             f.write("extern void " + l + '();\n')
+            if l.endswith('__BUFFER__'):
+                f.write('#endif\n')
         f.write('#endif\n')
         f.write('void registerOpenCLOps() {\n')
         f.write('#ifndef ' + 'MNN_OPENCL_BUFFER_CLOSED' + '\n')
@@ -219,7 +223,11 @@ def generateOPENCLFile(rootDir):
         f.write('\n')
         f.write('#ifdef ' + 'MNN_SUPPORT_TRANSFORMER_FUSE' + '\n')
         for l in transformerNamse:
+            if l.endswith('__BUFFER__'):
+                f.write('#ifndef MNN_OPENCL_BUFFER_CLOSED\n')
             f.write(l+'();\n')
+            if l.endswith('__BUFFER__'):
+                f.write('#endif\n')
         f.write('#endif\n')
         f.write("}\n}\n}\n")
         f.write('#endif\n')
