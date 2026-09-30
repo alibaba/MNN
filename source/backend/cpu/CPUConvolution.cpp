@@ -254,18 +254,28 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     const int kernelSize = weightSize / kernelNum;
     resource->mInt8WeightKernelSum.resize(ocUpUnit); // for cpu, only used by depthwiseInt8
     auto weightBiasPtr = scalePtr + ocUpUnit;
-    for (int i = 0; i < kernelNum; i++) {
-        int temp = 0;
-        int offset = i * kernelSize;
-        for (int j = 0; j < kernelSize; j++) {
-            temp += static_cast<int>(weightSrc[offset + j]);
-        }
-        resource->mInt8WeightKernelSum[i] = (temp + kernelSize * (weightBiasPtr[i] / scalePtr[i]));
+    bool compensateSseOffset = false;
 #ifdef MNN_USE_SSE
-        if (resource->mUseConvQuan) {
-            resource->mOriginBias->host<int32_t>()[i] -= 128 * temp;
-        }
+    compensateSseOffset = resource->mUseConvQuan;
 #endif
+    if (core->MNNConvInt8ComputeWeightKernelSum) {
+        core->MNNConvInt8ComputeWeightKernelSum(resource->mInt8WeightKernelSum.data(),
+                                                resource->mOriginBias->host<int32_t>(), weightSrc, kernelNum,
+                                                kernelSize, scalePtr, weightBiasPtr, compensateSseOffset);
+    } else {
+        for (int i = 0; i < kernelNum; i++) {
+            int temp = 0;
+            int offset = i * kernelSize;
+            for (int j = 0; j < kernelSize; j++) {
+                temp += static_cast<int>(weightSrc[offset + j]);
+            }
+            resource->mInt8WeightKernelSum[i] = (temp + kernelSize * (weightBiasPtr[i] / scalePtr[i]));
+#ifdef MNN_USE_SSE
+            if (compensateSseOffset) {
+                resource->mOriginBias->host<int32_t>()[i] -= 128 * temp;
+            }
+#endif
+        }
     }
     ConvInt8TiledExecutor::initializeConvInt8QuantInfo(resource, convParam, quanCommon);
     auto weightDst = resource->mWeightInt8->host<int8_t>();
