@@ -124,9 +124,16 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
         dstOp->type = MNN::OpType_ConvolutionDepthwise;
         dstOp->main.type = MNN::OpParameter_Convolution2D;
     } else if (weightTensor->type == tflite::TensorType_UINT8) {
-        quantizedModel = 1;
-        dstOp->type = MNN::OpType_DepthwiseConvInt8;
-        dstOp->main.type = MNN::OpParameter_TfQuantizedConv2D;
+        // Legacy TFLite UINT8-quantized depthwise has no valid representation here:
+        // the only encoding this branch could emit (OpType_DepthwiseConvInt8 with a
+        // TfQuantizedConv2D main) mismatches both the converter's weight coding
+        // (WeightQuantAndCoding expects a Convolution2D main) and the CPU backend
+        // (CPUDepthwiseConvInt8 expects a Convolution2D main); there is no runtime
+        // for a depthwise TfQuantized op. Reject it fail-closed instead of crashing
+        // in post-treat or silently emitting a model that cannot run.
+        DLOG(ERROR) << "DEPTHWISE_CONV_2D legacy UINT8-quantized models are not supported";
+        dstOp->type = MNN::OpType_MAX;
+        return;
     } else {
         MNN_ASSERT(weightTensor->type == tflite::TensorType_FLOAT32);
         quantizedModel = 0;
