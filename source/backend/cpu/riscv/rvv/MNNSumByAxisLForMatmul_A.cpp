@@ -103,7 +103,7 @@ void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* scal
 
                             vint32m4_t v32_0 = __riscv_vwcvt_x_x_v_i32m4(v16_0, vl);
 
-                            vacc0 = __riscv_vadd_vv_i32m4(vacc0, v32_0, vl);
+                            vacc0 = __riscv_vadd_vv_i32m4_tu(vacc0, vacc0, v32_0, vl);
 
                             // w1
                             if (has_w1) {
@@ -113,7 +113,7 @@ void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* scal
 
                                 vint32m4_t v32_1 = __riscv_vwcvt_x_x_v_i32m4(v16_1, vl);
 
-                                vacc1 = __riscv_vadd_vv_i32m4(vacc1, v32_1, vl);
+                                vacc1 = __riscv_vadd_vv_i32m4_tu(vacc1, vacc1, v32_1, vl);
                             }
 
                             x += vl;
