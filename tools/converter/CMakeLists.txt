@@ -101,6 +101,14 @@ IF(MNN_BUILD_CONVERTER)
       $<TARGET_OBJECTS:MNNUtils>
     )
     target_link_libraries(TestOnnxEinsum ${MNN_DEPS} ${Protobuf_LIBRARIES})
+    add_executable(TestOnnxCompositeReduction
+      ${CMAKE_CURRENT_LIST_DIR}/source/TestOnnxCompositeReduction.cpp
+      ${COMMON_SRC}
+      ${MNN_CONVERTER_BACKENDS_OBJECTS}
+      ${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/flatbuffers/src/util.cpp
+      $<TARGET_OBJECTS:MNNUtils>
+    )
+    target_link_libraries(TestOnnxCompositeReduction ${MNN_DEPS} ${Protobuf_LIBRARIES})
     add_executable(TestPassManager ${CMAKE_CURRENT_LIST_DIR}/source/TestPassManager.cpp)
     target_link_libraries(TestPassManager MNNConvertDeps)
     target_link_libraries(MNNConvert MNNConvertDeps)
