@@ -12,6 +12,7 @@
   - `MNNConvert` 模型转换工具
   - `TestConvertResult` 模型转换正确性测试工具，*Windows下没有此产物，用`MNNConvert`对应功能替代*
   - `TestPassManager` 模型转换工具测试用例
+  - `TestOnnxScatterElements` ONNX ScatterElements 属性转换及 CPU 推理回归测试（需开启 `MNN_BUILD_SHARED_LIBS`）
   - `MNNDump2Json` 模型转换为Json
   - `MNNRevert2Buffer` Json转换为模型
   - `OnnxClip` Onnx模型裁剪工具
