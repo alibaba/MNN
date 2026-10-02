@@ -285,6 +285,11 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
         prefix[4] += mMemory;
         prefix[6] += mPower;
         // prefix += hint().modelUUID + "_";
+        // Uncached mmap files are removed at shutdown; keep them separate from
+        // persistent cached weights that share the same directory.
+        if (!hint().useCachedMmap) {
+            prefix += "uncached_";
+        }
         if (nullptr == mStaticAllocatorMMap.get()) {
             // Only support set weightmap dir once. The sync.static marker must
             // also be evaluated only once, here: later calls would see the
@@ -299,6 +304,15 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
                 autoRemove = false;
                 std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, prefix + "sync.static");
                 syncValid = MNNFileExist(fileName.c_str());
+                if (syncValid) {
+                    // An earlier uncached run may have removed the first data
+                    // file while leaving the marker. Rebuild that stale cache.
+                    std::string dataFileName = MNNFilePathConcat(hint().weightMemoryPath, prefix + "0.static");
+                    if (!MNNFileExist(dataFileName.c_str())) {
+                        MNNRemoveFile(fileName.c_str());
+                        syncValid = false;
+                    }
+                }
                 const_cast<RuntimeHint&>(hint()).useCachedMmap += syncValid;
             }
             mStaticAllocatorRaw = mStaticAllocator;
