@@ -196,3 +196,20 @@
     ```
 - 编译产物
   - `run_test.out` 单元测试程序
+
+
+## ONNX Softmax converter regression
+
+For a shared-library converter build, build `TestOnnxSoftmax`, create an output
+directory, and run `TestOnnxSoftmax <directory>`. The test serializes opset-9/11/12/13/18
+ONNX models, converts them, and checks CPU output shapes, types, and values.
+It covers omitted and explicit axes on rank-1/2/3 inputs where valid, including
+the legacy flattening semantics and modern per-axis semantics. It also checks
+both import orders with
+custom-domain versions 1/99 and standard-domain Softmax inside If subgraphs. Each
+converted Module is reused with original, changed, and restored inputs; If conditions
+change true/false/true. Standard-domain alias-only models and both import orders
+with conflicting standard spellings check empty-domain precedence. Expected result:
+`156 passed, 0 failed`. Legacy rank-1
+models use explicit axis 0 (or -1 from opset 11),
+since the legacy default axis 1 is outside the valid range for rank 1.

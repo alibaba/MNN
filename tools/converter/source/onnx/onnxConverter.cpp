@@ -39,9 +39,22 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
     }
 
     int opsetVersion = 13;
-    auto opsetInfo = onnxModel.opset_import();
-    if (!opsetInfo.empty()) {
-        opsetVersion = static_cast<int>(opsetInfo.begin()->version());
+    bool hasDefaultDomain = false;
+    for (const auto& opset : onnxModel.opset_import()) {
+        if (opset.domain().empty()) {
+            opsetVersion = static_cast<int>(opset.version());
+            hasDefaultDomain = true;
+            break;
+        }
+    }
+    // Match ONNX checker: the empty domain takes precedence over the standard alias.
+    if (!hasDefaultDomain) {
+        for (const auto& opset : onnxModel.opset_import()) {
+            if (opset.domain() == "ai.onnx") {
+                opsetVersion = static_cast<int>(opset.version());
+                break;
+            }
+        }
     }
     LOG(INFO) << "ONNX Model ir version: " << onnxModel.ir_version();
     LOG(INFO) << "ONNX Model opset version: " << opsetVersion;

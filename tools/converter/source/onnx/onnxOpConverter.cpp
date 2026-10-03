@@ -522,6 +522,7 @@ std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph,
     std::unique_ptr<MNN::SubGraphProtoT> subgraph(new MNN::SubGraphProtoT);
     subgraph->name = name;
     std::unique_ptr<OnnxScope> scope(new OnnxScope(graph, subgraph.get(), mNet, this));
+    scope->mOpsetVersion = mOpsetVersion;
     const auto& initializers         = scope->mInitializers;
     const auto& inputs               = scope->mInputs;
     const auto& outputs              = scope->mOutputs;
