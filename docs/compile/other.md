@@ -12,9 +12,18 @@
   - `MNNConvert` 模型转换工具
   - `TestConvertResult` 模型转换正确性测试工具，*Windows下没有此产物，用`MNNConvert`对应功能替代*
   - `TestPassManager` 模型转换工具测试用例
+  - `TestOnnxPad` ONNX Pad 转换回归测试（共享库构建），覆盖旧版 value 属性与新版输入形式
   - `MNNDump2Json` 模型转换为Json
   - `MNNRevert2Buffer` Json转换为模型
   - `OnnxClip` Onnx模型裁剪工具
+
+Pad 转换测试需提供一个已存在的临时输出目录：
+```bash
+cmake --build . --target TestOnnxPad -j1
+mkdir -p pad-test
+./TestOnnxPad pad-test
+```
+
 ### MNN模型转为QNN模型工具
 - 相关编译选项
   - `MNN_QNN_CONVERT_MODE` 在打开MNN_QNN宏前提下，是否编译成mnn模型转为QNN模型的功能库
