@@ -83,7 +83,13 @@ public:
                 strideVar = inputs[4];
             }
         }
-        
+
+        if (nullptr == axisVar && nullptr != strideVar) {
+            // Default axes enumerate the supplied starts, whose length may only
+            // be known at runtime. Preserve steps when axes is omitted.
+            axisVar = _Range(_Scalar<int>(0), _Size(startVar), _Scalar<int>(1));
+        }
+
         std::unique_ptr<MNN::OpT> sliceOp(new OpT);
         sliceOp->name = op->name()->str();
 
