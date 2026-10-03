@@ -12,6 +12,7 @@
   - `MNNConvert` 模型转换工具
   - `TestConvertResult` 模型转换正确性测试工具，*Windows下没有此产物，用`MNNConvert`对应功能替代*
   - `TestPassManager` 模型转换工具测试用例
+  - `TestOnnxSlice` ONNX Slice 转换回归测试（共享库构建），运行 `./TestOnnxSlice [临时目录]`
   - `MNNDump2Json` 模型转换为Json
   - `MNNRevert2Buffer` Json转换为模型
   - `OnnxClip` Onnx模型裁剪工具
