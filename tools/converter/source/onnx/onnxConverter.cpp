@@ -47,7 +47,8 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
             break;
         }
     }
-    // Match ONNX checker: the empty domain takes precedence over the standard alias.
+    // Prefer the first empty-domain import, falling back to the first ai.onnx alias.
+    // Conflicting/repeated standard imports can resolve differently in other runtimes.
     if (!hasDefaultDomain) {
         for (const auto& opset : onnxModel.opset_import()) {
             if (opset.domain() == "ai.onnx") {

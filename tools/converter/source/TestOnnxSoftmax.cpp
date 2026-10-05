@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <memory>
 #include <string>
 #include <vector>
@@ -78,24 +79,56 @@ static void addSoftmax(onnx::GraphProto* graph, const char* output, bool hasAxis
     }
 }
 
+static std::string conditionName(int depth) {
+    return depth == 1 ? "condition" : "condition" + std::to_string(depth);
+}
+
+static void addIfSoftmax(onnx::GraphProto* graph, const std::string& output, const std::vector<int>& shape,
+                         bool hasAxis, int axis, int depth) {
+    if (depth == 0) {
+        addSoftmax(graph, output.c_str(), hasAxis, axis);
+        return;
+    }
+    auto* node = graph->add_node();
+    node->set_op_type("If");
+    node->add_input(conditionName(depth));
+    node->add_output(output);
+    for (const char* branch : {"then_branch", "else_branch"}) {
+        auto* attr = node->add_attribute();
+        attr->set_name(branch);
+        attr->set_type(onnx::AttributeProto_AttributeType_GRAPH);
+        auto* subgraph = attr->mutable_g();
+        subgraph->set_name(graph->name() + "/" + branch);
+        const std::string branchOutput = "B" + std::to_string(depth);
+        addTensorInfo(subgraph->add_output(), branchOutput.c_str(), shape);
+        addIfSoftmax(subgraph, branchOutput, shape, hasAxis, axis, depth - 1);
+    }
+}
+
 static bool runCase(int opset, int rank, bool hasAxis, int axis, const std::string& directory, int customVersion = 0,
-                    bool customFirst = false, bool inIf = false, int aliasVersion = 0, bool aliasOnly = false,
-                    bool aliasFirst = false) {
+                    bool customFirst = false, int ifDepth = 0, int aliasVersion = 0, bool aliasOnly = false,
+                    bool aliasFirst = false, int repeatedVersion = 0) {
     std::string name = "softmax_v" + std::to_string(opset) + "_rank" + std::to_string(rank) + "_axis" +
                        (hasAxis ? std::to_string(axis) : "default");
     if (customVersion != 0) {
         name += "_custom" + std::to_string(customVersion) + (customFirst ? "_first" : "_last");
     }
-    if (inIf) {
-        name += "_if";
+    if (ifDepth != 0) {
+        name += "_if" + std::to_string(ifDepth);
     }
     if (aliasVersion != 0) {
         name += "_alias" + std::to_string(aliasVersion) + (aliasOnly ? "_only" : (aliasFirst ? "_first" : "_last"));
+    }
+    if (repeatedVersion != 0) {
+        name += "_repeat" + std::to_string(repeatedVersion);
     }
     const std::string onnxPath = directory + "/" + name + ".onnx";
     const std::string mnnPath = directory + "/" + name + ".mnn";
     std::vector<int> shape(rank, 2);
     shape.back() = 3;
+    if (rank >= 4) {
+        shape[1] = 4;
+    }
     int size = 1;
     for (int dim : shape) {
         size *= dim;
@@ -125,28 +158,19 @@ static bool runCase(int opset, int rank, bool hasAxis, int axis, const std::stri
         custom->set_domain("com.example");
         custom->set_version(customVersion);
     }
+    if (repeatedVersion != 0) {
+        auto* repeated = model.add_opset_import();
+        repeated->set_domain(aliasOnly ? "ai.onnx" : "");
+        repeated->set_version(repeatedVersion);
+    }
     auto* graph = model.mutable_graph();
     graph->set_name(name);
     addTensorInfo(graph->add_input(), "X", shape);
     addTensorInfo(graph->add_output(), "Y", shape);
-    if (inIf) {
-        addTensorInfo(graph->add_input(), "condition", {}, onnx::TensorProto_DataType_BOOL);
-        auto* node = graph->add_node();
-        node->set_op_type("If");
-        node->add_input("condition");
-        node->add_output("Y");
-        for (const char* branch : {"then_branch", "else_branch"}) {
-            auto* attr = node->add_attribute();
-            attr->set_name(branch);
-            attr->set_type(onnx::AttributeProto_AttributeType_GRAPH);
-            auto* subgraph = attr->mutable_g();
-            subgraph->set_name(name + branch);
-            addTensorInfo(subgraph->add_output(), "B", shape);
-            addSoftmax(subgraph, "B", hasAxis, axis);
-        }
-    } else {
-        addSoftmax(graph, "Y", hasAxis, axis);
+    for (int depth = 1; depth <= ifDepth; ++depth) {
+        addTensorInfo(graph->add_input(), conditionName(depth).c_str(), {}, onnx::TensorProto_DataType_BOOL);
     }
+    addIfSoftmax(graph, "Y", shape, hasAxis, axis, ifDepth);
     {
         std::ofstream file(onnxPath, std::ios::binary);
         if (!model.SerializeToOstream(&file)) {
@@ -173,8 +197,8 @@ static bool runCase(int opset, int rank, bool hasAxis, int axis, const std::stri
         return false;
     }
     std::vector<std::string> inputNames = {"X"};
-    if (inIf) {
-        inputNames.push_back("condition");
+    for (int depth = 1; depth <= ifDepth; ++depth) {
+        inputNames.push_back(conditionName(depth));
     }
     std::shared_ptr<Module> net(Module::load(inputNames, {"Y"}, mnnPath.c_str(), runtime));
     if (!net) {
@@ -183,7 +207,14 @@ static bool runCase(int opset, int rank, bool hasAxis, int axis, const std::stri
     auto input = _Input(shape, NCHW, halide_type_of<float>());
     const int effectiveAxis = hasAxis ? axis : (opset < 13 ? 1 : -1);
     // Change values, then restore the original input on the same converted module.
-    for (int step = 0; step < 3; ++step) {
+    // Keep a numerical trace for independent ORT comparisons of the original ONNX bytes.
+    std::ofstream trace(directory + "/" + name + ".values");
+    if (!trace) {
+        return false;
+    }
+    trace << std::setprecision(9);
+    const int steps = ifDepth > 1 ? 6 : 3;
+    for (int step = 0; step < steps; ++step) {
         std::vector<float> values(size);
         for (int i = 0; i < size; ++i) {
             values[i] = step == 1 ? (i * 3 + 1) % 11 - 5 : i % 7 - 3;
@@ -195,9 +226,11 @@ static bool runCase(int opset, int rank, bool hasAxis, int axis, const std::stri
         ::memcpy(inputData, values.data(), values.size() * sizeof(float));
         input->unMap();
         std::vector<VARP> inputs = {input};
-        if (inIf) {
+        for (int depth = 1; depth <= ifDepth; ++depth) {
+            // Exercise all four outer/inner choices, then restore the original choices.
+            const bool condition = step != 1 && !(step == 3 && depth == 1) && !(step == 4 && depth == 2);
             // ONNX bool inputs are normalized to MNN int32.
-            inputs.push_back(_Scalar<int>(step == 1 ? 0 : 1));
+            inputs.push_back(_Scalar<int>(condition ? 1 : 0));
         }
         auto outputs = net->onForward(inputs);
         if (outputs.size() != 1 || outputs[0].get() == nullptr) {
@@ -213,9 +246,17 @@ static bool runCase(int opset, int rank, bool hasAxis, int axis, const std::stri
         if (actual == nullptr) {
             return false;
         }
-        const auto expected = referenceSoftmax(values, shape, opset, effectiveAxis);
+        for (float value : values) {
+            trace << value << " ";
+        }
         for (int i = 0; i < size; ++i) {
-            if (!std::isfinite(actual[i]) || std::fabs(actual[i] - expected[i]) > 1e-6f) {
+            trace << actual[i] << " ";
+        }
+        trace << "\n";
+        const auto expected = referenceSoftmax(values, shape, opset, effectiveAxis);
+        // CPU exponential kernels use approximations; keep this stricter than op/softmax tests.
+        for (int i = 0; i < size; ++i) {
+            if (!std::isfinite(actual[i]) || std::fabs(actual[i] - expected[i]) > 1e-4f) {
                 std::fprintf(stderr, "%s step=%d[%d]: expected %g, got %g\n", name.c_str(), step, i, expected[i],
                              actual[i]);
                 return false;
@@ -296,6 +337,46 @@ int main(int argc, char** argv) {
                     runCase(opset, 3, hasAxis, axis, argv[1], 0, false, false, otherVersion, false, aliasFirst);
                 std::printf("%s standard-precedence opset=%d alias=%d first=%d case=%d\n", success ? "PASS" : "FAIL",
                             opset, otherVersion, aliasFirst, caseIndex);
+                passed += success;
+                failed += !success;
+            }
+        }
+    }
+    for (int opset : {9, 11, 12, 13, 18}) {
+        for (int caseIndex = -1; caseIndex < 8; ++caseIndex) {
+            const bool hasAxis = caseIndex != -1;
+            const int axis = caseIndex - 4;
+            if (hasAxis && axis < 0 && opset < 11) {
+                continue;
+            }
+            const bool success = runCase(opset, 4, hasAxis, axis, argv[1]);
+            std::printf("%s rank4 opset=%d axis=%s\n", success ? "PASS" : "FAIL", opset,
+                        hasAxis ? std::to_string(axis).c_str() : "default");
+            passed += success;
+            failed += !success;
+        }
+    }
+    for (int opset : {11, 12, 13, 18}) {
+        for (int caseIndex = 0; caseIndex < 3; ++caseIndex) {
+            const bool hasAxis = caseIndex != 0;
+            const int axis = caseIndex == 1 ? 1 : -2;
+            for (bool customFirst : {true, false}) {
+                const bool success = runCase(opset, 4, hasAxis, axis, argv[1], 99, customFirst, 2);
+                std::printf("%s nested If opset=%d first=%d case=%d\n", success ? "PASS" : "FAIL", opset,
+                            customFirst, caseIndex);
+                passed += success;
+                failed += !success;
+            }
+        }
+    }
+    // These deliberately conflicting imports pin MNN's first-import policy, not ORT equivalence.
+    for (int firstVersion : {11, 18}) {
+        for (int repeatedVersion : {11, 18}) {
+            for (bool aliasOnly : {false, true}) {
+                const bool success = runCase(firstVersion, 3, false, 0, argv[1], 0, false, 0,
+                                             aliasOnly ? firstVersion : 0, aliasOnly, false, repeatedVersion);
+                std::printf("%s repeated standard domain alias=%d first=%d last=%d\n", success ? "PASS" : "FAIL",
+                            aliasOnly, firstVersion, repeatedVersion);
                 passed += success;
                 failed += !success;
             }

@@ -203,13 +203,24 @@
 For a shared-library converter build, build `TestOnnxSoftmax`, create an output
 directory, and run `TestOnnxSoftmax <directory>`. The test serializes opset-9/11/12/13/18
 ONNX models, converts them, and checks CPU output shapes, types, and values.
-It covers omitted and explicit axes on rank-1/2/3 inputs where valid, including
-the legacy flattening semantics and modern per-axis semantics. It also checks
-both import orders with
-custom-domain versions 1/99 and standard-domain Softmax inside If subgraphs. Each
-converted Module is reused with original, changed, and restored inputs; If conditions
-change true/false/true. Standard-domain alias-only models and both import orders
-with conflicting standard spellings check empty-domain precedence. Expected result:
-`156 passed, 0 failed`. Legacy rank-1
-models use explicit axis 0 (or -1 from opset 11),
-since the legacy default axis 1 is outside the valid range for rank 1.
+It covers omitted and explicit axes on rank-1/2/3 inputs where valid, and every
+valid axis on asymmetric rank-4 inputs, including legacy flattening and modern
+per-axis semantics. Legacy rank-1 models require explicit axis 0 (or -1 from
+opset 11), since the default axis 1 is outside the valid range for rank 1.
+
+Tests include both import orders with unused custom-domain versions 1/99,
+standard-domain alias-only imports, and one- and two-level If subgraphs.
+Each converted Module is reused with original, changed, and restored inputs.
+Nested If cases exercise all four outer/inner conditions before restoring them.
+The `.values` sidecar contains one row per invocation: flattened input values,
+then flattened CPU output values, for independent comparisons using the original
+serialized ONNX model. Values use an absolute tolerance of `1e-4` for CPU
+exponential approximations (the existing operator test uses `1e-3` or `1e-2`).
+Expected result: `229 passed, 0 failed`.
+
+Conflicting imports are tested separately as MNN policy checks. MNN selects the
+first empty-domain import, or the first `ai.onnx` import when no empty-domain
+import exists. Repeated identical-domain imports also select the first entry.
+These tests do not establish equivalence with ONNX Runtime on conflicting
+standard-domain declarations; ONNX Runtime 1.30.0 selected the last standard
+entry in the original test models, which differs for some orders and axes.
