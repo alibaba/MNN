@@ -270,9 +270,9 @@ public:
             auto expected1 = i % 2 == 0 ? high : low;
             auto value0 = outputPtr[2 * i];
             auto value1 = outputPtr[2 * i + 1];
-            if (!std::isfinite(value0) || !std::isfinite(value1) || value0 < 0.0f || value0 > 1.0f ||
-                value1 < 0.0f || value1 > 1.0f || std::fabs(value0 + value1 - 1.0f) > 0.001f ||
-                std::fabs(value0 - expected0) > 0.001f || std::fabs(value1 - expected1) > 0.001f) {
+            if (!std::isfinite(value0) || !std::isfinite(value1) || value0 < 0.0f || value0 > 1.0f || value1 < 0.0f ||
+                value1 > 1.0f || std::fabs(value0 + value1 - 1.0f) > 0.001f || std::fabs(value0 - expected0) > 0.001f ||
+                std::fabs(value1 - expected1) > 0.001f) {
                 MNN_ERROR("SoftmaxLargeImageTest failed at row %d: %f, %f\n", i, value0, value1);
                 return false;
             }

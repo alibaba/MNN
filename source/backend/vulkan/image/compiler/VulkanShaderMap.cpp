@@ -165,6 +165,7 @@ mMaps.insert(std::make_pair("glsl_convolution1x1_w4_RELU6_FP32_comp", std::make_
 mMaps.insert(std::make_pair("glsl_convolution1x1_w4_FP16_comp", std::make_pair(glsl_convolution1x1_w4_FP16_comp,glsl_convolution1x1_w4_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolution1x1_w4_RELU_FP16_comp", std::make_pair(glsl_convolution1x1_w4_RELU_FP16_comp,glsl_convolution1x1_w4_RELU_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolution1x1_w4_RELU6_FP16_comp", std::make_pair(glsl_convolution1x1_w4_RELU6_FP16_comp,glsl_convolution1x1_w4_RELU6_FP16_comp_len)));
-mMaps.insert(std::make_pair("glsl_softmaxHeight_NHWC_comp", std::make_pair(glsl_softmaxHeight_NHWC_comp,glsl_softmaxHeight_NHWC_comp_len)));
+mMaps.insert(std::make_pair("glsl_softmaxHeight_NHWC_comp",
+                            std::make_pair(glsl_softmaxHeight_NHWC_comp, glsl_softmaxHeight_NHWC_comp_len)));
 }
 }
