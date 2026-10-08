@@ -20,9 +20,30 @@ struct SoftmaxConstBuffer {
     uint32_t CLeft;
 };
 
-VulkanSoftmax::VulkanSoftmax(const Op* op, Backend* bn, const uint32_t axisIndex) : VulkanBasicExecution(bn) {
+struct BufferSoftmaxConst {
+    int inside;
+    int axis;
+    int outside;
+};
+
+VulkanSoftmax::VulkanSoftmax(const Op* op, Backend* bn, const uint32_t axisIndex, bool useBuffer)
+    : VulkanBasicExecution(bn) {
     mAxisIndex = axisIndex;
-    auto vkBn = (VulkanBackend*)backend();
+    mAxis = op->main_as_Axis()->axis();
+    mUseBuffer = useBuffer;
+    auto vkBn = static_cast<VulkanBackend*>(backend());
+    if (mUseBuffer) {
+        mSoftmaxConstBuffer = std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false, sizeof(BufferSoftmaxConst),
+                                                             nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
+        mSoftmaxPipeline = vkBn->getPipeline("glsl_softmaxHeight_NHWC_comp", types);
+        mDescriptorSet.reset(mSoftmaxPipeline->createSet());
+        mSource.convert.reset(new VulkanImageConverter(vkBn));
+        mOutput.convert.reset(new VulkanImageConverter(vkBn));
+        return;
+    }
+
     std::string shaderName = "glsl_softmaxImage_";
     std::string macro = "";
     std::string suffix = "comp";
@@ -51,6 +72,14 @@ VulkanSoftmax::~VulkanSoftmax() {
 
 ErrorCode VulkanSoftmax::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                   const VulkanCommandPool::Buffer* cmdBuffer) {
+    if (mUseBuffer) {
+        return onEncodeBuffer(inputs, outputs, cmdBuffer);
+    }
+    return onEncodeImage(inputs, outputs, cmdBuffer);
+}
+
+ErrorCode VulkanSoftmax::onEncodeImage(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                       const VulkanCommandPool::Buffer* cmdBuffer) {
     auto vkBn = static_cast<VulkanBackend *>(backend());
     auto input  = inputs[0];
     auto output = outputs[0];
@@ -92,22 +121,64 @@ ErrorCode VulkanSoftmax::onEncode(const std::vector<Tensor*>& inputs, const std:
     return NO_ERROR;
 }
 
+ErrorCode VulkanSoftmax::onEncodeBuffer(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                        const VulkanCommandPool::Buffer* cmdBuffer) {
+    auto input = inputs[0];
+    auto output = outputs[0];
+    auto axis = mAxis;
+    if (axis < 0) {
+        axis += input->dimensions();
+    }
+    int inside = 1;
+    int outside = 1;
+    int mid = input->length(axis);
+    for (int i = 0; i < axis; ++i) {
+        outside *= input->length(i);
+    }
+    for (int i = axis + 1; i < input->dimensions(); ++i) {
+        inside *= input->length(i);
+    }
+    {
+        auto softmax = reinterpret_cast<BufferSoftmaxConst*>(mSoftmaxConstBuffer->map());
+        ::memset(softmax, 0, sizeof(BufferSoftmaxConst));
+        softmax->inside = inside;
+        softmax->axis = mid;
+        softmax->outside = outside;
+        mSoftmaxConstBuffer->unmap();
+    }
+
+    auto vkBn = static_cast<VulkanBackend*>(backend());
+    auto inputBufferSize = input->elementSize() * sizeof(float);
+    auto outputBufferSize = output->elementSize() * sizeof(float);
+    mSource.buffer.reset(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, inputBufferSize, nullptr,
+                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+    mOutput.buffer.reset(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, outputBufferSize, nullptr,
+                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+
+    mSource.convert->encodeTensorToBuffer(input, mSource.buffer->buffer(), mSource.buffer->size(), 0,
+                                          VulkanImageConverter::getTensorLinearFormat(input), cmdBuffer);
+    cmdBuffer->barrierSource(mSource.buffer->buffer(), 0, mSource.buffer->size());
+
+    mDescriptorSet.reset(mSoftmaxPipeline->createSet());
+    mDescriptorSet->writeBuffer(mOutput.buffer->buffer(), 0, mOutput.buffer->size());
+    mDescriptorSet->writeBuffer(mSource.buffer->buffer(), 1, mSource.buffer->size());
+    mDescriptorSet->writeBuffer(mSoftmaxConstBuffer->buffer(), 2, mSoftmaxConstBuffer->size());
+    mSoftmaxPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
+    vkCmdDispatch(cmdBuffer->get(), UP_DIV(outside, 8), UP_DIV(inside, 8), 1);
+
+    cmdBuffer->barrierSource(mOutput.buffer->buffer(), 0, mOutput.buffer->size());
+    mOutput.convert->encodeBufferToTensor(mOutput.buffer->buffer(), output, mOutput.buffer->size(), 0,
+                                          VulkanImageConverter::getTensorLinearFormat(output), cmdBuffer);
+    mSource.buffer->release();
+    mOutput.buffer->release();
+    return NO_ERROR;
+}
+
 class VulkanSoftmaxCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         auto input = inputs[0];
-        auto vkBn = static_cast<VulkanBackend*>(backend);
-        auto imageLimit = vkBn->proty().limits.maxImageDimension2D;
-        auto needsMultipleImages = [imageLimit](const Tensor* tensor) {
-            auto shape = VulkanTensor::tensorShapeFormat(tensor);
-            auto width = UP_DIV(shape[3], 4) * shape[2];
-            auto height = shape[0] * shape[1];
-            return width > imageLimit || height > imageLimit;
-        };
-        if (needsMultipleImages(input) || needsMultipleImages(outputs[0])) {
-            return nullptr;
-        }
 
         uint32_t dimension = input->dimensions();
         if (dimension > 4) {
@@ -143,7 +214,16 @@ public:
         }
         uint32_t axisIndex = axisMap[axis];
 
-        return new VulkanSoftmax(op, backend, axisIndex);
+        auto vkBn = static_cast<VulkanBackend*>(backend);
+        auto imageLimit = vkBn->proty().limits.maxImageDimension2D;
+        auto needsMultipleImages = [imageLimit](const Tensor* tensor) {
+            auto shape = VulkanTensor::tensorShapeFormat(tensor);
+            auto width = UP_DIV(shape[3], 4) * shape[2];
+            auto height = shape[0] * shape[1];
+            return width > imageLimit || height > imageLimit;
+        };
+        auto useBuffer = needsMultipleImages(input) || needsMultipleImages(outputs[0]);
+        return new VulkanSoftmax(op, backend, axisIndex, useBuffer);
     }
 };
 
