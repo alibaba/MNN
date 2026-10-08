@@ -14,6 +14,48 @@
 // #define DUMP_USAGE
 //#define MNN_DEBUG_MEMORY
 namespace MNN {
+// Local, versioned cache metadata: magic, version, file count, then sizes in
+// allocation order. Old empty sync markers are intentionally not trusted.
+static constexpr uint64_t gMmapCacheMagic = 0x4d4e4e4d4d415031ULL;
+static bool readMmapCacheSizes(const char* dirName, const char* prefix, const char* posfix,
+                               std::vector<uint64_t>* sizes) {
+    if (sizes) sizes->clear();
+    const std::string marker = MNNFilePathConcat(dirName, std::string(prefix) + "sync." + posfix);
+    auto file = MNNOpenFile(marker.c_str(), MNN_FILE_READ);
+    if (file == INVALID_FILE) {
+        return false;
+    }
+    uint64_t header[3] = {};
+    const auto length = MNNGetFileSize(file);
+    bool valid = length != INVALID_SIZE && length >= sizeof(header) &&
+                 MNNReadFile(file, header, sizeof(header)) == sizeof(header) &&
+                 header[0] == gMmapCacheMagic && header[1] == 1 && header[2] > 0 &&
+                 (length - sizeof(header)) % sizeof(uint64_t) == 0 &&
+                 header[2] == (length - sizeof(header)) / sizeof(uint64_t);
+    for (uint64_t i = 0; valid && i < header[2]; ++i) {
+        uint64_t expected = 0;
+        valid = MNNReadFile(file, &expected, sizeof(expected)) == sizeof(expected) && expected > 0;
+        if (!valid) {
+            break;
+        }
+        const auto name = MNNFilePathConcat(dirName, std::string(prefix) + std::to_string(i) + "." + posfix);
+        auto data = MNNOpenFile(name.c_str(), MNN_FILE_READ);
+        if (data == INVALID_FILE) {
+            valid = false;
+            break;
+        }
+        const auto size = MNNGetFileSize(data);
+        valid = size != INVALID_SIZE && static_cast<uint64_t>(size) == expected;
+        valid = MNNCloseFile(data) == NO_ERROR && valid;
+        if (valid && sizes) sizes->push_back(expected);
+    }
+    valid = MNNCloseFile(file) == NO_ERROR && valid;
+    if (!valid && sizes) sizes->clear();
+    return valid;
+}
+bool BufferAllocator::Allocator::validateMmapCache(const char* dirName, const char* prefix, const char* posfix) {
+    return readMmapCacheSizes(dirName, prefix, posfix, nullptr);
+}
 // MemChunk function
 bool MemChunk::invalid() const {
     return mNode == nullptr && first == nullptr;
@@ -65,15 +107,18 @@ public:
 };
 class MmapAllocator : public BufferAllocator::Allocator {
 private:
-    std::map<void*, std::tuple<file_t,size_t, std::string>> mCache;
+    std::map<void*, std::tuple<file_t, size_t, std::string, size_t>> mCache;
     std::string mFileName;
     std::string mPrefix;
     std::string mPosfix;
     int mAllocTimes = 0;
+    std::vector<uint64_t> mFileSizes;
     bool mRemove;
-    bool mNewMmap = false;
     bool mSynced = false;
     bool mSyncValid = false;
+    bool mSyncFailed = false;
+    std::vector<uint64_t> mExpectedSizes;
+    bool mTrustedGenerationEnded = false;
 
 public:
     MmapAllocator(const char* dirName, const char* prefix, const char* posfix, bool autoRemove, bool syncValid) {
@@ -91,6 +136,10 @@ public:
         }
         mRemove = autoRemove;
         mSyncValid = syncValid;
+        if (syncValid) {
+            // Retain fail-closed trust mode if the files changed after runtime validation.
+            readMmapCacheSizes(mFileName.c_str(), mPrefix.c_str(), mPosfix.c_str(), &mExpectedSizes);
+        }
     }
     virtual ~ MmapAllocator() {
         for (auto& iter : mCache) {
@@ -104,41 +153,87 @@ public:
     virtual MemChunk onAlloc(size_t size, size_t align) override {
         MNN_ASSERT(size > 0);
         MNN_ASSERT(!mSynced);
+        const auto fail = [this]() {
+            // A cold CPU runtime may fall back to RAW memory and continue with
+            // later mmap allocations. That mixed sequence is not a reusable
+            // weight cache, even if every successfully mapped file is valid.
+            if (!mRemove && !mSyncValid && !mTrustedGenerationEnded) {
+                mSyncFailed = true;
+            }
+            return MemChunk(nullptr, 0);
+        };
         std::string name = mPrefix + std::to_string(mAllocTimes) + "." + mPosfix;
         std::string fileName = MNNFilePathConcat(mFileName, name);
         file_t file;
         size = UP_DIV(size, align) * align;
-        if (MNNFileExist(fileName.c_str())) {
+        if (mTrustedGenerationEnded) {
+            return fail();
+        }
+        if (mSyncValid) {
+            // Executions skipped weight loading: never create/grow a trusted cache.
+            if (static_cast<size_t>(mAllocTimes) >= mExpectedSizes.size() ||
+                size > mExpectedSizes[mAllocTimes]) {
+                return fail();
+            }
             file = MNNOpenFile(fileName.c_str(), MNN_FILE_READ | MNN_FILE_WRITE);
-            // The cache file may be shorter than the mapping we are about to make
-            // (truncated / incomplete previous sync / mismatched chunk ordering
-            // across in-process reloads). Mapping past EOF raises SIGBUS on iOS,
-            // so grow the file to cover the whole mapping before mmap.
-            if (MNNGetFileSize(file) < size) {
-                auto code = MNNSetFileSize(file, size);
-                if (NO_ERROR != code) {
-                    MNN_ERROR("Grow mmap cache file size %lu error= %d\n", size, code);
-                    MNNCloseFile(file);
-                    return MemChunk(nullptr, 0);
-                }
+            if (file == INVALID_FILE) {
+                return fail();
+            }
+            const auto actual = MNNGetFileSize(file);
+            if (actual == INVALID_SIZE || static_cast<uint64_t>(actual) != mExpectedSizes[mAllocTimes]) {
+                MNNCloseFile(file);
+                return fail();
             }
         } else {
-            file = MNNCreateFile(fileName.c_str());
-            auto code = MNNSetFileSize(file, size);
-            if (NO_ERROR != code) {
-                MNN_ERROR("Set File size %lu error= %d\n", size, code);
-                MNNCloseFile(file);
-                return MemChunk(nullptr, 0);
+            if (!mRemove) {
+                const auto marker = MNNFilePathConcat(mFileName, mPrefix + "sync." + mPosfix);
+                if (MNNFileExist(marker.c_str()) && MNNRemoveFile(marker.c_str()) != NO_ERROR) {
+                    // Do not rebuild weights beneath a marker we cannot invalidate.
+                    return fail();
+                }
             }
-            mNewMmap = true;
+            if (MNNFileExist(fileName.c_str())) {
+                file = MNNOpenFile(fileName.c_str(), MNN_FILE_READ | MNN_FILE_WRITE);
+                // The cache file may be shorter than the mapping we are about to make
+                // (truncated / incomplete previous sync / mismatched chunk ordering
+                // across in-process reloads). Mapping past EOF raises SIGBUS on iOS,
+                // so grow the file to cover the whole mapping before mmap.
+                const auto fileSize = MNNGetFileSize(file);
+                if (file == INVALID_FILE || fileSize == INVALID_SIZE) {
+                    if (file != INVALID_FILE) {
+                        MNNCloseFile(file);
+                    }
+                    return fail();
+                }
+                if (fileSize < size) {
+                    auto code = MNNSetFileSize(file, size);
+                    if (NO_ERROR != code) {
+                        MNN_ERROR("Grow mmap cache file size %lu error= %d\n", size, code);
+                        MNNCloseFile(file);
+                        return fail();
+                    }
+                }
+            } else {
+                file = MNNCreateFile(fileName.c_str());
+                if (file == INVALID_FILE) {
+                    return fail();
+                }
+                auto code = MNNSetFileSize(file, size);
+                if (NO_ERROR != code) {
+                    MNN_ERROR("Set File size %lu error= %d\n", size, code);
+                    MNNCloseFile(file);
+                    return fail();
+                }
+            }
         }
         void* ptr = MNNMmapFile(file, size);
         if (ptr == nullptr) {
             MNN_ERROR("MNNMmapFile failed for %s, size=%lu\n", fileName.c_str(), size);
             MNNCloseFile(file);
-            return MemChunk(nullptr, 0);
+            return fail();
         }
-        mCache.insert(std::make_pair(ptr, std::make_tuple(file, size, fileName)));
+        mCache.insert(std::make_pair(ptr, std::make_tuple(file, size, fileName, mAllocTimes)));
+        mFileSizes.emplace_back(MNNGetFileSize(file));
         mAllocTimes++;
         return MemChunk(ptr, 0);
     }
@@ -150,31 +245,90 @@ public:
             MNN_ERROR("Invalid free for MMAPAllocator\n");
             return;
         }
+        // Released persistent files remain part of this allocation sequence.
+        // Flush them before losing their mapping so sync can cover the full set.
+        if (!mRemove && MNNMmapSync(iter->first, std::get<1>(iter->second)) != NO_ERROR) {
+            mSyncFailed = true;
+        }
         MNNUnmapFile(iter->first, std::get<1>(iter->second));
         MNNCloseFile(std::get<0>(iter->second));
         if (mRemove) {
             MNNRemoveFile(std::get<2>(iter->second).c_str());
         }
         mCache.erase(iter);
-        mAllocTimes = 0;
+        if (mCache.empty()) {
+            mAllocTimes = 0;
+            mFileSizes.clear();
+            mSynced = false;
+            // RAW fallback buffers may still live in the CPU runtime after all
+            // mmap buffers are released. Only a new allocator/runtime can
+            // establish a complete cache sequence after a cold failure.
+            mTrustedGenerationEnded = mTrustedGenerationEnded || mSyncValid;
+            mSyncValid = false;
+            mExpectedSizes.clear();
+        }
     }
     virtual void sync() override {
-        if (mSynced) {
+        if (mSynced || mSyncValid || mTrustedGenerationEnded) {
+            // A warm reader must not replace the full manifest with a subset.
             return;
         }
-        if (!mRemove) {
-            if (mNewMmap) {
-                for (auto& iter : mCache) {
-                    MNNMmapSync(iter.first, std::get<1>(iter.second));
-                }
+        if (mRemove) {
+            return;
+        }
+        const auto marker = MNNFilePathConcat(mFileName, mPrefix + "sync." + mPosfix);
+        if (MNNFileExist(marker.c_str()) && MNNRemoveFile(marker.c_str()) != NO_ERROR) {
+            return;
+        }
+        if (mFileSizes.empty() || mSyncFailed) {
+            return;
+        }
+        std::vector<bool> active(mFileSizes.size(), false);
+        for (auto& iter : mCache) {
+            const auto fileSize = MNNGetFileSize(std::get<0>(iter.second));
+            if (fileSize == INVALID_SIZE || fileSize < std::get<1>(iter.second)) {
+                return;
             }
-            if (mNewMmap || !mSyncValid) {
-                std::string cacheName = mPrefix + "sync." + mPosfix;
-                std::string fileName = MNNFilePathConcat(mFileName, cacheName);
-                MNNCreateFile(fileName.c_str());
-                mSynced = true;
+            const auto index = std::get<3>(iter.second);
+            mFileSizes[index] = fileSize;
+            active[index] = true;
+            if (MNNMmapSync(iter.first, std::get<1>(iter.second)) != NO_ERROR) {
+                return;
             }
         }
+        for (size_t i = 0; i < mFileSizes.size(); ++i) {
+            if (active[i]) {
+                continue;
+            }
+            const auto name = MNNFilePathConcat(mFileName, mPrefix + std::to_string(i) + "." + mPosfix);
+            auto data = MNNOpenFile(name.c_str(), MNN_FILE_READ);
+            if (data == INVALID_FILE) {
+                return;
+            }
+            const auto size = MNNGetFileSize(data);
+            const auto closed = MNNCloseFile(data);
+            if (size == INVALID_SIZE || size != mFileSizes[i] || closed != NO_ERROR) {
+                return;
+            }
+        }
+        auto file = MNNCreateFile(marker.c_str());
+        if (file == INVALID_FILE) {
+            return;
+        }
+        uint64_t header[3] = {gMmapCacheMagic, 1, static_cast<uint64_t>(mFileSizes.size())};
+        // Write the header last, so an interrupted/partial write is invalid.
+        bool valid = MNNSetFilePointer(file, sizeof(header)) == NO_ERROR;
+        for (auto size : mFileSizes) {
+            valid = valid && MNNWriteFile(file, &size, sizeof(size)) == sizeof(size);
+        }
+        valid = valid && MNNSetFilePointer(file, 0) == NO_ERROR &&
+                MNNWriteFile(file, header, sizeof(header)) == sizeof(header);
+        valid = MNNCloseFile(file) == NO_ERROR && valid;
+        if (!valid) {
+            MNNRemoveFile(marker.c_str());
+            return;
+        }
+        mSynced = true;
     }
 };
 class RecurseAllocator : public BufferAllocator::Allocator {
