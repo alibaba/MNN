@@ -169,7 +169,22 @@ recommending deletion:
   `test_stages.json` self-documentation, developer docs, skill docs, and code
   comments in the same change so the old entrypoint disappears completely.
 
+## Bugfix 单测提交原则
+
+- **不默认给每个 bugfix 新增仓库单测**。优先复用已有测试、模型 smoke 或最小复现验证，避免重复用例和
+  一次性复现代码持续膨胀。
+- **开发时可以写临时单测，但不要随修复提交**。临时用例或脚本留在本地或临时目录，提交前从 diff 中
+  排除；它们用于定位和验证，不自动成为仓库的长期维护内容。
+- **提交到仓库的单测必须审查必要性，理由充分才添加**。评估现有覆盖的缺口、问题再次发生的风险与影响、
+  用例能否稳定捕获回归，以及代码量、构建/运行和维护成本；在 CR/PR 中说明为什么已有验证不足、
+  该用例有什么长期价值。仅为证明本次修复有效、重复已有覆盖或照抄实现逻辑，不足以支持新增单测。
+- **确需长期覆盖时，优先小幅扩展已有用例**，再考虑新增独立单测；保持用例最小，并确认修复前失败、
+  修复后通过。不提交新增单测也必须完成修复验证，在 CR/PR 中记录复现方式、修复前后结果和已执行的验证。
+
 ## Adding a new test
+
+For bugfixes, first apply the [unit-test submission policy](#bugfix-单测提交原则).
+Use the steps below when a committed test is warranted; a bugfix alone does not require adding one.
 
 1. Write the C++ test under `test/<area>/` (one file, registered with
    `MNNTestSuiteRegister`). For operators the full template + conventions are in
