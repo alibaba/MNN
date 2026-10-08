@@ -97,6 +97,17 @@ public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         auto input = inputs[0];
+        auto vkBn = static_cast<VulkanBackend*>(backend);
+        auto imageLimit = vkBn->proty().limits.maxImageDimension2D;
+        auto needsMultipleImages = [imageLimit](const Tensor* tensor) {
+            auto shape = VulkanTensor::tensorShapeFormat(tensor);
+            auto width = UP_DIV(shape[3], 4) * shape[2];
+            auto height = shape[0] * shape[1];
+            return width > imageLimit || height > imageLimit;
+        };
+        if (needsMultipleImages(input) || needsMultipleImages(outputs[0])) {
+            return nullptr;
+        }
 
         uint32_t dimension = input->dimensions();
         if (dimension > 4) {
