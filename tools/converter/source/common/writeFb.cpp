@@ -289,7 +289,17 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
         converToStaticModel(net, inputConfig, config.MNNModel);
     } else {
         std::ofstream output(config.MNNModel, std::ofstream::binary);
+        if (!output.is_open()) {
+            MNN_ERROR("Failed to open output model: %s\n", config.MNNModel.c_str());
+            return 1;
+        }
         output.write((const char*)bufferOutput, sizeOutput);
+        // close() also checks buffered writes that may fail after write() succeeds.
+        output.close();
+        if (output.fail()) {
+            MNN_ERROR("Failed to write output model: %s\n", config.MNNModel.c_str());
+            return 1;
+        }
     }
     if (!netT->subgraphs.empty()) {
         MNN_PRINT("The model has subgraphs, please use MNN::Express::Module to run it\n");
