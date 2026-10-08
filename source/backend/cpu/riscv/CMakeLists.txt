@@ -2,6 +2,7 @@ IF(NOT DEFINED ARCHS)
   set(ARCHS ${CMAKE_SYSTEM_PROCESSOR})
 ENDIF()
 
+# Standard RVV sources only; vendor sources are listed explicitly below.
 FILE(GLOB MNN_RVV_SRC ${CMAKE_CURRENT_LIST_DIR}/rvv/*.cpp)
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
@@ -46,25 +47,25 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
 
     if (MNN_RVV_SPACEMIT_IME2)
         set(MNN_SPACEMIT_IME2_RUNTIME_SRC
-            ${CMAKE_CURRENT_LIST_DIR}/rvv/spacemit_ime2/MNNSpacemitIme2AttentionFunctions.cpp
-            ${CMAKE_CURRENT_LIST_DIR}/rvv/spacemit_ime2/MNNSpacemitIme2FastPathRegistration.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2AttentionFunctions.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2FastPathRegistration.cpp
         )
         if (MNN_LOW_MEMORY)
             list(APPEND MNN_SPACEMIT_IME2_RUNTIME_SRC
-                ${CMAKE_CURRENT_LIST_DIR}/rvv/spacemit_ime2/MNNSpacemitIme2ConvInt8Executor.cpp
+                ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2ConvInt8Executor.cpp
             )
         endif()
         set(MNN_SPACEMIT_IME2_SRC
-            ${CMAKE_CURRENT_LIST_DIR}/rvv/spacemit_ime2/MNNSpacemitIme2AttentionKernels.cpp
-            ${CMAKE_CURRENT_LIST_DIR}/rvv/spacemit_ime2/MNNSpacemitIme2GemmI8I4Local.cpp
-            ${CMAKE_CURRENT_LIST_DIR}/rvv/spacemit_ime2/MNNSpacemitIme2GemmInt8.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2AttentionKernels.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2GemmI8I4Local.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2GemmInt8.cpp
         )
         set(MNN_SPACEMIT_IME2_MARCH "${MNN_RVV_BASE_MARCH}_xsmtvdotii")
 
         add_library(MNNSpacemitIme2Runtime OBJECT ${MNN_SPACEMIT_IME2_RUNTIME_SRC})
         target_include_directories(MNNSpacemitIme2Runtime PRIVATE
             ${CMAKE_CURRENT_LIST_DIR}/rvv/
-            ${CMAKE_CURRENT_LIST_DIR}/rvv/spacemit_ime2/
+            ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/
         )
         target_compile_definitions(MNNSpacemitIme2Runtime PRIVATE MNN_USE_RVV MNN_USE_SPACEMIT_IME2)
         target_compile_options(MNNSpacemitIme2Runtime PRIVATE
@@ -84,7 +85,7 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
         add_library(MNNSpacemitIme2 OBJECT ${MNN_SPACEMIT_IME2_SRC})
         target_include_directories(MNNSpacemitIme2 PRIVATE
             ${CMAKE_CURRENT_LIST_DIR}/rvv/
-            ${CMAKE_CURRENT_LIST_DIR}/rvv/spacemit_ime2/
+            ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/
         )
         target_compile_definitions(MNNSpacemitIme2 PRIVATE MNN_USE_RVV MNN_USE_SPACEMIT_IME2)
         target_compile_options(MNNSpacemitIme2 PRIVATE
