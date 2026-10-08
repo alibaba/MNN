@@ -196,12 +196,3 @@
     ```
 - 编译产物
   - `run_test.out` 单元测试程序
-
-
-## ONNX OneHot converter regression
-
-For a shared-library converter build, build `TestOnnxOneHot`, create an output
-directory, and run `TestOnnxOneHot <directory>`. The test serializes opset-9/11
-ONNX models, converts them, and checks CPU output shapes, types, and values.
-It covers omitted axis, explicit -1/0/1, rank-1/2 inputs, and changed runtime
-indices on the same session. Expected result: `16 passed, 0 failed`.
