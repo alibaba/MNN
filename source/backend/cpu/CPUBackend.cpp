@@ -285,6 +285,11 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
         prefix[4] += mMemory;
         prefix[6] += mPower;
         // prefix += hint().modelUUID + "_";
+        // Uncached mmap files are removed at shutdown; keep them separate from
+        // persistent cached weights that share the same directory.
+        if (!hint().useCachedMmap) {
+            prefix += "uncached_";
+        }
         if (nullptr == mStaticAllocatorMMap.get()) {
             // Only support set weightmap dir once. The sync.static marker must
             // also be evaluated only once, here: later calls would see the
@@ -298,7 +303,11 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
             if (hint().useCachedMmap) {
                 autoRemove = false;
                 std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, prefix + "sync.static");
-                syncValid = MNNFileExist(fileName.c_str());
+                syncValid = BufferAllocator::Allocator::validateMmapCache(
+                    hint().weightMemoryPath.c_str(), prefix.c_str(), "static");
+                if (!syncValid) {
+                    MNNRemoveFile(fileName.c_str());
+                }
                 const_cast<RuntimeHint&>(hint()).useCachedMmap += syncValid;
             }
             mStaticAllocatorRaw = mStaticAllocator;
@@ -621,7 +630,10 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     switch (storageType) {
         case STATIC: {
             chunk = mRuntime->mStaticAllocator->alloc(size, false);
-            if (chunk.invalid() && nullptr != mRuntime->mStaticAllocatorRaw.get()) {
+            // Trusted cache executions omit weight loading; RAW fallback would
+            // expose uninitialized weights rather than recover from mmap failure.
+            if (chunk.invalid() && mRuntime->hint().useCachedMmap <= 1 &&
+                nullptr != mRuntime->mStaticAllocatorRaw.get()) {
                 chunk = mRuntime->mStaticAllocatorRaw->alloc(size, false);
                 staticAllocator = mRuntime->mStaticAllocatorRaw.get();
             }
