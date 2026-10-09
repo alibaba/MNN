@@ -193,19 +193,43 @@ void VulkanPipeline::changePipeline(const std::vector<uint32_t>& localSize) cons
     }
 }
 
-VulkanLayout::DescriptorSet* VulkanLayout::createSet() const {
-    VkDescriptorPool descriptorPool;
-    //        FUNC_PRINT(poolInfo.poolSizeCount);
-    CALL_VK(mDevice.createDescriptorPool(descriptorPool, mDesPoolSize.size(), mDesPoolSize.data()));
+static const uint32_t kMaxSetsPerPool = 64;
 
-    VkDescriptorSet descriptorSet;
-    CALL_VK(mDevice.allocateDescriptorSet(descriptorSet, descriptorPool, mSetLayout));
-    return new DescriptorSet(descriptorSet, descriptorPool, this);
+VulkanLayout::DescriptorSet* VulkanLayout::createSet() const {
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+    if (VK_NULL_HANDLE != mCurrentPool) {
+        auto res = mDevice.allocateDescriptorSet(descriptorSet, mCurrentPool, mSetLayout);
+        if (VK_SUCCESS == res) {
+            return new DescriptorSet(descriptorSet, mCurrentPool, this);
+        }
+        if (VK_ERROR_OUT_OF_POOL_MEMORY != res && VK_ERROR_FRAGMENTED_POOL != res) {
+            MNN_ERROR("Vulkan allocate descriptor set error: %d\n", res);
+            return nullptr;
+        }
+    }
+    // Current pool exhausted (or none yet): open a new shared pool
+    std::vector<VkDescriptorPoolSize> poolSizes(mDesPoolSize);
+    for (auto& s : poolSizes) {
+        s.descriptorCount *= kMaxSetsPerPool;
+    }
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    auto res = mDevice.createDescriptorPool(pool, poolSizes.size(), poolSizes.data(), kMaxSetsPerPool);
+    if (VK_SUCCESS != res) {
+        MNN_ERROR("Vulkan create descriptor pool error: %d\n", res);
+        return nullptr;
+    }
+    mPools.emplace_back(pool);
+    mCurrentPool = pool;
+    res = mDevice.allocateDescriptorSet(descriptorSet, pool, mSetLayout);
+    if (VK_SUCCESS != res) {
+        MNN_ERROR("Vulkan allocate descriptor set error: %d\n", res);
+        return nullptr;
+    }
+    return new DescriptorSet(descriptorSet, pool, this);
 }
 
 VulkanLayout::DescriptorSet::~DescriptorSet() {
     mPipeline->mDevice.freeDescriptorSets(mPool, 1, &mSet);
-    mPipeline->mDevice.destroyDescriptorPool(mPool);
 }
 void VulkanLayout::DescriptorSet::writeBuffer(std::tuple<VkBuffer, VkDeviceSize, VkDeviceSize> fuseBuffer, int bindIndex) {
     writeBuffer(std::get<0>(fuseBuffer), bindIndex, std::get<1>(fuseBuffer), std::get<2>(fuseBuffer));
@@ -255,6 +279,9 @@ VulkanPipelineCache::~VulkanPipelineCache() {
 }
 
 VulkanLayout::~VulkanLayout() {
+    for (auto pool : mPools) {
+        mDevice.destroyDescriptorPool(pool);
+    }
     mDevice.destroyPipelineLayout(mLayout);
     mDevice.destroyDescriptorSetLayout(mSetLayout);
 }

@@ -87,8 +87,13 @@ private:
     std::vector<VkDescriptorPoolSize> mDesPoolSize;
     VkDescriptorSetLayout mSetLayout;
     const VulkanDevice& mDevice;
+    // Descriptor sets are allocated from shared pools owned by this layout.
+    // Pools are opened on demand (each holds kMaxSetsPerPool sets) so that
+    // large graphs don't create one VkDescriptorPool per set.
+    mutable std::vector<VkDescriptorPool> mPools;
+    mutable VkDescriptorPool mCurrentPool;
 
-    VulkanLayout(const VulkanDevice& dev) : mDevice(dev) {
+    VulkanLayout(const VulkanDevice& dev) : mDevice(dev), mCurrentPool(VK_NULL_HANDLE) {
         // Do nothing
     }
 };
