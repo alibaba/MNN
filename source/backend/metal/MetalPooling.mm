@@ -23,12 +23,20 @@ MetalPooling::MetalPooling(Backend *backend, const Pool *pooling)
       mStrideX(pooling->strideX()),
       mStrideY(pooling->strideY()),
       mPadX(pooling->padX()),
-      mPadY(pooling->padY()) {
-    if (!pooling->isGlobal() && pooling->pads() != nullptr && pooling->padType() == PoolPadType_CAFFE &&
+      mPadY(pooling->padY()),
+      mCountIncludePadding(false) {
+    auto padType = pooling->padType();
+    if (!pooling->isGlobal() && pooling->pads() != nullptr && padType == PoolPadType_CAFFE &&
         pooling->pads()->size() == 4) {
         mPadY = pooling->pads()->data()[0];
         mPadX = pooling->pads()->data()[1];
+        padType = PoolPadType_VALID;
     }
+    auto countType = pooling->countType();
+    if (countType == AvgPoolCountType_DEFAULT) {
+        countType = (padType == PoolPadType_CAFFE) ? AvgPoolCountType_INCLUDE_PADDING : AvgPoolCountType_EXCLUDE_PADDING;
+    }
+    mCountIncludePadding = (countType == AvgPoolCountType_INCLUDE_PADDING);
 }
 
 ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -51,7 +59,7 @@ ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std:
         padHeight    = 0;
     }
 
-    mConstBuffer                       = [context newDeviceBuffer:11 * sizeof(int) access:CPUWriteOnly];
+    mConstBuffer                       = [context newDeviceBuffer:12 * sizeof(int) access:CPUWriteOnly];
     ((int *)mConstBuffer.contents)[0]  = input->width();
     ((int *)mConstBuffer.contents)[1]  = input->height();
     ((int *)mConstBuffer.contents)[2]  = output->width();
@@ -63,6 +71,7 @@ ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std:
     ((int *)mConstBuffer.contents)[8]  = strideHeight;
     ((int *)mConstBuffer.contents)[9]  = padWidth;
     ((int *)mConstBuffer.contents)[10] = padHeight;
+    ((int *)mConstBuffer.contents)[11] = mCountIncludePadding ? 1 : 0;
     auto ow = output->width(), oh = output->height(), slice = UP_DIV(output->channel(), 4) * output->batch();
     mPipeline = [context pipelineWithName:(mPoolType == PoolType_MAXPOOL) ? @"pooling_max" : @"pooling_avg" fp16:backend->useFp16InsteadFp32()];
     auto size = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(ow, oh, slice)];
