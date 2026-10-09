@@ -65,7 +65,7 @@ namespace MNN {
             v[0] = a; v[1] = b; v[2] = c; v[3] = d;
         }
 
-        inline thread uchar2& operator[] (const int index) {
+        inline thread uchar2& operator[] (const int index) thread {
             return v[index];
         }
         inline device uchar2& operator[] (const int index) device {
@@ -75,7 +75,7 @@ namespace MNN {
             return v[index];
         }
 
-        inline const thread uchar2& operator[] (const int index) const {
+        inline const thread uchar2& operator[] (const int index) const thread {
             return v[index];
         }
         inline const device uchar2& operator[] (const int index) const device {
@@ -117,7 +117,7 @@ namespace MNN {
             v[0] = a; v[1] = b; v[2] = c; v[3] = d;
         }
 
-        inline thread char4& operator[] (const int index) {
+        inline thread char4& operator[] (const int index) thread {
             return v[index];
         }
         inline device char4& operator[] (const int index) device {
@@ -127,7 +127,7 @@ namespace MNN {
             return v[index];
         }
 
-        inline const thread char4& operator[] (const int index) const {
+        inline const thread char4& operator[] (const int index) const thread {
             return v[index];
         }
         inline const device char4& operator[] (const int index) const device {
