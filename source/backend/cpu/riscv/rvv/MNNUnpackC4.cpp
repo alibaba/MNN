@@ -1,37 +1,4 @@
 #include <riscv_vector.h>
-
-void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
-    const size_t srcAreaStride = (size_t)areaOffset[0];
-    const size_t dstAreaStride = (size_t)areaOffset[1];
-    const ptrdiff_t srcStrideBytes = 4 * (ptrdiff_t)sizeof(float);
-    const size_t depthC4 = (depth + 3) / 4;
-
-    for (size_t z = 0; z < depthC4; ++z) {
-        const size_t cBase = z * 4;
-        const float* srcZ = src + z * srcAreaStride * 4;
-        size_t valid = depth - cBase;
-        if (valid > 4) {
-            valid = 4;
-        }
-
-        for (size_t y = 0; y < valid; ++y) {
-            const float* srcChannel = srcZ + y;
-            float* dstChannel = dst + (cBase + y) * dstAreaStride;
-
-            size_t x = 0;
-            while (x < area) {
-                const size_t vl = __riscv_vsetvl_e32m8(area - x);
-
-                vfloat32m8_t v = __riscv_vlse32_v_f32m8(srcChannel + 4 * x, srcStrideBytes, vl);
-                __riscv_vse32_v_f32m8(dstChannel + x, v, vl);
-
-                x += vl;
-            }
-        }
-    }
-}
-
-#include <riscv_vector.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -84,24 +51,23 @@ static void _unpackCUnitFloat(float* dst, const float* src, size_t area, size_t 
     const int remain = static_cast<int>(depth - static_cast<size_t>(depthC * pack));
     const int srcAreaOffset = areaOffset[0];
     const int dstAreaOffset = areaOffset[1];
-    const ptrdiff_t srcStride = static_cast<ptrdiff_t>(pack * sizeof(float));
     for (int z = 0; z < depthC; ++z) {
         const float* srcPlane = src + z * srcAreaOffset * pack;
         float* dstPlane = dst + z * dstAreaOffset * pack;
-        for (int y = 0; y < pack; ++y) {
-            size_t x = 0;
-            auto dstChannel = dstPlane + y * dstAreaOffset;
-            while (x < area) {
-                size_t vl = __riscv_vsetvl_e32m8(area - x);
-                auto value = __riscv_vlse32_v_f32m8(srcPlane + x * pack + y, srcStride, vl);
-                __riscv_vse32_v_f32m8(dstChannel + x, value, vl);
-                x += vl;
-            }
+        for (size_t x = 0; x < area;) {
+            const size_t vl = __riscv_vsetvl_e32m2(area - x);
+            const vfloat32m2x4_t data = __riscv_vlseg4e32_v_f32m2x4(srcPlane + x * pack, vl);
+            __riscv_vse32_v_f32m2(dstPlane + x, __riscv_vget_v_f32m2x4_f32m2(data, 0), vl);
+            __riscv_vse32_v_f32m2(dstPlane + dstAreaOffset + x, __riscv_vget_v_f32m2x4_f32m2(data, 1), vl);
+            __riscv_vse32_v_f32m2(dstPlane + 2 * dstAreaOffset + x, __riscv_vget_v_f32m2x4_f32m2(data, 2), vl);
+            __riscv_vse32_v_f32m2(dstPlane + 3 * dstAreaOffset + x, __riscv_vget_v_f32m2x4_f32m2(data, 3), vl);
+            x += vl;
         }
     }
     if (remain > 0) {
         const float* srcPlane = src + depthC * srcAreaOffset * pack;
         float* dstPlane = dst + depthC * dstAreaOffset * pack;
+        const ptrdiff_t srcStride = static_cast<ptrdiff_t>(pack * sizeof(float));
         for (int y = 0; y < remain; ++y) {
             size_t x = 0;
             auto dstChannel = dstPlane + y * dstAreaOffset;
