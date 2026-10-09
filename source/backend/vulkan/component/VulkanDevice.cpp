@@ -633,7 +633,7 @@ const VkResult VulkanDevice::createDescriptorPool(VkDescriptorPool& descriptorPo
     VkDescriptorPoolCreateInfo poolInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.poolSizeCount              = poolSizeCount;
     poolInfo.pPoolSizes                 = pPoolSizes;
-    poolInfo.maxSets                    = maxSets;
+    poolInfo.maxSets = maxSets;
     poolInfo.flags                      = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     return vkCreateDescriptorPool(mDevice, &poolInfo, allocator, &descriptorPool);
 }
