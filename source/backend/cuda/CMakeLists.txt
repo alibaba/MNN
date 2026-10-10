@@ -30,7 +30,13 @@ if(CUDA_FOUND)
         set(support_archs 60 61 62 70 72 75 80 86 87 89 120)
         list(FIND support_archs ${CUDA_ARCH_FLAGS_readable_code} list_index)
         IF (${list_index} EQUAL -1)
-            message(FATAL_ERROR "Please add your own sm arch ${CUDA_ARCH_FLAGS_readable_code} to CmakeLists.txt!")
+            string(REPLACE ";" " " support_archs_readable "${support_archs}")
+            message(FATAL_ERROR
+                "Detected sm_${CUDA_ARCH_FLAGS_readable_code}, which MNN's CUDA backend does not "
+                "support (supported: ${support_archs_readable}). Adding it to this list does NOT "
+                "help -- the kernels still have to be compiled for it, and the fused-attention "
+                "plugins only ship cubins for sm_75/80/86/89. Pass -DCUDA_ARCHS=<major.minor> to "
+                "target a supported arch explicitly, or use a CUDA toolkit that can target this GPU.")
         ENDIF()
     ENDIF()
 
