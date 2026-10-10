@@ -108,3 +108,39 @@ public:
 };
 MNNTestSuiteRegister(ArgMaxTest, "op/argmax");
 MNNTestSuiteRegister(ArgMinTest, "op/argmin");
+
+// Strided GPU scans must break ties by axis index, not by lane order.
+class ArgExtremaTieTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) override {
+        const int length = 257;
+        for (int inside : {1, 4, 16, 256}) {
+            for (bool argmin : {false, true}) {
+                for (bool reversed : {false, true}) {
+                    auto input = _Input({1, length, inside}, NCHW);
+                    auto data = input->writeMap<float>();
+                    memset(data, 0, length * inside * sizeof(float));
+                    // Original extrema at 0 and 255 become 256 and 1 when reversed.
+                    int first = reversed ? 1 : 0;
+                    int second = reversed ? 256 : 255;
+                    for (int j = 0; j < inside; ++j) {
+                        data[first * inside + j] = argmin ? -1.0f : 1.0f;
+                        data[second * inside + j] = argmin ? -1.0f : 1.0f;
+                    }
+                    input->unMap();
+                    auto output = argmin ? _ArgMin(input, 1) : _ArgMax(input, 1);
+                    auto indices = output->readMap<int>();
+                    for (int j = 0; j < inside; ++j) {
+                        if (indices[j] != first) {
+                            MNN_ERROR("Arg extrema tie failed: inside=%d argmin=%d reversed=%d got=%d expected=%d\n",
+                                      inside, argmin, reversed, indices[j], first);
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ArgExtremaTieTest, "op/arg_ties");

@@ -101,17 +101,19 @@ kernel void main0(device destbuffer& uOutput [[buffer(0)]], const device sourceB
             if (_202)
             {
                 T next = local_buffer[t + (lidx * uConst.size.w)];
+                int nextIndex = local_index[t + (lidx * uConst.size.w)];
+                // Lane order does not imply index order after the strided scan.
 #ifdef ARGMIN
-                if (next < maxValue_1)
+                if (next < maxValue_1 || (next == maxValue_1 && nextIndex < maxIndex_1))
                 {
                     maxValue_1 = next;
-                    maxIndex_1 = local_index[t + (lidx * uConst.size.w)];
+                    maxIndex_1 = nextIndex;
                 }
 #else
-                if (next > maxValue_1)
+                if (next > maxValue_1 || (next == maxValue_1 && nextIndex < maxIndex_1))
                 {
                     maxValue_1 = next;
-                    maxIndex_1 = local_index[t + (lidx * uConst.size.w)];
+                    maxIndex_1 = nextIndex;
                 }
 #endif
                 t++;
