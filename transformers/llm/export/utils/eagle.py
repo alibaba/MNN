@@ -1,3 +1,4 @@
+import copy
 import math
 import torch
 import torch.nn as nn
@@ -25,12 +26,12 @@ class Eagle(torch.nn.Module):
         self.model_type = base.config.model_type
         self.eagle_path = eagle_path
 
-        self.config = base.config
+        self.config = copy.copy(base.config)
         if hasattr(self.eagle_config, "head_dim"):
             self.config.head_dim = self.eagle_config.head_dim
 
-        self.rope_theta = 10000
-        self.rope_ratio = 1.0
+        self.rope_theta = getattr(self.eagle_config, 'rope_theta', 10000)
+        self.rope_ratio = getattr(self.eagle_config, 'rope_ratio', 1.0)
         self.head_dim = self.config.head_dim
         self.hidden_size = self.config.hidden_size
         if self.eagle_config.hidden_size != self.hidden_size:
@@ -65,7 +66,7 @@ class Eagle(torch.nn.Module):
         # midlayer.input_layernorm
         self.midlayer.input_layernorm = RMSNorm(self.hidden_size, eps=self.eagle_config.rms_norm_eps)
         # midlayer.self_attn
-        self.midlayer.self_attn = Attention(None, 0, self.config, base.rotary, self.config.model_map)
+        self.midlayer.self_attn = Attention(None, 0, self.config, self.config.rotary, self.config.model_map)
         self.midlayer.self_attn.q_proj = nn.Linear(self.hidden_size * 2, self.num_attention_heads * self.head_dim, bias=False)
         self.midlayer.self_attn.k_proj = nn.Linear(self.hidden_size * 2, self.num_key_value_heads * self.head_dim, bias=False)
         self.midlayer.self_attn.v_proj = nn.Linear(self.hidden_size * 2, self.num_key_value_heads * self.head_dim, bias=False)

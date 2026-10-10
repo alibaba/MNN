@@ -5,9 +5,9 @@ Requires the onnx Python package and a converter built with
 MNN_BUILD_CONVERTER=ON. Run:
     python tools/script/testConvertOutputFailure.py /path/to/MNNConvert
 
-The writable-output controls reload the regular and static Relu models and
-check their CPU inference results. Linux /dev/full covers errors deferred until the
-small serialized model is flushed/closed, rather than just open failures.
+The writable-output controls reload regular/static Relu and external-weight Conv
+models and check their CPU inference results. Linux /dev/full covers errors
+deferred until the small model or weight file is flushed/closed.
 """
 
 import argparse
@@ -59,6 +59,23 @@ class ConvertOutputFailureTest(unittest.TestCase):
         self.assertNotIn("Converted Success!", result.stdout)
         self.assertIn("Converted Failed!", result.stdout)
         self.assertIn(str(output), result.stdout)
+
+    def use_conv_model(self):
+        self.model = self.workdir / "conv.onnx"
+        graph = helper.make_graph(
+            [helper.make_node("Conv", ["input", "weight", "bias"], ["output"],
+                              kernel_shape=[2, 2])],
+            "external_weight_write_failure",
+            [helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 1, 3, 3])],
+            [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1, 2, 2])],
+            [helper.make_tensor("weight", TensorProto.FLOAT, [1, 1, 2, 2], [1, 2, 3, 4]),
+             helper.make_tensor("bias", TensorProto.FLOAT, [1], [0.5])],
+        )
+        model = helper.make_model(
+            graph, opset_imports=[helper.make_opsetid("", 13)], ir_version=8
+        )
+        onnx.checker.check_model(model)
+        onnx.save(model, str(self.model))
 
     def assert_writable_output_and_cpu_inference(self, *extra_args):
         output = self.workdir / "relu.mnn"
@@ -114,6 +131,46 @@ class ConvertOutputFailureTest(unittest.TestCase):
                          "requires Linux /dev/full")
     def test_static_buffered_write_failure(self):
         self.assert_write_failed(Path("/dev/full"), "--saveStaticModel")
+
+    def test_external_weights_and_cpu_inference(self):
+        self.use_conv_model()
+        output = self.workdir / "conv.mnn"
+        weights = self.workdir / "conv.mnn.weight"
+        (self.workdir / "input.json").write_text(json.dumps({
+            "inputs": [{"name": "input", "shape": [1, 1, 3, 3], "value": 1}],
+            "outputs": ["output"],
+        }))
+        (self.workdir / "output.txt").write_text("10.5 10.5 10.5 10.5\n")
+        backend = self.workdir / "cpu.json"
+        backend.write_text(json.dumps({"backend": 0, "precision": 1}))
+        result = self.convert(output, "--saveExternalData", "--testdir", str(self.workdir),
+                              "--testconfig", str(backend))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Converted Success!", result.stdout)
+        self.assertIn("TEST_SUCCESS", result.stdout)
+        self.assertNotIn("TESTERROR", result.stdout)
+        self.assertNotIn("Skip check", result.stdout)
+        self.assertGreater(output.stat().st_size, 0)
+        self.assertGreater(weights.stat().st_size, 0)
+
+    def test_external_weight_open_failure(self):
+        self.use_conv_model()
+        output = self.workdir / "conv.mnn"
+        weights = self.workdir / "conv.mnn.weight"
+        weights.mkdir()
+        self.assert_write_failed(output, "--saveExternalData")
+        self.assertFalse(output.exists())
+        self.assertTrue(weights.is_dir())
+
+    @unittest.skipUnless(sys.platform.startswith("linux") and Path("/dev/full").exists(),
+                         "requires Linux /dev/full")
+    def test_external_weight_buffered_write_failure(self):
+        self.use_conv_model()
+        output = self.workdir / "conv.mnn"
+        weights = self.workdir / "conv.mnn.weight"
+        weights.symlink_to("/dev/full")
+        self.assert_write_failed(output, "--saveExternalData")
+        self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ struct pooling_sizes {
     int stride_height;
     int pad_width;
     int pad_height;
+    int count_include_padding;
 };
 
 kernel void pooling_max(const device ftype4 *in     [[buffer(0)]],
@@ -57,6 +58,12 @@ kernel void pooling_avg(const device ftype4 *in     [[buffer(0)]],
         }
     }
     int count = (ey - sy) * (ex - sx);
+    if (s.count_include_padding != 0) {
+        // Padded lanes add nothing to the sum but still count, as CPUPool INCLUDE_PADDING does.
+        int cy = min(off_y + s.kernel_height, s.input_height + s.pad_height) - off_y;
+        int cx = min(off_x + s.kernel_width, s.input_width + s.pad_width) - off_x;
+        count = cy * cx;
+    }
     FLOAT4 div = count > 0 ? 1.f / count : 1;
     out[(int)gid.z * s.output_width * s.output_height + (int)gid.y * s.output_width + (int)gid.x] = ftype4(result * div);
 }
