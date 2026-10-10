@@ -298,7 +298,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
             }
         }
         const Net* net = flatbuffers::GetRoot<MNN::Net>(bufferOutput);
-        converToStaticModel(net, inputConfig, config.MNNModel);
+        if (converToStaticModel(net, inputConfig, config.MNNModel) != 0) {
+            return 1;
+        }
     } else {
         std::ofstream output(config.MNNModel, std::ofstream::binary);
         if (!output.is_open()) {
