@@ -242,13 +242,16 @@ class Llm:
         '''
         return self._c_obj.forward(input_ids)
 
-    def generate(self, input_ids):
+    def generate(self, input_ids, max_new_tokens=-1):
         '''
         generate by input_ids
 
         Parameters
         ----------
         input_ids : input token ids, list of int
+
+        max_new_tokens : maximum number of new tokens, int
+            -1 uses the model configuration; 0 performs prefill only.
 
         Returns
         -------
@@ -259,7 +262,7 @@ class Llm:
         >>> input_ids = [151644, 872, 198, 108386, 151645, 198, 151644, 77091]
         >>> output_ids = llm.generate(input_ids)
         '''
-        return self._c_obj.generate(input_ids)
+        return self._c_obj.generate(input_ids, max_new_tokens)
 
     def response(self, prompt, stream = False):
         '''
