@@ -35,6 +35,9 @@ using Vec = MNN::Math::Vec<float, 4>;
 #endif
 
 #ifdef MNN_USE_RVV
+#ifdef MNN_USE_TORQ_TILE
+#include "backend/cpu/riscv/torq-tile/MNNTorqTileFunctions.hpp"
+#endif
 #include "backend/cpu/riscv/rvv/MNNRvvC4Functions.hpp"
 #include "../riscv/rvv/MNNRvvMatMulFunctions.hpp"
 extern void MNNAbsMaxFP32_RVV(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
@@ -5308,6 +5311,9 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNSamplerC4Bilinear = MNNSamplerC4Bilinear_RVV;
 
         MNNRvvInitializeFastPathFunctions(gCoreFunction);
+#ifdef MNN_USE_TORQ_TILE
+        MNNTorqTileInitializeFunctions(gCoreFunction);
+#endif
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
         gCoreFunction->MNNQuantAttentionKey = MNNQuantAttentionKey_RVV;
         gCoreFunction->MNNQuantAttentionValue = MNNQuantAttentionValue_RVV;

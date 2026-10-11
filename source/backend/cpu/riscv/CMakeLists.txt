@@ -45,6 +45,10 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNRVV>)
     list(APPEND MNN_TARGETS MNNRVV)
 
+    if (MNN_RVV_TORQ_TILE)
+        include(${CMAKE_CURRENT_LIST_DIR}/torq-tile/CMakeLists.txt)
+    endif()
+
     if (MNN_RVV_SPACEMIT_IME2)
         set(MNN_SPACEMIT_IME2_RUNTIME_SRC
             ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2AttentionFunctions.cpp
@@ -108,5 +112,8 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
         list(APPEND MNN_TARGETS MNNSpacemitIme2)
     endif()
 else()
+    if (MNN_RVV_TORQ_TILE)
+        message(FATAL_ERROR "MNN_RVV_TORQ_TILE is only supported on riscv64")
+    endif()
     message(WARNING "RVV optimizations are only supported on riscv64 architecture")
 endif()

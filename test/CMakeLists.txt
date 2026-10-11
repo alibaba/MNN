@@ -24,6 +24,10 @@ add_executable(run_test.out ${Files})
 if(TARGET MNNRVV)
   target_compile_definitions(run_test.out PRIVATE MNN_USE_RVV)
 endif()
+if(TARGET MNNTorqTile)
+  set_property(SOURCE ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/TorqTileMatMulTest.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS MNN_USE_TORQ_TILE)
+endif()
 set_property(SOURCE
   ${CMAKE_CURRENT_LIST_DIR}/backend/riscv/RVVReductionReluTest.cpp
   ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/RVVMatrixDeconvTest.cpp
