@@ -2,6 +2,9 @@
 
 This directory contains Python examples demonstrating how to use MNN's Python API (pymnn) for various deep learning tasks.
 
+Run the commands below from the repository root unless a section explicitly
+changes directory. Replace model and data paths with your own files.
+
 ## Directory Structure
 
 ```
@@ -9,8 +12,7 @@ pymnn/examples/
 ├── MNNEngineDemo/     # Low-level MNN Interpreter API examples
 ├── MNNExpr/           # High-level Express API examples
 ├── MNNLlm/            # Large Language Model examples
-├── MNNTrain/          # Training examples
-└── audio_demo.py      # Audio processing example
+└── MNNTrain/          # Training examples
 ```
 
 ---
@@ -25,7 +27,7 @@ Basic image classification using MobilenetV1.
 
 **Usage:**
 ```bash
-python mobilenet_demo.py <model.mnn> <image.jpg>
+python pymnn/examples/MNNEngineDemo/mobilenet_demo.py model.mnn image.jpg
 ```
 
 **Features:**
@@ -36,7 +38,11 @@ python mobilenet_demo.py <model.mnn> <image.jpg>
 
 ### mobilenet_demo_2.py
 
-Alternative MobilenetV1 example with different preprocessing approach.
+MobilenetV1 example with runtime management, session information, and caching.
+
+```bash
+python pymnn/examples/MNNEngineDemo/mobilenet_demo_2.py model.mnn image.jpg
+```
 
 ### gpu_session_demo.py
 
@@ -44,12 +50,12 @@ Demonstrates GPU acceleration using OpenCL/Metal backend.
 
 **Usage:**
 ```bash
-python gpu_session_demo.py <model.mnn> <image.jpg>
+python pymnn/examples/MNNEngineDemo/gpu_session_demo.py model.mnn image.jpg
 ```
 
 **Features:**
 - GPU backend configuration
-- Performance comparison CPU vs GPU
+- Backend information and cache tuning
 
 ---
 
@@ -63,7 +69,7 @@ Image classification using Express API (simpler than Engine API).
 
 **Usage:**
 ```bash
-python mobilenet_demo.py <model.mnn> <image.jpg>
+python pymnn/examples/MNNExpr/mobilenet_demo.py model.mnn image.jpg
 ```
 
 **Features:**
@@ -73,20 +79,37 @@ python mobilenet_demo.py <model.mnn> <image.jpg>
 
 ### mnn_numpy_cv_demo.py
 
-Computer vision operations using MNN's NumPy-compatible API.
+Image classification using MNN's NumPy-compatible API and `MNN.cv`.
+
+```bash
+python pymnn/examples/MNNExpr/mnn_numpy_cv_demo.py model.mnn image.jpg
+```
 
 **Features:**
-- Image operations (resize, crop, rotate)
-- Color space conversions
+- Image loading, resizing, and normalization
+- Tensor layout conversion
 - NumPy-style array operations
 
 ### gpu_express_demo.py
 
 GPU acceleration with Express API.
 
+```bash
+python pymnn/examples/MNNExpr/gpu_express_demo.py model.mnn image.jpg
+```
+
+The selected backend must be enabled in your MNN build.
+
 ### gpu_io_interface.py
 
 GPU memory management and I/O operations.
+
+```bash
+python pymnn/examples/MNNExpr/gpu_io_interface.py model.mnn input_0.txt output.txt
+```
+
+This example uses PyTorch CUDA tensors and requires a compatible CUDA-enabled
+PyTorch installation and MNN build. `output.txt` contains reference values.
 
 **Features:**
 - GPU tensor allocation
@@ -105,13 +128,16 @@ Run text generation models (GPT-style, LLaMA, etc.).
 
 **Usage:**
 ```bash
-python llm_example.py --model <model_dir> --prompt "Your prompt here"
+python pymnn/examples/MNNLlm/llm_example.py path/to/model/config.json
 ```
 
 **Features:**
 - Autoregressive text generation
-- Token-by-token decoding
-- Temperature and sampling control
+- Streaming text to stdout
+- Token-ID generation
+
+The prompt is set in the script. Sampling options come from the model's
+configuration; this script does not parse `--model` or `--prompt` options.
 
 ### vlm_example.py
 
@@ -119,13 +145,18 @@ Vision-Language Models (e.g., LLaVA, Qwen-VL).
 
 **Usage:**
 ```bash
-python vlm_example.py --model <model_dir> --image <image.jpg> --prompt "Describe this image"
+cd pymnn/examples/MNNLlm
+python vlm_example.py /absolute/path/to/model/config.json
 ```
 
 **Features:**
 - Multi-modal input (image + text)
 - Visual question answering
 - Image captioning
+
+The image path and prompt are set in the script. Run from the indicated
+directory so its relative `resource/images/cat.jpg` path resolves correctly;
+the script does not parse `--image` or `--prompt` options.
 
 ---
 
@@ -143,7 +174,7 @@ Train a simple CNN on MNIST dataset.
 
 **Usage:**
 ```bash
-cd mnist
+cd pymnn/examples/MNNTrain/mnist
 python train_mnist.py
 ```
 
@@ -157,8 +188,14 @@ Transfer learning: fine-tune MobileNet on custom dataset.
 
 **Usage:**
 ```bash
-cd mobilenet_finetune
-python mobilenet_transfer.py --dataset <your_data_dir>
+cd pymnn/examples/MNNTrain/mobilenet_finetune
+python mobilenet_transfer.py \
+  --model_file /path/to/mobilenet_v2.mnn \
+  --train_image_folder /path/to/train/images \
+  --train_txt /path/to/train.txt \
+  --test_image_folder /path/to/test/images \
+  --test_txt /path/to/test.txt \
+  --num_classes 10
 ```
 
 ### simple/
@@ -182,23 +219,8 @@ Examples of saving and loading trained models.
 
 ## Audio Processing
 
-### audio_demo.py
-
-Audio feature extraction and processing.
-
-**Usage:**
-```bash
-python audio_demo.py
-```
-
-**Features:**
-- Audio I/O (load/save)
-- Spectrogram computation
-- Mel-spectrogram extraction
-- Fbank features for speech recognition
-- Whisper-compatible preprocessing
-
-See [docs/pymnn/audio.md](../../docs/pymnn/audio.md) for detailed API reference.
+Use `MNN.audio` for WAV loading and speech feature extraction; see the audio
+Quick Start below and [audio documentation](../../docs/pymnn/audio.md).
 
 ---
 
@@ -212,6 +234,7 @@ pip install MNN
 
 # From source
 cd pymnn/pip_package
+python build_deps.py llm
 python setup.py install
 ```
 
@@ -225,10 +248,10 @@ Most examples require:
 pip install numpy opencv-python
 ```
 
-For training examples, also install:
+For the MNIST example, also install:
 
 ```bash
-pip install torchvision  # for dataset utilities
+pip install mnist
 ```
 
 ---
@@ -254,23 +277,27 @@ Pre-converted models for testing:
 
 ### 1. Image Classification
 
+This example uses the input/output names and preprocessing expected by the
+MobileNetV1 example model. Adjust them for other exported models.
+
 ```python
 import MNN
 import cv2
 import numpy as np
 
-# Load model
-net = MNN.nn.load_module_from_file("mobilenet.mnn", [], [])
-
-# Preprocess image
-img = cv2.imread("cat.jpg")
-img = cv2.resize(img, (224, 224))
-img = img.astype(np.float32) / 255.0
-input_var = MNN.expr.const(img.transpose(2, 0, 1)[None], [1, 3, 224, 224])
-
-# Run inference
-output = net.forward(input_var)
-print(f"Predicted class: {output.argmax()}")
+net = MNN.nn.load_module_from_file(
+    "mobilenet.mnn", ["input"], ["MobilenetV1/Predictions/Reshape_1"]
+)
+image = cv2.imread("cat.jpg")
+if image is None:
+    raise ValueError("Could not read cat.jpg")
+image = cv2.resize(image[..., ::-1], (224, 224))
+image = ((image - (103.94, 116.78, 123.68)) * 0.017).astype(np.float32)
+input_var = MNN.expr.const(image[None], [1, 224, 224, 3], MNN.expr.NHWC)
+input_var = MNN.expr.convert(input_var, MNN.expr.NC4HW4)
+output = net.forward([input_var])[0]
+output = MNN.expr.convert(output, MNN.expr.NHWC)
+print(f"Predicted class: {np.argmax(output.read())}")
 ```
 
 ### 2. GPU Acceleration
@@ -278,26 +305,25 @@ print(f"Predicted class: {output.argmax()}")
 ```python
 import MNN
 
-# Configure GPU backend
 config = {
-    'backend': MNN.Backend_OPENCL,  # or Backend_METAL on macOS
-    'precision': 'low'               # low/normal/high
+    'backend': 'OPENCL',
+    'precision': 'low'
 }
 
 interpreter = MNN.Interpreter("model.mnn")
 session = interpreter.createSession(config)
 ```
 
+Use `'METAL'` on macOS when supported by your build. Backend availability
+depends on how MNN was compiled and on the device.
+
 ### 3. Audio Feature Extraction
 
 ```python
 import MNN.audio as audio
 
-# Load audio
 waveform, sr = audio.load("speech.wav", sr=16000)
-
-# Extract features for ASR
-features = audio.fbank(waveform, sample_rate=16000, n_mels=80)
+features = audio.fbank(waveform, sample_rate=sr, n_mels=80)
 ```
 
 ---
