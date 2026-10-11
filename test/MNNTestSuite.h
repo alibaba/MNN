@@ -16,6 +16,8 @@
 #include <vector>
 #include <cstdint>
 
+#include <MNN/MNNDefine.h>
+#include <MNN/MNNForwardType.h>
 
 
 #if defined(_MSC_VER)
@@ -72,6 +74,12 @@ public:
         int thread = 0;
     };
     Status pStaus;
+    /**
+     * Cases that the running backend cannot exercise, reported through
+     * MNNTEST_CPU_ONLY. Counted apart from passed so that a green run is not
+     * mistaken for full coverage.
+     */
+    int skipped = 0;
 
 public:
     /**
@@ -128,6 +136,19 @@ public:
             MNN_ERROR("Error for %s, %d\n", __func__, __LINE__); \
             return false;                                        \
         }                                                        \
+    }
+
+/**
+ * Gate a case to the CPU backend; on every other backend it reports itself
+ * skipped instead of running. Use it where a case asserts numbers only the CPU
+ * implementation produces, so the missing backend support stays visible in the
+ * result counts instead of as a red run that has to be re-diagnosed each time.
+ */
+#define MNNTEST_CPU_ONLY()                                                                        \
+    if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_CPU) {                             \
+        MNNTestSuite::get()->skipped++;                                                           \
+        MNN_PRINT("\tskip: CPU-only case, backend=%d\n", MNNTestSuite::get()->pStaus.forwardType); \
+        return true;                                                                              \
     }
 
 #endif

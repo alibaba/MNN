@@ -8,6 +8,7 @@
 
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <cmath>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 
@@ -247,6 +248,39 @@ public:
     }
 };
 
+class SoftmaxLargeImageTest : public MNNTestCase {
+public:
+    virtual ~SoftmaxLargeImageTest() = default;
+    virtual bool run(int precision) {
+        constexpr int rows = 16800;
+        constexpr float low = 0.26894143f;
+        constexpr float high = 0.7310586f;
+        auto input = _Input({rows, 2}, NCHW);
+        auto inputPtr = input->writeMap<float>();
+        for (int i = 0; i < rows; ++i) {
+            inputPtr[2 * i] = i % 2 == 0 ? 0.0f : 1.0f;
+            inputPtr[2 * i + 1] = i % 2 == 0 ? 1.0f : 0.0f;
+        }
+        input->unMap();
+
+        auto output = _Softmax(input, 1);
+        auto outputPtr = output->readMap<float>();
+        for (int i = 0; i < rows; ++i) {
+            auto expected0 = i % 2 == 0 ? low : high;
+            auto expected1 = i % 2 == 0 ? high : low;
+            auto value0 = outputPtr[2 * i];
+            auto value1 = outputPtr[2 * i + 1];
+            if (!std::isfinite(value0) || !std::isfinite(value1) || value0 < 0.0f || value0 > 1.0f || value1 < 0.0f ||
+                value1 > 1.0f || std::fabs(value0 + value1 - 1.0f) > 0.001f || std::fabs(value0 - expected0) > 0.001f ||
+                std::fabs(value1 - expected1) > 0.001f) {
+                MNN_ERROR("SoftmaxLargeImageTest failed at row %d: %f, %f\n", i, value0, value1);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
 class SoftmaxInt8Test: public MNNTestCase {
 public:
     virtual ~SoftmaxInt8Test() = default;
@@ -286,4 +320,5 @@ public:
     }
 };
 MNNTestSuiteRegister(SoftmaxTest, "op/softmax");
+MNNTestSuiteRegister(SoftmaxLargeImageTest, "op/softmax/largeImage");
 MNNTestSuiteRegister(SoftmaxInt8Test, "op/softmaxInt8");

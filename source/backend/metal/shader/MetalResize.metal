@@ -54,11 +54,17 @@ kernel void resize_bilinear(const device ftype4 *in     [[buffer(0)]],
 }
 
 static inline float4 resize_cubic_interpolation(float4 A, float4 B, float4 C, float4 D, float factor) {
-    float4 a = (B - C) + 0.5f * (B - A) + (D - C) * 0.5f;
-    float4 b = C - ((B - A) + (B - C)) - (B + D) * 0.5f;
-    float4 c = (C - A) * 0.5f;
-    float4 d = B;
-    return ((a * factor + b) * factor + c) * factor + d;
+    // Must stay term-for-term with CubicInterpolation2 in ResizeFunction.cpp (F = -0.75). The
+    // F = -0.5 polynomial form this used to carry picks different weights and overshoots further.
+    float t = factor;
+    float u = 1.0f - t;
+    float ta = 1.0f + t;
+    float td = 2.0f - t;
+    float b0 = 1.0f - 2.25f * t * t + 1.25f * t * t * t;
+    float c0 = 1.0f - 2.25f * u * u + 1.25f * u * u * u;
+    float a0 = 3.0f - 6.0f * ta + 3.75f * ta * ta - 0.75f * ta * ta * ta;
+    float d0 = 3.0f - 6.0f * td + 3.75f * td * td - 0.75f * td * td * td;
+    return A * a0 + B * b0 + C * c0 + D * d0;
 }
 
 kernel void resize_cubic(const device ftype4 *in        [[buffer(0)]],
