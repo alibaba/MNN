@@ -36,7 +36,8 @@ Arguments:
 - `model.mnn`: MNN model file
 - `input*.jpg`: Input images (batch size = number of images)
 
-The program automatically selects the best available backend (CPU/GPU/Neural Engine) and reports memory usage and FLOPS.
+This demo requests the automatic backend and reports the selected backend,
+memory usage, and FLOPS. Available backends depend on the build and device.
 
 Example:
 ```bash
@@ -48,16 +49,25 @@ Example:
 Image classification with batch processing.
 
 ```bash
-./pictureRecognition_batch.out model.mnn input.jpg
+./pictureRecognition_batch.out model.mnn imagedir/ groundtruth.txt quantized.json [batchsize] [total_imgs]
 ```
+
+The image directory must include its trailing separator. `groundtruth.txt`
+contains one image filename and label list per line, separated by a space;
+multiple labels are comma-separated. `quantized.json` configures image
+preprocessing and runtime options. Batch size defaults to 10 and total images
+defaults to 50; the image list must contain enough entries for the requested run.
 
 ## pictureRecognition_module
 
 Image classification using the Module API.
 
 ```bash
-./pictureRecognition_module.out model.mnn input.jpg
+./pictureRecognition_module.out model.mnn config.json input0.jpg input1.jpg ...
 ```
+
+`config.json` provides image preprocessing settings such as `format`, `width`,
+`height`, `mean`, and `normal`, and the optional `CPU` runtime setting.
 
 ## MultiPose
 
@@ -137,10 +147,12 @@ Example:
 MNN Express API usage example.
 
 ```bash
-./expressDemo.out
+./expressDemo.out model.mnn [backend_type] [test_time]
 ```
 
-Shows how to construct and run models programmatically.
+Loads an existing model with the Express API, reads input values from
+`input_0.txt` in the working directory, and writes output values to `output.txt`.
+`backend_type` defaults to CPU (0), and `test_time` defaults to 10.
 
 ## expressMakeModel
 
@@ -150,25 +162,30 @@ Model creation with the Express API.
 ./expressMakeModel.out
 ```
 
-Shows how to build and export models in code.
+Writes a procedurally generated model to `pos.mnn`, then loads `seg.mnn` from
+the working directory to build `mask.mnn`. The segmentation model must provide
+the `sub_7` input and `ResizeBilinear_3` output expected by the source.
 
 ## multithread_imgrecog
 
 Multi-threaded image recognition for performance testing.
 
 ```bash
-./multithread_imgrecog.out model.mnn input.jpg
+./multithread_imgrecog.out model.mnn input0.jpg input1.jpg ...
 ```
 
-Runs concurrent inference across multiple threads.
+Runs one CPU inference thread per input image using a cloned module.
 
 ## pictureRotate
 
 Image preprocessing and rotation using MNN's image utilities.
 
 ```bash
-./pictureRotate.out input.jpg output.jpg [rotation_angle]
+./pictureRotate.out input.jpg angle output.png
 ```
+
+The angle in degrees is required and precedes the output filename. The demo
+writes PNG data.
 
 ---
 
@@ -176,11 +193,16 @@ Image preprocessing and rotation using MNN's image utilities.
 
 ### Model Conversion
 
-All demos require MNN format (`.mnn`). Use the [MNN Converter](../../tools/converter/README.md) to convert from TensorFlow, ONNX, Caffe, or PyTorch.
+Model inference demos require MNN format (`.mnn`). Use the
+[MNN Converter](../../tools/converter/README.md) to convert supported source
+models. `pictureRotate` works with images and requires no model.
 
 ### Backend Selection
 
-MNN automatically selects the fastest available backend based on hardware and model compatibility.
+Backend selection is specific to each demo. `pictureRecognition` requests
+automatic selection; `expressDemo` accepts a backend argument, and
+`multithread_imgrecog` explicitly uses CPU. Build support and device availability
+determine which backends can run.
 
 ### Performance
 
