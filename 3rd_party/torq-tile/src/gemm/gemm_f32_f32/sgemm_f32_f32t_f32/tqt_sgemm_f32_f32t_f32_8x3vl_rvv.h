@@ -10,7 +10,7 @@
 
 #ifdef __cplusplus
 extern "C" {
-#endif  // __cplusplus
+#endif // __cplusplus
 
 /// Micro-kernel: SGEMM (D = alpha * A^T * B + beta * C) for FP32
 ///
@@ -103,11 +103,10 @@ size_t tqt_get_d_size_sgemm_f32_f32t_f32_8x3vl_rvv(size_t m, size_t n);
 /// @note B is in standard format, stored as [k, n].
 /// @note k_idx_a and k_idx_b are used when A and B are sub-buffers with different sizes.
 ///
-void tqt_run_sgemm_f32_f32t_f32_8x3vl_rvv(size_t m, size_t n, size_t k, const void *A, size_t lda,
-                                          size_t k_idx_a, const void *B, size_t ldb, size_t k_idx_b,
-                                          const void *C, size_t ldc, void *D, size_t ldd,
-                                          float alpha, float beta);
+void tqt_run_sgemm_f32_f32t_f32_8x3vl_rvv(size_t m, size_t n, size_t k, const void* A, size_t lda, size_t k_idx_a,
+                                          const void* B, size_t ldb, size_t k_idx_b, const void* C, size_t ldc, void* D,
+                                          size_t ldd, float alpha, float beta);
 
 #ifdef __cplusplus
-}  // extern "C"
-#endif  // __cplusplus
+} // extern "C"
+#endif // __cplusplus

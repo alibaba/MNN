@@ -12,6 +12,7 @@ allocation, FP16/BF16 or quantized kernels are linked.
 
 Local changes:
 
+- Format the imported sources with MNN's clang-format 17 configuration.
 - Query VLEN inside functions, after MNN's RVV capability check; remove dynamic
   namespace-scope initialization. A library load must not execute an RVV CSR read.
 - Remove unused FP16/BF16 typedefs from the FP32-only common header so an FP32

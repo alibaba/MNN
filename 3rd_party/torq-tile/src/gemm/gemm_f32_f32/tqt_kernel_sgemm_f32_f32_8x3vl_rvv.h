@@ -8,7 +8,7 @@
 
 #if !defined(__riscv) || !defined(__riscv_v)
 #error This file must be compiled for riscv, riscv_vector.
-#endif  // Architectural features check.
+#endif // Architectural features check.
 
 #include <stddef.h>
 
@@ -24,8 +24,7 @@
 
 /// Initialize accumulator registers to zero
 template <size_t MR, size_t NR>
-static inline __attribute__((always_inline)) void tqt_init_zero_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl)
-{
+static inline __attribute__((always_inline)) void tqt_init_zero_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl) {
     static_assert(MR >= 1 && MR <= 8, "MR must be in range [1, 8]");
     static_assert(NR >= 1 && NR <= 3, "NR must be in range [1, 3]");
 
@@ -106,8 +105,8 @@ static inline __attribute__((always_inline)) void tqt_init_zero_kernel_sgemm_f32
 }
 /// Load A matrix elements (scalars) into floating-point registers
 template <size_t MR>
-static inline __attribute__((always_inline)) void tqt_load_a_kernel_sgemm_f32_f32_8x3vl_rvv(const float *A, size_t stride_row)
-{
+static inline __attribute__((always_inline)) void tqt_load_a_kernel_sgemm_f32_f32_8x3vl_rvv(const float* A,
+                                                                                            size_t stride_row) {
     static_assert(MR >= 1 && MR <= 8, "MR must be in range [1, 8]");
 
     if constexpr (MR >= 1)
@@ -130,9 +129,8 @@ static inline __attribute__((always_inline)) void tqt_load_a_kernel_sgemm_f32_f3
 
 /// Load B matrix columns (vectors) into vector registers
 template <size_t NR>
-static inline __attribute__((always_inline)) void tqt_load_b_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl, const float *B,
-                                                             size_t stride_col)
-{
+static inline __attribute__((always_inline)) void tqt_load_b_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl, const float* B,
+                                                                                            size_t stride_col) {
     static_assert(NR >= 1 && NR <= 3, "NR must be in range [1, 3]");
 
     asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"(vl) :);
@@ -147,43 +145,32 @@ static inline __attribute__((always_inline)) void tqt_load_b_kernel_sgemm_f32_f3
 
 /// Load transposed B matrix columns (vectors) into vector registers
 template <size_t NR>
-static inline __attribute__((always_inline)) void tqt_load_bt_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl, const float *B,
-                                                              size_t stride_row)
-{
+static inline __attribute__((always_inline)) void tqt_load_bt_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl, const float* B,
+                                                                                             size_t stride_row) {
     static_assert(NR >= 1 && NR <= 3, "NR must be in range [1, 3]");
 
     size_t stride_bytes = stride_row * sizeof(float);
     asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"(vl) :);
 
     if constexpr (NR >= 1)
-        asm volatile("vlse32.v v0, (%0), %1"
-                     :
-                     : "r"(B + 0 * vl * stride_row), "r"(stride_bytes)
-                     : "v0", "memory");
+        asm volatile("vlse32.v v0, (%0), %1" : : "r"(B + 0 * vl * stride_row), "r"(stride_bytes) : "v0", "memory");
     if constexpr (NR >= 2)
-        asm volatile("vlse32.v v1, (%0), %1"
-                     :
-                     : "r"(B + 1 * vl * stride_row), "r"(stride_bytes)
-                     : "v1", "memory");
+        asm volatile("vlse32.v v1, (%0), %1" : : "r"(B + 1 * vl * stride_row), "r"(stride_bytes) : "v1", "memory");
     if constexpr (NR >= 3)
-        asm volatile("vlse32.v v2, (%0), %1"
-                     :
-                     : "r"(B + 2 * vl * stride_row), "r"(stride_bytes)
-                     : "v2", "memory");
+        asm volatile("vlse32.v v2, (%0), %1" : : "r"(B + 2 * vl * stride_row), "r"(stride_bytes) : "v2", "memory");
 }
 
 /// Store accumulator registers to D matrix
 template <size_t MR, size_t NR>
-static inline __attribute__((always_inline)) void tqt_store_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl, float *D, size_t stride_row,
-                                                            size_t stride_col)
-{
+static inline __attribute__((always_inline)) void
+tqt_store_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl, float* D, size_t stride_row, size_t stride_col) {
     static_assert(MR >= 1 && MR <= 8, "MR must be in range [1, 8]");
     static_assert(NR >= 1 && NR <= 3, "NR must be in range [1, 3]");
 
     asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"(vl) :);
 
     if constexpr (MR >= 1) {
-        float *d_row_0 = D + 0 * stride_row;
+        float* d_row_0 = D + 0 * stride_row;
         if constexpr (NR >= 1)
             asm volatile("vse32.v v8, (%0)" : : "r"(d_row_0 + 0 * stride_col) : "memory");
         if constexpr (NR >= 2)
@@ -192,7 +179,7 @@ static inline __attribute__((always_inline)) void tqt_store_kernel_sgemm_f32_f32
             asm volatile("vse32.v v10, (%0)" : : "r"(d_row_0 + 2 * stride_col) : "memory");
     }
     if constexpr (MR >= 2) {
-        float *d_row_1 = D + 1 * stride_row;
+        float* d_row_1 = D + 1 * stride_row;
         if constexpr (NR >= 1)
             asm volatile("vse32.v v11, (%0)" : : "r"(d_row_1 + 0 * stride_col) : "memory");
         if constexpr (NR >= 2)
@@ -201,7 +188,7 @@ static inline __attribute__((always_inline)) void tqt_store_kernel_sgemm_f32_f32
             asm volatile("vse32.v v13, (%0)" : : "r"(d_row_1 + 2 * stride_col) : "memory");
     }
     if constexpr (MR >= 3) {
-        float *d_row_2 = D + 2 * stride_row;
+        float* d_row_2 = D + 2 * stride_row;
         if constexpr (NR >= 1)
             asm volatile("vse32.v v14, (%0)" : : "r"(d_row_2 + 0 * stride_col) : "memory");
         if constexpr (NR >= 2)
@@ -210,7 +197,7 @@ static inline __attribute__((always_inline)) void tqt_store_kernel_sgemm_f32_f32
             asm volatile("vse32.v v16, (%0)" : : "r"(d_row_2 + 2 * stride_col) : "memory");
     }
     if constexpr (MR >= 4) {
-        float *d_row_3 = D + 3 * stride_row;
+        float* d_row_3 = D + 3 * stride_row;
         if constexpr (NR >= 1)
             asm volatile("vse32.v v17, (%0)" : : "r"(d_row_3 + 0 * stride_col) : "memory");
         if constexpr (NR >= 2)
@@ -219,7 +206,7 @@ static inline __attribute__((always_inline)) void tqt_store_kernel_sgemm_f32_f32
             asm volatile("vse32.v v19, (%0)" : : "r"(d_row_3 + 2 * stride_col) : "memory");
     }
     if constexpr (MR >= 5) {
-        float *d_row_4 = D + 4 * stride_row;
+        float* d_row_4 = D + 4 * stride_row;
         if constexpr (NR >= 1)
             asm volatile("vse32.v v20, (%0)" : : "r"(d_row_4 + 0 * stride_col) : "memory");
         if constexpr (NR >= 2)
@@ -228,7 +215,7 @@ static inline __attribute__((always_inline)) void tqt_store_kernel_sgemm_f32_f32
             asm volatile("vse32.v v22, (%0)" : : "r"(d_row_4 + 2 * stride_col) : "memory");
     }
     if constexpr (MR >= 6) {
-        float *d_row_5 = D + 5 * stride_row;
+        float* d_row_5 = D + 5 * stride_row;
         if constexpr (NR >= 1)
             asm volatile("vse32.v v23, (%0)" : : "r"(d_row_5 + 0 * stride_col) : "memory");
         if constexpr (NR >= 2)
@@ -237,7 +224,7 @@ static inline __attribute__((always_inline)) void tqt_store_kernel_sgemm_f32_f32
             asm volatile("vse32.v v25, (%0)" : : "r"(d_row_5 + 2 * stride_col) : "memory");
     }
     if constexpr (MR >= 7) {
-        float *d_row_6 = D + 6 * stride_row;
+        float* d_row_6 = D + 6 * stride_row;
         if constexpr (NR >= 1)
             asm volatile("vse32.v v26, (%0)" : : "r"(d_row_6 + 0 * stride_col) : "memory");
         if constexpr (NR >= 2)
@@ -246,7 +233,7 @@ static inline __attribute__((always_inline)) void tqt_store_kernel_sgemm_f32_f32
             asm volatile("vse32.v v28, (%0)" : : "r"(d_row_6 + 2 * stride_col) : "memory");
     }
     if constexpr (MR >= 8) {
-        float *d_row_7 = D + 7 * stride_row;
+        float* d_row_7 = D + 7 * stride_row;
         if constexpr (NR >= 1)
             asm volatile("vse32.v v29, (%0)" : : "r"(d_row_7 + 0 * stride_col) : "memory");
         if constexpr (NR >= 2)
@@ -262,11 +249,9 @@ static inline __attribute__((always_inline)) void tqt_store_kernel_sgemm_f32_f32
 /// next iteration's A scalars (into ft0-ft7) and B vectors (into v0-v2).
 /// Assumes ft0-ft7 and v0-v2 already hold the current iteration's data.
 template <size_t MR, size_t NR>
-static inline __attribute__((always_inline)) void tqt_fused_load_vfmacc_axb_kernel_sgemm_f32_f32_8x3vl_rvv(const float *A_next,
-                                                                            size_t a_stride_row,
-                                                                            const float *B_next,
-                                                                            size_t b_col_stride)
-{
+static inline __attribute__((always_inline)) void
+tqt_fused_load_vfmacc_axb_kernel_sgemm_f32_f32_8x3vl_rvv(const float* A_next, size_t a_stride_row, const float* B_next,
+                                                         size_t b_col_stride) {
     static_assert(MR >= 1 && MR <= 8, "MR must be in range [1, 8]");
     static_assert(NR >= 1 && NR <= 3, "NR must be in range [1, 3]");
 
@@ -383,9 +368,9 @@ static inline __attribute__((always_inline)) void tqt_fused_load_vfmacc_axb_kern
 /// B is loaded with vlse32 (strided). Used for transposed B variants.
 /// b_stride_row is the row stride of transposed B matrix (= ldb).
 template <size_t MR, size_t NR>
-static inline __attribute__((always_inline)) void tqt_fused_load_vfmacc_axbt_kernel_sgemm_f32_f32_8x3vl_rvv(
-    size_t vl, const float *A_next, size_t a_stride_row, const float *B_next, size_t b_stride_row)
-{
+static inline __attribute__((always_inline)) void
+tqt_fused_load_vfmacc_axbt_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl, const float* A_next, size_t a_stride_row,
+                                                          const float* B_next, size_t b_stride_row) {
     static_assert(MR >= 1 && MR <= 8, "MR must be in range [1, 8]");
     static_assert(NR >= 1 && NR <= 3, "NR must be in range [1, 3]");
     size_t stride_bytes = b_stride_row * sizeof(float);
@@ -410,10 +395,7 @@ static inline __attribute__((always_inline)) void tqt_fused_load_vfmacc_axbt_ker
     if constexpr (MR >= 8)
         asm volatile("vfmacc.vf v29, ft7, v0" ::: "v29");
     // v0 freed → prefetch next B col 0 (strided)
-    asm volatile("vlse32.v v0, (%0), %1"
-                 :
-                 : "r"(B_next + 0 * vl * b_stride_row), "r"(stride_bytes)
-                 : "v0", "memory");
+    asm volatile("vlse32.v v0, (%0), %1" : : "r"(B_next + 0 * vl * b_stride_row), "r"(stride_bytes) : "v0", "memory");
 
     // =================================================================
     // Column 1: all v1 uses (NR >= 2)
@@ -508,8 +490,7 @@ static inline __attribute__((always_inline)) void tqt_fused_load_vfmacc_axbt_ker
 /// Epilogue vfmacc kernel: column-first ordering, no prefetch.
 /// Used for the last K iteration when there is no next iteration to prefetch.
 template <size_t MR, size_t NR>
-static inline __attribute__((always_inline)) void tqt_epilogue_vfmacc_kernel_sgemm_f32_f32_8x3vl_rvv()
-{
+static inline __attribute__((always_inline)) void tqt_epilogue_vfmacc_kernel_sgemm_f32_f32_8x3vl_rvv() {
     static_assert(MR >= 1 && MR <= 8, "MR must be in range [1, 8]");
     static_assert(NR >= 1 && NR <= 3, "NR must be in range [1, 3]");
 
@@ -583,10 +564,9 @@ static inline __attribute__((always_inline)) void tqt_epilogue_vfmacc_kernel_sge
 /// The caller should use store_kernel for the simple path (alpha==1, beta==0)
 /// and this function for all other (alpha, beta) combinations.
 template <size_t MR, size_t NR>
-static inline __attribute__((always_inline)) void tqt_store_alpha_beta_kernel_sgemm_f32_f32_8x3vl_rvv(
-    size_t vl, float *D, const float *C, float alpha, float beta, size_t stride_d_row,
-    size_t stride_d_col, size_t ldc)
-{
+static inline __attribute__((always_inline)) void
+tqt_store_alpha_beta_kernel_sgemm_f32_f32_8x3vl_rvv(size_t vl, float* D, const float* C, float alpha, float beta,
+                                                    size_t stride_d_row, size_t stride_d_col, size_t ldc) {
     static_assert(MR >= 1 && MR <= 8, "MR must be in range [1, 8]");
     static_assert(NR >= 1 && NR <= 3, "NR must be in range [1, 3]");
 
@@ -597,47 +577,38 @@ static inline __attribute__((always_inline)) void tqt_store_alpha_beta_kernel_sg
 
     // Per-row macro: scale acc by alpha, load C into v0-v2, fmacc beta*C, store D.
     // V0/V1/V2 are the accumulator register names for the row.
-#define TQT_STORE_AB_ROW(ROW, V0, V1, V2)                                                       \
-    if constexpr (MR >= ROW + 1) {                                                              \
-        float *d_row = D + ROW * stride_d_row;                                                  \
-        if (need_alpha) {                                                                       \
-            if constexpr (NR >= 1)                                                              \
-                asm volatile("vfmul.vf " #V0 ", " #V0 ", %0" : : "f"(alpha) : #V0);             \
-            if constexpr (NR >= 2)                                                              \
-                asm volatile("vfmul.vf " #V1 ", " #V1 ", %0" : : "f"(alpha) : #V1);             \
-            if constexpr (NR >= 3)                                                              \
-                asm volatile("vfmul.vf " #V2 ", " #V2 ", %0" : : "f"(alpha) : #V2);             \
-        }                                                                                       \
-        if (has_c) {                                                                            \
-            const float *c_row = C + ROW * ldc;                                                 \
-            if constexpr (NR >= 1) {                                                            \
-                asm volatile("vle32.v v0, (%0)"                                                 \
-                             :                                                                  \
-                             : "r"(c_row + 0 * stride_d_col)                                    \
-                             : "v0", "memory");                                                 \
-                asm volatile("vfmacc.vf " #V0 ", %0, v0" : : "f"(beta) : #V0);                  \
-            }                                                                                   \
-            if constexpr (NR >= 2) {                                                            \
-                asm volatile("vle32.v v1, (%0)"                                                 \
-                             :                                                                  \
-                             : "r"(c_row + 1 * stride_d_col)                                    \
-                             : "v1", "memory");                                                 \
-                asm volatile("vfmacc.vf " #V1 ", %0, v1" : : "f"(beta) : #V1);                  \
-            }                                                                                   \
-            if constexpr (NR >= 3) {                                                            \
-                asm volatile("vle32.v v2, (%0)"                                                 \
-                             :                                                                  \
-                             : "r"(c_row + 2 * stride_d_col)                                    \
-                             : "v2", "memory");                                                 \
-                asm volatile("vfmacc.vf " #V2 ", %0, v2" : : "f"(beta) : #V2);                  \
-            }                                                                                   \
-        }                                                                                       \
-        if constexpr (NR >= 1)                                                                  \
-            asm volatile("vse32.v " #V0 ", (%0)" : : "r"(d_row + 0 * stride_d_col) : "memory"); \
-        if constexpr (NR >= 2)                                                                  \
-            asm volatile("vse32.v " #V1 ", (%0)" : : "r"(d_row + 1 * stride_d_col) : "memory"); \
-        if constexpr (NR >= 3)                                                                  \
-            asm volatile("vse32.v " #V2 ", (%0)" : : "r"(d_row + 2 * stride_d_col) : "memory"); \
+#define TQT_STORE_AB_ROW(ROW, V0, V1, V2)                                                            \
+    if constexpr (MR >= ROW + 1) {                                                                   \
+        float* d_row = D + ROW * stride_d_row;                                                       \
+        if (need_alpha) {                                                                            \
+            if constexpr (NR >= 1)                                                                   \
+                asm volatile("vfmul.vf " #V0 ", " #V0 ", %0" : : "f"(alpha) : #V0);                  \
+            if constexpr (NR >= 2)                                                                   \
+                asm volatile("vfmul.vf " #V1 ", " #V1 ", %0" : : "f"(alpha) : #V1);                  \
+            if constexpr (NR >= 3)                                                                   \
+                asm volatile("vfmul.vf " #V2 ", " #V2 ", %0" : : "f"(alpha) : #V2);                  \
+        }                                                                                            \
+        if (has_c) {                                                                                 \
+            const float* c_row = C + ROW * ldc;                                                      \
+            if constexpr (NR >= 1) {                                                                 \
+                asm volatile("vle32.v v0, (%0)" : : "r"(c_row + 0 * stride_d_col) : "v0", "memory"); \
+                asm volatile("vfmacc.vf " #V0 ", %0, v0" : : "f"(beta) : #V0);                       \
+            }                                                                                        \
+            if constexpr (NR >= 2) {                                                                 \
+                asm volatile("vle32.v v1, (%0)" : : "r"(c_row + 1 * stride_d_col) : "v1", "memory"); \
+                asm volatile("vfmacc.vf " #V1 ", %0, v1" : : "f"(beta) : #V1);                       \
+            }                                                                                        \
+            if constexpr (NR >= 3) {                                                                 \
+                asm volatile("vle32.v v2, (%0)" : : "r"(c_row + 2 * stride_d_col) : "v2", "memory"); \
+                asm volatile("vfmacc.vf " #V2 ", %0, v2" : : "f"(beta) : #V2);                       \
+            }                                                                                        \
+        }                                                                                            \
+        if constexpr (NR >= 1)                                                                       \
+            asm volatile("vse32.v " #V0 ", (%0)" : : "r"(d_row + 0 * stride_d_col) : "memory");      \
+        if constexpr (NR >= 2)                                                                       \
+            asm volatile("vse32.v " #V1 ", (%0)" : : "r"(d_row + 1 * stride_d_col) : "memory");      \
+        if constexpr (NR >= 3)                                                                       \
+            asm volatile("vse32.v " #V2 ", (%0)" : : "r"(d_row + 2 * stride_d_col) : "memory");      \
     }
 
     TQT_STORE_AB_ROW(0, v8, v9, v10)

@@ -33,8 +33,7 @@ typedef uint8_t float8_e8m0_t;
 
 /// Return whether the caller requested floating-point GEMM clamping.
 /// Evaluate the original public bounds before any narrowing conversion.
-static inline bool tqt_gemm_clamp_is_enabled(float clamp_min, float clamp_max)
-{
+static inline bool tqt_gemm_clamp_is_enabled(float clamp_min, float clamp_max) {
     return clamp_min != -INFINITY || clamp_max != INFINITY;
 }
 
@@ -87,7 +86,7 @@ static inline bool tqt_gemm_clamp_is_enabled(float clamp_min, float clamp_max)
     } while (0)
 
 #define TQT_ASSERT_MSG(cond, msg) TQT_ASSERT_ALWAYS_MSG(cond, msg)
-#endif  // NDEBUG
+#endif // NDEBUG
 
 #define TQT_ASSERT_ALWAYS_MSG(cond, msg) \
     do {                                 \
@@ -105,10 +104,8 @@ static inline bool tqt_gemm_clamp_is_enabled(float clamp_min, float clamp_max)
 
 /// `TQT_ASSERT_ALWAYS*` is same as `TQT_ASSERT*`, but doesn't get removed by `NDEBUG`
 #define TQT_ASSERT_ALWAYS(cond) TQT_ASSERT_ALWAYS_MSG(cond, #cond)
-#define TQT_ASSERT_ALWAYS_IF_MSG(precond, cond, msg) \
-    TQT_ASSERT_ALWAYS_MSG(!(precond) || (cond), msg)
-#define TQT_ASSERT_ALWAYS_IF(precond, cond) \
-    TQT_ASSERT_ALWAYS_IF_MSG(precond, cond, #precond " |-> " #cond)
+#define TQT_ASSERT_ALWAYS_IF_MSG(precond, cond, msg) TQT_ASSERT_ALWAYS_MSG(!(precond) || (cond), msg)
+#define TQT_ASSERT_ALWAYS_IF(precond, cond) TQT_ASSERT_ALWAYS_IF_MSG(precond, cond, #precond " |-> " #cond)
 
 /// TQT_ASSUME* is used for function pre-condition checking, similar to `[[assume]]` in C++23.
 /// So TQT_ASSUME should be used directly on the function parameters, rather than inside
@@ -132,8 +129,7 @@ static inline bool tqt_gemm_clamp_is_enabled(float clamp_min, float clamp_max)
 #define TQT_MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 #if defined(__riscv_vector)
-static inline int csrr_vlenb(void)
-{
+static inline int csrr_vlenb(void) {
     int a = 0;
     asm volatile("csrr %0, vlenb" : "=r"(a) : : "memory");
     return a;
@@ -141,5 +137,5 @@ static inline int csrr_vlenb(void)
 #endif
 
 #ifdef __cplusplus
-}  // extern "C"
+} // extern "C"
 #endif
