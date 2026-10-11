@@ -735,6 +735,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
         std::cout << "Converted Success!" << std::endl;
     } else {
         std::cout << "Converted Failed!" << std::endl;
+        return false;
     }
     if (modelPath.testDir.size() > 0) {
         std::cout << "Check convert result by " << modelPath.testDir << ", thredhold is " << modelPath.testThredhold << std::endl;

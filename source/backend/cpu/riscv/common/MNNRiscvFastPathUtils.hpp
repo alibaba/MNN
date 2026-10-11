@@ -1,13 +1,13 @@
 //
-//  MNNRvvFastPathUtils.hpp
+//  MNNRiscvFastPathUtils.hpp
 //  MNN
 //
 //  Created by MNN on 2026/07/29.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef MNN_RVV_FAST_PATH_UTILS_HPP
-#define MNN_RVV_FAST_PATH_UTILS_HPP
+#ifndef MNN_RISCV_FAST_PATH_UTILS_HPP
+#define MNN_RISCV_FAST_PATH_UTILS_HPP
 
 #include <functional>
 #include <utility>
@@ -17,7 +17,7 @@
 namespace MNN {
 
 template <typename Function>
-static inline void MNNRvvFastPathParallelFor(Backend* backend, int threadNumber, Function&& function) {
+static inline void MNNRiscvFastPathParallelFor(Backend* backend, int threadNumber, Function&& function) {
     if (threadNumber <= 1) {
         function(0);
         return;
@@ -41,4 +41,4 @@ static inline void MNNRvvFastPathParallelFor(Backend* backend, int threadNumber,
 
 } // namespace MNN
 
-#endif // MNN_RVV_FAST_PATH_UTILS_HPP
+#endif // MNN_RISCV_FAST_PATH_UTILS_HPP
