@@ -174,7 +174,7 @@ fp16 与 fp32 的后处理是**不同的 kernel**（`MNNGemmInt8AddBiasScale_*_U
 | Conv int8 tiled | `compute/ConvInt8TiledExecutor.cpp` |
 | Idst conv int8 | `compute/IdstConvolutionInt8.cpp` |
 | Conv int8 winograd | `compute/ConvInt8Winograd.cpp` |
-| RISC-V 厂商 executor | `riscv/rvv/spacemit_ime2/MNNSpacemitIme2ConvInt8Executor.cpp` |
+| RISC-V 厂商 executor | `riscv/spacemit_ime2/MNNSpacemitIme2ConvInt8Executor.cpp` |
 
 注意 `ConvInt8TiledExecutor.cpp` 里相邻的两处读的是**两张不同的表**
 （`mRelatedFunctions` 与 `mArm82Functions`），在 i8mm 机器上返回值不同——这是设计意图，不是 bug，

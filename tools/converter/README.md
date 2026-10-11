@@ -115,12 +115,3 @@ torch.onnx.export(model, dummy_input, "alexnet.onnx", verbose=True, input_names=
 ./MNNConvert -f ONNX --modelFile alexnet.onnx --MNNModel alexnet.mnn --bizCode MNN
 ```
 
-## ONNX composite reduction regression
-
-With `MNN_BUILD_CONVERTER=ON`, `MNN_BUILD_SHARED_LIBS=ON`, and `MNN_BUILD_PROTOBUFFER=ON`,
-run `cmake --build build --target TestOnnxCompositeReduction` and then
-`(cd build && ./TestOnnxCompositeReduction)` from the repository root.
-The test generates small ONNX models and checks CPU results for constant/omitted axes,
-legacy axes attributes, `keepdims`, and `noop_with_empty_axes` for ReduceL1, ReduceL2,
-ReduceLogSum, ReduceLogSumExp, and ReduceSumSquare. It also verifies that nonconstant
-axes are rejected instead of silently ignored. No external models are required.
