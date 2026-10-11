@@ -175,6 +175,9 @@ recommending deletion:
 
 ## Adding a new test
 
+For bugfixes, first apply the [unit-test submission policy](test-suite.md#bugfix-单测提交原则):
+keep development-only tests local, and commit a new test only when its necessity has been reviewed and justified.
+
 See [`test-suite.md`](test-suite.md) § "Adding a new test" for the full steps.
 Two traps worth knowing up front: `test/CMakeLists.txt` globs sources at
 **configure** time, so a new test file needs a `cmake` re-run before it exists in

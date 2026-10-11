@@ -115,8 +115,9 @@ int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
         auto weightName = config.MNNModel + ".weight";
         MNN_PRINT("Save Weight to %s\n", weightName.c_str());
         externalWeightOs.open(weightName.c_str(), ios::binary);
-        if (externalWeightOs.fail()) {
-            MNN_PRINT("Write %s failed\n", weightName.c_str());
+        if (!externalWeightOs.is_open()) {
+            MNN_ERROR("Failed to open external weights: %s\n", weightName.c_str());
+            return 1;
         }
     }
     {
@@ -169,13 +170,24 @@ int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
     {
         MNNRemoveFile(".__convert_external_data.bin");
     }
+    if (needExternalWeight) {
+        // close() also checks buffered writes that may fail after write() succeeds.
+        externalWeightOs.close();
+        if (externalWeightOs.fail()) {
+            MNN_ERROR("Failed to write external weights: %s.weight\n", config.MNNModel.c_str());
+            return 1;
+        }
+    }
     if (config.compressInfo->write) {
         CommonKit::protobuf2json(compressFileName.c_str(), &proto);
     }
     return 0;
 }
 int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::unique_ptr<MNN::OpT>&& metaOp) {
-    postTreat(netT, config);
+    auto error = postTreat(netT, config);
+    if (error != 0) {
+        return error;
+    }
     // Merge Meta to metaOp
     auto oplist = std::move(netT->oplists);
     for (auto& op : oplist) {
@@ -289,7 +301,17 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
         converToStaticModel(net, inputConfig, config.MNNModel);
     } else {
         std::ofstream output(config.MNNModel, std::ofstream::binary);
+        if (!output.is_open()) {
+            MNN_ERROR("Failed to open output model: %s\n", config.MNNModel.c_str());
+            return 1;
+        }
         output.write((const char*)bufferOutput, sizeOutput);
+        // close() also checks buffered writes that may fail after write() succeeds.
+        output.close();
+        if (output.fail()) {
+            MNN_ERROR("Failed to write output model: %s\n", config.MNNModel.c_str());
+            return 1;
+        }
     }
     if (!netT->subgraphs.empty()) {
         MNN_PRINT("The model has subgraphs, please use MNN::Express::Module to run it\n");

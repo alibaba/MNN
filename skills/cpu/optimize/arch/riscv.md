@@ -9,7 +9,7 @@
 > - 开发板交叉编译、板端正确性与性能实验纪律 → [`../../shared/riscv-remote-validation.md`](../../shared/riscv-remote-validation.md)
 > - env 开关语义 → [`../../shared/env-registry.md`](../../shared/env-registry.md)
 >
-> **命名**：目录名是 `source/backend/cpu/riscv/`（下分 `rvv/` 与 `rvv/spacemit_ime2/`），
+> **命名**：目录名是 `source/backend/cpu/riscv/`（下分 `common/`、`rvv/` 与 `spacemit_ime2/`），
 > CMake 选项名 `MNN_USE_RVV` / `MNN_RVV_SPACEMIT_IME2` / `MNN_RVV_MARCH` 保持字面写法，
 > 平台术语写 RISC-V，向量扩展写 RVV。
 
@@ -39,7 +39,7 @@ RISC-V 侧的路径分叉比 ARM / x86_64 多一层（构建门 × 架构门 × 
 |---|---|---|---|---|
 | **纯 C++ / 通用 CPU** | 基表 `gCoreFunction` 里未被下面两级覆盖的字段就留在标量实现 | 无 | — | — |
 | **标准 RVV** | 在**基表上逐字段覆盖**（`CommonOptFunction.cpp` 的 `#if defined(__riscv) && defined(MNN_USE_RVV)` 块、`Int8FunctionsOpt.cpp` 的 `#ifdef __riscv` + `#ifdef MNN_USE_RVV` 块） | `MNN_USE_RVV`（根 `CMakeLists.txt`，默认 **OFF**）**且** `CMAKE_SYSTEM_PROCESSOR` 匹配 `riscv64` | object lib `MNNRVV`，`-march=${MNN_RVV_BASE_MARCH}`（默认 `rv64gcv`）`-mabi=lp64d` | `CoreFunctions::supportRVV`（`compute/CommonOptFunction.h`），由 `gCPUInfo.rvv` 赋值 |
-| **SpacemiT IME2（vendor）** | 通过 `MNNSpacemitIme2FastPathRegistration.cpp` 这个注册入口接管 fast path；kernel 在 `rvv/spacemit_ime2/` | `MNN_RVV_SPACEMIT_IME2`（`riscv/CMakeLists.txt`，默认 **OFF**），依赖前一行已成立 | 两个 object lib：`MNNSpacemitIme2Runtime`（基线 march + `MNN_USE_SPACEMIT_IME2` 宏）与 `MNNSpacemitIme2`（**基线 march + `_xsmtvdotii`**，另加 `-fno-stack-protector`） | 见 §2.2：vendor 路径由 shape / layout 门禁在 fast-path hook 内部判定，不满足就回退 |
+| **SpacemiT IME2（vendor）** | 通过 `MNNSpacemitIme2FastPathRegistration.cpp` 这个注册入口接管 fast path；kernel 在 `spacemit_ime2/` | `MNN_RVV_SPACEMIT_IME2`（`riscv/CMakeLists.txt`，默认 **OFF**），依赖前一行已成立 | 两个 object lib：`MNNSpacemitIme2Runtime`（基线 march + `MNN_USE_SPACEMIT_IME2` 宏）与 `MNNSpacemitIme2`（**基线 march + `_xsmtvdotii`**，另加 `-fno-stack-protector`） | 见 §2.2：vendor 路径由 shape / layout 门禁在 fast-path hook 内部判定，不满足就回退 |
 
 **`MNN_LOW_MEMORY` 会改变 vendor 侧的文件集合**：开启时 `MNNSpacemitIme2ConvInt8Executor.cpp`
 才会被编进 `MNNSpacemitIme2Runtime`。低比特 conv 的 vendor 路径在 `MNN_LOW_MEMORY=OFF` 的构建里
