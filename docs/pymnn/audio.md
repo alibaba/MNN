@@ -1,227 +1,186 @@
 # MNN Audio Module
 
-The MNN audio module provides efficient audio processing operations optimized for edge devices, including audio I/O, feature extraction, and common transformations used in speech recognition and audio analysis.
+`MNN.audio` provides WAV I/O, spectral features, and window functions using
+`MNN.expr.Var` tensors.
 
 ## Installation
-
-The audio module is included in the MNN Python package:
 
 ```bash
 pip install MNN
 ```
+
+The examples below use the public Python package. Its Python wrappers accept
+keyword arguments and pass positional arguments to the C extension. Direct
+`_mnncengine.audio` calls accept positional arguments only.
+
+This change fixes argument parsing for `spectrogram`, `mel_spectrogram`, and
+`melscale_fbanks`. Older packages with the affected bindings may raise an error
+for these calls. Use a package built from a revision containing the fixes.
 
 ## Quick Start
 
 ```python
 import MNN.audio as audio
 
-# Load audio file (filename, sr, frame_offset, num_frames)
-waveform, sample_rate = audio.load("audio.wav", 0, 0, -1)
-
-# Extract mel-spectrogram features (waveform, n_mels, n_fft, sample_rate)
-# Note: mel_spectrogram binding only accepts up to 4 int parameters
-mel_spec = audio.mel_spectrogram(waveform, 80, 400, 16000)
+waveform, sample_rate = audio.load("input.wav", sr=16000)
+features = audio.fbank(waveform, sample_rate=sample_rate, n_mels=80)
+print(features.shape)
 ```
 
-## API Reference
+Run the example from the repository root:
 
-### Audio I/O
+```bash
+python pymnn/examples/audio_demo.py
+python pymnn/examples/audio_demo.py input.wav --output resampled.wav
+```
 
-#### load()
+Without a file, the example runs window generation only. With a file, it also
+runs audio I/O, spectrogram, mel, fbank, and Whisper feature extraction.
 
-Load audio from file with optional resampling.
+## Audio I/O
+
+### load
 
 ```python
-waveform, sample_rate = audio.load(filename, sr, frame_offset, num_frames)
+waveform, sample_rate = audio.load(filename, sr=0, frame_offset=0, num_frames=-1)
 ```
 
-**Parameters (all positional):**
-- `filename` (str): Path to audio file (supports wav, mp3, flac, etc.)
-- `sr` (int): Resample to this rate (0 keeps original)
-- `frame_offset` (int): Start loading from this frame
-- `num_frames` (int): Load this many frames (-1 for entire file)
+- `filename`: Path to a PCM WAV file. The current reader expects RIFF/WAVE data;
+  it is not a general MP3 or FLAC decoder.
+- `sr`: Target sample rate; `0` preserves the file's sample rate.
+- `frame_offset`: First frame to load.
+- `num_frames`: Number of frames; `-1` loads the remaining file.
 
-**Returns:** `(waveform, sample_rate)` tuple
+Returns `(waveform, sample_rate)`. `waveform` is a one-dimensional MNN Var.
+For feature extraction, resample to the required rate or pass the returned rate.
 
-**Example:**
-```python
-# Load entire file at original rate
-waveform, sr = audio.load("input.wav", 0, 0, -1)
-
-# Resample to 16kHz
-waveform, sr = audio.load("input.wav", 16000, 0, -1)
-```
-#### save()
-
-Save audio waveform to file.
+### save
 
 ```python
-audio.save(filename, waveform, sample_rate)
+success = audio.save("output.wav", waveform, sample_rate)
 ```
 
-**Parameters:**
-- `filename` (str): Output file path
-- `waveform` (Var): Audio data as MNN Var
-- `sample_rate` (int): Sample rate in Hz
+Writes a WAV file and returns a boolean indicating success.
 
----
+## Window Functions and Constants
 
-### Feature Extraction
+```python
+hamming = audio.hamming_window(400, periodic=True, alpha=0.54, beta=0.46)
+hann = audio.hanning_window(400, periodic=True)
+hann_native = audio.hann_window(400, True)
+```
 
-#### spectrogram()
+`hanning_window` is the Python wrapper for the native `hann_window` function.
+The wrapper accepts keywords; the native function is also exported and accepts
+positional arguments. The default `periodic` value is false.
 
-Compute power or magnitude spectrogram.
+| Window constant | Value |
+|---|---:|
+| `audio.HAMMING` | 0 |
+| `audio.HANNING` | 1 |
+| `audio.POVEY` | 2 |
+| `audio.RECTANGULAR` | 3 |
+| `audio.BLACKMAN` | 4 |
+
+These constants are exported by the Python package. The current native
+`spectrogram` implementation selects Hamming or Hann for values 0 and 1;
+other window values fall back to Hann.
+
+For spectrogram center padding, use `audio.CONSTANT`, `audio.REFLECT`, or
+`audio.SYMMETRIC` as appropriate for the padding operation.
+
+## Spectral Features
+
+### spectrogram
 
 ```python
 spec = audio.spectrogram(
-    waveform,
-    n_fft,
-    hop_length,      # 0 = n_fft // 4
-    win_length,      # 0 = n_fft
-    window_type,     # int: 0=hann, 1=hamming, etc.
-    pad_left,
-    pad_right,
-    center,          # int: 0 or 1
-    normalized,      # int: 0 or 1
-    pad_mode,        # int: see audio.h
-    power            # 2.0 = power, 1.0 = magnitude
+    waveform, n_fft=400, hop_length=160, win_length=400,
+    window_type=audio.HANNING, pad_left=0, pad_right=0,
+    center=True, normalized=False, pad_mode=audio.REFLECT, power=2.0,
 )
 ```
 
-**Parameters (all positional):**
-- `waveform`: Input audio tensor
-- `n_fft` (int): FFT size
-- `hop_length` (int): Hop size (0 = n_fft/4)
-- `win_length` (int): Window size (0 = n_fft)
-- `window_type` (int): Window function (0=hann, 1=hamming, etc.)
-- `pad_left`, `pad_right` (int): Padding
-- `center` (int): Center padding flag (0 or 1)
-- `normalized` (int): Normalize flag (0 or 1)
-- `pad_mode` (int): Padding mode
-- `power` (float): Exponent (2.0 for power, 1.0 for magnitude)
+- `n_fft`: FFT size; defaults to 400.
+- `hop_length`: Frame stride; `0` uses `n_fft // 2`.
+- `win_length`: Window length; `0` uses `n_fft`.
+- `window_type`: A window constant; defaults to `audio.HANNING`.
+- `pad_left`, `pad_right`: Constant padding before frame extraction.
+- `center`: Whether to pad around the waveform; defaults to false.
+- `normalized`: Whether to normalize; defaults to false.
+- `pad_mode`: Center padding mode; defaults to `audio.REFLECT`.
+- `power`: `2.0` for power, `1.0` for magnitude.
 
-**Example:**
+Returns an MNN Var.
+
+### melscale_fbanks
+
 ```python
-spec = audio.spectrogram(waveform, 400, 160, 400, 0, 0, 0, 1, 0, 0, 2.0)
+filters = audio.melscale_fbanks(80, 400, 16000, True, False, 0.0, 8000.0)
 ```
 
-#### mel_spectrogram()
+Arguments are `n_mels`, `n_fft`, sample rate, `htk`, `norm`, `f_min`, and `f_max`.
+The public wrapper currently spells the sample-rate keyword `sampe_rate`; the
+example passes it positionally. Defaults are 16000, true, false, 0.0, and 0.0
+respectively. `f_max=0.0` uses half the sample rate.
 
-Compute mel-scale spectrogram.
-
-```python
-# WARNING: The binding only accepts 4 int parameters due to format string bug
-mel_spec = audio.mel_spectrogram(waveform, n_mels, n_fft, sample_rate)
-```
-
-**Parameters (all positional):**
-- `waveform`: Input audio tensor
-- `n_mels` (int): Number of mel filterbanks
-- `n_fft` (int): FFT size
-- `sample_rate` (int): Audio sample rate
-
-**Note:** The Python binding's format string limits this to 4 integer parameters. Additional parameters (htk, norm, f_min, f_max, hop_length, etc.) are NOT accessible from Python.
-
-**Example:**
-```python
-mel_spec = audio.mel_spectrogram(waveform, 80, 400, 16000)
-```
-
-#### fbank()
-
-Extract Fbank features (Kaldi-style, commonly used in ASR).
+### mel_spectrogram
 
 ```python
-fbank_features = audio.fbank(
-    waveform,
-    sample_rate,
-    n_mels,
-    n_fft,
-    hop_length,
-    dither,
-    preemphasis
+mel = audio.mel_spectrogram(
+    waveform, 80, 400, sample_rate, htk=True, norm=False,
+    f_min=0.0, f_max=0.0, hop_length=160, win_length=400,
+    window_type=audio.HANNING, pad_left=0, pad_right=0,
+    center=False, normalized=False, pad_mode=audio.REFLECT, power=2.0,
 )
 ```
 
-**Parameters (all positional):**
-- `waveform`: Input audio tensor
-- `sample_rate` (int): Audio sample rate
-- `n_mels` (int): Number of mel filterbanks
-- `n_fft` (int): FFT size
-- `hop_length` (int): Hop size
-- `dither` (float): Dithering coefficient
-- `preemphasis` (float): Pre-emphasis coefficient (typical: 0.97)
+The first four arguments are waveform, mel-bin count, FFT size, and sample rate.
+The wrapper's sample-rate keyword is currently `sampe_rate`, so the example uses
+a positional argument. The remaining options are available from Python:
 
-**Example:**
-```python
-fbank = audio.fbank(waveform, 16000, 80, 400, 160, 0.0, 0.97)
-```
+- `htk`: Use the HTK mel scale; defaults to true.
+- `norm`: Mel-weight normalization flag; defaults to false. The current native
+  implementation uses unit scaling when both `htk` and `norm` are true;
+  otherwise it scales each band by `2 / (right_frequency - left_frequency)`.
+- `f_min`, `f_max`: Frequency bounds; defaults to 0.0, with `f_max=0.0` meaning
+  half the sample rate.
+- Spectrogram options have the same defaults as `spectrogram` above.
 
-#### whisper_fbank()
+Returns an MNN Var.
 
-Extract Whisper-compatible Fbank features.
+### fbank
 
 ```python
-whisper_features = audio.whisper_fbank(
-    waveform,
-    sample_rate,
-    n_mels,
-    n_fft,
-    hop_length,
-    chunk_len
+features = audio.fbank(
+    waveform, sample_rate=16000, n_mels=80, n_fft=400,
+    hop_length=160, dither=0.0, preemphasis=0.97,
 )
 ```
 
-**Parameters (all positional):**
-- `waveform`: Input audio tensor
-- `sample_rate` (int): Audio sample rate (Whisper uses 16000)
-- `n_mels` (int): Number of mel bins (Whisper uses 128)
-- `n_fft` (int): FFT size
-- `hop_length` (int): Hop size
-- `chunk_len` (int): Chunk length in seconds
+Extracts Kaldi-style log-mel features. All optional values shown are defaults.
+Use the same sample rate for loading and feature extraction.
 
-**Example:**
-```python
-whisper_fbank = audio.whisper_fbank(waveform, 16000, 128, 400, 160, 30)
-```
-
----
-
-### Window Functions
-
-#### hamming_window()
-
-Generate Hamming window.
+### whisper_fbank
 
 ```python
-window = audio.hamming_window(window_size, periodic, alpha, beta)
+features = audio.whisper_fbank(
+    waveform, sample_rate=16000, n_mels=128, n_fft=400,
+    hop_length=160, chunk_len=30,
+)
 ```
 
-**Parameters (all positional):**
-- `window_size` (int): Window length
-- `periodic` (int): Periodic flag (0 or 1)
-- `alpha` (float): Alpha coefficient (default: 0.54)
-- `beta` (float): Beta coefficient (default: 0.46)
+Extracts Whisper-style features. All optional values shown are defaults.
+Choose the mel-bin count expected by your model; some Whisper models use 80 bins.
 
-**Example:**
-```python
-hamming = audio.hamming_window(400, 1, 0.54, 0.46)
-```
+## Tensor Operations
 
-#### hann_window()
-
-Generate Hann window.
+`MNN.numpy` is included in the Python package and supports MNN Var operations.
+To use ordinary NumPy, explicitly read the tensor data:
 
 ```python
-window = audio.hann_window(window_size, periodic)
+import numpy as np
+
+values = np.asarray(features.read())
+print(values.shape)
 ```
-
-**Parameters (all positional):**
-- `window_size` (int): Window length
-- `periodic` (int): Periodic flag (0 or 1)
-
-**Example:**
-```python
-hann = audio.hann_window(400, 1)
-```
-

@@ -1,112 +1,61 @@
 #!/usr/bin/env python3
-"""
-MNN Audio Module Demo
+"""Demonstrate MNN audio windows and WAV feature extraction."""
 
-This script demonstrates basic audio processing operations using MNN.audio:
-- Loading and saving audio files
-- Computing spectrograms and mel-spectrograms
-- Extracting Fbank features (commonly used in speech recognition)
-"""
+import argparse
 
-import MNN
 import MNN.audio as audio
 
-def demo_load_save():
-    """Demo: Load and save audio files"""
-    print("=== Audio Load/Save Demo ===")
-
-    # Load audio file (supports common formats: wav, mp3, flac, etc.)
-    # audio.load(filename, sr, frame_offset, num_frames) - pymnn/src/audio.h
-    waveform, sample_rate = audio.load("input.wav", 0, 0, -1)
-    print(f"Loaded audio: sample_rate={sample_rate} Hz, shape={waveform.shape}")
-
-    # Save audio to file
-    audio.save("output.wav", waveform, sample_rate)
-    print("Saved audio to output.wav")
-
-def demo_spectrogram():
-    """Demo: Compute spectrogram from audio"""
-    print("\n=== Spectrogram Demo ===")
-
-    # Load audio
-    # audio.load(filename, sr, frame_offset, num_frames) - pymnn/src/audio.h
-    waveform, sr = audio.load("input.wav", 0, 0, -1)
-
-    # Compute spectrogram with positional parameters
-    # audio.spectrogram(waveform, n_fft, hop_length, win_length, window_type,
-    #                   pad_left, pad_right, center, normalized, pad_mode, power)
-    # window_type is int (0=hann, 1=hamming, etc. - check audio.h for enum values)
-    spec = audio.spectrogram(waveform, 400, 160, 400, 0, 0, 0, 1, 0, 0, 2.0)
-    print(f"Spectrogram shape: {spec.shape}")
-
-def demo_mel_spectrogram():
-    """Demo: Compute mel-spectrogram"""
-    print("\n=== Mel-Spectrogram Demo ===")
-
-    # Load audio with resampling to 16kHz
-    # audio.load(filename, sr, frame_offset, num_frames) - pymnn/src/audio.h
-    waveform, sr = audio.load("input.wav", 16000, 0, -1)
-
-    # Compute mel-spectrogram with positional parameters
-    # WARNING: The binding only accepts 4 int parameters due to format string bug
-    # audio.mel_spectrogram(waveform, n_mels, n_fft, sample_rate) - pymnn/src/audio.h
-    mel_spec = audio.mel_spectrogram(waveform, 80, 400, 16000)
-    print(f"Mel-spectrogram shape: {mel_spec.shape}")
-
-def demo_fbank():
-    """Demo: Extract Fbank features (Kaldi-style)"""
-    print("\n=== Fbank Features Demo ===")
-
-    # Load audio
-    # audio.load(filename, sr, frame_offset, num_frames) - pymnn/src/audio.h
-    waveform, sr = audio.load("input.wav", 16000, 0, -1)
-
-    # Compute Fbank features (commonly used in ASR)
-    # audio.fbank(waveform, sample_rate, n_mels, n_fft, hop_length, dither, preemphasis)
-    fbank_features = audio.fbank(waveform, 16000, 80, 400, 160, 0.0, 0.97)
-    print(f"Fbank features shape: {fbank_features.shape}")
-
-def demo_whisper_fbank():
-    """Demo: Whisper-style Fbank features"""
-    print("\n=== Whisper Fbank Demo ===")
-
-    # Load audio
-    # audio.load(filename, sr, frame_offset, num_frames) - pymnn/src/audio.h
-    waveform, sr = audio.load("input.wav", 16000, 0, -1)
-
-    # Compute Whisper-compatible Fbank features
-    # audio.whisper_fbank(waveform, sample_rate, n_mels, n_fft, hop_length, chunk_len)
-    whisper_fbank = audio.whisper_fbank(waveform, 16000, 128, 400, 160, 30)
-    print(f"Whisper Fbank shape: {whisper_fbank.shape}")
 
 def demo_window_functions():
-    """Demo: Window functions for audio processing"""
-    print("\n=== Window Functions Demo ===")
-
-    window_size = 400
-
-    # Hamming window
-    # audio.hamming_window(window_size, periodic, alpha, beta) - pymnn/src/audio.h
-    hamming = audio.hamming_window(window_size, 1, 0.54, 0.46)
+    """Generate Hamming and Hann windows."""
+    hamming = audio.hamming_window(400, periodic=True)
+    hann = audio.hanning_window(400, periodic=True)
     print(f"Hamming window shape: {hamming.shape}")
-
-    # Hann window (note: real function name is hann_window, not hanning_window)
-    # audio.hann_window(window_size, periodic) - pymnn/src/audio.h
-    hann = audio.hann_window(window_size, 1)
     print(f"Hann window shape: {hann.shape}")
 
-if __name__ == "__main__":
-    print("MNN Audio Module Demo\n")
-    print("Note: Replace 'input.wav' with your actual audio file path")
-    print("="*50)
 
-    # Run demos (comment out if you don't have input.wav)
-    # demo_load_save()
-    # demo_spectrogram()
-    # demo_mel_spectrogram()
-    # demo_fbank()
-    # demo_whisper_fbank()
+def demo_audio_features(filename, output_filename=None):
+    """Load a WAV file at 16 kHz and extract speech features."""
+    waveform, sample_rate = audio.load(filename, sr=16000)
+    if waveform is None or sample_rate <= 0:
+        raise RuntimeError(f"Could not load WAV file: {filename}")
+    print(f"Loaded waveform: {waveform.shape}, {sample_rate} Hz")
+
+    spectrogram = audio.spectrogram(
+        waveform, n_fft=400, hop_length=160, win_length=400,
+        window_type=audio.HANNING, center=True, pad_mode=audio.REFLECT,
+    )
+    print(f"Spectrogram shape: {spectrogram.shape}")
+
+    mel = audio.mel_spectrogram(waveform, 80, 400, sample_rate, hop_length=160)
+    print(f"Mel-spectrogram shape: {mel.shape}")
+
+    fbank = audio.fbank(waveform, sample_rate=sample_rate, n_mels=80)
+    print(f"Fbank shape: {fbank.shape}")
+
+    whisper = audio.whisper_fbank(waveform, sample_rate=sample_rate, n_mels=128)
+    print(f"Whisper Fbank shape: {whisper.shape}")
+
+    if output_filename:
+        if not audio.save(output_filename, waveform, sample_rate):
+            raise RuntimeError(f"Could not save WAV file: {output_filename}")
+        print(f"Saved resampled waveform: {output_filename}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("audio_file", nargs="?", help="Input PCM WAV file")
+    parser.add_argument("--output", help="Save the resampled waveform as a WAV file")
+    arguments = parser.parse_args()
+    if arguments.output and not arguments.audio_file:
+        parser.error("--output requires an input WAV file")
+
     demo_window_functions()
+    if arguments.audio_file:
+        demo_audio_features(arguments.audio_file, arguments.output)
+    else:
+        print("Pass a WAV file to run audio I/O and feature extraction.")
 
-    print("\n" + "="*50)
-    print("Demo completed!")
+
+if __name__ == "__main__":
+    main()
