@@ -65,7 +65,17 @@ public:
                Example: pad2d, onnx: [left, upper, right, bottom], MNN: [left, right, upper, bottom]
                So we need this order converting subgraph (all const, not affect inference speed).
              */
-            padsVar = _Reshape(_Transpose(_Reshape(inputs[1], {2, -1}), {1, 0}), {-1});
+            auto pads = _Transpose(_Reshape(inputs[1], {2, -1}), {1, 0});
+            if (inputs.size() > 3 && nullptr != inputs[3]) {
+                // Since opset 18, pads may apply to a subset or permutation of axes.
+                // Scatter each before/after pair into the full input-rank padding matrix.
+                auto rank = _Rank(inputs[0]);
+                auto axes = inputs[3];
+                axes = _Select(_Less(axes, _Scalar<int>(0)), axes + rank, axes);
+                auto shape = _Concat({_Unsqueeze(rank, {0}), _Unsqueeze(_Scalar<int>(2), {0})}, 0);
+                pads = _ScatterNd(_Unsqueeze(axes, {1}), pads, shape);
+            }
+            padsVar = _Reshape(pads, {-1});
         }
         std::unique_ptr<OpT> pad(new OpT);
         pad->type       = OpType_Padding;
@@ -89,7 +99,7 @@ public:
                 break;
         }
         std::vector<VARP> newInputs{inputs[0], padsVar};
-        if (inputs.size() > 2) {
+        if (inputs.size() > 2 && nullptr != inputs[2]) {
             newInputs.emplace_back(inputs[2]);
         }
         auto res = Expr::create(pad.get(), newInputs);

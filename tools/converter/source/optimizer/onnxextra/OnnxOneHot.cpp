@@ -18,7 +18,7 @@ public:
         auto inputs     = expr->inputs();
         auto op         = expr->get();
         auto extraParam = op->main_as_Extra();
-        int axis = 0;
+        int axis = -1;
         if (nullptr != extraParam->attr()) {
             const int attrSize = extraParam->attr()->size();
             for (int i = 0; i < attrSize; ++i) {

@@ -31,6 +31,9 @@ private:
     int mStrideY;
     int mPadX;
     int mPadY;
+    // AvgPoolCountType resolved the way CPUPool does: DEFAULT means INCLUDE_PADDING under
+    // CAFFE padding and EXCLUDE_PADDING otherwise.
+    bool mCountIncludePadding;
     id<MTLBuffer> mConstBuffer;
     MTLSize mGroup;
     MTLSize mLocal;
