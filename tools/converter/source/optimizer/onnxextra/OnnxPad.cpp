@@ -26,6 +26,7 @@ public:
         PadValueMode mode = CONSTANT;
         VARP padsVar;
         bool padsFromInput = true;
+        float value = 0.0f;
 
         auto info = op->main_as_Extra();
         if (nullptr != info->attr()) {
@@ -42,6 +43,8 @@ public:
                         return nullptr;
                     }
                     mode = padValueModeMap.at(modeStr);
+                } else if (attributeName == "value") {
+                    value = attr->f();
                 } else if (attributeName == "pads") {
                     padsFromInput = false;
                     auto padList  = attr->list()->i();
@@ -101,6 +104,8 @@ public:
         std::vector<VARP> newInputs{inputs[0], padsVar};
         if (inputs.size() > 2 && nullptr != inputs[2]) {
             newInputs.emplace_back(inputs[2]);
+        } else if (!padsFromInput && mode == CONSTANT && value != 0.0f) {
+            newInputs.emplace_back(_Scalar<float>(value));
         }
         auto res = Expr::create(pad.get(), newInputs);
         res->setName(opName);
