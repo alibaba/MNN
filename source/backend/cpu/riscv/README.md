@@ -5,7 +5,7 @@
 | `common/` | Shared helpers without RVV intrinsics or vendor instructions. |
 | `rvv/` | Standard RVV kernels, execution implementations, and fallback registration. |
 | `spacemit_ime2/` | SpacemiT IME2 kernels, execution implementations, and vendor registration. |
-| `torq-tile/` | TORQ-Tile FP32 packed MatMul adapter and registration, using standard RVV. |
+| `rvv/torq-tile/` | Optional TORQ-Tile-derived FP32 8x4 kernel, adapter and registration. |
 
 The IME2 implementation can reuse RVV kernels and execution interfaces. Keep vendor instructions and
 platform resources in `spacemit_ime2/` so that standard RVV remains independently buildable.
@@ -17,8 +17,7 @@ platform resources in `spacemit_ime2/` so that standard RVV remains independentl
 - `MNNRVV`: standard RVV sources, compiled with the base ISA string.
 - `MNNSpacemitIme2Runtime`: vendor execution and registration sources, compiled with the base ISA string.
 - `MNNSpacemitIme2`: vendor kernels, compiled with the additional `_xsmtvdotii` extension.
-- `MNNTorqTile`: optional MNN adapter and registration, using the base ISA and C++11.
-- `MNNTorqTileKernels`: the vendored FP32 kernel, using the base ISA and C++17.
+- `MNNTorqTile`: optional FP32 8x4 kernel, adapter and registration, using the base ISA and C++11.
 
 The existing build options remain `MNN_USE_RVV` and `MNN_RVV_SPACEMIT_IME2`. The latter selects the IME2
 registration source instead of `rvv/MNNRvvFastPathRegistration.cpp`; both sources define the same
@@ -46,19 +45,20 @@ CMake appends `_xsmtvdotii` only to the `MNNSpacemitIme2` kernel target.
 
 ## Experimental TORQ-Tile integration
 
-The MNN adapter and registration live in `torq-tile/`, alongside `spacemit_ime2/`.
-The imported TORQ-Tile kernels and license live in `3rd_party/torq-tile/`.
+The single FP32 8x4 kernel, MNN adapter, registration and license live together
+in `rvv/torq-tile/`. This first slice imports no generic SGEMM interface or other kernels.
 
 `MNN_RVV_TORQ_TILE` defaults to `OFF` and requires `MNN_USE_RVV=ON` on riscv64.
 It replaces the FP32 `MNNPackedMatMul` and `MNNPackedMatMulRemain` functions
 after RVV capability detection. Existing packers, `(eP,lP,hP)=(16,1,4)`, C4 output,
-thread scheduling and public APIs are unchanged. Empty reductions and E=1 retain
-the original RVV implementation. FP16, BF16, quantized kernels and GEMV are not
+thread scheduling and public APIs are unchanged. Only E divisible by eight and
+K > 0 select the new kernel. All other E sizes and empty reductions retain the
+original RVV implementation for the whole call. FP16, BF16, quantized kernels and GEMV are not
 replaced. The separate registration function coexists with the existing IME2
 registration without defining another mutually exclusive entry point.
 
 The source revision, license and local changes are recorded in
-[`3rd_party/torq-tile/README.MNN.md`](../../../../3rd_party/torq-tile/README.MNN.md).
+[`rvv/torq-tile/README.md`](rvv/torq-tile/README.md).
 Build on an RVV 1.0 target, or supply a RISC-V Linux toolchain file:
 
 ```bash
@@ -88,8 +88,8 @@ For Attention consumers, also enable `MNN_SUPPORT_TRANSFORMER_FUSE` and run
 `op/attention` plus a real model smoke test before deployment.
 
 Use a separate `build-rvv` directory with `MNN_RVV_TORQ_TILE=OFF` for correctness
-and performance comparison. The compatibility adapter submits one C4 block at
-a time and does not use TORQ-Tile's full N tile; it has no guaranteed speedup.
+and performance comparison. The adapter submits one 8x4 tile at a time;
+this minimal first slice has no guaranteed speedup.
 Bias is added after the dot product, so ordinary FP32 rounding differences are
 expected. Validate model outputs and benchmark the intended shapes, VLEN and
 thread counts on hardware before enabling this experimental path.

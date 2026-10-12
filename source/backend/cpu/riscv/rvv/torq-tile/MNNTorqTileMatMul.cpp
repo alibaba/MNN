@@ -2,7 +2,7 @@
 
 #include "MNNTorqTileFunctions.hpp"
 #include <math.h>
-#include "src/gemm/gemm_f32_f32/sgemm_f32_f32t_f32/tqt_sgemm_f32_f32t_f32_8x3vl_rvv.h"
+#include "MNNTorqTileKernel.hpp"
 
 void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
 void MNNPackedMatMulRemainFP32_RVV_WithAStride(float* C, const float* A, const float* B, size_t eSize,
@@ -17,9 +17,9 @@ static void packedMatMul(float* C, const float* A, const float* B, size_t eSize,
     if (eSize == 0 || channels == 0) {
         return;
     }
-    // TORQ-Tile unconditionally loads the first K slice. Keep empty reductions
-    // and the existing scalar single-row path in RVV.
-    if (depth == 0 || eSize == 1) {
+    // The first slice supports complete 8-row blocks and nonempty reductions.
+    // Keep all other shapes on the existing RVV path, including its post-treatment.
+    if (depth == 0 || eSize % 8 != 0) {
         MNNPackedMatMulRemainFP32_RVV_WithAStride(C, A, B, eSize, parameter, postParameters, bias, k, b, aStride);
         return;
     }
@@ -33,8 +33,9 @@ static void packedMatMul(float* C, const float* A, const float* B, size_t eSize,
     const bool clamp = postParameters != nullptr && !(postParameters[2] < -3.0e38f && postParameters[3] > 3.0e38f);
     for (size_t y = 0; y < channelBlocks; ++y) {
         auto dst = C + y * cStride;
-        tqt_run_sgemm_f32_f32t_f32_8x3vl_rvv(eSize, 4, depth, A, aStride, 0, B + y * bStride, 4, 0, nullptr, 4, dst, 4,
-                                             1.0f, 0.0f);
+        for (size_t x = 0; x < eSize; x += 8) {
+            MNNTorqTileMatMul8x4(dst + x * 4, A + x, B + y * bStride, depth, aStride);
+        }
         if (bias == nullptr && !clamp) {
             continue;
         }

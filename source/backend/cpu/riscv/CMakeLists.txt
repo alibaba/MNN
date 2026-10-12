@@ -46,7 +46,7 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
     list(APPEND MNN_TARGETS MNNRVV)
 
     if (MNN_RVV_TORQ_TILE)
-        include(${CMAKE_CURRENT_LIST_DIR}/torq-tile/CMakeLists.txt)
+        include(${CMAKE_CURRENT_LIST_DIR}/rvv/torq-tile/CMakeLists.txt)
     endif()
 
     if (MNN_RVV_SPACEMIT_IME2)

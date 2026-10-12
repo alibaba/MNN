@@ -36,7 +36,7 @@ using Vec = MNN::Math::Vec<float, 4>;
 
 #ifdef MNN_USE_RVV
 #ifdef MNN_USE_TORQ_TILE
-#include "backend/cpu/riscv/torq-tile/MNNTorqTileFunctions.hpp"
+#include "backend/cpu/riscv/rvv/torq-tile/MNNTorqTileFunctions.hpp"
 #endif
 #include "backend/cpu/riscv/rvv/MNNRvvC4Functions.hpp"
 #include "../riscv/rvv/MNNRvvMatMulFunctions.hpp"

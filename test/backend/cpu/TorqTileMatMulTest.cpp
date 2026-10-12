@@ -2,7 +2,7 @@
 #if defined(MNN_BUILD_STATIC_LIBS) && defined(MNN_USE_TORQ_TILE)
 #include "MNNTestSuite.h"
 #include "backend/cpu/compute/CommonOptFunction.h"
-#include "backend/cpu/riscv/torq-tile/MNNTorqTileFunctions.hpp"
+#include "backend/cpu/riscv/rvv/torq-tile/MNNTorqTileFunctions.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
