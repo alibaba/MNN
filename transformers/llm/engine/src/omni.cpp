@@ -2207,6 +2207,23 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     return mergedEmbed;
 }
 
+bool Omni::prepareHistoryReplay(const std::vector<int>& input_ids) {
+    // Encoder embeddings and MRoPE layouts of past multimodal spans are dropped after their prefill.
+    if (mTalker != nullptr) {
+        return false;
+    }
+    for (int id : input_ids) {
+        if (id == mVisionPad || id == mAudioPad || id == mVideoPad) {
+            return false;
+        }
+    }
+    mPositionIds.clear();
+    mVisionEmbeddings.clear();
+    mAudioEmbeddings.clear();
+    mDeepStackEmbeddings.clear();
+    return true;
+}
+
 static inline bool needNewVar(VARP var, int axis, int seq_len) {
     if (var == nullptr) {
         return true;

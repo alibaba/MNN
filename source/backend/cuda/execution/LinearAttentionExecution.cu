@@ -636,19 +636,24 @@ ErrorCode CUDALinearAttention::onResize(const std::vector<Tensor*>& inputs, cons
 }
 
 ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    const bool loadingFromDisk =
+        mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0;
+    // The recurrent state folds every past token, so it can only continue, reset, or be restored from disk.
+    if (mMeta != nullptr && mMeta->remove > 0 && (mMeta->previous != mMeta->remove || mMeta->n_reserve > 0) &&
+        !loadingFromDisk) {
+        MNN_ERROR("CUDA LinearAttention: cannot erase part of the %zu-token history; reset all of it instead\n",
+                  mMeta->previous);
+        return NOT_SUPPORT;
+    }
     // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
-    int resetBatch = 0, resetDim = 0, seqLen = 0;
-    linearAttentionDims(inputs[0], resetBatch, resetDim, seqLen);
-    if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
-        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
-        if (!loadingFromDisk) {
-            if (mStateCache->mConvState.get() != nullptr) {
-                cudaMemset(getDevPtr<void>(mStateCache->mConvState.get()), 0,
-                           mStateCache->mConvState->elementSize() * sizeof(float));
-            }
-            if (mStateCache->mRecurrentState.get() != nullptr)
-                cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0,
-                           mStateCache->mRecurrentState->elementSize() * sizeof(float));
+    if (mMeta != nullptr && mMeta->previous == mMeta->remove && !loadingFromDisk) {
+        if (mStateCache->mConvState.get() != nullptr) {
+            cudaMemset(getDevPtr<void>(mStateCache->mConvState.get()), 0,
+                       mStateCache->mConvState->elementSize() * sizeof(float));
+        }
+        if (mStateCache->mRecurrentState.get() != nullptr) {
+            cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0,
+                       mStateCache->mRecurrentState->elementSize() * sizeof(float));
         }
     }
     if (mMeta != nullptr && !mMeta->file_name.empty() &&

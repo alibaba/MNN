@@ -16,7 +16,9 @@
 #include "core/KVMeta.hpp"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -24,6 +26,13 @@
 #include <algorithm>
 #include <tuple>
 #include <sys/stat.h>
+#ifdef __APPLE__
+#include <cerrno>
+#include <cstdlib>
+#include <dirent.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 using namespace MNN::Express;
 
@@ -1113,8 +1122,9 @@ MNNTestSuiteRegister(LinearAttentionDecodeTest, "op/linear_attention_decode");
 
 // Wires a caller-owned KVMeta through the KVCACHE_INFO hint; must be the real
 // MNN::KVMeta, since a local mirror would be read past its end.
-static std::shared_ptr<Module> _makeLinearAttentionModuleWithMeta(int numKHeads, int numVHeads, int headKDim,
-                                                                  int headVDim, bool useL2Norm, MNN::KVMeta* meta) {
+static std::shared_ptr<Module> _makeLinearAttentionModuleWithMeta(
+    int numKHeads, int numVHeads, int headKDim, int headVDim, bool useL2Norm, MNN::KVMeta* meta,
+    const std::string& attnType = "gated_delta_rule", const std::string& prefixCacheDir = "") {
     auto qkv = _Input();
     auto gate = _Input();
     auto beta = _Input();
@@ -1125,7 +1135,7 @@ static std::shared_ptr<Module> _makeLinearAttentionModuleWithMeta(int numKHeads,
     op->main.type = MNN::OpParameter_LinearAttentionParam;
     op->main.value = new MNN::LinearAttentionParamT;
     auto* param = op->main.AsLinearAttentionParam();
-    param->attn_type = "gated_delta_rule";
+    param->attn_type = attnType;
     param->num_k_heads = numKHeads;
     param->num_v_heads = numVHeads;
     param->head_k_dim = headKDim;
@@ -1146,151 +1156,823 @@ static std::shared_ptr<Module> _makeLinearAttentionModuleWithMeta(int numKHeads,
     config.numThread = 1;
 
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+    if (!rtmgr) {
+        return nullptr;
+    }
     rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, meta);
+    if (!prefixCacheDir.empty()) {
+        rtmgr->setExternalPath(prefixCacheDir, MNN::Interpreter::EXTERNAL_PATH_PREFIXCACHE_DIR);
+    }
     std::shared_ptr<Module> m(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
     return m;
 }
 
-// ─── Rollback test: verify the explicit-rollback path in CPULinearAttention::onResize ───
-//
-// Background: LinearAttention's recurrent state has no token-level structure,
-// so Llm::eraseHistory() cannot truncate it. The fix introduces:
-//   (a) a snapshot of the post-prefix state taken inside the prefix-cache
-//       disk file_flag branches (PendingRead/PendingWrite), and
-//   (b) an explicit-rollback branch in onResize that, when mMeta->remove > 0,
-//       restores from the snapshot if mSnapshotValid is true, otherwise zeros
-//       the state.
-//
-// This test covers branch (b) without snapshot (mSnapshotValid=false), the
-// most common rollback path when prefix cache is not in use:
-//
-//   Module A: prefill(X)  -> internal state advances  (no snapshot taken,
-//                            since file_flag stays NoChange throughout)
-//             [simulate Llm: meta.previous = X.len, meta.remove = X.len]
-//             prefill(Y)  -> isExplicitRollback fires, mSnapshotValid=false,
-//                            so state is zeroed before Y is applied.
-//
-//   Module B: prefill(Y) on a brand-new module starting from zero state.
-//
-// Module A's second-prefill output and Module B's only-prefill output must
-// match byte-for-byte (within float tolerance), proving:
-//   - the rollback branch is hit when remove>0 in prefill,
-//   - it correctly clears state to zero when no snapshot is available, and
-//   - subsequent computation is equivalent to a fresh-init module.
-//
-// The "snapshot exists" path (mSnapshotValid=true) requires real prefix-cache
-// disk files (.k/.v + setExternalPath(EXTERNAL_PATH_PREFIXCACHE_DIR, ...)) and
-// is exercised by rollback_demo Stage 3 against actual model bundles.
+class LinearAttentionPrefixReadSizeTest : public MNNTestCase {
+    struct StateFiles {
+        std::string name;
+        std::string paths[2];
+        bool owned[2] = {false, false};
+
+        StateFiles(int L, bool shortConv) {
+            name = "test_la_read_size_" + std::to_string(std::chrono::high_resolution_clock::now()
+                                                           .time_since_epoch().count()) +
+                   "_" + std::to_string(L) + (shortConv ? "_short" : "_gated");
+            paths[0] = "./" + name + "_0.k";
+            paths[1] = "./" + name + "_0.v";
+        }
+        ~StateFiles() {
+            for (int i = 0; i < 2; ++i) {
+                if (owned[i] && std::remove(paths[i].c_str()) != 0) {
+                    MNN_ERROR("PrefixReadSize: failed to remove %s\n", paths[i].c_str());
+                }
+            }
+        }
+        bool write(int i, const std::vector<uint8_t>& bytes) {
+            auto file = std::fopen(paths[i].c_str(), owned[i] ? "wb" : "wbx");
+            if (!file) {
+                MNN_ERROR("PrefixReadSize: cannot create %s\n", paths[i].c_str());
+                return false;
+            }
+            owned[i] = true;
+            const bool written = bytes.empty() || std::fwrite(bytes.data(), 1, bytes.size(), file) == bytes.size();
+            const bool closed = std::fclose(file) == 0;
+            if (!written || !closed) {
+                MNN_ERROR("PrefixReadSize: cannot write %s\n", paths[i].c_str());
+            }
+            return written && closed;
+        }
+        bool erase(int i) {
+            if (owned[i] && std::remove(paths[i].c_str()) != 0) {
+                MNN_ERROR("PrefixReadSize: cannot remove %s\n", paths[i].c_str());
+                return false;
+            }
+            owned[i] = false;
+            return true;
+        }
+    };
+
+    bool runCase(int precision, int L, bool shortConv) {
+        const char* attnType = shortConv ? "short_conv" : "gated_delta_rule";
+        // B=2 keeps both state payloads aligned even with FP16 storage.
+        const int B = 2, H = shortConv ? 1 : 2, dk = 4, dv = 4, K = 4;
+        const int D = shortConv ? 3 * dv : H * (2 * dk + dv);
+        const int convCount = B * (shortConv ? dv : D) * (K - 1);
+        const int rnnCount = shortConv ? 0 : B * H * dk * dv;
+        const int outSize = B * L * H * dv;
+        // Metal stores float tensors in half except under Precision_High.
+        const int bytesPerElement = precision == MNN::BackendConfig::Precision_High ? 4 : 2;
+        const float tolerance = bytesPerElement == 2 ? 0.003f : 0.0001f;
+
+        auto qkv = _Input({B, D, L}, NCHW, halide_type_of<float>());
+        auto gate = _Input({B, L, H}, NCHW, halide_type_of<float>());
+        auto beta = _Input({B, L, H}, NCHW, halide_type_of<float>());
+        auto convW = _Input({shortConv ? dv : D, 1, K}, NCHW, halide_type_of<float>());
+        fillDeterministic(qkv->writeMap<float>(), B * D * L, 0.1f, 0.15f);
+        fillGate(gate->writeMap<float>(), B * L * H);
+        fillBeta(beta->writeMap<float>(), B * L * H);
+        fillConvWeight(convW->writeMap<float>(), (shortConv ? dv : D) * K);
+        const std::vector<VARP> inputs = {qkv, gate, beta, convW};
+        const float* q = qkv->readMap<float>();
+        const float* g = gate->readMap<float>();
+        const float* b = beta->readMap<float>();
+        const float* w = convW->readMap<float>();
+
+        // These values are exactly representable in both FP16 and FP32.
+        auto stateValue = [](int i) { return i % 2 == 0 ? 0.25f : -0.5f; };
+        auto payload = [&](int count, bool nonzero) {
+            std::vector<uint8_t> bytes(count * bytesPerElement, 0);
+            for (int i = 0; nonzero && i < count; ++i) {
+                if (bytesPerElement == 2) {
+                    const uint16_t half = i % 2 == 0 ? 0x3400 : 0xb800;
+                    std::memcpy(bytes.data() + i * bytesPerElement, &half, sizeof(half));
+                } else {
+                    const float value = stateValue(i);
+                    std::memcpy(bytes.data() + i * bytesPerElement, &value, sizeof(value));
+                }
+            }
+            return bytes;
+        };
+        auto expected = [&](bool nonzero, std::vector<float>* continuation) {
+            if (!shortConv) {
+                NaiveLinearAttention naive;
+                naive.init(B, D, K, H, dk, dv);
+                if (nonzero) {
+                    for (int i = 0; i < convCount; ++i) naive.convState[i] = stateValue(i);
+                    // Metal stores [B,H,dv,dk], while the reference uses [B,H,dk,dv].
+                    for (int head = 0; head < B * H; ++head) {
+                        for (int key = 0; key < dk; ++key) {
+                            for (int value = 0; value < dv; ++value) {
+                                naive.rnnState[(head * dk + key) * dv + value] =
+                                    stateValue((head * dv + value) * dk + key);
+                            }
+                        }
+                    }
+                }
+                auto result = naive.forward(q, g, b, w, B, L, D, K, H, H, dk, dv, true);
+                if (continuation) {
+                    *continuation = naive.forward(q, g, b, w, B, L, D, K, H, H, dk, dv, true);
+                }
+                return result;
+            }
+            // short_conv: C * depthwise_conv(B * X), with no SiLU or RNN state.
+            std::vector<float> result(outSize, 0.0f);
+            for (int batch = 0; batch < B; ++batch) {
+                for (int t = 0; t < L; ++t) {
+                    for (int h = 0; h < dv; ++h) {
+                        float sum = 0.0f;
+                        for (int k = 0; k < K; ++k) {
+                            const int pos = t + k - (K - 1);
+                            const float value = pos < 0
+                                ? (nonzero ? stateValue((batch * dv + h) * (K - 1) + t + k) : 0.0f)
+                                : q[(batch * D + h) * L + pos] * q[(batch * D + 2 * dv + h) * L + pos];
+                            sum += value * w[h * K + k];
+                        }
+                        result[(batch * L + t) * dv + h] = q[(batch * D + dv + h) * L + t] * sum;
+                    }
+                }
+            }
+            return result;
+        };
+        std::vector<float> continuationExpected;
+        const auto zeroExpected = expected(false, nullptr);
+        const auto seededExpected = expected(true, &continuationExpected);
+        float stateEffect = 0.0f;
+        for (int i = 0; i < outSize; ++i) {
+            stateEffect = std::max(stateEffect, std::fabs(seededExpected[i] - zeroExpected[i]));
+        }
+        if (stateEffect <= 10.0f * tolerance) {
+            MNN_ERROR("PrefixReadSize: %s L=%d fixture does not distinguish loaded state\n", attnType, L);
+            return false;
+        }
+
+        StateFiles files(L, shortConv);
+        // Reserve both names so even the absent .v cannot collide with an existing file.
+        if (!files.write(0, {}) || !files.write(1, {}) || (shortConv && !files.erase(1))) {
+            return false;
+        }
+        MNN::KVMeta meta;
+        meta.layer_nums = 1;
+        meta.file_name = files.name;
+        auto module = _makeLinearAttentionModuleWithMeta(H, H, dk, dv, true, &meta, attnType, ".");
+        if (!module) {
+            MNN_ERROR("PrefixReadSize: cannot create %s module\n", attnType);
+            return false;
+        }
+        auto checkForward = [&](const std::vector<float>& oracle, const char* phase) {
+            auto outputs = module->onForward(inputs);
+            if (outputs.size() != 1 || outputs[0].get() == nullptr || !outputs[0]->getInfo() ||
+                outputs[0]->getInfo()->size != outSize) {
+                MNN_ERROR("PrefixReadSize: %s L=%d %s returned invalid output\n", attnType, L, phase);
+                return false;
+            }
+            const float* result = outputs[0]->readMap<float>(); // Wait for the state update, too.
+            if (!result) {
+                MNN_ERROR("PrefixReadSize: %s L=%d %s readMap failed\n", attnType, L, phase);
+                return false;
+            }
+            for (int i = 0; i < outSize; ++i) {
+                if (!std::isfinite(result[i]) || std::fabs(result[i] - oracle[i]) > tolerance) {
+                    MNN_ERROR("PrefixReadSize: %s L=%d %s index=%d expected=%f got=%f\n",
+                              attnType, L, phase, i, oracle[i], result[i]);
+                    return false;
+                }
+            }
+            return true;
+        };
+        auto requestRead = [&]() {
+            // PendingRead must preserve live state until all files validate, even during rollback.
+            meta.previous = L;
+            meta.remove = L;
+            meta.add = L;
+            meta.layer_index = 0;
+            ++meta.prefix_session_id;
+            meta.file_flag = MNN::KVMeta::PendingRead;
+        };
+        auto writeStates = [&](bool nonzero) {
+            return files.write(0, payload(convCount, nonzero)) &&
+                   (shortConv || files.write(1, payload(rnnCount, nonzero)));
+        };
+
+        // Reuse input objects and shapes so validation cannot depend on a resize.
+        if (!checkForward(zeroExpected, "warmup")) {
+            return false;
+        }
+        for (bool nonzero : {false, true}) {
+            if (!writeStates(nonzero)) return false;
+            for (int repeat = 0; repeat < 2; ++repeat) {
+                requestRead();
+                if (!checkForward(nonzero ? seededExpected : zeroExpected,
+                                  nonzero ? "exact nonzero restore" : "exact zero restore")) {
+                    return false;
+                }
+            }
+        }
+
+        const char* faults[] = {"short by 1", "long by 1", "empty", "missing"};
+        for (int file = 0; file < (shortConv ? 1 : 2); ++file) {
+            for (int fault = 0; fault < 4; ++fault) {
+                // Continuing from nonzero state reveals any partial load or clearing on failure.
+                if (!writeStates(true)) return false;
+                requestRead();
+                if (!checkForward(seededExpected, "seed before invalid read")) return false;
+                // In particular, a bad .v must not copy this valid zero .k first.
+                if (file == 1 && !files.write(0, payload(convCount, false))) return false;
+                if (fault == 3) {
+                    if (!files.erase(file)) return false;
+                } else {
+                    auto bad = payload(file == 0 ? convCount : rnnCount, false);
+                    bad.resize(fault == 0 ? bad.size() - 1 : fault == 1 ? bad.size() + 1 : 0);
+                    if (!files.write(file, bad)) return false;
+                }
+                requestRead();
+                auto outputs = module->onForward(inputs);
+                if (!outputs.empty()) {
+                    if (outputs[0].get() != nullptr) (void)outputs[0]->readMap<float>();
+                    MNN_ERROR("PrefixReadSize: %s L=%d .%c %s must return empty onForward\n",
+                              attnType, L, file == 0 ? 'k' : 'v', faults[fault]);
+                    return false;
+                }
+                if (!shortConv) {
+                    meta.file_flag = MNN::KVMeta::NoChange;
+                    meta.previous = L;
+                    meta.remove = 0;
+                    if (!checkForward(continuationExpected, "live state after failed read")) {
+                        MNN_ERROR("PrefixReadSize: .%c %s modified live state\n",
+                                  file == 0 ? 'k' : 'v', faults[fault]);
+                        return false;
+                    }
+                }
+            }
+        }
+        MNN_PRINT("LinearAttention PrefixReadSize %s L=%d storage=%d bytes PASSED\n", attnType, L, bytesPerElement);
+        return true;
+    }
+
+public:
+    bool run(int precision) override {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("LinearAttention PrefixReadSize SKIP: Metal-only test\n");
+            return true;
+        }
+        for (int L : {1, 4}) {
+            if (!runCase(precision, L, false) || !runCase(precision, L, true)) return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(LinearAttentionPrefixReadSizeTest, "op/linear_attention_prefix_read_size");
+
+class LinearAttentionPrefixWriteTest : public MNNTestCase {
+#ifdef __APPLE__
+    struct StateFiles {
+        std::string directory;
+        bool blocked = false;
+
+        StateFiles() {
+            const char* tmp = std::getenv("TMPDIR");
+            std::string pattern = std::string(tmp && tmp[0] == '/' ? tmp : "/tmp") + "/mnn_la_write_XXXXXX";
+            std::vector<char> buffer(pattern.begin(), pattern.end());
+            buffer.push_back('\0');
+            if (::mkdtemp(buffer.data())) directory = buffer.data();
+        }
+        ~StateFiles() {
+            if (directory.empty()) return;
+            if (blocked) {
+                ::unlink(path(".v/blocker").c_str());
+                ::rmdir(path(".v").c_str());
+            }
+            // Only this test and its modules create entries in the exclusive directory.
+            auto dir = ::opendir(directory.c_str());
+            if (dir) {
+                while (auto entry = ::readdir(dir)) {
+                    if (!std::strcmp(entry->d_name, ".") || !std::strcmp(entry->d_name, "..")) continue;
+                    if (std::remove((directory + "/" + entry->d_name).c_str()) != 0) {
+                        MNN_ERROR("PrefixWrite: cannot clean %s/%s\n", directory.c_str(), entry->d_name);
+                    }
+                }
+                ::closedir(dir);
+            }
+            if (::rmdir(directory.c_str()) != 0) MNN_ERROR("PrefixWrite: cannot clean %s\n", directory.c_str());
+        }
+        std::string path(const char* suffix) const { return directory + "/prefix_0" + suffix; }
+        bool absent(const char* suffix) const {
+            struct stat st;
+            return ::lstat(path(suffix).c_str(), &st) != 0 && errno == ENOENT;
+        }
+        bool create(const char* suffix) const {
+            const int fd = ::open(path(suffix).c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+            if (fd < 0) {
+                MNN_ERROR("PrefixWrite: cannot create fixture %s\n", path(suffix).c_str());
+                return false;
+            }
+            return ::close(fd) == 0;
+        }
+        bool blockValue() {
+            if (::unlink(path(".v").c_str()) != 0 || ::mkdir(path(".v").c_str(), 0700) != 0) return false;
+            blocked = true;
+            return create(".v/blocker");
+        }
+        bool read(const char* suffix, size_t size, std::vector<uint8_t>& bytes) const {
+            struct stat st;
+            if (::lstat(path(suffix).c_str(), &st) != 0 || !S_ISREG(st.st_mode) ||
+                st.st_size != static_cast<off_t>(size)) {
+                MNN_ERROR("PrefixWrite: %s not ready with exactly %zu bytes\n", path(suffix).c_str(), size);
+                return false;
+            }
+            auto file = std::fopen(path(suffix).c_str(), "rb");
+            if (!file) return false;
+            bytes.resize(size);
+            const bool read = std::fread(bytes.data(), 1, size, file) == size &&
+                              std::fgetc(file) == EOF && !std::ferror(file);
+            const bool closed = std::fclose(file) == 0;
+            return read && closed;
+        }
+    };
+
+    bool runCase(int precision, int L, bool shortConv, bool failWrite = false) {
+        const char* type = shortConv ? "short_conv" : "gated_delta_rule";
+        const int B = 2, H = shortConv ? 1 : 2, dk = 4, dv = 4, K = 4, chunks = 3;
+        const int D = shortConv ? 3 * dv : H * (2 * dk + dv);
+        const int convDim = shortConv ? dv : D;
+        const int elementBytes = precision == MNN::BackendConfig::Precision_High ? 4 : 2;
+        const float tolerance = elementBytes == 2 ? 0.001f : 0.00001f;
+        StateFiles files;
+        if (files.directory.empty()) {
+            MNN_ERROR("PrefixWrite: cannot create exclusive temporary directory\n");
+            return false;
+        }
+        MNN::KVMeta writeMeta, referenceMeta, readMeta, emptyMeta, draftMeta;
+        writeMeta.layer_nums = readMeta.layer_nums = 1;
+        writeMeta.file_name = readMeta.file_name = "prefix";
+        writeMeta.file_flag = MNN::KVMeta::PendingWrite;
+        writeMeta.prefix_session_id = readMeta.prefix_session_id = 1;
+        auto makeModule = [&](MNN::KVMeta* meta) {
+            auto module = _makeLinearAttentionModuleWithMeta(H, H, dk, dv, true, meta, type, files.directory);
+            int backends[2] = {-1, -1};
+            if (!module || !module->getInfo() || !module->getInfo()->runTimeManager ||
+                !module->getInfo()->runTimeManager->getInfo(MNN::Interpreter::BACKENDS, backends) ||
+                backends[0] != MNN_FORWARD_METAL) {
+                MNN_ERROR("PrefixWrite: %s requires an available Metal runtime\n", type);
+                module.reset();
+            }
+            return module;
+        };
+        auto writer = makeModule(&writeMeta);
+        auto reference = makeModule(&referenceMeta);
+        if (!writer || !reference) return false;
+        auto weights = _Input({convDim, 1, K}, NCHW, halide_type_of<float>());
+        fillConvWeight(weights->writeMap<float>(), convDim * K);
+        auto makeInputs = [&](int length) {
+            auto qkv = _Input({B, D, length}, NCHW, halide_type_of<float>());
+            auto gate = _Input({B, length, H}, NCHW, halide_type_of<float>());
+            auto beta = _Input({B, length, H}, NCHW, halide_type_of<float>());
+            fillGate(gate->writeMap<float>(), B * length * H);
+            fillBeta(beta->writeMap<float>(), B * length * H);
+            return std::vector<VARP>{qkv, gate, beta, weights};
+        };
+        auto readOutput = [&](const std::vector<VARP>& outputs, int length, std::vector<float>& values) {
+            const int size = B * length * H * dv;
+            if (outputs.size() != 1 || !outputs[0].get() || !outputs[0]->getInfo() ||
+                outputs[0]->getInfo()->size != size) {
+                MNN_ERROR("PrefixWrite: %s L=%d invalid output\n", type, length);
+                return false;
+            }
+            const float* data = outputs[0]->readMap<float>();
+            if (!data) return false;
+            values.assign(data, data + size);
+            for (float value : values) {
+                if (!std::isfinite(value)) return false;
+            }
+            return true;
+        };
+        auto compare = [&](const std::vector<float>& a, const std::vector<float>& b, const char* phase) {
+            for (size_t i = 0; i < a.size(); ++i) {
+                if (std::fabs(a[i] - b[i]) > tolerance) {
+                    MNN_ERROR("PrefixWrite: %s L=%d %s index=%zu expected=%f got=%f\n",
+                              type, L, phase, i, a[i], b[i]);
+                    return false;
+                }
+            }
+            return true;
+        };
+        using StateBytes = std::vector<std::vector<uint8_t>>;
+        auto readState = [&](StateBytes& bytes) {
+            bytes.resize(shortConv ? 1 : 2);
+            return files.read(".k", B * convDim * (K - 1) * elementBytes, bytes[0]) &&
+                   (shortConv ? files.absent(".v") : files.read(".v", B * H * dk * dv * elementBytes, bytes[1]));
+        };
+        auto unchanged = [&](const StateBytes& saved) {
+            StateBytes current;
+            if (!readState(current) || current != saved) {
+                MNN_ERROR("PrefixWrite: %s L=%d published bytes changed after onForward\n", type, L);
+                return false;
+            }
+            return true;
+        };
+        auto inputs = makeInputs(L);
+        StateBytes saved;
+        std::vector<float> actual, expected;
+        for (int chunk = 0; chunk < chunks; ++chunk) {
+            // Reuse input objects and shapes, including consecutive L=1 PendingWrite calls.
+            fillDeterministic(inputs[0]->writeMap<float>(), B * D * L, 0.08f, 0.2f + 0.17f * chunk);
+            writeMeta.add = referenceMeta.add = L;
+            if (failWrite && chunk == 1 && !files.blockValue()) return false;
+            auto outputs = writer->onForward(inputs);
+            if (failWrite && chunk == 1) {
+                const bool rejected = outputs.empty() && files.absent(".k") && files.absent("_sync.k") &&
+                                      files.absent("_sync.v");
+                if (!outputs.empty()) readOutput(outputs, L, actual);
+                if (!rejected) MNN_ERROR("PrefixWrite: failed later chunk left output or a usable stale prefix\n");
+                return rejected;
+            }
+            // No tensor access or GPU synchronization before inspecting the published files.
+            StateBytes current;
+            const bool ready = readState(current) && files.absent("_sync.k") && files.absent("_sync.v");
+            const bool validOutput = readOutput(outputs, L, actual);
+            if (!ready || !validOutput || !unchanged(current)) {
+                MNN_ERROR("PrefixWrite: %s L=%d chunk=%d ready=%d output=%d layer=%d\n",
+                          type, L, chunk, ready, validOutput, writeMeta.layer_index);
+                return false;
+            }
+            for (size_t i = 0; i < saved.size(); ++i) {
+                if (saved[i] == current[i]) {
+                    MNN_ERROR("PrefixWrite: %s L=%d chunk=%d retained stale state file %zu\n", type, L, chunk, i);
+                    return false;
+                }
+            }
+            saved = std::move(current);
+            if (!readOutput(reference->onForward(inputs), L, expected) || !compare(expected, actual, "chunk")) {
+                return false;
+            }
+            writeMeta.sync();
+            referenceMeta.sync();
+            // A shared runtime may switch to draft metadata while this execution retains the main state.
+            writer->getInfo()->runTimeManager->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &draftMeta);
+            // Seed old publication markers; each subsequent chunk must invalidate them.
+            if (chunk + 1 < chunks && (!files.create("_sync.k") || (!shortConv && !files.create("_sync.v")))) {
+                return false;
+            }
+        }
+        auto query = makeInputs(1);
+        fillDeterministic(query[0]->writeMap<float>(), B * D, 0.08f, 0.7f);
+        writeMeta.file_flag = MNN::KVMeta::NoChange;
+        writeMeta.add = referenceMeta.add = 1;
+        if (!readOutput(writer->onForward(query), 1, actual) || !unchanged(saved) ||
+            !readOutput(reference->onForward(query), 1, expected) || !compare(expected, actual, "live query")) {
+            return false;
+        }
+        readMeta.previous = readMeta.remove = chunks * L;
+        readMeta.seqlen_in_disk = chunks * L;
+        readMeta.add = 1;
+        readMeta.file_flag = MNN::KVMeta::PendingRead;
+        auto reader = makeModule(&readMeta);
+        if (!reader || !readOutput(reader->onForward(query), 1, actual) ||
+            !compare(expected, actual, "restored query") || !unchanged(saved)) {
+            return false;
+        }
+        emptyMeta.add = 1;
+        auto empty = makeModule(&emptyMeta);
+        if (!empty || !readOutput(empty->onForward(query), 1, actual)) return false;
+        float stateEffect = 0.0f;
+        for (size_t i = 0; i < actual.size(); ++i) {
+            stateEffect = std::max(stateEffect, std::fabs(expected[i] - actual[i]));
+        }
+        if (stateEffect <= 4.0f * tolerance) {
+            MNN_ERROR("PrefixWrite: %s L=%d query does not distinguish restored state\n", type, L);
+            return false;
+        }
+        MNN_PRINT("LinearAttention PrefixWrite %s L=%d storage=%d bytes PASSED\n", type, L, elementBytes);
+        return true;
+    }
+#endif
+
+public:
+    bool run(int precision) override {
+#ifndef __APPLE__
+        MNN_PRINT("LinearAttention PrefixWrite SKIP: Apple filesystem APIs required\n");
+        return true;
+#else
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("LinearAttention PrefixWrite SKIP: Metal-only test\n");
+            return true;
+        }
+        for (int L : {1, 4}) {
+            if (!runCase(precision, L, false) || !runCase(precision, L, true)) return false;
+        }
+        return runCase(precision, 4, false, true);
+#endif
+    }
+};
+MNNTestSuiteRegister(LinearAttentionPrefixWriteTest, "op/linear_attention_prefix_write");
+
+class LinearAttentionSpecRejectionTest : public MNNTestCase {
+    bool runCase(int precision, int accepted, int nextLength, bool nextVerify) {
+        const int B = 1, H = 2, dk = 32, dv = 32, K = 4;
+        const int D = H * (2 * dk + dv), prefillLength = 5, blockLength = 8;
+        const bool fp32 = precision == MNN::BackendConfig::Precision_High;
+        const float absoluteTolerance = fp32 ? 0.00002f : 0.0005f;
+        const float relativeTolerance = fp32 ? 0.0002f : 0.005f;
+        const int nextSpecBlock = nextVerify ? blockLength : 0;
+        MNN::KVMeta actualMeta, referenceMeta, freshMeta;
+        auto makeModule = [&](MNN::KVMeta* meta) {
+            auto module = _makeLinearAttentionModuleWithMeta(H, H, dk, dv, true, meta);
+            int backends[2] = {-1, -1};
+            if (!module || !module->getInfo() || !module->getInfo()->runTimeManager ||
+                !module->getInfo()->runTimeManager->getInfo(MNN::Interpreter::BACKENDS, backends) ||
+                backends[0] != MNN_FORWARD_METAL) {
+                MNN_ERROR("SpecRejection: requires an available Metal runtime\n");
+                module.reset();
+            }
+            return module;
+        };
+        auto actual = makeModule(&actualMeta);
+        auto reference = makeModule(&referenceMeta);
+        auto fresh = makeModule(&freshMeta);
+        if (!actual || !reference || !fresh) return false;
+
+        auto weights = _Input({D, 1, K}, NCHW, halide_type_of<float>());
+        auto w = weights->writeMap<float>();
+        for (int c = 0; c < D; ++c) {
+            for (int k = 0; k < K; ++k) {
+                w[c * K + k] = 0.125f * (k + 1);
+            }
+        }
+        auto makeInputs = [&](int length, int phase) {
+            auto qkv = _Input({B, D, length}, NCHW, halide_type_of<float>());
+            auto gate = _Input({B, length, H}, NCHW, halide_type_of<float>());
+            auto beta = _Input({B, length, H}, NCHW, halide_type_of<float>());
+            auto q = qkv->writeMap<float>();
+            auto g = gate->writeMap<float>();
+            auto b = beta->writeMap<float>();
+            // Positive, channel/token-dependent data produces appreciable conv and RNN history.
+            for (int c = 0; c < D; ++c) {
+                for (int t = 0; t < length; ++t) {
+                    q[c * length + t] = 0.45f + 0.1f * phase + 0.04f * t +
+                                        0.025f * ((3 * c + 7 * t + 11 * phase) % 19);
+                }
+            }
+            for (int t = 0; t < length; ++t) {
+                for (int h = 0; h < H; ++h) {
+                    g[t * H + h] = -0.02f * (1 + (t + 2 * h + phase) % 4);
+                    b[t * H + h] = 0.2f + 0.04f * ((3 * t + h + phase) % 5);
+                }
+            }
+            return std::vector<VARP>{qkv, gate, beta, weights};
+        };
+        auto forward = [&](const std::shared_ptr<Module>& module, MNN::KVMeta& meta,
+                           const std::vector<VARP>& inputs, int length, int specBlock,
+                           std::vector<float>& values, const char* phase) {
+            meta.add = length;
+            meta.spec_block = specBlock;
+            auto outputs = module->onForward(inputs);
+            const int size = B * length * H * dv;
+            if (outputs.size() != 1 || !outputs[0].get() || !outputs[0]->getInfo() ||
+                outputs[0]->getInfo()->size != size) {
+                MNN_ERROR("SpecRejection: accepted=%d next=%d spec=%d %s invalid output\n",
+                          accepted, nextLength, nextSpecBlock, phase);
+                return false;
+            }
+            const float* data = outputs[0]->readMap<float>();
+            if (!data) {
+                MNN_ERROR("SpecRejection: %s readMap failed\n", phase);
+                return false;
+            }
+            values.assign(data, data + size);
+            // Match Llm::forwardVec, then DFlash: evaluate, sync the whole block, clear its tag.
+            meta.sync();
+            meta.spec_block = 0;
+            for (int i = 0; i < size; ++i) {
+                if (!std::isfinite(values[i])) {
+                    MNN_ERROR("SpecRejection: accepted=%d next=%d spec=%d %s nonfinite index=%d\n",
+                              accepted, nextLength, nextSpecBlock, phase, i);
+                    return false;
+                }
+            }
+            return true;
+        };
+        auto tolerance = [&](float expected) {
+            return absoluteTolerance + relativeTolerance * std::fabs(expected);
+        };
+        auto compare = [&](const std::vector<float>& observed, const std::vector<float>& expected,
+                           const char* phase) {
+            if (observed.size() != expected.size()) return false;
+            for (size_t i = 0; i < expected.size(); ++i) {
+                if (std::fabs(observed[i] - expected[i]) > tolerance(expected[i])) {
+                    MNN_ERROR("SpecRejection: accepted=%d remove=%d next=%d spec=%d %s index=%zu "
+                              "expected=%.8f got=%.8f tolerance=%.8f\n",
+                              accepted, blockLength - accepted, nextLength, nextSpecBlock, phase, i,
+                              expected[i], observed[i], tolerance(expected[i]));
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        std::vector<float> observed, expected, verifyOutput, freshOutput;
+        const auto prefillInputs = makeInputs(prefillLength, 0);
+        if (!forward(actual, actualMeta, prefillInputs, prefillLength, 0, observed, "actual prefill") ||
+            !forward(reference, referenceMeta, prefillInputs, prefillLength, 0, expected, "reference prefill") ||
+            !compare(observed, expected, "prefill")) return false;
+
+        const auto verifyInputs = makeInputs(blockLength, 1);
+        if (!forward(actual, actualMeta, verifyInputs, blockLength, blockLength, verifyOutput, "first verify")) {
+            return false;
+        }
+        // previous includes all eight verified tokens; removing even all eight preserves the five-token prefill.
+        if (actualMeta.previous != prefillLength + blockLength || actualMeta.spec_block != 0) return false;
+        actualMeta.remove = blockLength - accepted;
+
+        if (accepted > 0) {
+            auto prefixQkv = _Input({B, D, accepted}, NCHW, halide_type_of<float>());
+            auto prefixGate = _Input({B, accepted, H}, NCHW, halide_type_of<float>());
+            auto prefixBeta = _Input({B, accepted, H}, NCHW, halide_type_of<float>());
+            const auto sourceQkv = verifyInputs[0]->readMap<float>();
+            auto targetQkv = prefixQkv->writeMap<float>();
+            // QKV is channel-major: a flat prefix would splice different channels/tokens.
+            for (int c = 0; c < B * D; ++c) {
+                std::memcpy(targetQkv + c * accepted, sourceQkv + c * blockLength, accepted * sizeof(float));
+            }
+            // Gate/beta (and output) are token-major; B=1 makes their token prefixes contiguous.
+            std::memcpy(prefixGate->writeMap<float>(), verifyInputs[1]->readMap<float>(), accepted * H * sizeof(float));
+            std::memcpy(prefixBeta->writeMap<float>(), verifyInputs[2]->readMap<float>(), accepted * H * sizeof(float));
+            if (!forward(reference, referenceMeta, {prefixQkv, prefixGate, prefixBeta, weights}, accepted, 0,
+                         expected, "reference accepted prefix")) return false;
+            std::vector<float> acceptedOutput(verifyOutput.begin(), verifyOutput.begin() + accepted * H * dv);
+            if (!compare(acceptedOutput, expected, "accepted verify outputs")) return false;
+        }
+        if (referenceMeta.previous != prefillLength + accepted ||
+            actualMeta.previous - actualMeta.remove != referenceMeta.previous) return false;
+
+        // L=4 forces a shape change; L=8 also covers same-shape verify continuation.
+        const auto nextInputs = makeInputs(nextLength, 2);
+        if (!forward(reference, referenceMeta, nextInputs, nextLength, 0, expected, "reference continuation") ||
+            !forward(fresh, freshMeta, nextInputs, nextLength, 0, freshOutput, "fresh continuation")) return false;
+        float historyEffect = 0.0f;
+        for (size_t i = 0; i < expected.size(); ++i) {
+            historyEffect = std::max(historyEffect, std::fabs(expected[i] - freshOutput[i]) / tolerance(expected[i]));
+        }
+        if (historyEffect <= 8.0f) {
+            MNN_ERROR("SpecRejection: accepted=%d next=%d fixture cannot distinguish a state reset (%.3f tolerances)\n",
+                      accepted, nextLength, historyEffect);
+            return false;
+        }
+        if (!forward(actual, actualMeta, nextInputs, nextLength, nextSpecBlock, observed, "post-rejection") ||
+            !compare(observed, expected, "post-rejection") ||
+            actualMeta.previous != referenceMeta.previous || actualMeta.remove != 0) return false;
+        const auto queryInputs = makeInputs(1, 3);
+        actualMeta.remove = nextVerify ? blockLength + 1 : 1;
+        actualMeta.add = 1;
+        if (!actual->onForward(queryInputs).empty()) {
+            MNN_ERROR("SpecRejection: rollback into committed history was not rejected\n");
+            return false;
+        }
+        actualMeta.remove = 0;
+        if (!forward(actual, actualMeta, queryInputs, 1, 0, observed, "after invalid rollback") ||
+            !forward(reference, referenceMeta, queryInputs, 1, 0, expected, "reference query") ||
+            !compare(observed, expected, "after invalid rollback")) return false;
+        MNN_PRINT("LinearAttention SpecRejection accepted=%d remove=%d next=%d spec=%d PASSED\n",
+                  accepted, blockLength - accepted, nextLength, nextSpecBlock);
+        return true;
+    }
+
+public:
+    bool run(int precision) override {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("LinearAttention SpecRejection SKIP: Metal-only test\n");
+            return true;
+        }
+        for (int accepted : {8, 3, 0}) {
+            if (!runCase(precision, accepted, 8, true) ||
+                !runCase(precision, accepted, 4, false) ||
+                !runCase(precision, accepted, 1, false)) return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(LinearAttentionSpecRejectionTest, "op/linear_attention_spec_rejection");
+
+// Linear-attention state folds every past token, so it cannot drop a span. A full rollback (remove == previous) must
+// restart from zero state at any length, including a single decode-shaped token that may be replayed; a partial
+// rollback (0 < remove < previous) must be rejected on every backend without touching the live state.
 class LinearAttentionRollbackTest : public MNNTestCase {
 public:
     LinearAttentionRollbackTest() = default;
     virtual ~LinearAttentionRollbackTest() = default;
 
+    struct Step {
+        int len;
+        float scale;
+        float offset;
+        size_t previous;
+        size_t remove;
+        int keepTail; // tokens reserved after the removed span, as eraseHistory(0, end) does
+    };
+
     virtual bool run(int precision) {
-        const int B = 1, numKHeads = 2, numVHeads = 2;
-        const int headKDim = 4, headVDim = 4, K_conv = 4;
-        const int key_dim = numKHeads * headKDim;
-        const int val_dim = numVHeads * headVDim;
-        const int D = 2 * key_dim + val_dim;
-        const int prefillLen = 4;
-        const float tolerance = 0.001f;
-        const int outSize = B * prefillLen * numVHeads * headVDim;
+        auto convW = _Input({kD, 1, kConv}, NCHW, halide_type_of<float>());
+        fillConvWeight(convW->writeMap<float>(), kD * kConv);
+        const Step x = {4, 0.07f, 0.0f, 0, 0};
 
-        // Shared conv weight across both modules so the only variable is state.
-        auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
-        fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
-
-        // ─── Module A: prefill(X) -> simulate eraseHistory -> prefill(Y) ───
-        MNN::KVMeta metaA;
-        auto moduleA = _makeLinearAttentionModuleWithMeta(numKHeads, numVHeads, headKDim, headVDim, true, &metaA);
-        if (!moduleA) {
-            MNN_PRINT("RollbackTest: failed to create moduleA\n");
+        // Full rollback, then a prefill.
+        if (!expectSame("full rollback prefill", convW, {x, {4, 0.05f, 0.1f, 4, 4}}, {{4, 0.05f, 0.1f, 0, 0}},
+                        {{1, 0}})) {
             return false;
         }
-
-        // Step 1: prefill X. metaA.previous=0 here makes onResize treat this as
-        // a fresh prefill (zeros state, drops any snapshot — none yet anyway).
-        {
-            auto qkvVar = _Input({B, D, prefillLen}, NCHW, halide_type_of<float>());
-            auto gateVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
-            auto betaVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
-            fillDeterministic(qkvVar->writeMap<float>(), B * D * prefillLen, 0.07f, 0.0f);
-            fillGate(gateVar->writeMap<float>(), B * prefillLen * numVHeads);
-            fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
-            auto outputs = moduleA->onForward({qkvVar, gateVar, betaVar, convWVar});
-            if (outputs.empty()) {
-                MNN_PRINT("RollbackTest: moduleA prefill X returned empty output\n");
-                return false;
-            }
-            // Force evaluation so internal state is fully updated before next call.
-            (void)outputs[0]->readMap<float>();
-        }
-
-        // Step 2: simulate the meta updates Llm performs around eraseHistory.
-        //   - updateContext after prefill X: meta.previous += prefillLen
-        //   - eraseHistory(0, previous): meta.remove = previous
-        metaA.previous = prefillLen;
-        metaA.remove = prefillLen;
-
-        // Step 3: prefill Y. onResize sees remove>0 -> isExplicitRollback;
-        // mSnapshotValid=false (no PendingRead/PendingWrite ever fired), so
-        // the rollback branch zeros mConvState/mRecurrentState before forward.
-        std::vector<float> outputA(outSize, 0.0f);
-        {
-            auto qkvVar = _Input({B, D, prefillLen}, NCHW, halide_type_of<float>());
-            auto gateVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
-            auto betaVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
-            // Use distinct input from X so we don't accidentally pass the test
-            // when the rollback is silently skipped (state would carry X's effect).
-            fillDeterministic(qkvVar->writeMap<float>(), B * D * prefillLen, 0.05f, 0.1f);
-            fillGate(gateVar->writeMap<float>(), B * prefillLen * numVHeads);
-            fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
-            auto outputs = moduleA->onForward({qkvVar, gateVar, betaVar, convWVar});
-            if (outputs.empty()) {
-                MNN_PRINT("RollbackTest: moduleA prefill Y after rollback returned empty output\n");
-                return false;
-            }
-            const float* p = outputs[0]->readMap<float>();
-            ::memcpy(outputA.data(), p, outSize * sizeof(float));
-        }
-
-        // ─── Module B: fresh prefill(Y) baseline ───
-        MNN::KVMeta metaB;
-        auto moduleB = _makeLinearAttentionModuleWithMeta(numKHeads, numVHeads, headKDim, headVDim, true, &metaB);
-        if (!moduleB) {
-            MNN_PRINT("RollbackTest: failed to create moduleB\n");
+        // Full rollback that lands on a single token after several decode steps, then one more decode.
+        if (!expectSame("full rollback decode", convW,
+                        {x, {1, 0.03f, 0.2f, 4, 0}, {1, 0.04f, -0.1f, 5, 0}, {1, 0.06f, 0.05f, 6, 0},
+                         {1, 0.02f, 0.15f, 7, 0}, {1, 0.05f, -0.2f, 8, 8}, {1, 0.08f, 0.1f, 1, 0}},
+                        {{1, 0.05f, -0.2f, 0, 0}, {1, 0.08f, 0.1f, 1, 0}}, {{5, 0}, {6, 1}})) {
             return false;
         }
-        std::vector<float> outputB(outSize, 0.0f);
-        {
-            auto qkvVar = _Input({B, D, prefillLen}, NCHW, halide_type_of<float>());
-            auto gateVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
-            auto betaVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
-            // Identical Y inputs as moduleA's step 3.
-            fillDeterministic(qkvVar->writeMap<float>(), B * D * prefillLen, 0.05f, 0.1f);
-            fillGate(gateVar->writeMap<float>(), B * prefillLen * numVHeads);
-            fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
-            auto outputs = moduleB->onForward({qkvVar, gateVar, betaVar, convWVar});
-            if (outputs.empty()) {
-                MNN_PRINT("RollbackTest: moduleB fresh prefill Y returned empty output\n");
+        // Partial rollback, dropping either the newest tokens or the oldest ones while reserving the tail, is
+        // rejected for both prefill and decode shapes; the continuation must see the state as it was before.
+        for (int len : {4, 1}) {
+            const bool prefill = len > 1;
+            if (!expectSame(prefill ? "partial rollback prefill" : "partial rollback decode", convW,
+                            {x, {len, 0.05f, 0.1f, 4, 2}, {len, 0.03f, -0.1f, 4, 0}}, {x, {len, 0.03f, -0.1f, 4, 0}},
+                            {{2, 1}}, 1)) {
                 return false;
             }
-            const float* p = outputs[0]->readMap<float>();
-            ::memcpy(outputB.data(), p, outSize * sizeof(float));
+            if (!expectSame(prefill ? "head rollback prefill" : "head rollback decode", convW,
+                            {x, {len, 0.05f, 0.1f, 4, 4, 2}, {len, 0.03f, -0.1f, 4, 0}},
+                            {x, {len, 0.03f, -0.1f, 4, 0}}, {{2, 1}}, 1)) {
+                return false;
+            }
         }
+        return true;
+    }
 
-        // ─── Compare: A's post-rollback prefill must equal B's fresh prefill ───
-        for (int i = 0; i < outSize; ++i) {
-            float diff = fabs(outputA[i] - outputB[i]);
-            if (diff > tolerance) {
-                MNN_PRINT(
-                    "Rollback (mSnapshotValid=false) FAILED at index %d: "
-                    "rollback=%.6f fresh=%.6f diff=%.6f\n",
-                    i, outputA[i], outputB[i], diff);
+private:
+    static constexpr int kKHeads = 2, kVHeads = 2, kHeadDim = 4, kConv = 4;
+    static constexpr int kD = 2 * kKHeads * kHeadDim + kVHeads * kHeadDim;
+
+    // Runs steps on a fresh module; a rejected step leaves an empty output.
+    static bool runSteps(VARP convW, const std::vector<Step>& steps, std::vector<std::vector<float>>& outs) {
+        MNN::KVMeta meta;
+        auto module = _makeLinearAttentionModuleWithMeta(kKHeads, kVHeads, kHeadDim, kHeadDim, true, &meta);
+        if (!module) {
+            return false;
+        }
+        outs.clear();
+        for (const auto& step : steps) {
+            int reserve[2] = {static_cast<int>(step.previous) - step.keepTail, step.keepTail};
+            meta.previous = step.previous;
+            meta.remove = step.remove;
+            meta.reserve = step.keepTail > 0 ? reserve : nullptr;
+            meta.n_reserve = step.keepTail > 0 ? 1 : 0;
+            auto qkv = _Input({1, kD, step.len}, NCHW, halide_type_of<float>());
+            auto gate = _Input({1, step.len, kVHeads}, NCHW, halide_type_of<float>());
+            auto beta = _Input({1, step.len, kVHeads}, NCHW, halide_type_of<float>());
+            fillDeterministic(qkv->writeMap<float>(), kD * step.len, step.scale, step.offset);
+            fillGate(gate->writeMap<float>(), step.len * kVHeads);
+            fillBeta(beta->writeMap<float>(), step.len * kVHeads);
+            auto outputs = module->onForward({qkv, gate, beta, convW});
+            meta.reserve = nullptr;
+            meta.n_reserve = 0;
+            outs.emplace_back();
+            if (!outputs.empty()) {
+                const int size = step.len * kVHeads * kHeadDim;
+                const float* p = outputs[0]->readMap<float>();
+                outs.back().assign(p, p + size);
+            }
+        }
+        return true;
+    }
+
+    // Compares (actual step, reference step) output pairs; rejectedStep is the one actual step that must fail.
+    static bool expectSame(const char* name, VARP convW, const std::vector<Step>& actualSteps,
+                           const std::vector<Step>& referenceSteps, const std::vector<std::pair<int, int>>& pairs,
+                           int rejectedStep = -1) {
+        std::vector<std::vector<float>> actual, reference;
+        if (!runSteps(convW, actualSteps, actual) || !runSteps(convW, referenceSteps, reference)) {
+            MNN_PRINT("RollbackTest[%s]: failed to create module\n", name);
+            return false;
+        }
+        for (int i = 0; i < (int)actual.size(); ++i) {
+            if (actual[i].empty() != (i == rejectedStep)) {
+                MNN_PRINT("RollbackTest[%s]: step %d %s\n", name, i,
+                          actual[i].empty() ? "was rejected" : "should have been rejected");
                 return false;
             }
         }
-        MNN_PRINT("LinearAttention Rollback (no snapshot, state zeroed) PASSED\n");
+        for (int i = 0; i < (int)reference.size(); ++i) {
+            if (reference[i].empty()) {
+                MNN_PRINT("RollbackTest[%s]: reference step %d was rejected\n", name, i);
+                return false;
+            }
+        }
+        for (const auto& pair : pairs) {
+            const auto& a = actual[pair.first];
+            const auto& r = reference[pair.second];
+            for (size_t i = 0; i < a.size(); ++i) {
+                if (fabsf(a[i] - r[i]) > 0.001f) {
+                    MNN_PRINT("RollbackTest[%s]: step %d differs at %zu: %.6f vs %.6f\n", name, pair.first, i, a[i],
+                              r[i]);
+                    return false;
+                }
+            }
+        }
         return true;
     }
 };
@@ -1522,11 +2204,10 @@ public:
         fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
 
         auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
-        if (outputs.empty()) {
-            MNN_PRINT("PendingWriteUnsyncedTest: forward failed\n");
+        if (!outputs.empty()) {
+            MNN_PRINT("PendingWriteUnsyncedTest: partial rollback should have been rejected\n");
             return false;
         }
-        (void)outputs[0]->readMap<float>();
 
         // (a) layer_index must NOT have advanced
         bool layerIndexOk = (meta.layer_index == kInitialLayerIndex);

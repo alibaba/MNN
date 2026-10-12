@@ -90,36 +90,6 @@ static inline void _writeAttentionOutput(int8_t* ptr, bool c4, int b, int l, int
     _writeElement(ptr, index, value, bytes);
 }
 
-// Snapshot the post-prefix recurrent state (lazy-allocated) for eraseHistory
-// rollback. Allocation failure leaves mSnapshotValid=false; rollback then
-// falls back to zeroing.
-static void snapshotPrefixState(StateCache* cache, Backend* backend) {
-    if (cache == nullptr || cache->mConvState.get() == nullptr) {
-        return;
-    }
-    int convStateBytes = cache->mConvState->elementSize();
-    if (cache->mConvStateSnapshot.get() == nullptr) {
-        cache->mConvStateSnapshot.reset(Tensor::createDevice<int8_t>({convStateBytes}));
-        if (!backend->onAcquireBuffer(cache->mConvStateSnapshot.get(), Backend::STATIC)) {
-            cache->mConvStateSnapshot.reset();
-            return;
-        }
-    }
-    ::memcpy(cache->mConvStateSnapshot->host<int8_t>(), cache->mConvState->host<int8_t>(), convStateBytes);
-    if (cache->mRecurrentState.get() != nullptr) {
-        int rnnBytes = cache->mRecurrentState->elementSize();
-        if (cache->mRecurrentStateSnapshot.get() == nullptr) {
-            cache->mRecurrentStateSnapshot.reset(Tensor::createDevice<int8_t>({rnnBytes}));
-            if (!backend->onAcquireBuffer(cache->mRecurrentStateSnapshot.get(), Backend::STATIC)) {
-                cache->mRecurrentStateSnapshot.reset();
-                return;
-            }
-        }
-        ::memcpy(cache->mRecurrentStateSnapshot->host<int8_t>(), cache->mRecurrentState->host<int8_t>(), rnnBytes);
-    }
-    cache->mSnapshotValid = true;
-}
-
 ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto qkv = inputs[0];
     auto convWeight = inputs[3];
@@ -167,49 +137,6 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
                 return OUT_OF_MEMORY;
             ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, batch * H * dk * dv * mBytes);
         }
-    } else if (seqLen > 1) {
-        // Prefill: decide keep/restore/reset from meta. LA state isn't
-        // token-indexed, so eraseHistory triggers a snapshot restore rather
-        // than a truncation.
-        bool loadingFromDisk =
-            (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
-        bool isExplicitRollback = (mMeta != nullptr && mMeta->remove > 0);
-        bool isFreshPrefill = (mMeta == nullptr || mMeta->previous == 0);
-        int convStateBytes = batch * convChannels * convStateSize * mBytes;
-        int rnnBytes = 0;
-        if (mStateCache->mRecurrentState.get() != nullptr) {
-            int H = mNumVHeads, dk = mHeadKDim, dv = mHeadVDim;
-            rnnBytes = batch * H * dk * dv * mBytes;
-        }
-        if (loadingFromDisk) {
-            // onExecute will mmap-load the prefix state and snapshot it.
-        } else if (isExplicitRollback) {
-            // eraseHistory(): roll back to the saved post-prefix snapshot. If no
-            // snapshot exists (rollback before any prefix prefill ran), zero out.
-            if (mStateCache->mSnapshotValid && mStateCache->mConvStateSnapshot.get() != nullptr) {
-                ::memcpy(mStateCache->mConvState->host<int8_t>(), mStateCache->mConvStateSnapshot->host<int8_t>(),
-                         convStateBytes);
-                if (mStateCache->mRecurrentState.get() != nullptr &&
-                    mStateCache->mRecurrentStateSnapshot.get() != nullptr) {
-                    ::memcpy(mStateCache->mRecurrentState->host<int8_t>(),
-                             mStateCache->mRecurrentStateSnapshot->host<int8_t>(), rnnBytes);
-                }
-            } else {
-                ::memset(mStateCache->mConvState->host<int8_t>(), 0, convStateBytes);
-                if (mStateCache->mRecurrentState.get() != nullptr) {
-                    ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, rnnBytes);
-                }
-            }
-        } else if (isFreshPrefill) {
-            // Fresh sequence: zero the state and drop any stale snapshot.
-            ::memset(mStateCache->mConvState->host<int8_t>(), 0, convStateBytes);
-            if (mStateCache->mRecurrentState.get() != nullptr) {
-                ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, rnnBytes);
-            }
-            mStateCache->mSnapshotValid = false;
-        }
-        // Else (mMeta->previous > 0 && mMeta->remove == 0): reuse_kv continuation.
-        // Keep the live state so the new prefill extends from it.
     }
 
     // ─── Temporary buffers (DYNAMIC) ───
@@ -578,18 +505,25 @@ void CPULinearAttention::applyGateFold(const std::vector<Tensor*>& inputs) {
 }
 
 ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
     int batch = 0, convDim = 0, seqLen = 0;
     _linearAttentionDims(inputs[0], batch, convDim, seqLen);
-    if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
-        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
-        if (!loadingFromDisk) {
-            if (mStateCache->mConvState.get() != nullptr) {
-                ::memset(mStateCache->mConvState->host<int8_t>(), 0, mStateCache->mConvState->elementSize());
-            }
-            if (mStateCache->mRecurrentState.get() != nullptr) {
-                ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, mStateCache->mRecurrentState->elementSize());
-            }
+    const bool loadingFromDisk =
+        mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0;
+    // The recurrent state folds every past token, so it can only continue, reset, or be restored from disk.
+    if (mMeta != nullptr && mMeta->remove > 0 && (mMeta->previous != mMeta->remove || mMeta->n_reserve > 0) &&
+        !loadingFromDisk) {
+        MNN_ERROR("CPULinearAttention: cannot erase part of the %zu-token history; reset all of it instead\n",
+                  mMeta->previous);
+        return NOT_SUPPORT;
+    }
+    // Checked here rather than in onResize, which is skipped when shapes are unchanged.
+    const bool resetHistory = mMeta == nullptr ? seqLen > 1 : mMeta->previous == mMeta->remove;
+    if (resetHistory && !loadingFromDisk) {
+        if (mStateCache->mConvState.get() != nullptr) {
+            ::memset(mStateCache->mConvState->host<int8_t>(), 0, mStateCache->mConvState->elementSize());
+        }
+        if (mStateCache->mRecurrentState.get() != nullptr) {
+            ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, mStateCache->mRecurrentState->elementSize());
         }
     }
 
@@ -638,23 +572,23 @@ ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, cons
             } else {
                 MNN_PRINT("CPULinearAttention: Failed to open prefix cache file: %s\n", pathk.c_str());
             }
-            // Load recurrent state (.v file)
-            auto vfd = MNNOpenFile(pathv.c_str(), MNN_FILE_READ);
-            if (vfd != INVALID_FILE) {
-                size_t vSize = MNNGetFileSize(vfd);
-                if (vSize > 0 && vSize != INVALID_SIZE && mStateCache->mRecurrentState.get() != nullptr) {
-                    void* vMap = MNNMmapFile(vfd, vSize, true);
-                    if (vMap != nullptr) {
-                        ::memcpy(mStateCache->mRecurrentState->host<int8_t>(), vMap, vSize);
-                        MNNUnmapFile(vMap, vSize);
+            // Load recurrent state (.v file); absent for stateless short_conv layers
+            if (mStateCache->mRecurrentState.get() != nullptr) {
+                auto vfd = MNNOpenFile(pathv.c_str(), MNN_FILE_READ);
+                if (vfd != INVALID_FILE) {
+                    size_t vSize = MNNGetFileSize(vfd);
+                    if (vSize > 0 && vSize != INVALID_SIZE) {
+                        void* vMap = MNNMmapFile(vfd, vSize, true);
+                        if (vMap != nullptr) {
+                            ::memcpy(mStateCache->mRecurrentState->host<int8_t>(), vMap, vSize);
+                            MNNUnmapFile(vMap, vSize);
+                        }
                     }
+                    MNNCloseFile(vfd);
+                } else {
+                    MNN_PRINT("CPULinearAttention: Failed to open prefix cache file: %s\n", pathv.c_str());
                 }
-                MNNCloseFile(vfd);
-            } else {
-                MNN_PRINT("CPULinearAttention: Failed to open prefix cache file: %s\n", pathv.c_str());
             }
-            // Snapshot the loaded state for in-memory eraseHistory rollback.
-            snapshotPrefixState(mStateCache.get(), backend());
         }
     }
 
@@ -701,25 +635,25 @@ ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, cons
             } else {
                 MNN_PRINT("CPULinearAttention: Failed to create prefix cache file: %s\n", pathk.c_str());
             }
-            // Save recurrent state (.v file) — may be empty for short_conv
+            // Save recurrent state (.v file). short_conv has no recurrent
+            // state: skip .v entirely so completePrefixWrite creates no
+            // _sync.v marker and the layer validates as stateless.
             size_t recurrentBytes =
                 (mStateCache->mRecurrentState.get() != nullptr) ? mStateCache->mRecurrentState->elementSize() : 0;
-            auto vfd = MNNCreateFile(pathv.c_str());
-            if (vfd != INVALID_FILE) {
-                if (recurrentBytes > 0) {
+            if (recurrentBytes > 0) {
+                auto vfd = MNNCreateFile(pathv.c_str());
+                if (vfd != INVALID_FILE) {
                     MNNSetFileSize(vfd, recurrentBytes);
                     void* vMap = MNNMmapFile(vfd, recurrentBytes);
                     if (vMap != nullptr) {
                         ::memcpy(vMap, mStateCache->mRecurrentState->host<int8_t>(), recurrentBytes);
                         MNNUnmapFile(vMap, recurrentBytes);
                     }
+                    MNNCloseFile(vfd);
+                } else {
+                    MNN_PRINT("CPULinearAttention: Failed to create prefix cache file: %s\n", pathv.c_str());
                 }
-                MNNCloseFile(vfd);
-            } else {
-                MNN_PRINT("CPULinearAttention: Failed to create prefix cache file: %s\n", pathv.c_str());
             }
-            // Snapshot the written state for in-memory eraseHistory rollback.
-            snapshotPrefixState(mStateCache.get(), backend());
         }
     }
 
