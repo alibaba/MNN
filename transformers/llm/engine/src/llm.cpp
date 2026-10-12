@@ -937,6 +937,14 @@ void Llm::eraseHistory(size_t begin, size_t end) {
     if (mMeta->remove != 0) {
         MNN_ERROR("MNN-LLM: erase history hasn't been executed by response, override erase info\n");
     }
+    if (begin > 0 || end < mMeta->previous) {
+        if (mHasLinearAttention < 0) {
+            mHasLinearAttention = modelHasLinearAttention(mConfig->llm_model()) ? 1 : 0;
+        }
+        if (mHasLinearAttention == 1 && replayKeptHistory(begin, end)) {
+            return;
+        }
+    }
     mMeta->remove = mMeta->previous - begin;
     int revertNumber = 0;
     if (end != mMeta->previous) {
@@ -953,6 +961,56 @@ void Llm::eraseHistory(size_t begin, size_t end) {
         std::lock_guard<std::mutex> _l(mContext->mutex);
         mContext->history_tokens.resize(mContext->history_tokens.size() - mMeta->remove);
     }
+}
+
+// Linear-attention state folds every past token and cannot drop a span, so the kept tokens are prefilled again
+// from an empty state. Returns false, leaving everything untouched, when the tokens cannot be replayed.
+bool Llm::replayKeptHistory(size_t begin, size_t end) {
+    if (mContext->status == LlmStatus::NOT_LOADED || mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return false;
+    }
+    const size_t previous = mMeta->previous;
+    std::vector<int> kept;
+    {
+        std::lock_guard<std::mutex> _l(mContext->mutex);
+        if (mContext->history_tokens.size() < previous) {
+            MNN_ERROR("MNN-LLM: linear attention needs the full token history to erase part of it\n");
+            return false;
+        }
+        kept.assign(mContext->history_tokens.begin(), mContext->history_tokens.begin() + begin);
+        kept.insert(kept.end(), mContext->history_tokens.begin() + end, mContext->history_tokens.begin() + previous);
+    }
+    if (!prepareHistoryReplay(kept)) {
+        MNN_ERROR("MNN-LLM: linear attention cannot erase part of a multimodal history; erase all of it instead\n");
+        return false;
+    }
+    MNN::Express::ExecutorScope s(mExecutor);
+    auto embeds = embedding(kept);
+    if (embeds == nullptr) {
+        return false;
+    }
+    const auto status = mContext->status;
+    const int genSeqLen = mContext->gen_seq_len;
+    // A cancelled or finished generation must not block the rebuild; zero gen_seq_len selects the prefill module.
+    mContext->status = LlmStatus::RUNNING;
+    mContext->gen_seq_len = 0;
+    mContext->all_seq_len = 0;
+    mMeta->remove = previous;
+    mMeta->reserve = nullptr;
+    mMeta->n_reserve = 0;
+    auto outputs = forwardVec(embeds);
+    mContext->gen_seq_len = genSeqLen;
+    std::lock_guard<std::mutex> _l(mContext->mutex);
+    if (outputs.empty()) {
+        // Leave a pending full reset so the next prefill starts from an empty, consistent history.
+        mMeta->remove = mMeta->previous;
+        mContext->history_tokens.clear();
+        return true;
+    }
+    mContext->status = status;
+    updateContext((int)kept.size(), 0);
+    mContext->history_tokens = std::move(kept);
+    return true;
 }
 
 bool Llm::stoped() {
@@ -1417,63 +1475,12 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
             mIsPrefixFileExist = false;
             break;
         }
-        auto v_file = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i) + "_sync.v";
-        if(!MNNFileExist(v_file.c_str())) {
-            mIsPrefixFileExist = false;
-            break;
-        }
     }
 
-    // Further check: the real .k/.v data files must exist, be non-empty, and have consistent
-    // sizes across layers. This guards against cases where _sync markers remain but the
-    // actual data files were deleted / truncated / partially written, which would otherwise
-    // lead to a crash in CPUKVCacheManager::onAlloc (e.g. memset on a null mmap address).
     if (mIsPrefixFileExist) {
-        // Only "mix" (LA + regular attention) has intrinsically non-uniform
-        // per-layer KV sizes. Everything else (full / sliding / unset → "full")
-        // stays under the cross-layer uniformity check that catches partial or
-        // corrupted writes.
-        const bool isHybrid = (mConfig->attention_type() == "mix");
-        size_t refKeySize = 0;
-        size_t refValueSize = 0;
-        for (int i = 0; i < mConfig->layer_nums(); i++) {
-            auto base = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i);
-            auto k_data = base + ".k";
-            auto v_data = base + ".v";
-            if (!MNNFileExist(k_data.c_str()) || !MNNFileExist(v_data.c_str())) {
-                MNN_PRINT("Prefix cache data file missing: %s or %s\n", k_data.c_str(), v_data.c_str());
-                mIsPrefixFileExist = false;
-                break;
-            }
-            auto kfd = MNNOpenFile(k_data.c_str(), MNN_FILE_READ);
-            auto vfd = MNNOpenFile(v_data.c_str(), MNN_FILE_READ);
-            size_t kSize = (kfd == INVALID_FILE) ? INVALID_SIZE : MNNGetFileSize(kfd);
-            size_t vSize = (vfd == INVALID_FILE) ? INVALID_SIZE : MNNGetFileSize(vfd);
-            if (kfd != INVALID_FILE)
-                MNNCloseFile(kfd);
-            if (vfd != INVALID_FILE)
-                MNNCloseFile(vfd);
-            if (kSize == INVALID_SIZE || kSize == 0 || vSize == INVALID_SIZE || vSize == 0) {
-                MNN_PRINT("Prefix cache data file has invalid size: %s(%zu) %s(%zu)\n", k_data.c_str(), kSize,
-                          v_data.c_str(), vSize);
-                mIsPrefixFileExist = false;
-                break;
-            }
-            if (!isHybrid) {
-                if (i == 0) {
-                    refKeySize = kSize;
-                    refValueSize = vSize;
-                } else if (kSize != refKeySize || vSize != refValueSize) {
-                    // Non-hybrid: all layers share the same model shape, so their .k (and .v)
-                    // files must have identical sizes. Any mismatch means the cache directory
-                    // has been corrupted / partially overwritten and must be rebuilt.
-                    MNN_PRINT("Prefix cache size mismatch at layer %d: k=%zu(ref=%zu) v=%zu(ref=%zu)\n", i, kSize,
-                              refKeySize, vSize, refValueSize);
-                    mIsPrefixFileExist = false;
-                    break;
-                }
-            }
-        }
+        mIsPrefixFileExist = validatePrefixCacheFiles(
+            mConfig->llm_model(), MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName),
+            mConfig->layer_nums());
     }
 
     // If the cache is deemed unusable (missing / truncated / size-mismatched /
@@ -1505,6 +1512,7 @@ void Llm::completePrefixWrite() {
     mMeta->file_flag = KVMeta::NoChange;
     mMeta->file_name = "";
     mMeta->layer_index = 0;
+    CHECK_LLM_RUNNING(mContext);
     // Create sync files to mark prefix cache as valid
     auto prefixDir = mConfig->prefix_cache_path();
     for (int i = 0; i < mConfig->layer_nums(); i++) {

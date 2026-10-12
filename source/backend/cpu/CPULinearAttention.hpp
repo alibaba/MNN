@@ -24,11 +24,6 @@ namespace MNN {
 struct StateCache {
     std::shared_ptr<Tensor> mConvState;      // Conv1D padding state: [B, D, kernel_size - 1]
     std::shared_ptr<Tensor> mRecurrentState; // Gated Delta Rule recurrent state S: [B, H, d_k, d_v]
-    // Post-prefix snapshot. LA state is not token-indexed, so eraseHistory
-    // can't truncate per-token; the next prefill restores from here instead.
-    std::shared_ptr<Tensor> mConvStateSnapshot;
-    std::shared_ptr<Tensor> mRecurrentStateSnapshot;
-    bool mSnapshotValid = false;
     // Prefix-cache file index captured once per session (previous == remove);
     // chunks 2..N reuse it instead of re-advancing mMeta->layer_index, which
     // would drift past Full Attention layers and cause SIGBUS in hybrid models.

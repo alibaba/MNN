@@ -1009,11 +1009,17 @@ ErrorCode LinearAttentionBufExecution::onExecuteChunkedPrefill(const std::vector
 
 ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs,
                                                  const std::vector<Tensor*>& outputs) {
+    const bool loadingFromDisk =
+        mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0;
+    // The recurrent state folds every past token, so it can only continue, reset, or be restored from disk.
+    if (mMeta != nullptr && mMeta->remove > 0 && (mMeta->previous != mMeta->remove || mMeta->n_reserve > 0) &&
+        !loadingFromDisk) {
+        MNN_ERROR("OpenCL LinearAttention: cannot erase part of the %zu-token history; reset all of it instead\n",
+                  mMeta->previous);
+        return NOT_SUPPORT;
+    }
     // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
-    int batch = 0, convDim = 0, seqLen = 0;
-    linearAttentionDims(inputs[0], batch, convDim, seqLen);
-    if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
-        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+    if (mMeta != nullptr && mMeta->previous == mMeta->remove) {
         if (!loadingFromDisk) {
             auto runtime = mOpenCLBackend->getOpenCLRuntime();
             int bytesPerElement = mOpenCLBackend->fpBytes();

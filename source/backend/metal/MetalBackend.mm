@@ -1476,8 +1476,14 @@ int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTen
 id<MTLCommandBuffer> MetalBackend::getCommandBufferForBufferCopy() const {
     if (nil == _commandBuffer) {
         _commandBuffer = [_commandQueue commandBuffer];
+        mWaitForCompletedHandlers = false;
     }
     return _commandBuffer;
+}
+void MetalBackend::addCompletedHandler(MTLCommandBufferHandler handler) const {
+    auto buffer = getCommandBufferForBufferCopy();
+    mWaitForCompletedHandlers = true;
+    [buffer addCompletedHandler:handler];
 }
 id<MTLCommandBuffer> MetalBackend::getCommandBufferForNet() const {
     return getCommandBufferForBufferCopy();
@@ -1596,6 +1602,14 @@ void MetalBackend::commit() const {
         }];
 #endif
         [_commandBuffer commit];
+        if (mWaitForCompletedHandlers) {
+            // Completed status alone does not join the prefix-save handlers or protect their live state reads.
+            [_commandBuffer waitUntilCompleted];
+            if (_commandBuffer.error) {
+                MNN_ERROR("[METAL] command buffer error: %s\n", _commandBuffer.error.localizedDescription.UTF8String);
+                mRuntime->mCommandBufferFailed = true;
+            }
+        }
         mRuntime->_waiting = _commandBuffer;
         mLastOwnCommandBuffer = _commandBuffer;
         _commandBuffer = nil;
