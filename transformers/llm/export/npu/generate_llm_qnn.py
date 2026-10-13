@@ -16,7 +16,7 @@ def makeIO(args, model_name, inputjson, external_file = None):
     inputjson = os.path.join(os.getcwd(), inputjson)
     output = os.path.join(cache, 'testdir')
     os.makedirs(output, exist_ok=True)
-    process = subprocess.Popen(exe + " " + model + " " + inputjson + " " + output + " " + external_file, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True, shell=True)
+    process = subprocess.Popen([exe, model, inputjson, output, external_file], bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True)
     for line in process.stdout:
         print(line, end='')
     process.wait()
@@ -186,8 +186,9 @@ def convert_fastvlm(args, image_sizes):
     cache = os.path.join(os.getcwd(), args.cache_path)
     output = os.path.join(cache, 'qnn')
     os.makedirs(output, exist_ok=True)
-    result = " ".join([f"1x3x{w}x{h}" for w, h in image_sizes])
-    print(os.popen(exe + " " + qnn_sdk + " " + str(args.soc_id) + " " + str(args.dsp_arch).lstrip('v') + " " + model + " " + output + " " + str(len(image_sizes)) + " " + result).read())
+    cmd = [exe, qnn_sdk, str(args.soc_id), str(args.dsp_arch).lstrip('v'), model, output, str(len(image_sizes))]
+    cmd += [f"1x3x{w}x{h}" for w, h in image_sizes]
+    print(subprocess.run(cmd, stdout=subprocess.PIPE, text=True).stdout)
 
     for item in os.listdir(output):
         s = os.path.join(output, item)
@@ -248,7 +249,7 @@ def seperate(args, model_name, ids):
     cache = os.path.join(os.getcwd(), args.cache_path)
     with open(os.path.join(cache, 'qnn.json'), 'w') as f:
         f.write(json.dumps(config, indent=4))
-    process = subprocess.Popen(exe + ' ' + model + ' qnn/' + model_name + ' qnn.json', bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True, shell=True)
+    process = subprocess.Popen([exe, model, 'qnn/' + model_name, 'qnn.json'], bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True)
     for line in process.stdout:
         print(line, end='')
 
@@ -258,7 +259,7 @@ def seperate(args, model_name, ids):
 def compile_qnn(args):
     exe = os.path.join(os.getcwd(), args.mnn_path, "..", "source", "backend", "qnn", "npu_convert.py")
     cache = os.path.join(os.getcwd(), args.cache_path)
-    process = subprocess.Popen("python3 " + exe + ' npu_postreat.json %d ' %args.soc_id + ' ' + args.dsp_arch + ' %d '  %args.vtcm_mb, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True, shell=True)
+    process = subprocess.Popen(["python3", exe, 'npu_postreat.json', str(args.soc_id), args.dsp_arch, str(args.vtcm_mb)], bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True)
     for line in process.stdout:
         print(line, end='')
     process.wait()
