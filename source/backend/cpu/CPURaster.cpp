@@ -413,6 +413,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     }
     size_t bytes = (size_t)(CPUBackend::getBytes(backend(), output));
     mTempInput.clear();
+    mMidTensors.clear();
     mFastBlit.clear();
     mCacheRegions.clear();
     mTempOutput = nullptr;
@@ -573,9 +574,9 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             }
         }
         auto cache = static_cast<CPUBackend*>(backend())->getCache();
-        auto tempTensor = cache->findCacheTensor(origin, midFormat);
+        auto midHolder = cache->findCacheTensor(origin, midFormat);
         //MNN_ASSERT(CPUBackend::getBytes(backend(), origin) == 4);
-        if (nullptr == tempTensor) {
+        if (nullptr == midHolder) {
             std::shared_ptr<Tensor> newTensor(new Tensor);
             TensorUtils::copyShape(origin, newTensor.get());
             TensorUtils::getDescribe(newTensor.get())->dimensionFormat = midFormat;
@@ -588,10 +589,14 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             if (!res) {
                 return OUT_OF_MEMORY;
             }
-            tempTensor = newTensor.get();
-            TensorUtils::getDescribe(tempTensor)->useCount = TensorUtils::getDescribe(origin)->useCount;
+            TensorUtils::getDescribe(newTensor.get())->useCount = TensorUtils::getDescribe(origin)->useCount;
             cache->pushCacheTensor(newTensor, origin, midFormat);
+            midHolder = newTensor;
         }
+        auto tempTensor = midHolder.get();
+        // The cache drops its entries at the end of every resize, so this execution owns
+        // the mid tensor for as long as its tasks refer to it.
+        mMidTensors.emplace_back(midHolder);
         if (--TensorUtils::getDescribe(tempTensor)->useCount == 0) {
             forRelease.emplace_back(tempTensor);
         }
