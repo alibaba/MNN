@@ -4,6 +4,8 @@
 #include <regex>
 #include <utility>
 
+#include <cv/imgcodecs.hpp>
+
 #include "mls_log.h"
 #include "video/video_processor.h"
 
@@ -17,8 +19,10 @@ PromptProcessor::PromptProcessor(PromptProcessorConfig config)
 }
 
 MNN::Express::VARP PromptProcessor::LoadImageFromPath(const std::string& image_path) {
-    MNN_ERROR("Image loading not yet implemented for Android native path: %s", image_path.c_str());
-    return nullptr;
+    // imread yields the uint8 BGR HWC var that Omni::visionProcess expects, and logs + returns
+    // nullptr on failure. Leaving this unimplemented made every attached image silently degrade
+    // the prompt to text-only, which the model answers with degenerate tokens.
+    return MNN::CV::imread(image_path);
 }
 
 std::string PromptProcessor::EscapeForRegex(const std::string& text) {
