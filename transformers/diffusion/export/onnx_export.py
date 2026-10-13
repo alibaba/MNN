@@ -25,7 +25,9 @@ from diffusers import OnnxStableDiffusionPipeline, StableDiffusionPipeline
 from packaging import version
 
 
-is_torch_less_than_1_11 = version.parse(version.parse(torch.__version__).base_version) < version.parse("1.11")
+torch_version = version.parse(version.parse(torch.__version__).base_version)
+is_torch_less_than_1_11 = torch_version < version.parse("1.11")
+is_torch_greater_or_equal_2_9 = torch_version >= version.parse("2.9")
 
 
 def onnx_export(
@@ -55,16 +57,19 @@ def onnx_export(
             opset_version=opset,
         )
     else:
-        export(
-            model,
-            model_args,
-            f=output_path.as_posix(),
-            input_names=ordered_input_names,
-            output_names=output_names,
-            dynamic_axes=dynamic_axes,
-            do_constant_folding=True,
-            opset_version=opset,
-        )
+        export_kwargs = {
+            "f": output_path.as_posix(),
+            "input_names": ordered_input_names,
+            "output_names": output_names,
+            "dynamic_axes": dynamic_axes,
+            "do_constant_folding": True,
+            "opset_version": opset,
+        }
+        # PyTorch 2.9 switched the default to the Dynamo-based exporter. Keep
+        # using the TorchScript exporter expected by the MNN conversion flow.
+        if is_torch_greater_or_equal_2_9:
+            export_kwargs["dynamo"] = False
+        export(model, model_args, **export_kwargs)
 
 
 @torch.no_grad()
