@@ -238,7 +238,9 @@ Backend::MemObj* CUDABackend::onAcquire(const Tensor* nativeTensor, StorageType 
 }
 
 bool CUDABackend::onClearBuffer() {
-    mCache.reset();
+    // release() not reset(): RasterExecution holds the cached mid tensors until its next
+    // resize, so their MemObj must be freed while the pool still owns the chunks.
+    mCache.release();
     mBufferPool->release(true);
     return true;
 }

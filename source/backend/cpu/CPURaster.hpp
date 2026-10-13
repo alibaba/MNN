@@ -28,6 +28,7 @@ public:
     void tensorConvert(Tensor* input, Tensor* output, int bytes);
 private:
     std::map<Tensor*, Tensor*> mTempInput;
+    std::vector<std::shared_ptr<Tensor>> mMidTensors;
     std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region*>> mTempInputCopy;
     std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region>> mFastBlit;
     std::shared_ptr<Tensor> mTempOutput;
