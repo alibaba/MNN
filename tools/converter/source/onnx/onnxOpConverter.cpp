@@ -23,6 +23,26 @@ static int32_t _limit(int64_t i64) {
     }
     return i64;
 }
+// external_data location comes from the (untrusted) model file and must stay inside the model directory:
+// reject absolute paths and any ".." segment.
+static bool _isSafeExternalLocation(const std::string& location) {
+    if (location.empty() || '/' == location[0] || '\\' == location[0] ||
+        (location.size() >= 2 && ':' == location[1])) {
+        return false;
+    }
+    size_t begin = 0;
+    while (begin <= location.size()) {
+        size_t end = location.find_first_of("/\\", begin);
+        if (std::string::npos == end) {
+            end = location.size();
+        }
+        if (2 == end - begin && 0 == location.compare(begin, 2, "..")) {
+            return false;
+        }
+        begin = end + 1;
+    }
+    return true;
+}
 std::vector<int> OnnxScope::topoSort(const onnx::GraphProto& onnxGraph) {
     std::vector<int> idxMap;
     const int nodeCount   = onnxGraph.node_size();
@@ -266,6 +286,11 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
                 length = std::atoll(k.value().c_str());
             }
         }
+        if (!_isSafeExternalLocation(location)) {
+            MNN_ERROR("[ONNX] external_data location must be a relative path inside the model directory: %s\n",
+                      location.c_str());
+            return nullptr;
+        }
         if (!modelDir.empty()) {
             location = modelDir + location;
         }
@@ -278,9 +303,15 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
                 DLOG(FATAL) << "Fail to open external data: " << location;
                 return nullptr;
             }
-            fp.offset(offset);
+            if (0 != fp.offset(offset)) {
+                MNN_ERROR("[ONNX] Fail to seek external data: %s\n", location.c_str());
+                return nullptr;
+            }
             alignContent.resize((length + sizeof(int64_t) - 1) / sizeof(int64_t));
-            fp.read((char*)alignContent.data(), length);
+            if (!fp.read((char*)alignContent.data(), length)) {
+                MNN_ERROR("[ONNX] Fail to read external data: %s\n", location.c_str());
+                return nullptr;
+            }
         } else {
             op->externalPath = location;
             constantParam->external = {
