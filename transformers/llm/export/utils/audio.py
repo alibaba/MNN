@@ -263,6 +263,9 @@ class Qwen3ASRAudio(Audio):
         input_features = self.feature_extractor(
             audio_obj,
             sampling_rate=self.sampling_rate,
+            # Match Qwen3ASRProcessor instead of padding/truncating to 30 seconds.
+            padding=True,
+            truncation=False,
             return_attention_mask=True,
             return_tensors='pt'
         )['input_features'][0].to(dtype=torch.float32)
