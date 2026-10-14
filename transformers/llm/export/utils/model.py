@@ -745,7 +745,10 @@ class EmbeddingModel(LlmModel):
         embeddings = inputs_embeds + position_embeddings + self.token_type_embeddings
         hidden_states = self.embedding_layernorm(embeddings)
         for i in range(self.config.num_hidden_layers):
-            hidden_states = self.blocks[i](hidden_states, attention_mask)[0]
+            layer_out = self.blocks[i](hidden_states, attention_mask)
+            # transformers>=5.0 BertLayer returns a plain tensor; older versions
+            # return a tuple whose first element is the hidden states.
+            hidden_states = layer_out[0] if isinstance(layer_out, (tuple, list)) else layer_out
         sentence_embeddings = hidden_states[:, 0]
         sentence_embeddings = torch.nn.functional.normalize(sentence_embeddings, p=2, dim=1)
         return sentence_embeddings
