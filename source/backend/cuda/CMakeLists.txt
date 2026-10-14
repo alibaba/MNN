@@ -146,6 +146,9 @@ if(MNN_SUPPORT_TRANSFORMER_FUSE)
     set(CUTLASS_COMMIT_HASH "b995f933179c22d3fe0d871c3a53d11e4681950f")
     set(CUTLASS_VERSION_NAME "v4.0.0")
 else()
+    message(WARNING "MNN_SUPPORT_TRANSFORMER_FUSE is OFF: CUDA Attention/LinearAttention ops are not built, "
+                    "LLM models will fall back to CPU for these ops. Use -DMNN_BUILD_LLM=ON "
+                    "(or build_deps.py llm,cuda) to enable them.")
     set(CUTLASS_COMMIT_HASH "319a389f42b776fae5701afcb943fc03be5b5c25")
     set(CUTLASS_VERSION_NAME "v2.9.0")
 endif()
