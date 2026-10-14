@@ -105,7 +105,13 @@ Tokenizer* Tokenizer::createTokenizer(const std::string& filename) {
         std::string bin_line;
         std::getline(bin_file, bin_line);   // re-consume the magic/type line
         tokenizer->load_special(bin_file);
-        pt->load_vocab_binary(bin_file);
+        // Callers only test the returned pointer for null: a vocab that failed to
+        // parse must not come back as a half-initialized tokenizer.
+        if (!pt->load_vocab_binary(bin_file)) {
+            printf("Failed: malformed binary vocab in: %s.\n", filename.c_str());
+            delete pt;
+            return nullptr;
+        }
         bin_file.close();
         tokenizer->cache_special_tokens();
         return tokenizer;
@@ -2354,6 +2360,11 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
             for (uint32_t i = 0; i < vocab_size; i++) {
                 StringRef sr = read_str_ref(ptr);
                 int id = (int)read_u32(ptr);
+                // id is a signed 32-bit file field used directly as a vector index.
+                if (id < 0 || (uint32_t)id >= vocab_size) {
+                    MNN_ERROR("[Tokenizer] Vocab entry %u has id %d outside [0, %u).\n", i, id, vocab_size);
+                    return false;
+                }
                 id_to_token[id] = sr;
                 sorted_vocab[i] = {sr.ptr, sr.len, id};
             }
@@ -2378,6 +2389,10 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
             for (uint32_t i = 0; i < vocab_size; i++) {
                 StringRef sr = read_str_ref(ptr);
                 int id = (int)read_u32(ptr);
+                if (id < 0 || (uint32_t)id >= vocab_size) {
+                    MNN_ERROR("[Tokenizer] Vocab entry %u has id %d outside [0, %u).\n", i, id, vocab_size);
+                    return false;
+                }
                 id_to_token[id] = sr;
                 sorted_vocab[i] = {sr.ptr, sr.len, id};
             }
@@ -2395,6 +2410,10 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                 StringRef sr = read_str_ref(ptr);
                 int id = (int)read_u32(ptr);
                 double score = read_f64(ptr);
+                if (id < 0 || (uint32_t)id >= vocab_size) {
+                    MNN_ERROR("[Tokenizer] Vocab entry %u has id %d outside [0, %u).\n", i, id, vocab_size);
+                    return false;
+                }
                 id_to_token[id] = sr;
                 scores[id] = score;
                 sorted_vocab[i] = {sr.ptr, sr.len, id};
