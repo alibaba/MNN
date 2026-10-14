@@ -100,6 +100,8 @@ private:
     mutable SingleBufferWithAllocator mDynamicBuffer;
     HexagonInfo mInfo;
     bool mAvailable = false;
+    struct PowerIdleKeeper;
+    std::unique_ptr<PowerIdleKeeper> mPowerKeeper;
     mutable DSPCommandGroup* mCommandGroup = nullptr;
     mutable int mCommandGroupCount = 0;
     mutable int mCommandSerial = 1;

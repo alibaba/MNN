@@ -4,11 +4,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <pthread.h>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 #include <MNN/MNNDefine.h>
@@ -640,6 +643,74 @@ static void releaseDspPower(HexagonContext* context) {
     releaseDspPowerLocked(context);
 }
 
+// Keeps the DSP power vote across flushes and drops it once the DSP has been idle for
+// kDspPowerIdleReleaseMs. Re-voting on every flush lets the cDSP clock fall between flushes; inside
+// an app process this cut LLM decode throughput by ~40% (39 vs 66 tok/s on SM8850).
+static constexpr int kDspPowerIdleReleaseMs = 100;
+
+struct HexagonRuntime::PowerIdleKeeper {
+    explicit PowerIdleKeeper(HexagonContext* context) : mContext(context) {
+    }
+    ~PowerIdleKeeper() {
+        {
+            std::lock_guard<std::mutex> lock(mMutex);
+            mStop = true;
+        }
+        mCond.notify_all();
+        if (mWorker.joinable()) {
+            mWorker.join();
+        }
+        if (mHeld) {
+            releaseDspPower(mContext);
+        }
+    }
+    void begin() {
+        std::lock_guard<std::mutex> lock(mMutex);
+        mBusy++;
+        if (!mHeld) {
+            mHeld = acquireDspPower(mContext);
+            if (mHeld && !mWorker.joinable()) {
+                mWorker = std::thread([this]() { run(); });
+            }
+        }
+    }
+    void end() {
+        {
+            std::lock_guard<std::mutex> lock(mMutex);
+            mBusy--;
+            mLastUse = std::chrono::steady_clock::now();
+        }
+        mCond.notify_all();
+    }
+
+private:
+    void run() {
+        std::unique_lock<std::mutex> lock(mMutex);
+        while (!mStop) {
+            if (!mHeld || mBusy > 0) {
+                mCond.wait(lock);
+                continue;
+            }
+            auto deadline = mLastUse + std::chrono::milliseconds(kDspPowerIdleReleaseMs);
+            if (std::chrono::steady_clock::now() >= deadline) {
+                releaseDspPower(mContext);
+                mHeld = false;
+                continue;
+            }
+            mCond.wait_until(lock, deadline);
+        }
+    }
+
+    HexagonContext* mContext;
+    std::mutex mMutex;
+    std::condition_variable mCond;
+    std::thread mWorker;
+    std::chrono::steady_clock::time_point mLastUse;
+    int mBusy = 0;
+    bool mHeld = false;
+    bool mStop = false;
+};
+
 static bool acquireDspSession(HexagonContext* context) {
     std::lock_guard<std::mutex> lock(dspSessionMutex());
     if (context == nullptr || context->ops_dl_handle == nullptr) {
@@ -944,7 +1015,9 @@ void HexagonRuntime::flushCommand() const {
         }
     }
     const int commandCount = mCommandGroupCount;
-    const bool powerAcquired = acquireDspPower(context);
+    if (mPowerKeeper) {
+        mPowerKeeper->begin();
+    }
 #ifdef MNN_HEXAGON_ASAN
     const bool asanBeforeFlush = asanCheckAllBuffers("before flushCommand");
 #endif
@@ -1036,8 +1109,8 @@ void HexagonRuntime::flushCommand() const {
         MNN_ERROR("[Hexagon] execute_command_group function pointer is null! functions=%p\n", functions);
     }
 #endif
-    if (powerAcquired) {
-        releaseDspPower(context);
+    if (mPowerKeeper) {
+        mPowerKeeper->end();
     }
 #ifdef MNN_HEXAGON_ASAN
     asanCheckAllBuffers("after flushCommand");
@@ -1087,6 +1160,7 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
         return;
     }
     mAvailable = true;
+    mPowerKeeper.reset(new PowerIdleKeeper(context));
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new HexagonAllocator());
     constexpr size_t staticMinAllocSize = 16 * 1024 * 1024;
     constexpr size_t commandMinAllocSize = 4 * 1024 * 1024;
@@ -1297,6 +1371,7 @@ HexagonRuntime::~HexagonRuntime() {
     mCommandAlloc.reset();
     mStaticAlloc.reset();
 
+    mPowerKeeper.reset();
     releaseDspSession(getContext());
 }
 
