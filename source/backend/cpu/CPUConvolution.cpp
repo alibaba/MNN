@@ -123,11 +123,16 @@ CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<Resourc
         } else if (!scalePtr) { // if depthwiseInt8, res->mOriginScale != nullptr
             weightScale = res->mOriginScale->host<float>();
         }
-        for (int i = 0; i < outputChannelUp4; ++i) {
-            if (mInputScale && mOutputScale) { // symmetric quan
-                floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i] * mInputScale / mOutputScale;
-            } else {
-                floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i];
+        if (cpuCore->MNNConvInt8ComputeBiasFloat) {
+            cpuCore->MNNConvInt8ComputeBiasFloat(floatBiasPtr, int32BiasPtr, weightScale, mInputScale, mOutputScale,
+                                                 outputChannelUp4);
+        } else {
+            for (int i = 0; i < outputChannelUp4; ++i) {
+                if (mInputScale && mOutputScale) { // symmetric quan
+                    floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i] * mInputScale / mOutputScale;
+                } else {
+                    floatBiasPtr[i] = int32BiasPtr[i] * weightScale[i];
+                }
             }
         }
         return;
