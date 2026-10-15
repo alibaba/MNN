@@ -1417,6 +1417,8 @@ Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
     mContext.reset(new LlmContext);
     mMeta.reset(new KVMeta);
     mMeta->layer_nums = mConfig->layer_nums();
+    // KV-shared layers reuse their owner's cache file.
+    mPrefixCacheNums = mConfig->layer_nums() - mConfig->num_kv_shared_layers();
     mMeta->attn_scale = mConfig->attn_scale();
     mGenerateParam.reset(new GenerationParams);
     mGenerateParam->timeout_ms = mConfig->timeout_ms();
@@ -1465,11 +1467,12 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
     mPrefixCacheFileName = filename;
     mCallIndex = 0;
     mPrefixCacheMode = true;
+    mMeta->layer_index = 0;
     ++mMeta->prefix_session_id;
 
     mIsPrefixFileExist = true;
     // check kvcache, validate file existence
-    for(int i = 0; i < mConfig->layer_nums(); i++) {
+    for(int i = 0; i < mPrefixCacheNums; i++) {
         auto k_file = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i) + "_sync.k";
         if(!MNNFileExist(k_file.c_str())) {
             mIsPrefixFileExist = false;
@@ -1480,7 +1483,7 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
     if (mIsPrefixFileExist) {
         mIsPrefixFileExist = validatePrefixCacheFiles(
             mConfig->llm_model(), MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName),
-            mConfig->layer_nums());
+            mPrefixCacheNums);
     }
 
     // If the cache is deemed unusable (missing / truncated / size-mismatched /
@@ -1515,7 +1518,7 @@ void Llm::completePrefixWrite() {
     CHECK_LLM_RUNNING(mContext);
     // Create sync files to mark prefix cache as valid
     auto prefixDir = mConfig->prefix_cache_path();
-    for (int i = 0; i < mConfig->layer_nums(); i++) {
+    for (int i = 0; i < mPrefixCacheNums; i++) {
         auto base = MNNFilePathConcat(prefixDir, mPrefixCacheFileName) + "_" + std::to_string(i);
         auto k_file = base + ".k";
         if (MNNFileExist(k_file.c_str())) {
@@ -1568,10 +1571,8 @@ VARP Llm::embedding(const std::vector<int>& input_ids) {
     mDiskEmbedding->embedding(input_ids, res->writeMap<float>());
     // scale_emb is in ONNX model, not here. C++ passes raw embedding.
 
-    // PLE embedding lookup (gemma4)
-    // mPleInput may be pre-set by Omni::embedding for multimodal prefill;
-    // update only if null or if seq_len matches (decode single token)
-    if (mPleEmbedding && (!mPleInput.get() || seq_len == 1)) {
+    // PLE embedding lookup (gemma4). Omni::embedding overrides it for multimodal prefill.
+    if (mPleEmbedding) {
         int ple_dim = mConfig->ple_embed_dim();
         float ple_scale = mConfig->ple_embed_scale();
         mPleInput = _Input({1, seq_len, ple_dim}, NCHW);

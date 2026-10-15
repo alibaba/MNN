@@ -28,6 +28,13 @@ def seperate(args):
         ],
         "cache":"mlda"
     }
+    # Non-default attention scale (e.g. gemma4) must be baked into the NPU graph.
+    llm_config_path = os.path.join(args.model, "llm_config.json")
+    if os.path.exists(llm_config_path):
+        with open(llm_config_path) as f:
+            attn_scale = json.load(f).get("attn_scale", 0.0)
+        if attn_scale > 0:
+            config["attn_scale"] = attn_scale
     config['testdir'].append(os.path.join("testdir", '1'))
     config['testdir'].append(os.path.join("testdir", '%d' %args.chunk_size))
     cache = os.path.join(os.getcwd(), args.cache_path)

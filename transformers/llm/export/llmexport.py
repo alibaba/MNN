@@ -119,6 +119,11 @@ class LlmExporter(torch.nn.Module):
             attn = self.model.blocks[0].self_attn
             if hasattr(attn, 'attn_scaling') and attn.attn_scaling != 1.0 / (self.config.head_dim ** 0.5):
                 self.llm_config['attn_scale'] = attn.attn_scaling
+            num_kv_shared = sum(1 for b in self.model.blocks
+                                if getattr(b.self_attn, 'is_kv_shared_layer', False)
+                                and getattr(b.self_attn, 'kv_shared_layer_index', None) is not None)
+            if num_kv_shared > 0:
+                self.llm_config['num_kv_shared_layers'] = num_kv_shared
         if self.config.sliding_window > 0:
             self.llm_config['sliding_window'] = self.config.sliding_window
         if hasattr(self.tokenizer, 'get_chat_template'):

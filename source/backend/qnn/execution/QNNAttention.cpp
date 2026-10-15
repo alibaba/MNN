@@ -1,4 +1,5 @@
 #include "QNNAttention.hpp"
+#include "core/KVMeta.hpp"
 namespace MNN {
 namespace QNN {
 #ifdef ENABLE_QNN_ONLINE_FINALIZE
@@ -45,7 +46,8 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
     int seqLenQ = seqLen;
     int kvHeadNum = inputs[1]->length(2);
     int seqLenKV = inputs[1]->length(1);
-    float scale = 1.0 / sqrt(headDim);
+    auto meta = (KVMeta*)(mBackend->getMetaPtr());
+    float scale = (nullptr != meta && meta->attn_scale > 0.0f) ? meta->attn_scale : (1.0f / sqrt(headDim));
     Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
     auto Query_perm = this->createStageTensor("Query_perm", dataType, std::vector<int>({batch, headNum, seqLenQ, headDim})); // [0], stage query
     Qnn_Tensor_t* keyperm;
