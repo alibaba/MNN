@@ -476,7 +476,7 @@ VARP melscale_fbanks(const MelscaleParams* params) {
     return bins;
 }
 
-VARP spectrogram(VARP waveform, const SpectrogramParams* params) {
+static VARP spectrogramImpl(VARP waveform, const SpectrogramParams* params, bool periodic) {
     int pad_left = 0, pad_right = 0, pad_mode = REFLECT;
     int n_fft = 400, hop_length = 0, win_length = 0, window_type = HANNING;
     bool center = false, normalized = false;
@@ -506,13 +506,13 @@ VARP spectrogram(VARP waveform, const SpectrogramParams* params) {
     VARP window;
     switch (window_type) {
         case HANNING:
-            window = hann_window(win_length);
+            window = hann_window(win_length, periodic);
             break;
         case HAMMING:
-            window = hamming_window(win_length);
+            window = hamming_window(win_length, periodic);
             break;
         default:
-            window = hann_window(win_length);
+            window = hann_window(win_length, periodic);
             break;
     }
     std::unique_ptr<OpT> op(new OpT);
@@ -547,6 +547,10 @@ VARP spectrogram(VARP waveform, const SpectrogramParams* params) {
         specgram = _Pow(specgram, _Scalar<float>(power / 2.0f));
     }
     return specgram;
+}
+
+VARP spectrogram(VARP waveform, const SpectrogramParams* params) {
+    return spectrogramImpl(waveform, params, false);
 }
 
 VARP mel_spectrogram(VARP waveform, const MelscaleParams* mel_params, const SpectrogramParams* spec_params) {
@@ -753,7 +757,10 @@ VARP whisper_fbank(VARP waveform, int sample_rate, int n_mels, int n_fft, int ho
     spec_params.n_fft = n_fft;
     spec_params.hop_length = hop_length;
     spec_params.center = true;
-    auto mel_specgram = mel_spectrogram(waveform, &mel_params, &spec_params);
+    // Whisper uses a periodic Hann window, unlike the symmetric window in spectrogram().
+    auto banks = melscale_fbanks(&mel_params);
+    auto specgram = spectrogramImpl(waveform, &spec_params, true);
+    auto mel_specgram = _MatMul(specgram, banks, false, true);
     mel_specgram =
         _Slice(mel_specgram, _var<int>({0, 0}, {2}), _var<int>({mel_specgram->getInfo()->dim[0] - 1, -1}, {2}));
     auto log_specgram = _Log(_Maximum(mel_specgram, _Scalar<float>(1e-10f))) / _Log(_Scalar<float>(10.0));
