@@ -115,7 +115,7 @@ static void _RemoveUnusefulNodes(std::unique_ptr<MNN::NetT>& net) {
     MNN::Express::ExecutorScope::Current()->setLazyComputeMode(originMode);
 }
 
-static void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map<Tensor*, std::pair<std::string, int>>& tensorNames, std::vector<std::string>&& outputNames, const Net* originNetInfo) {
+static int genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map<Tensor*, std::pair<std::string, int>>& tensorNames, std::vector<std::string>&& outputNames, const Net* originNetInfo) {
     MNN_PRINT("gen Static Model ... \n");
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
     netT->outputName = std::move(outputNames);
@@ -290,10 +290,21 @@ static void genStaticModel(CommandBuffer buffer, const std::string& modelName, s
     int sizeOutput    = builderOutput.GetSize();
     auto bufferOutput = builderOutput.GetBufferPointer();
     std::ofstream output(modelName, std::ofstream::binary);
+    if (!output.is_open()) {
+        MNN_ERROR("Failed to open output model: %s\n", modelName.c_str());
+        return 1;
+    }
     output.write((const char*)bufferOutput, sizeOutput);
+    // close() also checks buffered writes that may fail after write() succeeds.
+    output.close();
+    if (output.fail()) {
+        MNN_ERROR("Failed to write output model: %s\n", modelName.c_str());
+        return 1;
+    }
+    return 0;
 }
 
-void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile) {
+int converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile) {
     // set a backend and context to run resize
     ScheduleConfig config;
     config.type = MNN_FORWARD_CPU;
@@ -316,7 +327,7 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     initConstTensors(allTensors, net, defaultBackend.get(), code, nullptr);
     if (NO_ERROR != code) {
         MNN_ERROR("Init tensor error code = %d\n", code);
-        return;
+        return 1;
     }
     bool valid = initTensors(allTensors, net);
     // set tensors' shape by inputConfig
@@ -374,5 +385,5 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
         newBuffer.extras.insert(newBuffer.extras.end(), buf.extras.begin(), buf.extras.end());
     }
     // store buffer to STATIC model file
-    genStaticModel(newBuffer, mnnFile, tensorName, std::move(outputNames), net);
+    return genStaticModel(newBuffer, mnnFile, tensorName, std::move(outputNames), net);
 }

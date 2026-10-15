@@ -5,7 +5,7 @@ Requires the onnx Python package and a converter built with
 MNN_BUILD_CONVERTER=ON. Run:
     python tools/script/testConvertOutputFailure.py /path/to/MNNConvert
 
-The writable-output controls reload converted Relu and external-weight Conv
+The writable-output controls reload regular/static Relu and external-weight Conv
 models and check their CPU inference results. Linux /dev/full covers errors
 deferred until the small model or weight file is flushed/closed.
 """
@@ -77,7 +77,7 @@ class ConvertOutputFailureTest(unittest.TestCase):
         onnx.checker.check_model(model)
         onnx.save(model, str(self.model))
 
-    def test_writable_output_and_cpu_inference(self):
+    def assert_writable_output_and_cpu_inference(self, *extra_args):
         output = self.workdir / "relu.mnn"
         (self.workdir / "input.json").write_text(json.dumps({
             "inputs": [{"name": "input", "shape": [1, 4]}],
@@ -88,13 +88,21 @@ class ConvertOutputFailureTest(unittest.TestCase):
         backend = self.workdir / "cpu.json"
         backend.write_text(json.dumps({"backend": 0, "precision": 1}))
         result = self.convert(output, "--testdir", str(self.workdir),
-                              "--testconfig", str(backend))
+                              "--testconfig", str(backend), *extra_args)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("Converted Success!", result.stdout)
         self.assertIn("TEST_SUCCESS", result.stdout)
         self.assertNotIn("TESTERROR", result.stdout)
         self.assertNotIn("Skip check", result.stdout)
         self.assertGreater(output.stat().st_size, 0)
+        return result
+
+    def test_writable_output_and_cpu_inference(self):
+        self.assert_writable_output_and_cpu_inference()
+
+    def test_static_writable_output_and_cpu_inference(self):
+        result = self.assert_writable_output_and_cpu_inference("--saveStaticModel")
+        self.assertIn("gen Static Model", result.stdout)
 
     def test_missing_parent(self):
         output = self.workdir / "missing" / "relu.mnn"
@@ -105,10 +113,24 @@ class ConvertOutputFailureTest(unittest.TestCase):
         self.assert_write_failed(self.workdir)
         self.assertTrue(self.workdir.is_dir())
 
+    def test_static_missing_parent(self):
+        output = self.workdir / "missing" / "relu.mnn"
+        self.assert_write_failed(output, "--saveStaticModel")
+        self.assertFalse(output.exists())
+
+    def test_static_directory_as_output(self):
+        self.assert_write_failed(self.workdir, "--saveStaticModel")
+        self.assertTrue(self.workdir.is_dir())
+
     @unittest.skipUnless(sys.platform.startswith("linux") and Path("/dev/full").exists(),
                          "requires Linux /dev/full")
     def test_buffered_write_failure(self):
         self.assert_write_failed(Path("/dev/full"))
+
+    @unittest.skipUnless(sys.platform.startswith("linux") and Path("/dev/full").exists(),
+                         "requires Linux /dev/full")
+    def test_static_buffered_write_failure(self):
+        self.assert_write_failed(Path("/dev/full"), "--saveStaticModel")
 
     def test_external_weights_and_cpu_inference(self):
         self.use_conv_model()
