@@ -2021,6 +2021,10 @@ class MiniCPMVision(Vision):
         self.post_layernorm = self.visual.post_layernorm
         # rebuild resampler
         self.resampler = self.visual.resampler.float()
+        # transformers 5 replaces every non-persistent buffer with torch.empty_like after meta-device
+        # init and only re-initialises the ones its own _init_weights knows, so the remote resampler's
+        # sincos pos_embed arrives uninitialised; rebuild it with the model's own routine.
+        self.resampler._set_2d_pos_cache(self.resampler.max_size)
         attrs = ['query', 'kv_proj', 'ln_kv', 'ln_q', 'attn', 'ln_post', 'proj', 'pos_embed', 'embed_dim']
         for attr in attrs:
             setattr(self, attr, getattr(self.resampler, attr))
