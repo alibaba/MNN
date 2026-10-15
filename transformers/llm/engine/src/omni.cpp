@@ -1122,13 +1122,14 @@ std::vector<int> Omni::smolvlmVisionProcess(VARP image) {
         }
         // Add global image embedding (already computed)
         mVisionEmbeddings.push_back(_Squeeze(globalEmbedding, {0}));
-        int endRow = tokenizer_encode("\n")[0];
+        // Omni::tokenizer_encode(string) restarts multimodal parsing and would drop the embeddings pushed above.
+        int endRow = mTokenizer->encode("\n", false)[0];
         for (int h = 0; h < grid_h; h++) {
             for (int w = 0; w < grid_w; w++) {
                 imgIds.push_back(mVisionStart);
                 // <row_{h+1}_col{w+1}>
                 std::string image_pos = "<row_" + std::to_string(h + 1) + "_col_" + std::to_string(w + 1) + ">";
-                imgIds.push_back(tokenizer_encode(image_pos)[0]);
+                imgIds.push_back(mTokenizer->encode(image_pos, false)[0]);
                 for (int p = 0; p < visionLen; p++) {
                     imgIds.push_back(mVisionPad);
                 }
@@ -1320,7 +1321,7 @@ std::vector<int> Omni::minicpmVisionProcess(VARP image) {
     std::vector<int> imgIds;
     // image id
     imgIds.push_back(visionIdStart);
-    auto visionIdxIds = tokenizer_encode(std::to_string(mVisionNum));
+    auto visionIdxIds = mTokenizer->encode(std::to_string(mVisionNum), false);
     for (auto idx : visionIdxIds) {
         imgIds.push_back(idx);
     }
