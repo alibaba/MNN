@@ -547,7 +547,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             // Shape inference reads some inputs' CONTENT (e.g. the LLM logits-index
             // scalar feeding a StridedSlice begin), which historically forced a
             // full re-resize EVERY forward. Cache those inputs' bytes (tiny
-            // integer control tensors) and only force resize when one changed.
+            // control tensors) and only force resize when one changed.
             // MNN_LLM_CONTENT_RESIZE_ALWAYS=1 restores the legacy behavior.
             static const bool sAlwaysResize = []{
                 const char* e = getenv("MNN_LLM_CONTENT_RESIZE_ALWAYS");
@@ -567,9 +567,8 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
                         continue;
                     }
                     auto inputTensor = Utils::getTensor(inputs[i]);
-                    if (inputTensor->getType().code == halide_type_float) {
-                        // integer tensors drive shape computation; float inputs
-                        // (embeddings / mask) do not feed shape inference
+                    if (inputTensor->getType().code == halide_type_float && !mResource->mInputNeedCPU[i]) {
+                        // Only float inputs consumed by shape inference need content comparison.
                         continue;
                     }
                     auto size = inputTensor->usize();
