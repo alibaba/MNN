@@ -94,16 +94,19 @@ def export_diffusion_mtok(tokenizer_src_root, model_root):
 
         tokenizer_json = dst_dir / 'tokenizer.json'
         if not tokenizer_json.exists():
-            hf_tok = None
-            for use_fast in (False, True):
+            # Slow tokenizers such as CLIPTokenizer can load successfully but
+            # save only vocab.json / merges.txt. Prefer the fast tokenizer and
+            # verify that save_pretrained actually materialized tokenizer.json.
+            for use_fast in (True, False):
                 try:
                     hf_tok = load_tokenizer(dst_dir, use_fast=use_fast)
-                    break
+                    hf_tok.save_pretrained(dst_dir.as_posix())
+                    if tokenizer_json.exists():
+                        break
                 except Exception:
                     pass
-            if hf_tok is None:
+            if not tokenizer_json.exists():
                 raise RuntimeError(f'Failed to materialize tokenizer.json from {dst_dir}')
-            hf_tok.save_pretrained(dst_dir.as_posix())
 
         model_type = infer_model_type(dst_dir)
         llm_tok = LlmTokenizer(dst_dir.as_posix(), model_type)
@@ -111,7 +114,7 @@ def export_diffusion_mtok(tokenizer_src_root, model_root):
         if out_path.endswith('tokenizer.mtok'):
             print(f'Export tokenizer to {out_path}')
         else:
-            print(f'Warning: tokenizer export fallback for {dst_dir}, got {out_path}')
+            raise RuntimeError(f'Tokenizer export did not produce tokenizer.mtok: {out_path}')
 
 if __name__ == '__main__':
     extra = ""
