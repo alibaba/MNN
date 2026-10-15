@@ -450,7 +450,22 @@ void OpenCLRuntime::gemmTuneWorker() {
         size_t sizeA = (size_t)m * k * batch * elem;
         size_t sizeB = (size_t)n * k * batch * (size_t)groupSize * elem;
         size_t sizeC = (size_t)m * n * batch * elem;
-        size_t sizeBias = (size_t)(m > n ? m : n) * batch * elem;
+        // The bias scratch has to match what the kernel actually reads (matmul_params_buf.cl,
+        // StoreResults*): BIAS_TYPE 1 indexes epm[_ni], an [N] vector of `real`; BIAS_TYPE
+        // 2/3/4 index egm[idm * stride + idn], a full [M, N] plane of `real`; BIAS_TYPE 5
+        // reinterprets that same plane as intN, so it is 4 bytes wide even in fp16. Sizing the
+        // plane as a vector let the tuning kernel read up to min(M, N) times past the buffer,
+        // which on Mali faults the GPU and takes the whole context down: every later enqueue on
+        // the foreground queue then fails with CL_INVALID_COMMAND_QUEUE and the model reads back
+        // as all zeros. Only Normal/Wide/Heavy tuning submit a job, which is why the fault looked
+        // like a tune-level quirk rather than a buffer bug.
+        size_t biasElements = (size_t)(m > n ? m : n);
+        size_t biasElemSize = elem;
+        if (biasType >= 2) {
+            biasElements = (size_t)m * n;
+            biasElemSize = (biasType == 5) ? 4 : elem;
+        }
+        size_t sizeBias = biasElements * batch * biasElemSize;
         uint64_t maxAlloc = maxAllocSize();
         if (maxAlloc == 0 || sizeA > maxAlloc || sizeB > maxAlloc || sizeC > maxAlloc || sizeBias > maxAlloc) {
             continue; // too large to tune safely; leave the heuristic result in place
