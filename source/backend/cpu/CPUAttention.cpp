@@ -1384,7 +1384,8 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 if (runningMax != nullptr && runningSum != nullptr && diffScale != nullptr) {
                     gcore->MNNFlashAttentionUpdateBlockOutput((float*)outputPacked, (float*)qkvPacked, diffScale,
                                                               runningSum, UP_DIV(mHeadDim, mPack), qRows, mPack, localBlockIdx,
-                                                              localBlocks, mPackQKV->stride(0) / mBytes, mBytes, rowStart);
+                                                              localBlocks, UP_DIV(mHeadDim, mPack) * qRows * mPack, mBytes,
+                                                              rowStart);
                 }
             }
         };
@@ -1568,15 +1569,17 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
+    auto param = op->main_as_AttentionParam();
+    const bool kvShared = param && param->kv_shared_layer_index() >= 0;
+    if (kvShared && nullptr == mMeta) {
+        // The shared layer reads its length from KVMeta.
+        return false;
+    }
     auto tmp = createClone(bn);
     // Share KV cache when cloning within the same session (same meta pointer)
     if (bn->getMetaPtr() == mMeta) {
         tmp->mKVCacheManager = mKVCacheManager;
-        // Mark as KV-shared if the target op requests KV reuse
-        auto param = op->main_as_AttentionParam();
-        if (param && param->kv_shared_layer_index() >= 0) {
-            tmp->mIsKVShared = true;
-        }
+        tmp->mIsKVShared = kvShared;
     }
     *dst = tmp;
     return true;

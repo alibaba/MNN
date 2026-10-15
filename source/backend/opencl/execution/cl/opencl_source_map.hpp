@@ -463,7 +463,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"glmem_convert", "ee4866b2d889824e48d58fa3a78795d4"},
     {"winogradTransform_buf", "efa5fda527fce5820ba48b90a4707fa7"},
     {"winogradTransform_subgroup_buf", "904f2a0f1a062378418c6c90133ed5e0"},
-    {"attention_flash_decode_partial_buf", "b2297795f40b8a338a17678c90c4e3a4"},
+    {"attention_flash_decode_partial_buf", "afdfb392f77d0c245f9c6c340aa34b0e"},
     {"splitgelu_buf", "86d5b31ea14330d2b99273e4e868bd35"},
     {"select_buf", "6c12fe9273ab292a76fbc12cfa4afae0"},
     {"grid_sample", "0e08897ea35a57c04b834b2a83be8383"},

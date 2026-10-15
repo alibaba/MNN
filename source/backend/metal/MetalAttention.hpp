@@ -21,7 +21,7 @@
 namespace MNN {
 class AttentionBufExecution : public MetalExecution {
 public:
-    AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4, float attnScale,
+    AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4,
                           std::shared_ptr<KVQuantParameter> kvQuantParam);
     virtual ~AttentionBufExecution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
@@ -37,9 +37,17 @@ public:
         if (nullptr == dst) {
             return true;
         }
-        auto exe = new AttentionBufExecution(bn, mKVCache, mOutputC4, mAttnScale, mKVQuantParameter);
-        if (mKVCache && bn->getMetaPtr() == mMeta && mMeta != nullptr) {
+        auto param = op->main_as_AttentionParam();
+        const bool kvShared = nullptr != param && param->kv_shared_layer_index() >= 0;
+        const bool canShare = mKVCache && bn->getMetaPtr() == mMeta && mMeta != nullptr;
+        if (kvShared && !canShare) {
+            // A private cache would hold the placeholder K/V instead of the owner's.
+            return false;
+        }
+        auto exe = new AttentionBufExecution(bn, mKVCache, mOutputC4, mKVQuantParameter);
+        if (canShare) {
             exe->mKVCacheManager = mKVCacheManager;
+            exe->mIsKVShared = kvShared;
         }
         *dst = exe;
         MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
@@ -75,7 +83,9 @@ private:
     const Tensor* mLastVTensor = nullptr;
     bool mKVCache = true;
     std::shared_ptr<MetalKVCacheManager> mKVCacheManager = nullptr;
-    float mAttnScale = 0.0f;
+    // Reuses another layer's kvcache: reads the shared buffers, never writes or resizes them.
+    bool mIsKVShared = false;
+    int _pastKvLength() const;
     float mScale;
     bool mOutputC4 = false;
     bool mShortSeq = false;

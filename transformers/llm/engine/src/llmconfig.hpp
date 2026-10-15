@@ -380,6 +380,10 @@ public:
         return config_.value("attn_scale", 0.0f);
     }
 
+    int num_kv_shared_layers() const {
+        return config_.value("num_kv_shared_layers", 0);
+    }
+
     bool use_template() const {
         return config_.value("use_template", true);
     }

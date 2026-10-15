@@ -68,6 +68,37 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
+def layer_layout_config(config):
+    # The flattened export config does not forward the layer layout; the original HF (text)
+    # config carries it.
+    for cfg in (config, getattr(config, 'origin_config', None)):
+        if cfg is None:
+            continue
+        for candidate in (cfg, getattr(cfg, 'text_config', None)):
+            if candidate is not None and getattr(candidate, 'num_kv_shared_layers', 0):
+                return candidate
+    return None
+
+def kv_shared_owner(config, layer_id):
+    # Index of the layer whose kvcache a sharing layer reads. HF dropped the per-module
+    # kv_shared_layer_index attribute (gemma4, transformers >= 5.5.4) but the layer layout
+    # still determines it: the owner is the last layer of the same attention type among those
+    # that keep a cache of their own. Returns None when the layout does not say.
+    cfg = layer_layout_config(config)
+    if cfg is None:
+        return None
+    first_shared = getattr(cfg, 'num_hidden_layers', 0) - cfg.num_kv_shared_layers
+    if first_shared <= 0 or layer_id < first_shared:
+        return None
+    layer_types = getattr(cfg, 'layer_types', None)
+    if not layer_types:
+        return first_shared - 1
+    want = layer_types[layer_id]
+    for index in range(first_shared - 1, -1, -1):
+        if layer_types[index] == want:
+            return index
+    return None
+
 class Attention(torch.nn.Module):
     def __init__(self, attn, layer_id, config, rotary, mapper):
         super().__init__()
@@ -136,10 +167,18 @@ class Attention(torch.nn.Module):
         # KV sharing (gemma4): track which layers share KV
         self.is_kv_shared_layer = getattr(attn, 'is_kv_shared_layer', False)
         self.kv_shared_layer_index = getattr(attn, 'kv_shared_layer_index', None)
+        if self.is_kv_shared_layer and self.kv_shared_layer_index is None:
+            self.kv_shared_layer_index = kv_shared_owner(config, layer_id)
+            if self.kv_shared_layer_index is None:
+                raise RuntimeError(f'layer {layer_id} shares its kvcache but the owning layer '
+                                   'cannot be determined, so the export would drop the sharing '
+                                   'and the layer has no key / value of its own')
         self.store_full_length_kv = getattr(attn, 'store_full_length_kv', False)
 
         # Create FusedAttention with KV sharing info
-        kv_shared_idx = self.kv_shared_layer_index if self.is_kv_shared_layer else -1
+        kv_shared_idx = -1
+        if self.is_kv_shared_layer and self.kv_shared_layer_index is not None:
+            kv_shared_idx = self.kv_shared_layer_index
         self.fused_attn = FusedAttention(
             self.num_heads * self.head_dim, self.kv_cache,
             f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx,
@@ -273,6 +312,11 @@ class Attention(torch.nn.Module):
             # gemma4 has v_norm (RMSNorm without scale)
             if hasattr(self, 'v_norm') and self.v_norm is not None:
                 value_states = self.v_norm(value_states)
+            # Publish for the layers that read this one's cache. Pre-RoPE, because they apply
+            # RoPE themselves at the same positions; without this the dict stays empty and a
+            # sharing layer falls through to the zero placeholders below.
+            if shared_kv_cache is not None and self.store_full_length_kv:
+                shared_kv_cache[self.layer_id] = (key_states, value_states)
         else:
             # Pure KV sharing layer: no local K/V projections (e.g. gemma4 in HF>=5.5.4)
             # Dummy K/V for ONNX tracing; FusedAttention handles sharing via kv_shared_layer_index

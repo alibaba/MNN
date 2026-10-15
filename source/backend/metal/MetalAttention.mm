@@ -50,12 +50,11 @@ struct CopyParam {
     float k_scale;
 };
 
-AttentionBufExecution::AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4, float attnScale,
+AttentionBufExecution::AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4,
                                              std::shared_ptr<KVQuantParameter> kvQuantParam)
     : MetalExecution(backend),
       mKVCache(kvCache),
       mOutputC4(outputC4),
-      mAttnScale(attnScale),
       mKVQuantParameter(kvQuantParam) {
     _init();
 }
@@ -109,16 +108,13 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
     }
     std::vector<std::string> qkPrefillKeys = {{"matmul_qk_div_mask", ftype, group_str, "FOR_PREFILL"}};
     if (mHasTensorMask) {
+        // Decode reads the mask too: a sliding window hides old keys even for a single query.
         if (mIsAddMask) {
             qkPrefillKeys.emplace_back("ADD_MASK");
-            if (seq_len > 1) {
-                qkKeys.emplace_back("ADD_MASK");
-            }
+            qkKeys.emplace_back("ADD_MASK");
         } else {
             qkPrefillKeys.emplace_back("SET_MASK");
-            if (seq_len > 1) {
-                qkKeys.emplace_back("SET_MASK");
-            }
+            qkKeys.emplace_back("SET_MASK");
         }
     } else if (mKVCache) {
         qkPrefillKeys.emplace_back("DEFAULT_MASK");
@@ -631,6 +627,11 @@ int AttentionBufExecution::_resolveQseqSplit() const {
     return ALIMAX(1, ALIMIN(pow2, maxSplit));
 }
 
+int AttentionBufExecution::_pastKvLength() const {
+    // The owning layer encodes first and has already committed this step's rows.
+    return mIsKVShared ? mKVCacheManager->kvLength() - mCurrentKvLen : mKVCacheManager->kvLength();
+}
+
 void AttentionBufExecution::handleKVAllocMemory() {
     constexpr auto allocType = Backend::DYNAMIC_IN_EXECUTION;
     if (!mKVCache) {
@@ -680,14 +681,16 @@ void AttentionBufExecution::handleKVAllocMemory() {
         return;
     }
 
-    if (nullptr == mMeta || mMeta->previous == mMeta->remove) {
-        mKVCacheManager->onClear();
-        mKVCacheManager->onAlloc(mMeta, mCurrentKvLen);
-    } else {
-        mKVCacheManager->onRealloc(mMeta);
+    if (!mIsKVShared) {
+        if (nullptr == mMeta || mMeta->previous == mMeta->remove) {
+            mKVCacheManager->onClear();
+            mKVCacheManager->onAlloc(mMeta, mCurrentKvLen);
+        } else {
+            mKVCacheManager->onRealloc(mMeta);
+        }
     }
 
-    mKvSeqLen = mKVCacheManager->kvLength() + mCurrentKvLen;
+    mKvSeqLen = _pastKvLength() + mCurrentKvLen;
     mKvMaxLen = mKVCacheManager->maxLength();
     mQseqSplitNum = _resolveQseqSplit();
 
@@ -749,7 +752,7 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, co
     mSeqLen = shape[1];
     mNumHead = shape[2];
     mHeadDim = shape[3];
-    mScale = (mAttnScale == 0.0f) ? (1.0f / sqrt(mHeadDim)) : mAttnScale;
+    mScale = (nullptr != mMeta && mMeta->attn_scale > 0.0f) ? mMeta->attn_scale : (1.0f / sqrt(mHeadDim));
     // TODO : define short_seq more accurately
     mShortSeq = mSeqLen < 16;
     // hardware resource limit
@@ -768,7 +771,7 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, co
                   ((mKVQuantParameter != nullptr && mKVQuantParameter->vScale != 0.0f) || dynamicQuantV);
     mQuantKey = mKVCache && !mKvInDisk &&
                 ((mKVQuantParameter != nullptr && mKVQuantParameter->kScale != 0.0f) || dynamicQuantK);
-    if (mKVCache) {
+    if (mKVCache && !mIsKVShared) {
         mKVCacheManager->setKVQuantParameter(mKVQuantParameter);
         mKVCacheManager->setAttenQuantKeyValue(mQuantKey, mQuantValue);
         mKVCacheManager->onResize(mKvNumHead, mHeadDim);
@@ -818,7 +821,7 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
     {
         const int sDecodeFusedThresh = 2;
         bool trivialMask = mHasTensorMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
-        const int totalKv = (mKVCache && mKVCacheManager != nullptr ? mKVCacheManager->kvLength() : 0) + mCurrentKvLen;
+        const int totalKv = (mKVCache && mKVCacheManager != nullptr ? _pastKvLength() : 0) + mCurrentKvLen;
 
         // Single-pass fused decode SDPA: decode_splitkv
         // runs a single threadgroup per q head (ntg=1), no reduce dispatch, final
@@ -1236,7 +1239,7 @@ void AttentionBufExecution::_writeCopyParam(const Tensor* key, const Tensor* val
     // current new kv_len
     copyp->kv_seq_len = key->shape()[1];
     copyp->max_kv_len = mKvMaxLen;
-    int pastLength = mKVCache ? mKVCacheManager->kvLength() : 0;
+    int pastLength = mKVCache ? _pastKvLength() : 0;
     copyp->dst_k_offset = pastLength * copyp->head_count;
     copyp->dst_v_offset = pastLength * copyp->head_count;
     copyp->batch = mBatch;
@@ -1340,7 +1343,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     static_cast<MetalBackend*>(backend())->setProfileSubtag("copy");
 #endif
     // Run Copy and Format-Convert Kernel
-    {
+    if (!mIsKVShared) {
         _writeCopyParam(key, value);
         int copy_line = key->shape()[1];
 
@@ -1706,7 +1709,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     }
 
     // Update status
-    if (mKVCache) {
+    if (mKVCache && !mIsKVShared) {
         mKVCacheManager->setPastLength(mKVCacheManager->kvLength() + mCurrentKvLen);
     }
     // Replay bookkeeping: capture the structural fingerprint + raw scale-buffer
@@ -1730,7 +1733,9 @@ bool AttentionBufExecution::onReplayUpdate(const std::vector<Tensor*>& inputs, c
     // pieces) bails: the execution drops the recording and re-encodes normally.
     // (Checks here use last-encode state; the signature check below is the
     // authoritative one — it recomputes every flag for THIS token first.)
-    if (!mKVCache || mKvInDisk || mFlashAttnPrefill || mFaTcPrefill || mFaSgPrefill || mQseqSplitNum != 1) {
+    // Shared layers skip the KV copy, so their event layout differs from the recording assumed below.
+    if (!mKVCache || mIsKVShared || mKvInDisk || mFlashAttnPrefill || mFaTcPrefill || mFaSgPrefill ||
+        mQseqSplitNum != 1) {
         return false;
     }
     // Recompute all per-token path state (kv length, split-kv / fused-decode
@@ -1846,7 +1851,7 @@ public:
             quantParam->qkScale = mhqscale[2];
             quantParam->vScale = mhqscale[3];
         }
-        return new AttentionBufExecution(backend, param->kv_cache(), param->output_c4(), param->attnScale(), quantParam);
+        return new AttentionBufExecution(backend, param->kv_cache(), param->output_c4(), quantParam);
     }
 };
 REGISTER_METAL_OP_TRANSFORMER_CREATOR(AttentionBufCreator, OpType_Attention);

@@ -199,6 +199,11 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                                 exe.reset(cloned);
                             }
                         }
+                        if (exe == nullptr) {
+                            // Leave it to Pipeline, which reports the failed share instead of
+                            // creating a private kvcache.
+                            break;
+                        }
                     }
                 }
                 if (exe == nullptr) {

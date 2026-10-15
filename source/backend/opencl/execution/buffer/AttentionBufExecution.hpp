@@ -99,10 +99,13 @@ public:
 
 private:
     bool mOutputC4 = false;
-    float mAttnScale = 0.0f;
     KVMeta* mMeta;
     int getLocalSize(int size, int maxGroupSize);
     bool mIsDecode = false;
+    // KVMeta::attn_scale if set, else 1/sqrt(headDim).
+    float attentionScale(int headDim) const;
+    // Reuses another layer's kvcache: reads the shared buffers, never writes or resizes them.
+    bool mIsKVShared = false;
     void handleKVCache(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     int mPastKvSeqlen = 0;
     int mKvSeqlen = 0;

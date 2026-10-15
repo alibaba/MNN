@@ -283,6 +283,7 @@ private:
     int mCallIndex;
     int mPrefixLength;
     bool mIsPrefixFileExist = false;
+    int mPrefixCacheNums = 0;
     void completePrefixWrite();
     // -1 until the model graph is scanned on the first partial erase.
     int mHasLinearAttention = -1;
