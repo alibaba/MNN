@@ -272,6 +272,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
         if (mDynamicMmap.empty()) {
             // Only support set featuremap dir once
             mDynamicMmap.resize(2);
+            // Transient autoRemove mappings intentionally retain the legacy protocol; no manifest is needed.
             auto mmapMem = BufferAllocator::Allocator::createMmap(hint().midMemoryPath.c_str(), "", "dynamic");
             for (auto& buf : mDynamicMmap) {
                 buf.root = mmapMem;
@@ -311,7 +312,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
                 const_cast<RuntimeHint&>(hint()).useCachedMmap += syncValid;
             }
             mStaticAllocatorRaw = mStaticAllocator;
-            auto mmapMem = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), prefix.c_str(), "static", autoRemove, syncValid);
+            auto mmapMem = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), prefix.c_str(), "static", autoRemove, syncValid, true);
             size_t mmapSize = static_cast<size_t>(hint().mmapFileSize) * 1024 * 1024;
             mStaticAllocator.reset(new EagerBufferAllocator(mmapMem, 32, mmapSize));
             mStaticAllocatorMMap = mStaticAllocator;

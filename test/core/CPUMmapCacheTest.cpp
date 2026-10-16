@@ -63,6 +63,27 @@ public:
     std::string path;
 };
 
+// Restore permissions before the directory owner attempts cleanup, including
+// assertion failures. File contents remain writable while directory unlink is denied.
+class MmapDirectoryPermissions {
+public:
+    explicit MmapDirectoryPermissions(const std::string& path) : mPath(path) {
+        struct stat status;
+        if (stat(path.c_str(), &status) == 0) {
+            mMode = status.st_mode & 07777;
+            mValid = chmod(path.c_str(), 0555) == 0;
+        }
+    }
+    ~MmapDirectoryPermissions() {
+        if (mValid) chmod(mPath.c_str(), mMode);
+    }
+    bool valid() const { return mValid; }
+private:
+    std::string mPath;
+    mode_t mMode = 0700;
+    bool mValid = false;
+};
+
 // Allocate through the production CPU runtime/backend. The STATIC tensor stands
 // in for an execution's packed weights, and onClearBuffer seals/syncs the pool.
 bool runStaticTensor(const std::string& directory, bool cached, bool expectTrust, bool write, int value,
@@ -256,7 +277,7 @@ public:
     bool run(int precision) override {
         MmapTestDirectory directory;
         MNNTEST_ASSERT(!directory.path.empty());
-        auto allocator = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false);
+        auto allocator = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false, false, true);
         allocator->sync();
         MNNTEST_ASSERT(!MNNFileExist(MNNFilePathConcat(directory.path, "sync.static").c_str()));
         auto first = allocator->onAlloc(32, 32);
@@ -316,12 +337,12 @@ public:
     bool run(int precision) override {
         for (int mutation = Mutation; mutation <= Mutation; ++mutation) {
             MmapTestDirectory directory;
-            auto cold = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false);
+            auto cold = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false, false, true);
             auto seed = cold->onAlloc(32, 32);
             MNNTEST_ASSERT(!seed.invalid());
             memset(seed.first, 7, 32);
             cold->sync();
-            auto warm = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false, true);
+            auto warm = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false, true, true);
             const auto data = MNNFilePathConcat(directory.path, "0.static");
             const auto marker = MNNFilePathConcat(directory.path, "sync.static");
             if (mutation == 2) {
@@ -514,7 +535,7 @@ public:
         for (int blockedMarker = 0; blockedMarker < 2; ++blockedMarker) {
             MmapTestDirectory directory;
             MNNTEST_ASSERT(!directory.path.empty());
-            auto allocator = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false);
+            auto allocator = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false, false, true);
             const auto blocked = MNNFilePathConcat(directory.path, blockedMarker ? "sync.static" : "0.static");
             MNNTEST_ASSERT(mkdir(blocked.c_str(), 0700) == 0);
             MNNTEST_ASSERT(allocator->onAlloc(32, 32).invalid());
@@ -534,7 +555,7 @@ public:
             MNNTEST_ASSERT(!MNNFileExist(MNNFilePathConcat(directory.path, "sync.static").c_str()));
             allocator->onRelease(next);
             allocator.reset();
-            allocator = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false);
+            allocator = BufferAllocator::Allocator::createMmap(directory.path.c_str(), "", "static", false, false, true);
             auto rebuilt = allocator->onAlloc(32, 32);
             MNNTEST_ASSERT(!rebuilt.invalid());
             memset(rebuilt.first, 5, 32);
@@ -547,5 +568,65 @@ public:
 };
 MNNTestSuiteRegister(CPUMmapCacheMixedFallbackTest, "core/cpu/mmap_cache/mixed_raw_fallback");
 MNNTestSuiteRegister(CPUMmapCacheColdFailureStickyTest, "core/cpu/mmap_cache/cold_failure_sticky");
+
+// Metal still uses the legacy marker protocol through this exact four-argument
+// signature. Reusing existing read/write files must not require directory writes.
+class MmapCacheLegacyMetalTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        if (geteuid() == 0) {
+            MNN_PRINT("Skip legacy Metal directory-permission case as root.\n");
+            return true;
+        }
+        MmapTestDirectory directory;
+        MNNTEST_ASSERT(!directory.path.empty());
+        const auto marker = MNNFilePathConcat(directory.path, "1_0_0_0_sync.metal.weight");
+        const auto firstName = MNNFilePathConcat(directory.path, "1_0_0_0_0.metal.weight");
+        const auto secondName = MNNFilePathConcat(directory.path, "1_0_0_0_1.metal.weight");
+        uint8_t saved[32];
+        for (size_t i = 0; i < sizeof(saved); ++i) saved[i] = static_cast<uint8_t>(11 + i);
+        for (const auto& name : {firstName, secondName}) {
+            auto file = MNNCreateFile(name.c_str());
+            MNNTEST_ASSERT(file != INVALID_FILE);
+            MNNTEST_ASSERT(MNNWriteFile(file, saved, sizeof(saved)) == sizeof(saved));
+            MNNTEST_ASSERT(MNNCloseFile(file) == NO_ERROR);
+        }
+        auto file = MNNCreateFile(marker.c_str());
+        MNNTEST_ASSERT(file != INVALID_FILE);
+        MNNTEST_ASSERT(MNNCloseFile(file) == NO_ERROR);
+        struct stat original;
+        MNNTEST_ASSERT(stat(marker.c_str(), &original) == 0 && original.st_size == 0);
+        MmapDirectoryPermissions permissions(directory.path);
+        MNNTEST_ASSERT(permissions.valid());
+        MNNTEST_ASSERT(access(directory.path.c_str(), W_OK) != 0);
+        auto allocator = BufferAllocator::Allocator::createMmap(
+            directory.path.c_str(), "1_0_0_0_", "metal.weight", false);
+        auto first = allocator->onAlloc(sizeof(saved), 32);
+        MNNTEST_ASSERT(!first.invalid());
+        MNNTEST_ASSERT(memcmp(first.first, saved, sizeof(saved)) == 0);
+        auto second = allocator->onAlloc(sizeof(saved), 32);
+        MNNTEST_ASSERT(!second.invalid());
+        MNNTEST_ASSERT(memcmp(second.first, saved, sizeof(saved)) == 0);
+        // Legacy release resets the allocation index even while another mapping
+        // is live. The CPU manifest generation contract must remain opt-in.
+        allocator->onRelease(first);
+        auto again = allocator->onAlloc(sizeof(saved), 32);
+        MNNTEST_ASSERT(!again.invalid());
+        MNNTEST_ASSERT(memcmp(again.first, saved, sizeof(saved)) == 0);
+        MNNTEST_ASSERT(!MNNFileExist(MNNFilePathConcat(directory.path, "1_0_0_0_2.metal.weight").c_str()));
+        allocator->sync();
+        struct stat after;
+        MNNTEST_ASSERT(stat(marker.c_str(), &after) == 0);
+        MNNTEST_ASSERT(after.st_size == 0 && after.st_ino == original.st_ino);
+        allocator->onRelease(again);
+        allocator->onRelease(second);
+        allocator.reset();
+        MNNTEST_ASSERT(readSavedBytes(firstName) == std::vector<uint8_t>(saved, saved + sizeof(saved)));
+        MNNTEST_ASSERT(readSavedBytes(secondName) == std::vector<uint8_t>(saved, saved + sizeof(saved)));
+        MNNTEST_ASSERT(stat(marker.c_str(), &after) == 0 && after.st_size == 0);
+        return true;
+    }
+};
+MNNTestSuiteRegister(MmapCacheLegacyMetalTest, "core/cpu/mmap_cache/legacy_metal_readonly_directory");
 
 #endif // !defined(_WIN32)
