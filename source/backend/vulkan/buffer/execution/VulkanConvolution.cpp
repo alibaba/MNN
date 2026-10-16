@@ -13,6 +13,7 @@
 #include "VulkanConv1x1CoopAFP16.hpp"
 #include "VulkanConv1x1CoopA8.hpp"
 #include "VulkanConv1x1General.hpp"
+#include "VulkanConv1x1ArmNx.hpp"
 namespace MNN {
 int VulkanConvolutionCommon::gImage2ColLocal = 256;
 std::string VulkanConvolutionCommon::getPostTreatMacro(const Convolution2DCommon* common) {
@@ -583,6 +584,12 @@ public:
                     coopMatInfo.supportCoopMat && supportSubgroupArithmetic &&
                     extra->gpuType() == VulkanRuntime::ADRENO;
                 if (useInt8Conv && is1x1 && singleInput) {
+#ifdef MNN_VULKAN_ARM_NX
+                    if (auto graph = VulkanConv1x1ArmNx::create(extra, convCommonParam, biasPtr, srcCount, outputCount,
+                                                                quanWeight)) {
+                        return graph;
+                    }
+#endif
                     // CoopMat path only supports int4/int8 weight. For 2/3-bit, go to
                     // VulkanConv1x1General which has the native int2/int3 packed path.
                     const bool isLowBit23 = (quanWeight != nullptr)

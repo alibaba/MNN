@@ -197,6 +197,11 @@ public:
         return mInt8Info.supportInt8;
     }
 
+#ifdef MNN_VULKAN_ARM_NX
+    // The ARM NX path can also be provided by emulation; this does not identify the hardware engine.
+    bool supportsArmNx() const { return mSupportArmNx; }
+#endif
+
 private:
     // Set mFP16Info
     void checkFP16(const std::vector<VkExtensionProperties>& availableExts);
@@ -217,6 +222,13 @@ private:
     VkPhysicalDeviceMemoryProperties mMemoryProty;
     SubgroupInfo mSubgroupInfo{};
     uint32_t mLocalMemorySize = 0;
+
+#ifdef MNN_VULKAN_ARM_NX
+    bool mSupportArmNx = false;
+    VkPhysicalDeviceTensorFeaturesARM mArmNxTensorFeatures{};
+    VkPhysicalDeviceDataGraphFeaturesARM mArmNxGraphFeatures{};
+    VkPhysicalDeviceSynchronization2Features mArmNxSyncFeatures{};
+#endif
 
 // FP16 related
 private:

@@ -1,0 +1,32 @@
+// Reduce the independent INT8 MATMUL groups and restore weight scale/offset.
+layout(local_size_x = 64) in;
+layout(binding = 0) readonly buffer Accumulator { int Acc[]; };
+layout(binding = 1) readonly buffer ActivationMeta { vec2 AMeta[]; };
+layout(binding = 2) readonly buffer WeightMeta { vec2 WMeta[]; };
+layout(binding = 3) readonly buffer Bias { float B[]; };
+layout(binding = 4) writeonly buffer Output { FLOAT4 Y[]; };
+layout(push_constant) uniform Params {
+    uint M; uint K; uint N; uint blocks; uint blockSize; uint activation;
+} pc;
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= ((pc.N + 3) / 4) * pc.M) return;
+    uint row = index % pc.M;
+    uint channel = (index / pc.M) * 4;
+    vec4 result = vec4(0.0);
+    for (uint lane = 0; lane < 4; ++lane) {
+        uint n = channel + lane;
+        if (n >= pc.N) continue;
+        float value = B[n];
+        for (uint block = 0; block < pc.blocks; ++block) {
+            vec2 a = AMeta[block * pc.M + row];
+            vec2 w = WMeta[n * pc.blocks + block];
+            int acc = Acc[(block * pc.M + row) * pc.N + n];
+            value += a.x * (float(acc) * w.x + a.y * w.y);
+        }
+        if (pc.activation != 0) value = max(value, 0.0);
+        if (pc.activation == 2) value = min(value, 6.0);
+        result[lane] = value;
+    }
+    Y[index] = FLOAT4(result);
+}

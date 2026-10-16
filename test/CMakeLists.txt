@@ -1,4 +1,23 @@
 set(TEST_DEPS ${MNN_DEPS})
+if(MNN_VULKAN AND MNN_VULKAN_ARM_NX AND NOT MNN_BUILD_SHARED_LIBS)
+  find_package(Vulkan REQUIRED)
+  add_executable(vulkan_arm_nx_test.out ${CMAKE_CURRENT_LIST_DIR}/../tools/vulkan/VulkanArmNxTest.cpp)
+  target_compile_definitions(vulkan_arm_nx_test.out PRIVATE MNN_VULKAN_ARM_NX)
+  if(NOT MNN_USE_SYSTEM_LIB)
+    target_compile_definitions(vulkan_arm_nx_test.out PRIVATE MNN_USE_LIB_WRAPPER)
+  endif()
+  target_include_directories(vulkan_arm_nx_test.out BEFORE PRIVATE ${Vulkan_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_LIST_DIR}/../source/backend/vulkan)
+  target_link_libraries(vulkan_arm_nx_test.out PRIVATE ${MNN_DEPS} ${Vulkan_LIBRARIES})
+  if(MNN_BUILD_LLM)
+    add_executable(vulkan_arm_nx_llm_test.out ${CMAKE_CURRENT_LIST_DIR}/../tools/vulkan/VulkanArmNxLlmTest.cpp)
+    target_compile_definitions(vulkan_arm_nx_llm_test.out PRIVATE MNN_VULKAN_ARM_NX)
+    target_include_directories(vulkan_arm_nx_llm_test.out BEFORE PRIVATE ${Vulkan_INCLUDE_DIRS}
+      ${CMAKE_CURRENT_LIST_DIR}/../source/backend/vulkan
+      ${CMAKE_CURRENT_LIST_DIR}/../transformers/llm/engine/include)
+    target_link_libraries(vulkan_arm_nx_llm_test.out PRIVATE ${MNN_DEPS} ${Vulkan_LIBRARIES})
+  endif()
+endif()
 if(MNN_WITH_PLUGIN)
   include(${CMAKE_CURRENT_LIST_DIR}/plugin/CMakeLists.txt)
   list(APPEND TEST_DEPS plugin_matmul)

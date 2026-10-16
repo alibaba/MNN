@@ -848,4 +848,14 @@ extern const unsigned char glsl_COOP_to_C4_comp[];
 extern unsigned int glsl_COOP_to_C4_comp_len;
 extern const unsigned char glsl_COOP_to_C4_FP16_comp[];
 extern unsigned int glsl_COOP_to_C4_FP16_comp_len;
+#ifdef MNN_VULKAN_ARM_NX
+extern const unsigned char glsl_arm_nx_quantize_comp[];
+extern unsigned int glsl_arm_nx_quantize_comp_len;
+extern const unsigned char glsl_arm_nx_quantize_FP16_comp[];
+extern unsigned int glsl_arm_nx_quantize_FP16_comp_len;
+extern const unsigned char glsl_arm_nx_dequantize_comp[];
+extern unsigned int glsl_arm_nx_dequantize_comp_len;
+extern const unsigned char glsl_arm_nx_dequantize_FP16_comp[];
+extern unsigned int glsl_arm_nx_dequantize_FP16_comp_len;
+#endif
 #endif
