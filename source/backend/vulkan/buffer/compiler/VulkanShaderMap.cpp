@@ -3,6 +3,18 @@
 #include "AllShader.h"
 namespace MNN {
 void VulkanShaderMap::init() {
+#ifdef MNN_VULKAN_ARM_NX
+mMaps.insert(std::make_pair("glsl_arm_nx_dequantize_FP16_comp", std::make_pair(glsl_arm_nx_dequantize_FP16_comp,glsl_arm_nx_dequantize_FP16_comp_len)));
+#endif
+#ifdef MNN_VULKAN_ARM_NX
+mMaps.insert(std::make_pair("glsl_arm_nx_dequantize_comp", std::make_pair(glsl_arm_nx_dequantize_comp,glsl_arm_nx_dequantize_comp_len)));
+#endif
+#ifdef MNN_VULKAN_ARM_NX
+mMaps.insert(std::make_pair("glsl_arm_nx_quantize_FP16_comp", std::make_pair(glsl_arm_nx_quantize_FP16_comp,glsl_arm_nx_quantize_FP16_comp_len)));
+#endif
+#ifdef MNN_VULKAN_ARM_NX
+mMaps.insert(std::make_pair("glsl_arm_nx_quantize_comp", std::make_pair(glsl_arm_nx_quantize_comp,glsl_arm_nx_quantize_comp_len)));
+#endif
 mMaps.insert(std::make_pair("glsl_int3_weight_to_pack_comp", std::make_pair(glsl_int3_weight_to_pack_comp,glsl_int3_weight_to_pack_comp_len)));
 mMaps.insert(std::make_pair("glsl_int3_weight_to_pack_FP16_comp", std::make_pair(glsl_int3_weight_to_pack_FP16_comp,glsl_int3_weight_to_pack_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_conv1x1_int2_weight_prepare_comp", std::make_pair(glsl_conv1x1_int2_weight_prepare_comp,glsl_conv1x1_int2_weight_prepare_comp_len)));

@@ -7,6 +7,8 @@
 //
 
 #include "backend/vulkan/component/VulkanDevice.hpp"
+#include <cstdlib>
+#include <iterator>
 #include <string.h>
 #include <algorithm>
 //#define MNN_VULKAN_PRINT_EXT
@@ -193,6 +195,53 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
         }
     }
 
+#ifdef MNN_VULKAN_ARM_NX
+    void* const computeFeatureChain = pNextChain;
+    const size_t computeExtensionCount = deviceExtensions.size();
+    const char* nxRequested = std::getenv("MNN_VULKAN_ARM_NX");
+    if (nxRequested && std::strcmp(nxRequested, "1") == 0) {
+        const char* graphExtensions[] = {VK_ARM_TENSORS_EXTENSION_NAME, VK_ARM_DATA_GRAPH_EXTENSION_NAME,
+            VK_ARM_DATA_GRAPH_INSTRUCTION_SET_TOSA_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+            VK_KHR_MAINTENANCE_5_EXTENSION_NAME};
+        bool available = (queueFamilyProperties[mQueueFamilyIndex].queueFlags & VK_QUEUE_DATA_GRAPH_BIT_ARM) != 0;
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(mPhysicalDevice, &properties);
+        available = available && properties.apiVersion >= VK_API_VERSION_1_3;
+        for (const char* extension : graphExtensions) {
+            available = available && _hasExtension(availableDeviceExtensions, extension);
+        }
+        if (available) {
+            VkPhysicalDeviceTensorFeaturesARM tensors{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TENSOR_FEATURES_ARM};
+            VkPhysicalDeviceDataGraphFeaturesARM graph{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DATA_GRAPH_FEATURES_ARM};
+            VkPhysicalDeviceSynchronization2Features sync{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+            tensors.pNext = &graph;
+            graph.pNext = &sync;
+            VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+            features.pNext = &tensors;
+            vkGetPhysicalDeviceFeatures2(mPhysicalDevice, &features);
+            available = tensors.tensors && tensors.tensorNonPacked && tensors.shaderTensorAccess &&
+                        graph.dataGraph && graph.dataGraphShaderModule && sync.synchronization2;
+            if (available) {
+                deviceExtensions.insert(deviceExtensions.end(), std::begin(graphExtensions), std::end(graphExtensions));
+                mArmNxTensorFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TENSOR_FEATURES_ARM};
+                mArmNxTensorFeatures.tensors = VK_TRUE;
+                mArmNxTensorFeatures.tensorNonPacked = VK_TRUE;
+                mArmNxTensorFeatures.shaderTensorAccess = VK_TRUE;
+                mArmNxGraphFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DATA_GRAPH_FEATURES_ARM};
+                mArmNxGraphFeatures.dataGraph = VK_TRUE;
+                mArmNxGraphFeatures.dataGraphShaderModule = VK_TRUE;
+                mArmNxSyncFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+                mArmNxSyncFeatures.synchronization2 = VK_TRUE;
+                mArmNxSyncFeatures.pNext = pNextChain;
+                mArmNxGraphFeatures.pNext = &mArmNxSyncFeatures;
+                mArmNxTensorFeatures.pNext = &mArmNxGraphFeatures;
+                pNextChain = &mArmNxTensorFeatures;
+                mSupportArmNx = true;
+            }
+        }
+        MNN_PRINT("Vulkan ARM NX: %s\n", mSupportArmNx ? "enabled" : "unavailable; using compute fallback");
+    }
+#endif
     deviceFeatures2.pNext = pNextChain;
 
     // Create Device. Get Queue.
@@ -210,7 +259,24 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     };
     deviceCreateInfo.pNext = &deviceFeatures2;
     mDevice = VK_NULL_HANDLE;
+#ifdef MNN_VULKAN_ARM_NX
+    auto createResult = vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice);
+    if (createResult != VK_SUCCESS && mSupportArmNx) {
+        MNN_ERROR("Vulkan ARM NX: device creation failed (%d); retrying compute device\n", createResult);
+        mSupportArmNx = false;
+        deviceFeatures2.pNext = computeFeatureChain;
+        deviceExtensions.resize(computeExtensionCount);
+        deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+        deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+        mDevice = VK_NULL_HANDLE;
+        createResult = vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice);
+    }
+    if (createResult != VK_SUCCESS) {
+        MNN_ERROR("Vulkan device creation failed (%d)\n", createResult);
+    }
+#else
     CALL_VK(vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice));
+#endif
     if (VK_NULL_HANDLE == mDevice) {
         MNN_ERROR("Can't create vk device\n");
         return;

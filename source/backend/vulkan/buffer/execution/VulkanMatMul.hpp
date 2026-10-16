@@ -11,6 +11,9 @@
 
 #include "VulkanRaster.hpp"
 #include "VulkanLoop.hpp"
+#ifdef MNN_VULKAN_ARM_NX
+#include "VulkanArmNx.hpp"
+#endif
 namespace MNN {
 
 class VulkanMatMul : public VulkanBasicExecution {
@@ -27,6 +30,10 @@ private:
     bool mTransposeA;
     bool mTransposeB;
     bool mHasBias;
+#ifdef MNN_VULKAN_ARM_NX
+    std::unique_ptr<VulkanArmNx> mArmNx;
+    std::array<uint32_t, 3> mArmNxShape{};
+#endif
 };
 }
 #endif

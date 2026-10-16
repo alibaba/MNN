@@ -59,6 +59,32 @@ ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std:
     const Tensor* A = inputs[0];
     const Tensor* B = inputs[1];
     Tensor* C       = outputs[0];
+#ifdef MNN_VULKAN_ARM_NX
+    auto nxBackend = static_cast<VulkanBackend*>(backend());
+    if (nxBackend->getDevice().supportsArmNx() && !nxBackend->useFP16() && !mTransposeA && !mTransposeB && !mHasBias &&
+        A->dimensions() == 2 && B->dimensions() == 2 && C->dimensions() == 2 &&
+        A->getType() == halide_type_of<float>() && B->getType() == halide_type_of<float>() &&
+        C->getType() == halide_type_of<float>() &&
+        TensorUtils::getDescribe(A)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 &&
+        TensorUtils::getDescribe(B)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 &&
+        TensorUtils::getDescribe(C)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 && A->length(0) > 0 &&
+        A->length(1) > 0 && B->length(1) > 0 && A->length(1) == B->length(0) && C->length(0) == A->length(0) &&
+        C->length(1) == B->length(1)) {
+        std::array<uint32_t, 3> shape{{static_cast<uint32_t>(A->length(0)), static_cast<uint32_t>(A->length(1)),
+                                       static_cast<uint32_t>(B->length(1))}};
+        if (shape != mArmNxShape) {
+            mArmNx.reset();
+            mArmNxShape = shape;
+            mArmNx = VulkanArmNx::createMatMul(nxBackend->getDevice(), shape[0], shape[1], shape[2]);
+        }
+        if (mArmNx) {
+            const auto a = nxBackend->getBuffer(A), b = nxBackend->getBuffer(B), c = nxBackend->getBuffer(C);
+            mArmNx->encode(cmdBuffer->get(), std::get<0>(a), std::get<2>(a), std::get<0>(b), std::get<2>(b),
+                           std::get<0>(c), std::get<2>(c));
+            return NO_ERROR;
+        }
+    }
+#endif
     auto w0         = inputs[0]->length(1);
     auto h0         = inputs[0]->length(0);
     auto e = A->length(0);

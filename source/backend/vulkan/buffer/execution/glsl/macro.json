@@ -542,5 +542,11 @@
         "macro": [
             "SORT_DESC"
         ]
+    },
+    "arm_nx_quantize.comp": {
+        "useFP16": true
+    },
+    "arm_nx_dequantize.comp": {
+        "useFP16": true
     }
 }
