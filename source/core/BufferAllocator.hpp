@@ -90,6 +90,10 @@ public:
         virtual void sync() {};
         static std::shared_ptr<Allocator> createDefault();
         static std::shared_ptr<Allocator> createMmap(const char* dirName, const char* prefix, const char* posfix, bool autoRemove = true, bool syncValid = false);
+        // The complete-cache manifest protocol is opt-in; other callers retain legacy markers.
+        static std::shared_ptr<Allocator> createMmap(const char* dirName, const char* prefix, const char* posfix,
+                                                     bool autoRemove, bool syncValid, bool useCacheManifest);
+        static bool validateMmapCache(const char* dirName, const char* prefix, const char* posfix);
         static std::shared_ptr<Allocator> createRecurse(BufferAllocator* parent);
     };
     BufferAllocator() = default;

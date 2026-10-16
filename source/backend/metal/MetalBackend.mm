@@ -2169,6 +2169,8 @@ Backend* MetalRuntime::onCreate(const BackendConfig* config, Backend* origin) co
             const_cast<RuntimeHint&>(hint()).useCachedMmap += MNNFileExist(fileName.c_str());
         }
         auto ctx = (__bridge MNNMetalContext *)mContext;
+        // Keep the legacy marker protocol. Future manifest migration must validate the full manifest
+        // before passing syncValid; marker existence alone is insufficient.
         auto mmap = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), prefix.c_str(), posfix.c_str(), autoRemove);
         std::shared_ptr<BufferAllocator::Allocator> mmapMem(new MetalWrapAllocator(mmap, [ctx device]));
         mStaticAllocator.reset(new EagerBufferAllocator(mmapMem, 32, 1024 * 1024 * 1024));
