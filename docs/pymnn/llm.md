@@ -141,16 +141,14 @@ identical to the input string.
 prompt = model.apply_chat_template("Tell me a joke")
 input_ids = model.tokenizer_encode(prompt)
 model.generate_init()
-output_ids = model.generate(input_ids, max_new_tokens=64)
+output_ids = model.generate(input_ids)
 response = "".join(model.tokenizer_decode(token_id) for token_id in output_ids)
 print(response)
 ```
 
-`generate` returns generated token IDs. `max_new_tokens=-1` uses the configured
-limit; `0` performs prefill only. The optional token limit is available in the
-public wrapper from this revision. Older wrappers that only forward
-`generate(input_ids)` pass the native default of zero and do not request new
-tokens; use `response` with those versions.
+`generate` returns generated token IDs. Configure the generation limit with
+`model.set_config({"max_new_tokens": 64})` before loading the model, as shown
+in the quick start. The public wrapper accepts only `input_ids`.
 
 `generate_init(stream=None, end_with=None)` initializes generation state.
 The current binding does not forward a Python stream object to C++.

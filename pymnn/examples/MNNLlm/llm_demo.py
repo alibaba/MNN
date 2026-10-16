@@ -40,7 +40,7 @@ def demo_low_level_generation(model):
     prompt = model.apply_chat_template("The capital of France is")
     input_ids = model.tokenizer_encode(prompt)
     model.generate_init()
-    output_ids = model.generate(input_ids, max_new_tokens=64)
+    output_ids = model.generate(input_ids)
     response = "".join(model.tokenizer_decode(token_id) for token_id in output_ids)
     print(f"Response: {response}")
 
