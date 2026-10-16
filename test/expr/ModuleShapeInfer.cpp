@@ -169,13 +169,14 @@ public:
     bool run(int precision) override {
         auto executor = cloneCurrentExecutor();
         ExecutorScope scope(executor);
-        for (int mode = 0; mode < 3; ++mode) {
-            const bool floatInput = mode == 0;
+        for (int mode = 0; mode < 4; ++mode) {
+            const bool backendInput = mode == 3;
+            const bool floatInput = mode == 0 || backendInput;
             auto length = _Input({1}, NCHW, floatInput ? halide_type_of<float>() : halide_type_of<int>());
             length->setName("length");
-            auto limit = _ReduceMax(length, {}, false);
+            auto limit = backendInput ? length : _ReduceMax(length, {}, false);
             const bool floatRange = mode != 2;
-            if (floatRange) {
+            if (floatRange && !backendInput) {
                 limit = _Cast<float>(limit);
             }
             auto output = floatRange ? _Range(_Scalar<float>(0), limit, _Scalar<float>(1))
@@ -188,13 +189,46 @@ public:
                 return false;
             }
             auto input = _Input({1}, NCHW, floatInput ? halide_type_of<float>() : halide_type_of<int>());
-            for (int count : {3, 13, 13, 2, 5}) {
+            // Alternate host and backend outputs to also check cache invalidation on fallback.
+            std::shared_ptr<Module> producer;
+            if (backendInput) {
+                ScheduleConfig config;
+                BackendConfig backendConfig;
+                backendConfig.precision = static_cast<BackendConfig::PrecisionMode>(precision);
+                config.backendConfig = &backendConfig;
+                std::shared_ptr<Executor::RuntimeManager> runtime(
+                    Executor::RuntimeManager::createRuntimeManager(config), Executor::RuntimeManager::destroy);
+                auto value = _Input({1}, NCHW);
+                value->setName("value");
+                auto positive = _Square(value);
+                positive->setName("positive");
+                auto producerBuffer = Variable::save({positive});
+                producer.reset(Module::load({"value"}, {"positive"},
+                    reinterpret_cast<const uint8_t*>(producerBuffer.data()), producerBuffer.size(), runtime), Module::destroy);
+                if (!producer) {
+                    return false;
+                }
+            }
+            int step = 0;
+            const std::vector<int> counts = backendInput ? std::vector<int>{4, 16, 4, 16, 16, 1, 9}
+                                                       : std::vector<int>{3, 13, 3, 13, 13, 2, 5};
+            for (int count : counts) {
                 if (floatInput) {
                     input->writeMap<float>()[0] = count;
                 } else {
                     input->writeMap<int>()[0] = count;
                 }
-                auto outputs = module->onForward({input});
+                VARP current = input;
+                if (backendInput && step != 0 && step != 2 && step != 6) {
+                    input->writeMap<float>()[0] = sqrtf(static_cast<float>(count));
+                    auto produced = producer->onForward({input});
+                    if (produced.size() != 1) {
+                        return false;
+                    }
+                    current = produced[0];
+                }
+                ++step;
+                auto outputs = module->onForward({current});
                 if (outputs.size() != 1 || outputs[0]->getInfo() == nullptr ||
                     outputs[0]->getInfo()->dim != std::vector<int>{count}) {
                     MNN_ERROR("Range shape did not update: mode=%d, count=%d\n", mode, count);
