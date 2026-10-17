@@ -65,8 +65,10 @@ static bool _mnn_test_should_skip(const std::string& name) {
 }
 
 int MNNTestSuite::run(const char* key, int precision, const char* flag) {
-    if (key == NULL || strlen(key) == 0)
-        return 0;
+    if (key == NULL || strlen(key) == 0) {
+        MNN_ERROR("Empty test selector; use 'all' to run the whole suite\n");
+        return 1;
+    }
     std::vector<std::pair<std::string, float>> runTimes;
     auto suite         = MNNTestSuite::get();
     std::string prefix = key;
@@ -76,11 +78,15 @@ int MNNTestSuite::run(const char* key, int precision, const char* flag) {
     for (int i = 0; i < suite->mTests.size(); ++i) {
         MNNTestCase* test = suite->mTests[i];
         if (test->name.find(prefix) == 0) {
+            // Count every matched case before the skip check so that the
+            // passed/skipped accounting below stays consistent when a case is
+            // suppressed via MNN_TEST_SKIP.
+            runUnit++;
             if (_mnn_test_should_skip(test->name)) {
                 MNN_PRINT("\tskip %s (in MNN_TEST_SKIP)\n", test->name.c_str());
+                suite->skipped++;
                 continue;
             }
-            runUnit++;
             MNN_PRINT("\trunning %s.\n", test->name.c_str());
             MNN::Timer _t;
             auto res = test->run(precision);
@@ -90,14 +96,20 @@ int MNNTestSuite::run(const char* key, int precision, const char* flag) {
             }
         }
     }
+    if (runUnit == 0) {
+        MNN_ERROR("No test case matches selector '%s'\n", key);
+        return 1;
+    }
     std::sort(runTimes.begin(), runTimes.end(), [](const std::pair<std::string, float>& left, const std::pair<std::string, float>& right) {
         return left.second < right.second;
     });
     for (auto& iter : runTimes) {
         MNN_PRINT("%s cost time: %.3f ms\n", iter.first.c_str(), iter.second);
     }
-    if (wrongs.empty()) {
+    if (wrongs.empty() && runUnit > suite->skipped) {
         MNN_PRINT("√√√ all <%s> tests passed.\n", key);
+    } else if (wrongs.empty()) {
+        MNN_PRINT("All <%s> tests were skipped (MNN_TEST_SKIP).\n", key);
     }
     for (auto& wrong : wrongs) {
         MNN_PRINT("Error: %s\n", wrong.c_str());
@@ -122,11 +134,12 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
             // Don't test for model because need resource
             continue;
         }
+        runUnit++;
         if (_mnn_test_should_skip(test->name)) {
             MNN_PRINT("\tskip %s (in MNN_TEST_SKIP)\n", test->name.c_str());
+            suite->skipped++;
             continue;
         }
-        runUnit++;
         MNN_PRINT("\trunning %s.\n", test->name.c_str());
         MNN::Timer _t;
         auto res = test->run(precision);
@@ -144,14 +157,20 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
             curExe->gc(MNN::Express::Executor::FULL);
         }
     }
+    if (runUnit == 0) {
+        MNN_ERROR("No test case was selected; check the test registration\n");
+        return 1;
+    }
     std::sort(runTimes.begin(), runTimes.end(), [](const std::pair<std::string, float>& left, const std::pair<std::string, float>& right) {
         return left.second < right.second;
     });
     for (auto& iter : runTimes) {
         MNN_PRINT("%s cost time: %.3f ms\n", iter.first.c_str(), iter.second);
     }
-    if (wrongs.empty()) {
+    if (wrongs.empty() && runUnit > suite->skipped) {
         MNN_PRINT("√√√ all tests passed.\n");
+    } else if (wrongs.empty()) {
+        MNN_PRINT("All tests were skipped (MNN_TEST_SKIP).\n");
     }
     for (auto& wrong : wrongs) {
         MNN_PRINT("Error: %s\n", wrong.c_str());

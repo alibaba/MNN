@@ -371,7 +371,7 @@
         "name":            "unit/cpu",
         "filter":          "cpu",
         "comment":         "Single-thread full unit-test suite on the host build.",
-        "prefix":          "",
+        "prefix":          "all",
         "type":            0,
         "precision":       0,
         "threadOrGpuMode": 1,
