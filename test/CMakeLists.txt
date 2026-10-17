@@ -21,6 +21,15 @@ if(NOT MNN_BUILD_TRAIN)
 endif()
 
 add_executable(run_test.out ${Files})
+if (MNN_BUILD_LLM)
+  # test/llm/SamplerTest.cpp is guarded by #ifdef MNN_BUILD_LLM. MNN_BUILD_LLM
+  # is a CMake option, not a compiler define, so without this the LLM cases
+  # were compiled to an empty translation unit and never ran.
+  target_compile_definitions(run_test.out PRIVATE MNN_BUILD_LLM)
+  if (MNN_SEP_BUILD AND TARGET llm)
+    target_link_libraries(run_test.out llm)
+  endif()
+endif()
 if(TARGET MNNRVV)
   target_compile_definitions(run_test.out PRIVATE MNN_USE_RVV)
 endif()

@@ -233,4 +233,58 @@ class SamplerMixedNgramFactorTest : public MNNTestCase {
 };
 MNNTestSuiteRegister(SamplerMixedNgramFactorTest, "llm/sampler_mixed_ngram_factor");
 
+// --------------------------------------------------------------------------
+// temperature <= 0 means greedy. It must not divide by zero and turn the
+// whole distribution into NaN (which silently picks the last token).
+// --------------------------------------------------------------------------
+class SamplerZeroTemperatureTest : public MNNTestCase {
+    bool run(int /* precision */) override {
+        auto ctx = std::make_shared<LlmContext>();
+        auto cfg = makeConfig(R"({
+            "sampler_type":"temperature",
+            "temperature":0
+        })");
+        Sampler s(ctx, cfg);
+        auto logits = makeLogits({1.0f, 3.0f, 2.0f});
+        // On master this returns the last token (2) because every
+        // probability is NaN; with the fix it is the argmax (1).
+        MNNTEST_ASSERT(s.sample(logits) == 1);
+        return true;
+    }
+};
+MNNTestSuiteRegister(SamplerZeroTemperatureTest, "llm/sampler_zero_temperature");
+
+// --------------------------------------------------------------------------
+// top_k <= 0 means "disable top-k" (the HF convention), not "empty the
+// candidate set". This used to leave state.logits empty and make stepSelect
+// read logits[0] out of bounds.
+// --------------------------------------------------------------------------
+class SamplerTopKDisabledTest : public MNNTestCase {
+    bool run(int /* precision */) override {
+        auto ctx = std::make_shared<LlmContext>();
+        const std::vector<std::pair<const char*, const char*>> configs = {
+            {"top_k 0", R"({
+                "sampler_type":"mixed",
+                "mixed_samplers":["topK","greedy"],
+                "top_k":0
+            })"},
+            {"topK negative", R"({
+                "sampler_type":"mixed",
+                "mixed_samplers":["topK","greedy"],
+                "topK":-1
+            })"},
+        };
+        for (auto& item : configs) {
+            auto cfg = makeConfig(item.second);
+            Sampler s(ctx, cfg);
+            auto logits = makeLogits({1.0f, 3.0f, 2.0f});
+            // With top-k disabled the full vocabulary is kept, so greedy
+            // still selects the argmax instead of reading an empty vector.
+            MNNTEST_ASSERT(s.sample(logits) == 1);
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(SamplerTopKDisabledTest, "llm/sampler_topk_disabled");
+
 #endif // MNN_BUILD_LLM

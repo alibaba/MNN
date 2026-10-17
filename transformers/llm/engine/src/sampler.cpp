@@ -24,6 +24,13 @@ namespace Transformer {
 // SamplerState methods
 void SamplerState::ensureProbs(float temperature) {
     if (!probs.empty()) return;
+    if (logits.empty())
+        return;
+    // temperature <= 0 means greedy; a filter step may still ask for
+    // probabilities, so use the neutral temperature instead of 1/0 -> NaN.
+    if (!(temperature > 0.0f)) {
+        temperature = 1.0f;
+    }
     float invTemp = 1.0f / temperature;
     // find max for numerical stability
     float maxLogit = *std::max_element(logits.begin(), logits.end());
@@ -242,6 +249,11 @@ Sampler::Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig>
     mConfig.max_new_tokens = config->max_new_tokens();
     mConfig.type = config->sampler_type();
     mConfig.configSampler(mConfig.type, config);
+    // temperature <= 0 is the greedy convention (and 1/0 would turn every
+    // probability into NaN), so select the argmax instead of sampling.
+    if (!(mConfig.temperature > 0.0f)) {
+        mConfig.select_type = "greedy";
+    }
     buildPipeline();
 }
 
@@ -511,7 +523,11 @@ void Sampler::stepPenalty(SamplerState& state) {
 void Sampler::stepTopK(SamplerState& state) {
     int K = mConfig.topK;
     int size = (int)state.logits.size();
-    if (K >= size) return;
+    // K <= 0 means "disable top-k" (top_k=0 is the HuggingFace convention).
+    // Guard it explicitly: K=0 emptied the candidate set and a negative K made
+    // idx.begin() + K undefined.
+    if (K <= 0 || K >= size)
+        return;
 
     // Use nth_element for O(n) average
     std::vector<int> idx(size);
