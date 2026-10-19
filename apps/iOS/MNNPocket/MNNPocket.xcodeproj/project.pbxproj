@@ -1,0 +1,481 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 63;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3E55A66C2E828189003CB2E2 /* LocalModel in Resources */ = {isa = PBXBuildFile; fileRef = 3E55A66B2E828189003CB2E2 /* LocalModel */; };
+		3ECE19C32E99FED6001A4CDD /* LocalBatchTest in Resources */ = {isa = PBXBuildFile; fileRef = 3ECE19C22E99FED6001A4CDD /* LocalBatchTest */; };
+		4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */; };
+		4230C2DB2E7D4EB5001169DF /* mock.json in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2AD2E7D4EB5001169DF /* mock.json */; };
+		4230C2DC2E7D4EB5001169DF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2CA2E7D4EB5001169DF /* Assets.xcassets */; };
+		4230C2DE2E7D4EB5001169DF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2CC2E7D4EB5001169DF /* Localizable.xcstrings */; };
+		4230C3482E7D4EB5001169DF /* MNNPocketApp.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2CF2E7D4EB5001169DF /* MNNPocketApp.swift */; };
+		6EA451C72EF067DC62A8C636 /* MNNChatCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4A487439D1F6BF982AA00A39 /* MNNChatCore */; };
+		A90BB94E7BDAB2146716104E /* MNN.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F325AC568E4075F53BC4C610 /* MNN.xcframework */; };
+		513015C856B7F68ACDBF7D47 /* SherpaMNN.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6CA5316E17AA2BA606378919 /* SherpaMNN.xcframework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		3E55A66B2E828189003CB2E2 /* LocalModel */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LocalModel; path = MNNPocket/LocalModel; sourceTree = "<group>"; };
+		3E8591FE2D1D45070067B46F /* MNNPocket.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MNNPocket.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3ECE19C22E99FED6001A4CDD /* LocalBatchTest */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LocalBatchTest; path = MNNPocket/LocalBatchTest; sourceTree = "<group>"; };
+		4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		4230C2AD2E7D4EB5001169DF /* mock.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = mock.json; sourceTree = "<group>"; };
+		4230C2CA2E7D4EB5001169DF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		4230C2CB2E7D4EB5001169DF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		4230C2CC2E7D4EB5001169DF /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		4230C2CD2E7D4EB5001169DF /* MNNPocket.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MNNPocket.entitlements; sourceTree = "<group>"; };
+		4230C2CF2E7D4EB5001169DF /* MNNPocketApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MNNPocketApp.swift; sourceTree = "<group>"; };
+		4230C34A2E7D4EC0001169DF /* MNNPocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MNNPocketUITests.swift; sourceTree = "<group>"; };
+		4230C34B2E7D4EC0001169DF /* MNNPocketUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MNNPocketUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		4230C34F2E7D4EC0001169DF /* MNNPocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MNNPocketTests.swift; sourceTree = "<group>"; };
+		F325AC568E4075F53BC4C610 /* MNN.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = MNN.xcframework; path = "../MNNChatCore/Vendor/internal/MNN.xcframework"; sourceTree = "<group>"; };
+		6CA5316E17AA2BA606378919 /* SherpaMNN.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SherpaMNN.xcframework; path = "../MNNChatCore/Vendor/shared/SherpaMNN.xcframework"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3E8591FB2D1D45070067B46F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3ECAC6062F3C62570003C496 /* ExyteChat in Frameworks */,
+				3E2F97302E89158600E61F35 /* ExyteChat in Frameworks */,
+				3E2F972F2E89158600E61F35 /* ExyteChat in Frameworks */,
+				3E2F972E2E89158600E61F35 /* ExyteChat in Frameworks */,
+				6EA451C72EF067DC62A8C636 /* MNNChatCore in Frameworks */,
+				A90BB94E7BDAB2146716104E /* MNN.xcframework in Frameworks */,
+				513015C856B7F68ACDBF7D47 /* SherpaMNN.xcframework in Frameworks */,
+				3ECAC6092F3C74370003C496 /* ExyteChat in Frameworks */,
+				3EAB12362E7FD12300C4E5F6 /* MarkdownView in Frameworks */,
+				3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */,
+				3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		3E8591F52D1D45070067B46F = {
+			isa = PBXGroup;
+			children = (
+				3ECE19C22E99FED6001A4CDD /* LocalBatchTest */,
+				3E55A66B2E828189003CB2E2 /* LocalModel */,
+				4230C2D02E7D4EB5001169DF /* MNNPocket */,
+				4230C3502E7D4EC0001169DF /* MNNPocketTests */,
+				4230C34C2E7D4EC0001169DF /* MNNPocketUITests */,
+				3E8591FF2D1D45070067B46F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3E8591FF2D1D45070067B46F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3E8591FE2D1D45070067B46F /* MNNPocket.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4230C2A32E7D4EB5001169DF /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		4230C2AE2E7D4EB5001169DF /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2AD2E7D4EB5001169DF /* mock.json */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		4230C2D02E7D4EB5001169DF /* MNNPocket */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2A32E7D4EB5001169DF /* Preview Content */,
+				4230C2AE2E7D4EB5001169DF /* Resources */,
+				4230C2CA2E7D4EB5001169DF /* Assets.xcassets */,
+				4230C2CB2E7D4EB5001169DF /* Info.plist */,
+				4230C2CC2E7D4EB5001169DF /* Localizable.xcstrings */,
+				4230C2CD2E7D4EB5001169DF /* MNNPocket.entitlements */,
+				4230C2CF2E7D4EB5001169DF /* MNNPocketApp.swift */,
+			);
+			path = MNNPocket;
+			sourceTree = "<group>";
+		};
+		4230C34C2E7D4EC0001169DF /* MNNPocketUITests */ = {
+			isa = PBXGroup;
+			children = (
+				4230C34A2E7D4EC0001169DF /* MNNPocketUITests.swift */,
+				4230C34B2E7D4EC0001169DF /* MNNPocketUITestsLaunchTests.swift */,
+			);
+			path = MNNPocketUITests;
+			sourceTree = "<group>";
+		};
+		4230C3502E7D4EC0001169DF /* MNNPocketTests */ = {
+			isa = PBXGroup;
+			children = (
+				4230C34F2E7D4EC0001169DF /* MNNPocketTests.swift */,
+			);
+			path = MNNPocketTests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3E8591FD2D1D45070067B46F /* MNNPocket */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E8592232D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNPocket" */;
+			buildPhases = (
+				3E8591FA2D1D45070067B46F /* MNNChat */,
+				3E8591FB2D1D45070067B46F /* Frameworks */,
+				3E8591FC2D1D45070067B46F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MNNPocket;
+			packageProductDependencies = (
+				4A487439D1F6BF982AA00A39 /* MNNChatCore */,
+			);
+			productName = MNNPocket;
+			productReference = 3E8591FE2D1D45070067B46F /* MNNPocket.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3E8591F62D1D45070067B46F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1620;
+				LastUpgradeCheck = 1620;
+				TargetAttributes = {
+					3E8591FD2D1D45070067B46F = {
+						CreatedOnToolsVersion = 16.2;
+					};
+				};
+			};
+			buildConfigurationList = 3E8591F92D1D45070067B46F /* Build configuration list for PBXProject "MNNPocket" */;
+			compatibilityVersion = "Xcode 15.3";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = 3E8591F52D1D45070067B46F;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E15279EC3DA42602D8ED4AC0 /* XCLocalSwiftPackageReference "../MNNChatCore" */,
+			);
+			productRefGroup = 3E8591FF2D1D45070067B46F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3E8591FD2D1D45070067B46F /* MNNPocket */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3E8591FC2D1D45070067B46F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3ECE19C32E99FED6001A4CDD /* LocalBatchTest in Resources */,
+				3E55A66C2E828189003CB2E2 /* LocalModel in Resources */,
+				4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */,
+				4230C2DB2E7D4EB5001169DF /* mock.json in Resources */,
+				4230C2DC2E7D4EB5001169DF /* Assets.xcassets in Resources */,
+				4230C2DE2E7D4EB5001169DF /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3E8591FA2D1D45070067B46F /* MNNChat */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4230C3482E7D4EB5001169DF /* MNNPocketApp.swift in MNNChat */,
+			);
+			name = MNNChat;
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3E8592212D1D45090067B46F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "";
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		3E8592222D1D45090067B46F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "";
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+		3E8592242D1D45090067B46F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = MNNPocket/MNNPocket.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"MNNPocket/Preview Content\"";
+				DEVELOPMENT_TEAM = NDR6M73ZDX;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MNNPocket/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MNN Pocket";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access your camera to capture image or video";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need use your mico to input voice";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access your photo library to save images";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access your photo library to select image";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14;
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tgx.mnn-pocket;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2;
+			};
+			name = Debug;
+		};
+		3E8592252D1D45090067B46F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = MNNPocket/MNNPocket.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"MNNPocket/Preview Content\"";
+				DEVELOPMENT_TEAM = NDR6M73ZDX;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MNNPocket/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MNN Pocket";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access your camera to capture image or video";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need use your mico to input voice";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access your photo library to save images";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access your photo library to select image";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14;
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tgx.mnn-pocket;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3E8591F92D1D45070067B46F /* Build configuration list for PBXProject "MNNPocket" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E8592212D1D45090067B46F /* Debug */,
+				3E8592222D1D45090067B46F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3E8592232D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNPocket" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E8592242D1D45090067B46F /* Debug */,
+				3E8592252D1D45090067B46F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		E15279EC3DA42602D8ED4AC0 /* XCLocalSwiftPackageReference "../MNNChatCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../MNNChatCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4A487439D1F6BF982AA00A39 /* MNNChatCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E15279EC3DA42602D8ED4AC0 /* XCLocalSwiftPackageReference "../MNNChatCore" */;
+			productName = MNNChatCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 3E8591F62D1D45070067B46F /* Project object */;
+}

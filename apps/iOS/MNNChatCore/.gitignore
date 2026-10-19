@@ -1,0 +1,10 @@
+# Local build assets: provisioned by ../Scripts/build-xcframeworks.sh
+# (MNN.framework + libsherpa-mnn.a copies, generated xcframeworks,
+# staged sherpa headers). Not committed.
+Vendor/
+
+# SwiftPM scratch
+.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+.swiftpm/xcode/xcuserdata/
+Package.resolved

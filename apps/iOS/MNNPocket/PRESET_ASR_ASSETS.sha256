@@ -1,0 +1,6 @@
+4b3f0eb3f8c65b1481bb64e2871301740023680669e0205ae51025309ad63251  apps/iOS/MNNLLMChat/libsherpa-mnn.a
+b112c5b9b4503e59b14102be18bba6cc0cb9cd44a86af87c2b75a31e1f06f066  apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/preset_audio/audio (1).wav
+554673c8543d37420d7004511d84bdf794f3c4157e344102abff314362dcc10f  apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/xasr-mnn-int8/decoder-160ms.mnn
+61f74f69ed8e163edcfbc777f8dd3017b9d12b9b86bbe84b5e55f8c3d2db50b0  apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/xasr-mnn-int8/encoder-160ms.mnn
+995e087ee1a4e79c95b01b5f8813cbc8f50646956ebb57d6e00455a513dd873d  apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/xasr-mnn-int8/joiner-160ms.mnn
+b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c  apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/xasr-mnn-int8/tokens.txt
