@@ -2417,9 +2417,20 @@ std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::
             const int targetLength = hiddenInfo->dim[mSeqLenIndex];
             const int sourceLength = deepstackInfo->dim[1];
             const int hiddenSize = deepstackInfo->dim[2];
-            const int sourceOffset = mContext->gen_seq_len > 0 ? sourceLength : mContext->all_seq_len;
-            // embedding() now builds a deepstack tensor that already matches the current chunk,
-            // so only realign when the lengths differ (e.g. the single token decode step).
+            // embedding() is called once per prefill chunk on the chunked path, so the deepstack it
+            // produces is chunk-local: its row count is at most the (possibly padded) chunk and it
+            // must be padded from row 0. responseInterleaved() instead builds the deepstack once for
+            // the whole prompt and lets forwardVec() split the hidden states, so that tensor is
+            // longer than the chunk and is sliced with the global offset. Decode forces zeros so a
+            // real image row is never carried into a single-token step.
+            int sourceOffset = 0;
+            if (mContext->gen_seq_len > 0) {
+                sourceOffset = sourceLength;
+            } else if (sourceLength > targetLength) {
+                sourceOffset = mContext->all_seq_len;
+            }
+            // Only realign when the lengths differ (e.g. the padded tail chunk, or the single token
+            // decode step).
             if (sourceLength != targetLength) {
                 auto alignedDeepstack = Express::_Input({deepstackInfo->dim[0], targetLength, hiddenSize}, NCHW);
                 auto dst = alignedDeepstack->writeMap<float>();
