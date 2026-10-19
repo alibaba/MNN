@@ -4,6 +4,7 @@
 #include <hexagon_protos.h>
 #include <hexagon_types.h>
 #include <math.h>
+#include <qurt_memory.h>
 #include <remote.h>
 #include <stdint.h>
 #include <string.h>
@@ -434,12 +435,103 @@ typedef struct {
   HtpOpsBinaryTaskState* state;
   int start;
   int count;
+  uint8_t               *staging;
 } HtpOpsBinaryFixedTask;
+
+// Each worker owns two slots and their persistent descriptors. A slot is not
+// reused until both its previous output and its new inputs have completed.
+static inline void htp_ops_silu_dma_wait(const dma_desc_1d_t *desc) {
+  const volatile dma_desc_1d_t *pending = desc;
+  while (!pending->dstate) {
+    dmpoll();
+  }
+  asm volatile("" ::: "memory");
+}
+
+static inline void htp_ops_silu_dma_push(dma_desc_1d_t *desc, dma_desc_1d_t **tail, void *dst, const void *src,
+                                         int bytes) {
+  memset(desc, 0, sizeof(*desc));
+  desc->src        = (uint32_t) src;
+  desc->dst        = (uint32_t) dst;
+  desc->length     = bytes;
+  desc->src_bypass = 1;
+  desc->dst_bypass = 1;
+  if (*tail) {
+    dmlink(*tail, desc);
+  } else {
+    dmstart(desc);
+  }
+  *tail = desc;
+}
+
+static void htp_ops_silu_pipeline(HtpOpsBinaryFixedTask *task) {
+  const int              chunkBytes = 32 * 1024;
+  const int              chunkElems = chunkBytes / sizeof(__fp16);
+  HtpOpsBinaryTaskState *state      = task->state;
+  dma_desc_1d_t          input[2][2] __attribute__((aligned(128)));
+  dma_desc_1d_t          output[2] __attribute__((aligned(128)));
+  dma_desc_1d_t         *tail             = nullptr;
+  bool                   outputPending[2] = { false, false };
+  __fp16                *a[2];
+  __fp16                *b[2];
+  __fp16                *out[2];
+  for (int slot = 0; slot < 2; ++slot) {
+    a[slot]   = (__fp16 *) (task->staging + (slot * 3) * chunkBytes);
+    b[slot]   = (__fp16 *) (task->staging + (slot * 3 + 1) * chunkBytes);
+    out[slot] = (__fp16 *) (task->staging + (slot * 3 + 2) * chunkBytes);
+  }
+  // Task boundaries are HVX/cache-line aligned, so workers synchronize only
+  // their own disjoint DDR ranges before starting bypass DMA.
+  qurt_mem_cache_clean((qurt_addr_t) (state->fp16_src0 + task->start), task->count * 2, QURT_MEM_CACHE_FLUSH,
+                       QURT_MEM_DCACHE);
+  qurt_mem_cache_clean((qurt_addr_t) (state->fp16_src1 + task->start), task->count * 2, QURT_MEM_CACHE_FLUSH,
+                       QURT_MEM_DCACHE);
+  qurt_mem_cache_clean((qurt_addr_t) (state->fp16_dst + task->start), task->count * 2, QURT_MEM_CACHE_FLUSH_INVALIDATE,
+                       QURT_MEM_DCACHE);
+  dma_wait_for_idle();
+  for (int slot = 0; slot < 2 && slot * chunkElems < task->count; ++slot) {
+    const int offset = slot * chunkElems;
+    const int count  = task->count - offset < chunkElems ? task->count - offset : chunkElems;
+    htp_ops_silu_dma_push(&input[slot][0], &tail, a[slot], state->fp16_src0 + task->start + offset, count * 2);
+    htp_ops_silu_dma_push(&input[slot][1], &tail, b[slot], state->fp16_src1 + task->start + offset, count * 2);
+  }
+  for (int offset = 0, block = 0; offset < task->count; offset += chunkElems, ++block) {
+    const int slot  = block & 1;
+    const int count = task->count - offset < chunkElems ? task->count - offset : chunkElems;
+    if (outputPending[slot]) {
+      htp_ops_silu_dma_wait(&output[slot]);
+    }
+    htp_ops_silu_dma_wait(&input[slot][0]);
+    htp_ops_silu_dma_wait(&input[slot][1]);
+    htp_ops_binary_compute_fp16_chunk(out[slot], a[slot], b[slot], count, state->opType);
+    htp_ops_silu_dma_push(&output[slot], &tail, state->fp16_dst + task->start + offset, out[slot], count * 2);
+    outputPending[slot] = true;
+    const int next      = offset + 2 * chunkElems;
+    if (next < task->count) {
+      const int nextCount = task->count - next < chunkElems ? task->count - next : chunkElems;
+      htp_ops_silu_dma_push(&input[slot][0], &tail, a[slot], state->fp16_src0 + task->start + next, nextCount * 2);
+      htp_ops_silu_dma_push(&input[slot][1], &tail, b[slot], state->fp16_src1 + task->start + next, nextCount * 2);
+    }
+  }
+  // Drain before descriptors or VTCM may be reused by the next operator.
+  dma_wait_for_idle();
+  for (int slot = 0; slot < 2; ++slot) {
+    if (outputPending[slot]) {
+      htp_ops_silu_dma_wait(&output[slot]);
+    }
+  }
+  qurt_mem_cache_clean((qurt_addr_t) (state->fp16_dst + task->start), task->count * 2, QURT_MEM_CACHE_INVALIDATE,
+                       QURT_MEM_DCACHE);
+}
 
 static void htp_ops_binary_fixed_worker(void* data, int worker_index) {
   (void)worker_index;
   HtpOpsBinaryFixedTask* task = (HtpOpsBinaryFixedTask*)data;
-  htp_ops_binary_dispatch_task_range(task->state, task->start, task->count);
+  if (task->staging) {
+    htp_ops_silu_pipeline(task);
+  } else {
+    htp_ops_binary_dispatch_task_range(task->state, task->start, task->count);
+  }
   worker_pool_synctoken_jobdone(&(task->state->sync_ctx));
 }
 
@@ -471,6 +563,14 @@ static inline void htp_ops_binary_run_task(HtpOpsBinaryTaskState* state, int siz
     return;
   }
 
+  uint8_t     *staging        = nullptr;
+  const size_t stagingPerTask = 6 * 32 * 1024;
+#if __HVX_ARCH__ == 79
+  if (state->kind == HTP_OPS_BINARY_TASK_FP16 && state->opType == HTP_OPS_BINARY_MUL_SILU && size >= 65536 &&
+      vtcm_manager_get_vtcm_size() >= stagingPerTask * n_tasks) {
+    staging = (uint8_t *) vtcm_manager_get_vtcm_base();
+  }
+#endif
   state->n_tasks = n_tasks;
   worker_pool_job_t job;
   job.fptr = htp_ops_binary_fixed_worker;
@@ -493,6 +593,7 @@ static inline void htp_ops_binary_run_task(HtpOpsBinaryTaskState* state, int siz
     tasks[i].state = state;
     tasks[i].start = start;
     tasks[i].count = end - start;
+    tasks[i].staging = staging ? staging + i * stagingPerTask : nullptr;
     job.dptr = tasks + i;
     worker_pool_submit(NULL, job);
   }
@@ -778,6 +879,29 @@ static inline void htp_ops_binary_compute_fp16_chunk(__fp16* __restrict dst,
     __fp16* dst_ptr = dst;
     const int vec2_len = vec_len * 2;
     const int vec2_end = vec_end & -vec2_len;
+    const int     vec4_len = vec_len * 4;
+    const int     vec4_end = vec_end & -vec4_len;
+    for (; i < vec4_end; i += vec4_len) {
+      HVX_Vector v0               = vmem(src0_ptr);
+      HVX_Vector v1               = vmem(src1_ptr);
+      HVX_Vector v0_next          = vmem(src0_ptr + vec_len);
+      HVX_Vector v1_next          = vmem(src1_ptr + vec_len);
+      HVX_Vector v0_2             = vmem(src0_ptr + 2 * vec_len);
+      HVX_Vector v1_2             = vmem(src1_ptr + 2 * vec_len);
+      HVX_Vector v0_3             = vmem(src0_ptr + 3 * vec_len);
+      HVX_Vector v1_3             = vmem(src1_ptr + 3 * vec_len);
+      HVX_Vector vr               = htp_ops_binary_mul_silu_fp16_vec(v0, v1);
+      HVX_Vector vr_next          = htp_ops_binary_mul_silu_fp16_vec(v0_next, v1_next);
+      HVX_Vector vr_2             = htp_ops_binary_mul_silu_fp16_vec(v0_2, v1_2);
+      HVX_Vector vr_3             = htp_ops_binary_mul_silu_fp16_vec(v0_3, v1_3);
+      vmem(dst_ptr)               = vr;
+      vmem(dst_ptr + vec_len)     = vr_next;
+      vmem(dst_ptr + 2 * vec_len) = vr_2;
+      vmem(dst_ptr + 3 * vec_len) = vr_3;
+      src0_ptr += vec4_len;
+      src1_ptr += vec4_len;
+      dst_ptr += vec4_len;
+    }
     for (; i < vec2_end; i += vec2_len) {
       HVX_Vector v0 = vmem(src0_ptr);
       HVX_Vector v1 = vmem(src1_ptr);

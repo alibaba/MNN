@@ -25,12 +25,7 @@ typedef enum {
   MNN_HMX_QUEUE_JOB_STOP = 3,
 } MNNHmxQueueJobType;
 
-typedef struct {
-  MNNHmxQueueJobType type;
-  hmx_queue_callback_t callback;
-  void* data;
-  unsigned int done;
-} MNNHmxQueueJob;
+typedef hmx_queue_job_t MNNHmxQueueJob;
 
 typedef struct {
   qurt_thread_t thread;
@@ -232,4 +227,31 @@ void hmx_queue_execute(hmx_queue_callback_t callback, void* data) {
 
 void hmx_queue_execute_with_spin(hmx_queue_callback_t callback, void* data, unsigned int spin_count) {
   hmx_queue_submit(MNN_HMX_QUEUE_JOB_CALLBACK, callback, data, spin_count);
+}
+
+void hmx_queue_execute_async(hmx_queue_job_t *job, hmx_queue_callback_t callback, void *data) {
+  job->type     = MNN_HMX_QUEUE_JOB_CALLBACK;
+  job->callback = callback;
+  job->data     = data;
+  __atomic_store_n(&job->done, 0u, __ATOMIC_RELAXED);
+  MNNHmxQueue *queue = g_hmx_queue;
+  if (queue == NULL) {
+    hmx_queue_execute(callback, data);
+    __atomic_store_n(&job->done, 1u, __ATOMIC_RELEASE);
+    return;
+  }
+  (void) qurt_sem_down(&queue->free_slots);
+  qurt_mutex_lock(&queue->mutex);
+  const unsigned int index = __atomic_load_n(&queue->write_index, __ATOMIC_RELAXED);
+  queue->jobs[index]       = job;
+  __atomic_store_n(&queue->write_index, (index + 1) % MNN_HMX_QUEUE_CAPACITY, __ATOMIC_RELEASE);
+  qurt_mutex_unlock(&queue->mutex);
+  (void) __atomic_add_fetch(&queue->sequence, 1u, __ATOMIC_RELEASE);
+  (void) qurt_futex_wake(&queue->sequence, 1);
+}
+
+void hmx_queue_wait(hmx_queue_job_t *job) {
+  while (__atomic_load_n(&job->done, __ATOMIC_ACQUIRE) == 0u) {
+    (void) qurt_futex_wait(&job->done, 0u);
+  }
 }

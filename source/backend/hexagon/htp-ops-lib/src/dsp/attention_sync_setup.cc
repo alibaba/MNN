@@ -169,6 +169,20 @@ int sync_attention_pages(__fp16 *restrict O, const __fp16 *restrict Q, const flo
   state.online_pages = online_pages;
   // fp16 QK scores only in the grouped-causal prefill path (decode_grouped && qo_len>1).
   state.scores_fp16            = ATTN_SCORES_FP16 && state.decode_grouped && state.qo_len > 1;
+#if __HVX_ARCH__ == 79
+  // Bounded residency experiment: keep worker S/P/Q/O storage separate from queue
+  // scratch at the VTCM base and the push-K transpose reservation at the tail.
+  // For this shape QK/SV scratch is below 2 MiB (rows<=256, head=128, page=256).
+  const size_t queueScratchBytes = 2 * 1024 * 1024;
+  const size_t tailReserveBytes  = 1024 * 1024;
+  const size_t vtcmBytes         = vtcm_manager_get_vtcm_size();
+  const size_t workerBytes       = state.worker_workspace_bytes * g_max_num_workers;
+  if (state.scores_fp16 && !state.online_pages && state.head_dim == 128 && state.page_size == 256 && state.N <= 512 &&
+      task_rows <= 256 && vtcmBytes > queueScratchBytes + tailReserveBytes &&
+      workerBytes <= vtcmBytes - queueScratchBytes - tailReserveBytes) {
+    state.workspace_base = (uint8_t *) vtcm_manager_get_vtcm_base() + queueScratchBytes;
+  }
+#endif
 
   if (sync_attention_should_segment_prefill(&state)) {
     sync_attention_run_segmented_prefill(&state);

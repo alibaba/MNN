@@ -1,18 +1,19 @@
-#include "dsp/mmap_mgr.h"
-#include "dsp/hvx_utils.h"
 #include <AEEStdErr.h>
 #include <HAP_farf.h>
 #include <HAP_mem.h>
-#include <qurt_memory.h>
-#include <stdint.h>
-#include <math.h>
-#include <string.h>
-#include <hexagon_types.h>
 #include <hexagon_protos.h>
+#include <hexagon_types.h>
+#include <math.h>
+#include <qurt_memory.h>
+#include <remote.h>
+#include <stdint.h>
+#include <string.h>
+
+#include "dsp/dma_utils.h"
+#include "dsp/hvx_utils.h"
+#include "dsp/mmap_mgr.h"
 #include "dsp/vtcm_mgr.h"
 #include "dsp/worker_pool.h"
-
-#include <remote.h>
 
 extern "C" {
 
@@ -1204,6 +1205,50 @@ AEEResult htp_ops_add_fuse_layernorm(uint8_t* dst, uint8_t* add_out, uint8_t* sr
     memcpy(betaVtcm, betaBase, paramBytes);
     betaBase = betaVtcm;
   }
+
+#if __HVX_ARCH__ == 79 && !defined(SIMULATOR_MOCK_HMX)
+  if (batch == 512 && channels == 2560 && RMSNorm && betaBase == NULL && gammaBase != NULL) {
+    const uintptr_t vtcmBase           = (uintptr_t) vtcm_manager_get_vtcm_base();
+    const size_t    vtcmBytes          = vtcm_manager_get_vtcm_size();
+    const size_t    workerReserve      = (size_t) g_max_num_workers * 2 * loopUnit * pack * sizeof(__fp16);
+    const size_t    used               = (size_t) ((uintptr_t) vtcm_ptr - vtcmBase);
+    const size_t    required           = 2 * dataBytes + workerReserve;
+    const uintptr_t src0Address        = (uintptr_t) src0Base;
+    const uintptr_t src1Address        = (uintptr_t) src1Base;
+    const bool      sourcesOutsideVtcm = (src0Address < vtcmBase || src0Address >= vtcmBase + vtcmBytes) &&
+                                    (src1Address < vtcmBase || src1Address >= vtcmBase + vtcmBytes);
+    if (sourcesOutsideVtcm && vtcmBytes > used + 1024 * 1024 && required <= vtcmBytes - used - 1024 * 1024) {
+      __fp16 *staged0 = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, dataBytes);
+      __fp16 *staged1 = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, dataBytes);
+      qurt_mem_cache_clean((qurt_addr_t) src0Base, dataBytes, QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
+      qurt_mem_cache_clean((qurt_addr_t) src1Base, dataBytes, QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
+      dma_desc_1d_t descs[2] __attribute__((aligned(64)));
+      memset(descs, 0, sizeof(descs));
+      descs[0].next       = (uint32_t) &descs[1];
+      descs[0].src        = (uint32_t) src0Base;
+      descs[0].dst        = (uint32_t) staged0;
+      descs[0].length     = dataBytes;
+      descs[0].src_bypass = 1;
+      descs[0].dst_bypass = 1;
+      descs[0].ordered    = 1;
+      descs[1].src        = (uint32_t) src1Base;
+      descs[1].dst        = (uint32_t) staged1;
+      descs[1].length     = dataBytes;
+      descs[1].src_bypass = 1;
+      descs[1].dst_bypass = 1;
+      descs[1].ordered    = 1;
+      // Publish descriptor stores before DMA and its writes before worker submission.
+      asm volatile("" ::: "memory");
+      dma_wait_for_idle();
+      dmstart(&descs[0]);
+      dma_wait_for_idle();
+      asm volatile("" ::: "memory");
+
+      src0Base = staged0;
+      src1Base = staged1;
+    }
+  }
+#endif
 
   if (batch == 1 && RMSNorm && betaBase == NULL && gammaBase != NULL) {
     htp_ops_add_fuse_rmsnorm_one_batch_no_beta(dstBase, addOutBase, src0Base, src1Base,

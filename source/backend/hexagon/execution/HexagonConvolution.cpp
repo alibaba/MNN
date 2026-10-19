@@ -137,6 +137,78 @@ static HexagonTileShape chooseIm2ColTileShape(int totalMp, int totalNp, int KAli
     return best;
 }
 
+// VTCM cost model for the V79 activation-outer block-wise INT4 prefill kernel.
+// Mirrors the vtcm_seq_alloc calls in hmx_matmulq4fp16() for activation_outer == 2; those
+// allocations do not bounds check, so this budget must stay in lockstep with that function.
+//
+// The budget is the same three-term linear shape llama.cpp's htp_mm_hmx_compute_chunks() uses:
+//   perNp   - one output-column chunk: two weight slots, their scales, per-np planes
+//   perMp   - one activation chunk:    the resident slab
+//   perMpNp - one (mp, np) cell:       two output slots
+struct Q4ActivationOuterBudget {
+    size_t perNp = 0;
+    size_t perMp = 0;
+    size_t perMpNp = 0;
+    size_t overhead = 0;
+};
+
+// The kernel stages activations through per-worker VTCM DMA slots only for the deepest projection
+// (K == 9728 here, i.e. down_proj); other shapes allocate no scratch. Mirror that exactly.
+static Q4ActivationOuterBudget q4ActivationOuterBudget(int KAlign, int scaleBlockNum, int workers, bool needsScratch) {
+    Q4ActivationOuterBudget b;
+    // Two weight slots (fp16 + int4) per output chunk: 2 * (64K + 16K) == 160 * KAlign bytes,
+    // plus two aligned scale planes of scaleBlockNum * 128 bytes each.
+    b.perNp = (size_t)160 * KAlign + 2 * (size_t)scaleBlockNum * 128 + 256 + 64;
+    // Resident activation slab: 32 rows * K * sizeof(fp16) == 64 * KAlign bytes per chunk.
+    b.perMp = (size_t)64 * KAlign;
+    // Two output slots of mp * np * 32 * 32 * sizeof(fp16) == mp * np * 2048 bytes each.
+    b.perMpNp = 2 * 2048;
+    // Worker activation staging (2 x 4 KiB per worker) when the kernel allocates it, plus the fixed
+    // per-command planes.
+    b.overhead = (needsScratch ? (size_t)workers * 8192 : 0) + 16 * 1024 + 384;
+    return b;
+}
+
+// Pick the (mp, np) chunks within the VTCM budget.
+//
+// The resident activation slab is the point of this schedule: as long as it fits, mp covers all of
+// M and the activation is staged exactly once, no matter what N is. Shrinking mp frees VTCM for a
+// wider np and therefore fewer weight passes, but each extra activation pass re-reads the whole
+// M x K slab, and a smaller mp also leaves HMX with fewer rows per batch. Measured on V79, keeping
+// the activation resident wins for both a wide 4B FFN and a narrow 1.7B one; a byte-accounting
+// model that traded activation passes for weight passes lost 8% on the smaller model.
+//
+// So the order is: cover M with one activation pass, take the widest np that still fits next to it.
+// An M too large for the budget degrades by halving mp until something fits, rather than dropping
+// the schedule entirely.
+static bool q4ActivationOuterChunks(const Q4ActivationOuterBudget& b, size_t vtcmSize, int totalMp, int totalNp,
+                                    int* mpOut, int* npOut) {
+    if (vtcmSize <= b.overhead || b.perNp == 0 || b.perMp == 0 || b.perMpNp == 0) {
+        return false;
+    }
+    const size_t usable = vtcmSize - b.overhead;
+
+    for (int candMp = totalMp; candMp >= 1; --candMp) {
+        const size_t activationBytes = (size_t)candMp * b.perMp;
+        if (activationBytes + b.perNp + (size_t)candMp * b.perMpNp > usable) {
+            continue;
+        }
+        const size_t remaining = usable - activationBytes;
+        int candNp = (int)std::min<size_t>((size_t)totalNp, remaining / (b.perNp + (size_t)candMp * b.perMpNp));
+        if (candNp <= 0) {
+            continue;
+        }
+        // Output slots are double buffered, so an even np uses both; an odd one still works.
+        if (candNp > 1 && (candNp & 1) && candNp > totalNp % candNp) {
+            --candNp;
+        }
+        *mpOut = candMp;
+        *npOut = candNp;
+        return true;
+    }
+    return false;
+}
+
 static HexagonTileShape chooseQ4BlockPrefillTileShape(HexagonTileShape base, int totalMp, int totalNp,
                                                       int KAlign, int vtcmSize);
 static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scaleBlockNum, bool asymmetric,
@@ -857,6 +929,24 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
     mMp = tile.mp;
     mNp = tile.np;
     mKp = UP_DIV(K, 32);
+    // V79 block-wise INT4 prefill: keep the activation resident in VTCM and overlap the next
+    // weight DMA/dequantization with the current HMX batch and output stores. The shape is not
+    // special-cased; the chunk solver decides from the VTCM budget whether it fits.
+    // Only the conditions the kernel itself requires are checked here.
+    bool activationOuter = false;
+    const bool weightPipeline = runtime->info().hvxArch == 79;
+    if (!mUseIm2Col && weightPipeline && q4ScaleMode == Q4ScaleMode::BlockSymmetric && M > 32 && K % 32 == 0 &&
+        N % 32 == 0 && total_mp > 1) {
+        const Q4ActivationOuterBudget budget =
+            q4ActivationOuterBudget(KAlign, mResource->int4ScaleBlockNum, runtime->info().maxThreads, K == 9728);
+        int mp = 0;
+        int np = 0;
+        if (q4ActivationOuterChunks(budget, (size_t)vtcmSize, total_mp, total_np, &mp, &np)) {
+            mMp = mp;
+            mNp = np;
+            activationOuter = true;
+        }
+    }
     if (mUseIm2Col) {
         im2colParams.mp = mMp;
         im2colParams.np = mNp;
@@ -924,6 +1014,9 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
         int params[] = {area, icP * 32, ocP * 32, mResource->int4WeightType, mResource->int4LayoutType,
                         mMp, mNp, mKp, mResource->int4ScaleBlockNum,
                         mResource->int4ScaleAsymmetric ? 1 : 0, pathA ? 1 : 0};
+        if (activationOuter) {
+            params[4] = 3;
+        }
         std::vector<std::pair<int, int>> inputFds = {input, weight, bias};
         const auto opType = mResource->int4ScaleBlockNum > 1 ? DSP_OP_MATMUL_Q4A16_BLOCK_FP16 : DSP_OP_MATMUL_Q4A16_FP16;
         dst.emplace_back();
