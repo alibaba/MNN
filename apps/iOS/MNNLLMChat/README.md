@@ -1,219 +1,67 @@
-# MNNLLM iOS Application
+# MNN Chat iOS Application
 
 [查看中文文档](./README-ZH.md)
 
 ## Introduction
 
-This project is an iOS application based on the MNN engine, supporting local large-model multimodal conversations.
+MNN Chat is an iOS app for running large language models locally with the MNN engine. It supports multimodal conversations with text, image, audio and video input.
 
-It operates fully offline with high privacy. Once the models are downloaded to the device, all conversations occur locally without any network uploads or processing.
-
+Once a model is downloaded, all inference runs on the device and conversations are never uploaded. The app only accesses the network when Agent mode is enabled and a web search is triggered (it sends the search query and fetches result pages).
 
 ## Features
 
-1. **Local Models**
-    - Display locally downloaded models
-    - Support custom pinning
-2. **Model Market**
-    - Get list of models supported by MNN
-    - Model management: download and delete models
-        - Support switching between Hugging Face, ModelScope, and Modeler download sources
-    - Model search: support keyword search and tag search
-3. **Benchmark Testing**
-    - Support automated benchmark testing, outputting Prefill speed, Decode Speed, and Memory Usage information
-    - Support batch testing for text, image, and audio inputs
-4. **Multimodal Chat**: Supports full Markdown format output
-    - Text-to-text
-    - Audio-to-text (supports audio output for Omni models)
-    - Image-to-text: images can be captured or selected from gallery
-    - Video-to-text: supports video input processing
-    - Sana Diffusion: supports image style transfer (e.g., Ghibli style)
-5. **Model Configuration**
-    - Support configuring mmap
-    - Support configuring sampling strategy
-    - Support configuring diffusion settings
-    - Support configuring backend type (CPU/Metal)
-    - Support configuring precision (low/normal/high)
-    - Support configuring thread count
-    - Support configuring multimodal prompt API
-    - Support configuring audio output for Omni models
-6. **Chat History**
-    - Support model conversation history list, restore historical conversation scenarios
+1. **First Run and Model Download**
+    - With no model downloaded, the home screen shows a recommended model card for one-tap download
+    - Model market: list of MNN-supported models with keyword search and tag filters
+    - Switchable download sources: ModelScope, Hugging Face, Modelers
+    - Device-fit labels estimated from model size and device memory ("Fits this device" / "May be slow" / "Too large for this device")
+    - Storage check before downloading; pause, resume, cancel, progress with live speed, inline retry on failure
+2. **Model Management**
+    - Opened from "Models" at the bottom of the conversation drawer, with "Downloaded" and "Download" tabs
+    - Swipe to delete, pin or rename; deletion shows the space to be freed
+    - The model in use can be deleted: it is unloaded first (chat history kept), then removed, and another model is selected
+3. **Chat Workspace and Conversations**
+    - The app opens straight into chat; switch models above the input bar
+    - Conversation drawer: search history, swipe to delete, and entries for model management, settings and benchmark
+    - Switching between conversations of the same model does not reload the model
+4. **Chat Experience**: full Markdown output
+    - Separate thinking panel that folds once the answer starts; thinking mode toggled from the input bar or model settings, saved per model
+    - Long-press message menu: copy, edit and resend, regenerate, select text, share
+    - Code blocks show the language and a copy button
+    - Prefill / decode speed after each answer; stop generation, and "Answer directly" when only thinking was produced
+5. **Agent Mode**
+    - Agent toggle next to the model picker; the model calls tools as needed, and works with small models such as Qwen3.5 0.8B / 2B
+    - Built-in tools: web search, read a search-result page, current time, calculator, save memory
+    - Tool calls appear in their own collapsible panel, separate from the thinking panel
+    - Page reads are limited to sites returned by the search, and the model refers to results by number to avoid invented links
+    - Memories and skills can be reviewed and cleared in Settings → Agent Mode
+6. **Context Management**
+    - Continuous conversation: earlier turns (without thinking) are carried into later prompts
+    - Context usage panel showing input, output and total tokens; the icon turns orange at 80%
+    - Recommended maximum context length based on available memory and the model's KV cache cost, applied in one tap
+    - Older turns are summarized on device when nearing the limit
+7. **Model Settings**
+    - "?" help popovers next to technical terms, explaining meaning, recommended values and whether a reload is needed
+    - Sampler types: Mixed (default) and Greedy; Mixed exposes Penalty, Top K, TFS-Z, Typical, Top P, Min P, Temperature
+    - mmap, backend (CPU / Metal), precision, thread count, max output tokens
+    - Multimodal prompt API, video frame count, Omni audio output, diffusion parameters
+8. **Multimodal**
+    - Images: camera or photo library, with automatic resizing, orientation fix and HEIC conversion
+    - Video: frames sampled at about 1 fps and sent as images
+    - Audio: voice input; Omni models support audio output
+    - Diffusion: Stable Diffusion text-to-image and Sana style transfer (e.g., Ghibli style)
+9. **Benchmark**
+    - Automated prefill speed, decode speed and memory measurements, with batch tests for text, image and audio
+10. **App Settings**
+    - Instant language switching (Chinese / English); privacy notice, open-source licenses, help and feedback
 
+### Application Preview
 
-### Video Introduction
-
-<img width="200" alt="image" src="./assets/introduction.gif" />
-
-[Click here to download the original resolution introduction video](https://github.com/Yogayu/MNN/blob/master/project/MNNLLMForiOS/assets/introduction.mov)
-
-
-### Application Preview:
-
-|  |  |  | |
+| | | | |
 |--|--|--|--|
-| **Text To Text**  | **Image To Text**  | **Audio To Text**  | **Model Filter** |
-| ![Text To Text](./assets/text.PNG) | ![Image To Text](./assets/image.PNG) | ![Audio To Text](./assets/audio.jpg) | ![Audio To Text](./assets/fliter.PNG) |
-| **Local Model** | **Model Market** | **Benchmark** | **History** |
-| ![Model List](./assets/localModel.PNG) | ![History](./assets/modelMarket.PNG) | ![History](./assets/benchmark.jpeg) | ![History](./assets/history2.PNG) |
-
-<p></p>
-
-Additionally, the app supports edge-side usage of DeepSeek with Think mode:
-
-<img src="./assets/deepseek.jpg" alt="deepThink" width="200" />
-
-
-
-## How to Build and Use
-
-1. Clone the repository:
-
-    ```shell
-    git clone https://github.com/alibaba/MNN.git
-    ```
-
-2. Build the MNN.framework:
-
-    ```shell
-    sh package_scripts/ios/buildiOS.sh "
-    -DMNN_ARM82=ON
-    -DMNN_LOW_MEMORY=ON
-    -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
-    -DMNN_BUILD_LLM=ON
-    -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON
-    -DMNN_METAL=ON
-    -DMNN_BUILD_DIFFUSION=ON
-    -DMNN_OPENCL=OFF
-    -DMNN_SEP_BUILD=OFF
-    -DLLM_SUPPORT_AUDIO=ON
-    -DMNN_BUILD_AUDIO=ON
-    -DLLM_SUPPORT_VISION=ON
-    -DMNN_BUILD_OPENCV=ON
-    -DMNN_IMGCODECS=ON
-    -DMNN_BUILD_LLM_OMNI=ON
-    "
-    ```
-
-3. Copy the framework to the iOS project:
-
-    ```shell
-    mv MNN-iOS-CPU-GPU/Static/MNN.framework apps/iOS/MNNLLMChat
-    ```
-
-    Ensure the `Link Binary With Libraries` section includes the `MNN.framework`:
-
-    <img src="./assets/framework.png" alt="deepThink" width="400" />
-
-    If it's missing, add it manually:
-
-    <img src="./assets/addFramework.png" alt="deepThink" width="200" />
-    <img src="./assets/addFramework2.png" alt="deepThink" width="200" />
-
-
-4. Update iOS signing and build the project:
-
-    ```shell
-    cd apps/iOS/MNNLLMChat
-    open MNNLLMiOS.xcodeproj
-    ```
-
-    In Xcode, go to `Signing & Capabilities > Team` and input your Apple ID and Bundle Identifier:
-
-    ![signing](./assets/signing.png)
-
-    Wait for the Swift Package to finish downloading before building.
-
-## Notes
-
-Due to memory limitations on iPhones, it is recommended to use models with 7B parameters or fewer to avoid memory-related crashes.
-
-Here is the professional technical translation of the provided text:
-
----
-
-## Local Debugging
-
-For local debugging, simply drag the model files to the LocalModel folder and run the project:
-
-1. First, download the MNN-related models from [Hugging Face](https://huggingface.co/taobao-mnn) or [Modelscope](https://modelscope.cn/organization/MNN):
-
-    <img width="400" alt="image" src="./assets/copyLocalModel.png" />
-
-2. Drag the downloaded model folder into the project's LocalModel folder.
-3. For root directory models, you can configure them:
-
-Go to ModelListViewModel.swift for configuration, such as whether to support thinking mode:
-
-```swift
-// MARK: Config the Local Model here
-let modelName = "Qwen3-0.6B-MNN-Inside" // Model name
-let localModel = ModelInfo(
-    modelName: modelName,
-    tags: [
-        // MARK: if you know that model support think, uncomment the line
-        // NSLocalizedString("tag.deepThinking", comment: "Deep thinking tag for local model"), // Whether to support think
-            NSLocalizedString("tag.localModel", comment: "Local model inside the app")],
-    categories: ["Local Models"],
-    vendor: "Local",
-    sources: ["local": "bundle_root/\(modelName)"],
-    isDownloaded: true
-)
-localModels.append(localModel)
-ModelStorageManager.shared.markModelAsDownloaded(modelName)
-```
-
-5. Run the project, navigate to the chat page, and perform model interactions and debugging.
-
-The app will automatically detect and load models from the LocalModel folder without requiring additional configuration.
-
-## Release Notes
-
-### Version 0.5
-
-- Added Sana Diffusion support for image style transfer (e.g., Ghibli style)
-- Added audio output support for Omni models
-- Added video input support for multimodal conversations
-- Added multimodal prompt API configuration
-- Added backend type configuration (CPU/Metal)
-- Added precision configuration (low/normal/high)
-- Added thread count configuration
-- Added batch testing support for text, image, and audio inputs
-
-### Version 0.4
-
-- Added three major project modules: Local Models, Model Market, and Benchmark Testing
-- Added benchmark testing to test different model performance
-- Added settings page, accessible from the history sidebar
-- Added Ali CDN for getting model lists
-- Added model market filtering functionality
-
-### Version 0.3.1  
-
-- Add support for model parameter configuration  
-
-| <img width="200" alt="image" src="./assets/SamplingStrategy1.PNG" /> | <img width="200" alt="image" src="./assets/SamplingStrategy2.PNG" /> | <img width="200" alt="image" src="./assets/SamplingStrategy3.PNG" /> |  
-
-### Version 0.3  
-
-New Features:  
-
-- Add support for downloading from the **Modeler** source  
-- Add support for **Stable Diffusion** text-to-image generation  
-
-| <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/diffusionSettings.PNG" /> |  
-
-### Version 0.2  
-
-New Features:  
-
-- Add support for **mmap configuration** and **manual cache clearing**  
-- Add support for downloading models from the **ModelScope** source  
-
-| <img width="200" alt="image" src="./assets/usemmap.PNG" /> | <img width="200" alt="image" src="./assets/downloadSource.PNG" /> |  
-
-## References
-
-- [Exyte/Chat](https://github.com/exyte/Chat)
-- [stephencelis/CSQLite](https://github.com/stephencelis/SQLite.swift)
-- [swift-transformers](https://github.com/huggingface/swift-transformers/)
+| **Recommended Model** | **Download States** | **Answer** | **Thinking** |
+| <img src="./assets/features/01-home-recommended.jpg" width="200" /> | <img src="./assets/features/03-market-download-states.jpg" width="200" /> | <img src="./assets/features/05-chat-answer.jpg" width="200" /> | <img src="./assets/features/15-thinking-streaming.jpg" width="200" /> |
+| **Message Menu** | **Conversation Drawer** | **Context Usage** | **Settings Help** |
+| <img src="./assets/features/06-message-menu.jpg" width="200" /> | <img src="./assets/features/09-history-drawer.jpg" width="200" /> | <img src="./assets/features/17-context-usage-panel.jpg" width="200" /> | <img src="./assets/features/11-help-popover.jpg" width="200" /> |
+| **Agent Tool Call** | **Agent Answer** | | |
+| <img src="./assets/features/21-agent-tool-call.jpg" width="200" /> | <img src="./assets/features/22-agent-answer.jpg" width="200" /> | | |
