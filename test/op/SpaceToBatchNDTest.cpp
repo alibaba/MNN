@@ -59,3 +59,43 @@ public:
     }
 };
 MNNTestSuiteRegister(SpaceToBatchNDTest, "op/space_to_batch_nd");
+
+class SpaceBatchPaddingTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        const float original[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+        const float padded[2][18] = {
+            {1, 2, 5, 6, 9, 10, 3, 4, 7, 8, 11, 12, 0, 0, 0, 0, 0, 0},
+            {1, 3, 5, 7, 9, 11, 2, 4, 6, 8, 10, 12, 0, 0, 0, 0, 0, 0}};
+        for (int axis = 0; axis < 2; ++axis) {
+            const int blocks[] = {axis == 0 ? 3 : 1, axis == 0 ? 1 : 3};
+            const int padding[] = {0, axis == 0 ? 1 : 0, 0, axis == 0 ? 0 : 1};
+            const std::vector<int> paddedShape = axis == 0 ? std::vector<int>{3, 3, 1, 2} : std::vector<int>{3, 3, 2, 1};
+            auto block = _Const(blocks, {2}, NCHW, halide_type_of<int>());
+            auto pad = _Const(padding, {2, 2}, NCHW, halide_type_of<int>());
+            for (int inverse = 0; inverse < 2; ++inverse) {
+                const std::vector<int> shape = inverse ? paddedShape : std::vector<int>{1, 3, 2, 2};
+                const std::vector<int> expectedShape = inverse ? std::vector<int>{1, 3, 2, 2} : paddedShape;
+                auto input = _Input(shape, NCHW);
+                ::memcpy(input->writeMap<float>(), inverse ? padded[axis] : original,
+                         inverse ? sizeof(padded[axis]) : sizeof(original));
+                input = _Convert(input, NC4HW4);
+                auto output = inverse ? _BatchToSpaceND(input, block, pad) : _SpaceToBatchND(input, block, pad);
+                output = _Convert(output, NCHW);
+                auto result = output->readMap<float>();
+                if (result == nullptr || output->getInfo()->dim != expectedShape) {
+                    MNN_ERROR("Space/batch transform with a fully padded block failed\n");
+                    return false;
+                }
+                for (int i = 0; i < (inverse ? 12 : 18); ++i) {
+                    if (result[i] != (inverse ? original[i] : padded[axis][i])) {
+                        MNN_ERROR("Space/batch padding mismatch at %d\n", i);
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(SpaceBatchPaddingTest, "op/space_batch_padding");

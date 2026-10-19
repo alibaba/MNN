@@ -54,7 +54,8 @@ public:
         const int outBatch  = output->batch();
         auto regionSize     = outBatch / inBatch;
         auto channel        = output->channel();
-        outputDes->regions.resize(regionSize);
+        outputDes->regions.clear();
+        outputDes->regions.reserve(regionSize);
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         // NCHW stride
         int inputStride[4];
@@ -81,8 +82,6 @@ public:
             outputStride[3] = 1;
         }
         for (int r = 0; r < regionSize; ++r) {
-            auto& region  = outputDes->regions[r];
-            region.origin = realTensor;
             int strideW   = r % blockShapeWidth;
             int strideH   = r / blockShapeWidth;
 
@@ -92,6 +91,12 @@ public:
             const int validWStart = ALIMAX(0, (padLeft - strideW + blockShapeWidth - 1) / blockShapeWidth);
             const int validWEnd =
                 ALIMIN(outWidth, (inWidth + padLeft - strideW + blockShapeWidth - 1) / blockShapeWidth);
+            if (validHEnd <= validHStart || validWEnd <= validWStart) {
+                continue;
+            }
+            outputDes->regions.emplace_back();
+            auto& region = outputDes->regions.back();
+            region.origin = realTensor;
             int inHeightStart = validHStart * blockShapeHeight + strideH - padTop;
             int inWidthStart  = validWStart * blockShapeWidth + strideW - padLeft;
             auto srcR         = &region.src;
