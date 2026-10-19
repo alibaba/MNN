@@ -74,7 +74,10 @@ static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *
     HVX_Vector     hi  = Q6_V_hi_W(sf);
     int            rem = validN - i;
     if (rem < 64) {
-      lo = Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem < 32 ? rem : 32) * (int) sizeof(float)), lo, v_max);
+      // vsetq(128) is empty: retain all 32 low float lanes when rem >= 32.
+      if (rem < 32) {
+        lo = Q6_V_vmux_QVV(Q6_Q_vsetq_R(rem * (int) sizeof(float)), lo, v_max);
+      }
       hi = (rem > 32) ? Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem - 32) * (int) sizeof(float)), hi, v_max) : v_max;
     }
     v_max = Q6_Vsf_vmax_VsfVsf(v_max, lo);
@@ -103,7 +106,9 @@ static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *
     HVX_Vector e1  = hvx_my_exp2_vsf(s1);
     int        rem = validN - i;
     if (rem < 64) {
-      e0 = Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem < 32 ? rem : 32) * (int) sizeof(float)), e0, Q6_V_vzero());
+      if (rem < 32) {
+        e0 = Q6_V_vmux_QVV(Q6_Q_vsetq_R(rem * (int) sizeof(float)), e0, Q6_V_vzero());
+      }
       e1 = (rem > 32) ? Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem - 32) * (int) sizeof(float)), e1, Q6_V_vzero()) : Q6_V_vzero();
     }
     v_sum              = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e0));
