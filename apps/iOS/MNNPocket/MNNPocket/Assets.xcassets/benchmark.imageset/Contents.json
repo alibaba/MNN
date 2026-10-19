@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "benchmark.pdf",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

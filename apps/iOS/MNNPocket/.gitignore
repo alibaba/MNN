@@ -1,0 +1,16 @@
+MNN
+MNN.framework/
+.framework-backup/
+.model-source-backup/
+
+# Preset-ASR assets are provisioned separately and must not enter Git.
+libsherpa-mnn.a
+MNNPocket/LocalModel/preset_audio/
+MNNPocket/LocalModel/xasr-mnn-int8/
+MNNPocket/LocalModel/Qwen3.5-2B-MNN/
+MNNPocket/LocalModel/slm270M/
+MNNPocket/LocalModel/slm270M-dflash/
+.DS_Store
+MNNPocket/LocalModel/Qwen3.5-2B/
+_model_holding/
+MNNPocket/LocalModel/preset_images/*.png

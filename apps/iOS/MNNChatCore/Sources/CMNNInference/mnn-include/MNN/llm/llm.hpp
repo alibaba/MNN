@@ -1,0 +1,308 @@
+//
+//  llm.hpp
+//
+//  Created by MNN on 2023/08/25.
+//  ZhaodeWang
+//
+
+#ifndef LLM_hpp
+#define LLM_hpp
+
+#include <vector>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <streambuf>
+#include <functional>
+#include <unordered_map>
+
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/Module.hpp>
+#include <MNN/expr/MathOp.hpp>
+#include <MNN/expr/NeuralNetWorkOp.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
+
+namespace MNN {
+struct KVMeta;
+namespace Transformer {
+using MNN::KVMeta;
+
+// ChatMessage: pair<role, content> for multi-turn conversation.
+//   first  = role: "system", "user", "assistant", "tool", etc.
+//   second = content: plain text message content.
+// For complex messages (tool_calls, reasoning_content, etc.):
+//   first  = "json"
+//   second = full JSON object string, e.g. {"role":"assistant","content":"","tool_calls":[...]}
+using ChatMessage = std::pair<std::string, std::string>;
+using ChatMessages = std::vector<ChatMessage>;
+class Tokenizer;
+class Pipeline;
+class LlmConfig;
+class DiskEmbedding;
+class Sampler;
+class Generation;
+class EagleGeneration;
+struct TimePerformance;
+#define CHECK_LLM_RUNNING_RET(ctx, ret)                         \
+{                                                               \
+    if ((ctx)->status == LlmStatus::NOT_LOADED ||               \
+    (ctx)->status == LlmStatus::INTERNAL_ERROR ||               \
+    (ctx)->status == LlmStatus::TIMEOUT ||                      \
+    (ctx)->status == LlmStatus::USER_CANCEL) {                  \
+        MNN_ERROR("[Error]: LLM in error state. Status: %d\n", \
+                  static_cast<int>((ctx)->status));             \
+        return (ret);                                           \
+    }                                                           \
+}
+#define CHECK_LLM_RUNNING(ctx)                                  \
+{                                                               \
+    if ((ctx)->status == LlmStatus::NOT_LOADED ||               \
+    (ctx)->status == LlmStatus::INTERNAL_ERROR ||               \
+    (ctx)->status == LlmStatus::TIMEOUT ||                      \
+    (ctx)->status == LlmStatus::USER_CANCEL) {                  \
+        MNN_ERROR("[Error]: LLM in error state. Status: %d\n", \
+                  static_cast<int>((ctx)->status));             \
+        return;                                                 \
+    }                                                           \
+}
+
+struct MNN_PUBLIC PromptImagePart {
+    MNN::Express::VARP image_data;
+    int width;
+    int height;
+};
+
+struct MNN_PUBLIC PromptAudioPart {
+    std::string file_path;
+    MNN::Express::VARP waveform;
+};
+
+struct MNN_PUBLIC PromptVideoPart {
+    // file_path is decoded and sampled by Omni using the model video_fps/video_max_frames config.
+    std::string file_path;
+    // In-memory frames are expected to be already sampled in chronological order; timestamps, when provided,
+    // are seconds for those sampled frames.
+    std::vector<MNN::Express::VARP> frames;
+    std::vector<float> timestamps;
+    int width = 0;
+    int height = 0;
+    float fps = 2.0f;
+    int max_frames = 768;
+};
+
+struct MNN_PUBLIC MultimodalPrompt {
+    std::string prompt_template;
+    std::map<std::string, PromptImagePart> images;
+    std::map<std::string, PromptAudioPart> audios;
+    std::map<std::string, PromptVideoPart> videos;
+};
+
+enum TuneType {
+    // op encoder number for commit
+    OP_ENCODER_NUMBER = 0,
+};
+enum class LlmStatus {
+    NOT_LOADED = -1,
+    RUNNING = 0,
+    NORMAL_FINISHED = 1,
+    MAX_TOKENS_FINISHED = 2,
+    USER_CANCEL = 3,
+    INTERNAL_ERROR = 4,
+    TIMEOUT = 5,
+};
+enum class MatchStrictLevel : int;
+enum class NgramSelectRule : int;
+
+struct LlmContext {
+    // forward
+    int prompt_len = 0;
+    int gen_seq_len = 0;
+    int all_seq_len = 0;
+    std::ostream* os = nullptr;
+    std::string end_with;
+    // perf
+    int64_t load_us = 0;
+    int64_t vision_us = 0;
+    int64_t audio_us = 0;
+    int64_t prefill_us = 0;
+    int64_t decode_us = 0;
+    int64_t sample_us = 0;
+    int64_t ttfa_us = 0;
+    float pixels_mp = 0;
+    float audio_input_s = 0;
+    // tokens
+    int current_token;
+    std::vector<int> history_tokens;
+    std::vector<int> output_tokens;
+    std::string generate_str;
+    // llm status
+    LlmStatus status = LlmStatus::NOT_LOADED;
+    // log buffer (per-instance, no locking needed)
+    std::string log_buffer;
+    // Guards history_tokens / output_tokens / generate_str / end_with against
+    // concurrent access: the decode loop mutates them while other threads
+    // (e.g. pymnn get_context) may read; unsynchronized vector/string
+    // reallocation causes use-after-free.
+    mutable std::mutex mutex;
+};
+struct GenerationParams;
+class MNN_PUBLIC Llm {
+public:
+    enum Stage {
+        Prefill,
+        Decode
+    };
+    // Log buffer interface: retrieve accumulated log and clear the buffer.
+    // Only effective when LLM_LOG_TO_STRING macro is enabled during compilation.
+    std::string getLog();
+    static Llm* createLLM(const std::string& config_path);
+    static void destroy(Llm* llm);// For Windows RT mode should use destroy
+    Llm(std::shared_ptr<LlmConfig> config);
+    virtual ~Llm();
+    virtual bool load();
+    virtual Express::VARP gen_attention_mask(int seq_len);
+    virtual Express::VARP gen_position_ids(int seq_len);
+    virtual Express::VARP embedding(const std::vector<int>& input_ids);
+    virtual int sample(Express::VARP logits, int offset = 0, int size = 0);
+    std::vector<Express::VARP> getOutputs() const;
+    int getOutputIndex(const std::string& name) const;
+    void reset();
+    void tuning(TuneType type, std::vector<int> candidates);
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {});
+    Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true);
+    Express::VARP forward(MNN::Express::VARP input_embeds);
+    void switchMode(Stage stage);
+    void setKVCacheInfo(size_t add, size_t remove, int* reserve = nullptr, int n_reserve = 0);
+    size_t getCurrentHistory() const;
+    void eraseHistory(size_t begin, size_t end);
+    bool setPrefixCacheFile(const std::string& filename, int flag = 0);
+    virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
+    void response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
+    void response(const ChatMessages& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
+    void response(MNN::Express::VARP input_embeds, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
+    virtual void generate_init(std::ostream* os = nullptr, const char* end_with = nullptr);
+    void generate(int max_token);
+    std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);
+    std::vector<int> generate(MNN::Express::VARP input_embeds, int max_tokens = -1);
+    bool stoped();
+    bool reuse_kv();
+    // Prompt cache: call after decode completes to sync the cached text with the
+    // full conversation (including assistant response). Optional — the cache
+    // self-updates after generate(), but this allows callers with post-processed
+    // response text (e.g. deleteThinkPart) to provide a more accurate version.
+    void syncPromptCache(const ChatMessages& chat_prompts);
+    // config function
+    std::string dump_config();
+    bool set_config(const std::string& content);
+    void setDebugCallback(MNN::TensorCallBackWithInfo&& before, MNN::TensorCallBackWithInfo&& after);
+    Llm* create_lora(const std::string& lora_path);
+    // tokenier function
+    bool is_stop(int token);
+    std::string tokenizer_decode(int token);
+    virtual std::vector<int> tokenizer_encode(const std::string& query);
+    friend class Pipeline;
+    virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input);
+    // ptompt functions
+    std::string apply_chat_template(const std::string& user_content) const;
+    std::string apply_chat_template(const ChatMessages& chat_prompts) const;
+    void response(const MultimodalPrompt& multimodal_input,
+                  std::ostream* os = &std::cout,
+                  const char* end_with = nullptr,
+                  int max_new_tokens = -1);
+    const LlmContext* getContext() const {
+        return mContext.get();
+    }
+    const std::shared_ptr<Express::Executor>& getExecutor() const {
+        return mExecutor;
+    }
+    virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {}
+    virtual void generateWavform() {}
+    virtual bool generateTTS(const std::string& text, const std::string& language = "english", int max_new_tokens = -1,
+                             const std::string& ref_audio = "");
+
+protected:
+    void setChatTemplate();
+    void initRuntime();
+    void setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg, bool mllm = false);
+    std::shared_ptr<LlmContext> mContext;
+    std::shared_ptr<KVMeta> mMeta;
+    std::shared_ptr<LlmConfig> mConfig;
+    std::shared_ptr<Tokenizer> mTokenizer;
+    std::shared_ptr<DiskEmbedding> mDiskEmbedding;
+    std::shared_ptr<DiskEmbedding> mPleEmbedding;
+    Express::VARP mPleInput; // PLE embeddings for current input
+    Express::VARP mDeepstackInput; // deepstack placeholder for visual models
+    Express::VARP mTextEmbedsForPle; // Pure text embeddings for PLE projection
+    std::shared_ptr<Sampler> mSampler;
+    std::shared_ptr<Express::Executor::RuntimeManager> mRuntimeManager, mProcessorRuntimeManager;
+    std::shared_ptr<Express::Module> mModule;
+    /**
+     key: <seq_len, all_logists>
+     value : module
+     note: prefill share one module, seq_len = 100 for example
+     */
+    const int mPrefillKey = 100;
+    std::map<std::pair<int, bool>, std::shared_ptr<Express::Module>> mModulePool;
+    const Express::Module* mBaseModule = nullptr;
+    Express::VARP inputsEmbeds, attentionMask, positionIds;
+    std::vector<Express::VARP> mAttentionMaskVarVec, mPositionIdsVarVec;
+    Express::VARP logitsAllIdx, logitsLastIdx;
+    int mSeqLenIndex = 0;
+    std::shared_ptr<MNN::Express::Executor> mExecutor;
+protected:
+    friend class ArGeneration;
+    friend class LookaheadGeneration;
+    friend class MtpGeneration;
+    friend class EagleGeneration;
+    friend class DFlashGeneration;
+    friend class Omni;
+    std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
+    std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
+private:
+    std::shared_ptr<Generation> mGenerationStrategy;
+    void setSpeculativeConfig();
+    void updateContext(int seq_len, int gen_len);
+    bool checkFile(const std::string& path, const char* name);
+
+private:
+    bool mInSpec = false;
+    int mDraftLength = 4;
+    std::shared_ptr<GenerationParams> mGenerateParam;
+    bool mAsync = true;
+    int mBlockSize = 0;
+    std::vector<int> mValidBlockSize;
+    bool mPrefixCacheMode = false;
+    std::string mPrefixCacheFileName;
+    int mCallIndex;
+    int mPrefixLength;
+    bool mIsPrefixFileExist = false;
+    void completePrefixWrite();
+    // Prompt cache state
+    std::string mCachedPromptText;
+    void updateCachedPromptText(const ChatMessages& chat_prompts, size_t history_before);
+};
+
+// Embedding start
+class MNN_PUBLIC Embedding : public Llm {
+public:
+    Embedding(std::shared_ptr<LlmConfig> config);
+    static Embedding* createEmbedding(const std::string& config_path, bool load = true);
+    static float dist(Express::VARP var0, Express::VARP var1);
+    static float cos_sim(Express::VARP var0, Express::VARP var1);
+    virtual bool load() override;
+
+    virtual Express::VARP ids_embedding(const std::vector<int>& ids);
+    Express::VARP txt_embedding(const std::string& txt);
+    std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {}) override;
+    int dim() const;
+    virtual Express::VARP gen_attention_mask(int seq_len) override;
+    virtual Express::VARP gen_position_ids(int seq_len) override;
+};
+// Embedding end
+}
+}
+
+#endif // LLM_hpp
