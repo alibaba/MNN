@@ -28,7 +28,7 @@ layout(push_constant) uniform PushConsts {
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-const int MAX_D4 = 64; // headDim <= 256
+const int MAX_D4 = 128; // headDim <= 512
 
 void main() {
     const int d4 = int(gl_GlobalInvocationID.x);

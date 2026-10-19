@@ -50,6 +50,11 @@ protected:
 
     // common
     std::shared_ptr<Tensor> mPackQ, mPackQKV, mRunningMax, mRunningSum, mTempOut, mExpfDiffMax;
+    // Decode scratch (flash path, seqLen==1) cached across onExecute calls; the
+    // flash block cap bounds every shape by a per-phase constant, so steady-state
+    // tokens reuse one allocation instead of five static-pool alloc/free cycles
+    // per layer per token.
+    std::shared_ptr<Tensor> mSoftmMaxQ, mNewPackQK, mQKBlockScratch, mKvSplitPartials, mPvSubBlockScratch;
     std::shared_ptr<CPUKVCacheManager> mKVCacheManager = nullptr;
     bool mUseFlashAttention = true;
 

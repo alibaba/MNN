@@ -506,12 +506,12 @@ void _SSE_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
             scale[0] = 1.f;
             qscale[0] = 1.f;
             qbias[0] = -maxval;
-            bias[0] = maxval;
+            bias[0] = maxval - 128.f;
         } else {
             qscale[0] = 255.f / range;
             scale[0] = range / 255.f;
             qbias[0] = roundf(-minval * 255.f / range)- 128.f;
-            bias[0] = minval;
+            bias[0] = -(qbias[0] + 128.f) * scale[0];
         }
         return;
     }
@@ -548,11 +548,11 @@ void _SSE_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
             auto quantScale4 = _mm_div_ps(_255f, diff4);
             auto dequantScale4 = _mm_div_ps(diff4, _255f);
             auto quantBias4 = _mm_sub_ps(_mm_div_ps(_mm_mul_ps(_mm_sub_ps(_0f, min4), _255f), diff4), _128f);
-            auto dequantBias4 = min4;
 
             quantScale4 = _mm_blendv_ps(quantScale4, _0f, mask);
             dequantScale4 = _mm_blendv_ps(dequantScale4, _0f, mask);
             quantBias4 = _mm_round_ps(_mm_blendv_ps(quantBias4, _0f, mask), 0);
+            auto dequantBias4 = _mm_mul_ps(_mm_sub_ps(_0f, _mm_add_ps(quantBias4, _128f)), dequantScale4);
             dequantBias4 = _mm_blendv_ps(dequantBias4, max4, mask);
 
             _mm_storeu_ps(scalePtr, dequantScale4);
@@ -584,7 +584,7 @@ void _SSE_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
                 qscale[qind] = 255.f / (max_ - min_);
                 qbias[qind] = roundf(-min_ * 255.f / (max_ - min_)) - 128.0f;
                 scalePtr[0] = (max_ - min_) / 255.f;
-                biasPtr[0] = min_;
+                biasPtr[0] = -(qbias[qind] + 128.f) * scalePtr[0];
             }
             realDstCount -= 1;
             qind += 1;

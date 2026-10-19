@@ -277,7 +277,7 @@ __global__ void flash_decode_kernel_with_mask(
     const T* __restrict__ key_cache,      // [L_kv_alloc, B, H_kv, D]
     const T* __restrict__ value_cache,    // [B, H_kv, L_kv_alloc, D]
     T* __restrict__ output,               // [B, L_q, H_q, D]
-    const T* __restrict__ mask,           // [1, 1, L_q, L_q] additive mask for new KV region
+    const T* __restrict__ mask,           // [1, 1, L_q, mask_kv_len], right-aligned to the KV
     const int batch,
     const int head_num,         // H_q
     const int kv_head_num,      // H_kv
@@ -285,6 +285,7 @@ __global__ void flash_decode_kernel_with_mask(
     const int key_seq_len,      // total KV length (past + new)
     const int max_kv_len,       // allocated KV length (stride for value cache)
     const int query_seq_len,    // L_q (number of new/query tokens)
+    const int mask_kv_len,
     const float scale
 ) {
     // Each block: one (batch, head_q, q_idx) triple
@@ -306,8 +307,7 @@ __global__ void flash_decode_kernel_with_mask(
     const T* q_ptr = query_input + b_idx * query_seq_len * head_num * head_dim
                     + q_idx * head_num * head_dim + h_q_idx * head_dim;
 
-    // Mask region: keys at index >= (key_seq_len - query_seq_len) are new tokens
-    const int past_kv_len = key_seq_len - query_seq_len;
+    const int mask_start = key_seq_len - mask_kv_len;
 
     // Shared memory for warp-level reductions
     extern __shared__ char smem_raw[];
@@ -355,12 +355,8 @@ __global__ void flash_decode_kernel_with_mask(
             }
             qk_score *= scale;
 
-            // Apply additive mask for new KV positions
-            if (k >= past_kv_len) {
-                int new_k_idx = k - past_kv_len;
-                // mask: [1, 1, L_q, L_q], row=q_idx, col=new_k_idx
-                float mask_val = (float)mask[q_idx * query_seq_len + new_k_idx];
-                qk_score += mask_val;
+            if (k >= mask_start) {
+                qk_score += (float)mask[q_idx * mask_kv_len + k - mask_start];
             }
 
             smem[0] = qk_score;
@@ -668,8 +664,9 @@ __global__ void qk_kernel_tiled(const T* __restrict__ query_input, // [B, L_q_fu
         score_sum = (sizeof(T) == sizeof(__half)) ? AccT(-65504.0f) : AccT(-1e9f);
     } else if (has_mask_flag && mask_tensor_data) {
         if (is_add_mask_flag) {
-            int mask_idx = current_full_q_idx * param->query_seq_len + k_idx - param->key_seq_len + param->query_seq_len;
-            if (k_idx >= param->key_seq_len - param->query_seq_len) {
+            const int mask_start = param->key_seq_len - param->mask_kv_len;
+            int mask_idx = current_full_q_idx * param->mask_kv_len + k_idx - mask_start;
+            if (k_idx >= mask_start) {
                 if (sizeof(T) == sizeof(__half)) {
                     score_sum += __half2float(((const __half*)mask_tensor_data)[mask_idx]);
                 } else {
@@ -771,9 +768,9 @@ AttentionExecution::AttentionExecution(Backend* backend, bool kv_cache_op_param)
       mIsAddMask(false),
       mParam_gpu(nullptr) {
     mPrecision = 4; // 默认精度,可在 onResize 中更改
+    mMeta = (KVMeta*)(mCudaBackend->getMetaPtr());
     if (mIsKVCacheEnabled) {
         mCache.reset(new SharedCache());
-        mMeta = (KVMeta*)(mCudaBackend->getMetaPtr());
     }
 }
 
@@ -1131,6 +1128,8 @@ bool AttentionExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
     auto exe = new AttentionExecution(bn, mIsKVCacheEnabled);
     exe->mCache = mCache;
     exe->mMeta = mMeta;
+    auto param = op->main_as_AttentionParam();
+    exe->mIsKVShared = nullptr != param && param->kv_shared_layer_index() >= 0;
     *dst = exe;
     return true;
 }
@@ -1169,7 +1168,8 @@ ErrorCode AttentionExecution::onResize(const std::vector<Tensor *> &inputs, cons
 
     if (mHeadDim == 0 || mKvNumHead == 0) return MNN::INVALID_VALUE;
     if (mNumHead % mKvNumHead != 0) return MNN::INVALID_VALUE;
-    mScale = 1.0f / sqrtf(static_cast<float>(mHeadDim));
+    mScale = (nullptr != mMeta && mMeta->attn_scale > 0.0f) ? mMeta->attn_scale
+                                                             : 1.0f / sqrtf(static_cast<float>(mHeadDim));
 
     mHasMask = inputs.size() > 3 && inputs[3] != nullptr && inputs[3]->elementSize() > 0;
     mIsCausalMask = mHasMask && inputs[3]->shape().empty();
@@ -1178,6 +1178,7 @@ ErrorCode AttentionExecution::onResize(const std::vector<Tensor *> &inputs, cons
     }
     if (mHasMask) {
         mIsAddMask = (inputs[3]->getType().code == halide_type_float);
+        mMaskKvLen = inputs[3]->elementSize() / (mBatch * mQuerySeqLen);
     }
 
     // Q splitting for prefill
@@ -1247,13 +1248,23 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     param_cpu.head_dim = mHeadDim;
     param_cpu.scale = mScale;
     param_cpu.current_kv_seq_len_new = mNewKvSeqLen;
+    param_cpu.mask_kv_len = mMaskKvLen;
 
     const void* effective_key_cache_ptr;
     const void* effective_value_cache_ptr;
     int current_total_kv_len_for_qk;
     int allocated_kv_len_for_value_stride;
 
-    if (mIsKVCacheEnabled) {
+    if (mIsKVCacheEnabled && mIsKVShared) {
+        // The owner layer already appended this step's rows
+        param_cpu.past_kv_len = mCache->mPastLength - mNewKvSeqLen;
+        param_cpu.key_seq_len = mCache->mPastLength;
+        param_cpu.max_kv_len = mCache->mMaxLength;
+        allocated_kv_len_for_value_stride = mCache->mMaxLength;
+        current_total_kv_len_for_qk = param_cpu.key_seq_len;
+        effective_key_cache_ptr = getTensorDevicePtr(mCache->mPastKey.get());
+        effective_value_cache_ptr = getTensorDevicePtr(mCache->mPastValue.get());
+    } else if (mIsKVCacheEnabled) {
         if (!mMeta) {
             param_cpu.past_kv_len = mCache->mPastLength;
             current_total_kv_len_for_qk = param_cpu.past_kv_len + mNewKvSeqLen;
@@ -1441,7 +1452,9 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         }
         checkKernelErrors;
 
-        mCache->mPastLength += mNewKvSeqLen;
+        if (!mIsKVShared) {
+            mCache->mPastLength += mNewKvSeqLen;
+        }
         packC4OutputTail();
         return MNN::NO_ERROR;
     }
@@ -1469,7 +1482,7 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
                 static_cast<const float*>(getTensorDevicePtr(mask_input_tensor)),
                 mBatch, mNumHead, mKvNumHead, mHeadDim,
                 current_total_kv_len_for_qk, allocated_kv_len_for_value_stride,
-                mQuerySeqLen, mScale);
+                mQuerySeqLen, mMaskKvLen, mScale);
         } else if (mPrecision == 2) {
             flash_decode_kernel_with_mask<__half><<<grid, block, smem_size, stream>>>(
                 getTensorDevicePtr<__half>(query_execution_tensor),
@@ -1479,11 +1492,13 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
                 static_cast<const __half*>(getTensorDevicePtr(mask_input_tensor)),
                 mBatch, mNumHead, mKvNumHead, mHeadDim,
                 current_total_kv_len_for_qk, allocated_kv_len_for_value_stride,
-                mQuerySeqLen, mScale);
+                mQuerySeqLen, mMaskKvLen, mScale);
         } else { return MNN::NOT_SUPPORT; }
         checkKernelErrors;
 
-        mCache->mPastLength += mNewKvSeqLen;
+        if (!mIsKVShared) {
+            mCache->mPastLength += mNewKvSeqLen;
+        }
         packC4OutputTail();
         return MNN::NO_ERROR;
     }
@@ -1577,7 +1592,7 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         checkKernelErrors;
     }
 
-    if (mIsKVCacheEnabled) {
+    if (mIsKVCacheEnabled && !mIsKVShared) {
         mCache->mPastLength += mNewKvSeqLen;
     }
 

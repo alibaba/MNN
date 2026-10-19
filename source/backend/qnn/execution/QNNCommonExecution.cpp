@@ -42,7 +42,7 @@ ErrorCode QNNCommonExecution::onEncode(const std::vector<Tensor *> &inputs, cons
 }
 
 ErrorCode QNNCommonExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    return NO_ERROR;
+    return mBackend->isDedicatedQnnSession() ? mBackend->runGraphOnce() : NO_ERROR;
 }
 
 void QNNCommonExecution::setNodeName(const Op * op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {

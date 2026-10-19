@@ -412,6 +412,14 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
     return true;
 }
 
+float AttentionBufExecution::attentionScale(int headDim) const {
+    // Model-level override, set from llm_config.json. Mirrors CPUAttention.
+    if (nullptr != mMeta && mMeta->attn_scale > 0.0f) {
+        return mMeta->attn_scale;
+    }
+    return 1.0f / sqrt((float)headDim);
+}
+
 void AttentionBufExecution::handleKVCache(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto query = inputs[0];
     auto key = inputs[1];
@@ -429,6 +437,15 @@ void AttentionBufExecution::handleKVCache(const std::vector<Tensor*>& inputs, co
         mKvSeqlen = kvInputLen;
         mKeyValueMaxlen = ROUND_UP(kvInputLen, 4);
         mDecodeTmpMaxlen = ROUND_UP(kvInputLen, 4);
+        return;
+    }
+    if (mIsKVShared) {
+        // The owning layer resized the cache earlier in this pass and has not committed the new
+        // rows yet (UpdateArgs does that), so its length is still the past one.
+        mKeyValueMaxlen = ROUND_UP(mKVCacheCLManager->maxLength(), 4);
+        mDecodeTmpMaxlen = mKeyValueMaxlen;
+        mPastKvSeqlen = mKVCacheCLManager->pastKvLength();
+        mKvSeqlen = mPastKvSeqlen + kvInputLen;
         return;
     }
     mKVCacheCLManager->setArgs(numHead, kvNumHead, headDim);
@@ -476,9 +493,16 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
     int kvInputLen = key->shape()[1];
     int numHead = shape[2];
     int headDim = shape[3];
-    mPastKvSeqlen = mKVCacheCLManager->pastKvLength();
-    mKvSeqlen = mKVCacheCLManager->pastKvLength() + kvInputLen;
-    mKVCacheCLManager->addKvLength(kvInputLen);
+    if (mIsKVShared) {
+        // The owning layer ran first and already committed this step's rows; advancing again
+        // would count the step once per sharing layer.
+        mKvSeqlen = mKVCacheCLManager->pastKvLength();
+        mPastKvSeqlen = mKvSeqlen - kvInputLen;
+    } else {
+        mPastKvSeqlen = mKVCacheCLManager->pastKvLength();
+        mKvSeqlen = mKVCacheCLManager->pastKvLength() + kvInputLen;
+        mKVCacheCLManager->addKvLength(kvInputLen);
+    }
     // Re-read the cache stride: onExecute can reallocate (growth) or replace (prefix load)
     // the buffers without a resize, and every kernel below is fed mKeyValueMaxlen.
     mKeyValueMaxlen = ROUND_UP(mKVCacheCLManager->maxLength(), 4);
@@ -491,8 +515,10 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
 #ifndef ENABLE_OPENCL_TIME_PROFILER
         if (mOpenCLBackend->isUseRecordQueue()) {
             if (mFlashPrefill) {
-                mRgUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->key()))();
-                mRgVUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->value()))();
+                if (!mIsKVShared) {
+                    mRgUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->key()))();
+                    mRgVUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->value()))();
+                }
                 mFaUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->key()))();
                 mFaUpdateInfo.update_kernel_args[1].arg_value = &(*(mKVCacheCLManager->value()))();
             } else {
@@ -504,12 +530,14 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, 
 #endif
             if (mFlashPrefill) {
                 cl_int ret = CL_SUCCESS;
-                ret |= mKernel_rearrange->get().setArg(4, *mKVCacheCLManager->key());
-                ret |= mKernel_rearrange->get().setArg(5, mPastKvSeqlen);
-                ret |= mKernel_rearrange->get().setArg(6, mKeyValueMaxlen);
-                ret |= mKernel_rearrangeV->get().setArg(4, *mKVCacheCLManager->value());
-                ret |= mKernel_rearrangeV->get().setArg(5, mPastKvSeqlen);
-                ret |= mKernel_rearrangeV->get().setArg(6, mKeyValueMaxlen);
+                if (!mIsKVShared) {
+                    ret |= mKernel_rearrange->get().setArg(4, *mKVCacheCLManager->key());
+                    ret |= mKernel_rearrange->get().setArg(5, mPastKvSeqlen);
+                    ret |= mKernel_rearrange->get().setArg(6, mKeyValueMaxlen);
+                    ret |= mKernel_rearrangeV->get().setArg(4, *mKVCacheCLManager->value());
+                    ret |= mKernel_rearrangeV->get().setArg(5, mPastKvSeqlen);
+                    ret |= mKernel_rearrangeV->get().setArg(6, mKeyValueMaxlen);
+                }
                 ret |= mKernel_fa->get().setArg(1, *mKVCacheCLManager->key());
                 ret |= mKernel_fa->get().setArg(2, *mKVCacheCLManager->value());
                 ret |= mKernel_fa->get().setArg(7, mKvSeqlen);
@@ -599,7 +627,7 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor*>& i
     int kvNumHead = key->shape()[2];
     int headDim = shape[3];
     int group_size = numHead / kvNumHead;
-    float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(headDim)) : mAttnScale;
+    float scale = attentionScale(headDim);
     int maskQlen = seqlen;
     int maskKvlen = mKvSeqlen;
     if (mHasMask) {
@@ -1282,7 +1310,7 @@ ErrorCode AttentionBufExecution::flashPrefillResize(const std::vector<Tensor*>& 
     int kvNumHead = key->shape()[2];
     int headDim = shape[3];
     int groupSize = numHead / kvNumHead;
-    float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(headDim)) : mAttnScale;
+    float scale = attentionScale(headDim);
     int maskKvlen = mKvSeqlen;
     int maskQlen = seqlen;
     int maskBatchStride = 0;
@@ -1342,7 +1370,9 @@ ErrorCode AttentionBufExecution::flashPrefillResize(const std::vector<Tensor*>& 
         valueBuffer = openCLBuffer(mTempV.get());
     }
 
-    {
+    // A shared layer's key / value inputs are placeholders; the owning layer, which runs earlier
+    // on the same in-order queue, already laid out the real rows.
+    if (!mIsKVShared) {
         // rearrange key -> kv cache
         std::set<std::string> buildOption;
         mKernel_rearrange = runtime->buildKernel("attention_kv_rearrange_buf", "rearrange_k", buildOption,
@@ -1380,7 +1410,7 @@ ErrorCode AttentionBufExecution::flashPrefillResize(const std::vector<Tensor*>& 
         mOpRecordUpdateInfo.emplace_back(&mRgUpdateInfo);
         mOpenCLBackend->recordKernel3d(mKernel_rearrange, mGlobalWorkSizeRearrg, mLocalWorkSizeRearrg, &mRgUpdateInfo);
     }
-    {
+    if (!mIsKVShared) {
         // rearrange value -> kv cache
         std::set<std::string> buildOption;
         if (TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
@@ -1483,7 +1513,7 @@ ErrorCode AttentionBufExecution::flashDecodeResize(const std::vector<Tensor*>& i
     int kvNumHead = inputs[1]->shape()[2];
     int headDim = shape[3];
     int group_size = numHead / kvNumHead;
-    float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(headDim)) : mAttnScale;
+    float scale = attentionScale(headDim);
 
     // Without a KVMeta the cache manager never allocated anything (handleKVCache returns early),
     // so a caller that skips the KVCACHE_INFO hint needs scratch of its own -- same shape as the
@@ -1539,6 +1569,14 @@ ErrorCode AttentionBufExecution::flashDecodeResize(const std::vector<Tensor*>& i
         if (mOutputC4) {
             buildOption.emplace("-DATTENTION_C4");
         }
+        if (mIsKVShared) {
+            buildOption.emplace("-DFD_SKIP_KV_WRITE");
+        }
+        // Causal decode needs no mask, but a sliding window hides old keys.
+        const bool addMask = mHasMask && mIsAddMask;
+        if (addMask) {
+            buildOption.emplace("-DFD_ADD_MASK");
+        }
         mKernel_fdPartial = runtime->buildKernel("attention_flash_decode_partial_buf", "flash_decode_partial",
                                                  buildOption, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
         mGwsFdPartial = {static_cast<uint32_t>(mFdWgSize * mFdNumChunk), static_cast<uint32_t>(numHead)};
@@ -1562,6 +1600,11 @@ ErrorCode AttentionBufExecution::flashDecodeResize(const std::vector<Tensor*>& i
         // the qk main loop needs; see the kernel comment.
         ret |= mKernel_fdPartial->get().setArg(index++, keyBuffer);
         ret |= mKernel_fdPartial->get().setArg(index++, valueBuffer);
+        if (addMask) {
+            auto mask = inputs[3];
+            ret |= mKernel_fdPartial->get().setArg(index++, openCLBuffer(mask));
+            ret |= mKernel_fdPartial->get().setArg(index++, mask->shape()[mask->dimensions() - 1]);
+        }
         MNN_CHECK_CL_SUCCESS(ret, "setArg flash_decode_partial");
         if (nullptr != mMeta) {
             mFdPartialUpdateInfo.update_kernel_args.push_back({0, 1, sizeof(cl_mem), &(*(mKVCacheCLManager->key()))()});
@@ -1647,8 +1690,10 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, co
     } else {
         const bool flashOk = flashPrefillEligible(inputs, outputs);
         // Long prefill treats the mask as a full additive GEMM bias and only lays out incoming KV,
-        // so it requires an exact float mask plane and an empty cache.
-        bool longOk = mHasMask && mIsAddMask && 0 == mPastKvSeqlen;
+        // so it requires an exact float mask plane and an empty cache. It is also the one path
+        // that lays out K and V from the op inputs rather than reading the cache, which a shared
+        // layer cannot do.
+        bool longOk = !mIsKVShared && mHasMask && mIsAddMask && 0 == mPastKvSeqlen;
         if (longOk) {
             auto mask = inputs[3];
             int dim = mask->dimensions();
@@ -1785,7 +1830,9 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, c
 #ifdef LOG_VERBOSE
     MNN_PRINT("start AttentionBufExecution onExecute !\n");
 #endif
-    if (nullptr != mMeta) {
+    // A shared layer must not touch the bookkeeping: the owning layer already sized the buffers
+    // and applied Remove, and repeating it would re-trim the rows this layer is about to read.
+    if (nullptr != mMeta && !mIsKVShared) {
         // If allocKVCache already ran reallocKVCache(true) during resize phase,
         // skip it here to avoid double-executing Remove. For subsequent decode
         // iterations (no resize), mReallocDone is false so we still run it.
@@ -1807,12 +1854,14 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, c
 #ifdef ENABLE_OPENCL_TIME_PROFILER
     if (mFlashPrefill) {
         cl::Event event0, event1, event2;
-        run3DKernelDefault(mKernel_rearrange, mGlobalWorkSizeRearrg, mLocalWorkSizeRearrg,
-                           mOpenCLBackend->getOpenCLRuntime(), &event0);
-        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"rearrange_k", event0});
-        run3DKernelDefault(mKernel_rearrangeV, mGlobalWorkSizeRearrgV, mLocalWorkSizeRearrgV,
-                           mOpenCLBackend->getOpenCLRuntime(), &event1);
-        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"rearrange_v", event1});
+        if (!mIsKVShared) {
+            run3DKernelDefault(mKernel_rearrange, mGlobalWorkSizeRearrg, mLocalWorkSizeRearrg,
+                               mOpenCLBackend->getOpenCLRuntime(), &event0);
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"rearrange_k", event0});
+            run3DKernelDefault(mKernel_rearrangeV, mGlobalWorkSizeRearrgV, mLocalWorkSizeRearrgV,
+                               mOpenCLBackend->getOpenCLRuntime(), &event1);
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"rearrange_v", event1});
+        }
         runKernel2D(mKernel_fa, mGlobalWorkSizeFa, mLocalWorkSizeFa, mOpenCLBackend->getOpenCLRuntime(), &event2);
         mOpenCLBackend->getOpenCLRuntime()->pushEvent({"flash_attention_prefill", event2});
     } else if (mLongPrefill) {
@@ -1863,10 +1912,12 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, c
     }
 
     if (mFlashPrefill) {
-        run3DKernelDefault(mKernel_rearrange, mGlobalWorkSizeRearrg, mLocalWorkSizeRearrg,
-                           mOpenCLBackend->getOpenCLRuntime());
-        run3DKernelDefault(mKernel_rearrangeV, mGlobalWorkSizeRearrgV, mLocalWorkSizeRearrgV,
-                           mOpenCLBackend->getOpenCLRuntime());
+        if (!mIsKVShared) {
+            run3DKernelDefault(mKernel_rearrange, mGlobalWorkSizeRearrg, mLocalWorkSizeRearrg,
+                               mOpenCLBackend->getOpenCLRuntime());
+            run3DKernelDefault(mKernel_rearrangeV, mGlobalWorkSizeRearrgV, mLocalWorkSizeRearrgV,
+                               mOpenCLBackend->getOpenCLRuntime());
+        }
         runKernel2D(mKernel_fa, mGlobalWorkSizeFa, mLocalWorkSizeFa, mOpenCLBackend->getOpenCLRuntime());
     } else if (mLongPrefill) {
         int seq_idx = 0;
@@ -1902,7 +1953,8 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, c
     // Safe against the record queue: the LLM engine disables it during prefill (sets
     // OP_ENCODER_NUMBER_FOR_COMMIT=0), so the write path always reaches here via synchronous
     // dispatch rather than the addRecord early-return above.
-    if (!mIsDecode && nullptr != mMeta && mMeta->file_flag == KVMeta::PendingWrite &&
+    // Shared layers are skipped: the owning layer dumps the same buffers under the same name.
+    if (!mIsDecode && nullptr != mMeta && !mIsKVShared && mMeta->file_flag == KVMeta::PendingWrite &&
         mKVCacheCLManager->savingPrefix()) {
         mKVCacheCLManager->savePrefixKVCache();
     }
@@ -1918,7 +1970,6 @@ AttentionBufExecution::AttentionBufExecution(const MNN::Op* op, Backend* backend
     : CommonExecution(backend, op) {
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mOutputC4 = outputC4;
-    mAttnScale = op->main_as_AttentionParam()->attnScale();
     mKVCacheCLManager.reset(new KVCacheCLManager(backend, nullptr != mMeta));
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
     mKVCacheCLManager->setPrefixCacheDir(mOpenCLBackend->getRuntime()->hint().prefixcacheDirPath);
@@ -1935,7 +1986,8 @@ AttentionBufExecution::AttentionBufExecution(std::shared_ptr<KVCacheCLManager> m
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
     auto param = op->main_as_AttentionParam();
     mOutputC4 = param->output_c4();
-    mAttnScale = param->attnScale();
+    // Only reached through onClone, which hands over the owning layer's cache manager.
+    mIsKVShared = nullptr != param && param->kv_shared_layer_index() >= 0;
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel(
         "softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL_CTOR(kernel);
@@ -1984,6 +2036,9 @@ void AttentionBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& i
     if (mOutputC4) {
         partialOptions.emplace("-DATTENTION_C4");
     }
+    if (mHasMask && mIsAddMask) {
+        partialOptions.emplace("-DFD_ADD_MASK");
+    }
     runtime->submitPrebuild("attention_flash_decode_partial_buf", partialOptions, precision, inputs[0], outputs[0],
                             true);
 
@@ -1999,10 +2054,14 @@ bool AttentionBufExecution::onClone(Backend* bn, const Op* op, Execution** dst) 
     if (nullptr == dst) {
         return true;
     }
+    auto param = op->main_as_AttentionParam();
     if (bn->getMetaPtr() == mMeta && mMeta != nullptr) {
         *dst = new AttentionBufExecution(mKVCacheCLManager, op, bn);
+    } else if (nullptr != param && param->kv_shared_layer_index() >= 0) {
+        // Without the shared KVMeta the cache cannot be shared; a private one would hold placeholders.
+        return false;
     } else {
-        *dst = new AttentionBufExecution(op, bn, op->main_as_AttentionParam()->output_c4());
+        *dst = new AttentionBufExecution(op, bn, param->output_c4());
     }
     return true;
 }

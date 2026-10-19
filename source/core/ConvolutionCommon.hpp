@@ -16,9 +16,7 @@ class MNN_PUBLIC ConvolutionCommon : public Execution {
 public:
     struct Int8Common {
         AutoStorage<int8_t> weight;
-        // alpha (fp32) and alphaHalf (fp16 raw bits) are alternative views of the same scale/zero
-        // data. alphaIsFp16 records the canonical (disk-side) form. Use getAlphaFloat() /
-        // getAlphaHalf() to access; they lazily fill the alternate view on first request.
+        // When present, alpha takes precedence over alphaHalf because it may include fp32 corrections.
         AutoStorage<float> alpha;
         AutoStorage<int16_t> alphaHalf;
         AutoStorage<float> weightFloat;
@@ -36,7 +34,8 @@ public:
         const float* getAlphaFloat();
         const int16_t* getAlphaHalf();
     };
-    static std::shared_ptr<Int8Common> load(const Op* op, Backend* backend = nullptr, bool forceFloat = false, bool forceInt8 = false, void* weightPtr = nullptr);
+    static std::shared_ptr<Int8Common> load(const Op* op, Backend* backend = nullptr, bool forceFloat = false,
+                                          bool forceInt8 = false, void* weightPtr = nullptr, bool allowFp16Alpha = false);
     // if can not get quant bits, return 0
     static int getQuantBitFromExternalFile(const Op* op);
     static void getConvParameters(std::shared_ptr<ConvolutionCommon::Int8Common> *quanCommon, Backend* backend, const MNN::Op *op, const float** originWeight, int* originWeightSize);

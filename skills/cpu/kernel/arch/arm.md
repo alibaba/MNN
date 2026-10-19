@@ -3,7 +3,7 @@
 > **何时读**：要在 AArch64 上写一条新 kernel 的 intrinsic 或 `.S`（NEON / SDOT / I8MM / SME2）、
 > 给低 bit 权重加一条 unpack 路径、或迁移一个已有 kernel 到更高档 ISA 之前。
 > **本文只写 AArch64 专属事实**：目录与命名、`asm_function` 与指令编码方式、ABI 寄存器分区、
-> 三档矩阵指令的语义与错位、低 bit unpack 的指令预算。
+> 三档矩阵指令的语义与错位、低 bit unpack 的指令预算、新特性在 ISA 档间的覆盖原则。
 >
 > **不在本文**：标量 oracle 从哪来、分层比较点、跨 ISA × 精度的正确性矩阵
 > → [`../correctness-gate.md`](../correctness-gate.md)；什么时候才该下沉到 asm
@@ -310,8 +310,23 @@ ret
 - **`v8`-`v15` 只保低 64 位。** 用 `v8.16b` 存 128 位 unpack 中间量并期望它跨调用存活 → 高 64 位丢。
   仓库的存法正是 `stp d8, d9, ...`（64 位一个），**这就是 ABI 只要求低 64 位的直接体现**，
   不是省事。要在这段里放 128 位长生命周期值，就得自己额外开栈槽。
-- **`x18` 在 Darwin / Windows 上是保留的**，绝不能当临时寄存器用。仓库 kernel 里普遍从 `x19` 起用，
-  临时集中在 `x8`-`x17`。
+- **平台角色特殊的 GPR**：见下面这条本仓库纪律。
+
+**本仓库纪律（比 AAPCS 更严）：手写 `.S` 不要引用 `x16` / `x17` / `x18` / `x29` / `x30` / `x31`**
+（含同号的 32 位形式 `w16` / `w17` / `w18` / `w29` / `w30` / `w31`）。
+这些寄存器在不同平台上的角色不同，当通用临时用极易出错：
+
+| 寄存器 | 为什么不能当临时用 |
+|---|---|
+| `x16` / `x17`（IP0/IP1） | linker 插入的 long-branch veneer / stub 可能改写它们，部分平台另有系统约定。叶函数内"看似安全"的用法，换平台或换链接布局就不保证——w4 fp16 GEMM kernel 就在这个坑上修过一次（`ef8ddb6269`，长生命周期的 metadata 标志被移去 callee-saved / 栈槽） |
+| `x18` | 平台寄存器，**Darwin / Windows 保留**（仓库实测：aarch64 `.S` 中 0 处使用） |
+| `x29` / `x30`（FP/LR） | 帧指针 / 返回地址：当临时用破坏栈展开与调试，arm64e 上 LR 带指针签名，改写后 `ret` 直接崩；`bl` 本身也写 `x30`。唯一例外是 SME2 帧模式里按 callee-saved 保存/恢复的 `stp/ldp x29, x30` 与 `mov x29, sp`（§3.3）——NEON/SDOT/I8MM kernel 不建帧，不要引用 |
+| `x31` | 它不是第 32 个 GPR：A64 寄存器字段 = 31 按指令形式是 **SP 或 ZR**。助记符只能写 `sp` / `xzr`；本仓库指令靠 `.inst` 手编，误把 31 编进寄存器字段**不会报错**，语义静默变成 SP/ZR |
+
+可用临时只有 `x8`-`x15`（含 `w8`-`w15`）；不够就按 §3.3 开栈帧保存 `x19`-`x28` 来扩，
+跨调用存活的值一律从 `x19` 起用。现存例外：6 个低 bit（w2/w3）kernel 用 `adr x16, .L_consts`
+装常量池基址（叶函数内、装完只用不调用）——**历史遗留，新代码不要模仿**：
+常量池基址用 `x9`-`x15`，或每次 `adr` 重建。
 
 ### 3.2 本仓库的实际分区惯例（以及它的反例）
 
@@ -335,7 +350,7 @@ AArch64 上的分区**建议**（tile 数大时会被迫破例，破例就要重
 |---|---|---|
 | src / 已 unpack 的 weight / unpack 临时 | `v0`-`v7`（+ `v8`-`v11` 若已存 `d8`-`d11`） | `_ARMV86_w3_Unit.S` 用 `v0`(main) `v1`(aux) `v2`/`v3`(mask) `v4`/`v5`(shift) `v8`-`v11`(unpacked) `v3`-`v7`(src) |
 | accumulator | `v16`-`v31`，不够时向下扩到 `v12` | 同上，TILE_10 占 `v12`-`v31` |
-| 常量 mask / shift 表 | `v2`-`v5` 之类的低位，且**每次 loop 重建**（`movi`）或从 `adr` 常量池 `ld1` | `_ARMV86_w3_Unit.S` `adr x16, .L_w3_unpack_consts_fp32` |
+| 常量 mask / shift 表 | `v2`-`v5` 之类的低位，且**每次 loop 重建**（`movi`）或从 `adr` 常量池 `ld1` | `_ARMV86_w3_Unit.S` `adr x16, .L_w3_unpack_consts_fp32`（`x16` 是历史遗留，新代码用 `x9`-`x15`，§3.1） |
 | fp32 min/max | `v30`/`v31`（默认）或 `v26`/`v27`；tile 满时用 `v0`/`v1` | 见上表 |
 
 ### 3.3 prologue / epilogue 的两种实测形态
@@ -379,6 +394,9 @@ int8 kernel 的 asm 侧**只认字节偏移，不认字段名**。`x6` 是结构
 
 1. **往结构体中间插字段 = 静默改所有 asm 的 ABI。** 加字段只能加**尾部**，且要 grep
    `\[x6, #` 核对每个 arm64 / arm32 / arm82 kernel，并同步各 `.S` 顶部的镜像注释块。编译器不会报任何错。
+   字段落定后在声明旁加 `static_assert(offsetof(...) == N)` 把偏移钉死
+   （`compute/Int8FunctionsOpt.h:79` 对 `weightQuantInfoMode == 112` 就是这么做的）——
+   「编译器不会报错」就变成「布局漂移即构建失败」。
 2. **`maxValue`/`minValue` 是取地址连读的**（`add x23, x6, #16`），不是两次 `ldr`。
    这两个 int32 相邻的假设被烘焙进了 asm。
 
@@ -511,6 +529,40 @@ mGemmKernel = mRelatedFunctions.Int8GemmKernel;
   所以 ARM 侧新增 `_W2` / `_W3` 变体时，要在这里补对应分派；照抄 x86_64 的结构会漏掉整条低 bit 路径。
   x86_64 侧的判据见 [`x86_64.md`](x86_64.md)。
 
+### 4.6 新特性的档间覆盖：fp16 可达的每一档都要统一支持
+
+**原则**：ARM 后端上，只要设备的 fp16 路径可达（`supportFp16arith`，`Arm82Backend` 能建起来），
+各种计算特性 / 路径都要统一支持——新特性不能只开在 i8mm / SME2 档，把 sdot 档（v8.2-only 设备）
+留在旧路径上。
+
+**漏档是静默的**：能力位按累积覆盖派发（顺序 `if`，见
+[`../../optimize/arch/arm.md`](../../optimize/arch/arm.md) §2.2）。按高档位 bit 门控一个特性时，
+低档设备**不报错、结果仍然正确**——只是永远走旧路径。正确性门禁全绿也发现不了「特性没生效」，
+所以只能靠门控时的逐档点名，不能指望测试兜底。
+
+**真实事故**：fp16 scale/bias 元数据（`QuanPostTreatParameters.weightQuantInfoMode == 1`）的资源打包
+在 `compute/ConvInt8TiledExecutor.cpp` 按 capability bit 分支：先有 `compactSme`（SME2）、
+后有 `compactArmv86`（i8mm），V8.2-only 设备一直停在 mode-0。而 ARMV82 fp16 kernel 的 mode-1
+展开代码**早就存在**——它是 SME2 mixed-kernel 资源的 NEON 分支（同文件 `mCompactNeonKernel`）——
+缺的只是 gating 分支。补上 `compactArmv82` 后 sdot 档才拿到该特性（`732764f02b`）。
+教训的另一面：**给高档 kernel 写特性时顺手在低档 kernel 里把支持写好是对的**
+（ARMV82 kernel 的 mode-1 就是这么"提前"存在的），但 gating 不到它，写了也等于没有。
+
+**门控新特性时的逐档点名**：从 sdot 档起，逐档回答「这档拿到该特性了吗」：
+
+- SME2 档 / i8mm 档 / sdot 档（v8.2-only）三档都要有明确答案；
+- 某档不覆盖的唯一合法理由是**该档 kernel 结构上不支持**，且必须在门控处写注释说明——
+  参照 `compute/Int8FunctionsOpt.cpp` 给 `*_DecodeMax` 字段的 `Only Sme2 has` 注释。
+  注意那是**性能结构**差异（Hp128 布局只有 SME2 有），不是特性差异：
+  decode 这个功能在低档由别的 kernel 形态提供（mixed-kernel 的 NEON 分支、单 kernel 路径）。
+  parity 要求的是**功能特性**（元数据格式、量化模式、输出路径）档档可达，
+  不要求每档都有同构 kernel。
+
+**验证**：这类特性的每一档都是目标档，不是回退档——除结果正确外，还要**证明新路径在该档
+真被选中**（probe 打印 resource mode / kernel 指针），而不是静默落在旧路径。
+门禁轴与降档方法见 [`../correctness-gate.md`](../correctness-gate.md) §1.6 与
+[`../../optimize/arch/arm.md`](../../optimize/arch/arm.md) §三、§五。
+
 ## 五、低 bit（w2/w3/w4）的 AArch64 专属要点
 
 ### 5.1 unpack 指令预算：先数指令，再谈带宽
@@ -582,7 +634,7 @@ w3 的 cell 由 "main plane（2bit）+ aux plane（1bit）" 组成，aux 只有 
 | 优先级 | 方向 | 本仓库实证 |
 |---|---|---|
 | 1 | **bit-plane 方向**：换 main/aux 的划分或 OC-major/IC-major | w3 = "2bit main + 1bit aux, aux 是 OC-major"（`_ARMV82_w3_Unit.S`）；这是刻意选的，因为 aux 能一次 `ld1r` 广播 |
-| 2 | **常量复用**：mask / shift 表 hoist 出 loop，或放常量池一次 `adr` | `_ARMV86_w3_Unit.S` `adr x16, .L_w3_unpack_consts_fp32` + 注释 `x16 stays valid throughout the function` |
+| 2 | **常量复用**：mask / shift 表 hoist 出 loop，或放常量池一次 `adr` | `_ARMV86_w3_Unit.S` `adr x16, .L_w3_unpack_consts_fp32`（`x16` 是历史遗留，新代码用 `x9`-`x15`，§3.1） |
 | 3 | **换 unpack 指令族**：`tbl`/`ext` ↔ `ushr`/`ushl`/`and`/`add` | SDOT w3 用 tbl 流水，I8MM w3 用移位流水（§5.1） |
 | 4 | **block64 专用路径**：为默认 block 写快路径，保留 block32 / per-channel 旧路径 | 两种粒度都要单独验（[`../correctness-gate.md`](../correctness-gate.md) §1.4） |
 | 5 | 扩大 packed bytes / 改 cell stride | **最后手段**，等于改 ABI |
@@ -633,15 +685,16 @@ AArch64 上 fp16 走 `Arm82Backend` + 第二张函数表，**kernel 是不同的
 - [ ] 文件有 `#ifdef __aarch64__` 守卫、`#include "MNNAsmGlobal.h"` 在守卫内、`.text`、`.align 5`（§2.3）
 - [ ] 用了 `asm_function`，C++ 侧声明在 `extern "C"` 内（§2.1）
 - [ ] **没有加 `.arch`**；`sdot`/`smmla`/SME 指令全部写成 `.inst hex // 助记符`，注释与 hex 已核对（§2.2）
-- [ ] 没有用 `x18`；`x19`-`x28` 与 `d8`-`d15` 已存-恢复且**逆序**（§3.1、§3.3）
+- [ ] 没有引用 `x16`/`x17`/`x18`/`x29`/`x30`/`x31`（含 `w` 形式；SME2 帧模式按 callee-saved 保存/恢复的 `x29`/`x30` 除外，§3.1）；`x19`-`x28` 与 `d8`-`d15` 已存-恢复且**逆序**（§3.3）
 - [ ] 需要跨调用存活的 128 位值没有放在 `v8`-`v15`（只保低 64 位，§3.1）
 - [ ] `[x6, #N]` 的偏移对照 `compute/Int8FunctionsOpt.h` 核过，`.S` 顶部的镜像注释块与头文件仍一致（§3.4）
-- [ ] 新增结构体字段只加在**尾部**，并 grep 过所有 `\[x6, #`（§3.4）
+- [ ] 新增结构体字段只加在**尾部**，并 grep 过所有 `\[x6, #`，声明旁已加 `static_assert(offsetof(...))` 钉住偏移（§3.4）
 - [ ] SDOT 的 indexed 分组 / I8MM 的 2×2 de-interleave 在 C++ 模拟版上对齐过（§4.2、§4.3）
 - [ ] SME2：`smstart`/`smstop` 配对、所有出口经过 `smstop`、`smstop` 在 `ldp` 之前、没有写死向量长度（§4.4）
 - [ ] 低 bit：unpack 指令数已数过，`unpack / dot` 比值合理；没有靠 `prfm` 或加 unroll 顶（§5.1、§5.3）
 - [ ] 低 bit：两档的 cell stride 分别确认（SDOT 有 padding，I8MM 无，§5.2）
 - [ ] fp16 与 fp32 两棵树都改了并**分别测过**（§六）
+- [ ] 按 capability bit 门控的新特性：sdot 档（fp16 可达的最低档）也拿到该特性，或门控处注释写明该档不覆盖的结构原因（§4.6）
 - [ ] 新 `.S` 已进 CMake 的源文件列表；函数指针只在对应 ISA 能力位为真时注册（§4.5、[`../dispatch-and-register.md`](../dispatch-and-register.md) §五）
 - [ ] `MNN_CPU_TARGET` 降档后的 fallback 路径**可达且结果与改动前逐位一致**（[`../correctness-gate.md`](../correctness-gate.md) §1.6、§2.2）
 - [ ] tile 契约七处同改：[`../pack-and-abi.md`](../pack-and-abi.md) §四

@@ -79,7 +79,6 @@ public:
                 auto key  = attr->key()->str();
                 if (key == "axis") {
                     axis = attr->i();
-                    break;
                 }
                 if (key == "reduction") {
                     auto reductionStr = attr->s()->str();
@@ -88,7 +87,6 @@ public:
                     } else if (reductionStr == "mul") {
                         reduction = BinaryOpOperation_MUL;
                     }
-                    break;
                 }
             }
         }

@@ -65,6 +65,11 @@ public:
         void configTypical(std::shared_ptr<LlmConfig> llmConfig);
         void configPenalty(std::shared_ptr<LlmConfig> llmConfig);
         void configMixed(std::shared_ptr<LlmConfig> llmConfig);
+        // True iff stepPenalty would actually change any logit. Single source
+        // of truth for the "penalty enabled" decision shared by configMixed
+        // (auto-enable the step), buildPipeline (top-k prefilter is exact only
+        // when a leading penalty step is a no-op), and stepPenalty (early out).
+        bool isPenaltyActive() const;
     };
 public:
     static Sampler* createSampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);

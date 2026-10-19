@@ -14,7 +14,10 @@ class ConcatSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(1 == outputs.size());
-        // MNN_ASSERT(inputs.size() >= 2);
+        if (inputs.empty()) {
+            MNN_ERROR("Concat op has no input\n");
+            return false;
+        }
         auto& ob      = outputs[0]->buffer();
         int basicAxis = 0;
         if (op->type() == OpType_Concat) {
@@ -28,23 +31,41 @@ class ConcatSizeComputer : public SizeComputer {
         }
         int axis = basicAxis;
         // Concat-inputs may have scalar which should be delete
-        for (const auto& input : inputs) {
-            auto inputDimensions = input->buffer().dimensions;
-
-            //  Tensor might be zeros size, but some dims may not be zero. should concat as usual.
-
-            ::memcpy(ob.dim, input->buffer().dim, sizeof(halide_dimension_t) * inputDimensions);
-            ob.dimensions = inputDimensions;
-            ob.type       = input->buffer().type;
-            if (axis < 0) {
-                axis = inputDimensions + axis;
+        // Validate the rank of every input before accessing any of its dimensions. The first input also
+        // defines the output shape, so a later input with a different rank would make the per-dimension
+        // comparison below read output dims that were never set.
+        for (size_t i = 0; i < inputs.size(); ++i) {
+            const int inputRank = inputs[i]->buffer().dimensions;
+            if (inputRank <= 0 || inputRank > MNN_MAX_TENSOR_DIM) {
+                MNN_ERROR("Concat op input %d has invalid rank %d\n", (int)i, inputRank);
+                return false;
             }
-            break;
+            if (0 == i) {
+                //  Tensor might be zeros size, but some dims may not be zero. should concat as usual.
+                ::memcpy(ob.dim, inputs[0]->buffer().dim, sizeof(halide_dimension_t) * inputRank);
+                ob.dimensions = inputRank;
+                ob.type = inputs[0]->buffer().type;
+                if (axis < 0) {
+                    axis = inputRank + axis;
+                }
+                if (axis < 0 || axis >= inputRank) {
+                    MNN_ERROR("Concat op axis %d out of range for %d dims\n", axis, inputRank);
+                    return false;
+                }
+                continue;
+            }
+            if (inputRank != ob.dimensions) {
+                MNN_ERROR("Concat op input %d rank %d not match output rank %d\n", (int)i, inputRank, ob.dimensions);
+                return false;
+            }
         }
-
 
         int sum = 0;
         for (auto t : inputs) {
+            if (axis >= t->dimensions()) {
+                MNN_ERROR("Concat op axis %d out of range for %d dims\n", axis, t->dimensions());
+                return false;
+            }
             sum += t->buffer().dim[axis].extent;
             ob.type = t->buffer().type;
             for (int i = 0; i < t->dimensions(); ++i) {

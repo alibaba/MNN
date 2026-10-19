@@ -13,10 +13,14 @@ class DownloadForegroundServiceCoordinator(
     interface Gateway {
         fun show(downloadCount: Int, modelName: String?): Boolean
         fun stop()
+
+        /** False while a start is still in flight, i.e. before startForeground() has run. */
+        fun isReady(): Boolean
     }
 
     private val activeDownloads = LinkedHashMap<String, String?>()
     private var lastDispatchedState: NotificationState? = null
+    private var stopDeferred = false
 
     fun onDownloadStateChanged(
         modelId: String,
@@ -32,8 +36,13 @@ class DownloadForegroundServiceCoordinator(
         val nextState = activeDownloads.toNotificationState()
         if (nextState == null) {
             if (lastDispatchedState != null) {
-                gateway.stop()
                 lastDispatchedState = null
+                // Stopping before startForeground() has run gets the process killed with
+                // ForegroundServiceDidNotStartInTimeException. Wait for it instead.
+                stopDeferred = !gateway.isReady()
+                if (!stopDeferred) {
+                    gateway.stop()
+                }
             }
             return
         }
@@ -44,6 +53,17 @@ class DownloadForegroundServiceCoordinator(
 
         if (gateway.show(nextState.downloadCount, nextState.modelName)) {
             lastDispatchedState = nextState
+        }
+    }
+
+    /** Flushes a stop that had to wait for the service to reach the foreground. */
+    fun onGatewayReady() {
+        if (!stopDeferred) {
+            return
+        }
+        stopDeferred = false
+        if (activeDownloads.isEmpty()) {
+            gateway.stop()
         }
     }
 
@@ -113,6 +133,9 @@ object DownloadForegroundServiceManager {
                     Log.e(TAG, "Failed to stop download foreground service", error)
                 }
             }
+
+            // The instance is published only once startForeground() has succeeded.
+            override fun isReady(): Boolean = DownloadForegroundService.getInstance() != null
         }
     )
 
@@ -123,5 +146,11 @@ object DownloadForegroundServiceManager {
         isDownloading: Boolean
     ) {
         coordinator.onDownloadStateChanged(modelId, modelName, isDownloading)
+    }
+
+    /** Called by the service once it has entered the foreground and can safely be stopped. */
+    @Synchronized
+    fun onServiceReady() {
+        coordinator.onGatewayReady()
     }
 }

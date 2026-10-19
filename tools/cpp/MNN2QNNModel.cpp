@@ -20,7 +20,7 @@ using namespace rapidjson;
 using namespace MNN::Express;
 using namespace MNN;
 
-static bool generateConfigFile(const std::string & qnnSDKPath, int socID, int dspArch, const std::vector<std::string> & graphNameVec, const std::string & outputDir, std::string & configPath, std::string & subConfigPath) {
+static bool generateConfigFile(const std::string & qnnSDKPath, int socID, int dspArch, const std::vector<std::string> & graphNameVec, const std::string & outputDir, std::string & configPath, std::string & subConfigPath, bool tblive) {
     configPath = MNNFilePathConcat(outputDir, "context_config.json");
     subConfigPath = MNNFilePathConcat(outputDir, "htp_backend_extensions.json");
 
@@ -48,7 +48,16 @@ static bool generateConfigFile(const std::string & qnnSDKPath, int socID, int ds
     // "graphs" section
     rapidjson::Value graphs(rapidjson::kArrayType);
     rapidjson::Value graphObj(rapidjson::kObjectType);
-    graphObj.AddMember("vtcm_mb", 8, htpConfigAllocator);
+    int vtcmMb = 8;
+    if (tblive) {
+        if (const char* vtcmEnv = getenv("MNN_QNN_CONVERT_VTCM_MB")) {
+            const int value = atoi(vtcmEnv);
+            if (value > 0) {
+                vtcmMb = value;
+            }
+        }
+    }
+    graphObj.AddMember("vtcm_mb", vtcmMb, htpConfigAllocator);
     rapidjson::Value names(rapidjson::kArrayType);
     for (const auto& name : graphNameVec) {
         names.PushBack(rapidjson::Value(name.c_str(), contextAllocator).Move(), htpConfigAllocator);
@@ -79,7 +88,7 @@ static bool generateConfigFile(const std::string & qnnSDKPath, int socID, int ds
 
     // "context" section
     rapidjson::Value contextObj(rapidjson::kObjectType);
-    contextObj.AddMember("weight_sharing_enabled", true, htpConfigAllocator);
+    contextObj.AddMember("weight_sharing_enabled", !tblive, htpConfigAllocator);
     htpConfigDoc.AddMember("context", contextObj, htpConfigAllocator);
 
     rapidjson::StringBuffer htpConfigBuffer;
@@ -130,12 +139,26 @@ static bool parseDims(const std::string& s, std::vector<std::vector<int>>& out) 
     return true;
 }
 
+// Quote one argument for POSIX sh so any character is passed literally.
+static std::string shellQuote(const std::string& s) {
+    std::string quoted = "'";
+    for (char c : s) {
+        if (c == '\'') {
+            quoted += "'\\''";
+        } else {
+            quoted += c;
+        }
+    }
+    quoted += "'";
+    return quoted;
+}
+
 static bool checkSystem() {
 #ifdef _WIN32
-    // On Windows, skip the system check as this tool is primarily for Linux
-    // but we allow it to compile on Windows for development purposes
-    MNN_PRINT("Warning: This tool is designed for x86_64 Linux systems. Running on Windows may have limitations.\n");
-    return true;
+    // Compiles on Windows, but the shell pipeline (tar/find/rm, x86_64-linux-clang QNN tools)
+    // is Linux-only and shellQuote() does not protect cmd.exe, so refuse to run.
+    MNN_ERROR("This program must be run on a x86_64 Linux system.\n");
+    return false;
 #else
     struct utsname buf;
     if (uname(&buf) != 0) {
@@ -153,7 +176,7 @@ static bool checkSystem() {
 int main(int argc, const char* argv[]) {
     if (argc < 6) {
         MNN_PRINT("This tool generates offline caches for the QNN backend.");
-        MNN_PRINT("Usage: %s <qnnSDKPath> <socId> <hexagonArch> <srcMNNPath> <outputDir> [totalShapeNum] [inputShape1] [inputShape2] ... [--dump_intermediate_outputs]\n", argv[0]);
+        MNN_PRINT("Usage: %s <qnnSDKPath> <socId> <hexagonArch> <srcMNNPath> <outputDir> [totalShapeNum] [inputShape1] [inputShape2] ... [--dump_intermediate_outputs] [--tblive]\n", argv[0]);
         MNN_PRINT("    <qnnSDKPath>      : Path to the QNN SDK directory.\n");
         MNN_PRINT("    <socId>           : Target SoC ID.\n");
         MNN_PRINT("                        Common SoCs: 8Gen2 -> 43, 8Gen3 -> 57, 8 Elite -> 69. For others, please refer to Qualcomm's documentation.\n");
@@ -165,6 +188,7 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("    [<inputShapeN>]   : Optional. Input shape configuration. Can be a shape string or a path to a .mnn file.\n");
         MNN_PRINT("                     Shape string format for multiple inputs: dim1xdim2_dim3xdim4. Example: 1x3x512x512_1x256\n");
         MNN_PRINT("    [--dump_intermediate_outputs] : Optional. Build a debug artifact with QNN intermediate outputs.\n");
+        MNN_PRINT("    [--tblive] : Optional. Enable TBLive QNN layout and quantization extensions. The default preserves the legacy QNN contract.\n");
         MNN_PRINT("Examples:\n");
         MNN_PRINT("  1. Use default shape from the MNN model:\n");
         MNN_PRINT("     %s /path/to/qnn/sdk 57 75 /path/to/model.mnn /path/to/output\n", argv[0]);
@@ -183,8 +207,13 @@ int main(int argc, const char* argv[]) {
     arguments.reserve(argc);
     arguments.emplace_back(argv[0]);
     bool dumpIntermediateOutputs = false;
+    bool tblive = false;
     for (int i = 1; i < argc; ++i) {
         const std::string argument(argv[i]);
+        if (argument == "--tblive") {
+            tblive = true;
+            continue;
+        }
         if (argument == "--dump_intermediate_outputs") {
             dumpIntermediateOutputs = true;
             continue;
@@ -219,6 +248,13 @@ int main(int argc, const char* argv[]) {
     }(srcMNNPath);
     std::string modelSignature = "_" + std::to_string(socId) + "_" + std::to_string(hexagonArch);
     std::string outputDir = arguments[5];
+    // Keep relative paths starting with '-' from being parsed as options by tar/find/rm.
+    if (!qnnSdkPath.empty() && qnnSdkPath[0] == '-') {
+        qnnSdkPath = "./" + qnnSdkPath;
+    }
+    if (!outputDir.empty() && outputDir[0] == '-') {
+        outputDir = "./" + outputDir;
+    }
     if (!MNNCreateDir(outputDir.c_str())) {
         MNN_ERROR("Failed to create output directory: %s\n", outputDir.c_str());
         return -1;
@@ -286,16 +322,13 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("[Temp Product]: Qnn temp product generate at %s\n", curQnnModelDir.c_str());
         MNNCreateDir(curQnnModelDir.c_str());
         qnnModelDirs.push_back(curQnnModelDir);
-        if(index < totalShapeType-1) {
-            totalQnnSo += (curQnnModelDir + std::string("/lib/x86_64-linux-clang/lib") + \
-                curQnnModelName + std::string(".so,"));
-        } else {
-            totalQnnSo += (curQnnModelDir + std::string("/lib/x86_64-linux-clang/lib") + \
-                curQnnModelName + std::string(".so "));
+        if (!totalQnnSo.empty()) {
+            totalQnnSo += ",";
         }
+        totalQnnSo += curQnnModelDir + "/lib/x86_64-linux-clang/lib" + curQnnModelName + ".so";
 
         MNN::ScheduleConfig config;
-        config.type = MNN_CONVERT_QNN;
+        config.type = tblive ? MNN_FORWARD_QNN : MNN_CONVERT_QNN;
         MNN::BackendConfig backendConfig;
         backendConfig.flags = dumpIntermediateOutputs ? MNN_QNN_DUMP_INTERMEDIATE_OUTPUTS : 0;
         config.backendConfig = &backendConfig;
@@ -341,17 +374,19 @@ int main(int argc, const char* argv[]) {
 
         // tar weight
         std::string binPath = MNNFilePathConcat(curQnnModelDir, curQnnModelName + ".bin");
-        std::string command = "tar -cf " + binPath + " -C " + curQnnModelDir + " $(find " + curQnnModelDir + " -maxdepth 1 -name '*.raw' -printf '%f ') && rm " + curQnnModelDir + "/*.raw";
+        const std::string quotedDir = shellQuote(curQnnModelDir);
+        std::string command = "tar -cf " + shellQuote(binPath) + " -C " + quotedDir + " -- $(find " + quotedDir +
+                              " -maxdepth 1 -name '*.raw' -printf '%f ') && rm -- " + quotedDir + "/*.raw";
         int ret = std::system(command.c_str());
         if (ret != 0) {
             MNN_ERROR("Failed to execute command: %s\n", command.c_str());
         }
 
-        std::string modelLibCmd = qnnSdkPath + "/bin/x86_64-linux-clang/qnn-model-lib-generator" + \
-            " -c " + MNNFilePathConcat(curQnnModelDir, curQnnModelName + ".cpp") + \
-            " -b " + binPath + \
-            " -t x86_64-linux-clang " + \
-            " -o " + curQnnModelDir + "/lib";
+        std::string modelLibCmd = shellQuote(qnnSdkPath + "/bin/x86_64-linux-clang/qnn-model-lib-generator") +
+            " -c " + shellQuote(MNNFilePathConcat(curQnnModelDir, curQnnModelName + ".cpp")) +
+            " -b " + shellQuote(binPath) +
+            " -t x86_64-linux-clang" +
+            " -o " + shellQuote(curQnnModelDir + "/lib");
         ret = system(modelLibCmd.c_str());
         if(ret) {
             MNN_ERROR("[Error]: qnn-model-lib-generator error!\n");
@@ -385,17 +420,17 @@ int main(int argc, const char* argv[]) {
     std::string npuArtifactPath = MNNFilePathConcat(outputDir, npuArtifactName);
     {
         std::string configPath, subConfigPath;
-        if (!generateConfigFile(qnnSdkPath, socId, hexagonArch, qnnGraphNames, outputDir, configPath, subConfigPath)) {
+        if (!generateConfigFile(qnnSdkPath, socId, hexagonArch, qnnGraphNames, outputDir, configPath, subConfigPath, tblive)) {
             MNN_ERROR("[Error]: Failed to generate the config file!\n");
             return -1;
         }
 
-        std::string binaryGenCmd = qnnSdkPath + "/bin/x86_64-linux-clang/qnn-context-binary-generator" + \
-            " --model " + totalQnnSo + \
-            " --backend " + qnnSdkPath + "/lib/x86_64-linux-clang/libQnnHtp.so" + \
-            " --binary_file " + modelBaseName + modelSignature + \
-            " --config_file " + configPath + " " + \
-            " --output_dir " + outputDir;
+        std::string binaryGenCmd = shellQuote(qnnSdkPath + "/bin/x86_64-linux-clang/qnn-context-binary-generator") +
+            " --model " + shellQuote(totalQnnSo) +
+            " --backend " + shellQuote(qnnSdkPath + "/lib/x86_64-linux-clang/libQnnHtp.so") +
+            " --binary_file " + shellQuote(modelBaseName + modelSignature) +
+            " --config_file " + shellQuote(configPath) +
+            " --output_dir " + shellQuote(outputDir);
         auto res = system(binaryGenCmd.c_str());
         if(res) {
             MNN_ERROR("[Error]: qnn-context-binary-generator error!\n");
@@ -408,7 +443,7 @@ int main(int argc, const char* argv[]) {
         MNNRemoveFile(configPath.c_str());
         MNNRemoveFile(subConfigPath.c_str());
         for (const auto& dir : qnnModelDirs) {
-            std::string cmd = "rm -rf " + dir;
+            std::string cmd = "rm -rf -- " + shellQuote(dir);
             int ret = system(cmd.c_str());
             if (ret != 0) {
                 MNN_PRINT("[Warning]: failed to remove temp dir: %s\n", dir.c_str());

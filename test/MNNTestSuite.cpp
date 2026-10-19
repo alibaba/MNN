@@ -33,9 +33,9 @@ void MNNTestSuite::add(MNNTestCase* test, const char* name) {
     mTests.push_back(test);
 }
 
-static void printTestResult(int wrong, int right, const char* flag) {
+static void printTestResult(int wrong, int right, int skipped, const char* flag) {
     MNN_PRINT("TEST_NAME_UNIT%s: Unit Test %s\nTEST_CASE_AMOUNT_UNIT%s: ", flag, flag, flag);
-    MNN_PRINT("{\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n", wrong, right);
+    MNN_PRINT("{\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":%d}\n", wrong, right, skipped);
     MNN_PRINT("TEST_CASE={\"name\":\"Unit Test %s\",\"failed\":%d,\"passed\":%d}\n", flag, wrong, right);
 }
 
@@ -72,6 +72,7 @@ int MNNTestSuite::run(const char* key, int precision, const char* flag) {
     std::string prefix = key;
     std::vector<std::string> wrongs;
     size_t runUnit = 0;
+    suite->skipped = 0;
     for (int i = 0; i < suite->mTests.size(); ++i) {
         MNNTestCase* test = suite->mTests[i];
         if (test->name.find(prefix) == 0) {
@@ -101,7 +102,7 @@ int MNNTestSuite::run(const char* key, int precision, const char* flag) {
     for (auto& wrong : wrongs) {
         MNN_PRINT("Error: %s\n", wrong.c_str());
     }
-    printTestResult(wrongs.size(), runUnit - wrongs.size(), flag);
+    printTestResult(wrongs.size(), runUnit - wrongs.size() - suite->skipped, suite->skipped, flag);
     return wrongs.size();
 }
 
@@ -109,6 +110,8 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
     auto suite = MNNTestSuite::get();
     std::vector<std::string> wrongs;
     std::vector<std::pair<std::string, float>> runTimes;
+    size_t runUnit = 0;
+    suite->skipped = 0;
     for (int i = 0; i < suite->mTests.size(); ++i) {
         MNNTestCase* test = suite->mTests[i];
         if (test->name.find("speed") != std::string::npos) {
@@ -119,6 +122,11 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
             // Don't test for model because need resource
             continue;
         }
+        if (_mnn_test_should_skip(test->name)) {
+            MNN_PRINT("\tskip %s (in MNN_TEST_SKIP)\n", test->name.c_str());
+            continue;
+        }
+        runUnit++;
         MNN_PRINT("\trunning %s.\n", test->name.c_str());
         MNN::Timer _t;
         auto res = test->run(precision);
@@ -148,6 +156,6 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
     for (auto& wrong : wrongs) {
         MNN_PRINT("Error: %s\n", wrong.c_str());
     }
-    printTestResult(wrongs.size(), suite->mTests.size() - wrongs.size(), flag);
+    printTestResult(wrongs.size(), runUnit - wrongs.size() - suite->skipped, suite->skipped, flag);
     return wrongs.size();
 }

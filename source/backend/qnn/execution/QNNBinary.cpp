@@ -29,6 +29,62 @@ ErrorCode QNNBinary::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     // Broadcast binary with scalar.
     // By our experiments, this branch is faster than using Qnn binary operations directly, although Qnn binary operations supports scalar broadcasting.
     if(dim0 != dim1 && minDim == 0) {
+        if (mBackend->requiresQuantizedGraph() &&
+            !mBackend->isDspBackend()) {
+            // HTP accepts native scalar broadcasting for quantized binary
+            // operators. Avoid the float-era Reshape+Tile optimization: Tile
+            // rejects fixed-point inputs and would materialize a large tensor.
+            mNodeType = mBinaryTypeName;
+            this->addNodeCommon(inputs, outputs);
+            return NO_ERROR;
+        }
+        if (mBackend->isDspBackend()) {
+            // V66 rejects the Reshape+Tile expansion used by the HTP
+            // optimization, and it also requires broadcast inputs to have the
+            // same rank. Reshape the scalar to [1, ..., 1] while preserving
+            // the scalar's own quantization parameters, then let the binary
+            // operator perform native broadcasting without materializing the
+            // full tensor.
+            const int idleIndex = 1 - fullIndex;
+            const std::vector<uint32_t> scalarShape(
+                inputs[fullIndex]->dimensions(), 1);
+            const Qnn_DataType_t scalarType =
+                mBackend->getNativeTensor(inputs[idleIndex])->v1.dataType;
+            const auto scalarStage = this->createStageTensor(
+                "dsp_scalar", scalarType, scalarShape, inputs[idleIndex]);
+            {
+                CLEAR_BEFORE_ADDING_NODE;
+                mNodeType = "Reshape";
+                mInputs.push_back(
+                    *(mBackend->getNativeTensor(inputs[idleIndex])));
+                mOutputs.push_back(*(scalarStage->getNativeTensor()));
+                mBackend->addNodeToGraph(
+                    mOpConfigVersion,
+                    (mNodeName + "_DspScalarReshape").c_str(),
+                    mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs,
+                    mOutputs);
+            }
+            {
+                CLEAR_BEFORE_ADDING_NODE;
+                mNodeType = mBinaryTypeName;
+                if (fullIndex == 0) {
+                    mInputs.push_back(
+                        *(mBackend->getNativeTensor(inputs[0])));
+                    mInputs.push_back(*(scalarStage->getNativeTensor()));
+                } else {
+                    mInputs.push_back(*(scalarStage->getNativeTensor()));
+                    mInputs.push_back(
+                        *(mBackend->getNativeTensor(inputs[1])));
+                }
+                mOutputs.push_back(
+                    *(mBackend->getNativeTensor(outputs[0])));
+                mBackend->addNodeToGraph(
+                    mOpConfigVersion, mNodeName.c_str(),
+                    mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs,
+                    mOutputs);
+            }
+            return NO_ERROR;
+        }
         return this->onEncodeScalarOptimize(inputs, outputs, fullIndex);
     }
     

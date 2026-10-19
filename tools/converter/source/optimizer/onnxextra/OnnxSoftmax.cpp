@@ -23,17 +23,22 @@ public:
         auto op = expr->get();
         MNN_ASSERT(op->type() == OpType_Extra);
         int axis = -1, opsetVersion = 13;
+        bool hasAxis = false;
         auto attrs  = op->main_as_Extra()->attr();
         if (nullptr != attrs) {
             for (int i = 0; i < attrs->size(); ++i) {
                 auto attr = attrs->GetAs<Attribute>(i);
                 if (attr->key()->str() == "axis") {
                     axis = attr->i();
+                    hasAxis = true;
                 }
                 if (attr->key()->str() == "onnx_opset_version") {
                     opsetVersion = attr->i();
                 }
             }
+        }
+        if (!hasAxis && opsetVersion < 13) {
+            axis = 1;
         }
         auto input = expr->inputs()[0];
         if (opsetVersion >= 13 || axis == -1) {

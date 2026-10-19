@@ -10,7 +10,7 @@
 
 #include <utility>
 
-#include "MNNRvvFastPathUtils.hpp"
+#include "backend/cpu/riscv/common/MNNRiscvFastPathUtils.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/CPUKVCacheManager.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
@@ -108,7 +108,7 @@ bool MNNRvvAttention::tryExecuteFastPath(const int8_t* query, int8_t* output, in
     auto core = static_cast<CPUBackend*>(backend())->functions();
     const int headsPerThread = UP_DIV(mQNumHead, mThreadNum);
     const int groupSize = mQNumHead / mKvNumHead;
-    MNNRvvFastPathParallelFor(backend(), mThreadNum, [&](int tId) {
+    MNNRiscvFastPathParallelFor(backend(), mThreadNum, [&](int tId) {
         const int headBegin = tId * headsPerThread;
         const int headEnd = ALIMIN(mQNumHead, headBegin + headsPerThread);
         auto score = reinterpret_cast<float*>(scoreBase + static_cast<size_t>(tId) * scoreStride);

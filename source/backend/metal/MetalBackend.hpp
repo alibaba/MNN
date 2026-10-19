@@ -303,6 +303,8 @@ public:
         return mRuntime->mStaticAllocator.get();
     }
     id<MTLCommandBuffer> getCommandBufferForBufferCopy() const;
+    // commit() joins these handlers before their source state can be reused.
+    void addCompletedHandler(MTLCommandBufferHandler handler) const;
 
     bool isCmdBufferCommit();
 #if MNN_METAL_OP_PROFILE
@@ -423,6 +425,7 @@ private:
     id<MTLCommandBuffer> getCommandBufferForNet() const;
     id<MTLComputeCommandEncoder> encoder_net() const;
     mutable id<MTLCommandBuffer> _commandBuffer = nil;
+    mutable bool mWaitForCompletedHandlers = false;
     // Per-backend fence: the last command buffer THIS backend committed.
     // onResizeBegin only needs to wait for our own in-flight work before
     // resetting our allocator; draining the shared runtime's last commit

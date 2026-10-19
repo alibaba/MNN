@@ -7,6 +7,9 @@
 //
 
 #include "QNNScale.hpp"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 
 namespace MNN {
 namespace QNN {
@@ -29,6 +32,51 @@ ErrorCode QNNScale::onEncode(const std::vector<Tensor *> &inputs, const std::vec
         MNN_ASSERT(channel == mWeightData.size());
 
         Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
+        const bool fixedPointGraph =
+            mBackend->requiresQuantizedGraph() &&
+            dataType == QNN_DATATYPE_SFIXED_POINT_8;
+        if (fixedPointGraph) {
+            auto createQuantizedVector =
+                [&](const std::string &name,
+                    const std::vector<float> &source) {
+                    float maxAbs = 0.0f;
+                    for (const float value : source) {
+                        maxAbs = std::max(maxAbs, std::abs(value));
+                    }
+                    const float scale =
+                        std::max(maxAbs / 127.0f, 1.0e-12f);
+                    std::vector<int8_t> data(source.size());
+                    for (size_t index = 0; index < source.size(); ++index) {
+                        const int quantized = static_cast<int>(
+                            std::round(source[index] / scale));
+                        data[index] = static_cast<int8_t>(
+                            std::max(-127, std::min(127, quantized)));
+                    }
+                    Qnn_QuantizeParams_t quantize =
+                        DEFAULT_QUANTIZE_PARAMS;
+                    quantize.encodingDefinition = QNN_DEFINITION_DEFINED;
+                    quantize.quantizationEncoding =
+                        QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
+                    quantize.scaleOffsetEncoding.scale = scale;
+                    quantize.scaleOffsetEncoding.offset = 0;
+                    return this->createStaticTensor(
+                        name, QNN_DATATYPE_SFIXED_POINT_8,
+                        {(uint32_t)channel}, data.data(), quantize);
+                };
+            createQuantizedVector("weight", mWeightData);
+            createQuantizedVector("bias", mBiasData);
+
+            mNodeType = "Batchnorm";
+            const std::string name = mNodeName + "_batchnorm";
+            mInputs.push_back(*(mBackend->getNativeTensor(inputs[0])));
+            mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
+            mInputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor()));
+            mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
+            mBackend->addNodeToGraph(
+                mOpConfigVersion, name.c_str(), mPackageName.c_str(),
+                mNodeType.c_str(), mParams, mInputs, mOutputs);
+            return NO_ERROR;
+        } else {
         mNeedQuantDequant = dataType != QNN_DATATYPE_FLOAT_16 && dataType != QNN_DATATYPE_FLOAT_32;
         if(mNeedQuantDequant){
             Qnn_DataType_t tempDataType = QNN_DATATYPE_FLOAT_32;
@@ -47,6 +95,7 @@ ErrorCode QNNScale::onEncode(const std::vector<Tensor *> &inputs, const std::vec
             this->createStaticFloatTensor("weight", dataType, {(uint32_t)channel}, mWeightData.data());
             this->createStaticFloatTensor("bias", dataType, {(uint32_t)channel}, mBiasData.data());
             this->createStageTensor("Stage", dataType, getNHWCShape(inputs[0]));
+        }
         }
     }
 

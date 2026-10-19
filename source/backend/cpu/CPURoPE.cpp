@@ -141,9 +141,25 @@ ErrorCode CPURoPE::onResize(const std::vector<Tensor*>& inputs, const std::vecto
     return NO_ERROR;
 }
 
+// The fp16 (arm82) core table never registers MNNRoPECompute, so a CPURoPE
+// bound to that backend would null-deref inside onExecute. Creation must fail
+// (and cloning be refused) on such backends: only then do the callers fall
+// back to a backend with the kernel or to geometry decomposition. Without the
+// clone-side check, split-LoRA base-execution cloning silently binds CPURoPE
+// to the fp16 backend and crashes at run time.
+static bool backendHasRopeKernel(Backend* bn) {
+    if (bn == nullptr) {
+        return true;
+    }
+    return static_cast<CPUBackend*>(bn)->functions()->MNNRoPECompute != nullptr;
+}
+
 bool CPURoPE::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
+    }
+    if (!backendHasRopeKernel(bn)) {
+        return false;
     }
     auto rope = new CPURoPE(bn);
     rope->mRopeCutHeadDim = mRopeCutHeadDim;
@@ -267,6 +283,9 @@ class CPURoPECreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        if (!backendHasRopeKernel(backend)) {
+            return nullptr;
+        }
         return new CPURoPE(op, backend);
     }
 };

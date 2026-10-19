@@ -169,6 +169,12 @@ argv 全是**位置**参数，无名字、错位不报错（`test/main.cpp`）�
 
 ## 六、实验纪律（硬性六条）
 
+Before each timed inference, restore the same input data. A session with
+`Session_Input_Inside` can reuse input memory after its last consumer. Repeated
+calls to `runSession()` can then read different data. Keep the input copy outside
+the timed region on both paths. If model outputs differ, compare the first
+operator output before you attribute the difference to a later kernel.
+
 1. **make 退出码必须自己看**。绝不 `make ... | tail -1 && bench`——pipe 的退出码是 `tail` 的，
    编译失败会拿旧二进制跑完整轮并据此分析。写 `make > make.log 2>&1; echo make_exit=$?`，非零立即停。
 2. **热漂移用 inert 对照组分离**。持续 make+bench 会让 SoC 降频，同一配置在不同热态可差 30%+。

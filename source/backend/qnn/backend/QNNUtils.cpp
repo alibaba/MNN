@@ -1,3 +1,6 @@
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#endif
 //
 //  QNNUtils.cpp
 //  MNN
@@ -7,6 +10,9 @@
 //
 
 #include "QNNUtils.hpp"
+
+#include <cstdlib>
+#include <cstring>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -19,84 +25,284 @@ typedef void* LibHandle;
 namespace MNN {
 namespace QNN {
 
-#ifndef MNN_USE_ARMV82
-
 void QnnFloatToHalf(const float* src, int16_t* dst, size_t size) {
-    for (size_t i = 0; i < size; i++) {
-        ((half_float::half *)dst)[i] = (half_float::half)(src[i]);
+    size_t i = 0;
+#if defined(__aarch64__)
+    for (; i + 4 <= size; i += 4)
+        vst1_s16(dst + i, vreinterpret_s16_f16(vcvt_f16_f32(vld1q_f32(src + i))));
+#endif
+    for (; i < size; ++i) {
+        const half_float::half value(src[i]);
+        std::memcpy(dst + i, &value, sizeof(value));
     }
-    return;
 }
 
 void QnnHalfToFloat(const int16_t* src, float* dst, size_t size) {
-    const size_t batchSize = 8;
-    std::vector<half_float::half> halfBatch(batchSize);
-
-    for (size_t i = 0; i < size; i += batchSize) {
-        size_t currentBatchSize = batchSize < size - i ? batchSize : size - i;
-
-        ::memcpy(halfBatch.data(), &(src[i]), currentBatchSize * sizeof(int16_t));
-
-        for (size_t j = 0; j < currentBatchSize; ++j) {
-            dst[i + j] = static_cast<float>(halfBatch[j]);
-        }
+    size_t i = 0;
+#if defined(__aarch64__)
+    for (; i + 4 <= size; i += 4)
+        vst1q_f32(dst + i, vcvt_f32_f16(vreinterpret_f16_s16(vld1_s16(src + i))));
+#endif
+    for (; i < size; ++i) {
+        half_float::half value;
+        std::memcpy(&value, src + i, sizeof(value));
+        dst[i] = static_cast<float>(value);
     }
 }
 
-#endif
-
 QnnInterface_getProviders_t QnnInterface_getProviders = nullptr;
-#ifdef MNN_WITH_PLUGIN
+#if defined(MNN_WITH_PLUGIN) || defined(MNN_QNN_OFFLINE_CONTEXT)
 QnnSystemInterface_getProviders_t QnnSystemInterface_getProviders = nullptr;
 #endif
-bool loadQNNSymbol() {
-    LibHandle qnnLibHandle = nullptr;
+
+static LibHandle gQnnLibHandle = nullptr;
+#if defined(MNN_WITH_PLUGIN) || defined(MNN_QNN_OFFLINE_CONTEXT)
+static LibHandle gQnnSystemHandle = nullptr;
+#endif
+static QnnBackendKind gLoadedQnnBackend = QnnBackendKind::None;
+
+static std::string& loadedQnnLibraryPath() {
+    static auto* path = new std::string;
+    return *path;
+}
+
+static const char* backendName(QnnBackendKind backend) {
+    switch (backend) {
+        case QnnBackendKind::Htp:
+            return "HTP";
+        case QnnBackendKind::Dsp:
+            return "DSP V66";
+        default:
+            return "none";
+    }
+}
+
+static std::string libraryPath(const std::string& directory,
+                               const char* libraryName) {
+    if (directory.empty()) return libraryName;
+    if (directory.back() == '/') return directory + libraryName;
+    return directory + "/" + libraryName;
+}
+
+QnnBackendKind getLoadedQNNBackend() {
+    return gLoadedQnnBackend;
+}
+
+const char* getLoadedQNNBackendName() {
+    return backendName(gLoadedQnnBackend);
+}
+
+bool isLoadedQNNLibraryCompatible(QnnBackendKind backend,
+                                  const std::string& libraryDirectory) {
+    if (gQnnLibHandle == nullptr) {
+        return true;
+    }
+    if (backend != QnnBackendKind::None && backend != gLoadedQnnBackend) {
+        return false;
+    }
+    if (libraryDirectory.empty()) {
+        return true;
+    }
+    const char* basename = gLoadedQnnBackend == QnnBackendKind::Dsp
+                               ? "libQnnDsp.so"
+                               : "libQnnHtp.so";
+    return loadedQnnLibraryPath() == libraryPath(libraryDirectory, basename);
+}
+
+static void closeQnnBackendLibrary() {
+    QnnInterface_getProviders = nullptr;
+    gLoadedQnnBackend = QnnBackendKind::None;
+    loadedQnnLibraryPath().clear();
+    if (gQnnLibHandle == nullptr) {
+        return;
+    }
+#ifdef _WIN32
+    FreeLibrary(gQnnLibHandle);
+#else
+    dlclose(gQnnLibHandle);
+#endif
+    gQnnLibHandle = nullptr;
+}
+
+bool loadQNNSymbol(QnnBackendKind backend,
+                   const std::string& libraryDirectory) {
+    if (backend == QnnBackendKind::None) {
+        return false;
+    }
+#ifndef MNN_QNN_DSP_RUNTIME
+    if (backend == QnnBackendKind::Dsp) {
+        return false;
+    }
+#endif
+    if (gQnnLibHandle != nullptr && gLoadedQnnBackend == backend &&
+        QnnInterface_getProviders != nullptr &&
+        isLoadedQNNLibraryCompatible(backend, libraryDirectory)) {
+        return true;
+    }
+    closeQnnBackendLibrary();
 
 #ifdef _WIN32
-    qnnLibHandle = LoadLibraryA("QnnHtp.dll");
-    if (!qnnLibHandle) {
-        MNN_PRINT("MNN_QNN: Failed to open QNN DLL. Ensure QnnHtp.dll is available in your environment.\n");
+    if (backend != QnnBackendKind::Htp) {
+        MNN_PRINT("MNN_QNN: QNN DSP backend selection is not supported on Windows.\n");
+        return false;
+    }
+    gQnnLibHandle = LoadLibraryA("QnnHtp.dll");
+    if (!gQnnLibHandle) {
+        MNN_PRINT("MNN_QNN: Failed to open QnnHtp.dll.\n");
         return false;
     }
 
-    QnnInterface_getProviders = (QnnInterface_getProviders_t)GetProcAddress(qnnLibHandle, "QnnInterface_getProviders");
+    QnnInterface_getProviders = (QnnInterface_getProviders_t)GetProcAddress(
+        gQnnLibHandle, "QnnInterface_getProviders");
     if (!QnnInterface_getProviders) {
         MNN_PRINT("MNN_QNN: Failed to load symbol <QnnInterface_getProviders>.\n");
-        FreeLibrary(qnnLibHandle);
+        closeQnnBackendLibrary();
         return false;
     }
 #else
-    qnnLibHandle = dlopen("libQnnHtp.so", RTLD_NOW | RTLD_LOCAL);
+    const char* libraryBasename =
+        backend == QnnBackendKind::Dsp ? "libQnnDsp.so" : "libQnnHtp.so";
+    const std::string libraryName =
+        libraryPath(libraryDirectory, libraryBasename);
+    dlerror();
+    gQnnLibHandle = dlopen(libraryName.c_str(), RTLD_NOW | RTLD_LOCAL);
     const char * errorOpen = dlerror();
-    if (!qnnLibHandle) {
-        MNN_PRINT("MNN_QNN: Failed to open QNN libs. Ensure that the libs related to the QNN HTP backend is available in your environment. dlerror() returns %s.\n", errorOpen);
+    if (!gQnnLibHandle) {
+        MNN_PRINT("MNN_QNN: Failed to open %s for the %s backend: %s.\n",
+                  libraryName.c_str(), backendName(backend),
+                  errorOpen == nullptr ? "unknown dlopen error" : errorOpen);
         return false;
     }
 
-    QnnInterface_getProviders = (QnnInterface_getProviders_t)dlsym(qnnLibHandle, "QnnInterface_getProviders");
+    dlerror();
+    QnnInterface_getProviders = (QnnInterface_getProviders_t)dlsym(
+        gQnnLibHandle, "QnnInterface_getProviders");
     const char * errorSym = dlerror();
     if (!QnnInterface_getProviders) {
         MNN_PRINT("MNN_QNN: Failed to load symbol <QnnInterface_getProviders>. dlerror returns %s.\n", errorSym);
-        dlclose(qnnLibHandle);
+        closeQnnBackendLibrary();
         return false;
     }
-    #ifdef MNN_WITH_PLUGIN
-    void* qnnSystemHandle = dlopen("libQnnSystem.so", RTLD_NOW | RTLD_LOCAL);
-    if (nullptr == qnnSystemHandle) {
-        const char * errorOpen = dlerror();
-        MNN_PRINT("MNN_QNN: Failed to open QNN libs. Ensure that the libs related to the QNN HTP backend is available in your environment. dlerror() returns %s.\n", errorOpen);
-        return false;
-    }
-    QnnSystemInterface_getProviders = (QnnSystemInterface_getProviders_t)dlsym(qnnSystemHandle, "QnnSystemInterface_getProviders");
-    if (nullptr == QnnSystemInterface_getProviders) {
-        const char * errorSym = dlerror();
-        MNN_PRINT("MNN_QNN: Failed to load symbol <QnnSystemInterface_getProviders>. dlerror returns %s.\n", errorSym);
-        return false;
-    }
-    #endif
 #endif
 
+    gLoadedQnnBackend = backend;
+#ifdef _WIN32
+    loadedQnnLibraryPath() = "QnnHtp.dll";
+#else
+    loadedQnnLibraryPath() = libraryPath(
+        libraryDirectory,
+        backend == QnnBackendKind::Dsp ? "libQnnDsp.so" : "libQnnHtp.so");
+#endif
+    MNN_PRINT("MNN_QNN: Loaded %s backend.\n", backendName(backend));
     return true;
+}
+
+bool loadQNNSystemSymbol(const std::string& libraryDirectory) {
+#if defined(MNN_WITH_PLUGIN) || defined(MNN_QNN_OFFLINE_CONTEXT)
+    if (gQnnSystemHandle != nullptr &&
+        QnnSystemInterface_getProviders != nullptr) {
+        return true;
+    }
+#ifdef _WIN32
+    gQnnSystemHandle = LoadLibraryA("QnnSystem.dll");
+    if (gQnnSystemHandle == nullptr) {
+        MNN_PRINT("MNN_QNN: Failed to open QnnSystem.dll.\n");
+        return false;
+    }
+    QnnSystemInterface_getProviders =
+        (QnnSystemInterface_getProviders_t)GetProcAddress(
+            gQnnSystemHandle, "QnnSystemInterface_getProviders");
+    if (QnnSystemInterface_getProviders == nullptr) {
+        MNN_PRINT(
+            "MNN_QNN: Failed to load symbol "
+            "<QnnSystemInterface_getProviders>.\n");
+        FreeLibrary(gQnnSystemHandle);
+        gQnnSystemHandle = nullptr;
+        return false;
+    }
+#else
+    dlerror();
+    const std::string libraryName =
+        libraryPath(libraryDirectory, "libQnnSystem.so");
+    gQnnSystemHandle =
+        dlopen(libraryName.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (gQnnSystemHandle == nullptr) {
+        const char* errorOpen = dlerror();
+        MNN_PRINT("MNN_QNN: Failed to open %s: %s.\n",
+                  libraryName.c_str(),
+                  errorOpen == nullptr ? "unknown dlopen error" : errorOpen);
+        return false;
+    }
+    dlerror();
+    QnnSystemInterface_getProviders =
+        (QnnSystemInterface_getProviders_t)dlsym(
+            gQnnSystemHandle, "QnnSystemInterface_getProviders");
+    if (QnnSystemInterface_getProviders == nullptr) {
+        const char* errorSym = dlerror();
+        MNN_PRINT(
+            "MNN_QNN: Failed to load symbol "
+            "<QnnSystemInterface_getProviders>: %s.\n",
+            errorSym == nullptr ? "unknown dlsym error" : errorSym);
+        dlclose(gQnnSystemHandle);
+        gQnnSystemHandle = nullptr;
+        return false;
+    }
+#endif
+    return true;
+#else
+    MNN_PRINT("MNN_QNN: offline Context support was not compiled.\n");
+    return false;
+#endif
+}
+
+bool loadQNNSymbol() {
+    // Automatic selection is process-scoped. Reuse the backend that already
+    // owns live QNN handles instead of unloading it merely to probe the other
+    // candidate again on a later Runtime registration.
+    if (gQnnLibHandle != nullptr &&
+        gLoadedQnnBackend != QnnBackendKind::None &&
+        QnnInterface_getProviders != nullptr) {
+        return true;
+    }
+    if (loadQNNSymbol(QnnBackendKind::Htp)) {
+        return true;
+    }
+#ifdef MNN_QNN_DSP_RUNTIME
+    return loadQNNSymbol(QnnBackendKind::Dsp);
+#else
+    return false;
+#endif
+}
+
+static bool probeQNNBackendLibrary(QnnBackendKind backend) {
+#ifdef _WIN32
+    if (backend != QnnBackendKind::Htp) {
+        return false;
+    }
+    LibHandle handle = LoadLibraryA("QnnHtp.dll");
+    if (handle == nullptr) {
+        return false;
+    }
+    const bool available = GetProcAddress(handle, "QnnInterface_getProviders") != nullptr;
+    FreeLibrary(handle);
+    return available;
+#else
+    const char* libraryName = backend == QnnBackendKind::Dsp ? "libQnnDsp.so" : "libQnnHtp.so";
+    LibHandle handle = dlopen(libraryName, RTLD_NOW | RTLD_LOCAL);
+    if (handle == nullptr) {
+        return false;
+    }
+    const bool available = dlsym(handle, "QnnInterface_getProviders") != nullptr;
+    dlclose(handle);
+    return available;
+#endif
+}
+
+bool isDefaultQNNRuntimeAvailable() {
+    if (gQnnLibHandle != nullptr && QnnInterface_getProviders != nullptr) {
+        return gLoadedQnnBackend == QnnBackendKind::Htp;
+    }
+    return probeQNNBackendLibrary(QnnBackendKind::Htp);
 }
 
 
@@ -147,7 +353,6 @@ void registerQNNOps() {
     ___QNNPermuteCreator__OpType_Transpose__();
     ___QNNGatherCreator__OpType_GatherV2__();
     ___QNNGatherCreator__OpType_GatherElements__();
-
     ___QNNBroadcastToCreator__OpType_BroadcastTo__();
     ___QNNMatMulCreator__OpType_MatMul__();
     #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -161,7 +366,8 @@ void registerQNNOps() {
 
 Tensor::DimensionType gQnnTensorDimType = Tensor::TENSORFLOW;
 
-const std::map<Qnn_DataType_t, uint32_t> gQnnTypeSize = {
+const std::map<Qnn_DataType_t, uint32_t>& qnnTypeSizes() {
+    static const std::map<Qnn_DataType_t, uint32_t> sizes = {
     {QNN_DATATYPE_INT_8, 1},
     {QNN_DATATYPE_INT_16, 2},
     {QNN_DATATYPE_INT_32, 4},
@@ -182,9 +388,11 @@ const std::map<Qnn_DataType_t, uint32_t> gQnnTypeSize = {
     {QNN_DATATYPE_UFIXED_POINT_8, 1},
     {QNN_DATATYPE_UFIXED_POINT_16, 2},
     {QNN_DATATYPE_UFIXED_POINT_32, 4},
-};
+    };
+    return sizes;
+}
 
-std::string gParamMarker = "PARAM";
+const char gParamMarker[] = "PARAM";
 
 std::vector<uint32_t> getNHWCShape(const Tensor * tensor) {
     std::vector<int> rawShape = tensor->shape();

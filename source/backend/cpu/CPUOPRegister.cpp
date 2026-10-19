@@ -78,6 +78,7 @@ extern void ___CPUTextureCreator__OpType_Texture__();
 #endif
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 extern void ___CPUAttentionCreator__OpType_Attention__();
+extern void ___CPUFusedProjCreator__OpType_FusedLinear__();
 extern void ___CPULinearAttentionCreator__OpType_LinearAttention__();
 #endif
 void registerCPUOps() {
@@ -158,6 +159,7 @@ ___CPUTextureCreator__OpType_Texture__();
 #endif
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 ___CPUAttentionCreator__OpType_Attention__();
+___CPUFusedProjCreator__OpType_FusedLinear__();
 ___CPULinearAttentionCreator__OpType_LinearAttention__();
 #endif
 }

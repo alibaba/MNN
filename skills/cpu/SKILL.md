@@ -134,7 +134,7 @@ L1 Runtime 线程 / L2 Executor 调度 / L3 Layout 内存 / L4 Dispatch 函数�
 | 场合 | 写什么 |
 |---|---|
 | 平台 / ISA 术语（正文、结论、commit message） | **x86_64**、**AArch64**、**RISC-V**、**RVV** |
-| 目录名、宏名、CMake 选项名（引用时保持字面） | `source/backend/cpu/x86_x64/`、`cpu/arm/arm64/`、`cpu/riscv/rvv/`、`MNN_USE_SSE`、`MNN_AVX2`、`MNN_AVX512`、`MNN_AVX512_VNNI`、`MNN_X86_USE_ASM`、`MNN_USE_ARMV82`、`MNN_SME2`、`MNN_USE_RVV`、`MNN_RVV_SPACEMIT_IME2`、`MNN_RVV_MARCH` |
+| 目录名、宏名、CMake 选项名（引用时保持字面） | `source/backend/cpu/x86_x64/`、`cpu/arm/arm64/`、`cpu/riscv/common/`、`cpu/riscv/rvv/`、`cpu/riscv/spacemit_ime2/`、`MNN_USE_SSE`、`MNN_AVX2`、`MNN_AVX512`、`MNN_AVX512_VNNI`、`MNN_X86_USE_ASM`、`MNN_USE_ARMV82`、`MNN_SME2`、`MNN_USE_RVV`、`MNN_RVV_SPACEMIT_IME2`、`MNN_RVV_MARCH` |
 
 `x86_x64`、`arm64`、`riscv` 是仓库里的既有目录名，**不要"修正"它们**；反过来也不要在正文里写 `x86_x64` 或 `riscv` 当术语。
 

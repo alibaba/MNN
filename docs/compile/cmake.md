@@ -63,6 +63,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_QNN              | 是否构建`QNN`后端，默认为`OFF` |
 | MNN_QNN_ONLINE_FINALIZE | 在`MNN_QNN`开启的基础上,是否构建在线编译模式的QNN后端，默认为`ON` |
 | MNN_QNN_CONVERT_MODE | 在`MNN_QNN`开启的基础上,是否构建Convert模式的QNN后端，默认为`OFF` |
+| MNN_QNN_OFFLINE_CONTEXT | 是否构建按 Session 显式启用的 QNN Context 离线模型兼容能力，默认为`OFF` |
+| MNN_NPU_BACKENDS_SHARED | 是否将已启用的 QNN、NeuroPilot、HiAI 后端构建为各自独立的显式加载插件，默认为`OFF` |
 | MNN_RKNN             | 是否构建`RKNN`运行时与模型转换支持，依赖`MNN_WITH_PLUGIN=ON`和`RKNN_API_INCLUDE_DIR`，默认为`OFF` |
 | MNN_HEXAGON          | 是否构建高通`Hexagon DSP`后端，默认为`OFF` ，使用说明见 `source/backend/hexagon/README.md` |
 | MNN_HEXAGON_ASAN     | 是否开启Hexagon后端内部内存一致性检查，该宏仅在`MNN_HEXAGON=ON`时生效，默认为`OFF` |
@@ -108,7 +110,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_BUILD_LLM        | 是否构建基于MNN的llm库和demo，默认为`OFF` ，打开时 MNN_LOW_MEMORY , MNN_SUPPORT_TRANSFORMER_FUSE 对应开启|
 | MNN_BUILD_LLM_OMNI        | 若构建基于MNN的llm库和demo，是否支持图像和音频输入功能，默认为`OFF` 。仅在MNN_BUILD_LLM 打开时生效。开启时 MNN_BUILD_OPENCV , MNN_IMGCODECS , MNN_BUILD_AUDIO 同时打开|
 | MNN_BUILD_DIFFUSION  | 是否构建基于MNN的diffusion demo，默认为`OFF` . 打开时MNN_BUILD_OPENCV , MNN_IMGCODECS, MNN_LOW_MEMORY, MNN_SUPPORT_TRANSFORMER_FUSE 同步开启|
-| MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库，默认为`ON` |
+| MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库，默认为`OFF` |
 | MNN_KLEIDIAI_DEFAULT_ON | 是否默认使用KLEIDIAI的Kernel, 默认为`OFF` |
 | MNN_USE_RVV          | 是否启用RISC-V向量扩展支持，默认为`OFF` |
 | MNN_RVV_FAST_MATH    | 是否为RISC-V RVV优化Kernel启用`-ffast-math`，默认为`OFF` |

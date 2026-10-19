@@ -9,6 +9,7 @@
 #ifndef BufferAllocator_hpp
 #define BufferAllocator_hpp
 
+#include <cstdint>
 #include <map>
 #include <set>
 #include <memory>

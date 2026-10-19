@@ -590,6 +590,60 @@ bool QNNConvolution::createWeightAndBias(Qnn_DataType_t dataType, const Tensor *
         mDequantAlpha = quanCommon->alpha.get();
         int totalCount = quanCommon->alpha.size();
         mBlockSize = totalCount / oc;
+        if (mBackend->isDspBackend() && mBlockSize > 1) {
+            // DSP V66 cannot consume BLOCKWISE_EXPANSION (minimum v69).
+            // Keep a per-tensor fallback only for genuinely blockwise models.
+            // Per-output-channel INT8 models continue below and preserve their
+            // original AXIS_SCALE_OFFSET encoding without requantization.
+            const int inputChannelsPerGroup = ic / group;
+            const int scalesPerOutput = std::max(1, mBlockSize);
+            const int channelsPerScale =
+                std::max(1, inputChannelsPerGroup / scalesPerOutput);
+            float maxAbs = 0.0f;
+            for (size_t index = 0; index < quantWeightData.size(); ++index) {
+                const int outputChannel = index % oc;
+                const int inputChannel =
+                    (index / oc) % inputChannelsPerGroup;
+                const int scaleIndex =
+                    outputChannel * scalesPerOutput +
+                    std::min(scalesPerOutput - 1,
+                             inputChannel / channelsPerScale);
+                maxAbs = std::max(
+                    maxAbs,
+                    std::fabs(static_cast<float>(quantWeightData[index]) *
+                              mDequantAlpha[scaleIndex]));
+            }
+            const float weightScale =
+                std::max(maxAbs / 127.0f, 1.0e-12f);
+            for (size_t index = 0; index < quantWeightData.size(); ++index) {
+                const int outputChannel = index % oc;
+                const int inputChannel =
+                    (index / oc) % inputChannelsPerGroup;
+                const int scaleIndex =
+                    outputChannel * scalesPerOutput +
+                    std::min(scalesPerOutput - 1,
+                             inputChannel / channelsPerScale);
+                const float realWeight =
+                    static_cast<float>(quantWeightData[index]) *
+                    mDequantAlpha[scaleIndex];
+                const int requantized =
+                    static_cast<int>(std::round(realWeight / weightScale));
+                quantWeightData[index] = static_cast<int8_t>(
+                    std::max(-127, std::min(127, requantized)));
+            }
+            weightQuantize.encodingDefinition = QNN_DEFINITION_DEFINED;
+            weightQuantize.quantizationEncoding =
+                QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
+            weightQuantize.scaleOffsetEncoding.scale = weightScale;
+            weightQuantize.scaleOffsetEncoding.offset = 0;
+            this->createStaticTensor(
+                "quantWeight", QNN_DATATYPE_SFIXED_POINT_8,
+                {(uint32_t)kernelH, (uint32_t)kernelW,
+                 (uint32_t)inputChannelsPerGroup, (uint32_t)oc},
+                quantWeightData.data(), weightQuantize);
+            this->createBias(dataType, oc, input, quanCommon);
+            return true;
+        }
         // Todo: result is wrong, need to verify
         if(mBlockSize > 1){
             Qnn_QuantizeParams_t weightQuantize{};
@@ -693,7 +747,6 @@ bool QNNConvolution::createWeightAndBias(Qnn_DataType_t dataType, const Tensor *
 void QNNConvolution::createBias(Qnn_DataType_t dataType, int oc, const Tensor *input, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon) {
     int biasElementNum = oc;
     if(dataType != QNN_DATATYPE_FLOAT_16 && dataType != QNN_DATATYPE_FLOAT_32 && mWeightQuant){
-        mDequantAlpha = quanCommon->alpha.get();
         float inputScale = mBackend->getNativeTensor(input)->v1.quantizeParams.scaleOffsetEncoding.scale;
         int inputOffset = mBackend->getNativeTensor(input)->v1.quantizeParams.scaleOffsetEncoding.offset;
         std::vector<int> biasData;
@@ -701,25 +754,77 @@ void QNNConvolution::createBias(Qnn_DataType_t dataType, int oc, const Tensor *i
 
         Qnn_QuantizeParams_t biasQuantize{};
         biasQuantize.encodingDefinition = QNN_DEFINITION_DEFINED;
+        if (mBackend->isDspBackend() && mBlockSize > 1) {
+            const float weightScale =
+                mTempTensorWrappers[0]
+                    ->getNativeTensor()
+                    ->v1.quantizeParams.scaleOffsetEncoding.scale;
+            const float biasScale =
+                std::max(inputScale * weightScale, 1.0e-20f);
+            biasQuantize.quantizationEncoding =
+                QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
+            biasQuantize.scaleOffsetEncoding.scale = biasScale;
+            biasQuantize.scaleOffsetEncoding.offset = 0;
+            const auto* bias = mOp->main_as_Convolution2D()->bias();
+            if (bias != nullptr) {
+                const auto* biasPtr = bias->data();
+                for (int index = 0; index < biasElementNum; ++index) {
+                    const double value =
+                        std::round(static_cast<double>(biasPtr[index]) /
+                                   biasScale);
+                    biasData[index] = static_cast<int>(
+                        std::max(
+                            static_cast<double>(
+                                std::numeric_limits<int32_t>::min()),
+                            std::min(
+                                static_cast<double>(
+                                    std::numeric_limits<int32_t>::max()),
+                                value)));
+                }
+            }
+            this->createStaticTensor(
+                "bias", QNN_DATATYPE_SFIXED_POINT_32,
+                {(uint32_t)biasElementNum}, biasData.data(), biasQuantize);
+            return;
+        }
+
+        mDequantAlpha = quanCommon->alpha.get();
         biasQuantize.quantizationEncoding = QNN_QUANTIZATION_ENCODING_AXIS_SCALE_OFFSET;
         Qnn_AxisScaleOffset_t biasAxisScaleOffsetEncoding{};
         biasAxisScaleOffsetEncoding.axis = 0;
         biasAxisScaleOffsetEncoding.numScaleOffsets = biasElementNum;
         mBiasScaleOffsetData.resize(biasElementNum);
 
-        auto bias = mOp->main_as_Convolution2D()->bias();
-        auto biasPtr = (float*)bias->data();
-        if (nullptr != bias) {
-            for(int i = 0; i < biasElementNum; ++i){
-                float biasScale = inputScale * mDequantAlpha[i];
+        const auto bias = mOp->main_as_Convolution2D()->bias();
+        const float* biasPtr = bias == nullptr ? nullptr : bias->data();
+        for (int i = 0; i < biasElementNum; ++i) {
+            if (!mBackend->isDedicatedQnnSession()) {
+                const float biasScale = inputScale * mDequantAlpha[i];
                 mBiasScaleOffsetData[i].scale = biasScale;
                 mBiasScaleOffsetData[i].offset = 0;
-                if(biasPtr[i] == 0.0f){
-                    biasData[i] = 0;
-                } else{
-                    biasData[i] = (int)(biasPtr[i] / biasScale);
+                if (biasPtr != nullptr && biasPtr[i] != 0.0f) {
+                    biasData[i] = static_cast<int>(biasPtr[i] / biasScale);
                 }
+                continue;
             }
+            const float biasScale =
+                std::max(inputScale * mDequantAlpha[i], 1.0e-20f);
+            mBiasScaleOffsetData[i].scale = biasScale;
+            mBiasScaleOffsetData[i].offset = 0;
+            if (biasPtr == nullptr || biasPtr[i] == 0.0f) {
+                biasData[i] = 0;
+                continue;
+            }
+            const double quantized = std::round(
+                static_cast<double>(biasPtr[i]) /
+                static_cast<double>(biasScale));
+            biasData[i] = static_cast<int>(
+                std::max(
+                    static_cast<double>(std::numeric_limits<int32_t>::min()),
+                    std::min(
+                        static_cast<double>(
+                            std::numeric_limits<int32_t>::max()),
+                        quantized)));
         }
         
         biasAxisScaleOffsetEncoding.scaleOffset = mBiasScaleOffsetData.data();

@@ -263,6 +263,10 @@ protected:
     friend class Omni;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
+    // Readies a text-only re-prefill of input_ids; false when they cannot be embedded from token ids alone.
+    virtual bool prepareHistoryReplay(const std::vector<int>& input_ids) {
+        return true;
+    }
 private:
     std::shared_ptr<Generation> mGenerationStrategy;
     void setSpeculativeConfig();
@@ -281,7 +285,11 @@ private:
     int mCallIndex;
     int mPrefixLength;
     bool mIsPrefixFileExist = false;
+    int mPrefixCacheNums = 0;
     void completePrefixWrite();
+    // -1 until the model graph is scanned on the first partial erase.
+    int mHasLinearAttention = -1;
+    bool replayKeptHistory(size_t begin, size_t end);
     // Prompt cache state
     std::string mCachedPromptText;
     void updateCachedPromptText(const ChatMessages& chat_prompts, size_t history_before);

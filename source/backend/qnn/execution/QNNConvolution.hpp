@@ -10,6 +10,7 @@
 #define MNN_QNNCONVOLUTION_HPP
 
 #include "QNNCommonExecution.hpp"
+#include "core/ConvolutionCommon.hpp"
 #include "QnnTypes.h"
 
 namespace MNN {

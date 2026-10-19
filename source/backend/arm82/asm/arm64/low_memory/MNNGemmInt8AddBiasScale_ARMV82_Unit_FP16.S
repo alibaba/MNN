@@ -100,6 +100,7 @@ struct QuanPostTreatParameters {
     const float* inputBias = nullptr;
     float* accumBuffer = nullptr;
     int32_t* indices = nullptr;
+    int32_t weightQuantInfoMode = 0; // #112: 0 FP32 scale/offset, 1 FP16 scale/sourceBias.
 };
 */
 
@@ -113,7 +114,7 @@ struct QuanPostTreatParameters {
 //Load from x6: x9: bias, x8: xKernelSum, x23: fp32minmax
 ldr x9, [x6, #8]
 
-stp d14, d15, [sp, #(-16 * 9)]!
+stp d14, d15, [sp, #(-16 * 10)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
@@ -128,6 +129,9 @@ ldr x28, [x6, #48] // weightKernelSum
 ldr x24, [x6, #80]  // inputScale
 ldr x27, [x6, #88]  // inputBias
 ldr x10, [x6, #96]  // accumBuffer
+
+ldr w13, [x6, #112] // Metadata mode; keep it on the stack, x13 is the lu counter.
+str w13, [sp, #(16 * 9)]
 
 ldr x23, [x6, #56]  // fp32minmax
 ldr x26, [x6, #64]  // blockNum
@@ -195,7 +199,21 @@ TILE12_BLOCKNUM:
     L8LoopSzEnd_TILE_12:
 
     L8Tile12Quan:
+    ldr w13, [sp, #(16 * 9)] // x13 (lu counter) is dead here; reloaded per block.
+    cmp w13, #1
+    bne .LTile12MetadataFP32
+    // Int8 weights are signed, so the packed fp16 sourceBias IS the final offset
+    // (originOffset=0): widen only, no re-centering. v0-v3 are loaded fresh each block.
+    ld1 {v0.8h}, [x12], #16 // UNIT half scales
+    fcvtl2 v1.4s, v0.8h
+    fcvtl v0.4s, v0.4h
+    ld1 {v2.8h}, [x12], #16 // UNIT half sourceBias (final offset)
+    fcvtl2 v3.4s, v2.8h
+    fcvtl v2.4s, v2.4h
+    b .LTile12MetadataReady
+.LTile12MetadataFP32:
     ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x12], #64 // weight scale&bias
+.LTile12MetadataReady:
     ld1 {v4.4s, v5.4s, v6.4s}, [x8], x22 // input kernel sum
     Int32ToFloat v8, v9, v10, v11
     Int32ToFloat v12, v13, v14, v15
@@ -414,9 +432,24 @@ TILE8_BLOCKNUM:
     L8LoopSzEnd_TILE_8:
 
     L8Tile8Quan:
+    ldr w13, [sp, #(16 * 9)] // x13 (lu counter) is dead here; reloaded per block.
+    cmp w13, #1
+    bne .LTile8MetadataFP32
+    // Int8 weights are signed, so the packed fp16 sourceBias IS the final offset
+    // (originOffset=0): widen only, no re-centering. Metadata regs are loaded fresh
+    // each block; the kernel-sum load simply moves after the convergence label.
+    ld1 {v0.8h}, [x12], #16 // UNIT half scales
+    fcvtl2 v1.4s, v0.8h
+    fcvtl v0.4s, v0.4h
+    ld1 {v24.8h}, [x12], #16 // UNIT half sourceBias (final offset)
+    fcvtl2 v25.4s, v24.8h
+    fcvtl v24.4s, v24.4h
+    b .LTile8MetadataReady
+.LTile8MetadataFP32:
     ld1 {v0.4s, v1.4s}, [x12], #32 // scale
-    ld1 {v2.4s, v3.4s}, [x8], x22 // x kernel sum
     ld1 {v24.4s, v25.4s}, [x12], #32 // weight quan zeropoint
+.LTile8MetadataReady:
+    ld1 {v2.4s, v3.4s}, [x8], x22 // x kernel sum
     Int32ToFloat v8, v9, v10, v11
     Int32ToFloat v12, v13, v14, v15
     Int32ToFloat v16, v17, v18, v19
@@ -575,9 +608,24 @@ TILE4_BLOCKNUM:
     L8LoopSzEnd_TILE_4:
 
     L8Tile4Quan:
+    ldr w13, [sp, #(16 * 9)] // x13 (lu counter) is dead here; reloaded per block.
+    cmp w13, #1
+    bne .LTile4MetadataFP32
+    // Int8 weights are signed, so the packed fp16 sourceBias IS the final offset
+    // (originOffset=0): widen only, no re-centering. Metadata regs are loaded fresh
+    // each block; the kernel-sum load simply moves after the convergence label.
+    ld1 {v0.8h}, [x12], #16 // UNIT half scales
+    fcvtl2 v1.4s, v0.8h
+    fcvtl v0.4s, v0.4h
+    ld1 {v24.8h}, [x12], #16 // UNIT half sourceBias (final offset)
+    fcvtl2 v25.4s, v24.8h
+    fcvtl v24.4s, v24.4h
+    b .LTile4MetadataReady
+.LTile4MetadataFP32:
     ld1 {v0.4s, v1.4s}, [x12], #32 // scale
-    ld1 {v2.4s}, [x8], x22 // x kernel sum
     ld1 {v24.4s, v25.4s}, [x12], #32 // weight quan zeropoint
+.LTile4MetadataReady:
+    ld1 {v2.4s}, [x8], x22 // x kernel sum
     Int32ToFloat v8, v9, v10, v11
     Int32ToFloat v12, v13, v14, v15
     MUL_SCALE v0, v8, v9, v10, v11
@@ -695,9 +743,24 @@ TILE1_BLOCKNUM:
         bne L8LoopSz_TILE_1
 
     L8Tile1Quan:
+    ldr w13, [sp, #(16 * 9)] // x13 (dz counter) is dead here; reloaded per block.
+    cmp w13, #1
+    bne .LTile1MetadataFP32
+    // Dot inputs are dead: v3/v5 are scratch. Keep v8/v9 accumulators and v26/v27
+    // clamp constants live. Int8 weights are signed, so the packed fp16 sourceBias
+    // IS the final offset (originOffset=0): fcvtl only, no re-centering.
+    ld1 {v3.8h}, [x12], #16 // UNIT half scales
+    ld1 {v5.8h}, [x12], #16 // UNIT half sourceBias
+    fcvtl v0.4s, v3.4h
+    fcvtl2 v1.4s, v3.8h
+    fcvtl v24.4s, v5.4h
+    fcvtl2 v25.4s, v5.8h
+    b .LTile1MetadataReady
+.LTile1MetadataFP32:
     ld1 {v0.4s, v1.4s}, [x12], #32 // scale
-    ld1 {v2.s}[0], [x8], x22 // x kernel sum
     ld1 {v24.4s, v25.4s}, [x12], #32 // weight quan zeropoint
+.LTile1MetadataReady:
+    ld1 {v2.s}[0], [x8], x22 // x kernel sum
     scvtf v8.4s, v8.4s
     scvtf v9.4s, v9.4s
     fmul v8.4s, v8.4s, v0.4s
@@ -779,7 +842,7 @@ ldp x21, x22, [sp, #(16 * 4)]
 ldp d8,  d9,  [sp, #(16 * 3)]
 ldp d10, d11, [sp, #(16 * 2)]
 ldp d12, d13, [sp, #(16 * 1)]
-ldp d14, d15, [sp], #(16 * 9)
+ldp d14, d15, [sp], #(16 * 10)
 ret
 
 #endif // __aarch64__

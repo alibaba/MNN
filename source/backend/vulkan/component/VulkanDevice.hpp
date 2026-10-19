@@ -132,7 +132,7 @@ public:
     const void destroyPipeline(const VkPipeline& pipeline, const VkAllocationCallbacks* allocator = nullptr) const;
 
     const VkResult createDescriptorPool(VkDescriptorPool& descriptorPool, const uint32_t poolSizeCount,
-                                        const VkDescriptorPoolSize* pPoolSizes,
+                                        const VkDescriptorPoolSize* pPoolSizes, const uint32_t maxSets = 1,
                                         const VkAllocationCallbacks* allocator = nullptr) const;
 
     const VkResult allocateDescriptorSet(VkDescriptorSet& pDescriptorSet, const VkDescriptorPool& descPool,

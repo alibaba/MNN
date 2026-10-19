@@ -112,6 +112,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
     mNeedZero = !TensorUtils::regionIsFull(input);
     mTempInputCopy.clear();
     mTempInput.clear();
+    mMidTensors.clear();
     mFastBlit.clear();
 
     mTempOutput = nullptr;
@@ -213,8 +214,8 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
             }
         }
         auto cache = static_cast<CUDABackend*>(backend())->getCache();
-        auto tempTensor = cache->findCacheTensor(origin, MNN_DATA_FORMAT_NCHW);
-        if (nullptr == tempTensor) {
+        auto midHolder = cache->findCacheTensor(origin, MNN_DATA_FORMAT_NCHW);
+        if (nullptr == midHolder) {
             std::shared_ptr<Tensor> newTensor(new Tensor);
             TensorUtils::copyShape(origin, newTensor.get());
             TensorUtils::getDescribe(newTensor.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
@@ -233,11 +234,15 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
             if (!res) {
                 return OUT_OF_MEMORY;
             }
-            tempTensor = newTensor.get();
-            TensorUtils::getDescribe(tempTensor)->useCount = TensorUtils::getDescribe(origin)->useCount;
+            TensorUtils::getDescribe(newTensor.get())->useCount = TensorUtils::getDescribe(origin)->useCount;
             cache->pushCacheTensor(newTensor, origin, MNN_DATA_FORMAT_NCHW);
-            mTempInput.insert(std::make_pair(origin, tempTensor));
+            mTempInput.insert(std::make_pair(origin, newTensor.get()));
+            midHolder = newTensor;
         }
+        auto tempTensor = midHolder.get();
+        // The cache drops its entries at the end of every resize, so this execution owns
+        // the mid tensor for as long as its tasks refer to it.
+        mMidTensors.emplace_back(midHolder);
         if (--TensorUtils::getDescribe(tempTensor)->useCount == 0) {
             forRelease.emplace_back(tempTensor);
         }

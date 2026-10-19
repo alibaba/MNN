@@ -38,7 +38,10 @@ typedef enum {
     MNN_FORWARD_HEXAGON = 10,
     MNN_FORWARD_USER_3 = 11,
 
-    MNN_FORWARD_ALL
+    MNN_FORWARD_ALL,
+
+    /* Qualcomm QNN runtime backend. */
+    MNN_FORWARD_QNN = 16
 } MNNForwardType;
 #ifdef __cplusplus
 namespace MNN {

@@ -2,14 +2,13 @@
 //  QNNDeconvolution.hpp
 //  MNN
 //
-//  Copyright © 2018, Alibaba Group Holding Limited
-//
 
 #ifndef MNN_QNNDECONVOLUTION_HPP
 #define MNN_QNNDECONVOLUTION_HPP
 
+#include <vector>
+
 #include "QNNCommonExecution.hpp"
-#include "QnnTypes.h"
 
 namespace MNN {
 namespace QNN {
@@ -17,15 +16,19 @@ namespace QNN {
 
 class QNNDeconvolution : public QNNCommonExecution {
 public:
-    QNNDeconvolution(Backend* backend, const Op* op) : QNNCommonExecution(backend, op) {}
-    virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    QNNDeconvolution(Backend *backend, const Op *op) : QNNCommonExecution(backend, op) {}
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs,
+                               const std::vector<Tensor *> &outputs) override;
 
 private:
-    // Convert weight from MNN's OIHW layout to QNN's HWIO layout
-    void convertWeightOIHWtoHWIO(const float* src, float* dst, int oc, int ic, int kh, int kw);
+    ErrorCode onEncodeLegacy(const std::vector<Tensor *> &inputs,
+                             const std::vector<Tensor *> &outputs);
+    std::vector<Qnn_ScaleOffset_t> mWeightScaleOffsets;
+    std::vector<Qnn_ScaleOffset_t> mBiasScaleOffsets;
 };
+
 #endif
 } // end namespace QNN
 } // end namespace MNN
 
-#endif // MNN_QNNDECONVOLUTION_HPP
+#endif

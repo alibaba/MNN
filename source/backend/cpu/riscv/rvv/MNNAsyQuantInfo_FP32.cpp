@@ -110,7 +110,7 @@ void MNNAsyQuantInfo_FP32_RVV(float* scale, float* bias, float* qscale, float* q
                 qscale[qIndex] = 255.0f / range;
                 qbias[qIndex] = std::round(-minval * 255.0f / range) - 128.0f;
                 scale[scaleIndex] = range / 255.0f;
-                bias[scaleIndex] = minval + (128.0f / 255.0f) * range;
+                bias[scaleIndex] = -qbias[qIndex] * scale[scaleIndex];
             }
         }
     }

@@ -238,17 +238,25 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
         // Limit threadNumber to avoid too large memory
         threadNumber = ALIMIN(threadNumber, 4);
     }
+    // Separate input positions write to separate output regions under these conditions.
+    const bool sharedOutput =
+        threadNumber > 1 && strideX >= dilateX * (kw - 1) + 1 && strideY >= dilateY * (kh - 1) + 1;
+    // Each input position owns a complete 2x2 output region.
+    const bool fusedOutput = core->MNNDeconv2x2Post != nullptr && core->bytes == 4 &&
+        (core->pack == 4 || core->pack == 8) && kw == 2 && kh == 2 && strideX == 2 && strideY == 2 &&
+        dilateX == 1 && dilateY == 1 && padX == 0 && padY == 0 &&
+        src_width == width * 2 && src_height == height * 2;
     auto im2colOutputStride = ROUND_UP(input->channel(), lP) * eP * core->bytes;
     mGemmInput = allocator->alloc(threadNumber * im2colOutputStride);
     auto gemmOutputStride = kernelCount * core->pack * eP * core->bytes;
     mGemmOutput = allocator->alloc(threadNumber * gemmOutputStride);
     auto outputSize = batch*src_width*src_height*ocC4*core->pack*core->bytes;
-    if (threadNumber > 1) {
+    if (threadNumber > 1 && !sharedOutput) {
         mExtraOutput = allocator->alloc((threadNumber-1)*outputSize);
     }
     allocator->free(mGemmInput);
     allocator->free(mGemmOutput);
-    if (threadNumber > 1) {
+    if (threadNumber > 1 && !sharedOutput) {
         allocator->free(mExtraOutput);
     }
     auto first = std::make_pair([=](uint8_t* outputPtr, int tId) {
@@ -257,10 +265,12 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
         auto inputPtr  = input->host<uint8_t>();
         auto unitBytes = core->pack * core->bytes;
         auto tempOutPtr = outputPtr;
-        if (tId > 0) {
+        if (tId > 0 && !sharedOutput) {
             tempOutPtr = mExtraOutput.ptr() + (tId-1) * outputSize;
         }
-        ::memset(tempOutPtr, 0, outputSize);
+        if (!sharedOutput && !fusedOutput) {
+            ::memset(tempOutPtr, 0, outputSize);
+        }
 
         int l = ROUND_UP(mSrcCount, lP);
         int h = kernelCount * core->pack;
@@ -298,6 +308,12 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
             } else {
                 core->MNNPackedMatMulRemain((float*)(colBufferPtr), (float*)gemmInputBufferPtr, (float*)weightPtr, xCount, parameters, postParametersPtr, nullptr, nullptr, nullptr);
             }
+            if (fusedOutput) {
+                const int parameters[] = {xStart, xCount, width, height, batch, ocC4};
+                core->MNNDeconv2x2Post((const float*)colBufferPtr, (float*)outputPtr, biasTensor->host<float>(),
+                                      mPostParameters.data(), parameters);
+                continue;
+            }
             // Col2Im
             for (int z = 0; z < ocC4; ++z) {
                 auto dstZ = tempOutPtr + z * src_height * src_width * batch * unitBytes;
@@ -332,22 +348,45 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
             }
         }
     }, threadNumber);
-    auto second = std::make_pair([ocC4, src_height, src_width, threadNumber, batch, biasTensor, this, outputSize, core](uint8_t* outputPtr, int tId) {
-        auto unitBytes = core->pack * core->bytes;
-        auto biasPtr = biasTensor->host<uint8_t>();
-        for (int z = tId; z < ocC4; z+=threadNumber) {
-            auto dstZ = outputPtr + z * src_height * src_width * batch * unitBytes;
-            if (threadNumber > 1) {
-                for (int index=0; index<threadNumber-1; ++index) {
-                    auto src = mExtraOutput.ptr() + index * outputSize + z * src_height * src_width * batch * unitBytes;
-                    core->MNNMatrixAdd((float*)(dstZ), (float*)(src), (float*)(dstZ), src_height * src_width * batch, 0, 0, 0, 1);
+    auto second = std::make_pair(
+        [ocC4, src_height, src_width, threadNumber, batch, biasTensor, this, outputSize, core,
+         sharedOutput](uint8_t* outputPtr, int tId) {
+            auto unitBytes = core->pack * core->bytes;
+            auto biasPtr = biasTensor->host<uint8_t>();
+            for (int z = tId; z < ocC4; z += threadNumber) {
+                auto dstZ = outputPtr + z * src_height * src_width * batch * unitBytes;
+                if (threadNumber > 1 && !sharedOutput) {
+                    for (int index = 0; index < threadNumber - 1; ++index) {
+                        auto src =
+                            mExtraOutput.ptr() + index * outputSize + z * src_height * src_width * batch * unitBytes;
+                        core->MNNMatrixAdd((float*)(dstZ), (float*)(src), (float*)(dstZ),
+                                           src_height * src_width * batch, 0, 0, 0, 1);
+                    }
                 }
+                core->MNNAxByClampBroadcastUnit((float*)dstZ, (float*)dstZ,
+                                                (const float*)((uint8_t*)biasPtr + unitBytes * z),
+                                                src_height * src_width * batch, 0, 0, 1, mPostParameters.data());
             }
-            core->MNNAxByClampBroadcastUnit((float*)dstZ, (float*)dstZ, (const float*)((uint8_t*)biasPtr +  unitBytes * z), src_height * src_width * batch, 0, 0, 1, mPostParameters.data());
-        }
-
-    }, threadNumber);
-    mExecuteFuntion = {first, second};
+        },
+        threadNumber);
+    mExecuteFuntion = {first};
+    if (fusedOutput) {
+        return NO_ERROR;
+    }
+    mExecuteFuntion.emplace_back(second);
+    if (sharedOutput) {
+        // Clear gaps and borders before any worker writes to the shared output.
+        auto clearThreads = outputSize >= LAUNCH_MULTI_THREADS_WORKLOAD ? threadNumber : 1;
+        auto clearBlockSize = outputSize / (clearThreads * core->pack * core->bytes) * core->pack * core->bytes;
+        auto clear = std::make_pair(
+            [outputSize, clearThreads, clearBlockSize](uint8_t* outputPtr, int tId) {
+                auto start = clearBlockSize * tId;
+                auto end = tId + 1 == clearThreads ? outputSize : clearBlockSize * (tId + 1);
+                ::memset(outputPtr + start, 0, end - start);
+            },
+            clearThreads);
+        mExecuteFuntion.insert(mExecuteFuntion.begin(), clear);
+    }
     return NO_ERROR;
 }
 

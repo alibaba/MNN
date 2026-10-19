@@ -448,6 +448,8 @@ static MNNForwardType backend_type_convert(const std::string& type_str) {
         return MNN_FORWARD_VULKAN;
     if (type_str == "hexagon")
         return MNN_FORWARD_HEXAGON;
+    if (type_str == "qnn")
+        return MNN_FORWARD_QNN;
     if (type_str == "npu")
         return MNN_FORWARD_NN;
     return MNN_FORWARD_AUTO;
@@ -513,7 +515,7 @@ bool Omni::load() {
     }
     if (mIsEmbedding) {
         Module::Config module_config;
-        if (mConfig->backend_type() == "npu") {
+        if (mConfig->backend_type() == "npu" || mConfig->backend_type() == "qnn") {
             module_config.shapeMutable = false;
         } else {
             module_config.shapeMutable = true;
@@ -568,7 +570,7 @@ bool Omni::initProcessorRuntime() {
         setRuntimeHint(mProcessorRuntimeManager, true);
     }
     Module::Config module_config;
-    if(config.type == MNN_FORWARD_NN) {
+    if(config.type == MNN_FORWARD_NN || config.type == MNN_FORWARD_QNN) {
         module_config.shapeMutable = false;
         module_config.rearrange = false;
     } else {
@@ -1129,13 +1131,14 @@ std::vector<int> Omni::smolvlmVisionProcess(VARP image) {
         }
         // Add global image embedding (already computed)
         mVisionEmbeddings.push_back(_Squeeze(globalEmbedding, {0}));
-        int endRow = tokenizer_encode("\n")[0];
+        // Omni::tokenizer_encode(string) restarts multimodal parsing and would drop the embeddings pushed above.
+        int endRow = mTokenizer->encode("\n", false)[0];
         for (int h = 0; h < grid_h; h++) {
             for (int w = 0; w < grid_w; w++) {
                 imgIds.push_back(mVisionStart);
                 // <row_{h+1}_col{w+1}>
                 std::string image_pos = "<row_" + std::to_string(h + 1) + "_col_" + std::to_string(w + 1) + ">";
-                imgIds.push_back(tokenizer_encode(image_pos)[0]);
+                imgIds.push_back(mTokenizer->encode(image_pos, false)[0]);
                 for (int p = 0; p < visionLen; p++) {
                     imgIds.push_back(mVisionPad);
                 }
@@ -1327,7 +1330,7 @@ std::vector<int> Omni::minicpmVisionProcess(VARP image) {
     std::vector<int> imgIds;
     // image id
     imgIds.push_back(visionIdStart);
-    auto visionIdxIds = tokenizer_encode(std::to_string(mVisionNum));
+    auto visionIdxIds = mTokenizer->encode(std::to_string(mVisionNum), false);
     for (auto idx : visionIdxIds) {
         imgIds.push_back(idx);
     }
@@ -2070,19 +2073,15 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     MNN::Express::ExecutorScope s(mExecutor);
     bool hasMultimodalEmbeds = !mVisionEmbeddings.empty() || !mAudioEmbeddings.empty();
     if (!hasMultimodalEmbeds) {
-        // Decode leaves a one-token PLE in mPleInput. Rebuild it for a later text-only prefill;
-        // multimodal prefill enters the branch below and keeps its precomputed full-input PLE.
-        if (mPleEmbedding && input_ids.size() > 1) {
-            mPleInput = nullptr;
-        }
         if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
             mExtraArgs[0] = Express::_Fill(
                 _var<int>({3, static_cast<int>(input_ids.size()), mConfig->hidden_size()}, {3}), _Scalar<float>(0.0));
         }
         return Llm::embedding(input_ids);
     }
-    // Pre-compute PLE for full input_ids (gemma4)
-    // HF replaces image_token_id with pad_token_id(0) for PLE lookup
+    // PLE for the full input_ids (gemma4); applied after the text segments below, whose
+    // Llm::embedding calls overwrite mPleInput. HF looks up multimodal pads as pad_token_id(0).
+    VARP fullPle;
     if (mPleEmbedding) {
         int ple_dim = mConfig->ple_embed_dim();
         float ple_scale = mConfig->ple_embed_scale();
@@ -2094,10 +2093,10 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
                 id = 0; // pad_token_id
             }
         }
-        mPleInput = _Input({1, seq_len, ple_dim}, NCHW);
-        mPleEmbedding->embedding(ple_ids, mPleInput->writeMap<float>());
+        fullPle = _Input({1, seq_len, ple_dim}, NCHW);
+        mPleEmbedding->embedding(ple_ids, fullPle->writeMap<float>());
         if (ple_scale != 1.0f) {
-            mPleInput = mPleInput * _Scalar<float>(ple_scale);
+            fullPle = fullPle * _Scalar<float>(ple_scale);
         }
     }
     std::vector<VARP> embeddings;
@@ -2316,11 +2315,31 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     if (mVisionIndex >= static_cast<int>(mVisionEmbeddings.size())) {
         resetMultimodalState();
     }
+    if (fullPle.get()) {
+        mPleInput = fullPle;
+    }
     // Qwen3-VL
     if (hasDeepStack) {
         mExtraArgs[0] = Express::_Concat(deepstacks, 1);
     }
     return mergedEmbed;
+}
+
+bool Omni::prepareHistoryReplay(const std::vector<int>& input_ids) {
+    // Encoder embeddings and MRoPE layouts of past multimodal spans are dropped after their prefill.
+    if (mTalker != nullptr) {
+        return false;
+    }
+    for (int id : input_ids) {
+        if (id == mVisionPad || id == mAudioPad || id == mVideoPad) {
+            return false;
+        }
+    }
+    mPositionIds.clear();
+    // Replay bypasses tokenizer_encode(), so rebuild the text positions required by MRoPE validation.
+    addPositionIds(static_cast<int>(input_ids.size()));
+    resetMultimodalState();
+    return true;
 }
 
 static inline bool needNewVar(VARP var, int axis, int seq_len) {

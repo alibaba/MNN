@@ -10,6 +10,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include "core/MNNFileUtils.h"
+#include "core/KVMeta.hpp"
 #include "shape/SizeComputer.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "core/Schedule.hpp"
@@ -23,6 +24,8 @@
 using namespace MNN;
 static bool gNeedOffline = false;
 static int gMaxKVSize = 0;
+// attn_scale from llm_config.json, passed to NPU attention via KVMeta.
+static float gAttnScale = 0.0f;
 static std::string gNPUName = "CoreML";
 static std::string gOfflieSrc;
 static std::string gOfflieDst;
@@ -878,11 +881,16 @@ static int _compileWholeModule(std::vector<std::string> inputNames, std::vector<
         graphicNames.push_back(graphicName);
         MNN::ScheduleConfig config;
         config.type = gNPUType;
+        KVMeta meta;
         std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr(
             MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
         rtmgr->setExternalFile((srcpath + ".weight").c_str());
         rtmgr->setCache(srcPath.c_str());
         rtmgr->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, gMaxKVSize);
+        if (gAttnScale > 0.0f) {
+            meta.attn_scale = gAttnScale;
+            rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &meta);
+        }
         MNN::Express::Module::Config mdconfig;
         mdconfig.shapeMutable = false;
         std::shared_ptr<MNN::Express::Module> m(
@@ -1077,10 +1085,15 @@ static std::unique_ptr<MNN::OpT> _compileSubModule(const SubModuleIO& io, SubMod
     do {
         MNN::ScheduleConfig config;
         config.type = gNPUType;
+        KVMeta meta;
         std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr(MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
         rtmgr->setExternalFile((srcpath + ".weight").c_str());
         rtmgr->setCache(path.c_str());
         rtmgr->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, gMaxKVSize);
+        if (gAttnScale > 0.0f) {
+            meta.attn_scale = gAttnScale;
+            rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &meta);
+        }
         MNN::Express::Module::Config mdconfig;
         mdconfig.shapeMutable = false;
         std::shared_ptr<MNN::Express::Module> m(MNN::Express::Module::load(inputNames, outputNames, (const uint8_t*)buffer, bufferSize, rtmgr, &mdconfig), MNN::Express::Module::destroy);
@@ -1508,6 +1521,9 @@ int main(int argc, const char* argv[]) {
         }
         if (document.HasMember("KVCACHE_SIZE_LIMIT")) {
             gMaxKVSize = document["KVCACHE_SIZE_LIMIT"].GetInt();
+        }
+        if (document.HasMember("attn_scale")) {
+            gAttnScale = document["attn_scale"].GetFloat();
         }
         if (document.HasMember("testdir")) {
             auto testdir = document["testdir"].GetArray();

@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "backend/cpu/CPUBackend.hpp"
-#include "backend/cpu/riscv/rvv/MNNRvvFastPathUtils.hpp"
+#include "backend/cpu/riscv/common/MNNRiscvFastPathUtils.hpp"
 #include "core/Macro.h"
 
 extern "C" void* MNNSpacemitIme2CreateLinearResource();
@@ -236,7 +236,7 @@ bool SpacemitIme2ConvInt8Executor::tryExecuteFast(const std::vector<Tensor*>& in
     const int threadCount = static_cast<CPUBackend*>(backend())->threadNumber();
     const int rowBlockCount = UP_DIV(static_cast<int>(realCount), 4);
     const int packWorkers = ALIMIN(threadCount, rowBlockCount);
-    MNNRvvFastPathParallelFor(backend(), packWorkers, [&](int workerId) {
+    MNNRiscvFastPathParallelFor(backend(), packWorkers, [&](int workerId) {
         const int blocksPerWorker = UP_DIV(rowBlockCount, packWorkers);
         const int blockBegin = workerId * blocksPerWorker;
         const int blockEnd = ALIMIN(rowBlockCount, blockBegin + blocksPerWorker);

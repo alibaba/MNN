@@ -345,10 +345,10 @@ RISC-V 条件下并行更新。量化 KV Cache 和其他数据布局继续使用
 | 文件 | 作用 |
 |---|---|
 | `source/backend/cpu/riscv/CMakeLists.txt` | 标准 RVV 与 K3 IME2 target 隔离 |
-| `source/backend/cpu/riscv/rvv/spacemit_ime2/MNNSpacemitIme2ConvInt8Executor.cpp` | K3 Linear Execution、prefill/decode 路由 |
-| `source/backend/cpu/riscv/rvv/spacemit_ime2/MNNSpacemitIme2GemmInt8.cpp` | A/B packing、worker、cache、TCM 流水 |
-| `source/backend/cpu/riscv/rvv/spacemit_ime2/MNNSpacemitIme2GemmI8I4Local.cpp` | IME2 W4B64 kernel |
-| `source/backend/cpu/riscv/rvv/spacemit_ime2/MNNSpacemitIme2AttentionFunctions.cpp` | K3 fused Attention |
+| `source/backend/cpu/riscv/spacemit_ime2/MNNSpacemitIme2ConvInt8Executor.cpp` | K3 Linear Execution、prefill/decode 路由 |
+| `source/backend/cpu/riscv/spacemit_ime2/MNNSpacemitIme2GemmInt8.cpp` | A/B packing、worker、cache、TCM 流水 |
+| `source/backend/cpu/riscv/spacemit_ime2/MNNSpacemitIme2GemmI8I4Local.cpp` | IME2 W4B64 kernel |
+| `source/backend/cpu/riscv/spacemit_ime2/MNNSpacemitIme2AttentionFunctions.cpp` | K3 fused Attention |
 | `source/backend/cpu/riscv/rvv/MNNRvvAttentionFunctions.cpp` | 标准 RVV decode Attention |
 
 `CPUAttention` 与通用 `ConvInt8TiledExecutor` 不包含 K3 kernel 或 TCM 实现，只提供稳定的

@@ -291,6 +291,10 @@ static void MNNNormPackedFp16(float* normOut_, float* sumOut_, const float* sour
     // drops out; the fp32 recompute in pass 3 then costs no more loads than a
     // read-back of sumOut would have.
     const bool squaresFromPass1 = RMSNorm && residual != nullptr;
+    // Match MNNQuantizeFP16 when storing the residual output. Keep the original
+    // FP32 values for all statistics and normalization.
+    const auto minFp16 = vdupq_n_f32(-65504.0f);
+    const auto maxFp16 = vdupq_n_f32(65504.0f);
 
     auto loadExactPair = [&](size_t offset) {
         float32x4_t value = vcvt_f32_f16(vld1_f16(source + offset));
@@ -327,8 +331,8 @@ static void MNNNormPackedFp16(float* normOut_, float* sumOut_, const float* sour
                     float32x4_t lo = loadExactPair(offset);
                     float32x4_t hi = loadExactPair(offset + 4);
                     if (residual != nullptr) {
-                        vst1_f16(sumOut + offset, vcvt_f16_f32(lo));
-                        vst1_f16(sumOut + offset + 4, vcvt_f16_f32(hi));
+                        vst1_f16(sumOut + offset, vcvt_f16_f32(vminq_f32(vmaxq_f32(lo, minFp16), maxFp16)));
+                        vst1_f16(sumOut + offset + 4, vcvt_f16_f32(vminq_f32(vmaxq_f32(hi, minFp16), maxFp16)));
                     }
                     if (squaresFromPass1) {
                         squareAcc[token] = vfmaq_f32(squareAcc[token], lo, lo);
@@ -347,7 +351,9 @@ static void MNNNormPackedFp16(float* normOut_, float* sumOut_, const float* sour
                     for (size_t lane = 0; lane < remain; ++lane) {
                         const float value = loadExactLane(offset + lane);
                         if (residual != nullptr) {
-                            sumOut[offset + lane] = static_cast<__fp16>(value);
+                            const float saturated =
+                                value > 65504.0f ? 65504.0f : (value < -65504.0f ? -65504.0f : value);
+                            sumOut[offset + lane] = static_cast<__fp16>(saturated);
                         }
                         if (squaresFromPass1) {
                             squareSums[token] += value * value;
@@ -661,12 +667,12 @@ static void MNNPackedMatMulFP16WithSme2PackedB(float* C, const float* A, const f
     MNNPackedMatMulRemainFP16WithSme2PackedB(C, A, B, 16, parameter, postParameters, bias, k, b);
 }
 
+template <int ET, int HT = 8>
 __attribute__((target("arch=armv8.2-a+fp16fml")))
-static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(float* C, const float* A, const float* B, size_t eSize,
-                                                            const size_t* parameter, const float* postParameters,
-                                                            const float* bias, const float* k, const float* b) {
+static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E(float* C, const float* A, const float* B, size_t eSize,
+                                                         const size_t* parameter, const float* postParameters,
+                                                         const float* bias, const float* k, const float* b) {
     MNN_ASSERT(postParameters == nullptr && bias == nullptr && k == nullptr && b == nullptr);
-    constexpr int ET = 8;
     const size_t aStride = parameter[0] / sizeof(FLOAT16);
     const size_t l = parameter[1];
     const size_t h = parameter[2];
@@ -679,36 +685,54 @@ static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(float* C, const float
     for (size_t e0 = 0; e0 < eSize; e0 += ET) {
         const int eN = static_cast<int>(ALIMIN(eSize - e0, static_cast<size_t>(ET)));
         size_t y = 0;
-        for (; y + 8 <= h; y += 8) {
-            float32x4_t sumLo[ET];
-            float32x4_t sumHi[ET];
-            for (int i = 0; i < ET; ++i) {
-                sumLo[i] = vdupq_n_f32(0.0f);
-                sumHi[i] = vdupq_n_f32(0.0f);
+        for (; y + HT <= h; y += HT) {
+            float32x4_t sumLo[HT / 8][ET];
+            float32x4_t sumHi[HT / 8][ET];
+            for (int j = 0; j < HT / 8; ++j) {
+                for (int i = 0; i < ET; ++i) {
+                    sumLo[j][i] = vdupq_n_f32(0.0f);
+                    sumHi[j][i] = vdupq_n_f32(0.0f);
+                }
             }
             const auto bBase = bPtr + (y / 64) * bStride + (y % 64) * 2;
             for (size_t z = 0; z < l; z += 2) {
-                const auto raw = reinterpret_cast<const uint16_t*>(bBase + z * 64);
-                const auto raw0 = vld1q_u16(raw);
-                const auto raw1 = vld1q_u16(raw + 8);
-                const auto values0 = vreinterpretq_f16_u16(vuzp1q_u16(raw0, raw1));
-                const auto values1 = vreinterpretq_f16_u16(vuzp2q_u16(raw0, raw1));
-                for (int i = 0; i < ET; ++i) {
-                    if (i < eN) {
-                        const auto a = aPtr + (e0 + i) * 2 + (z / 2) * aStride;
-                        const auto a0 = vdupq_n_f16(a[0]);
-                        const auto a1 = vdupq_n_f16(a[1]);
-                        sumLo[i] = vfmlalq_low_f16(sumLo[i], values0, a0);
-                        sumHi[i] = vfmlalq_high_f16(sumHi[i], values0, a0);
-                        sumLo[i] = vfmlalq_low_f16(sumLo[i], values1, a1);
-                        sumHi[i] = vfmlalq_high_f16(sumHi[i], values1, a1);
+                for (int j = 0; j < HT / 8; ++j) {
+                    const auto raw = reinterpret_cast<const uint16_t*>(bBase + z * 64 + j * 16);
+                    const auto raw0 = vld1q_u16(raw);
+                    const auto raw1 = vld1q_u16(raw + 8);
+                    const auto values0 = vreinterpretq_f16_u16(vuzp1q_u16(raw0, raw1));
+                    const auto values1 = vreinterpretq_f16_u16(vuzp2q_u16(raw0, raw1));
+                    if (ET == 2 && eN == 2) {
+                        const auto av = vld1_f16(aPtr + e0 * 2 + (z / 2) * aStride);
+                        sumLo[j][0] = vfmlalq_lane_low_f16(sumLo[j][0], values0, av, 0);
+                        sumHi[j][0] = vfmlalq_lane_high_f16(sumHi[j][0], values0, av, 0);
+                        sumLo[j][0] = vfmlalq_lane_low_f16(sumLo[j][0], values1, av, 1);
+                        sumHi[j][0] = vfmlalq_lane_high_f16(sumHi[j][0], values1, av, 1);
+                        sumLo[j][1] = vfmlalq_lane_low_f16(sumLo[j][1], values0, av, 2);
+                        sumHi[j][1] = vfmlalq_lane_high_f16(sumHi[j][1], values0, av, 2);
+                        sumLo[j][1] = vfmlalq_lane_low_f16(sumLo[j][1], values1, av, 3);
+                        sumHi[j][1] = vfmlalq_lane_high_f16(sumHi[j][1], values1, av, 3);
+                    } else {
+                        for (int i = 0; i < ET; ++i) {
+                            if (i < eN) {
+                                const auto a = aPtr + (e0 + i) * 2 + (z / 2) * aStride;
+                                const auto a0 = vdupq_n_f16(a[0]);
+                                const auto a1 = vdupq_n_f16(a[1]);
+                                sumLo[j][i] = vfmlalq_low_f16(sumLo[j][i], values0, a0);
+                                sumHi[j][i] = vfmlalq_high_f16(sumHi[j][i], values0, a0);
+                                sumLo[j][i] = vfmlalq_low_f16(sumLo[j][i], values1, a1);
+                                sumHi[j][i] = vfmlalq_high_f16(sumHi[j][i], values1, a1);
+                            }
+                        }
                     }
                 }
             }
-            for (int i = 0; i < ET; ++i) {
-                if (i < eN) {
-                    vst1q_f16(cPtr + (y / 8) * cStride + (e0 + i) * 8,
-                              vcombine_f16(vcvt_f16_f32(sumLo[i]), vcvt_f16_f32(sumHi[i])));
+            for (int j = 0; j < HT / 8; ++j) {
+                for (int i = 0; i < ET; ++i) {
+                    if (i < eN) {
+                        vst1q_f16(cPtr + (y / 8 + j) * cStride + (e0 + i) * 8,
+                                  vcombine_f16(vcvt_f16_f32(sumLo[j][i]), vcvt_f16_f32(sumHi[j][i])));
+                    }
                 }
             }
         }
@@ -733,10 +757,35 @@ static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(float* C, const float
     }
 }
 
+static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(float* C, const float* A, const float* B, size_t eSize,
+                                                       const size_t* parameter, const float* postParameters,
+                                                       const float* bias, const float* k, const float* b) {
+    // Avoid turning an eight-column vector tail into scalar work with the wider tile.
+    if (eSize == 2 && parameter[2] % 16 == 0) {
+        MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<2, 16>(C, A, B, eSize, parameter, postParameters, bias, k, b);
+        return;
+    }
+    if (eSize <= 2) {
+        MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<2>(C, A, B, eSize, parameter, postParameters, bias, k, b);
+        return;
+    }
+    MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<8>(C, A, B, eSize, parameter, postParameters, bias, k, b);
+}
+
+static void MNNPackedMatMulRemainFP16WithSme2PackedB_FmlalWide(float* C, const float* A, const float* B, size_t eSize,
+                                                           const size_t* parameter, const float* postParameters,
+                                                           const float* bias, const float* k, const float* b) {
+    if (eSize == 2 && parameter[2] % 32 == 0) {
+        MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<2, 32>(C, A, B, eSize, parameter, postParameters, bias, k, b);
+        return;
+    }
+    MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(C, A, B, eSize, parameter, postParameters, bias, k, b);
+}
+
 static void MNNPackedMatMulFP16WithSme2PackedB_Fmlal(float* C, const float* A, const float* B,
                                                       const size_t* parameter, const float* postParameters,
                                                       const float* bias, const float* k, const float* b) {
-    MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal(C, A, B, 16, parameter, postParameters, bias, k, b);
+    MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E<8>(C, A, B, 16, parameter, postParameters, bias, k, b);
 }
 #endif
 #else
@@ -835,6 +884,53 @@ static void MNNScaleAndAddBiasFP16(FLOAT16* dst, const FLOAT16* src, const FLOAT
             const FLOAT16* srcX = srcZ + 8 * p;
             auto res = vaddq_f16(vmulq_f16(vld1q_f16(srcX), alphaZ), biasZ);
             vst1q_f16(dstX, res);
+        }
+    }
+}
+
+// fp16 port of MNNRoPEComputeBasic (CommonOptFunction.cpp); one call handles a
+// token's [numHead, headDim] elements, cos/sin tables are already fp16.
+static void MNNRoPEComputeFP16(void* dst, const void* src, const void* cosEven, const void* cosOdd,
+                               const void* sinEven, const void* sinOdd, int numHead, int headDim,
+                               int ropeCutHeadDim) {
+    int ropeDim = ropeCutHeadDim;
+    if (ropeDim <= 0 || ropeDim > headDim) {
+        ropeDim = headDim;
+    }
+    ropeDim = (ropeDim / 2) * 2;
+    const int ropeHalfHeadDim = ropeDim / 2;
+
+    auto srcHalf = static_cast<const FLOAT16*>(src);
+    auto dstHalf = static_cast<FLOAT16*>(dst);
+    auto cosEvenHalf = static_cast<const FLOAT16*>(cosEven);
+    auto cosOddHalf = static_cast<const FLOAT16*>(cosOdd);
+    auto sinEvenHalf = static_cast<const FLOAT16*>(sinEven);
+    auto sinOddHalf = static_cast<const FLOAT16*>(sinOdd);
+    for (int j = 0; j < numHead; ++j) {
+        auto src0 = srcHalf + j * headDim;
+        auto src1 = src0 + ropeHalfHeadDim;
+        auto dst0 = dstHalf + j * headDim;
+        auto dst1 = dst0 + ropeHalfHeadDim;
+        int k = 0;
+        for (; k <= ropeHalfHeadDim - 8; k += 8) {
+            auto q0 = Vec::load(src0 + k);
+            auto q1 = Vec::load(src1 + k);
+            auto c0 = Vec::load(cosEvenHalf + k);
+            auto c1 = Vec::load(cosOddHalf + k);
+            auto s0 = Vec::load(sinEvenHalf + k);
+            auto s1 = Vec::load(sinOddHalf + k);
+            Vec::save(dst0 + k, Vec::fms(q0 * c0, q1, s0));
+            Vec::save(dst1 + k, Vec::fma(q1 * c1, q0, s1));
+        }
+        for (; k < ropeHalfHeadDim; ++k) {
+            float q0 = src0[k];
+            float q1 = src1[k];
+            dst0[k] = static_cast<FLOAT16>(q0 * cosEvenHalf[k] - q1 * sinEvenHalf[k]);
+            dst1[k] = static_cast<FLOAT16>(q1 * cosOddHalf[k] + q0 * sinOddHalf[k]);
+        }
+        if (ropeDim < headDim) {
+            ::memcpy(dstHalf + j * headDim + ropeDim, srcHalf + j * headDim + ropeDim,
+                     (headDim - ropeDim) * sizeof(FLOAT16));
         }
     }
 }
@@ -3314,6 +3410,7 @@ bool Arm82Functions::init() {
     if (origin->supportFp16FML) {
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulWithSme2PackedB, MNNPackedMatMulFP16WithSme2PackedB_Fmlal);
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedB, MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal);
+        FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedBWide, MNNPackedMatMulRemainFP16WithSme2PackedB_FmlalWide);
     } else {
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulWithSme2PackedB, MNNPackedMatMulFP16WithSme2PackedB);
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedB, MNNPackedMatMulRemainFP16WithSme2PackedB);
@@ -3342,6 +3439,7 @@ bool Arm82Functions::init() {
     // path reports NOT_SUPPORT rather than reading a stale fp32 entry.
     FUNC_PTR_ASSIGN(gInstance->MNNNormPacked, MNNNormPackedFp16);
 #endif
+    FUNC_PTR_ASSIGN(gInstance->MNNRoPECompute, MNNRoPEComputeFP16);
 
     gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;
     gInstance->MNNComputeMatMulForE_1 = _MNNComputeMatMulForE_1_FP16;

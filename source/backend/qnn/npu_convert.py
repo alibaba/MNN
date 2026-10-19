@@ -14,7 +14,7 @@ with open(sys.argv[1]) as f:
     post_treat = json.load(f)
 soc_id = int(sys.argv[2])
 dsp_arch = sys.argv[3]
-vtcm_mb = int(sys.argv[4])
+vtcm_mb = int(sys.argv[4]) if len(sys.argv) > 4 else 8
 print('soc_id:', soc_id, "; dsp_arch:", dsp_arch, "; vtcm_mb:", vtcm_mb)
 qnn_bin_path = os.path.join(qnn_sdk, 'bin', 'x86_64-linux-clang')
 qnnModelLibGenerator = os.path.join(qnn_bin_path, 'qnn-model-lib-generator')

@@ -68,6 +68,37 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
+def layer_layout_config(config):
+    # The flattened export config does not forward the layer layout; the original HF (text)
+    # config carries it.
+    for cfg in (config, getattr(config, 'origin_config', None)):
+        if cfg is None:
+            continue
+        for candidate in (cfg, getattr(cfg, 'text_config', None)):
+            if candidate is not None and getattr(candidate, 'num_kv_shared_layers', 0):
+                return candidate
+    return None
+
+def kv_shared_owner(config, layer_id):
+    # Index of the layer whose kvcache a sharing layer reads. HF dropped the per-module
+    # kv_shared_layer_index attribute (gemma4, transformers >= 5.5.4) but the layer layout
+    # still determines it: the owner is the last layer of the same attention type among those
+    # that keep a cache of their own. Returns None when the layout does not say.
+    cfg = layer_layout_config(config)
+    if cfg is None:
+        return None
+    first_shared = getattr(cfg, 'num_hidden_layers', 0) - cfg.num_kv_shared_layers
+    if first_shared <= 0 or layer_id < first_shared:
+        return None
+    layer_types = getattr(cfg, 'layer_types', None)
+    if not layer_types:
+        return first_shared - 1
+    want = layer_types[layer_id]
+    for index in range(first_shared - 1, -1, -1):
+        if layer_types[index] == want:
+            return index
+    return None
+
 class Attention(torch.nn.Module):
     def __init__(self, attn, layer_id, config, rotary, mapper):
         super().__init__()
@@ -91,6 +122,10 @@ class Attention(torch.nn.Module):
             self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         ModelMapper.do_map(self, attn, mapper['attention'])
+        if config.model_type == 'mobilemoe' and not attn.use_rope:
+            self.rotary = None
+        if config.model_type == 'mobilemoe' and attn.attn_temperature_tuning and not attn.use_rope:
+            raise ValueError('MobileMoE attention temperature tuning is not supported')
         if config.model_type in ['qwen3_5', 'qwen3_5_moe', 'qwen3_5_text']:
             # Qwen3.5 attention norms use gamma=(1+weight). FusedRoPE stores
             # norm.weight as gamma, so canonicalize the offset semantics first.
@@ -132,10 +167,18 @@ class Attention(torch.nn.Module):
         # KV sharing (gemma4): track which layers share KV
         self.is_kv_shared_layer = getattr(attn, 'is_kv_shared_layer', False)
         self.kv_shared_layer_index = getattr(attn, 'kv_shared_layer_index', None)
+        if self.is_kv_shared_layer and self.kv_shared_layer_index is None:
+            self.kv_shared_layer_index = kv_shared_owner(config, layer_id)
+            if self.kv_shared_layer_index is None:
+                raise RuntimeError(f'layer {layer_id} shares its kvcache but the owning layer '
+                                   'cannot be determined, so the export would drop the sharing '
+                                   'and the layer has no key / value of its own')
         self.store_full_length_kv = getattr(attn, 'store_full_length_kv', False)
 
         # Create FusedAttention with KV sharing info
-        kv_shared_idx = self.kv_shared_layer_index if self.is_kv_shared_layer else -1
+        kv_shared_idx = -1
+        if self.is_kv_shared_layer and self.kv_shared_layer_index is not None:
+            kv_shared_idx = self.kv_shared_layer_index
         self.fused_attn = FusedAttention(
             self.num_heads * self.head_dim, self.kv_cache,
             f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx,
@@ -269,6 +312,11 @@ class Attention(torch.nn.Module):
             # gemma4 has v_norm (RMSNorm without scale)
             if hasattr(self, 'v_norm') and self.v_norm is not None:
                 value_states = self.v_norm(value_states)
+            # Publish for the layers that read this one's cache. Pre-RoPE, because they apply
+            # RoPE themselves at the same positions; without this the dict stays empty and a
+            # sharing layer falls through to the zero placeholders below.
+            if shared_kv_cache is not None and self.store_full_length_kv:
+                shared_kv_cache[self.layer_id] = (key_states, value_states)
         else:
             # Pure KV sharing layer: no local K/V projections (e.g. gemma4 in HF>=5.5.4)
             # Dummy K/V for ONNX tracing; FusedAttention handles sharing via kv_shared_layer_index
@@ -299,8 +347,7 @@ class Attention(torch.nn.Module):
                 and self.k_proj is not None
                 and q_norm_fusable
                 and k_norm_fusable
-                and not getattr(getattr(self.config, 'export_args', None), 'lora_split', False)
-                and self.rotary.model_type not in ['chatglm', 'chatglm2', 'ernie4_5', 'glm_ocr']
+                and self.rotary.model_type not in ['chatglm', 'chatglm2', 'ernie4_5', 'glm_ocr', 'mobilemoe']
                 and cos.shape[-1] == self.rope_cut_head_dim
                 and sin.shape[-1] == self.rope_cut_head_dim
             )
@@ -1010,6 +1057,20 @@ class Rotary(torch.nn.Module):
                     scaling_config=scaling_config,
                     max_position_embeddings=config.max_position_embeddings
                 )
+            elif rope_type == 'llama3' and self.model_type == 'mobilemoe':
+                factor = scaling_config['factor']
+                low = scaling_config['low_freq_factor']
+                high = scaling_config['high_freq_factor']
+                original_length = scaling_config['original_max_position_embeddings']
+                wavelength = 2 * math.pi / self.theta
+                scaled = self.theta / factor
+                if high != low:
+                    smooth = (original_length / wavelength - low) / (high - low)
+                    scaled = torch.where(wavelength >= original_length / high,
+                                         (1 - smooth) * scaled + smooth * self.theta, self.theta)
+                else:
+                    scaled = self.theta
+                self.theta = torch.where(wavelength > original_length / low, self.theta / factor, scaled)
             elif rope_type == 'longrope': # longrope in MiniCPM
                 self.is_scaled = True
                 original_max_position_embeddings = config.rope_scaling['original_max_position_embeddings']
@@ -1103,7 +1164,7 @@ class Rotary(torch.nn.Module):
             return self.mrope_forward(position_ids)
         cos_pos, sin_pos = self._rope_cos_sin(position_ids.reshape(-1))
         rotary_pos_emb = torch.stack([cos_pos, sin_pos])
-        if self.model_type == 'ernie4_5':
+        if self.model_type in ['ernie4_5', 'mobilemoe']:
             rotary_pos_emb = torch.stack((rotary_pos_emb, rotary_pos_emb), dim=-1)
             rotary_pos_emb = rotary_pos_emb.reshape(*rotary_pos_emb.shape[:-2], -1)
         elif self.model_type != 'chatglm2':
@@ -1164,7 +1225,7 @@ class Rotary(torch.nn.Module):
             return self.chatglm2_rotary_pos(x, cos, sin)
         if self.model_type in ['phi-msft', 'qwen3_5', 'qwen3_5_moe', 'qwen3_5_text']:
             return self.phi_rotary_pos(x, cos, sin)
-        if self.model_type in ['ernie4_5', 'glm_ocr']:
+        if self.model_type in ['ernie4_5', 'glm_ocr', 'mobilemoe']:
             return self.ernie_rotary_pos(x, cos, sin)
         # Auto-detect partial rotary: cos/sin dim < x dim
         if cos.shape[-1] < x.shape[-1]:
@@ -1268,7 +1329,7 @@ class Qwen3Expert(torch.nn.Module):
         return out
 
 class Mlp(torch.nn.Module):
-    def __init__(self, mlp, mapper, layer_id):
+    def __init__(self, mlp, mapper, layer_id, model_type=None):
         super().__init__()
         self.layer_id = layer_id
         ModelMapper.do_map(self, mlp, mapper['mlp'])
@@ -1283,13 +1344,17 @@ class Mlp(torch.nn.Module):
             # refacte experts to qwen3_experts
             original_experts = self.experts
             hidden_size = getattr(original_experts, 'hidden_dim', None) or getattr(original_experts, 'hidden_size')
-            expert_dim = getattr(original_experts, 'intermediate_dim', None) or getattr(original_experts, 'intermediate_size')
+            expert_dim = (original_experts.expert_dim if model_type == 'mobilemoe' else
+                          getattr(original_experts, 'intermediate_dim', None) or original_experts.intermediate_size)
             act_fn = original_experts.act_fn
             new_experts_list = torch.nn.ModuleList()
             for i in range(self.num_experts):
                 expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
                 expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i]
                 expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i]
+                if model_type == 'mobilemoe':
+                    expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i].T.contiguous()
+                    expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i].T.contiguous()
                 new_experts_list.append(expert_mlp)
             self.experts = new_experts_list
 
@@ -1300,6 +1365,10 @@ class Mlp(torch.nn.Module):
 
         if hasattr(self, 'expert_bias') and self.expert_bias is not None:
             self.moe_type = 'lfm2_moe'
+        if model_type == 'mobilemoe':
+            self.moe_type = 'mobilemoe'
+            self.norm_topk_prob = mlp.norm_topk_prob
+            self.gate.float()
 
         if hasattr(self, 'router'):
             self.moe_type = 'gpt_oss'
@@ -1330,19 +1399,23 @@ class Mlp(torch.nn.Module):
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
         if hasattr(self, 'shared_expert'):
-            shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states)) * self.shared_expert(hidden_states)
+            shared_expert_output = self.shared_expert(hidden_states)
+            if getattr(self, 'shared_expert_gate', None) is not None:
+                shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states)) * shared_expert_output
             shared_expert_output = shared_expert_output.reshape(batch_size, sequence_length, hidden_dim)
         else:
             shared_expert_output = None
 
-        if self.moe_type == 'lfm2_moe':
-            router_logits = self.gate(hidden_states)
+        if self.moe_type in ['lfm2_moe', 'mobilemoe']:
+            router_input = hidden_states.float() if self.moe_type == 'mobilemoe' else hidden_states
+            router_logits = self.gate(router_input)
             routing_weights = router_logits.sigmoid()
             scores_for_routing = routing_weights + self.expert_bias
             _, selected_experts = torch.topk(scores_for_routing, self.top_k, dim=-1)
             routing_weights = torch.gather(routing_weights, dim=-1, index=selected_experts)
             if self.norm_topk_prob:
-                routing_weights = routing_weights / (routing_weights.sum(dim=-1, keepdim=True) + 1e-6)
+                eps = 1e-20 if self.moe_type == 'mobilemoe' else 1e-6
+                routing_weights = routing_weights / (routing_weights.sum(dim=-1, keepdim=True) + eps)
             routing_weights = (routing_weights * self.routed_scaling_factor).to(hidden_states.dtype)
         elif self.moe_type == 'gpt_oss':
             router_logits = self.gate(hidden_states)
@@ -1436,7 +1509,7 @@ class Decoder(torch.nn.Module):
             mapper = config.model_map
         ModelMapper.do_map(self, decoder, mapper['decoder'])
         if 'mlp' in mapper and hasattr(self.mlp, 'experts'):
-            self.mlp = Mlp(self.mlp, mapper, layer_id)
+            self.mlp = Mlp(self.mlp, mapper, layer_id, config.model_type)
 
         # Dense SwiGLU gate/up stays spelled out (gate/up Linears + SILU + MUL);
         # MNNConvert's FuseTransformerC4 folds the pair into one act_silu_mul

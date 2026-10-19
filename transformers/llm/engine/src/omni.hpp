@@ -226,6 +226,7 @@ public:
     virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
     virtual Express::VARP gen_attention_mask(int seq_len) override;
     virtual Express::VARP gen_position_ids(int seq_len, int realLen = -1) override;
+    virtual bool prepareHistoryReplay(const std::vector<int>& input_ids) override;
     virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1) override;
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
     virtual void generateWavform() override;

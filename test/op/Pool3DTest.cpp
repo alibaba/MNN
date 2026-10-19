@@ -131,6 +131,8 @@ class AvePool3DTestOnCPU : public Pool3DCommonTest {
 public:
     virtual ~AvePool3DTestOnCPU() = default;
     virtual bool run(int precision) {
+        // testOnBackend's MNN_FORWARD_CPU argument only labels the error message; the case runs on
+        // the suite's executor, so it covers every backend.
         return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "AvePool3D", PoolType_AVEPOOL, precision);
     }
 };

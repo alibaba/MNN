@@ -324,4 +324,6 @@ extern const unsigned char glsl_convolution1x1_w4_RELU_FP16_comp[];
 extern unsigned int glsl_convolution1x1_w4_RELU_FP16_comp_len;
 extern const unsigned char glsl_convolution1x1_w4_RELU6_FP16_comp[];
 extern unsigned int glsl_convolution1x1_w4_RELU6_FP16_comp_len;
+extern const unsigned char glsl_softmaxHeight_NHWC_comp[];
+extern unsigned int glsl_softmaxHeight_NHWC_comp_len;
 #endif

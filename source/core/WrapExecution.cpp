@@ -19,7 +19,8 @@
 namespace MNN {
 bool WrapExecution::needWrap(const Tensor* input, Backend* curBackend) {
     auto curType = curBackend ? curBackend->type() : MNN_FORWARD_CPU;
-    if (curType == MNN_FORWARD_NN || curType >= MNN_CONVERT_QNN) {
+    if (curType == MNN_FORWARD_NN || curType == MNN_FORWARD_QNN ||
+        curType >= MNN_CONVERT_QNN) {
         return false;
     }
     auto des = TensorUtils::getDescribeOrigin(input);

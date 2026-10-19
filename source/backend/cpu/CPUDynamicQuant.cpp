@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <algorithm>
 #include <cmath>
 #include "backend/cpu/CPUDynamicQuant.hpp"
 #include "backend/cpu/CPUBackend.hpp"
@@ -37,6 +38,9 @@ ErrorCode CPUDynamicQuant::onExecute(const std::vector<Tensor*> &inputs,
     float quantScale = 0.f, dequantScale = 0.f, zeroPoint = 0.f;
     float maxVal = 0.f, minVal = 0.f;
     core->MNNCountMaxMinValue(inputPtr, &minVal, &maxVal, size);
+    // DynamicQuantizeLinear includes zero in the quantization range.
+    minVal = std::min(minVal, 0.0f);
+    maxVal = std::max(maxVal, 0.0f);
     // Compute scale and zero
     float range = maxVal - minVal;
     MNN_ASSERT(range != 0);

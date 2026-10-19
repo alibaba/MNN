@@ -24,6 +24,10 @@ public:
 private:
     hiai::op::Const constw;
     hiai::op::Const constb;
+    hiai::op::Const constReshapeShape;
+    hiai::op::Const constOutputShape;
+    hiai::op::Const constNormGamma;
+    hiai::op::Const constNormBeta;
 };
 } // namespace MNN
 

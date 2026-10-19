@@ -187,12 +187,12 @@ const Info* getInfo() const;
 调用`getDeviceInfo`函数可获取`Device`信息，可以参考代码：
 ```cpp
 std::string soc_id, dsp_arch;
-bool success = MNN::Express::Executor::RuntimeManager::getDeviceInfo("dsp_arch", MNN_FORWARD_NN, dsp_arch);
+bool success = MNN::Express::Executor::RuntimeManager::getDeviceInfo("dsp_arch", MNN_FORWARD_QNN, dsp_arch);
 if(success) {
     MNN_PRINT("Device dsp_arch: %s\n", dsp_arch.c_str());
 }
 
-success = MNN::Express::Executor::RuntimeManager::getDeviceInfo("soc_id", MNN_FORWARD_NN, soc_id);
+success = MNN::Express::Executor::RuntimeManager::getDeviceInfo("soc_id", MNN_FORWARD_QNN, soc_id);
 if(success) {
     MNN_PRINT("Device soc_id: %s\n", soc_id.c_str());
 }

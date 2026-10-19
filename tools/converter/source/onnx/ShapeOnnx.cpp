@@ -7,7 +7,17 @@
 //
 
 #include <stdio.h>
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 #include "onnxOpConverter.hpp"
+
+static int32_t saturateShapeBound(int64_t bound) {
+    // ShapeParam uses int32 bounds; preserve out-of-range signs for the runtime rank clamp.
+    bound = std::max<int64_t>(bound, std::numeric_limits<int32_t>::min());
+    bound = std::min<int64_t>(bound, std::numeric_limits<int32_t>::max());
+    return static_cast<int32_t>(bound);
+}
 
 DECLARE_OP_CONVERTER(ShapeOnnx);
 
@@ -18,20 +28,19 @@ MNN::OpParameter ShapeOnnx::type() {
     return MNN::OpParameter_NONE;
 }
 
-void ShapeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                    OnnxScope* scope) {
+void ShapeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
     bool hasStart = false, hasEnd = false;
     int start = 0, end = 0;
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
         const auto& attributeProto = onnxNode->attribute(i);
-        const auto& attributeName  = attributeProto.name();
+        const auto& attributeName = attributeProto.name();
         if (attributeName == "start") {
             hasStart = true;
-            start = attributeProto.i();
+            start = saturateShapeBound(attributeProto.i());
         }
         if (attributeName == "end") {
             hasEnd = true;
-            end = attributeProto.i();
+            end = saturateShapeBound(attributeProto.i());
         }
     }
     // Only set ShapeParam when start/end are specified, to keep backward compatibility with old engines
@@ -58,8 +67,7 @@ MNN::OpParameter SizeOnnx::type() {
     return MNN::OpParameter_NONE;
 }
 
-void SizeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                   OnnxScope* scope) {
+void SizeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
     dstOp->defaultDimentionFormat = MNN::MNN_DATA_FORMAT_NCHW;
 }
 

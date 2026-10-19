@@ -9,7 +9,7 @@
 > **板端交叉编译、正确性回归与性能实验纪律**在
 > [`../../shared/riscv-remote-validation.md`](../../shared/riscv-remote-validation.md)——本文不写命令。
 >
-> **命名**：目录名 `source/backend/cpu/riscv/`（下分 `rvv/` 与 `rvv/spacemit_ime2/`），
+> **命名**：目录名 `source/backend/cpu/riscv/`（下分 `common/`、`rvv/` 与 `spacemit_ime2/`），
 > CMake 选项名 `MNN_USE_RVV` / `MNN_RVV_SPACEMIT_IME2` / `MNN_RVV_MARCH` / `MNN_RVV_FAST_MATH`
 > 与宏名 `MNN_USE_SPACEMIT_IME2` 保持字面写法。平台术语写 RISC-V，向量扩展写 RVV。
 
@@ -20,9 +20,10 @@
 | 层 | 可依赖能力 | 放哪 | object lib | ISA 编译参数 |
 |---|---|---|---|---|
 | 通用 CPU | 标量、通用线程与 Tensor layout | `source/backend/cpu/` | `MNNCPU` | 无 |
+| RISC-V 公共辅助 | 通用线程与调度，无 RVV / 厂商指令 | `riscv/common/`（当前为共享头文件） | 由 RVV / vendor 调用方包含 | 沿用调用方参数 |
 | 标准 RVV | RVV 1.0 与**运行时** VLEN | `riscv/rvv/*.cpp` | `MNNRVV` | `-march=${MNN_RVV_BASE_MARCH}`（默认 `rv64gcv`）`-mabi=lp64d` |
-| Vendor runtime | 专用宏 + 通用 ISA | `riscv/rvv/spacemit_ime2/`（Attention / Executor / 注册） | `MNNSpacemitIme2Runtime` | 同上 **+ `-DMNN_USE_SPACEMIT_IME2`** |
-| Vendor kernel | 厂商矩阵指令 | `riscv/rvv/spacemit_ime2/`（GemmInt8 / GemmI8I4Local / AttentionKernels） | `MNNSpacemitIme2` | 上面 **+ `_xsmtvdotii`** + `-fno-stack-protector` |
+| Vendor runtime | 专用宏 + 通用 ISA | `riscv/spacemit_ime2/`（Attention / Executor / 注册） | `MNNSpacemitIme2Runtime` | 同上 **+ `-DMNN_USE_SPACEMIT_IME2`** |
+| Vendor kernel | 厂商矩阵指令 | `riscv/spacemit_ime2/`（GemmInt8 / GemmI8I4Local / AttentionKernels） | `MNNSpacemitIme2` | 上面 **+ `_xsmtvdotii`** + `-fno-stack-protector` |
 
 三条硬约束（都在 `riscv/CMakeLists.txt` 里可查）：
 
@@ -42,8 +43,8 @@
 
 ```
 rvv/MNNRvvFastPathRegistration.cpp                    ┐ 两者定义同一对符号：
-rvv/spacemit_ime2/MNNSpacemitIme2FastPathRegistration.cpp ┘  MNNRvvInitializeFastPathFunctions(CoreFunctions*)
-                                                             MNNRvvInitializeInt8FastPathFunctions(CoreInt8Functions*)
+spacemit_ime2/MNNSpacemitIme2FastPathRegistration.cpp ┘ MNNRvvInitializeFastPathFunctions(CoreFunctions*)
+                                                        MNNRvvInitializeInt8FastPathFunctions(CoreInt8Functions*)
 ```
 
 `MNN_RVV_SPACEMIT_IME2=ON` 时 CMake 把 `rvv/MNNRvvFastPathRegistration.cpp` 从 `MNNRVV` 源列表里

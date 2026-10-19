@@ -648,6 +648,7 @@ inline bool getScheduleConfig(PyObject* dict, MNN::ScheduleConfig &config) {
                 {"CUDA", MNN_FORWARD_CUDA},
                 {"HIAI", MNN_FORWARD_USER_0},
                 {"NN", MNN_FORWARD_NN},
+                {"QNN", MNN_FORWARD_QNN},
                 {"AUTO", MNN_FORWARD_AUTO}
             };
             auto iter = backend_map.find(backend_name);

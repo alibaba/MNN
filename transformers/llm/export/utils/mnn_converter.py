@@ -29,12 +29,11 @@ class MNNConverter:
 
     def transformer_c4_args(self):
         enabled = getattr(self.args, 'transformer_c4', True)
-        lora_split = getattr(self.args, 'lora_split', False)
-        # FusedLinear groups are built by MNNConvert inside FuseTransformerC4;
-        # lora_split needs the member convs kept separate so lora weights can
-        # still be matched per projection.
-        qkv = enabled and not lora_split and getattr(self.args, 'fuse_qkv_proj', True)
-        gate_up = enabled and not lora_split and getattr(self.args, 'fuse_gate_up_proj', True)
+        # FusedLinear groups are built by MNNConvert inside FuseTransformerC4.
+        # The op name records the member projection names in convs order, so
+        # lora.py can patch LoRA onto a FusedLinear without unfusing it.
+        qkv = enabled and getattr(self.args, 'fuse_qkv_proj', True)
+        gate_up = enabled and getattr(self.args, 'fuse_gate_up_proj', True)
         ln = enabled and getattr(self.args, 'fuse_ln_proj', True)
         return [
             '--transformerFuseC4={}'.format(1 if enabled else 0),

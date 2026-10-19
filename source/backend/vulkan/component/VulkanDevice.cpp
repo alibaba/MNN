@@ -628,12 +628,12 @@ const void VulkanDevice::destroyPipeline(const VkPipeline& pipeline, const VkAll
 }
 
 const VkResult VulkanDevice::createDescriptorPool(VkDescriptorPool& descriptorPool, const uint32_t poolSizeCount,
-                                                  const VkDescriptorPoolSize* pPoolSizes,
+                                                  const VkDescriptorPoolSize* pPoolSizes, const uint32_t maxSets,
                                                   const VkAllocationCallbacks* allocator) const {
     VkDescriptorPoolCreateInfo poolInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.poolSizeCount              = poolSizeCount;
     poolInfo.pPoolSizes                 = pPoolSizes;
-    poolInfo.maxSets                    = 1;
+    poolInfo.maxSets = maxSets;
     poolInfo.flags                      = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     return vkCreateDescriptorPool(mDevice, &poolInfo, allocator, &descriptorPool);
 }

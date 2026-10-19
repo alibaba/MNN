@@ -159,13 +159,29 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
+    // The norm kernel used to run one work-item per (token, head), which
+    // leaves decode (outerSize==1) with only fullHead lanes on the GPU.
+    // Split the head dimension when the grid is small; prefill keeps the
+    // old shape so the split machinery costs nothing there.
+    int normSplit = 1;
+    if ((mQGamma || mKGamma) && outerSize * fullHead < 2048) {
+        // Upper bound of the head-dim split; must stay <= NORM_SPLIT_MAX in
+        // rope_buf.cl (the sNorm local-memory capacity).
+        static constexpr int kRopeNormSplitMax = 16;
+        normSplit = std::min(kRopeNormSplitMax, std::max(ropeHalfD, 1));
+    }
+
     auto buildOptions = ropeBuildOptions(mQGamma, mKGamma);
+    if (normSplit > 1) {
+        buildOptions.emplace("-DNORM_SPLIT_REDUCE");
+    }
     unit.kernel = runtime->buildKernel("rope_buf", "rope_buf", buildOptions, mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL(unit.kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     if (mQGamma || mKGamma) {
-        mGlobalWorkSize = {1, static_cast<uint32_t>(outerSize), static_cast<uint32_t>(fullHead)};
+        mGlobalWorkSize = {static_cast<uint32_t>(normSplit), static_cast<uint32_t>(outerSize),
+                           static_cast<uint32_t>(fullHead)};
     } else {
         mGlobalWorkSize = {static_cast<uint32_t>(workDim), static_cast<uint32_t>(outerSize),
                            static_cast<uint32_t>(fullHead)};
@@ -198,10 +214,16 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     }
     MNN_CHECK_CL_SUCCESS(ret, "setArg RopeBufExecution");
 
-    mLocalWorkSize =
-        localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, "rope_buf", unit.kernel,
-                         mOpenCLBackend->getCLTuneLevel(), "rope_buf", ropeLwsShortlist(runtime->getGpuType()))
-            .first;
+    if (normSplit > 1) {
+        // NORM_SPLIT_REDUCE needs every split of one head inside a single
+        // workgroup: pin LWS.x to the split count instead of tuning it.
+        mLocalWorkSize = {static_cast<uint32_t>(normSplit), 1, 1};
+    } else {
+        mLocalWorkSize =
+            localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, "rope_buf", unit.kernel,
+                             mOpenCLBackend->getCLTuneLevel(), "rope_buf", ropeLwsShortlist(runtime->getGpuType()))
+                .first;
+    }
 
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
 

@@ -288,15 +288,19 @@ ErrorCode VulkanLinearAttention::resetPersistentState(VulkanBackend* vkBn) {
 
 ErrorCode VulkanLinearAttention::onBeforeExecute(const std::vector<Tensor*>& inputs,
                                                  const std::vector<Tensor*>& outputs) {
-    int batch = 0, convDim = 0, seqLen = 0;
-    _linearAttentionDims(inputs[0], batch, convDim, seqLen);
-    if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
-        const bool loadingFromDisk = mMeta->file_flag == KVMeta::PendingRead && !mMeta->file_name.empty();
-        if (!loadingFromDisk) {
-            auto code = resetPersistentState(static_cast<VulkanBackend*>(backend()));
-            if (code != NO_ERROR) {
-                return code;
-            }
+    const bool loadingFromDisk =
+        mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && !mMeta->file_name.empty();
+    // The recurrent state folds every past token, so it can only continue, reset, or be restored from disk.
+    if (mMeta != nullptr && mMeta->remove > 0 && (mMeta->previous != mMeta->remove || mMeta->n_reserve > 0) &&
+        !loadingFromDisk) {
+        MNN_ERROR("Vulkan LinearAttention: cannot erase part of the %zu-token history; reset all of it instead\n",
+                  mMeta->previous);
+        return NOT_SUPPORT;
+    }
+    if (mMeta != nullptr && mMeta->previous == mMeta->remove && !loadingFromDisk) {
+        auto code = resetPersistentState(static_cast<VulkanBackend*>(backend()));
+        if (code != NO_ERROR) {
+            return code;
         }
     }
     if (mMeta != nullptr && !mMeta->file_name.empty() && mMeta->layer_nums > 0 &&

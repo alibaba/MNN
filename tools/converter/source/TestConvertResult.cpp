@@ -43,7 +43,10 @@ int main(int argc, char *argv[]) {
         modelPath.keepInputFormat = true;
         modelPath.saveExternalData = true;
         modelPath.useGeluApproximation = false;
-        MNN::Cli::convertModel(modelPath);
+        if (!MNN::Cli::convertModel(modelPath)) {
+            MNN_ERROR("TESTERROR Model conversion failed\n");
+            return 1;
+        }
     }
     return MNN::Cli::testconvert(defaultCacheFile, directName, 0.01f, configFile);
 }

@@ -40,7 +40,8 @@ def_enum(Backend, MNNForwardType,
         MNN_FORWARD_METAL, "METAL",
         MNN_FORWARD_USER_1, "TRT",
         MNN_FORWARD_CUDA, "CUDA",
-        MNN_FORWARD_USER_0, "HIAI"
+        MNN_FORWARD_USER_0, "HIAI",
+        MNN_FORWARD_QNN, "QNN"
         )
 using MemoryMode = BackendConfig::MemoryMode;
 using PowerMode = BackendConfig::PowerMode;

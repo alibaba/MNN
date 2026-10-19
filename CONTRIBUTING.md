@@ -1,6 +1,6 @@
-# 🚀 Contribute to My Amazing Fork of MNN 🤖
+# 🚀 Contribute to MNN 🤖
 
-Thank you for considering contributing to this fantastic fork of MNN! Your contributions are like rocket fuel for this project, propelling us to new heights. Whether you're smashing bugs, adding awesome features, or turbocharging our documentation, you're a key player in this AI adventure. 🌟
+Thank you for considering contributing to MNN! Your contributions are like rocket fuel for this project, propelling us to new heights. Whether you're smashing bugs, adding awesome features, or turbocharging our documentation, you're a key player in this AI adventure. 🌟
 
 ## Table of Contents
 - [How Can You Contribute?](#how-can-you-contribute)
@@ -41,12 +41,12 @@ Got a groundbreaking idea that could revolutionize our AI galaxy? Share it with 
 We invite you to join us on this cosmic journey. To submit a pull request, follow these stellar steps:
 
 1. 🌌 Fork this repository and create your very own starbase.
-2. Blast off with a `new-branch` branch for your galactic changes.
+2. Blast off with a `feature/<short-description>` branch for your galactic changes.
 3. Make your modifications, ensuring your code adheres to the project's cosmic coding guidelines.
 4. Perform gravity-defying tests to verify that your changes are warp-speed ready.
 5. Document your discoveries and provide clear commit messages.
 6. Transmit your changes to your starbase by pushing to your fork.
-7. Launch a pull request to the `new-branch` branch of this repository, and we'll navigate the rest of the way together.
+7. Launch a pull request to the `master` branch of this repository, and we'll navigate the rest of the way together.
 
 Our starship will review your pull request, communicate in warp speed, and collaborate to merge it into the main repository.
 
@@ -66,4 +66,4 @@ To help your AI agent understand MNN's architecture and coding standards, we pro
 
 By joining this interstellar mission, you agree that your contributions will be licensed under the Apache 2.0 LICENSE. Together, we'll explore the AI universe and make it an exciting and accessible journey for all sentient beings in the galaxy. 🌌
 
-Thank you for contributing to this amazing fork of MNN! Together, we'll reach the stars and beyond. 🚀🌠
+Thank you for contributing to MNN! Together, we'll reach the stars and beyond. 🚀🌠

@@ -41,6 +41,7 @@ private:
 
     const Op* mOp = nullptr;
     bool mNeedKvCache = false;
+    bool mIsKVShared = false;
     bool mUseFP16 = false;
     bool mValueC4 = false;
     bool mOutputC4 = false;

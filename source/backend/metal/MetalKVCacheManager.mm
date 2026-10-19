@@ -34,7 +34,7 @@ void MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
     if(mMeta != nullptr && mMeta->file_name.size() > 0 && mMeta->file_flag == KVMeta::PendingRead) {
         // create new files
         std::string pathk    = MNNFilePathConcat(mConfig.mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mMeta->layer_index) + ".k";
-        std::string pathv    = MNNFilePathConcat(mConfig.mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mMeta->layer_index++) + ".v2";
+        std::string pathv    = MNNFilePathConcat(mConfig.mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mMeta->layer_index++) + ".v";
         mMeta->layer_index = mMeta->layer_index % mMeta->layer_nums;
         auto old_key_fd   = MNNOpenFile(pathk.c_str(), MNN_FILE_READ | MNN_FILE_WRITE);
         auto old_value_fd = MNNOpenFile(pathv.c_str(), MNN_FILE_READ | MNN_FILE_WRITE);
@@ -98,7 +98,7 @@ void MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
         if(mMeta != nullptr) {
             mBasePrefixFileName = MNNFilePathConcat(mConfig.mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mMeta->layer_index);
             keyStoredDst = sharePrefixKv ? mBasePrefixFileName + ".k" : "";
-            valueStoredDst = sharePrefixKv ? mBasePrefixFileName + ".v2" : "";
+            valueStoredDst = sharePrefixKv ? mBasePrefixFileName + ".v" : "";
             mMeta->layer_index++;
             mMeta->layer_index = mMeta->layer_index % mMeta->layer_nums;
         }
@@ -377,22 +377,8 @@ void MetalKVCacheManager::onClear() {
         mKeyBuffer = nil;
         mValueBuffer = nil;
 
-        // mSaveShareKvPrefix also need unmap file
         unmapKVCache(mCurrentTotalSize, mCurrentTotalSize);
-        if(mSaveShareKvPrefix) {
-            // set prefix cachefile validation
-            auto k_file = mBasePrefixFileName + ".k";
-            if(MNNFileExist(k_file.c_str())) {
-                auto k_sync_file = mBasePrefixFileName + "_sync.k";
-                MNNCreateFile(k_sync_file.c_str());
-            }
-            auto v_file = mBasePrefixFileName + ".v2";
-            if(MNNFileExist(v_file.c_str())) {
-                auto v_sync_file = mBasePrefixFileName + "_sync.v2";
-                MNNCreateFile(v_sync_file.c_str());
-            }
-        } else {
-            // delete temp kvcache file
+        if (!mSaveShareKvPrefix) {
             removeKVCacheFile();
         }
         mKVCacheInDisk = false;

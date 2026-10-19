@@ -70,7 +70,7 @@ QNN 后端有**两条执行路径**,排查前先分清在跑哪条（详见 [ref
 ```
 ./ModuleBasic.out <model.mnn> <dir> <runMask> <forwardType> <loops> <threads> <precision>
 ```
-- **forwardType**：CPU=`0`，OpenCL=`3`，**QNN=`5`**（QNN 注册为 `MNN_FORWARD_NN`，见 `QNNBackend.cpp` 的 `QNN_FORWARD_TYPE`）
+- **forwardType**：CPU=`0`，OpenCL=`3`，**QNN=`16`**（QNN 注册为 `MNN_FORWARD_QNN`）
 - **precision**：Normal=`0`，High=`1`，Low=`2`；QNN 里 `mUseFP16 = (precision != High)`
 - `dir` 内需有 `input.txt`、`input.json` 和 `<outputName>.txt` 参考；比对阈值为 `1%`（`absMaxV*0.01 < diffmax` 判失败）
 

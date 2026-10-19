@@ -100,6 +100,7 @@ struct QuanPostTreatParameters {
     const float* inputBias = nullptr;
     float* accumBuffer = nullptr;
     int32_t* indices = nullptr;
+    int32_t weightQuantInfoMode = 0; // #112: 0 FP32 scale/offset, 1 FP16 scale/sourceBias.
 };
 */
 
@@ -113,7 +114,7 @@ struct QuanPostTreatParameters {
 //Load from x6: x9: bias, x8: xKernelSum, x23: fp32minmax
 ldr x9, [x6, #8]
 
-stp d14, d15, [sp, #(-16 * 9)]!
+stp d14, d15, [sp, #(-16 * 10)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
@@ -122,6 +123,9 @@ stp x19, x20, [sp, #(16 * 5)]
 stp x23, x24, [sp, #(16 * 6)]
 stp x25, x26, [sp, #(16 * 7)]
 stp x27, x28, [sp, #(16 * 8)]
+
+ldr w13, [x6, #112] // Metadata mode; keep it on the stack, x16/x17 are linker-scratch.
+str w13, [sp, #(16 * 9)]
 
 ldr x8, [x6, #40]  // srcKernelSum
 ldr x28, [x6, #48] // weightKernelSum
@@ -201,7 +205,27 @@ TILE12_BLOCKNUM:
     L8LoopSzEnd_TILE_12:
 
     L8Tile12Quan:
+    ldr w13, [sp, #(16 * 9)] // x13 (lu counter) is dead here; reloaded per block.
+    cmp w13, #1
+    bne .LTile12MetadataFP32
+    // Widen fp16 scale/sourceBias to the fp32 scale (v0/v1) and offset (v2/v3) layout,
+    // then re-center the offset by -8*scale (originOffset=-8). fmul then fadd, not fma,
+    // to bit-match the loader-time fold's separate rounding. v6/v7 are reloaded later.
+    ld1 {v0.8h}, [x12], #16 // UNIT half scales
+    fcvtl2 v1.4s, v0.8h
+    fcvtl v0.4s, v0.4h
+    ld1 {v2.8h}, [x12], #16 // UNIT half sourceBias (not final offsets)
+    fcvtl2 v3.4s, v2.8h
+    fcvtl v2.4s, v2.4h
+    fmov v6.4s, #-8.0
+    fmul v7.4s, v6.4s, v0.4s
+    fmul v5.4s, v6.4s, v1.4s
+    fadd v2.4s, v2.4s, v7.4s // sourceBias + (-8)*scale, separate rounding/signed zero
+    fadd v3.4s, v3.4s, v5.4s
+    b .LTile12MetadataReady
+.LTile12MetadataFP32:
     ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x12], #64 // weight scale&bias
+.LTile12MetadataReady:
     ld1 {v4.4s, v5.4s, v6.4s}, [x8], x22 // input kernel sum
     Int32ToFloat v8, v9, v10, v11
     Int32ToFloat v12, v13, v14, v15
@@ -425,9 +449,30 @@ TILE8_BLOCKNUM:
     L8LoopSzEnd_TILE_8:
 
     L8Tile8Quan:
+    ldr w13, [sp, #(16 * 9)] // x13 (lu counter) is dead here; reloaded per block.
+    cmp w13, #1
+    bne .LTile8MetadataFP32
+    // Widen fp16 scale/sourceBias to the fp32 scale (v0/v1) and offset (v24/v25) layout,
+    // then re-center the offset by -8*scale (originOffset=-8). fmul then fadd, not fma,
+    // to bit-match the loader-time fold's separate rounding. v6/v7 are dead here; the
+    // kernel-sum load simply moves after the convergence label.
+    ld1 {v0.8h}, [x12], #16 // UNIT half scales
+    fcvtl2 v1.4s, v0.8h
+    fcvtl v0.4s, v0.4h
+    ld1 {v24.8h}, [x12], #16 // UNIT half sourceBias (not final offsets)
+    fcvtl2 v25.4s, v24.8h
+    fcvtl v24.4s, v24.4h
+    fmov v6.4s, #-8.0
+    fmul v7.4s, v6.4s, v0.4s
+    fmul v3.4s, v6.4s, v1.4s
+    fadd v24.4s, v24.4s, v7.4s // sourceBias + (-8)*scale, separate rounding/signed zero
+    fadd v25.4s, v25.4s, v3.4s
+    b .LTile8MetadataReady
+.LTile8MetadataFP32:
     ld1 {v0.4s, v1.4s}, [x12], #32 // scale
-    ld1 {v2.4s, v3.4s}, [x8], x22 // x kernel sum
     ld1 {v24.4s, v25.4s}, [x12], #32 // weight quan zeropoint
+.LTile8MetadataReady:
+    ld1 {v2.4s, v3.4s}, [x8], x22 // x kernel sum
     Int32ToFloat v8, v9, v10, v11
     Int32ToFloat v12, v13, v14, v15
     Int32ToFloat v16, v17, v18, v19
@@ -591,9 +636,31 @@ TILE4_BLOCKNUM:
     L8LoopSzEnd_TILE_4:
 
     L8Tile4Quan:
+    ldr w13, [sp, #(16 * 9)] // x13 (lu counter) is dead here; reloaded per block.
+    cmp w13, #1
+    bne .LTile4MetadataFP32
+    // Widen fp16 scale/sourceBias to the fp32 scale (v0/v1) and offset (v24/v25) layout,
+    // then re-center the offset by -8*scale (originOffset=-8). fmul then fadd, not fma,
+    // to bit-match the loader-time fold's separate rounding. v3/v5/v6 are dead here; v7
+    // is the nibble mask, set once at TILE_4 entry and inherited by TILE_1. The
+    // kernel-sum load simply moves after the convergence label.
+    ld1 {v0.8h}, [x12], #16 // UNIT half scales
+    fcvtl2 v1.4s, v0.8h
+    fcvtl v0.4s, v0.4h
+    ld1 {v24.8h}, [x12], #16 // UNIT half sourceBias (not final offsets)
+    fcvtl2 v25.4s, v24.8h
+    fcvtl v24.4s, v24.4h
+    fmov v6.4s, #-8.0
+    fmul v5.4s, v6.4s, v0.4s
+    fmul v3.4s, v6.4s, v1.4s
+    fadd v24.4s, v24.4s, v5.4s // sourceBias + (-8)*scale, separate rounding/signed zero
+    fadd v25.4s, v25.4s, v3.4s
+    b .LTile4MetadataReady
+.LTile4MetadataFP32:
     ld1 {v0.4s, v1.4s}, [x12], #32 // scale
-    ld1 {v2.4s}, [x8], x22 // x kernel sum
     ld1 {v24.4s, v25.4s}, [x12], #32 // weight quan zeropoint
+.LTile4MetadataReady:
+    ld1 {v2.4s}, [x8], x22 // x kernel sum
     Int32ToFloat v8, v9, v10, v11
     Int32ToFloat v12, v13, v14, v15
     MUL_SCALE v0, v8, v9, v10, v11
@@ -709,7 +776,7 @@ TILE1_BLOCKNUM:
     cmp x13, #4
     blt L8LoopSz_TILE_1_lu1
     cmp x13, #8
-    blt L8LoopSz_TILE_1_lu4
+    blt .LTile1InitLu4
 
     movi v30.16b, #0
     movi v31.16b, #0
@@ -770,6 +837,7 @@ TILE1_BLOCKNUM:
     cmp x13, #4
     blt L8LoopSz_TILE_1_lu1
 
+.LTile1InitLu4:
     movi v30.16b, #0
     movi v31.16b, #0
     L8LoopSz_TILE_1_lu4:
@@ -820,9 +888,29 @@ TILE1_BLOCKNUM:
     L8LoopSzEnd_TILE_1:
 
     L8Tile1Quan:
+    ldr w13, [sp, #(16 * 9)] // x13 (dz counter) is dead here; reloaded per block.
+    cmp w13, #1
+    bne .LTile1MetadataFP32
+    // Dot inputs are dead: v3/v5/v6 are scratch. Keep v8/v9 accumulators and v7 mask.
+    // v0/v1 scales and v24/v25 offsets live through dequant; input scale/bias load later.
+    // Clamp reloads at store; no new callee-saved registers or cross-block constants.
+    ld1 {v3.8h}, [x12], #16 // UNIT half scales
+    ld1 {v5.8h}, [x12], #16 // UNIT half sourceBias (not final offsets)
+    fcvtl v0.4s, v3.4h
+    fcvtl2 v1.4s, v3.8h
+    fcvtl v24.4s, v5.4h
+    fcvtl2 v25.4s, v5.8h
+    fmov v6.4s, #-8.0
+    fmul v3.4s, v6.4s, v0.4s
+    fmul v5.4s, v6.4s, v1.4s
+    fadd v24.4s, v24.4s, v3.4s // sourceBias + (-8)*scale, separate rounding/signed zero
+    fadd v25.4s, v25.4s, v5.4s
+    b .LTile1MetadataReady
+.LTile1MetadataFP32:
     ld1 {v0.4s, v1.4s}, [x12], #32 // scale
-    ld1 {v2.s}[0], [x8], x22 // x kernel sum
     ld1 {v24.4s, v25.4s}, [x12], #32 // weight quan zeropoint
+.LTile1MetadataReady:
+    ld1 {v2.s}[0], [x8], x22 // x kernel sum
     scvtf v8.4s, v8.4s
     scvtf v9.4s, v9.4s
     fmul v8.4s, v8.4s, v0.4s
@@ -904,7 +992,7 @@ ldp x21, x22, [sp, #(16 * 4)]
 ldp d8,  d9,  [sp, #(16 * 3)]
 ldp d10, d11, [sp, #(16 * 2)]
 ldp d12, d13, [sp, #(16 * 1)]
-ldp d14, d15, [sp], #(16 * 9)
+ldp d14, d15, [sp], #(16 * 10)
 ret
 
 #endif // __aarch64__

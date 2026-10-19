@@ -186,12 +186,31 @@ void Sampler::SamplerConfig::configPenalty(std::shared_ptr<LlmConfig> llmConfig)
     select_type = sampler;
 }
 
+bool Sampler::SamplerConfig::isPenaltyActive() const {
+    // Mirror what stepPenalty actually applies (the "heavier penalty"
+    // direction): repetition_penalty scales logits only when > 1 (its apply
+    // guard skips <= 1), presence / frequency subtract only when positive, and
+    // the n-gram term fires only when ngram_factor > 1. Any other value is a
+    // no-op in stepPenalty, so it does not count as active here.
+    return repetition_penalty > 1.0f || presence_penalty > 0.0f ||
+           frequency_penalty > 0.0f || ngram_factor > 1.0f;
+}
+
 void Sampler::SamplerConfig::configMixed(std::shared_ptr<LlmConfig> llmConfig) {
     mixedSamplers = llmConfig->mixed_samplers();
     for (const auto& samplerName : mixedSamplers) {
         configSampler(samplerName, llmConfig);
     }
-    // move penalty to front if present
+    // Load penalty fields via configPenalty so the field list lives in one
+    // place (adding a new penalty knob later can't drift between here and
+    // configPenalty). Its select_type write is recomputed at the end below.
+    // logit_bias / banned_tokens are mixed-only, so load them here.
+    configPenalty(llmConfig);
+    logit_bias = llmConfig->logit_bias();
+    banned_tokens = llmConfig->banned_tokens();
+    // move penalty to front if present; also auto-enable it when a penalty is
+    // configured but "penalty" was left out of mixed_samplers (the default list
+    // omits it), so an active penalty takes effect regardless of the list.
     std::vector<std::string> newSamplers;
     bool hasPenalty = false;
     for (const auto& s : mixedSamplers) {
@@ -201,7 +220,7 @@ void Sampler::SamplerConfig::configMixed(std::shared_ptr<LlmConfig> llmConfig) {
             hasPenalty = true;
         }
     }
-    if (hasPenalty) {
+    if (hasPenalty || isPenaltyActive()) {
         newSamplers.insert(newSamplers.begin(), "penalty");
     }
     mixedSamplers = std::move(newSamplers);
@@ -211,13 +230,6 @@ void Sampler::SamplerConfig::configMixed(std::shared_ptr<LlmConfig> llmConfig) {
     } else {
         select_type = "temperature";
     }
-    // load new config fields
-    logit_bias = llmConfig->logit_bias();
-    banned_tokens = llmConfig->banned_tokens();
-    repetition_penalty = llmConfig->repetition_penalty();
-    presence_penalty = llmConfig->presence_penalty();
-    frequency_penalty = llmConfig->frequency_penalty();
-    penalty_window = llmConfig->penalty_window();
 }
 
 Sampler* Sampler::createSampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config) {
@@ -316,8 +328,7 @@ void Sampler::buildPipeline() {
         if (!ms.empty() && ms[0] == "topK") {
             mTopKPrefilter = true;
         } else if (ms.size() > 1 && ms[0] == "penalty" && ms[1] == "topK" &&
-                   mConfig.repetition_penalty <= 1.0f && mConfig.presence_penalty <= 0.0f &&
-                   mConfig.frequency_penalty <= 0.0f && mConfig.ngram_factor <= 1.0f) {
+                   !mConfig.isPenaltyActive()) {
             mTopKPrefilter = true;
         }
     }
@@ -424,7 +435,7 @@ void Sampler::stepPenalty(SamplerState& state) {
     int ngram = mConfig.ngram;
     float ngram_factor = mConfig.ngram_factor;
     bool penalizeNgram = (ngram_factor > 1.0f);
-    if (repPenalty <= 1.0f && presPenalty <= 0.0f && freqPenalty <= 0.0f) return;
+    if (!mConfig.isPenaltyActive()) return;
     repPenalty = std::min(repPenalty, mConfig.max_penalty);
 
     const std::vector<int>& prev = mContext->history_tokens;

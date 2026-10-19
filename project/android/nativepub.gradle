@@ -4,7 +4,11 @@ android {
     }
 }
 
-task appendCMakeEnvVars () {
+task cleanNativePacked(type: Delete) {
+    delete "$buildDir/native-packed"
+}
+
+task appendCMakeEnvVars (dependsOn: cleanNativePacked) {
     android.defaultConfig.externalNativeBuild.cmake.arguments.add((String)"-DNATIVE_LIBRARY_OUTPUT=$buildDir/native-packed/native/libs")
     android.defaultConfig.externalNativeBuild.cmake.arguments.add((String)"-DNATIVE_INCLUDE_OUTPUT=$buildDir/native-packed/native/includes")
 }
@@ -31,8 +35,9 @@ android.libraryVariants.all {variant ->
     
     zipTask.dependsOn("externalNativeBuild${name.capitalize()}")
     
-    // Ensure QNN dependencies are prepared when BUILD_QNN is enabled
-    if (project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN) {
+    // Ensure QNN dependencies are prepared for standalone QNN and all-vendor builds.
+    if ((project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN) ||
+            (project.ext.has('BUILD_VENDOR_BACKENDS') && project.ext.BUILD_VENDOR_BACKENDS)) {
         zipTask.dependsOn('prepareQnnDeps')
     }
     

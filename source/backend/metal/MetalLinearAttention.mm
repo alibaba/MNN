@@ -11,6 +11,9 @@
 #import "MetalLinearAttentionShader.hpp"
 #import "MetalEnv.hpp"
 #import "core/TensorUtils.hpp"
+#import "core/MNNFileUtils.h"
+#include <cstdio>
+#include <cstdlib>
 
 #if MNN_METAL_ENABLED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -70,6 +73,12 @@ static bool reacquireStatic(Backend* bn, std::shared_ptr<Tensor>& tensor, int el
     return bn->onAcquireBuffer(tensor.get(), Backend::STATIC);
 }
 
+// CPU address of a STATIC Metal state tensor (shared storage mode).
+static inline uint8_t* metalStatePtr(const std::shared_ptr<Tensor>& t) {
+    auto device = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)t->deviceId())->getBuffer();
+    return (uint8_t*)device.contents + TensorUtils::getDescribeOrigin(t.get())->offset;
+}
+
 MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
     : MetalExecution(backend) {
     auto param = op->main_as_LinearAttentionParam();
@@ -103,6 +112,7 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
 
     auto mtbn = static_cast<MetalBackend *>(backend);
     mMeta = (KVMeta*)(mtbn->getMetaPtr());
+    mPrefixCacheDir = mtbn->getRuntime()->hint().prefixcacheDirPath;
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mParamBuffer = [context newDeviceBuffer:sizeof(LinearAttnParam) access:CPUWriteOnly];
     mParamBufferFlush = [context newDeviceBuffer:sizeof(LinearAttnParam) access:CPUWriteOnly];
@@ -562,22 +572,18 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
             ::memset(rnnPtr, 0, batch * H * dk * dv * bytesPerElement);
         }
     } else if (seqLen > 1) {
-        // Prefill: reset state for new sequence, UNLESS:
-        // 1. Loading from prefix cache (PendingRead), or
-        // 2. Reusing KV from previous inference (reuse_kv=true, i.e. previous != remove)
         bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
-        bool reusingKV = (mMeta != nullptr && mMeta->previous != mMeta->remove);
-        if (!loadingFromDisk && !reusingKV) {
+        // Draft rejection removes only pending tokens; the committed prefix must survive resize.
+        bool isHistoryReset = (mMeta == nullptr || mMeta->previous == mMeta->remove);
+        if (!loadingFromDisk && isHistoryReset) {
             mStateCache->mPendingLen = 0;
             if (mStateCache->mConvState.get() != nullptr) {
-                auto convDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mConvState->deviceId())->getBuffer();
-                auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
-                ::memset(convPtr, 0, mStateCache->mConvState->elementSize() * bytesPerElement);
+                ::memset(metalStatePtr(mStateCache->mConvState), 0,
+                         (size_t)mStateCache->mConvState->elementSize() * bytesPerElement);
             }
             if (mStateCache->mRecurrentState.get() != nullptr) {
-                auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
-                auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
-                ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
+                ::memset(metalStatePtr(mStateCache->mRecurrentState), 0,
+                         (size_t)mStateCache->mRecurrentState->elementSize() * bytesPerElement);
             }
         }
     }
@@ -700,33 +706,181 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     return NO_ERROR;
 }
 
+ErrorCode MetalLinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    const bool loadingFromDisk =
+        mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && !mMeta->file_name.empty();
+    // Only uncommitted spec tokens can be dropped; a full reset cannot keep a reserved tail either.
+    if (mMeta != nullptr && mMeta->remove > 0 && !loadingFromDisk &&
+        (mMeta->previous == mMeta->remove ? mMeta->n_reserve > 0
+                                          : mMeta->remove > static_cast<size_t>(mStateCache->mPendingLen))) {
+        MNN_ERROR("MetalLinearAttention: cannot roll back committed state; reset the full history instead\n");
+        return NOT_SUPPORT;
+    }
+    // Reset before the base class encodes or replays: replay skips onEncode, and onResize is skipped on equal shapes.
+    if (mMeta != nullptr && mMeta->previous == mMeta->remove && !loadingFromDisk) {
+        auto mtbn = static_cast<MetalBackend*>(backend());
+        const int bytesPerElement = mtbn->useFp16InsteadFp32() ? 2 : 4;
+        mStateCache->mPendingLen = 0;
+        for (const auto& state : {mStateCache->mConvState, mStateCache->mRecurrentState}) {
+            if (state.get() != nullptr) {
+                ::memset(metalStatePtr(state), 0, (size_t)state->elementSize() * bytesPerElement);
+            }
+        }
+    }
+    if (mMeta != nullptr && !mMeta->file_name.empty() &&
+        (mMeta->file_flag == KVMeta::PendingWrite || mMeta->file_flag == KVMeta::PendingRead)) {
+        // Capture once per session; later chunks must retain the same layer's files.
+        if (mMeta->previous == mMeta->remove) {
+            mStateCache->mPrefixLayerIndex = mMeta->layer_index;
+            mMeta->layer_index = (mMeta->layer_index + 1) % mMeta->layer_nums;
+        }
+        if (mMeta->file_flag == KVMeta::PendingRead) {
+            if (mStateCache->mPrefixLayerIndex < 0) {
+                MNN_ERROR("MetalLinearAttention: cannot load prefix cache without a captured layer index\n");
+                return INPUT_DATA_ERROR;
+            }
+            auto mtbn = static_cast<MetalBackend*>(backend());
+            const int bytesPerElement = mtbn->useFp16InsteadFp32() ? 2 : 4;
+            const std::string basePath = MNNFilePathConcat(mPrefixCacheDir, mMeta->file_name) + "_" +
+                                         std::to_string(mStateCache->mPrefixLayerIndex);
+            const std::string paths[] = {basePath + ".k", basePath + ".v"};
+            const std::shared_ptr<Tensor> states[] = {mStateCache->mConvState, mStateCache->mRecurrentState};
+            const int stateCount = states[1] != nullptr ? 2 : 1;
+            size_t stateBytes[2] = {0, 0};
+            void* mappings[2] = {nullptr, nullptr};
+            ErrorCode code = NO_ERROR;
+            for (int i = 0; i < stateCount; ++i) {
+                stateBytes[i] = (size_t)states[i]->elementSize() * bytesPerElement;
+                auto fd = MNNOpenFile(paths[i].c_str(), MNN_FILE_READ);
+                if (fd == INVALID_FILE) {
+                    MNN_ERROR("MetalLinearAttention: failed to open prefix cache file: %s\n", paths[i].c_str());
+                    code = FILE_OPEN_FAILED;
+                    break;
+                }
+                const size_t fileBytes = MNNGetFileSize(fd);
+                if (fileBytes != stateBytes[i]) {
+                    MNN_ERROR("MetalLinearAttention: prefix cache size mismatch: %s, actual=%zu expected=%zu\n",
+                              paths[i].c_str(), fileBytes, stateBytes[i]);
+                    MNNCloseFile(fd);
+                    code = INPUT_DATA_ERROR;
+                    break;
+                }
+                mappings[i] = MNNMmapFile(fd, stateBytes[i], true);
+                MNNCloseFile(fd);
+                if (mappings[i] == nullptr) {
+                    MNN_ERROR("MetalLinearAttention: failed to map prefix cache file: %s\n", paths[i].c_str());
+                    code = OUT_OF_MEMORY;
+                    break;
+                }
+            }
+            // Do not replace either live state unless the complete layer can be restored.
+            for (int i = 0; i < stateCount; ++i) {
+                if (mappings[i] != nullptr) {
+                    if (code == NO_ERROR) {
+                        ::memcpy(metalStatePtr(states[i]), mappings[i], stateBytes[i]);
+                    }
+                    MNNUnmapFile(mappings[i], stateBytes[i]);
+                }
+            }
+            if (code != NO_ERROR) {
+                return code;
+            }
+        } else if (mStateCache->mPrefixLayerIndex >= 0) {
+            const std::string basePath = MNNFilePathConcat(mPrefixCacheDir, mMeta->file_name) + "_" +
+                                         std::to_string(mStateCache->mPrefixLayerIndex);
+            // A failed later chunk must not leave the earlier chunk eligible for publication.
+            for (const char* suffix : {"_sync.k", "_sync.v", ".k", ".v"}) {
+                const auto path = basePath + suffix;
+                auto code = MNNRemoveFile(path.c_str());
+                if (code != NO_ERROR && code != FILE_NOT_EXIST) {
+                    MNN_ERROR("MetalLinearAttention: failed to invalidate prefix cache file: %s\n", path.c_str());
+                    return code;
+                }
+            }
+        }
+    }
+    return MetalExecution::onExecute(inputs, outputs);
+}
+
 void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     mRecordedGeneration = mResizeGeneration;
-    // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
-    int resetBatch = 0, resetConvDim = 0, resetSeqLen = 0;
-    linearAttentionDims(inputs[0], resetBatch, resetConvDim, resetSeqLen);
-    if (resetSeqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
-        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
-        if (!loadingFromDisk) {
-            mStateCache->mPendingLen = 0;
+    auto qkv = inputs[0];
+    int batch = 0, convDim = 0, seqLen = 0;
+    linearAttentionDims(qkv, batch, convDim, seqLen);
+
+    if (mMeta != nullptr && !mMeta->file_name.empty() && mMeta->file_flag == KVMeta::PendingWrite) {
+        if (mStateCache->mPrefixLayerIndex < 0) {
+            MNN_ERROR("MetalLinearAttention: prefix write skipped, no layer index captured (previous=%zu remove=%zu)\n",
+                      mMeta->previous, mMeta->remove);
+        } else {
             auto mtbn = static_cast<MetalBackend *>(backend());
-            int bytesPerElement = mtbn->useFp16InsteadFp32() ? 2 : 4;
-            if (mStateCache->mConvState.get() != nullptr) {
-                auto convDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mConvState->deviceId())->getBuffer();
-                auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
-                ::memset(convPtr, 0, mStateCache->mConvState->elementSize() * bytesPerElement);
-            }
-            if (mStateCache->mRecurrentState.get() != nullptr) {
-                auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
-                auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
-                ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
+            const int bytesPerElement = mtbn->useFp16InsteadFp32() ? 2 : 4;
+            const std::string basePath = MNNFilePathConcat(mPrefixCacheDir, mMeta->file_name) + "_" +
+                                         std::to_string(mStateCache->mPrefixLayerIndex);
+            if (!MNNCreateDir(mPrefixCacheDir.c_str())) {
+                MNN_ERROR("MetalLinearAttention: failed to create prefix cache directory: %s\n", mPrefixCacheDir.c_str());
+            } else {
+                auto cache = mStateCache;
+                mtbn->addCompletedHandler(^(id<MTLCommandBuffer> buffer) {
+                    if (buffer.status != MTLCommandBufferStatusCompleted) {
+                        MNN_ERROR("MetalLinearAttention: prefix save skipped, command buffer status=%ld\n",
+                                  (long)buffer.status);
+                        return;
+                    }
+                    const std::string paths[] = {basePath + ".k", basePath + ".v"};
+                    const std::shared_ptr<Tensor> states[] = {cache->mConvState, cache->mRecurrentState};
+                    const int stateCount = states[1] != nullptr ? 2 : 1;
+                    std::string tempPaths[2];
+                    bool saved = true;
+                    for (int i = 0; i < stateCount; ++i) {
+                        const auto pattern = paths[i] + ".XXXXXX";
+                        std::vector<char> name(pattern.begin(), pattern.end());
+                        name.push_back('\0');
+                        auto fd = mkstemp(name.data());
+                        if (fd == INVALID_FILE) {
+                            MNN_ERROR("MetalLinearAttention: failed to create prefix temp file for: %s\n", paths[i].c_str());
+                            saved = false;
+                            break;
+                        }
+                        tempPaths[i] = name.data();
+                        const size_t bytes = (size_t)states[i]->elementSize() * bytesPerElement;
+                        auto code = MNNSetFileSize(fd, bytes);
+                        void* mapping = code == NO_ERROR ? MNNMmapFile(fd, bytes) : nullptr;
+                        if (mapping != nullptr) {
+                            ::memcpy(mapping, metalStatePtr(states[i]), bytes);
+                            code = MNNMmapSync(mapping, bytes);
+                            auto unmapCode = MNNUnmapFile(mapping, bytes);
+                            saved = code == NO_ERROR && unmapCode == NO_ERROR;
+                        } else {
+                            saved = false;
+                        }
+                        auto closeCode = MNNCloseFile(fd);
+                        saved = saved && closeCode == NO_ERROR;
+                        if (!saved) {
+                            MNN_ERROR("MetalLinearAttention: failed to write/sync/close prefix temp file: %s\n",
+                                      tempPaths[i].c_str());
+                            break;
+                        }
+                    }
+                    if (saved) {
+                        // Publish .k last: every valid layer requires it, including short_conv.
+                        for (int i = stateCount - 1; i >= 0; --i) {
+                            if (std::rename(tempPaths[i].c_str(), paths[i].c_str()) != 0) {
+                                MNN_ERROR("MetalLinearAttention: failed to publish prefix cache file: %s\n", paths[i].c_str());
+                                break;
+                            }
+                        }
+                    }
+                    for (const auto& path : tempPaths) {
+                        if (!path.empty()) {
+                            MNNRemoveFile(path.c_str());
+                        }
+                    }
+                });
             }
         }
     }
 
-    auto qkv = inputs[0];
-    int batch = 0, convDim = 0, seqLen = 0;
-    linearAttentionDims(qkv, batch, convDim, seqLen);
     int K_conv = inputs[3]->length(2);
     int convStateSize = K_conv - 1;
     int H = mNumVHeads;

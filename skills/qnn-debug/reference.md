@@ -83,7 +83,7 @@ QNN 后端有**两套完全不同**的执行路径，输入/输出的喂法不�
 ### 案例 1 · QNN 在线路径在 Session_Input_User 模式下不拷贝模型输入（结果全错的根因）
 - **现象**：某 mmpose 模型（`end2end.onnx`）QNN 结果整体错（diff 0.4~0.8），CPU 正确。二分发现**第一个 Conv** 就错。
 - **根因**：QNN 输出**恒等于该 conv 的 bias**（逐通道核对，误差仅 fp16 舍入）→ conv 在**全零输入**上计算。且该问题**只在 `Session_Input_User` 模式（`shapeMutable=true`）下出现**：
-  - `Session_Input_User`（`shapeMutable=true`，ModuleBasic 默认）：输入张量靠 `refTensorContent` 共享用户 host，指望 `Pipeline::_copyInputs()` 搬进 QNN；但 `WrapExecution::needWrap()` 对 `MNN_FORWARD_NN` 直接 `return false` → Pipeline 不建 wrap 张量 → `_copyInputs()` 跳过 → QNN 输入 data container 恒为零。
+  - `Session_Input_User`（`shapeMutable=true`，ModuleBasic 默认）：输入张量靠 `refTensorContent` 共享用户 host，指望 `Pipeline::_copyInputs()` 搬进 QNN；但 `WrapExecution::needWrap()` 对 `MNN_FORWARD_QNN` 直接 `return false` → Pipeline 不建 wrap 张量 → `_copyInputs()` 跳过 → QNN 输入 data container 恒为零。
   - `Session_Input_Inside`（`shapeMutable=false`）：`StaticModule::_resize` 里显式 `mInputTensors[i]->copyFromHostTensor(inputTensor)` → `QnnBackend::onCopyBuffer` → `inputIO`，输入被正确送入，**无需任何改动即可跑对**。
 - **采用的解决方案（方案3·纯配置,零代码改动）**：让 QNN 走 `Session_Input_Inside` 模式即可正确喂输入——即**用 `shapeMutable=false`**（ModuleBasic 里在 `onnx/input.json` 加 `"shapeMutable": false`;代码里 `Module::Config::shapeMutable=false`)。**验证**（干净 lib、无任何代码改动）：首 conv 692 在 `shapeMutable=true` 下 diff 0.84、`false` 下 0.0011。
   - **代价**：`Session_Input_Inside` 不支持可变输入 shape。对固定输入尺寸的模型（如本例 256×192 mmpose）无影响;若模型确需动态 shape,再考虑下面的代码方案。

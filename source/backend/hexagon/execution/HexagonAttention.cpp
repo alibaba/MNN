@@ -130,16 +130,19 @@ static size_t visionFlashAttentionWorkspaceBytes(int tokens, int heads, int head
 }
 
 HexagonAttention::HexagonAttention(Backend *backend, const Op *op) : HexagonExecution(backend) {
-    auto param = op->main_as_AttentionParam();
-    if (param) {
-        mAttnScale = param->attnScale();
-    }
     MNN::KVCacheManager::KVCacheConfig kvconfig;
     mKVCacheManager.reset(new HexagonKVCacheManager(backend, kvconfig));
     mMeta = (KVMeta*)(backend->getMetaPtr());
 }
 
 HexagonAttention::~HexagonAttention() {
+}
+
+float HexagonAttention::attentionScale(int headDim) const {
+    if (nullptr != mMeta && mMeta->attn_scale > 0.0f) {
+        return mMeta->attn_scale;
+    }
+    return 1.0f / std::sqrt(static_cast<float>(headDim));
 }
 
 bool HexagonAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
@@ -244,7 +247,7 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
             validMask = mask;
         }
         const int headDim = Q->length(3);
-        const float scale = mAttnScale == 0.0f ? 1.0f / std::sqrt(static_cast<float>(headDim)) : mAttnScale;
+        const float scale = attentionScale(headDim);
         VisionAttentionParam params = {Q->length(0), tokens, Q->length(2), headDim, scale, maskStride, 0};
         const int dspOp = headDim % 64 == 0 ? DSP_OP_VISION_FLASH_ATTENTION_FP16 : DSP_OP_VISION_ATTENTION_FP16;
         std::vector<std::pair<int, int>> inputFds = {
@@ -326,7 +329,7 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
             chunk != V->length(1)) {
             return NOT_SUPPORT;
         }
-        const float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(headDim)) : mAttnScale;
+        const float scale = attentionScale(headDim);
         FlashAttentionBlockParam params = {batch, heads, tokens, chunk, headDim, scale};
 
         std::vector<Tensor*> commandOutputs;
@@ -481,7 +484,7 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
         return OUT_OF_MEMORY;
     }
 
-    float scale = (mAttnScale == 0.0f) ? (1.0f / sqrt(head_dim)) : mAttnScale;
+    float scale = attentionScale(head_dim);
 
     auto kDev = HexagonBackend::getDevicePtr(K);
     auto vDev = HexagonBackend::getDevicePtr(V);
