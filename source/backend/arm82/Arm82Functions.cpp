@@ -299,7 +299,9 @@ static void MNNNormPackedFp16Rms16(float* normOut_, float* sumOut_, const float*
                     const size_t offset = (c / kPack * batch + tokenBase + token) * kPack + c % kPack;
                     auto value = loadExact(offset);
                     if (residual != nullptr) {
-                        vst1_f16(sumOut + offset, vcvt_f16_f32(value));
+                        // Saturate only the residual output, not the FP32 statistics.
+                        auto saturated = vminq_f32(vmaxq_f32(value, vdupq_n_f32(-65504.0f)), vdupq_n_f32(65504.0f));
+                        vst1_f16(sumOut + offset, vcvt_f16_f32(saturated));
                     }
                     accum[token][lane] = vmlaq_f32(accum[token][lane], value, value);
                 }
