@@ -567,6 +567,9 @@ void Matrix::SetAffineIdentity(float affine[6]) {
 }
 
 bool Matrix::asAffine(float affine[6]) const {
+    if (this->getPerspectiveTypeMaskOnly() & kPerspective_Mask) {
+        return false;
+    }
     if (affine) {
         affine[kAScaleX] = this->fMat[kMScaleX];
         affine[kASkewY]  = this->fMat[kMSkewY];
