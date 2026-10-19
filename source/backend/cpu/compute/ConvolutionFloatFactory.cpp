@@ -12,6 +12,7 @@
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/Convolution1x1Strassen.hpp"
 #include "backend/cpu/compute/ConvolutionGroup.hpp"
+#include "backend/cpu/compute/ConvolutionSingleTap.hpp"
 #include "backend/cpu/compute/ConvolutionIntFactory.hpp"
 
 #include "backend/cpu/compute/ConvolutionWinogradBridge.hpp"
@@ -21,6 +22,8 @@
 #endif
 #include "core/Macro.h"
 #include "core/OpCommonUtils.hpp"
+#include "core/ConvolutionCommon.hpp"
+#include <memory>
 #include "backend/cpu/OneDNNConvolution.hpp"
 #include "backend/cpu/compute/CPUExtension.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
@@ -269,8 +272,59 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         return nullptr;
     }
     if (1 == group) {
-        return _createUnit(inputs[0], outputs[0], backend, op, originWeight, originWeightSize, originBias,
-                           originBiasSize, quanCommon, supportSparse, lowMemory);
+        std::shared_ptr<flatbuffers::FlatBufferBuilder> builder;
+        std::unique_ptr<Execution> reduced;
+        const int ky = common->kernelY() / 2, kx = common->kernelX() / 2;
+        const int kernelSize = common->kernelX() * common->kernelY();
+        const int inputCount = inputs[0]->channel();
+        const int outputCount = common->outputCount();
+        if (nullptr == quanCommon.get() && !lowMemory && nullptr != originWeight && kernelSize > 1 &&
+            originWeightSize == outputCount * inputCount * kernelSize &&
+            common->padMode() == PadMode_SAME && common->kernelX() % 2 == 1 && common->kernelY() % 2 == 1 &&
+            (common->dilateX() > 1 || common->dilateY() > 1)) {
+            std::unique_ptr<Convolution2DT> reducedConv(new Convolution2DT);
+            reducedConv->common.reset(new Convolution2DCommonT);
+            auto reducedCommon         = reducedConv->common.get();
+            reducedCommon->kernelX     = 1;
+            reducedCommon->kernelY     = 1;
+            reducedCommon->strideX     = common->strideX();
+            reducedCommon->strideY     = common->strideY();
+            reducedCommon->padMode     = PadMode_CAFFE;
+            reducedCommon->outputCount = outputCount;
+            reducedCommon->inputCount  = inputCount;
+            reducedCommon->relu        = common->relu();
+            reducedCommon->relu6       = common->relu6();
+            const int tap = ky * common->kernelX() + kx;
+            std::vector<float> tapWeight((size_t)outputCount * inputCount);
+            for (size_t o = 0; o < tapWeight.size(); ++o) {
+                tapWeight[o] = originWeight[o * kernelSize + tap];
+            }
+            OpT reducedOpT;
+            reducedOpT.type       = OpType_Convolution;
+            reducedOpT.main.type  = OpParameter_Convolution2D;
+            reducedOpT.main.value = reducedConv.release();
+            builder.reset(new flatbuffers::FlatBufferBuilder);
+            builder->Finish(Op::Pack(*builder, &reducedOpT));
+            auto reducedOp  = flatbuffers::GetRoot<Op>(builder->GetBufferPointer());
+            // Factory selection must use the reduced output shape, including during weight rearrangement.
+            std::unique_ptr<Tensor> reducedOutput(Tensor::createDevice<float>(outputs[0]->shape(), Tensor::CAFFE_C4));
+            reducedOutput->setLength(2, (inputs[0]->height() - 1) / common->strideY() + 1);
+            reducedOutput->setLength(3, (inputs[0]->width() - 1) / common->strideX() + 1);
+            reduced.reset(_createUnit(inputs[0], reducedOutput.get(), backend, reducedOp,
+                                      tapWeight.data(), tapWeight.size(), originBias,
+                                      originBiasSize, nullptr, false, false));
+            if (!reduced || !reduced->valid()) {
+                return reduced.release();
+            }
+        }
+        // Build the reduced kernel first so it cannot retain part of the full kernel's packing scratch buffer.
+        Execution* full = _createUnit(inputs[0], outputs[0], backend, op, originWeight, originWeightSize,
+                                      originBias, originBiasSize, quanCommon, supportSparse, lowMemory);
+        if (reduced) {
+            return new ConvolutionSingleTap(backend, common, ky, kx, std::shared_ptr<Execution>(full),
+                                          std::move(builder), std::move(reduced));
+        }
+        return full;
     }
     // TODO: Use Geometry to split
     // Split
