@@ -2429,9 +2429,9 @@ std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::
             } else if (sourceLength > targetLength) {
                 sourceOffset = mContext->all_seq_len;
             }
-            // Only realign when the lengths differ (e.g. the padded tail chunk, or the single token
-            // decode step).
-            if (sourceLength != targetLength) {
+            // Deepstack rows use logical [layer, token, hidden] axes. Normalize the raw rows to
+            // NCHW even for full chunks: an NHWC tag would make the QNN plugin transpose token/hidden.
+            if (sourceLength != targetLength || deepstackInfo->order != NCHW) {
                 auto alignedDeepstack = Express::_Input({deepstackInfo->dim[0], targetLength, hiddenSize}, NCHW);
                 auto dst = alignedDeepstack->writeMap<float>();
                 const auto src = deepstack->readMap<float>();
