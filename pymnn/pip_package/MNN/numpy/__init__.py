@@ -655,7 +655,7 @@ def loadtxt(fname, dtype=float32, comments='#', delimiter=None,
     __not_impl()
 # 3. Numerical ranges
 def __arange_3(start, stop, step=1, dtype=None):
-    _type = type(stop)
+    _type = float if dtype == float32 else type(stop)
     start = _F.scalar(_type(start), dtype)
     limit = _F.scalar(stop, dtype)
     delta = _F.scalar(_type(step), dtype)

@@ -951,6 +951,13 @@ class UnitTest(unittest.TestCase):
             # py2: don't support `bytes`
             return
         self.assertEqualVar(mp.frombuffer(b'\x01\x02', dtype=mp.uint8), np.frombuffer(b'\x01\x02', dtype=np.uint8))
+    def test_arange_float_dtype(self):
+        for args in [(0.5, 4, 1), (0, 5, 1.5), (4.5, 0, -1),
+                     (5, 0, -1.5), (-2.5, 2, 1.5), (0.5, 4.0, 1)]:
+            with self.subTest(args=args):
+                result = mp.arange(*args, dtype=mp.float32)
+                self.assertEqual(result.dtype, mp.float32)
+                self.assertEqualVar(result, np.arange(*args, dtype=np.float32))
     def test_numerical_ranges(self):
         self.assertEqualVar(mp.arange(3,7,2), np.arange(3,7,2))
         self.assertEqualVar(mp.arange(5.0), np.arange(5.0))
