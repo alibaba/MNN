@@ -242,7 +242,8 @@ private:
                              int max_new_tokens);
     std::shared_ptr<Module> mVisionModule, mAudioModule;
     std::vector<VARP> mExtraArgs, mVisionEmbeddings, mAudioEmbeddings, mDeepStackEmbeddings;
-    VARP mVisionPositionIdsCache, mVisionAttentionMaskCache, mVisionWindowAttentionMaskCache;
+    VARP mVisionPositionIdsCache, mVisionWindowAttentionMaskCache;
+    MaskCache mVisionMaskCache;
     VARP mVisionIdxTensorCache, mVisionWeightTensorCache, mVisionWindowIndexCache;
     std::shared_ptr<Talker> mTalker;
     int64_t mThinkerElapsedUs = 0;

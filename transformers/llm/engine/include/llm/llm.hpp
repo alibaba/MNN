@@ -25,6 +25,8 @@
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 
+#include "llm/attention_mask.hpp"
+
 namespace MNN {
 struct KVMeta;
 namespace Transformer {
@@ -248,7 +250,8 @@ protected:
     std::map<std::pair<int, bool>, std::shared_ptr<Express::Module>> mModulePool;
     const Express::Module* mBaseModule = nullptr;
     Express::VARP inputsEmbeds, attentionMask, positionIds;
-    std::vector<Express::VARP> mAttentionMaskVarVec, mPositionIdsVarVec;
+    std::vector<Express::VARP> mPositionIdsVarVec;
+    MaskCache mMaskCache;  // reusable masks for the decode shapes
     Express::VARP logitsAllIdx, logitsLastIdx;
     int mSeqLenIndex = 0;
     std::shared_ptr<MNN::Express::Executor> mExecutor;

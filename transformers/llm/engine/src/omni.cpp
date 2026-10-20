@@ -20,6 +20,7 @@
 #include <sstream>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include "core/AttentionMaskConvention.hpp"
 #include "omni.hpp"
 #include "kvmeta.hpp"
 #include "llmconfig.hpp"
@@ -192,15 +193,10 @@ void fillQwenVisionAttentionMask(float* mask, int gridT, int tokensPerTemporal) 
     if (mask == nullptr || gridT <= 0 || tokensPerTemporal <= 0) {
         return;
     }
+    // Per-frame temporal blocks: a frame only attends to its own patches.
     const int seqLen = gridT * tokensPerTemporal;
-    std::fill(mask, mask + seqLen * seqLen, std::numeric_limits<float>::lowest());
-    for (int t = 0; t < gridT; ++t) {
-        const int start = t * tokensPerTemporal;
-        for (int row = 0; row < tokensPerTemporal; ++row) {
-            float* rowPtr = mask + (start + row) * seqLen + start;
-            std::fill(rowPtr, rowPtr + tokensPerTemporal, 0.0f);
-        }
-    }
+    const std::vector<int> cu = uniformBoundaries(seqLen, tokensPerTemporal);
+    fillBlockDiagonal(mask, seqLen, seqLen, cu);
 }
 
 static bool needVarWithShape(VARP var, const std::vector<int>& dims) {
@@ -372,16 +368,6 @@ static VARP makeQwen3AudioCodePredictorCodecEmbeds(DiskEmbedding* firstEmbedding
     return var;
 }
 
-static void fillCausalMask(VARP var, int seqLen) {
-    auto ptr = var->writeMap<float>();
-    const float lowest = std::numeric_limits<float>::lowest();
-    for (int i = 0; i < seqLen; ++i) {
-        for (int j = 0; j < seqLen; ++j) {
-            ptr[i * seqLen + j] = j > i ? lowest : 0.0f;
-        }
-    }
-}
-
 static void fillPositionIds(VARP var, int rows, int seqLen) {
     auto ptr = var->writeMap<int>();
     for (int r = 0; r < rows; ++r) {
@@ -391,10 +377,15 @@ static void fillPositionIds(VARP var, int rows, int seqLen) {
     }
 }
 
-static void makeCausalInputs(int seqLen, int positionRows, VARP& mask, VARP& positionIds) {
-    mask = makeTensorInput<float>({1, 1, seqLen, seqLen});
+// code_predictor.mnn's attention ops are exported with kv_cache=true, so the causal plane can be omitted.
+static void makeCausalInputs(int seqLen, int positionRows, VARP& mask, VARP& positionIds,
+                             const std::string& backendType) {
+    MaskRequest req;
+    req.type   = AttentionMaskType::Causal;
+    req.seqLen = seqLen;
+    req.rank   = 4;
+    mask = buildAttentionMask(req, backendType);
     positionIds = makeTensorInput<int>({positionRows, seqLen});
-    fillCausalMask(mask, seqLen);
     fillPositionIds(positionIds, positionRows, seqLen);
 }
 
@@ -412,26 +403,6 @@ static VARP selectTextHidden(VARP trailingTextHidden, VARP ttsPadEmbed, int step
     std::copy(src, src + hiddenSize, outPtr);
     return out;
 }
-
-#ifdef LLM_SUPPORT_AUDIO
-static std::vector<int> buildOmniAudioWindowBoundaries(int seqlen, int n_window) {
-    const int clampedSeqlen = std::max(seqlen, 0);
-    std::vector<int> boundaries(1, 0);
-    if (n_window <= 0) {
-        if (clampedSeqlen > 0) {
-            boundaries.push_back(clampedSeqlen);
-        }
-        return boundaries;
-    }
-    for (int curseq = n_window; curseq < clampedSeqlen; curseq += n_window) {
-        boundaries.push_back(curseq);
-    }
-    if (boundaries.back() != clampedSeqlen) {
-        boundaries.push_back(clampedSeqlen);
-    }
-    return boundaries;
-}
-#endif
 
 static MNNForwardType backend_type_convert(const std::string& type_str) {
     if (type_str == "cpu")
@@ -578,6 +549,7 @@ bool Omni::initProcessorRuntime() {
         module_config.rearrange = true;
     }
     if (mConfig->is_visual()) {
+        mVisionMaskCache.clear();
         mVisionModule.reset(Module::load({}, {}, mConfig->visual_model().c_str(), mProcessorRuntimeManager, &module_config));
         if (nullptr == mVisionModule.get())
             return false;
@@ -861,34 +833,32 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
             cu_window_seqlens.push_back(prev + s * merge_unit);
             prev = cu_window_seqlens.back();
         }
-        // build attention_mask
+        // Plane 0 all-visible, plane 1 block-diagonal over the merger windows. Refilled every
+        // image because the window boundaries change.
         if (needVarWithShape(mVisionWindowAttentionMaskCache, {2, 1, seq_len, seq_len})) {
             mVisionWindowAttentionMaskCache = Express::_Input({2, 1, seq_len, seq_len}, NCHW);
         }
         attention_mask = mVisionWindowAttentionMaskCache;
-        auto attention_mask_ptr = attention_mask->writeMap<float>();
-        ::memset(attention_mask_ptr, 0, seq_len * seq_len * sizeof(float));
-        attention_mask_ptr = attention_mask_ptr + seq_len * seq_len;
-        for (int i = 0; i < seq_len * seq_len; i++) {
-            attention_mask_ptr[i] = std::numeric_limits<float>::lowest();
-        }
-        for (size_t i = 1; i < cu_window_seqlens.size(); ++i) {
-            for (int j = cu_window_seqlens[i - 1]; j < cu_window_seqlens[i]; ++j) {
-                for (int k = cu_window_seqlens[i - 1]; k < cu_window_seqlens[i]; ++k) {
-                    attention_mask_ptr[seq_len * j + k] = 0;
-                }
-            }
-        }
+        MaskRequest maskReq;
+        maskReq.seqLen = seq_len;
+        maskReq.rank   = 3;  // -> {2, 1, seq_len, seq_len}
+        MaskPlane visible, blocked;
+        visible.type      = AttentionMaskType::Bidirectional;
+        blocked.type      = AttentionMaskType::BlockDiagonal;
+        blocked.cuSeqlens = &cu_window_seqlens;
+        fillTwoPlane(attention_mask->writeMap<float>(), maskReq, visible, blocked);
         moduleInputs.push_back(attention_mask);
         moduleInputs.push_back(window_index);
     } else {
-        // build attention_mask
-        if (needVarWithShape(mVisionAttentionMaskCache, {1, seq_len, seq_len})) {
-            mVisionAttentionMaskCache = Express::_Input({1, seq_len, seq_len}, NCHW);
-        }
-        attention_mask = mVisionAttentionMaskCache;
-        ::memset(attention_mask->writeMap<float>(), 0, seq_len * seq_len * sizeof(float));
-        moduleInputs.push_back(attention_mask);
+        // Full attention. The vision module runs on the "mllm" backend when configured (see
+        // initProcessorRuntime), so ask for the mask on that backend.
+        const std::string visionBackend =
+            mConfig->mllm_config_.is_null() ? mConfig->backend_type() : mConfig->backend_type(true);
+        MaskRequest req;
+        req.type   = AttentionMaskType::Bidirectional;
+        req.seqLen = seq_len;
+        req.rank   = 3;  // the vision graph declares its mask as [1,-1,-1]
+        moduleInputs.push_back(mVisionMaskCache.obtain(req, visionBackend));
     }
     if (isQwen3VL) {
         // Qwne3-VL
@@ -1299,13 +1269,19 @@ std::vector<int> Omni::minicpmVisionProcess(VARP image) {
             }
         }
     }
-    // attention mask
-    auto attention_mask = Express::_Input({B, L}, NCHW);
-    auto maskPtr = attention_mask->writeMap<float>();
-    memset(maskPtr, 0, B * L * sizeof(float));
-    for (int i = S; i < L; i++) {
-        maskPtr[i] = std::numeric_limits<float>::lowest();
+    // Key padding, [B, L] as exported (expanded to 4-D inside the graph). Only row 0 carries
+    // the padding tail, matching the export.
+    std::vector<int> validLens(B, L);
+    if (B > 0) {
+        validLens[0] = S;
     }
+    MaskRequest maskReq;
+    maskReq.type      = AttentionMaskType::KeyPadding;
+    maskReq.batch     = B;
+    maskReq.kvSeqLen  = L;
+    maskReq.rank      = 2;
+    maskReq.validLens = &validLens;
+    auto attention_mask = buildAttentionMask(maskReq);
     // tgt size
     auto tgt_sizes = Express::_Input({B, 2}, NCHW, halide_type_of<int>());
     ::memcpy(tgt_sizes->writeMap<int>(), tgtSize.data(), tgtSize.size() * sizeof(int));
@@ -1770,21 +1746,14 @@ std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
     } else if (audio_inputs > 1) {
         int seqlen = UP_DIV(input_features->getInfo()->dim[2], 2);
         constexpr int n_window = 100;
-        std::vector<int> cu_seqlens = buildOmniAudioWindowBoundaries(seqlen, n_window);
-        VARP attention_mask = _Input({1, seqlen, seqlen}, NCHW, halide_type_of<float>());
-        auto ptr = attention_mask->writeMap<float>();
-        for (int i = 0; i < seqlen; i++) {
-            for (int j = 0; j < seqlen; j++) {
-                ptr[seqlen * i + j] = std::numeric_limits<float>::lowest();
-            }
-        }
-        for (size_t i = 1; i < cu_seqlens.size(); ++i) {
-            for (int j = cu_seqlens[i - 1]; j < cu_seqlens[i]; ++j) {
-                for (int k = cu_seqlens[i - 1]; k < cu_seqlens[i]; ++k) {
-                    ptr[seqlen * j + k] = 0;
-                }
-            }
-        }
+        // Fixed windows of n_window frames; a frame attends only inside its own window.
+        const std::vector<int> cu_seqlens = uniformBoundaries(seqlen, n_window);
+        MaskRequest req;
+        req.type      = AttentionMaskType::BlockDiagonal;
+        req.seqLen    = seqlen;
+        req.rank      = 3;  // the audio graph declares its mask as [1,-1,-1]
+        req.cuSeqlens = &cu_seqlens;
+        VARP attention_mask = buildAttentionMask(req, mConfig->backend_type());
         audio_embedding = mAudioModule->onForward({input_features, attention_mask})[0];
     } else {
         if (audio_type != "conformer" && input_features->getInfo()->dim[2] > 3000) {
@@ -3412,18 +3381,17 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     const bool cpIncremental = mConfig->audio_code_predictor_incremental();
     VARP cpMask, cpPos;
     if (!cpIncremental) {
-        makeCausalInputs(audioCodePredictorSeq, 1, cpMask, cpPos);
+        makeCausalInputs(audioCodePredictorSeq, 1, cpMask, cpPos, mConfig->backend_type());
     }
 
-    // Mask conventions mirror Llm::gen_attention_mask: cpu/metal/hexagon take a scalar 0
-    // (causal lower-triangular fast path), other backends take a materialised mask, so
-    // the mask rank never changes within one session.
+    // talker.mnn's attention ops are exported with kv_cache=true, so the causal plane can be omitted.
     const std::string backendType = mConfig->backend_type();
-    const bool scalarMask = backendType == "cpu" || backendType == "hexagon" || backendType == "metal";
-    auto makeScalarZeroMask = []() {
-        auto mask = _Input({}, NCHW, halide_type_of<float>());
-        mask->writeMap<float>()[0] = 0.0f;
-        return mask;
+    auto talkerMaskRequest = [](int len) {
+        MaskRequest req;
+        req.type   = AttentionMaskType::Causal;
+        req.seqLen = len;
+        req.rank   = 4;
+        return req;
     };
 
     // Prefill: run the whole prompt sequence once to fill the KV cache; every later
@@ -3432,13 +3400,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     auto prefillEmbeds = makeTensorInputFromVector<float>({1, seqLen, hiddenSize}, embeddings);
     auto talkerPos     = makeTensorInput<int>({3, seqLen});
     fillPositionIds(talkerPos, 3, seqLen);
-    VARP talkerMask;
-    if (scalarMask) {
-        talkerMask = makeScalarZeroMask();
-    } else {
-        talkerMask = makeTensorInput<float>({1, 1, seqLen, seqLen});
-        fillCausalMask(talkerMask, seqLen);
-    }
+    VARP talkerMask = buildAttentionMask(talkerMaskRequest(seqLen), backendType);
     mMeta->remove = mMeta->previous;
     mMeta->add    = seqLen;
     MNN::Timer prefillTimer;
@@ -3452,10 +3414,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     }
 
     // Decode-step inputs: fixed shapes, only the position value changes per frame.
-    VARP decodeMask = scalarMask ? makeScalarZeroMask() : makeTensorInput<float>({1, 1, 1, 1});
-    if (!scalarMask) {
-        decodeMask->writeMap<float>()[0] = 0.0f;
-    }
+    VARP decodeMask = buildAttentionMask(talkerMaskRequest(1), backendType);
     VARP decodePos = makeTensorInput<int>({3, 1});
 
     // Incremental audio_code_predictor inputs. Per frame the predictor sequence is
@@ -3467,15 +3426,8 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     // graph produced, since head i was trained on row i+1.
     VARP cpPrefillMask, cpDecodeMask, cpPrefillPos, cpDecodePos;
     if (cpIncremental) {
-        if (scalarMask) {
-            cpPrefillMask = makeScalarZeroMask();
-            cpDecodeMask  = makeScalarZeroMask();
-        } else {
-            cpPrefillMask = makeTensorInput<float>({1, 1, 2, 2});
-            fillCausalMask(cpPrefillMask, 2);
-            cpDecodeMask = makeTensorInput<float>({1, 1, 1, 1});
-            cpDecodeMask->writeMap<float>()[0] = 0.0f;
-        }
+        cpPrefillMask = buildAttentionMask(talkerMaskRequest(2), backendType);
+        cpDecodeMask  = buildAttentionMask(talkerMaskRequest(1), backendType);
         cpPrefillPos = makeTensorInput<int>({1, 2});
         auto prefillPosPtr = cpPrefillPos->writeMap<int>();
         prefillPosPtr[0] = 0;
