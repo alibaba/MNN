@@ -858,6 +858,7 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
         req.type   = AttentionMaskType::Bidirectional;
         req.seqLen = seq_len;
         req.rank   = 3;  // the vision graph declares its mask as [1,-1,-1]
+        req.forceDense = true;
         moduleInputs.push_back(mVisionMaskCache.obtain(req, visionBackend));
     }
     if (isQwen3VL) {
