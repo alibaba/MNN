@@ -12,7 +12,7 @@
 #include "../llmconfig.hpp"
 #include "../kvmeta.hpp"
 
-//#define DUMP_PROFILE_INFO
+#define DUMP_PROFILE_INFO
 
 namespace MNN {
 namespace Transformer {
@@ -168,6 +168,7 @@ private:
     std::shared_ptr<MNN::Express::Module> mKvMatModule;    // dflash_kvmat.mnn: context rows -> per-layer K/V
     std::shared_ptr<MNN::Express::Module> mKvConcatModule; // one dispatch appending all K/V pairs
     std::shared_ptr<MNN::Express::Module> mArgmaxModule;   // single _ArgMax over [rows, vocab]
+    int mArgmaxVocab = 0;                                  // vocab baked into mArgmaxModule's reshape
     // Draft KV cache, interleaved [K_0, V_0, K_1, V_1, ...], each [1, ctx_len, kv_heads, head_dim].
     std::vector<MNN::Express::VARP> mDraftKv;
     // mDraftKv slot -> mKvMatModule output slot (the kvmat graph declares its own order).
@@ -181,6 +182,8 @@ private:
     int spl_decode = 0, spl_accept = 0, spl_count = 0;
     int64_t phase_sample_us = 0, phase_verify_us = 0, phase_verify_fwd_us = 0, phase_verify_match_us = 0;
     int64_t phase_argmax_us = 0;
+    // Diagnostics: split phase_argmax_us into module-build / onForward / readMap.
+    int64_t phase_argmax_build_us = 0, phase_argmax_fwd_us = 0, phase_argmax_map_us = 0;
 #endif
 };
 

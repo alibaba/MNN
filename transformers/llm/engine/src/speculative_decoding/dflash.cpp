@@ -81,6 +81,11 @@ void DFlashGeneration::reset() {
     // Per turn: a stale draft KV cache no longer matches the reset target KV cache.
     mInitialized = false;
     mDraftKv.clear();
+    // A new model/draft may expose a different vocab; drop the vocab-baked argmax graph.
+    if (mArgmaxVocab > 0) {
+        mArgmaxModule.reset();
+        mArgmaxVocab = 0;
+    }
 }
 
 bool DFlashGeneration::load(Module::Config module_config) {
@@ -343,7 +348,14 @@ bool DFlashGeneration::rowArgmax(VARP logits, int rows, std::vector<int>& out) {
 #ifdef DUMP_PROFILE_INFO
     MNN::Timer _t;
 #endif
-    if (mArgmaxModule == nullptr) {
+    // The reshape bakes `vocab` into the graph, so a different vocab (model swap / draft swap after
+    // reset) must rebuild the module rather than reuse the old one.
+#ifdef DUMP_PROFILE_INFO
+    MNN::Timer _tBuild;
+#endif
+    if (mArgmaxModule == nullptr || mArgmaxVocab != vocab) {
+        mArgmaxModule.reset();
+        mArgmaxVocab = 0;
         auto lv = _Input({1, -1, -1}, NCHW, halide_type_of<float>());
         lv->setName("logits");
         auto iv = _ArgMax(_Reshape(lv, {-1, vocab}), 1);
@@ -358,12 +370,32 @@ bool DFlashGeneration::rowArgmax(VARP logits, int rows, std::vector<int>& out) {
             mContext->status = LlmStatus::INTERNAL_ERROR;
             return false;
         }
+        mArgmaxVocab = vocab;
         MNN_PRINT("DFlash: on-device argmax on (vocab=%d)\n", vocab);
     }
-    auto idx = mArgmaxModule->onForward({logits})[0];
-    dflashDbgOutputs("mArgmaxModule", idx.get() != nullptr ? 1 : 0);
-    ::memcpy(out.data(), idx->readMap<int>(), rows * sizeof(int));
 #ifdef DUMP_PROFILE_INFO
+    phase_argmax_build_us += _tBuild.durationInUs();
+    MNN::Timer _tFwd;
+#endif
+    auto argmaxOut = mArgmaxModule->onForward({logits});
+#ifdef DUMP_PROFILE_INFO
+    phase_argmax_fwd_us += _tFwd.durationInUs();
+    MNN::Timer _tMap;
+#endif
+    if (!dflashDbgOutputs("mArgmaxModule", argmaxOut.size()) || argmaxOut[0].get() == nullptr) {
+        MNN_ERROR("DFlash: on-device argmax returned no output\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    const int* idxPtr = argmaxOut[0]->readMap<int>();
+    if (idxPtr == nullptr) {
+        MNN_ERROR("DFlash: on-device argmax output is not mappable\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    ::memcpy(out.data(), idxPtr, rows * sizeof(int));
+#ifdef DUMP_PROFILE_INFO
+    phase_argmax_map_us += _tMap.durationInUs();
     phase_argmax_us += _t.durationInUs();
 #endif
     return true;
@@ -638,6 +670,11 @@ void DFlashGeneration::generate(GenerationParams& param) {
               spl_count > 0 ? phase_verify_us / 1000.0f / spl_count : 0,
               spl_count > 0 ? phase_fc_us / 1000.0f / spl_count : 0);
     float total_ms = (phase_draft_us + phase_sample_us + phase_verify_us + phase_fc_us) / 1000.0f;
+    MNN_PRINT("Argmax detail (per step ms): build=%.2f, onForward=%.2f, readMap=%.2f, total=%.2f\n",
+              spl_count > 0 ? phase_argmax_build_us / 1000.0f / spl_count : 0,
+              spl_count > 0 ? phase_argmax_fwd_us / 1000.0f / spl_count : 0,
+              spl_count > 0 ? phase_argmax_map_us / 1000.0f / spl_count : 0,
+              spl_count > 0 ? phase_argmax_us / 1000.0f / spl_count : 0);
     MNN_PRINT("Phase breakdown %%: draft=%.1f%%, sample=%.1f%%, verify=%.1f%%, fc=%.1f%%\n",
               total_ms > 0 ? 100.0f * phase_draft_us / 1000.0f / total_ms : 0,
               total_ms > 0 ? 100.0f * phase_sample_us / 1000.0f / total_ms : 0,

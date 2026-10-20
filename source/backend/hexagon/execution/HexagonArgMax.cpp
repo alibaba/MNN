@@ -5,6 +5,7 @@
 #include "MNN_generated.h"
 #include "core/TensorUtils.hpp"
 #include "htp_command.h"
+#include <cstdlib>
 
 namespace MNN {
 
@@ -76,6 +77,9 @@ ErrorCode HexagonArgMax::onBuildCmd(const std::vector<Tensor*>& inputs, const st
     std::vector<std::pair<int, int>> inputFds = {inputDev};
     std::vector<std::pair<int, int>> outputFds = {indexDev};
 
+    if (getenv("MNN_HEXAGON_DEBUG_ARGMAX")) {
+        MNN_PRINT("[HexagonArgMax] DSP argmax rows=%d rowSize=%d\n", rows, rowSize);
+    }
     dst.emplace_back();
     dst.back().build(static_cast<HexagonBackend*>(backend()), DSP_OP_ARGMAX_FP16, params, sizeof(params), inputFds,
                      outputFds, inputs, outputs);
