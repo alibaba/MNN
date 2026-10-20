@@ -134,6 +134,17 @@ else()
 
     # Enable HMX inline assembly
     set(HTP_OPS_DSP_FLAGS "-mhmx")
+    # Cache variables rather than declared build switches, matching HTP_OPS_MM_PHASE_PROFILE above:
+    # internal knobs of this DSP sub-project. test.sh's doc_check scans these files as plain text and
+    # requires every declared build switch to appear in docs/compile/cmake.md.
+    #
+    # Serial is the SHIPPED default. The worker-pool argmax path is A/B scaffolding: it measured no
+    # difference (the kernel is dominated by fixed command-group cost, not row scanning), see
+    # .artifacts/bisect-20261020/PLAN.md. Flipping it OFF enables a path not validated on-device since.
+    set(HTP_OPS_FORCE_SERIAL_ARGMAX ON CACHE BOOL "Force serial argmax (OFF enables the unused pool path)")
+    if(HTP_OPS_FORCE_SERIAL_ARGMAX)
+        set(HTP_OPS_DSP_FLAGS "${HTP_OPS_DSP_FLAGS} -DMNN_DSP_ARGMAX_FORCE_SERIAL=1")
+    endif()
     set(HTP_OPS_DSP_ARCH "${DSP_ARCH}")
     if(NOT HTP_OPS_DSP_ARCH)
         set(HTP_OPS_DSP_ARCH "${HEXAGON_ARCH}")
