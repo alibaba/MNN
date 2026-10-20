@@ -1202,6 +1202,20 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.var(x, 1), np.var(x_,1))
         self.assertAlmostEqual(mp.std(x), np.std(x_), delta=1e-3)
         self.assertEqualVar(mp.std(x, 0), np.std(x_,0))
+        for shape in [(3,), (2, 3), (2, 3, 2), (2, 1, 3, 2)]:
+            data = (np.arange(np.prod(shape), dtype=np.float32).reshape(shape) % 7 - 3) * 0.5
+            for axis in [None] + list(range(len(shape))):
+                for keepdims in [False, True]:
+                    for name in ['var', 'std']:
+                        with self.subTest(shape=shape, axis=axis, keepdims=keepdims, operation=name):
+                            value = mp.array(data)
+                            actual = getattr(mp, name)(value, axis=axis, keepdims=keepdims)
+                            expected = getattr(np, name)(data, axis=axis, keepdims=keepdims)
+                            if keepdims or axis is not None:
+                                self.assertEqualVar(actual, expected)
+                            else:
+                                self.assertAlmostEqual(actual, float(expected), places=5)
+                            self.assertEqualVar(value, data)
     def test_histogram(self):
         x = mp.array([1., 2., 2., 3., 3., 3., 4., 4., 5.])
         x_ = x.read()
