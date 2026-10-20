@@ -226,21 +226,11 @@ static std::pair<std::unique_ptr<flatbuffers::FlatBufferBuilder>, Execution*> _c
     return std::make_pair(std::move(builder), unit);
 }
 
-// Dilated convolutions on small maps spend most of their multiply-adds on
-// padding: DeepLabV3's ASPP branches with dilation 12 and 24 on a 33x33 map
-// read real input in only 57% and 27% of their tap x pixel products. A
-// kernelY x kernelX convolution is the sum of one 1x1 convolution per tap,
-// and a tap only contributes on the output rectangle where its shifted input
-// lands inside the image. This unit runs each tap's 1x1 convolution over
-// exactly that rectangle and accumulates, then adds the bias and applies the
-// activation once.
+// Compute each kernel tap as a 1x1 convolution over the region where its
+// input is in bounds, avoiding multiplications by padding zeros. Accumulate
+// the results, then apply bias and activation once.
 //
-// Retain the full convolution for shapes where the per-tap copies cost more
-// than the padding work they save. Select the path on each resize.
-// A tap sampling the input at the output position over the whole output
-// (the centre tap under same padding) runs directly on the real
-// tensors and initialises the output; the others go through a cropped input
-// and a partial output.
+// Select between this path and full convolution on each resize.
 class ConvolutionTapRegions : public CPUConvolution {
 public:
     // Fraction of tap x output products whose input lands inside the image.
