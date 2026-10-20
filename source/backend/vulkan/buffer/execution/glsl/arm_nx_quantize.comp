@@ -1,0 +1,30 @@
+// Pack NC4HW4 activations into [blocks, M, blockSize] signed bytes.
+// One invocation owns a complete row/block, including its scale and integer sum.
+layout(local_size_x = 64) in;
+layout(binding = 0) readonly buffer Input { FLOAT4 X[]; };
+layout(binding = 1) writeonly buffer Quantized { uint Q[]; };
+layout(binding = 2) writeonly buffer ActivationMeta { vec2 Meta[]; };
+layout(push_constant) uniform Params {
+    uint M; uint K; uint N; uint blocks; uint blockSize; uint activation;
+} pc;
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= pc.blocks * pc.M) return;
+    uint block = index / pc.M;
+    uint row = index % pc.M;
+    uint first = block * (pc.blockSize / 4);
+    float maxAbs = 0.0;
+    for (uint i = 0; i < pc.blockSize / 4; ++i) {
+        vec4 v = abs(vec4(X[(first + i) * pc.M + row]));
+        maxAbs = max(maxAbs, max(max(v.x, v.y), max(v.z, v.w)));
+    }
+    float scale = maxAbs > 0.0 ? maxAbs / 127.0 : 1.0;
+    int sum = 0;
+    for (uint i = 0; i < pc.blockSize / 4; ++i) {
+        ivec4 q = ivec4(clamp(roundEven(vec4(X[(first + i) * pc.M + row]) / scale), -127.0, 127.0));
+        sum += q.x + q.y + q.z + q.w;
+        Q[index * (pc.blockSize / 4) + i] = (uint(q.x) & 255u) | ((uint(q.y) & 255u) << 8)
+            | ((uint(q.z) & 255u) << 16) | ((uint(q.w) & 255u) << 24);
+    }
+    Meta[index] = vec2(scale, float(sum));
+}
