@@ -1070,6 +1070,17 @@ class UnitTest(unittest.TestCase):
         x_ = mp.linalg.solve(a_, b_)
         self.assertEqualVar(x_, x)
 
+    def test_dot_contraction_dimension(self):
+        for k in (1, 2, 3, 4, 5):
+            for a_shape, b_shape in (((2, 2, k), (k, 3)),
+                                     ((2, 2, k), (2, k, 3)),
+                                     ((2, 1, 2, k), (2, 2, k, 3))):
+                with self.subTest(a_shape=a_shape, b_shape=b_shape):
+                    a = np.arange(np.prod(a_shape), dtype=np.float32).reshape(a_shape) / 10
+                    b = np.arange(np.prod(b_shape), dtype=np.float32).reshape(b_shape) / 10
+                    self.assertEqualVar(mp.dot(mp.array(a), mp.array(b)), np.dot(a, b),
+                                        rtol=1e-5, atol=1e-6)
+
     def test_Logic(self):
         x = mp.array([1,0,2,3,0])
         x_ = np.array([1,0,2,3,0])

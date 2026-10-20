@@ -1056,7 +1056,7 @@ def dot(a, b, out=None):
         b_shape.pop(-2)
         dst_shape = a_shape + b_shape
         a = reshape(a, [-1, reduce_dim])
-        b = reshape(moveaxis(b, -2, 0), [3, -1])
+        b = reshape(moveaxis(b, -2, 0), [reduce_dim, -1])
         res = _F.cast(_F.matmul(a, b), origin_dtype)
         return reshape(res, dst_shape)
 def vdot(a, b):
