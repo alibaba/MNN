@@ -291,6 +291,10 @@ static void MNNNormPackedFp16(float* normOut_, float* sumOut_, const float* sour
     // drops out; the fp32 recompute in pass 3 then costs no more loads than a
     // read-back of sumOut would have.
     const bool squaresFromPass1 = RMSNorm && residual != nullptr;
+    // Match MNNQuantizeFP16 when storing the residual output. Keep the original
+    // FP32 values for all statistics and normalization.
+    const auto minFp16 = vdupq_n_f32(-65504.0f);
+    const auto maxFp16 = vdupq_n_f32(65504.0f);
 
     auto loadExactPair = [&](size_t offset) {
         float32x4_t value = vcvt_f32_f16(vld1_f16(source + offset));
@@ -327,8 +331,8 @@ static void MNNNormPackedFp16(float* normOut_, float* sumOut_, const float* sour
                     float32x4_t lo = loadExactPair(offset);
                     float32x4_t hi = loadExactPair(offset + 4);
                     if (residual != nullptr) {
-                        vst1_f16(sumOut + offset, vcvt_f16_f32(lo));
-                        vst1_f16(sumOut + offset + 4, vcvt_f16_f32(hi));
+                        vst1_f16(sumOut + offset, vcvt_f16_f32(vminq_f32(vmaxq_f32(lo, minFp16), maxFp16)));
+                        vst1_f16(sumOut + offset + 4, vcvt_f16_f32(vminq_f32(vmaxq_f32(hi, minFp16), maxFp16)));
                     }
                     if (squaresFromPass1) {
                         squareAcc[token] = vfmaq_f32(squareAcc[token], lo, lo);
@@ -347,7 +351,9 @@ static void MNNNormPackedFp16(float* normOut_, float* sumOut_, const float* sour
                     for (size_t lane = 0; lane < remain; ++lane) {
                         const float value = loadExactLane(offset + lane);
                         if (residual != nullptr) {
-                            sumOut[offset + lane] = static_cast<__fp16>(value);
+                            const float saturated =
+                                value > 65504.0f ? 65504.0f : (value < -65504.0f ? -65504.0f : value);
+                            sumOut[offset + lane] = static_cast<__fp16>(saturated);
                         }
                         if (squaresFromPass1) {
                             squareSums[token] += value * value;

@@ -69,6 +69,8 @@ KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution::KleidiAIDepthwiseExecu
 ErrorCode KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution::onResize(const std::vector<Tensor*>& inputs,
                                                                  const std::vector<Tensor*>& outputs) {
     CPUConvolution::onResize(inputs, outputs);
+    // Cache activation limits before releaseModel() frees mCommon.
+    mPostParameters = getPostParameters();
     auto input   = inputs[0];
     auto output = outputs[0];
     TensorUtils::getDescribe(&mOutputNHWC)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
@@ -106,7 +108,6 @@ ErrorCode KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution::onExecute(co
     auto outputTensor = outputs[0];
     const auto srcOrigin = mInputNHWC.host<uint8_t>();
     auto dstOrigin       = mOutputNHWC.host<uint8_t>();
-    auto postData = getPostParameters();
     auto output_height = outputTensor->height();
     auto core       = static_cast<CPUBackend*>(backend())->functions();
     auto batch = inputTensor->batch();
@@ -151,7 +152,7 @@ ErrorCode KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution::onExecute(co
             kai_run_dwconv_clamp_f32_f32_f32p1vlx1b_3x3_s1_4xc_sme2_mla(
                 inptr, mPackedRhs.get()->host<void>(), outptr, in_row_stride_bytes, inputTensor->channel() * sizeof(float),
                 out_row_stride_bytes, outputTensor->channel() * sizeof(float), valid_input_rows, valid_out_rows,
-                mPadX, pad_top, 0.0f, postData[2], postData[3]);
+                mPadX, pad_top, 0.0f, mPostParameters[2], mPostParameters[3]);
         }
     }
 
