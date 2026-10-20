@@ -38,7 +38,7 @@ def __array_like_type(prototype, dtype, order, shape):
         dst_dtype = dtype
     else:
         dst_dtype = prototype.dtype
-    if order != 'K' and shape is not None:
+    if shape is not None:
         dst_shape = shape
     else:
         dst_shape = prototype.shape

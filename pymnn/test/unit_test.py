@@ -936,6 +936,22 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.zeros_like(x), np.zeros_like(x_))
         self.assertEqualVar(mp.full([2, 2], 5), np.full([2, 2], 5))
         self.assertEqualVar(mp.full_like(x, 5), np.full_like(x_, 5))
+        for shape in [(3,), (1, 3, 2)]:
+            for order in [None, 'K', 'C']:
+                for name, args in [('empty_like', ()), ('full_like', (2.5,)),
+                                   ('ones_like', ()), ('zeros_like', ())]:
+                    with self.subTest(name=name, shape=shape, order=order):
+                        kwargs = {} if order is None else {'order': order}
+                        result = getattr(mp, name)(x, *args, dtype=mp.float32,
+                                                   shape=shape, **kwargs)
+                        expected = getattr(np, name)(x_, *args, dtype=np.float32,
+                                                     shape=shape, **kwargs)
+                        self.assertEqualShape(result.shape, expected.shape)
+                        self.assertEqual(result.dtype, mp.float32)
+                        if name != 'empty_like':
+                            self.assertEqualVar(result, expected)
+        self.assertEqualShape(mp.empty_like(x, shape=()).shape, ())
+        self.assertEqualVar(x, x_)
     def test_from_existing_data(self):
         self.assertEqualVar(mp.array([1, 2, 3]), np.array([1, 2, 3]))
         self.assertEqualVar(mp.array([1, 2, 3], dtype=mp.float32),
