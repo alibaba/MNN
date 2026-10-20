@@ -33,10 +33,8 @@ if(CUDA_FOUND)
             string(REPLACE ";" " " support_archs_readable "${support_archs}")
             message(FATAL_ERROR
                 "Detected sm_${CUDA_ARCH_FLAGS_readable_code}, which MNN's CUDA backend does not "
-                "support (supported: ${support_archs_readable}). Adding it to this list does NOT "
-                "help -- the kernels still have to be compiled for it, and the fused-attention "
-                "plugins only ship cubins for sm_75/80/86/89. Pass -DCUDA_ARCHS=<major.minor> to "
-                "target a supported arch explicitly, or use a CUDA toolkit that can target this GPU.")
+                "support (supported: ${support_archs_readable}). Pass -DCUDA_ARCHS=<major.minor> "
+                "to target a supported arch explicitly.")
         ENDIF()
     ENDIF()
 

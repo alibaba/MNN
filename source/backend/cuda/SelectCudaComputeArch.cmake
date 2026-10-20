@@ -130,10 +130,12 @@ if(NOT CUDA_VERSION VERSION_LESS "11.8")
     list(APPEND CUDA_COMMON_GPU_ARCHITECTURES "9.0+PTX")
   endif()
 
-  # Hopper (9.0) is the newest arch these toolkits can target natively; Blackwell
-  # (10.0 datacenter / 12.0 consumer) needs CUDA 12.8.
+  # Hopper (9.0) is the newest arch these toolkits can target; Blackwell (10.0
+  # datacenter / 12.0 consumer) needs CUDA 12.8. Unlike CUDA_LIMIT_GPU_ARCHITECTURE
+  # there is no usable fallback here (Hopper PTX + prebuilt cuBLAS do not bring up a
+  # Blackwell GPU), so configure is rejected instead.
   if(CUDA_VERSION VERSION_LESS "12.8")
-    set(CUDA_LIMIT_GPU_ARCHITECTURE "10.0")
+    set(CUDA_UNSUPPORTED_GPU_ARCHITECTURE "10.0")
   endif()
 endif()
 
@@ -201,18 +203,14 @@ function(CUDA_DETECT_INSTALLED_GPUS OUT_VARIABLE)
     set(CUDA_GPU_DETECT_OUTPUT_FILTERED "")
     separate_arguments(CUDA_GPU_DETECT_OUTPUT)
     foreach(ITEM IN ITEMS ${CUDA_GPU_DETECT_OUTPUT})
-      if(CUDA_LIMIT_GPU_ARCHITECTURE AND NOT ITEM VERSION_LESS CUDA_LIMIT_GPU_ARCHITECTURE)
-        # The GPU is newer than this toolkit can target. Fall back to the newest arch it
-        # does support and keep the PTX, so the driver can JIT it for the real GPU.
+      if(CUDA_UNSUPPORTED_GPU_ARCHITECTURE AND NOT ITEM VERSION_LESS CUDA_UNSUPPORTED_GPU_ARCHITECTURE)
+        message(FATAL_ERROR
+          "Detected GPU compute capability ${ITEM}, which CUDA ${CUDA_VERSION} cannot target. "
+          "A build for an older arch would not run on this GPU, and the toolkit's cuBLAS fails "
+          "to initialize on it. Install CUDA 12.8 or newer.")
+      elseif(CUDA_LIMIT_GPU_ARCHITECTURE AND (ITEM VERSION_GREATER CUDA_LIMIT_GPU_ARCHITECTURE OR
+                                              ITEM VERSION_EQUAL CUDA_LIMIT_GPU_ARCHITECTURE))
         list(GET CUDA_COMMON_GPU_ARCHITECTURES -1 NEWITEM)
-        if(NOT NEWITEM MATCHES "\\+PTX$")
-          string(APPEND NEWITEM "+PTX")
-        endif()
-        message(WARNING
-          "GPU compute capability ${ITEM} is newer than CUDA ${CUDA_VERSION} can target. "
-          "Falling back to ${NEWITEM} and relying on the driver to JIT the PTX. Prebuilt "
-          "vendor libraries (cuBLAS, cuDNN) may still fail to initialize on this GPU; "
-          "install a newer CUDA toolkit for native support.")
         string(APPEND CUDA_GPU_DETECT_OUTPUT_FILTERED " ${NEWITEM}")
       else()
         string(APPEND CUDA_GPU_DETECT_OUTPUT_FILTERED " ${ITEM}")
