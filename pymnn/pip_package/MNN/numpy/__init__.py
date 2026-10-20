@@ -70,7 +70,7 @@ def __broadcast_shape(args):
         dims = set()
         for shape in shapes:
             dims.add(shape[i])
-        dims.remove(1)
+        dims.discard(1)
         if len(dims) > 1:
             raise ValueError('shape mismatch: %d cannot be broadcast to %d'%{dims.pop(), dims.pop()})
         dst_shape.append(dims.pop() if len(dims) == 1 else 1)

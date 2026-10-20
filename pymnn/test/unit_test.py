@@ -985,6 +985,21 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVars(mp.broadcast_arrays(x, y), np.broadcast_arrays(x_, y_))
         self.assertEqualVar(mp.expand_dims(x, axis=0), np.expand_dims(x_, axis=0))
         self.assertEqualVar(mp.squeeze(x, axis=0), np.squeeze(x_, axis=0))
+        shapes = [((3,), (3,)), ((1, 3), (2, 3)), ((3,), (2, 3)),
+                  ((2, 1, 3), (1, 4, 3)), ((1,), (1, 1)),
+                  ((1, 1, 1), (1, 1)), ((1, 3), (2, 1)),
+                  ((3,), (2, 1), (1, 3))]
+        for dtype in (np.float32, np.int32):
+            for case in shapes:
+                with self.subTest(dtype=dtype, shapes=case):
+                    arrays = [(np.arange(np.prod(shape)).reshape(shape) + i * 10).astype(dtype)
+                              for i, shape in enumerate(case)]
+                    inputs = [mp.array(array) for array in arrays]
+                    actual = mp.broadcast_arrays(*inputs)
+                    expected = np.broadcast_arrays(*arrays)
+                    self.assertEqual(len(actual), len(expected))
+                    self.assertEqualVars(actual, expected, rtol=0, atol=0)
+                    self.assertEqualVars(inputs, arrays, rtol=0, atol=0)
     def test_changing_kind(self):
         self.assertEqualVar(mp.asarray_chkfinite([2, 3]), np.asarray_chkfinite([2, 3]))
         self.assertEqualVar(mp.ascontiguousarray([2, 3]), np.ascontiguousarray([2, 3]))
