@@ -1187,6 +1187,19 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.flatnonzero(x), np.flatnonzero(x_))
         self.assertEqualVar(mp.count_nonzero(x, 0), np.count_nonzero(x_, 0))
     def test_statistics(self):
+        for shape in [(3,), (2, 3), (2, 3, 2), (2, 1, 3, 2)]:
+            data = (np.arange(np.prod(shape), dtype=np.float32).reshape(shape) % 7 - 3) * 0.5
+            for axis in [None] + list(range(len(shape))):
+                for keepdims in [False, True]:
+                    with self.subTest(shape=shape, axis=axis, keepdims=keepdims):
+                        value = mp.array(data)
+                        actual = mp.mean(value, axis=axis, keepdims=keepdims)
+                        expected = np.mean(data, axis=axis, keepdims=keepdims)
+                        if keepdims or axis is not None:
+                            self.assertEqualVar(actual, expected)
+                        else:
+                            self.assertAlmostEqual(actual, float(expected), places=5)
+                        self.assertEqualVar(value, data)
         x = mp.array([[1,2,3], [4,6,5]])
         x_ = np.array([[1,2,3], [4,6,5]])
         self.assertEqual(mp.amin(x), np.amin(x_))
