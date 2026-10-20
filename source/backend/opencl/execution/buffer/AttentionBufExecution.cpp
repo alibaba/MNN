@@ -9,6 +9,7 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "backend/opencl/execution/buffer/AttentionBufExecution.hpp"
+#include "core/AttentionMaskConvention.hpp"
 #include "core/MNNFileUtils.h"
 #include <fstream>
 namespace MNN {
@@ -1281,8 +1282,12 @@ std::set<std::string> AttentionBufExecution::flashPrefillBuildOptions(int headDi
         buildOption.emplace("-DADD_MASK");
     } else if (mHasMask) {
         buildOption.emplace("-DSET_MASK");
-    } else {
-        buildOption.emplace("-DDEFAULT_MASK");
+    } else if (!mCausalLayout) {
+        // No dense mask and not causal: a one-shot (kv_cache=false) or explicitly
+        // bidirectional layer sees every key. This used to fall through to
+        // -DDEFAULT_MASK, which no kernel ever tested -- the causal branch is the
+        // bare #else -- so the no-mask state silently compiled to causal.
+        buildOption.emplace("-DNO_MASK");
     }
     buildOption.emplace("-DNUMHEAD_GROUP_SIZE=" + std::to_string(groupSize));
     buildOption.emplace("-DFA_TILE_Q=" + std::to_string(mFaTileQ));
@@ -1667,6 +1672,12 @@ ErrorCode AttentionBufExecution::flashDecodeResize(const std::vector<Tensor*>& i
 }
 
 ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    // A rank-2 mask is dense on CPU / Metal, but the kernels here index the mask by its last
+    // two axes without broadcasting a 1-row plane over the queries. Refuse it rather than drop it.
+    if (inputs.size() > 3 && inputs[3]->dimensions() == 2) {
+        MNN_ERROR("OpenCL attention: rank-2 mask is not supported, pass it as rank-4 [1, 1, q, kv]\n");
+        return NOT_SUPPORT;
+    }
     mOpenCLBackend->startRecord(mRecording);
     auto shape = inputs[0]->shape();
 
@@ -1675,8 +1686,13 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, co
     int numHead = shape[2];
     int headDim = shape[3];
     int kvNumHead = inputs[1]->shape()[2];
-    mHasMask = inputs.size() > 3 && inputs[3]->dimensions() > 2;
+    // Mask classification is by shape only (core/AttentionMaskConvention.hpp): a dense
+    // per-element plane (dims > 2) is read elementwise; anything of lower rank is a sentinel.
+    const bool hasMaskInput = inputs.size() > 3;
+    const int maskDims = hasMaskInput ? inputs[3]->dimensions() : 0;
+    mHasMask = hasMaskInput && maskDims > 2;
     mIsAddMask = mHasMask && inputs[3]->getType() == halide_type_of<float>();
+    mCausalLayout = IsAttentionMaskCausal(hasMaskInput, maskDims, mKVCache);
     // Decode kernels have no batch axis, so batched single-token inputs use the prefill path.
     mIsDecode = seqlen == 1 && batch == 1 && (nullptr == mMeta || mMeta->add == 1);
 
@@ -1970,6 +1986,9 @@ AttentionBufExecution::AttentionBufExecution(const MNN::Op* op, Backend* backend
     : CommonExecution(backend, op) {
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mOutputC4 = outputC4;
+    // Export-time attribute (schema default true); a different notion from the meta-presence
+    // flag KVCacheCLManager is constructed with just below.
+    mKVCache = op->main_as_AttentionParam()->kv_cache();
     mKVCacheCLManager.reset(new KVCacheCLManager(backend, nullptr != mMeta));
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
     mKVCacheCLManager->setPrefixCacheDir(mOpenCLBackend->getRuntime()->hint().prefixcacheDirPath);
@@ -1988,6 +2007,7 @@ AttentionBufExecution::AttentionBufExecution(std::shared_ptr<KVCacheCLManager> m
     mOutputC4 = param->output_c4();
     // Only reached through onClone, which hands over the owning layer's cache manager.
     mIsKVShared = nullptr != param && param->kv_shared_layer_index() >= 0;
+    mKVCache = param->kv_cache();
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel(
         "softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL_CTOR(kernel);
@@ -1997,6 +2017,10 @@ AttentionBufExecution::AttentionBufExecution(std::shared_ptr<KVCacheCLManager> m
 void AttentionBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& inputs,
                                                    const std::vector<Tensor*>& outputs) {
     if (inputs.size() < 3 || outputs.empty() || inputs[0]->dimensions() < 4 || inputs[1]->dimensions() < 3) {
+        return;
+    }
+    // onResize rejects a rank-2 mask; nothing to compile for it.
+    if (inputs.size() > 3 && inputs[3]->dimensions() == 2) {
         return;
     }
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
@@ -2016,8 +2040,13 @@ void AttentionBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& i
         runtime->submitPrebuild("attention_kv_rearrange_buf", {"-DVALUE_C4"}, precision, inputs[0], outputs[0], true);
     }
 
-    mHasMask = inputs.size() > 3 && inputs[3]->dimensions() > 2;
+    // Same shape-only classification as onResize; the prebuild must compile the same kernel
+    // variant the real resize will pick.
+    const bool hasMaskInput = inputs.size() > 3;
+    const int maskDims = hasMaskInput ? inputs[3]->dimensions() : 0;
+    mHasMask = hasMaskInput && maskDims > 2;
     mIsAddMask = mHasMask && inputs[3]->getType() == halide_type_of<float>();
+    mCausalLayout = IsAttentionMaskCausal(hasMaskInput, maskDims, mKVCache);
     if (flashPrefillEligible(inputs, outputs)) {
         runtime->submitPrebuild("attention_flash_prefill_buf", flashPrefillBuildOptions(headDim, groupSize), precision,
                                 inputs[0], outputs[0], true);

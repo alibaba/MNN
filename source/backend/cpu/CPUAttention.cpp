@@ -17,6 +17,7 @@
 #include "compute/TurboQuant.hpp"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
+#include "core/AttentionMaskConvention.hpp"
 #include "core/BufferAllocator.hpp"
 #include "core/TensorUtils.hpp"
 #include "core/OpCommonUtils.hpp"
@@ -31,10 +32,12 @@
 
 namespace MNN {
 
+// noElementMask: one-element mask (causal or bidirectional), only scale QK; the causal triangle is
+// applied in MNNSoftmax.
 template <typename T>
 static void _maskQK(float* qkPacked, const float* scale, size_t seqLen, size_t processedKvSeq, int pack, int kvSeqLen,
                     int kvoffset, int padKvSeqLen, const float* sinksPtr, const Tensor* mask, bool scaleApplied,
-                    bool isLowerTriangular) {
+                    bool noElementMask) {
     /*
      * FIGURE 1: mask->elementSize() == seqLen * maskStride
      * Context: Cross Attention or Prefill stage (Full Context).
@@ -88,7 +91,7 @@ static void _maskQK(float* qkPacked, const float* scale, size_t seqLen, size_t p
      *   'X'         : Masked by Mask Tensor (-inf).
      */
 
-    if (isLowerTriangular && scaleApplied) {
+    if (noElementMask && scaleApplied) {
         return;
     }
     constexpr float NEG_INF = -std::numeric_limits<float>::infinity();
@@ -98,7 +101,7 @@ static void _maskQK(float* qkPacked, const float* scale, size_t seqLen, size_t p
     auto processedKvSeqDivPack = UP_DIV(processedKvSeq, pack);
     auto qkSize = ROUND_UP(processedKvSeq, pack) * seqLen;
 
-    if (isLowerTriangular) {
+    if (noElementMask) {
         for (int i = 0; i < qkSize; ++i) {
             source[i] *= scaleVal;
         }
@@ -492,20 +495,15 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     const float* sinksPtr = sinks ? sinks->host<float>() : nullptr;
     int kvValidOffset = kvSeqLen - seqLen; // reuse_kv=true or decode, kvValidOffset>0
 
-    bool isLowerTriangular = (mask == nullptr);
-    if (mask != nullptr && mask->shape().empty()) {
-        if (mBytes == 2) {
-            auto maskPtr = mask->host<FLOAT16_T>();
-            if (maskPtr[0] < 1e-6) {
-                isLowerTriangular = true;
-            }
-        } else {
-            auto maskPtr = mask->host<float>();
-            if (maskPtr[0] < 1e-6f) {
-                isLowerTriangular = true;
-            }
-        }
-    }
+    // Classify the mask by shape only, see core/AttentionMaskConvention.hpp.
+    const bool hasMask = (mask != nullptr);
+    const int maskDims = hasMask ? mask->dimensions() : 0;
+    const int maskElems = hasMask ? mask->elementSize() : 0;
+    const bool scalarCausalSentinel = IsAttentionMaskCausalSentinel(hasMask, maskDims);
+    const bool isBidirectional = IsAttentionMaskBidirectionalSentinel(hasMask, maskDims, maskElems);
+    // A one-element mask is causal only when kv_cache=true.
+    const bool isLowerTriangular = IsAttentionMaskCausal(hasMask, maskDims, mKVCache);
+    const bool noElementMask = scalarCausalSentinel || isBidirectional;
     bool useMaskInSoftmax = (isLowerTriangular && sinksPtr == nullptr);
     const bool directC4Output = outputC4 && mHeadDim % mPack == 0;
     // Decode GQA batch: QK/QKV tile rows become the group's query heads (seqLen == 1, causal),
@@ -1119,21 +1117,21 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 {
                     bool scaleApplied =
                         (mKeyQuantMode == KVQuantMode::Int8 || mKeyQuantMode == KVQuantMode::None);
-                    if (!scaleApplied || isLowerTriangular == false || sinksPtr != nullptr) {
+                    if (!scaleApplied || noElementMask == false || sinksPtr != nullptr) {
                         if (mBytes == 4 && gcore->MNNAttentionMaskQK != nullptr) {
                             const float* maskPtr = mask == nullptr ? nullptr : mask->host<float>();
                             const size_t maskSize = mask == nullptr ? 0 : mask->elementSize();
                             gcore->MNNAttentionMaskQK((float*)qkPacked, &mScale, qRows, curKvBlockSize, mPack,
                                                      kvSeqLen, i * mKvBlockSize, padSeqLength, sinksPtr, maskPtr,
-                                                     maskSize, scaleApplied, isLowerTriangular);
+                                                     maskSize, scaleApplied, noElementMask);
                         } else if (mBytes == 2) {
                             _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, qRows, curKvBlockSize, mPack, kvSeqLen,
                                                i * mKvBlockSize, padSeqLength, sinksPtr, mask, scaleApplied,
-                                               isLowerTriangular);
+                                               noElementMask);
                         } else {
                             _maskQK<float>((float*)qkPacked, &mScale, qRows, curKvBlockSize, mPack, kvSeqLen,
                                            i * mKvBlockSize, padSeqLength, sinksPtr, mask, scaleApplied,
-                                           isLowerTriangular);
+                                           noElementMask);
                         }
                     }
                     gcore->MNNSoftmax(qkSoftmax, (float*)qkPacked, runningMax, runningSum, diffScale, qRows,

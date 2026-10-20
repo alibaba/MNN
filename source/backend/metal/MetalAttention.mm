@@ -13,42 +13,12 @@
 #import "MetalSoftmaxShader.hpp"
 #import "MetalAttention.hpp"
 #import "MetalEnv.hpp"
+#include "core/AttentionMaskConvention.hpp"
 #include "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 namespace MNN {
-
-struct Param {
-    int query_seq_len;
-    int q_seq_piece_len;
-    int key_seq_len;
-    int head_num;
-    int group;
-    int head_dim;
-    float scale;
-    int max_kv_len;
-    int batch;
-    int kv_align_len;
-    int mask_batch;
-    int mask_head_num;
-    int mask_q_len;
-    int mask_k_len;
-    float v_scale;
-    float k_scale;
-};
-
-struct CopyParam {
-    int head_count;
-    int kv_seq_len;
-    int max_kv_len;
-    int dst_k_offset;
-    int dst_v_offset;
-    int batch;
-    int value_c4;
-    float v_scale;
-    float k_scale;
-};
 
 AttentionBufExecution::AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4,
                                              std::shared_ptr<KVQuantParameter> kvQuantParam)
@@ -63,9 +33,6 @@ void AttentionBufExecution::_init() {
     auto context = (__bridge MNNMetalContext*)mtbn->context();
     mMeta = (KVMeta*)(mtbn->getMetaPtr());
 
-    mParamQKV = [context newDeviceBuffer:sizeof(Param) access:CPUWriteOnly];
-    mParamSoftmax = [context newDeviceBuffer:6 * sizeof(int) access:CPUWriteOnly];
-    mParamCopy = [context newDeviceBuffer:sizeof(CopyParam) access:CPUWriteOnly];
     mTempQK.reset(Tensor::createDevice<float>({0, 0}));
     mTempSoftMax.reset(Tensor::createDevice<float>({0, 0}));
 
@@ -116,7 +83,29 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
             qkPrefillKeys.emplace_back("SET_MASK");
             qkKeys.emplace_back("SET_MASK");
         }
-    } else if (mKVCache) {
+    } else if (mKVCache && !mBidirectionalMask) {
+        // DEFAULT_MASK generates the causal triangle from indices alone:
+        //   kv_valid_offset = max(k_seq_len - q_seq_len, 0)      (in the shader)
+        //   masked iff k_global > kv_valid_offset + q_idx
+        // Why gated on mKVCache, given kv_valid_offset is derivable without a cache
+        // (it degenerates to 0, i.e. plain k > q)? Because the gate is a semantic
+        // contract, not a mechanical need: kv_cache=true means this op accumulates KV
+        // and is therefore an autoregressive LM layer, for which causal is the sane
+        // default when no per-element mask is supplied. kv_cache=false means a
+        // one-shot attention over exactly the given Q/K/V -- a vision encoder, a
+        // cross-attention, a bidirectional encoder -- where nothing licenses assuming
+        // causality, so the absence of a mask has to mean "no masking".
+        // AttentionTest's "unit test 3" pins exactly that (kv_cache=false, three
+        // inputs, reference computed with an empty mask) and runs only on Metal and
+        // CUDA; CPU skips it under a "TODO: CPU support kv_cache == false", and CPU
+        // indeed reads an absent mask as causal. So this gate is also where Metal and
+        // CPU deliberately diverge -- do not "align" it without moving that test.
+        //
+        // The bidirectional sentinel must not pick DEFAULT_MASK up either: with no
+        // mask key at all the QK kernels run unmasked, which is exactly what "every
+        // query sees every key" means. Safe to gate on mBidirectionalMask because it
+        // is shape-derived -- see _computePathFlags for why a value-derived flag could
+        // not be.
         qkPrefillKeys.emplace_back("DEFAULT_MASK");
         if (seq_len > 1) {
             qkKeys.emplace_back("DEFAULT_MASK");
@@ -735,9 +724,11 @@ void AttentionBufExecution::handleKVAllocMemory() {
 
 ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     // A mask input with dims>=2 is a per-element (tensor) mask that must be read
-    // position by position. A dims<2 float mask is the scalar causal sentinel
-    // (see llm.cpp gen_attention_mask / CPUAttention) -- not a tensor mask; its
-    // causal meaning is resolved into mCausalLayout in _computePathFlags.
+    // position by position. Anything of lower rank is a sentinel, not a tensor mask;
+    // _computePathFlags resolves it into mCausalLayout (rank 0) or mBidirectionalMask
+    // (rank 1, one element). See core/AttentionMaskConvention.hpp -- this predicate is
+    // deliberately identical to CPUAttention's, and a rank-1 mask with more than one
+    // element is not a supported mask shape on either backend.
     mHasTensorMask = inputs.size() > 3 && inputs[3]->dimensions() >= 2;
     if (mHasTensorMask) {
         mIsAddMask = (inputs[3]->getType() == halide_type_of<float>());
@@ -784,34 +775,45 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
 
     int group_size = mNumHead / mKvNumHead;
 
-    // Causal-fast-path gate. Enable causal-tri / causal-bound / FA / faTc ONLY
-    // when no per-element mask is in play: either the mask input is absent, or it
-    // is the standard-causal scalar sentinel -- a scalar float mask (dims<2) whose
-    // value is ~0 (matching CPUAttention.cpp:574-587's shape().empty() &&
-    // ptr[0]<1e-6). Both LLM decode/prefill and embedding models feed this scalar
-    // sentinel (embedding via gen_attention_mask, kv_cache=true), so both take the
-    // fast path. kv-cache is also required because the per-tile causal masking
-    // these opts rely on is DEFAULT_MASK, only compiled in compilerShader's
-    // `else if (mKVCache)` branch.
-    //   - absent mask / scalar sentinel(0), plus kv-cache => causal fast path
-    //   - tensor mask (SWA/arbitrary)                     => honor per-element
-    //   - non-zero scalar / no kv-cache                   => no fast path
-    //     (correctness still holds: DEFAULT_MASK causal when mKVCache, else dense)
-    // Value read is from shared-storage contents, safe here (_computePathFlags
-    // runs at encode time, mask data already written). Replaces the old
-    // MNN_METAL_QK_CAUSAL_TRI env. Invariant: mCausalLayout==true => mKVCache==true.
-    bool scalarCausalSentinel = inputs.size() <= 3;
-    if (!mHasTensorMask && inputs.size() > 3 &&
-        inputs[3]->dimensions() < 2 && inputs[3]->getType() == halide_type_of<float>()) {
-        auto alloc = (MetalRuntimeAllocator::MetalBufferAlloc*)inputs[3]->deviceId();
-        if (alloc != nullptr) {
-            auto buf = (id<MTLBuffer>)alloc->getBuffer();
-            const float* mptr = (const float*)((uint8_t*)buf.contents +
-                                 TensorUtils::getDescribeOrigin(inputs[3])->offset);
-            scalarCausalSentinel = (mptr[0] < 1e-6f && mptr[0] > -1e-6f);
-        }
-    }
-    mCausalLayout = scalarCausalSentinel && mKVCache;
+    // Mask classification, by shape alone -- core/AttentionMaskConvention.hpp carries
+    // the contract and the reasoning. Enable causal-tri / causal-bound / FA / faTc ONLY
+    // when no per-element mask is in play: either the mask input is absent, or it is the
+    // rank-0 causal sentinel. Both LLM decode/prefill and embedding models feed that
+    // sentinel (embedding via gen_attention_mask, kv_cache=true), so both take the fast
+    // path. kv-cache is also required because the per-tile causal masking these opts
+    // rely on is DEFAULT_MASK, only compiled in compilerShader's `else if (mKVCache)`
+    // branch. Replaces the old MNN_METAL_QK_CAUSAL_TRI env.
+    // Invariant: mCausalLayout==true => mKVCache==true.
+    //
+    // This used to read the sentinel's *value* out of the MTLBuffer's shared storage.
+    // That was unsound and it is gone. Input tensors arrive device-resident, and the
+    // host->device copy is a blit encoded on the command queue (MetalBackend's queued
+    // upload, MNN_METAL_H2D_QUEUED, on by default), so at encode time the destination
+    // still holds whatever the recycled pool slot contained. Instrumented against a
+    // producer that had written 0.0f, the read returned -30000, -5.6, -5.28, -0.0223,
+    // 0.793, 0.768, 0.502, 0.302 -- and because it only ever fed mCausalLayout, the
+    // damage was limited to silently losing the causal fast paths for that forward.
+    // The comment that used to sit here claimed "mask data already written"; it was not.
+    // Hanging a correctness decision off the same read is what makes it a wrong-results
+    // bug: gating DEFAULT_MASK on a value-derived "is this bidirectional" flag failed
+    // op/attention_c4 with `right: -5.6, compute: -5.25459` whenever a preceding test
+    // left a positive float in the recycled slot.
+    //
+    // Shape metadata is fixed at resize time and cannot be stale, so classifying on it
+    // removes the hazard rather than papering over it. It also makes mBidirectionalMask
+    // trustworthy enough to gate DEFAULT_MASK in compilerShader, which a value-derived
+    // flag could never be. This was the only place in the Metal backend that read a
+    // per-forward input tensor's contents at encode time; every other `.contents` access
+    // is a backend-owned param buffer or a load-time weight.
+    const bool hasMaskInput = inputs.size() > 3;
+    const int maskDims = hasMaskInput ? inputs[3]->dimensions() : 0;
+    mBidirectionalMask = IsAttentionMaskBidirectionalSentinel(
+        hasMaskInput, maskDims, hasMaskInput ? inputs[3]->elementSize() : 0);
+    // The same predicate CPUAttention uses: a sentinel only *candidates* the op for
+    // causality, kv_cache is what licenses it. For every supported mask shape this is
+    // equivalent to compilerShader's `mKVCache && !mHasTensorMask && !mBidirectionalMask`
+    // gate on DEFAULT_MASK, so the perf flag and the correctness key cannot disagree.
+    mCausalLayout = IsAttentionMaskCausal(hasMaskInput, maskDims, mKVCache);
 
     // Single-pass SDPA auto threshold. decode_splitkv beats both fallbacks
     // (fused qk_softmax and the three-stage decode_qk path) down to very small
@@ -1223,91 +1225,114 @@ uint32_t AttentionBufExecution::_pathSignature() const {
     // Single-pass fused SDPA path.
     sig |= (uint32_t)mSdpaSinglePass << 26;
     sig |= (uint32_t)mFaSgPrefill << 27;
+    // Bidirectional sentinel suppresses the DEFAULT_MASK shader key, so it changes the
+    // compiled kernel and must not share a replay slot with the causal form.
+    sig |= (uint32_t)mBidirectionalMask << 28;
     sig |= (uint32_t)mFaTcPrefill << 29;
     // SDPA_QH_PER_TG changes both the compiled kernel and the dispatch grid.
     sig |= (uint32_t)((mSdpaQhPerTg == 8 ? 3 : (mSdpaQhPerTg == 4 ? 2 : (mSdpaQhPerTg == 2 ? 1 : 0))) & 0x3) << 30;
     return sig;
 }
 
-void AttentionBufExecution::_writeCopyParam(const Tensor* key, const Tensor* value) {
-    auto copyp = (CopyParam*)mParamCopy.contents;
+// Builds the KV-copy uniforms. Returned by value and handed to the encoder with
+// setBytes, NOT written into a persistent MTLBuffer.
+//
+// Why: a persistent shared-storage param buffer is overwritten here on the CPU at
+// encode time, but the *previous* forward's command buffer may still be executing
+// and its copy kernel may still be reading it. The overwrite then lands mid-flight
+// and the in-flight kernel picks up the new dst_k_offset, writing its rows to the
+// wrong place. Verified: op/attention_decode's "decode chunked" case (two prefills
+// back to back with no sync between them) fails ~25-40% of the time that way -- KV
+// row 0 never gets written, so the probe query that targets row 0 reads zeros and
+// the decode output is plausible but ~21% off. Inserting a GPU drain between the two
+// prefills makes it 12/12 pass, which pins the window to in-flight work from the
+// first prefill. setBytes copies into the encoder's own argument storage, so each
+// dispatch keeps the values it was encoded with regardless of what happens next.
+//
+// The same hazard applied to the QK/QKV and softmax uniforms, so all three are
+// setBytes arguments now; nothing in this op binds a persistent param MTLBuffer.
+AttentionCopyParam AttentionBufExecution::_makeCopyParam(const Tensor* key, const Tensor* value) const {
+    AttentionCopyParam p;
     /*
      Key -> K-Cache :   [mBatch, mKvSeqLen, mKvNumHead, mHeadDim] -> [mKvMaxLen, mBatch, mKvNumHead, mHeadDim]
      Value -> V-Cache : [mBatch, mKvSeqLen, mKvNumHead, mHeadDim] -> [mKvMaxLen, mBatch, mKvNumHead, mHeadDim]
      */
-    copyp->head_count = mKvNumHead * mHeadDim;
+    p.head_count = mKvNumHead * mHeadDim;
     // current new kv_len
-    copyp->kv_seq_len = key->shape()[1];
-    copyp->max_kv_len = mKvMaxLen;
+    p.kv_seq_len = key->shape()[1];
+    p.max_kv_len = mKvMaxLen;
     int pastLength = mKVCache ? _pastKvLength() : 0;
-    copyp->dst_k_offset = pastLength * copyp->head_count;
-    copyp->dst_v_offset = pastLength * copyp->head_count;
-    copyp->batch = mBatch;
-    copyp->value_c4 =
+    p.dst_k_offset = pastLength * p.head_count;
+    p.dst_v_offset = pastLength * p.head_count;
+    p.batch = mBatch;
+    p.value_c4 =
         TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
     if (mQuantValue && mKVQuantParameter != nullptr) {
-        copyp->v_scale = mKVQuantParameter->vScale;
+        p.v_scale = mKVQuantParameter->vScale;
     } else {
-        copyp->v_scale = 0.0f;
+        p.v_scale = 0.0f;
     }
     if (mQuantKey && mKVQuantParameter != nullptr) {
-        copyp->k_scale = mKVQuantParameter->kScale;
+        p.k_scale = mKVQuantParameter->kScale;
     } else {
-        copyp->k_scale = 0.0f;
+        p.k_scale = 0.0f;
     }
+    return p;
 }
 
-void AttentionBufExecution::_writeQKVParam(const std::vector<Tensor*>& inputs, int seqLenPiece) {
+AttentionQKVParam AttentionBufExecution::_makeQKVParam(const std::vector<Tensor*>& inputs, int seqLenPiece) const {
     int group_size = mNumHead / mKvNumHead;
-    auto param = (Param*)mParamQKV.contents;
-    param->scale = mScale;
-    param->head_dim = mHeadDim;
-    param->key_seq_len = mKvSeqLen;
-    param->head_num = mNumHead;
-    param->group = group_size;
-    param->query_seq_len = mSeqLen;
-    param->q_seq_piece_len = seqLenPiece;
-    param->max_kv_len = mKvMaxLen;
-    param->batch = mBatch;
-    param->kv_align_len = mKvAlignNum;
-    param->mask_batch = mHasTensorMask ? inputs[3]->length(0) : 1;
-    param->mask_head_num = (mHasTensorMask && inputs[3]->dimensions() > 3) ? inputs[3]->length(1) : 1;
+    AttentionQKVParam p;
+    p.scale = mScale;
+    p.head_dim = mHeadDim;
+    p.key_seq_len = mKvSeqLen;
+    p.head_num = mNumHead;
+    p.group = group_size;
+    p.query_seq_len = mSeqLen;
+    p.q_seq_piece_len = seqLenPiece;
+    p.max_kv_len = mKvMaxLen;
+    p.batch = mBatch;
+    p.kv_align_len = mKvAlignNum;
+    p.mask_batch = mHasTensorMask ? inputs[3]->length(0) : 1;
+    p.mask_head_num = (mHasTensorMask && inputs[3]->dimensions() > 3) ? inputs[3]->length(1) : 1;
     // q/k are the mask's two trailing dims at any rank: [b,h,q,k] / [b,q,k] / [q,k].
-    param->mask_q_len = (mHasTensorMask && inputs[3]->dimensions() > 2) ? inputs[3]->length(inputs[3]->dimensions() - 2) : 1;
-    param->mask_k_len = (mHasTensorMask && inputs[3]->dimensions() > 0) ? inputs[3]->length(inputs[3]->dimensions() - 1) : 1;
+    p.mask_q_len = (mHasTensorMask && inputs[3]->dimensions() > 2) ? inputs[3]->length(inputs[3]->dimensions() - 2) : 1;
+    p.mask_k_len = (mHasTensorMask && inputs[3]->dimensions() > 0) ? inputs[3]->length(inputs[3]->dimensions() - 1) : 1;
     if (mQuantValue && mKVQuantParameter != nullptr) {
-        param->v_scale = mKVQuantParameter->vScale;
+        p.v_scale = mKVQuantParameter->vScale;
     } else {
-        param->v_scale = 0.0f;
+        p.v_scale = 0.0f;
     }
     if (mQuantKey && mKVQuantParameter != nullptr) {
-        param->k_scale = mKVQuantParameter->kScale;
+        p.k_scale = mKVQuantParameter->kScale;
     } else {
-        param->k_scale = 0.0f;
+        p.k_scale = 0.0f;
     }
+    return p;
 }
-
-void AttentionBufExecution::_writeSoftmaxParam(int seqLenPiece) {
+AttentionSoftmaxParam AttentionBufExecution::_makeSoftmaxParam(int seqLenPiece) const {
     // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
     int inside = 1;
     int outside = mBatch * mNumHead * seqLenPiece;
     int axis = mKvSeqLen;
     int axis_align = ROUND_UP(axis, mKvAlignNum);
-    auto softmax = (int*)mParamSoftmax.contents;
+    AttentionSoftmaxParam sp;
     // Inside, axis, outside, plane(invalid)
-    softmax[0] = inside;
-    softmax[1] = axis;
-    softmax[2] = outside;
-    softmax[3] = axis_align;
-    // CAUSAL_BOUND fields (ignored by non-causal softmax variants). causal_base
-    // stays piece-independent: this buffer is shared by every q piece encoded
-    // into one command buffer, so a per-piece value written here would be
-    // overwritten before the earlier dispatches run. The piece offset is bound
-    // per dispatch as seq_idx instead.
-    softmax[4] = seqLenPiece;
-    softmax[5] = (mKvSeqLen - mSeqLen) + 1;
+    sp.v[0] = inside;
+    sp.v[1] = axis;
+    sp.v[2] = outside;
+    sp.v[3] = axis_align;
+    // CAUSAL_BOUND fields (ignored by non-causal softmax variants). causal_base is
+    // written piece-independent and the piece offset is bound per dispatch as seq_idx.
+    // That split used to be forced: this data lived in one persistent MTLBuffer shared
+    // by every q piece encoded into a command buffer, so a per-piece value here would
+    // be overwritten before the earlier dispatches ran. Now that it is a setBytes
+    // argument built inside the seq_idx loop, each dispatch keeps its own copy and a
+    // per-piece causal_base would be safe -- the split is kept only because it works.
+    sp.v[4] = seqLenPiece;
+    sp.v[5] = (mKvSeqLen - mSeqLen) + 1;
+    return sp;
 }
-
 void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                      id<MTLComputeCommandEncoder> encoder) {
     auto query = inputs[0];
@@ -1344,7 +1369,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 #endif
     // Run Copy and Format-Convert Kernel
     if (!mIsKVShared) {
-        _writeCopyParam(key, value);
+        const AttentionCopyParam copyParam = _makeCopyParam(key, value);
         int copy_line = key->shape()[1];
 
         id<MTLComputePipelineState> pipeline = mKernel_copy;
@@ -1358,7 +1383,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             MetalBackend::setTensor(tempTensorK, encoder, 2);
             MetalBackend::setTensor(tempTensorV, encoder, 3);
         }
-        [encoder setBuffer:mParamCopy offset:0 atIndex:4];
+        [encoder setBytes:&copyParam length:sizeof(AttentionCopyParam) atIndex:4];
         if (mKVCache && mKVCacheManager->getKScaleBuffer() != nil) {
             [encoder setBuffer:mKVCacheManager->getKScaleBuffer() offset:0 atIndex:8];
             [encoder setBuffer:mKVCacheManager->getVScaleBuffer() offset:0 atIndex:9];
@@ -1385,7 +1410,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 
     // Update Parameters
     int seqLenPiece = UP_DIV(mSeqLen, mQseqSplitNum);
-    _writeQKVParam(inputs, seqLenPiece);
+    const AttentionQKVParam qkvParam = _makeQKVParam(inputs, seqLenPiece);
 
     for (int seq_idx = 0; seq_idx < mQseqSplitNum; seq_idx++) {
         if (mFaTcPrefill) {
@@ -1395,7 +1420,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             MetalBackend::setTensor(outputs[0], encoder, 1);
             MetalBackend::setTensor(tempTensorK, encoder, 2);
             MetalBackend::setTensor(tempTensorV, encoder, 3);
-            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+            [encoder setBytes:&qkvParam length:sizeof(AttentionQKVParam) atIndex:4];
             [encoder setBytes:&seq_idx length:sizeof(seq_idx) atIndex:5];
             if (mHasTensorMask) {
                 MetalBackend::setTensor(inputs[3], encoder, 8);
@@ -1416,7 +1441,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             MetalBackend::setTensor(outputs[0], encoder, 1);
             MetalBackend::setTensor(tempTensorK, encoder, 2);
             MetalBackend::setTensor(tempTensorV, encoder, 3);
-            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+            [encoder setBytes:&qkvParam length:sizeof(AttentionQKVParam) atIndex:4];
             [encoder setBytes:&seq_idx length:sizeof(seq_idx) atIndex:5];
             int fa_kv_start = 0;
             int fa_kv_len   = mKvSeqLen;
@@ -1443,7 +1468,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             MetalBackend::setTensor(outputs[0], encoder, 1);
             MetalBackend::setTensor(tempTensorK, encoder, 2);
             MetalBackend::setTensor(tempTensorV, encoder, 3);
-            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+            [encoder setBytes:&qkvParam length:sizeof(AttentionQKVParam) atIndex:4];
             [encoder setBytes:&seq_idx length:sizeof(seq_idx) atIndex:5];
             int fa_kv_start = 0;
             int fa_kv_len   = mKvSeqLen;
@@ -1485,7 +1510,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             MetalBackend::setTensor(outputs[0], encoder, 1);
             MetalBackend::setTensor(tempTensorK, encoder, 2);
             MetalBackend::setTensor(tempTensorV, encoder, 3);
-            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+            [encoder setBytes:&qkvParam length:sizeof(AttentionQKVParam) atIndex:4];
             [encoder setBytes:&ntg length:sizeof(ntg) atIndex:5];
             if (twoPass) {
                 MetalBackend::setTensor(mSdpaPartialOut.get(), encoder, 6);
@@ -1508,7 +1533,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
                 const int gridRows = mBatch * mNumHead;
                 [encoder setComputePipelineState:mKernel_sdpaReduce];
                 MetalBackend::setTensor(outputs[0], encoder, 1);
-                [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+                [encoder setBytes:&qkvParam length:sizeof(AttentionQKVParam) atIndex:4];
                 [encoder setBytes:&ntg length:sizeof(ntg) atIndex:5];
                 MetalBackend::setTensor(mSdpaPartialOut.get(), encoder, 6);
                 MetalBackend::setTensor(mSdpaPartialSm.get(), encoder, 7);
@@ -1527,7 +1552,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             MetalBackend::setTensor(mTempSoftMax.get(), encoder, 1);
             MetalBackend::setTensor(tempTensorK, encoder, 2);
             [encoder setBytes:&seq_idx length:sizeof(seq_idx) atIndex:3];
-            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+            [encoder setBytes:&qkvParam length:sizeof(AttentionQKVParam) atIndex:4];
             if (mKVCache && mQuantKey && mKVCacheManager->getKScaleBuffer() != nil) {
                 [encoder setBuffer:mKVCacheManager->getKScaleBuffer() offset:0 atIndex:8];
             }
@@ -1569,7 +1594,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
                 MetalBackend::setTensor(tempTensorK, encoder, 2);
             }
             [encoder setBytes:&seq_idx length:sizeof(seq_idx) atIndex:3];
-            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+            [encoder setBytes:&qkvParam length:sizeof(AttentionQKVParam) atIndex:4];
             if (mKVCache && mKVCacheManager->getKScaleBuffer() != nil) {
                 [encoder setBuffer:mKVCacheManager->getKScaleBuffer() offset:0 atIndex:8];
                 [encoder setBuffer:mKVCacheManager->getVScaleBuffer() offset:0 atIndex:9];
@@ -1636,16 +1661,16 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
             int inside = 1;
             int outside = mBatch * mNumHead * seqLenPiece;
-            _writeSoftmaxParam(seqLenPiece);
+            const AttentionSoftmaxParam softmaxParam = _makeSoftmaxParam(seqLenPiece);
             [encoder setComputePipelineState:mKernel_softmax];
             // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
             MetalBackend::setTensor(mTempQK.get(), encoder, 0);
             // [mBatch, mNumHead, mSeqLen, ROUND_UP(mKvSeqLen, mKvAlignNum)]
             MetalBackend::setTensor(mTempSoftMax.get(), encoder, 1);
-            [encoder setBuffer:mParamSoftmax offset:0 atIndex:2];
+            [encoder setBytes:&softmaxParam length:sizeof(AttentionSoftmaxParam) atIndex:2];
             if (mCausalBound) {
-                // setBytes copies into the encoder, so unlike mParamSoftmax this
-                // survives the later pieces of the same command buffer.
+                // Both setBytes: each dispatch keeps its own seq_idx regardless of
+                // what later pieces of the same command buffer encode.
                 [encoder setBytes:&seq_idx length:sizeof(seq_idx) atIndex:3];
             }
 
@@ -1685,7 +1710,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
                 MetalBackend::setTensor(tempTensorV, encoder, 2);
             }
             [encoder setBytes:&seq_idx length:sizeof(seq_idx) atIndex:3];
-            [encoder setBuffer:mParamQKV offset:0 atIndex:4];
+            [encoder setBytes:&qkvParam length:sizeof(AttentionQKVParam) atIndex:4];
             if (mKVCache && mKVCacheManager->getKScaleBuffer() != nil) {
                 [encoder setBuffer:mKVCacheManager->getKScaleBuffer() offset:0 atIndex:8];
                 [encoder setBuffer:mKVCacheManager->getVScaleBuffer() offset:0 atIndex:9];
@@ -1784,10 +1809,30 @@ bool AttentionBufExecution::onReplayUpdate(const std::vector<Tensor*>& inputs, c
     int group_size = mNumHead / mKvNumHead;
     int seqLenPiece = UP_DIV(mSeqLen, mQseqSplitNum);
 
-    // Rewrite param-buffer contents consumed by the recorded dispatches.
-    _writeCopyParam(inputs[1], inputs[2]);
-    _writeQKVParam(inputs, seqLenPiece);
-    _writeSoftmaxParam(seqLenPiece);
+    // Rewrite the per-token state consumed by the recorded dispatches. All three
+    // uniform structs travel as setBytes arguments rather than persistent MTLBuffers
+    // (see _makeCopyParam for the in-flight-overwrite hazard that forces this), so
+    // they are patched inside the recorded events -- the same mechanism patchIntBytes
+    // below uses for the int arguments. Matching on (index, size) is unambiguous:
+    // AttentionCopyParam (36B) and AttentionQKVParam (64B) both bind at index 4 but
+    // never on the same event, AttentionSoftmaxParam (24B) binds at index 2, and none
+    // collides with the 4-byte ints patchIntBytes targets.
+    {
+        const AttentionCopyParam copyParam = _makeCopyParam(inputs[1], inputs[2]);
+        const AttentionQKVParam qkvParam = _makeQKVParam(inputs, seqLenPiece);
+        const AttentionSoftmaxParam softmaxParam = _makeSoftmaxParam(seqLenPiece);
+        for (auto& e : mReplayEvents) {
+            for (auto& by : e.bytesArgs) {
+                if (by.first == 4 && by.second.size() == sizeof(AttentionCopyParam)) {
+                    memcpy(by.second.data(), &copyParam, sizeof(AttentionCopyParam));
+                } else if (by.first == 4 && by.second.size() == sizeof(AttentionQKVParam)) {
+                    memcpy(by.second.data(), &qkvParam, sizeof(AttentionQKVParam));
+                } else if (by.first == 2 && by.second.size() == sizeof(AttentionSoftmaxParam)) {
+                    memcpy(by.second.data(), &softmaxParam, sizeof(AttentionSoftmaxParam));
+                }
+            }
+        }
+    }
 
     auto patchIntBytes = [](MetalReplayEvent& e, int index, int value) {
         for (auto& by : e.bytesArgs) {

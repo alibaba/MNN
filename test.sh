@@ -776,6 +776,18 @@ local_run_stages() {
         _run_json_model_stages smokeA local "${PUBLIC_MODELS_DIR}"
     fi
 
+    # Engine unit tests that need no model: omni prompt parsing, qwen video frame
+    # sampling / resize, and the per-frame temporal vision mask fill. Runs before the LLM
+    # block so a missing model or no network cannot skip it. The binary is assert-free --
+    # it counts failures and exits non-zero -- because CI builds Release, where -DNDEBUG
+    # would compile assert() out and the test would pass unconditionally.
+    if [[ -x "${SCRIPT_DIR}/build/test_omni_video_prompt" ]]; then
+        run_stage "llm-engine-unit" -- bash -c \
+            "cd '${SCRIPT_DIR}/build' && ./test_omni_video_prompt"
+    else
+        skip_stage "llm-engine-unit" "test_omni_video_prompt not built (check MNN_LLM_BUILD_TEST)"
+    fi
+
     # LLM smoke test. Model provisioning is lazy: it happens here, after the
     # unit + smoke stages have already run, so those proceed even with no
     # network. A failed provision skips just this stage.
@@ -842,6 +854,7 @@ ANDROID_BIN_LIST=(
     libllm.so
     llm_demo
     test_multi_instance
+    test_omni_video_prompt
     libMNN.so
     libMNN_CL.so
     libMNN_Vulkan.so
@@ -1326,6 +1339,14 @@ drive_android() {
     # unit / smoke / bench stages run even with no network, and so a missing
     # model skips only this stage instead of aborting the run.
     if _filter_runs llm; then
+        # Model-independent engine unit test (see local_run_stages): runs whether or not
+        # provisioning succeeds, so it still guards the omni helpers offline.
+        if ad shell "[ -x ${DEVICE_DIR}/test_omni_video_prompt ]" 2>/dev/null; then
+            run_stage "llm-engine-unit" -- ad shell \
+                "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./test_omni_video_prompt"
+        else
+            skip_stage "llm-engine-unit" "test_omni_video_prompt not on device (check MNN_LLM_BUILD_TEST)"
+        fi
         if provision_llm_model; then
             push_llm_model
             android_llm_test

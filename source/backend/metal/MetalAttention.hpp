@@ -19,6 +19,50 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 namespace MNN {
+
+// Uniform structs for the attention kernels. All three are passed with setBytes
+// rather than bound from a persistent MTLBuffer -- see _makeCopyParam in the .mm
+// for the in-flight-overwrite hazard that forces this.
+
+// KV-append / format-convert kernel.
+struct AttentionCopyParam {
+    int head_count;
+    int kv_seq_len;
+    int max_kv_len;
+    int dst_k_offset;
+    int dst_v_offset;
+    int batch;
+    int value_c4;
+    float v_scale;
+    float k_scale;
+};
+
+// QK / softmax-fused / QKV kernels.
+struct AttentionQKVParam {
+    int query_seq_len;
+    int q_seq_piece_len;
+    int key_seq_len;
+    int head_num;
+    int group;
+    int head_dim;
+    float scale;
+    int max_kv_len;
+    int batch;
+    int kv_align_len;
+    int mask_batch;
+    int mask_head_num;
+    int mask_q_len;
+    int mask_k_len;
+    float v_scale;
+    float k_scale;
+};
+
+// Softmax kernel. Kept as a raw int sextuple to match the shader's layout exactly;
+// slots are [inside, axis, outside, axis_align, causal_base, causal_bound_pad].
+struct AttentionSoftmaxParam {
+    int v[6];
+};
+
 class AttentionBufExecution : public MetalExecution {
 public:
     AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4,
@@ -66,9 +110,9 @@ private:
     // simd flags / causal flags) + KV memory bookkeeping. Shared by onEncode
     // and onReplayUpdate so replayed tokens recompute identical state.
     void _computePathFlags(const std::vector<Tensor*>& inputs);
-    void _writeCopyParam(const Tensor* key, const Tensor* value);
-    void _writeQKVParam(const std::vector<Tensor*>& inputs, int seqLenPiece);
-    void _writeSoftmaxParam(int seqLenPiece);
+    AttentionCopyParam _makeCopyParam(const Tensor* key, const Tensor* value) const;
+    AttentionQKVParam _makeQKVParam(const std::vector<Tensor*>& inputs, int seqLenPiece) const;
+    AttentionSoftmaxParam _makeSoftmaxParam(int seqLenPiece) const;
     // Structural fingerprint of the current encode path; replay is only valid
     // while it matches the value captured at the end of the last onEncode.
     uint32_t _pathSignature() const;
@@ -103,9 +147,6 @@ private:
     id<MTLComputePipelineState> mKernelPrefill_qk = nil;
     id<MTLComputePipelineState> mKernelPrefill_qkv = nil;
     id<MTLComputePipelineState> mKernel_flashAttn = nil;
-    id<MTLBuffer> mParamQKV;
-    id<MTLBuffer> mParamSoftmax;
-    id<MTLBuffer> mParamCopy;
 
 private:
     KVMeta* mMeta;
@@ -195,12 +236,13 @@ private:
     bool mFlashAttnPrefill = false;
 
 private:
-    // A per-element tensor mask is present (dims>=2): must be bound at buffer 7
-    // and read per position. A scalar mask (dims<2) is NOT a tensor mask -- it is
-    // llm.cpp's "no per-element mask needed" sentinel; causal-ness for that case
-    // comes from kv-cache (DEFAULT_MASK), tracked by mCausalLayout.
+    // Dense mask (dims >= 2), bound at buffer 7 for QK/softmax kernels and buffer 8 for
+    // flash-attn. Lower ranks are one-element masks, classified by shape only (see
+    // core/AttentionMaskConvention.hpp).
     bool mHasTensorMask = false;
     bool mIsAddMask = false;
+    // Rank-1 one-element mask: fully visible, suppresses DEFAULT_MASK. Exclusive with mCausalLayout.
+    bool mBidirectionalMask = false;
     int mBatch, mKvSeqLen, mKvMaxLen, mCurrentKvLen = 0;
     int mQseqSplitNum = 1;
     std::shared_ptr<Tensor> mTempK, mTempV;

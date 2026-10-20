@@ -161,6 +161,15 @@ private:
     bool mIsAddMask = false;
     bool mNeedKvCache = true;
     bool mHasMask = false;
+    // AttentionParam::kv_cache, the export-time attribute (schema default true) -- NOT the
+    // meta-presence notion KVCacheCLManager is constructed with. Gates the causal default when
+    // no dense mask is bound. Same source as CPUAttention::mKVCache / MetalAttention::mKVCache.
+    bool mKVCache = true;
+    // Shape-classified per resize (core/AttentionMaskConvention.hpp): causal sentinel (absent
+    // or rank-0 mask) AND kv_cache. Every non-dense case that is not causal -- a mask-less
+    // one-shot attention (kv_cache=false) or the bidirectional sentinel -- compiles the flash
+    // prefill kernel with -DNO_MASK, i.e. no masking at all.
+    bool mCausalLayout = false;
 
 private:
     std::vector<std::shared_ptr<KernelWrap>> mKernel_rearrange_vec;
