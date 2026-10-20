@@ -23,6 +23,8 @@
 #include "core/Macro.h"
 #include "core/OpCommonUtils.hpp"
 #include "core/ConvolutionCommon.hpp"
+#include "core/Concurrency.h"
+#include "core/TensorUtils.hpp"
 #include <memory>
 #include "backend/cpu/OneDNNConvolution.hpp"
 #include "backend/cpu/compute/CPUExtension.hpp"
@@ -190,6 +192,322 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
                                                          bias, biasSize, winogradConfig);
 }
 
+// Builds a 1x1 convolution unit from an [outputCount][inputCount] weight
+// matrix with common's stride. The returned builder owns the synthesized op
+// the unit keeps pointers into, so it must outlive the unit.
+static std::pair<std::unique_ptr<flatbuffers::FlatBufferBuilder>, Execution*> _createOneByOne(
+    const Convolution2DCommon* common, const Tensor* input, const Tensor* output, Backend* backend, int inputCount,
+    int outputCount, const float* weight, const float* bias, int biasSize, bool keepActivation) {
+    std::unique_ptr<Convolution2DT> conv(new Convolution2DT);
+    conv->common.reset(new Convolution2DCommonT);
+    auto convCommon         = conv->common.get();
+    convCommon->kernelX     = 1;
+    convCommon->kernelY     = 1;
+    convCommon->strideX     = common->strideX();
+    convCommon->strideY     = common->strideY();
+    convCommon->padMode     = PadMode_CAFFE;
+    convCommon->outputCount = outputCount;
+    convCommon->inputCount  = inputCount;
+    convCommon->relu        = keepActivation && common->relu();
+    convCommon->relu6       = keepActivation && common->relu6();
+    conv->weight.assign(weight, weight + (size_t)outputCount * inputCount);
+    conv->bias.assign(bias, bias + biasSize);
+    OpT opT;
+    opT.type       = OpType_Convolution;
+    opT.main.type  = OpParameter_Convolution2D;
+    opT.main.value = conv.release();
+    std::unique_ptr<flatbuffers::FlatBufferBuilder> builder(new flatbuffers::FlatBufferBuilder);
+    builder->Finish(Op::Pack(*builder, &opT));
+    auto op      = flatbuffers::GetRoot<Op>(builder->GetBufferPointer());
+    auto opW     = op->main_as_Convolution2D()->weight();
+    auto opB     = op->main_as_Convolution2D()->bias();
+    Execution* unit = _createUnit(input, output, backend, op, opW->data(), opW->size(), opB->data(), opB->size(), nullptr,
+                                  false, false);
+    return std::make_pair(std::move(builder), unit);
+}
+
+// Dilated convolutions on small maps spend most of their multiply-adds on
+// padding: DeepLabV3's ASPP branches with dilation 12 and 24 on a 33x33 map
+// read real input in only 57% and 27% of their tap x pixel products. A
+// kernelY x kernelX convolution is the sum of one 1x1 convolution per tap,
+// and a tap only contributes on the output rectangle where its shifted input
+// lands inside the image. This unit runs each tap's 1x1 convolution over
+// exactly that rectangle and accumulates, then adds the bias and applies the
+// activation once.
+//
+// Retain the full convolution for shapes where the per-tap copies cost more
+// than the padding work they save. Select the path on each resize.
+// A tap sampling the input at the output position over the whole output
+// (the centre tap under same padding) runs directly on the real
+// tensors and initialises the output; the others go through a cropped input
+// and a partial output.
+class ConvolutionTapRegions : public CPUConvolution {
+public:
+    // Fraction of tap x output products whose input lands inside the image.
+    static float liveFraction(const Convolution2DCommon* common, const Tensor* input, const Tensor* output) {
+        const auto pad = ConvolutionCommon::convolutionPad(input, output, common);
+        auto axis = [](int kernel, int dilate, int stride, int pad, int inSize, int outSize) {
+            int live = 0;
+            for (int t = 0; t < kernel; ++t) {
+                const int offset = t * dilate - pad;
+                for (int o = 0; o < outSize; ++o) {
+                    const int i = o * stride + offset;
+                    live += (i >= 0 && i < inSize) ? 1 : 0;
+                }
+            }
+            return (float)live / (float)(kernel * outSize);
+        };
+        return axis(common->kernelX(), common->dilateX(), common->strideX(), pad.first, input->width(), output->width()) *
+               axis(common->kernelY(), common->dilateY(), common->strideY(), pad.second, input->height(), output->height());
+    }
+    // Small channel counts cannot amortize the per-tap copies and accumulation.
+    static bool supported(const Convolution2DCommon* common, int inputCount, int outputCount) {
+        return inputCount >= 64 && outputCount >= 64 && common->strideX() == 1 && common->strideY() == 1 &&
+               (common->dilateX() > 1 || common->dilateY() > 1) && common->kernelX() * common->kernelY() > 1;
+    }
+    static Execution* create(const Op* op, Backend* backend, const Tensor* input, const Tensor* output,
+                             int inputCount, int outputCount, const float* weight, const float* bias, int biasSize) {
+        const auto common = op->main_as_Convolution2D()->common();
+        std::unique_ptr<ConvolutionTapRegions> exe(new ConvolutionTapRegions(common, backend));
+        const int kernelSize = common->kernelX() * common->kernelY();
+        std::vector<float> tapWeight((size_t)outputCount * inputCount);
+        std::vector<float> zeroBias(outputCount, 0.0f);
+        for (int t = 0; t < kernelSize; ++t) {
+            for (size_t o = 0; o < tapWeight.size(); ++o) {
+                tapWeight[o] = weight[o * kernelSize + t];
+            }
+            auto unit = _createOneByOne(common, input, output, backend, inputCount, outputCount, tapWeight.data(),
+                                        zeroBias.data(), outputCount, false);
+            std::unique_ptr<Execution> unitOwner(unit.second);
+            if (!unitOwner || !unitOwner->valid()) {
+                return nullptr;
+            }
+            Tap tap;
+            tap.ky = t / common->kernelX();
+            tap.kx = t % common->kernelX();
+            tap.op = std::move(unit.first);
+            tap.unit = std::move(unitOwner);
+            tap.input.reset(new Tensor(4, Tensor::CAFFE_C4));
+            tap.output.reset(new Tensor(4, Tensor::CAFFE_C4));
+            exe->mTaps.push_back(std::move(tap));
+        }
+        // Pack the full kernel last so its scratch buffer cannot back a tap's weights.
+        exe->mFull.reset(_createUnit(input, output, backend, op, weight, outputCount * inputCount * kernelSize,
+                                    bias, biasSize, nullptr, false, false));
+        if (!exe->mFull || !exe->mFull->valid()) {
+            return nullptr;
+        }
+        auto core = static_cast<CPUBackend*>(backend)->functions();
+        std::vector<float> fullBias(outputCount, 0.0f);
+        ::memcpy(fullBias.data(), bias, ALIMIN(biasSize, outputCount) * sizeof(float));
+        exe->mBias.resize((size_t)UP_DIV(outputCount, core->pack) * core->pack * core->bytes);
+        Resource::copyBias((float*)exe->mBias.data(), fullBias.data(), outputCount, backend);
+        return exe.release();
+    }
+
+    bool onClone(Backend* backend, const Op* op, Execution** dst) override {
+        if (!mFull->onClone(backend, op, nullptr)) {
+            return false;
+        }
+        for (const auto& tap : mTaps) {
+            const auto tapOp = flatbuffers::GetRoot<Op>(tap.op->GetBufferPointer());
+            if (!tap.unit->onClone(backend, tapOp, nullptr)) {
+                return false;
+            }
+        }
+        if (nullptr == dst) {
+            return true;
+        }
+        std::unique_ptr<ConvolutionTapRegions> exe(
+            new ConvolutionTapRegions(op->main_as_Convolution2D()->common(), backend));
+        Execution* full = nullptr;
+        const bool fullCloned = mFull->onClone(backend, op, &full);
+        exe->mFull.reset(full);
+        if (!fullCloned || !full || !full->valid()) {
+            return false;
+        }
+        for (const auto& tap : mTaps) {
+            const auto tapOp = flatbuffers::GetRoot<Op>(tap.op->GetBufferPointer());
+            Execution* unit = nullptr;
+            const bool unitCloned = tap.unit->onClone(backend, tapOp, &unit);
+            std::unique_ptr<Execution> unitOwner(unit);
+            if (!unitCloned || !unit || !unit->valid()) {
+                return false;
+            }
+            Tap cloned;
+            cloned.ky = tap.ky;
+            cloned.kx = tap.kx;
+            cloned.op = tap.op;
+            cloned.unit = std::move(unitOwner);
+            cloned.input.reset(new Tensor(4, Tensor::CAFFE_C4));
+            cloned.output.reset(new Tensor(4, Tensor::CAFFE_C4));
+            exe->mTaps.push_back(std::move(cloned));
+        }
+        exe->mBias = mBias;
+        *dst = exe.release();
+        return true;
+    }
+
+    ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+        mUseRegions = inputs[0]->batch() == outputs[0]->batch() &&
+                      liveFraction(mCommon, inputs[0], outputs[0]) < 0.75f;
+        if (!mUseRegions) {
+            return mFull->onResize(inputs, outputs);
+        }
+        CPUConvolution::onResize(inputs, outputs);
+        // Read the activation here, not in onExecute: mCommon points into the
+        // model buffer, which Interpreter::releaseModel frees once sessions
+        // exist.
+        mPostParameters = getPostParameters();
+        auto input  = inputs[0];
+        auto output = outputs[0];
+        const int ih = input->height(), iw = input->width();
+        const int oh = output->height(), ow = output->width();
+        mDirect = -1;
+        for (int i = 0; i < (int)mTaps.size(); ++i) {
+            auto& tap = mTaps[i];
+            tap.oy = tap.ky * mCommon->dilateY() - mPadY;
+            tap.ox = tap.kx * mCommon->dilateX() - mPadX;
+            tap.y0 = ALIMAX(0, -tap.oy);
+            tap.y1 = ALIMIN(oh, ih - tap.oy);
+            tap.x0 = ALIMAX(0, -tap.ox);
+            tap.x1 = ALIMIN(ow, iw - tap.ox);
+            tap.active = tap.y0 < tap.y1 && tap.x0 < tap.x1;
+            if (mDirect < 0 && tap.oy == 0 && tap.ox == 0 && ih == oh && iw == ow) {
+                mDirect = i;
+            }
+        }
+        for (int i = 0; i < (int)mTaps.size(); ++i) {
+            auto& tap = mTaps[i];
+            if (!tap.active) {
+                continue;
+            }
+            ErrorCode code = NO_ERROR;
+            if (i == mDirect) {
+                code = tap.unit->onResize(inputs, outputs);
+            } else {
+                _setShape(tap.input.get(), input->batch(), input->channel(), tap.y1 - tap.y0, tap.x1 - tap.x0);
+                _setShape(tap.output.get(), output->batch(), output->channel(), tap.y1 - tap.y0, tap.x1 - tap.x0);
+                bool res = backend()->onAcquireBuffer(tap.input.get(), Backend::DYNAMIC);
+                res      = res && backend()->onAcquireBuffer(tap.output.get(), Backend::DYNAMIC);
+                if (!res) {
+                    return OUT_OF_MEMORY;
+                }
+                code = tap.unit->onResize({tap.input.get()}, {tap.output.get()});
+                // Taps run one after another, so their buffers may share memory.
+                backend()->onReleaseBuffer(tap.input.get(), Backend::DYNAMIC);
+                backend()->onReleaseBuffer(tap.output.get(), Backend::DYNAMIC);
+            }
+            if (NO_ERROR != code) {
+                return code;
+            }
+        }
+        return NO_ERROR;
+    }
+
+    ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+        if (!mUseRegions) {
+            return mFull->onExecute(inputs, outputs);
+        }
+        auto cpuBackend   = static_cast<CPUBackend*>(backend());
+        auto core         = cpuBackend->functions();
+        const int pack    = core->pack;
+        const int bytes   = core->bytes;
+        const int threads = cpuBackend->threadNumber();
+        auto input        = inputs[0];
+        auto output       = outputs[0];
+        const int batch   = input->batch();
+        const int ih = input->height(), iw = input->width();
+        const int oh = output->height(), ow = output->width();
+        const int inPlanes  = UP_DIV(input->channel(), pack) * batch;
+        const int outPlanes = UP_DIV(output->channel(), pack) * batch;
+        auto src = input->host<uint8_t>();
+        auto dst = output->host<uint8_t>();
+
+        if (mDirect >= 0) {
+            auto code = mTaps[mDirect].unit->onExecute(inputs, outputs);
+            if (NO_ERROR != code) {
+                return code;
+            }
+        } else {
+            ::memset(dst, 0, (size_t)outPlanes * oh * ow * pack * bytes);
+        }
+        for (int i = 0; i < (int)mTaps.size(); ++i) {
+            auto& tap = mTaps[i];
+            if (!tap.active || i == mDirect) {
+                continue;
+            }
+            const int h = tap.y1 - tap.y0, w = tap.x1 - tap.x0;
+            auto tapIn  = tap.input->host<uint8_t>();
+            auto tapOut = tap.output->host<uint8_t>();
+            MNN_CONCURRENCY_BEGIN(tId, threads) {
+                for (int p = (int)tId; p < inPlanes; p += threads) {
+                    for (int y = 0; y < h; ++y) {
+                        ::memcpy(tapIn + ((size_t)(p * h + y) * w) * pack * bytes,
+                                 src + ((size_t)(p * ih + y + tap.y0 + tap.oy) * iw + tap.x0 + tap.ox) * pack * bytes,
+                                 (size_t)w * pack * bytes);
+                    }
+                }
+            }
+            MNN_CONCURRENCY_END();
+            auto code = tap.unit->onExecute({tap.input.get()}, {tap.output.get()});
+            if (NO_ERROR != code) {
+                return code;
+            }
+            MNN_CONCURRENCY_BEGIN(tId, threads) {
+                for (int p = (int)tId; p < outPlanes; p += threads) {
+                    for (int y = 0; y < h; ++y) {
+                        auto row = (float*)(dst + ((size_t)(p * oh + y + tap.y0) * ow + tap.x0) * pack * bytes);
+                        core->MNNMatrixAdd(row, row, (const float*)(tapOut + ((size_t)(p * h + y) * w) * pack * bytes), w, 0,
+                                           0, 0, 1);
+                    }
+                }
+            }
+            MNN_CONCURRENCY_END();
+        }
+        const int outDepth     = UP_DIV(output->channel(), pack);
+        const size_t planeSize = (size_t)batch * oh * ow;
+        MNN_CONCURRENCY_BEGIN(tId, threads) {
+            for (int z = (int)tId; z < outDepth; z += threads) {
+                auto plane = (float*)(dst + z * planeSize * pack * bytes);
+                core->MNNAxByClampBroadcastUnit(plane, plane, (const float*)(mBias.data() + (size_t)z * pack * bytes),
+                                                planeSize, 0, 0, 1, mPostParameters.data());
+            }
+        }
+        MNN_CONCURRENCY_END();
+        return NO_ERROR;
+    }
+
+private:
+    struct Tap {
+        int ky = 0, kx = 0;
+        // Owns the 1x1 op `unit` points into; declared first, destroyed last.
+        std::shared_ptr<flatbuffers::FlatBufferBuilder> op;
+        std::shared_ptr<Execution> unit;
+        std::shared_ptr<Tensor> input, output;
+        int oy = 0, ox = 0, y0 = 0, y1 = 0, x0 = 0, x1 = 0;
+        bool active = false;
+    };
+    ConvolutionTapRegions(const Convolution2DCommon* common, Backend* backend) : CPUConvolution(common, backend) {
+    }
+    static void _setShape(Tensor* tensor, int batch, int channel, int height, int width) {
+        auto& buffer         = tensor->buffer();
+        buffer.dimensions    = 4;
+        buffer.dim[0].extent = batch;
+        buffer.dim[1].extent = channel;
+        buffer.dim[2].extent = height;
+        buffer.dim[3].extent = width;
+        TensorUtils::getDescribe(tensor)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+        TensorUtils::setLinearLayout(tensor);
+    }
+    std::unique_ptr<Execution> mFull;
+    bool mUseRegions = false;
+    std::vector<Tap> mTaps;
+    std::vector<uint8_t> mBias;
+    std::vector<float> mPostParameters;
+    int mDirect = -1;
+};
+
 Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                            const MNN::Op* op, Backend* backend) {
     auto conv2d = op->main_as_Convolution2D();
@@ -272,12 +590,14 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         return nullptr;
     }
     if (1 == group) {
+        const int kernelSize  = common->kernelX() * common->kernelY();
+        const int inputCount  = inputs[0]->channel();
+        const int outputCount = common->outputCount();
+        const bool plainFloat = nullptr == quanCommon.get() && !lowMemory && nullptr != originWeight && kernelSize > 1 &&
+                                originWeightSize == outputCount * inputCount * kernelSize;
         std::shared_ptr<flatbuffers::FlatBufferBuilder> builder;
         std::unique_ptr<Execution> reduced;
         const int ky = common->kernelY() / 2, kx = common->kernelX() / 2;
-        const int kernelSize = common->kernelX() * common->kernelY();
-        const int inputCount = inputs[0]->channel();
-        const int outputCount = common->outputCount();
         if (nullptr == quanCommon.get() && !lowMemory && nullptr != originWeight && kernelSize > 1 &&
             originWeightSize == outputCount * inputCount * kernelSize &&
             common->padMode() == PadMode_SAME && common->kernelX() % 2 == 1 && common->kernelY() % 2 == 1 &&
@@ -318,8 +638,14 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
             }
         }
         // Build the reduced kernel first so it cannot retain part of the full kernel's packing scratch buffer.
-        Execution* full = _createUnit(inputs[0], outputs[0], backend, op, originWeight, originWeightSize,
-                                      originBias, originBiasSize, quanCommon, supportSparse, lowMemory);
+        Execution* full = nullptr;
+        if (plainFloat && core->bytes == 4 && ConvolutionTapRegions::supported(common, inputCount, outputCount)) {
+            full = ConvolutionTapRegions::create(op, backend, inputs[0], outputs[0], inputCount, outputCount,
+                                                 originWeight, originBias, originBiasSize);
+        } else {
+            full = _createUnit(inputs[0], outputs[0], backend, op, originWeight, originWeightSize,
+                               originBias, originBiasSize, quanCommon, supportSparse, lowMemory);
+        }
         if (reduced) {
             return new ConvolutionSingleTap(backend, common, ky, kx, std::shared_ptr<Execution>(full),
                                           std::move(builder), std::move(reduced));
