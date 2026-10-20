@@ -898,6 +898,8 @@ def vstack(tup):
     return concatenate(arrs)
 def hstack(tup):
     arrs = atleast_1d(*tup)
+    if not isinstance(arrs, list):
+        arrs = [arrs]
     if arrs and arrs[0].ndim == 1:
         return concatenate(arrs, 0)
     else:

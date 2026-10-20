@@ -1008,6 +1008,14 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.dstack((a, b)), np.dstack((a_, b_)))
         self.assertEqualVar(mp.column_stack((a, b)), np.column_stack((a_, b_)))
         self.assertEqualVar(mp.row_stack((a, b)), np.row_stack((a_, b_)))
+        for shape in [(3,), (2, 3), (2, 3, 2), (2, 1, 3, 2)]:
+            for dtype in [np.float32, np.int32]:
+                x = np.arange(np.prod(shape), dtype=dtype).reshape(shape)
+                for count in [1, 2, 3]:
+                    with self.subTest(shape=shape, dtype=dtype, count=count):
+                        arrays = [x + i for i in range(count)]
+                        actual = mp.hstack(tuple(mp.array(a) for a in arrays))
+                        self.assertEqualVar(actual, np.hstack(tuple(arrays)))
     def test_splitting(self):
         x = mp.arange(9.0)
         x_ = np.arange(9.0)
