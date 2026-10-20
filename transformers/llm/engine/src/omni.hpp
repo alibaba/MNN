@@ -280,6 +280,7 @@ private:
     // calls instead of being a local variable.
     int mVisionIndex = 0, mVisionConsumed = 0;
     VARP mVisionPositionIdsCache, mVisionAttentionMaskCache, mVisionWindowAttentionMaskCache;
+    MaskCache mVisionMaskCache;
     VARP mVisionIdxTensorCache, mVisionWeightTensorCache, mVisionWindowIndexCache;
     std::shared_ptr<Talker> mTalker;
     int64_t mThinkerElapsedUs = 0;
