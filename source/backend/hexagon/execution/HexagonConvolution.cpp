@@ -182,13 +182,13 @@ static Q4ActivationOuterBudget q4ActivationOuterBudget(int KAlign, int scaleBloc
 // An M too large for the budget degrades by halving mp until something fits, rather than dropping
 // the schedule entirely.
 static bool q4ActivationOuterChunks(const Q4ActivationOuterBudget& b, size_t vtcmSize, int totalMp, int totalNp,
-                                    int* mpOut, int* npOut) {
+                                    int maxMp, int* mpOut, int* npOut) {
     if (vtcmSize <= b.overhead || b.perNp == 0 || b.perMp == 0 || b.perMpNp == 0) {
         return false;
     }
     const size_t usable = vtcmSize - b.overhead;
 
-    for (int candMp = totalMp; candMp >= 1; --candMp) {
+    for (int candMp = std::min(totalMp, maxMp); candMp >= 1; --candMp) {
         const size_t activationBytes = (size_t)candMp * b.perMp;
         if (activationBytes + b.perNp + (size_t)candMp * b.perMpNp > usable) {
             continue;
@@ -945,7 +945,14 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
             q4ActivationOuterBudget(KAlign, mResource->int4ScaleBlockNum, runtime->info().maxThreads, K == 9728);
         int mp = 0;
         int np = 0;
-        if (q4ActivationOuterChunks(budget, (size_t)vtcmSize, total_mp, total_np, &mp, &np)) {
+        // V81 prefers a smaller resident slab so np can stay wide; V79 is fine covering all of M.
+        // V81 turns the dequant into the critical path on the deepest projection: at the V79
+        // preference (mp covering all of M) the output chunk shrinks to np=10 and the weight
+        // refetches dominate. Capping mp at 8 for down-like shapes is worth +30% at 4B pp512;
+        // narrower models (K < 4096) prefer the V79 preference and are left alone.
+        const bool v81DeepProjection = hvxArch == 81 && K >= 4096 && K > 2 * N;
+        const int maxMp = v81DeepProjection ? std::min(total_mp, 8) : total_mp;
+        if (q4ActivationOuterChunks(budget, (size_t)vtcmSize, total_mp, total_np, maxMp, &mp, &np)) {
             mMp = mp;
             mNp = np;
             activationOuter = true;
