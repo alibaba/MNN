@@ -619,6 +619,12 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             }
             auto inputTensor = Utils::getTensor(inputs[i]);
             Schedule::TENSORCACHE* cacheTensor = nullptr;
+            // Loop submodules may receive updated contents at the same Tensor address.
+            // Refresh backend copies on each forward, even when the address is unchanged.
+            auto copyCache = pipelineInfo.first.inputTensorCopyCache.find(mInputTensors[i]);
+            if (copyCache != pipelineInfo.first.inputTensorCopyCache.end()) {
+                std::get<3>(copyCache->second) = true;
+            }
             if (mPrevInputTensor[i].first != inputTensor) {
                 auto newBackend = TensorUtils::getDescribeOrigin(inputTensor)->getBackend();
                 auto newType = MNN_FORWARD_CPU;

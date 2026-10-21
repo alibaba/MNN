@@ -161,3 +161,47 @@ public:
 };
 MNNTestSuiteRegister(ModuleShapeInfer, "expr/ModuleShapeInfer");
 MNNTestSuiteRegister(VariableSaveLoad, "variable/saveLoad");
+
+class ModuleInputCopyRefresh : public MNNTestCase {
+public:
+    virtual bool run(int precision) override {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
+        auto condition = _Input({1}, NCHW, halide_type_of<int>());
+        condition->setName("condition");
+        auto result = _Select(condition, _Scalar<float>(2.0f), _Scalar<float>(3.0f));
+        result->setName("result");
+        auto buffer = Variable::save({result});
+        ScheduleConfig config;
+        BackendConfig backendConfig;
+        backendConfig.precision = static_cast<BackendConfig::PrecisionMode>(precision);
+        config.backendConfig = &backendConfig;
+        std::shared_ptr<Executor::RuntimeManager> runtime(
+            Executor::RuntimeManager::createRuntimeManager(config), Executor::RuntimeManager::destroy);
+        std::shared_ptr<Module> net(Module::load({"condition"}, {"result"},
+            reinterpret_cast<const uint8_t*>(buffer.data()), buffer.size(), runtime), Module::destroy);
+        if (!net || net->getChildren().empty()) {
+            return false;
+        }
+        // WhileModule forwards its body without NetModule's per-call clearCache().
+        // Exercise that same internal path deterministically, without relying on
+        // allocator reuse to produce identical Tensor addresses in consecutive iterations.
+        auto body = net->getChildren()[0];
+        auto input = _Input({1}, NCHW, halide_type_of<int>());
+        for (int i = 0; i < 8; ++i) {
+            input->writeMap<int>()[0] = i % 2;
+            auto outputs = body->onForward({input});
+            if (outputs.size() != 1) {
+                return false;
+            }
+            auto value = outputs[0]->readMap<float>();
+            float expected = i % 2 ? 2.0f : 3.0f;
+            if (value == nullptr || value[0] != expected) {
+                MNN_ERROR("Module input copy was not refreshed at iteration %d\n", i);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ModuleInputCopyRefresh, "expr/ModuleInputCopyRefresh");
