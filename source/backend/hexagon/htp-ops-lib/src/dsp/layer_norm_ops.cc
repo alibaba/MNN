@@ -1206,7 +1206,7 @@ AEEResult htp_ops_add_fuse_layernorm(uint8_t* dst, uint8_t* add_out, uint8_t* sr
     betaBase = betaVtcm;
   }
 
-#if __HVX_ARCH__ == 79 && !defined(SIMULATOR_MOCK_HMX)
+#if (__HVX_ARCH__ == 79 || __HVX_ARCH__ == 81) && !defined(SIMULATOR_MOCK_HMX)
   if (batch == 512 && channels == 2560 && RMSNorm && betaBase == NULL && gammaBase != NULL) {
     const uintptr_t vtcmBase           = (uintptr_t) vtcm_manager_get_vtcm_base();
     const size_t    vtcmBytes          = vtcm_manager_get_vtcm_size();

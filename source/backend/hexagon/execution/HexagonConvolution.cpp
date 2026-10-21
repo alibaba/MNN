@@ -934,7 +934,11 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
     // special-cased; the chunk solver decides from the VTCM budget whether it fits.
     // Only the conditions the kernel itself requires are checked here.
     bool activationOuter = false;
-    const bool weightPipeline = runtime->info().hvxArch == 79;
+    // V81 only wins from the resident activation slab once M is large enough to amortize the
+    // narrower output chunk it forces; at M = 128 the extra weight refetches cost more than the
+    // saved activation passes. V79 keeps its existing threshold.
+    const int hvxArch = runtime->info().hvxArch;
+    const bool weightPipeline = hvxArch == 79 || (hvxArch == 81 && M >= 256);
     if (!mUseIm2Col && weightPipeline && q4ScaleMode == Q4ScaleMode::BlockSymmetric && M > 32 && K % 32 == 0 &&
         N % 32 == 0 && total_mp > 1) {
         const Q4ActivationOuterBudget budget =

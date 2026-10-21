@@ -565,7 +565,7 @@ static inline void htp_ops_binary_run_task(HtpOpsBinaryTaskState* state, int siz
 
   uint8_t     *staging        = nullptr;
   const size_t stagingPerTask = 6 * 32 * 1024;
-#if __HVX_ARCH__ == 79
+#if __HVX_ARCH__ == 79 || __HVX_ARCH__ == 81
   if (state->kind == HTP_OPS_BINARY_TASK_FP16 && state->opType == HTP_OPS_BINARY_MUL_SILU && size >= 65536 &&
       vtcm_manager_get_vtcm_size() >= stagingPerTask * n_tasks) {
     staging = (uint8_t *) vtcm_manager_get_vtcm_base();

@@ -201,7 +201,7 @@ static int q4_weight_reuse_activation(const uint8_t *activation, const uint8_t *
                                       int weightIsVrmpy) {
   bool eligible = false;
   bool reuse    = false;
-#if __HVX_ARCH__ == 79 && !defined(SIMULATOR_MOCK_HMX)
+#if (__HVX_ARCH__ == 79 || __HVX_ARCH__ == 81) && !defined(SIMULATOR_MOCK_HMX)
   if (layoutType == 3 && m > 32 && m <= 512 && k == 2560 && n == 9728 && mp >= (m + 31) / 32 && scaleBlockNum > 1 &&
       !scaleAsymmetric && !weightIsVrmpy) {
     const uint64_t inputBegin  = (uintptr_t) activation;

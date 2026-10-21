@@ -97,7 +97,7 @@ static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *
   HVX_Vector  v_maxs  = Q6_V_vsplat_R(*(const int *) &max_value);
   HVX_Vector  v_sum   = Q6_V_vzero();
   i                   = 0;
-#if __HVX_ARCH__ == 79
+#if __HVX_ARCH__ == 79 || __HVX_ARCH__ == 81
   // Two complete blocks expose independent exp chains without changing summation order.
   for (; i <= validN - 128; i += 128) {
     HVX_VectorPair sf0 = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(*(const HVX_Vector *) (stage + i)));

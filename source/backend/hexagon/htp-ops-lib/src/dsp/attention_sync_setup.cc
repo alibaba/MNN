@@ -169,7 +169,7 @@ int sync_attention_pages(__fp16 *restrict O, const __fp16 *restrict Q, const flo
   state.online_pages = online_pages;
   // fp16 QK scores only in the grouped-causal prefill path (decode_grouped && qo_len>1).
   state.scores_fp16            = ATTN_SCORES_FP16 && state.decode_grouped && state.qo_len > 1;
-#if __HVX_ARCH__ == 79
+#if __HVX_ARCH__ == 79 || __HVX_ARCH__ == 81
   // Bounded residency experiment: keep worker S/P/Q/O storage separate from queue
   // scratch at the VTCM base and the push-K transpose reservation at the tail.
   // For this shape QK/SV scratch is below 2 MiB (rows<=256, head=128, page=256).
