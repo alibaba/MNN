@@ -30,6 +30,16 @@ int qwenVideoAlignedFrameCount(int frameCount, int maxFrames, int factor);
 int qwenVideoEffectiveMaxPixels(int maxPixels, int maxVisionTokens, int frameCount, int factor, int patchSize);
 std::pair<int, int> qwenVideoResizeSize(int width, int height, int alignSize, int maxPixels);
 void fillQwenVisionAttentionMask(float* mask, int gridT, int tokensPerTemporal);
+// Qwen2.5-VL merger windows: writes the window-ordered merge-unit indices into windowIndex
+// (gridT * llmGridH * llmGridW entries) and returns the window boundaries in patch units.
+// mergeUnit is merge_size^2 and windowSize the merger window in llm-grid units; both come from
+// the exported config so they cannot drift from the graph.
+std::vector<int> qwen25VisionWindowIndex(int gridT, int llmGridH, int llmGridW, int mergeUnit, int windowSize,
+                                         int* windowIndex);
+// Temporal mRoPE index per grid: arange(gridT) when positionIdPerSecond <= 0 (Qwen2-VL),
+// otherwise the grid's start time relative to the first frame times positionIdPerSecond.
+std::vector<int> qwenVideoTemporalPositions(const std::vector<float>& frameTimes, int gridT, int temporalPatchSize,
+                                            float positionIdPerSecond);
 
 class MropeInfo {
 public:
@@ -219,10 +229,13 @@ private:
         mAudioPad = 151646, mAudioStart = -1, mAudioEnd = -1, mVideoPad = -1;
     int mVisionGlobal = 49152;
     int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
+    int mVisionMergeSize = 2;
+    int mVisionMergerWindowSize = 4;
     float mVideoFps = 2.0f;
     int mVideoMaxFrames = 768;
     int mVideoMaxPixels = 768 * 28 * 28;
     int mVideoMaxVisionTokens = 4096;
+    float mVideoPositionIdPerSecond = 0.0f;
     int mVisionNum = 0;
     int mNumGridPerSide = 1;
     bool mVisionSizeOverridden = false;
@@ -248,7 +261,7 @@ private:
     std::shared_ptr<Talker> mTalker;
     int64_t mThinkerElapsedUs = 0;
     // m_rope position ids
-    void addPositionIds(int t, int h = -1, int w = -1);
+    void addPositionIds(int t, int h = -1, int w = -1, const std::vector<int>* temporalPositions = nullptr);
     MropeInfo mPositionIds;
     bool mIsEmbedding = false;
 };

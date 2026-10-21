@@ -288,6 +288,8 @@ class Qwen2Vision(Vision):
         self.video_pad_id = getattr(self.config, 'video_token_id', None)
         self.llm_config['image_size'] = self.image_height
         self.refresh_image_resize_config()
+        # Published so inference reads the merger geometry instead of assuming the graph's own.
+        self.llm_config['vision_merge_size'] = self.merge_size
         self.llm_config['vision_start'] = self.vision_start_id
         self.llm_config['vision_end'] = self.vision_end_id
         self.llm_config['image_pad'] = self.image_pad_id
@@ -297,6 +299,10 @@ class Qwen2Vision(Vision):
             self.llm_config['video_max_frames'] = self.video_max_frames
             self.llm_config['video_max_pixels'] = self.video_max_pixels
             self.llm_config['video_max_vision_tokens'] = self.video_max_vision_tokens
+            # Qwen2.5-VL scales the temporal mRoPE index by seconds; Qwen2-VL has no such field.
+            tokens_per_second = getattr(self.visual.config, 'tokens_per_second', None)
+            if tokens_per_second is not None:
+                self.llm_config['video_position_id_per_second'] = tokens_per_second
         self.vision_start_token = '<|vision_start|>'
         self.vision_end_token = '<|vision_end|>'
         self.image_pad_token = '<|image_pad|>'
@@ -1044,14 +1050,22 @@ class Qwen2_5Vision(Qwen2Vision):
     def __init__(self, visual, base):
         super().__init__(visual, base)
         self.merge_unit = self.merge_size * self.merge_size
-        self.window_size = visual.window_size
         self.fullatt_block_indexes = visual.fullatt_block_indexes
+
+    @property
+    def merger_window_size(self):
+        # Derived, not stored: load() runs from Vision.__init__, before this subclass can assign.
+        return self.visual.window_size // self.merge_size // self.patch_size
+
+    def load(self):
+        super().load()
+        self.llm_config['vision_merger_window_size'] = self.merger_window_size
 
     def get_window_index(self, grid_thw):
         window_index: list = []
         cu_window_seqlens: list = [0]
         window_index_id = 0
-        vit_merger_window_size = self.window_size // self.merge_size // self.patch_size
+        vit_merger_window_size = self.merger_window_size
 
         for grid_t, grid_h, grid_w in grid_thw:
             llm_grid_h, llm_grid_w = (
@@ -1159,9 +1173,20 @@ class Qwen2_5OmniVision(Qwen2_5Vision):
         self.llm_config['vision_start'] = self.vision_start_id
         self.llm_config['vision_end'] = self.vision_end_id
         self.llm_config['image_pad'] = self.image_pad_id
+        # This load() does not chain to Qwen2_5Vision.load(), so publish the merger geometry here.
+        self.llm_config['vision_merge_size'] = self.merge_size
+        self.llm_config['vision_merger_window_size'] = self.merger_window_size
+        self.video_pad_id = self.config.video_token_index
+        self.llm_config['video_pad'] = self.video_pad_id
+        self.llm_config['video_fps'] = self.video_fps
+        self.llm_config['video_max_frames'] = self.video_max_frames
+        self.llm_config['video_max_pixels'] = self.video_max_pixels
+        self.llm_config['video_max_vision_tokens'] = self.video_max_vision_tokens
+        self.llm_config['video_position_id_per_second'] = self.config.position_id_per_seconds
         self.vision_start_token = '<|vision_bos|>'
         self.vision_end_token = '<|vision_eos|>'
         self.image_pad_token = '<|IMAGE|>'
+        self.video_pad_token = '<|VIDEO|>'
         # load model
         config = self.visual.config
         if hasattr(config, "embed_dim"):
