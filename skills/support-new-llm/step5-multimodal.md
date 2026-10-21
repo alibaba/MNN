@@ -56,8 +56,9 @@ Position embedding 方式 (固定 / 可变插值)：____
 | Vision 子类 | 编码器类型 | Patch Embed | Position Embed | 投影器 | tokens/tile | 适用模型 |
 |------------|-----------|------------|----------------|--------|------------|---------|
 | `Qwen2Vision` | ViT | Conv2d(14) | RoPE | MLP merge | 可变 | qwen2_vl |
-| `Qwen2_5Vision` | ViT + Window | Conv2d(14) | RoPE | MLP merge | 可变 | qwen2_5_vl, qwen3_vl |
-| `Qwen3_5Vision` | ViT | Conv2d(14) | RoPE | MLP | 可变 | qwen3_5 |
+| `Qwen2_5Vision` | ViT + Window | Conv2d(14) | RoPE | MLP merge | 可变 | qwen2_5_vl, qwen2_5_omni |
+| `Qwen3Vision` | ViT + DeepStack | Conv2d(16) | RoPE + 插值 | MLP merge | 可变 | qwen3_vl |
+| `Qwen3_5Vision` | ViT | Conv2d(16) | RoPE | MLP | 可变 | qwen3_5 |
 | `Gemma3Vision` | SigLIP | Conv2d | 固定 | Linear | 可变 | gemma3 |
 | `Idefics3Vision` | SigLIP | Conv2d | 固定 Embedding | Perceiver resampler | 64 | idefics3, smolvlm |
 | `Lfm2VlVision` | SigLIP2 (NaFlex) | **Linear** | **可变插值** | pixel_unshuffle + MLP | 256 | lfm2_vl |
@@ -78,7 +79,7 @@ Position embedding 方式 (固定 / 可变插值)：____
 
 **关键约束**：
 - `super().__init__()` 之前设置属性（super 会调用 `init_config()` 和 `load()`）
-- `export()` 的 `input_names` 决定 C++ dispatch 路径（→ 参见 5.4.1）
+- `get_config()` 的 `vision_processor.family` 选择 C++ 模型家族入口；`export()` 的输入名称和顺序须符合该处理协议（→ 参见 5.4.1）
 
 ### 5.2.4 VL 模型的 mapper 路径约定
 
@@ -129,7 +130,7 @@ model = {
 
 ### 5.2.5 llm_config 视觉字段速查表
 
-`load()` 方法中设置的 `llm_config` 字段会写入导出的 `llm_config.json`，由 C++ 引擎 `omni.cpp` 读取。
+`load()` 方法中设置的 `llm_config` 字段会写入导出的 `llm_config.json`，由 C++ 引擎 `Omni` 的输入准备流程读取。
 
 | llm_config 字段 | C++ 变量 | 含义 | 必须 |
 |----------------|----------|------|:----:|
@@ -180,6 +181,9 @@ python3 llmexport.py --path /path/to/model --test "你好"
 python3 llmexport.py --path /path/to/model --test "<img>/path/to/test.jpg</img>描述一下这张图片"
 ```
 
+- 用独立 batch 表示窗口或切片时，要检查转换后的 Attention 是否保留 batch 边界；用相同输入比较开启、关闭融合后的视觉特征，不能仅凭 Python 对齐判定融合正确。
+- 回归应覆盖单图、大图切片、多图，以及 Prefill/首次 Decode 的位置编码。无尾随文本时，Decode 起点应取所有位置轴的最大坐标加一。
+
 ---
 
 ## 5.3 添加音频编码器支持
@@ -212,7 +216,9 @@ Audio (基类)
 ├── Qwen2Audio               — whisper 风格 mel + Transformer encoder
 │   ├── Qwen2_5OmniAudio     — 同上 + windowed attention + 分块 decoder
 │   │   └── FunAudioChatAudio — 同上 + group pooling
+├── Qwen3ASRAudio             — whisper mel + 分块音频 Transformer
 ├── Lfm2Audio                 — conformer 风格 mel + FastConformer encoder + MLP adapter
+└── Gemma4Audio               — USM mel + Conformer + 多模态投影
 ```
 
 ### 5.3.2.1 音频预处理类型
@@ -221,39 +227,25 @@ Audio (基类)
 
 | 预处理类型 | Python 实现 | C++ 函数 | 适用模型 | 关键参数差异 |
 |-----------|-------------|----------|---------|-------------|
-| **whisper fbank** | `_torch_extract_fbank_features()` | `MNN::AUDIO::whisper_fbank()` | Qwen2Audio, Qwen2.5OmniAudio, FunAudioChat | n_fft=400, hop=160, hann window, slaney mel, `max(log) - 8` clamp |
+| **whisper fbank** | `_torch_extract_fbank_features()` | `MNN::AUDIO::whisper_fbank()` | Qwen2Audio, Qwen2.5OmniAudio, FunAudioChat, Qwen3ASR | n_fft=400, hop=160, hann window, slaney mel, `max(log) - 8` clamp |
 | **conformer fbank** | `AudioToMelSpectrogramPreprocessor` (NeMo) | `MNN::AUDIO::conformer_fbank()` | Lfm2Audio | n_fft=512, hop=160, win=400, preemphasis=0.97, per_feature norm |
+
+| **usm fbank** | `_extract_mel_features()` | `MNN::AUDIO::usm_fbank()` | Gemma4Audio | n_fft=512, hop=160, win=320, 半因果补齐，无预加重 |
 
 ### 5.3.2.2 C++ 音频 pipeline 扩展
 
-如果新模型使用的 mel 预处理不属于已有类型，需要：
+在 Python 子类声明 `processor_family`，由 `AudioProcessor::create()` 注册到兼容的家族实现。采样率、mel/FFT/hop/window、布局、长度和窗口大小通过 `audio_processor` 描述；共用特征处理流程，只覆盖不同的特征算法或输入准备。
 
-1. 在 `tools/audio/source/audio.cpp` 中实现新的 fbank 函数
-2. 在 `tools/audio/include/audio/audio.hpp` 中声明
-3. 在 `transformers/llm/engine/src/omni.cpp` 的 `audioProcess()` 中添加 dispatch 分支
-
-**C++ audioProcess dispatch 规则**：
-
-```cpp
-// omni.cpp 中根据 llm_config 的 audio_type 字段选择预处理：
-if (audio_type == "conformer") {
-    input_features = MNN::AUDIO::conformer_fbank(waveform);
-} else {
-    // 默认 whisper 风格
-    input_features = MNN::AUDIO::whisper_fbank(waveform);
-}
-```
-
-新增音频类型时，在 Audio 子类的 `load()` 方法中设置 `self.llm_config['audio_type'] = 'xxx'`，C++ 侧在 `audioProcess()` 中添加对应分支。
+只有特征提取算法不兼容时，才在 `tools/audio/` 实现新的 fbank，并扩展特征提取选择。布局转换和语言模型 `scale_emb` 补偿通过 `EncoderExport` 放进导出图，统一输出 `[tokens, batch, hidden]`。
 
 ### 5.3.2.3 llm_config 音频字段速查表
 
-| llm_config 字段 | C++ 变量 | 含义 | 必须 |
-|----------------|----------|------|:----:|
-| `is_audio` | — | 标记为音频模型 | ✅ |
-| `audio_type` | `mAudioType` | 音频预处理类型 (`"whisper"` / `"conformer"`) | 新类型时 |
-| `audio_pad` | `mAudioPad` | 音频 pad token ID | 非 Qwen 时 |
-| `n_window` | — | windowed attention 的窗口大小 | Qwen2.5Omni |
+| llm_config 字段 | 含义 |
+|----------------|------|
+| `is_audio` | 标记为音频模型 |
+| `audio_processor` | version/family、特征参数、布局和窗口协议，由 `Audio.get_config()` 生成 |
+| `audio_pad` / `audio_start` / `audio_end` | 媒体占位和起止标记；位置数须覆盖完整占位序列 |
+| `audio_type` / `n_window` | 历史模型兼容字段，新模型以 processor 描述为准 |
 
 ### 5.3.3 修改代码
 
@@ -298,41 +290,17 @@ python3 llmexport.py --path /path/to/model --test "请描述这段音频 <audio>
 
 完成 Python 侧测试和 MNN 导出后，需要验证 C++ 引擎的多模态推理。
 
-### 5.4.1 C++ visionProcess dispatch 规则
+### 5.4.1 C++ processor 协议
 
-C++ 引擎在 `omni.cpp` 的 `visionProcess()` 中根据 visual.mnn 的**输入名称**自动选择处理函数：
+新模型通过 `vision_processor.family` 选择明确的 C++ 模型家族入口；`version` 为 `2`。先对照输入准备、媒体标记和位置规则，再在 `VisionProcessor::create()` 中注册到兼容的已有实现，或用派生实现覆盖变化的步骤。具体家族和复用边界见 [多模态 Encoder](../../docs/transformers/multimodal-encoder.md)。
 
-```
-visual.mnn 输入名?
-├─ inputNames[0] == "patches"
-│   └→ qwen2VisionProcess()
-│      适用：Qwen2-VL, Qwen2.5-VL, Qwen3-VL, glm_ocr
-│      特点：自行计算 RoPE position_ids, grid_thw, attention_mask
-│
-├─ inputNames[0] == "pixel_values" 且 inputNames.size() == 1
-│   └→ smolvlmVisionProcess()
-│      适用：SmolVLM, LFM2-VL（以及其他 tiling + 单输入模型）
-│      特点：支持图片 tiling（按 image_size_unit 拆分）
-│            visionLen 从全局图片 forward 输出动态获取
-│            使用 image_size_unit / image_max_size / global_image 配置
-│
-├─ inputNames[0] == "pixel_values" 且 inputNames.size() > 1
-│   └→ minicpmVisionProcess()
-│      适用：MiniCPM-V
-│      特点：需要额外的 image_grid 输入
-│
-└─ 其他
-    └→ defaultVisionProcess()
-       适用：简单模型（单张图片 resize + forward）
-       特点：不支持 tiling，resize 到 image_size
-```
+Python 子类声明 `processor_family`，调用 `Vision.export_onnx()`，统一输出 `[tokens, batch, hidden]`。图内 patch 重排通过 `patch_layout` 描述；动态缩放、切片和 mask/index 循环保留在 C++。`VisionPlan` 只携带本次输入的批次、几何和视频时间信息，家族实现负责 token 和位置组装，共用编码器执行、特征拆分及 embedding 插入。
 
-> **重要**：新视觉模型的 `export()` 方法中 `input_names` 的第一个元素决定了 C++ 走哪个分支。选择错误的 input name 会导致 silently 走错 dispatch 分支。
+尺寸、归一化等参数差异写入配置；取整、mask、token 或位置算法不同则覆盖对应函数。MiniCPM-V 4.7 这样的新版本不能仅按旧 MiniCPM 家族直接接入，需单独核对 merger 输入和 Canvas 位置。输入名称推断仅用于加载历史模型；v1 descriptor 同样在加载入口解析为家族。检查输入顺序、特征形状、占位 token 数和位置数一致。
 
-**选择建议**：
-- 如果新模型支持 tiling 且只需 `pixel_values` 一个输入 → 使用 `input_names=['pixel_values']`，走 `smolvlmVisionProcess`
-- 如果新模型兼容 Qwen2-VL 的 patch+position 接口 → 使用 `input_names=['patches', ...]`
-- 如果都不兼容 → 需要在 `omni.cpp` 中添加新的 dispatch 分支
+重构回归同时检查媒体特征、完整拼接 embedding、Prefill/首次 Decode 位置及回答。遇到 GPU 回答差异时，先复跑同一基线，再用固定 token 轨迹比较 logits，区分输入错误与后端数值变化；不能仅凭“视觉特征一样”宣布通过。新导出协议与历史模型兼容路径分别验证，并检查关闭视觉/音频选项的构建。
+
+用不同架构的模型验证共用执行、拆分和拼接流程。动态 patch 打包应使用有序的非均匀输入逐元素对照，形状或求和相同不能证明内部顺序正确。全量导出同时检查退出状态和必需产物，不能只看主进程的成功提示。
 
 ### 5.4.2 C++ 多模态测试
 
@@ -391,7 +359,7 @@ echo "<img>test.jpg</img>描述图片" > test.txt
 
 | 错误 | 最可能原因 |
 |------|----------|
-| C++ 崩溃 | ONNX input_names 不匹配 dispatch（5.4.1） |
+| C++ 崩溃 | processor 描述与 ONNX 输入/输出协议不匹配（5.4.1） |
 | 图片能跑但内容完全错误 | HF forward 中 vision tokens 有特殊预处理未对齐 |
 | C++ 推理不停止 | 缺少 stop token（`common-pitfalls.md` 第 4 节） |
 | 纯文本也坏了 | embed() 影响了文本路径 |

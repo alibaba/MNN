@@ -1,9 +1,10 @@
 import torch
 from .transformers import Decoder
 from .spinner import spinner_run
-from .torch_utils import onnx_export
+from .torch_utils import onnx_export, EncoderExport, embedding_scale
 
 class Audio(torch.nn.Module):
+    processor_family = "qwen2_audio"
     def __init__(self, audio, base):
         super().__init__()
         self.model_type = base.config.model_type
@@ -12,6 +13,7 @@ class Audio(torch.nn.Module):
         self.tokenizer = base.tokenizer
         self.config = base.config.origin_config
         self.hidden_size = base.config.hidden_size
+        self.embedding_scale = embedding_scale(base)
         self.llm_config = { 'is_audio': True }
         self.rope_ratio = 1.0
         self.quant_bit = 16
@@ -19,6 +21,24 @@ class Audio(torch.nn.Module):
         self.load()
 
     def get_config(self):
+        audio_type = self.llm_config.get('audio_type', 'whisper')
+        window = getattr(self, 'n_window', 0)
+        feature_type = audio_type if audio_type in ('conformer', 'usm') else 'whisper'
+        processor = {
+            'version': 2,
+            'family': self.processor_family,
+            'sample_rate': getattr(self, 'sampling_rate', 16000),
+            'mel_bins': getattr(self, 'feature_size', 128),
+            'n_fft': getattr(self, 'n_fft', 400 if feature_type == 'whisper' else 512),
+            'hop_length': getattr(self, 'hop_length', 160),
+            'window_length': 320 if feature_type == 'usm' else 400,
+            'input_layout': 'ct' if audio_type == 'qwen3_asr' else ('btc' if audio_type == 'usm' else 'bct'),
+            'window': window,
+            'mask_stride': 2,
+            'max_frames': 3000 if audio_type == 'whisper' and not window else 0,
+            'output_layout': 'tbc',
+        }
+        self.llm_config['audio_processor'] = processor
         return self.llm_config
 
     @staticmethod
@@ -164,7 +184,7 @@ class Qwen2Audio(Audio):
 
         model = self.float()
         onnx_model = f'{onnx_path}/audio.onnx'
-        onnx_export(model, (input_features),
+        onnx_export(EncoderExport(model, self.embedding_scale), (input_features),
                     onnx_model,
                     input_names=['input_features'],
                     output_names=['audio_embeds'],
@@ -230,6 +250,7 @@ class Qwen3ASRAudioExportModel(torch.nn.Module):
         return hidden_states.unsqueeze(0)
 
 class Qwen3ASRAudio(Audio):
+    processor_family = "qwen3_asr"
     def __init__(self, audio, base):
         super().__init__(audio, base)
         self.audio_embeds = None
@@ -308,7 +329,7 @@ class Qwen3ASRAudio(Audio):
         input_features = torch.randn((self.feature_size, 3000))
         model = self.export_model.float().eval()
         onnx_model = f'{onnx_path}/audio.onnx'
-        onnx_export(model, (input_features,),
+        onnx_export(EncoderExport(model, self.embedding_scale), (input_features,),
                     onnx_model,
                     input_names=['input_features'],
                     output_names=['audio_embeds'],
@@ -331,6 +352,7 @@ class AudioMlp(torch.nn.Module):
         return hidden_states
 
 class Qwen2_5OmniAudio(Qwen2Audio):
+    processor_family = "qwen2_5_omni"
     def __init__(self, audio, base):
         super().__init__(audio, base)
         self.quant_bit = 4
@@ -409,7 +431,7 @@ class Qwen2_5OmniAudio(Qwen2Audio):
         attention_mask = torch.randn([1, seq_len, seq_len])
         model = self.float()
         onnx_model = f'{onnx_path}/audio.onnx'
-        onnx_export(model, (input_features, attention_mask),
+        onnx_export(EncoderExport(model, self.embedding_scale), (input_features, attention_mask),
                     onnx_model,
                     input_names=['input_features', 'attention_mask'],
                     output_names=['audio_embeds'],
@@ -421,6 +443,7 @@ class Qwen2_5OmniAudio(Qwen2Audio):
         return onnx_model
 
 class FunAudioChatAudio(Qwen2_5OmniAudio):
+    processor_family = "funaudiochat"
     def __init__(self, audio, base):
         super().__init__(audio, base)
         self.audio_pad_id = 151669
@@ -456,6 +479,8 @@ class Lfm2Audio(Audio):
 
     Supports audio understanding: audio → conformer → adapter → inject into LFM → text.
     """
+
+    processor_family = "lfm2_audio"
 
     def __init__(self, audio, base):
         # Store adapter and constants before super().__init__() using __dict__
@@ -570,7 +595,7 @@ class Lfm2Audio(Audio):
 
         input_features = torch.randn((1, 128, 1000))
         onnx_model = f'{onnx_path}/audio.onnx'
-        onnx_export(model, (input_features,),
+        onnx_export(EncoderExport(model, self.embedding_scale), (input_features,),
                     onnx_model,
                     input_names=['input_features'],
                     output_names=['audio_embeds'],
@@ -782,6 +807,7 @@ class Gemma4AudioExportModel(torch.nn.Module):
 
 
 class Gemma4Audio(Audio):
+    processor_family = "gemma4"
     def __init__(self, audio, base):
         object.__setattr__(self, 'embed_audio_ref', base.embed_audio)
         super().__init__(audio, base)
@@ -888,7 +914,7 @@ class Gemma4Audio(Audio):
         input_features = torch.randn((1, 600, self.feature_size))
         model = self.export_model.float().eval()
         onnx_model = f'{onnx_path}/audio.onnx'
-        onnx_export(model, (input_features,),
+        onnx_export(EncoderExport(model, self.embedding_scale), (input_features,),
                     onnx_model,
                     input_names=['input_features'],
                     output_names=['audio_embeds'],
