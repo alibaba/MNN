@@ -1,5 +1,9 @@
 import math
 import torch
+try:
+    from transformers.initialization import no_init_weights
+except ImportError:
+    from transformers.modeling_utils import no_init_weights
 import torch.nn.functional as F
 from typing import Optional, Tuple
 
@@ -389,7 +393,10 @@ class Attention(torch.nn.Module):
             key_states = self.qk_norm(key_states)
 
         if self.export_fused_attn and torch.onnx.is_in_onnx_export():
-            attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask)
+            attention_sink = getattr(self, 'sinks', None)
+            if attention_sink is not None:
+                attention_sink = attention_sink.float()
+            attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask, attention_sink)
             if gate is not None:
                 attn_output = attn_output * torch.sigmoid(gate)
             attn_output = self.o_proj(attn_output)
@@ -950,7 +957,9 @@ def _compute_yarn_parameters(rotary_dim, base_theta, scaling_config, max_positio
     def find_correction_range(low_rot, high_rot, d, b, max_pos):
         low = find_correction_dim(low_rot, d, b, max_pos)
         high = find_correction_dim(high_rot, d, b, max_pos)
-        return max(0, math.floor(low)), min(d - 1, math.ceil(high))
+        if scaling_config.get("truncate", True):
+            low, high = math.floor(low), math.ceil(high)
+        return max(0, low), min(d - 1, high)
 
     def linear_ramp_factor(mn, mx, d):
         if mn == mx:
@@ -1415,7 +1424,7 @@ class Mlp(torch.nn.Module):
         self.export_moe = False
         if isinstance(self.experts, torch.nn.ModuleList):
             self.moe_type = 'qwen3_moe'
-        else:
+        elif not hasattr(self, 'router'):
             self.moe_type = 'qwen3_5_moe'
             self.norm_topk_prob = True
             # refacte experts to qwen3_experts
@@ -1426,7 +1435,8 @@ class Mlp(torch.nn.Module):
             act_fn = original_experts.act_fn
             new_experts_list = torch.nn.ModuleList()
             for i in range(self.num_experts):
-                expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
+                with no_init_weights():
+                    expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
                 expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i]
                 expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i]
                 if model_type == 'mobilemoe':
@@ -1455,7 +1465,8 @@ class Mlp(torch.nn.Module):
             self.gate.bias.data = self.router.bias.data
             # refacte experts to qwen3_experts
             original_experts = self.experts
-            expert_dim = original_experts.expert_dim
+            expert_dim = (getattr(original_experts, 'expert_dim', None) or
+                          original_experts.intermediate_size)
             new_experts_list = torch.nn.ModuleList()
             for i in range(self.num_experts):
                 expert_mlp = GptOssExpert(hidden_dim, expert_dim)

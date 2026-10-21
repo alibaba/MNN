@@ -100,7 +100,9 @@ def _quant_dispatch(weight, quant_bit, quant_block, symmetric, awq, hqq):
         try:
             torch.cuda.empty_cache()
             return _quant_on_device(weight.cuda(), quant_bit, quant_block, symmetric, awq, hqq)
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as error:
+            if not isinstance(error, torch.cuda.OutOfMemoryError) and 'out of memory' not in str(error).lower():
+                raise
             torch.cuda.empty_cache()
     if torch.backends.mps.is_available():
         try:
