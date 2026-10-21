@@ -199,6 +199,50 @@ void fillQwenVisionAttentionMask(float* mask, int gridT, int tokensPerTemporal) 
     fillBlockDiagonal(mask, seqLen, seqLen, cu);
 }
 
+std::vector<int> qwen25VisionWindowIndex(int gridT, int llmGridH, int llmGridW, int mergeUnit, int windowSize,
+                                         int* windowIndex) {
+    // Same padding as the HF reference: a full extra window when the grid divides evenly; it
+    // contributes zero-length windows, which only repeat a boundary.
+    const int numWindowsH = (llmGridH + windowSize - llmGridH % windowSize) / windowSize;
+    const int numWindowsW = (llmGridW + windowSize - llmGridW % windowSize) / windowSize;
+    std::vector<int> cuWindowSeqlens = {0};
+    int written = 0;
+    for (int t = 0; t < gridT; ++t) {
+        for (int winH = 0; winH < numWindowsH; ++winH) {
+            for (int winW = 0; winW < numWindowsW; ++winW) {
+                int count = 0;
+                for (int i = 0; i < windowSize; ++i) {
+                    int h = winH * windowSize + i;
+                    if (h >= llmGridH) continue;
+                    for (int j = 0; j < windowSize; ++j) {
+                        int w = winW * windowSize + j;
+                        if (w >= llmGridW) continue;
+                        windowIndex[written++] = t * llmGridH * llmGridW + h * llmGridW + w;
+                        ++count;
+                    }
+                }
+                cuWindowSeqlens.push_back(cuWindowSeqlens.back() + count * mergeUnit);
+            }
+        }
+    }
+    return cuWindowSeqlens;
+}
+
+std::vector<int> qwenVideoTemporalPositions(const std::vector<float>& frameTimes, int gridT, int temporalPatchSize,
+                                            float positionIdPerSecond) {
+    std::vector<int> positions(std::max(gridT, 0));
+    for (int t = 0; t < gridT; ++t) {
+        if (positionIdPerSecond <= 0.0f) {
+            positions[t] = t;
+            continue;
+        }
+        // Epsilon so an exact product such as 1.0s * 25 is not truncated to 24 by float error.
+        const float elapsed = frameTimes[static_cast<size_t>(t) * temporalPatchSize] - frameTimes[0];
+        positions[t] = static_cast<int>(elapsed * positionIdPerSecond + 1e-3f);
+    }
+    return positions;
+}
+
 static bool needVarWithShape(VARP var, const std::vector<int>& dims) {
     if (var == nullptr || var->getInfo() == nullptr) {
         return true;
@@ -439,12 +483,16 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Embedding(config) {
         mVisionNorm   = config->config_.value("image_norm", mVisionNorm);
         mVisionSizeUnit = config->config_.value("image_size_unit", mVisionSizeUnit);
         mVisionMaxSize = config->config_.value("image_max_size", mVisionMaxSize);
+        mVisionMergeSize = std::max(1, config->config_.value("vision_merge_size", mVisionMergeSize));
+        mVisionMergerWindowSize =
+            std::max(1, config->config_.value("vision_merger_window_size", mVisionMergerWindowSize));
         mVisionGlobal = config->config_.value("global_image", mVisionGlobal);
         mNumGridPerSide = config->config_.value("num_grid_per_side", mNumGridPerSide);
         mVideoFps = config->config_.value("video_fps", mVideoFps);
         mVideoMaxFrames = config->config_.value("video_max_frames", mVideoMaxFrames);
         mVideoMaxPixels = config->config_.value("video_max_pixels", mVideoMaxPixels);
         mVideoMaxVisionTokens = std::max(1, config->config_.value("video_max_vision_tokens", mVideoMaxVisionTokens));
+        mVideoPositionIdPerSecond = config->config_.value("video_position_id_per_second", mVideoPositionIdPerSecond);
     }
     if (config->is_audio()) {
         mAudioPad = config->config_.value("audio_pad", mAudioPad);
@@ -717,7 +765,7 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
     const int patch_size = isQwen3VL ? 16 : 14;
     constexpr int temporal_patch_size = 2;
-    constexpr int merge_size = 2;
+    const int merge_size = mVisionMergeSize;
     const int align_size = patch_size * merge_size;
     // Use actual image dimensions (matching Python Qwen3VLProcessor)
     auto imgInfo = image->getInfo();
@@ -791,48 +839,14 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     VARPS moduleInputs= {patches, position_ids};
     if (hasWindowIndex) {
         // Qwen2.5-VL: build window_index
-        if (needVarWithShape(mVisionWindowIndexCache, {seq_len / 4})) {
-            mVisionWindowIndexCache = Express::_Input({seq_len / 4}, NCHW, halide_type_of<int>());
+        const int merge_unit = merge_size * merge_size;
+        if (needVarWithShape(mVisionWindowIndexCache, {seq_len / merge_unit})) {
+            mVisionWindowIndexCache = Express::_Input({seq_len / merge_unit}, NCHW, halide_type_of<int>());
         }
         window_index = mVisionWindowIndexCache;
-        auto window_index_ptr = window_index->writeMap<int>();
-        const int merge_unit = merge_size * merge_size;
-        const int vit_merger_window_size = 4;
-        int llm_grid_h = grid_h / merge_size;
-        int llm_grid_w = grid_w / merge_size;
-        int pad_h = vit_merger_window_size - (llm_grid_h % vit_merger_window_size);
-        int pad_w = vit_merger_window_size - (llm_grid_w % vit_merger_window_size);
-        int new_h = llm_grid_h + pad_h;
-        int new_w = llm_grid_w + pad_w;
-        int num_windows_h = new_h / vit_merger_window_size;
-        int num_windows_w = new_w / vit_merger_window_size;
-        std::vector<int> seqlens;
-        int window_index_idx = 0;
-        for (int t = 0; t < grid_t; ++t) {
-            for (int win_h = 0; win_h < num_windows_h; ++win_h) {
-                for (int win_w = 0; win_w < num_windows_w; ++win_w) {
-                    int count = 0;
-                    for (int i = 0; i < vit_merger_window_size; ++i) {
-                        int h_global = win_h * vit_merger_window_size + i;
-                        if (h_global >= llm_grid_h) continue;
-                        for (int j = 0; j < vit_merger_window_size; ++j) {
-                            int w_global = win_w * vit_merger_window_size + j;
-                            if (w_global >= llm_grid_w) continue;
-                            int idx = t * llm_grid_h * llm_grid_w + h_global * llm_grid_w + w_global;
-                            window_index_ptr[window_index_idx++] = idx;
-                            ++count;
-                        }
-                    }
-                    seqlens.push_back(count);
-                }
-            }
-        }
-        std::vector<int> cu_window_seqlens = {0};
-        int prev = cu_window_seqlens.back();
-        for (int s : seqlens) {
-            cu_window_seqlens.push_back(prev + s * merge_unit);
-            prev = cu_window_seqlens.back();
-        }
+        std::vector<int> cu_window_seqlens =
+            qwen25VisionWindowIndex(grid_t, grid_h / merge_size, grid_w / merge_size, merge_unit,
+                                    mVisionMergerWindowSize, window_index->writeMap<int>());
         // Plane 0 all-visible, plane 1 block-diagonal over the merger windows. Refilled every
         // image because the window boundaries change.
         if (needVarWithShape(mVisionWindowAttentionMaskCache, {2, 1, seq_len, seq_len})) {
@@ -1337,8 +1351,10 @@ std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const s
     }
     const auto inputNames = mVisionModule->getInfo()->inputNames;
     bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
-    if (inputNames.size() < 3 || inputNames[0] != "patches") {
-        MNN_PRINT("Omni video is only supported for Qwen-style patch visual models\n");
+    bool hasWindowIndex = inputNames.size() == 4 && inputNames[3] == "window_index";
+    if (inputNames.empty() || inputNames[0] != "patches" ||
+        !(inputNames.size() == 3 || hasWindowIndex || isQwen3VL)) {
+        MNN_PRINT("Omni video is only supported for Qwen2/2.5/3-VL patch visual models\n");
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return std::vector<int>(0);
     }
@@ -1346,7 +1362,7 @@ std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const s
     Timer _t;
     const int patch_size = isQwen3VL ? 16 : 14;
     constexpr int temporal_patch_size = kQwenVideoTemporalPatchSize;
-    constexpr int merge_size = 2;
+    const int merge_size = mVisionMergeSize;
     const int align_size = patch_size * merge_size;
     int frameCount = qwenVideoAlignedFrameCount(static_cast<int>(frames.size()), mVideoMaxFrames, temporal_patch_size);
     if (frameCount <= 0) {
@@ -1427,9 +1443,36 @@ std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const s
         }
     }
 
-    VARP attentionMask = Express::_Input({1, seqLen, seqLen}, NCHW);
-    fillQwenVisionAttentionMask(attentionMask->writeMap<float>(), grid_t, numPatchesPerFrame);
-    VARPS moduleInputs = {patches, positionIds, attentionMask};
+    VARPS moduleInputs = {patches, positionIds};
+    if (hasWindowIndex) {
+        // Qwen2.5-VL: plane 0 feeds the full-attention layers, which in the HF reference are
+        // still confined to one frame (cu_seqlens repeats h*w per t); plane 1 is the merger windows.
+        const int mergeUnit = merge_size * merge_size;
+        auto windowIndex = Express::_Input({seqLen / mergeUnit}, NCHW, halide_type_of<int>());
+        std::vector<int> cuWindowSeqlens =
+            qwen25VisionWindowIndex(grid_t, grid_h / merge_size, grid_w / merge_size, mergeUnit,
+                                    mVisionMergerWindowSize, windowIndex->writeMap<int>());
+        std::vector<int> cuFrameSeqlens(grid_t + 1);
+        for (int t = 0; t <= grid_t; ++t) {
+            cuFrameSeqlens[t] = t * numPatchesPerFrame;
+        }
+        VARP attentionMask = Express::_Input({2, 1, seqLen, seqLen}, NCHW);
+        MaskRequest maskReq;
+        maskReq.seqLen = seqLen;
+        maskReq.rank   = 3;  // -> {2, 1, seqLen, seqLen}
+        MaskPlane perFrame, windows;
+        perFrame.type      = AttentionMaskType::BlockDiagonal;
+        perFrame.cuSeqlens = &cuFrameSeqlens;
+        windows.type       = AttentionMaskType::BlockDiagonal;
+        windows.cuSeqlens  = &cuWindowSeqlens;
+        fillTwoPlane(attentionMask->writeMap<float>(), maskReq, perFrame, windows);
+        moduleInputs.push_back(attentionMask);
+        moduleInputs.push_back(windowIndex);
+    } else {
+        VARP attentionMask = Express::_Input({1, seqLen, seqLen}, NCHW);
+        fillQwenVisionAttentionMask(attentionMask->writeMap<float>(), grid_t, numPatchesPerFrame);
+        moduleInputs.push_back(attentionMask);
+    }
 
     if (isQwen3VL) {
         const int numGrid = mConfig->config_.value("num_grid_per_side", 1);
@@ -1482,29 +1525,42 @@ std::vector<int> Omni::qwenVideoProcess(const std::vector<VARP>& frames, const s
     }
 
     std::vector<int> videoIds;
-    for (int t = 0; t < grid_t; ++t) {
-        float timestamp = 0.0f;
-        for (int i = 0; i < temporal_patch_size; ++i) {
-            timestamp += frameTimes[t * temporal_patch_size + i];
-        }
-        timestamp /= temporal_patch_size;
-        std::ostringstream ts;
-        ts << "<" << std::fixed << std::setprecision(1) << timestamp << " seconds>";
-        auto timestampIds = mTokenizer->encode(ts.str());
-        addPositionIds(timestampIds.size());
-        videoIds.insert(videoIds.end(), timestampIds.begin(), timestampIds.end());
-
-        auto groupEmbedding = Express::_Slice(imageEmbedding, _var<int>({t * frameSeqLen, 0, 0}, {3}),
-                                              _var<int>({frameSeqLen, -1, -1}, {3}));
-        mVisionEmbeddings.push_back(groupEmbedding);
-        if (deepstackEmbedding.get() != nullptr) {
-            mDeepStackEmbeddings.push_back(Express::_Slice(deepstackEmbedding, _var<int>({0, t * frameSeqLen, 0}, {3}),
-                                                           _var<int>({-1, frameSeqLen, -1}, {3})));
-        }
-        addPositionIds(1, grid_h / merge_size, grid_w / merge_size);
+    if (!isQwen3VL) {
+        // Qwen2-VL / Qwen2.5-VL / Qwen2.5-Omni: one vision block for the whole clip, time carried
+        // only by the temporal mRoPE index rather than by per-frame timestamp text.
+        mVisionEmbeddings.push_back(imageEmbedding);
+        const std::vector<int> temporalPositions =
+            qwenVideoTemporalPositions(frameTimes, grid_t, temporal_patch_size, mVideoPositionIdPerSecond);
+        addPositionIds(grid_t, grid_h / merge_size, grid_w / merge_size, &temporalPositions);
         videoIds.push_back(mVisionStart);
-        videoIds.insert(videoIds.end(), frameSeqLen, mVideoPad);
+        videoIds.insert(videoIds.end(), grid_t * frameSeqLen, mVideoPad);
         videoIds.push_back(mVisionEnd);
+    } else {
+        for (int t = 0; t < grid_t; ++t) {
+            float timestamp = 0.0f;
+            for (int i = 0; i < temporal_patch_size; ++i) {
+                timestamp += frameTimes[t * temporal_patch_size + i];
+            }
+            timestamp /= temporal_patch_size;
+            std::ostringstream ts;
+            ts << "<" << std::fixed << std::setprecision(1) << timestamp << " seconds>";
+            auto timestampIds = mTokenizer->encode(ts.str());
+            addPositionIds(timestampIds.size());
+            videoIds.insert(videoIds.end(), timestampIds.begin(), timestampIds.end());
+
+            auto groupEmbedding = Express::_Slice(imageEmbedding, _var<int>({t * frameSeqLen, 0, 0}, {3}),
+                                                  _var<int>({frameSeqLen, -1, -1}, {3}));
+            mVisionEmbeddings.push_back(groupEmbedding);
+            if (deepstackEmbedding.get() != nullptr) {
+                mDeepStackEmbeddings.push_back(Express::_Slice(deepstackEmbedding,
+                                                               _var<int>({0, t * frameSeqLen, 0}, {3}),
+                                                               _var<int>({-1, frameSeqLen, -1}, {3})));
+            }
+            addPositionIds(1, grid_h / merge_size, grid_w / merge_size);
+            videoIds.push_back(mVisionStart);
+            videoIds.insert(videoIds.end(), frameSeqLen, mVideoPad);
+            videoIds.push_back(mVisionEnd);
+        }
     }
     bool async = mConfig->config_.value("async", true);
     if (!async) {
@@ -1582,7 +1638,7 @@ std::vector<int> Omni::videoProcess(const std::string& file) {
     const auto inputNames = mVisionModule->getInfo()->inputNames;
     bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
     const int patchSize = isQwen3VL ? 16 : 14;
-    const int alignSize = patchSize * 2;
+    const int alignSize = patchSize * mVisionMergeSize;
     int frameCount = qwenVideoAlignedFrameCount(static_cast<int>(sampleIndices.size()), mVideoMaxFrames,
                                                 kQwenVideoTemporalPatchSize);
     bool hasVideoSize = false;
@@ -1871,7 +1927,7 @@ std::vector<int> Omni::multimodeProcess(const std::string& mode, std::string inf
     return std::vector<int>(0);
 }
 
-void Omni::addPositionIds(int t, int h, int w) {
+void Omni::addPositionIds(int t, int h, int w, const std::vector<int>* temporalPositions) {
     if (mConfig->config_.value("vision_type", "") == "hunyuan_vl" && h >= 0 && w >= 0) {
         int cur_idx = mPositionIds.mT.empty() ? 0 : mPositionIds.mT.back() + 1;
         int gridTokens = h * (w + 1);
@@ -1904,16 +1960,22 @@ void Omni::addPositionIds(int t, int h, int w) {
     } else { // vision position ids
         // vision start
         mPositionIds.push_back(cur_idx++);
+        int extent = std::max(h, w);
         for (int t_i = 0; t_i < t; t_i++) {
+            const int t_pos = temporalPositions ? (*temporalPositions)[t_i] : t_i;
+            if (temporalPositions) {
+                extent = std::max(extent, t_pos + 1);
+            }
             for (int h_i = 0; h_i < h; h_i++) {
                 for (int w_i = 0; w_i < w; w_i++) {
-                    mPositionIds.push_back(cur_idx + t_i, cur_idx + h_i, cur_idx + w_i);
+                    mPositionIds.push_back(cur_idx + t_pos, cur_idx + h_i, cur_idx + w_i);
                 }
             }
         }
         // Match Qwen3-VL MRoPE: after a vision segment, continue from
-        // start + max(llm_grid_h, llm_grid_w), not from the last W index.
-        int next_idx = cur_idx + std::max(h, w);
+        // start + max(llm_grid_h, llm_grid_w), not from the last W index. With explicit
+        // temporal positions the T axis can be the largest (HF continues from the max of all three).
+        int next_idx = cur_idx + extent;
         mPositionIds.push_back(next_idx, next_idx, next_idx);
     }
 }

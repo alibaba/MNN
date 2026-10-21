@@ -91,6 +91,28 @@ int main() {
     CHECK_TRUE(mask[10] == 0.0f);
     CHECK_TRUE(mask[11] == 0.0f);
 
+    // Expected values are Qwen2_5Vision.get_window_index (export/utils/vision.py) on the same grids.
+    std::vector<int> windowIndex(24);
+    auto cuWindows = MNN::Transformer::qwen25VisionWindowIndex(2, 2, 6, 4, 4, windowIndex.data());
+    CHECK_TRUE(windowIndex == std::vector<int>({0, 1, 2, 3, 6, 7, 8, 9, 4, 5, 10, 11,
+                                                12, 13, 14, 15, 18, 19, 20, 21, 16, 17, 22, 23}));
+    CHECK_TRUE(cuWindows == std::vector<int>({0, 32, 48, 80, 96}));
+    windowIndex.assign(8, -1);
+    cuWindows = MNN::Transformer::qwen25VisionWindowIndex(1, 4, 2, 4, 4, windowIndex.data());
+    CHECK_TRUE(windowIndex == std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}));
+    CHECK_TRUE(cuWindows == std::vector<int>({0, 32, 32}));
+    // mergeUnit and windowSize are config-driven, so cover a grid where neither is 4.
+    windowIndex.assign(9, -1);
+    cuWindows = MNN::Transformer::qwen25VisionWindowIndex(1, 3, 3, 9, 2, windowIndex.data());
+    CHECK_TRUE(windowIndex == std::vector<int>({0, 1, 3, 4, 2, 5, 6, 7, 8}));
+    CHECK_TRUE(cuWindows == std::vector<int>({0, 36, 54, 72, 81}));
+
+    // HF: t_index = arange(grid_t) * (temporal_patch_size / fps) * position_id_per_seconds.
+    const std::vector<float> frameTimes = {0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 2.5f};
+    CHECK_TRUE(MNN::Transformer::qwenVideoTemporalPositions(frameTimes, 3, 2, 25.0f) == std::vector<int>({0, 25, 50}));
+    CHECK_TRUE(MNN::Transformer::qwenVideoTemporalPositions(frameTimes, 3, 2, 2.0f) == std::vector<int>({0, 2, 4}));
+    CHECK_TRUE(MNN::Transformer::qwenVideoTemporalPositions(frameTimes, 3, 2, 0.0f) == std::vector<int>({0, 1, 2}));
+
     printf("test_omni_video_prompt: %d checks, %d failures\n", gChecks, gFailures);
     return gFailures == 0 ? 0 : 1;
 }
