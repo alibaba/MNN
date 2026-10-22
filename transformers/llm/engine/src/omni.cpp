@@ -507,6 +507,10 @@ bool Omni::load() {
     if (mIsEmbedding || isQwen3TTSTalker(mConfig)) {
         initRuntime();
         mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
+        if (mTokenizer == nullptr) {
+            MNN_ERROR("[Error]: Failed to load tokenizer from: %s\n", mConfig->tokenizer_file().c_str());
+            return false;
+        }
         if (mIsEmbedding) {
             mDiskEmbedding.reset(new DiskEmbedding(mConfig));
         }

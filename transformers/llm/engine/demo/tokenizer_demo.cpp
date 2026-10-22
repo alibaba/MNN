@@ -27,6 +27,10 @@ int main(int argc, const char* argv[]) {
         for (int i = 0; i < rounds; i++) {
             auto t0 = std::chrono::high_resolution_clock::now();
             tok = Tokenizer::createTokenizer(tokenizer_path);
+            if (tok == nullptr) {
+                std::cerr << "Failed to load tokenizer: " << tokenizer_path << std::endl;
+                return 1;
+            }
             auto t1 = std::chrono::high_resolution_clock::now();
             load_total += std::chrono::duration<double, std::milli>(t1 - t0).count();
             if (i < rounds - 1) delete tok;
@@ -102,6 +106,10 @@ int main(int argc, const char* argv[]) {
             return 1;
         }
         std::unique_ptr<Tokenizer> tokenizer(Tokenizer::createTokenizer(tokenizer_path));
+        if (tokenizer == nullptr) {
+            std::cerr << "Failed to load tokenizer: " << tokenizer_path << std::endl;
+            return 1;
+        }
         auto ids = tokenizer->encode(argv[3]);
         std::cout << "len=" << ids.size() << std::endl;
         std::cout << "ids=[";
@@ -117,6 +125,10 @@ int main(int argc, const char* argv[]) {
     // Default mode: encode + decode correctness test
     auto t0 = std::chrono::high_resolution_clock::now();
     std::unique_ptr<Tokenizer> tokenizer(Tokenizer::createTokenizer(tokenizer_path));
+    if (tokenizer == nullptr) {
+        std::cerr << "Failed to load tokenizer: " << tokenizer_path << std::endl;
+        return 1;
+    }
     auto t1 = std::chrono::high_resolution_clock::now();
     printf("Load time: %.2f ms\n", std::chrono::duration<double, std::milli>(t1 - t0).count());
 
