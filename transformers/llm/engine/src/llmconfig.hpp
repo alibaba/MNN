@@ -11,6 +11,8 @@
 #include <vector>
 #include <unordered_map>
 #include <cstdlib>
+#include <cstdint>
+#include <limits>
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -167,6 +169,18 @@ public:
     }
 
     bool prompt_cache() const { return config_.value("prompt_cache", false); }
+
+    int token_compress() const {
+        if (!config_.contains("token_compress")) {
+            return 0;
+        }
+        const auto value = config_["token_compress"];
+        if (!value.is_number_integer()) {
+            return -1;
+        }
+        const auto limit = value.get<int64_t>();
+        return limit >= 0 && limit <= std::numeric_limits<int>::max() ? static_cast<int>(limit) : -1;
+    }
 
     bool all_logits() const {
         return config_.value("all_logits", false);

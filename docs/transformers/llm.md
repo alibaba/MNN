@@ -4,6 +4,8 @@
 - 模型导出：将torch模型导出为onnx，然后转换为mnn模型；导出tokenizer文件，embedding等文件；
 - 模型推理：支持导出的模型推理，支持LLM模型的文本生成；
 
+可选的长文本压缩见[Token压缩](#token压缩)，检索评测见[NeedleBench工具使用](#needlebench工具使用)。
+
 ## 快速开始
 
 ### **第一步：模型导出 (Export)**
@@ -834,6 +836,117 @@ options:
 # 开启 KV-INT8 量化（Key+Value）
 ./llm_bench -m ./model/config.json -a metal -qa 2 -p 512 -n 128 -rep 5
 ```
+
+#### Token压缩
+
+编译时开启 `MNN_LLM_TOKEN_COMPRESS`（默认关闭），在模型 `config.json` 中设置：
+
+```json
+{"token_compress":64000,"reuse_kv":false,"prompt_cache":false,"kvcache_mmap":false}
+```
+
+`token_compress` 缺省或 `0` 关闭；正整数表示触发阈值和压缩后完整输入的 Token 上限，包含模板特殊 Token，
+不是压缩比例。负数、浮点数及超出整数范围的值为配置错误。未编入此功能时忽略该参数。
+
+文本和 ChatMessages 输入在模板渲染、分词后按 Token 统计特征选取完整句子，不使用问题相关性或答案。
+自动模式只压缩特殊 Token 之间最长的文本段，保留其首尾边界、其他消息和特殊 Token；
+选段保持原顺序，缺口以 `[…]` 标记。其余消息及必留句子超过预算时失败，不截断。
+未超过上限时 Token ID 不变；直接传入 Token ID、embedding 或 forward 的低级接口不受影响。
+
+当前仅支持纯文本模型，不用于视觉、音频或 talker。须关闭 `reuse_kv`、`prompt_cache` 和 `kvcache_mmap`，
+每次从完整请求重新压缩。这是输入压缩，不是模型原生上下文扩展。
+
+#### NeedleBench工具使用
+
+用于测试长上下文检索，支持读取完整正文或运行时构造长文本。后端、线程数和 prefill chunk 等配置读取模型的 `config.json`。
+
+编译时开启 `MNN_LLM_TOKEN_COMPRESS`（默认关闭），在仓库根目录执行：
+
+```bash
+cmake -S . -B build -DMNN_BUILD_LLM=ON -DMNN_LOW_MEMORY=ON -DMNN_LLM_TOKEN_COMPRESS=ON -DMNN_LLM_BUILD_DEMO=ON
+cmake --build build --target needlebench -j4
+```
+
+##### needlebench参数列表
+
+```text
+usage: ./needlebench config.json input.json[l] results.jsonl [options]
+
+options:
+  --max-input N       完整输入的 Token 上限，含模板（默认 64000）
+  --max-new N         最大生成 Token 数（默认 1024）
+  --limit N           只运行前 N 条（默认全部）
+  --auto-compress     使用 LLM 自动压缩路径；不指定时仅压缩正文
+  --compress-only     只检查压缩，不加载模型权重或推理
+  --no-compress       不压缩，仍检查输入上限；不能与 --auto-compress 同用
+  --trace             在结果中保存压缩 Token ID 和选段信息
+  -h, --help          显示帮助，不加载 tokenizer 或模型
+```
+
+##### 输入数据
+
+推荐使用下载后的 [NeedleBench Single-Needle 原始数据](https://huggingface.co/datasets/opencompass/NeedleBench/tree/main)，包含 `needles.jsonl`、英文背景 `PaulGrahamEssays.jsonl` 和中文背景
+`zh_finance.jsonl`。不需要提前生成长文本，只需保存一个 `bench.json`：
+
+```json
+{"data_dir":"NeedleBench","length":1000000,"depths":[10,50,90],"seed":42}
+```
+
+`data_dir` 相对 `bench.json` 所在目录；只测一种语言时可加 `"language":"English"` 或 `"language":"Chinese"`。
+`length` 是原始完整输入的 Token 上限（含针、问题和模板），程序尽量贴近该值，允许少于上限最多 8 Token。
+`depths` 是针在背景中的百分比位置，取值 `[0,100]` 且不重复；每条针在每个位置各生成一条 case。
+省略时默认 `length=1000000`、`depths=[50]`、`seed=42`，测试中英文全部针。
+背景文章按 `seed + 针记录的零基索引` 确定排列，语言筛选不改变索引；`--limit` 按生成后的请求条数计数。
+
+原始针句和问题不改写，使用 `<document>\n正文\n</document>\n\n原问题` 作为 user 消息，不添加系统提醒。
+该入口使用本工具的 `hf-single-v1` 构造协议，不等同于 OpenCompass 的完整长度/深度网格、提示词和评分；
+不同构造协议的成绩不要直接混用。
+
+已有逐条 JSONL 继续支持，例如：
+
+```json
+{"case_id":"example","context_file":"context.txt","suffix":"\n原问题","arg2":"答案关键词"}
+```
+
+`context_file` 是 UTF-8 正文，路径相对运行目录；也可直接给字符串 `context`。
+`prefix`、`suffix` 可用同名 `*_file` 读取。`case_id` 必须唯一，`arg2`、`needle` 可选，仅用于评分/保针审计。
+
+也可使用共享语料运行时构造正文：
+
+```json
+{"case_id":"example","context_builder":{"corpus_file":"corpus.jsonl","background_tokens":1000000,"insert_at":500000,"insert_text":"\n针句。\n"},"suffix":"\n原问题","arg2":"答案关键词"}
+```
+
+`corpus_file` 路径相对运行目录，每行格式为 `{"text":"一段背景文本"}`。程序按语料顺序用换行拼接、分词，
+循环扩展到 `background_tokens`，在背景 Token 索引 `insert_at` 处插入 `insert_text`；针句需要的前后换行须显式给出。
+背景预算不含针、问题和模板，`insert_at` 范围为 `[0, background_tokens]`，不是百分比。
+可选 `order` 固定非空语料记录的零基索引完整排列；`trim_head_chars` / `trim_tail_chars` 默认 0，按 Unicode 字符裁剪背景首尾。
+
+`context`、`context_file`、`context_builder` 必须且只能选一个，同一字段不能同时给内联值和文件。
+HF 入口结果中的 `case` 已保存完整构造参数，逐行提取后即可按 JSONL 重放；须使用相同语料和 tokenizer。
+
+##### 运行示例
+
+```bash
+# 查看帮助，不加载 tokenizer 或模型
+build/needlebench --help
+
+# 原始长文本 → 压缩到 64K → 模型回答
+build/needlebench MODEL/config.json bench.json results.jsonl --auto-compress --max-input 64000
+
+# 只检查前 3 条的压缩结果，不加载模型权重
+build/needlebench MODEL/config.json bench.json check.jsonl --auto-compress --compress-only --limit 3
+```
+
+`--max-input`、`--max-new`、`--limit` 均须为正整数。测试工具以 `--max-input` 为准，
+无需另设模型 `config.json` 中的 `token_compress`。
+
+结果文件须使用新路径，逐条记录 Token 数、模型输出、构造/压缩/推理耗时及进程累计峰值 RSS。
+自动模式走普通 `response(ChatMessages)`；`prompt` 保留原始输入，`rendered_prompt` 是压缩后的完整文本，
+`--trace` 的 `compressed_tokens` 是实际输入 Token ID。其他模式的 `token_spans` 是正文 Token 半开区间。
+
+默认关闭 thinking、使用 greedy 解码。运行错误、Token 数不一致、空输出或生成预算耗尽标为无效并停止，
+不作为普通失分。`keyword_hit` 按 `arg2` 对最终答案做精确子串匹配，不等同于官方 NeedleBench 评分。
 
 #### 多Prompt场景下KVCache选择性复用
 rollback_demo提供了多Prompt场景下自行选择复用部分kvcache的示例代码。
