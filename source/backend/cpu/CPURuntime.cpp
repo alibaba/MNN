@@ -1404,36 +1404,67 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
 #endif
 
 #if defined(__linux__) && defined(__aarch64__)
+// SMIDR_EL1.NSMC[59:56] is the number of SMCUs behind one shared affinity ID minus one, so a
+// single ID can stand for several units. 0b1111 is reserved and falls back to a single unit.
+static int _sharedSmcuUnits(uint64_t smidr) {
+    const uint32_t nsmc = static_cast<uint32_t>((smidr >> 56) & 0xF);
+    return nsmc > 14 ? 1 : static_cast<int>(nsmc) + 1;
+}
+
 static int _countSME2Cores(const std::vector<uint64_t>& smidrs) {
+    struct SharedGroup {
+        uint32_t affinity;
+        int units;
+    };
     int privateCount = 0;
-    std::vector<uint32_t> sharedIds;
+    std::vector<SharedGroup> sharedGroups;
     for (const auto smidr : smidrs) {
         const uint32_t sharing = static_cast<uint32_t>((smidr >> 13) & 0x3);
         // SMIDR_EL1.Affinity2[51:32] and Affinity[11:0] form one 32-bit ID.
         const uint32_t affinity =
             static_cast<uint32_t>((smidr & UINT64_C(0xFFF)) | ((smidr >> 20) & UINT64_C(0xFFFFF000)));
+        bool isShared = false;
         switch (sharing) {
             case 0x2: // The PE has a private SMCU.
                 ++privateCount;
                 break;
-            case 0x3: // PEs with the same affinity share an SMCU.
-                if (std::find(sharedIds.begin(), sharedIds.end(), affinity) == sharedIds.end()) {
-                    sharedIds.emplace_back(affinity);
-                }
+            case 0x3: // PEs with the same affinity share SMCUs.
+                isShared = true;
                 break;
             case 0x0:
                 // Legacy/ambiguous encoding: affinity 0 means private, otherwise shared.
                 if (affinity == 0) {
                     ++privateCount;
-                } else if (std::find(sharedIds.begin(), sharedIds.end(), affinity) == sharedIds.end()) {
-                    sharedIds.emplace_back(affinity);
+                } else {
+                    isShared = true;
                 }
                 break;
             default: // 0x1 is reserved.
                 break;
         }
+        if (!isShared) {
+            continue;
+        }
+        auto known = sharedGroups.begin();
+        for (; known != sharedGroups.end(); ++known) {
+            if (known->affinity == affinity) {
+                break;
+            }
+        }
+        const int units = _sharedSmcuUnits(smidr);
+        if (known == sharedGroups.end()) {
+            sharedGroups.push_back({affinity, units});
+        } else if (units < known->units) {
+            // PEs of one group should report the same NSMC; if not, keep the smaller count so a
+            // shared SMCU is never oversubscribed.
+            known->units = units;
+        }
     }
-    return privateCount + static_cast<int>(sharedIds.size());
+    int sharedCount = 0;
+    for (const auto& group : sharedGroups) {
+        sharedCount += group.units;
+    }
+    return privateCount + sharedCount;
 }
 
 static int _getLinuxSME2CoreNumber() {
