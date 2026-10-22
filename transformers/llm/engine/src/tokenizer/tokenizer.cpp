@@ -969,14 +969,11 @@ void HuggingfaceTokenizer::encode(const std::string& str, std::vector<int>& ids)
      */
     static const std::regex re("('s|'t|'re|'ve|'m|'ll|'d)|[^\\r\\n[:alpha:][:digit:]]?[[:alpha:]]+|[[:digit:]]| ?[^\\s[:alpha:][:digit:]]+[\r\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+", std::regex_constants::icase);
 
-    std::string input = str;
     std::vector<std::string> result;
-    std::smatch match;
 
     std::string token;
-    while (std::regex_search(input, match, re)) {
-        token = match.str(0);
-        input = match.suffix().str();
+    for (auto it = std::sregex_iterator(str.begin(), str.end(), re); it != std::sregex_iterator(); ++it) {
+        token = it->str(0);
         std::wstring wtoken;
         for (char c : token) {
             wtoken.push_back(b2u_.at(uint8_t(c)));
