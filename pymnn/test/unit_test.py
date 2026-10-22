@@ -936,6 +936,22 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.zeros_like(x), np.zeros_like(x_))
         self.assertEqualVar(mp.full([2, 2], 5), np.full([2, 2], 5))
         self.assertEqualVar(mp.full_like(x, 5), np.full_like(x_, 5))
+        for shape in [(3,), (1, 3, 2)]:
+            for order in [None, 'K', 'C']:
+                for name, args in [('empty_like', ()), ('full_like', (2.5,)),
+                                   ('ones_like', ()), ('zeros_like', ())]:
+                    with self.subTest(name=name, shape=shape, order=order):
+                        kwargs = {} if order is None else {'order': order}
+                        result = getattr(mp, name)(x, *args, dtype=mp.float32,
+                                                   shape=shape, **kwargs)
+                        expected = getattr(np, name)(x_, *args, dtype=np.float32,
+                                                     shape=shape, **kwargs)
+                        self.assertEqualShape(result.shape, expected.shape)
+                        self.assertEqual(result.dtype, mp.float32)
+                        if name != 'empty_like':
+                            self.assertEqualVar(result, expected)
+        self.assertEqualShape(mp.empty_like(x, shape=()).shape, ())
+        self.assertEqualVar(x, x_)
     def test_from_existing_data(self):
         self.assertEqualVar(mp.array([1, 2, 3]), np.array([1, 2, 3]))
         self.assertEqualVar(mp.array([1, 2, 3], dtype=mp.float32),
@@ -985,6 +1001,21 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVars(mp.broadcast_arrays(x, y), np.broadcast_arrays(x_, y_))
         self.assertEqualVar(mp.expand_dims(x, axis=0), np.expand_dims(x_, axis=0))
         self.assertEqualVar(mp.squeeze(x, axis=0), np.squeeze(x_, axis=0))
+        shapes = [((3,), (3,)), ((1, 3), (2, 3)), ((3,), (2, 3)),
+                  ((2, 1, 3), (1, 4, 3)), ((1,), (1, 1)),
+                  ((1, 1, 1), (1, 1)), ((1, 3), (2, 1)),
+                  ((3,), (2, 1), (1, 3))]
+        for dtype in (np.float32, np.int32):
+            for case in shapes:
+                with self.subTest(dtype=dtype, shapes=case):
+                    arrays = [(np.arange(np.prod(shape)).reshape(shape) + i * 10).astype(dtype)
+                              for i, shape in enumerate(case)]
+                    inputs = [mp.array(array) for array in arrays]
+                    actual = mp.broadcast_arrays(*inputs)
+                    expected = np.broadcast_arrays(*arrays)
+                    self.assertEqual(len(actual), len(expected))
+                    self.assertEqualVars(actual, expected, rtol=0, atol=0)
+                    self.assertEqualVars(inputs, arrays, rtol=0, atol=0)
     def test_changing_kind(self):
         self.assertEqualVar(mp.asarray_chkfinite([2, 3]), np.asarray_chkfinite([2, 3]))
         self.assertEqualVar(mp.ascontiguousarray([2, 3]), np.ascontiguousarray([2, 3]))
@@ -1008,6 +1039,14 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.dstack((a, b)), np.dstack((a_, b_)))
         self.assertEqualVar(mp.column_stack((a, b)), np.column_stack((a_, b_)))
         self.assertEqualVar(mp.row_stack((a, b)), np.row_stack((a_, b_)))
+        for shape in [(3,), (2, 3), (2, 3, 2), (2, 1, 3, 2)]:
+            for dtype in [np.float32, np.int32]:
+                x = np.arange(np.prod(shape), dtype=dtype).reshape(shape)
+                for count in [1, 2, 3]:
+                    with self.subTest(shape=shape, dtype=dtype, count=count):
+                        arrays = [x + i for i in range(count)]
+                        actual = mp.hstack(tuple(mp.array(a) for a in arrays))
+                        self.assertEqualVar(actual, np.hstack(tuple(arrays)))
     def test_splitting(self):
         x = mp.arange(9.0)
         x_ = np.arange(9.0)
