@@ -4,6 +4,7 @@
 import argparse
 
 import MNN.llm as mllm
+import MNN.numpy as np
 
 
 def demo_basic_generation(model):
@@ -36,11 +37,21 @@ def demo_chat_template(model):
 
 
 def demo_low_level_generation(model):
-    """Initialize, generate token IDs, and decode the result."""
+    """Generate at most 64 tokens with manual greedy decoding."""
     prompt = model.apply_chat_template("The capital of France is")
     input_ids = model.tokenizer_encode(prompt)
     model.generate_init()
-    output_ids = model.generate(input_ids)
+    output_ids = []
+    # The manual loop owns its token budget; forward() does not apply max_new_tokens.
+    for _ in range(64):
+        logits = model.forward(input_ids)
+        token = int(np.argmax(logits))
+        model.context.current_token = token
+        # Check even the first selected token before decoding or feeding it back.
+        if model.stoped():
+            break
+        output_ids.append(token)
+        input_ids = [token]
     response = "".join(model.tokenizer_decode(token_id) for token_id in output_ids)
     print(f"Response: {response}")
 

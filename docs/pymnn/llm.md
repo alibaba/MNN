@@ -135,34 +135,58 @@ integer token ID and returns its text; decode lists one token at a time.
 Some tokenizers include special tokens, so encoded/decoded text need not be
 identical to the input string.
 
-### generate_init and generate
+### Manual generation: generate_init, forward, and stoped
+
+Use a manual decoding loop for token-level control, following the existing
+[VLM example](../../pymnn/examples/MNNLlm/vlm_example.py):
 
 ```python
+import MNN.numpy as np
+
 prompt = model.apply_chat_template("Tell me a joke")
 input_ids = model.tokenizer_encode(prompt)
 model.generate_init()
-output_ids = model.generate(input_ids)
+output_ids = []
+max_new_tokens = 64
+for _ in range(max_new_tokens):
+    logits = model.forward(input_ids)
+    token = int(np.argmax(logits))
+    model.context.current_token = token
+    if model.stoped():
+        break
+    output_ids.append(token)
+    input_ids = [token]
 response = "".join(model.tokenizer_decode(token_id) for token_id in output_ids)
 print(response)
 ```
 
-`generate` returns generated token IDs. Configure the generation limit with
-`model.set_config({"max_new_tokens": 64})` before loading the model, as shown
-in the quick start. The public wrapper accepts only `input_ids`.
+The first `forward` processes the full prompt; subsequent calls process only
+one selected token. `forward` returns an MNN Var of logits. `MNN.numpy.argmax`
+selects a token greedily; this loop does not use the configured native sampler.
+Update `model.context.current_token` before calling `stoped()`, which checks
+that token against the model's stop tokens. Check before decoding or feeding
+it back, including the first token. The spelling `stoped` is the name currently
+exported by the Python API.
+
+The Python loop enforces its own token budget. `forward()` does not enforce
+`max_new_tokens` from the model configuration. This manual path does not perform
+all of the native generation loop's output bookkeeping; use `output_ids` and
+`response` above for the generated result rather than expecting context output
+fields or generation status to match a `response()` call.
 
 `generate_init(stream=None, end_with=None)` initializes generation state.
 The current binding does not forward a Python stream object to C++.
 `end_with` is a string written to the native output stream at generation end;
 it is not a stop-string matcher. Passing a newline does not stop generation
-when the model emits a newline.
+when the model emits a newline. The manual loop above handles its own output.
 
-### forward and stoped
+### generate binding limitation
 
-`model.forward(input_ids)` returns an MNN Var of logits for manual decoding.
-For a complete manual decoding loop, see the existing
-[VLM example](../../pymnn/examples/MNNLlm/vlm_example.py).
-`model.stoped()` returns whether generation has stopped. The spelling is the
-name currently exported by the Python API.
+The existing public `model.generate(input_ids)` wrapper accepts only
+`input_ids`. With the current native binding, this call uses a token limit of
+`0` (prefill only), so setting `max_new_tokens` in the configuration does not
+make it generate new tokens. Use `response()` for ordinary text generation or
+the manual loop above for token-level control.
 
 ## Multi-Turn Conversation
 
