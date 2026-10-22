@@ -591,7 +591,8 @@ ErrorCode CPUIndexedLinear::onExecute(const std::vector<Tensor*>& inputs, const 
     const int taskCount = mTiles.size() * channelTiles;
     std::atomic<int> nextTask{0};
     auto taskCursor = &nextTask;
-    const float post[4] = {1.0f, 1.0f, -std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+    const float postClamp[4] = {1.0f, 1.0f, -std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+    const float* post        = postClamp;
     MNN_CONCURRENCY_BEGIN(thread, mThreads) {
         auto temporaryOutput = mPackedOutput.host<uint8_t>() + thread * mOutputTileBytes;
         for (int task = taskCursor->fetch_add(1); task < taskCount; task = taskCursor->fetch_add(1)) {
