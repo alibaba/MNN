@@ -21,6 +21,9 @@
 #include "kvmeta.hpp"
 #include "llmconfig.hpp"
 #include "tokenizer/tokenizer.hpp"
+#ifdef MNN_LLM_TOKEN_COMPRESS
+#include "token_compressor.hpp"
+#endif
 #include "diskembedding.hpp"
 #include "sampler.hpp"
 #include "omni.hpp"
@@ -1098,11 +1101,19 @@ std::string Llm::apply_chat_template(const ChatMessages& chat_prompts) const {
 }
 
 std::vector<int> Llm::tokenizer_encode(const std::string& user_content) {
+#ifdef MNN_LLM_TOKEN_COMPRESS
+    return TokenCompression::encodePrompt(mTokenizer.get(), user_content, mConfig->token_compress());
+#else
     return mTokenizer->encode(user_content);
+#endif
 }
 
 std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
+#ifdef MNN_LLM_TOKEN_COMPRESS
+    return TokenCompression::encodePrompt(mTokenizer.get(), multimodal_input.prompt_template, mConfig->token_compress());
+#else
     return mTokenizer->encode(multimodal_input.prompt_template);
+#endif
 }
 
 void Llm::response(const MultimodalPrompt& multimodal_input,

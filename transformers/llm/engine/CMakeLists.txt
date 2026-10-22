@@ -1,5 +1,6 @@
 option(BUILD_MLS "Build PC Commandline." OFF)
 option(MNN_LLM_BUILD_DEMO "Build LLM demo" ON)
+option(MNN_LLM_TOKEN_COMPRESS "Enable optional token compression" OFF)
 option(LLM_SUPPORT_HTTP_RESOURCE "Support HTTP resource download" ON)
 option(MNN_LLM_VIDEOIO_OPENCV "Use OpenCV videoio for LLM video prompts" OFF)
 
@@ -58,6 +59,9 @@ else()
 endif()
 # jinja.cpp template engine (always enabled, header-only)
 target_compile_definitions(llm PRIVATE LLM_USE_JINJA)
+if(MNN_LLM_TOKEN_COMPRESS)
+    target_compile_definitions(llm PRIVATE MNN_LLM_TOKEN_COMPRESS)
+endif()
 
 # Option to store MNN_PRINT/MNN_ERROR output into a string buffer.
 # Only enabled on Android. Pass -DLLM_LOG_TO_STRING=ON at cmake configure time.
@@ -112,6 +116,12 @@ if(MNN_LLM_BUILD_DEMO)
     add_executable(tokenizer_demo ${CMAKE_CURRENT_LIST_DIR}/demo/tokenizer_demo.cpp ${TOKENIZER_SRCS})
     target_include_directories(tokenizer_demo PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/tokenizer/ ${CMAKE_CURRENT_LIST_DIR}/src/)
 
+    if(MNN_LLM_TOKEN_COMPRESS)
+        add_executable(needlebench ${CMAKE_CURRENT_LIST_DIR}/tools/needlebench.cpp)
+        target_include_directories(needlebench PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/)
+        target_compile_definitions(needlebench PRIVATE MNN_LLM_TOKEN_COMPRESS)
+        target_link_libraries(needlebench ${LLM_DEPS})
+    endif()
     include(${CMAKE_CURRENT_LIST_DIR}/tools/CMakeLists.txt)
     target_link_libraries(llm_demo ${LLM_DEPS})
     target_link_libraries(llm_logits_diff ${LLM_DEPS})

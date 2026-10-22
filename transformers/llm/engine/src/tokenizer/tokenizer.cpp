@@ -1126,9 +1126,11 @@ static std::vector<std::string> create_bytes_char_map() {
 
 class NFKCNormalizer : public Normalizer {
     std::vector<std::pair<uint32_t, std::string>> table_;
+    bool clean_controls_ = true;
 public:
     NFKCNormalizer() = default;
-    NFKCNormalizer(std::vector<std::pair<uint32_t, std::string>>&& t) : table_(std::move(t)) {}
+    NFKCNormalizer(std::vector<std::pair<uint32_t, std::string>>&& t, bool clean_controls = true)
+        : table_(std::move(t)), clean_controls_(clean_controls) {}
     std::string normalize(const std::string& text) const override {
         if (table_.empty()) return text;
         std::string out;
@@ -1140,7 +1142,7 @@ public:
             int r = Unicode::utf8_decode(ptr + i, len - i, &cp);
             // SentencePiece replaces control/format chars (Cc/Cf) with space,
             // except for common whitespace chars that are kept as-is
-            if (cp != 0 && cp != '\n' && cp != '\r' && cp != '\t' &&
+            if (clean_controls_ && cp != 0 && cp != '\n' && cp != '\r' && cp != '\t' &&
                 ((cp >= 1 && cp <= 0x1F) || cp == 0x7F ||  // Cc: C0/C1 control
                  (cp >= 0x80 && cp <= 0x9F) ||              // Cc: C1 control
                  cp == 0x200D || cp == 0x200C ||             // Cf: ZWJ, ZWNJ
@@ -2289,6 +2291,10 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
             case 6: {  // new NFKC with embedded data
                 auto table = read_norm_table(p);
                 return make_unique_<NFKCNormalizer>(std::move(table));
+            }
+            case 9: { // NFC preserves control/format characters, unlike SentencePiece cleanup.
+                auto table = read_norm_table(p);
+                return make_unique_<NFKCNormalizer>(std::move(table), false);
             }
             case 7: {  // new BertNormalizer with embedded NFD
                 uint8_t clean = read_u8(p);

@@ -313,7 +313,7 @@ class LlmTokenizer(PreTrainedTokenizer):
                     fp.write(struct.pack('<B', 6))
                     self._write_norm_table(fp, self._generate_nfkc_table())
                 elif ntype == 'NFC':
-                    fp.write(struct.pack('<B', 6))
+                    fp.write(struct.pack('<B', 9))
                     self._write_norm_table(fp, self._generate_nfc_table())
                 elif ntype == 'Prepend':
                     fp.write(struct.pack('<B', 2))
