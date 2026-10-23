@@ -9,6 +9,7 @@ from typing import Optional, Tuple
 
 from .model_mapper import ModelMapper
 from .custom_op import FusedAttention, FusedRoPE, IndexedLinear, FusedLinearAttention
+from .qat import copy_qat_source
 
 class Embedding(torch.nn.Module):
     def __init__(self, embed, config):
@@ -29,6 +30,8 @@ class Embedding(torch.nn.Module):
                 plain_embed = torch.nn.Embedding(embed.num_embeddings, embed.embedding_dim, embed.padding_idx)
                 plain_embed.weight = embed.weight
                 self.embed = plain_embed
+                if hasattr(embed, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(embed, plain_embed)
 
     def forward(self, input_ids):
         inputs_embeds = self.embed(input_ids).view(-1, 1, self.hidden_size)
@@ -216,6 +219,10 @@ class Attention(torch.nn.Module):
                 self.q_proj.weight.data = qkv_weight[:, 0, :, :].reshape(self.hidden_size, self.hidden_size)
                 self.k_proj.weight.data = qkv_weight[:, 1, :, :].reshape(self.hidden_size, self.hidden_size)
                 self.v_proj.weight.data = qkv_weight[:, 2, :, :].reshape(self.hidden_size, self.hidden_size)
+                if hasattr(self.qkv_proj, '_mnn_qat_source_weight_name'):
+                    for index, projection in enumerate((self.q_proj, self.k_proj, self.v_proj)):
+                        copy_qat_source(self.qkv_proj, projection, lambda w, index=index:
+                            w.view(self.num_heads, 3, self.head_dim, -1)[:, index].reshape(self.hidden_size, -1))
                 qkv_bias = self.qkv_proj.bias.data.view(self.num_heads, 3, self.head_dim)
                 self.q_proj.bias.data = qkv_bias[:, 0, :].reshape(self.hidden_size)
                 self.k_proj.bias.data = qkv_bias[:, 1, :].reshape(self.hidden_size)
@@ -226,6 +233,9 @@ class Attention(torch.nn.Module):
                 self.q_proj.weight.data = qw
                 self.k_proj.weight.data = kw
                 self.v_proj.weight.data = vw
+                if hasattr(self.qkv_proj, '_mnn_qat_source_weight_name'):
+                    for index, projection in enumerate((self.q_proj, self.k_proj, self.v_proj)):
+                        copy_qat_source(self.qkv_proj, projection, lambda w, index=index: w.split(split_sizes)[index])
                 if self.qkv_proj.bias is not None:
                     qb, kb, vb = torch.split(self.qkv_proj.bias, split_sizes)
                     self.q_proj.bias.data = qb
@@ -258,6 +268,10 @@ class Attention(torch.nn.Module):
                 self.num_heads, 2, self.head_dim, combined_q_proj.in_features)
             self.q_proj.weight.data = q_gate_weight[:, 0].reshape(query_size, combined_q_proj.in_features).clone()
             self.q_gate_proj.weight.data = q_gate_weight[:, 1].reshape(query_size, combined_q_proj.in_features).clone()
+            if hasattr(combined_q_proj, '_mnn_qat_source_weight_name'):
+                for index, projection in enumerate((self.q_proj, self.q_gate_proj)):
+                    copy_qat_source(combined_q_proj, projection, lambda w, index=index:
+                        w.view(self.num_heads, 2, self.head_dim, -1)[:, index].reshape(query_size, -1).clone())
             if has_bias:
                 q_gate_bias = combined_q_proj.bias.data.view(self.num_heads, 2, self.head_dim)
                 self.q_proj.bias.data = q_gate_bias[:, 0].reshape(query_size).clone()
@@ -1439,15 +1453,27 @@ class Mlp(torch.nn.Module):
                     expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
                 expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i]
                 expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i]
+                if hasattr(original_experts.gate_up_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.gate_up_proj, expert_mlp.gate_up_proj_linear, lambda w, i=i: w[i])
+                if hasattr(original_experts.down_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.down_proj, expert_mlp.down_proj_linear, lambda w, i=i: w[i])
                 if model_type == 'mobilemoe':
                     expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i].T.contiguous()
                     expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i].T.contiguous()
+                    if hasattr(expert_mlp.gate_up_proj_linear, '_mnn_qat_source_weight_name'):
+                        copy_qat_source(expert_mlp.gate_up_proj_linear, expert_mlp.gate_up_proj_linear,
+                                        lambda w: w.T.contiguous(), preserve_groups=False)
+                    if hasattr(expert_mlp.down_proj_linear, '_mnn_qat_source_weight_name'):
+                        copy_qat_source(expert_mlp.down_proj_linear, expert_mlp.down_proj_linear,
+                                        lambda w: w.T.contiguous(), preserve_groups=False)
                 new_experts_list.append(expert_mlp)
             self.experts = new_experts_list
 
             if not isinstance(self.gate, torch.nn.Linear):
                 gate = torch.nn.Linear(hidden_size, self.num_experts, bias=False)
                 gate.weight.data = self.gate.weight.data
+                if hasattr(self.gate, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(self.gate, gate)
                 self.gate = gate
 
         if hasattr(self, 'expert_bias') and self.expert_bias is not None:
@@ -1462,6 +1488,8 @@ class Mlp(torch.nn.Module):
             hidden_dim = self.router.weight.shape[1]
             self.gate = torch.nn.Linear(hidden_dim, self.num_experts, bias=True)
             self.gate.weight.data = self.router.weight.data
+            if hasattr(self.router, '_mnn_qat_source_weight_name'):
+                copy_qat_source(self.router, self.gate)
             self.gate.bias.data = self.router.bias.data
             # refacte experts to qwen3_experts
             original_experts = self.experts
@@ -1471,8 +1499,14 @@ class Mlp(torch.nn.Module):
             for i in range(self.num_experts):
                 expert_mlp = GptOssExpert(hidden_dim, expert_dim)
                 expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i].transpose(0, 1)
+                if hasattr(original_experts.gate_up_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.gate_up_proj, expert_mlp.gate_up_proj_linear,
+                                    lambda w, i=i: w[i].transpose(0, 1), preserve_groups=False)
                 expert_mlp.gate_up_proj_linear.bias.data = original_experts.gate_up_proj_bias.data[i]
                 expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i].transpose(0, 1)
+                if hasattr(original_experts.down_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.down_proj, expert_mlp.down_proj_linear,
+                                    lambda w, i=i: w[i].transpose(0, 1), preserve_groups=False)
                 expert_mlp.down_proj_linear.bias.data = original_experts.down_proj_bias.data[i]
                 new_experts_list.append(expert_mlp)
             self.experts = new_experts_list
@@ -1623,11 +1657,17 @@ class Decoder(torch.nn.Module):
                 expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
                 expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i]
                 expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i]
+                if hasattr(original_experts.gate_up_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.gate_up_proj, expert_mlp.gate_up_proj_linear, lambda w, i=i: w[i])
+                if hasattr(original_experts.down_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.down_proj, expert_mlp.down_proj_linear, lambda w, i=i: w[i])
                 new_experts_list.append(expert_mlp)
             self.experts = new_experts_list
             # Extract gate Linear from router (router has norm+scale+proj+per_expert_scale)
             self.moe_gate = torch.nn.Linear(hidden_size, num_experts, bias=False)
             self.moe_gate.weight.data = self.router.proj.weight.data
+            if hasattr(self.router.proj, '_mnn_qat_source_weight_name'):
+                copy_qat_source(self.router.proj, self.moe_gate)
             self.moe_router_norm = self.router.norm
             self.moe_router_scale = self.router.scale.data
             self.moe_router_scalar_root = self.router.scalar_root_size

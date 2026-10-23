@@ -1,4 +1,5 @@
 import torch
+from contextlib import nullcontext
 from utils.hqq_quantizer import HQQQuantizer
 from packaging.version import Version
 
@@ -128,6 +129,8 @@ def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
     return torch.cat(q_weights), torch.cat(alphas)
 
 def onnx_export(model, inputs, onnx_model, input_names, output_names, dynamic_axes=None):
+    from .qat import active_qat_loader
+    qat_loader = active_qat_loader.get()
     export_kwargs = {
         'input_names': input_names,
         'output_names': output_names,
@@ -141,10 +144,11 @@ def onnx_export(model, inputs, onnx_model, input_names, output_names, dynamic_ax
     if Version(torch.__version__) >= Version("2.4.0"):
         export_kwargs['dynamo'] = False
 
-    torch.onnx.export(
-            model, inputs,
-            onnx_model,
-            **export_kwargs)
+    with qat_loader.export_weights(model, onnx_model) if qat_loader is not None else nullcontext():
+        torch.onnx.export(
+                model, inputs,
+                onnx_model,
+                **export_kwargs)
 
 class EncoderExport(torch.nn.Module):
     """Adapt native media tensors to a model and return token-major features."""

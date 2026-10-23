@@ -26,6 +26,8 @@ class MNNConverter:
             self.mnnconvert = None
         self.lm_weight = None
         self.tie_embeddings_info = None
+        if getattr(self.exporter, 'qat_loader', None) is not None:
+            self.qat_weights = {}
 
     def transformer_c4_args(self):
         enabled = getattr(self.args, 'transformer_c4', True)
@@ -145,6 +147,8 @@ class MNNConverter:
         return mnn_path
 
     def export(self, onnx_path, quant_bit = None, quant_block = None, transformer_fuse = True, group_conv_native = False, weight_sym = None):
+        if getattr(self.exporter, 'qat_loader', None) is not None:
+            self.qat_weights = {}
         self.onnx_model_path = onnx_path
         self.mnn_name = os.path.basename(onnx_path).replace('.onnx', '.mnn')
         self.mnn_model_path = os.path.join(self.args.dst_path, self.mnn_name)
@@ -187,11 +191,22 @@ class MNNConverter:
                 self.export_omni_quant(mnn_json)
             if self.args.smooth:
                 self.export_smooth_quant(mnn_json)
+        if getattr(self.exporter, 'qat_loader', None) is not None:
+            mnn_json = f'{self.mnn_model_path}.json'
+            if self.weight_ops is None:
+                self.mnn2json(self.mnn_model_path, mnn_json)
+            self.apply_qat(mnn_json)
+            self.json2mnn(mnn_json, self.mnn_model_path)
         return self.tie_embeddings_info
 
     @spinner_run(f'apply gptq to ')
     def apply_gptq(self, mnn_json):
         GPTQ(self.args.gptq_path).apply(mnn_json, self.mnn_weight_path)
+        return self.mnn_weight_path
+
+    @spinner_run(f'apply qat to ')
+    def apply_qat(self, mnn_json):
+        self.exporter.qat_loader.apply(mnn_json, self)
         return self.mnn_weight_path
 
     @spinner_run(f'export split lora to ')
@@ -312,7 +327,11 @@ class MNNConverter:
             for item in projections:
                 # HQQ's stopping criterion depends on the whole source tensor.
                 # Quantize each original projection before joining its encoded rows.
-                q_weight, alpha = self.quant(item.weight.data, quant_bit, quant_block, symmetric)
+                qat_loader = getattr(self.exporter, 'qat_loader', None)
+                if qat_loader is not None and qat_loader.has_qparams(getattr(item, '_mnn_qat_source_weight_name', None)):
+                    q_weight, alpha = qat_loader.quantize(item, quant_bit, quant_block, symmetric)
+                else:
+                    q_weight, alpha = self.quant(item.weight.data, quant_bit, quant_block, symmetric)
                 if self.exporter.args.skip_weight:
                     weight_len += q_weight.numel()
                     self.mnn_weight.seek(q_weight.numel(), 1)
@@ -510,7 +529,10 @@ class MNNConverter:
         for original_name, linear in bank + up_bank:
             if linear.in_features != ic or linear.out_features != oc:
                 raise ValueError(f'IndexedLinear expert shape mismatch: {original_name}')
-        linears = [self.build_linear_parameter(original_name, linear, up_bank[index][1] if up_bank else None)
+        # IndexedLinear stores expert parameters in bank order, without per-expert op names.
+        qat = getattr(self.exporter, 'qat_loader', None) is not None
+        linears = [self.build_linear_parameter(f'{name}/linear.{index}' if qat else original_name,
+                                              linear, up_bank[index][1] if up_bank else None)
                    for index, (original_name, linear) in enumerate(bank)]
         parameter = {'linears': linears, 'inputMode': input_mode}
         if fused:
@@ -665,6 +687,18 @@ class MNNConverter:
         return default
 
     def linear_quantization(self, name, linear):
+        qat_loader = getattr(self.exporter, 'qat_loader', None)
+        if qat_loader is not None:
+            source_name = getattr(linear, '_mnn_qat_source_weight_name', None)
+            if qat_loader.has_qparams(source_name):
+                bits, block, symmetric = qat_loader.expected_config(source_name)
+                if bits != 16:
+                    block = block or linear.in_features
+                    if block <= 0 or linear.in_features % block:
+                        raise ValueError(f'Invalid QAT block size {block} for {source_name}')
+                    return bits, block, symmetric
+                return 16, linear.in_features, False
+
         is_lm = 'lm_head' in name
         quant_bit = self.args.lm_quant_bit if is_lm else self.args.quant_bit
         quant_block = self.args.lm_quant_block if is_lm else self.args.quant_block
@@ -690,6 +724,16 @@ class MNNConverter:
         ic, oc = linear.in_features, linear.out_features + (up_linear.out_features if up_linear is not None else 0)
         quant_bit, block_size, quant_sym = self.linear_quantization(name, linear)
         is_lm = 'lm_head' in name
+        qat_loader = getattr(self.exporter, 'qat_loader', None)
+        if qat_loader is not None:
+            source_name = getattr(linear, '_mnn_qat_source_weight_name', None)
+            is_lm = source_name is not None and source_name == qat_loader.lm_head_weight
+            if quant_bit != 16 and any(
+                    qat_loader.has_qparams(getattr(item, '_mnn_qat_source_weight_name', None))
+                    for item in (linear, up_linear) if item is not None):
+                self.qat_weights[name] = (linear,) if up_linear is None else (linear, up_linear)
+                # Validate the final layout above, but encode QAT weights only after fusion.
+                quant_bit = 16
         if is_lm and self.lm_weight is not None:
             external, q_min, shape_int32, header_len = self.lm_weight
         else:
