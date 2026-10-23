@@ -597,6 +597,14 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
                         // Only float inputs consumed by shape inference need content comparison.
                         continue;
                     }
+                    // Backend storage may use a different precision or reside on a device.
+                    // Only cache plain host tensors; the input-copy path below handles conversion.
+                    if (nullptr != TensorUtils::getDescribeOrigin(inputTensor)->getBackend() ||
+                        0 != inputTensor->buffer().device) {
+                        mContentCache[i].clear();
+                        needResize = true;
+                        continue;
+                    }
                     auto size = inputTensor->usize();
                     const void* host = inputTensor->host<void>();
                     if (nullptr == host || size == 0 || size > kMaxContentCacheBytes) {
