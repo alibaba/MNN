@@ -8,8 +8,8 @@ extern "C" {
 AEEResult htp_ops_matmul_q4block_a16_fp16(uint8_t *output, uint8_t *activation, uint8_t *weight, uint8_t *bias, int32 m,
                                           int32 k, int32 n, int32 weight_type, int32 layout_type, int32 mp, int32 np,
                                           int32 kp, int32 scale_block_num, int32 scale_asymmetric,
-                                          int32 weight_is_vrmpy) {
-  (void) layout_type;  // currently only layout_type == 1 (permuted) is supported
+                                          int32 weight_is_vrmpy, int32 reuse_activation_input) {
+  // Layout 2 uses the same packed tensors with activation-outer scheduling.
   (void) weight_type;
 
   int icP = (k + 31) / 32;
@@ -25,7 +25,8 @@ AEEResult htp_ops_matmul_q4block_a16_fp16(uint8_t *output, uint8_t *activation, 
                                     scale_asymmetric, weight_is_vrmpy);
   } else {
     mm_ret = hmx_matmulq4fp16(output, activation, weight, b_scale, bias, m, k, n, mp, np, kp, scale_block_num,
-                              scale_asymmetric, weight_is_vrmpy);
+                              scale_asymmetric, weight_is_vrmpy, layout_type >= 2 ? layout_type - 1 : 0,
+                              reuse_activation_input);
   }
   if (mm_ret != 0) {
     FARF(ALWAYS, "block q4 matmul failed: %d", mm_ret);

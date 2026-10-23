@@ -41,7 +41,8 @@ extern AEEResult htp_ops_matmul_q4a16_fp16(uint8_t* output, uint8_t* activation,
 extern AEEResult htp_ops_matmul_q4block_a16_fp16(uint8_t *output, uint8_t *activation, uint8_t *weight, uint8_t *bias,
                                                  int32 m, int32 k, int32 n, int32 weight_type, int32 layout_type,
                                                  int32 mp, int32 np, int32 kp, int32 scale_block_num,
-                                                 int32 scale_asymmetric, int32 weight_is_vrmpy);
+                                                 int32 scale_asymmetric, int32 weight_is_vrmpy,
+                                                 int32 reuse_activation_input);
 
 extern AEEResult htp_ops_tmac_a16w1_fp16(uint8_t* output, uint8_t* activation,
                                         uint8_t* weight, uint8_t* scale, uint8_t* bias,
@@ -182,8 +183,49 @@ static void sync_group_tensors(MmapManager* mmap_manager, int32 syncGroupFd, int
     }
 }
 
+// Invocation-local state: valid only across adjacent, matching gate/up commands. A file-scope POD
+// keeps htp_execute_command's signature untouched; any other op type invalidates it.
+typedef struct {
+  const uint8_t *activation;
+  int            m;
+  int            mp;
+  int            np;
+  int            scaleBlocks;
+  bool           valid;
+} Q4ActivationReuseState;
+
+static Q4ActivationReuseState gQ4ActivationReuse;
+
+static int q4_weight_reuse_activation(const uint8_t *activation, const uint8_t *output, int m, int k, int n,
+                                      int layoutType, int mp, int np, int scaleBlockNum, int scaleAsymmetric,
+                                      int weightIsVrmpy) {
+  bool eligible = false;
+  bool reuse    = false;
+#if __HVX_ARCH__ == 79 && !defined(SIMULATOR_MOCK_HMX)
+  if (layoutType == 3 && m > 32 && m <= 512 && k == 2560 && n == 9728 && mp >= (m + 31) / 32 && scaleBlockNum > 1 &&
+      !scaleAsymmetric && !weightIsVrmpy) {
+    const uint64_t inputBegin  = (uintptr_t) activation;
+    const uint64_t outputBegin = (uintptr_t) output;
+    eligible = inputBegin + (uint64_t) m * k * 2 <= outputBegin || outputBegin + (uint64_t) m * n * 2 <= inputBegin;
+    reuse    = eligible && gQ4ActivationReuse.valid && gQ4ActivationReuse.activation == activation &&
+            gQ4ActivationReuse.m == m && gQ4ActivationReuse.mp == mp && gQ4ActivationReuse.np == np &&
+            gQ4ActivationReuse.scaleBlocks == scaleBlockNum;
+  }
+#endif
+  gQ4ActivationReuse.valid       = eligible;
+  gQ4ActivationReuse.activation  = activation;
+  gQ4ActivationReuse.m           = m;
+  gQ4ActivationReuse.mp          = mp;
+  gQ4ActivationReuse.np          = np;
+  gQ4ActivationReuse.scaleBlocks = scaleBlockNum;
+  return reuse ? 1 : 0;
+}
+
 int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* command) {
     int32_t opType = command->type();
+    if (opType != DSP_OP_MATMUL_Q4A16_BLOCK_FP16) {
+      gQ4ActivationReuse.valid = false;
+    }
     auto inputs = command->inputs();
     auto outputs = command->outputs();
     auto params = command->params();
@@ -262,12 +304,14 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
             int scale_block_num = params && params->size() > 8 ? intParams[8] : 1;
             int scale_asymmetric = params && params->size() > 9 ? intParams[9] : 0;
             int weight_is_vrmpy  = params && params->size() > 10 ? intParams[10] : 0;
-            ret = htp_ops_matmul_q4block_a16_fp16(mapped_ptrs[inputs->size()],  // output
-                                                  mapped_ptrs[0],               // activation (FP16)
-                                                  mapped_ptrs[1],  // qweight (vrmpy INT4 tiles when weight_is_vrmpy)
-                                                  mapped_ptrs[2],  // bias (FP16)
-                                                  m, k, n, weight_type, layout_type, mp, np, kp, scale_block_num,
-                                                  scale_asymmetric, weight_is_vrmpy);
+            ret                  = htp_ops_matmul_q4block_a16_fp16(
+              mapped_ptrs[inputs->size()],  // output
+              mapped_ptrs[0],               // activation (FP16)
+              mapped_ptrs[1],               // qweight (vrmpy INT4 tiles when weight_is_vrmpy)
+              mapped_ptrs[2],               // bias (FP16)
+              m, k, n, weight_type, layout_type, mp, np, kp, scale_block_num, scale_asymmetric, weight_is_vrmpy,
+              q4_weight_reuse_activation(mapped_ptrs[0], mapped_ptrs[inputs->size()], m, k, n, layout_type, mp, np,
+                                                          scale_block_num, scale_asymmetric, weight_is_vrmpy));
             break;
         }
         case DSP_OP_MATMUL_Q4A16_GEMV_I8: {

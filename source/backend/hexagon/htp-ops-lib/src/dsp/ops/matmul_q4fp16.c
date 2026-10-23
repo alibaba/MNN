@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <qurt_memory.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -7,6 +8,7 @@
 
 #include "dsp/dma_utils.h"
 #include "dsp/hmx_mgr.h"
+#include "dsp/hmx_queue.h"
 #include "dsp/hmx_utils.h"
 #include "dsp/hvx_convert.h"
 #include "dsp/hvx_utils.h"
@@ -261,7 +263,7 @@ static inline void dequant_q4_tile_scaled(const uint8_t *src, __fp16 *dst, HVX_V
 static inline void process_q4_weight_lut(int oy_start, int start_idx, int count, int kp,
                                          const uint8_t *__restrict vtcm_weight_int4, __fp16 *__restrict vtcm_weight,
                                          const uint8_t *b_scale, int scale_block_num, int scale_asymmetric,
-                                         int weight_is_vrmpy) {
+                                         int weight_is_vrmpy, int k_begin, int k_end) {
   HVX_Vector vlut_cvt = vmemu(q4_to_fp16_lut);
   const int weight_int4_stride = 512 * kp;
   const int weight_fp16_stride = 1024 * kp;
@@ -277,9 +279,9 @@ static inline void process_q4_weight_lut(int oy_start, int start_idx, int count,
     for (int local_oy = 0; local_oy < count; ++local_oy) {
       const int      oy    = oy_start + start_idx + local_oy;
       const float   *sw_oy = sw + (size_t) oy * scale_block_num * entry_floats;
-      const uint8_t *src   = src_oy;
-      __fp16        *dst   = dst_oy;
-      for (int k = 0; k < kp; ++k) {
+      const uint8_t *src   = src_oy + (size_t) k_begin * 512;
+      __fp16        *dst   = dst_oy + (size_t) k_begin * 1024;
+      for (int k = k_begin; k < k_end; ++k) {
         const int        scale_idx   = (int) (((size_t) k * scale_block_num) / kp);
         const HVX_Vector vBlockScale = vrmpy_scale_block_dup_hf(sw_oy, scale_idx, entry_floats);
         const HVX_Vector vBlockQBias =
@@ -298,11 +300,12 @@ static inline void process_q4_weight_lut(int oy_start, int start_idx, int count,
     const int scale_block_bytes = scale_asymmetric ? 256 : 128;
     for (int local_oy = 0; local_oy < count; ++local_oy) {
       const int oy = oy_start + start_idx + local_oy;
-      const uint8_t* src = src_oy;
-      __fp16* dst = dst_oy;
+      const uint8_t *src             = src_oy + (size_t) k_begin * 512;
+      __fp16        *dst             = dst_oy + (size_t) k_begin * 1024;
       const uint8_t* block_scale_ptr = b_scale + (size_t)oy * scale_block_num * scale_block_bytes;
       if (scale_block_num == kp) {
-        for (int k = 0; k < kp; ++k) {
+        block_scale_ptr += (size_t) k_begin * scale_block_bytes;
+        for (int k = k_begin; k < k_end; ++k) {
           dequant_q4_tile_scaled(src, dst, vlut_cvt, vmemu(block_scale_ptr),
                                  scale_asymmetric ? vmemu(block_scale_ptr + 128) : Q6_V_vzero(), scale_asymmetric);
           block_scale_ptr += scale_block_bytes;
@@ -311,10 +314,10 @@ static inline void process_q4_weight_lut(int oy_start, int start_idx, int count,
         }
       } else if (kp % scale_block_num == 0) {
         const int k_per_scale = kp / scale_block_num;
-        int scale_idx = 0;
-        int next_scale_k = k_per_scale;
-        HVX_Vector vBlockScale = vmemu(block_scale_ptr);
-        for (int k = 0; k < kp; ++k) {
+        int        scale_idx    = k_begin / k_per_scale;
+        int        next_scale_k = (scale_idx + 1) * k_per_scale;
+        HVX_Vector vBlockScale  = vmemu(block_scale_ptr + scale_idx * scale_block_bytes);
+        for (int k = k_begin; k < k_end; ++k) {
           if (k == next_scale_k) {
             ++scale_idx;
             next_scale_k += k_per_scale;
@@ -327,7 +330,7 @@ static inline void process_q4_weight_lut(int oy_start, int start_idx, int count,
           dst += 1024;
         }
       } else {
-        for (int k = 0; k < kp; ++k) {
+        for (int k = k_begin; k < k_end; ++k) {
           const int scale_idx = (k * scale_block_num) / kp;
           const uint8_t *current_scale_ptr = block_scale_ptr + scale_idx * scale_block_bytes;
           dequant_q4_tile_scaled(src, dst, vlut_cvt, vmemu(current_scale_ptr),
@@ -343,9 +346,9 @@ static inline void process_q4_weight_lut(int oy_start, int start_idx, int count,
   }
 
   for (int local_oy = 0; local_oy < count; ++local_oy) {
-    const uint8_t* src = src_oy;
-    __fp16* dst = dst_oy;
-    for (int k = 0; k < kp; ++k) {
+    const uint8_t *src = src_oy + (size_t) k_begin * 512;
+    __fp16        *dst = dst_oy + (size_t) k_begin * 1024;
+    for (int k = k_begin; k < k_end; ++k) {
       const HVX_Vector* src_vec = (const HVX_Vector*)src;
       HVX_Vector* dst_vec = (HVX_Vector*)dst;
       HVX_Vector vq0 = src_vec[0];
@@ -393,30 +396,35 @@ typedef struct {
   int start_idx;
   int count;
   int kp;
+  int                  k_begin;
+  int                  k_end;
+  int                  flat_tiles;
   int scale_block_num;
   int                  scale_asymmetric;
   int                  weight_is_vrmpy;
   const uint8_t* b_scale;
   const uint8_t* vtcm_weight_int4;
-  __fp16* vtcm_weight;
-  const dma_desc_1d_t* depend;
+  __fp16              *vtcm_weight;
   worker_synctoken_t* shared_sync;
 } process_q4_weight_task_state_t;
 
-static inline void wait_q4_weight_dma_done(const dma_desc_1d_t* depend) {
-  volatile uint32_t *ctrl_word = (volatile uint32_t*)&depend->dstate_order_bypass_type_length;
-  while (((*ctrl_word >> 31) & 0x1) == 0) {
-    asm volatile("nop");
-  }
-}
-
-static void process_q4_weight_worker_loop(void* data, int _worker_index) {
-  (void)_worker_index;
+static void process_q4_weight_worker_loop(void *data, int _worker_index) {
   process_q4_weight_task_state_t* state = (process_q4_weight_task_state_t*)data;
-  wait_q4_weight_dma_done(state->depend);
-  process_q4_weight_lut(state->oy_start, state->start_idx, state->count, state->kp, state->vtcm_weight_int4,
-                        state->vtcm_weight, state->b_scale, state->scale_block_num, state->scale_asymmetric,
-                        state->weight_is_vrmpy);
+  if (state->flat_tiles) {
+    for (int tile = state->k_begin; tile < state->k_end;) {
+      const int column   = tile / state->kp;
+      const int begin    = tile % state->kp;
+      const int end_tile = state->k_end < (column + 1) * state->kp ? state->k_end : (column + 1) * state->kp;
+      process_q4_weight_lut(state->oy_start, column, 1, state->kp, state->vtcm_weight_int4, state->vtcm_weight,
+                            state->b_scale, state->scale_block_num, state->scale_asymmetric, state->weight_is_vrmpy,
+                            begin, end_tile - column * state->kp);
+      tile = end_tile;
+    }
+  } else {
+    process_q4_weight_lut(state->oy_start, state->start_idx, state->count, state->kp, state->vtcm_weight_int4,
+                          state->vtcm_weight, state->b_scale, state->scale_block_num, state->scale_asymmetric,
+                          state->weight_is_vrmpy, state->k_begin, state->k_end);
+  }
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
@@ -482,9 +490,9 @@ static inline void shuffle_q4_activation_tiles(__fp16* vtcm_activation, int base
   }
 }
 
-static inline void copy_shuffle_q4_activation_tiles_pack64(__fp16* vtcm_activation, const uint8_t* a,
-                                                           int base_offset, int ox_start,
-                                                           int ox_end, int kp, int M) {
+static inline void copy_shuffle_q4_activation_tiles_pack64_unaligned(__fp16 *vtcm_activation, const uint8_t *a,
+                                                                     int base_offset, int ox_start, int ox_end, int kp,
+                                                                     int M) {
   for (int ox = ox_start; ox < ox_end; ++ox) {
     const int ox_offset = base_offset + (ox - ox_start) * kp * 32 * 32;
     int valid_rows = M - ox * 32;
@@ -517,6 +525,55 @@ static inline void copy_shuffle_q4_activation_tiles_pack64(__fp16* vtcm_activati
   }
 }
 
+static inline void copy_shuffle_q4_activation_tiles_pack64_aligned(__fp16 *vtcm_activation, const uint8_t *a,
+                                                                   int base_offset, int ox_start, int ox_end, int kp,
+                                                                   int M) {
+  for (int ox = ox_start; ox < ox_end; ++ox) {
+    const int ox_offset  = base_offset + (ox - ox_start) * kp * 32 * 32;
+    int       valid_rows = M - ox * 32;
+    if (valid_rows > 32) {
+      valid_rows = 32;
+    }
+    if (valid_rows <= 0) {
+      continue;
+    }
+    for (int k = 0; k < kp; k += 2) {
+      const int      has_high_tile = (k + 1) < kp;
+      const uint8_t *src_base      = a + (size_t) (((k >> 1) * M + ox * 32) * 64) * sizeof(int16_t);
+      __fp16        *tile0         = vtcm_activation + ox_offset + k * 32 * 32;
+      __fp16        *tile1         = tile0 + 32 * 32;
+      int            r             = 0;
+      for (; r <= valid_rows - 2; r += 2) {
+        HVX_Vector     v0 = vmem((const HVX_Vector *) (src_base + (size_t) r * 64 * sizeof(int16_t)));
+        HVX_Vector     v1 = vmem((const HVX_Vector *) (src_base + (size_t) (r + 1) * 64 * sizeof(int16_t)));
+        HVX_VectorPair vp = Q6_W_vdeal_VVR(v1, v0, 64);
+        vmem((HVX_Vector *) ((uint8_t *) tile0 + r * 64)) = Q6_Vh_vshuff_Vh(Q6_V_lo_W(vp));
+        if (has_high_tile) {
+          vmem((HVX_Vector *) ((uint8_t *) tile1 + r * 64)) = Q6_Vh_vshuff_Vh(Q6_V_hi_W(vp));
+        }
+      }
+      if (r < valid_rows) {
+        HVX_Vector     v0 = vmem((const HVX_Vector *) (src_base + (size_t) r * 64 * sizeof(int16_t)));
+        HVX_VectorPair vp = Q6_W_vdeal_VVR(Q6_V_vzero(), v0, 64);
+        vmem((HVX_Vector *) ((uint8_t *) tile0 + r * 64)) = Q6_Vh_vshuff_Vh(Q6_V_lo_W(vp));
+        if (has_high_tile) {
+          vmem((HVX_Vector *) ((uint8_t *) tile1 + r * 64)) = Q6_Vh_vshuff_Vh(Q6_V_hi_W(vp));
+        }
+      }
+    }
+  }
+}
+
+static inline void copy_shuffle_q4_activation_tiles_pack64(__fp16 *vtcm_activation, const uint8_t *a, int base_offset,
+                                                           int ox_start, int ox_end, int kp, int M) {
+  // Every packed64 row and K-plane offset is a multiple of128 bytes.
+  if (((uintptr_t) a & 127) == 0) {
+    copy_shuffle_q4_activation_tiles_pack64_aligned(vtcm_activation, a, base_offset, ox_start, ox_end, kp, M);
+  } else {
+    copy_shuffle_q4_activation_tiles_pack64_unaligned(vtcm_activation, a, base_offset, ox_start, ox_end, kp, M);
+  }
+}
+
 typedef struct {
   __fp16* vtcm_activation;
   const uint8_t* a;
@@ -526,20 +583,77 @@ typedef struct {
   int kp;
   int M;
   worker_synctoken_t* shared_sync;
+  uint8_t            *scratch;
 } copy_shuffle_q4_activation_task_state_t;
+
+static inline void submit_q4_activation_pair(dma_desc_1d_t *desc, dma_desc_1d_t **tail, uint8_t *dst,
+                                             const uint8_t *src, int rows) {
+  memset(desc, 0, sizeof(*desc));
+  desc->length     = rows * 128;
+  desc->src_bypass = 1;
+  desc->dst_bypass = 1;
+  desc->src        = (uint32_t) src;
+  desc->dst        = (uint32_t) dst;
+  if (*tail) {
+    dmlink(*tail, desc);
+  } else {
+    dmstart(desc);
+  }
+  *tail = desc;
+}
+
+static void copy_shuffle_q4_activation_dma(copy_shuffle_q4_activation_task_state_t *state) {
+  _Alignas(128) dma_desc_1d_t descriptors[2];
+  for (int ox = state->ox_start; ox < state->ox_end; ++ox) {
+    int rows = state->M - ox * 32;
+    if (rows > 32) {
+      rows = 32;
+    }
+    if (rows <= 0) {
+      continue;
+    }
+    const int      pairs = state->kp / 2;
+    dma_desc_1d_t *tail  = NULL;
+    dma_wait_for_idle();
+    for (int slot = 0; slot < 2 && slot < pairs; ++slot) {
+      const uint8_t *src = state->a + ((size_t) slot * state->M + ox * 32) * 128;
+      submit_q4_activation_pair(&descriptors[slot], &tail, state->scratch + slot * 4096, src, rows);
+    }
+    const int outputOffset = state->base_offset + (ox - state->ox_start) * state->kp * 1024;
+    for (int pair = 0; pair < pairs; ++pair) {
+      const int                     slot    = pair & 1;
+      const volatile dma_desc_1d_t *pending = &descriptors[slot];
+      while (!pending->dstate) {
+        dmpoll();
+      }
+      asm volatile("" ::: "memory");
+      // Reuse the existing shuffle for exactly one packed64 K pair in VTCM.
+      copy_shuffle_q4_activation_tiles_pack64_aligned(state->vtcm_activation + outputOffset + pair * 2048,
+                                                      state->scratch + slot * 4096, 0, 0, 1, 2, rows);
+      if (pair + 2 < pairs) {
+        const uint8_t *src = state->a + ((size_t) (pair + 2) * state->M + ox * 32) * 128;
+        submit_q4_activation_pair(&descriptors[slot], &tail, state->scratch + slot * 4096, src, rows);
+      }
+    }
+    dma_wait_for_idle();
+  }
+}
 
 static void copy_shuffle_q4_activation_worker_loop(void* data, int _worker_index) {
   (void)_worker_index;
   copy_shuffle_q4_activation_task_state_t* state = (copy_shuffle_q4_activation_task_state_t*)data;
-  copy_shuffle_q4_activation_tiles_pack64(state->vtcm_activation, state->a, state->base_offset,
-                                          state->ox_start, state->ox_end, state->kp, state->M);
+  if (state->scratch) {
+    copy_shuffle_q4_activation_dma(state);
+  } else {
+    copy_shuffle_q4_activation_tiles_pack64(state->vtcm_activation, state->a, state->base_offset, state->ox_start,
+                                            state->ox_end, state->kp, state->M);
+  }
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
-static inline void copy_shuffle_q4_activation_tiles_pack64_parallel(__fp16* vtcm_activation,
-                                                                    const uint8_t* a,
-                                                                    int base_offset, int ox_start,
-                                                                    int ox_end, int kp, int M) {
+static inline void copy_shuffle_q4_activation_tiles_pack64_parallel(__fp16 *vtcm_activation, const uint8_t *a,
+                                                                    int base_offset, int ox_start, int ox_end, int kp,
+                                                                    int M, uint8_t *scratch) {
   const int ox_count = ox_end - ox_start;
   int task_count = (int)g_max_num_workers;
   if (task_count > ox_count) {
@@ -568,6 +682,7 @@ static inline void copy_shuffle_q4_activation_tiles_pack64_parallel(__fp16* vtcm
     tasks[i].kp = kp;
     tasks[i].M = M;
     tasks[i].shared_sync = &sync_token;
+    tasks[i].scratch         = scratch ? scratch + (size_t) i * 8192 : NULL;
 
     worker_pool_job_t job;
     job.fptr = copy_shuffle_q4_activation_worker_loop;
@@ -915,9 +1030,95 @@ static void store_q4_output_worker_loop(void* data, int _worker_index) {
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
 
+typedef struct {
+  const __fp16 *activation;
+  const __fp16 *weight;
+  __fp16       *output;
+  HVX_Vector   *scales;
+  int           rows;
+  int           columns;
+  int           kp;
+} q4_hmx_batch_t;
+
+static void compute_q4_hmx_batch(void *data) {
+  q4_hmx_batch_t *job = (q4_hmx_batch_t *) data;
+  hmx_set_output_scales(job->scales);
+  for (int ox = 0; ox < job->rows; ++ox) {
+    for (int oy = 0; oy < job->columns; ++oy) {
+      hmx_load_q4_tiles(job->activation + (size_t) ox * job->kp * 1024, job->weight + (size_t) oy * job->kp * 1024,
+                        job->kp);
+      hmx_consume_accumulator_fp16(job->output + ((size_t) ox * job->columns + oy) * 1024);
+    }
+  }
+}
+
+typedef struct {
+  _Alignas(64) dma_desc_1d_t dma;
+  _Alignas(64) dma_desc_1d_t scale_dma;
+  process_q4_weight_task_state_t tasks[32];
+  worker_synctoken_t             ready;
+} q4_weight_slot_t;
+
+static void prepare_q4_weight_slot(q4_weight_slot_t *slot, const uint8_t *b, const uint8_t *scales, uint8_t *raw,
+                                   __fp16 *weight, uint8_t *local_scales, int oy, int count, int kp, int blocks,
+                                   int asymmetric, int vrmpy) {
+  memset(&slot->dma, 0, sizeof(slot->dma));
+  slot->dma.length     = count * 512 * kp;
+  slot->dma.type       = DMA_DESC_TYPE_1D;
+  slot->dma.src_bypass = 1;
+  slot->dma.dst_bypass = 1;
+  slot->dma.ordered    = 1;
+  slot->dma.dstate     = DMA_DESC_DSTATE_PENDING;
+  slot->dma.src        = (uint32_t) (b + (size_t) oy * 512 * kp);
+  slot->dma.dst        = (uint32_t) raw;
+  if (local_scales) {
+    memset(&slot->scale_dma, 0, sizeof(slot->scale_dma));
+    slot->scale_dma.length     = count * blocks * 128;
+    slot->scale_dma.src_bypass = 1;
+    slot->scale_dma.dst_bypass = 1;
+    slot->scale_dma.ordered    = 1;
+    slot->scale_dma.src        = (uint32_t) (scales + (size_t) oy * blocks * 128);
+    slot->scale_dma.dst        = (uint32_t) local_scales;
+    slot->dma.next             = (uint32_t) &slot->scale_dma;
+  }
+  dmstart(&slot->dma);
+  // Keep descriptor lifetime and DMA completion explicit before worker submission.
+  dma_wait_for_idle();
+  int jobs = g_max_num_workers > 32 ? 32 : (int) g_max_num_workers;
+  if (jobs < 1) {
+    jobs = 1;
+  }
+  const int flat_tiles = kp == 304 && blocks > 1 && !vrmpy;
+  if (!flat_tiles && jobs > count) {
+    jobs = count;
+  }
+  worker_pool_synctoken_init(&slot->ready, jobs);
+  for (int i = 0; i < jobs; ++i) {
+    process_q4_weight_task_state_t *task = &slot->tasks[i];
+    task->oy_start                       = local_scales ? 0 : oy;
+    task->start_idx                      = i * count / jobs;
+    task->count                          = (i + 1) * count / jobs - task->start_idx;
+    task->kp                             = kp;
+    task->flat_tiles                     = flat_tiles;
+    task->k_begin                        = flat_tiles ? i * count * kp / jobs : 0;
+    task->k_end                          = flat_tiles ? (i + 1) * count * kp / jobs : kp;
+    task->scale_block_num                = blocks;
+    task->scale_asymmetric               = asymmetric;
+    task->weight_is_vrmpy                = vrmpy;
+    task->b_scale                        = local_scales ? local_scales : scales;
+    task->vtcm_weight_int4               = raw;
+    task->vtcm_weight                    = weight;
+    task->shared_sync                    = &slot->ready;
+    worker_pool_job_t job                = { process_q4_weight_worker_loop, task };
+    if (worker_pool_submit(NULL, job) != 0) {
+      process_q4_weight_worker_loop(task, 0);
+    }
+  }
+}
+
 int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias, int M,
                      int K, int N, int mp_max, int np_max, int kp_max, int scale_block_num, int scale_asymmetric,
-                     int weight_is_vrmpy) {
+                     int weight_is_vrmpy, int activation_outer, int reuse_activation_input) {
   if (scale_block_num <= 0) scale_block_num = 1;
   const int dequant_in_weight = scale_block_num > 1;
   // Asymmetric qbias is folded into the dequantized weight, which only happens in the block path.
@@ -928,6 +1129,9 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
   }
   int np_chunk = np_max;
   if (np_chunk == 0) np_chunk = 1;
+  if (activation_outer && (!dequant_in_weight || mp_max <= 0 || np_max <= 0)) {
+    return -4;
+  }
   int mp_chunk = mp_max;
   if (mp_chunk == 0) mp_chunk = 1;
 
@@ -937,31 +1141,45 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
   int mp = (M + 31) / 32;
   int np = N / 32;
   int kp = K / 32;
-  const bool reuse_activation = (mp > 0 && mp <= mp_chunk);
+  if (reuse_activation_input && (activation_outer != 2 || K != 2560 || N != 9728 || M <= 32 || M > 512 ||
+                                 mp > mp_chunk || scale_block_num <= 1 || scale_asymmetric || weight_is_vrmpy)) {
+    return -5;
+  }
+  const bool   reuse_activation                = activation_outer || (mp > 0 && mp <= mp_chunk);
   const int activation_buffers = reuse_activation ? 1 : 2;
   const int    async_output_candidate          = (!dequant_in_weight && mp > 1 && g_max_num_workers > 1);
   const int candidate_cross_oy_output_store = async_output_candidate && ((np_chunk & 1) == 0);
   const int    candidate_output_buffers        = async_output_candidate ? (candidate_cross_oy_output_store ? 4 : 2) : 1;
   const int candidate_scale_buffers = async_output_candidate ? 2 : 1;
   const size_t q4_vtcm_safe_size = 8 * 1024 * 1024 - 16 * 1024;
-  const size_t async_vtcm_bytes                = (size_t) np_chunk * weight_bytes_per_np +
-                                  (size_t) np_chunk * weight_int4_bytes_per_np +
-                                  (size_t) activation_buffers * mp_chunk * act_bytes_per_mp +
-                                  (size_t) candidate_output_buffers * np_chunk * 1024 * sizeof(__fp16) +
-                                  (size_t) np_chunk * 256 + (size_t) candidate_scale_buffers * (np_chunk * 64 + 64);
+  const size_t async_vtcm_bytes =
+    (size_t) np_chunk * weight_bytes_per_np + (size_t) np_chunk * weight_int4_bytes_per_np +
+    (size_t) activation_buffers * mp_chunk * act_bytes_per_mp +
+    (size_t) candidate_output_buffers * (activation_outer == 2 ? mp_chunk : 1) * np_chunk * 1024 * sizeof(__fp16) +
+    (size_t) np_chunk * 256 + (size_t) candidate_scale_buffers * (np_chunk * 64 + 64);
   const int async_output_store    = async_output_candidate && async_vtcm_bytes <= q4_vtcm_safe_size;
   const int cross_oy_output_store = async_output_store && ((np_chunk & 1) == 0);
-  const int output_buffers        = async_output_store ? (cross_oy_output_store ? 4 : 2) : 1;
+  const int output_buffers     = activation_outer == 2 ? 2 : async_output_store ? (cross_oy_output_store ? 4 : 2) : 1;
   const int scale_buffer_bytes = np_chunk * 64 + 64;
   const int scale_buffers = async_output_store ? 2 : 1;
 
   uint8_t *vtcm_ptr        = (uint8_t *) vtcm_manager_get_vtcm_base();
-  __fp16     *vtcm_weight      = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * weight_bytes_per_np);
-  uint8_t    *vtcm_weight_int4 = (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * weight_int4_bytes_per_np);
+  __fp16  *vtcm_weight =
+    (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, (activation_outer == 2 ? 2 : 1) * np_chunk * weight_bytes_per_np);
+  uint8_t *vtcm_weight_int4 =
+    (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, (activation_outer == 2 ? 2 : 1) * np_chunk * weight_int4_bytes_per_np);
   __fp16  *vtcm_activation = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, activation_buffers * mp_chunk * act_bytes_per_mp);
-  __fp16  *vtcm_output     = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, output_buffers * np_chunk * 1024 * sizeof(__fp16));
+  __fp16  *vtcm_output     = (__fp16 *) vtcm_seq_alloc(
+    &vtcm_ptr, output_buffers * (activation_outer == 2 ? mp_chunk : 1) * np_chunk * 1024 * sizeof(__fp16));
   HVX_Vector *vtcm_hmx_scales = (HVX_Vector *) vtcm_seq_alloc(&vtcm_ptr, np_chunk * 256);
   uint8_t  *vtcm_scales     = (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, scale_buffers * scale_buffer_bytes);
+  const size_t weight_scale_slot_bytes =
+    activation_outer == 2 && !scale_asymmetric && !weight_is_vrmpy ? (size_t) np_chunk * scale_block_num * 128 : 0;
+  uint8_t *vtcm_weight_scales =
+    weight_scale_slot_bytes ? (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, 2 * weight_scale_slot_bytes) : NULL;
+  const size_t activation_scratch_bytes = activation_outer == 2 && K == 9728 ? (size_t) g_max_num_workers * 8192 : 0;
+  uint8_t     *activation_scratch =
+    activation_scratch_bytes ? (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, activation_scratch_bytes) : NULL;
   dma_desc_2d_t (*act_descs)[mp_chunk * kp] =
       (dma_desc_2d_t (*)[mp_chunk * kp]) memalign(64, (size_t)2 * mp_chunk * kp * sizeof(dma_desc_2d_t));
   if (act_descs == NULL) {
@@ -972,10 +1190,14 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
     init_identity_q4_output_scales(vtcm_scales, np_chunk);
   }
 
-  hmx_manager_enable_execution();
   hmx_init_column_scales(vtcm_hmx_scales, Q6_V_vsplat_R(0x3c00));
-  hmx_unit_acquire();
-  hmx_set_output_scales(vtcm_hmx_scales);
+  if (activation_outer == 2) {
+    hmx_queue_begin();
+  } else {
+    hmx_manager_enable_execution();
+    hmx_unit_acquire();
+    hmx_set_output_scales(vtcm_hmx_scales);
+  }
 
   int pack = 64;
 #ifdef __HVX_LENGTH__
@@ -986,10 +1208,83 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
   store_q4_output_task_state_t output_store_tasks[4];
   int                          output_store_active[4] = { 0, 0, 0, 0 };
 
+  if (activation_outer == 2) {
+    q4_weight_slot_t slots[2];
+    const int        batches = (np + np_chunk - 1) / np_chunk;
+    if (activation_scratch) {
+      qurt_mem_cache_clean((qurt_addr_t) a, (size_t) M * K * sizeof(__fp16), QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
+    }
+    for (int ox_start = 0; ox_start < mp; ox_start += mp_chunk) {
+      const int ox_end = ox_start + mp_chunk < mp ? ox_start + mp_chunk : mp;
+      if (!reuse_activation_input) {
+        copy_shuffle_q4_activation_tiles_pack64_parallel(vtcm_activation, a, 0, ox_start, ox_end, kp, M,
+                                                         activation_scratch);
+      }
+      int count = np < np_chunk ? np : np_chunk;
+      prepare_q4_weight_slot(&slots[0], b, b_scale, vtcm_weight_int4, vtcm_weight, vtcm_weight_scales, 0, count, kp,
+                             scale_block_num, scale_asymmetric, weight_is_vrmpy);
+      q4_hmx_batch_t  computes[2];
+      hmx_queue_job_t jobs[2];
+      const size_t    output_slot_elements = (size_t) mp_chunk * np_chunk * 1024;
+      for (int batch = 0; batch < batches; ++batch) {
+        const int slot = batch & 1;
+        worker_pool_synctoken_wait(&slots[slot].ready);
+        const int      oy_start = batch * np_chunk;
+        const int      oy_end   = oy_start + np_chunk < np ? oy_start + np_chunk : np;
+        const __fp16  *weight   = vtcm_weight + (size_t) slot * np_chunk * weight_bytes_per_np / sizeof(__fp16);
+        q4_hmx_batch_t compute  = {
+          vtcm_activation,   weight, vtcm_output + slot * output_slot_elements, vtcm_hmx_scales, ox_end - ox_start,
+          oy_end - oy_start, kp
+        };
+        computes[slot] = compute;
+        hmx_queue_execute_async(&jobs[slot], compute_q4_hmx_batch, &computes[slot]);
+        // Retire the previous slot while the current HMX batch runs. Its
+        // weights and output must remain live until this wait and store finish.
+        if (batch > 0) {
+          const int previous = slot ^ 1;
+          hmx_queue_wait(&jobs[previous]);
+        }
+        if (batch + 1 < batches) {
+          const int next_oy    = (batch + 1) * np_chunk;
+          const int next_count = np - next_oy < np_chunk ? np - next_oy : np_chunk;
+          const int next_slot  = slot ^ 1;
+          prepare_q4_weight_slot(&slots[next_slot], b, b_scale,
+                                 vtcm_weight_int4 + (size_t) next_slot * np_chunk * weight_int4_bytes_per_np,
+                                 vtcm_weight + (size_t) next_slot * np_chunk * weight_bytes_per_np / sizeof(__fp16),
+                                 vtcm_weight_scales ? vtcm_weight_scales + next_slot * weight_scale_slot_bytes : NULL,
+                                 next_oy, next_count, kp, scale_block_num, scale_asymmetric, weight_is_vrmpy);
+        }
+        if (batch > 0) {
+          const int previous       = slot ^ 1;
+          const int previous_start = (batch - 1) * np_chunk;
+          const int previous_end   = previous_start + np_chunk < np ? previous_start + np_chunk : np;
+          for (int ox = ox_start; ox < ox_end; ++ox) {
+            store_q4_output_range(c,
+                                  vtcm_output + previous * output_slot_elements +
+                                    (size_t) (ox - ox_start) * (previous_end - previous_start) * 1024,
+                                  bias, NULL, M, ox, previous_start, previous_start, previous_end, pack);
+          }
+        }
+      }
+      const int last = (batches - 1) & 1;
+      hmx_queue_wait(&jobs[last]);
+      const int last_start = (batches - 1) * np_chunk;
+      for (int ox = ox_start; ox < ox_end; ++ox) {
+        store_q4_output_range(
+          c, vtcm_output + last * output_slot_elements + (size_t) (ox - ox_start) * (np - last_start) * 1024, bias,
+          NULL, M, ox, last_start, last_start, np, pack);
+      }
+    }
+    hmx_queue_end();
+    free(act_descs);
+    return 0;
+  }
   for (int oy_start = 0; oy_start < np; oy_start += np_chunk) {
     int oy_end = oy_start + np_chunk;
-    if (oy_end > np) oy_end = np;
-    const int oy_block = oy_start / np_chunk;
+    if (oy_end > np) {
+      oy_end = np;
+    }
+    const int oy_block      = oy_start / np_chunk;
     const int scale_buf_idx = async_output_store ? (oy_block & 1) : 0;
     if (cross_oy_output_store) {
       const int output_group = scale_buf_idx * 2;
@@ -1093,34 +1388,40 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
     dmstart(&weight_desc[0]);
 
     if (reuse_activation && !activation_prepared) {
-      copy_shuffle_q4_activation_tiles_pack64_parallel(vtcm_activation, a, 0, 0, mp, kp, M);
+      copy_shuffle_q4_activation_tiles_pack64_parallel(vtcm_activation, a, 0, 0, mp, kp, M, NULL);
       activation_prepared = true;
     }
 
-    worker_synctoken_t sync_token[num_chunks];
-    process_q4_weight_task_state_t chunk_states[num_chunks];
-    int chunk_weight_ready[num_chunks];
+    worker_synctoken_t             sync_token[num_chunks];
+    const int                      k_splits = K == 9728 && dequant_in_weight && !weight_is_vrmpy ? 2 : 1;
+    process_q4_weight_task_state_t chunk_states[num_chunks * k_splits];
+    int                            chunk_weight_ready[num_chunks];
     for (int i = 0; i < valid_chunks; ++i) {
       chunk_weight_ready[i] = 0;
-      worker_pool_synctoken_init(&sync_token[i], 1);
-      chunk_states[i].oy_start = oy_start;
-      chunk_states[i].start_idx = chunk_starts[i];
-      chunk_states[i].count = chunk_counts[i];
-      chunk_states[i].kp = kp;
-      chunk_states[i].scale_block_num = scale_block_num;
-      chunk_states[i].scale_asymmetric = scale_asymmetric;
-      chunk_states[i].weight_is_vrmpy  = weight_is_vrmpy;
-      chunk_states[i].b_scale = b_scale;
-      chunk_states[i].vtcm_weight_int4 = vtcm_weight_int4;
-      chunk_states[i].vtcm_weight      = vtcm_weight;
-      chunk_states[i].depend = &weight_desc[i];
-      chunk_states[i].shared_sync = &sync_token[i];
+      worker_pool_synctoken_init(&sync_token[i], k_splits);
+      for (int part = 0; part < k_splits; ++part) {
+        const int task_index                      = i * k_splits + part;
+        chunk_states[task_index].oy_start         = oy_start;
+        chunk_states[task_index].start_idx        = chunk_starts[i];
+        chunk_states[task_index].count            = chunk_counts[i];
+        chunk_states[task_index].kp               = kp;
+        chunk_states[task_index].flat_tiles       = 0;
+        chunk_states[task_index].k_begin          = part * kp / k_splits;
+        chunk_states[task_index].k_end            = (part + 1) * kp / k_splits;
+        chunk_states[task_index].scale_block_num  = scale_block_num;
+        chunk_states[task_index].scale_asymmetric = scale_asymmetric;
+        chunk_states[task_index].weight_is_vrmpy  = weight_is_vrmpy;
+        chunk_states[task_index].b_scale          = b_scale;
+        chunk_states[task_index].vtcm_weight_int4 = vtcm_weight_int4;
+        chunk_states[task_index].vtcm_weight      = vtcm_weight;
+        chunk_states[task_index].shared_sync      = &sync_token[i];
 
-      worker_pool_job_t job;
-      job.fptr = process_q4_weight_worker_loop;
-      job.dptr = &chunk_states[i];
-      if (worker_pool_submit(NULL, job) != 0) {
-        process_q4_weight_worker_loop(&chunk_states[i], 0);
+        worker_pool_job_t job;
+        job.fptr = process_q4_weight_worker_loop;
+        job.dptr = &chunk_states[task_index];
+        if (worker_pool_submit(NULL, job) != 0) {
+          process_q4_weight_worker_loop(&chunk_states[task_index], 0);
+        }
       }
     }
 
@@ -1140,7 +1441,9 @@ int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8
       }
 
       int ox_end = ox_start + mp_chunk;
-      if (ox_end > mp) ox_end = mp;
+      if (ox_end > mp) {
+        ox_end = mp;
+      }
 
       int current_base_offset = act_buf_idx * mp_chunk * kp * 32 * 32;
 

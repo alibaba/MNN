@@ -74,7 +74,10 @@ static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *
     HVX_Vector     hi  = Q6_V_hi_W(sf);
     int            rem = validN - i;
     if (rem < 64) {
-      lo = Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem < 32 ? rem : 32) * (int) sizeof(float)), lo, v_max);
+      // vsetq(128) is empty: retain all 32 low float lanes when rem >= 32.
+      if (rem < 32) {
+        lo = Q6_V_vmux_QVV(Q6_Q_vsetq_R(rem * (int) sizeof(float)), lo, v_max);
+      }
       hi = (rem > 32) ? Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem - 32) * (int) sizeof(float)), hi, v_max) : v_max;
     }
     v_max = Q6_Vsf_vmax_VsfVsf(v_max, lo);
@@ -93,7 +96,33 @@ static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *
   HVX_Vector  v_log2e = Q6_V_vsplat_R(*(const int *) &log2e);
   HVX_Vector  v_maxs  = Q6_V_vsplat_R(*(const int *) &max_value);
   HVX_Vector  v_sum   = Q6_V_vzero();
-  for (i = 0; i < validN; i += 64) {
+  i                   = 0;
+#if __HVX_ARCH__ == 79
+  // Two complete blocks expose independent exp chains without changing summation order.
+  for (; i <= validN - 128; i += 128) {
+    HVX_VectorPair sf0 = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(*(const HVX_Vector *) (stage + i)));
+    HVX_VectorPair sf1 = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(*(const HVX_Vector *) (stage + i + 64)));
+    HVX_Vector     s0  = Q6_Vsf_equals_Vqf32(
+      Q6_Vqf32_vmpy_VsfVsf(Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(Q6_V_lo_W(sf0), v_maxs)), v_log2e));
+    HVX_Vector s1 = Q6_Vsf_equals_Vqf32(
+      Q6_Vqf32_vmpy_VsfVsf(Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(Q6_V_hi_W(sf0), v_maxs)), v_log2e));
+    HVX_Vector s2 = Q6_Vsf_equals_Vqf32(
+      Q6_Vqf32_vmpy_VsfVsf(Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(Q6_V_lo_W(sf1), v_maxs)), v_log2e));
+    HVX_Vector s3 = Q6_Vsf_equals_Vqf32(
+      Q6_Vqf32_vmpy_VsfVsf(Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(Q6_V_hi_W(sf1), v_maxs)), v_log2e));
+    HVX_Vector e0                    = hvx_my_exp2_vsf(s0);
+    HVX_Vector e1                    = hvx_my_exp2_vsf(s1);
+    HVX_Vector e2                    = hvx_my_exp2_vsf(s2);
+    HVX_Vector e3                    = hvx_my_exp2_vsf(s3);
+    v_sum                            = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e0));
+    v_sum                            = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e1));
+    v_sum                            = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e2));
+    v_sum                            = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e3));
+    *(HVX_Vector *) (stage + i)      = Q6_Vh_vdeal_Vh(Q6_Vhf_vcvt_VsfVsf(e0, e1));
+    *(HVX_Vector *) (stage + i + 64) = Q6_Vh_vdeal_Vh(Q6_Vhf_vcvt_VsfVsf(e2, e3));
+  }
+#endif
+  for (; i < validN; i += 64) {
     HVX_VectorPair sf = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(*(const HVX_Vector *) (stage + i)));
     HVX_Vector     s0 = Q6_Vsf_equals_Vqf32(
       Q6_Vqf32_vmpy_VsfVsf(Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(Q6_V_lo_W(sf), v_maxs)), v_log2e));
@@ -103,7 +132,9 @@ static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *
     HVX_Vector e1  = hvx_my_exp2_vsf(s1);
     int        rem = validN - i;
     if (rem < 64) {
-      e0 = Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem < 32 ? rem : 32) * (int) sizeof(float)), e0, Q6_V_vzero());
+      if (rem < 32) {
+        e0 = Q6_V_vmux_QVV(Q6_Q_vsetq_R(rem * (int) sizeof(float)), e0, Q6_V_vzero());
+      }
       e1 = (rem > 32) ? Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem - 32) * (int) sizeof(float)), e1, Q6_V_vzero()) : Q6_V_vzero();
     }
     v_sum              = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e0));

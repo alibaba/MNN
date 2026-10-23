@@ -744,7 +744,8 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t *c, const uint8_t *a, const uint
     init_identity_q4_output_scales(param.vtcm_scales, param.np_chunk);
   }
 
-  return hmx_matmulq4fp16_mle32_part(&param);
+  const int ret = hmx_matmulq4fp16_mle32_part(&param);
+  return ret;
 }
 
 int hmx_matmulq4fp16_mle32(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias,

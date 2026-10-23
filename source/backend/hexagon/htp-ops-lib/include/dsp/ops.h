@@ -21,7 +21,7 @@ extern "C" {
 // repacks the scale on-DSP. 0 = classic HMX-layout weight + fp16 scales.
 int hmx_matmulq4fp16(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias, int m,
                      int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric,
-                     int weight_is_vrmpy);
+                     int weight_is_vrmpy, int activation_outer, int reuse_activation_input);
 int hmx_matmulq4fp16_mle32(uint8_t *c, const uint8_t *a, const uint8_t *b, const uint8_t *b_scale, const uint8_t *bias,
                            int m, int k, int n, int mp, int np, int kp, int scale_block_num, int scale_asymmetric,
                            int weight_is_vrmpy);
