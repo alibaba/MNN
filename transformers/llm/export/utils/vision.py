@@ -10,6 +10,7 @@ from typing import Tuple, Optional, Dict, Any
 from .transformers import VisionRotary, Decoder
 from .spinner import spinner_run
 from .torch_utils import onnx_export, EncoderExport, embedding_scale
+from .qat import copy_qat_source
 
 class Vision(torch.nn.Module):
     processor_family = "clip"
@@ -1342,6 +1343,8 @@ class Qwen3Vision(Qwen2Vision):
         # 复制并转换权重 (C,D,H,W 展开顺序与 view(-1) 一致)
         with torch.no_grad():
             self.patch_embed.weight.copy_(old_conv.weight.view(out_channels, -1))
+            if hasattr(old_conv, '_mnn_qat_source_weight_name'):
+                copy_qat_source(old_conv, self.patch_embed, lambda w: w.flatten(1))
             if old_conv.bias is not None:
                 self.patch_embed.bias.copy_(old_conv.bias)
 
@@ -1515,6 +1518,8 @@ class Qwen3_5Vision(Qwen2Vision):
         # 复制并转换权重 (C,D,H,W 展开顺序与 view(-1) 一致)
         with torch.no_grad():
             self.patch_embed.weight.copy_(old_conv.weight.view(out_channels, -1))
+            if hasattr(old_conv, '_mnn_qat_source_weight_name'):
+                copy_qat_source(old_conv, self.patch_embed, lambda w: w.flatten(1))
             if old_conv.bias is not None:
                 self.patch_embed.bias.copy_(old_conv.bias)
 

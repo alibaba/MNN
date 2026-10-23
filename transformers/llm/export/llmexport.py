@@ -20,6 +20,7 @@ from utils.mnn_converter import MNNConverter
 from utils.awq_quantizer import AwqQuantizer
 from utils.smooth_quantizer import SmoothQuantizer
 from utils.omni_quantizer import OmniQuantizer
+from utils.qat import QATLoader
 from utils.torch_utils import onnx_export
 
 
@@ -30,6 +31,7 @@ class LlmExporter(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
         self.init_from_args(args)
+        self.qat_loader = QATLoader(args.path, args) if getattr(args, 'qat', False) else None
         self.load_model(args.path)
 
     def init_from_args(self, args):
@@ -170,6 +172,9 @@ class LlmExporter(torch.nn.Module):
 
         # tie word embeddings
         self.args.tie_word_embeddings = not self.args.seperate_embed and self.model.lm.lm.weight.equal(self.model.embed.embed.weight)
+        if self.qat_loader is not None:
+            self.args.tie_word_embeddings = self.qat_loader.bind_tied_embeddings(
+                self.model.lm.lm, self.model.embed.embed, self.args.tie_word_embeddings)
         # Pass properties from model to exporter
         self.visual = self.model.visual
         self.audio = self.model.audio
@@ -1050,6 +1055,8 @@ def build_args(parser):
     parser.add_argument('--embed_bit', type=int, default=16, choices=[16, 8, 4], help='embedding export bit precision, choices are 16 (bf16), 8 (int8), 4 (int4), default is 16.')
     parser.add_argument('--act_sym', action='store_true', help='smooth quant act us sym or not, default asym.')
     parser.add_argument('--quant_config', type=str, default=None, help='path to the JSON file for op-wise quantization configuration.')
+    parser.add_argument('--qat', action='store_true',
+                        help='Preserve QAT scale/zero_point from qat_config.json and safetensors.')
     parser.add_argument('--generate_for_npu', action='store_true', help='Whether or not to generate model for NPU deployment, default is False.')
     parser.add_argument('--skip_weight', action='store_true', help='Whether or not to skip loading model weights, useful for testing export flow.')
     # omni quant
@@ -1071,7 +1078,11 @@ def export(path, **kwargs):
     else:
         llm_exporter = LlmExporter(args)
     # export
-    llm_exporter.export(args.export)
+    if llm_exporter.qat_loader is not None and args.export == 'mnn':
+        with llm_exporter.qat_loader.export_context():
+            llm_exporter.export(args.export)
+    else:
+        llm_exporter.export(args.export)
 
 def main():
     parser = argparse.ArgumentParser(description='llm_exporter', formatter_class=argparse.RawTextHelpFormatter)
@@ -1093,7 +1104,11 @@ def main():
         llm_exporter.response(args.test)
 
     if args.export is not None:
-        llm_exporter.export(args.export)
+        if llm_exporter.qat_loader is not None and args.export == 'mnn':
+            with llm_exporter.qat_loader.export_context():
+                llm_exporter.export(args.export)
+        else:
+            llm_exporter.export(args.export)
 
 if __name__ == '__main__':
     main()
