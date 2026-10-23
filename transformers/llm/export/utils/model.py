@@ -160,6 +160,7 @@ class LlmModel(PreTrainedModel):
             'lfm2_vl': 'Lfm2VlForConditionalGeneration',
             'gemma4': 'Gemma4ForConditionalGeneration',
             'hunyuan_vl': 'HunYuanVLForConditionalGeneration',
+            'minicpmv4_7': 'MiniCPMV4_7ForConditionalGeneration',
         }
         if model_type is None or model_type not in MODEL_CLASS_MAPPING:
             return AutoModelForCausalLM
