@@ -8,6 +8,7 @@
 
 #include "backend/cpu/CPUArgMax.hpp"
 #include <float.h>
+#include <limits>
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/TensorUtils.hpp"
@@ -122,7 +123,7 @@ ErrorCode CPUArgMax::onExecute(const std::vector<Tensor *> &inputs, const std::v
 
                 for(int k = 0; k < mKeyExtent; ++k){
                     int index      = 0;
-                    float maxValue = -FLT_MAX;
+                    float maxValue = -std::numeric_limits<float>::infinity();
                     for (int j = 0; j < mDim; ++j) {
                         auto val = iptr[k + j * mKeyExtent];
                         if (val > maxValue) {
@@ -142,7 +143,7 @@ ErrorCode CPUArgMax::onExecute(const std::vector<Tensor *> &inputs, const std::v
 
                 for(int k = 0; k < mKeyExtent; ++k){
                     int index      = 0;
-                    float minValue = FLT_MAX;
+                    float minValue = std::numeric_limits<float>::infinity();
                     for (int j = 0; j < mDim; ++j) {
                         auto val = iptr[k + j * mKeyExtent];
                         if (val < minValue) {
