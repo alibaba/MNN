@@ -1229,6 +1229,20 @@ class UnitTest(unittest.TestCase):
                             else:
                                 self.assertAlmostEqual(actual, float(expected), places=5)
                             self.assertEqualVar(value, data)
+        data = np.array([[1, -2, 4], [3, 0, 8]], dtype=np.float32)
+        for name in ['mean', 'var', 'std']:
+            for axis in [None, -1]:
+                for keepdims in [False, True]:
+                    with self.subTest(api='bound_method', operation=name, axis=axis, keepdims=keepdims):
+                        value = mp.array(data)
+                        actual = getattr(value, name)(axis=axis, keepdims=keepdims)
+                        expected = getattr(data, name)(axis=axis, keepdims=keepdims)
+                        if keepdims or axis is not None:
+                            self.assertEqualVar(actual, expected)
+                            self.assertEqual(actual.read().dtype, expected.dtype)
+                        else:
+                            self.assertAlmostEqual(actual, float(expected), places=5)
+                        self.assertEqualVar(value, data)
     def test_histogram(self):
         x = mp.array([1., 2., 2., 3., 3., 3., 4., 4., 5.])
         x_ = x.read()
