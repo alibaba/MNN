@@ -1047,6 +1047,29 @@ class UnitTest(unittest.TestCase):
                         arrays = [x + i for i in range(count)]
                         actual = mp.hstack(tuple(mp.array(a) for a in arrays))
                         self.assertEqualVar(actual, np.hstack(tuple(arrays)))
+        for dtype in [np.float32, np.int32]:
+            with self.subTest(workflow='shape_contracts', dtype=dtype):
+                prototype = np.array([[7, -3], [2, 9]], dtype=dtype)
+                source = mp.array(prototype)
+                # Default order='K' must still honor the requested shape.
+                created = mp.full_like(source, 2, shape=(3,))
+                expected_created = np.full_like(prototype, 2, shape=(3,))
+                self.assertEqualVar(created, expected_created)
+                joined = mp.hstack((created,))
+                expected_joined = np.hstack((expected_created,))
+                self.assertEqualVar(joined, expected_joined)
+                partner = np.arange(6, dtype=dtype).reshape(2, 3)
+                other = mp.array(partner)
+                actual = mp.broadcast_arrays(joined, other)
+                expected = np.broadcast_arrays(expected_joined, partner)
+                self.assertEqual(len(actual), len(expected))
+                for value, reference in zip(actual, expected):
+                    self.assertEqualVar(value, reference)
+                    self.assertEqual(value.read().dtype, reference.dtype)
+                self.assertEqualVar(source, prototype)
+                self.assertEqualVar(created, expected_created)
+                self.assertEqualVar(joined, expected_joined)
+                self.assertEqualVar(other, partner)
     def test_splitting(self):
         x = mp.arange(9.0)
         x_ = np.arange(9.0)
