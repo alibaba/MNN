@@ -137,7 +137,11 @@ Tokenizer* Tokenizer::createTokenizer(const std::string& filename) {
     // load special tokens
     tokenizer->load_special(tok_file);
     // load vocabs
-    tokenizer->load_vocab(tok_file);
+    if (!tokenizer->load_vocab(tok_file)) {
+        printf("Failed: malformed text vocab in: %s.\n", filename.c_str());
+        delete tokenizer;
+        return nullptr;
+    }
     tok_file.close();
     tokenizer->cache_special_tokens();
     return tokenizer;
