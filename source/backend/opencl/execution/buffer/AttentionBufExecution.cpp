@@ -1985,6 +1985,14 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, c
 AttentionBufExecution::AttentionBufExecution(const MNN::Op* op, Backend* backend, bool outputC4)
     : CommonExecution(backend, op) {
     mMeta = (KVMeta*)(backend->getMetaPtr());
+    // kv_cache=false: the caller hands over the whole K/V on every call (cross / prefix attention,
+    // e.g. the DFlash draft, where Q len != KV len) and expects no persistent cache. Force the
+    // meta-less path so every cache branch below is skipped, instead of keying on whether the
+    // session happens to carry a KVMeta (which it does for the draft). Mirrors Metal's !mKVCache.
+    const auto* attnParam = op->main_as_AttentionParam();
+    if (attnParam != nullptr && !attnParam->kv_cache()) {
+        mMeta = nullptr;
+    }
     mOutputC4 = outputC4;
     // Export-time attribute (schema default true); a different notion from the meta-presence
     // flag KVCacheCLManager is constructed with just below.
@@ -2002,6 +2010,10 @@ AttentionBufExecution::AttentionBufExecution(std::shared_ptr<KVCacheCLManager> m
                                              Backend* backend)
     : CommonExecution(backend, op), mKVCacheCLManager(manager) {
     mMeta = (KVMeta*)(backend->getMetaPtr());
+    const auto* attnParam = op->main_as_AttentionParam();
+    if (attnParam != nullptr && !attnParam->kv_cache()) {
+        mMeta = nullptr;
+    }
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
     auto param = op->main_as_AttentionParam();
     mOutputC4 = param->output_c4();
