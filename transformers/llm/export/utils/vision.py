@@ -125,6 +125,7 @@ class Vision(torch.nn.Module):
             'smolvlm': Idefics3Vision,
             'llava_qwen2': MobileCLIPVision,
             'minicpmv': MiniCPMVision,
+            'minicpmv4_7': MiniCPMV4_7Vision,
             'glm_ocr': GlmOcrVision,
             'lfm2_vl': Lfm2VlVision,
             'hunyuan_vl': HunyuanVLVision,
@@ -2116,6 +2117,179 @@ class MobileCLIPVision(QwenVision):
         image_features = self.mm_projector(image_features)
         image_features = image_features.permute(1, 0, 2)
         return image_features
+
+class MiniCPMV4_7Vision(Vision):
+    processor_family = "minicpmv4_7"
+    output_axes = (1, 0, 2)
+
+    def init_config(self):
+        from transformers import AutoProcessor
+        # Window attention uses independent batches, without a shared KV cache.
+        self.transformer_fuse = False
+        self.processor = AutoProcessor.from_pretrained(self.config.name_or_path)
+        processor = self.processor.image_processor
+        self.patch_size = self.config.vision_config.patch_size
+        self.downsample_mode = self.config.downsample_mode
+        self.use_vit_merger = self.downsample_mode != '4x'
+        self.merge_size = 4 if self.use_vit_merger else 2
+        self.image_embeds = []
+        self.target_sizes = None
+        self.rope_delta = 0
+        self.llm_config.update({
+            'vision_type': 'minicpmv4_7',
+            'image_size': processor.scale_resolution,
+            'image_size_unit': self.patch_size,
+            'image_mean': (np.array(processor.image_mean) * 255.0).tolist(),
+            'image_norm': (1 / (np.array(processor.image_std) * 255.0)).tolist(),
+            'image_pad': self.config.image_token_id,
+            'vision_start': self.config.image_start_id,
+            'vision_end': self.config.image_end_id,
+            'vision_slice_start_id': self.config.slice_start_id,
+            'vision_slice_end_id': self.config.slice_end_id,
+            'vision_id_start_id': self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_id_start_token),
+            'vision_id_end_id': self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_id_end_token),
+            'vision_merge_size': self.merge_size,
+            'vision_position_size': self.config.vision_config.image_size // self.patch_size,
+            'vision_max_slice_nums': processor.max_slice_nums,
+            'vision_use_image_id': self.processor.default_use_image_id,
+            'vision_newline_id': self.config.newline_id,
+        })
+
+    def load(self):
+        from types import MethodType, SimpleNamespace
+        from transformers.models.minicpmv4_7.modeling_minicpmv4_7 import MiniCPMV4_7Model
+        self.merger = self.visual.merger
+        self.position_helper = SimpleNamespace(config=self.config)
+        self.position_helper._frame_end_idx = MiniCPMV4_7Model._frame_end_idx
+        for name in ('_group_visual_frames', 'get_vision_position_ids', 'get_rope_index'):
+            setattr(self.position_helper, name, MethodType(getattr(MiniCPMV4_7Model, name), self.position_helper))
+
+    @staticmethod
+    def _attention(attention, hidden_states):
+        batch, length, channels = hidden_states.shape
+        shape = (batch, length, attention.num_heads, attention.head_dim)
+        query = attention.q_proj(hidden_states).reshape(shape).transpose(1, 2)
+        key = attention.k_proj(hidden_states).reshape(shape).transpose(1, 2)
+        value = attention.v_proj(hidden_states).reshape(shape).transpose(1, 2)
+        scores = torch.matmul(query, key.transpose(-1, -2)) * attention.scaling
+        probabilities = torch.softmax(scores.float(), dim=-1).to(query.dtype)
+        output = torch.matmul(probabilities, value).transpose(1, 2).reshape(batch, length, channels)
+        return attention.out_proj(output)
+
+    @staticmethod
+    def _merge(hidden_states, height, width, kernel):
+        batch, _, channels = hidden_states.shape
+        kh, kw = kernel
+        hidden_states = hidden_states.reshape(batch, height // kh, kh, width // kw, kw, channels)
+        return hidden_states.permute(0, 1, 3, 2, 4, 5).reshape(batch, -1, kh * kw * channels)
+
+    def forward(self, pixel_values, position_ids):
+        hidden_states = self.visual.embeddings.patch_embedding(pixel_values)
+        batch, channels, height, width = hidden_states.shape
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        hidden_states = hidden_states + self.visual.embeddings.position_embedding(position_ids.long())
+        for index, layer in enumerate(self.visual.encoder.layers):
+            hidden_states = hidden_states + self._attention(layer.self_attn, layer.layer_norm1(hidden_states))
+            hidden_states = hidden_states + layer.mlp(layer.layer_norm2(hidden_states))
+            if self.use_vit_merger and index == self.config.insert_layer_id:
+                merger = self.visual.vit_merger
+                kernel = merger.window_kernel_size
+                window_size = kernel[0] * kernel[1]
+                windows = self._merge(hidden_states, height, width, kernel).reshape(-1, window_size, channels)
+                windows = windows + self._attention(merger.self_attn, merger.layer_norm1(windows))
+                flat_windows = windows.reshape(batch, -1, window_size * channels)
+                merged = merger.linear_2(merger.act(merger.linear_1(merger.pre_norm(flat_windows))))
+                hidden_states = merged + windows.mean(dim=1).reshape(batch, -1, channels)
+                height, width = height // kernel[0], width // kernel[1]
+        hidden_states = self.visual.post_layernorm(hidden_states)
+        kernel = self.merger.merge_kernel_size
+        for mlp in self.merger.mlp:
+            hidden_states = self._merge(hidden_states, height, width, kernel)
+            height, width = height // kernel[0], width // kernel[1]
+            hidden_states = mlp(hidden_states).reshape(batch, height * width, -1)
+        return hidden_states
+
+    def _encode_images(self, inputs):
+        from transformers.vision_utils import get_vision_nearest_position_ids
+        packed = inputs['pixel_values']
+        groups = {}
+        offset = 0
+        sizes = inputs['target_sizes'].tolist()
+        for index, (height, width) in enumerate(sizes):
+            length = height * width
+            pixels = packed[0, :, :, offset * self.patch_size:(offset + length) * self.patch_size]
+            pixels = pixels.reshape(3, self.patch_size, height, width, self.patch_size)
+            pixels = pixels.permute(0, 2, 1, 3, 4).reshape(1, 3, height * self.patch_size, width * self.patch_size)
+            groups.setdefault((height, width), []).append((index, pixels))
+            offset += length
+        self.image_embeds = [None] * len(sizes)
+        for (height, width), entries in groups.items():
+            pixels = torch.cat([entry[1] for entry in entries])
+            positions = get_vision_nearest_position_ids(
+                torch.tensor([[height, width]]), self.llm_config['vision_position_size']
+            ).reshape(1, -1).expand(len(entries), -1)
+            embeddings = self.forward(pixels, positions)
+            for batch, (index, _) in enumerate(entries):
+                self.image_embeds[index] = embeddings[batch].reshape(-1, 1, self.hidden_size)
+
+    def processor_inputs(self, prompt, **kwargs):
+        import re
+        import requests
+        from PIL import Image
+        images = []
+        def replace_image(match):
+            path = match.group(1)
+            if path.startswith(('http://', 'https://')):
+                response = requests.get(path, stream=True, timeout=30)
+                response.raise_for_status()
+                image = Image.open(response.raw)
+            else:
+                image = Image.open(path)
+            images.append(image.convert('RGB'))
+            return self.processor.image_token
+        text = re.sub(r'<img>(.*?)</img>', replace_image, prompt)
+        inputs = self.processor(text=text, images=images or None, return_tensors='pt', **kwargs)
+        self.image_embeds = []
+        if images:
+            self._encode_images(inputs)
+        return inputs
+
+    def str_to_ids(self, prompt):
+        inputs = self.processor_inputs(prompt, downsample_mode=self.downsample_mode)
+        self.target_sizes = inputs.get('target_sizes')
+        return inputs['input_ids']
+
+    def embed(self, input_ids, images=None, videos=None):
+        embeddings = self.embed_(input_ids)
+        if self.image_embeds:
+            mask = input_ids.flatten() == self.config.image_token_id
+            embeddings[mask] = torch.cat(self.image_embeds).to(embeddings.dtype)
+        return embeddings
+
+    def get_position_ids(self, input_ids, seq_len, new_tokens):
+        if new_tokens:
+            return torch.full((3, 1), seq_len - 1 + self.rope_delta, dtype=torch.int32)
+        ids = input_ids.reshape(1, -1)
+        modalities = (ids == self.config.image_token_id).to(torch.int32)
+        positions, delta = self.position_helper.get_rope_index(
+            ids, mm_token_type_ids=modalities, target_sizes=self.target_sizes
+        )
+        self.rope_delta = int(delta[0, 0])
+        return positions[:, 0].to(torch.int32)
+
+    @spinner_run('export visual to ')
+    def export(self, onnx_path):
+        pixels = torch.zeros(1, 3, 112, 112)
+        positions = torch.zeros(1, 64, dtype=torch.int32)
+        model = f'{onnx_path}/visual.onnx'
+        self.export_onnx(self, (pixels, positions), model,
+                    input_names=['pixel_values', 'position_ids'], output_names=['image_embeds'],
+                    dynamic_axes={'pixel_values': {0: 'batch', 2: 'height', 3: 'width'},
+                                  'position_ids': {0: 'batch', 1: 'patches'},
+                                  'image_embeds': {0: 'batch', 1: 'tokens'}})
+        return model
+
+
 
 class MiniCPMVision(Vision):
     processor_family = "minicpmv"

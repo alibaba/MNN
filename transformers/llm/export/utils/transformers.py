@@ -130,7 +130,7 @@ class Attention(torch.nn.Module):
             self.rotary = None
         if config.model_type == 'mobilemoe' and attn.attn_temperature_tuning and not attn.use_rope:
             raise ValueError('MobileMoE attention temperature tuning is not supported')
-        if config.model_type in ['qwen3_5', 'qwen3_5_moe', 'qwen3_5_text']:
+        if config.model_type in ['qwen3_5', 'qwen3_5_moe', 'qwen3_5_text', 'minicpmv4_7']:
             # Qwen3.5 attention norms use gamma=(1+weight). FusedRoPE stores
             # norm.weight as gamma, so canonicalize the offset semantics first.
             self.q_norm = canonical_rms_norm(getattr(self, 'q_norm', None), 1.0)
@@ -1232,7 +1232,7 @@ class Rotary(torch.nn.Module):
             return self.chatglm_rotary_pos(x, cos, sin)
         if self.model_type == 'chatglm2':
             return self.chatglm2_rotary_pos(x, cos, sin)
-        if self.model_type in ['phi-msft', 'qwen3_5', 'qwen3_5_moe', 'qwen3_5_text']:
+        if self.model_type in ['phi-msft', 'qwen3_5', 'qwen3_5_moe', 'qwen3_5_text', 'minicpmv4_7']:
             return self.phi_rotary_pos(x, cos, sin)
         if self.model_type in ['ernie4_5', 'glm_ocr', 'mobilemoe']:
             return self.ernie_rotary_pos(x, cos, sin)

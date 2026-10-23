@@ -481,6 +481,7 @@ struct Omni::VisionProcessor {
     struct Qwen3;
     struct Idefics;
     struct MiniCPM;
+    struct MiniCPM47;
     struct Hunyuan;
     struct Gemma4;
     explicit VisionProcessor(Omni& omni) : mOmni(omni) {}
@@ -491,6 +492,9 @@ struct Omni::VisionProcessor {
     std::vector<int> encode(const Plan& plan);
     virtual bool splitVideoFrames() const { return false; }
     virtual bool relativeSpatialPositions() const { return false; }
+    virtual void reset() {}
+    virtual bool promptPositions(const std::vector<int>& ids) { return true; }
+    virtual int lastPosition() const { return mOmni.mPositionIds.back(); }
     virtual bool validate(const Feature& feature) const { return true; }
     virtual bool assemble(const Plan& plan, std::vector<Feature>& features, std::vector<int>& ids);
     virtual void positions(const Plan& plan, const Feature& feature, int markers);
@@ -1091,6 +1095,300 @@ struct Omni::VisionProcessor::MiniCPM : VisionProcessor {
     }
 };
 
+struct Omni::VisionProcessor::MiniCPM47 : MiniCPM {
+    using MiniCPM::MiniCPM;
+    void imageId(std::vector<int>& ids) {
+        marker(ids, mOmni.mConfig->config_.value("vision_id_start_id", 113));
+        text(ids, mOmni.mTokenizer->encode(std::to_string(mOmni.mVisionNum), false));
+        marker(ids, mOmni.mConfig->config_.value("vision_id_end_id", 114));
+    }
+    std::vector<std::pair<int, int>> mCropSizes;
+    int mNextPosition = 0;
+    void reset() override {
+        mCropSizes.clear();
+        mNextPosition = 0;
+    }
+    int lastPosition() const override {
+        return mCropSizes.empty() ? VisionProcessor::lastPosition() : std::max(mNextPosition - 1, 0);
+    }
+    bool promptPositions(const std::vector<int>& ids) override;
+    void positions(const Plan& plan, const Feature& feature, int markers) override {
+        mCropSizes.push_back(feature.grid);
+        VisionProcessor::positions(plan, feature, markers);
+    }
+    bool validate(const Feature& feature) const override {
+        int merge = mOmni.mConfig->config_.value("vision_merge_size", 4);
+        return merge > 0 && feature.grid.first % merge == 0 && feature.grid.second % merge == 0 &&
+               feature.value->getInfo()->dim[0] == (feature.grid.first / merge) * (feature.grid.second / merge);
+    }
+    Plan prepare(VARP image) override {
+        Plan plan;
+        const int patch = mOmni.mVisionSizeUnit;
+        const int resolution = mOmni.mConfig->config_.value("image_size", 448);
+        const int maxSlices = mOmni.mConfig->config_.value("vision_max_slice_nums", 9);
+        const int bins = mOmni.mConfig->config_.value("vision_position_size", 70);
+        int height = mOmni.mVisionHeight, width = mOmni.mVisionWidth;
+        if (!mOmni.mVisionSizeOverridden) {
+            height = image->getInfo()->dim[0];
+            width = image->getInfo()->dim[1];
+        }
+        if (patch <= 0 || resolution <= 0 || maxSlices < 1 || bins <= 0 || height <= 0 || width <= 0) {
+            return {};
+        }
+        auto divide = [](double value, int unit) {
+            return std::max(unit, static_cast<int>(std::nearbyint(value / unit)) * unit);
+        };
+        auto bestSize = [&](double h, double w, bool upscale) {
+            if (upscale || h * w > static_cast<double>(resolution) * resolution) {
+                double ratio = w / h;
+                h = static_cast<int>(resolution / std::sqrt(ratio));
+                w = static_cast<int>(h * ratio);
+            }
+            return std::make_pair(divide(h, patch * 4), divide(w, patch * 4));
+        };
+        int multiple = std::min(
+            maxSlices, static_cast<int>(std::ceil(static_cast<double>(height) * width / (resolution * resolution))));
+        if (multiple > 1) {
+            double logRatio = std::log(static_cast<double>(width) / height);
+            double bestError = std::numeric_limits<double>::infinity();
+            for (int count = multiple - 1; count <= multiple + 1; ++count) {
+                if (count <= 1 || count > maxSlices) {
+                    continue;
+                }
+                for (int rows = 1; rows <= count; ++rows) {
+                    if (count % rows != 0) {
+                        continue;
+                    }
+                    int cols = count / rows;
+                    double error = std::abs(logRatio - std::log(static_cast<double>(cols) / rows));
+                    if (error < bestError || (error == bestError && rows > plan.rows)) {
+                        bestError = error;
+                        plan.rows = rows;
+                        plan.cols = cols;
+                    }
+                }
+            }
+        }
+        auto resize = [&](std::pair<int, int> size) {
+            return resizeImage(image, size.first, size.second, mOmni.mVisionMean, mOmni.mVisionNorm,
+                               MNN::CV::INTER_CUBIC);
+        };
+        auto addBatch = [&](VARP pixels, std::pair<int, int> size, int count) {
+            Batch batch;
+            int gh = size.first / patch, gw = size.second / patch;
+            batch.grids.assign(count, {gh, gw});
+            batch.inputs = {pixels, bucketPositions(batch.grids, bins, gh * gw)};
+            plan.batches.push_back(std::move(batch));
+        };
+        auto globalSize = bestSize(height, width, plan.rows == 0);
+        auto global = resize(globalSize);
+        if (plan.rows > 0) {
+            auto sliceSize = bestSize(static_cast<double>(divide(height, plan.rows)) / plan.rows,
+                                      static_cast<double>(divide(width, plan.cols)) / plan.cols, true);
+            auto slices =
+                splitImage(resize({sliceSize.first * plan.rows, sliceSize.second * plan.cols}), plan.rows, plan.cols);
+            if (globalSize == sliceSize) {
+                addBatch(_Concat({global, slices}, 0), globalSize, 1 + plan.rows * plan.cols);
+            } else {
+                addBatch(global, globalSize, 1);
+                addBatch(slices, sliceSize, plan.rows * plan.cols);
+            }
+        } else {
+            addBatch(global, globalSize, 1);
+        }
+        return plan;
+    }
+    bool assemble(const Plan& plan, std::vector<Feature>& features, std::vector<int>& ids) override {
+        if (features.size() != plan.rows * plan.cols + 1) {
+            return false;
+        }
+        if (mOmni.mConfig->config_.value("vision_use_image_id", true)) {
+            imageId(ids);
+        }
+        append(plan, features[0], ids, mOmni.mVisionStart, mOmni.mVisionEnd, mOmni.mVisionPad);
+        int index = 1;
+        for (int row = 0; row < plan.rows; ++row) {
+            if (row > 0) {
+                marker(ids, mOmni.mConfig->config_.value("vision_newline_id", 198));
+            }
+            for (int col = 0; col < plan.cols; ++col) {
+                append(plan, features[index++], ids, mOmni.mConfig->config_.value("vision_slice_start_id", 248088),
+                       mOmni.mConfig->config_.value("vision_slice_end_id", 248089), mOmni.mVisionPad);
+            }
+        }
+        return true;
+    }
+};
+
+bool Omni::VisionProcessor::MiniCPM47::promptPositions(const std::vector<int>& inputIds) {
+    struct Crop {
+        int begin, end, height, width;
+    };
+    struct Frame {
+        Crop thumbnail;
+        std::vector<Crop> slices;
+        int end = 0;
+    };
+    const int count = static_cast<int>(inputIds.size());
+    const int merge = mOmni.mConfig->config_.value("vision_merge_size", 4);
+    const int sliceStart = mOmni.mConfig->config_.value("vision_slice_start_id", 248088);
+    const int sliceEnd = mOmni.mConfig->config_.value("vision_slice_end_id", 248089);
+    const int newline = mOmni.mConfig->config_.value("vision_newline_id", 198);
+    auto isMarker = [&](int id) {
+        return id == sliceStart || id == sliceEnd || id == mOmni.mVisionStart || id == mOmni.mVisionEnd ||
+               id == newline;
+    };
+    std::vector<std::vector<Frame>> groups;
+    size_t cropIndex = 0;
+    int previousEnd = 0;
+    for (int i = 0; i < count;) {
+        if (inputIds[i] != mOmni.mVisionPad) {
+            ++i;
+            continue;
+        }
+        int begin = i;
+        while (i < count && inputIds[i] == mOmni.mVisionPad) {
+            ++i;
+        }
+        if (begin == 0 || cropIndex >= mCropSizes.size()) {
+            MNN_ERROR("MiniCPM-V visual tokens do not match image crops\n");
+            return false;
+        }
+        auto size = mCropSizes[cropIndex++];
+        Crop crop{begin, i, size.first / merge, size.second / merge};
+        if (crop.height * crop.width != crop.end - crop.begin) {
+            MNN_ERROR("MiniCPM-V visual token count does not match crop dimensions\n");
+            return false;
+        }
+        if (!groups.empty() && inputIds[begin - 1] == sliceStart) {
+            groups.back().back().slices.push_back(crop);
+        } else {
+            bool adjacent = !groups.empty();
+            for (int gap = previousEnd; gap < begin - 1 && adjacent; ++gap) {
+                adjacent = isMarker(inputIds[gap]);
+            }
+            if (!adjacent) {
+                groups.emplace_back();
+            }
+            Frame frame;
+            frame.thumbnail = crop;
+            groups.back().push_back(std::move(frame));
+        }
+        previousEnd = i;
+    }
+    if (cropIndex != mCropSizes.size()) {
+        MNN_ERROR("MiniCPM-V image crops are missing from the prompt\n");
+        return false;
+    }
+    for (auto& group : groups) {
+        for (auto& frame : group) {
+            frame.end = frame.slices.empty() ? frame.thumbnail.end : frame.slices.back().end;
+            while (frame.end < count && isMarker(inputIds[frame.end])) {
+                ++frame.end;
+            }
+        }
+    }
+    mOmni.mPositionIds.mT.assign(count, 0);
+    mOmni.mPositionIds.mH.assign(count, 0);
+    mOmni.mPositionIds.mW.assign(count, 0);
+    mOmni.mPositionIds.mX.assign(count, 0);
+    auto setPosition = [&](int index, int t, int h, int w) {
+        mOmni.mPositionIds.mT[index] = t;
+        mOmni.mPositionIds.mH[index] = h;
+        mOmni.mPositionIds.mW[index] = w;
+        mOmni.mPositionIds.mX[index] = w;
+    };
+    int currentPosition = 0;
+    auto textPositions = [&](int begin, int end) {
+        for (int i = begin; i < end; ++i) {
+            int position = currentPosition++;
+            setPosition(i, position, position, position);
+        }
+    };
+    auto gridPositions = [&](const Crop& crop, int origin, int canvasHeight, int canvasWidth, int hOffset,
+                             int wOffset) {
+        for (int y = 0; y < crop.height; ++y) {
+            int h =
+                crop.height == 1
+                    ? 0
+                    : static_cast<int>(std::nearbyint(static_cast<float>(y) * (canvasHeight - 1) / (crop.height - 1)));
+            for (int x = 0; x < crop.width; ++x) {
+                int w = crop.width == 1 ? 0
+                                        : static_cast<int>(std::nearbyint(static_cast<float>(x) * (canvasWidth - 1) /
+                                                                          (crop.width - 1)));
+                setPosition(crop.begin + y * crop.width + x, origin, origin + hOffset + h, origin + wOffset + w);
+            }
+        }
+    };
+    int cursor = 0;
+    for (const auto& group : groups) {
+        int groupBegin = group.front().thumbnail.begin - 1;
+        int groupEnd = group.back().end;
+        textPositions(cursor, groupBegin);
+        int frameCursor = groupBegin;
+        for (const auto& frame : group) {
+            const auto& thumbnail = frame.thumbnail;
+            int begin = thumbnail.begin - 1;
+            int end = std::min(frame.end, groupEnd);
+            if (begin > frameCursor) {
+                textPositions(frameCursor, begin);
+                ++currentPosition;
+            }
+            int origin = currentPosition;
+            int canvasHeight = thumbnail.height, canvasWidth = thumbnail.width;
+            int rows = 0, cols = 0;
+            if (!frame.slices.empty()) {
+                cols = static_cast<int>(frame.slices.size());
+                for (int i = 0; i + 1 < frame.slices.size(); ++i) {
+                    if (frame.slices[i + 1].begin - frame.slices[i].end > 2) {
+                        cols = i + 1;
+                        break;
+                    }
+                }
+                rows = frame.slices.size() / cols;
+                if (rows * cols != frame.slices.size()) {
+                    rows = 1;
+                    cols = frame.slices.size();
+                }
+                canvasHeight = rows * frame.slices[0].height;
+                canvasWidth = cols * frame.slices[0].width;
+            }
+            for (int i = begin; i < end; ++i) {
+                setPosition(i, origin, origin, origin);
+            }
+            setPosition(begin, origin, std::max(origin - 1, 0), std::max(origin - 1, 0));
+            if (thumbnail.end < end) {
+                setPosition(thumbnail.end, origin, origin + canvasHeight, origin + canvasWidth);
+            }
+            gridPositions(thumbnail, origin, canvasHeight, canvasWidth, 0, 0);
+            for (int i = 0; i < frame.slices.size(); ++i) {
+                const auto& crop = frame.slices[i];
+                int hOffset = (i / cols) * frame.slices[0].height;
+                int wOffset = (i % cols) * frame.slices[0].width;
+                setPosition(crop.begin - 1, origin, origin + hOffset, origin + wOffset);
+                if (crop.end < end) {
+                    setPosition(crop.end, origin, origin + hOffset + crop.height - 1,
+                                origin + wOffset + crop.width - 1);
+                }
+                gridPositions(crop, origin, crop.height, crop.width, hOffset, wOffset);
+                if (i + 1 < frame.slices.size() && frame.slices[i + 1].begin - crop.end > 2) {
+                    int boundaryHeight = (i / cols + 1) * frame.slices[0].height - 1;
+                    for (int gap = crop.end + 1; gap < frame.slices[i + 1].begin - 1; ++gap) {
+                        setPosition(gap, origin, origin + boundaryHeight, origin + canvasWidth);
+                    }
+                }
+            }
+            currentPosition = origin + std::max(canvasHeight, canvasWidth) + 1;
+            frameCursor = end;
+        }
+        textPositions(frameCursor, groupEnd);
+        cursor = groupEnd;
+    }
+    textPositions(cursor, count);
+    mNextPosition = currentPosition;
+    return true;
+}
+
 struct Omni::VisionProcessor::Gemma4 : VisionProcessor {
     using VisionProcessor::VisionProcessor;
     Plan prepare(VARP image) override {
@@ -1361,7 +1659,7 @@ std::unique_ptr<Omni::VisionProcessor> Omni::VisionProcessor::create(Omni& o) {
         } else if (type == "tiles") {
             family = "idefics3";
         } else if (type == "resampler") {
-            family = "minicpmv";
+            family = o.mConfig->config_.value("vision_type", "") == "minicpmv4_7" ? "minicpmv4_7" : "minicpmv";
         } else if (type == "row_grid") {
             family = "hunyuan_vl";
         } else if (type == "padded_patches") {
@@ -1406,6 +1704,9 @@ std::unique_ptr<Omni::VisionProcessor> Omni::VisionProcessor::create(Omni& o) {
     }
     if (family == "idefics3" || family == "lfm2_vl") {
         return std::unique_ptr<VisionProcessor>(new Idefics(o));
+    }
+    if (family == "minicpmv4_7") {
+        return std::unique_ptr<VisionProcessor>(new MiniCPM47(o));
     }
     if (family == "minicpmv") {
         return std::unique_ptr<VisionProcessor>(new MiniCPM(o));
@@ -1934,6 +2235,9 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     mAudioEmbeddings.clear();
     mDeepStackEmbeddings.clear();
     mVisionNum = 0;
+    if (mVisionProcessor) {
+        mVisionProcessor->reset();
+    }
     if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
         mExtraArgs[0] = Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0));
     }
@@ -1970,6 +2274,10 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         if (postProcessorInfo.suffix_size > 0) {
             addPositionIds(postProcessorInfo.suffix_size);
         }
+    }
+    if (mVisionProcessor && !mVisionProcessor->promptPositions(ids)) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return {};
     }
     return ids;
 }
@@ -2187,7 +2495,7 @@ VARP Omni::gen_position_ids(int seq_len) {
     }
     auto ptr = positionIds->writeMap<int>();
     if (mContext->gen_seq_len > 0) {
-        const int lastPosition = mPositionIds.back();
+        const int lastPosition = mVisionProcessor ? mVisionProcessor->lastPosition() : mPositionIds.back();
         for (int i = 0; i < seq_len; ++i) {
             auto pos = mContext->gen_seq_len + lastPosition + i;
             for (int axis = 0; axis < axes; axis++) {
