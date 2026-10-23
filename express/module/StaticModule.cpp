@@ -575,7 +575,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             // full re-resize EVERY forward. Cache those inputs' bytes (tiny
             // integer control tensors) and only force resize when one changed.
             // MNN_LLM_CONTENT_RESIZE_ALWAYS=1 restores the legacy behavior.
-            static const bool sAlwaysResize = []{
+            static const bool sAlwaysResize = [] {
                 const char* e = getenv("MNN_LLM_CONTENT_RESIZE_ALWAYS");
                 return e != nullptr && e[0] == '1';
             }();
@@ -643,6 +643,16 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             }
             auto srcDes = TensorUtils::getDescribe(inputTensor);
             auto des = TensorUtils::getDescribe(mInputTensors[i]);
+            if (des->dimensionFormat != srcDes->dimensionFormat) {
+                // Shape alone does not describe a copy tensor: its layout belongs to the previous input.
+                // Rebuild the cache before updating the format, even when the extents have not changed.
+                auto cacheIter = pipelineInfo.first.inputTensorCopyCache.find(mInputTensors[i]);
+                MNN_ASSERT(cacheIter != pipelineInfo.first.inputTensorCopyCache.end());
+                cacheTensor = &cacheIter->second;
+                *cacheTensor = std::make_tuple(nullptr, nullptr, true, true);
+                pipelineInfo.first.inputBackendChange = true;
+                needResize = true;
+            }
             bool needCopy = false;
             if (nullptr != srcDes->quantAttr.get()) {
                 if (nullptr == des->quantAttr.get()) {
