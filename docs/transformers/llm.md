@@ -853,7 +853,8 @@ options:
 选段保持原顺序，缺口以 `[…]` 标记。其余消息及必留句子超过预算时失败，不截断。
 未超过上限时 Token ID 不变；直接传入 Token ID、embedding 或 forward 的低级接口不受影响。
 
-当前仅支持纯文本模型，不用于视觉、音频或 talker。须关闭 `reuse_kv`、`prompt_cache` 和 `kvcache_mmap`，
+当前支持纯文本请求，包括多模态模型的纯文本输入；含图像、音频或视频的请求仍走原有路径，不做压缩。
+不用于 talker。须关闭 `reuse_kv`、`prompt_cache` 和 `kvcache_mmap`，
 每次从完整请求重新压缩。这是输入压缩，不是模型原生上下文扩展。
 
 #### NeedleBench工具使用
@@ -867,26 +868,92 @@ cmake -S . -B build -DMNN_BUILD_LLM=ON -DMNN_LOW_MEMORY=ON -DMNN_LLM_TOKEN_COMPR
 cmake --build build --target needlebench -j4
 ```
 
+##### 快速开始
+
+推荐用测试条目和填充语料两个 JSONL，运行时拼接长文本。例如，只测第一条并压缩到不超过 64K：
+
+```bash
+build/needlebench -m MODEL/config.json -c cases.jsonl -b corpus.jsonl \
+  -o results.jsonl -ac -p 64000 -l 1
+```
+
+- `cases.jsonl`：针句、问题和正文构造参数，不需要保存每条 1M 正文。
+- `corpus.jsonl`：共享的填充语料，通过 `-b` / `--background` 指定，不要求放在 `data` 目录。
+
+这种两文件用法必须传 `--background`。只有输入已包含完整正文（`context` / `context_file`），
+或已经配置了语料路径（`corpus_file` / `data_dir`）时，才可以省略。
+
 ##### needlebench参数列表
 
 ```text
-usage: ./needlebench config.json input.json[l] results.jsonl [options]
+./needlebench -m config.json -c cases.jsonl -o results.jsonl [options]
 
 options:
-  --max-input N       完整输入的 Token 上限，含模板（默认 64000）
-  --max-new N         最大生成 Token 数（默认 1024）
-  --limit N           只运行前 N 条（默认全部）
-  --auto-compress     使用 LLM 自动压缩路径；不指定时仅压缩正文
-  --compress-only     只检查压缩，不加载模型权重或推理
-  --no-compress       不压缩，仍检查输入上限；不能与 --auto-compress 同用
-  --trace             在结果中保存压缩 Token ID 和选段信息
-  -h, --help          显示帮助，不加载 tokenizer 或模型
+  -m,  --model FILE       模型 config.json（必填）
+  -c,  --cases FILE       测试条目 JSONL 或数据集配置 JSON（必填）
+  -o,  --output FILE      新的结果 JSONL 路径（必填）
+  -b,  --background FILE  背景语料 JSONL，覆盖 case 中的 corpus_file
+  -p,  --max-input N      完整输入的 Token 上限，含模板（默认 64000）
+  -n,  --max-new N        最大生成 Token 数（默认 1024）
+  -l,  --limit N          只运行前 N 条（默认全部）
+  -ac, --auto-compress    使用 LLM 自动压缩路径；不指定时仅压缩正文
+  -co, --compress-only    只检查压缩，不加载模型权重或推理
+  -nc, --no-compress      不压缩，仍检查输入上限；不能与 --auto-compress 同用
+  -tr, --trace            在结果中保存压缩 Token ID 和选段信息
+  -h,  --help             显示帮助，不加载 tokenizer 或模型
 ```
+
+所有参数均通过选项指定，不再接受位置参数；长短参数等价，可以混用，顺序不限。
+例如 `-m config.json -c cases.jsonl -o results.jsonl` 等价于
+`--model config.json --cases cases.jsonl --output results.jsonl`。
 
 ##### 输入数据
 
-推荐使用下载后的 [NeedleBench Single-Needle 原始数据](https://huggingface.co/datasets/opencompass/NeedleBench/tree/main)，包含 `needles.jsonl`、英文背景 `PaulGrahamEssays.jsonl` 和中文背景
-`zh_finance.jsonl`。不需要提前生成长文本，只需保存一个 `bench.json`：
+###### 运行时构造（推荐）
+
+填充语料每行是 `{"text":"一段背景文本"}`。中英文语料放在同一文件时，可加 `"corpus":"English"` 或
+`"corpus":"Chinese"` 分组，组内按文件顺序读取。逐条 case 用 `context_builder.corpus` 选择对应组，例如：
+
+```json
+{"case_id":"example","context_builder":{"corpus":"English","background_tokens":1000000,"insert_at":500000,"insert_text":"\nNeedle sentence.\n"},"suffix":"\nQuestion?","arg2":"answer"}
+```
+
+`--background` 是命令行路径，相对当前工作目录；case 里不用写语料路径。
+`cases.jsonl` 也可直接使用 [NeedleBench Single-Needle 原始针文件](https://huggingface.co/datasets/opencompass/NeedleBench/tree/main) `needles.jsonl`，
+按其 `language` 选择语料组，默认每条构造 1M、针位 50%、seed=42；这不会复现已有冻结 case 的不同针位和提示词。
+
+程序按组内语料顺序用换行拼接、分词，循环扩展到 `background_tokens`，在背景 Token 索引 `insert_at` 处插入 `insert_text`。
+背景预算不含针、问题和模板；`insert_at` 范围为 `[0, background_tokens]`，不是百分比。
+针句需要的前后换行须显式给出。可选 `order` 固定组内非空语料记录的零基索引完整排列；
+`trim_head_chars` / `trim_tail_chars` 默认 0，按 Unicode 字符裁剪背景首尾。
+
+case 也可以直接配置 `context_builder.corpus_file`，此时不用传 `--background`：
+
+```json
+{"case_id":"example","context_builder":{"corpus_file":"corpus.jsonl","background_tokens":1000000,"insert_at":500000,"insert_text":"\n针句。\n"},"suffix":"\n原问题","arg2":"答案关键词"}
+```
+
+###### 已有完整长文本
+
+这种用法不需要填充语料，也不用传 `--background`：
+
+```bash
+build/needlebench -m MODEL/config.json -c prepared.jsonl -o results.jsonl -ac -l 1
+```
+
+`prepared.jsonl` 每行给一个 case，例如：
+
+```json
+{"case_id":"example","context_file":"context.txt","suffix":"\n原问题","arg2":"答案关键词"}
+```
+
+`context_file` 是已构造好的 UTF-8 正文；也可直接用字符串字段 `context`。
+`prefix`、`suffix` 可用同名 `*_file` 读取。`case_id` 必须唯一，`arg2`、`needle` 可选，仅用于评分/保针审计。
+`context`、`context_file`、`context_builder` 必须且只能选一个，同一字段不能同时给内联值和文件。
+
+###### 数据集配置（兼容）
+
+原有数据集配置仍支持。下载后的目录包含 `needles.jsonl`、`PaulGrahamEssays.jsonl` 和 `zh_finance.jsonl`，保存一个 `bench.json`：
 
 ```json
 {"data_dir":"NeedleBench","length":1000000,"depths":[10,50,90],"seed":42}
@@ -902,28 +969,12 @@ options:
 该入口使用本工具的 `hf-single-v1` 构造协议，不等同于 OpenCompass 的完整长度/深度网格、提示词和评分；
 不同构造协议的成绩不要直接混用。
 
-已有逐条 JSONL 继续支持，例如：
-
-```json
-{"case_id":"example","context_file":"context.txt","suffix":"\n原问题","arg2":"答案关键词"}
-```
-
-`context_file` 是 UTF-8 正文，路径相对运行目录；也可直接给字符串 `context`。
-`prefix`、`suffix` 可用同名 `*_file` 读取。`case_id` 必须唯一，`arg2`、`needle` 可选，仅用于评分/保针审计。
-
-也可使用共享语料运行时构造正文：
-
-```json
-{"case_id":"example","context_builder":{"corpus_file":"corpus.jsonl","background_tokens":1000000,"insert_at":500000,"insert_text":"\n针句。\n"},"suffix":"\n原问题","arg2":"答案关键词"}
-```
-
-`corpus_file` 路径相对运行目录，每行格式为 `{"text":"一段背景文本"}`。程序按语料顺序用换行拼接、分词，
-循环扩展到 `background_tokens`，在背景 Token 索引 `insert_at` 处插入 `insert_text`；针句需要的前后换行须显式给出。
-背景预算不含针、问题和模板，`insert_at` 范围为 `[0, background_tokens]`，不是百分比。
-可选 `order` 固定非空语料记录的零基索引完整排列；`trim_head_chars` / `trim_tail_chars` 默认 0，按 Unicode 字符裁剪背景首尾。
-
-`context`、`context_file`、`context_builder` 必须且只能选一个，同一字段不能同时给内联值和文件。
 HF 入口结果中的 `case` 已保存完整构造参数，逐行提取后即可按 JSONL 重放；须使用相同语料和 tokenizer。
+
+###### 路径规则
+
+输入内部的 `context_file`、`prefix_file`、`suffix_file`、`corpus_file` 和 `data_dir` 都相对输入文件所在目录。
+命令行上的路径（包括 `--background`）相对当前工作目录；绝对路径保持不变。不需要切换到输入目录再运行。
 
 ##### 运行示例
 
@@ -932,17 +983,31 @@ HF 入口结果中的 `case` 已保存完整构造参数，逐行提取后即可
 build/needlebench --help
 
 # 原始长文本 → 压缩到 64K → 模型回答
-build/needlebench MODEL/config.json bench.json results.jsonl --auto-compress --max-input 64000
+build/needlebench -m MODEL/config.json -c cases.jsonl -b corpus.jsonl -o results.jsonl -ac -p 64000
 
 # 只检查前 3 条的压缩结果，不加载模型权重
-build/needlebench MODEL/config.json bench.json check.jsonl --auto-compress --compress-only --limit 3
+build/needlebench -m MODEL/config.json -c cases.jsonl -b corpus.jsonl -o check.jsonl -ac -co -l 3
 ```
 
 `--max-input`、`--max-new`、`--limit` 均须为正整数。测试工具以 `--max-input` 为准，
 无需另设模型 `config.json` 中的 `token_compress`。
 
 结果文件须使用新路径，逐条记录 Token 数、模型输出、构造/压缩/推理耗时及进程累计峰值 RSS。
-自动模式走普通 `response(ChatMessages)`；`prompt` 保留原始输入，`rendered_prompt` 是压缩后的完整文本，
+终端逐条打印耗时，结束时汇总，例如：
+
+```text
+time(s): total=126.300 load=1.200 construct=0.800 compress=3.100 inference=120.500 prefill=117.000 decode=0.400
+```
+
+单位均为秒。汇总行的 `total` 从进入程序计至汇总输出前，包含初始化和结果写入，
+不含退出时的模型和后端资源释放；在命令前加 `/usr/bin/time -p`，可用 `real` 查看完整进程耗时。
+`load` 为模型加载耗时，
+`construct`、`compress`、`inference` 为各条累计的构造、压缩检查、推理耗时；
+自动模式下 `inference` 也包含运行时分词和压缩。`prefill`、`decode` 是推理内部耗时，不要与 `inference` 重复相加。
+只检查压缩时，`load`、`inference`、`prefill`、`decode` 为 0。
+
+自动模式使用模型实际的模板和分词压缩路径，推理前核对 Token ID 和输入上限，再把已核对的 Token 交给模型；
+不会把超长原文直接送入 prefill。`prompt` 保留原始输入，`rendered_prompt` 是压缩后的完整文本，
 `--trace` 的 `compressed_tokens` 是实际输入 Token ID。其他模式的 `token_spans` 是正文 Token 半开区间。
 
 默认关闭 thinking、使用 greedy 解码。运行错误、Token 数不一致、空输出或生成预算耗尽标为无效并停止，

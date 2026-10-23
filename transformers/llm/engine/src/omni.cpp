@@ -1999,6 +1999,13 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         mExtraArgs[0] = Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0));
     }
 
+    // Text-only requests use the same compression and post-processing as Llm.
+    if (mConfig->token_compress() != 0 && !std::regex_search(prompt, multimode_regex)) {
+        ids = Llm::tokenizer_encode(prompt);
+        addPositionIds(static_cast<int>(ids.size()));
+        return ids;
+    }
+
     while (std::regex_search(searchStart, prompt.cend(), match, multimode_regex)) {
         auto txt_ids = mTokenizer->encode(match.prefix().str(), false);
         addPositionIds(txt_ids.size());

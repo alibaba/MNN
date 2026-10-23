@@ -1031,13 +1031,10 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
                 mFlashAttnPrefill = false;
             }
         }
-        static bool _fa_log_once = false;
-        if (mFlashAttnPrefill && !_fa_log_once) {
-            _fa_log_once = true;
-            MNN_PRINT("[MetalAttention] flash-attn-prefill kernel active (seq=%d, head_dim=%d, group=%d, mask=%d, outC4=%d, quant_k=%d, quant_v=%d).\n",
-                      mSeqLen, mHeadDim, group_size, (int)mHasTensorMask, (int)mOutputC4,
-                      (int)mQuantKey, (int)mQuantValue);
-        }
+        // MNN_PRINT("[MetalAttention] flash-attn-prefill kernel active (seq=%d, head_dim=%d, group=%d, "
+        //           "mask=%d, outC4=%d, quant_k=%d, quant_v=%d).\n",
+        //           mSeqLen, mHeadDim, group_size, (int)mHasTensorMask, (int)mOutputC4,
+        //           (int)mQuantKey, (int)mQuantValue);
     }
 
     // Fused prefill attention on the Metal tensor API (prefill_flash_attn_tc),

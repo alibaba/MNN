@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <map>
@@ -143,14 +144,16 @@ public:
             !spec.contains("insert_text") || !spec["insert_text"].is_string() ||
             !tokenCountField(spec, "background_tokens", count) || !tokenCountField(spec, "insert_at", insertion) ||
             !tokenCountField(spec, "trim_head_chars", head, true) ||
-            !tokenCountField(spec, "trim_tail_chars", tail, true) || insertion > count) {
+            !tokenCountField(spec, "trim_tail_chars", tail, true) || insertion > count ||
+            (spec.contains("corpus") && !spec["corpus"].is_string())) {
             return false;
         }
         const auto path = spec["corpus_file"].get<std::string>();
-        if (!loadCorpus(path)) {
+        const auto group = spec.value("corpus", "");
+        if (!loadCorpus(path, group)) {
             return false;
         }
-        const auto& documents = mCorpora.at(path);
+        const auto& documents = mCorpora.at({path, group});
         if (spec.contains("order") && (!spec["order"].is_array() || spec["order"].size() != documents.size())) {
             return false;
         }
@@ -195,12 +198,13 @@ public:
         text = before + spec["insert_text"].get<std::string>() + after;
         return true;
     }
-    Json order(const std::string& path, uint32_t seed) {
-        if (!loadCorpus(path) || mCorpora.at(path).size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    Json order(const std::string& path, uint32_t seed, const std::string& group = "") {
+        if (!loadCorpus(path, group) ||
+            mCorpora.at({path, group}).size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
             return Json::array();
         }
         std::vector<int> indices;
-        for (size_t i = 0; i < mCorpora.at(path).size(); ++i) {
+        for (size_t i = 0; i < mCorpora.at({path, group}).size(); ++i) {
             indices.push_back(static_cast<int>(i));
         }
         std::mt19937 random(seed);
@@ -220,8 +224,9 @@ public:
     }
 
 private:
-    bool loadCorpus(const std::string& path) {
-        if (!mCorpora.count(path)) {
+    bool loadCorpus(const std::string& path, const std::string& group) {
+        const auto key = std::make_pair(path, group);
+        if (!mCorpora.count(key)) {
             std::ifstream corpus(path);
             if (!corpus) {
                 return false;
@@ -233,19 +238,22 @@ private:
                     continue;
                 }
                 const auto document = Json::parse(line);
-                if (!document.is_object() || !document.contains("text") || !document["text"].is_string()) {
+                if (!document.is_object() || !document.contains("text") || !document["text"].is_string() ||
+                    (document.contains("corpus") && !document["corpus"].is_string())) {
                     return false;
                 }
-                documents.push_back(document["text"].get<std::string>());
+                if (group.empty() || !document.contains("corpus") || document["corpus"].get<std::string>() == group) {
+                    documents.push_back(document["text"].get<std::string>());
+                }
             }
             if (corpus.bad() || documents.empty()) {
                 return false;
             }
-            mCorpora.emplace(path, std::move(documents));
+            mCorpora.emplace(key, std::move(documents));
         }
         return true;
     }
-    std::map<std::string, std::vector<std::string>> mCorpora;
+    std::map<std::pair<std::string, std::string>, std::vector<std::string>> mCorpora;
 };
 
 static std::string relativeTo(const std::string& base, const std::string& path) {
@@ -258,7 +266,9 @@ static std::string relativeTo(const std::string& base, const std::string& path) 
 // Raw HF single-needle data and exact-replay JSONL share the same downstream case format.
 class CaseReader {
 public:
-    bool open(const std::string& path) {
+    bool open(const std::string& path, const std::string& corpus) {
+        mBase = base_dir(path);
+        mCorpus = corpus;
         mInput.open(path);
         if (!mInput) {
             return false;
@@ -271,6 +281,13 @@ public:
         auto trimmed = mPending.substr(mPending.find_first_not_of(" \t\r"));
         bool multiline = trimmed.find_last_not_of(" \t\r") == 0 && trimmed[0] == '{';
         Json spec = multiline ? Json() : Json::parse(mPending);
+        if (!multiline && spec.is_object() && !spec.contains("case_id") && spec.contains("needle") &&
+            spec.contains("retrieval_question") && !mCorpus.empty()) {
+            mInput.clear();
+            mInput.seekg(0);
+            mRaw = true;
+            return readNeedles(mInput, "");
+        }
         if (!multiline && (!spec.is_object() || spec.contains("case_id") || !spec.contains("data_dir"))) {
             return true;
         }
@@ -324,9 +341,7 @@ public:
                 mDepths.push_back(depth);
             }
         }
-        auto slash = path.find_last_of("/\\");
-        mData = relativeTo(slash == std::string::npos ? "" : path.substr(0, slash + 1),
-                           spec["data_dir"].get<std::string>());
+        mData = relativeTo(mBase, spec["data_dir"].get<std::string>());
         if (mData.back() != '/' && mData.back() != '\\') {
             mData += '/';
         }
@@ -334,6 +349,90 @@ public:
         if (!needles) {
             return false;
         }
+        mRaw = true;
+        return readNeedles(needles, language);
+    }
+
+    bool next(ContextBuilder& builder, Json& row) {
+        if (!mRaw) {
+            std::string line;
+            do {
+                if (!mPending.empty()) {
+                    line.swap(mPending);
+                } else if (!std::getline(mInput, line)) {
+                    return false;
+                }
+            } while (line.empty());
+            row = Json::parse(line);
+            if (row.is_object()) {
+                for (const char* key : {"context_file", "prefix_file", "suffix_file"}) {
+                    if (row.contains(key) && row[key].is_string()) {
+                        row[key] = relativeTo(mBase, row[key].get<std::string>());
+                    }
+                }
+                if (row.contains("context_builder") && row["context_builder"].is_object()) {
+                    auto construction = row["context_builder"];
+                    if (!mCorpus.empty()) {
+                        construction["corpus_file"] = mCorpus;
+                    } else if (construction.contains("corpus_file") && construction["corpus_file"].is_string()) {
+                        construction["corpus_file"] = relativeTo(mBase, construction["corpus_file"].get<std::string>());
+                    }
+                    row["context_builder"] = construction;
+                }
+            }
+            return true;
+        }
+        if (mPosition == mNeedles.size()) {
+            return false;
+        }
+        const auto& entry = mNeedles[mPosition];
+        const auto& needle = entry.second;
+        const auto language = needle["language"].get<std::string>();
+        const auto corpus = mCorpus.empty()
+                                ? mData + (language == "English" ? "PaulGrahamEssays.jsonl" : "zh_finance.jsonl")
+                                : mCorpus;
+        const auto group = mCorpus.empty() ? "" : language;
+        auto order = builder.order(corpus, static_cast<uint32_t>(mSeed + entry.first), group);
+        if (order.empty()) {
+            mFailed = true;
+            return false;
+        }
+        double depth = mDepths[mDepth];
+        std::ostringstream id;
+        id.precision(17);
+        id << (language == "English" ? "En-" : "Ch-") << entry.first << "-L" << mLength << "-D" << depth;
+        row = Json::object();
+        row["case_id"] = id.str();
+        row["prefix"] = "<document>\n";
+        row["suffix"] = "\n</document>\n\n" + needle["retrieval_question"].get<std::string>();
+        row["needle"] = needle["needle"];
+        row["arg2"] = needle["arg2"];
+        row["hf_source"] = needle;
+        Json profile = Json::object();
+        profile["name"] = "hf-single-v1";
+        profile["length_limit"] = static_cast<int64_t>(mLength);
+        profile["depth_percent"] = depth;
+        profile["seed"] = static_cast<int64_t>(mSeed);
+        row["dataset"] = profile;
+        Json construction = Json::object();
+        construction["corpus_file"] = corpus;
+        if (!group.empty()) {
+            construction["corpus"] = group;
+        }
+        construction["order"] = order;
+        construction["insert_text"] = "\n" + needle["needle"].get<std::string>() + "\n";
+        row["context_builder"] = construction;
+        if (++mDepth == mDepths.size()) {
+            mDepth = 0;
+            ++mPosition;
+        }
+        return true;
+    }
+
+    bool good() const { return !mFailed && !mInput.bad(); }
+
+private:
+    bool readNeedles(std::istream& needles, const std::string& language) {
         std::string line;
         size_t index = 0;
         while (std::getline(needles, line)) {
@@ -359,69 +458,10 @@ public:
             }
             ++index;
         }
-        mRaw = true;
         return !needles.bad() && !mNeedles.empty();
     }
-
-    bool next(ContextBuilder& builder, Json& row) {
-        if (!mRaw) {
-            std::string line;
-            do {
-                if (!mPending.empty()) {
-                    line.swap(mPending);
-                } else if (!std::getline(mInput, line)) {
-                    return false;
-                }
-            } while (line.empty());
-            row = Json::parse(line);
-            return true;
-        }
-        if (mPosition == mNeedles.size()) {
-            return false;
-        }
-        const auto& entry = mNeedles[mPosition];
-        const auto& needle = entry.second;
-        const auto language = needle["language"].get<std::string>();
-        const auto corpus = mData + (language == "English" ? "PaulGrahamEssays.jsonl" : "zh_finance.jsonl");
-        auto order = builder.order(corpus, static_cast<uint32_t>(mSeed + entry.first));
-        if (order.empty()) {
-            mFailed = true;
-            return false;
-        }
-        double depth = mDepths[mDepth];
-        std::ostringstream id;
-        id.precision(17);
-        id << (language == "English" ? "En-" : "Ch-") << entry.first << "-L" << mLength << "-D" << depth;
-        row = Json::object();
-        row["case_id"] = id.str();
-        row["prefix"] = "<document>\n";
-        row["suffix"] = "\n</document>\n\n" + needle["retrieval_question"].get<std::string>();
-        row["needle"] = needle["needle"];
-        row["arg2"] = needle["arg2"];
-        row["hf_source"] = needle;
-        Json profile = Json::object();
-        profile["name"] = "hf-single-v1";
-        profile["length_limit"] = static_cast<int64_t>(mLength);
-        profile["depth_percent"] = depth;
-        profile["seed"] = static_cast<int64_t>(mSeed);
-        row["dataset"] = profile;
-        Json construction = Json::object();
-        construction["corpus_file"] = corpus;
-        construction["order"] = order;
-        construction["insert_text"] = "\n" + needle["needle"].get<std::string>() + "\n";
-        row["context_builder"] = construction;
-        if (++mDepth == mDepths.size()) {
-            mDepth = 0;
-            ++mPosition;
-        }
-        return true;
-    }
-
-    bool good() const { return !mFailed && !mInput.bad(); }
-
-private:
     std::ifstream mInput;
-    std::string mPending, mData;
+    std::string mPending, mData, mBase, mCorpus;
     std::vector<std::pair<size_t, Json>> mNeedles;
     std::vector<double> mDepths{50};
     size_t mLength = 1000000, mSeed = 42, mPosition = 0, mDepth = 0;
@@ -505,35 +545,57 @@ static int64_t peakRssBytes() {
 }
 
 static void printUsage(std::ostream& output) {
-    output << R"(Usage: needlebench config.json input.json[l] results.jsonl [options]
+    output << R"(Usage:
+  needlebench -m config.json -c cases.jsonl -o results.jsonl [options]
+
+Run one case with auto-compression to at most 64K tokens:
+  needlebench -m MODEL/config.json -c cases.jsonl -b corpus.jsonl -o results.jsonl -ac -p 64000 -l 1
+
+Input modes:
+  Runtime construction:
+    cases.jsonl contains the needle, question and construction parameters.
+    corpus.jsonl contains filler rows: {"text":"background text"}.
+    --background is required for raw HF rows or when context_builder.corpus_file is omitted.
+    Optional filler labels: {"corpus":"English","text":"..."} / {"corpus":"Chinese","text":"..."}.
+    Replay rows select a label with context_builder.corpus; raw HF rows use language.
+    Raw HF Single-Needle defaults: length=1000000, depth=50%, seed=42.
+
+  Existing long text:
+    Each JSONL row contains context or context_file; --background is not needed.
+
+  Dataset config / configured corpus path (also supported):
+    JSONL context_builder.corpus_file supplies the filler path without --background.
+    Or use bench.json: {"data_dir":"NeedleBench","length":1000000,"depths":[10,50,90],"seed":42}.
+    data_dir contains needles.jsonl and PaulGrahamEssays.jsonl / zh_finance.jsonl.
+    Optional language: English or Chinese. Defaults: length=1000000, depths=[50], seed=42.
+    length includes the needle, question and template; depths are percentages in [0,100].
+
+Paths inside case rows / bench.json are relative to that input file.
+CLI paths, including --background, are relative to the working directory. No fixed data directory is required.
 
 Options:
-  --max-input N    Full input token limit, including template (default: 64000)
-  --max-new N      Maximum generated tokens (default: 1024)
-  --limit N        Run the first N generated cases (default: all)
-  --auto-compress  Use the LLM auto-compression path (default: context-only)
-  --compress-only  Check compression without loading model weights or inference
-  --no-compress    Skip compression, still check the input limit; excludes --auto-compress
-  --trace          Save token IDs and selection details
-  -h, --help       Show this help
+  -m,  --model FILE       Model config.json (required)
+  -c,  --cases FILE       Case JSONL or dataset config JSON (required)
+  -o,  --output FILE      New results JSONL path (required)
+  -b,  --background FILE  Background JSONL; overrides context_builder.corpus_file
+  -p,  --max-input N      Full input token limit, including template (default: 64000)
+  -n,  --max-new N        Maximum generated tokens (default: 1024)
+  -l,  --limit N          Run the first N generated cases (default: all)
+  -ac, --auto-compress    Use the LLM auto-compression path (default: context-only)
+  -co, --compress-only    Check compression without loading model weights or inference
+  -nc, --no-compress      Skip compression, still check the input limit; excludes --auto-compress
+  -tr, --trace            Save token IDs and selection details
+  -h,  --help             Show this help
 
-Input:
-  HF Single-Needle dataset config, constructing long contexts at runtime:
-    {"data_dir":"NeedleBench","length":1000000,"depths":[10,50,90],"seed":42}
-  data_dir is relative to the config file and contains needles.jsonl plus
-  PaulGrahamEssays.jsonl / zh_finance.jsonl. Optional language: English or Chinese.
-  Defaults: length=1000000, depths=[50], seed=42.
-  length includes the needle, question and chat template; depths are percentages in [0,100].
+More examples:
+  needlebench -m MODEL/config.json -c cases.jsonl -b corpus.jsonl -o check.jsonl -ac -co -l 3
+  needlebench -m MODEL/config.json -c prepared.jsonl -o results.jsonl -ac -l 1
+  needlebench --model MODEL/config.json --cases bench.json --output results.jsonl --auto-compress
 
-  JSONL replay: one case per line, with context, context_file, or context_builder.
-  Replay file paths are relative to the working directory.
-
-Examples:
-  needlebench MODEL/config.json bench.json results.jsonl --auto-compress --max-input 64000
-  needlebench MODEL/config.json bench.json check.jsonl --auto-compress --compress-only --limit 3
-
+All paths are named options; positional arguments are not supported.
 Use a new results.jsonl path. Backend, threads and prefill chunk come from config.json.
 All numeric options require positive integers. --max-input overrides config.json's token_compress.
+Per-case timings and final totals are printed in seconds; prefill/decode are part of inference.
 This tool uses hf-single-v1 construction and keyword matching, not the OpenCompass evaluation protocol.
 keyword_hit is an exact keyword check, not the official NeedleBench score.
 See docs/transformers/llm.md for input fields and token_compress limits.
@@ -541,28 +603,42 @@ See docs/transformers/llm.md for input fields and token_compress limits.
 }
 
 int main(int argc, const char** argv) {
-    if (argc == 2 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h")) {
-        printUsage(std::cout);
-        return 0;
-    }
-    if (argc < 4) {
-        printUsage(std::cerr);
-        return 2;
-    }
+    const auto runStart = std::chrono::steady_clock::now();
     bool compressOnly = false, autoCompress = false, noCompress = false, trace = false;
+    std::string modelPath, casePath, outputPath, corpus;
     int maxNew = 1024, limit = 0;
     TokenCompressor::Options options;
-    for (int i = 4; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--compress-only") {
+        if (arg == "-h" || arg == "--help") {
+            printUsage(std::cout);
+            return 0;
+        } else if (arg == "-m" || arg == "--model" || arg == "-c" || arg == "--cases" ||
+                   arg == "-o" || arg == "--output" || arg == "-b" || arg == "--background") {
+            if (i + 1 == argc || !argv[i + 1][0] || argv[i + 1][0] == '-') {
+                std::cerr << "Missing/invalid path for " << arg << '\n';
+                return 2;
+            }
+            std::string value = argv[++i];
+            if (arg == "-m" || arg == "--model") {
+                modelPath = value;
+            } else if (arg == "-c" || arg == "--cases") {
+                casePath = value;
+            } else if (arg == "-o" || arg == "--output") {
+                outputPath = value;
+            } else {
+                corpus = value;
+            }
+        } else if (arg == "-co" || arg == "--compress-only") {
             compressOnly = true;
-        } else if (arg == "--auto-compress") {
+        } else if (arg == "-ac" || arg == "--auto-compress") {
             autoCompress = true;
-        } else if (arg == "--no-compress") {
+        } else if (arg == "-nc" || arg == "--no-compress") {
             noCompress = true;
-        } else if (arg == "--trace") {
+        } else if (arg == "-tr" || arg == "--trace") {
             trace = true;
-        } else if (i + 1 < argc && (arg == "--max-input" || arg == "--max-new" || arg == "--limit")) {
+        } else if (i + 1 < argc && (arg == "-p" || arg == "--max-input" || arg == "-n" ||
+                                   arg == "--max-new" || arg == "-l" || arg == "--limit")) {
             char* end = nullptr;
             errno = 0;
             long value = std::strtol(argv[++i], &end, 10);
@@ -570,9 +646,9 @@ int main(int argc, const char** argv) {
                 std::cerr << "Invalid numeric argument\n";
                 return 2;
             }
-            if (arg == "--max-input") {
+            if (arg == "-p" || arg == "--max-input") {
                 options.maxTokens = value;
-            } else if (arg == "--max-new") {
+            } else if (arg == "-n" || arg == "--max-new") {
                 maxNew = value;
             } else {
                 limit = value;
@@ -582,17 +658,22 @@ int main(int argc, const char** argv) {
             return 2;
         }
     }
+    if (modelPath.empty() || casePath.empty() || outputPath.empty()) {
+        std::cerr << "--model, --cases and --output are required\n";
+        printUsage(std::cerr);
+        return 2;
+    }
     if (autoCompress && noCompress) {
         std::cerr << "--auto-compress and --no-compress are mutually exclusive\n";
         return 2;
     }
     CaseReader input;
-    std::ifstream previousOutput(argv[3]);
-    if (previousOutput.good() || !input.open(argv[2])) {
+    std::ifstream previousOutput(outputPath);
+    if (previousOutput.good() || !input.open(casePath, corpus)) {
         std::cerr << "Invalid input/dataset config or output already exists; use a new result path\n";
         return 2;
     }
-    LlmConfig config(argv[1]);
+    LlmConfig config(modelPath);
     std::unique_ptr<Tokenizer> tokenizer(Tokenizer::createTokenizer(config.tokenizer_file()));
     if (!tokenizer) {
         std::cerr << "Unable to load tokenizer\n";
@@ -615,8 +696,10 @@ int main(int argc, const char** argv) {
     auto count = [&](const std::string& text) { return encode(render(text)).size(); };
     TokenCompressor compressor(TokenCompression::sentenceDelimiters(tokenizer.get()), encode("\n[…]\n"));
     std::unique_ptr<Llm> llm;
+    double loadSeconds = 0;
     if (!compressOnly) {
-        llm.reset(Llm::createLLM(argv[1]));
+        const auto loadStart = std::chrono::steady_clock::now();
+        llm.reset(Llm::createLLM(modelPath));
         if (!llm->set_config("{\"sampler_type\":\"greedy\",\"temperature\":0,\"presence_penalty\":0,"
                              "\"repetition_penalty\":1,\"reuse_kv\":false,\"prompt_cache\":false,"
                              "\"token_compress\":0,\"kvcache_mmap\":false,\"async\":false}")) {
@@ -637,8 +720,9 @@ int main(int argc, const char** argv) {
             std::cerr << "Model load failed\n";
             return 1;
         }
+        loadSeconds = seconds(loadStart);
     }
-    std::ofstream output(argv[3]);
+    std::ofstream output(outputPath);
     if (!output) {
         return 2;
     }
@@ -646,7 +730,13 @@ int main(int argc, const char** argv) {
     std::set<std::string> ids;
     Json row;
     int completed = 0, invalid = 0, correct = 0, scored = 0;
-    while ((!limit || completed < limit) && input.next(contextBuilder, row)) {
+    double constructTotal = 0, compressTotal = 0, inferenceTotal = 0;
+    int64_t prefillTotal = 0, decodeTotal = 0;
+    while (!limit || completed < limit) {
+        const auto constructStart = std::chrono::steady_clock::now();
+        if (!input.next(contextBuilder, row)) {
+            break;
+        }
         if (!row.is_object() || !row.contains("case_id") || !row["case_id"].is_string()) {
             std::cerr << "Malformed case row\n";
             return 2;
@@ -656,7 +746,6 @@ int main(int argc, const char** argv) {
             std::cerr << "Duplicate case: " << id << '\n';
             return 2;
         }
-        auto constructStart = std::chrono::steady_clock::now();
         std::string context, prefix, suffix;
         if (!constructCase(row, contextBuilder, tokenizer.get(), context, prefix, suffix)) {
             std::cerr << "Missing/ambiguous input fields: " << id << '\n';
@@ -664,12 +753,13 @@ int main(int argc, const char** argv) {
         }
         Json result = Json::object();
         result["case_id"] = id;
-        result["construct_seconds"] = seconds(constructStart);
+        const double constructSeconds = seconds(constructStart);
+        result["construct_seconds"] = constructSeconds;
         result["runtime_constructed"] = row.contains("context_builder");
         if (row.contains("hf_source")) {
             result["case"] = row;
         }
-        result["model_config"] = argv[1];
+        result["model_config"] = modelPath;
         result["max_new_tokens"] = maxNew;
         result["compressor"] = noCompress ? "none" : "token-coverage-cost-aware-idf-v6";
         result["auto_compress"] = autoCompress;
@@ -737,7 +827,8 @@ int main(int argc, const char** argv) {
         if (!ok) {
             error = "Input cap cannot be satisfied without dropping immutable wrappers or mandatory boundaries";
         }
-        result["compress_seconds"] = seconds(start);
+        const double compressSeconds = seconds(start);
+        result["compress_seconds"] = compressSeconds;
         result["input_tokens"] = static_cast<int64_t>(inputTokens);
         result["max_input_tokens"] = static_cast<int64_t>(options.maxTokens);
         result["source_tokens"] = static_cast<int64_t>(source.size());
@@ -765,32 +856,39 @@ int main(int argc, const char** argv) {
         }
         std::string answer;
         bool valid = ok;
+        double inferenceSeconds = 0;
         if (!ok) {
             result["error"] = error;
         } else if (!compressOnly) {
-            auto tokens = autoCompress ? std::vector<int>() : encode(render(prompt));
             llm->reset();
             start = std::chrono::steady_clock::now();
             std::ostringstream stream;
-            if (autoCompress) {
-                llm->response(ChatMessages{{"user", prompt}}, &stream, nullptr, maxNew);
+            auto tokens = llm->tokenizer_encode(llm->apply_chat_template(ChatMessages{{"user", prompt}}));
+            valid = !tokens.empty() && tokens.size() == inputTokens && tokens.size() <= options.maxTokens &&
+                    (!autoCompress || tokens == runtimeTokens);
+            result["runtime_prompt_tokens"] = static_cast<int64_t>(tokens.size());
+            if (!valid) {
+                result["error"] = "Runtime tokenization mismatch or input cap exceeded; inference skipped";
             } else {
                 llm->response(tokens, &stream, nullptr, maxNew);
+                const auto* ctx = llm->getContext();
+                answer = ctx->generate_str;
+                result["output"] = answer;
+                result["runtime_prompt_tokens"] = ctx->prompt_len;
+                result["generated_tokens"] = static_cast<int64_t>(ctx->output_tokens.size());
+                result["status"] = static_cast<int>(ctx->status);
+                result["prefill_us"] = ctx->prefill_us;
+                result["decode_us"] = ctx->decode_us;
+                prefillTotal += ctx->prefill_us;
+                decodeTotal += ctx->decode_us;
+                valid = ctx->status == LlmStatus::NORMAL_FINISHED && ctx->prompt_len == static_cast<int>(inputTokens) &&
+                        !answer.empty();
+                if (!valid) {
+                    result["error"] = "Runtime error, token mismatch, empty answer, or output-budget exhaustion";
+                }
             }
-            const auto* ctx = llm->getContext();
-            answer = ctx->generate_str;
-            result["output"] = answer;
-            result["inference_seconds"] = seconds(start);
-            result["runtime_prompt_tokens"] = ctx->prompt_len;
-            result["generated_tokens"] = static_cast<int64_t>(ctx->output_tokens.size());
-            result["status"] = static_cast<int>(ctx->status);
-            result["prefill_us"] = ctx->prefill_us;
-            result["decode_us"] = ctx->decode_us;
-            valid = ctx->status == LlmStatus::NORMAL_FINISHED && ctx->prompt_len == static_cast<int>(inputTokens) &&
-                    !answer.empty();
-            if (!valid) {
-                result["error"] = "Runtime error, token mismatch, empty answer, or output-budget exhaustion";
-            }
+            inferenceSeconds = seconds(start);
+            result["inference_seconds"] = inferenceSeconds;
         }
         // Gold is consumed only for auditing/scoring, after compression and generation.
         if (row.contains("needle")) {
@@ -826,8 +924,14 @@ int main(int argc, const char** argv) {
             return 2;
         }
         ++completed;
+        constructTotal += constructSeconds;
+        compressTotal += compressSeconds;
+        inferenceTotal += inferenceSeconds;
         std::cerr << "case=" << id << " completed=" << completed << " valid=" << valid << " scored=" << scored
-                  << " correct=" << correct << " invalid=" << invalid << '\n';
+                  << " correct=" << correct << " invalid=" << invalid << '\n'
+                  << std::fixed << std::setprecision(3) << "time(s): construct=" << constructSeconds
+                  << " compress=" << compressSeconds << " inference=" << inferenceSeconds
+                  << " total=" << seconds(constructStart) << '\n';
         if (!valid) {
             break;
         }
@@ -837,6 +941,10 @@ int main(int argc, const char** argv) {
         return 2;
     }
     std::cerr << "completed=" << completed << " scored=" << scored << " correct=" << correct << " invalid=" << invalid
-              << '\n';
+              << '\n'
+              << std::fixed << std::setprecision(3) << "time(s): total=" << seconds(runStart)
+              << " load=" << loadSeconds << " construct=" << constructTotal << " compress=" << compressTotal
+              << " inference=" << inferenceTotal << " prefill=" << prefillTotal / 1000000.0
+              << " decode=" << decodeTotal / 1000000.0 << '\n';
     return invalid || !completed ? 1 : 0;
 }
