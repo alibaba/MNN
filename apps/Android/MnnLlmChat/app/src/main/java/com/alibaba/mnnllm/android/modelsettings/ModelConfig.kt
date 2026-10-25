@@ -315,7 +315,7 @@ data class ModelConfig(
         )
 
         /** Must match context::kDefaultContextLimit in context_budget.hpp. */
-        const val DEFAULT_CONTEXT_TOKEN_LIMIT = 4096
+        const val DEFAULT_CONTEXT_TOKEN_LIMIT = 8192
         val CONTEXT_TOKEN_LIMIT_CHOICES = listOf(1024, 2048, 4096, 8192, 16384, 32768)
 
         /** Choices that fit the model window; the current value is always offered. */

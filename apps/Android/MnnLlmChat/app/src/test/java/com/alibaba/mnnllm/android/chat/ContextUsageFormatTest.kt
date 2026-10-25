@@ -21,6 +21,6 @@ class ContextUsageFormatTest {
         assertEquals(ModelConfig.CONTEXT_TOKEN_LIMIT_CHOICES, ModelConfig.contextLimitChoices(0, 4096))
         assertEquals(listOf(1024, 2048, 3000), ModelConfig.contextLimitChoices(3000, 3000))
         assertEquals(listOf(512), ModelConfig.contextLimitChoices(512, 512))
-        assertEquals(listOf(4096), ModelConfig.contextLimitChoices(512, 0))
+        assertEquals(listOf(ModelConfig.DEFAULT_CONTEXT_TOKEN_LIMIT), ModelConfig.contextLimitChoices(512, 0))
     }
 }

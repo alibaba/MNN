@@ -66,6 +66,17 @@ class ChatContextManager(private val store: ContextSummaryStore) {
     private var truncationNoticeShown = false
 
     /**
+     * A summary waiting to be stored. It is only written once its turn has run: when the
+     * anchor is the message being sent and native then rejects that message, the row is
+     * deleted, so storing early would leave an anchor that no longer exists.
+     * [anchorId] -1 means "the next message that runs".
+     */
+    private data class PendingSummary(val sessionId: String, val summary: String, val anchorId: Long)
+
+    @Volatile
+    private var pendingSummary: PendingSummary? = null
+
+    /**
      * The stored summary for [sessionId] if its anchor row is part of [history]. When the
      * anchor is gone the summary no longer lines up with the history, so it is deleted and
      * the full history is used (native trimming still bounds it). Blocking.
@@ -121,11 +132,13 @@ class ChatContextManager(private val store: ContextSummaryStore) {
                 return
             }
             val anchor = anchorFor(store.userMessageIds(sessionId), result.keptUserTurns, pendingUserRowId)
-            if (anchor != null) {
-                store.save(sessionId, result.summary, anchor)
+                ?: (-1L).takeIf { result.keptUserTurns == 0 }  // message not stored: anchor on the next one
+            pendingSummary = if (anchor != null) {
+                PendingSummary(sessionId, result.summary, anchor)
             } else {
                 // Native keeps the summary for this session; it just won't survive a reload.
                 Log.w(TAG, "No anchor for ${result.keptUserTurns} kept turns in session $sessionId")
+                null
             }
             _notices.tryEmit(ContextNotice.COMPRESSED)
         } catch (e: Exception) {
@@ -135,8 +148,12 @@ class ChatContextManager(private val store: ContextSummaryStore) {
         }
     }
 
-    /** Reads the context telemetry of a finished turn. */
-    fun onTurnFinished(result: Map<String, Any>) {
+    /**
+     * Reads the context telemetry of a finished turn and stores a pending summary once its
+     * anchor is final. [pendingUserRowId] is the row of the message this turn sent.
+     */
+    fun onTurnFinished(result: Map<String, Any>, pendingUserRowId: Long = -1L) {
+        flushPendingSummary(result["message"] == ChatPresenter.CONTEXT_TOO_LONG, pendingUserRowId)
         val limit = (result["context_limit"] as? Number)?.toInt() ?: return
         val tokens = (result["context_tokens"] as? Number)?.toInt()
         _usage.update { it.copy(tokens = tokens ?: it.tokens, limit = limit, compressing = false) }
@@ -157,8 +174,25 @@ class ChatContextManager(private val store: ContextSummaryStore) {
         }
     }
 
+    private fun flushPendingSummary(rejected: Boolean, pendingUserRowId: Long) {
+        val pending = pendingSummary ?: return
+        when {
+            // The anchor row is about to be deleted; the next message that runs becomes it.
+            rejected && pending.anchorId == pendingUserRowId -> pendingSummary = pending.copy(anchorId = -1L)
+            pending.anchorId >= 0 -> {
+                store.save(pending.sessionId, pending.summary, pending.anchorId)
+                pendingSummary = null
+            }
+            !rejected && pendingUserRowId >= 0 -> {
+                store.save(pending.sessionId, pending.summary, pendingUserRowId)
+                pendingSummary = null
+            }
+        }
+    }
+
     /** A new conversation starts empty and may warn about trimming again. */
     fun onConversationReset() {
+        pendingSummary = null
         truncationNoticeShown = false
         _usage.update { it.copy(tokens = 0, compressing = false) }
     }

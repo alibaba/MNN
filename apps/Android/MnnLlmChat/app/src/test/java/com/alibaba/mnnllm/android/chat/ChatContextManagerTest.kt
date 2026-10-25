@@ -128,8 +128,44 @@ class ChatContextManagerTest {
         val session = FakeSession(ContextCompression(true, "summary", 2))
         val manager = ChatContextManager(store)
         manager.compressIfNeeded(session, "s", compressCheck, pendingUserRowId = 9L)
-        assertEquals(StoredContextSummary("summary", 5L), store.stored)
+        assertNull("stored only once the turn has run", store.stored)
         assertFalse(manager.usage.value.compressing)
+        manager.onTurnFinished(hashMapOf("context_limit" to 4096L, "context_tokens" to 900L), pendingUserRowId = 9L)
+        assertEquals(StoredContextSummary("summary", 5L), store.stored)
+    }
+
+    @Test
+    fun `summary anchored on a rejected message moves to the next message that runs`() {
+        val store = FakeStore(userIds = listOf(1L, 3L, 5L))
+        val manager = ChatContextManager(store)
+        manager.compressIfNeeded(FakeSession(ContextCompression(true, "S", 0)), "s", compressCheck, pendingUserRowId = 5L)
+        // Native rejects row 5 after prefill; the presenter deletes it.
+        manager.onTurnFinished(hashMapOf("error" to true, "message" to ChatPresenter.CONTEXT_TOO_LONG), pendingUserRowId = 5L)
+        assertNull(store.stored)
+        // A later rejection keeps waiting; the first message that runs becomes the anchor.
+        manager.onTurnFinished(hashMapOf("error" to true, "message" to ChatPresenter.CONTEXT_TOO_LONG), pendingUserRowId = 7L)
+        assertNull(store.stored)
+        manager.onTurnFinished(hashMapOf("context_limit" to 4096L), pendingUserRowId = 9L)
+        assertEquals(StoredContextSummary("S", 9L), store.stored)
+    }
+
+    @Test
+    fun `summary with a kept-turn anchor survives a rejection of the current message`() {
+        val store = FakeStore(userIds = listOf(1L, 3L, 5L, 7L))
+        val manager = ChatContextManager(store)
+        manager.compressIfNeeded(FakeSession(ContextCompression(true, "S", 1)), "s", compressCheck, pendingUserRowId = 7L)
+        manager.onTurnFinished(hashMapOf("error" to true, "message" to ChatPresenter.CONTEXT_TOO_LONG), pendingUserRowId = 7L)
+        assertEquals(StoredContextSummary("S", 5L), store.stored)
+    }
+
+    @Test
+    fun `reset drops a summary that was never stored`() {
+        val store = FakeStore(userIds = listOf(1L, 3L))
+        val manager = ChatContextManager(store)
+        manager.compressIfNeeded(FakeSession(ContextCompression(true, "S", 0)), "s", compressCheck, pendingUserRowId = 3L)
+        manager.onConversationReset()
+        manager.onTurnFinished(hashMapOf("context_limit" to 4096L), pendingUserRowId = 11L)
+        assertNull(store.stored)
     }
 
     @Test

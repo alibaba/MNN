@@ -169,7 +169,7 @@
                         android:clickable="true"
                         android:layout_height="wrap_content"
                         app:labelText="@string/context_token_limit"
-                        app:valueText="4096"
+                        app:valueText="8192"
                         style="@style/SettingsRowContainer"
                         app:icon="@drawable/baseline_arrow_drop_down_24" />
 

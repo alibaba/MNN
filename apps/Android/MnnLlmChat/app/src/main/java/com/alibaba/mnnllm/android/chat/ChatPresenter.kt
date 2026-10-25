@@ -304,7 +304,7 @@ class ChatPresenter(
             if (ModelTypeUtils.isDiffusionModel(this.modelName)) {
                 submitDiffusionRequest(input, userData)
             } else {
-                submitLlmRequest(input).also { contextManager.onTurnFinished(it) }
+                submitLlmRequest(input).also { contextManager.onTurnFinished(it, pendingUserRowId) }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error during generation request", e)

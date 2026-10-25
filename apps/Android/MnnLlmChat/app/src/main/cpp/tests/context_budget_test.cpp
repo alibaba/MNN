@@ -109,6 +109,25 @@ void testKeepStartWithinBudget() {
     EXPECT_EQ(keepStartWithinBudget(conversation(1), 2, 100, unitCost), 1u);
 }
 
+void testReplaceMediaTags() {
+    EXPECT_EQ(replaceMediaTags("see <img>/a/b.jpg</img> and <audio>x.wav</audio><video>v</video>!"),
+              std::string("see [image] and [audio][video]!"));
+    EXPECT_EQ(replaceMediaTags("broken <img>/no/close"), std::string("broken [image]"));
+    EXPECT_EQ(replaceMediaTags("plain"), std::string("plain"));
+    std::vector<Message> h{{"system", "s"}, {"user", "<img>p</img>what"}, {"assistant", "a"}};
+    EXPECT_EQ(buildTranscript(h, 1, 3), std::string("User: [image]what\nAssistant: a\n"));
+}
+
+void testSummaryWindowStart() {
+    auto h = conversation(4);  // users at 1,3,5,7; each message costs 10; end = 9
+    EXPECT_EQ(summaryWindowStart(h, 9, 1000, unitCost), 1u);  // everything fits
+    EXPECT_EQ(summaryWindowStart(h, 9, 40, unitCost), 5u);    // last two turns
+    EXPECT_EQ(summaryWindowStart(h, 9, 25, unitCost), 7u);    // last turn only
+    EXPECT_EQ(summaryWindowStart(h, 9, 5, unitCost), 7u);     // even one turn is too big
+    EXPECT_EQ(summaryWindowStart(h, 1, 100, unitCost), 1u);   // nothing before end
+    EXPECT_TRUE(isUser(h[summaryWindowStart(h, 7, 30, unitCost)]));
+}
+
 void testTurnBoundariesNeverSplitATurn() {
     auto h = conversation(4);
     const auto b = turnBoundaries(h, 1, 7);
@@ -181,6 +200,8 @@ int main() {
     testKeepStartIndex();
     testKeepStartWithinBudget();
     testTurnBoundariesNeverSplitATurn();
+    testReplaceMediaTags();
+    testSummaryWindowStart();
     testTranscriptAndSummaryPrompt();
     testRemoveThinking();
     testUtf8();

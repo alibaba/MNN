@@ -227,8 +227,8 @@ private:
     bool has_pending_system_prompt_{false};
     std::string pending_system_prompt_;
 
-    int requested_limit_{4096};  // user's choice, before the model-window cap
-    std::atomic<int> context_limit_{4096};
+    int requested_limit_{8192};  // user's choice, before the model-window cap
+    std::atomic<int> context_limit_{8192};
     std::atomic<int> model_max_context_{0};
     std::atomic<bool> auto_compress_{true};
     std::atomic<bool> cancel_context_work_{false};

@@ -17,7 +17,8 @@ namespace context {
 
 using Message = std::pair<std::string, std::string>;
 
-constexpr int kDefaultContextLimit = 4096;
+// Default when the user has not chosen a length; clampLimit caps it to the model window.
+constexpr int kDefaultContextLimit = 8192;
 constexpr int kMinContextLimit = 256;
 // Role markers and separators the chat template adds around one message. Only used by
 // the cheap per-message estimate; the final decision always uses an exact count.
@@ -33,6 +34,9 @@ constexpr int kTrimLowWaterPercent = 70;
 constexpr int kCompressTriggerPercent = 90;
 // Complete turns kept verbatim after summarizing.
 constexpr int kKeepTurnsAfterCompress = 2;
+// Summarizing walks at most this many prompt windows of older history per compression;
+// anything older is dropped. Bounds the first send in a long pre-existing conversation.
+constexpr int kMaxSummaryWindows = 2;
 // Decoding needs at least this much room left in the window after prefill.
 constexpr int kDecodeHeadroom = 16;
 
@@ -163,14 +167,56 @@ inline std::vector<size_t> turnBoundaries(const std::vector<Message>& history, s
     return boundaries;
 }
 
+// Replaces <img>..</img>, <audio>..</audio> and <video>..</video> with a short placeholder.
+// Summary requests go through the virtual tokenizer, which on omni models would otherwise
+// run the vision/audio encoders on old (possibly deleted) media files.
+inline std::string replaceMediaTags(const std::string& text) {
+    static constexpr const char* kTags[][3] = {
+        {"<img>", "</img>", "[image]"}, {"<audio>", "</audio>", "[audio]"}, {"<video>", "</video>", "[video]"}};
+    std::string out = text;
+    for (const auto& tag : kTags) {
+        const std::string open = tag[0], close = tag[1], placeholder = tag[2];
+        for (size_t pos = out.find(open); pos != std::string::npos; pos = out.find(open, pos)) {
+            const size_t end = out.find(close, pos + open.size());
+            const size_t stop = end == std::string::npos ? out.size() : end + close.size();
+            out.replace(pos, stop - pos, placeholder);
+            pos += placeholder.size();
+        }
+    }
+    return out;
+}
+
 inline std::string buildTranscript(const std::vector<Message>& history, size_t begin, size_t end) {
     std::string transcript;
     for (size_t i = begin; i < end && i < history.size(); ++i) {
         transcript += isUser(history[i]) ? "User: " : "Assistant: ";
-        transcript += history[i].second;
+        transcript += replaceMediaTags(history[i].second);
         transcript += "\n";
     }
     return transcript;
+}
+
+// First user-message index >= 1 such that [start, end) costs at most `target`. When even
+// the last turn before `end` exceeds it, that turn's start is returned (it is summarized
+// from a prefix). Messages before the result are dropped without a summary.
+template <typename MessageCost>
+size_t summaryWindowStart(const std::vector<Message>& history, size_t end, int target,
+                          MessageCost&& message_cost) {
+    size_t start = end;
+    int total = 0;
+    for (size_t i = end; i-- > 1;) {
+        total += message_cost(history[i]);
+        if (isUser(history[i])) {
+            if (total > target && start != end) {
+                break;
+            }
+            start = i;
+            if (total > target) {
+                break;
+            }
+        }
+    }
+    return start == end ? 1 : start;
 }
 
 inline std::string buildSummaryRequest(const std::string& previous_summary, const std::string& transcript) {

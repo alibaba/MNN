@@ -717,9 +717,19 @@ bool LlmSession::generateSummaryLocked(const std::string& request, int max_token
     const std::vector<PromptItem> messages{{"user", request}};
     std::stringstream output;
     restoreAndroidSteppingStatusIfNeeded(llm_);
-    // end_with must be explicit: nullptr keeps the previous turn's "<eop>".
-    llm_->response(messages, &output, "", max_tokens);
+    // Step one token at a time so a stop request ends the summary within a token instead
+    // of after the whole batch. end_with must be explicit: nullptr keeps the last "<eop>".
+    llm_->response(messages, &output, "", 1);
+    int generated = 1;
+    while (generated < max_tokens && !cancel_context_work_.load() && !llm_->stoped()) {
+        restoreAndroidSteppingStatusIfNeeded(llm_);
+        llm_->generate(1);
+        ++generated;
+    }
     restoreAndroidSteppingStatusIfNeeded(llm_);
+    if (cancel_context_work_.load()) {
+        return false;  // a partial summary is not committed
+    }
     std::string text = context::removeAll(output.str(), "<eop>");
     text = context::trimWhitespace(context::removeThinking(std::move(text)));
     text = context::utf8Prefix(context::sanitizeUtf8(text), kMaxSummaryBytes);
@@ -786,7 +796,11 @@ CompressResult LlmSession::compressContext() {
     set_thinking(false);
 
     std::string merged = context_summary_;
-    size_t cursor = 1;
+    // Only the most recent windows of older history are summarized; older turns are
+    // dropped. Keeps the first send in a long pre-existing conversation bounded.
+    const size_t window_start = context::summaryWindowStart(
+            history_, keep_from, input_budget * context::kMaxSummaryWindows, cost);
+    size_t cursor = window_start;
     while (cursor < keep_from && !cancel_context_work_.load()) {
         const std::vector<size_t> ends = context::turnBoundaries(history_, cursor, keep_from);
         auto request_for = [&](size_t end) {
@@ -831,8 +845,9 @@ CompressResult LlmSession::compressContext() {
     llm_->reset();
     prepared_valid_ = false;
 
-    if (cursor > 1) {
-        // Only completed batches are committed, and every batch ends on a user message,
+    if (cursor > window_start) {
+        // Only completed batches are committed (turns before window_start are dropped with
+        // them), and every batch ends on a user message,
         // so the kept history still starts with a user turn.
         context_summary_ = merged;
         history_.erase(history_.begin() + 1, history_.begin() + static_cast<long>(cursor));

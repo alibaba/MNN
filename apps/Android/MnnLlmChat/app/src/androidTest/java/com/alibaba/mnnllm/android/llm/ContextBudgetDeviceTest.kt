@@ -40,17 +40,78 @@ class ContextBudgetDeviceTest {
         sessions.forEach { it.release() }
     }
 
-    private fun newSession(history: List<ChatDataItem>? = null, summary: String? = null, anchor: Long = -1): LlmSession {
-        val session = LlmSession(MODEL_ID, "device-test-${System.nanoTime()}", "$MODEL_DIR/config.json",
+    private fun newSession(
+        history: List<ChatDataItem>? = null, summary: String? = null, anchor: Long = -1,
+        modelDir: String = MODEL_DIR, limit: Int? = 1024,
+    ): LlmSession {
+        val session = LlmSession("local/$modelDir", "device-test-${System.nanoTime()}", "$modelDir/config.json",
             history, useCustomConfig = false)
         session.setKeepHistory(true)
         session.contextSummary = summary
         session.contextAnchorId = anchor
         session.load()
         sessions += session
-        session.updateConfig("""{"context_token_limit": 1024, "auto_compress_context": true}""")
+        if (limit != null) {
+            session.updateConfig("""{"context_token_limit": $limit, "auto_compress_context": true}""")
+        }
         session.updateMaxNewTokens(48)
         return session
+    }
+
+    private fun conversation(turns: Int, words: Int, firstUser: String? = null): List<ChatDataItem> =
+        (0 until turns).flatMap { t ->
+            val user = if (t == 0 && firstUser != null) firstUser else "Turn $t. ${longText(words)}"
+            listOf(ChatDataItem(null, ChatViewHolders.USER, user).also { it.dbId = 2L * t + 1 },
+                ChatDataItem(null, ChatViewHolders.ASSISTANT, "Answer $t. ${longText(words / 2)}").also { it.dbId = 2L * t + 2 })
+        }
+
+    @Test
+    fun defaultLimitIsCappedAt8192() {
+        assertEquals(8192, newSession(limit = null).contextLimits().limit)
+    }
+
+    @Test
+    fun longPreExistingConversationCompressesInBoundedTime() {
+        // About 60 turns / 15K tokens of history from before the feature existed.
+        val session = newSession(conversation(60, 160))
+        val check = session.checkContext("Next question")
+        assertEquals(ContextAction.COMPRESS, check.action)
+        val t0 = System.nanoTime()
+        val compressed = session.compressContext()
+        val seconds = (System.nanoTime() - t0) / 1e9
+        Log.i(TAG, "compression of 60 old turns took $seconds s")
+        assertTrue(compressed.success)
+        assertTrue("took $seconds s; summarizing must stay bounded", seconds < 60)
+        assertTrue(session.countContextTokens() < 1024)
+    }
+
+    @Test
+    fun stoppingDuringASummaryReturnsPromptly() {
+        val session = newSession(conversation(20, 160))
+        assertEquals(ContextAction.COMPRESS, session.checkContext("Next").action)
+        val done = CountDownLatch(1)
+        val worker = Thread { session.compressContext(); done.countDown() }
+        worker.start()
+        Thread.sleep(1500)  // inside the first summary batch
+        val t0 = System.nanoTime()
+        session.cancelContextWork()
+        assertTrue("compression did not stop", done.await(15, TimeUnit.SECONDS))
+        val stopMs = (System.nanoTime() - t0) / 1_000_000
+        Log.i(TAG, "summary stopped ${stopMs} ms after cancel")
+        assertTrue("stop took $stopMs ms", stopMs < 5000)
+        assertFalse(session.ask("still works?")["error"] == true)
+    }
+
+    @Test
+    fun summaryOfAnImageTurnDoesNotRunTheVisionEncoder() {
+        assumeTrue("omni model missing", File(OMNI_DIR, "config.json").exists())
+        // The image file does not exist: encoding it would fail or crash.
+        val history = conversation(4, 120, firstUser = "<img>/data/local/tmp/does-not-exist.jpg</img>What is in this picture?")
+        val session = newSession(history, modelDir = OMNI_DIR)
+        assertEquals(ContextAction.COMPRESS, session.checkContext("Summarize our chat. ${longText(120)}").action)
+        val compressed = session.compressContext()
+        assertTrue(compressed.success)
+        assertFalse(compressed.summary.contains("does-not-exist"))
     }
 
     private fun LlmSession.ask(prompt: String, onChunk: (String) -> Unit = {}): HashMap<String, Any> =
@@ -224,6 +285,6 @@ class ContextBudgetDeviceTest {
     companion object {
         private const val TAG = "ContextBudgetDeviceTest"
         private const val MODEL_DIR = "/data/local/tmp/mnn_models/Qwen2.5-0.5B-Instruct-MNN"
-        private const val MODEL_ID = "local/$MODEL_DIR"
+        private const val OMNI_DIR = "/data/local/tmp/mnn_models/gemma-4-E2B-it-MNN"
     }
 }
