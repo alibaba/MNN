@@ -704,8 +704,6 @@
 		9558333D29B0947300488807 /* MNNGelu.S in Sources */ = {isa = PBXBuildFile; fileRef = 9558333C29B0947300488807 /* MNNGelu.S */; };
 		9558334729B09A2300488807 /* MNNGelu.S in Sources */ = {isa = PBXBuildFile; fileRef = 9558334629B09A2300488807 /* MNNGelu.S */; };
 		9558334B29B09A7B00488807 /* MNNGeluFP16.S in Sources */ = {isa = PBXBuildFile; fileRef = 9558334A29B09A7B00488807 /* MNNGeluFP16.S */; settings = {COMPILER_FLAGS = "-march=armv8.2-a+fp16"; }; };
-		955AD7522E1FB44E0099F26C /* MoEModule.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 955AD7512E1FB44E0099F26C /* MoEModule.cpp */; };
-		955AD7532E1FB44E0099F26C /* MoEModule.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 955AD7502E1FB44E0099F26C /* MoEModule.hpp */; };
 		9560EAD62BDE426A00C8D0B6 /* GeometryLayernorm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9560EAD52BDE426A00C8D0B6 /* GeometryLayernorm.cpp */; };
 		956F52E12AB2D692004B13D9 /* ImageProcessUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 956F52E02AB2D692004B13D9 /* ImageProcessUtils.cpp */; };
 		956F52E32AB2D6A1004B13D9 /* ImageProcessUtils.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 956F52E22AB2D6A1004B13D9 /* ImageProcessUtils.hpp */; };
@@ -1538,8 +1536,6 @@
 		9558333C29B0947300488807 /* MNNGelu.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGelu.S; sourceTree = "<group>"; };
 		9558334629B09A2300488807 /* MNNGelu.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGelu.S; sourceTree = "<group>"; };
 		9558334A29B09A7B00488807 /* MNNGeluFP16.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; name = MNNGeluFP16.S; path = ../../../arm82/asm/arm64/MNNGeluFP16.S; sourceTree = "<group>"; };
-		955AD7502E1FB44E0099F26C /* MoEModule.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = MoEModule.hpp; sourceTree = "<group>"; };
-		955AD7512E1FB44E0099F26C /* MoEModule.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = MoEModule.cpp; sourceTree = "<group>"; };
 		9560EAD52BDE426A00C8D0B6 /* GeometryLayernorm.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryLayernorm.cpp; sourceTree = "<group>"; };
 		956F52E02AB2D692004B13D9 /* ImageProcessUtils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ImageProcessUtils.cpp; sourceTree = "<group>"; };
 		956F52E22AB2D6A1004B13D9 /* ImageProcessUtils.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ImageProcessUtils.hpp; sourceTree = "<group>"; };
@@ -2205,8 +2201,6 @@
 		48C84B6F250F711600EE7666 /* module */ = {
 			isa = PBXGroup;
 			children = (
-				955AD7502E1FB44E0099F26C /* MoEModule.hpp */,
-				955AD7512E1FB44E0099F26C /* MoEModule.cpp */,
 				48C84B71250F711600EE7666 /* PipelineModule.cpp */,
 				48C84B72250F711600EE7666 /* Module.cpp */,
 				48C84B73250F711600EE7666 /* WhileModule.hpp */,
@@ -2971,7 +2965,6 @@
 				92FF038B23AA0B5A00AC97F6 /* CPUUnravelIndex.hpp in Headers */,
 				4AF4FB26269ED235005BA97B /* SparseConvInt8TiledExecutor.hpp in Headers */,
 				CEA49AA92AFD010900971CB7 /* MetalExecution.hpp in Headers */,
-				955AD7532E1FB44E0099F26C /* MoEModule.hpp in Headers */,
 				92FF03BC23AA0B5A00AC97F6 /* OptimizedComputer.hpp in Headers */,
 				95278CE72B9F0999009E9B29 /* CPUDynamicQuant.hpp in Headers */,
 				48C84BA0250F725600EE7666 /* InitNet.hpp in Headers */,
@@ -3531,7 +3524,6 @@
 				92FF038A23AA0B5A00AC97F6 /* CPURange.cpp in Sources */,
 				CE072A182C91AEE700F190FD /* MNNGRAYToC4Fast.S in Sources */,
 				CE125CC92A52BF6B003698C9 /* MNNBilinearLineC8.S in Sources */,
-				955AD7522E1FB44E0099F26C /* MoEModule.cpp in Sources */,
 				959F15A92E2782F800C67803 /* CountMinMaxValue_FP16.S in Sources */,
 				92FF03A123AA0B5A00AC97F6 /* Int8FunctionsOpt.cpp in Sources */,
 				CE072A222C91AEE700F190FD /* MNNPackC2.S in Sources */,
