@@ -8,7 +8,10 @@ import android.content.Context
 import android.net.Uri
 import android.text.TextUtils
 import android.util.Log
+import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import org.json.JSONArray
+
+data class StoredContextSummary(val summary: String, val anchorId: Long)
 
 class ChatDataManager private constructor(context: Context) {
     private val dbHelper = ChatDatabaseHelper(context)
@@ -97,12 +100,14 @@ class ChatDataManager private constructor(context: Context) {
             values.put(ChatDatabaseHelper.COLUMN_DISPLAY_TEXT, chatDataItem.displayText)
             values.put(ChatDatabaseHelper.COLUMN_THINKING_TEXT, chatDataItem.thinkingText)
             values.put(ChatDatabaseHelper.COLUMN_THINKING_FINISHED_TIME, chatDataItem.thinkingFinishedTime)
-            
+            values.put(ChatDatabaseHelper.COLUMN_BENCHMARK_INFO, chatDataItem.benchmarkInfo)
+
             val rowId = db.insert(ChatDatabaseHelper.TABLE_CHAT, null, values)
             if (rowId == -1L) {
                 Log.e(TAG, "addChatData: Failed to insert chat data")
                 return
             }
+            chatDataItem.dbId = rowId
             
             // Update session's lastChatTime
             val currentTime = System.currentTimeMillis()
@@ -147,7 +152,7 @@ class ChatDataManager private constructor(context: Context) {
             ChatDatabaseHelper.TABLE_CHAT,
             null,
             ChatDatabaseHelper.COLUMN_SESSION_ID + "=?",
-            arrayOf(sessionId), null, null, null
+            arrayOf(sessionId), null, null, ChatDatabaseHelper.COLUMN_ID + " ASC"
         )
         while (cursor.moveToNext()) {
             val time = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_TIME))
@@ -202,12 +207,84 @@ class ChatDataManager private constructor(context: Context) {
                 cursor.getLong(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_THINKING_FINISHED_TIME))
             chatDataItem.thinkingText = thinkingText
             chatDataItem.thinkingFinishedTime = thinkingFinishedTime
+            chatDataItem.dbId = cursor.getLong(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_ID))
+            val benchmarkIndex = cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_BENCHMARK_INFO)
+            if (benchmarkIndex >= 0) {
+                chatDataItem.benchmarkInfo = cursor.getString(benchmarkIndex)
+            }
             chatDataItemList.add(chatDataItem)
         }
         cursor.close()
         db.close()
 
         return chatDataItemList
+    }
+
+    // The helpers below keep the shared connection open: closing it would break any other
+    // thread that is using the same SQLiteOpenHelper connection at that moment.
+    /** Stored summary of a session's older turns, or null when there is none. */
+    fun getContextSummary(sessionId: String): StoredContextSummary? {
+        return try {
+            dbHelper.readableDatabase.let { db ->
+                db.query(
+                    ChatDatabaseHelper.TABLE_SESSION,
+                    arrayOf(ChatDatabaseHelper.COLUMN_CONTEXT_SUMMARY, ChatDatabaseHelper.COLUMN_CONTEXT_SUMMARY_ANCHOR),
+                    ChatDatabaseHelper.COLUMN_SESSION_ID + "=?",
+                    arrayOf(sessionId), null, null, null
+                ).use { cursor ->
+                    if (!cursor.moveToFirst() || cursor.isNull(0)) {
+                        return null
+                    }
+                    val summary = cursor.getString(0)
+                    val anchor = if (cursor.isNull(1)) -1L else cursor.getLong(1)
+                    if (summary.isNullOrEmpty() || anchor < 0) null else StoredContextSummary(summary, anchor)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getContextSummary failed for sessionId=$sessionId", e)
+            null
+        }
+    }
+
+    /** Saves (or with a null [summary] clears) the summary of a session's older turns. */
+    fun setContextSummary(sessionId: String, summary: String?, anchorId: Long) {
+        try {
+            dbHelper.writableDatabase.let { db ->
+                val values = ContentValues()
+                values.put(ChatDatabaseHelper.COLUMN_CONTEXT_SUMMARY, summary)
+                values.put(ChatDatabaseHelper.COLUMN_CONTEXT_SUMMARY_ANCHOR, if (summary == null) -1L else anchorId)
+                db.update(
+                    ChatDatabaseHelper.TABLE_SESSION, values,
+                    ChatDatabaseHelper.COLUMN_SESSION_ID + "=?",
+                    arrayOf(sessionId)
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "setContextSummary failed for sessionId=$sessionId", e)
+        }
+    }
+
+    /** Row ids of a session's user messages, oldest first. */
+    fun getUserMessageIds(sessionId: String): List<Long> {
+        val ids = ArrayList<Long>()
+        try {
+            dbHelper.readableDatabase.let { db ->
+                db.query(
+                    ChatDatabaseHelper.TABLE_CHAT,
+                    arrayOf(ChatDatabaseHelper.COLUMN_ID),
+                    ChatDatabaseHelper.COLUMN_SESSION_ID + "=? AND " + ChatDatabaseHelper.COLUMN_TYPE + "=?",
+                    arrayOf(sessionId, ChatViewHolders.USER.toString()),
+                    null, null, ChatDatabaseHelper.COLUMN_ID + " ASC"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        ids.add(cursor.getLong(0))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getUserMessageIds failed for sessionId=$sessionId", e)
+        }
+        return ids
     }
 
     fun updateSessionName(sessionId: String, newName: String?) {
@@ -289,6 +366,16 @@ class ChatDataManager private constructor(context: Context) {
             db.close()
             return list
         }
+
+    fun deleteChatData(rowId: Long) {
+        try {
+            dbHelper.writableDatabase.let { db ->
+                db.delete(ChatDatabaseHelper.TABLE_CHAT, ChatDatabaseHelper.COLUMN_ID + "=?", arrayOf(rowId.toString()))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "deleteChatData failed for rowId=$rowId", e)
+        }
+    }
 
     fun deleteAllChatData(sessionId: String) {
         val db = dbHelper.writableDatabase

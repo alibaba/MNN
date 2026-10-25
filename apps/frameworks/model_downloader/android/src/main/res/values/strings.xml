@@ -3,4 +3,5 @@
     <string name="source_huggingface">HuggingFace</string>
     <string name="source_modelers">Modelers</string>
     <string name="source_modelscope">ModelScope</string>
+    <string name="download_insufficient_storage">Not enough storage: %1$s needed (incl. 200 MB headroom), %2$s available. Free up space and try again.</string>
 </resources>

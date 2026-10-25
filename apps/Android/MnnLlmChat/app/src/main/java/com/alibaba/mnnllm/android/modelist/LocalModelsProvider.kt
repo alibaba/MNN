@@ -2,6 +2,7 @@ package com.alibaba.mnnllm.android.modelist
 
 import android.util.Log
 import com.alibaba.mls.api.ModelItem
+import com.alibaba.mnnllm.android.model.ModelCapabilityReader
 import java.io.File
 
 object LocalModelsProvider {
@@ -18,7 +19,10 @@ object LocalModelsProvider {
                     if (modelDir.isDirectory && File(modelDir, "config.json").exists()) {
                         val modelPath = modelDir.absolutePath
                         val modelId = "local/${modelPath}"
-                        result.add(ModelItem.fromLocalModel(modelId, modelPath))
+                        val item = ModelItem.fromLocalModel(modelId, modelPath)
+                        // A local model has no market metadata, so its own llm_config.json says what it accepts.
+                        item.tags = ModelCapabilityReader.modalityTags(modelDir)
+                        result.add(item)
                     }
                 }
             }

@@ -11,6 +11,9 @@ class ChatDataItem {
     var loading: Boolean = false
     var forceShowLoadingWithText: Boolean = false
 
+    /** ChatData row id once persisted, -1 before. Anchors the context summary. */
+    var dbId: Long = -1L
+
     @JvmField
     var time: String? = null
     @JvmField

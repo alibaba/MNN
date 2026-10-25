@@ -85,6 +85,15 @@
     <string name="clear_mmap_cache">清理 mmap 缓存</string>
     <string name="use_mmap">使用 mmap</string>
     <string name="prompt_cache">提示缓存</string>
+    <string name="context_token_limit">上下文长度</string>
+    <string name="context_token_limit_hint">整段对话（含回复）可用的 token 数。超出后会移出或摘要最早的对话。此前没有上限；模型支持更长上下文时，可调大以保留更多对话。</string>
+    <string name="auto_compress_context">自动摘要较早的对话</string>
+    <string name="context_usage_format">%1$s / %2$s</string>
+    <string name="context_usage_description">上下文：已用 %1$d / %2$d token</string>
+    <string name="context_compressing">摘要中…</string>
+    <string name="context_truncated_notice">较早的对话已移出上下文</string>
+    <string name="context_compressed_notice">较早的对话已摘要，以节省上下文</string>
+    <string name="context_too_long">这条消息超出了上下文长度，请缩短内容或在设置中调大上下文长度。</string>
     <string name="sampler">Sampler</string>
     <string name="backend">使用opencl</string>
     <string name="mmap_cacche_cleared">mmap cache 已经清理</string>

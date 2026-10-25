@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.modelsettings
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import org.json.JSONObject
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -47,6 +48,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
     private var modelItem: ModelItem? = null
     private var chatSession: LlmSession? = null
+    private var modelMaxContext: Int = 0
     private var _binding: FragmentSettingsSheetBinding? = null
     private val binding get() = _binding!!
     private var currentSamplerType: SamplerType = SamplerType.Mixed
@@ -99,6 +101,28 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         binding.inputLayoutGridSize.isVisible = false
     }
 
+    private fun setupContextSettings() {
+        val current = currentConfig.contextTokenLimit
+            ?: defaultConfig.contextTokenLimit ?: ModelConfig.DEFAULT_CONTEXT_TOKEN_LIMIT
+        val choices = ModelConfig.contextLimitChoices(modelMaxContext, current)
+        binding.dropdownContextLimit.setCurrentItem(current)
+        binding.dropdownContextLimit.setDropDownItems(choices, itemToString = { it.toString() }) { _, item ->
+            currentConfig.contextTokenLimit = item as Int
+        }
+        binding.autoCompressContextToggle.setOnCheckedChangeListener(null)
+        binding.autoCompressContextToggle.isChecked =
+            currentConfig.autoCompressContext ?: defaultConfig.autoCompressContext ?: true
+        binding.autoCompressContextToggle.setOnCheckedChangeListener { _, isChecked ->
+            currentConfig.autoCompressContext = isChecked
+        }
+    }
+
+    private fun contextConfigJson(): String = JSONObject()
+        .put("context_token_limit", currentConfig.contextTokenLimit
+            ?: defaultConfig.contextTokenLimit ?: ModelConfig.DEFAULT_CONTEXT_TOKEN_LIMIT)
+        .put("auto_compress_context", currentConfig.autoCompressContext ?: true)
+        .toString()
+
     @SuppressLint("SetTextI18n")
     private fun setupAdvancedConfigs() {
         // Mmap settings
@@ -106,6 +130,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         binding.mmapSettingsItem.setOnCheckedChangeListener { _, isChecked ->
             currentConfig.useMmap = isChecked
         }
+        setupContextSettings()
         // Prompt cache toggle
         binding.promptCacheToggle.isChecked = currentConfig.promptCache ?: false
         binding.promptCacheToggle.setOnCheckedChangeListener { _, isChecked ->
@@ -566,6 +591,12 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
             needSaveConfig = true
             needRecreate = true
         }
+        // Independent of the else-if chain above, which only handles the first change.
+        if (currentConfig.contextTokenLimit != loadedConfig.contextTokenLimit ||
+            currentConfig.autoCompressContext != loadedConfig.autoCompressContext) {
+            needSaveConfig = true
+            chatSession?.updateConfig(contextConfigJson())
+        }
         if (needSaveConfig) {
             ModelConfig.saveConfig(ModelConfig.getExtraConfigFile(modelId), currentConfig)
         }
@@ -585,6 +616,8 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         binding.promptCacheToggle.isChecked = currentConfig.promptCache ?: false
         val llmSession = chatSession as? com.alibaba.mnnllm.android.llm.LlmSession
         llmSession?.updateConfig("""{"prompt_cache": ${currentConfig.promptCache ?: false}}""")
+        setupContextSettings()
+        chatSession?.updateConfig(contextConfigJson())
     }
 
     override fun onDestroyView() {
@@ -594,6 +627,11 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
     fun setSession(chatSession: LlmSession?) {
         this.chatSession = chatSession
+    }
+
+    /** Model window from native, used to offer only context lengths the model supports. */
+    fun setModelMaxContext(modelMax: Int) {
+        this.modelMaxContext = modelMax
     }
 
     fun setModelItem(modelItem: ModelItem) {
