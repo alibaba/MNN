@@ -1492,6 +1492,9 @@ VARPS Omni::VisionProcessor::Qwen::attentionInputs(int grid_t, int grid_h, int g
     request.seqLen = seq_len;
     request.rank = 3;
     request.cuSeqlens = &boundaries;
+    // The offline-compiled QNN vision graph declares a dense [1, seq_len, seq_len] mask input, so the
+    // rank-1 plane-omission shortcut must not apply here.
+    request.forceDense = true;
     return {mMask.obtain(request, (mOmni.mConfig->mllm_config_.is_null() ? mOmni.mConfig->backend_type()
                                                                          : mOmni.mConfig->backend_type(true)))};
 }
