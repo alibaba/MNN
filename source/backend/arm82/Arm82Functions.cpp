@@ -20,6 +20,29 @@ using Vec = MNN::Math::Vec<FLOAT16, 8>;
 
 #if defined(MNN_USE_NEON)
 #include <arm_neon.h>
+
+namespace {
+// Keep fp16 storage while avoiding precision loss and overflow in pooling reductions.
+struct AvgPoolFloat32 {
+    float32x4_t low, high;
+
+    explicit AvgPoolFloat32(float value) : low(vdupq_n_f32(value)), high(vdupq_n_f32(value)) {}
+    AvgPoolFloat32(float32x4_t low, float32x4_t high) : low(low), high(high) {}
+    static AvgPoolFloat32 load(const float16_t* address) {
+        auto value = vld1q_f16(address);
+        return {vcvt_f32_f16(vget_low_f16(value)), vcvt_f32_f16(vget_high_f16(value))};
+    }
+    static void save(float16_t* address, const AvgPoolFloat32& value) {
+        vst1q_f16(address, vcombine_f16(vcvt_f16_f32(value.low), vcvt_f16_f32(value.high)));
+    }
+    AvgPoolFloat32 operator+(const AvgPoolFloat32& other) const {
+        return {vaddq_f32(low, other.low), vaddq_f32(high, other.high)};
+    }
+    AvgPoolFloat32 operator*(const AvgPoolFloat32& other) const {
+        return {vmulq_f32(low, other.low), vmulq_f32(high, other.high)};
+    }
+};
+} // namespace
 #endif
 
 extern "C" {
@@ -3459,7 +3482,11 @@ bool Arm82Functions::init() {
     gInstance->MNNReluWithSlopeChannel = Arm82Relu::reluWithSlopeChannel;
 
     gInstance->MNNPoolingMax = (decltype(gInstance->MNNPoolingMax))(poolingMax<float16_t, Vec, 8, -65535>);
+#if defined(MNN_USE_NEON)
+    gInstance->MNNPoolingAvg = (decltype(gInstance->MNNPoolingAvg))(poolingAvg<float16_t, AvgPoolFloat32, 8, true>);
+#else
     gInstance->MNNPoolingAvg = (decltype(gInstance->MNNPoolingAvg))(poolingAvg<float16_t, Vec, 8>);
+#endif
 
     {
         gInstance->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A;
