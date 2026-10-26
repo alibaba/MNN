@@ -2584,8 +2584,8 @@ VARP Omni::gen_position_ids(int seq_len, int realLen) {
         // tokens the prompt actually contributes, while the remaining seq_len - realLen entries only exist to
         // reach the block shape the graph requires. Only real tokens need a recorded position.
         const int validLen = realLen < 0 ? seq_len : std::min(realLen, seq_len);
-        const int missing = fillMropePositionIds(mPositionIds, mContext->all_seq_len, seq_len, validLen, axes,
-                                                 relativeSpatial, ptr);
+        const int missing =
+            fillMropePositionIds(mPositionIds, mContext->all_seq_len, seq_len, validLen, axes, relativeSpatial, ptr);
         if (missing > 0) {
             MNN_ERROR(
                 "Omni: %d MRoPE positions are recorded but this forward carries %d real tokens "
@@ -2610,7 +2610,47 @@ std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::
     // is_embedding branch below, which calls the module directly instead of going through Llm::forwardRaw().
     CHECK_LLM_RUNNING_RET(mContext, std::vector<Express::VARP>());
     MNN::Express::ExecutorScope s(mExecutor);
-    extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
+        auto deepstack = mExtraArgs[0];
+        auto deepstackInfo = deepstack->getInfo();
+        auto hiddenInfo = hiddenState->getInfo();
+        if (deepstackInfo != nullptr && hiddenInfo != nullptr && deepstackInfo->dim.size() == 3) {
+            const int targetLength = hiddenInfo->dim[mSeqLenIndex];
+            const int sourceLength = deepstackInfo->dim[1];
+            const int hiddenSize = deepstackInfo->dim[2];
+            // embedding() is called once per prefill chunk on the chunked path, so the deepstack it produces
+            // is chunk-local and padded from row 0. responseInterleaved() instead builds one whole-prompt
+            // tensor and lets forwardVec() split the hidden states, so that one is sliced by the global offset.
+            // Decode forces zeros so a real image row never leaks into a single-token step.
+            int sourceOffset = 0;
+            if (mContext->gen_seq_len > 0) {
+                sourceOffset = sourceLength;
+            } else if (sourceLength > targetLength) {
+                sourceOffset = mContext->all_seq_len;
+            }
+            // Rows are logical [layer, token, hidden]. Normalize to NCHW even for full chunks: an NHWC tag
+            // would make the QNN plugin transpose token/hidden. _Convert would also physically transpose, so
+            // copy the raw rows instead.
+            if (sourceLength != targetLength || deepstackInfo->order != NCHW) {
+                auto alignedDeepstack = Express::_Input({deepstackInfo->dim[0], targetLength, hiddenSize}, NCHW);
+                auto dst = alignedDeepstack->writeMap<float>();
+                const auto src = deepstack->readMap<float>();
+                ::memset(dst, 0, alignedDeepstack->getInfo()->size * sizeof(float));
+                const int copyLength = std::max(0, std::min(targetLength, sourceLength - sourceOffset));
+                if (src != nullptr && copyLength > 0) {
+                    for (int i = 0; i < deepstackInfo->dim[0]; ++i) {
+                        ::memcpy(dst + i * targetLength * hiddenSize,
+                                 src + (i * sourceLength + sourceOffset) * hiddenSize,
+                                 copyLength * hiddenSize * sizeof(float));
+                    }
+                }
+                deepstack = alignedDeepstack;
+            }
+        }
+        extraArgs.emplace_back(deepstack);
+    } else {
+        extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    }
     if (mIsEmbedding) {
         std::vector<VARP> inputs{hiddenState, mask, inputPos};
         if (!extraArgs.empty()) {
