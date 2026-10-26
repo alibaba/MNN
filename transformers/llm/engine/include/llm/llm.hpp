@@ -25,7 +25,7 @@
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 
-#include "llm/attention_mask.hpp"
+#include "attention_mask.hpp"
 
 namespace MNN {
 struct KVMeta;
