@@ -85,6 +85,15 @@ class OmniQuantizer:
                 child_module.to(device)
 
     @staticmethod
+    def _floating_dtype(module):
+        if module is None:
+            return None
+        for parameter in module.parameters():
+            if parameter.is_floating_point():
+                return parameter.dtype
+        return None
+
+    @staticmethod
     def clear_memory(weight=None):
         if weight is not None:
             del weight
@@ -530,6 +539,11 @@ class OmniQuantizer:
         print(f"OmniQuant: Starting weight optimization (Epochs={self.epochs})...")
         for idx in tqdm(range(len(self.modules)), desc="OmniQuant: Optimize Weights"):
             block = self.modules[idx]
+            original_dtype = self._floating_dtype(block)
+            # Norm weights are exported in float32 while BF16 checkpoints keep
+            # Linear weights in BF16. Normalize the whole block before its
+            # first forward so mixed parameter dtypes cannot reach F.linear.
+            block.float()
             self.to_device(block, self.best_device)
 
             attn_inputs_list = []
@@ -647,6 +661,8 @@ class OmniQuantizer:
 
             if "cpu" != self.best_device:
                 self.to_device(block, "cpu")
+            if original_dtype is not None and original_dtype != torch.float32:
+                block.to(dtype=original_dtype)
             self.clear_memory()
 
         print("OmniQuant: Weight optimization completed.")
@@ -679,17 +695,25 @@ class OmniQuantizer:
             print("Warning: lm_head not found in model, skipping lm_head calibration.")
 
         if lm_head is not None:
+            # Same FP32/BF16 hazard as the block loops: the calibration math is
+            # float32 while a BF16 checkpoint keeps lm_head and the final norm
+            # in BF16.
+            lm_head_dtype = self._floating_dtype(lm_head)
+            final_norm = getattr(self.model, 'final_layernorm', None)
+            final_norm_dtype = self._floating_dtype(final_norm) if final_norm is not None else None
+            lm_head.float()
             lm_head.to(self.best_device)
-            if hasattr(self.model, 'final_layernorm'):
-                self.model.final_layernorm.to(self.best_device)
+            if final_norm is not None:
+                final_norm.float()
+                final_norm.to(self.best_device)
 
             lm_head_ops = {'lm_head': lm_head}
 
             for inp, kw in calib_inputs:
                 inp_gpu = inp.to(self.best_device)
                 with torch.no_grad():
-                    if hasattr(self.model, 'final_layernorm'):
-                        hidden_states = self.model.final_layernorm(inp_gpu)
+                    if final_norm is not None:
+                        hidden_states = final_norm(inp_gpu)
                     else:
                         hidden_states = inp_gpu
 
@@ -697,8 +721,12 @@ class OmniQuantizer:
                 del inp_gpu, hidden_states
 
             lm_head.to("cpu")
-            if hasattr(self.model, 'final_layernorm'):
-                self.model.final_layernorm.to("cpu")
+            if lm_head_dtype is not None and lm_head_dtype != torch.float32:
+                lm_head.to(dtype=lm_head_dtype)
+            if final_norm is not None:
+                final_norm.to("cpu")
+                if final_norm_dtype is not None and final_norm_dtype != torch.float32:
+                    final_norm.to(dtype=final_norm_dtype)
             self.clear_memory()
 
     def _collect_feature_map_optimized(self):
@@ -719,6 +747,7 @@ class OmniQuantizer:
 
         for idx in tqdm(range(len(self.modules)), desc="Collecting Feature Map Info"):
             block = self.modules[idx]
+            original_dtype = self._floating_dtype(block)
             # Calibration math is implemented in float32; normalize BF16
             # checkpoints before collecting activation ranges.
             block.float()
@@ -757,6 +786,8 @@ class OmniQuantizer:
 
             if "cpu" != self.best_device:
                 self.to_device(block, "cpu")
+            if original_dtype is not None and original_dtype != torch.float32:
+                block.to(dtype=original_dtype)
             self.clear_memory()
 
         # Collect lm_head info if needed

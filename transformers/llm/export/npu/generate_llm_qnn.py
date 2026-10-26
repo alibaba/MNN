@@ -148,11 +148,18 @@ def makeVLIOJson(args, image_sizes):
                 ],
                 "outputs": ["image_embeds"]
             }
-        elif "Qwen3" in args.model or "Qwen3.5" in args.model:
+        elif model_type in {"qwen3_vl", "qwen3_vl_moe", "qwen3_5", "qwen3_5_moe"}:
             align_size = 32
             grid_h = (round(h / align_size) * align_size) // 16
             grid_w = (round(w / align_size) * align_size) // 16
             seq_len = grid_h * grid_w
+            # Qwen3-VL visual graphs return image_embeds plus deepstack_feature.
+            # Qwen3.5 (qwen3_5 / qwen3_5_moe) shares the input signature but its
+            # visual graph only returns image_embeds.
+            outputs = (
+                ["image_embeds", "deepstack_feature"]
+                if model_type in {"qwen3_vl", "qwen3_vl_moe"} else ["image_embeds"]
+            )
             config = {
                 "inputs": [
                     {"name": "patches", "shape": [seq_len, 1536]},
@@ -161,7 +168,7 @@ def makeVLIOJson(args, image_sizes):
                     {"name": "idx_tensor", "shape": [4, seq_len]},
                     {"name": "weight_tensor", "shape": [4, seq_len]}
                 ],
-                "outputs": ["image_embeds"]
+                "outputs": outputs
             }
         elif "FastVLM" in args.model:
             config = {
