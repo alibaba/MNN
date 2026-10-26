@@ -252,6 +252,11 @@ private:
     int mAudioPad = 151646;
 
     std::vector<VARP> mExtraArgs, mVisionEmbeddings, mAudioEmbeddings, mDeepStackEmbeddings;
+    // Chunked prefill feeds one block at a time and a single image/audio feature can span several blocks,
+    // so these cursors persist across embedding() calls. The pools are only dropped once every row was used.
+    int mVisionIndex = 0, mVisionConsumed = 0;
+    int mAudioIndex = 0, mAudioConsumed = 0;
+    void resetMultimodalState();
     MropeInfo mPositionIds;
     std::shared_ptr<Talker> mTalker;
     int64_t mThinkerElapsedUs = 0;

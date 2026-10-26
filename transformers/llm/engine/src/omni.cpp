@@ -2227,6 +2227,16 @@ std::vector<int> Omni::processMediaFile(const std::string& mode, std::string inf
     return std::vector<int>(0);
 }
 
+void Omni::resetMultimodalState() {
+    mVisionEmbeddings.clear();
+    mAudioEmbeddings.clear();
+    mDeepStackEmbeddings.clear();
+    mVisionIndex = 0;
+    mVisionConsumed = 0;
+    mAudioIndex = 0;
+    mAudioConsumed = 0;
+}
+
 std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
     std::string prompt = multimodal_input.prompt_template;
     std::regex multimode_regex(kOmniMultimodalRegex);
@@ -2234,9 +2244,9 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     std::smatch match;
     std::vector<int> ids{};
     mPositionIds.clear();
-    mVisionEmbeddings.clear();
-    mAudioEmbeddings.clear();
-    mDeepStackEmbeddings.clear();
+    // A fresh prompt replaces every embedding, so the chunked-prefill cursors must be rewound with them;
+    // otherwise a prompt that aborted mid-prefill would leave the next one reading from a stale offset.
+    resetMultimodalState();
     mVisionNum = 0;
     if (mVisionProcessor) {
         mVisionProcessor->reset();
@@ -2371,7 +2381,37 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
         appendZeros(end - begin);
         return true;
     };
-    int visionIndex = 0, audioIndex = 0, textBegin = 0;
+    // Rows [begin, begin+length) of a token-major feature. dim[0] is the token axis for image/audio
+    // embeddings and dim[1] for deepstack features, which keep a leading layer axis.
+    auto sliceRows = [](VARP tensor, int begin, int length, bool tokenAtDim1) -> VARP {
+        auto info = tensor->getInfo();
+        if (info == nullptr) {
+            return tensor;
+        }
+        const int total = info->dim[tokenAtDim1 ? 1 : 0];
+        if (begin == 0 && length == total) {
+            return tensor;
+        }
+        const int ptrSize = static_cast<int>(info->dim.size());
+        std::vector<int> start(ptrSize, 0), size(info->dim);
+        start[tokenAtDim1 ? 1 : 0] = begin;
+        size[tokenAtDim1 ? 1 : 0] = length;
+        return Express::_Slice(tensor, _var<int>(start, {ptrSize}), _var<int>(size, {ptrSize}));
+    };
+    // A chunk can cut one image/audio feature in the middle, so the pads in this call may cover only part
+    // of the current feature. Take what this call owns and carry the cursor to the next chunk.
+    auto takeRows = [&](const std::vector<VARP>& pool, int& index, int& consumed, int padCount, int& begin) -> int {
+        begin = consumed;
+        if (index < 0 || index >= static_cast<int>(pool.size()) || padCount <= 0) {
+            return 0;
+        }
+        auto info = pool[index]->getInfo();
+        if (info == nullptr || info->dim.empty()) {
+            return 0;
+        }
+        return std::max(0, std::min(padCount, info->dim[0] - consumed));
+    };
+    int textBegin = 0;
     const int count = static_cast<int>(input_ids.size());
     for (int i = 0; i < count;) {
         const int id = input_ids[i];
@@ -2385,37 +2425,45 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             return nullptr;
         }
         auto& features = audio ? mAudioEmbeddings : mVisionEmbeddings;
-        int& index = audio ? audioIndex : visionIndex;
+        int& index = audio ? mAudioIndex : mVisionIndex;
+        int& consumed = audio ? mAudioConsumed : mVisionConsumed;
         if (index >= features.size() || features[index].get() == nullptr || features[index]->getInfo() == nullptr) {
             MNN_ERROR("Multimodal placeholder has no encoder feature at token %d\n", i);
             mContext->status = LlmStatus::INTERNAL_ERROR;
             return nullptr;
         }
-        auto feature = features[index];
-        int length = feature->getInfo()->dim[0];
-        if (length <= 0 || i + length > count ||
-            !std::all_of(input_ids.begin() + i, input_ids.begin() + i + length, [id](int token) { return token == id; })) {
-            MNN_ERROR("Multimodal feature length does not match its placeholders at token %d\n", i);
+        int padCount = 0;
+        while (i + padCount < count && input_ids[i + padCount] == id) {
+            ++padCount;
+        }
+        int begin = 0;
+        const int take = takeRows(features, index, consumed, padCount, begin);
+        if (take <= 0) {
+            MNN_ERROR("Multimodal feature exhausted before its placeholders at token %d\n", i);
             mContext->status = LlmStatus::INTERNAL_ERROR;
             return nullptr;
         }
-        embeddings.push_back(feature);
+        embeddings.push_back(sliceRows(features[index], begin, take, false));
         if (hasDeepStack) {
             if (audio) {
-                appendZeros(length);
+                appendZeros(take);
             } else {
                 if (index >= mDeepStackEmbeddings.size()) {
                     mContext->status = LlmStatus::INTERNAL_ERROR;
                     return nullptr;
                 }
-                deepstacks.push_back(mDeepStackEmbeddings[index]);
+                deepstacks.push_back(sliceRows(mDeepStackEmbeddings[index], begin, take, true));
             }
         }
-        ++index;
-        i += length;
+        consumed += take;
+        if (consumed >= features[index]->getInfo()->dim[0]) {
+            consumed = 0;
+            ++index;
+        }
+        i += take;
         textBegin = i;
     }
-    if (!appendText(textBegin, count) || visionIndex != mVisionEmbeddings.size() || audioIndex != mAudioEmbeddings.size()) {
+    if (!appendText(textBegin, count)) {
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return nullptr;
     }
@@ -2441,9 +2489,12 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
         ::memcpy(freshEmbed->writeMap<float>(), cPtr, cInfo->size * sizeof(float));
         mergedEmbed = freshEmbed;
     }
-    mVisionEmbeddings.clear();
-    mAudioEmbeddings.clear();
-    mDeepStackEmbeddings.clear();
+    // Keep the pools alive while a following chunk still has rows to feed; drop them only once every
+    // feature was consumed so a chunk boundary cannot silently discard the rest of an image.
+    if (mVisionIndex >= static_cast<int>(mVisionEmbeddings.size()) &&
+        mAudioIndex >= static_cast<int>(mAudioEmbeddings.size())) {
+        resetMultimodalState();
+    }
     if (fullPle.get()) {
         mPleInput = fullPle;
     }
@@ -2465,9 +2516,7 @@ bool Omni::prepareHistoryReplay(const std::vector<int>& input_ids) {
         }
     }
     mPositionIds.clear();
-    mVisionEmbeddings.clear();
-    mAudioEmbeddings.clear();
-    mDeepStackEmbeddings.clear();
+    resetMultimodalState();
     return true;
 }
 
