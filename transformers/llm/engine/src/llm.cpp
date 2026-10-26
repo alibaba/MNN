@@ -1622,6 +1622,15 @@ VARP Llm::gen_attention_mask(int seq_len) {
         req.rank     = 4;
         // chunk_limits needs a stable mask rank across chunked forwards.
         req.forceDense = !mValidBlockSize.empty();
+        // Speculative verify runs the whole draft block in ONE forward, so the causal triangle
+        // cannot be derived from a single query position: the backend's scalar/sentinel causal
+        // path assumes sequential rows and misplaces every row of the block. Send the dense
+        // plane (16 x kv, block-aligned causal) instead — what the pre-refactor code did with
+        // its cached per-decode-type mask.
+        const bool specVerifyBlock = mInSpec && seq_len > 1 && seq_len == mDraftLength + 1;
+        if (specVerifyBlock) {
+            req.forceDense = true;
+        }
         if (seq_len == 1 || (mInSpec && seq_len == mDraftLength + 1)) {
             return mMaskCache.obtain(req, mConfig->backend_type());
         }
