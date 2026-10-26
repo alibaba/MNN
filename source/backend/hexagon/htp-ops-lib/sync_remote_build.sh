@@ -4,9 +4,10 @@ set -euo pipefail
 # Usage: bash sync_remote_build.sh [DSP_ARCH...]
 # Required env: REMOTE_SSH. Optional env: DSP_ARCH, HTP_OPS_SDK_ENV,
 # HTP_OPS_CMAKE_ROOT, HTP_OPS_BUILD_ANDROID, HTP_OPS_USE_MAKE and
-# HTP_OPS_PWL_VARIANT.
+# HTP_OPS_PWL_VARIANT and HTP_OPS_MM_PHASE_PROFILE.
 REMOTE_SSH="${REMOTE_SSH:-}"
 HTP_OPS_PWL_VARIANT="${HTP_OPS_PWL_VARIANT:-learned8}"
+HTP_OPS_MM_PHASE_PROFILE="${HTP_OPS_MM_PHASE_PROFILE:-OFF}"
 HTP_OPS_SDK_ENV="${HTP_OPS_SDK_ENV:-}"
 HTP_OPS_CMAKE_ROOT="${HTP_OPS_CMAKE_ROOT:-}"
 HTP_OPS_BUILD_ANDROID="${HTP_OPS_BUILD_ANDROID:-1}"
@@ -75,7 +76,7 @@ echo "[5/6] build remote htp so, PWL=${HTP_OPS_PWL_VARIANT}"
 ssh "${REMOTE_SSH}" "rm -rf '${REMOTE_HTP_DIR}/outputs_all'"
 for DSP_ARCH_ITEM in "${DSP_ARCH_LIST[@]}"; do
     echo "  - ${DSP_ARCH_ITEM}"
-    ssh "${REMOTE_SSH}" "cd '${REMOTE_HTP_DIR}' && HTP_OPS_SDK_ENV='${HTP_OPS_SDK_ENV}' HTP_OPS_CMAKE_ROOT='${HTP_OPS_CMAKE_ROOT}' HTP_OPS_BUILD_ANDROID='${HTP_OPS_BUILD_ANDROID}' HTP_OPS_USE_MAKE='${HTP_OPS_USE_MAKE}' HTP_OPS_PWL_VARIANT='${HTP_OPS_PWL_VARIANT}' bash build.sh '${DSP_ARCH_ITEM}' && mkdir -p outputs_all && cp outputs/*.so outputs_all/"
+    ssh "${REMOTE_SSH}" "cd '${REMOTE_HTP_DIR}' && HTP_OPS_SDK_ENV='${HTP_OPS_SDK_ENV}' HTP_OPS_CMAKE_ROOT='${HTP_OPS_CMAKE_ROOT}' HTP_OPS_BUILD_ANDROID='${HTP_OPS_BUILD_ANDROID}' HTP_OPS_USE_MAKE='${HTP_OPS_USE_MAKE}' HTP_OPS_PWL_VARIANT='${HTP_OPS_PWL_VARIANT}' HTP_OPS_MM_PHASE_PROFILE='${HTP_OPS_MM_PHASE_PROFILE}' bash build.sh '${DSP_ARCH_ITEM}' && mkdir -p outputs_all && cp outputs/*.so outputs_all/"
 done
 
 echo "[6/6] prepare local outputs dir and download outputs/*.so"

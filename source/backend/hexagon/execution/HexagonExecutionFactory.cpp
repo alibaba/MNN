@@ -12,6 +12,7 @@
 #include "HexagonBinary.hpp"
 #include "HexagonCast.hpp"
 #include "HexagonLayerNorm.hpp"
+#include "HexagonGatedRMSNorm.hpp"
 #include "HexagonRoPE.hpp"
 #include "HexagonAttention.hpp"
 #include "HexagonSelect.hpp"
@@ -22,6 +23,8 @@
 #include "HexagonRelu6.hpp"
 #include "HexagonPRelu.hpp"
 #include "HexagonLSTM.hpp"
+#include "HexagonFusedLinear.hpp"
+#include "HexagonLinearAttention.hpp"
 #include "core/Macro.h"
 
 namespace MNN {
@@ -49,6 +52,9 @@ Execution* HexagonExecutionFactory::create(const Op* op, const std::vector<Tenso
     switch (op->type()) {
         case OpType_LayerNorm:
             execution = HexagonLayerNorm::create(backend, op);
+            break;
+        case OpType_GatedRMSNorm:
+            execution = HexagonGatedRMSNorm::create(backend, op, inputs, outputs);
             break;
         case OpType_Convolution:
             if (inputs.size() > 1) {
@@ -118,6 +124,14 @@ Execution* HexagonExecutionFactory::create(const Op* op, const std::vector<Tenso
         case OpType_LSTM:
             execution = HexagonLSTM::create(backend, op, inputs, outputs);
             break;
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        case OpType_FusedLinear:
+            execution = HexagonFusedLinear::create(backend, op, inputs, outputs);
+            break;
+        case OpType_LinearAttention:
+            execution = HexagonLinearAttention::create(backend, op, inputs, outputs);
+            break;
+#endif
         default:
             break;
     }

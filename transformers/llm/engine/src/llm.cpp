@@ -504,6 +504,11 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     if (mConfig->backend_type() == "opencl") {
         return;
     }
+    // The tuned hint (OP_ENCODER_NUMBER_FOR_COMMIT) is only read by the Metal and OpenCL backends. On Hexagon
+    // the 7 x 3 decode forwards below change nothing and cost about a second of startup on Qwen3.5-4B.
+    if (mConfig->backend_type() == "hexagon") {
+        return;
+    }
     int decode_seq = 1;
     // Set to decode mode
     mContext->gen_seq_len = 1;

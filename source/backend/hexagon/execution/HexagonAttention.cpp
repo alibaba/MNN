@@ -8,14 +8,12 @@
 #include "core/TensorUtils.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "backend/hexagon/htp-ops-lib/include/htp_command.h"
+#include "backend/hexagon/htp-ops-lib/include/htp_attn_params.h"
 #include <algorithm>
 #include <string.h>
 #define HEXAGON_KV_PAGE_SIZE 256
 #define HEXAGON_ATTN_FIXED_WORKSPACE_KV 2048
 #define HEXAGON_ATTN_PREFILL_SEGMENT_Q 64
-// Must match MNN_ATTENTION_CAUSAL_GROUP_Q_ROWS in htp-ops-lib/src/dsp/attention_private.hpp:
-// the DSP grouped-causal prefill path writes gqa_factor * this many workspace rows.
-#define HEXAGON_ATTN_CAUSAL_GROUP_Q_ROWS 64
 namespace MNN {
 
 static constexpr int kFlashAttnPageTableInputIndex = 4;
@@ -29,7 +27,9 @@ static int groupedCausalWorkspaceRows(int qoLen, int nHeads, int nKvHeads, int h
     if (gqaFactor <= 1 || gqaFactor > 4) {
         return 0;
     }
-    const int qRows = std::min(qoLen, HEXAGON_ATTN_CAUSAL_GROUP_Q_ROWS);
+    // Only the upper bound matters here: the DSP picks a group size <= this one for the actual shape
+    // (htp_attn_causal_group_q_rows), so sizing for the maximum is always sufficient.
+    const int qRows = std::min(qoLen, HTP_ATTN_CAUSAL_GROUP_Q_ROWS_MAX);
     return gqaFactor * qRows;
 }
 

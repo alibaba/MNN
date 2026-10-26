@@ -182,7 +182,7 @@ inline bool membersIntQuantOk(const Op* op) {
 }
 
 // Keep-whole predicate for the composite (child-execution) backends: the
-// geometry gate and the Vulkan / CUDA creators must all ask exactly this.
+// geometry gate and the Vulkan / CUDA / Hexagon creators must all ask exactly this.
 inline bool compositeEnvelopeOk(const Op* op, size_t numInputs, size_t numOutputs) {
     return nativeEnvelopeOk(op, numInputs, numOutputs) && allMembersAre1x1(op) && membersIntQuantOk(op);
 }

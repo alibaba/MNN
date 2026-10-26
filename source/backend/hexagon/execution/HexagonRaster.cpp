@@ -116,6 +116,56 @@ static bool turnArea1ChannelSliceToC4Regions(const Tensor::InsideDescribe::Regio
     return !segments.empty();
 }
 
+// A flat identity copy between two NC4HW4 views whose channel counts differ is a pure permutation of
+// pack-sized blocks, which canBlitFast cannot express -- it requires the two channel split components to be
+// equal (OpCommonUtils::canBlitFast). GatedRMSNorm's decomposition produces exactly this shape: the
+// linear-attention output is [L*Hv, head_v_dim] packed while the gate's view of the same bytes is
+// [L, Hv*head_v_dim] packed. Without this the raster falls back to unpack-to-NCHW / blit / repack, three
+// passes over the data for what is one permuted copy.
+//
+// Packed layout is [C/pack][B][pack], so in units of pack-sized blocks src is (cb, b1) -> cb*B1 + b1 and dst
+// is (p, b2) -> p*B2 + b2. The flat identity gives b1 = b2*(C2/C1) + p/(C1/pack) and cb = p % (C1/pack), so
+// splitting p into (ph = p/nb1, pl = p%nb1) makes both sides affine in three axes.
+static bool turnPackBlockPermuteRegion(const Tensor::InsideDescribe::Region& slice, const Tensor* output, int pack,
+                                       Tensor::InsideDescribe::Region& region) {
+    auto origin = slice.origin;
+    if (origin == nullptr || pack <= 0) {
+        return false;
+    }
+    // Only the whole-tensor flat identity copy, and only with area 1. Anything else is a different problem
+    // and must keep taking the staging path.
+    if (slice.size[0] != 1 || slice.size[1] != 1 || slice.src.offset != 0 || slice.dst.offset != 0 ||
+        slice.src.stride[2] != 1 || slice.dst.stride[2] != 1) {
+        return false;
+    }
+    if (origin->dimensions() != 4 || output->dimensions() != 4 || origin->height() != 1 || origin->width() != 1 ||
+        output->height() != 1 || output->width() != 1) {
+        return false;
+    }
+    const int c1 = origin->channel(), b1 = origin->batch();
+    const int c2 = output->channel(), b2 = output->batch();
+    if (c1 <= 0 || c2 <= 0 || b1 <= 0 || b2 <= 0 || c1 % pack != 0 || c2 % pack != 0 || c2 % c1 != 0) {
+        return false;
+    }
+    if ((int64_t)b1 * c1 != (int64_t)b2 * c2 || (int64_t)slice.size[2] != (int64_t)b2 * c2) {
+        return false;
+    }
+    const int nb1 = c1 / pack;
+    const int ratio = c2 / c1;
+    region.size[0] = ratio;
+    region.size[1] = nb1;
+    region.size[2] = b2;
+    region.src.offset = 0;
+    region.src.stride[0] = 1;
+    region.src.stride[1] = b1;
+    region.src.stride[2] = ratio;
+    region.dst.offset = 0;
+    region.dst.stride[0] = nb1 * b2;
+    region.dst.stride[1] = b2;
+    region.dst.stride[2] = 1;
+    return true;
+}
+
 static bool turnAlignedC4Region(const Tensor::InsideDescribe::Region& slice, const Tensor* output, int pack,
                                 Tensor::InsideDescribe::Region& region) {
     if (!OpCommonUtils::canBlitFast(slice, output, pack, true)) {
@@ -314,11 +364,44 @@ ErrorCode HexagonRaster::onBuildCmd(const std::vector<Tensor*>& inputs, const st
                 mTempInputCopy = std::move(c4Copies);
                 mCacheRegions = std::move(c4Regions);
             }
+            if (!directC4Raster) {
+                bool supportPackPermute = output->channel() % pack == 0;
+                c4Copies.clear();
+                c4Regions.clear();
+                for (int i = 0; i < des->regions.size(); ++i) {
+                    auto& slice = des->regions[i];
+                    auto origin = slice.origin;
+                    auto originDesc = origin == nullptr ? nullptr : TensorUtils::getDescribe(origin);
+                    if (originDesc == nullptr || originDesc->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                        supportPackPermute = false;
+                        break;
+                    }
+                    std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
+                    if (!turnPackBlockPermuteRegion(slice, output, pack, *newSlice)) {
+                        supportPackPermute = false;
+                        break;
+                    }
+                    c4Copies.emplace_back(origin, newSlice.get());
+                    c4Regions.emplace_back(std::move(newSlice));
+                }
+                if (supportPackPermute) {
+                    directC4Raster = true;
+                    rasterBytes = mBytes * pack;
+                    mTempInputCopy = std::move(c4Copies);
+                    mCacheRegions = std::move(c4Regions);
+#ifdef HEXAGON_DEBUG
+                    MNN_PRINT("HexagonRaster pack-block permute: %d region(s), out ch=%d src ch=%d\n",
+                              (int)mTempInputCopy.size(), output->channel(), des->regions[0].origin->channel());
+#endif
+                }
+            }
         }
     }
 
-    if (!directC4Raster && MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat &&
-        (output->dimensions() == 3 || output->dimensions() == 4)) {
+    // The regions index the NCHW view, so a packed output always needs the NCHW staging tensor (as CPURaster
+    // does) -- including 2-D outputs, whose packed layout [C/pack][N][pack] differs from [N][C] too.
+    if (!directC4Raster && MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat && output->dimensions() >= 2 &&
+        output->dimensions() <= 4) {
         mTempOutput.reset(new Tensor);
         TensorUtils::setupTensorInfo(output, mTempOutput.get(), midFormat);
         auto res = backend()->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);

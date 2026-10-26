@@ -121,33 +121,33 @@ struct BackendConfig {
 
     /** acquire runtime status by Runtime::getCurrentStatus with following keys,
     */
-    enum RuntimeStatus {
-        /**
-         * get status whether this runtime support 16-bits float point arithmetic
-         */
-        STATUS_SUPPORT_FP16,
-        /**
-         * get status whether this runtime support dot-product arithmetic
-         */
-        STATUS_SUPPORT_DOT_PRODUCT,
-        /**
-         * get status whether this runtime support power-low (means low priority for opencl)
-         */
-        STATUS_SUPPORT_POWER_LOW,
-        /**
-         * get status whether this runtime support simdgroup reduction (metal only)
-         */
-        STATUS_SUPPORT_SIMD_GROUP_REDUCE,
-        /**
-         * get status whether this runtime keeps the fused projection op whole
-         * (composite execution; vulkan-buffer / cuda)
-         */
-        STATUS_SUPPORT_FUSED_PROJ,
-        /**
-         * emum total number
-         */
-        STATUS_COUNT
-    };
+enum RuntimeStatus {
+    /**
+     * get status whether this runtime support 16-bits float point arithmetic
+     */
+    STATUS_SUPPORT_FP16,
+    /**
+     * get status whether this runtime support dot-product arithmetic
+     */
+    STATUS_SUPPORT_DOT_PRODUCT,
+    /**
+     * get status whether this runtime support power-low (means low priority for opencl)
+     */
+    STATUS_SUPPORT_POWER_LOW,
+    /**
+     * get status whether this runtime support simdgroup reduction (metal only)
+     */
+    STATUS_SUPPORT_SIMD_GROUP_REDUCE,
+    /**
+     * get status whether this runtime keeps the fused projection op whole
+     * (composite execution; vulkan-buffer / cuda)
+     */
+    STATUS_SUPPORT_FUSED_PROJ,
+    /**
+     * emum total number
+     */
+    STATUS_COUNT
+};
 
 }; // namespace MNN
 #endif

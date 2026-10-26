@@ -36,8 +36,10 @@ struct HexagonInfo {
     int HP = 0;
     int vtcmSize = 0;
     int maxThreads = 0;
-    float flops[6];// 32, 64, 128, 256, 512, 1024
+    float flops[6] = {0.0f}; // 32, 64, 128, 256, 512, 1024
     int hvxArch = 0;
+    int reserved[6] = {0};     // getInfo words 13..18
+    uint32_t capabilities = 0; // DSPCapability bits, getInfo word 19 (0 for skels that predate it)
 };
 class HexagonRuntime : public Runtime {
 public:
@@ -47,6 +49,10 @@ public:
     virtual Backend* onCreate(const BackendConfig* config = nullptr, Backend* origin = nullptr) const override;
     virtual void onGabageCollect(int level) override;
     virtual bool onCheckInfo(Backend::Info& info) const override;
+    // onGetRuntimeStatus is deliberately not overridden: nothing is negotiated through it. Like Metal and
+    // OpenCL, Hexagon is kept whole by backend type in the geometry (MNN_HEXAGON_ENABLED reaches
+    // MNNTransform) and the creators reject what they cannot take. Skel capabilities are read straight
+    // from info().capabilities -- see DSP_CAP_GEMV_I8_FUSED / LINEAR_ATTN / GATED_RMS_NORM / Q4_ROW_WINDOW.
     virtual CompilerType onGetCompilerType() const override { return Compiler_Loop; }
     virtual float onGetMemoryInMB() override;
     virtual void onConcurrencyBegin() const override;
@@ -75,6 +81,8 @@ public:
     void markHexagonOutput(int fd, int offset, int size) const;
     bool hasPendingHexagonWrite(int fd, int offset, int size) const;
     bool hasPendingCommand() const;
+    // Whether a queued (not yet flushed) command reads or writes any byte of [offset, offset + size) in fd.
+    bool pendingCommandTouches(int fd, int offset, int size) const;
     int commandSerial() const;
 #ifdef MNN_HEXAGON_ASAN
     bool asanCheckAllBuffers(const char* tag) const;

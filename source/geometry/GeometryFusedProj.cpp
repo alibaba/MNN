@@ -63,9 +63,13 @@ class GeometryFusedProj : public GeometryComputer {
             return 0 != context.runtimeStatus(STATUS_SUPPORT_FUSED_PROJ) &&
                    FusedProjCommon::nativeEnvelopeOk(op, numInputs, numOutputs);
         }
-        // Vulkan (buffer variant) and CUDA drive the members as child
-        // executions; the runtime says whether that composite path is compiled
-        // in (image-variant Vulkan and older runtimes answer 0).
+        // Hexagon always drives the members as child executions (the composite path is unconditional),
+        // so it decides by type like Metal / OpenCL rather than asking the runtime.
+        if (context.forwardType() == MNN_FORWARD_HEXAGON) {
+            return FusedProjCommon::compositeEnvelopeOk(op, numInputs, numOutputs);
+        }
+        // Vulkan (buffer variant) and CUDA also drive the members as child executions, but the runtime
+        // says whether that composite path is compiled in (image-variant Vulkan answers 0).
         if (context.forwardType() == MNN_FORWARD_VULKAN || context.forwardType() == MNN_FORWARD_CUDA) {
             return 0 != context.runtimeStatus(STATUS_SUPPORT_FUSED_PROJ) &&
                    FusedProjCommon::compositeEnvelopeOk(op, numInputs, numOutputs);
