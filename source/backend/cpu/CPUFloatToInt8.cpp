@@ -76,8 +76,8 @@ ErrorCode CPUFloatToInt8::onExecute(const std::vector<Tensor*>& inputs, const st
     auto numberThread       = std::min(icDiv4, ((CPUBackend*)backend())->threadNumber());
 
     MNN_CONCURRENCY_BEGIN(tId, total) {
-        int bIndex = tId / icDiv4;
-        int z = tId % icDiv4;
+        // Packed data is ordered by channel block, then batch.
+        int z = tId / batch;
         const auto srcChannelPtr   = inputDataPtr + tId * oc4Stride * pack;
         const auto scaleChannelPtr = scaleDataPtr + z * pack;
         auto dstChannlePtr         = outputDataPtr + tId * oc4Stride * pack;
