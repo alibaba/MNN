@@ -706,7 +706,10 @@ IF(MNN_RKNN)
 ENDIF()
     
 IF(MNN_HEXAGON)
-    target_compile_options(MNNCore PRIVATE -DMNN_HEXAGON_ENABLED=1)
+    # Global, like MNN_RKNN_ENABLED above: the GatedRMSNorm geometry has to know at compile time whether
+    # this backend exists, and it lives in MNNTransform. Without the flag the geometry would keep the op
+    # whole in a build that has no creator for it -- and no backend implements it on CPU to fall back to.
+    add_definitions(-DMNN_HEXAGON_ENABLED=1)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/hexagon)
     list(APPEND MNN_TARGETS MNN_Hexagon)
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_Hexagon>)

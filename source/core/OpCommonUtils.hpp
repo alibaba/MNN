@@ -81,9 +81,11 @@ public:
     // the Metal one — that kernel is decode-only and needs 4-aligned channels,
     // while the OpenCL execution also carries an element-wise variant — and it
     // fills in `heads`, which the kernels need to map x's row onto z's channel.
+    // externalGammaOk: also accept gamma / beta still in the external weight file (the geometry
+    // sees them before the loader inlines them for the creator); off for OpenCL.
     static bool gatedRMSNormOpenCLOk(const Op* op, const std::vector<Tensor*>& inputs,
                                      const std::vector<Tensor*>& outputs, int* outside = nullptr, int* inside = nullptr,
-                                     int* heads = nullptr);
+                                     int* heads = nullptr, bool externalGammaOk = false);
 #endif
 
 };

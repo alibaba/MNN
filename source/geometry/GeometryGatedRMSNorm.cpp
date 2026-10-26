@@ -4,6 +4,11 @@
 //
 //  Geometry for OpType_GatedRMSNorm: out = RMSNorm(x) * silu(z).
 //
+//  Hexagon keeps it whole when the shapes pass the same OpCommonUtils check and
+//  the same channel alignment its creator uses (MNN_HEXAGON_ENABLED, compile
+//  time); the creator still refuses a skel without the kernel, which then fails
+//  the session rather than decomposing -- accepted because host and skel ship
+//  together here.
 //  Metal keeps the op whole when the native fused kernel is compiled in
 //  (MNN_GATED_RMS_NORM) and OpCommonUtils::gatedRMSNormFusable accepts the
 //  shapes, layout and device — keeping it whole in any other case would be
@@ -25,6 +30,9 @@
 #include "geometry/GeometryComputerUtils.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "core/TensorUtils.hpp"
+#ifdef MNN_HEXAGON_ENABLED
+#include "backend/hexagon/htp-ops-lib/include/htp_gated_rms_norm_params.h"
+#endif
 
 #define DEFAULT_ALLOCATE_SIZE 32
 
@@ -81,9 +89,25 @@ public:
         const bool openCLWhole = context.forwardType() == MNN_FORWARD_OPENCL &&
                                  0 != (context.gpuMode() & MNN_GPU_MEMORY_BUFFER) &&
                                  OpCommonUtils::gatedRMSNormOpenCLOk(op, inputs, outputs);
-        if (openCLWhole || (context.forwardType() == MNN_FORWARD_METAL &&
-                            OpCommonUtils::gatedRMSNormFusable(
-                                op, inputs, outputs, 0 != context.runtimeStatus(STATUS_SUPPORT_SIMD_GROUP_REDUCE)))) {
+#ifdef MNN_HEXAGON_ENABLED
+        // Same shape/alignment predicate as HexagonGatedRMSNorm::supported, except externalGammaOk. The
+        // geometry runs before the loader inlines gamma/beta, so they are still external here and refusing
+        // them would decompose every real model -- measured on Qwen3.5-2B: GATED_RMS_NORM disappeared from
+        // the profile and LAYER_NORM_PACKED went 11.6 -> 52.9 ms. The creator runs after inlining, so it
+        // keeps the strict default; an op reaching it still external then fails loudly rather than
+        // computing against the zero-filled gamma makeResource would hand it.
+        int inside = 0;
+        const bool hexagonWhole =
+            context.forwardType() == MNN_FORWARD_HEXAGON &&
+            OpCommonUtils::gatedRMSNormOpenCLOk(op, inputs, outputs, nullptr, &inside, nullptr, true) &&
+            inside % HTP_GATED_RMS_NORM_PACK == 0;
+#else
+        const bool hexagonWhole = false;
+#endif
+        if (openCLWhole || hexagonWhole ||
+            (context.forwardType() == MNN_FORWARD_METAL &&
+             OpCommonUtils::gatedRMSNormFusable(op, inputs, outputs,
+                                                0 != context.runtimeStatus(STATUS_SUPPORT_SIMD_GROUP_REDUCE)))) {
             std::shared_ptr<Command> cmdP(new Command);
             auto& cmd   = *cmdP;
             cmd.op      = op;

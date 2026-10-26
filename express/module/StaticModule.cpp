@@ -283,10 +283,21 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
             case MNN::OpType_FusedLinear: {
                 cloneBaseExecution(exe, base_executions, op, backend, backupBackend);
                 if (exe == nullptr) {
-                    // Pre-create only on backends with a native or composite
-                    // FusedLinear execution; the others decompose it in geometry.
-                    if (backend->type() != MNN_FORWARD_METAL && backend->type() != MNN_FORWARD_OPENCL &&
-                        backend->type() != MNN_FORWARD_CPU && backend->type() != MNN_FORWARD_CPU_EXTENSION) {
+                    // Pre-create on every backend that takes the op whole, so the member weights are
+                    // allocated once here and every session shares them through executionCache. A
+                    // backend that decomposes the op in geometry must not pre-create.
+                    // Mirror GeometryFusedProj::_keepWhole. METAL / OPENCL / HEXAGON keep the op whole
+                    // unconditionally and so decide by type here; VULKAN / CUDA answer through
+                    // STATUS_SUPPORT_FUSED_PROJ (their composite path may be compiled out). Getting this
+                    // wrong lets a backend fall through and allocate one copy of every fused projection
+                    // weight per session (2.2 GiB of Hexagon int4 weights became 3.7 GiB, which
+                    // exhausted the DSP-addressable memory and made the model unusable).
+                    auto runtime = backend->getRuntime();
+                    const bool keepsWhole =
+                        backend->type() == MNN_FORWARD_METAL || backend->type() == MNN_FORWARD_OPENCL ||
+                        backend->type() == MNN_FORWARD_HEXAGON ||
+                        (runtime != nullptr && runtime->onGetRuntimeStatus(STATUS_SUPPORT_FUSED_PROJ) != 0);
+                    if (!keepsWhole) {
                         break;
                     }
                     std::shared_ptr<BufferStorage> tmpstorage;

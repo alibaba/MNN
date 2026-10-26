@@ -1083,7 +1083,8 @@ bool OpCommonUtils::gatedRMSNormFusable(const Op* op, const std::vector<Tensor*>
 }
 
 bool OpCommonUtils::gatedRMSNormOpenCLOk(const Op* op, const std::vector<Tensor*>& inputs,
-                                         const std::vector<Tensor*>& outputs, int* outside, int* inside, int* heads) {
+                                         const std::vector<Tensor*>& outputs, int* outside, int* inside, int* heads,
+                                         bool externalGammaOk) {
     if (nullptr == op || inputs.size() != 2 || outputs.size() != 1) {
         return false;
     }
@@ -1097,12 +1098,18 @@ bool OpCommonUtils::gatedRMSNormOpenCLOk(const Op* op, const std::vector<Tensor*
     // The loader inlines converter-folded gamma / beta before the creator runs;
     // the kernels bind the pair or neither, so anything left external is out.
     const bool hasGamma = (nullptr != param->gamma() && nullptr != param->beta());
+    // External gamma / beta ([offset, gammaBytes, betaBytes]), inlined as a pair before the creator runs.
+    int64_t externalGammaBytes = 0;
     if (!hasGamma) {
         if ((nullptr != param->gamma()) != (nullptr != param->beta())) {
             return false;
         }
         if (nullptr != param->external() && param->external()->size() > 1 && param->external()->data()[1] > 0) {
-            return false;
+            if (!externalGammaOk || param->external()->size() < 3 ||
+                param->external()->data()[2] != param->external()->data()[1]) {
+                return false;
+            }
+            externalGammaBytes = param->external()->data()[1];
         }
     }
     auto x = inputs[0];
@@ -1128,6 +1135,9 @@ bool OpCommonUtils::gatedRMSNormOpenCLOk(const Op* op, const std::vector<Tensor*
         return false;
     }
     if (hasGamma && ((int)param->gamma()->size() != insideSize || (int)param->beta()->size() != insideSize)) {
+        return false;
+    }
+    if (externalGammaBytes > 0 && externalGammaBytes != (int64_t)insideSize * (int64_t)sizeof(float)) {
         return false;
     }
     // x is [outside, inside] with the head as batch axis; z / out are

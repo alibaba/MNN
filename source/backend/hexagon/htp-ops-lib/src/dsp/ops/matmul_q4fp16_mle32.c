@@ -218,11 +218,11 @@ static inline void process_q4_weight_chunk(const process_chunk_task_state_t* sta
               state->b_scale + ((size_t) oy * state->scale_block_num + scale_idx) * scale_block_bytes;
             const float     *sw_oy       = vrmpyScales + (size_t) oy * state->scale_block_num * entry_floats;
             const HVX_Vector vBlockScale = state->weight_is_vrmpy ?
-                                             vrmpy_scale_block_dup_hf(sw_oy, scale_idx, entry_floats) :
+                                             vrmpy_scale_block_dup_hf(sw_oy, scale_idx, state->scale_asymmetric) :
                                              vmemu(block_scale_ptr);
             const HVX_Vector vBlockQBias =
               !state->scale_asymmetric ? Q6_V_vzero() :
-              state->weight_is_vrmpy   ? vrmpy_qbias_block_dup_hf(sw_oy, scale_idx, entry_floats) :
+              state->weight_is_vrmpy   ? vrmpy_qbias_block_dup_hf(sw_oy, scale_idx, state->scale_asymmetric) :
                                          vmemu(block_scale_ptr + 128);
             const uint8_t *weightSrc = src;
             if (state->weight_is_vrmpy) {

@@ -744,6 +744,40 @@ bool HexagonRuntime::hasPendingHexagonWrite(int fd, int offset, int size) const 
     return false;
 }
 
+bool HexagonRuntime::pendingCommandTouches(int fd, int offset, int size) const {
+    if (fd < 0 || size <= 0 || mCommandGroup == nullptr) {
+        return false;
+    }
+    const int64_t begin = offset;
+    const int64_t end = begin + size;
+    for (int idx = 0; idx < mCommandGroupCount; ++idx) {
+        const int cmdFd = mCommandGroup->commands[idx * gCommandEntrySize];
+        const int cmdOffset = mCommandGroup->commands[idx * gCommandEntrySize + 1];
+        auto buffer = findDspBuffer(cmdFd);
+        if (buffer == nullptr || buffer->ptr == nullptr) {
+            // Cannot inspect it, so assume the worst.
+            return true;
+        }
+        auto command = flatbuffers::GetRoot<DSPCOMMAND::Command>((uint8_t*)buffer->ptr + cmdOffset);
+        for (auto tensors : {command->inputs(), command->outputs()}) {
+            if (tensors == nullptr) {
+                continue;
+            }
+            for (auto t : *tensors) {
+                if (t->fd() != fd) {
+                    continue;
+                }
+                const int64_t tBegin = t->offset();
+                const int64_t tEnd = tBegin + (t->size() > 0 ? t->size() : 1);
+                if (begin < tEnd && tBegin < end) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool HexagonRuntime::hasPendingCommand() const {
     return mCommandGroupCount > 0;
 }
@@ -1090,7 +1124,13 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new HexagonAllocator());
     constexpr size_t staticMinAllocSize = 16 * 1024 * 1024;
     constexpr size_t commandMinAllocSize = 4 * 1024 * 1024;
-    constexpr size_t weightMinAllocSize = 16 * 1024 * 1024;
+    constexpr size_t weightMinAllocSize = 64 * 1024 * 1024;
+    // Each weight tensor is DMA'd to VTCM as one large block, so where it starts inside the chunk
+    // decides how many DSP MMU pages that block straddles. Measured on Qwen3.5-0.8B (v79, -rep 5,
+    // alternating): tg128 71.9 at 128 B, 74.4 at 4 KB, 75.6 at 64 KB; pp512 moves the same way but
+    // only by 0.6%. Keep it at a DSP large-page boundary; the padding is negligible next to the
+    // MB-sized tensors.
+    constexpr size_t weightAllocAlign = 64 * 1024;
     std::shared_ptr<BufferAllocator> staticAlloc(new EagerBufferAllocator(allocator, 128, staticMinAllocSize));
 #ifdef MNN_HEXAGON_ASAN
     staticAlloc = asanWrapAllocator(staticAlloc, "static");
@@ -1125,6 +1165,7 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
         if (buf == nullptr) {
             MNN_ERROR("[Hexagon] failed to allocate HTP info buffer\n");
         } else {
+            ::memset((uint8_t*)buf->ptr + infoMem.second, 0, 256);
 #ifdef MNN_GPU_TIME_PROFILE
         int err = 0;
         {
@@ -1162,7 +1203,8 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
             releaseDspPower(context);
         }
     }
-    std::shared_ptr<BufferAllocator> weightAlloc(new EagerBufferAllocator(allocator, 128, weightMinAllocSize));
+    std::shared_ptr<BufferAllocator> weightAlloc(
+        new EagerBufferAllocator(allocator, weightAllocAlign, weightMinAllocSize));
 #ifdef MNN_HEXAGON_ASAN
     weightAlloc = asanWrapAllocator(weightAlloc, "weight");
 #endif

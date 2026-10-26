@@ -6,6 +6,12 @@
 #include <cstdlib>
 #include <cmath>
 #include <vector>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <functional>
+#include <string>
+#include "core/MNNFileUtils.h"
 #include "HexagonConvolution.hpp"
 #include "HexagonSharedGather.hpp"
 #include "HexagonBackend.hpp"
@@ -294,7 +300,8 @@ static int limitQ4BlockDecodeNp(int currentNp, int totalNp, int KAlign, int scal
     const size_t topReservedBytes = 16 * 1024;
     const size_t safeVtcmSize = vtcmSize > (int)topReservedBytes ? (size_t)vtcmSize - topReservedBytes : (size_t)vtcmSize;
     const size_t kp = UP_DIV(KAlign, 32);
-    const size_t fixedBytes = (size_t)64 * KAlign + kp * 128 + 256;
+    // + 2 x 2 KB: the DSP aligns its HMX output tile and scale block to 2 KB (matmul_q4block_fp16_mle32.c).
+    const size_t fixedBytes = (size_t)64 * KAlign + kp * 128 + 256 + 2 * 2048;
     const size_t bytesPerNp = (size_t)64 * KAlign + (size_t)16 * KAlign + (size_t)outputPartitions * 2048 +
                               // Asymmetric packed scale entries carry a qbias next to every scale, so
                               // that plane is twice as wide on the DSP too. This must stay in lockstep
@@ -552,18 +559,19 @@ static bool reorderInt8SymWeightForHmx(uint8_t* dst, size_t dstBytes, const int8
 
 static bool reorderInt4WeightForVrmpyGemv(uint8_t* dst, size_t dstBytes, const uint8_t* rawInt4Data,
                                           const float* rawAlphaData, int ic, int oc, int nblk, bool asymmetric) {
-    if ((ic % 32) != 0 || (oc % 32) != 0 || nblk <= 0) {
+    if ((ic % 32) != 0 || nblk <= 0) {
         return false;
     }
+    // oc is padded to whole 32-channel tiles: the pad channels get zero-point weights and zero scale / qbias,
+    // so they compute 0 (the packed output already has room for them).
     const int icP = ic / 32;
-    const int ocP = oc / 32;
+    const int ocP = UP_DIV(oc, 32);
     const int icBytes = UP_DIV(ic, 2);
     const int alphaUnit = asymmetric ? 2 : 1;
-    // Scale entry per (oc-tile, block) is 32 fp32, followed by 32 fp32 qbias when asymmetric, so the
-    // GEMV's single scale DMA per oc-tile still covers both.
-    const int entryUnit = asymmetric ? 2 : 1;
+    // Scale entry per (oc-tile, block) is 128 B: 32 fp32 scale, or when asymmetric 32 fp16 (scale, qbias)
+    // pairs (half the DDR traffic of fp32 scale + qbias; see vrmpy_to_hmx.h).
     const size_t weightBytes = (size_t)icP * ocP * 512;
-    const size_t scaleBytes = (size_t)ocP * nblk * 32 * entryUnit * sizeof(float);
+    const size_t scaleBytes = (size_t)ocP * nblk * 128;
     if (weightBytes + scaleBytes > dstBytes) {
         return false;
     }
@@ -583,7 +591,7 @@ static bool reorderInt4WeightForVrmpyGemv(uint8_t* dst, size_t dstBytes, const u
                         const int kLo = x * 32 + 4 * g + 2 * p;
                         const int kHi = kLo + 1;
                         tile[g * 64 + ocIn * 2 + p] =
-                            (uint8_t)(rawNibble(o, kLo) | (rawNibble(o, kHi) << 4));
+                            o < oc ? (uint8_t)(rawNibble(o, kLo) | (rawNibble(o, kHi) << 4)) : (uint8_t)0x88;
                     }
                 }
             }
@@ -591,14 +599,21 @@ static bool reorderInt4WeightForVrmpyGemv(uint8_t* dst, size_t dstBytes, const u
     }
     for (int y = 0; y < ocP; ++y) {
         for (int b = 0; b < nblk; ++b) {
-            float* entry = dstScale + ((size_t)y * nblk + b) * 32 * entryUnit;
+            float* entry = dstScale + ((size_t)y * nblk + b) * 32;
+            float pairs[64];
             for (int ocIn = 0; ocIn < 32; ++ocIn) {
                 const int o = y * 32 + ocIn;
                 const size_t src = ((size_t)o * nblk + b) * alphaUnit;
-                entry[ocIn] = asymmetric ? rawAlphaData[src + 1] : rawAlphaData[src];
+                const float scale = o >= oc ? 0.0f : (asymmetric ? rawAlphaData[src + 1] : rawAlphaData[src]);
                 if (asymmetric) {
-                    entry[32 + ocIn] = rawAlphaData[src];
+                    pairs[2 * ocIn] = scale;
+                    pairs[2 * ocIn + 1] = o < oc ? rawAlphaData[src] : 0.0f;
+                } else {
+                    entry[ocIn] = scale;
                 }
+            }
+            if (asymmetric) {
+                HexagonBackend::fp32ToFp16(pairs, reinterpret_cast<int16_t*>(entry), 64);
             }
         }
     }
@@ -868,10 +883,6 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
         im2colParams.scaleAsymmetric =
             mResource && mResource->useInt8W8A16 && mResource->int8ScaleAsymmetric ? 1 : 0;
     }
-//    FUNC_PRINT(vtcmSize);
-//    FUNC_PRINT(mMp);
-//    FUNC_PRINT(mNp);
-//    FUNC_PRINT(maxNp);
 
     auto input = HexagonBackend::getDevicePtr(inputs[0]);
     auto output = HexagonBackend::getDevicePtr(outputs[0]);
@@ -921,14 +932,58 @@ ErrorCode HexagonConvolution::onBuildCmd(const std::vector<Tensor *> &inputs, co
             mResource->int4ScaleBlockNum > 1 && mResource->useGemvI8 && mResource->gemvI8Weight.first != nullptr;
         auto weight = pathA ? HexagonBackend::getDevicePtr(mResource->gemvI8Weight)
                             : HexagonBackend::getDevicePtr(mResource->int4Weight);
-        int params[] = {area, icP * 32, ocP * 32, mResource->int4WeightType, mResource->int4LayoutType,
-                        mMp, mNp, mKp, mResource->int4ScaleBlockNum,
-                        mResource->int4ScaleAsymmetric ? 1 : 0, pathA ? 1 : 0};
-        std::vector<std::pair<int, int>> inputFds = {input, weight, bias};
         const auto opType = mResource->int4ScaleBlockNum > 1 ? DSP_OP_MATMUL_Q4A16_BLOCK_FP16 : DSP_OP_MATMUL_Q4A16_FP16;
-        dst.emplace_back();
-        dst.back().build(static_cast<HexagonBackend*>(backend()), opType, params, sizeof(params),
-                         inputFds,  outputFds,  inputs, outputs);
+        // When the whole activation does not fit VTCM next to two weight panels, run the GEMM as row windows
+        // that do: each window stages its activation once and double-buffers the weights, at the price of
+        // dequantizing the weights once per window. The alternative -- one activation chunk re-staged for
+        // every weight panel, or a single weight panel whose dequantization cannot overlap HMX -- ran
+        // Qwen3.5-4B's ffn_down (K = 9216) at 24% of HMX peak and 2B's (K = 6144) at 53%.
+        int windows = 1;
+        int windowMp = total_mp;
+        HexagonTileShape windowTile(mMp, mNp);
+        const bool rowWindowOk = (runtime->info().capabilities & DSP_CAP_Q4_ROW_WINDOW) != 0;
+        if (rowWindowOk && opType == DSP_OP_MATMUL_Q4A16_BLOCK_FP16 && area > 32 &&
+            (mMp < total_mp || mNp < DSP_Q4_MIN_DOUBLE_BUFFER_NP)) {
+            for (int w = 2; w <= total_mp; ++w) {
+                const int mpw = UP_DIV(total_mp, w);
+                // The DSP routes m <= 32 to a kernel without a row stride, so every window must be larger.
+                if (area - (w - 1) * mpw * 32 <= 32) {
+                    continue;
+                }
+                const HexagonTileShape t = chooseDirectTileShape(mpw, total_np, KAlign, avail_size, vtcmSize,
+                                                                 q4ScaleMode, mResource->int4ScaleBlockNum);
+                if (t.mp >= mpw && t.np >= DSP_Q4_MIN_DOUBLE_BUFFER_NP) {
+                    windows = w;
+                    windowMp = mpw;
+                    windowTile = t;
+                    break;
+                }
+            }
+        }
+        // The window's first row goes in the params rather than into the tensor offsets: commands are re-patched
+        // with the tensors' device pointers when those move, which only works while the offsets are exact.
+        for (int w = 0; w < windows; ++w) {
+            const int m0 = w * windowMp * 32;
+            const int rows = std::min(area - m0, windowMp * 32);
+            int params[] = {rows,
+                            icP * 32,
+                            ocP * 32,
+                            mResource->int4WeightType,
+                            mResource->int4LayoutType,
+                            windowTile.mp,
+                            windowTile.np,
+                            mKp,
+                            mResource->int4ScaleBlockNum,
+                            mResource->int4ScaleAsymmetric ? 1 : 0,
+                            pathA ? 1 : 0,
+                            area,
+                            m0};
+            std::vector<std::pair<int, int>> inputFds = {input, weight, bias};
+            dst.emplace_back();
+            dst.back().build(static_cast<HexagonBackend*>(backend()), opType, params,
+                             windows > 1 ? sizeof(params) : sizeof(params) - 2 * sizeof(int), inputFds, outputFds,
+                             inputs, outputs);
+        }
     }
 
     return NO_ERROR;
@@ -957,7 +1012,99 @@ bool HexagonConvolution::onClone(Backend* bn, const Op* op, Execution** dst) {
     *dst = exe;
     return true;
 }
-HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
+
+// ---- Reordered-weight cache ----
+// Building the DSP weight layout (vrmpy / HMX tile order) is a CPU pass over every weight byte on each load. When
+// the runtime has a weight cache directory (llm `use_mmap`, which sets EXTERNAL_WEIGHT_DIR), the finished buffer
+// of each int4 convolution is written there once and later loads read it straight into DSP memory, skipping
+// both the read of the raw weights and the reorder. Each file is validated against the op (shape, block count,
+// the external offsets of its weights) and silently ignored when it does not match. Like the CPU / OpenCL weight
+// caches, the files carry no model identity, so the directory must be per model (llm_demo derives it from the
+// config path).
+struct HexagonWeightCacheHeader {
+    uint32_t magic;
+    uint32_t version;
+    int32_t ic, oc, blocks, asymmetric, kind; // kind 1: vrmpy GEMV blob, 2: HMX int4 blob
+    int32_t hvxArch;                          // the layout choice depends on it
+    uint64_t bytes;
+};
+static constexpr uint32_t kHexagonWeightCacheMagic = 0x32575848; // "HXW2"
+static constexpr uint32_t kHexagonWeightCacheVersion = 1;
+
+static std::string hexagonWeightCachePath(const std::string& dir, const Op* op, const Convolution2D* conv2d) {
+    std::string key = op->name() != nullptr ? op->name()->str() : std::string();
+    key += "|" + std::to_string(conv2d->common()->inputCount()) + "x" + std::to_string(conv2d->common()->outputCount());
+    if (conv2d->external() != nullptr) {
+        for (auto v : *conv2d->external()) {
+            key += "|" + std::to_string(v);
+        }
+    }
+    char name[64];
+    snprintf(name, sizeof(name), "hexagon_w_%016zx.bin", std::hash<std::string>()(key));
+    return MNNFilePathConcat(dir, name);
+}
+
+static bool hexagonWeightCacheRead(const std::string& path, HexagonWeightCacheHeader& header, int expectIc,
+                                   int expectOc, int hvxArch, BufferAllocator* alloc, MemChunk& chunk) {
+    int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return false;
+    }
+    bool ok = ::pread(fd, &header, sizeof(header), 0) == (ssize_t)sizeof(header) &&
+              header.magic == kHexagonWeightCacheMagic && header.version == kHexagonWeightCacheVersion &&
+              header.hvxArch == hvxArch && header.oc == expectOc && (expectIc == 0 || header.ic == expectIc) &&
+              header.ic > 0 && (header.kind == 1 || header.kind == 2) && header.bytes > 0;
+    if (ok) {
+        struct stat st;
+        ok = ::fstat(fd, &st) == 0 && (uint64_t)st.st_size == sizeof(header) + header.bytes;
+    }
+    if (ok) {
+        chunk = alloc->alloc((size_t)header.bytes);
+        ok = chunk.first != nullptr;
+        if (ok) {
+            uint8_t* dst = (uint8_t*)HexagonBackend::getPtr(chunk);
+            size_t done = 0;
+            while (ok && done < header.bytes) {
+                const ssize_t n = ::pread(fd, dst + done, (size_t)header.bytes - done, (off_t)(sizeof(header) + done));
+                ok = n > 0;
+                done += ok ? (size_t)n : 0;
+            }
+            if (!ok) {
+                alloc->free(chunk);
+                chunk = MemChunk();
+            }
+        }
+    }
+    ::close(fd);
+    return ok;
+}
+
+static void hexagonWeightCacheWrite(const std::string& path, const HexagonWeightCacheHeader& header, const void* data) {
+    const std::string tmp = path + ".tmp";
+    int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        return;
+    }
+    bool ok = ::write(fd, &header, sizeof(header)) == (ssize_t)sizeof(header);
+    size_t done = 0;
+    while (ok && done < header.bytes) {
+        const ssize_t n = ::write(fd, (const uint8_t*)data + done, (size_t)header.bytes - done);
+        ok = n > 0;
+        done += ok ? (size_t)n : 0;
+    }
+    // Flush before the rename, not after: the rename's metadata can reach storage ahead of the data
+    // blocks, leaving a file whose name and st_size both check out while part of its contents is a zero
+    // page. The reader only validates the header and the size, so it would take that file as a hit.
+    ok = ok && ::fsync(fd) == 0;
+    ok = (::close(fd) == 0) && ok;
+    if (ok) {
+        ::rename(tmp.c_str(), path.c_str());
+    } else {
+        ::unlink(tmp.c_str());
+    }
+}
+
+std::shared_ptr<HexagonConvolution::Resource> HexagonConvolution::makeResource(Backend* backend, const Op* op) {
     auto conv2d = op->main_as_Convolution2D();
     if (conv2d == nullptr || conv2d->common() == nullptr) {
         return nullptr;
@@ -989,6 +1136,43 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
         auto ext = conv2d->external();
         if (quan->type() == 1 && quan->aMaxOrBits() == 4 && ext != nullptr && ext->size() > 0) {
             useInt4W4A16 = true;
+        }
+    }
+    const auto convRuntime = static_cast<const HexagonRuntime*>(backend->getRuntime());
+    const int convHvxArch = convRuntime != nullptr ? convRuntime->info().hvxArch : 0;
+    std::string weightCachePath;
+    if (useInt4W4A16 && !backend->getRuntime()->hint().weightMemoryPath.empty()) {
+        weightCachePath = hexagonWeightCachePath(backend->getRuntime()->hint().weightMemoryPath, op, conv2d);
+        HexagonWeightCacheHeader header;
+        MemChunk chunk;
+        auto cacheAlloc = static_cast<HexagonBackend*>(backend)->getAllocator(2);
+        if (hexagonWeightCacheRead(weightCachePath, header, ic, oc, convHvxArch, cacheAlloc, chunk)) {
+            std::shared_ptr<Resource> res(new Resource);
+            res->allocator = cacheAlloc;
+            res->hasBias = hasNonZeroBias(originBias, std::min(oc, originBiasSize));
+            if (res->hasBias) {
+                const int biasSize = UP_DIV(oc, ocPack) * ocPack * (int)sizeof(int16_t) + 64;
+                res->bias = cacheAlloc->alloc((size_t)biasSize);
+                auto biasPtr = HexagonBackend::getPtr(res->bias);
+                ::memset(biasPtr, 0, (size_t)biasSize);
+                HexagonBackend::fp32ToFp16(originBias, (int16_t*)biasPtr, std::min(oc, originBiasSize));
+                static_cast<HexagonBackend*>(backend)->markHostInput(res->bias, biasSize);
+            }
+            res->gatherInputChannels = header.ic;
+            res->gatherOutputChannels = oc;
+            res->int4WeightType = int4WeightType;
+            res->int4LayoutType = int4LayoutType;
+            res->int4ScaleBlockNum = header.blocks;
+            res->int4ScaleAsymmetric = header.asymmetric != 0;
+            res->useInt4W4A16 = true;
+            if (header.kind == 1) {
+                res->gemvI8Weight = chunk;
+                res->useGemvI8 = true;
+            } else {
+                res->int4Weight = chunk;
+            }
+            static_cast<HexagonBackend*>(backend)->markHostInput(chunk, (int)header.bytes);
+            return res;
         }
     }
     bool useIm2Col = !useInt4W4A16;
@@ -1109,14 +1293,15 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
         res->int4LayoutType = int4LayoutType;
         res->int4ScaleBlockNum = int4ScaleBlockNum;
         res->int4ScaleAsymmetric = scaleAsymmetric;
-        const int hvxArch = static_cast<const HexagonRuntime*>(backend->getRuntime())->info().hvxArch;
-        const bool gemvShapeOk = dequantInWeight && (ic % 32 == 0) && (oc % 32 == 0) && (ic % 64 == 0) &&
+        // The vrmpy layout wins decode on both v79 and v81 (v79: +16..33% tok/s, prefill -2..6% through
+        // path A), so from v79 up only the shape decides. Older architectures were never measured and the
+        // kernel has no capability bit to fall back on, so they keep the plain layout.
+        const bool gemvShapeOk = dequantInWeight && convHvxArch >= 79 && (ic % 32 == 0) && (ic % 64 == 0) &&
                                  ((ic / 32) % int4ScaleBlockNum == 0);
-        if (hvxArch >= 81 && gemvShapeOk) {
+        if (gemvShapeOk) {
             const size_t gemvWeightBytes = (size_t)icP * ocP * 512;
-            // Asymmetric entries are 32 fp32 scale + 32 fp32 qbias, so one scale DMA covers both.
-            const size_t gemvScaleBytes =
-                (size_t)ocP * int4ScaleBlockNum * 32 * (scaleAsymmetric ? 2 : 1) * sizeof(float);
+            // 128 B per (oc-tile, block) entry; see reorderInt4WeightForVrmpyGemv.
+            const size_t gemvScaleBytes = (size_t)ocP * int4ScaleBlockNum * 128;
             const size_t gemvBytes = gemvWeightBytes + gemvScaleBytes;
             res->gemvI8Weight = bufferAlloc->alloc(gemvBytes);
             if (res->gemvI8Weight.first != nullptr &&
@@ -1144,6 +1329,23 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
         if (res->int4Weight.first != nullptr || res->useGemvI8) {
             int4Success = true;
             res->useInt4W4A16 = true;
+            if (!weightCachePath.empty()) {
+                HexagonWeightCacheHeader header;
+                ::memset(&header, 0, sizeof(header));
+                header.magic = kHexagonWeightCacheMagic;
+                header.version = kHexagonWeightCacheVersion;
+                header.ic = ic;
+                header.oc = oc;
+                header.blocks = int4ScaleBlockNum;
+                header.asymmetric = scaleAsymmetric ? 1 : 0;
+                header.kind = res->useGemvI8 ? 1 : 2;
+                header.hvxArch = convHvxArch;
+                const MemChunk& blob = res->useGemvI8 ? res->gemvI8Weight : res->int4Weight;
+                header.bytes = res->useGemvI8
+                                   ? (uint64_t)((size_t)icP * ocP * 512 + (size_t)ocP * int4ScaleBlockNum * 128)
+                                   : (uint64_t)int4WeightSize;
+                hexagonWeightCacheWrite(weightCachePath, header, HexagonBackend::getPtr(blob));
+            }
         }
     }
 
@@ -1214,6 +1416,14 @@ HexagonConvolution* HexagonConvolution::create(Backend *backend, const Op* op) {
         static_cast<HexagonBackend*>(backend)->markHostInput(res->weight, (int)(reorderedWeightSize * sizeof(int16_t)));
     }
 
+    return res;
+}
+
+HexagonConvolution* HexagonConvolution::create(Backend* backend, const Op* op) {
+    auto res = makeResource(backend, op);
+    if (res == nullptr) {
+        return nullptr;
+    }
     return new HexagonConvolution(backend, res, op);
 }
 
