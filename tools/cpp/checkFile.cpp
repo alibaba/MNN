@@ -39,15 +39,20 @@ int main(int argc, char* argv[]) {
     // compare
     float v1, v2;
     int pos = 0;
-    while (input1 >> v1) {
-        auto& valid = input2 >> v2;
+    while (true) {
+        input1 >> std::ws;
+        input2 >> std::ws;
+        if (input1.eof() && input2.eof() && !input1.bad() && !input2.bad()) {
+            break;
+        }
+        if (!(input1 >> v1) || !(input2 >> v2)) {
+            printf("Error for %d: invalid or missing value\n", pos);
+            break;
+        }
         if (::fabsf(v1 - v2) > tolerance) {
             printf("Error for %d, v1=%.6f, v2=%.6f\n", pos, v1, v2);
         }
         pos++;
-        if (!valid) {
-            break;
-        }
     }
     return 0;
 }

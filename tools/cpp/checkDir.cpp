@@ -109,8 +109,17 @@ int main(int argc, char* argv[]) {
         int pos      = 0;
         bool correct = true;
         float v1, v2;
-        while (oldOs >> v1) {
-            auto& valid   = newOs >> v2;
+        while (true) {
+            oldOs >> std::ws;
+            newOs >> std::ws;
+            if (oldOs.eof() && newOs.eof() && !oldOs.bad() && !newOs.bad()) {
+                break;
+            }
+            if (!(oldOs >> v1) || !(newOs >> v2)) {
+                printf("Error for %d, %s, %d: invalid or missing value\n", i, s.c_str(), pos);
+                correct = false;
+                break;
+            }
             auto absError = fabsf(v1 - v2);
             if (absError <= tolerance && !isnan(absError)) {
                 pos++;
