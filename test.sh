@@ -1110,19 +1110,17 @@ _run_json_model_stages() {
     local section_root="${2:-android}"
     local models_dir="${3:-${DEVICE_PUBLIC_MODELS_DIR}}"
     local -a rows=()
-    local row
+    local row stage_rows
     case "${kind}" in
         smokeA)
-            while IFS= read -r row; do rows+=("${row}"); done \
-                < <(_emit_json_smoke_stages "${section_root}" smoke_a_stages "${models_dir}") ;;
+            stage_rows="$(_emit_json_smoke_stages "${section_root}" smoke_a_stages "${models_dir}")" || return 1 ;;
         smokeB)
-            while IFS= read -r row; do rows+=("${row}"); done \
-                < <(_emit_json_smoke_stages "${section_root}" smoke_b_stages "${models_dir}") ;;
+            stage_rows="$(_emit_json_smoke_stages "${section_root}" smoke_b_stages "${models_dir}")" || return 1 ;;
         bench)
-            while IFS= read -r row; do rows+=("${row}"); done \
-                < <(_emit_json_bench_stages "${section_root}" "${models_dir}") ;;
+            stage_rows="$(_emit_json_bench_stages "${section_root}" "${models_dir}")" || return 1 ;;
         *) return 1 ;;
     esac
+    while IFS= read -r row; do rows+=("${row}"); done <<<"${stage_rows}"
     local name filt binary argv runner
     for row in "${rows[@]}"; do
         IFS='|' read -r name filt binary argv <<<"${row}"
@@ -1244,10 +1242,11 @@ _run_json_stages() {
     local section="${1:-android}"
     local runner="${2:-_remote_run_test}"
     local -a rows=()
-    local row
+    local row stage_rows
+    stage_rows="$(_emit_json_stages "${section}")" || return 1
     while IFS= read -r row; do
         rows+=("${row}")
-    done < <(_emit_json_stages "${section}")
+    done <<<"${stage_rows}"
     local name filt skip argv
     for row in "${rows[@]}"; do
         IFS='|' read -r name filt skip argv <<<"${row}"
