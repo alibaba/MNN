@@ -177,17 +177,13 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
                                 "bits, default: 0, which means no weight quant",
                                 cxxopts::value<int>())(
         "weightQuantAsymmetric",
-        "the default weight-quant uses SYMMETRIC quant method, which is compatible with old MNN versions. "
-        "you can try set --weightQuantAsymmetric to use asymmetric quant method to improve accuracy of the "
-        "weight-quant model in some cases, "
-        "but asymmetric quant model cannot run on old MNN versions. You will need to upgrade MNN to new version to "
-        "solve this problem. default: false",
+        "use asymmetric weight quantization, default: true; set to 0/false for symmetric quantization",
         cxxopts::value<bool>())(
         "weightQuantBlock",
         "using block-wise weight quant, set block size, defaut: -1, which means channel-wise weight quant",
         cxxopts::value<int>())(
         "hqq",
-        "using hqq quant method to improve accuracy, default: false, if use hqq, weightQuantAsymmetric is set as true")(
+        "use HQQ weight quantization; requires weightQuantAsymmetric=true, default: false")(
         "weightQuantScaleBit",
         "bit-width for quant scale/zero-point storage. 32=fp32 (default), 16=fp16; 8/4 reserved for future",
         cxxopts::value<int>())("compressionParamsFile",
