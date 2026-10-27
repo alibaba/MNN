@@ -49,68 +49,65 @@ static inline void sync_attention_softmax_row(__fp16* row_s, float* row_scores, 
   sync_attention_normalize_to_fp16(row_s, row_scores, validN, inv_sum);
 }
 
-// ATTN_SCORES_FP16: fused softmax over an fp16 scores row. Reads fp16, promotes to fp32 in registers for
-// max/exp/sum (no fp32 temp), writes the exp result as fp16 into row_s, then normalizes row_s in place.
-// Half the read traffic of the fp32 path; the math stays fp32 for numerical stability.
+// ATTN_SCORES_FP16: softmax over an fp16 scores row, done entirely in fp16 vectors.
 //
-// The row is staged into an L1-resident scratch on the max pass, so the DDR traffic is one read of the
-// score row plus one write of linear_S. Before: scores were read twice (max, exp) and linear_S was
-// written, read back and rewritten (normalize) -- 10 bytes of DDR per element, now 4. The arithmetic and
-// its ordering are unchanged, so results stay bit-identical.
-static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *row_scores16, int validN) {
-  __fp16 stage[ATTN_FIXED_WORKSPACE_KV] __attribute__((aligned(128)));
-  if (validN > ATTN_FIXED_WORKSPACE_KV) {  // guaranteed by sync_attention_can_group_causal; be defensive
-    FARF(ERROR, "softmax_row_fp16 validN overflow: %d", validN);
-    return;
-  }
-  float      neg_inf = -INFINITY;
-  HVX_Vector v_max   = Q6_V_vsplat_R(*(int *) &neg_inf);
-  int        i       = 0;
-  for (; i < validN; i += 64) {
-    HVX_Vector raw              = vmemu(row_scores16 + i);
-    *(HVX_Vector *) (stage + i) = raw;  // i is a multiple of 64 fp16 => 128B aligned
-    HVX_VectorPair sf           = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(raw));
-    HVX_Vector     lo  = Q6_V_lo_W(sf);
-    HVX_Vector     hi  = Q6_V_hi_W(sf);
-    int            rem = validN - i;
-    if (rem < 64) {
-      lo = Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem < 32 ? rem : 32) * (int) sizeof(float)), lo, v_max);
-      hi = (rem > 32) ? Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem - 32) * (int) sizeof(float)), hi, v_max) : v_max;
-    }
-    v_max = Q6_Vsf_vmax_VsfVsf(v_max, lo);
-    v_max = Q6_Vsf_vmax_VsfVsf(v_max, hi);
-  }
-  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 64));
-  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 32));
-  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 16));
-  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 8));
-  v_max = Q6_Vsf_vmax_VsfVsf(v_max, Q6_V_vror_VR(v_max, 4));
-  float max_arr[32] __attribute__((aligned(128)));
-  *(HVX_Vector *) max_arr = v_max;
-  float max_value         = max_arr[0];
+// The arithmetic is fp16 rather than fp32 because that is what makes the pass fast: an HVX vector then
+// holds 64 lanes instead of 32, which halves the number of exp2 evaluations, and exp2 dominates. The
+// fp16 path measured the worker-side softmax phase at pp2048 going 2728 -> 1372 ms (accumulated over
+// workers) -- and that is the phase which sets attention's wall clock, since the single queue thread
+// only has ~200 ms of work against the workers' ~2700.
+//
+// The row is staged into an L1-resident scratch on the max pass, so the memory traffic is one read of
+// the score row plus one write of linear_S. Keeping the scratch matters: a variant that dropped it and
+// re-read the scores instead measured 20% slower on this phase, because L1 beats both VTCM and DDR for
+// passes 2 and 3.
+//
+// Precision: the scores arrive as fp16 and P is consumed as fp16 by the SV matmul, so the only new error
+// is in exp2 itself (~1e-3 relative, versus ~1e-7 for the fp32 polynomial) -- the same order as the fp16
+// storage already in the path. The denominator is still accumulated in fp32, where a 2048-term sum would
+// otherwise lose more than the exp2 approximation does. llama.cpp's HTP flash attention makes the same
+// fp16 choice for the same reason.
 
-  const float log2e   = 1.4426950408889634f;
-  HVX_Vector  v_log2e = Q6_V_vsplat_R(*(const int *) &log2e);
-  HVX_Vector  v_maxs  = Q6_V_vsplat_R(*(const int *) &max_value);
-  HVX_Vector  v_sum   = Q6_V_vzero();
-  for (i = 0; i < validN; i += 64) {
-    HVX_VectorPair sf = Q6_Wsf_vcvt_Vhf(Q6_Vh_vshuff_Vh(*(const HVX_Vector *) (stage + i)));
-    HVX_Vector     s0 = Q6_Vsf_equals_Vqf32(
-      Q6_Vqf32_vmpy_VsfVsf(Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(Q6_V_lo_W(sf), v_maxs)), v_log2e));
-    HVX_Vector s1 = Q6_Vsf_equals_Vqf32(
-      Q6_Vqf32_vmpy_VsfVsf(Q6_Vsf_equals_Vqf32(Q6_Vqf32_vsub_VsfVsf(Q6_V_hi_W(sf), v_maxs)), v_log2e));
-    HVX_Vector e0  = hvx_my_exp2_vsf(s0);
-    HVX_Vector e1  = hvx_my_exp2_vsf(s1);
+static inline HVX_Vector sync_attention_fp16_splat(float value) {
+  uint16_t bits = hmx_fp16_bits(value);
+  return Q6_V_vsplat_R(((unsigned) bits) | (((unsigned) bits) << 16));
+}
+
+// fp16's most negative finite value; lanes past validN are forced to it so they lose every max.
+#define ATTN_FP16_NINF_SPLAT Q6_Vh_vsplat_R(0xfbff)
+
+// Reduce a per-lane fp16 max down to the row max, leaving it in EVERY lane. Unlike the fp32 version
+// this needs no scalar extract and splat before the subtract.
+static inline HVX_Vector sync_attention_fp16_rowmax(HVX_Vector v_max) {
+  v_max = Q6_Vhf_vmax_VhfVhf(v_max, Q6_V_vror_VR(v_max, 64));
+  v_max = Q6_Vhf_vmax_VhfVhf(v_max, Q6_V_vror_VR(v_max, 32));
+  v_max = Q6_Vhf_vmax_VhfVhf(v_max, Q6_V_vror_VR(v_max, 16));
+  v_max = Q6_Vhf_vmax_VhfVhf(v_max, Q6_V_vror_VR(v_max, 8));
+  v_max = Q6_Vhf_vmax_VhfVhf(v_max, Q6_V_vror_VR(v_max, 4));
+  return Q6_Vhf_vmax_VhfVhf(v_max, Q6_V_vror_VR(v_max, 2));
+}
+
+// Passes 2 and 3 of the fp16 softmax over a row already staged in L1, with its row max already reduced
+// into every lane of `v_max`. Split out so each caller can fuse its own load with pass 1 rather than
+// walking the row an extra time: the row-major reader loads contiguously, the tile reader un-interleaves
+// a row pair. `stage` is overwritten with the exp values.
+// Pass 2: replace the staged scores with exp2((s - max) * log2e) and return 1/sum. Shared by the
+// row-major and tile writers, which differ only in how they get the result out of the scratch.
+static inline float sync_attention_softmax_fp16_exp(__fp16 *stage, int validN, HVX_Vector v_max) {
+  const HVX_Vector v_log2e = Q6_Vh_vsplat_R(0x3dc5);  // fp16 1.4427
+  HVX_Vector       v_sum   = Q6_V_vzero();
+  for (int i = 0; i < validN; i += 64) {
+    HVX_Vector d   = Q6_Vqf16_vsub_VhfVhf(*(const HVX_Vector *) (stage + i), v_max);
+    HVX_Vector e   = hvx_my_exp2_vhf(Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_Vqf16Vhf(d, v_log2e)));
     int        rem = validN - i;
     if (rem < 64) {
-      e0 = Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem < 32 ? rem : 32) * (int) sizeof(float)), e0, Q6_V_vzero());
-      e1 = (rem > 32) ? Q6_V_vmux_QVV(Q6_Q_vsetq_R((rem - 32) * (int) sizeof(float)), e1, Q6_V_vzero()) : Q6_V_vzero();
+      e = Q6_V_vmux_QVV(Q6_Q_vsetq_R(rem * (int) sizeof(__fp16)), e, Q6_V_vzero());
     }
-    v_sum              = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e0));
-    v_sum              = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, e1));
-    // Straight into the stage: lanes past validN were already zeroed above and the stage is scratch,
-    // so a full aligned vector store is fine (no tail handling needed here any more).
-    *(HVX_Vector *) (stage + i) = Q6_Vh_vdeal_Vh(Q6_Vhf_vcvt_VsfVsf(e0, e1));
+    *(HVX_Vector *) (stage + i) = e;
+    // fp32 denominator. The lane order the widening produces does not matter for a sum.
+    HVX_VectorPair ef           = Q6_Wsf_vcvt_Vhf(e);
+    v_sum                       = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_lo_W(ef)));
+    v_sum                       = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_hi_W(ef)));
   }
   v_sum = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_vror_VR(v_sum, 64)));
   v_sum = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_vror_VR(v_sum, 32)));
@@ -119,10 +116,13 @@ static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *
   v_sum = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(v_sum, Q6_V_vror_VR(v_sum, 4)));
   float sum_arr[32] __attribute__((aligned(128)));
   *(HVX_Vector *) sum_arr = v_sum;
-  float inv_sum           = sum_arr[0] > 0.0f ? 1.0f / sum_arr[0] : 0.0f;
+  return sum_arr[0] > 0.0f ? 1.0f / sum_arr[0] : 0.0f;
+}
 
-  uint16_t   inv_bits = hmx_fp16_bits(inv_sum);
-  HVX_Vector v_inv    = Q6_V_vsplat_R(((unsigned) inv_bits) | (((unsigned) inv_bits) << 16));
+// Pass 3, row-major: scale the staged exp by 1/sum into linear_S.
+static inline void sync_attention_softmax_fp16_store_row(__fp16 *row_s, const __fp16 *stage, int validN,
+                                                         float inv_sum) {
+  HVX_Vector v_inv = sync_attention_fp16_splat(inv_sum);
   for (int j = 0; j < validN; j += 64) {
     HVX_Vector r   = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(*(const HVX_Vector *) (stage + j), v_inv));
     int        rem = validN - j;
@@ -132,6 +132,116 @@ static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *
       sync_attention_store_fp16_tail(row_s + j, r, rem);
     }
   }
+}
+
+// Pass 3, tile layout: scale both staged rows and interleave them back into the HMX tile layout the SV
+// matmul wants, so that matmul needs no activation transform at all. One vshuff(-2) per 64 columns
+// produces the two tiles covering those columns -- the exact inverse of attn_tile_read_row_pair.
+//
+// Writes the full `out_cols` rather than just validN, zeroing the causal tail: in tile layout a row's
+// tail is not contiguous, so the caller cannot clear it with a memset afterwards.
+static inline void sync_attention_softmax_fp16_store_tile_pair(__fp16 *p_tiles, const __fp16 *stage0,
+                                                               const __fp16 *stage1, int vi, int out_cols, int validN0,
+                                                               int validN1, float inv0, float inv1) {
+  HVX_Vector v_inv0 = sync_attention_fp16_splat(inv0);
+  HVX_Vector v_inv1 = sync_attention_fp16_splat(inv1);
+  HVX_Vector v_zero = Q6_V_vzero();
+  for (int c = 0; c < out_cols; c += 64) {
+    HVX_Vector r0 =
+      c < validN0 ? Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(*(const HVX_Vector *) (stage0 + c), v_inv0)) : v_zero;
+    HVX_Vector r1 =
+      c < validN1 ? Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(*(const HVX_Vector *) (stage1 + c), v_inv1)) : v_zero;
+    HVX_VectorPair vp = Q6_W_vshuff_VVR(r1, r0, -2);
+    HVX_Vector    *lo = (HVX_Vector *) (p_tiles + (size_t) (c / 32) * 1024) + vi;
+    *lo               = Q6_V_lo_W(vp);
+    if (c + 64 <= out_cols) {
+      *(lo + 16) = Q6_V_hi_W(vp);
+    }
+  }
+}
+
+// Row-major entry: stage the score row in L1 while reducing its max, then share the tail.
+static inline void sync_attention_softmax_row_fp16(__fp16 *row_s, const __fp16 *row_scores16, int validN) {
+  __fp16 stage[ATTN_FIXED_WORKSPACE_KV] __attribute__((aligned(128)));
+  if (validN > ATTN_FIXED_WORKSPACE_KV) {  // guaranteed by sync_attention_can_group_causal; be defensive
+    FARF(ERROR, "softmax_row_fp16 validN overflow: %d", validN);
+    return;
+  }
+  const HVX_Vector v_ninf = ATTN_FP16_NINF_SPLAT;
+  HVX_Vector       v_max  = v_ninf;
+  for (int i = 0; i < validN; i += 64) {
+    HVX_Vector raw              = vmemu(row_scores16 + i);
+    *(HVX_Vector *) (stage + i) = raw;  // i is a multiple of 64 fp16 => 128B aligned
+    const int rem               = validN - i;
+    if (rem < 64) {
+      raw = Q6_V_vmux_QVV(Q6_Q_vsetq_R(rem * (int) sizeof(__fp16)), raw, v_ninf);
+    }
+    v_max = Q6_Vhf_vmax_VhfVhf(v_max, raw);
+  }
+  const float inv = sync_attention_softmax_fp16_exp(stage, validN, sync_attention_fp16_rowmax(v_max));
+  sync_attention_softmax_fp16_store_row(row_s, stage, validN, inv);
+}
+
+// Read 64 columns of rows (r, r+1) out of the HMX tile layout.
+//
+// Tile (ox, oy) sits at `tiles[oy * 1024]` and holds 32 rows x 32 columns with rows r and r+1
+// interleaved halfword-wise in vector r/2. One vdeal(-2) across the matching vectors of two adjacent
+// tiles therefore un-interleaves 64 columns of row r into the low half and of row r+1 into the high
+// half -- the same 64-column chunk the row-major softmax loads, except nobody had to write it out in
+// row order first. A trailing odd tile has only 32 columns, which a single-vector vdeal gives.
+static inline void attn_tile_read_row_pair(const __fp16 *tiles, int vi, int c, int cols, HVX_Vector *r0,
+                                           HVX_Vector *r1) {
+  const HVX_Vector *p = (const HVX_Vector *) (tiles + (size_t) (c / 32) * 1024) + vi;
+  if (c + 64 <= cols) {
+    HVX_VectorPair vp = Q6_W_vdeal_VVR(p[16], p[0], -2);
+    *r0               = Q6_V_lo_W(vp);
+    *r1               = Q6_V_hi_W(vp);
+    return;
+  }
+  HVX_Vector d = Q6_Vh_vdeal_Vh(p[0]);
+  *r0          = d;
+  *r1          = Q6_V_vror_VR(d, 64);
+}
+
+// Softmax over one row pair of an M-tile, reading the QK scores straight out of their HMX tile layout
+// (ATTN_SCORES_TILE). Un-interleaving the pair and staging both rows in L1 costs one vdeal per 64
+// columns and buys the whole row-major score store on the queue thread.
+//
+// Both rows go through sync_attention_softmax_fp16_tail, so the arithmetic is identical to the
+// row-major path; only the load differs. validN may differ between the two rows (causal), so the
+// gather spans the wider one and each row's own extent bounds its max and its exp.
+static inline void sync_attention_softmax_tile_pair(const __fp16 *s_tiles, __fp16 *p_tiles, int vi, int cols,
+                                                    int out_cols, int validN0, int validN1) {
+  __fp16 stage0[ATTN_FIXED_WORKSPACE_KV] __attribute__((aligned(128)));
+  __fp16 stage1[ATTN_FIXED_WORKSPACE_KV] __attribute__((aligned(128)));
+  const int validN = validN0 > validN1 ? validN0 : validN1;
+  if (validN > ATTN_FIXED_WORKSPACE_KV) {  // guaranteed by sync_attention_can_group_causal; be defensive
+    FARF(ERROR, "softmax_tile_pair validN overflow: %d", validN);
+    return;
+  }
+  const HVX_Vector v_ninf = ATTN_FP16_NINF_SPLAT;
+  HVX_Vector       v_max0 = v_ninf;
+  HVX_Vector       v_max1 = v_ninf;
+  for (int c = 0; c < validN; c += 64) {
+    HVX_Vector r0, r1;
+    attn_tile_read_row_pair(s_tiles, vi, c, cols, &r0, &r1);
+    *(HVX_Vector *) (stage0 + c) = r0;
+    *(HVX_Vector *) (stage1 + c) = r1;
+    const int n0                 = validN0 - c;
+    const int n1                 = validN1 - c;
+    if (n0 > 0) {
+      v_max0 =
+        Q6_Vhf_vmax_VhfVhf(v_max0, n0 < 64 ? Q6_V_vmux_QVV(Q6_Q_vsetq_R(n0 * (int) sizeof(__fp16)), r0, v_ninf) : r0);
+    }
+    if (n1 > 0) {
+      v_max1 =
+        Q6_Vhf_vmax_VhfVhf(v_max1, n1 < 64 ? Q6_V_vmux_QVV(Q6_Q_vsetq_R(n1 * (int) sizeof(__fp16)), r1, v_ninf) : r1);
+    }
+  }
+  const float inv0 = sync_attention_softmax_fp16_exp(stage0, validN0, sync_attention_fp16_rowmax(v_max0));
+  const float inv1 =
+    validN1 > 0 ? sync_attention_softmax_fp16_exp(stage1, validN1, sync_attention_fp16_rowmax(v_max1)) : 0.0f;
+  sync_attention_softmax_fp16_store_tile_pair(p_tiles, stage0, stage1, vi, out_cols, validN0, validN1, inv0, inv1);
 }
 
 static inline int sync_attention_prepare_online_row(const SyncAttentionTaskState* state, float* row_scores,
@@ -160,19 +270,15 @@ static inline int sync_attention_prepare_online_row(const SyncAttentionTaskState
     return 0;
   }
 
-  float block_max = row_scores[0];
-  for (int i = 1; i < valid; ++i) {
-    if (row_scores[i] > block_max) block_max = row_scores[i];
-  }
+  float block_max = sync_attention_max_f32(row_scores, valid);
   float old_max = row_max[row];
   float old_sum = row_sum[row];
   float new_max = old_sum > 0.0f ? (old_max > block_max ? old_max : block_max) : block_max;
   float old_scale = old_sum > 0.0f ? expf(old_max - new_max) : 0.0f;
   row_scale[row] = old_scale;
-  for (int i = 0; i < valid; ++i) {
-    row_scores[i] -= new_max;
-  }
-  float block_sum = sync_attention_exp_and_sum(row_scores, valid, 0.0f);
+  // exp_and_sum already subtracts the max it is handed, so pass new_max instead of pre-subtracting it in
+  // a separate pass over the row.
+  float block_sum = sync_attention_exp_and_sum(row_scores, valid, new_max);
   sync_attention_normalize_to_fp16(row_s, row_scores, valid, 1.0f);
   if (valid < page_valid) {
     sync_attention_zero_fp16(row_s + valid, page_valid - valid);
@@ -182,16 +288,20 @@ static inline int sync_attention_prepare_online_row(const SyncAttentionTaskState
   return 1;
 }
 
-static inline void sync_attention_scale_packed_rows(__fp16* dst, int rows, int head_dim, const float* row_scale) {
+// accum = accum * row_scale[r] + src, one packed row (64 fp16 = exactly one HVX vector) at a time. This
+// is the online-softmax rescale fused with the block accumulation: done as two passes it reads and writes
+// accum twice.
+static inline void sync_attention_rescale_add_packed_rows(__fp16 *accum, const __fp16 *src, int rows, int head_dim,
+                                                          const float *row_scale) {
   int packs = head_dim / 64;
   for (int p = 0; p < packs; ++p) {
-    __fp16* base = dst + (size_t)p * rows * 64;
+    __fp16       *a_base = accum + (size_t) p * rows * 64;
+    const __fp16 *s_base = src + (size_t) p * rows * 64;
     for (int r = 0; r < rows; ++r) {
-      float scale = row_scale[r];
-      __fp16* d = base + (size_t)r * 64;
-      for (int i = 0; i < 64; ++i) {
-        d[i] = (__fp16)((float)d[i] * scale);
-      }
+      HVX_Vector v_scale = sync_attention_fp16_splat(row_scale[r]);
+      __fp16    *a       = a_base + (size_t) r * 64;
+      HVX_Vector scaled  = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(vmemu(a), v_scale));
+      vmemu(a)           = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_VhfVhf(scaled, vmemu(s_base + (size_t) r * 64)));
     }
   }
 }
@@ -204,12 +314,11 @@ static inline void sync_attention_copy_scaled_packed_output(__fp16* dst, const _
     const __fp16* s_base = src + (size_t)p * rows * 64;
     __fp16* d_base = dst + (size_t)p * output_stride * 64 + row_offset * 64;
     for (int r = 0; r < rows; ++r) {
-      float inv = row_sum[r] > 0.0f ? 1.0f / row_sum[r] : 0.0f;
-      const __fp16* s = s_base + (size_t)r * 64;
-      __fp16* d = d_base + (size_t)r * 64;
-      for (int i = 0; i < 64; ++i) {
-        d[i] = (__fp16)((float)s[i] * inv);
-      }
+      float         inv   = row_sum[r] > 0.0f ? 1.0f / row_sum[r] : 0.0f;
+      HVX_Vector    v_inv = sync_attention_fp16_splat(inv);
+      const __fp16 *s     = s_base + (size_t) r * 64;
+      __fp16       *d     = d_base + (size_t) r * 64;
+      vmemu(d)            = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(vmemu(s), v_inv));
     }
   }
 }
@@ -223,10 +332,9 @@ static inline void sync_attention_copy_decode_group_output(__fp16* O, const __fp
       if (row_sum == NULL) {
         memcpy(dst + pack * 64, src, 64 * sizeof(__fp16));
       } else {
-        float scale = row_sum[h] > 0.0f ? 1.0f / row_sum[h] : 0.0f;
-        for (int i = 0; i < 64; ++i) {
-          dst[pack * 64 + i] = (__fp16)((float)src[i] * scale);
-        }
+        float      scale       = row_sum[h] > 0.0f ? 1.0f / row_sum[h] : 0.0f;
+        HVX_Vector v_scale     = sync_attention_fp16_splat(scale);
+        vmemu(dst + pack * 64) = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(vmemu(src), v_scale));
       }
     }
   }
@@ -281,8 +389,7 @@ static void sync_attention_process_online_pages(const SyncAttentionTaskState* st
 
     sync_attention_run_page_sv_block(state, temp_O, page_temp_O, linear_S, rows, kv_head, page, page_end,
                                      block_start, block_valid);
-    sync_attention_scale_packed_rows(accum_O, rows, state->K_dim_padded, row_scale);
-    sync_attention_add_packed_rows(accum_O, temp_O, rows, state->K_dim_padded);
+    sync_attention_rescale_add_packed_rows(accum_O, temp_O, rows, state->K_dim_padded, row_scale);
   }
 
   if (!decode_grouped) {
@@ -443,7 +550,7 @@ static inline int sync_attention_decode_group_q_rows(const SyncAttentionTaskStat
   if (sync_attention_can_group_causal(state->qo_len, state->seq_current, state->N - state->seq_current,
                                       state->total_heads * state->gqa_factor, state->total_heads,
                                       state->head_dim, state->N, state->mask_stride)) {
-    int q_rows = sync_attention_causal_group_q_rows(state->qo_len);
+    int q_rows = sync_attention_causal_group_q_rows(state->qo_len, state->N, state->head_dim, state->gqa_factor);
     if (MNN_ATTENTION_HMX_COMBINE_DECODE && state->page_count > 0 && state->seq_current >= state->page_size) {
       int page_fast_q_rows = 32 / state->gqa_factor;
       if (page_fast_q_rows < 1) {
@@ -481,9 +588,33 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState *st
   __fp16* linear_S = NULL;
   __fp16* temp_O = NULL;
   sync_attention_workspace_offsets(state, worker_workspace, group_rows, &scores, &linear_S, &temp_O);
+  // Redirect to whichever VTCM regions sync_attention_try_vtcm_workspace managed to place. The two are
+  // independent: a long sequence gets scores resident while linear_S / temp_O stay in DDR.
+  if (state->scores_vtcm != NULL) {
+    scores = (float *) (state->scores_vtcm + (size_t) worker_index * state->scores_vtcm_stride);
+  }
+  if (state->act_vtcm != NULL) {
+    uint8_t *act = state->act_vtcm + (size_t) worker_index * state->act_vtcm_stride;
+    if (state->scores_tile) {
+      // Tile layout writes P over S in place, so the activation region only holds temp_O.
+      temp_O = (__fp16 *) act;
+    } else {
+      linear_S = (__fp16 *) act;
+      temp_O   = (__fp16 *) (act + attn_align_128((size_t) group_rows * state->N_padded * sizeof(__fp16)));
+    }
+  }
+  if (state->scores_tile) {
+    // The softmax stages both rows of a pair in L1 before writing, so the tile it writes back is one it
+    // has finished reading -- P can land on top of S. That halves the resident footprint, which is what
+    // lets it stay in VTCM at seq 2048 and removes the SV activation DMA entirely (2.0 GB/run).
+    linear_S = (__fp16 *) scores;
+  }
 
   if (state->qo_len > 1) {
-    __fp16* packed_Q = linear_S;
+    // packed_Q cannot live in linear_S on the tile path -- that aliases the score buffer, which QK is
+    // about to write. temp_O is free here: it only receives the SV output, which happens after QK has
+    // consumed packed_Q.
+    __fp16 *packed_Q = state->scores_tile ? temp_O : linear_S;
     int     q_first  = 0;
     int     q_limit  = state->qo_len;
     if (q_block >= 0) {
@@ -530,25 +661,43 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState *st
       WATTN_ADD(worker_index, 1, _tw);
       _tw              = WATTN_T0();
       __fp16 *scores16 = (__fp16 *) scores;  // ATTN_SCORES_FP16: scores buffer reused as fp16 (lower half)
-      for (int q = 0; q < q_count; ++q) {
-        int validN = sync_attention_causal_valid_end(state, q_base + q + 1);
-        for (int h = 0; h < group_heads; ++h) {
-          int     row   = q * group_heads + h;
-          __fp16* row_s = linear_S + (size_t)row * state->N_padded;
-          if (state->scores_fp16) {
-            sync_attention_softmax_row_fp16(row_s, scores16 + (size_t) row * state->N_padded, validN);
-          } else {
-            sync_attention_softmax_row(row_s, scores + (size_t) row * state->N_padded, validN);
-          }
-          if (validN < block_valid_end) {
-            sync_attention_zero_fp16(row_s + validN, block_valid_end - validN);
+      if (state->scores_tile) {
+        // ATTN_SCORES_TILE: the scores are still in the HMX tile layout, so walk row pairs -- a tile
+        // vector holds two rows -- instead of single rows.
+        const int cols = state->N_padded;
+        for (int row = 0; row < rows; row += 2) {
+          const int ox      = row / 32;
+          const int vi      = (row % 32) >> 1;
+          const int validN0 = sync_attention_causal_valid_end(state, q_base + row / group_heads + 1);
+          const int validN1 =
+            (row + 1 < rows) ? sync_attention_causal_valid_end(state, q_base + (row + 1) / group_heads + 1) : 0;
+          sync_attention_softmax_tile_pair(scores16 + (size_t) ox * cols * 32, linear_S + (size_t) ox * cols * 32, vi,
+                                           cols, (block_valid_end + 31) & ~31, validN0, validN1);
+        }
+      } else {
+        for (int q = 0; q < q_count; ++q) {
+          int validN = sync_attention_causal_valid_end(state, q_base + q + 1);
+          for (int h = 0; h < group_heads; ++h) {
+            int     row   = q * group_heads + h;
+            __fp16 *row_s = linear_S + (size_t) row * state->N_padded;
+            if (state->scores_fp16) {
+              sync_attention_softmax_row_fp16(row_s, scores16 + (size_t) row * state->N_padded, validN);
+            } else {
+              sync_attention_softmax_row(row_s, scores + (size_t) row * state->N_padded, validN);
+            }
+            if (validN < block_valid_end) {
+              sync_attention_zero_fp16(row_s + validN, block_valid_end - validN);
+            }
           }
         }
       }
 
       WATTN_ADD(worker_index, 2, _tw);
       _tw              = WATTN_T0();
-      __fp16* packed_O = (__fp16*)scores;
+      // Cannot alias `scores` on the tile path: that is P now, and the SV matmul reads it throughout.
+      // temp_O is exactly rows * head_dim_padded, and the all-page fusion the tile layout forces does
+      // not use it for anything else.
+      __fp16 *packed_O = state->scores_tile ? temp_O : (__fp16 *) scores;
       if (state->page_count > 0) {
         sync_attention_run_page_sv(state, packed_O, temp_O, linear_S, rows, rows, 0, kv_head, block_valid_end);
       } else {

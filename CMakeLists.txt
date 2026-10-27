@@ -573,9 +573,8 @@ IF(MNN_BUILD_AUDIO)
   list(APPEND MNN_EXTRA_HEADERS ${MNN_AUDIO_HDRS})
 ENDIF()
 IF(MNN_BUILD_LLM)
-  file(GLOB MNN_LLM_HDRS ${CMAKE_CURRENT_SOURCE_DIR}/transformers/llm/engine/include/llm/*)
-  list(APPEND MNN_EXTRA_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/transformers/llm/engine/include/llm/llm.hpp)
-  list(APPEND MNN_EXTRA_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/transformers/llm/engine/include/llm/reranker.hpp)
+  file(GLOB MNN_LLM_HDRS ${CMAKE_CURRENT_SOURCE_DIR}/transformers/llm/engine/include/llm/*.hpp)
+  list(APPEND MNN_EXTRA_HEADERS ${MNN_LLM_HDRS})
 ENDIF()
 
 IF(MNN_BUILD_DIFFUSION)
@@ -707,7 +706,10 @@ IF(MNN_RKNN)
 ENDIF()
     
 IF(MNN_HEXAGON)
-    target_compile_options(MNNCore PRIVATE -DMNN_HEXAGON_ENABLED=1)
+    # Global, like MNN_RKNN_ENABLED above: the GatedRMSNorm geometry has to know at compile time whether
+    # this backend exists, and it lives in MNNTransform. Without the flag the geometry would keep the op
+    # whole in a build that has no creator for it -- and no backend implements it on CPU to fall back to.
+    add_definitions(-DMNN_HEXAGON_ENABLED=1)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/hexagon)
     list(APPEND MNN_TARGETS MNN_Hexagon)
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_Hexagon>)

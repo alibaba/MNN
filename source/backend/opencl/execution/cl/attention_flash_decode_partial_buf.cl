@@ -200,6 +200,15 @@ static inline FLOAT4 load_dim4(__global const FLOAT* input, const int count) {
 // PV works on dim quads, so the trailing quad is short when headDim is not 4-aligned.
 #define FD_DIM_QUADS (((FD_HEAD_DIM) + 3) >> 2)
 
+#ifdef FD_ADD_MASK
+#define FD_APPLY_MASK(s, kg) \
+    if ((kg) >= mask_start) { \
+        s = fmax(s + (float)mask[(kg) - mask_start], FA_NEG_INF); \
+    }
+#else
+#define FD_APPLY_MASK(s, kg)
+#endif
+
 // Store one finished dim quad of a decode row. The fused single-chunk path below completes a quad
 // at a time, so it cannot use the float4 store that the reduce kernel does; store_attention_c4_4
 // already handles a count below 4 and a channel that is not 4-aligned.
@@ -238,12 +247,21 @@ __kernel void flash_decode_partial(
                               __global const FLOAT *value, // same layout, see the C4 note below
                               // Writable aliases keep the read-only cache pointers qualified const.
                               __global FLOAT *past_key_out,
-                              __global FLOAT *past_value_out) {
+                              __global FLOAT *past_value_out
+#ifdef FD_ADD_MASK
+                              // Additive float mask covering the last mask_kv_len keys, e.g. a sliding window.
+                              , __global const FLOAT *mask,
+                              __private const int mask_kv_len
+#endif
+                              ) {
     const int lid = get_local_id(0);
     const int chunk = get_group_id(0);
     const int hn = get_global_id(1);
     const int kv_hn = hn / NUMHEAD_GROUP_SIZE;
     const int k0 = chunk * FD_CHUNK;
+#ifdef FD_ADD_MASK
+    const int mask_start = kv_seq_len - mask_kv_len;
+#endif
 
     __local float lsd[FD_CHUNK];
     __local FLOAT lqd[FD_HEAD_DIM];
@@ -254,6 +272,10 @@ __kernel void flash_decode_partial(
     // The last chunk appends the current KV row before reading it. The input is contiguous for the
     // single-token, single-batch decode shape, including NC4HW4 where the sequence stride is one.
     // Other chunks only need to synchronize local query loading.
+#ifdef FD_SKIP_KV_WRITE
+    // Shared cache: the owning layer already wrote this row, and key / value here are placeholders.
+    barrier(CLK_LOCAL_MEM_FENCE);
+#else
     if (chunk == num_chunk - 1) {
         const int past_len = kv_seq_len - 1;
         const int kv_base = kv_hn * FD_HEAD_DIM;
@@ -266,6 +288,7 @@ __kernel void flash_decode_partial(
     } else {
         barrier(CLK_LOCAL_MEM_FENCE);
     }
+#endif
 
 #if (FD_CHUNK == 64) && defined(FD_QK_PAIR)
     // Adjacent KV entries are contiguous in K, so one lane can process a pair with vector loads.
@@ -282,6 +305,8 @@ __kernel void flash_decode_partial(
             }
             // The two chains split the dims by residue mod 2, each holding the whole 2-kv vector.
             qk2 = (acc0 + acc1) * scale;
+            FD_APPLY_MASK(qk2.x, kg);
+            FD_APPLY_MASK(qk2.y, kg + 1);
         } else if (kg < kv_seq_len) {
             // Trailing pair: only one valid row, and the float2 load would read the next kv row
             // past kv_seq_len, so do it scalar. At most one lane per workgroup takes this path;
@@ -292,6 +317,7 @@ __kernel void flash_decode_partial(
                 acc = mad((float)lqd[d], (float)kr[d * max_len], acc);
             }
             qk2.x = acc * scale;
+            FD_APPLY_MASK(qk2.x, kg);
         }
     }
     // The 32 pair lanes cover all 64 slots of lsd; slots past kv_seq_len hold FA_NEG_INF scores,
@@ -336,6 +362,7 @@ __kernel void flash_decode_partial(
                 acc = mad((float)lqd[d], (float)kp[d * max_len], acc);
             }
             s = acc * scale;
+            FD_APPLY_MASK(s, kg);
         }
         lsd[kk] = s;
     }

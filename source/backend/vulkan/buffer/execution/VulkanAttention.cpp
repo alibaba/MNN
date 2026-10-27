@@ -28,6 +28,8 @@ static uint32_t _selectSoftmaxLocalSize(int totalLen, uint32_t maxSizeX, uint32_
 }
 
 static constexpr int kAttentionPrefillKBlock = 512;
+// MAX_D4 of the decode shaders
+static constexpr int kAttentionDecodeD4Chunk = 64;
 
 static bool _supportDecodeQ1Subgroup(const VulkanDevice& device) {
     const auto& subgroup = device.getSubgroupInfo();
@@ -503,6 +505,8 @@ bool VulkanAttention::onClone(Backend* bn, const Op* op, VulkanBasicExecution** 
     auto res = new VulkanAttention(op, bn);
     res->mKVCache = mKVCache;
     res->mMeta = mMeta;
+    auto param = op->main_as_AttentionParam();
+    res->mIsKVShared = nullptr != param && param->kv_shared_layer_index() >= 0;
     *dst = res;
     return true;
 }
@@ -531,7 +535,7 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
     MNN_ASSERT(mHeadNum % mKvHeadNum == 0);
     MNN_ASSERT(mHeadDim > 0);
     MNN_ASSERT((mHeadDim & 3) == 0);
-    MNN_ASSERT(mHeadDim <= 256);
+    MNN_ASSERT(mHeadDim <= (mNeedKvCache ? 512 : 256));
     if (mValueC4) {
         if (value->length(0) != mKeyLen || value->length(1) != mKvHeadNum * mHeadDim || value->length(2) != 1 ||
             value->length(3) != 1) {
@@ -573,7 +577,7 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
     const bool usePrefill = mNeedKvCache && mQueryLen > 1;
     mUsePrefill = usePrefill;
 
-    if (mNeedKvCache) {
+    if (mNeedKvCache && !mIsKVShared) {
         MNN_ASSERT(nullptr != mUpdatePipeline);
         MNN_ASSERT(nullptr != mUpdateSet);
 
@@ -962,13 +966,15 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
             } else {
                 dispatchWithProfile(mUseFP16 ? "glsl_attention_decode_q1_subgroup_FP16_comp"
                                              : "glsl_attention_decode_q1_subgroup_comp",
-                                    mDecodeQ1SubgroupPipeline, mDecodeQ1SubgroupSet, (uint32_t)mHeadNum, 1, 1);
+                                    mDecodeQ1SubgroupPipeline, mDecodeQ1SubgroupSet, (uint32_t)mHeadNum,
+                                    (uint32_t)UP_DIV(mHeadDim / 4, kAttentionDecodeD4Chunk), 1);
             }
         } else {
             MNN_ASSERT(nullptr != mAttentionPipeline);
             MNN_ASSERT(nullptr != mAttentionSet);
             dispatchWithProfile(mUseFP16 ? "glsl_attention_fused_packed_FP16_comp" : "glsl_attention_fused_packed_comp",
-                                mAttentionPipeline, mAttentionSet, UP_DIV(mHeadNum, 8), UP_DIV(mQueryLen, 8), 1);
+                                mAttentionPipeline, mAttentionSet, UP_DIV(mHeadNum, 8), UP_DIV(mQueryLen, 8),
+                                (uint32_t)UP_DIV(mHeadDim / 4, kAttentionDecodeD4Chunk));
         }
     } else {
         MNN_ASSERT(nullptr != mAttentionLegacyPipeline);
@@ -1063,7 +1069,7 @@ ErrorCode VulkanAttention::onBeforeExecute(const std::vector<Tensor*>& inputs, c
     gpuParam->s2[1] = maskKvlen;
     gpuParam->s2[2] = maskMode;
     gpuParam->s2[3] = mNeedKvCache ? mKVCache->maxLen : 0;
-    gpuParam->f0[0] = _invSqrt((float)mHeadDim);
+    gpuParam->f0[0] = (nullptr != mMeta && mMeta->attn_scale > 0.0f) ? mMeta->attn_scale : _invSqrt((float)mHeadDim);
     gpuParam->f0[1] = 0.0f;
     gpuParam->f0[2] = mValueC4 ? 1.0f : 0.0f;
     gpuParam->f0[3] = mOutputC4 ? 1.0f : 0.0f;
@@ -1190,6 +1196,12 @@ class VulkanAttentionCreator : public VulkanBackend::Creator {
 public:
     VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                    const MNN::Op* op, Backend* backend) const override {
+        // attention_fused.comp, the kv_cache=false shader, still caps headDim at 256.
+        auto param = op->main_as_AttentionParam();
+        const bool kvCache = nullptr != param && param->kv_cache();
+        if (!kvCache && !inputs.empty() && inputs[0]->dimensions() == 4 && inputs[0]->length(3) > 256) {
+            return nullptr;
+        }
         return new VulkanAttention(op, backend);
     }
 };

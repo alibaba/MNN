@@ -11,18 +11,22 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import com.alibaba.mnnllm.android.R as AppR
+import com.alibaba.mnnllm.android.download.DownloadForegroundServiceManager
 import com.alibaba.mnnllm.android.main.MainActivity
 
 class DownloadForegroundService : Service() {
     private lateinit var notificationManager: NotificationManager
     private var currentDownloadCount = 0
     private var currentModelName: String? = null
+    private var foregroundEntered = false
 
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
-        instance = this
+        // A stopService() queued between startForegroundService() and startForeground() can
+        // prevent onStartCommand() from ever being delivered, so enter the foreground here.
+        enterForeground()
         Log.d(TAG, "onCreate")
     }
 
@@ -39,37 +43,52 @@ class DownloadForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null) {
-            Log.w(TAG, "onStartCommand received null intent startId=$startId")
-            stopSelf(startId)
-            return START_NOT_STICKY
-        }
-        
         // Extract download count and model name from intent if available
-        currentDownloadCount = intent.getIntExtra(EXTRA_DOWNLOAD_COUNT, 0)
-        currentModelName = intent.getStringExtra(EXTRA_MODEL_NAME)
+        currentDownloadCount = intent?.getIntExtra(EXTRA_DOWNLOAD_COUNT, 0) ?: 0
+        currentModelName = intent?.getStringExtra(EXTRA_MODEL_NAME)
         Log.d(
             TAG,
             "onStartCommand startId=$startId flags=$flags count=$currentDownloadCount modelName=$currentModelName"
         )
-        
+
+        // Never return from here without the service being in the foreground.
+        val enteredForeground = enterForeground()
+        if (intent == null) {
+            Log.w(TAG, "onStartCommand received null intent startId=$startId")
+        }
+        if (intent == null || !enteredForeground) {
+            stopSelf(startId)
+        }
+        return START_NOT_STICKY
+    }
+
+    /** Enters the foreground on the first call and updates the notification afterwards. */
+    private fun enterForeground(): Boolean {
         val notification = createNotification()
-        try {
+        if (foregroundEntered) {
+            notificationManager.notify(SERVICE_ID, notification)
+            return true
+        }
+        return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(SERVICE_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             } else {
                 startForeground(SERVICE_ID, notification)
             }
-            Log.d(TAG, "startForeground succeeded startId=$startId")
+            foregroundEntered = true
+            // Published only now, so callers can read it as "the foreground state exists".
+            instance = this
+            Log.d(TAG, "startForeground succeeded")
+            DownloadForegroundServiceManager.onServiceReady()
+            true
         } catch (e: Exception) {
             Log.e(
                 TAG,
-                "startForeground failed startId=$startId count=$currentDownloadCount modelName=$currentModelName",
+                "startForeground failed count=$currentDownloadCount modelName=$currentModelName",
                 e
             )
-            stopSelf(startId)
+            false
         }
-        return START_NOT_STICKY
     }
 
     private fun createNotification(): Notification {
@@ -114,8 +133,7 @@ class DownloadForegroundService : Service() {
         currentDownloadCount = downloadCount
         currentModelName = modelName
         Log.d(TAG, "updateNotification count=$downloadCount modelName=$modelName")
-        val notification = createNotification()
-        notificationManager.notify(SERVICE_ID, notification)
+        enterForeground()
     }
 
     override fun onDestroy() {

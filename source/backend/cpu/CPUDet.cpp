@@ -66,6 +66,7 @@ ErrorCode CPUDet::onExecute(const std::vector<Tensor*>& inputs, const std::vecto
                 for (int j = i + 1; j < M; ++j) {
                     if (!F_IS_ZERO(VAL(j, i))) {
                         std::swap(ADDR(i), ADDR(j));
+                        result = -result;
                         swapd = true;
                         break;
                     }

@@ -33,7 +33,7 @@ AEEResult htp_ops_matmul_q4a16_fp16(
     }
   } else {
     mm_ret = hmx_matmulq4fp16(output, activation, weight, b_scale, bias, m, k, n, mp, np, kp, scale_block_num,
-                              scale_asymmetric, 0);
+                              scale_asymmetric, 0, m);
     if (mm_ret != 0) {
       FARF(ALWAYS, "hmx_matmulq4fp16 failed: %d", mm_ret);
     }

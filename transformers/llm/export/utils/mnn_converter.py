@@ -6,11 +6,11 @@ import torch
 import numpy as np
 
 from .torch_utils import quant as torch_quant
-from .torch_utils import onnx_export
 from tqdm import tqdm
 from .spinner import spinner_run
 from .gptq import GPTQ
 from .lora import LoRA
+from .custom_op import IndexedLinear
 
 EXPORT_LOG = '.export.log'
 
@@ -26,6 +26,8 @@ class MNNConverter:
             self.mnnconvert = None
         self.lm_weight = None
         self.tie_embeddings_info = None
+        if getattr(self.exporter, 'qat_loader', None) is not None:
+            self.qat_weights = {}
 
     def transformer_c4_args(self):
         enabled = getattr(self.args, 'transformer_c4', True)
@@ -145,6 +147,8 @@ class MNNConverter:
         return mnn_path
 
     def export(self, onnx_path, quant_bit = None, quant_block = None, transformer_fuse = True, group_conv_native = False, weight_sym = None):
+        if getattr(self.exporter, 'qat_loader', None) is not None:
+            self.qat_weights = {}
         self.onnx_model_path = onnx_path
         self.mnn_name = os.path.basename(onnx_path).replace('.onnx', '.mnn')
         self.mnn_model_path = os.path.join(self.args.dst_path, self.mnn_name)
@@ -187,62 +191,22 @@ class MNNConverter:
                 self.export_omni_quant(mnn_json)
             if self.args.smooth:
                 self.export_smooth_quant(mnn_json)
+        if getattr(self.exporter, 'qat_loader', None) is not None:
+            mnn_json = f'{self.mnn_model_path}.json'
+            if self.weight_ops is None:
+                self.mnn2json(self.mnn_model_path, mnn_json)
+            self.apply_qat(mnn_json)
+            self.json2mnn(mnn_json, self.mnn_model_path)
         return self.tie_embeddings_info
-
-    def get_experts_graphs(self, experts):
-        hidden_states = torch.randn((1, self.exporter.config.hidden_size))
-        layers_num = len(experts)
-        expert_num = len(experts[0])
-        dummy_expert = experts[0][0]
-        onnx_model = f'{self.exporter.onnx_path}/expert.onnx'
-        onnx_export(
-            dummy_expert, (hidden_states),
-            onnx_model,
-            input_names=['hidden_states'],
-            output_names=['hidden_states'])
-        mnn_model = f'{onnx_model}.mnn'
-        mnn_json = f'{mnn_model}.json'
-        self.onnx2mnn(onnx_model, mnn_model)
-        self.mnn2json(mnn_model, mnn_json)
-        expert_graph = json.load(open(mnn_json, 'rt'))
-        tensors = expert_graph['tensorName']
-        nodes = expert_graph['oplists']
-        # get input and output
-        inputs = []
-        outputs = []
-        for node in nodes:
-            if node['type'] == 'Input':
-                inputs.append(node['outputIndexes'][0])
-        for output_name in expert_graph['outputName']:
-            outputs.append(tensors.index(output_name))
-        # Use actual layer indices (for models where not all layers have MoE)
-        expert_layer_ids = getattr(self.exporter, 'expert_layer_ids', list(range(layers_num)))
-        subgraphs = []
-        for i in range(layers_num):
-            layer_idx = expert_layer_ids[i]
-            for j in range(expert_num):
-                ijnodes = copy.deepcopy(nodes)
-                for op in ijnodes:
-                    if op['type'] == 'Extra':
-                        for attr in op['main']['attr']:
-                            if attr['key'] == 'name':
-                                names = attr['s'].split('/')
-                                names[2] = f'{layer_idx}_{j}'
-                                attr['s'] = '/'.join(names)
-                subgraph = {
-                    'name': f'/expert/{layer_idx}_{j}',
-                    'inputs': inputs,
-                    'outputs': outputs,
-                    'tensors': copy.deepcopy(tensors),
-                    'nodes': ijnodes
-                }
-                subgraphs.append(subgraph)
-        return subgraphs
-
 
     @spinner_run(f'apply gptq to ')
     def apply_gptq(self, mnn_json):
         GPTQ(self.args.gptq_path).apply(mnn_json, self.mnn_weight_path)
+        return self.mnn_weight_path
+
+    @spinner_run(f'apply qat to ')
+    def apply_qat(self, mnn_json):
+        self.exporter.qat_loader.apply(mnn_json, self)
         return self.mnn_weight_path
 
     @spinner_run(f'export split lora to ')
@@ -270,10 +234,6 @@ class MNNConverter:
     @spinner_run(f'quant model weight to ', True)
     def rebuild(self, json_path):
         mnn_graph = json.load(open(json_path, 'rt'))
-        has_experts = hasattr(self.exporter, 'experts') and len(self.exporter.experts) > 0
-        if has_experts:
-            subgraphs = self.get_experts_graphs(self.exporter.experts)
-            mnn_graph['subgraphs'] = subgraphs
         new_ops = []
         # Load layernorm weight from external
         with open(self.mnn_weight_path, 'rb') as f:
@@ -297,15 +257,6 @@ class MNNConverter:
                 else:
                     new_ops.append(op)
             mnn_graph['oplists'] = new_ops
-            if has_experts and 'subgraphs' in mnn_graph:
-                for subgraph in tqdm(mnn_graph['subgraphs'], 'Quant subgraphs weights'):
-                    new_subops = []
-                    for op in subgraph['nodes']:
-                        if op['type'] == 'Extra' or op['type'] == 'LayerNorm':
-                            new_subops += self.rebuild_op(op, subgraph)
-                        else:
-                            new_subops.append(op)
-                    subgraph['nodes'] = new_subops
         with open(json_path, 'w', encoding='utf-8') as file:
             json.dump(mnn_graph, file, ensure_ascii=False, indent=4)
         return self.mnn_weight_path
@@ -354,45 +305,59 @@ class MNNConverter:
         header_length = dim_num + dim_length + map_length
         return header_length, shape_dtype == np.int32
 
-    def build_weight(self, linear, quant_bit, quant_block, symmetric):
-        ic, oc = linear.in_features, linear.out_features
+    def build_weight(self, linear, quant_bit, quant_block, symmetric, up_linear=None):
+        projections = (linear,) if up_linear is None else (linear, up_linear)
+        ic, oc = linear.in_features, sum(item.out_features for item in projections)
         if quant_bit == 16:
             if self.exporter.args.skip_weight:
                 # Use a small dummy buffer and skip full weight loading/conversion
                 weight_len = (ic * oc * 2)
                 self.mnn_weight.seek(weight_len, 1)
             else:
-                half_weight = linear.weight.data.flatten().half()
-                weight_len = self.write_weight(half_weight)
+                weight_len = sum(self.write_weight(item.weight.data.flatten().half()) for item in projections)
             alpha_len, q_min, shape_int32, header_len = 0, 0, False, 0
         else:
             q_min = 1
             assert(quant_bit in (1, 2, 3, 4, 8))
-            q_weight, alpha = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
             header_len, shape_int32 = self.write_header(ic, oc, quant_bit)
             scale_fp16 = (self.args.scale_bit == 16)
             alpha_dtype_size = 2 if scale_fp16 else 4
-            if self.exporter.args.skip_weight:
-                weight_len = len(q_weight) + header_len
-                self.mnn_weight.seek(len(q_weight), 1)
-                alpha_len = len(alpha) * alpha_dtype_size
-                self.mnn_weight.seek(alpha_len, 1)
-            else:
-                weight_len = self.write_weight(q_weight) + header_len
+            weight_len, alpha_len = header_len, 0
+            alphas = []
+            for item in projections:
+                # HQQ's stopping criterion depends on the whole source tensor.
+                # Quantize each original projection before joining its encoded rows.
+                qat_loader = getattr(self.exporter, 'qat_loader', None)
+                if qat_loader is not None and qat_loader.has_qparams(getattr(item, '_mnn_qat_source_weight_name', None)):
+                    q_weight, alpha = qat_loader.quantize(item, quant_bit, quant_block, symmetric)
+                else:
+                    q_weight, alpha = self.quant(item.weight.data, quant_bit, quant_block, symmetric)
+                if self.exporter.args.skip_weight:
+                    weight_len += q_weight.numel()
+                    self.mnn_weight.seek(q_weight.numel(), 1)
+                else:
+                    weight_len += self.write_weight(q_weight)
+                alphas.append(alpha)
+            for alpha in alphas:
+                if self.exporter.args.skip_weight:
+                    alpha_len += alpha.numel() * alpha_dtype_size
+                    self.mnn_weight.seek(alpha.numel() * alpha_dtype_size, 1)
+                    continue
                 if scale_fp16:
                     alpha_np = alpha.numpy() if hasattr(alpha, 'numpy') else np.asarray(alpha)
                     alpha_fp16 = alpha_np.astype(np.float16)
-                    alpha_len = self.write_weight(alpha_fp16)
+                    alpha_len += self.write_weight(alpha_fp16)
                 else:
-                    alpha_len = self.write_weight(alpha)
+                    alpha_len += self.write_weight(alpha)
 
-        if linear.bias is not None:
+        if any(item.bias is not None for item in projections):
             bias_length = (oc * 4)
             if self.exporter.args.skip_weight:
                 self.mnn_weight.seek(bias_length, 1)
             else:
-                bias = linear.bias.data.flatten().float()
-                bias_length = self.write_weight(bias)
+                bias_length = sum(self.write_weight(item.bias.data.flatten().float() if item.bias is not None else
+                                                   np.zeros(item.out_features, dtype=np.float32))
+                                  for item in projections)
         else:
             bias_length = 0
 
@@ -423,8 +388,8 @@ class MNNConverter:
             return self.rebuild_linear_attnention(op, graph)
         if op_type == "LayerNorm":
             return self.rebuild_layernorm(op, graph)
-        if op_type == 'MoE':
-            return self.rebuild_moe(op, graph)
+        if op_type == 'IndexedLinear':
+            return self.rebuild_indexed_linear(op, graph)
         return None
 
     def const_float_data(self, graph, tensor_index):
@@ -512,11 +477,75 @@ class MNNConverter:
         }
         return [rope_op]
 
-    def rebuild_moe(self, op, graph):
-        moe = copy.deepcopy(op)
-        moe['main'] = { 'attr': moe['main']['attr'][:3] }
-        moe['type'] = 'MoE'
-        return [moe]
+    def rebuild_indexed_linear(self, op, graph):
+        name = self.get_extra_attr(op, 'name')
+        input_mode = self.get_extra_attr(op, 'input_mode', 0)
+        out_features = self.get_extra_attr(op, 'out_features')
+        fusedActivation = self.get_extra_attr(op, 'fusedActivation', -1)
+        if fusedActivation not in (-1, IndexedLinear.SILU):
+            raise ValueError(f'Unsupported IndexedLinear UnaryOpOperation: {fusedActivation}')
+        fused = fusedActivation != -1
+        up_name = self.get_extra_attr(op, 'up_name', '')
+        bank = self.weight_ops[name]
+        if not bank or input_mode not in (0, 1):
+            raise ValueError(f'Invalid IndexedLinear bank {name}')
+        ic, oc = bank[0][1].in_features, bank[0][1].out_features
+        up_bank = self.weight_ops[up_name] if up_name else []
+        if up_bank and (not fused or len(up_bank) != len(bank)):
+            raise ValueError(f'Invalid IndexedLinear up bank {name}')
+        expected_output = oc if up_bank or not fused else oc // 2
+        if (fused and not up_bank and oc % 2) or out_features != expected_output:
+            raise ValueError(f'IndexedLinear output size mismatch: {name}')
+        quantization = self.linear_quantization(bank[0][0], bank[0][1])
+        if quantization[0] not in (4, 8, 16):
+            raise ValueError(f'IndexedLinear export supports only 4/8-bit or FP16 weights: {name}')
+        if up_bank and self.linear_quantization(up_bank[0][0], up_bank[0][1]) != quantization:
+            # The resident paired kernel shares its bit/group layout. Keep the
+            # original graph when a quant_config gives gate/up different layouts.
+            import copy
+            tensors = graph['tensorName']
+            intermediates = list(range(len(tensors), len(tensors) + 3))
+            tensors.extend([name + suffix for suffix in ('/gate', '/up', '/silu')])
+            graph['tensorNumber'] = len(tensors)
+            result = []
+            for bank_name, output in zip((name, up_name), intermediates):
+                projection = copy.deepcopy(op)
+                projection['main']['attr'] = [a for a in projection['main']['attr']
+                                              if a['key'] not in ('name', 'fusedActivation', 'up_name')]
+                projection['main']['attr'].append({'key': 'name', 's': bank_name})
+                projection['outputIndexes'] = [output]
+                result.extend(self.rebuild_indexed_linear(projection, graph))
+            result.extend([
+                {'type': 'UnaryOp', 'main_type': 'UnaryOp', 'main': {'opType': 'SILU'},
+                 'name': name + '/silu', 'inputIndexes': [intermediates[0]], 'outputIndexes': [intermediates[2]]},
+                {'type': 'BinaryOp', 'main_type': 'BinaryOp', 'main': {'opType': 'MUL'},
+                 'name': name + '/swiglu', 'inputIndexes': [intermediates[2], intermediates[1]],
+                 'outputIndexes': op['outputIndexes']},
+            ])
+            return result
+        for original_name, linear in bank + up_bank:
+            if self.linear_quantization(original_name, linear) != quantization:
+                raise ValueError(f'IndexedLinear experts must use the same quantization: {original_name}')
+        for original_name, linear in bank + up_bank:
+            if linear.in_features != ic or linear.out_features != oc:
+                raise ValueError(f'IndexedLinear expert shape mismatch: {original_name}')
+        # IndexedLinear stores expert parameters in bank order, without per-expert op names.
+        qat = getattr(self.exporter, 'qat_loader', None) is not None
+        linears = [self.build_linear_parameter(f'{name}/linear.{index}' if qat else original_name,
+                                              linear, up_bank[index][1] if up_bank else None)
+                   for index, (original_name, linear) in enumerate(bank)]
+        parameter = {'linears': linears, 'inputMode': input_mode}
+        if fused:
+            parameter['fusedActivation'] = fusedActivation
+        return [{
+            'type': 'IndexedLinear',
+            'main_type': 'IndexedLinearParam',
+            'main': parameter,
+            'name': name,
+            'inputIndexes': op['inputIndexes'],
+            'outputIndexes': op['outputIndexes'],
+            'defaultDimentionFormat': 'NCHW',
+        }]
 
     def rebuild_layernorm(self, op, graph):
         if "gamma" not in op['main'] or "beta" not in op['main']:
@@ -657,6 +686,101 @@ class MNNConverter:
                 return attr['f']
         return default
 
+    def linear_quantization(self, name, linear):
+        qat_loader = getattr(self.exporter, 'qat_loader', None)
+        if qat_loader is not None:
+            source_name = getattr(linear, '_mnn_qat_source_weight_name', None)
+            if qat_loader.has_qparams(source_name):
+                bits, block, symmetric = qat_loader.expected_config(source_name)
+                if bits != 16:
+                    block = block or linear.in_features
+                    if block <= 0 or linear.in_features % block:
+                        raise ValueError(f'Invalid QAT block size {block} for {source_name}')
+                    return bits, block, symmetric
+                return 16, linear.in_features, False
+
+        is_lm = 'lm_head' in name
+        quant_bit = self.args.lm_quant_bit if is_lm else self.args.quant_bit
+        quant_block = self.args.lm_quant_block if is_lm else self.args.quant_block
+        quant_sym = self.args.sym
+
+        if self.args.quant_config is not None:
+            with open(self.args.quant_config, 'r') as f:
+                quant_config = json.load(f)
+            if name in quant_config:
+                op_config = quant_config[name]
+                quant_bit = op_config.get('bits', quant_bit)
+                quant_block = op_config.get('block_size', quant_block)
+                quant_sym = op_config.get('symmetric', quant_sym)
+
+        block_size = linear.in_features if quant_block == 0 else quant_block
+        if block_size <= 0:
+            raise ValueError(f'Invalid quantization block size for {name}: {quant_block}')
+        while linear.in_features % block_size != 0:
+            block_size //= 2
+        return quant_bit, block_size, quant_sym
+
+    def build_linear_parameter(self, name, linear, up_linear=None):
+        ic, oc = linear.in_features, linear.out_features + (up_linear.out_features if up_linear is not None else 0)
+        quant_bit, block_size, quant_sym = self.linear_quantization(name, linear)
+        is_lm = 'lm_head' in name
+        qat_loader = getattr(self.exporter, 'qat_loader', None)
+        if qat_loader is not None:
+            source_name = getattr(linear, '_mnn_qat_source_weight_name', None)
+            is_lm = source_name is not None and source_name == qat_loader.lm_head_weight
+            if quant_bit != 16 and any(
+                    qat_loader.has_qparams(getattr(item, '_mnn_qat_source_weight_name', None))
+                    for item in (linear, up_linear) if item is not None):
+                self.qat_weights[name] = (linear,) if up_linear is None else (linear, up_linear)
+                # Validate the final layout above, but encode QAT weights only after fusion.
+                quant_bit = 16
+        if is_lm and self.lm_weight is not None:
+            external, q_min, shape_int32, header_len = self.lm_weight
+        else:
+            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, block_size, quant_sym,
+                                                                      up_linear)
+        if is_lm and self.lm_weight is None:
+            self.lm_weight = [external, q_min, shape_int32, header_len]
+        if is_lm and self.args.tie_word_embeddings:
+            weight_offset = external[0] + header_len
+            alpha_offset = external[0] + external[1]
+            alpha_size = external[2]
+            self.tie_embeddings_info = {
+                "weight_offset": weight_offset,
+                "alpha_offset": alpha_offset,
+                "alpha_size": alpha_size,
+                "quant_bit": quant_bit,
+                "quant_block": block_size,
+                "alpha_dtype": "fp16" if self.args.scale_bit == 16 else "fp32",
+            }
+
+        if quant_bit == 16:
+            quanParameter = { "type": 3 }
+        else:
+            if quant_sym:
+                aMin = 0
+                readType = 0
+            else:
+                aMin = q_min
+                readType = oc * (ic // block_size)
+
+            quanParameter = {
+                "quantScale": 1.0, "scaleIn": 0.0, "scaleOut": 0.0,
+                "useInt32": False, "has_scaleInt": False, "shapeInt32": shape_int32,
+                "type": 1, "aMaxOrBits": quant_bit, "aMin": aMin, "readType": readType, "weightSize": 0,
+                "scaleStorage": "FP16" if self.args.scale_bit == 16 else "FP32",
+            }
+        return {
+            'common': {
+                'dilateX': 1, 'dilateY': 1, 'strideX': 1, 'strideY': 1,
+                'kernelX': 1, 'kernelY': 1, 'padX': 0, 'padY': 0, 'group': 1,
+                'outputCount': oc, 'relu': False, 'padMode': 'CAFFE',
+                'relu6': False, 'inputCount': ic, 'hasOutputShape': False
+            },
+            "quanParameter": quanParameter,
+            "external": external
+        }
+
     def rebuild_linear(self, op, graph):
         attrs = op['main']['attr']
         for attr in attrs:
@@ -673,39 +797,7 @@ class MNNConverter:
                linear.out_features == oc and
                (linear.bias is not None) == has_bias)
 
-        is_lm = 'lm_head' in name
-        quant_bit = self.args.lm_quant_bit if is_lm else self.args.quant_bit
-        quant_block = self.args.lm_quant_block if is_lm else self.args.quant_block
-        quant_sym = self.args.sym
-
-        if self.args.quant_config is not None:
-            with open(self.args.quant_config, 'r') as f:
-                quant_config = json.load(f)
-            if name in quant_config:
-                op_config = quant_config[name]
-                quant_bit = op_config.get('bits', quant_bit)
-                quant_block = op_config.get('block_size', quant_block)
-                quant_sym = op_config.get('symmetric', quant_sym)
-
-        block_size = ic if quant_block == 0 else quant_block
-        if is_lm and self.lm_weight is not None:
-            external, q_min, shape_int32, header_len = self.lm_weight
-        else:
-            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, quant_block, quant_sym)
-        if is_lm and self.lm_weight is None:
-            self.lm_weight = [external, q_min, shape_int32, header_len]
-        if is_lm and self.args.tie_word_embeddings:
-            weight_offset = external[0] + header_len
-            alpha_offset = external[0] + external[1]
-            alpha_size = external[2]
-            self.tie_embeddings_info = {
-                "weight_offset": weight_offset,
-                "alpha_offset": alpha_offset,
-                "alpha_size": alpha_size,
-                "quant_bit": quant_bit,
-                "quant_block": quant_block,
-                "alpha_dtype": "fp16" if self.args.scale_bit == 16 else "fp32",
-            }
+        parameter = self.build_linear_parameter(name, linear)
 
         origin_input = op['inputIndexes']
         origin_output = op['outputIndexes']
@@ -747,38 +839,13 @@ class MNNConverter:
             "defaultDimentionFormat": "NHWC"
         }
 
-        if quant_bit == 16:
-            quanParameter = { "type": 3 }
-        else:
-            if quant_sym:
-                aMin = 0
-                readType = 0
-            else:
-                aMin = q_min
-                readType = oc * (ic // block_size)
-
-            quanParameter = {
-                "quantScale": 1.0, "scaleIn": 0.0, "scaleOut": 0.0,
-                "useInt32": False, "has_scaleInt": False, "shapeInt32": shape_int32,
-                "type": 1, "aMaxOrBits": quant_bit, "aMin": aMin, "readType": readType, "weightSize": 0,
-                "scaleStorage": "FP16" if self.args.scale_bit == 16 else "FP32",
-            }
         conv_op = {
             "name": conv_name,
             "inputIndexes": pre_convert_output,
             "outputIndexes": conv_output,
             "type": "Convolution",
             "main_type": "Convolution2D",
-            "main": {
-                'common': {
-                    'dilateX': 1, 'dilateY': 1, 'strideX': 1, 'strideY': 1,
-                    'kernelX': 1, 'kernelY': 1, 'padX': 0, 'padY': 0, 'group': 1,
-                    'outputCount': oc, 'relu': False, 'padMode': 'CAFFE',
-                    'relu6': False, 'inputCount': ic, 'hasOutputShape': False
-                },
-                "quanParameter": quanParameter,
-                "external": external
-            },
+            "main": parameter,
             "defaultDimentionFormat": "NHWC"
         }
         post_convert = {

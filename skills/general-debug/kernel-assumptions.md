@@ -115,12 +115,123 @@ source/backend/metal/MetalAttention.mm:531:  FA also hard-codes causal masking v
 | MNN_ENABLE_FLASH_ATTN_PREFILL=0 后仍错 | FA + 三段都错，模型本身非 causal |
 | 只有某几层错 | 层级差异（如 Gemma-2 交替 SWA / full） |
 | 换 Metal → CPU 就对 | 后端优化（本册）；换 CPU → Metal 就对 = [`memory-aliasing.md`](memory-aliasing.md) 或 [`export-and-quant.md`](export-and-quant.md) |
+| **换 Metal → CPU 就对，且不崩不报错、只是输出质量差**；模型是编码器 / ViT / 无 mask 的 attention | 后端把"无 mask 输入"当因果。查 `IsAttentionMaskCausal` 与 kernel 里的**裸 `#else`** 因果分支（§7.5.1） |
+| host 侧发了 `-DXXX_MASK` 但后端行为不像它生效 | 那个宏可能是 vestigial 的——去 `.cl`/`.metal` 源里 grep 宏名，确认真的被引用（§7.5.1） |
 
-## 7.5 参考案例（占位）
+## 7.5 参考案例
 
-**待补**：目前尚无生产 SWA 模型跑 Metal 后端出错的**已复现**案例入库（分支中 Qwen 系列均为 causal，未触发）。若未来第一次实测出现 SWA/Gemma-2/prefix LM 走 Metal 报错，务必按 Step 1-6 走完 + 补充参考案例到此节。
+### 7.5.1 CPU 把"无 mask 输入"无条件当因果，静默三角化所有 FuseFmhaV2 模型（2026-10-13，已复现）
 
-**预期案例形态**（供未来复现参考）：Mistral 7B v0.1 W4-b32 导出 → MNN Metal 后端 → 长 prompt (>4096 tokens) → 输出在 window 边界后开始重复/漂移；CPU 后端一致乱（因为 CPU attention 也可能不按 SWA 特化）；HF torch 侧正常；`MNN_METAL_QK_CAUSAL_TRI=0` **仅缓解 causal-tri/bound 部分**，FA 本身仍错 → 需要架构层加固。
+**症状**：**没有任何报错**。走 `FuseFmhaV2` / `FuseSelfAttentionV2` / `FuseSelfAttentionV3`
+转换出来的模型（源图 attention 子图里完全没有 mask 运算），在 CPU 上被算成因果注意力，
+在 Metal / CUDA 上算对。输出有限、连贯、看似合理，只是模型被结构性地"只能看左上角"。
+OpenCL 同样错，但**不是**因为回落到 CPU——它跑自己的 kernel，kernel 里有一个同构的
+缺省因果 bug（见下面的"已闭合"小节）；Vulkan 本机无 libvulkan，未能验证。
+
+**这个 bug 不是从故障现象发现的，是从审计约定一致性发现的** —— 起因是问"什么模型会出现
+『无 mask + kv_cache=false』这一档"。所以 Step 1-6 的常规流程在这里不适用，下面记的是实际
+走通的路径。
+
+**排查路径**：
+
+1. **查谁会产出这个输入形态，一直查到转换器层。** 全仓只有两个 pass 造 `OpType_Attention`，
+   对 mask 的态度相反：
+   - `FuseAttention.cpp:114-122`：mask **强制**——既不是 `IsSelect`（SET 型）也不是
+     `IsBinaryAdd`（ADD 型）就 `return false` 不融合，所以它产出的 op 恒为 4+ 输入。
+   - `FuseFmhaV2.cpp:250/501/706`：匹配的图案里**根本没有 mask 运算**
+     （`Softmax ← MatMul ← mul(scale) ← MatMul ← slice`，QKV 同源），产出 `{q, k, v}`
+     **3 输入** + `kv_cache=false`。
+
+   旁证：`FuseTransformerC4.cpp` 多处用 `inputIndexes.size() < 3`（不是 `< 4`）做校验，
+   说明 3 输入形态是流水线里预期存在的。
+2. **确认两边后端的缺省语义。** CPU：`isLowerTriangular = (mask == nullptr)`，无条件因果。
+   Metal：`DEFAULT_MASK` 门控在 `mKVCache` 上，`kv_cache=false` 时不发 mask key → 无遮挡。
+3. **实测钉死。** `AttentionTest` 的 unit test 3 正是这一档（`kv_cache=false` + 只给 3 个输入，
+   参考实现用空 mask 算即全可见），但被 `skipNoKvCache = cpuInfer` 在 CPU 上跳过、挂着
+   `// TODO: CPU support kv_cache == false`。把跳过开关临时打开：
+   `Error Position: Output[0][1][9]` + `Error: Attention without kv_cacheunit test failed!`；
+   同一用例 Metal 14/14 通过。
+
+**根因**：跨后端对"缺省输入"的语义契约不一致。有 KV cache ⟹ 自回归 LM 层 ⟹ 无 mask 时因果是
+合理默认；无 KV cache ⟹ 一次性注意力（视觉 / 交叉 / 双向编码器）⟹ 没有依据假设因果，"无 mask"
+必须意味着"不遮挡"。Metal 一直是后者，CPU 是前者。
+
+**修复**：在 `core/AttentionMaskConvention.hpp` 里加 `IsAttentionMaskCausal(hasMask, dims, kvCache)`，
+CPU 与 Metal 共用同一个谓词；解封 unit test 3 在 CPU 上的跳过。验证：CPU 家族 14/14、CPU
+精度×线程四档 14/14、Metal 家族 4 轮交替无失败、`llm_demo`（LLM 与 VLM × CPU 与 Metal）四组
+输出与基线**逐字节相同**（md5 一致），确认 LLM 因果路径（rank-0 + kv_cache=true）未受影响。
+
+**已闭合（2026-10-13）：OpenCL 的同构 bug，根因在 kernel 而非 host 判据，已按对称方式修复并实测。**
+解封后在 OpenCL 上实测，失败位置与 CPU 修复前**完全相同**（`Output[0][1][9]`），而且是错值不是 crash。先要排除一个
+误判：macOS 上 Apple 的 OpenCL 仍提供 **CPU 设备**，所以后端会正常初始化、**并不回落到
+CPUAttention**（若回落，CPU 的修复就会让它通过）——判据是"没有像 Vulkan 那样打印
+`Don't support 3` / `Can't create executor`"。真正的原因在
+`attention_flash_prefill_buf.cl`：因果分支是 `#if defined(ADD_MASK) || defined(SET_MASK)`
+的**裸 `#else`**，所以只要没有逐元素 mask 宏，kernel 就是因果的；而
+`AttentionBufExecution.cpp:1257` 为这种情况发的 `-DDEFAULT_MASK` **是 vestigial 的，没有任何
+.cl 引用它**。因此修 OpenCL 必须动 kernel 源 + 跑 `opencl_codegen.py`（会重新生成**所有**
+`*_mnn_cl.cpp`），不是改一个 build option 就行 —— 见 [`opencl-optimize`](../opencl-optimize/SKILL.md)
+的"改 `.cl` 必跑 codegen"。
+
+**修法（与根因对称）**：host 侧 `AttentionBufExecution` 接入共享形状分类
+`IsAttentionMaskCausal(hasMask, dims, kvCache)`——`kvCache` 取 `AttentionParam::kv_cache`，
+**不要**误用 `KVCacheCLManager` 那个 meta-presence 的 `mKVCache`——无 dense mask 且非因果时
+显式发 **`-DNO_MASK`**（新增的第三个状态，不再落裸 `#else`）；kernel 侧三处 `#else` 收窄为
+`#elif !defined(NO_MASK)`（kv_end clamp、`kv_valid_offset` 声明、逐元素因果判断），裸
+`#else` 保持因果缺省。OpenCL 的 dense 边界保持 `dims>2` 未动（rank-2 mask 在 OpenCL 仍不算
+dense，与 rank≥2 约定有意分歧）。
+
+**验证**：Mali 安卓真机 fp16 buffer 模式——`attention_nocache_mask` 的 bidir_sentinel 误差从
+20.6-20.8 降到 0.009-0.019（与 all-visible dense 值**逐位一致**），
+`attention_cache_bidirectional` 的 sep 从 0.000000 升到 8.4/5.0/4.3（≫ tol）；
+host macOS OpenCL fp32+fp16 下 op/attention 14 套件全过。fp32 腿必须由 host 补：这台 Mali
+的 fp32 环境性坏掉（`trans_3d_buf` 海量 CL -36），而 CI 的 OpenCL 单测阶段跑的正是
+precision=1。Vulkan 仍未验证；读代码它把 absent/rank-0 映射到
+`maskMode 0`（其 shader 视为不遮挡），**方向上反而是对的**。
+
+**教训（本案例最反直觉的一条）**：`-DXXX` 这样的 build option **存在不等于被消费**。
+host 侧发了 `-DDEFAULT_MASK`、名字也贴切，很容易让人以为 kernel 里有个 `#ifdef DEFAULT_MASK`
+分支在按它行事；实际 kernel 用的是裸 `#else`，那个宏删掉也不会有任何变化。排查"某后端行为
+不符合 host 侧配置"时，**先去 .cl / .metal 源里 grep 那个宏名**，确认它真的被引用。
+
+**排除项与它们为什么误导**：
+
+1. **差点判定成"理论角落"。** 第一轮只在 `AttentionTest` 里找到手搓的 3 输入 op，据此以为没有
+   真实模型会走到。**"谁会产出这个输入形态"必须查到转换器 / 导出器层，只看运行时引擎会漏掉
+   整条来源。**
+2. **差点漏掉 in-tree 生产者排查就动手。** 把"无 mask → 因果"改成"看 kv_cache"，会连带改变
+   **rank-0 哨兵 + kv_cache=false** 的语义（从因果翻成双向）。所以动手前逐个查了所有发 rank-0
+   哨兵的地方：`llm.cpp`（LLM 层 kv_cache=true）、`embedding.cpp:118-131`（注释明写
+   "Standard lower-triangular causal mask"，走带 past_kv 的导出）、`omni.cpp` talker
+   （`talker.py:279-281` 特意用零长度 past KV 让每层产生 `Concat(past,new)`，从而让
+   FuseAttention 设 `kv_cache=true`）、`dflash.cpp:230-232`（喂 rank-4 稠密，不受影响）。
+   全部安全才改。**改缺省语义前，先枚举所有依赖旧缺省的调用方。**
+3. **修复时最容易写错的一点**：`noElementMask` **不能**跟着改成含 kv_cache 的版本。它必须继续用
+   不含 kv_cache 的哨兵判据（`scalarCausalSentinel || isBidirectional`），否则 rank-0 +
+   kv_cache=false 会同时失去因果身份**和**哨兵身份，掉进 `_maskQK` 的 dense 路径按
+   `maskCols = seqLen+pad` 逐行读一个 1 元素缓冲 → 越界。两个标志职责不同：
+   `isLowerTriangular` 决定"要不要遮"，`noElementMask` 决定"要不要读 mask 内存"。
+
+**避坑要点**：
+
+- **跨后端的缺省值语义属于契约，要主动对照，不能等它出问题。** 这类 bug 不崩、不 NaN、没有日志，
+  只有模型质量下降，从故障现象反推几乎不可能。
+- 判据是"这个后端在**输入缺失/歧义**时假设了什么"。逐个后端列一遍，分歧就会自己浮出来。本例中
+  Vulkan / CUDA 把 absent/rank-0 一律读成全可见（不看 kv_cache），与 CPU/Metal 仍不一致 ——
+  已知、已记录在 `AttentionMaskConvention.hpp`，未修。
+- 单测里被 `skip` + `TODO` 挡住的用例，往往正对应一个真实的后端能力缺口。看到
+  `skipXxx = cpuInfer` 这类按后端跳过的逻辑，值得追一次"为什么跳"。
+
+### 7.5.2 （占位）SWA / prefix-LM 走 Metal 的生产案例
+
+**待补**：目前尚无生产 SWA 模型跑 Metal 后端出错的**已复现**案例入库（分支中 Qwen 系列均为
+causal，未触发）。若未来第一次实测出现 SWA/Gemma-2/prefix LM 走 Metal 报错，务必按 Step 1-6
+走完 + 补充参考案例到此节。
+
+**预期案例形态**（供未来复现参考）：Mistral 7B v0.1 W4-b32 导出 → MNN Metal 后端 → 长 prompt
+(>4096 tokens) → 输出在 window 边界后开始重复/漂移；CPU 后端一致乱（因为 CPU attention 也可能
+不按 SWA 特化）；HF torch 侧正常；`MNN_METAL_QK_CAUSAL_TRI=0` **仅缓解 causal-tri/bound 部分**，
+FA 本身仍错 → 需要架构层加固。
 
 ## 7.6 相关文件索引
 
@@ -132,3 +243,11 @@ source/backend/metal/MetalAttention.mm:531:  FA also hard-codes causal masking v
 | `source/backend/metal/MetalSoftmaxShader.cpp` | softmax CAUSAL_BOUND 分支实现 |
 | `skills/metal-optimize/env-registry.md` | `MNN_METAL_QK_CAUSAL_TRI` 等相关开关的完整语义登记 |
 | `skills/metal-optimize/kernel-dev-and-optimize.md` | causal-tri / CAUSAL_BOUND 的设计文档（§2.3.1）|
+| `source/core/AttentionMaskConvention.hpp` | mask 三分类 + `IsAttentionMaskCausal(hasMask, dims, kvCache)` 的权威定义，以及各后端对 absent/rank-0 的分歧现状（§7.5.1） |
+| `tools/converter/source/optimizer/merge/FuseAttention.cpp` | mask **强制**（`:114-122`，非 Select/Add 就 `return false`），产出 4+ 输入 op |
+| `tools/converter/source/optimizer/merge/FuseFmhaV2.cpp` | 三个 pass（`:250/501/706`）产出 **3 输入 + kv_cache=false** 的 op，即"源图无 mask 运算"那一档 |
+| `source/backend/cpu/CPUAttention.cpp` | `isLowerTriangular` / `noElementMask` / `useMaskInSoftmax` 三个标志的职责划分（§7.5.1 排除项 3） |
+| `source/backend/opencl/execution/cl/attention_flash_prefill_buf.cl` | 无 mask 时因果曾落在 `#if defined(ADD_MASK)\|\|defined(SET_MASK)` 的**裸 `#else`**（`-DDEFAULT_MASK` 无人消费）；2026-10-13 起非因果档由 host 显式发 `-DNO_MASK`，三处 `#else` 收窄为 `#elif !defined(NO_MASK)` |
+| `source/backend/opencl/execution/buffer/AttentionBufExecution.cpp` | OpenCL host 侧 mask 分类：`mHasMask`（dense 边界 `dims>2`）/ `mCausalLayout`（`IsAttentionMaskCausal` + `AttentionParam::kv_cache`）→ `-DADD_MASK` / `-DSET_MASK` / `-DNO_MASK` 三态 |
+| `source/backend/opencl/execution/cl/opencl_codegen.py` | 改 `.cl` 后必跑，重新生成所有 `*_mnn_cl.cpp` |
+| `test/op/AttentionTest.cpp` | unit test 3（`kv_cache=false` + 3 输入）及其按后端跳过的 `skipNoKvCache` 逻辑 |

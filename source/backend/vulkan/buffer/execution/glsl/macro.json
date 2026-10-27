@@ -542,5 +542,14 @@
         "macro": [
             "SORT_DESC"
         ]
+    },
+    "indexed_linear_route.comp": {
+        "useFP16": false
+    },
+    "indexed_linear_gemv.comp": {
+        "useFP16": true
+    },
+    "indexed_linear_gemm.comp": {
+        "useFP16": true
     }
 }

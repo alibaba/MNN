@@ -2985,4 +2985,143 @@ public:
 
 MNNTestSuiteRegister(LinearAttentionSpecVerifyTest, "op/linear_attention_spec_verify");
 
+// Packed (C4) model-sized shapes: head dims >= 64 and channel counts that are multiples of 64, which is what
+// the vector backends (e.g. Hexagon) accelerate -- the small-shape cases above never reach them. One prefill
+// then several decode steps per module, so the conv / recurrent state carried between calls is checked too.
+class LinearAttentionC4ModelShapeTest : public MNNTestCase {
+    static std::vector<float> readC4(VARP out, int tokens, int channels) {
+        std::vector<float> logical(tokens * channels);
+        const float* p = out->readMap<float>();
+        for (int t = 0; t < tokens; ++t) {
+            for (int c = 0; c < channels; ++c) {
+                logical[t * channels + c] = p[((c / 4) * tokens + t) * 4 + c % 4];
+            }
+        }
+        return logical;
+    }
+
+    static bool compare(const char* name, int step, const std::vector<float>& ref, const std::vector<float>& got) {
+        float maxRef = 0.0f;
+        for (auto v : ref) {
+            maxRef = std::max(maxRef, fabsf(v));
+        }
+        const float tol = std::max(0.02f, 0.02f * maxRef);
+        for (size_t i = 0; i < ref.size(); ++i) {
+            if (!(fabsf(ref[i] - got[i]) <= tol)) {
+                MNN_PRINT("LinearAttention C4 %s step %d FAILED at %d: expected %f, got %f (tol %f)\n", name, step,
+                          (int)i, ref[i], got[i], tol);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // gated_delta_rule; steps[0] is the prefill length, the rest are decode steps (normally 1).
+    bool runDelta(const char* name, int Hk, int Hv, int dk, int dv, int K, bool fold, const std::vector<int>& steps) {
+        const int D = 2 * Hk * dk + Hv * dv;
+        std::vector<float> coef(Hv), bias(Hv), convW(D * K);
+        for (int h = 0; h < Hv; ++h) {
+            coef[h] = -(0.3f + 0.1f * h);
+            bias[h] = -0.5f + 0.25f * h;
+        }
+        fillConvWeight(convW.data(), (int)convW.size());
+        auto module = _makeLinearAttentionModule(Hk, Hv, dk, dv, true, "gated_delta_rule", false, fold, coef, bias);
+        if (!module) {
+            return false;
+        }
+        NaiveLinearAttention naive;
+        naive.init(1, D, K, Hv, dk, dv);
+        int base = 0;
+        for (size_t s = 0; s < steps.size(); ++s) {
+            const int L = steps[s];
+            std::vector<float> qkv(D * L), in1(L * Hv), in2(L * Hv), gate(L * Hv), beta(L * Hv);
+            for (int i = 0; i < D * L; ++i) {
+                qkv[i] = (float)(((i + base * 7) * 13 % 23) - 11) * 0.03f;
+            }
+            for (int i = 0; i < L * Hv; ++i) {
+                const int h = i % Hv;
+                in1[i] = -0.4f + 0.13f * ((i + base) % 7);
+                in2[i] = -0.6f + 0.27f * ((i + base) % 5);
+                gate[i] = fold ? coef[h] * logf(1.0f + expf(in1[i] + bias[h])) : -0.05f * (1 + (i + base) % 5);
+                beta[i] = fold ? 1.0f / (1.0f + expf(-in2[i])) : 0.1f * (1 + (i + base) % 9);
+            }
+            if (!fold) {
+                in1 = gate;
+                in2 = beta;
+            }
+            auto expected =
+                naive.forward(qkv.data(), gate.data(), beta.data(), convW.data(), 1, L, D, K, Hk, Hv, dk, dv, true);
+            auto wVar = _Input({D, 1, K}, NCHW, halide_type_of<float>());
+            ::memcpy(wVar->writeMap<float>(), convW.data(), convW.size() * sizeof(float));
+            auto outputs =
+                module->onForward({makeC4TokenChannelInput(qkv, L, D, true), makeC4TokenChannelInput(in1, L, Hv, false),
+                                   makeC4TokenChannelInput(in2, L, Hv, false), wVar});
+            if (outputs.empty() || !compare(name, (int)s, expected, readC4(outputs[0], L * Hv, dv))) {
+                return false;
+            }
+            base += L;
+        }
+        return true;
+    }
+
+    // short_conv: qkv channels are [B | C | x]; y = C * conv1d(B * x) with the same causal state.
+    bool runShortConv(const char* name, int H, int K, const std::vector<int>& steps) {
+        const int D = 3 * H;
+        std::vector<float> convW(H * K), state(H * (K - 1), 0.0f);
+        fillConvWeight(convW.data(), (int)convW.size());
+        auto module = _makeLinearAttentionModule(1, 1, H, H, false, "short_conv");
+        if (!module) {
+            return false;
+        }
+        int base = 0;
+        for (size_t s = 0; s < steps.size(); ++s) {
+            const int L = steps[s];
+            std::vector<float> qkv(D * L), expected(L * H), unused(L, 0.0f);
+            for (int i = 0; i < D * L; ++i) {
+                qkv[i] = (float)(((i + base * 5) * 11 % 19) - 9) * 0.05f;
+            }
+            for (int h = 0; h < H; ++h) {
+                std::vector<float> seq(state.begin() + h * (K - 1), state.begin() + (h + 1) * (K - 1));
+                for (int l = 0; l < L; ++l) {
+                    seq.push_back(qkv[h * L + l] * qkv[(2 * H + h) * L + l]);
+                }
+                for (int l = 0; l < L; ++l) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < K; ++k) {
+                        sum += seq[l + k] * convW[h * K + k];
+                    }
+                    expected[l * H + h] = qkv[(H + h) * L + l] * sum;
+                }
+                for (int k = 0; k < K - 1; ++k) {
+                    state[h * (K - 1) + k] = seq[L + k];
+                }
+            }
+            auto wVar = _Input({H, 1, K}, NCHW, halide_type_of<float>());
+            ::memcpy(wVar->writeMap<float>(), convW.data(), convW.size() * sizeof(float));
+            auto outputs = module->onForward({makeC4TokenChannelInput(qkv, L, D, true),
+                                              makeC4TokenChannelInput(unused, L, 1, false),
+                                              makeC4TokenChannelInput(unused, L, 1, false), wVar});
+            if (outputs.empty() || !compare(name, (int)s, expected, readC4(outputs[0], L, H))) {
+                return false;
+            }
+            base += L;
+        }
+        return true;
+    }
+
+public:
+    virtual ~LinearAttentionC4ModelShapeTest() = default;
+    virtual bool run(int precision) {
+        // Every case runs so one failure does not hide the others.
+        bool ok = runShortConv("short-conv", 128, 3, {11, 1, 1});
+        ok = runDelta("gdr-decode-first", 1, 2, 64, 128, 4, true, {1, 1}) && ok;
+        ok = runDelta("gdr-gqa", 2, 4, 128, 64, 4, false, {9, 1, 1, 1}) && ok;
+        ok = runDelta("gdr-fold", 2, 2, 128, 128, 4, true, {37, 1, 1}) && ok;
+        // Qwen3.5-0.8B linear-attention layer shape.
+        ok = runDelta("gdr-qwen35", 16, 16, 128, 128, 4, true, {518, 1, 1, 1}) && ok;
+        return ok;
+    }
+};
+MNNTestSuiteRegister(LinearAttentionC4ModelShapeTest, "op/linear_attention_c4_model_shape");
+
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE

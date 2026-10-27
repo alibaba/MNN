@@ -9,6 +9,17 @@ class ModelMapper:
 
     def get_map(self, config):
         model_type = config.model_type
+        if model_type == 'minicpmv4_7':
+            text_type = config.text_config.model_type
+            backbones = {'qwen3_5_text': 'qwen3_5', 'qwen3_5_moe_text': 'qwen3_5_moe'}
+            if text_type not in backbones:
+                raise ValueError(f'Unsupported MiniCPM-V 4.7 text model: {text_type}')
+            model_map = copy.deepcopy(self.mapper[backbones[text_type]])
+            model_map['model'].update({
+                'visual': 'model.vision_tower',
+                'visual.merger': 'model.merger',
+            })
+            return model_type, model_map
         if model_type == 'chatglm':
             if hasattr(config, 'vocab_size') and config.vocab_size == 130528:
                 model_type = 'chatglm'

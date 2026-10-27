@@ -15,6 +15,22 @@
 
 #include <limits>
 
+#include "llm/attention_mask.hpp"
+
+using MNN::Transformer::buildAttentionMask;
+using MNN::Transformer::MaskRequest;
+using MNN::Transformer::AttentionMaskType;
+
+// Dumped as QNN IO test data, so the mask must be a dense plane, never a one-element mask.
+static MaskRequest denseMaskRequest(int seqLen, AttentionMaskType type) {
+    MaskRequest req;
+    req.type       = type;
+    req.seqLen     = seqLen;
+    req.rank       = 4;
+    req.forceDense = true;
+    return req;
+}
+
 static void saveInputOutputs(const MNN::Express::Module::Info* info, std::vector<MNN::Express::VARP> inputs, std::vector<MNN::Express::VARP> outputs, const std::string & outputDir, int index) {
     MNN_ASSERT(info->inputNames.size() == inputs.size());
     MNN_ASSERT(info->outputNames.size() == outputs.size());
@@ -50,14 +66,7 @@ static void createInputsForLLM(int seqLen, int hiddenSize, const std::string& at
     }
     inputs.push_back(inputIdx);
 
-    MNN::Express::VARP attentionMask =  MNN::Express::_Input({1, 1, seqLen, seqLen}, MNN::Express::NCHW, halide_type_of<float>());
-    float * attentionMaskData = attentionMask->writeMap<float>();
-    for (int i = 0; i < seqLen; ++i) {
-        for (int j = 0; j < seqLen; ++j) {
-            attentionMaskData[i * seqLen + j] = (j > i) * std::numeric_limits<float>::lowest();
-        }
-    }
-    inputs.push_back(attentionMask);
+    inputs.push_back(buildAttentionMask(denseMaskRequest(seqLen, AttentionMaskType::Causal)));
 
     MNN::Express::VARP positionIds = MNN::Express::_Input({1, seqLen}, MNN::Express::NCHW, halide_type_of<int>());
     int * positionIdsData = positionIds->writeMap<int>();
@@ -81,18 +90,10 @@ static void createInputsForEmbedding(int seqLen, int hiddenSize, const std::stri
     }
     inputs.push_back(inputEmbeds);
 
-    MNN::Express::VARP attentionMask = MNN::Express::_Input({1, 1, seqLen, seqLen}, MNN::Express::NCHW, halide_type_of<float>());
-    float* attentionMaskData = attentionMask->writeMap<float>();
-    for (int i = 0; i < seqLen; ++i) {
-        for (int j = 0; j < seqLen; ++j) {
-            if (attentionMaskType == "float") {
-                attentionMaskData[i * seqLen + j] = (j > i) ? std::numeric_limits<float>::lowest() : 0.0f;
-            } else {
-                attentionMaskData[i * seqLen + j] = 1.0f;
-            }
-        }
-    }
-    inputs.push_back(attentionMask);
+    // Same as Embedding::gen_attention_mask.
+    const AttentionMaskType maskType =
+        attentionMaskType == "float" ? AttentionMaskType::Causal : AttentionMaskType::AllOnes;
+    inputs.push_back(buildAttentionMask(denseMaskRequest(seqLen, maskType)));
 
     MNN::Express::VARP positionIds = MNN::Express::_Input({1, seqLen}, MNN::Express::NCHW, halide_type_of<int>());
     int* positionIdsData = positionIds->writeMap<int>();

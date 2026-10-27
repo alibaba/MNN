@@ -74,8 +74,10 @@ VulkanMemoryPool::~VulkanMemoryPool() {
 }
 
 VkBuffer VulkanMemoryPool::allocBuffer(size_t size, VkBufferUsageFlags flags, VkSharingMode shared) {
-    VkBuffer res;
-    CALL_VK(mDevice.createBuffer(res, size, flags, shared));
+    VkBuffer res = VK_NULL_HANDLE;
+    if (mDevice.createBuffer(res, size, flags, shared) != VK_SUCCESS) {
+        return VK_NULL_HANDLE;
+    }
     return res;
 }
 

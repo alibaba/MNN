@@ -23,6 +23,7 @@ class KleidiAIConvolutionDepthwise {
 
         private:
             int mNumber = 1;
+            std::vector<float> mPostParameters;
             std::shared_ptr<Tensor> mPackedRhs;
             std::shared_ptr<Tensor> mWeightTemp;
             Tensor mOutputNHWC;

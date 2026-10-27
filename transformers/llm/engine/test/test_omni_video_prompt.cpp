@@ -1,5 +1,6 @@
-#include <cassert>
 #include <cstdint>
+#include <cstdio>
+#include <iostream>
 #include <limits>
 #include <regex>
 #include <string>
@@ -7,67 +8,65 @@
 
 #include "omni.hpp"
 
+// assert() is compiled out under NDEBUG and CI builds Release (-DCMAKE_BUILD_TYPE=Release
+// implies -DNDEBUG), so a test written with assert() passes unconditionally there. These
+// checks have to survive that: count the failures, report them, and exit non-zero.
+// Variadic, because conditions like `x == std::vector<int>{0, 8, 16}` contain commas that a
+// single-argument macro would split.
+static int gFailures = 0;
+static int gChecks = 0;
+
+#define CHECK_TRUE(...)                                             \
+    do {                                                            \
+        ++gChecks;                                                  \
+        if (!(__VA_ARGS__)) {                                       \
+            ++gFailures;                                            \
+            printf("FAILED line %d: %s\n", __LINE__, #__VA_ARGS__); \
+        }                                                           \
+    } while (0)
+
 int main() {
     std::regex multimodalRegex(MNN::Transformer::kOmniMultimodalRegex);
     std::string prompt = "describe <video>demo.mp4</video> now";
     std::smatch match;
 
-    assert(std::regex_search(prompt, match, multimodalRegex));
-    assert(match[1].str() == "video");
-    assert(match[2].str() == "demo.mp4");
+    CHECK_TRUE(std::regex_search(prompt, match, multimodalRegex));
+    CHECK_TRUE(match[1].str() == "video");
+    CHECK_TRUE(match[2].str() == "demo.mp4");
 
     prompt = "describe <img>demo.jpg</img> and <audio>demo.wav</audio>";
-    assert(std::regex_search(prompt, match, multimodalRegex));
-    assert(match[1].str() == "img");
-    assert(match[2].str() == "demo.jpg");
+    CHECK_TRUE(std::regex_search(prompt, match, multimodalRegex));
+    CHECK_TRUE(match[1].str() == "img");
+    CHECK_TRUE(match[2].str() == "demo.jpg");
 
     MNN::Transformer::MropeInfo pos;
     pos.push_back(1, 4, 2);
-    assert(pos.currentIdx() == 5);
+    CHECK_TRUE(pos.currentIdx() == 5);
 
-    std::vector<int> indices = MNN::Transformer::qwenVideoSampleIndices(25, 25.0, 2.0f, 4, 768);
-    assert((indices == std::vector<int>{0, 8, 16, 24}));
-
-    indices = MNN::Transformer::qwenVideoSampleIndices(3, 25.0, 2.0f, 4, 768);
-    assert((indices == std::vector<int>{0, 1, 1, 2}));
-
-    indices = MNN::Transformer::qwenVideoSampleIndices(100, 10.0, 10.0f, 4, 5);
-    assert(indices.size() == 4);
-
-    indices = MNN::Transformer::qwenVideoSampleIndices(1, 25.0, 2.0f, 4, 768);
-    assert((indices == std::vector<int>{0, 0}));
-
-    indices = MNN::Transformer::qwenVideoSampleIndices(1, 25.0, 2.0f, 4, 1);
-    assert(indices.empty());
-
-    assert(MNN::Transformer::qwenVideoAlignedFrameCount(5, 5, 2) == 4);
-    assert(MNN::Transformer::qwenVideoAlignedFrameCount(1, 768, 2) == 2);
-    assert(MNN::Transformer::qwenVideoAlignedFrameCount(1, 1, 2) == 0);
-
-    auto videoSize = MNN::Transformer::qwenVideoResizeSize(3840, 2160, 32, 768 * 28 * 28);
-    assert(videoSize.first % 32 == 0);
-    assert(videoSize.second % 32 == 0);
-    assert(static_cast<int64_t>(videoSize.first) * videoSize.second <= 768 * 28 * 28);
-    videoSize = MNN::Transformer::qwenVideoResizeSize(854, 854, 28, 0);
-    assert((videoSize == std::make_pair(840, 840)));
-
-    int frameCount = MNN::Transformer::qwenVideoAlignedFrameCount(20, 768, 2);
-    int maxPixels = MNN::Transformer::qwenVideoEffectiveMaxPixels(768 * 28 * 28, 4096, frameCount, 2, 16);
-    videoSize = MNN::Transformer::qwenVideoResizeSize(3840, 2160, 32, maxPixels);
-    int seqLen = frameCount / 2 * (videoSize.second / 16) * (videoSize.first / 16);
-    assert(seqLen <= 4096);
-    assert(MNN::Transformer::qwenVideoEffectiveMaxPixels(0, 4096, frameCount, 2, 16) == 409 * 16 * 16);
-
+    // Temporal groups attend within their own block.
     std::vector<float> mask(16);
-    MNN::Transformer::fillQwenVisionAttentionMask(mask.data(), 2, 2);
+    auto boundaries = MNN::Transformer::uniformBoundaries(4, 2);
+    MNN::Transformer::fillBlockDiagonal(mask.data(), 4, 4, boundaries);
     const float blocked = std::numeric_limits<float>::lowest();
-    assert(mask[0] == 0.0f);
-    assert(mask[1] == 0.0f);
-    assert(mask[2] == blocked);
-    assert(mask[3] == blocked);
-    assert(mask[8] == blocked);
-    assert(mask[9] == blocked);
-    assert(mask[10] == 0.0f);
-    assert(mask[11] == 0.0f);
-    return 0;
+    CHECK_TRUE(mask[0] == 0.0f);
+    CHECK_TRUE(mask[1] == 0.0f);
+    CHECK_TRUE(mask[2] == blocked);
+    CHECK_TRUE(mask[3] == blocked);
+    CHECK_TRUE(mask[8] == blocked);
+    CHECK_TRUE(mask[9] == blocked);
+    CHECK_TRUE(mask[10] == 0.0f);
+    CHECK_TRUE(mask[11] == 0.0f);
+
+    pos.prependTextPositions(2);
+    CHECK_TRUE(pos.mT == std::vector<int>({0, 1, 3}));
+    CHECK_TRUE(pos.mH == std::vector<int>({0, 1, 6}));
+    CHECK_TRUE(pos.mW == std::vector<int>({0, 1, 4}));
+    CHECK_TRUE(pos.currentIdx() == 7);
+    const auto copy = pos;
+    pos.clear();
+    CHECK_TRUE(pos.currentIdx() == 0);
+    CHECK_TRUE(copy.currentIdx() == 7);
+
+    printf("test_omni_video_prompt: %d checks, %d failures\n", gChecks, gFailures);
+    return gFailures == 0 ? 0 : 1;
 }

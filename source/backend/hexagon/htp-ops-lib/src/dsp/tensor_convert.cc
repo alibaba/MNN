@@ -36,6 +36,10 @@ static inline bool htp_ops_tensor_convert_aligned_128(const void* ptr) {
 static inline void htp_ops_tensor_convert_copy_hvx(uint8_t* dst, const uint8_t* src, size_t bytes) {
   size_t offset = 0;
   const size_t vecBytes = 128;
+  if (bytes >= 4096) {  // stream the source instead of one DDR miss per vector
+    const size_t lines = bytes / vecBytes < 65535 ? bytes / vecBytes : 65535;
+    l2fetch(src, vecBytes, vecBytes, (uint32_t) lines, 0);
+  }
   for (; offset + vecBytes <= bytes; offset += vecBytes) {
     vmemu((HVX_Vector*)(dst + offset)) = vmemu((const HVX_Vector*)(src + offset));
   }
@@ -111,7 +115,9 @@ static inline int htp_ops_tensor_convert_pick_task_count(size_t bytes, int units
   if (n > units) {
     n = units;
   }
-  return n;
+  // At least 16 KB per task: below that the worker dispatch costs more than the copy (decode-sized tensors).
+  const int by_size = (int) ((bytes + 16383) / 16384);
+  return n < by_size ? n : by_size;
 }
 
 static inline HVX_Vector* htp_ops_tensor_convert_pack_workspaces() {
@@ -1073,8 +1079,8 @@ AEEResult htp_ops_tensor_convert(uint8_t* dst, uint8_t* src,
     }
   } else if (convertType == HTP_OPS_CONVERT_NC4HW4_TO_NCHW) {
     if (bytes == 2 && pack == 64 && area == 1 && batch == 1 && c == c4 * pack) {
-      if (dstBase != srcBase) {
-        htp_ops_tensor_convert_copy_hvx(dstBase, srcBase, srcBytes);
+      if (dstBase != srcBase) {  // identical layouts (the decode logits are ~0.5 MB)
+        htp_ops_tensor_convert_copy_parallel(dstBase, srcBase, srcBytes);
       }
       return 0;
     }
@@ -1170,8 +1176,8 @@ AEEResult htp_ops_tensor_convert(uint8_t* dst, uint8_t* src,
     }
   } else {
     if (bytes == 2 && pack == 64 && area == 1 && batch == 1 && c == c4 * pack) {
-      if (dstBase != srcBase) {
-        htp_ops_tensor_convert_copy_hvx(dstBase, srcBase, srcBytes);
+      if (dstBase != srcBase) {  // identical layouts (the decode logits are ~0.5 MB)
+        htp_ops_tensor_convert_copy_parallel(dstBase, srcBase, srcBytes);
       }
       return 0;
     }

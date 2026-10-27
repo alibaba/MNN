@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <cmath>
 #include <unordered_map>
 
 #include "../TemplateMerge.hpp"
@@ -15,6 +16,19 @@
 
 namespace MNN {
 namespace Express {
+
+// True when var is a single-element float constant equal to expect.
+static bool isConstantScalar(VARP var, float expect) {
+    if (nullptr == var || !helpers::IsConstant(var->expr().first)) {
+        return false;
+    }
+    auto info = var->getInfo();
+    if (nullptr == info || 1 != info->size || halide_type_float != info->type.code || 32 != info->type.bits) {
+        return false;
+    }
+    auto value = var->readMap<float>();
+    return nullptr != value && fabsf(value[0] - expect) < 1e-6f;
+}
 
 static bool loadAxisFromReduction(EXPRP mean_3, std::vector<int>& axis_var_) {
     if (mean_3->inputs().size() > 1) {
@@ -57,9 +71,15 @@ FuseLayerNormRMS::FuseLayerNormRMS() {
             return false;
         }
         EXPRP rsqrt = expr->inputs().at(1)->expr().first;
-        if(helpers::IsBinaryRealDiv(rsqrt)){
+        if (helpers::IsBinaryRealDiv(rsqrt)) {
             rsqrt = rsqrt->inputs().at(1)->expr().first;
             if (!helpers::IsUnarySqrt(rsqrt)) {
+                return false;
+            }
+        } else if (helpers::IsBinaryPow(rsqrt)) {
+            // pow(y, -0.5) is rsqrt(y) for the strictly positive y this pattern feeds it.
+            // HuggingFace's gemma4 RMSNorm emits this spelling instead of torch.rsqrt.
+            if (!isConstantScalar(rsqrt->inputs().at(1), -0.5f)) {
                 return false;
             }
         } else if (!helpers::IsUnaryRsqrt(rsqrt)) {

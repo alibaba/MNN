@@ -19,6 +19,26 @@
 #  define HTP_MM_PHASE_PROFILE 0
 #endif
 
+// Must match ops/matmul_q4fp16.c: prefill GEMM resource unit costs into profile[104..117] (diagnostic, off).
+#ifndef HTP_MM_MICROBENCH
+#  define HTP_MM_MICROBENCH 0
+#endif
+
+// Must match linear_attention_ops.cc: chunked-prefill stage times into profile[229..243] (diagnostic, off).
+#ifndef HTP_LA_PHASE_PROFILE
+#  define HTP_LA_PHASE_PROFILE 0
+#endif
+
+// Must match linear_attention_ops.cc: HMX-vs-HVX self-check into profile[229..232] (diagnostic, off).
+#ifndef HTP_LA_HMX_SELFCHECK
+#  define HTP_LA_HMX_SELFCHECK 0
+#endif
+
+// Must match linear_attention_ops.cc: HMX / dispatch unit costs into profile[229..232] (diagnostic, off).
+#ifndef HTP_LA_MICROBENCH
+#  define HTP_LA_MICROBENCH 0
+#endif
+
 // Must match attention_sync_process.cc: worker-side phases into profile[251..255].
 #ifndef HTP_WATTN_PHASE_PROFILE
 #  define HTP_WATTN_PHASE_PROFILE 0
@@ -41,7 +61,7 @@ extern AEEResult htp_ops_matmul_q4a16_fp16(uint8_t* output, uint8_t* activation,
 extern AEEResult htp_ops_matmul_q4block_a16_fp16(uint8_t *output, uint8_t *activation, uint8_t *weight, uint8_t *bias,
                                                  int32 m, int32 k, int32 n, int32 weight_type, int32 layout_type,
                                                  int32 mp, int32 np, int32 kp, int32 scale_block_num,
-                                                 int32 scale_asymmetric, int32 weight_is_vrmpy);
+                                                 int32 scale_asymmetric, int32 weight_is_vrmpy, int32 row_stride);
 
 extern AEEResult htp_ops_tmac_a16w1_fp16(uint8_t* output, uint8_t* activation,
                                         uint8_t* weight, uint8_t* scale, uint8_t* bias,
@@ -117,6 +137,11 @@ extern AEEResult htp_ops_select(uint8_t* dst, uint8_t* cond, uint8_t* src1, uint
 extern AEEResult htp_ops_shared_gather(uint8_t *dst, uint8_t *indices, uint8_t *weight, int32 selectSize, int32 ic,
                                        int32 oc, int32 bytes, int32 isInt4, int32 scaleBlockNum, int32 scaleAsymmetric);
 extern AEEResult htp_ops_zero(uint8_t* dst, int32 size);
+extern "C" AEEResult htp_ops_gated_rms_norm(const DSPGatedRMSNormParam *p, const uint8_t *x, const uint8_t *z,
+                                            const uint8_t *gamma, const uint8_t *beta, uint8_t *out);
+extern "C" AEEResult htp_ops_linear_attention(const DSPLinearAttnParam *p, const uint8_t *qkv, const uint8_t *in1,
+                                              const uint8_t *in2, const uint8_t *conv_w, const uint8_t *gate_const,
+                                              uint8_t *out, uint8_t *conv_state, uint8_t *rnn_state, uint8_t *conv_out);
 extern AEEResult htp_ops_topkv2_k1_fp16(uint8_t* values, uint8_t* indices, uint8_t* input, int32 rowSize, int32 rows);
 extern AEEResult htp_ops_softmax(uint8_t* dst, const uint8_t* src, int32 outside, int32 channel, int32 inside, int32 bytes);
 extern AEEResult htp_ops_reduction(uint8_t* dst, const uint8_t* src, int32 outside, int32 reduce, int32 inside, int32 type, int32 bytes);
@@ -182,19 +207,27 @@ static void sync_group_tensors(MmapManager* mmap_manager, int32 syncGroupFd, int
     }
 }
 
-int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* command) {
-    int32_t opType = command->type();
-    auto inputs = command->inputs();
-    auto outputs = command->outputs();
-    auto params = command->params();
+// Commands run one at a time on the queue thread, so a plain counter is enough.
+static unsigned long g_command_seq = 0;
 
-    uint8_t* mapped_ptrs[64];
-    int mapped_ptrs_size = 0;
-    if (inputs->size() + outputs->size() > 64) {
-        FARF(ERROR, "htp_execute_command: too many tensors inputs=%d outputs=%d",
-             (int)inputs->size(), (int)outputs->size());
-        return AEE_EBADPARM;
-    }
+extern "C" unsigned long htp_ops_command_seq(void) {
+  return g_command_seq;
+}
+
+int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* command) {
+  ++g_command_seq;
+  int32_t opType  = command->type();
+  auto    inputs  = command->inputs();
+  auto    outputs = command->outputs();
+  auto    params  = command->params();
+
+  uint8_t *mapped_ptrs[64];
+  int      mapped_ptrs_size = 0;
+  if (inputs->size() + outputs->size() > 64) {
+    FARF(ERROR, "htp_execute_command: too many tensors inputs=%d outputs=%d", (int) inputs->size(),
+         (int) outputs->size());
+    return AEE_EBADPARM;
+  }
 
     for (size_t i = 0; i < inputs->size(); i++) {
         auto tensor = inputs->Get(i);
@@ -262,12 +295,16 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
             int scale_block_num = params && params->size() > 8 ? intParams[8] : 1;
             int scale_asymmetric = params && params->size() > 9 ? intParams[9] : 0;
             int weight_is_vrmpy  = params && params->size() > 10 ? intParams[10] : 0;
-            ret = htp_ops_matmul_q4block_a16_fp16(mapped_ptrs[inputs->size()],  // output
-                                                  mapped_ptrs[0],               // activation (FP16)
+            // [11]: row stride of the pack-64 activation / output when this command is a row window of them,
+            // [12]: the window's first row; pack-64 rows are 128 bytes apart inside a pack.
+            int row_stride       = params && params->size() > 11 ? intParams[11] : m;
+            int row_offset       = params && params->size() > 12 ? intParams[12] : 0;
+            ret = htp_ops_matmul_q4block_a16_fp16(mapped_ptrs[inputs->size()] + (size_t) row_offset * 128,  // output
+                                                  mapped_ptrs[0] + (size_t) row_offset * 128,  // activation (FP16)
                                                   mapped_ptrs[1],  // qweight (vrmpy INT4 tiles when weight_is_vrmpy)
                                                   mapped_ptrs[2],  // bias (FP16)
                                                   m, k, n, weight_type, layout_type, mp, np, kp, scale_block_num,
-                                                  scale_asymmetric, weight_is_vrmpy);
+                                                  scale_asymmetric, weight_is_vrmpy, row_stride);
             break;
         }
         case DSP_OP_MATMUL_Q4A16_GEMV_I8: {
@@ -282,6 +319,25 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
                                                k, n, scale_block_num, scale_asymmetric);
             break;
         }
+        case DSP_OP_MATMUL_Q4A16_GEMV_I8_FUSED:
+          {
+            const int nmem   = params && params->size() >= 12 + DSP_GEMV_I8_MAX_SEGMENTS ? intParams[11] : 0;
+            const int gateUp = nmem > 0 ? intParams[10] : 0;
+            if (nmem < 1 || nmem > DSP_GEMV_I8_MAX_SEGMENTS || (int) inputs->size() != 1 + 2 * nmem ||
+                (int) outputs->size() != (gateUp ? 1 : nmem) || mapped_ptrs[0] == nullptr) {
+              ret = AEE_EBADPARM;
+              break;
+            }
+            const uint8_t *weights[DSP_GEMV_I8_MAX_SEGMENTS];
+            const uint8_t *biases[DSP_GEMV_I8_MAX_SEGMENTS];
+            for (int p = 0; p < nmem; ++p) {
+              weights[p] = mapped_ptrs[1 + 2 * p];
+              biases[p]  = mapped_ptrs[2 + 2 * p];
+            }
+            ret = hmx_matmulq4block_gemv_i8_fused(&mapped_ptrs[inputs->size()], weights, biases, intParams + 12, nmem,
+                                                  gateUp, mapped_ptrs[0], intParams[1], intParams[8], intParams[9]);
+            break;
+          }
         case DSP_OP_MATMUL_W8A16_GEMV_I8:
           {
             int k               = intParams[1];
@@ -363,6 +419,30 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
                                       bytes);
             break;
         }
+        case DSP_OP_LINEAR_ATTN:
+          {
+            if (inputs->size() != 5 || outputs->size() != 4 || params == nullptr ||
+                params->size() * sizeof(int32_t) != sizeof(DSPLinearAttnParam)) {
+              ret = AEE_EBADPARM;
+              break;
+            }
+            const uint8_t *const *in  = (const uint8_t *const *) mapped_ptrs;
+            uint8_t             **out = mapped_ptrs + inputs->size();
+            ret = htp_ops_linear_attention((const DSPLinearAttnParam *) intParams, in[0], in[1], in[2], in[3], in[4],
+                                           out[0], out[1], out[2], out[3]);
+            break;
+          }
+        case DSP_OP_GATED_RMS_NORM:
+          {
+            if (inputs->size() != 4 || outputs->size() != 1 || params == nullptr ||
+                params->size() * sizeof(int32_t) != sizeof(DSPGatedRMSNormParam)) {
+              ret = AEE_EBADPARM;
+              break;
+            }
+            ret = htp_ops_gated_rms_norm((const DSPGatedRMSNormParam *) intParams, mapped_ptrs[0], mapped_ptrs[1],
+                                         mapped_ptrs[2], mapped_ptrs[3], mapped_ptrs[4]);
+            break;
+          }
         case DSP_OP_ZERO: {
             ret = htp_ops_zero(mapped_ptrs[inputs->size()], intParams[0]);
             break;
@@ -770,6 +850,10 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
     return ret;
 }
 
+// A VTCM overflow is reported as this base plus the DSPOpType that overflowed, so the host's
+// "execute_command_group failed with code N" names the op instead of just saying out-of-memory.
+static constexpr int kVtcmOverflowStatusBase = 0x5000;
+
 static int execute_single_command(MmapManager* mmap_manager, int32 cmdFd, int32 cmdOffset, int32 cmdSize, int32 dirty, int* profile = nullptr) {
     void* cmd_base = NULL;
     if ((cmd_base = mmap_manager_get_map_local(mmap_manager, cmdFd)) == NULL) {
@@ -793,17 +877,58 @@ static int execute_single_command(MmapManager* mmap_manager, int32 cmdFd, int32 
         start_time = HAP_perf_get_time_us();
     }
 
+    const unsigned int vtcmOverflowBefore = htp_vtcm_overflow_count();
     int ret = htp_execute_command(mmap_manager, command);
+    if (ret == 0 && htp_vtcm_overflow_count() != vtcmOverflowBefore) {
+      // vtcm_seq_alloc clamped a request back into VTCM, so this op's buffers alias each other and
+      // its output is garbage. Report the op type in the code: the host only prints the return value,
+      // and FARF does not reach logcat on every arch.
+      FARF(ERROR, "[HTP] op %d overflowed VTCM by %u bytes", (int) command->type(), htp_vtcm_overflow_worst_bytes());
+      return kVtcmOverflowStatusBase + (int) command->type();
+    }
 
     if (profile) {
         unsigned long long end_time = HAP_perf_get_time_us();
         int opType = command->type();
         profile[opType] += (int)(end_time - start_time);
 #if HTP_MM_PHASE_PROFILE
-        // HMX prefill phase breakdown (us) into spare slots 200..207.
-        extern unsigned long long g_mm_phase_us[13];
-        for (int _p = 0; _p < 13; ++_p) {
+        // HMX prefill phase breakdown into spare slots 200..231: 200..212 plus 224 and 228..231 are
+        // microseconds, the rest are traffic / shape counters (see getDSPOpName). 229..231 (pre-loop
+        // submits, next-panel submits, allocation) share their slots with the LA profiler, whose names the
+        // host prints for them; the two profilers are never enabled together.
+        extern unsigned long long g_mm_phase_us[32];
+        for (int _p = 0; _p < 32; ++_p) {
           profile[200 + _p] = (int) g_mm_phase_us[_p];
+        }
+#endif
+#if HTP_MM_MICROBENCH
+        extern unsigned long long g_mm_mb[16];
+        for (int _p = 0; _p < 16; ++_p) {
+          profile[104 + _p] = (int) g_mm_mb[_p];
+        }
+#endif
+#if HTP_LA_HMX_SELFCHECK
+        extern unsigned long long g_la_sc[4];
+        for (int _p = 0; _p < 4; ++_p) {
+          profile[229 + _p] = (int) g_la_sc[_p];
+        }
+#endif
+#if HTP_LA_MICROBENCH
+        extern unsigned long long g_la_mb_us[6];
+        for (int _p = 0; _p < 6; ++_p) {
+          profile[229 + _p] = (int) g_la_mb_us[_p];
+        }
+#endif
+#if HTP_LA_PHASE_PROFILE
+        // Summed over workers, in microseconds (qtimer is 19.2 MHz). Divide by the worker count for the
+        // stage's share of the op's wall clock.
+        extern unsigned long long g_la_phase_ticks[32][15];
+        for (int _p = 0; _p < 15; ++_p) {
+          unsigned long long _sum = 0;
+          for (int _w = 0; _w < 32; ++_w) {
+            _sum += g_la_phase_ticks[_w][_p];
+          }
+          profile[229 + _p] = (int) (_sum * 10 / 192);
         }
 #endif
 #if HTP_QATTN_PHASE_PROFILE

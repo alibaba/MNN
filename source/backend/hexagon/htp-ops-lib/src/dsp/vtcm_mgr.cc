@@ -153,6 +153,24 @@ int vtcm_manager_get_ctx_id() {
   return vtcm_manager::vtcm_mgr_ctx_id;
 }
 
+static volatile unsigned int g_vtcm_overflow_count       = 0;
+static volatile unsigned int g_vtcm_overflow_worst_bytes = 0;
+
+void htp_vtcm_overflow_note(size_t overshoot) {
+  g_vtcm_overflow_count = g_vtcm_overflow_count + 1;
+  if (overshoot > (size_t) g_vtcm_overflow_worst_bytes) {
+    g_vtcm_overflow_worst_bytes = (unsigned int) overshoot;
+  }
+}
+
+unsigned int htp_vtcm_overflow_count(void) {
+  return g_vtcm_overflow_count;
+}
+
+unsigned int htp_vtcm_overflow_worst_bytes(void) {
+  return g_vtcm_overflow_worst_bytes;
+}
+
 void *vtcm_manager_reserve_area(const char *name, size_t size, size_t alignment) {
   using namespace vtcm_manager;
 

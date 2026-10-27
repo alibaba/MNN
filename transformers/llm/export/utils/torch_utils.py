@@ -1,4 +1,5 @@
 import torch
+from contextlib import nullcontext
 from utils.hqq_quantizer import HQQQuantizer
 from packaging.version import Version
 
@@ -100,7 +101,9 @@ def _quant_dispatch(weight, quant_bit, quant_block, symmetric, awq, hqq):
         try:
             torch.cuda.empty_cache()
             return _quant_on_device(weight.cuda(), quant_bit, quant_block, symmetric, awq, hqq)
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as error:
+            if not isinstance(error, torch.cuda.OutOfMemoryError) and 'out of memory' not in str(error).lower():
+                raise
             torch.cuda.empty_cache()
     if torch.backends.mps.is_available():
         try:
@@ -126,6 +129,8 @@ def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
     return torch.cat(q_weights), torch.cat(alphas)
 
 def onnx_export(model, inputs, onnx_model, input_names, output_names, dynamic_axes=None):
+    from .qat import active_qat_loader
+    qat_loader = active_qat_loader.get()
     export_kwargs = {
         'input_names': input_names,
         'output_names': output_names,
@@ -139,7 +144,38 @@ def onnx_export(model, inputs, onnx_model, input_names, output_names, dynamic_ax
     if Version(torch.__version__) >= Version("2.4.0"):
         export_kwargs['dynamo'] = False
 
-    torch.onnx.export(
-            model, inputs,
-            onnx_model,
-            **export_kwargs)
+    with qat_loader.export_weights(model, onnx_model) if qat_loader is not None else nullcontext():
+        torch.onnx.export(
+                model, inputs,
+                onnx_model,
+                **export_kwargs)
+
+class EncoderExport(torch.nn.Module):
+    """Adapt native media tensors to a model and return token-major features."""
+    def __init__(self, model, embedding_scale=1.0, output_axes=(1, 0, 2), squeeze_dim=None, input_transform=None):
+        super().__init__()
+        self.model = model
+        self.embedding_scale = embedding_scale
+        self.output_axes = output_axes
+        self.squeeze_dim = squeeze_dim
+        self.input_transform = input_transform
+
+    def forward(self, *inputs):
+        if self.input_transform is not None:
+            inputs = self.input_transform(*inputs)
+        outputs = self.model(*inputs)
+        features = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
+        if self.squeeze_dim is not None:
+            features = features.squeeze(self.squeeze_dim)
+        if self.output_axes is not None:
+            features = features.permute(*self.output_axes)
+        if self.embedding_scale != 1.0:
+            features = features / self.embedding_scale
+        return (features, *outputs[1:]) if isinstance(outputs, (tuple, list)) else features
+
+
+def embedding_scale(base):
+    scale = getattr(base, 'scale_emb', None)
+    if scale is None:
+        return 1.0
+    return float(scale.detach().cpu()) if isinstance(scale, torch.Tensor) else float(scale)

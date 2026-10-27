@@ -85,7 +85,7 @@ typedef struct {
   __fp16* vtcm_weight;
   dma_desc_1d_t* depend;
   worker_synctoken_t* shared_sync;
-} process_chunk_task_state_t;
+} q4block_process_chunk_task_state_t;
 
 static inline int matmul_q4block_scale_output_passes(int scale_block_num) {
   if (scale_block_num <= 1) {
@@ -101,7 +101,7 @@ static inline void wait_q4_weight_dma_done(const dma_desc_1d_t* depend) {
   }
 }
 
-static inline void process_q4_weight_chunk(const process_chunk_task_state_t* state) {
+static inline void process_q4_weight_chunk(const q4block_process_chunk_task_state_t *state) {
   wait_q4_weight_dma_done(state->depend);
 
   HVX_Vector vlut_cvt = vmemu(q4_to_fp16_lut);
@@ -159,7 +159,7 @@ static inline void process_q4_weight_chunk(const process_chunk_task_state_t* sta
 
 static void process_chunk_worker_loop(void* data, int _worker_index) {
   (void)_worker_index;
-  process_chunk_task_state_t* state = (process_chunk_task_state_t*)data;
+  q4block_process_chunk_task_state_t *state = (q4block_process_chunk_task_state_t *) data;
   process_q4_weight_chunk(state);
   worker_pool_synctoken_jobdone(state->shared_sync);
 }
@@ -425,9 +425,9 @@ typedef struct {
   __fp16        *vtcm_reduced_output;
   __fp16        *vtcm_packed_scales;
   __fp16        *vtcm_hmx_scales;
-} MatmulParam;
+} Q4BlockMatmulParam;
 
-static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
+static int hmx_matmulq4fp16_mle32_part(const Q4BlockMatmulParam *param) {
   uint8_t       *c                    = param->c;
   const uint8_t *a                    = param->a;
   const uint8_t *b                    = param->b;
@@ -556,7 +556,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     dmstart(&weight_desc[0]);
 
     worker_synctoken_t sync_token[NUM_CHUNKS];
-    process_chunk_task_state_t chunk_states[NUM_CHUNKS];
+    q4block_process_chunk_task_state_t chunk_states[NUM_CHUNKS];
     worker_synctoken_t reduce_sync_token[NUM_CHUNKS];
     reduce_q4block_task_state_t reduce_states[NUM_CHUNKS];
     int chunk_weight_ready[NUM_CHUNKS];
@@ -707,7 +707,7 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t *c, const uint8_t *a, const uint
     return -3;
   }
   const int scale_output_passes = matmul_q4block_scale_output_passes(scale_block_num);
-  MatmulParam param               = {
+  Q4BlockMatmulParam param               = {
     .c                = c,
     .a                = a,
     .b                = b,
@@ -732,6 +732,12 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t *c, const uint8_t *a, const uint
   param.vtcm_weight_int4 = (uint8_t *) vtcm_seq_alloc(&vtcm_ptr, param.np_chunk * weight_int4_bytes_per_np);
   param.vtcm_activation = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, param.act_bytes_per_mp);
   param.vtcm_activation_cache = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, kp_max * 128);
+  // HMX writes its 2 KB output tile (mxmem) and reads the output scale/bias block (bias_mxmem2) inside a 2 KB-aligned
+  // window, wrapping within it. vtcm_seq_alloc only aligns to 128 B, and kp * 128 above is not a 2 KB multiple
+  // unless kp % 16 == 0: the rows past the window end then landed on the activation cache, so every block whose
+  // pair index crossed it read a wrong partial (ic 896: blocks 8..13; ic 1280: blocks 16..19), and an odd
+  // np_chunk misaligned the scale block too, collapsing the whole output to the bias.
+  vtcm_ptr                    = (uint8_t *) (((uintptr_t) vtcm_ptr + 2047) & ~(uintptr_t) 2047);
   int output_partition_count = scale_output_passes > 1 ? scale_output_passes : 1;
   param.vtcm_output = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr,
                                                 param.np_chunk * OUTPUT_AREA_SIZE * output_partition_count);
@@ -742,6 +748,7 @@ static int hmx_matmulq4fp16_mle32_entry(uint8_t *c, const uint8_t *a, const uint
   // vtcm_seq_alloc does not bounds check, so the two must be changed together.
   param.vtcm_packed_scales    = (__fp16 *) vtcm_seq_alloc(
     &vtcm_ptr, param.np_chunk * OUTPUT_AREA_SIZE * scale_partition_count * (scale_asymmetric ? 2 : 1));
+  vtcm_ptr              = (uint8_t *) (((uintptr_t) vtcm_ptr + 2047) & ~(uintptr_t) 2047);
   param.vtcm_hmx_scales = (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, 256);
 
   return hmx_matmulq4fp16_mle32_part(&param);

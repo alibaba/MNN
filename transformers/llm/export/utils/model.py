@@ -12,6 +12,7 @@ from utils.config import LlmConfig
 from utils.tokenizer import LlmTokenizer
 from utils.model_mapper import ModelMapper
 from utils.transformers import Embedding, Rotary, Decoder, Lm
+from utils.qat import mark_qat_sources, filter_qat_unexpected_keys
 
 
 def remap_hunyuan_vl_state_dict(state_dict):
@@ -160,6 +161,7 @@ class LlmModel(PreTrainedModel):
             'lfm2_vl': 'Lfm2VlForConditionalGeneration',
             'gemma4': 'Gemma4ForConditionalGeneration',
             'hunyuan_vl': 'HunYuanVLForConditionalGeneration',
+            'minicpmv4_7': 'MiniCPMV4_7ForConditionalGeneration',
         }
         if model_type is None or model_type not in MODEL_CLASS_MAPPING:
             return AutoModelForCausalLM
@@ -176,6 +178,7 @@ class LlmModel(PreTrainedModel):
         config.export_args = args
         model_type = config.model_type
         model_class = cls.get_model_class(model_type)
+        source_names = None
 
         load_kwargs = {'trust_remote_code': True}
         if Version(importlib.metadata.version("transformers")) >= Version("4.56.0"):
@@ -223,8 +226,13 @@ class LlmModel(PreTrainedModel):
                     original_model = model_class._from_config(original_config)
                 else:
                     original_model = model_class(original_config)
-                state_dict = remap_hunyuan_vl_state_dict(load_hunyuan_vl_state_dict(pretrained_model_name_or_path))
+                state_dict = load_hunyuan_vl_state_dict(pretrained_model_name_or_path)
+                if args is not None and getattr(args, 'qat', False):
+                    source_names = remap_hunyuan_vl_state_dict({key: key for key in state_dict})
+                state_dict = remap_hunyuan_vl_state_dict(state_dict)
                 missing, unexpected = original_model.load_state_dict(state_dict, strict=False)
+                if args is not None and getattr(args, 'qat', False):
+                    unexpected = filter_qat_unexpected_keys(unexpected, state_dict, args)
                 if missing or unexpected:
                     raise RuntimeError(
                         "HunyuanVL fallback weight load mismatch: "
@@ -248,6 +256,8 @@ class LlmModel(PreTrainedModel):
             original_model = adapter.merge_and_unload(progressbar=True)
 
         original_model = original_model.eval()
+        if args is not None and getattr(args, 'qat', False):
+            mark_qat_sources(original_model, args, source_names)
         model = cls(config, args)
 
         ModelMapper.do_map(model, original_model, config.model_map['model'])
@@ -258,6 +268,8 @@ class LlmModel(PreTrainedModel):
         )
 
         # Rebuild modules
+        if args is not None and getattr(args, 'qat', False):
+            source_lm = model.lm if model.lm is not None else model.embed
         if model.lm is None:
             out_features, in_features = model.embed.weight.shape
             model.lm = torch.nn.Linear(in_features, out_features, bias=False)
@@ -267,6 +279,9 @@ class LlmModel(PreTrainedModel):
             out_features, in_features = weight.shape
             model.lm = torch.nn.Linear(in_features, out_features, bias=False)
             model.lm.weight = weight
+        if args is not None and getattr(args, 'qat', False) and model.lm is not source_lm:
+            from utils.qat import copy_qat_source
+            copy_qat_source(source_lm, model.lm)
 
         model.embed = Embedding(model.embed, config)
 
@@ -645,10 +660,14 @@ class EmbeddingModel(LlmModel):
             model.is_reranker = True
             from transformers import AutoModelForSequenceClassification
             origin_model = AutoModelForSequenceClassification.from_pretrained(pretrained_model_name_or_path, config=config, trust_remote_code=True).float().eval()
+            if args is not None and getattr(args, 'qat', False):
+                mark_qat_sources(origin_model, args)
             model.classifier = origin_model.classifier
             origin_model = origin_model.new
         else:
             origin_model = AutoModel.from_pretrained(pretrained_model_name_or_path, config=config, trust_remote_code=True).float().eval()
+            if args is not None and getattr(args, 'qat', False):
+                mark_qat_sources(origin_model, args)
 
         transformer = origin_model.encoder
         model.lm = origin_model.pooler
@@ -696,11 +715,15 @@ class EmbeddingModel(LlmModel):
             model_file = os.path.join(pretrained_model_name_or_path, 'model.safetensors')
             state_dict = load_file(model_file)
             missing, unexpected = original_model.load_state_dict(state_dict, strict=False)
+            if args is not None and getattr(args, 'qat', False):
+                unexpected = filter_qat_unexpected_keys(unexpected, state_dict, args)
             if missing or unexpected:
                 raise RuntimeError(f'Failed to load qwen3_vl embedding checkpoint correctly. missing={missing[:8]}, unexpected={unexpected[:8]}')
             original_model = original_model.eval()
 
         original_model = original_model.float()
+        if args is not None and getattr(args, 'qat', False):
+            mark_qat_sources(original_model, args)
         model = cls(config, args)
         ModelMapper.do_map(model, original_model, config.model_map['model'])
 

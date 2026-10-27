@@ -54,6 +54,7 @@ else()
         ${CMAKE_CURRENT_BINARY_DIR}/htp_ops_skel.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/commu.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/execute_command.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/linear_attention_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/blit_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/tensor_convert.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/layer_norm_ops.cc
@@ -118,6 +119,15 @@ else()
         message(FATAL_ERROR "Unsupported HTP_OPS_PWL_VARIANT=${HTP_OPS_PWL_VARIANT}")
     endif()
     message(STATUS "Hexagon FP16 PWL variant: ${HTP_OPS_PWL_VARIANT}")
+    # A cache variable rather than a declared build switch, matching HTP_OPS_PWL_VARIANT above: these are
+    # internal knobs of this DSP sub-project, driven by sync_remote_build.sh / build.sh, and not user-facing
+    # build settings. test.sh's doc_check scans these files as plain text and requires every declared build
+    # switch to appear in docs/compile/cmake.md -- so avoid spelling the declaration keyword here too, or
+    # the comment itself gets parsed as a declaration.
+    set(HTP_OPS_MM_PHASE_PROFILE OFF CACHE BOOL "Enable fp16 HMX matmul phase profiling")
+    if(HTP_OPS_MM_PHASE_PROFILE)
+        target_compile_definitions(htp_ops_skel PRIVATE HTP_MM_PHASE_PROFILE=1)
+    endif()
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
         target_compile_definitions(htp_ops_skel PRIVATE $<$<COMPILE_LANGUAGE:CXX>:_Alignas=alignas>)
     endif()

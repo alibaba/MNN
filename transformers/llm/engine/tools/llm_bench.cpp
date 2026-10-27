@@ -1316,6 +1316,7 @@ int main(int argc, char ** argv) {
 
         file_t file = MNNOpenFile(llmWeightPath.c_str(), MNN_FILE_READ);
         t.modelSize = MNNGetFileSize(file);
+        MNNCloseFile(file);
 
         MNN::BackendConfig backendConfig;
         // Map backend parameter to MNN forward type (0=CPU, 1=METAL, 2=CUDA, 3=OPENCL)

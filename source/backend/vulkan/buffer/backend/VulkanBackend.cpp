@@ -27,6 +27,10 @@
 
 namespace MNN {
 
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+void registerVulkanIndexedLinearCreator();
+#endif
+
 static std::map<OpType, VulkanBackend::Creator*>* gCreator = nullptr;
 
 // Creator
@@ -97,6 +101,9 @@ static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest, 
 }
 
 VulkanBackend::VulkanBackend(const VulkanRuntime* runtime) : Backend(MNN_FORWARD_VULKAN) {
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    registerVulkanIndexedLinearCreator();
+#endif
     mRuntime = runtime;
     mDirect = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_RECORD_BATCH) == 0;
     mUseFP16 = (mRuntime->mPrecision != BackendConfig::Precision_High && mRuntime->mDevice->getFP16Support());

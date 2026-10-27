@@ -71,8 +71,13 @@ static inline dma_desc_1d_t* attn_prepare_weight_dma_descs(dma_desc_1d_t* curren
   return current_descs;
 }
 
-static void attn_transform_activation_hmx(__fp16* dst, const __fp16* src_raw, int valid_xi, int pair_packs, int kp) {
-  int raw_row_stride = pair_packs * 64;
+// Transform `valid_xi` activation rows into HMX tile layout. `src_row_stride` is in __fp16 elements, so
+// the source can be either the DMA raw staging (stride pair_packs*64) or the activation buffer itself
+// (stride N_padded / head_dim) -- the latter lets a VTCM-resident activation skip the DMA and the raw
+// staging round trip entirely. Rows are read 128B at a time; `src_aligned` selects aligned loads, which
+// hold when both the base and the row stride are 128B multiples.
+static void attn_transform_activation_hmx_strided(__fp16 *dst, const __fp16 *src, int src_row_stride, int valid_xi,
+                                                  int pair_packs, int kp, int src_aligned) {
   for (int pair_idx = 0; pair_idx < pair_packs; ++pair_idx) {
     uint8_t* dst_addr_k0 = (uint8_t*)(dst + (pair_idx * 2 + 0) * 32 * 32);
     uint8_t* dst_addr_k1 = (uint8_t*)(dst + (pair_idx * 2 + 1) * 32 * 32);
@@ -81,10 +86,10 @@ static void attn_transform_activation_hmx(__fp16* dst, const __fp16* src_raw, in
 
     int i = 0;
     for (; i <= valid_xi - 2; i += 2) {
-      const uint8_t* src_addr_0 = (const uint8_t*)(src_raw + (size_t)i * raw_row_stride + src_col_offset);
-      const uint8_t* src_addr_1 = (const uint8_t*)(src_raw + (size_t)(i + 1) * raw_row_stride + src_col_offset);
-      HVX_Vector v0 = vmem(src_addr_0);
-      HVX_Vector v1 = vmem(src_addr_1);
+      const uint8_t *src_addr_0  = (const uint8_t *) (src + (size_t) i * src_row_stride + src_col_offset);
+      const uint8_t *src_addr_1  = (const uint8_t *) (src + (size_t) (i + 1) * src_row_stride + src_col_offset);
+      HVX_Vector     v0          = src_aligned ? vmem(src_addr_0) : vmemu(src_addr_0);
+      HVX_Vector     v1          = src_aligned ? vmem(src_addr_1) : vmemu(src_addr_1);
       HVX_VectorPair vp = Q6_W_vdeal_VVR(v1, v0, 64);
       vmem(dst_addr_k0 + i * 64) = Q6_Vh_vshuff_Vh(Q6_V_lo_W(vp));
       if (has_k1) {
@@ -92,8 +97,8 @@ static void attn_transform_activation_hmx(__fp16* dst, const __fp16* src_raw, in
       }
     }
     if (i < valid_xi) {
-      const uint8_t* src_addr_0 = (const uint8_t*)(src_raw + (size_t)i * raw_row_stride + src_col_offset);
-      HVX_Vector v0 = vmem(src_addr_0);
+      const uint8_t *src_addr_0  = (const uint8_t *) (src + (size_t) i * src_row_stride + src_col_offset);
+      HVX_Vector     v0          = src_aligned ? vmem(src_addr_0) : vmemu(src_addr_0);
       HVX_Vector v1 = Q6_V_vzero();
       HVX_VectorPair vp = Q6_W_vdeal_VVR(v1, v0, 64);
       vmem(dst_addr_k0 + i * 64) = Q6_Vh_vshuff_Vh(Q6_V_lo_W(vp));
@@ -103,6 +108,11 @@ static void attn_transform_activation_hmx(__fp16* dst, const __fp16* src_raw, in
       i += 2;
     }
   }
+}
+
+static void attn_transform_activation_hmx(__fp16 *dst, const __fp16 *src_raw, int valid_xi, int pair_packs, int kp) {
+  // The raw staging is 128B-aligned by construction and its row stride is pair_packs*64 __fp16.
+  attn_transform_activation_hmx_strided(dst, src_raw, pair_packs * 64, valid_xi, pair_packs, kp, 1);
 }
 
 static inline void attn_store_output_packed_fp16(uint8_t* c, __fp16* vtcm_output, int oy_start, int oy_end, int ox, int M,

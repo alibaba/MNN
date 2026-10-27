@@ -567,6 +567,9 @@ void Matrix::SetAffineIdentity(float affine[6]) {
 }
 
 bool Matrix::asAffine(float affine[6]) const {
+    if (this->getPerspectiveTypeMaskOnly() & kPerspective_Mask) {
+        return false;
+    }
     if (affine) {
         affine[kAScaleX] = this->fMat[kMScaleX];
         affine[kASkewY]  = this->fMat[kMSkewY];
@@ -862,7 +865,17 @@ bool Matrix::mapRect(Rect* dst, const Rect& src) const {
         this->mapRectScaleTranslate(dst, src);
         return true;
     }
-    return false;
+    Point corners[4] = {{src.fLeft, src.fTop}, {src.fRight, src.fTop},
+                        {src.fRight, src.fBottom}, {src.fLeft, src.fBottom}};
+    this->mapPoints(corners, 4);
+    dst->set(corners[0].fX, corners[0].fY, corners[0].fX, corners[0].fY);
+    for (int i = 1; i < 4; ++i) {
+        dst->fLeft = std::min(dst->fLeft, corners[i].fX);
+        dst->fTop = std::min(dst->fTop, corners[i].fY);
+        dst->fRight = std::max(dst->fRight, corners[i].fX);
+        dst->fBottom = std::max(dst->fBottom, corners[i].fY);
+    }
+    return this->rectStaysRect();
 }
 
 ///////////////////////////////////////////////////////////////////////////////

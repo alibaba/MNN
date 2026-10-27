@@ -847,7 +847,16 @@ void HexagonBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTens
         markHostOutput(srcTensor);
         MNN_HEXAGON_PROFILE_FLUSH_COMMAND();
     }
-    if (dstType == MNN_FORWARD_HEXAGON && hasPendingHexagonWrite(dstTensor)) {
+    // The host writes into DSP memory right now, while the commands queued so far only run at the next
+    // flush. DYNAMIC buffers are recycled by lifetime, so a queued command may still have to read what
+    // occupied this range before (a write-after-read hazard), not only write it: two NC4HW4 graph inputs
+    // with disjoint lifetimes share one slot, and uploading the second one before the first one's consumer
+    // has run fed both consumers the second input. Flush first in either case.
+    if (dstType == MNN_FORWARD_HEXAGON &&
+        (hasPendingHexagonWrite(dstTensor) ||
+         (mRuntime->hasPendingCommand() &&
+          mRuntime->pendingCommandTouches(getDevicePtr(dstTensor).first, getDevicePtr(dstTensor).second,
+                                          (int)getSize(dstTensor))))) {
         MNN_HEXAGON_PROFILE_FLUSH_COMMAND();
     }
     if (dstType == MNN_FORWARD_HEXAGON) {

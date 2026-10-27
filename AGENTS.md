@@ -54,6 +54,7 @@ MNN supports end-to-end LLM export and inference:
 - **C++**: Google Style variant, see `.clang-format`. 4-space indent, 120-char line width, attached braces. Class names `PascalCase`, functions `camelCase`, member variables `mCamelCase`. RTTI and exceptions disabled (`-fno-rtti -fno-exceptions`). Default standard: C++11.
 - **Python**: Standard Python conventions
 - **Formatting**: `clang-format -i -style=file <file>`
+- **Comments**: 注释要精简，一处注释尽量两句话以内说清楚。只写代码本身看不出来的"为什么"，不要逐个成员/逐行解释，也不要写修改过程（如"替换了旧的 xxx"、"以前是 yyy"），这些放到 commit message 里。struct/类只在开头给一段整体说明，函数按类别分组即可。注释过多会让代码 AI 味太浓，反而降低可读性。
 
 > ⚠️ **禁止 C++ 全局对象（动态初始化）**:不允许在命名空间作用域定义需要动态初始化的非 POD 对象（如 `static const std::string` / `static const json` / 全局 STL 容器，**头文件中同样禁止**,每个包含它的 TU 都会生成一份）。这类对象产生 `__GLOBAL__sub_I_*` 启动初始化函数，会被手淘等打包静态检查拦截（代码安全风险 + 启动性能下降）。替代方案:`constexpr`/POD 常量（直接进 .rodata)、函数内 `static`（懒初始化）、或按需构造返回。
 

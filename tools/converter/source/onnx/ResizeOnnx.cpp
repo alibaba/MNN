@@ -14,7 +14,7 @@ MNN::OpParameter ResizeOnnx::type() {
 
 void ResizeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
     std::unique_ptr<MNN::InterpT> resizeParam(new MNN::InterpT);
-    std::string resizeMode = "";
+    std::string resizeMode = "nearest";
     std::string coordMode = "half_pixel";
     std::string nearestMode = "round_prefer_floor";
     float cubicFactor = -0.75f;

@@ -25,6 +25,10 @@
 namespace MNN {
 namespace CUDA {
 
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+void registerCUDAIndexedLinear();
+#endif
+
 std::map<OpType, CUDABackend::Creator*>* gCreator() {
     static std::map<OpType, CUDABackend::Creator*>* creators = nullptr;
     static std::once_flag gOnce;
@@ -131,6 +135,9 @@ CUDABackend::CUDABackend(const Runtime* runtime,
                         std::shared_ptr<CUDARuntime> rt,
                         int precision, BackendConfig::MemoryMode memory)
     : Backend(MNN_FORWARD_CUDA) {
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    registerCUDAIndexedLinear();
+#endif
 #ifdef LOG_VERBOSE
         MNN_PRINT("cuda backend create\n");
 #endif

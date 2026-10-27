@@ -1,6 +1,6 @@
 ---
 name: bugfix
-description: MNN 各类正确性/回归 bug 的排查入口，按 bug 类别分册组织，本文件只做症状分流。分册：内存别名与生命周期（arena reuse、`MemChunk`、融合引入的别名竞争）、量化误差与导出侧权重损坏（低 bit 打包、导出分块、PyTorch MPS/CUDA 大张量静默错误）、host 侧并发/线程竞争（共享所有权的引用计数被写坏、析构链崩溃、TSAN A/B 与编译期哨兵）、fp16 表示能力不足（长序列复读、position 塌缩，以及「实时计算→预计算查表」重构的三类陷阱）、GPU shader 越界与 command buffer 故障、后端 kernel 隐式假设违反（causal mask、layout 约定）、持久化缓存误信（weight-mmap sync 自我污染、跨模型缓存复用）、逐 run 不同的非确定性（未初始化内存/堆垃圾依赖、多线程动态分发×异构 kernel）。用户报告 MNN 输出乱码/退化、单测或 golden 对不上、改动后回归、换后端结果不同、开某开关才错、结果每次跑都不一样、或崩在析构链上且只在后台线程异步释放时偶现时使用。
+description: MNN 各类正确性/回归 bug 的排查入口，按 bug 类别分册组织，本文件只做症状分流。分册：内存别名与生命周期（arena reuse、`MemChunk`、融合引入的别名竞争）、量化误差与导出侧权重损坏（低 bit 打包、导出分块、PyTorch MPS/CUDA 大张量静默错误）、host 侧并发/线程竞争（共享所有权的引用计数被写坏、析构链崩溃、TSAN A/B 与编译期哨兵）、fp16 表示能力不足（长序列复读、position 塌缩，以及「实时计算→预计算查表」重构的三类陷阱）、GPU shader 越界与 command buffer 故障、后端 kernel 隐式假设违反（causal mask、layout 约定）、持久化缓存误信（weight-mmap sync 自我污染、跨模型缓存复用）、逐 run 不同的非确定性（未初始化内存/堆垃圾依赖、多线程动态分发×异构 kernel）、跨 command buffer 的 host↔device 时序竞争（在飞 uniform 被 encode 期覆写、未上传的输入被读取；单跑全过而家族里偶发、scribble 下不复现、插 GPU drain 就通过）。用户报告 MNN 输出乱码/退化、单测或 golden 对不上、改动后回归、换后端结果不同、开某开关才错、结果每次跑都不一样、单测单跑过但和别的用例一起跑就偶发错、或崩在析构链上且只在后台线程异步释放时偶现时使用。
 ---
 
 # MNN Bugfix 排查 Skill（入口）
@@ -39,20 +39,23 @@ description: MNN 各类正确性/回归 bug 的排查入口，按 bug 类别分�
 | [`kernel-assumptions.md`](kernel-assumptions.md) | 某**类**模型（SWA / prefix LM / bidirectional）静默乱码，标准 causal LLM 正常；调一个"看起来无关"的性能开关就好 | §7 |
 | [`stale-cache.md`](stale-cache.md) | 开 `use_mmap` 才乱码（单字符刷屏）；**App 内错、`llm_demo` 对**；清缓存目录或换 `tmp_path` 就好；换模型不换目录后乱码 | §8 |
 | [`nondeterminism.md`](nondeterminism.md) | **同一输入每次跑结果都不一样**：§9 输出在正常/乱码间漂移、加无关代码就"好了"、只在某线程数触发、大片 ±65504 或 `!!!`、bisect 结论不稳定；§10 内容连贯但逐 run 不同（贪心解码仍分叉） | §9、§10 |
+| [`gpu-inflight-overwrite.md`](gpu-inflight-overwrite.md) | **单跑 N 次全过、放进测试家族里偶发失败**，且 **`MallocScribble` 下仍全过**（← 与 §9 的硬分野）；错误值合理但偏 10~30%、出错位置对应"最早写入的那批数据"；**两次 forward 之间插一次 GPU drain 就稳定通过**；增删无关前置用例失败率就变；GPU 跑分逐 run 抖动像"某条快路径时有时无"；改了 uniform 传递方式后 decode 从第 2 个 token 起全错 | §11 |
 
 > **旧编号一列是给历史引用用的**：其他 skill 与复盘记录里写的「general-debug §9 / §10」等指的就是
 > 这里对应的分册。分册内部的小节号（§1.3、§5.6、§9.4 …）保持不变，可以继续直接引用。
-> §3 只收 **host 侧共享所有权 / 引用计数**的竞争；相邻的两类竞争在别处：
-> [`memory-aliasing.md`](memory-aliasing.md) §1.6（GPU 单 dispatch 内 threadgroup 竞争，含逐 op commit 二分法）
-> 与 [`nondeterminism.md`](nondeterminism.md) §10（CPU 动态分发 × 异构 kernel）。
+> §3 只收 **host 侧共享所有权 / 引用计数**的竞争；相邻的三类竞争在别处：
+> [`memory-aliasing.md`](memory-aliasing.md) §1.6（GPU 单 dispatch 内 threadgroup 竞争，含逐 op commit 二分法）、
+> [`nondeterminism.md`](nondeterminism.md) §10（CPU 动态分发 × 异构 kernel）
+> 与 [`gpu-inflight-overwrite.md`](gpu-inflight-overwrite.md) §11（**跨 command buffer** 的 host↔device 时序）。
 >
 > 尚未入库：**图优化回归**（某个 converter pass 之后跑错、disable 该 pass 就正常），即历史编号 §4。
-> 首次复现时按下面的维护约定新开一份分册，编号从 **§11** 起——§4 是历史空号，不再复用。
+> 首次复现时按下面的维护约定新开一份分册，编号从 **§12** 起——§4 是历史空号，不再复用。
 
 **症状横跨多类时**的推荐顺序：先做「所有后端是否一致地错」的分流（一致 → `export-and-quant`，
 不一致 → `memory-aliasing`），再做「fp32 是否也错」（fp32 对 → `fp16-range`），
 最后才怀疑 kernel 假设与缓存。**「每次跑都不一样」优先于一切**——非确定性会让前面所有对拍结论作废，
-先去 `nondeterminism.md` 把它压成确定性问题。
+先去 `nondeterminism.md` 把它压成确定性问题；**若 `MallocScribble` 下不复现、且单跑该用例永远通过
+只有和别的用例一起跑才偶发**，那不是 §9，直接转 `gpu-inflight-overwrite.md`（§11）。
 
 ## 通用排查原则（所有分册共用）
 
@@ -84,7 +87,8 @@ skills/general-debug/
 ├── gpu-oob.md               §6 GPU shader 越界 / command buffer 故障
 ├── kernel-assumptions.md    §7 后端 kernel 隐式假设违反（causal mask、layout 约定）
 ├── stale-cache.md           §8 持久化缓存误信（weight-mmap sync 自我污染、跨模型污染）
-└── nondeterminism.md        §9 未初始化内存 / 堆垃圾依赖 + §10 多线程数值非确定
+├── nondeterminism.md        §9 未初始化内存 / 堆垃圾依赖 + §10 多线程数值非确定
+└── gpu-inflight-overwrite.md §11 host↔device 时序竞争（在飞 uniform 被 encode 期覆写 / 未上传的输入被读取）
 ```
 
 ## 维护约定

@@ -48,27 +48,33 @@ static inline void __attribute__((unused)) vrmpy_tile_to_hmx_int4_512(uint8_t *d
 
 // vrmpy fp32 block scales -> HMX fp16 scale, per oc-tile.
 //
-// vrmpy scale layout: entry (y, b) starts at sw + (y*nblk + b)*VRMPY_SCALE_ENTRY_FLOATS and holds
-// 32 fp32 alpha(o=y*32+ocIn, b) in oc order, NOT duplicated. When the layer is asymmetric the entry
-// is twice as wide and carries 32 fp32 qbias(o, b) right after the scale, so one DMA covers both.
+// vrmpy scale layout: entry (y, b) is 128 B at sw + (y*nblk + b)*VRMPY_SCALE_ENTRY_FLOATS (in floats).
+//   symmetric:  32 fp32 alpha(o=y*32+ocIn, b) in oc order.
+//   asymmetric: 32 fp16 pairs, hf[2*ocIn] = alpha(o, b), hf[2*ocIn+1] = qbias(o, b) -- half the bytes of fp32
+//               scale + qbias, and the decode GEMV is DDR bound. A widening multiply splits it back into an
+//               fp32 scale and an fp32 qbias vector, both in oc order.
 // sw_oy_tile points at the oc-tile base (sw + y*nblk*entry_floats).
 // hvx_my_wsf_to_vhf(v1, v0) yields 64 fp16 with out[2i]=f16(v0[i]), out[2i+1]=f16(v1[i]).
-#define VRMPY_SCALE_ENTRY_FLOATS(asym) ((asym) ? 64 : 32)
-#define VRMPY_QBIAS_OFFSET_FLOATS      32
+#define VRMPY_SCALE_ENTRY_FLOATS(asym) 32
 
 // dup region (hmx_matmulq4fp16 / dequant_q4_tile_scaled vBlockScale):
 // 64 lanes, lane 2*ocIn = lane 2*ocIn+1 = f16(alpha(o, block)).
 static inline HVX_Vector __attribute__((unused)) vrmpy_scale_block_dup_hf(const float *sw_oy_tile, int block,
-                                                                          int entry_floats) {
-  HVX_Vector sf = *(const HVX_Vector *) (sw_oy_tile + (size_t) block * entry_floats);
-  return hvx_my_wsf_to_vhf(sf, sf);
+                                                                          int asym) {
+  HVX_Vector e = *(const HVX_Vector *) (sw_oy_tile + (size_t) block * VRMPY_SCALE_ENTRY_FLOATS(asym));
+  if (asym) {  // keep the even (scale) half of every word and copy it into the odd half
+    e = Q6_V_vand_VV(e, Q6_V_vsplat_R(0x0000ffff));
+    return Q6_V_vor_VV(e, Q6_Vw_vasl_VwR(e, 16));
+  }
+  return hvx_my_wsf_to_vhf(e, e);
 }
 
-// Same shape, reading the qbias half of an asymmetric entry. Only valid when entry_floats == 64.
+// Same shape, for the qbias of an asymmetric entry (the odd half of every word).
 static inline HVX_Vector __attribute__((unused)) vrmpy_qbias_block_dup_hf(const float *sw_oy_tile, int block,
-                                                                          int entry_floats) {
-  HVX_Vector sf = *(const HVX_Vector *) (sw_oy_tile + (size_t) block * entry_floats + VRMPY_QBIAS_OFFSET_FLOATS);
-  return hvx_my_wsf_to_vhf(sf, sf);
+                                                                          int asym) {
+  HVX_Vector e =
+    Q6_Vuw_vlsr_VuwR(*(const HVX_Vector *) (sw_oy_tile + (size_t) block * VRMPY_SCALE_ENTRY_FLOATS(asym)), 16);
+  return Q6_V_vor_VV(e, Q6_Vw_vasl_VwR(e, 16));
 }
 
 // packed region (mle32 accumulate): 64 lanes, lane 2*ocIn = f16(alpha(o,2p)),

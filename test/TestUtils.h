@@ -10,6 +10,7 @@
 #define TestUtils_h
 
 #include <assert.h>
+#include <cmath>
 #include <stdio.h>
 #include <functional>
 #include <string>
@@ -33,6 +34,13 @@ void dispatch(std::function<void(MNNForwardType)> payload);
  */
 void dispatch(std::function<void(MNNForwardType)> payload, MNNForwardType backend);
 
+template <typename T>
+bool checkScalarWithTolerance(T result, T reference, double threshold) {
+    // Equal infinities match, but NaNs and other non-finite mismatches do not.
+    return result == reference ||
+           (std::isfinite(result) && std::isfinite(reference) && fabs(result - reference) <= threshold);
+}
+
 /**
  @brief check the result with the ground truth
  @param result data
@@ -46,7 +54,7 @@ bool checkVector(const T* result, const T* rightData, size_t size, T threshold){
     MNN_ASSERT(rightData != nullptr);
     MNN_ASSERT(size >= 0);
     for(int i = 0; i < size; ++i){
-        if(fabs(result[i] - rightData[i]) > threshold){
+        if (!checkScalarWithTolerance(result[i], rightData[i], threshold)) {
             std::cout << "No." << i << " error, right: " << rightData[i] << ", compute: " << result[i] << std::endl;
             return false;
         }
@@ -62,11 +70,13 @@ bool checkVectorByRelativeError(const T* result, const T* rightData, int size, f
 
     float maxValue = 0.0f;
     for(int i = 0; i < size; ++i){
-        maxValue = fmax(fabs(rightData[i]), maxValue);
+        if (std::isfinite(rightData[i])) {
+            maxValue = fmax(fabs(rightData[i]), maxValue);
+        }
     }
     float reltiveError = maxValue * rtol;
     for(int i = 0; i < size; ++i){
-        if (fabs(result[i] - rightData[i]) > reltiveError) {
+        if (!checkScalarWithTolerance(result[i], rightData[i], reltiveError)) {
             std::cout << i << ": right: " << rightData[i] << ", compute: " << result[i] << std::endl;
             return false;
         }
@@ -82,11 +92,17 @@ bool checkVectorByRelativeError(const T* result, const T* rightData, const T* al
 
     float maxValue = 0.0f;
     for(int i = 0; i < size; ++i) {
-        maxValue = fmax(fmax(fabs(rightData[i]), fabs(alterRightData[i])), maxValue);
+        if (std::isfinite(rightData[i])) {
+            maxValue = fmax(fabs(rightData[i]), maxValue);
+        }
+        if (std::isfinite(alterRightData[i])) {
+            maxValue = fmax(fabs(alterRightData[i]), maxValue);
+        }
     }
     float reltiveError = maxValue * rtol;
     for(int i = 0; i < size; ++i) {
-        if (fabs(result[i] - rightData[i]) > reltiveError && fabs(result[i] - alterRightData[i]) > reltiveError) {
+        if (!checkScalarWithTolerance(result[i], rightData[i], reltiveError) &&
+            !checkScalarWithTolerance(result[i], alterRightData[i], reltiveError)) {
             std::cout << i << ": right: " << rightData[i] << " or " << alterRightData[i] << ", compute: " << result[i] << std::endl;
             std::cout << "abs error is " << fabs(result[i] - rightData[i]) << ", but relative error is required: " << reltiveError << std::endl;
             return false;

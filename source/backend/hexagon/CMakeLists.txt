@@ -14,7 +14,7 @@ set(MNN_HEXAGON_SRCS
 
 add_library(MNN_Hexagon OBJECT ${MNN_HEXAGON_SRCS})
 
-target_compile_definitions(MNN_Hexagon PRIVATE -DMNN_HEXAGON_ENABLED=1)
+# MNN_HEXAGON_ENABLED is a global add_definitions in the root CMakeLists (the geometry needs it too).
 if (MNN_HEXAGON_ASAN)
     target_compile_definitions(MNN_Hexagon PRIVATE -DMNN_HEXAGON_ASAN=1)
 endif()

@@ -417,5 +417,14 @@
       "filter":  "llm",
       "comment": "Runs test_multi_instance (2 concurrent Llm instances x 2 rounds) against the provisioned config.json. Guards against races on process-global state shared across instances (Metal replay proxy, tokenizer regex caches). Requires MNN_LLM_BUILD_TEST=ON; skipped when the binary is absent."
     }
+  },
+
+  "llm_engine_unit": {
+    "_comment": "Model-independent engine unit tests. No provisioning, so they run offline and are NOT skipped when the LLM model is unavailable -- test.sh runs them before the llm stage on both the local and the android path. The binaries count failures and exit non-zero instead of using assert(), because CI builds Release and -DNDEBUG compiles assert() out, which would make an assert-only test pass unconditionally.",
+    "stage": {
+      "name":    "llm-engine-unit",
+      "filter":  "llm",
+      "comment": "Runs test_omni_video_prompt: omni multimodal prompt parsing, qwen video frame sampling / aligned frame count / resize / effective max pixels, and the per-frame temporal vision mask fill. Requires MNN_LLM_BUILD_TEST=ON; skipped when the binary is absent."
+    }
   }
 }

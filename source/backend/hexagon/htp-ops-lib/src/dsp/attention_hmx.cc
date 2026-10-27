@@ -258,12 +258,32 @@ static inline void attn_wait_weight_dma(void) {
   QATTN_ADD(0, _tq);
 }
 
+// Where the HMX accumulator store should put this (ox, oy_start..) block of QK scores.
+//
+// ATTN_SCORES_TILE: straight into the score buffer at tile (ox, col_off/32 + oy_start), which is the
+// layout the accumulator store natively emits -- so attn_store_qk_scores below becomes a no-op and the
+// row-major re-layout pass disappears. The caller's loop over oy writes consecutive tiles, matching the
+// tile-major (ox, oy) order of the buffer.
+//
+// Otherwise: the small reusable staging that attn_store_qk_scores then re-lays out to row-major.
+static inline __fp16 *attn_qk_output_dst(const SyncAttentionTaskState *state, __fp16 *vtcm_output, float *scores,
+                                         size_t col_off, int ox, int oy_start) {
+  if (!state->scores_tile) {
+    return vtcm_output;
+  }
+  const size_t np_total = (size_t) state->N_padded / 32;
+  return (__fp16 *) scores + (((size_t) ox * np_total) + col_off / 32 + (size_t) oy_start) * 1024;
+}
+
 // ATTN_SCORES_FP16: dispatch the QK score store to fp16 or fp32. `scores` is the fp32 buffer base; for
 // fp16 we reinterpret it as __fp16* and offset by `col_off` elements (scores buffer is fp32-sized, so
 // the fp16 data uses its lower half).
 static inline void attn_store_qk_scores(const SyncAttentionTaskState *state, float *scores, size_t col_off,
                                         __fp16 *vtcm_output, int oy_start, int oy_end, int ox, int N, int valid_xi,
                                         int q_row_offset) {
+  if (state->scores_tile) {
+    return;  // attn_qk_output_dst pointed the accumulator store at the tiles directly
+  }
   unsigned long long _tq = QATTN_T0();
   if (state->scores_fp16) {
     attn_store_output_linear_fp16((uint8_t *) ((__fp16 *) scores + col_off), vtcm_output, oy_start, oy_end, ox, N,
@@ -273,6 +293,42 @@ static inline void attn_store_qk_scores(const SyncAttentionTaskState *state, flo
                                   state->N_padded, q_row_offset);
   }
   QATTN_ADD(2, _tq);
+}
+
+// Stage the activation for one call: DMA it into the raw staging as usual, or -- when the source is
+// already VTCM-resident -- skip both the DMA and the staging and let the transform read it in place.
+// Returns the source + row stride (in __fp16) the per-M-tile transform should use, and whether aligned
+// loads are safe for it.
+typedef struct {
+  const __fp16 *src;
+  int           row_stride;
+  int           aligned;
+  int           from_staging;  // src is the raw staging, so the per-tile offset is tile-major
+} AttnActivationSource;
+
+static inline AttnActivationSource attn_stage_activation(const SyncAttentionTaskState *state, dma_desc_2d_t *desc,
+                                                         const __fp16 *src, __fp16 *raw, int roi_width, int rows,
+                                                         int src_stride, int pair_packs, int clear_valid_rows_only) {
+  AttnActivationSource out;
+  if (state->activation_in_vtcm) {
+    out.src          = src;
+    out.row_stride   = src_stride;
+    // Both the base and the row stride must be 128B multiples for aligned vector loads.
+    out.aligned      = ((((uintptr_t) src) | ((uintptr_t) src_stride * sizeof(__fp16))) & 127u) == 0u;
+    out.from_staging = 0;
+    return out;
+  }
+  attn_hmx_load_activation_dma(desc, (const uint8_t *) src, raw, roi_width, rows, src_stride, pair_packs,
+                               clear_valid_rows_only);
+  out.src          = raw;
+  out.row_stride   = pair_packs * 64;
+  out.aligned      = 1;
+  out.from_staging = 1;
+  return out;
+}
+
+static inline const __fp16 *attn_activation_tile(const AttnActivationSource *a, int ox, int pair_packs) {
+  return a->from_staging ? a->src + (size_t) ox * 32 * pair_packs * 64 : a->src + (size_t) ox * 32 * a->row_stride;
 }
 
 void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores, const __fp16* q_ptr, int rows,
@@ -292,7 +348,7 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
     return;
   }
 
-  uint8_t* vtcm_ptr = (uint8_t*)vtcm_manager_get_vtcm_base();
+  uint8_t     *vtcm_ptr            = state->kernel_vtcm_base;
   __fp16* vtcm_weight = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, 2 * (size_t)np_chunk * 32 * kp * 32 * sizeof(int16_t));
   // Raw staging holds all mp M-tiles so they can be fetched with ONE DMA transfer (the queue-thread
   // DMA wait is ~0.75us of fixed per-transfer latency, bytes-independent -- see raw_tile_elems users).
@@ -332,18 +388,19 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
                                 ATTN_HMX_WEIGHT_LAYOUT_K_BLOCK256, kv_head, state->n_kv_heads, k_icP, np, 1);
 
       // All mp Q M-tiles in ONE DMA (per-transfer latency, not bytes, dominates the DMA wait).
-      attn_hmx_load_activation_dma(&act_desc, (const uint8_t *) q_ptr, vtcm_activation_raw, K * (int) sizeof(int16_t),
-                                   M, act_src_stride, pair_packs, 1);
+      AttnActivationSource act = attn_stage_activation(state, &act_desc, q_ptr, vtcm_activation_raw,
+                                                       K * (int) sizeof(int16_t), M, act_src_stride, pair_packs, 1);
 
       for (int ox = 0; ox < mp; ++ox) {
         int valid_xi = M - ox * 32;
         if (valid_xi > 32) valid_xi = 32;
         if (valid_xi <= 0) break;
 
-        attn_transform_activation_hmx(vtcm_activation, vtcm_activation_raw + (size_t) ox * 32 * pair_packs * 64,
-                                      valid_xi, pair_packs, kp);
+        attn_transform_activation_hmx_strided(vtcm_activation, attn_activation_tile(&act, ox, pair_packs),
+                                              act.row_stride, valid_xi, pair_packs, kp, act.aligned);
 
-        attn_hmx_compute_output_tiles(vtcm_output, vtcm_activation, vtcm_weight_bufs[0], 0, np, kp);
+        attn_hmx_compute_output_tiles(attn_qk_output_dst(state, vtcm_output, scores, (size_t) page_start, ox, 0),
+                                      vtcm_activation, vtcm_weight_bufs[0], 0, np, kp);
         attn_store_qk_scores(state, scores, (size_t) page_start, vtcm_output, 0, np, ox, N, valid_xi, q_row_offset);
       }
     }
@@ -357,8 +414,8 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
   // Compute is unchanged; K/V DMA bytes drop ~mp x.
   if (M > 32) {
     // All mp Q M-tiles in ONE DMA transfer, then transform each tile out of the shared raw staging.
-    attn_hmx_load_activation_dma(&act_desc, (const uint8_t *) q_ptr, vtcm_activation_raw, K * (int) sizeof(int16_t), M,
-                                 act_src_stride, pair_packs, 1);
+    AttnActivationSource act = attn_stage_activation(state, &act_desc, q_ptr, vtcm_activation_raw,
+                                                     K * (int) sizeof(int16_t), M, act_src_stride, pair_packs, 1);
     for (int ox = 0; ox < mp; ++ox) {
       int valid_xi = M - ox * 32;
       if (valid_xi > 32) {
@@ -367,8 +424,9 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
       if (valid_xi <= 0) {
         break;
       }
-      attn_transform_activation_hmx(vtcm_activation + (size_t) ox * act_tile_elems,
-                                    vtcm_activation_raw + (size_t) ox * 32 * pair_packs * 64, valid_xi, pair_packs, kp);
+      attn_transform_activation_hmx_strided(vtcm_activation + (size_t) ox * act_tile_elems,
+                                            attn_activation_tile(&act, ox, pair_packs), act.row_stride, valid_xi,
+                                            pair_packs, kp, act.aligned);
     }
 
     // Cross-page double buffering: with page_size <= ATTN_HMX_KV_BLOCK a page's K is exactly one weight
@@ -407,8 +465,9 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
           if (valid_xi <= 0) {
             break;
           }
-          attn_hmx_compute_output_tiles(vtcm_output, vtcm_activation + (size_t) ox * act_tile_elems,
-                                        vtcm_weight_bufs[cur_buf], 0, cur.np, kp);
+          attn_hmx_compute_output_tiles(attn_qk_output_dst(state, vtcm_output, scores, (size_t) cur.start, ox, 0),
+                                        vtcm_activation + (size_t) ox * act_tile_elems, vtcm_weight_bufs[cur_buf], 0,
+                                        cur.np, kp);
           attn_store_qk_scores(state, scores, (size_t) cur.start, vtcm_output, 0, cur.np, ox, cur.n, valid_xi,
                                q_row_offset);
         }
@@ -477,8 +536,9 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
           if (valid_xi <= 0) {
             break;
           }
-          attn_hmx_compute_output_tiles(vtcm_output, vtcm_activation + (size_t) ox * act_tile_elems,
-                                        vtcm_weight_current, oy_start, oy_end, kp);
+          attn_hmx_compute_output_tiles(
+            attn_qk_output_dst(state, vtcm_output, scores, (size_t) page_start, ox, oy_start),
+            vtcm_activation + (size_t) ox * act_tile_elems, vtcm_weight_current, oy_start, oy_end, kp);
           attn_store_qk_scores(state, scores, (size_t) page_start, vtcm_output, oy_start, oy_end, ox, N, valid_xi,
                                q_row_offset);
         }
@@ -499,8 +559,12 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
 
     int roi_width = K * (int)sizeof(int16_t);
     size_t src_offset = (size_t)ox * 32 * act_src_stride;
-    attn_hmx_load_activation_dma(&act_desc, (const uint8_t*)q_ptr + src_offset * sizeof(int16_t),
-                                 vtcm_activation_raw, roi_width, valid_xi, act_src_stride, pair_packs, 0);
+    // q_ptr is VTCM-resident whenever the activation region was placed there (grouped-causal prefill), and
+    // a short tail block (rows <= 32) lands in this loop: go through the helper so it is read in place
+    // instead of being handed to the DMA, which cannot take a VTCM source.
+    AttnActivationSource act =
+      attn_stage_activation(state, &act_desc, (const __fp16 *) ((const uint8_t *) q_ptr + src_offset * sizeof(int16_t)),
+                            vtcm_activation_raw, roi_width, valid_xi, act_src_stride, pair_packs, 0);
 
     int qk_prefetched = 0;
     int current_page = 0;
@@ -525,7 +589,12 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
       qk_prefetched = current_np > 0;
     }
 
-    attn_transform_activation_hmx(vtcm_activation, vtcm_activation_raw, valid_xi, pair_packs, kp);
+    if (act.from_staging) {
+      attn_transform_activation_hmx(vtcm_activation, vtcm_activation_raw, valid_xi, pair_packs, kp);
+    } else {
+      attn_transform_activation_hmx_strided(vtcm_activation, act.src, act.row_stride, valid_xi, pair_packs, kp,
+                                            act.aligned);
+    }
 
     if (qk_prefetched) {
       while (current_np > 0) {
@@ -556,7 +625,9 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
         }
 
         __fp16* vtcm_weight_current = vtcm_weight_bufs[current_buf];
-        attn_hmx_compute_output_tiles(vtcm_output, vtcm_activation, vtcm_weight_current, 0, current_np, kp);
+        attn_hmx_compute_output_tiles(
+          attn_qk_output_dst(state, vtcm_output, scores, (size_t) current_page_start, ox, 0), vtcm_activation,
+          vtcm_weight_current, 0, current_np, kp);
         // Must honour state->scores_fp16 like the other score stores: a grouped-causal prefill block
         // reaches this M<=32 path when rows <= 32 (a chunk whose page-fast clamp shrinks group_q_rows,
         // or a very short qo_len), and its softmax then reads those scores as fp16 -- an fp32 store here
@@ -618,7 +689,8 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
                                     state->n_kv_heads, k_icP, np, 0);
         }
 
-        attn_hmx_compute_output_tiles(vtcm_output, vtcm_activation, vtcm_weight_current, oy_start, oy_end, kp);
+        attn_hmx_compute_output_tiles(attn_qk_output_dst(state, vtcm_output, scores, (size_t) page_start, ox, oy_start),
+                                      vtcm_activation, vtcm_weight_current, oy_start, oy_end, kp);
         attn_store_qk_scores(state, scores, (size_t) page_start, vtcm_output, oy_start, oy_end, ox, N, valid_xi,
                              q_row_offset);
         if (has_next_chunk) {
@@ -629,6 +701,19 @@ void attn_hmx_matmul_pages_qk(const SyncAttentionTaskState* state, float* scores
     }
   }
 
+}
+
+// ATTN_SCORES_TILE: the SV activation (P) is already in the HMX tile layout, laid out tile-major as
+// (ox, oy) -- exactly the order attn_hmx_load_k_tiles walks for a fixed ox -- so SV reads it in place and
+// there is nothing to stage or transform. P is written over S, so it lives wherever the scores live,
+// which in tile mode is always VTCM (scores_tile is conditioned on the score region being placed there).
+// Reading it in place is also the only correct option: user DMA cannot take a VTCM source.
+//
+// Returns the base to read tile (ox, k) from as `base + (ox * (*kp_stride) + k) * 1024`.
+static inline const __fp16 *attn_sv_tile_activation(const SyncAttentionTaskState *state, const __fp16 *p_tiles,
+                                                    int page_start, int *kp_stride) {
+  *kp_stride = (int) (state->N_padded / 32);  // one M-tile's tiles are np_total apart
+  return p_tiles + ((size_t) page_start / 32) * 1024;
 }
 
 void attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, __fp16* temp_O,
@@ -648,17 +733,40 @@ void attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, 
     return;
   }
 
-  if (M <= 32 && valid_end > 0 && valid_end <= ATTN_FIXED_WORKSPACE_KV && np <= ATTN_HMX_KV_BLOCK_TILES) {
+  // All-page fusion: keep every page's V and transformed S resident, then feed all of them into the SAME
+  // HMX accumulator per output tile and read it out once. That removes the temp_O round trip and the HVX
+  // cross-page accumulate entirely (measured 43 ms/run at pp2048, 13% of attention, bandwidth-bound).
+  //
+  // It also *shrinks* VTCM: weight is sized per page (np * 32 * kp_page * 32) instead of double-buffered
+  // over the whole KV extent (2 * np_chunk * 32 * max_kp * 32), which at seq 2048 is 512 KB against 2 MB.
+  //
+  // M > 32 adds the ox dimension: each M-tile accumulates all pages independently, so the store happens
+  // per ox. Decode keeps mp == 1 and behaves exactly as before.
+  if (valid_end > 0 && valid_end <= ATTN_FIXED_WORKSPACE_KV && np <= ATTN_HMX_KV_BLOCK_TILES) {
     int fused_pages = (valid_end + state->page_size - 1) / state->page_size;
     if (fused_pages > state->page_count) fused_pages = state->page_count;
-    if (fused_pages > 0 && fused_pages <= 8) {
-      uint8_t* vtcm_ptr = (uint8_t*)vtcm_manager_get_vtcm_base();
+    // With only one or two pages the cross-page accumulate it removes is cheap, while its preload loop
+    // waits on each page's weight DMA in turn -- the path below overlaps those with compute instead and
+    // wins. Measured at pp512 (2 pages): fusing cost -1.4%, while pp1024 (4) gained 1.8% and pp2048 (8)
+    // gained 6.4%. M<=32 (decode) always fuses: there the accumulate is the whole point.
+    // The tile path must fuse: it is the only SV branch taught to read a tile-layout P, and the
+    // per-page preload it waits on is just a DMA there, not a DMA plus a transform.
+    const int fuse_min_pages = (M > 32 && !state->scores_tile) ? 3 : 1;
+    if (fused_pages >= fuse_min_pages && fused_pages <= 8) {
+      uint8_t *vtcm_ptr     = state->kernel_vtcm_base;
       __fp16* vtcm_weights = (__fp16*)vtcm_seq_alloc(&vtcm_ptr,
                                                      (size_t)fused_pages * np * 32 * max_kp * 32 * sizeof(int16_t));
-      __fp16* vtcm_activation_raw = (__fp16*)vtcm_seq_alloc(&vtcm_ptr,
-                                                            (size_t)max_pair_packs * 32 * 64 * sizeof(int16_t));
-      __fp16* vtcm_activations = (__fp16*)vtcm_seq_alloc(&vtcm_ptr,
-                                                         (size_t)fused_pages * max_kp * 32 * 32 * sizeof(int16_t));
+      // The raw staging and the per-page tile copies only exist to feed the row-major transform below.
+      // Tile mode reads P in place out of VTCM, so it needs neither -- and skipping them matters, because
+      // the per-page copy scales with fused_pages and would otherwise reserve VTCM that is never touched.
+      __fp16  *vtcm_activation_raw =
+        state->scores_tile ?
+          NULL :
+          (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, (size_t) mp * max_pair_packs * 32 * 64 * sizeof(int16_t));
+      __fp16 *vtcm_activations =
+        state->scores_tile ?
+          NULL :
+          (__fp16 *) vtcm_seq_alloc(&vtcm_ptr, (size_t) fused_pages * mp * max_kp * 32 * 32 * sizeof(int16_t));
       __fp16* vtcm_output = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, 32 * 32 * np_chunk * sizeof(int16_t));
       __fp16* vtcm_scales = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, 256);
 
@@ -668,6 +776,10 @@ void attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, 
       _Alignas(64) dma_desc_2d_t act_desc;
       _Alignas(64) dma_desc_2d_t weight_descs[ATTN_HMX_MAX_WEIGHT_DESCS];
       int page_kp[8];
+      // Where each page's activation tiles ended up and the tile stride between M-tiles there: the tile
+      // path may read P in place (stride N_padded/32) instead of from a per-page copy.
+      const __fp16              *page_act_base[8];
+      int                        page_act_stride[8];
 
       for (int page = 0; page < fused_pages; ++page) {
         int page_start = page * state->page_size;
@@ -682,39 +794,81 @@ void attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, 
         int pair_packs = (K + 63) / 64;
         page_kp[page] = kp;
 
-        int roi_width = K * (int)sizeof(int16_t);
-        attn_hmx_load_activation_dma(&act_desc, (const uint8_t*)(linear_S + page_start),
-                                     vtcm_activation_raw, roi_width, M, state->N_padded, pair_packs, 1);
+        __fp16        *page_activation = vtcm_activations + (size_t) page * mp * max_kp * 1024;
+        const uint8_t *b               = state->pastVPages[page];
+        __fp16        *page_weight     = vtcm_weights + (size_t) page * np * 32 * max_kp * 32;
 
-        __fp16* page_activation = vtcm_activations + (size_t)page * max_kp * 1024;
+        if (state->scores_tile) {
+          // P is already in tile layout and VTCM-resident: read it in place, nothing to stage or transform.
+          page_act_base[page] = attn_sv_tile_activation(state, linear_S, page_start, &page_act_stride[page]);
+          attn_hmx_start_weight_dma(weight_descs, b, page_weight, 0, np, kp, ATTN_HMX_WEIGHT_LAYOUT_V_BLOCK256, kv_head,
+                                    state->n_kv_heads, max_kp, np, 1);
+          continue;
+        }
+        page_act_base[page]   = page_activation;
+        page_act_stride[page] = max_kp;
 
-        const uint8_t* b = state->pastVPages[page];
-        __fp16* page_weight = vtcm_weights + (size_t)page * np * 32 * max_kp * 32;
+        int                  roi_width = K * (int) sizeof(int16_t);
+        AttnActivationSource act = attn_stage_activation(state, &act_desc, linear_S + page_start, vtcm_activation_raw,
+                                                         roi_width, M, state->N_padded, pair_packs, 1);
         attn_hmx_start_weight_dma(weight_descs, b, page_weight, 0, np, kp, ATTN_HMX_WEIGHT_LAYOUT_V_BLOCK256,
                                   kv_head, state->n_kv_heads, max_kp, np, 0);
-        attn_transform_activation_hmx(page_activation, vtcm_activation_raw, M, pair_packs, kp);
+        for (int ox = 0; ox < mp; ++ox) {
+          int valid_xi = M - ox * 32;
+          if (valid_xi > 32) {
+            valid_xi = 32;
+          }
+          if (valid_xi <= 0) {
+            break;
+          }
+          attn_transform_activation_hmx_strided(page_activation + (size_t) ox * max_kp * 1024,
+                                                attn_activation_tile(&act, ox, pair_packs), act.row_stride, valid_xi,
+                                                pair_packs, kp, act.aligned);
+        }
         dma_wait_for_idle();
       }
 
-      for (int oy = 0; oy < np; ++oy) {
-        __fp16* vtcm_dst = vtcm_output + oy * 1024;
-        for (int page = 0; page < fused_pages; ++page) {
-          int kp = page_kp[page];
-          if (kp <= 0) continue;
-          __fp16* page_activation = vtcm_activations + (size_t)page * max_kp * 1024;
-          __fp16* page_weight = vtcm_weights + (size_t)page * np * 32 * max_kp * 32;
-          int oy_offset = oy * 16 * kp;
-          attn_hmx_load_k_tiles(page_activation, page_weight + oy_offset * 64, kp);
+      for (int ox = 0; ox < mp; ++ox) {
+        int valid_xi = M - ox * 32;
+        if (valid_xi > 32) {
+          valid_xi = 32;
         }
-        hmx_consume_accumulator_fp16(vtcm_dst);
+        if (valid_xi <= 0) {
+          break;
+        }
+        for (int oy = 0; oy < np; ++oy) {
+          __fp16 *vtcm_dst = vtcm_output + oy * 1024;
+          for (int page = 0; page < fused_pages; ++page) {
+            int kp = page_kp[page];
+            if (kp <= 0) {
+              continue;
+            }
+            __fp16 *page_weight = vtcm_weights + (size_t) page * np * 32 * max_kp * 32;
+            int     oy_offset   = oy * 16 * kp;
+            attn_hmx_load_k_tiles(page_act_base[page] + (size_t) ox * page_act_stride[page] * 1024,
+                                  page_weight + oy_offset * 64, kp);
+          }
+          hmx_consume_accumulator_fp16(vtcm_dst);
+        }
+        attn_store_output_packed_fp16((uint8_t *) dst, vtcm_output, 0, np, ox, M, valid_xi, output_stride, row_offset);
       }
-
-      attn_store_output_packed_fp16((uint8_t*)dst, vtcm_output, 0, np, 0, M, M, output_stride, row_offset);
       return;
     }
   }
 
-  uint8_t* vtcm_ptr = (uint8_t*)vtcm_manager_get_vtcm_base();
+  // Everything below reads P as row-major; the fused branch above is the only SV path taught to read the
+  // tile layout. scores_tile always reaches it today -- its fuse_min_pages is 1, and valid_end <= 2048
+  // with the host's page_size of 256 caps fused_pages at 8. But page_size arrives from the host at
+  // runtime, so a smaller one would push fused_pages past that cap and land here, where the tile-layout
+  // P would be read as rows and produce wrong output with no other symptom.
+  if (state->scores_tile) {
+    FARF(ERROR, "attn_hmx_matmul_pages_sv: tile-layout P on the row-major path (valid_end=%d page_size=%d)", valid_end,
+         state->page_size);
+    sync_attention_zero_packed_output(dst, rows, output_stride, row_offset, N);
+    return;
+  }
+
+  uint8_t     *vtcm_ptr            = state->kernel_vtcm_base;
   __fp16* vtcm_weight = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, 2 * (size_t)np_chunk * 32 * max_kp * 32 * sizeof(int16_t));
   // Raw staging sized for all mp M-tiles so a page's S rows load with ONE DMA transfer.
   const size_t sv_raw_tile_elems = (size_t) max_pair_packs * 32 * 64;
@@ -757,16 +911,16 @@ void attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, 
                                 ATTN_HMX_WEIGHT_LAYOUT_V_BLOCK256, kv_head, state->n_kv_heads, max_kp, np, 1);
 
       // All mp S M-tiles in ONE DMA (per-transfer latency, not bytes, dominates the DMA wait).
-      attn_hmx_load_activation_dma(&act_desc, (const uint8_t *) (linear_S + page_start), vtcm_activation_raw,
-                                   K * (int) sizeof(int16_t), M, state->N_padded, pair_packs, 1);
+      AttnActivationSource act = attn_stage_activation(state, &act_desc, linear_S + page_start, vtcm_activation_raw,
+                                                       K * (int) sizeof(int16_t), M, state->N_padded, pair_packs, 1);
 
       for (int ox = 0; ox < (M + 31) / 32; ++ox) {
         int valid_xi = M - ox * 32;
         if (valid_xi > 32) valid_xi = 32;
         if (valid_xi <= 0) break;
 
-        attn_transform_activation_hmx(vtcm_activation, vtcm_activation_raw + (size_t) ox * 32 * pair_packs * 64,
-                                      valid_xi, pair_packs, kp);
+        attn_transform_activation_hmx_strided(vtcm_activation, attn_activation_tile(&act, ox, pair_packs),
+                                              act.row_stride, valid_xi, pair_packs, kp, act.aligned);
 
         attn_hmx_compute_output_tiles(vtcm_output, vtcm_activation, vtcm_weight_bufs[0], 0, np, kp);
         attn_store_output_packed_fp16(out_ptr, vtcm_output, 0, np, ox, M, valid_xi, out_stride, out_row_offset);
@@ -806,9 +960,13 @@ void attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, 
       const int out_stride     = accum_page ? 0 : output_stride;
       const int out_row_offset = accum_page ? 0 : row_offset;
 
-      // Loading S also waits out this page's V DMA (attn_hmx_load_activation_dma drains the engine).
-      attn_hmx_load_activation_dma(&act_desc, (const uint8_t *) (linear_S + cur.start), vtcm_activation_raw,
-                                   K * (int) sizeof(int16_t), M, state->N_padded, pair_packs, 1);
+      // Loading S also waits out this page's V DMA (attn_hmx_load_activation_dma drains the engine). When S
+      // is VTCM-resident there is no DMA to drain here, so wait for the weight DMA explicitly instead.
+      AttnActivationSource act = attn_stage_activation(state, &act_desc, linear_S + cur.start, vtcm_activation_raw,
+                                                       K * (int) sizeof(int16_t), M, state->N_padded, pair_packs, 1);
+      if (state->activation_in_vtcm) {
+        attn_wait_weight_dma();
+      }
 
       const int nxt_buf   = 1 - cur_buf;
       const int have_next = attn_next_page_span(state, valid_end, cur.page + 1, &nxt);
@@ -826,9 +984,9 @@ void attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, 
         if (valid_xi <= 0) {
           break;
         }
-        attn_transform_activation_hmx(vtcm_activation + (size_t) ox * sv_act_tile_elems,
-                                      vtcm_activation_raw + (size_t) ox * 32 * pair_packs * 64, valid_xi, pair_packs,
-                                      kp);
+        attn_transform_activation_hmx_strided(vtcm_activation + (size_t) ox * sv_act_tile_elems,
+                                              attn_activation_tile(&act, ox, pair_packs), act.row_stride, valid_xi,
+                                              pair_packs, kp, act.aligned);
         attn_hmx_compute_output_tiles(vtcm_output, vtcm_activation + (size_t) ox * sv_act_tile_elems,
                                       vtcm_weight_bufs[cur_buf], 0, np, kp);
         attn_store_output_packed_fp16(out_ptr, vtcm_output, 0, np, ox, M, valid_xi, out_stride, out_row_offset);
@@ -968,7 +1126,7 @@ void attn_hmx_matmul_page_qk_block(const SyncAttentionTaskState* state, float* s
     return;
   }
 
-  uint8_t* vtcm_ptr = (uint8_t*)vtcm_manager_get_vtcm_base();
+  uint8_t *vtcm_ptr            = state->kernel_vtcm_base;
   __fp16* vtcm_weight = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, 2 * (size_t)np_chunk * 32 * kp * 32 * sizeof(int16_t));
   __fp16* vtcm_activation_raw = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, (size_t)pair_packs * 32 * 64 * sizeof(int16_t));
   __fp16* vtcm_activation = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, kp * 32 * 32 * sizeof(int16_t));
@@ -1069,7 +1227,7 @@ void attn_hmx_matmul_page_sv_block(const SyncAttentionTaskState* state, __fp16* 
     return;
   }
 
-  uint8_t* vtcm_ptr = (uint8_t*)vtcm_manager_get_vtcm_base();
+  uint8_t *vtcm_ptr            = state->kernel_vtcm_base;
   __fp16* vtcm_weight = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, 2 * (size_t)np_chunk * 32 * max_kp * 32 * sizeof(int16_t));
   __fp16* vtcm_activation_raw = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, (size_t)max_pair_packs * 32 * 64 * sizeof(int16_t));
   __fp16* vtcm_activation = (__fp16*)vtcm_seq_alloc(&vtcm_ptr, max_kp * 32 * 32 * sizeof(int16_t));

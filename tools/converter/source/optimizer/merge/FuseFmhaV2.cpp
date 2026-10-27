@@ -114,8 +114,11 @@ FuseFmhaV2::FuseFmhaV2() {
         }
 
         // whether Einsum/MatMul
+        if (z->inputs().empty()) {
+            return false;
+        }
         x = z->inputs().at(0)->expr().first;
-        if (!x->get()) {
+        if (!x->get() || x->inputs().empty()) {
             return false;
         }
         x = x->inputs().at(0)->expr().first;

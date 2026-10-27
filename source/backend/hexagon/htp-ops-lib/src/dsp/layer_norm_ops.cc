@@ -95,6 +95,25 @@ static inline float htp_ops_layernorm_fast_rsqrtf(float x) {
   return y;
 }
 
+// Decode rows are tiny (one vector per 64 channels) and their inputs were just written by the previous op or
+// evicted by the weight stream, so the loads below would miss one after another. Touch every line up front:
+// dcfetch is non-blocking, so the misses overlap.
+static inline void htp_ops_ln_prefetch_rows(const void *base, size_t stride_bytes, int rows) {
+  for (int c = 0; c < rows; ++c) {
+    Q6_dcfetch_A((void *) ((const uint8_t *) base + (size_t) c * stride_bytes));
+  }
+}
+
+static inline void htp_ops_ln_prefetch_gamma(const void *gamma, int loopUnit, int pack) {
+  if (gamma == NULL) {
+    return;
+  }
+  const size_t bytes = (size_t) loopUnit * pack * sizeof(float);
+  for (size_t off = 0; off < bytes; off += 128) {
+    Q6_dcfetch_A((void *) ((const uint8_t *) gamma + off));
+  }
+}
+
 static inline int htp_ops_add_fuse_layernorm_pick_task_count(int batch) {
   unsigned int worker_cap = g_max_num_workers;
   const int total_blocks = (batch + 1) / 2;
@@ -104,12 +123,16 @@ static inline int htp_ops_add_fuse_layernorm_pick_task_count(int batch) {
   return total_blocks < (int)worker_cap ? total_blocks : (int)worker_cap;
 }
 
-static inline int htp_ops_layer_norm_packed_pick_task_count(int batch) {
+static inline int htp_ops_layer_norm_packed_pick_task_count(int batch, int loopUnit, int pack) {
   unsigned int worker_cap = g_max_num_workers;
   if (worker_cap <= 1 || batch <= 1) {
     return 1;
   }
-  return batch < (int)worker_cap ? batch : (int)worker_cap;
+  // Decode rows (e.g. 16 heads x 128) are a few KB: the worker dispatch would cost more than the work.
+  const size_t bytes   = (size_t) batch * loopUnit * pack * sizeof(__fp16);
+  const int    by_size = (int) ((bytes + 16383) / 16384);
+  int          n       = batch < (int) worker_cap ? batch : (int) worker_cap;
+  return n < by_size ? n : by_size;
 }
 
 static inline int htp_ops_layer_norm_pick_task_count(int outterSize, int innerSize) {
@@ -134,6 +157,9 @@ static inline void htp_ops_add_fuse_rmsnorm_one_batch_no_beta(__fp16* dstBase, _
                                                               int32_t tail, int32_t loopUnit, float epsilon,
                                                               __fp16* srcAdd) {
   (void)srcAdd;
+  htp_ops_ln_prefetch_rows(src0Base + (size_t) n * pack, (size_t) batch * pack * sizeof(__fp16), loopUnit);
+  htp_ops_ln_prefetch_rows(src1Base + (size_t) n * pack, (size_t) batch * pack * sizeof(__fp16), loopUnit);
+  htp_ops_ln_prefetch_gamma(gammaBase, loopUnit, pack);
   HVX_VectorPred q_tail = Q6_Q_vsetq_R(tail * 2);
   HVX_Vector vzero = Q6_V_vsplat_R(0);
   HVX_Vector vsqsum0 = Q6_V_vsplat_R(0);
@@ -193,6 +219,9 @@ static inline void htp_ops_add_fuse_layernorm_one_batch(__fp16* dstBase, __fp16*
     return;
   }
 
+  htp_ops_ln_prefetch_rows(src0Base + (size_t) n * pack, (size_t) batch * pack * sizeof(__fp16), loopUnit);
+  htp_ops_ln_prefetch_rows(src1Base + (size_t) n * pack, (size_t) batch * pack * sizeof(__fp16), loopUnit);
+  htp_ops_ln_prefetch_gamma(gammaBase, loopUnit, pack);
   HVX_VectorPred q_tail = Q6_Q_vsetq_R(tail * 2);
   HVX_Vector vzero = Q6_V_vsplat_R(0);
   HVX_Vector vsum0 = Q6_V_vsplat_R(0);
@@ -1013,6 +1042,8 @@ static inline void htp_ops_layer_norm_packed_one_batch(const HtpOpsLayerNormPack
   const uint8_t* srcBase = state->srcBase;
   const uint8_t* gammaBase = state->gammaBase;
   const uint8_t* betaBase = state->betaBase;
+  htp_ops_ln_prefetch_rows(srcBase + (size_t) n * pack * 2, (size_t) batch * pack * 2, loopUnit);
+  htp_ops_ln_prefetch_gamma(gammaBase, loopUnit, pack);
   HVX_VectorPred q_tail = Q6_Q_vsetq_R(tail * 2);
   HVX_Vector vzero = Q6_V_vsplat_R(0);
 
@@ -1147,7 +1178,7 @@ AEEResult htp_ops_layer_norm_packed(uint8_t* dst, uint8_t* src,
   state.gammaBase = gammaBase;
   state.betaBase = betaBase;
 
-  const int n_tasks = htp_ops_layer_norm_packed_pick_task_count(batch);
+  const int n_tasks = htp_ops_layer_norm_packed_pick_task_count(batch, loopUnit, pack);
   if (n_tasks <= 1) {
     for (int n = 0; n < batch; ++n) {
       htp_ops_layer_norm_packed_one_batch(&state, n);
@@ -1184,6 +1215,13 @@ AEEResult htp_ops_add_fuse_layernorm(uint8_t* dst, uint8_t* add_out, uint8_t* sr
   size_t dataBytes = (size_t)batch * loopUnit * pack * 2; (void)dataBytes;
   size_t paramBytes = (size_t)loopUnit * pack * 4; (void)paramBytes;
 
+  // One row reads gamma once: straight from DDR (prefetched), not through a scalar copy into VTCM.
+  if (batch == 1 && RMSNorm && betaBase == NULL && gammaBase != NULL) {
+    htp_ops_add_fuse_rmsnorm_one_batch_no_beta(dstBase, addOutBase, src0Base, src1Base, gammaBase, batch, 0, channels,
+                                               pack, fullUnit, tail, loopUnit, epsilon, NULL);
+    return 0;
+  }
+
   uint8_t *vtcm_ptr = (uint8_t *)vtcm_manager_get_vtcm_base();
   float *gammaVtcm = NULL;
   float *betaVtcm = NULL;
@@ -1205,13 +1243,8 @@ AEEResult htp_ops_add_fuse_layernorm(uint8_t* dst, uint8_t* add_out, uint8_t* sr
     betaBase = betaVtcm;
   }
 
-  if (batch == 1 && RMSNorm && betaBase == NULL && gammaBase != NULL) {
-    htp_ops_add_fuse_rmsnorm_one_batch_no_beta(dstBase, addOutBase, src0Base, src1Base,
-                                               gammaBase, batch, 0, channels, pack, fullUnit, tail,
-                                               loopUnit, epsilon, NULL);
-    return 0;
-  }
-
+  // The single-row case already returned above, before the gamma/beta staging; betaBase / gammaBase only
+  // ever move from NULL to non-NULL here, so a second check of the same condition can never fire.
   const int n_tasks = htp_ops_add_fuse_layernorm_pick_task_count(batch);
   const int worker_slots = n_tasks <= 1 ? 1 : (g_max_num_workers > 0 ? (int)g_max_num_workers : n_tasks);
   const size_t worker_vtcm_bytes = (size_t)2 * loopUnit * pack * sizeof(__fp16);

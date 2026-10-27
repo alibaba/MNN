@@ -19,6 +19,10 @@ description: MNN Vulkan 后端 kernel/算子性能优化与新特性集成。覆
 
 4. **正确性 oracle 先于性能**。GPU 输出错和算法错难分辨。优化前要有"已知正确"的 baseline，每步改完都比对它。数学等价的 kernel 改动应与 baseline **逐 token 一致**。
 
+   **融合须保留原 pointwise 的运算类型与舍入位置**：GEMM 使用 FP32 累加，不代表其后的 SiLU 可以改用 FP32。
+   对照原 shader 的 exp、加法、除法、乘法及 cast；用未融合的原生算子作数值 oracle，并覆盖较大正负输入。
+   token 一致或普通 FP16 容差通过仍可能掩盖舍入变化，必要时比较固定输入序列的完整 logits。
+
 5. **真机才算数，且面向多个 vendor**。Vulkan 同时跑 Adreno（Android）、Mali（Android）、Apple（iOS/MoltenVK）等，**driver 稳定性和性能差异极大**。Mac MoltenVK ≠ Android Adreno。进入性能/稳定性测试前先 `adb devices` 检查目标 Android 设备；没设备直接停下来给用户提需求。
 
 6. **Buffer / Image 是编译期二选一**。由 `MNN_VULKAN_IMAGE` 决定：`=OFF` → `source/backend/vulkan/buffer/*`（LLM 全链路走 buffer）；`=ON` → `source/backend/vulkan/image/*`。**两个后端是完全独立的代码树**，一边改动另一边没有。改前先 `grep MNN_VULKAN_IMAGE project/android/build_64/CMakeCache.txt` 确认，并保证改的路径和 build 选的后端一致（详见手册陷阱 C）。

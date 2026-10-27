@@ -24,6 +24,7 @@ struct AttentionKernelParam {
     int batch;            // B (批次大小)
     int current_kv_seq_len_new; // 本步骤中新增的K/V的长度 (来自 AttentionExecution 类中的 mNewKvSeqLen)
     int past_kv_len;      // mCache->mPastLength (在此步骤之前KV Cache中已有的K/V长度)
+    int mask_kv_len;      // mask 列数: L_q 或 L_k_total
 };
 
 
@@ -52,6 +53,7 @@ private:
 
     CUDABackend* mCudaBackend;
     bool mIsKVCacheEnabled; // 基于 Op 参数
+    bool mIsKVShared = false;
     std::shared_ptr<SharedCache> mCache;
     float mScale;
 
@@ -83,6 +85,7 @@ private:
     bool mHasMask;
     bool mIsCausalMask;
     bool mIsAddMask; // 如果 mask 是 float 类型并相加则为 true, 如果是 int 类型并设为 -FLT_MAX 则为 false
+    int mMaskKvLen = 0;
 
     AttentionKernelParam* mParam_gpu = nullptr; // Kernel参数的设备指针
     KVMeta* mMeta = nullptr;

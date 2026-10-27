@@ -497,7 +497,11 @@ def genMapFile(objs):
     cpp += 'void VulkanShaderMap::init() {\n'
     for obj in objs:
         name = obj.getFileName()
+        if name.startswith("glsl_indexed_linear_"):
+            cpp += '#ifdef MNN_SUPPORT_TRANSFORMER_FUSE\n'
         cpp += 'mMaps.insert(std::make_pair(\"'+ name + '", std::make_pair(' + name + ',' + name + '_len' ')));\n'
+        if name.startswith("glsl_indexed_linear_"):
+            cpp += '#endif\n'
     cpp += '}\n'
     cpp += '}\n'
     with open(mapFile, 'w') as f:
@@ -559,7 +563,11 @@ def genCppFile(objs, inc, dst):
             rep = out.replace(os.sep,'_')
             rep = rep.replace('.','_')
             allContent = f.read().replace(rep, name)
+            if name.startswith("glsl_indexed_linear_"):
+                cpp += '#ifdef MNN_SUPPORT_TRANSFORMER_FUSE\n'
             cpp += 'const ' + allContent + '\n'
+            if name.startswith("glsl_indexed_linear_"):
+                cpp += '#endif\n'
         if os.path.exists(cpp_tmp_file) and os.path.isfile(cpp_tmp_file) :
             os.remove(cpp_tmp_file)
         if rm and os.path.exists(out) and os.path.isfile(out) :
@@ -576,8 +584,12 @@ def genHppFile(objs, fileName):
     for obj in objs:
         name = obj.getFileName()
         print(name)
+        if name.startswith("glsl_indexed_linear_"):
+            h += '#ifdef MNN_SUPPORT_TRANSFORMER_FUSE\n'
         h += "extern const unsigned char " + name + "[];\n";
         h += 'extern unsigned int ' + name + '_len;\n'
+        if name.startswith("glsl_indexed_linear_"):
+            h += '#endif\n'
     h += "#endif"
     with open(fileName, "w") as f:
         f.write(h)

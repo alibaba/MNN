@@ -1,30 +1,31 @@
 #pragma once
 
-#include "dsp/mmap_mgr.h"
 #include <HAP_mem.h>
-#include "AEEStdDef.h"
-#include "remote.h"
-#include "hexagon_protos.h"
-#include "hexagon_types.h"
-#include "htp_ops.h"
-#include "AEEStdErr.h"
-#include "qurt_memory.h"
-#include "HAP_farf.h"
-#include "HAP_perf.h"
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
-#include "dsp/hvx_math.h"
-#include "dsp/hvx_convert.h"
+#include "AEEStdDef.h"
+#include "AEEStdErr.h"
 #include "dsp/dma_utils.h"
-#include "dsp/ops.h"
-#include "dsp/vtcm_mgr.h"
-#include "dsp/worker_pool.h"
-#include "transpose_hvx.h"
 #include "dsp/hmx_mgr.h"
 #include "dsp/hmx_queue.h"
 #include "dsp/hmx_utils.h"
+#include "dsp/hvx_convert.h"
+#include "dsp/hvx_math.h"
+#include "dsp/mmap_mgr.h"
+#include "dsp/ops.h"
+#include "dsp/vtcm_mgr.h"
+#include "dsp/worker_pool.h"
+#include "HAP_farf.h"
+#include "HAP_perf.h"
+#include "hexagon_protos.h"
+#include "hexagon_types.h"
+#include "htp_attn_params.h"
+#include "htp_ops.h"
+#include "qurt_memory.h"
+#include "remote.h"
+#include "transpose_hvx.h"
 
 #define MNN_ATTENTION_HMX_COMBINE_DECODE 1
 // One prefill path on every HVX arch. This used to be gated to arch >= 81 while the host reserved the
@@ -39,11 +40,10 @@
 #ifndef MNN_ATTENTION_GROUP_CAUSAL_PREFILL
 #  define MNN_ATTENTION_GROUP_CAUSAL_PREFILL 1
 #endif
-// Q rows per grouped-causal prefill block. A block reads K/V ONCE and reuses it across all
-// gqa_factor*group_q_rows M-tiles, so total K/V DMA is ~qo_len^2/(2*group_q_rows). Doubling this
-// halves the KV traffic and costs `group_q_rows/qo_len` extra causal-triangle compute/store.
-// Must match HEXAGON_ATTN_CAUSAL_GROUP_Q_ROWS in execution/HexagonAttention.cpp (workspace sizing).
-#define MNN_ATTENTION_CAUSAL_GROUP_Q_ROWS 64
+// Q rows per grouped-causal prefill block: see htp_attn_causal_group_q_rows() in htp_attn_params.h, which
+// the host shares for workspace sizing. MNN_ATTENTION_CAUSAL_GROUP_Q_ROWS is the upper bound the host
+// sizes for; the DSP picks a value <= it based on the actual shape's VTCM footprint.
+#define MNN_ATTENTION_CAUSAL_GROUP_Q_ROWS HTP_ATTN_CAUSAL_GROUP_Q_ROWS_MAX
 
 enum AttnHmxOutputLayoutType {
   ATTN_HMX_OUT_PACKED_FP16 = 0,
@@ -136,6 +136,22 @@ typedef struct {
   size_t qo_stride;
   size_t worker_workspace_bytes;
   uint8_t* workspace_base;
+  // Base the HMX kernels bump-allocate their VTCM scratch from. Normally vtcm_manager_get_vtcm_base(),
+  // but shifted up when the per-worker score buffers have been placed in VTCM below it.
+  uint8_t               *kernel_vtcm_base;
+  // Per-worker score buffer in VTCM, replacing the DDR one. NULL when it did not fit.
+  // Written by the HMX score store and read by the HVX softmax -- neither goes through the DMA engine.
+  // Sized for fp16 when scores_fp16 is set, since that path only uses the lower half of the fp32 buffer.
+  uint8_t               *scores_vtcm;
+  size_t                 scores_vtcm_stride;
+  // Per-worker linear_S + temp_O in VTCM. Allocated only if it fits *after* the score buffers, so a long
+  // sequence can still get the (larger) score win while these stay in DDR.
+  uint8_t               *act_vtcm;
+  size_t                 act_vtcm_stride;
+  // Set when act_vtcm is live: the activation the QK/SV kernels consume (packed_Q / linear_S) is then
+  // VTCM-resident and they must transform straight out of it, because the DMA engine moves DDR<->VTCM and
+  // silently returns garbage for a VTCM source.
+  int                    activation_in_vtcm;
   __fp16* O;
   const __fp16* Q;
   const float* mask;
@@ -155,6 +171,10 @@ typedef struct {
   int prefill_segment_q;
   int prefill_n_heads;
   int                    scores_fp16;  // ATTN_SCORES_FP16: store QK scores as fp16 (grouped-causal prefill path only)
+  // ATTN_SCORES_TILE: keep the QK scores in the HMX 32x32 tile layout the accumulator store already
+  // produces, so the HMX store lands directly in the score buffer and there is no separate score store.
+  // Requires scores_vtcm (HMX stores go to VTCM) and scores_fp16.
+  int                    scores_tile;
   // Grouped-causal prefill only: how many q blocks each kv_head is split into, so total_heads becomes
   // n_kv_heads * causal_q_blocks rather than just n_kv_heads. 1 = one task per kv_head (decode).
   // Without the split the task count IS n_kv_heads (8 for this model), which fills a single scheduling
@@ -172,6 +192,24 @@ typedef struct {
 #  define ATTN_SCORES_FP16 1
 #endif
 
+// Keep the QK scores in the HMX 32x32 tile layout instead of re-laying them out to row-major.
+//
+// The HMX accumulator store already emits tiles (two rows interleaved per 128B vector), so pointing it
+// straight at the score buffer removes the row-major score store entirely -- that pass was 112 of the
+// queue thread's 268 ms at pp2048. The softmax then un-interleaves row pairs with one vdeal per 64
+// columns, which is how llama.cpp's HTP flash-attention kernel reads its scores.
+//
+// Worth it even though the queue thread is not the busiest part of attention: with 8 workers funnelling
+// QK and SV through one hmx_queue thread, what they wait on is that thread's occupancy. Halving it cut
+// their combined wait from 2133 to 1411 ms and pp2048 from 3801 to 4337 tok/s (both with the phase
+// timers on, so both carry that overhead).
+//
+// Only the grouped-causal prefill path is wired, and only when the score buffer is VTCM-resident (HMX
+// stores cannot reach DDR). Set 0 to fall back to the row-major store.
+#ifndef ATTN_SCORES_TILE
+#  define ATTN_SCORES_TILE 1
+#endif
+
 size_t sync_attention_head_workspace_bytes(int qo_len, int seq_len);
 size_t sync_attention_page_head_workspace_bytes(int qo_len, int seq_len, int head_dim);
 size_t sync_attention_page_block_workspace_bytes(int qo_len, int block_len, int head_dim);
@@ -179,12 +217,15 @@ int sync_attention_can_group_decode(int qo_len, int n_heads, int n_kv_heads, int
                                     int mask_stride);
 int sync_attention_can_group_causal(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads,
                                     int head_dim, int seq_len, int mask_stride);
-int sync_attention_causal_group_q_rows(int qo_len);
+int    sync_attention_causal_group_q_rows(int qo_len, int seq_len, int head_dim, int gqa_factor);
 int sync_attention_task_rows(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads,
                              int head_dim, int seq_len, int mask_stride);
 int sync_attention_total_tasks(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads,
                                int head_dim, int seq_len, int mask_stride);
 int sync_attention_use_online_pages(int allow_online_pages, int head_dim, int page_size, int seq_len, int mask_stride);
+// Moves the per-worker score workspace into VTCM when it fits, shifting the HMX kernels' bump base above
+// it. Call after the task count is final; see the definition for why no reservation is needed.
+void   sync_attention_try_vtcm_workspace(SyncAttentionTaskState *state, int task_rows);
 // Fills in state->causal_q_blocks and state->total_heads for the grouped-causal prefill path. Must be
 // called AFTER the page fields (page_count / page_size / online_pages) are set, because the q-block size
 // depends on them; returns the worker count to run. Implemented in attention_sync_process.cc, where the

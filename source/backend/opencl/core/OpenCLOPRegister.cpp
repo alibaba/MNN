@@ -73,6 +73,7 @@ extern void ___OpenCLLinearAttentionBufCreator__OpType_LinearAttention__BUFFER__
 extern void ___OpenCLAttentionBufCreator__OpType_Attention__BUFFER__();
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern void ___OpenCLFusedProjBufCreator__OpType_FusedLinear__BUFFER__();
+extern void ___OpenCLIndexedLinearBufCreator__OpType_IndexedLinear__BUFFER__();
 #ifdef MNN_GATED_RMS_NORM
 extern void ___OpenCLGatedRMSNormBufCreator__OpType_GatedRMSNorm__BUFFER__();
 #endif
@@ -150,6 +151,7 @@ ___OpenCLLinearAttentionBufCreator__OpType_LinearAttention__BUFFER__();
 ___OpenCLAttentionBufCreator__OpType_Attention__BUFFER__();
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 ___OpenCLFusedProjBufCreator__OpType_FusedLinear__BUFFER__();
+___OpenCLIndexedLinearBufCreator__OpType_IndexedLinear__BUFFER__();
 #ifdef MNN_GATED_RMS_NORM
 ___OpenCLGatedRMSNormBufCreator__OpType_GatedRMSNorm__BUFFER__();
 #endif

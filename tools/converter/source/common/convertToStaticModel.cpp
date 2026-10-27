@@ -115,7 +115,9 @@ static void _RemoveUnusefulNodes(std::unique_ptr<MNN::NetT>& net) {
     MNN::Express::ExecutorScope::Current()->setLazyComputeMode(originMode);
 }
 
-static void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map<Tensor*, std::pair<std::string, int>>& tensorNames, std::vector<std::string>&& outputNames, const Net* originNetInfo) {
+static int genStaticModel(CommandBuffer buffer, const std::string& modelName,
+                          std::map<Tensor*, std::pair<std::string, int>>& tensorNames,
+                          std::vector<std::string>&& outputNames, const Net* originNetInfo) {
     MNN_PRINT("gen Static Model ... \n");
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
     netT->outputName = std::move(outputNames);
@@ -222,7 +224,8 @@ static void genStaticModel(CommandBuffer buffer, const std::string& modelName, s
         } else {
             SET_TYPE(INT8, int8)}
             SET_TYPE(UINT8, uint8)}
-            SET_TYPE(INT32, int32)}
+            SET_TYPE(INT32, int32)
+}
             SET_TYPE(INT64, int64)}
         }
         for (int d = 0; d < tensor->dimensions();d++) {
@@ -290,10 +293,22 @@ static void genStaticModel(CommandBuffer buffer, const std::string& modelName, s
     int sizeOutput    = builderOutput.GetSize();
     auto bufferOutput = builderOutput.GetBufferPointer();
     std::ofstream output(modelName, std::ofstream::binary);
+    if (!output.is_open()) {
+        MNN_ERROR("Failed to open output model: %s\n", modelName.c_str());
+        return 1;
+    }
     output.write((const char*)bufferOutput, sizeOutput);
+    // close() also checks buffered writes that may fail after write() succeeds.
+    output.close();
+    if (output.fail()) {
+        MNN_ERROR("Failed to write output model: %s\n", modelName.c_str());
+        return 1;
+    }
+    return 0;
 }
 
-void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile) {
+int converToStaticModel(const Net* net, std::map<std::string, std::vector<int>>& inputConfig, std::string mnnFile,
+                        const std::string& externalFile) {
     // set a backend and context to run resize
     ScheduleConfig config;
     config.type = MNN_FORWARD_CPU;
@@ -313,12 +328,14 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     std::vector<std::shared_ptr<Tensor>> allTensors;
     allTensors.resize(net->tensorName()->size());
     ErrorCode code = NO_ERROR;
-    initConstTensors(allTensors, net, defaultBackend.get(), code, nullptr);
-    if (NO_ERROR != code) {
+    FileLoader external(externalFile.c_str());
+    if (!initConstTensors(allTensors, net, defaultBackend.get(), code, &external) || NO_ERROR != code) {
         MNN_ERROR("Init tensor error code = %d\n", code);
-        return;
+        return 1;
     }
-    bool valid = initTensors(allTensors, net);
+    // A false return can mean the inputs still have dynamic dimensions. Apply
+    // inputConfig before geometry computation validates the resolved shapes.
+    initTensors(allTensors, net);
     // set tensors' shape by inputConfig
     for (int i = 0; i < allTensors.size(); i++) {
         auto name = net->tensorName()->GetAsString(i)->str();
@@ -346,7 +363,10 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     // resize the session's info and store to buffer
     std::vector<Tensor*> constTensors;
     GeometryComputerUtils::buildConstantTensors(infos);
-    GeometryComputerUtils::shapeComputeAndGeometryTransform(runtime.get(), nullptr, infos, ctx, defaultBackend, runtime->onGetCompilerType());
+    code = GeometryComputerUtils::shapeComputeAndGeometryTransform(runtime.get(), &external, infos, ctx, defaultBackend,
+                                                                   runtime->onGetCompilerType());
+    if (code != NO_ERROR)
+        return 1;
     std::map<Tensor*, std::pair<std::string, int>> tensorName;
     for (int i = 0; i < net->tensorName()->size(); i++) {
         tensorName[allTensors[i].get()] = std::make_pair(net->tensorName()->GetAsString(i)->str(), i);
@@ -374,5 +394,5 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
         newBuffer.extras.insert(newBuffer.extras.end(), buf.extras.begin(), buf.extras.end());
     }
     // store buffer to STATIC model file
-    genStaticModel(newBuffer, mnnFile, tensorName, std::move(outputNames), net);
+    return genStaticModel(newBuffer, mnnFile, tensorName, std::move(outputNames), net);
 }

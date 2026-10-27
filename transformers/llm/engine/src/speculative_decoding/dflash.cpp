@@ -10,6 +10,7 @@
 
 #include "generate.hpp"
 #include "core/MNNFileUtils.h"
+#include "llm/attention_mask.hpp"
 
 
 using namespace MNN::Express;
@@ -227,9 +228,14 @@ VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids) {
     int context_len = mDraftKv[0]->getInfo()->dim[1];
     int total_len = context_len + block_size;
 
-    // Non-causal attention mask: all zeros (everything attends to everything)
-    auto attention_mask = _Input({1, 1, block_size, total_len}, NCHW, halide_type_of<float>());
-    ::memset(attention_mask->writeMap<float>(), 0, block_size * total_len * sizeof(float));
+    // Everything attends to everything. Kept dense until omitting the plane is verified on a dflash model.
+    MaskRequest maskReq;
+    maskReq.type       = AttentionMaskType::Bidirectional;
+    maskReq.seqLen     = block_size;
+    maskReq.kvSeqLen   = total_len;
+    maskReq.rank       = 4;
+    maskReq.forceDense = true;
+    auto attention_mask = buildAttentionMask(maskReq, mLlm->mConfig->backend_type());
 
     // Draft-local RoPE positions: committed row r sits at r, so block slot i sits at context_len + i.
     auto position_ids = _Input({1, block_size}, NCHW, halide_type_of<int>());

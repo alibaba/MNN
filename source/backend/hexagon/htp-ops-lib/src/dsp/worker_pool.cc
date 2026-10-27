@@ -9,8 +9,7 @@
 #include <qurt.h>
 
 #define MNN_WORKER_DEFAULT_STACK_SIZE (2 * 16384)
-#define MNN_WORKER_MAX_THREADS 30
-#define MNN_WORKER_STOP_BIT 31
+#define MNN_WORKER_MAX_THREADS        30
 #define MNN_WORKER_MIN_PRIO 1
 #define MNN_WORKER_MAX_PRIO 254
 
@@ -21,15 +20,21 @@ typedef struct {
   unsigned int index;
 } MNNWorkerInfo;
 
+// Jobs are a FIFO ring guarded by a mutex, with counting semaphores for queued jobs and free entries.
+// The previous design kept workers + 1 slots in a bitmask and handed out the lowest set bit, which had two
+// costs for pipelined kernels: a submitter blocked as soon as more than workers + 1 jobs were outstanding
+// (a prefill GEMM queues ~20 per call), and refilled low slots were picked before older high ones, so
+// jobs did not run in submission order and a kernel could not rely on that order for its dependencies.
+#define MNN_WORKER_QUEUE_CAP 64
+
 struct MNNWorkerPool {
-  qurt_anysignal_t free_slots;
-  qurt_anysignal_t ready_slots;
-  qurt_mutex_t free_mutex;
-  qurt_mutex_t ready_mutex;
-  unsigned int slot_mask;
+  qurt_mutex_t      ring_mutex;
+  qurt_sem_t        items;
+  qurt_sem_t        spaces;
+  unsigned int      head, tail;
+  volatile int      stop;
   unsigned int worker_count;
-  unsigned int slot_count;
-  worker_pool_job_t *jobs;
+  worker_pool_job_t jobs[MNN_WORKER_QUEUE_CAP];
   qurt_thread_t *threads;
   MNNWorkerInfo *infos;
   void *stack_block;
@@ -69,10 +74,6 @@ static int mnn_worker_clamp_priority(int priority) {
   return priority;
 }
 
-static unsigned int mnn_worker_first_bit(unsigned int bits) {
-  return (unsigned int)__builtin_ctz(bits);
-}
-
 static int mnn_worker_is_pool_thread(const MNNWorkerPool *pool, unsigned int *worker_index) {
   qurt_thread_t self = qurt_thread_get_id();
   for (unsigned int i = 0; i < pool->worker_count; ++i) {
@@ -91,19 +92,15 @@ static void mnn_worker_loop(void *opaque) {
   MNNWorkerPool *pool = info->pool;
 
   while (1) {
-    qurt_mutex_lock(&pool->ready_mutex);
-    (void)qurt_anysignal_wait(&pool->ready_slots, pool->slot_mask | (1u << MNN_WORKER_STOP_BIT));
-    unsigned int ready = qurt_anysignal_get(&pool->ready_slots);
-    if (ready & (1u << MNN_WORKER_STOP_BIT)) {
-      qurt_mutex_unlock(&pool->ready_mutex);
+    (void) qurt_sem_down(&pool->items);
+    if (pool->stop) {
       break;
     }
-
-    unsigned int slot = mnn_worker_first_bit(ready & pool->slot_mask);
-    worker_pool_job_t job = pool->jobs[slot];
-    (void)qurt_anysignal_clear(&pool->ready_slots, 1u << slot);
-    (void)qurt_anysignal_set(&pool->free_slots, 1u << slot);
-    qurt_mutex_unlock(&pool->ready_mutex);
+    qurt_mutex_lock(&pool->ring_mutex);
+    worker_pool_job_t job = pool->jobs[pool->head % MNN_WORKER_QUEUE_CAP];
+    ++pool->head;
+    qurt_mutex_unlock(&pool->ring_mutex);
+    (void) qurt_sem_up(&pool->spaces);
 
     if (job.fptr != NULL) {
       job.fptr(job.dptr, (int)info->index);
@@ -150,16 +147,12 @@ AEEResult worker_pool_init_ex(worker_pool_context_t *context, int stack_size, in
   }
 
   pool->worker_count = worker_count;
-  pool->slot_count = worker_count + 1;
-  pool->slot_mask = (1u << pool->slot_count) - 1u;
-  pool->stack_size = stack_size;
-  pool->jobs = (worker_pool_job_t *)calloc(pool->slot_count, sizeof(worker_pool_job_t));
+  pool->stack_size   = stack_size;
   pool->threads = (qurt_thread_t *)calloc(worker_count, sizeof(qurt_thread_t));
   pool->infos = (MNNWorkerInfo *)calloc(worker_count, sizeof(MNNWorkerInfo));
   pool->stack_block = malloc((size_t)stack_size * worker_count);
 
-  if (pool->jobs == NULL || pool->threads == NULL || pool->infos == NULL || pool->stack_block == NULL) {
-    free(pool->jobs);
+  if (pool->threads == NULL || pool->infos == NULL || pool->stack_block == NULL) {
     free(pool->threads);
     free(pool->infos);
     free(pool->stack_block);
@@ -167,11 +160,9 @@ AEEResult worker_pool_init_ex(worker_pool_context_t *context, int stack_size, in
     return AEE_ENOMEMORY;
   }
 
-  qurt_anysignal_init(&pool->free_slots);
-  qurt_anysignal_init(&pool->ready_slots);
-  qurt_mutex_init(&pool->free_mutex);
-  qurt_mutex_init(&pool->ready_mutex);
-  (void)qurt_anysignal_set(&pool->free_slots, pool->slot_mask);
+  qurt_mutex_init(&pool->ring_mutex);
+  qurt_sem_init_val(&pool->items, 0);
+  qurt_sem_init_val(&pool->spaces, MNN_WORKER_QUEUE_CAP);
 
   qurt_thread_attr_t attr;
   qurt_thread_attr_init(&attr);
@@ -214,7 +205,10 @@ void worker_pool_deinit(worker_pool_context_t *context) {
   }
 
   MNNWorkerPool *pool = (MNNWorkerPool *)*context;
-  (void)qurt_anysignal_set(&pool->ready_slots, 1u << MNN_WORKER_STOP_BIT);
+  pool->stop          = 1;
+  for (unsigned int i = 0; i < pool->worker_count; ++i) {
+    (void) qurt_sem_up(&pool->items);
+  }
 
   for (unsigned int i = 0; i < pool->worker_count; ++i) {
     if (pool->threads != NULL && pool->threads[i] != 0) {
@@ -223,11 +217,9 @@ void worker_pool_deinit(worker_pool_context_t *context) {
     }
   }
 
-  qurt_mutex_destroy(&pool->free_mutex);
-  qurt_mutex_destroy(&pool->ready_mutex);
-  qurt_anysignal_destroy(&pool->free_slots);
-  qurt_anysignal_destroy(&pool->ready_slots);
-  free(pool->jobs);
+  qurt_mutex_destroy(&pool->ring_mutex);
+  qurt_sem_destroy(&pool->items);
+  qurt_sem_destroy(&pool->spaces);
   free(pool->threads);
   free(pool->infos);
   free(pool->stack_block);
@@ -254,19 +246,36 @@ AEEResult worker_pool_submit(worker_pool_context_t context, worker_pool_job_t jo
     return AEE_SUCCESS;
   }
 
-  qurt_mutex_lock(&pool->free_mutex);
-  (void)qurt_anysignal_wait(&pool->free_slots, pool->slot_mask | (1u << MNN_WORKER_STOP_BIT));
-  unsigned int free_bits = qurt_anysignal_get(&pool->free_slots);
-  if (free_bits & (1u << MNN_WORKER_STOP_BIT)) {
-    qurt_mutex_unlock(&pool->free_mutex);
+  if (pool->stop) {
     return AEE_ENOMORE;
   }
+  (void) qurt_sem_down(&pool->spaces);
+  qurt_mutex_lock(&pool->ring_mutex);
+  pool->jobs[pool->tail % MNN_WORKER_QUEUE_CAP] = job;
+  ++pool->tail;
+  qurt_mutex_unlock(&pool->ring_mutex);
+  (void) qurt_sem_up(&pool->items);
+  return AEE_SUCCESS;
+}
 
-  unsigned int slot = mnn_worker_first_bit(free_bits & pool->slot_mask);
-  pool->jobs[slot] = job;
-  (void)qurt_anysignal_clear(&pool->free_slots, 1u << slot);
-  (void)qurt_anysignal_set(&pool->ready_slots, 1u << slot);
-  qurt_mutex_unlock(&pool->free_mutex);
+AEEResult worker_pool_enqueue_batch(worker_pool_context_t context, const worker_pool_job_t *jobs, unsigned int n) {
+  MNNWorkerPool *pool = (MNNWorkerPool *) (context != NULL ? context : g_default_pool);
+  if (pool == NULL || jobs == NULL || n > MNN_WORKER_QUEUE_CAP) {
+    return AEE_EBADPARM;
+  }
+  if (pool->stop) {
+    return AEE_ENOMORE;
+  }
+  for (unsigned int i = 0; i < n; ++i) {
+    (void) qurt_sem_down(&pool->spaces);
+  }
+  qurt_mutex_lock(&pool->ring_mutex);
+  for (unsigned int i = 0; i < n; ++i) {
+    pool->jobs[pool->tail % MNN_WORKER_QUEUE_CAP] = jobs[i];
+    ++pool->tail;
+  }
+  qurt_mutex_unlock(&pool->ring_mutex);
+  (void) qurt_sem_add(&pool->items, n);
   return AEE_SUCCESS;
 }
 

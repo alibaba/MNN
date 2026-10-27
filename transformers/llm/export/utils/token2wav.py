@@ -7,6 +7,7 @@ from .model_mapper import ModelMapper
 from .transformers import Rotary, Embedding, Decoder, Attention
 from .spinner import spinner_run
 from .torch_utils import onnx_export
+from .qat import copy_qat_source, mark_qat_sources, filter_qat_unexpected_keys
 
 
 def _load_prefixed_state_dict(path, prefix):
@@ -296,9 +297,13 @@ class DitWrapper(torch.nn.Module):
         other_ic = ic - x_ic
         self.proj_in_x = torch.nn.Linear(x_ic, oc)
         self.proj_in_x.weight.data = proj_in.weight[:, :x_ic]
+        if hasattr(proj_in, '_mnn_qat_source_weight_name'):
+            copy_qat_source(proj_in, self.proj_in_x, lambda w: w[:, :x_ic], preserve_groups=False)
         self.proj_in_x.bias = None
         self.proj_in_other = torch.nn.Linear(other_ic, oc)
         self.proj_in_other.weight.data = proj_in.weight[:, x_ic:]
+        if hasattr(proj_in, '_mnn_qat_source_weight_name'):
+            copy_qat_source(proj_in, self.proj_in_other, lambda w: w[:, x_ic:], preserve_groups=False)
         self.proj_in_other.bias = proj_in.bias
         self.spk_encoder = ECAPA_TDNN(dit.input_embed.spk_encoder)
         self.preprocess = DitPreprocess(self)
@@ -579,9 +584,15 @@ class Qwen3TTSToken2Wav(torch.nn.Module):
 
         model_config = Qwen3TTSConfig.from_pretrained(self.args.path)
         speaker_encoder = Qwen3TTSSpeakerEncoder(model_config.speaker_encoder_config)
-        speaker_encoder.load_state_dict(
-            _load_prefixed_state_dict(os.path.join(self.args.path, 'model.safetensors'), 'speaker_encoder.'),
-            strict=True)
+        speaker_state = _load_prefixed_state_dict(os.path.join(self.args.path, 'model.safetensors'), 'speaker_encoder.')
+        qat = getattr(self.args, 'qat', False)
+        missing, unexpected = speaker_encoder.load_state_dict(speaker_state, strict=not qat)
+        if qat:
+            unexpected = filter_qat_unexpected_keys(unexpected, speaker_state, self.args)
+            if missing or unexpected:
+                raise RuntimeError(f'Speaker encoder weight load mismatch: missing={missing}, unexpected={unexpected}')
+            mark_qat_sources(speaker_encoder, self.args,
+                             {name: f'speaker_encoder.{name}' for name in speaker_state})
         self.speaker_encoder = Qwen3TTSSpeakerEncoderWrapper(speaker_encoder).eval()
 
     @spinner_run(f'export qwen3_tts speech decoder to ')

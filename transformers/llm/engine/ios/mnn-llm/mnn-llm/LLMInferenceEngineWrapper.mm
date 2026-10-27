@@ -4,6 +4,7 @@
 //
 //  Created by wangzhaode on 2023/12/14.
 //
+#include <chrono>
 #include <functional>
 #include <fstream>
 #include <iomanip>
@@ -177,6 +178,8 @@ private:
         [self runFileBench:std::string([input UTF8String]) output:os];
     } else if ([input hasPrefix:@"bench "]) {
         [self runFixedBench:std::string([input UTF8String]) output:os];
+    } else if ([input hasPrefix:@"needlebench "]) {
+        [self runNeedleBench:std::string([input UTF8String]) output:os];
     } else if (std::string([input UTF8String]) == "benchmark") {
         // do benchmark
         std::string model_dir = GetMainBundleDirectory();
@@ -404,6 +407,132 @@ static void LogAnswerChunks(const std::string& answer) {
         NSLog(@"[MNN_FILE_END] file=%s", files[i].c_str());
         os << "  prefill " << std::fixed << std::setprecision(2) << pf_speed
            << " tok/s, decode " << dc_speed << " tok/s\n";
+    }
+    os << "<eop>";
+    NSLog(@"[MNN_BENCH_DONE]");
+}
+
+// cmd: "needlebench <cpu|metal> <max_input_tokens> <max_new_tokens> [attention_mode] [threads]"
+// Each case file holds one full user message (document + question). The LLM compresses it
+// to max_input_tokens before prefill, mirroring the host needlebench auto-compress path.
+- (void)runNeedleBench:(const std::string&)cmd output:(std::ostream&)os {
+    std::istringstream iss(cmd);
+    std::string tag, backend;
+    int max_input = 64000, max_new = 64, attn_mode = -1, threads = 4, chunk = 0, kv_mmap = 0;
+    iss >> tag >> backend;
+    int v;
+    if (iss >> v) max_input = v;
+    if (iss >> v) max_new = v;
+    if (iss >> v) attn_mode = v;
+    if (iss >> v) threads = v;
+    if (iss >> v) chunk = v;
+    if (iss >> v) kv_mmap = v;
+    if ((backend != "cpu" && backend != "metal") || max_input <= 0 || max_new <= 0) {
+        os << "usage: needlebench <cpu|metal> <max_input_tokens> <max_new_tokens> [attention_mode] [threads] [chunk] [kv_mmap]\n";
+        os << "<eop>";
+        NSLog(@"[MNN_BENCH_ERROR] invalid needlebench command: %s", cmd.c_str());
+        return;
+    }
+    std::vector<std::string> casePaths;
+    NSString *docRoot = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+                         stringByAppendingPathComponent:@"needlebench"];
+    NSArray *docs = [[[NSFileManager defaultManager] contentsOfDirectoryAtPath:docRoot error:nil]
+                     sortedArrayUsingSelector:@selector(compare:)];
+    for (NSString *f in docs) {
+        if ([f hasSuffix:@".txt"]) {
+            casePaths.push_back(std::string([docRoot UTF8String]) + "/" + std::string([f UTF8String]));
+        }
+    }
+    if (casePaths.empty()) {
+        NSString *bundleDir = [NSString stringWithUTF8String:GetMainBundleDirectory()];
+        NSArray *all = [[[NSFileManager defaultManager] contentsOfDirectoryAtPath:bundleDir error:nil]
+                        sortedArrayUsingSelector:@selector(compare:)];
+        for (NSString *f in all) {
+            if ([f hasPrefix:@"needlecase_"] && [f hasSuffix:@".txt"]) {
+                casePaths.push_back(std::string([bundleDir UTF8String]) + "/" + std::string([f UTF8String]));
+            }
+        }
+    }
+    if (casePaths.empty()) {
+        os << "no needlebench case files found\n<eop>";
+        NSLog(@"[MNN_BENCH_ERROR] no needlebench case files");
+        return;
+    }
+    WaitForAppActive();
+    llm.reset();
+    std::string model_dir = GetMainBundleDirectory();
+    llm.reset(Llm::createLLM(model_dir + "/config.json"));
+    if (!llm) {
+        os << "createLLM failed\n<eop>";
+        NSLog(@"[MNN_BENCH_ERROR] createLLM failed");
+        return;
+    }
+    llm->set_config("{\"tmp_path\":\"" + GetCleanTmpDirectory() + "\", \"use_mmap\":true}");
+    llm->set_config("{\"backend_type\":\"" + backend + "\"}");
+    llm->set_config("{\"thread_num\":" + std::to_string(threads) + "}");
+    llm->set_config("{\"reuse_kv\":false}");
+    llm->set_config("{\"prompt_cache\":false}");
+    llm->set_config("{\"async\":false}");
+    llm->set_config("{\"sampler_type\":\"greedy\"}");
+    llm->set_config("{\"max_new_tokens\":" + std::to_string(max_new) + "}");
+    llm->set_config("{\"token_compress\":" + std::to_string(max_input) + "}");
+    llm->set_config("{\"jinja\":{\"context\":{\"enable_thinking\":false}}}");
+    if (attn_mode >= 0) {
+        llm->set_config("{\"attention_mode\":" + std::to_string(attn_mode) + "}");
+    }
+    if (chunk > 0) {
+        llm->set_config("{\"chunk\":" + std::to_string(chunk) + "}");
+    }
+    if (kv_mmap) {
+        llm->set_config("{\"kvcache_mmap\":true}");
+    }
+    llm->load();
+    auto context = llm->getContext();
+    NSString *resultDir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+                           stringByAppendingPathComponent:@"needlebench_results"];
+    [[NSFileManager defaultManager] removeItemAtPath:resultDir error:nil];
+    [[NSFileManager defaultManager] createDirectoryAtPath:resultDir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSLog(@"[MNN_NB] needlebench backend=%s cases=%zu max_input=%d max_new=%d attn_mode=%d threads=%d chunk=%d kv_mmap=%d",
+          backend.c_str(), casePaths.size(), max_input, max_new, attn_mode, threads, chunk, kv_mmap);
+    for (size_t i = 0; i < casePaths.size(); ++i) {
+        std::ifstream fs(casePaths[i]);
+        std::string content((std::istreambuf_iterator<char>(fs)), std::istreambuf_iterator<char>());
+        while (!content.empty() && (content.back() == '\n' || content.back() == '\r' || content.back() == ' ')) {
+            content.pop_back();
+        }
+        if (content.empty()) {
+            continue;
+        }
+        std::string name = casePaths[i].substr(casePaths[i].find_last_of('/') + 1);
+        auto start = std::chrono::steady_clock::now();
+        auto tokens = llm->tokenizer_encode(llm->apply_chat_template(ChatMessages{{"user", content}}));
+        double compress_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        std::ostringstream answer;
+        dispatch_source_t memTimer = StartFootprintLogger(name.c_str());
+        llm->response(tokens, &answer, nullptr, max_new);
+        dispatch_source_cancel(memTimer);
+        double total_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        double prefill_s = context->prefill_us / 1e6;
+        double decode_s = context->decode_us / 1e6;
+        NSLog(@"[MNN_NB] case=%s input_tokens=%zu compress_s=%.2f prefill_s=%.2f decode_s=%.2f gen=%d total_s=%.2f status=%d",
+              name.c_str(), tokens.size(), compress_s, prefill_s, decode_s, context->gen_seq_len, total_s,
+              (int)context->status);
+        LogAnswerChunks(answer.str());
+        std::ostringstream record;
+        record << "case=" << name << "\n"
+               << "backend=" << backend << "\n"
+               << "max_input_tokens=" << max_input << "\n"
+               << "input_tokens=" << tokens.size() << "\n"
+               << "compress_s=" << compress_s << "\n"
+               << "prefill_s=" << prefill_s << "\n"
+               << "decode_s=" << decode_s << "\n"
+               << "gen_tokens=" << context->gen_seq_len << "\n"
+               << "total_s=" << total_s << "\n"
+               << "status=" << (int)context->status << "\n"
+               << "--- answer ---\n" << answer.str() << "\n";
+        [[NSData dataWithBytes:record.str().c_str() length:record.str().size()]
+            writeToFile:[resultDir stringByAppendingPathComponent:[NSString stringWithUTF8String:name.c_str()]]
+                 atomically:YES];
     }
     os << "<eop>";
     NSLog(@"[MNN_BENCH_DONE]");

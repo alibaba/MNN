@@ -1,0 +1,85 @@
+//
+//  indexed_linear_gemv.comp
+//  MNN
+//
+//  Created by MNN on 2026/09/29.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 3) const int WEIGHT_BITS = 4;
+layout(constant_id = 4) const bool FUSE_SILU_MUL = false;
+layout(set=0, binding=0) readonly buffer Input { FLOAT data[]; } inputData;
+layout(set=0, binding=1) readonly buffer Ids { int data[]; } ids;
+layout(set=0, binding=2) readonly buffer Weights { uint data[]; } weights;
+layout(set=0, binding=3) readonly buffer Alpha { vec2 data[]; } alpha;
+layout(set=0, binding=4) readonly buffer Bias { float data[]; } bias;
+layout(set=0, binding=5) writeonly buffer Output { FLOAT data[]; } outputData;
+layout(push_constant) uniform Params {
+    int channels; int outputs; int experts; int topk;
+    int inputMode; int groups; int groupSize; int weightStride;
+    int rows; int maxTiles;
+} p;
+
+float weightValue(int expert, int outputChannel, int inputChannel) {
+    uint element = uint(outputChannel * p.channels + inputChannel);
+    uint base = uint(expert) * uint(p.weightStride);
+    if (WEIGHT_BITS == 32) return uintBitsToFloat(weights.data[base / 4u + element]);
+    if (WEIGHT_BITS == 16) return unpackHalf2x16(weights.data[base / 4u + element / 2u])[element & 1u];
+    uint byteOffset = base + (WEIGHT_BITS == 4 ? element / 2u : element);
+    uint packed = (weights.data[byteOffset / 4u] >> ((byteOffset & 3u) * 8u)) & 255u;
+    int q;
+    if (WEIGHT_BITS == 4) q = int((element & 1u) == 0u ? packed >> 4u : packed & 15u) - 8;
+    else q = int(packed >= 128u ? packed - 256u : packed);
+    vec2 parameters = alpha.data[(expert * p.outputs + outputChannel) * p.groups + inputChannel / p.groupSize];
+    return fma(float(q), parameters.y, parameters.x);
+}
+
+shared vec4 partial[64];
+shared vec4 upPartial[64];
+void main() {
+    int lane = int(gl_LocalInvocationID.x);
+    int firstOutput = int(gl_WorkGroupID.x) * 4;
+    int row = int(gl_WorkGroupID.y);
+    int expert = ids.data[row];
+    int resultChannels = p.outputs / (FUSE_SILU_MUL ? 2 : 1);
+    if (expert < 0 || expert >= p.experts) {
+        if (lane == 0) {
+            for (int j = 0; j < 4 && firstOutput + j < resultChannels; ++j) outputData.data[row * resultChannels + firstOutput + j] = FLOAT(0);
+        }
+        return;
+    }
+    int inputRow = p.inputMode != 0 ? row : row / p.topk;
+    vec4 sum = vec4(0), upSum = vec4(0);
+    for (int k = lane; k < p.channels; k += 64) {
+        float x = float(inputData.data[inputRow * p.channels + k]);
+        for (int j = 0; j < 4; ++j) {
+            if (firstOutput + j < resultChannels) {
+                int channel = (firstOutput + j) * (FUSE_SILU_MUL ? 2 : 1);
+                sum[j] = fma(x, weightValue(expert, channel, k), sum[j]);
+                if (FUSE_SILU_MUL) upSum[j] = fma(x, weightValue(expert, channel + 1, k), upSum[j]);
+            }
+        }
+    }
+    partial[lane] = sum;
+    if (FUSE_SILU_MUL) upPartial[lane] = upSum;
+    barrier();
+    for (int stride = 32; stride > 0; stride >>= 1) {
+        if (lane < stride) {
+            partial[lane] += partial[lane + stride];
+            if (FUSE_SILU_MUL) upPartial[lane] += upPartial[lane + stride];
+        }
+        barrier();
+    }
+    if (lane == 0) {
+        for (int j = 0; j < 4 && firstOutput + j < resultChannels; ++j) {
+            int channel = expert * p.outputs + (firstOutput + j) * (FUSE_SILU_MUL ? 2 : 1);
+            FLOAT gate = FLOAT(partial[0][j] + bias.data[channel]);
+            if (FUSE_SILU_MUL) {
+                FLOAT activated = gate / (FLOAT(1.0) + exp(-gate));
+                FLOAT up = FLOAT(upPartial[0][j] + bias.data[channel + 1]);
+                outputData.data[row * resultChannels + firstOutput + j] = FLOAT(activated * up);
+            } else outputData.data[row * resultChannels + firstOutput + j] = FLOAT(gate);
+        }
+    }
+}

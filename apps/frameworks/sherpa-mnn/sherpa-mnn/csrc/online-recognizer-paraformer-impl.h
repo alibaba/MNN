@@ -258,14 +258,11 @@ class OnlineRecognizerParaformerImpl : public OnlineRecognizerImpl {
     auto &encoder_out_len = encoder_out_vec[1];
     auto &alpha = encoder_out_vec[2];
 
-    float *p_alpha = alpha->writeMap<float>();
+    // Module outputs may use backend storage that is not host FP32.
+    const float *p_alpha = alpha->readMap<float>();
 
     std::vector<int> alpha_shape =
         alpha->getInfo()->dim;
-
-    std::fill(p_alpha, p_alpha + left_chunk_size_, 0);
-    std::fill(p_alpha + alpha_shape[1] - right_chunk_size_,
-              p_alpha + alpha_shape[1], 0);
 
     const float *p_encoder_out = encoder_out->readMap<float>();
 
@@ -290,7 +287,10 @@ class OnlineRecognizerParaformerImpl : public OnlineRecognizerImpl {
     float integrate = alpha_cache[0];
 
     for (int32_t i = 0; i != encoder_out_shape[1]; ++i) {
-      float this_alpha = p_alpha[i];
+      float this_alpha =
+          (i < left_chunk_size_ || i >= alpha_shape[1] - right_chunk_size_)
+              ? 0.0f
+              : p_alpha[i];
       if (integrate + this_alpha < threshold) {
         integrate += this_alpha;
         ScaleAddInPlace(p_encoder_out + i * encoder_out_shape[2],

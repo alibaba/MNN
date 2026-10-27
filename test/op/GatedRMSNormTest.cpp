@@ -50,9 +50,13 @@ class GatedRMSNormTest : public MNNTestCase {
             xData[i] = (float)((i % 11) - 5) * 0.17f;
             zData[i] = (float)((i % 7) - 3) * 0.29f;
         }
+        // Keep gamma / beta near the range a real RMSNorm carries. They still vary with every channel, so
+        // a channel mix-up is caught, but they no longer scale the output with `inside`: at 0.03 per
+        // channel the inside=256 case peaked at ~11, where fp16's ~5e-4 relative error alone exceeds the
+        // absolute tolerance below.
         for (int c = 0; c < inside; ++c) {
-            gamma[c] = 0.9f + 0.03f * c;
-            beta[c]  = 0.01f * c - 0.02f;
+            gamma[c] = 0.9f + 0.003f * c;
+            beta[c] = 0.001f * c - 0.02f;
         }
 
         auto x = _Input({outside, inside, 1, 1}, NC4HW4);
@@ -104,7 +108,13 @@ class GatedRMSNormTest : public MNNTestCase {
             return false;
         }
         auto expectedC4 = packC4Gn(expected, batch, heads * inside);
-        if (!checkVector<float>(out->readMap<float>(), expectedC4.data(), expectedC4.size(), 0.005f)) {
+        // Hexagon computes in fp16 and runs silu through an fp16 PWL, which costs it ~0.5% relative --
+        // five times what the CPU's fp16 path carries -- so it gets a relative bound.
+        const bool ok = getCurrentType() == MNN_FORWARD_HEXAGON
+                            ? checkVectorByRelativeError<float>(out->readMap<float>(), expectedC4.data(),
+                                                                (int)expectedC4.size(), 0.01f)
+                            : checkVector<float>(out->readMap<float>(), expectedC4.data(), expectedC4.size(), 0.005f);
+        if (!ok) {
             MNN_ERROR("GatedRMSNorm(batch=%d): value mismatch\n", batch);
             return false;
         }
@@ -120,8 +130,11 @@ public:
         // decomposition's flat view of the normalized result does not pick up
         // NC4HW4 channel padding. inside=128 pushes the fused reduction past
         // one iteration per lane.
-        return runCase(1, 4, 8) && runCase(3, 4, 8) && runCase(1, 4, 6) && runCase(2, 3, 6) &&
-               runCase(5, 3, 128) && runCase(1, 3, 128);
+        return runCase(1, 4, 8) && runCase(3, 4, 8) && runCase(1, 4, 6) && runCase(2, 3, 6) && runCase(5, 3, 128) &&
+               runCase(1, 3, 128) &&
+               // Hexagon fuses inside % 64 == 0 and splits prefill into 64-token units across workers:
+               // 70 tokens leave a partial unit, inside=256 gives several channel blocks per row.
+               runCase(70, 16, 128) && runCase(130, 2, 256);
     }
 };
 MNNTestSuiteRegister(GatedRMSNormTest, "op/gated_rms_norm");

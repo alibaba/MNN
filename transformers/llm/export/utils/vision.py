@@ -9,9 +9,16 @@ from typing import Tuple, Optional, Dict, Any
 
 from .transformers import VisionRotary, Decoder
 from .spinner import spinner_run
-from .torch_utils import onnx_export
+from .torch_utils import onnx_export, EncoderExport, embedding_scale
+from .qat import copy_qat_source
 
 class Vision(torch.nn.Module):
+    processor_family = "clip"
+    patch_layout = None
+    output_axes = None
+    output_squeeze = None
+    window_index = False
+
     def __init__(self, visual, base):
         super().__init__()
         self.quant_bit = 8
@@ -25,13 +32,80 @@ class Vision(torch.nn.Module):
         self.tokenizer = base.tokenizer
         self.config = base.config.origin_config
         self.hidden_size = base.config.hidden_size
+        self.embedding_scale = embedding_scale(base)
         self.llm_config = { "is_visual": True }
         self.rope_ratio = 1.0
         self.init_config()
         self.load()
 
     def get_config(self):
+        processor = {
+            'version': 2,
+            'family': self.processor_family,
+            'input_layout': 'pixels' if self.patch_layout else 'native',
+            'output_layout': 'tbc',
+        }
+        if self.patch_layout in ('merged', 'row'):
+            processor.update(patch_size=self.patch_size, spatial_merge_size=self.merge_size,
+                             temporal_patch_size=self.temporal_patch_size)
+        if self.window_index:
+            processor['window_size'] = self.merger_window_size
+        if self.patch_layout == 'hwc':
+            processor.update(patch_size=self.patch_size, pooling_size=self.pooling_kernel_size,
+                             max_tokens=self.default_output_length)
+        self.llm_config['vision_processor'] = processor
         return self.llm_config
+
+    def export_inputs(self, pixels, *extra_inputs):
+        kind = self.patch_layout
+        if kind == 'merged':
+            frames, channels, height, width = pixels.shape
+            p, m, temporal = self.patch_size, self.merge_size, self.temporal_patch_size
+            gh, gw = height // p, width // p
+            pixels = pixels.reshape(frames // temporal, temporal, channels, gh // m, m, p, gw // m, m, p)
+            pixels = pixels.permute(0, 3, 6, 4, 7, 2, 1, 5, 8).reshape(-1, channels * temporal * p * p)
+        elif kind == 'row':
+            batch, channels, height, width = pixels.shape
+            p, m = self.patch_size, self.merge_size
+            gh, gw = height // p, width // p
+            pixels = pixels.reshape(batch, channels, gh // m, m, p, gw // m, m, p)
+            pixels = pixels.permute(0, 2, 3, 5, 6, 1, 4, 7).reshape(-1, channels * p * p)
+        elif kind == 'hwc':
+            batch, channels, height, width = pixels.shape
+            p = self.patch_size
+            gh, gw = height // p, width // p
+            pixels = pixels.reshape(batch, channels, gh, p, gw, p).permute(0, 2, 4, 3, 5, 1)
+            pixels = pixels.reshape(batch, gh * gw, p * p * channels)
+            limit = self.default_output_length * self.pooling_kernel_size ** 2
+            pixels = F.pad(pixels, (0, 0, 0, limit - gh * gw))
+        return (pixels, *extra_inputs)
+
+    def export_onnx(self, model, inputs, onnx_model, input_names, output_names, dynamic_axes=None):
+        values = list(inputs) if isinstance(inputs, tuple) else [inputs]
+        input_names = list(input_names)
+        dynamic_axes = {k: dict(v) for k, v in (dynamic_axes or {}).items() if k in input_names + output_names}
+        kind = self.patch_layout
+        if kind in ('merged', 'row', 'hwc'):
+            p = self.patch_size
+            if kind == 'hwc':
+                count = self.default_output_length * self.pooling_kernel_size ** 2
+                pool = self.pooling_kernel_size
+                gh = next(h for h in range(int(math.sqrt(count)), 0, -1)
+                          if h % pool == 0 and count % h == 0 and (count // h) % pool == 0)
+                gw, frames = count // gh, 1
+            elif kind == 'row':
+                frames, gh, gw = map(int, values[1][0])
+            else:
+                gh = gw = math.isqrt(values[0].shape[0])
+                assert gh * gw == values[0].shape[0]
+                frames = self.temporal_patch_size
+            values[0] = torch.randn(frames, 3, gh * p, gw * p)
+            dynamic_axes.pop(input_names[0], None)
+            input_names[0] = 'pixel_values'
+            dynamic_axes['pixel_values'] = {0: 'frames', 2: 'height', 3: 'width'}
+        wrapper = EncoderExport(model, self.embedding_scale, self.output_axes, self.output_squeeze, self.export_inputs)
+        dynamic_axes[output_names[0]] = {0: 'tokens', 1: 'batch'}
+        return onnx_export(wrapper, tuple(values), onnx_model, input_names, output_names, dynamic_axes)
 
     @staticmethod
     def get_vision(model_type):
@@ -52,6 +126,7 @@ class Vision(torch.nn.Module):
             'smolvlm': Idefics3Vision,
             'llava_qwen2': MobileCLIPVision,
             'minicpmv': MiniCPMVision,
+            'minicpmv4_7': MiniCPMV4_7Vision,
             'glm_ocr': GlmOcrVision,
             'lfm2_vl': Lfm2VlVision,
             'hunyuan_vl': HunyuanVLVision,
@@ -90,6 +165,7 @@ class Vision(torch.nn.Module):
         return None
 
 class DeepSeekVL(Vision):
+    processor_family = "deepseek_vl"
     def __init__(self, visual, base):
         super().__init__(visual, base)
         self.quant_bit = 8
@@ -116,7 +192,7 @@ class DeepSeekVL(Vision):
     def export(self, onnx_path):
         input_images = torch.randn((1, 3, self.image_size, self.image_size), dtype=torch.float32)
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (input_images),
+        self.export_onnx(self, (input_images),
                     onnx_model,
                     input_names=['input_images'],
                     output_names=['image_embeds'],
@@ -132,6 +208,7 @@ class DeepSeekVL(Vision):
 
 
 class InternVLVision(Vision):
+    processor_family = "internvl"
     def __init__(self, visual, base):
         super().__init__(visual, base)
         self.quant_bit = 8
@@ -197,7 +274,7 @@ class InternVLVision(Vision):
     def export(self, onnx_path):
         input_images = torch.randn((1, 3, self.image_size, self.image_size), dtype=torch.float32)
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (input_images),
+        self.export_onnx(self, (input_images),
                     onnx_model,
                     input_names=['input_images'],
                     output_names=['image_embeds'],
@@ -210,6 +287,7 @@ class InternVLVision(Vision):
         return self.extract_feature(images)
 
 class QwenVision(Vision):
+    processor_family = "qwen"
     def __init__(self, visual, base):
         super().__init__(visual, base)
         self.quant_bit = 16
@@ -227,7 +305,7 @@ class QwenVision(Vision):
     def export(self, onnx_path):
         input_images = torch.randn((1, 3, self.image_size, self.image_size))
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (input_images),
+        self.export_onnx(self, (input_images),
                     onnx_model,
                     input_names=['input_images'],
                     output_names=['image_embeds'],
@@ -257,6 +335,8 @@ class QwenVision(Vision):
         return hidden_states
 
 class Qwen2Vision(Vision):
+    processor_family = "qwen2_vl"
+    patch_layout = "merged"
     def __init__(self, visual, base):
         self.temporal_patch_size = 2
         self.patch_size = 14
@@ -288,6 +368,8 @@ class Qwen2Vision(Vision):
         self.video_pad_id = getattr(self.config, 'video_token_id', None)
         self.llm_config['image_size'] = self.image_height
         self.refresh_image_resize_config()
+        # Published so inference reads the merger geometry instead of assuming the graph's own.
+        self.llm_config['vision_merge_size'] = self.merge_size
         self.llm_config['vision_start'] = self.vision_start_id
         self.llm_config['vision_end'] = self.vision_end_id
         self.llm_config['image_pad'] = self.image_pad_id
@@ -297,6 +379,10 @@ class Qwen2Vision(Vision):
             self.llm_config['video_max_frames'] = self.video_max_frames
             self.llm_config['video_max_pixels'] = self.video_max_pixels
             self.llm_config['video_max_vision_tokens'] = self.video_max_vision_tokens
+            # Qwen2.5-VL scales the temporal mRoPE index by seconds; Qwen2-VL has no such field.
+            tokens_per_second = getattr(self.visual.config, 'tokens_per_second', None)
+            if tokens_per_second is not None:
+                self.llm_config['video_position_id_per_second'] = tokens_per_second
         self.vision_start_token = '<|vision_start|>'
         self.vision_end_token = '<|vision_end|>'
         self.image_pad_token = '<|image_pad|>'
@@ -725,7 +811,7 @@ class Qwen2Vision(Vision):
         posision_ids = torch.zeros([2, 900], dtype=torch.int32)
         attention_mask = torch.zeros([1, 900, 900], dtype=torch.float)
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (patch, posision_ids, attention_mask),
+        self.export_onnx(self, (patch, posision_ids, attention_mask),
                     onnx_model,
                     input_names=['patches', 'position_ids', 'attention_mask'],
                     output_names=['image_embeds'],
@@ -737,6 +823,7 @@ class Qwen2Vision(Vision):
         return onnx_model
 
 class GlmOcrVision(Qwen2Vision):
+    processor_family = "glm_ocr"
     def __init__(self, visual, base):
         super().__init__(visual, base)
 
@@ -800,6 +887,7 @@ class GlmOcrVision(Qwen2Vision):
         return image_embeds
 
 class Gemma3Vision(Vision):
+    processor_family = "gemma3"
     def __init__(self, visual, base):
         # read from gemma3_map
         self.image_size = base.image_size
@@ -834,7 +922,7 @@ class Gemma3Vision(Vision):
     def export(self, onnx_path):
         input_images = torch.randn((1, 3, self.image_size, self.image_size))
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (input_images),
+        self.export_onnx(self, (input_images),
                     onnx_model,
                     input_names=['input_images'],
                     output_names=['image_embeds'],
@@ -848,6 +936,9 @@ class Gemma3Vision(Vision):
         return txt_embeds
 
 class Gemma4Vision(Vision):
+    processor_family = "gemma4"
+    patch_layout = "hwc"
+    output_axes = (1, 0, 2)
     def __init__(self, visual, base):
         self.patch_size = base.config.origin_config.vision_config.patch_size
         self.pooling_kernel_size = base.config.origin_config.vision_config.pooling_kernel_size
@@ -924,7 +1015,7 @@ class Gemma4Vision(Vision):
         input_patches = torch.randn((1, max_patches, patch_pixels))
         position_ids = torch.zeros((1, max_patches, 2), dtype=torch.long)
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (input_patches, position_ids),
+        self.export_onnx(self, (input_patches, position_ids),
                     onnx_model,
                     input_names=['input_patches', 'image_position_ids'],
                     output_names=['image_embeds'],
@@ -1041,17 +1132,27 @@ class Gemma4Vision(Vision):
         return txt_embeds
 
 class Qwen2_5Vision(Qwen2Vision):
+    processor_family = "qwen2_5_vl"
+    window_index = True
     def __init__(self, visual, base):
         super().__init__(visual, base)
         self.merge_unit = self.merge_size * self.merge_size
-        self.window_size = visual.window_size
         self.fullatt_block_indexes = visual.fullatt_block_indexes
+
+    @property
+    def merger_window_size(self):
+        # Derived, not stored: load() runs from Vision.__init__, before this subclass can assign.
+        return self.visual.window_size // self.merge_size // self.patch_size
+
+    def load(self):
+        super().load()
+        self.llm_config['vision_merger_window_size'] = self.merger_window_size
 
     def get_window_index(self, grid_thw):
         window_index: list = []
         cu_window_seqlens: list = [0]
         window_index_id = 0
-        vit_merger_window_size = self.window_size // self.merge_size // self.patch_size
+        vit_merger_window_size = self.merger_window_size
 
         for grid_t, grid_h, grid_w in grid_thw:
             llm_grid_h, llm_grid_w = (
@@ -1127,7 +1228,7 @@ class Qwen2_5Vision(Qwen2Vision):
         attention_mask = torch.zeros([2, 1, 400, 400], dtype=torch.float)
         window_index = torch.arange(100, dtype=torch.int32)
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (patch, posision_ids, attention_mask, window_index),
+        self.export_onnx(self, (patch, posision_ids, attention_mask, window_index),
                     onnx_model,
                     input_names=['patches', 'position_ids', 'attention_mask', 'window_index'],
                     output_names=['image_embeds'],
@@ -1140,6 +1241,7 @@ class Qwen2_5Vision(Qwen2Vision):
         return onnx_model
 
 class Qwen2_5OmniVision(Qwen2_5Vision):
+    processor_family = "qwen2_5_omni"
     def __init__(self, visual, base):
         self.temporal_patch_size = 2
         self.patch_size = 14
@@ -1159,9 +1261,20 @@ class Qwen2_5OmniVision(Qwen2_5Vision):
         self.llm_config['vision_start'] = self.vision_start_id
         self.llm_config['vision_end'] = self.vision_end_id
         self.llm_config['image_pad'] = self.image_pad_id
+        # This load() does not chain to Qwen2_5Vision.load(), so publish the merger geometry here.
+        self.llm_config['vision_merge_size'] = self.merge_size
+        self.llm_config['vision_merger_window_size'] = self.merger_window_size
+        self.video_pad_id = self.config.video_token_index
+        self.llm_config['video_pad'] = self.video_pad_id
+        self.llm_config['video_fps'] = self.video_fps
+        self.llm_config['video_max_frames'] = self.video_max_frames
+        self.llm_config['video_max_pixels'] = self.video_max_pixels
+        self.llm_config['video_max_vision_tokens'] = self.video_max_vision_tokens
+        self.llm_config['video_position_id_per_second'] = self.config.position_id_per_seconds
         self.vision_start_token = '<|vision_bos|>'
         self.vision_end_token = '<|vision_eos|>'
         self.image_pad_token = '<|IMAGE|>'
+        self.video_pad_token = '<|VIDEO|>'
         # load model
         config = self.visual.config
         if hasattr(config, "embed_dim"):
@@ -1196,6 +1309,7 @@ class Qwen2_5OmniVision(Qwen2_5Vision):
         self.merger = self.visual.merger
 
 class Qwen3Vision(Qwen2Vision):
+    processor_family = "qwen3_vl"
     def __init__(self, visual, base):
         super().__init__(visual, base)
         self.patch_size = 16
@@ -1229,6 +1343,8 @@ class Qwen3Vision(Qwen2Vision):
         # 复制并转换权重 (C,D,H,W 展开顺序与 view(-1) 一致)
         with torch.no_grad():
             self.patch_embed.weight.copy_(old_conv.weight.view(out_channels, -1))
+            if hasattr(old_conv, '_mnn_qat_source_weight_name'):
+                copy_qat_source(old_conv, self.patch_embed, lambda w: w.flatten(1))
             if old_conv.bias is not None:
                 self.patch_embed.bias.copy_(old_conv.bias)
 
@@ -1349,7 +1465,7 @@ class Qwen3Vision(Qwen2Vision):
         idx_tensor = torch.zeros([4, 256], dtype=torch.int32)
         weight_tensor = torch.randn([4, 256])
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (patch, posision_ids, attention_mask, idx_tensor, weight_tensor),
+        self.export_onnx(self, (patch, posision_ids, attention_mask, idx_tensor, weight_tensor),
                     onnx_model,
                     input_names=['patches', 'position_ids', 'attention_mask', 'idx_tensor', 'weight_tensor'],
                     output_names=['image_embeds', 'deepstack_feature'],
@@ -1363,6 +1479,7 @@ class Qwen3Vision(Qwen2Vision):
         return onnx_model
 
 class Qwen3_5Vision(Qwen2Vision):
+    processor_family = "qwen3_5"
     def __init__(self, visual, base):
         super().__init__(visual, base)
         self.patch_size = 16
@@ -1401,6 +1518,8 @@ class Qwen3_5Vision(Qwen2Vision):
         # 复制并转换权重 (C,D,H,W 展开顺序与 view(-1) 一致)
         with torch.no_grad():
             self.patch_embed.weight.copy_(old_conv.weight.view(out_channels, -1))
+            if hasattr(old_conv, '_mnn_qat_source_weight_name'):
+                copy_qat_source(old_conv, self.patch_embed, lambda w: w.flatten(1))
             if old_conv.bias is not None:
                 self.patch_embed.bias.copy_(old_conv.bias)
 
@@ -1499,7 +1618,7 @@ class Qwen3_5Vision(Qwen2Vision):
         idx_tensor = torch.zeros([4, 256], dtype=torch.int32)
         weight_tensor = torch.randn([4, 256])
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (patch, posision_ids, attention_mask, idx_tensor, weight_tensor),
+        self.export_onnx(self, (patch, posision_ids, attention_mask, idx_tensor, weight_tensor),
                     onnx_model,
                     input_names=['patches', 'position_ids', 'attention_mask', 'idx_tensor', 'weight_tensor'],
                     output_names=['image_embeds'],
@@ -1515,6 +1634,9 @@ class Qwen3_5Vision(Qwen2Vision):
 
 # SmolVLM & SmolVLM2
 class Idefics3Vision(Vision):
+    processor_family = "idefics3"
+    output_axes = (1, 0, 2)
+    output_squeeze = 2
     def __init__(self, visual, base):
         self.patch_size = visual.config.max_image_size['longest_edge']
         self.image_max_size = visual.config.size['longest_edge']
@@ -1694,7 +1816,7 @@ class Idefics3Vision(Vision):
     def export(self, onnx_path):
         pixel_values = torch.randn([1, 3, self.patch_size, self.patch_size])
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (pixel_values),
+        self.export_onnx(self, (pixel_values),
                     onnx_model,
                     input_names=['pixel_values'],
                     output_names=['image_embeds'],
@@ -1705,6 +1827,8 @@ class Idefics3Vision(Vision):
 
 
 class HunyuanVLVision(Vision):
+    processor_family = "hunyuan_vl"
+    patch_layout = "row"
     def __init__(self, visual, base):
         self.image_embeds = []
         self.image_grid_thw = []
@@ -1958,7 +2082,7 @@ class HunyuanVLVision(Vision):
         pixel_values = torch.randn([grid * grid, 3 * self.temporal_patch_size * self.patch_size * self.patch_size])
         image_grid_thw = torch.tensor([[1, grid, grid]], dtype=torch.long)
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (pixel_values, image_grid_thw),
+        self.export_onnx(self, (pixel_values, image_grid_thw),
                     onnx_model,
                     input_names=['pixel_values', 'image_grid_thw'],
                     output_names=['image_embeds'],
@@ -1970,6 +2094,7 @@ class HunyuanVLVision(Vision):
 
 # FastVLM
 class MobileCLIPVision(QwenVision):
+    processor_family = "mobileclip"
     def __init__(self, visual, base):
         super().__init__(visual, base)
         self.visual = visual.float()
@@ -1998,7 +2123,182 @@ class MobileCLIPVision(QwenVision):
         image_features = image_features.permute(1, 0, 2)
         return image_features
 
+class MiniCPMV4_7Vision(Vision):
+    processor_family = "minicpmv4_7"
+    output_axes = (1, 0, 2)
+
+    def init_config(self):
+        from transformers import AutoProcessor
+        # Window attention uses independent batches, without a shared KV cache.
+        self.transformer_fuse = False
+        self.processor = AutoProcessor.from_pretrained(self.config.name_or_path)
+        processor = self.processor.image_processor
+        self.patch_size = self.config.vision_config.patch_size
+        self.downsample_mode = self.config.downsample_mode
+        self.use_vit_merger = self.downsample_mode != '4x'
+        self.merge_size = 4 if self.use_vit_merger else 2
+        self.image_embeds = []
+        self.target_sizes = None
+        self.rope_delta = 0
+        self.llm_config.update({
+            'vision_type': 'minicpmv4_7',
+            'image_size': processor.scale_resolution,
+            'image_size_unit': self.patch_size,
+            'image_mean': (np.array(processor.image_mean) * 255.0).tolist(),
+            'image_norm': (1 / (np.array(processor.image_std) * 255.0)).tolist(),
+            'image_pad': self.config.image_token_id,
+            'vision_start': self.config.image_start_id,
+            'vision_end': self.config.image_end_id,
+            'vision_slice_start_id': self.config.slice_start_id,
+            'vision_slice_end_id': self.config.slice_end_id,
+            'vision_id_start_id': self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_id_start_token),
+            'vision_id_end_id': self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_id_end_token),
+            'vision_merge_size': self.merge_size,
+            'vision_position_size': self.config.vision_config.image_size // self.patch_size,
+            'vision_max_slice_nums': processor.max_slice_nums,
+            'vision_use_image_id': self.processor.default_use_image_id,
+            'vision_newline_id': self.config.newline_id,
+        })
+
+    def load(self):
+        from types import MethodType, SimpleNamespace
+        from transformers.models.minicpmv4_7.modeling_minicpmv4_7 import MiniCPMV4_7Model
+        self.merger = self.visual.merger
+        self.position_helper = SimpleNamespace(config=self.config)
+        self.position_helper._frame_end_idx = MiniCPMV4_7Model._frame_end_idx
+        for name in ('_group_visual_frames', 'get_vision_position_ids', 'get_rope_index'):
+            setattr(self.position_helper, name, MethodType(getattr(MiniCPMV4_7Model, name), self.position_helper))
+
+    @staticmethod
+    def _attention(attention, hidden_states):
+        batch, length, channels = hidden_states.shape
+        shape = (batch, length, attention.num_heads, attention.head_dim)
+        query = attention.q_proj(hidden_states).reshape(shape).transpose(1, 2)
+        key = attention.k_proj(hidden_states).reshape(shape).transpose(1, 2)
+        value = attention.v_proj(hidden_states).reshape(shape).transpose(1, 2)
+        scores = torch.matmul(query, key.transpose(-1, -2)) * attention.scaling
+        probabilities = torch.softmax(scores.float(), dim=-1).to(query.dtype)
+        output = torch.matmul(probabilities, value).transpose(1, 2).reshape(batch, length, channels)
+        return attention.out_proj(output)
+
+    @staticmethod
+    def _merge(hidden_states, height, width, kernel):
+        batch, _, channels = hidden_states.shape
+        kh, kw = kernel
+        hidden_states = hidden_states.reshape(batch, height // kh, kh, width // kw, kw, channels)
+        return hidden_states.permute(0, 1, 3, 2, 4, 5).reshape(batch, -1, kh * kw * channels)
+
+    def forward(self, pixel_values, position_ids):
+        hidden_states = self.visual.embeddings.patch_embedding(pixel_values)
+        batch, channels, height, width = hidden_states.shape
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        hidden_states = hidden_states + self.visual.embeddings.position_embedding(position_ids.long())
+        for index, layer in enumerate(self.visual.encoder.layers):
+            hidden_states = hidden_states + self._attention(layer.self_attn, layer.layer_norm1(hidden_states))
+            hidden_states = hidden_states + layer.mlp(layer.layer_norm2(hidden_states))
+            if self.use_vit_merger and index == self.config.insert_layer_id:
+                merger = self.visual.vit_merger
+                kernel = merger.window_kernel_size
+                window_size = kernel[0] * kernel[1]
+                windows = self._merge(hidden_states, height, width, kernel).reshape(-1, window_size, channels)
+                windows = windows + self._attention(merger.self_attn, merger.layer_norm1(windows))
+                flat_windows = windows.reshape(batch, -1, window_size * channels)
+                merged = merger.linear_2(merger.act(merger.linear_1(merger.pre_norm(flat_windows))))
+                hidden_states = merged + windows.mean(dim=1).reshape(batch, -1, channels)
+                height, width = height // kernel[0], width // kernel[1]
+        hidden_states = self.visual.post_layernorm(hidden_states)
+        kernel = self.merger.merge_kernel_size
+        for mlp in self.merger.mlp:
+            hidden_states = self._merge(hidden_states, height, width, kernel)
+            height, width = height // kernel[0], width // kernel[1]
+            hidden_states = mlp(hidden_states).reshape(batch, height * width, -1)
+        return hidden_states
+
+    def _encode_images(self, inputs):
+        from transformers.vision_utils import get_vision_nearest_position_ids
+        packed = inputs['pixel_values']
+        groups = {}
+        offset = 0
+        sizes = inputs['target_sizes'].tolist()
+        for index, (height, width) in enumerate(sizes):
+            length = height * width
+            pixels = packed[0, :, :, offset * self.patch_size:(offset + length) * self.patch_size]
+            pixels = pixels.reshape(3, self.patch_size, height, width, self.patch_size)
+            pixels = pixels.permute(0, 2, 1, 3, 4).reshape(1, 3, height * self.patch_size, width * self.patch_size)
+            groups.setdefault((height, width), []).append((index, pixels))
+            offset += length
+        self.image_embeds = [None] * len(sizes)
+        for (height, width), entries in groups.items():
+            pixels = torch.cat([entry[1] for entry in entries])
+            positions = get_vision_nearest_position_ids(
+                torch.tensor([[height, width]]), self.llm_config['vision_position_size']
+            ).reshape(1, -1).expand(len(entries), -1)
+            embeddings = self.forward(pixels, positions)
+            for batch, (index, _) in enumerate(entries):
+                self.image_embeds[index] = embeddings[batch].reshape(-1, 1, self.hidden_size)
+
+    def processor_inputs(self, prompt, **kwargs):
+        import re
+        import requests
+        from PIL import Image
+        images = []
+        def replace_image(match):
+            path = match.group(1)
+            if path.startswith(('http://', 'https://')):
+                response = requests.get(path, stream=True, timeout=30)
+                response.raise_for_status()
+                image = Image.open(response.raw)
+            else:
+                image = Image.open(path)
+            images.append(image.convert('RGB'))
+            return self.processor.image_token
+        text = re.sub(r'<img>(.*?)</img>', replace_image, prompt)
+        inputs = self.processor(text=text, images=images or None, return_tensors='pt', **kwargs)
+        self.image_embeds = []
+        if images:
+            self._encode_images(inputs)
+        return inputs
+
+    def str_to_ids(self, prompt):
+        inputs = self.processor_inputs(prompt, downsample_mode=self.downsample_mode)
+        self.target_sizes = inputs.get('target_sizes')
+        return inputs['input_ids']
+
+    def embed(self, input_ids, images=None, videos=None):
+        embeddings = self.embed_(input_ids)
+        if self.image_embeds:
+            mask = input_ids.flatten() == self.config.image_token_id
+            embeddings[mask] = torch.cat(self.image_embeds).to(embeddings.dtype)
+        return embeddings
+
+    def get_position_ids(self, input_ids, seq_len, new_tokens):
+        if new_tokens:
+            return torch.full((3, 1), seq_len - 1 + self.rope_delta, dtype=torch.int32)
+        ids = input_ids.reshape(1, -1)
+        modalities = (ids == self.config.image_token_id).to(torch.int32)
+        positions, delta = self.position_helper.get_rope_index(
+            ids, mm_token_type_ids=modalities, target_sizes=self.target_sizes
+        )
+        self.rope_delta = int(delta[0, 0])
+        return positions[:, 0].to(torch.int32)
+
+    @spinner_run('export visual to ')
+    def export(self, onnx_path):
+        pixels = torch.zeros(1, 3, 112, 112)
+        positions = torch.zeros(1, 64, dtype=torch.int32)
+        model = f'{onnx_path}/visual.onnx'
+        self.export_onnx(self, (pixels, positions), model,
+                    input_names=['pixel_values', 'position_ids'], output_names=['image_embeds'],
+                    dynamic_axes={'pixel_values': {0: 'batch', 2: 'height', 3: 'width'},
+                                  'position_ids': {0: 'batch', 1: 'patches'},
+                                  'image_embeds': {0: 'batch', 1: 'tokens'}})
+        return model
+
+
+
 class MiniCPMVision(Vision):
+    processor_family = "minicpmv"
+    output_axes = (1, 0, 2)
     def __init__(self, visual, base):
         self.scale_resolution = 448
         self.max_slice_nums = 9
@@ -2021,6 +2321,10 @@ class MiniCPMVision(Vision):
         self.post_layernorm = self.visual.post_layernorm
         # rebuild resampler
         self.resampler = self.visual.resampler.float()
+        # transformers 5 replaces every non-persistent buffer with torch.empty_like after meta-device
+        # init and only re-initialises the ones its own _init_weights knows, so the remote resampler's
+        # sincos pos_embed arrives uninitialised; rebuild it with the model's own routine.
+        self.resampler._set_2d_pos_cache(self.resampler.max_size)
         attrs = ['query', 'kv_proj', 'ln_kv', 'ln_q', 'attn', 'ln_post', 'proj', 'pos_embed', 'embed_dim']
         for attr in attrs:
             setattr(self, attr, getattr(self.resampler, attr))
@@ -2312,7 +2616,7 @@ class MiniCPMVision(Vision):
         tgt_sizes = torch.tensor([[num_patches, num_patches]] * num_grids, dtype=torch.int32)
         position_ids = self.gen_position_ids(tgt_sizes, self.num_patches_per_side)
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (pixel_values, position_ids, attention_mask, tgt_sizes),
+        self.export_onnx(self, (pixel_values, position_ids, attention_mask, tgt_sizes),
                     onnx_model,
                     input_names=['pixel_values', 'position_ids', 'attention_mask', 'tgt_sizes'],
                     output_names=['image_embeds'],
@@ -2326,6 +2630,9 @@ class MiniCPMVision(Vision):
 
 # LFM2-VL (SigLIP2 vision encoder + pixel_unshuffle projector)
 class Lfm2VlVision(Vision):
+    processor_family = "lfm2_vl"
+    output_axes = (1, 0, 2)
+    output_squeeze = 2
     def __init__(self, visual, base):
         self.tile_size = base.config.origin_config.tile_size if hasattr(base.config.origin_config, 'tile_size') else 512
         self.encoder_patch_size = base.config.origin_config.encoder_patch_size if hasattr(base.config.origin_config, 'encoder_patch_size') else 16
@@ -2507,7 +2814,7 @@ class Lfm2VlVision(Vision):
     def export(self, onnx_path):
         pixel_values = torch.randn([1, 3, self.tile_size, self.tile_size])
         onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (pixel_values),
+        self.export_onnx(self, (pixel_values),
                     onnx_model,
                     input_names=['pixel_values'],
                     output_names=['image_embeds'],

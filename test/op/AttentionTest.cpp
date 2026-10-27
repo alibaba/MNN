@@ -11,6 +11,7 @@
 #include <MNN/expr/Module.hpp>
 #include "core/OpCommonUtils.hpp"
 #include "core/MNNFileUtils.h"
+#include "core/AttentionMaskConvention.hpp"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include <stdlib.h>
@@ -575,24 +576,33 @@ public:
         // unit test 3
         // Skipping must not return from run(): the long-prefill cases below have to
         // keep running on every backend.
+        //
+        // This is the kv_cache=false + no-mask-input form, i.e. what the converter's
+        // FuseFmhaV2 / FuseSelfAttentionV2 / V3 passes emit when the source subgraph
+        // has no mask arithmetic at all. The reference is computed with an empty mask,
+        // so the expected semantics is full bidirectional attention. CPU used to be
+        // skipped here under "TODO: CPU support kv_cache == false" because it read an
+        // absent mask as causal unconditionally and failed at Output[0][1][9]; it now
+        // shares Metal's rule (causal requires kv_cache) via IsAttentionMaskCausal.
         bool skipNoKvCache = false;
         {
             auto rtInfo = ExecutorScope::Current()->getRuntime().first;
-            bool cpuInfer = true;
+            // OpenCL used to fail here at the same Output[0][1][9] (measured on an Apple
+            // M4 host): in attention_flash_prefill_buf.cl the causal branch was the bare
+            // `#else` of `#if defined(ADD_MASK) || defined(SET_MASK)`, so the kernel was
+            // causal whenever no per-element mask macro was set, and the -DDEFAULT_MASK
+            // build option was vestigial. The kernel now has an explicit -DNO_MASK state
+            // that AttentionBufExecution selects by the shared shape classification
+            // (causal requires kv_cache), the same rule CPU and Metal use.
+            //
+            // Vulkan stays skipped: not verified at all -- this host has no libvulkan, so
+            // the backend fails to load ("Don't support 7"). The original note blamed a
+            // CPU fallback crash; that was never re-examined. Reading the code, Vulkan
+            // maps an absent or rank-0 mask to maskMode 0, which its shaders treat as no
+            // masking, so it may well be correct here -- but do not un-skip without
+            // running it.
             for (auto& rt : rtInfo) {
-                if (rt.first != MNN_FORWARD_CPU) {
-                    cpuInfer = false;
-                    break;
-                }
-            }
-            // TODO: CPU support kv_cache == false
-            skipNoKvCache = cpuInfer;
-            // MNN: kv_cache=false also falls back to CPU on OpenCL with
-            // MNN_GPU_MEMORY_IMAGE (no IMAGE-memtype Attention creator) and
-            // on Vulkan, so it hits the same CPUAttention "kv_cache == false"
-            // TODO and crashes. Skip until the CPU fallback is completed.
-            for (auto& rt : rtInfo) {
-                if (rt.first == MNN_FORWARD_OPENCL || rt.first == MNN_FORWARD_VULKAN) {
+                if (rt.first == MNN_FORWARD_VULKAN) {
                     skipNoKvCache = true;
                 }
             }
@@ -1056,26 +1066,29 @@ public:
 };
 MNNTestSuiteRegister(AttentionPrefixCacheContinuousSessionTest, "op/attention_prefix_cache_continuous_session");
 
-// Non-causal attention with kv_cache=false driven by an explicit tensor mask --
-// the shape a ViT / vision-encoder export emits. AttentionTest's unit test 3
-// pairs kv_cache=false with *no* mask input, so this combination was previously
-// uncovered. Covers both an all-visible (all-zero ADD) mask and a row-varying
-// (causal ADD) mask, at mask rank 3 and 4.
+// Non-causal attention with kv_cache=false driven by an explicit mask -- the shape a
+// ViT / vision-encoder export emits. AttentionTest's unit test 3 pairs kv_cache=false
+// with *no* mask input, so this combination was previously uncovered. Covers the dense
+// all-visible / causal / block-diagonal-window forms at mask rank 3 and 4, plus the
+// rank-1 bidirectional sentinel that replaces the dense all-zero mask.
 class AttentionNoCacheMaskTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
         const float tol = (precision == 2) ? 0.05f : 0.01f;
         bool pass = true;
         for (int seqLen : {64, 100, 128, 660}) {
-            float vis3 = maxRelError(seqLen, 12, 12, 64, 3, false);
-            float vis4 = maxRelError(seqLen, 12, 12, 64, 4, false);
-            float row3 = maxRelError(seqLen, 12, 12, 64, 3, true);
-            float row4 = maxRelError(seqLen, 12, 12, 64, 4, true);
+            float vis3 = maxRelError(seqLen, 12, 12, 64, 3, kAllVisibleDense);
+            float vis4 = maxRelError(seqLen, 12, 12, 64, 4, kAllVisibleDense);
+            float row3 = maxRelError(seqLen, 12, 12, 64, 3, kCausalDense);
+            float row4 = maxRelError(seqLen, 12, 12, 64, 4, kCausalDense);
+            float win3 = maxRelError(seqLen, 12, 12, 64, 3, kWindowBlockDense);
+            // maskRank is ignored for the sentinel: it is rank-1 by definition.
+            float bid3 = maxRelError(seqLen, 12, 12, 64, 3, kBidirectionalSentinel);
             MNN_PRINT(
                 "[attention_nocache_mask] seq=%4d allvisible(3d/4d)=%.6f/%.6f rowvarying(3d/4d)=%.6f/%.6f "
-                "(tol %.3f)\n",
-                seqLen, vis3, vis4, row3, row4, tol);
-            if (!(vis3 < tol) || !(vis4 < tol) || !(row3 < tol) || !(row4 < tol)) {
+                "window(3d)=%.6f bidir_sentinel=%.6f (tol %.3f)\n",
+                seqLen, vis3, vis4, row3, row4, win3, bid3, tol);
+            if (!(vis3 < tol) || !(vis4 < tol) || !(row3 < tol) || !(row4 < tol) || !(win3 < tol) || !(bid3 < tol)) {
                 pass = false;
             }
         }
@@ -1083,14 +1096,28 @@ public:
     }
 
 private:
+    // The first three are dense per-element masks; the last is the bidirectional
+    // sentinel (core/AttentionMaskConvention.hpp) that vision encoders use instead of
+    // materialising a seq*seq block of zeros.
+    //   kAllVisibleDense       all-zero ADD mask, i.e. full bidirectional attention
+    //   kCausalDense           causal ADD mask, which only matches if the kernel reads
+    //                          the mask row belonging to each query
+    //   kWindowBlockDense      block-diagonal -- the Qwen2.5-VL window pattern, where
+    //                          every row attends only its own block. Exercises the
+    //                          mask-add path with whole masked tiles.
+    //   kBidirectionalSentinel rank-1 one-element sentinel. Must be numerically
+    //                          indistinguishable from kAllVisibleDense: adding zero is
+    //                          a no-op, so the sentinel may only remove work. If this
+    //                          case diverges while kAllVisibleDense passes, a backend
+    //                          has read the sentinel as causal.
+    enum MaskKind { kAllVisibleDense = 0, kCausalDense = 1, kWindowBlockDense = 2, kBidirectionalSentinel = 3 };
     // maskRank: 3 = [1,seq,seq], 4 = [1,1,seq,seq]. The no-mask form is covered by
     // AttentionTest unit test 3; CPUAttention does not support it yet.
-    // rowVarying: false = all-zero (fully visible) ADD mask; true = causal ADD mask,
-    // which only matches if the kernel reads the mask row belonging to each query.
-    static float maxRelError(int seqLen, int numHead, int kvNumHead, int headDim, int maskRank, bool rowVarying) {
+    static float maxRelError(int seqLen, int numHead, int kvNumHead, int headDim, int maskRank, MaskKind maskKind) {
         const int group = numHead / kvNumHead;
         const float scale = 1.0f / sqrtf((float)headDim);
         const float kMaskNegative = -1e9f;
+        const int blockSize = std::max(4, seqLen / 4);
 
         uint32_t state = 12345;
         auto next = [&state]() {
@@ -1122,12 +1149,22 @@ private:
 
         VARP Output;
         {
-            auto Mask = (3 == maskRank) ? _Input({1, seqLen, seqLen}, NCHW, halide_type_of<float>())
-                                        : _Input({1, 1, seqLen, seqLen}, NCHW, halide_type_of<float>());
-            auto maskPtr = Mask->writeMap<float>();
-            for (int i = 0; i < seqLen; ++i) {
-                for (int j = 0; j < seqLen; ++j) {
-                    maskPtr[i * seqLen + j] = (rowVarying && j > i) ? kMaskNegative : 0.0f;
+            VARP Mask;
+            if (kBidirectionalSentinel == maskKind) {
+                // Rank-1 one-element sentinel; classified by shape, so the value is
+                // conventional only (core/AttentionMaskConvention.hpp).
+                Mask = _Input({1}, NCHW, halide_type_of<float>());
+                Mask->writeMap<float>()[0] = MNN::kAttentionMaskBidirectional;
+            } else {
+                Mask = (3 == maskRank) ? _Input({1, seqLen, seqLen}, NCHW, halide_type_of<float>())
+                                       : _Input({1, 1, seqLen, seqLen}, NCHW, halide_type_of<float>());
+                auto maskPtr = Mask->writeMap<float>();
+                for (int i = 0; i < seqLen; ++i) {
+                    for (int j = 0; j < seqLen; ++j) {
+                        const bool masked = (kCausalDense == maskKind && j > i) ||
+                                            (kWindowBlockDense == maskKind && j / blockSize != i / blockSize);
+                        maskPtr[i * seqLen + j] = masked ? kMaskNegative : 0.0f;
+                    }
                 }
             }
             Output = Variable::create(Expr::create(attention.get(), {Q, K, V, Mask}));
@@ -1143,9 +1180,14 @@ private:
         for (int h = 0; h < numHead; ++h) {
             const int kvh = h / group;
             for (int i = 0; i < seqLen; ++i) {
-                const int kEnd = rowVarying ? (i + 1) : seqLen;
+                // Visible key range for query i. scores[] is indexed by absolute key
+                // position, so a non-zero kBegin needs no renumbering.
+                const int kBegin = (kWindowBlockDense == maskKind) ? (i / blockSize) * blockSize : 0;
+                const int kEnd   = (kCausalDense == maskKind)      ? (i + 1)
+                                 : (kWindowBlockDense == maskKind) ? std::min((i / blockSize + 1) * blockSize, seqLen)
+                                                                   : seqLen;
                 float maxScore = -std::numeric_limits<float>::max();
-                for (int j = 0; j < kEnd; ++j) {
+                for (int j = kBegin; j < kEnd; ++j) {
                     float dot = 0.0f;
                     for (int d = 0; d < headDim; ++d) {
                         dot += q[(i * numHead + h) * headDim + d] * k[(j * kvNumHead + kvh) * headDim + d];
@@ -1154,13 +1196,13 @@ private:
                     maxScore = std::max(maxScore, scores[j]);
                 }
                 float sum = 0.0f;
-                for (int j = 0; j < kEnd; ++j) {
+                for (int j = kBegin; j < kEnd; ++j) {
                     scores[j] = expf(scores[j] - maxScore);
                     sum += scores[j];
                 }
                 for (int d = 0; d < headDim; ++d) {
                     float acc = 0.0f;
-                    for (int j = 0; j < kEnd; ++j) {
+                    for (int j = kBegin; j < kEnd; ++j) {
                         acc += scores[j] * v[(j * kvNumHead + kvh) * headDim + d];
                     }
                     acc /= sum;
@@ -1175,6 +1217,145 @@ private:
 };
 
 MNNTestSuiteRegister(AttentionNoCacheMaskTest, "op/attention_nocache_mask");
+
+// The bidirectional sentinel against a kv_cache=true Attention op.
+//
+// AttentionNoCacheMaskTest cannot cover this: with kv_cache=false a backend that
+// ignores the sentinel entirely still produces the right answer, because no mask key
+// gets compiled at all. The interesting failure is a backend that has a *default*
+// causal mask for kv-cache ops and fails to suppress it -- on Metal that is
+// DEFAULT_MASK, emitted by compilerShader whenever a kv-cache op carries no
+// per-element mask. So this test runs identical Q/K/V through the causal sentinel and
+// the bidirectional sentinel and requires the two outputs to be separable, then checks
+// the bidirectional one against an unmasked golden. A leaked causal default shows up
+// as sep == 0.
+//
+// attentionMode is swept because 8 turns on the flash-attention path, which reaches the
+// mask classification by a different route than the plain path.
+class AttentionCacheBidirectionalTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        const float tol = (precision == 2) ? 0.05f : 0.01f;
+        bool pass = true;
+        for (int attentionMode : {0, 8}) {
+            for (int seqLen : {16, 64, 100}) {
+                std::vector<float> bidir, causal;
+                float errBidir = runOne(seqLen, 8, 4, 64, attentionMode, true, bidir);
+                runOne(seqLen, 8, 4, 64, attentionMode, false, causal);
+                // Relative distance between the two outputs. Zero means the backend
+                // applied the same mask both times, i.e. it ignored the sentinel.
+                float sep = 0.0f;
+                for (size_t i = 0; i < bidir.size() && i < causal.size(); ++i) {
+                    float denom = std::max(fabsf(causal[i]), 0.05f);
+                    sep = std::max(sep, fabsf(bidir[i] - causal[i]) / denom);
+                }
+                MNN_PRINT(
+                    "[attention_cache_bidirectional] mode=%d seq=%3d bidir_err=%.6f sep_from_causal=%.6f (tol %.3f)\n",
+                    attentionMode, seqLen, errBidir, sep, tol);
+                if (!(errBidir < tol) || !(sep > tol)) {
+                    MNN_ERROR("attention_cache_bidirectional: mode=%d seq=%d bidir_err=%.6f sep=%.6f\n", attentionMode,
+                              seqLen, errBidir, sep);
+                    pass = false;
+                }
+            }
+        }
+        return pass;
+    }
+
+private:
+    // Runs one prefill of seqLen tokens through a kv_cache=true Attention op and
+    // returns the max relative error against an *unmasked* golden (every query attends
+    // every key), filling `out` with the op's output. `bidirectional` selects which
+    // sentinel to feed.
+    static float runOne(int seqLen, int numHead, int kvNumHead, int headDim, int attentionMode, bool bidirectional,
+                        std::vector<float>& out) {
+        const int group = numHead / kvNumHead;
+        const float scale = 1.0f / sqrtf((float)headDim);
+
+        uint32_t state = 987654321u;
+        auto next = [&state]() {
+            state = state * 1103515245u + 12345u;
+            return (float)((state >> 16) % 2000) / 1000.0f - 1.0f;
+        };
+        std::vector<float> q(seqLen * numHead * headDim), k(seqLen * kvNumHead * headDim),
+            v(seqLen * kvNumHead * headDim);
+        for (auto& x : q)
+            x = next();
+        for (auto& x : k)
+            x = next();
+        for (auto& x : v)
+            x = next();
+
+        auto Q = _Input({1, seqLen, numHead, headDim}, NCHW, halide_type_of<float>());
+        auto K = _Input({1, seqLen, kvNumHead, headDim}, NCHW, halide_type_of<float>());
+        auto V = _Input({1, seqLen, kvNumHead, headDim}, NCHW, halide_type_of<float>());
+        ::memcpy(Q->writeMap<float>(), q.data(), q.size() * sizeof(float));
+        ::memcpy(K->writeMap<float>(), k.data(), k.size() * sizeof(float));
+        ::memcpy(V->writeMap<float>(), v.data(), v.size() * sizeof(float));
+
+        VARP Mask;
+        if (bidirectional) {
+            Mask = _Input({1}, NCHW, halide_type_of<float>());
+            Mask->writeMap<float>()[0] = MNN::kAttentionMaskBidirectional;
+        } else {
+            Mask = _Input({}, NCHW, halide_type_of<float>());
+            Mask->writeMap<float>()[0] = MNN::kAttentionMaskCausal;
+        }
+
+        auto attn = _makeAttentionModule(attentionMode);
+        if (attn == nullptr) {
+            MNN_ERROR("attention_cache_bidirectional: failed to build module\n");
+            return std::numeric_limits<float>::max();
+        }
+        gMeta.previous = 0;
+        gMeta.remove   = 0;
+        gMeta.add      = seqLen;
+        auto Output = attn->onForward({Q, K, V, Mask})[0];
+        gMeta.sync();
+
+        auto logical = _Convert(Output, NCHW);
+        const float* got = logical->readMap<float>();
+        if (nullptr == got) {
+            MNN_ERROR("attention_cache_bidirectional: failed to map output\n");
+            return std::numeric_limits<float>::max();
+        }
+        out.assign(got, got + (size_t)seqLen * numHead * headDim);
+
+        std::vector<float> scores(seqLen);
+        float maxRel = 0.0f;
+        for (int h = 0; h < numHead; ++h) {
+            const int kvh = h / group;
+            for (int i = 0; i < seqLen; ++i) {
+                float maxScore = -std::numeric_limits<float>::max();
+                for (int j = 0; j < seqLen; ++j) {
+                    float dot = 0.0f;
+                    for (int d = 0; d < headDim; ++d) {
+                        dot += q[(i * numHead + h) * headDim + d] * k[(j * kvNumHead + kvh) * headDim + d];
+                    }
+                    scores[j] = dot * scale;
+                    maxScore = std::max(maxScore, scores[j]);
+                }
+                float sum = 0.0f;
+                for (int j = 0; j < seqLen; ++j) {
+                    scores[j] = expf(scores[j] - maxScore);
+                    sum += scores[j];
+                }
+                for (int d = 0; d < headDim; ++d) {
+                    float acc = 0.0f;
+                    for (int j = 0; j < seqLen; ++j) {
+                        acc += scores[j] * v[(j * kvNumHead + kvh) * headDim + d];
+                    }
+                    acc /= sum;
+                    float denom = std::max(fabsf(acc), 0.05f);
+                    maxRel = std::max(maxRel, fabsf(out[(i * numHead + h) * headDim + d] - acc) / denom);
+                }
+            }
+        }
+        return maxRel;
+    }
+};
+
+MNNTestSuiteRegister(AttentionCacheBidirectionalTest, "op/attention_cache_bidirectional");
 
 // Decode-phase attention scaling at the Qwen3-0.6B shape: 16 Q heads / 8 KV heads / head_dim 128,
 // one query token per step over kv lengths 512/1024/2048, 1 vs 4 threads.
@@ -1987,10 +2168,19 @@ protected:
         if (chunked) {
             // Two prefills of prefill/2 each, exercising a second onResize on
             // top of a non-empty KV cache (the llm prompt-splitting pattern).
-            // No GPU sync between them on purpose: on KV growth the Metal
-            // cache manager memcpys old rows on the CPU, racing the first
-            // prefill's in-flight copy kernel. gMeta.sync() already rolls add
-            // into previous, so the second prefill must not touch previous.
+            // No GPU sync between them on purpose. That makes this the regression
+            // test for a cross-command-buffer hazard: the second prefill's encode
+            // runs on the CPU while the first prefill's command buffer is still
+            // executing, so any uniform the encoder overwrites in place can be
+            // picked up mid-flight by the first prefill's kernels. It used to fail
+            // ~25-40% of the time here (KV row 0 never written, probe query reads
+            // zeros, decode output ~21% off) because the KV-copy uniforms lived in
+            // a persistent MTLBuffer; they are a setBytes argument now. Note the
+            // hazard is NOT the KV-growth memcpy this case was originally written
+            // for -- with prefill=64 the cache expands once, at the first prefill,
+            // with nothing to copy, so expandKVCacheInMem's CPU memcpy never races
+            // anything here. gMeta.sync() already rolls add into previous, so the
+            // second prefill must not touch previous.
             const int half = prefill / 2;
             gMeta.add = half;
             module->onForward({_rowsToVar(sliceHead(pq, half), batch), _rowsToVar(sliceHead(prefillKey, half), batch),

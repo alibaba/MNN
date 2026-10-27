@@ -577,6 +577,12 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
                                 iter.execution.reset(cloned);
                             }
                         }
+                        if (nullptr == iter.execution) {
+                            // A private kvcache would be filled with placeholders and answer garbage.
+                            MNN_ERROR("KV cache sharing failed: layer %d found no execution for layer %d\n",
+                                      param->layer_index(), kvSharedIdx);
+                            return NOT_SUPPORT;
+                        }
                     }
                 }
                 if (nullptr == iter.execution) {

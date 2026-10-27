@@ -75,3 +75,7 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
 }
 } // namespace OpenCL
 }; // namespace MNN
+
+// Share this translation unit so the OpenCL C++ headers do not add another
+// set of process-start global constructors for IndexedLinear.
+#include "../buffer/IndexedLinearBufExecution.cpp.inc"

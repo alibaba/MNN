@@ -40,8 +40,11 @@ public:
     virtual ~HexagonConvolution() = default;
 
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+    static std::shared_ptr<Resource> makeResource(Backend* backend, const Op* op);
     static HexagonConvolution* create(Backend *backend, const Op* op);
 private:
+    // FusedLinear builds its members from resources it keeps for the fused decode launch.
+    friend class HexagonFusedLinear;
     ErrorCode onBuildCmd(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                          std::vector<HexagonCommand>& dst) override;
     HexagonConvolution(Backend *backend, std::shared_ptr<Resource> res, const Op* op);

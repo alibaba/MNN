@@ -22,7 +22,7 @@ private:
     ErrorCode ensurePageTableCapacity(int pageCount);
     void updatePageTable();
 
-    float mAttnScale = 0.0f;
+    float attentionScale(int headDim) const;
     std::shared_ptr<Tensor> mWorkspace;
     std::shared_ptr<Tensor> mPageTable;
     bool mUseGeneratedCausalMask = false;

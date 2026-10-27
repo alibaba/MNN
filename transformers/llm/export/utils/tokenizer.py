@@ -208,6 +208,14 @@ class LlmTokenizer(PreTrainedTokenizer):
 
         with open(tokenizer_json_path, 'r', encoding='utf-8') as f:
             tj = json.load(f)
+        added_tokens = {token['id']: token for token in tj.get('added_tokens', [])}
+        for token_id, token in self.tokenizer.added_tokens_decoder.items():
+            added_tokens[token_id] = {
+                'id': token_id, 'content': token.content, 'special': token.special,
+                'lstrip': token.lstrip, 'rstrip': token.rstrip,
+                'single_word': token.single_word, 'normalized': token.normalized,
+            }
+        tj['added_tokens'] = list(added_tokens.values())
 
         file_path = os.path.join(save_directory, "tokenizer.mtok")
         MAGIC_NUMBER = 430
@@ -305,7 +313,7 @@ class LlmTokenizer(PreTrainedTokenizer):
                     fp.write(struct.pack('<B', 6))
                     self._write_norm_table(fp, self._generate_nfkc_table())
                 elif ntype == 'NFC':
-                    fp.write(struct.pack('<B', 6))
+                    fp.write(struct.pack('<B', 9))
                     self._write_norm_table(fp, self._generate_nfc_table())
                 elif ntype == 'Prepend':
                     fp.write(struct.pack('<B', 2))

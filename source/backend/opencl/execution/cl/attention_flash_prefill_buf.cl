@@ -226,6 +226,9 @@ __kernel void flash_attention_prefill(
                               __global const FLOAT *query, // [batch, seqLen, headNum, headDim]
                               __global const FLOAT *past_key, // [batch, kvHeadNum, headDim, maxLen]
                               __global const FLOAT *past_value, // [batch, kvHeadNum, maxLen, headDim]
+                              // Mask states: ADD_MASK reads an additive float plane, SET_MASK a
+                              // 0/1 int plane, NO_MASK never reads this arg (the host binds a
+                              // dummy), and the bare no-macro variant is the causal default.
                               #ifdef SET_MASK
                               __global const int* mask, // [maskBatch, maskQLen, maskKvLen]
                               #else
@@ -326,7 +329,9 @@ __kernel void flash_attention_prefill(
     const int key_base = ((b * kv_head_num + kv_hn) * FA_HEAD_DIM) * max_len;
     const int value_base = ((b * kv_head_num + kv_hn) * max_len) * FA_HEAD_DIM + d8;
 
-#if defined(ADD_MASK) || defined(SET_MASK)
+#if defined(ADD_MASK) || defined(SET_MASK) || defined(NO_MASK)
+    // Dense mask or explicitly mask-free (bidirectional / one-shot): every block can
+    // hold visible keys, so walk the whole kv axis.
     const int kv_end = kv_seq_len;
 #else
     // Causal mask: every kv past the last query row of this tile is masked out for
@@ -374,7 +379,7 @@ __kernel void flash_attention_prefill(
             // plane shorter than the kv axis leaves the history columns unmasked. Hoisted out of
             // the kv loop: it only depends on the row.
             const bool mask_on = q < mask_q_len;
-            #else
+            #elif !defined(NO_MASK)
             const int kv_valid_offset = kv_seq_len - seq_len;
             #endif
             float pmax = FA_NEG_INF;
@@ -394,7 +399,7 @@ __kernel void flash_attention_prefill(
                     if (mask_on && (!(kc >= 0 && kc < mask_kv_len) || mask[mask_row + kc] == 0)) {
                         s = FA_NEG_INF;
                     }
-                    #else
+                    #elif !defined(NO_MASK)
                     if (k_start + kk > kv_valid_offset + q) {
                         s = FA_NEG_INF;
                     }

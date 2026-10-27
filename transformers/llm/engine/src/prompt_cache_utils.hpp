@@ -59,7 +59,8 @@ inline bool validatePrefixCacheFiles(const std::string& modelPath, const std::st
                 if (param == nullptr) {
                     return false;
                 }
-                if (param->kv_cache()) {
+                // A KV-shared layer reads its owner's cache file and takes no index of its own.
+                if (param->kv_cache() && param->kv_shared_layer_index() < 0) {
                     needsValue.push_back(true);
                 }
             } else if (op->type() == OpType_LinearAttention) {

@@ -497,6 +497,9 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op, int bytes) {
         case OpType_Deconvolution:
         case OpType_DeconvolutionDepthwise:
         case OpType_MatMul:
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        case OpType_IndexedLinear:
+#endif
         case OpType_BatchMatMul:
         case OpType_BinaryOp:
         case OpType_Eltwise:
@@ -649,6 +652,17 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
             parameterMain = Convolution2D::Pack(builder, param.get()).Union();
             break;
         }
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        case OpParameter_IndexedLinearParam:
+        {
+            // Keep expert weights external; IndexedLinearCommon reads each bank
+            // member once when constructing the backend's shared static resource.
+            externalPathFbb = builder.CreateString(external->path());
+            std::unique_ptr<IndexedLinearParamT> param(origin->main_as_IndexedLinearParam()->UnPack());
+            parameterMain = IndexedLinearParam::Pack(builder, param.get()).Union();
+            break;
+        }
+#endif
         case OpParameter_FusedLinearParam:
         {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -741,6 +755,21 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         case OpParameter_LayerNorm:
             hasExternal = USE_EXTERNAL_DATA(op->main_as_LayerNorm());
             break;
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        case OpParameter_IndexedLinearParam:
+        {
+            auto param = op->main_as_IndexedLinearParam();
+            if (param->linears()) {
+                for (auto linear : *param->linears()) {
+                    if (USE_EXTERNAL_DATA(linear)) {
+                        hasExternal = true;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+#endif
         case OpParameter_FusedLinearParam:
         {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -772,7 +801,11 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         usemmap = (backend->getRuntime()->hint().useCachedMmap > 1);
     }
     Execution* execution;
-    if ((!usemmap)) {
+    bool rebuildExternal = !usemmap;
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    rebuildExternal = rebuildExternal || op->type() == OpType_IndexedLinear;
+#endif
+    if (rebuildExternal) {
         bool res = _RebuildExternalOp(externalFile, op, builder);
         if (!res) {
             MNN_ERROR("Rebuild External Op failed\n");
@@ -802,6 +835,10 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         }
     }
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    if (op->main_type() == OpParameter_IndexedLinearParam) {
+        tmpstore.reset(new BufferStorage);
+        tmpstore->storage = builder.ReleaseRaw(tmpstore->allocated_size, tmpstore->offset);
+    }
     else if (op->main_type() == OpParameter_FusedLinearParam && !usemmap) {
         // The fused-proj composite reads the rebuilt op (externalPath, member conv
         // tables, inlined ln gamma) during onResize; keep the builder storage alive.
@@ -1046,7 +1083,8 @@ bool OpCommonUtils::gatedRMSNormFusable(const Op* op, const std::vector<Tensor*>
 }
 
 bool OpCommonUtils::gatedRMSNormOpenCLOk(const Op* op, const std::vector<Tensor*>& inputs,
-                                         const std::vector<Tensor*>& outputs, int* outside, int* inside, int* heads) {
+                                         const std::vector<Tensor*>& outputs, int* outside, int* inside, int* heads,
+                                         bool externalGammaOk) {
     if (nullptr == op || inputs.size() != 2 || outputs.size() != 1) {
         return false;
     }
@@ -1060,12 +1098,18 @@ bool OpCommonUtils::gatedRMSNormOpenCLOk(const Op* op, const std::vector<Tensor*
     // The loader inlines converter-folded gamma / beta before the creator runs;
     // the kernels bind the pair or neither, so anything left external is out.
     const bool hasGamma = (nullptr != param->gamma() && nullptr != param->beta());
+    // External gamma / beta ([offset, gammaBytes, betaBytes]), inlined as a pair before the creator runs.
+    int64_t externalGammaBytes = 0;
     if (!hasGamma) {
         if ((nullptr != param->gamma()) != (nullptr != param->beta())) {
             return false;
         }
         if (nullptr != param->external() && param->external()->size() > 1 && param->external()->data()[1] > 0) {
-            return false;
+            if (!externalGammaOk || param->external()->size() < 3 ||
+                param->external()->data()[2] != param->external()->data()[1]) {
+                return false;
+            }
+            externalGammaBytes = param->external()->data()[1];
         }
     }
     auto x = inputs[0];
@@ -1091,6 +1135,9 @@ bool OpCommonUtils::gatedRMSNormOpenCLOk(const Op* op, const std::vector<Tensor*
         return false;
     }
     if (hasGamma && ((int)param->gamma()->size() != insideSize || (int)param->beta()->size() != insideSize)) {
+        return false;
+    }
+    if (externalGammaBytes > 0 && externalGammaBytes != (int64_t)insideSize * (int64_t)sizeof(float)) {
         return false;
     }
     // x is [outside, inside] with the head as batch axis; z / out are

@@ -2,6 +2,9 @@
 #import "backend/metal/MetalDefine.h"
    namespace MNN {
 #if MNN_METAL_ENABLED
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+  extern void ___MetalIndexedLinearCreator__OpType_IndexedLinear__();
+#endif
   extern void ___MetalArgMaxCreator__OpType_ArgMax__();
   extern void ___MetalArgMaxCreator__OpType_ArgMin__();
   extern void ___MetalSoftmaxCreator__OpType_Softmax__();
@@ -43,6 +46,9 @@
   extern void ___MetalReLU6Creator__OpType_ReLU6__();
   extern void ___MetalReLU6Creator__OpType_ReLU__();
 void registerMetalOps() {
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+   ___MetalIndexedLinearCreator__OpType_IndexedLinear__();
+#endif
    ___MetalArgMaxCreator__OpType_ArgMax__();
    ___MetalArgMaxCreator__OpType_ArgMin__();
    ___MetalSoftmaxCreator__OpType_Softmax__();

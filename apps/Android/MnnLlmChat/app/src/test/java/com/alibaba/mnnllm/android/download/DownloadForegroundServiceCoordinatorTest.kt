@@ -83,6 +83,8 @@ class DownloadForegroundServiceCoordinatorTest {
             events += Event.Stop
         }
 
+        override fun isReady(): Boolean = true
+
         sealed interface Event {
             data class Show(val downloadCount: Int, val modelName: String?) : Event
             data object Stop : Event

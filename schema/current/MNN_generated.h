@@ -33,6 +33,9 @@ struct LinearAttentionParamT;
 struct RoPEParam;
 struct RoPEParamT;
 
+struct IndexedLinearParam;
+struct IndexedLinearParamT;
+
 struct FusedLinearParam;
 struct FusedLinearParamT;
 
@@ -92,6 +95,8 @@ inline const flatbuffers::TypeTable *AttentionParamTypeTable();
 inline const flatbuffers::TypeTable *LinearAttentionParamTypeTable();
 
 inline const flatbuffers::TypeTable *RoPEParamTypeTable();
+
+inline const flatbuffers::TypeTable *IndexedLinearParamTypeTable();
 
 inline const flatbuffers::TypeTable *FusedLinearParamTypeTable();
 
@@ -302,6 +307,7 @@ enum OpType {
   OpType_RoPE = 306,
   OpType_FusedLinear = 307,
   OpType_GatedRMSNorm = 308,
+  OpType_IndexedLinear = 309,
   OpType_Extra = 512,
   OpType_ConvInt8 = 513,
   OpType_Int8ToFloat = 514,
@@ -316,7 +322,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[186] {
+inline const OpType (&EnumValuesOpType())[187] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -494,6 +500,7 @@ inline const OpType (&EnumValuesOpType())[186] {
     OpType_RoPE,
     OpType_FusedLinear,
     OpType_GatedRMSNorm,
+    OpType_IndexedLinear,
     OpType_Extra,
     OpType_ConvInt8,
     OpType_Int8ToFloat,
@@ -819,7 +826,7 @@ inline const char * const *EnumNamesOpType() {
     "RoPE",
     "FusedLinear",
     "GatedRMSNorm",
-    "",
+    "IndexedLinear",
     "",
     "",
     "",
@@ -1231,11 +1238,12 @@ enum OpParameter {
   OpParameter_ShapeParam = 101,
   OpParameter_RoPEParam = 102,
   OpParameter_FusedLinearParam = 103,
+  OpParameter_IndexedLinearParam = 104,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_FusedLinearParam
+  OpParameter_MAX = OpParameter_IndexedLinearParam
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[104] {
+inline const OpParameter (&EnumValuesOpParameter())[105] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1340,7 +1348,8 @@ inline const OpParameter (&EnumValuesOpParameter())[104] {
     OpParameter_LinearAttentionParam,
     OpParameter_ShapeParam,
     OpParameter_RoPEParam,
-    OpParameter_FusedLinearParam
+    OpParameter_FusedLinearParam,
+    OpParameter_IndexedLinearParam
   };
   return values;
 }
@@ -1451,13 +1460,14 @@ inline const char * const *EnumNamesOpParameter() {
     "ShapeParam",
     "RoPEParam",
     "FusedLinearParam",
+    "IndexedLinearParam",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_FusedLinearParam) return "";
+  if (e < OpParameter_NONE || e > OpParameter_IndexedLinearParam) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1876,6 +1886,10 @@ template<> struct OpParameterTraits<RoPEParam> {
 
 template<> struct OpParameterTraits<FusedLinearParam> {
   static const OpParameter enum_value = OpParameter_FusedLinearParam;
+};
+
+template<> struct OpParameterTraits<IndexedLinearParam> {
+  static const OpParameter enum_value = OpParameter_IndexedLinearParam;
 };
 
 struct OpParameterUnion {
@@ -2733,6 +2747,14 @@ struct OpParameterUnion {
     return type == OpParameter_FusedLinearParam ?
       reinterpret_cast<const FusedLinearParamT *>(value) : nullptr;
   }
+  IndexedLinearParamT *AsIndexedLinearParam() {
+    return type == OpParameter_IndexedLinearParam ?
+      reinterpret_cast<IndexedLinearParamT *>(value) : nullptr;
+  }
+  const IndexedLinearParamT *AsIndexedLinearParam() const {
+    return type == OpParameter_IndexedLinearParam ?
+      reinterpret_cast<const IndexedLinearParamT *>(value) : nullptr;
+  }
 };
 
 bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, OpParameter type);
@@ -3047,13 +3069,11 @@ struct AttentionParamT : public flatbuffers::NativeTable {
   int32_t kv_shared_layer_index;
   std::vector<std::unique_ptr<TensorQuantInfoT>> mhq_quant;
   bool output_c4;
-  float attnScale;
   AttentionParamT()
       : kv_cache(true),
         layer_index(-1),
         kv_shared_layer_index(-1),
-        output_c4(false),
-        attnScale(0.0f) {
+        output_c4(false) {
   }
 };
 
@@ -3080,9 +3100,6 @@ struct AttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool output_c4() const {
     return GetField<uint8_t>(14, 0) != 0;
   }
-  float attnScale() const {
-    return GetField<float>(16, 0.0f);
-  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, 4) &&
@@ -3094,7 +3111,6 @@ struct AttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(mhq_quant()) &&
            verifier.VerifyVectorOfTables(mhq_quant()) &&
            VerifyField<uint8_t>(verifier, 14) &&
-           VerifyField<float>(verifier, 16) &&
            verifier.EndTable();
   }
   AttentionParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3123,9 +3139,6 @@ struct AttentionParamBuilder {
   void add_output_c4(bool output_c4) {
     fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(output_c4), 0);
   }
-  void add_attnScale(float attnScale) {
-    fbb_.AddElement<float>(16, attnScale, 0.0f);
-  }
   explicit AttentionParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3145,10 +3158,8 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(
     int32_t layer_index = -1,
     int32_t kv_shared_layer_index = -1,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>>> mhq_quant = 0,
-    bool output_c4 = false,
-    float attnScale = 0.0f) {
+    bool output_c4 = false) {
   AttentionParamBuilder builder_(_fbb);
-  builder_.add_attnScale(attnScale);
   builder_.add_mhq_quant(mhq_quant);
   builder_.add_kv_shared_layer_index(kv_shared_layer_index);
   builder_.add_layer_index(layer_index);
@@ -3410,6 +3421,83 @@ inline flatbuffers::Offset<RoPEParam> CreateRoPEParam(
 }
 
 flatbuffers::Offset<RoPEParam> CreateRoPEParam(flatbuffers::FlatBufferBuilder &_fbb, const RoPEParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct IndexedLinearParamT : public flatbuffers::NativeTable {
+  typedef IndexedLinearParam TableType;
+  std::vector<std::unique_ptr<Convolution2DT>> linears;
+  int32_t inputMode;
+  int32_t fusedActivation;
+  IndexedLinearParamT()
+      : inputMode(0),
+        fusedActivation(-1) {
+  }
+};
+
+struct IndexedLinearParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef IndexedLinearParamT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return IndexedLinearParamTypeTable();
+  }
+  const flatbuffers::Vector<flatbuffers::Offset<Convolution2D>> *linears() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Convolution2D>> *>(4);
+  }
+  int32_t inputMode() const {
+    return GetField<int32_t>(6, 0);
+  }
+  int32_t fusedActivation() const {
+    return GetField<int32_t>(8, -1);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(linears()) &&
+           verifier.VerifyVectorOfTables(linears()) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           verifier.EndTable();
+  }
+  IndexedLinearParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(IndexedLinearParamT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<IndexedLinearParam> Pack(flatbuffers::FlatBufferBuilder &_fbb, const IndexedLinearParamT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct IndexedLinearParamBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_linears(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Convolution2D>>> linears) {
+    fbb_.AddOffset(4, linears);
+  }
+  void add_inputMode(int32_t inputMode) {
+    fbb_.AddElement<int32_t>(6, inputMode, 0);
+  }
+  void add_fusedActivation(int32_t fusedActivation) {
+    fbb_.AddElement<int32_t>(8, fusedActivation, -1);
+  }
+  explicit IndexedLinearParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  IndexedLinearParamBuilder &operator=(const IndexedLinearParamBuilder &);
+  flatbuffers::Offset<IndexedLinearParam> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<IndexedLinearParam>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<IndexedLinearParam> CreateIndexedLinearParam(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Convolution2D>>> linears = 0,
+    int32_t inputMode = 0,
+    int32_t fusedActivation = -1) {
+  IndexedLinearParamBuilder builder_(_fbb);
+  builder_.add_fusedActivation(fusedActivation);
+  builder_.add_inputMode(inputMode);
+  builder_.add_linears(linears);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<IndexedLinearParam> CreateIndexedLinearParam(flatbuffers::FlatBufferBuilder &_fbb, const IndexedLinearParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct FusedLinearParamT : public flatbuffers::NativeTable {
   typedef FusedLinearParam TableType;
@@ -4575,6 +4663,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const FusedLinearParam *main_as_FusedLinearParam() const {
     return main_type() == OpParameter_FusedLinearParam ? static_cast<const FusedLinearParam *>(main()) : nullptr;
   }
+  const IndexedLinearParam *main_as_IndexedLinearParam() const {
+    return main_type() == OpParameter_IndexedLinearParam ? static_cast<const IndexedLinearParam *>(main()) : nullptr;
+  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(10);
   }
@@ -5022,6 +5113,10 @@ template<> inline const RoPEParam *Op::main_as<RoPEParam>() const {
 
 template<> inline const FusedLinearParam *Op::main_as<FusedLinearParam>() const {
   return main_as_FusedLinearParam();
+}
+
+template<> inline const IndexedLinearParam *Op::main_as<IndexedLinearParam>() const {
+  return main_as_IndexedLinearParam();
 }
 
 struct OpBuilder {
@@ -5836,7 +5931,6 @@ inline void AttentionParam::UnPackTo(AttentionParamT *_o, const flatbuffers::res
   { auto _e = kv_shared_layer_index(); _o->kv_shared_layer_index = _e; };
   { auto _e = mhq_quant(); if (_e) { _o->mhq_quant.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->mhq_quant[_i] = std::unique_ptr<TensorQuantInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = output_c4(); _o->output_c4 = _e; };
-  { auto _e = attnScale(); _o->attnScale = _e; };
 }
 
 inline flatbuffers::Offset<AttentionParam> AttentionParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5853,7 +5947,6 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::Fla
   auto _kv_shared_layer_index = _o->kv_shared_layer_index;
   auto _mhq_quant = _o->mhq_quant.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorQuantInfo>> (_o->mhq_quant.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorQuantInfo(*__va->__fbb, __va->__o->mhq_quant[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _output_c4 = _o->output_c4;
-  auto _attnScale = _o->attnScale;
   return MNN::CreateAttentionParam(
       _fbb,
       _kv_cache,
@@ -5861,8 +5954,7 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::Fla
       _layer_index,
       _kv_shared_layer_index,
       _mhq_quant,
-      _output_c4,
-      _attnScale);
+      _output_c4);
 }
 
 inline LinearAttentionParamT *LinearAttentionParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5954,6 +6046,38 @@ inline flatbuffers::Offset<RoPEParam> CreateRoPEParam(flatbuffers::FlatBufferBui
       _head_dim,
       _q_norm,
       _k_norm);
+}
+
+inline IndexedLinearParamT *IndexedLinearParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new IndexedLinearParamT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void IndexedLinearParam::UnPackTo(IndexedLinearParamT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = linears(); if (_e) { _o->linears.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->linears[_i] = std::unique_ptr<Convolution2DT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = inputMode(); _o->inputMode = _e; };
+  { auto _e = fusedActivation(); _o->fusedActivation = _e; };
+}
+
+inline flatbuffers::Offset<IndexedLinearParam> IndexedLinearParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const IndexedLinearParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateIndexedLinearParam(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<IndexedLinearParam> CreateIndexedLinearParam(flatbuffers::FlatBufferBuilder &_fbb, const IndexedLinearParamT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const IndexedLinearParamT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _linears = _o->linears.size() ? _fbb.CreateVector<flatbuffers::Offset<Convolution2D>> (_o->linears.size(), [](size_t i, _VectorArgs *__va) { return CreateConvolution2D(*__va->__fbb, __va->__o->linears[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _inputMode = _o->inputMode;
+  auto _fusedActivation = _o->fusedActivation;
+  return MNN::CreateIndexedLinearParam(
+      _fbb,
+      _linears,
+      _inputMode,
+      _fusedActivation);
 }
 
 inline FusedLinearParamT *FusedLinearParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6981,6 +7105,10 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const FusedLinearParam *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case OpParameter_IndexedLinearParam: {
+      auto ptr = reinterpret_cast<const IndexedLinearParam *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -7411,6 +7539,10 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const FusedLinearParam *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_IndexedLinearParam: {
+      auto ptr = reinterpret_cast<const IndexedLinearParam *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -7829,6 +7961,10 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const FusedLinearParamT *>(value);
       return CreateFusedLinearParam(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_IndexedLinearParam: {
+      auto ptr = reinterpret_cast<const IndexedLinearParamT *>(value);
+      return CreateIndexedLinearParam(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -8245,6 +8381,10 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_FusedLinearParam: {
       FLATBUFFERS_ASSERT(false);  // FusedLinearParamT not copyable.
+      break;
+    }
+    case OpParameter_IndexedLinearParam: {
+      FLATBUFFERS_ASSERT(false);  // IndexedLinearParamT not copyable.
       break;
     }
     default:
@@ -8769,6 +8909,11 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case OpParameter_IndexedLinearParam: {
+      auto ptr = reinterpret_cast<IndexedLinearParamT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
@@ -8962,12 +9107,13 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 512, 513, 514, 515, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 512, 513, 514, 515, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -9145,6 +9291,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "RoPE",
     "FusedLinear",
     "GatedRMSNorm",
+    "IndexedLinear",
     "Extra",
     "ConvInt8",
     "Int8ToFloat",
@@ -9157,7 +9304,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 186, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 187, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -9267,7 +9414,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 99 },
     { flatbuffers::ET_SEQUENCE, 0, 100 },
     { flatbuffers::ET_SEQUENCE, 0, 101 },
-    { flatbuffers::ET_SEQUENCE, 0, 102 }
+    { flatbuffers::ET_SEQUENCE, 0, 102 },
+    { flatbuffers::ET_SEQUENCE, 0, 103 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -9372,7 +9520,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     LinearAttentionParamTypeTable,
     ShapeParamTypeTable,
     RoPEParamTypeTable,
-    FusedLinearParamTypeTable
+    FusedLinearParamTypeTable,
+    IndexedLinearParamTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -9478,10 +9627,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "LinearAttentionParam",
     "ShapeParam",
     "RoPEParam",
-    "FusedLinearParam"
+    "FusedLinearParam",
+    "IndexedLinearParam"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 104, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 105, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -9598,8 +9748,7 @@ inline const flatbuffers::TypeTable *AttentionParamTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_SEQUENCE, 1, 0 },
-    { flatbuffers::ET_BOOL, 0, -1 },
-    { flatbuffers::ET_FLOAT, 0, -1 }
+    { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     TensorQuantInfoTypeTable
@@ -9610,11 +9759,10 @@ inline const flatbuffers::TypeTable *AttentionParamTypeTable() {
     "layer_index",
     "kv_shared_layer_index",
     "mhq_quant",
-    "output_c4",
-    "attnScale"
+    "output_c4"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -9670,6 +9818,26 @@ inline const flatbuffers::TypeTable *RoPEParamTypeTable() {
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *IndexedLinearParamTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_SEQUENCE, 1, 0 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    Convolution2DTypeTable
+  };
+  static const char * const names[] = {
+    "linears",
+    "inputMode",
+    "fusedActivation"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

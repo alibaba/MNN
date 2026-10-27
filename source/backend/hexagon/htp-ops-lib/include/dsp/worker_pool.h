@@ -34,6 +34,12 @@ WORKERPOOL_API AEEResult worker_pool_init_with_stack_size(worker_pool_context_t 
 WORKERPOOL_API void worker_pool_deinit(worker_pool_context_t *context);
 WORKERPOOL_API AEEResult worker_pool_available(worker_pool_context_t context);
 WORKERPOOL_API AEEResult worker_pool_submit(worker_pool_context_t context, worker_pool_job_t job);
+// n jobs at once (n <= the queue capacity of 64); same semantics as n calls of worker_pool_submit.
+// Queues n jobs under one lock and one wake-up, and always queues -- also when called from a pool thread,
+// which worker_pool_submit runs inline instead. That is what lets a job hand work on to the other workers.
+// The caller must not wait for these jobs while holding the last free worker.
+WORKERPOOL_API AEEResult worker_pool_enqueue_batch(worker_pool_context_t context, const worker_pool_job_t *jobs,
+                                                   unsigned int n);
 WORKERPOOL_API void worker_pool_synctoken_init(worker_synctoken_t *token, unsigned int njobs);
 WORKERPOOL_API void worker_pool_synctoken_jobdone(worker_synctoken_t *token);
 WORKERPOOL_API void worker_pool_synctoken_wait(worker_synctoken_t *token);

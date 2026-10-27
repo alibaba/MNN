@@ -1,10 +1,15 @@
 import math
 import torch
+try:
+    from transformers.initialization import no_init_weights
+except ImportError:
+    from transformers.modeling_utils import no_init_weights
 import torch.nn.functional as F
 from typing import Optional, Tuple
 
 from .model_mapper import ModelMapper
-from .custom_op import FusedAttention, FusedRoPE, MoE, FusedLinearAttention
+from .custom_op import FusedAttention, FusedRoPE, IndexedLinear, FusedLinearAttention
+from .qat import copy_qat_source
 
 class Embedding(torch.nn.Module):
     def __init__(self, embed, config):
@@ -25,6 +30,8 @@ class Embedding(torch.nn.Module):
                 plain_embed = torch.nn.Embedding(embed.num_embeddings, embed.embedding_dim, embed.padding_idx)
                 plain_embed.weight = embed.weight
                 self.embed = plain_embed
+                if hasattr(embed, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(embed, plain_embed)
 
     def forward(self, input_ids):
         inputs_embeds = self.embed(input_ids).view(-1, 1, self.hidden_size)
@@ -68,6 +75,37 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
+def layer_layout_config(config):
+    # The flattened export config does not forward the layer layout; the original HF (text)
+    # config carries it.
+    for cfg in (config, getattr(config, 'origin_config', None)):
+        if cfg is None:
+            continue
+        for candidate in (cfg, getattr(cfg, 'text_config', None)):
+            if candidate is not None and getattr(candidate, 'num_kv_shared_layers', 0):
+                return candidate
+    return None
+
+def kv_shared_owner(config, layer_id):
+    # Index of the layer whose kvcache a sharing layer reads. HF dropped the per-module
+    # kv_shared_layer_index attribute (gemma4, transformers >= 5.5.4) but the layer layout
+    # still determines it: the owner is the last layer of the same attention type among those
+    # that keep a cache of their own. Returns None when the layout does not say.
+    cfg = layer_layout_config(config)
+    if cfg is None:
+        return None
+    first_shared = getattr(cfg, 'num_hidden_layers', 0) - cfg.num_kv_shared_layers
+    if first_shared <= 0 or layer_id < first_shared:
+        return None
+    layer_types = getattr(cfg, 'layer_types', None)
+    if not layer_types:
+        return first_shared - 1
+    want = layer_types[layer_id]
+    for index in range(first_shared - 1, -1, -1):
+        if layer_types[index] == want:
+            return index
+    return None
+
 class Attention(torch.nn.Module):
     def __init__(self, attn, layer_id, config, rotary, mapper):
         super().__init__()
@@ -95,7 +133,7 @@ class Attention(torch.nn.Module):
             self.rotary = None
         if config.model_type == 'mobilemoe' and attn.attn_temperature_tuning and not attn.use_rope:
             raise ValueError('MobileMoE attention temperature tuning is not supported')
-        if config.model_type in ['qwen3_5', 'qwen3_5_moe', 'qwen3_5_text']:
+        if config.model_type in ['qwen3_5', 'qwen3_5_moe', 'qwen3_5_text', 'minicpmv4_7']:
             # Qwen3.5 attention norms use gamma=(1+weight). FusedRoPE stores
             # norm.weight as gamma, so canonicalize the offset semantics first.
             self.q_norm = canonical_rms_norm(getattr(self, 'q_norm', None), 1.0)
@@ -136,10 +174,18 @@ class Attention(torch.nn.Module):
         # KV sharing (gemma4): track which layers share KV
         self.is_kv_shared_layer = getattr(attn, 'is_kv_shared_layer', False)
         self.kv_shared_layer_index = getattr(attn, 'kv_shared_layer_index', None)
+        if self.is_kv_shared_layer and self.kv_shared_layer_index is None:
+            self.kv_shared_layer_index = kv_shared_owner(config, layer_id)
+            if self.kv_shared_layer_index is None:
+                raise RuntimeError(f'layer {layer_id} shares its kvcache but the owning layer '
+                                   'cannot be determined, so the export would drop the sharing '
+                                   'and the layer has no key / value of its own')
         self.store_full_length_kv = getattr(attn, 'store_full_length_kv', False)
 
         # Create FusedAttention with KV sharing info
-        kv_shared_idx = self.kv_shared_layer_index if self.is_kv_shared_layer else -1
+        kv_shared_idx = -1
+        if self.is_kv_shared_layer and self.kv_shared_layer_index is not None:
+            kv_shared_idx = self.kv_shared_layer_index
         self.fused_attn = FusedAttention(
             self.num_heads * self.head_dim, self.kv_cache,
             f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx,
@@ -173,6 +219,10 @@ class Attention(torch.nn.Module):
                 self.q_proj.weight.data = qkv_weight[:, 0, :, :].reshape(self.hidden_size, self.hidden_size)
                 self.k_proj.weight.data = qkv_weight[:, 1, :, :].reshape(self.hidden_size, self.hidden_size)
                 self.v_proj.weight.data = qkv_weight[:, 2, :, :].reshape(self.hidden_size, self.hidden_size)
+                if hasattr(self.qkv_proj, '_mnn_qat_source_weight_name'):
+                    for index, projection in enumerate((self.q_proj, self.k_proj, self.v_proj)):
+                        copy_qat_source(self.qkv_proj, projection, lambda w, index=index:
+                            w.view(self.num_heads, 3, self.head_dim, -1)[:, index].reshape(self.hidden_size, -1))
                 qkv_bias = self.qkv_proj.bias.data.view(self.num_heads, 3, self.head_dim)
                 self.q_proj.bias.data = qkv_bias[:, 0, :].reshape(self.hidden_size)
                 self.k_proj.bias.data = qkv_bias[:, 1, :].reshape(self.hidden_size)
@@ -183,6 +233,9 @@ class Attention(torch.nn.Module):
                 self.q_proj.weight.data = qw
                 self.k_proj.weight.data = kw
                 self.v_proj.weight.data = vw
+                if hasattr(self.qkv_proj, '_mnn_qat_source_weight_name'):
+                    for index, projection in enumerate((self.q_proj, self.k_proj, self.v_proj)):
+                        copy_qat_source(self.qkv_proj, projection, lambda w, index=index: w.split(split_sizes)[index])
                 if self.qkv_proj.bias is not None:
                     qb, kb, vb = torch.split(self.qkv_proj.bias, split_sizes)
                     self.q_proj.bias.data = qb
@@ -215,6 +268,10 @@ class Attention(torch.nn.Module):
                 self.num_heads, 2, self.head_dim, combined_q_proj.in_features)
             self.q_proj.weight.data = q_gate_weight[:, 0].reshape(query_size, combined_q_proj.in_features).clone()
             self.q_gate_proj.weight.data = q_gate_weight[:, 1].reshape(query_size, combined_q_proj.in_features).clone()
+            if hasattr(combined_q_proj, '_mnn_qat_source_weight_name'):
+                for index, projection in enumerate((self.q_proj, self.q_gate_proj)):
+                    copy_qat_source(combined_q_proj, projection, lambda w, index=index:
+                        w.view(self.num_heads, 2, self.head_dim, -1)[:, index].reshape(query_size, -1).clone())
             if has_bias:
                 q_gate_bias = combined_q_proj.bias.data.view(self.num_heads, 2, self.head_dim)
                 self.q_proj.bias.data = q_gate_bias[:, 0].reshape(query_size).clone()
@@ -273,6 +330,11 @@ class Attention(torch.nn.Module):
             # gemma4 has v_norm (RMSNorm without scale)
             if hasattr(self, 'v_norm') and self.v_norm is not None:
                 value_states = self.v_norm(value_states)
+            # Publish for the layers that read this one's cache. Pre-RoPE, because they apply
+            # RoPE themselves at the same positions; without this the dict stays empty and a
+            # sharing layer falls through to the zero placeholders below.
+            if shared_kv_cache is not None and self.store_full_length_kv:
+                shared_kv_cache[self.layer_id] = (key_states, value_states)
         else:
             # Pure KV sharing layer: no local K/V projections (e.g. gemma4 in HF>=5.5.4)
             # Dummy K/V for ONNX tracing; FusedAttention handles sharing via kv_shared_layer_index
@@ -345,7 +407,10 @@ class Attention(torch.nn.Module):
             key_states = self.qk_norm(key_states)
 
         if self.export_fused_attn and torch.onnx.is_in_onnx_export():
-            attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask)
+            attention_sink = getattr(self, 'sinks', None)
+            if attention_sink is not None:
+                attention_sink = attention_sink.float()
+            attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask, attention_sink)
             if gate is not None:
                 attn_output = attn_output * torch.sigmoid(gate)
             attn_output = self.o_proj(attn_output)
@@ -906,7 +971,9 @@ def _compute_yarn_parameters(rotary_dim, base_theta, scaling_config, max_positio
     def find_correction_range(low_rot, high_rot, d, b, max_pos):
         low = find_correction_dim(low_rot, d, b, max_pos)
         high = find_correction_dim(high_rot, d, b, max_pos)
-        return max(0, math.floor(low)), min(d - 1, math.ceil(high))
+        if scaling_config.get("truncate", True):
+            low, high = math.floor(low), math.ceil(high)
+        return max(0, low), min(d - 1, high)
 
     def linear_ramp_factor(mn, mx, d):
         if mn == mx:
@@ -1179,7 +1246,7 @@ class Rotary(torch.nn.Module):
             return self.chatglm_rotary_pos(x, cos, sin)
         if self.model_type == 'chatglm2':
             return self.chatglm2_rotary_pos(x, cos, sin)
-        if self.model_type in ['phi-msft', 'qwen3_5', 'qwen3_5_moe', 'qwen3_5_text']:
+        if self.model_type in ['phi-msft', 'qwen3_5', 'qwen3_5_moe', 'qwen3_5_text', 'minicpmv4_7']:
             return self.phi_rotary_pos(x, cos, sin)
         if self.model_type in ['ernie4_5', 'glm_ocr', 'mobilemoe']:
             return self.ernie_rotary_pos(x, cos, sin)
@@ -1284,6 +1351,84 @@ class Qwen3Expert(torch.nn.Module):
         out = self.down_proj_linear(up * self.act_fn(gate))
         return out
 
+
+class IndexedExperts(torch.nn.Module):
+    """Export an expert FFN with indexed projections and ordinary activations."""
+    def __init__(self, experts, layer_id, weight_ops, fuse_gate_up=True):
+        super().__init__()
+        first = experts[0]
+        self.gpt_oss = isinstance(first, GptOssExpert)
+        self.gate_up = None
+
+        def projection(source, input_mode):
+            linears = [getattr(expert, source) for expert in experts]
+            linear = linears[0]
+            if not all(isinstance(item, torch.nn.Linear) and
+                       item.in_features == linear.in_features and item.out_features == linear.out_features
+                       for item in linears):
+                raise ValueError(f'Inconsistent expert projection {source} in layer {layer_id}')
+            name = f'/layers.{layer_id}/experts/{source}'
+            # Retain the original names and quantization boundaries, including
+            # separate gate/up projections, when creating a weight bank.
+            weight_ops[name] = [(f'/expert/{layer_id}_{i}/{source}', item.cpu())
+                                for i, item in enumerate(linears)]
+            return IndexedLinear(linear.in_features, linear.out_features, input_mode, name)
+
+        if hasattr(first, 'gate_up_proj_linear'):
+            self.gate_up = projection('gate_up_proj_linear', 0)
+            self.down = projection('down_proj_linear', 1)
+        elif hasattr(first, 'gate_proj') and hasattr(first, 'up_proj'):
+            self.gate = projection('gate_proj', 0)
+            self.up = projection('up_proj', 0)
+            self.down = projection('down_proj', 1)
+        elif hasattr(first, 'w1') and hasattr(first, 'w3'):
+            self.gate = projection('w1', 0)
+            self.up = projection('w3', 0)
+            self.down = projection('w2', 1)
+        else:
+            raise ValueError(f'Unsupported expert projections: {type(first).__name__}')
+        if self.gpt_oss:
+            self.alpha, self.limit = first.alpha, first.limit
+        else:
+            self.act_fn = getattr(first, 'act_fn', None) or getattr(first, 'activation_fn', None)
+            if self.act_fn is None:
+                raise ValueError(f'Missing expert activation: {type(first).__name__}')
+        self.fusedActivation = -1
+        if (fuse_gate_up and not self.gpt_oss and
+                (self.act_fn is F.silu or isinstance(self.act_fn, torch.nn.SiLU) or
+                 type(self.act_fn).__name__ == 'SiLUActivation')):
+            self.fusedActivation = IndexedLinear.SILU
+        if self.fusedActivation != -1:
+            projection = self.gate_up if self.gate_up is not None else self.gate
+            projection.fusedActivation = self.fusedActivation
+            if self.gate_up is not None:
+                projection.out_features //= 2
+            else:
+                projection.up_name = self.up.name
+
+    def forward(self, hidden_states, selected_experts):
+        if self.fusedActivation != -1:
+            projection = self.gate_up if self.gate_up is not None else self.gate
+            return self.down(projection(hidden_states, selected_experts), selected_experts)
+        if self.gate_up is not None:
+            gate_up = self.gate_up(hidden_states, selected_experts)
+            if self.gpt_oss:
+                gate, up = gate_up[..., ::2], gate_up[..., 1::2]
+            else:
+                gate, up = gate_up.chunk(2, dim=-1)
+        else:
+            gate = self.gate(hidden_states, selected_experts)
+            up = self.up(hidden_states, selected_experts)
+        if self.gpt_oss:
+            limit_tensor = torch.tensor(self.limit, device=gate.device, dtype=gate.dtype)
+            gate = torch.min(gate, limit_tensor)
+            up = up.clamp(min=-self.limit, max=self.limit)
+            activated = (up + 1) * (gate * torch.sigmoid(gate * self.alpha))
+        else:
+            activated = up * self.act_fn(gate)
+        return self.down(activated, selected_experts)
+
+
 class Mlp(torch.nn.Module):
     def __init__(self, mlp, mapper, layer_id, model_type=None):
         super().__init__()
@@ -1291,10 +1436,9 @@ class Mlp(torch.nn.Module):
         ModelMapper.do_map(self, mlp, mapper['mlp'])
         self.is_moe = hasattr(self, 'experts')
         self.export_moe = False
-        self.custom_moe = MoE(self.num_experts, self.top_k, layer_id)
         if isinstance(self.experts, torch.nn.ModuleList):
             self.moe_type = 'qwen3_moe'
-        else:
+        elif not hasattr(self, 'router'):
             self.moe_type = 'qwen3_5_moe'
             self.norm_topk_prob = True
             # refacte experts to qwen3_experts
@@ -1305,18 +1449,31 @@ class Mlp(torch.nn.Module):
             act_fn = original_experts.act_fn
             new_experts_list = torch.nn.ModuleList()
             for i in range(self.num_experts):
-                expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
+                with no_init_weights():
+                    expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
                 expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i]
                 expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i]
+                if hasattr(original_experts.gate_up_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.gate_up_proj, expert_mlp.gate_up_proj_linear, lambda w, i=i: w[i])
+                if hasattr(original_experts.down_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.down_proj, expert_mlp.down_proj_linear, lambda w, i=i: w[i])
                 if model_type == 'mobilemoe':
                     expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i].T.contiguous()
                     expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i].T.contiguous()
+                    if hasattr(expert_mlp.gate_up_proj_linear, '_mnn_qat_source_weight_name'):
+                        copy_qat_source(expert_mlp.gate_up_proj_linear, expert_mlp.gate_up_proj_linear,
+                                        lambda w: w.T.contiguous(), preserve_groups=False)
+                    if hasattr(expert_mlp.down_proj_linear, '_mnn_qat_source_weight_name'):
+                        copy_qat_source(expert_mlp.down_proj_linear, expert_mlp.down_proj_linear,
+                                        lambda w: w.T.contiguous(), preserve_groups=False)
                 new_experts_list.append(expert_mlp)
             self.experts = new_experts_list
 
             if not isinstance(self.gate, torch.nn.Linear):
                 gate = torch.nn.Linear(hidden_size, self.num_experts, bias=False)
                 gate.weight.data = self.gate.weight.data
+                if hasattr(self.gate, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(self.gate, gate)
                 self.gate = gate
 
         if hasattr(self, 'expert_bias') and self.expert_bias is not None:
@@ -1331,16 +1488,25 @@ class Mlp(torch.nn.Module):
             hidden_dim = self.router.weight.shape[1]
             self.gate = torch.nn.Linear(hidden_dim, self.num_experts, bias=True)
             self.gate.weight.data = self.router.weight.data
+            if hasattr(self.router, '_mnn_qat_source_weight_name'):
+                copy_qat_source(self.router, self.gate)
             self.gate.bias.data = self.router.bias.data
             # refacte experts to qwen3_experts
             original_experts = self.experts
-            expert_dim = original_experts.expert_dim
+            expert_dim = (getattr(original_experts, 'expert_dim', None) or
+                          original_experts.intermediate_size)
             new_experts_list = torch.nn.ModuleList()
             for i in range(self.num_experts):
                 expert_mlp = GptOssExpert(hidden_dim, expert_dim)
                 expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i].transpose(0, 1)
+                if hasattr(original_experts.gate_up_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.gate_up_proj, expert_mlp.gate_up_proj_linear,
+                                    lambda w, i=i: w[i].transpose(0, 1), preserve_groups=False)
                 expert_mlp.gate_up_proj_linear.bias.data = original_experts.gate_up_proj_bias.data[i]
                 expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i].transpose(0, 1)
+                if hasattr(original_experts.down_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.down_proj, expert_mlp.down_proj_linear,
+                                    lambda w, i=i: w[i].transpose(0, 1), preserve_groups=False)
                 expert_mlp.down_proj_linear.bias.data = original_experts.down_proj_bias.data[i]
                 new_experts_list.append(expert_mlp)
             self.experts = new_experts_list
@@ -1387,7 +1553,13 @@ class Mlp(torch.nn.Module):
             routing_weights = routing_weights.to(hidden_states.dtype)
 
         if self.export_moe:
-            expert_output = self.custom_moe(hidden_states, routing_weights, selected_experts)
+            # FakeLinear may restore a leading batch dimension on router logits.
+            # Make the IndexedLinear input contract explicit at this boundary.
+            selected_experts = selected_experts.reshape(-1, self.top_k).to(torch.int32)
+            routing_weights = routing_weights.reshape(-1, self.top_k)
+            expert_output = self.experts(hidden_states, selected_experts)
+            expert_output = (expert_output * routing_weights.unsqueeze(-1)).sum(dim=-2)
+            expert_output = expert_output.reshape(batch_size, sequence_length, hidden_dim)
             if shared_expert_output is not None:
                 expert_output = expert_output + shared_expert_output
             return expert_output
@@ -1485,18 +1657,23 @@ class Decoder(torch.nn.Module):
                 expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
                 expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i]
                 expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i]
+                if hasattr(original_experts.gate_up_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.gate_up_proj, expert_mlp.gate_up_proj_linear, lambda w, i=i: w[i])
+                if hasattr(original_experts.down_proj, '_mnn_qat_source_weight_name'):
+                    copy_qat_source(original_experts.down_proj, expert_mlp.down_proj_linear, lambda w, i=i: w[i])
                 new_experts_list.append(expert_mlp)
             self.experts = new_experts_list
             # Extract gate Linear from router (router has norm+scale+proj+per_expert_scale)
             self.moe_gate = torch.nn.Linear(hidden_size, num_experts, bias=False)
             self.moe_gate.weight.data = self.router.proj.weight.data
+            if hasattr(self.router.proj, '_mnn_qat_source_weight_name'):
+                copy_qat_source(self.router.proj, self.moe_gate)
             self.moe_router_norm = self.router.norm
             self.moe_router_scale = self.router.scale.data
             self.moe_router_scalar_root = self.router.scalar_root_size
             self.moe_per_expert_scale = self.router.per_expert_scale.data
             self.moe_num_experts = num_experts
             self.moe_top_k = config.origin_config.text_config.top_k_experts
-            self.custom_moe = MoE(num_experts, self.moe_top_k, layer_id)
             self.export_moe = False
             del self.router
 
@@ -1571,7 +1748,10 @@ class Decoder(torch.nn.Module):
                 routing_weights = (routing_weights * self.moe_per_expert_scale[selected_experts]).to(router_input.dtype)
                 if self.export_moe:
                     expert_input = self.pre_feedforward_layernorm_2(router_input)
-                    expert_output = self.custom_moe(expert_input, routing_weights, selected_experts)
+                    selected_experts = selected_experts.reshape(-1, self.moe_top_k).to(torch.int32)
+                    routing_weights = routing_weights.reshape(-1, self.moe_top_k)
+                    expert_output = self.experts(expert_input, selected_experts)
+                    expert_output = (expert_output * routing_weights.unsqueeze(-1)).sum(dim=-2)
                 else:
                     # Expert computation
                     expert_input = self.pre_feedforward_layernorm_2(router_input)
