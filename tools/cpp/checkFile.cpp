@@ -8,12 +8,24 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <string>
 
 using namespace std;
+
+// Formatted extraction can reject finite subnormals, so parse the complete token.
+static bool readFiniteFloat(std::istream& input, float& value) {
+    std::string token;
+    if (!(input >> token)) {
+        return false;
+    }
+    char* end = nullptr;
+    value = std::strtof(token.c_str(), &end);
+    return end == token.c_str() + token.size() && std::isfinite(value);
+}
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
@@ -45,7 +57,7 @@ int main(int argc, char* argv[]) {
         if (input1.eof() && input2.eof() && !input1.bad() && !input2.bad()) {
             break;
         }
-        if (!(input1 >> v1) || !(input2 >> v2)) {
+        if (!readFiniteFloat(input1, v1) || !readFiniteFloat(input2, v2)) {
             printf("Error for %d: invalid or missing value\n", pos);
             break;
         }

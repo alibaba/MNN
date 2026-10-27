@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -31,6 +32,17 @@ using namespace std;
 #define BLUE "\e[0;34m"
 #define L_BLUE "\e[1;34m"
 #define BOLD "\e[1m"
+
+// Formatted extraction can reject finite subnormals, so parse the complete token.
+static bool readFiniteFloat(std::istream& input, float& value) {
+    std::string token;
+    if (!(input >> token)) {
+        return false;
+    }
+    char* end = nullptr;
+    value = std::strtof(token.c_str(), &end);
+    return end == token.c_str() + token.size() && std::isfinite(value);
+}
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
@@ -115,7 +127,7 @@ int main(int argc, char* argv[]) {
             if (oldOs.eof() && newOs.eof() && !oldOs.bad() && !newOs.bad()) {
                 break;
             }
-            if (!(oldOs >> v1) || !(newOs >> v2)) {
+            if (!readFiniteFloat(oldOs, v1) || !readFiniteFloat(newOs, v2)) {
                 printf("Error for %d, %s, %d: invalid or missing value\n", i, s.c_str(), pos);
                 correct = false;
                 break;
