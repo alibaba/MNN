@@ -283,6 +283,44 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
             case MNN::OpType_FusedLinear: {
                 cloneBaseExecution(exe, base_executions, op, backend, backupBackend);
                 if (exe == nullptr) {
+                    if (scheduleInfo.pipelineInfo[0].first.needComputeGeometry) {
+                        // Give the projection tensors the same default NC4HW4 shape the Convolution case
+                        // uses. The executions built later in this loop inspect their inputs to decide
+                        // whether the backend can run them, and an unshaped placeholder made Vulkan's
+                        // RoPE reject the q/k produced by a fused QKV projection, pinning every layer's
+                        // RoPE to the CPU backup.
+                        auto fusedParam = op->main_as_FusedLinearParam();
+                        if (nullptr != fusedParam && nullptr != fusedParam->convs() &&
+                            fusedParam->convs()->size() > 0) {
+                            auto setShape = [](Tensor* t, int channel) {
+                                if (nullptr == t || 4 != t->buffer().dimensions) {
+                                    return;
+                                }
+                                TensorUtils::getDescribe(t)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+                                t->setLength(0, 1);
+                                t->setLength(1, channel);
+                                t->setLength(2, 2);
+                                t->setLength(3, 2);
+                            };
+                            const int numConvs = (int)fusedParam->convs()->size();
+                            const int numProjOut = fusedParam->act_silu_mul() ? 1 : numConvs;
+                            const auto first = fusedParam->convs()->GetAs<Convolution2D>(0);
+                            const int ic =
+                                (nullptr != first && nullptr != first->common()) ? first->common()->inputCount() : 0;
+                            for (auto t : info.inputs) {
+                                setShape(t, ic);
+                            }
+                            for (int c = 0; c < numProjOut && c < (int)info.outputs.size(); ++c) {
+                                auto conv = fusedParam->convs()->GetAs<Convolution2D>(c);
+                                const int oc =
+                                    (nullptr != conv && nullptr != conv->common()) ? conv->common()->outputCount() : ic;
+                                setShape(info.outputs[c], oc);
+                            }
+                            if (fusedParam->has_ln() && numProjOut < (int)info.outputs.size()) {
+                                setShape(info.outputs[numProjOut], ic);
+                            }
+                        }
+                    }
                     // Pre-create on every backend that takes the op whole, so the member weights are
                     // allocated once here and every session shares them through executionCache. A
                     // backend that decomposes the op in geometry must not pre-create.
