@@ -297,38 +297,24 @@ class LlmExporter(torch.nn.Module):
         (dspark_onnx, dspark_fc_onnx, dspark_kvmat_onnx,
          dspark_markov_w1_onnx, dspark_markov_w2_onnx) = self.dspark.export(self.onnx_path)
         if self.mnn_converter:
-            # The draft runs once per speculative step, so its weight size sits on the critical
-            # path. Quantizing it like the target measured both faster and *more* accepted
-            # (4-bit: 3.41 tokens/step vs fp16's 2.46) -- the target is 4-bit itself, so the
-            # same rounding moves the draft toward it rather than away.
-            # The draft's lm_head is the one projection the argmax reads directly, so it gets
-            # more precision than the rest of the draft: 4 bits there cost a fifth of the accept
-            # length, 8 bits recovered it, and 16 bits only added weight for no further gain.
+            # Keep extra precision in the draft head, which directly determines token selection.
             prev_lm_quant_bit = self.args.lm_quant_bit
             self.args.lm_quant_bit = 8
-            # Same fleet as DFlash: the draft attention is bidirectional, so transformer fusing
-            # (causal-only) must stay off, and the fc input spans target layers with a huge
-            # dynamic range, so it cannot be quantized.
+            # The draft's bidirectional attention must not use causal transformer fusion.
             MNNConverter(self, self.dspark.unloaded_ops).export(dspark_onnx, transformer_fuse=False)
-            # The draft's own settings must not leak into the target, which exports later with
-            # its own lm_head width.
+            # Restore the target's head precision before exporting it.
             self.args.lm_quant_bit = prev_lm_quant_bit
+            # Preserve the fc input's dynamic range and avoid amplifying KV quantization error in k_norm.
             MNNConverter(self, None).export(dspark_fc_onnx, quant_bit=0, transformer_fuse=False)
-            # Unquantized like the fc: these weights feed k_norm, which amplifies the
-            # per-channel error of a 4-bit round trip into the draft's whole context.
             MNNConverter(self, self.dspark.unloaded_ops).export(dspark_kvmat_onnx, quant_bit=0,
-                                                               transformer_fuse=False)
+                                                            transformer_fuse=False)
             if self.dspark.markov_rank:
-                # w1 is a gather whose output feeds a dot product; quantizing it would put its
-                # error straight into the chain. w2 is the one big matrix the chain multiplies,
-                # so it gets the same weight-only quantization the target's own projections use.
-                # w1 carries no FakeLinear, so passing unloaded_ops would only buy it a needless
-                # mnn2json round trip -- one that inlined the 38.9M-entry table and wrote a 385 MB
-                # JSON next to a weight file that already held the same bytes.
+                # Preserve w1 coefficients and quantize the large w2 projection independently.
+                # Neither graph needs FakeLinear rebuilding.
                 MNNConverter(self, None).export(dspark_markov_w1_onnx, quant_bit=0,
-                                                transformer_fuse=False)
+                                               transformer_fuse=False)
                 MNNConverter(self, None).export(dspark_markov_w2_onnx, quant_bit=8,
-                                                transformer_fuse=False)
+                                               transformer_fuse=False)
 
 
     @spinner_run(f'export embedding to ')
@@ -464,8 +450,7 @@ class LlmExporter(torch.nn.Module):
                 config['speculative_type'] = 'eagle'
                 config['hidden_states'] = True
             if self.args.dspark_path is not None:
-                # DSpark keeps DFlash's runtime; only the draft graph differs (lm_head and
-                # Markov bias baked in), so it needs no shared lm_head subgraph.
+                # DSpark uses the DFlash runtime with its own lm_head and separate Markov modules.
                 config['speculative_type'] = 'dflash'
                 config['hidden_states'] = True
                 config['dflash_model'] = 'dspark.mnn'

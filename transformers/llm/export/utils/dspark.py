@@ -1,9 +1,4 @@
-"""DSpark draft export: DFlash backbone + Markov logit bias + shared lm_head.
-
-Everything here reuses the DFlash export path; DSpark only adds the Markov
-head and folds the target's lm_head into the draft graph, because the bias has
-to land on the logits before argmax.
-"""
+"""Export the DSpark draft and separate Markov modules for chained token selection."""
 
 import json
 import os
@@ -12,7 +7,7 @@ import torch
 import torch.nn as nn
 from transformers.activations import ACT2FN
 
-from .dflash import DFlashAttention, DFlashFc, DFlashKVMat, dflash_rope
+from .dflash import DFlashAttention, DFlashFc, dflash_rope
 from utils.custom_op import FakeLinear, FusedAttention
 from utils.spinner import spinner_run
 from .torch_utils import onnx_export
@@ -22,12 +17,7 @@ _FC_SCALE = 8.0
 
 
 class DSparkMarkovW1(torch.nn.Module):
-    """Maps the previous slot's token to its rank-space coefficient.
-
-    DSpark conditions each slot on the token at the previous slot, and at inference that token
-    is the draft's own prediction, so the bias forms a chain the engine must walk. Shipping w1
-    as a graph keeps that gather on-device instead of copying a 148 MB table to the host.
-    """
+    """Gather the previous token's rank-space coefficient on device."""
 
     def __init__(self, w1):
         super().__init__()
@@ -39,12 +29,7 @@ class DSparkMarkovW1(torch.nn.Module):
 
 
 class DSparkMarkovW2(torch.nn.Module):
-    """The rank-space coefficient times w2, i.e. one slot's vocab-wide bias.
-
-    Kept as its own graph so the exporter can quantize it: at inference this is the only
-    matrix the Markov chain multiplies, and a weight-only quantized 1x1 conv is what makes
-    the seven chain steps cheap.
-    """
+    """Project coefficients to vocabulary bias in an independently quantized graph."""
 
     def __init__(self, w2):
         super().__init__()
@@ -56,11 +41,7 @@ class DSparkMarkovW2(torch.nn.Module):
 
 
 class DSparkLogits(torch.nn.Module):
-    """Draft + lm_head, plus the Markov bias of one slot when the engine supplies it.
-
-    The bias is W2 @ W1[prev], a full [vocab] vector per row, so it must be added in the
-    graph; the engine walks the chain and passes the rank-space embedding per slot.
-    """
+    """Emit base block logits; the engine applies Markov bias between slot selections."""
 
     def __init__(self, dspark, block_size):
         super().__init__()
@@ -81,18 +62,12 @@ class DSparkLogits(torch.nn.Module):
         n_kv = len(d.layers)
         # args = (hidden_0..N-1, kv_k_0, kv_v_0, ..., attention_mask, position_ids, block_ids)
         lead = n_ctx + 2 * n_kv
-        block_ids = args[lead + 2]
         hidden_states = d(noise_embedding, *args[:lead + 2])
-        # Rows are [1, block, hidden]; lm_head wants [seq, hidden] and returns [seq, vocab].
-        # Both reshapes name the block axis explicitly: a -1 placeholder there is resolved by
-        # the converter into the vocab axis, which silently transposes the block logits.
+        # Keep the block axis explicit so conversion does not resolve it against the vocab axis.
         block = hidden_states.shape[1]
         hidden = hidden_states.shape[-1]
-        # Flat rows -> [rows, vocab]; lm_head's FakeLinear keeps the leading axes.
         logits = d.lm_head(hidden_states.reshape(block, hidden))
         logits = logits.reshape(1, block, -1)
-        # Markov bias is applied by the engine, one slot at a time: slot k depends on slot k-1's
-        # sampled token, which is only known after the previous `rowArgmax`. See dspark_markov.
         return logits
 
 
@@ -145,9 +120,7 @@ class DSparkDecoderLayer(torch.nn.Module):
         k = torch.cat([kv_k, k_noise], dim=1)
         v = torch.cat([kv_v, v_noise], dim=1)
 
-        # FusedAttention already emits [b, seq, hidden]; a reshape here would be an identity
-        # op, and a dynamic one at that, which blocks the converter's attention-output C4 fuse
-        # (the same fuse the target model relies on) and leaves the op on plain NCHW.
+        # An identity reshape here would block the converter's attention-output C4 fusion.
         attn_output = self.fused_attn(q, k, v, attention_mask)
         attn_output = self.o_proj(attn_output)
 
@@ -186,7 +159,7 @@ class DSparkKVMat(torch.nn.Module):
 
 
 class DSpark(torch.nn.Module):
-    """DSpark draft model: one block forward yields hidden states and the Markov bias."""
+    """DSpark draft backbone with separately exported context and Markov projections."""
 
     def __init__(self, dspark_path, base):
         super().__init__()
@@ -202,10 +175,7 @@ class DSpark(torch.nn.Module):
         self.rms_norm_eps = config_dict.get('rms_norm_eps', 1e-6)
         self.block_size = config_dict.get('block_size', 8)
         self.mask_token_id = config_dict.get('mask_token_id', 0)
-        # DSpark always predicts from the anchor slot onward; DFlash-style label shifting is the
-        # same thing expressed as a flag, so map it to the one field the engine reads.
-        # DSpark's default (sample_from_anchor) means block slot k predicts the token at
-        # k+1, i.e. the draft row k feeds verification slot k+1 -- DFlash calls that shift_label.
+        # sample_from_anchor maps draft row k to verification slot k+1, like DFlash's shift_label.
         self.sample_from_anchor = config_dict.get('sample_from_anchor', True)
         self.shift_label = bool(self.sample_from_anchor)
         self.markov_rank = config_dict.get('markov_rank', 0)
@@ -270,15 +240,11 @@ class DSpark(torch.nn.Module):
         from safetensors.torch import load_file
         state_dict = load_file(os.path.join(dspark_path, 'model.safetensors'), device='cpu')
         own_keys = set(dict(self.named_parameters()).keys())
-        # The checkpoint names the Markov factors markov_head.markov_w*; the export holds them
-        # as embeddings so the engine can gather any row, so the keys need rewriting.
+        # Match the checkpoint's nested Markov and attention names to the export modules.
         mapped = {}
         for key, value in state_dict.items():
-            # markov_head.markov_w1.weight -> markov_w1.weight (embedding table),
-            # markov_head.markov_w2.weight -> markov_w2.weight (Linear [vocab, rank], same layout).
             if key.startswith('markov_head.'):
                 key = key[len('markov_head.'):]
-            # The attention projections live directly on the layer here, not under self_attn.
             key = key.replace('.self_attn.', '.')
             if key in own_keys:
                 mapped[key] = value
@@ -325,15 +291,11 @@ class DSpark(torch.nn.Module):
         n_ctx = len(self.target_layer_ids)
         n_kv = len(self.layers)
         lead = n_ctx + 2 * n_kv
-        hidden_args = args[:n_ctx]
         kv_args = args[n_ctx:lead]
         attention_mask, position_ids = args[lead], args[lead + 1]
 
-        # The target hidden states reach the draft only through the per-layer context K/V
-        # (dspark_kvmat); the block itself starts from the noise embedding.
-        # cos/sin span the whole key length so the block rows rotate at their own positions;
-        # the context K/V arrive already rotated by dspark_kvmat. position_ids is the full
-        # [context | block] range so its values stay a graph input (a traced arange is constant).
+        # Context keys arrive rotated by kvmat; only block rows need rotation here.
+        # Keep positions as an input because a traced arange would freeze the context length.
         cos, sin = dflash_rope(position_ids, self.head_dim, self.rope_theta)
         hidden_states = noise_embedding
         for i, layer in enumerate(self.layers):
@@ -388,8 +350,7 @@ class DSpark(torch.nn.Module):
                 dynamic_axes={"new_context": {1: "seq_len"}, "position_ids": {1: "seq_len"}}
             )
 
-        # dspark.onnx: draft hidden states -> shared lm_head -> markov bias -> biased logits.
-        # The bias has to land on the logits before argmax, so it lives in the draft graph.
+        # Export base logits; Markov bias depends on earlier sampled slots and is applied by the engine.
         noise_embedding = torch.ones([1, block_size, self.hidden_size], dtype=torch.float)
         kv_dummy = [torch.ones([1, context_len, self.num_key_value_heads, self.head_dim], dtype=torch.float)
                     for _ in kv_names]
@@ -420,12 +381,7 @@ class DSpark(torch.nn.Module):
                 }
             )
 
-        # Markov head, split in two so each half stays on-device. w1 maps the previous token
-        # to its rank vector; w2 turns that into the vocab-wide bias. Keeping w2 as its own
-        # graph is what lets the exporter quantize it -- a weight-only 1x1 conv measures ~9x
-        # faster than the engine sweeping the table from the host.
-        markov_w1_onnx = None
-        markov_w2_onnx = None
+        # Separate the coefficient gather from the quantized vocabulary projection.
         if self.markov_rank:
             w1_weight, w2_weight = self.markov_tables
             w2_linear = torch.nn.Linear(self.markov_rank, w2_weight.shape[0], bias=False)

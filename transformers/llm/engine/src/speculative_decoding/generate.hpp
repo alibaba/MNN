@@ -130,8 +130,7 @@ private:
 };
 
 
-// Minimal fork-join pool: run(N, fn) calls fn(0..N-1) across N workers and blocks until all
-// return. Reused across the Markov chain's slots, where spawning threads per slot dominated.
+// Reuse helper threads across the host Markov chain's serial slots.
 class MarkovSweepPool {
 public:
     ~MarkovSweepPool() { shutdown(); }
@@ -181,57 +180,50 @@ private:
     // Row-wise argmax, shared by draft sampling and target verify; only the element count is read, so any rank binds.
     // False when the on-device argmax module could not be built: the caller must abort the step.
     bool rowArgmax(MNN::Express::VARP logits, int rows, std::vector<int>& out);
-    // argmax(base + bias) on device, returning only the index.
+    // Device-side Markov sampling: gather coefficients, project bias, then add and take argmax.
     bool addArgmax(MNN::Express::VARP base, MNN::Express::VARP bias, int& outIdx);
-    // One slot of the Markov chain on device: coef = w1(prev), bias = w2(coef), idx = argmax.
     bool markovSlot(int prev, MNN::Express::VARP base, int& outIdx);
-    // DSpark: one slot at a time, folding in the Markov bias of the previous slot's token.
     bool draftArgmaxChain(MNN::Express::VARP logits, const std::vector<int>& block_ids,
                           std::vector<int>& out);
-    // Log tag: DSpark and DFlash share this class, so the banner names the model actually loaded.
-    // dflash_markov() is empty exactly when the draft has no Markov head.
     const char* logTag() const {
         return (mMarkovFile.empty() && mMarkovW1File.empty()) ? "DFlash" : "DSpark";
     }
-    std::string mMarkovFile;     // dflash_markov(): non-empty marks a DSpark draft
-    std::string mMarkovW1File;   // split head: prev token -> rank vector, on device
-    std::string mMarkovW2File;   // split head: rank vector -> vocab bias, quantized
+    std::string mMarkovFile;
+    std::string mMarkovW1File;
+    std::string mMarkovW2File;
     std::shared_ptr<MNN::Express::Module> mMarkovW1Module;
     std::shared_ptr<MNN::Express::Module> mMarkovW2Module;
 
-    // --- The verify / accept / emit / rollback half of the speculation step ---
+    // Target verification and cache rollback.
     struct VerifyResult {
-        int totalAccepted = 0;                  // tokens committed this step (acceptance_length + 1)
-        bool stop = false;                      // a stop token was emitted
-        MNN::Express::VARP newHiddenStates;     // target hidden_states, for the context update
+        int totalAccepted = 0;
+        bool stop = false;
+        MNN::Express::VARP newHiddenStates;
     };
-    // Target verify + greedy accept + emit + KV rollback for one speculation step.
     VerifyResult verifyAcceptCommit(const std::vector<int>& block_ids, int blockSize, int hiddenStateIndex);
     // Longest draft prefix the target agrees with; sets mContext->current_token to the corrected/next token.
     int acceptDraftPrefix(const std::vector<int>& targetArgmax, const std::vector<int>& block_ids, int blockSize);
 
-    // --- Draft production and context update ---
+    // Draft production and context update.
     MNN::Express::VARP dflashForward(const std::vector<int>& block_ids);
     // startPos is the draft-local RoPE position of the first new row.
     void appendDraftKv(MNN::Express::VARP newContext, int startPos);
     void ensureKvConcatModule(int kvHeads, int headDim);
     std::vector<int> buildBlock(int currentToken) const;
 
-    std::shared_ptr<MNN::Express::Module> mDFlashModule;   // dflash.mnn (transformer, no lm_head)
-    std::shared_ptr<MNN::Express::Module> mFcModule;       // dflash_fc.mnn
-    std::shared_ptr<MNN::Express::Module> mLmHeadModule;   // target lm_head subgraph (shared-from-target)
-    std::shared_ptr<MNN::Express::Module> mKvMatModule;    // dflash_kvmat.mnn: context rows -> per-layer K/V
-    std::shared_ptr<MNN::Express::Module> mKvConcatModule; // one dispatch appending all K/V pairs
-    std::shared_ptr<MNN::Express::Module> mArgmaxModule;   // single _ArgMax over [rows, vocab]
-    std::shared_ptr<MNN::Express::Module> mAddArgmaxModule;  // argmax(base + bias), Markov slots
-    // DSpark's Markov tables, flattened: w1 is [vocab, rank] and w2 is [rank, vocab].
-    // The engine walks the chain in C++; rank and vocab are 0 for plain DFlash.
+    std::shared_ptr<MNN::Express::Module> mDFlashModule;
+    std::shared_ptr<MNN::Express::Module> mFcModule;
+    std::shared_ptr<MNN::Express::Module> mLmHeadModule;
+    std::shared_ptr<MNN::Express::Module> mKvMatModule;
+    std::shared_ptr<MNN::Express::Module> mKvConcatModule;
+    std::shared_ptr<MNN::Express::Module> mArgmaxModule;
+    std::shared_ptr<MNN::Express::Module> mAddArgmaxModule;
+    // Legacy host fallback: flattened [rank, vocab] tables, with one int8 scale per w2 row.
     std::vector<float> mMarkovW1;
-    // w2 as per-rank-row int8: the chain's cost is its byte width.
     std::vector<int8_t> mMarkovW2q;
     std::vector<float> mMarkovW2Scale;
-    std::vector<float> mMarkovBias;   // scratch, one vocab-sized row per chain step
-    int mMarkovThreads = 1;           // threads for one bias sweep; slots stay serial
+    std::vector<float> mMarkovBias;
+    int mMarkovThreads = 1;
     MarkovSweepPool mMarkovPool;
     int mMarkovRank = 0;
     int mMarkovVocab = 0;
@@ -246,12 +238,6 @@ private:
     bool mInitialized = false;
     // False when the draft emits logits itself (DSpark); true when its lm_head comes from the target.
     bool mSharedLmHead = true;
-    // Acceptance counters: always collected, reported under MNN_SPEC_STATS.
-    int spl_decode = 0, spl_accept = 0, spl_count = 0;
-    // Phase timers: always compiled in, printed under MNN_SPEC_PROFILE.
-    int64_t phase_draft_us = 0, phase_sample_us = 0, phase_verify_us = 0;
-    int64_t phase_verify_fwd_us = 0, phase_verify_match_us = 0;
-    int64_t phase_fc_us = 0, phase_fc_fwd_us = 0, phase_kvmat_us = 0, phase_argmax_us = 0;
 };
 
 class GenerationStrategyFactory {

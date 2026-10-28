@@ -430,8 +430,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     // For the float key path the whole attention scale is folded into Q packing,
     // so QK products are already final logits and _maskQK needs no extra scaling.
     float packScale = q_scale * mScale;
-    // A cacheless call stores the whole key axis; with a cache only the new rows are appended.
-    // Cross attention (block diffusion) has K/V longer than Q, so seqLen is the wrong size here.
+    // Cacheless cross attention may have more key rows than query rows.
     const int keyRows = key->length(1);
     int insertLen = mKVCache ? seqLen : keyRows;
 
@@ -490,14 +489,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     }
 
     // Constant Initialization
-    // A cache append adds fewer rows than the query has columns, so only then do the two
-    // diverge; a cacheless call keeps every query row and the whole key axis.
+    // Only cached calls can pad queries beyond the appended rows.
     auto padSeqLength = mKVCache ? seqLen - insertLen : 0;
     if (mKVCache) {
         seqLen = insertLen;
     }
-    // A cacheless store reports the query length through the manager, so read K directly to
-    // keep the mask geometry and the softmax offset on the real key count.
+    // Cacheless attention uses the full key axis regardless of the query length.
     int kvSeqLen = mKVCache ? mKVCacheManager->kvLength() : key->length(1);
     int maxLen = mKVCacheManager->maxLength();
     int32_t units[2] = {eP, lP};

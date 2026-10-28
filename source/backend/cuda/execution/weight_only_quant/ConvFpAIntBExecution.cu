@@ -1394,10 +1394,7 @@ __global__ void Rearrange_Weight_Int8(const int8_t* param,
 }
 
 bool ConvFpAIntBExecution::isValid(const Convolution2D* conv, Backend* backend) {
-    // The kernel rearranges weights with Rearrange_Packed_Weight_Int4 and sizes the buffer as
-    // icp/2, so it only speaks int4. A weight-only conv at another width (an 8-bit lm_head, for
-    // instance) would be read as int4 and return garbage: observed as a draft whose logits came
-    // out near-uniform while the all-int4 target stayed exact.
+    // Weight rearrangement and buffer sizing assume packed int4; other widths must use the regular path.
     if (conv == nullptr || conv->quanParameter() == nullptr) {
         return false;
     }

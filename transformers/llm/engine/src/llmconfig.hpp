@@ -720,7 +720,7 @@ public:
     std::string dflash_kvmat() const {
         return base_dir_ + config_.value("dflash_kvmat", "dflash_kvmat.mnn");
     }
-    // Empty when the draft has no Markov head (plain DFlash); DSpark always sets it.
+    // Legacy single-file Markov tables; newer exports use the split modules below.
     std::string dflash_markov() const {
         if (!config_.contains("dflash_markov")) {
             return std::string{};
@@ -741,8 +741,7 @@ public:
         }
         return base_dir_ + config_.value("dflash_markov_w2", std::string{});
     }
-    // The draft graph takes the block on a dynamic axis, so this need not match the value
-    // the checkpoint was trained at; 8 measured better than the trained 7 on every prompt.
+    // The dynamic block axis allows a size different from the checkpoint's training block.
     int dflash_block_size() const {
         return config_.value("dflash_block_size", 8);
     }
@@ -756,9 +755,7 @@ public:
     std::vector<int> dflash_target_layer_ids() const {
         return config_.value("dflash_target_layer_ids", std::vector<int>{});
     }
-    // Target's post-final-norm tensor name in llm.mnn; the engine loads the subgraph
-    // {this tensor -> logits} so the draft reuses the target's lm_head. Empty means the
-    // draft emits its own logits (DSpark bakes lm_head and its Markov bias in).
+    // Target's post-final-norm tensor for the shared lm_head subgraph; empty if the draft has its own head.
     std::string dflash_shared_lmhead_input() const {
         return config_.value("dflash_shared_lmhead_input", std::string{});
     }
