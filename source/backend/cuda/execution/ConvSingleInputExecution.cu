@@ -40,7 +40,12 @@ public:
         #ifdef MNN_LOW_MEMORY
         auto conv2dParams = op->main_as_Convolution2D();
         bool isMemoryLowWeightOnlyQuant = conv2dParams->quanParameter() && (conv2dParams->external() || conv2dParams->quanParameter()->buffer());
-        isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && (static_cast<CUDABackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low);
+        // The weight-only GEMV path is not just a memory-saving trick: it is the only kernel
+        // that reads 4-bit weights directly, and for small batches it beats the tensor-core
+        // GEMM. Opt-in because it is only a win when the verify batch stays small (<= 4).
+        isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant &&
+            (static_cast<CUDABackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low ||
+             getenv("MNN_CUDA_WEIGHT_ONLY_GEMV") != nullptr);
         isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && ConvFpAIntBExecution::isValid(op->main_as_Convolution2D(), backend);
         if (isMemoryLowWeightOnlyQuant) {
             std::shared_ptr<ConvFpAIntBExecution::Resource> resource(new ConvFpAIntBExecution::Resource(backend, op));
