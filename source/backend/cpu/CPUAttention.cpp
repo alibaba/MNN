@@ -430,7 +430,10 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     // For the float key path the whole attention scale is folded into Q packing,
     // so QK products are already final logits and _maskQK needs no extra scaling.
     float packScale = q_scale * mScale;
-    int insertLen = seqLen;
+    // A cacheless call stores the whole key axis; with a cache only the new rows are appended.
+    // Cross attention (block diffusion) has K/V longer than Q, so seqLen is the wrong size here.
+    const int keyRows = key->length(1);
+    int insertLen = mKVCache ? seqLen : keyRows;
 
     if (!mIsKVShared) {
         if (mKVCache && mMeta != nullptr) {
@@ -444,7 +447,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             insertLen = (int)mMeta->add;
         } else {
             mKVCacheManager->onClear();
-            mKVCacheManager->onAlloc(mMeta, seqLen);
+            mKVCacheManager->onAlloc(mMeta, keyRows);
         }
         // Add the new kv to the kvcache
         mKVCacheManager->onUpdateKV(key, value, (int)insertLen);
@@ -487,13 +490,20 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     }
 
     // Constant Initialization
-    auto padSeqLength = seqLen - insertLen;
-    seqLen = insertLen;
-    int kvSeqLen = mKVCacheManager->kvLength();
+    // A cache append adds fewer rows than the query has columns, so only then do the two
+    // diverge; a cacheless call keeps every query row and the whole key axis.
+    auto padSeqLength = mKVCache ? seqLen - insertLen : 0;
+    if (mKVCache) {
+        seqLen = insertLen;
+    }
+    // A cacheless store reports the query length through the manager, so read K directly to
+    // keep the mask geometry and the softmax offset on the real key count.
+    int kvSeqLen = mKVCache ? mKVCacheManager->kvLength() : key->length(1);
     int maxLen = mKVCacheManager->maxLength();
     int32_t units[2] = {eP, lP};
     const float* sinksPtr = sinks ? sinks->host<float>() : nullptr;
-    int kvValidOffset = kvSeqLen - seqLen; // reuse_kv=true or decode, kvValidOffset>0
+    // Only a cache leaves valid columns before the current window; a cacheless call has none.
+    int kvValidOffset = mKVCache ? kvSeqLen - seqLen : 0;
 
     // Classify the mask by shape only, see core/AttentionMaskConvention.hpp.
     const bool hasMask = (mask != nullptr);
