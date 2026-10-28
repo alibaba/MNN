@@ -246,7 +246,8 @@ python llmexport.py \
 执行 `python llmexport.py -h` 可查看参数：
 ```
 usage: llmexport.py [-h] --path PATH [--type TYPE] [--tokenizer_path TOKENIZER_PATH] [--eagle_path EAGLE_PATH]
-                    [--dflash_path DFLASH_PATH] [--lora_path LORA_PATH] [--gptq_path GPTQ_PATH]
+                    [--dflash_path DFLASH_PATH] [--dspark_path DSPARK_PATH] [--lora_path LORA_PATH]
+                    [--gptq_path GPTQ_PATH]
                     [--dst_path DST_PATH] [--verbose] [--test TEST] [--export EXPORT] [--onnx_slim]
                     [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK] [--visual_quant_bit VISUAL_QUANT_BIT]
                     [--visual_quant_block VISUAL_QUANT_BLOCK] [--lm_quant_bit LM_QUANT_BIT]
@@ -274,6 +275,9 @@ optional arguments:
                         eagle model path, default is `None`
   --dflash_path DFLASH_PATH
                         dflash draft model path, default is `None`
+  --dspark_path DSPARK_PATH
+                        dspark draft model path (DFlash backbone plus a Markov
+                        head), default is `None`
   --lora_path LORA_PATH
                         lora path, default is `None` mean not apply lora.
   --gptq_path GPTQ_PATH
@@ -611,7 +615,12 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
     上例中，token 198 (如换行符) 的logit减少100（几乎禁止生成），token 151643 的logit增加5（提高生成概率）。
   - banned_tokens: 禁止生成的token id列表，这些token的logit会被设为负无穷。默认为空。示例：`"banned_tokens": [198, 151643]`
 - 投机解码配置项
-  - speculative_type: 投机解码算法设置。支持 `lookahead`（使用外接知识库/输入prompt信息去生成草稿做投机验证，通常需要较完备的知识库或者输入prompt与输出重合度较高的场景，例如代码编辑、文本总结，才有较明显加速）、`dflash`（块扩散草稿模型，一次前向产出整块草稿，再由 target 一次批量前向验证）与 `mtp`。
+  - speculative_type: 投机解码算法设置。支持 `lookahead`（使用外接知识库/输入prompt信息去生成草稿做投机验证，通常需要较完备的知识库或者输入prompt与输出重合度较高的场景，例如代码编辑、文本总结，才有较明显加速）、`dflash`（块扩散草稿模型，一次前向产出整块草稿，再由 target 一次批量前向验证）与 `mtp`。DSpark 草稿同样填 `dflash`，通过是否配置 `dflash_markov_w1`/`dflash_markov_w2` 区分：配了即在这块草稿上再走一遍 Markov 链。
+  - dflash_model / dflash_fc / dflash_kvmat: `dflash` 模式下的草稿图、上下文压缩图与 KV 投影图路径，相对于配置文件所在目录。
+  - dflash_markov_w1 / dflash_markov_w2: DSpark 的 Markov 头。w1 按上一个 token 取出 rank 维系数，w2 把它展开成词表维度的 logit 偏置，两者都在设备上执行。不配置则退化为纯块扩散草稿。
+  - dflash_block_size: 草稿块长度，即一次前向产出的 token 数，同时也是验证批的规模。默认为 8，可与草稿模型训练时的 block_size 不同（草稿图的块轴是动态的）。增大会线性增加链式取 token 的耗时，接受率却不一定继续提高。
+  - dflash_target_layer_ids: 草稿从 target 的哪几层取隐状态作为上下文。
+  - dflash_shift_label: 为 `true` 时第 i 行预测第 i+1 个槽位。
   - draft_predict_length: 草稿长度，通常设置2-8之间，默认为4。
   - draft_match_strictness: 草稿匹配的严格程度，当有草稿时，是否选取该草稿去做并行验证。可以设置`low`、`medium`、`high`。通常严格程度越高，草稿接受率越高，但是启用并行验证概率也越低。默认为`low`，该参数仅`lookahead`模式设置有效。
   - draft_selection_rule: 草稿选择规则，当有多个草稿时，选取的规则设置。支持`freqxlen`（出现频率与匹配长度最高者）和`fcfs`(最先匹配者)。默认`freqxlen`，该参数仅`lookahead`模式设置有效。
