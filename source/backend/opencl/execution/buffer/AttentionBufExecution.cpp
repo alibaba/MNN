@@ -15,6 +15,8 @@
 namespace MNN {
 namespace OpenCL {
 
+constexpr int AttentionBufExecution::kFdChunk;
+
 // Which prefill implementation onResize picks. Persisted in the tune cache, so the
 // values are part of the on-disk format: only append. 0 was short prefill, deleted --
 // an older cache can still name it, which is why the mode read back gets validated.
