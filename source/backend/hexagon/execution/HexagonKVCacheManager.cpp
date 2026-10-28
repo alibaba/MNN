@@ -41,13 +41,17 @@ bool HexagonKVCacheManager::resizePageCount(int pageCount) {
     if (pageCount < 0) {
         pageCount = 0;
     }
-    const int oldPageCount = (int)mPastKeyPages.size();
-    while ((int)mPastKeyPages.size() > pageCount) {
-        mBackend->onReleaseBuffer(mPastKeyPages.back().get(), Backend::STATIC);
-        mBackend->onReleaseBuffer(mPastValuePages.back().get(), Backend::STATIC);
-        mPastKeyPages.pop_back();
-        mPastValuePages.pop_back();
-    }
+    // Physical pages are sticky high-water: growing appends pages, shrinking only lowers the
+    // logical count and never releases buffers. Releasing pages here is twice as expensive as
+    // the memory it returns: (a) ~HexagonMemObj runs flushCommand(), and this runs once per
+    // layer inside onExecute, chopping the next prefill's single async command dispatch into
+    // per-layer blocking batches that drain the DSP pipeline (~25 ms of bubbles measured on
+    // v81 Qwen3-0.6B pp512 whenever any decode crossed a page boundary first), and (b) the
+    // page-generation bump forces a page-table re-upload per layer. Retained pages keep their
+    // addresses, so existing page-table entries stay valid; the DSP reads params->page_count
+    // (logical) entries only. Memory is bounded by the largest context ever reached, the same
+    // trade llama.cpp's KV cache makes (grow-only, never moves).
+    const int oldPhysical = (int)mPastKeyPages.size();
     auto hexagonBackend = static_cast<HexagonBackend*>(mBackend);
     const size_t kBytes = pageKeyBytes();
     const size_t vBytes = pageValueBytes();
@@ -59,6 +63,13 @@ bool HexagonKVCacheManager::resizePageCount(int pageCount) {
         if (!keyAcquired || !valueAcquired) {
             if (keyAcquired) {
                 mBackend->onReleaseBuffer(key.get(), Backend::STATIC);
+            }
+            // Pages appended by earlier iterations are already in mPastKeyPages, so the physical set
+            // changed even though this call fails. Bump the generation here too: a later resize whose
+            // target is <= the current physical count grows nothing and would otherwise leave those
+            // pages out of the page table (the DSP would read their fd=0 entries).
+            if ((int)mPastKeyPages.size() != oldPhysical) {
+                ++mPageGeneration;
             }
             mValid = false;
             return false;
@@ -78,10 +89,12 @@ bool HexagonKVCacheManager::resizePageCount(int pageCount) {
         mPastKey.reset();
         mPastValue.reset();
     }
+    mLogicalPages = pageCount;
     mMaxLength = pageCount * mPageSize;
     k_ocP = mPageSize / 32;
     v_icP = mPageSize / 32;
-    if (pageCount != oldPageCount) {
+    if ((int)mPastKeyPages.size() != oldPhysical) {
+        // Only a physical growth changes what the DSP-side page table describes.
         ++mPageGeneration;
     }
     mValid = true;
@@ -89,9 +102,26 @@ bool HexagonKVCacheManager::resizePageCount(int pageCount) {
 }
 
 void HexagonKVCacheManager::onClear() {
-    resizePageCount(0);
+    // Explicit clears only run from onResize (full-history reset) or teardown, where the command
+    // queue has already been drained by onResizeBegin and ~HexagonMemObj's safety flushCommand()
+    // is nearly free. Release the sticky high-water pages physically here so a session reset
+    // returns the memory; the per-response shrink inside onExecute (onRealloc) stays logical-only.
+    const int oldPhysical = (int)mPastKeyPages.size();
+    while (!mPastKeyPages.empty()) {
+        mBackend->onReleaseBuffer(mPastKeyPages.back().get(), Backend::STATIC);
+        mBackend->onReleaseBuffer(mPastValuePages.back().get(), Backend::STATIC);
+        mPastKeyPages.pop_back();
+        mPastValuePages.pop_back();
+    }
+    mPastKey.reset();
+    mPastValue.reset();
+    if (oldPhysical != 0) {
+        ++mPageGeneration;
+    }
+    mLogicalPages = 0;
     mPastLength = 0;
     mMaxLength = 0;
+    mValid = true;
 }
 
 void HexagonKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {

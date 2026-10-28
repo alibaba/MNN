@@ -8,7 +8,9 @@
 #include <hexagon_protos.h>
 #include <qurt.h>
 
-#define MNN_WORKER_DEFAULT_STACK_SIZE (2 * 16384)
+// 64 KB: the grouped-causal softmax stages two score rows in L1 (2 * ATTN_FIXED_WORKSPACE_KV fp16 =
+// 16 KB at KV 4096), and that frame sits inside the attention call chain.
+#define MNN_WORKER_DEFAULT_STACK_SIZE (4 * 16384)
 #define MNN_WORKER_MAX_THREADS        30
 #define MNN_WORKER_MIN_PRIO 1
 #define MNN_WORKER_MAX_PRIO 254
@@ -125,9 +127,15 @@ void worker_pool_global_init(void) {
   g_max_num_workers = mnn_worker_clamp_count(count);
 
   if (worker_pool_init(&g_default_pool) != AEE_SUCCESS) {
-    FARF(ERROR, "MNN worker pool init failed");
-    g_default_pool = NULL;
-    g_max_num_workers = 1;
+    // The stacks are one malloc for all workers. Retry at half size before degrading to one worker:
+    // a tight DSP heap should cost a little attention stack headroom, not every worker.
+    FARF(ERROR, "MNN worker pool init failed with %d KB stacks, retrying at half",
+         MNN_WORKER_DEFAULT_STACK_SIZE / 1024);
+    if (worker_pool_init_with_stack_size(&g_default_pool, MNN_WORKER_DEFAULT_STACK_SIZE / 2) != AEE_SUCCESS) {
+      FARF(ERROR, "MNN worker pool init failed");
+      g_default_pool    = NULL;
+      g_max_num_workers = 1;
+    }
   }
 }
 

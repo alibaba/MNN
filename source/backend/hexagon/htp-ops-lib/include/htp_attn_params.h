@@ -19,54 +19,53 @@
 // KV tiles per weight chunk, mirroring ATTN_HMX_KV_BLOCK_TILES on the DSP side.
 #define HTP_ATTN_HMX_KV_BLOCK_TILES 8
 
+// KV pages the all-page SV fusion holds resident, mirroring ATTN_HMX_MAX_FUSED_PAGES.
+#define HTP_ATTN_HMX_MAX_FUSED_PAGES 8
+
 static inline size_t htp_attn_align128(size_t v) {
   return (v + 127u) & ~(size_t) 127u;
 }
 
-// VTCM the HMX kernels bump-allocate above the regions, taking the worse of
-// attn_hmx_matmul_pages_{qk,sv}. SV dominates: its K is the KV extent rather than head_dim, so its
-// double-buffered weight staging grows with seq_len -- 0.8 MB at seq 512, 2.5 MB at 2048, 5.0 MB at 4096.
+// VTCM the HMX kernels bump-allocate above the regions: the worse of the non-fused page loop and the
+// all-page fusion.
 //
-// This was a flat 2 MB reserve, which seq 2048 already exceeded; it stayed safe only because the regions
-// happened to leave more than that unused. vtcm_seq_alloc has no bounds check, so being wrong here
-// silently corrupts the regions instead of faulting. Compute it rather than guess.
-static inline size_t htp_attn_vtcm_kernel_bytes(int rows, int seq_len) {
+// `kv_chunk` is the KV extent one kernel invocation walks. The paged kernels stage one page at a time
+// (page_size, 256), while the non-paged attn_hmx_matmul takes the whole valid_end. Sizing this by
+// seq_len unconditionally -- which this did -- over-estimates the paged case (the one the LLM uses) by
+// 4..10x: at seq 4096 the estimate was 12.6 MB for rows=512 against ~3.3 MB actually allocated, and it
+// made the group picker shrink groups for nothing (gqa 8 / seq 4096 picked 16 where 64 fits).
+// vtcm_seq_alloc has no bounds check, so this must stay an upper bound -- hence the max over branches
+// and over QK's head_dim-sized K and SV's KV-sized K.
+static inline size_t htp_attn_vtcm_kernel_bytes(int rows, int head_dim, int kv_chunk) {
   const size_t npc    = HTP_ATTN_HMX_KV_BLOCK_TILES;
-  const size_t max_kp = (size_t) ((seq_len + 31) / 32);
-  const size_t mpp    = (size_t) ((seq_len + 63) / 64);
+  const size_t fused       = HTP_ATTN_HMX_MAX_FUSED_PAGES;
   const size_t mp     = (size_t) ((rows + 31) / 32);
-  const size_t weight = 2u * npc * 32u * max_kp * 32u * sizeof(short);
-  const size_t raw    = mp * mpp * 32u * 64u * sizeof(short);
-  const size_t act    = mp * max_kp * 32u * 32u * sizeof(short);
+  const size_t hd_kp       = (size_t) ((head_dim + 31) / 32);
+  const size_t hd_pp       = (size_t) ((head_dim + 63) / 64);
+  const size_t kv_kp       = (size_t) ((kv_chunk + 31) / 32);
+  const size_t kv_pp       = (size_t) ((kv_chunk + 63) / 64);
+  const size_t kp          = hd_kp > kv_kp ? hd_kp : kv_kp;
+  const size_t pp          = hd_pp > kv_pp ? hd_pp : kv_pp;
   const size_t output = 32u * 32u * npc * sizeof(short);
-  return weight + raw + act + output + 256u /* column scales */ + 4096u /* alignment slack */;
-}
-
-// VTCM bytes one worker needs for both regions: the QK scores (fp16 on this path, since it only uses the
-// lower half of the fp32-sized buffer) plus linear_S and temp_O.
-static inline size_t htp_attn_vtcm_regions_bytes(int rows, int seq_len, int head_dim) {
-  const size_t n_padded  = (size_t) ((seq_len + 31) / 32 * 32);
-  const size_t hd_padded = (size_t) ((head_dim + 31) / 32 * 32);
-  const size_t scores    = htp_attn_align128((size_t) rows * n_padded * sizeof(short));
-  const size_t act       = htp_attn_align128((size_t) rows * n_padded * sizeof(short)) +
-                           htp_attn_align128((size_t) rows * hd_padded * sizeof(short));
-  return scores + act;
-}
-
-// Do both per-worker regions plus the kernel scratch fit in VTCM for this shape? The DSP's region
-// placement and this picker must agree, so both go through here.
-static inline int htp_attn_vtcm_fits(int rows, int seq_len, int head_dim, int workers, size_t vtcm_size) {
-  const size_t regions = (size_t) workers * htp_attn_vtcm_regions_bytes(rows, seq_len, head_dim);
-  const size_t kernel  = htp_attn_vtcm_kernel_bytes(rows, seq_len);
-  return regions + kernel <= vtcm_size;
+  // Non-fused: double-buffered weight over npc chunks, raw/act per M-tile.
+  const size_t nonfused    = 2u * npc * 32u * kp * 32u * sizeof(short) + mp * pp * 32u * 64u * sizeof(short) +
+                             mp * kp * 32u * 32u * sizeof(short) + output;
+  // All-page fusion: one weight set per resident page (its np is head_dim / 32), activations per
+  // (page, M-tile). The tile path skips the raw/act staging, so this covers its worst case.
+  const size_t fused_bytes = fused * hd_kp * 32u * kv_kp * 32u * sizeof(short) +
+                             mp * kv_pp * 32u * 64u * sizeof(short) + fused * mp * kv_kp * 32u * 32u * sizeof(short) +
+                             output;
+  const size_t kernel      = nonfused > fused_bytes ? nonfused : fused_bytes;
+  return kernel + 256u /* column scales */ + 4096u /* alignment slack */;
 }
 
 // Does the score region alone fit? This is the condition sync_attention_try_vtcm_workspace actually
 // needs, since it places scores first and only adds the activation region if that still fits.
-static inline int htp_attn_vtcm_scores_fit(int rows, int seq_len, int workers, size_t vtcm_size) {
+static inline int htp_attn_vtcm_scores_fit(int rows, int seq_len, int head_dim, int kv_chunk, int workers,
+                                           size_t vtcm_size) {
   const size_t n_padded = (size_t) ((seq_len + 31) / 32 * 32);
   const size_t scores   = htp_attn_align128((size_t) rows * n_padded * sizeof(short));
-  return (size_t) workers * scores + htp_attn_vtcm_kernel_bytes(rows, seq_len) <= vtcm_size;
+  return (size_t) workers * scores + htp_attn_vtcm_kernel_bytes(rows, head_dim, kv_chunk) <= vtcm_size;
 }
 
 // Q rows per grouped-causal prefill block.
@@ -82,7 +81,7 @@ static inline int htp_attn_vtcm_scores_fit(int rows, int seq_len, int workers, s
 // then measured +2.7% at pp2048, because halving the submission count outweighs keeping the activation
 // region in VTCM. Shorter sequences are unaffected -- 64 fits both ways there.
 static inline int htp_attn_causal_group_q_rows(int qo_len, int seq_len, int head_dim, int gqa_factor, int workers,
-                                               size_t vtcm_size) {
+                                               size_t vtcm_size, int kv_chunk) {
   int q_rows = HTP_ATTN_CAUSAL_GROUP_Q_ROWS_MAX;
   if (qo_len < q_rows) {
     q_rows = qo_len;
@@ -99,7 +98,7 @@ static inline int htp_attn_causal_group_q_rows(int qo_len, int seq_len, int head
   }
   for (int g = q_rows; g >= 16; g >>= 1) {
     const int rows = gqa_factor * g;
-    if (htp_attn_vtcm_scores_fit(rows, seq_len, workers, vtcm_size)) {
+    if (htp_attn_vtcm_scores_fit(rows, seq_len, head_dim, kv_chunk, workers, vtcm_size)) {
       return g;
     }
   }

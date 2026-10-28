@@ -87,7 +87,10 @@ extern "C" AEEResult htp_ops_vision_flash_attention_fp16(uint8_t *pOut, const ui
   const int    vOcP         = (headDim + 31) / 32;
   const size_t packedKBytes = (size_t) seqBlocks * heads * ATTN_HMX_KV_BLOCK_TILES * kIcP * 1024 * sizeof(__fp16);
   const size_t packedVBytes = (size_t) seqBlocks * heads * vOcP * ATTN_HMX_KV_BLOCK_TILES * 1024 * sizeof(__fp16);
-  const int    totalTasks   = sync_attention_total_tasks(tokens, 0, tokens, heads, heads, headDim, tokens, maskStride);
+  // Vision sizes its own workspace for the whole token extent (workerBytes above), so that extent is
+  // also the column bound the attention paths must respect.
+  const int    totalTasks =
+    sync_attention_total_tasks(tokens, 0, tokens, heads, heads, headDim, tokens, maskStride, tokens, tokens);
   int          workerSlots  = sync_attention_pick_task_count(totalTasks);
   if (g_max_num_workers > 0 && workerSlots < (int) g_max_num_workers) {
     workerSlots = (int) g_max_num_workers;
@@ -150,7 +153,7 @@ extern "C" AEEResult htp_ops_vision_flash_attention_fp16(uint8_t *pOut, const ui
       }
       ret = sync_attention(packedOutput, query + (size_t) qBase * heads * headDim, maskFp32, attentionWorkspace,
                            (__fp16 *) packedK, (__fp16 *) packedV, queryRows, tokens - queryRows, queryRows, heads,
-                           heads, headDim, scale, mask != NULL ? maskStride : 0);
+                           heads, headDim, scale, mask != NULL ? maskStride : 0, tokens, tokens);
       if (ret != AEE_SUCCESS) {
         free(ownedWorkspace);
         return ret;
@@ -170,17 +173,10 @@ extern "C" AEEResult htp_ops_vision_flash_attention_fp16(uint8_t *pOut, const ui
   return AEE_SUCCESS;
 }
 
-AEEResult htp_ops_flash_attn(uint8_t* pOut,
-                             uint8_t* pQ,
-                             uint8_t* pK,
-                             uint8_t* pV,
-                             uint8_t* pMask,
-                             uint8_t* pWorkspace,
-                             uint8_t* pPastK,
-                             uint8_t* pPastV,
-                             int32_t qo_len, int32_t seq_current,
-                             int32_t seq_add, int32_t n_heads, int32_t n_kv_heads, int32_t head_dim, float scale, int32_t mask_stride,
-                             int32_t max_kv_len, int32_t value_c4) {
+AEEResult htp_ops_flash_attn(uint8_t *pOut, uint8_t *pQ, uint8_t *pK, uint8_t *pV, uint8_t *pMask, uint8_t *pWorkspace,
+                             uint8_t *pPastK, uint8_t *pPastV, int32_t qo_len, int32_t seq_current, int32_t seq_add,
+                             int32_t n_heads, int32_t n_kv_heads, int32_t head_dim, float scale, int32_t mask_stride,
+                             int32_t max_kv_len, int32_t value_c4, int32_t workspace_kv) {
   if (pK && pV && seq_add > 0) {
       htp_ops_push_kv(pPastK, pPastV, pK, pV, seq_current, seq_add, n_kv_heads, head_dim, max_kv_len,
                       value_c4, 0, seq_add);
@@ -198,10 +194,12 @@ AEEResult htp_ops_flash_attn(uint8_t* pOut,
   __fp16 *pastVBase = (__fp16 *)(pPastV);
 
   int seq_len = seq_current + seq_add;
-  int total_tasks = sync_attention_total_tasks(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len,
-                                               mask_stride);
-  int task_rows = sync_attention_task_rows(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len,
-                                           mask_stride);
+  // Non-paged: one kernel invocation walks the whole KV extent.
+  int    kv_chunk    = seq_len;
+  int    total_tasks = sync_attention_total_tasks(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len,
+                                                  mask_stride, workspace_kv, kv_chunk);
+  int    task_rows   = sync_attention_task_rows(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len,
+                                                mask_stride, workspace_kv, kv_chunk);
   size_t worker_workspace_bytes = sync_attention_head_workspace_bytes(task_rows, seq_current + seq_add);
   int worker_slots = sync_attention_pick_task_count(total_tasks);
   if (g_max_num_workers > 0 && worker_slots < (int)g_max_num_workers) {
@@ -214,24 +212,17 @@ AEEResult htp_ops_flash_attn(uint8_t* pOut,
     preprocess_mask_to_fp32(maskFp32Base, maskBase, qo_len, mask_stride);
   }
 
-  int ret = sync_attention(outBase, qBase, maskFp32Base, workspaceBase, pastKBase, pastVBase, qo_len, seq_current, seq_add,
-                           n_heads, n_kv_heads, head_dim, scale, mask_stride);
+  int ret = sync_attention(outBase, qBase, maskFp32Base, workspaceBase, pastKBase, pastVBase, qo_len, seq_current,
+                           seq_add, n_heads, n_kv_heads, head_dim, scale, mask_stride, workspace_kv, kv_chunk);
 
   return ret;
 }
 
-AEEResult htp_ops_flash_attn_pages(uint8_t* pOut,
-                                   uint8_t* pQ,
-                                   uint8_t* pK,
-                                   uint8_t* pV,
-                                   uint8_t* pMask,
-                                   uint8_t* pWorkspace,
-                                   uint8_t** pPastKPages,
-                                   uint8_t** pPastVPages,
-                                   int32_t qo_len, int32_t seq_current,
-                                   int32_t seq_add, int32_t n_heads, int32_t n_kv_heads, int32_t head_dim, float scale,
-                                   int32_t mask_stride, int32_t max_kv_len, int32_t page_count, int32_t page_size,
-                                   int32_t value_c4) {
+AEEResult htp_ops_flash_attn_pages(uint8_t *pOut, uint8_t *pQ, uint8_t *pK, uint8_t *pV, uint8_t *pMask,
+                                   uint8_t *pWorkspace, uint8_t **pPastKPages, uint8_t **pPastVPages, int32_t qo_len,
+                                   int32_t seq_current, int32_t seq_add, int32_t n_heads, int32_t n_kv_heads,
+                                   int32_t head_dim, float scale, int32_t mask_stride, int32_t max_kv_len,
+                                   int32_t page_count, int32_t page_size, int32_t value_c4, int32_t workspace_kv) {
   if (page_count <= 0 || page_size <= 0 || (page_size % 32) != 0) {
     return AEE_EBADPARM;
   }
@@ -332,13 +323,16 @@ AEEResult htp_ops_flash_attn_pages(uint8_t* pOut,
   uint8_t *workspaceBase = (uint8_t *)(pWorkspace);
 
   int seq_len = seq_current + seq_add;
+  // Paged: the kernels stage one page at a time, so the kernel scratch scales with page_size, not seq_len.
+  int kv_chunk    = page_size;
   int total_tasks = sync_attention_total_tasks(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len,
-                                               mask_stride);
-  int task_rows = sync_attention_task_rows(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len,
-                                           mask_stride);
+                                               mask_stride, workspace_kv, kv_chunk);
+  int task_rows   = sync_attention_task_rows(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len,
+                                             mask_stride, workspace_kv, kv_chunk);
   int allow_online_pages = 1;
   int online_block_size = page_size;
-  int use_online_pages = sync_attention_use_online_pages(allow_online_pages, head_dim, page_size, seq_len, mask_stride);
+  int use_online_pages =
+    sync_attention_use_online_pages(allow_online_pages, head_dim, page_size, seq_len, mask_stride, workspace_kv);
   size_t worker_workspace_bytes = use_online_pages ?
       sync_attention_page_block_workspace_bytes(task_rows, online_block_size, head_dim) :
       sync_attention_page_head_workspace_bytes(task_rows, seq_len, head_dim);
@@ -360,9 +354,9 @@ AEEResult htp_ops_flash_attn_pages(uint8_t* pOut,
   }
 
   (void)max_kv_len;
-  int ret = sync_attention_pages(outBase, qBase, maskForAttention, workspaceBase, pPastKPages, pPastVPages,
-                                 qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, scale, mask_stride,
-                                 page_count, page_size, asyncPushPtr, allow_online_pages);
+  int ret = sync_attention_pages(outBase, qBase, maskForAttention, workspaceBase, pPastKPages, pPastVPages, qo_len,
+                                 seq_current, seq_add, n_heads, n_kv_heads, head_dim, scale, mask_stride, page_count,
+                                 page_size, asyncPushPtr, allow_online_pages, workspace_kv, kv_chunk);
   if (asyncPushPtr != NULL) {
     while (!asyncPush.done) {
       asm volatile("pause(#8)" ::: "memory");
