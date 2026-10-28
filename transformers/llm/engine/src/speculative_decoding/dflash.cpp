@@ -508,11 +508,9 @@ DFlashGeneration::VerifyResult DFlashGeneration::verifyAcceptCommit(
     // We fed blockSize tokens but only accepted vr.totalAccepted
     mLlm->mMeta->remove = blockSize - vr.totalAccepted;
     mLlm->updateContext(vr.totalAccepted, vr.totalAccepted);
-#ifdef DUMP_PROFILE_INFO
     spl_decode += blockSize;
     spl_accept += vr.totalAccepted;
     spl_count++;
-#endif
     return vr;
 }
 
@@ -654,13 +652,16 @@ void DFlashGeneration::generate(GenerationParams& param) {
         mContext->status = LlmStatus::MAX_TOKENS_FINISHED;
     }
 
-#ifdef DUMP_PROFILE_INFO
+    // Acceptance statistics are cheap counters, not timers, and they are the only way to tell a
+    // working speculative decode from one that silently falls back to near-AR, so report them
+    // unconditionally. The phase timings below stay behind DUMP_PROFILE_INFO.
     float spl_accept_rate = spl_decode > 0 ? 100.0f * spl_accept / spl_decode : 0.0f;
     MNN_PRINT("\n============== DFlash Decoding Statistics Start ===============\n");
     MNN_PRINT("Block size: %d\n", mBlockSize);
     MNN_PRINT("Average accept rate: %.2f%%\n", spl_accept_rate);
     MNN_PRINT("Average accepted per step: %.2f\n", spl_count > 0 ? (float)spl_accept / spl_count : 0.0f);
     MNN_PRINT("Total steps: %d, Total tokens: %d\n", spl_count, spl_accept);
+#ifdef DUMP_PROFILE_INFO
     MNN_PRINT("Phase timing (ms): draft=%.1f, sample=%.1f, verify=%.1f, fc=%.1f\n",
               phase_draft_us / 1000.0f, phase_sample_us / 1000.0f,
               phase_verify_us / 1000.0f, phase_fc_us / 1000.0f);
@@ -687,8 +688,8 @@ void DFlashGeneration::generate(GenerationParams& param) {
     MNN_PRINT("Argmax total (ms): %.1f\n", phase_argmax_us / 1000.0f);
     float per_accepted_ms = spl_accept > 0 ? total_ms / spl_accept : 0;
     MNN_PRINT("Effective per-token cost: %.2f ms/token (vs AR baseline)\n", per_accepted_ms);
-    MNN_PRINT("============== DFlash Decoding Statistics End =================\n");
 #endif
+    MNN_PRINT("============== DFlash Decoding Statistics End =================\n");
 }
 
 } // namespace Transformer

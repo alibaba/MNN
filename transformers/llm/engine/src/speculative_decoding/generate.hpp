@@ -12,7 +12,7 @@
 #include "../llmconfig.hpp"
 #include "../kvmeta.hpp"
 
-#define DUMP_PROFILE_INFO
+//#define DUMP_PROFILE_INFO
 
 namespace MNN {
 namespace Transformer {
@@ -178,8 +178,10 @@ private:
     int mShiftLabel = 0;   // 1 when the draft head was trained with shift_label
     int mHiddenStateIndex = -1;
     bool mInitialized = false;
-#ifdef DUMP_PROFILE_INFO
+    // Acceptance counters are plain increments, not timers: keeping them unconditional costs nothing
+    // measurable and lets a release build report whether speculative decoding is actually working.
     int spl_decode = 0, spl_accept = 0, spl_count = 0;
+#ifdef DUMP_PROFILE_INFO
     int64_t phase_sample_us = 0, phase_verify_us = 0, phase_verify_fwd_us = 0, phase_verify_match_us = 0;
     int64_t phase_argmax_us = 0;
     // Diagnostics: split phase_argmax_us into module-build / onForward / readMap.
