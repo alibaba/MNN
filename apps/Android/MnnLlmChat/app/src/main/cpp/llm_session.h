@@ -28,9 +28,9 @@ namespace mls {
 using PromptItem = std::pair<std::string, std::string>;
 
 enum class ContextAction : int {
-    Send = 0,      // the prompt fits
-    Compress = 1,  // close to the budget: summarize older turns first
-    TooLong = 2,   // the pending message alone exceeds the budget
+    Send = 0,     // the prompt fits
+    Compress = 1, // close to the budget: summarize older turns first
+    TooLong = 2,  // the pending message alone exceeds the budget
 };
 
 struct ContextCheck {
@@ -227,7 +227,7 @@ private:
     bool has_pending_system_prompt_{false};
     std::string pending_system_prompt_;
 
-    int requested_limit_{8192};  // user's choice, before the model-window cap
+    int requested_limit_{8192}; // user's choice, before the model-window cap
     std::atomic<int> context_limit_{8192};
     std::atomic<int> model_max_context_{0};
     std::atomic<bool> auto_compress_{true};

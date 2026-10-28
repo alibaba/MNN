@@ -87,8 +87,7 @@ namespace {
 // UTF-16 and use NewString instead.
 jstring newJString(JNIEnv* env, const std::string& utf8) {
     const std::u16string utf16 = mls::context::utf8ToUtf16(utf8);
-    return env->NewString(reinterpret_cast<const jchar*>(utf16.data()),
-                          static_cast<jsize>(utf16.size()));
+    return env->NewString(reinterpret_cast<const jchar*>(utf16.data()), static_cast<jsize>(utf16.size()));
 }
 
 // Builds a java.util.HashMap<String, Object>. Local references are released per entry.
@@ -96,8 +95,7 @@ class JavaMap {
 public:
     explicit JavaMap(JNIEnv* env) : env_(env) {
         jclass map_class = env_->FindClass("java/util/HashMap");
-        put_ = env_->GetMethodID(map_class, "put",
-                                 "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+        put_ = env_->GetMethodID(map_class, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
         map_ = env_->NewObject(map_class, env_->GetMethodID(map_class, "<init>", "()V"));
         env_->DeleteLocalRef(map_class);
         long_class_ = env_->FindClass("java/lang/Long");
@@ -118,9 +116,7 @@ public:
     void putBool(const char* key, bool value) {
         put(key, env_->NewObject(bool_class_, bool_ctor_, value ? JNI_TRUE : JNI_FALSE));
     }
-    void putString(const char* key, const std::string& value) {
-        put(key, newJString(env_, value));
-    }
+    void putString(const char* key, const std::string& value) { put(key, newJString(env_, value)); }
     jobject release() { return map_; }
 
 private:
@@ -152,8 +148,8 @@ std::string toStdString(JNIEnv* env, jstring value) {
         env->ExceptionClear();
         return {};
     }
-    std::string result = mls::context::utf16ToUtf8(reinterpret_cast<const char16_t*>(chars),
-                                                   static_cast<size_t>(length));
+    std::string result =
+        mls::context::utf16ToUtf8(reinterpret_cast<const char16_t*>(chars), static_cast<size_t>(length));
     env->ReleaseStringChars(value, chars);
     return result;
 }
@@ -168,7 +164,7 @@ json parseObjectOrEmpty(const std::string& text, const char* what) {
     return parsed;
 }
 
-}  // namespace
+} // namespace
 
 extern "C" {
 
@@ -253,26 +249,25 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
         MNN_DEBUG("ProgressListener onProgress method not found.");
         env->ExceptionClear();
     }
-    auto *context = llm->Response(input, [&, progressListener, onProgressMethod](
-            const std::string &response, bool is_eop) {
-        if (progressListener && onProgressMethod) {
-            jstring javaString = is_eop ? nullptr : newJString(env, response);
-            jboolean user_stop_requested = env->CallBooleanMethod(progressListener,
-                                                                  onProgressMethod, javaString);
-            if (env->ExceptionCheck()) {
-                // A throwing listener must not leave a pending exception across JNI calls.
-                env->ExceptionDescribe();
-                env->ExceptionClear();
-                user_stop_requested = JNI_TRUE;
+    auto* context =
+        llm->Response(input, [&, progressListener, onProgressMethod](const std::string& response, bool is_eop) {
+            if (progressListener && onProgressMethod) {
+                jstring javaString = is_eop ? nullptr : newJString(env, response);
+                jboolean user_stop_requested = env->CallBooleanMethod(progressListener, onProgressMethod, javaString);
+                if (env->ExceptionCheck()) {
+                    // A throwing listener must not leave a pending exception across JNI calls.
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
+                    user_stop_requested = JNI_TRUE;
+                }
+                if (javaString != nullptr) {
+                    env->DeleteLocalRef(javaString);
+                }
+                return (bool)user_stop_requested;
+            } else {
+                return true;
             }
-            if (javaString != nullptr) {
-                env->DeleteLocalRef(javaString);
-            }
-            return (bool) user_stop_requested;
-        } else {
-            return true;
-        }
-    });
+        });
     const mls::ResponseStats stats = llm->lastResponseStats();
     JavaMap result(env);
     if (stats.context_too_long) {
@@ -299,9 +294,11 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
     return result.release();
 }
 
-JNIEXPORT jintArray JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_prepareContextNative(
-        JNIEnv *env, jobject thiz, jlong llmPtr, jstring promptStr) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
+JNIEXPORT jintArray JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_prepareContextNative(JNIEnv* env,
+                                                                                                jobject thiz,
+                                                                                                jlong llmPtr,
+                                                                                                jstring promptStr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
     mls::ContextCheck check;
     if (llm != nullptr) {
         check = llm->prepareContext(toStdString(env, promptStr));
@@ -314,9 +311,10 @@ JNIEXPORT jintArray JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_prepa
     return array;
 }
 
-JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_compressContextNative(
-        JNIEnv *env, jobject thiz, jlong llmPtr) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
+JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_compressContextNative(JNIEnv* env,
+                                                                                               jobject thiz,
+                                                                                               jlong llmPtr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
     mls::CompressResult compressed;
     if (llm != nullptr) {
         compressed = llm->compressContext();
@@ -328,17 +326,18 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_compres
     return result.release();
 }
 
-JNIEXPORT jint JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_countContextTokensNative(
-        JNIEnv *env, jobject thiz, jlong llmPtr) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
+JNIEXPORT jint JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_countContextTokensNative(JNIEnv* env,
+                                                                                               jobject thiz,
+                                                                                               jlong llmPtr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
     return llm != nullptr ? llm->countContextTokens() : 0;
 }
 
-JNIEXPORT jintArray JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_contextLimitsNative(
-        JNIEnv *env, jobject thiz, jlong llmPtr) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
-    const jint values[2] = {llm != nullptr ? llm->contextLimit() : 0,
-                            llm != nullptr ? llm->modelMaxContext() : 0};
+JNIEXPORT jintArray JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_contextLimitsNative(JNIEnv* env,
+                                                                                               jobject thiz,
+                                                                                               jlong llmPtr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
+    const jint values[2] = {llm != nullptr ? llm->contextLimit() : 0, llm != nullptr ? llm->modelMaxContext() : 0};
     jintArray array = env->NewIntArray(2);
     if (array != nullptr) {
         env->SetIntArrayRegion(array, 0, 2, values);
@@ -346,15 +345,13 @@ JNIEXPORT jintArray JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_conte
     return array;
 }
 
-JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_cancelContextWorkNative(
-        JNIEnv *env, jobject thiz, jlong llmPtr) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
+JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_cancelContextWorkNative(JNIEnv* env, jobject thiz,
+                                                                                              jlong llmPtr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
     if (llm != nullptr) {
         llm->cancelContextWork();
     }
 }
-
-
 
 // 新增：支持完整历史消息的JNI方法
 JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitFullHistoryNative(
@@ -418,7 +415,7 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitF
         jobject contentObj = env->GetObjectField(pairObj, secondField);
 
         if (roleObj != nullptr && contentObj != nullptr) {
-            history.emplace_back(toStdString(env, (jstring) roleObj), toStdString(env, (jstring) contentObj));
+            history.emplace_back(toStdString(env, (jstring)roleObj), toStdString(env, (jstring)contentObj));
         }
         env->DeleteLocalRef(pairObj);
         if (roleObj) {
@@ -600,7 +597,7 @@ JNIEXPORT void JNICALL
 Java_com_alibaba_mnnllm_android_llm_LlmSession_updateSystemPromptNative(JNIEnv *env, jobject thiz,
                                                                         jlong llm_ptr,
                                                                         jstring system_promp_j) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llm_ptr);
     if (llm) {
         llm->setSystemPrompt(toStdString(env, system_promp_j));
     }
@@ -612,7 +609,7 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_updateAssistantPromptNative(JNIEn
                                                                            jobject thiz,
                                                                            jlong llm_ptr,
                                                                            jstring assistant_prompt_j) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llm_ptr);
     if (llm) {
         llm->SetAssistantPrompt(toStdString(env, assistant_prompt_j));
     }
@@ -624,7 +621,7 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_updateConfigNative(JNIEnv *env,
                                                                  jobject thiz,
                                                                  jlong llm_ptr,
                                                                  jstring config_json_j) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llm_ptr);
     if (llm) {
         llm->updateConfig(toStdString(env, config_json_j));
     }

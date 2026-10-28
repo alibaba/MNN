@@ -11,12 +11,12 @@ using namespace mls::context;
 namespace {
 int g_failures = 0;
 
-#define EXPECT_TRUE(cond)                                                     \
-    do {                                                                      \
-        if (!(cond)) {                                                        \
+#define EXPECT_TRUE(cond)                                                                \
+    do {                                                                                 \
+        if (!(cond)) {                                                                   \
             std::fprintf(stderr, "%s:%d: EXPECT_TRUE(%s)\n", __FILE__, __LINE__, #cond); \
-            ++g_failures;                                                     \
-        }                                                                     \
+            ++g_failures;                                                                \
+        }                                                                                \
     } while (0)
 #define EXPECT_EQ(a, b) EXPECT_TRUE((a) == (b))
 
@@ -29,14 +29,16 @@ std::vector<Message> conversation(int turns) {
     return h;
 }
 
-int unitCost(const Message&) { return 10; }
+int unitCost(const Message&) {
+    return 10;
+}
 
 void testBudgetArithmetic() {
     EXPECT_EQ(clampLimit(0, 0), kDefaultContextLimit);
     EXPECT_EQ(clampLimit(8192, 4096), 4096);
     EXPECT_EQ(clampLimit(100, 0), kMinContextLimit);
-    EXPECT_EQ(clampLimit(100, 128), 128);  // a tiny model window is respected
-    EXPECT_EQ(promptBudget(4096, 2048), 3072);  // reserve capped at limit / 4
+    EXPECT_EQ(clampLimit(100, 128), 128);      // a tiny model window is respected
+    EXPECT_EQ(promptBudget(4096, 2048), 3072); // reserve capped at limit / 4
     EXPECT_EQ(promptBudget(4096, 128), 3968);
     EXPECT_EQ(promptBudget(256, 0), 255);
     EXPECT_TRUE(promptBudget(256, 100000) > 0);
@@ -63,10 +65,10 @@ void testTrimKeepsSystemAndPending() {
 }
 
 void testTrimRemovesWholeTurns() {
-    auto h = conversation(3);  // 7 messages
-    h.emplace_back("user", "pending");  // cost 80
+    auto h = conversation(3);          // 7 messages
+    h.emplace_back("user", "pending"); // cost 80
     trimOldest(h, 60, unitCost);
-    EXPECT_EQ(h.size(), 6u);  // dropped u0 + a0 together
+    EXPECT_EQ(h.size(), 6u); // dropped u0 + a0 together
     EXPECT_EQ(h[1].second, "u1");
     EXPECT_TRUE(isUser(h[1]));
 }
@@ -79,8 +81,7 @@ void testTrimNeverDeletesPendingWithUnbalancedHistory() {
     EXPECT_EQ(h[1].second, "pending");
 
     // History starting with an assistant (e.g. restored from an error row).
-    std::vector<Message> g{{"system", "s"}, {"assistant", "x"}, {"user", "u"}, {"assistant", "a"},
-                           {"user", "pending"}};
+    std::vector<Message> g{{"system", "s"}, {"assistant", "x"}, {"user", "u"}, {"assistant", "a"}, {"user", "pending"}};
     trimOldest(g, 30, unitCost);
     EXPECT_TRUE(isUser(g[1]));
     EXPECT_EQ(g.back().second, "pending");
@@ -94,7 +95,7 @@ void testTrimNoopWhenFits() {
 }
 
 void testKeepStartIndex() {
-    auto h = conversation(4);  // users at 1,3,5,7
+    auto h = conversation(4); // users at 1,3,5,7
     EXPECT_EQ(keepStartIndex(h, 2), 5u);
     EXPECT_EQ(keepStartIndex(h, 4), 1u);
     EXPECT_EQ(keepStartIndex(h, 5), 1u);
@@ -102,10 +103,10 @@ void testKeepStartIndex() {
 }
 
 void testKeepStartWithinBudget() {
-    auto h = conversation(4);  // users at 1,3,5,7; cost 10 each
-    EXPECT_EQ(keepStartWithinBudget(h, 2, 40, unitCost), 5u);   // two turns fit
-    EXPECT_EQ(keepStartWithinBudget(h, 2, 25, unitCost), 7u);   // only the last turn fits
-    EXPECT_EQ(keepStartWithinBudget(h, 2, 5, unitCost), 9u);    // nothing fits: keep none
+    auto h = conversation(4);                                 // users at 1,3,5,7; cost 10 each
+    EXPECT_EQ(keepStartWithinBudget(h, 2, 40, unitCost), 5u); // two turns fit
+    EXPECT_EQ(keepStartWithinBudget(h, 2, 25, unitCost), 7u); // only the last turn fits
+    EXPECT_EQ(keepStartWithinBudget(h, 2, 5, unitCost), 9u);  // nothing fits: keep none
     EXPECT_EQ(keepStartWithinBudget(conversation(1), 2, 100, unitCost), 1u);
 }
 
@@ -119,12 +120,12 @@ void testReplaceMediaTags() {
 }
 
 void testSummaryWindowStart() {
-    auto h = conversation(4);  // users at 1,3,5,7; each message costs 10; end = 9
-    EXPECT_EQ(summaryWindowStart(h, 9, 1000, unitCost), 1u);  // everything fits
-    EXPECT_EQ(summaryWindowStart(h, 9, 40, unitCost), 5u);    // last two turns
-    EXPECT_EQ(summaryWindowStart(h, 9, 25, unitCost), 7u);    // last turn only
-    EXPECT_EQ(summaryWindowStart(h, 9, 5, unitCost), 7u);     // even one turn is too big
-    EXPECT_EQ(summaryWindowStart(h, 1, 100, unitCost), 1u);   // nothing before end
+    auto h = conversation(4);                                // users at 1,3,5,7; each message costs 10; end = 9
+    EXPECT_EQ(summaryWindowStart(h, 9, 1000, unitCost), 1u); // everything fits
+    EXPECT_EQ(summaryWindowStart(h, 9, 40, unitCost), 5u);   // last two turns
+    EXPECT_EQ(summaryWindowStart(h, 9, 25, unitCost), 7u);   // last turn only
+    EXPECT_EQ(summaryWindowStart(h, 9, 5, unitCost), 7u);    // even one turn is too big
+    EXPECT_EQ(summaryWindowStart(h, 1, 100, unitCost), 1u);  // nothing before end
     EXPECT_TRUE(isUser(h[summaryWindowStart(h, 7, 30, unitCost)]));
 }
 
@@ -163,13 +164,19 @@ void testRemoveThinking() {
 }
 
 void testUtf8() {
-    const std::string han = "\xE4\xB8\xAD";        // 中
-    const std::string emoji = "\xF0\x9F\x98\x80";  // 😀
+    const std::string han = "\xE4\xB8\xAD";       // 中
+    const std::string emoji = "\xF0\x9F\x98\x80"; // 😀
     EXPECT_EQ(sanitizeUtf8("ok" + han + emoji), "ok" + han + emoji);
-    EXPECT_EQ(sanitizeUtf8("ab" + han.substr(0, 2)), std::string("ab"));  // truncated tail
-    EXPECT_EQ(sanitizeUtf8("a\xC0\xAF" "b"), std::string("ab"));          // overlong
-    EXPECT_EQ(sanitizeUtf8("a\xED\xA0\x80" "b"), std::string("ab"));      // surrogate
-    EXPECT_EQ(sanitizeUtf8("a\xFF" "b"), std::string("ab"));
+    EXPECT_EQ(sanitizeUtf8("ab" + han.substr(0, 2)), std::string("ab")); // truncated tail
+    EXPECT_EQ(sanitizeUtf8("a\xC0\xAF"
+                           "b"),
+              std::string("ab")); // overlong
+    EXPECT_EQ(sanitizeUtf8("a\xED\xA0\x80"
+                           "b"),
+              std::string("ab")); // surrogate
+    EXPECT_EQ(sanitizeUtf8("a\xFF"
+                           "b"),
+              std::string("ab"));
     EXPECT_EQ(utf8Prefix(han + han, 4), han);
     EXPECT_EQ(utf8Prefix("abc", 10), std::string("abc"));
     const std::u16string u16 = utf8ToUtf16("A" + emoji + "\xFF");
@@ -181,14 +188,14 @@ void testUtf8() {
 }
 void testUtf16ToUtf8() {
     const char16_t text[] = {u'A', 0x4E2D, 0xD83D, 0xDE00, 0xD800, u'B'};
-    EXPECT_EQ(utf16ToUtf8(text, 6),
-              std::string("A\xE4\xB8\xAD\xF0\x9F\x98\x80\xEF\xBF\xBD" "B"));
+    EXPECT_EQ(utf16ToUtf8(text, 6), std::string("A\xE4\xB8\xAD\xF0\x9F\x98\x80\xEF\xBF\xBD"
+                                                "B"));
     EXPECT_EQ(utf16ToUtf8(text, 0), std::string());
     const std::string round = "x\xF0\x9F\x98\x80y";
     const std::u16string u16 = utf8ToUtf16(round);
     EXPECT_EQ(utf16ToUtf8(u16.data(), u16.size()), round);
 }
-}  // namespace
+} // namespace
 
 int main() {
     testBudgetArithmetic();

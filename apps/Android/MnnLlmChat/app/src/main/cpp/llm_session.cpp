@@ -292,8 +292,8 @@ LlmSession::LlmSession(std::string model_path, json config, json extra_config, s
     if (summary_it != extra_config_.end() && summary_it->is_string()) {
         context_summary_ = context::sanitizeUtf8(summary_it->get<std::string>());
     }
-    history_.emplace_back("system", context::systemWithSummary(
-            GetSystemPromptString(system_prompt_, is_r1_), context_summary_));
+    history_.emplace_back("system",
+                          context::systemWithSummary(GetSystemPromptString(system_prompt_, is_r1_), context_summary_));
     if (!history.empty()) {
         for (int i = 0; i < history.size(); i++) {
             if (is_r1_) {
@@ -316,7 +316,7 @@ bool LlmSession::Load() {
     last_load_error_.clear();
     auto mmap_it = extra_config_.find("mmap_dir");
     const std::string root_cache_dir_str =
-            mmap_it != extra_config_.end() && mmap_it->is_string() ? mmap_it->get<std::string>() : std::string();
+        mmap_it != extra_config_.end() && mmap_it->is_string() ? mmap_it->get<std::string>() : std::string();
     const bool use_mmap = !root_cache_dir_str.empty();
     llm_ = Llm::createLLM(model_path_);
     if (llm_ == nullptr) {
@@ -359,8 +359,8 @@ bool LlmSession::Load() {
     }
     context_limit_.store(context::clampLimit(requested_limit_, model_max_context_.load()));
     refreshDumpedConfigLocked();
-    MNN_DEBUG("context budget: limit=%d model_max=%d auto_compress=%d",
-              context_limit_.load(), model_max_context_.load(), auto_compress_.load() ? 1 : 0);
+    MNN_DEBUG("context budget: limit=%d model_max=%d auto_compress=%d", context_limit_.load(),
+              model_max_context_.load(), auto_compress_.load() ? 1 : 0);
     return model_loaded_;
 }
 
@@ -378,8 +378,8 @@ int LlmSession::messageTokensLocked(const PromptItem& message) {
     }
     // Qualified call: Omni overrides tokenizer_encode(string) to run the vision/audio
     // encoders on media tags. Counting must never do that.
-    const int tokens = static_cast<int>(llm_->Llm::tokenizer_encode(message.second).size()) +
-                       context::kTemplateOverheadPerMessage;
+    const int tokens =
+        static_cast<int>(llm_->Llm::tokenizer_encode(message.second).size()) + context::kTemplateOverheadPerMessage;
     if (token_cache_.size() >= kMaxTokenCacheEntries) {
         token_cache_.clear();
     }
@@ -424,8 +424,7 @@ void LlmSession::refreshDumpedConfigLocked() {
 bool LlmSession::fitHistoryToBudgetLocked(int budget, int* exact_tokens) {
     bool trimmed = false;
     auto cost = [this](const PromptItem& message) {
-        return messageTokensLocked(message) +
-               context::countMediaMarkers(message.second) * media_tokens_per_item_;
+        return messageTokensLocked(message) + context::countMediaMarkers(message.second) * media_tokens_per_item_;
     };
     if (estimateTokensLocked(history_) > budget) {
         const int low_water = budget * context::kTrimLowWaterPercent / 100;
@@ -475,8 +474,8 @@ ContextCheck LlmSession::prepareContext(const std::string& prompt) {
         candidate.push_back(history_.front());
     }
     candidate.push_back(pending);
-    pending_message_tokens_ = messageTokensLocked(pending) +
-            context::countMediaMarkers(pending.second) * media_tokens_per_item_;
+    pending_message_tokens_ =
+        messageTokensLocked(pending) + context::countMediaMarkers(pending.second) * media_tokens_per_item_;
     check.tokens = countPromptTokensLocked(candidate);
     if (check.tokens > check.budget) {
         const std::vector<PromptItem> minimal{history_.front(), pending};
@@ -568,8 +567,8 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     // the engine sees the shorter prefix, drops the stale KV and re-prefills.
     const int context_limit = stats.context_limit;
     const int budget = context::promptBudget(context_limit, max_new_tokens_.load());
-    int prompt_tokens = (prepared_valid_ && prepared_prompt_ == prompt)
-            ? prepared_tokens_ : countPromptTokensLocked(history_);
+    int prompt_tokens =
+        (prepared_valid_ && prepared_prompt_ == prompt) ? prepared_tokens_ : countPromptTokensLocked(history_);
     prepared_valid_ = false;
     if (prompt_tokens > budget && history_.size() > 2) {
         // Reject before trimming: if the request cannot fit even alone, trimming would
@@ -602,14 +601,15 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
 
     // Generate full prompt string using Prompt::applyTemplate
     std::string full_prompt_text;
-    prompt_string_for_debug.clear();  // per turn; appending forever grew without bound
+    prompt_string_for_debug.clear(); // per turn; appending forever grew without bound
     for (auto & it : history_) {
         full_prompt_text += it.second;
         prompt_string_for_debug += it.second;
     }
 
-    MNN_DEBUG("submitNative prompt_string_for_debug count %s max_new_tokens_:%d", prompt_string_for_debug.c_str(), max_new_tokens_.load());
-    
+    MNN_DEBUG("submitNative prompt_string_for_debug count %s max_new_tokens_:%d", prompt_string_for_debug.c_str(),
+              max_new_tokens_.load());
+
     // Check for multimodal content in the full prompt
     auto multimodal_result = processMultimodalPrompt(full_prompt_text);
     restoreAndroidSteppingStatusIfNeeded(llm_);
@@ -728,7 +728,7 @@ bool LlmSession::generateSummaryLocked(const std::string& request, int max_token
     }
     restoreAndroidSteppingStatusIfNeeded(llm_);
     if (cancel_context_work_.load()) {
-        return false;  // a partial summary is not committed
+        return false; // a partial summary is not committed
     }
     std::string text = context::removeAll(output.str(), "<eop>");
     text = context::trimWhitespace(context::removeThinking(std::move(text)));
@@ -752,14 +752,13 @@ CompressResult LlmSession::compressContext() {
     // What remains after compression (summary + kept turns + the pending message) must sit
     // under the trim low-water mark, or Response() would drop kept turns unsummarized.
     const int budget = context::promptBudget(limit, max_new_tokens_.load());
-    const int keep_target = budget * context::kTrimLowWaterPercent / 100 - summary_tokens -
-                            pending_message_tokens_ - messageTokensLocked(history_.front());
+    const int keep_target = budget * context::kTrimLowWaterPercent / 100 - summary_tokens - pending_message_tokens_ -
+                            messageTokensLocked(history_.front());
     auto cost = [this](const PromptItem& message) {
-        return messageTokensLocked(message) +
-               context::countMediaMarkers(message.second) * media_tokens_per_item_;
+        return messageTokensLocked(message) + context::countMediaMarkers(message.second) * media_tokens_per_item_;
     };
-    const size_t keep_from = context::keepStartWithinBudget(
-            history_, context::kKeepTurnsAfterCompress, keep_target, cost);
+    const size_t keep_from =
+        context::keepStartWithinBudget(history_, context::kKeepTurnsAfterCompress, keep_target, cost);
     if (keep_from <= 1) {
         return result;
     }
@@ -798,8 +797,8 @@ CompressResult LlmSession::compressContext() {
     std::string merged = context_summary_;
     // Only the most recent windows of older history are summarized; older turns are
     // dropped. Keeps the first send in a long pre-existing conversation bounded.
-    const size_t window_start = context::summaryWindowStart(
-            history_, keep_from, input_budget * context::kMaxSummaryWindows, cost);
+    const size_t window_start =
+        context::summaryWindowStart(history_, keep_from, input_budget * context::kMaxSummaryWindows, cost);
     size_t cursor = window_start;
     while (cursor < keep_from && !cancel_context_work_.load()) {
         const std::vector<size_t> ends = context::turnBoundaries(history_, cursor, keep_from);
@@ -828,7 +827,7 @@ CompressResult LlmSession::compressContext() {
             batch_end = ends.front();
             const size_t max_bytes = static_cast<size_t>(std::max(256, input_budget)) * 2;
             request = context::buildSummaryRequest(
-                    merged, context::utf8Prefix(context::buildTranscript(history_, cursor, batch_end), max_bytes));
+                merged, context::utf8Prefix(context::buildTranscript(history_, cursor, batch_end), max_bytes));
         }
         std::string piece;
         if (!generateSummaryLocked(request, summary_tokens, &piece)) {
@@ -856,8 +855,8 @@ CompressResult LlmSession::compressContext() {
         result.summary = merged;
         result.kept_user_turns = context::countUserTurns(history_);
     }
-    MNN_DEBUG("compressContext: success=%d kept_user_turns=%d summary_bytes=%zu",
-              result.success ? 1 : 0, result.kept_user_turns, result.summary.size());
+    MNN_DEBUG("compressContext: success=%d kept_user_turns=%d summary_bytes=%zu", result.success ? 1 : 0,
+              result.kept_user_turns, result.summary.size());
     return result;
 }
 
@@ -1002,9 +1001,10 @@ const MNN::Transformer::LlmContext * LlmSession::ResponseWithHistory(
         prompt_string_for_debug += "[" + it.first + "]: " + it.second + "\n";
         full_prompt_text += it.second;
     }
-    
-    MNN_DEBUG("submitNative prompt_string_for_debug:\n%s\nmax_new_tokens_:%d", prompt_string_for_debug.c_str(), max_new_tokens_.load());
-    
+
+    MNN_DEBUG("submitNative prompt_string_for_debug:\n%s\nmax_new_tokens_:%d", prompt_string_for_debug.c_str(),
+              max_new_tokens_.load());
+
     // Check for multimodal content in the full prompt
     auto multimodal_result = processMultimodalPrompt(full_prompt_text);
     restoreAndroidSteppingStatusIfNeeded(llm_);

@@ -74,8 +74,7 @@ inline int countMediaMarkers(const std::string& text) {
     int count = 0;
     for (const char* tag : {"<img>", "<audio>", "<video>"}) {
         const std::string needle(tag);
-        for (size_t pos = text.find(needle); pos != std::string::npos;
-             pos = text.find(needle, pos + needle.size())) {
+        for (size_t pos = text.find(needle); pos != std::string::npos; pos = text.find(needle, pos + needle.size())) {
             ++count;
         }
     }
@@ -200,8 +199,7 @@ inline std::string buildTranscript(const std::vector<Message>& history, size_t b
 // the last turn before `end` exceeds it, that turn's start is returned (it is summarized
 // from a prefix). Messages before the result are dropped without a summary.
 template <typename MessageCost>
-size_t summaryWindowStart(const std::vector<Message>& history, size_t end, int target,
-                          MessageCost&& message_cost) {
+size_t summaryWindowStart(const std::vector<Message>& history, size_t end, int target, MessageCost&& message_cost) {
     size_t start = end;
     int total = 0;
     for (size_t i = end; i-- > 1;) {
@@ -292,11 +290,17 @@ inline size_t decodeUtf8(const std::string& s, size_t pos, uint32_t* code_point)
         *code_point = lead;
         return 1;
     } else if ((lead & 0xE0) == 0xC0) {
-        length = 2; cp = lead & 0x1F; min_cp = 0x80;
+        length = 2;
+        cp = lead & 0x1F;
+        min_cp = 0x80;
     } else if ((lead & 0xF0) == 0xE0) {
-        length = 3; cp = lead & 0x0F; min_cp = 0x800;
+        length = 3;
+        cp = lead & 0x0F;
+        min_cp = 0x800;
     } else if ((lead & 0xF8) == 0xF0) {
-        length = 4; cp = lead & 0x07; min_cp = 0x10000;
+        length = 4;
+        cp = lead & 0x07;
+        min_cp = 0x10000;
     } else {
         return 0;
     }
@@ -399,8 +403,7 @@ inline std::string utf16ToUtf8(const char16_t* data, size_t length) {
     };
     for (size_t i = 0; i < length; ++i) {
         const uint32_t unit = data[i];
-        if (unit >= 0xD800 && unit <= 0xDBFF && i + 1 < length &&
-            data[i + 1] >= 0xDC00 && data[i + 1] <= 0xDFFF) {
+        if (unit >= 0xD800 && unit <= 0xDBFF && i + 1 < length && data[i + 1] >= 0xDC00 && data[i + 1] <= 0xDFFF) {
             append(0x10000 + ((unit - 0xD800) << 10) + (static_cast<uint32_t>(data[i + 1]) - 0xDC00));
             ++i;
         } else if (unit >= 0xD800 && unit <= 0xDFFF) {
@@ -412,5 +415,5 @@ inline std::string utf16ToUtf8(const char16_t* data, size_t length) {
     return out;
 }
 
-}  // namespace context
-}  // namespace mls
+} // namespace context
+} // namespace mls
