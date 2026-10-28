@@ -1,22 +1,5 @@
 #include "attention_private.hpp"
 
-// Worker-side phase profiling for the grouped-causal prefill path, mirroring the queue-thread timers in
-// attention_hmx.cc. Per-worker slots => no atomics needed. Surfaced into profile[251..255] by
-// execute_command.cc. [0]=Q gather, [1]=QK submit+wait, [2]=softmax, [3]=SV submit+wait, [4]=O scatter.
-#ifndef HTP_WATTN_PHASE_PROFILE
-#  define HTP_WATTN_PHASE_PROFILE 0
-#endif
-#if HTP_WATTN_PHASE_PROFILE
-#  define HTP_WATTN_MAX_WORKERS 32
-unsigned long long g_wattn_phase_us[HTP_WATTN_MAX_WORKERS][5] = {};
-#  define WATTN_T0() (HAP_perf_get_time_us())
-#  define WATTN_ADD(w, i, t0) \
-    (g_wattn_phase_us[(w) & (HTP_WATTN_MAX_WORKERS - 1)][(i)] += HAP_perf_get_time_us() - (t0))
-#else
-#  define WATTN_T0()          (0ULL)
-#  define WATTN_ADD(w, i, t0) ((void) (t0))
-#endif
-
 static inline void sync_attention_add_mask_fp16(float* row_scores, const __fp16* mask_ptr, int len) {
   for (int i = 0; i < len; ++i) {
     row_scores[i] += (float)mask_ptr[i];
@@ -548,9 +531,10 @@ static void sync_attention_process_head(const SyncAttentionTaskState* state, int
 
 static inline int sync_attention_decode_group_q_rows(const SyncAttentionTaskState* state) {
   if (sync_attention_can_group_causal(state->qo_len, state->seq_current, state->N - state->seq_current,
-                                      state->total_heads * state->gqa_factor, state->total_heads,
-                                      state->head_dim, state->N, state->mask_stride)) {
-    int q_rows = sync_attention_causal_group_q_rows(state->qo_len, state->N, state->head_dim, state->gqa_factor);
+                                      state->total_heads * state->gqa_factor, state->total_heads, state->head_dim,
+                                      state->N, state->mask_stride, state->workspace_kv, state->kv_chunk)) {
+    int q_rows =
+      sync_attention_causal_group_q_rows(state->qo_len, state->N, state->head_dim, state->gqa_factor, state->kv_chunk);
     if (MNN_ATTENTION_HMX_COMBINE_DECODE && state->page_count > 0 && state->seq_current >= state->page_size) {
       int page_fast_q_rows = 32 / state->gqa_factor;
       if (page_fast_q_rows < 1) {
@@ -635,7 +619,6 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState *st
       int rows = q_count * group_heads;
       int block_valid_end = sync_attention_causal_valid_end(state, q_base + q_count);
 
-      unsigned long long _tw = WATTN_T0();
       for (int q = 0; q < q_count; ++q) {
         for (int h = 0; h < group_heads; ++h) {
           const __fp16* src = state->Q + (size_t)(q_base + q) * state->qo_stride + (head_base + h) * state->head_dim;
@@ -646,8 +629,6 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState *st
         }
       }
 
-      WATTN_ADD(worker_index, 0, _tw);
-      _tw = WATTN_T0();
       if (state->page_count > 0) {
         sync_attention_run_page_qk(state, scores, packed_Q, rows, state->head_dim, 0, kv_head, block_valid_end);
       } else {
@@ -658,8 +639,6 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState *st
                                    kv_head, state->n_kv_heads);
       }
 
-      WATTN_ADD(worker_index, 1, _tw);
-      _tw              = WATTN_T0();
       __fp16 *scores16 = (__fp16 *) scores;  // ATTN_SCORES_FP16: scores buffer reused as fp16 (lower half)
       if (state->scores_tile) {
         // ATTN_SCORES_TILE: the scores are still in the HMX tile layout, so walk row pairs -- a tile
@@ -692,8 +671,6 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState *st
         }
       }
 
-      WATTN_ADD(worker_index, 2, _tw);
-      _tw              = WATTN_T0();
       // Cannot alias `scores` on the tile path: that is P now, and the SV matmul reads it throughout.
       // temp_O is exactly rows * head_dim_padded, and the all-page fusion the tile layout forces does
       // not use it for anything else.
@@ -706,8 +683,6 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState *st
                                    ATTN_HMX_OUT_PACKED_FP16, 1.0f, ATTN_HMX_WEIGHT_LAYOUT_V_BLOCK256,
                                    kv_head, state->n_kv_heads);
       }
-      WATTN_ADD(worker_index, 3, _tw);
-      _tw = WATTN_T0();
       for (int q = 0; q < q_count; ++q) {
         for (int h = 0; h < group_heads; ++h) {
           int row = q * group_heads + h;
@@ -719,7 +694,6 @@ static void sync_attention_process_decode_group(const SyncAttentionTaskState *st
           }
         }
       }
-      WATTN_ADD(worker_index, 4, _tw);
     }
     return;
   }

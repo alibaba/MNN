@@ -1,32 +1,4 @@
 #include "attention_private.hpp"
-#include "HAP_perf.h"
-
-// STAGE 0 (prefill-attn decouple plan): race-free per-phase timers on the SINGLE
-// hmx_queue thread (all page QK/SV run here). Splits queue-thread busy into
-// [0]=DMA-wait (activation+weight load), [1]=HMX-compute, [2]=score-store.
-// Surfaced by execute_command.cc into profile[244..246]. Cumulative. Default off.
-#ifndef HTP_QATTN_PHASE_PROFILE
-#  define HTP_QATTN_PHASE_PROFILE 0
-#endif
-#if HTP_QATTN_PHASE_PROFILE
-unsigned long long g_qattn_phase_us[3] = { 0, 0, 0 };
-unsigned long long g_qattn_dma_bytes   = 0;  // weight(K/V)-DMA bytes, for bandwidth = bytes / [244]
-// dmstart counts: [0]=weight(K/V) chunks, [1]=activation(Q/S) tiles. [244]/(sum) = per-transfer wait,
-// which tells whether the DMA wait is byte-bound or transfer-count(latency)-bound.
-unsigned long long g_qattn_dma_calls[2] = { 0, 0 };
-unsigned long long g_qattn_act_bytes    = 0;  // activation(Q/S)-DMA bytes
-#  define QATTN_T0()         (HAP_perf_get_time_us())
-#  define QATTN_ADD(i, t0)   (g_qattn_phase_us[(i)] += HAP_perf_get_time_us() - (t0))
-#  define QATTN_BYTES(n)     (g_qattn_dma_bytes += (unsigned long long) (n))
-#  define QATTN_CALL(i)      (g_qattn_dma_calls[(i)]++)
-#  define QATTN_ACT_BYTES(n) (g_qattn_act_bytes += (unsigned long long) (n))
-#else
-#  define QATTN_T0()       (0ULL)
-#  define QATTN_ADD(i, t0) ((void) (t0))
-#  define QATTN_BYTES(n)   ((void) 0)
-#  define QATTN_CALL(i)      ((void) 0)
-#  define QATTN_ACT_BYTES(n) ((void) 0)
-#endif
 
 static inline void attn_hmx_load_k_tiles(const __fp16* activation, const __fp16* weight, int kp) {
   for (int k = 0; k < kp; k += 32) {
@@ -54,27 +26,21 @@ static inline void attn_hmx_load_activation_dma(dma_desc_2d_t* desc, const uint8
       memset(raw, 0, (size_t)pair_packs * 32 * 64 * sizeof(int16_t));
     }
   }
-  attn_prepare_dma_desc_2d(desc, src, raw, (uint32_t)roi_width, (uint32_t)rows,
-                           (uint32_t)(src_stride * sizeof(int16_t)), (uint32_t)raw_width, 0);
-  QATTN_CALL(1);
-  QATTN_ACT_BYTES((size_t) rows * (size_t) roi_width);
-  unsigned long long _tq = QATTN_T0();
+  attn_prepare_dma_desc_2d(desc, src, raw, (uint32_t) roi_width, (uint32_t) rows,
+                           (uint32_t) (src_stride * sizeof(int16_t)), (uint32_t) raw_width, 0);
   dma_wait_for_idle();
   dmstart((dma_desc_1d_t*)desc);
   dma_wait_for_idle();
-  QATTN_ADD(0, _tq);
 }
 
-static inline void attn_hmx_compute_output_tiles(__fp16* vtcm_output, __fp16* vtcm_activation,
-                                                 __fp16* vtcm_weight, int oy_start, int oy_end, int kp) {
-  unsigned long long _tq = QATTN_T0();
+static inline void attn_hmx_compute_output_tiles(__fp16 *vtcm_output, __fp16 *vtcm_activation, __fp16 *vtcm_weight,
+                                                 int oy_start, int oy_end, int kp) {
   for (int oy = oy_start; oy < oy_end; ++oy) {
     __fp16* vtcm_dst = vtcm_output + (oy - oy_start) * 1024;
     int oy_offset = (oy - oy_start) * 16 * kp;
     attn_hmx_load_k_tiles(vtcm_activation, vtcm_weight + oy_offset * 64, kp);
     hmx_consume_accumulator_fp16(vtcm_dst);
   }
-  QATTN_ADD(1, _tq);
 }
 
 static inline void attn_hmx_start_weight_dma(dma_desc_2d_t* descs, const uint8_t* b, __fp16* vtcm_weight,
@@ -82,15 +48,11 @@ static inline void attn_hmx_start_weight_dma(dma_desc_2d_t* descs, const uint8_t
                                              int n_kv_heads, int k_icP, int v_ocP, int wait_after) {
   attn_prepare_weight_dma_descs(nullptr, descs, b, vtcm_weight, oy_start, oy_end, kp, layout, kv_head, n_kv_heads,
                                 k_icP, v_ocP);
-  QATTN_BYTES((size_t) (oy_end - oy_start) * (size_t) kp * 1024 * sizeof(int16_t));  // ~K/V tile bytes
-  QATTN_CALL(0);
-  unsigned long long _tq = QATTN_T0();
   dma_wait_for_idle();
   dmstart((dma_desc_1d_t*)&descs[0]);
   if (wait_after) {
     dma_wait_for_idle();
   }
-  QATTN_ADD(0, _tq);
 }
 
 void attn_hmx_matmul(uint8_t * c, const uint8_t * a, const uint8_t * b, int M, int K, int N, int max_K,
@@ -253,9 +215,7 @@ static inline int attn_next_page_span(const SyncAttentionTaskState *state, int v
 }
 
 static inline void attn_wait_weight_dma(void) {
-  unsigned long long _tq = QATTN_T0();
   dma_wait_for_idle();
-  QATTN_ADD(0, _tq);
 }
 
 // Where the HMX accumulator store should put this (ox, oy_start..) block of QK scores.
@@ -284,7 +244,6 @@ static inline void attn_store_qk_scores(const SyncAttentionTaskState *state, flo
   if (state->scores_tile) {
     return;  // attn_qk_output_dst pointed the accumulator store at the tiles directly
   }
-  unsigned long long _tq = QATTN_T0();
   if (state->scores_fp16) {
     attn_store_output_linear_fp16((uint8_t *) ((__fp16 *) scores + col_off), vtcm_output, oy_start, oy_end, ox, N,
                                   valid_xi, state->N_padded, q_row_offset);
@@ -292,7 +251,6 @@ static inline void attn_store_qk_scores(const SyncAttentionTaskState *state, flo
     attn_store_output_linear_fp32((uint8_t *) (scores + col_off), vtcm_output, oy_start, oy_end, ox, N, valid_xi,
                                   state->N_padded, q_row_offset);
   }
-  QATTN_ADD(2, _tq);
 }
 
 // Stage the activation for one call: DMA it into the raw staging as usual, or -- when the source is
@@ -752,7 +710,7 @@ void attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, 
     // The tile path must fuse: it is the only SV branch taught to read a tile-layout P, and the
     // per-page preload it waits on is just a DMA there, not a DMA plus a transform.
     const int fuse_min_pages = (M > 32 && !state->scores_tile) ? 3 : 1;
-    if (fused_pages >= fuse_min_pages && fused_pages <= 8) {
+    if (fused_pages >= fuse_min_pages && fused_pages <= ATTN_HMX_MAX_FUSED_PAGES) {
       uint8_t *vtcm_ptr     = state->kernel_vtcm_base;
       __fp16* vtcm_weights = (__fp16*)vtcm_seq_alloc(&vtcm_ptr,
                                                      (size_t)fused_pages * np * 32 * max_kp * 32 * sizeof(int16_t));
@@ -775,11 +733,11 @@ void attn_hmx_matmul_pages_sv(const SyncAttentionTaskState* state, __fp16* dst, 
 
       _Alignas(64) dma_desc_2d_t act_desc;
       _Alignas(64) dma_desc_2d_t weight_descs[ATTN_HMX_MAX_WEIGHT_DESCS];
-      int page_kp[8];
+      int                        page_kp[ATTN_HMX_MAX_FUSED_PAGES];
       // Where each page's activation tiles ended up and the tile stride between M-tiles there: the tile
       // path may read P in place (stride N_padded/32) instead of from a per-page copy.
-      const __fp16              *page_act_base[8];
-      int                        page_act_stride[8];
+      const __fp16              *page_act_base[ATTN_HMX_MAX_FUSED_PAGES];
+      int                        page_act_stride[ATTN_HMX_MAX_FUSED_PAGES];
 
       for (int page = 0; page < fused_pages; ++page) {
         int page_start = page * state->page_size;

@@ -16,9 +16,40 @@ static int sync_attention_rows_per_task(int qo_len, int gqa_factor, int decode_g
   return decode_grouped ? gqa_factor * sync_attention_group_q_rows(qo_len, gqa_factor) : qo_len;
 }
 
-int sync_attention_causal_group_q_rows(int qo_len, int seq_len, int head_dim, int gqa_factor) {
-  return htp_attn_causal_group_q_rows(qo_len, seq_len, head_dim, gqa_factor, (int) g_max_num_workers,
-                                      (size_t) vtcm_manager_get_vtcm_size());
+int sync_attention_causal_group_q_rows(int qo_len, int seq_len, int head_dim, int gqa_factor, int kv_chunk) {
+  const size_t vtcm = (size_t) vtcm_manager_get_vtcm_size();
+  const int    g =
+    htp_attn_causal_group_q_rows(qo_len, seq_len, head_dim, gqa_factor, (int) g_max_num_workers, vtcm, kv_chunk);
+  if (seq_len <= ATTN_GROUPED_SCORES_VTCM_KV) {
+    // The picker already verified scores + kernel for the groups it tried; when nothing fit it returned the
+    // full-size group, so still check that group's kernel scratch before committing to it.
+    return htp_attn_vtcm_kernel_bytes(gqa_factor * g, head_dim, kv_chunk) <= vtcm ? g : 0;
+  }
+  // Past 2048 the score region may not fit VTCM at all. That only costs the QK store and the softmax read
+  // a DDR round trip, so grouping is still worth taking -- but the HMX kernel scratch has to fit, because
+  // it grows with the rows in the group and with the KV chunk, and vtcm_seq_alloc does not bounds-check.
+  if (g < 16) {
+    return htp_attn_vtcm_kernel_bytes(gqa_factor * g, head_dim, kv_chunk) <= vtcm ? g : 0;
+  }
+  const int q_max = qo_len < HTP_ATTN_CAUSAL_GROUP_Q_ROWS_MAX ? qo_len : HTP_ATTN_CAUSAL_GROUP_Q_ROWS_MAX;
+  int       g_ddr = q_max;
+  while (g_ddr >= 16 && htp_attn_vtcm_kernel_bytes(gqa_factor * g_ddr, head_dim, kv_chunk) > vtcm) {
+    g_ddr >>= 1;
+  }
+  if (g_ddr < 16) {
+    return 0;  // no group fits the kernel; the caller keeps the page-by-page path
+  }
+  // The largest group wins for K/V traffic (it is read once per block, so traffic scales as 1/group), and
+  // keeping the scores in VTCM saves a DDR round trip whose cost does not depend on the group. Prefer the
+  // VTCM-score group only when it is at most one halving below the best DDR one -- one more halving of the
+  // group doubles the K/V re-reads and measured slower (2B pp4096: g=16/VTCM 2294 t/s vs g=64/DDR 2374),
+  // while for 0.6B the one-halving trade is a large win (g=32/VTCM 2169 vs g=16/VTCM 1506).
+  const int workers = g_max_num_workers > 0 ? (int) g_max_num_workers : 1;
+  if (g >= 16 && (long long) g * 2 >= (long long) g_ddr &&
+      htp_attn_vtcm_scores_fit(gqa_factor * g, seq_len, head_dim, kv_chunk, workers, vtcm)) {
+    return g;
+  }
+  return g_ddr;
 }
 
 static int sync_attention_can_group_causal_shape(int qo_len, int n_heads, int n_kv_heads, int head_dim,
@@ -28,7 +59,13 @@ static int sync_attention_can_group_causal_shape(int qo_len, int n_heads, int n_
     return 0;
   }
   const int gqa_factor = n_heads / n_kv_heads;
-  return gqa_factor > 1 && gqa_factor <= 4;
+  // The grouped packing packs rows = q_count * gqa_factor and HMX pads the partial 32-row tile,
+  // so nothing here needs gqa_factor to divide a tile. The old <= 4 bound was a tuning boundary
+  // and excluded 5..8 (Qwen2.5-7B 28/4=7, Qwen2.5-14B/32B 40/8=5, LLaMA3-70B 64/8=8) from the
+  // grouped-causal prefill path entirely: on v81 MNN-Pocket-0.3B (14/2=7) that fallback cost 2.8x
+  // the KV DMA traffic and 42.5 -> 14.2 ms of attention per pp512 prefill (pp512 6031 -> 9250 t/s),
+  // with bit-identical greedy output. Decode grouping is unaffected (it has no such bound).
+  return gqa_factor > 1 && gqa_factor <= 8;
 }
 
 static int sync_attention_worker_count(int total_tasks, int decode_grouped, int qo_len) {
@@ -44,24 +81,26 @@ static void sync_attention_configure_tasks(SyncAttentionTaskState* state, int n_
   const int seq_add = state->N - state->seq_current;
   const int causal_grouped = sync_attention_can_group_causal(state->qo_len, state->seq_current, seq_add, n_heads,
                                                              state->n_kv_heads, state->head_dim, state->N,
-                                                             state->mask_stride);
+                                                             state->mask_stride, state->workspace_kv, state->kv_chunk);
   const int decode_grouped = causal_grouped ||
       sync_attention_can_group_decode(state->qo_len, n_heads, state->n_kv_heads, state->head_dim, state->N,
                                       state->mask_stride);
   const int total_tasks = decode_grouped ? state->n_kv_heads : n_heads;
 
-  *task_rows            = causal_grouped ? state->gqa_factor * sync_attention_causal_group_q_rows(
-                                                                 state->qo_len, state->N, state->head_dim, state->gqa_factor) :
-                                           sync_attention_rows_per_task(state->qo_len, state->gqa_factor, decode_grouped);
+  *task_rows = causal_grouped ?
+                 state->gqa_factor * sync_attention_causal_group_q_rows(state->qo_len, state->N, state->head_dim,
+                                                                        state->gqa_factor, state->kv_chunk) :
+                 sync_attention_rows_per_task(state->qo_len, state->gqa_factor, decode_grouped);
   *n_tasks = sync_attention_worker_count(total_tasks, decode_grouped, state->qo_len);
   state->total_heads = total_tasks;
   state->decode_grouped = decode_grouped;
 }
 
-static int sync_attention_init_common_state(SyncAttentionTaskState* state, __fp16* O, const __fp16* Q,
-                                            const float* mask, uint8_t* workspace, int qo_len, int seq_current,
+static int sync_attention_init_common_state(SyncAttentionTaskState *state, __fp16 *O, const __fp16 *Q,
+                                            const float *mask, uint8_t *workspace, int qo_len, int seq_current,
                                             int seq_add, int n_heads, int n_kv_heads, int head_dim, float scale,
-                                            int mask_stride, int* task_rows, int* n_tasks) {
+                                            int mask_stride, int *task_rows, int *n_tasks, int workspace_kv,
+                                            int kv_chunk) {
   if (n_kv_heads <= 0 || n_heads % n_kv_heads != 0) {
     return -1;
   }
@@ -87,6 +126,8 @@ static int sync_attention_init_common_state(SyncAttentionTaskState* state, __fp1
   state->v_ocP = (head_dim + 31) / 32;
   state->qo_stride = (size_t)n_heads * head_dim;
   state->workspace_base = workspace;
+  state->workspace_kv       = workspace_kv;
+  state->kv_chunk           = kv_chunk;
   state->kernel_vtcm_base   = (uint8_t *) vtcm_manager_get_vtcm_base();
   state->scores_vtcm        = NULL;
   state->scores_vtcm_stride = 0;
@@ -121,15 +162,15 @@ static void sync_attention_run_segmented_prefill(SyncAttentionTaskState* state) 
   state->prefill_n_heads = 0;
 }
 
-int sync_attention(__fp16 *restrict O, const __fp16 *restrict Q, const float *restrict mask, uint8_t *workspace, __fp16 *pastK,
-                   __fp16 *pastV, int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads, int head_dim,
-                   float scale, int mask_stride) {
+int sync_attention(__fp16 *restrict O, const __fp16 *restrict Q, const float *restrict mask, uint8_t *workspace,
+                   __fp16 *pastK, __fp16 *pastV, int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads,
+                   int head_dim, float scale, int mask_stride, int workspace_kv, int kv_chunk) {
   SyncAttentionTaskState state;
   int task_rows = 0;
   int n_tasks = 0;
-  if (sync_attention_init_common_state(&state, O, Q, mask, workspace, qo_len, seq_current, seq_add,
-                                       n_heads, n_kv_heads, head_dim, scale, mask_stride, &task_rows,
-                                       &n_tasks) != 0) {
+  if (sync_attention_init_common_state(&state, O, Q, mask, workspace, qo_len, seq_current, seq_add, n_heads, n_kv_heads,
+                                       head_dim, scale, mask_stride, &task_rows, &n_tasks, workspace_kv,
+                                       kv_chunk) != 0) {
     return -1;
   }
   state.pastK = pastK;
@@ -149,19 +190,21 @@ int sync_attention(__fp16 *restrict O, const __fp16 *restrict Q, const float *re
 
 int sync_attention_pages(__fp16 *restrict O, const __fp16 *restrict Q, const float *restrict mask, uint8_t *workspace,
                          uint8_t **pastKPages, uint8_t **pastVPages, int qo_len, int seq_current, int seq_add,
-                         int n_heads, int n_kv_heads, int head_dim, float scale, int mask_stride,
-                         int page_count, int page_size, AsyncPushKVPagesState* async_push, int allow_online_pages) {
+                         int n_heads, int n_kv_heads, int head_dim, float scale, int mask_stride, int page_count,
+                         int page_size, AsyncPushKVPagesState *async_push, int allow_online_pages, int workspace_kv,
+                         int kv_chunk) {
   SyncAttentionTaskState state;
   int task_rows = 0;
   int n_tasks = 0;
-  if (sync_attention_init_common_state(&state, O, Q, mask, workspace, qo_len, seq_current, seq_add,
-                                       n_heads, n_kv_heads, head_dim, scale, mask_stride, &task_rows,
-                                       &n_tasks) != 0) {
+  if (sync_attention_init_common_state(&state, O, Q, mask, workspace, qo_len, seq_current, seq_add, n_heads, n_kv_heads,
+                                       head_dim, scale, mask_stride, &task_rows, &n_tasks, workspace_kv,
+                                       kv_chunk) != 0) {
     return -1;
   }
   int online_block_pages = 1;
   int online_block_size = page_size;
-  int online_pages = sync_attention_use_online_pages(allow_online_pages, head_dim, page_size, state.N, mask_stride);
+  int online_pages =
+    sync_attention_use_online_pages(allow_online_pages, head_dim, page_size, state.N, mask_stride, workspace_kv);
   state.worker_workspace_bytes = online_pages
       ? sync_attention_page_block_workspace_bytes(task_rows, online_block_size, state.K_dim_padded)
       : sync_attention_page_head_workspace_bytes(task_rows, state.N, state.K_dim_padded);
@@ -180,10 +223,10 @@ int sync_attention_pages(__fp16 *restrict O, const __fp16 *restrict Q, const flo
   // which sizes rows=qo_len and passes the real global_q.
   //
   // Today the two gates make this unreachable by construction: can_group_causal requires
-  // seq_len <= ATTN_FIXED_WORKSPACE_KV while use_online_pages requires the opposite. That is an implicit
-  // coupling between two unrelated predicates, and widening either one silently computes only the first
-  // token of the prompt (measured: forcing it on at pp512 produced garbage output at a pp512 reading
-  // indistinguishable from skipping attention altogether). Degrade explicitly instead.
+  // seq_len <= sync_attention_fixed_kv(workspace_kv) while use_online_pages requires the opposite. That is
+  // an implicit coupling between two unrelated predicates, and widening either one silently computes only
+  // the first token of the prompt (measured: forcing it on at pp512 produced garbage output at a pp512
+  // reading indistinguishable from skipping attention altogether). Degrade explicitly instead.
   if (online_pages && state.decode_grouped && state.qo_len > 1) {
     state.decode_grouped = 0;
     state.total_heads    = n_heads;
@@ -205,7 +248,6 @@ int sync_attention_pages(__fp16 *restrict O, const __fp16 *restrict Q, const flo
 
   return 0;
 }
-
 
 size_t sync_attention_head_workspace_bytes(int qo_len, int seq_len) {
   int N_padded = (seq_len + 31) / 32 * 32;
@@ -263,22 +305,30 @@ int sync_attention_can_group_decode(int qo_len, int n_heads, int n_kv_heads, int
   return qo_len <= 8 && mask_stride < 0 && qo_len * (n_heads / n_kv_heads) <= 32;
 }
 
-int sync_attention_can_group_causal(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads,
-                                                   int head_dim, int seq_len, int mask_stride) {
-  if (!sync_attention_can_group_causal_shape(qo_len, n_heads, n_kv_heads, head_dim, mask_stride) ||
-      seq_add != qo_len || seq_current < 0 || seq_len != seq_current + seq_add ||
-      seq_len > ATTN_FIXED_WORKSPACE_KV) {
+int sync_attention_can_group_causal(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads, int head_dim,
+                                    int seq_len, int mask_stride, int workspace_kv, int kv_chunk) {
+  // The grouped path materialises a full N-column score row, so it can only run within the columns the
+  // host actually allocated for this command -- not the compile-time ATTN_FIXED_WORKSPACE_KV, which a
+  // reused command may long have outgrown.
+  if (!sync_attention_can_group_causal_shape(qo_len, n_heads, n_kv_heads, head_dim, mask_stride) || seq_add != qo_len ||
+      seq_current < 0 || seq_len != seq_current + seq_add || seq_len > sync_attention_fixed_kv(workspace_kv)) {
     return 0;
   }
   const int N_padded = (seq_len + 31) / 32 * 32;
-  return N_padded >= head_dim;
+  if (N_padded < head_dim) {
+    return 0;
+  }
+  // The group picker also decides whether the HMX kernel scratch fits VTCM at this shape; 0 means no
+  // group does, and then the page-by-page path has to handle the op.
+  return sync_attention_causal_group_q_rows(qo_len, seq_len, head_dim, n_heads / n_kv_heads, kv_chunk) > 0;
 }
 
-int sync_attention_task_rows(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads, int head_dim, int seq_len,
-                                           int mask_stride) {
-  if (sync_attention_can_group_causal(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len, mask_stride)) {
+int sync_attention_task_rows(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads, int head_dim,
+                             int seq_len, int mask_stride, int workspace_kv, int kv_chunk) {
+  if (sync_attention_can_group_causal(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len, mask_stride,
+                                      workspace_kv, kv_chunk)) {
     int gqa_factor = n_heads / n_kv_heads;
-    return gqa_factor * sync_attention_causal_group_q_rows(qo_len, seq_len, head_dim, gqa_factor);
+    return gqa_factor * sync_attention_causal_group_q_rows(qo_len, seq_len, head_dim, gqa_factor, kv_chunk);
   }
   if (sync_attention_can_group_decode(qo_len, n_heads, n_kv_heads, head_dim, seq_len, mask_stride)) {
     return sync_attention_rows_per_task(qo_len, n_heads / n_kv_heads, 1);
@@ -289,9 +339,10 @@ int sync_attention_task_rows(int qo_len, int seq_current, int seq_add, int n_hea
   return qo_len;
 }
 
-int sync_attention_total_tasks(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads, int head_dim, int seq_len,
-                                             int mask_stride) {
-  if (sync_attention_can_group_causal(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len, mask_stride)) {
+int sync_attention_total_tasks(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads, int head_dim,
+                               int seq_len, int mask_stride, int workspace_kv, int kv_chunk) {
+  if (sync_attention_can_group_causal(qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, seq_len, mask_stride,
+                                      workspace_kv, kv_chunk)) {
     return n_kv_heads;
   }
   if (sync_attention_can_group_decode(qo_len, n_heads, n_kv_heads, head_dim, seq_len, mask_stride)) {
@@ -329,7 +380,16 @@ void sync_attention_try_vtcm_workspace(SyncAttentionTaskState *state, int task_r
   // (by the host for the DDR one), so a row count that is not a multiple of 32 would need padding the
   // caller has not allocated. gqa_factor * group_q_rows is a multiple of 32 for every shape measured;
   // anything else falls back to row-major.
-  const int want_scores_tile = state->scores_tile && (task_rows % 32) == 0;
+  //
+  // Tile layout is only readable by the all-page SV fusion, which holds at most ATTN_HMX_MAX_FUSED_PAGES
+  // pages. A q block whose causal end passes that many pages falls to the row-major SV, which refuses
+  // tile-layout P -- so the layout has to stay off whenever any block can reach that far. This used to be
+  // implied by the 2048 workspace cap; it is explicit now that the grouped path covers 4096.
+  const long long fused_kv         = (long long) ATTN_HMX_MAX_FUSED_PAGES * (long long) state->page_size;
+  // The fusion also requires np = K_dim_padded / 32 <= ATTN_HMX_KV_BLOCK_TILES (attention_hmx.cc:745),
+  // i.e. head_dim <= 256; beyond that the fusion is skipped and the row-major SV rejects a tile-layout P.
+  const int       want_scores_tile = state->scores_tile && (task_rows % 32) == 0 && (long long) state->N <= fused_kv &&
+                                     (state->K_dim_padded / 32) <= ATTN_HMX_KV_BLOCK_TILES;
   state->scores_tile         = 0;
   // Restricted to the grouped-causal prefill path: those are the QK/SV branches whose activation staging
   // has been taught to transform out of VTCM directly (attn_stage_activation). Any other path would hand
@@ -343,9 +403,9 @@ void sync_attention_try_vtcm_workspace(SyncAttentionTaskState *state, int task_r
     workers = 1;
   }
   const size_t vtcm_total   = (size_t) vtcm_manager_get_vtcm_size();
-  // Leave the kernels exactly what their bump allocations need for this shape; htp_attn_vtcm_fits() is
-  // what the q-group picker used, so the two cannot disagree about what fits.
-  const size_t kernel_bytes = htp_attn_vtcm_kernel_bytes(task_rows, state->N);
+  // Leave the kernels exactly what their bump allocations need for this shape, from the same estimate the
+  // q-group picker uses, so the two cannot disagree about what fits.
+  const size_t kernel_bytes = htp_attn_vtcm_kernel_bytes(task_rows, state->head_dim, state->kv_chunk);
   if (vtcm_total <= kernel_bytes) {
     return;
   }
@@ -384,10 +444,13 @@ void sync_attention_try_vtcm_workspace(SyncAttentionTaskState *state, int task_r
   state->kernel_vtcm_base = vtcm_base + used;
 }
 
-int sync_attention_use_online_pages(int allow_online_pages, int head_dim, int page_size, int seq_len,
-                                                  int mask_stride) {
+int sync_attention_use_online_pages(int allow_online_pages, int head_dim, int page_size, int seq_len, int mask_stride,
+                                    int workspace_kv) {
+  // Same bound as can_group_causal: a row that does not fit the columns the host allocated for this
+  // command has to be walked page by page, no matter what the compile-time limit says.
+  const int fixed_kv = sync_attention_fixed_kv(workspace_kv);
   return allow_online_pages && (head_dim % 64) == 0 && (page_size % 32) == 0 &&
-         (seq_len > ATTN_FIXED_WORKSPACE_KV || mask_stride > ATTN_FIXED_WORKSPACE_KV);
+         (seq_len > fixed_kv || mask_stride > fixed_kv);
 }
 
 int sync_attention_pick_task_count(int total_heads) {

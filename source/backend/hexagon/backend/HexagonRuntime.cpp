@@ -1377,9 +1377,14 @@ void HexagonRuntime::onGabageCollect(int level) {
     if (level >= 100 && mLazyWeightAlloc) {
         mLazyWeightAlloc->release(false);
     }
-    if (level >= 100) {
-        mDynamicBuffer.release();
-    }
+    // The shared dynamic pool root is deliberately NOT released here. The LLM engine runs a full
+    // gc after every prefill, and releasing the root made the next forward realloc it: once the
+    // decode phase had carved the freed chunk up for its own (much smaller) pool, prefill's
+    // realloc landed on a new base address, which re-pointed every dynamic tensor, forced a full
+    // command re-encode and left every DSP-side activation buffer cold (~5-7 ms per prefill
+    // measured on v81 Qwen3-0.6B pp512). The pool is sized max(prefill, decode) and is reused by
+    // both phases; it is released with the runtime. Keeping it trades that bounded residency for
+    // stable device addresses across prefill/decode switches.
 }
 
 bool HexagonRuntime::onCheckInfo(Backend::Info& info) const {

@@ -56,8 +56,43 @@ enum AttnHmxOutputLayoutType {
 #define ATTN_HMX_MAX_KP 256
 #define ATTN_HMX_MAX_WEIGHT_DESCS 8
 #define ATTN_HMX_PUSH_K_HVX_SCRATCH_BYTES (128 * 128)
-#define ATTN_FIXED_WORKSPACE_KV 2048
+// Largest KV extent the grouped-causal prefill path covers; above it the cache is walked page by page
+// (sync_attention_use_online_pages). Must stay equal to HEXAGON_ATTN_FIXED_WORKSPACE_KV in
+// execution/HexagonAttention.cpp, which sizes the DDR workspace for this many columns.
+//
+// 2048 came from the shape at which the score region stopped fitting VTCM, but that is not a hard
+// bound: htp_attn_causal_group_q_rows() shrinks the Q group when the region would not fit, so 4096 fits
+// with half the group (32 rows instead of 64 for Qwen3-0.6B). The point is to keep 2304..4096-token
+// prompts on the grouped path: the per-head online fallback it replaces re-reads K/V once per Q head
+// and measured 2.5x slower at pp2304 on v79.
+//
+// The softmax scratch in attention_sync_process.cc is sized by this, so a worker frame can now hold two
+// 8 KB arrays; worker_pool.cc raises the worker stack to 64 KB for that.
+#define ATTN_FIXED_WORKSPACE_KV           4096
+// Above this KV extent grouping no longer requires the score region to fit VTCM: it falls back to the
+// DDR workspace, which still beats walking the cache page by page. What has to fit there is the HMX
+// kernel scratch (it grows with rows x seq_len and vtcm_seq_alloc does not bounds-check), so the group
+// picker in attention_sync_setup.cc shrinks the group for it. This was the workspace limit before it
+// was raised.
+#define ATTN_GROUPED_SCORES_VTCM_KV       2048
+// KV pages the all-page SV fusion keeps resident at once (attention_hmx.cc). The tile-layout P path
+// only exists inside that fusion, so the score tile layout is limited to the same KV extent.
+// Bound by the shared header: htp_attn_vtcm_kernel_bytes() reserves VTCM for that many fused pages.
+#define ATTN_HMX_MAX_FUSED_PAGES          HTP_ATTN_HMX_MAX_FUSED_PAGES
 #define ATTN_PREFILL_SEGMENT_Q 64
+
+// Columns the host actually reserved for this command's workspace (FlashAttnParam::workspace_kv).
+// The workspace is sized once in onBuildCmd and the command is then reused while the KV extent grows
+// (a decode command is built around the first token and reused for the whole generation), so the
+// non-online paths must not run past what was allocated.
+static inline int sync_attention_fixed_kv(int workspace_kv) {
+  if (workspace_kv <= 0) {
+    // A host built before FlashAttnParam::workspace_kv allocated the old fixed 2048 columns; sizing for the
+    // current limit here would let the DSP run past it.
+    return ATTN_GROUPED_SCORES_VTCM_KV;
+  }
+  return workspace_kv < ATTN_FIXED_WORKSPACE_KV ? workspace_kv : ATTN_FIXED_WORKSPACE_KV;
+}
 
 enum AttnHmxWeightLayoutType {
   ATTN_HMX_WEIGHT_LAYOUT_K_BLOCK256 = 0,
@@ -136,6 +171,10 @@ typedef struct {
   size_t qo_stride;
   size_t worker_workspace_bytes;
   uint8_t* workspace_base;
+  // Columns the host allocated for that workspace; see sync_attention_fixed_kv().
+  int                    workspace_kv;
+  // KV extent one HMX kernel invocation walks: page_size when paged, else N. Sizes the kernel scratch.
+  int                    kv_chunk;
   // Base the HMX kernels bump-allocate their VTCM scratch from. Normally vtcm_manager_get_vtcm_base(),
   // but shifted up when the per-worker score buffers have been placed in VTCM below it.
   uint8_t               *kernel_vtcm_base;
@@ -215,14 +254,15 @@ size_t sync_attention_page_head_workspace_bytes(int qo_len, int seq_len, int hea
 size_t sync_attention_page_block_workspace_bytes(int qo_len, int block_len, int head_dim);
 int sync_attention_can_group_decode(int qo_len, int n_heads, int n_kv_heads, int head_dim, int seq_len,
                                     int mask_stride);
-int sync_attention_can_group_causal(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads,
-                                    int head_dim, int seq_len, int mask_stride);
-int    sync_attention_causal_group_q_rows(int qo_len, int seq_len, int head_dim, int gqa_factor);
-int sync_attention_task_rows(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads,
-                             int head_dim, int seq_len, int mask_stride);
-int sync_attention_total_tasks(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads,
-                               int head_dim, int seq_len, int mask_stride);
-int sync_attention_use_online_pages(int allow_online_pages, int head_dim, int page_size, int seq_len, int mask_stride);
+int sync_attention_can_group_causal(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads, int head_dim,
+                                    int seq_len, int mask_stride, int workspace_kv, int kv_chunk);
+int sync_attention_causal_group_q_rows(int qo_len, int seq_len, int head_dim, int gqa_factor, int kv_chunk);
+int sync_attention_task_rows(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads, int head_dim,
+                             int seq_len, int mask_stride, int workspace_kv, int kv_chunk);
+int sync_attention_total_tasks(int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads, int head_dim,
+                               int seq_len, int mask_stride, int workspace_kv, int kv_chunk);
+int sync_attention_use_online_pages(int allow_online_pages, int head_dim, int page_size, int seq_len, int mask_stride,
+                                    int workspace_kv);
 // Moves the per-worker score workspace into VTCM when it fits, shifting the HMX kernels' bump base above
 // it. Call after the task count is final; see the definition for why no reservation is needed.
 void   sync_attention_try_vtcm_workspace(SyncAttentionTaskState *state, int task_rows);
@@ -275,26 +315,27 @@ int flash_attn_try_single_token_output(uint8_t* pOut, const uint8_t* pV, int32_t
                                        int32_t seq_add, int32_t n_heads, int32_t n_kv_heads, int32_t head_dim,
                                        int32_t value_c4);
 
-int sync_attention(__fp16 *restrict O, const __fp16 *restrict Q, const float *restrict mask, uint8_t *workspace,
-                   __fp16 *pastK, __fp16 *pastV, int qo_len, int seq_current, int seq_add, int n_heads,
-                   int n_kv_heads, int head_dim, float scale, int mask_stride);
-int sync_attention_pages(__fp16 *restrict O, const __fp16 *restrict Q, const float *restrict mask, uint8_t *workspace,
-                         uint8_t **pastKPages, uint8_t **pastVPages, int qo_len, int seq_current, int seq_add,
-                         int n_heads, int n_kv_heads, int head_dim, float scale, int mask_stride,
-                         int page_count, int page_size, AsyncPushKVPagesState* async_push, int allow_online_pages);
+int  sync_attention(__fp16 *restrict O, const __fp16 *restrict Q, const float *restrict mask, uint8_t *workspace,
+                    __fp16 *pastK, __fp16 *pastV, int qo_len, int seq_current, int seq_add, int n_heads, int n_kv_heads,
+                    int head_dim, float scale, int mask_stride, int workspace_kv, int kv_chunk);
+int  sync_attention_pages(__fp16 *restrict O, const __fp16 *restrict Q, const float *restrict mask, uint8_t *workspace,
+                          uint8_t **pastKPages, uint8_t **pastVPages, int qo_len, int seq_current, int seq_add,
+                          int n_heads, int n_kv_heads, int head_dim, float scale, int mask_stride, int page_count,
+                          int page_size, AsyncPushKVPagesState *async_push, int allow_online_pages, int workspace_kv,
+                          int kv_chunk);
 void sync_attention_run_tasks(SyncAttentionTaskState* state, int n_tasks);
 
-extern "C" AEEResult htp_ops_flash_attn(uint8_t* pOut, uint8_t* pQ, uint8_t* pK, uint8_t* pV, uint8_t* pMask,
-                                        uint8_t* pWorkspace, uint8_t* pPastK, uint8_t* pPastV, int32_t qo_len,
+extern "C" AEEResult htp_ops_flash_attn(uint8_t *pOut, uint8_t *pQ, uint8_t *pK, uint8_t *pV, uint8_t *pMask,
+                                        uint8_t *pWorkspace, uint8_t *pPastK, uint8_t *pPastV, int32_t qo_len,
                                         int32_t seq_current, int32_t seq_add, int32_t n_heads, int32_t n_kv_heads,
                                         int32_t head_dim, float scale, int32_t mask_stride, int32_t max_kv_len,
-                                        int32_t value_c4);
-extern "C" AEEResult htp_ops_flash_attn_pages(uint8_t* pOut, uint8_t* pQ, uint8_t* pK, uint8_t* pV, uint8_t* pMask,
-                                              uint8_t* pWorkspace, uint8_t** pPastKPages, uint8_t** pPastVPages,
+                                        int32_t value_c4, int32_t workspace_kv);
+extern "C" AEEResult htp_ops_flash_attn_pages(uint8_t *pOut, uint8_t *pQ, uint8_t *pK, uint8_t *pV, uint8_t *pMask,
+                                              uint8_t *pWorkspace, uint8_t **pPastKPages, uint8_t **pPastVPages,
                                               int32_t qo_len, int32_t seq_current, int32_t seq_add, int32_t n_heads,
                                               int32_t n_kv_heads, int32_t head_dim, float scale, int32_t mask_stride,
                                               int32_t max_kv_len, int32_t page_count, int32_t page_size,
-                                              int32_t value_c4);
+                                              int32_t value_c4, int32_t workspace_kv);
 extern "C" AEEResult htp_ops_vision_flash_attention_fp16(uint8_t *pOut, const uint8_t *pQ, const uint8_t *pK,
                                                          const uint8_t *pV, const uint8_t *pMask, uint8_t *pWorkspace,
                                                          int batch, int tokens, int heads, int headDim, float scale,
