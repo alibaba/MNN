@@ -268,6 +268,8 @@ class LlmExporter(torch.nn.Module):
             MNNConverter(self, None).export(eagle_fc_onnx)
 
     def export_dflash(self):
+        if self.args.dspark_path is not None:
+            return self.export_dspark()
         if not hasattr(self.args, 'dflash_path') or self.args.dflash_path is None:
             return
         from utils.dflash import DFlash
@@ -286,6 +288,47 @@ class LlmExporter(torch.nn.Module):
             # causes int8 quantization overflow and produces all-zero outputs.
             MNNConverter(self, None).export(dflash_fc_onnx, quant_bit=0, transformer_fuse=False)
             MNNConverter(self, self.dflash.unloaded_ops).export(dflash_kvmat_onnx, transformer_fuse=False)
+
+    def export_dspark(self):
+        from utils.dspark import DSpark
+        self.dspark = DSpark(self.args.dspark_path, self.model)
+        # model.forward() needs the target layer ids before export_language() runs.
+        self.args.dflash_target_layer_ids = self.dspark.target_layer_ids
+        (dspark_onnx, dspark_fc_onnx, dspark_kvmat_onnx,
+         dspark_markov_w1_onnx, dspark_markov_w2_onnx) = self.dspark.export(self.onnx_path)
+        if self.mnn_converter:
+            # The draft runs once per speculative step, so its weight size sits on the critical
+            # path. Quantizing it like the target measured both faster and *more* accepted
+            # (4-bit: 3.41 tokens/step vs fp16's 2.46) -- the target is 4-bit itself, so the
+            # same rounding moves the draft toward it rather than away.
+            # The draft's lm_head is the one projection the argmax reads directly, so it gets
+            # more precision than the rest of the draft: 4 bits there cost a fifth of the accept
+            # length, 8 bits recovered it, and 16 bits only added weight for no further gain.
+            prev_lm_quant_bit = self.args.lm_quant_bit
+            self.args.lm_quant_bit = 8
+            # Same fleet as DFlash: the draft attention is bidirectional, so transformer fusing
+            # (causal-only) must stay off, and the fc input spans target layers with a huge
+            # dynamic range, so it cannot be quantized.
+            MNNConverter(self, self.dspark.unloaded_ops).export(dspark_onnx, transformer_fuse=False)
+            # The draft's own settings must not leak into the target, which exports later with
+            # its own lm_head width.
+            self.args.lm_quant_bit = prev_lm_quant_bit
+            MNNConverter(self, None).export(dspark_fc_onnx, quant_bit=0, transformer_fuse=False)
+            # Unquantized like the fc: these weights feed k_norm, which amplifies the
+            # per-channel error of a 4-bit round trip into the draft's whole context.
+            MNNConverter(self, self.dspark.unloaded_ops).export(dspark_kvmat_onnx, quant_bit=0,
+                                                               transformer_fuse=False)
+            if self.dspark.markov_rank:
+                # w1 is a gather whose output feeds a dot product; quantizing it would put its
+                # error straight into the chain. w2 is the one big matrix the chain multiplies,
+                # so it gets the same weight-only quantization the target's own projections use.
+                # w1 carries no FakeLinear, so passing unloaded_ops would only buy it a needless
+                # mnn2json round trip -- one that inlined the 38.9M-entry table and wrote a 385 MB
+                # JSON next to a weight file that already held the same bytes.
+                MNNConverter(self, None).export(dspark_markov_w1_onnx, quant_bit=0,
+                                                transformer_fuse=False)
+                MNNConverter(self, None).export(dspark_markov_w2_onnx, quant_bit=8,
+                                                transformer_fuse=False)
 
 
     @spinner_run(f'export embedding to ')
@@ -420,7 +463,22 @@ class LlmExporter(torch.nn.Module):
             if self.args.eagle_path is not None:
                 config['speculative_type'] = 'eagle'
                 config['hidden_states'] = True
-            if hasattr(self.args, 'dflash_path') and self.args.dflash_path is not None:
+            if self.args.dspark_path is not None:
+                # DSpark keeps DFlash's runtime; only the draft graph differs (lm_head and
+                # Markov bias baked in), so it needs no shared lm_head subgraph.
+                config['speculative_type'] = 'dflash'
+                config['hidden_states'] = True
+                config['dflash_model'] = 'dspark.mnn'
+                config['dflash_fc'] = 'dspark_fc.mnn'
+                config['dflash_kvmat'] = 'dspark_kvmat.mnn'
+                if self.dspark.markov_rank:
+                    config['dflash_markov_w1'] = 'dspark_markov_w1.mnn'
+                    config['dflash_markov_w2'] = 'dspark_markov_w2.mnn'
+                config['dflash_block_size'] = self.dspark.block_size
+                config['dflash_mask_token_id'] = self.dspark.mask_token_id
+                config['dflash_target_layer_ids'] = self.dspark.target_layer_ids
+                config['dflash_shift_label'] = self.dspark.shift_label
+            elif hasattr(self.args, 'dflash_path') and self.args.dflash_path is not None:
                 config['speculative_type'] = 'dflash'
                 config['hidden_states'] = True
                 config['dflash_model'] = 'dflash.mnn'
@@ -1009,6 +1067,7 @@ def build_args(parser):
     parser.add_argument('--tokenizer_path', type=str, default=None, help='tokenizer path, default is `None` mean using `--path` value.')
     parser.add_argument('--eagle_path', type=str, default=None, help='eagle model path, default is `None`')
     parser.add_argument('--dflash_path', type=str, default=None, help='dflash draft model path, default is `None`')
+    parser.add_argument('--dspark_path', type=str, default=None, help='dspark draft model path, default is `None`')
     parser.add_argument('--lora_path', type=str, default=None, help='lora path, default is `None` mean not apply lora.')
     parser.add_argument('--gptq_path', type=str, default=None, help='gptq path, default is `None` mean not apply gptq.')
     parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, default is `./model`.')

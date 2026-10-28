@@ -720,6 +720,27 @@ public:
     std::string dflash_kvmat() const {
         return base_dir_ + config_.value("dflash_kvmat", "dflash_kvmat.mnn");
     }
+    // Empty when the draft has no Markov head (plain DFlash); DSpark always sets it.
+    std::string dflash_markov() const {
+        if (!config_.contains("dflash_markov")) {
+            return std::string{};
+        }
+        return base_dir_ + config_.value("dflash_markov", std::string{});
+    }
+    // Split Markov head: w1 maps prev token -> rank vector, w2 maps that -> vocab-wide bias.
+    // Empty when the model ships the older single-file tables.
+    std::string dflash_markov_w1() const {
+        if (!config_.contains("dflash_markov_w1")) {
+            return std::string{};
+        }
+        return base_dir_ + config_.value("dflash_markov_w1", std::string{});
+    }
+    std::string dflash_markov_w2() const {
+        if (!config_.contains("dflash_markov_w2")) {
+            return std::string{};
+        }
+        return base_dir_ + config_.value("dflash_markov_w2", std::string{});
+    }
     // Must equal the block size baked into dflash.mnn.
     int dflash_block_size() const {
         return config_.value("dflash_block_size", 8);
@@ -735,9 +756,8 @@ public:
         return config_.value("dflash_target_layer_ids", std::vector<int>{});
     }
     // Target's post-final-norm tensor name in llm.mnn; the engine loads the subgraph
-    // {this tensor -> logits} so the draft reuses the target's lm_head. Empty = disabled.
-    // Target's post-final-norm tensor name in llm.mnn; mandatory for DFlash (the draft has
-    // no lm_head of its own). Empty = refused at load with a re-export hint.
+    // {this tensor -> logits} so the draft reuses the target's lm_head. Empty means the
+    // draft emits its own logits (DSpark bakes lm_head and its Markov bias in).
     std::string dflash_shared_lmhead_input() const {
         return config_.value("dflash_shared_lmhead_input", std::string{});
     }

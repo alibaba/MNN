@@ -176,7 +176,21 @@ class MNNConverter:
             mnn_json = f'{self.mnn_model_path}.json'
             self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native, weight_sym=weight_sym)
             self.mnn2json(self.mnn_model_path, mnn_json)
-            self.rebuild(mnn_json)
+            # rebuild() reads the width off args, not off this call, so a per-export override
+            # has to be staged there -- the same way lm_quant_bit is handled at the call site.
+            # quant_bit 0 means "leave these weights alone", which the direct path spells
+            # --weightQuantBits 0 but rebuild spells as 16 (keep fp16).
+            prev_quant_bit = self.args.quant_bit
+            prev_quant_block = self.args.quant_block
+            if quant_bit is not None:
+                self.args.quant_bit = 16 if quant_bit == 0 else quant_bit
+            if quant_block is not None:
+                self.args.quant_block = quant_block
+            try:
+                self.rebuild(mnn_json)
+            finally:
+                self.args.quant_bit = prev_quant_bit
+                self.args.quant_block = prev_quant_block
             self.json2mnn(mnn_json, self.mnn_model_path)
             # HunyuanVL needs the explicit q/k/v reshape boundary before Attention.
             # The extra optimize pass can bypass v_proj's post_reshape into Attention.
