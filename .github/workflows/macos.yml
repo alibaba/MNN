@@ -1,37 +1,29 @@
 name: macos
-on:
-  push:
-    branches:
-     - master
-     - 'feature/**'
-    paths:
-      - 'source/**'
-      - 'express/**'
-      - 'test/**'
-      - '.github/workflows/macos.yml'
-  pull_request:
-    branches: [master]
-    paths:
-      - 'source/**'
-      - 'express/**'
-      - 'test/**'
-      - '.github/workflows/macos.yml'
-
 concurrency:
   group: macos-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
-
 jobs:
   macos_buil_test:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: build
-        run: |
-            mkdir build && cd build
-            cmake .. -DMNN_BUILD_TEST=ON -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_OPENCL=ON -DMNN_VULKAN=ON
-            make -j4
-      - name: test
-        run: cd build && ./run_test.out
+    - uses: actions/checkout@v3
+      with:
+        ref: afaad562a14af40939c3ac2035a0f3f2a4a528cc
+        persist-credentials: false
+    - name: build
+      run: 'mkdir build && cd build
+
+        cmake .. -DMNN_BUILD_TEST=ON -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true
+        -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true
+        -DMNN_BUILD_AUDIO=true -DMNN_OPENCL=ON -DMNN_VULKAN=ON
+
+        make -j4
+
+        '
+    - name: test
+      run: cd build && ./run_test.out
+'on':
+  workflow_dispatch: {}
+run-name: macos / master afaad562 / dry run

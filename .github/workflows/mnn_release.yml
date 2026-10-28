@@ -1,11 +1,4 @@
 name: mnn_release
-on:
-  push:
-    tags:
-      - '*'
-      - '!Android*'
-  workflow_dispatch:
-
 jobs:
   setup:
     permissions:
@@ -16,17 +9,12 @@ jobs:
     steps:
     - name: get-version
       id: get_version
-      run: |
-        if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-          # 提取标签版本号
-          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        else
-          # 如果不是标签，则设置版本为 'dev'
-          echo "VERSION=dev" >> $GITHUB_OUTPUT
-        fi
+      run: 'echo "VERSION=dev-afaad562" >> "$GITHUB_OUTPUT"
 
+        '
   linux-release:
-    needs: [setup]
+    needs:
+    - setup
     runs-on: ubuntu-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_linux_x64_cpu_opencl_vulkan
@@ -34,24 +22,33 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
+        ref: afaad562a14af40939c3ac2035a0f3f2a4a528cc
+        persist-credentials: false
     - name: build
-      run: |
-        # j24 -> j4 avoid ld signal 9
+      run: '# j24 -> j4 avoid ld signal 9
+
         sed -i "s/-j24/-j4/g" package_scripts/linux/build_lib.sh
+
         # LLM (+ vision/audio) is already enabled in build_lib.sh by default.
+
         ./package_scripts/linux/build_lib.sh -o ${{ env.PACKAGENAME }}/lib -b opencl,vulkan -s -c
+
+        '
     - name: package
-      run: |
-        rm -f ${{ env.PACKAGENAME }}.zip
+      run: 'rm -f ${{ env.PACKAGENAME }}.zip
+
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
+
+        '
     - name: upload-zip
       uses: actions/upload-artifact@v4
       with:
         name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
-
+        if-no-files-found: error
   windows-release:
-    needs: [setup]
+    needs:
+    - setup
     runs-on: windows-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl_vulkan_avx512
@@ -59,13 +56,11 @@ jobs:
     - uses: actions/checkout@v4
       with:
         submodules: true
-
+        ref: afaad562a14af40939c3ac2035a0f3f2a4a528cc
+        persist-credentials: false
     - name: using msvc
       uses: ilammy/msvc-dev-cmd@v1
-
     - name: build
-      # LLM (+ vision/audio) + OpenCL + Vulkan + AVX512 are already enabled in
-      # build_lib_release.ps1 by default.
       run: powershell .\package_scripts\win\build_lib_release.ps1 -path ${{ env.PACKAGENAME }}
     - name: package
       run: 7z a -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
@@ -74,9 +69,10 @@ jobs:
       with:
         name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
-
+        if-no-files-found: error
   macos-release:
-    needs: [setup]
+    needs:
+    - setup
     runs-on: macos-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_macos_x64_arm82_cpu_opencl_metal
@@ -84,30 +80,29 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
-
+        ref: afaad562a14af40939c3ac2035a0f3f2a4a528cc
+        persist-credentials: false
     - name: build
-      # Pass release-specific cmake args via `$*` (forwarded to cmake by buildFrameWork.sh).
-      # - MNN_BUILD_LLM=ON  implicitly enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
-      # - MNN_BUILD_LLM_OMNI=ON implicitly enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
-      #   which in turn auto-define LLM_SUPPORT_VISION / LLM_SUPPORT_AUDIO inside the llm engine.
-      run: |
-        ./package_scripts/mac/buildFrameWork.sh \
-          -DMNN_BUILD_LLM=ON \
-          -DMNN_BUILD_LLM_OMNI=ON
+      run: "./package_scripts/mac/buildFrameWork.sh \\\n  -DMNN_BUILD_LLM=ON \\\n  -DMNN_BUILD_LLM_OMNI=ON\n"
     - name: package
-      run: |
-        rm -rf ${{ env.PACKAGENAME }}
+      run: 'rm -rf ${{ env.PACKAGENAME }}
+
         mv MNN-MacOS-CPU-GPU ${{ env.PACKAGENAME }}
+
         rm -f ${{ env.PACKAGENAME }}.zip
+
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
+
+        '
     - name: upload-zip
       uses: actions/upload-artifact@v4
       with:
         name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
-
+        if-no-files-found: error
   android-release:
-    needs: [setup]
+    needs:
+    - setup
     runs-on: ubuntu-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_android_armv7_armv8_cpu_opencl_vulkan
@@ -115,39 +110,35 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
+        ref: afaad562a14af40939c3ac2035a0f3f2a4a528cc
+        persist-credentials: false
     - name: setup-ndk
       uses: nttld/setup-ndk@v1
       id: setup-ndk
       with:
-        # NDK r27+ is required for 16KB page-size support (Android 15+).
-        # r27 dropped support for API < 21, so 32-bit armv7 must use API >= 21.
         ndk-version: r27c
         add-to-path: false
     - name: build
-      # build.sh already enables LLM + OpenCV + Vulkan + OpenCL + multi-modal by default.
-      # We inject the following extras via sed (script kept unchanged):
-      #   * -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON  -- enables 16KB page size
-      #     (Google Play requirement starting Nov 2025)
-      #   * Bump 32-bit armv7 API level android-14 -> android-21 (NDK r27 minimum)
       env:
         ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
-      run: |
-        sed -i 's|^CMAKEARGS="\(.*\)"$|CMAKEARGS="\1 -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"|' \
-          package_scripts/android/build.sh
-        sed -i 's|android-14|android-21|g' package_scripts/android/build.sh
-        ./package_scripts/android/build.sh -o ${{ env.PACKAGENAME }}
+      run: "sed -i 's|^CMAKEARGS=\"\\(.*\\)\"$|CMAKEARGS=\"\\1 -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON\"|' \\\n  package_scripts/android/build.sh\n\
+        sed -i 's|android-14|android-21|g' package_scripts/android/build.sh\n./package_scripts/android/build.sh -o ${{ env.PACKAGENAME\
+        \ }}\n"
     - name: package
-      run: |
-        rm -f ${{ env.PACKAGENAME }}.zip
+      run: 'rm -f ${{ env.PACKAGENAME }}.zip
+
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
+
+        '
     - name: upload-zip
       uses: actions/upload-artifact@v4
       with:
         name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
-
+        if-no-files-found: error
   harmony-release:
-    needs: [setup]
+    needs:
+    - setup
     runs-on: ubuntu-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_harmony_arm64_cpu
@@ -155,31 +146,32 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
+        ref: afaad562a14af40939c3ac2035a0f3f2a4a528cc
+        persist-credentials: false
     - name: Setup OpenHarmony SDK
       id: setup-ohos
       uses: openharmony-rs/setup-ohos-sdk@v1.0.0
       with:
-        # OpenHarmony 5.0.0 == API 12. Bump when a newer SDK is well tested.
-        version: '5.0.0'
+        version: 5.0.0
     - name: build
-      # package_scripts/harmony/build.sh already enables LLM + multi-modal +
-      # ARM82 + SME2 + BF16. It reads $OHOS_SDK_NATIVE (set below) to locate
-      # the OHOS cmake toolchain file.
       env:
         OHOS_SDK_NATIVE: ${{ steps.setup-ohos.outputs.ohos_sdk_native }}
       run: ./package_scripts/harmony/build.sh -o ${{ env.PACKAGENAME }}
     - name: package
-      run: |
-        rm -f ${{ env.PACKAGENAME }}.zip
+      run: 'rm -f ${{ env.PACKAGENAME }}.zip
+
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
+
+        '
     - name: upload-zip
       uses: actions/upload-artifact@v4
       with:
         name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
-
+        if-no-files-found: error
   ios-release:
-    needs: [setup]
+    needs:
+    - setup
     runs-on: macos-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_ios_armv82_cpu_metal
@@ -187,46 +179,60 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
-
+        ref: afaad562a14af40939c3ac2035a0f3f2a4a528cc
+        persist-credentials: false
     - name: build
-      # Pass release-specific cmake args via `$*` (forwarded to cmake by buildiOS.sh).
-      # - MNN_BUILD_LLM=ON  implicitly enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
-      # - MNN_BUILD_LLM_OMNI=ON implicitly enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
-      #   which in turn auto-define LLM_SUPPORT_VISION / LLM_SUPPORT_AUDIO inside the llm engine.
-      run: |
-        brew install coreutils
-        ./package_scripts/ios/buildiOS.sh \
-          -DMNN_BUILD_LLM=ON \
-          -DMNN_BUILD_LLM_OMNI=ON
-
+      run: "brew install coreutils\n./package_scripts/ios/buildiOS.sh \\\n  -DMNN_BUILD_LLM=ON \\\n  -DMNN_BUILD_LLM_OMNI=ON\n"
     - name: package
-      run: |
-        rm -f ${{ env.PACKAGENAME }}.zip
+      run: 'rm -f ${{ env.PACKAGENAME }}.zip
+
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip MNN-iOS-CPU-GPU/Static/MNN.framework
+
+        '
     - name: upload-zip
       uses: actions/upload-artifact@v4
       with:
         name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
-
+        if-no-files-found: error
   upload-release:
-    name: upload_to_release
-    needs: [linux-release, windows-release, macos-release, android-release, ios-release, harmony-release]
+    name: Validate release artifacts (no publication)
+    needs:
+    - linux-release
+    - windows-release
+    - macos-release
+    - android-release
+    - ios-release
+    - harmony-release
     runs-on: ubuntu-latest
     steps:
     - uses: actions/download-artifact@v4
       with:
         pattern: artifact-*
-        path: assert
+        path: dist
         merge-multiple: true
-
-    - name: show file
-      run: ls assert
-
-    - uses: xresloader/upload-to-github-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/setup-python@v5
       with:
-        file: assert/*.zip
-        tags: true
-        draft: true
+        python-version: '3.12'
+    - name: Validate all platform ZIPs and prepare upload manifest
+      shell: bash
+      run: "python - <<'PY'\nimport hashlib, json, pathlib, zipfile\nfiles = sorted(pathlib.Path('dist').glob('*.zip'))\n\
+        assert len(files) == 6, f'Expected six platform archives, found {len(files)}'\nmanifest = []\nfor path in files:\n\
+        \    with zipfile.ZipFile(path) as archive:\n        assert archive.namelist(), f'Empty archive: {path}'\n       \
+        \ bad = archive.testzip()\n        assert bad is None, f'Corrupt ZIP entry: {path}: {bad}'\n    manifest.append({'file':\
+        \ path.name, 'bytes': path.stat().st_size,\n                     'sha256': hashlib.file_digest(path.open('rb'), 'sha256').hexdigest()})\n\
+        pathlib.Path('release-manifest.json').write_text(json.dumps(manifest, indent=2))\nprint(json.dumps(manifest, indent=2))\n\
+        PY\n"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: release-dry-run-manifest
+        path: release-manifest.json
+        if-no-files-found: error
+'on':
+  push:
+    branches:
+    - feature/ci-release-dry-run-20261028-afaad562
+  workflow_dispatch: {}
+permissions:
+  contents: read
+run-name: mnn_release / master afaad562 / dry run

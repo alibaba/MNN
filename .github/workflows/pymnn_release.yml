@@ -1,19 +1,4 @@
 name: pymnn_release
-on:
-  push:
-    paths:
-      - '.github/workflows/pymnn_release.yml'
-    tags:
-      - '*'
-      - '!Android*'
-  workflow_dispatch:
-    inputs:
-      publish_to_pypi:
-        description: Publish wheels to PyPI after a successful build
-        required: false
-        type: boolean
-        default: false
-
 jobs:
   build_wheels:
     name: ${{ matrix.arch }} ${{ matrix.build }} on ${{ matrix.os }}
@@ -22,29 +7,36 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,    arch: x86_64,     build: 'cp3{8,9,10,11,12,13,14}-manylinux*' }
-          - { os: ubuntu-24.04-arm, arch: aarch64,    build: 'cp3{8,9,10,11,12,13,14}-manylinux*' }
-          - { os: windows-latest,   arch: AMD64,      build: 'cp3{8,9,10,11,12,13,14}-*'          }
-          - { os: macos-14,         arch: x86_64,     build: 'cp3{8,9,10,11,12,13,14}-*'          }
-          - { os: macos-14,         arch: arm64,      build: 'cp3{8,9,10,11,12,13,14}-*'          }
-
+        - os: ubuntu-latest
+          arch: x86_64
+          build: cp3{8,9,10,11,12,13,14}-manylinux*
+        - os: ubuntu-24.04-arm
+          arch: aarch64
+          build: cp3{8,9,10,11,12,13,14}-manylinux*
+        - os: windows-latest
+          arch: AMD64
+          build: cp3{8,9,10,11,12,13,14}-*
+        - os: macos-14
+          arch: x86_64
+          build: cp3{8,9,10,11,12,13,14}-*
+        - os: macos-14
+          arch: arm64
+          build: cp3{8,9,10,11,12,13,14}-*
     steps:
     - uses: actions/checkout@v3
       with:
         submodules: true
-
+        ref: afaad562a14af40939c3ac2035a0f3f2a4a528cc
+        persist-credentials: false
     - name: using msvc
       if: matrix.os == 'windows-latest'
       uses: ilammy/msvc-dev-cmd@v1
-
     - uses: actions/setup-python@v4
       with:
         python-version: '3.12'
-
     - name: install pipx
       if: matrix.os == 'macos-14'
       run: python -m pip install pipx
-
     - name: Build wheels
       uses: pypa/cibuildwheel@v3.4.1
       env:
@@ -57,42 +49,74 @@ jobs:
       with:
         package-dir: pymnn/pip_package
         output-dir: wheelhouse
-        config-file: "{package}/pyproject.toml"
-
+        config-file: '{package}/pyproject.toml'
     - name: Show files
       run: ls -lh wheelhouse
       shell: bash
-
     - name: Verify clean directory
       run: git diff --exit-code
       shell: bash
-
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
         name: artifact-${{ matrix.os }}-${{ matrix.arch }}
         path: wheelhouse/*.whl
-
+        if-no-files-found: error
   publish_wheels:
-    if: github.event_name == 'push' || inputs.publish_to_pypi
-    permissions:
-      contents: none
-      id-token: write
-    name: Upload
-    needs: [build_wheels]
+    name: Validate wheels and simulate upload locally
+    needs:
+    - build_wheels
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/setup-python@v4
+    - uses: actions/setup-python@v5
       with:
-        python-version: '3.x'
-
+        python-version: '3.12'
     - uses: actions/download-artifact@v4
       with:
         pattern: artifact-*
         path: dist
         merge-multiple: true
+    - name: Validate distribution metadata
+      run: 'python -m pip install twine
 
-    - uses: pypa/gh-action-pypi-publish@release/v1
+        python -m twine check dist/*.whl
+
+        '
+    - name: Exercise Twine upload against a loopback-only server
+      shell: bash
+      run: "python - <<'PY'\nimport email.policy, hashlib, http.server, json, pathlib, subprocess, sys, threading\nfrom email.parser\
+        \ import BytesParser\nfiles = sorted(pathlib.Path('dist').glob('*.whl'))\nassert files, 'No wheels produced'\nexpected\
+        \ = {p.name: hashlib.file_digest(p.open('rb'), 'sha256').hexdigest() for p in files}\nreceived = []\nclass Handler(http.server.BaseHTTPRequestHandler):\n\
+        \    def do_POST(self):\n        try:\n            body = self.rfile.read(int(self.headers['Content-Length']))\n \
+        \           header = ('Content-Type: ' + self.headers['Content-Type'] + '\\r\\nMIME-Version: 1.0\\r\\n\\r\\n').encode()\n\
+        \            message = BytesParser(policy=email.policy.default).parsebytes(header + body)\n            fields = {}\n\
+        \            payload = None\n            filename = None\n            for part in message.iter_parts():\n        \
+        \        name = part.get_param('name', header='content-disposition')\n                if name == 'content':\n    \
+        \                filename = part.get_filename()\n                    payload = part.get_payload(decode=True)\n   \
+        \             else:\n                    fields[name] = part.get_payload(decode=True).decode()\n            assert\
+        \ fields[':action'] == 'file_upload'\n            assert fields['protocol_version'] == '1'\n            assert filename\
+        \ in expected\n            digest = hashlib.sha256(payload).hexdigest()\n            assert digest == fields['sha256_digest']\
+        \ == expected[filename]\n            received.append({'file': filename, 'bytes': len(payload), 'sha256': digest})\n\
+        \            self.send_response(200)\n            self.end_headers()\n            self.wfile.write(b'OK: local simulation\
+        \ only')\n        except Exception as error:\n            self.send_response(400)\n            self.end_headers()\n\
+        \            self.wfile.write(str(error).encode())\n    def log_message(self, fmt, *args):\n        pass\nserver =\
+        \ http.server.HTTPServer(('127.0.0.1', 0), Handler)\nthread = threading.Thread(target=server.serve_forever, daemon=True)\n\
+        thread.start()\ntry:\n    subprocess.run([sys.executable, '-m', 'twine', 'upload', '--non-interactive',\n        \
+        \            '--repository-url', f'http://127.0.0.1:{server.server_port}/legacy/',\n                    '--username',\
+        \ 'dry-run', '--password', 'dry-run',\n                    *map(str, files)], check=True)\nfinally:\n    server.shutdown()\n\
+        \    server.server_close()\nassert sorted(item['file'] for item in received) == sorted(expected)\npathlib.Path('mock-upload-manifest.json').write_text(json.dumps(received,\
+        \ indent=2))\nprint(f'Validated {len(received)} uploads against a loopback-only mock. No PyPI upload occurred.')\n\
+        PY\n"
+    - uses: actions/upload-artifact@v4
       with:
-        skip_existing: true
+        name: pypi-dry-run-manifest
+        path: mock-upload-manifest.json
+        if-no-files-found: error
+'on':
+  push:
+    branches:
+    - feature/ci-release-dry-run-20261028-afaad562
+  workflow_dispatch: {}
+permissions:
+  contents: read
+run-name: pymnn_release / master afaad562 / dry run

@@ -1,22 +1,21 @@
 name: Validate Fastlane metadata
-
-on:
-  workflow_dispatch:
-  push:
-      branches: [ "master" ]
-      paths:
-        - 'apps/Android/MnnLlmChat/app/fastlane/**'
-  pull_request:
-      branches: [ "master" ]
-      paths:
-        - 'apps/Android/MnnLlmChat/app/fastlane/**'
-
 jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Validate Fastlane Supply Metadata
-        uses: ashutoshgngwr/validate-fastlane-supply-metadata@v2
-        with:
-          fastlaneDir: apps/Android/MnnLlmChat/app/fastlane/metadata/android
+    - uses: actions/checkout@v4
+      with:
+        ref: afaad562a14af40939c3ac2035a0f3f2a4a528cc
+        persist-credentials: false
+    - name: Validate Fastlane Supply Metadata
+      uses: ashutoshgngwr/validate-fastlane-supply-metadata@v2
+      with:
+        fastlaneDir: apps/Android/MnnLlmChat/app/fastlane/metadata/android
+'on':
+  push:
+    branches:
+    - feature/ci-release-dry-run-20261028-afaad562
+  workflow_dispatch: {}
+permissions:
+  contents: read
+run-name: Validate Fastlane metadata / master afaad562 / dry run
