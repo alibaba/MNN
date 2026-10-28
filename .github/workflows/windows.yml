@@ -1,36 +1,30 @@
 name: windows
-on:
-  push:
-    branches:
-     - master
-     - 'feature/**'
-    paths:
-      - 'source/**'
-      - 'express/**'
-      - 'test/**'
-      - 'transformers/llm/engine/**'
-      - '.github/workflows/windows.yml'
-  pull_request:
-    branches: [master]
-    paths:
-      - 'source/**'
-      - 'express/**'
-      - 'test/**'
-      - '.github/workflows/windows.yml'
-
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
-
 jobs:
   windows_build_test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: test
-        run: |
-            mkdir build && cd build
-            cmake .. -DMNN_BUILD_TEST=ON -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_VULKAN=ON -DMNN_OPENCL=ON
-            cmake --build . -j4
+    - uses: actions/checkout@v3
+      with:
+        ref: ce2f41ec8cd3cfbb95ccdbe4225631ccf00bbea6
+        persist-credentials: false
+    - name: test
+      run: 'mkdir build && cd build
+
+        cmake .. -DMNN_BUILD_TEST=ON -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true
+        -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true
+        -DMNN_BUILD_AUDIO=true -DMNN_VULKAN=ON -DMNN_OPENCL=ON
+
+        cmake --build . -j4
+
+        '
+'on':
+  push:
+    branches:
+    - feature/ci-release-dry-run-20261028-ce2f41ec
+  workflow_dispatch: {}
+run-name: windows / master ce2f41ec / dry run

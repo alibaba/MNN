@@ -1,63 +1,53 @@
 name: Code Format
-
-on:
-  pull_request:
-    branches: [master]
-
 permissions:
   contents: read
-
 jobs:
   check-commit-msg:
     name: Check Commit Message Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Validate commit messages
-        run: |
-          errors=0
-          for sha in $(git log --format=%H origin/master..HEAD); do
-            msg=$(git log -1 --format=%s "$sha")
-            # Allow merge commits
-            if echo "$msg" | grep -qE "^Merge "; then
-              continue
-            fi
-            if ! echo "$msg" | grep -qE '^\[[A-Za-z0-9]+:(Feature|Bugfix|Perf|Refact|Style|Doc|Test|Chore)\] .+'; then
-              echo "BAD: $sha $msg"
-              errors=1
-            fi
-          done
-          if [ "$errors" -eq 1 ]; then
-            echo ""
-            echo "Commit message must match: [Module:Type] Description"
-            echo "  Module: LLM, CPU, Metal, CUDA, OpenCL, Vulkan, Core, Infra, Doc, etc."
-            echo "  Type:   Feature, Bugfix, Perf, Refact, Style, Doc, Test, Chore"
-            exit 1
-          fi
-
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ce2f41ec8cd3cfbb95ccdbe4225631ccf00bbea6
+        persist-credentials: false
+    - name: Validate commit messages
+      run: "errors=0\nfor sha in $(git log --format=%H origin/master..HEAD); do\n  msg=$(git log -1 --format=%s \"$sha\")\n\
+        \  # Allow merge commits\n  if echo \"$msg\" | grep -qE \"^Merge \"; then\n    continue\n  fi\n  if ! echo \"$msg\"\
+        \ | grep -qE '^\\[[A-Za-z0-9]+:(Feature|Bugfix|Perf|Refact|Style|Doc|Test|Chore)\\] .+'; then\n    echo \"BAD: $sha\
+        \ $msg\"\n    errors=1\n  fi\ndone\nif [ \"$errors\" -eq 1 ]; then\n  echo \"\"\n  echo \"Commit message must match:\
+        \ [Module:Type] Description\"\n  echo \"  Module: LLM, CPU, Metal, CUDA, OpenCL, Vulkan, Core, Infra, Doc, etc.\"\n\
+        \  echo \"  Type:   Feature, Bugfix, Perf, Refact, Style, Doc, Test, Chore\"\n  exit 1\nfi\n"
   check-format:
     name: Check Changed Lines Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Install clang-format-17
-        run: |
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-17 main" | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update
-          sudo apt-get install -y clang-format-17
-          sudo ln -sf /usr/bin/clang-format-17 /usr/bin/clang-format
-          sudo ln -sf /usr/bin/git-clang-format-17 /usr/bin/git-clang-format
-      - name: Check format of changed lines
-        run: |
-          git clang-format --diff origin/master --extensions cpp,c,h,hpp,cc,m,mm > /tmp/format.diff 2>&1 || true
-          if grep -q "^diff" /tmp/format.diff; then
-            echo "Format issues in changed lines:"
-            cat /tmp/format.diff
-            exit 1
-          fi
-          echo "All changed lines are properly formatted."
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ce2f41ec8cd3cfbb95ccdbe4225631ccf00bbea6
+        persist-credentials: false
+    - name: Install clang-format-17
+      run: 'wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+
+        echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-17 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+
+        sudo apt-get update
+
+        sudo apt-get install -y clang-format-17
+
+        sudo ln -sf /usr/bin/clang-format-17 /usr/bin/clang-format
+
+        sudo ln -sf /usr/bin/git-clang-format-17 /usr/bin/git-clang-format
+
+        '
+    - name: Check format of changed lines
+      run: "git clang-format --diff origin/master --extensions cpp,c,h,hpp,cc,m,mm > /tmp/format.diff 2>&1 || true\nif grep\
+        \ -q \"^diff\" /tmp/format.diff; then\n  echo \"Format issues in changed lines:\"\n  cat /tmp/format.diff\n  exit\
+        \ 1\nfi\necho \"All changed lines are properly formatted.\"\n"
+'on':
+  push:
+    branches:
+    - feature/ci-release-dry-run-20261028-ce2f41ec
+  workflow_dispatch: {}
+run-name: Code Format / master ce2f41ec / dry run

@@ -1,38 +1,38 @@
 name: pymnn-linux
-on:
-  push:
-    branches:
-     - master
-     - 'feature/**'
-    paths:
-      - 'pymnn/**'
-      - '.github/workflows/pymnn_linux.yml'
-  pull_request:
-    branches: [master]
-    paths:
-      - 'pymnn/**'
-      - '.github/workflows/pymnn_linux.yml'
-
 concurrency:
   group: pymnn-linux-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
-
 jobs:
   pymnn_linux_buil_test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: prepare
-        run: |
-            sudo pip3 install "numpy<2.5" "opencv-python<5" torch
-      - name: build
-        run: |
-            cd pymnn/pip_package
-            python3 build_deps.py llm
-            sudo python3 setup.py install --version 1.0
-      - name: test
-        run: |
-            cd pymnn/test
-            python3 unit_test.py
+    - uses: actions/checkout@v3
+      with:
+        ref: ce2f41ec8cd3cfbb95ccdbe4225631ccf00bbea6
+        persist-credentials: false
+    - name: prepare
+      run: 'sudo pip3 install "numpy<2.5" "opencv-python<5" torch
+
+        '
+    - name: build
+      run: 'cd pymnn/pip_package
+
+        python3 build_deps.py llm
+
+        sudo python3 setup.py install --version 1.0
+
+        '
+    - name: test
+      run: 'cd pymnn/test
+
+        python3 unit_test.py
+
+        '
+'on':
+  push:
+    branches:
+    - feature/ci-release-dry-run-20261028-ce2f41ec
+  workflow_dispatch: {}
+run-name: pymnn-linux / master ce2f41ec / dry run

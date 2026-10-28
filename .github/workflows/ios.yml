@@ -1,44 +1,32 @@
 name: ios
-on:
-  push:
-    branches:
-     - master
-     - 'feature/**'
-    paths:
-      - 'source/**'
-      - 'express/**'
-      - 'test/**'
-      - 'project/ios/**'
-      - '.github/workflows/ios.yml'
-  pull_request:
-    branches: [master]
-    paths:
-      - 'source/**'
-      - 'express/**'
-      - 'test/**'
-      - 'project/ios/**'
-      - '.github/workflows/ios.yml'
-
 concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
-
 jobs:
   ios_build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+        ref: ce2f41ec8cd3cfbb95ccdbe4225631ccf00bbea6
+        persist-credentials: false
+    - name: build-framework
+      run: 'brew install coreutils
 
-      - name: build-framework
-        run: |
-          brew install coreutils
-          ./package_scripts/ios/xcodebuildiOS.sh -o ios_build
-        shell: bash
+        ./package_scripts/ios/xcodebuildiOS.sh -o ios_build
 
-      - name: show-framework
-        run: |
-            ls -lh ios_build
+        '
+      shell: bash
+    - name: show-framework
+      run: 'ls -lh ios_build
+
+        '
+'on':
+  push:
+    branches:
+    - feature/ci-release-dry-run-20261028-ce2f41ec
+  workflow_dispatch: {}
+run-name: ios / master ce2f41ec / dry run
