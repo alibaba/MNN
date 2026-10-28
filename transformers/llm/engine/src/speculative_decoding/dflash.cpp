@@ -8,6 +8,7 @@
 //  and generates an entire block of draft tokens in a single forward pass.
 //
 
+#include <thread>
 #include "generate.hpp"
 #include "core/MNNFileUtils.h"
 #include "llm/attention_mask.hpp"
@@ -18,11 +19,70 @@ namespace MNN {
 namespace Transformer {
 
 
+void MarkovSweepPool::ensureStarted(int nWorkers) {
+    if (mWorkerCount == nWorkers) {
+        return;
+    }
+    shutdown();
+    mWorkerCount = nWorkers;
+    mWorkers.reserve(nWorkers > 0 ? nWorkers - 1 : 0);
+    for (int t = 1; t < nWorkers; t++) {
+        mWorkers.emplace_back([this, t] {
+            int seen = 0;
+            for (;;) {
+                std::function<void(int)> fn;
+                {
+                    std::unique_lock<std::mutex> lock(mMutex);
+                    mCvWork.wait(lock, [this, &seen] { return mGeneration != seen; });
+                    if (mGeneration < 0) {
+                        return;   // shutdown
+                    }
+                    seen = mGeneration;
+                    fn = mFn;
+                }
+                fn(t);
+                {
+                    std::lock_guard<std::mutex> lock(mMutex);
+                    if (--mPending == 0) {
+                        mCvDone.notify_all();
+                    }
+                }
+            }
+        });
+    }
+}
+
+void MarkovSweepPool::shutdown() {
+    if (mWorkers.empty()) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        mGeneration = -1;
+        mCvWork.notify_all();
+    }
+    for (auto& w : mWorkers) {
+        w.join();
+    }
+    mWorkers.clear();
+    mWorkerCount = 0;
+}
+
 DFlashGeneration::DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config)
     : Generation(llm, context) {
     mBlockSize = config->dflash_block_size();
     mMaskTokenId = config->dflash_mask_token_id();
     mShiftLabel = config->dflash_shift_label() ? 1 : 0;
+    mMarkovFile = config->dflash_markov();
+    mMarkovW1File = config->dflash_markov_w1();
+    mMarkovW2File = config->dflash_markov_w2();
+    // The sweep is memory-bound and the slots are serial, so more threads stop paying past a
+    // dozen (measured: 4->18.2 ms, 8->14.1, 12->13.5, 16->14.4, 24->17.5 per step on a 128-core
+    // host). Leave the rest of the machine to the target forward.
+    {
+        const unsigned hw = std::thread::hardware_concurrency();
+        mMarkovThreads = hw >= 12 ? 12 : (hw > 8 ? 8 : (hw > 2 ? 2 : 1));
+    }
 }
 
 void DFlashGeneration::reset() {
@@ -32,13 +92,9 @@ void DFlashGeneration::reset() {
 }
 
 bool DFlashGeneration::load(Module::Config module_config) {
-    // lm_head resolution: the draft always reuses the target's lm_head.
+    // lm_head resolution: empty means the draft graph emits logits itself (DSpark bakes
+    // lm_head plus its Markov bias in); otherwise reuse the target's lm_head subgraph.
     std::string sharedLmHeadInput = mLlm->mConfig->dflash_shared_lmhead_input();
-    if (sharedLmHeadInput.empty()) {
-        MNN_ERROR("DFlash: dflash_shared_lmhead_input is empty; the draft has no lm_head of its own. "
-                  "Re-export the model with the current llmexport.\n");
-        return false;
-    }
 
     // Loaded first: its output names give the draft layer count, which the draft graph's input list needs.
     {
@@ -48,9 +104,9 @@ bool DFlashGeneration::load(Module::Config module_config) {
         mKvMatModule.reset(Module::load({"new_context", "position_ids"}, {},
             mLlm->mConfig->dflash_kvmat().c_str(), mLlm->mRuntimeManager, &kc));
         if (mKvMatModule == nullptr) {
-            MNN_ERROR("DFlash: failed to load %s. The draft attention consumes per-layer "
+            MNN_ERROR("%s: failed to load %s. The draft attention consumes per-layer "
                       "kv_k_i/kv_v_i, so this module is mandatory; re-export the draft with "
-                      "the current llmexport.\n", mLlm->mConfig->dflash_kvmat().c_str());
+                      "the current llmexport.\n", logTag(), mLlm->mConfig->dflash_kvmat().c_str());
             return false;
         }
     }
@@ -76,7 +132,7 @@ bool DFlashGeneration::load(Module::Config module_config) {
     }
     for (int i = 0; i < (int)mKvMatSlot.size(); i++) {
         if (mKvMatSlot[i] < 0) {
-            MNN_ERROR("DFlash: %s is missing output kv_%c_%d\n", mLlm->mConfig->dflash_kvmat().c_str(),
+            MNN_ERROR("%s: %s is missing output kv_%c_%d\n", logTag(), mLlm->mConfig->dflash_kvmat().c_str(),
                       (i % 2) ? 'v' : 'k', i / 2);
             return false;
         }
@@ -89,15 +145,20 @@ bool DFlashGeneration::load(Module::Config module_config) {
         dflashInputNames.push_back("kv_v_" + std::to_string(i));
     }
     dflashInputNames.insert(dflashInputNames.end(), {"attention_mask", "position_ids"});
-    std::vector<std::string> dflashOutputNames{"hidden_states"};
+    mSharedLmHead = !sharedLmHeadInput.empty();
+    // A DSpark draft biases its logits from the block's own token ids, so it takes them as input.
+    if (!mSharedLmHead) {
+        dflashInputNames.push_back("block_ids");
+    }
+    std::vector<std::string> dflashOutputNames{mSharedLmHead ? "hidden_states" : "block_logits"};
     mDFlashModule.reset(Module::load(
         dflashInputNames, dflashOutputNames,
         mLlm->mConfig->dflash_model().c_str(),
         mLlm->mRuntimeManager, &module_config));
     if (mDFlashModule == nullptr) {
-        MNN_ERROR("DFlash: failed to load draft %s with %d per-layer KV inputs (output '%s'). "
+        MNN_ERROR("%s: failed to load draft %s with %d per-layer KV inputs (output '%s'). "
                   "%s and the draft must come from the same export.\n",
-                  mLlm->mConfig->dflash_model().c_str(), nKvLayers, dflashOutputNames[0].c_str(),
+                  logTag(), mLlm->mConfig->dflash_model().c_str(), nKvLayers, dflashOutputNames[0].c_str(),
                   mLlm->mConfig->dflash_kvmat().c_str());
         mKvMatModule.reset();
         return false;
@@ -107,7 +168,7 @@ bool DFlashGeneration::load(Module::Config module_config) {
     // Reuse the target's lm_head: load the subgraph {sharedLmHeadInput -> logits} from llm.mnn.
     // base + rearrange=true shares the target's lm_head weights via cloneBaseExecution
     // (rearrange must be true, otherwise base is silently ignored).
-    {
+    if (mSharedLmHead) {
         Module::Config lm_cfg;
         lm_cfg.shapeMutable = true;
         lm_cfg.rearrange = true;
@@ -119,13 +180,13 @@ bool DFlashGeneration::load(Module::Config module_config) {
             mLlm->mConfig->llm_model().c_str(),
             mLlm->mRuntimeManager, &lm_cfg));
         if (mLmHeadModule == nullptr) {
-            MNN_ERROR("DFlash: failed to load shared lm_head subgraph {%s -> logits} from %s. "
+            MNN_ERROR("%s: failed to load shared lm_head subgraph {%s -> logits} from %s. "
                       "Set dflash_shared_lmhead_input to the target's post-final-norm tensor name.\n",
-                      sharedLmHeadInput.c_str(), mLlm->mConfig->llm_model().c_str());
+                      logTag(), sharedLmHeadInput.c_str(), mLlm->mConfig->llm_model().c_str());
             return false;
         }
-        MNN_PRINT("DFlash: lm_head shared from target %s (subgraph %s -> logits)\n",
-                  mLlm->mConfig->llm_model().c_str(), sharedLmHeadInput.c_str());
+        MNN_PRINT("%s: lm_head shared from target %s (subgraph %s -> logits)\n",
+                  logTag(), mLlm->mConfig->llm_model().c_str(), sharedLmHeadInput.c_str());
     }
 
     // Session runtime, so hidden_states -> fc -> context_hidden -> draft never leaves the device.
@@ -140,16 +201,115 @@ bool DFlashGeneration::load(Module::Config module_config) {
             mLlm->mConfig->dflash_fc().c_str(),
             mLlm->mRuntimeManager, &fc_config));
         if (mFcModule == nullptr) {
-            MNN_ERROR("DFlash: failed to load %s (every draft step projects target hidden "
+            MNN_ERROR("%s: failed to load %s (every draft step projects target hidden "
                       "states through it, so this module is mandatory)\n",
-                      mLlm->mConfig->dflash_fc().c_str());
+                      logTag(), mLlm->mConfig->dflash_fc().c_str());
             return false;
         }
     }
 
+    // DSpark's Markov head, split the way llama.cpp drives it: w1 gathers the previous token's
+    // rank vector, w2 turns that into the vocab-wide bias. Both stay on device -- sweeping the
+    // table from the host measured ~9x slower than the quantized GEMV.
+    if (!mMarkovW1File.empty() && !mMarkovW2File.empty()) {
+        Module::Config mkConfig;
+        mkConfig.shapeMutable = true;
+        mMarkovW1Module.reset(Module::load({"prev_ids"}, {"coef"},
+            mMarkovW1File.c_str(), mLlm->mRuntimeManager, &mkConfig));
+        if (mMarkovW1Module == nullptr) {
+            MNN_ERROR("%s: failed to load %s (the draft's Markov head is mandatory for "
+                      "the model this graph was exported from)\n", logTag(), mMarkovW1File.c_str());
+            return false;
+        }
+        mMarkovW2Module.reset(Module::load({"coef"}, {"bias"},
+            mMarkovW2File.c_str(), mLlm->mRuntimeManager, &mkConfig));
+        if (mMarkovW2Module == nullptr) {
+            MNN_ERROR("%s: failed to load %s (the draft's Markov head is mandatory for "
+                      "the model this graph was exported from)\n", logTag(), mMarkovW2File.c_str());
+            return false;
+        }
+        // Shapes come from one probe: an all-zero token still costs a gather plus a GEMV, and
+        // doing it here keeps the chain itself free of first-call special cases.
+        {
+            int prevProbe = 0;
+            auto prevVar = _Const(&prevProbe, {1}, NCHW, halide_type_of<int>());
+            auto coefOut = mMarkovW1Module->onForward({prevVar});
+            if (coefOut.empty() || coefOut[0] == nullptr) {
+                MNN_ERROR("%s: %s did not produce a coefficient\n", logTag(), mMarkovW1File.c_str());
+                return false;
+            }
+            mMarkovRank = coefOut[0]->getInfo()->size;
+            auto biasOut = mMarkovW2Module->onForward({coefOut[0]});
+            if (biasOut.empty() || biasOut[0] == nullptr) {
+                MNN_ERROR("%s: %s did not produce a bias\n", logTag(), mMarkovW2File.c_str());
+                return false;
+            }
+            mMarkovVocab = biasOut[0]->getInfo()->size;
+        }
+        MNN_PRINT("%s: Markov head on device (vocab=%d rank=%d)\n", logTag(), mMarkovVocab, mMarkovRank);
+    } else if (!mMarkovFile.empty()) {
+        Module::Config mkConfig;
+        std::shared_ptr<Module> tables(Module::load({"dummy"}, {"w1", "w2"},
+            mMarkovFile.c_str(), mLlm->mRuntimeManager, &mkConfig));
+        if (tables == nullptr) {
+            MNN_ERROR("%s: failed to load %s (the draft's Markov head is mandatory for "
+                      "the model this graph was exported from)\n", logTag(), mMarkovFile.c_str());
+            return false;
+        }
+        static float sDummyValue = 0.0f;
+        auto dummy = _Const(&sDummyValue, {1}, NCHW, halide_type_of<float>());
+        auto outs = tables->onForward({dummy});
+        if (outs.size() < 2) {
+            MNN_ERROR("%s: %s did not yield the Markov tables\n", logTag(), mMarkovFile.c_str());
+            return false;
+        }
+        const auto w1Info = outs[0]->getInfo();
+        const auto w2Info = outs[1]->getInfo();
+        mMarkovRank = w1Info->dim[0];
+        mMarkovVocab = w1Info->dim[1];
+        if (w2Info->dim[0] != mMarkovRank || w2Info->dim[1] != mMarkovVocab) {
+            MNN_ERROR("%s: Markov tables in %s have mismatched shapes\n", logTag(), mMarkovFile.c_str());
+            return false;
+        }
+        const float* w1Ptr = outs[0]->readMap<float>();
+        const float* w2Ptr = outs[1]->readMap<float>();
+        if (w1Ptr == nullptr || w2Ptr == nullptr) {
+            MNN_ERROR("%s: Markov tables in %s could not be read\n", logTag(), mMarkovFile.c_str());
+            return false;
+        }
+        mMarkovW1.assign(w1Ptr, w1Ptr + (size_t)mMarkovVocab * mMarkovRank);
+        // Host fallback path: one symmetric int8 scale per rank row keeps the rounding well
+        // under the noise of a rank-256 sum feeding a 150k-way argmax.
+        {
+            const size_t n = (size_t)mMarkovVocab * mMarkovRank;
+            mMarkovW2q.assign(n, 0);
+            mMarkovW2Scale.assign(mMarkovRank, 1.0f);
+            for (int k = 0; k < mMarkovRank; k++) {
+                const float* row = w2Ptr + (size_t)k * mMarkovVocab;
+                float amax = 0.0f;
+                for (int v = 0; v < mMarkovVocab; v++) {
+                    const float a = row[v] < 0 ? -row[v] : row[v];
+                    amax = a > amax ? a : amax;
+                }
+                const float scale = amax > 0 ? amax / 127.0f : 1.0f;
+                mMarkovW2Scale[k] = scale;
+                const float inv = 1.0f / scale;
+                int8_t* dst = mMarkovW2q.data() + (size_t)k * mMarkovVocab;
+                for (int v = 0; v < mMarkovVocab; v++) {
+                    float q = row[v] * inv;
+                    q = q > 127.0f ? 127.0f : (q < -127.0f ? -127.0f : q);
+                    dst[v] = (int8_t)(q >= 0 ? q + 0.5f : q - 0.5f);
+                }
+            }
+        }
+        outs.clear();
+        tables.reset();
+        MNN_PRINT("%s: Markov tables loaded to host (vocab=%d rank=%d)\n", logTag(), mMarkovVocab, mMarkovRank);
+    }
+
     mHiddenStateIndex = mLlm->getOutputIndex("hidden_states");
-    MNN_PRINT("DFlash: block_size=%d shift_label=%d (draft row %s predicts slot i), draft layers=%d\n",
-              mBlockSize, mShiftLabel, mShiftLabel ? "i-1" : "i", nKvLayers);
+    MNN_PRINT("%s: block_size=%d shift_label=%d (draft row %s predicts slot i), draft layers=%d\n",
+              logTag(), mBlockSize, mShiftLabel, mShiftLabel ? "i-1" : "i", nKvLayers);
 
     // Disable thinking mode for better draft acceptance rate.
     // Qwen3's chat template enables thinking by default, generating unpredictable
@@ -225,10 +385,16 @@ VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids) {
     int hidden_size = mLlm->mConfig->hidden_size();
     noise_embedding = _Reshape(noise_embedding, {1, block_size, hidden_size});
 
+    if (mDraftKv.empty()) {
+        MNN_ERROR("%s: draft KV is empty at dflashForward\n", logTag());
+        return nullptr;
+    }
     int context_len = mDraftKv[0]->getInfo()->dim[1];
     int total_len = context_len + block_size;
 
     // Everything attends to everything. Kept dense until omitting the plane is verified on a dflash model.
+    // Dense is required: the block mask must reach the attention as an explicit additive
+    // plane, and a one-element bidirectional sentinel cannot express the block layout.
     MaskRequest maskReq;
     maskReq.type       = AttentionMaskType::Bidirectional;
     maskReq.seqLen     = block_size;
@@ -237,24 +403,40 @@ VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids) {
     maskReq.forceDense = true;
     auto attention_mask = buildAttentionMask(maskReq, mLlm->mConfig->backend_type());
 
-    // Draft-local RoPE positions: committed row r sits at r, so block slot i sits at context_len + i.
-    auto position_ids = _Input({1, block_size}, NCHW, halide_type_of<int>());
+    // RoPE positions: committed row r sits at r, so block slot i sits at context_len + i.
+    // A DSpark draft also rotates the context rows itself (it slices the block off the tail),
+    // so it takes [context | block]; a DFlash draft takes the block only.
+    const int posLen = mSharedLmHead ? block_size : total_len;
+    // DSpark tables start at the context's own row 0; DFlash's block starts at context_len.
+    const int posStart = mSharedLmHead ? context_len : 0;
+    auto position_ids = _Input({1, posLen}, NCHW, halide_type_of<int>());
     auto posPtr = position_ids->writeMap<int>();
-    for (int i = 0; i < block_size; i++) {
-        posPtr[i] = context_len + i;
+    for (int i = 0; i < posLen; i++) {
+        posPtr[i] = posStart + i;
     }
 
     // Forward through DFlash module
     std::vector<VARP> inputs{noise_embedding};
     inputs.insert(inputs.end(), mDraftKv.begin(), mDraftKv.end());
     inputs.insert(inputs.end(), {attention_mask, position_ids});
+    if (!mSharedLmHead) {
+        // DSpark biases each row by the block token it conditions on.
+        auto idsVar = _Input({1, block_size}, NCHW, halide_type_of<int>());
+        auto idsPtr = idsVar->writeMap<int>();
+        ::memcpy(idsPtr, block_ids.data(), block_size * sizeof(int));
+        inputs.push_back(idsVar);
+    }
     auto outputs = mDFlashModule->onForward(inputs);
 
-    // The draft has no lm_head: run outputs[0] (hidden_states) through the target's lm_head subgraph.
-    auto hidden_states_out = outputs[0];
+    // A DFlash draft has no lm_head: run outputs[0] (hidden_states) through the target's
+    // lm_head subgraph. A DSpark draft already emitted the block logits.
+    auto draft_out = outputs[0];
+    if (!mSharedLmHead) {
+        return draft_out;
+    }
     // The subgraph feeds the lm_head Convolution directly (4D NCHW); reshaping [1, block, hidden] to [block, hidden, 1, 1] is a numerical no-op.
-    auto hsInfo = hidden_states_out->getInfo();
-    VARP lm_input = _Reshape(hidden_states_out, {hsInfo->dim[0] * hsInfo->dim[1], hsInfo->dim[2], 1, 1});
+    auto hsInfo = draft_out->getInfo();
+    VARP lm_input = _Reshape(draft_out, {hsInfo->dim[0] * hsInfo->dim[1], hsInfo->dim[2], 1, 1});
     return mLmHeadModule->onForward({lm_input})[0];
 }
 
@@ -268,9 +450,7 @@ std::vector<int> DFlashGeneration::buildBlock(int currentToken) const {
 bool DFlashGeneration::rowArgmax(VARP logits, int rows, std::vector<int>& out) {
     int vocab = logits->getInfo()->size / rows;
     out.resize(rows);
-#ifdef DUMP_PROFILE_INFO
     MNN::Timer _t;
-#endif
     if (mArgmaxModule == nullptr) {
         auto lv = _Input({1, -1, -1}, NCHW, halide_type_of<float>());
         lv->setName("logits");
@@ -282,17 +462,167 @@ bool DFlashGeneration::rowArgmax(VARP logits, int rows, std::vector<int>& out) {
         mArgmaxModule.reset(Module::load({"logits"}, {"pidx"},
             (const uint8_t*)buf.data(), buf.size(), mLlm->mRuntimeManager, &ac));
         if (mArgmaxModule == nullptr) {
-            MNN_ERROR("DFlash: failed to build the on-device argmax module (vocab=%d)\n", vocab);
+            MNN_ERROR("%s: failed to build the on-device argmax module (vocab=%d)\n", logTag(), vocab);
             mContext->status = LlmStatus::INTERNAL_ERROR;
             return false;
         }
-        MNN_PRINT("DFlash: on-device argmax on (vocab=%d)\n", vocab);
+        MNN_PRINT("%s: on-device argmax on (vocab=%d)\n", logTag(), vocab);
     }
     auto idx = mArgmaxModule->onForward({logits})[0];
     ::memcpy(out.data(), idx->readMap<int>(), rows * sizeof(int));
-#ifdef DUMP_PROFILE_INFO
     phase_argmax_us += _t.durationInUs();
-#endif
+    return true;
+}
+
+// argmax(base + bias) as one on-device pass: the Markov chain never needs the 600 KB bias on
+// the host, only the winning index.
+bool DFlashGeneration::addArgmax(VARP base, VARP bias, int& outIdx) {
+    if (base == nullptr || base->getInfo() == nullptr || bias == nullptr || bias->getInfo() == nullptr) {
+        return false;
+    }
+    const int vocab = base->getInfo()->size;
+    if (mAddArgmaxModule == nullptr) {
+        auto bv = _Input({1, vocab}, NCHW, halide_type_of<float>());
+        bv->setName("base");
+        auto dv = _Input({1, vocab}, NCHW, halide_type_of<float>());
+        dv->setName("bias");
+        auto iv = _ArgMax(_Add(bv, dv), 1);
+        iv->setName("pidx");
+        auto buf = Variable::save({iv});
+        Module::Config ac;
+        ac.shapeMutable = true;
+        mAddArgmaxModule.reset(Module::load({"base", "bias"}, {"pidx"},
+            (const uint8_t*)buf.data(), buf.size(), mLlm->mRuntimeManager, &ac));
+        if (mAddArgmaxModule == nullptr) {
+            MNN_ERROR("%s: failed to build the on-device add+argmax module (vocab=%d)\n", logTag(), vocab);
+            return false;
+        }
+    }
+    auto out = mAddArgmaxModule->onForward({base, bias});
+    if (out.empty() || out[0] == nullptr) {
+        MNN_ERROR("%s: addArgmax produced nothing\n", logTag());
+        return false;
+    }
+    const int* p = out[0]->readMap<int>();
+    if (p == nullptr) {
+        return false;
+    }
+    outIdx = *p;
+    return true;
+}
+
+// DSpark walks the Markov chain: slot k's bias uses the token sampled at slot k-1, so each
+// row's argmax must be taken after the previous row's token is known. Slot 0 is biased by the
+// anchor (block_ids[0]); the rest by this forward's own predictions.
+bool DFlashGeneration::markovSlot(int prev, VARP base, int& outIdx) {
+    if (prev < 0 || prev >= mMarkovVocab) {
+        prev = 0;
+    }
+    auto prevVar = _Const(&prev, {1}, NCHW, halide_type_of<int>());
+    auto coefOut = mMarkovW1Module->onForward({prevVar});
+    if (coefOut.empty() || coefOut[0] == nullptr) {
+        return false;
+    }
+    auto biasOut = mMarkovW2Module->onForward({coefOut[0]});
+    if (biasOut.empty() || biasOut[0] == nullptr) {
+        return false;
+    }
+    return addArgmax(base, biasOut[0], outIdx);
+}
+
+bool DFlashGeneration::draftArgmaxChain(VARP logits, const std::vector<int>& block_ids,
+                                        std::vector<int>& out) {
+    const auto info = logits->getInfo();
+    const int rows = info->dim[1];
+    const int vocab = info->dim[2];
+    if (mMarkovRank <= 0 || vocab != mMarkovVocab || (size_t)info->size < (size_t)rows * vocab) {
+        MNN_ERROR("%s: draft logits %dx%d do not match the Markov tables (vocab=%d)\n",
+                  logTag(), rows, vocab, mMarkovVocab);
+        return false;
+    }
+    out.assign(rows, 0);
+    int prev = block_ids.empty() ? 0 : block_ids[0];
+
+    // On-device chain: gather the coefficient, quantized GEMV for the bias, add+argmax, all
+    // without bringing a vocab-wide vector back to the host. Only `rows` ints cross the bus.
+    if (mMarkovW1Module != nullptr && mMarkovW2Module != nullptr) {
+        // Materialise the block once so the slots below gather from computed data; without this
+        // every slot re-runs the draft tail.
+        auto block = _Reshape(logits, {rows, vocab});
+        block->readMap<float>();
+        for (int r = 0; r < rows; r++) {
+            int rowIdx = r;
+            auto rowVar = _Const(&rowIdx, {1}, NCHW, halide_type_of<int>());
+            auto baseR = _Reshape(_GatherV2(block, rowVar, _Scalar<int>(0)), {1, vocab});
+            int idx = 0;
+            if (!markovSlot(prev, baseR, idx)) {
+                MNN_ERROR("%s: Markov slot %d failed on device\n", logTag(), r);
+                return false;
+            }
+            out[r] = idx;
+            prev = idx;
+        }
+        return true;
+    }
+
+    // Host fallback for the older single-file tables.
+    const float* src = logits->readMap<float>();
+    if (src == nullptr) {
+        return false;
+    }
+    mMarkovBias.assign(vocab, 0.0f);
+    std::vector<float>& bias = mMarkovBias;
+    const int nThreads = mMarkovThreads;
+    const int perThread = (vocab + nThreads - 1) / nThreads;
+    for (int r = 0; r < rows; r++) {
+        if (prev < 0 || prev >= mMarkovVocab) {
+            prev = 0;
+        }
+        auto sweep = [&](int beg, int end) {
+            bool seeded = false;
+            for (int k = 0; k < mMarkovRank; k++) {
+                const float a = mMarkovW1[(size_t)k * mMarkovVocab + prev];
+                if (a == 0.0f) {
+                    continue;
+                }
+                const int8_t* w2Row = mMarkovW2q.data() + (size_t)k * mMarkovVocab;
+                const float aw = a * mMarkovW2Scale[k];
+                if (!seeded) {
+                    for (int v = beg; v < end; v++) {
+                        bias[v] = aw * (float)w2Row[v];
+                    }
+                    seeded = true;
+                    continue;
+                }
+                for (int v = beg; v < end; v++) {
+                    bias[v] += aw * (float)w2Row[v];
+                }
+            }
+            if (!seeded) {
+                std::fill(bias.begin() + beg, bias.begin() + end, 0.0f);
+            }
+        };
+        if (nThreads == 1) {
+            sweep(0, vocab);
+        } else {
+            mMarkovPool.run([&](int t) {
+                const int beg = t * perThread;
+                sweep(beg, std::min(vocab, beg + perThread));
+            }, nThreads);
+        }
+        const float* row = src + (size_t)r * vocab;
+        int best = 0;
+        float bestVal = -INFINITY;
+        for (int v = 0; v < vocab; v++) {
+            const float x = row[v] + bias[v];
+            if (x > bestVal) {
+                bestVal = x;
+                best = v;
+            }
+        }
+        out[r] = best;
+        prev = best;
+    }
     return true;
 }
 
@@ -321,9 +651,7 @@ DFlashGeneration::VerifyResult DFlashGeneration::verifyAcceptCommit(
         const std::vector<int>& block_ids, int blockSize, int hiddenStateIndex) {
     VerifyResult vr;
     // Phase 4: Verify entire block with target model
-#ifdef DUMP_PROFILE_INFO
     MNN::Timer _t_verify;
-#endif
     // Defer the recurrent state update: part of this block may be rejected.
     mLlm->mMeta->spec_block = blockSize;
     auto verify_outputs = mLlm->forwardVec(block_ids);
@@ -332,10 +660,8 @@ DFlashGeneration::VerifyResult DFlashGeneration::verifyAcceptCommit(
         vr.stop = true;
         return vr;
     }
-#ifdef DUMP_PROFILE_INFO
     int64_t verify_fwd_elapsed = _t_verify.durationInUs();
     phase_verify_fwd_us += verify_fwd_elapsed;
-#endif
 
     auto verify_logits = verify_outputs[0];
     vr.newHiddenStates = verify_outputs[hiddenStateIndex];
@@ -353,9 +679,7 @@ DFlashGeneration::VerifyResult DFlashGeneration::verifyAcceptCommit(
         acceptance_length = acceptDraftPrefix(targetArgmax, block_ids, blockSize);
     }
 
-#ifdef DUMP_PROFILE_INFO
     MNN::Timer _t_match;
-#endif
 
     // Phase 6: Accept tokens and update state.
     // We accept block_ids[1..acceptance_length] + current_token
@@ -392,21 +716,18 @@ DFlashGeneration::VerifyResult DFlashGeneration::verifyAcceptCommit(
         }
     }
 
-#ifdef DUMP_PROFILE_INFO
     int64_t match_elapsed = _t_match.durationInUs();
     phase_verify_match_us += match_elapsed;
     phase_verify_us += verify_fwd_elapsed + match_elapsed;
-#endif
 
     // Phase 7: Update KV cache - remove unaccepted tokens.
     // We fed blockSize tokens but only accepted vr.totalAccepted
     mLlm->mMeta->remove = blockSize - vr.totalAccepted;
     mLlm->updateContext(vr.totalAccepted, vr.totalAccepted);
-#ifdef DUMP_PROFILE_INFO
+    // Untimed: acceptance is the only way to tell a weak draft from a slow one.
     spl_decode += blockSize;
     spl_accept += vr.totalAccepted;
     spl_count++;
-#endif
     return vr;
 }
 
@@ -439,7 +760,16 @@ void DFlashGeneration::generate(GenerationParams& param) {
         }
 
         // The only time the prompt is projected: positions are frozen from here on.
-        appendDraftKv(mFcModule->onForward({prev_hidden_states})[0], 0);
+        // The prefill batch already carries the row of the token just sampled, and that token
+        // is also the block's anchor row, so drop it here or the draft sees it twice and
+        // predicts one slot too far.
+        auto fcOut = mFcModule->onForward({prev_hidden_states});
+        if (fcOut.empty() || fcOut[0] == nullptr) {
+            MNN_ERROR("%s: fc forward returned nothing\n", logTag());
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return;
+        }
+        appendDraftKv(fcOut[0], 0);
         mInitialized = true;
 
         // If max_token is 0, just do initialization and return
@@ -448,17 +778,17 @@ void DFlashGeneration::generate(GenerationParams& param) {
         }
     }
 
-#ifdef DUMP_PROFILE_INFO
     // The verify/sample/spl accumulators are members, shared with verifyAcceptCommit().
     int64_t phase_draft_us = 0, phase_fc_us = 0;
     int64_t phase_fc_fwd_us = 0, phase_kvmat_us = 0;
-#endif
 
     int len = 0;
     while (len < max_token) {
         if (mContext->status == LlmStatus::USER_CANCEL) {
             break;
         }
+        // Untimed only for the phase breakdown; decode_us itself is always recorded, since
+        // llm_bench rejects a sample whose decode_us is zero.
         MNN::Timer _t;
 
         // Phase 1: Build block [last_accepted_token, mask, mask, ..., mask]
@@ -468,26 +798,27 @@ void DFlashGeneration::generate(GenerationParams& param) {
         // The draft head and lm_head are block-shaped too, so they get the same backend
         // treatment; reset after phase 3, where the lazy draft_logits is materialized.
         mLlm->mMeta->spec_block = mBlockSize;
-#ifdef DUMP_PROFILE_INFO
         MNN::Timer _t_draft;
-#endif
         VARP draft_logits = dflashForward(block_ids);
         if (draft_logits == nullptr) {
             mLlm->mMeta->spec_block = 0;
             break;
         }
-#ifdef DUMP_PROFILE_INFO
         phase_draft_us += _t_draft.durationInUs();
-#endif
 
         // Phase 3: Fast argmax for draft tokens (bypass expensive sampler)
         // draft_logits shape: [1, block_size, vocab_size]
-#ifdef DUMP_PROFILE_INFO
         MNN::Timer _t_sample;
-#endif
         {
             std::vector<int> draftArgmax;
-            if (!rowArgmax(draft_logits, mBlockSize, draftArgmax)) {
+            // DSpark: slot k is biased by the token sampled at slot k-1, so the chain has to be
+            // walked one slot at a time instead of one rowArgmax over the whole block.
+            if (mMarkovRank > 0) {
+                if (!draftArgmaxChain(draft_logits, block_ids, draftArgmax)) {
+                    mLlm->mMeta->spec_block = 0;
+                    break;
+                }
+            } else if (!rowArgmax(draft_logits, mBlockSize, draftArgmax)) {
                 mLlm->mMeta->spec_block = 0;
                 break;
             }
@@ -499,9 +830,7 @@ void DFlashGeneration::generate(GenerationParams& param) {
         mLlm->mMeta->spec_block = 0;
 
         // Phase 4-7: target verify + greedy accept + emit + KV rollback
-#ifdef DUMP_PROFILE_INFO
         phase_sample_us += _t_sample.durationInUs();
-#endif
         auto vr = verifyAcceptCommit(block_ids, mBlockSize, mHiddenStateIndex);
         len += vr.totalAccepted;
         mContext->decode_us += _t.durationInUs();
@@ -510,37 +839,45 @@ void DFlashGeneration::generate(GenerationParams& param) {
         }
 
         // Phase 8: Extend the draft KV cache with the rows just committed by the target.
-#ifdef DUMP_PROFILE_INFO
         MNN::Timer _t_fc;
-#endif
         int contextLen = mDraftKv[0]->getInfo()->dim[1];
         auto new_hidden_states = vr.newHiddenStates;
         if (vr.totalAccepted < mBlockSize) {
+            // Row k of the verify output predicts slot k+1, so the tokens committed this round
+            // (block[1..acc] plus the corrected `current`) occupy rows 0..acc -- exactly
+            // totalAccepted rows.
             auto hsInfo = new_hidden_states->getInfo();
-            int hiddenDim = hsInfo->dim[2];
+            const int hiddenDim = hsInfo->dim[2];
+            const int rows = std::min(vr.totalAccepted, (int)hsInfo->dim[1]);
             std::vector<int> starts = {0, 0, 0};
-            std::vector<int> sizes = {1, vr.totalAccepted, hiddenDim};
+            std::vector<int> sizes = {1, rows, hiddenDim};
             new_hidden_states = _Slice(new_hidden_states,
                                        _Const(starts.data(), {3}, NHWC, halide_type_of<int>()),
                                        _Const(sizes.data(), {3}, NHWC, halide_type_of<int>()));
         }
         auto new_context = mFcModule->onForward({new_hidden_states})[0];
-#ifdef DUMP_PROFILE_INFO
         phase_fc_fwd_us += _t_fc.durationInUs();
         MNN::Timer _t_kvmat;
-#endif
         appendDraftKv(new_context, contextLen);
-#ifdef DUMP_PROFILE_INFO
         phase_kvmat_us += _t_kvmat.durationInUs();
         phase_fc_us += _t_fc.durationInUs();   // _t_fc already spans fc_forward + kvmat
-#endif
     }
 
     if (len >= max_token) {
         mContext->status = LlmStatus::MAX_TOKENS_FINISHED;
     }
 
-#ifdef DUMP_PROFILE_INFO
+    // Keep mInitialized and mDraftKv: a caller may drive this strategy one call at a time,
+    // and re-initialising re-anchors the draft on a context it already advanced past.
+
+    if (getenv("MNN_SPEC_STATS") != nullptr && spl_count > 0) {
+        MNN_PRINT("%s: steps=%d accepted=%.2f/step (block=%d, %.1f%%)\n",
+                  logTag(), spl_count, (float)spl_accept / spl_count, mBlockSize,
+                  100.0f * spl_accept / spl_decode);
+    }
+
+    const bool wantProfile = getenv("MNN_SPEC_PROFILE") != nullptr;
+    if (wantProfile) {
     float spl_accept_rate = spl_decode > 0 ? 100.0f * spl_accept / spl_decode : 0.0f;
     MNN_PRINT("\n============== DFlash Decoding Statistics Start ===============\n");
     MNN_PRINT("Block size: %d\n", mBlockSize);
@@ -569,7 +906,7 @@ void DFlashGeneration::generate(GenerationParams& param) {
     float per_accepted_ms = spl_accept > 0 ? total_ms / spl_accept : 0;
     MNN_PRINT("Effective per-token cost: %.2f ms/token (vs AR baseline)\n", per_accepted_ms);
     MNN_PRINT("============== DFlash Decoding Statistics End =================\n");
-#endif
+    }
 }
 
 } // namespace Transformer

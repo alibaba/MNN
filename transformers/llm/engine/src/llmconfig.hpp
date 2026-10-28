@@ -741,7 +741,8 @@ public:
         }
         return base_dir_ + config_.value("dflash_markov_w2", std::string{});
     }
-    // Must equal the block size baked into dflash.mnn.
+    // The draft graph takes the block on a dynamic axis, so this need not match the value
+    // the checkpoint was trained at; 8 measured better than the trained 7 on every prompt.
     int dflash_block_size() const {
         return config_.value("dflash_block_size", 8);
     }

@@ -1612,16 +1612,25 @@ VARP Llm::gen_attention_mask(int seq_len) {
             attentionMask = buildTwoPlaneMask(req, full, sliding);
             return attentionMask;
         }
-        // Use square mask just for new generation token, save memory of attention mask
-        kv_seq_len = seq_len;
+        // Squaring the mask off only holds for a fresh prefill, where nothing is cached yet.
+        // A spec verify block still attends over the whole KV cache, so its mask must span it.
+        // The block is exactly mDraftLength + 1 rows; keying off mInSpec alone would also catch
+        // an ordinary multi-token prefill and turn its sentinel into a full seq_len x kv plane.
+        const bool specVerifyBlock = mInSpec && seq_len == mDraftLength + 1;
+        if (!specVerifyBlock) {
+            kv_seq_len = seq_len;
+        }
 
         MaskRequest req;
         req.type     = AttentionMaskType::Causal;
         req.seqLen   = seq_len;
         req.kvSeqLen = kv_seq_len;
         req.rank     = 4;
-        // chunk_limits needs a stable mask rank across chunked forwards.
-        req.forceDense = !mValidBlockSize.empty();
+        // chunk_limits needs a stable mask rank across chunked forwards. A spec verify block
+        // needs the plane too: the draft graph this block verifies runs with kv_cache=false, and
+        // the rank-0 sentinel only applies the triangle when kv_cache=true -- omitting it would
+        // let every verified row see the tokens it is supposed to predict.
+        req.forceDense = !mValidBlockSize.empty() || specVerifyBlock;
         if (seq_len == 1 || (mInSpec && seq_len == mDraftLength + 1)) {
             return mMaskCache.obtain(req, mConfig->backend_type());
         }
