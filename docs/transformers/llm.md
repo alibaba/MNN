@@ -611,7 +611,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
     上例中，token 198 (如换行符) 的logit减少100（几乎禁止生成），token 151643 的logit增加5（提高生成概率）。
   - banned_tokens: 禁止生成的token id列表，这些token的logit会被设为负无穷。默认为空。示例：`"banned_tokens": [198, 151643]`
 - 投机解码配置项
-  - speculative_type: 投机解码算法设置，当前仅支持配置为`lookahead`(使用外接知识库/输入prompt信息去生成草稿做投机验证),通常需要较完备的知识库或者输入prompt与输出重合度较高的场景(例如：代码编辑、文本总结)才有较明显加速。
+  - speculative_type: 投机解码算法设置。支持 `lookahead`（使用外接知识库/输入prompt信息去生成草稿做投机验证，通常需要较完备的知识库或者输入prompt与输出重合度较高的场景，例如代码编辑、文本总结，才有较明显加速）、`dflash`（块扩散草稿模型，一次前向产出整块草稿，再由 target 一次批量前向验证）与 `mtp`。
   - draft_predict_length: 草稿长度，通常设置2-8之间，默认为4。
   - draft_match_strictness: 草稿匹配的严格程度，当有草稿时，是否选取该草稿去做并行验证。可以设置`low`、`medium`、`high`。通常严格程度越高，草稿接受率越高，但是启用并行验证概率也越低。默认为`low`，该参数仅`lookahead`模式设置有效。
   - draft_selection_rule: 草稿选择规则，当有多个草稿时，选取的规则设置。支持`freqxlen`（出现频率与匹配长度最高者）和`fcfs`(最先匹配者)。默认`freqxlen`，该参数仅`lookahead`模式设置有效。
