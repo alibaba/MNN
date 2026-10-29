@@ -67,10 +67,9 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
   test). Never read the all-passed line as proof that a specific test ran.
 * `skipped:N` in the same line counts cases that gated themselves off the
   running backend through `MNNTEST_CPU_ONLY()` (`test/MNNTestSuite.h`); they are
-  excluded from `passed`. A green Metal run reporting `skipped:6` means
-  `op/AvePool3d`, `op/Interp`, `op/InterpInt8` and
-  `op/unary/{erf,erfc,erfinv}Int8` never executed — not that they passed. Each
-  gate site records the backend gap it stands in for.
+  excluded from `passed`. A green GPU run reporting `skipped:N` means N cases
+  never executed — not that they passed. Each gate site records the backend gap
+  it stands in for.
 * When a remote transport has a shorter timeout than the device workload, a
   blank or truncated client response does not prove that the process exited.
   Write results on the device, then poll the process and result-file size
