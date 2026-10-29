@@ -3022,7 +3022,13 @@ bool Talker::load() {
         mQwen3AudioCodePredictorEmbedding.reset(
             new DiskEmbedding(mConfig, mConfig->audio_code_predictor_embedding_file(), hiddenSize));
         mMaxNewTokens = mConfig->talker_max_new_tokens();
-        set_config("{\"sampler_type\":\"greedy\"}");
+        // Sampling is required: greedy decoding falls into repetition/silence
+        // loops for many speaker embeddings (the official Python defaults are
+        // temperature 0.9 / top_k 50 / top_p 1.0 / repetition_penalty 1.05).
+        set_config(
+            "{\"sampler_type\": \"mixed\", \"mixed_samplers\": [\"penalty\", \"topK\", \"topP\", \"temperature\"], "
+            "\"temperature\": 0.9, \"top_k\": 50, \"top_p\": 1.0, \"repetition_penalty\": 1.05, "
+            "\"penalty_window\": 64}");
         mSampler.reset(Sampler::createSampler(mContext, mConfig));
         mContext->status = LlmStatus::RUNNING;
         return true;
