@@ -545,6 +545,11 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
     - 其他 GPU 后端（OpenCL / Vulkan / CUDA）目前仅遵循 attention_mode 中的默认行为，不支持 FlashAttention 切换。
   - use_mmap: 是否使用mmap方式，在内存不足时将权重写入磁盘，避免溢出，默认为false，手机上建议设成true
   - chunk: 限制每次最大处理的token数，高于此值将分块运行，以减少内存占用，eg: chunk: 128
+  - prefill_skip_logits: 默认 `false`。设为 `true` 时，为非末 prefill 块复用仅输出 `hidden_states` 的派生主干，省去暂时不需要的词表投影；末块及 decode 仍输出完整 logits。
+    - 当前仅尝试 CPU 单线程、单文件纯文本模型、动态 chunk（无 `chunk_limits`）且不请求 `all_logits` 或额外 hidden states 的路径；前缀缓存、投机、多模态、LoRA 派生等不支持条件保留原执行路径。
+    - 加载时必须确认所有目标 Attention 与原图共享兼容 KV 状态，否则在处理输入前禁用该优化；执行中失败不能通过重算悄悄恢复。派生主干强持原图、runtime、KV 元数据与 executor，并先释放执行资源再释放依赖；仅支持串行使用，不支持克隆严格共享的派生模块。
+    - 此选项以额外常驻执行资源换取较少的重复计算/准备。收益与内存代价取决于模型、输入长度和设备，需比较包含准备成本的完整请求及内存，不能将某一模型的测试结果推广到所有模型。
+
   - chunk_limits: 限制每次处理的token数，不在此范围内将分拆或者补零处理，eg: chunk_limits: [128, 1] , 存在 chunk_limits 时，chunk 配置无效
   - kvcache_mmap: 是否使用mmap方式，在内存不足时将在KV Cache 写入磁盘，避免溢出，默认为false
   - tmp_path: 启用 mmap 相关功能时，写入磁盘的缓存目录

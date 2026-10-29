@@ -18,6 +18,7 @@
 #include "Utils.hpp"
 #include "RuntimeAttr.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/SharedAttentionModule.hpp"
 #include <MNN/AutoTime.hpp>
 #ifdef MNN_INTERNAL_ENABLED
 #include "internal/auth/ModelAuth.hpp"
@@ -42,7 +43,9 @@ static MNN::Express::Executor::RuntimeManager* _createDefaultRuntimeManager(cons
     return Executor::RuntimeManager::createRuntimeManager(sche_config);
 }
 
-static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config);
+static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+    const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr,
+    const Module::Config* config, bool shareAttentionCache = false);
 
 class EmptyModule : public Module {
 public:
@@ -201,9 +204,20 @@ public:
         }
 #endif // MNN_INTERNAL_ENABLED
     }
+    void retainSharedAttentionOwners(const SharedAttentionOwners& owners) {
+        mSharedOwners.reset(new SharedAttentionOwners(owners));
+    }
     virtual ~ NetModule(){
+        auto executor = mSharedOwners ? mSharedOwners->executor : ExecutorScope::Current();
+        ExecutorScope scope(executor);
         mChildren.clear();
         mInfo.reset();
+        if (mSharedOwners) {
+            mSharedOwners->base.reset();
+            mSharedOwners->runtime.reset();
+            mSharedOwners->meta.reset();
+            mSharedOwners.reset();
+        }
         auto exe = ExecutorScope::Current();
         exe->gc(Executor::FULL);
     }
@@ -276,6 +290,9 @@ public:
         return outputs;
     }
     virtual Module* clone(CloneContext* ctx) const override {
+        if (mSharedOwners) {
+            return nullptr;
+        }
         auto mModule = mChildren[0];
         if (nullptr == ctx->pRuntimeManager) {
             auto origin = mInfo->runTimeManager->getInside();
@@ -302,6 +319,7 @@ public:
 
 private:
     std::shared_ptr<Module::Info> mInfo;
+    std::shared_ptr<SharedAttentionOwners> mSharedOwners;
 #ifdef MNN_INTERNAL_ENABLED
     std::map<std::string, std::string> mLogInfo;
 #endif
@@ -353,7 +371,9 @@ static void _loadInputs(Module::Info* info, const std::vector<std::string>& inpu
     }
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+static Module* loadFile(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+    const char* fileName, const std::shared_ptr<Executor::RuntimeManager> _rtMgr,
+    const Module::Config* config, bool shareAttentionCache) {
     AutoStorage<uint8_t> buffer;
     {
         FileLoader loader(fileName, true);
@@ -380,11 +400,50 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
         rtMgr->setExternalFile(std::string(fileName) + ".weight");
         needReset = true;
     }
-    auto res = loadInternal(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config);
+    auto res = loadInternal(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config, shareAttentionCache);
     if (needReset) {
         rtMgr->setExternalFile("");
     }
     return res;
+}
+
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+    const char* fileName, const std::shared_ptr<Executor::RuntimeManager> rtMgr, const Module::Config* config) {
+    return loadFile(inputs, outputs, fileName, rtMgr, config, false);
+}
+
+static bool validSharedOwners(const SharedAttentionOwners& owners, const Module::Config* config) {
+    return owners.base && owners.runtime && owners.meta && owners.executor && config &&
+        config->base == owners.base.get() && !config->dynamic && config->rearrange &&
+        owners.runtime->getInside()->mContent->pMeta == owners.meta.get();
+}
+
+Module* loadSharedAttentionModule(const std::vector<std::string>& inputs,
+    const std::vector<std::string>& outputs, const char* fileName,
+    const SharedAttentionOwners& owners, const Module::Config* config) {
+    if (!validSharedOwners(owners, config)) {
+        return nullptr;
+    }
+    ExecutorScope scope(owners.executor);
+    auto result = loadFile(inputs, outputs, fileName, owners.runtime, config, true);
+    if (result) {
+        static_cast<NetModule*>(result)->retainSharedAttentionOwners(owners);
+    }
+    return result;
+}
+
+Module* loadSharedAttentionModule(const std::vector<std::string>& inputs,
+    const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length,
+    const SharedAttentionOwners& owners, const Module::Config* config) {
+    if (!validSharedOwners(owners, config)) {
+        return nullptr;
+    }
+    ExecutorScope scope(owners.executor);
+    auto result = loadInternal(inputs, outputs, buffer, length, owners.runtime, config, true);
+    if (result) {
+        static_cast<NetModule*>(result)->retainSharedAttentionOwners(owners);
+    }
+    return result;
 }
 
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
@@ -395,7 +454,12 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     return loadInternal(inputs, outputs, buffer, length, rtmgr, config);
 }
 
-static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+    const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr,
+    const Module::Config* config, bool shareAttentionCache) {
+    if (shareAttentionCache && (inputs.empty() || outputs.empty())) {
+        return nullptr;
+    }
     // Check if runtime is valid
     if (nullptr == _rtMgr || _rtMgr->getInside()->mRuntime.first.empty()) {
         MNN_ERROR("Invalid runtime\n");
@@ -449,7 +513,8 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     if ((!inputs.empty()) && (!outputs.empty())) {
         _loadInputs(info.get(), inputs, net);
         info->runTimeManager = rtMgr;
-        std::shared_ptr<Module> m(PipelineModule::load(inputs, outputs, buffer, length, rtMgr, config));
+        std::shared_ptr<Module> m(PipelineModule::load(inputs, outputs, buffer, length, rtMgr, config,
+            shareAttentionCache));
         if (nullptr == m) {
             return nullptr;
         }
