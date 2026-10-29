@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <pthread.h>
@@ -403,18 +404,8 @@ public:
     }
     virtual ~HexagonAllocator() {
         for (auto& c : mChunks) {
-            if (c.buf == nullptr) {
-                continue;
-            }
-            unregisterDspMappedBuffer(c.buf);
-            if (c.buf->mapped) {
-                gMmapManager().unmap(CDSP_DOMAIN_ID, c.buf);
-                c.buf->mapped = false;
-            }
-            rpcmem_free(c.buf->ptr);
-            delete c.buf;
+            freeChunk(c.buf);
         }
-        mChunks.clear();
     }
 
     virtual MemChunk onAlloc(size_t size, size_t align) override {
@@ -423,9 +414,21 @@ public:
         }
         std::lock_guard<std::mutex> lock(mMutex);
         for (auto& c : mChunks) {
-            size_t off = alignUp(c.used, align);
-            if (off <= c.capacity && size <= c.capacity - off) {
-                c.used = off + size;
+            for (auto it = c.freeRanges.begin(); it != c.freeRanges.end(); ++it) {
+                const size_t start = it->first;
+                const size_t length = it->second;
+                const size_t off = alignUp(start, align);
+                if (off < start || off - start > length || size > length - (off - start)) {
+                    continue;
+                }
+                c.freeRanges.erase(it);
+                if (off > start) {
+                    c.freeRanges.emplace(start, off - start);
+                }
+                if (off + size < start + length) {
+                    c.freeRanges.emplace(off + size, start + length - off - size);
+                }
+                c.allocations.emplace(off, size);
                 return MemChunk(c.buf, off);
             }
         }
@@ -435,27 +438,73 @@ public:
             FUNC_PRINT(1);
             return MemChunk((void*)nullptr);
         }
-        size_t off = alignUp((size_t)0, align);
         Chunk newChunk;
         newChunk.buf = buf;
-        newChunk.used = off + size;
-        newChunk.capacity = cap;
-        mChunks.push_back(newChunk);
-        return MemChunk(buf, off);
+        newChunk.allocations.emplace(0, size);
+        if (size < cap) {
+            newChunk.freeRanges.emplace(size, cap - size);
+        }
+        mChunks.push_back(std::move(newChunk));
+        return MemChunk(buf, 0);
     }
 
     virtual void onRelease(MemChunk ptr) override {
-        // A sub-allocation cannot be returned individually; whole chunks are freed in the
-        // destructor. (The previous per-tensor implementation also never returned rpcmem during
-        // a run, so this does not change lifetime semantics.)
+        if (ptr.first == nullptr) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(mMutex);
+        for (auto it = mChunks.begin(); it != mChunks.end(); ++it) {
+            if (it->buf != ptr.first) {
+                continue;
+            }
+            auto allocation = it->allocations.find(ptr.second);
+            MNN_ASSERT(allocation != it->allocations.end());
+            if (allocation == it->allocations.end()) {
+                return;
+            }
+            size_t offset = allocation->first;
+            size_t size = allocation->second;
+            it->allocations.erase(allocation);
+            if (it->allocations.empty()) {
+                freeChunk(it->buf);
+                mChunks.erase(it);
+                return;
+            }
+            // EagerBufferAllocator drops its free nodes at GC, so retain their ranges here for reuse.
+            auto next = it->freeRanges.lower_bound(offset);
+            if (next != it->freeRanges.begin()) {
+                auto previous = next;
+                --previous;
+                if (previous->first + previous->second == offset) {
+                    offset = previous->first;
+                    size += previous->second;
+                    it->freeRanges.erase(previous);
+                }
+            }
+            if (next != it->freeRanges.end() && offset + size == next->first) {
+                size += next->second;
+                it->freeRanges.erase(next);
+            }
+            it->freeRanges.emplace(offset, size);
+            return;
+        }
+        MNN_ASSERT(false);
     }
 
 private:
     struct Chunk {
         HexagonBuffer* buf = nullptr;
-        size_t used = 0;
-        size_t capacity = 0;
+        std::map<size_t, size_t> allocations;
+        std::map<size_t, size_t> freeRanges;
     };
+    static void freeChunk(HexagonBuffer* buf) {
+        unregisterDspMappedBuffer(buf);
+        if (buf->mapped) {
+            gMmapManager().unmap(CDSP_DOMAIN_ID, buf);
+        }
+        rpcmem_free(buf->ptr);
+        delete buf;
+    }
     static size_t alignUp(size_t v, size_t a) {
         return a == 0 ? v : (v + a - 1) / a * a;
     }
