@@ -641,6 +641,9 @@ ErrorCode HexagonAttention::buildCrossAttention(const std::vector<Tensor*>& inpu
     if (Q->dimensions() != 4 || K->dimensions() != 4 || V->dimensions() != 4) {
         return NOT_SUPPORT;
     }
+    if (Q->length(0) != 1 || K->length(0) != 1 || V->length(0) != 1) {
+        return NOT_SUPPORT;
+    }
     const int qLen = Q->length(1);
     const int kvLen = K->length(1);
     const int nHeads = Q->length(2);
