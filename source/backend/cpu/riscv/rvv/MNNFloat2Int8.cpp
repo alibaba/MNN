@@ -42,7 +42,8 @@ void MNNFloat2Int8_RVV(const float* src, int8_t* dst, size_t sizeQuad, const flo
             vfloat32m2_t v_value = __riscv_vfmul_vf_f32m2(v_src, scale0, vl);
             v_value = __riscv_vfadd_vf_f32m2(v_value, zero0, vl);
             v_value = __riscv_vfmin_vf_f32m2(__riscv_vfmax_vf_f32m2(v_value, minf, vl), maxf, vl);
-            vint32m2_t v_i32 = __riscv_vfcvt_x_f_v_i32m2(v_value, vl);
+            // Match roundf's ties-away-from-zero rule independently of the caller's frm.
+            vint32m2_t v_i32 = __riscv_vfcvt_x_f_v_i32m2_rm(v_value, __RISCV_FRM_RMM, vl);
             vint16m1_t v_i16 = __riscv_vncvt_x_x_w_i16m1(v_i32, vl);
             vint8mf2_t v_i8 = __riscv_vncvt_x_x_w_i8mf2(v_i16, vl);
             __riscv_vse8_v_i8mf2(dst + i, v_i8, vl);
@@ -81,7 +82,7 @@ void MNNFloat2Int8_RVV(const float* src, int8_t* dst, size_t sizeQuad, const flo
         vfloat32m2_t v_clamp = __riscv_vfmin_vv_f32m2(__riscv_vfmax_vv_f32m2(v_add, v_min, vl), v_max, vl);
 
         // float→int8
-        vint32m2_t v_i32 = __riscv_vfcvt_x_f_v_i32m2(v_clamp, vl);
+        vint32m2_t v_i32 = __riscv_vfcvt_x_f_v_i32m2_rm(v_clamp, __RISCV_FRM_RMM, vl);
         vint16m1_t v_i16 = __riscv_vncvt_x_x_w_i16m1(v_i32, vl);
         vint8mf2_t v_i8 = __riscv_vncvt_x_x_w_i8mf2(v_i16, vl);
 
