@@ -12,7 +12,11 @@
 #include <algorithm>
 #include <string.h>
 #define HEXAGON_KV_PAGE_SIZE 256
-#define HEXAGON_ATTN_FIXED_WORKSPACE_KV 2048
+// Largest KV extent the grouped-causal prefill path covers; must equal ATTN_FIXED_WORKSPACE_KV in
+// htp-ops-lib/src/dsp/attention_private.hpp. Beyond it the DSP walks the cache page by page, which
+// only touches one page at a time, so the workspace stays at the old 2048 columns there.
+#define HEXAGON_ATTN_FIXED_WORKSPACE_KV 4096
+#define HEXAGON_ATTN_ONLINE_WORKSPACE_KV 2048
 #define HEXAGON_ATTN_PREFILL_SEGMENT_Q 64
 namespace MNN {
 
@@ -24,7 +28,12 @@ static int groupedCausalWorkspaceRows(int qoLen, int nHeads, int nKvHeads, int h
         return 0;
     }
     const int gqaFactor = nHeads / nKvHeads;
-    if (gqaFactor <= 1 || gqaFactor > 4) {
+    // Must stay in sync with the DSP's grouped-path gate (attention_sync_setup.cc): when the DSP groups,
+    // each worker's workspace holds rows = gqaFactor * qRows, so the host has to reserve that many rows or
+    // the worker slots overlap. The old <= 4 bound left gqa 5..8 models with a 64-row reservation while
+    // the DSP grouped into up to gqa*32 rows: at pp512 that still fit inside the fixed 2048-column layout
+    // by luck, and any longer prompt overran the workspace.
+    if (gqaFactor <= 1 || gqaFactor > 8) {
         return 0;
     }
     // Only the upper bound matters here: the DSP picks a group size <= this one for the actual shape
@@ -47,6 +56,9 @@ struct FlashAttnParam {
     int page_size;
     int page_table_capacity;
     int value_c4;
+    // Columns actually reserved below. The DSP bounds its non-online paths by this because the command
+    // is reused after the build while the KV extent keeps growing; see sync_attention_fixed_kv().
+    int workspace_kv;
 };
 
 struct FlashAttentionBlockParam {
@@ -426,7 +438,6 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
     int max_kv_len = mKVCacheManager->maxLength();
     int page_count = mKVCacheManager->pageCount();
     int page_size = mKVCacheManager->pageSize();
-    mMaxKVLen = max_kv_len;
     auto tableCode = ensurePageTableCapacity(page_count);
     if (tableCode != NO_ERROR) {
         return tableCode;
@@ -452,7 +463,21 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
         workspaceRows = groupedCausalRows;
     }
     const bool useFixedPageWorkspace = (page_size > 0) && (head_dim % 64 == 0);
-    const int workspaceKvLen = useFixedPageWorkspace ? HEXAGON_ATTN_FIXED_WORKSPACE_KV : max_kv_len;
+    // The grouped path stores a full score row of N columns, so the workspace has to follow the *current*
+    // KV extent up to its limit. max_kv_len is the cache capacity, which sticky pages keep at a past
+    // high-water mark, so it cannot be used here. Past the limit the page-by-page path only ever touches
+    // one page, hence the old fixed 2048.
+    // Without a KVMeta the DSP sees N = seq_current + seq_add = insert_len, not qo_len.
+    int kv_len_now = insert_len;
+    if (mMeta != nullptr) {
+        kv_len_now = mMeta->previous - mMeta->remove + mMeta->add;
+    }
+    const int workspaceKvLen =
+        useFixedPageWorkspace
+            ? ((kv_len_now > HEXAGON_ATTN_ONLINE_WORKSPACE_KV && kv_len_now <= HEXAGON_ATTN_FIXED_WORKSPACE_KV)
+                   ? kv_len_now
+                   : HEXAGON_ATTN_ONLINE_WORKSPACE_KV)
+            : max_kv_len;
     const int workspaceKvLenPadded = (workspaceKvLen + 31) / 32 * 32;
     const int head_dim_padded = (head_dim + 31) / 32 * 32;
     size_t total_bytes = 0;
@@ -516,8 +541,9 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
     int maskFd = maskDev.first;
     int maskOffset = maskDev.second;
 
-    FlashAttnParam params = {qo_len, seq_current, seq_add, n_heads, n_kv_heads, head_dim, scale, mask_stride,
-                             max_kv_len, page_count, page_size, mPageTableCapacity, 1};
+    FlashAttnParam params = {qo_len, seq_current,         seq_add,    n_heads,    n_kv_heads, head_dim,
+                             scale,  mask_stride,         max_kv_len, page_count, page_size,  mPageTableCapacity,
+                             1,      workspaceKvLenPadded};
 
     auto pageTableDev = HexagonBackend::getDevicePtr(mPageTable.get());
     std::vector<std::pair<int, int>> attnInputFds = {qDev, kDev, vDev, {maskFd, maskOffset}, pageTableDev};

@@ -647,6 +647,320 @@ static inline void compute_layernorm_rope_head128_fp16(__fp16* out_base, const _
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Fused RMSNorm/LayerNorm + RoPE for head_dim == 64 (one HVX vector per head).
+//
+// A 64-dim head packs as lanes [0:32) = first rope half, [32:64) = second half, so the rope
+// rotation is expressible on the packed vector: with C = (c_e | c_o), Sn = (-s_e | s_o) and
+// rot(n) = vror(n, 64B) = (n_hi | n_lo):
+//   out = n*C + rot(n)*Sn  =>  out_lo = n_lo*c_e - n_hi*s_e, out_hi = n_hi*c_o + n_lo*s_o
+// which is exactly htp_ops_rope_apply64's math on the two 32-lane halves. C/Sn are built once
+// per token from the trig_mid layout ([c_e | c_o | s_e | s_o], 32 fp16 each) and shared by all
+// heads of q and k. fp16<->fp32 converts de-interleave (lo = even lanes, hi = odd lanes), so
+// gamma is v-dealt into even/odd like the head128 path, and the sumsq covers all 64 dims.
+// ---------------------------------------------------------------------------------------------
+static inline HVX_Vector htp_ops_rope_signmask_low64B(void) {
+  static const uint16_t pattern[64] __attribute__((aligned(
+    128))) = { 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000,
+               0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000,
+               0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0,      0,      0,      0,      0,      0,      0,
+               0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,
+               0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0 };
+  return vmem((const HVX_Vector *) pattern);
+}
+
+static inline void htp_ops_rope_store64(__fp16 *out_h, HVX_Vector n_hf, HVX_Vector vC, HVX_Vector vSn) {
+  HVX_Vector r_hf = Q6_V_vror_VR(n_hf, 64);
+  HVX_Vector out =
+    Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_Vqf16Vqf16(Q6_Vqf16_vmpy_VhfVhf(n_hf, vC), Q6_Vqf16_vmpy_VhfVhf(r_hf, vSn)));
+  vmemu((HVX_Vector *) out_h) = out;
+}
+
+static inline void compute_rmsnorm_rope_two_heads64_fp16(__fp16 *out0_h, __fp16 *out1_h, const __fp16 *in0_h,
+                                                         const __fp16 *in1_h, HVX_Vector g_e, HVX_Vector g_o,
+                                                         HVX_Vector vC, HVX_Vector vSn, float epsilon) {
+  HVX_Vector     x0_hf = *((const HVX_UVector *) in0_h);
+  HVX_Vector     x1_hf = *((const HVX_UVector *) in1_h);
+  HVX_VectorPair x0_sf = Q6_Wsf_vcvt_Vhf(x0_hf);
+  HVX_VectorPair x1_sf = Q6_Wsf_vcvt_Vhf(x1_hf);
+  HVX_Vector     x0_lo = Q6_V_lo_W(x0_sf);
+  HVX_Vector     x0_hi = Q6_V_hi_W(x0_sf);
+  HVX_Vector     x1_lo = Q6_V_lo_W(x1_sf);
+  HVX_Vector     x1_hi = Q6_V_hi_W(x1_sf);
+
+  float var0 = htp_ops_rope_reduce_sum2_f32(Q6_Vsf_vmpy_VsfVsf(x0_lo, x0_lo), Q6_Vsf_vmpy_VsfVsf(x0_hi, x0_hi)) / 64.0f;
+  float var1 = htp_ops_rope_reduce_sum2_f32(Q6_Vsf_vmpy_VsfVsf(x1_lo, x1_lo), Q6_Vsf_vmpy_VsfVsf(x1_hi, x1_hi)) / 64.0f;
+  float inv0 = htp_ops_rope_fast_rsqrtf(var0 + epsilon);
+  float inv1 = htp_ops_rope_fast_rsqrtf(var1 + epsilon);
+
+  union {
+    float   f;
+    int32_t i;
+  } u0 = { .f = inv0 };
+
+  union {
+    float   f;
+    int32_t i;
+  } u1 = { .f = inv1 };
+
+  HVX_Vector vinv0 = Q6_V_vsplat_R(u0.i);
+  HVX_Vector vinv1 = Q6_V_vsplat_R(u1.i);
+
+  HVX_Vector scale0 = Q6_Vhf_vcvt_VsfVsf(Q6_Vsf_vmpy_VsfVsf(g_e, vinv0), Q6_Vsf_vmpy_VsfVsf(g_o, vinv0));
+  HVX_Vector scale1 = Q6_Vhf_vcvt_VsfVsf(Q6_Vsf_vmpy_VsfVsf(g_e, vinv1), Q6_Vsf_vmpy_VsfVsf(g_o, vinv1));
+  HVX_Vector n0_hf  = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(x0_hf, scale0));
+  HVX_Vector n1_hf  = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(x1_hf, scale1));
+  htp_ops_rope_store64(out0_h, n0_hf, vC, vSn);
+  htp_ops_rope_store64(out1_h, n1_hf, vC, vSn);
+}
+
+static inline void compute_rmsnorm_rope_one_head64_fp16(__fp16 *out_h, const __fp16 *in_h, HVX_Vector g_e,
+                                                        HVX_Vector g_o, HVX_Vector vC, HVX_Vector vSn, float epsilon) {
+  HVX_Vector     x_hf = *((const HVX_UVector *) in_h);
+  HVX_VectorPair x_sf = Q6_Wsf_vcvt_Vhf(x_hf);
+  HVX_Vector     x_lo = Q6_V_lo_W(x_sf);
+  HVX_Vector     x_hi = Q6_V_hi_W(x_sf);
+  float var = htp_ops_rope_reduce_sum2_f32(Q6_Vsf_vmpy_VsfVsf(x_lo, x_lo), Q6_Vsf_vmpy_VsfVsf(x_hi, x_hi)) / 64.0f;
+  float inv = htp_ops_rope_fast_rsqrtf(var + epsilon);
+
+  union {
+    float   f;
+    int32_t i;
+  } u = { .f = inv };
+
+  HVX_Vector vinv  = Q6_V_vsplat_R(u.i);
+  HVX_Vector scale = Q6_Vhf_vcvt_VsfVsf(Q6_Vsf_vmpy_VsfVsf(g_e, vinv), Q6_Vsf_vmpy_VsfVsf(g_o, vinv));
+  HVX_Vector n_hf  = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(x_hf, scale));
+  htp_ops_rope_store64(out_h, n_hf, vC, vSn);
+}
+
+static inline void compute_rmsnorm_rope_head64_fp16(__fp16 *out_base, const __fp16 *in_base, const float *gamma,
+                                                    int headNumber, HVX_Vector vC, HVX_Vector vSn, float epsilon) {
+  HVX_Vector     vg0    = *((const HVX_UVector *) gamma);
+  HVX_Vector     vg1    = *((const HVX_UVector *) (gamma + 32));
+  HVX_VectorPair g_deal = Q6_W_vdeal_VVR(vg1, vg0, -4);
+  HVX_Vector     g_e    = Q6_V_lo_W(g_deal);
+  HVX_Vector     g_o    = Q6_V_hi_W(g_deal);
+  int            h      = 0;
+  for (; h + 2 <= headNumber; h += 2) {
+    compute_rmsnorm_rope_two_heads64_fp16(out_base + (size_t) h * 64, out_base + (size_t) (h + 1) * 64,
+                                          in_base + (size_t) h * 64, in_base + (size_t) (h + 1) * 64, g_e, g_o, vC, vSn,
+                                          epsilon);
+  }
+  for (; h < headNumber; ++h) {
+    compute_rmsnorm_rope_one_head64_fp16(out_base + (size_t) h * 64, in_base + (size_t) h * 64, g_e, g_o, vC, vSn,
+                                         epsilon);
+  }
+}
+
+// LayerNorm + RoPE for a single 64-dim head. The odd-head tail used to call the two-head variant with both
+// pointers aliased; that was only correct because the two computations are independent, and it would break
+// silently as soon as the pair shares work (restrict, a merged store, pipelining).
+static inline void compute_layernorm_rope_one_head64_fp16(__fp16 *out_h, const __fp16 *in_h, HVX_Vector g_e,
+                                                          HVX_Vector g_o, HVX_Vector vC, HVX_Vector vSn,
+                                                          float epsilon) {
+  HVX_Vector     x_hf = *((const HVX_UVector *) in_h);
+  HVX_VectorPair x_sf = Q6_Wsf_vcvt_Vhf(x_hf);
+  HVX_Vector     x_lo = Q6_V_lo_W(x_sf);
+  HVX_Vector     x_hi = Q6_V_hi_W(x_sf);
+  float          mean = htp_ops_rope_reduce_sum2_f32(x_lo, x_hi) / 64.0f;
+  float var = htp_ops_rope_reduce_sum2_f32(Q6_Vsf_vmpy_VsfVsf(x_lo, x_lo), Q6_Vsf_vmpy_VsfVsf(x_hi, x_hi)) / 64.0f;
+  var -= mean * mean;
+  float inv = htp_ops_rope_fast_rsqrtf(var + epsilon);
+
+  union {
+    float   f;
+    int32_t i;
+  } um = { .f = mean };
+
+  union {
+    float   f;
+    int32_t i;
+  } ui = { .f = inv };
+
+  HVX_Vector vmean = Q6_V_vsplat_R(um.i);
+  HVX_Vector vinv  = Q6_V_vsplat_R(ui.i);
+  HVX_Vector lo    = Q6_Vsf_vmpy_VsfVsf(Q6_Vsf_vsub_VsfVsf(x_lo, vmean), vinv);
+  HVX_Vector hi    = Q6_Vsf_vmpy_VsfVsf(Q6_Vsf_vsub_VsfVsf(x_hi, vmean), vinv);
+  HVX_Vector n_hf  = Q6_Vhf_vcvt_VsfVsf(Q6_Vsf_vmpy_VsfVsf(lo, g_e), Q6_Vsf_vmpy_VsfVsf(hi, g_o));
+  htp_ops_rope_store64(out_h, n_hf, vC, vSn);
+}
+
+static inline void compute_layernorm_rope_two_heads64_fp16(__fp16 *out0_h, __fp16 *out1_h, const __fp16 *in0_h,
+                                                           const __fp16 *in1_h, HVX_Vector g_e, HVX_Vector g_o,
+                                                           HVX_Vector vC, HVX_Vector vSn, float epsilon) {
+  HVX_Vector     x0_hf = *((const HVX_UVector *) in0_h);
+  HVX_Vector     x1_hf = *((const HVX_UVector *) in1_h);
+  HVX_VectorPair x0_sf = Q6_Wsf_vcvt_Vhf(x0_hf);
+  HVX_VectorPair x1_sf = Q6_Wsf_vcvt_Vhf(x1_hf);
+  HVX_Vector     x0_lo = Q6_V_lo_W(x0_sf);
+  HVX_Vector     x0_hi = Q6_V_hi_W(x0_sf);
+  HVX_Vector     x1_lo = Q6_V_lo_W(x1_sf);
+  HVX_Vector     x1_hi = Q6_V_hi_W(x1_sf);
+
+  // LayerNorm only: the RMS variant is compute_rmsnorm_rope_{two,one}_head64_fp16, and the dispatch never
+  // sends an RMSNorm config here, so the old rms_norm parameter was always 0 and its branch dead.
+  float mean0 = htp_ops_rope_reduce_sum2_f32(x0_lo, x0_hi) / 64.0f;
+  float mean1 = htp_ops_rope_reduce_sum2_f32(x1_lo, x1_hi) / 64.0f;
+  float var0 = htp_ops_rope_reduce_sum2_f32(Q6_Vsf_vmpy_VsfVsf(x0_lo, x0_lo), Q6_Vsf_vmpy_VsfVsf(x0_hi, x0_hi)) / 64.0f;
+  float var1 = htp_ops_rope_reduce_sum2_f32(Q6_Vsf_vmpy_VsfVsf(x1_lo, x1_lo), Q6_Vsf_vmpy_VsfVsf(x1_hi, x1_hi)) / 64.0f;
+  var0 -= mean0 * mean0;
+  var1 -= mean1 * mean1;
+  float inv0 = htp_ops_rope_fast_rsqrtf(var0 + epsilon);
+  float inv1 = htp_ops_rope_fast_rsqrtf(var1 + epsilon);
+
+  union {
+    float   f;
+    int32_t i;
+  } u_m0 = { .f = mean0 };
+
+  union {
+    float   f;
+    int32_t i;
+  } u_m1 = { .f = mean1 };
+
+  union {
+    float   f;
+    int32_t i;
+  } u0 = { .f = inv0 };
+
+  union {
+    float   f;
+    int32_t i;
+  } u1 = { .f = inv1 };
+
+  HVX_Vector vmean0 = Q6_V_vsplat_R(u_m0.i);
+  HVX_Vector vmean1 = Q6_V_vsplat_R(u_m1.i);
+  HVX_Vector vinv0  = Q6_V_vsplat_R(u0.i);
+  HVX_Vector vinv1  = Q6_V_vsplat_R(u1.i);
+
+  HVX_Vector n0_lo = Q6_Vsf_vsub_VsfVsf(x0_lo, vmean0);
+  HVX_Vector n0_hi = Q6_Vsf_vsub_VsfVsf(x0_hi, vmean0);
+  HVX_Vector n1_lo = Q6_Vsf_vsub_VsfVsf(x1_lo, vmean1);
+  HVX_Vector n1_hi = Q6_Vsf_vsub_VsfVsf(x1_hi, vmean1);
+  n0_lo            = Q6_Vsf_vmpy_VsfVsf(n0_lo, vinv0);
+  n0_hi            = Q6_Vsf_vmpy_VsfVsf(n0_hi, vinv0);
+  n1_lo            = Q6_Vsf_vmpy_VsfVsf(n1_lo, vinv1);
+  n1_hi            = Q6_Vsf_vmpy_VsfVsf(n1_hi, vinv1);
+  HVX_Vector n0_hf = Q6_Vhf_vcvt_VsfVsf(Q6_Vsf_vmpy_VsfVsf(n0_lo, g_e), Q6_Vsf_vmpy_VsfVsf(n0_hi, g_o));
+  HVX_Vector n1_hf = Q6_Vhf_vcvt_VsfVsf(Q6_Vsf_vmpy_VsfVsf(n1_lo, g_e), Q6_Vsf_vmpy_VsfVsf(n1_hi, g_o));
+  htp_ops_rope_store64(out0_h, n0_hf, vC, vSn);
+  htp_ops_rope_store64(out1_h, n1_hf, vC, vSn);
+}
+
+static inline void compute_layernorm_rope_head64_fp16(__fp16 *out_base, const __fp16 *in_base, const float *gamma,
+                                                      int headNumber, HVX_Vector vC, HVX_Vector vSn, float epsilon) {
+  HVX_Vector     vg0    = *((const HVX_UVector *) gamma);
+  HVX_Vector     vg1    = *((const HVX_UVector *) (gamma + 32));
+  HVX_VectorPair g_deal = Q6_W_vdeal_VVR(vg1, vg0, -4);
+  HVX_Vector     g_e    = Q6_V_lo_W(g_deal);
+  HVX_Vector     g_o    = Q6_V_hi_W(g_deal);
+  int            h      = 0;
+  for (; h + 2 <= headNumber; h += 2) {
+    compute_layernorm_rope_two_heads64_fp16(out_base + (size_t) h * 64, out_base + (size_t) (h + 1) * 64,
+                                            in_base + (size_t) h * 64, in_base + (size_t) (h + 1) * 64, g_e, g_o, vC,
+                                            vSn, epsilon);
+  }
+  for (; h < headNumber; ++h) {
+    compute_layernorm_rope_one_head64_fp16(out_base + (size_t) h * 64, in_base + (size_t) h * 64, g_e, g_o, vC, vSn,
+                                           epsilon);
+  }
+}
+
+// Fused norm+rope for head_dim = 64 * chunks with an even chunk count (head_dim % 128 == 0),
+// covering 256..512 (e.g. Gemma-family 256). Same math as the head128 path generalized over
+// 64-lane chunks: rope pairs chunk j with chunk j + chunks/2 (dims d and d + head_dim/2).
+// The HVX locals stay under 2 KiB of the 32 KiB worker stack. Larger or odd-chunk head dims
+// keep using the generic (unfused) path below, which remains correct for every shape.
+// Array bound for the per-chunk vector scratch below; the dispatch condition ties head_dim to it.
+#define HTP_ROPE_MAX_CHUNKS 8
+
+static inline void compute_norm_rope_one_headMulti_fp16(__fp16 *out_h, const __fp16 *in_h, const float *gamma,
+                                                        int chunks, const __fp16 *c_e, const __fp16 *c_o,
+                                                        const __fp16 *s_e, const __fp16 *s_o, float epsilon,
+                                                        int rms_norm) {
+  if (chunks > HTP_ROPE_MAX_CHUNKS) {  // dispatch guards this; fail loudly instead of running off the stack
+    FARF(ERROR, "norm_rope_headMulti: chunks=%d > %d", chunks, HTP_ROPE_MAX_CHUNKS);
+    return;
+  }
+  const int        half_chunks = chunks / 2;
+  HVX_Vector       x[HTP_ROPE_MAX_CHUNKS];
+  HVX_Vector       n[HTP_ROPE_MAX_CHUNKS];
+  const HVX_Vector zero = Q6_V_vsplat_R(0);
+  HVX_Vector       sq0 = zero, sq1 = zero, sum0 = zero, sum1 = zero;
+  for (int j = 0; j < chunks; ++j) {
+    x[j]              = *((const HVX_UVector *) (in_h + 64 * j));
+    HVX_VectorPair sf = Q6_Wsf_vcvt_Vhf(x[j]);
+    HVX_Vector     lo = Q6_V_lo_W(sf);
+    HVX_Vector     hi = Q6_V_hi_W(sf);
+    sq0               = Q6_Vsf_vadd_VsfVsf(sq0, Q6_Vsf_vmpy_VsfVsf(lo, lo));
+    sq1               = Q6_Vsf_vadd_VsfVsf(sq1, Q6_Vsf_vmpy_VsfVsf(hi, hi));
+    if (!rms_norm) {
+      sum0 = Q6_Vsf_vadd_VsfVsf(sum0, lo);
+      sum1 = Q6_Vsf_vadd_VsfVsf(sum1, hi);
+    }
+  }
+  float mean = 0.0f;
+  if (!rms_norm) {
+    mean = htp_ops_rope_reduce_sum2_f32(sum0, sum1) / (float) (chunks * 64);
+  }
+  float var = htp_ops_rope_reduce_sum2_f32(sq0, sq1) / (float) (chunks * 64);
+  if (!rms_norm) {
+    var -= mean * mean;
+  }
+  float inv = htp_ops_rope_fast_rsqrtf(var + epsilon);
+
+  union {
+    float   f;
+    int32_t i;
+  } ui = { .f = inv };
+
+  union {
+    float   f;
+    int32_t i;
+  } um = { .f = mean };
+
+  const HVX_Vector vinv  = Q6_V_vsplat_R(ui.i);
+  const HVX_Vector vmean = Q6_V_vsplat_R(um.i);
+  for (int j = 0; j < chunks; ++j) {
+    HVX_Vector     vg0 = *((const HVX_UVector *) (gamma + 64 * j));
+    HVX_Vector     vg1 = *((const HVX_UVector *) (gamma + 64 * j + 32));
+    HVX_VectorPair gd  = Q6_W_vdeal_VVR(vg1, vg0, -4);
+    HVX_VectorPair sf  = Q6_Wsf_vcvt_Vhf(x[j]);
+    HVX_Vector     lo  = Q6_V_lo_W(sf);
+    HVX_Vector     hi  = Q6_V_hi_W(sf);
+    if (!rms_norm) {
+      lo = Q6_Vsf_vsub_VsfVsf(lo, vmean);
+      hi = Q6_Vsf_vsub_VsfVsf(hi, vmean);
+    }
+    lo   = Q6_Vsf_vmpy_VsfVsf(lo, vinv);
+    hi   = Q6_Vsf_vmpy_VsfVsf(hi, vinv);
+    n[j] = Q6_Vhf_vcvt_VsfVsf(Q6_Vsf_vmpy_VsfVsf(lo, Q6_V_lo_W(gd)), Q6_Vsf_vmpy_VsfVsf(hi, Q6_V_hi_W(gd)));
+  }
+  for (int j = 0; j < half_chunks; ++j) {
+    const HVX_Vector vcE = *((const HVX_UVector *) (c_e + 64 * j));
+    const HVX_Vector vcO = *((const HVX_UVector *) (c_o + 64 * j));
+    const HVX_Vector vsE = *((const HVX_UVector *) (s_e + 64 * j));
+    const HVX_Vector vsO = *((const HVX_UVector *) (s_o + 64 * j));
+    HVX_Vector       o0  = Q6_Vhf_equals_Vqf16(
+      Q6_Vqf16_vsub_Vqf16Vqf16(Q6_Vqf16_vmpy_VhfVhf(n[j], vcE), Q6_Vqf16_vmpy_VhfVhf(n[j + half_chunks], vsE)));
+    HVX_Vector o1 = Q6_Vhf_equals_Vqf16(
+      Q6_Vqf16_vadd_Vqf16Vqf16(Q6_Vqf16_vmpy_VhfVhf(n[j + half_chunks], vcO), Q6_Vqf16_vmpy_VhfVhf(n[j], vsO)));
+    vmemu((HVX_Vector *) (out_h + 64 * j))                 = o0;
+    vmemu((HVX_Vector *) (out_h + 64 * (j + half_chunks))) = o1;
+  }
+}
+
+static inline void compute_norm_rope_headMulti_fp16(__fp16 *out_base, const __fp16 *in_base, const float *gamma,
+                                                    int headNumber, int head_dim, const __fp16 *c_e, const __fp16 *c_o,
+                                                    const __fp16 *s_e, const __fp16 *s_o, float epsilon, int rms_norm) {
+  const int chunks = head_dim / 64;
+  for (int h = 0; h < headNumber; ++h) {
+    compute_norm_rope_one_headMulti_fp16(out_base + (size_t) h * head_dim, in_base + (size_t) h * head_dim, gamma,
+                                         chunks, c_e, c_o, s_e, s_o, epsilon, rms_norm);
+  }
+}
+
 static inline int htp_ops_rope_pick_batch_task_count(int batch_seq) {
     unsigned int worker_cap = g_max_num_workers;
     if (worker_cap <= 1 || batch_seq <= 1) {
@@ -703,6 +1017,40 @@ static inline void htp_ops_rope_fuse_layernorm_process_one_seq(
                                                 c_e, c_o, s_e, s_o, k_epsilon, k_rms_norm);
         }
         return;
+    }
+    if (q_gamma != NULL && k_gamma != NULL && head_dim == 64 && half_head_dim == 32 && rope_half_head_dim == 32) {
+      // Pack (c_e|c_o) and (s_e|s_o) into two vectors; negating the s_e half once per token
+      // turns the per-head rope into n*C + vror(n,64B)*Sn with no per-head masking.
+      memcpy(trig_mid, c_e, (size_t) half_head_dim * sizeof(__fp16));
+      memcpy(trig_mid + 32, c_o, (size_t) half_head_dim * sizeof(__fp16));
+      memcpy(trig_mid + 64, s_e, (size_t) half_head_dim * sizeof(__fp16));
+      memcpy(trig_mid + 96, s_o, (size_t) half_head_dim * sizeof(__fp16));
+      const HVX_Vector vC  = vmem((const HVX_Vector *) trig_mid);
+      const HVX_Vector vS  = vmem((const HVX_Vector *) (trig_mid + 64));
+      const HVX_Vector vSn = Q6_V_vxor_VV(vS, htp_ops_rope_signmask_low64B());
+      l2fetch(q_seq_in, VLEN, VLEN, (num_head * 64 * (int) sizeof(__fp16)) / VLEN, 0);
+      l2fetch(k_seq_in, VLEN, VLEN, (kv_num_head * 64 * (int) sizeof(__fp16)) / VLEN, 0);
+      if (q_rms_norm) {
+        compute_rmsnorm_rope_head64_fp16(q_seq_out, q_seq_in, q_gamma, num_head, vC, vSn, q_epsilon);
+      } else {
+        compute_layernorm_rope_head64_fp16(q_seq_out, q_seq_in, q_gamma, num_head, vC, vSn, q_epsilon);
+      }
+      if (k_rms_norm) {
+        compute_rmsnorm_rope_head64_fp16(k_seq_out, k_seq_in, k_gamma, kv_num_head, vC, vSn, k_epsilon);
+      } else {
+        compute_layernorm_rope_head64_fp16(k_seq_out, k_seq_in, k_gamma, kv_num_head, vC, vSn, k_epsilon);
+      }
+      return;
+    }
+    if (q_gamma != NULL && k_gamma != NULL && rope_half_head_dim == half_head_dim && head_dim > 128 &&
+        head_dim <= HTP_ROPE_MAX_CHUNKS * 64 && (head_dim % 128) == 0 && half_head_dim % 64 == 0) {
+      l2fetch(q_seq_in, VLEN, VLEN, (num_head * head_dim * (int) sizeof(__fp16)) / VLEN, 0);
+      l2fetch(k_seq_in, VLEN, VLEN, (kv_num_head * head_dim * (int) sizeof(__fp16)) / VLEN, 0);
+      compute_norm_rope_headMulti_fp16(q_seq_out, q_seq_in, q_gamma, num_head, head_dim, c_e, c_o, s_e, s_o, q_epsilon,
+                                       q_rms_norm);
+      compute_norm_rope_headMulti_fp16(k_seq_out, k_seq_in, k_gamma, kv_num_head, head_dim, c_e, c_o, s_e, s_o,
+                                       k_epsilon, k_rms_norm);
+      return;
     }
     memcpy(trig_mid, c_e, (size_t)half_head_dim * sizeof(__fp16));
     memcpy(trig_mid + half_head_dim, c_o, (size_t)half_head_dim * sizeof(__fp16));

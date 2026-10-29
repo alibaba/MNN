@@ -39,16 +39,6 @@
 #  define HTP_LA_MICROBENCH 0
 #endif
 
-// Must match attention_sync_process.cc: worker-side phases into profile[251..255].
-#ifndef HTP_WATTN_PHASE_PROFILE
-#  define HTP_WATTN_PHASE_PROFILE 0
-#endif
-
-// Must match attention_hmx.cc: queue-thread QK/SV phase profiling into profile[244..247].
-#ifndef HTP_QATTN_PHASE_PROFILE
-#  define HTP_QATTN_PHASE_PROFILE 0
-#endif
-
 extern "C" {
 
 extern AEEResult htp_ops_matmul_q4a16_fp16(uint8_t* output, uint8_t* activation, uint8_t* weight, uint8_t* bias,
@@ -110,12 +100,15 @@ extern AEEResult htp_ops_rope_fuse_layernorm(uint8_t *qOut, uint8_t *qIn, uint8_
 
 extern AEEResult htp_ops_add_fuse_layernorm(uint8_t* dst, uint8_t* addOut, uint8_t* src0, uint8_t* src1, uint8_t* gamma, uint8_t* beta, int32 batch, int32 channels, float epsilon, int32 rmsNorm);
 
-extern AEEResult htp_ops_flash_attn(uint8_t* o, uint8_t* q, uint8_t* k, uint8_t* v, uint8_t* mask, uint8_t* workspace, uint8_t* pastK, uint8_t* pastV, int32 qo_len, int32 seq_current, int32 seq_add, int32 n_heads, int32 n_kv_heads, int32 head_dim, float scale, int32 mask_stride, int32 max_kv_len, int32 value_c4);
-extern AEEResult htp_ops_flash_attn_pages(uint8_t* o, uint8_t* q, uint8_t* k, uint8_t* v, uint8_t* mask, uint8_t* workspace,
-                                          uint8_t** pastKPages, uint8_t** pastVPages,
-                                          int32 qo_len, int32 seq_current, int32 seq_add, int32 n_heads,
-                                          int32 n_kv_heads, int32 head_dim, float scale, int32 mask_stride,
-                                          int32 max_kv_len, int32 page_count, int32 page_size, int32 value_c4);
+extern AEEResult htp_ops_flash_attn(uint8_t *o, uint8_t *q, uint8_t *k, uint8_t *v, uint8_t *mask, uint8_t *workspace,
+                                    uint8_t *pastK, uint8_t *pastV, int32 qo_len, int32 seq_current, int32 seq_add,
+                                    int32 n_heads, int32 n_kv_heads, int32 head_dim, float scale, int32 mask_stride,
+                                    int32 max_kv_len, int32 value_c4, int32 workspace_kv);
+extern AEEResult htp_ops_flash_attn_pages(uint8_t *o, uint8_t *q, uint8_t *k, uint8_t *v, uint8_t *mask,
+                                          uint8_t *workspace, uint8_t **pastKPages, uint8_t **pastVPages, int32 qo_len,
+                                          int32 seq_current, int32 seq_add, int32 n_heads, int32 n_kv_heads,
+                                          int32 head_dim, float scale, int32 mask_stride, int32 max_kv_len,
+                                          int32 page_count, int32 page_size, int32 value_c4, int32 workspace_kv);
 extern AEEResult htp_ops_flash_attention_block(uint8_t* m_new, uint8_t* l_new, uint8_t* out_new,
                                                 uint8_t* q, uint8_t* k, uint8_t* v, uint8_t* mask,
                                                 uint8_t* running_m, uint8_t* running_l, uint8_t* running_out,
@@ -575,6 +568,10 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
             int32_t page_size = intParams[10];
             int32_t page_table_capacity = (params && params->size() > 11) ? intParams[11] : 0;
             int32_t value_c4 = (params && params->size() > 12) ? intParams[12] : 0;
+            // Columns the host reserved for the per-worker workspace. The command outlives the build
+            // (a decode command is reused while the KV extent grows), so this -- not ATTN_FIXED_WORKSPACE_KV
+            // -- is the real bound; 0 from an older host falls back to the compile-time limit.
+            int32_t workspace_kv        = (params && params->size() > 13) ? intParams[13] : 0;
 
             uint8_t* outPtr = mapped_ptrs[inputs->size()];
             uint8_t* workspacePtr = mapped_ptrs[inputs->size() + 1];
@@ -607,14 +604,10 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
                 if (ret != 0) {
                     break;
                 }
-                ret = htp_ops_flash_attn_pages(outPtr,
-                                                qPtr, kPtr, vPtr,
-                                                maskPtr,
-                                                workspacePtr,
-                                                pastKPages.data(), pastVPages.data(),
-                                                intParams[0], seq_current, seq_add, intParams[3], intParams[4],
-                                                intParams[5], floatParams[6], intParams[7], intParams[8],
-                                                page_count, page_size, value_c4);
+                ret = htp_ops_flash_attn_pages(outPtr, qPtr, kPtr, vPtr, maskPtr, workspacePtr, pastKPages.data(),
+                                               pastVPages.data(), intParams[0], seq_current, seq_add, intParams[3],
+                                               intParams[4], intParams[5], floatParams[6], intParams[7], intParams[8],
+                                               page_count, page_size, value_c4, workspace_kv);
             } else if (page_count > 0 && inputs->size() >= (uint32_t)(4 + 2 * page_count)) {
                 std::vector<uint8_t*> pastKPages(page_count);
                 std::vector<uint8_t*> pastVPages(page_count);
@@ -622,14 +615,10 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
                     pastKPages[i] = mapped_ptrs[4 + 2 * i];
                     pastVPages[i] = mapped_ptrs[5 + 2 * i];
                 }
-                ret = htp_ops_flash_attn_pages(outPtr,
-                                                qPtr, kPtr, vPtr,
-                                                maskPtr,
-                                                workspacePtr,
-                                                pastKPages.data(), pastVPages.data(),
-                                                intParams[0], seq_current, seq_add, intParams[3], intParams[4],
-                                                intParams[5], floatParams[6], intParams[7], intParams[8],
-                                                page_count, page_size, value_c4);
+                ret = htp_ops_flash_attn_pages(outPtr, qPtr, kPtr, vPtr, maskPtr, workspacePtr, pastKPages.data(),
+                                               pastVPages.data(), intParams[0], seq_current, seq_add, intParams[3],
+                                               intParams[4], intParams[5], floatParams[6], intParams[7], intParams[8],
+                                               page_count, page_size, value_c4, workspace_kv);
             } else {
                 if (page_count > 0) {
                     FARF(ERROR, "DSP_OP_FLASH_ATTN page inputs mismatch: page_count=%d inputs=%d",
@@ -639,13 +628,9 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
                 }
                 uint8_t* pastKPtr = mapped_ptrs[4];
                 uint8_t* pastVPtr = mapped_ptrs[5];
-                ret = htp_ops_flash_attn(outPtr,
-                                          qPtr, kPtr, vPtr,
-                                          maskPtr,
-                                          workspacePtr,
-                                          pastKPtr, pastVPtr,
-                                          intParams[0], seq_current, seq_add, intParams[3], intParams[4],
-                                          intParams[5], floatParams[6], intParams[7], intParams[8], value_c4);
+                ret = htp_ops_flash_attn(outPtr, qPtr, kPtr, vPtr, maskPtr, workspacePtr, pastKPtr, pastVPtr,
+                                         intParams[0], seq_current, seq_add, intParams[3], intParams[4], intParams[5],
+                                         floatParams[6], intParams[7], intParams[8], value_c4, workspace_kv);
             }
             break;
         }
@@ -929,33 +914,6 @@ static int execute_single_command(MmapManager* mmap_manager, int32 cmdFd, int32 
             _sum += g_la_phase_ticks[_w][_p];
           }
           profile[229 + _p] = (int) (_sum * 10 / 192);
-        }
-#endif
-#if HTP_QATTN_PHASE_PROFILE
-        // Queue-thread QK/SV phases (us): [244]=DMA-wait, [245]=HMX-compute, [246]=score-store.
-        extern unsigned long long g_qattn_phase_us[3];
-        for (int _p = 0; _p < 3; ++_p) {
-          profile[244 + _p] = (int) g_qattn_phase_us[_p];
-        }
-        extern unsigned long long g_qattn_dma_bytes;
-        profile[247] = (int) (g_qattn_dma_bytes >> 20);  // weight-DMA MB (bandwidth = MB / [244]ms)
-        // dmstart counts (printed as count/1000): [248]=weight(K/V) chunks, [249]=activation(Q/S) tiles.
-        extern unsigned long long g_qattn_dma_calls[2];
-        profile[248] = (int) g_qattn_dma_calls[0];
-        profile[249] = (int) g_qattn_dma_calls[1];
-        extern unsigned long long g_qattn_act_bytes;
-        profile[250] = (int) (g_qattn_act_bytes >> 20);  // activation-DMA MB
-#endif
-#if HTP_WATTN_PHASE_PROFILE
-        // Worker-side grouped-causal prefill phases (us, summed over workers) into profile[251..255]:
-        // [251]=Q gather, [252]=QK submit+wait, [253]=softmax, [254]=SV submit+wait, [255]=O scatter.
-        extern unsigned long long g_wattn_phase_us[32][5];
-        for (int _p = 0; _p < 5; ++_p) {
-          unsigned long long _sum = 0;
-          for (int _w = 0; _w < 32; ++_w) {
-            _sum += g_wattn_phase_us[_w][_p];
-          }
-          profile[251 + _p] = (int) _sum;
         }
 #endif
         if (opType == DSP_OP_TENSOR_CONVERT) {

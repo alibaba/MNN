@@ -29,7 +29,6 @@ private:
     bool mVisionState = false;
     std::shared_ptr<HexagonKVCacheManager> mKVCacheManager;
     KVMeta* mMeta = nullptr;
-    int mMaxKVLen = 0;
     int mPageTableCapacity = 0;
     uint64_t mSyncedPageGeneration = (uint64_t)-1;
 };
