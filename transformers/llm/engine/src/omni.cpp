@@ -2850,7 +2850,7 @@ bool Omni::generateTTS(const std::string& text, const std::string& language, int
         MNN_ERROR("[Error]: Qwen3-TTS chat template produced empty prompt\n");
         return false;
     }
-    bool ok = mTalker->generateQwen3TTS(prompt, max_new_tokens, ref_audio);
+    bool ok = mTalker->generateQwen3TTS(prompt, language, max_new_tokens, ref_audio);
     const auto* talkerContext = mTalker->getContext();
     if (talkerContext) {
         mContext->prompt_len = talkerContext->prompt_len;
@@ -3514,7 +3514,38 @@ int Talker::sample(Express::VARP logits, int offset, int size) {
     return token;
 }
 
-bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const std::string& refAudio) {
+// Builds the codec prefix the talker expects. The official Python
+// implementation takes these ids straight from talker_config; the exported
+// chat template instead smuggles them through the text tokenizer, where BPE
+// re-tokenizes the decoded strings and conditions the talker with wrong ids.
+static std::vector<int> buildQwen3TTSCodecPrefix(const std::shared_ptr<LlmConfig>& config,
+                                                 const std::string& language) {
+    if (config == nullptr) {
+        return {};
+    }
+    const int thinkId = config->codec_think_id();
+    const int nothinkId = config->codec_nothink_id();
+    const int thinkBosId = config->codec_think_bos_id();
+    const int thinkEosId = config->codec_think_eos_id();
+    const int padId = config->codec_pad_id();
+    const int bosId = config->codec_bos_id();
+    if (thinkId < 0 || nothinkId < 0 || thinkBosId < 0 || thinkEosId < 0 || padId < 0 || bosId < 0) {
+        return {};
+    }
+    const int languageId = config->codec_language_id(language);
+    std::vector<int> ids;
+    if (languageId >= 0) {
+        ids = {thinkId, thinkBosId, languageId, thinkEosId};
+    } else {
+        ids = {nothinkId, thinkBosId, thinkEosId};
+    }
+    ids.push_back(padId);
+    ids.push_back(bosId);
+    return ids;
+}
+
+bool Talker::generateQwen3TTS(const std::string& prompt, const std::string& language, int maxFrames,
+                              const std::string& refAudio) {
     CHECK_LLM_RUNNING_RET(mContext, false);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!isQwen3TTSTalker(mConfig)) {
@@ -3549,13 +3580,34 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     mContext->output_tokens.clear();
     mContext->gen_seq_len = 0;
 
-    if (inputIds.size() <= 6) {
-        MNN_ERROR("[Error]: qwen3_tts prompt ids too short: %zu\n", inputIds.size());
-        mContext->status = LlmStatus::INTERNAL_ERROR;
-        return false;
+    std::vector<int> codecPrefix = buildQwen3TTSCodecPrefix(mConfig, qwen3TTSNormalizeLanguage(language));
+    std::vector<int> textIds;
+    if (!codecPrefix.empty()) {
+        // New exports ship a text-only chat template; older ones still carry
+        // lossy prefix ids in front of it, so start at the first <|im_start|>.
+        const int imStart = mConfig->im_start_token_id();
+        size_t firstText = inputIds.size();
+        for (size_t i = 0; i < inputIds.size(); ++i) {
+            if (inputIds[i] == imStart) {
+                firstText = i;
+                break;
+            }
+        }
+        if (firstText >= inputIds.size()) {
+            MNN_ERROR("[Error]: qwen3_tts text prompt not found after codec prefix\n");
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
+        textIds.assign(inputIds.begin() + firstText, inputIds.end());
+    } else {
+        if (inputIds.size() <= 6) {
+            MNN_ERROR("[Error]: qwen3_tts prompt ids too short: %zu\n", inputIds.size());
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
+        codecPrefix.assign(inputIds.begin(), inputIds.begin() + 6);
+        textIds.assign(inputIds.begin() + 6, inputIds.end());
     }
-    std::vector<int> codecPrefix(inputIds.begin(), inputIds.begin() + 6);
-    std::vector<int> textIds(inputIds.begin() + 6, inputIds.end());
     std::vector<int> ttsIds{mConfig->tts_bos_token_id(), mConfig->tts_eos_token_id(), mConfig->tts_pad_token_id()};
     VARP speakerEmbedding = nullptr;
     if (!refAudio.empty()) {
