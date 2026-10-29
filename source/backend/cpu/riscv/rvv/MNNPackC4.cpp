@@ -1,43 +1,4 @@
 #include <riscv_vector.h>
-
-void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
-    const size_t srcAreaStride = (size_t)areaOffset[0];
-    const size_t dstAreaStride = (size_t)areaOffset[1];
-    const ptrdiff_t dstStrideBytes = 4 * (ptrdiff_t)sizeof(float);
-    const size_t depthC4 = (depth + 3) / 4;
-
-    for (size_t z = 0; z < depthC4; ++z) {
-        const size_t cBase = z * 4;
-        float* dstZ = dst + z * dstAreaStride * 4;
-        size_t valid = depth - cBase;
-        if (valid > 4)
-            valid = 4;
-
-        for (size_t y = 0; y < valid; ++y) {
-            const float* srcChannel = src + (cBase + y) * srcAreaStride;
-
-            size_t x = 0;
-            while (x < area) {
-                const size_t vl = __riscv_vsetvl_e32m8(area - x);
-                vfloat32m8_t v = __riscv_vle32_v_f32m8(srcChannel + x, vl);
-                __riscv_vsse32_v_f32m8(dstZ + 4 * x + y, dstStrideBytes, v, vl);
-                x += vl;
-            }
-        }
-
-        for (size_t y = valid; y < 4; ++y) {
-            size_t x = 0;
-            while (x < area) {
-                const size_t vl = __riscv_vsetvl_e32m8(area - x);
-                vfloat32m8_t zero = __riscv_vfmv_v_f_f32m8(0.0f, vl);
-                __riscv_vsse32_v_f32m8(dstZ + 4 * x + y, dstStrideBytes, zero, vl);
-                x += vl;
-            }
-        }
-    }
-}
-
-#include <riscv_vector.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -103,17 +64,16 @@ static void _packCUnitFloat(float* dst, const float* src, size_t area, size_t de
     const int remain = static_cast<int>(depth - static_cast<size_t>(depthC * pack));
     const int srcAreaOffset = areaOffset[0];
     const int dstAreaOffset = areaOffset[1];
-    const ptrdiff_t dstStride = static_cast<ptrdiff_t>(pack * sizeof(float));
     for (int z = 0; z < depthC; ++z) {
         auto dstPlane = dst + z * dstAreaOffset * pack;
         auto srcPlane = src + z * srcAreaOffset * pack;
         for (size_t x = 0; x < area;) {
             size_t vl = __riscv_vsetvl_e32m2(area - x);
-            vfloat32m2x4_t data;
-            data = __riscv_vset_v_f32m2_f32m2x4(data, 0, __riscv_vle32_v_f32m2(srcPlane + x, vl));
-            data = __riscv_vset_v_f32m2_f32m2x4(data, 1, __riscv_vle32_v_f32m2(srcPlane + srcAreaOffset + x, vl));
-            data = __riscv_vset_v_f32m2_f32m2x4(data, 2, __riscv_vle32_v_f32m2(srcPlane + 2 * srcAreaOffset + x, vl));
-            data = __riscv_vset_v_f32m2_f32m2x4(data, 3, __riscv_vle32_v_f32m2(srcPlane + 3 * srcAreaOffset + x, vl));
+            const vfloat32m2_t c0 = __riscv_vle32_v_f32m2(srcPlane + x, vl);
+            const vfloat32m2_t c1 = __riscv_vle32_v_f32m2(srcPlane + srcAreaOffset + x, vl);
+            const vfloat32m2_t c2 = __riscv_vle32_v_f32m2(srcPlane + 2 * srcAreaOffset + x, vl);
+            const vfloat32m2_t c3 = __riscv_vle32_v_f32m2(srcPlane + 3 * srcAreaOffset + x, vl);
+            const vfloat32m2x4_t data = __riscv_vcreate_v_f32m2x4(c0, c1, c2, c3);
             __riscv_vsseg4e32_v_f32m2x4(dstPlane + 4 * x, data, vl);
             x += vl;
         }
@@ -123,16 +83,19 @@ static void _packCUnitFloat(float* dst, const float* src, size_t area, size_t de
         auto srcPlane = src + depthC * srcAreaOffset * pack;
         size_t x = 0;
         while (x < area) {
-            size_t vl = __riscv_vsetvl_e32m8(area - x);
-            auto dstX = dstPlane + x * pack;
-            for (int y = 0; y < remain; ++y) {
-                auto value = __riscv_vle32_v_f32m8(srcPlane + y * srcAreaOffset + x, vl);
-                __riscv_vsse32_v_f32m8(dstX + y, dstStride, value, vl);
+            const size_t vl = __riscv_vsetvl_e32m2(area - x);
+            const vfloat32m2_t zero = __riscv_vfmv_v_f_f32m2(0.0f, vl);
+            const vfloat32m2_t c0 = __riscv_vle32_v_f32m2(srcPlane + x, vl);
+            vfloat32m2_t c1 = zero;
+            vfloat32m2_t c2 = zero;
+            if (remain > 1) {
+                c1 = __riscv_vle32_v_f32m2(srcPlane + srcAreaOffset + x, vl);
             }
-            auto zero = __riscv_vfmv_v_f_f32m8(0.0f, vl);
-            for (int y = remain; y < pack; ++y) {
-                __riscv_vsse32_v_f32m8(dstX + y, dstStride, zero, vl);
+            if (remain > 2) {
+                c2 = __riscv_vle32_v_f32m2(srcPlane + 2 * srcAreaOffset + x, vl);
             }
+            const vfloat32m2x4_t data = __riscv_vcreate_v_f32m2x4(c0, c1, c2, zero);
+            __riscv_vsseg4e32_v_f32m2x4(dstPlane + x * pack, data, vl);
             x += vl;
         }
     }
