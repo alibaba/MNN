@@ -1140,9 +1140,12 @@ std::shared_ptr<HexagonConvolution::Resource> HexagonConvolution::makeResource(B
     }
     const auto convRuntime = static_cast<const HexagonRuntime*>(backend->getRuntime());
     const int convHvxArch = convRuntime != nullptr ? convRuntime->info().hvxArch : 0;
+    const bool enableVrmpyGemv = backend->getRuntime()->hint().hexagonEnableVrmpyGemv;
     std::string weightCachePath;
     if (useInt4W4A16 && !backend->getRuntime()->hint().weightMemoryPath.empty()) {
         weightCachePath = hexagonWeightCachePath(backend->getRuntime()->hint().weightMemoryPath, op, conv2d);
+        // Layout policy must also separate caches created before this hint existed.
+        weightCachePath += enableVrmpyGemv ? ".gemv" : ".hmx";
         HexagonWeightCacheHeader header;
         MemChunk chunk;
         auto cacheAlloc = static_cast<HexagonBackend*>(backend)->getAllocator(2);
@@ -1293,21 +1296,10 @@ std::shared_ptr<HexagonConvolution::Resource> HexagonConvolution::makeResource(B
         res->int4LayoutType = int4LayoutType;
         res->int4ScaleBlockNum = int4ScaleBlockNum;
         res->int4ScaleAsymmetric = scaleAsymmetric;
-        // Keep the v81 gate on the vrmpy GEMV weight packing. The kernel itself needs
-        // K % 64 == 0 and kp % scaleBlockNum == 0 (see hmx_matmulq4block_gemv_i8); it rejects the
-        // call and leaves the output untouched otherwise, so mirror both conditions here and fall
-        // back to the HMX path when they fail.
-        //
-        // Why the arch gate matters more than the M=1 GEMV: once useGemvI8 is true the int4 weights
-        // are repacked into the vrmpy layout and the M>1 BLOCK_FP16 command picks pathA
-        // (weight_is_vrmpy=1), so the DFlash target verify (M=17) also runs on that layout. On v79
-        // that poisoning costs ~1.6x on the target forward (DFlash p1 26.5 -> 17.9, p3 33.6 -> 22.5
-        // tok/s) while the M=1 GEMV it enables does not exist on v79 at all -- nothing is bought.
-        // Bisected across 8 stages on SM8750 v79: .artifacts/bisect-20261020/PLAN.md.
-        // master's convHvxArch >= 79 measured a decode win, but those numbers came from a build
-        // without the vendored DFlash verify path; this gate is what the DFlash runs were measured on.
-        const bool gemvShapeOk = dequantInWeight && convHvxArch >= 81 && (ic % 64 == 0) && (oc % 32 == 0) &&
-                                 ((ic / 32) % int4ScaleBlockNum == 0);
+        // GEMV packing also changes the multi-row path; verification workloads can opt out.
+        // Mirror the kernel's shape checks so unsupported calls fall back to HMX.
+        const bool gemvShapeOk = dequantInWeight && enableVrmpyGemv && convHvxArch >= 79 && (ic % 64 == 0) &&
+                                 (oc % 32 == 0) && ((ic / 32) % int4ScaleBlockNum == 0);
         if (gemvShapeOk) {
             const size_t gemvWeightBytes = (size_t)icP * ocP * 512;
             // 128 B per (oc-tile, block) entry; see reorderInt4WeightForVrmpyGemv.

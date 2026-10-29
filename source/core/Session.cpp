@@ -124,6 +124,9 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
         case Interpreter::CPU_SME2_NEON_DIVISION_RATIO:
             runtimeHint.divisionRatio = value;
             break;
+        case Interpreter::HEXAGON_ENABLE_VRMPY_GEMV:
+            runtimeHint.hexagonEnableVrmpyGemv = value > 0;
+            break;
         default:
             break;
     }
