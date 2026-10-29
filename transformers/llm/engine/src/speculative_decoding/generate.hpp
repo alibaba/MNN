@@ -136,10 +136,7 @@ public:
     }
     virtual void reset() override;
 private:
-    // Runtime for the draft modules: the target's runtime by default, or a dedicated Hexagon runtime
-    // when MNN_DFLASH_DRAFT_HEXAGON=1 (the target then runs on CPU). Static because it must read
-    // Llm's protected members, and DFlashGeneration is a friend of Llm.
-    static std::shared_ptr<MNN::Express::Executor::RuntimeManager> draftRuntime(Llm* llm);
+    std::shared_ptr<MNN::Express::Executor::RuntimeManager> draftRuntime();
     // Row-wise argmax, shared by draft sampling and target verify; only the element count is read, so any rank binds.
     // False when the on-device argmax module could not be built: the caller must abort the step.
     bool rowArgmax(MNN::Express::VARP logits, int rows, std::vector<int>& out);
@@ -162,6 +159,8 @@ private:
     void ensureKvConcatModule(int kvHeads, int headDim);
     std::vector<int> buildBlock(int currentToken) const;
 
+    // Own the optional runtime with its KVMeta binding; modules must be destroyed before it.
+    std::shared_ptr<MNN::Express::Executor::RuntimeManager> mDraftRuntime;
     std::shared_ptr<MNN::Express::Module> mDFlashModule;   // dflash.mnn (transformer, no lm_head)
     std::shared_ptr<MNN::Express::Module> mFcModule;       // dflash_fc.mnn
     std::shared_ptr<MNN::Express::Module> mLmHeadModule;   // target lm_head subgraph (shared-from-target)

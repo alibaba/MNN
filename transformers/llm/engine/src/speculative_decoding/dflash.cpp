@@ -43,32 +43,27 @@ static std::shared_ptr<MNN::Express::Executor::RuntimeManager> dflashCpuRuntime(
     return rt;
 }
 
-// Optional (MNN_DFLASH_DRAFT_HEXAGON=1): run the draft modules on Hexagon while the target runs on
-// CPU. Used to validate the draft's Hexagon path without competing with the 4B target for the
-// ~4GB DSP rpcmem/mapping budget. Defined as a static member of DFlashGeneration, which is a friend
-// of Llm, so it can read mConfig/mMeta/mRuntimeManager.
-std::shared_ptr<MNN::Express::Executor::RuntimeManager> DFlashGeneration::draftRuntime(Llm* llm) {
+// The optional separate runtime must not outlive or share another Llm's KVMeta binding.
+std::shared_ptr<MNN::Express::Executor::RuntimeManager> DFlashGeneration::draftRuntime() {
     if (getenv("MNN_DFLASH_DRAFT_HEXAGON") == nullptr) {
-        return llm->mRuntimeManager;
+        return mLlm->mRuntimeManager;
     }
-    static std::shared_ptr<MNN::Express::Executor::RuntimeManager> rt = [llm] {
+    if (mDraftRuntime == nullptr) {
         MNN::ScheduleConfig cfg;
         cfg.type = MNN_FORWARD_HEXAGON;
         cfg.numThread = 4;
-        auto mgr = std::shared_ptr<MNN::Express::Executor::RuntimeManager>(
-            MNN::Express::Executor::RuntimeManager::createRuntimeManager(cfg));
+        mDraftRuntime.reset(MNN::Express::Executor::RuntimeManager::createRuntimeManager(cfg));
+        auto& mgr = mDraftRuntime;
         if (mgr != nullptr) {
             mgr->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
             mgr->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-            mgr->setHint(MNN::Interpreter::ATTENTION_OPTION, llm->mConfig->config_.value("attention_mode", 8));
+            mgr->setHint(MNN::Interpreter::ATTENTION_OPTION, mLlm->mConfig->config_.value("attention_mode", 8));
             // The draft shares the session's KVMeta (see HexagonAttention's cross-attention note).
-            mgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, llm->mMeta.get());
+            mgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, mLlm->mMeta.get());
         }
-        return mgr;
-    }();
-    return rt;
+    }
+    return mDraftRuntime;
 }
-
 
 DFlashGeneration::DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config)
     : Generation(llm, context) {
@@ -100,7 +95,7 @@ bool DFlashGeneration::load(Module::Config module_config) {
     // Draft modules run on `draftRt`: the target's runtime by default, or a dedicated Hexagon
     // runtime when MNN_DFLASH_DRAFT_HEXAGON=1 (target then runs on CPU, e.g. backend_type=cpu).
     const bool draftOnHexagon = getenv("MNN_DFLASH_DRAFT_HEXAGON") != nullptr;
-    auto draftRt = draftOnHexagon ? draftRuntime(mLlm) : mLlm->mRuntimeManager;
+    auto draftRt = draftRuntime();
 
     // Loaded first: its output names give the draft layer count, which the draft graph's input list needs.
     {
@@ -246,8 +241,7 @@ void DFlashGeneration::ensureKvConcatModule(int kvHeads, int headDim) {
     auto buf = Variable::save(outputs);
     Module::Config cc;
     cc.shapeMutable = true;
-    mKvConcatModule.reset(Module::load(inNames, outNames,
-        (const uint8_t*)buf.data(), buf.size(), draftRuntime(mLlm), &cc));
+    mKvConcatModule.reset(Module::load(inNames, outNames, (const uint8_t*)buf.data(), buf.size(), draftRuntime(), &cc));
 }
 
 // newContext rows take draft-local RoPE positions startPos..startPos+rows-1 (0-based,
@@ -363,8 +357,8 @@ bool DFlashGeneration::rowArgmax(VARP logits, int rows, std::vector<int>& out) {
         auto buf = Variable::save({iv});
         Module::Config ac;
         ac.shapeMutable = true;
-        mArgmaxModule.reset(Module::load({"logits"}, {"pidx"},
-            (const uint8_t*)buf.data(), buf.size(), draftRuntime(mLlm), &ac));
+        mArgmaxModule.reset(
+            Module::load({"logits"}, {"pidx"}, (const uint8_t*)buf.data(), buf.size(), draftRuntime(), &ac));
         if (mArgmaxModule == nullptr) {
             MNN_ERROR("DFlash: failed to build the on-device argmax module (vocab=%d)\n", vocab);
             mContext->status = LlmStatus::INTERNAL_ERROR;
