@@ -258,6 +258,81 @@ static void MNNDecayRankOneUpdateFp16_Fp32Accum(float* S_, const float* k_, cons
     }
 }
 
+// Preserve the flat MNNNorm reduction order for aligned RMSNorm channels.
+// Different fp32 reduction orders can change fp16 rounding and autoregressive output.
+// Packed fp16 RMSNorm, adapted from upstream 40f926340. Keep the four-way
+// reduction and division order of MNNNorm so that changing layout does not
+// change fp16 outputs. Only channels divisible by 16 use this specialization.
+// Residual output is write-only; normalization uses the unrounded fp32 sum.
+static void MNNNormPackedFp16Rms16(float* normOut_, float* sumOut_, const float* source_, const float* residual_,
+                                   const float* gamma, const float* beta, float epsilon, size_t batch, size_t channels,
+                                   bool RMSNorm, int tId, int threadNumber) {
+    MNN_ASSERT(RMSNorm && channels % 16 == 0);
+    MNN_ASSERT((residual_ == nullptr) == (sumOut_ == nullptr));
+    constexpr size_t kPack = 8;
+    constexpr size_t kTokenTile = 4;
+    auto normOut = reinterpret_cast<__fp16*>(normOut_);
+    auto sumOut = reinterpret_cast<__fp16*>(sumOut_);
+    auto source = reinterpret_cast<const __fp16*>(source_);
+    auto residual = reinterpret_cast<const __fp16*>(residual_);
+    const bool affine = gamma != nullptr && beta != nullptr;
+    auto loadExact = [&](size_t offset) {
+        auto value = vcvt_f32_f16(vld1_f16(source + offset));
+        if (residual != nullptr) {
+            value = vaddq_f32(value, vcvt_f32_f16(vld1_f16(residual + offset)));
+        }
+        return value;
+    };
+    for (size_t tile = tId; tile < UP_DIV(batch, kTokenTile); tile += threadNumber) {
+        const size_t tokenBase = tile * kTokenTile;
+        const size_t tokenCount = ALIMIN(kTokenTile, batch - tokenBase);
+        float32x4_t accum[kTokenTile][4];
+        for (size_t token = 0; token < tokenCount; ++token) {
+            for (int lane = 0; lane < 4; ++lane) {
+                accum[token][lane] = vdupq_n_f32(0.0f);
+            }
+        }
+        for (size_t channel = 0; channel < channels; channel += 16) {
+            for (size_t token = 0; token < tokenCount; ++token) {
+                for (size_t lane = 0; lane < 4; ++lane) {
+                    const size_t c = channel + lane * 4;
+                    const size_t offset = (c / kPack * batch + tokenBase + token) * kPack + c % kPack;
+                    auto value = loadExact(offset);
+                    if (residual != nullptr) {
+                        // Saturate only the residual output, not the FP32 statistics.
+                        auto saturated = vminq_f32(vmaxq_f32(value, vdupq_n_f32(-65504.0f)), vdupq_n_f32(65504.0f));
+                        vst1_f16(sumOut + offset, vcvt_f16_f32(saturated));
+                    }
+                    accum[token][lane] = vmlaq_f32(accum[token][lane], value, value);
+                }
+            }
+        }
+        float invStds[kTokenTile];
+        for (size_t token = 0; token < tokenCount; ++token) {
+            auto sum =
+                vaddq_f32(vaddq_f32(accum[token][0], accum[token][1]), vaddq_f32(accum[token][2], accum[token][3]));
+            float squareSum = vaddvq_f32(sum);
+            auto variance = vadd_f32(vdiv_f32(vdup_n_f32(squareSum), vdup_n_f32(channels)), vdup_n_f32(epsilon));
+            invStds[token] = vget_lane_f32(vdiv_f32(vdup_n_f32(1.0f), vsqrt_f32(variance)), 0);
+        }
+        for (size_t channel = 0; channel < channels; channel += 4) {
+            float32x4_t g, b;
+            if (affine) {
+                g = vld1q_f32(gamma + channel);
+                b = vld1q_f32(beta + channel);
+            }
+            for (size_t token = 0; token < tokenCount; ++token) {
+                const size_t offset = (channel / kPack * batch + tokenBase + token) * kPack + channel % kPack;
+                auto value = vmulq_n_f32(loadExact(offset), invStds[token]);
+                if (affine) {
+                    value = vmlaq_f32(b, value, g);
+                }
+                vst1_f16(normOut + offset, vcvt_f16_f32(value));
+            }
+        }
+    }
+}
+
 // fp16 counterpart of MNNNormPackedFloat<Pack>, pack = 8.  Pointers are typed
 // `float*` for ABI uniformity with the fp32 slot; the memory is fp16 except for
 // gamma/beta, which CPULayerNorm keeps fp32 in every precision mode.
@@ -275,6 +350,11 @@ static void MNNNormPackedFp16(float* normOut_, float* sumOut_, const float* sour
                               bool RMSNorm, int tId, int threadNumber) {
     MNN_ASSERT((residual_ == nullptr) == (sumOut_ == nullptr));
     MNN_ASSERT(threadNumber > 0);
+    if (RMSNorm && channels > 0 && channels % 16 == 0) {
+        MNNNormPackedFp16Rms16(normOut_, sumOut_, source_, residual_, gamma, beta, epsilon, batch, channels, RMSNorm,
+                               tId, threadNumber);
+        return;
+    }
     constexpr size_t kPack = 8;
     constexpr size_t kTokenTile = 4;
     auto normOut = reinterpret_cast<__fp16*>(normOut_);
