@@ -201,6 +201,11 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     if (mConfig->use_cached_mmap()) {
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
     }
+    // DFlash verification favors HMX-packed weights; ordinary AR keeps the backend's GEMV layout.
+    // Select before loading modules because the weights are packed only once.
+    if (mConfig->backend_type() == "hexagon") {
+        rtg->setHint(MNN::Interpreter::HEXAGON_ENABLE_VRMPY_GEMV, mConfig->speculative_type() == "dflash" ? 0 : 1);
+    }
     std::string tmpPath = mConfig->tmp_path();
     if (!tmpPath.empty() && !MNNCreateDir(tmpPath.c_str())) {
         // Everything below only writes into tmpPath, so a missing directory
