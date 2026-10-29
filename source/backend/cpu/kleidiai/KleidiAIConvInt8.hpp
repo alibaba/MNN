@@ -18,7 +18,8 @@ public:
         QI4_ASYM_PERBLOCK_F32,
         QI4_ASYM_PERBLOCK_F16,
         QI4_SYM_PERCHANNEL_F32,
-        QI4_SYM_PERBLOCK,
+        QI4_SYM_PERBLOCK_F32,
+        QI4_SYM_PERBLOCK_F16,
         QI8_ASYM_PERCHANNEL,
         QI8_ASYM_PERBLOCK,
         QI8_SYM_PERCHANNEL,
@@ -73,7 +74,7 @@ private:
     };
 
     // Resolve mSme2/mDot/mI8mm from the CPU and fill mParam / mUkernel based on mKernelType.
-    void configKernel();
+    void configKernel(bool allowQai4F16Mopa = true);
     // Shape/thread-dependent scheduling belongs to resize, not the inference hot path.
     void configSchedule(size_t m, size_t n, size_t k, size_t blockSize, int threadCount);
 
@@ -128,6 +129,11 @@ private:
     }
 
     std::shared_ptr<Tensor> mWeightInt8;
+    // Official DOT GEMV shares MOPA RHS/bias; only the LHS layout differs.
+    bool mUseQai4Gemv = false;
+    KernelParam mParamGemv;
+    Ukernel mUkernelGemv;
+    std::shared_ptr<Tensor> mGemvInputF32;
     std::shared_ptr<Tensor> mTempIm2ColBuffer;
     // Secondary NEON slot, packed alongside the primary SME slot to enable concurrent SME+NEON
     // execution (see onExecute). Only populated when mHybrid is true.
@@ -135,6 +141,13 @@ private:
     std::shared_ptr<Tensor> mTempIm2ColBufferNeon;
     std::shared_ptr<Tensor> mInputConvertBuffer;
     std::shared_ptr<Tensor> mOutputConvertBuffer;
+    // Official MOPA/DOT have FP32 output and no fused bias. Retain original
+    // scales (and QAI4 signed offsets) for the range fallback. Use a byte
+    // tensor for FP32 scratch (CPUBackend would size a float tensor as FP16).
+    std::shared_ptr<Tensor> mF16MopaBias;
+    std::shared_ptr<Tensor> mF16MopaOutput;
+    bool mF16Mopa = false;
+    bool mQai4F16Mopa = false;
     KernelType mKernelType = KernelType::KERNEL_TYPE_ERROR;
     int32_t mBlockNum = 1;
     bool mSme2 = false;
