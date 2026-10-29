@@ -563,19 +563,13 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
                     cached         = true;
                 }
             }
-            // Geometry-generated member ops (buffer != nullptr) get a fresh Op*
-            // on every decomposition but keep a deterministic name, so look them
-            // up by name. An execution cached here can be re-cloned on Session::clone
-            // just like the Op*-keyed executionCache above.
-            // OpType_While (LoopParam) is excluded: its CPULoop embeds the whole
-            // shape-dependent LoopParam and onResize cannot rebind it to a new
-            // input shape, and the LoopParam lives in the command's BufferStorage
-            // which a geometry re-render frees. Reusing such a cached execution
-            // reads a stale/freed LoopParam (stale draft or SIGSEGV). It also
-            // carries no packed weights, so caching it has no benefit.
+            // Only FusedLinear member convolutions have shape-independent parameters and packed weights.
+            // Other geometry ops (e.g. Interp and While) may change parameters without changing their names.
             std::tuple<std::string, int, int> namedKey;
             bool hasNamedKey = false;
-            if ((!cached) && nullptr != iter.op->name() && iter.op->type() != OpType_While) {
+            if ((!cached) && nullptr == iter.execution && nullptr != iter.buffer &&
+                info.op->type() == OpType_FusedLinear && iter.op->type() == OpType_Convolution &&
+                nullptr != iter.op->name()) {
                 namedKey = std::make_tuple(iter.op->name()->str(), (int)iter.op->type(), (int)iter.op->main_type());
                 hasNamedKey = true;
                 auto namedIter = info.namedExecutionCache.find(namedKey);
