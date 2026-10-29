@@ -87,10 +87,10 @@ static void sync_attention_configure_tasks(SyncAttentionTaskState* state, int n_
                                       state->mask_stride);
   const int total_tasks = decode_grouped ? state->n_kv_heads : n_heads;
 
-  *task_rows = causal_grouped ?
-                 state->gqa_factor * sync_attention_causal_group_q_rows(state->qo_len, state->N, state->head_dim,
-                                                                        state->gqa_factor, state->kv_chunk) :
-                 sync_attention_rows_per_task(state->qo_len, state->gqa_factor, decode_grouped);
+  *task_rows            = causal_grouped ?
+                            state->gqa_factor * sync_attention_causal_group_q_rows(state->qo_len, state->N, state->head_dim,
+                                                                                   state->gqa_factor, state->kv_chunk) :
+                            sync_attention_rows_per_task(state->qo_len, state->gqa_factor, decode_grouped);
   *n_tasks = sync_attention_worker_count(total_tasks, decode_grouped, state->qo_len);
   state->total_heads = total_tasks;
   state->decode_grouped = decode_grouped;
@@ -389,7 +389,7 @@ void sync_attention_try_vtcm_workspace(SyncAttentionTaskState *state, int task_r
   // The fusion also requires np = K_dim_padded / 32 <= ATTN_HMX_KV_BLOCK_TILES (attention_hmx.cc:745),
   // i.e. head_dim <= 256; beyond that the fusion is skipped and the row-major SV rejects a tile-layout P.
   const int       want_scores_tile = state->scores_tile && (task_rows % 32) == 0 && (long long) state->N <= fused_kv &&
-                                     (state->K_dim_padded / 32) <= ATTN_HMX_KV_BLOCK_TILES;
+                               (state->K_dim_padded / 32) <= ATTN_HMX_KV_BLOCK_TILES;
   state->scores_tile         = 0;
   // Restricted to the grouped-causal prefill path: those are the QK/SV branches whose activation staging
   // has been taught to transform out of VTCM directly (attn_stage_activation). Any other path would hand

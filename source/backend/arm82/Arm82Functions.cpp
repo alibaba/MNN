@@ -676,9 +676,10 @@ __attribute__((target("fp16fml")))
 #else
 __attribute__((target("arch=armv8.2-a+fp16fml")))
 #endif
-static void MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E(float* C, const float* A, const float* B, size_t eSize,
-                                                         const size_t* parameter, const float* postParameters,
-                                                         const float* bias, const float* k, const float* b) {
+static void
+MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal_E(float* C, const float* A, const float* B, size_t eSize,
+                                                 const size_t* parameter, const float* postParameters,
+                                                 const float* bias, const float* k, const float* b) {
     MNN_ASSERT(postParameters == nullptr && bias == nullptr && k == nullptr && b == nullptr);
     const size_t aStride = parameter[0] / sizeof(FLOAT16);
     const size_t l = parameter[1];
@@ -3421,7 +3422,8 @@ bool Arm82Functions::init() {
     if (origin->supportFp16FML) {
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulWithSme2PackedB, MNNPackedMatMulFP16WithSme2PackedB_Fmlal);
         FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedB, MNNPackedMatMulRemainFP16WithSme2PackedB_Fmlal);
-        FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedBWide, MNNPackedMatMulRemainFP16WithSme2PackedB_FmlalWide);
+        FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemainWithSme2PackedBWide,
+                        MNNPackedMatMulRemainFP16WithSme2PackedB_FmlalWide);
     }
 #endif
 #endif

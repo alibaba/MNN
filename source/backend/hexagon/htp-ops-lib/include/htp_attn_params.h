@@ -38,24 +38,24 @@ static inline size_t htp_attn_align128(size_t v) {
 // and over QK's head_dim-sized K and SV's KV-sized K.
 static inline size_t htp_attn_vtcm_kernel_bytes(int rows, int head_dim, int kv_chunk) {
   const size_t npc    = HTP_ATTN_HMX_KV_BLOCK_TILES;
-  const size_t fused       = HTP_ATTN_HMX_MAX_FUSED_PAGES;
+  const size_t fused    = HTP_ATTN_HMX_MAX_FUSED_PAGES;
   const size_t mp     = (size_t) ((rows + 31) / 32);
-  const size_t hd_kp       = (size_t) ((head_dim + 31) / 32);
-  const size_t hd_pp       = (size_t) ((head_dim + 63) / 64);
-  const size_t kv_kp       = (size_t) ((kv_chunk + 31) / 32);
-  const size_t kv_pp       = (size_t) ((kv_chunk + 63) / 64);
-  const size_t kp          = hd_kp > kv_kp ? hd_kp : kv_kp;
-  const size_t pp          = hd_pp > kv_pp ? hd_pp : kv_pp;
+  const size_t hd_kp    = (size_t) ((head_dim + 31) / 32);
+  const size_t hd_pp    = (size_t) ((head_dim + 63) / 64);
+  const size_t kv_kp    = (size_t) ((kv_chunk + 31) / 32);
+  const size_t kv_pp    = (size_t) ((kv_chunk + 63) / 64);
+  const size_t kp       = hd_kp > kv_kp ? hd_kp : kv_kp;
+  const size_t pp       = hd_pp > kv_pp ? hd_pp : kv_pp;
   const size_t output = 32u * 32u * npc * sizeof(short);
   // Non-fused: double-buffered weight over npc chunks, raw/act per M-tile.
-  const size_t nonfused    = 2u * npc * 32u * kp * 32u * sizeof(short) + mp * pp * 32u * 64u * sizeof(short) +
-                             mp * kp * 32u * 32u * sizeof(short) + output;
+  const size_t nonfused = 2u * npc * 32u * kp * 32u * sizeof(short) + mp * pp * 32u * 64u * sizeof(short) +
+                          mp * kp * 32u * 32u * sizeof(short) + output;
   // All-page fusion: one weight set per resident page (its np is head_dim / 32), activations per
   // (page, M-tile). The tile path skips the raw/act staging, so this covers its worst case.
   const size_t fused_bytes = fused * hd_kp * 32u * kv_kp * 32u * sizeof(short) +
                              mp * kv_pp * 32u * 64u * sizeof(short) + fused * mp * kv_kp * 32u * 32u * sizeof(short) +
                              output;
-  const size_t kernel      = nonfused > fused_bytes ? nonfused : fused_bytes;
+  const size_t kernel = nonfused > fused_bytes ? nonfused : fused_bytes;
   return kernel + 256u /* column scales */ + 4096u /* alignment slack */;
 }
 
