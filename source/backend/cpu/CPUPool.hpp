@@ -267,10 +267,10 @@ static void poolingAvgPad(const T *offsetInput, T *offsetOutput, int inputWidth,
     }
 }
 
-template<typename T, typename VEC, int PACK>
-static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T *channelOutput,
-                       int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
-                       int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
+template <typename T, typename VEC, int PACK, bool SUM_BEFORE_AVERAGE = false>
+static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T* channelOutput, int outputWidth,
+                       int outputHeight, int kernelWidth, int kernelHeight, int strideWidth, int strideHeight,
+                       int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
     // Compute Mid Rect
     int l = 0, t = 0, r = outputWidth, b = outputHeight;
     for (; l * strideWidth - padWidth < 0 && l < outputWidth; l++) {
@@ -348,13 +348,29 @@ static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T
             for (int ow = padLeft, iw = -padWidth + ow * strideWidth; ow < padRight;
                  ow++, iw += strideWidth, offsetOutput += PACK, offsetInput += strideWidth4) {
                 VEC sum = VEC(0);
+                VEC sum1 = VEC(0);
                 // sum
                 const T *kernelInput = offsetInput;
                 for (int kh = 0; kh < kernelHeight; kh++, kernelInput += inputStep4) {
                     const T *cursorInput = kernelInput;
-                    for (int kw = 0; kw < kernelWidth; kw++, cursorInput += PACK) {
-                        sum = sum + VEC::load(cursorInput) * divs;
+                    int kw = 0;
+                    if (SUM_BEFORE_AVERAGE) {
+                        // Independent fp32 sums shorten the reduction's dependency chain.
+                        for (; kw + 1 < kernelWidth; kw += 2, cursorInput += 2 * PACK) {
+                            sum = sum + VEC::load(cursorInput);
+                            sum1 = sum1 + VEC::load(cursorInput + PACK);
+                        }
                     }
+                    for (; kw < kernelWidth; kw++, cursorInput += PACK) {
+                        if (SUM_BEFORE_AVERAGE) {
+                            sum = sum + VEC::load(cursorInput);
+                        } else {
+                            sum = sum + VEC::load(cursorInput) * divs;
+                        }
+                    }
+                }
+                if (SUM_BEFORE_AVERAGE) {
+                    sum = (sum + sum1) * divs;
                 }
                 VEC::save(offsetOutput, sum);
             }
