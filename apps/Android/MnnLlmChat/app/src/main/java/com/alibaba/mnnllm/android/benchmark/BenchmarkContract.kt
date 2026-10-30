@@ -69,6 +69,7 @@ class BenchmarkContract {
         fun hideUploadProgress()
         fun showRankInfo(rank: Int, totalUsers: Int)
         fun getSelectedBackend(): String
+        fun isEnergyMeasurementEnabled(): Boolean = false
     }
     
     interface Presenter {
@@ -91,4 +92,4 @@ class BenchmarkContract {
         val testResults: List<TestInstance>,
         val timestamp: String
     )
-} 
+}

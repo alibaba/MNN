@@ -58,4 +58,5 @@
     <color name="benchmark_card_border">#3f3f46</color>
     <color name="benchmark_accent">#6366f1</color>
 
+    <color name="benchmark_energy_caution">#FFD180</color>
 </resources>

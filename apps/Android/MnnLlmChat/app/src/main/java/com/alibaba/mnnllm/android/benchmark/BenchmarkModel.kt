@@ -38,7 +38,8 @@ class BenchmarkModel {
         context: Context,
         modelWrapper: ModelItemWrapper,
         callback: BenchmarkModelCallback,
-        backendType: String = "cpu"
+        backendType: String = "cpu",
+        measureEnergy: Boolean = false
     ) {
         val selectedModelId = modelWrapper.modelItem.modelId
         if (selectedModelId.isNullOrEmpty()) {
@@ -67,7 +68,7 @@ class BenchmarkModel {
             val testParams = BenchmarkService.defaultTestParams.copy(
                 nPrompt = emptyList<Int>(),
                 nGenerate = emptyList<Int>(),
-                nPrompGen = listOf(Pair(128, 128)),
+                nPrompGen = listOf(Pair(1024, 128)),
                 nRepeat = listOf(3), // Reduced for mobile
                 kvCache = "false" // llama-bench style test
             )
@@ -107,7 +108,8 @@ class BenchmarkModel {
                     }
                 },
                 runtimeParams,
-                testParams
+                testParams,
+                measureEnergy
             )
         } catch (e: Exception) {
             MemoryMonitor.stop()
@@ -194,4 +196,4 @@ class BenchmarkModel {
     fun release() {
         benchmarkService.release()
     }
-} 
+}
