@@ -373,13 +373,15 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     int seqLen = query->length(1);
     mQNumHead = query->length(2);
 #ifdef MNN_SME2
-    // fp16 only: for fp32 the NEON compat threads (deinterleaving SME-packed KV per tile)
-    // cost more than the extra SME core earns; all-SME2 + GQA batching + wide blocks wins
-    // at every kv length (0.6B t4 kv512/1024/2048: 0.060/0.103/0.259 vs 0.084/0.145/0.296 ms).
+    // fp16 only: NEON compat threads (deinterleaving SME-packed KV per tile) cost more than the
+    // extra SME core earns on fp32, and on single-SMCU SoCs they only pay off for narrow GQA
+    // groups; 0.6B t4 kv512 goes 0.030 -> 0.018 ms with no-mix, and group>=4 regresses 1.4-2.3x.
+    const int gqaGroup = (mKvNumHead > 0 && mQNumHead % mKvNumHead == 0) ? mQNumHead / mKvNumHead : 1;
     mUseMixedSmeNeonMatMul = seqLen == 1 && mUseFlashAttention && mKeyQuantMode == KVQuantMode::None &&
                               mValueQuantMode == KVQuantMode::None && gcore->bytes == 2 &&
                               gcore->supportSME2 &&
-                              gcore->smeCoreNumber > 0 && mThreadNum > gcore->smeCoreNumber;
+                              gcore->smeCoreNumber > 0 && mThreadNum > gcore->smeCoreNumber &&
+                              (gcore->smeCoreNumber > 1 || gqaGroup <= 2);
     mSmeThreadCount = 0;
     // Decode-side per-core work ratio of one SME core vs one NEON core, from the light
     // proportion of divisionRatio (same encoding as ConvInt8's _getProportions). It only
