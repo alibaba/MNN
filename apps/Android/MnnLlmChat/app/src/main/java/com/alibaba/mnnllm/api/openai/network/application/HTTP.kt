@@ -28,6 +28,7 @@ fun Application.configureHTTP(context: Context) {
             allowMethod(HttpMethod.Options)
             allowMethod(HttpMethod.Post)
             allowMethod(HttpMethod.Get)
+            allowMethod(HttpMethod.Delete)
             allowHeader(HttpHeaders.Authorization)
             allowHeader(HttpHeaders.ContentType)
             allowHeader("x-api-key")
@@ -37,7 +38,13 @@ fun Application.configureHTTP(context: Context) {
                 corsOrigins.split(",").forEach { origin ->
                     val trimmedOrigin = origin.trim()
                     if (trimmedOrigin.isNotEmpty()) {
-                        allowHost(trimmedOrigin.removePrefix("http://").removePrefix("https://"))
+                        when {
+                            trimmedOrigin.startsWith("http://") ->
+                                allowHost(trimmedOrigin.removePrefix("http://"), schemes = listOf("http"))
+                            trimmedOrigin.startsWith("https://") ->
+                                allowHost(trimmedOrigin.removePrefix("https://"), schemes = listOf("https"))
+                            else -> allowHost(trimmedOrigin)
+                        }
                     }
                 }
             } else {

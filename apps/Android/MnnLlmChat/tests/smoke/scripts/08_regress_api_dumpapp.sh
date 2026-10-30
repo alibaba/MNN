@@ -648,6 +648,7 @@ echo "[API_DUMPAPP] local_base_url=$LOCAL_BASE_URL auth_enabled=$AUTH_ENABLED bi
 LOCAL_MODELS_CODE="$(curl -sS -o "$LOCAL_MODELS_BODY" -w "%{http_code}" \
   --connect-timeout "$CURL_CONNECT_TIMEOUT" \
   --max-time "$CURL_MAX_TIME" \
+  -H "Authorization: Bearer $API_KEY" \
   "$LOCAL_BASE_URL/v1/models" || true)"
 
 LOCAL_NO_AUTH_CODE="$(curl -sS -o "$LOCAL_MESSAGES_NO_AUTH_BODY" -w "%{http_code}" \
@@ -685,6 +686,7 @@ LOCAL_OPENAI_WITH_AUTH_CODE="$(curl -sS -o "$LOCAL_OPENAI_WITH_AUTH_BODY" -w "%{
 HTTPS_LOCAL_MODELS_CODE="$(curl -k -sS -o "$HTTPS_MODELS_BODY" -w "%{http_code}" \
   --connect-timeout "$CURL_CONNECT_TIMEOUT" \
   --max-time "$CURL_MAX_TIME" \
+  -H "Authorization: Bearer $API_KEY" \
   "https://127.0.0.1:$LOCAL_PORT/v1/models" || true)"
 HTTPS_RUNTIME_SUPPORTED="false"
 if [ "$HTTPS_LOCAL_MODELS_CODE" = "200" ]; then
@@ -724,6 +726,7 @@ if [ "$LAN_PROBES_REQUIRED" = "true" ]; then
   LAN_MODELS_CODE="$(curl -sS -o "$LAN_MODELS_BODY" -w "%{http_code}" \
     --connect-timeout "$CURL_CONNECT_TIMEOUT" \
     --max-time "$CURL_MAX_TIME" \
+    -H "Authorization: Bearer $API_KEY" \
     "$LAN_BASE_URL/v1/models" || true)"
 
   LAN_NO_AUTH_CODE="$(curl -sS -o "$LAN_MESSAGES_NO_AUTH_BODY" -w "%{http_code}" \

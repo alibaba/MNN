@@ -382,7 +382,7 @@ class LlmSession (
     }
 
     fun getSystemPrompt(): String? {
-        return getSystemPromptNative(nativePtr)
+        return synchronized(this) { getSystemPromptNative(nativePtr) }
     }
 
     private external fun getSystemPromptNative(llmPtr: Long): String?

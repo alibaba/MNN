@@ -3,6 +3,7 @@ package com.alibaba.mnnllm.api.openai.network.application
 import com.alibaba.mnnllm.api.openai.network.routes.anthropicRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.chatRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.modelsRoutes
+import com.alibaba.mnnllm.api.openai.network.routes.ollamaRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.queueRoutes
 import io.ktor.http.ContentType
 import io.ktor.server.application.Application
@@ -39,14 +40,14 @@ fun Application.configureRouting() {
             send(ServerSentEvent("world"))
         }
 
-        queueRoutes()
-        modelsRoutes()
-
         // Anthropic-compatible endpoint (/v1/messages) with x-api-key or bearer auth.
         anthropicRoutes()
 
         authenticate("auth-bearer") {
+            modelsRoutes()
+            queueRoutes()
             chatRoutes()
+            ollamaRoutes()
         }
     }
 
@@ -54,7 +55,7 @@ fun Application.configureRouting() {
         level = Level.INFO
         filter { call ->
             val path = call.request.path()
-            path.startsWith("/v1/chat/completions") || path.startsWith("/v1/messages")
+            path.startsWith("/v1/chat/completions") || path.startsWith("/v1/messages") || path.startsWith("/api/")
         }
         format { call ->
             val status = call.response.status()

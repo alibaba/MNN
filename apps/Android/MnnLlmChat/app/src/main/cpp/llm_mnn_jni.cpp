@@ -364,6 +364,13 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitF
                                             "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
     jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
 
+    if (!context || context->status == MNN::Transformer::LlmStatus::INTERNAL_ERROR ||
+        context->status == MNN::Transformer::LlmStatus::NOT_LOADED ||
+        context->status == MNN::Transformer::LlmStatus::TIMEOUT) {
+        env->CallObjectMethod(hashMap, hashMapPut, env->NewStringUTF("error"),
+                              env->NewStringUTF("Model generation failed"));
+    }
+
     // 添加统计信息
     jclass longClass = env->FindClass("java/lang/Long");
     jmethodID longInit = env->GetMethodID(longClass, "<init>", "(J)V");

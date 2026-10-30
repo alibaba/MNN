@@ -122,6 +122,28 @@ API compatibility stage details:
    - optional UiAutomator code path (API settings switch interaction)
    - gesture caveat: step `09_regress_api_uiautomator.sh` does not validate history-drawer left-swipe; for gesture issues use `mobile-mcp` (`mobile_swipe_on_screen`, then `mobile_take_screenshot` + `mobile_list_elements_on_screen`) and keep those artifacts
 
+The Ollama text API can also be checked independently against a running service
+with authentication enabled and a model loaded:
+
+```bash
+adb -s <SERIAL> forward tcp:18083 tcp:8080  # use the configured service port
+export MNN_BASE_URL=http://127.0.0.1:18083
+export MNN_API_KEY='<MNN_CHAT_API_KEY>'
+python3 tests/smoke/scripts/11_verify_ollama_http.py
+adb -s <SERIAL> forward --remove tcp:18083
+```
+
+The script checks missing, incorrect and valid keys, model discovery, invalid
+requests, an unloaded model, and real non-streaming and NDJSON generation on
+both `/api/chat` and `/api/generate`. It does not evaluate answer quality or
+performance. Select the port and device according to your setup.
+For a configured CORS allowlist, optionally set `MNN_ALLOWED_ORIGIN`,
+`MNN_DENIED_ORIGIN`, and `MNN_SCHEME_DENIED_ORIGIN` to exercise preflight
+acceptance and rejection. Explicit `http://` and `https://` allowlist entries
+match only their configured scheme; entries without a scheme allow both.
+On an isolated test service, set `MNN_TEST_QUEUE_CLEAR=1` to also test queue
+clear authentication. The authorized check clears any queued requests.
+
 ## Key Implementation Logic
 
 - UI actions are coordinate-driven from live UI XML, not fixed hardcoded points.

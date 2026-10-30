@@ -33,6 +33,7 @@ class RequestQueueManager private constructor() {
     
     // Whether currently processing requests
     private val isProcessing = AtomicInteger(0)
+    private val pendingRequests = AtomicInteger(0)
     
     // Queue statistics
     private val totalRequests = AtomicLong(0)
@@ -84,24 +85,35 @@ class RequestQueueManager private constructor() {
                 traceId = traceId,
                 task = task,
                 onComplete = {
-                    onComplete()
-                    taskCompletion.complete(Unit)
+                    try {
+                        onComplete()
+                    } finally {
+                        taskCompletion.complete(Unit)
+                    }
                 },
                 onError = { exception ->
-                    onError(exception)
-                    taskCompletion.completeExceptionally(exception)
+                    try {
+                        onError(exception)
+                    } finally {
+                        taskCompletion.completeExceptionally(exception)
+                    }
                 },
                 priority = priority
             )
             
             totalRequests.incrementAndGet()
-            
+            pendingRequests.incrementAndGet()
+            try {
+                requestQueue.send(queuedRequest)
+            } catch (e: Exception) {
+                pendingRequests.decrementAndGet()
+                totalRequests.decrementAndGet()
+                throw e
+            }
             Timber.tag("RequestQueue").d(
                 "Request added to queue: requestId=$requestId, traceId=$traceId, " +
                 "queue size=${getQueueSize()}, priority=$priority"
             )
-            
-            requestQueue.send(queuedRequest)
         }
         
         // Wait for task completion
@@ -116,6 +128,7 @@ class RequestQueueManager private constructor() {
             Timber.tag("RequestQueue").i("Request queue processor started")
             
             for (request in requestQueue) {
+                pendingRequests.decrementAndGet()
                 try {
                     // Process requests serially, no need for compareAndSet check
                     // Because this coroutine itself is single-threaded
@@ -138,6 +151,7 @@ class RequestQueueManager private constructor() {
      */
     private suspend fun processRequest(request: QueuedRequest) {
         val startTime = System.currentTimeMillis()
+        isProcessing.set(1)
         
         try {
             Timber.tag("RequestQueue").d(
@@ -167,24 +181,15 @@ class RequestQueueManager private constructor() {
                 e, "Request processing failed: requestId=${request.requestId}, " +
                 "duration=${duration}ms, error: ${e.message}"
             )
+        } finally {
+            isProcessing.set(0)
         }
     }
     
     /**
      * Get queue size (approximate value). Non-blocking to avoid ANR when called from main thread.
      */
-    fun getQueueSize(): Int {
-        return requestQueue.tryReceive().let {
-            if (it.isSuccess) {
-                // Put item back asynchronously to avoid runBlocking (which would block caller)
-                val item = it.getOrThrow()
-                queueScope.launch { requestQueue.send(item) }
-                1 // At least one
-            } else {
-                0 // Queue is empty
-            }
-        }
-    }
+    fun getQueueSize(): Int = pendingRequests.get()
     
     /**
      * Get queue statistics
@@ -219,12 +224,23 @@ class RequestQueueManager private constructor() {
      * Clear queue (for testing or emergency use only)
      */
     suspend fun clearQueue() {
+        val removed = mutableListOf<QueuedRequest>()
         queueMutex.withLock {
-            while (!requestQueue.isEmpty) {
-                requestQueue.tryReceive()
+            while (true) {
+                val request = requestQueue.tryReceive().getOrNull() ?: break
+                pendingRequests.decrementAndGet()
+                removed.add(request)
             }
-            Timber.tag("RequestQueue").w("Queue cleared")
         }
+        removed.forEach { request ->
+            failedRequests.incrementAndGet()
+            try {
+                request.onError(IllegalStateException("Request removed from queue"))
+            } catch (e: Exception) {
+                Timber.tag("RequestQueue").e(e, "Queue removal callback failed")
+            }
+        }
+        Timber.tag("RequestQueue").w("Queue cleared")
     }
     
     /**
