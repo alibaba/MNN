@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <algorithm>
 #include <riscv_vector.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -49,9 +50,9 @@ void MNNInt8ScaleToFloat_RVV(float* dst, const int8_t* src, const float* scale, 
     vfloat32m4_t v_scale_tpl = __riscv_vloxei32_v_f32m4(scale4, v_byte_off, vl_max);
     vfloat32m4_t v_zero_tpl = __riscv_vloxei32_v_f32m4(zero4, v_byte_off, vl_max);
 
-    // Main loop: vl <= vl_max, so the first `vl` elements of the template are always aligned
+    // Cap AVL at VLMAX so every non-final chunk preserves the C4 template phase.
     while (i < total_elems) {
-        size_t vl = __riscv_vsetvl_e32m4(total_elems - i);
+        size_t vl = __riscv_vsetvl_e32m4(std::min(total_elems - i, vl_max));
 
         vint8m1_t v_src_i8 = __riscv_vle8_v_i8m1(src + i, vl);
         vint32m4_t v_src_i32 = __riscv_vsext_vf4_i32m4(v_src_i8, vl);

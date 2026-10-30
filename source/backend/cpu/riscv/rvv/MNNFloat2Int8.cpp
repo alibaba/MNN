@@ -5,6 +5,7 @@
 //  Created by MNN on 2026/04/01.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#include <algorithm>
 #include <riscv_vector.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -68,10 +69,10 @@ void MNNFloat2Int8_RVV(const float* src, int8_t* dst, size_t sizeQuad, const flo
     vfloat32m2_t v_min = __riscv_vfmv_v_f_f32m2(minf, vl_template);
     vfloat32m2_t v_max = __riscv_vfmv_v_f_f32m2(maxf, vl_template);
 
-    // main loop
+    // Cap AVL at VLMAX so every non-final chunk preserves the C4 template phase.
     size_t i = 0;
     while (i < total) {
-        size_t vl = __riscv_vsetvl_e32m2(total - i);
+        size_t vl = __riscv_vsetvl_e32m2(std::min(total - i, vl_template));
 
         vfloat32m2_t v_src = __riscv_vle32_v_f32m2(src + i, vl);
 
