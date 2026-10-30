@@ -662,6 +662,10 @@
     <string name="save_image">保存图片</string>
     <string name="image_saved_to_gallery">图片已保存到相册</string>
     <string name="failed_to_save_image">保存图片失败</string>
+    <string name="tts_voice">语音音色</string>
+    <string name="tts_voice_default">模型默认</string>
+    <string name="tts_voice_unavailable">请先选择已安装且包含音色文件的 Supertonic 语音模型。</string>
+    <string name="tts_voice_next_session">音色已保存，将在下次语音聊天时生效。</string>
     <string name="benchmark_energy_charging">请拔掉充电线后重测</string>
     <string name="benchmark_energy_unsupported">设备不支持采样</string>
     <string name="benchmark_energy_invalid_voltage">电压不可用</string>

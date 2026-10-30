@@ -675,6 +675,10 @@
     <string name="save_image">Save Image</string>
     <string name="image_saved_to_gallery">Image saved to gallery</string>
     <string name="failed_to_save_image">Failed to save image</string>
+    <string name="tts_voice">TTS voice</string>
+    <string name="tts_voice_default">Model default</string>
+    <string name="tts_voice_unavailable">Select an installed Supertonic TTS model with voice assets first.</string>
+    <string name="tts_voice_next_session">Voice saved. It will be used in the next voice chat.</string>
     <string name="benchmark_energy_charging">Unplug to measure</string>
     <string name="benchmark_energy_unsupported">Sensor unavailable</string>
     <string name="benchmark_energy_invalid_voltage">Voltage unavailable</string>

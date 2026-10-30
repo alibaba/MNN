@@ -298,3 +298,17 @@ This project is built upon the following open-source projects:
 + [Android-SpinKit](https://github.com/ybq/Android-SpinKit)
 + [expandable-fab](https://github.com/nambicompany/expandable-fab)
 + [Android-Wave-Recorder](https://github.com/squti/Android-Wave-Recorder)
+
+### Supertonic voice selection
+
+After downloading and selecting a Supertonic TTS model in **Settings → Voice model
+management**, open **Settings → TTS voice**. Choose one of the installed native
+voices (M1, M2, F1, F2), or **Model default** to remove the override. The choice is
+saved per model and takes effect in the next voice chat, not during an utterance.
+Missing voice files and other TTS model types are not offered. If the native
+loader cannot load a saved voice, synthesis retains the model's default voice.
+
+Validation on an Android device should cover each installed voice, process
+restart, switching models, Cancel/Back, repeated taps, and deleting a selected
+voice asset between saving and opening the next voice chat. Build the normal app
+and verify audible output; JVM tests alone do not validate native playback.

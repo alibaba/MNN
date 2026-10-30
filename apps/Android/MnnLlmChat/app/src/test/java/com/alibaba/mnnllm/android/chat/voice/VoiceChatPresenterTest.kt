@@ -137,13 +137,26 @@ class VoiceChatPresenterTest {
     }
 
     @Test
-    fun `start waits for tts readiness before greeting synthesis`() {
+    fun `start waits for tts readiness before greeting synthesis`() = checkGreetingVoice(true, false)
+
+    @Test
+    fun `not ready skips voice selection and synthesis`() = checkGreetingVoice(false, false)
+
+    @Test
+    fun `unavailable saved voice retains default synthesis`() = checkGreetingVoice(true, true)
+
+    private fun checkGreetingVoice(ready: Boolean, rejectVoice: Boolean) {
         val ttsClient = mockk<TtsClient>()
         val audioPlayer = mockk<AudioChunksPlayer>()
         every { mockActivity.getString(R.string.voice_chat_ready_greeting) } returns "有什么可以帮助您的？"
         every { mockView.updateStatus(any()) } just Runs
-        coEvery { ttsClient.waitForInitComplete() } returns true
+        coEvery { ttsClient.waitForInitComplete() } returns ready
         every { ttsClient.process("有什么可以帮助您的？", 0) } returns shortArrayOf(1, 2, 3)
+        if (rejectVoice) {
+            every { ttsClient.setSpeakerId("F1") } throws IllegalArgumentException("Missing voice")
+        } else {
+            every { ttsClient.setSpeakerId("F1") } just Runs
+        }
         every { audioPlayer.setOnCompletionListener(any()) } just Runs
         coEvery { audioPlayer.playChunk(any<ShortArray>()) } just Runs
         every { audioPlayer.endChunk() } just Runs
@@ -158,6 +171,9 @@ class VoiceChatPresenterTest {
         val ttsField = VoiceChatPresenter::class.java.getDeclaredField("ttsService")
         ttsField.isAccessible = true
         ttsField.set(presenter, ttsClient)
+        val voiceField = VoiceChatPresenter::class.java.getDeclaredField("selectedTtsVoice")
+        voiceField.isAccessible = true
+        voiceField.set(presenter, "F1")
 
         val audioField = VoiceChatPresenter::class.java.getDeclaredField("audioPlayer")
         audioField.isAccessible = true
@@ -170,9 +186,15 @@ class VoiceChatPresenterTest {
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
         shadowOf(Looper.getMainLooper()).runToEndOfTasks()
 
-        coVerifyOrder {
-            ttsClient.waitForInitComplete()
-            ttsClient.process("有什么可以帮助您的？", 0)
+        if (ready) {
+            coVerifyOrder {
+                ttsClient.waitForInitComplete()
+                ttsClient.setSpeakerId("F1")
+                ttsClient.process("有什么可以帮助您的？", 0)
+            }
+        } else {
+            verify(exactly = 0) { ttsClient.setSpeakerId(any()) }
+            verify(exactly = 0) { ttsClient.process(any(), any()) }
         }
     }
 } 

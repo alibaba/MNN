@@ -23,6 +23,8 @@ import com.alibaba.mnnllm.android.debug.DebugActivity
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
 import com.alibaba.mnnllm.android.update.UpdateChecker
+import com.alibaba.mnnllm.android.utils.TtsVoiceSelection
+import com.alibaba.mnnllm.android.utils.VoiceModelPathUtils
 import com.alibaba.mnnllm.android.utils.AppUtils
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
@@ -45,6 +47,7 @@ class MainSettingsFragment : Fragment() {
     private val binding get() = _binding!!
 
     private var updateChecker: UpdateChecker? = null
+    private var ttsVoiceDialog: androidx.appcompat.app.AlertDialog? = null
     private var debugClickCount = 0
     private val debugClickHandler = Handler(Looper.getMainLooper())
     private var debugClickRunnable: Runnable? = null
@@ -83,6 +86,7 @@ class MainSettingsFragment : Fragment() {
 
         setupDownloadProvider(sharedPreferences)
         setupVoiceModelManagement()
+        binding.btnTtsVoice.setOnClickListener { showTtsVoiceSelection() }
         setupStorageManagement()
 
         binding.itemEnableApi.isChecked = MainSettings.isApiServiceEnabled(requireContext())
@@ -142,6 +146,40 @@ class MainSettingsFragment : Fragment() {
         binding.btnVoiceModelManagement.setOnClickListener {
             val sheet = com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet.newInstance()
             sheet.show(childFragmentManager, "voice_model_market")
+        }
+    }
+
+    private fun showTtsVoiceSelection() {
+        if (ttsVoiceDialog?.isShowing == true) return
+        val context = requireContext()
+        val modelId = MainSettings.getDefaultTtsModel(context)
+        if (modelId.isNullOrEmpty()) {
+            Toast.makeText(context, R.string.tts_voice_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            binding.btnTtsVoice.isEnabled = false
+            val voices = withContext(Dispatchers.IO) {
+                TtsVoiceSelection.availableVoices(VoiceModelPathUtils.getTtsModelPath(context))
+            }
+            binding.btnTtsVoice.isEnabled = true
+            if (MainSettings.getDefaultTtsModel(context) != modelId) return@launch
+            if (voices.isEmpty()) {
+                Toast.makeText(context, R.string.tts_voice_unavailable, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val labels = listOf(getString(R.string.tts_voice_default)) + voices
+            val saved = TtsVoiceSelection.savedVoice(context, modelId)
+            var selected = voices.indexOf(saved) + 1
+            ttsVoiceDialog = MaterialAlertDialogBuilder(context)
+                .setTitle(R.string.tts_voice)
+                .setSingleChoiceItems(labels.toTypedArray(), selected) { _, which -> selected = which }
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    TtsVoiceSelection.saveVoice(context, modelId, voices.getOrNull(selected - 1))
+                    Toast.makeText(context, R.string.tts_voice_next_session, Toast.LENGTH_LONG).show()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
         }
     }
 
@@ -311,6 +349,8 @@ class MainSettingsFragment : Fragment() {
         super.onDestroyView()
         debugClickRunnable?.let { debugClickHandler.removeCallbacks(it) }
         updateCheckRunnable?.let { debugClickHandler.removeCallbacks(it) }
+        ttsVoiceDialog?.dismiss()
+        ttsVoiceDialog = null
         _binding = null
     }
 }
