@@ -95,6 +95,15 @@
     <string name="clear_mmap_cache">Clear mmap cache</string>
     <string name="use_mmap">Use mmap</string>
     <string name="prompt_cache">Prompt Caching</string>
+    <string name="context_token_limit">Context length</string>
+    <string name="context_token_limit_hint">Tokens the conversation may use, reply included. Longer chats drop or summarize their oldest turns. There used to be no limit; raise this for long chats on models that support it.</string>
+    <string name="auto_compress_context">Summarize older turns automatically</string>
+    <string name="context_usage_format">%1$s / %2$s</string>
+    <string name="context_usage_description">Context: %1$d of %2$d tokens used</string>
+    <string name="context_compressing">Summarizing…</string>
+    <string name="context_truncated_notice">Older messages were moved out of the context</string>
+    <string name="context_compressed_notice">Older messages were summarized to save context</string>
+    <string name="context_too_long">This message is too long for the context length. Shorten it or raise the context length in settings.</string>
     <string name="sampler">select sampler</string>
     <string name="backend">use opencl</string>
     <string name="local_available">Local Available</string>

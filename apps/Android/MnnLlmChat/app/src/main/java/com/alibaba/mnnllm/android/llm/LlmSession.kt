@@ -12,8 +12,10 @@ import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.getExtraCo
 import com.google.gson.Gson
 import timber.log.Timber
 import java.io.File
-import java.util.stream.Collectors
+import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.Volatile
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 import android.util.Pair
 import com.alibaba.mnnllm.android.utils.MmapUtils
 import android.content.Context
@@ -30,9 +32,26 @@ class LlmSession (
     var savedHistory: List<ChatDataItem>?,
     var backendType: String? = null,
     private val useCustomConfig: Boolean = true
-): ChatSession{
+): ChatSession, ContextAwareSession {
     override var supportOmni: Boolean = false
+    @Volatile
     private var nativePtr: Long = 0
+
+    // Quick native calls (config setters, getters) run on the UI thread outside the session
+    // monitor. They hold the read side so release() cannot free the native session under
+    // them; release() takes the write side. Native never blocks inside these calls.
+    private val nativeLock = ReentrantReadWriteLock()
+
+    private inline fun <T> withNative(fallback: T, block: (Long) -> T): T = nativeLock.read {
+        val ptr = nativePtr
+        if (ptr == 0L) fallback else block(ptr)
+    }
+
+    @Volatile
+    override var contextSummary: String? = null
+
+    @Volatile
+    override var contextAnchorId: Long = -1L
 
     @Volatile
     private var modelLoading = false
@@ -61,14 +80,18 @@ class LlmSession (
 
         checkAndMergeSplitFiles()
         var historyStringList: List<String>? = null
-        val currentHistory = this.savedHistory
+        var currentHistory = this.savedHistory
+        if (!contextSummary.isNullOrEmpty() && !currentHistory.isNullOrEmpty()) {
+            val anchorIndex = currentHistory.indexOfFirst { it.dbId == contextAnchorId }
+            if (anchorIndex >= 0) {
+                currentHistory = currentHistory.subList(anchorIndex, currentHistory.size)
+            } else {
+                // The summary would not line up with the history; native trimming applies instead.
+                contextSummary = null
+            }
+        }
         if (!currentHistory.isNullOrEmpty()) {
-            historyStringList =
-                    currentHistory.stream()
-                            .map { obj: ChatDataItem -> obj.text }
-                    .filter { obj: String? -> obj != null }
-                    .map { obj: String? -> obj!! }
-                    .collect(Collectors.toList())
+            historyStringList = NativeHistory.alternate(currentHistory)
         }
         val config = if (useCustomConfig) {
             ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
@@ -84,6 +107,7 @@ class LlmSession (
             put("is_r1", ModelTypeUtils.isR1Model(modelId))
             put("mmap_dir", rootCacheDir ?: "")
             put("keep_history", keepHistory)
+            contextSummary?.takeIf { it.isNotEmpty() }?.let { put("context_summary", it) }
         }
         val llmConfig = if (useCustomConfig) {
             ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
@@ -176,8 +200,11 @@ class LlmSession (
             }
             Log.d(TAG, "MNN_DEBUG submit$prompt")
             generating = true
-            val result = submitNative(nativePtr, prompt, keepHistory, progressListener)
-            generating = false
+            val result = try {
+                submitNative(nativePtr, prompt, keepHistory, progressListener)
+            } finally {
+                generating = false
+            }
             if (releaseRequested) {
                 release()
             }
@@ -217,8 +244,10 @@ class LlmSession (
 
     private fun releaseInner() {
         if (nativePtr != 0L) {
-            releaseNative(nativePtr)
-            nativePtr = 0
+            nativeLock.write {
+                releaseNative(nativePtr)
+                nativePtr = 0
+            }
             provide().removeSession(sessionId)
             (this as Object).notifyAll()
         }
@@ -254,11 +283,11 @@ class LlmSession (
     }
 
     override fun setEnableAudioOutput(enable: Boolean) {
-        updateEnableAudioOutputNative(nativePtr, enable)
+        withNative(Unit) { updateEnableAudioOutputNative(it, enable) }
     }
 
     override val debugInfo
-        get() = getDebugInfoNative(nativePtr) + "\n"
+        get() = withNative("") { getDebugInfoNative(it) } + "\n"
 
 
     fun setAudioDataListener(listener: AudioDataListener?) {
@@ -272,11 +301,11 @@ class LlmSession (
     }
 
     fun updateMaxNewTokens(maxNewTokens: Int) {
-        updateMaxNewTokensNative(nativePtr, maxNewTokens)
+        withNative(Unit) { updateMaxNewTokensNative(it, maxNewTokens) }
     }
 
     fun updateSystemPrompt(systemPrompt: String) {
-        updateSystemPromptNative(nativePtr, systemPrompt)
+        withNative(Unit) { updateSystemPromptNative(it, systemPrompt) }
     }
 
     override fun updateThinking(thinking: Boolean) {
@@ -288,9 +317,52 @@ class LlmSession (
         }
     }
 
+    // Native queues config changes while a generation runs, so this never blocks the
+    // calling (often UI) thread.
     fun updateConfig(configJson: String) {
         Log.d(TAG, "updateConfig: $configJson")
-        updateConfigNative(nativePtr, configJson)
+        withNative(Unit) { updateConfigNative(it, configJson) }
+    }
+
+    // The context methods share the session monitor with generate()/release(), so they
+    // never run concurrently with a generation or after the native session is freed.
+    override fun checkContext(prompt: String): ContextCheck = synchronized(this) {
+        val ptr = nativePtr
+        if (ptr == 0L) return ContextCheck.NONE
+        val values = prepareContextNative(ptr, prompt)
+        if (values == null || values.size < 4) return ContextCheck.NONE
+        ContextCheck(values[0], values[1], values[2], ContextAction.fromCode(values[3]))
+    }
+
+    override fun compressContext(): ContextCompression = synchronized(this) {
+        val ptr = nativePtr
+        if (ptr == 0L) return ContextCompression(false, "", 0)
+        generating = true
+        try {
+            val result = compressContextNative(ptr)
+            ContextCompression(
+                success = result["success"] == true,
+                summary = result["summary"] as? String ?: "",
+                keptUserTurns = (result["kept_user_turns"] as? Number)?.toInt() ?: 0,
+            )
+        } finally {
+            generating = false
+        }
+    }
+
+    override fun countContextTokens(): Int = synchronized(this) {
+        val ptr = nativePtr
+        if (ptr == 0L) 0 else countContextTokensNative(ptr)
+    }
+
+    override fun contextLimits(): ContextLimits = synchronized(this) {
+        val ptr = nativePtr
+        val values = if (ptr == 0L) null else contextLimitsNative(ptr)
+        if (values == null || values.size < 2) ContextLimits(0, 0) else ContextLimits(values[0], values[1])
+    }
+
+    override fun cancelContextWork() {
+        withNative(Unit) { cancelContextWorkNative(it) }
     }
 
     private external fun updateEnableAudioOutputNative(llmPtr: Long, enable: Boolean)
@@ -303,6 +375,16 @@ class LlmSession (
     private external fun updateAssistantPromptNative(llmPtr: Long, assistantPrompt: String)
 
     private external fun updateConfigNative(llmPtr: Long, configJson: String)
+
+    private external fun prepareContextNative(llmPtr: Long, prompt: String): IntArray?
+
+    private external fun compressContextNative(llmPtr: Long): HashMap<String, Any>
+
+    private external fun countContextTokensNative(llmPtr: Long): Int
+
+    private external fun contextLimitsNative(llmPtr: Long): IntArray?
+
+    private external fun cancelContextWorkNative(llmPtr: Long)
 
 
     companion object {
@@ -382,7 +464,7 @@ class LlmSession (
     }
 
     fun getSystemPrompt(): String? {
-        return getSystemPromptNative(nativePtr)
+        return withNative(null) { getSystemPromptNative(it) }
     }
 
     private external fun getSystemPromptNative(llmPtr: Long): String?
@@ -390,11 +472,7 @@ class LlmSession (
     private external fun dumpConfigNative(llmPtr: Long): String
 
     fun dumpConfig(): String {
-        return if (nativePtr != 0L) {
-            dumpConfigNative(nativePtr)
-        } else {
-            "{}"
-        }
+        return withNative("{}") { dumpConfigNative(it) }
     }
 
     // Helper function to get current memory usage in MB

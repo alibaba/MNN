@@ -16,6 +16,7 @@
 #include "llm_stream_buffer.hpp"
 #include "utf8_stream_processor.hpp"
 #include "llm_session.h"
+#include "context_budget.hpp"
 
 using MNN::Transformer::Llm;
 using json = nlohmann::json;
@@ -25,6 +26,10 @@ JavaVM* g_jvm = nullptr;
 constexpr const char* kCrashReportContextClass = "com/alibaba/mnnllm/android/utils/CrashReportContext";
 constexpr const char* kReportMethodName = "reportLlmSetConfig";
 constexpr const char* kReportMethodSignature = "(Ljava/lang/String;Ljava/lang/String;)V";
+}
+
+namespace {
+jstring newJString(JNIEnv* env, const std::string& utf8);
 }
 
 void ReportLlmSetConfigToFirebase(const std::string& stage, const std::string& config_json) {
@@ -61,8 +66,8 @@ void ReportLlmSetConfigToFirebase(const std::string& stage, const std::string& c
         }
         return;
     }
-    jstring stage_j = env->NewStringUTF(stage.c_str());
-    jstring config_j = env->NewStringUTF(config_json.c_str());
+    jstring stage_j = newJString(env, stage);
+    jstring config_j = newJString(env, config_json);
     env->CallStaticVoidMethod(crash_class, report_method, stage_j, config_j);
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
@@ -74,6 +79,92 @@ void ReportLlmSetConfigToFirebase(const std::string& stage, const std::string& c
         g_jvm->DetachCurrentThread();
     }
 }
+
+namespace {
+
+// NewStringUTF requires Modified UTF-8; model output can contain 4-byte sequences
+// (emoji) or a character cut at the token limit, which CheckJNI aborts on. Convert to
+// UTF-16 and use NewString instead.
+jstring newJString(JNIEnv* env, const std::string& utf8) {
+    const std::u16string utf16 = mls::context::utf8ToUtf16(utf8);
+    return env->NewString(reinterpret_cast<const jchar*>(utf16.data()), static_cast<jsize>(utf16.size()));
+}
+
+// Builds a java.util.HashMap<String, Object>. Local references are released per entry.
+class JavaMap {
+public:
+    explicit JavaMap(JNIEnv* env) : env_(env) {
+        jclass map_class = env_->FindClass("java/util/HashMap");
+        put_ = env_->GetMethodID(map_class, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+        map_ = env_->NewObject(map_class, env_->GetMethodID(map_class, "<init>", "()V"));
+        env_->DeleteLocalRef(map_class);
+        long_class_ = env_->FindClass("java/lang/Long");
+        long_ctor_ = env_->GetMethodID(long_class_, "<init>", "(J)V");
+        bool_class_ = env_->FindClass("java/lang/Boolean");
+        bool_ctor_ = env_->GetMethodID(bool_class_, "<init>", "(Z)V");
+    }
+    ~JavaMap() {
+        env_->DeleteLocalRef(long_class_);
+        env_->DeleteLocalRef(bool_class_);
+    }
+    JavaMap(const JavaMap&) = delete;
+    JavaMap& operator=(const JavaMap&) = delete;
+
+    void putLong(const char* key, int64_t value) {
+        put(key, env_->NewObject(long_class_, long_ctor_, static_cast<jlong>(value)));
+    }
+    void putBool(const char* key, bool value) {
+        put(key, env_->NewObject(bool_class_, bool_ctor_, value ? JNI_TRUE : JNI_FALSE));
+    }
+    void putString(const char* key, const std::string& value) { put(key, newJString(env_, value)); }
+    jobject release() { return map_; }
+
+private:
+    void put(const char* key, jobject value) {
+        jstring jkey = env_->NewStringUTF(key);
+        jobject previous = env_->CallObjectMethod(map_, put_, jkey, value);
+        env_->DeleteLocalRef(previous);
+        env_->DeleteLocalRef(jkey);
+        env_->DeleteLocalRef(value);
+    }
+
+    JNIEnv* env_;
+    jobject map_ = nullptr;
+    jmethodID put_ = nullptr;
+    jclass long_class_ = nullptr;
+    jmethodID long_ctor_ = nullptr;
+    jclass bool_class_ = nullptr;
+    jmethodID bool_ctor_ = nullptr;
+};
+
+// Standard UTF-8 from a Java string (see context::utf16ToUtf8 for why not GetStringUTFChars).
+std::string toStdString(JNIEnv* env, jstring value) {
+    if (value == nullptr) {
+        return {};
+    }
+    const jsize length = env->GetStringLength(value);
+    const jchar* chars = env->GetStringChars(value, nullptr);
+    if (chars == nullptr) {
+        env->ExceptionClear();
+        return {};
+    }
+    std::string result =
+        mls::context::utf16ToUtf8(reinterpret_cast<const char16_t*>(chars), static_cast<size_t>(length));
+    env->ReleaseStringChars(value, chars);
+    return result;
+}
+
+// Malformed JSON must not throw across the JNI boundary (that aborts the process).
+json parseObjectOrEmpty(const std::string& text, const char* what) {
+    json parsed = json::parse(text, nullptr, false);
+    if (!parsed.is_object()) {
+        MNN_ERROR("initNative: %s is not a JSON object, using defaults\n", what);
+        return json::object();
+    }
+    return parsed;
+}
+
+} // namespace
 
 extern "C" {
 
@@ -94,29 +185,23 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_initNativ
                                                                                   jobject chat_history,
                                                                                   jstring mergeConfigStr,
                                                                                   jstring configJsonStr) {
-    const char *model_dir = env->GetStringUTFChars(modelDir, nullptr);
-    auto model_dir_str = std::string(model_dir);
-    const char *config_json_cstr = env->GetStringUTFChars(configJsonStr, nullptr);
-    const char *merged_config_cstr = env->GetStringUTFChars(mergeConfigStr, nullptr);
-    json merged_config = json::parse(merged_config_cstr);
-    json extra_json_config = json::parse(config_json_cstr);
-    env->ReleaseStringUTFChars(modelDir, model_dir);
-    env->ReleaseStringUTFChars(configJsonStr, config_json_cstr);
-    env->ReleaseStringUTFChars(mergeConfigStr, merged_config_cstr);
-    MNN_DEBUG("createLLM BeginLoad %s", model_dir);
+    const std::string model_dir_str = toStdString(env, modelDir);
+    json merged_config = parseObjectOrEmpty(toStdString(env, mergeConfigStr), "merged config");
+    json extra_json_config = parseObjectOrEmpty(toStdString(env, configJsonStr), "extra config");
+    MNN_DEBUG("createLLM BeginLoad %s", model_dir_str.c_str());
     std::vector<std::string> history;
-    history.clear();
     if (chat_history != nullptr) {
         jclass listClass = env->GetObjectClass(chat_history);
         jmethodID sizeMethod = env->GetMethodID(listClass, "size", "()I");
         jmethodID getMethod = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
-        jint listSize = env->CallIntMethod(chat_history, sizeMethod);
+        env->DeleteLocalRef(listClass);
+        const jint listSize = env->CallIntMethod(chat_history, sizeMethod);
         for (jint i = 0; i < listSize; i++) {
-            jobject element = env->CallObjectMethod(chat_history, getMethod, i);
-            const char *elementCStr = env->GetStringUTFChars((jstring) element, nullptr);
-            history.emplace_back(elementCStr);
-            env->ReleaseStringUTFChars((jstring) element, elementCStr);
-            env->DeleteLocalRef(element);
+            auto element = static_cast<jstring>(env->CallObjectMethod(chat_history, getMethod, i));
+            history.emplace_back(toStdString(env, element));
+            if (element != nullptr) {
+                env->DeleteLocalRef(element);
+            }
         }
     }
     auto llm_session = new mls::LlmSession(model_dir_str, merged_config, extra_json_config,
@@ -149,83 +234,124 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
                                                                                       jobject
                                                                                       progressListener) {
     auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
-    if (!llm) {
-        // Return a HashMap with error info to match the Java signature
-        jclass hashMapClass = env->FindClass("java/util/HashMap");
-        jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
-        jmethodID putMethod = env->GetMethodID(hashMapClass, "put",
-                                               "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-        jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
-        env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("error"),
-                              env->NewStringUTF("Failed, Chat is not ready!"));
-        return hashMap;
+    if (!llm || progressListener == nullptr) {
+        JavaMap result(env);
+        result.putBool("error", true);
+        result.putString("message", "Failed, Chat is not ready!");
+        return result.release();
     }
-    const char *input_str = env->GetStringUTFChars(inputStr, nullptr);
+    const std::string input = toStdString(env, inputStr);
     jclass progressListenerClass = env->GetObjectClass(progressListener);
     jmethodID onProgressMethod = env->GetMethodID(progressListenerClass, "onProgress",
                                                   "(Ljava/lang/String;)Z");
+    env->DeleteLocalRef(progressListenerClass);
     if (!onProgressMethod) {
         MNN_DEBUG("ProgressListener onProgress method not found.");
+        env->ExceptionClear();
     }
-    auto *context = llm->Response(input_str, [&, progressListener, onProgressMethod](
-            const std::string &response, bool is_eop) {
-        if (progressListener && onProgressMethod) {
-            jstring javaString = is_eop ? nullptr : env->NewStringUTF(response.c_str());
-            jboolean user_stop_requested = env->CallBooleanMethod(progressListener,
-                                                                  onProgressMethod, javaString);
-            env->DeleteLocalRef(javaString);
-            return (bool) user_stop_requested;
-        } else {
-            return true;
-        }
-    });
-    int64_t prompt_len = 0;
-    int64_t decode_len = 0;
-    int64_t vision_time = 0;
-    int64_t audio_time = 0;
-    int64_t prefill_time = 0;
-    int64_t decode_time = 0;
-    prompt_len += context->prompt_len;
-    decode_len += context->gen_seq_len;
-    vision_time += context->vision_us;
-    audio_time += context->audio_us;
-    prefill_time += context->prefill_us;
-    decode_time += context->decode_us;
-    jclass hashMapClass = env->FindClass("java/util/HashMap");
-    jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
-    jmethodID putMethod = env->GetMethodID(hashMapClass, "put",
-                                           "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-    jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
-
-    // Add metrics to the HashMap
-    env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("prompt_len"),
-                          env->NewObject(env->FindClass("java/lang/Long"),
-                                         env->GetMethodID(env->FindClass("java/lang/Long"),
-                                                          "<init>", "(J)V"), prompt_len));
-    env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("decode_len"),
-                          env->NewObject(env->FindClass("java/lang/Long"),
-                                         env->GetMethodID(env->FindClass("java/lang/Long"),
-                                                          "<init>", "(J)V"), decode_len));
-    env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("vision_time"),
-                          env->NewObject(env->FindClass("java/lang/Long"),
-                                         env->GetMethodID(env->FindClass("java/lang/Long"),
-                                                          "<init>", "(J)V"), vision_time));
-    env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("audio_time"),
-                          env->NewObject(env->FindClass("java/lang/Long"),
-                                         env->GetMethodID(env->FindClass("java/lang/Long"),
-                                                          "<init>", "(J)V"), audio_time));
-    env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("prefill_time"),
-                          env->NewObject(env->FindClass("java/lang/Long"),
-                                         env->GetMethodID(env->FindClass("java/lang/Long"),
-                                                          "<init>", "(J)V"), prefill_time));
-    env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("decode_time"),
-                          env->NewObject(env->FindClass("java/lang/Long"),
-                                         env->GetMethodID(env->FindClass("java/lang/Long"),
-                                                          "<init>", "(J)V"), decode_time));
-    return hashMap;
+    auto* context =
+        llm->Response(input, [&, progressListener, onProgressMethod](const std::string& response, bool is_eop) {
+            if (progressListener && onProgressMethod) {
+                jstring javaString = is_eop ? nullptr : newJString(env, response);
+                jboolean user_stop_requested = env->CallBooleanMethod(progressListener, onProgressMethod, javaString);
+                if (env->ExceptionCheck()) {
+                    // A throwing listener must not leave a pending exception across JNI calls.
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
+                    user_stop_requested = JNI_TRUE;
+                }
+                if (javaString != nullptr) {
+                    env->DeleteLocalRef(javaString);
+                }
+                return (bool)user_stop_requested;
+            } else {
+                return true;
+            }
+        });
+    const mls::ResponseStats stats = llm->lastResponseStats();
+    JavaMap result(env);
+    if (stats.context_too_long) {
+        result.putBool("error", true);
+        result.putString("message", "context_too_long");
+        result.putLong("context_limit", stats.context_limit);
+        return result.release();
+    }
+    if (context == nullptr) {
+        result.putBool("error", true);
+        result.putString("message", "generation_failed");
+        return result.release();
+    }
+    result.putLong("prompt_len", context->prompt_len);
+    result.putLong("decode_len", context->gen_seq_len);
+    result.putLong("vision_time", context->vision_us);
+    result.putLong("audio_time", context->audio_us);
+    result.putLong("prefill_time", context->prefill_us);
+    result.putLong("decode_time", context->decode_us);
+    result.putLong("context_tokens", stats.context_tokens);
+    result.putLong("context_limit", stats.context_limit);
+    result.putBool("context_truncated", stats.truncated);
+    result.putLong("peak_anon_kb", stats.peak_anon_kb);
+    return result.release();
 }
 
+JNIEXPORT jintArray JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_prepareContextNative(JNIEnv* env,
+                                                                                                jobject thiz,
+                                                                                                jlong llmPtr,
+                                                                                                jstring promptStr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
+    mls::ContextCheck check;
+    if (llm != nullptr) {
+        check = llm->prepareContext(toStdString(env, promptStr));
+    }
+    const jint values[4] = {check.tokens, check.budget, check.limit, static_cast<jint>(check.action)};
+    jintArray array = env->NewIntArray(4);
+    if (array != nullptr) {
+        env->SetIntArrayRegion(array, 0, 4, values);
+    }
+    return array;
+}
 
+JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_compressContextNative(JNIEnv* env,
+                                                                                               jobject thiz,
+                                                                                               jlong llmPtr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
+    mls::CompressResult compressed;
+    if (llm != nullptr) {
+        compressed = llm->compressContext();
+    }
+    JavaMap result(env);
+    result.putBool("success", compressed.success);
+    result.putString("summary", compressed.summary);
+    result.putLong("kept_user_turns", compressed.kept_user_turns);
+    return result.release();
+}
+
+JNIEXPORT jint JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_countContextTokensNative(JNIEnv* env,
+                                                                                               jobject thiz,
+                                                                                               jlong llmPtr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
+    return llm != nullptr ? llm->countContextTokens() : 0;
+}
+
+JNIEXPORT jintArray JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_contextLimitsNative(JNIEnv* env,
+                                                                                               jobject thiz,
+                                                                                               jlong llmPtr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
+    const jint values[2] = {llm != nullptr ? llm->contextLimit() : 0, llm != nullptr ? llm->modelMaxContext() : 0};
+    jintArray array = env->NewIntArray(2);
+    if (array != nullptr) {
+        env->SetIntArrayRegion(array, 0, 2, values);
+    }
+    return array;
+}
+
+JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_cancelContextWorkNative(JNIEnv* env, jobject thiz,
+                                                                                              jlong llmPtr) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
+    if (llm != nullptr) {
+        llm->cancelContextWork();
+    }
+}
 
 // 新增：支持完整历史消息的JNI方法
 JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitFullHistoryNative(
@@ -236,7 +362,7 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitF
         jobject progressListener
 ) {
     auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
-    if (!llm) {
+    if (!llm || historyList == nullptr || progressListener == nullptr) {
         // Return a HashMap with error info to match the Java signature
         jclass hashMapClass = env->FindClass("java/util/HashMap");
         jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
@@ -288,24 +414,8 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitF
         // 使用 GetObjectField 访问 second 字段
         jobject contentObj = env->GetObjectField(pairObj, secondField);
 
-        const char *role = nullptr;
-        const char *content = nullptr;
-        if (roleObj != nullptr) {
-            role = env->GetStringUTFChars((jstring) roleObj, nullptr);
-        }
-        if (contentObj != nullptr) {
-            content = env->GetStringUTFChars((jstring) contentObj, nullptr);
-        }
-
-        if (role && content) {
-            history.emplace_back(std::string(role), std::string(content));
-        }
-
-        if (role) {
-            env->ReleaseStringUTFChars((jstring) roleObj, role);
-        }
-        if (content) {
-            env->ReleaseStringUTFChars((jstring) contentObj, content);
+        if (roleObj != nullptr && contentObj != nullptr) {
+            history.emplace_back(toStdString(env, (jstring)roleObj), toStdString(env, (jstring)contentObj));
         }
         env->DeleteLocalRef(pairObj);
         if (roleObj) {
@@ -329,9 +439,14 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitF
     auto *context = llm->ResponseWithHistory(history, [&, progressListener, onProgressMethod](
             const std::string &response, bool is_eop) {
         if (progressListener && onProgressMethod) {
-            jstring javaString = is_eop ? nullptr : env->NewStringUTF(response.c_str());
+            jstring javaString = is_eop ? nullptr : newJString(env, response);
             jboolean user_stop_requested = env->CallBooleanMethod(progressListener,
                                                                   onProgressMethod, javaString);
+            if (env->ExceptionCheck()) {
+                env->ExceptionDescribe();
+                env->ExceptionClear();
+                user_stop_requested = JNI_TRUE;
+            }
             if (javaString) {
                 env->DeleteLocalRef(javaString);
             }
@@ -443,7 +558,7 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_getDebugInfoNative(JNIEnv *env, j
     if (llm == nullptr) {
         return env->NewStringUTF("");
     }
-    return env->NewStringUTF(llm->getDebugInfo().c_str());
+    return newJString(env, llm->getDebugInfo());
 }
 
 extern "C"
@@ -454,7 +569,7 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_dumpConfigNative(JNIEnv *env, job
     if (llm == nullptr) {
         return env->NewStringUTF("{}");
     }
-    return env->NewStringUTF(llm->dumpConfig().c_str());
+    return newJString(env, llm->dumpConfig());
 }
 
 JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_releaseNative(JNIEnv *env,
@@ -482,12 +597,10 @@ JNIEXPORT void JNICALL
 Java_com_alibaba_mnnllm_android_llm_LlmSession_updateSystemPromptNative(JNIEnv *env, jobject thiz,
                                                                         jlong llm_ptr,
                                                                         jstring system_promp_j) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
-    const char *system_prompt_cstr = env->GetStringUTFChars(system_promp_j, nullptr);
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llm_ptr);
     if (llm) {
-        llm->setSystemPrompt(system_prompt_cstr);
+        llm->setSystemPrompt(toStdString(env, system_promp_j));
     }
-    env->ReleaseStringUTFChars(system_promp_j, system_prompt_cstr);
 }
 
 extern "C"
@@ -496,12 +609,10 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_updateAssistantPromptNative(JNIEn
                                                                            jobject thiz,
                                                                            jlong llm_ptr,
                                                                            jstring assistant_prompt_j) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
-    const char *assistant_prompt_cstr = env->GetStringUTFChars(assistant_prompt_j, nullptr);
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llm_ptr);
     if (llm) {
-        llm->SetAssistantPrompt(assistant_prompt_cstr);
+        llm->SetAssistantPrompt(toStdString(env, assistant_prompt_j));
     }
-    env->ReleaseStringUTFChars(assistant_prompt_j, assistant_prompt_cstr);
 }
 
 extern "C"
@@ -510,12 +621,10 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_updateConfigNative(JNIEnv *env,
                                                                  jobject thiz,
                                                                  jlong llm_ptr,
                                                                  jstring config_json_j) {
-    auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
-    const char *config_json_cstr = env->GetStringUTFChars(config_json_j, nullptr);
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llm_ptr);
     if (llm) {
-        llm->updateConfig(config_json_cstr);
+        llm->updateConfig(toStdString(env, config_json_j));
     }
-    env->ReleaseStringUTFChars(config_json_j, config_json_cstr);
 }
 
 extern "C"
@@ -534,8 +643,7 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_getSystemPromptNative(JNIEnv *env
                                                                      jlong llm_ptr) {
     auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
     if (llm) {
-        std::string system_prompt = llm->getSystemPrompt();
-        return env->NewStringUTF(system_prompt.c_str());
+        return newJString(env, llm->getSystemPrompt());
     }
     return nullptr;
 }

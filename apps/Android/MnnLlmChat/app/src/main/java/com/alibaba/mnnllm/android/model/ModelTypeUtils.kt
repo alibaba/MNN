@@ -42,8 +42,23 @@ object ModelTypeUtils {
     }
 
     fun isVisualModel(modelId: String): Boolean {
+        if (isSanaModel(modelId)) {
+            return true
+        }
+        // The exported config is authoritative; name and tags are only a fallback for models
+        // that are not on disk yet or predate the is_visual field.
+        declaredIsVisual(modelId)?.let { return it }
         return modelId.lowercase(Locale.getDefault()).contains("vl") || isOmni(modelId) ||
-                ModelListManager.isVisualModel(modelId) || isSanaModel(modelId)
+                ModelListManager.isVisualModel(modelId)
+    }
+
+    private fun declaredIsVisual(modelId: String): Boolean? {
+        val configPath = try {
+            ModelUtils.getConfigPathForModel(modelId)
+        } catch (e: Exception) {
+            null
+        }
+        return ModelCapabilityReader.readForConfigPath(configPath).isVisual
     }
 
     fun isVideoModel(modelId: String): Boolean {

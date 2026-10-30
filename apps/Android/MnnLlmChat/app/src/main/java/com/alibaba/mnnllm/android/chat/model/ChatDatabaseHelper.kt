@@ -60,16 +60,32 @@ class ChatDatabaseHelper(context: Context?) :
                 // Column might already exist, ignore
             }
         }
+        if (oldVersion < 9) {
+            // One statement per column so an already existing column does not skip the rest.
+            for (statement in listOf(
+                "ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_BENCHMARK_INFO TEXT",
+                "ALTER TABLE $TABLE_SESSION ADD COLUMN $COLUMN_CONTEXT_SUMMARY TEXT",
+                "ALTER TABLE $TABLE_SESSION ADD COLUMN $COLUMN_CONTEXT_SUMMARY_ANCHOR INTEGER DEFAULT -1",
+            )) {
+                try {
+                    db.execSQL(statement)
+                } catch (e: Exception) {
+                    // Column might already exist, ignore
+                }
+            }
+        }
     }
 
     companion object {
         private const val DB_NAME = "chat.db"
-        private const val DB_VERSION = 8
+        private const val DB_VERSION = 9
         const val TABLE_SESSION: String = "Session"
         const val COLUMN_SESSION_ID: String = "sessionId"
         const val COLUMN_MODEL_ID: String = "modelId"
         const val COLUMN_SESSION_NAME: String = "name"
         const val COLUMN_LAST_CHAT_TIME: String = "lastChatTime"
+        const val COLUMN_CONTEXT_SUMMARY: String = "contextSummary"
+        const val COLUMN_CONTEXT_SUMMARY_ANCHOR: String = "contextSummaryAnchorId"
 
         const val TABLE_CHAT: String = "ChatData"
         const val COLUMN_ID: String = "_id"
@@ -87,6 +103,7 @@ class ChatDatabaseHelper(context: Context?) :
         const val COLUMN_DISPLAY_TEXT: String = "displayText"
         const val COLUMN_THINKING_TEXT: String = "thinkingText"
         const val COLUMN_THINKING_FINISHED_TIME: String = "thinkingFinishedTime"
+        const val COLUMN_BENCHMARK_INFO: String = "benchmarkInfo"
 
         // Download history table
         const val TABLE_DOWNLOAD_HISTORY: String = "DownloadHistory"
@@ -100,7 +117,9 @@ class ChatDatabaseHelper(context: Context?) :
                 COLUMN_SESSION_ID + " TEXT PRIMARY KEY, " +
                 COLUMN_MODEL_ID + " TEXT," +
                 COLUMN_SESSION_NAME + " TEXT," +
-                COLUMN_LAST_CHAT_TIME + " INTEGER DEFAULT 0)"
+                COLUMN_LAST_CHAT_TIME + " INTEGER DEFAULT 0," +
+                COLUMN_CONTEXT_SUMMARY + " TEXT," +
+                COLUMN_CONTEXT_SUMMARY_ANCHOR + " INTEGER DEFAULT -1)"
 
         private const val CREATE_TABLE_CHAT = "CREATE TABLE IF NOT EXISTS " +
                 TABLE_CHAT + " (" +
@@ -117,7 +136,8 @@ class ChatDatabaseHelper(context: Context?) :
                 COLUMN_RESERVE1 + " TEXT, " +
                 COLUMN_RESERVE2 + " TEXT," +
                 COLUMN_THINKING_TEXT + " TEXT, " +
-                COLUMN_THINKING_FINISHED_TIME + " INTEGER)"
+                COLUMN_THINKING_FINISHED_TIME + " INTEGER," +
+                COLUMN_BENCHMARK_INFO + " TEXT)"
 
         private const val CREATE_TABLE_DOWNLOAD_HISTORY = "CREATE TABLE IF NOT EXISTS " +
                 TABLE_DOWNLOAD_HISTORY + " (" +

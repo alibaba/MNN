@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.chat.input
 
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -392,6 +393,19 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
 
     val isShowing: Boolean
         get() = selectAttachmentLayoutParent.visibility == View.VISIBLE
+
+    /** Puts the attachments of a message that was not sent back into the preview. */
+    fun restoreAttachments(item: ChatDataItem) {
+        val images = item.imageUris
+        when {
+            !images.isNullOrEmpty() -> {
+                imagePreviewAdapter.addImages(images)
+                showImagePreview()
+            }
+            item.videoUri != null -> showVideoPreview(item.videoUri!!)
+            item.audioUri != null -> showAudioPreview(item.audioUri!!)
+        }
+    }
 
     fun clearInput() {
         photoFile = null

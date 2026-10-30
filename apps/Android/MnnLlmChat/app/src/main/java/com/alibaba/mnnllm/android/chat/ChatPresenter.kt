@@ -9,6 +9,9 @@ import androidx.lifecycle.lifecycleScope
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.ChatSession
+import com.alibaba.mnnllm.android.llm.ContextAction
+import com.alibaba.mnnllm.android.llm.ContextAwareSession
+import com.alibaba.mnnllm.android.llm.ContextCheck
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
@@ -25,7 +28,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Random
 
@@ -38,6 +44,7 @@ class ChatPresenter(
     private val modelId: String
 ) {
     val dateFormat: DateFormat get() = chatActivity.dateFormat!!
+    @Volatile
     var stopGenerating = false
     private var sessionId: String? = null
     private var sessionName:String? = null
@@ -84,6 +91,28 @@ class ChatPresenter(
 
     init {
         chatDataManager = ChatDataManager.getInstance(chatActivity)
+    }
+
+    private val contextManager = ChatContextManager(ChatDataContextStore(chatDataManager!!))
+
+    /** Usage indicator state; safe to collect from the UI. */
+    val contextUsage: StateFlow<ContextUsageState> get() = contextManager.usage
+    val contextNotices: SharedFlow<ContextNotice> get() = contextManager.notices
+
+    @Volatile
+    private var pendingContextCheck: ContextCheck = ContextCheck.NONE
+
+    /** Database row of the message being sent, or -1 when it could not be stored. */
+    @Volatile
+    private var pendingUserRowId: Long = -1L
+
+    private val contextSession: ContextAwareSession?
+        get() = if (::chatSession.isInitialized) chatSession as? ContextAwareSession else null
+
+    /** Re-reads the usage indicator from native, e.g. after the context settings changed. */
+    fun refreshContextUsage() {
+        val session = contextSession ?: return
+        presenterScope.launch { contextManager.refresh(session) }
     }
 
     fun createSession(): ChatSession {
@@ -151,8 +180,12 @@ class ChatPresenter(
                     (chatSession as com.alibaba.mnnllm.android.llm.LlmSession).isModelLoaded()) {
                     Log.d(TAG, "chatSession already loaded by LlmRuntimeController, skipping load")
                 } else {
+                    contextSession?.let { session ->
+                        contextManager.apply(session, contextManager.restore(sessionId, chatSession.getHistory()))
+                    }
                     chatSession.load()
                 }
+                contextSession?.let { contextManager.refresh(it) }
                 chatActivity.lifecycleScope.launch {
                     chatActivity.onLoadingChanged(false)
                 }
@@ -184,6 +217,11 @@ class ChatPresenter(
             // Don't delete chat data - preserve history for the old session
             // Just reset the session to get a new sessionId
             sessionId = chatSession.reset()
+            contextSession?.let { session ->
+                session.contextSummary = null
+                session.contextAnchorId = -1L
+            }
+            contextManager.onConversationReset()
             sessionName = null  // Clear session name for the new session
             chatActivity.lifecycleScope.launch {
                 onResetSuccess(sessionId!!)
@@ -232,6 +270,14 @@ class ChatPresenter(
     }
 
     private fun submitLlmRequest(prompt:String): HashMap<String, Any> {
+        contextSession?.let { session ->
+            contextManager.compressIfNeeded(session, sessionId, pendingContextCheck, pendingUserRowId)
+        }
+        pendingContextCheck = ContextCheck.NONE
+        if (stopGenerating) {
+            // Stopped while older turns were being summarized: nothing was generated.
+            return hashMapOf("response" to "")
+        }
         val generateResultProcessor =
             GenerateResultProcessor()
         generateResultProcessor.generateBegin()
@@ -258,7 +304,7 @@ class ChatPresenter(
             if (ModelTypeUtils.isDiffusionModel(this.modelName)) {
                 submitDiffusionRequest(input, userData)
             } else {
-                submitLlmRequest(input)
+                submitLlmRequest(input).also { contextManager.onTurnFinished(it, pendingUserRowId) }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error during generation request", e)
@@ -270,6 +316,11 @@ class ChatPresenter(
             }
         }
         
+        if (benchMarkResult["message"] == CONTEXT_TOO_LONG && userData.dbId >= 0) {
+            // Native undid the turn after prefill; drop the stored request as well so the
+            // stored conversation keeps matching what the model has seen.
+            chatDataManager?.deleteChatData(userData.dbId)
+        }
         chatActivity.lifecycleScope.launch {
             this@ChatPresenter.generateListener?.onGenerateFinished(benchMarkResult)
             additionalListeners.forEach { it.onGenerateFinished(benchMarkResult) }
@@ -288,6 +339,20 @@ class ChatPresenter(
         val prompt = PromptUtils.generateUserPrompt(userData)
         var userInputSaved = false
 
+        // Checked before anything is stored, so a message that cannot fit never becomes a turn.
+        val session = contextSession
+        val check = if (session != null && !ModelTypeUtils.isDiffusionModel(modelName)) {
+            withContext(Dispatchers.IO) { contextManager.check(session, prompt) }
+        } else {
+            ContextCheck.NONE
+        }
+        if (check.action == ContextAction.TOO_LONG) {
+            generateListener.onContextRejected(userData)
+            additionalListeners.forEach { it.onContextRejected(userData) }
+            return hashMapOf("error" to true, "message" to CONTEXT_TOO_LONG, "context_rejected" to true)
+        }
+        pendingContextCheck = check
+
         // Ensure user input is saved first
         try {
             if (this.sessionName.isNullOrEmpty()) {
@@ -298,6 +363,7 @@ class ChatPresenter(
             // Always save user input to database first
             Log.d(TAG, "requestGenerate: saving user input for sessionId=$sessionId")
             chatDataManager!!.addChatData(sessionId, userData)
+            pendingUserRowId = userData.dbId
             userInputSaved = true
             
             this.generateListener?.onGenerateStart()
@@ -339,6 +405,7 @@ class ChatPresenter(
 
     fun stopGenerate() {
         stopGenerating = true
+        contextSession?.cancelContextWork()
     }
     
     /**
@@ -367,6 +434,12 @@ class ChatPresenter(
         override fun onGenerateFinished(benchMarkResult: HashMap<String, Any>) {
             chatActivity.lifecycleScope.launch {
                 chatActivity.onGenerateFinished(benchMarkResult)
+            }
+        }
+
+        override fun onContextRejected(userData: ChatDataItem) {
+            chatActivity.lifecycleScope.launch {
+                chatActivity.onContextRejected(userData)
             }
         }
     }
@@ -444,8 +517,11 @@ class ChatPresenter(
                     chatActivity.onLoadingChanged(true)
                 }
                 val oldSessionId = sessionId
+                // Read before the old session goes away so the new one keeps the summary.
+                val carriedSummary = contextManager.restore(oldSessionId, currentChatHistory)
                 destroyCurrentSession()
                 val newSession = createNewModelSession(newModelItem, currentChatHistory)
+                (newSession as? ContextAwareSession)?.let { contextManager.apply(it, carriedSummary) }
                 updateDatabaseForModelSwitch(oldSessionId, newModelItem.modelId!!)
                 chatActivity.lifecycleScope.launch {
                     onSessionCreated(newSession)
@@ -454,6 +530,7 @@ class ChatPresenter(
                     !(newSession as com.alibaba.mnnllm.android.llm.LlmSession).isModelLoaded()) {
                     newSession.load()
                 }
+                (newSession as? ContextAwareSession)?.let { contextManager.refresh(it) }
                 chatActivity.lifecycleScope.launch {
                     onSwitchComplete(newSession)
                     chatActivity.onLoadingChanged(false)
@@ -523,6 +600,7 @@ class ChatPresenter(
     
     companion object {
         private const val TAG: String = "ChatPresenter"
+        const val CONTEXT_TOO_LONG = "context_too_long"
         internal fun resolveDiffusionPrompt(input: String, modelId: String): String {
             if (input.isNotBlank()) return input
             return if (ModelTypeUtils.requiresFaceImageInput(modelId)) {
@@ -538,5 +616,13 @@ class ChatPresenter(
         fun onGenerateStart()
         fun onGenerateFinished(benchMarkResult: HashMap<String, Any>)
         fun onLlmGenerateProgress(progress: String?, generateResultProcessor: GenerateResultProcessor)
+        /**
+         * The message alone exceeds the context budget; nothing was stored or generated.
+         * By default this finishes the request with an error so listeners that only wait
+         * for [onGenerateFinished] (voice chat) do not hang.
+         */
+        fun onContextRejected(userData: ChatDataItem) {
+            onGenerateFinished(hashMapOf("error" to true, "message" to CONTEXT_TOO_LONG, "context_rejected" to true))
+        }
     }
 }

@@ -208,6 +208,17 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"/>
 
+                        <TextView
+                            android:id="@+id/tv_context_usage"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="12dp"
+                            android:maxLines="1"
+                            android:textAppearance="?attr/textAppearanceLabelSmall"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:visibility="gone"
+                            tools:text="1.2K / 4K"
+                            tools:visibility="visible" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_toggle_thinking"

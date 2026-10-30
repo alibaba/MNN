@@ -55,7 +55,9 @@ data class ModelConfig(
     @SerializedName("image_height") var imageHeight: Int?,
     @SerializedName("diffusion_seed") var diffusionSeed: Long?,
     @SerializedName("cfg_prompt") var cfgPrompt: String?,
-    @SerializedName("grid_size") var gridSize: Int?
+    @SerializedName("grid_size") var gridSize: Int?,
+    @SerializedName("context_token_limit") var contextTokenLimit: Int? = null,
+    @SerializedName("auto_compress_context") var autoCompressContext: Boolean? = null
     ) {
     fun deepCopy(): ModelConfig {
         return ModelConfig(
@@ -92,7 +94,9 @@ data class ModelConfig(
             imageHeight = this.imageHeight,
             diffusionSeed = this.diffusionSeed,
             cfgPrompt = this.cfgPrompt,
-            gridSize = this.gridSize
+            gridSize = this.gridSize,
+            contextTokenLimit = this.contextTokenLimit,
+            autoCompressContext = this.autoCompressContext
         )
     }
 
@@ -305,8 +309,21 @@ data class ModelConfig(
             imageHeight = 512,
             diffusionSeed = 42L,
             cfgPrompt = "Generate high quality image",
-            gridSize = 1
+            gridSize = 1,
+            contextTokenLimit = DEFAULT_CONTEXT_TOKEN_LIMIT,
+            autoCompressContext = true
         )
+
+        /** Must match context::kDefaultContextLimit in context_budget.hpp. */
+        const val DEFAULT_CONTEXT_TOKEN_LIMIT = 8192
+        val CONTEXT_TOKEN_LIMIT_CHOICES = listOf(1024, 2048, 4096, 8192, 16384, 32768)
+
+        /** Choices that fit the model window; the current value is always offered. */
+        fun contextLimitChoices(modelMax: Int, current: Int): List<Int> {
+            val fitting = CONTEXT_TOKEN_LIMIT_CHOICES.filter { modelMax <= 0 || it <= modelMax }
+            val withCurrent = if (current > 0 && current !in fitting) fitting + current else fitting
+            return withCurrent.ifEmpty { listOf(DEFAULT_CONTEXT_TOKEN_LIMIT) }.sorted()
+        }
 
     }
 }
