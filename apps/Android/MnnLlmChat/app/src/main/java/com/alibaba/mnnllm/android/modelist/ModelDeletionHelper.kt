@@ -25,6 +25,11 @@ private val TMPS_SOURCE_SUBDIRS = listOf("modelscope", "modelers")
  * 3. Orphan files can be identified and cleaned
  */
 object ModelDeletionHelper {
+    fun canDeleteModel(context: Context, modelId: String?, isDownloaded: Boolean, isBuiltin: Boolean): Boolean {
+        if (modelId == null || isBuiltin || modelId.startsWith("Builtin/")) return false
+        return isDownloaded || LocalModelsProvider.importedModelDirectory(context, modelId) != null
+    }
+
 
     /**
      * Result of model deletion with cleanup.
@@ -190,7 +195,13 @@ object ModelDeletionHelper {
 
         // 3. Delete the model files via ModelDownloadManager
         val modelDeleted = try {
-            ModelDownloadManager.getInstance(context).deleteModel(modelId)
+            val imported = LocalModelsProvider.importedModelDirectory(context, modelId)
+            if (imported != null) {
+                if (!imported.deleteRecursively()) throw java.io.IOException("Cannot delete imported model")
+                ModelDownloadManager.getInstance(context).removeLocalModelState(modelId)
+            } else {
+                ModelDownloadManager.getInstance(context).deleteModel(modelId)
+            }
             true
         } catch (e: Exception) {
             errors.add("Failed to delete model: ${e.message}")

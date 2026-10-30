@@ -341,8 +341,7 @@
     <string name="add_local_models">Add Local Model</string>
     <string name="copy_command">Copy Command</string>
     <string name="add_local_models_title">Add Local Models</string>
-    <string name="add_local_models_message">To add local models, first download them to your desktop, then run \'%1$s\'. After that, the models will appear in the model list.
-</string>
+    <string name="add_local_models_message">Select Import model folder to copy a prepared MNN model from your device. Select the folder containing config.json. Alternatively, use ADB: %1$s</string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
     <string name="apk_download_started">Apk download started, view progress in the notification</string>
     <string name="api_config_reset_service_restarted">API configuration has been reset, service restarted</string>
@@ -675,6 +674,10 @@
     <string name="save_image">Save Image</string>
     <string name="image_saved_to_gallery">Image saved to gallery</string>
     <string name="failed_to_save_image">Failed to save image</string>
+    <string name="import_model_folder">Import model folder</string>
+    <string name="import_model_copying">Copying the prepared MNN model into app storage. Keep this screen open; closing it cancels the import. The original folder will not be changed.</string>
+    <string name="import_model_success">Imported %1$s</string>
+    <string name="import_model_failed">Could not import model</string>
     <string name="benchmark_energy_charging">Unplug to measure</string>
     <string name="benchmark_energy_unsupported">Sensor unavailable</string>
     <string name="benchmark_energy_invalid_voltage">Voltage unavailable</string>
