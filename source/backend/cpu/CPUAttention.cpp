@@ -430,7 +430,9 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     // For the float key path the whole attention scale is folded into Q packing,
     // so QK products are already final logits and _maskQK needs no extra scaling.
     float packScale = q_scale * mScale;
-    int insertLen = seqLen;
+    // Cacheless cross attention may have more key rows than query rows.
+    const int keyRows = key->length(1);
+    int insertLen = mKVCache ? seqLen : keyRows;
 
     if (!mIsKVShared) {
         if (mKVCache && mMeta != nullptr) {
@@ -444,7 +446,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             insertLen = (int)mMeta->add;
         } else {
             mKVCacheManager->onClear();
-            mKVCacheManager->onAlloc(mMeta, seqLen);
+            mKVCacheManager->onAlloc(mMeta, keyRows);
         }
         // Add the new kv to the kvcache
         mKVCacheManager->onUpdateKV(key, value, (int)insertLen);
@@ -487,13 +489,18 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     }
 
     // Constant Initialization
-    auto padSeqLength = seqLen - insertLen;
-    seqLen = insertLen;
-    int kvSeqLen = mKVCacheManager->kvLength();
+    // Only cached calls can pad queries beyond the appended rows.
+    auto padSeqLength = mKVCache ? seqLen - insertLen : 0;
+    if (mKVCache) {
+        seqLen = insertLen;
+    }
+    // Cacheless attention uses the full key axis regardless of the query length.
+    int kvSeqLen = mKVCache ? mKVCacheManager->kvLength() : key->length(1);
     int maxLen = mKVCacheManager->maxLength();
     int32_t units[2] = {eP, lP};
     const float* sinksPtr = sinks ? sinks->host<float>() : nullptr;
-    int kvValidOffset = kvSeqLen - seqLen; // reuse_kv=true or decode, kvValidOffset>0
+    // Only a cache leaves valid columns before the current window; a cacheless call has none.
+    int kvValidOffset = mKVCache ? kvSeqLen - seqLen : 0;
 
     // Classify the mask by shape only, see core/AttentionMaskConvention.hpp.
     const bool hasMask = (mask != nullptr);

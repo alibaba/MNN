@@ -1394,7 +1394,12 @@ __global__ void Rearrange_Weight_Int8(const int8_t* param,
 }
 
 bool ConvFpAIntBExecution::isValid(const Convolution2D* conv, Backend* backend) {
-    return true;
+    // Weight rearrangement and buffer sizing assume packed int4; other widths must use the regular path.
+    if (conv == nullptr || conv->quanParameter() == nullptr) {
+        return false;
+    }
+    const auto quan = conv->quanParameter();
+    return quan->type() == 1 && quan->aMaxOrBits() == 4;
 }
 
 

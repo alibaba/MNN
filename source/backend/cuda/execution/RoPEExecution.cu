@@ -118,22 +118,36 @@ public:
         }
         auto q = inputs[0];
         auto k = inputs[1];
-        const bool valid = q != nullptr && k != nullptr && inputs[2] != nullptr && inputs[3] != nullptr &&
-                           outputs[0] != nullptr && outputs[1] != nullptr && q->dimensions() == 4 &&
-                           k->dimensions() == 4 && q->length(0) == k->length(0) &&
-                           q->length(1) == mNumHead * mHeadDim && k->length(1) == mKvNumHead * mHeadDim &&
-                           q->length(2) == 1 && q->length(3) == 1 && k->length(2) == 1 && k->length(3) == 1 &&
-                           TensorUtils::getDescribe(q)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
-                           TensorUtils::getDescribe(k)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
-                           TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NHWC &&
-                           TensorUtils::getDescribe(outputs[1])->dimensionFormat == MNN_DATA_FORMAT_NHWC;
-        if (!valid) {
-            MNN_ERROR("CUDA RoPE: invalid C4 q/k layout or head configuration.\n");
+        if (q == nullptr || k == nullptr || inputs[2] == nullptr || inputs[3] == nullptr ||
+            outputs[0] == nullptr || outputs[1] == nullptr || q->dimensions() != 4 || k->dimensions() != 4 ||
+            TensorUtils::getDescribe(outputs[0])->dimensionFormat != MNN_DATA_FORMAT_NHWC ||
+            TensorUtils::getDescribe(outputs[1])->dimensionFormat != MNN_DATA_FORMAT_NHWC) {
+            MNN_ERROR("CUDA RoPE: invalid q/k operands.\n");
             return NOT_SUPPORT;
         }
-        mSeqLen = q->length(0);
-        mQHiddenPack = UP_DIV(q->length(1), PACK_NUMBER) * PACK_NUMBER;
-        mKHiddenPack = UP_DIV(k->length(1), PACK_NUMBER) * PACK_NUMBER;
+        // Two layouts reach this kernel, and both are row-major over the same per-token head
+        // block, so the indexing below serves either -- only which axis is `token` differs.
+        //   C4    : q [seq, numHead*headDim, 1, 1], NC4HW4
+        //   dense : q [1, seq, numHead, headDim], NCHW/NHWC (what a draft exports)
+        const bool c4Layout = TensorUtils::getDescribe(q)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
+                              TensorUtils::getDescribe(k)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+        bool valid = false;
+        if (c4Layout) {
+            mSeqLen = q->length(0);
+            valid = q->length(1) == mNumHead * mHeadDim && k->length(1) == mKvNumHead * mHeadDim &&
+                    q->length(2) == 1 && q->length(3) == 1 && k->length(2) == 1 && k->length(3) == 1;
+        } else {
+            valid = q->length(0) == 1 && k->length(0) == 1 && q->length(0) == k->length(0) &&
+                    q->length(2) == mNumHead && k->length(2) == mKvNumHead &&
+                    q->length(3) == mHeadDim && k->length(3) == mHeadDim;
+            mSeqLen = q->length(1);
+        }
+        if (!valid) {
+            MNN_ERROR("CUDA RoPE: unsupported q/k layout or head configuration.\n");
+            return NOT_SUPPORT;
+        }
+        mQHiddenPack = UP_DIV(mNumHead * mHeadDim, PACK_NUMBER) * PACK_NUMBER;
+        mKHiddenPack = UP_DIV(mKvNumHead * mHeadDim, PACK_NUMBER) * PACK_NUMBER;
         int ropeDim = mRopeCutHeadDim;
         if (ropeDim <= 0 || ropeDim > mHeadDim) {
             ropeDim = mHeadDim;
@@ -220,9 +234,7 @@ class RoPECreator : public CUDABackend::Creator {
 public:
     Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const Op* op,
                         Backend* backend) const override {
-        if (inputs.size() != 4 || outputs.size() != 2 ||
-            TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
-            TensorUtils::getDescribe(inputs[1])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+        if (inputs.size() != 4 || outputs.size() != 2) {
             return nullptr;
         }
         return new RoPEExecution(op, backend);

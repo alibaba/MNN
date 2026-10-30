@@ -8,6 +8,11 @@
 #define SPEC_GENERATE_HPP
 
 #include <MNN/AutoTime.hpp>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <thread>
+#include <vector>
 #include "llm/llm.hpp"
 #include "../llmconfig.hpp"
 #include "../kvmeta.hpp"
@@ -125,6 +130,42 @@ private:
 };
 
 
+// Reuse helper threads across the host Markov chain's serial slots.
+class MarkovSweepPool {
+public:
+    ~MarkovSweepPool() { shutdown(); }
+    template <typename Fn>
+    void run(Fn&& fn, int nWorkers) {
+        if (nWorkers <= 1) {
+            fn(0);
+            return;
+        }
+        ensureStarted(nWorkers);
+        {
+            std::unique_lock<std::mutex> lock(mMutex);
+            mFn = [&fn](int i) { fn(i); };
+            // Worker 0 is the caller, so only nWorkers-1 helper threads report back.
+            mPending = nWorkers - 1;
+            mGeneration++;
+            mCvWork.notify_all();
+        }
+        fn(0);
+        std::unique_lock<std::mutex> lock(mMutex);
+        mCvDone.wait(lock, [this] { return mPending == 0; });
+    }
+    // Workers are created lazily on first use and live until destruction.
+    void ensureStarted(int nWorkers);
+private:
+    void shutdown();
+    std::mutex mMutex;
+    std::condition_variable mCvWork, mCvDone;
+    std::function<void(int)> mFn;
+    int mPending = 0;
+    int mGeneration = 0;
+    int mWorkerCount = 0;
+    std::vector<std::thread> mWorkers;
+};
+
 class DFlashGeneration : public Generation {
 public:
     DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
@@ -139,31 +180,53 @@ private:
     // Row-wise argmax, shared by draft sampling and target verify; only the element count is read, so any rank binds.
     // False when the on-device argmax module could not be built: the caller must abort the step.
     bool rowArgmax(MNN::Express::VARP logits, int rows, std::vector<int>& out);
+    // Device-side Markov sampling: gather coefficients, project bias, then add and take argmax.
+    bool addArgmax(MNN::Express::VARP base, MNN::Express::VARP bias, int& outIdx);
+    bool markovSlot(int prev, MNN::Express::VARP base, int& outIdx);
+    bool draftArgmaxChain(MNN::Express::VARP logits, const std::vector<int>& block_ids,
+                          std::vector<int>& out);
+    const char* logTag() const {
+        return (mMarkovFile.empty() && mMarkovW1File.empty()) ? "DFlash" : "DSpark";
+    }
+    std::string mMarkovFile;
+    std::string mMarkovW1File;
+    std::string mMarkovW2File;
+    std::shared_ptr<MNN::Express::Module> mMarkovW1Module;
+    std::shared_ptr<MNN::Express::Module> mMarkovW2Module;
 
-    // --- The verify / accept / emit / rollback half of the speculation step ---
+    // Target verification and cache rollback.
     struct VerifyResult {
-        int totalAccepted = 0;                  // tokens committed this step (acceptance_length + 1)
-        bool stop = false;                      // a stop token was emitted
-        MNN::Express::VARP newHiddenStates;     // target hidden_states, for the context update
+        int totalAccepted = 0;
+        bool stop = false;
+        MNN::Express::VARP newHiddenStates;
     };
-    // Target verify + greedy accept + emit + KV rollback for one speculation step.
     VerifyResult verifyAcceptCommit(const std::vector<int>& block_ids, int blockSize, int hiddenStateIndex);
     // Longest draft prefix the target agrees with; sets mContext->current_token to the corrected/next token.
     int acceptDraftPrefix(const std::vector<int>& targetArgmax, const std::vector<int>& block_ids, int blockSize);
 
-    // --- Draft production and context update ---
+    // Draft production and context update.
     MNN::Express::VARP dflashForward(const std::vector<int>& block_ids);
     // startPos is the draft-local RoPE position of the first new row.
     void appendDraftKv(MNN::Express::VARP newContext, int startPos);
     void ensureKvConcatModule(int kvHeads, int headDim);
     std::vector<int> buildBlock(int currentToken) const;
 
-    std::shared_ptr<MNN::Express::Module> mDFlashModule;   // dflash.mnn (transformer, no lm_head)
-    std::shared_ptr<MNN::Express::Module> mFcModule;       // dflash_fc.mnn
-    std::shared_ptr<MNN::Express::Module> mLmHeadModule;   // target lm_head subgraph (shared-from-target)
-    std::shared_ptr<MNN::Express::Module> mKvMatModule;    // dflash_kvmat.mnn: context rows -> per-layer K/V
-    std::shared_ptr<MNN::Express::Module> mKvConcatModule; // one dispatch appending all K/V pairs
-    std::shared_ptr<MNN::Express::Module> mArgmaxModule;   // single _ArgMax over [rows, vocab]
+    std::shared_ptr<MNN::Express::Module> mDFlashModule;
+    std::shared_ptr<MNN::Express::Module> mFcModule;
+    std::shared_ptr<MNN::Express::Module> mLmHeadModule;
+    std::shared_ptr<MNN::Express::Module> mKvMatModule;
+    std::shared_ptr<MNN::Express::Module> mKvConcatModule;
+    std::shared_ptr<MNN::Express::Module> mArgmaxModule;
+    std::shared_ptr<MNN::Express::Module> mAddArgmaxModule;
+    // Legacy host fallback: flattened [rank, vocab] tables, with one int8 scale per w2 row.
+    std::vector<float> mMarkovW1;
+    std::vector<int8_t> mMarkovW2q;
+    std::vector<float> mMarkovW2Scale;
+    std::vector<float> mMarkovBias;
+    int mMarkovThreads = 1;
+    MarkovSweepPool mMarkovPool;
+    int mMarkovRank = 0;
+    int mMarkovVocab = 0;
     // Draft KV cache, interleaved [K_0, V_0, K_1, V_1, ...], each [1, ctx_len, kv_heads, head_dim].
     std::vector<MNN::Express::VARP> mDraftKv;
     // mDraftKv slot -> mKvMatModule output slot (the kvmat graph declares its own order).
@@ -173,11 +236,8 @@ private:
     int mShiftLabel = 0;   // 1 when the draft head was trained with shift_label
     int mHiddenStateIndex = -1;
     bool mInitialized = false;
-#ifdef DUMP_PROFILE_INFO
-    int spl_decode = 0, spl_accept = 0, spl_count = 0;
-    int64_t phase_sample_us = 0, phase_verify_us = 0, phase_verify_fwd_us = 0, phase_verify_match_us = 0;
-    int64_t phase_argmax_us = 0;
-#endif
+    // False when the draft emits logits itself (DSpark); true when its lm_head comes from the target.
+    bool mSharedLmHead = true;
 };
 
 class GenerationStrategyFactory {
