@@ -2,6 +2,7 @@ package com.alibaba.mnnllm.android.benchmark
 
 import android.content.Context
 import android.util.Log
+import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
@@ -13,7 +14,8 @@ import kotlinx.coroutines.withContext
 
 class BenchmarkService {
     private var llmSession: LlmSession? = null
-    private var isRunning = false
+    @Volatile private var isRunning = false
+    @Volatile private var releaseAfterRun = false
     @Volatile
     private var shouldStop = false
 
@@ -206,11 +208,10 @@ class BenchmarkService {
     private fun checkStop(callback: BenchmarkCallback):Boolean {
         if (shouldStop) {
             Log.d(TAG, "Benchmark stopped by user")
-            isRunning = false
             CoroutineScope(Dispatchers.Main).launch {
                 callback.onBenchmarkError(BenchmarkErrorCode.BENCHMARK_STOPPED,"Benchmark stopped by user")
             }
-            false
+            return true
         }
         return false
     }
@@ -220,7 +221,8 @@ class BenchmarkService {
         modelId: String,
         callback: BenchmarkCallback,
         runtimeParams: RuntimeParameters = defaultRuntimeParams,
-        testParams: TestParameters = defaultTestParams
+        testParams: TestParameters = defaultTestParams,
+        measureEnergy: Boolean = false
     ) {
         if (isRunning) {
             callback.onBenchmarkError(BenchmarkErrorCode.BENCHMARK_RUNNING,"Benchmark is already running")
@@ -263,6 +265,7 @@ class BenchmarkService {
                     if (checkStop(callback)) {
                         return@launch
                     }
+                    var energy: BenchmarkEnergyRecorder? = null
                     try {
                         CrashReportContext.setBenchmarkState("running_instance")
                         CrashReportContext.setBenchmarkContext(
@@ -301,6 +304,7 @@ class BenchmarkService {
                         }
                         
                         // Run the actual benchmark following llm_bench.cpp approach
+                        if (measureEnergy) energy = BenchmarkEnergyRecorder(context)
                         val result = withContext(Dispatchers.Default) {
                             session.runBenchmark(
                                 context,
@@ -311,6 +315,8 @@ class BenchmarkService {
                                         if (shouldStop) {
                                             return
                                         }
+                                        energy?.onProgress(progress)
+                                        if (measureEnergy && progress.progressType == ProgressType.COMPLETED) return
                                         // Some native implementations may send negative or >100 values when finished
                                         val clampedProgress = progress.copy(progress = progress.progress.coerceIn(0, 100))
                                         // Filter extremely long nested logs for readability
@@ -334,6 +340,18 @@ class BenchmarkService {
                         }
                         if (checkStop(callback)) {
                             return@launch
+                        }
+                        if (result.success && energy != null) {
+                            val measurement = energy.finish(instance.nRepeat, { shouldStop }) { seconds ->
+                                withContext(Dispatchers.Main) {
+                                    callback.onProgress(BenchmarkProgress(99,
+                                        context.getString(R.string.benchmark_energy_idle_progress, seconds),
+                                        ProgressType.ENERGY_BASELINE))
+                                }
+                            }
+                            result.testInstance.energy = measurement
+                            energy.save(modelId, session.dumpConfig(), instance, measurement)
+                            if (checkStop(callback)) return@launch
                         }
                         completedInstances++
                         
@@ -360,25 +378,38 @@ class BenchmarkService {
                         CoroutineScope(Dispatchers.Main).launch {
                             callback.onBenchmarkError(BenchmarkErrorCode.TEST_INSTANCE_FAILED,"Test instance failed: ${e.message}")
                         }
+                    } finally {
+                        energy?.close()
                     }
                 }
                 
-                isRunning = false
                 CrashReportContext.setBenchmarkState("run_completed")
                 
             } catch (e: Exception) {
-                isRunning = false
                 CrashReportContext.setBenchmarkState("run_failed")
                 Log.e(TAG, "Benchmark execution failed", e)
                 CoroutineScope(Dispatchers.Main).launch {
                     callback.onBenchmarkError(BenchmarkErrorCode.BENCHMARK_FAILED_UNKOWN, "Benchmark failed: ${e.message}")
                 }
+            } finally {
+                synchronized(this@BenchmarkService) {
+                    isRunning = false
+                    if (releaseAfterRun) {
+                        releaseAfterRun = false
+                        release()
+                    }
+                }
             }
         }
     }
 
+    @Synchronized
     fun release() {
-        isRunning = false
+        if (isRunning) {
+            shouldStop = true
+            releaseAfterRun = true
+            return
+        }
         llmSession?.release()
         llmSession = null
         CrashReportContext.setBenchmarkState("released")
