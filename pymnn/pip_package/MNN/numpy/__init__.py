@@ -1301,18 +1301,21 @@ nanquantile = quantile
 def median(a, axis=None, out=None, overwrite_input=False, keepdims=False):__not_impl()
 def mean(a, axis=None, dtype=float32, out=None, keepdims=False):
     a = _F.cast(a, dtype)
-    if axis is None: return asscalar(_F.reduce_mean(ravel(a)))
-    return _F.reduce_mean(a, axis, keepdims)
+    if axis is None and not keepdims: return asscalar(_F.reduce_mean(ravel(a)))
+    return _F.reduce_mean(a, [] if axis is None else axis, keepdims)
 def average(a, axis=None, weights=None, returned=False):
     if weights is not None:
         raise ValueError('MNN.numpy average not support `weights`.')
     return mean(a, axis)
 def var(a, axis=None, dtype=float32, out=None, ddof=0, keepdims=False):
     a = _F.cast(a, dtype)
-    return mean(abs(square(a - mean(a, axis, keepdims=True))), axis)
+    squared = abs(square(a - mean(a, axis, keepdims=True)))
+    if keepdims:
+        return mean(squared, [] if axis is None else axis, keepdims=True)
+    return mean(squared, axis)
 def std(a, axis=None, dtype=float32, out=None, ddof=0, keepdims=False):
-    res = sqrt(var(a, axis, dtype))
-    if axis is None: return asscalar(res)
+    res = sqrt(var(a, axis, dtype, keepdims=keepdims))
+    if axis is None and not keepdims: return asscalar(res)
     return res
 nanmedian = median
 nanmean = mean
