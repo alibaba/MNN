@@ -202,6 +202,10 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
 
     override fun updateProgress(progress: BenchmarkProgress) {
         Log.d(TAG, "updateProgress: $progress")
+        _binding?.progressTitle?.setText(if (progress.progressType == ProgressType.ENERGY_BASELINE)
+            R.string.benchmark_energy_baseline_title else R.string.test_progress)
+        _binding?.progressSubtitle?.text = if (progress.progressType == ProgressType.ENERGY_BASELINE)
+            progress.statusMessage else getString(R.string.running_performance_tests)
         
         // Note: Do NOT update progress bar here as it's handled by UI state with realProgress
         // updateBenchmarkProgress(progress.progress) - REMOVED to avoid overriding realProgress
@@ -431,6 +435,10 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     override fun enableModelSelector(enabled: Boolean) {
         if (isFragmentValid()) {
             binding.modelSelectorLayout.isEnabled = enabled
+            binding.measureEnergySwitch.isEnabled = enabled
+            binding.backendCpu.isEnabled = enabled
+            binding.backendOpencl.isEnabled = enabled
+            binding.root.keepScreenOn = !enabled
             binding.modelSelectorLayout.alpha = if (enabled) 1.0f else 0.6f
         }
         Log.d(TAG, "enableModelSelector: $enabled")
@@ -542,6 +550,18 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     // ===== UI Helpers =====
 
     private fun populateResultsUI(results: BenchmarkContract.BenchmarkResults) {
+        val energyTests = results.testResults.filter { it.energy != null }
+        _binding?.energyResultsContainer?.apply {
+            removeAllViews()
+            visibility = if (energyTests.isEmpty()) View.GONE else View.VISIBLE
+            energyTests.forEachIndexed { index, test ->
+                addView(BenchmarkEnergyResultView(context).apply { bind(test) },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        if (index > 0) topMargin = (12 * resources.displayMetrics.density).toInt()
+                    })
+            }
+        }
         _binding?.resultCard?.visibility = View.VISIBLE
         _binding?.modelName?.text = results.modelDisplayName
         DeviceName.with(requireContext()).request { info, error ->
@@ -646,18 +666,29 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
 
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
-        if (!hidden) {
+        if (hidden && BenchmarkService.getInstance().isBenchmarkRunning()) {
+            presenter?.onStopBenchmarkClicked()
+        } else if (!hidden && !BenchmarkService.getInstance().isBenchmarkRunning()) {
             presenter?.loadModels()
         }
     }
 
     override fun onDestroyView() {
+        if (BenchmarkService.getInstance().isBenchmarkRunning()) presenter?.onStopBenchmarkClicked()
+        _binding?.root?.keepScreenOn = false
         super.onDestroyView()
         _binding = null
     }
     
     override fun getSelectedBackend(): String {
         return if (_binding?.backendOpencl?.isChecked == true) "opencl" else "cpu"
+    }
+
+    override fun isEnergyMeasurementEnabled() = _binding?.measureEnergySwitch?.isChecked == true
+
+    override fun onStop() {
+        if (BenchmarkService.getInstance().isBenchmarkRunning()) presenter?.onStopBenchmarkClicked()
+        super.onStop()
     }
 
     override fun onDestroy() {

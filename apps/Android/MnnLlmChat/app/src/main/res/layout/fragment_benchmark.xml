@@ -194,6 +194,18 @@
                     </RadioGroup>
                 </com.google.android.material.card.MaterialCardView>
 
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/measure_energy_switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="12dp"
+                    android:minHeight="48dp"
+                    android:text="@string/benchmark_energy_option"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="14sp" />
+
                 <!-- Start/Stop Button (moved from bottom to here) -->
                 <LinearLayout
                     android:id="@+id/button_container"
@@ -303,8 +315,10 @@
                     android:layout_marginBottom="20dp">
 
                     <LinearLayout
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="12dp"
                         android:orientation="horizontal"
                         android:gravity="center_vertical">
 
@@ -316,12 +330,14 @@
                             android:padding="8dp" />
 
                         <LinearLayout
-                            android:layout_width="wrap_content"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
+                            android:layout_weight="1"
                             android:orientation="vertical"
                             android:layout_marginStart="12dp">
 
                             <TextView
+                                android:id="@+id/progress_title"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="@string/test_progress"
@@ -330,6 +346,7 @@
                                 android:textColor="?colorOnSurface" />
 
                             <TextView
+                                android:id="@+id/progress_subtitle"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="@string/running_performance_tests"
@@ -340,11 +357,6 @@
                         </LinearLayout>
 
                     </LinearLayout>
-
-                    <View
-                        android:layout_width="0dp"
-                        android:layout_height="1dp"
-                        android:layout_weight="1" />
 
                     <LinearLayout
                         android:layout_width="wrap_content"
@@ -787,6 +799,17 @@
 
                     </LinearLayout>
 
+                    <LinearLayout
+                        android:id="@+id/energy_results_container"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:orientation="vertical"
+                        android:visibility="gone"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/performance_metrics_container" />
+
                     <!-- Detailed Stats (Like iOS) -->
                     <LinearLayout
                         android:id="@+id/detailed_stats"
@@ -796,7 +819,7 @@
                         android:orientation="vertical"
                         android:padding="8dp"
                         app:layout_constraintStart_toStartOf="parent"
-                        app:layout_constraintTop_toBottomOf="@id/performance_metrics_container">
+                        app:layout_constraintTop_toBottomOf="@id/energy_results_container">
 
                         <!-- Completed time -->
                         <LinearLayout
