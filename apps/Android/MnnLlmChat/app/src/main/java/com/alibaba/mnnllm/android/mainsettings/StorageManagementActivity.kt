@@ -14,6 +14,7 @@ import com.alibaba.mnnllm.android.databinding.ActivityStorageManagementBinding
 import com.alibaba.mnnllm.android.modelist.ModelDeletionHelper
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.utils.MmapUtils
+import com.alibaba.mnnllm.android.utils.DialogUtils
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
 
@@ -162,13 +163,18 @@ class StorageManagementActivity : AppCompatActivity() {
             StorageListItem.ChildType.MODEL_DIR -> {
                 val modelId = child.resolvedModelId
                 if (modelId != null) {
-                    val result = ModelDeletionHelper.deleteModelWithCleanup(this, modelId)
-                    if (!result.modelDeleted && result.errors.isNotEmpty()) {
-                        Toast.makeText(this, result.errors.joinToString(), Toast.LENGTH_LONG).show()
+                    DialogUtils.showModelDeletionDialog(this) { keepHistory ->
+                        val result = ModelDeletionHelper.deleteModelWithCleanup(this, modelId, keepHistory)
+                        if (result.errors.isNotEmpty()) {
+                            Toast.makeText(this, result.errors.joinToString(), Toast.LENGTH_LONG).show()
+                        }
+                        expandedSet.remove(child.entry.modelId)
+                        expandedDetails.remove(child.entry.modelId)
+                        loadSummary()
+                        refreshList()
                     }
-                    expandedSet.remove(child.entry.modelId)
-                    expandedDetails.remove(child.entry.modelId)
                 }
+                return
             }
             StorageListItem.ChildType.CONFIG_DIR -> {
                 val modelId = child.resolvedModelId

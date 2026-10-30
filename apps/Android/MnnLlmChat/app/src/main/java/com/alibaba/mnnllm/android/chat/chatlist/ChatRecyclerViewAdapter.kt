@@ -13,7 +13,8 @@ import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders.UserViewHolder
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 
 class ChatRecyclerViewAdapter(
-    context: Context?
+    context: Context?,
+    private val readOnly: Boolean = false
 ) :
     RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -44,17 +45,17 @@ class ChatRecyclerViewAdapter(
 
             ChatViewHolders.ASSISTANT -> {
                 view = inflater.inflate(R.layout.item_holder_assistant, parent, false)
-                return AssistantViewHolder(view)
+                return AssistantViewHolder(view, readOnly)
             }
 
             ChatViewHolders.USER -> {
                 view = inflater.inflate(R.layout.item_holder_user, parent, false)
-                return UserViewHolder(view)
+                return UserViewHolder(view, readOnly)
             }
 
             else -> {
                 view = inflater.inflate(R.layout.item_holder_user, parent, false)
-                return UserViewHolder(view)
+                return UserViewHolder(view, readOnly)
             }
         }
     }

@@ -125,7 +125,7 @@ object ChatRouter {
         return if (path.isDirectory) configFilePath else (path.parent ?: configFilePath)
     }
 
-    fun startRun(context: Context, modelIdParam: String, destModelDir:String?, sessionId: String?) {
+    fun startRun(context: Context, modelIdParam: String, destModelDir:String?, sessionId: String?, requireExistingModel: Boolean = false) {
         Log.d(TAG, "startRun modelIdParam: $modelIdParam destModelDir: $destModelDir sessionId: $sessionId")
         val isDiffusion = ModelTypeUtils.isDiffusionModel(modelIdParam)
         var modelId:String? = modelIdParam
@@ -137,6 +137,16 @@ object ChatRouter {
         if (modelId == null) {
             Toast.makeText(context, context.getString(R.string.model_not_found, modelIdParam), Toast.LENGTH_LONG).show()
             return
+        }
+        if (requireExistingModel) {
+            val configPath = destModelDir ?: ModelUtils.getConfigPathForModel(modelId)
+            val config = configPath?.let { File(it) }
+            val available = config != null && config.canRead() &&
+                (config.isFile || (isDiffusion && config.isDirectory))
+            if (!available) {
+                Toast.makeText(context, R.string.history_model_unavailable, Toast.LENGTH_LONG).show()
+                return
+            }
         }
         CrashReportContext.setCurrentModel(modelId, sessionId)
         
