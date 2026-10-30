@@ -36,6 +36,30 @@ This is our full multimodal language model (LLM) Android app
  !!!warning!!! This version has been tested exclusively on the OnePlus 13 and Xiaomi 14 Ultra, Due to the demanding performance requirements of large language models (LLMs), many budget or low-spec devices may experience issues such as slow inference speeds, application instability, or even failure to run entirely. and its stability on other devices cannot be guaranteed. If you encounter any issues, please feel free to open an issue for assistance.
 
 
+
+## Import a prepared local MNN model
+
+Choose **Add Local Model**, then select the folder containing `config.json` in
+Android's system folder picker. Select the model folder itself, not its parent.
+This imports an already-prepared MNN model; it does not convert GGUF or other
+model formats. The folder must contain a JSON object in `config.json` and the
+nonempty model file named by `llm_model` (default: `llm.mnn`). Explicit
+`llm_weight` paths must also resolve inside the selected folder.
+
+The app copies the entire folder into its private storage, so allow enough free
+space for a second copy. Subdirectories and filenames are preserved. The model
+appears in the local model list only after the copy succeeds. An existing import
+with the same folder name is never overwritten: rename the source folder or
+delete the old import first. Cancelling the import, closing the screen, or copy errors leave no usable partial
+model. Screen rotation does not cancel the import. You can retry after resolving
+the error.
+
+Imported files are independent of the source folder: deleting an imported model
+removes the app's copy, not the original files. Existing downloaded models and
+the ADB workflow (`/data/local/tmp/mnn_models/`) remain supported. Import checks
+file layout, not model/runtime or device compatibility.
+
+
 # Development
 + Prepare
   + Android Studio

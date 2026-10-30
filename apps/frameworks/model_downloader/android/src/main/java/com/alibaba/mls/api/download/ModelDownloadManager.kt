@@ -126,6 +126,15 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         downloadListeners.forEach { it.onDownloadFileRemoved(modelId) }
     }
 
+    /** Forget an app-owned local model without resolving any remote repository paths. */
+    fun removeLocalModelState(modelId: String) {
+        require(modelId.startsWith("local/"))
+        progressDispatchTrackers.remove(modelId)
+        DownloadPersistentData.removeProgress(ApplicationProvider.get(), modelId)
+        downloadInfoMap.remove(modelId)
+        downloadListeners.forEach { it.onDownloadFileRemoved(modelId) }
+    }
+
     fun downloadQnnLibs(): Boolean {
         // Stub - apps can implement QNN library download if needed
         return false
