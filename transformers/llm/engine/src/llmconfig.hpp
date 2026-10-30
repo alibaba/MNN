@@ -242,6 +242,34 @@ public:
 
     int tts_pad_token_id() const { return config_.value("tts_pad_token_id", 151671); }
 
+    // Qwen3-TTS codec-prefix ids (from the HF talker_config). Exports made
+    // before this fix lack them -> -1 and the runtime falls back to the ids
+    // baked into the chat template.
+    int codec_think_id() const { return config_.value("codec_think_id", -1); }
+
+    int codec_nothink_id() const { return config_.value("codec_nothink_id", -1); }
+
+    int codec_bos_id() const { return config_.value("codec_bos_id", -1); }
+
+    int codec_pad_id() const { return config_.value("codec_pad_id", -1); }
+
+    int codec_think_bos_id() const { return config_.value("codec_think_bos_id", -1); }
+
+    int codec_think_eos_id() const { return config_.value("codec_think_eos_id", -1); }
+
+    int im_start_token_id() const { return config_.value("im_start_token_id", 151644); }
+
+    int codec_language_id(const std::string& language) const {
+        if (!config_.contains("codec_language_ids")) {
+            return -1;
+        }
+        const auto& ids = config_.at("codec_language_ids");
+        if (!ids.is_object() || !ids.contains(language)) {
+            return -1;
+        }
+        return ids.at(language).get<int>();
+    }
+
     std::string talker_type() const { return config_.value("talker_type", ""); }
 
     std::string audio_code_predictor_model() const {
