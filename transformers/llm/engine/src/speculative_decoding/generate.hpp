@@ -24,6 +24,8 @@ struct GenerationParams {
     std::vector<MNN::Express::VARP> outputs;
     int validLogitStart = 0;
     int validLogitSize = 0;
+    std::shared_ptr<MNN::Express::Module> prefillTrunk;
+    bool skipPrefillLogits = false;
 };
 
 class Generation {

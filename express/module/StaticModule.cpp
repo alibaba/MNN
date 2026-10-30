@@ -7,6 +7,8 @@
 //
 
 #include "StaticModule.hpp"
+#include "PipelineModule.hpp"
+#include <set>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/expr/ExprCreator.hpp>
@@ -18,6 +20,7 @@
 #include "MNN_generated.h"
 #include "core/FileLoader.hpp"
 #include "core/OpCommonUtils.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 namespace Express {
@@ -65,6 +68,99 @@ static void collectBaseExecutions(const Module* base, ExecutionCacheMap& execute
     }
 }
 
+using AttentionExecutionMap = std::map<std::string, std::pair<const Op*, std::shared_ptr<Execution>>>;
+
+static bool collectAttentionExecutions(const Module* module, AttentionExecutionMap& result) {
+    if (module == nullptr) {
+        return false;
+    }
+    if (module->type() == "StaticModule") {
+        const auto session = static_cast<const StaticModule*>(module)->getSession();
+        if (session == nullptr) {
+            return false;
+        }
+        for (const auto& cache : session->getPipelineInfo(0).second) {
+            const auto op = cache.op;
+            if (op->type() == OpType_LinearAttention) {
+                return false;
+            }
+            if (op->type() != OpType_Attention) {
+                continue;
+            }
+            auto iter = cache.executionCache.find(op);
+            if (!op->name() || iter == cache.executionCache.end() || !iter->second ||
+                !result.emplace(op->name()->str(), std::make_pair(op, iter->second)).second) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (module->type() != "Net" && module->type() != PIPELINE_MODULE) {
+        return false;
+    }
+    for (const auto& child : module->getChildren()) {
+        if (!collectAttentionExecutions(child.get(), result)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sameAttention(const Op* source, const Op* target) {
+    if (source->main_type() != OpParameter_AttentionParam || target->main_type() != OpParameter_AttentionParam) {
+        return false;
+    }
+    const auto param = target->main_as_AttentionParam();
+    if (!param || !param->kv_cache() || param->kv_shared_layer_index() >= 0) {
+        return false;
+    }
+    flatbuffers::FlatBufferBuilder a, b;
+    std::unique_ptr<OpT> sourceTable(source->UnPack()), targetTable(target->UnPack());
+    a.Finish(Op::Pack(a, sourceTable.get()));
+    b.Finish(Op::Pack(b, targetTable.get()));
+    return a.GetSize() == b.GetSize() && ::memcmp(a.GetBufferPointer(), b.GetBufferPointer(), a.GetSize()) == 0;
+}
+
+static bool isCPUFamily(Backend* backend) {
+    return backend != nullptr && (backend->type() == MNN_FORWARD_CPU ||
+                                  backend->type() == MNN_FORWARD_CPU_EXTENSION);
+}
+
+static bool compatibleAttentionBackend(Backend* source, Backend* target) {
+    if (!isCPUFamily(source) || !isCPUFamily(target) || source->type() != target->type() ||
+        source->getMetaPtr() == nullptr || source->getMetaPtr() != target->getMetaPtr() ||
+        source->getRuntime() != target->getRuntime()) {
+        return false;
+    }
+    auto sourceCPU = static_cast<CPUBackend*>(source);
+    auto targetCPU = static_cast<CPUBackend*>(target);
+    return sourceCPU->functions() == targetCPU->functions() &&
+           sourceCPU->int8Functions() == targetCPU->int8Functions();
+}
+
+bool StaticModule::canShareAttentionCache(const Module* base, const std::vector<const Op*>& targets, void* meta) {
+    AttentionExecutionMap executions;
+    if (meta == nullptr || targets.empty() || !collectAttentionExecutions(base, executions) ||
+        executions.size() != targets.size()) {
+        return false;
+    }
+    std::set<std::string> names;
+    for (auto op : targets) {
+        if (op->type() != OpType_Attention || !op->name() || !names.insert(op->name()->str()).second) {
+            return false;
+        }
+        auto iter = executions.find(op->name()->str());
+        if (iter == executions.end() || !sameAttention(iter->second.first, op)) {
+            return false;
+        }
+        auto backend = iter->second.second->backend();
+        if (!isCPUFamily(backend) || backend->getMetaPtr() != meta) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool cloneBaseExecution(std::shared_ptr<Execution>& exe, const ExecutionCacheMap& baseExecutions, const Op* op,
                                Backend* backend, Backend* backupBackend) {
     if (baseExecutions.empty() || !op->name()) {
@@ -107,9 +203,16 @@ static bool cloneBaseExecution(std::shared_ptr<Execution>& exe, const ExecutionC
 }
 
 static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLINT
-    Schedule::ScheduleInfo& scheduleInfo, Backend* firstbackend, Backend* backupBackend, const Module::Config& config) {
+    Schedule::ScheduleInfo& scheduleInfo, Backend* firstbackend, Backend* backupBackend, const Module::Config& config,
+        bool shareAttentionCache, bool& valid) {
+    valid = true;
     ExecutionCacheMap base_executions;
     collectBaseExecutions(config.base, base_executions);
+    AttentionExecutionMap attentionExecutions;
+    if (shareAttentionCache && !collectAttentionExecutions(config.base, attentionExecutions)) {
+        valid = false;
+        return {};
+    }
     FileLoader loader(scheduleInfo.externalWeightPath.c_str());
     auto&& pipelineInfo = scheduleInfo.pipelineInfo[0].second;
     std::vector<std::shared_ptr<BufferStorage>> splitOps(pipelineInfo.size());
@@ -188,6 +291,29 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
             }
             case MNN::OpType_Attention:
             case MNN::OpType_LinearAttention: {
+                if (shareAttentionCache) {
+                    auto iter = op->name() ? attentionExecutions.find(op->name()->str()) : attentionExecutions.end();
+                    if (op->type() != OpType_Attention || iter == attentionExecutions.end() ||
+                        !sameAttention(iter->second.first, op)) {
+                        valid = false;
+                        return {};
+                    }
+                    auto source = iter->second.second->backend();
+                    Backend* target = compatibleAttentionBackend(source, backend) ? backend :
+                                      compatibleAttentionBackend(source, backupBackend) ? backupBackend : nullptr;
+                    if (target == nullptr) {
+                        valid = false;
+                        return {};
+                    }
+                    Execution* shared = nullptr;
+                    if (!iter->second.second->onClone(target, op, &shared) || shared == nullptr) {
+                        delete shared;
+                        valid = false;
+                        return {};
+                    }
+                    exe.reset(shared);
+                    break;
+                }
                 // KV Cache sharing: clone from source Attention's execution instead of creating new
                 if (op->type() == OpType_Attention && op->main_type() == OpParameter_AttentionParam) {
                     auto param = op->main_as_AttentionParam();
@@ -357,8 +483,13 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
         info.op = flatbuffers::GetRoot<Op>(buf->buffer());
         if (nullptr != exe) {
             // Clone Execution to reset op info
-            Execution* dstExe;
-            exe->onClone(exe->backend(), info.op, &dstExe);
+            Execution* dstExe = nullptr;
+            const bool cloned = exe->onClone(exe->backend(), info.op, &dstExe);
+            if (shareAttentionCache && info.op->type() == OpType_Attention && (!cloned || dstExe == nullptr)) {
+                delete dstExe;
+                valid = false;
+                return {};
+            }
             std::shared_ptr<Execution> dstExeP(dstExe);
             info.executionCache.insert(std::make_pair(info.op, dstExeP));
         }
@@ -478,7 +609,8 @@ void StaticModule::resetInputOutputs() {
 StaticModule::StaticModule(std::vector<int> inputs, std::vector<int> outputs,
                            std::vector<std::shared_ptr<BufferStorage>>&& buffer, Schedule::ScheduleInfo&& scheduleInfo,
                            std::shared_ptr<Schedule::ScheduleInfo> sharedConst, Session::ModeGroup&& mode,
-                           std::shared_ptr<Executor::RuntimeManager> rtm, const Module::Config& config) {
+                           std::shared_ptr<Executor::RuntimeManager> rtm, const Module::Config& config,
+                               bool shareAttentionCache) {
     setType("StaticModule");
     mResource.reset(new Resource);
     mRuntimeManager = rtm;
@@ -505,8 +637,13 @@ StaticModule::StaticModule(std::vector<int> inputs, std::vector<int> outputs,
     bnCache.cache.first->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
     bnCache.cache.second->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
     if (config.rearrange) {
+        bool valid = true;
         mResource->mBuffer =
-            preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get(), config);
+            preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get(), config,
+                shareAttentionCache, valid);
+        if (!valid) {
+            return;
+        }
     } else {
         mResource->mBuffer = std::move(buffer);
     }

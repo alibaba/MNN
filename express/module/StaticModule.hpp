@@ -21,12 +21,16 @@ struct BufferStorage;
 namespace Express {
 class StaticModule : public Module {
 public:
-    StaticModule(std::vector<int> inputs, std::vector<int> outputs, std::vector<std::shared_ptr<BufferStorage>>&& buffer, Schedule::ScheduleInfo&& scheduleInfo, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, Session::ModeGroup&& mode, std::shared_ptr<Executor::RuntimeManager> rt, const Module::Config& config);
+    StaticModule(std::vector<int> inputs, std::vector<int> outputs,
+        std::vector<std::shared_ptr<BufferStorage>>&& buffer, Schedule::ScheduleInfo&& scheduleInfo,
+        std::shared_ptr<Schedule::ScheduleInfo> sharedConst, Session::ModeGroup&& mode,
+        std::shared_ptr<Executor::RuntimeManager> rt, const Module::Config& config, bool shareAttentionCache = false);
     virtual ~ StaticModule();
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
     virtual void onClearCache() override;
     virtual int onOptimize(Interpreter::SessionMode stage) override;
     const Session* getSession() const { return mSession.get(); }
+    static bool canShareAttentionCache(const Module* base, const std::vector<const Op*>& targets, void* meta);
 
 private:
     ErrorCode _resize(const std::vector<Express::VARP>& inputs);
