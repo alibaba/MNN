@@ -13,7 +13,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.main.MainActivity
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.ChatRouter
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager.Companion.getInstance
 import com.alibaba.mnnllm.android.chat.model.SessionItem
@@ -45,7 +44,7 @@ class ChatHistoryFragment : Fragment() {
         chatDataManager = getInstance(requireContext())
         chatListAdapter!!.setOnHistoryClick(object : OnHistoryCallback {
             override fun onSessionHistoryClick(sessionItem: SessionItem) {
-                ChatRouter.startRun(requireContext(), sessionItem.modelId, null, sessionItem.sessionId)
+                HistoryViewerActivity.start(requireContext(), sessionItem.sessionId)
             }
 
             override fun onSessionHistoryDelete(sessionItem: SessionItem) {
