@@ -61,6 +61,7 @@ struct RuntimeHint {
     std::string weightMemoryPath;
     int mmapFileSize = 1024; // MB
     int useCachedMmap = 0;
+    bool hexagonEnableVrmpyGemv = true;
 
     // -1 selects the backend default for op encoders per commit.
     int encorderNumForCommit = -1;

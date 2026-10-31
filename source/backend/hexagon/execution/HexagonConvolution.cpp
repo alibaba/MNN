@@ -1140,9 +1140,12 @@ std::shared_ptr<HexagonConvolution::Resource> HexagonConvolution::makeResource(B
     }
     const auto convRuntime = static_cast<const HexagonRuntime*>(backend->getRuntime());
     const int convHvxArch = convRuntime != nullptr ? convRuntime->info().hvxArch : 0;
+    const bool enableVrmpyGemv = backend->getRuntime()->hint().hexagonEnableVrmpyGemv;
     std::string weightCachePath;
     if (useInt4W4A16 && !backend->getRuntime()->hint().weightMemoryPath.empty()) {
         weightCachePath = hexagonWeightCachePath(backend->getRuntime()->hint().weightMemoryPath, op, conv2d);
+        // Layout policy must also separate caches created before this hint existed.
+        weightCachePath += enableVrmpyGemv ? ".gemv" : ".hmx";
         HexagonWeightCacheHeader header;
         MemChunk chunk;
         auto cacheAlloc = static_cast<HexagonBackend*>(backend)->getAllocator(2);
@@ -1293,11 +1296,10 @@ std::shared_ptr<HexagonConvolution::Resource> HexagonConvolution::makeResource(B
         res->int4LayoutType = int4LayoutType;
         res->int4ScaleBlockNum = int4ScaleBlockNum;
         res->int4ScaleAsymmetric = scaleAsymmetric;
-        // The vrmpy layout wins decode on both v79 and v81 (v79: +16..33% tok/s, prefill -2..6% through
-        // path A), so from v79 up only the shape decides. Older architectures were never measured and the
-        // kernel has no capability bit to fall back on, so they keep the plain layout.
-        const bool gemvShapeOk = dequantInWeight && convHvxArch >= 79 && (ic % 32 == 0) && (ic % 64 == 0) &&
-                                 ((ic / 32) % int4ScaleBlockNum == 0);
+        // GEMV packing also changes the multi-row path; verification workloads can opt out.
+        // Mirror the kernel's shape checks so unsupported calls fall back to HMX.
+        const bool gemvShapeOk = dequantInWeight && enableVrmpyGemv && convHvxArch >= 79 && (ic % 64 == 0) &&
+                                 (oc % 32 == 0) && ((ic / 32) % int4ScaleBlockNum == 0);
         if (gemvShapeOk) {
             const size_t gemvWeightBytes = (size_t)icP * ocP * 512;
             // 128 B per (oc-tile, block) entry; see reorderInt4WeightForVrmpyGemv.

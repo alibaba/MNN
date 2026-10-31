@@ -17,6 +17,7 @@
 #include "HexagonAttention.hpp"
 #include "HexagonSelect.hpp"
 #include "HexagonTopKV2.hpp"
+#include "HexagonArgMax.hpp"
 #include "HexagonSoftmax.hpp"
 #include "HexagonReduction.hpp"
 #include "HexagonRelu.hpp"
@@ -117,6 +118,9 @@ Execution* HexagonExecutionFactory::create(const Op* op, const std::vector<Tenso
             break;
         case OpType_TopKV2:
             execution = HexagonTopKV2::create(backend, op, inputs, outputs);
+            break;
+        case OpType_ArgMax:
+            execution = HexagonArgMax::create(backend, op, inputs, outputs);
             break;
         case OpType_Softmax:
             execution = HexagonSoftmax::create(backend, op, inputs, outputs);

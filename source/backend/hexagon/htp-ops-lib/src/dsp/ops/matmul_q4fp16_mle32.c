@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "dsp/dma_utils.h"
@@ -212,18 +213,25 @@ static inline void process_q4_weight_chunk(const process_chunk_task_state_t* sta
         const int oy = state->oy_start + state->start_idx + local_oy;
         const uint8_t* src = src_oy;
         __fp16* dst = dst_oy;
-        for (int k = 0; k < state->kp; ++k) {
-            const int scale_idx = (k * state->scale_block_num) / state->kp;
+        const int k_per_scale = state->kp / state->scale_block_num;
+        for (int b = 0; b < state->scale_block_num; ++b) {
+            // The per-block scale lives in DDR; without prefetch its load latency is exposed on the
+            // first vmpy of each block. Pull a few blocks ahead into L2.
+            if (b + 4 < state->scale_block_num) {
+              l2fetch(state->b_scale + ((size_t) oy * state->scale_block_num + b + 4) * scale_block_bytes,
+                      128, 128, 4, 0);
+            }
             const uint8_t *block_scale_ptr =
-              state->b_scale + ((size_t) oy * state->scale_block_num + scale_idx) * scale_block_bytes;
+              state->b_scale + ((size_t) oy * state->scale_block_num + b) * scale_block_bytes;
             const float     *sw_oy       = vrmpyScales + (size_t) oy * state->scale_block_num * entry_floats;
             const HVX_Vector vBlockScale = state->weight_is_vrmpy ?
-                                             vrmpy_scale_block_dup_hf(sw_oy, scale_idx, state->scale_asymmetric) :
+                                             vrmpy_scale_block_dup_hf(sw_oy, b, state->scale_asymmetric) :
                                              vmemu(block_scale_ptr);
             const HVX_Vector vBlockQBias =
               !state->scale_asymmetric ? Q6_V_vzero() :
-              state->weight_is_vrmpy   ? vrmpy_qbias_block_dup_hf(sw_oy, scale_idx, state->scale_asymmetric) :
+              state->weight_is_vrmpy   ? vrmpy_qbias_block_dup_hf(sw_oy, b, state->scale_asymmetric) :
                                          vmemu(block_scale_ptr + 128);
+            for (int kk = 0; kk < k_per_scale; ++kk) {
             const uint8_t *weightSrc = src;
             if (state->weight_is_vrmpy) {
               vrmpy_tile_to_hmx_int4_512(reordered, src);
@@ -270,6 +278,7 @@ static inline void process_q4_weight_chunk(const process_chunk_task_state_t* sta
             }
             src += 512;
             dst += 1024;
+            }
         }
         src_oy += weight_int4_stride;
         dst_oy += weight_fp16_stride;
@@ -445,6 +454,17 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
 
   int np = N / 32;
   int kp = K / 32;
+  // act_descs has one 2D descriptor per K/32 tile (kp = 400 at K=12800, 32 B each
+  // => ~12.8 KB). A stack VLA of that size overflows the DSP stack, making
+  // execute_command_group fail and the op return an all-zero output at any M.
+  // Allocate on the heap instead; the buffer is reused across all N tiles.
+  int safe_kp = kp > 0 ? kp : 1;
+  dma_desc_2d_t* act_descs = (dma_desc_2d_t*) memalign(64, (size_t)safe_kp * sizeof(dma_desc_2d_t));
+  if (act_descs == NULL) {
+    hmx_unit_release();
+    hmx_manager_disable_execution();
+    return AEE_ENOMEMORY;
+  }
   int act_treat = 0;
   int tileCount = (np + np_chunk - 1) / np_chunk;
 
@@ -510,7 +530,6 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     // 1. Issue DMA for chunk 0
     SET_WEIGHT_DMA(chunk_starts[0], chunk_counts[0], 0, 0, -1);
 
-    int safe_kp = kp > 0 ? kp : 1;
     if (!dequant_in_weight) {
       memset(&scale_desc[0], 0, sizeof(dma_desc_2d_t));
       scale_desc[0].type       = DMA_DESC_TYPE_2D;
@@ -525,7 +544,6 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
       scale_desc[0].dst_stride = 64;
       scale_desc[0].next       = 0;
     }
-    _Alignas(64) dma_desc_2d_t act_descs[safe_kp];
     if (act_treat == 0) {
       if (M > 1) {
         for (int k = 0; k < kp; ++k) {
@@ -674,6 +692,7 @@ static int hmx_matmulq4fp16_mle32_part(const MatmulParam *param) {
     }
   }
 
+  free(act_descs);
   hmx_unit_release();
   hmx_manager_disable_execution();
   return 0;

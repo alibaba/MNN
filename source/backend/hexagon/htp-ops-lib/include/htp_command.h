@@ -126,10 +126,16 @@ enum DSPOpType {
   DSP_OP_VISION_ATTENTION_FP16                = 43,
   DSP_OP_VISION_FLASH_ATTENTION_FP16          = 44,
   DSP_OP_MATMUL_W8A16_GEMV_I8                 = 45,
-  // 46 is reserved.
   DSP_OP_MATMUL_Q4A16_GEMV_I8_FUSED           = 47,
   DSP_OP_LINEAR_ATTN                          = 48,
   DSP_OP_GATED_RMS_NORM                       = 49,
+  // Non-causal attention with an explicit full K/V pair (no paged KV cache): Q rows and KV rows
+  // have independent lengths and GQA is applied internally. Used by the DFlash draft.
+  // Numbered after the linear-attention ops so it does not clash with master's 47-49.
+  DSP_OP_CROSS_ATTENTION_FP16                 = 50,
+  // Row-wise argmax over fp16 input: for each of `rows` contiguous rows of `rowSize` elements,
+  // output the winning index (int32). Ties resolve to the lowest index.
+  DSP_OP_ARGMAX_FP16                          = 51,
   DSP_OP_COMMAND_GROUP                        = 99,
   DSP_OP_MAX                                  = 100
 };
@@ -154,4 +160,9 @@ static_assert(DSP_OP_LINEAR_ATTN == 48, "DSP_OP_LINEAR_ATTN must stay 48");
 static_assert(sizeof(DSPLinearAttnParam) == 40, "DSPLinearAttnParam ABI changed");
 static_assert(DSP_OP_GATED_RMS_NORM == 49, "DSP_OP_GATED_RMS_NORM must stay 49");
 static_assert(sizeof(DSPGatedRMSNormParam) == 16, "DSPGatedRMSNormParam ABI changed");
+// The DFlash ops were renumbered 46/47 -> 50/51 during a rebase, because upstream reserved 46 and
+// took 47-49. Pin them: a stale skel would otherwise interpret 50/51 as some other command and
+// return silently wrong results instead of failing loudly.
+static_assert(DSP_OP_CROSS_ATTENTION_FP16 == 50, "DSP_OP_CROSS_ATTENTION_FP16 must stay 50");
+static_assert(DSP_OP_ARGMAX_FP16 == 51, "DSP_OP_ARGMAX_FP16 must stay 51");
 #endif

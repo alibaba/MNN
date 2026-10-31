@@ -136,6 +136,7 @@ public:
     }
     virtual void reset() override;
 private:
+    std::shared_ptr<MNN::Express::Executor::RuntimeManager> draftRuntime();
     // Row-wise argmax, shared by draft sampling and target verify; only the element count is read, so any rank binds.
     // False when the on-device argmax module could not be built: the caller must abort the step.
     bool rowArgmax(MNN::Express::VARP logits, int rows, std::vector<int>& out);
@@ -158,12 +159,15 @@ private:
     void ensureKvConcatModule(int kvHeads, int headDim);
     std::vector<int> buildBlock(int currentToken) const;
 
+    // Own the optional runtime with its KVMeta binding; modules must be destroyed before it.
+    std::shared_ptr<MNN::Express::Executor::RuntimeManager> mDraftRuntime;
     std::shared_ptr<MNN::Express::Module> mDFlashModule;   // dflash.mnn (transformer, no lm_head)
     std::shared_ptr<MNN::Express::Module> mFcModule;       // dflash_fc.mnn
     std::shared_ptr<MNN::Express::Module> mLmHeadModule;   // target lm_head subgraph (shared-from-target)
     std::shared_ptr<MNN::Express::Module> mKvMatModule;    // dflash_kvmat.mnn: context rows -> per-layer K/V
     std::shared_ptr<MNN::Express::Module> mKvConcatModule; // one dispatch appending all K/V pairs
     std::shared_ptr<MNN::Express::Module> mArgmaxModule;   // single _ArgMax over [rows, vocab]
+    int mArgmaxVocab = 0;                                  // vocab baked into mArgmaxModule's reshape
     // Draft KV cache, interleaved [K_0, V_0, K_1, V_1, ...], each [1, ctx_len, kv_heads, head_dim].
     std::vector<MNN::Express::VARP> mDraftKv;
     // mDraftKv slot -> mKvMatModule output slot (the kvmat graph declares its own order).
@@ -173,10 +177,14 @@ private:
     int mShiftLabel = 0;   // 1 when the draft head was trained with shift_label
     int mHiddenStateIndex = -1;
     bool mInitialized = false;
-#ifdef DUMP_PROFILE_INFO
+    // Acceptance counters are plain increments, not timers: keeping them unconditional costs nothing
+    // measurable and lets a release build report whether speculative decoding is actually working.
     int spl_decode = 0, spl_accept = 0, spl_count = 0;
+#ifdef DUMP_PROFILE_INFO
     int64_t phase_sample_us = 0, phase_verify_us = 0, phase_verify_fwd_us = 0, phase_verify_match_us = 0;
     int64_t phase_argmax_us = 0;
+    // Diagnostics: split phase_argmax_us into module-build / onForward / readMap.
+    int64_t phase_argmax_build_us = 0, phase_argmax_fwd_us = 0, phase_argmax_map_us = 0;
 #endif
 };
 

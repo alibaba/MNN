@@ -201,6 +201,11 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     if (mConfig->use_cached_mmap()) {
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
     }
+    // DFlash verification favors HMX-packed weights; ordinary AR keeps the backend's GEMV layout.
+    // Select before loading modules because the weights are packed only once.
+    if (mConfig->backend_type() == "hexagon") {
+        rtg->setHint(MNN::Interpreter::HEXAGON_ENABLE_VRMPY_GEMV, mConfig->speculative_type() == "dflash" ? 0 : 1);
+    }
     std::string tmpPath = mConfig->tmp_path();
     if (!tmpPath.empty() && !MNNCreateDir(tmpPath.c_str())) {
         // Everything below only writes into tmpPath, so a missing directory
@@ -1622,6 +1627,15 @@ VARP Llm::gen_attention_mask(int seq_len) {
         req.rank     = 4;
         // chunk_limits needs a stable mask rank across chunked forwards.
         req.forceDense = !mValidBlockSize.empty();
+        // Speculative verify runs the whole draft block in ONE forward, so the causal triangle
+        // cannot be derived from a single query position: the backend's scalar/sentinel causal
+        // path assumes sequential rows and misplaces every row of the block. Send the dense
+        // plane (16 x kv, block-aligned causal) instead — what the pre-refactor code did with
+        // its cached per-decode-type mask.
+        const bool specVerifyBlock = mInSpec && seq_len > 1 && seq_len == mDraftLength + 1;
+        if (specVerifyBlock) {
+            req.forceDense = true;
+        }
         if (seq_len == 1 || (mInSpec && seq_len == mDraftLength + 1)) {
             return mMaskCache.obtain(req, mConfig->backend_type());
         }

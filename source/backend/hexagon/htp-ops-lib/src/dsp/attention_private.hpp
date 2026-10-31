@@ -340,6 +340,16 @@ extern "C" AEEResult htp_ops_vision_flash_attention_fp16(uint8_t *pOut, const ui
                                                          const uint8_t *pV, const uint8_t *pMask, uint8_t *pWorkspace,
                                                          int batch, int tokens, int heads, int headDim, float scale,
                                                          int maskStride, int workspaceBytes);
+// Non-causal attention over an explicit full K/V pair (no paged cache). Q has qTokens rows, K/V have
+// kvTokens rows; GQA is applied internally (nHeads/nKvHeads). The (optional) additive mask is
+// [qTokens, maskStride] with maskStride == kvTokens, in fp16 when maskIsFp16 else fp32. pScratch is a
+// single buffer holding the packed K/V, packed output, attention workspace and fp32 mask copy; its
+// required size is cross_attention_scratch_bytes() on the host.
+extern "C" AEEResult htp_ops_cross_attention_fp16(uint8_t *pOut, const uint8_t *pQ, const uint8_t *pK,
+                                                  const uint8_t *pV, const uint8_t *pMask, uint8_t *pScratch,
+                                                  int batch, int qTokens, int kvTokens, int nHeads, int nKvHeads,
+                                                  int headDim, float scale, int maskStride, int maskIsFp16,
+                                                  int providedScratchBytes);
 
 static inline dma_desc_1d_t* attn_prepare_chained_dma_desc_2d(dma_desc_1d_t* current_descs, dma_desc_2d_t* desc,
                                                               const void* src, void* dst, uint32_t width,

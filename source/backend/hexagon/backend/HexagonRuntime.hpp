@@ -118,6 +118,21 @@ private:
     mutable std::vector<SyncTensorRecord> mPendingHexagonOutputs;
     mutable std::vector<HexagonBuffer*> mCommandWeightBuffers;
     mutable size_t mCommandWeightBytes = 0;
+    // Env-gated diagnostics for the lazy command-weight mapping (see HexagonConvolution::create):
+    // MNN_HEXAGON_TIMING=1 reports cumulative fastrpc_mmap/munmap and execute_command_group wall time.
+    bool mLwTiming = false;
+    // Max lazy command-weight bytes mapped before a flush evicts them again. Default 256MB; the
+    // effective limit is raised adaptively (capped) in pushCommand so a step's lazy weights stay
+    // mapped instead of being remapped on every 256MB boundary. MNN_HEXAGON_WEIGHT_MAP_LIMIT_MB
+    // overrides it explicitly.
+    mutable size_t mWeightMapLimit = 256 * 1024 * 1024;
+    bool mWeightLimitEnvSet = false;
+    mutable uint64_t mLwMapUs = 0;
+    mutable uint64_t mLwUnmapUs = 0;
+    mutable uint64_t mLwExecUs = 0;
+    mutable uint64_t mLwMapBytes = 0;
+    mutable int mLwMapCalls = 0;
+    mutable int mLwUnmapCalls = 0;
 #ifdef MNN_GPU_TIME_PROFILE
     mutable MemChunk mProfileChunk;
     mutable int mProfileFlushCount = 0;

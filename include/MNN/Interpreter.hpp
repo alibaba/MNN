@@ -262,6 +262,10 @@ public:
 
         // Set CPU SME2 NEON division ratio, default is 41
         CPU_SME2_NEON_DIVISION_RATIO = 17,
+
+        // Allow vrmpy int4 weight packing on v79+ (default 1). Set before loading modules;
+        // 0 selects the HMX layout for workloads dominated by multi-token verification.
+        HEXAGON_ENABLE_VRMPY_GEMV = 18,
     };
 
     enum ExternalPathType {

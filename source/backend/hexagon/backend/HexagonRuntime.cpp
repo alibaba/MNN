@@ -1,9 +1,11 @@
 #include "HexagonCommand.hpp"
 // HexagonRuntime.cpp
 #include <dlfcn.h>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <pthread.h>
@@ -381,77 +383,158 @@ private:
 };
 #endif
 
+// Hexagon rpcmem is allocated in large chunks and sub-allocated, mirroring llama.cpp's
+// ggml-hexagon backend: one rpcmem_alloc + one fastrpc_mmap per chunk (each <= maxChunkSize),
+// and tensors are addressed as (chunk, offset). This avoids the fastrpc per-buffer 4GB address
+// limit and, more importantly, the per-tensor mapping explosion: hundreds of small mappings
+// exhaust the DSP mapping budget, which a 4B model otherwise hits. Chunk size is
+// MNN_HEXAGON_MBUF MiB (default 256).
 class HexagonAllocator : public BufferAllocator::Allocator {
 public:
-    explicit HexagonAllocator(bool lazyMap = false) : mLazyMap(lazyMap) {}
-    virtual ~ HexagonAllocator() = default;
-    virtual MemChunk onAlloc(size_t size, size_t align) override {
-#ifdef MNN_HEXAGON_ASAN
-        if (size > static_cast<size_t>(-1) - gHexagonAsanGuardSize) {
-            MNN_ERROR("[MNN::Hexagon][ASAN] allocation size overflow: size=%zu guard=%zu\n", size, gHexagonAsanGuardSize);
-            return MemChunk((void*)nullptr);
+    explicit HexagonAllocator(bool lazyMap = false) : mLazyMap(lazyMap) {
+        // 1 GiB single mappings fail fastrpc_mmap on some devices, so keep chunks well under 1 GiB.
+        size_t mbufMiB = 256;
+        if (const char* e = getenv("MNN_HEXAGON_MBUF")) {
+            int v = atoi(e);
+            if (v > 0) {
+                mbufMiB = (size_t)v;
+            }
         }
-        const size_t requestedSize = size;
-        const size_t guardedSize = size + gHexagonAsanGuardSize;
-        if (guardedSize > static_cast<size_t>(-1) - (gHexagonAsanPageSize - 1)) {
-            MNN_ERROR("[MNN::Hexagon][ASAN] mapped size overflow: size=%zu guard=%zu page=%zu\n",
-                      size, gHexagonAsanGuardSize, gHexagonAsanPageSize);
-            return MemChunk((void*)nullptr);
-        }
-        const size_t mappedSize = ((guardedSize + gHexagonAsanPageSize - 1) / gHexagonAsanPageSize) * gHexagonAsanPageSize;
-#else
-        const size_t mappedSize = size;
-#endif
-        void * data = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_FLAG_UNCACHED, mappedSize);
-        if (nullptr == data) {
-            FUNC_PRINT(1);
-            return MemChunk((void*)nullptr);
-        }
-        auto fd = rpcmem_to_fd(data);
-        if (fd == -1) {
-            FUNC_PRINT(1);
-            rpcmem_free(data);
-            return MemChunk((void*)nullptr);
-        }
-        auto buf = new HexagonBuffer;
-        buf->ptr = data;
-        buf->fd = fd;
-        buf->size = mappedSize;
-        buf->lazyMap = mLazyMap;
-#ifdef MNN_HEXAGON_ASAN
-        buf->requestedSize = requestedSize;
-        buf->guardSize = mappedSize - requestedSize;
-        buf->guardValue = gHexagonAsanGuardValue;
-        hexagonAsanInitGuard(buf);
-#endif
-        if (!buf->lazyMap && !gMmapManager().map(CDSP_DOMAIN_ID, buf)) {
-            rpcmem_free(data);
-            delete buf;
-            return MemChunk((void*)nullptr);
-        }
-        buf->mapped = !buf->lazyMap;
-        registerDspMappedBuffer(buf);
-//        MNN_PRINT("[Hexagon] Alloc %d, size=%d\n", buf->fd, buf->size);
-        return buf;
+        mMaxChunkSize = mbufMiB * 1024 * 1024;
     }
-    virtual void onRelease(MemChunk ptr) override {
-        auto buf = (HexagonBuffer*)ptr.first;
+    virtual ~HexagonAllocator() {
+        for (auto& c : mChunks) {
+            freeChunk(c.buf);
+        }
+    }
+
+    virtual MemChunk onAlloc(size_t size, size_t align) override {
+        if (size == 0) {
+            size = 1;
+        }
+        std::lock_guard<std::mutex> lock(mMutex);
+        for (auto& c : mChunks) {
+            for (auto it = c.freeRanges.begin(); it != c.freeRanges.end(); ++it) {
+                const size_t start = it->first;
+                const size_t length = it->second;
+                const size_t off = alignUp(start, align);
+                if (off < start || off - start > length || size > length - (off - start)) {
+                    continue;
+                }
+                c.freeRanges.erase(it);
+                if (off > start) {
+                    c.freeRanges.emplace(start, off - start);
+                }
+                if (off + size < start + length) {
+                    c.freeRanges.emplace(off + size, start + length - off - size);
+                }
+                c.allocations.emplace(off, size);
+                return MemChunk(c.buf, off);
+            }
+        }
+        size_t cap = std::max(size, mMaxChunkSize);
+        auto buf = allocChunk(cap);
         if (buf == nullptr) {
+            FUNC_PRINT(1);
+            return MemChunk((void*)nullptr);
+        }
+        Chunk newChunk;
+        newChunk.buf = buf;
+        newChunk.allocations.emplace(0, size);
+        if (size < cap) {
+            newChunk.freeRanges.emplace(size, cap - size);
+        }
+        mChunks.push_back(std::move(newChunk));
+        return MemChunk(buf, 0);
+    }
+
+    virtual void onRelease(MemChunk ptr) override {
+        if (ptr.first == nullptr) {
             return;
         }
-//        MNN_PRINT("[Hexagon] Free %d, size=%d\n", buf->fd, buf->size);
+        std::lock_guard<std::mutex> lock(mMutex);
+        for (auto it = mChunks.begin(); it != mChunks.end(); ++it) {
+            if (it->buf != ptr.first) {
+                continue;
+            }
+            auto allocation = it->allocations.find(ptr.second);
+            MNN_ASSERT(allocation != it->allocations.end());
+            if (allocation == it->allocations.end()) {
+                return;
+            }
+            size_t offset = allocation->first;
+            size_t size = allocation->second;
+            it->allocations.erase(allocation);
+            if (it->allocations.empty()) {
+                freeChunk(it->buf);
+                mChunks.erase(it);
+                return;
+            }
+            // EagerBufferAllocator drops its free nodes at GC, so retain their ranges here for reuse.
+            auto next = it->freeRanges.lower_bound(offset);
+            if (next != it->freeRanges.begin()) {
+                auto previous = next;
+                --previous;
+                if (previous->first + previous->second == offset) {
+                    offset = previous->first;
+                    size += previous->second;
+                    it->freeRanges.erase(previous);
+                }
+            }
+            if (next != it->freeRanges.end() && offset + size == next->first) {
+                size += next->second;
+                it->freeRanges.erase(next);
+            }
+            it->freeRanges.emplace(offset, size);
+            return;
+        }
+        MNN_ASSERT(false);
+    }
+
+private:
+    struct Chunk {
+        HexagonBuffer* buf = nullptr;
+        std::map<size_t, size_t> allocations;
+        std::map<size_t, size_t> freeRanges;
+    };
+    static void freeChunk(HexagonBuffer* buf) {
         unregisterDspMappedBuffer(buf);
-#ifdef MNN_HEXAGON_ASAN
-        hexagonAsanCheckGuard(buf, "release");
-#endif
         if (buf->mapped) {
             gMmapManager().unmap(CDSP_DOMAIN_ID, buf);
-            buf->mapped = false;
         }
         rpcmem_free(buf->ptr);
         delete buf;
     }
-private:
+    static size_t alignUp(size_t v, size_t a) {
+        return a == 0 ? v : (v + a - 1) / a * a;
+    }
+    HexagonBuffer* allocChunk(size_t cap) {
+        void* data = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_FLAG_UNCACHED, cap);
+        if (data == nullptr) {
+            return nullptr;
+        }
+        int fd = rpcmem_to_fd(data);
+        if (fd == -1) {
+            rpcmem_free(data);
+            return nullptr;
+        }
+        auto buf = new HexagonBuffer;
+        buf->ptr = data;
+        buf->fd = fd;
+        buf->size = cap;
+        buf->lazyMap = mLazyMap;
+        if (!buf->lazyMap && !gMmapManager().map(CDSP_DOMAIN_ID, buf)) {
+            rpcmem_free(data);
+            delete buf;
+            return nullptr;
+        }
+        buf->mapped = !buf->lazyMap;
+        registerDspMappedBuffer(buf);
+        return buf;
+    }
+    std::vector<Chunk> mChunks;
+    std::mutex mMutex;
+    size_t mMaxChunkSize = 1024 * 1024 * 1024;
     bool mLazyMap = false;
 };
 
@@ -869,7 +952,17 @@ bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
         collectWeights(command->inputs());
         collectWeights(command->outputs());
     }
-    constexpr size_t kCommandWeightMapLimit = 256 * 1024 * 1024;
+    // Within one command group the lazy weights are consumed in the order the commands were built.
+    // If the 256MB budget evicts them on every boundary, chunks used again by a later command in
+    // the same step are remapped (and DSP-synced) several times per step. Let the whole lazy weight
+    // set for a step stay mapped, capped so the resident set still fits the DSP mapping window.
+    size_t kCommandWeightMapLimit = mWeightMapLimit;
+    if (!mWeightLimitEnvSet && mLazyWeightAlloc != nullptr) {
+        const size_t adaptive = std::min(mLazyWeightAlloc->totalSize(), (size_t)1536 * 1024 * 1024);
+        if (adaptive > kCommandWeightMapLimit) {
+            kCommandWeightMapLimit = adaptive;
+        }
+    }
     size_t additionalBytes = 0;
     for (auto buffer : commandWeights) {
         if (std::find(mCommandWeightBuffers.begin(), mCommandWeightBuffers.end(), buffer) ==
@@ -885,7 +978,16 @@ bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
             mCommandWeightBuffers.end()) {
             continue;
         }
-        if (!gMmapManager().map(CDSP_DOMAIN_ID, buffer)) {
+        auto mapBegin = std::chrono::steady_clock::now();
+        const bool mapOk = gMmapManager().map(CDSP_DOMAIN_ID, buffer);
+        if (mLwTiming) {
+            mLwMapUs += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - mapBegin)
+                            .count();
+            mLwMapBytes += buffer->size;
+            mLwMapCalls++;
+        }
+        if (!mapOk) {
             MNN_ERROR("[Hexagon] failed to map command weight fd=%d size=%zu\n", buffer->fd, buffer->size);
             return false;
         }
@@ -1051,10 +1153,16 @@ void HexagonRuntime::flushCommand() const {
         {
             std::lock_guard<std::mutex> lock(dspSessionMutex());
             if (ensureDspSessionOnCurrentThreadLocked(context)) {
+                auto execBegin = std::chrono::steady_clock::now();
                 ret = functions->execute_command_group(groupDev.first, groupDev.second, commandCount,
                                                        syncGroupFd,
                                                        syncGroupOffset,
                                                        syncGroupSize);
+                if (mLwTiming) {
+                    mLwExecUs += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                                     std::chrono::steady_clock::now() - execBegin)
+                                     .count();
+                }
             } else {
                 ret = -1;
             }
@@ -1088,7 +1196,14 @@ void HexagonRuntime::flushCommand() const {
     mPendingHexagonOutputs.clear();
     for (auto buffer : mCommandWeightBuffers) {
         if (buffer != nullptr && buffer->mapped) {
+            auto unmapBegin = std::chrono::steady_clock::now();
             gMmapManager().unmap(CDSP_DOMAIN_ID, buffer);
+            if (mLwTiming) {
+                mLwUnmapUs += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                                  std::chrono::steady_clock::now() - unmapBegin)
+                                  .count();
+                mLwUnmapCalls++;
+            }
             buffer->mapped = false;
         }
     }
@@ -1121,15 +1236,26 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
         return;
     }
     mAvailable = true;
+    mLwTiming = (std::getenv("MNN_HEXAGON_TIMING") != nullptr);
+    if (const char* e = std::getenv("MNN_HEXAGON_WEIGHT_MAP_LIMIT_MB")) {
+        const int v = atoi(e);
+        if (v > 0) {
+            mWeightMapLimit = (size_t)v * 1024 * 1024;
+            mWeightLimitEnvSet = true;
+        }
+    }
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new HexagonAllocator());
-    constexpr size_t staticMinAllocSize = 16 * 1024 * 1024;
-    constexpr size_t commandMinAllocSize = 4 * 1024 * 1024;
-    constexpr size_t weightMinAllocSize = 64 * 1024 * 1024;
+    // Chunking (HexagonAllocator) provides the allocation granularity, so per-request padding
+    // only wastes space inside a chunk; keep requests tight.
+    constexpr size_t staticMinAllocSize = 0;
+    constexpr size_t commandMinAllocSize = 0;
+    constexpr size_t weightMinAllocSize = 0;
     // Each weight tensor is DMA'd to VTCM as one large block, so where it starts inside the chunk
     // decides how many DSP MMU pages that block straddles. Measured on Qwen3.5-0.8B (v79, -rep 5,
     // alternating): tg128 71.9 at 128 B, 74.4 at 4 KB, 75.6 at 64 KB; pp512 moves the same way but
     // only by 0.6%. Keep it at a DSP large-page boundary; the padding is negligible next to the
-    // MB-sized tensors.
+    // MB-sized tensors. Min sizes stay 0 because the chunk allocator already hands out
+    // MB-granular buffers, so master's 16/4/64 MB floors would only inflate each chunk.
     constexpr size_t weightAllocAlign = 64 * 1024;
     std::shared_ptr<BufferAllocator> staticAlloc(new EagerBufferAllocator(allocator, 128, staticMinAllocSize));
 #ifdef MNN_HEXAGON_ASAN
@@ -1283,6 +1409,13 @@ HexagonRuntime::HexagonRuntime(const Backend::Info& info) {
 
 HexagonRuntime::~HexagonRuntime() {
     flushCommand();
+    if (mLwTiming) {
+        MNN_PRINT("[Hexagon] weight-map timing: map calls=%d bytes=%.1fMB time=%.1fms, unmap calls=%d time=%.1fms, dsp exec=%.1fms, limit=%.0fMB lazyTotal=%.1fMB\n",
+                  mLwMapCalls, mLwMapBytes / 1048576.0f, mLwMapUs / 1000.0f,
+                  mLwUnmapCalls, mLwUnmapUs / 1000.0f, mLwExecUs / 1000.0f,
+                  mWeightMapLimit / 1048576.0f,
+                  (mLazyWeightAlloc != nullptr ? mLazyWeightAlloc->totalSize() : 0) / 1048576.0f);
+    }
 #ifdef MNN_GPU_TIME_PROFILE
     if (mProfileChunk.first) {
         int* profile_data = (int*)HexagonBackend::getPtr(mProfileChunk);
