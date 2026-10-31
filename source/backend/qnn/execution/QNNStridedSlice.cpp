@@ -166,25 +166,75 @@ void QNNStridedSlice::computeRangesType0(const std::vector<Tensor *> &inputs, st
     return;
 }
 
+static bool validateType1Inputs(const std::vector<Tensor *> &inputs) {
+    if (inputs.size() < 3 || inputs.size() > 5) {
+        return false;
+    }
+    int inputDim = inputs[0]->dimensions();
+    if (inputDim <= 0) {
+        return false;
+    }
+    auto beginTensor = inputs[1];
+    auto endTensor = inputs[2];
+    auto axisTensor = inputs.size() > 3 ? inputs[3] : nullptr;
+    auto strideTensor = inputs.size() > 4 ? inputs[4] : nullptr;
+    if (beginTensor->dimensions() != 1 || endTensor->dimensions() != 1 ||
+        (axisTensor != nullptr && axisTensor->dimensions() != 1) ||
+        (strideTensor != nullptr && strideTensor->dimensions() != 1)) {
+        return false;
+    }
+
+    int sliceDim = beginTensor->length(0);
+    if (sliceDim > inputDim || sliceDim != endTensor->length(0) ||
+        (axisTensor != nullptr && sliceDim != axisTensor->length(0)) ||
+        (strideTensor != nullptr && sliceDim != strideTensor->length(0))) {
+        return false;
+    }
+    auto beginRaw = beginTensor->host<int>();
+    auto endRaw = endTensor->host<int>();
+    auto axisRaw = axisTensor == nullptr ? nullptr : axisTensor->host<int>();
+    auto strideRaw = strideTensor == nullptr ? nullptr : strideTensor->host<int>();
+    if (sliceDim > 0 &&
+        (beginRaw == nullptr || endRaw == nullptr || (axisTensor != nullptr && axisRaw == nullptr) ||
+         (strideTensor != nullptr && strideRaw == nullptr))) {
+        return false;
+    }
+
+    std::vector<bool> usedAxes(inputDim, false);
+    for (int i = 0; i < sliceDim; i++) {
+        int axis = axisRaw == nullptr ? i : axisRaw[i];
+        if (axis < -inputDim || axis >= inputDim) {
+            return false;
+        }
+        axis = axis < 0 ? axis + inputDim : axis;
+        if (usedAxes[axis] || (strideRaw != nullptr && strideRaw[i] == 0)) {
+            return false;
+        }
+        usedAxes[axis] = true;
+    }
+    return true;
+}
+
 void QNNStridedSlice::computeRangesType1(const std::vector<Tensor *> &inputs, std::vector<int> & beginRaw, std::vector<int> & endRaw, std::vector<int> & strideRaw) {
     auto inputTensor = inputs[0];
     auto beginTensor = inputs[1];
     auto endTensor = inputs[2];
-    auto strideTensor = inputs[4];
     auto beginRawSource = beginTensor->host<int>();
     auto endRawSource = endTensor->host<int>();
-    auto strideRawSource = strideTensor->host<int>();
 
-    auto axisTensor = inputs[3];
+    auto axisTensor = inputs.size() > 3 ? inputs[3] : nullptr;
+    auto strideTensor = inputs.size() > 4 ? inputs[4] : nullptr;
     int sliceDim = beginTensor->length(0);
-    MNN_ASSERT(sliceDim == endTensor->length(0) && sliceDim == axisTensor->length(0) && sliceDim == strideTensor->length(0));
+    MNN_ASSERT(sliceDim == endTensor->length(0));
+    MNN_ASSERT(axisTensor == nullptr || sliceDim == axisTensor->length(0));
+    MNN_ASSERT(strideTensor == nullptr || sliceDim == strideTensor->length(0));
 
     for (int i = 0; i < sliceDim; i++) {
-        int tempAxis = axisTensor->host<int>()[i];
+        int tempAxis = axisTensor == nullptr ? i : axisTensor->host<int>()[i];
         tempAxis = tempAxis >= 0 ? tempAxis : (tempAxis + mInputDim);
         beginRaw[tempAxis] = CLIP(beginRawSource[i], 0, inputs[0]->length(tempAxis) - 1);
         endRaw[tempAxis] = CLIP(endRawSource[i], 1, inputs[0]->length(tempAxis));
-        strideRaw[tempAxis] = strideRawSource[i];
+        strideRaw[tempAxis] = strideTensor == nullptr ? 1 : strideTensor->host<int>()[i];
     }
     return;
 }
@@ -210,15 +260,22 @@ public:
             return new QNNStridedSlice(backend, op);
         }
         auto param = op->main_as_StridedSliceParam();
+        if (param == nullptr) {
+            return nullptr;
+        }
 
-        // <begin>, <end> and <stride> should be static.
+        // Slice parameters must be static.
         for (int i = 1; i < inputs.size(); i++) {
-            MNN_ASSERT(TensorUtils::getDescribe(inputs[i])->usage == Tensor::InsideDescribe::Usage::CONSTANT);
+            if (TensorUtils::getDescribe(inputs[i])->usage != Tensor::InsideDescribe::Usage::CONSTANT) {
+                return nullptr;
+            }
         }
 
         if (param->fromType() == 1) {
-            MNN_ASSERT(param->shrinkAxisMask() == 0 && param->newAxisMask() == 0 && param->ellipsisMask() == 0);
-            if (inputs.size() != 5) {
+            if (param->shrinkAxisMask() != 0 || param->newAxisMask() != 0 || param->ellipsisMask() != 0) {
+                return nullptr;
+            }
+            if (!validateType1Inputs(inputs)) {
                 return nullptr;
             }
             return new QNNStridedSlice(backend, op);
