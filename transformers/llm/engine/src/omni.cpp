@@ -1492,6 +1492,9 @@ VARPS Omni::VisionProcessor::Qwen::attentionInputs(int grid_t, int grid_h, int g
     request.seqLen = seq_len;
     request.rank = 3;
     request.cuSeqlens = &boundaries;
+    // The offline-compiled QNN vision graph declares a dense [1, seq_len, seq_len] mask input, so the
+    // rank-1 plane-omission shortcut must not apply here.
+    request.forceDense = true;
     return {mMask.obtain(request, (mOmni.mConfig->mllm_config_.is_null() ? mOmni.mConfig->backend_type()
                                                                          : mOmni.mConfig->backend_type(true)))};
 }
@@ -2224,6 +2227,16 @@ std::vector<int> Omni::processMediaFile(const std::string& mode, std::string inf
     return std::vector<int>(0);
 }
 
+void Omni::resetMultimodalState() {
+    mVisionEmbeddings.clear();
+    mAudioEmbeddings.clear();
+    mDeepStackEmbeddings.clear();
+    mVisionIndex = 0;
+    mVisionConsumed = 0;
+    mAudioIndex = 0;
+    mAudioConsumed = 0;
+}
+
 std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
     std::string prompt = multimodal_input.prompt_template;
     std::regex multimode_regex(kOmniMultimodalRegex);
@@ -2231,9 +2244,9 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     std::smatch match;
     std::vector<int> ids{};
     mPositionIds.clear();
-    mVisionEmbeddings.clear();
-    mAudioEmbeddings.clear();
-    mDeepStackEmbeddings.clear();
+    // A fresh prompt replaces every embedding, so the chunked-prefill cursors must be rewound with them;
+    // otherwise a prompt that aborted mid-prefill would leave the next one reading from a stale offset.
+    resetMultimodalState();
     mVisionNum = 0;
     if (mVisionProcessor) {
         mVisionProcessor->reset();
@@ -2368,7 +2381,37 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
         appendZeros(end - begin);
         return true;
     };
-    int visionIndex = 0, audioIndex = 0, textBegin = 0;
+    // Rows [begin, begin+length) of a token-major feature. dim[0] is the token axis for image/audio
+    // embeddings and dim[1] for deepstack features, which keep a leading layer axis.
+    auto sliceRows = [](VARP tensor, int begin, int length, bool tokenAtDim1) -> VARP {
+        auto info = tensor->getInfo();
+        if (info == nullptr) {
+            return tensor;
+        }
+        const int total = info->dim[tokenAtDim1 ? 1 : 0];
+        if (begin == 0 && length == total) {
+            return tensor;
+        }
+        const int ptrSize = static_cast<int>(info->dim.size());
+        std::vector<int> start(ptrSize, 0), size(info->dim);
+        start[tokenAtDim1 ? 1 : 0] = begin;
+        size[tokenAtDim1 ? 1 : 0] = length;
+        return Express::_Slice(tensor, _var<int>(start, {ptrSize}), _var<int>(size, {ptrSize}));
+    };
+    // A chunk can cut one image/audio feature in the middle, so the pads in this call may cover only part
+    // of the current feature. Take what this call owns and carry the cursor to the next chunk.
+    auto takeRows = [&](const std::vector<VARP>& pool, int& index, int& consumed, int padCount, int& begin) -> int {
+        begin = consumed;
+        if (index < 0 || index >= static_cast<int>(pool.size()) || padCount <= 0) {
+            return 0;
+        }
+        auto info = pool[index]->getInfo();
+        if (info == nullptr || info->dim.empty()) {
+            return 0;
+        }
+        return std::max(0, std::min(padCount, info->dim[0] - consumed));
+    };
+    int textBegin = 0;
     const int count = static_cast<int>(input_ids.size());
     for (int i = 0; i < count;) {
         const int id = input_ids[i];
@@ -2382,37 +2425,45 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             return nullptr;
         }
         auto& features = audio ? mAudioEmbeddings : mVisionEmbeddings;
-        int& index = audio ? audioIndex : visionIndex;
+        int& index = audio ? mAudioIndex : mVisionIndex;
+        int& consumed = audio ? mAudioConsumed : mVisionConsumed;
         if (index >= features.size() || features[index].get() == nullptr || features[index]->getInfo() == nullptr) {
             MNN_ERROR("Multimodal placeholder has no encoder feature at token %d\n", i);
             mContext->status = LlmStatus::INTERNAL_ERROR;
             return nullptr;
         }
-        auto feature = features[index];
-        int length = feature->getInfo()->dim[0];
-        if (length <= 0 || i + length > count ||
-            !std::all_of(input_ids.begin() + i, input_ids.begin() + i + length, [id](int token) { return token == id; })) {
-            MNN_ERROR("Multimodal feature length does not match its placeholders at token %d\n", i);
+        int padCount = 0;
+        while (i + padCount < count && input_ids[i + padCount] == id) {
+            ++padCount;
+        }
+        int begin = 0;
+        const int take = takeRows(features, index, consumed, padCount, begin);
+        if (take <= 0) {
+            MNN_ERROR("Multimodal feature exhausted before its placeholders at token %d\n", i);
             mContext->status = LlmStatus::INTERNAL_ERROR;
             return nullptr;
         }
-        embeddings.push_back(feature);
+        embeddings.push_back(sliceRows(features[index], begin, take, false));
         if (hasDeepStack) {
             if (audio) {
-                appendZeros(length);
+                appendZeros(take);
             } else {
                 if (index >= mDeepStackEmbeddings.size()) {
                     mContext->status = LlmStatus::INTERNAL_ERROR;
                     return nullptr;
                 }
-                deepstacks.push_back(mDeepStackEmbeddings[index]);
+                deepstacks.push_back(sliceRows(mDeepStackEmbeddings[index], begin, take, true));
             }
         }
-        ++index;
-        i += length;
+        consumed += take;
+        if (consumed >= features[index]->getInfo()->dim[0]) {
+            consumed = 0;
+            ++index;
+        }
+        i += take;
         textBegin = i;
     }
-    if (!appendText(textBegin, count) || visionIndex != mVisionEmbeddings.size() || audioIndex != mAudioEmbeddings.size()) {
+    if (!appendText(textBegin, count)) {
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return nullptr;
     }
@@ -2438,9 +2489,12 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
         ::memcpy(freshEmbed->writeMap<float>(), cPtr, cInfo->size * sizeof(float));
         mergedEmbed = freshEmbed;
     }
-    mVisionEmbeddings.clear();
-    mAudioEmbeddings.clear();
-    mDeepStackEmbeddings.clear();
+    // Keep the pools alive while a following chunk still has rows to feed; drop them only once every
+    // feature was consumed so a chunk boundary cannot silently discard the rest of an image.
+    if (mVisionIndex >= static_cast<int>(mVisionEmbeddings.size()) &&
+        mAudioIndex >= static_cast<int>(mAudioEmbeddings.size())) {
+        resetMultimodalState();
+    }
     if (fullPle.get()) {
         mPleInput = fullPle;
     }
@@ -2462,9 +2516,7 @@ bool Omni::prepareHistoryReplay(const std::vector<int>& input_ids) {
         }
     }
     mPositionIds.clear();
-    mVisionEmbeddings.clear();
-    mAudioEmbeddings.clear();
-    mDeepStackEmbeddings.clear();
+    resetMultimodalState();
     return true;
 }
 
@@ -2482,11 +2534,35 @@ VARP Omni::gen_attention_mask(int seq_len) {
     return mIsEmbedding ? Embedding::gen_attention_mask(seq_len) : Llm::gen_attention_mask(seq_len);
 }
 
-VARP Omni::gen_position_ids(int seq_len) {
+int fillMropePositionIds(const MropeInfo& positions, int prefixLen, int seqLen, int realLen, int axes,
+                         bool relativeSpatial, int* dst) {
+    // Positions past the recorded table fall back to the absolute position (t = h = w, the same convention
+    // text tokens use). That keeps them defined and strictly increasing; reusing an earlier coordinate would
+    // give several tokens the same RoPE phase. relativeSpatial (Hunyuan) keeps axis > 0 chunk-local, which is
+    // why only the first axis carries the absolute prefix there.
+    int missing = prefixLen + realLen - positions.size();
+    if (missing < 0) {
+        missing = 0;
+    }
+    for (int i = 0; i < seqLen; i++) {
+        for (int axis = 0; axis < axes; axis++) {
+            // Hunyuan keeps axis > 0 chunk-local (no prefix), the rest index the table at the
+            // absolute position so a later prefill block reads its own recorded coordinate.
+            if (relativeSpatial && axis > 0) {
+                dst[i + seqLen * axis] = positions.axisValueAt(axis, i);
+            } else {
+                dst[i + seqLen * axis] = positions.axisValueAt(axis, prefixLen + i);
+            }
+        }
+    }
+    return missing;
+}
+
+VARP Omni::gen_position_ids(int seq_len, int realLen) {
     MNN::Express::ExecutorScope s(mExecutor);
     auto positionIdsDims = mModule->getInfo()->inputs[2].dim;
     if (positionIdsDims[0] == 1) {
-        return Llm::gen_position_ids(seq_len);
+        return Llm::gen_position_ids(seq_len, realLen);
     }
     // mrope
     int axes = mConfig->mrope_axes();
@@ -2504,27 +2580,22 @@ VARP Omni::gen_position_ids(int seq_len) {
         }
     } else {
         bool relativeSpatial = mVisionProcessor && mVisionProcessor->relativeSpatialPositions();
-        auto axisValue = [this](int axis, int i) {
-            const std::vector<int>* values = nullptr;
-            if (axis == 0) {
-                values = &mPositionIds.mT;
-            } else if (axis == 1) {
-                values = &mPositionIds.mH;
-            } else if (axis == 2) {
-                values = &mPositionIds.mW;
-            } else if (axis == 3) {
-                values = &mPositionIds.mX;
-            }
-            if (values != nullptr && i < static_cast<int>(values->size())) {
-                return (*values)[i];
-            }
-            return i;
-        };
-        for (int i = 0; i < seq_len; i++) {
-            for (int axis = 0; axis < axes; axis++) {
-                int offset = (relativeSpatial && axis > 0) ? 0 : mContext->all_seq_len;
-                ptr[i + seq_len * axis] = axisValue(axis, i) + offset;
-            }
+        // realLen is passed down by Llm::forwardVec(), which is where padding is decided: it is the number of
+        // tokens the prompt actually contributes, while the remaining seq_len - realLen entries only exist to
+        // reach the block shape the graph requires. Only real tokens need a recorded position.
+        const int validLen = realLen < 0 ? seq_len : std::min(realLen, seq_len);
+        const int missing =
+            fillMropePositionIds(mPositionIds, mContext->all_seq_len, seq_len, validLen, axes, relativeSpatial, ptr);
+        if (missing > 0) {
+            MNN_ERROR(
+                "Omni: %d MRoPE positions are recorded but this forward carries %d real tokens "
+                "(all_seq_len=%d, real_tokens=%d, block=%d). %d real token(s) have no recorded "
+                "position, so their RoPE would be invented.\n",
+                mPositionIds.size(), mContext->all_seq_len + validLen, mContext->all_seq_len, validLen, seq_len,
+                missing);
+            // Report through the shared status: forwardRaw() checks it and returns empty, which stops
+            // generation in release builds too instead of running on invented positions.
+            mContext->status = LlmStatus::INTERNAL_ERROR;
         }
         if (mTalker) {
             mTalker->setPostionIds(mPositionIds);
@@ -2534,8 +2605,52 @@ VARP Omni::gen_position_ids(int seq_len) {
 }
 
 std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
+    // Same guard Llm::forwardRaw() opens with. gen_position_ids() can reject a forward (an MRoPE prompt whose
+    // real tokens have no recorded position), and that has to stop it before anything runs. It also covers the
+    // is_embedding branch below, which calls the module directly instead of going through Llm::forwardRaw().
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<Express::VARP>());
     MNN::Express::ExecutorScope s(mExecutor);
-    extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
+        auto deepstack = mExtraArgs[0];
+        auto deepstackInfo = deepstack->getInfo();
+        auto hiddenInfo = hiddenState->getInfo();
+        if (deepstackInfo != nullptr && hiddenInfo != nullptr && deepstackInfo->dim.size() == 3) {
+            const int targetLength = hiddenInfo->dim[mSeqLenIndex];
+            const int sourceLength = deepstackInfo->dim[1];
+            const int hiddenSize = deepstackInfo->dim[2];
+            // embedding() is called once per prefill chunk on the chunked path, so the deepstack it produces
+            // is chunk-local and padded from row 0. responseInterleaved() instead builds one whole-prompt
+            // tensor and lets forwardVec() split the hidden states, so that one is sliced by the global offset.
+            // Decode forces zeros so a real image row never leaks into a single-token step.
+            int sourceOffset = 0;
+            if (mContext->gen_seq_len > 0) {
+                sourceOffset = sourceLength;
+            } else if (sourceLength > targetLength) {
+                sourceOffset = mContext->all_seq_len;
+            }
+            // Rows are logical [layer, token, hidden]. Normalize to NCHW even for full chunks: an NHWC tag
+            // would make the QNN plugin transpose token/hidden. _Convert would also physically transpose, so
+            // copy the raw rows instead.
+            if (sourceLength != targetLength || deepstackInfo->order != NCHW) {
+                auto alignedDeepstack = Express::_Input({deepstackInfo->dim[0], targetLength, hiddenSize}, NCHW);
+                auto dst = alignedDeepstack->writeMap<float>();
+                const auto src = deepstack->readMap<float>();
+                ::memset(dst, 0, alignedDeepstack->getInfo()->size * sizeof(float));
+                const int copyLength = std::max(0, std::min(targetLength, sourceLength - sourceOffset));
+                if (src != nullptr && copyLength > 0) {
+                    for (int i = 0; i < deepstackInfo->dim[0]; ++i) {
+                        ::memcpy(dst + i * targetLength * hiddenSize,
+                                 src + (i * sourceLength + sourceOffset) * hiddenSize,
+                                 copyLength * hiddenSize * sizeof(float));
+                    }
+                }
+                deepstack = alignedDeepstack;
+            }
+        }
+        extraArgs.emplace_back(deepstack);
+    } else {
+        extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    }
     if (mIsEmbedding) {
         std::vector<VARP> inputs{hiddenState, mask, inputPos};
         if (!extraArgs.empty()) {
@@ -3149,7 +3264,7 @@ Express::VARP Talker::embedding(const std::vector<int>& input_ids) {
     return Llm::embedding(input_ids);
 }
 
-Express::VARP Talker::gen_position_ids(int seq_len) {
+Express::VARP Talker::gen_position_ids(int seq_len, int realLen) {
     MNN::Express::ExecutorScope s(mExecutor);
     // mrope
     if (needNewVar(positionIds, 2, seq_len)) {
