@@ -183,6 +183,9 @@ public:
     }
 
     virtual const Runtime* getRuntime() override;
+#if defined(_WIN32) && defined(_M_X64) && defined(MNN_USE_THREAD_POOL) && !defined(_OPENMP)
+    unsigned long windowsAffinityMask() const { return mRuntime->mCpuMask; }
+#endif
 
 #ifdef MNN_USE_THREAD_POOL
     inline int taskIndex() const {return mRuntime->mTaskIndex;}

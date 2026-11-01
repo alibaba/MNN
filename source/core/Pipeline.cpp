@@ -16,11 +16,43 @@
 #include "shape/SizeComputer.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "MNN_generated.h"
+#if defined(_WIN32) && defined(_M_X64) && defined(MNN_USE_THREAD_POOL) && !defined(_OPENMP)
+#include "core/WindowsAffinity.hpp"
+#define MNN_WINDOWS_CPU_AFFINITY
+#endif
+
+#ifdef MNN_WINDOWS_CPU_AFFINITY
+#include "backend/cpu/CPUBackend.hpp"
+#endif
 
 // TODO: Find better way for debug
 //#define MNN_OP_SEPERATE
 //#define MNN_PIPELINE_DEBUG
 namespace MNN {
+template <decltype(&Execution::onExecute) execute>
+static ErrorCode executeWithCpuAffinity(Execution* execution, const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) {
+#ifdef MNN_WINDOWS_CPU_AFFINITY
+    auto backend = execution->backend();
+    if (backend != nullptr && (backend->type() == MNN_FORWARD_CPU || backend->type() == MNN_FORWARD_CPU_EXTENSION)) {
+        auto cpu = static_cast<CPUBackend*>(backend);
+        WindowsAffinity::Scope scope(cpu->windowsAffinityMask());
+        if (!scope.ready()) {
+            MNN_ERROR("Windows CPU affinity entry failed (%lu).\n", scope.entryError());
+            return INVALID_VALUE;
+        }
+        auto result = (execution->*execute)(inputs, outputs);
+        bool restored = scope.finish();
+        if (!restored) {
+            MNN_ERROR("Windows CPU affinity state is unsafe (restore error %lu); "
+                      "retire this calling thread.\n", scope.restoreError());
+        }
+        return result != NO_ERROR ? result : (restored ? NO_ERROR : INVALID_VALUE);
+    }
+#endif
+    return (execution->*execute)(inputs, outputs);
+}
+
 static std::set<OpType> _getQuantPropagateOp(Runtime::CompilerType type) {
     std::set<OpType> propagateOpTypes = { OpType_Raster, OpType_ReLU, OpType_ReLU6, OpType_Pooling,
                                           OpType_Interp, OpType_CropAndResize, OpType_ROIPooling};
@@ -1182,6 +1214,14 @@ void Pipeline::_copyInputs() {
     }
 }
 ErrorCode Pipeline::execute() {
+#ifdef MNN_WINDOWS_CPU_AFFINITY
+    auto primaryBackend = mInfo.first.cache.first.get();
+    if (WindowsAffinity::threadTainted() && primaryBackend != nullptr &&
+        (primaryBackend->type() == MNN_FORWARD_CPU || primaryBackend->type() == MNN_FORWARD_CPU_EXTENSION)) {
+        MNN_ERROR("Windows CPU execution refused on a thread with failed affinity restoration.\n");
+        return INVALID_VALUE;
+    }
+#endif
     _copyInputs();
     auto enterCode = _enterExecute();
     if (NO_ERROR != enterCode) {
@@ -1216,7 +1256,8 @@ ErrorCode Pipeline::execute() {
                 MNN_PRINT("Group: %d, %s - %d, type=%s, inputs: %s, devices: %s - %s\n", cmd.group, info.op->name()->c_str(), cmdIndex, EnumNameOpType(cmd.op->type()), groupOfInput.c_str(), deviceOfInput.c_str(), deviceOfOutput.c_str());
             }
 #endif
-            auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
+            auto code = executeWithCpuAffinity<&Execution::onExecute>(
+                cmd.execution.get(), cmd.workInputs, cmd.workOutputs);
             if (NO_ERROR != code) {
                 _exitExecute();
                 return code;
@@ -1224,6 +1265,12 @@ ErrorCode Pipeline::execute() {
         }
     }
     _exitExecute();
+#ifdef MNN_WINDOWS_CPU_AFFINITY
+    if (WindowsAffinity::threadTainted() && primaryBackend != nullptr &&
+        (primaryBackend->type() == MNN_FORWARD_CPU || primaryBackend->type() == MNN_FORWARD_CPU_EXTENSION)) {
+        return INVALID_VALUE;
+    }
+#endif
     return NO_ERROR;
 }
 ErrorCode Pipeline::_enterExecute() {
@@ -1247,6 +1294,14 @@ void Pipeline::_exitExecute() {
 }
 
 ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after) {
+#ifdef MNN_WINDOWS_CPU_AFFINITY
+    auto primaryBackend = mInfo.first.cache.first.get();
+    if (WindowsAffinity::threadTainted() && primaryBackend != nullptr &&
+        (primaryBackend->type() == MNN_FORWARD_CPU || primaryBackend->type() == MNN_FORWARD_CPU_EXTENSION)) {
+        MNN_ERROR("Windows CPU execution refused on a thread with failed affinity restoration.\n");
+        return INVALID_VALUE;
+    }
+#endif
     _copyInputs();
     auto enterCode = _enterExecute();
     if (NO_ERROR != enterCode) {
@@ -1263,7 +1318,8 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
             auto cmdP = buffer.command[cmdIndex];
             auto& cmd = *cmdP;
             if (nullptr == cmd.info.get()) {
-                auto code = cmd.execution->onExecuteWithCallBack(cmd.workInputs, cmd.workOutputs);
+                auto code = executeWithCpuAffinity<&Execution::onExecuteWithCallBack>(
+                    cmd.execution.get(), cmd.workInputs, cmd.workOutputs);
                 if (NO_ERROR != code) {
                     _exitExecute();
                     return code;
@@ -1272,7 +1328,8 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
             }
             auto run = before(cmd.workInputs, cmd.info.get());
             if (run) {
-                auto code = cmd.execution->onExecuteWithCallBack(cmd.workInputs, cmd.workOutputs);
+                auto code = executeWithCpuAffinity<&Execution::onExecuteWithCallBack>(
+                    cmd.execution.get(), cmd.workInputs, cmd.workOutputs);
                 if (NO_ERROR != code) {
                     _exitExecute();
                     return code;
@@ -1286,6 +1343,12 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
         }
     }
     _exitExecute();
+#ifdef MNN_WINDOWS_CPU_AFFINITY
+    if (WindowsAffinity::threadTainted() && primaryBackend != nullptr &&
+        (primaryBackend->type() == MNN_FORWARD_CPU || primaryBackend->type() == MNN_FORWARD_CPU_EXTENSION)) {
+        return INVALID_VALUE;
+    }
+#endif
     return NO_ERROR;
 }
 

@@ -251,7 +251,9 @@ public:
         // Multi-Thread Load module, default is 0 (don't use other Thread)
         INIT_THREAD_NUMBER = 13,
 
-        // Used CPU ids
+        // Used CPU ids. Windows x64 native pool (without OpenMP): IDs 0..31 on single-group systems.
+        // Unsupported policies fall back to default. Caller affinity is scoped to CPU onExecute;
+        // a failed restore reports an execution error and disables later CPU onExecute on that calling thread.
         CPU_CORE_IDS = 14,
 
         // set CPU threads to use when supports Arm sme2
