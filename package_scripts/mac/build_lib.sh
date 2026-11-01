@@ -28,7 +28,7 @@ build_all=true
 while getopts "o:b:fsct:h" opt; do
   case "$opt" in
     o ) path=$OPTARG ;;
-    b ) IFS="," read -a backends <<< $OPTARG ;;
+    b ) IFS="," read -a backends <<< "$OPTARG" ;;
     f ) fmwk=true ;;
     s ) clean_schema=true ;;
     c ) clean_build=true ;;
@@ -59,7 +59,7 @@ if [ $fmwk ]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMNN_AAPL_FMWK=ON"
 fi
 if [ "$backends" ]; then
-    for backend in $backends; do
+    for backend in "${backends[@]}"; do
         case $backend in
             "opencl" ) CMAKE_ARGS="$CMAKE_ARGS -DMNN_OPENCL=ON" ;;
             "opengl" ) CMAKE_ARGS="$CMAKE_ARGS -DMNN_OPENGL=ON" ;;
@@ -93,7 +93,7 @@ deploy() {
 
 log() {
     echo "==================================="
-    echo "Build MNN (CPU $backends) $1"
+    echo "Build MNN (CPU ${backends[*]}) $1"
     echo "==================================="
 }
 

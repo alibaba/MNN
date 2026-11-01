@@ -12,7 +12,7 @@ usage() {
 while getopts "o:p:v:b" opt; do
   case "$opt" in
     o ) path=$OPTARG ;;
-    p ) IFS="," read -a python_versions <<< $OPTARG ;;
+    p ) IFS="," read -a python_versions <<< "$OPTARG" ;;
     v ) mnn_version=$OPTARG ;;
     b ) opencl=true ;;
     * ) usage ;;
@@ -43,7 +43,7 @@ rm -rf dist && mkdir dist
 if [ -z "$python_versions" ]; then
   python build_wheel.py --version $mnn_version
 else
-  for env in $python_versions; do
+  for env in "${python_versions[@]}"; do
       conda activate $env
       python build_wheel.py --version $mnn_version
       conda deactivate

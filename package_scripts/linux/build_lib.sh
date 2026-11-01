@@ -25,7 +25,7 @@ build_all=true
 while getopts "o:b:sct:h" opt; do
   case "$opt" in
     o ) path=$OPTARG ;;
-    b ) IFS="," read -a backends <<< $OPTARG ;;
+    b ) IFS="," read -a backends <<< "$OPTARG" ;;
     s ) clean_schema=true ;;
     c ) clean_build=true ;;
     t ) build_all=""
@@ -54,7 +54,7 @@ PACKAGE_PATH=$(realpath $path)
 
 CMAKE_ARGS="-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TOOLS=OFF -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_OPENCL=ON -DMNN_VULKAN=ON"
 if [ "$backends" ]; then
-    for backend in $backends; do
+    for backend in "${backends[@]}"; do
         case $backend in
             "opencl" ) CMAKE_ARGS="$CMAKE_ARGS -DMNN_OPENCL=ON" ;;
             "opengl" ) CMAKE_ARGS="$CMAKE_ARGS -DMNN_OPENGL=ON" ;;
@@ -73,7 +73,7 @@ pushd build
 
 log() {
     echo "==================================="
-    echo "Build MNN (CPU $backends) $1"
+    echo "Build MNN (CPU ${backends[*]}) $1"
     echo "==================================="
 }
 
