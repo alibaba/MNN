@@ -68,6 +68,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_RKNN             | 是否构建`RKNN`运行时与模型转换支持，依赖`MNN_WITH_PLUGIN=ON`和`RKNN_API_INCLUDE_DIR`，默认为`OFF` |
 | MNN_HEXAGON          | 是否构建高通`Hexagon DSP`后端，默认为`OFF` ，使用说明见 `source/backend/hexagon/README.md` |
 | MNN_HEXAGON_ASAN     | 是否开启Hexagon后端内部内存一致性检查，该宏仅在`MNN_HEXAGON=ON`时生效，默认为`OFF` |
+| MNN_HEXAGON_APP_POWER_HOLD | 是否在命令flush之间保持DSP电源投票并在空闲后释放（面向App进程），该宏仅在`MNN_HEXAGON=ON`时生效，默认为`OFF` |
 | MNN_NEUROPILOT            | 是否构建MLA的`NPU`离线转换后端或执行插件，默认为`OFF`  |
 | MNN_NPU            | 是否构建HIAI的`NPU`后端，默认为`OFF`  |
 | MNN_USE_SPARSE_COMPUTE | 是否使用稀疏计算，默认为`ON` |
