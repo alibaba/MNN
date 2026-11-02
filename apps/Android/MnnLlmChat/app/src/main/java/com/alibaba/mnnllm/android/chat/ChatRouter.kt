@@ -17,6 +17,7 @@ import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mls.api.download.DownloadListener
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.hexagon.HexagonModule
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.isStopDownloadOnChatEnabled
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
@@ -152,7 +153,11 @@ object ChatRouter {
             return
         }
         
-        // Continue with normal flow for non-QNN models
+        // Continue with normal flow for non-QNN models. Prepare the Hexagon (HTP) FastRPC search
+        // path so the hexagon backend can be selected for this model; harmless for cpu/opencl.
+        if (HexagonModule.deviceSupported(context)) {
+            HexagonModule.prepare(context)
+        }
         proceedToStartChat(context, modelId, destModelDir, sessionId, isDiffusion)
     }
     

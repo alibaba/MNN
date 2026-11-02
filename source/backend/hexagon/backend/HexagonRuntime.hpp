@@ -108,6 +108,10 @@ private:
     mutable SingleBufferWithAllocator mDynamicBuffer;
     HexagonInfo mInfo;
     bool mAvailable = false;
+    // Only instantiated when the backend is built with MNN_HEXAGON_APP_POWER_HOLD (the Android app).
+    // Kept declared unconditionally so the class layout does not depend on that flag.
+    struct PowerIdleKeeper;
+    std::unique_ptr<PowerIdleKeeper> mPowerKeeper;
     mutable DSPCommandGroup* mCommandGroup = nullptr;
     mutable int mCommandGroupCount = 0;
     mutable int mCommandSerial = 1;
