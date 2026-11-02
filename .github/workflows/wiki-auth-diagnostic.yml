@@ -1,0 +1,35 @@
+name: Wiki authentication diagnostic
+on:
+  push:
+    branches: [feature/wiki-auth-diagnostic]
+    paths: [.github/workflows/wiki-auth-diagnostic.yml]
+permissions:
+  contents: read
+jobs:
+  authenticate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test Wiki push authentication without updating it
+        env:
+          GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+        shell: bash
+        run: |
+          set -eu
+          test -n "$GH_ACCESS_TOKEN" || { echo "GH_ACCESS_TOKEN is unavailable"; exit 1; }
+          askpass="$RUNNER_TEMP/wiki-askpass.sh"
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) echo x-access-token ;;
+            *Password*) echo "$GH_ACCESS_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
+          git clone --depth 1 --branch master https://github.com/alibaba/MNN.wiki.git "$RUNNER_TEMP/wiki-test"
+          cd "$RUNNER_TEMP/wiki-test"
+          git config user.name 'MNN Wiki CI diagnostic'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit --allow-empty -m 'Wiki authentication diagnostic'
+          git push --dry-run origin HEAD:master
