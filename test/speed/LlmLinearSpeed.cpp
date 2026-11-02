@@ -81,10 +81,11 @@ int bits() {
     return sBits;
 }
 
-// MNN_DECODE_GEMV_BLOCK selects the quant block size. It drives the Metal W16
-// decode-GEMV's compile-time quads-per-block (block/4 = 8/16/32/64), so it is
-// the axis along which that wide-load specialization gets priced. Every ic in
-// the model table is a multiple of 256, so all four values stay eligible.
+// MNN_DECODE_GEMV_BLOCK selects the quant block size. It sets the C4 quads per
+// quant block the Metal decode GEMV walks (block/4 = 8/16/32/64) and gates the
+// block64-only calibrated routes, so it is the axis along which the decode-GEMV
+// block shape gets priced. Every ic in the model table is a multiple of 256, so
+// all four values stay eligible.
 int blockSize() {
     static const int sSize = [] {
         const char* env = getenv("MNN_DECODE_GEMV_BLOCK");
@@ -129,6 +130,7 @@ constexpr ModelShape kModels[] = {
     // Qwen3.5 is hybrid: full_attention_interval 4 => 6 of 24 layers attend.
     {"Qwen3.5-0.8B", "3.5-0.8b", 1024, 24, 6, 3584, 248320, {4, {2048, 512, 512, 2048}}, {4, {6144, 2048, 16, 16}}},
     {"Qwen3.5-2B", "3.5-2b", 2048, 24, 6, 6144, 248320, {4, {2048, 512, 512, 2048}}, {4, {6144, 2048, 16, 16}}},
+    {"Qwen3.5-4B", "3.5-4b", 2560, 32, 8, 9216, 248320, {4, {4096, 1024, 1024, 4096}}, {4, {8192, 4096, 32, 32}}},
 };
 
 const ModelShape& model() {
@@ -738,12 +740,6 @@ float benchConvModule(const std::shared_ptr<Module>& module, VARP input, const s
     return ms;
 }
 
-float benchConv(const std::string& tag, int ic, int oc, int layers, int loop, int round) {
-    auto module = makeConvModule(ic, oc, layers);
-    auto input  = makeActivation(1, ic, 0.07f, true);
-    return benchConvModule(module, input, tag, ic, oc, layers, loop, round);
-}
-
 } // namespace
 
 class LlmConvDecodeSpeedTest : public MNNTestCase {
@@ -802,35 +798,25 @@ public:
             }
         }
         MNN_PRINT("--- warmup pass (untimed, GPU clock ramp) ---\n");
-        // The env-sweep path prebuilds all modules so timed rounds run
-        // back-to-back instead of idling the GPU on rebuilds between rounds.
-        std::vector<std::shared_ptr<Module>> mods;
-        std::vector<VARP> inputs;
-        if (nullptr != getenv("MNN_CD_SHAPES")) {
-            mods.resize(shapes.size());
-            inputs.resize(shapes.size());
-            for (size_t i = 0; i < shapes.size(); ++i) {
-                mods[i]   = makeConvModule(shapes[i].ic, shapes[i].oc, shapes[i].layers);
-                inputs[i] = makeActivation(1, shapes[i].ic, 0.07f, true);
-            }
+        // Prebuild all modules so timed rounds run back-to-back instead of
+        // idling the GPU on rebuilds between rounds. Rebuilding every round
+        // also accumulates allocator pressure on memory-constrained devices:
+        // lm_head alone is a ~286 MB buffer.
+        std::vector<std::shared_ptr<Module>> mods(shapes.size());
+        std::vector<VARP> inputs(shapes.size());
+        for (size_t i = 0; i < shapes.size(); ++i) {
+            mods[i]   = makeConvModule(shapes[i].ic, shapes[i].oc, shapes[i].layers);
+            inputs[i] = makeActivation(1, shapes[i].ic, 0.07f, true);
         }
         for (size_t i = 0; i < shapes.size(); ++i) {
-            if (mods.empty()) {
-                benchConv(shapes[i].tag, shapes[i].ic, shapes[i].oc, shapes[i].layers, 2, -1);
-            } else {
-                benchConvModule(mods[i], inputs[i], shapes[i].tag, shapes[i].ic, shapes[i].oc, shapes[i].layers, 2,
-                                -1);
-            }
+            benchConvModule(mods[i], inputs[i], shapes[i].tag, shapes[i].ic, shapes[i].oc, shapes[i].layers, 2, -1);
         }
         std::vector<float> best(shapes.size(), 1e30f);
         for (int round = 0; round < rounds; ++round) {
             for (size_t i = 0; i < shapes.size(); ++i) {
                 const int loop = shapes[i].layers == 1 ? 20 : 50;
-                const float ms =
-                    mods.empty()
-                        ? benchConv(shapes[i].tag, shapes[i].ic, shapes[i].oc, shapes[i].layers, loop, round)
-                        : benchConvModule(mods[i], inputs[i], shapes[i].tag, shapes[i].ic, shapes[i].oc,
-                                          shapes[i].layers, loop, round);
+                const float ms = benchConvModule(mods[i], inputs[i], shapes[i].tag, shapes[i].ic, shapes[i].oc,
+                                                 shapes[i].layers, loop, round);
                 best[i] = std::min(best[i], ms);
             }
         }
@@ -885,7 +871,8 @@ std::vector<DecodeGroup> decodeGroups() {
         {"qkv(FL)", kFusedQkv, m.hidden, toVec(m.qkv), m.attnLayers},
     };
     if (m.linearIn.n > 0) {
-        groups.push_back({"linear_in(FL)", kFusedQkv, m.hidden, toVec(m.linearIn), m.layers - m.attnLayers});
+        groups.push_back({"linear_in(FL)", kFusedQkv, m.hidden, toVec(m.linearIn), m.layers - m.attnLayers - 1});
+        groups.push_back({"linear_in0(FL)", kFusedQkvNoLn, m.hidden, toVec(m.linearIn), 1});
     }
     groups.push_back({"o_proj", kConv, m.qkv.oc[0], {m.hidden}, m.layers});
     groups.push_back({"gateup(FL)", kFusedGateUp, m.hidden, {m.inter, m.inter}, m.layers});

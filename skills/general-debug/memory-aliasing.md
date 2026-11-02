@@ -154,7 +154,7 @@ threadgroup 覆盖掉其他 threadgroup 仍要读的数据 ⇒ 结果取决于 T
 
 **决定性的两步定位手法**（本类 bug 通用，比 debugger capture 便宜得多）：
 
-1. **先分离"单 dispatch 内"还是"跨 dispatch"**：用 `MNN_METAL_COMMIT_NUM=1` 强制**逐 op 一次
+1. **先分离"单 dispatch 内"还是"跨 dispatch"**：用 `setHint(OP_ENCODER_NUMBER_FOR_COMMIT, 1)` 强制**逐 op 一次
    commit**，把所有 dispatch 串行化。
    - 串行化后**变稳** ⇒ 跨 dispatch hazard（缺 barrier / 资源提前复用 / untracked 资源）；
    - 串行化后**仍不稳** ⇒ 污染在**单个 dispatch 内部**，只剩 TG 间竞争、别名、未初始化读三种可能。
@@ -249,4 +249,52 @@ context、allocator 或缓存策略：
 | `source/core/Backend.hpp` | Backend tensor buffer 生命周期接口 |
 | `source/backend/cpu/CPULayerNorm.cpp` | 正确的批量 alloc-then-free-all 模式参考 |
 | `source/backend/cpu/CPURoPE.cpp` | 参考案例的修复实现（onResize 注释里写了原因） |
-| `source/backend/metal/MetalBackend.mm` | 跨 op tensor buffer 重叠检查（`matchQKVFusions`）；`matchLNFusions` 内的"写集合 × 读集合"字节区间别名检测 + STATIC re-home 是 §1.6 修复模式的参考实现 |
+| `source/backend/metal/MetalBackend.mm` | 跨 op tensor buffer 重叠检查（`matchQKVFusions`）；`matchLNFusions` 内的"写集合 × 读集合"字节区间别名检测 + STATIC re-home 是 §1.6 修复模式的参考实现；§1.10 的 autorelease-pool 漏斗包裹在 `onCreate` / `onCopyBuffer` |
+| `source/backend/metal/MetalExecution.mm` | §1.10 的第三个漏斗：`onExecute`（所有 Metal op encode 的唯一入口）的词法 `@autoreleasepool` |
+
+## 1.10 参考案例：Metal autorelease pool 累积 → iPhone jetsam（2026-09-17）
+
+**症状**：iPhone 13 Pro 跑 `runtest op/lowMemory 1 2 4 fp16-lowMemory 2`（Metal, fp16-low, Memory_Low）
+在 DenseConv 阶段被 signal 9（jetsam）；merge-base 同样复现（预存问题）。host 同 suite Metal 涨到
+5.64GB 而 CPU 302MB。
+
+**排查路径**：
+1. Metal-only 增长 → 排除框架通用泄漏。
+2. `MTLDevice.currentAllocatedSize` 与 RSS 同步增长 → 活的是 Metal 分配。
+3. lldb 计数全部 C++ 生命周期：session/backend/execution 构造析构配平，EagerBufferAllocator
+   alloc/free 配平，`MetalRuntimeAllocator::onAlloc` 全程只调一次（free-list 复用正常）。
+   **排除项：allocator/session 泄漏——不是。**
+4. 但 `newDeviceBuffer` 每轮都在调 → MTLBuffer 对象被 ObjC 侧谁 retain。
+5. 按 encode 面二分：只 writeMap/readMap 不涨；+2 个 convert 每轮 +3MB；+conv 每轮 +28MB——
+   增量与「encode 的 op 数 × 绑定的 buffer 字节数」成正比。
+6. 决定性对照：调用侧每轮包 `@autoreleasepool`，RSS 1202MB→125MB 平台化。
+
+**根因**：`-[MTLCommandQueue commandBuffer]`、`-[commandBuffer computeCommandEncoder]` 返回
+autoreleased 对象；command buffer/encoder 会 retain `setBuffer:` 绑定的每个 MTLBuffer。调用方在
+tight loop 里跑推理（CLI main、单测一次 delegate 调用里循环数百轮），没有 runloop 回合，外层
+pool 永不 drain，MTLBuffer 全部续命到进程被杀。CPU 后端无 ObjC 故免疫；`Executor::gc(FULL)` 与
+EBA free-list 都管不到 ObjC 侧的 retain。
+
+**修复**：三个创建漏斗各包一层词法 `@autoreleasepool`——`MetalExecution::onExecute`（所有 Metal
+op encode）、`MetalBackend::onCreate`（execution 构造里的 loadWeight）、
+`MetalBackend::onCopyBuffer` 2-arg public（常量上传 / wrap copy / h2d-d2h）。安全性：drain 点处
+encoder 已 endEncoding、command buffer 已 commit（committed buffer 自己 track 资源），强引用
+（`_commandBuffer`/`mComputeEncoder`/`_waiting`/staging ring）不受 pool drain 影响。
+验证：host DenseConv peak 4250MB→303MB；Metal 全 op suite 前后失败集合相同；iPhone 上
+DenseConv/HybridConv/blockConv 由 jetsam 变为通过。
+
+**避坑要点**：
+- 失败方案：在 backend 的 resize/execute begin-end hook 里 push/pop pool token——
+  `Pipeline::allocMemory` 的 `_createExecutions`（loadWeight 大头）和 `_InsertCopy`（常量上传）
+  都在 `onResizeBegin` **之前**跑，窗口盖不住。词法包裹漏斗更简单，也没有跨函数配对失败面。
+- lldb 统计 ObjC 生命周期：`expr $counter` 和单 mangle 名断点会给出假的"1 次"；用 regex 断点 +
+  `-C "script print(\"MARKER\")"` + grep 计数。
+- `gc(FULL)` 实验先确认打到哪个 Executor：全局 executor 是 CPU 的，碰不到 Metal runtime
+  （本例一度因此误判）。
+- 修复后若 `currentAllocatedSize` 仍缓涨而 RSS 平台：加 `phys_footprint` 探针
+  （`task_info(TASK_VM_INFO)`）区分 driver 驻留与真实 jetsam 风险——jetsam 看 phys_footprint，
+  不看 RSS。
+- 预存坑（与本 bug 无关，别再顺藤摸一遍）：`op/lowMemory/mixedKernel` 的 {1536,151936} fp32
+  权重单份 ≈933MB、同时多份活副本，host 前后两版 peak 都是 8-9GB，6GB 设备必然 jetsam——
+  那是测试自身的工作集设计问题。
+

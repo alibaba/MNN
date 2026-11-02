@@ -413,3 +413,4 @@ apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/Qwen2.5-Omni-3B-MNN
 /resource/model/**/*.caffe.mnn
 
 model/
+.qoder

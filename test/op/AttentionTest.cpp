@@ -1952,14 +1952,6 @@ MNNTestSuiteRegister(SpeedAttentionTest, "speed/attention");
 // O(1) error.
 // ============================================================================
 
-static int _envInt(const char* name, int defValue) {
-    const char* v = getenv(name);
-    if (v == nullptr || v[0] == '\0') {
-        return defValue;
-    }
-    return atoi(v);
-}
-
 // [batch, len, heads, dim] built from a single-batch tensor, every batch
 // receiving identical rows: each batch's KV cache then holds the same
 // content, so the single-batch NaiveAttention reference applies to all.
@@ -2296,44 +2288,6 @@ private:
     bool mOutputC4 = false;
 };
 
-// Env-gated decode paths that the default flags never select:
-//   MNN_METAL_DECODE_SDPA=0   -> fused qk_softmax / three-stage decode
-//   MNN_METAL_DECODE_SDPA=N   -> qk_softmax up to kv=N (QK_QSPLIT at kv>=512)
-//   MNN_METAL_DECODE_SDPA_NTG=2 -> 2-pass split-KV reduce
-// MetalEnv parses env vars once per process, so the cases run only when the
-// matching var was set before this process started.
-class AttentionDecodeEnvTest : public AttentionDecodeTest {
-public:
-    virtual bool run(int precision) {
-        ShapeGuard guard;
-        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
-            return true;
-        }
-        bool pass = true;
-        const int sdpaEnv = _envInt("MNN_METAL_DECODE_SDPA", 1);
-        if (sdpaEnv == 0) {
-            // mDecodeQkSoftmax requires group >= 2, so MQA is forced onto the
-            // three-stage decode at every kv length; group=8 caps the fused
-            // path at kv<=512, so kv 513+ also lands on three-stage.
-            pass &= runDecodeCase(16, 16, 128, 1, 64, 4, 0, false, 0, false,
-                                  "decodeSdpa=0 mqa three-stage");
-            pass &= runDecodeCase(16, 2, 128, 1, 513, 4, 0, false, 0, false,
-                                  "decodeSdpa=0 three-stage");
-            pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, false, 0, false,
-                                  "decodeSdpa=0 qk_softmax");
-        } else if (sdpaEnv > 1) {
-            pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, false, 0, false,
-                                  "decodeSdpa=N qk_softmax short kv");
-            pass &= runDecodeCase(16, 8, 128, 1, 511, 4, 0, false, 0, false,
-                                  "decodeSdpa=N qk_softmax qsplit");
-        }
-        if (_envInt("MNN_METAL_DECODE_SDPA_NTG", 0) > 1) {
-            pass &= runDecodeCase(16, 8, 128, 1, 64, 6, 0, false, 0, false, "split-kv 2-pass");
-        }
-        return pass;
-    }
-};
-
 // Prefill-path coverage: three-stage vs fused FA variants at the shapes the
 // path flags distinguish. hint=0 keeps the three-stage pipeline on every
 // backend; hint=8 enables the legacy FA kernel where eligible (M2+, fp16,
@@ -2372,26 +2326,6 @@ public:
         pass &= runPrefillCase(16, 8, 128, 1, 192, 10, false, 0.03f, 0.12f, "prefill quant kv");
         pass &= runPrefillCase(16, 8, 128, 1, 192, 11, false, 0.03f, 0.12f, "prefill static quant");
 
-        // Env-forced prefill paths (Metal-only; MetalEnv reads the vars once).
-        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_METAL) {
-            const bool forceSg = _envInt("MNN_METAL_PREFILL_FA_SG", -1) == 1;
-            const bool forceFa = _envInt("MNN_ENABLE_FLASH_ATTN_PREFILL", -1) == 1;
-            const bool forceFaOff = _envInt("MNN_ENABLE_FLASH_ATTN_PREFILL", -1) == 0;
-            if (forceSg) {
-                // FA-SG force-on: seq>=64, hd 64/128, group 1/2/4/8.
-                pass &= runPrefillCase(16, 8, 128, 1, 64, 8, false, 0.0f, 0.0f, "fa-sg seq64");
-                pass &= runPrefillCase(16, 8, 64, 1, 192, 8, false, 0.0f, 0.0f, "fa-sg hd64");
-                pass &= runPrefillCase(16, 4, 128, 1, 128, 8, false, 0.0f, 0.0f, "fa-sg g4");
-            }
-            if (forceFa) {
-                // Legacy FA force-on (overrides the M4-class demotion).
-                pass &= runPrefillCase(16, 8, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa forced");
-            }
-            if (forceFaOff) {
-                // FA force-off: hint=8 falls back to three-stage.
-                pass &= runPrefillCase(16, 8, 128, 1, 192, 8, false, 0.0f, 0.0f, "three-stage forced");
-            }
-        }
         NumHead = savedNumHead;
         KvNumHead = savedKvNumHead;
         HeadDim = savedHeadDim;
@@ -2472,6 +2406,5 @@ private:
 };
 
 MNNTestSuiteRegister(AttentionDecodeTest, "op/attention_decode");
-MNNTestSuiteRegister(AttentionDecodeEnvTest, "op/attention_decode_env");
 MNNTestSuiteRegister(AttentionPrefillPathTest, "op/attention_prefill_paths");
 #endif

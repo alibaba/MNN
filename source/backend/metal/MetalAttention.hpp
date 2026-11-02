@@ -72,10 +72,8 @@ public:
 
     virtual void onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                           id<MTLComputeCommandEncoder> encoder) override;
-    // Encode replay: param-buffer contents and kv-dependent grids/bytes are
-    // patched per token; structural changes (decode-path switch, KV realloc)
-    // bail out to a normal encode + re-record (stale bindings are caught by
-    // replay validation).
+    // Encode replay patches param buffers and kv grids per token; structural
+    // changes bail out to a normal encode + re-record.
     virtual bool onReplayUpdate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override {
         if (nullptr == dst) {
@@ -119,10 +117,8 @@ private:
     uint32_t mLastEncodeSig = 0;
     id<MTLBuffer> mLastKScaleBuffer = nil;
     id<MTLBuffer> mLastVScaleBuffer = nil;
-    // K/V cache tensor identities at last encode. KV expansion DESTROYS the
-    // old cache tensors (mPastKey.reset), leaving dangling tensor pointers in
-    // the recorded bindings — onReplayUpdate must detect the swap by pointer
-    // identity (never dereferenced) before any recorded tensor is validated.
+    // K/V cache tensor identities at last encode; onReplayUpdate detects a
+    // KV-expansion swap by pointer identity before touching the recording.
     const Tensor* mLastKTensor = nullptr;
     const Tensor* mLastVTensor = nullptr;
     bool mKVCache = true;
@@ -161,44 +157,33 @@ private:
     // device, kv>=512): grid.z = group_size, one threadgroup per q-head.
     bool mQkQsplit = false;
     bool mCopySimdReduce = false;
-    // Fused decode SDPA (roadmap #20 restart): decode_splitkv sweeps the whole
-    // kv range in one threadgroup per q-head group (a group is mSdpaQhPerTg q
-    // heads) and writes the final output itself, no reduce dispatch. Despite
-    // the name this flag gates the SDPA path as a whole -- mSdpaNtg > 1 turns
-    // the same path into the 2-pass form below. Default auto-on
-    // (MNN_METAL_DECODE_SDPA); =0 falls back to fused decode_qk_softmax
-    // (kv<=cap) / three-stage decode_qk (kv>cap). NSG device-tiered via
-    // MNN_METAL_DECODE_SDPA_NSG (0 = auto: tensor-API/M5 -> 32, M4-class ->
-    // clamp(256 / threadgroup count, 4, 32), further capped to 16 at kv<512).
+    // Fused decode SDPA (decode_splitkv): one threadgroup per q-head group
+    // sweeps the whole kv range. Gates the SDPA path as a whole; small kv
+    // falls back to decode_qk_softmax / three-stage decode_qk.
     bool mSdpaSinglePass = false;
     int mSdpaNsg = 8;
-    // q heads per threadgroup (SDPA_QH_PER_TG). 1 = one TG per q head; >1 shares each
-    // KV row across a slice of the GQA group. MNN_METAL_DECODE_SDPA_QH_PER_TG.
+    // q heads per threadgroup. 1 = one TG per q head; >1 shares each
+    // KV row across a slice of the GQA group. Auto-resolved by group_size.
     int mSdpaQhPerTg = 1;
+    // kv tokens per stream-loop iteration (SDPA_KVB kernel variant). Auto 2
+    // at kv >= 2048 when the dispatch has < 16 threadgroups, else 1;
+    // MNN_METAL_DECODE_SDPA_KVB forces.
+    int mSdpaKvb = 1;
+    // Auto mode flips mSdpaKvb as kv crosses its threshold; pre-build both
+    // pipeline variants so the flip never compiles mid-decode.
+    bool mSdpaKvbPrebuild = false;
     id<MTLComputePipelineState> mKernel_sdpa = nil;
-    // 2-pass split-KV (MNN_METAL_DECODE_SDPA_NTG > 1): the kv sweep is spread
-    // over mSdpaNtg threadgroups on grid.x, each publishing (S, m) + unnormalized
-    // O partials that mKernel_sdpaReduce recombines. mSdpaNtg == 1 keeps the
-    // single-pass dispatch and leaves the reduce pipeline / buffers unused.
-    int mSdpaNtg = 1;
-    id<MTLComputePipelineState> mKernel_sdpaReduce = nil;
-    std::shared_ptr<Tensor> mSdpaPartialOut;
-    std::shared_ptr<Tensor> mSdpaPartialSm;
-    // Fused prefill attention on the Metal tensor API (matmul2d + input
-    // cooperative tensors, single-simdgroup scope): S and O stay in registers
-    // across the whole KV sweep, so the O(n^2) score matrix never reaches
-    // global memory. MNN_METAL_PREFILL_FA_TENSORAPI (default on for causal models).
+    // Fused prefill attention on the tensor API: S/O stay in registers across
+    // the whole KV sweep; causal-only.
     bool mFaTcPrefill = false;
     bool mFaTcUnavailable = false;
     // Head_dim slices spread over the dispatch grid's z axis (1 = whole head_dim
     // in one threadgroup). Splitting shrinks the persistent O register footprint
-    // at the cost of recomputing QK per slice; see MetalEnv faTcDSplit.
+    // at the cost of recomputing QK per slice (2 at head_dim 256, 1 otherwise).
     int mFaTcDSplit = 1;
     id<MTLComputePipelineState> mKernel_faTc = nil;
-    // M4 fused prefill (prefill_flash_attn_sg): STEEL-like Q=32 / KV=16@D>=128,
-    // S/O in simdgroup fragments, no mTempQK. Auto-on at seq>=1024 generally;
-    // the measured M4 Pro 32q/8kv/head_dim128 shape starts at seq512.
-    // MNN_METAL_PREFILL_FA_SG=1/0 force on/off.
+    // Simdgroup-matrix fused prefill (prefill_flash_attn_sg): Q=32 / KV=16@D>=128 tiling,
+    // S/O in simdgroup fragments, no mTempQK.
     bool mFaSgPrefill = false;
     bool mFaSgUnavailable = false;
     // FA-SG dispatch geometry, kept in sync with the compiled macro set:
@@ -206,33 +191,18 @@ private:
     int mFaSgBq = 32;
     int mFaSgNsg = 4;
     id<MTLComputePipelineState> mKernel_faSg = nil;
-    // Causal triangular dispatch for prefill_qk (simdgroup-matrix path):
-    // launch only the trapezoid of tiles at or below the causal diagonal;
-    // the CAUSAL_BOUND softmax reduces/writes only each row's causally-valid
-    // prefix (+24 zero pad) and prefill_qkv truncates its AV loop, so the
-    // upper-triangle region of mTempQK/mTempSoftMax is never read or written.
-    // Interior (fully-valid) tiles also skip per-element mask logic. Gated on
-    // mCausalLayout (standard causal mask, data-driven).
+    // Causal triangular dispatch for prefill_qk: launch only the trapezoid
+    // of tiles at or below the diagonal (needs mCausalLayout).
     bool mQkCausalTri = false;
-    // CAUSAL_BOUND: bounded softmax + prefill_qkv AV early-exit. Independent of
-    // the QK-side CAUSAL_TRI trapezoid dispatch — this can activate on the
-    // tensor-API path (M5+) too, whereas CAUSAL_TRI is currently only wired for
-    // the simdgroup-matrix path (16x16 tile coord inversion). Also gated on
-    // mCausalLayout.
+    // CAUSAL_BOUND softmax + prefill_qkv AV early-exit. Independent of the
+    // QK-side CAUSAL_TRI trapezoid dispatch and gated on mCausalLayout.
     bool mCausalBound = false;
-    // Data-driven causal layout: true iff the mask is standard lower-triangular
-    // causal (scalar sentinel / absent + kv-cache), so DEFAULT_MASK causal
-    // arithmetic is valid and causal-tri / causal-bound / FA-v1 / faTc may
-    // engage. A real-tensor mask (SWA / prefix-LM / cross-attn) forces this
-    // false so every element is honored via ADD_MASK/SET_MASK. Detected in
-    // _computePathFlags from inputs[3]'s shape (mHasTensorMask), no env needed.
+    // True iff the mask is standard lower-triangular causal; required for the
+    // causal-tri / causal-bound / FA / faTc paths. A real-tensor mask forces
+    // this false so every element goes through ADD_MASK/SET_MASK.
     bool mCausalLayout = false;
-    // Fused prefill flash-attention. Currently opt-in via env var
-    // MNN_ENABLE_FLASH_ATTN_PREFILL=1 and gated to head_dim in {64,128},
-    // non-quant KV, causal-only. Kernel body TBD in follow-up commit; for now
-    // this flag routes through the existing prefill_qk/softmax/prefill_qkv
-    // pipeline (i.e. no behavior change) so the wiring and eligibility check
-    // can land independently of the fused shader.
+    // Fused prefill flash-attention; opt-in via attention_mode/8 >= 1, gated
+    // to head_dim in {64,128,256}, causal-only.
     bool mFlashAttnPrefill = false;
 
 private:
