@@ -54,6 +54,11 @@ public:
      */
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) = 0;
 
+    // Callback execution must materialize this command's outputs without executing later commands.
+    virtual ErrorCode onExecuteWithCallBack(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+        return onExecute(inputs, outputs);
+    }
+
     /**
      * @brief clone execution, new execution will share weight from this execution
      * @param bn   the cloned' execution's backend

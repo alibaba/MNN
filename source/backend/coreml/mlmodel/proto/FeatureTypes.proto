@@ -8,17 +8,17 @@ option optimize_for = LITE_RUNTIME;
 
 package CoreML.Specification;
 
-/**
+/*
  * The 64-bit integer feature type.
  */
 message Int64FeatureType {}
 
-/**
+/*
  * The double-precision floating point number feature type.
  */
 message DoubleFeatureType {}
 
-/**
+/*
  * The string feature type.
  */
 message StringFeatureType {}
@@ -29,16 +29,17 @@ message SizeRange {
     int64 upperBound = 2; // negative value means unbound otherwise upperbound is included in range
 }
 
-/**
+/*
  * The image feature type.
  */
 message ImageFeatureType {
     // Assumes raw (decompressed) format
     enum ColorSpace {
         INVALID_COLOR_SPACE = 0;
-        GRAYSCALE = 10; //  8 bits per pixel
-        RGB = 20;       // 32 bits per pixel: RGBA with A channel ignored
-        BGR = 30;       // 32 bits per pixel: BGRA with A channel ignored
+        GRAYSCALE = 10;         //  8 bits per pixel
+        RGB = 20;               // 32 bits per pixel: RGBA with A channel ignored
+        BGR = 30;               // 32 bits per pixel: BGRA with A channel ignored
+        GRAYSCALE_FLOAT16 = 40; // 16 bits float per pixel
     }
 
     message ImageSize {
@@ -61,7 +62,7 @@ message ImageFeatureType {
     // width x height is the required fixed image size
     //
     // If SizeFlexibility is present, width x height indicate a "default"
-    // image size which must be consistent with the flexibilty specified
+    // image size which must be consistent with the flexibility specified
 
     int64 width = 1;
     int64 height = 2;
@@ -98,7 +99,7 @@ message ImageFeatureType {
     ColorSpace colorSpace = 3;
 }
 
-/**
+/*
  * The array feature type.
  */
 message ArrayFeatureType {
@@ -108,6 +109,8 @@ message ArrayFeatureType {
         FLOAT32 = 65568; // 0x10000 | 32
         DOUBLE = 65600;  // 0x10000 | 64
         INT32 = 131104;  // 0x20000 | 32
+        INT8  = 131080;  // 0x20000 |  8
+        FLOAT16 = 65552; // 0x10000 | 16
     }
 
     // The required or default shape
@@ -116,7 +119,7 @@ message ArrayFeatureType {
     // shape is the required fixed shape
     //
     // If ShapeFlexibility is present, shape indicate a "default"
-    // shape which must be consistent with the flexibilty specified
+    // shape which must be consistent with the flexibility specified
 
     repeated int64 shape = 1;
 
@@ -144,8 +147,8 @@ message ArrayFeatureType {
         //
         // If the shape field is specified then it must be
         // one of the enumerated shapes.
-        ///
-        // If shape is not specifed, the "default" shape will be considered
+        //
+        // If shape is not specified, the "default" shape will be considered
         // enumeratedShapes[0]
         //
         // Must be non-empty
@@ -153,7 +156,7 @@ message ArrayFeatureType {
         EnumeratedShapes enumeratedShapes = 21;
 
         // Use shapeRange to allow the size of each dimension vary within
-        // indpendently specified ranges
+        // independently specified ranges
         //
         // If you specify shape above it must fall in the range
         // specified in shapeRanges. It will be treated as the default shape.
@@ -173,11 +176,11 @@ message ArrayFeatureType {
 
 }
 
-/**
+/*
  * The dictionary feature type.
  */
 message DictionaryFeatureType {
-    /**
+    /*
      *  Key/value type tags, with the following restrictions:
      *  - ``keyType`` must be a hashable type
      *  - ``valueType`` is assumed to be a ``double``
@@ -188,12 +191,12 @@ message DictionaryFeatureType {
     }
 }
 
-/**
+/*
  * The Sequence feature type.
  */
 message SequenceFeatureType {
 
-    /**
+    /*
      * Currently only categorical int64 and String sequences are supported
      */
     oneof Type {
@@ -205,7 +208,13 @@ message SequenceFeatureType {
     SizeRange sizeRange = 101;
 }
 
-/**
+message StateFeatureType {
+    oneof Type {
+        ArrayFeatureType arrayType = 1;
+    }
+}
+
+/*
  * A feature, which may be optional.
  */
 message FeatureType {
@@ -217,8 +226,8 @@ message FeatureType {
         ArrayFeatureType multiArrayType = 5;
         DictionaryFeatureType dictionaryType = 6;
         SequenceFeatureType sequenceType = 7;
+        StateFeatureType stateType = 8;
     }
 
     bool isOptional = 1000;
 }
-

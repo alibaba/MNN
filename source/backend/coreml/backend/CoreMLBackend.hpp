@@ -9,153 +9,215 @@
 #ifndef MNN_COREMLBACKEND_H
 #define MNN_COREMLBACKEND_H
 
-#include <stdio.h>
-#include <map>
-#include <memory>
 #include <MNN/ErrorCode.hpp>
 #include <core/Backend.hpp>
 #include <core/Execution.hpp>
 #include <core/TensorUtils.hpp>
-#include "MNN_generated.h"
-#include "Model.pb-c.h"
+#include <map>
+#include <memory>
+#include <mutex>
+#include <set>
+#include <functional>
 #include "CoreMLExecutorWrapper.h"
+#include "CoreMLHelper.hpp"
+#include "MNN_generated.h"
 #include "core/BufferAllocator.hpp"
+#include "core/AutoStorage.h"
 
 namespace MNN {
-    class CoreMLRuntime : public Runtime {
-    public:
-        CoreMLRuntime(const Backend::Info& info);
-        virtual ~CoreMLRuntime();
-        virtual CompilerType onGetCompilerType() const override;
-        virtual Backend* onCreate(const BackendConfig* conf, Backend* origin) const override;
-        virtual void onGabageCollect(int level) override;
-        virtual std::pair<const void*, size_t> onGetCache() override {
-            return std::make_pair(mCacheBuffer, mCacheSize);
-        }
+struct CoreMLLayerState {
+    std::mutex mutex;
+    std::shared_ptr<CoreMLExecutorWrapper> session;
+};
+struct CoreMLWeightSource {
+    std::function<void(int16_t*)> decode;
+    size_t elements = 0, storageBytes = 0;
+};
+struct CoreMLWeights {
+    std::map<std::string, std::shared_ptr<Tensor>> tensors;
+    std::map<std::string, std::shared_ptr<CoreMLWeightSource>> streamed;
+};
+struct CoreMLProgramGroup {
+    std::shared_ptr<CoreMLExecutorWrapper> session;
+    std::vector<std::pair<const Tensor*, std::string>> inputs, outputs, staging;
+    std::vector<std::shared_ptr<Tensor>> storage;
+};
+struct CoreMLProgramContext {
+    MlModelBuilder builder{9};
+    bool valid = true;
+    bool flatIO = false;
+    std::shared_ptr<CoreMLProgramGroup> group;
+    bool lastInGroup = false;
+    std::vector<std::shared_ptr<Tensor>> layoutViews;
+    std::map<const Tensor*, std::string> names;
+    std::set<const Tensor*> outputs;
+    std::set<const Tensor*> constants;
+    std::vector<std::pair<const Tensor*, std::string>> bindings;
+    std::set<std::string> boundNames;
+    std::shared_ptr<CoreMLWeights> weights = std::make_shared<CoreMLWeights>();
+    std::map<std::string, std::shared_ptr<Tensor>> weightViews;
+    std::shared_ptr<CoreMLExecutorWrapper> program, session;
+    std::shared_ptr<CoreMLLayerState> layerState = std::make_shared<CoreMLLayerState>();
+};
 
-    private:
-        Backend::Info mInfo;
-        BackendConfig::PrecisionMode mPrecision;
-        // mutable IHostMemory* mModel = nullptr;
-        const void* mCacheBuffer = nullptr;
-        size_t mCacheSize = 0;
+class CoreMLRuntime : public Runtime {
+public:
+    CoreMLRuntime(const Backend::Info& info);
+    ~CoreMLRuntime() override;
+    CompilerType onGetCompilerType() const override;
+    Backend* onCreate(const BackendConfig* conf, Backend* origin) const override;
+    void onGabageCollect(int level) override;
+    std::shared_ptr<CoreMLExecutorWrapper> getProgram(CoreML__Specification__Model* model,
+                                                      const std::string& weightsPath = "",
+                                                      const std::shared_ptr<std::vector<uint8_t>>& weights = nullptr,
+                                                      bool forceFileCompilation = false) const;
+    size_t compilationCount() const;
+    size_t cacheHitCount() const;
+    std::shared_ptr<CoreMLWeights> findWeights(const std::string& key) const;
+    void cacheWeights(const std::string& key, const std::shared_ptr<CoreMLWeights>& weights) const;
+    bool lowMemory() const { return mMemory == BackendConfig::Memory_Low; }
+    std::unique_lock<std::mutex> lockWeights() const { return std::unique_lock<std::mutex>(mWeightExecutionMutex); }
+    bool prepareWeights(const CoreMLProgramContext& context) const;
 
-        friend class CoreMLBackend;
+private:
+    BackendConfig::PrecisionMode mPrecision;
+    BackendConfig::MemoryMode mMemory;
+    struct CacheEntry {
+        std::shared_ptr<CoreMLExecutorWrapper> program;
+        size_t lastUse;
     };
+    mutable std::mutex mCacheMutex;
+    mutable std::map<std::string, CacheEntry> mPrograms;
+    mutable size_t mCompilations = 0, mCacheHits = 0, mClock = 0, mProgramLoads = 0;
+    mutable std::mutex mWeightMutex;
+    mutable std::map<std::string, std::weak_ptr<CoreMLWeights>> mWeights;
+    mutable std::mutex mWeightExecutionMutex;
+    mutable AutoStorage<int16_t> mWeightScratch;
+    mutable size_t mWeightHits = 0, mWeightLoads = 0, mWeightBytes = 0, mQuantizedBytes = 0;
+};
 
-    class CoreMLBackend : public Backend {
-    public:
-
-        CoreMLBackend(const CoreMLRuntime* runtime);
-        virtual ~CoreMLBackend();
-
-        virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) override;
-        virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;
-        virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) override;
-
-        virtual void onExecuteBegin() const override;
-        virtual void onExecuteEnd() const override;
-
-        virtual Backend::MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;
-        virtual bool onClearBuffer() override;
-        virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
-
-        virtual void onResizeBegin() override;
-        virtual ErrorCode onResizeEnd() override;
-
-    public:
-        // TODO: using memory pool instead static factory
-        template <class T> class PtrContainer {
-            std::vector<T*> ptr_container;
-            std::vector<T*> array_container;
-        public:
-            ~PtrContainer() {
-                for (auto t : ptr_container) {
-                    delete t;
-                }
-                for (auto t : array_container) {
-                    delete [] t;
-                }
-            }
-            void insert(T* t) {
-                ptr_container.push_back(t);
-            }
-            void add(T* t) {
-                array_container.push_back(t);
-            }
-        };
-        // create C struct pointer
-        template <class T> T* create() {
-            static PtrContainer<T> con;
-            auto t = new T;
-            con.insert(t);
-            return t;
-        }
-        template <class T> T* create(size_t size) {
-            static PtrContainer<T> con;
-            auto t = new T[size];
-            con.add(t);
-            return t;
-        }
-        std::string getTensorName(const Tensor* t);
-        void addLayer(CoreML__Specification__NeuralNetworkLayer* layer);
-        ErrorCode buildModel();
-        void invokeModel() const;
-        void setIO(CoreML__Specification__FeatureDescription** describe, const Tensor* t);
-        void setLayerName(CoreML__Specification__NeuralNetworkLayer* layer, std::string&& name);
-        void setLayerInputs(CoreML__Specification__NeuralNetworkLayer* layer, std::vector<std::string>&& inputs);
-        void setLayerOutputs(CoreML__Specification__NeuralNetworkLayer* layer, std::vector<std::string>&& outputs);
-        void copyName(char** ptr, std::string&& name);
-        int getInOutTensorInfo(std::string modelName);
-        size_t getBytes(const halide_type_t& type);
-
-        class Creator {
-        public:
-            virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                        const MNN::Op* op, Backend* backend) const = 0;
-        };
-
-        static bool addCreator(OpType t, Creator* c);
-    private:
-        std::unique_ptr<_CoreML__Specification__Model> mCoreMLModel_;
-        std::vector<CoreML__Specification__NeuralNetworkLayer*> mCoreMLLayerPtrs;
-
-        std::map<const Tensor*, int> mTensorIdxMap, mInputIdxMap, mOutputIdxMap;
-        std::vector<std::string> mModelName;
-        std::vector<std::unique_ptr<float>> mInputData, mOutputData;
-        const CoreMLRuntime* mNPURuntime;
-        BackendConfig::PrecisionMode mPrecision;
-        std::unique_ptr<CoreMLExecutorWrapper> mCoreMLExecutor;
-        SingleBufferWithAllocator mInputBuffer;
-    };
-
-    template <class T>
-    class CoreMLCreatorRegister {
-    public:
-        CoreMLCreatorRegister(OpType type) {
-            T *t = new T;
-            CoreMLBackend::addCreator(type, t);
-        }
-        ~CoreMLCreatorRegister() = default;
-    };
-
-    template <typename T>
-    class TypedCreator : public CoreMLBackend::Creator {
-    public:
-        virtual ~TypedCreator() = default;
-        virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op,
-                                    Backend *backend) const override {
-            auto newOp = new T(backend, op, inputs, outputs);
-            return newOp;
-        }
-    };
-
-#define REGISTER_COREML_OP_CREATOR(name, opType)     \
-    void ___##name##__##opType##__() {            \
-        static TypedCreator<name> _temp;\
-        CoreMLBackend::addCreator(opType, &_temp); \
+class CoreMLBackend : public Backend {
+public:
+    explicit CoreMLBackend(const CoreMLRuntime* runtime);
+    ~CoreMLBackend() override = default;
+    Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const Op* op) override;
+    void* onMapTensor(Tensor::MapType, Tensor::DimensionType, const Tensor*) override { return nullptr; }
+    bool onUnmapTensor(Tensor::MapType, Tensor::DimensionType, const Tensor*, void*) override { return false; }
+    void onExecuteBegin() const override {}
+    void onExecuteEnd() const override {}
+    MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;
+    bool onClearBuffer() override;
+    void onCopyBuffer(const Tensor* src, const Tensor* dst) const override;
+    void onResizeBegin() override { mPending.clear(); }
+    ErrorCode onResizeEnd() override;
+    ErrorCode onResizeEnd(const std::vector<Command*>& commands) override;
+    void recordProgram(Execution* execution, CoreMLProgramContext* context, const std::vector<Tensor*>& outputs) {
+        mPending[execution] = {context, outputs};
     }
+    const Runtime* getRuntime() override { return mRuntime; }
 
-}
+    void setProgramContext(CoreMLProgramContext* context) { mContext = context; }
+    ErrorCode buildCallbackProgram(Execution* execution, CoreMLProgramContext& context,
+                                   const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    ErrorCode buildProgram(CoreMLProgramContext& context, const std::vector<Tensor*>& outputs);
+    std::string getTensorName(const Tensor* tensor);
+    void useFlatIO() { mContext->flatIO = true; }
+    std::vector<int> tensorShape(const Tensor* tensor) const {
+        return mContext->flatIO ? std::vector<int>{static_cast<int>(TensorUtils::getRawSize(tensor))} : tensor->shape();
+    }
+    void replaceTensorWith(const Tensor* src, const Tensor* replace);
+    std::string
+    addState(const std::string& name, const std::vector<int>& shape,
+             CoreML__Specification__MILSpec__DataType dtype = CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__FLOAT16);
+    void addOperation(std::unique_ptr<MilOperationBuilder> builder);
+    std::string buildBlobConst(const void* data, size_t size, CoreML__Specification__MILSpec__DataType dtype,
+                               const std::vector<int>& shape, std::string name = "");
+    template <typename T>
+    std::string buildArray(const std::vector<T> data, std::string name) {
+        std::unique_ptr<MilOperationBuilder> op(new MilOperationBuilder("const"));
+        op->setName(name);
+        op->addOutput(name, MilTypeTraits<T>::dataType, {(int64_t)data.size()});
+        op->addAttribute("val", MilValueBuilder::createMilValueBuilder(data));
+        addOperation(std::move(op));
+        return name;
+    }
+    template <typename T>
+    std::string buildScalar(const T data, std::string name) {
+        std::unique_ptr<MilOperationBuilder> op(new MilOperationBuilder("const"));
+        op->setName(name);
+        op->addOutput(name, MilTypeTraits<T>::dataType, {});
+        op->addAttribute("val", MilValueBuilder::createMilValueBuilder(data));
+        addOperation(std::move(op));
+        return name;
+    }
+    std::string buildScalarFloat32(float data, const std::string& name) {
+        auto value = MilValueBuilder::createMilValueBuilder(data);
+        value->type = MilValueBuilder::Type::SCALAR_FLOAT32;
+        std::unique_ptr<MilOperationBuilder> op(new MilOperationBuilder("const"));
+        op->setName(name);
+        op->addOutput(name, CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__FLOAT32, {});
+        op->addAttribute("val", std::move(value));
+        addOperation(std::move(op));
+        return name;
+    }
+    std::string buildShape(const std::vector<int> data, std::string name) {
+        std::unique_ptr<MilOperationBuilder> op(new MilOperationBuilder("const"));
+        op->setName(name);
+        op->addOutput(name, CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__INT32, {(int64_t)data.size()});
+        op->addAttribute("val", MilValueBuilder::createMilShapeBuilder(data));
+        addOperation(std::move(op));
+        return name;
+    }
+    // Bind an execution-owned input (for example the KV write position or attention mask).
+    std::string addInput(const Tensor* tensor, const std::string& name);
+    std::string existingWeight(const std::string& name) const {
+        return mContext->weights->tensors.count(name) ? name : "";
+    }
+    const Tensor* weightTensor(const std::string& name) const {
+        auto found = mContext->weights->tensors.find(name);
+        return found == mContext->weights->tensors.end() ? nullptr : found->second.get();
+    }
+    void releaseWeight(const std::string& name) { mContext->weights->tensors.erase(name); }
+    bool restoreWeights(const std::string& key);
+    void cacheWeights(const std::string& key);
+    Tensor* allocateWeight(const std::string& name, const std::vector<int>& shape,
+                           std::shared_ptr<CoreMLWeightSource> source = nullptr);
+    bool lowMemory() const { return mRuntime->lowMemory(); }
+    CoreML__Specification__MILSpec__DataType typeConvert(const halide_type_t& type) const;
+    int getBytes(const halide_type_t& type) const;
+    class Creator {
+    public:
+        virtual ~Creator() = default;
+        virtual Execution* onCreate(const std::vector<Tensor*>&, const std::vector<Tensor*>&, const Op*,
+                                    Backend*) const = 0;
+    };
+    static bool addCreator(OpType type, Creator* creator);
 
-#endif //MNN_COREMLBACKEND_H
+private:
+    struct PendingProgram {
+        CoreMLProgramContext* context;
+        std::vector<Tensor*> outputs;
+    };
+    ErrorCode buildProgramGroups(const std::vector<Command*>& commands,
+                                 const std::map<Execution*, PendingProgram>& pending, bool forceFileCompilation = false);
+    std::map<Execution*, PendingProgram> mPending;
+    CoreMLProgramContext* mContext = nullptr;
+    const CoreMLRuntime* mRuntime;
+    std::shared_ptr<EagerBufferAllocator> mBuffers;
+};
+
+template <typename T>
+class TypedCreator : public CoreMLBackend::Creator {
+public:
+    Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const Op* op,
+                        Backend* backend) const override {
+        return new T(backend, op, inputs, outputs);
+    }
+};
+#define REGISTER_COREML_OP_CREATOR(name, opType)     \
+    void ___##name##__##opType##__() {               \
+        static TypedCreator<name> creator;           \
+        CoreMLBackend::addCreator(opType, &creator); \
+    }
+} // namespace MNN
+#endif

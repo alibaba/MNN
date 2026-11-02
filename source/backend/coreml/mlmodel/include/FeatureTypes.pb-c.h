@@ -29,6 +29,7 @@ typedef struct _CoreML__Specification__ArrayFeatureType__EnumeratedShapes CoreML
 typedef struct _CoreML__Specification__ArrayFeatureType__ShapeRange CoreML__Specification__ArrayFeatureType__ShapeRange;
 typedef struct _CoreML__Specification__DictionaryFeatureType CoreML__Specification__DictionaryFeatureType;
 typedef struct _CoreML__Specification__SequenceFeatureType CoreML__Specification__SequenceFeatureType;
+typedef struct _CoreML__Specification__StateFeatureType CoreML__Specification__StateFeatureType;
 typedef struct _CoreML__Specification__FeatureType CoreML__Specification__FeatureType;
 
 
@@ -50,7 +51,11 @@ typedef enum _CoreML__Specification__ImageFeatureType__ColorSpace {
   /*
    * 32 bits per pixel: BGRA with A channel ignored
    */
-  CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__BGR = 30
+  CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__BGR = 30,
+  /*
+   * 16 bits float per pixel
+   */
+  CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__GRAYSCALE_FLOAT16 = 40
     PROTOBUF_C__FORCE_ENUM_TO_BE_INT_SIZE(CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE)
 } CoreML__Specification__ImageFeatureType__ColorSpace;
 typedef enum _CoreML__Specification__ArrayFeatureType__ArrayDataType {
@@ -66,14 +71,21 @@ typedef enum _CoreML__Specification__ArrayFeatureType__ArrayDataType {
   /*
    * 0x20000 | 32
    */
-  CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__INT32 = 131104
+  CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__INT32 = 131104,
+  /*
+   * 0x20000 |  8
+   */
+  CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__INT8 = 131080,
+  /*
+   * 0x10000 | 16
+   */
+  CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__FLOAT16 = 65552
     PROTOBUF_C__FORCE_ENUM_TO_BE_INT_SIZE(CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE)
 } CoreML__Specification__ArrayFeatureType__ArrayDataType;
 
 /* --- messages --- */
 
 /*
- **
  * The 64-bit integer feature type.
  */
 struct  _CoreML__Specification__Int64FeatureType
@@ -86,7 +98,6 @@ struct  _CoreML__Specification__Int64FeatureType
 
 
 /*
- **
  * The double-precision floating point number feature type.
  */
 struct  _CoreML__Specification__DoubleFeatureType
@@ -99,7 +110,6 @@ struct  _CoreML__Specification__DoubleFeatureType
 
 
 /*
- **
  * The string feature type.
  */
 struct  _CoreML__Specification__StringFeatureType
@@ -166,7 +176,6 @@ typedef enum {
 } CoreML__Specification__ImageFeatureType__SizeFlexibilityCase;
 
 /*
- **
  * The image feature type.
  */
 struct  _CoreML__Specification__ImageFeatureType
@@ -239,7 +248,6 @@ typedef enum {
 } CoreML__Specification__ArrayFeatureType__DefaultOptionalValueCase;
 
 /*
- **
  * The array feature type.
  */
 struct  _CoreML__Specification__ArrayFeatureType
@@ -273,7 +281,6 @@ typedef enum {
 } CoreML__Specification__DictionaryFeatureType__KeyTypeCase;
 
 /*
- **
  * The dictionary feature type.
  */
 struct  _CoreML__Specification__DictionaryFeatureType
@@ -298,7 +305,6 @@ typedef enum {
 } CoreML__Specification__SequenceFeatureType__TypeCase;
 
 /*
- **
  * The Sequence feature type.
  */
 struct  _CoreML__Specification__SequenceFeatureType
@@ -320,6 +326,25 @@ struct  _CoreML__Specification__SequenceFeatureType
 
 
 typedef enum {
+  CORE_ML__SPECIFICATION__STATE_FEATURE_TYPE__TYPE__NOT_SET = 0,
+  CORE_ML__SPECIFICATION__STATE_FEATURE_TYPE__TYPE_ARRAY_TYPE = 1
+    PROTOBUF_C__FORCE_ENUM_TO_BE_INT_SIZE(CORE_ML__SPECIFICATION__STATE_FEATURE_TYPE__TYPE)
+} CoreML__Specification__StateFeatureType__TypeCase;
+
+struct  _CoreML__Specification__StateFeatureType
+{
+  ProtobufCMessage base;
+  CoreML__Specification__StateFeatureType__TypeCase type_case;
+  union {
+    CoreML__Specification__ArrayFeatureType *arraytype;
+  };
+};
+#define CORE_ML__SPECIFICATION__STATE_FEATURE_TYPE__INIT \
+ { PROTOBUF_C_MESSAGE_INIT (&core_ml__specification__state_feature_type__descriptor) \
+    , CORE_ML__SPECIFICATION__STATE_FEATURE_TYPE__TYPE__NOT_SET, {0} }
+
+
+typedef enum {
   CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE__NOT_SET = 0,
   CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_INT64_TYPE = 1,
   CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_DOUBLE_TYPE = 2,
@@ -327,12 +352,12 @@ typedef enum {
   CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_IMAGE_TYPE = 4,
   CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_MULTI_ARRAY_TYPE = 5,
   CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_DICTIONARY_TYPE = 6,
-  CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_SEQUENCE_TYPE = 7
+  CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_SEQUENCE_TYPE = 7,
+  CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_STATE_TYPE = 8
     PROTOBUF_C__FORCE_ENUM_TO_BE_INT_SIZE(CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE)
 } CoreML__Specification__FeatureType__TypeCase;
 
 /*
- **
  * A feature, which may be optional.
  */
 struct  _CoreML__Specification__FeatureType
@@ -348,6 +373,7 @@ struct  _CoreML__Specification__FeatureType
     CoreML__Specification__ArrayFeatureType *multiarraytype;
     CoreML__Specification__DictionaryFeatureType *dictionarytype;
     CoreML__Specification__SequenceFeatureType *sequencetype;
+    CoreML__Specification__StateFeatureType *statetype;
   };
 };
 #define CORE_ML__SPECIFICATION__FEATURE_TYPE__INIT \
@@ -525,6 +551,25 @@ CoreML__Specification__SequenceFeatureType *
 void   core_ml__specification__sequence_feature_type__free_unpacked
                      (CoreML__Specification__SequenceFeatureType *message,
                       ProtobufCAllocator *allocator);
+/* CoreML__Specification__StateFeatureType methods */
+void   core_ml__specification__state_feature_type__init
+                     (CoreML__Specification__StateFeatureType         *message);
+size_t core_ml__specification__state_feature_type__get_packed_size
+                     (const CoreML__Specification__StateFeatureType   *message);
+size_t core_ml__specification__state_feature_type__pack
+                     (const CoreML__Specification__StateFeatureType   *message,
+                      uint8_t             *out);
+size_t core_ml__specification__state_feature_type__pack_to_buffer
+                     (const CoreML__Specification__StateFeatureType   *message,
+                      ProtobufCBuffer     *buffer);
+CoreML__Specification__StateFeatureType *
+       core_ml__specification__state_feature_type__unpack
+                     (ProtobufCAllocator  *allocator,
+                      size_t               len,
+                      const uint8_t       *data);
+void   core_ml__specification__state_feature_type__free_unpacked
+                     (CoreML__Specification__StateFeatureType *message,
+                      ProtobufCAllocator *allocator);
 /* CoreML__Specification__FeatureType methods */
 void   core_ml__specification__feature_type__init
                      (CoreML__Specification__FeatureType         *message);
@@ -588,6 +633,9 @@ typedef void (*CoreML__Specification__DictionaryFeatureType_Closure)
 typedef void (*CoreML__Specification__SequenceFeatureType_Closure)
                  (const CoreML__Specification__SequenceFeatureType *message,
                   void *closure_data);
+typedef void (*CoreML__Specification__StateFeatureType_Closure)
+                 (const CoreML__Specification__StateFeatureType *message,
+                  void *closure_data);
 typedef void (*CoreML__Specification__FeatureType_Closure)
                  (const CoreML__Specification__FeatureType *message,
                   void *closure_data);
@@ -613,6 +661,7 @@ extern const ProtobufCMessageDescriptor core_ml__specification__array_feature_ty
 extern const ProtobufCEnumDescriptor    core_ml__specification__array_feature_type__array_data_type__descriptor;
 extern const ProtobufCMessageDescriptor core_ml__specification__dictionary_feature_type__descriptor;
 extern const ProtobufCMessageDescriptor core_ml__specification__sequence_feature_type__descriptor;
+extern const ProtobufCMessageDescriptor core_ml__specification__state_feature_type__descriptor;
 extern const ProtobufCMessageDescriptor core_ml__specification__feature_type__descriptor;
 
 PROTOBUF_C__END_DECLS

@@ -4,28 +4,21 @@ import MNN.numpy as np
 import sys
 import os
 def makeDirForPath(filename):
-    if filename.find('/') < 0:
-        return
-    names = filename.split('/')
-    dirname = ""
-    for l in range(0, len(names)-1):
-        dirname = dirname + names[l] + '/'
-    print(dirname)
-    if os.path.exists(dirname):
-        return
-    os.makedirs(dirname)
+    dirname = os.path.dirname(filename)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
 
 def run():
     if len(sys.argv) < 3:
         print('Usage: python3 make_test_for_mnn.py XXX.mnn output')
     print('MNN File: ', sys.argv[1])
     print('Target Dir: ', sys.argv[2])
-    
+
     net = MNN.nn.load_module_from_file(sys.argv[1], [], [])
     info = net.get_info()
     print('inputs: ', info['inputNames'])
     print('outputs:', info['outputNames'])
-    
+
     config = {}
     config['outputs'] = info['outputNames']
     config['inputs'] = []
@@ -61,12 +54,12 @@ def run():
 
         inputs.append(var)
         config['inputs'].append(input)
-    
+
     import json
     jsonString = json.dumps(config, indent=4)
     with open(os.path.join(outputDir, 'input.json'), 'w') as f:
         f.write(jsonString)
-    
+
     outputs = net.forward(inputs)
     for i in range(0, len(outputs)):
         out = outputs[i]
