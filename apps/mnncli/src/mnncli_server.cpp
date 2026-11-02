@@ -5,6 +5,8 @@
 
 #include "mnncli_server.hpp"
 #include "log_utils.hpp"
+#include "tool_call_utils.hpp"
+#include <atomic>
 #include <iostream>
 
 namespace mnncli {
@@ -40,6 +42,13 @@ std::string trimLeadingWhitespace(const std::string& str) {
         return !std::isspace(ch); // Find the first non-whitespace character
     });
     return std::string(it, str.end()); // Create a substring from the first non-whitespace character
+}
+
+std::string CompleteUtf8(const std::string& text) {
+    std::string result;
+    Utf8StreamProcessor processor([&](const std::string& part) { result += part; });
+    processor.processStream(text.data(), text.size());
+    return result;
 }
 
 std::string ExtractAnthropicText(const json& content) {
@@ -162,22 +171,13 @@ void MnncliServer::Answer(MNN::Transformer::Llm* llm, const json &messages, std:
       prompts.push_back(item);
     }
   }
-  std::stringstream response_buffer;
-  Utf8StreamProcessor processor([&response_buffer, on_result](const std::string& utf8Char) {
-    bool is_eop = utf8Char.find("<eop>") != std::string::npos;
-    if (!is_eop) {
-        response_buffer << utf8Char;
-    } else {
-        std::string response_result =  response_buffer.str();
-        on_result(response_result);
-    }
-    }
-  );
-  LlmStreamBuffer stream_buffer{[&processor](const char* str, size_t len){
-    processor.processStream(str, len);
-  }};
-  std::ostream output_ostream(&stream_buffer);std::lock_guard<std::mutex> lock(llm_mutex_);
-  llm->response(this->is_r1_ ? ConvertToR1(prompts) : prompts, &output_ostream, "<eop>");
+  std::ostringstream output;
+  std::lock_guard<std::mutex> lock(llm_mutex_);
+  llm->response(this->is_r1_ ? ConvertToR1(prompts) : prompts, &output, "<eop>");
+  auto text = output.str();
+  if (text.size() >= 5 && text.compare(text.size() - 5, 5, "<eop>") == 0) text.resize(text.size() - 5);
+  // The runtime may exhaust its token budget without writing an end marker.
+  on_result(CompleteUtf8(text));
 }
 
 void MnncliServer::AnswerStreaming(MNN::Transformer::Llm* llm,
@@ -195,12 +195,14 @@ void MnncliServer::AnswerStreaming(MNN::Transformer::Llm* llm,
         }
     }
     std::string answer = "";
-    Utf8StreamProcessor processor([&on_partial, &answer](const std::string &utf8Char) {
+    bool ended = false;
+    Utf8StreamProcessor processor([&on_partial, &answer, &ended](const std::string &utf8Char) {
         bool is_eop = (utf8Char.find("<eop>") != std::string::npos);
         if (is_eop) {
             std::string response_result = answer;
             LOG_DEBUG("response result: " + response_result);
             on_partial("", true);
+            ended = true;
         } else {
             answer += utf8Char;
             on_partial(utf8Char, false);
@@ -214,6 +216,7 @@ void MnncliServer::AnswerStreaming(MNN::Transformer::Llm* llm,
     std::ostream output_ostream(&stream_buffer);
     std::lock_guard<std::mutex> lock(llm_mutex_);
     llm->response(this->is_r1_ ? ConvertToR1(prompts) : prompts, &output_ostream, "<eop>");
+    if (!ended) on_partial("", true);
 }
 
 
@@ -237,6 +240,7 @@ void MnncliServer::Start(MNN::Transformer::Llm* llm, bool is_r1, const std::stri
     server.Post("/reset", [&](const httplib::Request &req, httplib::Response &res) {
       LOG_DEBUG("POST /reset");
       AllowCors(res);
+      std::lock_guard<std::mutex> lock(llm_mutex_);
       llm->reset();
       res.set_content("{\"status\": \"ok\"}", "application/json");
     });
@@ -291,6 +295,105 @@ void MnncliServer::Start(MNN::Transformer::Llm* llm, bool is_r1, const std::stri
           return;
       }
       json messages = request_json["messages"];
+      bool tool_request = request_json.contains("tools") || request_json.contains("tool_choice");
+      if (messages.is_array()) {
+          for (const auto& message : messages) {
+              if (message.is_object() && (message.contains("tool_calls") ||
+                  (message.contains("role") && message["role"] == "tool"))) tool_request = true;
+          }
+      }
+      if (tool_request) {
+          auto fail = [&](int status, const std::string& reason) {
+              res.status = status;
+              res.set_content(json({{"error", {{"message", reason}, {"type", "tool_call_error"}}}}).dump(),
+                              "application/json");
+          };
+          json normalized, tools;
+          std::string error;
+          if (is_r1_ || !toolcall::prepare(request_json, normalized, tools, error)) {
+              fail(400, is_r1_ ? "Tool requests are not supported in R1 mode" : error);
+              return;
+          }
+          if ((request_json.contains("stream") && !request_json["stream"].is_boolean()) ||
+              (request_json.contains("model") && !request_json["model"].is_string())) {
+              fail(400, "Invalid model or stream field");
+              return;
+          }
+          static std::atomic<unsigned long long> sequence{0};
+          const std::string id = GetCurrentTimeAsString() + "_" + std::to_string(sequence.fetch_add(1));
+          std::string output;
+          int prompt_tokens = 0, completion_tokens = 0;
+          bool thinking = false;
+          auto status = MNN::Transformer::LlmStatus::RUNNING;
+          {
+              std::lock_guard<std::mutex> lock(llm_mutex_);
+              const auto config = json::parse(llm->dump_config(), nullptr, false);
+              auto original = config.value("jinja", json::object());
+              if (!original.contains("context") || !original["context"].is_object()) original["context"] = json::object();
+              // set_config recursively merges objects, so an absent key cannot clear request-scoped tools.
+              if (!original["context"].contains("tools")) original["context"]["tools"] = json::array();
+              auto scoped = original;
+              if (!scoped.contains("context") || !scoped["context"].is_object()) scoped["context"] = json::object();
+              scoped["context"]["tools"] = tools;
+              struct RestoreContext {
+                  MNN::Transformer::Llm* llm;
+                  std::string config;
+                  ~RestoreContext() { llm->set_config(config); }
+              } restore{llm, json({{"jinja", original}}).dump()};
+              if (!llm->set_config(json({{"jinja", scoped}}).dump())) {
+                  fail(500, "Could not configure tool context");
+                  return;
+              }
+              MNN::Transformer::ChatMessages prompts;
+              for (const auto& message : normalized) prompts.emplace_back("json", message.dump());
+              const auto rendered = llm->apply_chat_template(prompts);
+              const auto think_start = rendered.rfind("<think>");
+              const auto think_end = rendered.rfind("</think>");
+              thinking = think_start != std::string::npos &&
+                         (think_end == std::string::npos || think_start > think_end);
+              std::ostringstream buffer;
+              llm->response(prompts, &buffer, "<eop>", request_json.value("max_tokens", -1));
+              output = buffer.str();
+              prompt_tokens = llm->getContext()->prompt_len;
+              completion_tokens = llm->getContext()->gen_seq_len;
+              status = llm->getContext()->status;
+          }
+          if (status != MNN::Transformer::LlmStatus::NORMAL_FINISHED &&
+              status != MNN::Transformer::LlmStatus::MAX_TOKENS_FINISHED) {
+              fail(500, "Model generation did not finish successfully");
+              return;
+          }
+          if (output.size() >= 5 && output.compare(output.size() - 5, 5, "<eop>") == 0) output.resize(output.size() - 5);
+          output = CompleteUtf8(output);
+          json message;
+          if (!toolcall::parse(output, tools, id, message, error, thinking)) { fail(502, error); return; }
+          const std::string finish = message.contains("tool_calls") ? "tool_calls" :
+              (status == MNN::Transformer::LlmStatus::MAX_TOKENS_FINISHED ? "length" : "stop");
+          const std::string model = request_json.value("model", std::string("undefined-model"));
+          json response = {{"id", "chatcmpl-" + id}, {"object", "chat.completion"},
+              {"created", static_cast<int64_t>(time(nullptr))}, {"model", model},
+              {"choices", json::array({{{"index", 0}, {"message", message}, {"finish_reason", finish}}})},
+              {"usage", {{"prompt_tokens", prompt_tokens}, {"completion_tokens", completion_tokens},
+                         {"total_tokens", prompt_tokens + completion_tokens}}}};
+          if (!request_json.value("stream", false)) {
+              res.set_content(response.dump(), "application/json");
+          } else {
+              // Buffer tool-enabled generations so partial XML never escapes as assistant text.
+              auto delta = message;
+              if (delta.contains("tool_calls")) {
+                  for (size_t i = 0; i < delta["tool_calls"].size(); ++i) delta["tool_calls"][i]["index"] = i;
+              }
+              response.erase("usage");
+              response["object"] = "chat.completion.chunk";
+              response["choices"] = json::array({{{"index", 0}, {"delta", delta}, {"finish_reason", nullptr}}});
+              std::string events = "data: " + response.dump() + "\n\n";
+              response["choices"] = json::array({{{"index", 0}, {"delta", json::object()}, {"finish_reason", finish}}});
+              events += "data: " + response.dump() + "\n\ndata: [DONE]\n\n";
+              res.set_header("Cache-Control", "no-cache");
+              res.set_content(events, "text/event-stream");
+          }
+          return;
+      }
       LOG_DEBUG("received messages:" + messages.dump(0));
       std::string model = request_json.value("model", "undefined-model");
       bool stream = request_json.value("stream", false);
