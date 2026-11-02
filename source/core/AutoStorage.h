@@ -14,6 +14,7 @@
 #include <atomic>
 #include <type_traits>
 #include "MNNMemoryUtils.h"
+#include "MNNFileUtils.h"
 
 namespace MNN {
 template <typename T>
@@ -41,7 +42,11 @@ public:
      */
     ~AutoStorage() {
         if ((NULL != mData) && mRelease) {
-            MNNMemoryFreeAlign(mData);
+            if (mMapped) {
+                MNNUnmapFile(mData, (size_t)mSize);
+            } else {
+                MNNMemoryFreeAlign(mData);
+            }
         }
     }
 
@@ -95,10 +100,29 @@ public:
      */
     void release() {
         if (mRelease && NULL != mData) {
-            MNNMemoryFreeAlign(mData);
+            if (mMapped) {
+                MNNUnmapFile(mData, (size_t)mSize);
+            } else {
+                MNNMemoryFreeAlign(mData);
+            }
             mData = NULL;
             mSize = 0;
         }
+    }
+
+    /**
+     * @brief set mmap-owned data (PROT_READ mapping created by MNNMmapFile).
+     * @warning data MUST come from MNNMmapFile; destructor/release() will MNNUnmapFile it
+     */
+    void setMapped(T* data, int size) {
+        if (NULL != mData && mRelease) {
+            if (mMapped) { MNNUnmapFile(mData, (size_t)mSize); }
+            else { MNNMemoryFreeAlign(mData); }
+        }
+        mData = data;
+        mSize = size;
+        mRelease = true;
+        mMapped = true;
     }
 
     /**
@@ -120,6 +144,7 @@ private:
     T* mData  = NULL;
     int mSize = 0;
     bool mRelease = true;
+    bool mMapped = false;
 };
 
 /** Auto Release Class*/
