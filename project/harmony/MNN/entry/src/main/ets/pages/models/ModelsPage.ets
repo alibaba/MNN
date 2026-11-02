@@ -107,9 +107,11 @@ export struct ModelsPage {
     }
     this.busy = true;
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    ModelRepository.getInstance().deleteModel(model.id, context.filesDir).then(() => {
-      this.refresh(true);
-    }).catch((error: Error) => {
+    ModelRepository.getInstance().deleteModel(model.id, context.filesDir)
+      .then(() => SettingsStore.getInstance().resetModelRuntimeSettings(model.id))
+      .then(() => {
+        this.refresh(true);
+      }).catch((error: Error) => {
       this.error = error.message;
       this.busy = false;
     });
