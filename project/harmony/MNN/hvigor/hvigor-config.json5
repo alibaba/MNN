@@ -1,8 +1,6 @@
 {
   "modelVersion": "5.0.0",
-  "dependencies": {
-    "@ali/tcpkg": "^3.0.120"
-  },
+  "dependencies": {},
   "execution": {},
   "logging": {},
   "debugging": {}
