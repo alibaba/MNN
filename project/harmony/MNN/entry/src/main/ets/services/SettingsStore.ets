@@ -28,6 +28,15 @@ interface RuntimeSettingsDocument {
   temperature?: number;
   top_p?: number;
   top_k?: number;
+  min_p?: number;
+  tfs_z?: number;
+  typical?: number;
+  repetition_penalty?: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  penalty_window?: number;
+  n_gram?: number;
+  ngram_factor?: number;
 }
 
 interface RuntimeJinjaContext {
@@ -51,6 +60,17 @@ interface NativeRuntimeConfigDocument {
   temperature: number;
   top_p: number;
   top_k: number;
+  min_p: number;
+  tfs_z: number;
+  typical: number;
+  repetition_penalty: number;
+  presence_penalty: number;
+  frequency_penalty: number;
+  penalty_window: number;
+  n_gram: number;
+  ngram_factor: number;
+  max_new_tokens: number;
+  system_prompt: string;
   jinja: RuntimeJinja;
 }
 
@@ -177,6 +197,17 @@ export class SettingsStore {
       temperature: settings.temperature,
       top_p: settings.topP,
       top_k: settings.topK,
+      min_p: settings.minP,
+      tfs_z: settings.tfsZ,
+      typical: settings.typical,
+      repetition_penalty: settings.penalty,
+      presence_penalty: settings.presencePenalty,
+      frequency_penalty: settings.frequencyPenalty,
+      penalty_window: settings.penaltyWindow,
+      n_gram: settings.nGram,
+      ngram_factor: settings.nGramFactor,
+      max_new_tokens: settings.maxTokens,
+      system_prompt: settings.systemPrompt,
       jinja: { context: { enable_thinking: settings.thinking } }
     };
     return JSON.stringify(document);
@@ -199,6 +230,15 @@ export class SettingsStore {
     settings.temperature = this.clamp(document.temperature, 0.05, 2, settings.temperature);
     settings.topP = this.clamp(document.top_p, 0, 1, settings.topP);
     settings.topK = this.clamp(document.top_k, 1, 200, settings.topK);
+    settings.minP = this.clamp(document.min_p, 0, 1, settings.minP);
+    settings.tfsZ = this.clamp(document.tfs_z, 0, 1, settings.tfsZ);
+    settings.typical = this.clamp(document.typical, 0, 1, settings.typical);
+    settings.penalty = this.clamp(document.repetition_penalty, 1, 2, settings.penalty);
+    settings.presencePenalty = this.clamp(document.presence_penalty, 0, 2, settings.presencePenalty);
+    settings.frequencyPenalty = this.clamp(document.frequency_penalty, 0, 2, settings.frequencyPenalty);
+    settings.penaltyWindow = this.clamp(document.penalty_window, 0, 1024, settings.penaltyWindow);
+    settings.nGram = this.clamp(document.n_gram, 0, 16, settings.nGram);
+    settings.nGramFactor = this.clamp(document.ngram_factor, 0, 2, settings.nGramFactor);
     return settings;
   }
 
@@ -216,7 +256,16 @@ export class SettingsStore {
       sampler_type: settings.samplerType,
       temperature: this.clamp(settings.temperature, 0.05, 2, 0.6),
       top_p: this.clamp(settings.topP, 0, 1, 0.95),
-      top_k: this.clamp(settings.topK, 1, 200, 20)
+      top_k: this.clamp(settings.topK, 1, 200, 20),
+      min_p: this.clamp(settings.minP, 0, 1, 0.05),
+      tfs_z: this.clamp(settings.tfsZ, 0, 1, 1.0),
+      typical: this.clamp(settings.typical, 0, 1, 0.95),
+      repetition_penalty: this.clamp(settings.penalty, 1, 2, 1.02),
+      presence_penalty: this.clamp(settings.presencePenalty, 0, 2, 0),
+      frequency_penalty: this.clamp(settings.frequencyPenalty, 0, 2, 0),
+      penalty_window: this.clamp(settings.penaltyWindow, 0, 1024, 0),
+      n_gram: this.clamp(settings.nGram, 0, 16, 8),
+      ngram_factor: this.clamp(settings.nGramFactor, 0, 2, 1.02)
     };
     return document;
   }
@@ -244,6 +293,9 @@ export class SettingsStore {
   private parseSampler(value?: string): RuntimeSamplerType {
     if (value === RuntimeSamplerType.GREEDY) {
       return RuntimeSamplerType.GREEDY;
+    }
+    if (value === RuntimeSamplerType.PENALTY) {
+      return RuntimeSamplerType.PENALTY;
     }
     if (value === RuntimeSamplerType.TEMPERATURE) {
       return RuntimeSamplerType.TEMPERATURE;

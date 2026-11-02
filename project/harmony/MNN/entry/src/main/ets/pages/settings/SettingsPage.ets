@@ -66,7 +66,33 @@ export struct SettingsPage {
     copy.temperature = this.settings.temperature;
     copy.topP = this.settings.topP;
     copy.topK = this.settings.topK;
+    copy.minP = this.settings.minP;
+    copy.tfsZ = this.settings.tfsZ;
+    copy.typical = this.settings.typical;
+    copy.penalty = this.settings.penalty;
+    copy.presencePenalty = this.settings.presencePenalty;
+    copy.frequencyPenalty = this.settings.frequencyPenalty;
+    copy.penaltyWindow = this.settings.penaltyWindow;
+    copy.nGram = this.settings.nGram;
+    copy.nGramFactor = this.settings.nGramFactor;
     return copy;
+  }
+
+  private samplerIndex(): number {
+    switch (this.settings.samplerType) {
+      case RuntimeSamplerType.MIXED:
+        return 0;
+      case RuntimeSamplerType.GREEDY:
+        return 1;
+      case RuntimeSamplerType.PENALTY:
+        return 2;
+      case RuntimeSamplerType.TEMPERATURE:
+        return 3;
+      case RuntimeSamplerType.TOP_K:
+        return 4;
+      default:
+        return 5;
+    }
   }
 
   private save(): void {
@@ -272,19 +298,18 @@ export struct SettingsPage {
             Select([
               { value: '混合采样' },
               { value: '贪心' },
+              { value: '惩罚采样' },
               { value: '温度' },
               { value: 'Top-K' },
               { value: 'Top-P' }
             ])
-              .selected(this.settings.samplerType === RuntimeSamplerType.MIXED ? 0 :
-                (this.settings.samplerType === RuntimeSamplerType.GREEDY ? 1 :
-                  (this.settings.samplerType === RuntimeSamplerType.TEMPERATURE ? 2 :
-                    (this.settings.samplerType === RuntimeSamplerType.TOP_K ? 3 : 4))))
+              .selected(this.samplerIndex())
               .onSelect((index: number) => {
                 const next = this.copySettings();
                 const values: RuntimeSamplerType[] = [
                   RuntimeSamplerType.MIXED,
                   RuntimeSamplerType.GREEDY,
+                  RuntimeSamplerType.PENALTY,
                   RuntimeSamplerType.TEMPERATURE,
                   RuntimeSamplerType.TOP_K,
                   RuntimeSamplerType.TOP_P
@@ -302,7 +327,8 @@ export struct SettingsPage {
             this.settingTitle('Temperature', this.settings.temperature.toFixed(2))
             Slider({ value: this.settings.temperature, min: 0.05, max: 2, step: 0.05 })
               .enabled(this.settings.samplerType !== RuntimeSamplerType.GREEDY &&
-                this.settings.samplerType !== RuntimeSamplerType.TOP_K)
+                this.settings.samplerType !== RuntimeSamplerType.TOP_K &&
+                this.settings.samplerType !== RuntimeSamplerType.PENALTY)
               .onChange((value: number) => {
                 const next = this.copySettings();
                 next.temperature = value;
@@ -324,6 +350,54 @@ export struct SettingsPage {
               .onChange((value: number) => {
                 const next = this.copySettings();
                 next.topK = Math.round(value);
+                this.settings = next;
+              })
+            this.settingTitle('Min-P', this.settings.minP.toFixed(2))
+            Slider({ value: this.settings.minP, min: 0, max: 1, step: 0.01 })
+              .enabled(this.settings.samplerType === RuntimeSamplerType.MIXED)
+              .onChange((value: number) => {
+                const next = this.copySettings();
+                next.minP = value;
+                this.settings = next;
+              })
+            this.settingTitle('TFS-Z', this.settings.tfsZ.toFixed(2))
+            Slider({ value: this.settings.tfsZ, min: 0, max: 1, step: 0.01 })
+              .enabled(this.settings.samplerType === RuntimeSamplerType.MIXED)
+              .onChange((value: number) => {
+                const next = this.copySettings();
+                next.tfsZ = value;
+                this.settings = next;
+              })
+            this.settingTitle('Typical', this.settings.typical.toFixed(2))
+            Slider({ value: this.settings.typical, min: 0, max: 1, step: 0.01 })
+              .enabled(this.settings.samplerType === RuntimeSamplerType.MIXED)
+              .onChange((value: number) => {
+                const next = this.copySettings();
+                next.typical = value;
+                this.settings = next;
+              })
+            this.settingTitle('重复惩罚', this.settings.penalty.toFixed(2))
+            Slider({ value: this.settings.penalty, min: 1, max: 2, step: 0.01 })
+              .enabled(this.settings.samplerType === RuntimeSamplerType.PENALTY)
+              .onChange((value: number) => {
+                const next = this.copySettings();
+                next.penalty = value;
+                this.settings = next;
+              })
+            this.settingTitle('N-Gram', this.settings.nGram.toString())
+            Slider({ value: this.settings.nGram, min: 0, max: 16, step: 1 })
+              .enabled(this.settings.samplerType === RuntimeSamplerType.PENALTY)
+              .onChange((value: number) => {
+                const next = this.copySettings();
+                next.nGram = Math.round(value);
+                this.settings = next;
+              })
+            this.settingTitle('N-Gram Factor', this.settings.nGramFactor.toFixed(2))
+            Slider({ value: this.settings.nGramFactor, min: 0, max: 2, step: 0.01 })
+              .enabled(this.settings.samplerType === RuntimeSamplerType.PENALTY)
+              .onChange((value: number) => {
+                const next = this.copySettings();
+                next.nGramFactor = value;
                 this.settings = next;
               })
           }

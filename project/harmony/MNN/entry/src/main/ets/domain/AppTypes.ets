@@ -108,25 +108,36 @@ export enum RuntimeMemory {
 export enum RuntimeSamplerType {
   GREEDY = 'greedy',
   MIXED = 'mixed',
+  PENALTY = 'penalty',
   TEMPERATURE = 'temperature',
   TOP_K = 'topK',
   TOP_P = 'topP'
 }
 
+// Defaults mirror the Android MnnLlmChat ModelConfig.defaultConfig so the two clients behave the same.
 export class ModelRuntimeSettings {
   backendType: RuntimeBackendType = RuntimeBackendType.CPU;
   threadNum: number = 4;
   precision: RuntimePrecision = RuntimePrecision.LOW;
   memory: RuntimeMemory = RuntimeMemory.LOW;
-  useMmap: boolean = true;
-  promptCache: boolean = true;
-  maxTokens: number = 256;
+  useMmap: boolean = false;
+  promptCache: boolean = false;
+  maxTokens: number = 2048;
   systemPrompt: string = 'You are a helpful assistant.';
   thinking: boolean = true;
   samplerType: RuntimeSamplerType = RuntimeSamplerType.MIXED;
   temperature: number = 0.6;
   topP: number = 0.95;
   topK: number = 20;
+  minP: number = 0.05;
+  tfsZ: number = 1.0;
+  typical: number = 0.95;
+  penalty: number = 1.02;
+  presencePenalty: number = 0.0;
+  frequencyPenalty: number = 0.0;
+  penaltyWindow: number = 0;
+  nGram: number = 8;
+  nGramFactor: number = 1.02;
 }
 
 export class MarketSources {
