@@ -1,0 +1,9 @@
+{
+  name: '@taobao-ohos/mnn',
+  version: '2.9.6-SNAPSHOT.1731466060113',
+  description: 'Please describe the basic information.',
+  main: 'Index.ets',
+  author: 'yanxing',
+  license: 'Apache-2.0',
+  dependencies: {},
+}

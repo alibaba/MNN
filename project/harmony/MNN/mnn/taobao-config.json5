@@ -1,0 +1,16 @@
+{
+  "nav": [
+    {
+      "label": "demo页面2", // 页面描述
+      "page": "src/main/ets/components/DemoPage.ets",	// 页面相对路径
+      "intentFilter": [		// 过滤器，同安卓
+        {
+          "scheme": "https",
+          "host": "m.taobao.com",
+          "path": "/demo"
+        }
+      ],
+      "launchMode":"standard" 	// 可以缺省，默认为standard
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {
+    "externalNativeOptions": {
+      "path": "../../../../CMakeLists.txt",
+      "arguments": "-DOHOS_STL=c++_shared -DCMAKE_BUILD_TYPE=Release -DMNN_INTERNAL=ON -DMNN_SEP_BUILD=OFF -DMNN_WITH_PLUGIN=ON -DMNN_SUPPORT_DEPRECATED_OP=OFF -DMNN_ARM82=ON -DMNN_OPENCL=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGPROC_COLOR=ON -DMNN_IMGPROC_GEOMETRIC=ON -DMNN_IMGPROC_DRAW=ON -DMNN_IMGPROC_FILTER=ON -DMNN_IMGPROC_MISCELLANEOUS=ON -DMNN_IMGPROC_STRUCTRAL=ON -DMNN_CALIB3D=ON -DMNN_IMGPROC_HISTOGRAMS=ON -DMNN_USE_LOGCAT=ON",
+      "abiFilters": [
+        "arm64-v8a",
+      ],
+      "cppFlags": ""
+    },
+  },
+  "buildOptionSet": [
+    {
+      "name": "release",
+      "arkOptions": {
+        "byteCodeHar": false,
+        "obfuscation": {
+          "ruleOptions": {
+            "enable": true,
+            "files": [
+              "./obfuscation-rules.txt"
+            ]
+          },
+          "consumerFiles": [
+            "./consumer-rules.txt"
+          ]
+        }
+      }
+    },
+  ],
+  "targets": [
+    {
+      "name": "default"
+    }
+  ]
+}
