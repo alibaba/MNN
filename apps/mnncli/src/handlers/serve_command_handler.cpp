@@ -63,6 +63,9 @@ int ServeCommandHandler::Handle(const ParsedCommand& cmd) {
     auto port_str = CommandParser::GetOption(cmd, "port", "");
     config_path = CommandParser::GetOption(cmd, "config", "");
     auto thinking_value = CommandParser::GetOption(cmd, "thinking", "");
+    auto api_key = CommandParser::GetOption(cmd, "api-key", "");
+    auto embedding_config = CommandParser::GetOption(cmd, "embedding-config", "");
+    auto embedding_model = CommandParser::GetOption(cmd, "embedding-model", "");
     has_thinking_override = !thinking_value.empty();
     if (has_thinking_override && !TryParseThinkingOption(thinking_value, thinking_enabled)) {
         UserInterface::ShowError("Invalid thinking option value",
@@ -109,7 +112,7 @@ int ServeCommandHandler::Handle(const ParsedCommand& cmd) {
         config_path = FileUtils::ExpandTilde(config_path);
         std::string config_dir = fs::path(config_path).parent_path().string();
         std::string config_filename = fs::path(config_dir).filename().string();
-        if (!config_filename.empty()) {
+        if (model_name.empty() && !config_filename.empty()) {
             model_name = config_filename;
         } else if (model_name.empty()) {
             model_name = "custom_model";
@@ -128,6 +131,33 @@ int ServeCommandHandler::Handle(const ParsedCommand& cmd) {
 
     // Create and load model
     auto llm = LLMManager::CreateLLM(config_path, true);
+    if (!llm) {
+        UserInterface::ShowError("Failed to load model", config_path);
+        return 1;
+    }
+    std::unique_ptr<MNN::Transformer::Embedding> embedding;
+    if (!embedding_config.empty()) {
+        embedding_config = FileUtils::ExpandTilde(embedding_config);
+        if (embedding_model.empty())
+            embedding_model = fs::path(embedding_config).parent_path().filename().string();
+        if (embedding_model.empty() || embedding_model == model_name) {
+            UserInterface::ShowError("Embedding model ID must be distinct from the chat model ID");
+            return 1;
+        }
+        embedding.reset(MNN::Transformer::Embedding::createEmbedding(embedding_config, false));
+        auto embedding_info =
+            embedding ? nlohmann::json::parse(embedding->dump_config(), nullptr, false) : nlohmann::json();
+        // Older text embedding exports use embedding.mnn and omit is_embedding.
+        const bool legacy = embedding_info.is_object() && embedding_info.value("llm_model", "") == "embedding.mnn" &&
+                            !embedding_info.value("is_visual", false);
+        if (!embedding_info.is_object() || !embedding_info.value("is_embedding", legacy) || !embedding->load()) {
+            UserInterface::ShowError("Failed to load embedding model", embedding_config);
+            return 1;
+        }
+    } else if (!embedding_model.empty()) {
+        UserInterface::ShowError("--embedding-model requires --embedding-config");
+        return 1;
+    }
     if (has_thinking_override) {
         std::string thinking_cfg = std::string("{\"jinja\":{\"context\":{\"enable_thinking\":") +
                                    (thinking_enabled ? "true" : "false") + "}}}";
@@ -135,16 +165,12 @@ int ServeCommandHandler::Handle(const ParsedCommand& cmd) {
         LOG_INFO("Applied thinking mode override: " + std::string(thinking_enabled ? "enabled" : "disabled"));
     }
 
-    // Determine if this is an R1 model (affects prompt formatting)
-    auto lower_path = config_path;
-    std::transform(lower_path.begin(), lower_path.end(), lower_path.begin(), ::tolower);
-    bool is_r1 = (lower_path.find("deepseek-r1") != std::string::npos);
-
     // Start HTTP server (blocking call)
     MnncliServer server;
-    server.Start(llm.get(), is_r1, host, port);
-
-    return 0;
+    return server.Start(llm.get(), model_name, host, port, api_key, embedding.get(), embedding_model, config_path,
+                        cmd.verbose)
+               ? 0
+               : 1;
 }
 
 } // namespace mnncli
