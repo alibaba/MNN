@@ -294,6 +294,7 @@ option(MNN_NPU_BACKENDS_SHARED "Build enabled NPU backends as explicit shared pl
 option(MNN_RKNN "Enable RKNN runtime and converter support" OFF)
 option(MNN_HEXAGON "Enable Hexagon DSP backend" OFF)
 option(MNN_HEXAGON_ASAN "Enable Hexagon backend internal memory consistency checks" OFF)
+option(MNN_HEXAGON_APP_POWER_HOLD "Keep the DSP power vote across command flushes and release it after idle (for app processes)" OFF)
 
 option(MNN_GPU_TIME_PROFILE "Enable time profiling for the OpenCL backend and Vulkan backend." OFF)
 option(MNN_GPU_PROFILE_SILENT "When GPU time profiling is enabled, only accumulate total time without printing per-kernel details." OFF)
