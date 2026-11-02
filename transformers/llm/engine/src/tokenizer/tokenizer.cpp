@@ -1019,6 +1019,11 @@ void Tokenizer::set_chat_template_context(const std::string& context_json) {
 }
 
 std::string Tokenizer::apply_chat_template(const ChatMessages& messages, bool add_generation_prompt) const {
+    return apply_chat_template(messages, add_generation_prompt, "[]");
+}
+
+std::string Tokenizer::apply_chat_template(const ChatMessages& messages, bool add_generation_prompt,
+                                           const std::string& tools_json) const {
     if (chat_template_.empty()) {
         std::string result;
         for (const auto& m : messages) {
@@ -1054,7 +1059,11 @@ std::string Tokenizer::apply_chat_template(const ChatMessages& messages, bool ad
             extra_ctx = parsed;
         }
     }
-    return tpl.apply_chat_template(msgs, add_generation_prompt, jinja::json::array(), extra_ctx);
+    auto tools = jinja::json::parse(tools_json);
+    if (!tools.is_array()) {
+        tools = jinja::json::array();
+    }
+    return tpl.apply_chat_template(msgs, add_generation_prompt, tools, extra_ctx);
 #else
     std::string result;
     for (const auto& m : messages) {

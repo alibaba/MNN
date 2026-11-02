@@ -199,6 +199,8 @@ public:
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
+    // Rebuild the sampler from the model config plus overrides; pass {} to restore the model defaults.
+    bool set_sampler_config(const std::string& content);
     void setDebugCallback(MNN::TensorCallBackWithInfo&& before, MNN::TensorCallBackWithInfo&& after);
     Llm* create_lora(const std::string& lora_path);
     // tokenier function
@@ -210,6 +212,7 @@ public:
     // ptompt functions
     std::string apply_chat_template(const std::string& user_content) const;
     std::string apply_chat_template(const ChatMessages& chat_prompts) const;
+    std::string apply_chat_template(const ChatMessages& chat_prompts, const std::string& tools_json) const;
     void response(const MultimodalPrompt& multimodal_input,
                   std::ostream* os = &std::cout,
                   const char* end_with = nullptr,

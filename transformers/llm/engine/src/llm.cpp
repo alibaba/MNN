@@ -170,6 +170,21 @@ bool Llm::set_config(const std::string& content) {
     return true;
 }
 
+bool Llm::set_sampler_config(const std::string& content) {
+    if (!mSampler) {
+        return false;
+    }
+    auto sampler_config = std::make_shared<LlmConfig>();
+    sampler_config->config_ = ujson::json::parse(mConfig->config_.dump());
+    auto overrides = ujson::json::parse(content);
+    if (!overrides.is_object()) {
+        return false;
+    }
+    sampler_config->config_.merge(overrides);
+    mSampler.reset(Sampler::createSampler(mContext, sampler_config));
+    return true;
+}
+
 void Llm::setDebugCallback(MNN::TensorCallBackWithInfo&& before, MNN::TensorCallBackWithInfo&& after) {
     mExecutor->setCallBack(std::move(before), std::move(after));
 }
@@ -1103,6 +1118,10 @@ std::string Llm::apply_chat_template(const std::string& user_content) const {
 
 std::string Llm::apply_chat_template(const ChatMessages& chat_prompts) const {
     return mTokenizer->apply_chat_template(chat_prompts, true);
+}
+
+std::string Llm::apply_chat_template(const ChatMessages& chat_prompts, const std::string& tools_json) const {
+    return mTokenizer->apply_chat_template(chat_prompts, true, tools_json);
 }
 
 std::vector<int> Llm::tokenizer_encode(const std::string& user_content) {
