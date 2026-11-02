@@ -34,6 +34,11 @@ endif()
 set(MNN_BUILD_DIR "${CMAKE_CURRENT_LIST_DIR}/../../build_mnn_static" CACHE PATH "MNN build directory")
 set(MNN_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "MNN source directory")
 
+set(MNNCLI_WEB_UI "${CMAKE_CURRENT_LIST_DIR}/web/index.html")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${MNNCLI_WEB_UI}")
+file(READ "${MNNCLI_WEB_UI}" MNNCLI_WEB_CONTENT)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/web/web_ui.hpp.in" "${CMAKE_CURRENT_BINARY_DIR}/mnncli_web_ui.hpp" @ONLY)
+
 # Find pre-built MNN library
 find_library(MNN_LIBRARY 
     NAMES libMNN.a MNN
@@ -85,6 +90,8 @@ set(MNNCLI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/llm_benchmark.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../../transformers/llm/engine/app/llm_benchmark_common.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/mnncli_server.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/mnncli_agent.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/mnncli_mcp.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/model_repository.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/cli_download_listener.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/cli_config_manager.cpp
@@ -113,10 +120,12 @@ endif()
 add_executable(mnncli ${MNNCLI_SOURCES})
 
 target_include_directories(mnncli PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/include
     ${MNN_SOURCE_DIR}/include
     ${MNN_SOURCE_DIR}/transformers/llm/engine/include
     ${MNN_SOURCE_DIR}/transformers/llm/engine/src
+    ${MNN_SOURCE_DIR}/tools/cv/include
     ${MNN_SOURCE_DIR}/3rd_party
     ${OPENSSL_INCLUDE_DIR}
     ${MNN_SOURCE_DIR}/transformers/llm/engine/app/jsonhpp

@@ -16,6 +16,9 @@ std::unique_ptr<MNN::Transformer::Llm> LLMManager::CreateLLM(
     bool use_template
 ) {
     std::unique_ptr<MNN::Transformer::Llm> llm(MNN::Transformer::Llm::createLLM(config_path));
+    if (!llm) {
+        return nullptr;
+    }
     
     if (use_template) {
         llm->set_config("{\"tmp_path\":\"tmp\"}");
@@ -25,7 +28,9 @@ std::unique_ptr<MNN::Transformer::Llm> LLMManager::CreateLLM(
     
     {
         AUTOTIME;
-        llm->load();
+        if (!llm->load()) {
+            return nullptr;
+        }
     }
     
     if (true) {

@@ -11,6 +11,7 @@
 
 #include <MNN/MNNDefine.h>
 #include <MNN/expr/Expr.hpp>
+#include <cstddef>
 
 namespace MNN {
 namespace CV {
@@ -31,6 +32,7 @@ MNN_PUBLIC bool haveImageReader(const std::string& filename);
 MNN_PUBLIC bool haveImageWriter(const std::string& filename);
 
 MNN_PUBLIC VARP imdecode(const std::vector<uint8_t>& buf, int flags);
+MNN_PUBLIC VARP imdecode(const std::vector<uint8_t>& buf, int flags, size_t max_pixels);
 
 MNN_PUBLIC std::pair<bool, std::vector<uint8_t>> imencode(std::string ext, VARP img,
                                 const std::vector<int>& params = std::vector<int>());
