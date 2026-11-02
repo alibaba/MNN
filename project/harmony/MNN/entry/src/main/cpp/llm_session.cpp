@@ -52,14 +52,57 @@ public:
 
     std::string takeResult() { return std::move(mResult); }
 
-    void finish() { mPending.clear(); }
+    void finish() {
+        // No more input: a held partial marker was ordinary text after all.
+        if (!mHeldMarker.empty()) {
+            mPending.insert(0, mHeldMarker);
+            mHeldMarker.clear();
+        }
+        const size_t length = completeUtf8Prefix(mPending);
+        if (length > 0) {
+            const std::string chunk = mPending.substr(0, length);
+            mResult.append(chunk);
+            dispatch(chunk);
+            mPending.clear();
+        }
+    }
 
 protected:
     std::streamsize xsputn(const char* text, std::streamsize size) override {
         if (size <= 0) {
             return size;
         }
-        mPending.append(text, static_cast<size_t>(size));
+        if (mEnded) {
+            // Text after the stop marker is not part of the answer.
+            return size;
+        }
+        // Re-assemble with any marker prefix held back from the previous write.
+        std::string buffer;
+        buffer.reserve(mHeldMarker.size() + static_cast<size_t>(size));
+        buffer.append(mHeldMarker);
+        buffer.append(text, static_cast<size_t>(size));
+        mHeldMarker.clear();
+        mPending.clear();
+
+        // Strip the "<eop>" stop marker (same end_with token as the Android client). Hold back a
+        // trailing partial match so a marker split across writes never reaches the UI.
+        static const char kMarker[] = "<eop>";
+        constexpr size_t kMarkerLength = sizeof(kMarker) - 1;
+        const size_t markerPos = buffer.find(kMarker);
+        if (markerPos != std::string::npos) {
+            buffer.erase(markerPos);
+            mEnded = true;
+        } else {
+            for (size_t keep = kMarkerLength - 1; keep > 0; --keep) {
+                if (buffer.size() >= keep && buffer.compare(buffer.size() - keep, keep, kMarker, keep) == 0) {
+                    mHeldMarker = buffer.substr(buffer.size() - keep);
+                    buffer.erase(buffer.size() - keep);
+                    break;
+                }
+            }
+        }
+        mPending = std::move(buffer);
+
         const size_t length = completeUtf8Prefix(mPending);
         if (length > 0) {
             const std::string chunk = mPending.substr(0, length);
@@ -129,6 +172,8 @@ private:
     double& mFirstTokenMs;
     std::string mResult;
     std::string mPending;
+    std::string mHeldMarker;
+    bool mEnded = false;
 };
 
 } // namespace
@@ -196,7 +241,9 @@ void LlmSession::generate(const GenerateRequest& request, const ChunkCallback& o
     const auto start = std::chrono::steady_clock::now();
     ChunkStreamBuffer outputBuffer(onChunk, mLlm.get(), cancellation, start, result.firstTokenMs);
     std::ostream output(&outputBuffer);
-    mLlm->response(request.messages, &output, "", request.maxTokens);
+    // Same end_with marker as the Android client; the stream buffer strips it before it reaches the UI.
+    const int maxTokens = request.maxTokens <= 0 ? 2048 : (request.maxTokens > 8192 ? 8192 : request.maxTokens);
+    mLlm->response(request.messages, &output, "<eop>", maxTokens);
     const auto end = std::chrono::steady_clock::now();
     outputBuffer.finish();
     result.text = outputBuffer.takeResult();
@@ -213,7 +260,9 @@ void LlmSession::generate(const GenerateRequest& request, const ChunkCallback& o
             error = context->status == LlmStatus::TIMEOUT ? "LLM generation timed out" : "LLM generation failed";
         }
     }
-    if (result.canceled || !error.empty()) {
+    // Parity with the Android client: a user cancel keeps the KV cache (the next request resends the
+    // full history and only the delta is prefilled); only a broken session is reset.
+    if (!error.empty()) {
         mLlm->reset();
         prepareForResponse();
     }
