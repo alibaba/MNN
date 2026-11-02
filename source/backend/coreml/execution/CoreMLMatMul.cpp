@@ -9,49 +9,36 @@
 #include "CoreMLMatMul.hpp"
 namespace MNN {
 
-static void _makeMatMul() {
-    
-}
-CoreMLMatMul::CoreMLMatMul(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : CoreMLCommonExecution(b, op) {
-    initLayer();
-}
+CoreMLMatMul::CoreMLMatMul(MNN::Backend* b, const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                           const std::vector<MNN::Tensor*>& outputs)
+    : CoreMLCommonExecution(b, op) {}
 
-ErrorCode CoreMLMatMul::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto outputName = mCoreMLBackend->getTensorName(outputs[0]);
-    std::string matmulOutput = outputName;
-    if (inputs.size() > 2) {
-        // Has Bias
-        matmulOutput = matmulOutput + "--matmul";
-    }
-    mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_BATCHED_MATMUL;
-    mLayer_->batchedmatmul = mCoreMLBackend->create<CoreML__Specification__BatchedMatMulLayerParams>();
-    core_ml__specification__batched_mat_mul_layer_params__init(mLayer_->batchedmatmul);
+ErrorCode CoreMLMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    bool transposeX = false, transposeY = false;
     if (mOp->main_type() == OpParameter_MatMul) {
-        mLayer_->batchedmatmul->transposea = mOp->main_as_MatMul()->transposeA();
-        mLayer_->batchedmatmul->transposeb = mOp->main_as_MatMul()->transposeB();
+        transposeX = mOp->main_as_MatMul()->transposeA();
+        transposeY = mOp->main_as_MatMul()->transposeB();
     } else if (mOp->main_type() == OpParameter_BatchMatMulParam) {
-        mLayer_->batchedmatmul->transposea = mOp->main_as_BatchMatMulParam()->adjX();
-        mLayer_->batchedmatmul->transposeb = mOp->main_as_BatchMatMulParam()->adjY();
+        transposeX = mOp->main_as_BatchMatMulParam()->adjX();
+        transposeY = mOp->main_as_BatchMatMulParam()->adjY();
     }
-    setLayerInputsAndOutputs(mLayer_, {mCoreMLBackend->getTensorName(inputs[0]), mCoreMLBackend->getTensorName(inputs[1])}, {matmulOutput});
-    mCoreMLBackend->setLayerName(mLayer_, "MatMul");
-    mCoreMLBackend->addLayer(mLayer_);
+    auto builder = operation("matmul");
+    builder.input("x", inputs[0])
+        .input("y", inputs[1])
+        .scalar("transpose_x", transposeX)
+        .scalar("transpose_y", transposeY);
     if (inputs.size() > 2) {
-        // Add Bias
-        auto biasLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
-        core_ml__specification__neural_network_layer__init(biasLayer);
-        mCoreMLBackend->setLayerName(biasLayer, outputName + "Bias");
-        mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ADD_BROADCASTABLE;
-        mLayer_->addbroadcastable = mCoreMLBackend->create<CoreML__Specification__AddBroadcastableLayerParams>();
-        core_ml__specification__add_broadcastable_layer_params__init(mLayer_->addbroadcastable);
-        setLayerInputsAndOutputs(biasLayer, {matmulOutput, mCoreMLBackend->getTensorName(inputs[2])}, {outputName});
-        mCoreMLBackend->addLayer(biasLayer);
+        auto product = builder.output(outputs[0]->shape(), "product");
+        auto add = operation("add");
+        add.input("x", product).input("y", inputs[2]);
+        add.output(outputs);
+    } else {
+        builder.output(outputs);
     }
     return NO_ERROR;
 }
 
-
-REGISTER_COREML_OP_CREATOR(CoreMLMatMul, OpType_BatchMatMul)
-REGISTER_COREML_OP_CREATOR(CoreMLMatMul, OpType_MatMul)
+REGISTER_COREML_OP_CREATOR(CoreMLMatMul, OpType_BatchMatMul);
+REGISTER_COREML_OP_CREATOR(CoreMLMatMul, OpType_MatMul);
 
 } // namespace MNN

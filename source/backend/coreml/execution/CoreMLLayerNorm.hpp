@@ -19,6 +19,11 @@ public:
     CoreMLLayerNorm(Backend *b, const Op *op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~CoreMLLayerNorm() = default;
+private:
+    std::vector<int> mAxes;
+    bool mRMS = false;
+    float mEpsilon = 0.001;
+    std::string mGamma, mBeta;
 };
 } // namespace MNN
 

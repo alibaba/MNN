@@ -84,6 +84,7 @@ struct RuntimeHint {
     int divisionRatio = 41;
 };
 /** abstract backend */
+struct Command;
 class Backend : public NonCopyable {
 
 public:
@@ -171,6 +172,8 @@ public:
      * @brief callback after resize ops.
      */
     virtual ErrorCode onResizeEnd() = 0;
+    // Graph backends may combine consecutive commands after their shapes are known.
+    virtual ErrorCode onResizeEnd(const std::vector<Command*>& commands) { return onResizeEnd(); }
 
     /**
      * @brief callback before executing ops.

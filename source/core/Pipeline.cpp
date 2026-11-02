@@ -1072,7 +1072,18 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
             _recycleDynamicMemory(c.get());
         }
     }
-    auto code = mBackend->onResizeEnd();
+    std::vector<Command*> resizedCommands;
+    for (auto& info : mInfo.second) {
+        if (info.type == Schedule::CONSTANT) {
+            continue;
+        }
+        for (auto& command : info.executeBuffer.command) {
+            if (command->group == index) {
+                resizedCommands.push_back(command.get());
+            }
+        }
+    }
+    auto code = mBackend->onResizeEnd(resizedCommands);
     if (code != NO_ERROR) {
         return code;
     }
@@ -1252,7 +1263,7 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
             auto cmdP = buffer.command[cmdIndex];
             auto& cmd = *cmdP;
             if (nullptr == cmd.info.get()) {
-                auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
+                auto code = cmd.execution->onExecuteWithCallBack(cmd.workInputs, cmd.workOutputs);
                 if (NO_ERROR != code) {
                     _exitExecute();
                     return code;
@@ -1261,7 +1272,7 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
             }
             auto run = before(cmd.workInputs, cmd.info.get());
             if (run) {
-                auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
+                auto code = cmd.execution->onExecuteWithCallBack(cmd.workInputs, cmd.workOutputs);
                 if (NO_ERROR != code) {
                     _exitExecute();
                     return code;
