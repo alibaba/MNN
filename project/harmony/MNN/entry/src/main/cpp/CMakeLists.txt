@@ -11,9 +11,15 @@ set(LLM_SUPPORT_HTTP_RESOURCE OFF CACHE BOOL "" FORCE)
 set(MNN_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(MNN_SEP_BUILD OFF CACHE BOOL "" FORCE)
 set(MNN_OPENCL ON CACHE BOOL "" FORCE)
-set(MNN_ARM82 OFF CACHE BOOL "" FORCE)
+# Same codegen assumptions as the Android MnnLlmChat build: low-memory weight layout, dequant+GEMM
+# fusion, fp16 (arm82) kernels and the transformer fuse path. Without these the CPU path falls back
+# to the generic fp32 kernels and is several times slower.
+set(MNN_ARM82 ON CACHE BOOL "" FORCE)
 set(MNN_SME2 OFF CACHE BOOL "" FORCE)
 set(MNN_SUPPORT_BF16 OFF CACHE BOOL "" FORCE)
+set(MNN_LOW_MEMORY ON CACHE BOOL "" FORCE)
+set(MNN_CPU_WEIGHT_DEQUANT_GEMM ON CACHE BOOL "" FORCE)
+set(MNN_SUPPORT_TRANSFORMER_FUSE ON CACHE BOOL "" FORCE)
 set(MNN_INTERNAL OFF CACHE BOOL "" FORCE)
 set(MNN_WITH_PLUGIN OFF CACHE BOOL "" FORCE)
 set(MNN_USE_LOGCAT ON CACHE BOOL "" FORCE)
