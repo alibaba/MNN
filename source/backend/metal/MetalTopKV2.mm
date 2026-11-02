@@ -109,7 +109,7 @@ kernel void topkv2(device T* outValue [[buffer(0)]],
     }
 
 #ifdef SIMD_GROUP_REDUCE
-    // SIMD group 内归约 + 跨 SG 合并（需要 threadgroup_barrier）
+    // Intra-simdgroup reduce plus a cross-SG merge (needs threadgroup_barrier)
 #ifdef SORT_DESC
     T sgBestVal = simd_max(bestVal);
 #else
@@ -119,7 +119,6 @@ kernel void topkv2(device T* outValue [[buffer(0)]],
     int candidate = (bestIdx >= 0 && bestVal == sgBestVal) ? bestIdx : INF_IDX;
     int sgBestIdx = simd_min(candidate);
 
-    // 写入每个 simdgroup 的结果
     threadgroup T sharedBestVal[THREAD_NUMBER / SIMD_GROUP_WIDTH];
     threadgroup int sharedBestIdx[THREAD_NUMBER / SIMD_GROUP_WIDTH];
     if (tiisg == 0) {
@@ -128,7 +127,6 @@ kernel void topkv2(device T* outValue [[buffer(0)]],
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 跨 simdgroup 合并
     if (tiisg == 0 && sgitg == 0) {
         const uint NUM_SG = THREAD_NUMBER / SIMD_GROUP_WIDTH;
         T finalVal;

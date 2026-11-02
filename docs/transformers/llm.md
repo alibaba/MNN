@@ -541,7 +541,6 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
       - 常用组合：
         - 8：FlashAttention，KV 保持 fp16（长上下文默认推荐）
         - 10：FlashAttention + KV-INT8（进一步降低 KV 显存，短上下文 pp 会略降 5–14%）
-      - 开发者调试：环境变量 `MNN_ENABLE_FLASH_ATTN_PREFILL=1` 可强制开启 FA（无视 config），`=0` 可强制关闭 FA（用于 A/B 基准）。
     - 其他 GPU 后端（OpenCL / Vulkan / CUDA）目前仅遵循 attention_mode 中的默认行为，不支持 FlashAttention 切换。
   - use_mmap: 是否使用mmap方式，在内存不足时将权重写入磁盘，避免溢出，默认为false，手机上建议设成true
   - chunk: 限制每次最大处理的token数，高于此值将分块运行，以减少内存占用，eg: chunk: 128

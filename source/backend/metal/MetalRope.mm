@@ -2,17 +2,8 @@
 //  MetalRope.mm
 //  MNN
 //
-//  Fused RoPE (Rotary Positional Embedding) kernel for Metal backend.
-//
-//  Inputs:  x, cos, sin
-//  Output:  same shape as x
-//
-//  For rotary dimension R (must be even), split x[..., 0:R] in half and
-//  leave x[..., R:D] unchanged.
-//  Then compute
-//    q0 = even * cos[i] - odd * sin[i]
-//    q1 = odd  * cos[i + ropeHalfD] + even * sin[i + ropeHalfD]
-//  and concatenate [q0, q1] along the last dimension.
+//  Fused RoPE kernel. Splits x[..., 0:R] in half and rotates each pair via
+//  (cos, sin); x[..., R:D] passes through unchanged.
 //
 
 #define MNN_UNUSED(x)
@@ -192,11 +183,9 @@ kernel void rope_kernel(
 #endif
 
 #ifdef X_CACHE_N
-    // The lane's slice of the head, loaded once. The rotate pass needs index i and
-    // i + ropeHalfD; the host only defines X_CACHE_N when both D and ropeHalfD are
-    // multiples of the simdgroup step, so both land in this lane's slice and every
-    // trip count below is a compile-time constant -- which is what keeps xv in
-    // registers instead of spilling to thread-local memory.
+    // The lane's slice of the head, loaded once. The host only defines X_CACHE_N when
+    // the rotate pair (i, i + ropeHalfD) lands in one lane's slice and every trip count
+    // is a compile-time constant, which is what keeps xv in registers.
     ftype xv[X_CACHE_N];
     for (int s = 0; s < X_CACHE_N; ++s) {
         xv[s] = loadC4(xTensor, gid.y, xBase, start + s * step, xSeq);
@@ -289,14 +278,9 @@ static inline ftype4 ropeNormQuad(const threadgroup ftype4* row, int qi, float v
     return v;
 }
 
-// Token-tiled variant of the kernel above. The C4 input keeps only 4 channels
-// (8 B in fp16) contiguous per token, so with one lane per channel-slice every
-// simd load degenerates into 32 separate 8 B transactions. Tokens *are* adjacent
-// within a plane, so phase 1 maps lanes to ROPE_TILE_T consecutive tokens -- one
-// 64 B run per plane group -- and stages the tile in threadgroup memory. Phase 2
-// switches back to one lane per output quad, both because the rotate needs the
-// (i, i + ropeHalfD) pair in one lane and because the output layout is dense
-// [token][head][dim], i.e. already coalesced that way.
+// Token-tiled variant: phase 1 maps lanes to ROPE_TILE_T consecutive tokens
+// and stages them in threadgroup memory; phase 2 goes back to one lane per
+// output quad so the rotate holds the (i, i + ropeHalfD) pair in one lane.
 kernel void rope_kernel_tile(
                         const device ftype* q           [[ buffer(0) ]],
                         const device ftype* k           [[ buffer(1) ]],
@@ -458,18 +442,12 @@ kernel void rope_kernel(
 )metal";
 
 // Token-tiled RoPE geometry. Tokens are the contiguous axis of the C4 input, so
-// ROPE_TILE_T tokens x 4 channels is one ROPE_TILE_T * 8 B run in fp16; 2
-// simdgroups keeps the 64-thread threadgroup of the scalar path. 8 tokens (one
-// 64 B run) measures best -- 16 is neutral and 32 loses to the occupancy cost of
-// its 16 KB of staging, so what pays is cutting the request *count*, not widening
-// the run.
+// ROPE_TILE_T tokens x 4 channels is one ROPE_TILE_T * 8 B run in fp16, a cache line at
+// 8 tokens; 2 simdgroups keeps the 64-thread threadgroup of the scalar path.
 static constexpr int kRopeTileTDefault = 8;
 static constexpr int kRopeTileNsg = 2;
-// Below this the kernel is launch-bound and the two arms tie, so decode and tiny
-// prefill stay on the scalar path. Above it the tile wins throughout, and wins
-// most while the input is still cache-resident: what it removes is L1/L2 request
-// count -- one per lane in the scalar path, since C4 keeps only 4 channels
-// contiguous -- not DRAM bytes, which both arms move identically.
+// Below this threshold the tile has nothing to amortize (launch-bound), so
+// decode and tiny prefill stay on the scalar path.
 static constexpr int kRopeTileMinSeq = 64;
 
 class MetalRopeExecution : public MetalExecution {
@@ -520,7 +498,7 @@ public:
         int ropeHalfD = ropeDim / 2;
         const int kStep = 32;
         // 8 entries caps the array at 16 B per lane in fp16, i.e. headDim <= 256.
-        if (mUseSG && !MetalEnv::get().ropeXCacheDisabled && ropeHalfD > 0 &&
+        if (mUseSG && ropeHalfD > 0 &&
             mHeadDim % kStep == 0 && ropeHalfD % kStep == 0 && mHeadDim / kStep <= 8) {
             macros[@"X_CACHE_N"] = [NSString stringWithFormat:@"%d", mHeadDim / kStep];
             macros[@"ROPE_D"] = [NSString stringWithFormat:@"%d", mHeadDim];
@@ -538,23 +516,14 @@ public:
             MNN_ERROR("MetalRope: failed to compile rope_kernel.\n");
         }
         mActivePipeline = mPipeline;
-        // Token-tiled variant. Both pipelines are built here and onResize picks by
-        // sequence length, because the two arms tie in the launch-bound range.
-        // planes % ROPE_PLANE_GROUPS == 0 is what lets the 32 lanes split cleanly
-        // into whole token runs.
+        // Build both pipelines; onResize picks by sequence length. Clean
+        // 32-lane split requires planes % ROPE_PLANE_GROUPS == 0.
         int planes = mHeadDim / 4;
-        // Tokens per simdgroup: how wide a contiguous run each plane group reads,
-        // and equally how much threadgroup memory the tile costs, so the override
-        // trades request count against occupancy in both directions.
+        // Tokens per simdgroup: the run width of each plane group's read, and
+        // equally how much threadgroup memory the tile costs.
         int tileT = kRopeTileTDefault;
-        {
-            int e = MetalEnv::get().ropeTileT;
-            if (e > 0 && e <= 32 && (32 % e) == 0 && planes % (32 / e) == 0) {
-                tileT = e;
-            }
-        }
         const int planeGroups = 32 / tileT;
-        if (mUseSG && MetalEnv::get().ropeTile >= 0 && ropeHalfD > 0 && mHeadDim % 4 == 0 &&
+        if (mUseSG && ropeHalfD > 0 && mHeadDim % 4 == 0 &&
             ropeHalfD % 4 == 0 && planes % planeGroups == 0 && planes <= 128) {
             mTileT = tileT;
             macros[@"ROPE_TILE"] = @"1";
@@ -619,9 +588,7 @@ public:
         auto context = (__bridge MNNMetalContext *)mtbn->context();
         if (mQNorm || mKNorm) {
             if (mUseSG) {
-                int tileEnv = MetalEnv::get().ropeTile;
-                bool useTile = (nil != mPipelineTile) &&
-                               (1 == tileEnv || (0 == tileEnv && p->outerSize >= kRopeTileMinSeq));
+                bool useTile = (nil != mPipelineTile) && p->outerSize >= kRopeTileMinSeq;
                 if (useTile) {
                     mActivePipeline = mPipelineTile;
                     mThreads = std::make_pair(MTLSizeMake(1, UP_DIV(p->outerSize, mTileT),

@@ -270,8 +270,14 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const STyp
                 }
             }
         }
-        // too big scale may cause half precision loss
-        coef = 1000.0 / max_data;
+        // too big scale may cause half precision loss.
+        // Guard on max_data rather than isfinite(coef): -ffast-math constant-folds
+        // std::isfinite to true, so an all-zero alpha block would reach (DType)(0 * inf)
+        // and bake NaN halfs into the dequant table. 1e-35 keeps coef within float while
+        // leaving a degenerate block at coef = 1.
+        if (max_data > 1e-35f) {
+            coef = 1000.0 / max_data;
+        }
     }
     if (asymmetric) {
         for (int z=0; z<oc; ++z) {

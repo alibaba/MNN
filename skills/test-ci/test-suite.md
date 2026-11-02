@@ -235,9 +235,9 @@ prefill_qkv shader change, you must:
    (causal) model and one real-mask-tensor (non-causal) model — since the two
    compile and dispatch different kernel variants.
 
-No env pin in stage entries is needed anymore. `MNN_ENABLE_FLASH_ATTN_PREFILL=0`
-remains only as a developer A/B override, not a correctness workaround
-(real-mask models never route to FA).
+No env pin in stage entries is needed. FA routing is config-driven
+(`attention_mode/8`) and real-mask models never route to FA, so no
+correctness workaround is required either.
 
 Full risk breakdown, gate conditions, and remediation options: see
 [`skills/general-debug/kernel-assumptions.md`](../general-debug/kernel-assumptions.md) (§7 后端 kernel 隐式假设违反)

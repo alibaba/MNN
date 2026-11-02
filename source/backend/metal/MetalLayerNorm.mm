@@ -82,10 +82,8 @@ std::shared_ptr<MetalLayerNorm::Resource> MetalLayerNorm::makeResource(Backend *
 }
 
 int MetalLayerNorm::rmsSimdGroups(int legacy) const {
-    // One row == one threadgroup. At prefill `mOutside` is the token count, so the
-    // dispatch already has plenty of threadgroups and a wider one only steals
-    // occupancy; at decode `mOutside` is 1 and the entire norm runs as a single
-    // threadgroup, which is where extra simdgroups buy real parallelism.
+    // One row per threadgroup. Prefill has many rows and widening steals
+    // occupancy; decode runs a single threadgroup where more simdgroups help.
     if (mOutside > 1) {
         return legacy;
     }
@@ -95,16 +93,13 @@ int MetalLayerNorm::rmsSimdGroups(int legacy) const {
     if (mChannelUnit < kMinChannelUnit) {
         return legacy;
     }
-    // Keep the wide-row decode shape identical on M4 and M5.
     return 8;
 }
 
 int MetalLayerNorm::rmsTokensPerGroup() const {
-    // One threadgroup per token wastes a threadgroup slot on 32 threads. Packing
-    // several tokens into one threadgroup keeps the per-simdgroup work and the
-    // reduction identical while cutting the threadgroup count by the same
-    // factor. Only pays once there are far more tokens than the pack width, so
-    // decode (mOutside == 1) stays on the one-threadgroup-per-token form.
+    // Packing several tokens into one threadgroup keeps the per-simdgroup work and the
+    // reduction identical while cutting the threadgroup count by the pack width. Only
+    // pays with far more tokens than that width, so decode stays one token per group.
     constexpr int kMinOutside = 256;
     if (mOutside < kMinOutside) {
         return 1;
@@ -177,16 +172,12 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
                 if(mResource->mRMSNorm) {
                     const int tokensPerTg = rmsTokensPerGroup();
                     const bool rowParallel = tokensPerTg > 1;
-                    const bool tokenLane = MetalEnv::get().lnTokenLane && mOutside >= 32;
                     const int simds = rowParallel ? tokensPerTg : rmsSimdGroups(2);
-                    const int sumReread = MetalEnv::get().lnSumReread ? 1 : 0;
-                    const char* fname = tokenLane    ? "binary_layernorm_c4_rms_tok_sg"
-                                      : rowParallel ? "binary_layernorm_c4_rms_row_sg"
+                    const char* fname = rowParallel ? "binary_layernorm_c4_rms_row_sg"
                                                     : "binary_layernorm_c4_rms_sg";
                     auto keys = baseKeys;
                     keys.emplace_back(fname);
                     keys.emplace_back(std::to_string(simds));
-                    keys.emplace_back(std::to_string(sumReread));
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
                         auto rmsOption = [[MTLCompileOptions alloc] init];
@@ -194,15 +185,12 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
                             @"ftype" : @(ftype.c_str()),
                             @"ftype4" : @(ftype4.c_str()),
                             @"LN_SIMDS" : @(simds),
-                            @"LN_SUM_REREAD" : @(sumReread),
                         };
                         pipeline = backend->makeComputePipelineWithSourceOption(gLayerNormSgReduce, fname, rmsOption);
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    if (tokenLane) {
-                        mThreads = std::make_pair(MTLSizeMake(1, UP_DIV(mOutside, simds * 32), 1), MTLSizeMake(simds * 32, 1, 1));
-                    } else if (rowParallel) {
+                    if (rowParallel) {
                         mThreads = std::make_pair(MTLSizeMake(1, UP_DIV(mOutside, simds), 1), MTLSizeMake(simds * 32, 1, 1));
                     } else {
                         mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(simds * 32, 1, 1));
@@ -325,17 +313,9 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
                 }
                 mThreads = std::make_pair(MTLSizeMake(1, mOutside, 1), MTLSizeMake(64, 1, 1));
             } else if(mResource->mRMSNorm) {
-                // pretty much threads compute all inside dims in a threadgroup
-                // Also use this path for small outside (e.g. LLM decode) to avoid
-                // redundant square_sum computation in layernorm_x4_rms_sg — but only
-                // when the alternative (x4_rms_sg) grid is too small to saturate the
-                // GPU. On Apple GPUs (~10 cores * 32 lanes), once UP_DIV(inside,4) *
-                // outside > 32 the x4 kernel already fills the SMs, so the cost of
-                // its duplicated square_sum is negligible compared to serializing
-                // through a single-simdgroup in_all_rms dispatch. Without this cap
-                // Qwen3-0.6B decode (outside=1, inside=1024, x4 grid=256) hits the
-                // in_all path and only lights up 32 lanes per RMSNorm, adding ~5%
-                // total decode latency.
+                // One threadgroup covers all inside dims. Taken at small outside
+                // only while the x4 grid can't fill the GPU; past that, the
+                // single-simdgroup in_all form serializes.
                 const int mInsideSg = (mInside + 3) / 4;  // grid width for x4_rms_sg
                 const bool smallXforInAll = (mInsideSg * mOutside) <= 32;
                 if(mOutside / 512.0 * mInside / 512.0 > 1.0 ||

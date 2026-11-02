@@ -741,8 +741,16 @@ static std::unique_ptr<Convolution2DT> makeQuantConv(int ic, int oc, int nbits, 
 
 // Input dynamic quant + fp16 storage make byte-exactness impossible; same
 // tolerance shape as QKVFusionTest.
+//
+// relTol < 0 keeps the legacy compound bound `err > 0.5 && err / maxVal > 0.1`,
+// which needs BOTH conditions and therefore tolerates a ~63% relative error at
+// maxVal ~ 0.6 -- it once waved through a kernel that dropped whole quant blocks
+// (ratio 2.45). Callers covering a path that has never executed should pass an
+// explicit relTol instead; 0.05 leaves ~26x headroom over the 0.19% worst ratio
+// measured on Metal, while the CPU decode-shape cases sit at 5-6% and are the
+// reason the legacy bound is still the default.
 static bool checkOutLoose(VARP out, const std::vector<float>& expectedPlain, int seq, int channel,
-                          const char* tag) {
+                          const char* tag, float relTol = -1.0f) {
     auto expectedC4 = packC4(expectedPlain, seq, channel);
     auto info = out->getInfo();
     if (info == nullptr || info->dim.size() != 4 || info->dim[0] != seq || info->dim[1] != channel) {
@@ -758,10 +766,16 @@ static bool checkOutLoose(VARP out, const std::vector<float>& expectedPlain, int
     for (auto v : expectedC4) {
         maxVal = std::max(maxVal, fabsf(v));
     }
+    float maxErr = 0.0f;
     for (size_t i = 0; i < expectedC4.size(); ++i) {
         float err = fabsf(ptr[i] - expectedC4[i]);
-        if (err > 0.5f && err / maxVal > 0.1f) {
-            MNN_ERROR("FusedProj %s[%d]: got %f, expect %f\n", tag, (int)i, ptr[i], expectedC4[i]);
+        maxErr = std::max(maxErr, err);
+        const bool bad = (relTol >= 0.0f)
+                             ? (err > std::max(relTol * maxVal, 1e-4f))
+                             : (err > 0.5f && err / maxVal > 0.1f);
+        if (!std::isfinite(ptr[i]) || !std::isfinite(expectedC4[i]) || bad) {
+            MNN_ERROR("FusedProj %s[%d]: got %f, expect %f (maxVal %f, maxErr %f, relTol %f)\n",
+                      tag, (int)i, ptr[i], expectedC4[i], maxVal, maxErr, relTol);
             return false;
         }
     }
@@ -772,7 +786,8 @@ static bool checkOutLoose(VARP out, const std::vector<float>& expectedPlain, int
 // reaches the prefill M64 tile and its gate/up dual epilogue.
 // bitsPerConv.size() selects the flavour: 2 = gate/up (act_silu_mul), else qkv.
 static bool runQuantLNCase(const std::vector<int>& bitsPerConv, const std::vector<int>& ocs, const char* tag,
-                           int seq = 1, int ic = 128, int blocksize = 32) {
+                           int seq = 1, int ic = 128, int blocksize = 32, float gammaStep = 0.002f,
+                           bool hasLn = true, float relTol = -1.0f) {
     const float eps = 1e-5f;
     const bool gateUp = bitsPerConv.size() == 2;
 
@@ -789,7 +804,7 @@ static bool runQuantLNCase(const std::vector<int>& bitsPerConv, const std::vecto
         hidData[i] = (float)((i % 5) - 2) * -0.11f;
     }
     for (int c = 0; c < ic; ++c) {
-        gamma[c] = 0.9f + 0.002f * c;
+        gamma[c] = 0.9f + gammaStep * c;
     }
     auto residual = _Input({seq, ic, 1, 1}, NC4HW4);
     auto hidden   = _Input({seq, ic, 1, 1}, NC4HW4);
@@ -807,20 +822,23 @@ static bool runQuantLNCase(const std::vector<int>& bitsPerConv, const std::vecto
     op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
     auto param = op->main.AsFusedLinearParam();
     param->act_silu_mul = gateUp;
-    param->has_ln = true;
-    param->ln.reset(new LayerNormT);
-    param->ln->epsilon = eps;
-    param->ln->gamma = gamma;
-    param->ln->beta = std::vector<float>(ic, 0.0f);
-    param->ln->axis = {-1};
-    param->ln->useRMSNorm = true;
+    param->has_ln = hasLn;
+    if (hasLn) {
+        param->ln.reset(new LayerNormT);
+        param->ln->epsilon = eps;
+        param->ln->gamma = gamma;
+        param->ln->beta = std::vector<float>(ic, 0.0f);
+        param->ln->axis = {-1};
+        param->ln->useRMSNorm = true;
+    }
     std::vector<std::vector<float>> recon(bitsPerConv.size()), bias(bitsPerConv.size());
     for (size_t m = 0; m < bitsPerConv.size(); ++m) {
         param->convs.push_back(makeQuantConv(ic, ocs[m], bitsPerConv[m], blocksize, (int)m + 1,
                                              recon[m], bias[m]));
     }
     const int numProjOut = gateUp ? 1 : (int)bitsPerConv.size();
-    auto expr = Expr::create(std::move(op), {residual, hidden}, numProjOut + 1);
+    const std::vector<VARP> inputs = hasLn ? std::vector<VARP>{residual, hidden} : std::vector<VARP>{hidden};
+    auto expr = Expr::create(std::move(op), inputs, numProjOut + (hasLn ? 1 : 0));
 
     std::vector<float> d(seq * ic), norm(seq * ic);
     for (int t = 0; t < seq; ++t) {
@@ -834,8 +852,13 @@ static bool runQuantLNCase(const std::vector<int>& bitsPerConv, const std::vecto
             norm[t * ic + c] = d[t * ic + c] * inv * gamma[c];
         }
     }
-    bool ok = checkOutLoose(Variable::create(expr, numProjOut), d, seq, ic,
-                            (std::string(tag) + "_residual").c_str());
+    bool ok = true;
+    if (hasLn) {
+        ok = checkOutLoose(Variable::create(expr, numProjOut), d, seq, ic,
+                           (std::string(tag) + "_residual").c_str(), relTol);
+    } else {
+        norm = hidData;
+    }
     if (gateUp) {
         std::vector<float> gate, up, expected(seq * ocs[0]);
         convRef(norm, recon[0], bias[0], gate, seq, ic, ocs[0]);
@@ -843,12 +866,12 @@ static bool runQuantLNCase(const std::vector<int>& bitsPerConv, const std::vecto
         for (int i = 0; i < seq * ocs[0]; ++i) {
             expected[i] = up[i] * (gate[i] / (1.0f + expf(-gate[i])));
         }
-        ok = ok && checkOutLoose(Variable::create(expr, 0), expected, seq, ocs[0], tag);
+        ok = ok && checkOutLoose(Variable::create(expr, 0), expected, seq, ocs[0], tag, relTol);
     } else {
         for (size_t m = 0; m < bitsPerConv.size(); ++m) {
             std::vector<float> expected;
             convRef(norm, recon[m], bias[m], expected, seq, ic, ocs[m]);
-            ok = ok && checkOutLoose(Variable::create(expr, (int)m), expected, seq, ocs[m], tag);
+            ok = ok && checkOutLoose(Variable::create(expr, (int)m), expected, seq, ocs[m], tag, relTol);
         }
     }
     if (!ok) {
@@ -875,7 +898,15 @@ class FusedQKVLNQuant16BlockTest : public MNNTestCase {
 public:
     virtual ~FusedQKVLNQuant16BlockTest() = default;
     virtual bool run(int precision) {
-        return runQuantLNCase({4, 4, 4}, {2048, 1024, 1024}, "qkv_ln_quant_b16", 1, 1024, 64);
+        const int shapes[][3] = {{2048, 1024, 1024}, {2047, 1024, 1024},
+                                 {2048, 1023, 1024}, {2048, 1024, 1023}};
+        for (const auto& shape : shapes) {
+            if (!runQuantLNCase({4, 4, 4}, {shape[0], shape[1], shape[2]},
+                                "qkv_ln_quant_b16", 1, 1024, 64)) {
+                return false;
+            }
+        }
+        return runQuantLNCase({4, 4, 4}, {2048, 1024, 1024}, "qkv_ln_quant_b32", 1, 1024, 32);
     }
 };
 MNNTestSuiteRegister(FusedQKVLNQuant16BlockTest, "op/fused_qkv_ln_quant_b16");
@@ -893,6 +924,21 @@ public:
 };
 MNNTestSuiteRegister(FusedQKVLNQuantPrefillTest, "op/fused_qkv_ln_quant_prefill");
 
+// Same prefill shapes with 8-bit weights: the W8 staging branch (four scalar
+// char4 loads) instead of Q4's wide uint2 load. Oracle for the M64 fused-quant
+// tile at bits==8 -- must stay correct whether or not the host routes W8 there,
+// and covers the oc tail plus a blocksize-64 K split.
+class FusedQKVLNQuant8PrefillTest : public MNNTestCase {
+public:
+    virtual ~FusedQKVLNQuant8PrefillTest() = default;
+    virtual bool run(int precision) {
+        return runQuantLNCase({8, 8, 8}, {64, 16, 16}, "qkv_ln_quant8_prefill", 256, 128, 32, 0.002f, true, 0.05f) &&
+               runQuantLNCase({8, 8, 8}, {96, 40, 40}, "qkv_ln_quant8_prefill_tail", 256, 192, 64,
+                              0.25f / 192, true, 0.05f);
+    }
+};
+MNNTestSuiteRegister(FusedQKVLNQuant8PrefillTest, "op/fused_qkv_ln_quant8_prefill");
+
 // 4-bit gate/up + LN: the GATE_UP_FUSED × LN_FUSED pipeline.
 class FusedGateUpLNQuantTest : public MNNTestCase {
 public:
@@ -904,8 +950,8 @@ public:
 MNNTestSuiteRegister(FusedGateUpLNQuantTest, "op/fused_gateup_ln_quant");
 
 // 4-bit gate/up + LN at decode shapes whose K splits: blockCount 16 drives
-// GEMV_2OCQUAD_PER_SG_SPLIT_K, and the blocksize-64 variant additionally
-// reaches the dual-stream W16 uint4 branch (quadsPerBlock 16).
+// GEMV_SG_OC_QUADS_2_KSPLIT, and the blocksize-64 variant additionally puts
+// 16 C4 quads in every quant block.
 class FusedGateUpLNQuantSplitKTest : public MNNTestCase {
 public:
     virtual ~FusedGateUpLNQuantSplitKTest() = default;
@@ -915,14 +961,42 @@ public:
 };
 MNNTestSuiteRegister(FusedGateUpLNQuantSplitKTest, "op/fused_gateup_ln_quant_splitk");
 
-class FusedGateUpLNQuantSplitKW16DsTest : public MNNTestCase {
+class FusedGateUpLNQuantSplitKBlock64Test : public MNNTestCase {
 public:
-    virtual ~FusedGateUpLNQuantSplitKW16DsTest() = default;
+    virtual ~FusedGateUpLNQuantSplitKBlock64Test() = default;
     virtual bool run(int precision) {
-        return runQuantLNCase({4, 4}, {64, 64}, "gateup_ln_quant_splitk_w16ds", 1, 1024, 64);
+        return runQuantLNCase({4, 4}, {64, 64}, "gateup_ln_quant_splitk_block64", 1, 1024, 64);
     }
 };
-MNNTestSuiteRegister(FusedGateUpLNQuantSplitKW16DsTest, "op/fused_gateup_ln_quant_splitk_w16ds");
+MNNTestSuiteRegister(FusedGateUpLNQuantSplitKBlock64Test, "op/fused_gateup_ln_quant_splitk_block64");
+
+class FusedGateUpLNQuantBlock64ShapesTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        const int shapes[][2] = {{1024, 3072}, {1024, 3584}, {2048, 6144}, {2560, 9216}, {2560, 9728}, {1024, 3071},
+                                 {1024, 3583}, {2048, 6143}, {2560, 9215}, {2560, 9727}, {704, 2048},  {768, 2048},
+                                 {896, 4864},  {1536, 4096}, {3584, 2048}, {4096, 2048}, {5120, 2048}};
+        for (const auto& shape : shapes) {
+            const std::string tag = "gateup_ln_quant_block64_" + std::to_string(shape[0]) + "_" +
+                                    std::to_string(shape[1]);
+            if (!runQuantLNCase({4, 4}, {shape[1], shape[1]}, tag.c_str(), 1, shape[0], 64, 0.25f / shape[0])) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(FusedGateUpLNQuantBlock64ShapesTest, "op/fused_gateup_ln_quant_block64_shapes");
+
+class FusedGateUpQuantNarrowTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        return runQuantLNCase({4, 4}, {6144, 6144}, "gateup_narrow_ln", 1, 2048, 64, 0.25f / 2048) &&
+               runQuantLNCase({4, 4}, {6144, 6144}, "gateup_narrow_no_ln", 1, 2048, 64, 0.25f / 2048, false) &&
+               runQuantLNCase({4, 4}, {6144, 6144}, "gateup_narrow_block32", 1, 2048, 32, 0.25f / 2048);
+    }
+};
+MNNTestSuiteRegister(FusedGateUpQuantNarrowTest, "op/fused_gateup_quant_narrow");
 
 // Same pipeline at a prefill sequence length: the M64 fused-quant tile, where
 // one dispatch accumulates both projections' tiles and applies silu-mul in
@@ -935,6 +1009,22 @@ public:
     }
 };
 MNNTestSuiteRegister(FusedGateUpLNQuantPrefillTest, "op/fused_gateup_ln_quant_prefill");
+
+// 8-bit gate/up at prefill lengths: the dual-accumulator epilogue (two N=32
+// tiles, silu-mul in registers) on W8 operands. seq==64 is the M64 admission
+// boundary, and the oc==96 case leaves a tail in the second N tile.
+class FusedGateUpLNQuant8PrefillTest : public MNNTestCase {
+public:
+    virtual ~FusedGateUpLNQuant8PrefillTest() = default;
+    virtual bool run(int precision) {
+        return runQuantLNCase({8, 8}, {64, 64}, "gateup_ln_quant8_prefill", 256, 128, 32, 0.002f, true, 0.05f) &&
+               runQuantLNCase({8, 8}, {64, 64}, "gateup_ln_quant8_prefill_seq64", 64, 128, 32, 0.002f, true, 0.05f) &&
+               runQuantLNCase({8, 8}, {64, 64}, "gateup_ln_quant8_prefill_b64", 256, 128, 64, 0.002f, true, 0.05f) &&
+               runQuantLNCase({8, 8}, {96, 96}, "gateup_ln_quant8_prefill_tail", 256, 192, 32,
+                              0.25f / 192, true, 0.05f);
+    }
+};
+MNNTestSuiteRegister(FusedGateUpLNQuant8PrefillTest, "op/fused_gateup_ln_quant8_prefill");
 
 // Mixed 4/8-bit q/k/v + LN: setupQKVFusion rejects the quant-layout mismatch,
 // so the LN fold must be skipped and the LayerNorm dispatched separately —
@@ -961,5 +1051,39 @@ public:
     }
 };
 MNNTestSuiteRegister(FusedQKVP4LNQuantTest, "op/fused_qkv_p4_ln_quant");
+
+class FusedQKVP4LNQuantBlock64ShapesTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        const int shapes[][5] = {{1024, 2048, 512, 512, 2048}, {1024, 6144, 2048, 16, 16},
+                                 {2048, 2048, 512, 512, 2048}, {2048, 6144, 2048, 16, 16},
+                                 {2560, 4096, 1024, 1024, 4096}, {2560, 8192, 4096, 32, 32}};
+        for (const auto& shape : shapes) {
+            const std::vector<int> ocs(shape + 1, shape + 5);
+            for (int tail = -1; tail < 4; ++tail) {
+                auto current = ocs;
+                if (tail >= 0) {
+                    --current[tail];
+                }
+                const std::string tag = "qkv_p4_ln_quant_block64_" + std::to_string(shape[0]) + "_" +
+                                        std::to_string(shape[1]) + "_tail_" + std::to_string(tail);
+                if (!runQuantLNCase({4, 4, 4, 4}, current, tag.c_str(), 1,
+                                    shape[0], 64, 0.25f / shape[0])) {
+                    return false;
+                }
+            }
+            if (!runQuantLNCase({4, 4, 4, 4}, ocs, "qkv_p4_ln_quant_block32",
+                                1, shape[0], 32, 0.25f / shape[0])) {
+                return false;
+            }
+            if (!runQuantLNCase({4, 4, 4, 4}, ocs, "qkv_p4_no_ln_quant_block64",
+                                1, shape[0], 64, 0.25f / shape[0], false)) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(FusedQKVP4LNQuantBlock64ShapesTest, "op/fused_qkv_p4_ln_quant_block64_shapes");
 
 #endif

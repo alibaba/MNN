@@ -79,6 +79,12 @@ static uint64_t _replayHashIO(const std::vector<Tensor *> &inputs, const std::ve
 }
 
 ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    // Every Metal encode goes through this funnel. Encoders and command buffers are
+    // autoreleased objects that keep every MTLBuffer bound to them alive until the pool
+    // drains, so a caller looping without runloop turns would grow memory unboundedly.
+    // Draining here is safe: the backend strong-holds the encoder and committed command
+    // buffers track their own resources.
+    @autoreleasepool {
     auto backend = static_cast<MetalBackend *>(this->backend());
 #ifdef MNN_SESSION_CPU_TRACE
     auto t0 = std::chrono::steady_clock::now();
@@ -180,6 +186,7 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     }
 
     return NO_ERROR;
+    }
 }
 
 

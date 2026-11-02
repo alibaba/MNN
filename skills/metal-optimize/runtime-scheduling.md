@@ -167,7 +167,7 @@ tensor 地址随之变化又会使 encode replay 失效。
 攒得太久又可能推迟 GPU 开始执行，减少 CPU/GPU 重叠。
 目标不是最少的 command buffer，而是关键路径上的供给连续、依赖正确。
 
-**方法**：由调用方 `tuning()` 或 `MNN_METAL_COMMIT_NUM` 调整批次，
+**方法**：由调用方 `tuning()` 或 `setHint(OP_ENCODER_NUMBER_FOR_COMMIT, N)` 调整批次，
 在同一工作负载上交替测量生产 wall，并用时间线解释差异。
 同时观察 command buffer 数量与它们之间的 GPU 间隙；不能仅凭数量判断切换是瓶颈，
 也不能照搬其他引擎的批次或宣称某个固定值对所有模型最优。

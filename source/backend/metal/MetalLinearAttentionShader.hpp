@@ -60,11 +60,8 @@ inline int qkv_offset(int b, int d, int l, constant LinearAttnParam& param) {
     return (b * param.conv_dim + d) * param.seq_len + l;
 }
 
-// Kernel 1: Depthwise Conv1D + SiLU
-// Each thread processes one (batch*channel, seq_pos) element
-// Input:  qkv [B, D, L], conv_state [B, D, conv_state_size], conv_weight [D, 1, K]
-// Output: conv_out [B, D, L]
-// Also updates conv_state in-place
+// Depthwise Conv1D + SiLU. One thread per (batch*channel, seq_pos); also
+// updates conv_state in-place.
 kernel void linear_attn_conv_silu(
     const device ftype* qkv         [[buffer(0)]],
     device ftype* conv_state        [[buffer(1)]],
@@ -88,14 +85,8 @@ kernel void linear_attn_conv_silu(
     const int b = bd / D;
     const int d = bd % D;
 
-    // Compute valid convolution for position l
-    // Padded input = [conv_state[b,d,:], qkv[b,d,:]]
-    // conv_state has css elements, qkv has L elements
-    // Total padded length = css + L
-    // Output at position l: sum over k in [0, K) of padded[l+k] * weight[k]
-    //   padded[l+k]: if (l+k) < css -> conv_state[b*D*css + d*css + (l+k)]
-    //                else -> qkv[b*D*L + d*L + (l+k - css)]
-
+    // Convolve padded = [conv_state[b,d,:], qkv[b,d,:]] at position l; the
+    // first css elements come from conv_state, the rest from qkv.
     float sum = 0.0f;
     for (int k = 0; k < K; ++k) {
         int pos = l + k;  // position in padded input
@@ -127,12 +118,8 @@ inline float conv_pad_load(const device ftype* xrow, int stride,
     return q < L ? (float)xrow[q * stride] : 0.0f;
 }
 
-// Row-of-4 form of linear_attn_conv_silu: one thread owns 4 consecutive output
-// positions of a single (batch, channel) row. The K-tap windows of those 4
-// outputs overlap, so a rolling 4-value register window needs K+3 input loads
-// and K weight loads instead of 4K of each. The conv_state left padding only
-// reaches the first css outputs of a row, so it stays out of the interior path.
-// The k-accumulation order matches the scalar kernel bit for bit.
+// Row-of-4 form: one thread owns 4 consecutive outputs of a (batch, channel)
+// row and rolls a 4-value register window across the overlapping K-taps.
 kernel void linear_attn_conv_silu_row4(
     const device ftype* qkv         [[buffer(0)]],
     device ftype* conv_state        [[buffer(1)]],
@@ -208,10 +195,8 @@ kernel void linear_attn_conv_silu_row4(
     if (l0 + 3 < L) out[3] = (ftype)conv_silu_act(s3);
 }
 
-// Decode specialization (L=1): the convolution and state update have the
-// same one-thread-per-channel ownership, so keep the old state live until the
-// convolution completes and update it before returning. This removes one
-// kernel launch plus a second qkv/state traversal per linear-attention layer.
+// Decode (L=1): fuse the convolution and state update, so one dispatch
+// replaces the generic pair without an extra qkv/state traversal.
 kernel void linear_attn_conv_silu_state_decode(
     const device ftype* qkv         [[buffer(0)]],
     device ftype* conv_state        [[buffer(1)]],
@@ -247,12 +232,8 @@ kernel void linear_attn_conv_silu_state_decode(
     conv_out[gid] = (ftype)(sum * sigmoid_val);
 }
 
-// Kernel 2: Update conv state with last (K-1) elements of padded input.
-// One thread owns a complete channel so shifting the state in-place is ordered.
-// padded input = [old_conv_state, qkv], total length = css + L
-// new conv_state = padded[L .. L+css-1] (last css elements)
-// Which maps to: if (L + i) < css -> old_state[L+i], else -> qkv[(L+i) - css]
-// Simplified: new_state[i] = padded[L + i], where padded = cat(old_state, qkv)
+// Update conv_state to the last css elements of padded = [old_state, qkv].
+// One thread per channel so the in-place shift stays ordered.
 kernel void linear_attn_conv_state_update(
     const device ftype* qkv         [[buffer(0)]],
     device ftype* conv_state        [[buffer(1)]],
@@ -511,11 +492,8 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
     return (b * param.seq_len + t) * channel + c;
 }
 
-// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
-// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
-// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
-// store-rounding after every op, so the folded value is bit-identical to the
-// separate-dispatch chain output.
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replays the unfused
+// elementwise chain bit-identically (Binary in ftype, Unary in fp32 + MNNEXP clamp).
 inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
     ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
     x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
@@ -731,11 +709,8 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
     return (b * param.seq_len + t) * channel + c;
 }
 
-// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
-// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
-// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
-// store-rounding after every op, so the folded value is bit-identical to the
-// separate-dispatch chain output.
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replays the unfused
+// elementwise chain bit-identically (Binary in ftype, Unary in fp32 + MNNEXP clamp).
 inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
     ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
     x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
@@ -1236,11 +1211,8 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
     return (b * param.seq_len + t) * channel + c;
 }
 
-// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
-// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
-// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
-// store-rounding after every op, so the folded value is bit-identical to the
-// separate-dispatch chain output.
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replays the unfused
+// elementwise chain bit-identically (Binary in ftype, Unary in fp32 + MNNEXP clamp).
 inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
     ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
     x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
@@ -1584,11 +1556,8 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
     return (b * param.seq_len + t) * channel + c;
 }
 
-// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
-// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
-// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
-// store-rounding after every op, so the folded value is bit-identical to the
-// separate-dispatch chain output.
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replays the unfused
+// elementwise chain bit-identically (Binary in ftype, Unary in fp32 + MNNEXP clamp).
 inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
     ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
     x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
@@ -1842,11 +1811,8 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
     return (b * param.seq_len + t) * channel + c;
 }
 
-// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
-// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
-// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
-// store-rounding after every op, so the folded value is bit-identical to the
-// separate-dispatch chain output.
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replays the unfused
+// elementwise chain bit-identically (Binary in ftype, Unary in fp32 + MNNEXP clamp).
 inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
     ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
     x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
@@ -1957,9 +1923,8 @@ kernel void linear_attn_fused_sg_tg(
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         // ─── L2 norm + q_scale done ONCE by SG 0 on shared Q/K. ────────
-        // Other SGs wait on the trailing barrier. This trades some SG
-        // idle for eliminating the per-SG redundant reduction of the
-        // baseline kernel; net win because HEAD_K_DIM reduction is small.
+        // Other SGs wait on the trailing barrier: the HEAD_K_DIM reduction is
+        // small enough that their idle time costs less than running it per SG.
         if (sgitg == 0) {
             if (use_l2norm) {
                 const float eps = 1e-6f;
@@ -2040,8 +2005,8 @@ kernel void linear_attn_fused_sg_tg(
         }
 
         // Keep all SGs in lockstep through the shared-Q/K phase before the
-        // compiler schedules state writeback. Although decode has no next
-        // timestep, removing this barrier regresses the kernel on Apple GPUs.
+        // compiler schedules state writeback. Required even though decode has no
+        // next timestep: dropping it costs more than the barrier does.
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
@@ -2107,11 +2072,8 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
     return (b * param.seq_len + t) * channel + c;
 }
 
-// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
-// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
-// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
-// store-rounding after every op, so the folded value is bit-identical to the
-// separate-dispatch chain output.
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replays the unfused
+// elementwise chain bit-identically (Binary in ftype, Unary in fp32 + MNNEXP clamp).
 inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
     ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
     x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
@@ -2284,11 +2246,8 @@ kernel void linear_attn_fused_chunk_sg(
                 attn_out[output_offset_v2(b, t0 + dt, h, j, param)] = (ftype)o_t_j;
             }
         }
-        // No trailing barrier needed: the next iteration's loads only touch
-        // sh_q/sh_k/sh_v/sh_g/sh_beta which have been fully consumed here,
-        // and the load loop starts with an implicit "any thread may write".
-        // But we must ensure no stray thread proceeds to the next load before
-        // others finish their reads of the current chunk's sh_* data.
+        // Ensure every thread finished reading sh_q/sh_k/... of this chunk
+        // before the next iteration overwrites them (no trailing barrier needed).
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
@@ -2301,22 +2260,10 @@ kernel void linear_attn_fused_chunk_sg(
 )metal";
 
 
-// Chunk-64 Gated Delta Rule prefill without sequence-sized temporary tensors.
-//
-// The first kernel prepares the two state-independent chunk matrices in
-// parallel. The original V values are copied to the not-yet-produced output,
-// then conv_out's V region is reused in place:
-//
-//   V[:, 0:64]   <- T = (I - A)^-1,
-//                     A = -strict_lower((K * beta) K^T * decay)
-//   V[:, 64:128] <- P =  lower_inclusive(Q K^T * decay)
-//
-// The recurrent kernel owns a 32-column state slice, walks chunks in order,
-// computes v_new = T @ (v*beta - (k*beta*exp(gc))@S) in threadgroup
-// memory, then computes output and updates S. Consequently the path retains
-// the chunk-parallel dependency reduction without allocating Q/K/V/U/W/P
-// scratch tensors. The output buffer only contains transient V values until
-// each corresponding final output slice is written.
+// Chunk-64 Gated Delta Rule prefill without sequence-sized scratch. A prep
+// kernel builds the two state-independent chunk matrices (T = (I-A)^-1 and
+// P reused in conv_out's V region). The recurrent kernel owns a 32-column
+// state slice and walks chunks in order.
 static const char* gLinearAttnChunk64Inplace = R"metal(
 #include <metal_stdlib>
 #include <metal_tensor>
@@ -2370,11 +2317,8 @@ inline int ck_token_channel_offset(int b, int t, int c, int channel, int packed,
     return (b * param.seq_len + t) * channel + c;
 }
 
-// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
-// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
-// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
-// store-rounding after every op, so the folded value is bit-identical to the
-// separate-dispatch chain output.
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replays the unfused
+// elementwise chain bit-identically (Binary in ftype, Unary in fp32 + MNNEXP clamp).
 inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
     ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
     x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
@@ -2410,10 +2354,8 @@ inline int ck_output_offset(int b, int t, int h, int d, constant LinearAttnParam
 #error "the blocked inversion requires CK_CHUNK / 16 == CK_NSG"
 #endif
 
-// Per-token scalars shared between the chunk-parallel prep kernel and the
-// chunk-serial scan kernel: [B*H][4][chunks * CK_CHUNK], planes in order
-// {gate cumsum, beta, q inverse norm, k inverse norm}.  The padded lanes of the
-// tail chunk hold live cumsum values, so the plane stride is the padded length.
+// Per-token scalars shared between prep and scan kernels, laid out as
+// [B*H][4][chunks * CK_CHUNK]: gate cumsum, beta, 1/|q|, 1/|k|.
 #define CK_STAT_GC   0
 #define CK_STAT_BETA 1
 #define CK_STAT_QINV 2
@@ -2496,10 +2438,8 @@ kernel void linear_attn_chunk64_prep_inplace(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Parallel inclusive prefix sum (Hillis-Steele) over gcTg[0..CK_CHUNK-1].
-    // All threads cooperate in log2(CK_CHUNK) steps; each step reads into a
-    // register before the barrier, writes after, so no thread observes a
-    // same-step overwrite. Replaces a single-thread CK_CHUNK-step serial chain.
+    // Hillis-Steele inclusive prefix sum over gcTg[0..CK_CHUNK-1]; a per-step
+    // register-read + barrier + write avoids same-step overwrites.
     for (uint d = 1; d < CK_CHUNK; d <<= 1) {
         float val = 0.0f;
         if (tid < CK_CHUNK && tid >= d) {
@@ -2561,7 +2501,7 @@ kernel void linear_attn_chunk64_prep_inplace(
         for (int kt = 0; kt < CK_DK_TILES; ++kt) {
             auto ctA = mm.get_left_input_cooperative_tensor<ftype, ftype, float>();
             auto ctB = mm.get_right_input_cooperative_tensor<ftype, ftype, float>();
-            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            auto ctC = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ctA)>, metal::remove_addrspace_t<decltype(ctB)>, float>();
             for (ushort g = 0; g < 2; ++g) {
                 int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                 int token = c0 + m;
@@ -2593,22 +2533,13 @@ kernel void linear_attn_chunk64_prep_inplace(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Forward substitution produces T in place, by inverting M = I - A. A
-    // row-serial substitution would publish one row per barrier pair, so a
-    // 64-token chunk would spend 126 barriers guarding a few MACs each and be
-    // latency-bound rather than throughput-bound. Here the four
-    // unit-lower-triangular diagonal blocks invert independently inside a
-    // single simdgroup, which is lockstep and so needs no threadgroup barrier,
-    // and the off-diagonal blocks follow from
-    //   X_ij = X_ii * sum_{k=j..i-1} A_ik X_kj,
-    // costing two barriers per block row: 7 in total. The result carries an
-    // explicit unit diagonal in aTg.
+    // Blockwise forward substitution for T = (I - A)^-1: diagonal blocks
+    // invert lockstep inside one simdgroup; off-diagonal blocks follow from
+    // X_ij = X_ii * sum_{k=j..i-1} A_ik X_kj at two barriers per block row.
     threadgroup float fsTmp[CK_NSG][CK_FS_BLK][CK_FS_BLK];
     {
-        // Simdgroup `sgitg` owns diagonal block (sgitg, sgitg) and lane `c` owns
-        // column c of it, so the column never leaves registers and the aTg reads
-        // are simdgroup-uniform broadcasts. Lanes >= CK_FS_BLK fall out via the
-        // r == c test and are dropped at the write.
+        // Simdgroup sgitg owns diagonal block (sgitg, sgitg); lane c owns its
+        // column c, so aTg reads become simdgroup-uniform broadcasts.
         const int d0 = int(sgitg) * CK_FS_BLK;
         const int c = int(tiisg);
         float xcol[CK_FS_BLK];
@@ -2685,7 +2616,7 @@ kernel void linear_attn_chunk64_prep_inplace(
         for (int kt = 0; kt < CK_DK_TILES; ++kt) {
             auto ctA = mm.get_left_input_cooperative_tensor<ftype, ftype, float>();
             auto ctB = mm.get_right_input_cooperative_tensor<ftype, ftype, float>();
-            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            auto ctC = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ctA)>, metal::remove_addrspace_t<decltype(ctB)>, float>();
             for (ushort g = 0; g < 2; ++g) {
                 int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                 int token = c0 + m;
@@ -2773,11 +2704,9 @@ kernel void linear_attn_chunk64_recurrent_inplace(
     for (int c = 0; c < chunks; ++c) {
         const int c0 = c * CK_CHUNK;
 
-        // Per-token scalars come from the chunk-parallel prep kernel: it already
-        // folds gate/beta, prefix-sums the gate, and computes the l2 inverse
-        // norms.  Recomputing them here cost a 12-barrier prefix sum plus an
-        // uncoalesced stride-L re-read of Q and K, once per chunk in each of the
-        // CK_W-block threadgroups that share this (b, h).
+        // Per-token scalars already come folded and prefix-summed from the
+        // prep kernel; recomputing them would cost extra barriers plus a
+        // stride-L re-read of Q/K per chunk.
         if (tid < CK_CHUNK) {
             const int slot = c0 + int(tid);
             gcTg[tid]   = statBase[CK_STAT_GC   * statStride + slot];
@@ -2794,7 +2723,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
             for (int kt = 0; kt < CK_DK_TILES; ++kt) {
                 auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
                 auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
-                auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+                auto ctC = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ctA)>, metal::remove_addrspace_t<decltype(ctB)>, float>();
                 for (ushort g = 0; g < 2; ++g) {
                     int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                     int token = c0 + m;
@@ -2830,7 +2759,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
         for (int kt = 0; kt < CK_NT; ++kt) {
             auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
             auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
-            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            auto ctC = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ctA)>, metal::remove_addrspace_t<decltype(ctB)>, float>();
             for (ushort g = 0; g < 2; ++g) {
                 int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                 for (ushort j = 0; j < 4; ++j) {
@@ -2863,7 +2792,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
         for (int kt = 0; kt < CK_DK_TILES; ++kt) {
             auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
             auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
-            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            auto ctC = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ctA)>, metal::remove_addrspace_t<decltype(ctB)>, float>();
             for (ushort g = 0; g < 2; ++g) {
                 int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                 int token = c0 + m;
@@ -2884,7 +2813,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
         for (int kt = 0; kt < CK_NT; ++kt) {
             auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
             auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
-            auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+            auto ctC = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ctA)>, metal::remove_addrspace_t<decltype(ctB)>, float>();
             for (ushort g = 0; g < 2; ++g) {
                 int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                 for (ushort j = 0; j < 4; ++j) {
@@ -2920,7 +2849,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
             for (int kt = 0; kt < CK_NT; ++kt) {
                 auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
                 auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
-                auto ctC = mm.get_destination_cooperative_tensor<decltype(ctA), decltype(ctB), float>();
+                auto ctC = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ctA)>, metal::remove_addrspace_t<decltype(ctB)>, float>();
                 for (ushort i = 0; i < 8; ++i) {
                     int tokenK = kt * 16 + int(fn) + (int(i) & 3);
                     int token = c0 + tokenK;
@@ -2955,13 +2884,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
 )metal";
 
 // simdgroup_matrix (8x8 fp32 MMA) port of linear_attn_flash_chunk for devices
-// without the Metal tensor API (M4-class Macs, iPhone A-series). Replaces the
-// per-timestep scalar fused_chunk_sg path for long prefill: the chunked
-// gated-delta-rule formulation turns the sequential recurrence into a handful
-// of 16x{16,DV_BLOCK}xHEAD_K_DIM matmuls per chunk, which map directly onto
-// simdgroup_float8x8 tiles. Algorithm, buffers and barriers mirror
-// linear_attn_flash_chunk step-for-step; only the three tensor-API matmul
-// blocks (steps 4, 7, 9, 12) are re-expressed as 8x8 MMA loops.
+// without the tensor API. Steps match; matmul blocks become 8x8 MMA loops.
 static const char* gLinearAttnFlashChunkSGMM = R"metal(
 #include <metal_stdlib>
 #include <metal_simdgroup_matrix>
@@ -3013,11 +2936,8 @@ inline int token_channel_offset(int b, int t, int c, int channel, int packed,
     return (b * param.seq_len + t) * channel + c;
 }
 
-// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replicates the unfused
-// elementwise chain op-for-op — Binary ops compute in ftype (half on fp16
-// builds), Unary ops in fp32 with the MNNEXP +-87 clamp — with an ftype
-// store-rounding after every op, so the folded value is bit-identical to the
-// separate-dispatch chain output.
+// gate/beta chain fold (bit 2 of gate_c4/beta_c4): replays the unfused
+// elementwise chain bit-identically (Binary in ftype, Unary in fp32 + MNNEXP clamp).
 inline float linear_attn_gate_fold(float a, int h, constant LinearAttnParam& p) {
     ftype x = (ftype)a + (ftype)p.gate_bias[h];       // ADD dt_bias  (Binary, half)
     x = (ftype)exp(clamp((float)x, -87.0f, 87.0f));   // EXP          (Unary, fp32)
