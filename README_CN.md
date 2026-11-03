@@ -81,22 +81,36 @@ MNN适配的硬件架构与精度详见下表：
 - B ：支持，无优化或在实验状态，不推荐使用
 - C ：不支持
 
-| Architecture / Precision |  | Normal | FP16 | BF16 | Int8 / Int4 |
+| Architecture / Precision |  | Normal | FP16 | BF16 | INT8 / INT4 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | Native | B | C | B | B |
 |  | x86/x64-SSE4.1 | A | C | C | A |
 |  | x86/x64-AVX2 | S | C | C | A |
 |  | x86/x64-AVX512 | S | C | C | S |
-|  | ARMv7a | S | S (ARMv8.2) | S | S |
+|  | ARMv7a | S | C | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
+|  | ARMv9 (SME2) | S | S | B | S |
+|  | RISC-V (RVV) | A | C | C | B |
 | GPU | OpenCL | A | S | C | S |
 |  | Vulkan | A | A | C | A |
 |  | Metal | A | S | C | S |
 |  | CUDA | A | S | C | A |
-| NPU | CoreML | A | C | C | C |
+| NPU | CoreML | A | A | C | C |
+|  | Hexagon | A | A | C | B |
+|  | NeuroPilot | B | B | C | B |
 |  | HIAI | A | C | C | C |
 |  | NNAPI | B | B | C | B |
-|  | QNN | C | B | C | C |
+|  | QNN | C | B | C | A |
+
+CoreML 在 `Precision_Normal` 下主要使用 FP16 MIL 张量和权重；`Precision_Low` 不是独立的执行路径。算子的执行设备由 Core ML 选择。
+
+Hexagon 即使接收 Normal 精度的主机输入，设备端张量仍使用 FP16。
+
+
+ARMv9 可使用 ARMv8 路径；SME2 加速需要 CPU 和构建配置支持。BF16 使用已有 ARM 路径，需启用 `MNN_SUPPORT_BF16`。RISC-V IME2 优化针对 SpacemiT K3。
+
+INT8 / INT4 评级包含仅量化权重的模型路径，不表示所有算子均使用整数计算。Hexagon 的 LLM 文档目前要求对称 INT4 权重和 FP16 激活；QNN 的支持范围取决于目标设备和量化配置。
+
 
 
 ## 工具
