@@ -84,22 +84,35 @@ MNNがサポートするアーキテクチャ/精度は以下の通りです：
 - B ：サポートされていますが、バグがあるか、最適化されていないため、使用を推奨しません。
 - C ：サポートされていません。
 
-| アーキテクチャ / 精度 |  | 通常 | FP16 | BF16 | Int8 |
+| アーキテクチャ / 精度 |  | Normal | FP16 | BF16 | INT8 / INT4 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | ネイティブ | B | C | B | B |
 |  | x86/x64-SSE4.1 | A | C | C | A |
 |  | x86/x64-AVX2 | S | C | C | A |
 |  | x86/x64-AVX512 | S | C | C | S |
-|  | ARMv7a | S | S (ARMv8.2) | S | S |
+|  | ARMv7a | S | C | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
+|  | ARMv9 (SME2) | S | S | B | S |
+|  | RISC-V (RVV) | A | C | C | B |
 | GPU | OpenCL | A | S | C | S |
 |  | Vulkan | A | A | C | A |
 |  | Metal | A | S | C | S |
-|  | CUDA | A | S | C | C |
-| NPU | CoreML | B | B | C | C |
+|  | CUDA | A | S | C | A |
+| NPU | CoreML | A | A | C | C |
+|  | Hexagon | A | A | C | B |
+|  | NeuroPilot | B | B | C | B |
 |  | HIAI | B | C | C | B |
 |  | NNAPI | B | B | C | B |
-|  | QNN | C | B | C | C |
+|  | QNN | C | B | C | A |
+
+CoreML は `Precision_Normal` で主に FP16 の MIL テンソルと重みを使用します。`Precision_Low` は独立した実行パスではなく、各演算の実行デバイスは Core ML が選択します。
+
+Hexagon ではホスト入力が Normal 精度の場合もデバイステンソルに FP16 を使用します。
+
+
+ARMv9 では ARMv8 のパスを使用できます。SME2 の高速化には対応 CPU とビルド設定が必要です。BF16 は既存の ARM パスを使用し、`MNN_SUPPORT_BF16` の有効化が必要です。RISC-V IME2 の最適化は SpacemiT K3 向けです。
+
+INT8 / INT4 の評価には重みのみを量子化するモデルのパスも含まれ、すべての演算が整数計算されることを意味しません。Hexagon の LLM ドキュメントでは現在、対称 INT4 重みと FP16 活性化を必要とします。QNN の対応範囲は対象デバイスと量子化設定によって異なります。
 
 
 
