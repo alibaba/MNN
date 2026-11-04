@@ -482,6 +482,7 @@ struct Omni::VisionProcessor {
     struct Idefics;
     struct MiniCPM;
     struct MiniCPM47;
+    struct MiniCPMOcr;
     struct Hunyuan;
     struct Gemma4;
     explicit VisionProcessor(Omni& omni) : mOmni(omni) {}
@@ -1127,12 +1128,13 @@ struct Omni::VisionProcessor::MiniCPM47 : MiniCPM {
         const int resolution = mOmni.mConfig->config_.value("image_size", 448);
         const int maxSlices = mOmni.mConfig->config_.value("vision_max_slice_nums", 9);
         const int bins = mOmni.mConfig->config_.value("vision_position_size", 70);
+        const int merge = mOmni.mConfig->config_.value("vision_merge_size", 4);
         int height = mOmni.mVisionHeight, width = mOmni.mVisionWidth;
         if (!mOmni.mVisionSizeOverridden) {
             height = image->getInfo()->dim[0];
             width = image->getInfo()->dim[1];
         }
-        if (patch <= 0 || resolution <= 0 || maxSlices < 1 || bins <= 0 || height <= 0 || width <= 0) {
+        if (patch <= 0 || resolution <= 0 || maxSlices < 1 || bins <= 0 || merge <= 0 || height <= 0 || width <= 0) {
             return {};
         }
         auto divide = [](double value, int unit) {
@@ -1144,7 +1146,7 @@ struct Omni::VisionProcessor::MiniCPM47 : MiniCPM {
                 h = static_cast<int>(resolution / std::sqrt(ratio));
                 w = static_cast<int>(h * ratio);
             }
-            return std::make_pair(divide(h, patch * 4), divide(w, patch * 4));
+            return std::make_pair(divide(h, patch * merge), divide(w, patch * merge));
         };
         int multiple = std::min(
             maxSlices, static_cast<int>(std::ceil(static_cast<double>(height) * width / (resolution * resolution))));
@@ -1388,6 +1390,13 @@ bool Omni::VisionProcessor::MiniCPM47::promptPositions(const std::vector<int>& i
     mNextPosition = currentPosition;
     return true;
 }
+
+struct Omni::VisionProcessor::MiniCPMOcr : MiniCPM47 {
+    using MiniCPM47::MiniCPM47;
+    // OCR keeps MiniCPM-V 4.7's slice layout but uses plain 1-D positions.
+    bool promptPositions(const std::vector<int>&) override { return true; }
+    int lastPosition() const override { return VisionProcessor::lastPosition(); }
+};
 
 struct Omni::VisionProcessor::Gemma4 : VisionProcessor {
     using VisionProcessor::VisionProcessor;
@@ -1659,7 +1668,12 @@ std::unique_ptr<Omni::VisionProcessor> Omni::VisionProcessor::create(Omni& o) {
         } else if (type == "tiles") {
             family = "idefics3";
         } else if (type == "resampler") {
-            family = o.mConfig->config_.value("vision_type", "") == "minicpmv4_7" ? "minicpmv4_7" : "minicpmv";
+            const std::string visionType = o.mConfig->config_.value("vision_type", "");
+            if (visionType == "minicpmv4_7" || visionType == "minicpm_ocr") {
+                family = visionType;
+            } else {
+                family = "minicpmv";
+            }
         } else if (type == "row_grid") {
             family = "hunyuan_vl";
         } else if (type == "padded_patches") {
@@ -1707,6 +1721,9 @@ std::unique_ptr<Omni::VisionProcessor> Omni::VisionProcessor::create(Omni& o) {
     }
     if (family == "minicpmv4_7") {
         return std::unique_ptr<VisionProcessor>(new MiniCPM47(o));
+    }
+    if (family == "minicpm_ocr") {
+        return std::unique_ptr<VisionProcessor>(new MiniCPMOcr(o));
     }
     if (family == "minicpmv") {
         return std::unique_ptr<VisionProcessor>(new MiniCPM(o));
