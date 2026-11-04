@@ -276,7 +276,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 }
                 auto exe = c.execution;
                 if (nullptr == exe.get()) {
-                    MNN_ERROR("Const Folder Error for %s\n", info.op->name()->c_str());
+                    MNN_ERROR("Const Folder Error for %s\n", info.op->name() ? info.op->name()->c_str() : "");
                     return NO_EXECUTION;
                 }
                 backupBackend->onResizeBegin();

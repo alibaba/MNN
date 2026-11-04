@@ -655,6 +655,7 @@ class CompactMetadataConvTest : public MNNTestCase {
             auto compactPtr = yCompact->readMap<float>();
             auto legacyPtr = yLegacy->readMap<float>();
             auto refPtr = yRef->readMap<float>();
+            MNNTEST_ASSERT(compactPtr && legacyPtr && refPtr);
             const int size = yRef->getInfo()->size;
             float maxValue = 0.001f;
             for (int i = 0; i < size; ++i) {

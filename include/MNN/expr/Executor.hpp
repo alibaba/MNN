@@ -131,6 +131,8 @@ public:
          * @brief set external file.
          */
         void setExternalFile(std::string fileName);
+        // Bind [offset, offset + length); invalid ranges leave the existing binding unchanged.
+        bool setExternalFile(std::string fileName, int64_t offset, int64_t length);
 
         /**
          * @brief update cache file
