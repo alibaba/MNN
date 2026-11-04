@@ -8,6 +8,12 @@
 [![MNN Homepage](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
 [![zread](https://img.shields.io/badge/Zread-ask-green)](https://zread.ai/alibaba/MNN)
 
+## 最新消息 🔥
+
+- [2026/11/04] 我們發布了 [**MNN-Pocket-0.3B**](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B)，這是一款與 MNN 推論引擎協同設計、面向裝置端部署的 **3 億參數**中英文指令微調語言模型。支援 **32K 上下文**；INT4（W4A16）QAT MNN 版本體積僅 **174 MB**，在 iPad Pro M5 上的解碼速度最高達 **466 tokens/s**（Metal 後端，512-token 上下文）。以 **Apache 2.0** 授權條款開源。[模型合集](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) · [MNN INT4 模型](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B-MNN) · [技術報告](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)。
+
+## 簡介
+
 [MNN](https://github.com/alibaba/MNN) 是一個輕量級的深度神經網路引擎，支援深度學習的推理 (Inference) 與訓練。適用於伺服器、個人電腦、手機及各類嵌入式裝置。目前，MNN 已在阿里巴巴的手機淘寶、手機天貓、優酷等超過 30 個 App 中使用，涵蓋直播、短影音、搜尋推薦、商品圖像搜尋、互動行銷、權益發放、安全風控等場景。
 
 [MNN-LLM](https://github.com/alibaba/MNN/tree/master/transformers/llm) 是基於 MNN 引擎開發的大型語言模型執行方案，旨在解決大語言模型在本機裝置（手機 / 個人電腦 / 嵌入式裝置）上的高效部署問題。支援常見的 Qwen、Baichuan、Zhipu、LLAMA 等大語言模型。使用教學：[MNN-LLM 使用教學](https://mnn-docs.readthedocs.io/en/latest/transformers/llm.html)

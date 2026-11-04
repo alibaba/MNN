@@ -13,10 +13,13 @@
 [![Sana](https://img.shields.io/badge/Apps-Sana_Image_Edit-blue)](./apps/sana/README.md)
 
 ## News 🔥
-- [2026/07/22] MNN 3.6.1 is released with a new 🚀 Hexagon backend, enabling accelerated model inference on Qualcomm Hexagon DSPs. [Learn more](./source/backend/hexagon/README.md).
+
+- [2026/11/04] We released [**MNN-Pocket-0.3B**](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B), a **300M-parameter** Chinese/English instruction-tuned language model co-designed with MNN for on-device deployment. It supports **32K context**; the INT4 (W4A16) QAT MNN build occupies only **174 MB** and reaches up to **466 tokens/s** decode on iPad Pro M5 (Metal, 512-token context). Released under **Apache 2.0**. [Model collection](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) · [MNN INT4 model](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B-MNN) · [Technical report](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf).
 
 <details>
 <summary> History News </summary>
+
+- [2026/07/22] MNN 3.6.1 is released with a new 🚀 Hexagon backend, enabling accelerated model inference on Qualcomm Hexagon DSPs. [Learn more](./source/backend/hexagon/README.md).
 
 - [2026/03/05] Support Qwen3.5 Series.
 <p align="center">
