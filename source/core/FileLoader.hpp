@@ -31,6 +31,10 @@ public:
 
     static bool write(const char* filePath, std::pair<const void*, size_t> cacheInfo);
 
+    // The returned locator preserves bounds when an external op reopens path().
+    static std::string fileRegion(const std::string& file, int64_t offset, int64_t length);
+    static bool isFileRegion(const std::string& file);
+
     bool valid() const {
         return mFile != nullptr;
     }
@@ -54,6 +58,9 @@ private:
     size_t mTotalSize           = 0;
     std::string mFilePath;
     bool mInited = false;
+    int64_t mRegionOffset = 0;
+    int64_t mRegionLength = -1;
+    int64_t mPosition = 0;
 };
 
 class MemoryLoader : public BaseLoader {

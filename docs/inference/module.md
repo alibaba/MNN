@@ -108,6 +108,26 @@ runtime_manager_->setExternalPath("tmp", MNN::Interpreter::EXTERNAL_FEATUREMAP_D
 - MNN::Interpreter::EXTERNAL_FEATUREMAP_DIR : 中间内存转换为文件存储
 - MNN::Interpreter::EXTERNAL_NPU_FILE_DIR : 存储NPU模型对应的文件夹路径
 
+### 从文件指定区间加载
+
+`Module::load()` 和 `RuntimeManager::setExternalFile()` 可接收文件路径、`offset` 和 `length`，
+直接读取文件中的 `[offset, offset + length)`。偏移和长度以字节计，偏移必须非负，长度必须大于零。
+
+```cpp
+const char* file = "/path/resources.bin";
+if (!rtmgr->setExternalFile(file, weights_offset, weights_length)) {
+    return;
+}
+std::shared_ptr<MNN::Express::Module> module(
+    MNN::Express::Module::load(input_names, output_names, file, graph_offset, graph_length, rtmgr));
+```
+
+图中的外部权重偏移相对于权重区间起点，不需要重写图或提取权重文件。
+`setExternalFile()` 校验参数、文件可读性和实际区间边界，失败时保留原绑定；加载时继续检查实际读取结果。
+模型图区间长度受内部缓冲区限制，不能超过 `INT_MAX` 字节；权重支持 64 位区间和随机读取。
+文件区间不会自动查找配套 `.weight` 文件，外部权重需要显式绑定；完整文件和内存继续使用原有加载接口。
+调用方应在模型使用期间保留对应文件。此接口不定义容器格式，也不执行解密或解压。
+
 ### 创建Module
 `Module`可以通过指定模型，输入输出的名称，配置文件创建
 ```cpp
