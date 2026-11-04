@@ -9,6 +9,12 @@
 [![zread](https://img.shields.io/badge/Zread-ask-green)](https://zread.ai/alibaba/MNN)
 
 ## ニュース 🔥
+
+- [2026/11/04] [**MNN-Pocket-0.3B**](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B) をリリースしました。オンデバイス向けに MNN の推論エンジンと協調設計した、中国語・英語対応の **3 億パラメータ**の指示チューニング済み言語モデルです。**32K コンテキスト**に対応し、INT4（W4A16）QAT MNN 版のサイズはわずか **174 MB**。iPad Pro M5 で最大 **466 tokens/s** のデコード速度を達成しています（Metal バックエンド、512-token コンテキスト）。**Apache 2.0** ライセンスで公開しています。[モデルコレクション](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) · [MNN INT4 モデル](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B-MNN) · [技術レポート](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)。
+
+<details>
+<summary> 過去のニュース </summary>
+
 - [2025/01/23] フルマルチモーダル LLM Android アプリをリリースしました: [MNN-LLM-Android](./apps/Android/MnnLlmChat/README.md)。テキストからテキスト、画像からテキスト、音声からテキスト、テキストから画像生成を含みます。
 <p align="center">
   <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home_new.jpg" style="margin: 0 10px;">
@@ -16,6 +22,8 @@
   <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound_new.jpg" style="margin: 0 10px;">
   <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image_new.jpg" style="margin: 0 10px;">
 </p>
+
+</details>
 
 ## 紹介
 MNNは非常に効率的で軽量なディープラーニングフレームワークです。ディープラーニングモデルの推論とトレーニングをサポートし、デバイス上での推論とトレーニングにおいて業界をリードするパフォーマンスを発揮します。現在、MNNはAlibaba Incの30以上のアプリに統合されており、ライブ放送、短編動画キャプチャ、検索推薦、画像による商品検索、インタラクティブマーケティング、エクイティ配布、セキュリティリスク管理など、70以上の使用シナリオをカバーしています。さらに、MNNはIoTなどの組み込みデバイスでも使用されています。

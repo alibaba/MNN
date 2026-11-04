@@ -8,6 +8,11 @@
 [![MNN Homepage](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
 [![zread](https://img.shields.io/badge/Zread-ask-green)](https://zread.ai/alibaba/MNN)
 
+## 新闻 🔥
+
+- [2026/11/04] 我们发布了 [**MNN-Pocket-0.3B**](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B)，这是一款与 MNN 推理引擎协同设计、面向端侧部署的 **3 亿参数**中英文指令微调语言模型。支持 **32K 上下文**；INT4（W4A16）QAT MNN 版本体积仅 **174 MB**，在 iPad Pro M5 上的解码速度最高达 **466 tokens/s**（Metal 后端，512-token 上下文）。以 **Apache 2.0** 许可证开源。[模型合集](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) · [MNN INT4 模型](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B-MNN) · [技术报告](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)。
+
+## 简介
 
 [MNN](https://github.com/alibaba/MNN)是一个轻量级的深度神经网络引擎，支持深度学习的推理与训练。适用于服务器/个人电脑/手机/嵌入式各类设备。目前，MNN已经在阿里巴巴的手机淘宝、手机天猫、优酷等30多个App中使用，覆盖直播、短视频、搜索推荐、商品图像搜索、互动营销、权益发放、安全风控等场景。
 
