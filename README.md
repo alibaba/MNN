@@ -14,7 +14,9 @@
 
 ## News 🔥
 
-- [2026/11/04] We released [**MNN-Pocket-0.3B**](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B), a **300M-parameter** Chinese/English instruction-tuned language model co-designed with MNN for on-device deployment. It supports **32K context**; the INT4 (W4A16) QAT MNN build occupies only **174 MB** and reaches up to **466 tokens/s** decode on iPad Pro M5 (Metal, 512-token context). Released under **Apache 2.0**. [Model collection](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) · [MNN INT4 model](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B-MNN) · [Technical report](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf).
+- [2026/11/04] We released **MNN-Pocket-0.3B**, a **300M-parameter mobile-app-native language model** for Chinese/English instruction following. The MNN team co-designed its architecture, training methods, and inference engine around smartphone apps' task requirements and resource budgets. It supports **32K context**; the INT4 (W4A16) QAT MNN build occupies only **173 MB** and achieves **350 tok/s** decode throughput in tests on iPhone 18 Pro. Released under **Apache 2.0**.
+
+  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)
 
 <details>
 <summary> History News </summary>

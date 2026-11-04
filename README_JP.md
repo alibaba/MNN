@@ -10,7 +10,9 @@
 
 ## ニュース 🔥
 
-- [2026/11/04] [**MNN-Pocket-0.3B**](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B) をリリースしました。オンデバイス向けに MNN の推論エンジンと協調設計した、中国語・英語対応の **3 億パラメータ**の指示チューニング済み言語モデルです。**32K コンテキスト**に対応し、INT4（W4A16）QAT MNN 版のサイズはわずか **174 MB**。iPad Pro M5 で最大 **466 tokens/s** のデコード速度を達成しています（Metal バックエンド、512-token コンテキスト）。**Apache 2.0** ライセンスで公開しています。[モデルコレクション](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) · [MNN INT4 モデル](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B-MNN) · [技術レポート](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)。
+- [2026/11/04] **MNN-Pocket-0.3B** をリリースしました。中国語・英語の指示に対応する **3 億パラメータのモバイルアプリネイティブ言語モデル**です。MNN チームがスマートフォンアプリのタスク要件とリソース予算を踏まえ、モデル構造・学習手法・推論エンジンを協調設計しました。**32K コンテキスト**に対応し、INT4（W4A16）QAT MNN 版のサイズはわずか **173 MB**。iPhone 18 Pro での実測デコード速度は **350 tok/s** です。**Apache 2.0** ライセンスで公開しています。
+
+  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)
 
 <details>
 <summary> 過去のニュース </summary>

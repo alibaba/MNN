@@ -10,7 +10,9 @@
 
 ## 新闻 🔥
 
-- [2026/11/04] 我们发布了 [**MNN-Pocket-0.3B**](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B)，这是一款与 MNN 推理引擎协同设计、面向端侧部署的 **3 亿参数**中英文指令微调语言模型。支持 **32K 上下文**；INT4（W4A16）QAT MNN 版本体积仅 **174 MB**，在 iPad Pro M5 上的解码速度最高达 **466 tokens/s**（Metal 后端，512-token 上下文）。以 **Apache 2.0** 许可证开源。[模型合集](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) · [MNN INT4 模型](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B-MNN) · [技术报告](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)。
+- [2026/11/04] 我们发布了 **MNN-Pocket-0.3B**，一款支持中英文指令交互的 **3 亿参数手机应用原生大模型**。MNN 团队从手机应用的任务需求与资源预算出发，协同设计模型结构、训练方法与推理引擎。支持 **32K 上下文**；INT4（W4A16）QAT MNN 版本体积仅 **173 MB**，在 iPhone 18 Pro 上实测解码速度为 **350 tok/s**。以 **Apache 2.0** 许可证开源。
+
+  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)
 
 ## 简介
 
