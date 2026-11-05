@@ -141,7 +141,12 @@ void Llm::setChatTemplate() {
 }
 
 bool Llm::set_config(const std::string& content) {
-    mConfig->config_.merge(ujson::json::parse(content));
+    auto contentJson = ujson::json::parse(content);
+    mConfig->config_.merge(contentJson);
+    if (mSampler) {
+        // Applied at the next generate_init, so a running generation keeps its sampling values.
+        mSampler->updateConfig(contentJson);
+    }
     mConfig->mllm_config_ = mConfig->config_.contains("mllm") ? mConfig->config_["mllm"] : ujson::json();
     setChatTemplate();
     mAsync = mConfig->config_.value("async", true);
@@ -908,6 +913,9 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
     }
     if (mGenerationStrategy) {
         mGenerationStrategy->reset();
+    }
+    if (mSampler) {
+        mSampler->refresh();
     }
     if(mContext->status != LlmStatus::NOT_LOADED) {
         mContext->status = LlmStatus::RUNNING;
