@@ -238,6 +238,17 @@ class ChatInputComponent(
         currentUserMessage = null
     }
 
+    /** Restores a message that was rejected before sending: its text and attachments. */
+    fun restoreDraft(item: ChatDataItem) {
+        val text = item.text.orEmpty()
+        if (editUserMessage.text.isNullOrEmpty() && text.isNotEmpty()) {
+            editUserMessage.setText(text)
+            editUserMessage.setSelection(editUserMessage.text?.length ?: 0)
+        }
+        attachmentPickerModule?.restoreAttachments(item)
+        updateSenderButton()
+    }
+
     private fun updateVoiceButtonVisibility() {
         if (!ModelTypeUtils.isAudioModel(currentModelId)) {
             return
