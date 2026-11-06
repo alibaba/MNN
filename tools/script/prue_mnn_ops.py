@@ -33,12 +33,11 @@ def extract_geometry_and_op_types(code: str):
 
 def load_op_set(op_file):
     ops = set()
-    if os.path.exists(op_file):
-        with open(op_file, 'r') as f:
-            for line in f:
-                op = line.strip()
-                if op and not op.startswith('#'):
-                    ops.add("OpType_" + op)
+    with open(op_file, 'r') as f:
+        for line in f:
+            op = line.strip()
+            if op and not op.startswith('#'):
+                ops.add("OpType_" + op)
     return ops
 if __name__ == '__main__':
     if len(sys.argv) <3:
