@@ -50,6 +50,10 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
 
 ## Reading the result (agent-friendly)
 
+For request-scoped inference options, test a deterministic baseline, an intervening request with different options,
+then the same baseline again. Check both output and token accounting; a successful override alone does not prove that
+later requests retained their defaults. When copying JSON-backed configuration, verify whether the copy shares storage.
+
 * Each stage prints a delimited `═══ stage: <name> ═══` block, then a
   `PASS` / `FAIL` / `SKIP` line.
 * A final **summary** prints `total / passed / failed / skipped` and one line

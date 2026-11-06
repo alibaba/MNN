@@ -7,6 +7,7 @@
 //
 
 #include <set>
+#include <climits>
 #include "cv/types.hpp"
 #include "cv/imgcodecs.hpp"
 #include "cv/imgproc/color.hpp"
@@ -80,6 +81,17 @@ VARP imdecode(const std::vector<uint8_t>& buf, int flags) {
         return nullptr;
     }
     return buildImgVARP(img, height, width, 3, flags);
+}
+
+VARP imdecode(const std::vector<uint8_t>& buf, int flags, size_t max_pixels) {
+    int width = 0, height = 0, channels = 0;
+    if (buf.size() > INT_MAX ||
+        !stbi_info_from_memory(buf.data(), static_cast<int>(buf.size()), &width, &height, &channels) || width <= 0 ||
+        height <= 0 || static_cast<size_t>(width) > max_pixels / static_cast<size_t>(height)) {
+        MNN_ERROR("Invalid image or image exceeds pixel limit\n");
+        return nullptr;
+    }
+    return imdecode(buf, flags);
 }
 
 std::pair<bool, std::vector<uint8_t>> imencode(std::string ext, VARP img, const std::vector<int>& params) {

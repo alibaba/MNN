@@ -1,0 +1,2 @@
+#pragma once
+static const char mnncli_web_ui[] = R"mnncli_ui(@MNNCLI_WEB_CONTENT@)mnncli_ui";
