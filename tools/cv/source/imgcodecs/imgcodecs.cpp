@@ -89,7 +89,7 @@ std::pair<bool, std::vector<uint8_t>> imencode(std::string ext, VARP img, const 
     ext = getExt(ext);
     bool res = false;
     std::vector<uint8_t> buf;
-    if (ext == "jpg" || "jpeg") {
+    if (ext == "jpg" || ext == "jpeg") {
         int quality = 95;
         for (size_t i = 0; i < params.size(); i += 2) {
             if (params[i] == IMWRITE_JPEG_QUALITY) {
