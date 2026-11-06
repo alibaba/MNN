@@ -24,7 +24,7 @@ public:
             blockData = inputs[1]->host<int32_t>();
             paddingData = inputs[2]->host<int32_t>();
         } else {
-            auto paramter         = op->main_as_SpaceBatch();
+            auto parameter         = op->main_as_SpaceBatch();
             const auto blockShape = paramter->blockShape();
             const auto paddings    = paramter->padding();
             blockSize = blockShape->dims()->data()[0];
