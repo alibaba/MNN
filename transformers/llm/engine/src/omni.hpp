@@ -39,6 +39,28 @@ public:
         }
         return std::max(std::max(mT.back(), mH.back()), std::max(mW.back(), mX.back())) + 1;
     }
+    int size() const { return static_cast<int>(mT.size()); }
+    // Recorded coordinate of one MRoPE axis. Callers pass an absolute position, so falling back to
+    // the index keeps positions strictly increasing, which is also the convention for text tokens
+    // (t = h = w = position). Do not reuse an earlier coordinate here: several tokens sharing one
+    // coordinate would get the same RoPE phase and become indistinguishable. Omni::gen_position_ids()
+    // reports how far an index overran the table.
+    int axisValueAt(int axis, int index) const {
+        const std::vector<int>* values = nullptr;
+        if (axis == 0) {
+            values = &mT;
+        } else if (axis == 1) {
+            values = &mH;
+        } else if (axis == 2) {
+            values = &mW;
+        } else if (axis == 3) {
+            values = &mX;
+        }
+        if (values == nullptr || index < 0 || index >= static_cast<int>(values->size())) {
+            return index < 0 ? 0 : index;
+        }
+        return (*values)[index];
+    }
     void push_back(int t, int h, int w) { push_back(t, h, w, w); }
     void push_back(int t, int h, int w, int x) {
         mT.push_back(t);
@@ -76,6 +98,16 @@ public:
     std::vector<int> mT, mH, mW, mX;
 };
 
+// Fills axes * seqLen MRoPE positions for one forward. The first realLen of the seqLen tokens carry
+// prompt content; the remaining ones were added to reach the block shape the graph requires and only need a
+// defined position, because their logits are dropped and their KV entries are not committed. prefixLen is
+// how many tokens are already in the cache, and the table is indexed absolutely for every axis: a token in a
+// later prefill block must use its own recorded coordinate, not the one recorded at the same offset of the
+// first block. Returns how many real tokens have no recorded position: those cannot borrow another token's
+// coordinate, so the caller has to report them.
+int fillMropePositionIds(const MropeInfo& positions, int prefixLen, int seqLen, int realLen, int axes,
+                         bool relativeSpatial, int* dst);
+
 class Talker : public Llm {
 public:
     Talker(std::shared_ptr<LlmConfig> config) : Talker(config, nullptr) {}
@@ -85,7 +117,7 @@ public:
     void setProcessorRuntimeManager(std::shared_ptr<Executor::RuntimeManager> processorRuntimeManager);
     void generate_init(std::ostream* os = nullptr, const char* end_with = nullptr) override;
     Express::VARP embedding(const std::vector<int>& input_ids) override;
-    Express::VARP gen_position_ids(int seq_len) override;
+    Express::VARP gen_position_ids(int seq_len, int realLen = -1) override;
     int sample(Express::VARP logits, int offset = 0, int size = 0) override;
     void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
     void generate();
@@ -172,7 +204,7 @@ public:
     std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input) override;
     Express::VARP embedding(const std::vector<int>& input_ids) override;
     Express::VARP gen_attention_mask(int seq_len) override;
-    Express::VARP gen_position_ids(int seq_len) override;
+    Express::VARP gen_position_ids(int seq_len, int realLen = -1) override;
     bool prepareHistoryReplay(const std::vector<int>& input_ids) override;
     void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr,
                   int max_new_tokens = -1) override;
@@ -220,6 +252,11 @@ private:
     int mAudioPad = 151646;
 
     std::vector<VARP> mExtraArgs, mVisionEmbeddings, mAudioEmbeddings, mDeepStackEmbeddings;
+    // Chunked prefill feeds one block at a time and a single image/audio feature can span several blocks,
+    // so these cursors persist across embedding() calls. The pools are only dropped once every row was used.
+    int mVisionIndex = 0, mVisionConsumed = 0;
+    int mAudioIndex = 0, mAudioConsumed = 0;
+    void resetMultimodalState();
     MropeInfo mPositionIds;
     std::shared_ptr<Talker> mTalker;
     int64_t mThinkerElapsedUs = 0;
