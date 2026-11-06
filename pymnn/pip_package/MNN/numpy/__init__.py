@@ -38,7 +38,7 @@ def __array_like_type(prototype, dtype, order, shape):
         dst_dtype = dtype
     else:
         dst_dtype = prototype.dtype
-    if order != 'K' and shape is not None:
+    if shape is not None:
         dst_shape = shape
     else:
         dst_shape = prototype.shape
@@ -70,7 +70,7 @@ def __broadcast_shape(args):
         dims = set()
         for shape in shapes:
             dims.add(shape[i])
-        dims.remove(1)
+        dims.discard(1)
         if len(dims) > 1:
             raise ValueError('shape mismatch: %d cannot be broadcast to %d'%{dims.pop(), dims.pop()})
         dst_shape.append(dims.pop() if len(dims) == 1 else 1)
@@ -898,6 +898,8 @@ def vstack(tup):
     return concatenate(arrs)
 def hstack(tup):
     arrs = atleast_1d(*tup)
+    if not isinstance(arrs, list):
+        arrs = [arrs]
     if arrs and arrs[0].ndim == 1:
         return concatenate(arrs, 0)
     else:
