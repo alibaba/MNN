@@ -127,6 +127,7 @@ class Vision(torch.nn.Module):
             'llava_qwen2': MobileCLIPVision,
             'minicpmv': MiniCPMVision,
             'minicpmv4_7': MiniCPMV4_7Vision,
+            'minicpm_ocr': MiniCPMOcrVision,
             'glm_ocr': GlmOcrVision,
             'lfm2_vl': Lfm2VlVision,
             'hunyuan_vl': HunyuanVLVision,
@@ -2294,6 +2295,51 @@ class MiniCPMV4_7Vision(Vision):
                                   'image_embeds': {0: 'batch', 1: 'tokens'}})
         return model
 
+
+
+class MiniCPMOcrVision(MiniCPMV4_7Vision):
+    processor_family = "minicpm_ocr"
+
+    def init_config(self):
+        from transformers import AutoProcessor
+        self.transformer_fuse = False
+        self.processor = AutoProcessor.from_pretrained(self.config.name_or_path)
+        processor = self.processor.image_processor
+        tokenizer = self.processor.tokenizer
+        self.patch_size = self.config.vision_config.patch_size
+        self.downsample_mode = self.config.downsample_mode
+        self.use_vit_merger = self.downsample_mode != '4x'
+        self.merge_size = 4 if self.use_vit_merger else 2
+        self.image_embeds = []
+        self.target_sizes = None
+        self.llm_config.update({
+            'vision_type': 'minicpm_ocr',
+            'image_size': processor.scale_resolution,
+            'image_size_unit': self.patch_size,
+            'image_mean': (np.array(processor.image_mean) * 255.0).tolist(),
+            'image_norm': (1 / (np.array(processor.image_std) * 255.0)).tolist(),
+            'image_pad': self.config.image_token_id,
+            'vision_start': tokenizer.convert_tokens_to_ids(tokenizer.image_start_token),
+            'vision_end': tokenizer.convert_tokens_to_ids(tokenizer.image_end_token),
+            'vision_slice_start_id': tokenizer.convert_tokens_to_ids(tokenizer.slice_start_token),
+            'vision_slice_end_id': tokenizer.convert_tokens_to_ids(tokenizer.slice_end_token),
+            'vision_id_start_id': tokenizer.convert_tokens_to_ids(tokenizer.image_id_start_token),
+            'vision_id_end_id': tokenizer.convert_tokens_to_ids(tokenizer.image_id_end_token),
+            'vision_merge_size': self.merge_size,
+            'vision_position_size': self.config.vision_config.image_size // self.patch_size,
+            'vision_max_slice_nums': processor.max_slice_nums,
+            'vision_use_image_id': processor.use_image_id,
+            'vision_newline_id': tokenizer.encode('\n', add_special_tokens=False)[0],
+        })
+
+    def load(self):
+        self.merger = self.visual.merger
+
+    def get_position_ids(self, input_ids, seq_len, new_tokens):
+        # OCR's language model uses plain 1-D positions, unlike MiniCPM-V 4.7's M-RoPE.
+        if new_tokens:
+            return torch.tensor([seq_len - 1], dtype=torch.int)
+        return torch.arange(seq_len, dtype=torch.int).unsqueeze(0)
 
 
 class MiniCPMVision(Vision):
