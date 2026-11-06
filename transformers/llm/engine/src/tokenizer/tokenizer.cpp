@@ -825,17 +825,28 @@ bool HuggingfaceTokenizer::load_vocab(std::ifstream& tok_file) {
     // 1. Get nums
     int vocab_len = 0;
     int merge_len = 0;
+    bool crlf = false;
     if (std::getline(tok_file, line)) {
+        crlf = !tok_file.eof() && !line.empty() && line.back() == '\r';
         std::istringstream line_str(line);
         line_str >> vocab_len >> merge_len;
     }
+
+    // The numeric header identifies consistent record endings, not token content.
+    // Preserve trailing CR data in LF files and in the final unterminated record.
+    auto read_line = [&tok_file, crlf](std::string& value) {
+        std::getline(tok_file, value);
+        if (crlf && !tok_file.eof() && !value.empty() && value.back() == '\r') {
+            value.pop_back();
+        }
+    };
 
     // 2. Load vocab
     decoder_.resize(vocab_len);
     encoder_.reserve(vocab_len);
 
     for (int i = 0; i < vocab_len; i++) {
-        std::getline(tok_file, line);
+        read_line(line);
         // Move string to decoder to avoid copy, then use reference for encoder
         decoder_[i] = std::move(line);
         encoder_.emplace(decoder_[i], i);
@@ -844,7 +855,7 @@ bool HuggingfaceTokenizer::load_vocab(std::ifstream& tok_file) {
     // 3. Load merge_rules
     bpe_ranks_.reserve(merge_len);
     for (int i = 0; i < merge_len; i++) {
-        std::getline(tok_file, line);
+        read_line(line);
 
         size_t d = line.find(' ');
         if (d != std::string::npos) {
