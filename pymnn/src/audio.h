@@ -33,7 +33,11 @@ static PyObject *PyMNNAUDIO_hann_window(PyObject *self, PyObject *args) {
 }
 static PyObject *PyMNNAUDIO_melscale_fbanks(PyObject *self, PyObject *args) {
     AUDIO::MelscaleParams mel;
-    if (PyArg_ParseTuple(args, "ii|ifff", &mel.n_mels, &mel.n_fft, &mel.sample_rate, &mel.htk, &mel.norm, &mel.f_min, &mel.f_max)) {
+    int htk = mel.htk, norm = mel.norm;
+    if (PyArg_ParseTuple(args, "ii|ippff", &mel.n_mels, &mel.n_fft, &mel.sample_rate, &htk, &norm, &mel.f_min,
+                         &mel.f_max)) {
+        mel.htk = htk;
+        mel.norm = norm;
         return toPyObj(AUDIO::melscale_fbanks(&mel));
     }
     PyMNN_ERROR("melscale_fbanks require args: (int, int, |int, bool, bool, float, float)");
@@ -41,10 +45,13 @@ static PyObject *PyMNNAUDIO_melscale_fbanks(PyObject *self, PyObject *args) {
 static PyObject *PyMNNAUDIO_spectrogram(PyObject *self, PyObject *args) {
     PyObject *waveform = nullptr;
     AUDIO::SpectrogramParams spec;
-    if (PyArg_ParseTuple(args, "O|iiiiiiiiiif", &waveform, &spec.n_fft, &spec.hop_length, &spec.win_length,
-                         &spec.window_type, &spec.pad_left, &spec.pad_right, &spec.center, &spec.normalized,
-                         &spec.pad_mode, &spec.power) &&
+    int center = spec.center, normalized = spec.normalized;
+    if (PyArg_ParseTuple(args, "O|iiiiiippif", &waveform, &spec.n_fft, &spec.hop_length, &spec.win_length,
+                         &spec.window_type, &spec.pad_left, &spec.pad_right, &center, &normalized, &spec.pad_mode,
+                         &spec.power) &&
         isVar(waveform)) {
+        spec.center = center;
+        spec.normalized = normalized;
         return toPyObj(AUDIO::spectrogram(toVar(waveform), &spec));
     }
     PyMNN_ERROR("spectrogram require args: (Var, |int, int, int, int, int, int, bool, bool, PadValueMode, float)");
@@ -53,19 +60,22 @@ static PyObject *PyMNNAUDIO_mel_spectrogram(PyObject *self, PyObject *args) {
     PyObject *waveform = nullptr;
     AUDIO::MelscaleParams mel;
     AUDIO::SpectrogramParams spec;
-    int n_fft = 400;
-    if (PyArg_ParseTuple(args, "O|iiifiiifiiiii", &waveform, &mel.n_mels, &mel.n_fft, &mel.sample_rate, &mel.htk,
-                         &mel.norm, &mel.f_min, &mel.f_max, &spec.hop_length, &spec.win_length, &spec.window_type,
-                         &spec.pad_left, &spec.pad_right, &spec.center, &spec.normalized, &spec.pad_mode,
-                         &spec.power) &&
+    int htk = mel.htk, norm = mel.norm;
+    int center = spec.center, normalized = spec.normalized;
+    if (PyArg_ParseTuple(args, "O|iiippffiiiiippif", &waveform, &mel.n_mels, &mel.n_fft, &mel.sample_rate, &htk, &norm,
+                         &mel.f_min, &mel.f_max, &spec.hop_length, &spec.win_length, &spec.window_type, &spec.pad_left,
+                         &spec.pad_right, &center, &normalized, &spec.pad_mode, &spec.power) &&
         isVar(waveform)) {
+        mel.htk = htk;
+        mel.norm = norm;
+        spec.center = center;
+        spec.normalized = normalized;
         spec.n_fft = mel.n_fft;
         return toPyObj(AUDIO::mel_spectrogram(toVar(waveform), &mel, &spec));
     }
     PyMNN_ERROR(
-        "mel_spectrogram require args: (Var, |int, bool, bool, float, float, int, int, int, int, int, bool, bool, "
-        "PadValueMode, float)"
-        "int)");
+        "mel_spectrogram require args: (Var, |int, int, int, bool, bool, float, float, int, int, int, int, int, "
+        "bool, bool, PadValueMode, float)");
 }
 static PyObject *PyMNNAUDIO_fbank(PyObject *self, PyObject *args) {
     PyObject *waveform = nullptr;
