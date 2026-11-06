@@ -126,7 +126,12 @@ public:
         return (mValidSequences.find(s) != mValidSequences.end());
     }
 
-    virtual void run(TKernelParam& params, cudaStream_t ss) const
+    bool hasKernels() const
+    {
+        return !mFunctions.empty();
+    }
+
+    virtual bool run(TKernelParam& params, cudaStream_t ss) const
     {
         if (params.interleaved)
         {
@@ -134,31 +139,33 @@ public:
         }
 
         auto const findIter = mFunctions.find(hashID(params));
-        std::ostringstream errMsg;
-        errMsg << "Could not find kernel for:\n"
-               << "\t s: " << params.s << "\n"
-               << "\t dPadded: " << params.d_padded << "\n"
-               << "\t interleaved: " << params.interleaved << "\n"
-               << "\t forceUnroll: " << params.force_unroll << "\n"
-               << "Was the plugin compiled on a compatible CUDA and SM version?\n"
-               << "\t Compiled on CUDA " << CUDA_VERSION << "\n"
-               << "\t Current SM version: " << mSM << "\n"
-               << "\t SM versions enabled during compilation: "
+        if (findIter == mFunctions.end())
+        {
+            std::ostringstream errMsg;
+            errMsg << "Could not find kernel for:\n"
+                   << "\t s: " << params.s << "\n"
+                   << "\t dPadded: " << params.d_padded << "\n"
+                   << "\t interleaved: " << params.interleaved << "\n"
+                   << "\t forceUnroll: " << params.force_unroll << "\n"
+                   << "Was the plugin compiled on a compatible CUDA and SM version?\n"
+                   << "\t Compiled on CUDA " << CUDA_VERSION << "\n"
+                   << "\t Current SM version: " << mSM << "\n"
+                   << "\t SM versions enabled during compilation: "
 #if defined(MNN_CUDA_ENABLE_SM75)
-               << "75 "
+                   << "75 "
 #endif
 #if defined(MNN_CUDA_ENABLE_SM80)
-               << "80 "
+                   << "80 "
 #endif
 #if defined(MNN_CUDA_ENABLE_SM86)
-               << "86 "
+                   << "86 "
 #endif
 #if defined(MNN_CUDA_ENABLE_SM89)
-               << "89 "
+                   << "89 "
 #endif
-               << "\n";
-        if(findIter == mFunctions.end()) {
+                   << "\n";
             MNN_ERROR("%s\n", errMsg.str().c_str());
+            return false;
         }
 
         auto const& kernelMeta = mKernelMeta[findIter->second.mMetaInfoIndex];
@@ -179,6 +186,7 @@ public:
                            kernelMeta.mSharedMemBytes, ss, kernelParams, nullptr),
                 mDriver);
         }
+        return true;
     }
 
     virtual ~TSharedCubinKernel() = default;

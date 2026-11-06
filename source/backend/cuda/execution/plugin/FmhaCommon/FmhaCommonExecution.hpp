@@ -11,6 +11,12 @@
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "fused_multi_head_attention/kernel_forward.h"
 
+// FmhaV2 / Fmhca ship prebuilt cubins only for these SMs. When none is enabled (e.g.
+// MNN_CUDA_NATIVE_ARCH on sm_70 / sm_120) only this cutlass implementation is built.
+#if defined(MNN_CUDA_ENABLE_SM75) || defined(MNN_CUDA_ENABLE_SM80) || defined(MNN_CUDA_ENABLE_SM86) || defined(MNN_CUDA_ENABLE_SM89)
+#define MNN_CUDA_FMHA_HAS_CUBIN
+#endif
+
 namespace MNN {
 namespace CUDA {
 
