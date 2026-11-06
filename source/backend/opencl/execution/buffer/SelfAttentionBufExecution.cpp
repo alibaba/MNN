@@ -9,6 +9,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <limits>
 #include "backend/opencl/execution/buffer/SelfAttentionBufExecution.hpp"
 
 namespace MNN {
@@ -62,9 +63,23 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
         splitPiecesSize = ROUND_UP(seq_len, tile_mn) / mQseqSplitNum;
     }
     
-    int buffer_size = batch * mNumHead * ROUND_UP(mHeadDim, tile_k) * ROUND_UP(seq_len, tile_mn);
-    int buffer_qk_size = batch * mNumHead * ROUND_UP(seq_len, tile_mn) * ROUND_UP(seq_len, tile_mn) / mQseqSplitNum;
-    int buffer_v_size = batch * mNumHead * ROUND_UP(mHeadDim, tile_mn) * ROUND_UP(seq_len, tile_mn);
+    // The QK temporary is quadratic in seq_len while every temporary is addressed by a single
+    // 32-bit element count, so a long prefill wraps the count negative long before the device
+    // runs out of memory. createDevice then gets a garbage size and the kernels below write out
+    // of bounds, so refuse the shape instead (issue #4641).
+    const int seq_len_pack = ROUND_UP(seq_len, tile_mn);
+    const int head_dim_pack_k = ROUND_UP(mHeadDim, tile_k);
+    const int head_dim_pack_mn = ROUND_UP(mHeadDim, tile_mn);
+    const int64_t head_seq = (int64_t)batch * mNumHead * seq_len_pack;
+    const int64_t max_count = head_seq * ALIMAX(seq_len_pack, head_dim_pack_mn);
+    if (max_count > std::numeric_limits<int>::max()) {
+        MNN_ERROR("SelfAttention temporaries are not addressable: seq_len=%d head=%d head_dim=%d\n",
+                  seq_len, mNumHead, mHeadDim);
+        return NOT_SUPPORT;
+    }
+    int buffer_size = (int)(head_seq * head_dim_pack_k);
+    int buffer_qk_size = (int)(head_seq * seq_len_pack) / mQseqSplitNum;
+    int buffer_v_size = (int)(head_seq * head_dim_pack_mn);
     mTempQ.reset(Tensor::createDevice<float>(std::vector<int>{buffer_size / mQseqSplitNum}));
     mTempK.reset(Tensor::createDevice<float>(std::vector<int>{buffer_size}));
     mTempV.reset(Tensor::createDevice<float>(std::vector<int>{buffer_v_size}));
@@ -74,21 +89,23 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
     mTempQKV.reset(Tensor::createDevice<float>(std::vector<int>{buffer_v_size / mQseqSplitNum}));
     
 //    printf("buffer size x2:%f MB, buffer qk size x3:%f MB, buffer v size x2 :%f MB\n", buffer_size * 2.0 / 1024.0 / 1024.0, buffer_qk_size * 2.0 / 1024.0 / 1024.0, buffer_v_size * 2.0 / 1024.0 / 1024.0);
-    mOpenCLBackend->onAcquireBuffer(mTempQ.get(), Backend::DYNAMIC);
-    mOpenCLBackend->onAcquireBuffer(mTempK.get(), Backend::DYNAMIC);
-    mOpenCLBackend->onAcquireBuffer(mTempV.get(), Backend::DYNAMIC);
-    mOpenCLBackend->onAcquireBuffer(mTempQK.get(), Backend::DYNAMIC);
-    
+    // A refused allocation leaves the tensor without a device handle, which the kernels below
+    // still pass to setArg, turning an out-of-memory into a GPU fault.
+    OPENCL_CHECK_ALLOC(mOpenCLBackend->onAcquireBuffer(mTempQ.get(), Backend::DYNAMIC));
+    OPENCL_CHECK_ALLOC(mOpenCLBackend->onAcquireBuffer(mTempK.get(), Backend::DYNAMIC));
+    OPENCL_CHECK_ALLOC(mOpenCLBackend->onAcquireBuffer(mTempV.get(), Backend::DYNAMIC));
+    OPENCL_CHECK_ALLOC(mOpenCLBackend->onAcquireBuffer(mTempQK.get(), Backend::DYNAMIC));
+
     mOpenCLBackend->onReleaseBuffer(mTempQ.get(), Backend::DYNAMIC);
     mOpenCLBackend->onReleaseBuffer(mTempK.get(), Backend::DYNAMIC);
-    
-    mOpenCLBackend->onAcquireBuffer(mTempSoftMax.get(), Backend::DYNAMIC);
-    
+
+    OPENCL_CHECK_ALLOC(mOpenCLBackend->onAcquireBuffer(mTempSoftMax.get(), Backend::DYNAMIC));
+
     mOpenCLBackend->onReleaseBuffer(mTempQK.get(), Backend::DYNAMIC);
-    mOpenCLBackend->onAcquireBuffer(mTempTrans.get(), Backend::DYNAMIC);
+    OPENCL_CHECK_ALLOC(mOpenCLBackend->onAcquireBuffer(mTempTrans.get(), Backend::DYNAMIC));
 
     mOpenCLBackend->onReleaseBuffer(mTempSoftMax.get(), Backend::DYNAMIC);
-    mOpenCLBackend->onAcquireBuffer(mTempQKV.get(), Backend::DYNAMIC);
+    OPENCL_CHECK_ALLOC(mOpenCLBackend->onAcquireBuffer(mTempQKV.get(), Backend::DYNAMIC));
 
 
     mOpenCLBackend->onReleaseBuffer(mTempV.get(), Backend::DYNAMIC);
