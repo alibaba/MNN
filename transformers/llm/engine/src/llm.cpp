@@ -1612,16 +1612,19 @@ VARP Llm::gen_attention_mask(int seq_len) {
             attentionMask = buildTwoPlaneMask(req, full, sliding);
             return attentionMask;
         }
-        // Use square mask just for new generation token, save memory of attention mask
-        kv_seq_len = seq_len;
+        // Verify blocks span the full KV cache; do not force dense masks for ordinary speculative prefill.
+        const bool specVerifyBlock = mInSpec && seq_len == mDraftLength + 1;
+        if (!specVerifyBlock) {
+            kv_seq_len = seq_len;
+        }
 
         MaskRequest req;
         req.type     = AttentionMaskType::Causal;
         req.seqLen   = seq_len;
         req.kvSeqLen = kv_seq_len;
         req.rank     = 4;
-        // chunk_limits needs a stable mask rank across chunked forwards.
-        req.forceDense = !mValidBlockSize.empty();
+        // Keep mask rank stable for chunked forwards and use an explicit causal plane for verification.
+        req.forceDense = !mValidBlockSize.empty() || specVerifyBlock;
         if (seq_len == 1 || (mInSpec && seq_len == mDraftLength + 1)) {
             return mMaskCache.obtain(req, mConfig->backend_type());
         }

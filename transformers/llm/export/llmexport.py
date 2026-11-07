@@ -268,6 +268,8 @@ class LlmExporter(torch.nn.Module):
             MNNConverter(self, None).export(eagle_fc_onnx)
 
     def export_dflash(self):
+        if self.args.dspark_path is not None:
+            return self.export_dspark()
         if not hasattr(self.args, 'dflash_path') or self.args.dflash_path is None:
             return
         from utils.dflash import DFlash
@@ -286,6 +288,33 @@ class LlmExporter(torch.nn.Module):
             # causes int8 quantization overflow and produces all-zero outputs.
             MNNConverter(self, None).export(dflash_fc_onnx, quant_bit=0, transformer_fuse=False)
             MNNConverter(self, self.dflash.unloaded_ops).export(dflash_kvmat_onnx, transformer_fuse=False)
+
+    def export_dspark(self):
+        from utils.dspark import DSpark
+        self.dspark = DSpark(self.args.dspark_path, self.model)
+        # model.forward() needs the target layer ids before export_language() runs.
+        self.args.dflash_target_layer_ids = self.dspark.target_layer_ids
+        (dspark_onnx, dspark_fc_onnx, dspark_kvmat_onnx,
+         dspark_markov_w1_onnx, dspark_markov_w2_onnx) = self.dspark.export(self.onnx_path)
+        if self.mnn_converter:
+            # Keep extra precision in the draft head, which directly determines token selection.
+            prev_lm_quant_bit = self.args.lm_quant_bit
+            self.args.lm_quant_bit = 8
+            # The draft's bidirectional attention must not use causal transformer fusion.
+            MNNConverter(self, self.dspark.unloaded_ops).export(dspark_onnx, transformer_fuse=False)
+            # Restore the target's head precision before exporting it.
+            self.args.lm_quant_bit = prev_lm_quant_bit
+            # Preserve the fc input's dynamic range and avoid amplifying KV quantization error in k_norm.
+            MNNConverter(self, None).export(dspark_fc_onnx, quant_bit=0, transformer_fuse=False)
+            MNNConverter(self, self.dspark.unloaded_ops).export(dspark_kvmat_onnx, quant_bit=0,
+                                                            transformer_fuse=False)
+            if self.dspark.markov_rank:
+                # Preserve w1 coefficients and quantize the large w2 projection independently.
+                # Neither graph needs FakeLinear rebuilding.
+                MNNConverter(self, None).export(dspark_markov_w1_onnx, quant_bit=0,
+                                               transformer_fuse=False)
+                MNNConverter(self, None).export(dspark_markov_w2_onnx, quant_bit=8,
+                                               transformer_fuse=False)
 
 
     @spinner_run(f'export embedding to ')
@@ -420,7 +449,21 @@ class LlmExporter(torch.nn.Module):
             if self.args.eagle_path is not None:
                 config['speculative_type'] = 'eagle'
                 config['hidden_states'] = True
-            if hasattr(self.args, 'dflash_path') and self.args.dflash_path is not None:
+            if self.args.dspark_path is not None:
+                # DSpark uses the DFlash runtime with its own lm_head and separate Markov modules.
+                config['speculative_type'] = 'dflash'
+                config['hidden_states'] = True
+                config['dflash_model'] = 'dspark.mnn'
+                config['dflash_fc'] = 'dspark_fc.mnn'
+                config['dflash_kvmat'] = 'dspark_kvmat.mnn'
+                if self.dspark.markov_rank:
+                    config['dflash_markov_w1'] = 'dspark_markov_w1.mnn'
+                    config['dflash_markov_w2'] = 'dspark_markov_w2.mnn'
+                config['dflash_block_size'] = self.dspark.block_size
+                config['dflash_mask_token_id'] = self.dspark.mask_token_id
+                config['dflash_target_layer_ids'] = self.dspark.target_layer_ids
+                config['dflash_shift_label'] = self.dspark.shift_label
+            elif hasattr(self.args, 'dflash_path') and self.args.dflash_path is not None:
                 config['speculative_type'] = 'dflash'
                 config['hidden_states'] = True
                 config['dflash_model'] = 'dflash.mnn'
@@ -1009,6 +1052,7 @@ def build_args(parser):
     parser.add_argument('--tokenizer_path', type=str, default=None, help='tokenizer path, default is `None` mean using `--path` value.')
     parser.add_argument('--eagle_path', type=str, default=None, help='eagle model path, default is `None`')
     parser.add_argument('--dflash_path', type=str, default=None, help='dflash draft model path, default is `None`')
+    parser.add_argument('--dspark_path', type=str, default=None, help='dspark draft model path, default is `None`')
     parser.add_argument('--lora_path', type=str, default=None, help='lora path, default is `None` mean not apply lora.')
     parser.add_argument('--gptq_path', type=str, default=None, help='gptq path, default is `None` mean not apply gptq.')
     parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, default is `./model`.')

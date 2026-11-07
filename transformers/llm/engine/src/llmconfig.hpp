@@ -720,7 +720,28 @@ public:
     std::string dflash_kvmat() const {
         return base_dir_ + config_.value("dflash_kvmat", "dflash_kvmat.mnn");
     }
-    // Must equal the block size baked into dflash.mnn.
+    // Legacy single-file Markov tables; newer exports use the split modules below.
+    std::string dflash_markov() const {
+        if (!config_.contains("dflash_markov")) {
+            return std::string{};
+        }
+        return base_dir_ + config_.value("dflash_markov", std::string{});
+    }
+    // Split Markov head: w1 maps prev token -> rank vector, w2 maps that -> vocab-wide bias.
+    // Empty when the model ships the older single-file tables.
+    std::string dflash_markov_w1() const {
+        if (!config_.contains("dflash_markov_w1")) {
+            return std::string{};
+        }
+        return base_dir_ + config_.value("dflash_markov_w1", std::string{});
+    }
+    std::string dflash_markov_w2() const {
+        if (!config_.contains("dflash_markov_w2")) {
+            return std::string{};
+        }
+        return base_dir_ + config_.value("dflash_markov_w2", std::string{});
+    }
+    // The dynamic block axis allows a size different from the checkpoint's training block.
     int dflash_block_size() const {
         return config_.value("dflash_block_size", 8);
     }
@@ -734,10 +755,7 @@ public:
     std::vector<int> dflash_target_layer_ids() const {
         return config_.value("dflash_target_layer_ids", std::vector<int>{});
     }
-    // Target's post-final-norm tensor name in llm.mnn; the engine loads the subgraph
-    // {this tensor -> logits} so the draft reuses the target's lm_head. Empty = disabled.
-    // Target's post-final-norm tensor name in llm.mnn; mandatory for DFlash (the draft has
-    // no lm_head of its own). Empty = refused at load with a re-export hint.
+    // Target's post-final-norm tensor for the shared lm_head subgraph; empty if the draft has its own head.
     std::string dflash_shared_lmhead_input() const {
         return config_.value("dflash_shared_lmhead_input", std::string{});
     }
