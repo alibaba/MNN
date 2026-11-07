@@ -52,7 +52,7 @@ object ChatViewHolders {
         }
     }
 
-    class UserViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView), View.OnClickListener,
+    class UserViewHolder(itemView: View, private val readOnly: Boolean = false) : RecyclerView.ViewHolder(itemView), View.OnClickListener,
         OnLongClickListener {
         val audioLayout: View =
             itemView.findViewById(R.id.layout_audio)
@@ -109,7 +109,9 @@ object ChatViewHolders {
                 chatVideo.setVideoUri(videoUri)
                 chatVideo.setPlayIconVisible(true)
             }
-            if (data.audioPlayComponent != null) {
+            iconPlayPause.visibility = if (readOnly) View.GONE else View.VISIBLE
+            audioSeekBar.visibility = if (readOnly) View.GONE else View.VISIBLE
+            if (!readOnly && data.audioPlayComponent != null) {
                 data.audioPlayComponent!!.bindViewHolder(this)
             }
         }
@@ -127,7 +129,7 @@ object ChatViewHolders {
                 Log.d("UserViewHolder", "Video clicked, videoUri: ${chatDataItem.videoUri}")
                 val videoPlayerComponent = VideoPlayerComponent(chatDataItem)
                 videoPlayerComponent.playVideo(v.context)
-            } else if (chatDataItem.audioUri != null) {
+            } else if (!readOnly && chatDataItem.audioUri != null) {
                 if (chatDataItem.audioPlayComponent == null) {
                     chatDataItem.audioPlayComponent = AudioPlayerComponent(chatDataItem)
                 }
@@ -173,7 +175,7 @@ object ChatViewHolders {
         }
     }
 
-    class AssistantViewHolder @SuppressLint("ClickableViewAccessibility") constructor(view: View) :
+    class AssistantViewHolder @SuppressLint("ClickableViewAccessibility") constructor(view: View, private val readOnly: Boolean = false) :
         RecyclerView.ViewHolder(view), View.OnClickListener, OnLongClickListener {
         private val viewText: MarkdownMessageView = view.findViewById(R.id.tv_chat_text)
         private val viewThinking: TextView = view.findViewById(R.id.tv_chat_thinking)
@@ -426,6 +428,21 @@ object ChatViewHolders {
                 return false
             }
             
+            if (readOnly) {
+                val menu = PopupMenu(v.context, v)
+                menu.menu.add(android.R.string.copy).setOnMenuItemClickListener {
+                    ClipboardUtils.copyToClipboard(v.context, chatDataItem.displayText ?: chatDataItem.text ?: "")
+                    true
+                }
+                menu.menu.add(R.string.select_text).setOnMenuItemClickListener {
+                    val intent = Intent(v.context, SelectTextActivity::class.java)
+                    intent.putExtra("content", chatDataItem.displayText ?: chatDataItem.text)
+                    v.context.startActivity(intent)
+                    true
+                }
+                menu.show()
+                return true
+            }
             v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             PopupWindowHelper().showPopupWindow(
                 v.getContext(), v
@@ -465,12 +482,14 @@ object ChatViewHolders {
             val hasAnyContent = !TextUtils.isEmpty(data.displayText) || 
                                !TextUtils.isEmpty(data.text) || 
                                !TextUtils.isEmpty(data.thinkingText)
-            val shouldShowButtons = !data.loading && hasAnyContent
+            reportIssueButton.visibility = if (readOnly) View.GONE else View.VISIBLE
+            toggleBenchmarkButton.visibility = if (readOnly) View.GONE else View.VISIBLE
+            val shouldShowButtons = !data.loading && (hasAnyContent || (readOnly && data.imageUri != null))
             actionButtonsLayout.visibility = if (shouldShowButtons) View.VISIBLE else View.GONE
             
             if (shouldShowButtons) {
                 // Show/hide replay button based on audio availability
-                replayAudioButton.visibility = if (data.hasOmniAudio && !data.audioPath.isNullOrEmpty()) 
+                replayAudioButton.visibility = if (!readOnly && data.hasOmniAudio && !data.audioPath.isNullOrEmpty())
                     View.VISIBLE 
                 else 
                     View.GONE
