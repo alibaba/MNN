@@ -89,7 +89,8 @@ public:
     int sample(Express::VARP logits, int offset = 0, int size = 0) override;
     void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
     void generate();
-    bool generateQwen3TTS(const std::string& prompt, int maxFrames, const std::string& refAudio);
+    bool generateQwen3TTS(const std::string& prompt, const std::string& language, int maxFrames,
+                         const std::string& refAudio);
     void stepPrefill();
     void stepForward(int stepIdx);
     void finalize();

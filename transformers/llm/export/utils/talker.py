@@ -466,6 +466,14 @@ class Qwen3TTSTalker(Talker):
             'tts_bos_token_id': self.config.origin_config.tts_bos_token_id,
             'tts_eos_token_id': self.config.origin_config.tts_eos_token_id,
             'tts_pad_token_id': self.config.origin_config.tts_pad_token_id,
+            'codec_think_id': self.config.origin_config.talker_config.codec_think_id,
+            'codec_nothink_id': self.config.origin_config.talker_config.codec_nothink_id,
+            'codec_bos_id': self.config.origin_config.talker_config.codec_bos_id,
+            'codec_pad_id': self.config.origin_config.talker_config.codec_pad_id,
+            'codec_think_bos_id': self.config.origin_config.talker_config.codec_think_bos_id,
+            'codec_think_eos_id': self.config.origin_config.talker_config.codec_think_eos_id,
+            'codec_language_ids': dict(self.config.origin_config.talker_config.codec_language_id),
+            'im_start_token_id': self.config.origin_config.im_start_token_id,
             'talker_type': 'qwen3_tts',
             'code_predictor_model': 'code_predictor.mnn',
             'code_predictor_weight': 'code_predictor.mnn.weight',
@@ -482,7 +490,7 @@ class Qwen3TTSTalker(Talker):
             'codec_embedder_model': 'codec_embedder.mnn',
             'codec_embedder_weight': 'codec_embedder.mnn.weight',
             'jinja': {
-                'chat_template': '{% if qwen3_tts_language == "auto" %} differentiable Me beg begCH{% elif qwen3_tts_language == "chinese" %}spiable So Me begCH{% elif qwen3_tts_language == "english" %}spiableakes Me begCH{% elif qwen3_tts_language == "german" %}spiable ref Me begCH{% elif qwen3_tts_language == "italian" %}spiable field Me begCH{% elif qwen3_tts_language == "portuguese" %}spiableiven Me begCH{% elif qwen3_tts_language == "spanish" %}spiableever Me begCH{% elif qwen3_tts_language == "japanese" %}spiable still Me begCH{% elif qwen3_tts_language == "korean" %}spiable rep Me begCH{% elif qwen3_tts_language == "french" %}spiablemed Me begCH{% elif qwen3_tts_language == "russian" %}spiableOD Me begCH{% else %}spiableakes Me begCH{% endif %}{% for message in messages %}{% if message.role == "assistant" %}<|im_start|>assistant\n{{ message.content }}<|im_end|>\n{% endif %}{% endfor %}{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}',
+                'chat_template': '{% for message in messages %}{% if message.role == "assistant" %}<|im_start|>assistant\n{{ message.content }}<|im_end|>\n{% endif %}{% endfor %}{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}',
                 'context': {
                     'qwen3_tts_language': 'auto'
                 }
