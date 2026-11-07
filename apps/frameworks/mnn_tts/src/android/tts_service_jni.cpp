@@ -74,10 +74,18 @@ JNIEXPORT void JNICALL
 Java_com_taobao_meta_avatar_tts_TtsService_nativeSetSpeakerId(JNIEnv *env, jobject thiz,
                                                                  jlong nativePtr,
                                                                  jstring speakerId) {
+    std::unique_lock<std::mutex> lock(gTTSMutex);
     auto ttsService = reinterpret_cast<TaoAvatar::TTSService *>(nativePtr);
     const char *speakerIdCStr = env->GetStringUTFChars(speakerId, nullptr);
-    if (ttsService) {
-        ttsService->SetSpeakerId(speakerIdCStr);
+    if (!speakerIdCStr) return;
+    try {
+        if (ttsService) {
+            ttsService->SetSpeakerId(speakerIdCStr);
+        }
+    } catch (const std::exception &e) {
+        // Missing/corrupt voice assets must not unwind through JNI and terminate the app.
+        auto exceptionClass = env->FindClass("java/lang/IllegalArgumentException");
+        if (exceptionClass) env->ThrowNew(exceptionClass, e.what());
     }
     env->ReleaseStringUTFChars(speakerId, speakerIdCStr);
 }
