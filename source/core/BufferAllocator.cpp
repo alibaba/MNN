@@ -14,6 +14,41 @@
 // #define DUMP_USAGE
 //#define MNN_DEBUG_MEMORY
 namespace MNN {
+// Local, versioned cache metadata: magic, version, file count, then sizes in
+// allocation order. Old empty sync markers are intentionally not trusted.
+static constexpr uint64_t gMmapCacheMagic = 0x4d4e4e4d4d415031ULL;
+bool BufferAllocator::Allocator::validateMmapCache(const char* dirName, const char* prefix, const char* posfix) {
+    const std::string marker = MNNFilePathConcat(dirName, std::string(prefix) + "sync." + posfix);
+    auto file = MNNOpenFile(marker.c_str(), MNN_FILE_READ);
+    if (file == INVALID_FILE) {
+        return false;
+    }
+    uint64_t header[3] = {};
+    const auto length = MNNGetFileSize(file);
+    bool valid = length != INVALID_SIZE && length >= sizeof(header) &&
+                 MNNReadFile(file, header, sizeof(header)) == sizeof(header) &&
+                 header[0] == gMmapCacheMagic && header[1] == 1 && header[2] > 0 &&
+                 (length - sizeof(header)) % sizeof(uint64_t) == 0 &&
+                 header[2] == (length - sizeof(header)) / sizeof(uint64_t);
+    for (uint64_t i = 0; valid && i < header[2]; ++i) {
+        uint64_t expected = 0;
+        valid = MNNReadFile(file, &expected, sizeof(expected)) == sizeof(expected) && expected > 0;
+        if (!valid) {
+            break;
+        }
+        const auto name = MNNFilePathConcat(dirName, std::string(prefix) + std::to_string(i) + "." + posfix);
+        auto data = MNNOpenFile(name.c_str(), MNN_FILE_READ);
+        if (data == INVALID_FILE) {
+            valid = false;
+            break;
+        }
+        const auto size = MNNGetFileSize(data);
+        valid = size != INVALID_SIZE && static_cast<uint64_t>(size) == expected;
+        valid = MNNCloseFile(data) == NO_ERROR && valid;
+    }
+    valid = MNNCloseFile(file) == NO_ERROR && valid;
+    return valid;
+}
 // MemChunk function
 bool MemChunk::invalid() const {
     return mNode == nullptr && first == nullptr;
@@ -65,7 +100,7 @@ public:
 };
 class MmapAllocator : public BufferAllocator::Allocator {
 private:
-    std::map<void*, std::tuple<file_t,size_t, std::string>> mCache;
+    std::map<void*, std::tuple<file_t, size_t, std::string, int>> mCache;
     std::string mFileName;
     std::string mPrefix;
     std::string mPosfix;
@@ -138,7 +173,7 @@ public:
             MNNCloseFile(file);
             return MemChunk(nullptr, 0);
         }
-        mCache.insert(std::make_pair(ptr, std::make_tuple(file, size, fileName)));
+        mCache.insert(std::make_pair(ptr, std::make_tuple(file, size, fileName, mAllocTimes)));
         mAllocTimes++;
         return MemChunk(ptr, 0);
     }
@@ -171,7 +206,34 @@ public:
             if (mNewMmap || !mSyncValid) {
                 std::string cacheName = mPrefix + "sync." + mPosfix;
                 std::string fileName = MNNFilePathConcat(mFileName, cacheName);
-                MNNCreateFile(fileName.c_str());
+                // mCache is ordered by address; persist sizes in file-number order.
+                std::vector<uint64_t> sizes(mCache.size(), 0);
+                for (const auto& entry : mCache) {
+                    const auto index = std::get<3>(entry.second);
+                    const auto size = MNNGetFileSize(std::get<0>(entry.second));
+                    if (index < 0 || static_cast<size_t>(index) >= sizes.size() || sizes[index] != 0 ||
+                        size == INVALID_SIZE || size == 0) {
+                        return;
+                    }
+                    sizes[index] = size;
+                }
+                if (sizes.empty()) {
+                    return;
+                }
+                auto file = MNNCreateFile(fileName.c_str());
+                if (file == INVALID_FILE) {
+                    return;
+                }
+                uint64_t header[3] = {gMmapCacheMagic, 1, static_cast<uint64_t>(sizes.size())};
+                bool valid = MNNWriteFile(file, header, sizeof(header)) == sizeof(header);
+                for (auto size : sizes) {
+                    valid = valid && MNNWriteFile(file, &size, sizeof(size)) == sizeof(size);
+                }
+                valid = MNNCloseFile(file) == NO_ERROR && valid;
+                if (!valid) {
+                    MNNRemoveFile(fileName.c_str());
+                    return;
+                }
                 mSynced = true;
             }
         }
