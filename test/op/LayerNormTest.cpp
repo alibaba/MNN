@@ -522,3 +522,125 @@ public:
     }
 };
 MNNTestSuiteRegister(LayerNormFp16ResidualSaturationTest, "op/layernorm/fp16_residual_saturation");
+
+// A token must retain the flat-path result when other tokens are added to the
+// batch. Limit the exact comparison to the native ARM82 FP16 implementation;
+// other backends retain the tolerance-based tests above.
+class RMSNormFp16BatchConsistencyTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+#if !defined(__aarch64__)
+        // CPU_EXTENSION also identifies x86 backends; it alone does not prove native FP16 execution.
+        MNN_PRINT("RMSNorm FP16 batch consistency: requires native AArch64 ARM82\n");
+        return true;
+#endif
+        if (precision != BackendConfig::Precision_Low) {
+            return true;
+        }
+        bool checkedBackend = false;
+        bool backendUnavailable = false;
+        int cases = 0;
+        for (int channels : {16, 128, 896, 1008, 1024, 4096}) {
+            for (int batch : {2, 4, 5, 7, 8, 9, 13, 31, 32, 33, 65}) {
+                for (bool residual : {false, true}) {
+                    for (bool affine : {false, true}) {
+                        for (int pattern = 0; pattern < 6; ++pattern) {
+                            std::vector<float> gamma, beta;
+                            if (affine) {
+                                gamma.resize(channels);
+                                beta.resize(channels);
+                                for (int c = 0; c < channels; ++c) {
+                                    gamma[c] = pattern == 5 ? 100000.0f : 0.7f + 0.03f * (c % 7);
+                                    beta[c] = 0.02f * (c % 5 - 2);
+                                }
+                            }
+                            auto evaluate = [&](int rows, int firstRow, std::vector<float>& norm) {
+                                std::vector<float> a(rows * channels), b(rows * channels);
+                                for (int n = 0; n < rows; ++n) {
+                                    for (int c = 0; c < channels; ++c) {
+                                        const int row = pattern == 4 ? firstRow + n : 0;
+                                        a[n * channels + c] =
+                                            pattern == 1 ? 65504.0f
+                                                         : pattern == 2 ? 0.0f
+                                                                        : pattern == 3 ? (c % 3 - 1) * 0.00001f
+                                                                                       : ((c * 11 + row * 17) % 67 - 33) * 0.137f;
+                                        b[n * channels + c] =
+                                            pattern == 1 ? 65504.0f
+                                                         : pattern == 2 ? 0.0f
+                                                                        : pattern == 3 ? (c % 7 - 3) * 0.000003f
+                                                                                       : ((c * 5 + row * 13) % 43 - 21) * 0.081f;
+                                    }
+                                }
+                                std::vector<VARP> inputs{makeNC4HW4Input(a, rows, channels)};
+                                if (residual) {
+                                    inputs.emplace_back(makeNC4HW4Input(b, rows, channels));
+                                }
+                                std::unique_ptr<OpT> op(new OpT);
+                                op->type = OpType_LayerNorm;
+                                op->main.type = OpParameter_LayerNorm;
+                                op->main.value = new LayerNormT;
+                                op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+                                auto param = op->main.AsLayerNorm();
+                                param->axis = {1};
+                                param->epsilon = 1e-5f;
+                                param->useRMSNorm = true;
+                                param->gamma = gamma;
+                                param->beta = beta;
+                                auto expr = Expr::create(std::move(op), inputs, residual ? 2 : 1);
+                                auto output = Variable::create(expr, residual ? 1 : 0);
+                                // Materialize the norm itself before inspecting its backend.
+                                const auto* ptr = output->readMap<float>();
+                                if (ptr == nullptr) {
+                                    return false;
+                                }
+                                if (!checkedBackend) {
+                                    auto backend = TensorUtils::getDescribeOrigin(output->getTensor())->getBackend();
+                                    if (backend == nullptr || backend->type() != MNN_FORWARD_CPU_EXTENSION) {
+                                        backendUnavailable = true;
+                                        MNN_PRINT("RMSNorm FP16 batch consistency: native ARM82 backend unavailable\n");
+                                        return false;
+                                    }
+                                    checkedBackend = true;
+                                }
+                                auto logical = _Convert(output, NCHW);
+                                ptr = logical->readMap<float>();
+                                if (ptr == nullptr) {
+                                    return false;
+                                }
+                                norm.assign(ptr, ptr + rows * channels);
+                                return true;
+                            };
+                            std::vector<float> flat, packed;
+                            if (!evaluate(1, 0, flat)) {
+                                return backendUnavailable;
+                            }
+                            if (!evaluate(batch, 0, packed)) {
+                                return false;
+                            }
+                            for (int n = 0; n < batch; ++n) {
+                                // Distinct rows detect swapped/reused token accumulators and tail offsets.
+                                if (pattern == 4 && n > 0 && !evaluate(1, n, flat)) {
+                                    return false;
+                                }
+                                for (int c = 0; c < channels; ++c) {
+                                    const int i = n * channels + c;
+                                    if (!std::isfinite(packed[i]) || packed[i] != flat[c]) {
+                                        MNN_ERROR(
+                                            "RMSNorm batch mismatch: batch=%d channels=%d residual=%d affine=%d "
+                                            "pattern=%d row=%d channel=%d flat=%.9g packed=%.9g\n",
+                                            batch, channels, residual, affine, pattern, n, c, flat[c], packed[i]);
+                                        return false;
+                                    }
+                                }
+                            }
+                            ++cases;
+                        }
+                    }
+                }
+            }
+        }
+        MNN_PRINT("RMSNorm native FP16 batch consistency: %d cases passed\n", cases);
+        return true;
+    }
+};
+MNNTestSuiteRegister(RMSNormFp16BatchConsistencyTest, "op/layernorm/fp16_rms_batch_consistency");
