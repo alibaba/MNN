@@ -322,7 +322,7 @@
     <string name="add_local_models">新增本機模型</string>
     <string name="copy_command">複製指令</string>
     <string name="add_local_models_title">新增本機模型</string>
-    <string name="add_local_models_message">若要新增本機模型，請先將模型下載到電腦，然後執行 "%1$s"。完成後，模型即會出現在模型清單中。</string>
+    <string name="add_local_models_message">選擇「匯入模型資料夾」，從裝置複製已準備的 MNN 模型。請選擇包含 config.json 的資料夾。亦可繼續使用 ADB：%1$s</string>
     <string name="copied_to_clipboard">已複製到剪貼簿</string>
     <string name="apk_download_started">APK 下載中，可在通知列查看進度</string>
     <string name="api_config_reset_service_restarted">API 配置已重設，服務已重新啟動</string>
@@ -661,6 +661,10 @@
     <string name="save_image">儲存圖片</string>
     <string name="image_saved_to_gallery">圖片已儲存至相簿</string>
     <string name="failed_to_save_image">儲存圖片失敗</string>
+    <string name="import_model_folder">匯入模型資料夾</string>
+    <string name="import_model_copying">正在將已準備的 MNN 模型複製到應用程式儲存空間。請保持此頁面開啟；關閉頁面會取消匯入。原始資料夾不會被修改。</string>
+    <string name="import_model_success">已匯入 %1$s</string>
+    <string name="import_model_failed">無法匯入模型</string>
     <string name="benchmark_energy_charging">請拔掉充電線後重測</string>
     <string name="benchmark_energy_unsupported">裝置不支援取樣</string>
     <string name="benchmark_energy_invalid_voltage">電壓不可用</string>
