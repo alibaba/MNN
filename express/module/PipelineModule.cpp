@@ -618,7 +618,9 @@ struct ModuleRuntimeConfig {
     std::string externalFile;
 };
 
-static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, const Module::Config& config, const ModuleRuntimeConfig& runtimeConfig) {
+static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, const SubModuleInfo& info,
+    const std::map<std::string, SubGraph>& subs, std::shared_ptr<Schedule::ScheduleInfo> sharedConst,
+    const Module::Config& config, const ModuleRuntimeConfig& runtimeConfig, bool shareAttentionCache) {
     auto net = flatbuffers::GetRoot<Net>(bufferStorage->buffer());
     if (1 == info.opList.size()) {
         auto op = net->oplists()->GetAs<Op>(info.opList[0]);
@@ -667,10 +669,21 @@ static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, co
 
     std::vector<std::shared_ptr<BufferStorage>> buffers = {bufferStorage};
 
-    return new StaticModule(info.inputs, info.outputs, std::move(buffers), std::move(scheduleInfo), sharedConst, std::move(modes), std::move(rt), config);
+    std::unique_ptr<StaticModule> result(new StaticModule(info.inputs, info.outputs, std::move(buffers),
+        std::move(scheduleInfo), sharedConst, std::move(modes), std::move(rt), config, shareAttentionCache));
+    if (shareAttentionCache && result->getSession() == nullptr) {
+        return nullptr;
+    }
+    return result.release();
 }
 
 Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
+    return load(inputs, outputs, buffer, length, rtMgr, config, false);
+}
+
+Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+    const uint8_t* buffer, size_t length, std::shared_ptr<Executor::RuntimeManager> rtMgr,
+    const Module::Config* config, bool shareAttentionCache) {
     // Create Subgraph
     auto net = GetNet(buffer);
     if (nullptr == net->oplists() || nullptr == net->tensorName()) {
@@ -688,6 +701,9 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         config = &defaultConfig;
     }
     auto subGraphs = net->subgraphs();
+    if (shareAttentionCache && (config->dynamic || !config->rearrange || config->base == nullptr)) {
+        return nullptr;
+    }
     if (config->dynamic) {
         // TODO: Support subgraph
         if (nullptr == subGraphs) {
@@ -712,10 +728,12 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     ::memcpy(bufferStorage->storage, buffer, length);
     bufferStorage->offset = 0;
     bufferStorage->allocated_size = length;
-    return load(inputs, outputs, bufferStorage, rtMgr, config, subGraphMap);
+    return load(inputs, outputs, bufferStorage, rtMgr, config, subGraphMap, shareAttentionCache);
 }
 
-Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, std::shared_ptr<BufferStorage> bufferStorage, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap) {
+Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+    std::shared_ptr<BufferStorage> bufferStorage, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr,
+    const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap, bool shareAttentionCache) {
     MNN_ASSERT(nullptr != rtMgr);
     MNN_ASSERT(nullptr != config);
     // Apply before constReplaceBackend / submodule Backends are created.
@@ -812,9 +830,31 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         MNN_ERROR("Create module error\n");
         return nullptr;
     }
+    if (shareAttentionCache) {
+        std::vector<const Op*> attentionOps;
+        for (const auto& sub : subModulesInfo) {
+            for (auto index : sub.opList) {
+                auto op = net->oplists()->GetAs<Op>(index);
+                if (op->type() == OpType_LinearAttention || op->type() == OpType_If || op->type() == OpType_While) {
+                    return nullptr;
+                }
+                if (op->type() == OpType_Attention) {
+                    attentionOps.push_back(op);
+                }
+            }
+        }
+        if (!config->rearrange || modRuntime.compute.type != MNN_FORWARD_CPU ||
+            !StaticModule::canShareAttentionCache(config->base, attentionOps, rtMgr->getInside()->mContent->pMeta)) {
+            return nullptr;
+        }
+    }
     std::vector<std::shared_ptr<Module>> subModules(subModulesInfo.size());
     for (int i=0; i<subModulesInfo.size(); ++i) {
-        subModules[i].reset(_createSubModule(bufferStorage, subModulesInfo[i], subGraphMap, sharedConst, *config, modRuntime));
+        subModules[i].reset(_createSubModule(bufferStorage, subModulesInfo[i], subGraphMap, sharedConst, *config,
+            modRuntime, shareAttentionCache));
+        if (shareAttentionCache && subModules[i] == nullptr) {
+            return nullptr;
+        }
     }
     bool needReplaceBackend = false;
     if (preReplaceConstTensor) {

@@ -29,6 +29,7 @@
 #include "omni.hpp"
 #include "speculative_decoding/generate.hpp"
 #include "core/MNNFileUtils.h"
+#include "core/SharedAttentionModule.hpp"
 
 // 0: no debug, 1: test op time, 2: print tensor info, 3: print tensor in output
 #define DEBUG_MODE 0
@@ -141,6 +142,9 @@ void Llm::setChatTemplate() {
 }
 
 bool Llm::set_config(const std::string& content) {
+    MNN::Express::ExecutorScope scope(mExecutor);
+    mGenerateParam->prefillTrunk.reset();
+    mGenerateParam->skipPrefillLogits = false;
     mConfig->config_.merge(ujson::json::parse(content));
     mConfig->mllm_config_ = mConfig->config_.contains("mllm") ? mConfig->config_["mllm"] : ujson::json();
     setChatTemplate();
@@ -349,6 +353,8 @@ bool Llm::load() {
     // Must release old module before runtime, because module's Execution objects
     // reference Backend owned by RuntimeManager. Releasing runtime first would
     // destroy the Backend, causing use-after-free when module destructor runs.
+    mGenerateParam->prefillTrunk.reset();
+    mGenerateParam->skipPrefillLogits = false;
     mModulePool.clear();
     mModule.reset();
     mMaskCache.clear();
@@ -428,6 +434,20 @@ bool Llm::load() {
             MNN_ERROR("[Warning]: Set module multi outputs, please double check.\n");
         }
         return false;
+    }
+    // Unsupported graphs keep the complete-model path before any KV execution.
+    if (mConfig->config_.value("prefill_skip_logits", false) && mBlockSize > 0 && mValidBlockSize.empty() &&
+        mConfig->backend_type() == "cpu" && mConfig->thread_num() == 1 && mConfig->is_single() &&
+        !mConfig->all_logits() && !needHiddenState && outputNames.size() == 1 && mBaseModule == nullptr &&
+        mConfig->speculative_type().empty() && !mConfig->is_visual() && !mConfig->is_audio() &&
+        !mConfig->has_talker() && !mConfig->has_deepstack() && !mConfig->has_ple() && !mConfig->is_mrope()) {
+        Module::Config trunkConfig = module_config;
+        trunkConfig.base = mModule.get();
+        mRuntimeManager->setExternalFile(weight_path);
+        SharedAttentionOwners owners{mModule, mRuntimeManager, mMeta, mExecutor};
+        mGenerateParam->prefillTrunk.reset(loadSharedAttentionModule(inputNames, {"hidden_states"}, model_path.c_str(),
+                                                                  owners, &trunkConfig));
+        mRuntimeManager->setExternalFile("");
     }
     // set speculative decoding params
     setSpeculativeConfig();
@@ -610,6 +630,9 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
         selectModule = mModulePool[moduleKey];
     }
 
+    if (mGenerateParam->skipPrefillLogits && !inDecode && mGenerateParam->prefillTrunk) {
+        selectModule = mGenerateParam->prefillTrunk;
+    }
     if (isAllLogists) {
         logitsIndex = logitsAllIdx;
     } else {
@@ -1084,7 +1107,15 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
             if(input_embeds == nullptr) {
                 return {};
             }
+            const bool skipLogits = i + 1 < loop_size && mGenerateParam->prefillTrunk && !mPrefixCacheMode &&
+                mMeta->file_flag == KVMeta::NoChange && !mConfig->all_logits() &&
+                !mConfig->config_.value("hidden_states", false);
+            mGenerateParam->skipPrefillLogits = skipLogits;
             generate(input_embeds, 0);
+            mGenerateParam->skipPrefillLogits = false;
+            if (skipLogits && mContext->status != LlmStatus::RUNNING) {
+                return mContext->output_tokens;
+            }
         }
         completePrefixWrite();
     } else {
@@ -1429,11 +1460,14 @@ Llm::~Llm() {
         gTimeTraceInfo->dump();
     }
 #endif
-    mGenerateParam.reset();
-    mModulePool.clear();
-    mModule.reset();
-    mRuntimeManager.reset();
-    mProcessorRuntimeManager.reset();
+    {
+        MNN::Express::ExecutorScope scope(mExecutor);
+        mGenerateParam.reset();
+        mModulePool.clear();
+        mModule.reset();
+        mRuntimeManager.reset();
+        mProcessorRuntimeManager.reset();
+    }
     mExecutor.reset();
 }
 int Llm::getOutputIndex(const std::string& name) const {
