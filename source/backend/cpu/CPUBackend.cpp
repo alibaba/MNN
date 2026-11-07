@@ -30,6 +30,12 @@
 #ifdef MNN_USE_ARMV82
 #include "backend/arm82/Arm82Backend.hpp"
 #endif
+
+#if defined(_WIN32) && defined(_M_X64) && defined(MNN_USE_THREAD_POOL) && !defined(_OPENMP)
+#include "core/WindowsAffinity.hpp"
+#define MNN_WINDOWS_CPU_AFFINITY
+#endif
+
 #define MAX_THREAD_NUMBER 32
 #define LARGE_MEMORY 1024 * 1024 * 500
 #ifdef MNN_SUPPORT_BF16
@@ -83,6 +89,10 @@ void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv, int thread
 }
 
 void CPURuntime::_bindCPUCore() const {
+#ifdef MNN_WINDOWS_CPU_AFFINITY
+    // Windows workers have a fixed pool policy; Pipeline scopes the caller.
+    return;
+#endif
     if (mCpuIds.empty()) {
         return;
     }
@@ -122,12 +132,30 @@ void CPURuntime::_resetThreadPool() const {
 #ifdef MNN_USE_THREAD_POOL
     if (mThreadNumber > 1) {
         mThreadNumber = ALIMIN(ThreadPool::init(mThreadNumber, mCpuMask, mThreadPool), mThreadNumber);
+#ifdef MNN_WINDOWS_CPU_AFFINITY
+        // Failed unpublished pools fall back atomically to the default pool.
+        auto effectiveMask = WindowsAffinity::poolMask(mThreadPool);
+        if (mCpuMask != 0 && effectiveMask == 0) {
+            MNN_ERROR("Windows worker affinity initialization failed; using the default CPU policy.\n");
+        }
+        mCpuMask = effectiveMask;
+        if (mCpuMask == 0) {
+            mCpuIds.clear();
+        }
+#endif
     }
 #endif
     // Reset tid to rebind cpu if necessary
     mCurrentTID = 0;
 }
 void CPURuntime::_validateCpuIds() const{
+#ifdef MNN_WINDOWS_CPU_AFFINITY
+    if (!mCpuIds.empty() && WindowsAffinity::validateMask(mCpuIds) == 0) {
+        MNN_ERROR("Unsupported Windows CPU IDs; using the default CPU policy.\n");
+        mCpuIds.clear();
+    }
+    return;
+#endif
     bool valid = true;
 
     do {
@@ -219,7 +247,11 @@ void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool ful
     mThreadNumber = numberThread;
     mCpuIds = hint().cpuIds;
     _validateCpuIds();
+    #ifdef MNN_WINDOWS_CPU_AFFINITY
+    mCpuMask = WindowsAffinity::validateMask(mCpuIds);
+#else
     mCpuMask = MNNGetCPUMask(mCpuIds);
+#endif
     _resetThreadPool();
 }
 
@@ -265,7 +297,11 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
     {
         mCpuIds = hint().cpuIds;
         _validateCpuIds();
-        mCpuMask = MNNGetCPUMask(mCpuIds);
+        #ifdef MNN_WINDOWS_CPU_AFFINITY
+    mCpuMask = WindowsAffinity::validateMask(mCpuIds);
+#else
+    mCpuMask = MNNGetCPUMask(mCpuIds);
+#endif
         _resetThreadPool();
     }
     if (hint().midMemoryPath.size() > 0) {

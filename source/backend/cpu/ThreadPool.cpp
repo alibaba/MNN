@@ -6,6 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_USE_THREAD_POOL
+#if defined(_WIN32) && defined(_M_X64) && !defined(_OPENMP)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 #include "backend/cpu/ThreadPool.hpp"
 #include <string.h>
 #include <chrono>
@@ -20,6 +26,21 @@
 namespace MNN {
 static std::unordered_map<long int, ThreadPool*> gInstances;
 static std::mutex gInitMutex;
+
+#if defined(_WIN32) && defined(_M_X64) && !defined(_OPENMP)
+namespace WindowsAffinity {
+// Internal runtime lookup: a rejected policy resolves to the default pool.
+unsigned long poolMask(const ThreadPool* pool) {
+    std::lock_guard<std::mutex> lock(gInitMutex);
+    for (const auto& instance : gInstances) {
+        if (instance.second == pool) {
+            return static_cast<unsigned long>(instance.first);
+        }
+    }
+    return 0;
+}
+} // namespace WindowsAffinity
+#endif
 
 // Per-worker completion flags live one per cache line. Enqueue-side writes all
 // flags, workers poll and then write theirs back on completion while the
@@ -82,7 +103,32 @@ int ThreadPool::init(int numberThread, unsigned long cpuMask, ThreadPool*& threa
     std::lock_guard<std::mutex> _l(gInitMutex);
 
     if (gInstances.find(cpuMask) == gInstances.end()){
-        gInstances[cpuMask] = new ThreadPool(numberThread);
+        auto candidate = new ThreadPool(numberThread);
+#if defined(_WIN32) && defined(_M_X64) && !defined(_OPENMP)
+        if (cpuMask != 0 && numberThread > 1) {
+            std::atomic<bool> failed{false};
+            const int index = candidate->acquireWorkIndex();
+            candidate->active();
+            TASK initialize = std::make_pair([&](int threadIndex) {
+                if (threadIndex > 0 &&
+                    SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(cpuMask)) == 0) {
+                    failed.store(true);
+                }
+            }, numberThread);
+            candidate->enqueue(&initialize, index);
+            candidate->deactive();
+            candidate->releaseWorkIndex(index);
+            if (failed.load()) {
+                // Workers belong only to this unpublished pool. Join them
+                // before falling back; no partially bound pool can escape.
+                delete candidate;
+                cpuMask = 0;
+                auto existing = gInstances.find(cpuMask);
+                candidate = existing == gInstances.end() ? new ThreadPool(numberThread) : existing->second;
+            }
+        }
+#endif
+        gInstances[cpuMask] = candidate;
     }
     threadPool = gInstances[cpuMask];
     if (gInstances[cpuMask]->numberThread() < numberThread){
