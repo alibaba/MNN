@@ -18,9 +18,88 @@ using Vec = MNN::Math::Vec<FLOAT16, 8>;
 
 #include "backend/cpu/GridSampler.hpp"
 
-#if defined(MNN_USE_NEON)
 #include <arm_neon.h>
-#endif
+
+static void MNNPoolingAvgFP16(const void* channelInput, int inputWidth, int inputHeight, void* channelOutput,
+                              int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
+                              int strideHeight, int padWidth, int padHeight, int padType, int countType) {
+    auto input = static_cast<const float16_t*>(channelInput);
+    auto output = static_cast<float16_t*>(channelOutput);
+    if (countType == MNN::AvgPoolCountType_DEFAULT) {
+        countType = padType == MNN::PoolPadType_CAFFE ? MNN::AvgPoolCountType_INCLUDE_PADDING
+                                                      : MNN::AvgPoolCountType_EXCLUDE_PADDING;
+    }
+    auto pool = [=](const float16_t* src, float16_t* dst, int width, int height, float scale) {
+        // Widen before reduction to avoid fp16 precision loss and overflow.
+        float32x4_t sumLow = vdupq_n_f32(0.0f), sumHigh = vdupq_n_f32(0.0f);
+        float32x4_t sumLow1 = vdupq_n_f32(0.0f), sumHigh1 = vdupq_n_f32(0.0f);
+        for (int y = 0; y < height; ++y) {
+            const auto* cursor = src + y * inputWidth * 8;
+            int x = 0;
+            for (; x + 1 < width; x += 2, cursor += 16) {
+                auto value = vld1q_f16(cursor);
+                auto value1 = vld1q_f16(cursor + 8);
+                sumLow = vaddq_f32(sumLow, vcvt_f32_f16(vget_low_f16(value)));
+                sumHigh = vaddq_f32(sumHigh, vcvt_f32_f16(vget_high_f16(value)));
+                sumLow1 = vaddq_f32(sumLow1, vcvt_f32_f16(vget_low_f16(value1)));
+                sumHigh1 = vaddq_f32(sumHigh1, vcvt_f32_f16(vget_high_f16(value1)));
+            }
+            for (; x < width; ++x, cursor += 8) {
+                auto value = vld1q_f16(cursor);
+                sumLow = vaddq_f32(sumLow, vcvt_f32_f16(vget_low_f16(value)));
+                sumHigh = vaddq_f32(sumHigh, vcvt_f32_f16(vget_high_f16(value)));
+            }
+        }
+        sumLow = vmulq_n_f32(vaddq_f32(sumLow, sumLow1), scale);
+        sumHigh = vmulq_n_f32(vaddq_f32(sumHigh, sumHigh1), scale);
+        vst1q_f16(dst, vcombine_f16(vcvt_f16_f32(sumLow), vcvt_f16_f32(sumHigh)));
+    };
+    auto poolPad = [=](int oh, int ow) {
+        const int ih = oh * strideHeight - padHeight;
+        const int iw = ow * strideWidth - padWidth;
+        const int hStart = ALIMAX(ih, 0), hEnd = ALIMIN(ih + kernelHeight, inputHeight);
+        const int wStart = ALIMAX(iw, 0), wEnd = ALIMIN(iw + kernelWidth, inputWidth);
+        auto dst = output + (oh * outputWidth + ow) * 8;
+        if (hStart >= hEnd || wStart >= wEnd) {
+            pool(input, dst, 0, 0, 0.0f);
+            return;
+        }
+        int count = (hEnd - hStart) * (wEnd - wStart);
+        if (countType == MNN::AvgPoolCountType_INCLUDE_PADDING) {
+            count = (ALIMIN(ih + kernelHeight, inputHeight + padHeight) - ih) *
+                    (ALIMIN(iw + kernelWidth, inputWidth + padWidth) - iw);
+        }
+        pool(input + (hStart * inputWidth + wStart) * 8, dst, wEnd - wStart, hEnd - hStart,
+             count > 0 ? 1.0f / count : 0.0f);
+    };
+    int left = 0, right = outputWidth;
+    for (; left < outputWidth && left * strideWidth < padWidth; ++left) {
+    }
+    for (; right > left && (right - 1) * strideWidth - padWidth + kernelWidth > inputWidth; --right) {
+    }
+    const float scale = 1.0f / (kernelWidth * kernelHeight);
+    for (int oh = 0; oh < outputHeight; ++oh) {
+        const int ih = oh * strideHeight - padHeight;
+        int middleBegin = left, middleEnd = right;
+        if (ih < 0 || ih + kernelHeight > inputHeight) {
+            middleBegin = middleEnd = outputWidth;
+        }
+        int ow = 0;
+        for (; ow < middleBegin; ++ow) {
+            poolPad(oh, ow);
+        }
+        if (ow < middleEnd) {
+            const auto* src = input + (ih * inputWidth + ow * strideWidth - padWidth) * 8;
+            auto dst = output + (oh * outputWidth + ow) * 8;
+            for (; ow < middleEnd; ++ow, src += strideWidth * 8, dst += 8) {
+                pool(src, dst, kernelWidth, kernelHeight, scale);
+            }
+        }
+        for (; ow < outputWidth; ++ow) {
+            poolPad(oh, ow);
+        }
+    }
+}
 
 extern "C" {
 // (UP_DIV(l,8), e, 8) -> (UP_DIV(e,eP), l, eP)
@@ -3470,7 +3549,7 @@ bool Arm82Functions::init() {
     gInstance->MNNReluWithSlopeChannel = Arm82Relu::reluWithSlopeChannel;
 
     gInstance->MNNPoolingMax = (decltype(gInstance->MNNPoolingMax))(poolingMax<float16_t, Vec, 8, -65535>);
-    gInstance->MNNPoolingAvg = (decltype(gInstance->MNNPoolingAvg))(poolingAvg<float16_t, Vec, 8>);
+    gInstance->MNNPoolingAvg = MNNPoolingAvgFP16;
 
     {
         gInstance->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A;
