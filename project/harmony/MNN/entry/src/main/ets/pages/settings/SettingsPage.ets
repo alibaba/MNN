@@ -9,7 +9,7 @@ import {
   RuntimePrecision,
   RuntimeSamplerType
 } from '../../domain/AppTypes';
-import { SettingsStore } from '../../services/SettingsStore';
+import { APP_SHOW_METRICS_KEY, SettingsStore } from '../../services/SettingsStore';
 
 @Component
 export struct SettingsPage {
@@ -22,11 +22,24 @@ export struct SettingsPage {
   @State private busy: boolean = false;
   @State private appVersion: string = '';
   @State private cacheBytes: number = 0;
+  @StorageLink('showMetrics') private showMetrics: boolean = true;
   private loadSequence: number = 0;
 
   aboutToAppear(): void {
     this.loadSettings();
     this.refreshAppInfo();
+    SettingsStore.getInstance().getBoolean(APP_SHOW_METRICS_KEY, true).then((value: boolean) => {
+      this.showMetrics = value;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private toggleShowMetrics(value: boolean): void {
+    this.showMetrics = value;
+    SettingsStore.getInstance().putBoolean(APP_SHOW_METRICS_KEY, value).catch((error: Error) => {
+      this.error = error.message;
+    });
   }
 
   private refreshAppInfo(): void {
@@ -490,6 +503,14 @@ export struct SettingsPage {
               .fontWeight(FontWeight.Bold)
               .fontColor('#171A1F')
               .width('100%')
+            Row() {
+              Text('显示性能指标')
+                .fontSize(15)
+                .layoutWeight(1)
+              Toggle({ type: ToggleType.Switch, isOn: this.showMetrics })
+                .onChange((value: boolean) => this.toggleShowMetrics(value))
+            }
+            .width('100%')
             Text(`缓存占用 ${this.formatBytes(this.cacheBytes)}`)
               .fontSize(14)
               .fontColor('#4B5563')

@@ -34,6 +34,7 @@ export class ChatMessageView {
 @Component
 export struct MessageBubble {
   @ObjectLink message: ChatMessageView;
+  @Prop showMetrics: boolean = true;
 
   build() {
     Row() {
@@ -103,7 +104,7 @@ export struct MessageBubble {
             .fontSize(15)
             .fontColor('#6B7280')
         }
-        if (this.message.role === MessageRole.ASSISTANT) {
+        if (this.message.role === MessageRole.ASSISTANT && this.showMetrics) {
           MetricsPanel({ metrics: this.message.metrics, state: this.message.state })
         }
       }

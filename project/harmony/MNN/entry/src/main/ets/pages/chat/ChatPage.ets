@@ -25,7 +25,7 @@ import {
 } from '../../services/GenerationCoordinator';
 import { MediaService } from '../../services/MediaService';
 import { ReasoningParser } from '../../services/ReasoningParser';
-import { ACTIVE_MODEL_ID_KEY, SettingsStore } from '../../services/SettingsStore';
+import { ACTIVE_MODEL_ID_KEY, APP_SHOW_METRICS_KEY, SettingsStore } from '../../services/SettingsStore';
 import { AttachmentPicker } from '../../components/AttachmentPicker';
 import { InfoSheet } from '../../components/InfoSheet';
 import { ModelPickerSheet } from '../../components/ModelPickerSheet';
@@ -51,6 +51,7 @@ export struct ChatPage {
   @State private activeModelName: string = '';
   @State private pendingAttachments: AttachmentRecord[] = [];
   @State private modelCapabilities: ModelCapabilities = new ModelCapabilities();
+  @StorageLink('showMetrics') private showMetrics: boolean = true;
   private messageScroller: Scroller = new Scroller();
   private nextMessageId: number = 1;
   private activeRequestId: string = '';
@@ -138,9 +139,10 @@ export struct ChatPage {
 
   private initialize(): void {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    AppInitializer.initialize(context).then(() => {
+    AppInitializer.initialize(context).then(async () => {
+      this.showMetrics = await SettingsStore.getInstance().getBoolean(APP_SHOW_METRICS_KEY, true);
       this.initialized = true;
-      return this.restoreInitialSession();
+      await this.restoreInitialSession();
     }).then(() => {
       return this.loadModel();
     }).catch((error: Error) => {
@@ -672,6 +674,13 @@ export struct ChatPage {
       });
   }
 
+  private toggleShowMetrics(): void {
+    this.showMetrics = !this.showMetrics;
+    SettingsStore.getInstance().putBoolean(APP_SHOW_METRICS_KEY, this.showMetrics).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
   private reportIssue(): void {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     context.openLink('https://github.com/alibaba/MNN/issues').catch((error: Error) => {
@@ -698,21 +707,24 @@ export struct ChatPage {
               .fontColor('#6B7280')
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
             Text('▾')
               .fontSize(12)
               .fontColor('#6B7280')
           }
+          .width('100%')
           .onClick(() => this.openModelPicker())
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
 
-        Button('⋯')
-          .fontSize(18)
+        Button('更多')
+          .fontSize(14)
           .fontColor('#171A1F')
           .backgroundColor(Color.Transparent)
           .height(38)
-          .width(38)
+          .width(58)
+          .padding(0)
           .bindMenu([
             {
               value: '配置信息',
@@ -721,6 +733,10 @@ export struct ChatPage {
             {
               value: this.runtimeSettings.thinking ? '关闭思考模式' : '开启思考模式',
               action: () => this.toggleThinking()
+            },
+            {
+              value: this.showMetrics ? '隐藏性能指标' : '显示性能指标',
+              action: () => this.toggleShowMetrics()
             },
             {
               value: '上报问题',
@@ -746,7 +762,7 @@ export struct ChatPage {
       List({ space: 16, scroller: this.messageScroller }) {
         ForEach(this.messages, (message: ChatMessageView) => {
           ListItem() {
-            MessageBubble({ message: message })
+            MessageBubble({ message: message, showMetrics: this.showMetrics })
           }
         }, (message: ChatMessageView) => message.id.toString())
       }

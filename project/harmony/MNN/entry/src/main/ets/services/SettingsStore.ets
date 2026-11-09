@@ -13,6 +13,7 @@ const SETTINGS_NAME: string = 'mnn_settings';
 const MODEL_SETTINGS_PREFIX: string = 'model_runtime_settings.';
 export const ACTIVE_MODEL_ID_KEY: string = 'active_model_id';
 export const SETTINGS_REVISION_KEY: string = 'model_runtime_settings_revision';
+export const APP_SHOW_METRICS_KEY: string = 'app_show_metrics';
 
 interface RuntimeSettingsDocument {
   backend_type?: string;
