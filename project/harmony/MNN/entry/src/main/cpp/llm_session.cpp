@@ -211,6 +211,10 @@ void LlmSession::load(const std::string& configPath, const std::string& runtimeC
     }
 
     mLlm = std::move(llm);
+    {
+        std::lock_guard<std::mutex> configLock(mConfigMutex);
+        mConfigDump = mLlm->dump_config();
+    }
     mLoadIdentity = loadIdentity;
     mLoadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     loadMs = mLoadMs;
@@ -357,16 +361,17 @@ void LlmSession::reset() {
 }
 
 std::string LlmSession::dumpConfig() {
-    std::lock_guard<std::mutex> lock(mOperationMutex);
-    if (!mLlm) {
-        return std::string();
-    }
-    return mLlm->dump_config();
+    std::lock_guard<std::mutex> lock(mConfigMutex);
+    return mConfigDump;
 }
 
 void LlmSession::release() {
     std::lock_guard<std::mutex> lock(mOperationMutex);
     mLlm.reset();
+    {
+        std::lock_guard<std::mutex> configLock(mConfigMutex);
+        mConfigDump.clear();
+    }
     mLoadIdentity.clear();
     mLoadMs = 0.0;
     std::lock_guard<std::mutex> cancellationLock(mCancellationMutex);

@@ -79,6 +79,9 @@ private:
 
     std::mutex mOperationMutex;
     std::mutex mCancellationMutex;
+    // Cached at load time so reading the config from JS never blocks behind a running generation.
+    std::mutex mConfigMutex;
+    std::string mConfigDump;
     std::unique_ptr<MNN::Transformer::Llm> mLlm;
     std::unordered_map<std::string, CancellationFlag> mCancellations;
     std::string mLoadIdentity;
