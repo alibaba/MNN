@@ -96,7 +96,8 @@ private:
     // OPT-2: Split-K Flash Decoding temporary buffers (raw cudaMalloc)
     float* mSplitKOutputPtr = nullptr;   // [parallel_blocks, batch*num_head, head_dim]
     float* mSplitKMetaPtr = nullptr;     // [parallel_blocks, batch*num_head, 2] (max, sum)
-    int mMaxParallelBlocks = 0;
+    size_t mSplitKOutputBytes = 0;
+    size_t mSplitKMetaBytes = 0;
 };
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
 
