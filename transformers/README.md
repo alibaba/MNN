@@ -212,7 +212,7 @@ The configuration file supports the following options:
     - 8: Use Flash Attention at runtime. query, key, and value are not quantized.
     - 9: Use Flash Attention at runtime. query and key use 8-bit asymmetric quantization; value is not quantized.
     - 10: Use Flash Attention at runtime. query, key, and value all use 8-bit asymmetric quantization.
-  - use_mmap: Whether to use `mmap` to write weights to disk when memory is insufficient, avoiding overflow. Defaults to `false`. For mobile devices, it is recommended to set this to true.
+  - use_mmap: Whether to use `mmap` for model weights and disk embedding lookup when memory is insufficient, avoiding overflow. Defaults to `false`. For mobile devices, it is recommended to set this to true. Mapped model files must remain unchanged while loaded.
   - kvcache_mmap: Whether to use `mmap` for KV Cache to write to disk when memory is insufficient, avoiding overflow. Defaults to `false`
   - tmp_path: Directory for disk caching when `mmap-related` features are enabled.
     - On iOS, a temporary directory can be created and set as follows:

@@ -48,6 +48,7 @@ public:
     inline size_t size() const {
         return mTotalSize;
     }
+    int64_t contentSize();
     inline std::string path() const {
         return mFilePath;
     }
@@ -70,6 +71,7 @@ private:
     int64_t mRegionOffset = 0;
     int64_t mRegionLength = -1;
     int64_t mPosition = 0;
+    int64_t mContentSize = -1;
 };
 
 class MemoryLoader : public BaseLoader {

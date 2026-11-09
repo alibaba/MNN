@@ -273,7 +273,8 @@ void * MNNMmapFile(file_t file, size_t size, bool onlyRead)
         return nullptr;
     }
 #if defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
-    HANDLE hFileMapping = CreateFileMapping(file, NULL, PAGE_READWRITE, (size >> 32) & 0xffffffff, size & 0xffffffff, NULL);
+    const DWORD protect = onlyRead ? PAGE_READONLY : PAGE_READWRITE;
+    HANDLE hFileMapping = CreateFileMapping(file, NULL, protect, (size >> 32) & 0xffffffff, size & 0xffffffff, NULL);
     if (hFileMapping == NULL) {
         MNN_ERROR("MNN: Mmap failed\n");
         return nullptr;

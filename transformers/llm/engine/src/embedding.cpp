@@ -121,6 +121,10 @@ VARP Embedding::ids_embedding(const std::vector<int>& ids) {
     int prompt_len           = ids.size();
     mMeta->add = prompt_len;
     auto inputs_ids          = embedding(ids);
+    if (inputs_ids == nullptr) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return nullptr;
+    }
     auto attention_mask      = gen_attention_mask(prompt_len);
     auto position_ids        = gen_position_ids(prompt_len);
     auto outputs = forwardRaw(inputs_ids, attention_mask, position_ids);
