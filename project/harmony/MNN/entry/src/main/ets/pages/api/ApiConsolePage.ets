@@ -4,6 +4,7 @@ import {
   API_BIND_ALL_KEY,
   API_CORS_ENABLED_KEY,
   API_TOKEN_SETTING_KEY,
+  ApiRequestLog,
   ApiServer,
   ApiServerStatus
 } from '../../services/ApiServer';
@@ -120,8 +121,9 @@ export struct ApiConsolePage {
   }
 
   build() {
-    Column() {
-      Text('本地 API')
+    Scroll() {
+      Column() {
+        Text('本地 API')
         .fontSize(24)
         .fontWeight(FontWeight.Bold)
         .width('100%')
@@ -256,16 +258,54 @@ export struct ApiConsolePage {
       .borderRadius(14)
       .margin({ left: 16, right: 16 })
 
+      Column({ space: 8 }) {
+        Row() {
+          Text('请求日志')
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .layoutWeight(1)
+          Button('刷新')
+            .height(30)
+            .fontSize(12)
+            .onClick(() => this.refresh())
+        }
+        .width('100%')
+        if (this.status.requestLogs.length === 0) {
+          Text('暂无请求，服务启动后在这里查看最近的 20 条记录')
+            .fontSize(12)
+            .fontColor('#6B7280')
+            .width('100%')
+        } else {
+          ForEach(this.status.requestLogs, (log: ApiRequestLog) => {
+            Text(`${log.time}  ${log.method} ${log.path}  → ${log.status}  ${log.durationMs}ms`)
+              .fontSize(12)
+              .fontColor(log.status >= 400 ? '#C62828' : '#303640')
+              .fontFamily('monospace')
+              .width('100%')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }, (log: ApiRequestLog) => `${log.time}-${log.method}-${log.path}-${log.durationMs}`)
+        }
+      }
+      .width('100%')
+      .padding(16)
+      .backgroundColor(Color.White)
+      .borderRadius(14)
+      .margin({ left: 16, right: 16, bottom: 14 })
+
       if (this.error) {
         Text(`错误：${this.error}`)
           .fontSize(13)
           .fontColor('#C62828')
           .padding(16)
       }
-      Blank()
+      }
+      .width('100%')
+      .padding({ bottom: 16 })
     }
     .width('100%')
     .height('100%')
     .backgroundColor('#FAFBFC')
+    .scrollBar(BarState.Auto)
   }
 }

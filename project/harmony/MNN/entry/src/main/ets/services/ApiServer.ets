@@ -45,11 +45,22 @@ class ParsedRequest {
   body: string = '';
 }
 
+export class ApiRequestLog {
+  time: string = '';
+  method: string = '';
+  path: string = '';
+  status: number = 0;
+  durationMs: number = 0;
+}
+
 class ClientState {
   connection: socket.TCPSocketConnection;
   buffer: Uint8Array = new Uint8Array(0);
   handled: boolean = false;
   requestId: string = '';
+  lastMethod: string = '';
+  lastPath: string = '';
+  lastStartMs: number = 0;
   writeTail: Promise<void> = Promise.resolve();
 
   constructor(connection: socket.TCPSocketConnection) {
@@ -64,6 +75,7 @@ export class ApiServerStatus {
   token: string = '';
   connections: number = 0;
   queueSize: number = 0;
+  requestLogs: ApiRequestLog[] = [];
 }
 
 export class ApiServer {
@@ -80,6 +92,7 @@ export class ApiServer {
   private bindAll: boolean = false;
   private authEnabled: boolean = true;
   private corsEnabled: boolean = false;
+  private requestLogs: ApiRequestLog[] = [];
 
   static getInstance(): ApiServer {
     return ApiServer.instance;
@@ -156,6 +169,7 @@ export class ApiServer {
     status.token = this.token;
     status.connections = this.clients.size;
     status.queueSize = GenerationCoordinator.getInstance().queueSize();
+    status.requestLogs = this.requestLogs.slice();
     return status;
   }
 
@@ -261,6 +275,9 @@ export class ApiServer {
   }
 
   private async dispatch(client: ClientState, request: ParsedRequest): Promise<void> {
+    client.lastMethod = request.method;
+    client.lastPath = request.path;
+    client.lastStartMs = Date.now();
     if (request.method === 'OPTIONS') {
       await this.sendAndClose(client, this.httpResponse(204, 'No Content', ''));
       return;
@@ -496,6 +513,27 @@ export class ApiServer {
   private async sendAndClose(client: ClientState, data: string): Promise<void> {
     await this.queueSend(client, data);
     await client.connection.close();
+    this.recordRequest(client, data);
+  }
+
+  private recordRequest(client: ClientState, data: string): void {
+    if (!client.lastMethod) {
+      return;
+    }
+    const match = data.match(/^HTTP\/1\.1 (\d{3})/);
+    const log = new ApiRequestLog();
+    log.time = new Date().toTimeString().substring(0, 8);
+    log.method = client.lastMethod;
+    log.path = client.lastPath;
+    log.status = match ? Number(match[1]) : 0;
+    log.durationMs = client.lastStartMs > 0 ? Date.now() - client.lastStartMs : 0;
+    this.requestLogs.push(log);
+    if (this.requestLogs.length > 20) {
+      this.requestLogs.shift();
+    }
+    client.lastMethod = '';
+    client.lastPath = '';
+    client.lastStartMs = 0;
   }
 
   private closeClient(client: ClientState): void {
