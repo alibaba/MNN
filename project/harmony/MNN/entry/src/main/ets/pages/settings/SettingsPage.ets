@@ -26,6 +26,7 @@ export struct SettingsPage {
   @State private error: string = '';
   @State private busy: boolean = false;
   @State private appVersion: string = '';
+  @State private engineVersion: string = '';
   @State private cacheBytes: number = 0;
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   @State private stopDownloadsOnChat: boolean = true;
@@ -80,7 +81,7 @@ export struct SettingsPage {
 
   private showAbout(): void {
     const version = this.appVersion ? `版本 ${this.appVersion}\n\n` : '';
-    const engine = mnnVersion();
+    const engine = this.engineVersion;
     AlertDialog.show({
       title: '关于 MNN Chat',
       message: `${version}${engine ? `MNN 引擎 ${engine}\n\n` : ''}基于 MNN 推理引擎的端侧大模型聊天客户端。\n\n` +
@@ -117,6 +118,7 @@ export struct SettingsPage {
     } catch (error) {
       this.appVersion = '';
     }
+    this.engineVersion = mnnVersion();
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.cacheBytes = this.directorySize(context.cacheDir);
   }
@@ -600,6 +602,10 @@ export struct SettingsPage {
             Text(this.appVersion ? `版本 ${this.appVersion}` : '版本未知')
               .fontSize(14)
               .fontColor('#4B5563')
+              .width('100%')
+            Text(this.engineVersion ? `MNN 引擎 ${this.engineVersion}` : 'MNN 引擎版本未知')
+              .fontSize(13)
+              .fontColor('#6B7280')
               .width('100%')
             Row({ space: 10 }) {
               Button('检查更新')
