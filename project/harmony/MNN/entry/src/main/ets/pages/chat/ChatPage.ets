@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
 import pasteboard from '@ohos.pasteboard';
 import { AttachmentRepository } from '../../data/AttachmentRepository';
 import { ChatRepository } from '../../data/ChatRepository';
@@ -683,7 +683,12 @@ export struct ChatPage {
 
   private reportIssue(): void {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    context.openLink('https://github.com/alibaba/MNN/issues').catch((error: Error) => {
+    const want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: 'https://github.com/alibaba/MNN/issues'
+    };
+    context.startAbility(want).catch((error: Error) => {
       this.error = `无法打开浏览器：${error.message}`;
     });
   }

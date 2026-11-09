@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import pasteboard from '@ohos.pasteboard';
 import { AttachmentRecord, GenerationMetrics, GenerationState, MessageRole } from '../domain/AppTypes';
@@ -70,9 +70,18 @@ export struct MessageBubble {
 
   private reportIssue(): void {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    context.openLink('https://github.com/alibaba/MNN/issues').catch(() => {
+    try {
+      const want: Want = {
+        action: 'ohos.want.action.viewData',
+        entities: ['entity.system.browsable'],
+        uri: 'https://github.com/alibaba/MNN/issues'
+      };
+      context.startAbility(want).catch(() => {
+        promptAction.showToast({ message: '无法打开浏览器' });
+      });
+    } catch (error) {
       promptAction.showToast({ message: '无法打开浏览器' });
-    });
+    }
   }
 
   @Builder
