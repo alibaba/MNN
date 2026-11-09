@@ -31,7 +31,10 @@ struct Index {
         ChatPage({
           requestedSessionId: this.requestedSessionId,
           activeModelId: this.activeModelId,
-          settingsRevision: this.settingsRevision
+          settingsRevision: this.settingsRevision,
+          onNavigateTab: (index: number) => {
+            this.selectedTab = index;
+          }
         })
       }
       .tabBar('聊天')

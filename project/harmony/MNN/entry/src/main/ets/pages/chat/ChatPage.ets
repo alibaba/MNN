@@ -1,4 +1,7 @@
 import { common, Want } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
+import bundleManager from '@ohos.bundle.bundleManager';
+import deviceInfo from '@ohos.deviceInfo';
 import pasteboard from '@ohos.pasteboard';
 import { AttachmentRepository } from '../../data/AttachmentRepository';
 import { ChatRepository } from '../../data/ChatRepository';
@@ -45,6 +48,7 @@ export struct ChatPage {
   @Watch('onRequestedSessionChanged') @Link requestedSessionId: string;
   @Watch('onActiveModelChanged') @Link activeModelId: string;
   @Watch('onSettingsRevisionChanged') @Link settingsRevision: number;
+  onNavigateTab: (index: number) => void = () => {};
   @State private prompt: string = '';
   @State private messages: ChatMessageView[] = [];
   @State private error: string = '';
@@ -690,7 +694,46 @@ export struct ChatPage {
     });
   }
 
+  private buildDiagnosticInfo(): string {
+    const settings = this.runtimeSettings;
+    let appVersion = '';
+    try {
+      appVersion = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT).versionName;
+    } catch (error) {
+      appVersion = '';
+    }
+    return [
+      `app_version: ${appVersion}`,
+      `device: ${deviceInfo.brand} ${deviceInfo.productModel}`,
+      `os: ${deviceInfo.osFullName}`,
+      `model_id: ${this.loadedModelId || this.activeModelId}`,
+      `config_path: ${this.nativeTarget?.configPath || ''}`,
+      `backend_type: ${settings.backendType}`,
+      `thread_num: ${settings.threadNum}`,
+      `precision: ${settings.precision}`,
+      `memory: ${settings.memory}`,
+      `use_mmap: ${settings.useMmap}`,
+      `prompt_cache: ${settings.promptCache}`,
+      `sampler: ${settings.samplerType}`,
+      `max_new_tokens: ${settings.maxTokens}`,
+      `enable_thinking: ${settings.thinking}`,
+      `load_ms: ${this.loadMs}`,
+      `messages: ${this.messages.length}`
+    ].join('\n');
+  }
+
   private reportIssue(): void {
+    const info = this.buildDiagnosticInfo();
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, info);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        promptAction.showToast({ message: '调试信息已复制，正在打开问题页面' });
+      }).catch(() => {
+        promptAction.showToast({ message: '调试信息复制失败' });
+      });
+    } catch (error) {
+      promptAction.showToast({ message: '调试信息复制失败' });
+    }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const want: Want = {
       action: 'ohos.want.action.viewData',
@@ -753,6 +796,18 @@ export struct ChatPage {
               action: () => this.toggleShowMetrics()
             },
             {
+              value: '基准测试',
+              action: () => this.onNavigateTab(5)
+            },
+            {
+              value: '模型设置',
+              action: () => this.onNavigateTab(4)
+            },
+            {
+              value: 'API 控制台',
+              action: () => this.onNavigateTab(6)
+            },
+            {
               value: '上报问题',
               action: () => this.reportIssue()
             }
@@ -776,7 +831,11 @@ export struct ChatPage {
       List({ space: 16, scroller: this.messageScroller }) {
         ForEach(this.messages, (message: ChatMessageView) => {
           ListItem() {
-            MessageBubble({ message: message, showMetrics: this.showMetrics })
+            MessageBubble({
+              message: message,
+              showMetrics: this.showMetrics,
+              onReportIssue: () => this.reportIssue()
+            })
           }
         }, (message: ChatMessageView) => message.id.toString())
       }

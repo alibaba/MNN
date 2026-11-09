@@ -1,4 +1,3 @@
-import { common, Want } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import pasteboard from '@ohos.pasteboard';
 import { AttachmentRecord, GenerationMetrics, GenerationState, MessageRole } from '../domain/AppTypes';
@@ -38,6 +37,7 @@ export class ChatMessageView {
 export struct MessageBubble {
   @ObjectLink message: ChatMessageView;
   @Prop showMetrics: boolean = true;
+  onReportIssue: () => void = () => {};
 
   private copyText(text: string, label: string): void {
     if (!text) {
@@ -68,22 +68,6 @@ export struct MessageBubble {
     return lines.join('\n');
   }
 
-  private reportIssue(): void {
-    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    try {
-      const want: Want = {
-        action: 'ohos.want.action.viewData',
-        entities: ['entity.system.browsable'],
-        uri: 'https://github.com/alibaba/MNN/issues'
-      };
-      context.startAbility(want).catch(() => {
-        promptAction.showToast({ message: '无法打开浏览器' });
-      });
-    } catch (error) {
-      promptAction.showToast({ message: '无法打开浏览器' });
-    }
-  }
-
   @Builder
   private messageMenu() {
     Menu() {
@@ -97,7 +81,7 @@ export struct MessageBubble {
         }
       } else {
         MenuItem({ content: '上报问题' })
-          .onClick(() => this.reportIssue())
+          .onClick(() => this.onReportIssue())
       }
     }
   }
