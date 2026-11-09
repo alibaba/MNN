@@ -37,7 +37,6 @@ import {
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
   SettingsStore
 } from '../../services/SettingsStore';
-import { AttachmentPicker } from '../../components/AttachmentPicker';
 import { InfoSheet } from '../../components/InfoSheet';
 import { ModelPickerSheet } from '../../components/ModelPickerSheet';
 import { ChatMessageView, MessageBubble } from '../../components/MessageBubble';
@@ -314,16 +313,6 @@ export struct ChatPage {
         });
       }
     }
-  }
-
-  private fillTestPrompt(targetLength: number): void {
-    const prefix = '请完整阅读下面的测试材料，概括核心观点，并从性能、内存、功耗和用户体验四个方面给出优化建议。测试材料：';
-    const paragraph = '移动端大语言模型推理包含预填充与逐词解码两个阶段。预填充阶段需要并行处理较长的输入序列，计算吞吐、算子融合和线程调度会影响首字延迟；解码阶段每次只生成少量 token，模型权重和 KV 缓存的频繁访问会带来较高的内存带宽压力。实际优化还需要兼顾设备温度、持续功耗、峰值内存、响应速度和输出质量，并通过稳定的基准测试比较不同方案。';
-    let value = prefix;
-    while (value.length < targetLength) {
-      value += paragraph;
-    }
-    this.prompt = value.substring(0, targetLength);
   }
 
   private buildNativeHistory(records: ChatMessageRecord[]): NativeChatMessage[] {
@@ -877,29 +866,6 @@ export struct ChatPage {
       }
 
       Column({ space: 10 }) {
-        Row({ space: 8 }) {
-          Text('长文本测试')
-            .fontSize(12)
-            .fontColor('#7A7F87')
-          ForEach([256, 512, 1024], (length: number) => {
-            Button(`${length} 字符`)
-              .height(30)
-              .fontSize(12)
-              .fontColor('#2864DC')
-              .backgroundColor('#EEF3FF')
-              .enabled(this.isModelReady && !this.isGenerating)
-              .onClick(() => this.fillTestPrompt(length))
-          })
-        }
-        .width('100%')
-
-        AttachmentPicker({
-          attachments: this.pendingAttachments,
-          error: this.error,
-          sessionId: this.currentSessionId,
-          capabilities: this.modelCapabilities
-        })
-
         TextArea({ placeholder: this.isModelReady ? '输入消息' : '模型加载完成后即可对话', text: this.prompt })
           .height(92)
           .fontSize(16)

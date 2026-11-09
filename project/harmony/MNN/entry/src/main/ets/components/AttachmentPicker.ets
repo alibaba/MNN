@@ -120,10 +120,6 @@ export struct AttachmentPicker {
           .fontSize(12)
           .enabled(this.capabilities.videoInput && !!this.sessionId)
           .onClick(() => this.pickVideo())
-        Button('扩散')
-          .height(30)
-          .fontSize(12)
-          .enabled(this.capabilities.diffusion && !!this.sessionId)
         if (!this.capabilities.vision && !this.capabilities.audioInput) {
           Text(this.capabilities.attachmentReason)
             .fontSize(11)
