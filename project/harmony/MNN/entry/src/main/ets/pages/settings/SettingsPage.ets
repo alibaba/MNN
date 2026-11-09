@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
 import bundleManager from '@ohos.bundle.bundleManager';
 import fs from '@ohos.file.fs';
 import { ModelRepository } from '../../data/ModelRepository';
@@ -42,6 +42,55 @@ export struct SettingsPage {
       this.stopDownloadsOnChat = value;
     }).catch((error: Error) => {
       this.error = error.message;
+    });
+  }
+
+  private openWebPage(url: string): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    try {
+      const want: Want = {
+        action: 'ohos.want.action.viewData',
+        entities: ['entity.system.browsable'],
+        uri: url
+      };
+      context.startAbility(want).catch((error: Error) => {
+        this.error = `无法打开浏览器：${error.message}`;
+      });
+    } catch (error) {
+      this.error = `无法打开浏览器：${(error as Error).message}`;
+    }
+  }
+
+  private checkForUpdate(): void {
+    const version = this.appVersion ? `当前版本 ${this.appVersion}\n\n` : '';
+    AlertDialog.show({
+      title: '检查更新',
+      message: `${version}鸿蒙客户端随 MNN 仓库一起发布，请到 GitHub Releases 查看最新版本与更新说明。`,
+      primaryButton: {
+        value: '打开 Releases',
+        action: () => this.openWebPage('https://github.com/alibaba/MNN/releases')
+      },
+      secondaryButton: {
+        value: '关闭',
+        action: () => {}
+      }
+    });
+  }
+
+  private showAbout(): void {
+    const version = this.appVersion ? `版本 ${this.appVersion}\n\n` : '';
+    AlertDialog.show({
+      title: '关于 MNN Chat',
+      message: `${version}基于 MNN 推理引擎的端侧大模型聊天客户端。\n\n` +
+        '聊天记录、模型与配置仅保存在本机，推理过程完全离线。',
+      primaryButton: {
+        value: '项目主页',
+        action: () => this.openWebPage('https://github.com/alibaba/MNN')
+      },
+      secondaryButton: {
+        value: '关闭',
+        action: () => {}
+      }
     });
   }
 
@@ -550,6 +599,23 @@ export struct SettingsPage {
               .fontSize(14)
               .fontColor('#4B5563')
               .width('100%')
+            Row({ space: 10 }) {
+              Button('检查更新')
+                .layoutWeight(1)
+                .height(34)
+                .fontSize(13)
+                .backgroundColor('#EEF3FF')
+                .fontColor('#2864DC')
+                .onClick(() => this.checkForUpdate())
+              Button('关于')
+                .layoutWeight(1)
+                .height(34)
+                .fontSize(13)
+                .backgroundColor('#F1F3F5')
+                .fontColor('#5F6670')
+                .onClick(() => this.showAbout())
+            }
+            .width('100%')
             Text('聊天记录、模型与配置仅保存在本机；API 服务只在启动后监听本机或局域网。')
               .fontSize(12)
               .lineHeight(19)
