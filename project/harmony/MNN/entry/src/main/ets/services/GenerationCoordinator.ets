@@ -56,6 +56,14 @@ export interface NativeBenchmarkResult {
   canceled: boolean;
 }
 
+export function mnnVersion(): string {
+  try {
+    return testNapi.getMnnVersion() as string;
+  } catch (error) {
+    return '';
+  }
+}
+
 export class GenerationCoordinator {
   private static instance: GenerationCoordinator = new GenerationCoordinator();
   private tail: Promise<void> = Promise.resolve();

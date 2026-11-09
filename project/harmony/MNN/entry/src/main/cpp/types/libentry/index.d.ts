@@ -60,3 +60,4 @@ export const runLlmBenchmark: (
 export const cancelLlm: (requestId: string) => void;
 export const resetLlm: () => void;
 export const releaseLlm: () => void;
+export const getMnnVersion: () => string;

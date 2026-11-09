@@ -9,6 +9,7 @@ import {
   RuntimePrecision,
   RuntimeSamplerType
 } from '../../domain/AppTypes';
+import { mnnVersion } from '../../services/GenerationCoordinator';
 import {
   APP_SHOW_METRICS_KEY,
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
@@ -79,9 +80,10 @@ export struct SettingsPage {
 
   private showAbout(): void {
     const version = this.appVersion ? `版本 ${this.appVersion}\n\n` : '';
+    const engine = mnnVersion();
     AlertDialog.show({
       title: '关于 MNN Chat',
-      message: `${version}基于 MNN 推理引擎的端侧大模型聊天客户端。\n\n` +
+      message: `${version}${engine ? `MNN 引擎 ${engine}\n\n` : ''}基于 MNN 推理引擎的端侧大模型聊天客户端。\n\n` +
         '聊天记录、模型与配置仅保存在本机，推理过程完全离线。',
       primaryButton: {
         value: '项目主页',

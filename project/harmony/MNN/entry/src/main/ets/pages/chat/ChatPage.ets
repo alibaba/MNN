@@ -25,7 +25,8 @@ import {
   NativeGenerateRequest,
   NativeGenerateResult,
   NativeLoadResult,
-  NativeTarget
+  NativeTarget,
+  mnnVersion
 } from '../../services/GenerationCoordinator';
 import { MediaService } from '../../services/MediaService';
 import { ReasoningParser } from '../../services/ReasoningParser';
@@ -704,6 +705,7 @@ export struct ChatPage {
     }
     return [
       `app_version: ${appVersion}`,
+      `mnn_version: ${mnnVersion()}`,
       `device: ${deviceInfo.brand} ${deviceInfo.productModel}`,
       `os: ${deviceInfo.osFullName}`,
       `model_id: ${this.loadedModelId || this.activeModelId}`,

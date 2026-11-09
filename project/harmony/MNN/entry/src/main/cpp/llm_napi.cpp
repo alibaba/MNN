@@ -2,6 +2,8 @@
 
 #include "llm_session.h"
 
+#include <MNN/MNNDefine.h>
+
 #include <memory>
 #include <string>
 #include <utility>
@@ -376,6 +378,12 @@ napi_value ReleaseLlm(napi_env env, napi_callback_info) {
     return result;
 }
 
+napi_value GetMnnVersion(napi_env env, napi_callback_info) {
+    napi_value result;
+    napi_create_string_utf8(env, MNN_VERSION, NAPI_AUTO_LENGTH, &result);
+    return result;
+}
+
 } // namespace
 
 napi_value InitLlmModule(napi_env env, napi_value exports) {
@@ -386,6 +394,7 @@ napi_value InitLlmModule(napi_env env, napi_value exports) {
         {"cancelLlm", nullptr, CancelLlm, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"resetLlm", nullptr, ResetLlm, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"releaseLlm", nullptr, ReleaseLlm, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getMnnVersion", nullptr, GetMnnVersion, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     return exports;
