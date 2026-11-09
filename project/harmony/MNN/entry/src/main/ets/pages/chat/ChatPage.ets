@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import pasteboard from '@ohos.pasteboard';
 import { AttachmentRepository } from '../../data/AttachmentRepository';
 import { ChatRepository } from '../../data/ChatRepository';
 import { ModelRepository } from '../../data/ModelRepository';
@@ -9,6 +10,7 @@ import {
   GenerationState,
   MessageRole,
   ModelCapabilities,
+  ModelRecord,
   ModelRuntimeSettings,
   ModelState
 } from '../../domain/AppTypes';
@@ -25,6 +27,8 @@ import { MediaService } from '../../services/MediaService';
 import { ReasoningParser } from '../../services/ReasoningParser';
 import { ACTIVE_MODEL_ID_KEY, SettingsStore } from '../../services/SettingsStore';
 import { AttachmentPicker } from '../../components/AttachmentPicker';
+import { InfoSheet } from '../../components/InfoSheet';
+import { ModelPickerSheet } from '../../components/ModelPickerSheet';
 import { ChatMessageView, MessageBubble } from '../../components/MessageBubble';
 
 const CURRENT_SESSION_KEY: string = 'current_session_id';
@@ -531,6 +535,150 @@ export struct ChatPage {
     });
   }
 
+  private cloneRuntimeSettings(): ModelRuntimeSettings {
+    const copy = new ModelRuntimeSettings();
+    copy.backendType = this.runtimeSettings.backendType;
+    copy.threadNum = this.runtimeSettings.threadNum;
+    copy.precision = this.runtimeSettings.precision;
+    copy.memory = this.runtimeSettings.memory;
+    copy.useMmap = this.runtimeSettings.useMmap;
+    copy.promptCache = this.runtimeSettings.promptCache;
+    copy.maxTokens = this.runtimeSettings.maxTokens;
+    copy.systemPrompt = this.runtimeSettings.systemPrompt;
+    copy.thinking = this.runtimeSettings.thinking;
+    copy.samplerType = this.runtimeSettings.samplerType;
+    copy.temperature = this.runtimeSettings.temperature;
+    copy.topP = this.runtimeSettings.topP;
+    copy.topK = this.runtimeSettings.topK;
+    copy.minP = this.runtimeSettings.minP;
+    copy.tfsZ = this.runtimeSettings.tfsZ;
+    copy.typical = this.runtimeSettings.typical;
+    copy.penalty = this.runtimeSettings.penalty;
+    copy.presencePenalty = this.runtimeSettings.presencePenalty;
+    copy.frequencyPenalty = this.runtimeSettings.frequencyPenalty;
+    copy.penaltyWindow = this.runtimeSettings.penaltyWindow;
+    copy.nGram = this.runtimeSettings.nGram;
+    copy.nGramFactor = this.runtimeSettings.nGramFactor;
+    return copy;
+  }
+
+  private openModelPicker(): void {
+    if (this.isGenerating || this.modelLoading) {
+      return;
+    }
+    ModelRepository.getInstance().listModels().then((models: ModelRecord[]) => {
+      const ready: ModelRecord[] = models.filter((model: ModelRecord) => model.state === ModelState.READY);
+      if (ready.length === 0) {
+        this.error = '没有可用的模型，请先在模型页导入或下载';
+        return;
+      }
+      let controller: CustomDialogController | null = null;
+      controller = new CustomDialogController({
+        builder: ModelPickerSheet({
+          models: ready,
+          activeModelId: this.activeModelId,
+          onPick: (model: ModelRecord) => {
+            this.switchModel(model);
+          }
+        }),
+        autoCancel: true,
+        alignment: DialogAlignment.Bottom,
+        customStyle: true
+      });
+      controller.open();
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private switchModel(model: ModelRecord): void {
+    SettingsStore.getInstance().putString(ACTIVE_MODEL_ID_KEY, model.id).then(() => {
+      if (this.activeModelId === model.id) {
+        return;
+      }
+      this.modelStatus = '正在加载模型';
+      this.activeModelId = model.id;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private copyToClipboard(text: string): void {
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.modelStatus = '配置已复制到剪贴板';
+      }).catch((error: Error) => {
+        this.error = `复制失败：${error.message}`;
+      });
+    } catch (error) {
+      this.error = `复制失败：${(error as Error).message}`;
+    }
+  }
+
+  private showConfigInfo(): void {
+    const settings = this.runtimeSettings;
+    const info: string = [
+      `model_id: ${this.loadedModelId || this.activeModelId}`,
+      `config_path: ${this.nativeTarget?.configPath || ''}`,
+      `backend_type: ${settings.backendType}`,
+      `thread_num: ${settings.threadNum}`,
+      `precision: ${settings.precision}`,
+      `memory: ${settings.memory}`,
+      `use_mmap: ${settings.useMmap}`,
+      `prompt_cache: ${settings.promptCache}`,
+      `sampler_type: ${settings.samplerType}`,
+      `temperature: ${settings.temperature}`,
+      `top_p: ${settings.topP}`,
+      `top_k: ${settings.topK}`,
+      `min_p: ${settings.minP}`,
+      `tfs_z: ${settings.tfsZ}`,
+      `typical: ${settings.typical}`,
+      `repetition_penalty: ${settings.penalty}`,
+      `presence_penalty: ${settings.presencePenalty}`,
+      `frequency_penalty: ${settings.frequencyPenalty}`,
+      `penalty_window: ${settings.penaltyWindow}`,
+      `n_gram: ${settings.nGram}`,
+      `ngram_factor: ${settings.nGramFactor}`,
+      `max_new_tokens: ${settings.maxTokens}`,
+      `enable_thinking: ${settings.thinking}`
+    ].join('\n');
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: InfoSheet({
+        title: '配置信息',
+        message: info,
+        onCopy: () => this.copyToClipboard(info)
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Bottom,
+      customStyle: true
+    });
+    controller.open();
+  }
+
+  private toggleThinking(): void {
+    if (!this.isModelReady || this.isGenerating) {
+      return;
+    }
+    const next = this.cloneRuntimeSettings();
+    next.thinking = !next.thinking;
+    SettingsStore.getInstance().putModelRuntimeSettings(this.loadedModelId || this.activeModelId, next)
+      .then((revision: number) => {
+        this.settingsRevision = revision;
+      })
+      .catch((error: Error) => {
+        this.error = error.message;
+      });
+  }
+
+  private reportIssue(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    context.openLink('https://github.com/alibaba/MNN/issues').catch((error: Error) => {
+      this.error = `无法打开浏览器：${error.message}`;
+    });
+  }
+
   build() {
     Column() {
       Row() {
@@ -548,10 +696,37 @@ export struct ChatPage {
             Text(`${this.activeModelName || this.activeModelId} · ${this.modelStatus}`)
               .fontSize(13)
               .fontColor('#6B7280')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text('▾')
+              .fontSize(12)
+              .fontColor('#6B7280')
           }
+          .onClick(() => this.openModelPicker())
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
+
+        Button('⋯')
+          .fontSize(18)
+          .fontColor('#171A1F')
+          .backgroundColor(Color.Transparent)
+          .height(38)
+          .width(38)
+          .bindMenu([
+            {
+              value: '配置信息',
+              action: () => this.showConfigInfo()
+            },
+            {
+              value: this.runtimeSettings.thinking ? '关闭思考模式' : '开启思考模式',
+              action: () => this.toggleThinking()
+            },
+            {
+              value: '上报问题',
+              action: () => this.reportIssue()
+            }
+          ])
 
         Button('新对话')
           .fontSize(14)
