@@ -10,6 +10,7 @@ import {
 } from '../../domain/AppTypes';
 import { AppInitializer } from '../../services/AppInitializer';
 import { DownloadManager } from '../../services/DownloadManager';
+import { MarketDetailSheet } from '../../components/MarketDetailSheet';
 import { ModelMarketService } from '../../services/ModelMarketService';
 import {
   PROVIDER_HUGGING_FACE,
@@ -205,6 +206,22 @@ export struct MarketPage {
     return '';
   }
 
+  private openDetail(model: MarketModelRecord): void {
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: MarketDetailSheet({
+        model: model,
+        provider: this.provider,
+        installed: this.statusFor(model).state === DownloadState.COMPLETED,
+        onDownload: () => this.startDownload(model)
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Bottom,
+      customStyle: true
+    });
+    controller.open();
+  }
+
   @Builder
   private downloadAction(model: MarketModelRecord) {
     if (this.statusFor(model).state === DownloadState.DOWNLOADING) {
@@ -349,6 +366,7 @@ export struct MarketPage {
             .padding(14)
             .borderRadius(12)
             .backgroundColor(Color.White)
+            .onClick(() => this.openDetail(model))
           }
         }, (model: MarketModelRecord) => `${this.provider}-${model.modelName}`)
       }
