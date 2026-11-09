@@ -443,6 +443,13 @@ export struct ChatPage {
       this.metrics = `${state} · 首字 ${(result.firstTokenMs / 1000).toFixed(2)}s · ` +
         `预填充 ${prefillSpeed.toFixed(1)} tok/s · 解码 ${decodeSpeed.toFixed(1)} tok/s`;
       this.messages = this.messages.slice();
+      // The final content is usually taller than the last streamed snapshot, so scroll again
+      // after layout instead of only relying on the per-chunk scroll.
+      setTimeout(() => {
+        if (this.followsLatest) {
+          this.scrollToBottom();
+        }
+      }, 0);
     } catch (error) {
       generationFinished = true;
       if (requestId !== this.activeRequestId) {

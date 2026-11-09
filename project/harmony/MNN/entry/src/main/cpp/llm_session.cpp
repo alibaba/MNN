@@ -76,10 +76,12 @@ protected:
             // Text after the stop marker is not part of the answer.
             return size;
         }
-        // Re-assemble with any marker prefix held back from the previous write.
+        // Re-assemble with the marker prefix held back and any incomplete UTF-8 tail left over
+        // from the previous write; both must be carried over or characters are dropped.
         std::string buffer;
-        buffer.reserve(mHeldMarker.size() + static_cast<size_t>(size));
+        buffer.reserve(mHeldMarker.size() + mPending.size() + static_cast<size_t>(size));
         buffer.append(mHeldMarker);
+        buffer.append(mPending);
         buffer.append(text, static_cast<size_t>(size));
         mHeldMarker.clear();
         mPending.clear();

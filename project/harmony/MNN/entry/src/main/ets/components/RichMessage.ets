@@ -66,7 +66,7 @@ export struct RichMessage {
             .width('100%')
             .copyOption(CopyOptions.LocalDevice)
         }
-      }, (block: MarkdownBlock) => block.id.toString())
+      }, (block: MarkdownBlock) => `${block.id}:${block.content.length}`)
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
