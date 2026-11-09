@@ -299,6 +299,14 @@ public:
             if (ec != NO_ERROR) {
                 return false;
             }
+            addr = (char*)MNNMmapFile(file, 1024, true);
+            if (addr == nullptr || 0 != strcmp(addr, "hello")) {
+                return false;
+            }
+            ec = MNNUnmapFile(addr, 1024);
+            if (ec != NO_ERROR) {
+                return false;
+            }
             ec = MNNCloseFile(file);
             if (ec != NO_ERROR) {
                 return false;
