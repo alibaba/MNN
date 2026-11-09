@@ -26,7 +26,12 @@ import {
 } from '../../services/GenerationCoordinator';
 import { MediaService } from '../../services/MediaService';
 import { ReasoningParser } from '../../services/ReasoningParser';
-import { ACTIVE_MODEL_ID_KEY, APP_SHOW_METRICS_KEY, SettingsStore } from '../../services/SettingsStore';
+import {
+  ACTIVE_MODEL_ID_KEY,
+  APP_SHOW_METRICS_KEY,
+  APP_STOP_DOWNLOAD_ON_CHAT_KEY,
+  SettingsStore
+} from '../../services/SettingsStore';
 import { AttachmentPicker } from '../../components/AttachmentPicker';
 import { InfoSheet } from '../../components/InfoSheet';
 import { ModelPickerSheet } from '../../components/ModelPickerSheet';
@@ -259,7 +264,9 @@ export struct ChatPage {
     this.modelStatus = '正在加载模型';
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      await DownloadManager.getInstance().pauseAll();
+      if (await SettingsStore.getInstance().getBoolean(APP_STOP_DOWNLOAD_ON_CHAT_KEY, true)) {
+        await DownloadManager.getInstance().pauseAll();
+      }
       const model = await ModelRepository.getInstance().getModel(targetModelId);
       if (!model || model.state !== ModelState.READY) {
         throw new Error(`模型不可用：${targetModelId}`);

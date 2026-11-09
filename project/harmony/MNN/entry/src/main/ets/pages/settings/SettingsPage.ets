@@ -9,7 +9,11 @@ import {
   RuntimePrecision,
   RuntimeSamplerType
 } from '../../domain/AppTypes';
-import { APP_SHOW_METRICS_KEY, SettingsStore } from '../../services/SettingsStore';
+import {
+  APP_SHOW_METRICS_KEY,
+  APP_STOP_DOWNLOAD_ON_CHAT_KEY,
+  SettingsStore
+} from '../../services/SettingsStore';
 
 @Component
 export struct SettingsPage {
@@ -23,6 +27,7 @@ export struct SettingsPage {
   @State private appVersion: string = '';
   @State private cacheBytes: number = 0;
   @StorageLink('showMetrics') private showMetrics: boolean = true;
+  @State private stopDownloadsOnChat: boolean = true;
   private loadSequence: number = 0;
 
   aboutToAppear(): void {
@@ -31,6 +36,18 @@ export struct SettingsPage {
     SettingsStore.getInstance().getBoolean(APP_SHOW_METRICS_KEY, true).then((value: boolean) => {
       this.showMetrics = value;
     }).catch((error: Error) => {
+      this.error = error.message;
+    });
+    SettingsStore.getInstance().getBoolean(APP_STOP_DOWNLOAD_ON_CHAT_KEY, true).then((value: boolean) => {
+      this.stopDownloadsOnChat = value;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private toggleStopDownloadsOnChat(value: boolean): void {
+    this.stopDownloadsOnChat = value;
+    SettingsStore.getInstance().putBoolean(APP_STOP_DOWNLOAD_ON_CHAT_KEY, value).catch((error: Error) => {
       this.error = error.message;
     });
   }
@@ -509,6 +526,14 @@ export struct SettingsPage {
                 .layoutWeight(1)
               Toggle({ type: ToggleType.Switch, isOn: this.showMetrics })
                 .onChange((value: boolean) => this.toggleShowMetrics(value))
+            }
+            .width('100%')
+            Row() {
+              Text('聊天时暂停下载')
+                .fontSize(15)
+                .layoutWeight(1)
+              Toggle({ type: ToggleType.Switch, isOn: this.stopDownloadsOnChat })
+                .onChange((value: boolean) => this.toggleStopDownloadsOnChat(value))
             }
             .width('100%')
             Text(`缓存占用 ${this.formatBytes(this.cacheBytes)}`)
