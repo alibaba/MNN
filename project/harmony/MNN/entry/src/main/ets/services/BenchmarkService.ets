@@ -37,7 +37,7 @@ export class BenchmarkService {
   }
 
   async run(context: common.UIAbilityContext, modelId: string, settingsRevision: number, requestId: string,
-    backendType: RuntimeBackendType,
+    backendType: RuntimeBackendType, promptTokens: number, generateTokens: number, repeats: number,
     onProgress: (sample: NativeBenchmarkSample) => void): Promise<BenchmarkSummary> {
     const model = await ModelRepository.getInstance().getModel(modelId);
     if (!model || model.state !== ModelState.READY) {
@@ -59,9 +59,9 @@ export class BenchmarkService {
     const loadResult = await GenerationCoordinator.getInstance().prepare(target);
     const request: NativeBenchmarkRequest = {
       requestId: requestId,
-      promptTokens: 128,
-      generateTokens: 128,
-      repeats: 3
+      promptTokens: promptTokens,
+      generateTokens: generateTokens,
+      repeats: repeats
     };
     const result = await GenerationCoordinator.getInstance().benchmark(target, request, onProgress);
     const summary = this.summarize(model.id, backendType, loadResult.loadMs, request, result);
