@@ -1,4 +1,6 @@
 import { common } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
+import pasteboard from '@ohos.pasteboard';
 import {
   API_AUTH_ENABLED_KEY,
   API_BIND_ALL_KEY,
@@ -26,6 +28,20 @@ export struct ApiConsolePage {
   aboutToAppear(): void {
     this.status = ApiServer.getInstance().getStatus();
     this.loadApiSettings();
+  }
+
+  private copyAddress(): void {
+    const address = `http://${this.status.address}:${this.status.port}`;
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, address);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        promptAction.showToast({ message: '地址已复制' });
+      }).catch(() => {
+        promptAction.showToast({ message: '复制失败' });
+      });
+    } catch (error) {
+      promptAction.showToast({ message: '复制失败' });
+    }
   }
 
   private loadApiSettings(): void {
@@ -145,6 +161,16 @@ export struct ApiConsolePage {
           Text(this.status.running ? `${this.status.address}:${this.status.port}` : '127.0.0.1')
             .fontSize(14)
             .fontColor('#4B5563')
+          if (this.status.running) {
+            Button('复制')
+              .fontSize(12)
+              .fontColor('#2864DC')
+              .backgroundColor(Color.Transparent)
+              .height(28)
+              .padding(0)
+              .margin({ left: 10 })
+              .onClick(() => this.copyAddress())
+          }
         }
         TextInput({ text: this.portText, placeholder: '端口' })
           .type(InputType.Number)
