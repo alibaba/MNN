@@ -1,3 +1,5 @@
+import { common, Want } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
 import { MarketModelRecord } from '../domain/AppTypes';
 import { ProviderAdapters } from '../services/ProviderAdapters';
 
@@ -12,6 +14,27 @@ export struct MarketDetailSheet {
   provider: string = '';
   installed: boolean = false;
   onDownload: () => void = () => {};
+
+  private openWebPage(): void {
+    const url = ProviderAdapters.webPage(this.model, this.provider);
+    if (!url) {
+      promptAction.showToast({ message: '该模型没有可访问的网页' });
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    try {
+      const want: Want = {
+        action: 'ohos.want.action.viewData',
+        entities: ['entity.system.browsable'],
+        uri: url
+      };
+      context.startAbility(want).catch(() => {
+        promptAction.showToast({ message: '无法打开浏览器' });
+      });
+    } catch (error) {
+      promptAction.showToast({ message: '无法打开浏览器' });
+    }
+  }
 
   private formatBytes(bytes: number): string {
     if (bytes >= 1024 * 1024 * 1024) {
@@ -54,6 +77,14 @@ export struct MarketDetailSheet {
             .fontSize(12)
             .fontColor('#6B7280')
             .width('100%')
+          Button('在浏览器打开模型卡片')
+            .fontSize(12)
+            .fontColor('#2864DC')
+            .backgroundColor(Color.Transparent)
+            .height(30)
+            .padding(0)
+            .alignSelf(ItemAlign.Start)
+            .onClick(() => this.openWebPage())
         }
         .alignItems(HorizontalAlign.Start)
         .width('100%')

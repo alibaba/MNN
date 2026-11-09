@@ -80,6 +80,23 @@ export class ProviderAdapters {
     return '';
   }
 
+  static webPage(model: MarketModelRecord, provider: string): string {
+    const repository = ProviderAdapters.repository(model, provider);
+    if (!repository) {
+      return '';
+    }
+    if (provider === PROVIDER_HUGGING_FACE) {
+      return `https://huggingface.co/${repository}`;
+    }
+    if (provider === PROVIDER_MODEL_SCOPE) {
+      return `https://modelscope.cn/models/${repository}`;
+    }
+    if (provider === PROVIDER_MODELERS) {
+      return `https://modelers.cn/models/${repository}`;
+    }
+    return '';
+  }
+
   static async listFiles(model: MarketModelRecord, provider: string): Promise<ProviderFileRecord[]> {
     const repository = ProviderAdapters.repository(model, provider);
     const parts = repository.split('/');
