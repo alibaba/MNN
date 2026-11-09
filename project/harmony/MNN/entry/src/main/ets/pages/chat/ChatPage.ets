@@ -37,6 +37,7 @@ import {
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
   SettingsStore
 } from '../../services/SettingsStore';
+import { AttachmentSheet } from '../../components/AttachmentSheet';
 import { InfoSheet } from '../../components/InfoSheet';
 import { ModelPickerSheet } from '../../components/ModelPickerSheet';
 import { ChatMessageView, MessageBubble } from '../../components/MessageBubble';
@@ -225,6 +226,89 @@ export struct ChatPage {
       MediaService.getInstance().deleteAttachment(context, attachment);
     });
     this.pendingAttachments = [];
+  }
+
+  private supportsAttachments(): boolean {
+    return this.modelCapabilities.vision || this.modelCapabilities.audioInput ||
+      this.modelCapabilities.videoInput;
+  }
+
+  private openAttachmentSheet(): void {
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: AttachmentSheet({
+        capabilities: this.modelCapabilities,
+        sessionReady: !!this.currentSessionId,
+        onPickImages: () => this.pickImages(),
+        onCapturePhoto: () => this.capturePhoto(),
+        onPickAudio: () => this.pickAudio(),
+        onPickVideo: () => this.pickVideo()
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Bottom,
+      customStyle: true
+    });
+    controller.open();
+  }
+
+  private pickImages(): void {
+    if (!this.modelCapabilities.vision) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    MediaService.getInstance().pickImages(context, this.currentSessionId).then((items: AttachmentRecord[]) => {
+      this.pendingAttachments = this.pendingAttachments.concat(items);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private capturePhoto(): void {
+    if (!this.modelCapabilities.vision) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    MediaService.getInstance().capturePhoto(context, this.currentSessionId).then((items: AttachmentRecord[]) => {
+      this.pendingAttachments = this.pendingAttachments.concat(items);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private pickAudio(): void {
+    if (!this.modelCapabilities.audioInput) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    MediaService.getInstance().pickAudio(context, this.currentSessionId).then((items: AttachmentRecord[]) => {
+      this.pendingAttachments = this.pendingAttachments
+        .filter((item: AttachmentRecord) => item.mediaType !== 'audio').concat(items);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private pickVideo(): void {
+    if (!this.modelCapabilities.videoInput) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    MediaService.getInstance().pickVideo(context, this.currentSessionId).then((items: AttachmentRecord[]) => {
+      this.pendingAttachments = this.pendingAttachments
+        .filter((item: AttachmentRecord) => item.mediaType !== 'video').concat(items);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private removePendingAttachment(index: number): void {
+    const attachment = this.pendingAttachments[index];
+    if (attachment) {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      MediaService.getInstance().deleteAttachment(context, attachment);
+    }
+    this.pendingAttachments = this.pendingAttachments.filter(
+      (_item: AttachmentRecord, itemIndex: number) => itemIndex !== index);
   }
 
   private async createNewSession(): Promise<void> {
@@ -866,16 +950,69 @@ export struct ChatPage {
       }
 
       Column({ space: 10 }) {
-        TextArea({ placeholder: this.isModelReady ? '输入消息' : '模型加载完成后即可对话', text: this.prompt })
-          .height(92)
-          .fontSize(16)
-          .backgroundColor('#F3F5F8')
-          .borderRadius(14)
-          .padding(12)
-          .enabled(this.isModelReady && !this.isGenerating)
-          .onChange((value: string) => {
-            this.prompt = value;
-          })
+        if (this.pendingAttachments.length > 0) {
+          Scroll() {
+            Row({ space: 8 }) {
+              ForEach(this.pendingAttachments, (attachment: AttachmentRecord, index: number) => {
+                Stack({ alignContent: Alignment.TopEnd }) {
+                  if (attachment.mediaType === 'image') {
+                    Image(`file://${attachment.localPath}`)
+                      .width(64)
+                      .height(64)
+                      .objectFit(ImageFit.Cover)
+                      .borderRadius(8)
+                  } else {
+                    Text(attachment.mediaType === 'audio' ? '音频' : '视频')
+                      .fontSize(12)
+                      .textAlign(TextAlign.Center)
+                      .width(64)
+                      .height(64)
+                      .backgroundColor('#EEF3FF')
+                      .borderRadius(8)
+                  }
+                  Button('×')
+                    .width(22)
+                    .height(22)
+                    .fontSize(12)
+                    .backgroundColor('#CC20242A')
+                    .fontColor(Color.White)
+                    .onClick(() => this.removePendingAttachment(index))
+                }
+              }, (attachment: AttachmentRecord) => attachment.localPath)
+            }
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .width('100%')
+        }
+
+        Row({ space: 8 }) {
+          if (this.supportsAttachments()) {
+            Button('+')
+              .width(40)
+              .height(40)
+              .fontSize(24)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#2864DC')
+              .backgroundColor('#EEF3FF')
+              .padding(0)
+              .enabled(this.isModelReady && !this.isGenerating)
+              .onClick(() => this.openAttachmentSheet())
+          }
+          TextArea({ placeholder: this.isModelReady ? '输入消息' : '模型加载完成后即可对话', text: this.prompt })
+            .layoutWeight(1)
+            .height(92)
+            .fontSize(16)
+            .backgroundColor('#F3F5F8')
+            .borderRadius(14)
+            .padding(12)
+            .enabled(this.isModelReady && !this.isGenerating)
+            .onChange((value: string) => {
+              this.prompt = value;
+            })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Bottom)
 
         Row({ space: 10 }) {
           Text(this.isGenerating ? '回答正在本机生成' : '内容仅在设备本地处理')
