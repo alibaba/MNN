@@ -311,7 +311,8 @@ static AEEResult htp_ops_getInfo_impl_internal(uint8_t *p0, bool benchmark_flops
   for (int i = 13; i < 19; ++i) {
     dst[i] = 0;  // reserved
   }
-  dst[19] = DSP_CAP_GEMV_I8_FUSED | DSP_CAP_LINEAR_ATTN | DSP_CAP_GATED_RMS_NORM | DSP_CAP_Q4_ROW_WINDOW;
+  dst[19] = DSP_CAP_GEMV_I8_FUSED | DSP_CAP_LINEAR_ATTN | DSP_CAP_GATED_RMS_NORM |
+            DSP_CAP_Q4_ROW_WINDOW | DSP_CAP_CONV1X1_W8A8;
 
   qurt_mem_cache_clean((qurt_addr_t) dst, 256, QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
   return 0;
