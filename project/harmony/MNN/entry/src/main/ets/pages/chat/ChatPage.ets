@@ -399,6 +399,25 @@ export struct ChatPage {
     }
   }
 
+  /**
+   * Message history stores media as <img>/<audio>/<video> path tags. Only a model that can consume
+   * that modality should see them; otherwise the raw tags would leak into the text prompt after the
+   * user switches to a text-only model.
+   */
+  private sanitizeNativeContent(content: string): string {
+    let result = content;
+    if (!this.modelCapabilities.vision) {
+      result = result.replace(/<img>[^<]*<\/img>/g, '');
+    }
+    if (!this.modelCapabilities.audioInput) {
+      result = result.replace(/<audio>[^<]*<\/audio>/g, '');
+    }
+    if (!this.modelCapabilities.videoInput) {
+      result = result.replace(/<video>[^<]*<\/video>/g, '');
+    }
+    return result;
+  }
+
   private buildNativeHistory(records: ChatMessageRecord[]): NativeChatMessage[] {
     const history: NativeChatMessage[] = [{
       role: MessageRole.SYSTEM,
@@ -417,7 +436,7 @@ export struct ChatPage {
         return;
       }
       if (record.role === MessageRole.USER) {
-        const userContent = record.rawContent || record.displayContent;
+        const userContent = this.sanitizeNativeContent(record.rawContent || record.displayContent);
         if (userContent) {
           history.push({ role: MessageRole.USER, content: userContent });
           hasUserMessage = true;
