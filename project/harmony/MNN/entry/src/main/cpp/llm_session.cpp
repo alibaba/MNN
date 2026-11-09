@@ -356,6 +356,14 @@ void LlmSession::reset() {
     }
 }
 
+std::string LlmSession::dumpConfig() {
+    std::lock_guard<std::mutex> lock(mOperationMutex);
+    if (!mLlm) {
+        return std::string();
+    }
+    return mLlm->dump_config();
+}
+
 void LlmSession::release() {
     std::lock_guard<std::mutex> lock(mOperationMutex);
     mLlm.reset();

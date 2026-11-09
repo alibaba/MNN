@@ -64,6 +64,14 @@ export function mnnVersion(): string {
   }
 }
 
+export function nativeLlmConfig(): string {
+  try {
+    return testNapi.dumpLlmConfig() as string;
+  } catch (error) {
+    return '';
+  }
+}
+
 export class GenerationCoordinator {
   private static instance: GenerationCoordinator = new GenerationCoordinator();
   private tail: Promise<void> = Promise.resolve();

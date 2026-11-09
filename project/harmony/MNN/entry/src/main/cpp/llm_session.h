@@ -70,6 +70,7 @@ public:
     void cancel(const std::string& requestId);
     void reset();
     void release();
+    std::string dumpConfig();
 
 private:
     CancellationFlag getCancellation(const std::string& requestId);

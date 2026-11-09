@@ -384,6 +384,13 @@ napi_value GetMnnVersion(napi_env env, napi_callback_info) {
     return result;
 }
 
+napi_value DumpLlmConfig(napi_env env, napi_callback_info) {
+    const std::string config = LlmSession::instance().dumpConfig();
+    napi_value result;
+    napi_create_string_utf8(env, config.c_str(), config.size(), &result);
+    return result;
+}
+
 } // namespace
 
 napi_value InitLlmModule(napi_env env, napi_value exports) {
@@ -395,6 +402,7 @@ napi_value InitLlmModule(napi_env env, napi_value exports) {
         {"resetLlm", nullptr, ResetLlm, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"releaseLlm", nullptr, ReleaseLlm, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"getMnnVersion", nullptr, GetMnnVersion, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"dumpLlmConfig", nullptr, DumpLlmConfig, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     return exports;

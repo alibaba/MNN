@@ -26,7 +26,8 @@ import {
   NativeGenerateResult,
   NativeLoadResult,
   NativeTarget,
-  mnnVersion
+  mnnVersion,
+  nativeLlmConfig
 } from '../../services/GenerationCoordinator';
 import { MediaService } from '../../services/MediaService';
 import { ReasoningParser } from '../../services/ReasoningParser';
@@ -634,7 +635,8 @@ export struct ChatPage {
 
   private showConfigInfo(): void {
     const settings = this.runtimeSettings;
-    const info: string = [
+    const engineConfig = nativeLlmConfig();
+    const info: string = (engineConfig ? `# 引擎运行时配置\n${engineConfig}\n\n# 客户端设置\n` : '') + [
       `model_id: ${this.loadedModelId || this.activeModelId}`,
       `config_path: ${this.nativeTarget?.configPath || ''}`,
       `backend_type: ${settings.backendType}`,
