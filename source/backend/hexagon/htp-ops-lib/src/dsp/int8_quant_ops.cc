@@ -3,6 +3,12 @@
 #include <cstring>
 #include <limits>
 
+#ifdef __hexagon__
+#include "dsp/hvx_utils.h"
+#include <hexagon_protos.h>
+#include <hexagon_types.h>
+#endif
+
 namespace {
 
 bool floatIsFinite(float value) {
@@ -187,6 +193,103 @@ float loadFloat(const uint8_t* src, int32_t index, int32_t bytes) {
     return halfToFloat(value);
 }
 
+#ifdef __hexagon__
+
+bool fp16AllFiniteHvx(const uint8_t* src, int32_t size) {
+    const int32_t vectorEnd = size & ~127;
+    const HVX_Vector exponentMask = Q6_Vh_vsplat_R(0x7c00);
+    for (int32_t i = 0; i < vectorEnd; i += 128) {
+        HVX_Vector lo = Q6_V_vand_VV(
+            vmemu(src + static_cast<size_t>(i) * 2), exponentMask);
+        HVX_Vector hi = Q6_V_vand_VV(
+            vmemu(src + static_cast<size_t>(i) * 2 + 128),
+            exponentMask);
+        HVX_Vector maximum = Q6_Vuh_vmax_VuhVuh(lo, hi);
+        maximum = Q6_Vuh_vmax_VuhVuh(
+            maximum, Q6_V_vror_VR(maximum, 64));
+        maximum = Q6_Vuh_vmax_VuhVuh(
+            maximum, Q6_V_vror_VR(maximum, 32));
+        maximum = Q6_Vuh_vmax_VuhVuh(
+            maximum, Q6_V_vror_VR(maximum, 16));
+        maximum = Q6_Vuh_vmax_VuhVuh(
+            maximum, Q6_V_vror_VR(maximum, 8));
+        maximum = Q6_Vuh_vmax_VuhVuh(
+            maximum, Q6_V_vror_VR(maximum, 4));
+        maximum = Q6_Vuh_vmax_VuhVuh(
+            maximum, Q6_V_vror_VR(maximum, 2));
+        uint16_t lanes[64] __attribute__((aligned(128)));
+        vmem(lanes) = maximum;
+        if (lanes[0] == 0x7c00u) {
+            return false;
+        }
+    }
+    for (int32_t i = vectorEnd; i < size; ++i) {
+        uint16_t value = 0;
+        std::memcpy(
+            &value, src + static_cast<size_t>(i) * 2, sizeof(value));
+        if ((value & 0x7c00u) == 0x7c00u) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool safeFp16Reciprocal(float scale, uint16_t* reciprocalBits) {
+    const float reciprocal = 1.0f / scale;
+    if (!floatIsFinite(reciprocal) || reciprocal <= 0.0f) {
+        return false;
+    }
+    const uint16_t half = floatToHalf(reciprocal);
+    const uint16_t exponent = half & 0x7c00u;
+    if (exponent == 0 || exponent == 0x7c00u) {
+        return false;
+    }
+    const float rounded = halfToFloat(half);
+    const float error =
+        rounded > reciprocal ? rounded - reciprocal : reciprocal - rounded;
+    if (error > reciprocal * (1.0f / 1024.0f)) {
+        return false;
+    }
+    *reciprocalBits = half;
+    return true;
+}
+
+AEEResult quantizeFp16Hvx(uint8_t* dst, const uint8_t* src,
+                          int32_t size, float scale) {
+    uint16_t reciprocalBits = 0;
+    if (!safeFp16Reciprocal(scale, &reciprocalBits)) {
+        return quantize_i8_reference(dst, src, size, 2, scale, 0);
+    }
+    if (!fp16AllFiniteHvx(src, size)) {
+        return AEE_EBADPARM;
+    }
+
+    const int32_t vectorEnd = size & ~127;
+    const HVX_Vector reciprocal = Q6_Vh_vsplat_R(reciprocalBits);
+    const HVX_Vector clampMin = Q6_Vb_vsplat_R(-127);
+    for (int32_t i = 0; i < vectorEnd; i += 128) {
+        HVX_Vector lo =
+            vmemu(src + static_cast<size_t>(i) * 2);
+        HVX_Vector hi =
+            vmemu(src + static_cast<size_t>(i) * 2 + 128);
+        lo = Q6_Vhf_equals_Vqf16(
+            Q6_Vqf16_vmpy_VhfVhf(lo, reciprocal));
+        hi = Q6_Vhf_equals_Vqf16(
+            Q6_Vqf16_vmpy_VhfVhf(hi, reciprocal));
+        lo = Q6_Vh_equals_Vhf(lo);
+        hi = Q6_Vh_equals_Vhf(hi);
+        const HVX_Vector packed =
+            Q6_Vb_vpack_VhVh_sat(hi, lo);
+        vmemu(dst + i) = Q6_Vb_vmax_VbVb(packed, clampMin);
+    }
+    return quantize_i8_reference(
+        dst + vectorEnd,
+        src + static_cast<size_t>(vectorEnd) * 2,
+        size - vectorEnd, 2, scale, 0);
+}
+
+#endif
+
 } // namespace
 
 extern "C" {
@@ -251,6 +354,15 @@ AEEResult requantize_i8_reference(uint8_t* dst, const int32_t* src,
 AEEResult htp_ops_quantize_i8(uint8_t* dst, const uint8_t* src,
                               int32_t size, int32_t srcBytes, float scale,
                               int32_t zero) {
+#ifdef __hexagon__
+    if (!validCommon(dst, src, size, scale, zero) ||
+        (srcBytes != 2 && srcBytes != 4)) {
+        return AEE_EBADPARM;
+    }
+    if (srcBytes == 2) {
+        return quantizeFp16Hvx(dst, src, size, scale);
+    }
+#endif
     return quantize_i8_reference(
         dst, src, size, srcBytes, scale, zero);
 }

@@ -132,6 +132,12 @@ else()
     if(HTP_OPS_MM_PHASE_PROFILE)
         target_compile_definitions(htp_ops_skel PRIVATE HTP_MM_PHASE_PROFILE=1)
     endif()
+    set(HTP_OPS_W8A8_HMX_ENABLE ON CACHE BOOL
+        "Enable the v73 W8A8 Conv1x1 HMX route")
+    if(HTP_OPS_W8A8_HMX_ENABLE)
+        target_compile_definitions(htp_ops_skel PRIVATE
+            HTP_OPS_W8A8_HMX_ENABLE=1)
+    endif()
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
         target_compile_definitions(htp_ops_skel PRIVATE $<$<COMPILE_LANGUAGE:CXX>:_Alignas=alignas>)
     endif()
