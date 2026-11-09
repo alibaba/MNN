@@ -85,7 +85,8 @@ export struct BenchmarkPage {
       `PP ${this.summary.promptTokens} / TG ${this.summary.generateTokens} / repeats ${this.summary.repeats}\n` +
       `prefill: ${this.summary.meanPrefillSpeed.toFixed(1)} ± ${this.summary.prefillStdDev.toFixed(1)} tok/s\n` +
       `decode: ${this.summary.meanDecodeSpeed.toFixed(1)} ± ${this.summary.decodeStdDev.toFixed(1)} tok/s\n` +
-      `load: ${(this.summary.loadMs / 1000).toFixed(2)}s, total: ${(this.summary.totalMs / 1000).toFixed(2)}s`;
+      `load: ${(this.summary.loadMs / 1000).toFixed(2)}s, total: ${(this.summary.totalMs / 1000).toFixed(2)}s` +
+      (this.summary.peakMemoryKb > 0 ? `\npeak memory: ${(this.summary.peakMemoryKb / 1024).toFixed(1)} MB` : '');
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
@@ -277,6 +278,12 @@ export struct BenchmarkPage {
             .fontSize(13)
             .fontColor('#6B7280')
             .width('100%')
+          if (this.summary.peakMemoryKb > 0) {
+            Text(`峰值内存 ${(this.summary.peakMemoryKb / 1024).toFixed(1)} MB`)
+              .fontSize(13)
+              .fontColor('#6B7280')
+              .width('100%')
+          }
           ForEach(this.summary.samples, (sample: NativeBenchmarkSample) => {
             Text(`第 ${sample.iteration} 轮：prefill ${(sample.prefillMs > 0 ? sample.promptTokens * 1000 / sample.prefillMs : 0).toFixed(1)} tok/s · ` +
               `decode ${(sample.decodeMs > 0 ? sample.generatedTokens * 1000 / sample.decodeMs : 0).toFixed(1)} tok/s`)

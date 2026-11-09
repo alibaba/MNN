@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import hidebug from '@ohos.hidebug';
 import { BenchmarkRepository } from '../data/BenchmarkRepository';
 import { ModelRepository } from '../data/ModelRepository';
 import { ModelRuntimeSettings, ModelState, RuntimeBackendType } from '../domain/AppTypes';
@@ -24,9 +25,44 @@ export class BenchmarkSummary {
   prefillStdDev: number = 0;
   decodeStdDev: number = 0;
   totalMs: number = 0;
+  peakMemoryKb: number = 0;
   canceled: boolean = false;
   samples: NativeBenchmarkSample[] = [];
   createdAt: number = 0;
+}
+
+/**
+ * Samples the process PSS while a benchmark runs so the report can include peak memory, mirroring
+ * the Android MemoryMonitor. getPss() reads /proc/{pid}/smaps_rollup and is comparatively slow, so
+ * sample at a low frequency instead of per token.
+ */
+class PeakMemorySampler {
+  private timer: number = -1;
+  private peakKb: number = 0;
+
+  start(): void {
+    this.sample();
+    this.timer = setInterval(() => this.sample(), 500);
+  }
+
+  stop(): number {
+    if (this.timer >= 0) {
+      clearInterval(this.timer);
+      this.timer = -1;
+    }
+    return this.peakKb;
+  }
+
+  private sample(): void {
+    try {
+      const pss = Number(hidebug.getPss());
+      if (pss > this.peakKb) {
+        this.peakKb = pss;
+      }
+    } catch (error) {
+      // PSS sampling is best-effort; a failed read must not abort the benchmark.
+    }
+  }
 }
 
 export class BenchmarkService {
@@ -56,6 +92,8 @@ export class BenchmarkService {
       configPath: model.configPath,
       runtimeConfigJson: runtimeConfigJson
     };
+    const sampler = new PeakMemorySampler();
+    sampler.start();
     const loadResult = await GenerationCoordinator.getInstance().prepare(target);
     const request: NativeBenchmarkRequest = {
       requestId: requestId,
@@ -64,7 +102,9 @@ export class BenchmarkService {
       repeats: repeats
     };
     const result = await GenerationCoordinator.getInstance().benchmark(target, request, onProgress);
+    const peakMemoryKb = sampler.stop();
     const summary = this.summarize(model.id, backendType, loadResult.loadMs, request, result);
+    summary.peakMemoryKb = peakMemoryKb;
     if (!summary.canceled && summary.samples.length > 0) {
       const snapshot = JSON.stringify({
         settingsRevision: settingsRevision,
