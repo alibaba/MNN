@@ -337,6 +337,114 @@ static void MNNDecayRankOneUpdateFp16_Fp32Accum(float* S_, const float* k_, cons
     }
 }
 
+// Keep the four-way FP32 reduction and division order of flat MNNNorm.
+// Traverse each C8 block across the token tile before moving to the next block.
+// Residual output is write-only; normalization uses the unrounded FP32 sum.
+template <size_t kTokenTile>
+static void MNNNormPackedFp16Rms16Impl(float* normOut_, float* sumOut_, const float* source_, const float* residual_,
+                                 const float* gamma, const float* beta, float epsilon, size_t batch, size_t channels,
+                                 bool RMSNorm, int tId, int threadNumber) {
+    MNN_ASSERT(RMSNorm && channels > 0 && channels % 16 == 0);
+    MNN_ASSERT((residual_ == nullptr) == (sumOut_ == nullptr));
+    constexpr size_t kPack = 8;
+    auto normOut = reinterpret_cast<__fp16*>(normOut_);
+    auto sumOut = reinterpret_cast<__fp16*>(sumOut_);
+    auto source = reinterpret_cast<const __fp16*>(source_);
+    auto residual = reinterpret_cast<const __fp16*>(residual_);
+    const size_t tileCount = UP_DIV(batch, kTokenTile);
+    const size_t blockStride = batch * kPack;
+    const bool affine = gamma != nullptr && beta != nullptr;
+    const auto channelCount = vdup_n_f32(static_cast<float>(channels));
+    const auto epsilonVec = vdup_n_f32(epsilon);
+    const auto one = vdup_n_f32(1.0f);
+    const auto minFp16 = vdupq_n_f32(-65504.0f);
+    const auto maxFp16 = vdupq_n_f32(65504.0f);
+    const auto minOutput = vdupq_n_f16(-65504.0f);
+    const auto maxOutput = vdupq_n_f16(65504.0f);
+    auto loadExact = [&](size_t offset) {
+        auto input = vld1q_f16(source + offset);
+        float32x4x2_t value = {vcvt_f32_f16(vget_low_f16(input)), vcvt_f32_f16(vget_high_f16(input))};
+        if (residual != nullptr) {
+            auto addend = vld1q_f16(residual + offset);
+            value.val[0] = vaddq_f32(value.val[0], vcvt_f32_f16(vget_low_f16(addend)));
+            value.val[1] = vaddq_f32(value.val[1], vcvt_f32_f16(vget_high_f16(addend)));
+        }
+        return value;
+    };
+    for (size_t tile = tId; tile < tileCount; tile += threadNumber) {
+        const size_t tokenBase = tile * kTokenTile;
+        const size_t tokenCount = ALIMIN(kTokenTile, batch - tokenBase);
+        // Fixed-size initialization, with no runtime token/lane clearing loops.
+        float32x4_t accum0[kTokenTile] = {};
+        float32x4_t accum1[kTokenTile] = {};
+        float32x4_t accum2[kTokenTile] = {};
+        float32x4_t accum3[kTokenTile] = {};
+        auto accumulateBlock = [&](size_t offset, float32x4_t* accLo, float32x4_t* accHi) {
+            for (size_t token = 0; token < tokenCount; ++token, offset += kPack) {
+                auto value = loadExact(offset);
+                auto lo = value.val[0];
+                auto hi = value.val[1];
+                if (residual != nullptr) {
+                    // Saturate only the residual output, not the FP32 statistics.
+                    vst1_f16(sumOut + offset, vcvt_f16_f32(vminq_f32(vmaxq_f32(lo, minFp16), maxFp16)));
+                    vst1_f16(sumOut + offset + 4, vcvt_f16_f32(vminq_f32(vmaxq_f32(hi, minFp16), maxFp16)));
+                }
+                accLo[token] = vmlaq_f32(accLo[token], lo, lo);
+                accHi[token] = vmlaq_f32(accHi[token], hi, hi);
+            }
+        };
+        size_t offset = tokenBase * kPack;
+        for (size_t channel = 0; channel < channels; channel += 16, offset += 2 * blockStride) {
+            accumulateBlock(offset, accum0, accum1);
+            accumulateBlock(offset + blockStride, accum2, accum3);
+        }
+        float invStds[kTokenTile];
+        for (size_t token = 0; token < tokenCount; ++token) {
+            auto sum = vaddq_f32(vaddq_f32(accum0[token], accum1[token]), vaddq_f32(accum2[token], accum3[token]));
+            float squareSum = vaddvq_f32(sum);
+            // Do not replace division with reciprocal multiplication: FP16 rounding depends on it.
+            auto variance = vadd_f32(vdiv_f32(vdup_n_f32(squareSum), channelCount), epsilonVec);
+            invStds[token] = vget_lane_f32(vdiv_f32(one, vsqrt_f32(variance)), 0);
+        }
+        offset = tokenBase * kPack;
+        for (size_t channel = 0; channel < channels; channel += kPack, offset += blockStride) {
+            float32x4_t gLo, gHi, bLo, bHi;
+            if (affine) {
+                gLo = vld1q_f32(gamma + channel);
+                gHi = vld1q_f32(gamma + channel + 4);
+                bLo = vld1q_f32(beta + channel);
+                bHi = vld1q_f32(beta + channel + 4);
+            }
+            size_t tokenOffset = offset;
+            for (size_t token = 0; token < tokenCount; ++token, tokenOffset += kPack) {
+                auto value = loadExact(tokenOffset);
+                auto lo = vmulq_n_f32(value.val[0], invStds[token]);
+                auto hi = vmulq_n_f32(value.val[1], invStds[token]);
+                if (affine) {
+                    lo = vmlaq_f32(bLo, lo, gLo);
+                    hi = vmlaq_f32(bHi, hi, gHi);
+                }
+                // Match the flat path's MNNFp32ToLowp saturation after affine as well.
+                auto output = vcombine_f16(vcvt_f16_f32(lo), vcvt_f16_f32(hi));
+                vst1q_f16(normOut + tokenOffset, vminq_f16(vmaxq_f16(output, minOutput), maxOutput));
+            }
+        }
+    }
+}
+
+static void MNNNormPackedFp16Rms16(float* normOut, float* sumOut, const float* source, const float* residual,
+                                 const float* gamma, const float* beta, float epsilon, size_t batch, size_t channels,
+                                 bool RMSNorm, int tId, int threadNumber) {
+    // Keep small batches distributed across threads; larger tiles improve C8 locality.
+    if (batch < 32) {
+        MNNNormPackedFp16Rms16Impl<4>(normOut, sumOut, source, residual, gamma, beta, epsilon, batch, channels,
+                                    RMSNorm, tId, threadNumber);
+    } else {
+        MNNNormPackedFp16Rms16Impl<8>(normOut, sumOut, source, residual, gamma, beta, epsilon, batch, channels,
+                                    RMSNorm, tId, threadNumber);
+    }
+}
+
 // fp16 counterpart of MNNNormPackedFloat<Pack>, pack = 8.  Pointers are typed
 // `float*` for ABI uniformity with the fp32 slot; the memory is fp16 except for
 // gamma/beta, which CPULayerNorm keeps fp32 in every precision mode.
@@ -354,6 +462,11 @@ static void MNNNormPackedFp16(float* normOut_, float* sumOut_, const float* sour
                               bool RMSNorm, int tId, int threadNumber) {
     MNN_ASSERT((residual_ == nullptr) == (sumOut_ == nullptr));
     MNN_ASSERT(threadNumber > 0);
+    if (RMSNorm && channels > 0 && channels % 16 == 0) {
+        MNNNormPackedFp16Rms16(normOut_, sumOut_, source_, residual_, gamma, beta, epsilon, batch, channels, RMSNorm,
+                               tId, threadNumber);
+        return;
+    }
     constexpr size_t kPack = 8;
     constexpr size_t kTokenTile = 4;
     auto normOut = reinterpret_cast<__fp16*>(normOut_);
