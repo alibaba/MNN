@@ -1,3 +1,6 @@
+import { common } from '@kit.AbilityKit';
+import bundleManager from '@ohos.bundle.bundleManager';
+import fs from '@ohos.file.fs';
 import { ModelRepository } from '../../data/ModelRepository';
 import {
   ModelRuntimeSettings,
@@ -17,10 +20,67 @@ export struct SettingsPage {
   @State private status: string = '';
   @State private error: string = '';
   @State private busy: boolean = false;
+  @State private appVersion: string = '';
+  @State private cacheBytes: number = 0;
   private loadSequence: number = 0;
 
   aboutToAppear(): void {
     this.loadSettings();
+    this.refreshAppInfo();
+  }
+
+  private refreshAppInfo(): void {
+    try {
+      const info = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      this.appVersion = info.versionName;
+    } catch (error) {
+      this.appVersion = '';
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.cacheBytes = this.directorySize(context.cacheDir);
+  }
+
+  private directorySize(path: string): number {
+    try {
+      let total = 0;
+      const names = fs.listFileSync(path);
+      for (let index = 0; index < names.length; index++) {
+        const child = `${path}/${names[index]}`;
+        const stat = fs.statSync(child);
+        total += stat.isDirectory() ? this.directorySize(child) : stat.size;
+      }
+      return total;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  private clearCache(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    try {
+      const names = fs.listFileSync(context.cacheDir);
+      for (let index = 0; index < names.length; index++) {
+        const child = `${context.cacheDir}/${names[index]}`;
+        const stat = fs.statSync(child);
+        if (stat.isDirectory()) {
+          fs.rmdirSync(child);
+        } else {
+          fs.unlinkSync(child);
+        }
+      }
+      this.cacheBytes = 0;
+      this.status = '缓存已清理';
+      this.error = '';
+    } catch (error) {
+      this.error = (error as Error).message;
+    }
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+    }
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
   private onActiveModelChanged(): void {
@@ -418,6 +478,37 @@ export struct SettingsPage {
                 next.systemPrompt = value;
                 this.settings = next;
               })
+          }
+          .width('100%')
+          .padding(14)
+          .backgroundColor(Color.White)
+          .borderRadius(12)
+
+          Column({ space: 10 }) {
+            Text('应用设置')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#171A1F')
+              .width('100%')
+            Text(`缓存占用 ${this.formatBytes(this.cacheBytes)}`)
+              .fontSize(14)
+              .fontColor('#4B5563')
+              .width('100%')
+            Button('清理缓存')
+              .height(34)
+              .fontSize(13)
+              .backgroundColor('#F1F3F5')
+              .fontColor('#5F6670')
+              .onClick(() => this.clearCache())
+            Text(this.appVersion ? `版本 ${this.appVersion}` : '版本未知')
+              .fontSize(14)
+              .fontColor('#4B5563')
+              .width('100%')
+            Text('聊天记录、模型与配置仅保存在本机；API 服务只在启动后监听本机或局域网。')
+              .fontSize(12)
+              .lineHeight(19)
+              .fontColor('#6B7280')
+              .width('100%')
           }
           .width('100%')
           .padding(14)

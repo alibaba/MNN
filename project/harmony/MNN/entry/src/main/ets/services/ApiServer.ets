@@ -13,6 +13,10 @@ import {
 import { SettingsStore } from './SettingsStore';
 
 const API_TOKEN_KEY: string = 'local_api_token';
+export const API_BIND_ALL_KEY: string = 'local_api_bind_all';
+export const API_AUTH_ENABLED_KEY: string = 'local_api_auth_enabled';
+export const API_CORS_ENABLED_KEY: string = 'local_api_cors_enabled';
+export const API_TOKEN_SETTING_KEY: string = API_TOKEN_KEY;
 const MAX_HEADER_BYTES: number = 16 * 1024;
 const MAX_BODY_BYTES: number = 1024 * 1024;
 const MAX_CONNECTIONS: number = 16;
@@ -73,6 +77,9 @@ export class ApiServer {
   private maxTokens: number = 256;
   private token: string = '';
   private port: number = 8080;
+  private bindAll: boolean = false;
+  private authEnabled: boolean = true;
+  private corsEnabled: boolean = false;
 
   static getInstance(): ApiServer {
     return ApiServer.instance;
@@ -104,13 +111,18 @@ export class ApiServer {
     this.context = context;
     this.token = await this.ensureToken();
     this.port = port;
+    const store = SettingsStore.getInstance();
+    this.bindAll = await store.getBoolean(API_BIND_ALL_KEY, false);
+    this.authEnabled = await store.getBoolean(API_AUTH_ENABLED_KEY, true);
+    this.corsEnabled = await store.getBoolean(API_CORS_ENABLED_KEY, false);
 
+    const listenAddress = this.bindAll ? '0.0.0.0' : '127.0.0.1';
     const server = socket.constructTCPSocketServerInstance();
-    await server.listen({ address: '127.0.0.1', family: 1, port: port });
+    await server.listen({ address: listenAddress, family: 1, port: port });
     const localAddress = await server.getLocalAddress();
-    if (localAddress.address !== '127.0.0.1' || localAddress.port !== port) {
+    if (localAddress.port !== port || (!this.bindAll && localAddress.address !== '127.0.0.1')) {
       await server.close();
-      throw new Error('无法绑定指定的 loopback 地址或端口');
+      throw new Error(`无法绑定地址 ${listenAddress}:${port}`);
     }
     server.on('connect', (connection: socket.TCPSocketConnection) => this.accept(connection));
     server.on('error', () => {
@@ -249,6 +261,10 @@ export class ApiServer {
   }
 
   private async dispatch(client: ClientState, request: ParsedRequest): Promise<void> {
+    if (request.method === 'OPTIONS') {
+      await this.sendAndClose(client, this.httpResponse(204, 'No Content', ''));
+      return;
+    }
     if (!this.authorized(request)) {
       await this.sendAndClose(client,
         this.httpResponse(401, 'Unauthorized', '{"error":"unauthorized"}', 'WWW-Authenticate: Bearer\r\n'));
@@ -404,6 +420,9 @@ export class ApiServer {
   }
 
   private authorized(request: ParsedRequest): boolean {
+    if (!this.authEnabled) {
+      return true;
+    }
     const authorization = request.headers.get('authorization') || '';
     const bearer = authorization.startsWith('Bearer ') ? authorization.substring(7) : '';
     const apiKey = request.headers.get('x-api-key') || '';
@@ -448,8 +467,11 @@ export class ApiServer {
 
   private httpResponse(status: number, reason: string, body: string, extraHeaders: string = ''): string {
     const length = util.TextEncoder.create('utf-8').encodeInto(body).byteLength;
+    const cors = this.corsEnabled ?
+      'Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Authorization, Content-Type, x-api-key\r\n' +
+      'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n' : '';
     return `HTTP/1.1 ${status} ${reason}\r\nContent-Type: application/json; charset=utf-8\r\n` +
-      `${extraHeaders}Content-Length: ${length}\r\nConnection: close\r\n\r\n${body}`;
+      `${cors}${extraHeaders}Content-Length: ${length}\r\nConnection: close\r\n\r\n${body}`;
   }
 
   private errorResponse(status: number, message: string): string {
