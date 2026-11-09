@@ -11,6 +11,9 @@ set(LLM_SUPPORT_HTTP_RESOURCE OFF CACHE BOOL "" FORCE)
 set(MNN_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(MNN_SEP_BUILD OFF CACHE BOOL "" FORCE)
 set(MNN_OPENCL ON CACHE BOOL "" FORCE)
+# Compiles MNN CV and image codecs into libMNN and defines LLM_SUPPORT_VISION, so Omni-class
+# models can load images referenced by <img>path</img> tags in the prompt.
+set(MNN_BUILD_OPENCV ON CACHE BOOL "" FORCE)
 # Same codegen assumptions as the Android MnnLlmChat build: low-memory weight layout, dequant+GEMM
 # fusion, fp16 (arm82) kernels and the transformer fuse path. Without these the CPU path falls back
 # to the generic fp32 kernels and is several times slower.
