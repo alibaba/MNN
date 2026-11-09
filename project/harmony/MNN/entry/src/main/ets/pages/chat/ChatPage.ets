@@ -211,6 +211,9 @@ export struct ChatPage {
   }
 
   private async createNewSession(): Promise<void> {
+    // Invalidate any in-flight session restore so it cannot overwrite the new conversation.
+    ++this.restoreSequence;
+    this.pendingSessionId = '';
     const session = await ChatRepository.getInstance().createSession(this.activeModelId || LEGACY_MODEL_ID);
     const greeting = await ChatRepository.getInstance().addMessage(
       session.id, MessageRole.ASSISTANT, '你好，我是运行在本机设备上的 MNN 助手。'
@@ -418,6 +421,8 @@ export struct ChatPage {
       }
       const rawResult = result.text || this.streamingAnswer;
       const parsedResult = ReasoningParser.parse(rawResult);
+      // Display placeholder must never be persisted into the conversation history.
+      const persistedAnswer = parsedResult.answer;
       assistantMessage.rawContent = rawResult;
       assistantMessage.reasoning = parsedResult.reasoning;
       assistantMessage.content = parsedResult.answer ||
@@ -432,7 +437,7 @@ export struct ChatPage {
       assistantMessage.metrics.decodeMs = result.decodeMs;
       assistantMessage.metrics.totalMs = result.totalMs;
       assistantRecord.rawContent = assistantMessage.rawContent;
-      assistantRecord.displayContent = assistantMessage.content;
+      assistantRecord.displayContent = persistedAnswer;
       assistantRecord.reasoningContent = assistantMessage.reasoning;
       assistantRecord.state = assistantMessage.state;
       assistantRecord.metrics = assistantMessage.metrics;
