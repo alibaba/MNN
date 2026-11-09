@@ -15,6 +15,7 @@ import {
   ModelState
 } from '../../domain/AppTypes';
 import { AppInitializer } from '../../services/AppInitializer';
+import { DownloadManager } from '../../services/DownloadManager';
 import {
   GenerationCoordinator,
   NativeChatMessage,
@@ -258,6 +259,7 @@ export struct ChatPage {
     this.modelStatus = '正在加载模型';
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await DownloadManager.getInstance().pauseAll();
       const model = await ModelRepository.getInstance().getModel(targetModelId);
       if (!model || model.state !== ModelState.READY) {
         throw new Error(`模型不可用：${targetModelId}`);

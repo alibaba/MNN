@@ -139,6 +139,24 @@ export class DownloadManager {
     }
   }
 
+  /**
+   * Pauses every in-flight download. Mirroring the Android client, this runs when a chat model is
+   * loaded so download traffic does not compete with inference for bandwidth and CPU.
+   */
+  async pauseAll(): Promise<void> {
+    const modelIds: string[] = [];
+    this.active.forEach((value: ActiveDownload, key: string) => {
+      modelIds.push(key);
+    });
+    for (let index = 0; index < modelIds.length; index++) {
+      try {
+        await this.pause(modelIds[index]);
+      } catch (error) {
+        // A failing task must not block loading the model.
+      }
+    }
+  }
+
   async pause(modelId: string): Promise<void> {
     const active = this.active.get(modelId);
     if (!active) {
