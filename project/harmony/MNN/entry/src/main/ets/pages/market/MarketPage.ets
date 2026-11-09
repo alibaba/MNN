@@ -27,6 +27,7 @@ export struct MarketPage {
   @State private provider: string = PROVIDER_MODEL_SCOPE;
   @State private query: string = '';
   @State private selectedTag: string = '';
+  @State private selectedVendor: string = '';
   @State private loading: boolean = false;
   @State private error: string = '';
 
@@ -59,6 +60,9 @@ export struct MarketPage {
         return false;
       }
       if (this.selectedTag && model.tags.indexOf(this.selectedTag) < 0) {
+        return false;
+      }
+      if (this.selectedVendor && model.vendor !== this.selectedVendor) {
         return false;
       }
       return !query || model.modelName.toLowerCase().indexOf(query) >= 0 ||
@@ -206,6 +210,21 @@ export struct MarketPage {
     return '';
   }
 
+  private vendorOptions(): string[] {
+    const vendors: string[] = [];
+    this.catalog.vendorOrder.forEach((vendor: string) => {
+      if (vendor && vendors.indexOf(vendor) < 0) {
+        vendors.push(vendor);
+      }
+    });
+    this.catalog.models.forEach((model: MarketModelRecord) => {
+      if (model.vendor && vendors.indexOf(model.vendor) < 0) {
+        vendors.push(model.vendor);
+      }
+    });
+    return vendors;
+  }
+
   private openDetail(model: MarketModelRecord): void {
     let controller: CustomDialogController | null = null;
     controller = new CustomDialogController({
@@ -314,6 +333,35 @@ export struct MarketPage {
                 this.applyFilters();
               })
           })
+        }
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .padding({ left: 16, right: 16, bottom: 10 })
+
+      Scroll() {
+        Row({ space: 8 }) {
+          Button('全部厂商')
+            .height(30)
+            .fontSize(11)
+            .fontColor(this.selectedVendor ? '#2864DC' : Color.White)
+            .backgroundColor(this.selectedVendor ? '#EEF3FF' : '#2864DC')
+            .onClick(() => {
+              this.selectedVendor = '';
+              this.applyFilters();
+            })
+          ForEach(this.vendorOptions(), (vendor: string) => {
+            Button(vendor)
+              .height(30)
+              .fontSize(11)
+              .fontColor(this.selectedVendor === vendor ? Color.White : '#2864DC')
+              .backgroundColor(this.selectedVendor === vendor ? '#2864DC' : '#EEF3FF')
+              .onClick(() => {
+                this.selectedVendor = vendor;
+                this.applyFilters();
+              })
+          }, (vendor: string) => vendor)
         }
       }
       .scrollable(ScrollDirection.Horizontal)
