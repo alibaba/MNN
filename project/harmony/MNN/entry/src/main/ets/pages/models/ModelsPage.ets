@@ -1,9 +1,25 @@
 import { common } from '@kit.AbilityKit';
 import { picker } from '@kit.CoreFileKit';
+import { DownloadRepository } from '../../data/DownloadRepository';
 import { ModelRepository } from '../../data/ModelRepository';
-import { ModelRecord, ModelState, ModelStorageStats } from '../../domain/AppTypes';
+import {
+  DownloadState,
+  DownloadTaskRecord,
+  ModelCapabilities,
+  ModelRecord,
+  ModelState,
+  ModelStorageStats
+} from '../../domain/AppTypes';
 import { AppInitializer } from '../../services/AppInitializer';
 import { ACTIVE_MODEL_ID_KEY, SettingsStore } from '../../services/SettingsStore';
+import { DownloadManager } from '../../services/DownloadManager';
+
+class DownloadSummary {
+  modelId: string = '';
+  downloadedBytes: number = 0;
+  totalBytes: number = 0;
+  state: string = '';
+}
 
 @Component
 export struct ModelsPage {
@@ -12,6 +28,9 @@ export struct ModelsPage {
   @State private models: ModelRecord[] = [];
   @State private storage: ModelStorageStats = new ModelStorageStats();
   @State private query: string = '';
+  @State private downloads: DownloadTaskRecord[] = [];
+  @State private caps: Map<string, ModelCapabilities> = new Map<string, ModelCapabilities>();
+  @State private filterKind: string = 'all';
   @State private error: string = '';
   @State private busy: boolean = false;
 
@@ -28,6 +47,17 @@ export struct ModelsPage {
     }).then((models: ModelRecord[]) => {
       this.models = models;
       this.storage = ModelRepository.getInstance().getStorageStats(context.filesDir, models);
+      return Promise.all(models.map((model: ModelRecord) => ModelRepository.getInstance().getCapabilities(model.id)))
+        .then((caps: ModelCapabilities[]) => {
+          const map = new Map<string, ModelCapabilities>();
+          for (let index = 0; index < models.length; index++) {
+            map.set(models[index].id, caps[index]);
+          }
+          this.caps = map;
+          return DownloadRepository.getInstance().list();
+        });
+    }).then((records: DownloadTaskRecord[]) => {
+      this.downloads = records.filter((record: DownloadTaskRecord) => record.state !== DownloadState.COMPLETED);
       this.error = '';
     }).catch((error: Error) => {
       this.error = error.message;
@@ -38,11 +68,20 @@ export struct ModelsPage {
 
   private visibleModels(): ModelRecord[] {
     const query = this.query.trim().toLowerCase();
-    if (!query) {
-      return this.models;
+    const matched = query ?
+      this.models.filter((model: ModelRecord) =>
+        model.name.toLowerCase().indexOf(query) >= 0 || model.configPath.toLowerCase().indexOf(query) >= 0) :
+      this.models;
+    if (this.filterKind === 'all') {
+      return matched;
     }
-    return this.models.filter((model: ModelRecord) =>
-      model.name.toLowerCase().indexOf(query) >= 0 || model.configPath.toLowerCase().indexOf(query) >= 0);
+    return matched.filter((model: ModelRecord) => {
+      const caps = this.caps.get(model.id);
+      if (caps === undefined) {
+        return false;
+      }
+      return this.filterKind === 'vision' ? caps.vision : caps.audioInput;
+    });
   }
 
   private async importModel(): Promise<void> {
@@ -117,6 +156,38 @@ export struct ModelsPage {
     });
   }
 
+  private downloadSummaries(): DownloadSummary[] {
+    const summaries: DownloadSummary[] = [];
+    for (let index = 0; index < this.downloads.length; index++) {
+      const record = this.downloads[index];
+      let summary = summaries.find((item: DownloadSummary) => item.modelId === record.modelId);
+      if (summary === undefined) {
+        summary = new DownloadSummary();
+        summary.modelId = record.modelId;
+        summaries.push(summary);
+      }
+      summary.downloadedBytes += record.downloadedBytes;
+      summary.totalBytes += record.totalBytes;
+      if (record.state === DownloadState.PAUSED || record.state === DownloadState.FAILED) {
+        summary.state = record.state;
+      } else if (summary.state !== DownloadState.PAUSED && summary.state !== DownloadState.FAILED) {
+        summary.state = record.state;
+      }
+    }
+    return summaries;
+  }
+
+  private cancelDownload(modelId: string): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.busy = true;
+    DownloadManager.getInstance().cancel(context, modelId).then(() => {
+      this.refresh(false);
+    }).catch((error: Error) => {
+      this.error = error.message;
+      this.busy = false;
+    });
+  }
+
   private formatBytes(bytes: number): string {
     if (bytes < 1024 * 1024 * 1024) {
       return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -151,12 +222,79 @@ export struct ModelsPage {
           this.query = value;
         })
 
+      Row({ space: 8 }) {
+        Button('全部')
+          .height(30)
+          .fontSize(12)
+          .backgroundColor(this.filterKind === 'all' ? '#EEF3FF' : '#F1F3F5')
+          .fontColor(this.filterKind === 'all' ? '#2864DC' : '#5F6670')
+          .onClick(() => this.filterKind = 'all')
+        Button('视觉')
+          .height(30)
+          .fontSize(12)
+          .backgroundColor(this.filterKind === 'vision' ? '#EEF3FF' : '#F1F3F5')
+          .fontColor(this.filterKind === 'vision' ? '#2864DC' : '#5F6670')
+          .onClick(() => this.filterKind = 'vision')
+        Button('音频')
+          .height(30)
+          .fontSize(12)
+          .backgroundColor(this.filterKind === 'audio' ? '#EEF3FF' : '#F1F3F5')
+          .fontColor(this.filterKind === 'audio' ? '#2864DC' : '#5F6670')
+          .onClick(() => this.filterKind = 'audio')
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, bottom: 8 })
+
       Text(`模型 ${this.formatBytes(this.storage.modelBytes)} · 可用 ${this.formatBytes(this.storage.freeBytes)} / ` +
         `${this.formatBytes(this.storage.totalBytes)}`)
         .fontSize(12)
         .fontColor('#6B7280')
         .width('100%')
         .padding({ left: 18, right: 18, bottom: 10 })
+
+      if (this.downloads.length > 0) {
+        Column({ space: 6 }) {
+          Text('下载中')
+            .fontSize(13)
+            .fontColor('#6B7280')
+            .width('100%')
+          ForEach(this.downloadSummaries(), (item: DownloadSummary) => {
+            Row({ space: 10 }) {
+              Column({ space: 4 }) {
+                Text(item.modelId)
+                  .fontSize(14)
+                  .fontColor('#171A1F')
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Progress({
+                  value: item.totalBytes > 0 ? item.downloadedBytes : 0,
+                  total: item.totalBytes > 0 ? item.totalBytes : 1,
+                  type: ProgressType.Linear
+                })
+                  .width('100%')
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+              Text(item.totalBytes > 0 ? `${((item.downloadedBytes / item.totalBytes) * 100).toFixed(1)}%` : '准备中')
+                .fontSize(12)
+                .fontColor('#6B7280')
+              Button('取消')
+                .height(30)
+                .fontSize(12)
+                .enabled(!this.busy)
+                .backgroundColor('#FDECEC')
+                .fontColor('#C62828')
+                .onClick(() => this.cancelDownload(item.modelId))
+            }
+            .width('100%')
+            .padding(12)
+            .borderRadius(12)
+            .backgroundColor(Color.White)
+          }, (item: DownloadSummary) => item.modelId)
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, bottom: 10 })
+      }
 
       List({ space: 12 }) {
         ForEach(this.visibleModels(), (model: ModelRecord) => {
