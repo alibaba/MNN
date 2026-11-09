@@ -41,6 +41,23 @@ static bool checkRegions() {
         valid = valid && region.offset(3) == 0 && region.read(bytes, 3) && std::string(bytes, 3) == "456";
         MNN::FileLoader reopened(region.path().c_str(), true);
         valid = valid && reopened.valid() && reopened.read(bytes, 6) && std::string(bytes, 6) == "123456";
+        // contentSize() reports the payload span DiskEmbedding bounds-checks against, and must not move the cursor.
+        MNN::FileLoader sized(locator.c_str(), true);
+        valid = valid && sized.valid() && sized.contentSize() == 6 && sized.read(bytes, 6) &&
+                std::string(bytes, 6) == "123456";
+        MNN::FileLoader plain(path, true);
+        valid = valid && plain.valid() && plain.contentSize() == largeOffset + 2;
+        // Virtual read sources back memory-package resources; they stay seekable and sizeable so the
+        // buffered fallback in DiskEmbedding works without mmap.
+        auto source = MNN::FileLoader::registerFile(path, [](uint8_t* data, size_t size, int64_t offset) {
+            return data != nullptr && size > 0 && offset >= 0;
+        });
+        valid = valid && source != nullptr;
+        if (source) {
+            MNN::FileLoader sourced(source->c_str(), true);
+            valid = valid && sourced.valid() && sourced.contentSize() == largeOffset + 2 && sourced.read(bytes, 6) &&
+                    std::string(bytes, 6) == "prefix";
+        }
         MNN::FileLoader bulk(locator.c_str(), true);
         MNN::AutoStorage<uint8_t> buffer;
         valid =
@@ -50,11 +67,12 @@ static bool checkRegions() {
         const auto large = MNN::FileLoader::fileRegion(path, largeOffset, 2);
         MNN::FileLoader sparse(large.c_str(), true);
         valid = valid && sparse.valid() && sparse.read(bytes, 2) && std::string(bytes, 2) == "XY";
+        valid = valid && sparse.contentSize() == 2;
         const auto outside = MNN::FileLoader::fileRegion(path, largeOffset, 3);
         MNN::FileLoader invalid(outside.c_str(), true);
-        valid = valid && !invalid.valid();
+        valid = valid && !invalid.valid() && invalid.contentSize() == -1;
         MNN::FileLoader malformed("mnn-region:1:999999999999999999999:1:x", true);
-        valid = valid && !malformed.valid() && malformed.offset(0) != 0;
+        valid = valid && !malformed.valid() && malformed.offset(0) != 0 && malformed.contentSize() == -1;
     }
     unlink(path);
     return valid;
