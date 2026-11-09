@@ -5,6 +5,7 @@ import {
   API_AUTH_ENABLED_KEY,
   API_BIND_ALL_KEY,
   API_CORS_ENABLED_KEY,
+  API_HTTPS_URL_KEY,
   API_TOKEN_SETTING_KEY,
   ApiRequestLog,
   ApiServer,
@@ -23,6 +24,7 @@ export struct ApiConsolePage {
   @State private bindAll: boolean = false;
   @State private authEnabled: boolean = true;
   @State private corsEnabled: boolean = false;
+  @State private httpsUrl: boolean = false;
   @State private tokenText: string = '';
 
   aboutToAppear(): void {
@@ -30,8 +32,12 @@ export struct ApiConsolePage {
     this.loadApiSettings();
   }
 
+  private addressScheme(): string {
+    return this.httpsUrl ? 'https' : 'http';
+  }
+
   private copyAddress(): void {
-    const address = `http://${this.status.address}:${this.status.port}`;
+    const address = `${this.addressScheme()}://${this.status.address}:${this.status.port}`;
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, address);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
@@ -49,6 +55,7 @@ export struct ApiConsolePage {
     store.getBoolean(API_BIND_ALL_KEY, false).then((value: boolean) => this.bindAll = value);
     store.getBoolean(API_AUTH_ENABLED_KEY, true).then((value: boolean) => this.authEnabled = value);
     store.getBoolean(API_CORS_ENABLED_KEY, false).then((value: boolean) => this.corsEnabled = value);
+    store.getBoolean(API_HTTPS_URL_KEY, false).then((value: boolean) => this.httpsUrl = value);
     store.getString(API_TOKEN_SETTING_KEY, this.status.token).then((value: string) => this.tokenText = value);
   }
 
@@ -84,6 +91,7 @@ export struct ApiConsolePage {
     this.bindAll = false;
     this.authEnabled = true;
     this.corsEnabled = false;
+    this.httpsUrl = false;
     this.tokenText = '';
     SettingsStore.getInstance().getString(API_TOKEN_SETTING_KEY, '').then(() => {
       const store = SettingsStore.getInstance();
@@ -91,6 +99,7 @@ export struct ApiConsolePage {
         store.putBoolean(API_BIND_ALL_KEY, false),
         store.putBoolean(API_AUTH_ENABLED_KEY, true),
         store.putBoolean(API_CORS_ENABLED_KEY, false),
+        store.putBoolean(API_HTTPS_URL_KEY, false),
         store.putString(API_TOKEN_SETTING_KEY, '')
       ]);
     }).then(() => {
@@ -158,7 +167,8 @@ export struct ApiConsolePage {
           Text('监听地址')
             .fontSize(15)
             .layoutWeight(1)
-          Text(this.status.running ? `${this.status.address}:${this.status.port}` : '127.0.0.1')
+          Text(this.status.running ?
+            `${this.addressScheme()}://${this.status.address}:${this.status.port}` : '127.0.0.1')
             .fontSize(14)
             .fontColor('#4B5563')
           if (this.status.running) {
@@ -225,6 +235,23 @@ export struct ApiConsolePage {
             .enabled(!this.busy)
             .onChange((value: boolean) => this.corsEnabled = value)
         }
+        Row() {
+          Text('客户端使用 HTTPS URL')
+            .fontSize(15)
+            .layoutWeight(1)
+          Toggle({ type: ToggleType.Switch, isOn: this.httpsUrl })
+            .enabled(!this.busy)
+            .onChange((value: boolean) => {
+              this.httpsUrl = value;
+              SettingsStore.getInstance().putBoolean(API_HTTPS_URL_KEY, value).catch((error: Error) => {
+                this.error = error.message;
+              });
+            })
+        }
+        Text('仅影响展示与复制的地址；服务本身仍是 HTTP，需要 TLS 时请在前面加反向代理。')
+          .fontSize(11)
+          .fontColor('#7A7F87')
+          .width('100%')
         Text(`模型：${this.activeModelId} · 连接：${this.status.connections} · 队列：${this.status.queueSize}`)
           .fontSize(12)
           .fontColor('#6B7280')

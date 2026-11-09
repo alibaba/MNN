@@ -16,6 +16,7 @@ const API_TOKEN_KEY: string = 'local_api_token';
 export const API_BIND_ALL_KEY: string = 'local_api_bind_all';
 export const API_AUTH_ENABLED_KEY: string = 'local_api_auth_enabled';
 export const API_CORS_ENABLED_KEY: string = 'local_api_cors_enabled';
+export const API_HTTPS_URL_KEY: string = 'local_api_https_url';
 export const API_TOKEN_SETTING_KEY: string = API_TOKEN_KEY;
 const MAX_HEADER_BYTES: number = 16 * 1024;
 const MAX_BODY_BYTES: number = 1024 * 1024;
