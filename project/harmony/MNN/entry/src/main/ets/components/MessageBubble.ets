@@ -1,3 +1,6 @@
+import { common } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
+import pasteboard from '@ohos.pasteboard';
 import { AttachmentRecord, GenerationMetrics, GenerationState, MessageRole } from '../domain/AppTypes';
 import { MetricsPanel } from './MetricsPanel';
 import { ReasoningPanel } from './ReasoningPanel';
@@ -35,6 +38,60 @@ export class ChatMessageView {
 export struct MessageBubble {
   @ObjectLink message: ChatMessageView;
   @Prop showMetrics: boolean = true;
+
+  private copyText(text: string, label: string): void {
+    if (!text) {
+      return;
+    }
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        promptAction.showToast({ message: `${label}已复制` });
+      }).catch(() => {
+        promptAction.showToast({ message: '复制失败' });
+      });
+    } catch (error) {
+      promptAction.showToast({ message: '复制失败' });
+    }
+  }
+
+  private audioInfo(): string {
+    const lines: string[] = [];
+    this.message.attachments.forEach((attachment: AttachmentRecord) => {
+      if (attachment.mediaType === 'audio') {
+        lines.push(`${attachment.displayName} · ${(attachment.sizeBytes / 1024).toFixed(1)} KB`);
+      }
+    });
+    if (lines.length === 0) {
+      lines.push(this.message.rawContent);
+    }
+    return lines.join('\n');
+  }
+
+  private reportIssue(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    context.openLink('https://github.com/alibaba/MNN/issues').catch(() => {
+      promptAction.showToast({ message: '无法打开浏览器' });
+    });
+  }
+
+  @Builder
+  private messageMenu() {
+    Menu() {
+      MenuItem({ content: '复制文本' })
+        .onClick(() => this.copyText(this.message.content || this.message.rawContent, '文本'))
+      if (this.message.role === MessageRole.USER) {
+        if (this.message.attachments.some((attachment: AttachmentRecord) =>
+          attachment.mediaType === 'audio')) {
+          MenuItem({ content: '复制音频信息' })
+            .onClick(() => this.copyText(this.audioInfo(), '音频信息'))
+        }
+      } else {
+        MenuItem({ content: '上报问题' })
+          .onClick(() => this.reportIssue())
+      }
+    }
+  }
 
   build() {
     Row() {
@@ -132,5 +189,6 @@ export struct MessageBubble {
       left: this.message.role === MessageRole.USER ? 44 : 0,
       right: this.message.role === MessageRole.ASSISTANT ? 44 : 0
     })
+    .bindContextMenu(this.messageMenu, ResponseType.LongPress)
   }
 }
