@@ -277,6 +277,34 @@ void FileLoader::_init() {
         MNN_ERROR("Can't open file:%s\n", mFilePath.c_str());
     }
 }
+
+int64_t FileLoader::contentSize() {
+    _init();
+    if (mFile == nullptr) {
+        return -1;
+    }
+    if (mContentSize >= 0) {
+        return mContentSize;
+    }
+    const int64_t position = tellFile(mFile);
+    if (position < 0 || seekFile(mFile, 0, SEEK_END) != 0) {
+        return -1;
+    }
+    const int64_t fileSize = tellFile(mFile);
+    if (seekFile(mFile, position, SEEK_SET) != 0 || fileSize < 0) {
+        return -1;
+    }
+    if (mRegionLength >= 0) {
+        if (mRegionOffset > fileSize || mRegionLength > fileSize - mRegionOffset) {
+            return -1;
+        }
+        mContentSize = mRegionLength;
+    } else {
+        mContentSize = fileSize;
+    }
+    return mContentSize;
+}
+
 int FileLoader::offset(int64_t offset) {
     _init();
     if (nullptr == mFile || offset < 0 || offset > INT64_MAX - mRegionOffset ||

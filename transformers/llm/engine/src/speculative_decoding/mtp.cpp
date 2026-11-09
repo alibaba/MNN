@@ -131,6 +131,10 @@ void MtpGeneration::generate(GenerationParams& param) {
         current_ids.push_back(mContext->current_token);
         input_embeds = mLlm->embedding(current_ids);
     }
+    if (input_embeds == nullptr) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return;
+    }
     VARP prev_hidden_states = param.outputs[mHiddenStateIndex];
     
     // generate first draft
@@ -138,11 +142,19 @@ void MtpGeneration::generate(GenerationParams& param) {
     {
         mMtpMeta->remove = 0;
         auto cur_embed = mLlm->embedding({mContext->current_token});
+        if (cur_embed == nullptr) {
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return;
+        }
         auto pre_embeds = _Split(input_embeds, {1, input_embeds->getInfo()->dim[0]-1}, 0);
         auto prefill_embeds = _Concat({pre_embeds[1], cur_embed}, 0);
 
         auto mtpDraft = mtpForward(prefill_embeds, prev_hidden_states);
-        
+        if (mtpDraft.empty()) {
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return;
+        }
+
         auto sample_size = mtpDraft[0]->getInfo()->dim[mtpDraft[0]->getInfo()->dim.size() - 1];
         for(int i = 0; i < mLlm->mDraftLength; i++) {
             auto sample_offset = i * sample_size;
@@ -212,6 +224,10 @@ void MtpGeneration::generate(GenerationParams& param) {
                 auto prev_hidden_states = outputs[1];
                 auto mtpDraft = mtpForward(currentIds, prev_hidden_states);
                 mMtpMeta->remove         = drafts.size() - i_dft;
+                if (mtpDraft.empty()) {
+                    mContext->status = LlmStatus::INTERNAL_ERROR;
+                    break;
+                }
 
                 auto sample_size = mtpDraft[0]->getInfo()->dim[mtpDraft[0]->getInfo()->dim.size() - 1];
                 

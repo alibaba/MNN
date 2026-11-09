@@ -380,9 +380,15 @@ bool Llm::load() {
         }
     }
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+    if (!mDiskEmbedding->valid()) {
+        return false;
+    }
     // PLE (Per-Layer Embeddings) for gemma4
     if (mConfig->has_ple()) {
         mPleEmbedding.reset(new DiskEmbedding(mConfig, mConfig->ple_embed_file(), mConfig->ple_embed_dim(), mConfig->ple_quant()));
+        if (!mPleEmbedding->valid()) {
+            return false;
+        }
     }
     setChatTemplate();
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
@@ -732,6 +738,9 @@ VARP Llm::forward(MNN::Express::VARP input_embeds) {
 std::vector<VARP> Llm::forwardVec(const std::vector<int>& input_ids) {
     MNN::Express::ExecutorScope s(mExecutor);
     auto input_embeds = embedding(input_ids);
+    if (input_embeds == nullptr) {
+        return {};
+    }
     auto outputs = forwardVec(input_embeds);
     return outputs;
 }
@@ -1567,7 +1576,10 @@ VARP Llm::embedding(const std::vector<int>& input_ids) {
 
     VARP res = _Input({seq_len, 1, hidden_size}, NCHW);
     // disk embedding to save memory
-    mDiskEmbedding->embedding(input_ids, res->writeMap<float>());
+    auto embeddingPtr = res->writeMap<float>();
+    if (embeddingPtr == nullptr || !mDiskEmbedding->embedding(input_ids, embeddingPtr)) {
+        return nullptr;
+    }
     // scale_emb is in ONNX model, not here. C++ passes raw embedding.
 
     // PLE embedding lookup (gemma4). Omni::embedding overrides it for multimodal prefill.
@@ -1575,7 +1587,11 @@ VARP Llm::embedding(const std::vector<int>& input_ids) {
         int ple_dim = mConfig->ple_embed_dim();
         float ple_scale = mConfig->ple_embed_scale();
         mPleInput = _Input({1, seq_len, ple_dim}, NCHW);
-        mPleEmbedding->embedding(input_ids, mPleInput->writeMap<float>());
+        auto plePtr = mPleInput->writeMap<float>();
+        if (plePtr == nullptr || !mPleEmbedding->embedding(input_ids, plePtr)) {
+            mPleInput = nullptr;
+            return nullptr;
+        }
         if (ple_scale != 1.0f) {
             mPleInput = mPleInput * _Scalar<float>(ple_scale);
         }

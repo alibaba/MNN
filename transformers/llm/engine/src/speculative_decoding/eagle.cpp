@@ -119,6 +119,7 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
         inputEmbeds = mLlm->embedding(inputIds);
         if(inputEmbeds == nullptr) {
             // Return empty DraftInfo - will cause generation to stop
+            mContext->status = LlmStatus::INTERNAL_ERROR;
             DraftInfo info;
             return info;
         }
@@ -149,6 +150,7 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
         inputEmbeds   = mLlm->embedding(tokenTree.getIds());
         if(inputEmbeds == nullptr) {
             // Return empty DraftInfo - will cause generation to stop
+            mContext->status = LlmStatus::INTERNAL_ERROR;
             DraftInfo info;
             return info;
         }
@@ -226,6 +228,10 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
 
 VARPS EagleGeneration::treeDecoding(const EagleGeneration::DraftInfo& drafInfo) {
     auto inputEmbeds   = mLlm->embedding(drafInfo.draftTokens);
+    if (inputEmbeds == nullptr) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return {};
+    }
     int inputLen = drafInfo.draftTokens.size();
     mLlm->mMeta->add = inputLen;
     auto outputs = mLlm->forwardRaw(inputEmbeds, drafInfo.attentionMask, drafInfo.positionIds);
@@ -334,6 +340,10 @@ void EagleGeneration::generate(GenerationParams& param) {
     // push sampleToken to inputEmbeds
     int seqLen      = inputEmbeds->getInfo()->dim[0];
     auto cur_embed  = mLlm->embedding({sampleToken});
+    if (cur_embed == nullptr) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return;
+    }
     auto pre_embeds = _Split(inputEmbeds, {1, seqLen - 1}, 0);
     inputEmbeds     = _Concat({pre_embeds[1], cur_embed}, 0);
     // eagle generate

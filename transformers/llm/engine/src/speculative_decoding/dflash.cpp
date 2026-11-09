@@ -220,6 +220,10 @@ void DFlashGeneration::appendDraftKv(VARP newContext, int startPos) {
 VARP DFlashGeneration::dflashForward(const std::vector<int>& block_ids) {
     // Embed block tokens
     auto noise_embedding = mLlm->embedding(block_ids);
+    if (noise_embedding == nullptr) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return nullptr;
+    }
     // noise_embedding shape: [block_size, 1, hidden_size] -> reshape to [1, block_size, hidden_size]
     int block_size = static_cast<int>(block_ids.size());
     int hidden_size = mLlm->mConfig->hidden_size();
