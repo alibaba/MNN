@@ -9,3 +9,7 @@ MNNLLMiOS/LocalModel/Qwen3.5-2B-MNN/
 MNNLLMiOS/LocalModel/Qwen3.5-2B/
 _model_holding/
 MNNLLMiOS/LocalModel/preset_images/*.png
+LocalModel/slm270M/
+
+# Local model weights parked outside the bundle; never commit.
+.model-stash/

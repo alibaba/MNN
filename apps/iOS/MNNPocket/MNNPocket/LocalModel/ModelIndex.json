@@ -1,0 +1,22 @@
+{
+  "models": [
+    {
+      "id": "qwen3-0.6b",
+      "name": "Qwen3-0.6B-MNN",
+      "folder": "Qwen3-0.6B-MNN",
+      "tags": ["Build-In", "Think"],
+      "description": "Qwen3 0.6B model for mobile devices",
+      "file_size": "644244480",
+      "type": "chat"
+    },
+    {
+      "id": "qwen3-4b",
+      "name": "Qwen3-4B-MNN",
+      "folder": "Qwen3-4B-MNN",
+      "tags": ["Build-In", "Think"],
+      "description": "Qwen3 4B model for mobile devices",
+      "file_size": "5830417408",
+      "type": "chat"
+    }
+  ]
+}
