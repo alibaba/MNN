@@ -42,6 +42,8 @@ public:
     ~VulkanTimeProfiler();
 
     void reset();
+    void markDynamicScopes();
+    void resetDynamicScopes();
 
     Token begin(VkCommandBuffer cmd, const char* name, Kind kind);
     void end(VkCommandBuffer cmd, const Token& token);
@@ -71,6 +73,8 @@ private:
     uint32_t mDroppedScopes = 0;
 
     std::vector<Record> mRecords;
+    size_t mStaticRecordCount = 0;
+    uint32_t mStaticDroppedScopes = 0;
 };
 
 class VulkanTimeProfileScope : public NonCopyable {
@@ -115,6 +119,19 @@ inline void VulkanTimeProfiler::reset() {
     mNext = 0;
     mDroppedScopes = 0;
     mRecords.clear();
+    mStaticRecordCount = 0;
+    mStaticDroppedScopes = 0;
+}
+
+inline void VulkanTimeProfiler::markDynamicScopes() {
+    mStaticRecordCount = mRecords.size();
+    mStaticDroppedScopes = mDroppedScopes;
+}
+
+inline void VulkanTimeProfiler::resetDynamicScopes() {
+    mRecords.resize(mStaticRecordCount);
+    mNext = (uint32_t)mStaticRecordCount * 2;
+    mDroppedScopes = mStaticDroppedScopes;
 }
 
 inline VulkanTimeProfiler::Token VulkanTimeProfiler::begin(VkCommandBuffer cmd, const char* name, Kind kind) {

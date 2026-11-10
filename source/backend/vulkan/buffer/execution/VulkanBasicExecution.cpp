@@ -18,9 +18,18 @@ VulkanBasicExecutionDirect::VulkanBasicExecutionDirect(std::shared_ptr<VulkanBas
 
 ErrorCode VulkanBasicExecutionDirect::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto extra = static_cast<VulkanBackend *>(backend());
+    if (mEncoder->encodeOnExecute()) {
+        extra->prepareDynamicCommandBuffer(mCmdBuffer.get());
+    }
     auto code = mEncoder->onBeforeExecute(inputs, outputs);
     if (NO_ERROR != code) {
         return code;
+    }
+    if (mEncoder->encodeOnExecute()) {
+        code = encode(inputs, outputs);
+        if (NO_ERROR != code) {
+            return code;
+        }
     }
     extra->pushCommand(mCmdBuffer->get());
     return NO_ERROR;
@@ -28,6 +37,17 @@ ErrorCode VulkanBasicExecutionDirect::onExecute(const std::vector<Tensor *> &inp
 
 
 ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    if (mEncoder->encodeOnExecute()) {
+        auto code = mEncoder->onResize(inputs, outputs);
+        if (NO_ERROR == code) {
+            static_cast<VulkanBackend*>(backend())->registerDynamicCommandBuffer(mCmdBuffer);
+        }
+        return code;
+    }
+    return encode(inputs, outputs);
+}
+
+ErrorCode VulkanBasicExecutionDirect::encode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     mCmdBuffer->begin(0);
 
     auto vkBn = static_cast<VulkanBackend*>(backend());
@@ -59,7 +79,6 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
     mCmdBuffer->end();
     return code;
 }
-
 
 VulkanBasicExecutionInDirect::VulkanBasicExecutionInDirect(std::shared_ptr<VulkanBasicExecution> encoder) : Execution(encoder->backend()) {
     mEncoder = encoder;

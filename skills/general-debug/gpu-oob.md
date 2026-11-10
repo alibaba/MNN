@@ -14,6 +14,14 @@
 - 关掉某条 kernel 路径的 env 开关后消失；
 - ⚠️ 反面：同样的越界在别的模型上可能**不崩而是静默数值损坏**（踩到的是已映射内存）——"没崩"不等于"没越界"。
 
+## Vulkan：先检查 descriptor 与录制的先后顺序
+
+遇到 `VK_ERROR_DEVICE_LOST` 时，先启用 `VK_LAYER_KHRONOS_validation`。`08114` 可能表示 dispatch 使用了尚未写入的 descriptor；`00070` 可能表示录制后更新 descriptor 使 command buffer 失效，应查看完整消息确认。
+
+没有启用相应 update-after-bind 能力的绑定，必须先写 descriptor，再录制使用它的命令。仅提前首次写入不够：固定 shape 的后续执行也可能因 KV cache 扩容而换 buffer。若改为逐次录制，保留 resize 阶段的临时内存规划，并检查批量录制中静态命令段与动态命令段的执行顺序，以及 profiling query 的回收。
+
+回归用例应复用输入 shape 和 buffer，运行到缓存扩容边界之后，并在动态算子前后放置普通算子；同时测试单算子录制和批量录制模式。测试数值正确与 validation 无错误需要分别确认。
+
 ## 6.1 排查流程（按成本从低到高）
 
 1. **先看第一条错误，别被 victim 骗**：`InnocentVictim`/`SubmissionsIgnored` 都是**受害者**代码，真凶 buffer 常常不在日志里。不要基于 victim 的 op 去猜。

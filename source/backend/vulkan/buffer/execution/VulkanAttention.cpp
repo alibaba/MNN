@@ -511,8 +511,7 @@ bool VulkanAttention::onClone(Backend* bn, const Op* op, VulkanBasicExecution** 
     return true;
 }
 
-ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                    const VulkanCommandPool::Buffer* cmdBuffer) {
+ErrorCode VulkanAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(!inputs.empty());
     MNN_ASSERT(!outputs.empty());
     auto query = inputs[0];
@@ -549,70 +548,11 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
     }
 
     auto vkBn = static_cast<VulkanBackend*>(backend());
-    auto cmd = cmdBuffer->get();
+    mUsePrefill = mNeedKvCache && mQueryLen > 1;
 
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-    auto dispatchWithProfile = [&](const char* name, const VulkanPipeline* pipeline,
-                                   const std::shared_ptr<VulkanLayout::DescriptorSet>& set, uint32_t x, uint32_t y,
-                                   uint32_t z) {
-        auto* profiler = vkBn->timeProfiler();
-        if (nullptr != profiler) {
-            VulkanTimeProfileScope scope(profiler, cmd, name, VulkanTimeProfiler::Kind::Shader);
-            pipeline->bind(cmd, set->get());
-            vkCmdDispatch(cmd, x, y, z);
-            return;
-        }
-        pipeline->bind(cmd, set->get());
-        vkCmdDispatch(cmd, x, y, z);
-    };
-#else
-    auto dispatchWithProfile = [&](const char*, const VulkanPipeline* pipeline,
-                                   const std::shared_ptr<VulkanLayout::DescriptorSet>& set, uint32_t x, uint32_t y,
-                                   uint32_t z) {
-        pipeline->bind(cmd, set->get());
-        vkCmdDispatch(cmd, x, y, z);
-    };
-#endif
-
-    const bool usePrefill = mNeedKvCache && mQueryLen > 1;
-    mUsePrefill = usePrefill;
-
-    if (mNeedKvCache && !mIsKVShared) {
-        MNN_ASSERT(nullptr != mUpdatePipeline);
-        MNN_ASSERT(nullptr != mUpdateSet);
-
-        // Dispatch: KV update (x=dim/4, y=keyLen, z=kvHeadNum).
-        dispatchWithProfile(mUseFP16 ? "glsl_attention_kvcache_update_FP16_comp" : "glsl_attention_kvcache_update_comp",
-                            mUpdatePipeline, mUpdateSet, UP_DIV(mHeadDim / 4, 8), mKeyLen, mKvHeadNum);
-        // NOTE: KV cache buffers may be reallocated in onBeforeExecute (descriptor set updated there), so we must not
-        // record a VkBufferMemoryBarrier with a stale VkBuffer handle here. Use a global memory barrier instead.
-        {
-            VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
-                                 0, nullptr, 0, nullptr);
-        }
-    }
-
-    if (usePrefill) {
+    if (mUsePrefill) {
         constexpr int K_BLOCK = kAttentionPrefillKBlock;
-        int pastLenForPrefill = 0;
-        if (mNeedKvCache) {
-            MNN_ASSERT(nullptr != mMeta);
-            MNN_ASSERT(mMeta->n_reserve == 0);
-            MNN_ASSERT(mMeta->computeReverseSize() == 0);
-            const int previous = (int)mMeta->previous;
-            const int remove = (int)mMeta->remove;
-            MNN_ASSERT(previous >= 0);
-            MNN_ASSERT(remove >= 0);
-            MNN_ASSERT(remove <= previous);
-            pastLenForPrefill = previous - remove;
-        }
-        mPrefillTotalLen = pastLenForPrefill + mKeyLen;
         mQueryLen4 = UP_DIV(mQueryLen, 4) * 4;
-        MNN_ASSERT(mPrefillTotalLen > 0);
 
         const int64_t queryElementsI64 = (int64_t)mHeadNum * (int64_t)mHeadDim * (int64_t)mQueryLen4;
         MNN_ASSERT(queryElementsI64 > 0 && queryElementsI64 <= (int64_t)INT_MAX);
@@ -643,8 +583,8 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
         MNN_ASSERT(oaccElementsI64 > 0 && oaccElementsI64 <= (int64_t)INT_MAX);
         const int oaccElements = (int)oaccElementsI64;
 
-        // Acquire workspace tensors fresh each onEncode (Backend::DYNAMIC). They are released at the end of this
-        // call so other ops within the same resize can reuse the pool chunks. Descriptor sets capture
+        // Acquire workspace tensors during resize (Backend::DYNAMIC). They are released at the end of this
+        // call so other ops within the same resize can reuse the pool chunks. Tensor views and descriptor sets capture
         // (VkBuffer, offset) below; the underlying GPU memory stays alive past release because the parent
         // VkBuffer is owned by the pool, and command-buffer order + barriers serialize cross-op access.
         // M / L / Alpha / OAcc must be FP32 even when the backend runs FP16 -> int tensor forces 4-byte storage.
@@ -752,6 +692,112 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
             mCoopQKVSet->writeBuffer(aBuf.first->buffer(), 4, vkBn->getTensorSize(mTempAlpha.get()), aBuf.second);
         }
 
+        // Keep the tensor views for execute-time barriers; the pool owns their backing buffers.
+        auto releaseTemp = [&](std::shared_ptr<Tensor>& t) {
+            if (t) {
+                vkBn->onReleaseBuffer(t.get(), Backend::DYNAMIC);
+            }
+        };
+        releaseTemp(mTempQuery);
+        releaseTemp(mTempQKBlock);
+        releaseTemp(mTempWBlock);
+        releaseTemp(mTempM);
+        releaseTemp(mTempL);
+        releaseTemp(mTempAlpha);
+        releaseTemp(mTempOAcc);
+        return NO_ERROR;
+    }
+
+    // Decode (or kv_cache disabled): keep fused shader.
+    mQueryLen4 = 0;
+    if (mTempQuery) {
+        vkBn->onReleaseBuffer(mTempQuery.get(), Backend::DYNAMIC);
+        mTempQuery.reset();
+    }
+    if (mTempQKBlock) {
+        vkBn->onReleaseBuffer(mTempQKBlock.get(), Backend::DYNAMIC);
+        mTempQKBlock.reset();
+    }
+    if (mTempWBlock) {
+        vkBn->onReleaseBuffer(mTempWBlock.get(), Backend::DYNAMIC);
+        mTempWBlock.reset();
+    }
+    if (mTempM) {
+        vkBn->onReleaseBuffer(mTempM.get(), Backend::DYNAMIC);
+        mTempM.reset();
+    }
+    if (mTempL) {
+        vkBn->onReleaseBuffer(mTempL.get(), Backend::DYNAMIC);
+        mTempL.reset();
+    }
+    if (mTempAlpha) {
+        vkBn->onReleaseBuffer(mTempAlpha.get(), Backend::DYNAMIC);
+        mTempAlpha.reset();
+    }
+    if (mTempOAcc) {
+        vkBn->onReleaseBuffer(mTempOAcc.get(), Backend::DYNAMIC);
+        mTempOAcc.reset();
+    }
+    mPrefillTotalLen = 0;
+
+    return NO_ERROR;
+}
+
+ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                    const VulkanCommandPool::Buffer* cmdBuffer) {
+    auto vkBn = static_cast<VulkanBackend*>(backend());
+    auto cmd = cmdBuffer->get();
+
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    auto dispatchWithProfile = [&](const char* name, const VulkanPipeline* pipeline,
+                                   const std::shared_ptr<VulkanLayout::DescriptorSet>& set, uint32_t x, uint32_t y,
+                                   uint32_t z) {
+        auto* profiler = vkBn->timeProfiler();
+        if (nullptr != profiler) {
+            VulkanTimeProfileScope scope(profiler, cmd, name, VulkanTimeProfiler::Kind::Shader);
+            pipeline->bind(cmd, set->get());
+            vkCmdDispatch(cmd, x, y, z);
+            return;
+        }
+        pipeline->bind(cmd, set->get());
+        vkCmdDispatch(cmd, x, y, z);
+    };
+#else
+    auto dispatchWithProfile = [&](const char*, const VulkanPipeline* pipeline,
+                                   const std::shared_ptr<VulkanLayout::DescriptorSet>& set, uint32_t x, uint32_t y,
+                                   uint32_t z) {
+        pipeline->bind(cmd, set->get());
+        vkCmdDispatch(cmd, x, y, z);
+    };
+#endif
+
+    if (mNeedKvCache && !mIsKVShared) {
+        MNN_ASSERT(nullptr != mUpdatePipeline);
+        MNN_ASSERT(nullptr != mUpdateSet);
+
+        // Dispatch: KV update (x=dim/4, y=keyLen, z=kvHeadNum).
+        dispatchWithProfile(mUseFP16 ? "glsl_attention_kvcache_update_FP16_comp" : "glsl_attention_kvcache_update_comp",
+                            mUpdatePipeline, mUpdateSet, UP_DIV(mHeadDim / 4, 8), mKeyLen, mKvHeadNum);
+        {
+            VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
+                                 0, nullptr, 0, nullptr);
+        }
+    }
+
+    if (mUsePrefill) {
+        constexpr int K_BLOCK = kAttentionPrefillKBlock;
+        auto tqBuf = vkBn->getTensorBuffer(mTempQuery.get());
+        auto qkBuf = vkBn->getTensorBuffer(mTempQKBlock.get());
+        auto wBuf = vkBn->getTensorBuffer(mTempWBlock.get());
+        auto mBuf = vkBn->getTensorBuffer(mTempM.get());
+        auto lBuf = vkBn->getTensorBuffer(mTempL.get());
+        auto aBuf = vkBn->getTensorBuffer(mTempAlpha.get());
+        auto oBuf = vkBn->getTensorBuffer(mTempOAcc.get());
+
         // 1) Rearrange Q to packed-D Qtmp: (x=qLen4, y=headDim/4, z=headNum)
         dispatchWithProfile(mUseFP16 ? "glsl_attention_prefill_rearrange_q_FP16_comp" : "glsl_attention_prefill_rearrange_q_comp",
                             mRearrangeQPipeline, mRearrangeQSet, UP_DIV(mQueryLen4, 8), UP_DIV(mHeadDim / 4, 8), mHeadNum);
@@ -782,13 +828,13 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
             if (nullptr != profiler) {
                 VulkanTimeProfileScope scope(profiler, cmd, name, VulkanTimeProfiler::Kind::Shader);
                 pipeline->bind(cmd, set->get());
-                vkCmdPushConstants(cmd, pipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, pcSize, pcData);
+                vkCmdPushConstants(cmd, pipeline->layout(), VK_SHADER_STAGE_ALL, 0, pcSize, pcData);
                 vkCmdDispatch(cmd, x, y, z);
                 return;
             }
 #endif
             pipeline->bind(cmd, set->get());
-            vkCmdPushConstants(cmd, pipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, pcSize, pcData);
+            vkCmdPushConstants(cmd, pipeline->layout(), VK_SHADER_STAGE_ALL, 0, pcSize, pcData);
             vkCmdDispatch(cmd, x, y, z);
         };
 
@@ -905,53 +951,8 @@ ErrorCode VulkanAttention::onEncode(const std::vector<Tensor*>& inputs, const st
                             mFinalizePipeline, mFinalizeSet, UP_DIV((uint32_t)(mHeadDim / 4), 8),
                             UP_DIV((uint32_t)UP_DIV(mQueryLen, 2), 8), (uint32_t)mHeadNum);
 
-        auto releaseTemp = [&](std::shared_ptr<Tensor>& t) {
-            if (t) {
-                vkBn->onReleaseBuffer(t.get(), Backend::DYNAMIC);
-                t.reset();
-            }
-        };
-        releaseTemp(mTempQuery);
-        releaseTemp(mTempQKBlock);
-        releaseTemp(mTempWBlock);
-        releaseTemp(mTempM);
-        releaseTemp(mTempL);
-        releaseTemp(mTempAlpha);
-        releaseTemp(mTempOAcc);
         return NO_ERROR;
     }
-
-    // Decode (or kv_cache disabled): keep fused shader.
-    mQueryLen4 = 0;
-    if (mTempQuery) {
-        vkBn->onReleaseBuffer(mTempQuery.get(), Backend::DYNAMIC);
-        mTempQuery.reset();
-    }
-    if (mTempQKBlock) {
-        vkBn->onReleaseBuffer(mTempQKBlock.get(), Backend::DYNAMIC);
-        mTempQKBlock.reset();
-    }
-    if (mTempWBlock) {
-        vkBn->onReleaseBuffer(mTempWBlock.get(), Backend::DYNAMIC);
-        mTempWBlock.reset();
-    }
-    if (mTempM) {
-        vkBn->onReleaseBuffer(mTempM.get(), Backend::DYNAMIC);
-        mTempM.reset();
-    }
-    if (mTempL) {
-        vkBn->onReleaseBuffer(mTempL.get(), Backend::DYNAMIC);
-        mTempL.reset();
-    }
-    if (mTempAlpha) {
-        vkBn->onReleaseBuffer(mTempAlpha.get(), Backend::DYNAMIC);
-        mTempAlpha.reset();
-    }
-    if (mTempOAcc) {
-        vkBn->onReleaseBuffer(mTempOAcc.get(), Backend::DYNAMIC);
-        mTempOAcc.reset();
-    }
-    mPrefillTotalLen = 0;
 
     if (mNeedKvCache) {
         const bool useDecodeQ1Subgroup =
@@ -1115,7 +1116,7 @@ ErrorCode VulkanAttention::onBeforeExecute(const std::vector<Tensor*>& inputs, c
     }
 
     if (mUsePrefill) {
-        MNN_ASSERT(totalLenForCompute == mPrefillTotalLen);
+        mPrefillTotalLen = totalLenForCompute;
         MNN_ASSERT(mQueryLen4 == UP_DIV(mQueryLen, 4) * 4);
 
         // Only the bindings that may change between executes are rewritten below.
@@ -1140,7 +1141,7 @@ ErrorCode VulkanAttention::onBeforeExecute(const std::vector<Tensor*>& inputs, c
         mFinalizeSet->writeBuffer(outBuf.first->buffer(), 0, vkBn->getTensorSize(output), outBuf.second);
 
         // Bind coop matrix external buffers that may change between executes (cacheKey, cacheValue, mask).
-        // Workspace buffers (qk, query, w, oAcc, alpha) were already bound in onEncode.
+        // Workspace buffers (qk, query, w, oAcc, alpha) were already bound during resize.
         if (mUseCoopMat && mCoopQKSet && mCoopQKVSet) {
             // Coop QK set: binding 2=cacheKey, 3=mask
             mCoopQKSet->writeBuffer(cacheKeyBuf->buffer(), 2, cacheKeySize, cacheKeyOffset);

@@ -13,6 +13,8 @@ public:
     VulkanAttention(const Op* op, Backend* bn);
     ~VulkanAttention() override;
 
+    bool encodeOnExecute() const override { return true; }
+    ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
     ErrorCode onBeforeExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
@@ -68,7 +70,7 @@ private:
     std::shared_ptr<VulkanLayout::DescriptorSet> mUpdateSet;
 
     bool mUsePrefill = false;
-    int mPrefillTotalLen = 0; // encoded totalLen for prefill multi-pass
+    int mPrefillTotalLen = 0; // current compute window for prefill multi-pass
     int mQueryLen4 = 0; // padded qLen for rearranged Qtmp (multiple of 4)
     std::shared_ptr<Tensor> mTempQuery;
 
