@@ -82,7 +82,7 @@ export struct ChatPage {
   private activeRequestId: string = '';
   private stopRequested: boolean = false;
   private streamingAnswer: string = '';
-  private initialized: boolean = false;
+  @State private initialized: boolean = false;
   private loadMs: number = 0;
   private loadedModelId: string = '';
   private loadedSettingsRevision: number = -1;

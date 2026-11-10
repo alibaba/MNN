@@ -59,7 +59,10 @@ export struct AttachmentSheet {
       }
 
       if (this.capabilities.videoInput) {
-        this.option('视频', this.sessionReady, () => this.onPickVideo())
+        Row({ space: 10 }) {
+          this.option('视频', this.sessionReady, () => this.onPickVideo())
+        }
+        .width('100%')
       }
 
       if (!this.capabilities.vision && !this.capabilities.audioInput && !this.capabilities.videoInput) {

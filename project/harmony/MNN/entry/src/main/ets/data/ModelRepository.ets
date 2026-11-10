@@ -289,10 +289,8 @@ export class ModelRepository {
       capabilities.vision = config.is_visual === true;
       capabilities.audioInput = config.is_audio === true;
       capabilities.audioOutput = config.has_talker === true;
-      // Video is sampled into still frames on the device, so only video-tuned vision models
-      // advertise it (matching how the Android client classifies video models).
-      const name = `${model.name} ${model.id}`.toLowerCase();
-      capabilities.videoInput = capabilities.vision && name.indexOf('video') >= 0;
+      // Video is sampled into still frames on the device, so any vision model can consume it.
+      capabilities.videoInput = capabilities.vision;
       if (capabilities.videoInput) {
         capabilities.videoReason = '';
       }

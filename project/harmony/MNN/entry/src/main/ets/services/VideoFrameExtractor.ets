@@ -31,7 +31,7 @@ export class VideoFrameExtractor {
         const timeUs = Math.floor(durationMs * 1000 * (index + 0.5) / count);
         let pixelMap: image.PixelMap | undefined;
         try {
-          pixelMap = await extractor.fetchFrameByTime(timeUs, media.AVImageQueryOptions.AV_IMAGE_QUERY_NEXT_SYNC,
+          pixelMap = await extractor.fetchFrameByTime(timeUs, media.AVImageQueryOptions.AV_IMAGE_QUERY_CLOSEST,
             { width: 384, height: 384 });
         } catch (error) {
           break;
