@@ -46,14 +46,14 @@ export class MediaService {
   }
 
   async pickVideo(context: common.UIAbilityContext, sessionId: string): Promise<AttachmentRecord[]> {
-    const options = new photoAccessHelper.PhotoSelectOptions();
-    options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.VIDEO_TYPE;
+    const options = new picker.DocumentSelectOptions();
     options.maxSelectNumber = 1;
-    const result = await new photoAccessHelper.PhotoViewPicker().select(options);
-    if (result.photoUris.length === 0) {
+    options.fileSuffixFilters = ['.mp4', '.mov'];
+    const uris = await new picker.DocumentViewPicker(context).select(options);
+    if (uris.length === 0) {
       return [];
     }
-    return [this.copyToHistory(context, sessionId, result.photoUris[0], 'video', 'mp4', 0)];
+    return [this.copyToHistory(context, sessionId, uris[0], 'video', 'mp4', 0)];
   }
 
   async pickAudio(context: common.UIAbilityContext, sessionId: string): Promise<AttachmentRecord[]> {

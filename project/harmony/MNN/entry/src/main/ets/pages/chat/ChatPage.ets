@@ -34,6 +34,7 @@ import { MediaService } from '../../services/MediaService';
 import { AudioPlaybackService } from '../../services/AudioPlaybackService';
 import { ReasoningParser } from '../../services/ReasoningParser';
 import { SplitFileMerger } from '../../services/SplitFileMerger';
+import { VideoFrameExtractor } from '../../services/VideoFrameExtractor';
 import { VoiceRecorderService } from '../../services/VoiceRecorderService';
 import {
   ACTIVE_MODEL_ID_KEY,
@@ -640,7 +641,26 @@ export struct ChatPage {
       return;
     }
     const displayInput = input || '已发送附件';
-    const nativeInput = MediaService.getInstance().buildPrompt(attachments, input);
+    let nativeInput = '';
+    const videoAttachment = attachments.find((item: AttachmentRecord) => item.mediaType === 'video');
+    if (videoAttachment && this.modelCapabilities.videoInput) {
+      const previousStatus = this.modelStatus;
+      this.modelStatus = '正在提取视频帧';
+      const frameContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const frameDirectory = MediaService.getInstance().ensureHistoryDirectory(frameContext, this.currentSessionId);
+      const frames = await VideoFrameExtractor.getInstance().extract(videoAttachment.localPath, frameDirectory, 8);
+      this.modelStatus = previousStatus;
+      if (frames.length === 0) {
+        this.error = '无法从视频中提取画面';
+        return;
+      }
+      const nonVideo = attachments.filter((item: AttachmentRecord) => item.mediaType !== 'video');
+      // The engine samples video through still frames; reference them as images.
+      nativeInput = frames.map((path: string) => `<img>${path}</img>`).join('') +
+        MediaService.getInstance().buildPrompt(nonVideo, input);
+    } else {
+      nativeInput = MediaService.getInstance().buildPrompt(attachments, input);
+    }
 
     this.error = '';
     this.metrics = '';
