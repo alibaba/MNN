@@ -508,7 +508,7 @@ export struct MarketPage {
           .fontColor('#C62828')
           .padding(12)
       }
-      Text('下载在前台执行；私有仓库令牌尚未配置，因此仅支持公开模型。')
+      Text('下载会在后台继续执行（系统可能显示“数据传输”通知）；私有仓库令牌尚未配置，因此仅支持公开模型。')
         .fontSize(11)
         .fontColor('#7A7F87')
         .padding({ left: 16, right: 16, bottom: 10 })

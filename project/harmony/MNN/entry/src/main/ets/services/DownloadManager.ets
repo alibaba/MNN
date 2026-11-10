@@ -10,6 +10,7 @@ import {
   ModelDownloadStatus,
   ProviderFileRecord
 } from '../domain/AppTypes';
+import { BackgroundTaskKeeper } from './BackgroundTaskKeeper';
 import { ProviderAdapters } from './ProviderAdapters';
 
 export type DownloadStatusListener = (status: ModelDownloadStatus) => void;
@@ -96,6 +97,7 @@ export class DownloadManager {
     active.context = context;
     active.replace = replace;
     this.active.set(modelId, active);
+    await BackgroundTaskKeeper.getInstance().acquire(context);
 
     try {
       for (let index = 0; index < files.length; index++) {
@@ -141,7 +143,28 @@ export class DownloadManager {
       }
     } catch (error) {
       this.notify(active, DownloadState.FAILED, (error as Error).message);
+      this.active.delete(modelId);
+      this.releaseIfIdle();
       throw error as Error;
+    }
+  }
+
+  /** True when at least one agent task is still transferring bytes. */
+  private hasRunningTransfer(): boolean {
+    let running = false;
+    this.active.forEach((download: ActiveDownload) => {
+      download.records.forEach((record: DownloadTaskRecord) => {
+        if (record.state === DownloadState.DOWNLOADING || record.state === DownloadState.PENDING) {
+          running = true;
+        }
+      });
+    });
+    return running;
+  }
+
+  private releaseIfIdle(): void {
+    if (!this.hasRunningTransfer()) {
+      BackgroundTaskKeeper.getInstance().release().catch(() => {});
     }
   }
 
@@ -176,6 +199,7 @@ export class DownloadManager {
       }
     }
     await this.updateAll(active, DownloadState.PAUSED);
+    this.releaseIfIdle();
   }
 
   async resume(context: common.UIAbilityContext, model: MarketModelRecord, provider: string,
@@ -214,6 +238,7 @@ export class DownloadManager {
       }
       this.active.set(modelId, active);
     }
+    await BackgroundTaskKeeper.getInstance().acquire(context);
     this.notify(active, DownloadState.DOWNLOADING);
     for (let index = 0; index < active.tasks.length; index++) {
       const task = active.tasks[index];
@@ -265,6 +290,7 @@ export class DownloadManager {
     }
     await DownloadRepository.getInstance().removeModel(modelId);
     this.active.delete(modelId);
+    this.releaseIfIdle();
     if (active) {
       this.notify(active, DownloadState.PENDING);
     }
@@ -376,9 +402,11 @@ export class DownloadManager {
       }
       await this.updateAll(active, DownloadState.COMPLETED);
       this.active.delete(active.modelId);
+      this.releaseIfIdle();
     } catch (error) {
       await this.updateAll(active, DownloadState.FAILED);
       this.notify(active, DownloadState.FAILED, (error as Error).message);
+      this.releaseIfIdle();
     }
   }
 
