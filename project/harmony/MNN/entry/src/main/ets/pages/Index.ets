@@ -6,7 +6,9 @@ import { HistoryPage } from './history/HistoryPage';
 import { MarketPage } from './market/MarketPage';
 import { ModelsPage } from './models/ModelsPage';
 import { SettingsPage } from './settings/SettingsPage';
+import { PrivacyPolicySheet } from '../components/PrivacyPolicySheet';
 import { AppInitializer } from '../services/AppInitializer';
+import { PRIVACY_POLICY_KEY, PRIVACY_POLICY_VERSION } from '../services/PrivacyPolicy';
 import { ACTIVE_MODEL_ID_KEY, SettingsStore } from '../services/SettingsStore';
 
 @Entry
@@ -22,7 +24,32 @@ struct Index {
     AppInitializer.initialize(context).then(async () => {
       this.activeModelId = await SettingsStore.getInstance().getString(ACTIVE_MODEL_ID_KEY, 'legacy-model');
       this.settingsRevision = await SettingsStore.getInstance().getSettingsRevision();
+      const agreedVersion = await SettingsStore.getInstance().getNumber(PRIVACY_POLICY_KEY, 0);
+      if (agreedVersion < PRIVACY_POLICY_VERSION) {
+        setTimeout(() => this.showPrivacyPolicy(), 150);
+      }
     });
+  }
+
+  private showPrivacyPolicy(): void {
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: PrivacyPolicySheet({
+        onAgree: () => {
+          SettingsStore.getInstance().putNumber(PRIVACY_POLICY_KEY, PRIVACY_POLICY_VERSION).catch(() => {
+          });
+        },
+        onDecline: () => {
+          const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+          context.terminateSelf().catch(() => {
+          });
+        }
+      }),
+      autoCancel: false,
+      alignment: DialogAlignment.Center,
+      customStyle: true
+    });
+    controller.open();
   }
 
   build() {

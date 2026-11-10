@@ -1,4 +1,6 @@
 import { common, Want } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
+import pasteboard from '@ohos.pasteboard';
 import bundleManager from '@ohos.bundle.bundleManager';
 import fs from '@ohos.file.fs';
 import { ModelRepository } from '../../data/ModelRepository';
@@ -10,7 +12,9 @@ import {
   RuntimeSamplerType
 } from '../../domain/AppTypes';
 import { mnnVersion } from '../../services/GenerationCoordinator';
+import { InfoSheet } from '../../components/InfoSheet';
 import { MarketAuth } from '../../services/MarketAuth';
+import { PRIVACY_POLICY_TEXT } from '../../services/PrivacyPolicy';
 import {
   PROVIDER_HUGGING_FACE,
   PROVIDER_MODEL_SCOPE,
@@ -150,6 +154,30 @@ export struct SettingsPage {
         action: () => {}
       }
     });
+  }
+
+  private showPrivacyPolicy(): void {
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: InfoSheet({
+        title: '隐私政策',
+        message: PRIVACY_POLICY_TEXT,
+        onCopy: () => {
+          try {
+            const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, PRIVACY_POLICY_TEXT);
+            pasteboard.getSystemPasteboard().setData(data).then(() => {
+              promptAction.showToast({ message: '隐私政策已复制' });
+            });
+          } catch (error) {
+            promptAction.showToast({ message: '复制失败' });
+          }
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Bottom,
+      customStyle: true
+    });
+    controller.open();
   }
 
   private showAbout(): void {
@@ -1024,6 +1052,10 @@ export struct SettingsPage {
                 .onClick(() => this.showAbout())
             }
             .width('100%')
+            Text('隐私政策')
+              .fontSize(13)
+              .fontColor('#2864DC')
+              .onClick(() => this.showPrivacyPolicy())
             Text('聊天记录、模型与配置仅保存在本机；API 服务只在启动后监听本机或局域网。')
               .fontSize(12)
               .lineHeight(19)
