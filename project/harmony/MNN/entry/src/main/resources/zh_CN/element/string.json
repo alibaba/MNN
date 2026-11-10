@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "模块描述"
+      "value": "本机运行的大模型聊天应用"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "description"
+      "value": "MNN Chat 本地大模型对话"
     },
     {
       "name": "EntryAbility_label",
-      "value": "label"
+      "value": "MNN Chat"
     }
   ]
 }

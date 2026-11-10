@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "module description"
+      "value": "On-device LLM chat"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "description"
+      "value": "MNN Chat on-device LLM chat"
     },
     {
       "name": "EntryAbility_label",
-      "value": "label"
+      "value": "MNN Chat"
     }
   ]
 }
