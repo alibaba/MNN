@@ -57,9 +57,12 @@ export class MediaService {
   }
 
   async pickAudio(context: common.UIAbilityContext, sessionId: string): Promise<AttachmentRecord[]> {
-    const options = new picker.AudioSelectOptions();
+    // DocumentViewPicker browses Downloads reliably; the audio picker depends on media indexing
+// and shows an empty page on some devices. The engine only accepts PCM WAV anyway.
+    const options = new picker.DocumentSelectOptions();
     options.maxSelectNumber = 1;
-    const uris = await new picker.AudioViewPicker(context).select(options);
+    options.fileSuffixFilters = ['.wav'];
+    const uris = await new picker.DocumentViewPicker(context).select(options);
     if (uris.length === 0) {
       return [];
     }
