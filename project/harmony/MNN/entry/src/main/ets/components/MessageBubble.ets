@@ -1,6 +1,7 @@
 import { promptAction } from '@kit.ArkUI';
 import pasteboard from '@ohos.pasteboard';
 import { AttachmentRecord, GenerationMetrics, GenerationState, MessageRole } from '../domain/AppTypes';
+import { ImagePreviewDialog } from './ImagePreviewDialog';
 import { MetricsPanel } from './MetricsPanel';
 import { ReasoningPanel } from './ReasoningPanel';
 import { RichMessage } from './RichMessage';
@@ -39,6 +40,21 @@ export struct MessageBubble {
   @Prop showMetrics: boolean = true;
   onReportIssue: () => void = () => {};
   onPlayAudio: (attachment: AttachmentRecord) => void = () => {};
+
+  private openImage(path: string): void {
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: ImagePreviewDialog({ path: path }),
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      customStyle: true,
+      width: '100%',
+      height: '100%',
+      cornerRadius: 0,
+      backgroundColor: Color.Black
+    });
+    controller.open();
+  }
 
   private copyText(text: string, label: string): void {
     if (!text) {
@@ -118,6 +134,7 @@ export struct MessageBubble {
                   .objectFit(ImageFit.Cover)
                   .borderRadius(8)
                   .margin({ right: 6, bottom: 6 })
+                  .onClick(() => this.openImage(attachment.localPath))
               } else {
                 Row({ space: 8 }) {
                   Text(attachment.mediaType === 'audio' ? `音频 · ${attachment.displayName}` :
