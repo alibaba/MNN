@@ -20,6 +20,8 @@ import {
   APP_AUDIO_REPLY_KEY,
   APP_SHOW_METRICS_KEY,
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
+  APP_VIDEO_FRAMES_KEY,
+  APP_VIDEO_FRAME_SIZE_KEY,
   SettingsStore
 } from '../../services/SettingsStore';
 
@@ -44,6 +46,8 @@ export struct SettingsPage {
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   @StorageLink('audioReply') private audioReply: boolean = false;
   @State private stopDownloadsOnChat: boolean = true;
+  @State private videoFrames: number = 4;
+  @State private videoFrameSize: number = 320;
   @State private isDiffusion: boolean = false;
   @State private tokens: MarketTokenForm = new MarketTokenForm();
   private loadSequence: number = 0;
@@ -63,6 +67,16 @@ export struct SettingsPage {
     });
     SettingsStore.getInstance().getBoolean(APP_AUDIO_REPLY_KEY, false).then((value: boolean) => {
       this.audioReply = value;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+    SettingsStore.getInstance().getNumber(APP_VIDEO_FRAMES_KEY, 4).then((value: number) => {
+      this.videoFrames = value;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+    SettingsStore.getInstance().getNumber(APP_VIDEO_FRAME_SIZE_KEY, 320).then((value: number) => {
+      this.videoFrameSize = value;
     }).catch((error: Error) => {
       this.error = error.message;
     });
@@ -339,6 +353,42 @@ export struct SettingsPage {
       this.error = error.message;
     }).finally(() => {
       this.busy = false;
+    });
+  }
+
+  private videoFrameIndex(value: number): number {
+    const values: number[] = [2, 4, 6, 8];
+    const index = values.indexOf(value);
+    return index >= 0 ? index : 1;
+  }
+
+  private videoFrameAt(index: number): number {
+    const values: number[] = [2, 4, 6, 8];
+    return index >= 0 && index < values.length ? values[index] : 4;
+  }
+
+  private videoSizeIndex(value: number): number {
+    const values: number[] = [256, 320, 384];
+    const index = values.indexOf(value);
+    return index >= 0 ? index : 1;
+  }
+
+  private videoSizeAt(index: number): number {
+    const values: number[] = [256, 320, 384];
+    return index >= 0 && index < values.length ? values[index] : 320;
+  }
+
+  private updateVideoFrames(value: number): void {
+    this.videoFrames = value;
+    SettingsStore.getInstance().putNumber(APP_VIDEO_FRAMES_KEY, value).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private updateVideoFrameSize(value: number): void {
+    this.videoFrameSize = value;
+    SettingsStore.getInstance().putNumber(APP_VIDEO_FRAME_SIZE_KEY, value).catch((error: Error) => {
+      this.error = error.message;
     });
   }
 
@@ -903,6 +953,38 @@ export struct SettingsPage {
             }
             .width('100%')
             Text('仅对带 talker 的 Omni 模型生效；体积较大的模型合成语音时可能超出系统内存限制')
+              .fontSize(11)
+              .lineHeight(17)
+              .fontColor('#7A7F87')
+              .width('100%')
+            Row() {
+              Text('视频采样帧数')
+                .fontSize(15)
+                .layoutWeight(1)
+              Select([
+                { value: '2' },
+                { value: '4' },
+                { value: '6' },
+                { value: '8' }
+              ])
+                .selected(this.videoFrameIndex(this.videoFrames))
+                .onSelect((index: number) => this.updateVideoFrames(this.videoFrameAt(index)))
+            }
+            .width('100%')
+            Row() {
+              Text('视频帧尺寸')
+                .fontSize(15)
+                .layoutWeight(1)
+              Select([
+                { value: '256' },
+                { value: '320' },
+                { value: '384' }
+              ])
+                .selected(this.videoSizeIndex(this.videoFrameSize))
+                .onSelect((index: number) => this.updateVideoFrameSize(this.videoSizeAt(index)))
+            }
+            .width('100%')
+            Text('帧数和尺寸越大理解越准，但视频首字延迟越高；默认 4 帧 / 320px')
               .fontSize(11)
               .lineHeight(17)
               .fontColor('#7A7F87')

@@ -13,7 +13,8 @@ export class VideoFrameExtractor {
     return VideoFrameExtractor.instance;
   }
 
-  async extract(videoPath: string, outputDirectory: string, frameCount: number = 8): Promise<string[]> {
+  async extract(videoPath: string, outputDirectory: string, frameCount: number = 4,
+    frameSize: number = 320): Promise<string[]> {
     const file = fileIo.openSync(videoPath, fileIo.OpenMode.READ_ONLY);
     const fileSize = fileIo.statSync(videoPath).size;
     const extractor = await media.createAVMetadataExtractor();
@@ -27,12 +28,25 @@ export class VideoFrameExtractor {
         durationMs = frameCount * 500;
       }
       const count = Math.max(1, Math.min(frameCount, 16));
+      const sourceWidth = Number(metadata.videoWidth || '0');
+      const sourceHeight = Number(metadata.videoHeight || '0');
+      let targetWidth = frameSize;
+      let targetHeight = frameSize;
+      if (sourceWidth > 0 && sourceHeight > 0) {
+        if (sourceWidth >= sourceHeight) {
+          targetHeight = Math.max(1, Math.round(frameSize * sourceHeight / sourceWidth));
+        } else {
+          targetWidth = Math.max(1, Math.round(frameSize * sourceWidth / sourceHeight));
+        }
+        targetWidth = Math.min(targetWidth, sourceWidth);
+        targetHeight = Math.min(targetHeight, sourceHeight);
+      }
       for (let index = 0; index < count; index++) {
         const timeUs = Math.floor(durationMs * 1000 * (index + 0.5) / count);
         let pixelMap: image.PixelMap | undefined;
         try {
           pixelMap = await extractor.fetchFrameByTime(timeUs, media.AVImageQueryOptions.AV_IMAGE_QUERY_CLOSEST,
-            { width: 384, height: 384 });
+            { width: targetWidth, height: targetHeight });
         } catch (error) {
           break;
         }

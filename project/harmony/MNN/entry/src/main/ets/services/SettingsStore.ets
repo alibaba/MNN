@@ -16,6 +16,8 @@ export const SETTINGS_REVISION_KEY: string = 'model_runtime_settings_revision';
 export const APP_SHOW_METRICS_KEY: string = 'app_show_metrics';
 export const APP_STOP_DOWNLOAD_ON_CHAT_KEY: string = 'app_stop_download_on_chat';
 export const APP_AUDIO_REPLY_KEY: string = 'app_audio_reply';
+export const APP_VIDEO_FRAMES_KEY: string = 'app_video_frames';
+export const APP_VIDEO_FRAME_SIZE_KEY: string = 'app_video_frame_size';
 
 interface RuntimeSettingsDocument {
   backend_type?: string;

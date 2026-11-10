@@ -41,6 +41,8 @@ import {
   APP_AUDIO_REPLY_KEY,
   APP_SHOW_METRICS_KEY,
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
+  APP_VIDEO_FRAMES_KEY,
+  APP_VIDEO_FRAME_SIZE_KEY,
   SettingsStore
 } from '../../services/SettingsStore';
 import { AttachmentSheet } from '../../components/AttachmentSheet';
@@ -648,7 +650,10 @@ export struct ChatPage {
       this.modelStatus = '正在提取视频帧';
       const frameContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const frameDirectory = MediaService.getInstance().ensureHistoryDirectory(frameContext, this.currentSessionId);
-      const frames = await VideoFrameExtractor.getInstance().extract(videoAttachment.localPath, frameDirectory, 8);
+      const frameCount = await SettingsStore.getInstance().getNumber(APP_VIDEO_FRAMES_KEY, 4);
+      const frameSize = await SettingsStore.getInstance().getNumber(APP_VIDEO_FRAME_SIZE_KEY, 320);
+      const frames = await VideoFrameExtractor.getInstance()
+        .extract(videoAttachment.localPath, frameDirectory, frameCount, frameSize);
       this.modelStatus = previousStatus;
       if (frames.length === 0) {
         this.error = '无法从视频中提取画面';
