@@ -177,6 +177,57 @@ export class ModelRepository {
     }
   }
 
+  /**
+   * Installs a freshly downloaded copy over an existing model directory. The previous version is
+   * moved into the trash first so a failed swap can be rolled back; trash is cleared on next scan.
+   */
+  async replaceDownloadedModel(stagingRoot: string, filesDir: string, name: string): Promise<ModelRecord> {
+    const downloadsRoot = `${filesDir}/.mnn-downloads/`;
+    if (!stagingRoot.startsWith(downloadsRoot) || this.containsSymbolicLink(stagingRoot)) {
+      throw new Error('下载暂存目录无效');
+    }
+    const directoryName = this.sanitizeName(name);
+    if (!directoryName || directoryName === TRASH_DIRECTORY || directoryName.startsWith('.partial-')) {
+      throw new Error('模型名称无效');
+    }
+    const validation = this.validateModel(stagingRoot);
+    if (!validation.valid) {
+      throw new Error(validation.error);
+    }
+    const managedRoot = this.prepareManagedRoot(filesDir);
+    const targetRoot = `${managedRoot}/${directoryName}`;
+    const trashRoot = `${managedRoot}/${TRASH_DIRECTORY}`;
+    if (!fs.accessSync(trashRoot)) {
+      fs.mkdirSync(trashRoot, true);
+    }
+    const backupRoot = `${trashRoot}/${directoryName}-${Date.now()}`;
+    let movedExisting = false;
+    if (fs.accessSync(targetRoot)) {
+      fs.renameSync(targetRoot, backupRoot);
+      movedExisting = true;
+    }
+    try {
+      fs.renameSync(stagingRoot, targetRoot);
+      const model = await this.createManagedRecord(targetRoot, directoryName);
+      await this.upsert(model);
+      return model;
+    } catch (error) {
+      if (fs.accessSync(targetRoot)) {
+        try {
+          fs.renameSync(targetRoot, stagingRoot);
+        } catch (rollbackError) {
+        }
+      }
+      if (movedExisting && !fs.accessSync(targetRoot)) {
+        try {
+          fs.renameSync(backupRoot, targetRoot);
+        } catch (rollbackError) {
+        }
+      }
+      throw error as Error;
+    }
+  }
+
   async listModels(): Promise<ModelRecord[]> {
     const predicates = new relationalStore.RdbPredicates('models');
     predicates.orderByDesc('is_pinned').orderByDesc('last_used_at');

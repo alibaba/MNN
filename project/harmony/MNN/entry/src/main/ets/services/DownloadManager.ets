@@ -26,6 +26,7 @@ class ActiveDownload {
   finishing: boolean = false;
   listener?: DownloadStatusListener;
   context?: common.UIAbilityContext;
+  replace: boolean = false;
 }
 
 export class DownloadManager {
@@ -42,7 +43,7 @@ export class DownloadManager {
   }
 
   async start(context: common.UIAbilityContext, model: MarketModelRecord, provider: string,
-    listener: DownloadStatusListener): Promise<void> {
+    listener: DownloadStatusListener, replace: boolean = false): Promise<void> {
     const repository = ProviderAdapters.repository(model, provider);
     if (!repository) {
       throw new Error('当前模型不支持所选来源');
@@ -50,6 +51,10 @@ export class DownloadManager {
     const modelId = `${provider}/${repository}`;
     if (this.active.has(modelId)) {
       return;
+    }
+    if (replace) {
+      // Drop stale completed records so start() does not take the resume path.
+      await DownloadRepository.getInstance().removeModel(modelId);
     }
 
     const files = await ProviderAdapters.listFiles(model, provider);
@@ -89,6 +94,7 @@ export class DownloadManager {
     active.files = files;
     active.listener = listener;
     active.context = context;
+    active.replace = replace;
     this.active.set(modelId, active);
 
     try {
@@ -359,9 +365,15 @@ export class DownloadManager {
       if (!active.context) {
         throw new Error('下载上下文不可用');
       }
-      await ModelRepository.getInstance().installDownloadedModel(
-        active.stagingRoot, active.context.filesDir, active.modelName
-      );
+      if (active.replace) {
+        await ModelRepository.getInstance().replaceDownloadedModel(
+          active.stagingRoot, active.context.filesDir, active.modelName
+        );
+      } else {
+        await ModelRepository.getInstance().installDownloadedModel(
+          active.stagingRoot, active.context.filesDir, active.modelName
+        );
+      }
       await this.updateAll(active, DownloadState.COMPLETED);
       this.active.delete(active.modelId);
     } catch (error) {

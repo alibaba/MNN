@@ -28,6 +28,7 @@ export struct MarketPage {
   @State private query: string = '';
   @State private selectedTag: string = '';
   @State private selectedVendor: string = '';
+  @State private updateIds: string[] = [];
   @State private loading: boolean = false;
   @State private error: string = '';
 
@@ -117,6 +118,67 @@ export struct MarketPage {
       }
     }
     this.statuses = statuses;
+    this.computeUpdates();
+  }
+
+  /**
+   * Flags installed models whose local file set no longer matches the catalog size. This mirrors
+   * the Android "update available" badge without requiring a network round trip per card.
+   */
+  private computeUpdates(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const ids: string[] = [];
+    this.models.forEach((model: MarketModelRecord) => {
+      if (model.fileSize <= 0) {
+        return;
+      }
+      const directory = `${context.filesDir}/.mnnmodels/${this.safeName(model.modelName)}`;
+      if (!fs.accessSync(directory)) {
+        return;
+      }
+      const localBytes = this.directorySize(directory);
+      const tolerance = Math.max(1024 * 1024, model.fileSize * 0.005);
+      if (localBytes > 0 && Math.abs(localBytes - model.fileSize) > tolerance) {
+        ids.push(this.modelId(model));
+      }
+    });
+    this.updateIds = ids;
+  }
+
+  private directorySize(path: string): number {
+    try {
+      let total = 0;
+      const names = fs.listFileSync(path);
+      for (let index = 0; index < names.length; index++) {
+        const child = `${path}/${names[index]}`;
+        const stat = fs.lstatSync(child);
+        if (stat.isSymbolicLink()) {
+          continue;
+        }
+        total += stat.isDirectory() ? this.directorySize(child) : stat.size;
+      }
+      return total;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  private safeName(value: string): string {
+    return value.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g, '').substring(0, 64);
+  }
+
+  private isInstalled(model: MarketModelRecord): boolean {
+    if (this.statusFor(model).state === DownloadState.COMPLETED) {
+      return true;
+    }
+    // Models imported from the file picker have no download records; treat their directory as
+    // installed so update detection applies to them too.
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    return fs.accessSync(`${context.filesDir}/.mnnmodels/${this.safeName(model.modelName)}`);
+  }
+
+  private isUpdateAvailable(model: MarketModelRecord): boolean {
+    return this.updateIds.indexOf(this.modelId(model)) >= 0;
   }
 
   private modelId(model: MarketModelRecord): string {
@@ -138,13 +200,16 @@ export struct MarketPage {
     const next = this.statuses.filter((item: ModelDownloadStatus) => item.modelId !== status.modelId);
     next.push(status);
     this.statuses = next;
+    if (status.state === DownloadState.COMPLETED) {
+      this.computeUpdates();
+    }
   }
 
-  private startDownload(model: MarketModelRecord): void {
+  private startDownload(model: MarketModelRecord, replace: boolean = false): void {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.error = '';
     DownloadManager.getInstance().start(context, model, this.provider,
-      (status: ModelDownloadStatus) => this.updateStatus(status)).catch((error: Error) => {
+      (status: ModelDownloadStatus) => this.updateStatus(status), replace).catch((error: Error) => {
       this.error = error.message;
     });
   }
@@ -231,8 +296,9 @@ export struct MarketPage {
       builder: MarketDetailSheet({
         model: model,
         provider: this.provider,
-        installed: this.statusFor(model).state === DownloadState.COMPLETED,
-        onDownload: () => this.startDownload(model)
+        installed: this.isInstalled(model),
+        updateAvailable: this.isUpdateAvailable(model),
+        onDownload: () => this.startDownload(model, this.isUpdateAvailable(model))
       }),
       autoCancel: true,
       alignment: DialogAlignment.Bottom,
@@ -258,11 +324,20 @@ export struct MarketPage {
         .height(34)
         .fontSize(12)
         .onClick(() => this.retryDownload(model))
-    } else if (this.statusFor(model).state === DownloadState.COMPLETED) {
-      Button('已安装')
-        .height(34)
-        .fontSize(12)
-        .enabled(false)
+    } else if (this.isInstalled(model)) {
+      if (this.isUpdateAvailable(model)) {
+        Button('更新')
+          .height(34)
+          .fontSize(12)
+          .backgroundColor('#FFF4E5')
+          .fontColor('#B26A00')
+          .onClick(() => this.startDownload(model, true))
+      } else {
+        Button('已安装')
+          .height(34)
+          .fontSize(12)
+          .enabled(false)
+      }
     } else {
       Button('下载')
         .height(34)

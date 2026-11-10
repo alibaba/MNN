@@ -13,6 +13,7 @@ export struct MarketDetailSheet {
   model: MarketModelRecord = new MarketModelRecord();
   provider: string = '';
   installed: boolean = false;
+  updateAvailable: boolean = false;
   onDownload: () => void = () => {};
 
   private openWebPage(): void {
@@ -73,6 +74,12 @@ export struct MarketDetailSheet {
               .fontColor('#303640')
               .width('100%')
           }
+          if (this.updateAvailable) {
+            Text('本地文件与仓库不一致，可下载最新版本')
+              .fontSize(12)
+              .fontColor('#B26A00')
+              .width('100%')
+          }
           Text(`来源：${this.provider}/${ProviderAdapters.repository(this.model, this.provider)}`)
             .fontSize(12)
             .fontColor('#6B7280')
@@ -93,13 +100,13 @@ export struct MarketDetailSheet {
       .width('100%')
 
       Row({ space: 12 }) {
-        Button(this.installed ? '已安装' : '下载')
+        Button(this.installed && !this.updateAvailable ? '已安装' : (this.updateAvailable ? '更新' : '下载'))
           .layoutWeight(1)
           .height(40)
           .fontSize(15)
-          .enabled(!this.installed)
-          .backgroundColor(this.installed ? '#F1F3F5' : '#2864DC')
-          .fontColor(this.installed ? '#5F6670' : Color.White)
+          .enabled(!this.installed || this.updateAvailable)
+          .backgroundColor(this.installed && !this.updateAvailable ? '#F1F3F5' : '#2864DC')
+          .fontColor(this.installed && !this.updateAvailable ? '#5F6670' : Color.White)
           .onClick(() => {
             this.controller?.close();
             this.onDownload();
