@@ -93,6 +93,7 @@ bool readGenerateRequest(napi_env env, napi_value value, GenerateRequest& reques
         }
         request.messages.emplace_back(std::move(role), std::move(content));
     }
+    readNamedString(env, value, "audioOutputPath", request.audioOutputPath);
     return true;
 }
 
@@ -213,6 +214,22 @@ struct GenerateWork {
     std::string error;
 };
 
+void* runGenerateThread(void* raw) {
+    auto work = static_cast<GenerateWork*>(raw);
+    LlmSession::instance().generate(
+        work->request,
+        [work](const std::string& chunk) {
+            auto payload = new std::string(chunk);
+            if (napi_call_threadsafe_function(work->callback, payload, napi_tsfn_nonblocking) != napi_ok) {
+                delete payload;
+            }
+        },
+        work->result, work->error);
+    napi_release_threadsafe_function(work->callback, napi_tsfn_release);
+    work->callback = nullptr;
+    return nullptr;
+}
+
 napi_value GenerateLlm(napi_env env, napi_callback_info info) {
     size_t argc = 2;
     napi_value args[2] = {nullptr};
@@ -236,18 +253,17 @@ napi_value GenerateLlm(napi_env env, napi_callback_info info) {
     napi_create_async_work(
         env, nullptr, resourceName,
         [](napi_env, void* data) {
-            auto work = static_cast<GenerateWork*>(data);
-            LlmSession::instance().generate(
-                work->request,
-                [work](const std::string& chunk) {
-                    auto payload = new std::string(chunk);
-                    if (napi_call_threadsafe_function(work->callback, payload, napi_tsfn_nonblocking) != napi_ok) {
-                        delete payload;
-                    }
-                },
-                work->result, work->error);
-            napi_release_threadsafe_function(work->callback, napi_tsfn_release);
-            work->callback = nullptr;
+            // Omni talker/DiT graphs recurse deeply; the NAPI worker stack is only 128 KB on musl.
+            pthread_attr_t attributes;
+            pthread_attr_init(&attributes);
+            pthread_attr_setstacksize(&attributes, 32 * 1024 * 1024);
+            pthread_t thread;
+            if (pthread_create(&thread, &attributes, runGenerateThread, data) == 0) {
+                pthread_join(thread, nullptr);
+            } else {
+                runGenerateThread(data);
+            }
+            pthread_attr_destroy(&attributes);
         },
         [](napi_env env, napi_status status, void* data) {
             std::unique_ptr<GenerateWork> work(static_cast<GenerateWork*>(data));

@@ -16,6 +16,8 @@ struct GenerateRequest {
     std::string requestId;
     MNN::Transformer::ChatMessages messages;
     int maxTokens = 256;
+    // When set, omni models with a talker write the spoken waveform to this WAV path.
+    std::string audioOutputPath;
 };
 
 struct GenerateResult {

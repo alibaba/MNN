@@ -17,6 +17,7 @@ import {
   PROVIDER_MODELERS
 } from '../../services/ProviderAdapters';
 import {
+  APP_AUDIO_REPLY_KEY,
   APP_SHOW_METRICS_KEY,
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
   SettingsStore
@@ -41,6 +42,7 @@ export struct SettingsPage {
   @State private engineVersion: string = '';
   @State private cacheBytes: number = 0;
   @StorageLink('showMetrics') private showMetrics: boolean = true;
+  @StorageLink('audioReply') private audioReply: boolean = false;
   @State private stopDownloadsOnChat: boolean = true;
   @State private isDiffusion: boolean = false;
   @State private tokens: MarketTokenForm = new MarketTokenForm();
@@ -56,6 +58,11 @@ export struct SettingsPage {
     });
     SettingsStore.getInstance().getBoolean(APP_STOP_DOWNLOAD_ON_CHAT_KEY, true).then((value: boolean) => {
       this.stopDownloadsOnChat = value;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+    SettingsStore.getInstance().getBoolean(APP_AUDIO_REPLY_KEY, false).then((value: boolean) => {
+      this.audioReply = value;
     }).catch((error: Error) => {
       this.error = error.message;
     });
@@ -146,6 +153,13 @@ export struct SettingsPage {
         value: '关闭',
         action: () => {}
       }
+    });
+  }
+
+  private toggleAudioReply(value: boolean): void {
+    this.audioReply = value;
+    SettingsStore.getInstance().putBoolean(APP_AUDIO_REPLY_KEY, value).catch((error: Error) => {
+      this.error = error.message;
     });
   }
 
@@ -880,6 +894,19 @@ export struct SettingsPage {
                 .onChange((value: boolean) => this.toggleStopDownloadsOnChat(value))
             }
             .width('100%')
+            Row() {
+              Text('模型回复语音（需模型支持）')
+                .fontSize(15)
+                .layoutWeight(1)
+              Toggle({ type: ToggleType.Switch, isOn: this.audioReply })
+                .onChange((value: boolean) => this.toggleAudioReply(value))
+            }
+            .width('100%')
+            Text('仅对带 talker 的 Omni 模型生效；体积较大的模型合成语音时可能超出系统内存限制')
+              .fontSize(11)
+              .lineHeight(17)
+              .fontColor('#7A7F87')
+              .width('100%')
             Text(`缓存占用 ${this.formatBytes(this.cacheBytes)}`)
               .fontSize(14)
               .fontColor('#4B5563')

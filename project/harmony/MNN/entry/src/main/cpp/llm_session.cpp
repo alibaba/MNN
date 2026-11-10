@@ -1,9 +1,12 @@
 #include "llm_session.h"
 
 #include <chrono>
+#include <cstdint>
+#include <cstdio>
 #include <ostream>
 #include <streambuf>
 #include <utility>
+#include <vector>
 
 using MNN::Transformer::Llm;
 using MNN::Transformer::LlmContext;
@@ -11,6 +14,37 @@ using MNN::Transformer::LlmStatus;
 
 namespace mnn_harmony {
 namespace {
+
+// Talker output for Qwen2.5-Omni is 24 kHz mono float PCM.
+constexpr int kTalkerSampleRate = 24000;
+
+void writePcm16Wav(const std::string& path, const std::vector<int16_t>& samples) {
+    if (samples.empty()) {
+        return;
+    }
+    FILE* file = std::fopen(path.c_str(), "wb");
+    if (!file) {
+        return;
+    }
+    const uint32_t dataBytes = static_cast<uint32_t>(samples.size() * 2);
+    auto writeU32 = [file](uint32_t value) { std::fwrite(&value, 4, 1, file); };
+    auto writeU16 = [file](uint16_t value) { std::fwrite(&value, 2, 1, file); };
+    std::fwrite("RIFF", 1, 4, file);
+    writeU32(36 + dataBytes);
+    std::fwrite("WAVE", 1, 4, file);
+    std::fwrite("fmt ", 1, 4, file);
+    writeU32(16);
+    writeU16(1);
+    writeU16(1);
+    writeU32(kTalkerSampleRate);
+    writeU32(kTalkerSampleRate * 2);
+    writeU16(2);
+    writeU16(16);
+    std::fwrite("data", 1, 4, file);
+    writeU32(dataBytes);
+    std::fwrite(samples.data(), 2, samples.size(), file);
+    std::fclose(file);
+}
 
 class BenchmarkStreamBuffer : public std::streambuf {
 public:
@@ -249,7 +283,32 @@ void LlmSession::generate(const GenerateRequest& request, const ChunkCallback& o
     std::ostream output(&outputBuffer);
     // Same end_with marker as the Android client; the stream buffer strips it before it reaches the UI.
     const int maxTokens = request.maxTokens <= 0 ? 2048 : (request.maxTokens > 8192 ? 8192 : request.maxTokens);
+    std::vector<int16_t> audioSamples;
+    const bool captureAudio = !request.audioOutputPath.empty();
+    if (captureAudio) {
+        // Presence of a waveform callback is what enables the omni talker path.
+        mLlm->setWavformCallback([&audioSamples](const float* data, size_t size, bool) {
+            if (data != nullptr && size > 0) {
+                const size_t base = audioSamples.size();
+                audioSamples.resize(base + size);
+                for (size_t index = 0; index < size; ++index) {
+                    float value = data[index];
+                    if (value > 1.0f) {
+                        value = 1.0f;
+                    } else if (value < -1.0f) {
+                        value = -1.0f;
+                    }
+                    audioSamples[base + index] = static_cast<int16_t>(value * 32767.0f);
+                }
+            }
+            return true;
+        });
+    }
     mLlm->response(request.messages, &output, "<eop>", maxTokens);
+    if (captureAudio) {
+        mLlm->setWavformCallback(nullptr);
+        writePcm16Wav(request.audioOutputPath, audioSamples);
+    }
     const auto end = std::chrono::steady_clock::now();
     outputBuffer.finish();
     result.text = outputBuffer.takeResult();

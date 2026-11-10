@@ -38,6 +38,7 @@ export struct MessageBubble {
   @ObjectLink message: ChatMessageView;
   @Prop showMetrics: boolean = true;
   onReportIssue: () => void = () => {};
+  onPlayAudio: (attachment: AttachmentRecord) => void = () => {};
 
   private copyText(text: string, label: string): void {
     if (!text) {
@@ -118,14 +119,25 @@ export struct MessageBubble {
                   .borderRadius(8)
                   .margin({ right: 6, bottom: 6 })
               } else {
-                Text(attachment.mediaType === 'audio' ? `音频 · ${attachment.displayName}` :
-                  `视频 · ${attachment.displayName}`)
-                  .fontSize(12)
-                  .fontColor('#2864DC')
-                  .backgroundColor('#EEF3FF')
-                  .padding(8)
-                  .borderRadius(8)
-                  .margin({ right: 6, bottom: 6 })
+                Row({ space: 8 }) {
+                  Text(attachment.mediaType === 'audio' ? `音频 · ${attachment.displayName}` :
+                    `视频 · ${attachment.displayName}`)
+                    .fontSize(12)
+                    .fontColor('#2864DC')
+                  if (attachment.mediaType === 'audio') {
+                    Button('播放')
+                      .height(26)
+                      .fontSize(11)
+                      .padding({ left: 10, right: 10 })
+                      .backgroundColor('#2864DC')
+                      .fontColor(Color.White)
+                      .onClick(() => this.onPlayAudio(attachment))
+                  }
+                }
+                .padding(8)
+                .borderRadius(8)
+                .backgroundColor('#EEF3FF')
+                .margin({ right: 6, bottom: 6 })
               }
             }, (attachment: AttachmentRecord) => attachment.id || attachment.localPath)
           }

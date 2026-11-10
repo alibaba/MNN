@@ -12,6 +12,7 @@ export interface LlmGenerateRequest {
   requestId: string;
   messages: LlmChatMessage[];
   maxTokens: number;
+  audioOutputPath?: string;
 }
 
 export interface LlmGenerateResult {

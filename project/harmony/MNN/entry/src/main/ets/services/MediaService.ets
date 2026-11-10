@@ -92,6 +92,22 @@ export class MediaService {
     return prompt + text;
   }
 
+  fileSize(path: string): number {
+    try {
+      return fileIo.statSync(path).size;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  ensureHistoryDirectory(context: common.UIAbilityContext, sessionId: string): string {
+    const directory = `${context.filesDir}/history/${this.safeName(sessionId)}`;
+    if (!fileIo.accessSync(directory)) {
+      fileIo.mkdirSync(directory, true);
+    }
+    return directory;
+  }
+
   private copyToHistory(context: common.UIAbilityContext, sessionId: string, uri: string, mediaType: string,
     extension: string, index: number): AttachmentRecord {
     const directory = `${context.filesDir}/history/${this.safeName(sessionId)}`;

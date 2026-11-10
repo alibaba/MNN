@@ -31,11 +31,13 @@ import {
   nativeLlmConfig
 } from '../../services/GenerationCoordinator';
 import { MediaService } from '../../services/MediaService';
+import { AudioPlaybackService } from '../../services/AudioPlaybackService';
 import { ReasoningParser } from '../../services/ReasoningParser';
 import { SplitFileMerger } from '../../services/SplitFileMerger';
 import { VoiceRecorderService } from '../../services/VoiceRecorderService';
 import {
   ACTIVE_MODEL_ID_KEY,
+  APP_AUDIO_REPLY_KEY,
   APP_SHOW_METRICS_KEY,
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
   SettingsStore
@@ -73,6 +75,7 @@ export struct ChatPage {
   @State private diffusionProgress: number = -1;
   @State private diffusionSeconds: number = 0;
   @StorageLink('showMetrics') private showMetrics: boolean = true;
+  @StorageLink('audioReply') private audioReply: boolean = false;
   private messageScroller: Scroller = new Scroller();
   private nextMessageId: number = 1;
   private activeRequestId: string = '';
@@ -172,6 +175,7 @@ export struct ChatPage {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     AppInitializer.initialize(context).then(async () => {
       this.showMetrics = await SettingsStore.getInstance().getBoolean(APP_SHOW_METRICS_KEY, true);
+      this.audioReply = await SettingsStore.getInstance().getBoolean(APP_AUDIO_REPLY_KEY, false);
       this.initialized = true;
       await this.restoreInitialSession();
     }).then(() => {
@@ -663,10 +667,17 @@ export struct ChatPage {
       userMessage.attachments = attachments;
       this.messages.push(userMessage);
       const historyRecords = await ChatRepository.getInstance().getMessages(this.currentSessionId);
+      let replyAudioPath = '';
+      if (this.modelCapabilities.audioOutput && this.audioReply) {
+        const audioContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const directory = MediaService.getInstance().ensureHistoryDirectory(audioContext, this.currentSessionId);
+        replyAudioPath = `${directory}/reply-${Date.now()}.wav`;
+      }
       const request: NativeGenerateRequest = {
         requestId: requestId,
         messages: this.buildNativeHistory(historyRecords),
-        maxTokens: this.runtimeSettings.maxTokens
+        maxTokens: this.runtimeSettings.maxTokens,
+        audioOutputPath: replyAudioPath
       };
       assistantRecord = await ChatRepository.getInstance().addMessage(
         this.currentSessionId, MessageRole.ASSISTANT, '', GenerationState.GENERATING
@@ -731,6 +742,17 @@ export struct ChatPage {
       assistantRecord.state = assistantMessage.state;
       assistantRecord.metrics = assistantMessage.metrics;
       await ChatRepository.getInstance().updateMessage(assistantRecord);
+      if (replyAudioPath && !result.canceled &&
+        MediaService.getInstance().fileSize(replyAudioPath) > 0) {
+        const audioAttachment = new AttachmentRecord();
+        audioAttachment.mediaType = 'audio';
+        audioAttachment.localPath = replyAudioPath;
+        audioAttachment.displayName = '回复语音.wav';
+        audioAttachment.sizeBytes = MediaService.getInstance().fileSize(replyAudioPath);
+        audioAttachment.createdAt = Date.now();
+        await AttachmentRepository.getInstance().save(assistantRecord.id, [audioAttachment]);
+        assistantMessage.attachments = [audioAttachment];
+      }
       const prefillSpeed = result.prefillMs > 0 ? result.promptTokens * 1000 / result.prefillMs : 0;
       const decodeSpeed = result.decodeMs > 0 ? result.generatedTokens * 1000 / result.decodeMs : 0;
       const state = result.canceled ? '已停止' : '完成';
@@ -1106,7 +1128,12 @@ export struct ChatPage {
             MessageBubble({
               message: message,
               showMetrics: this.showMetrics,
-              onReportIssue: () => this.reportIssue()
+              onReportIssue: () => this.reportIssue(),
+              onPlayAudio: (attachment: AttachmentRecord) => {
+                AudioPlaybackService.getInstance().play(attachment.localPath).catch((error: Error) => {
+                  this.error = `语音播放失败：${error.message}`;
+                });
+              }
             })
           }
         }, (message: ChatMessageView) => message.id.toString())

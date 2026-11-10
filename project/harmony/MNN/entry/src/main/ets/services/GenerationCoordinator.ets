@@ -20,6 +20,7 @@ export interface NativeGenerateRequest {
   requestId: string;
   messages: NativeChatMessage[];
   maxTokens: number;
+  audioOutputPath?: string;
 }
 
 export interface NativeGenerateResult {
