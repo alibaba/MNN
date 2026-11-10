@@ -1,4 +1,6 @@
 import { common } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
+import pasteboard from '@ohos.pasteboard';
 import fs from '@ohos.file.fs';
 import { DownloadRepository } from '../../data/DownloadRepository';
 import {
@@ -249,6 +251,27 @@ export struct MarketPage {
     });
   }
 
+  private copyErrorInfo(model: MarketModelRecord): void {
+    const status = this.statusFor(model);
+    const now = new Date();
+    const pad = (value: number): string => value < 10 ? `0${value}` : `${value}`;
+    const time = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ` +
+      `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const info = `Model: ${model.modelName} (${this.modelId(model)})\n` +
+      `Error: ${status.error || 'Unknown error'}\n` +
+      `Time: ${time}`;
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, info);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        promptAction.showToast({ message: '错误信息已复制' });
+      }).catch(() => {
+        promptAction.showToast({ message: '复制失败' });
+      });
+    } catch (error) {
+      promptAction.showToast({ message: '复制失败' });
+    }
+  }
+
   private formatBytes(bytes: number): string {
     if (bytes <= 0) {
       return '未知大小';
@@ -320,10 +343,18 @@ export struct MarketPage {
         .fontSize(12)
         .onClick(() => this.resumeDownload(model))
     } else if (this.statusFor(model).state === DownloadState.FAILED) {
-      Button('重试')
-        .height(34)
-        .fontSize(12)
-        .onClick(() => this.retryDownload(model))
+      Row({ space: 6 }) {
+        Button('重试')
+          .height(34)
+          .fontSize(12)
+          .onClick(() => this.retryDownload(model))
+        Button('复制错误')
+          .height(34)
+          .fontSize(12)
+          .backgroundColor('#F1F3F5')
+          .fontColor('#5F6670')
+          .onClick(() => this.copyErrorInfo(model))
+      }
     } else if (this.isInstalled(model)) {
       if (this.isUpdateAvailable(model)) {
         Button('更新')
