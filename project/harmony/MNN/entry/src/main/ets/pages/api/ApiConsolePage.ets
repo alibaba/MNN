@@ -295,7 +295,7 @@ export struct ApiConsolePage {
           .fontWeight(FontWeight.Bold)
           .width('100%')
         Text('GET /v1/models')
-        Text('GET /v1/queue')
+        Text('GET /v1/queue · GET /v1/queue/status · DELETE /v1/queue/clear')
         Text('POST /v1/chat/completions')
         Text('POST /v1/messages')
         Text('POST /v1/cancel')

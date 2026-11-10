@@ -72,13 +72,26 @@ export function nativeLlmConfig(): string {
   }
 }
 
+export class QueueStats {
+  totalRequests: number = 0;
+  completedRequests: number = 0;
+  failedRequests: number = 0;
+  pendingRequests: number = 0;
+  isProcessing: boolean = false;
+  successRate: number = 0;
+}
+
 export class GenerationCoordinator {
   private static instance: GenerationCoordinator = new GenerationCoordinator();
   private tail: Promise<void> = Promise.resolve();
   private canceled: Set<string> = new Set<string>();
+  private pendingIds: Set<string> = new Set<string>();
   private activeRequestId: string = '';
   private sequence: number = 0;
   private waiting: number = 0;
+  private totalRequests: number = 0;
+  private completedRequests: number = 0;
+  private failedRequests: number = 0;
 
   static getInstance(): GenerationCoordinator {
     return GenerationCoordinator.instance;
@@ -92,6 +105,28 @@ export class GenerationCoordinator {
     return this.waiting + (this.activeRequestId ? 1 : 0);
   }
 
+  getQueueStats(): QueueStats {
+    const stats = new QueueStats();
+    stats.totalRequests = this.totalRequests;
+    stats.completedRequests = this.completedRequests;
+    stats.failedRequests = this.failedRequests;
+    stats.pendingRequests = this.pendingIds.size;
+    stats.isProcessing = this.activeRequestId.length > 0;
+    stats.successRate = this.totalRequests > 0 ? this.completedRequests * 100 / this.totalRequests : 0;
+    return stats;
+  }
+
+  /** Cancels queued (not yet running) requests and returns how many were dropped. */
+  clearPendingQueue(): number {
+    let cleared = 0;
+    this.pendingIds.forEach((requestId: string) => {
+      this.canceled.add(requestId);
+      cleared++;
+    });
+    this.pendingIds.clear();
+    return cleared;
+  }
+
   prepare(target: NativeTarget): Promise<NativeLoadResult> {
     return this.enqueue(async () => {
       return await testNapi.loadLlm(target.configPath, target.runtimeConfigJson) as NativeLoadResult;
@@ -100,7 +135,10 @@ export class GenerationCoordinator {
 
   generate(target: NativeTarget, request: NativeGenerateRequest,
     onChunk: (chunk: string) => void): Promise<NativeGenerateResult> {
-    return this.enqueue(async () => {
+    this.totalRequests++;
+    this.pendingIds.add(request.requestId);
+    const pending = this.enqueue(async () => {
+      this.pendingIds.delete(request.requestId);
       if (this.canceled.delete(request.requestId)) {
         return this.canceledGenerateResult(request.requestId);
       }
@@ -112,11 +150,21 @@ export class GenerationCoordinator {
         this.activeRequestId = '';
       }
     });
+    return pending.then((result: NativeGenerateResult) => {
+      this.completedRequests++;
+      return result;
+    }, (error: Error) => {
+      this.failedRequests++;
+      throw error;
+    });
   }
 
   benchmark(target: NativeTarget, request: NativeBenchmarkRequest,
     onProgress: (sample: NativeBenchmarkSample) => void): Promise<NativeBenchmarkResult> {
-    return this.enqueue(async () => {
+    this.totalRequests++;
+    this.pendingIds.add(request.requestId);
+    const pending = this.enqueue(async () => {
+      this.pendingIds.delete(request.requestId);
       if (this.canceled.delete(request.requestId)) {
         return this.canceledBenchmarkResult(request.requestId);
       }
@@ -127,6 +175,13 @@ export class GenerationCoordinator {
       } finally {
         this.activeRequestId = '';
       }
+    });
+    return pending.then((result: NativeBenchmarkResult) => {
+      this.completedRequests++;
+      return result;
+    }, (error: Error) => {
+      this.failedRequests++;
+      throw error;
     });
   }
 

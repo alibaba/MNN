@@ -299,6 +299,24 @@ export class ApiServer {
       await this.sendAndClose(client, this.httpResponse(200, 'OK', body));
       return;
     }
+    if (request.method === 'GET' && request.path === '/v1/queue/status') {
+      // OpenAI-compatible queue status, matching the Android client's response shape.
+      const stats = GenerationCoordinator.getInstance().getQueueStats();
+      const message = stats.isProcessing ? '正在处理请求中' :
+        (stats.pendingRequests > 0 ? `队列中有 ${stats.pendingRequests} 个待处理请求` : '队列空闲');
+      const body = `{"status":"ok","totalRequests":${stats.totalRequests},` +
+        `"completedRequests":${stats.completedRequests},"failedRequests":${stats.failedRequests},` +
+        `"pendingRequests":${stats.pendingRequests},"isProcessing":${stats.isProcessing},` +
+        `"successRate":${stats.successRate.toFixed(2)},"message":${JSON.stringify(message)}}`;
+      await this.sendAndClose(client, this.httpResponse(200, 'OK', body));
+      return;
+    }
+    if (request.method === 'DELETE' && request.path === '/v1/queue/clear') {
+      const cleared = GenerationCoordinator.getInstance().clearPendingQueue();
+      await this.sendAndClose(client, this.httpResponse(200, 'OK',
+        `{"status":"ok","message":"队列已清空","cleared":${cleared}}`));
+      return;
+    }
     if (request.method === 'POST' && request.path === '/v1/cancel') {
       const cancel = JSON.parse(request.body) as CancelRequestDocument;
       if (!cancel.request_id) {
