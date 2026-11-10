@@ -31,6 +31,8 @@ import {
 } from '../../services/GenerationCoordinator';
 import { MediaService } from '../../services/MediaService';
 import { ReasoningParser } from '../../services/ReasoningParser';
+import { SplitFileMerger } from '../../services/SplitFileMerger';
+import { VoiceRecorderService } from '../../services/VoiceRecorderService';
 import {
   ACTIVE_MODEL_ID_KEY,
   APP_SHOW_METRICS_KEY,
@@ -63,6 +65,8 @@ export struct ChatPage {
   @State private activeModelName: string = '';
   @State private pendingAttachments: AttachmentRecord[] = [];
   @State private modelCapabilities: ModelCapabilities = new ModelCapabilities();
+  @State private recording: boolean = false;
+  @State private recordingSeconds: number = 0;
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   private messageScroller: Scroller = new Scroller();
   private nextMessageId: number = 1;
@@ -80,9 +84,14 @@ export struct ChatPage {
   private modelLoading: boolean = false;
   private runtimeSettings: ModelRuntimeSettings = new ModelRuntimeSettings();
   private nativeTarget?: NativeTarget;
+  private recordingTimerId: number = -1;
 
   aboutToAppear(): void {
     this.initialize();
+  }
+
+  aboutToDisappear(): void {
+    this.cancelRecording();
   }
 
   private onRequestedSessionChanged(): void {
@@ -221,6 +230,7 @@ export struct ChatPage {
   }
 
   private clearPendingAttachments(): void {
+    this.cancelRecording();
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.pendingAttachments.forEach((attachment: AttachmentRecord) => {
       MediaService.getInstance().deleteAttachment(context, attachment);
@@ -242,6 +252,8 @@ export struct ChatPage {
         onPickImages: () => this.pickImages(),
         onCapturePhoto: () => this.capturePhoto(),
         onPickAudio: () => this.pickAudio(),
+        recording: this.recording,
+        onToggleRecording: () => this.toggleRecording(),
         onPickVideo: () => this.pickVideo()
       }),
       autoCancel: true,
@@ -286,6 +298,53 @@ export struct ChatPage {
     }).catch((error: Error) => {
       this.error = error.message;
     });
+  }
+
+  private toggleRecording(): void {
+    if (!this.modelCapabilities.audioInput || !this.currentSessionId) {
+      return;
+    }
+    if (this.recording) {
+      this.stopRecording();
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    VoiceRecorderService.getInstance().start(context, this.currentSessionId).then(() => {
+      this.recording = true;
+      this.recordingSeconds = 0;
+      this.recordingTimerId = setInterval(() => {
+        this.recordingSeconds++;
+      }, 1000);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private stopRecording(): void {
+    this.clearRecordingTimer();
+    this.recording = false;
+    VoiceRecorderService.getInstance().stop().then((attachment: AttachmentRecord) => {
+      this.pendingAttachments = this.pendingAttachments
+        .filter((item: AttachmentRecord) => item.mediaType !== 'audio').concat([attachment]);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private cancelRecording(): void {
+    this.clearRecordingTimer();
+    if (!this.recording) {
+      return;
+    }
+    this.recording = false;
+    VoiceRecorderService.getInstance().cancel().catch(() => {});
+  }
+
+  private clearRecordingTimer(): void {
+    if (this.recordingTimerId >= 0) {
+      clearInterval(this.recordingTimerId);
+      this.recordingTimerId = -1;
+    }
   }
 
   private pickVideo(): void {
@@ -359,6 +418,10 @@ export struct ChatPage {
       const model = await ModelRepository.getInstance().getModel(targetModelId);
       if (!model || model.state !== ModelState.READY) {
         throw new Error(`模型不可用：${targetModelId}`);
+      }
+      if (SplitFileMerger.hasSplits(model.rootPath)) {
+        this.modelStatus = '正在合并模型分片';
+        await SplitFileMerger.mergeIfNeeded(model.rootPath);
       }
       const settings = await SettingsStore.getInstance().getModelRuntimeSettings(model.id);
       const safeModelId = model.id.replace(/[^a-zA-Z0-9._-]/g, '-');
@@ -969,6 +1032,28 @@ export struct ChatPage {
       }
 
       Column({ space: 10 }) {
+        if (this.recording) {
+          Row({ space: 8 }) {
+            Row()
+              .width(8)
+              .height(8)
+              .borderRadius(4)
+              .backgroundColor('#C62828')
+            Text(`录音中 ${this.recordingSeconds}s · 点击停止`)
+              .fontSize(13)
+              .fontColor('#C62828')
+              .layoutWeight(1)
+            Text('停止')
+              .fontSize(13)
+              .fontColor('#2864DC')
+          }
+          .width('100%')
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .borderRadius(10)
+          .backgroundColor('#FDECEC')
+          .onClick(() => this.stopRecording())
+        }
+
         if (this.pendingAttachments.length > 0) {
           Scroll() {
             Row({ space: 8 }) {
@@ -990,9 +1075,10 @@ export struct ChatPage {
                       .borderRadius(8)
                   }
                   Button('×')
-                    .width(22)
-                    .height(22)
-                    .fontSize(12)
+                    .width(24)
+                    .height(24)
+                    .fontSize(14)
+                    .padding(0)
                     .backgroundColor('#CC20242A')
                     .fontColor(Color.White)
                     .onClick(() => this.removePendingAttachment(index))

@@ -4,6 +4,7 @@ import fileUri from '@ohos.file.fileuri';
 import statvfs from '@ohos.file.statvfs';
 import { AppDatabase } from './AppDatabase';
 import { ModelCapabilities, ModelRecord, ModelState, ModelStorageStats } from '../domain/AppTypes';
+import { SplitFileMerger } from '../services/SplitFileMerger';
 
 const LEGACY_MODEL_ID: string = 'legacy-model';
 const MANAGED_DIRECTORY: string = '.mnnmodels';
@@ -100,6 +101,7 @@ export class ModelRepository {
       if (this.containsSymbolicLink(modelRoot)) {
         throw new Error('模型目录不能包含符号链接');
       }
+      await SplitFileMerger.mergeIfNeeded(modelRoot);
       const directoryName = this.sanitizeName(this.baseName(modelRoot));
       if (!directoryName || directoryName === TRASH_DIRECTORY || directoryName.startsWith('.partial-') ||
         directoryName.indexOf('.deleting-') >= 0) {
@@ -358,6 +360,10 @@ export class ModelRepository {
         const relativePath = reference.startsWith('./') ? reference.substring(2) : reference;
         const artifactPath = `${modelBaseRoot}/${relativePath}`;
         if (!fs.accessSync(artifactPath)) {
+          if (SplitFileMerger.coversFile(modelBaseRoot, relativePath)) {
+            // Present as split chunks; merged lazily before loading.
+            continue;
+          }
           return { valid: false, name: config.model_name || '', error: `模型文件缺失：${reference}` };
         }
         const artifactStat = fs.lstatSync(artifactPath);

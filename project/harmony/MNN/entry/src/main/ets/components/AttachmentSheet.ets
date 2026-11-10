@@ -9,9 +9,11 @@ export struct AttachmentSheet {
   controller?: CustomDialogController;
   capabilities: ModelCapabilities = new ModelCapabilities();
   sessionReady: boolean = false;
+  recording: boolean = false;
   onPickImages: () => void = () => {};
   onCapturePhoto: () => void = () => {};
   onPickAudio: () => void = () => {};
+  onToggleRecording: () => void = () => {};
   onPickVideo: () => void = () => {};
 
   private choose(action: () => void): void {
@@ -48,7 +50,12 @@ export struct AttachmentSheet {
       }
 
       if (this.capabilities.audioInput) {
-        this.option('音频文件', this.sessionReady, () => this.onPickAudio())
+        Row({ space: 10 }) {
+          this.option('音频文件', this.sessionReady, () => this.onPickAudio())
+          this.option(this.recording ? '停止录音' : '录音', this.sessionReady,
+            () => this.onToggleRecording())
+        }
+        .width('100%')
       }
 
       if (this.capabilities.videoInput) {
