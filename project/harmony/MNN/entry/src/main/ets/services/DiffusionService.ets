@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import fs from '@ohos.file.fs';
 import testNapi, { LlmDiffusionRequest } from 'libentry.so';
 import { ModelRecord } from '../domain/AppTypes';
+import { SettingsStore } from './SettingsStore';
 
 interface DiffusionConfigDocument {
   model_type?: string;
@@ -37,13 +38,14 @@ export class DiffusionService {
   async generate(context: common.UIAbilityContext, model: ModelRecord, sessionId: string, prompt: string,
     imageInput: string, onProgress: (progress: number) => void): Promise<DiffusionResult> {
     const config = this.readConfig(model.configPath);
+    const settings = await SettingsStore.getInstance().getModelRuntimeSettings(model.id);
     const directory = `${context.filesDir}/history/${this.safeName(sessionId)}`;
     if (!fs.accessSync(directory)) {
       fs.mkdirSync(directory, true);
     }
     const outputPath = `${directory}/image-${Date.now()}.png`;
-    const seed = config.diffusion_seed === undefined || config.diffusion_seed < 0 ?
-      Math.floor(Math.random() * 2147483647) : config.diffusion_seed;
+    const seed = settings.diffusionSeed < 0 ?
+      Math.floor(Math.random() * 2147483647) : settings.diffusionSeed;
     const request: LlmDiffusionRequest = {
       requestId: `diffusion:${Date.now()}`,
       resourcePath: model.rootPath,
@@ -51,10 +53,10 @@ export class DiffusionService {
       outputPath: outputPath,
       modelType: `${model.name} ${model.id}`.toLowerCase().indexOf('sana') >= 0 ? 2 : 0,
       backendType: (config.backend_type || 'cpu').toLowerCase() === 'opencl' ? 3 : 0,
-      memoryMode: Number(config.diffusion_memory_mode || '0'),
-      width: config.image_width || 512,
-      height: config.image_height || 512,
-      steps: config.diffusion_steps || 10,
+      memoryMode: settings.diffusionMemoryMode,
+      width: settings.imageWidth,
+      height: settings.imageHeight,
+      steps: settings.diffusionSteps,
       seed: seed,
       imageInput: imageInput,
       negativePrompt: '',

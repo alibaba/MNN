@@ -557,6 +557,10 @@ export struct ChatPage {
         break;
       }
     }
+    if (this.activeModelName.toLowerCase().indexOf('sana') >= 0 && !imageInput) {
+      this.error = '该模型是图像编辑模型，请先通过「+」选择一张图片';
+      return;
+    }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.error = '';
     this.metrics = '';

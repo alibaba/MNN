@@ -39,6 +39,11 @@ interface RuntimeSettingsDocument {
   penalty_window?: number;
   n_gram?: number;
   ngram_factor?: number;
+  diffusion_steps?: number;
+  image_width?: number;
+  image_height?: number;
+  diffusion_seed?: number;
+  diffusion_memory_mode?: number;
 }
 
 interface RuntimeJinjaContext {
@@ -241,6 +246,11 @@ export class SettingsStore {
     settings.penaltyWindow = this.clamp(document.penalty_window, 0, 1024, settings.penaltyWindow);
     settings.nGram = this.clamp(document.n_gram, 0, 16, settings.nGram);
     settings.nGramFactor = this.clamp(document.ngram_factor, 0, 2, settings.nGramFactor);
+    settings.diffusionSteps = this.clamp(document.diffusion_steps, 1, 50, settings.diffusionSteps);
+    settings.imageWidth = this.clamp(document.image_width, 256, 1024, settings.imageWidth);
+    settings.imageHeight = this.clamp(document.image_height, 256, 1024, settings.imageHeight);
+    settings.diffusionSeed = document.diffusion_seed === undefined ? settings.diffusionSeed : document.diffusion_seed;
+    settings.diffusionMemoryMode = this.clamp(document.diffusion_memory_mode, 0, 2, settings.diffusionMemoryMode);
     return settings;
   }
 
@@ -267,7 +277,12 @@ export class SettingsStore {
       frequency_penalty: this.clamp(settings.frequencyPenalty, 0, 2, 0),
       penalty_window: this.clamp(settings.penaltyWindow, 0, 1024, 0),
       n_gram: this.clamp(settings.nGram, 0, 16, 8),
-      ngram_factor: this.clamp(settings.nGramFactor, 0, 2, 1.02)
+      ngram_factor: this.clamp(settings.nGramFactor, 0, 2, 1.02),
+      diffusion_steps: this.clamp(settings.diffusionSteps, 1, 50, 10),
+      image_width: this.clamp(settings.imageWidth, 256, 1024, 512),
+      image_height: this.clamp(settings.imageHeight, 256, 1024, 512),
+      diffusion_seed: settings.diffusionSeed,
+      diffusion_memory_mode: this.clamp(settings.diffusionMemoryMode, 0, 2, 2)
     };
     return document;
   }

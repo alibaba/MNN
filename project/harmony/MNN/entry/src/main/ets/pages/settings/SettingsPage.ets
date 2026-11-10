@@ -30,6 +30,7 @@ export struct SettingsPage {
   @State private cacheBytes: number = 0;
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   @State private stopDownloadsOnChat: boolean = true;
+  @State private isDiffusion: boolean = false;
   private loadSequence: number = 0;
 
   aboutToAppear(): void {
@@ -176,17 +177,18 @@ export struct SettingsPage {
       return;
     }
     const sequence = ++this.loadSequence;
-    ModelRepository.getInstance().getModel(modelId).then((model) => {
+    ModelRepository.getInstance().getModel(modelId).then(async (model) => {
       const modelName = model?.name || modelId;
-      return SettingsStore.getInstance().getModelRuntimeSettings(modelId).then((settings: ModelRuntimeSettings) => {
-        if (sequence !== this.loadSequence || modelId !== this.activeModelId) {
-          return;
-        }
-        this.modelName = modelName;
-        this.settings = settings;
-        this.status = '';
-        this.error = '';
-      });
+      const capabilities = await ModelRepository.getInstance().getCapabilities(modelId);
+      const settings = await SettingsStore.getInstance().getModelRuntimeSettings(modelId);
+      if (sequence !== this.loadSequence || modelId !== this.activeModelId) {
+        return;
+      }
+      this.modelName = modelName;
+      this.isDiffusion = capabilities.diffusion;
+      this.settings = settings;
+      this.status = '';
+      this.error = '';
     }).catch((error: Error) => {
       if (sequence === this.loadSequence) {
         this.error = error.message;
@@ -218,6 +220,11 @@ export struct SettingsPage {
     copy.penaltyWindow = this.settings.penaltyWindow;
     copy.nGram = this.settings.nGram;
     copy.nGramFactor = this.settings.nGramFactor;
+    copy.diffusionSteps = this.settings.diffusionSteps;
+    copy.imageWidth = this.settings.imageWidth;
+    copy.imageHeight = this.settings.imageHeight;
+    copy.diffusionSeed = this.settings.diffusionSeed;
+    copy.diffusionMemoryMode = this.settings.diffusionMemoryMode;
     return copy;
   }
 
@@ -270,6 +277,42 @@ export struct SettingsPage {
     });
   }
 
+  private stepIndex(steps: number): number {
+    const values: number[] = [1, 2, 4, 6, 8, 10, 12, 16, 20];
+    const index = values.indexOf(steps);
+    return index >= 0 ? index : 5;
+  }
+
+  private stepAt(index: number): number {
+    const values: number[] = [1, 2, 4, 6, 8, 10, 12, 16, 20];
+    return index >= 0 && index < values.length ? values[index] : 10;
+  }
+
+  private imageSizeIndex(size: number): number {
+    const sizes: number[] = [256, 384, 512, 640, 768, 1024];
+    const index = sizes.indexOf(size);
+    return index >= 0 ? index : 2;
+  }
+
+  private imageSizeAt(index: number): number {
+    const sizes: number[] = [256, 384, 512, 640, 768, 1024];
+    return index >= 0 && index < sizes.length ? sizes[index] : 512;
+  }
+
+  private memoryModeLabel(mode: number): string {
+    if (mode === 0) {
+      return '省内存';
+    }
+    return mode === 1 ? '高性能' : '均衡';
+  }
+
+  private memoryModeIndex(mode: number): number {
+    if (mode === 0) {
+      return 0;
+    }
+    return mode === 1 ? 2 : 1;
+  }
+
   @Builder
   private settingTitle(title: string, value: string) {
     Row() {
@@ -300,6 +343,158 @@ export struct SettingsPage {
 
       Scroll() {
         Column({ space: 16 }) {
+          if (this.isDiffusion) {
+            Column({ space: 8 }) {
+              Row() {
+                Text('生成步数')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .layoutWeight(1)
+                Text(`${this.settings.diffusionSteps} 步`)
+                  .fontSize(13)
+                  .fontColor('#6B7280')
+              }
+              .width('100%')
+              Select([
+                { value: '1' },
+                { value: '2' },
+                { value: '4' },
+                { value: '6' },
+                { value: '8' },
+                { value: '10' },
+                { value: '12' },
+                { value: '16' },
+                { value: '20' }
+              ])
+                .selected(this.stepIndex(this.settings.diffusionSteps))
+                .onSelect((index: number) => {
+                  const next = this.copySettings();
+                  next.diffusionSteps = this.stepAt(index);
+                  this.settings = next;
+                })
+              Text('步数越高越慢；512×512、10 步在 CPU 上约 4 分钟，4 步约 2 分钟')
+                .fontSize(11)
+                .fontColor('#7A7F87')
+                .width('100%')
+            }
+            .width('100%')
+            .padding(14)
+            .backgroundColor(Color.White)
+            .borderRadius(12)
+
+            Column({ space: 8 }) {
+              Row() {
+                Text('输出宽度')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .layoutWeight(1)
+                Text(`${this.settings.imageWidth}`)
+                  .fontSize(13)
+                  .fontColor('#6B7280')
+              }
+              .width('100%')
+              Select([
+                { value: '256' },
+                { value: '384' },
+                { value: '512' },
+                { value: '640' },
+                { value: '768' },
+                { value: '1024' }
+              ])
+                .selected(this.imageSizeIndex(this.settings.imageWidth))
+                .onSelect((index: number) => {
+                  const next = this.copySettings();
+                  next.imageWidth = this.imageSizeAt(index);
+                  this.settings = next;
+                })
+              Row() {
+                Text('输出高度')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .layoutWeight(1)
+                Text(`${this.settings.imageHeight}`)
+                  .fontSize(13)
+                  .fontColor('#6B7280')
+              }
+              .width('100%')
+              Select([
+                { value: '256' },
+                { value: '384' },
+                { value: '512' },
+                { value: '640' },
+                { value: '768' },
+                { value: '1024' }
+              ])
+                .selected(this.imageSizeIndex(this.settings.imageHeight))
+                .onSelect((index: number) => {
+                  const next = this.copySettings();
+                  next.imageHeight = this.imageSizeAt(index);
+                  this.settings = next;
+                })
+            }
+            .width('100%')
+            .padding(14)
+            .backgroundColor(Color.White)
+            .borderRadius(12)
+
+            Column({ space: 8 }) {
+              Row() {
+                Text('随机种子')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .layoutWeight(1)
+                Text(this.settings.diffusionSeed < 0 ? '随机' : `${this.settings.diffusionSeed}`)
+                  .fontSize(13)
+                  .fontColor('#6B7280')
+              }
+              .width('100%')
+              TextInput({ text: `${this.settings.diffusionSeed}`, placeholder: '42，-1 表示每次随机' })
+                .type(InputType.Number)
+                .onChange((value: string) => {
+                  const parsed = Number(value);
+                  if (value === '' || value === '-' || Number.isNaN(parsed)) {
+                    return;
+                  }
+                  const next = this.copySettings();
+                  next.diffusionSeed = Math.trunc(parsed);
+                  this.settings = next;
+                })
+            }
+            .width('100%')
+            .padding(14)
+            .backgroundColor(Color.White)
+            .borderRadius(12)
+
+            Column({ space: 8 }) {
+              Row() {
+                Text('内存模式')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .layoutWeight(1)
+                Text(this.memoryModeLabel(this.settings.diffusionMemoryMode))
+                  .fontSize(13)
+                  .fontColor('#6B7280')
+              }
+              .width('100%')
+              Select([
+                { value: '省内存' },
+                { value: '均衡' },
+                { value: '高性能' }
+              ])
+                .selected(this.memoryModeIndex(this.settings.diffusionMemoryMode))
+                .onSelect((index: number) => {
+                  const next = this.copySettings();
+                  next.diffusionMemoryMode = index === 0 ? 0 : (index === 1 ? 2 : 1);
+                  this.settings = next;
+                })
+            }
+            .width('100%')
+            .padding(14)
+            .backgroundColor(Color.White)
+            .borderRadius(12)
+          }
+
+          if (!this.isDiffusion) {
           Column({ space: 8 }) {
             this.settingTitle('后端', this.settings.backendType === RuntimeBackendType.OPENCL ? 'OpenCL' : 'CPU')
             Select([
@@ -566,6 +761,7 @@ export struct SettingsPage {
           .padding(14)
           .backgroundColor(Color.White)
           .borderRadius(12)
+          }
 
           Column({ space: 10 }) {
             Text('应用设置')

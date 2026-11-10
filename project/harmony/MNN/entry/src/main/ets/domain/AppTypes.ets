@@ -138,6 +138,11 @@ export class ModelRuntimeSettings {
   penaltyWindow: number = 0;
   nGram: number = 8;
   nGramFactor: number = 1.02;
+  diffusionSteps: number = 10;
+  imageWidth: number = 512;
+  imageHeight: number = 512;
+  diffusionSeed: number = 42;
+  diffusionMemoryMode: number = 2;
 }
 
 export class MarketSources {
