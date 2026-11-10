@@ -6,6 +6,7 @@ import { ModelRecord, ModelState, RuntimeBackendType } from '../../domain/AppTyp
 import { AppInitializer } from '../../services/AppInitializer';
 import { BenchmarkService, BenchmarkSummary } from '../../services/BenchmarkService';
 import { GenerationCoordinator, NativeBenchmarkSample } from '../../services/GenerationCoordinator';
+import { LeaderboardOutcome, LeaderboardService } from '../../services/LeaderboardService';
 
 @Component
 export struct BenchmarkPage {
@@ -24,11 +25,62 @@ export struct BenchmarkPage {
   @State private decodeSpeed: number = 0;
   @State private summary: BenchmarkSummary = new BenchmarkSummary();
   @State private error: string = '';
+  @State private userIdText: string = '';
+  @State private submitting: boolean = false;
+  @State private leaderboardMessage: string = '';
+  @State private leaderboardFailed: boolean = false;
   private requestId: string = '';
 
   aboutToAppear(): void {
     this.benchModelId = this.activeModelId;
     this.refreshModel();
+    LeaderboardService.getInstance().userId().then((id: string) => {
+      this.userIdText = id;
+    }).catch(() => {
+    });
+  }
+
+  private submitScore(): void {
+    if (this.submitting || this.summary.samples.length === 0) {
+      return;
+    }
+    this.submitting = true;
+    this.leaderboardMessage = '正在提交…';
+    this.leaderboardFailed = false;
+    const service = LeaderboardService.getInstance();
+    service.setUserId(this.userIdText).then(() => {
+      return service.submit(this.modelName || this.summary.modelId, this.summary.meanPrefillSpeed,
+        this.summary.meanDecodeSpeed, this.summary.peakMemoryKb / 1024);
+    }).then((outcome: LeaderboardOutcome) => {
+      this.leaderboardFailed = !outcome.success;
+      this.leaderboardMessage = outcome.message;
+    }).catch((error: Error) => {
+      this.leaderboardFailed = true;
+      this.leaderboardMessage = error.message;
+    }).finally(() => {
+      this.submitting = false;
+    });
+  }
+
+  private queryRank(): void {
+    if (this.submitting || this.summary.samples.length === 0) {
+      return;
+    }
+    this.submitting = true;
+    this.leaderboardMessage = '正在查询排名…';
+    this.leaderboardFailed = false;
+    const service = LeaderboardService.getInstance();
+    service.setUserId(this.userIdText).then(() => {
+      return service.queryRank(this.modelName || this.summary.modelId);
+    }).then((outcome: LeaderboardOutcome) => {
+      this.leaderboardFailed = !outcome.success;
+      this.leaderboardMessage = outcome.message;
+    }).catch((error: Error) => {
+      this.leaderboardFailed = true;
+      this.leaderboardMessage = error.message;
+    }).finally(() => {
+      this.submitting = false;
+    });
   }
 
   private onConfigurationChanged(): void {
@@ -147,174 +199,230 @@ export struct BenchmarkPage {
   }
 
   build() {
-    Column() {
-      Text('Benchmark')
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
-        .width('100%')
-        .padding({ left: 20, right: 20, top: 18, bottom: 12 })
+    Scroll() {
+      Column() {
+        Text('Benchmark')
+          .fontSize(24)
+          .fontWeight(FontWeight.Bold)
+          .width('100%')
+          .padding({ left: 20, right: 20, top: 18, bottom: 12 })
 
-      Column({ space: 10 }) {
-        Row({ space: 6 }) {
-          Text(this.modelName || this.benchModelId)
-            .fontSize(18)
-            .fontWeight(FontWeight.Medium)
-            .layoutWeight(1)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text('▾')
-            .fontSize(14)
-            .fontColor('#6B7280')
-        }
-        .width('100%')
-        .onClick(() => this.openModelPicker())
-        Row() {
-          Text('后端')
-            .fontSize(14)
-            .layoutWeight(1)
-          Select([
-            { value: 'OpenCL' },
-            { value: 'CPU' }
-          ])
-            .selected(this.backendType === RuntimeBackendType.OPENCL ? 0 : 1)
-            .enabled(!this.running)
-            .onSelect((index: number) => {
-              this.backendType = index === 0 ? RuntimeBackendType.OPENCL : RuntimeBackendType.CPU;
-              this.summary = new BenchmarkSummary();
-            })
-        }
-        .width('100%')
-        Row({ space: 8 }) {
-          Text('PP').fontSize(13).fontColor('#6B7280')
-          TextInput({ text: this.promptTokensText })
-            .type(InputType.Number)
-            .enabled(!this.running)
-            .layoutWeight(1)
-            .onChange((value: string) => this.promptTokensText = value)
-          Text('TG').fontSize(13).fontColor('#6B7280')
-          TextInput({ text: this.generateTokensText })
-            .type(InputType.Number)
-            .enabled(!this.running)
-            .layoutWeight(1)
-            .onChange((value: string) => this.generateTokensText = value)
-          Text('轮数').fontSize(13).fontColor('#6B7280')
-          TextInput({ text: this.repeatsText })
-            .type(InputType.Number)
-            .enabled(!this.running)
-            .layoutWeight(1)
-            .onChange((value: string) => this.repeatsText = value)
-        }
-        .width('100%')
-        if (this.running) {
-          Progress({ value: this.iteration, total: this.clampInt(this.repeatsText, 3, 1, 10), type: ProgressType.Linear })
-            .width('100%')
-          Text(this.iteration === 0 ? '正在预热' :
-            `正在运行 ${this.iteration}/${this.clampInt(this.repeatsText, 3, 1, 10)}`)
-            .fontSize(14)
-            .fontColor('#2864DC')
-        }
-        Row({ space: 10 }) {
-          Button(this.running ? '停止' : (this.summary.samples.length > 0 ? '重新测试' : '开始测试'))
-            .layoutWeight(1)
-            .enabled(this.ready)
-            .fontColor(this.running ? '#C62828' : Color.White)
-            .backgroundColor(this.running ? '#FDECEC' : '#2864DC')
-            .onClick(() => this.running ? this.stop() : this.run())
-        }
-      }
-      .width('100%')
-      .padding(16)
-      .backgroundColor(Color.White)
-      .borderRadius(14)
-      .margin({ left: 16, right: 16, bottom: 14 })
-
-      if (this.running || this.iteration > 0) {
-        Row({ space: 10 }) {
-          Column({ space: 5 }) {
-            Text('Prefill')
-              .fontSize(12)
-              .fontColor('#6B7280')
-            Text(`${this.prefillSpeed.toFixed(1)} tok/s`)
+        Column({ space: 10 }) {
+          Row({ space: 6 }) {
+            Text(this.modelName || this.benchModelId)
               .fontSize(18)
-              .fontWeight(FontWeight.Bold)
-          }
-          .layoutWeight(1)
-          .padding(14)
-          .backgroundColor(Color.White)
-          .borderRadius(12)
-          Column({ space: 5 }) {
-            Text('Decode')
-              .fontSize(12)
+              .fontWeight(FontWeight.Medium)
+              .layoutWeight(1)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text('▾')
+              .fontSize(14)
               .fontColor('#6B7280')
-            Text(`${this.decodeSpeed.toFixed(1)} tok/s`)
-              .fontSize(18)
-              .fontWeight(FontWeight.Bold)
           }
-          .layoutWeight(1)
-          .padding(14)
-          .backgroundColor(Color.White)
-          .borderRadius(12)
-        }
-        .padding({ left: 16, right: 16, bottom: 14 })
-      }
-
-      if (this.summary.samples.length > 0) {
-        Column({ space: 9 }) {
-          Text(`${this.summary.backendType === RuntimeBackendType.OPENCL ? 'OpenCL' : 'CPU'} · ` +
-            (this.summary.canceled ? '测试已停止' : '测试完成'))
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .width('100%')
-          Text(`Prefill ${this.summary.meanPrefillSpeed.toFixed(1)} ± ` +
-            `${this.summary.prefillStdDev.toFixed(1)} tok/s`)
-            .fontSize(15)
-            .width('100%')
-          Text(`Decode ${this.summary.meanDecodeSpeed.toFixed(1)} ± ` +
-            `${this.summary.decodeStdDev.toFixed(1)} tok/s`)
-            .fontSize(15)
-            .width('100%')
-          Text(`测量总耗时 ${(this.summary.totalMs / 1000).toFixed(2)}s · ` +
-            `模型加载 ${(this.summary.loadMs / 1000).toFixed(2)}s`)
-            .fontSize(13)
-            .fontColor('#6B7280')
-            .width('100%')
-          if (this.summary.peakMemoryKb > 0) {
-            Text(`峰值内存 ${(this.summary.peakMemoryKb / 1024).toFixed(1)} MB`)
-              .fontSize(13)
-              .fontColor('#6B7280')
+          .width('100%')
+          .onClick(() => this.openModelPicker())
+          Row() {
+            Text('后端')
+              .fontSize(14)
+              .layoutWeight(1)
+            Select([
+              { value: 'OpenCL' },
+              { value: 'CPU' }
+            ])
+              .selected(this.backendType === RuntimeBackendType.OPENCL ? 0 : 1)
+              .enabled(!this.running)
+              .onSelect((index: number) => {
+                this.backendType = index === 0 ? RuntimeBackendType.OPENCL : RuntimeBackendType.CPU;
+                this.summary = new BenchmarkSummary();
+              })
+          }
+          .width('100%')
+          Row({ space: 8 }) {
+            Text('PP').fontSize(13).fontColor('#6B7280')
+            TextInput({ text: this.promptTokensText })
+              .type(InputType.Number)
+              .enabled(!this.running)
+              .layoutWeight(1)
+              .onChange((value: string) => this.promptTokensText = value)
+            Text('TG').fontSize(13).fontColor('#6B7280')
+            TextInput({ text: this.generateTokensText })
+              .type(InputType.Number)
+              .enabled(!this.running)
+              .layoutWeight(1)
+              .onChange((value: string) => this.generateTokensText = value)
+            Text('轮数').fontSize(13).fontColor('#6B7280')
+            TextInput({ text: this.repeatsText })
+              .type(InputType.Number)
+              .enabled(!this.running)
+              .layoutWeight(1)
+              .onChange((value: string) => this.repeatsText = value)
+          }
+          .width('100%')
+          if (this.running) {
+            Progress({ value: this.iteration, total: this.clampInt(this.repeatsText, 3, 1, 10), type: ProgressType.Linear })
               .width('100%')
+            Text(this.iteration === 0 ? '正在预热' :
+              `正在运行 ${this.iteration}/${this.clampInt(this.repeatsText, 3, 1, 10)}`)
+              .fontSize(14)
+              .fontColor('#2864DC')
           }
-          ForEach(this.summary.samples, (sample: NativeBenchmarkSample) => {
-            Text(`第 ${sample.iteration} 轮：prefill ${(sample.prefillMs > 0 ? sample.promptTokens * 1000 / sample.prefillMs : 0).toFixed(1)} tok/s · ` +
-              `decode ${(sample.decodeMs > 0 ? sample.generatedTokens * 1000 / sample.decodeMs : 0).toFixed(1)} tok/s`)
-              .fontSize(12)
-              .fontColor('#6B7280')
-              .width('100%')
-          }, (sample: NativeBenchmarkSample) => sample.iteration.toString())
-          Button('复制结果')
-            .height(34)
-            .fontSize(13)
-            .backgroundColor('#EEF3FF')
-            .fontColor('#2864DC')
-            .onClick(() => this.shareSummary())
+          Row({ space: 10 }) {
+            Button(this.running ? '停止' : (this.summary.samples.length > 0 ? '重新测试' : '开始测试'))
+              .layoutWeight(1)
+              .enabled(this.ready)
+              .fontColor(this.running ? '#C62828' : Color.White)
+              .backgroundColor(this.running ? '#FDECEC' : '#2864DC')
+              .onClick(() => this.running ? this.stop() : this.run())
+          }
         }
+        .width('100%')
         .padding(16)
         .backgroundColor(Color.White)
         .borderRadius(14)
-        .margin({ left: 16, right: 16 })
-      }
+        .margin({ left: 16, right: 16, bottom: 14 })
 
-      if (this.error) {
-        Text(`错误：${this.error}`)
-          .fontSize(13)
-          .fontColor('#C62828')
+        if (this.running || this.iteration > 0) {
+          Row({ space: 10 }) {
+            Column({ space: 5 }) {
+              Text('Prefill')
+                .fontSize(12)
+                .fontColor('#6B7280')
+              Text(`${this.prefillSpeed.toFixed(1)} tok/s`)
+                .fontSize(18)
+                .fontWeight(FontWeight.Bold)
+            }
+            .layoutWeight(1)
+            .padding(14)
+            .backgroundColor(Color.White)
+            .borderRadius(12)
+            Column({ space: 5 }) {
+              Text('Decode')
+                .fontSize(12)
+                .fontColor('#6B7280')
+              Text(`${this.decodeSpeed.toFixed(1)} tok/s`)
+                .fontSize(18)
+                .fontWeight(FontWeight.Bold)
+            }
+            .layoutWeight(1)
+            .padding(14)
+            .backgroundColor(Color.White)
+            .borderRadius(12)
+          }
+          .padding({ left: 16, right: 16, bottom: 14 })
+        }
+
+        if (this.summary.samples.length > 0) {
+          Column({ space: 9 }) {
+            Text(`${this.summary.backendType === RuntimeBackendType.OPENCL ? 'OpenCL' : 'CPU'} · ` +
+              (this.summary.canceled ? '测试已停止' : '测试完成'))
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .width('100%')
+            Text(`Prefill ${this.summary.meanPrefillSpeed.toFixed(1)} ± ` +
+              `${this.summary.prefillStdDev.toFixed(1)} tok/s`)
+              .fontSize(15)
+              .width('100%')
+            Text(`Decode ${this.summary.meanDecodeSpeed.toFixed(1)} ± ` +
+              `${this.summary.decodeStdDev.toFixed(1)} tok/s`)
+              .fontSize(15)
+              .width('100%')
+            Text(`测量总耗时 ${(this.summary.totalMs / 1000).toFixed(2)}s · ` +
+              `模型加载 ${(this.summary.loadMs / 1000).toFixed(2)}s`)
+              .fontSize(13)
+              .fontColor('#6B7280')
+              .width('100%')
+            if (this.summary.peakMemoryKb > 0) {
+              Text(`峰值内存 ${(this.summary.peakMemoryKb / 1024).toFixed(1)} MB`)
+                .fontSize(13)
+                .fontColor('#6B7280')
+                .width('100%')
+            }
+            ForEach(this.summary.samples, (sample: NativeBenchmarkSample) => {
+              Text(`第 ${sample.iteration} 轮：prefill ${(sample.prefillMs > 0 ? sample.promptTokens * 1000 / sample.prefillMs : 0).toFixed(1)} tok/s · ` +
+                `decode ${(sample.decodeMs > 0 ? sample.generatedTokens * 1000 / sample.decodeMs : 0).toFixed(1)} tok/s`)
+                .fontSize(12)
+                .fontColor('#6B7280')
+                .width('100%')
+            }, (sample: NativeBenchmarkSample) => sample.iteration.toString())
+            Button('复制结果')
+              .height(34)
+              .fontSize(13)
+              .backgroundColor('#EEF3FF')
+              .fontColor('#2864DC')
+              .onClick(() => this.shareSummary())
+          }
           .padding(16)
-      }
+          .backgroundColor(Color.White)
+          .borderRadius(14)
+          .margin({ left: 16, right: 16 })
+        }
 
-      Blank()
+        if (this.summary.samples.length > 0) {
+          Column({ space: 9 }) {
+            Text('排行榜')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .width('100%')
+            Row({ space: 10 }) {
+              Text('用户 ID')
+                .fontSize(14)
+                .fontColor('#4B5563')
+              TextInput({ text: this.userIdText, placeholder: '排行榜用户 ID' })
+                .layoutWeight(1)
+                .height(38)
+                .fontSize(13)
+                .enabled(!this.submitting)
+                .onChange((value: string) => this.userIdText = value)
+            }
+            .width('100%')
+            Text('仅提交预填充/解码速度和峰值内存，不包含聊天内容。')
+              .fontSize(11)
+              .fontColor('#7A7F87')
+              .width('100%')
+            Row({ space: 10 }) {
+              Button('提交成绩')
+                .layoutWeight(1)
+                .height(38)
+                .fontSize(13)
+                .enabled(!this.submitting)
+                .onClick(() => this.submitScore())
+              Button('查询排名')
+                .layoutWeight(1)
+                .height(38)
+                .fontSize(13)
+                .backgroundColor('#EEF3FF')
+                .fontColor('#2864DC')
+                .enabled(!this.submitting)
+                .onClick(() => this.queryRank())
+            }
+            .width('100%')
+            if (this.leaderboardMessage) {
+              Text(this.leaderboardMessage)
+                .fontSize(12)
+                .fontColor(this.leaderboardFailed ? '#C62828' : '#168653')
+                .width('100%')
+            }
+          }
+          .padding(16)
+          .backgroundColor(Color.White)
+          .borderRadius(14)
+          .margin({ left: 16, right: 16 })
+        }
+
+        if (this.error) {
+          Text(`错误：${this.error}`)
+            .fontSize(13)
+            .fontColor('#C62828')
+            .padding(16)
+        }
+      }
+      .width('100%')
+      .padding({ bottom: 20 })
+      .constraintSize({ minHeight: '100%' })
     }
     .width('100%')
     .height('100%')
     .backgroundColor('#FAFBFC')
+    .scrollBar(BarState.Off)
   }
 }
