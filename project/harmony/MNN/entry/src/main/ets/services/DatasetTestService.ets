@@ -39,6 +39,7 @@ const MAX_DATASET_BYTES: number = 32 * 1024 * 1024;
 export class DatasetTestService {
   private static instance: DatasetTestService = new DatasetTestService();
   private requestId: string = '';
+  private currentRequestId: string = '';
 
   static getInstance(): DatasetTestService {
     return DatasetTestService.instance;
@@ -81,8 +82,8 @@ export class DatasetTestService {
   }
 
   cancel(): void {
-    if (this.requestId) {
-      GenerationCoordinator.getInstance().cancel(this.requestId);
+    if (this.currentRequestId) {
+      GenerationCoordinator.getInstance().cancel(this.currentRequestId);
     }
   }
 
@@ -114,9 +115,10 @@ export class DatasetTestService {
       const item = new DatasetItemResult();
       item.index = index + 1;
       item.promptChars = prompts[index].length;
+      this.currentRequestId = `${this.requestId}:${index}`;
       try {
         const generated: NativeGenerateResult = await coordinator.generate(target, {
-          requestId: `${this.requestId}:${index}`,
+          requestId: this.currentRequestId,
           messages: [{ role: 'user', content: prompts[index] }],
           maxTokens: Math.min(MAX_ANSWER_TOKENS, settings.maxTokens)
         }, () => {
@@ -138,6 +140,7 @@ export class DatasetTestService {
       }
     }
     this.requestId = '';
+    this.currentRequestId = '';
     return result;
   }
 
