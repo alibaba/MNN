@@ -18,6 +18,7 @@ import {
   ModelState
 } from '../../domain/AppTypes';
 import { AppInitializer } from '../../services/AppInitializer';
+import { DiffusionService } from '../../services/DiffusionService';
 import { DownloadManager } from '../../services/DownloadManager';
 import {
   GenerationCoordinator,
@@ -46,6 +47,8 @@ import { ChatMessageView, MessageBubble } from '../../components/MessageBubble';
 
 const CURRENT_SESSION_KEY: string = 'current_session_id';
 const LEGACY_MODEL_ID: string = 'legacy-model';
+const DEFAULT_SANA_PROMPT: string =
+  'Convert to a Ghibli-style illustration: soft contrast, warm tones, slight linework, keep the scene consistent.';
 
 @Component
 export struct ChatPage {
@@ -67,6 +70,8 @@ export struct ChatPage {
   @State private modelCapabilities: ModelCapabilities = new ModelCapabilities();
   @State private recording: boolean = false;
   @State private recordingSeconds: number = 0;
+  @State private diffusionProgress: number = -1;
+  @State private diffusionSeconds: number = 0;
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   private messageScroller: Scroller = new Scroller();
   private nextMessageId: number = 1;
@@ -85,6 +90,7 @@ export struct ChatPage {
   private runtimeSettings: ModelRuntimeSettings = new ModelRuntimeSettings();
   private nativeTarget?: NativeTarget;
   private recordingTimerId: number = -1;
+  private diffusionTimerId: number = -1;
 
   aboutToAppear(): void {
     this.initialize();
@@ -92,6 +98,10 @@ export struct ChatPage {
 
   aboutToDisappear(): void {
     this.cancelRecording();
+    if (this.diffusionTimerId >= 0) {
+      clearInterval(this.diffusionTimerId);
+      this.diffusionTimerId = -1;
+    }
   }
 
   private onRequestedSessionChanged(): void {
@@ -424,6 +434,21 @@ export struct ChatPage {
         await SplitFileMerger.mergeIfNeeded(model.rootPath);
       }
       const settings = await SettingsStore.getInstance().getModelRuntimeSettings(model.id);
+      const capabilities = await ModelRepository.getInstance().getCapabilities(model.id);
+      this.runtimeSettings = settings;
+      this.loadedModelId = model.id;
+      this.loadedSettingsRevision = targetSettingsRevision;
+      this.activeModelName = model.name;
+      this.modelCapabilities = capabilities;
+      if (capabilities.diffusion) {
+        // Diffusion models own their text encoder; free the chat LLM so both never coexist.
+        await GenerationCoordinator.getInstance().shutdown();
+        this.nativeTarget = undefined;
+        this.isModelReady = true;
+        this.modelStatus = '图像生成模型已就绪';
+        await ModelRepository.getInstance().markUsed(model.id);
+        return;
+      }
       const safeModelId = model.id.replace(/[^a-zA-Z0-9._-]/g, '-');
       const tmpPath = `${context.cacheDir}/llm-${safeModelId}`;
       const runtimeConfigJson = SettingsStore.getInstance().createRuntimeConfigJson(settings, tmpPath);
@@ -434,14 +459,9 @@ export struct ChatPage {
       };
       const result = await GenerationCoordinator.getInstance().prepare(target) as NativeLoadResult;
       this.loadMs = result.loadMs;
-      this.runtimeSettings = settings;
       this.nativeTarget = target;
-      this.loadedModelId = model.id;
-      this.loadedSettingsRevision = targetSettingsRevision;
-      this.activeModelName = model.name;
       this.isModelReady = true;
       this.modelStatus = result.reused ? '模型已就绪' : `模型已就绪 · ${(result.loadMs / 1000).toFixed(2)}s`;
-      this.modelCapabilities = await ModelRepository.getInstance().getCapabilities(model.id);
       await ModelRepository.getInstance().markUsed(model.id);
     } finally {
       this.modelLoading = false;
@@ -516,10 +536,99 @@ export struct ChatPage {
     return history;
   }
 
+  private async runDiffusion(prompt: string): Promise<void> {
+    const sessionId = this.currentSessionId;
+    const attachments = this.pendingAttachments.slice();
+    if (!sessionId || this.isGenerating) {
+      return;
+    }
+    let input = prompt;
+    if (!input) {
+      if (attachments.length === 0) {
+        return;
+      }
+      // Editing models need a prompt; fall back to the same hint the Android client shows.
+      input = DEFAULT_SANA_PROMPT;
+    }
+    let imageInput = '';
+    for (let index = 0; index < attachments.length; index++) {
+      if (attachments[index].mediaType === 'image' && attachments[index].localPath) {
+        imageInput = attachments[index].localPath;
+        break;
+      }
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.error = '';
+    this.metrics = '';
+    this.isGenerating = true;
+    this.diffusionProgress = 0;
+    this.diffusionSeconds = 0;
+    this.diffusionTimerId = setInterval(() => {
+      this.diffusionSeconds++;
+    }, 1000);
+    this.modelStatus = '正在生成图片';
+    try {
+      const model = await ModelRepository.getInstance().getModel(this.loadedModelId || this.activeModelId);
+      if (!model) {
+        throw new Error('图像生成模型不可用');
+      }
+      const userRecord = await ChatRepository.getInstance().addMessage(
+        sessionId, MessageRole.USER, input
+      );
+      await AttachmentRepository.getInstance().save(userRecord.id, attachments);
+      const userMessage = new ChatMessageView(
+        this.nextMessageId++, userRecord.id, userRecord.role, input, userRecord.state
+      );
+      userMessage.attachments = attachments;
+      this.messages.push(userMessage);
+      this.pendingAttachments = [];
+      this.prompt = '';
+      this.followsLatest = true;
+      setTimeout(() => this.scrollToBottom(), 50);
+
+      const result = await DiffusionService.getInstance().generate(context, model, sessionId, input, imageInput,
+        (progress: number) => {
+          this.diffusionProgress = progress;
+        });
+      const attachment = new AttachmentRecord();
+      attachment.mediaType = 'image';
+      attachment.localPath = result.outputPath;
+      attachment.displayName = result.outputPath.substring(result.outputPath.lastIndexOf('/') + 1);
+      attachment.createdAt = Date.now();
+      const content = `已生成图片：${input}`;
+      const assistantRecord = await ChatRepository.getInstance().addMessage(
+        sessionId, MessageRole.ASSISTANT, content
+      );
+      await AttachmentRepository.getInstance().save(assistantRecord.id, [attachment]);
+      const assistantMessage = new ChatMessageView(
+        this.nextMessageId++, assistantRecord.id, assistantRecord.role, content, assistantRecord.state
+      );
+      assistantMessage.attachments = [attachment];
+      this.messages.push(assistantMessage);
+      this.metrics = `图片生成完成 · 耗时 ${(result.totalMs / 1000).toFixed(1)}s`;
+      this.modelStatus = '图像生成模型已就绪';
+      setTimeout(() => this.scrollToBottom(), 50);
+    } catch (error) {
+      this.error = (error as Error).message;
+      this.modelStatus = '图片生成失败';
+    } finally {
+      this.isGenerating = false;
+      this.diffusionProgress = -1;
+      if (this.diffusionTimerId >= 0) {
+        clearInterval(this.diffusionTimerId);
+        this.diffusionTimerId = -1;
+      }
+    }
+  }
+
   private async runInference(): Promise<void> {
     const input = this.prompt.trim();
     const attachments = this.pendingAttachments.slice();
     if ((!input && attachments.length === 0) || !this.isModelReady || this.isGenerating || !this.currentSessionId) {
+      return;
+    }
+    if (this.modelCapabilities.diffusion) {
+      await this.runDiffusion(input);
       return;
     }
     const displayInput = input || '已发送附件';
@@ -1032,6 +1141,20 @@ export struct ChatPage {
       }
 
       Column({ space: 10 }) {
+        if (this.diffusionProgress >= 0) {
+          Row({ space: 10 }) {
+            LoadingProgress()
+              .width(18)
+              .height(18)
+              .color('#2864DC')
+            Text(`正在生成图片 · 已等待 ${this.diffusionSeconds}s`)
+              .fontSize(13)
+              .fontColor('#2864DC')
+              .layoutWeight(1)
+          }
+          .width('100%')
+        }
+
         if (this.recording) {
           Row({ space: 8 }) {
             Row()

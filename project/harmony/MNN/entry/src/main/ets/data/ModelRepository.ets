@@ -21,6 +21,18 @@ interface ModelConfigDocument {
   is_visual?: boolean;
   is_audio?: boolean;
   has_talker?: boolean;
+  model_type?: string;
+  tokenizer?: string;
+  connector_model?: string;
+  connector_weight?: string;
+  projector_model?: string;
+  projector_weight?: string;
+  transformer_model?: string;
+  transformer_weight?: string;
+  vae_decoder_model?: string;
+  vae_decoder_weight?: string;
+  vae_encoder_model?: string;
+  vae_encoder_weight?: string;
 }
 
 interface ModelValidationResult {
@@ -207,6 +219,13 @@ export class ModelRepository {
     }
     try {
       const config = JSON.parse(fs.readTextSync(model.configPath)) as ModelConfigDocument;
+      if (config.model_type === 'diffusion') {
+        capabilities.diffusion = true;
+        // Editing-style diffusion models consume the picked image as the img2img source.
+        capabilities.vision = true;
+        capabilities.attachmentReason = '';
+        return capabilities;
+      }
       const llmConfigName = config.llm_config || 'llm_config.json';
       const llmConfigPath = `${model.rootPath}/${llmConfigName.startsWith('./') ? llmConfigName.substring(2) :
         llmConfigName}`;
@@ -342,6 +361,47 @@ export class ModelRepository {
         config.llm_weight = llmConfig.llm_weight || config.llm_weight;
         config.tokenizer_file = llmConfig.tokenizer_file || config.tokenizer_file;
         config.embedding_file = llmConfig.embedding_file || config.embedding_file;
+      }
+
+      if (config.model_type === 'diffusion') {
+        // Diffusion models use a different artifact layout (text encoder, connector, DiT, VAE)
+        // and have no top-level tokenizer.mtok, so validate against their own file list.
+        const diffusionReferences: string[] = [];
+        const candidates: (string | undefined)[] = [
+          config.llm_model, config.llm_weight, config.tokenizer,
+          config.connector_model, config.connector_weight,
+          config.projector_model, config.projector_weight,
+          config.transformer_model, config.transformer_weight,
+          config.vae_decoder_model, config.vae_decoder_weight,
+          config.vae_encoder_model, config.vae_encoder_weight
+        ];
+        candidates.forEach((candidate: string | undefined) => {
+          if (candidate) {
+            diffusionReferences.push(candidate);
+          }
+        });
+        if (diffusionReferences.length === 0) {
+          return { valid: false, name: config.model_name || '', error: '扩散模型配置缺少模型文件列表' };
+        }
+        for (let index = 0; index < diffusionReferences.length; index++) {
+          const reference = diffusionReferences[index];
+          if (!this.isSafeRelativePath(reference)) {
+            return { valid: false, name: config.model_name || '', error: `模型文件路径不安全：${reference}` };
+          }
+          const relativePath = reference.startsWith('./') ? reference.substring(2) : reference;
+          const artifactPath = `${modelBaseRoot}/${relativePath}`;
+          if (!fs.accessSync(artifactPath)) {
+            if (SplitFileMerger.coversFile(modelBaseRoot, relativePath)) {
+              continue;
+            }
+            return { valid: false, name: config.model_name || '', error: `模型文件缺失：${reference}` };
+          }
+          const artifactStat = fs.lstatSync(artifactPath);
+          if (!artifactStat.isFile() || artifactStat.size === 0) {
+            return { valid: false, name: config.model_name || '', error: `模型文件无效：${reference}` };
+          }
+        }
+        return { valid: true, name: config.model_name || '', error: '' };
       }
 
       const references: string[] = [

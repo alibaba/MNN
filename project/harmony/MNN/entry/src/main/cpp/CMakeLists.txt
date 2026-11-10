@@ -14,6 +14,8 @@ set(MNN_OPENCL ON CACHE BOOL "" FORCE)
 # Compiles MNN CV and image codecs into libMNN and defines LLM_SUPPORT_VISION, so Omni-class
 # models can load images referenced by <img>path</img> tags in the prompt.
 set(MNN_BUILD_OPENCV ON CACHE BOOL "" FORCE)
+# Builds the diffusion engine (SD/Sana/Wan) into libMNN so image generation models can run.
+set(MNN_BUILD_DIFFUSION ON CACHE BOOL "" FORCE)
 # Same codegen assumptions as the Android MnnLlmChat build: low-memory weight layout, dequant+GEMM
 # fusion, fp16 (arm82) kernels and the transformer fuse path. Without these the CPU path falls back
 # to the generic fp32 kernels and is several times slower.
@@ -32,8 +34,9 @@ add_subdirectory(${MNN_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/mnn)
 include_directories(${NATIVERENDER_ROOT_PATH}
                     ${NATIVERENDER_ROOT_PATH}/include
                     ${MNN_ROOT}/include
-                    ${MNN_ROOT}/transformers/llm/engine/include)
+                    ${MNN_ROOT}/transformers/llm/engine/include
+                    ${MNN_ROOT}/transformers/diffusion/engine/include)
 
 add_definitions(-Wno-format-security)
-add_library(entry SHARED test.cpp llm_session.cpp llm_napi.cpp)
+add_library(entry SHARED test.cpp llm_session.cpp llm_napi.cpp diffusion_session.cpp)
 target_link_libraries(entry PUBLIC MNN libace_napi.z.so libhilog_ndk.z.so)

@@ -48,6 +48,30 @@ export interface LlmBenchmarkResult {
   canceled: boolean;
 }
 
+export interface LlmDiffusionRequest {
+  requestId: string;
+  resourcePath: string;
+  prompt: string;
+  outputPath: string;
+  modelType: number;
+  backendType: number;
+  memoryMode: number;
+  width: number;
+  height: number;
+  steps: number;
+  seed: number;
+  useCfg?: boolean;
+  cfgScale?: number;
+  negativePrompt?: string;
+  imageInput?: string;
+}
+
+export interface LlmDiffusionResult {
+  requestId: string;
+  success: boolean;
+  totalMs: number;
+}
+
 export const loadLlm: (configPath: string, runtimeConfigJson: string) => Promise<LlmLoadResult>;
 export const generateLlm: (
   request: LlmGenerateRequest,
@@ -62,3 +86,7 @@ export const resetLlm: () => void;
 export const releaseLlm: () => void;
 export const getMnnVersion: () => string;
 export const dumpLlmConfig: () => string;
+export const runDiffusion: (
+  request: LlmDiffusionRequest,
+  onProgress: (progress: number) => void
+) => Promise<LlmDiffusionResult>;
