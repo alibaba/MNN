@@ -97,28 +97,46 @@ export class ProviderAdapters {
     return '';
   }
 
-  static async listFiles(model: MarketModelRecord, provider: string): Promise<ProviderFileRecord[]> {
+  static async listFiles(model: MarketModelRecord, provider: string,
+    token: string = ''): Promise<ProviderFileRecord[]> {
     const repository = ProviderAdapters.repository(model, provider);
     const parts = repository.split('/');
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
       throw new Error('模型仓库地址格式无效');
     }
     if (provider === PROVIDER_MODEL_SCOPE) {
-      return ProviderAdapters.listModelScopeFiles(repository);
+      return ProviderAdapters.listModelScopeFiles(repository, token);
     }
     if (provider === PROVIDER_HUGGING_FACE) {
-      return ProviderAdapters.listHuggingFaceFiles(repository);
+      return ProviderAdapters.listHuggingFaceFiles(repository, token);
     }
     if (provider === PROVIDER_MODELERS) {
-      return ProviderAdapters.listModelersFiles(parts[0], parts[1], '');
+      return ProviderAdapters.listModelersFiles(parts[0], parts[1], '', token);
     }
     throw new Error('不支持的模型来源');
   }
 
-  private static async listHuggingFaceFiles(repository: string): Promise<ProviderFileRecord[]> {
+  /** Headers used both by listing requests and by the download agent. */
+  static authHeaders(provider: string, token: string): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Accept-Encoding': 'identity'
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      if (provider === PROVIDER_MODEL_SCOPE) {
+        // ModelScope selects the credential via this header in addition to Bearer.
+        headers['X-ModelScope-Token'] = token;
+      }
+    }
+    return headers;
+  }
+
+  private static async listHuggingFaceFiles(repository: string, token: string): Promise<ProviderFileRecord[]> {
     const encodedRepository = ProviderAdapters.encodePath(repository);
     const documents = await ProviderAdapters.requestJson(
-      `https://huggingface.co/api/models/${encodedRepository}/tree/main?recursive=true`
+      `https://huggingface.co/api/models/${encodedRepository}/tree/main?recursive=true`,
+      PROVIDER_HUGGING_FACE, token
     ) as HfTreeDocument[];
     const files: ProviderFileRecord[] = [];
     documents.forEach((document: HfTreeDocument) => {
@@ -138,10 +156,11 @@ export class ProviderAdapters {
     return files;
   }
 
-  private static async listModelScopeFiles(repository: string): Promise<ProviderFileRecord[]> {
+  private static async listModelScopeFiles(repository: string, token: string): Promise<ProviderFileRecord[]> {
     const encodedRepository = ProviderAdapters.encodePath(repository);
     const response = await ProviderAdapters.requestJson(
-      `https://modelscope.cn/api/v1/models/${encodedRepository}/repo/files?Recursive=1`
+      `https://modelscope.cn/api/v1/models/${encodedRepository}/repo/files?Recursive=1`,
+      PROVIDER_MODEL_SCOPE, token
     ) as ModelScopeResponseDocument;
     if (!response.Success || !response.Data?.Files) {
       throw new Error(response.Message || 'ModelScope 文件列表请求失败');
@@ -163,10 +182,10 @@ export class ProviderAdapters {
   }
 
   private static async listModelersFiles(owner: string, repositoryName: string,
-    directory: string): Promise<ProviderFileRecord[]> {
+    directory: string, token: string): Promise<ProviderFileRecord[]> {
     const response = await ProviderAdapters.requestJson(
       `https://modelers.cn/api/v1/file/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}?path=` +
-        encodeURIComponent(directory)
+        encodeURIComponent(directory), PROVIDER_MODELERS, token
     ) as ModelersResponseDocument;
     if (!response.data?.tree) {
       throw new Error(response.msg || 'Modelers 文件列表请求失败');
@@ -178,7 +197,7 @@ export class ProviderAdapters {
         continue;
       }
       if (document.type === 'dir') {
-        const nested = await ProviderAdapters.listModelersFiles(owner, repositoryName, document.path);
+        const nested = await ProviderAdapters.listModelersFiles(owner, repositoryName, document.path, token);
         files.push(...nested);
         continue;
       }
@@ -193,15 +212,18 @@ export class ProviderAdapters {
     return files;
   }
 
-  private static async requestJson(url: string): Promise<Object> {
+  private static async requestJson(url: string, provider: string, token: string): Promise<Object> {
     const request = http.createHttp();
     try {
       const response = await request.request(url, {
         method: http.RequestMethod.GET,
-        header: { 'Accept': 'application/json' },
+        header: ProviderAdapters.authHeaders(provider, token),
         connectTimeout: 30000,
         readTimeout: 30000
       });
+      if (response.responseCode === 401 || response.responseCode === 403) {
+        throw new Error('仓库拒绝访问，请在设置中填写有效的私有仓库令牌');
+      }
       if (response.responseCode < 200 || response.responseCode >= 300) {
         throw new Error(`仓库请求失败：HTTP ${response.responseCode}`);
       }

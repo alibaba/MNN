@@ -10,11 +10,23 @@ import {
   RuntimeSamplerType
 } from '../../domain/AppTypes';
 import { mnnVersion } from '../../services/GenerationCoordinator';
+import { MarketAuth } from '../../services/MarketAuth';
+import {
+  PROVIDER_HUGGING_FACE,
+  PROVIDER_MODEL_SCOPE,
+  PROVIDER_MODELERS
+} from '../../services/ProviderAdapters';
 import {
   APP_SHOW_METRICS_KEY,
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
   SettingsStore
 } from '../../services/SettingsStore';
+
+class MarketTokenForm {
+  huggingFace: string = '';
+  modelScope: string = '';
+  modelers: string = '';
+}
 
 @Component
 export struct SettingsPage {
@@ -31,6 +43,7 @@ export struct SettingsPage {
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   @State private stopDownloadsOnChat: boolean = true;
   @State private isDiffusion: boolean = false;
+  @State private tokens: MarketTokenForm = new MarketTokenForm();
   private loadSequence: number = 0;
 
   aboutToAppear(): void {
@@ -43,6 +56,44 @@ export struct SettingsPage {
     });
     SettingsStore.getInstance().getBoolean(APP_STOP_DOWNLOAD_ON_CHAT_KEY, true).then((value: boolean) => {
       this.stopDownloadsOnChat = value;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+    this.loadTokens();
+  }
+
+  private copyTokens(): MarketTokenForm {
+    const next = new MarketTokenForm();
+    next.huggingFace = this.tokens.huggingFace;
+    next.modelScope = this.tokens.modelScope;
+    next.modelers = this.tokens.modelers;
+    return next;
+  }
+
+  private loadTokens(): void {
+    Promise.all([
+      MarketAuth.getToken(PROVIDER_HUGGING_FACE),
+      MarketAuth.getToken(PROVIDER_MODEL_SCOPE),
+      MarketAuth.getToken(PROVIDER_MODELERS)
+    ]).then((values: string[]) => {
+      const next = new MarketTokenForm();
+      next.huggingFace = values[0];
+      next.modelScope = values[1];
+      next.modelers = values[2];
+      this.tokens = next;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private saveTokens(): void {
+    Promise.all([
+      MarketAuth.saveToken(PROVIDER_HUGGING_FACE, this.tokens.huggingFace),
+      MarketAuth.saveToken(PROVIDER_MODEL_SCOPE, this.tokens.modelScope),
+      MarketAuth.saveToken(PROVIDER_MODELERS, this.tokens.modelers)
+    ]).then(() => {
+      this.status = '模型市场令牌已保存';
+      this.error = '';
     }).catch((error: Error) => {
       this.error = error.message;
     });
@@ -762,6 +813,50 @@ export struct SettingsPage {
           .backgroundColor(Color.White)
           .borderRadius(12)
           }
+
+          Column({ space: 8 }) {
+            Text('模型市场令牌')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#171A1F')
+              .width('100%')
+            Text('公开模型无需令牌；私有仓库需填写平台 access token，仅保存在本机。')
+              .fontSize(11)
+              .lineHeight(17)
+              .fontColor('#7A7F87')
+              .width('100%')
+            TextInput({ text: this.tokens.huggingFace, placeholder: 'HuggingFace token（hf_…）' })
+              .type(InputType.Password)
+              .onChange((value: string) => {
+                const next = this.copyTokens();
+                next.huggingFace = value;
+                this.tokens = next;
+              })
+            TextInput({ text: this.tokens.modelScope, placeholder: 'ModelScope access token' })
+              .type(InputType.Password)
+              .onChange((value: string) => {
+                const next = this.copyTokens();
+                next.modelScope = value;
+                this.tokens = next;
+              })
+            TextInput({ text: this.tokens.modelers, placeholder: 'Modelers access token' })
+              .type(InputType.Password)
+              .onChange((value: string) => {
+                const next = this.copyTokens();
+                next.modelers = value;
+                this.tokens = next;
+              })
+            Button('保存令牌')
+              .height(34)
+              .fontSize(13)
+              .backgroundColor('#EEF3FF')
+              .fontColor('#2864DC')
+              .onClick(() => this.saveTokens())
+          }
+          .width('100%')
+          .padding(14)
+          .backgroundColor(Color.White)
+          .borderRadius(12)
 
           Column({ space: 10 }) {
             Text('应用设置')

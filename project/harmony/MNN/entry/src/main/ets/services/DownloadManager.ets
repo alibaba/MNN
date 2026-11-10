@@ -11,6 +11,7 @@ import {
   ProviderFileRecord
 } from '../domain/AppTypes';
 import { BackgroundTaskKeeper } from './BackgroundTaskKeeper';
+import { MarketAuth } from './MarketAuth';
 import { ProviderAdapters } from './ProviderAdapters';
 
 export type DownloadStatusListener = (status: ModelDownloadStatus) => void;
@@ -58,7 +59,8 @@ export class DownloadManager {
       await DownloadRepository.getInstance().removeModel(modelId);
     }
 
-    const files = await ProviderAdapters.listFiles(model, provider);
+    const token = await MarketAuth.getToken(provider);
+    const files = await ProviderAdapters.listFiles(model, provider, token);
     if (files.length === 0 || !files.some((file: ProviderFileRecord) => file.relativePath === 'config.json')) {
       throw new Error('仓库缺少可下载文件或 config.json');
     }
@@ -111,7 +113,7 @@ export class DownloadManager {
           title: model.modelName,
           description: file.relativePath,
           method: 'GET',
-          headers: { 'Accept-Encoding': 'identity' },
+          headers: ProviderAdapters.authHeaders(provider, token),
           saveas: targetPath,
           overwrite: false,
           network: request.agent.Network.ANY,
@@ -218,7 +220,7 @@ export class DownloadManager {
       active.modelName = model.modelName;
       active.provider = provider;
       active.stagingRoot = `${context.filesDir}/.mnn-downloads/${this.safeName(model.modelName)}`;
-      active.files = await ProviderAdapters.listFiles(model, provider);
+      active.files = await ProviderAdapters.listFiles(model, provider, await MarketAuth.getToken(provider));
       if (active.files.length !== records.length) {
         throw new Error('仓库文件列表已变化，请取消后重新下载');
       }
