@@ -99,7 +99,7 @@ export class DownloadManager {
     active.context = context;
     active.replace = replace;
     this.active.set(modelId, active);
-    await BackgroundTaskKeeper.getInstance().acquire(context);
+    await BackgroundTaskKeeper.getInstance().acquire(context, BackgroundTaskKeeper.OWNER_DOWNLOAD);
 
     try {
       for (let index = 0; index < files.length; index++) {
@@ -166,7 +166,7 @@ export class DownloadManager {
 
   private releaseIfIdle(): void {
     if (!this.hasRunningTransfer()) {
-      BackgroundTaskKeeper.getInstance().release().catch(() => {});
+      BackgroundTaskKeeper.getInstance().release(BackgroundTaskKeeper.OWNER_DOWNLOAD).catch(() => {});
     }
   }
 
@@ -240,7 +240,7 @@ export class DownloadManager {
       }
       this.active.set(modelId, active);
     }
-    await BackgroundTaskKeeper.getInstance().acquire(context);
+    await BackgroundTaskKeeper.getInstance().acquire(context, BackgroundTaskKeeper.OWNER_DOWNLOAD);
     this.notify(active, DownloadState.DOWNLOADING);
     for (let index = 0; index < active.tasks.length; index++) {
       const task = active.tasks[index];

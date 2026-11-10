@@ -11,6 +11,7 @@ import {
   NativeTarget
 } from './GenerationCoordinator';
 import { SettingsStore } from './SettingsStore';
+import { BackgroundTaskKeeper } from './BackgroundTaskKeeper';
 
 const API_TOKEN_KEY: string = 'local_api_token';
 export const API_BIND_ALL_KEY: string = 'local_api_bind_all';
@@ -76,6 +77,7 @@ export class ApiServerStatus {
   token: string = '';
   connections: number = 0;
   queueSize: number = 0;
+  backgroundActive: boolean = false;
   requestLogs: ApiRequestLog[] = [];
 }
 
@@ -142,6 +144,9 @@ export class ApiServer {
     server.on('error', () => {
     });
     this.server = server;
+    // Keep serving requests after the app moves to the background, like the Android foreground
+    // service. The continuous task also surfaces the required system notification.
+    await BackgroundTaskKeeper.getInstance().acquire(context, BackgroundTaskKeeper.OWNER_API_SERVER);
     return this.getStatus();
   }
 
@@ -161,6 +166,7 @@ export class ApiServer {
       server.off('error');
       await server.close();
     }
+    await BackgroundTaskKeeper.getInstance().release(BackgroundTaskKeeper.OWNER_API_SERVER);
   }
 
   getStatus(): ApiServerStatus {
@@ -170,6 +176,9 @@ export class ApiServer {
     status.token = this.token;
     status.connections = this.clients.size;
     status.queueSize = GenerationCoordinator.getInstance().queueSize();
+    status.backgroundActive = this.server !== undefined &&
+      BackgroundTaskKeeper.getInstance().isRunning() &&
+      BackgroundTaskKeeper.getInstance().isHeldBy(BackgroundTaskKeeper.OWNER_API_SERVER);
     status.requestLogs = this.requestLogs.slice();
     return status;
   }

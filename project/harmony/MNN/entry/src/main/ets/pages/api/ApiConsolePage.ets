@@ -256,6 +256,14 @@ export struct ApiConsolePage {
           .fontSize(12)
           .fontColor('#6B7280')
           .width('100%')
+        if (this.status.running) {
+          Text(this.status.backgroundActive ?
+            '已申请后台运行，切到后台后仍可响应请求，系统会显示常驻通知。' :
+            '后台常驻未启用，切到后台后服务可能被系统挂起。')
+            .fontSize(11)
+            .fontColor(this.status.backgroundActive ? '#168653' : '#B26A00')
+            .width('100%')
+        }
         Row({ space: 10 }) {
           Button(this.status.running ? '停止服务' : '启动服务')
             .layoutWeight(1)

@@ -38,6 +38,11 @@
         "startWindowIcon": "$media:startIcon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
+        // Continuous-task mode used at runtime: model downloads and the local API server keep the
+        // process alive with a system notification while the app is in the background.
+        "backgroundModes": [
+          "dataTransfer"
+        ],
         "skills": [
           {
             "entities": [
