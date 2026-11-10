@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { picker } from '@kit.CoreFileKit';
 import pasteboard from '@ohos.pasteboard';
 import { ModelPickerSheet } from '../../components/ModelPickerSheet';
 import { ModelRepository } from '../../data/ModelRepository';
@@ -7,6 +8,7 @@ import { AppInitializer } from '../../services/AppInitializer';
 import { BenchmarkService, BenchmarkSummary } from '../../services/BenchmarkService';
 import { GenerationCoordinator, NativeBenchmarkSample } from '../../services/GenerationCoordinator';
 import { LeaderboardOutcome, LeaderboardService } from '../../services/LeaderboardService';
+import { DatasetItemResult, DatasetTestResult, DatasetTestService } from '../../services/DatasetTestService';
 
 @Component
 export struct BenchmarkPage {
@@ -29,6 +31,11 @@ export struct BenchmarkPage {
   @State private submitting: boolean = false;
   @State private leaderboardMessage: string = '';
   @State private leaderboardFailed: boolean = false;
+  @State private datasetName: string = '';
+  @State private datasetPrompts: string[] = [];
+  @State private datasetRunning: boolean = false;
+  @State private datasetMessage: string = '';
+  @State private datasetResult: DatasetTestResult = new DatasetTestResult();
   private requestId: string = '';
 
   aboutToAppear(): void {
@@ -60,6 +67,75 @@ export struct BenchmarkPage {
     }).finally(() => {
       this.submitting = false;
     });
+  }
+
+  private chooseDataset(): void {
+    if (this.datasetRunning) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const options = new picker.DocumentSelectOptions();
+    options.maxSelectNumber = 1;
+    options.fileSuffixFilters = ['.jsonl', '.json'];
+    new picker.DocumentViewPicker(context).select(options).then((uris: string[]) => {
+      if (uris.length === 0) {
+        return;
+      }
+      this.datasetPrompts = DatasetTestService.getInstance().readPrompts(uris[0]);
+      const slash = uris[0].lastIndexOf('/');
+      this.datasetName = slash >= 0 ? uris[0].substring(slash + 1) : uris[0];
+      this.datasetResult = new DatasetTestResult();
+      this.datasetMessage = `已加载 ${this.datasetPrompts.length} 条 prompt（最多运行 3 条）`;
+    }).catch((error: Error) => {
+      this.datasetMessage = error.message;
+    });
+  }
+
+  private runDataset(): void {
+    if (this.datasetRunning || !this.ready || this.datasetPrompts.length === 0) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.datasetRunning = true;
+    this.datasetResult = new DatasetTestResult();
+    this.datasetMessage = '正在准备模型…';
+    DatasetTestService.getInstance().run(context, this.benchModelId, this.datasetName, this.datasetPrompts,
+      (index: number, total: number) => {
+        this.datasetMessage = `正在测试 ${index}/${total}`;
+      }).then((result: DatasetTestResult) => {
+      this.datasetResult = result;
+      this.datasetMessage = result.canceled ? '测试已停止' : '测试完成';
+    }).catch((error: Error) => {
+      this.datasetMessage = error.message;
+    }).finally(() => {
+      this.datasetRunning = false;
+    });
+  }
+
+  private stopDataset(): void {
+    DatasetTestService.getInstance().cancel();
+  }
+
+  private copyDatasetResult(): void {
+    const lines: string[] = [];
+    lines.push(`Dataset: ${this.datasetResult.fileName} (${this.datasetResult.modelId})`);
+    this.datasetResult.items.forEach((item: DatasetItemResult) => {
+      const prefill = item.prefillMs > 0 ? (item.promptTokens * 1000 / item.prefillMs).toFixed(1) : '0';
+      const decode = item.decodeMs > 0 ? (item.generatedTokens * 1000 / item.decodeMs).toFixed(1) : '0';
+      lines.push(`#${item.index} prompt ${item.promptTokens} tok, prefill ${prefill} tok/s, ` +
+        `decode ${decode} tok/s`);
+      lines.push(item.error ? `error: ${item.error}` : item.output);
+    });
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, lines.join('\n'));
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.datasetMessage = '结果已复制';
+      }).catch(() => {
+        this.datasetMessage = '复制失败';
+      });
+    } catch (error) {
+      this.datasetMessage = (error as Error).message;
+    }
   }
 
   private queryRank(): void {
@@ -356,6 +432,71 @@ export struct BenchmarkPage {
           .borderRadius(14)
           .margin({ left: 16, right: 16 })
         }
+
+        Column({ space: 9 }) {
+          Text('数据集测试')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .width('100%')
+          Text('选择 JSONL 数据集文件，每行形如 {"prompt": "..."}，最多运行 3 条。')
+            .fontSize(11)
+            .fontColor('#7A7F87')
+            .width('100%')
+          Row({ space: 10 }) {
+            Button(this.datasetName || '选择数据集文件')
+              .layoutWeight(1)
+              .height(38)
+              .fontSize(13)
+              .backgroundColor('#EEF3FF')
+              .fontColor('#2864DC')
+              .enabled(!this.datasetRunning)
+              .onClick(() => this.chooseDataset())
+            Button(this.datasetRunning ? '停止' : '开始测试')
+              .layoutWeight(1)
+              .height(38)
+              .fontSize(13)
+              .fontColor(this.datasetRunning ? '#C62828' : Color.White)
+              .backgroundColor(this.datasetRunning ? '#FDECEC' : '#2864DC')
+              .enabled(this.datasetRunning || (this.ready && this.datasetPrompts.length > 0))
+              .onClick(() => this.datasetRunning ? this.stopDataset() : this.runDataset())
+          }
+          .width('100%')
+          if (this.datasetMessage) {
+            Text(this.datasetMessage)
+              .fontSize(12)
+              .fontColor('#2864DC')
+              .width('100%')
+          }
+          ForEach(this.datasetResult.items, (item: DatasetItemResult) => {
+            Column({ space: 2 }) {
+              Text(`#${item.index} · prompt ${item.promptTokens} tok · ` +
+                `prefill ${(item.prefillMs > 0 ? item.promptTokens * 1000 / item.prefillMs : 0).toFixed(1)} tok/s · ` +
+                `decode ${(item.decodeMs > 0 ? item.generatedTokens * 1000 / item.decodeMs : 0).toFixed(1)} tok/s`)
+                .fontSize(12)
+                .fontColor('#4B5563')
+                .width('100%')
+              Text(item.error ? `错误：${item.error}` : item.output)
+                .fontSize(12)
+                .fontColor(item.error ? '#C62828' : '#171A1F')
+                .maxLines(3)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+            }
+            .width('100%')
+          }, (item: DatasetItemResult) => item.index.toString())
+          if (this.datasetResult.items.length > 0) {
+            Button('复制结果')
+              .height(34)
+              .fontSize(13)
+              .backgroundColor('#EEF3FF')
+              .fontColor('#2864DC')
+              .onClick(() => this.copyDatasetResult())
+          }
+        }
+        .padding(16)
+        .backgroundColor(Color.White)
+        .borderRadius(14)
+        .margin({ left: 16, right: 16 })
 
         if (this.summary.samples.length > 0) {
           Column({ space: 9 }) {
