@@ -1,8 +1,9 @@
 #!/bin/bash
+set -euo pipefail
 
-pushd "$(dirname $0)" > /dev/null
+pushd "$(dirname "$0")" > /dev/null
 
-if [[ "$1" == "-lazy" ]] && [[ -d current ]]; then
+if [[ "${1:-}" == "-lazy" ]] && [[ -d current ]]; then
   popd > /dev/null
   echo "*** done ***"
   exit
@@ -19,7 +20,8 @@ if [ ! -e $FLATC ]; then
   cd tmp && rm -rf *
 
   # build
-  cmake .. && cmake --build . --target flatc -- -j4
+  cmake ..
+  cmake --build . --target flatc -- -j4
 
   # dir recover
   popd > /dev/null
