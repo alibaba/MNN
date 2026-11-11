@@ -2,7 +2,6 @@ import { common, Want } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import pasteboard from '@ohos.pasteboard';
 import bundleManager from '@ohos.bundle.bundleManager';
-import fs from '@ohos.file.fs';
 import { ModelRepository } from '../../data/ModelRepository';
 import {
   ModelRuntimeSettings,
@@ -15,6 +14,7 @@ import { mnnVersion } from '../../services/GenerationCoordinator';
 import { InfoSheet } from '../../components/InfoSheet';
 import { MarketAuth } from '../../services/MarketAuth';
 import { PRIVACY_POLICY_TEXT } from '../../services/PrivacyPolicy';
+import { StorageEntry, StorageService, StorageSnapshot } from '../../services/StorageService';
 import {
   PROVIDER_HUGGING_FACE,
   PROVIDER_MODEL_SCOPE,
@@ -46,7 +46,7 @@ export struct SettingsPage {
   @State private busy: boolean = false;
   @State private appVersion: string = '';
   @State private engineVersion: string = '';
-  @State private cacheBytes: number = 0;
+  @State private storage: StorageSnapshot = new StorageSnapshot();
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   @StorageLink('audioReply') private audioReply: boolean = false;
   @State private stopDownloadsOnChat: boolean = true;
@@ -85,6 +85,7 @@ export struct SettingsPage {
       this.error = error.message;
     });
     this.loadTokens();
+    this.refreshStorage();
   }
 
   private copyTokens(): MarketTokenForm {
@@ -227,51 +228,50 @@ export struct SettingsPage {
       this.appVersion = '';
     }
     this.engineVersion = mnnVersion();
-    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    this.cacheBytes = this.directorySize(context.cacheDir);
   }
 
-  private directorySize(path: string): number {
-    try {
-      let total = 0;
-      const names = fs.listFileSync(path);
-      for (let index = 0; index < names.length; index++) {
-        const child = `${path}/${names[index]}`;
-        const stat = fs.statSync(child);
-        total += stat.isDirectory() ? this.directorySize(child) : stat.size;
-      }
-      return total;
-    } catch (error) {
-      return 0;
-    }
+  private refreshStorage(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    StorageService.getInstance().snapshot(context).then((snapshot: StorageSnapshot) => {
+      this.storage = snapshot;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private clearModelCache(entry: StorageEntry): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const freed = StorageService.getInstance().clearModelCache(context, entry);
+    this.status = `已清理 ${entry.modelName} 缓存 ${this.formatBytes(freed)}`;
+    this.refreshStorage();
+  }
+
+  private clearOrphanCaches(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const freed = StorageService.getInstance().clearOrphanCaches(context, this.storage);
+    this.status = `已清理孤儿缓存 ${this.formatBytes(freed)}`;
+    this.refreshStorage();
   }
 
   private clearCache(): void {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    try {
-      const names = fs.listFileSync(context.cacheDir);
-      for (let index = 0; index < names.length; index++) {
-        const child = `${context.cacheDir}/${names[index]}`;
-        const stat = fs.statSync(child);
-        if (stat.isDirectory()) {
-          fs.rmdirSync(child);
-        } else {
-          fs.unlinkSync(child);
-        }
-      }
-      this.cacheBytes = 0;
-      this.status = '缓存已清理';
-      this.error = '';
-    } catch (error) {
-      this.error = (error as Error).message;
-    }
+    const freed = StorageService.getInstance().clearAllCaches(context);
+    this.status = `缓存已清理 ${this.formatBytes(freed)}`;
+    this.error = '';
+    this.refreshStorage();
   }
 
   private formatBytes(bytes: number): string {
     if (bytes >= 1024 * 1024 * 1024) {
       return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
     }
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    if (bytes >= 1024 * 1024) {
+      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    }
+    if (bytes >= 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${Math.max(0, bytes)} B`;
   }
 
   private onActiveModelChanged(): void {
@@ -1017,16 +1017,72 @@ export struct SettingsPage {
               .lineHeight(17)
               .fontColor($r('app.color.text_tertiary'))
               .width('100%')
-            Text(`缓存占用 ${this.formatBytes(this.cacheBytes)}`)
-              .fontSize(14)
-              .fontColor($r('app.color.text_body'))
+            Text('存储管理')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
               .width('100%')
-            Button('清理缓存')
-              .height(34)
-              .fontSize(13)
-              .backgroundColor($r('app.color.surface_muted'))
-              .fontColor($r('app.color.text_muted'))
-              .onClick(() => this.clearCache())
+            Text(`设备存储 已用 ${this.formatBytes(this.storage.totalBytes - this.storage.freeBytes)} / ` +
+              `${this.formatBytes(this.storage.totalBytes)} · 可用 ${this.formatBytes(this.storage.freeBytes)}`)
+              .fontSize(12)
+              .fontColor($r('app.color.text_secondary'))
+              .width('100%')
+            Text(`模型文件 ${this.formatBytes(this.storage.modelBytes)} · 运行缓存 ` +
+              `${this.formatBytes(this.storage.cacheBytes)} · 下载临时 ${this.formatBytes(this.storage.downloadBytes)}` +
+              (this.storage.orphanBytes > 0 ? ` · 孤儿缓存 ${this.formatBytes(this.storage.orphanBytes)}` : ''))
+              .fontSize(11)
+              .lineHeight(17)
+              .fontColor($r('app.color.text_tertiary'))
+              .width('100%')
+            ForEach(this.storage.entries, (entry: StorageEntry) => {
+              if (entry.modelBytes > 0 || entry.cacheBytes > 0) {
+                Row({ space: 8 }) {
+                  Column({ space: 2 }) {
+                    Text(entry.orphan ? `${entry.modelName}（已删除模型）` : entry.modelName)
+                      .fontSize(13)
+                      .fontColor($r('app.color.text_body'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width('100%')
+                    Text(entry.orphan ? `孤儿缓存 ${this.formatBytes(entry.cacheBytes)}` :
+                      `模型 ${this.formatBytes(entry.modelBytes)} · 缓存 ${this.formatBytes(entry.cacheBytes)}`)
+                      .fontSize(11)
+                      .fontColor($r('app.color.text_tertiary'))
+                      .width('100%')
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                  if (entry.cacheBytes > 0) {
+                    Button('清理')
+                      .height(30)
+                      .fontSize(12)
+                      .backgroundColor($r('app.color.brand_tint'))
+                      .fontColor($r('app.color.brand'))
+                      .onClick(() => this.clearModelCache(entry))
+                  }
+                }
+                .width('100%')
+              }
+            }, (entry: StorageEntry) => entry.modelId)
+            Row({ space: 10 }) {
+              if (this.storage.orphanBytes > 0) {
+                Button('清理孤儿缓存')
+                  .layoutWeight(1)
+                  .height(34)
+                  .fontSize(13)
+                  .backgroundColor($r('app.color.surface_muted'))
+                  .fontColor($r('app.color.text_muted'))
+                  .onClick(() => this.clearOrphanCaches())
+              }
+              Button('清理全部缓存')
+                .layoutWeight(1)
+                .height(34)
+                .fontSize(13)
+                .backgroundColor($r('app.color.surface_muted'))
+                .fontColor($r('app.color.text_muted'))
+                .onClick(() => this.clearCache())
+            }
+            .width('100%')
             Text(this.appVersion ? `版本 ${this.appVersion}` : '版本未知')
               .fontSize(14)
               .fontColor($r('app.color.text_body'))
