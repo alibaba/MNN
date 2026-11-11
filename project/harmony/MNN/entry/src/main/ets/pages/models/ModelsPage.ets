@@ -134,7 +134,7 @@ export struct ModelsPage {
       },
       secondaryButton: {
         value: '删除',
-        fontColor: '#C62828',
+        fontColor: $r('app.color.danger'),
         action: () => this.deleteModel(model)
       }
     });
@@ -226,20 +226,20 @@ export struct ModelsPage {
         Button('全部')
           .height(30)
           .fontSize(12)
-          .backgroundColor(this.filterKind === 'all' ? '#EEF3FF' : '#F1F3F5')
-          .fontColor(this.filterKind === 'all' ? '#2864DC' : '#5F6670')
+          .backgroundColor(this.filterKind === 'all' ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
+          .fontColor(this.filterKind === 'all' ? $r('app.color.brand') : $r('app.color.text_muted'))
           .onClick(() => this.filterKind = 'all')
         Button('视觉')
           .height(30)
           .fontSize(12)
-          .backgroundColor(this.filterKind === 'vision' ? '#EEF3FF' : '#F1F3F5')
-          .fontColor(this.filterKind === 'vision' ? '#2864DC' : '#5F6670')
+          .backgroundColor(this.filterKind === 'vision' ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
+          .fontColor(this.filterKind === 'vision' ? $r('app.color.brand') : $r('app.color.text_muted'))
           .onClick(() => this.filterKind = 'vision')
         Button('音频')
           .height(30)
           .fontSize(12)
-          .backgroundColor(this.filterKind === 'audio' ? '#EEF3FF' : '#F1F3F5')
-          .fontColor(this.filterKind === 'audio' ? '#2864DC' : '#5F6670')
+          .backgroundColor(this.filterKind === 'audio' ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
+          .fontColor(this.filterKind === 'audio' ? $r('app.color.brand') : $r('app.color.text_muted'))
           .onClick(() => this.filterKind = 'audio')
       }
       .width('100%')
@@ -248,7 +248,7 @@ export struct ModelsPage {
       Text(`模型 ${this.formatBytes(this.storage.modelBytes)} · 可用 ${this.formatBytes(this.storage.freeBytes)} / ` +
         `${this.formatBytes(this.storage.totalBytes)}`)
         .fontSize(12)
-        .fontColor('#6B7280')
+        .fontColor($r('app.color.text_secondary'))
         .width('100%')
         .padding({ left: 18, right: 18, bottom: 10 })
 
@@ -256,14 +256,14 @@ export struct ModelsPage {
         Column({ space: 6 }) {
           Text('下载中')
             .fontSize(13)
-            .fontColor('#6B7280')
+            .fontColor($r('app.color.text_secondary'))
             .width('100%')
           ForEach(this.downloadSummaries(), (item: DownloadSummary) => {
             Row({ space: 10 }) {
               Column({ space: 4 }) {
                 Text(item.modelId)
                   .fontSize(14)
-                  .fontColor('#171A1F')
+                  .fontColor($r('app.color.text_primary'))
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                 Progress({
@@ -277,19 +277,19 @@ export struct ModelsPage {
               .layoutWeight(1)
               Text(item.totalBytes > 0 ? `${((item.downloadedBytes / item.totalBytes) * 100).toFixed(1)}%` : '准备中')
                 .fontSize(12)
-                .fontColor('#6B7280')
+                .fontColor($r('app.color.text_secondary'))
               Button('取消')
                 .height(30)
                 .fontSize(12)
                 .enabled(!this.busy)
-                .backgroundColor('#FDECEC')
-                .fontColor('#C62828')
+                .backgroundColor($r('app.color.danger_tint'))
+                .fontColor($r('app.color.danger'))
                 .onClick(() => this.cancelDownload(item.modelId))
             }
             .width('100%')
             .padding(12)
             .borderRadius(12)
-            .backgroundColor(Color.White)
+            .backgroundColor($r('app.color.surface'))
           }, (item: DownloadSummary) => item.modelId)
         }
         .width('100%')
@@ -307,22 +307,22 @@ export struct ModelsPage {
                   .layoutWeight(1)
                 Text(model.state === ModelState.READY ? '可用' : '配置无效')
                   .fontSize(12)
-                  .fontColor(model.state === ModelState.READY ? '#168653' : '#C62828')
-                  .backgroundColor(model.state === ModelState.READY ? '#E9F8F0' : '#FDECEC')
+                  .fontColor(model.state === ModelState.READY ? $r('app.color.success') : $r('app.color.danger'))
+                  .backgroundColor(model.state === ModelState.READY ? $r('app.color.success_tint') : $r('app.color.danger_tint'))
                   .padding({ left: 9, right: 9, top: 4, bottom: 4 })
                   .borderRadius(10)
               }
               Text(model.configPath)
                 .fontSize(12)
-                .fontColor('#6B7280')
+                .fontColor($r('app.color.text_secondary'))
                 .maxLines(2)
               Text(this.formatBytes(model.sizeBytes))
                 .fontSize(12)
-                .fontColor('#6B7280')
+                .fontColor($r('app.color.text_secondary'))
               if (model.isProtected) {
                 Text('内置沙箱模型 · 受保护，不会被移动或清理')
                   .fontSize(12)
-                  .fontColor('#2864DC')
+                  .fontColor($r('app.color.brand'))
               }
               Row({ space: 8 }) {
                 Button(model.isPinned ? '取消置顶' : '置顶')
@@ -339,15 +339,15 @@ export struct ModelsPage {
                   .height(32)
                   .fontSize(12)
                   .enabled(!this.busy && !model.isProtected && !model.isLegacy && this.activeModelId !== model.id)
-                  .backgroundColor('#FDECEC')
-                  .fontColor('#C62828')
+                  .backgroundColor($r('app.color.danger_tint'))
+                  .fontColor($r('app.color.danger'))
                   .onClick(() => this.confirmDelete(model))
               }
             }
             .alignItems(HorizontalAlign.Start)
             .padding(16)
             .borderRadius(14)
-            .backgroundColor(Color.White)
+            .backgroundColor($r('app.color.surface'))
           }
         }, (model: ModelRecord) => model.id)
       }
@@ -357,12 +357,12 @@ export struct ModelsPage {
       if (this.error) {
         Text(`错误：${this.error}`)
           .fontSize(13)
-          .fontColor('#C62828')
+          .fontColor($r('app.color.danger'))
           .padding(16)
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FAFBFC')
+    .backgroundColor($r('app.color.background'))
   }
 }

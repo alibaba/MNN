@@ -161,7 +161,7 @@ export struct ApiConsolePage {
             .layoutWeight(1)
           Text(this.status.running ? '运行中' : '已停止')
             .fontSize(14)
-            .fontColor(this.status.running ? '#168653' : '#6B7280')
+            .fontColor(this.status.running ? $r('app.color.success') : $r('app.color.text_secondary'))
         }
         Row() {
           Text('监听地址')
@@ -170,11 +170,11 @@ export struct ApiConsolePage {
           Text(this.status.running ?
             `${this.addressScheme()}://${this.status.address}:${this.status.port}` : '127.0.0.1')
             .fontSize(14)
-            .fontColor('#4B5563')
+            .fontColor($r('app.color.text_body'))
           if (this.status.running) {
             Button('复制')
               .fontSize(12)
-              .fontColor('#2864DC')
+              .fontColor($r('app.color.brand'))
               .backgroundColor(Color.Transparent)
               .height(28)
               .padding(0)
@@ -192,23 +192,23 @@ export struct ApiConsolePage {
             .layoutWeight(1)
           Text(this.bindAll ? '局域网' : '仅本机')
             .fontSize(14)
-            .fontColor('#4B5563')
+            .fontColor($r('app.color.text_body'))
         }
         Row({ space: 10 }) {
           Button('仅本机')
             .layoutWeight(1)
             .height(34)
             .fontSize(13)
-            .backgroundColor(this.bindAll ? '#F1F3F5' : '#EEF3FF')
-            .fontColor(this.bindAll ? '#5F6670' : '#2864DC')
+            .backgroundColor(this.bindAll ? $r('app.color.surface_muted') : $r('app.color.brand_tint'))
+            .fontColor(this.bindAll ? $r('app.color.text_muted') : $r('app.color.brand'))
             .enabled(!this.status.running && !this.busy)
             .onClick(() => this.bindAll = false)
           Button('局域网')
             .layoutWeight(1)
             .height(34)
             .fontSize(13)
-            .backgroundColor(this.bindAll ? '#EEF3FF' : '#F1F3F5')
-            .fontColor(this.bindAll ? '#2864DC' : '#5F6670')
+            .backgroundColor(this.bindAll ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
+            .fontColor(this.bindAll ? $r('app.color.brand') : $r('app.color.text_muted'))
             .enabled(!this.status.running && !this.busy)
             .onClick(() => this.bindAll = true)
         }
@@ -222,7 +222,7 @@ export struct ApiConsolePage {
         }
         Text('API Key')
           .fontSize(13)
-          .fontColor('#6B7280')
+          .fontColor($r('app.color.text_secondary'))
           .width('100%')
         TextInput({ text: this.tokenText, placeholder: '留空则由服务自动生成' })
           .enabled(!this.busy)
@@ -250,26 +250,26 @@ export struct ApiConsolePage {
         }
         Text('仅影响展示与复制的地址；服务本身仍是 HTTP，需要 TLS 时请在前面加反向代理。')
           .fontSize(11)
-          .fontColor('#7A7F87')
+          .fontColor($r('app.color.text_tertiary'))
           .width('100%')
         Text(`模型：${this.activeModelId} · 连接：${this.status.connections} · 队列：${this.status.queueSize}`)
           .fontSize(12)
-          .fontColor('#6B7280')
+          .fontColor($r('app.color.text_secondary'))
           .width('100%')
         if (this.status.running) {
           Text(this.status.backgroundActive ?
             '已申请后台运行，切到后台后仍可响应请求，系统会显示常驻通知。' :
             '后台常驻未启用，切到后台后服务可能被系统挂起。')
             .fontSize(11)
-            .fontColor(this.status.backgroundActive ? '#168653' : '#B26A00')
+            .fontColor(this.status.backgroundActive ? $r('app.color.success') : $r('app.color.warning'))
             .width('100%')
         }
         Row({ space: 10 }) {
           Button(this.status.running ? '停止服务' : '启动服务')
             .layoutWeight(1)
             .enabled(!this.busy)
-            .fontColor(this.status.running ? '#C62828' : Color.White)
-            .backgroundColor(this.status.running ? '#FDECEC' : '#2864DC')
+            .fontColor(this.status.running ? $r('app.color.danger') : Color.White)
+            .backgroundColor(this.status.running ? $r('app.color.danger_tint') : $r('app.color.brand'))
             .onClick(() => this.status.running ? this.stop() : this.start())
           Button('刷新状态')
             .layoutWeight(1)
@@ -280,20 +280,20 @@ export struct ApiConsolePage {
           Button('保存设置')
             .layoutWeight(1)
             .enabled(!this.busy)
-            .backgroundColor('#EEF3FF')
-            .fontColor('#2864DC')
+            .backgroundColor($r('app.color.brand_tint'))
+            .fontColor($r('app.color.brand'))
             .onClick(() => this.saveApiSettings())
           Button('重置')
             .layoutWeight(1)
             .enabled(!this.busy)
-            .backgroundColor('#F1F3F5')
-            .fontColor('#5F6670')
+            .backgroundColor($r('app.color.surface_muted'))
+            .fontColor($r('app.color.text_muted'))
             .onClick(() => this.resetApiSettings())
         }
       }
       .width('100%')
       .padding(16)
-      .backgroundColor(Color.White)
+      .backgroundColor($r('app.color.surface'))
       .borderRadius(14)
       .margin({ left: 16, right: 16, bottom: 14 })
 
@@ -311,11 +311,11 @@ export struct ApiConsolePage {
           '仅监听 127.0.0.1，默认要求 Bearer Token；HDC 转发后仍需鉴权。')
           .fontSize(12)
           .lineHeight(19)
-          .fontColor('#6B7280')
+          .fontColor($r('app.color.text_secondary'))
       }
       .width('100%')
       .padding(16)
-      .backgroundColor(Color.White)
+      .backgroundColor($r('app.color.surface'))
       .borderRadius(14)
       .margin({ left: 16, right: 16 })
 
@@ -334,13 +334,13 @@ export struct ApiConsolePage {
         if (this.status.requestLogs.length === 0) {
           Text('暂无请求，服务启动后在这里查看最近的 20 条记录')
             .fontSize(12)
-            .fontColor('#6B7280')
+            .fontColor($r('app.color.text_secondary'))
             .width('100%')
         } else {
           ForEach(this.status.requestLogs, (log: ApiRequestLog) => {
             Text(`${log.time}  ${log.method} ${log.path}  → ${log.status}  ${log.durationMs}ms`)
               .fontSize(12)
-              .fontColor(log.status >= 400 ? '#C62828' : '#303640')
+              .fontColor(log.status >= 400 ? $r('app.color.danger') : $r('app.color.text_body_alt'))
               .fontFamily('monospace')
               .width('100%')
               .maxLines(1)
@@ -350,14 +350,14 @@ export struct ApiConsolePage {
       }
       .width('100%')
       .padding(16)
-      .backgroundColor(Color.White)
+      .backgroundColor($r('app.color.surface'))
       .borderRadius(14)
       .margin({ left: 16, right: 16, bottom: 14 })
 
       if (this.error) {
         Text(`错误：${this.error}`)
           .fontSize(13)
-          .fontColor('#C62828')
+          .fontColor($r('app.color.danger'))
           .padding(16)
       }
       }
@@ -366,7 +366,7 @@ export struct ApiConsolePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FAFBFC')
+    .backgroundColor($r('app.color.background'))
     .scrollBar(BarState.Auto)
   }
 }

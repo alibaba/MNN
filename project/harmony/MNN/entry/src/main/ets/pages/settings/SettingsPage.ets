@@ -465,7 +465,7 @@ export struct SettingsPage {
         .layoutWeight(1)
       Text(value)
         .fontSize(13)
-        .fontColor('#6B7280')
+        .fontColor($r('app.color.text_secondary'))
     }
     .width('100%')
   }
@@ -479,7 +479,7 @@ export struct SettingsPage {
           .width('100%')
         Text(this.modelName || this.activeModelId)
           .fontSize(13)
-          .fontColor('#6B7280')
+          .fontColor($r('app.color.text_secondary'))
           .width('100%')
       }
       .padding({ left: 20, right: 20, top: 18, bottom: 12 })
@@ -495,7 +495,7 @@ export struct SettingsPage {
                   .layoutWeight(1)
                 Text(`${this.settings.diffusionSteps} 步`)
                   .fontSize(13)
-                  .fontColor('#6B7280')
+                  .fontColor($r('app.color.text_secondary'))
               }
               .width('100%')
               Select([
@@ -517,12 +517,12 @@ export struct SettingsPage {
                 })
               Text('步数越高越慢；512×512、10 步在 CPU 上约 4 分钟，4 步约 2 分钟')
                 .fontSize(11)
-                .fontColor('#7A7F87')
+                .fontColor($r('app.color.text_tertiary'))
                 .width('100%')
             }
             .width('100%')
             .padding(14)
-            .backgroundColor(Color.White)
+            .backgroundColor($r('app.color.surface'))
             .borderRadius(12)
 
             Column({ space: 8 }) {
@@ -533,7 +533,7 @@ export struct SettingsPage {
                   .layoutWeight(1)
                 Text(`${this.settings.imageWidth}`)
                   .fontSize(13)
-                  .fontColor('#6B7280')
+                  .fontColor($r('app.color.text_secondary'))
               }
               .width('100%')
               Select([
@@ -557,7 +557,7 @@ export struct SettingsPage {
                   .layoutWeight(1)
                 Text(`${this.settings.imageHeight}`)
                   .fontSize(13)
-                  .fontColor('#6B7280')
+                  .fontColor($r('app.color.text_secondary'))
               }
               .width('100%')
               Select([
@@ -577,7 +577,7 @@ export struct SettingsPage {
             }
             .width('100%')
             .padding(14)
-            .backgroundColor(Color.White)
+            .backgroundColor($r('app.color.surface'))
             .borderRadius(12)
 
             Column({ space: 8 }) {
@@ -588,7 +588,7 @@ export struct SettingsPage {
                   .layoutWeight(1)
                 Text(this.settings.diffusionSeed < 0 ? '随机' : `${this.settings.diffusionSeed}`)
                   .fontSize(13)
-                  .fontColor('#6B7280')
+                  .fontColor($r('app.color.text_secondary'))
               }
               .width('100%')
               TextInput({ text: `${this.settings.diffusionSeed}`, placeholder: '42，-1 表示每次随机' })
@@ -605,7 +605,7 @@ export struct SettingsPage {
             }
             .width('100%')
             .padding(14)
-            .backgroundColor(Color.White)
+            .backgroundColor($r('app.color.surface'))
             .borderRadius(12)
 
             Column({ space: 8 }) {
@@ -616,7 +616,7 @@ export struct SettingsPage {
                   .layoutWeight(1)
                 Text(this.memoryModeLabel(this.settings.diffusionMemoryMode))
                   .fontSize(13)
-                  .fontColor('#6B7280')
+                  .fontColor($r('app.color.text_secondary'))
               }
               .width('100%')
               Select([
@@ -633,7 +633,7 @@ export struct SettingsPage {
             }
             .width('100%')
             .padding(14)
-            .backgroundColor(Color.White)
+            .backgroundColor($r('app.color.surface'))
             .borderRadius(12)
           }
 
@@ -653,7 +653,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Column({ space: 8 }) {
@@ -667,7 +667,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Column({ space: 8 }) {
@@ -688,7 +688,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Column({ space: 8 }) {
@@ -709,7 +709,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Row() {
@@ -725,7 +725,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Row() {
@@ -741,7 +741,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Row() {
@@ -757,7 +757,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Column({ space: 8 }) {
@@ -771,7 +771,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Column({ space: 8 }) {
@@ -801,7 +801,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Column({ space: 8 }) {
@@ -884,7 +884,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Column({ space: 8 }) {
@@ -902,7 +902,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
           }
 
@@ -910,12 +910,12 @@ export struct SettingsPage {
             Text('模型市场令牌')
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
-              .fontColor('#171A1F')
+              .fontColor($r('app.color.text_primary'))
               .width('100%')
             Text('公开模型无需令牌；私有仓库需填写平台 access token，仅保存在本机。')
               .fontSize(11)
               .lineHeight(17)
-              .fontColor('#7A7F87')
+              .fontColor($r('app.color.text_tertiary'))
               .width('100%')
             TextInput({ text: this.tokens.huggingFace, placeholder: 'HuggingFace token（hf_…）' })
               .type(InputType.Password)
@@ -941,20 +941,20 @@ export struct SettingsPage {
             Button('保存令牌')
               .height(34)
               .fontSize(13)
-              .backgroundColor('#EEF3FF')
-              .fontColor('#2864DC')
+              .backgroundColor($r('app.color.brand_tint'))
+              .fontColor($r('app.color.brand'))
               .onClick(() => this.saveTokens())
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Column({ space: 10 }) {
             Text('应用设置')
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
-              .fontColor('#171A1F')
+              .fontColor($r('app.color.text_primary'))
               .width('100%')
             Row() {
               Text('显示性能指标')
@@ -983,7 +983,7 @@ export struct SettingsPage {
             Text('仅对带 talker 的 Omni 模型生效；体积较大的模型合成语音时可能超出系统内存限制')
               .fontSize(11)
               .lineHeight(17)
-              .fontColor('#7A7F87')
+              .fontColor($r('app.color.text_tertiary'))
               .width('100%')
             Row() {
               Text('视频采样帧数')
@@ -1015,56 +1015,56 @@ export struct SettingsPage {
             Text('帧数和尺寸越大理解越准，但视频首字延迟越高；默认 4 帧 / 320px')
               .fontSize(11)
               .lineHeight(17)
-              .fontColor('#7A7F87')
+              .fontColor($r('app.color.text_tertiary'))
               .width('100%')
             Text(`缓存占用 ${this.formatBytes(this.cacheBytes)}`)
               .fontSize(14)
-              .fontColor('#4B5563')
+              .fontColor($r('app.color.text_body'))
               .width('100%')
             Button('清理缓存')
               .height(34)
               .fontSize(13)
-              .backgroundColor('#F1F3F5')
-              .fontColor('#5F6670')
+              .backgroundColor($r('app.color.surface_muted'))
+              .fontColor($r('app.color.text_muted'))
               .onClick(() => this.clearCache())
             Text(this.appVersion ? `版本 ${this.appVersion}` : '版本未知')
               .fontSize(14)
-              .fontColor('#4B5563')
+              .fontColor($r('app.color.text_body'))
               .width('100%')
             Text(this.engineVersion ? `MNN 引擎 ${this.engineVersion}` : 'MNN 引擎版本未知')
               .fontSize(13)
-              .fontColor('#6B7280')
+              .fontColor($r('app.color.text_secondary'))
               .width('100%')
             Row({ space: 10 }) {
               Button('检查更新')
                 .layoutWeight(1)
                 .height(34)
                 .fontSize(13)
-                .backgroundColor('#EEF3FF')
-                .fontColor('#2864DC')
+                .backgroundColor($r('app.color.brand_tint'))
+                .fontColor($r('app.color.brand'))
                 .onClick(() => this.checkForUpdate())
               Button('关于')
                 .layoutWeight(1)
                 .height(34)
                 .fontSize(13)
-                .backgroundColor('#F1F3F5')
-                .fontColor('#5F6670')
+                .backgroundColor($r('app.color.surface_muted'))
+                .fontColor($r('app.color.text_muted'))
                 .onClick(() => this.showAbout())
             }
             .width('100%')
             Text('隐私政策')
               .fontSize(13)
-              .fontColor('#2864DC')
+              .fontColor($r('app.color.brand'))
               .onClick(() => this.showPrivacyPolicy())
             Text('聊天记录、模型与配置仅保存在本机；API 服务只在启动后监听本机或局域网。')
               .fontSize(12)
               .lineHeight(19)
-              .fontColor('#6B7280')
+              .fontColor($r('app.color.text_secondary'))
               .width('100%')
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(12)
 
           Row({ space: 10 }) {
@@ -1076,20 +1076,20 @@ export struct SettingsPage {
               .layoutWeight(1)
               .enabled(!this.busy)
               .fontColor(Color.White)
-              .backgroundColor('#2864DC')
+              .backgroundColor($r('app.color.brand'))
               .onClick(() => this.save())
           }
 
           if (this.status) {
             Text(this.status)
               .fontSize(13)
-              .fontColor('#168653')
+              .fontColor($r('app.color.success'))
               .width('100%')
           }
           if (this.error) {
             Text(`错误：${this.error}`)
               .fontSize(13)
-              .fontColor('#C62828')
+              .fontColor($r('app.color.danger'))
               .width('100%')
           }
         }
@@ -1099,6 +1099,6 @@ export struct SettingsPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FAFBFC')
+    .backgroundColor($r('app.color.background'))
   }
 }

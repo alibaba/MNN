@@ -10,11 +10,11 @@ export struct ReasoningPanel {
         Text(this.isThinking ? '正在思考' : '思考过程')
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
-          .fontColor('#5F6670')
+          .fontColor($r('app.color.text_muted'))
           .layoutWeight(1)
         Text(this.expanded ? '收起' : '展开')
           .fontSize(12)
-          .fontColor('#2864DC')
+          .fontColor($r('app.color.brand'))
       }
       .width('100%')
       .onClick(() => {
@@ -25,7 +25,7 @@ export struct ReasoningPanel {
         Text(this.reasoning)
           .fontSize(14)
           .lineHeight(21)
-          .fontColor('#606771')
+          .fontColor($r('app.color.text_hint'))
           .width('100%')
           .copyOption(CopyOptions.LocalDevice)
       }
@@ -33,6 +33,6 @@ export struct ReasoningPanel {
     .width('100%')
     .padding(10)
     .borderRadius(10)
-    .backgroundColor('#E9ECF1')
+    .backgroundColor($r('app.color.divider_soft'))
   }
 }

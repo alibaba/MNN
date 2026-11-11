@@ -15,13 +15,13 @@ export struct PrivacyPolicySheet {
       Text('隐私政策')
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
-        .fontColor('#171A1F')
+        .fontColor($r('app.color.text_primary'))
         .width('100%')
       Scroll() {
         Text(PRIVACY_POLICY_TEXT)
           .fontSize(14)
           .lineHeight(22)
-          .fontColor('#303640')
+          .fontColor($r('app.color.text_body_alt'))
           .width('100%')
       }
       .height(330)
@@ -33,8 +33,8 @@ export struct PrivacyPolicySheet {
           .layoutWeight(1)
           .height(42)
           .fontSize(14)
-          .fontColor('#5F6670')
-          .backgroundColor('#F1F3F5')
+          .fontColor($r('app.color.text_muted'))
+          .backgroundColor($r('app.color.surface_muted'))
           .onClick(() => {
             this.controller?.close();
             this.onDecline();
@@ -44,7 +44,7 @@ export struct PrivacyPolicySheet {
           .height(42)
           .fontSize(14)
           .fontColor(Color.White)
-          .backgroundColor('#2864DC')
+          .backgroundColor($r('app.color.brand'))
           .onClick(() => {
             this.controller?.close();
             this.onAgree();
@@ -54,7 +54,7 @@ export struct PrivacyPolicySheet {
     }
     .width('100%')
     .padding(20)
-    .backgroundColor(Color.White)
+    .backgroundColor($r('app.color.surface'))
     .borderRadius(16)
   }
 }

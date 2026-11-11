@@ -93,8 +93,8 @@ export struct HistoryPage {
           Button('保存')
             .onClick(() => this.saveRename())
           Button('取消')
-            .backgroundColor('#EEF0F3')
-            .fontColor('#4B5563')
+            .backgroundColor($r('app.color.divider_alt'))
+            .fontColor($r('app.color.text_body'))
             .onClick(() => {
               this.renameId = '';
             })
@@ -106,10 +106,10 @@ export struct HistoryPage {
         Column({ space: 10 }) {
           Text('暂无历史对话')
             .fontSize(18)
-            .fontColor('#4B5563')
+            .fontColor($r('app.color.text_body'))
           Text('在聊天页发送第一条消息后，会话会自动保存在本机。')
             .fontSize(14)
-            .fontColor('#8A9099')
+            .fontColor($r('app.color.text_tertiary_alt'))
             .textAlign(TextAlign.Center)
         }
         .layoutWeight(1)
@@ -124,11 +124,11 @@ export struct HistoryPage {
                   Text(session.title)
                     .fontSize(16)
                     .fontWeight(FontWeight.Medium)
-                    .fontColor('#20242A')
+                    .fontColor($r('app.color.avatar_user'))
                     .maxLines(1)
                   Text(`${new Date(session.updatedAt).toLocaleString()} · ${session.modelId}`)
                     .fontSize(12)
-                    .fontColor('#7A7F87')
+                    .fontColor($r('app.color.text_tertiary'))
                 }
                 .alignItems(HorizontalAlign.Start)
                 .layoutWeight(1)
@@ -137,20 +137,20 @@ export struct HistoryPage {
                 Button('重命名')
                   .height(32)
                   .fontSize(12)
-                  .backgroundColor('#EEF3FF')
-                  .fontColor('#2864DC')
+                  .backgroundColor($r('app.color.brand_tint'))
+                  .fontColor($r('app.color.brand'))
                   .onClick(() => this.beginRename(session))
                 Button('删除')
                   .height(32)
                   .fontSize(12)
                   .enabled(this.requestedSessionId !== session.id)
-                  .backgroundColor('#FDECEC')
-                  .fontColor('#C62828')
+                  .backgroundColor($r('app.color.danger_tint'))
+                  .fontColor($r('app.color.danger'))
                   .onClick(() => this.deleteSession(session.id))
               }
               .padding(14)
               .borderRadius(12)
-              .backgroundColor(Color.White)
+              .backgroundColor($r('app.color.surface'))
             }
           }, (session: ChatSessionRecord) => session.id)
         }
@@ -161,12 +161,12 @@ export struct HistoryPage {
       if (this.error) {
         Text(`错误：${this.error}`)
           .fontSize(13)
-          .fontColor('#C62828')
+          .fontColor($r('app.color.danger'))
           .padding(16)
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FAFBFC')
+    .backgroundColor($r('app.color.background'))
   }
 }

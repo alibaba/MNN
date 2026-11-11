@@ -351,8 +351,8 @@ export struct MarketPage {
         Button('复制错误')
           .height(34)
           .fontSize(12)
-          .backgroundColor('#F1F3F5')
-          .fontColor('#5F6670')
+          .backgroundColor($r('app.color.surface_muted'))
+          .fontColor($r('app.color.text_muted'))
           .onClick(() => this.copyErrorInfo(model))
       }
     } else if (this.isInstalled(model)) {
@@ -360,8 +360,8 @@ export struct MarketPage {
         Button('更新')
           .height(34)
           .fontSize(12)
-          .backgroundColor('#FFF4E5')
-          .fontColor('#B26A00')
+          .backgroundColor($r('app.color.warning_tint'))
+          .fontColor($r('app.color.warning'))
           .onClick(() => this.startDownload(model, true))
       } else {
         Button('已安装')
@@ -398,8 +398,8 @@ export struct MarketPage {
           Button(item)
             .height(32)
             .fontSize(11)
-            .fontColor(this.provider === item ? Color.White : '#2864DC')
-            .backgroundColor(this.provider === item ? '#2864DC' : '#EEF3FF')
+            .fontColor(this.provider === item ? Color.White : $r('app.color.brand'))
+            .backgroundColor(this.provider === item ? $r('app.color.brand') : $r('app.color.brand_tint'))
             .onClick(() => {
               this.provider = item;
               this.applyFilters();
@@ -422,8 +422,8 @@ export struct MarketPage {
           Button('全部')
             .height(30)
             .fontSize(11)
-            .fontColor(this.selectedTag ? '#2864DC' : Color.White)
-            .backgroundColor(this.selectedTag ? '#EEF3FF' : '#2864DC')
+            .fontColor(this.selectedTag ? $r('app.color.brand') : Color.White)
+            .backgroundColor(this.selectedTag ? $r('app.color.brand_tint') : $r('app.color.brand'))
             .onClick(() => {
               this.selectedTag = '';
               this.applyFilters();
@@ -432,8 +432,8 @@ export struct MarketPage {
             Button(tag)
               .height(30)
               .fontSize(11)
-              .fontColor(this.selectedTag === tag ? Color.White : '#2864DC')
-              .backgroundColor(this.selectedTag === tag ? '#2864DC' : '#EEF3FF')
+              .fontColor(this.selectedTag === tag ? Color.White : $r('app.color.brand'))
+              .backgroundColor(this.selectedTag === tag ? $r('app.color.brand') : $r('app.color.brand_tint'))
               .onClick(() => {
                 this.selectedTag = tag;
                 this.applyFilters();
@@ -451,8 +451,8 @@ export struct MarketPage {
           Button('全部厂商')
             .height(30)
             .fontSize(11)
-            .fontColor(this.selectedVendor ? '#2864DC' : Color.White)
-            .backgroundColor(this.selectedVendor ? '#EEF3FF' : '#2864DC')
+            .fontColor(this.selectedVendor ? $r('app.color.brand') : Color.White)
+            .backgroundColor(this.selectedVendor ? $r('app.color.brand_tint') : $r('app.color.brand'))
             .onClick(() => {
               this.selectedVendor = '';
               this.applyFilters();
@@ -461,8 +461,8 @@ export struct MarketPage {
             Button(vendor)
               .height(30)
               .fontSize(11)
-              .fontColor(this.selectedVendor === vendor ? Color.White : '#2864DC')
-              .backgroundColor(this.selectedVendor === vendor ? '#2864DC' : '#EEF3FF')
+              .fontColor(this.selectedVendor === vendor ? Color.White : $r('app.color.brand'))
+              .backgroundColor(this.selectedVendor === vendor ? $r('app.color.brand') : $r('app.color.brand_tint'))
               .onClick(() => {
                 this.selectedVendor = vendor;
                 this.applyFilters();
@@ -486,22 +486,22 @@ export struct MarketPage {
                   .layoutWeight(1)
                 Text(model.vendor)
                   .fontSize(11)
-                  .fontColor('#6B7280')
+                  .fontColor($r('app.color.text_secondary'))
               }
               if (model.description) {
                 Text(model.description)
                   .fontSize(12)
-                  .fontColor('#5F6670')
+                  .fontColor($r('app.color.text_muted'))
                   .maxLines(2)
               }
               Text(`${model.sizeB}B · ${this.formatBytes(model.fileSize)} · ${model.tags.join(' · ')}`)
                 .fontSize(11)
-                .fontColor('#7A7F87')
+                .fontColor($r('app.color.text_tertiary'))
                 .maxLines(2)
               Row({ space: 8 }) {
                 Text(this.progressText(this.statusFor(model)))
                   .fontSize(12)
-                  .fontColor('#2864DC')
+                  .fontColor($r('app.color.brand'))
                   .layoutWeight(1)
                 if (this.statusFor(model).state === DownloadState.DOWNLOADING ||
                   this.statusFor(model).state === DownloadState.PAUSED ||
@@ -509,8 +509,8 @@ export struct MarketPage {
                   Button('取消')
                     .height(34)
                     .fontSize(12)
-                    .backgroundColor('#FDECEC')
-                    .fontColor('#C62828')
+                    .backgroundColor($r('app.color.danger_tint'))
+                    .fontColor($r('app.color.danger'))
                     .onClick(() => this.cancelDownload(model))
                 }
                 this.downloadAction(model)
@@ -519,7 +519,7 @@ export struct MarketPage {
             .alignItems(HorizontalAlign.Start)
             .padding(14)
             .borderRadius(12)
-            .backgroundColor(Color.White)
+            .backgroundColor($r('app.color.surface'))
             .onClick(() => this.openDetail(model))
           }
         }, (model: MarketModelRecord) => `${this.provider}-${model.modelName}`)
@@ -530,22 +530,22 @@ export struct MarketPage {
       if (this.loading) {
         Text('正在加载模型市场…')
           .fontSize(13)
-          .fontColor('#6B7280')
+          .fontColor($r('app.color.text_secondary'))
           .padding(12)
       }
       if (this.error) {
         Text(`错误：${this.error}`)
           .fontSize(13)
-          .fontColor('#C62828')
+          .fontColor($r('app.color.danger'))
           .padding(12)
       }
       Text('下载会在后台继续执行（系统可能显示“数据传输”通知）；私有仓库可在“设置”中填写平台令牌。')
         .fontSize(11)
-        .fontColor('#7A7F87')
+        .fontColor($r('app.color.text_tertiary'))
         .padding({ left: 16, right: 16, bottom: 10 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FAFBFC')
+    .backgroundColor($r('app.color.background'))
   }
 }

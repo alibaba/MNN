@@ -1071,22 +1071,22 @@ export struct ChatPage {
           Text('MNN Chat')
             .fontSize(24)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#171A1F')
+            .fontColor($r('app.color.text_primary'))
           Row({ space: 6 }) {
             Row()
               .width(7)
               .height(7)
               .borderRadius(4)
-              .backgroundColor(this.isModelReady ? '#20A464' : '#F59E0B')
+              .backgroundColor(this.isModelReady ? $r('app.color.status_ok') : $r('app.color.warning_strong'))
             Text(`${this.activeModelName || this.activeModelId} · ${this.modelStatus}`)
               .fontSize(13)
-              .fontColor('#6B7280')
+              .fontColor($r('app.color.text_secondary'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
             Text('▾')
               .fontSize(12)
-              .fontColor('#6B7280')
+              .fontColor($r('app.color.text_secondary'))
           }
           .width('100%')
           .onClick(() => this.openModelPicker())
@@ -1096,7 +1096,7 @@ export struct ChatPage {
 
         Button('更多')
           .fontSize(14)
-          .fontColor('#171A1F')
+          .fontColor($r('app.color.text_primary'))
           .backgroundColor(Color.Transparent)
           .height(38)
           .width(58)
@@ -1134,18 +1134,18 @@ export struct ChatPage {
 
         Button('新对话')
           .fontSize(14)
-          .fontColor('#2864DC')
-          .backgroundColor('#EEF3FF')
+          .fontColor($r('app.color.brand'))
+          .backgroundColor($r('app.color.brand_tint'))
           .height(38)
           .enabled(!this.isGenerating && this.initialized)
           .onClick(() => this.startNewConversation())
       }
       .width('100%')
       .padding({ left: 18, right: 18, top: 18, bottom: 14 })
-      .backgroundColor(Color.White)
+      .backgroundColor($r('app.color.surface'))
 
       Divider()
-        .color('#E8EAED')
+        .color($r('app.color.divider'))
 
       List({ space: 16, scroller: this.messageScroller }) {
         ForEach(this.messages, (message: ChatMessageView) => {
@@ -1166,7 +1166,7 @@ export struct ChatPage {
       .layoutWeight(1)
       .width('100%')
       .padding({ left: 16, right: 16, top: 18, bottom: 12 })
-      .backgroundColor('#FAFBFC')
+      .backgroundColor($r('app.color.background'))
       .onScrollIndex((start: number, end: number) => {
         this.followsLatest = end >= this.messages.length - 1;
       })
@@ -1175,15 +1175,15 @@ export struct ChatPage {
         Button('回到底部')
           .height(32)
           .fontSize(12)
-          .fontColor('#2864DC')
-          .backgroundColor('#EEF3FF')
+          .fontColor($r('app.color.brand'))
+          .backgroundColor($r('app.color.brand_tint'))
           .onClick(() => this.scrollToBottom())
       }
 
       if (this.metrics) {
         Text(this.metrics)
           .fontSize(12)
-          .fontColor('#6B7280')
+          .fontColor($r('app.color.text_secondary'))
           .width('100%')
           .padding({ left: 18, right: 18, top: 8 })
       }
@@ -1191,7 +1191,7 @@ export struct ChatPage {
       if (this.error) {
         Text(`错误：${this.error}`)
           .fontSize(13)
-          .fontColor('#C62828')
+          .fontColor($r('app.color.danger'))
           .width('100%')
           .padding({ left: 18, right: 18, top: 8 })
       }
@@ -1202,10 +1202,10 @@ export struct ChatPage {
             LoadingProgress()
               .width(18)
               .height(18)
-              .color('#2864DC')
+              .color($r('app.color.brand'))
             Text(`正在生成图片 · 已等待 ${this.diffusionSeconds}s`)
               .fontSize(13)
-              .fontColor('#2864DC')
+              .fontColor($r('app.color.brand'))
               .layoutWeight(1)
           }
           .width('100%')
@@ -1217,19 +1217,19 @@ export struct ChatPage {
               .width(8)
               .height(8)
               .borderRadius(4)
-              .backgroundColor('#C62828')
+              .backgroundColor($r('app.color.danger'))
             Text(`录音中 ${this.recordingSeconds}s · 点击停止`)
               .fontSize(13)
-              .fontColor('#C62828')
+              .fontColor($r('app.color.danger'))
               .layoutWeight(1)
             Text('停止')
               .fontSize(13)
-              .fontColor('#2864DC')
+              .fontColor($r('app.color.brand'))
           }
           .width('100%')
           .padding({ left: 12, right: 12, top: 8, bottom: 8 })
           .borderRadius(10)
-          .backgroundColor('#FDECEC')
+          .backgroundColor($r('app.color.danger_tint'))
           .onClick(() => this.stopRecording())
         }
 
@@ -1250,7 +1250,7 @@ export struct ChatPage {
                       .textAlign(TextAlign.Center)
                       .width(64)
                       .height(64)
-                      .backgroundColor('#EEF3FF')
+                      .backgroundColor($r('app.color.brand_tint'))
                       .borderRadius(8)
                   }
                   Button('×')
@@ -1258,7 +1258,7 @@ export struct ChatPage {
                     .height(24)
                     .fontSize(14)
                     .padding(0)
-                    .backgroundColor('#CC20242A')
+                    .backgroundColor($r('app.color.overlay_close'))
                     .fontColor(Color.White)
                     .onClick(() => this.removePendingAttachment(index))
                 }
@@ -1277,8 +1277,8 @@ export struct ChatPage {
               .height(40)
               .fontSize(24)
               .fontWeight(FontWeight.Medium)
-              .fontColor('#2864DC')
-              .backgroundColor('#EEF3FF')
+              .fontColor($r('app.color.brand'))
+              .backgroundColor($r('app.color.brand_tint'))
               .padding(0)
               .enabled(this.isModelReady && !this.isGenerating)
               .onClick(() => this.openAttachmentSheet())
@@ -1287,7 +1287,7 @@ export struct ChatPage {
             .layoutWeight(1)
             .height(92)
             .fontSize(16)
-            .backgroundColor('#F3F5F8')
+            .backgroundColor($r('app.color.bubble_assistant'))
             .borderRadius(14)
             .padding(12)
             .enabled(this.isModelReady && !this.isGenerating)
@@ -1301,22 +1301,22 @@ export struct ChatPage {
         Row({ space: 10 }) {
           Text(this.isGenerating ? '回答正在本机生成' : '内容仅在设备本地处理')
             .fontSize(12)
-            .fontColor('#7A7F87')
+            .fontColor($r('app.color.text_tertiary'))
             .layoutWeight(1)
 
           if (this.isGenerating) {
             Button('停止')
               .height(42)
               .fontSize(15)
-              .fontColor('#C62828')
-              .backgroundColor('#FDECEC')
+              .fontColor($r('app.color.danger'))
+              .backgroundColor($r('app.color.danger_tint'))
               .onClick(() => this.stopGeneration())
           } else {
             Button('发送')
               .height(42)
               .fontSize(15)
               .fontColor(Color.White)
-              .backgroundColor('#2864DC')
+              .backgroundColor($r('app.color.brand'))
               .enabled(this.isModelReady && (this.prompt.trim().length > 0 || this.pendingAttachments.length > 0))
               .onClick(() => this.runInference())
           }
@@ -1325,10 +1325,10 @@ export struct ChatPage {
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-      .backgroundColor(Color.White)
+      .backgroundColor($r('app.color.surface'))
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FAFBFC')
+    .backgroundColor($r('app.color.background'))
   }
 }

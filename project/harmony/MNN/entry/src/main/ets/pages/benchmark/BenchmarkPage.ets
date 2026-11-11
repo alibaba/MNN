@@ -293,7 +293,7 @@ export struct BenchmarkPage {
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             Text('▾')
               .fontSize(14)
-              .fontColor('#6B7280')
+              .fontColor($r('app.color.text_secondary'))
           }
           .width('100%')
           .onClick(() => this.openModelPicker())
@@ -314,19 +314,19 @@ export struct BenchmarkPage {
           }
           .width('100%')
           Row({ space: 8 }) {
-            Text('PP').fontSize(13).fontColor('#6B7280')
+            Text('PP').fontSize(13).fontColor($r('app.color.text_secondary'))
             TextInput({ text: this.promptTokensText })
               .type(InputType.Number)
               .enabled(!this.running)
               .layoutWeight(1)
               .onChange((value: string) => this.promptTokensText = value)
-            Text('TG').fontSize(13).fontColor('#6B7280')
+            Text('TG').fontSize(13).fontColor($r('app.color.text_secondary'))
             TextInput({ text: this.generateTokensText })
               .type(InputType.Number)
               .enabled(!this.running)
               .layoutWeight(1)
               .onChange((value: string) => this.generateTokensText = value)
-            Text('轮数').fontSize(13).fontColor('#6B7280')
+            Text('轮数').fontSize(13).fontColor($r('app.color.text_secondary'))
             TextInput({ text: this.repeatsText })
               .type(InputType.Number)
               .enabled(!this.running)
@@ -340,20 +340,20 @@ export struct BenchmarkPage {
             Text(this.iteration === 0 ? '正在预热' :
               `正在运行 ${this.iteration}/${this.clampInt(this.repeatsText, 3, 1, 10)}`)
               .fontSize(14)
-              .fontColor('#2864DC')
+              .fontColor($r('app.color.brand'))
           }
           Row({ space: 10 }) {
             Button(this.running ? '停止' : (this.summary.samples.length > 0 ? '重新测试' : '开始测试'))
               .layoutWeight(1)
               .enabled(this.ready)
-              .fontColor(this.running ? '#C62828' : Color.White)
-              .backgroundColor(this.running ? '#FDECEC' : '#2864DC')
+              .fontColor(this.running ? $r('app.color.danger') : Color.White)
+              .backgroundColor(this.running ? $r('app.color.danger_tint') : $r('app.color.brand'))
               .onClick(() => this.running ? this.stop() : this.run())
           }
         }
         .width('100%')
         .padding(16)
-        .backgroundColor(Color.White)
+        .backgroundColor($r('app.color.surface'))
         .borderRadius(14)
         .margin({ left: 16, right: 16, bottom: 14 })
 
@@ -362,26 +362,26 @@ export struct BenchmarkPage {
             Column({ space: 5 }) {
               Text('Prefill')
                 .fontSize(12)
-                .fontColor('#6B7280')
+                .fontColor($r('app.color.text_secondary'))
               Text(`${this.prefillSpeed.toFixed(1)} tok/s`)
                 .fontSize(18)
                 .fontWeight(FontWeight.Bold)
             }
             .layoutWeight(1)
             .padding(14)
-            .backgroundColor(Color.White)
+            .backgroundColor($r('app.color.surface'))
             .borderRadius(12)
             Column({ space: 5 }) {
               Text('Decode')
                 .fontSize(12)
-                .fontColor('#6B7280')
+                .fontColor($r('app.color.text_secondary'))
               Text(`${this.decodeSpeed.toFixed(1)} tok/s`)
                 .fontSize(18)
                 .fontWeight(FontWeight.Bold)
             }
             .layoutWeight(1)
             .padding(14)
-            .backgroundColor(Color.White)
+            .backgroundColor($r('app.color.surface'))
             .borderRadius(12)
           }
           .padding({ left: 16, right: 16, bottom: 14 })
@@ -405,30 +405,30 @@ export struct BenchmarkPage {
             Text(`测量总耗时 ${(this.summary.totalMs / 1000).toFixed(2)}s · ` +
               `模型加载 ${(this.summary.loadMs / 1000).toFixed(2)}s`)
               .fontSize(13)
-              .fontColor('#6B7280')
+              .fontColor($r('app.color.text_secondary'))
               .width('100%')
             if (this.summary.peakMemoryKb > 0) {
               Text(`峰值内存 ${(this.summary.peakMemoryKb / 1024).toFixed(1)} MB`)
                 .fontSize(13)
-                .fontColor('#6B7280')
+                .fontColor($r('app.color.text_secondary'))
                 .width('100%')
             }
             ForEach(this.summary.samples, (sample: NativeBenchmarkSample) => {
               Text(`第 ${sample.iteration} 轮：prefill ${(sample.prefillMs > 0 ? sample.promptTokens * 1000 / sample.prefillMs : 0).toFixed(1)} tok/s · ` +
                 `decode ${(sample.decodeMs > 0 ? sample.generatedTokens * 1000 / sample.decodeMs : 0).toFixed(1)} tok/s`)
                 .fontSize(12)
-                .fontColor('#6B7280')
+                .fontColor($r('app.color.text_secondary'))
                 .width('100%')
             }, (sample: NativeBenchmarkSample) => sample.iteration.toString())
             Button('复制结果')
               .height(34)
               .fontSize(13)
-              .backgroundColor('#EEF3FF')
-              .fontColor('#2864DC')
+              .backgroundColor($r('app.color.brand_tint'))
+              .fontColor($r('app.color.brand'))
               .onClick(() => this.shareSummary())
           }
           .padding(16)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(14)
           .margin({ left: 16, right: 16 })
         }
@@ -440,23 +440,23 @@ export struct BenchmarkPage {
             .width('100%')
           Text('选择 JSONL 数据集文件，每行形如 {"prompt": "..."}，最多运行 3 条。')
             .fontSize(11)
-            .fontColor('#7A7F87')
+            .fontColor($r('app.color.text_tertiary'))
             .width('100%')
           Row({ space: 10 }) {
             Button(this.datasetName || '选择数据集文件')
               .layoutWeight(1)
               .height(38)
               .fontSize(13)
-              .backgroundColor('#EEF3FF')
-              .fontColor('#2864DC')
+              .backgroundColor($r('app.color.brand_tint'))
+              .fontColor($r('app.color.brand'))
               .enabled(!this.datasetRunning)
               .onClick(() => this.chooseDataset())
             Button(this.datasetRunning ? '停止' : '开始测试')
               .layoutWeight(1)
               .height(38)
               .fontSize(13)
-              .fontColor(this.datasetRunning ? '#C62828' : Color.White)
-              .backgroundColor(this.datasetRunning ? '#FDECEC' : '#2864DC')
+              .fontColor(this.datasetRunning ? $r('app.color.danger') : Color.White)
+              .backgroundColor(this.datasetRunning ? $r('app.color.danger_tint') : $r('app.color.brand'))
               .enabled(this.datasetRunning || (this.ready && this.datasetPrompts.length > 0))
               .onClick(() => this.datasetRunning ? this.stopDataset() : this.runDataset())
           }
@@ -464,7 +464,7 @@ export struct BenchmarkPage {
           if (this.datasetMessage) {
             Text(this.datasetMessage)
               .fontSize(12)
-              .fontColor('#2864DC')
+              .fontColor($r('app.color.brand'))
               .width('100%')
           }
           ForEach(this.datasetResult.items, (item: DatasetItemResult) => {
@@ -473,11 +473,11 @@ export struct BenchmarkPage {
                 `prefill ${(item.prefillMs > 0 ? item.promptTokens * 1000 / item.prefillMs : 0).toFixed(1)} tok/s · ` +
                 `decode ${(item.decodeMs > 0 ? item.generatedTokens * 1000 / item.decodeMs : 0).toFixed(1)} tok/s`)
                 .fontSize(12)
-                .fontColor('#4B5563')
+                .fontColor($r('app.color.text_body'))
                 .width('100%')
               Text(item.error ? `错误：${item.error}` : item.output)
                 .fontSize(12)
-                .fontColor(item.error ? '#C62828' : '#171A1F')
+                .fontColor(item.error ? $r('app.color.danger') : $r('app.color.text_primary'))
                 .maxLines(3)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
@@ -488,13 +488,13 @@ export struct BenchmarkPage {
             Button('复制结果')
               .height(34)
               .fontSize(13)
-              .backgroundColor('#EEF3FF')
-              .fontColor('#2864DC')
+              .backgroundColor($r('app.color.brand_tint'))
+              .fontColor($r('app.color.brand'))
               .onClick(() => this.copyDatasetResult())
           }
         }
         .padding(16)
-        .backgroundColor(Color.White)
+        .backgroundColor($r('app.color.surface'))
         .borderRadius(14)
         .margin({ left: 16, right: 16 })
 
@@ -507,7 +507,7 @@ export struct BenchmarkPage {
             Row({ space: 10 }) {
               Text('用户 ID')
                 .fontSize(14)
-                .fontColor('#4B5563')
+                .fontColor($r('app.color.text_body'))
               TextInput({ text: this.userIdText, placeholder: '排行榜用户 ID' })
                 .layoutWeight(1)
                 .height(38)
@@ -518,7 +518,7 @@ export struct BenchmarkPage {
             .width('100%')
             Text('仅提交预填充/解码速度和峰值内存，不包含聊天内容。')
               .fontSize(11)
-              .fontColor('#7A7F87')
+              .fontColor($r('app.color.text_tertiary'))
               .width('100%')
             Row({ space: 10 }) {
               Button('提交成绩')
@@ -531,8 +531,8 @@ export struct BenchmarkPage {
                 .layoutWeight(1)
                 .height(38)
                 .fontSize(13)
-                .backgroundColor('#EEF3FF')
-                .fontColor('#2864DC')
+                .backgroundColor($r('app.color.brand_tint'))
+                .fontColor($r('app.color.brand'))
                 .enabled(!this.submitting)
                 .onClick(() => this.queryRank())
             }
@@ -540,12 +540,12 @@ export struct BenchmarkPage {
             if (this.leaderboardMessage) {
               Text(this.leaderboardMessage)
                 .fontSize(12)
-                .fontColor(this.leaderboardFailed ? '#C62828' : '#168653')
+                .fontColor(this.leaderboardFailed ? $r('app.color.danger') : $r('app.color.success'))
                 .width('100%')
             }
           }
           .padding(16)
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(14)
           .margin({ left: 16, right: 16 })
         }
@@ -553,7 +553,7 @@ export struct BenchmarkPage {
         if (this.error) {
           Text(`错误：${this.error}`)
             .fontSize(13)
-            .fontColor('#C62828')
+            .fontColor($r('app.color.danger'))
             .padding(16)
         }
       }
@@ -563,7 +563,7 @@ export struct BenchmarkPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FAFBFC')
+    .backgroundColor($r('app.color.background'))
     .scrollBar(BarState.Off)
   }
 }

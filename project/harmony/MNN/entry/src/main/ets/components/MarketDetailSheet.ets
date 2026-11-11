@@ -49,44 +49,44 @@ export struct MarketDetailSheet {
       Text(this.model.modelName)
         .fontSize(19)
         .fontWeight(FontWeight.Bold)
-        .fontColor('#171A1F')
+        .fontColor($r('app.color.text_primary'))
         .width('100%')
       Scroll() {
         Column({ space: 8 }) {
           Text(`厂商：${this.model.vendor || '未知'}`)
             .fontSize(14)
-            .fontColor('#4B5563')
+            .fontColor($r('app.color.text_body'))
             .width('100%')
           Text(`参数：${this.model.sizeB}B · 文件：${this.formatBytes(this.model.fileSize)}`)
             .fontSize(14)
-            .fontColor('#4B5563')
+            .fontColor($r('app.color.text_body'))
             .width('100%')
           if (this.model.tags.length > 0) {
             Text(`标签：${this.model.tags.join(' · ')}`)
               .fontSize(14)
-              .fontColor('#4B5563')
+              .fontColor($r('app.color.text_body'))
               .width('100%')
           }
           if (this.model.description) {
             Text(this.model.description)
               .fontSize(14)
               .lineHeight(21)
-              .fontColor('#303640')
+              .fontColor($r('app.color.text_body_alt'))
               .width('100%')
           }
           if (this.updateAvailable) {
             Text('本地文件与仓库不一致，可下载最新版本')
               .fontSize(12)
-              .fontColor('#B26A00')
+              .fontColor($r('app.color.warning'))
               .width('100%')
           }
           Text(`来源：${this.provider}/${ProviderAdapters.repository(this.model, this.provider)}`)
             .fontSize(12)
-            .fontColor('#6B7280')
+            .fontColor($r('app.color.text_secondary'))
             .width('100%')
           Button('在浏览器打开模型卡片')
             .fontSize(12)
-            .fontColor('#2864DC')
+            .fontColor($r('app.color.brand'))
             .backgroundColor(Color.Transparent)
             .height(30)
             .padding(0)
@@ -105,8 +105,8 @@ export struct MarketDetailSheet {
           .height(40)
           .fontSize(15)
           .enabled(!this.installed || this.updateAvailable)
-          .backgroundColor(this.installed && !this.updateAvailable ? '#F1F3F5' : '#2864DC')
-          .fontColor(this.installed && !this.updateAvailable ? '#5F6670' : Color.White)
+          .backgroundColor(this.installed && !this.updateAvailable ? $r('app.color.surface_muted') : $r('app.color.brand'))
+          .fontColor(this.installed && !this.updateAvailable ? $r('app.color.text_muted') : Color.White)
           .onClick(() => {
             this.controller?.close();
             this.onDownload();
@@ -115,8 +115,8 @@ export struct MarketDetailSheet {
           .layoutWeight(1)
           .height(40)
           .fontSize(15)
-          .backgroundColor('#F1F3F5')
-          .fontColor('#5F6670')
+          .backgroundColor($r('app.color.surface_muted'))
+          .fontColor($r('app.color.text_muted'))
           .onClick(() => this.controller?.close())
       }
       .width('100%')
@@ -124,7 +124,7 @@ export struct MarketDetailSheet {
     .width('100%')
     .height('55%')
     .padding(20)
-    .backgroundColor(Color.White)
+    .backgroundColor($r('app.color.surface'))
     .borderRadius({ topLeft: 16, topRight: 16 })
   }
 }

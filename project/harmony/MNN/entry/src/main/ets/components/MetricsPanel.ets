@@ -12,11 +12,11 @@ export struct MetricsPanel {
         Row() {
           Text(this.state === GenerationState.CANCELED ? '生成已停止' : '性能指标')
             .fontSize(12)
-            .fontColor('#667085')
+            .fontColor($r('app.color.text_secondary_alt'))
             .layoutWeight(1)
           Text(this.expanded ? '收起' : '详情')
             .fontSize(12)
-            .fontColor('#2864DC')
+            .fontColor($r('app.color.brand'))
         }
         .width('100%')
         .onClick(() => {
@@ -26,16 +26,16 @@ export struct MetricsPanel {
         if (this.expanded) {
           Text(`加载 ${(this.metrics.loadMs / 1000).toFixed(2)}s · 首字 ${(this.metrics.firstTokenMs / 1000).toFixed(2)}s`)
             .fontSize(12)
-            .fontColor('#667085')
+            .fontColor($r('app.color.text_secondary_alt'))
           Text(`Prompt ${this.metrics.promptTokens} tokens / ${(this.metrics.prefillMs / 1000).toFixed(2)}s`)
             .fontSize(12)
-            .fontColor('#667085')
+            .fontColor($r('app.color.text_secondary_alt'))
           Text(`Decode ${this.metrics.generatedTokens} tokens / ${(this.metrics.decodeMs / 1000).toFixed(2)}s`)
             .fontSize(12)
-            .fontColor('#667085')
+            .fontColor($r('app.color.text_secondary_alt'))
           Text(`总耗时 ${(this.metrics.totalMs / 1000).toFixed(2)}s`)
             .fontSize(12)
-            .fontColor('#667085')
+            .fontColor($r('app.color.text_secondary_alt'))
         }
       }
       .width('100%')

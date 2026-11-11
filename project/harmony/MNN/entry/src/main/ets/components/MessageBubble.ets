@@ -114,14 +114,14 @@ export struct MessageBubble {
           .width(34)
           .height(34)
           .borderRadius(17)
-          .backgroundColor('#2864DC')
+          .backgroundColor($r('app.color.brand'))
           .margin({ right: 10 })
       }
 
       Column() {
         Text(this.message.role === MessageRole.ASSISTANT ? 'MNN' : '我')
           .fontSize(13)
-          .fontColor('#7A7F87')
+          .fontColor($r('app.color.text_tertiary'))
           .width('100%')
           .margin({ bottom: 5 })
         if (this.message.attachments.length > 0) {
@@ -140,20 +140,20 @@ export struct MessageBubble {
                   Text(attachment.mediaType === 'audio' ? `音频 · ${attachment.displayName}` :
                     `视频 · ${attachment.displayName}`)
                     .fontSize(12)
-                    .fontColor('#2864DC')
+                    .fontColor($r('app.color.brand'))
                   if (attachment.mediaType === 'audio') {
                     Button('播放')
                       .height(26)
                       .fontSize(11)
                       .padding({ left: 10, right: 10 })
-                      .backgroundColor('#2864DC')
+                      .backgroundColor($r('app.color.brand'))
                       .fontColor(Color.White)
                       .onClick(() => this.onPlayAudio(attachment))
                   }
                 }
                 .padding(8)
                 .borderRadius(8)
-                .backgroundColor('#EEF3FF')
+                .backgroundColor($r('app.color.brand_tint'))
                 .margin({ right: 6, bottom: 6 })
               }
             }, (attachment: AttachmentRecord) => attachment.id || attachment.localPath)
@@ -175,13 +175,13 @@ export struct MessageBubble {
               .height(18)
             Text(this.message.isThinking ? '正在思考' : '正在生成')
               .fontSize(15)
-              .fontColor('#6B7280')
+              .fontColor($r('app.color.text_secondary'))
           }
           .width('100%')
         } else {
           Text('未生成内容')
             .fontSize(15)
-            .fontColor('#6B7280')
+            .fontColor($r('app.color.text_secondary'))
         }
         if (this.message.role === MessageRole.ASSISTANT && this.showMetrics) {
           MetricsPanel({ metrics: this.message.metrics, state: this.message.state })
@@ -189,7 +189,7 @@ export struct MessageBubble {
       }
       .padding(14)
       .borderRadius(14)
-      .backgroundColor(this.message.role === MessageRole.ASSISTANT ? '#F3F5F8' : '#E8F0FF')
+      .backgroundColor(this.message.role === MessageRole.ASSISTANT ? $r('app.color.bubble_assistant') : $r('app.color.bubble_user'))
       .layoutWeight(1)
 
       if (this.message.role === MessageRole.USER) {
@@ -201,7 +201,7 @@ export struct MessageBubble {
           .width(34)
           .height(34)
           .borderRadius(17)
-          .backgroundColor('#20242A')
+          .backgroundColor($r('app.color.avatar_user'))
           .margin({ left: 10 })
       }
     }
