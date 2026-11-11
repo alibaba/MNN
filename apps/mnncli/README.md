@@ -90,6 +90,20 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 ```
 
 
+Function tools are supported for text messages with `tool_choice: "auto"` (default)
+or `"none"`, using a model whose Jinja chat template supports tools. Qwen JSON
+`<tool_call>` blocks and Qwen3.5 XML-style function blocks are converted to OpenAI
+`message.tool_calls`, with JSON-string arguments and `finish_reason: "tool_calls"`.
+Return the assistant message unchanged, followed by a `role: "tool"` message with
+the matching `tool_call_id`, to continue the conversation. Tools execute in the
+client, not in mnncli.
+
+Tool-enabled `stream: true` responses currently buffer generation, then send a
+complete `delta.tool_calls`, a finish chunk, and `[DONE]`. They do not provide
+incremental tool argument streaming. Forced tool choice (`"required"` or a named
+function), R1 mode, and multimodal content in tool requests return HTTP 400.
+Tool selection with `"auto"` depends on the model; it is not forced by the server.
+
 ### Anthropic-compatible (`/v1/messages`)
 
 Available endpoint:
