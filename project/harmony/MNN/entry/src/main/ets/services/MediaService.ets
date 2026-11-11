@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { common } from '@kit.AbilityKit';
 import { camera, cameraPicker } from '@kit.CameraKit';
 import { fileIo, fileUri, picker } from '@kit.CoreFileKit';
@@ -69,7 +70,7 @@ export class MediaService {
     const attachment = this.copyToHistory(context, sessionId, uris[0], 'audio', 'wav', 0);
     if (!this.isWavFile(attachment.localPath)) {
       this.deleteAttachment(context, attachment);
-      throw new Error('当前 Omni 音频输入仅支持 PCM WAV 文件');
+      throw new Error(tr('当前 Omni 音频输入仅支持 PCM WAV 文件'));
     }
     return [attachment];
   }

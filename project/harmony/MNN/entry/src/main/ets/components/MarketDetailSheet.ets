@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import { common, Want } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { MarketModelRecord } from '../domain/AppTypes';
@@ -19,7 +20,7 @@ export struct MarketDetailSheet {
   private openWebPage(): void {
     const url = ProviderAdapters.webPage(this.model, this.provider);
     if (!url) {
-      promptAction.showToast({ message: '该模型没有可访问的网页' });
+      promptAction.showToast({ message: tr('该模型没有可访问的网页') });
       return;
     }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -30,10 +31,10 @@ export struct MarketDetailSheet {
         uri: url
       };
       context.startAbility(want).catch(() => {
-        promptAction.showToast({ message: '无法打开浏览器' });
+        promptAction.showToast({ message: tr('无法打开浏览器') });
       });
     } catch (error) {
-      promptAction.showToast({ message: '无法打开浏览器' });
+      promptAction.showToast({ message: tr('无法打开浏览器') });
     }
   }
 
@@ -53,16 +54,16 @@ export struct MarketDetailSheet {
         .width('100%')
       Scroll() {
         Column({ space: 8 }) {
-          Text(`厂商：${this.model.vendor || '未知'}`)
+          Text(`${tr('厂商：')}${this.model.vendor || tr('未知')}`)
             .fontSize(14)
             .fontColor($r('app.color.text_body'))
             .width('100%')
-          Text(`参数：${this.model.sizeB}B · 文件：${this.formatBytes(this.model.fileSize)}`)
+          Text(`${tr('参数：')}${this.model.sizeB}${tr('B · 文件：')}${this.formatBytes(this.model.fileSize)}`)
             .fontSize(14)
             .fontColor($r('app.color.text_body'))
             .width('100%')
           if (this.model.tags.length > 0) {
-            Text(`标签：${this.model.tags.join(' · ')}`)
+            Text(`${tr('标签：')}${this.model.tags.join(' · ')}`)
               .fontSize(14)
               .fontColor($r('app.color.text_body'))
               .width('100%')
@@ -75,16 +76,16 @@ export struct MarketDetailSheet {
               .width('100%')
           }
           if (this.updateAvailable) {
-            Text('本地文件与仓库不一致，可下载最新版本')
+            Text(tr('本地文件与仓库不一致，可下载最新版本'))
               .fontSize(12)
               .fontColor($r('app.color.warning'))
               .width('100%')
           }
-          Text(`来源：${this.provider}/${ProviderAdapters.repository(this.model, this.provider)}`)
+          Text(`${tr('来源：')}${this.provider}/${ProviderAdapters.repository(this.model, this.provider)}`)
             .fontSize(12)
             .fontColor($r('app.color.text_secondary'))
             .width('100%')
-          Button('在浏览器打开模型卡片')
+          Button(tr('在浏览器打开模型卡片'))
             .fontSize(12)
             .fontColor($r('app.color.brand'))
             .backgroundColor(Color.Transparent)
@@ -100,7 +101,7 @@ export struct MarketDetailSheet {
       .width('100%')
 
       Row({ space: 12 }) {
-        Button(this.installed && !this.updateAvailable ? '已安装' : (this.updateAvailable ? '更新' : '下载'))
+        Button(this.installed && !this.updateAvailable ? tr('已安装') : (this.updateAvailable ? tr('更新') : tr('下载')))
           .layoutWeight(1)
           .height(40)
           .fontSize(15)
@@ -111,7 +112,7 @@ export struct MarketDetailSheet {
             this.controller?.close();
             this.onDownload();
           })
-        Button('关闭')
+        Button(tr('关闭'))
           .layoutWeight(1)
           .height(40)
           .fontSize(15)

@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import { GenerationMetrics, GenerationState } from '../domain/AppTypes';
 
 @Component
@@ -10,11 +11,11 @@ export struct MetricsPanel {
     if (this.metrics.totalMs > 0 || this.state === GenerationState.CANCELED) {
       Column({ space: 6 }) {
         Row() {
-          Text(this.state === GenerationState.CANCELED ? '生成已停止' : '性能指标')
+          Text(this.state === GenerationState.CANCELED ? tr('生成已停止') : tr('性能指标'))
             .fontSize(12)
             .fontColor($r('app.color.text_secondary_alt'))
             .layoutWeight(1)
-          Text(this.expanded ? '收起' : '详情')
+          Text(this.expanded ? tr('收起') : tr('详情'))
             .fontSize(12)
             .fontColor($r('app.color.brand'))
         }
@@ -24,7 +25,7 @@ export struct MetricsPanel {
         })
 
         if (this.expanded) {
-          Text(`加载 ${(this.metrics.loadMs / 1000).toFixed(2)}s · 首字 ${(this.metrics.firstTokenMs / 1000).toFixed(2)}s`)
+          Text(`${tr('加载 ')}${(this.metrics.loadMs / 1000).toFixed(2)}${tr('s · 首字 ')}${(this.metrics.firstTokenMs / 1000).toFixed(2)}s`)
             .fontSize(12)
             .fontColor($r('app.color.text_secondary_alt'))
           Text(`Prompt ${this.metrics.promptTokens} tokens / ${(this.metrics.prefillMs / 1000).toFixed(2)}s`)
@@ -33,7 +34,7 @@ export struct MetricsPanel {
           Text(`Decode ${this.metrics.generatedTokens} tokens / ${(this.metrics.decodeMs / 1000).toFixed(2)}s`)
             .fontSize(12)
             .fontColor($r('app.color.text_secondary_alt'))
-          Text(`总耗时 ${(this.metrics.totalMs / 1000).toFixed(2)}s`)
+          Text(`${tr('总耗时 ')}${(this.metrics.totalMs / 1000).toFixed(2)}s`)
             .fontSize(12)
             .fontColor($r('app.color.text_secondary_alt'))
         }

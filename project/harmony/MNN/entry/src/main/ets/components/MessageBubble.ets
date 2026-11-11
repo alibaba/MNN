@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import { promptAction } from '@kit.ArkUI';
 import pasteboard from '@ohos.pasteboard';
 import { AttachmentRecord, GenerationMetrics, GenerationState, MessageRole } from '../domain/AppTypes';
@@ -63,12 +64,12 @@ export struct MessageBubble {
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        promptAction.showToast({ message: `${label}已复制` });
+        promptAction.showToast({ message: `${label}${tr('已复制')}` });
       }).catch(() => {
-        promptAction.showToast({ message: '复制失败' });
+        promptAction.showToast({ message: tr('复制失败') });
       });
     } catch (error) {
-      promptAction.showToast({ message: '复制失败' });
+      promptAction.showToast({ message: tr('复制失败') });
     }
   }
 
@@ -88,16 +89,16 @@ export struct MessageBubble {
   @Builder
   private messageMenu() {
     Menu() {
-      MenuItem({ content: '复制文本' })
-        .onClick(() => this.copyText(this.message.content || this.message.rawContent, '文本'))
+      MenuItem({ content: tr('复制文本') })
+        .onClick(() => this.copyText(this.message.content || this.message.rawContent, tr('文本')))
       if (this.message.role === MessageRole.USER) {
         if (this.message.attachments.some((attachment: AttachmentRecord) =>
           attachment.mediaType === 'audio')) {
-          MenuItem({ content: '复制音频信息' })
-            .onClick(() => this.copyText(this.audioInfo(), '音频信息'))
+          MenuItem({ content: tr('复制音频信息') })
+            .onClick(() => this.copyText(this.audioInfo(), tr('音频信息')))
         }
       } else {
-        MenuItem({ content: '上报问题' })
+        MenuItem({ content: tr('上报问题') })
           .onClick(() => this.onReportIssue())
       }
     }
@@ -119,7 +120,7 @@ export struct MessageBubble {
       }
 
       Column() {
-        Text(this.message.role === MessageRole.ASSISTANT ? 'MNN' : '我')
+        Text(this.message.role === MessageRole.ASSISTANT ? 'MNN' : tr('我'))
           .fontSize(13)
           .fontColor($r('app.color.text_tertiary'))
           .width('100%')
@@ -137,12 +138,12 @@ export struct MessageBubble {
                   .onClick(() => this.openImage(attachment.localPath))
               } else {
                 Row({ space: 8 }) {
-                  Text(attachment.mediaType === 'audio' ? `音频 · ${attachment.displayName}` :
-                    `视频 · ${attachment.displayName}`)
+                  Text(attachment.mediaType === 'audio' ? `${tr('音频 · ')}${attachment.displayName}` :
+                    `${tr('视频 · ')}${attachment.displayName}`)
                     .fontSize(12)
                     .fontColor($r('app.color.brand'))
                   if (attachment.mediaType === 'audio') {
-                    Button('播放')
+                    Button(tr('播放'))
                       .height(26)
                       .fontSize(11)
                       .padding({ left: 10, right: 10 })
@@ -173,13 +174,13 @@ export struct MessageBubble {
             LoadingProgress()
               .width(18)
               .height(18)
-            Text(this.message.isThinking ? '正在思考' : '正在生成')
+            Text(this.message.isThinking ? tr('正在思考') : tr('正在生成'))
               .fontSize(15)
               .fontColor($r('app.color.text_secondary'))
           }
           .width('100%')
         } else {
-          Text('未生成内容')
+          Text(tr('未生成内容'))
             .fontSize(15)
             .fontColor($r('app.color.text_secondary'))
         }
@@ -193,7 +194,7 @@ export struct MessageBubble {
       .layoutWeight(1)
 
       if (this.message.role === MessageRole.USER) {
-        Text('我')
+        Text(tr('我'))
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
           .fontColor(Color.White)

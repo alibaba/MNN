@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 /**
  * Scrollable read-only text sheet with a copy action, used for the model config info dialog.
  */
@@ -30,14 +31,14 @@ export struct InfoSheet {
       .backgroundColor($r('app.color.surface_alt'))
 
       Row({ space: 12 }) {
-        Button('复制')
+        Button(tr('复制'))
           .layoutWeight(1)
           .height(40)
           .fontSize(15)
           .backgroundColor($r('app.color.brand_tint'))
           .fontColor($r('app.color.brand'))
           .onClick(() => this.onCopy())
-        Button('关闭')
+        Button(tr('关闭'))
           .layoutWeight(1)
           .height(40)
           .fontSize(15)

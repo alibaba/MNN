@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { common } from '@kit.AbilityKit';
 import { request } from '@kit.BasicServicesKit';
 import { fileIo, hash, statfs } from '@kit.CoreFileKit';
@@ -48,7 +49,7 @@ export class DownloadManager {
     listener: DownloadStatusListener, replace: boolean = false): Promise<void> {
     const repository = ProviderAdapters.repository(model, provider);
     if (!repository) {
-      throw new Error('当前模型不支持所选来源');
+      throw new Error(tr('当前模型不支持所选来源'));
     }
     const modelId = `${provider}/${repository}`;
     if (this.active.has(modelId)) {
@@ -62,7 +63,7 @@ export class DownloadManager {
     const token = await MarketAuth.getToken(provider);
     const files = await ProviderAdapters.listFiles(model, provider, token);
     if (files.length === 0 || !files.some((file: ProviderFileRecord) => file.relativePath === 'config.json')) {
-      throw new Error('仓库缺少可下载文件或 config.json');
+      throw new Error(tr('仓库缺少可下载文件或 config.json'));
     }
     let totalBytes = 0;
     files.forEach((file: ProviderFileRecord) => {
@@ -70,7 +71,7 @@ export class DownloadManager {
     });
     const freeBytes = statfs.getFreeSizeSync(context.filesDir);
     if (totalBytes > 0 && freeBytes < totalBytes + 512 * 1024 * 1024) {
-      throw new Error('可用空间不足，至少需要额外保留 512 MB');
+      throw new Error(tr('可用空间不足，至少需要额外保留 512 MB'));
     }
 
     const safeName = this.safeName(model.modelName);
@@ -222,7 +223,7 @@ export class DownloadManager {
       active.stagingRoot = `${context.filesDir}/.mnn-downloads/${this.safeName(model.modelName)}`;
       active.files = await ProviderAdapters.listFiles(model, provider, await MarketAuth.getToken(provider));
       if (active.files.length !== records.length) {
-        throw new Error('仓库文件列表已变化，请取消后重新下载');
+        throw new Error(tr('仓库文件列表已变化，请取消后重新下载'));
       }
       active.listener = listener;
       active.context = context;
@@ -261,7 +262,7 @@ export class DownloadManager {
         }
       } else if (info.progress.state === request.agent.State.FAILED ||
         info.progress.state === request.agent.State.REMOVED) {
-        throw new Error('系统下载任务已失效，请取消后重试');
+        throw new Error(tr('系统下载任务已失效，请取消后重试'));
       }
     }
     if (active.completedCount === active.records.length && !active.finishing) {
@@ -355,7 +356,7 @@ export class DownloadManager {
       record.downloadedBytes = progress.processed;
       record.updatedAt = Date.now();
       DownloadRepository.getInstance().save(record);
-      this.notify(active, DownloadState.FAILED, '文件下载失败');
+      this.notify(active, DownloadState.FAILED, tr('文件下载失败'));
     });
   }
 
@@ -378,20 +379,20 @@ export class DownloadManager {
         const file = active.files[index];
         const path = `${active.stagingRoot}/${file.relativePath}`;
         if (!fileIo.accessSync(path) || !fileIo.lstatSync(path).isFile()) {
-          throw new Error(`下载文件缺失：${file.relativePath}`);
+          throw new Error(`${tr('下载文件缺失：')}${file.relativePath}`);
         }
         if (file.sizeBytes > 0 && fileIo.lstatSync(path).size !== file.sizeBytes) {
-          throw new Error(`下载文件大小不匹配：${file.relativePath}`);
+          throw new Error(`${tr('下载文件大小不匹配：')}${file.relativePath}`);
         }
         if (file.sha256) {
           const digest = await hash.hash(path, 'sha256');
           if (digest.toLowerCase() !== file.sha256.toLowerCase()) {
-            throw new Error(`下载文件校验失败：${file.relativePath}`);
+            throw new Error(`${tr('下载文件校验失败：')}${file.relativePath}`);
           }
         }
       }
       if (!active.context) {
-        throw new Error('下载上下文不可用');
+        throw new Error(tr('下载上下文不可用'));
       }
       if (active.replace) {
         await ModelRepository.getInstance().replaceDownloadedModel(

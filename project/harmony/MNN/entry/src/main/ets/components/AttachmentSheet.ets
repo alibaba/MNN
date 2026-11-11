@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import { ModelCapabilities } from '../domain/AppTypes';
 
 /**
@@ -35,7 +36,7 @@ export struct AttachmentSheet {
 
   build() {
     Column({ space: 12 }) {
-      Text('添加附件')
+      Text(tr('添加附件'))
         .fontSize(18)
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
@@ -43,16 +44,16 @@ export struct AttachmentSheet {
 
       if (this.capabilities.vision) {
         Row({ space: 10 }) {
-          this.option('相册', this.sessionReady, () => this.onPickImages())
-          this.option('拍照', this.sessionReady, () => this.onCapturePhoto())
+          this.option(tr('相册'), this.sessionReady, () => this.onPickImages())
+          this.option(tr('拍照'), this.sessionReady, () => this.onCapturePhoto())
         }
         .width('100%')
       }
 
       if (this.capabilities.audioInput) {
         Row({ space: 10 }) {
-          this.option('音频文件', this.sessionReady, () => this.onPickAudio())
-          this.option(this.recording ? '停止录音' : '录音', this.sessionReady,
+          this.option(tr('音频文件'), this.sessionReady, () => this.onPickAudio())
+          this.option(this.recording ? tr('停止录音') : tr('录音'), this.sessionReady,
             () => this.onToggleRecording())
         }
         .width('100%')
@@ -60,19 +61,19 @@ export struct AttachmentSheet {
 
       if (this.capabilities.videoInput) {
         Row({ space: 10 }) {
-          this.option('视频', this.sessionReady, () => this.onPickVideo())
+          this.option(tr('视频'), this.sessionReady, () => this.onPickVideo())
         }
         .width('100%')
       }
 
       if (!this.capabilities.vision && !this.capabilities.audioInput && !this.capabilities.videoInput) {
-        Text(this.capabilities.attachmentReason || '当前模型不支持多媒体输入')
+        Text(this.capabilities.attachmentReason || tr('当前模型不支持多媒体输入'))
           .fontSize(13)
           .fontColor($r('app.color.text_secondary'))
           .width('100%')
       }
 
-      Button('取消')
+      Button(tr('取消'))
         .width('100%')
         .height(40)
         .fontSize(15)

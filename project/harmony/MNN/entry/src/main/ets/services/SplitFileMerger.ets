@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import fs from '@ohos.file.fs';
 
 interface SplitChunkDocument {
@@ -49,11 +50,11 @@ export class SplitFileMerger {
     }
     const document = SplitFileMerger.readDocument(modelDir);
     if (!document || document.chunks.length === 0) {
-      throw new Error('splits_info.json 内容无效');
+      throw new Error(tr('splits_info.json 内容无效'));
     }
     document.chunks.forEach((chunk: SplitChunkDocument) => {
       if (!SplitFileMerger.isSafeName(chunk.chunkFileName)) {
-        throw new Error(`分片文件名不安全：${chunk.chunkFileName}`);
+        throw new Error(`${tr('分片文件名不安全：')}${chunk.chunkFileName}`);
       }
     });
 
@@ -115,7 +116,7 @@ export class SplitFileMerger {
     const mergedSize = fs.statSync(outputPath).size;
     if ((group.expectedSize > 0 && mergedSize !== group.expectedSize) || mergedSize !== written) {
       fs.unlinkSync(outputPath);
-      throw new Error(`合并 ${group.name} 失败：大小 ${mergedSize}，预期 ${group.expectedSize || written}`);
+      throw new Error(`${tr('合并 ')}${group.name}${tr(' 失败：大小 ')}${mergedSize}${tr('，预期 ')}${group.expectedSize || written}`);
     }
     SplitFileMerger.deleteChunks(modelDir, group);
   }

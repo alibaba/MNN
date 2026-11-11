@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { common } from '@kit.AbilityKit';
 import preferences from '@ohos.data.preferences';
 import fs from '@ohos.file.fs';
@@ -350,7 +351,7 @@ export class SettingsStore {
 
   private getStore(): preferences.Preferences {
     if (!this.store) {
-      throw new Error('应用设置尚未初始化');
+      throw new Error(tr('应用设置尚未初始化'));
     }
     return this.store;
   }

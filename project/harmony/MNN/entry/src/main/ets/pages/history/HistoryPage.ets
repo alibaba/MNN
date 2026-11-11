@@ -1,3 +1,4 @@
+import { tr } from '../../services/I18n';
 import { common } from '@kit.AbilityKit';
 import { ChatRepository } from '../../data/ChatRepository';
 import { ChatSessionRecord } from '../../domain/AppTypes';
@@ -54,7 +55,7 @@ export struct HistoryPage {
 
   private deleteSession(sessionId: string): void {
     if (this.requestedSessionId === sessionId) {
-      this.error = '当前会话不能删除，请先打开其他会话或新建对话';
+      this.error = tr('当前会话不能删除，请先打开其他会话或新建对话');
       return;
     }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -71,11 +72,11 @@ export struct HistoryPage {
   build() {
     Column() {
       Row() {
-        Text('历史对话')
+        Text(tr('历史对话'))
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .layoutWeight(1)
-        Button('刷新')
+        Button(tr('刷新'))
           .height(36)
           .fontSize(13)
           .onClick(() => this.refresh())
@@ -85,14 +86,14 @@ export struct HistoryPage {
 
       if (this.renameId) {
         Row({ space: 8 }) {
-          TextInput({ text: this.renameText, placeholder: '输入会话名称' })
+          TextInput({ text: this.renameText, placeholder: tr('输入会话名称') })
             .layoutWeight(1)
             .onChange((value: string) => {
               this.renameText = value;
             })
-          Button('保存')
+          Button(tr('保存'))
             .onClick(() => this.saveRename())
-          Button('取消')
+          Button(tr('取消'))
             .backgroundColor($r('app.color.divider_alt'))
             .fontColor($r('app.color.text_body'))
             .onClick(() => {
@@ -104,10 +105,10 @@ export struct HistoryPage {
 
       if (this.sessions.length === 0) {
         Column({ space: 10 }) {
-          Text('暂无历史对话')
+          Text(tr('暂无历史对话'))
             .fontSize(18)
             .fontColor($r('app.color.text_body'))
-          Text('在聊天页发送第一条消息后，会话会自动保存在本机。')
+          Text(tr('在聊天页发送第一条消息后，会话会自动保存在本机。'))
             .fontSize(14)
             .fontColor($r('app.color.text_tertiary_alt'))
             .textAlign(TextAlign.Center)
@@ -134,13 +135,13 @@ export struct HistoryPage {
                 .layoutWeight(1)
                 .onClick(() => this.openSession(session))
 
-                Button('重命名')
+                Button(tr('重命名'))
                   .height(32)
                   .fontSize(12)
                   .backgroundColor($r('app.color.brand_tint'))
                   .fontColor($r('app.color.brand'))
                   .onClick(() => this.beginRename(session))
-                Button('删除')
+                Button(tr('删除'))
                   .height(32)
                   .fontSize(12)
                   .enabled(this.requestedSessionId !== session.id)
@@ -159,7 +160,7 @@ export struct HistoryPage {
       }
 
       if (this.error) {
-        Text(`错误：${this.error}`)
+        Text(`${tr('错误：')}${this.error}`)
           .fontSize(13)
           .fontColor($r('app.color.danger'))
           .padding(16)

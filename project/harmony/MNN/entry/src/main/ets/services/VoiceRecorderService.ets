@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
 import { audio } from '@kit.AudioKit';
 import { fileIo } from '@kit.CoreFileKit';
@@ -34,7 +35,7 @@ export class VoiceRecorderService {
     const permissionResult = await abilityAccessCtrl.createAtManager()
       .requestPermissionsFromUser(context, [MICROPHONE_PERMISSION]);
     if (permissionResult.authResults.length === 0 || permissionResult.authResults[0] !== 0) {
-      throw new Error('麦克风权限未授予');
+      throw new Error(tr('麦克风权限未授予'));
     }
 
     const directory = `${context.filesDir}/history/${this.safeName(sessionId)}`;
@@ -77,7 +78,7 @@ export class VoiceRecorderService {
 
   async stop(): Promise<AttachmentRecord> {
     if (!this.capturer) {
-      throw new Error('当前没有录音任务');
+      throw new Error(tr('当前没有录音任务'));
     }
     const capturer = this.capturer;
     this.capturer = undefined;

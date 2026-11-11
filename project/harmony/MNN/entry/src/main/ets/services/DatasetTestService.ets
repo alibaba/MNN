@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
@@ -52,7 +53,7 @@ export class DatasetTestService {
     try {
       const size = fileIo.statSync(file.fd).size;
       if (size > MAX_DATASET_BYTES) {
-        throw new Error('数据集文件过大（最多 32MB）');
+        throw new Error(tr('数据集文件过大（最多 32MB）'));
       }
       const buffer = new ArrayBuffer(size);
       const read = fileIo.readSync(file.fd, buffer);
@@ -76,7 +77,7 @@ export class DatasetTestService {
       }
     });
     if (prompts.length === 0) {
-      throw new Error('数据集中没有可用的 prompt');
+      throw new Error(tr('数据集中没有可用的 prompt'));
     }
     return prompts;
   }
@@ -94,7 +95,7 @@ export class DatasetTestService {
     result.modelId = modelId;
     const model = await ModelRepository.getInstance().getModel(modelId);
     if (!model || model.state !== ModelState.READY) {
-      throw new Error('数据集测试模型不可用');
+      throw new Error(tr('数据集测试模型不可用'));
     }
     const settings = await SettingsStore.getInstance().getModelRuntimeSettings(model.id);
     const testSettings = this.copySettings(settings);

@@ -1,3 +1,4 @@
+import { tr } from '../../services/I18n';
 import { common } from '@kit.AbilityKit';
 import { picker } from '@kit.CoreFileKit';
 import { DownloadRepository } from '../../data/DownloadRepository';
@@ -125,15 +126,15 @@ export struct ModelsPage {
 
   private confirmDelete(model: ModelRecord): void {
     AlertDialog.show({
-      title: '删除模型',
-      message: `确认删除 ${model.name}？此操作会移除受管模型文件。`,
+      title: tr('删除模型'),
+      message: `${tr('确认删除 ')}${model.name}${tr('？此操作会移除受管模型文件。')}`,
       primaryButton: {
-        value: '取消',
+        value: tr('取消'),
         action: () => {
         }
       },
       secondaryButton: {
-        value: '删除',
+        value: tr('删除'),
         fontColor: $r('app.color.danger'),
         action: () => this.deleteModel(model)
       }
@@ -198,16 +199,16 @@ export struct ModelsPage {
   build() {
     Column() {
       Row({ space: 8 }) {
-        Text('本地模型')
+        Text(tr('本地模型'))
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .layoutWeight(1)
-        Button('导入')
+        Button(tr('导入'))
           .height(36)
           .fontSize(13)
           .enabled(!this.busy)
           .onClick(() => this.importModel())
-        Button('扫描')
+        Button(tr('扫描'))
           .height(36)
           .fontSize(13)
           .enabled(!this.busy)
@@ -216,26 +217,26 @@ export struct ModelsPage {
       .width('100%')
       .padding(18)
 
-      TextInput({ text: this.query, placeholder: '搜索名称或路径' })
+      TextInput({ text: this.query, placeholder: tr('搜索名称或路径') })
         .margin({ left: 16, right: 16, bottom: 10 })
         .onChange((value: string) => {
           this.query = value;
         })
 
       Row({ space: 8 }) {
-        Button('全部')
+        Button(tr('全部'))
           .height(30)
           .fontSize(12)
           .backgroundColor(this.filterKind === 'all' ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
           .fontColor(this.filterKind === 'all' ? $r('app.color.brand') : $r('app.color.text_muted'))
           .onClick(() => this.filterKind = 'all')
-        Button('视觉')
+        Button(tr('视觉'))
           .height(30)
           .fontSize(12)
           .backgroundColor(this.filterKind === 'vision' ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
           .fontColor(this.filterKind === 'vision' ? $r('app.color.brand') : $r('app.color.text_muted'))
           .onClick(() => this.filterKind = 'vision')
-        Button('音频')
+        Button(tr('音频'))
           .height(30)
           .fontSize(12)
           .backgroundColor(this.filterKind === 'audio' ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
@@ -245,7 +246,7 @@ export struct ModelsPage {
       .width('100%')
       .padding({ left: 16, right: 16, bottom: 8 })
 
-      Text(`模型 ${this.formatBytes(this.storage.modelBytes)} · 可用 ${this.formatBytes(this.storage.freeBytes)} / ` +
+      Text(`${tr('模型 ')}${this.formatBytes(this.storage.modelBytes)}${tr(' · 可用 ')}${this.formatBytes(this.storage.freeBytes)} / ` +
         `${this.formatBytes(this.storage.totalBytes)}`)
         .fontSize(12)
         .fontColor($r('app.color.text_secondary'))
@@ -254,7 +255,7 @@ export struct ModelsPage {
 
       if (this.downloads.length > 0) {
         Column({ space: 6 }) {
-          Text('下载中')
+          Text(tr('下载中'))
             .fontSize(13)
             .fontColor($r('app.color.text_secondary'))
             .width('100%')
@@ -275,10 +276,10 @@ export struct ModelsPage {
               }
               .alignItems(HorizontalAlign.Start)
               .layoutWeight(1)
-              Text(item.totalBytes > 0 ? `${((item.downloadedBytes / item.totalBytes) * 100).toFixed(1)}%` : '准备中')
+              Text(item.totalBytes > 0 ? `${((item.downloadedBytes / item.totalBytes) * 100).toFixed(1)}%` : tr('准备中'))
                 .fontSize(12)
                 .fontColor($r('app.color.text_secondary'))
-              Button('取消')
+              Button(tr('取消'))
                 .height(30)
                 .fontSize(12)
                 .enabled(!this.busy)
@@ -305,7 +306,7 @@ export struct ModelsPage {
                   .fontSize(18)
                   .fontWeight(FontWeight.Medium)
                   .layoutWeight(1)
-                Text(model.state === ModelState.READY ? '可用' : '配置无效')
+                Text(model.state === ModelState.READY ? tr('可用') : tr('配置无效'))
                   .fontSize(12)
                   .fontColor(model.state === ModelState.READY ? $r('app.color.success') : $r('app.color.danger'))
                   .backgroundColor(model.state === ModelState.READY ? $r('app.color.success_tint') : $r('app.color.danger_tint'))
@@ -320,22 +321,22 @@ export struct ModelsPage {
                 .fontSize(12)
                 .fontColor($r('app.color.text_secondary'))
               if (model.isProtected) {
-                Text('内置沙箱模型 · 受保护，不会被移动或清理')
+                Text(tr('内置沙箱模型 · 受保护，不会被移动或清理'))
                   .fontSize(12)
                   .fontColor($r('app.color.brand'))
               }
               Row({ space: 8 }) {
-                Button(model.isPinned ? '取消置顶' : '置顶')
+                Button(model.isPinned ? tr('取消置顶') : tr('置顶'))
                   .height(32)
                   .fontSize(12)
                   .enabled(!this.busy)
                   .onClick(() => this.togglePinned(model))
-                Button(this.activeModelId === model.id ? '使用中' : '使用')
+                Button(this.activeModelId === model.id ? tr('使用中') : tr('使用'))
                   .height(32)
                   .fontSize(12)
                   .enabled(!this.busy && model.state === ModelState.READY && this.activeModelId !== model.id)
                   .onClick(() => this.useModel(model))
-                Button('删除')
+                Button(tr('删除'))
                   .height(32)
                   .fontSize(12)
                   .enabled(!this.busy && !model.isProtected && !model.isLegacy && this.activeModelId !== model.id)
@@ -355,7 +356,7 @@ export struct ModelsPage {
       .padding({ left: 16, right: 16, bottom: 16 })
 
       if (this.error) {
-        Text(`错误：${this.error}`)
+        Text(`${tr('错误：')}${this.error}`)
           .fontSize(13)
           .fontColor($r('app.color.danger'))
           .padding(16)

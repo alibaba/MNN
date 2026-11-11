@@ -1,3 +1,4 @@
+import { tr } from '../../services/I18n';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import pasteboard from '@ohos.pasteboard';
@@ -263,18 +264,18 @@ export struct MarketPage {
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, info);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        promptAction.showToast({ message: '错误信息已复制' });
+        promptAction.showToast({ message: tr('错误信息已复制') });
       }).catch(() => {
-        promptAction.showToast({ message: '复制失败' });
+        promptAction.showToast({ message: tr('复制失败') });
       });
     } catch (error) {
-      promptAction.showToast({ message: '复制失败' });
+      promptAction.showToast({ message: tr('复制失败') });
     }
   }
 
   private formatBytes(bytes: number): string {
     if (bytes <= 0) {
-      return '未知大小';
+      return tr('未知大小');
     }
     if (bytes < 1024 * 1024 * 1024) {
       return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -287,13 +288,13 @@ export struct MarketPage {
       return `${(status.downloadedBytes * 100 / status.totalBytes).toFixed(1)}%`;
     }
     if (status.state === DownloadState.PAUSED) {
-      return '已暂停';
+      return tr('已暂停');
     }
     if (status.state === DownloadState.FAILED) {
-      return status.error || '失败';
+      return status.error || tr('失败');
     }
     if (status.state === DownloadState.COMPLETED) {
-      return '已安装';
+      return tr('已安装');
     }
     return '';
   }
@@ -333,22 +334,22 @@ export struct MarketPage {
   @Builder
   private downloadAction(model: MarketModelRecord) {
     if (this.statusFor(model).state === DownloadState.DOWNLOADING) {
-      Button('暂停')
+      Button(tr('暂停'))
         .height(34)
         .fontSize(12)
         .onClick(() => this.pauseDownload(model))
     } else if (this.statusFor(model).state === DownloadState.PAUSED) {
-      Button('继续')
+      Button(tr('继续'))
         .height(34)
         .fontSize(12)
         .onClick(() => this.resumeDownload(model))
     } else if (this.statusFor(model).state === DownloadState.FAILED) {
       Row({ space: 6 }) {
-        Button('重试')
+        Button(tr('重试'))
           .height(34)
           .fontSize(12)
           .onClick(() => this.retryDownload(model))
-        Button('复制错误')
+        Button(tr('复制错误'))
           .height(34)
           .fontSize(12)
           .backgroundColor($r('app.color.surface_muted'))
@@ -357,20 +358,20 @@ export struct MarketPage {
       }
     } else if (this.isInstalled(model)) {
       if (this.isUpdateAvailable(model)) {
-        Button('更新')
+        Button(tr('更新'))
           .height(34)
           .fontSize(12)
           .backgroundColor($r('app.color.warning_tint'))
           .fontColor($r('app.color.warning'))
           .onClick(() => this.startDownload(model, true))
       } else {
-        Button('已安装')
+        Button(tr('已安装'))
           .height(34)
           .fontSize(12)
           .enabled(false)
       }
     } else {
-      Button('下载')
+      Button(tr('下载'))
         .height(34)
         .fontSize(12)
         .onClick(() => this.startDownload(model))
@@ -380,11 +381,11 @@ export struct MarketPage {
   build() {
     Column() {
       Row({ space: 8 }) {
-        Text('模型市场')
+        Text(tr('模型市场'))
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .layoutWeight(1)
-        Button('刷新')
+        Button(tr('刷新'))
           .height(34)
           .fontSize(12)
           .enabled(!this.loading)
@@ -410,7 +411,7 @@ export struct MarketPage {
       .width('100%')
       .padding({ left: 16, right: 16, bottom: 10 })
 
-      TextInput({ text: this.query, placeholder: '搜索模型、厂商或标签' })
+      TextInput({ text: this.query, placeholder: tr('搜索模型、厂商或标签') })
         .margin({ left: 16, right: 16, bottom: 10 })
         .onChange((value: string) => {
           this.query = value;
@@ -419,7 +420,7 @@ export struct MarketPage {
 
       Scroll() {
         Row({ space: 8 }) {
-          Button('全部')
+          Button(tr('全部'))
             .height(30)
             .fontSize(11)
             .fontColor(this.selectedTag ? $r('app.color.brand') : Color.White)
@@ -448,7 +449,7 @@ export struct MarketPage {
 
       Scroll() {
         Row({ space: 8 }) {
-          Button('全部厂商')
+          Button(tr('全部厂商'))
             .height(30)
             .fontSize(11)
             .fontColor(this.selectedVendor ? $r('app.color.brand') : Color.White)
@@ -506,7 +507,7 @@ export struct MarketPage {
                 if (this.statusFor(model).state === DownloadState.DOWNLOADING ||
                   this.statusFor(model).state === DownloadState.PAUSED ||
                   this.statusFor(model).state === DownloadState.FAILED) {
-                  Button('取消')
+                  Button(tr('取消'))
                     .height(34)
                     .fontSize(12)
                     .backgroundColor($r('app.color.danger_tint'))
@@ -528,18 +529,18 @@ export struct MarketPage {
       .padding({ left: 16, right: 16, bottom: 12 })
 
       if (this.loading) {
-        Text('正在加载模型市场…')
+        Text(tr('正在加载模型市场…'))
           .fontSize(13)
           .fontColor($r('app.color.text_secondary'))
           .padding(12)
       }
       if (this.error) {
-        Text(`错误：${this.error}`)
+        Text(`${tr('错误：')}${this.error}`)
           .fontSize(13)
           .fontColor($r('app.color.danger'))
           .padding(12)
       }
-      Text('下载会在后台继续执行（系统可能显示“数据传输”通知）；私有仓库可在“设置”中填写平台令牌。')
+      Text(tr('下载会在后台继续执行（系统可能显示“数据传输”通知）；私有仓库可在“设置”中填写平台令牌。'))
         .fontSize(11)
         .fontColor($r('app.color.text_tertiary'))
         .padding({ left: 16, right: 16, bottom: 10 })

@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import { common } from '@kit.AbilityKit';
 import relationalStore from '@ohos.data.relationalStore';
 
@@ -27,7 +28,7 @@ export class AppDatabase {
 
   getStore(): relationalStore.RdbStore {
     if (!this.store) {
-      throw new Error('应用数据库尚未初始化');
+      throw new Error(tr('应用数据库尚未初始化'));
     }
     return this.store;
   }

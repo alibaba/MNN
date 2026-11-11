@@ -1,3 +1,4 @@
+import { tr } from '../../services/I18n';
 import { common, Want } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import pasteboard from '@ohos.pasteboard';
@@ -13,7 +14,7 @@ import {
 import { mnnVersion } from '../../services/GenerationCoordinator';
 import { InfoSheet } from '../../components/InfoSheet';
 import { MarketAuth } from '../../services/MarketAuth';
-import { PRIVACY_POLICY_TEXT } from '../../services/PrivacyPolicy';
+import { privacyPolicyText } from '../../services/PrivacyPolicy';
 import { StorageEntry, StorageService, StorageSnapshot } from '../../services/StorageService';
 import {
   PROVIDER_HUGGING_FACE,
@@ -118,7 +119,7 @@ export struct SettingsPage {
       MarketAuth.saveToken(PROVIDER_MODEL_SCOPE, this.tokens.modelScope),
       MarketAuth.saveToken(PROVIDER_MODELERS, this.tokens.modelers)
     ]).then(() => {
-      this.status = '模型市场令牌已保存';
+      this.status = tr('模型市场令牌已保存');
       this.error = '';
     }).catch((error: Error) => {
       this.error = error.message;
@@ -134,24 +135,24 @@ export struct SettingsPage {
         uri: url
       };
       context.startAbility(want).catch((error: Error) => {
-        this.error = `无法打开浏览器：${error.message}`;
+        this.error = `${tr('无法打开浏览器：')}${error.message}`;
       });
     } catch (error) {
-      this.error = `无法打开浏览器：${(error as Error).message}`;
+      this.error = `${tr('无法打开浏览器：')}${(error as Error).message}`;
     }
   }
 
   private checkForUpdate(): void {
-    const version = this.appVersion ? `当前版本 ${this.appVersion}\n\n` : '';
+    const version = this.appVersion ? `${tr('当前版本 ')}${this.appVersion}\n\n` : '';
     AlertDialog.show({
-      title: '检查更新',
-      message: `${version}鸿蒙客户端随 MNN 仓库一起发布，请到 GitHub Releases 查看最新版本与更新说明。`,
+      title: tr('检查更新'),
+      message: `${version}${tr('鸿蒙客户端随 MNN 仓库一起发布，请到 GitHub Releases 查看最新版本与更新说明。')}`,
       primaryButton: {
-        value: '打开 Releases',
+        value: tr('打开 Releases'),
         action: () => this.openWebPage('https://github.com/alibaba/MNN/releases')
       },
       secondaryButton: {
-        value: '关闭',
+        value: tr('关闭'),
         action: () => {}
       }
     });
@@ -161,16 +162,16 @@ export struct SettingsPage {
     let controller: CustomDialogController | null = null;
     controller = new CustomDialogController({
       builder: InfoSheet({
-        title: '隐私政策',
-        message: PRIVACY_POLICY_TEXT,
+        title: tr('隐私政策'),
+        message: privacyPolicyText(),
         onCopy: () => {
           try {
-            const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, PRIVACY_POLICY_TEXT);
+            const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, privacyPolicyText());
             pasteboard.getSystemPasteboard().setData(data).then(() => {
-              promptAction.showToast({ message: '隐私政策已复制' });
+              promptAction.showToast({ message: tr('隐私政策已复制') });
             });
           } catch (error) {
-            promptAction.showToast({ message: '复制失败' });
+            promptAction.showToast({ message: tr('复制失败') });
           }
         }
       }),
@@ -182,18 +183,18 @@ export struct SettingsPage {
   }
 
   private showAbout(): void {
-    const version = this.appVersion ? `版本 ${this.appVersion}\n\n` : '';
+    const version = this.appVersion ? `${tr('版本 ')}${this.appVersion}\n\n` : '';
     const engine = this.engineVersion;
     AlertDialog.show({
-      title: '关于 MNN Chat',
-      message: `${version}${engine ? `MNN 引擎 ${engine}\n\n` : ''}基于 MNN 推理引擎的端侧大模型聊天客户端。\n\n` +
-        '聊天记录、模型与配置仅保存在本机，推理过程完全离线。',
+      title: tr('关于 MNN Chat'),
+      message: `${version}${engine ? `${tr('MNN 引擎 ')}${engine}\n\n` : ''}${tr('基于 MNN 推理引擎的端侧大模型聊天客户端。\n\n')}` +
+        tr('聊天记录、模型与配置仅保存在本机，推理过程完全离线。'),
       primaryButton: {
-        value: '项目主页',
+        value: tr('项目主页'),
         action: () => this.openWebPage('https://github.com/alibaba/MNN')
       },
       secondaryButton: {
-        value: '关闭',
+        value: tr('关闭'),
         action: () => {}
       }
     });
@@ -242,21 +243,21 @@ export struct SettingsPage {
   private clearModelCache(entry: StorageEntry): void {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const freed = StorageService.getInstance().clearModelCache(context, entry);
-    this.status = `已清理 ${entry.modelName} 缓存 ${this.formatBytes(freed)}`;
+    this.status = `${tr('已清理 ')}${entry.modelName}${tr(' 缓存 ')}${this.formatBytes(freed)}`;
     this.refreshStorage();
   }
 
   private clearOrphanCaches(): void {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const freed = StorageService.getInstance().clearOrphanCaches(context, this.storage);
-    this.status = `已清理孤儿缓存 ${this.formatBytes(freed)}`;
+    this.status = `${tr('已清理孤儿缓存 ')}${this.formatBytes(freed)}`;
     this.refreshStorage();
   }
 
   private clearCache(): void {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const freed = StorageService.getInstance().clearAllCaches(context);
-    this.status = `缓存已清理 ${this.formatBytes(freed)}`;
+    this.status = `${tr('缓存已清理 ')}${this.formatBytes(freed)}`;
     this.error = '';
     this.refreshStorage();
   }
@@ -359,7 +360,7 @@ export struct SettingsPage {
     this.busy = true;
     SettingsStore.getInstance().putModelRuntimeSettings(this.activeModelId, this.settings).then((revision: number) => {
       this.settingsRevision = revision;
-      this.status = '设置已保存，将在下次生成前应用';
+      this.status = tr('设置已保存，将在下次生成前应用');
       this.error = '';
     }).catch((error: Error) => {
       this.error = error.message;
@@ -376,7 +377,7 @@ export struct SettingsPage {
     SettingsStore.getInstance().resetModelRuntimeSettings(this.activeModelId).then((revision: number) => {
       this.settingsRevision = revision;
       this.loadSettings();
-      this.status = '已恢复默认设置';
+      this.status = tr('已恢复默认设置');
     }).catch((error: Error) => {
       this.error = error.message;
     }).finally(() => {
@@ -444,9 +445,9 @@ export struct SettingsPage {
 
   private memoryModeLabel(mode: number): string {
     if (mode === 0) {
-      return '省内存';
+      return tr('省内存');
     }
-    return mode === 1 ? '高性能' : '均衡';
+    return mode === 1 ? tr('高性能') : tr('均衡');
   }
 
   private memoryModeIndex(mode: number): number {
@@ -473,7 +474,7 @@ export struct SettingsPage {
   build() {
     Column() {
       Column({ space: 4 }) {
-        Text('推理设置')
+        Text(tr('推理设置'))
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .width('100%')
@@ -489,11 +490,11 @@ export struct SettingsPage {
           if (this.isDiffusion) {
             Column({ space: 8 }) {
               Row() {
-                Text('生成步数')
+                Text(tr('生成步数'))
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
                   .layoutWeight(1)
-                Text(`${this.settings.diffusionSteps} 步`)
+                Text(`${this.settings.diffusionSteps}${tr(' 步')}`)
                   .fontSize(13)
                   .fontColor($r('app.color.text_secondary'))
               }
@@ -515,7 +516,7 @@ export struct SettingsPage {
                   next.diffusionSteps = this.stepAt(index);
                   this.settings = next;
                 })
-              Text('步数越高越慢；512×512、10 步在 CPU 上约 4 分钟，4 步约 2 分钟')
+              Text(tr('步数越高越慢；512×512、10 步在 CPU 上约 4 分钟，4 步约 2 分钟'))
                 .fontSize(11)
                 .fontColor($r('app.color.text_tertiary'))
                 .width('100%')
@@ -527,7 +528,7 @@ export struct SettingsPage {
 
             Column({ space: 8 }) {
               Row() {
-                Text('输出宽度')
+                Text(tr('输出宽度'))
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
                   .layoutWeight(1)
@@ -551,7 +552,7 @@ export struct SettingsPage {
                   this.settings = next;
                 })
               Row() {
-                Text('输出高度')
+                Text(tr('输出高度'))
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
                   .layoutWeight(1)
@@ -582,16 +583,16 @@ export struct SettingsPage {
 
             Column({ space: 8 }) {
               Row() {
-                Text('随机种子')
+                Text(tr('随机种子'))
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
                   .layoutWeight(1)
-                Text(this.settings.diffusionSeed < 0 ? '随机' : `${this.settings.diffusionSeed}`)
+                Text(this.settings.diffusionSeed < 0 ? tr('随机') : `${this.settings.diffusionSeed}`)
                   .fontSize(13)
                   .fontColor($r('app.color.text_secondary'))
               }
               .width('100%')
-              TextInput({ text: `${this.settings.diffusionSeed}`, placeholder: '42，-1 表示每次随机' })
+              TextInput({ text: `${this.settings.diffusionSeed}`, placeholder: tr('42，-1 表示每次随机') })
                 .type(InputType.Number)
                 .onChange((value: string) => {
                   const parsed = Number(value);
@@ -610,7 +611,7 @@ export struct SettingsPage {
 
             Column({ space: 8 }) {
               Row() {
-                Text('内存模式')
+                Text(tr('内存模式'))
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
                   .layoutWeight(1)
@@ -620,9 +621,9 @@ export struct SettingsPage {
               }
               .width('100%')
               Select([
-                { value: '省内存' },
-                { value: '均衡' },
-                { value: '高性能' }
+                { value: tr('省内存') },
+                { value: tr('均衡') },
+                { value: tr('高性能') }
               ])
                 .selected(this.memoryModeIndex(this.settings.diffusionMemoryMode))
                 .onSelect((index: number) => {
@@ -639,7 +640,7 @@ export struct SettingsPage {
 
           if (!this.isDiffusion) {
           Column({ space: 8 }) {
-            this.settingTitle('后端', this.settings.backendType === RuntimeBackendType.OPENCL ? 'OpenCL' : 'CPU')
+            this.settingTitle(tr('后端'), this.settings.backendType === RuntimeBackendType.OPENCL ? 'OpenCL' : 'CPU')
             Select([
               { value: 'CPU' },
               { value: 'OpenCL' }
@@ -657,7 +658,7 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Column({ space: 8 }) {
-            this.settingTitle('线程数', this.settings.threadNum.toString())
+            this.settingTitle(tr('线程数'), this.settings.threadNum.toString())
             Slider({ value: this.settings.threadNum, min: 1, max: 16, step: 1 })
               .onChange((value: number) => {
                 const next = this.copySettings();
@@ -671,11 +672,11 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Column({ space: 8 }) {
-            this.settingTitle('精度', this.settings.precision)
+            this.settingTitle(tr('精度'), this.settings.precision)
             Select([
-              { value: '低精度' },
-              { value: '标准精度' },
-              { value: '高精度' }
+              { value: tr('低精度') },
+              { value: tr('标准精度') },
+              { value: tr('高精度') }
             ])
               .selected(this.settings.precision === RuntimePrecision.LOW ? 0 :
                 (this.settings.precision === RuntimePrecision.NORMAL ? 1 : 2))
@@ -692,11 +693,11 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Column({ space: 8 }) {
-            this.settingTitle('内存模式', this.settings.memory)
+            this.settingTitle(tr('内存模式'), this.settings.memory)
             Select([
-              { value: '低内存' },
-              { value: '标准' },
-              { value: '高性能' }
+              { value: tr('低内存') },
+              { value: tr('标准') },
+              { value: tr('高性能') }
             ])
               .selected(this.settings.memory === RuntimeMemory.LOW ? 0 :
                 (this.settings.memory === RuntimeMemory.NORMAL ? 1 : 2))
@@ -713,7 +714,7 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Row() {
-            Text('内存映射')
+            Text(tr('内存映射'))
               .fontSize(15)
               .layoutWeight(1)
             Toggle({ type: ToggleType.Switch, isOn: this.settings.useMmap })
@@ -745,7 +746,7 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Row() {
-            Text('思考模式')
+            Text(tr('思考模式'))
               .fontSize(15)
               .layoutWeight(1)
             Toggle({ type: ToggleType.Switch, isOn: this.settings.thinking })
@@ -761,7 +762,7 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Column({ space: 8 }) {
-            this.settingTitle('最大生成 Token', this.settings.maxTokens.toString())
+            this.settingTitle(tr('最大生成 Token'), this.settings.maxTokens.toString())
             Slider({ value: this.settings.maxTokens, min: 64, max: 2048, step: 64 })
               .onChange((value: number) => {
                 const next = this.copySettings();
@@ -775,12 +776,12 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Column({ space: 8 }) {
-            this.settingTitle('采样器', this.settings.samplerType)
+            this.settingTitle(tr('采样器'), this.settings.samplerType)
             Select([
-              { value: '混合采样' },
-              { value: '贪心' },
-              { value: '惩罚采样' },
-              { value: '温度' },
+              { value: tr('混合采样') },
+              { value: tr('贪心') },
+              { value: tr('惩罚采样') },
+              { value: tr('温度') },
               { value: 'Top-K' },
               { value: 'Top-P' }
             ])
@@ -857,7 +858,7 @@ export struct SettingsPage {
                 next.typical = value;
                 this.settings = next;
               })
-            this.settingTitle('重复惩罚', this.settings.penalty.toFixed(2))
+            this.settingTitle(tr('重复惩罚'), this.settings.penalty.toFixed(2))
             Slider({ value: this.settings.penalty, min: 1, max: 2, step: 0.01 })
               .enabled(this.settings.samplerType === RuntimeSamplerType.PENALTY)
               .onChange((value: number) => {
@@ -888,7 +889,7 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Column({ space: 8 }) {
-            Text('系统提示词')
+            Text(tr('系统提示词'))
               .fontSize(15)
               .fontWeight(FontWeight.Medium)
               .width('100%')
@@ -907,12 +908,12 @@ export struct SettingsPage {
           }
 
           Column({ space: 8 }) {
-            Text('模型市场令牌')
+            Text(tr('模型市场令牌'))
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
               .fontColor($r('app.color.text_primary'))
               .width('100%')
-            Text('公开模型无需令牌；私有仓库需填写平台 access token，仅保存在本机。')
+            Text(tr('公开模型无需令牌；私有仓库需填写平台 access token，仅保存在本机。'))
               .fontSize(11)
               .lineHeight(17)
               .fontColor($r('app.color.text_tertiary'))
@@ -938,7 +939,7 @@ export struct SettingsPage {
                 next.modelers = value;
                 this.tokens = next;
               })
-            Button('保存令牌')
+            Button(tr('保存令牌'))
               .height(34)
               .fontSize(13)
               .backgroundColor($r('app.color.brand_tint'))
@@ -951,13 +952,13 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Column({ space: 10 }) {
-            Text('应用设置')
+            Text(tr('应用设置'))
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
               .fontColor($r('app.color.text_primary'))
               .width('100%')
             Row() {
-              Text('显示性能指标')
+              Text(tr('显示性能指标'))
                 .fontSize(15)
                 .layoutWeight(1)
               Toggle({ type: ToggleType.Switch, isOn: this.showMetrics })
@@ -965,7 +966,7 @@ export struct SettingsPage {
             }
             .width('100%')
             Row() {
-              Text('聊天时暂停下载')
+              Text(tr('聊天时暂停下载'))
                 .fontSize(15)
                 .layoutWeight(1)
               Toggle({ type: ToggleType.Switch, isOn: this.stopDownloadsOnChat })
@@ -973,20 +974,20 @@ export struct SettingsPage {
             }
             .width('100%')
             Row() {
-              Text('模型回复语音（需模型支持）')
+              Text(tr('模型回复语音（需模型支持）'))
                 .fontSize(15)
                 .layoutWeight(1)
               Toggle({ type: ToggleType.Switch, isOn: this.audioReply })
                 .onChange((value: boolean) => this.toggleAudioReply(value))
             }
             .width('100%')
-            Text('仅对带 talker 的 Omni 模型生效；体积较大的模型合成语音时可能超出系统内存限制')
+            Text(tr('仅对带 talker 的 Omni 模型生效；体积较大的模型合成语音时可能超出系统内存限制'))
               .fontSize(11)
               .lineHeight(17)
               .fontColor($r('app.color.text_tertiary'))
               .width('100%')
             Row() {
-              Text('视频采样帧数')
+              Text(tr('视频采样帧数'))
                 .fontSize(15)
                 .layoutWeight(1)
               Select([
@@ -1000,7 +1001,7 @@ export struct SettingsPage {
             }
             .width('100%')
             Row() {
-              Text('视频帧尺寸')
+              Text(tr('视频帧尺寸'))
                 .fontSize(15)
                 .layoutWeight(1)
               Select([
@@ -1012,24 +1013,24 @@ export struct SettingsPage {
                 .onSelect((index: number) => this.updateVideoFrameSize(this.videoSizeAt(index)))
             }
             .width('100%')
-            Text('帧数和尺寸越大理解越准，但视频首字延迟越高；默认 4 帧 / 320px')
+            Text(tr('帧数和尺寸越大理解越准，但视频首字延迟越高；默认 4 帧 / 320px'))
               .fontSize(11)
               .lineHeight(17)
               .fontColor($r('app.color.text_tertiary'))
               .width('100%')
-            Text('存储管理')
+            Text(tr('存储管理'))
               .fontSize(15)
               .fontWeight(FontWeight.Medium)
               .fontColor($r('app.color.text_primary'))
               .width('100%')
-            Text(`设备存储 已用 ${this.formatBytes(this.storage.totalBytes - this.storage.freeBytes)} / ` +
-              `${this.formatBytes(this.storage.totalBytes)} · 可用 ${this.formatBytes(this.storage.freeBytes)}`)
+            Text(`${tr('设备存储 已用 ')}${this.formatBytes(this.storage.totalBytes - this.storage.freeBytes)} / ` +
+              `${this.formatBytes(this.storage.totalBytes)}${tr(' · 可用 ')}${this.formatBytes(this.storage.freeBytes)}`)
               .fontSize(12)
               .fontColor($r('app.color.text_secondary'))
               .width('100%')
-            Text(`模型文件 ${this.formatBytes(this.storage.modelBytes)} · 运行缓存 ` +
-              `${this.formatBytes(this.storage.cacheBytes)} · 下载临时 ${this.formatBytes(this.storage.downloadBytes)}` +
-              (this.storage.orphanBytes > 0 ? ` · 孤儿缓存 ${this.formatBytes(this.storage.orphanBytes)}` : ''))
+            Text(`${tr('模型文件 ')}${this.formatBytes(this.storage.modelBytes)}${tr(' · 运行缓存 ')}` +
+              `${this.formatBytes(this.storage.cacheBytes)}${tr(' · 下载临时 ')}${this.formatBytes(this.storage.downloadBytes)}` +
+              (this.storage.orphanBytes > 0 ? `${tr(' · 孤儿缓存 ')}${this.formatBytes(this.storage.orphanBytes)}` : ''))
               .fontSize(11)
               .lineHeight(17)
               .fontColor($r('app.color.text_tertiary'))
@@ -1038,14 +1039,14 @@ export struct SettingsPage {
               if (entry.modelBytes > 0 || entry.cacheBytes > 0) {
                 Row({ space: 8 }) {
                   Column({ space: 2 }) {
-                    Text(entry.orphan ? `${entry.modelName}（已删除模型）` : entry.modelName)
+                    Text(entry.orphan ? `${entry.modelName}${tr('（已删除模型）')}` : entry.modelName)
                       .fontSize(13)
                       .fontColor($r('app.color.text_body'))
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
                       .width('100%')
-                    Text(entry.orphan ? `孤儿缓存 ${this.formatBytes(entry.cacheBytes)}` :
-                      `模型 ${this.formatBytes(entry.modelBytes)} · 缓存 ${this.formatBytes(entry.cacheBytes)}`)
+                    Text(entry.orphan ? `${tr('孤儿缓存 ')}${this.formatBytes(entry.cacheBytes)}` :
+                      `${tr('模型 ')}${this.formatBytes(entry.modelBytes)}${tr(' · 缓存 ')}${this.formatBytes(entry.cacheBytes)}`)
                       .fontSize(11)
                       .fontColor($r('app.color.text_tertiary'))
                       .width('100%')
@@ -1053,7 +1054,7 @@ export struct SettingsPage {
                   .layoutWeight(1)
                   .alignItems(HorizontalAlign.Start)
                   if (entry.cacheBytes > 0) {
-                    Button('清理')
+                    Button(tr('清理'))
                       .height(30)
                       .fontSize(12)
                       .backgroundColor($r('app.color.brand_tint'))
@@ -1066,7 +1067,7 @@ export struct SettingsPage {
             }, (entry: StorageEntry) => entry.modelId)
             Row({ space: 10 }) {
               if (this.storage.orphanBytes > 0) {
-                Button('清理孤儿缓存')
+                Button(tr('清理孤儿缓存'))
                   .layoutWeight(1)
                   .height(34)
                   .fontSize(13)
@@ -1074,7 +1075,7 @@ export struct SettingsPage {
                   .fontColor($r('app.color.text_muted'))
                   .onClick(() => this.clearOrphanCaches())
               }
-              Button('清理全部缓存')
+              Button(tr('清理全部缓存'))
                 .layoutWeight(1)
                 .height(34)
                 .fontSize(13)
@@ -1083,23 +1084,23 @@ export struct SettingsPage {
                 .onClick(() => this.clearCache())
             }
             .width('100%')
-            Text(this.appVersion ? `版本 ${this.appVersion}` : '版本未知')
+            Text(this.appVersion ? `${tr('版本 ')}${this.appVersion}` : tr('版本未知'))
               .fontSize(14)
               .fontColor($r('app.color.text_body'))
               .width('100%')
-            Text(this.engineVersion ? `MNN 引擎 ${this.engineVersion}` : 'MNN 引擎版本未知')
+            Text(this.engineVersion ? `${tr('MNN 引擎 ')}${this.engineVersion}` : tr('MNN 引擎版本未知'))
               .fontSize(13)
               .fontColor($r('app.color.text_secondary'))
               .width('100%')
             Row({ space: 10 }) {
-              Button('检查更新')
+              Button(tr('检查更新'))
                 .layoutWeight(1)
                 .height(34)
                 .fontSize(13)
                 .backgroundColor($r('app.color.brand_tint'))
                 .fontColor($r('app.color.brand'))
                 .onClick(() => this.checkForUpdate())
-              Button('关于')
+              Button(tr('关于'))
                 .layoutWeight(1)
                 .height(34)
                 .fontSize(13)
@@ -1108,11 +1109,11 @@ export struct SettingsPage {
                 .onClick(() => this.showAbout())
             }
             .width('100%')
-            Text('隐私政策')
+            Text(tr('隐私政策'))
               .fontSize(13)
               .fontColor($r('app.color.brand'))
               .onClick(() => this.showPrivacyPolicy())
-            Text('聊天记录、模型与配置仅保存在本机；API 服务只在启动后监听本机或局域网。')
+            Text(tr('聊天记录、模型与配置仅保存在本机；API 服务只在启动后监听本机或局域网。'))
               .fontSize(12)
               .lineHeight(19)
               .fontColor($r('app.color.text_secondary'))
@@ -1124,11 +1125,11 @@ export struct SettingsPage {
           .borderRadius(12)
 
           Row({ space: 10 }) {
-            Button('恢复默认')
+            Button(tr('恢复默认'))
               .layoutWeight(1)
               .enabled(!this.busy)
               .onClick(() => this.reset())
-            Button('保存设置')
+            Button(tr('保存设置'))
               .layoutWeight(1)
               .enabled(!this.busy)
               .fontColor(Color.White)
@@ -1143,7 +1144,7 @@ export struct SettingsPage {
               .width('100%')
           }
           if (this.error) {
-            Text(`错误：${this.error}`)
+            Text(`${tr('错误：')}${this.error}`)
               .fontSize(13)
               .fontColor($r('app.color.danger'))
               .width('100%')

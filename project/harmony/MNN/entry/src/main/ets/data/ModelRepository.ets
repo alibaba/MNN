@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import relationalStore from '@ohos.data.relationalStore';
 import fs from '@ohos.file.fs';
 import fileUri from '@ohos.file.fileuri';
@@ -111,17 +112,17 @@ export class ModelRepository {
       await fs.copy(sourceUri, fileUri.getUriFromPath(stagingRoot));
       const modelRoot = this.findModelRoot(stagingRoot);
       if (this.containsSymbolicLink(modelRoot)) {
-        throw new Error('模型目录不能包含符号链接');
+        throw new Error(tr('模型目录不能包含符号链接'));
       }
       await SplitFileMerger.mergeIfNeeded(modelRoot);
       const directoryName = this.sanitizeName(this.baseName(modelRoot));
       if (!directoryName || directoryName === TRASH_DIRECTORY || directoryName.startsWith('.partial-') ||
         directoryName.indexOf('.deleting-') >= 0) {
-        throw new Error('无法从所选目录生成安全的模型名称');
+        throw new Error(tr('无法从所选目录生成安全的模型名称'));
       }
       targetRoot = `${managedRoot}/${directoryName}`;
       if (fs.accessSync(targetRoot)) {
-        throw new Error(`模型 ${directoryName} 已存在`);
+        throw new Error(`${tr('模型 ')}${directoryName}${tr(' 已存在')}`);
       }
       const validation = this.validateModel(modelRoot);
       if (!validation.valid) {
@@ -149,11 +150,11 @@ export class ModelRepository {
   async installDownloadedModel(stagingRoot: string, filesDir: string, name: string): Promise<ModelRecord> {
     const downloadsRoot = `${filesDir}/.mnn-downloads/`;
     if (!stagingRoot.startsWith(downloadsRoot) || this.containsSymbolicLink(stagingRoot)) {
-      throw new Error('下载暂存目录无效');
+      throw new Error(tr('下载暂存目录无效'));
     }
     const directoryName = this.sanitizeName(name);
     if (!directoryName || directoryName === TRASH_DIRECTORY || directoryName.startsWith('.partial-')) {
-      throw new Error('模型名称无效');
+      throw new Error(tr('模型名称无效'));
     }
     const validation = this.validateModel(stagingRoot);
     if (!validation.valid) {
@@ -162,7 +163,7 @@ export class ModelRepository {
     const managedRoot = this.prepareManagedRoot(filesDir);
     const targetRoot = `${managedRoot}/${directoryName}`;
     if (fs.accessSync(targetRoot)) {
-      throw new Error(`模型 ${directoryName} 已存在`);
+      throw new Error(`${tr('模型 ')}${directoryName}${tr(' 已存在')}`);
     }
     fs.renameSync(stagingRoot, targetRoot);
     try {
@@ -184,11 +185,11 @@ export class ModelRepository {
   async replaceDownloadedModel(stagingRoot: string, filesDir: string, name: string): Promise<ModelRecord> {
     const downloadsRoot = `${filesDir}/.mnn-downloads/`;
     if (!stagingRoot.startsWith(downloadsRoot) || this.containsSymbolicLink(stagingRoot)) {
-      throw new Error('下载暂存目录无效');
+      throw new Error(tr('下载暂存目录无效'));
     }
     const directoryName = this.sanitizeName(name);
     if (!directoryName || directoryName === TRASH_DIRECTORY || directoryName.startsWith('.partial-')) {
-      throw new Error('模型名称无效');
+      throw new Error(tr('模型名称无效'));
     }
     const validation = this.validateModel(stagingRoot);
     if (!validation.valid) {
@@ -265,7 +266,7 @@ export class ModelRepository {
     const capabilities = new ModelCapabilities();
     const model = await this.getModel(modelId);
     if (!model || model.state !== ModelState.READY) {
-      capabilities.attachmentReason = '模型不可用';
+      capabilities.attachmentReason = tr('模型不可用');
       return capabilities;
     }
     try {
@@ -299,7 +300,7 @@ export class ModelRepository {
       }
       return capabilities;
     } catch (error) {
-      capabilities.attachmentReason = '无法读取模型能力配置';
+      capabilities.attachmentReason = tr('无法读取模型能力配置');
       return capabilities;
     }
   }
@@ -324,13 +325,13 @@ export class ModelRepository {
       return;
     }
     if (model.isProtected || model.isLegacy) {
-      throw new Error('受保护的 legacy 模型不能删除');
+      throw new Error(tr('受保护的 legacy 模型不能删除'));
     }
     const managedRoot = this.prepareManagedRoot(filesDir);
     const expectedRoot = `${managedRoot}/${this.baseName(model.rootPath)}`;
     if (model.rootPath !== expectedRoot ||
       (fs.accessSync(model.rootPath) && fs.lstatSync(model.rootPath).isSymbolicLink())) {
-      throw new Error('拒绝删除受管模型目录之外的路径');
+      throw new Error(tr('拒绝删除受管模型目录之外的路径'));
     }
 
     const trashRoot = `${managedRoot}/${TRASH_DIRECTORY}`;
@@ -386,27 +387,27 @@ export class ModelRepository {
   private validateModel(rootPath: string): ModelValidationResult {
     const configPath = `${rootPath}/config.json`;
     if (!fs.accessSync(configPath)) {
-      return { valid: false, name: '', error: '所选目录缺少 config.json' };
+      return { valid: false, name: '', error: tr('所选目录缺少 config.json') };
     }
     if (this.containsSymbolicLink(rootPath)) {
-      return { valid: false, name: '', error: '模型目录不能包含符号链接' };
+      return { valid: false, name: '', error: tr('模型目录不能包含符号链接') };
     }
     const configStat = fs.lstatSync(configPath);
     if (!configStat.isFile() || configStat.size === 0) {
-      return { valid: false, name: '', error: 'config.json 不是有效文件' };
+      return { valid: false, name: '', error: tr('config.json 不是有效文件') };
     }
     try {
       const config = JSON.parse(fs.readTextSync(configPath)) as ModelConfigDocument;
       const configuredBase = config.base_dir || '';
       if (configuredBase && configuredBase !== '.' && configuredBase !== './' && configuredBase !== rootPath &&
         configuredBase !== `${rootPath}/`) {
-        return { valid: false, name: config.model_name || '', error: 'base_dir 必须指向模型根目录' };
+        return { valid: false, name: config.model_name || '', error: tr('base_dir 必须指向模型根目录') };
       }
       const modelBaseRoot = rootPath;
 
       const llmConfigName = config.llm_config || 'llm_config.json';
       if (!this.isSafeRelativePath(llmConfigName)) {
-        return { valid: false, name: config.model_name || '', error: 'llm_config 路径不安全' };
+        return { valid: false, name: config.model_name || '', error: tr('llm_config 路径不安全') };
       }
       const llmConfigRelative = llmConfigName.startsWith('./') ? llmConfigName.substring(2) : llmConfigName;
       const llmConfigPath = `${modelBaseRoot}/${llmConfigRelative}`;
@@ -437,12 +438,12 @@ export class ModelRepository {
           }
         });
         if (diffusionReferences.length === 0) {
-          return { valid: false, name: config.model_name || '', error: '扩散模型配置缺少模型文件列表' };
+          return { valid: false, name: config.model_name || '', error: tr('扩散模型配置缺少模型文件列表') };
         }
         for (let index = 0; index < diffusionReferences.length; index++) {
           const reference = diffusionReferences[index];
           if (!this.isSafeRelativePath(reference)) {
-            return { valid: false, name: config.model_name || '', error: `模型文件路径不安全：${reference}` };
+            return { valid: false, name: config.model_name || '', error: `${tr('模型文件路径不安全：')}${reference}` };
           }
           const relativePath = reference.startsWith('./') ? reference.substring(2) : reference;
           const artifactPath = `${modelBaseRoot}/${relativePath}`;
@@ -450,11 +451,11 @@ export class ModelRepository {
             if (SplitFileMerger.coversFile(modelBaseRoot, relativePath)) {
               continue;
             }
-            return { valid: false, name: config.model_name || '', error: `模型文件缺失：${reference}` };
+            return { valid: false, name: config.model_name || '', error: `${tr('模型文件缺失：')}${reference}` };
           }
           const artifactStat = fs.lstatSync(artifactPath);
           if (!artifactStat.isFile() || artifactStat.size === 0) {
-            return { valid: false, name: config.model_name || '', error: `模型文件无效：${reference}` };
+            return { valid: false, name: config.model_name || '', error: `${tr('模型文件无效：')}${reference}` };
           }
         }
         return { valid: true, name: config.model_name || '', error: '' };
@@ -471,7 +472,7 @@ export class ModelRepository {
       for (let index = 0; index < references.length; index++) {
         const reference = references[index];
         if (!this.isSafeRelativePath(reference)) {
-          return { valid: false, name: config.model_name || '', error: `模型文件路径不安全：${reference}` };
+          return { valid: false, name: config.model_name || '', error: `${tr('模型文件路径不安全：')}${reference}` };
         }
         const relativePath = reference.startsWith('./') ? reference.substring(2) : reference;
         const artifactPath = `${modelBaseRoot}/${relativePath}`;
@@ -480,16 +481,16 @@ export class ModelRepository {
             // Present as split chunks; merged lazily before loading.
             continue;
           }
-          return { valid: false, name: config.model_name || '', error: `模型文件缺失：${reference}` };
+          return { valid: false, name: config.model_name || '', error: `${tr('模型文件缺失：')}${reference}` };
         }
         const artifactStat = fs.lstatSync(artifactPath);
         if (!artifactStat.isFile() || artifactStat.size === 0) {
-          return { valid: false, name: config.model_name || '', error: `模型文件无效：${reference}` };
+          return { valid: false, name: config.model_name || '', error: `${tr('模型文件无效：')}${reference}` };
         }
       }
       return { valid: true, name: config.model_name || '', error: '' };
     } catch (error) {
-      return { valid: false, name: '', error: 'config.json 或 llm_config.json 格式无效' };
+      return { valid: false, name: '', error: tr('config.json 或 llm_config.json 格式无效') };
     }
   }
 
@@ -504,7 +505,7 @@ export class ModelRepository {
         return candidate;
       }
     }
-    throw new Error('所选目录中未找到 config.json');
+    throw new Error(tr('所选目录中未找到 config.json'));
   }
 
   private prepareManagedRoot(filesDir: string): string {
@@ -514,7 +515,7 @@ export class ModelRepository {
     }
     const stat = fs.lstatSync(managedRoot);
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw new Error('受管模型根目录无效');
+      throw new Error(tr('受管模型根目录无效'));
     }
     return managedRoot;
   }
@@ -526,7 +527,7 @@ export class ModelRepository {
     }
     const stat = fs.lstatSync(trashRoot);
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw new Error('模型回收目录无效');
+      throw new Error(tr('模型回收目录无效'));
     }
     const entries = fs.listFileSync(trashRoot);
     for (let index = 0; index < entries.length; index++) {

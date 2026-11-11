@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 @Component
 export struct ReasoningPanel {
   @Prop reasoning: string;
@@ -7,12 +8,12 @@ export struct ReasoningPanel {
   build() {
     Column({ space: 8 }) {
       Row() {
-        Text(this.isThinking ? '正在思考' : '思考过程')
+        Text(this.isThinking ? tr('正在思考') : tr('思考过程'))
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.text_muted'))
           .layoutWeight(1)
-        Text(this.expanded ? '收起' : '展开')
+        Text(this.expanded ? tr('收起') : tr('展开'))
           .fontSize(12)
           .fontColor($r('app.color.brand'))
       }

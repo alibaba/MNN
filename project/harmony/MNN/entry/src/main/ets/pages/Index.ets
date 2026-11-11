@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import { common } from '@kit.AbilityKit';
 import { ApiConsolePage } from './api/ApiConsolePage';
 import { BenchmarkPage } from './benchmark/BenchmarkPage';
@@ -64,7 +65,7 @@ struct Index {
           }
         })
       }
-      .tabBar('聊天')
+      .tabBar(tr('聊天'))
 
       TabContent() {
         HistoryPage({
@@ -72,7 +73,7 @@ struct Index {
           selectedTab: this.selectedTab
         })
       }
-      .tabBar('历史')
+      .tabBar(tr('历史'))
 
       TabContent() {
         ModelsPage({
@@ -80,12 +81,12 @@ struct Index {
           selectedTab: this.selectedTab
         })
       }
-      .tabBar('模型')
+      .tabBar(tr('模型'))
 
       TabContent() {
         MarketPage()
       }
-      .tabBar('市场')
+      .tabBar(tr('市场'))
 
       TabContent() {
         SettingsPage({
@@ -93,7 +94,7 @@ struct Index {
           settingsRevision: this.settingsRevision
         })
       }
-      .tabBar('设置')
+      .tabBar(tr('设置'))
 
       TabContent() {
         BenchmarkPage({
@@ -101,7 +102,7 @@ struct Index {
           settingsRevision: this.settingsRevision
         })
       }
-      .tabBar('测试')
+      .tabBar(tr('测试'))
 
       TabContent() {
         ApiConsolePage({

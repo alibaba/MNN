@@ -1,3 +1,4 @@
+import { tr } from '../../services/I18n';
 import { common, Want } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import bundleManager from '@ohos.bundle.bundleManager';
@@ -65,7 +66,7 @@ export struct ChatPage {
   @State private prompt: string = '';
   @State private messages: ChatMessageView[] = [];
   @State private error: string = '';
-  @State private modelStatus: string = '正在初始化';
+  @State private modelStatus: string = tr('正在初始化');
   @State private metrics: string = '';
   @State private isModelReady: boolean = false;
   @State private isGenerating: boolean = false;
@@ -151,7 +152,7 @@ export struct ChatPage {
     }
     this.applyActiveModel().catch((error: Error) => {
       this.error = error.message;
-      this.modelStatus = '模型加载失败';
+      this.modelStatus = tr('模型加载失败');
     });
   }
 
@@ -166,7 +167,7 @@ export struct ChatPage {
     this.isModelReady = false;
     this.loadModel().catch((error: Error) => {
       this.error = error.message;
-      this.modelStatus = '模型加载失败';
+      this.modelStatus = tr('模型加载失败');
     });
   }
 
@@ -190,7 +191,7 @@ export struct ChatPage {
       return this.loadModel();
     }).catch((error: Error) => {
       this.error = error.message;
-      this.modelStatus = '初始化失败';
+      this.modelStatus = tr('初始化失败');
     });
   }
 
@@ -214,7 +215,7 @@ export struct ChatPage {
   private async restoreSession(sessionId: string, restoreSequence: number): Promise<void> {
     const session = await ChatRepository.getInstance().getSession(sessionId);
     if (!session) {
-      throw new Error('会话不存在');
+      throw new Error(tr('会话不存在'));
     }
     const records = await ChatRepository.getInstance().getMessages(sessionId);
     const restored: ChatMessageView[] = [];
@@ -223,7 +224,7 @@ export struct ChatPage {
       if (record.state === GenerationState.GENERATING) {
         record.state = GenerationState.CANCELED;
         if (!record.displayContent) {
-          record.displayContent = '上次生成意外中断';
+          record.displayContent = tr('上次生成意外中断');
           record.rawContent = record.displayContent;
         }
         await ChatRepository.getInstance().updateMessage(record);
@@ -396,16 +397,16 @@ export struct ChatPage {
     callbacks.onState = (listening: boolean, message: string) => {
       this.voiceListening = listening;
       this.voiceStatus = message;
-      if (!listening && message && message.indexOf('失败') >= 0) {
+      if (!listening && message && message.indexOf(tr('失败')) >= 0) {
         this.error = message;
       }
     };
     this.error = '';
     this.voicePartial = '';
-    this.voiceStatus = '正在启动语音识别…';
+    this.voiceStatus = tr('正在启动语音识别…');
     VoiceInputService.getInstance().start(context, callbacks).then(() => {
       this.voiceListening = true;
-      this.voiceStatus = '正在听…';
+      this.voiceStatus = tr('正在听…');
     }).catch((error: Error) => {
       this.error = error.message;
       this.voiceListening = false;
@@ -450,7 +451,7 @@ export struct ChatPage {
     this.pendingSessionId = '';
     const session = await ChatRepository.getInstance().createSession(this.activeModelId || LEGACY_MODEL_ID);
     const greeting = await ChatRepository.getInstance().addMessage(
-      session.id, MessageRole.ASSISTANT, '你好，我是运行在本机设备上的 MNN 助手。'
+      session.id, MessageRole.ASSISTANT, tr('你好，我是运行在本机设备上的 MNN 助手。')
     );
     this.currentSessionId = session.id;
     this.requestedSessionId = session.id;
@@ -483,7 +484,7 @@ export struct ChatPage {
     this.error = '';
     this.isModelReady = false;
     this.modelCapabilities = new ModelCapabilities();
-    this.modelStatus = '正在加载模型';
+    this.modelStatus = tr('正在加载模型');
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       if (await SettingsStore.getInstance().getBoolean(APP_STOP_DOWNLOAD_ON_CHAT_KEY, true)) {
@@ -491,10 +492,10 @@ export struct ChatPage {
       }
       const model = await ModelRepository.getInstance().getModel(targetModelId);
       if (!model || model.state !== ModelState.READY) {
-        throw new Error(`模型不可用：${targetModelId}`);
+        throw new Error(`${tr('模型不可用：')}${targetModelId}`);
       }
       if (SplitFileMerger.hasSplits(model.rootPath)) {
-        this.modelStatus = '正在合并模型分片';
+        this.modelStatus = tr('正在合并模型分片');
         await SplitFileMerger.mergeIfNeeded(model.rootPath);
       }
       const settings = await SettingsStore.getInstance().getModelRuntimeSettings(model.id);
@@ -509,7 +510,7 @@ export struct ChatPage {
         await GenerationCoordinator.getInstance().shutdown();
         this.nativeTarget = undefined;
         this.isModelReady = true;
-        this.modelStatus = '图像生成模型已就绪';
+        this.modelStatus = tr('图像生成模型已就绪');
         await ModelRepository.getInstance().markUsed(model.id);
         return;
       }
@@ -525,7 +526,7 @@ export struct ChatPage {
       this.loadMs = result.loadMs;
       this.nativeTarget = target;
       this.isModelReady = true;
-      this.modelStatus = result.reused ? '模型已就绪' : `模型已就绪 · ${(result.loadMs / 1000).toFixed(2)}s`;
+      this.modelStatus = result.reused ? tr('模型已就绪') : `${tr('模型已就绪 · ')}${(result.loadMs / 1000).toFixed(2)}s`;
       await ModelRepository.getInstance().markUsed(model.id);
     } finally {
       this.modelLoading = false;
@@ -533,14 +534,14 @@ export struct ChatPage {
         this.modelSwitchPending = false;
         this.applyActiveModel().catch((error: Error) => {
           this.error = error.message;
-          this.modelStatus = '模型加载失败';
+          this.modelStatus = tr('模型加载失败');
         });
       } else if (!this.isGenerating && this.settingsReloadPending) {
         this.settingsReloadPending = false;
         this.isModelReady = false;
         this.loadModel().catch((error: Error) => {
           this.error = error.message;
-          this.modelStatus = '模型加载失败';
+          this.modelStatus = tr('模型加载失败');
         });
       }
     }
@@ -622,7 +623,7 @@ export struct ChatPage {
       }
     }
     if (this.activeModelName.toLowerCase().indexOf('sana') >= 0 && !imageInput) {
-      this.error = '该模型是图像编辑模型，请先通过「+」选择一张图片';
+      this.error = tr('该模型是图像编辑模型，请先通过「+」选择一张图片');
       return;
     }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -634,11 +635,11 @@ export struct ChatPage {
     this.diffusionTimerId = setInterval(() => {
       this.diffusionSeconds++;
     }, 1000);
-    this.modelStatus = '正在生成图片';
+    this.modelStatus = tr('正在生成图片');
     try {
       const model = await ModelRepository.getInstance().getModel(this.loadedModelId || this.activeModelId);
       if (!model) {
-        throw new Error('图像生成模型不可用');
+        throw new Error(tr('图像生成模型不可用'));
       }
       const userRecord = await ChatRepository.getInstance().addMessage(
         sessionId, MessageRole.USER, input
@@ -663,7 +664,7 @@ export struct ChatPage {
       attachment.localPath = result.outputPath;
       attachment.displayName = result.outputPath.substring(result.outputPath.lastIndexOf('/') + 1);
       attachment.createdAt = Date.now();
-      const content = `已生成图片：${input}`;
+      const content = `${tr('已生成图片：')}${input}`;
       const assistantRecord = await ChatRepository.getInstance().addMessage(
         sessionId, MessageRole.ASSISTANT, content
       );
@@ -673,12 +674,12 @@ export struct ChatPage {
       );
       assistantMessage.attachments = [attachment];
       this.messages.push(assistantMessage);
-      this.metrics = `图片生成完成 · 耗时 ${(result.totalMs / 1000).toFixed(1)}s`;
-      this.modelStatus = '图像生成模型已就绪';
+      this.metrics = `${tr('图片生成完成 · 耗时 ')}${(result.totalMs / 1000).toFixed(1)}s`;
+      this.modelStatus = tr('图像生成模型已就绪');
       setTimeout(() => this.scrollToBottom(), 50);
     } catch (error) {
       this.error = (error as Error).message;
-      this.modelStatus = '图片生成失败';
+      this.modelStatus = tr('图片生成失败');
     } finally {
       this.isGenerating = false;
       this.diffusionProgress = -1;
@@ -699,12 +700,12 @@ export struct ChatPage {
       await this.runDiffusion(input);
       return;
     }
-    const displayInput = input || '已发送附件';
+    const displayInput = input || tr('已发送附件');
     let nativeInput = '';
     const videoAttachment = attachments.find((item: AttachmentRecord) => item.mediaType === 'video');
     if (videoAttachment && this.modelCapabilities.videoInput) {
       const previousStatus = this.modelStatus;
-      this.modelStatus = '正在提取视频帧';
+      this.modelStatus = tr('正在提取视频帧');
       const frameContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const frameDirectory = MediaService.getInstance().ensureHistoryDirectory(frameContext, this.currentSessionId);
       const frameCount = await SettingsStore.getInstance().getNumber(APP_VIDEO_FRAMES_KEY, 4);
@@ -713,7 +714,7 @@ export struct ChatPage {
         .extract(videoAttachment.localPath, frameDirectory, frameCount, frameSize);
       this.modelStatus = previousStatus;
       if (frames.length === 0) {
-        this.error = '无法从视频中提取画面';
+        this.error = tr('无法从视频中提取画面');
         return;
       }
       const nonVideo = attachments.filter((item: AttachmentRecord) => item.mediaType !== 'video');
@@ -775,7 +776,7 @@ export struct ChatPage {
       this.scrollToBottom();
 
       if (!this.nativeTarget) {
-        throw new Error('模型尚未准备完成');
+        throw new Error(tr('模型尚未准备完成'));
       }
       const generationPromise: Promise<NativeGenerateResult> = GenerationCoordinator.getInstance().generate(
         this.nativeTarget, request, (chunk: string) => {
@@ -808,7 +809,7 @@ export struct ChatPage {
       assistantMessage.rawContent = rawResult;
       assistantMessage.reasoning = parsedResult.reasoning;
       assistantMessage.content = parsedResult.answer ||
-        (result.canceled ? '已停止生成' : '模型未生成文本');
+        (result.canceled ? tr('已停止生成') : tr('模型未生成文本'));
       assistantMessage.isThinking = false;
       assistantMessage.state = result.canceled ? GenerationState.CANCELED : GenerationState.COMPLETE;
       assistantMessage.metrics.loadMs = this.loadMs;
@@ -829,7 +830,7 @@ export struct ChatPage {
         const audioAttachment = new AttachmentRecord();
         audioAttachment.mediaType = 'audio';
         audioAttachment.localPath = replyAudioPath;
-        audioAttachment.displayName = '回复语音.wav';
+        audioAttachment.displayName = tr('回复语音.wav');
         audioAttachment.sizeBytes = MediaService.getInstance().fileSize(replyAudioPath);
         audioAttachment.createdAt = Date.now();
         await AttachmentRepository.getInstance().save(assistantRecord.id, [audioAttachment]);
@@ -837,9 +838,9 @@ export struct ChatPage {
       }
       const prefillSpeed = result.prefillMs > 0 ? result.promptTokens * 1000 / result.prefillMs : 0;
       const decodeSpeed = result.decodeMs > 0 ? result.generatedTokens * 1000 / result.decodeMs : 0;
-      const state = result.canceled ? '已停止' : '完成';
-      this.metrics = `${state} · 首字 ${(result.firstTokenMs / 1000).toFixed(2)}s · ` +
-        `预填充 ${prefillSpeed.toFixed(1)} tok/s · 解码 ${decodeSpeed.toFixed(1)} tok/s`;
+      const state = result.canceled ? tr('已停止') : tr('完成');
+      this.metrics = `${state}${tr(' · 首字 ')}${(result.firstTokenMs / 1000).toFixed(2)}s · ` +
+        `${tr('预填充 ')}${prefillSpeed.toFixed(1)}${tr(' tok/s · 解码 ')}${decodeSpeed.toFixed(1)} tok/s`;
       this.messages = this.messages.slice();
       // The final content is usually taller than the last streamed snapshot, so scroll again
       // after layout instead of only relying on the per-chunk scroll.
@@ -858,7 +859,7 @@ export struct ChatPage {
       if (assistantRecord.id) {
         const parsed = ReasoningParser.parse(this.streamingAnswer);
         assistantRecord.rawContent = this.streamingAnswer;
-        assistantRecord.displayContent = parsed.answer || (parsed.reasoning ? '生成中断' : '生成失败');
+        assistantRecord.displayContent = parsed.answer || (parsed.reasoning ? tr('生成中断') : tr('生成失败'));
         assistantRecord.reasoningContent = parsed.reasoning;
         assistantRecord.state = GenerationState.FAILED;
         if (failedMessage) {
@@ -887,17 +888,17 @@ export struct ChatPage {
         this.isModelReady = false;
         this.applyActiveModel().catch((error: Error) => {
           this.error = error.message;
-          this.modelStatus = '模型加载失败';
+          this.modelStatus = tr('模型加载失败');
         });
       } else if (this.settingsReloadPending) {
         this.settingsReloadPending = false;
         this.isModelReady = false;
         this.loadModel().catch((error: Error) => {
           this.error = error.message;
-          this.modelStatus = '模型加载失败';
+          this.modelStatus = tr('模型加载失败');
         });
       } else if (this.isModelReady) {
-        this.modelStatus = '模型已就绪';
+        this.modelStatus = tr('模型已就绪');
       }
     }
   }
@@ -912,7 +913,7 @@ export struct ChatPage {
     if (this.activeRequestId) {
       GenerationCoordinator.getInstance().cancel(this.activeRequestId);
     }
-    this.modelStatus = '正在停止生成';
+    this.modelStatus = tr('正在停止生成');
   }
 
   private startNewConversation(): void {
@@ -958,7 +959,7 @@ export struct ChatPage {
     ModelRepository.getInstance().listModels().then((models: ModelRecord[]) => {
       const ready: ModelRecord[] = models.filter((model: ModelRecord) => model.state === ModelState.READY);
       if (ready.length === 0) {
-        this.error = '没有可用的模型，请先在模型页导入或下载';
+        this.error = tr('没有可用的模型，请先在模型页导入或下载');
         return;
       }
       let controller: CustomDialogController | null = null;
@@ -985,7 +986,7 @@ export struct ChatPage {
       if (this.activeModelId === model.id) {
         return;
       }
-      this.modelStatus = '正在加载模型';
+      this.modelStatus = tr('正在加载模型');
       this.activeModelId = model.id;
     }).catch((error: Error) => {
       this.error = error.message;
@@ -996,19 +997,19 @@ export struct ChatPage {
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        this.modelStatus = '配置已复制到剪贴板';
+        this.modelStatus = tr('配置已复制到剪贴板');
       }).catch((error: Error) => {
-        this.error = `复制失败：${error.message}`;
+        this.error = `${tr('复制失败：')}${error.message}`;
       });
     } catch (error) {
-      this.error = `复制失败：${(error as Error).message}`;
+      this.error = `${tr('复制失败：')}${(error as Error).message}`;
     }
   }
 
   private showConfigInfo(): void {
     const settings = this.runtimeSettings;
     const engineConfig = nativeLlmConfig();
-    const info: string = (engineConfig ? `# 引擎运行时配置\n${engineConfig}\n\n# 客户端设置\n` : '') + [
+    const info: string = (engineConfig ? `${tr('# 引擎运行时配置\n')}${engineConfig}${tr('\n\n# 客户端设置\n')}` : '') + [
       `model_id: ${this.loadedModelId || this.activeModelId}`,
       `config_path: ${this.nativeTarget?.configPath || ''}`,
       `backend_type: ${settings.backendType}`,
@@ -1036,7 +1037,7 @@ export struct ChatPage {
     let controller: CustomDialogController | null = null;
     controller = new CustomDialogController({
       builder: InfoSheet({
-        title: '配置信息',
+        title: tr('配置信息'),
         message: info,
         onCopy: () => this.copyToClipboard(info)
       }),
@@ -1106,7 +1107,7 @@ export struct ChatPage {
       uri: 'https://github.com/alibaba/MNN'
     };
     context.startAbility(want).catch((error: Error) => {
-      this.error = `无法打开浏览器：${error.message}`;
+      this.error = `${tr('无法打开浏览器：')}${error.message}`;
     });
   }
 
@@ -1115,12 +1116,12 @@ export struct ChatPage {
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, info);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        promptAction.showToast({ message: '调试信息已复制，正在打开问题页面' });
+        promptAction.showToast({ message: tr('调试信息已复制，正在打开问题页面') });
       }).catch(() => {
-        promptAction.showToast({ message: '调试信息复制失败' });
+        promptAction.showToast({ message: tr('调试信息复制失败') });
       });
     } catch (error) {
-      promptAction.showToast({ message: '调试信息复制失败' });
+      promptAction.showToast({ message: tr('调试信息复制失败') });
     }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const want: Want = {
@@ -1129,7 +1130,7 @@ export struct ChatPage {
       uri: 'https://github.com/alibaba/MNN/issues'
     };
     context.startAbility(want).catch((error: Error) => {
-      this.error = `无法打开浏览器：${error.message}`;
+      this.error = `${tr('无法打开浏览器：')}${error.message}`;
     });
   }
 
@@ -1163,7 +1164,7 @@ export struct ChatPage {
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
 
-        Button('更多')
+        Button(tr('更多'))
           .fontSize(14)
           .fontColor($r('app.color.text_primary'))
           .backgroundColor(Color.Transparent)
@@ -1172,40 +1173,40 @@ export struct ChatPage {
           .padding(0)
           .bindMenu([
             {
-              value: '配置信息',
+              value: tr('配置信息'),
               action: () => this.showConfigInfo()
             },
             {
-              value: this.runtimeSettings.thinking ? '关闭思考模式' : '开启思考模式',
+              value: this.runtimeSettings.thinking ? tr('关闭思考模式') : tr('开启思考模式'),
               action: () => this.toggleThinking()
             },
             {
-              value: this.showMetrics ? '隐藏性能指标' : '显示性能指标',
+              value: this.showMetrics ? tr('隐藏性能指标') : tr('显示性能指标'),
               action: () => this.toggleShowMetrics()
             },
             {
-              value: '基准测试',
+              value: tr('基准测试'),
               action: () => this.onNavigateTab(5)
             },
             {
-              value: '模型设置',
+              value: tr('模型设置'),
               action: () => this.onNavigateTab(4)
             },
             {
-              value: 'API 控制台',
+              value: tr('API 控制台'),
               action: () => this.onNavigateTab(6)
             },
             {
-              value: '给 MNN 点个 Star',
+              value: tr('给 MNN 点个 Star'),
               action: () => this.starProject()
             },
             {
-              value: '上报问题',
+              value: tr('上报问题'),
               action: () => this.reportIssue()
             }
           ])
 
-        Button('新对话')
+        Button(tr('新对话'))
           .fontSize(14)
           .fontColor($r('app.color.brand'))
           .backgroundColor($r('app.color.brand_tint'))
@@ -1229,7 +1230,7 @@ export struct ChatPage {
               onReportIssue: () => this.reportIssue(),
               onPlayAudio: (attachment: AttachmentRecord) => {
                 AudioPlaybackService.getInstance().play(attachment.localPath).catch((error: Error) => {
-                  this.error = `语音播放失败：${error.message}`;
+                  this.error = `${tr('语音播放失败：')}${error.message}`;
                 });
               }
             })
@@ -1245,7 +1246,7 @@ export struct ChatPage {
       })
 
       if (!this.followsLatest && this.messages.length > 0) {
-        Button('回到底部')
+        Button(tr('回到底部'))
           .height(32)
           .fontSize(12)
           .fontColor($r('app.color.brand'))
@@ -1262,7 +1263,7 @@ export struct ChatPage {
       }
 
       if (this.error) {
-        Text(`错误：${this.error}`)
+        Text(`${tr('错误：')}${this.error}`)
           .fontSize(13)
           .fontColor($r('app.color.danger'))
           .width('100%')
@@ -1276,7 +1277,7 @@ export struct ChatPage {
               .width(18)
               .height(18)
               .color($r('app.color.brand'))
-            Text(`正在生成图片 · 已等待 ${this.diffusionSeconds}s`)
+            Text(`${tr('正在生成图片 · 已等待 ')}${this.diffusionSeconds}s`)
               .fontSize(13)
               .fontColor($r('app.color.brand'))
               .layoutWeight(1)
@@ -1291,11 +1292,11 @@ export struct ChatPage {
               .height(8)
               .borderRadius(4)
               .backgroundColor($r('app.color.danger'))
-            Text(`录音中 ${this.recordingSeconds}s · 点击停止`)
+            Text(`${tr('录音中 ')}${this.recordingSeconds}${tr('s · 点击停止')}`)
               .fontSize(13)
               .fontColor($r('app.color.danger'))
               .layoutWeight(1)
-            Text('停止')
+            Text(tr('停止'))
               .fontSize(13)
               .fontColor($r('app.color.brand'))
           }
@@ -1318,7 +1319,7 @@ export struct ChatPage {
                       .objectFit(ImageFit.Cover)
                       .borderRadius(8)
                   } else {
-                    Text(attachment.mediaType === 'audio' ? '音频' : '视频')
+                    Text(attachment.mediaType === 'audio' ? tr('音频') : tr('视频'))
                       .fontSize(12)
                       .textAlign(TextAlign.Center)
                       .width(64)
@@ -1356,7 +1357,7 @@ export struct ChatPage {
               .enabled(this.isModelReady && !this.isGenerating)
               .onClick(() => this.openAttachmentSheet())
           }
-          Button(this.voiceListening ? '结束' : '语音')
+          Button(this.voiceListening ? tr('结束') : tr('语音'))
             .width(48)
             .height(40)
             .fontSize(13)
@@ -1364,9 +1365,9 @@ export struct ChatPage {
             .fontColor(this.voiceListening ? Color.White : $r('app.color.brand'))
             .backgroundColor(this.voiceListening ? $r('app.color.danger') : $r('app.color.brand_tint'))
             .enabled(this.isModelReady && !this.isGenerating && !this.recording &&
-              this.voiceStatus !== '正在识别…')
+              this.voiceStatus !== tr('正在识别…'))
             .onClick(() => this.toggleVoiceInput())
-          TextArea({ placeholder: this.isModelReady ? '输入消息' : '模型加载完成后即可对话', text: this.prompt })
+          TextArea({ placeholder: this.isModelReady ? tr('输入消息') : tr('模型加载完成后即可对话'), text: this.prompt })
             .layoutWeight(1)
             .height(92)
             .fontSize(16)
@@ -1382,9 +1383,9 @@ export struct ChatPage {
         .alignItems(VerticalAlign.Bottom)
 
         Row({ space: 10 }) {
-          Text(this.voiceListening ? (this.voicePartial ? `语音：${this.voicePartial}` : '正在听…') :
-            (this.voiceStatus === '正在识别…' ? '正在识别…' :
-              (this.isGenerating ? '回答正在本机生成' : '内容仅在设备本地处理')))
+          Text(this.voiceListening ? (this.voicePartial ? `${tr('语音：')}${this.voicePartial}` : tr('正在听…')) :
+            (this.voiceStatus === tr('正在识别…') ? tr('正在识别…') :
+              (this.isGenerating ? tr('回答正在本机生成') : tr('内容仅在设备本地处理'))))
             .fontSize(12)
             .fontColor(this.voiceListening ? $r('app.color.brand') : $r('app.color.text_tertiary'))
             .maxLines(1)
@@ -1392,14 +1393,14 @@ export struct ChatPage {
             .layoutWeight(1)
 
           if (this.isGenerating) {
-            Button('停止')
+            Button(tr('停止'))
               .height(42)
               .fontSize(15)
               .fontColor($r('app.color.danger'))
               .backgroundColor($r('app.color.danger_tint'))
               .onClick(() => this.stopGeneration())
           } else {
-            Button('发送')
+            Button(tr('发送'))
               .height(42)
               .fontSize(15)
               .fontColor(Color.White)

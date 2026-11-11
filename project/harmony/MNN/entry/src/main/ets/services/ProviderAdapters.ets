@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { http } from '@kit.NetworkKit';
 import { MarketModelRecord, ProviderFileRecord } from '../domain/AppTypes';
 
@@ -102,7 +103,7 @@ export class ProviderAdapters {
     const repository = ProviderAdapters.repository(model, provider);
     const parts = repository.split('/');
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
-      throw new Error('模型仓库地址格式无效');
+      throw new Error(tr('模型仓库地址格式无效'));
     }
     if (provider === PROVIDER_MODEL_SCOPE) {
       return ProviderAdapters.listModelScopeFiles(repository, token);
@@ -113,7 +114,7 @@ export class ProviderAdapters {
     if (provider === PROVIDER_MODELERS) {
       return ProviderAdapters.listModelersFiles(parts[0], parts[1], '', token);
     }
-    throw new Error('不支持的模型来源');
+    throw new Error(tr('不支持的模型来源'));
   }
 
   /** Headers used both by listing requests and by the download agent. */
@@ -163,7 +164,7 @@ export class ProviderAdapters {
       PROVIDER_MODEL_SCOPE, token
     ) as ModelScopeResponseDocument;
     if (!response.Success || !response.Data?.Files) {
-      throw new Error(response.Message || 'ModelScope 文件列表请求失败');
+      throw new Error(response.Message || tr('ModelScope 文件列表请求失败'));
     }
     const files: ProviderFileRecord[] = [];
     response.Data.Files.forEach((document: ModelScopeFileDocument) => {
@@ -188,7 +189,7 @@ export class ProviderAdapters {
         encodeURIComponent(directory), PROVIDER_MODELERS, token
     ) as ModelersResponseDocument;
     if (!response.data?.tree) {
-      throw new Error(response.msg || 'Modelers 文件列表请求失败');
+      throw new Error(response.msg || tr('Modelers 文件列表请求失败'));
     }
     const files: ProviderFileRecord[] = [];
     for (let index = 0; index < response.data.tree.length; index++) {
@@ -222,10 +223,10 @@ export class ProviderAdapters {
         readTimeout: 30000
       });
       if (response.responseCode === 401 || response.responseCode === 403) {
-        throw new Error('仓库拒绝访问，请在设置中填写有效的私有仓库令牌');
+        throw new Error(tr('仓库拒绝访问，请在设置中填写有效的私有仓库令牌'));
       }
       if (response.responseCode < 200 || response.responseCode >= 300) {
-        throw new Error(`仓库请求失败：HTTP ${response.responseCode}`);
+        throw new Error(`${tr('仓库请求失败：HTTP ')}${response.responseCode}`);
       }
       if (typeof response.result === 'string') {
         return JSON.parse(response.result) as Object;

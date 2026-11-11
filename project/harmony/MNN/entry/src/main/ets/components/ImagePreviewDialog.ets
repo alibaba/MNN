@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { ImageActions } from '../services/ImageActions';
@@ -22,9 +23,9 @@ export struct ImagePreviewDialog {
     }
     this.busy = true;
     ImageActions.saveToGallery(this.context(), this.path).then(() => {
-      promptAction.showToast({ message: '已保存到相册' });
+      promptAction.showToast({ message: tr('已保存到相册') });
     }).catch((error: Error) => {
-      promptAction.showToast({ message: `保存失败：${error.message}` });
+      promptAction.showToast({ message: `${tr('保存失败：')}${error.message}` });
     }).finally(() => {
       this.busy = false;
     });
@@ -37,7 +38,7 @@ export struct ImagePreviewDialog {
     this.busy = true;
     ImageActions.share(this.context(), this.path).then(() => {
     }).catch((error: Error) => {
-      promptAction.showToast({ message: `分享失败：${error.message}` });
+      promptAction.showToast({ message: `${tr('分享失败：')}${error.message}` });
     }).finally(() => {
       this.busy = false;
     });
@@ -52,7 +53,7 @@ export struct ImagePreviewDialog {
         .onClick(() => this.controller?.close())
 
       Row({ space: 10 }) {
-        Button('保存图片')
+        Button(tr('保存图片'))
           .layoutWeight(1)
           .height(42)
           .fontSize(13)
@@ -61,7 +62,7 @@ export struct ImagePreviewDialog {
           .backgroundColor($r('app.color.preview_button'))
           .enabled(!this.busy)
           .onClick(() => this.save())
-        Button('分享')
+        Button(tr('分享'))
           .layoutWeight(1)
           .height(42)
           .fontSize(13)
@@ -70,7 +71,7 @@ export struct ImagePreviewDialog {
           .backgroundColor($r('app.color.brand'))
           .enabled(!this.busy)
           .onClick(() => this.share())
-        Button('关闭')
+        Button(tr('关闭'))
           .layoutWeight(1)
           .height(42)
           .fontSize(13)

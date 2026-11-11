@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 export enum MessageRole {
   SYSTEM = 'system',
   USER = 'user',
@@ -83,9 +84,9 @@ export class ModelCapabilities {
   videoInput: boolean = false;
   audioOutput: boolean = false;
   diffusion: boolean = false;
-  attachmentReason: string = '当前模型不支持多媒体输入';
-  videoReason: string = '当前构建未启用视频解码';
-  diffusionReason: string = '当前构建未启用扩散运行时';
+  attachmentReason: string = tr('当前模型不支持多媒体输入');
+  videoReason: string = tr('当前构建未启用视频解码');
+  diffusionReason: string = tr('当前构建未启用扩散运行时');
 }
 
 export enum RuntimeBackendType {

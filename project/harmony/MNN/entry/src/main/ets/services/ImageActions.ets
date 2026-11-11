@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { common } from '@kit.AbilityKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
@@ -20,7 +21,7 @@ export class ImageActions {
     const helper = photoAccessHelper.getPhotoAccessHelper(context);
     const targets = await helper.showAssetsCreationDialog([uri], [config]);
     if (targets.length === 0) {
-      throw new Error('未选择保存位置');
+      throw new Error(tr('未选择保存位置'));
     }
     ImageActions.copyFile(path, targets[0]);
   }

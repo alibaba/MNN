@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { socket } from '@kit.NetworkKit';
@@ -109,11 +110,11 @@ export class ApiServer {
       return this.getStatus();
     }
     if (port < 1024 || port > 65535) {
-      throw new Error('端口必须在 1024 到 65535 之间');
+      throw new Error(tr('端口必须在 1024 到 65535 之间'));
     }
     const model = await ModelRepository.getInstance().getModel(modelId);
     if (!model || model.state !== ModelState.READY) {
-      throw new Error('API 服务模型不可用');
+      throw new Error(tr('API 服务模型不可用'));
     }
     const settings = await SettingsStore.getInstance().getModelRuntimeSettings(model.id);
     const safeModelId = model.id.replace(/[^a-zA-Z0-9._-]/g, '-');
@@ -142,7 +143,7 @@ export class ApiServer {
     const localAddress = await server.getLocalAddress();
     if (localAddress.port !== port || (!this.bindAll && localAddress.address !== '127.0.0.1')) {
       await server.close();
-      throw new Error(`无法绑定地址 ${listenAddress}:${port}`);
+      throw new Error(`${tr('无法绑定地址 ')}${listenAddress}:${port}`);
     }
     server.on('connect', (connection: socket.TCPSocketConnection) => this.accept(connection));
     server.on('error', () => {
@@ -231,7 +232,7 @@ export class ApiServer {
     const headerEnd = this.findHeaderEnd(buffer);
     if (headerEnd < 0) {
       if (buffer.byteLength > MAX_HEADER_BYTES) {
-        throw new Error('请求头过大');
+        throw new Error(tr('请求头过大'));
       }
       return undefined;
     }
@@ -240,7 +241,7 @@ export class ApiServer {
     const lines = headerText.split('\r\n');
     const requestLine = lines[0].split(' ');
     if (requestLine.length !== 3 || requestLine[2] !== 'HTTP/1.1') {
-      throw new Error('无效 HTTP 请求行');
+      throw new Error(tr('无效 HTTP 请求行'));
     }
     const request = new ParsedRequest();
     request.method = requestLine[0];
@@ -249,29 +250,29 @@ export class ApiServer {
     for (let index = 1; index < lines.length; index++) {
       const separator = lines[index].indexOf(':');
       if (separator <= 0) {
-        throw new Error('无效 HTTP 请求头');
+        throw new Error(tr('无效 HTTP 请求头'));
       }
       const name = lines[index].substring(0, separator).trim().toLowerCase();
       const value = lines[index].substring(separator + 1).trim();
       if (request.headers.has(name)) {
-        throw new Error(`重复请求头：${name}`);
+        throw new Error(`${tr('重复请求头：')}${name}`);
       }
       request.headers.set(name, value);
     }
     if (!request.headers.has('host')) {
-      throw new Error('缺少 Host 请求头');
+      throw new Error(tr('缺少 Host 请求头'));
     }
     if (request.headers.has('transfer-encoding')) {
-      throw new Error('不支持 Transfer-Encoding 请求体');
+      throw new Error(tr('不支持 Transfer-Encoding 请求体'));
     }
     if (request.headers.has('content-length')) {
       const value = request.headers.get('content-length') || '';
       if (!/^\d+$/.test(value)) {
-        throw new Error('无效 Content-Length');
+        throw new Error(tr('无效 Content-Length'));
       }
       contentLength = Number(value);
       if (contentLength > MAX_BODY_BYTES) {
-        throw new Error('请求体过大');
+        throw new Error(tr('请求体过大'));
       }
     }
     const bodyOffset = headerEnd + 4;
@@ -279,7 +280,7 @@ export class ApiServer {
       return undefined;
     }
     if (buffer.byteLength !== bodyOffset + contentLength) {
-      throw new Error('不支持 HTTP 管线请求');
+      throw new Error(tr('不支持 HTTP 管线请求'));
     }
     if (contentLength > 0) {
       request.body = util.TextDecoder.create('utf-8', { fatal: true })
@@ -316,8 +317,8 @@ export class ApiServer {
     if (request.method === 'GET' && request.path === '/v1/queue/status') {
       // OpenAI-compatible queue status, matching the Android client's response shape.
       const stats = GenerationCoordinator.getInstance().getQueueStats();
-      const message = stats.isProcessing ? '正在处理请求中' :
-        (stats.pendingRequests > 0 ? `队列中有 ${stats.pendingRequests} 个待处理请求` : '队列空闲');
+      const message = stats.isProcessing ? tr('正在处理请求中') :
+        (stats.pendingRequests > 0 ? `${tr('队列中有 ')}${stats.pendingRequests}${tr(' 个待处理请求')}` : tr('队列空闲'));
       const body = `{"status":"ok","totalRequests":${stats.totalRequests},` +
         `"completedRequests":${stats.completedRequests},"failedRequests":${stats.failedRequests},` +
         `"pendingRequests":${stats.pendingRequests},"isProcessing":${stats.isProcessing},` +
@@ -328,7 +329,7 @@ export class ApiServer {
     if (request.method === 'DELETE' && request.path === '/v1/queue/clear') {
       const cleared = GenerationCoordinator.getInstance().clearPendingQueue();
       await this.sendAndClose(client, this.httpResponse(200, 'OK',
-        `{"status":"ok","message":"队列已清空","cleared":${cleared}}`, client.origin));
+        `${tr('{"status":"ok","message":"队列已清空","cleared":')}${cleared}}`, client.origin));
       return;
     }
     if (request.method === 'POST' && request.path === '/v1/cancel') {

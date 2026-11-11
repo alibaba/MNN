@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
 import { audio } from '@kit.AudioKit';
 import { speechRecognizer } from '@kit.CoreSpeechKit';
@@ -49,7 +50,7 @@ export class VoiceInputService {
     const permissionResult = await abilityAccessCtrl.createAtManager()
       .requestPermissionsFromUser(context, [MICROPHONE_PERMISSION]);
     if (permissionResult.authResults.length === 0 || permissionResult.authResults[0] !== 0) {
-      throw new Error('麦克风权限未授予');
+      throw new Error(tr('麦克风权限未授予'));
     }
     const engine = await speechRecognizer.createEngine({ language: 'zh-CN', online: 1 });
     engine.setListener({
@@ -77,7 +78,7 @@ export class VoiceInputService {
         this.releaseCapture();
         this.releaseEngine();
         this.listening = false;
-        this.callbacks.onState(false, `语音识别失败(${errorCode})：${errorMessage}`);
+        this.callbacks.onState(false, `${tr('语音识别失败(')}${errorCode})：${errorMessage}`);
       }
     });
     this.engine = engine;
@@ -111,7 +112,7 @@ export class VoiceInputService {
       this.capturer = capturer;
       this.pending = new Uint8Array(0);
       this.listening = true;
-      this.callbacks.onState(true, '正在听…');
+      this.callbacks.onState(true, tr('正在听…'));
     } catch (error) {
       capturer.off('readData', this.readCallback);
       await capturer.release();
@@ -131,7 +132,7 @@ export class VoiceInputService {
     if (engine) {
       try {
         engine.finish(this.sessionId);
-        this.callbacks.onState(false, '正在识别…');
+        this.callbacks.onState(false, tr('正在识别…'));
         // Guard against a missing onComplete (for example when no speech was detected).
         this.finishTimerId = setTimeout(() => {
           this.finishTimerId = -1;

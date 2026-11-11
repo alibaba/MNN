@@ -1,3 +1,4 @@
+import { tr } from '../../services/I18n';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { componentSnapshot } from '@kit.ArkUI';
@@ -56,7 +57,7 @@ export struct BenchmarkPage {
       return;
     }
     this.submitting = true;
-    this.leaderboardMessage = '正在提交…';
+    this.leaderboardMessage = tr('正在提交…');
     this.leaderboardFailed = false;
     const service = LeaderboardService.getInstance();
     service.setUserId(this.userIdText).then(() => {
@@ -92,7 +93,7 @@ export struct BenchmarkPage {
       }
       return ImageActions.share(context, path);
     }).catch((error: Error) => {
-      promptAction.showToast({ message: `分享失败：${error.message}` });
+      promptAction.showToast({ message: `${tr('分享失败：')}${error.message}` });
     });
   }
 
@@ -112,7 +113,7 @@ export struct BenchmarkPage {
       const slash = uris[0].lastIndexOf('/');
       this.datasetName = slash >= 0 ? uris[0].substring(slash + 1) : uris[0];
       this.datasetResult = new DatasetTestResult();
-      this.datasetMessage = `已加载 ${this.datasetPrompts.length} 条 prompt（最多运行 3 条）`;
+      this.datasetMessage = `${tr('已加载 ')}${this.datasetPrompts.length}${tr(' 条 prompt（最多运行 3 条）')}`;
     }).catch((error: Error) => {
       this.datasetMessage = error.message;
     });
@@ -125,13 +126,13 @@ export struct BenchmarkPage {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.datasetRunning = true;
     this.datasetResult = new DatasetTestResult();
-    this.datasetMessage = '正在准备模型…';
+    this.datasetMessage = tr('正在准备模型…');
     DatasetTestService.getInstance().run(context, this.benchModelId, this.datasetName, this.datasetPrompts,
       (index: number, total: number) => {
-        this.datasetMessage = `正在测试 ${index}/${total}`;
+        this.datasetMessage = `${tr('正在测试 ')}${index}/${total}`;
       }).then((result: DatasetTestResult) => {
       this.datasetResult = result;
-      this.datasetMessage = result.canceled ? '测试已停止' : '测试完成';
+      this.datasetMessage = result.canceled ? tr('测试已停止') : tr('测试完成');
     }).catch((error: Error) => {
       this.datasetMessage = error.message;
     }).finally(() => {
@@ -156,9 +157,9 @@ export struct BenchmarkPage {
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, lines.join('\n'));
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        this.datasetMessage = '结果已复制';
+        this.datasetMessage = tr('结果已复制');
       }).catch(() => {
-        this.datasetMessage = '复制失败';
+        this.datasetMessage = tr('复制失败');
       });
     } catch (error) {
       this.datasetMessage = (error as Error).message;
@@ -170,7 +171,7 @@ export struct BenchmarkPage {
       return;
     }
     this.submitting = true;
-    this.leaderboardMessage = '正在查询排名…';
+    this.leaderboardMessage = tr('正在查询排名…');
     this.leaderboardFailed = false;
     const service = LeaderboardService.getInstance();
     service.setUserId(this.userIdText).then(() => {
@@ -201,7 +202,7 @@ export struct BenchmarkPage {
     ModelRepository.getInstance().listModels().then((models: ModelRecord[]) => {
       const ready: ModelRecord[] = models.filter((model: ModelRecord) => model.state === ModelState.READY);
       if (ready.length === 0) {
-        this.error = '没有可用的模型';
+        this.error = tr('没有可用的模型');
         return;
       }
       let controller: CustomDialogController | null = null;
@@ -325,7 +326,7 @@ export struct BenchmarkPage {
           .width('100%')
           .onClick(() => this.openModelPicker())
           Row() {
-            Text('后端')
+            Text(tr('后端'))
               .fontSize(14)
               .layoutWeight(1)
             Select([
@@ -353,7 +354,7 @@ export struct BenchmarkPage {
               .enabled(!this.running)
               .layoutWeight(1)
               .onChange((value: string) => this.generateTokensText = value)
-            Text('轮数').fontSize(13).fontColor($r('app.color.text_secondary'))
+            Text(tr('轮数')).fontSize(13).fontColor($r('app.color.text_secondary'))
             TextInput({ text: this.repeatsText })
               .type(InputType.Number)
               .enabled(!this.running)
@@ -364,13 +365,13 @@ export struct BenchmarkPage {
           if (this.running) {
             Progress({ value: this.iteration, total: this.clampInt(this.repeatsText, 3, 1, 10), type: ProgressType.Linear })
               .width('100%')
-            Text(this.iteration === 0 ? '正在预热' :
-              `正在运行 ${this.iteration}/${this.clampInt(this.repeatsText, 3, 1, 10)}`)
+            Text(this.iteration === 0 ? tr('正在预热') :
+              `${tr('正在运行 ')}${this.iteration}/${this.clampInt(this.repeatsText, 3, 1, 10)}`)
               .fontSize(14)
               .fontColor($r('app.color.brand'))
           }
           Row({ space: 10 }) {
-            Button(this.running ? '停止' : (this.summary.samples.length > 0 ? '重新测试' : '开始测试'))
+            Button(this.running ? tr('停止') : (this.summary.samples.length > 0 ? tr('重新测试') : tr('开始测试')))
               .layoutWeight(1)
               .enabled(this.ready)
               .fontColor(this.running ? $r('app.color.danger') : Color.White)
@@ -417,7 +418,7 @@ export struct BenchmarkPage {
         if (this.summary.samples.length > 0) {
           Column({ space: 9 }) {
             Text(`${this.summary.backendType === RuntimeBackendType.OPENCL ? 'OpenCL' : 'CPU'} · ` +
-              (this.summary.canceled ? '测试已停止' : '测试完成'))
+              (this.summary.canceled ? tr('测试已停止') : tr('测试完成')))
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
               .width('100%')
@@ -429,32 +430,32 @@ export struct BenchmarkPage {
               `${this.summary.decodeStdDev.toFixed(1)} tok/s`)
               .fontSize(15)
               .width('100%')
-            Text(`测量总耗时 ${(this.summary.totalMs / 1000).toFixed(2)}s · ` +
-              `模型加载 ${(this.summary.loadMs / 1000).toFixed(2)}s`)
+            Text(`${tr('测量总耗时 ')}${(this.summary.totalMs / 1000).toFixed(2)}s · ` +
+              `${tr('模型加载 ')}${(this.summary.loadMs / 1000).toFixed(2)}s`)
               .fontSize(13)
               .fontColor($r('app.color.text_secondary'))
               .width('100%')
             if (this.summary.peakMemoryKb > 0) {
-              Text(`峰值内存 ${(this.summary.peakMemoryKb / 1024).toFixed(1)} MB`)
+              Text(`${tr('峰值内存 ')}${(this.summary.peakMemoryKb / 1024).toFixed(1)} MB`)
                 .fontSize(13)
                 .fontColor($r('app.color.text_secondary'))
                 .width('100%')
             }
             ForEach(this.summary.samples, (sample: NativeBenchmarkSample) => {
-              Text(`第 ${sample.iteration} 轮：prefill ${(sample.prefillMs > 0 ? sample.promptTokens * 1000 / sample.prefillMs : 0).toFixed(1)} tok/s · ` +
+              Text(`${tr('第 ')}${sample.iteration}${tr(' 轮：prefill ')}${(sample.prefillMs > 0 ? sample.promptTokens * 1000 / sample.prefillMs : 0).toFixed(1)} tok/s · ` +
                 `decode ${(sample.decodeMs > 0 ? sample.generatedTokens * 1000 / sample.decodeMs : 0).toFixed(1)} tok/s`)
                 .fontSize(12)
                 .fontColor($r('app.color.text_secondary'))
                 .width('100%')
             }, (sample: NativeBenchmarkSample) => sample.iteration.toString())
             Row({ space: 10 }) {
-              Button('复制结果')
+              Button(tr('复制结果'))
                 .height(34)
                 .fontSize(13)
                 .backgroundColor($r('app.color.brand_tint'))
                 .fontColor($r('app.color.brand'))
                 .onClick(() => this.shareSummary())
-              Button('分享结果')
+              Button(tr('分享结果'))
                 .height(34)
                 .fontSize(13)
                 .backgroundColor($r('app.color.brand_tint'))
@@ -470,16 +471,16 @@ export struct BenchmarkPage {
         }
 
         Column({ space: 9 }) {
-          Text('数据集测试')
+          Text(tr('数据集测试'))
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .width('100%')
-          Text('选择 JSONL 数据集文件，每行形如 {"prompt": "..."}，最多运行 3 条。')
+          Text(tr('选择 JSONL 数据集文件，每行形如 {"prompt": "..."}，最多运行 3 条。'))
             .fontSize(11)
             .fontColor($r('app.color.text_tertiary'))
             .width('100%')
           Row({ space: 10 }) {
-            Button(this.datasetName || '选择数据集文件')
+            Button(this.datasetName || tr('选择数据集文件'))
               .layoutWeight(1)
               .height(38)
               .fontSize(13)
@@ -487,7 +488,7 @@ export struct BenchmarkPage {
               .fontColor($r('app.color.brand'))
               .enabled(!this.datasetRunning)
               .onClick(() => this.chooseDataset())
-            Button(this.datasetRunning ? '停止' : '开始测试')
+            Button(this.datasetRunning ? tr('停止') : tr('开始测试'))
               .layoutWeight(1)
               .height(38)
               .fontSize(13)
@@ -511,7 +512,7 @@ export struct BenchmarkPage {
                 .fontSize(12)
                 .fontColor($r('app.color.text_body'))
                 .width('100%')
-              Text(item.error ? `错误：${item.error}` : item.output)
+              Text(item.error ? `${tr('错误：')}${item.error}` : item.output)
                 .fontSize(12)
                 .fontColor(item.error ? $r('app.color.danger') : $r('app.color.text_primary'))
                 .maxLines(3)
@@ -521,7 +522,7 @@ export struct BenchmarkPage {
             .width('100%')
           }, (item: DatasetItemResult) => item.index.toString())
           if (this.datasetResult.items.length > 0) {
-            Button('复制结果')
+            Button(tr('复制结果'))
               .height(34)
               .fontSize(13)
               .backgroundColor($r('app.color.brand_tint'))
@@ -536,15 +537,15 @@ export struct BenchmarkPage {
 
         if (this.summary.samples.length > 0) {
           Column({ space: 9 }) {
-            Text('排行榜')
+            Text(tr('排行榜'))
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
               .width('100%')
             Row({ space: 10 }) {
-              Text('用户 ID')
+              Text(tr('用户 ID'))
                 .fontSize(14)
                 .fontColor($r('app.color.text_body'))
-              TextInput({ text: this.userIdText, placeholder: '排行榜用户 ID' })
+              TextInput({ text: this.userIdText, placeholder: tr('排行榜用户 ID') })
                 .layoutWeight(1)
                 .height(38)
                 .fontSize(13)
@@ -552,18 +553,18 @@ export struct BenchmarkPage {
                 .onChange((value: string) => this.userIdText = value)
             }
             .width('100%')
-            Text('仅提交预填充/解码速度和峰值内存，不包含聊天内容。')
+            Text(tr('仅提交预填充/解码速度和峰值内存，不包含聊天内容。'))
               .fontSize(11)
               .fontColor($r('app.color.text_tertiary'))
               .width('100%')
             Row({ space: 10 }) {
-              Button('提交成绩')
+              Button(tr('提交成绩'))
                 .layoutWeight(1)
                 .height(38)
                 .fontSize(13)
                 .enabled(!this.submitting)
                 .onClick(() => this.submitScore())
-              Button('查询排名')
+              Button(tr('查询排名'))
                 .layoutWeight(1)
                 .height(38)
                 .fontSize(13)
@@ -587,7 +588,7 @@ export struct BenchmarkPage {
         }
 
         if (this.error) {
-          Text(`错误：${this.error}`)
+          Text(`${tr('错误：')}${this.error}`)
             .fontSize(13)
             .fontColor($r('app.color.danger'))
             .padding(16)

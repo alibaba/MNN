@@ -1,3 +1,4 @@
+import { tr } from '../../services/I18n';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import pasteboard from '@ohos.pasteboard';
@@ -43,12 +44,12 @@ export struct ApiConsolePage {
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, address);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        promptAction.showToast({ message: '地址已复制' });
+        promptAction.showToast({ message: tr('地址已复制') });
       }).catch(() => {
-        promptAction.showToast({ message: '复制失败' });
+        promptAction.showToast({ message: tr('复制失败') });
       });
     } catch (error) {
-      promptAction.showToast({ message: '复制失败' });
+      promptAction.showToast({ message: tr('复制失败') });
     }
   }
 
@@ -83,7 +84,7 @@ export struct ApiConsolePage {
       }
       return Promise.resolve();
     }).then(() => {
-      this.error = '设置已保存，重新启动服务后生效';
+      this.error = tr('设置已保存，重新启动服务后生效');
     }).catch((error: Error) => {
       this.error = error.message;
     }).finally(() => {
@@ -109,7 +110,7 @@ export struct ApiConsolePage {
         store.putString(API_TOKEN_SETTING_KEY, '')
       ]);
     }).then(() => {
-      this.error = '已恢复默认设置，重新启动服务后生效';
+      this.error = tr('已恢复默认设置，重新启动服务后生效');
     }).catch((error: Error) => {
       this.error = error.message;
     });
@@ -118,7 +119,7 @@ export struct ApiConsolePage {
   private onConfigurationChanged(): void {
     if (this.status.running) {
       this.stop();
-      this.error = '模型已切换，请重新启动 API 服务';
+      this.error = tr('模型已切换，请重新启动 API 服务');
     }
   }
 
@@ -154,7 +155,7 @@ export struct ApiConsolePage {
   build() {
     Scroll() {
       Column() {
-        Text('本地 API')
+        Text(tr('本地 API'))
         .fontSize(24)
         .fontWeight(FontWeight.Bold)
         .width('100%')
@@ -162,15 +163,15 @@ export struct ApiConsolePage {
 
       Column({ space: 12 }) {
         Row() {
-          Text('状态')
+          Text(tr('状态'))
             .fontSize(15)
             .layoutWeight(1)
-          Text(this.status.running ? '运行中' : '已停止')
+          Text(this.status.running ? tr('运行中') : tr('已停止'))
             .fontSize(14)
             .fontColor(this.status.running ? $r('app.color.success') : $r('app.color.text_secondary'))
         }
         Row() {
-          Text('监听地址')
+          Text(tr('监听地址'))
             .fontSize(15)
             .layoutWeight(1)
           Text(this.status.running ?
@@ -178,7 +179,7 @@ export struct ApiConsolePage {
             .fontSize(14)
             .fontColor($r('app.color.text_body'))
           if (this.status.running) {
-            Button('复制')
+            Button(tr('复制'))
               .fontSize(12)
               .fontColor($r('app.color.brand'))
               .backgroundColor(Color.Transparent)
@@ -188,20 +189,20 @@ export struct ApiConsolePage {
               .onClick(() => this.copyAddress())
           }
         }
-        TextInput({ text: this.portText, placeholder: '端口' })
+        TextInput({ text: this.portText, placeholder: tr('端口') })
           .type(InputType.Number)
           .enabled(!this.status.running && !this.busy)
           .onChange((value: string) => this.portText = value)
         Row() {
-          Text('监听范围')
+          Text(tr('监听范围'))
             .fontSize(15)
             .layoutWeight(1)
-          Text(this.bindAll ? '局域网' : '仅本机')
+          Text(this.bindAll ? tr('局域网') : tr('仅本机'))
             .fontSize(14)
             .fontColor($r('app.color.text_body'))
         }
         Row({ space: 10 }) {
-          Button('仅本机')
+          Button(tr('仅本机'))
             .layoutWeight(1)
             .height(34)
             .fontSize(13)
@@ -209,7 +210,7 @@ export struct ApiConsolePage {
             .fontColor(this.bindAll ? $r('app.color.text_muted') : $r('app.color.brand'))
             .enabled(!this.status.running && !this.busy)
             .onClick(() => this.bindAll = false)
-          Button('局域网')
+          Button(tr('局域网'))
             .layoutWeight(1)
             .height(34)
             .fontSize(13)
@@ -219,7 +220,7 @@ export struct ApiConsolePage {
             .onClick(() => this.bindAll = true)
         }
         Row() {
-          Text('要求 Bearer 鉴权')
+          Text(tr('要求 Bearer 鉴权'))
             .fontSize(15)
             .layoutWeight(1)
           Toggle({ type: ToggleType.Switch, isOn: this.authEnabled })
@@ -230,11 +231,11 @@ export struct ApiConsolePage {
           .fontSize(13)
           .fontColor($r('app.color.text_secondary'))
           .width('100%')
-        TextInput({ text: this.tokenText, placeholder: '留空则由服务自动生成' })
+        TextInput({ text: this.tokenText, placeholder: tr('留空则由服务自动生成') })
           .enabled(!this.busy)
           .onChange((value: string) => this.tokenText = value)
         Row() {
-          Text('允许跨域 (CORS)')
+          Text(tr('允许跨域 (CORS)'))
             .fontSize(15)
             .layoutWeight(1)
           Toggle({ type: ToggleType.Switch, isOn: this.corsEnabled })
@@ -242,16 +243,16 @@ export struct ApiConsolePage {
             .onChange((value: boolean) => this.corsEnabled = value)
         }
         if (this.corsEnabled) {
-          TextInput({ text: this.corsOriginsText, placeholder: '允许的来源，逗号分隔；留空允许全部' })
+          TextInput({ text: this.corsOriginsText, placeholder: tr('允许的来源，逗号分隔；留空允许全部') })
             .enabled(!this.busy)
             .onChange((value: string) => this.corsOriginsText = value)
-          Text('例如 http://localhost:3000,https://example.com')
+          Text(tr('例如 http://localhost:3000,https://example.com'))
             .fontSize(11)
             .fontColor($r('app.color.text_tertiary'))
             .width('100%')
         }
         Row() {
-          Text('客户端使用 HTTPS URL')
+          Text(tr('客户端使用 HTTPS URL'))
             .fontSize(15)
             .layoutWeight(1)
           Toggle({ type: ToggleType.Switch, isOn: this.httpsUrl })
@@ -263,42 +264,42 @@ export struct ApiConsolePage {
               });
             })
         }
-        Text('仅影响展示与复制的地址；服务本身仍是 HTTP，需要 TLS 时请在前面加反向代理。')
+        Text(tr('仅影响展示与复制的地址；服务本身仍是 HTTP，需要 TLS 时请在前面加反向代理。'))
           .fontSize(11)
           .fontColor($r('app.color.text_tertiary'))
           .width('100%')
-        Text(`模型：${this.activeModelId} · 连接：${this.status.connections} · 队列：${this.status.queueSize}`)
+        Text(`${tr('模型：')}${this.activeModelId}${tr(' · 连接：')}${this.status.connections}${tr(' · 队列：')}${this.status.queueSize}`)
           .fontSize(12)
           .fontColor($r('app.color.text_secondary'))
           .width('100%')
         if (this.status.running) {
           Text(this.status.backgroundActive ?
-            '已申请后台运行，切到后台后仍可响应请求，系统会显示常驻通知。' :
-            '后台常驻未启用，切到后台后服务可能被系统挂起。')
+            tr('已申请后台运行，切到后台后仍可响应请求，系统会显示常驻通知。') :
+            tr('后台常驻未启用，切到后台后服务可能被系统挂起。'))
             .fontSize(11)
             .fontColor(this.status.backgroundActive ? $r('app.color.success') : $r('app.color.warning'))
             .width('100%')
         }
         Row({ space: 10 }) {
-          Button(this.status.running ? '停止服务' : '启动服务')
+          Button(this.status.running ? tr('停止服务') : tr('启动服务'))
             .layoutWeight(1)
             .enabled(!this.busy)
             .fontColor(this.status.running ? $r('app.color.danger') : Color.White)
             .backgroundColor(this.status.running ? $r('app.color.danger_tint') : $r('app.color.brand'))
             .onClick(() => this.status.running ? this.stop() : this.start())
-          Button('刷新状态')
+          Button(tr('刷新状态'))
             .layoutWeight(1)
             .enabled(!this.busy)
             .onClick(() => this.refresh())
         }
         Row({ space: 10 }) {
-          Button('保存设置')
+          Button(tr('保存设置'))
             .layoutWeight(1)
             .enabled(!this.busy)
             .backgroundColor($r('app.color.brand_tint'))
             .fontColor($r('app.color.brand'))
             .onClick(() => this.saveApiSettings())
-          Button('重置')
+          Button(tr('重置'))
             .layoutWeight(1)
             .enabled(!this.busy)
             .backgroundColor($r('app.color.surface_muted'))
@@ -313,7 +314,7 @@ export struct ApiConsolePage {
       .margin({ left: 16, right: 16, bottom: 14 })
 
       Column({ space: 8 }) {
-        Text('兼容端点')
+        Text(tr('兼容端点'))
           .fontSize(17)
           .fontWeight(FontWeight.Bold)
           .width('100%')
@@ -322,8 +323,8 @@ export struct ApiConsolePage {
         Text('POST /v1/chat/completions')
         Text('POST /v1/messages')
         Text('POST /v1/cancel')
-        Text(this.bindAll ? '监听 0.0.0.0，局域网内设备可访问；鉴权与 CORS 按上方设置生效。' :
-          '仅监听 127.0.0.1，默认要求 Bearer Token；HDC 转发后仍需鉴权。')
+        Text(this.bindAll ? tr('监听 0.0.0.0，局域网内设备可访问；鉴权与 CORS 按上方设置生效。') :
+          tr('仅监听 127.0.0.1，默认要求 Bearer Token；HDC 转发后仍需鉴权。'))
           .fontSize(12)
           .lineHeight(19)
           .fontColor($r('app.color.text_secondary'))
@@ -336,18 +337,18 @@ export struct ApiConsolePage {
 
       Column({ space: 8 }) {
         Row() {
-          Text('请求日志')
+          Text(tr('请求日志'))
             .fontSize(17)
             .fontWeight(FontWeight.Bold)
             .layoutWeight(1)
-          Button('刷新')
+          Button(tr('刷新'))
             .height(30)
             .fontSize(12)
             .onClick(() => this.refresh())
         }
         .width('100%')
         if (this.status.requestLogs.length === 0) {
-          Text('暂无请求，服务启动后在这里查看最近的 20 条记录')
+          Text(tr('暂无请求，服务启动后在这里查看最近的 20 条记录'))
             .fontSize(12)
             .fontColor($r('app.color.text_secondary'))
             .width('100%')
@@ -370,7 +371,7 @@ export struct ApiConsolePage {
       .margin({ left: 16, right: 16, bottom: 14 })
 
       if (this.error) {
-        Text(`错误：${this.error}`)
+        Text(`${tr('错误：')}${this.error}`)
           .fontSize(13)
           .fontColor($r('app.color.danger'))
           .padding(16)

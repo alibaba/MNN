@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import { ModelRecord } from '../domain/AppTypes';
 
 /**
@@ -13,7 +14,7 @@ export struct ModelPickerSheet {
 
   build() {
     Column({ space: 12 }) {
-      Text('选择模型')
+      Text(tr('选择模型'))
         .fontSize(18)
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
@@ -35,7 +36,7 @@ export struct ModelPickerSheet {
               .alignItems(HorizontalAlign.Start)
               .layoutWeight(1)
               if (model.id === this.activeModelId) {
-                Text('使用中')
+                Text(tr('使用中'))
                   .fontSize(12)
                   .fontColor($r('app.color.brand'))
               }
@@ -54,7 +55,7 @@ export struct ModelPickerSheet {
       .layoutWeight(1)
       .width('100%')
 
-      Button('取消')
+      Button(tr('取消'))
         .width('100%')
         .height(40)
         .fontSize(15)

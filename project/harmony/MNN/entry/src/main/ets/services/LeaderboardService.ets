@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { http } from '@kit.NetworkKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { hidebug } from '@kit.PerformanceAnalysisKit';
@@ -92,7 +93,7 @@ export class LeaderboardService {
     try {
       await this.request('POST', `${LEADERBOARD_BASE_URL}/submit_score`, JSON.stringify(body));
       outcome.success = true;
-      outcome.message = '已提交到排行榜';
+      outcome.message = tr('已提交到排行榜');
     } catch (error) {
       outcome.success = false;
       outcome.message = (error as Error).message;
@@ -107,14 +108,14 @@ export class LeaderboardService {
       const text = await this.request('POST', `${LEADERBOARD_BASE_URL}/get_my_rank`, JSON.stringify(request));
       const eventId = this.extractEventId(text);
       if (!eventId) {
-        outcome.message = '未获取到查询任务 ID';
+        outcome.message = tr('未获取到查询任务 ID');
         return outcome;
       }
       const result = await this.request('GET', `${LEADERBOARD_BASE_URL}/get_my_rank/${eventId}`, '');
       outcome.rank = this.parseRank(result);
       outcome.success = true;
       outcome.message = outcome.rank.rank > 0 ?
-        `当前排名 ${outcome.rank.rank} / ${outcome.rank.totalUsers}` : '暂未进入排行榜';
+        `${tr('当前排名 ')}${outcome.rank.rank} / ${outcome.rank.totalUsers}` : tr('暂未进入排行榜');
     } catch (error) {
       outcome.success = false;
       outcome.message = (error as Error).message;

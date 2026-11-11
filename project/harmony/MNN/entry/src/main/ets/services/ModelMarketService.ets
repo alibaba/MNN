@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { http } from '@kit.NetworkKit';
@@ -62,7 +63,7 @@ export class ModelMarketService {
         readTimeout: 30000
       });
       if (response.responseCode < 200 || response.responseCode >= 300) {
-        throw new Error(`市场请求失败：HTTP ${response.responseCode}`);
+        throw new Error(`${tr('市场请求失败：HTTP ')}${response.responseCode}`);
       }
       const body = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
       return this.parseCatalog(body);
@@ -96,7 +97,7 @@ export class ModelMarketService {
   private parseCatalog(value: string): MarketCatalogRecord {
     const document = JSON.parse(value) as MarketCatalogDocument;
     if (!document.version || !document.models) {
-      throw new Error('模型市场数据格式无效');
+      throw new Error(tr('模型市场数据格式无效'));
     }
     const catalog = new MarketCatalogRecord();
     catalog.version = document.version;

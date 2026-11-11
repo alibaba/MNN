@@ -1,3 +1,4 @@
+import { tr } from './I18n';
 import { common } from '@kit.AbilityKit';
 import hidebug from '@ohos.hidebug';
 import { BenchmarkRepository } from '../data/BenchmarkRepository';
@@ -77,7 +78,7 @@ export class BenchmarkService {
     onProgress: (sample: NativeBenchmarkSample) => void): Promise<BenchmarkSummary> {
     const model = await ModelRepository.getInstance().getModel(modelId);
     if (!model || model.state !== ModelState.READY) {
-      throw new Error('Benchmark 模型不可用');
+      throw new Error(tr('Benchmark 模型不可用'));
     }
     const settings = await SettingsStore.getInstance().getModelRuntimeSettings(model.id);
     const benchmarkSettings = this.copySettings(settings);

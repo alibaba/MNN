@@ -1,3 +1,4 @@
+import { tr } from '../services/I18n';
 import relationalStore from '@ohos.data.relationalStore';
 import fs from '@ohos.file.fs';
 import { AppDatabase } from './AppDatabase';
@@ -23,7 +24,7 @@ export class ChatRepository {
     return ChatRepository.instance;
   }
 
-  async createSession(modelId: string, title: string = '新对话'): Promise<ChatSessionRecord> {
+  async createSession(modelId: string, title: string = tr('新对话')): Promise<ChatSessionRecord> {
     const now = Date.now();
     const session = new ChatSessionRecord();
     session.id = createId('session');
@@ -174,7 +175,7 @@ export class ChatRepository {
         message.metrics = this.parseMetrics(result.getString(result.getColumnIndex('metrics_json')));
         message.state = GenerationState.CANCELED;
         if (!message.displayContent) {
-          message.displayContent = '上次生成意外中断';
+          message.displayContent = tr('上次生成意外中断');
           message.rawContent = message.displayContent;
         }
         interrupted.push(message);

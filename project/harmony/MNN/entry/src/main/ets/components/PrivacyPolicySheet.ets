@@ -1,4 +1,5 @@
-import { PRIVACY_POLICY_TEXT } from '../services/PrivacyPolicy';
+import { tr } from '../services/I18n';
+import { privacyPolicyText } from '../services/PrivacyPolicy';
 
 /**
  * First-launch privacy notice. The user must explicitly agree before the app becomes usable,
@@ -12,13 +13,13 @@ export struct PrivacyPolicySheet {
 
   build() {
     Column({ space: 12 }) {
-      Text('隐私政策')
+      Text(tr('隐私政策'))
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
         .width('100%')
       Scroll() {
-        Text(PRIVACY_POLICY_TEXT)
+        Text(privacyPolicyText())
           .fontSize(14)
           .lineHeight(22)
           .fontColor($r('app.color.text_body_alt'))
@@ -29,7 +30,7 @@ export struct PrivacyPolicySheet {
       .scrollBar(BarState.Auto)
 
       Row({ space: 10 }) {
-        Button('不同意并退出')
+        Button(tr('不同意并退出'))
           .layoutWeight(1)
           .height(42)
           .fontSize(14)
@@ -39,7 +40,7 @@ export struct PrivacyPolicySheet {
             this.controller?.close();
             this.onDecline();
           })
-        Button('同意并继续')
+        Button(tr('同意并继续'))
           .layoutWeight(1)
           .height(42)
           .fontSize(14)
