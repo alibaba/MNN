@@ -74,6 +74,7 @@ public:
 public:
     static Sampler* createSampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
+    void setConfig(std::shared_ptr<LlmConfig> config);
     // Merge sampling values set through Llm::set_config; they take effect at the next refresh().
     void updateConfig(const ujson::json& content);
     // Reload the sampling parameters if updateConfig() was called since the last refresh; keeps the RNG state.

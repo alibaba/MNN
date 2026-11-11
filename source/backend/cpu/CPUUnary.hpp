@@ -15,7 +15,7 @@
 namespace MNN {
 class CPUUnary : public Execution {
 public:
-    CPUUnary(Backend *b, MNNUnaryExecute proc, MNNUnaryExecuteInt8 procInt8, const Op* op);
+    CPUUnary(Backend* b, MNNUnaryExecute proc, MNNUnaryExecuteInt8 procInt8, const int8_t* table);
     virtual ~CPUUnary() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

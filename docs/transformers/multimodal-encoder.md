@@ -12,6 +12,7 @@
 | `qwen3_vl`、`qwen3_5` | `Qwen3 : Qwen` | 覆盖默认像素范围、位置插值输入和视频时间组标记 |
 | `idefics3`、`lfm2_vl` | `Idefics` | 共用当前全局图/局部切块协议，集中处理特征顺序和切块标记 |
 | `minicpmv` | `MiniCPM` | 保留 MiniCPM 切片、resampler 输入和图片 ID/切片标记 |
+| `minicpmv4_7`、`minicpm_ocr` | `MiniCPM47`、`MiniCPMOcr : MiniCPM47` | 共用切片和图片 ID 标记；4.7 使用 M-RoPE，OCR 使用 1-D 位置 |
 | `hunyuan_vl` | `Hunyuan : Patch` | 共用动态像素准备，覆盖尺寸取整、行网格输入和空间位置 |
 | `gemma4` | `Gemma4` | 有效 patch 位置、长度补齐及输出 padding 裁剪 |
 
