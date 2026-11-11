@@ -102,6 +102,10 @@ bool StableDiffusion::load() {
         // MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[0].reset(Module::load(
                                        {"input_ids"}, {"last_hidden_state", "pooler_output"}, model_path.c_str(), runtime_manager_, &module_config));
+        if (!mModules[0]) {
+            MNN_ERROR("Failed to load %s\n", model_path.c_str());
+            return false;
+        }
     }
     // load unet model
     {
@@ -109,6 +113,10 @@ bool StableDiffusion::load() {
         // MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[1].reset(Module::load(
                                        {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, model_path.c_str(), runtime_manager_, &module_config));
+        if (!mModules[1]) {
+            MNN_ERROR("Failed to load %s\n", model_path.c_str());
+            return false;
+        }
     }
     // load vae_decoder model
     {
@@ -116,6 +124,10 @@ bool StableDiffusion::load() {
         // MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[2].reset(Module::load(
                                        {"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
+        if (!mModules[2]) {
+            MNN_ERROR("Failed to load %s\n", model_path.c_str());
+            return false;
+        }
     }
     
     // tokenizer loading
@@ -135,6 +147,10 @@ bool StableDiffusion::load() {
     // text encoder
     {
         auto outputs = forwardWithResizeCache(0, {mPromptVar});
+        if (outputs.empty()) {
+            MNN_ERROR("text_encoder forward produced no output\n");
+            return false;
+        }
         text_embeddings = _Convert(outputs[0], NCHW);
         text_embeddings.fix(VARP::CONSTANT);
     }
@@ -143,6 +159,10 @@ bool StableDiffusion::load() {
         // unet
         {
             auto outputs = forwardWithResizeCache(1, {mSampleVar, mTimestepVar, text_embeddings});
+            if (outputs.empty()) {
+                MNN_ERROR("unet forward produced no output\n");
+                return false;
+            }
             auto output = _Convert(outputs[0], NCHW);
             output->readMap<float>();
         }
@@ -151,6 +171,10 @@ bool StableDiffusion::load() {
         // vae decoder
         {
             auto outputs = forwardWithResizeCache(2, {mLatentVar});
+            if (outputs.empty()) {
+                MNN_ERROR("vae_decoder forward produced no output\n");
+                return false;
+            }
             auto output = _Convert(outputs[0], NCHW);
             output->readMap<float>();
         }

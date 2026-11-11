@@ -13,44 +13,70 @@ Java_com_alibaba_mnnllm_android_llm_SanaSession_initNative(JNIEnv *env,
                                                        jobject thiz,
                                                        jstring resource_path,
                                                        jstring config_json) {
+    if (resource_path == nullptr) {
+        MNN_ERROR("SanaSession_initNative got a null resource path");
+        return 0;
+    }
     const char* resource_path_cstr = env->GetStringUTFChars(resource_path, nullptr);
-    const char* config_cstr = env->GetStringUTFChars(config_json, nullptr);
-    
+    if (resource_path_cstr == nullptr) {
+        return 0;
+    }
+    const char* config_cstr = config_json == nullptr ? nullptr : env->GetStringUTFChars(config_json, nullptr);
+
     MNN_DEBUG("SanaSession_initNative resource: %s", resource_path_cstr);
-    
-    // Parse config if needed
-    json config = json::parse(config_cstr);
-    int memory_mode = 0;
-    if (config.contains("diffusion_memory_mode")) {
-        std::string mode_str = config["diffusion_memory_mode"];
-        memory_mode = std::stoi(mode_str);
-    }
-    
-    int backend_type = MNN_FORWARD_OPENCL;
-    if (config.contains("backend_type")) {
-        std::string backend_str = config["backend_type"];
-        if (backend_str == "cpu") {
-            backend_type = MNN_FORWARD_CPU;
-        } else if (backend_str == "opencl") {
-            backend_type = MNN_FORWARD_OPENCL;
-        } else if (backend_str == "vulkan") {
-            backend_type = MNN_FORWARD_VULKAN;
+
+    // Every read below stays inside one try block: json::parse, the implicit json -> std::string
+    // / int conversions and std::stoi all throw, and an exception crossing the JNI boundary kills
+    // the process instead of reaching the app's error handling.
+    SanaSession* session = nullptr;
+    try {
+        json config = config_cstr == nullptr ? json::parse("", nullptr, false) : json::parse(config_cstr, nullptr, false);
+        if (config.is_discarded()) {
+            config = json::object();
+            MNN_ERROR("SanaSession_initNative got an unusable config, using defaults");
         }
+        int memory_mode = 0;
+        if (config.contains("diffusion_memory_mode")) {
+            const auto& value = config["diffusion_memory_mode"];
+            memory_mode = value.is_number_integer() ? value.get<int>() : std::stoi(value.get<std::string>());
+        }
+
+        int backend_type = MNN_FORWARD_OPENCL;
+        if (config.contains("backend_type") && config["backend_type"].is_string()) {
+            std::string backend_str = config["backend_type"];
+            if (backend_str == "cpu") {
+                backend_type = MNN_FORWARD_CPU;
+            } else if (backend_str == "opencl") {
+                backend_type = MNN_FORWARD_OPENCL;
+            } else if (backend_str == "vulkan") {
+                backend_type = MNN_FORWARD_VULKAN;
+            }
+        }
+
+        int width = 512;
+        int height = 512;
+        int grid_size = 1;
+        if (config.contains("image_width") && config["image_width"].is_number_integer()) width = config["image_width"];
+        if (config.contains("image_height") && config["image_height"].is_number_integer()) height = config["image_height"];
+        if (config.contains("grid_size") && config["grid_size"].is_number_integer()) grid_size = config["grid_size"];
+
+        session = new SanaSession(resource_path_cstr, memory_mode, backend_type, width, height, grid_size);
+        session->Load(); // Load immediately or lazy load? Let's load here to be safe.
+    } catch (const std::exception& e) {
+        MNN_ERROR("SanaSession_initNative failed: %s", e.what());
+        delete session;
+        session = nullptr;
+    } catch (...) {
+        MNN_ERROR("SanaSession_initNative failed with an unknown exception");
+        delete session;
+        session = nullptr;
     }
-    
-    int width = 512;
-    int height = 512;
-    int grid_size = 1;
-    if (config.contains("image_width")) width = config["image_width"];
-    if (config.contains("image_height")) height = config["image_height"];
-    if (config.contains("grid_size")) grid_size = config["grid_size"];
 
-    auto session = new SanaSession(resource_path_cstr, memory_mode, backend_type, width, height, grid_size);
-    session->Load(); // Load immediately or lazy load? Let's load here to be safe.
-
+    if (config_cstr != nullptr) {
+        env->ReleaseStringUTFChars(config_json, config_cstr);
+    }
     env->ReleaseStringUTFChars(resource_path, resource_path_cstr);
-    env->ReleaseStringUTFChars(config_json, config_cstr);
-    
+
     return reinterpret_cast<jlong>(session);
 }
 

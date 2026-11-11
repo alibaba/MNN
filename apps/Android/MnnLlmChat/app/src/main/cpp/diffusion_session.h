@@ -12,9 +12,10 @@ namespace mls {
 class DiffusionSession {
 public:
     explicit DiffusionSession(std::string  resource_path, int memory_mode);
-    void Run(const std::string& prompt, const std::string& image_path,
+    bool Run(const std::string& prompt, const std::string& image_path,
              int iter_num,
              int random_seed, const std::function<void(int)>& progressCallback);
+    bool IsLoaded() const { return loaded_; }
 private:
     bool loaded_{false};
     std::string resource_path_;
