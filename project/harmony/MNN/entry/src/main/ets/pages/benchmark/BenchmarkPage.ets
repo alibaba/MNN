@@ -1,5 +1,8 @@
 import { common } from '@kit.AbilityKit';
-import { picker } from '@kit.CoreFileKit';
+import { promptAction } from '@kit.ArkUI';
+import { componentSnapshot } from '@kit.ArkUI';
+import { picker, fileIo } from '@kit.CoreFileKit';
+import { image } from '@kit.ImageKit';
 import pasteboard from '@ohos.pasteboard';
 import { ModelPickerSheet } from '../../components/ModelPickerSheet';
 import { ModelRepository } from '../../data/ModelRepository';
@@ -9,6 +12,7 @@ import { BenchmarkService, BenchmarkSummary } from '../../services/BenchmarkServ
 import { GenerationCoordinator, NativeBenchmarkSample } from '../../services/GenerationCoordinator';
 import { LeaderboardOutcome, LeaderboardService } from '../../services/LeaderboardService';
 import { DatasetItemResult, DatasetTestResult, DatasetTestService } from '../../services/DatasetTestService';
+import { ImageActions } from '../../services/ImageActions';
 
 @Component
 export struct BenchmarkPage {
@@ -66,6 +70,29 @@ export struct BenchmarkPage {
       this.leaderboardMessage = error.message;
     }).finally(() => {
       this.submitting = false;
+    });
+  }
+
+  private shareResultCard(): void {
+    if (this.summary.samples.length === 0) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    componentSnapshot.get('benchmark_result_card').then((pixelMap: image.PixelMap) => {
+      const packer = image.createImagePacker();
+      return packer.packing(pixelMap, { format: 'image/png', quality: 100 });
+    }).then((data: ArrayBuffer) => {
+      const path = `${context.cacheDir}/benchmark_result.png`;
+      const file = fileIo.openSync(path,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      try {
+        fileIo.writeSync(file.fd, data);
+      } finally {
+        fileIo.closeSync(file);
+      }
+      return ImageActions.share(context, path);
+    }).catch((error: Error) => {
+      promptAction.showToast({ message: `分享失败：${error.message}` });
     });
   }
 
@@ -420,13 +447,22 @@ export struct BenchmarkPage {
                 .fontColor($r('app.color.text_secondary'))
                 .width('100%')
             }, (sample: NativeBenchmarkSample) => sample.iteration.toString())
-            Button('复制结果')
-              .height(34)
-              .fontSize(13)
-              .backgroundColor($r('app.color.brand_tint'))
-              .fontColor($r('app.color.brand'))
-              .onClick(() => this.shareSummary())
+            Row({ space: 10 }) {
+              Button('复制结果')
+                .height(34)
+                .fontSize(13)
+                .backgroundColor($r('app.color.brand_tint'))
+                .fontColor($r('app.color.brand'))
+                .onClick(() => this.shareSummary())
+              Button('分享结果')
+                .height(34)
+                .fontSize(13)
+                .backgroundColor($r('app.color.brand_tint'))
+                .fontColor($r('app.color.brand'))
+                .onClick(() => this.shareResultCard())
+            }
           }
+          .id('benchmark_result_card')
           .padding(16)
           .backgroundColor($r('app.color.surface'))
           .borderRadius(14)
