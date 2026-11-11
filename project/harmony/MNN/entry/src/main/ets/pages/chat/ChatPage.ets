@@ -36,6 +36,7 @@ import { ReasoningParser } from '../../services/ReasoningParser';
 import { SplitFileMerger } from '../../services/SplitFileMerger';
 import { VideoFrameExtractor } from '../../services/VideoFrameExtractor';
 import { VoiceRecorderService } from '../../services/VoiceRecorderService';
+import { VoiceInputCallbacks, VoiceInputService } from '../../services/VoiceInputService';
 import {
   ACTIVE_MODEL_ID_KEY,
   APP_AUDIO_REPLY_KEY,
@@ -77,6 +78,9 @@ export struct ChatPage {
   @State private recordingSeconds: number = 0;
   @State private diffusionProgress: number = -1;
   @State private diffusionSeconds: number = 0;
+  @State private voiceListening: boolean = false;
+  @State private voicePartial: string = '';
+  @State private voiceStatus: string = '';
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   @StorageLink('audioReply') private audioReply: boolean = false;
   private messageScroller: Scroller = new Scroller();
@@ -104,6 +108,7 @@ export struct ChatPage {
 
   aboutToDisappear(): void {
     this.cancelRecording();
+    this.cancelVoiceInput();
     if (this.diffusionTimerId >= 0) {
       clearInterval(this.diffusionTimerId);
       this.diffusionTimerId = -1;
@@ -362,6 +367,58 @@ export struct ChatPage {
       clearInterval(this.recordingTimerId);
       this.recordingTimerId = -1;
     }
+  }
+
+  private toggleVoiceInput(): void {
+    if (this.voiceListening) {
+      VoiceInputService.getInstance().stop().catch((error: Error) => {
+        this.error = error.message;
+        this.voiceListening = false;
+        this.voiceStatus = '';
+      });
+      return;
+    }
+    if (!this.isModelReady || this.isGenerating || this.recording) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const callbacks = new VoiceInputCallbacks();
+    callbacks.onPartial = (text: string) => {
+      this.voicePartial = text;
+    };
+    callbacks.onFinal = (text: string) => {
+      const trimmed = text.trim();
+      if (trimmed) {
+        this.prompt = this.prompt.trim() ? `${this.prompt.trim()} ${trimmed}` : trimmed;
+      }
+      this.voicePartial = '';
+    };
+    callbacks.onState = (listening: boolean, message: string) => {
+      this.voiceListening = listening;
+      this.voiceStatus = message;
+      if (!listening && message && message.indexOf('失败') >= 0) {
+        this.error = message;
+      }
+    };
+    this.error = '';
+    this.voicePartial = '';
+    this.voiceStatus = '正在启动语音识别…';
+    VoiceInputService.getInstance().start(context, callbacks).then(() => {
+      this.voiceListening = true;
+      this.voiceStatus = '正在听…';
+    }).catch((error: Error) => {
+      this.error = error.message;
+      this.voiceListening = false;
+      this.voiceStatus = '';
+    });
+  }
+
+  private cancelVoiceInput(): void {
+    this.voiceListening = false;
+    this.voicePartial = '';
+    this.voiceStatus = '';
+    VoiceInputService.getInstance().cancel().catch(() => {
+    });
   }
 
   private pickVideo(): void {
@@ -1283,6 +1340,16 @@ export struct ChatPage {
               .enabled(this.isModelReady && !this.isGenerating)
               .onClick(() => this.openAttachmentSheet())
           }
+          Button(this.voiceListening ? '结束' : '语音')
+            .width(48)
+            .height(40)
+            .fontSize(13)
+            .padding(0)
+            .fontColor(this.voiceListening ? Color.White : $r('app.color.brand'))
+            .backgroundColor(this.voiceListening ? $r('app.color.danger') : $r('app.color.brand_tint'))
+            .enabled(this.isModelReady && !this.isGenerating && !this.recording &&
+              this.voiceStatus !== '正在识别…')
+            .onClick(() => this.toggleVoiceInput())
           TextArea({ placeholder: this.isModelReady ? '输入消息' : '模型加载完成后即可对话', text: this.prompt })
             .layoutWeight(1)
             .height(92)
@@ -1299,9 +1366,13 @@ export struct ChatPage {
         .alignItems(VerticalAlign.Bottom)
 
         Row({ space: 10 }) {
-          Text(this.isGenerating ? '回答正在本机生成' : '内容仅在设备本地处理')
+          Text(this.voiceListening ? (this.voicePartial ? `语音：${this.voicePartial}` : '正在听…') :
+            (this.voiceStatus === '正在识别…' ? '正在识别…' :
+              (this.isGenerating ? '回答正在本机生成' : '内容仅在设备本地处理')))
             .fontSize(12)
-            .fontColor($r('app.color.text_tertiary'))
+            .fontColor(this.voiceListening ? $r('app.color.brand') : $r('app.color.text_tertiary'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
             .layoutWeight(1)
 
           if (this.isGenerating) {
