@@ -5,6 +5,7 @@ import {
   API_AUTH_ENABLED_KEY,
   API_BIND_ALL_KEY,
   API_CORS_ENABLED_KEY,
+  API_CORS_ORIGINS_KEY,
   API_HTTPS_URL_KEY,
   API_TOKEN_SETTING_KEY,
   ApiRequestLog,
@@ -24,6 +25,7 @@ export struct ApiConsolePage {
   @State private bindAll: boolean = false;
   @State private authEnabled: boolean = true;
   @State private corsEnabled: boolean = false;
+  @State private corsOriginsText: string = '';
   @State private httpsUrl: boolean = false;
   @State private tokenText: string = '';
 
@@ -55,6 +57,7 @@ export struct ApiConsolePage {
     store.getBoolean(API_BIND_ALL_KEY, false).then((value: boolean) => this.bindAll = value);
     store.getBoolean(API_AUTH_ENABLED_KEY, true).then((value: boolean) => this.authEnabled = value);
     store.getBoolean(API_CORS_ENABLED_KEY, false).then((value: boolean) => this.corsEnabled = value);
+    store.getString(API_CORS_ORIGINS_KEY, '').then((value: string) => this.corsOriginsText = value);
     store.getBoolean(API_HTTPS_URL_KEY, false).then((value: boolean) => this.httpsUrl = value);
     store.getString(API_TOKEN_SETTING_KEY, this.status.token).then((value: string) => this.tokenText = value);
   }
@@ -66,6 +69,7 @@ export struct ApiConsolePage {
       store.putBoolean(API_BIND_ALL_KEY, this.bindAll),
       store.putBoolean(API_AUTH_ENABLED_KEY, this.authEnabled),
       store.putBoolean(API_CORS_ENABLED_KEY, this.corsEnabled),
+      store.putString(API_CORS_ORIGINS_KEY, this.corsOriginsText.trim()),
       store.putString(API_TOKEN_SETTING_KEY, this.tokenText.trim())
     ]).then(() => {
       if (this.status.running) {
@@ -91,6 +95,7 @@ export struct ApiConsolePage {
     this.bindAll = false;
     this.authEnabled = true;
     this.corsEnabled = false;
+    this.corsOriginsText = '';
     this.httpsUrl = false;
     this.tokenText = '';
     SettingsStore.getInstance().getString(API_TOKEN_SETTING_KEY, '').then(() => {
@@ -99,6 +104,7 @@ export struct ApiConsolePage {
         store.putBoolean(API_BIND_ALL_KEY, false),
         store.putBoolean(API_AUTH_ENABLED_KEY, true),
         store.putBoolean(API_CORS_ENABLED_KEY, false),
+        store.putString(API_CORS_ORIGINS_KEY, ''),
         store.putBoolean(API_HTTPS_URL_KEY, false),
         store.putString(API_TOKEN_SETTING_KEY, '')
       ]);
@@ -234,6 +240,15 @@ export struct ApiConsolePage {
           Toggle({ type: ToggleType.Switch, isOn: this.corsEnabled })
             .enabled(!this.busy)
             .onChange((value: boolean) => this.corsEnabled = value)
+        }
+        if (this.corsEnabled) {
+          TextInput({ text: this.corsOriginsText, placeholder: '允许的来源，逗号分隔；留空允许全部' })
+            .enabled(!this.busy)
+            .onChange((value: string) => this.corsOriginsText = value)
+          Text('例如 http://localhost:3000,https://example.com')
+            .fontSize(11)
+            .fontColor($r('app.color.text_tertiary'))
+            .width('100%')
         }
         Row() {
           Text('客户端使用 HTTPS URL')

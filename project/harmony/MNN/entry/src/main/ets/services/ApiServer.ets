@@ -17,6 +17,7 @@ const API_TOKEN_KEY: string = 'local_api_token';
 export const API_BIND_ALL_KEY: string = 'local_api_bind_all';
 export const API_AUTH_ENABLED_KEY: string = 'local_api_auth_enabled';
 export const API_CORS_ENABLED_KEY: string = 'local_api_cors_enabled';
+export const API_CORS_ORIGINS_KEY: string = 'local_api_cors_origins';
 export const API_HTTPS_URL_KEY: string = 'local_api_https_url';
 export const API_TOKEN_SETTING_KEY: string = API_TOKEN_KEY;
 const MAX_HEADER_BYTES: number = 16 * 1024;
@@ -60,6 +61,7 @@ class ClientState {
   buffer: Uint8Array = new Uint8Array(0);
   handled: boolean = false;
   requestId: string = '';
+  origin: string = '';
   lastMethod: string = '';
   lastPath: string = '';
   lastStartMs: number = 0;
@@ -95,6 +97,7 @@ export class ApiServer {
   private bindAll: boolean = false;
   private authEnabled: boolean = true;
   private corsEnabled: boolean = false;
+  private corsOrigins: string = '';
   private requestLogs: ApiRequestLog[] = [];
 
   static getInstance(): ApiServer {
@@ -131,6 +134,7 @@ export class ApiServer {
     this.bindAll = await store.getBoolean(API_BIND_ALL_KEY, false);
     this.authEnabled = await store.getBoolean(API_AUTH_ENABLED_KEY, true);
     this.corsEnabled = await store.getBoolean(API_CORS_ENABLED_KEY, false);
+    this.corsOrigins = await store.getString(API_CORS_ORIGINS_KEY, '');
 
     const listenAddress = this.bindAll ? '0.0.0.0' : '127.0.0.1';
     const server = socket.constructTCPSocketServerInstance();
@@ -205,7 +209,7 @@ export class ApiServer {
     client.buffer = this.append(client.buffer, bytes);
     if (client.buffer.byteLength > MAX_HEADER_BYTES + MAX_BODY_BYTES) {
       client.handled = true;
-      this.sendAndClose(client, this.httpResponse(413, 'Payload Too Large', '{"error":"request too large"}'));
+      this.sendAndClose(client, this.httpResponse(413, 'Payload Too Large', '{"error":"request too large"}', client.origin));
       return;
     }
     try {
@@ -215,11 +219,11 @@ export class ApiServer {
       }
       client.handled = true;
       this.dispatch(client, request).catch((error: Error) => {
-        this.sendAndClose(client, this.errorResponse(500, error.message));
+        this.sendAndClose(client, this.errorResponse(500, error.message, client.origin));
       });
     } catch (error) {
       client.handled = true;
-      this.sendAndClose(client, this.errorResponse(400, (error as Error).message));
+      this.sendAndClose(client, this.errorResponse(400, (error as Error).message, client.origin));
     }
   }
 
@@ -285,27 +289,28 @@ export class ApiServer {
   }
 
   private async dispatch(client: ClientState, request: ParsedRequest): Promise<void> {
+    client.origin = request.headers.get('origin') || '';
     client.lastMethod = request.method;
     client.lastPath = request.path;
     client.lastStartMs = Date.now();
     if (request.method === 'OPTIONS') {
-      await this.sendAndClose(client, this.httpResponse(204, 'No Content', ''));
+      await this.sendAndClose(client, this.httpResponse(204, 'No Content', '', client.origin));
       return;
     }
     if (!this.authorized(request)) {
       await this.sendAndClose(client,
-        this.httpResponse(401, 'Unauthorized', '{"error":"unauthorized"}', 'WWW-Authenticate: Bearer\r\n'));
+        this.httpResponse(401, 'Unauthorized', '{"error":"unauthorized"}', client.origin, 'WWW-Authenticate: Bearer\r\n'));
       return;
     }
     if (request.method === 'GET' && request.path === '/v1/models') {
       const body = `{"object":"list","data":[{"id":${JSON.stringify(this.modelId)},` +
         '"object":"model","owned_by":"local"}]}';
-      await this.sendAndClose(client, this.httpResponse(200, 'OK', body));
+      await this.sendAndClose(client, this.httpResponse(200, 'OK', body, client.origin));
       return;
     }
     if (request.method === 'GET' && request.path === '/v1/queue') {
       const body = `{"queue_size":${GenerationCoordinator.getInstance().queueSize()}}`;
-      await this.sendAndClose(client, this.httpResponse(200, 'OK', body));
+      await this.sendAndClose(client, this.httpResponse(200, 'OK', body, client.origin));
       return;
     }
     if (request.method === 'GET' && request.path === '/v1/queue/status') {
@@ -317,51 +322,51 @@ export class ApiServer {
         `"completedRequests":${stats.completedRequests},"failedRequests":${stats.failedRequests},` +
         `"pendingRequests":${stats.pendingRequests},"isProcessing":${stats.isProcessing},` +
         `"successRate":${stats.successRate.toFixed(2)},"message":${JSON.stringify(message)}}`;
-      await this.sendAndClose(client, this.httpResponse(200, 'OK', body));
+      await this.sendAndClose(client, this.httpResponse(200, 'OK', body, client.origin));
       return;
     }
     if (request.method === 'DELETE' && request.path === '/v1/queue/clear') {
       const cleared = GenerationCoordinator.getInstance().clearPendingQueue();
       await this.sendAndClose(client, this.httpResponse(200, 'OK',
-        `{"status":"ok","message":"队列已清空","cleared":${cleared}}`));
+        `{"status":"ok","message":"队列已清空","cleared":${cleared}}`, client.origin));
       return;
     }
     if (request.method === 'POST' && request.path === '/v1/cancel') {
       const cancel = JSON.parse(request.body) as CancelRequestDocument;
       if (!cancel.request_id) {
-        await this.sendAndClose(client, this.errorResponse(400, 'request_id is required'));
+        await this.sendAndClose(client, this.errorResponse(400, 'request_id is required', client.origin));
         return;
       }
       GenerationCoordinator.getInstance().cancel(cancel.request_id);
-      await this.sendAndClose(client, this.httpResponse(200, 'OK', '{"canceled":true}'));
+      await this.sendAndClose(client, this.httpResponse(200, 'OK', '{"canceled":true}', client.origin));
       return;
     }
     if (request.method === 'POST' &&
       (request.path === '/v1/chat/completions' || request.path === '/v1/messages')) {
       if (!(request.headers.get('content-type') || '').toLowerCase().startsWith('application/json')) {
-        await this.sendAndClose(client, this.errorResponse(415, 'content-type must be application/json'));
+        await this.sendAndClose(client, this.errorResponse(415, 'content-type must be application/json', client.origin));
         return;
       }
       await this.generate(client, request, request.path === '/v1/messages');
       return;
     }
-    await this.sendAndClose(client, this.errorResponse(404, 'not found'));
+    await this.sendAndClose(client, this.errorResponse(404, 'not found', client.origin));
   }
 
   private async generate(client: ClientState, request: ParsedRequest, anthropic: boolean): Promise<void> {
     if (!this.target) {
-      await this.sendAndClose(client, this.errorResponse(503, 'model is not ready'));
+      await this.sendAndClose(client, this.errorResponse(503, 'model is not ready', client.origin));
       return;
     }
     if (GenerationCoordinator.getInstance().queueSize() >= 8) {
       await this.sendAndClose(client, this.httpResponse(429, 'Too Many Requests',
         '{"error":{"message":"generation queue is full","type":"rate_limit_error"}}',
-        'Retry-After: 1\r\n'));
+        client.origin, 'Retry-After: 1\r\n'));
       return;
     }
     const document = JSON.parse(request.body) as ChatRequestDocument;
     if (!document.messages || document.messages.length === 0) {
-      await this.sendAndClose(client, this.errorResponse(400, 'messages is required'));
+      await this.sendAndClose(client, this.errorResponse(400, 'messages is required', client.origin));
       return;
     }
     const messages: NativeChatMessage[] = [];
@@ -377,7 +382,7 @@ export class ApiServer {
       }
     });
     if (messages.length < 2) {
-      await this.sendAndClose(client, this.errorResponse(400, 'no valid messages'));
+      await this.sendAndClose(client, this.errorResponse(400, 'no valid messages', client.origin));
       return;
     }
     const requestId = GenerationCoordinator.getInstance().createRequestId('api');
@@ -390,6 +395,7 @@ export class ApiServer {
     let fullText = '';
     if (document.stream) {
       await this.queueSend(client, 'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\n' +
+        `${this.corsHeaders(client.origin)}` +
         'Cache-Control: no-cache\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n');
       if (anthropic) {
         await this.queueSse(client,
@@ -459,7 +465,7 @@ export class ApiServer {
           `"finish_reason":"stop"}],"usage":{"prompt_tokens":${result.promptTokens},` +
           `"completion_tokens":${result.generatedTokens},` +
           `"total_tokens":${result.promptTokens + result.generatedTokens}}}`;
-      await this.sendAndClose(client, this.httpResponse(200, 'OK', response));
+      await this.sendAndClose(client, this.httpResponse(200, 'OK', response, client.origin));
     }
     client.requestId = '';
   }
@@ -510,18 +516,57 @@ export class ApiServer {
     return -1;
   }
 
-  private httpResponse(status: number, reason: string, body: string, extraHeaders: string = ''): string {
+  private httpResponse(status: number, reason: string, body: string, origin: string = '',
+    extraHeaders: string = ''): string {
     const length = util.TextEncoder.create('utf-8').encodeInto(body).byteLength;
-    const cors = this.corsEnabled ?
-      'Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Authorization, Content-Type, x-api-key\r\n' +
-      'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n' : '';
+    const cors = this.corsHeaders(origin);
     return `HTTP/1.1 ${status} ${reason}\r\nContent-Type: application/json; charset=utf-8\r\n` +
       `${cors}${extraHeaders}Content-Length: ${length}\r\nConnection: close\r\n\r\n${body}`;
   }
 
-  private errorResponse(status: number, message: string): string {
+  /**
+   * Builds CORS response headers. An empty allowlist permits every origin (mirroring the Android
+   * client); otherwise only origins whose host matches the comma-separated allowlist are echoed.
+   */
+  private corsHeaders(origin: string): string {
+    if (!this.corsEnabled) {
+      return '';
+    }
+    const allowed = this.allowedOrigin(origin);
+    if (!allowed) {
+      return '';
+    }
+    return `Access-Control-Allow-Origin: ${allowed}\r\n` +
+      'Access-Control-Allow-Headers: Authorization, Content-Type, x-api-key, anthropic-version\r\n' +
+      'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n';
+  }
+
+  private allowedOrigin(origin: string): string {
+    const entries: string[] = [];
+    this.corsOrigins.split(',').forEach((entry: string) => {
+      const trimmed = entry.trim();
+      if (trimmed) {
+        entries.push(trimmed.replace(/^https?:\/\//, ''));
+      }
+    });
+    if (entries.length === 0) {
+      return '*';
+    }
+    if (!origin) {
+      return '';
+    }
+    const host = origin.replace(/^https?:\/\//, '');
+    for (let index = 0; index < entries.length; index++) {
+      if (entries[index] === host) {
+        return origin;
+      }
+    }
+    return '';
+  }
+
+  private errorResponse(status: number, message: string, origin: string = ''): string {
     const body = `{"error":{"message":${JSON.stringify(message)},"type":"invalid_request_error"}}`;
-    return this.httpResponse(status, status === 400 ? 'Bad Request' : 'Error', body);
+    return this.httpResponse(status, status === 400 ? 'Bad Request' : 'Error', body, origin);
   }
 
   private queueSse(client: ClientState, payload: string): Promise<void> {
