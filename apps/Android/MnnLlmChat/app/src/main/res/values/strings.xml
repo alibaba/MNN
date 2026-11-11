@@ -684,4 +684,10 @@
     <string name="save_image">Save Image</string>
     <string name="image_saved_to_gallery">Image saved to gallery</string>
     <string name="failed_to_save_image">Failed to save image</string>
+    <string name="add_local_models_pick_folder">Choose a folder</string>
+    <string name="add_local_models_drop_in_hint">You can also copy a model folder into %1$s with any file manager. It is scanned at start-up, with no adb and no extra copy.</string>
+    <string name="import_local_model_progress">Importing %1$s: %2$s</string>
+    <string name="import_local_model_done">Imported %1$d model(s)</string>
+    <string name="import_local_model_failed">Import failed: %1$s</string>
+    <string name="import_local_model_none">No model folder found. The folder must contain config.json.</string>
 </resources>

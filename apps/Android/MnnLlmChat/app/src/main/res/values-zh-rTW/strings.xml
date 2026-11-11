@@ -670,4 +670,10 @@
     <string name="save_image">儲存圖片</string>
     <string name="image_saved_to_gallery">圖片已儲存至相簿</string>
     <string name="failed_to_save_image">儲存圖片失敗</string>
+    <string name="add_local_models_pick_folder">選擇資料夾匯入</string>
+    <string name="add_local_models_drop_in_hint">也可以用任意檔案管理器把模型資料夾複製到 %1$s，啟動時會自動掃描，無需 adb，應用也不會再複製一份。</string>
+    <string name="import_local_model_progress">正在匯入 %1$s：%2$s</string>
+    <string name="import_local_model_done">已匯入 %1$d 個模型</string>
+    <string name="import_local_model_failed">匯入失敗：%1$s</string>
+    <string name="import_local_model_none">沒有找到模型資料夾。模型資料夾內必須包含 config.json。</string>
 </resources>

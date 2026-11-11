@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.main
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.util.TypedValue
@@ -17,6 +18,7 @@ import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.Toolbar
@@ -29,6 +31,7 @@ import com.alibaba.mnnllm.android.widgets.FullScreenDrawerLayout
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.R
@@ -36,7 +39,10 @@ import com.alibaba.mnnllm.android.benchmark.BenchmarkFragment
 import com.alibaba.mnnllm.android.chat.ChatRouter
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment
 import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity
+import com.alibaba.mnnllm.android.modelist.LocalModelImporter
+import com.alibaba.mnnllm.android.modelist.LocalModelsProvider
 import com.alibaba.mnnllm.android.modelist.ModelListFragment
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketFragment
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.update.UpdateChecker
@@ -58,9 +64,12 @@ import com.alibaba.mnnllm.android.BuildConfig
 import com.alibaba.mnnllm.android.qnn.QnnModule
 import com.alibaba.mnnllm.android.privacy.CrashConsentGate
 import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
+import com.alibaba.mnnllm.android.privacy.PrivacyPolicyDialogFragment
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
-import com.alibaba.mnnllm.android.privacy.PrivacyPolicyDialogFragment
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.lang.reflect.Method
 import kotlin.math.abs
 
@@ -528,21 +537,100 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         }
     }
 
+    private val importModelFolderLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri: Uri? ->
+        treeUri?.let { importLocalModels(it) }
+    }
+
     fun addLocalModels(view: View?) {
         val adbCommand = "adb shell mkdir -p /data/local/tmp/mnn_models && adb push \${model_path} /data/local/tmp/mnn_models/"
-        val message = getResources().getString(R.string.add_local_models_message, adbCommand)
+        val dropInDir = LocalModelsProvider.dropInModelsDir(this)?.absolutePath
+            ?: File(filesDir, LocalModelsProvider.DROP_IN_DIR_NAME).absolutePath
+        val message = getString(R.string.add_local_models_drop_in_hint, dropInDir) +
+                "\n\n" + getString(R.string.add_local_models_message, adbCommand)
         val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(R.string.add_local_models_title)
             .setMessage(message)
-            .setPositiveButton(android.R.string.ok) { dialog, _ -> dialog.dismiss() }
+            .setPositiveButton(R.string.add_local_models_pick_folder) { pickerDialog, _ ->
+                pickerDialog.dismiss()
+                importModelFolderLauncher.launch(null)
+            }
             .setNeutralButton(R.string.copy_command) { _, _ ->
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 val clip = ClipData.newPlainText("ADB Command", adbCommand)
                 clipboard.setPrimaryClip(clip)
                 Toast.makeText(this, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
             }
+            .setNegativeButton(android.R.string.cancel, null)
             .create()
         dialog.show()
+    }
+
+    /**
+     * Copies the picked folder into app storage and then tells the model list that its local roots
+     * changed. The copy runs off the main thread; only the progress text is posted back.
+     */
+    private fun importLocalModels(treeUri: Uri) {
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.add_local_models_title)
+            .setMessage(getString(R.string.import_local_model_progress, "", ""))
+            .setCancelable(false)
+            .create()
+        dialog.show()
+        lifecycleScope.launch {
+            var lastPercent = -1
+            val result = withContext(Dispatchers.IO) {
+                LocalModelImporter.import(this@MainActivity, treeUri) { progress ->
+                    val percent = if (progress.totalBytes > 0) {
+                        (progress.copiedBytes * 100 / progress.totalBytes).toInt()
+                    } else {
+                        0
+                    }
+                    // copyFile reports every 64 KiB; without this a large model would post tens of
+                    // thousands of dialog updates and starve the main thread.
+                    if (percent != lastPercent) {
+                        lastPercent = percent
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed) {
+                                dialog.setMessage(
+                                    getString(
+                                        R.string.import_local_model_progress,
+                                        progress.modelName,
+                                        "$percent% ${progress.fileName}"
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            if (isFinishing || isDestroyed) {
+                return@launch
+            }
+            dialog.dismiss()
+            when {
+                result.isEmpty ->
+                    Toast.makeText(this@MainActivity, R.string.import_local_model_none, Toast.LENGTH_LONG).show()
+
+                result.failedNames.isNotEmpty() ->
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.import_local_model_failed, result.failedNames.joinToString(", ")),
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                else ->
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.import_local_model_done, result.importedPaths.size),
+                        Toast.LENGTH_SHORT
+                    ).show()
+            }
+            if (result.importedPaths.isNotEmpty()) {
+                ModelListManager.notifyModelListMayChange(ModelListManager.ChangeReason.MODEL_DOWNLOADED)
+            }
+        }
     }
 
     fun runModel(destModelDir: String?, modelIdParam: String?, sessionId: String?) {

@@ -189,6 +189,8 @@ dependencies {
     def jetpack_compose_verion = '1.7.8'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
     implementation 'androidx.appcompat:appcompat:1.7.0'
+    // DocumentFile: traverse a user-picked SAF tree when importing a local model folder.
+    implementation 'androidx.documentfile:documentfile:1.0.1'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
     implementation 'androidx.slidingpanelayout:slidingpanelayout:1.2.0'
     implementation 'com.google.android.material:material:1.12.0'
