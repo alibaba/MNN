@@ -117,6 +117,7 @@ target_include_directories(mnncli PRIVATE
     ${MNN_SOURCE_DIR}/include
     ${MNN_SOURCE_DIR}/transformers/llm/engine/include
     ${MNN_SOURCE_DIR}/transformers/llm/engine/src
+    ${MNN_SOURCE_DIR}/tools/cv/include
     ${MNN_SOURCE_DIR}/3rd_party
     ${OPENSSL_INCLUDE_DIR}
     ${MNN_SOURCE_DIR}/transformers/llm/engine/app/jsonhpp
