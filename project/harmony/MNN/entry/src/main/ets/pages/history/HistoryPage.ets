@@ -124,7 +124,7 @@ export struct HistoryPage {
                   Text(session.title)
                     .fontSize(16)
                     .fontWeight(FontWeight.Medium)
-                    .fontColor($r('app.color.avatar_user'))
+                    .fontColor($r('app.color.text_primary'))
                     .maxLines(1)
                   Text(`${new Date(session.updatedAt).toLocaleString()} · ${session.modelId}`)
                     .fontSize(12)
