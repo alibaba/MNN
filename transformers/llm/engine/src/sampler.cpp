@@ -24,10 +24,17 @@ namespace Transformer {
 // SamplerState methods
 void SamplerState::ensureProbs(float temperature) {
     if (!probs.empty()) return;
+    auto maxIter = std::max_element(logits.begin(), logits.end());
+    probs.resize(logits.size());
+    // temperature <= 0 is the greedy limit of softmax; 1 / temperature would turn every prob into NaN.
+    if (temperature <= 0.0f) {
+        std::fill(probs.begin(), probs.end(), 0.0f);
+        probs[maxIter - logits.begin()] = 1.0f;
+        return;
+    }
     float invTemp = 1.0f / temperature;
     // find max for numerical stability
-    float maxLogit = *std::max_element(logits.begin(), logits.end());
-    probs.resize(logits.size());
+    float maxLogit = *maxIter;
     float sum = 0.0f;
     for (size_t i = 0; i < logits.size(); ++i) {
         probs[i] = std::exp((logits[i] - maxLogit) * invTemp);
@@ -511,7 +518,10 @@ void Sampler::stepPenalty(SamplerState& state) {
 void Sampler::stepTopK(SamplerState& state) {
     int K = mConfig.topK;
     int size = (int)state.logits.size();
-    if (K >= size) return;
+    // top_k <= 0 means top-k is disabled, as in HF generation configs.
+    if (K <= 0 || K >= size) {
+        return;
+    }
 
     // Use nth_element for O(n) average
     std::vector<int> idx(size);
