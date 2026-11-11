@@ -1098,6 +1098,18 @@ export struct ChatPage {
     ].join('\n');
   }
 
+  private starProject(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: 'https://github.com/alibaba/MNN'
+    };
+    context.startAbility(want).catch((error: Error) => {
+      this.error = `无法打开浏览器：${error.message}`;
+    });
+  }
+
   private reportIssue(): void {
     const info = this.buildDiagnosticInfo();
     try {
@@ -1182,6 +1194,10 @@ export struct ChatPage {
             {
               value: 'API 控制台',
               action: () => this.onNavigateTab(6)
+            },
+            {
+              value: '给 MNN 点个 Star',
+              action: () => this.starProject()
             },
             {
               value: '上报问题',
