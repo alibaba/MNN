@@ -28,6 +28,7 @@ export class VoiceInputService {
   private sessionId: string = '';
   private pending: Uint8Array = new Uint8Array(0);
   private listening: boolean = false;
+  private finishTimerId: number = -1;
   private callbacks: VoiceInputCallbacks = new VoiceInputCallbacks();
   private readCallback: (buffer: ArrayBuffer) => void = (buffer: ArrayBuffer) => this.feed(buffer);
 
@@ -43,6 +44,7 @@ export class VoiceInputService {
     if (this.listening) {
       return;
     }
+    this.clearFinishTimer();
     this.callbacks = callbacks;
     const permissionResult = await abilityAccessCtrl.createAtManager()
       .requestPermissionsFromUser(context, [MICROPHONE_PERMISSION]);
@@ -63,10 +65,15 @@ export class VoiceInputService {
         }
       },
       onComplete: (sessionId: string, eventMessage: string) => {
+        console.info(`[VoiceInput] complete: ${eventMessage}`);
+        this.clearFinishTimer();
+        this.releaseCapture();
         this.releaseEngine();
         this.callbacks.onState(false, '');
       },
       onError: (sessionId: string, errorCode: number, errorMessage: string) => {
+        console.error(`[VoiceInput] error ${errorCode}: ${errorMessage}`);
+        this.clearFinishTimer();
         this.releaseCapture();
         this.releaseEngine();
         this.listening = false;
@@ -119,13 +126,18 @@ export class VoiceInputService {
       return;
     }
     this.listening = false;
-    await this.releaseCapture();
     this.pending = new Uint8Array(0);
     const engine = this.engine;
     if (engine) {
       try {
         engine.finish(this.sessionId);
         this.callbacks.onState(false, '正在识别…');
+        // Guard against a missing onComplete (for example when no speech was detected).
+        this.finishTimerId = setTimeout(() => {
+          this.finishTimerId = -1;
+          this.releaseEngine();
+          this.callbacks.onState(false, '');
+        }, 6000);
       } catch (error) {
         this.releaseEngine();
         this.callbacks.onState(false, '');
@@ -133,11 +145,14 @@ export class VoiceInputService {
     } else {
       this.callbacks.onState(false, '');
     }
+    // Stopping the capturer can take a moment; the UI already reflects the stopped state.
+    await this.releaseCapture();
   }
 
   /** Aborts recognition without waiting for a final result. */
   async cancel(): Promise<void> {
     this.listening = false;
+    this.clearFinishTimer();
     await this.releaseCapture();
     this.pending = new Uint8Array(0);
     const engine = this.engine;
@@ -170,6 +185,13 @@ export class VoiceInputService {
       offset += CHUNK_BYTES;
     }
     this.pending = merged.slice(offset);
+  }
+
+  private clearFinishTimer(): void {
+    if (this.finishTimerId >= 0) {
+      clearTimeout(this.finishTimerId);
+      this.finishTimerId = -1;
+    }
   }
 
   private async releaseCapture(): Promise<void> {
