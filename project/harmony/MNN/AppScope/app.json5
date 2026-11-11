@@ -1,7 +1,7 @@
 {
   "app": {
-    "bundleName": "com.alibaba.mnn.benchmark",
-    "vendor": "example",
+    "bundleName": "com.alibaba.mnn.chat",
+    "vendor": "QianXinyu",
     "versionCode": 1000002,
     "versionName": "1.0.2",
     "icon": "$media:app_icon",
