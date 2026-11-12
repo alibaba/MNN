@@ -129,6 +129,8 @@ class Attention(torch.nn.Module):
             self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         ModelMapper.do_map(self, attn, mapper['attention'])
+        if getattr(self, 'output_gate', None) is not None:
+            self.register_buffer('head_gate_indices', torch.arange(self.num_heads).repeat_interleave(self.head_dim))
         if config.model_type == 'mobilemoe' and not attn.use_rope:
             self.rotary = None
         if config.model_type == 'mobilemoe' and attn.attn_temperature_tuning and not attn.use_rope:
@@ -296,7 +298,9 @@ class Attention(torch.nn.Module):
         query_states = self.q_proj(hidden_states)
         key_states = None
         value_states = None
-        if self.q_gate_proj is not None:
+        if getattr(self, 'output_gate', None) is not None:
+            gate = self.output_gate(hidden_states).index_select(-1, self.head_gate_indices)
+        elif self.q_gate_proj is not None:
             gate = self.q_gate_proj(hidden_states)
         elif self.q_proj.out_features == 2 * self.num_heads * self.head_dim:
             reshaped = query_states.view(bsz, q_len, self.num_heads, self.head_dim * 2)
@@ -412,7 +416,11 @@ class Attention(torch.nn.Module):
                 attention_sink = attention_sink.float()
             attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask, attention_sink)
             if gate is not None:
-                attn_output = attn_output * torch.sigmoid(gate)
+                if getattr(self, 'output_gate', None) is not None:
+                    # Keep the NCHW gate layout before rebuilding the output projection.
+                    attn_output = torch.sigmoid(gate) * attn_output
+                else:
+                    attn_output = attn_output * torch.sigmoid(gate)
             attn_output = self.o_proj(attn_output)
             return attn_output
 

@@ -130,6 +130,7 @@ class Vision(torch.nn.Module):
             'minicpm_ocr': MiniCPMOcrVision,
             'glm_ocr': GlmOcrVision,
             'lfm2_vl': Lfm2VlVision,
+            'lfm3_vl': Lfm3VlVision,
             'hunyuan_vl': HunyuanVLVision,
         }
         if model_type in visual_models:
@@ -2868,3 +2869,137 @@ class Lfm2VlVision(Vision):
                         "pixel_values": { 0: "size" },
                     })
         return onnx_model
+
+
+class Lfm3VlVision(Qwen2Vision):
+    def smart_resize(self, height, width, factor=32, min_pixels=65536, max_pixels=16777216):
+        if min(height, width, factor, min_pixels) <= 0 or max_pixels < min_pixels:
+            raise ValueError('Invalid LFM3 image dimensions or pixel limits')
+        if max(height, width) / min(height, width) > 200:
+            raise ValueError('LFM3 image aspect ratio must not exceed 200')
+        h, w = round(height / factor) * factor, round(width / factor) * factor
+        if h * w > max_pixels:
+            beta = math.sqrt(height * width / max_pixels)
+            h = max(factor, math.floor(height / beta / factor) * factor)
+            w = max(factor, math.floor(width / beta / factor) * factor)
+        elif h * w < min_pixels:
+            beta = math.sqrt(min_pixels / (height * width))
+            h = math.ceil(height * beta / factor) * factor
+            w = math.ceil(width * beta / factor) * factor
+        return h, w
+
+    processor_family = 'lfm3_vl'
+
+    def __init__(self, visual, base):
+        object.__setattr__(self, '_projector', base.multi_modal_projector)
+        super().__init__(visual, base)
+        self.quant_bit = 8
+
+    def init_config(self):
+        self.patch_size = self.config.vision_config.patch_size
+        self.merge_size = self.config.vision_config.spatial_merge_size
+        self.temporal_patch_size = self.config.vision_config.temporal_patch_size
+        self.min_pixels = 65536
+        self.max_pixels = 16777216
+        self.image_height = self.image_width = 320
+        self.norm_mean = self.norm_std = [0.5, 0.5, 0.5]
+        self.llm_config.update(image_mean=[127.5] * 3, image_norm=[1 / 127.5] * 3)
+
+    @staticmethod
+    def media_markers(model_path, tokenizer):
+        processor_path = os.path.join(model_path, 'processor_config.json')
+        processor = {}
+        if os.path.exists(processor_path):
+            with open(processor_path, encoding='utf-8') as source:
+                processor = json.load(source)
+        markers = {}
+        for suffix in ('start', 'end'):
+            candidates = (processor.get(f'vision_{suffix}_token'),
+                          f'<|vision_{suffix}|>', f'<|media_{suffix}|>')
+            for token in candidates:
+                if token is None:
+                    continue
+                ids = tokenizer.encode(token, add_special_tokens=False)
+                if len(ids) == 1:
+                    markers[suffix] = (token, ids[0])
+                    break
+            else:
+                raise ValueError(f'LFM3 tokenizer has no supported {suffix} media marker')
+        return markers
+
+    def load(self):
+        markers = self.media_markers(self.config._name_or_path, self.tokenizer)
+        self.vision_start_token, self.vision_start_id = markers['start']
+        self.vision_end_token, self.vision_end_id = markers['end']
+        self.image_pad_id = self.config.image_token_id
+        self.image_pad_token = self.tokenizer.decode([self.image_pad_id])
+        self.refresh_image_resize_config()
+        self.llm_config.update(image_size=self.image_height, vision_merge_size=self.merge_size,
+                               vision_start=self.vision_start_id, vision_end=self.vision_end_id,
+                               image_pad=self.image_pad_id)
+        self.projector = self._projector
+        self.register_buffer('inv_freq', self.visual.rotary_pos_emb.inv_freq.detach().clone())
+
+    def export_inputs(self, pixels, *extra_inputs):
+        return (pixels, *extra_inputs)
+
+    def get_position_ids(self, input_ids, seq_len, new_tokens=0):
+        if new_tokens:
+            return torch.tensor([[seq_len - 1]], dtype=torch.int32)
+        return torch.arange(seq_len, dtype=torch.int32).unsqueeze(0)
+
+    def image_to_tensor(self, image):
+        self.image_width, self.image_height = image.size
+        return super().image_to_tensor(image)
+
+    def video_process(self, video):
+        raise NotImplementedError('LFM3-VL export currently supports images and text only')
+
+    def images_forward(self, images):
+        if images.shape[0] == 1:
+            images = images.repeat(self.temporal_patch_size, 1, 1, 1)
+        grid = torch.tensor([[images.shape[0] // self.temporal_patch_size,
+                              images.shape[2] // self.patch_size, images.shape[3] // self.patch_size]])
+        self.image_grid_thw.append(grid[0].tolist())
+        return self.forward(images, self.vision_position_ids(grid), self.vision_attention_mask(grid))
+
+    def forward(self, pixels, position_ids, attention_mask):
+        frames, _, height, width = pixels.shape
+        gh, gw = height // self.patch_size, width // self.patch_size
+        count = frames // self.temporal_patch_size
+        patches = Vision.export_inputs(self, pixels)[0]
+        hidden = self.visual.embedding_norm(self.visual.patchifier(patches))
+        angles = position_ids.float().unsqueeze(-1) * self.inv_freq
+        angles = angles.permute(1, 0, 2).reshape(-1, self.inv_freq.numel() * 2)
+        cos = torch.cat((angles.cos(), angles.cos()), -1).unsqueeze(1)
+        sin = torch.cat((angles.sin(), angles.sin()), -1).unsqueeze(1)
+        for layer in self.visual.layers:
+            normalized = layer.operator_norm(hidden)
+            if layer.is_attention_layer:
+                a = layer.self_attn
+                q = a.q_layernorm(a.q_proj(normalized).reshape(-1, a.num_heads, a.head_dim))
+                k = a.k_layernorm(a.k_proj(normalized).reshape(-1, a.num_key_value_heads, a.head_dim))
+                v = a.v_proj(normalized).reshape(-1, a.num_key_value_heads, a.head_dim)
+                def rotate(x):
+                    left, right = x.chunk(2, -1)
+                    return x * cos + torch.cat((-right, left), -1) * sin
+                q, k = rotate(q), rotate(k)
+                q = q.transpose(0, 1).unsqueeze(0)
+                k = k.transpose(0, 1).repeat_interleave(a.num_key_value_groups, 0).unsqueeze(0)
+                v = v.transpose(0, 1).repeat_interleave(a.num_key_value_groups, 0).unsqueeze(0)
+                probs = torch.softmax((q @ k.transpose(-1, -2)) * a.scaling + attention_mask, -1)
+                output = (probs @ v).squeeze(0).transpose(0, 1).reshape(-1, a.num_heads * a.head_dim)
+                output = a.out_proj(output)
+            else:
+                c = layer.conv
+                b, gate, x = c.in_proj(normalized).chunk(3, -1)
+                m = self.merge_size
+                grid = (b * x).reshape(count, gh // m, gw // m, m, m, -1)
+                grid = grid.permute(0, 5, 1, 3, 2, 4).reshape(count, -1, gh, gw)
+                grid = c.spatial_conv(grid)
+                grid = grid.reshape(count, -1, gh // m, m, gw // m, m)
+                grid = grid.permute(0, 2, 4, 3, 5, 1).reshape(-1, hidden.shape[-1])
+                output = c.out_proj(gate * grid)
+            hidden = hidden + output
+            hidden = hidden + layer.feed_forward(layer.ffn_norm(hidden))
+        return self.projector(hidden).unsqueeze(1)
