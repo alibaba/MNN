@@ -1,0 +1,4 @@
+#include "Common.xcconfig"
+PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat
+CODE_SIGN_IDENTITY = Apple Development
+#include? "Local.xcconfig"

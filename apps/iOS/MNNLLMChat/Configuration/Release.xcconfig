@@ -1,0 +1,13 @@
+#include "Common.xcconfig"
+PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat
+// Automatic signing selects the appropriate profile; export uses Apple Distribution.
+CODE_SIGN_IDENTITY = Apple Development
+SWIFT_COMPILATION_MODE = wholemodule
+SWIFT_OPTIMIZATION_LEVEL = -O
+DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+ENABLE_TESTABILITY = NO
+ENABLE_PREVIEWS = NO
+SWIFT_ACTIVE_COMPILATION_CONDITIONS =
+// Models are downloaded by the user; never ship development model assets.
+EXCLUDED_SOURCE_FILE_NAMES = $(inherited) LocalModel LocalBatchTest mock.json
+#include? "Local.xcconfig"

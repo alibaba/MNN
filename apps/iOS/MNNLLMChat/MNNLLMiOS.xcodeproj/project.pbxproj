@@ -10,7 +10,6 @@
 		B77C9AE719E845138A0355AB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B77C9AE719E845138A0355AC /* PrivacyInfo.xcprivacy */; };
 		3E55A66C2E828189003CB2E2 /* LocalModel in Resources */ = {isa = PBXBuildFile; fileRef = 3E55A66B2E828189003CB2E2 /* LocalModel */; };
 		3ECE19C32E99FED6001A4CDD /* LocalBatchTest in Resources */ = {isa = PBXBuildFile; fileRef = 3ECE19C22E99FED6001A4CDD /* LocalBatchTest */; };
-		4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */; };
 		4230C2DB2E7D4EB5001169DF /* mock.json in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2AD2E7D4EB5001169DF /* mock.json */; };
 		4230C2DC2E7D4EB5001169DF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2CA2E7D4EB5001169DF /* Assets.xcassets */; };
 		4230C2DE2E7D4EB5001169DF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2CC2E7D4EB5001169DF /* Localizable.xcstrings */; };
@@ -19,6 +18,7 @@
 		EF09DE49FD1DD567D138757B /* MNN.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8D859F9D9F55697CA2367480 /* MNN.xcframework */; };
 		14FED388FD032051B13D818A /* SherpaMNN.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 63E47A0B1508AE6FFF0E0304 /* SherpaMNN.xcframework */; };
 		B77C9AE719E845138A035601 /* Tests in Sources */ = {isa = PBXBuildFile; fileRef = 4230C34F2E7D4EC0001169DF; };
+		A02100000000000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A02100000000000000000003; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,6 +47,9 @@
 		8D859F9D9F55697CA2367480 /* MNN.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = MNN.xcframework; path = "../MNNChatCore/Vendor/public/MNN.xcframework"; sourceTree = "<group>"; };
 		63E47A0B1508AE6FFF0E0304 /* SherpaMNN.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SherpaMNN.xcframework; path = "../MNNChatCore/Vendor/shared/SherpaMNN.xcframework"; sourceTree = "<group>"; };
 		B77C9AE719E845138A035600 /* MNNLLMiOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MNNLLMiOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A02100000000000000000001 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		A02100000000000000000002 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Release.xcconfig; sourceTree = SOURCE_ROOT; };
+		A02100000000000000000003 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = MNNLLMiOS/InfoPlist.xcstrings; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -54,17 +57,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3ECAC6062F3C62570003C496 /* ExyteChat in Frameworks */,
-				3E2F97302E89158600E61F35 /* ExyteChat in Frameworks */,
-				3E2F972F2E89158600E61F35 /* ExyteChat in Frameworks */,
-				3E2F972E2E89158600E61F35 /* ExyteChat in Frameworks */,
 				F62C9FAAE0D2D6860CA597DD /* MNNChatCore in Frameworks */,
 				EF09DE49FD1DD567D138757B /* MNN.xcframework in Frameworks */,
 				14FED388FD032051B13D818A /* SherpaMNN.xcframework in Frameworks */,
-				3ECAC6092F3C74370003C496 /* ExyteChat in Frameworks */,
-				3EAB12362E7FD12300C4E5F6 /* MarkdownView in Frameworks */,
-				3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */,
-				3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,6 +70,9 @@
 		3E8591F52D1D45070067B46F = {
 			isa = PBXGroup;
 			children = (
+				A02100000000000000000001,
+				A02100000000000000000002,
+				A02100000000000000000003,
 				3ECE19C22E99FED6001A4CDD /* LocalBatchTest */,
 				3E55A66B2E828189003CB2E2 /* LocalModel */,
 				4230C2D02E7D4EB5001169DF /* MNNLLMiOS */,
@@ -222,10 +220,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A02100000000000000000004 /* InfoPlist.xcstrings in Resources */,
 				B77C9AE719E845138A0355AB /* PrivacyInfo.xcprivacy in Resources */,
 				3ECE19C32E99FED6001A4CDD /* LocalBatchTest in Resources */,
 				3E55A66C2E828189003CB2E2 /* LocalModel in Resources */,
-				4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */,
 				4230C2DB2E7D4EB5001169DF /* mock.json in Resources */,
 				4230C2DC2E7D4EB5001169DF /* Assets.xcassets in Resources */,
 				4230C2DE2E7D4EB5001169DF /* Localizable.xcstrings in Resources */,
@@ -301,7 +299,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "拍摄照片或视频，用于您选择的模型进行对话。";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -359,7 +357,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "拍摄照片或视频，用于您选择的模型进行对话。";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -372,28 +370,21 @@
 		};
 		3E8592242D1D45090067B46F /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A02100000000000000000001;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = MNNLLMiOS/MNNLLMiOS.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"MNNLLMiOS/Preview Content\"";
-				DEVELOPMENT_TEAM = VJGTV94XY8;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MNNLLMiOS/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "MNN Chat";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSCameraUsageDescription = "We need access your camera to capture image or video";
-				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need use your mico to input voice";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access your photo library to save images";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access your photo library to select image";
+				INFOPLIST_KEY_NSCameraUsageDescription = "拍摄照片或视频，用于您选择的模型进行对话。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "录制您的语音，用于语音输入或音频对话。";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "将您选择的图片保存到系统照片图库。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "选择照片或视频，作为您发送给模型的内容。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -407,44 +398,31 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14;
-				MARKETING_VERSION = 1.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat;
-				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
 				XROS_DEPLOYMENT_TARGET = 2;
 			};
 			name = Debug;
 		};
 		3E8592252D1D45090067B46F /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A02100000000000000000002;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = MNNLLMiOS/MNNLLMiOS.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"MNNLLMiOS/Preview Content\"";
-				DEVELOPMENT_TEAM = VJGTV94XY8;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MNNLLMiOS/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "MNN Chat";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSCameraUsageDescription = "We need access your camera to capture image or video";
-				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need use your mico to input voice";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access your photo library to save images";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access your photo library to select image";
+				INFOPLIST_KEY_NSCameraUsageDescription = "拍摄照片或视频，用于您选择的模型进行对话。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "录制您的语音，用于语音输入或音频对话。";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "将您选择的图片保存到系统照片图库。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "选择照片或视频，作为您发送给模型的内容。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -458,16 +436,10 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14;
-				MARKETING_VERSION = 1.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat;
-				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
 				XROS_DEPLOYMENT_TARGET = 2;
 			};
 			name = Release;
@@ -481,7 +453,6 @@
 				HEADER_SEARCH_PATHS = "$(inherited) ../MNNChatCore/Sources/CMNNInference/include ../LocalPackages/SQLite.swift/Sources/CSQLite";
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(OBJROOT)/GeneratedModuleMaps-iphoneos/CMNNInference.modulemap";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = VJGTV94XY8;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
@@ -504,7 +475,6 @@
 				HEADER_SEARCH_PATHS = "$(inherited) ../MNNChatCore/Sources/CMNNInference/include ../LocalPackages/SQLite.swift/Sources/CSQLite";
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(OBJROOT)/GeneratedModuleMaps-iphoneos/CMNNInference.modulemap";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = VJGTV94XY8;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";

@@ -108,6 +108,9 @@ extension LLMChatViewModel {
             }
 
             let splitter = ThinkResultProcessor()
+#if DEBUG
+            AgentQA.record("pass_start", ["pass": pass, "finalOnly": finalOnly, "input": lastMessage, "prompts": prompts])
+#endif
             splitter.expectThinking = expectsThinking
             var pendingIndex: Int?
             let result = await generatePass(engine: engine, prompts: prompts, input: lastMessage) { delta in
@@ -125,6 +128,10 @@ extension LLMChatViewModel {
                 show()
             }
             if let pendingIndex { steps.remove(at: pendingIndex) }
+#if DEBUG
+            AgentQA.record("pass_end", ["pass": pass, "text": result.text, "stopped": result.stopped,
+                "performance": result.performance ?? ""])
+#endif
             if !liveThinking.isEmpty { thoughts.append(liveThinking) }
             liveThinking = ""
             performance = result.performance ?? performance
@@ -150,6 +157,10 @@ extension LLMChatViewModel {
             for memory in parsed?.memoryUpdates ?? [] { store?.addMemory(memory.content, category: memory.category) }
             for skill in parsed?.skillUpdates ?? [] { store?.saveSkill(skill) }
             let calls = finalOnly ? [] : (parsed?.calls ?? [])
+#if DEBUG
+            AgentQA.record("parsed", ["pass": pass, "calls": calls.map { ["tool": $0.tool,
+                "query": $0.query ?? "", "url": $0.url ?? "", "content": $0.content ?? ""] }])
+#endif
             if calls.isEmpty {
                 answer = unclosedThinking ? ""
                     : parsed?.reply ?? (parsed == nil ? output.trimmingCharacters(in: .whitespacesAndNewlines) : "")
@@ -228,6 +239,9 @@ extension LLMChatViewModel {
                 let index = steps.count - 1
                 show()
                 let observation = await AgentTools.execute(call)
+#if DEBUG
+                AgentQA.record("tool_result", ["tool": call.tool, "detail": detail, "observation": observation])
+#endif
                 guard isCurrent() else { break }
                 let failed = observation.hasPrefix("[TOOL_ERROR]") || observation.hasPrefix("[SEARCH_ERROR]")
                     || observation.hasPrefix("[CALC_ERROR]")

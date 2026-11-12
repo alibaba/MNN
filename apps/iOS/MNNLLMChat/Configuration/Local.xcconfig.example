@@ -1,0 +1,4 @@
+// Copy to Local.xcconfig and set your own signing team and bundle identifier.
+// Local.xcconfig is ignored by Git and is included by Debug and Release.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+PRODUCT_BUNDLE_IDENTIFIER = com.example.mnnchat

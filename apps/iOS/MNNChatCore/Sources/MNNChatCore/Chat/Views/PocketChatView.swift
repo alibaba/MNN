@@ -31,6 +31,8 @@ struct PocketChatView: View {
     /// When true the first welcome prompt is sent automatically once the
     /// model is loaded (relaunch-race reproduction harness).
     private let autoSendPreset: Bool
+    private let runsSmokeTest: Bool
+    @State private var didRunSmokeTest = false
 
     /// Audio recorder settings configuration
     private let recorderSettings = RecorderSettings(audioFormatID: kAudioFormatLinearPCM,
@@ -86,11 +88,12 @@ struct PocketChatView: View {
     ///   - history: Optional chat history to restore
     ///   - onBack: Explicit back-route callback (used by MainTabView)
     ///   - autoSendPreset: Auto-send the first welcome prompt once loaded
-    init(modelInfo: ModelInfo, history: ChatHistory? = nil, onBack: (() -> Void)? = nil, autoSendPreset: Bool = false) {
+    init(modelInfo: ModelInfo, history: ChatHistory? = nil, onBack: (() -> Void)? = nil, autoSendPreset: Bool = false, runsSmokeTest: Bool = false) {
         title = modelInfo.name
         modelPath = modelInfo.localPath
         self.onBack = onBack
         self.autoSendPreset = autoSendPreset
+        self.runsSmokeTest = runsSmokeTest
         let viewModel = LLMChatViewModel(modelInfo: modelInfo, history: history)
         _viewModel = StateObject(wrappedValue: viewModel)
     }
@@ -98,32 +101,35 @@ struct PocketChatView: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Model identity stays visible for the whole session, including
-            // inside a conversation where the welcome screen's big title is
-            // gone. Also carries the route back to the model picker.
-            chatHeader
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                // Model identity stays visible for the whole session, including
+                // inside a conversation where the welcome screen's big title is
+                // gone. Also carries the route back to the model picker.
+                chatHeader
 
-            // Demo layout: the current prompt pinned at the top of the
-            // screen (sticky), the streaming answer scrolling beneath it.
-            // Sending a new prompt clears the screen and repeats the cycle.
-            if let question = currentQuestionText {
-                StickyQuestionBar(text: question)
-            } else {
-                PocketWelcomeView(
-                    modelName: viewModel.modelInfo.name,
-                    isSpeculative: viewModel.modelInfo.isSpeculativeDecoding
-                )
+                // Demo layout: the current prompt pinned at the top of the
+                // screen (sticky), the streaming answer scrolling beneath it.
+                // Sending a new prompt clears the screen and repeats the cycle.
+                if let question = currentQuestionText {
+                    StickyQuestionBar(text: question, maximumHeight: geometry.size.height / 3)
+                        .layoutPriority(1)
+                } else {
+                    PocketWelcomeView(
+                        modelName: viewModel.modelInfo.name,
+                        isSpeculative: viewModel.modelInfo.isSpeculativeDecoding
+                    )
+                }
+
+                // The answer area: streaming markdown, scrollable. Hidden on the
+                // welcome screen so no placeholder shows before the first prompt.
+                if currentQuestionText != nil {
+                    AnswerScrollView(viewModel: viewModel)
+                } else {
+                    Color.clear
+                }
+
             }
-
-            // The answer area: streaming markdown, scrollable. Hidden on the
-            // welcome screen so no placeholder shows before the first prompt.
-            if currentQuestionText != nil {
-                AnswerScrollView(viewModel: viewModel)
-            } else {
-                Color.clear
-            }
-
         }
         // The preset bar and the prompt input ride as a bottom safe-area
         // attachment rather than as VStack members: that way the answer
@@ -160,6 +166,7 @@ struct PocketChatView: View {
             viewModel.onStart()
             autoSendFirstPresetIfRequested()
         }
+        .task { await runSmokeIfRequested() }
         .onDisappear(perform: viewModel.onStop)
         .onReceive(NotificationCenter.default.publisher(for: .dismissKeyboard)) { _ in
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -308,6 +315,73 @@ struct PocketChatView: View {
 
     // MARK: - Private Methods
 
+    /// Optional installation check through the same view model as the Pocket UI.
+    @MainActor private func runSmokeIfRequested() async {
+#if DEBUG
+        guard runsSmokeTest, !didRunSmokeTest else { return }
+        didRunSmokeTest = true
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        if let attributes = try? FileManager.default.attributesOfFileSystem(forPath: documents.path) {
+            print("[PocketSmoke] free storage: \(attributes[.systemFreeSize] ?? 0)")
+        }
+        for _ in 0..<300 {
+            if Task.isCancelled { return }
+            if viewModel.loadFailed { break }
+            if viewModel.isModelLoaded && !viewModel.isProcessing { break }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        guard viewModel.isModelLoaded, !viewModel.chatInputUnavilable else {
+            print("[PocketSmoke] model load failed or timed out")
+            return
+        }
+        print("[PocketSmoke] loaded: \(viewModel.modelInfo.modelName)")
+        let presets = PresetPrompts.welcomePrompts(for: viewModel.modelInfo)
+        print("[PocketSmoke] presets: \(presets.map(\.title))")
+        let oldThinking = viewModel.isThinkingModeEnabled
+        let oldContext = viewModel.isConversationContextEnabled
+        viewModel.isThinkingModeEnabled = false
+        viewModel.configureThinkingMode()
+        viewModel.setConversationContextEnabled(true)
+        defer {
+            viewModel.isThinkingModeEnabled = oldThinking
+            viewModel.configureThinkingMode()
+            viewModel.setConversationContextEnabled(oldContext)
+        }
+        var turns: [[String: String]] = []
+        for prompt in ["请只回答 2+3 的计算结果。", "再把刚才的结果乘以 4，只回答数字。"] {
+            let previousIDs = Set(viewModel.messages.map(\.id))
+            print("[PocketSmoke] prompt: \(prompt)")
+            viewModel.sendUserPrompt(prompt)
+            for _ in 0..<240 {
+                if Task.isCancelled { return }
+                try? await Task.sleep(for: .milliseconds(500))
+                if !viewModel.isProcessing { break }
+            }
+            guard !viewModel.isProcessing else {
+                print("[PocketSmoke] response timed out")
+                viewModel.cancelGeneration()
+                return
+            }
+            let response = viewModel.messages.filter { !previousIDs.contains($0.id) && !$0.user.isCurrentUser }
+                .map(\.text).joined(separator: "\n")
+            print("[PocketSmoke] response: \(response)")
+            turns.append(["prompt": prompt, "response": response])
+            viewModel.saveHistoryImmediately()
+        }
+        let result: [String: Any] = ["model": viewModel.modelInfo.modelName, "turns": turns,
+                                    "presets": presets.map { ["title": $0.title, "text": $0.text] },
+                                    "allResponsesNonempty": turns.allSatisfy { !($0["response"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
+                                    "completed": true, "historySaved": !viewModel.historySaveFailed]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: documents.appendingPathComponent("pocket-smoke-\(viewModel.modelInfo.modelName).json"), options: .atomic)
+            print("[PocketSmoke] completed: \(viewModel.modelInfo.modelName)")
+        } catch {
+            print("[PocketSmoke] result save failed: \(error)")
+        }
+#endif
+    }
+
     /// Sends the first welcome prompt automatically (relaunch-race harness).
     /// Waits in short intervals until the model is loaded, then taps the
     /// first preset, mirroring a manual user interaction.
@@ -316,6 +390,7 @@ struct PocketChatView: View {
     /// sending, reproducing a manual user's tap timing. Without it the prompt
     /// fires immediately after load.
     private func autoSendFirstPresetIfRequested() {
+#if DEBUG
         guard autoSendPreset else { return }
         let delayArgIndex = CommandLine.arguments.firstIndex(of: "--auto-preset-delay")
         let delaySeconds: UInt32 = {
@@ -344,6 +419,7 @@ struct PocketChatView: View {
             print("[AutoPreset] sending first preset automatically")
             viewModel.sendPreset(preset)
         }
+#endif
     }
 
     /// Opaque dark navigation bar matching the chat background.
@@ -418,6 +494,7 @@ struct PocketPresetPromptBar: View {
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(Palette.primaryText)
                                 .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -664,98 +741,52 @@ struct PerfMetricsView: View {
 /// place while the answer streams and scrolls beneath it.
 struct StickyQuestionBar: View {
     let text: String
-
-    /// Head and tail of a long prompt with the middle elided, so this stays a
-    /// header instead of taking over the screen (the 517-token summarization
-    /// preset otherwise fills it entirely).
-    ///
-    /// Done by hand rather than with `.truncationMode(.middle)`: across more
-    /// than one line UIKit only truncates the last line, which does not keep
-    /// the ending visible.
-    private var displayText: String {
-        let normalized = Self.normalized(text)
-        // Sized so a long prompt fills roughly a third of the screen: ~52 chars
-        // per line at 15pt on a 440pt-wide device, so ~730 chars ≈ 14 lines.
-        let headLimit = 540
-        let tailLimit = 190
-        guard normalized.count > headLimit + tailLimit + 8 else { return normalized }
-        // The ellipsis gets its own paragraph so the elision reads as a break
-        // rather than as part of either sentence.
-        return Self.headSlice(normalized, limit: headLimit)
-            + "\n\n…\n\n"
-            + Self.tailSlice(normalized, limit: tailLimit)
-    }
-
-    /// Collapses soft wraps into spaces while keeping blank-line paragraph
-    /// breaks, which markdown needs in order to render structure. Without the
-    /// collapse a multi-line prompt grows the bar even with the length capped;
-    /// without keeping the blank lines it would render as one runaway block.
-    private static func normalized(_ s: String) -> String {
-        let unified = s.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let marked = unified.replacingOccurrences(
-            of: "\n{2,}", with: "\u{2}", options: .regularExpression
-        )
-        let singleLine = marked.replacingOccurrences(of: "\n", with: " ")
-        let squeezed = singleLine.replacingOccurrences(
-            of: "[ \t]+", with: " ", options: .regularExpression
-        )
-        return squeezed
-            .replacingOccurrences(of: "\u{2}", with: "\n\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Slack allowed when backing off to a word boundary. Beyond this the text
-    /// is space-free (CJK, URLs) and a hard cut reads better than dropping a
-    /// large chunk.
-    private static let boundarySlack = 20
-
-    private static func headSlice(_ s: String, limit: Int) -> String {
-        let cut = s.prefix(limit)
-        // Newlines count as boundaries too, so a cut never lands mid-paragraph-break.
-        guard let lastBreak = cut.lastIndex(where: { $0 == " " || $0 == "\n" }),
-              cut.distance(from: lastBreak, to: cut.endIndex) <= boundarySlack
-        else {
-            return String(cut)
-        }
-        return String(cut[..<lastBreak])
-    }
-
-    private static func tailSlice(_ s: String, limit: Int) -> String {
-        let cut = s.suffix(limit)
-        // Drop the leading partial word (e.g. "maller" from "smaller").
-        guard let firstBreak = cut.firstIndex(where: { $0 == " " || $0 == "\n" }),
-              cut.distance(from: cut.startIndex, to: firstBreak) <= boundarySlack
-        else {
-            return String(cut)
-        }
-        return String(cut[cut.index(after: firstBreak)...])
-    }
+    let maximumHeight: CGFloat
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "quote.opening")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Palette.accent)
-                .padding(.top, 3)
+        ScrollView(.vertical) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "quote.opening")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Palette.accent)
+                    .padding(.top, 3)
 
-            // Rendered with the same engine as the answer, so markdown and math
-            // in a prompt show as formatted text rather than raw syntax. Length
-            // is already capped by displayText, so no line limit is needed (and
-            // one would truncate the deliberately-kept ending).
-            MarkdownTextViewWrapper(text: displayText, bindScrollView: false)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer(minLength: 0)
+                // Native text measures short CJK prompts correctly and retains
+                // the entire document, instead of slicing it by character count.
+                Text(text)
+                    .font(.system(size: 15))
+                    .foregroundColor(Palette.primaryText)
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("pocket.questionText")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: PocketQuestionHeightKey.self, value: geometry.size.height)
+                }
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .id(text)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(height: min(contentHeight > 0 ? contentHeight : maximumHeight, maximumHeight))
+        .onPreferenceChange(PocketQuestionHeightKey.self) { contentHeight = $0 }
         .background(Palette.background)
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Palette.surfaceElevated)
-                .frame(height: 1)
+            Rectangle().fill(Palette.surfaceElevated).frame(height: 1)
         }
+        .accessibilityIdentifier("pocket.questionBar")
+    }
+}
+
+private struct PocketQuestionHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -767,6 +798,14 @@ struct StickyQuestionBar: View {
 struct AnswerScrollView: View {
     @ObservedObject var viewModel: LLMChatViewModel
 
+    private var answerMessageId: String? {
+        viewModel.messages.last { !$0.user.isCurrentUser }?.id
+    }
+
+    private var answerIsStreaming: Bool {
+        answerMessageId.map { viewModel.isMessageStreaming($0) } ?? false
+    }
+
     /// The streaming answer for the current question. Uses the view model's
     /// rate-limited copy: deriving it from `messages` here would re-render (and
     /// so re-parse the markdown) once per token.
@@ -775,7 +814,8 @@ struct AnswerScrollView: View {
     }
 
     private var perfText: String? {
-        guard let last = viewModel.messages.last(where: { !$0.user.isCurrentUser }),
+        guard !answerIsStreaming,
+              let last = viewModel.messages.last(where: { !$0.user.isCurrentUser }),
               let perf = viewModel.pendingPerformanceDataReadable(for: last.id) else { return nil }
         return perf
     }
@@ -790,11 +830,11 @@ struct AnswerScrollView: View {
                             .frame(height: 24)
                             .frame(maxWidth: .infinity)
                     } else {
-                        // Markdown-rendered streaming answer (code blocks,
-                        // headings, lists...) using the same UIKit renderer
-                        // the chat bubbles use.
-                        MarkdownTextViewWrapper(text: answerText, bindScrollView: false)
-                            .frame(maxWidth: .infinity)
+                        StreamingMarkdownTextView(text: answerText,
+                            messageId: answerMessageId ?? "pocket-answer",
+                            isStreaming: answerIsStreaming,
+                            isOutputComplete: !viewModel.isProcessing)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
                         if let perf = perfText {
                             PerfMetricsView(raw: perf)
@@ -811,18 +851,15 @@ struct AnswerScrollView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(key: PocketAnswerHeightKey.self, value: geometry.size.height)
+                    }
+                }
             }
-            .onChange(of: answerText) {
-                // No animation while streaming: a 0.15s animation restarted on
-                // every text update never finishes, and the competing animations
-                // make the scroll position jitter. Snapping each frame tracks the
-                // growing text smoothly instead.
-                scrollToBottom(proxy, animated: !viewModel.isProcessing)
-            }
-            // The perf readout is attached after the final token, so answerText
-            // is already settled by then and cannot carry this scroll.
-            .onChange(of: perfText) {
-                scrollToBottom(proxy, animated: true)
+            .onPreferenceChange(PocketAnswerHeightKey.self) { _ in
+                // Follow rendered line growth, not the earlier native token batch.
+                scrollToBottom(proxy, animated: false)
             }
         }
         .background(Palette.background)
@@ -836,5 +873,12 @@ struct AnswerScrollView: View {
         withAnimation(.easeOut(duration: 0.15)) {
             proxy.scrollTo("answer-bottom", anchor: .bottom)
         }
+    }
+}
+
+private struct PocketAnswerHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

@@ -5,12 +5,14 @@ import SwiftUI
 struct AgentModeChip: View {
     @ObservedObject var viewModel: LLMChatViewModel
     @State private var showsInfo = false
+    @State private var showsDisclosure = false
 
     var body: some View {
         let isOn = viewModel.isAgentMode
         Button {
             if viewModel.canChangeAgentMode {
-                viewModel.setAgentMode(!isOn)
+                if isOn { viewModel.setAgentMode(false) }
+                else { showsDisclosure = true }
             } else {
                 showsInfo = true
             }
@@ -28,6 +30,9 @@ struct AgentModeChip: View {
         .accessibilityLabel(AppText.text("agent.mode"))
         .accessibilityValue(AppText.text(isOn ? "agent.on" : "agent.off"))
         .accessibilityIdentifier("chat.agentMode")
+        .sheet(isPresented: $showsDisclosure) {
+            AgentDisclosureView(model: viewModel.modelInfo) { viewModel.setAgentMode(true) }
+        }
         .alert(AppText.text(isOn ? "agent.locked.onTitle" : "agent.locked.offTitle"), isPresented: $showsInfo) {
             Button(AppText.text("OK"), role: .cancel) {}
         } message: {
@@ -84,6 +89,8 @@ struct AgentMemoryView: View {
                 reload()
             }
             Button(AppText.text("Cancel"), role: .cancel) {}
+        } message: {
+            Text(AppText.text("agent.memory.clearNotice"))
         }
     }
 

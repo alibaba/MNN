@@ -70,7 +70,7 @@ enum PresetPrompts {
                 presets.append(PresetPrompt(title: "1024 tokens", icon: "doc.text.fill", text: text1024, imageBundlePath: nil))
             }
 
-            presets.append(imagePreset(
+            if let image = imagePreset(
                 file: "cat.jpg",
                 title: AppText.text("preset.cat", defaultValue: "图片·小猫", comment: ""),
                 text: AppText.text(
@@ -78,8 +78,10 @@ enum PresetPrompts {
                     defaultValue: "请仔细观察这张图片，然后用完整的几句话描述：画面的主体是什么、它的颜色和姿态、所处的背景环境，以及这张照片整体的氛围。",
                     comment: ""
                 )
-            ))
-            presets.append(imagePreset(
+            ) {
+                presets.append(image)
+            }
+            if let image = imagePreset(
                 file: "shapes.jpg",
                 title: AppText.text("preset.shapes", defaultValue: "图片·形状", comment: ""),
                 text: AppText.text(
@@ -87,7 +89,9 @@ enum PresetPrompts {
                     defaultValue: "请仔细观察这张图片，逐一说明图中每个几何图形的形状、颜色和大致位置，最后总结一共有几个图形。",
                     comment: ""
                 )
-            ))
+            ) {
+                presets.append(image)
+            }
 
             if let audio = audioPreset(
                 file: "audio (1).wav",
@@ -236,8 +240,9 @@ enum PresetPrompts {
         return prompts
     }
 
-    private static func imagePreset(file: String, title: String, text: String) -> PresetPrompt {
-        PresetPrompt(title: title, icon: "photo", text: text, imageBundlePath: bundlePath("LocalModel/preset_images/\(file)"))
+    private static func imagePreset(file: String, title: String, text: String) -> PresetPrompt? {
+        guard let path = bundlePath("LocalModel/preset_images/\(file)") else { return nil }
+        return PresetPrompt(title: title, icon: "photo", text: text, imageBundlePath: path)
     }
 
     private static func audioPreset(file: String, title: String) -> PresetPrompt? {

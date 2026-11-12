@@ -17,7 +17,7 @@ import Hub
 /// Key Features:
 /// - Multi-platform support (ModelScope, Modeler, HuggingFace)
 /// - Progress tracking with throttling to prevent UI stuttering
-/// - Automatic fallback to local mock data for development
+/// - Cached ModelScope catalog for offline use
 /// - Dependency injection for download managers
 /// - Cancellation support for ongoing downloads
 ///
@@ -47,8 +47,6 @@ class ModelClient {
     private let baseURL = "https://huggingface.co"
     private let AliCDNURL = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
 
-    // Debug flag to use local mock data instead of network API
-    private let useLocalMockData = false
 
     private var downloadManagers: [String: ModelDownloadManagerProtocol] = [:]
     private let downloadManagerFactory: ModelDownloadManagerFactory
@@ -79,61 +77,52 @@ class ModelClient {
         downloadManagers.removeAll()
     }
 
-    /// Retrieves model information from the configured API endpoint
-    ///
-    /// This method fetches the latest model catalog from the network API.
-    /// In debug mode or when network fails, it falls back to local mock data.
-    ///
-    /// - Returns: TBDataResponse containing the model catalog
-    /// - Throws: NetworkError if both network request and local fallback fail
+    /// ModelScope determines membership and dates. The older index supplies optional
+    /// translations, capability tags and verified repository IDs for other download sources.
     func getModelInfo() async throws -> TBDataResponse {
-        if useLocalMockData {
-            // Debug mode: use local mock data
-            guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
-                throw NetworkError.invalidData
-            }
-
-            let data = try Data(contentsOf: url)
-            let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
-            return mockResponse
-        } else {
-            // Production mode: fetch from network API
-            return try await fetchDataFromAliAPI()
+        let cache = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
+                                               appropriateFor: nil, create: true)
+            .appendingPathComponent("MNNModelMarket", isDirectory: true)
+        let market = ModelScopeMarket(session: .shared,
+                                      seedURL: Bundle.module.url(forResource: "ModelScopeFormats", withExtension: "json"),
+                                      cacheDirectory: cache)
+        async let labels = catalogLabels(cache: cache)
+        let repositories = try await market.models()
+        let curated = await labels
+        var byID: [String: ModelInfo] = [:]
+        for model in curated?.models ?? [] {
+            if let id = model.sources?["ModelScope"] { byID[id] = model }
         }
+        let models = repositories.map { repo -> ModelInfo in
+            let label = byID[repo.id]
+            var sources = label?.sources ?? [:]
+            sources["ModelScope"] = repo.id
+            let tags = (repo.tasks ?? []) + (repo.tags ?? []).compactMap {
+                $0.hasPrefix("custom_tag:") ? String($0.dropFirst("custom_tag:".count)) : nil
+            }
+            var model = ModelInfo(modelName: repo.name, tags: label?.tags ?? tags,
+                                  categories: label?.categories ?? repo.tasks, size_gb: label?.size_gb,
+                                  file_size: repo.file_size.map(Double.init) ?? label?.file_size,
+                                  vendor: label?.vendor, sources: sources, tagTranslations: label?.tagTranslations)
+            model.catalogUpdatedAt = repo.updatedAt
+            return model
+        }
+        return TBDataResponse(tagTranslations: curated?.tagTranslations ?? [:], quickFilterTags: curated?.quickFilterTags,
+                              models: models, metadata: nil)
     }
 
-    /// Fetches data from the network API with fallback to local mock data
-    ///
-    /// - Throws: NetworkError if both network request and local fallback fail
-    private func fetchDataFromAliAPI() async throws -> TBDataResponse {
-        do {
-            guard let url = URL(string: AliCDNURL) else {
-                throw NetworkError.invalidData
-            }
-
-            let (data, response) = try await URLSession.shared.data(from: url)
-
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200
-            else {
-                throw NetworkError.invalidResponse
-            }
-
-            let apiResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
-            return apiResponse
-
-        } catch {
-            print("Network request failed: \(error). Falling back to local mock data.")
-
-            // Fallback to local mock data if network request fails
-            guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
-                throw NetworkError.invalidData
-            }
-
-            let data = try Data(contentsOf: url)
-            let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
-            return mockResponse
+    private func catalogLabels(cache: URL) async -> TBDataResponse? {
+        let file = cache.appendingPathComponent("labels.json")
+        let request = URLRequest(url: URL(string: AliCDNURL)!, timeoutInterval: 6)
+        if let (data, response) = try? await URLSession.shared.data(for: request),
+           (response as? HTTPURLResponse)?.statusCode == 200,
+           let labels = try? JSONDecoder().decode(TBDataResponse.self, from: data) {
+            try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+            try? data.write(to: file, options: .atomic)
+            return labels
         }
+        guard let data = try? Data(contentsOf: file) else { return nil }
+        return try? JSONDecoder().decode(TBDataResponse.self, from: data)
     }
 
     /// Downloads a model from the selected source with progress tracking
@@ -154,7 +143,7 @@ class ModelClient {
         let previous = inFlightLock.withLock { inFlightDownloads[modelId] }
         _ = await previous?.result
 
-        let source = ModelSourceManager.shared.selectedSource
+        let source = model.downloadSource
         let task = Task<Void, Error> {
             switch source {
             case .modelScope, .modeler:

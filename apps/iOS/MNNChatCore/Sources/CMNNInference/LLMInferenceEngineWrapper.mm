@@ -860,7 +860,11 @@ bool removeDirectorySafely(const std::string& path) {
         NSString *tempDirectory = NSTemporaryDirectory();
         std::string configStr = "{\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\", \"use_mmap\":true}";
         _llm->set_config(configStr);
-        _llm->load();
+        if (!_llm->load()) {
+            NSLog(@"Error: LLM engine failed to load model from bundle");
+            _llm.reset();
+            return NO;
+        }
 
         
         NSLog(@"Model loaded successfully from bundle");
@@ -868,6 +872,7 @@ bool removeDirectorySafely(const std::string& path) {
     }
     @catch (NSException *exception) {
         NSLog(@"Exception during model loading: %@", exception.reason);
+        _llm.reset();
         return NO;
     }
 }
@@ -983,6 +988,7 @@ bool removeDirectorySafely(const std::string& path) {
         // Create new temp directory in system temp location
         if (mkdir(temp_directory_path.c_str(), 0755) != 0 && errno != EEXIST) {
             NSLog(@"Error: Failed to create temp directory: %s, errno: %d", temp_directory_path.c_str(), errno);
+            _llm.reset();
             return NO;
         }
         
@@ -1014,7 +1020,11 @@ bool removeDirectorySafely(const std::string& path) {
               mergedConfig[@"precision"] ?: @"low",
               mergedConfig[@"thread_num"] ?: @4,
               useMmap ? @"true" : @"false");
-        _llm->load();
+        if (!_llm->load()) {
+            NSLog(@"Error: LLM engine failed to load model at %@", modelPath);
+            _llm.reset();
+            return NO;
+        }
         _metalBackend = [mergedConfig[@"backend_type"] isEqual:@"metal"];
         // Metal stores float tensors as half except in high precision. Use FP32
         // as a conservative estimate for other backends with different packing.

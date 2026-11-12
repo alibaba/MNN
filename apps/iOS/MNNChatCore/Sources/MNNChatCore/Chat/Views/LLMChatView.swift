@@ -165,17 +165,21 @@ struct LLMChatView: View {
             .setInputTrailingAccessory(viewModel.isModelLoaded && !viewModel.isAnyDiffusionModel
                 ? AnyView(ContextUsageButton(viewModel: viewModel)) : nil)
             .betweenListAndInputViewBuilder {
-                Group { if let controls {
-                    HStack {
-                        ChatModelPicker(models: controls.models, selectedModel: viewModel.modelInfo,
-                                        isBusy: viewModel.isProcessing, onSelect: controls.onSelectModel,
-                                        onManageModels: controls.onManageModels)
-                        if !viewModel.isAnyDiffusionModel { AgentModeChip(viewModel: viewModel) }
-                        Spacer(minLength: 8)
+                VStack(spacing: 0) {
+                    if let controls {
+                        HStack {
+                            ChatModelPicker(models: controls.models, selectedModel: viewModel.modelInfo,
+                                            isBusy: viewModel.isProcessing, onSelect: controls.onSelectModel,
+                                            onManageModels: controls.onManageModels)
+                            if !viewModel.isAnyDiffusionModel { AgentModeChip(viewModel: viewModel) }
+                            Spacer(minLength: 8)
+                        }
+                        .padding(.top, 8)
                     }
-                    .padding(.horizontal, 12).padding(.top, 8)
-                    .background(Color(uiColor: .systemBackground))
-                } }
+                    AIDisclosureView()
+                }
+                .padding(.horizontal, 12)
+                .background(Color(uiColor: .systemBackground))
             }
             .setAvailableInput(
                 resolvedAvailableInput

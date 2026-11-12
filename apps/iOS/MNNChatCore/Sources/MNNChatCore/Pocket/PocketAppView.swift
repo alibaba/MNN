@@ -18,6 +18,7 @@ public struct PocketAppView: View {
     private let models: [ModelInfo]
     /// Used when the picker has to be bypassed (`--auto-preset` harness).
     private let defaultModel: ModelInfo
+    private let smokeModel: ModelInfo?
 
     @State private var selectedModel: ModelInfo?
 
@@ -40,16 +41,41 @@ public struct PocketAppView: View {
         )
         models = scanned.isEmpty ? [pocket] : scanned
         defaultModel = pocket
+#if DEBUG
+        let args = CommandLine.arguments
+        let requested = args.firstIndex(of: "--pocket-smoke-model").flatMap {
+            $0 + 1 < args.count ? args[$0 + 1] : nil
+        }
+        smokeModel = scanned.first { $0.modelName == requested }
+#else
+        smokeModel = nil
+#endif
     }
 
     public var body: some View {
         NavigationStack {
-            if Self.shouldAutoSendPreset {
+            #if DEBUG
+            if CommandLine.arguments.contains("--pocket-streaming-probe") {
+                StreamingLayoutProbeView()
+            } else if let smokeModel {
+                PocketChatView(modelInfo: smokeModel, runsSmokeTest: true)
+                    .navigationBarTitleDisplayMode(.inline)
+            } else if Self.shouldAutoSendPreset {
                 // Harness path: the picker would swallow the automated run, so
                 // go straight to the chat on the default model.
                 PocketChatView(modelInfo: defaultModel, autoSendPreset: true)
                     .navigationBarTitleDisplayMode(.inline)
             } else {
+                modelPicker
+            }
+            #else
+            modelPicker
+            #endif
+        }
+        .preferredColorScheme(.light)
+    }
+
+    private var modelPicker: some View {
                 ModelSelectionView(models: models) { model in
                     selectedModel = model
                 }
@@ -57,9 +83,6 @@ public struct PocketAppView: View {
                     PocketChatView(modelInfo: model, onBack: { selectedModel = nil })
                         .navigationBarTitleDisplayMode(.inline)
                 }
-            }
-        }
-        .preferredColorScheme(.light)
     }
 
     /// `--auto-preset` launch argument: automatically send the first welcome
@@ -67,7 +90,11 @@ public struct PocketAppView: View {
     /// reproduction harness (tmp/race_test.sh) to classify good/bad runs
     /// without manual taps.
     static var shouldAutoSendPreset: Bool {
+#if DEBUG
         CommandLine.arguments.contains("--auto-preset")
+#else
+        false
+#endif
     }
 }
 

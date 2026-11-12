@@ -20,11 +20,24 @@ struct ModelListView: View {
     @State private var showFilterMenu = false
 
     var body: some View {
+        let visibleModels = filteredModels
         ScrollViewReader { proxy in
             // A List (not a LazyVStack) so rows get native swipe actions.
             List {
                 Section {
-                    ForEach(filteredModels, id: \.id) { model in
+                    if !visibleModels.isEmpty {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Image(systemName: "info.circle")
+                                .accessibilityHidden(true)
+                            Text(AppText.text("market.compatibilityNote"))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowSeparator(.hidden)
+                    }
+                    ForEach(visibleModels, id: \.id) { model in
                         modelRowView(model: model)
                             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                     }
@@ -36,7 +49,7 @@ struct ModelListView: View {
             }
             .listStyle(.plain)
             .overlay {
-                if filteredModels.isEmpty {
+                if visibleModels.isEmpty {
                     if viewModel.isLoadingModels {
                         ProgressView(AppText.text("onboarding.loading"))
                     } else if !searchText.isEmpty {
@@ -110,7 +123,8 @@ struct ModelListView: View {
     }
 
     private var filteredModels: [ModelInfo] {
-        let searchFiltered = searchText.isEmpty ? viewModel.models : viewModel.models.filter { model in
+        let market = viewModel.models.filter { $0.catalogUpdatedAt != nil }
+        let searchFiltered = searchText.isEmpty ? market : market.filter { model in
             model.id.localizedCaseInsensitiveContains(searchText) ||
                 model.name.localizedCaseInsensitiveContains(searchText) ||
                 model.localizedTags.contains { $0.localizedCaseInsensitiveContains(searchText) }
@@ -129,10 +143,12 @@ struct ModelListView: View {
             }
         }
 
-        let downloaded = tagFiltered.filter { $0.isDownloaded }
-        let notDownloaded = tagFiltered.filter { !$0.isDownloaded }
-
-        return downloaded + notDownloaded
+        return tagFiltered.sorted {
+            if $0.catalogUpdatedAt != $1.catalogUpdatedAt {
+                return ($0.catalogUpdatedAt ?? .distantPast) > ($1.catalogUpdatedAt ?? .distantPast)
+            }
+            return $0.modelName < $1.modelName
+        }
     }
 
     // Extract tag matching logic as independent method

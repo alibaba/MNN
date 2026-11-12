@@ -1,0 +1,188 @@
+{
+  "privacy": {
+    "sections": [
+      {
+        "title": "Privacy at a glance",
+        "paragraphs": [
+          "Ordinary conversations in MNN Chat run on your device, and chats are saved locally. Model downloads, Agent searches and webpage reading use the internet.",
+          "The current version is free, with no account required, advertising tracking, automatic usage analytics or crash uploads. System diagnostics, backups and sharing follow their own settings."
+        ]
+      },
+      {
+        "title": "Local conversations",
+        "paragraphs": [
+          "Your text, model responses and supported images, audio, video or files are used on your device to generate, display and save conversations. Some media creates temporary files. A local model may summarize older messages and save the summary with the chat.",
+          "Local chat does not send inputs to a cloud model to generate answers, and we do not obtain chats through this feature for training. Model, language and inference settings stay on the device. Storage availability, errors and performance information help manage downloads and operation."
+        ]
+      },
+      {
+        "title": "Model catalogs and downloads",
+        "paragraphs": [
+          "Opening or refreshing the model catalog requests an online list, even before you download anything. Downloads send the selected platform a model ID and file path; they generally do not need chat text.",
+          "Catalog, download and delivery services can receive your IP address, request time, headers and other connection details. See Online Services for the current providers and links."
+        ]
+      },
+      {
+        "title": "Agent searches and webpages",
+        "paragraphs": [
+          "Agent sends queries to search providers and reads selected webpages. **A query may contain your entire question, or information from the conversation or long-term memory.** If the model supplies no valid query, the app may use your question. If results are insufficient, the same query may reach several providers.",
+          "Search providers receive queries and connection details. Websites receive URL paths, query parameters and connection details. Avoid unnecessary identity documents, health or financial information, other people’s private information, and URLs containing credentials.",
+          "These services may keep request records. Some platforms or websites use servers outside mainland China; locations and retention depend on the provider. Reading this policy or enabling Agent is not blanket consent to all processing. Separate notice, consent or other arrangements must still be completed where required."
+        ]
+      },
+      {
+        "title": "Agent memory",
+        "paragraphs": [
+          "Agent can save preferences, facts and reusable procedures locally for later conversations. Saves may be initiated by the model or by your explicit request to remember something. Saved information may also help generate search queries.",
+          "**Chats and memory are stored separately.** Deleting a chat does not clear memory, and clearing memory does not delete the original chat. View and clear it in Settings → Agent Memory and Skills. Current conversations may still contain loaded information, so stop generation and start a new conversation after clearing.",
+          "Agent mode belongs to the conversation. To stop using it, stop generation and start a new ordinary chat without enabling Agent. This does not stop catalog or download requests."
+        ]
+      },
+      {
+        "title": "Permissions and sharing",
+        "paragraphs": [
+          "The camera captures input, Photos selects or saves media, and the microphone records voice input. Manage permissions in iOS Settings; text chat remains available without these features. File access is limited to files you select.",
+          "Copying a message writes it to the system clipboard. Saving or sharing content passes it to Photos, Files, Mail or another app you choose. Check the content and recipient first."
+        ]
+      },
+      {
+        "title": "Storage and deletion",
+        "paragraphs": [
+          "Chats, attachments, summaries, models, settings and memory are kept in the app’s local data area. Chats and memory normally remain until deleted, cleared, updated or replaced; closing the app does not erase them. Downloads and model operation can create temporary files and caches.",
+          "Delete chats in History and downloaded models in the model list. Removing a model does not delete chats or memory.",
+          "Local deletion does not remove clipboard contents, shared copies, content in other apps, backups or third-party records, and does not guarantee irreversible physical erasure. The app has no chat cloud sync of its own. iCloud and computer backups follow system settings; restoring an old backup can restore earlier data. Offloading an app keeps its documents and differs from deleting it.",
+          "Local data uses iOS app isolation and permissions. Protect device access, backups and sharing. These mechanisms do not mean every copy is encrypted or remove every security risk."
+        ]
+      },
+      {
+        "title": "Feedback and privacy requests",
+        "paragraphs": [
+          "The feedback form contains your description, app version and iOS version, without automatically attaching chats. Email also sends your address and any attachments you add so we can investigate and reply. We keep these details until the issue and necessary follow-up are complete, then delete or anonymize them, except for information needed by law or for a dispute.",
+          "To ask about or request access, a copy, correction, supplementation, deletion, restriction or withdrawal of consent for personal information we actually handle, contact tangesion@163.com. We will verify necessary details and respond promptly under applicable law. If we cannot fulfill a request, we will explain why and what options are available. Do not send passwords, verification codes or unrelated chats.",
+          "We cannot remotely view or delete data stored only on your device, but can help you manage it. Withdrawing consent stops subsequent processing based on that consent without affecting earlier lawful processing. Use providers’ policy channels for third-party records; we will assist where required. There is no app account to close."
+        ]
+      },
+      {
+        "title": "Minors",
+        "paragraphs": [
+          "The app is not specifically designed for children. Minors should use it with guardian guidance. Handling personal information about children under fourteen requires applicable guardian consent and protection; this policy alone does not obtain that consent.",
+          "If you or a guardian believe information has been handled improperly, email us so we can investigate and take necessary action."
+        ]
+      },
+      {
+        "title": "Policy changes",
+        "paragraphs": [
+          "We update this policy when features or data handling change. Material changes to purposes, data types or recipients require notice in advance and renewed consent where required. Updates do not retroactively authorize past processing."
+        ]
+      }
+    ]
+  },
+  "terms": {
+    "sections": [
+      {
+        "title": "Using MNN Chat",
+        "paragraphs": [
+          "MNN Chat uses on-device models for conversations and supported media features. It also offers model downloads, Agent search, webpage reading, calculation and local memory. Capabilities depend on the model, device and app version.",
+          "The current version is free, with no subscriptions or in-app purchases. Network usage and third-party services you choose may have separate charges. Any future paid feature will have clear pricing and terms for you to choose separately."
+        ]
+      },
+      {
+        "title": "Your input and use",
+        "paragraphs": [
+          "Only submit content you have the right to use, and respect others’ privacy and intellectual property. Do not use the app for fraud, impersonation, harm to minors, cyberattacks or unlawful content. Minors should use it with guardian guidance and obtain guardian consent where required.",
+          "Read the Privacy Policy for data handling details. Using the app or reading these terms does not replace separate notice or consent required by law."
+        ]
+      },
+      {
+        "title": "Understanding AI answers",
+        "paragraphs": [
+          "AI can make mistakes, omit facts or invent information. Fluent wording and links do not establish accuracy. For medical, legal, investment or other important decisions, check reliable sources and qualified advice instead of relying on a model answer alone.",
+          "Check the purpose and effects of generated code or instructions before using them. Agent can choose the wrong tool, misread a webpage or save incorrect memory. Review search results, calculations and memories. Citing a website does not endorse it or its operator."
+        ]
+      },
+      {
+        "title": "Content and licenses",
+        "paragraphs": [
+          "Your rights in input content are not transferred by using the app. These terms do not authorize us to use private chats for marketing or training.",
+          "AI output may resemble others’ content; its rights and conditions depend on the content. Check sources and licenses before quoting, publishing or commercial use. Identify AI content and preserve labels where required when sharing.",
+          "Software components and models have their own licenses. A free app does not grant unrestricted use of models, assets or trademarks. These terms do not reduce rights granted by open-source licenses."
+        ]
+      },
+      {
+        "title": "Operation and data",
+        "paragraphs": [
+          "Memory, storage, battery, temperature and system version affect model operation. Networks and third parties affect downloads and search. We will maintain the app and address issues within a reasonable scope, but cannot guarantee every model works on every device or every response succeeds. Keep copies of important information.",
+          "Material changes, service termination and changes to data handling will receive notice and necessary follow-up as required by law."
+        ]
+      },
+      {
+        "title": "Responsibility and contact",
+        "paragraphs": [
+          "These notices do not limit your statutory consumer or personal-information rights, or exclude our legal responsibilities, including liability for personal injury or property damage caused by intent or gross negligence. Responsibility depends on the facts and applicable law.",
+          "For technical issues, inappropriate content, privacy or infringement complaints, contact tangesion@163.com. We will investigate and reply. Disputes may be discussed with us or brought before a court with lawful jurisdiction. Mainland PRC law applies without excluding other mandatory rules. An invalid provision does not affect the remaining legally applicable terms."
+        ]
+      }
+    ]
+  },
+  "disclaimer": {
+    "sections": [
+      {
+        "title": "Check important answers",
+        "paragraphs": [
+          "AI can be wrong, outdated or invent information. For health, legal, investment or other important matters, check sources and seek qualified advice when needed. Review generated code and instructions before using them."
+        ]
+      },
+      {
+        "title": "When using Agent",
+        "paragraphs": [
+          "Search results, webpages, calculations and memories can all contain errors. Agent uses the internet, and its queries may include your question, context or memory. See the Privacy Policy for details."
+        ]
+      },
+      {
+        "title": "Sharing and use",
+        "paragraphs": [
+          "Do not present an AI answer as a real person’s or an authority’s opinion. Identify its AI origin and preserve labels where required. This notice does not restrict your statutory rights or remove our legal responsibilities."
+        ]
+      }
+    ]
+  },
+  "services": {
+    "sections": [
+      {
+        "title": "What connects to the internet",
+        "paragraphs": [
+          "Model catalogs and downloads, Agent searches and webpage reading request third-party services. Ordinary answers are still generated locally. Providers can generally receive your IP address, request time, URL and headers, and may retain records."
+        ]
+      },
+      {
+        "title": "Model catalogs and downloads",
+        "paragraphs": [
+          "Opening or refreshing the market requests the MNN organization catalog from ModelScope and repository file listings as needed. Additional labels and download sources come from meta.alicdn.com. Model files come from your selected ModelScope, Hugging Face or Modelers source. Some metadata may use HF Mirror.",
+          "Requests contain model IDs and file paths, generally without chat text, and may redirect to storage or delivery hosts. HF Mirror is a separate service; its operator and rules should not be assumed to be those of Hugging Face.",
+          "[ModelScope](https://www.modelscope.cn/) · [Hugging Face Privacy Policy](https://huggingface.co/privacy) · [Modelers](https://modelers.cn/) · [HF Mirror](https://hf-mirror.com/)"
+        ]
+      },
+      {
+        "title": "Agent search",
+        "paragraphs": [
+          "Search currently tries Sogou (m.sogou.com), 360 Search (m.so.com) and Bing (www.bing.com) in order. If results are insufficient, the same query is sent to later services.",
+          "**Queries may contain your entire question or information from context or long-term memory.** Providers also receive connection details. The local model processes the returned results.",
+          "[Sogou Privacy Policy](https://www.sogou.com/docs/privacy.htm?v=1) · [360 Search Privacy Policy](https://m.so.com/mhtml/zt/privacy.html) · [Microsoft Privacy Statement, including Bing](https://www.microsoft.com/zh-cn/privacy/privacystatement)"
+        ]
+      },
+      {
+        "title": "Webpages, email and sharing",
+        "paragraphs": [
+          "Agent visits URLs you provide or select from search results, and may follow redirects. Websites receive the URL’s path and query parameters, including any personal information or credentials embedded in them.",
+          "Feedback and sharing use your selected mail or other app. Feedback includes only your description, app version and iOS version by default; any attachments you add also reach the recipient."
+        ]
+      },
+      {
+        "title": "Third-party handling",
+        "paragraphs": [
+          "Check each provider’s current information for retention, processing locations and rights-request channels. Some platforms or websites may use servers outside mainland China. This page does not obtain blanket consent for third-party processing or remove our legal duties. Email tangesion@163.com with questions."
+        ]
+      }
+    ]
+  }
+}

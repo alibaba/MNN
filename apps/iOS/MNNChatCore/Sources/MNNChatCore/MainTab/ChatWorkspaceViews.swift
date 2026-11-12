@@ -213,7 +213,7 @@ struct ChatHistoryDrawer: View {
                 pendingDelete = nil
             }
             Button(AppText.text("Cancel"), role: .cancel) { pendingDelete = nil }
-        } message: { Text(AppText.text("Are you sure you want to delete this history?")) }
+        } message: { Text(AppText.text("legal.history.deleteNotice")) }
         .accessibilityIdentifier("chat.historyDrawer")
     }
 }

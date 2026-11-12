@@ -78,6 +78,8 @@ struct LLMMessageTextView: View {
     let isStreamingMessage: Bool
     /// Whether the streaming output is complete
     let isOutputComplete: Bool
+    let observesCompletionNotifications: Bool
+    let onReveal: ((Int) -> Void)?
     /// Callback invoked when animation completes
     let onAnimationComplete: (() -> Void)?
     let plainTextFont: SwiftUI.Font
@@ -103,7 +105,7 @@ struct LLMMessageTextView: View {
     @State private var animationTarget: String = ""
 
     /// Time interval between each character display (in seconds)
-    private let typingSpeed: TimeInterval = 0.015
+    private let typingSpeed: TimeInterval = 1.0 / 60.0
 
     /// Completed paragraphs are frozen. Only the live tail needs
     /// parsing on each tick, so total answer length must not slow the cadence.
@@ -114,18 +116,16 @@ struct LLMMessageTextView: View {
         case ..<4000:
             return typingSpeed
         case 4000 ..< 12000:
-            return 0.08
+            return 1.0 / 30.0
         default:
-            return 0.16
+            return 1.0 / 20.0
         }
     }
 
     /// Keep enough headroom to drain incoming tokens without a completion jump.
     private func chunkSize(for remainingCount: Int, interval: TimeInterval) -> Int {
-        if interval <= typingSpeed {
-            return adaptiveChunkSize(for: remainingCount)
-        }
-        return max(adaptiveChunkSize(for: remainingCount), Int((interval * 300).rounded(.up)))
+        let catchUp = Int((Double(remainingCount) * interval / 0.12).rounded(.up))
+        return max(adaptiveChunkSize(for: remainingCount), catchUp)
     }
     private var outputIsComplete: Bool {
         isOutputComplete || hasReceivedOutputCompletion
@@ -146,6 +146,8 @@ struct LLMMessageTextView: View {
          isAssistantMessage: Bool = false,
          isStreamingMessage: Bool = false,
          isOutputComplete: Bool = false,
+         observesCompletionNotifications: Bool = true,
+         onReveal: ((Int) -> Void)? = nil,
          onAnimationComplete: (() -> Void)? = nil,
          plainTextFont: SwiftUI.Font = .body,
          plainTextColor: SwiftUI.Color = .black)
@@ -156,6 +158,8 @@ struct LLMMessageTextView: View {
         self.isAssistantMessage = isAssistantMessage
         self.isStreamingMessage = isStreamingMessage
         self.isOutputComplete = isOutputComplete
+        self.observesCompletionNotifications = observesCompletionNotifications
+        self.onReveal = onReveal
         self.onAnimationComplete = onAnimationComplete
         self.plainTextFont = plainTextFont
         self.plainTextColor = plainTextColor
@@ -209,6 +213,7 @@ struct LLMMessageTextView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("StreamingOutputCompleted"))) {
             notification in
+            guard observesCompletionNotifications else { return }
             guard notification.userInfo?["messageId"] as? String == messageId else { return }
             hasReceivedOutputCompletion = true
             handleStreamingStateChange()
@@ -296,12 +301,14 @@ struct LLMMessageTextView: View {
 
     @ViewBuilder
     private func markdownView(_ content: String) -> some View {
-        Self.renderMarkdown(markdownForRendering(content), colorScheme: colorScheme)
+        Self.renderMarkdown(markdownForRendering(content), colorScheme: colorScheme,
+                            highlightsCode: !isStreamingMessage)
     }
 
     /// Shared markdown construction for the live tail and frozen blocks.
     @ViewBuilder
-    fileprivate static func renderMarkdown(_ content: String, colorScheme: ColorScheme) -> some View {
+    fileprivate static func renderMarkdown(_ content: String, colorScheme: ColorScheme,
+                                          highlightsCode: Bool = true) -> some View {
         // MarkdownUI is a native SwiftUI view and participates directly in
         // every streaming state update. Keeping one renderer for partial and
         // completed content avoids stale UIKit parse/layout state across turns.
@@ -313,7 +320,8 @@ struct LLMMessageTextView: View {
                 codeBlock(configuration, colorScheme: colorScheme)
             }
             .markdownTheme(.gitHub)
-            .markdownCodeSyntaxHighlighter(ChatSplashCodeSyntaxHighlighter(theme: codeTheme(for: colorScheme)))
+            .markdownCodeSyntaxHighlighter(ChatSplashCodeSyntaxHighlighter(
+                theme: codeTheme(for: colorScheme), isEnabled: highlightsCode))
         // No `.textSelection`: its long-press callout would compete with the
         // message menu, which offers "Select Text" instead.
     }
@@ -528,6 +536,7 @@ struct LLMMessageTextView: View {
 
         buffer.append(text[startIndex ..< targetIndex])
         revision &+= 1
+        onReveal?(buffer.revealedUTF8Count)
         Self.displayedCountCache[messageId] = buffer.revealedUTF8Count
 
         if isFullyRevealed(text) {
@@ -576,6 +585,32 @@ struct LLMMessageTextView: View {
     }
 }
 
+/// Incrementally reveals a standalone answer while reusing completed Markdown blocks.
+@available(iOS 17.0, *)
+public struct StreamingMarkdownTextView: View {
+    let text: String
+    let messageId: String
+    let isStreaming: Bool
+    let isOutputComplete: Bool
+    let onReveal: ((Int) -> Void)?
+
+    public init(text: String, messageId: String, isStreaming: Bool, isOutputComplete: Bool,
+                onReveal: ((Int) -> Void)? = nil) {
+        self.text = text
+        self.messageId = messageId
+        self.isStreaming = isStreaming
+        self.isOutputComplete = isOutputComplete
+        self.onReveal = onReveal
+    }
+
+    public var body: some View {
+        LLMMessageTextView(text: text, messageId: messageId, isAssistantMessage: true,
+                           isStreamingMessage: isStreaming, isOutputComplete: isOutputComplete,
+                           observesCompletionNotifications: false, onReveal: onReveal)
+            .id(messageId)
+    }
+}
+
 /// A completed markdown block in the streaming view. Equatable so SwiftUI
 /// skips re-rendering it when its text is unchanged — old paragraphs cost
 /// O(1) per streaming tick regardless of total answer length.
@@ -606,13 +641,15 @@ private struct FrozenPlainTextBlock: View, Equatable {
 
 private struct ChatSplashCodeSyntaxHighlighter: CodeSyntaxHighlighter {
     private let syntaxHighlighter: SyntaxHighlighter<ChatTextOutputFormat>
+    private let isEnabled: Bool
 
-    init(theme: Splash.Theme) {
+    init(theme: Splash.Theme, isEnabled: Bool = true) {
+        self.isEnabled = isEnabled
         syntaxHighlighter = SyntaxHighlighter(format: ChatTextOutputFormat(theme: theme))
     }
 
     func highlightCode(_ code: String, language: String?) -> Text {
-        guard language != nil else { return Text(code) }
+        guard isEnabled, language != nil else { return Text(code) }
         return syntaxHighlighter.highlight(code)
     }
 }
