@@ -50,7 +50,7 @@ bool Embedding::load() {
     MNN::Express::ExecutorScope s(mExecutor);
     if (mConfig->config_.value("load_disk_embedding_only", false)) {
         mDiskEmbedding.reset(new DiskEmbedding(mConfig));
-        return true;
+        return mDiskEmbedding->valid();
     }
 
     initRuntime();
@@ -61,6 +61,9 @@ bool Embedding::load() {
         return false;
     }
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+    if (!mDiskEmbedding->valid()) {
+        return false;
+    }
     setChatTemplate();
     // 2. load model
     Module::Config module_config;
