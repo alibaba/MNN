@@ -173,6 +173,113 @@ extern "C" AEEResult htp_ops_vision_flash_attention_fp16(uint8_t *pOut, const ui
   return AEE_SUCCESS;
 }
 
+// Single-batch non-causal attention with an explicit full K/V pair. Q is [qTokens, nHeads, headDim],
+// K/V are [kvTokens, nKvHeads, headDim], the output is [qTokens, nHeads, headDim] (all fp16). The mask,
+// when present, is [qTokens, maskStride] in fp16 with maskStride == kvTokens and is added to the scores.
+// This is the DFlash draft attention: Q tokens attend to every K/V token (no causal triangle), and the
+// query and key/value lengths differ.
+extern "C" AEEResult htp_ops_cross_attention_fp16(uint8_t *pOut, const uint8_t *pQ, const uint8_t *pK,
+                                                  const uint8_t *pV, const uint8_t *pMask, uint8_t *pScratch,
+                                                  int batch, int qTokens, int kvTokens, int nHeads, int nKvHeads,
+                                                  int headDim, float scale, int maskStride, int maskIsFp16,
+                                                  int providedScratchBytes) {
+  if (pOut == NULL || pQ == NULL || pK == NULL || pV == NULL || pScratch == NULL || batch <= 0 || qTokens <= 0 ||
+      kvTokens <= 0 || nHeads <= 0 || nKvHeads <= 0 || nHeads % nKvHeads != 0 || headDim <= 0 ||
+      (headDim % 64) != 0 || (pMask != NULL && maskStride < kvTokens)) {
+    return AEE_EBADPARM;
+  }
+
+  const int    seqBlocks    = (kvTokens + ATTN_HMX_KV_BLOCK - 1) / ATTN_HMX_KV_BLOCK;
+  const int    kIcP         = (headDim + 31) / 32;
+  const int    vOcP         = (headDim + 31) / 32;
+  const size_t packedKBytes = (size_t) seqBlocks * nKvHeads * ATTN_HMX_KV_BLOCK_TILES * kIcP * 1024 * sizeof(__fp16);
+  const size_t packedVBytes = (size_t) seqBlocks * nKvHeads * vOcP * ATTN_HMX_KV_BLOCK_TILES * 1024 * sizeof(__fp16);
+  // Non-paged and non-causal: the whole packed K/V is valid in one chunk, and workspace_kv keeps the
+  // pre-master layout (0 = the score workspace lives in scratch, not VTCM).
+  const int    totalTasks   = sync_attention_total_tasks(qTokens, 0, kvTokens, nHeads, nKvHeads, headDim, kvTokens,
+                                                         maskStride, /*workspace_kv=*/0, /*kv_chunk=*/kvTokens);
+  int          workerSlots  = sync_attention_pick_task_count(totalTasks);
+  if (g_max_num_workers > 0 && workerSlots < (int) g_max_num_workers) {
+    workerSlots = (int) g_max_num_workers;
+  }
+  const int    queryBlock  = qTokens < 64 ? qTokens : 64;
+  const size_t workerBytes = sync_attention_head_workspace_bytes(queryBlock, kvTokens);
+
+  size_t packedKOffset      = 0;
+  size_t packedVOffset      = attn_align_128(packedKOffset + packedKBytes);
+  size_t packedOutputOffset = attn_align_128(packedVOffset + packedVBytes);
+  size_t attentionWorkspaceOffset =
+    attn_align_128(packedOutputOffset + (size_t) queryBlock * nHeads * headDim * sizeof(__fp16));
+  size_t maskOffset     = attn_align_128(attentionWorkspaceOffset + (size_t) workerSlots * workerBytes);
+  size_t workspaceBytes = maskOffset;
+  if (pMask != NULL) {
+    workspaceBytes = attn_align_128(maskOffset + (size_t) queryBlock * maskStride * sizeof(float));
+  }
+  const size_t requiredScratchBytes = workspaceBytes + 127;
+  if (providedScratchBytes <= 0 || (size_t) providedScratchBytes < requiredScratchBytes) {
+    return AEE_EBADPARM;
+  }
+
+  uint8_t *packedK            = pScratch + packedKOffset;
+  uint8_t *packedV            = pScratch + packedVOffset;
+  __fp16  *packedOutput       = (__fp16 *) (pScratch + packedOutputOffset);
+  uint8_t *attentionWorkspace = pScratch + attentionWorkspaceOffset;
+  float   *maskFp32           = pMask != NULL ? (float *) (pScratch + maskOffset) : NULL;
+
+  const size_t tensorStride    = (size_t) kvTokens * nKvHeads * headDim;
+  const size_t qStride         = (size_t) qTokens * nHeads * headDim;
+  const size_t maskStrideBatch = (size_t) qTokens * maskStride;
+
+  for (int b = 0; b < batch; ++b) {
+    const __fp16 *query  = (const __fp16 *) pQ + b * qStride;
+    const __fp16 *key    = (const __fp16 *) pK + b * tensorStride;
+    const __fp16 *value  = (const __fp16 *) pV + b * tensorStride;
+    __fp16       *output = (__fp16 *) pOut + b * qStride;
+    const __fp16 *mask   = pMask != NULL ? (const __fp16 *) pMask + b * maskStrideBatch : NULL;
+
+    memset(packedK, 0, packedKBytes);
+    memset(packedV, 0, packedVBytes);
+    AEEResult ret = htp_ops_push_kv(packedK, packedV, (uint8_t *) key, (uint8_t *) value, 0, kvTokens, nKvHeads,
+                                    headDim, seqBlocks * ATTN_HMX_KV_BLOCK, 0, 0, kvTokens);
+    if (ret != AEE_SUCCESS) {
+      return ret;
+    }
+    // The mask arrives as fp16 (on-device graphs are fp16) or already-fp32. Either way the score
+    // path consumes fp32, so widen it into the scratch copy per query block.
+    const __fp16 *maskH = maskIsFp16 ? (const __fp16 *) pMask + b * maskStrideBatch : NULL;
+    for (int qBase = 0; qBase < qTokens; qBase += queryBlock) {
+      const int queryRows = qTokens - qBase < queryBlock ? qTokens - qBase : queryBlock;
+      if (mask != NULL) {
+        if (maskIsFp16) {
+          preprocess_mask_to_fp32(maskFp32, maskH + (size_t) qBase * maskStride, queryRows, maskStride);
+        } else {
+          memcpy(maskFp32, mask + (size_t) qBase * maskStride,
+                 (size_t) queryRows * maskStride * sizeof(float));
+        }
+      }
+      // seq_current = 0 and seq_add = kvTokens: the whole packed K/V is the valid range, and
+      // mask_stride >= 0 keeps every mask position live (no causal triangle is generated).
+      ret = sync_attention(packedOutput, query + (size_t) qBase * nHeads * headDim, maskFp32, attentionWorkspace,
+                           (__fp16 *) packedK, (__fp16 *) packedV, queryRows, 0, kvTokens, nHeads, nKvHeads, headDim,
+                           scale, mask != NULL ? maskStride : 0, /*workspace_kv=*/0, /*kv_chunk=*/kvTokens);
+      if (ret != AEE_SUCCESS) {
+        return ret;
+      }
+      for (int h = 0; h < nHeads; ++h) {
+        for (int pack = 0; pack < headDim / 64; ++pack) {
+          const __fp16 *src = packedOutput + ((size_t) h * (headDim / 64) + pack) * queryRows * 64;
+          for (int q = 0; q < queryRows; ++q) {
+            __fp16 *dst = output + ((size_t) (qBase + q) * nHeads + h) * headDim + pack * 64;
+            vmemu(dst)  = vmemu(src + (size_t) q * 64);
+          }
+        }
+      }
+    }
+  }
+  return AEE_SUCCESS;
+}
+
+
 AEEResult htp_ops_flash_attn(uint8_t *pOut, uint8_t *pQ, uint8_t *pK, uint8_t *pV, uint8_t *pMask, uint8_t *pWorkspace,
                              uint8_t *pPastK, uint8_t *pPastV, int32_t qo_len, int32_t seq_current, int32_t seq_add,
                              int32_t n_heads, int32_t n_kv_heads, int32_t head_dim, float scale, int32_t mask_stride,

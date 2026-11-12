@@ -124,6 +124,9 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
         case Interpreter::CPU_SME2_NEON_DIVISION_RATIO:
             runtimeHint.divisionRatio = value;
             break;
+        case Interpreter::HEXAGON_ENABLE_VRMPY_GEMV:
+            runtimeHint.hexagonEnableVrmpyGemv = value > 0;
+            break;
         default:
             break;
     }
@@ -618,6 +621,27 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
             if (valid) {
                 std::shared_ptr<Execution> copyExeWrap(copyExecution);
                 opInfo.executionCache.insert(std::make_pair(iter.first, copyExeWrap));
+            }
+        }
+        // Clone named executions (geometry-generated member ops) so the new
+        // session can reuse the packed weights instead of re-creating them.
+        for (auto& iter : srcOpInfo.namedExecutionCache) {
+            if (nullptr == iter.second.op || nullptr == iter.second.execution) {
+                continue;
+            }
+            Execution* copyExecution = nullptr;
+            bool valid               = false;
+            if (first->type() == iter.second.execution->backend()->type()) {
+                valid = iter.second.execution->onClone(first.get(), iter.second.op, &copyExecution);
+            } else {
+                valid = iter.second.execution->onClone(second.get(), iter.second.op, &copyExecution);
+            }
+            if (valid) {
+                Schedule::OpCacheInfo::NamedExecution copy;
+                copy.op        = iter.second.op;
+                copy.storage   = iter.second.storage;
+                copy.execution = std::shared_ptr<Execution>(copyExecution);
+                opInfo.namedExecutionCache.insert(std::make_pair(iter.first, copy));
             }
         }
     }

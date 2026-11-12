@@ -241,6 +241,10 @@ context、allocator 或缓存策略：
    callee 返回的指针一定与它别名；所有权判断必须基于实际返回指针或显式契约，而不能只看“曾传入非空指针”。
 4. 修复后既要验证多轮 teardown 平台化，也要补覆盖“返回外部 buffer”和“返回新临时 buffer”两条路径的单测。
 
+分层 allocator 还要检查 GC 的所有权交接：`EagerBufferAllocator::release(false)` 会删除空闲根节点并调用
+底层 `onRelease`。底层若只做 bump allocation 且忽略释放，上层统计会下降，物理空间却既不释放也无法复用；
+应验证 GC 后的区间复用、相邻空洞合并，以及整块无活跃分配后的释放。
+
 ## 1.9 相关文件索引
 
 | 文件 | 作用 |
