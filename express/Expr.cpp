@@ -102,6 +102,7 @@ bool VARP::fix(VARP::InputType type) const {
     } else if (TensorUtils::getDescribeOrigin(tensor)->getBackend() == pipelineInfo.first.cache.second.get()) {
         newVARP->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.second;
     }
+    newVARP->expr().first->inside()->mHoldRuntime = inside->mCache->getSession()->getRuntime();
     Variable::replace(VARP(mContent), newVARP);
     inputTensor->wait(MNN::Tensor::MAP_TENSOR_READ, true);
     return true;

@@ -851,6 +851,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
     for (int i = 0; i < mOutputTensors.size(); ++i) {
         auto tensor = Tensor::clone(mOutputTensors[i]);
         outputs[mResource->mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(tensor, true));
+        outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldRuntime = mSession->getRuntime();
         auto backend = TensorUtils::getDescribeOrigin(tensor)->getBackend();
         if (backend == pipelineInfo.first.cache.first.get()) {
             outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend =
