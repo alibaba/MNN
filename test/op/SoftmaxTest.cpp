@@ -319,6 +319,31 @@ public:
         return true;
     }
 };
+class SoftmaxVisionTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        const int tokens = 308;
+        auto input = _Input({1, 4, tokens, tokens}, NCHW);
+        auto data = input->writeMap<float>();
+        for (int i = 0; i < 4 * tokens * tokens; ++i) {
+            data[i] = (i % 97 - 48) * 0.125f;
+        }
+        auto expected = naiveSoftmax(data, 4 * tokens, tokens, 1);
+        input->unMap();
+        auto output = _Softmax(input, -1);
+        auto actual = output->readMap<float>();
+        if (!actual)
+            return false;
+        for (int i = 0; i < expected.size(); ++i) {
+            if (!std::isfinite(actual[i]) || std::abs(actual[i] - expected[i]) > 0.0002f) {
+                MNN_ERROR("Vision softmax mismatch at %d: %f vs %f\n", i, actual[i], expected[i]);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(SoftmaxVisionTest, "op/softmax/vision");
 MNNTestSuiteRegister(SoftmaxTest, "op/softmax");
 MNNTestSuiteRegister(SoftmaxLargeImageTest, "op/softmax/largeImage");
 MNNTestSuiteRegister(SoftmaxInt8Test, "op/softmaxInt8");
