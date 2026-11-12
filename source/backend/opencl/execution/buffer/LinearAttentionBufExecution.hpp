@@ -34,6 +34,9 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
     // Chunked prefill: fully independent branch (called from onResize/onExecute when seqLen > 1)
+    ErrorCode onExecuteBody(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    void loadPrefixState();
+    void savePrefixState();
     ErrorCode onResizeChunkedPrefill(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     ErrorCode onExecuteChunkedPrefill(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 
@@ -58,6 +61,7 @@ private:
     // Persistent state buffers shared between prefill and decode via onClone
     std::shared_ptr<OpenCLStateCache> mStateCache;
     KVMeta* mMeta = nullptr;
+    std::string mPrefixCacheDir;
     // Temporary conv output: [B * D * L]
     std::shared_ptr<Tensor> mConvOut;
 
