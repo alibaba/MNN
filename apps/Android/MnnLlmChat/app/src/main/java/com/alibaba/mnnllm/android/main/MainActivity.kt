@@ -40,7 +40,6 @@ import com.alibaba.mnnllm.android.chat.ChatRouter
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment
 import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity
 import com.alibaba.mnnllm.android.modelist.LocalModelImporter
-import com.alibaba.mnnllm.android.modelist.LocalModelsProvider
 import com.alibaba.mnnllm.android.modelist.ModelListFragment
 import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketFragment
@@ -69,7 +68,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.lang.reflect.Method
 import kotlin.math.abs
 
@@ -544,27 +542,17 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
     }
 
     fun addLocalModels(view: View?) {
-        val adbCommand = "adb shell mkdir -p /data/local/tmp/mnn_models && adb push \${model_path} /data/local/tmp/mnn_models/"
-        val dropInDir = LocalModelsProvider.dropInModelsDir(this)?.absolutePath
-            ?: File(filesDir, LocalModelsProvider.DROP_IN_DIR_NAME).absolutePath
-        val message = getString(R.string.add_local_models_drop_in_hint, dropInDir) +
-                "\n\n" + getString(R.string.add_local_models_message, adbCommand)
-        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(R.string.add_local_models_title)
-            .setMessage(message)
-            .setPositiveButton(R.string.add_local_models_pick_folder) { pickerDialog, _ ->
-                pickerDialog.dismiss()
-                importModelFolderLauncher.launch(null)
-            }
-            .setNeutralButton(R.string.copy_command) { _, _ ->
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("ADB Command", adbCommand)
-                clipboard.setPrimaryClip(clip)
-                Toast.makeText(this, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .create()
-        dialog.show()
+        LocalImportSheet().show(supportFragmentManager, "local_import")
+    }
+
+    fun launchImportFolderPicker() {
+        importModelFolderLauncher.launch(null)
+    }
+
+    fun copyImportText(label: String, text: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        Toast.makeText(this, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
     }
 
     /**
@@ -572,9 +560,14 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
      * changed. The copy runs off the main thread; only the progress text is posted back.
      */
     private fun importLocalModels(treeUri: Uri) {
-        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+        val progressView = layoutInflater.inflate(R.layout.dialog_import_progress, null)
+        val modelText = progressView.findViewById<android.widget.TextView>(R.id.tv_progress_model)
+        val progressBar = progressView.findViewById<com.google.android.material.progressindicator.LinearProgressIndicator>(R.id.progress_import)
+        val detailText = progressView.findViewById<android.widget.TextView>(R.id.tv_progress_detail)
+        modelText.text = getString(R.string.import_local_model_scanning)
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(R.string.add_local_models_title)
-            .setMessage(getString(R.string.import_local_model_progress, "", ""))
+            .setView(progressView)
             .setCancelable(false)
             .create()
         dialog.show()
@@ -593,13 +586,9 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
                         lastPercent = percent
                         runOnUiThread {
                             if (!isFinishing && !isDestroyed) {
-                                dialog.setMessage(
-                                    getString(
-                                        R.string.import_local_model_progress,
-                                        progress.modelName,
-                                        "$percent% ${progress.fileName}"
-                                    )
-                                )
+                                modelText.text = progress.modelName
+                                progressBar.progress = percent
+                                detailText.text = "$percent%  ${progress.fileName}"
                             }
                         }
                     }

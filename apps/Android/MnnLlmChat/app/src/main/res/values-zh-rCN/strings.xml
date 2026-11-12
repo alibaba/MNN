@@ -677,4 +677,14 @@
     <string name="import_local_model_done">已导入 %1$d 个模型</string>
     <string name="import_local_model_failed">导入失败：%1$s</string>
     <string name="import_local_model_none">没有找到模型文件夹。模型文件夹内必须包含 config.json。</string>
+    <string name="local_import_subtitle">两种方式任选其一，导入后出现在「我的模型」。</string>
+    <string name="local_import_pick_title">选择文件夹</string>
+    <string name="local_import_pick_body">从手机存储中选择模型文件夹，应用拷贝一份后自动识别。</string>
+    <string name="local_import_drop_title">放入目录 · 免拷贝</string>
+    <string name="local_import_drop_body">用任意文件管理器把模型文件夹放进下面目录，下次启动原地识别。</string>
+    <string name="local_import_copy_path">复制目录路径</string>
+    <string name="local_import_rule_hint">模型文件夹需包含 config.json（所选目录本身或其子目录）。</string>
+    <string name="local_import_advanced">adb 推送（高级）</string>
+    <string name="local_import_copy_adb">复制 adb 命令</string>
+    <string name="import_local_model_scanning">正在扫描模型文件夹…</string>
 </resources>

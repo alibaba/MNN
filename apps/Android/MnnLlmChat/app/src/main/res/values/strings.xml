@@ -690,4 +690,14 @@
     <string name="import_local_model_done">Imported %1$d model(s)</string>
     <string name="import_local_model_failed">Import failed: %1$s</string>
     <string name="import_local_model_none">No model folder found. The folder must contain config.json.</string>
+    <string name="local_import_subtitle">Pick either way. Imported models show up in My Models.</string>
+    <string name="local_import_pick_title">Choose a folder</string>
+    <string name="local_import_pick_body">Select a model folder from phone storage. The app copies it and detects it automatically.</string>
+    <string name="local_import_drop_title">Drop into a folder · no copy</string>
+    <string name="local_import_drop_body">Use any file manager to place a model folder into the directory below. It is detected in place on next launch.</string>
+    <string name="local_import_copy_path">Copy directory path</string>
+    <string name="local_import_rule_hint">A model folder must contain config.json (in the folder itself or a subfolder).</string>
+    <string name="local_import_advanced">adb push (advanced)</string>
+    <string name="local_import_copy_adb">Copy adb command</string>
+    <string name="import_local_model_scanning">Scanning model folder…</string>
 </resources>
