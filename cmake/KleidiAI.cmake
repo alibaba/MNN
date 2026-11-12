@@ -138,6 +138,7 @@ function (download_kleidiai_and_collect_sources)
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/
+        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsu2cxp/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f16p_qai4c32p/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f16p_qsi4c32p/
@@ -156,6 +157,11 @@ function (download_kleidiai_and_collect_sources)
     # Do not glob entire kernel families: newer releases contain unrelated
     # kernels that can crash AppleClang 16 and unnecessarily enlarge the build.
     set(_neon_stems
+        kai/ukernels/matmul/pack/kai_lhs_quant_pack_qai8dxp_f32
+        kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsu2cxp4vlx4_qsu2cx_neon
+        kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsu2cxp4x4bf32sf32_qsu2cx_neon
+        kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsu2cxp/kai_matmul_clamp_f32_qai8dxp1x4_qsu2cxp4x4bf32sf32_1x4_neon_dotprod
+        kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsu2cxp/kai_matmul_clamp_f32_qai8dxp4x4_qsu2cxp4x4bf32sf32_8x4_neon_dotprod
         kai/ukernels/matmul/pack/kai_lhs_quant_pack_qsi8d32pscalef32_f16_neon
         kai/ukernels/matmul/pack/kai_lhs_quant_pack_qsi8d32pscalef32_f32_neon
         kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon
@@ -165,6 +171,8 @@ function (download_kleidiai_and_collect_sources)
         kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/kai_matmul_clamp_f32_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod
         kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/kai_matmul_clamp_f32_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm)
     set(_sme2_stems
+        kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsu2cxp/kai_matmul_clamp_f32_qai8dxp1vlx4_qsu2cxp4vlx4_1vlx4vl_sme2_mopa
+        kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsu2cxp/kai_matmul_clamp_f32_qai8dxp1x4_qsu2cxp4vlx4_1x4vl_sme2_dot
         kai/ukernels/matmul/pack/kai_rhs_pack_nxk_f32p2vlx1biasf32_f32_f32_sme
         kai/ukernels/matmul/pack/kai_lhs_pack_f32p2vlx1_f32_sme
         kai/ukernels/matmul/pack/kai_lhs_pack_x16p2vlx2_x16_sme
