@@ -21,6 +21,8 @@ struct ModelInfo: Codable, Hashable {
     let sources: [String: String]?
     let tagTranslations: [String: [String]]?
 
+    var catalogUpdatedAt: Date?
+
     // Runtime properties
     var isDownloaded: Bool = false
     var lastUsedAt: Date?
@@ -66,12 +68,18 @@ struct ModelInfo: Codable, Hashable {
 
     // MARK: - Model Identity & Localization
 
+    var downloadSource: ModelSource {
+        let selected = ModelSourceManager.shared.selectedSource
+        if catalogUpdatedAt != nil, sources?[selected.rawValue] == nil { return .modelScope }
+        return selected
+    }
+
     var id: String {
         guard let sources else {
             return "taobao-mnn/\(modelName)"
         }
 
-        let sourceKey = ModelSourceManager.shared.selectedSource.rawValue
+        let sourceKey = downloadSource.rawValue
         let baseId = sources[sourceKey] ?? "taobao-mnn/\(modelName)"
 
         // Add vendor prefix to ensure uniqueness for local models
@@ -261,7 +269,7 @@ struct ModelInfo: Codable, Hashable {
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
-        case modelName, tags, categories, size_gb, file_size, vendor, sources, tagTranslations, cachedSize
+        case modelName, tags, categories, size_gb, file_size, vendor, sources, tagTranslations, cachedSize, catalogUpdatedAt
     }
 }
 
@@ -298,6 +306,15 @@ final class ModelNameStore: ObservableObject {
 // MARK: - ModelInfo Extensions for Local Model Support
 
 extension ModelInfo {
+    var isPocket03B: Bool {
+        switch Self.bundledModelName(for: modelName).lowercased() {
+        case "mnn-pocket-0.3b", "mnn-pocket-0.3b-mnn", "mnn-pocket-0.3b-dflash":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Model type detected from folder structure
     private enum LocalModelType {
         case llm

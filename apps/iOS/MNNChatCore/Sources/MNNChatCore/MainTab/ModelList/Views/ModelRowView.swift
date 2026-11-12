@@ -34,6 +34,17 @@ struct ModelRowView: View {
                     .fontWeight(.semibold)
                     .lineLimit(1)
 
+                if let date = model.catalogUpdatedAt {
+                    HStack(spacing: 6) {
+                        Text(date, format: .dateTime.year().month(.twoDigits).day(.twoDigits))
+                        if model.downloadSource != ModelSourceManager.shared.selectedSource {
+                            Text(verbatim: "ModelScope")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
                 if !model.localizedTags.isEmpty {
                     TagsView(tags: model.localizedTags)
                 }

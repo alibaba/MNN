@@ -65,3 +65,9 @@ MNN Chat 是基于 MNN 引擎的 iOS 本地大模型应用，支持文本、图�
 | <img src="./assets/features/06-message-menu.jpg" width="200" /> | <img src="./assets/features/09-history-drawer.jpg" width="200" /> | <img src="./assets/features/17-context-usage-panel.jpg" width="200" /> | <img src="./assets/features/11-help-popover.jpg" width="200" /> |
 | **Agent 工具调用** | **Agent 回答** | | |
 | <img src="./assets/features/21-agent-tool-call.jpg" width="200" /> | <img src="./assets/features/22-agent-answer.jpg" width="200" /> | | |
+
+## 本机签名配置
+
+将 `Configuration/Local.xcconfig.example` 复制为 `Configuration/Local.xcconfig`，填入自己的 Apple 开发团队和 Bundle ID 后再安装到设备。该本机配置不会进入 Git，对 Debug 和 Release 均生效。运行真机测试时，还需单独设置测试目标的签名团队。
+
+Release 构建会排除 `LocalModel`、`LocalBatchTest` 和 `mock.json`，用户安装应用后自行下载模型。

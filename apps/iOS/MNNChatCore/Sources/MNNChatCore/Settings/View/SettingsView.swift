@@ -46,7 +46,13 @@ struct SettingsView: View {
             }
 
             Section(header: Text("settings.section.about")) {
+                Text(AppText.text("settings.about.summary"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 NavigationLink("settings.button.privacy") { PrivacyPolicyView() }
+                NavigationLink(LegalDocumentKind.terms.title) { LegalDocumentView(kind: .terms) }
+                NavigationLink(LegalDocumentKind.disclaimer.title) { LegalDocumentView(kind: .disclaimer) }
+                NavigationLink(LegalDocumentKind.services.title) { LegalDocumentView(kind: .services) }
                 NavigationLink("settings.button.licenses") { OpenSourceLicensesView() }
                 NavigationLink("settings.button.help") { AppSupportView() }
 

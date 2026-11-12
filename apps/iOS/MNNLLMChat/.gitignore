@@ -13,3 +13,12 @@ LocalModel/slm270M/
 
 # Local model weights parked outside the bundle; never commit.
 .model-stash/
+
+# Provisioned release weights and build output.
+MNNLLMiOS/LocalModel/
+Build/
+*.xcarchive
+*.ipa
+
+# Developer-specific signing overrides.
+Configuration/Local.xcconfig

@@ -98,7 +98,7 @@ struct ModelSettingsView: View {
                         SettingToggleRow(titleKey: "context.autoCompress", helpKey: "help.autoCompress",
                                          isOn: Binding(get: { viewModel.autoCompressContext },
                                                        set: { viewModel.setAutoCompressContext($0) }),
-                                         isDisabled: viewModel.isProcessing || !viewModel.isConversationContextEnabled)
+                                         isDisabled: viewModel.isProcessing)
 
                         ContextUsageView(viewModel: viewModel)
 
@@ -146,8 +146,6 @@ struct ModelSettingsView: View {
                         .disabled(viewModel.chatInputUnavilable)
                     } header: {
                         Text("conversation.context.section")
-                    } footer: {
-                        Text("context.settings.description")
                     }
                 }
 

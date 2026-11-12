@@ -82,7 +82,7 @@ struct ContextUsageButton: View {
                     Toggle("context.autoCompress", isOn: Binding(
                         get: { viewModel.autoCompressContext }, set: { viewModel.setAutoCompressContext($0) }
                     ))
-                    .disabled(viewModel.isProcessing || !viewModel.isConversationContextEnabled)
+                    .disabled(viewModel.isProcessing)
                     .accessibilityIdentifier("context.popoverAutoCompress")
                 }
                 .font(.subheadline)

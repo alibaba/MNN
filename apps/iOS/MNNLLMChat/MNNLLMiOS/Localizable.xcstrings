@@ -881,6 +881,22 @@
         }
       }
     },
+    "market.compatibilityNote" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try a recently updated model first. Some older models may not generate responses correctly with the current engine. We’ll upload compatible versions as soon as we can."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "建议优先下载近期更新的模型。部分旧模型可能与当前推理引擎不兼容，导致回答异常。我们会尽快上传适配版本。"
+          }
+        }
+      }
+    },
     "modelSource.title" : {
       "localizations" : {
         "en" : {
@@ -2936,7 +2952,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本轮在正式回答前结束；后续对话仍会保留你的提问。"
+            "value" : "本轮在正式回答前结束；后续对话仍会保留您的提问。"
           }
         }
       }
@@ -2987,23 +3003,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂无法估算"
-          }
-        }
-      }
-    },
-    "context.settings.description" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The bar shows this request’s input plus generated tokens, including thinking. With conversation context enabled, the next request retains user messages, final answers and summaries, and omits earlier thinking, so the count may decrease. Near the budget, older turns are summarized on device; summaries may omit details. The model’s nominal limit differs from this phone’s available capacity. Recommendations use model cache size, prefill workspace and current app memory headroom, with a reserve for normal use. Completed replies help refine the estimate."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "进度条显示本轮输入与生成的 token，包含思考。开启连续对话后，下一轮保留提问、正式回答和摘要，不带入之前的思考，因此计数可能下降。接近预算时，在本机压缩较早对话；摘要可能遗漏细节。模型标称上限不代表手机可运行长度，建议值结合模型缓存、处理输入的临时内存和当前 App 内存余量，保留运行空间，并参考实际生成的峰值修正。"
           }
         }
       }
@@ -3089,23 +3088,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用建议值"
-          }
-        }
-      }
-    },
-    "conversation.context.description" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The bar shows this request’s input plus generated tokens, including thinking. With conversation context enabled, the next request retains user messages, final answers and summaries, and omits earlier thinking, so the count may decrease. Near the budget, older turns are summarized on device; summaries may omit details. The model’s nominal limit differs from this phone’s available capacity. Recommendations use model cache size, prefill workspace and current app memory headroom, with a reserve for normal use. Completed replies help refine the estimate."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "进度条显示本轮输入与生成的 token，包含思考。开启连续对话后，下一轮保留提问、正式回答和摘要，不带入之前的思考，因此计数可能下降。接近预算时，在本机压缩较早对话；摘要可能遗漏细节。模型标称上限不代表手机可运行长度，建议值结合模型缓存、处理输入的临时内存和当前 App 内存余量，保留运行空间，并参考实际生成的峰值修正。"
           }
         }
       }
@@ -3605,13 +3587,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "These notices cover the software components. Downloaded models have their own licenses; check the model source before use or redistribution."
+            "value" : "These licenses cover software components. Models have their own licenses; check the model’s source before use or redistribution."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "以下许可适用于软件组件。下载模型另有对应的许可证，使用或再分发前请查看模型来源的说明。"
+            "value" : "以下为软件组件的开源许可。模型有各自的使用条件，使用或再分发前请查看模型来源页面。"
           }
         }
       }
@@ -3903,91 +3885,6 @@
         }
       }
     },
-    "privacy.date" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Effective October 9, 2026"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "生效日期：2026 年 10 月 9 日"
-          }
-        }
-      }
-    },
-    "privacy.local.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The local model processes your messages and supported images, audio, and videos on your device. The app does not send these inputs to a cloud AI service to generate answers."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本地模型在设备上处理你输入的文字及受支持的图片、音频和视频。应用不会为了生成回答将这些输入发送给云端 AI 服务。"
-          }
-        }
-      }
-    },
-    "privacy.local.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Local conversations"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本地对话"
-          }
-        }
-      }
-    },
-    "privacy.network.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The app connects to an online catalog and your selected model source, such as Hugging Face, ModelScope, or Modelers, to list and download models. Those services receive the requests and network information needed for the download, and apply their own privacy policies. Downloaded text models can be used offline."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "应用会联网获取模型目录，并从你选择的 Hugging Face、ModelScope 或 Modelers 等下载源获取模型。相关服务会接收下载请求及所需的网络信息，并按各自的隐私政策处理。文字模型下载完成后可以离线使用。"
-          }
-        }
-      }
-    },
-    "privacy.network.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Model downloads"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "模型下载与联网"
-          }
-        }
-      }
-    },
     "privacy.online" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4001,125 +3898,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "查看在线隐私政策"
-          }
-        }
-      }
-    },
-    "privacy.permissions.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Photos and the camera are used for media you choose to send to a supported local model. The microphone is used for voice input. You can change these permissions in iOS Settings and continue using text chat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "照片与相机用于你选择发送给受支持本地模型的媒体，麦克风用于语音输入。你可以在 iOS 设置中调整这些权限，并继续使用文字聊天。"
-          }
-        }
-      }
-    },
-    "privacy.permissions.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Photos, camera, and microphone"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "照片、相机与麦克风"
-          }
-        }
-      }
-    },
-    "privacy.sharing.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Exported conversations, saved media, and shared feedback leave the app only through the actions you choose. The feedback form includes your description, app version, and iOS version; it does not automatically attach conversations or model inputs. Review the content and recipient before sharing."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "导出的对话、保存的媒体及反馈内容通过你主动选择的操作分享。反馈表单包含你填写的描述、应用版本和 iOS 版本，不会自动附加聊天记录或模型输入。分享前请确认内容与接收对象。"
-          }
-        }
-      }
-    },
-    "privacy.sharing.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sharing and feedback"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "分享与反馈"
-          }
-        }
-      }
-    },
-    "privacy.storage.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chats, model files, and settings are stored in the app on your device. Delete chats from the history list and downloaded models from the model list. The app does not provide its own cloud chat sync; device backups follow your system settings. Model downloads may use temporary files and additional space."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "聊天记录、模型文件与设置保存在设备的应用数据中。你可以在历史列表删除对话，在模型列表删除已下载模型。应用不提供自己的云端聊天同步；设备备份遵循你的系统设置。下载模型可能产生临时文件并需要额外空间。"
-          }
-        }
-      }
-    },
-    "privacy.storage.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Storage and deletion"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "存储与删除"
-          }
-        }
-      }
-    },
-    "privacy.summary" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chat runs on your device. This page explains network downloads, local storage, permissions, and sharing."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "聊天由本机模型处理。以下说明联网下载、本地存储、权限与分享的使用方式。"
           }
         }
       }
@@ -4265,13 +4043,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Privacy"
+            "value" : "Privacy Policy"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "隐私说明"
+            "value" : "隐私政策"
           }
         }
       }
@@ -4316,13 +4094,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Delete conversations from the history list. Swipe a downloaded model in the model list to remove it. Removing a model does not delete your chat history."
+            "value" : "Delete chats in History, and clear memory separately in Settings → Agent Memory and Skills. After clearing memory, stop generation and start a new chat. Downloaded models can be removed in the model list. Shared copies, clipboard contents, backups and third-party records are not cleared by these actions."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在历史列表删除对话，在模型列表滑动已下载模型进行删除。删除模型不会删除聊天记录。"
+            "value" : "聊天在历史列表中删除，记忆在“设置 → Agent 记忆与技能”中另行清除。清除记忆后，请停止生成并新建对话。已下载模型可在模型列表删除。这些操作不会清理已分享的副本、剪贴板、备份或第三方记录。"
           }
         }
       }
@@ -4367,13 +4145,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A local model supplies the chat capability. Choose a small model to start, check its download size, and use Wi-Fi for large downloads. You can remove unused models from the model list."
+            "value" : "The model generates answers on your device. The app ships without models. Before your first chat, download a model that fits your device from the model list. Check its size and available storage first; Wi-Fi is recommended for large downloads."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本地模型提供聊天能力。建议先选择小模型，查看下载大小，较大的下载请使用 Wi-Fi。可以在模型列表删除不用的模型。"
+            "value" : "模型负责在本机生成回答。安装包不内置模型。首次对话前，请从模型列表下载一个适合您设备的模型。下载前请查看大小和剩余空间，大文件建议使用 Wi-Fi。"
           }
         }
       }
@@ -4384,13 +4162,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Why do I need to download a model?"
+            "value" : "What is a model for?"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "为什么需要先下载模型？"
+            "value" : "模型是做什么的？"
           }
         }
       }
@@ -4418,13 +4196,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yes, after a supported text model is downloaded. Listing and downloading new models requires an internet connection."
+            "value" : "Yes. Ordinary chat works offline with a supported model installed. Catalogs, downloads, Agent searches and webpages need a connection; some screens may still try to refresh the catalog."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "受支持的文字模型下载完成后可以离线聊天。获取模型目录和下载新模型需要联网。"
+            "value" : "可以。已安装的模型支持普通离线聊天。模型目录、下载、Agent 搜索和网页读取需要联网，部分页面也会尝试刷新目录。"
           }
         }
       }
@@ -4452,13 +4230,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Only your description, app version, and iOS version are included. Conversations are not attached automatically."
+            "value" : "Includes your description, app version and iOS version. Chats are not attached automatically."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "只包含你填写的描述、应用版本和 iOS 版本，不会自动附加对话内容。"
+            "value" : "发送内容包含问题描述、App 版本和 iOS 版本，不会自动附上聊天。"
           }
         }
       }
@@ -5030,7 +4808,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "有什么可以帮你？"
+            "value" : "有什么可以帮您？"
           }
         }
       }
@@ -5851,6 +5629,22 @@
         }
       }
     },
+    "agent.pocketToolNotice" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent mode is still unreliable with MNN-Pocket-0.3B. We recommend leaving it off."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MNN-Pocket-0.3B 的 Agent 能力还不稳定，不建议开启。"
+          }
+        }
+      }
+    },
     "agent.mode" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6095,13 +5889,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "In Agent mode the model can save lasting preferences and reusable procedures. They are stored only on this device and included in later Agent conversations."
+            "value" : "Saved information is used in later Agent chats and may be included in search queries. Chats and memory are stored separately; deleting one does not clear the other."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agent 模式下，模型可以保存长期偏好与可复用的做法。这些内容仅保存在本机，并会带入之后的 Agent 对话。"
+            "value" : "这里保存的内容会用于后续 Agent 对话，也可能进入联网搜索词。聊天和记忆分开保存，删除其中一项不会清除另一项。"
           }
         }
       }
@@ -6374,6 +6168,346 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "表达式有误"
+          }
+        }
+      }
+    },
+    "legal.privacy.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私政策"
+          }
+        }
+      }
+    },
+    "legal.terms.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terms of Use"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用条款"
+          }
+        }
+      }
+    },
+    "legal.disclaimer.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Using AI"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI 使用须知"
+          }
+        }
+      }
+    },
+    "legal.services.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Online Services"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "联网服务说明"
+          }
+        }
+      }
+    },
+    "legal.unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This document could not be loaded. Please contact us for a copy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法读取本文档，请联系下方邮箱获取内容。"
+          }
+        }
+      }
+    },
+    "legal.ai.short" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI-generated content may be wrong. Verify important information."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内容由 AI 生成，可能有误。重要信息请核实。"
+          }
+        }
+      }
+    },
+    "legal.ai.hint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read about using AI"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看 AI 使用须知"
+          }
+        }
+      }
+    },
+    "legal.agent.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启 Agent"
+          }
+        }
+      }
+    },
+    "legal.agent.network" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent searches Sogou, 360 Search and Bing, and reads webpages. Queries may include your entire question, context or memory. Providers receive queries and connection details such as your IP address; if results are insufficient, several providers may receive the same query."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 会使用搜狗、360 搜索和 Bing 查找资料，也会读取网页。搜索词可能包含整段问题、聊天上下文或记忆。服务方会接收搜索词、IP 地址等信息；结果不足时，可能继续向其他服务搜索。"
+          }
+        }
+      }
+    },
+    "legal.agent.memory" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent can save preferences and reusable procedures on this device for later chats. Deleting a chat does not clear these memories; manage them in Settings → Agent Memory and Skills."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 可以在本机保存偏好和可复用的做法，供后续对话使用。删除聊天不会清除这些记忆，请在“设置 → Agent 记忆与技能”中管理。"
+          }
+        }
+      }
+    },
+    "legal.agent.choice" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This enables Agent for this conversation. It will not ask again before each search or memory save, so avoid sensitive or confidential input. Cancel to keep ordinary chat. Once the conversation has started, stop generation and start a new ordinary chat to stop using Agent."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后，Agent 将用于这段对话，搜索和保存记忆时不会逐次询问。请避免输入敏感或保密信息。取消后可继续普通聊天；对话开始后，如需停用，请停止生成并新建普通对话。"
+          }
+        }
+      }
+    },
+    "legal.agent.enable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启 Agent"
+          }
+        }
+      }
+    },
+    "agent.memory.clearNotice" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This clears saved memory and skills, without deleting chats or shared copies. Current chats may still contain loaded information. Stop generation and start a new chat after clearing."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将清除已保存的记忆与技能，聊天和已分享的副本会保留。当前对话可能仍有已加载的内容，清除后请停止生成并新建对话。"
+          }
+        }
+      }
+    },
+    "legal.history.deleteNotice" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete this chat, its attachments and context summaries? Saved Agent memory will remain. You can clear it separately in Settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将删除这段聊天及其附件、上下文摘要。已保存的 Agent 记忆会保留，可在设置中另行清除。"
+          }
+        }
+      }
+    },
+    "support.contact.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contact us"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "联系我们"
+          }
+        }
+      }
+    },
+    "support.contact.detail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send questions, suggestions, privacy requests or content reports to this address. Include the steps and model name if relevant; we will investigate and reply. Redact personal information in screenshots and never send passwords or verification codes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用问题、建议、隐私请求或内容投诉，都可以发到这个邮箱。请尽量说明操作步骤和模型名称，我们会核实并回复。截图请先遮挡个人信息，不要发送密码或验证码。"
+          }
+        }
+      }
+    },
+    "support.cloud.question" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Are chats sent to a cloud AI model?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天会发给云端大模型吗？"
+          }
+        }
+      }
+    },
+    "support.cloud.answer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinary chat runs locally. Agent can send search queries based on your question, context or memory to search providers. Feedback and sharing also send the content you choose."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "普通对话在本机生成。Agent 联网时，可能把您的问题或根据上下文、记忆生成的搜索词发给搜索服务。反馈和分享也会发送您选择的内容。"
+          }
+        }
+      }
+    },
+    "support.fees" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Free to use. No subscriptions or in-app purchases."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前版本免费，无订阅或应用内购买。"
+          }
+        }
+      }
+    },
+    "settings.about.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MNN Chat runs AI models on your device. Chat offline with installed models, or use Agent for web search and local memory."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MNN Chat 是一款本地 AI 对话工具。使用已安装的模型离线聊天，也可以通过 Agent 联网搜索、保存本地记忆。"
           }
         }
       }

@@ -214,14 +214,12 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         // Set up here rather than in onStart: onStart runs from onAppear and can
         // fire more than once, which would stack duplicate subscriptions.
         // Only the Pocket chat view consumes `streamingAnswerText`.
-        // ~60fps. Low enough to keep the cost linear, high enough to still read
-        // as a stream: at 20fps a fast decode lands ~30 tokens per update, which
-        // reads as text jumping in chunks rather than flowing.
+        // Native output is already batched. Keep the final text synchronous
+        // with completion; the answer view handles the display cadence.
         if MNNChatConfiguration.current.streamsAnswerThrottled {
             $messages
                 .map { $0.last { !$0.user.isCurrentUser }?.text ?? "" }
                 .removeDuplicates()
-                .throttle(for: .milliseconds(16), scheduler: DispatchQueue.main, latest: true)
                 .sink { [weak self] text in
                     self?.streamingAnswerText = text
                 }
@@ -1174,7 +1172,8 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
             var usageIsReady = false
             // Group display updates so long thinking text is not laid out per token.
             // Native fragments remain ordered, and completion flushes the final group.
-            let presentationInterval: TimeInterval = 0.08
+            let presentationInterval: TimeInterval = MNNChatConfiguration.current.streamsAnswerThrottled
+                ? 1.0 / 30.0 : 0.08
 #if DEBUG
             let logAutoPresetResponse = CommandLine.arguments.contains("--auto-preset")
             var autoPresetResponse = ""

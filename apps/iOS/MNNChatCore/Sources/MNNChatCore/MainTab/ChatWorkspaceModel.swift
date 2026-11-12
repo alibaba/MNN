@@ -42,7 +42,17 @@ final class ChatWorkspaceModel: ObservableObject {
             return
         }
         let preferred = preferences.string(forKey: preferenceKey)
-        let model = availableModels.first { Self.modelKey($0) == preferred }
+#if DEBUG
+        let args = CommandLine.arguments
+        let smokeModel = (args.firstIndex(of: "--agent-qa-model") ?? args.firstIndex(of: "--chat-smoke-model")).flatMap {
+            $0 + 1 < args.count ? args[$0 + 1] : nil
+        }
+        let requestedModel = availableModels.first { $0.vendor == "Local" && $0.modelName == smokeModel }
+#else
+        let requestedModel: ModelInfo? = nil
+#endif
+        let model = requestedModel
+            ?? availableModels.first { Self.modelKey($0) == preferred }
             ?? availableModels.first { $0.modelName == "Qwen3.5-0.8B-MNN" }
             ?? availableModels.first
         if let model { _ = selectModel(model) }

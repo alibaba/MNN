@@ -2,14 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>SupportEmail</key>
+	<string>tangesion@163.com</string>
 	<key>customDisplayName</key>
-	<string>MNN Chat</string>
+	<string>$(INFOPLIST_KEY_CFBundleDisplayName)</string>
 	<key>CFBundleName</key>
-	<string>MNN Chat</string>
+	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>NSAppTransportSecurity</key>
@@ -17,5 +19,9 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>PrivacyPolicyURL</key>
+	<string>https://tangesion.github.io/mnn-chat/privacy/</string>
+	<key>SupportURL</key>
+	<string>https://tangesion.github.io/mnn-chat/support/</string>
 </dict>
 </plist>

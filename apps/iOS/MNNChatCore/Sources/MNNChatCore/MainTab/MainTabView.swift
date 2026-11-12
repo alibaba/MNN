@@ -9,6 +9,9 @@ public struct MainTabView: View {
     @StateObject private var workspace: ChatWorkspaceModel
     @State private var showsHistory = false
     @State private var panel: Panel?
+#if DEBUG
+    @State private var didRunChatSmoke = false
+#endif
     private enum Panel: String, Identifiable {
         case models, downloads, settings, benchmark
         var id: String { rawValue }
@@ -87,6 +90,10 @@ public struct MainTabView: View {
             modelList.prepareModelDeletion = { workspace.releaseModel($0) }
             workspace.updateModels(modelList.models)
             workspace.refreshHistories()
+#if DEBUG
+            if AgentQA.enabled { await AgentQA.run(workspace: workspace) }
+            else { await runChatSmokeIfRequested() }
+#endif
         }
         .onChange(of: modelList.models) { _, models in workspace.updateModels(models) }
         .onChange(of: modelList.selectedModel) { _, model in
@@ -94,6 +101,60 @@ public struct MainTabView: View {
             modelList.selectedModel = nil
         }
     }
+
+#if DEBUG
+    private func runChatSmokeIfRequested() async {
+        guard CommandLine.arguments.contains("--chat-smoke-model"), !didRunChatSmoke else { return }
+        didRunChatSmoke = true
+        for _ in 0..<300 {
+            if let chat = workspace.currentChat, chat.isModelLoaded, !chat.isProcessing { break }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        guard let chat = workspace.currentChat, chat.isModelLoaded, !chat.isProcessing else {
+            print("[ChatSmoke] model load failed or timed out")
+            return
+        }
+        print("[ChatSmoke] loaded: \(chat.modelInfo.modelName)")
+        let oldThinking = chat.isThinkingModeEnabled
+        let oldContext = chat.isConversationContextEnabled
+        chat.isThinkingModeEnabled = false
+        chat.configureThinkingMode()
+        chat.setConversationContextEnabled(true)
+        defer {
+            chat.isThinkingModeEnabled = oldThinking
+            chat.configureThinkingMode()
+            chat.setConversationContextEnabled(oldContext)
+        }
+        var turns: [[String: String]] = []
+        for prompt in ["请只回答 2+3 的计算结果。", "再把刚才的结果乘以 4，只回答数字。"] {
+            print("[ChatSmoke] prompt: \(prompt)")
+            let previousIDs = Set(chat.messages.map(\.id))
+            chat.sendUserPrompt(prompt)
+            for _ in 0..<360 {
+                try? await Task.sleep(for: .milliseconds(500))
+                if !chat.isProcessing { break }
+            }
+            guard !chat.isProcessing else {
+                print("[ChatSmoke] response timed out")
+                return
+            }
+            let response = chat.messages.filter { !previousIDs.contains($0.id) && !$0.user.isCurrentUser }
+                .map(\.text).joined(separator: "\n")
+            print("[ChatSmoke] response: \(response)")
+            turns.append(["prompt": prompt, "response": response])
+            chat.saveHistoryImmediately()
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        let result: [String: Any] = ["model": chat.modelInfo.modelName, "turns": turns,
+            "completed": true, "historySaved": !chat.historySaveFailed]
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: documents.appendingPathComponent("chat-smoke-\(chat.modelInfo.modelName).json"), options: .atomic)
+        }
+        print("[ChatSmoke] completed: \(chat.modelInfo.modelName)")
+    }
+
+#endif
 
     private var emptyChat: some View {
         VStack(spacing: 0) {

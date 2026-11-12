@@ -25,31 +25,7 @@ enum AppSupportInfo {
 }
 
 struct PrivacyPolicyView: View {
-    private let sections = ["local", "network", "permissions", "storage", "sharing"]
-
-    var body: some View {
-        List {
-            Section {
-                Text("privacy.summary")
-                Text("privacy.date").font(.footnote).foregroundStyle(.secondary)
-            }
-            ForEach(sections, id: \.self) { section in
-                Section(header: Text(AppText.text("privacy.\(section).title"))) {
-                    Text(AppText.text("privacy.\(section).body"))
-                }
-            }
-            if let url = AppSupportInfo.website("PrivacyPolicyURL") {
-                Link("privacy.online", destination: url)
-            }
-            if let email = AppSupportInfo.email {
-                Section(header: Text("privacy.contact")) {
-                    Text(email).textSelection(.enabled)
-                }
-            }
-        }
-        .navigationTitle("settings.button.privacy")
-        .navigationBarTitleDisplayMode(.inline)
-    }
+    var body: some View { LegalDocumentView(kind: .privacy) }
 }
 
 struct OpenSourceLicensesView: View {
@@ -94,8 +70,15 @@ struct AppSupportView: View {
 
     var body: some View {
         List {
+            Section(header: Text(AppText.text("support.contact.title"))) {
+                Text(AppText.text("support.fees"))
+                if let email = AppSupportInfo.email { Text(email).textSelection(.enabled) }
+                Text(AppText.text("support.contact.detail")).font(.footnote).foregroundStyle(.secondary)
+                NavigationLink(LegalDocumentKind.privacy.title) { PrivacyPolicyView() }
+                NavigationLink(LegalDocumentKind.terms.title) { LegalDocumentView(kind: .terms) }
+            }
             Section(header: Text("support.faq")) {
-                ForEach(["download", "offline", "slow", "delete"], id: \.self) { item in
+                ForEach(["download", "offline", "cloud", "slow", "delete"], id: \.self) { item in
                     DisclosureGroup(AppText.text("support.\(item).question")) {
                         Text(AppText.text("support.\(item).answer"))
                             .foregroundStyle(.secondary)

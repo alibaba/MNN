@@ -46,7 +46,11 @@ final class AgentStore {
         guard let path = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first else {
             throw NSError(domain: "AgentStore", code: -1)
         }
+#if DEBUG
+        db = try Connection(AgentQA.enabled ? "\(path)/agent-qa-\(AgentQA.modelName).sqlite3" : "\(path)/agent.sqlite3")
+#else
         db = try Connection("\(path)/agent.sqlite3")
+#endif
         try db.run(sessions.create(ifNotExists: true) { $0.column(sessionId, primaryKey: true) })
         try db.run(memories.create(ifNotExists: true) { t in
             t.column(memoryContent, primaryKey: true)

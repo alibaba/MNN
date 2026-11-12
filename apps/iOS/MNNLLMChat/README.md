@@ -65,3 +65,9 @@ Once a model is downloaded, all inference runs on the device and conversations a
 | <img src="./assets/features/06-message-menu.jpg" width="200" /> | <img src="./assets/features/09-history-drawer.jpg" width="200" /> | <img src="./assets/features/17-context-usage-panel.jpg" width="200" /> | <img src="./assets/features/11-help-popover.jpg" width="200" /> |
 | **Agent Tool Call** | **Agent Answer** | | |
 | <img src="./assets/features/21-agent-tool-call.jpg" width="200" /> | <img src="./assets/features/22-agent-answer.jpg" width="200" /> | | |
+
+## Local signing
+
+Copy `Configuration/Local.xcconfig.example` to `Configuration/Local.xcconfig` and set your own Apple developer team and bundle identifier before installing on a device. The local configuration is ignored by Git and applies to Debug and Release. Set the signing team separately for the test target when running device tests.
+
+Release builds exclude `LocalModel`, `LocalBatchTest` and `mock.json`; users download models after installing the app.
