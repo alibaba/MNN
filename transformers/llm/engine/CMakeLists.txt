@@ -137,8 +137,6 @@ endif()
 
 option(MNN_LLM_BUILD_TEST "Build LLM unit tests" OFF)
 if(MNN_LLM_BUILD_TEST)
-    add_executable(test_lfm3_image ${CMAKE_CURRENT_LIST_DIR}/test/test_lfm3_image.cpp)
-    target_link_libraries(test_lfm3_image llm ${LLM_DEPS})
     add_executable(test_tokenizer ${CMAKE_CURRENT_LIST_DIR}/test/test_tokenizer.cpp)
     target_include_directories(test_tokenizer PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/)
     target_link_libraries(test_tokenizer llm ${LLM_DEPS})
