@@ -148,16 +148,18 @@ class ModelItemHolder(
         popupMenu.setOnMenuItemClickListener { item: MenuItem ->
             val modelId = modelItem.modelId
             if (item.itemId == R.id.menu_delete_model) {
-                DialogUtils.showDeleteConfirmationDialog(v.context) {
+                DialogUtils.showModelDeletionDialog(v.context) { keepHistory ->
                     MainScope().launch {
                         try {
                             // Use ModelDeletionHelper for proper cleanup of mmap cache and chat sessions
-                            val result = ModelDeletionHelper.deleteModelWithCleanup(v.context, modelId!!)
-                            if (!result.modelDeleted) {
+                            val result = ModelDeletionHelper.deleteModelWithCleanup(v.context, modelId!!, keepHistory)
+                            if (result.errors.isNotEmpty()) {
                                 Log.w(TAG, "Model deletion incomplete: ${result.errors.joinToString()}")
+                                Toast.makeText(v.context, result.errors.joinToString(), Toast.LENGTH_LONG).show()
                             }
-                            // Notify the listener that the model was deleted successfully
-                            modelItemListener.onItemDeleted(modelItem)
+                            if (result.modelDeleted) {
+                                modelItemListener.onItemDeleted(modelItem)
+                            }
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to delete model: $modelId", e)
                         }
