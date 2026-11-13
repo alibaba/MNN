@@ -242,13 +242,30 @@ Sampler::Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig>
 }
 
 void Sampler::setConfig(std::shared_ptr<LlmConfig> config) {
+    mLlmConfig.reset(new LlmConfig(*config));
+    mConfigDirty = false;
+    loadConfig();
+}
+
+void Sampler::updateConfig(const ujson::json& content) {
+    mLlmConfig->config_.merge(content);
+    mConfigDirty = true;
+}
+
+void Sampler::refresh() {
+    if (!mConfigDirty) {
+        return;
+    }
+    mConfigDirty = false;
+    loadConfig();
+}
+
+void Sampler::loadConfig() {
     mConfig = SamplerConfig();
-    mConfig.max_all_tokens = config->max_all_tokens();
-    mConfig.max_new_tokens = config->max_new_tokens();
-    mConfig.type = config->sampler_type();
-    mConfig.configSampler(mConfig.type, config);
-    mPipeline.clear();
-    mTopKPrefilter = false;
+    mConfig.max_all_tokens = mLlmConfig->max_all_tokens();
+    mConfig.max_new_tokens = mLlmConfig->max_new_tokens();
+    mConfig.type = mLlmConfig->sampler_type();
+    mConfig.configSampler(mConfig.type, mLlmConfig);
     buildPipeline();
 }
 
@@ -289,6 +306,8 @@ SamplerState Sampler::createState(Express::VARP logits, const std::vector<int>& 
 }
 
 void Sampler::buildPipeline() {
+    mPipeline.clear();
+    mTopKPrefilter = false;
     auto addStep = [this](const std::string& name) {
         if (name == "penalty") {
             mPipeline.push_back([this](SamplerState& s) { stepPenalty(s); });

@@ -233,4 +233,85 @@ class SamplerMixedNgramFactorTest : public MNNTestCase {
 };
 MNNTestSuiteRegister(SamplerMixedNgramFactorTest, "llm/sampler_mixed_ngram_factor");
 
+// --------------------------------------------------------------------------
+// Llm::set_config between requests: the sampler picks the new values up at the
+// next generate_init, keeps its RNG state, and ignores merges made into the
+// shared LlmConfig by another Llm (Omni's Talker).
+// --------------------------------------------------------------------------
+namespace MNN {
+namespace Transformer {
+struct SamplerTestAccess {
+    static const Sampler::SamplerConfig& config(const Sampler& s) { return s.mConfig; }
+    static std::mt19937& rng(Sampler& s) { return s.mRng; }
+};
+} // namespace Transformer
+} // namespace MNN
+
+class SamplerTestLlm : public Llm {
+public:
+    SamplerTestLlm(std::shared_ptr<LlmConfig> config) : Llm(config) {
+        mSampler.reset(Sampler::createSampler(mContext, mConfig));
+    }
+    Sampler& sampler() { return *mSampler; }
+};
+
+class SamplerRefreshTest : public MNNTestCase {
+    bool run(int /* precision */) override {
+        auto cfg = makeConfig(R"({"sampler_type":"mixed","mixed_samplers":["topK","topP","temperature"],
+                                  "temperature":0.7,"topK":1,"topP":0.9})");
+        SamplerTestLlm llm(cfg);
+        auto& s = llm.sampler();
+        auto flat = makeLogits({1.0f, 1.0f, 1.0f, 1.0f});
+        for (int i = 0; i < 50; ++i) {
+            MNNTEST_ASSERT(llm.sample(flat) == 0);
+        }
+
+        SamplerTestAccess::rng(s).seed(42);
+        llm.set_config(R"({"temperature":1.5,"topK":4,"topP":1.0,
+                           "repetition_penalty":1.3,"presence_penalty":0.5,"frequency_penalty":0.2})");
+        // A running generation keeps its values until the next generate_init.
+        MNNTEST_ASSERT(SamplerTestAccess::config(s).temperature == 0.7f);
+        MNNTEST_ASSERT(SamplerTestAccess::config(s).topK == 1);
+        llm.generate_init();
+        const auto& sc = SamplerTestAccess::config(s);
+        MNNTEST_ASSERT(sc.temperature == 1.5f);
+        MNNTEST_ASSERT(sc.topK == 4);
+        MNNTEST_ASSERT(sc.topP == 1.0f);
+        MNNTEST_ASSERT(sc.repetition_penalty == 1.3f);
+        MNNTEST_ASSERT(sc.presence_penalty == 0.5f);
+        MNNTEST_ASSERT(sc.frequency_penalty == 0.2f);
+        MNNTEST_ASSERT(!sc.mixedSamplers.empty() && sc.mixedSamplers[0] == "penalty");
+        // Refreshing does not reseed the RNG.
+        MNNTEST_ASSERT(SamplerTestAccess::rng(s) == std::mt19937(42));
+
+        // topK=4 on flat logits now spreads over the vocabulary.
+        std::vector<int> seen(4, 0);
+        for (int i = 0; i < 400; ++i) {
+            seen[llm.sample(flat)]++;
+        }
+        for (int i = 0; i < 4; ++i) {
+            MNNTEST_ASSERT(seen[i] > 0);
+        }
+
+        // Omni's Talker merges its own sampling values into the shared config;
+        // the thinker's sampler must not pick them up.
+        SamplerTestLlm talker(cfg);
+        talker.set_config(R"({"sampler_type":"greedy","temperature":0.9,"topK":40})");
+        llm.generate_init();
+        MNNTEST_ASSERT(SamplerTestAccess::config(s).type == "mixed");
+        MNNTEST_ASSERT(SamplerTestAccess::config(s).temperature == 1.5f);
+        MNNTEST_ASSERT(SamplerTestAccess::config(s).topK == 4);
+
+        // Switching the sampler type rebuilds the pipeline: greedy always picks the max.
+        llm.set_config(R"({"sampler_type":"greedy"})");
+        llm.generate_init();
+        auto peaked = makeLogits({1.0f, 1.5f, 1.0f, 1.0f});
+        for (int i = 0; i < 50; ++i) {
+            MNNTEST_ASSERT(llm.sample(peaked) == 1);
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(SamplerRefreshTest, "llm/sampler_refresh");
+
 #endif // MNN_BUILD_LLM
