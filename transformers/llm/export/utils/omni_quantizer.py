@@ -85,6 +85,15 @@ class OmniQuantizer:
                 child_module.to(device)
 
     @staticmethod
+    def _floating_dtype(module):
+        if module is None:
+            return None
+        for parameter in module.parameters():
+            if parameter.is_floating_point():
+                return parameter.dtype
+        return None
+
+    @staticmethod
     def clear_memory(weight=None):
         if weight is not None:
             del weight
@@ -530,6 +539,11 @@ class OmniQuantizer:
         print(f"OmniQuant: Starting weight optimization (Epochs={self.epochs})...")
         for idx in tqdm(range(len(self.modules)), desc="OmniQuant: Optimize Weights"):
             block = self.modules[idx]
+            original_dtype = self._floating_dtype(block)
+            # Norm weights are exported in float32 while BF16 checkpoints keep
+            # Linear weights in BF16. Normalize the whole block before its
+            # first forward so mixed parameter dtypes cannot reach F.linear.
+            block.float()
             self.to_device(block, self.best_device)
 
             attn_inputs_list = []
@@ -647,6 +661,8 @@ class OmniQuantizer:
 
             if "cpu" != self.best_device:
                 self.to_device(block, "cpu")
+            if original_dtype is not None and original_dtype != torch.float32:
+                block.to(dtype=original_dtype)
             self.clear_memory()
 
         print("OmniQuant: Weight optimization completed.")
@@ -679,17 +695,25 @@ class OmniQuantizer:
             print("Warning: lm_head not found in model, skipping lm_head calibration.")
 
         if lm_head is not None:
+            # Same FP32/BF16 hazard as the block loops: the calibration math is
+            # float32 while a BF16 checkpoint keeps lm_head and the final norm
+            # in BF16.
+            lm_head_dtype = self._floating_dtype(lm_head)
+            final_norm = getattr(self.model, 'final_layernorm', None)
+            final_norm_dtype = self._floating_dtype(final_norm) if final_norm is not None else None
+            lm_head.float()
             lm_head.to(self.best_device)
-            if hasattr(self.model, 'final_layernorm'):
-                self.model.final_layernorm.to(self.best_device)
+            if final_norm is not None:
+                final_norm.float()
+                final_norm.to(self.best_device)
 
             lm_head_ops = {'lm_head': lm_head}
 
             for inp, kw in calib_inputs:
                 inp_gpu = inp.to(self.best_device)
                 with torch.no_grad():
-                    if hasattr(self.model, 'final_layernorm'):
-                        hidden_states = self.model.final_layernorm(inp_gpu)
+                    if final_norm is not None:
+                        hidden_states = final_norm(inp_gpu)
                     else:
                         hidden_states = inp_gpu
 
@@ -697,8 +721,12 @@ class OmniQuantizer:
                 del inp_gpu, hidden_states
 
             lm_head.to("cpu")
-            if hasattr(self.model, 'final_layernorm'):
-                self.model.final_layernorm.to("cpu")
+            if lm_head_dtype is not None and lm_head_dtype != torch.float32:
+                lm_head.to(dtype=lm_head_dtype)
+            if final_norm is not None:
+                final_norm.to("cpu")
+                if final_norm_dtype is not None and final_norm_dtype != torch.float32:
+                    final_norm.to(dtype=final_norm_dtype)
             self.clear_memory()
 
     def _collect_feature_map_optimized(self):
@@ -719,6 +747,10 @@ class OmniQuantizer:
 
         for idx in tqdm(range(len(self.modules)), desc="Collecting Feature Map Info"):
             block = self.modules[idx]
+            original_dtype = self._floating_dtype(block)
+            # Calibration math is implemented in float32; normalize BF16
+            # checkpoints before collecting activation ranges.
+            block.float()
             self.to_device(block, self.best_device)
 
             target_ops = SmoothQuantizer.get_all_leaf_modules(block)
@@ -754,6 +786,8 @@ class OmniQuantizer:
 
             if "cpu" != self.best_device:
                 self.to_device(block, "cpu")
+            if original_dtype is not None and original_dtype != torch.float32:
+                block.to(dtype=original_dtype)
             self.clear_memory()
 
         # Collect lm_head info if needed
@@ -812,13 +846,68 @@ class OmniQuantizer:
 
         DATA_SELECT_OPS = ['Gather', 'GatherV2', 'GatherND']
 
+        # Keep index/shape tensors out of activation quantization.  In
+        # particular, position_ids is INT32 and must not become the input of a
+        # QNN Reshape whose output is UFIXED_POINT_16.
+        protected = set()
+        integer_types = {
+            'DT_INT8', 'DT_INT16', 'DT_INT32', 'DT_INT64',
+            'DT_UINT8', 'DT_UINT16', 'DT_UINT32', 'DT_UINT64',
+        }
+        for op in mnn_ops:
+            op_type = op.get('type', '')
+            inputs = op.get('inputIndexes', [])
+            outputs = op.get('outputIndexes', [])
+            main = op.get('main') or {}
+            if op_type == 'Input' and main.get('dtype') in integer_types:
+                protected.update(outputs)
+            elif op_type == 'Const' and main.get('dataType') in integer_types:
+                protected.update(outputs)
+            elif op_type in {'Shape', 'Rank', 'Size'}:
+                protected.update(outputs)
+            if op_type == 'Reshape' and len(inputs) > 1:
+                protected.update(inputs[1:])
+            elif op_type in DATA_SELECT_OPS and len(inputs) > 1:
+                protected.update(inputs[1:])
+
+        # Propagate the protected marker through shape/index-only arithmetic.
+        changed_protected = True
+        while changed_protected:
+            changed_protected = False
+            for op in mnn_ops:
+                op_type = op.get('type', '')
+                inputs = op.get('inputIndexes', [])
+                outputs = op.get('outputIndexes', [])
+                if not inputs or not outputs:
+                    continue
+                if op_type in PASS_THROUGH_OPS:
+                    # For Reshape/Slice/etc. only the data input determines
+                    # the output type; shape/axis inputs must not contaminate
+                    # the feature-map output.
+                    mark = inputs[0] in protected
+                elif op_type in {'BinaryOp', 'UnaryOp'}:
+                    mark = any(index in protected for index in inputs)
+                else:
+                    mark = False
+                if mark:
+                    for index in outputs:
+                        if index not in protected:
+                            protected.add(index)
+                            changed_protected = True
+
+        for index in protected:
+            quant_info_dict.pop(index, None)
+
         print("Start propagating quantization parameters...")
         changed = True
         pass_round = 0
 
+        max_passes = len(mnn_ops) + 1
         while changed:
             changed = False
             pass_round += 1
+            if pass_round > max_passes:
+                raise RuntimeError("Quantization parameter propagation did not converge")
             update_count = 0
 
             for op in mnn_ops:
@@ -832,15 +921,16 @@ class OmniQuantizer:
                 if op_type in PASS_THROUGH_OPS:
                     source_info = None
                     for inp_idx in inputs:
-                        if inp_idx in quant_info_dict:
+                        if inp_idx in quant_info_dict and inp_idx not in protected:
                             source_info = quant_info_dict[inp_idx]
                             break
 
                     if source_info:
                         for out_idx in outputs:
-                            if out_idx not in quant_info_dict:
-                                quant_info_dict[out_idx] = copy.deepcopy(source_info)
-                                quant_info_dict[out_idx]['index'] = out_idx # 修正 index
+                            if out_idx not in protected and out_idx not in quant_info_dict:
+                                new_info = copy.deepcopy(source_info)
+                                new_info['index'] = out_idx
+                                quant_info_dict[out_idx] = new_info
                                 changed = True
                                 update_count += 1
 
@@ -852,9 +942,10 @@ class OmniQuantizer:
 
                     if target_info:
                         for inp_idx in inputs:
-                            if inp_idx not in quant_info_dict:
-                                quant_info_dict[inp_idx] = copy.deepcopy(target_info)
-                                quant_info_dict[inp_idx]['index'] = inp_idx
+                            if inp_idx not in quant_info_dict and inp_idx not in protected:
+                                new_info = copy.deepcopy(target_info)
+                                new_info['index'] = inp_idx
+                                quant_info_dict[inp_idx] = new_info
                                 changed = True
                                 update_count += 1
 
@@ -863,26 +954,31 @@ class OmniQuantizer:
                     out_idx = outputs[0]
 
                     # Forward: Data -> Output
-                    if data_idx in quant_info_dict and out_idx not in quant_info_dict:
-                        quant_info_dict[out_idx] = copy.deepcopy(quant_info_dict[data_idx])
-                        quant_info_dict[out_idx]['index'] = out_idx
-                        changed = True
-                        update_count += 1
+                    if data_idx in quant_info_dict and out_idx not in protected:
+                        source_info = quant_info_dict[data_idx]
+                        output_info = quant_info_dict.get(out_idx)
+                        if output_info is None or output_info.get('quantInfo') != source_info.get('quantInfo'):
+                            quant_info_dict[out_idx] = copy.deepcopy(source_info)
+                            quant_info_dict[out_idx]['index'] = out_idx
+                            changed = True
+                            update_count += 1
 
-                    # Backward: Output -> Data
-                    if out_idx in quant_info_dict and data_idx not in quant_info_dict:
-                        quant_info_dict[data_idx] = copy.deepcopy(quant_info_dict[out_idx])
-                        quant_info_dict[data_idx]['index'] = data_idx
-                        changed = True
-                        update_count += 1
+                    # Do not propagate Gather output parameters back to the
+                    # data input: QNN requires Gather data/output parameters to
+                    # match, while the indices input is always unquantized.
 
                 elif op_type == 'BinaryOp':
                     out_idx = outputs[0]
-
-                    if out_idx in quant_info_dict:
+                    binary_type = (op.get('main') or {}).get('opType', '')
+                    # Multiplication changes the value range. Neither operand
+                    # nor the product can safely inherit the other's scale;
+                    # retain only independently calibrated parameters.
+                    if binary_type == 'MUL':
+                        continue
+                    if out_idx in quant_info_dict and out_idx not in protected:
                         target_info = quant_info_dict[out_idx]
                         for inp_idx in inputs:
-                            if inp_idx not in quant_info_dict:
+                            if inp_idx not in quant_info_dict and inp_idx not in protected:
                                 quant_info_dict[inp_idx] = copy.deepcopy(target_info)
                                 quant_info_dict[inp_idx]['index'] = inp_idx
                                 changed = True
@@ -891,8 +987,10 @@ class OmniQuantizer:
                     else:
                         scales = []
                         valid_inputs = []
+                        if out_idx in protected:
+                            continue
                         for inp_idx in inputs:
-                            if inp_idx in quant_info_dict:
+                            if inp_idx in quant_info_dict and inp_idx not in protected:
                                 scales.append(quant_info_dict[inp_idx]['quantInfo']['scale'])
                                 valid_inputs.append(inp_idx)
 
