@@ -58,6 +58,10 @@ int main(int argc, const char* argv[]) {
 
     std::unique_ptr<Llm> llmA(Llm::createLLM(argv[1]));
     std::unique_ptr<Llm> llmB(Llm::createLLM(argv[2]));
+    if (!llmA || !llmB) {
+        fprintf(stderr, "Cannot open LLM model: %s\n", !llmA ? argv[1] : argv[2]);
+        return 1;
+    }
     llmA->set_config("{\"tmp_path\":\"tmp_diff_a\", \"all_logits\":false}");
     llmB->set_config("{\"tmp_path\":\"tmp_diff_b\", \"all_logits\":false}");
     if (!llmA->load() || !llmB->load()) {

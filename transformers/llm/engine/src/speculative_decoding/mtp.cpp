@@ -25,7 +25,8 @@ bool MtpGeneration::load(Module::Config module_config) {
     std::vector<std::string> inputNames{"input_embed", "hidden_states", "attention_mask", \
         "position_ids", "logits_index"};
     std::vector<std::string> outputNames {"logits"};
-    mMtpModules[0].reset(Module::load(inputNames, outputNames, mtp_path.c_str(), mLlm->mRuntimeManager, &module_config));
+    mMtpModules[0].reset(
+        mLlm->mConfig->loadModule(inputNames, outputNames, mtp_path, mLlm->mRuntimeManager, &module_config));
     if (mMtpModules[0] == nullptr) {
         MNN_ERROR("MTP: failed to load mtp model %s\n", mtp_path.c_str());
         return false;

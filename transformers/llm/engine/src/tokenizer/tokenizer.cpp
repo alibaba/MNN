@@ -9,6 +9,7 @@
 #define MNN_OPEN_TIME_TRACE 1
 #include <MNN/AutoTime.hpp>
 #include "tokenizer.hpp"
+#include "core/FileLoader.hpp"
 #ifdef LLM_USE_JINJA
 #include "jinja.hpp"
 #include "../ujson.hpp"
@@ -73,83 +74,59 @@ static inline void to_lower_case(std::string& str) {
 }
 
 Tokenizer* Tokenizer::createTokenizer(const std::string& filename) {
-    // AUTOTIME;
-    Tokenizer* tokenizer = nullptr;
-    // check file
-    std::ifstream tok_file(filename);
-    if (!tok_file.good()) {
-        printf("Failed: can't load tokenzier from: %s.\n", filename.c_str());
-        return tokenizer;
-    }
-    // check tokenizer info
-    std::string line;
-    std::getline(tok_file, line);
-    std::istringstream line_str(line);
-    int magic_number, tokenizer_type;
-    line_str >> magic_number;
-    if (magic_number != MAGIC_NUMBER) {
-        printf("Failed: magic number is wrong from: %s.\n", filename.c_str());
-        return tokenizer;
-    }
-    line_str >> tokenizer_type;
-    if (tokenizer_type == PIPELINE) {
-        // .mtok binary format (PipelineTokenizer)
-        tok_file.close();
-        // Reopen from the beginning in binary mode instead of reusing a
-        // text-mode tellg() position, that position isn't guaranteed to
-        // line up with a byte offset in a separately-opened stream on
-        // Windows/MSVC.
-        auto* pt = new PipelineTokenizer();
-        tokenizer = pt;
-        std::ifstream bin_file(filename, std::ios::binary);
-        std::string bin_line;
-        std::getline(bin_file, bin_line);   // re-consume the magic/type line
-        tokenizer->load_special(bin_file);
-        // Callers only test the returned pointer for null: a vocab that failed to
-        // parse must not come back as a half-initialized tokenizer.
-        if (!pt->load_vocab_binary(bin_file)) {
-            printf("Failed: malformed binary vocab in: %s.\n", filename.c_str());
-            delete pt;
-            return nullptr;
-        }
-        bin_file.close();
-        tokenizer->cache_special_tokens();
-        return tokenizer;
-    }
-    // create tokenizer
-    switch (tokenizer_type)
-    {
-        case SENTENCEPIECE:
-            tokenizer = new Sentencepiece();
-            break;
-        case TIKTOIKEN:
-            tokenizer = new Tiktoken();
-            break;
-        case BERT:
-            tokenizer = new BertTokenizer();
-            break;
-        case HUGGINGFACE:
-            tokenizer = new HuggingfaceTokenizer();
-            break;
-        default:
-            return tokenizer;
-    }
-    // load special tokens
-    tokenizer->load_special(tok_file);
-    // load vocabs
-    if (!tokenizer->load_vocab(tok_file)) {
-        printf("Failed: malformed text vocab in: %s.\n", filename.c_str());
-        delete tokenizer;
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        MNN_ERROR("Failed: can't load tokenizer from: %s.\n", filename.c_str());
         return nullptr;
     }
-    tok_file.close();
-    tokenizer->cache_special_tokens();
+    auto tokenizer = createTokenizer(file);
+    if (!tokenizer) {
+        MNN_ERROR("Failed: malformed tokenizer in: %s.\n", filename.c_str());
+    }
     return tokenizer;
+}
+
+Tokenizer* Tokenizer::createTokenizer(std::istream& file) {
+    std::string line;
+    if (!std::getline(file, line)) {
+        return nullptr;
+    }
+    std::istringstream header(line);
+    int magic = 0, type = -1;
+    if (!(header >> magic >> type) || magic != MAGIC_NUMBER) {
+        return nullptr;
+    }
+    std::unique_ptr<Tokenizer> tokenizer;
+    switch (type) {
+        case SENTENCEPIECE:
+            tokenizer.reset(new Sentencepiece);
+            break;
+        case TIKTOIKEN:
+            tokenizer.reset(new Tiktoken);
+            break;
+        case BERT:
+            tokenizer.reset(new BertTokenizer);
+            break;
+        case HUGGINGFACE:
+            tokenizer.reset(new HuggingfaceTokenizer);
+            break;
+        case PIPELINE:
+            tokenizer.reset(new PipelineTokenizer);
+            break;
+        default:
+            return nullptr;
+    }
+    if (!tokenizer->load_special(file) || !tokenizer->load_vocab(file)) {
+        return nullptr;
+    }
+    tokenizer->cache_special_tokens();
+    return tokenizer.release();
 }
 
 std::string Tokenizer::decode(const std::vector<int>& ids) {
     std::string result;
-    for (int id : ids) result += decode(id);
+    for (int id : ids)
+        result += decode(id);
     return result;
 }
 
@@ -157,39 +134,85 @@ bool Tokenizer::is_stop(int token) {
     return std::find(stop_tokens_.begin(), stop_tokens_.end(), token) != stop_tokens_.end();
 }
 
+Tokenizer* Tokenizer::createTokenizer(const LlmResources::Resource& source) {
+    if (!source.valid() || ((source.data || source.bounded) && source.size > INT_MAX)) {
+        return nullptr;
+    }
+    if (!source.data && !source.bounded) {
+        return createTokenizer(source.path);
+    }
+    AutoStorage<uint8_t> buffer;
+    const uint8_t* data = source.data;
+    if (!data) {
+        FileLoader loader(source.filePath().c_str());
+        if (!loader.read() || !loader.merge(buffer)) {
+            return nullptr;
+        }
+        data = buffer.get();
+    }
+    // std::istream reads this view without copying or modifying the source bytes.
+    class MemoryBuffer : public std::streambuf {
+    public:
+        MemoryBuffer(const uint8_t* data, size_t size) {
+            auto begin = const_cast<char*>(reinterpret_cast<const char*>(data));
+            setg(begin, begin, begin + size);
+        }
+
+    protected:
+        pos_type seekoff(off_type offset, std::ios_base::seekdir way, std::ios_base::openmode mode) override {
+            if (!(mode & std::ios_base::in) || (mode & std::ios_base::out)) {
+                return pos_type(off_type(-1));
+            }
+            const off_type size = egptr() - eback();
+            const off_type base = way == std::ios_base::beg ? 0 : way == std::ios_base::cur ? gptr() - eback() : size;
+            if (offset < -base || offset > size - base) {
+                return pos_type(off_type(-1));
+            }
+            setg(eback(), eback() + base + offset, egptr());
+            return pos_type(base + offset);
+        }
+        pos_type seekpos(pos_type pos, std::ios_base::openmode mode) override {
+            return seekoff(off_type(pos), std::ios_base::beg, mode);
+        }
+    } view(data, static_cast<size_t>(source.size));
+    std::istream file(&view);
+    return createTokenizer(file);
+}
+
 bool Tokenizer::is_special(int token) {
     return std::find(special_tokens_.begin(), special_tokens_.end(), token) != special_tokens_.end();
 }
 
-void Tokenizer::load_special(std::ifstream& tok_file) {
-    std::string line;
-    std::getline(tok_file, line);
-    std::istringstream line_str(line);
-    int special_num, stop_num, prefix_num;
-    line_str >> special_num >> stop_num >> prefix_num;
-    std::getline(tok_file, line);
-    std::istringstream specail_line(line);
-    if (special_num) {
-        // load special tokens
-        special_tokens_.resize(special_num);
-        for (int i = 0; i < special_num; i++) {
-            specail_line >> special_tokens_[i];
+bool Tokenizer::load_special(std::istream& file) {
+    std::string sizes, ids;
+    if (!std::getline(file, sizes) || !std::getline(file, ids)) {
+        return false;
+    }
+    int counts[3] = {};
+    std::istringstream sizesStream(sizes), idsStream(ids);
+    if (!(sizesStream >> counts[0] >> counts[1] >> counts[2])) {
+        return false;
+    }
+    size_t total = 0;
+    for (int count : counts) {
+        if (count < 0 || size_t(count) > ids.size()) {
+            return false;
+        }
+        total += size_t(count);
+    }
+    if (total > ids.size()) {
+        return false;
+    }
+    std::vector<int>* groups[] = {&special_tokens_, &stop_tokens_, &prefix_tokens_};
+    for (int group = 0; group < 3; ++group) {
+        groups[group]->resize(counts[group]);
+        for (int& id : *groups[group]) {
+            if (!(idsStream >> id) || id < 0) {
+                return false;
+            }
         }
     }
-    if (stop_num) {
-        // load stop tokens
-        stop_tokens_.resize(stop_num);
-        for (int i = 0; i < stop_num; i++) {
-            specail_line >> stop_tokens_[i];
-        }
-    }
-    if (prefix_num) {
-        // load prefix tokens
-        prefix_tokens_.resize(prefix_num);
-        for (int i = 0; i < prefix_num; i++) {
-            specail_line >> prefix_tokens_[i];
-        }
-    }
+    return true;
 }
 
 void Tokenizer::cache_special_tokens() {
@@ -269,7 +292,7 @@ std::vector<int> Tokenizer::encode(const std::string& str, bool with_post_proces
     return ids;
 }
 
-bool Sentencepiece::load_vocab(std::ifstream& tok_file) {
+bool Sentencepiece::load_vocab(std::istream& tok_file) {
     AUTOTIME;
     std::string line;
     if (!std::getline(tok_file, line)) return false;
@@ -524,7 +547,7 @@ bool Sentencepiece::is_control(int id) const {
     return sentence_pieces_[id].type == PieceType::CONTROL;
 }
 
-bool Tiktoken::load_vocab(std::ifstream& tok_file) {
+bool Tiktoken::load_vocab(std::istream& tok_file) {
     std::string line;
     std::getline(tok_file, line);
     int vocab_len = std::stoi(line);
@@ -561,7 +584,7 @@ std::string Tiktoken::decode(int id) {
     return decoder_[id];
 }
 
-bool BertTokenizer::load_vocab(std::ifstream& tok_file) {
+bool BertTokenizer::load_vocab(std::istream& tok_file) {
     std::string line;
     std::getline(tok_file, line);
     int vocab_len = std::stoi(line);
@@ -822,7 +845,7 @@ void byte_encode_token(const std::string& token,
     }
 }
 
-bool HuggingfaceTokenizer::load_vocab(std::ifstream& tok_file) {
+bool HuggingfaceTokenizer::load_vocab(std::istream& tok_file) {
     std::string line;
     line.reserve(256); // Reduce allocation during getline
 
@@ -2196,7 +2219,6 @@ static inline StringView read_token(const char*& p, const char* line_end) {
     return {start, (size_t)(p - start)};
 }
 
-bool PipelineTokenizer::load_vocab(std::ifstream& file) { return false; }
 
 
 // ==========================================
@@ -2245,34 +2267,80 @@ static inline StringRef read_str_ref(const char*& p) {
 }
 
 // ==========================================
-// load_vocab_binary - binary .mtok format
+// load_vocab - binary .mtok format
 // ==========================================
-bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
+bool PipelineTokenizer::load_vocab(std::istream& file) {
     // Fast file read: seek to get size, then read all at once
     auto cur_pos = file.tellg();
     file.seekg(0, std::ios::end);
     auto end_pos = file.tellg();
+    if (cur_pos < 0 || end_pos <= cur_pos) {
+        return false;
+    }
     size_t remaining = (size_t)(end_pos - cur_pos);
     file.seekg(cur_pos);
     binary_buf_.resize(remaining);
     file.read(&binary_buf_[0], remaining);
+    if (!file) {
+        return false;
+    }
     const char* ptr = binary_buf_.c_str();
+    const char* buf_end = ptr + binary_buf_.size();
+    bool valid = true;
+    auto available = [&](const char*& p, size_t count) -> bool {
+        if (count > size_t(buf_end - p)) {
+            valid = false;
+            p = buf_end;
+            return false;
+        }
+        return true;
+    };
+    auto read_u8 = [&](const char*& p) -> uint8_t { return available(p, 1) ? MNN::Transformer::read_u8(p) : 0; };
+    auto read_u16 = [&](const char*& p) -> uint16_t { return available(p, 2) ? MNN::Transformer::read_u16(p) : 0; };
+    auto read_u32 = [&](const char*& p) -> uint32_t { return available(p, 4) ? MNN::Transformer::read_u32(p) : 0; };
+    auto read_f64 = [&](const char*& p) -> double { return available(p, 8) ? MNN::Transformer::read_f64(p) : 0; };
+    auto read_str_ref = [&](const char*& p) -> StringRef {
+        const uint16_t length = read_u16(p);
+        if (!available(p, length)) {
+            return {"", 0};
+        }
+        StringRef value = {p, length};
+        p += length;
+        return value;
+    };
+    auto read_str = [&](const char*& p) -> std::string {
+        const auto value = read_str_ref(p);
+        return std::string(value.ptr, value.len);
+    };
+    struct DepthGuard {
+        int& depth;
+        explicit DepthGuard(int& value) : depth(value) { ++depth; }
+        ~DepthGuard() { --depth; }
+    };
+    int depth = 0;
 
     // --- Normalizer ---
-    auto read_norm_table = [](const char*& p) -> std::vector<std::pair<uint32_t, std::string>> {
+    auto read_norm_table = [&](const char*& p) -> std::vector<std::pair<uint32_t, std::string>> {
         uint32_t count = read_u32(p);
         std::vector<std::pair<uint32_t, std::string>> table;
+        if (count > size_t(buf_end - p) / 6) {
+            valid = false;
+            return table;
+        }
         table.reserve(count);
-        for (uint32_t i = 0; i < count; i++) {
+        for (uint32_t i = 0; i < count && valid; i++) {
             uint32_t cp = read_u32(p);
-            uint16_t len = read_u16(p);
-            table.push_back({cp, std::string(p, len)});
-            p += len;
+            table.push_back({cp, read_str(p)});
         }
         return table;
     };
     std::function<std::unique_ptr<Normalizer>(const char*&)> read_normalizer_bin;
     read_normalizer_bin = [&](const char*& p) -> std::unique_ptr<Normalizer> {
+        DepthGuard guard(depth);
+        if (depth > 32) {
+            valid = false;
+            return nullptr;
+        }
         uint8_t type = read_u8(p);
         switch (type) {
             case 0: return nullptr;
@@ -2282,8 +2350,12 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                        return make_unique_<ReplaceNormalizer>(pat, content); }
             case 4: {
                 uint32_t count = read_u32(p);
+                if (count > size_t(buf_end - p)) {
+                    valid = false;
+                    return nullptr;
+                }
                 std::vector<std::shared_ptr<Normalizer>> norms;
-                for (uint32_t i = 0; i < count; i++) {
+                for (uint32_t i = 0; i < count && valid; i++) {
                     auto child = read_normalizer_bin(p);
                     if (!child) {
                         MNN_ERROR("[Tokenizer] Skip null normalizer in sequence.\n");
@@ -2322,15 +2394,25 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                 uint8_t strip_right = read_u8(p);
                 return make_unique_<StripNormalizer>((bool)strip_left, (bool)strip_right);
             }
-            default: break;
+            default:
+                valid = false;
+                break;
         }
         return nullptr;
     };
     normalizer_ = read_normalizer_bin(ptr);
+    if (!valid) {
+        return false;
+    }
 
     // --- PreTokenizer ---
     std::function<std::unique_ptr<PreTokenizer>(const char*&)> read_pre_tokenizer_bin;
     read_pre_tokenizer_bin = [&](const char*& p) -> std::unique_ptr<PreTokenizer> {
+        DepthGuard guard(depth);
+        if (depth > 32) {
+            valid = false;
+            return nullptr;
+        }
         uint8_t type = read_u8(p);
         switch (type) {
             case 0: return nullptr;
@@ -2344,8 +2426,12 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
             case 5: return make_unique_<BertPreTokenizer>();
             case 6: {
                 uint32_t count = read_u32(p);
+                if (count > size_t(buf_end - p)) {
+                    valid = false;
+                    return nullptr;
+                }
                 std::vector<std::shared_ptr<PreTokenizer>> pts;
-                for (uint32_t i = 0; i < count; i++) {
+                for (uint32_t i = 0; i < count && valid; i++) {
                     auto child = read_pre_tokenizer_bin(p);
                     if (!child) {
                         MNN_ERROR("[Tokenizer] Skip null pre-tokenizer in sequence.\n");
@@ -2355,11 +2441,16 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                 }
                 return make_unique_<SequencePreTokenizer>(pts);
             }
-            default: break;
+            default:
+                valid = false;
+                break;
         }
         return nullptr;
     };
     pre_tokenizer_ = read_pre_tokenizer_bin(ptr);
+    if (!valid) {
+        return false;
+    }
 
     // --- Model --- (zero-copy: StringRef points into buf)
     {
@@ -2371,6 +2462,10 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
             uint8_t byte_level = read_u8(ptr);
             uint32_t merge_size = read_u32(ptr);
             (void)byte_fallback;
+            if (!valid || vocab_size > size_t(buf_end - ptr) / 6 ||
+                merge_size > (size_t(buf_end - ptr) - size_t(vocab_size) * 6) / 12) {
+                return false;
+            }
 
             // Vocab stored sorted by string: [len][bytes][uint32 id]
             std::vector<StringRef> id_to_token(vocab_size);
@@ -2400,6 +2495,9 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
             std::string unk_token = read_str(ptr);
             std::string prefix = read_str(ptr);
             uint32_t max_chars = read_u32(ptr);
+            if (!valid || vocab_size > size_t(buf_end - ptr) / 6) {
+                return false;
+            }
             auto wp = make_unique_<WordPieceModel>(unk_token, prefix, (int)max_chars);
 
             std::vector<StringRef> id_to_token(vocab_size);
@@ -2419,6 +2517,9 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
         } else if (type == 2) { // Unigram
             uint32_t unk_id = read_u32(ptr);
             uint8_t byte_fallback = read_u8(ptr);
+            if (!valid || vocab_size > size_t(buf_end - ptr) / 14) {
+                return false;
+            }
             auto ug = make_unique_<UnigramModel>((int)unk_id, (bool)byte_fallback);
 
             std::vector<StringRef> id_to_token(vocab_size);
@@ -2438,12 +2539,22 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
             }
             ug->load_direct_sorted(std::move(id_to_token), std::move(scores), std::move(sorted_vocab));
             model_ = std::move(ug);
+        } else {
+            return false;
         }
     }
 
+    if (!valid) {
+        return false;
+    }
     // --- Decoder ---
     std::function<std::unique_ptr<TokenDecoder>(const char*&)> read_decoder_bin;
     read_decoder_bin = [&](const char*& p) -> std::unique_ptr<TokenDecoder> {
+        DepthGuard guard(depth);
+        if (depth > 32) {
+            valid = false;
+            return nullptr;
+        }
         uint8_t type = read_u8(p);
         switch (type) {
             case 0: byte_level_ = true; return make_unique_<ByteLevelDecoder>();
@@ -2460,8 +2571,12 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                        return make_unique_<StripDecoder>(content, (int)start, (int)stop); }
             case 7: {
                 uint32_t count = read_u32(p);
+                if (count > size_t(buf_end - p)) {
+                    valid = false;
+                    return nullptr;
+                }
                 std::vector<std::shared_ptr<TokenDecoder>> decs;
-                for (uint32_t i = 0; i < count; i++) {
+                for (uint32_t i = 0; i < count && valid; i++) {
                     auto child = read_decoder_bin(p);
                     if (!child) {
                         MNN_ERROR("[Tokenizer] Skip null decoder in sequence.\n");
@@ -2471,16 +2586,24 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                 }
                 return make_unique_<SequenceDecoder>(decs);
             }
-            default: break;
+            default:
+                valid = false;
+                break;
         }
         return nullptr;
     };
     decoder_ = read_decoder_bin(ptr);
+    if (!valid) {
+        return false;
+    }
 
     // --- Added Tokens ---
     {
         uint32_t count = read_u32(ptr);
-        for (uint32_t i = 0; i < count; i++) {
+        if (count > size_t(buf_end - ptr) / 9) {
+            return false;
+        }
+        for (uint32_t i = 0; i < count && valid; i++) {
             uint32_t id = read_u32(ptr);
             uint8_t special = read_u8(ptr);
             uint8_t lstrip = read_u8(ptr);
@@ -2495,15 +2618,20 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
     }
 
     // --- Chat Template (optional) ---
-    const char* buf_end = binary_buf_.c_str() + binary_buf_.size();
     if (ptr < buf_end) {
         uint32_t tpl_len = read_u32(ptr);
+        if (!available(ptr, tpl_len)) {
+            return false;
+        }
         if (tpl_len > 0) {
             chat_template_ = std::string(ptr, tpl_len);
             ptr += tpl_len;
         }
         if (ptr < buf_end) {
             uint16_t eos_len = read_u16(ptr);
+            if (!available(ptr, eos_len)) {
+                return false;
+            }
             if (eos_len > 0) {
                 chat_template_eos_ = std::string(ptr, eos_len);
                 ptr += eos_len;
@@ -2520,6 +2648,9 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
     // --- BOS token (optional) ---
     if (ptr < buf_end) {
         uint16_t bos_len = read_u16(ptr);
+        if (!available(ptr, bos_len)) {
+            return false;
+        }
         if (bos_len > 0) {
             chat_template_bos_ = std::string(ptr, bos_len);
             ptr += bos_len;
@@ -2537,14 +2668,14 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
             PostProcessorOp sequenceA;
             sequenceA.type = Tokenizer::POST_OP_SEQUENCE_A;
             post_single_ops_.push_back(sequenceA);
-            for (uint16_t i = 0; i < post_single_count && ptr < buf_end; ++i) {
+            for (uint16_t i = 0; i < post_single_count; ++i) {
                 PostProcessorOp op;
                 op.type = Tokenizer::POST_OP_SPECIAL_TOKEN;
                 op.token_id = (int)read_u32(ptr);
                 post_single_ops_.push_back(op);
             }
         } else {
-            for (uint16_t i = 0; i < post_single_count && ptr < buf_end; ++i) {
+            for (uint16_t i = 0; i < post_single_count; ++i) {
                 uint8_t op_type = read_u8(ptr);
                 if (op_type == Tokenizer::POST_OP_SEQUENCE_A) {
                     PostProcessorOp op;
@@ -2553,7 +2684,7 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                     post_single_ops_.push_back(op);
                     continue;
                 }
-                if (op_type == Tokenizer::POST_OP_SPECIAL_TOKEN && ptr + sizeof(uint32_t) <= buf_end) {
+                if (op_type == Tokenizer::POST_OP_SPECIAL_TOKEN && size_t(buf_end - ptr) >= sizeof(uint32_t)) {
                     PostProcessorOp op;
                     op.type = op_type;
                     op.token_id = (int)read_u32(ptr);
@@ -2561,12 +2692,12 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                     continue;
                 }
                 MNN_ERROR("[Tokenizer] Unsupported post-processor op type %u.\n", op_type);
-                break;
+                return false;
             }
         }
     }
 
-    return true;
+    return valid;
 }
 
 } // namespace Transformer

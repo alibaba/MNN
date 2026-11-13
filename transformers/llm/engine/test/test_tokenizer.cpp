@@ -47,7 +47,7 @@ public:
     std::string decode(int id) override { return std::to_string(id); }
 
 protected:
-    bool load_vocab(std::ifstream&) override { return true; }
+    bool load_vocab(std::istream&) override { return true; }
     void encode(const std::string&, std::vector<int>&) override {}
 };
 

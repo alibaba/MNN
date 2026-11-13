@@ -1,3 +1,4 @@
+from .package_writer import register_file_region
 import os
 import torch
 torch.set_printoptions(precision=4, sci_mode=False)
@@ -69,7 +70,7 @@ class Talker(torch.nn.Module):
         embedding_file = f'{self.args.dst_path}/talker_embeddings_bf16.bin'
         with open(embedding_file, 'wb') as f:
             f.write(buffer)
-        return embedding_file
+        return register_file_region(self.args, embedding_file)
 
 class OmniRotary(Rotary):
     def __init__(self, model):
@@ -330,7 +331,7 @@ class Qwen3TTSAudioCodePredictor(torch.nn.Module):
         embedding_file = f'{self.args.dst_path}/code_predictor_embeddings_bf16.bin'
         with open(embedding_file, 'wb') as f:
             f.write(buffer)
-        return embedding_file
+        return register_file_region(self.args, embedding_file)
 
     def unload_param(self):
         self.unloaded_ops = {}
@@ -527,7 +528,7 @@ class Qwen3TTSTalker(Talker):
         embedding_file = f'{self.args.dst_path}/talker_text_embeddings_bf16.bin'
         with open(embedding_file, 'wb') as f:
             f.write(buffer)
-        return embedding_file
+        return register_file_region(self.args, embedding_file)
 
     def unload_param(self):
         self.unloaded_ops = {}

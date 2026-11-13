@@ -18,7 +18,8 @@
 #include <fstream>
 #include <MNN/MNNDefine.h>
 #include "ujson.hpp"
-
+#include "llm/llm.hpp"
+#include "core/FileLoader.hpp"
 
 namespace MNN {
 namespace Transformer {
@@ -46,29 +47,126 @@ static inline std::string file_name(const std::string& path) {
     }
 }
 
+bool tryOpenLlmFile(const std::string& path, std::shared_ptr<LlmResources>& result);
+bool tryReadLlmPackage(const std::string& path, std::shared_ptr<LlmResources>& result);
 
 class LlmConfig {
 public:
     std::string base_dir_;
     ujson::json config_, mllm_config_, cur_config_;
     LlmConfig() {}
-    LlmConfig(const LlmConfig& other)
-        : base_dir_(other.base_dir_),
-          config_(other.config_),
-          mllm_config_(other.mllm_config_),
-          cur_config_(other.cur_config_) {}
+    std::shared_ptr<LlmResources> resources_;
+    LlmResources::Policy resource_policy_;
+
+    explicit LlmConfig(std::shared_ptr<LlmResources> provider) : resources_(std::move(provider)) {
+        resource_policy_ = resources_->policy();
+        const auto runtime = resources_->resource("config.json");
+        config_ = runtime.valid() ? readConfig(runtime) : ujson::json::object();
+        if (!config_.is_object()) {
+            return;
+        }
+        base_dir_ = config_.value("base_dir", "");
+        if (!base_dir_.empty() && base_dir_.back() != '/') {
+            base_dir_ += '/';
+        }
+        const auto model = readConfig(resource(llm_config()));
+        if (!model.is_object()) {
+            config_ = ujson::json();
+            return;
+        }
+        config_.merge(model);
+        const auto context = readConfig(resource(context_file()));
+        if (!context.is_null()) {
+            ujson::json patch = ujson::json::object();
+            patch["jinja"]["context"] = context;
+            config_.merge(patch);
+        }
+        mllm_config_ = config_.contains("mllm") ? config_["mllm"] : ujson::json();
+    }
+
+    LlmResources::Resource resource(const std::string& path) const {
+        if (resources_) {
+            const auto name = relativeResourcePath("", path);
+            return name.empty() ? LlmResources::Resource() : resources_->resource(name);
+        }
+        LlmResources::Resource result;
+        result.path = path;
+        return result;
+    }
+
+    Express::Module* loadModule(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                                const std::string& path,
+                                const std::shared_ptr<Express::Executor::RuntimeManager>& runtime,
+                                const Express::Module::Config* config, const std::string& weight = "") const;
+    std::map<std::string, Express::VARP> loadVariables(const std::string& path) const;
+
+    // Resolve virtual paths independently of the host filesystem.
+    static std::string relativeResourcePath(const std::string& root, const std::string& name) {
+        auto relative = [](const std::string& s) {
+            return !s.empty() && s.find_first_of("/\\") != 0 && s.find(':') == std::string::npos &&
+                   s.find('\0') == std::string::npos;
+        };
+        if (!relative(name) || (!root.empty() && !relative(root))) {
+            return {};
+        }
+        const auto path = root.empty() ? name : root + "/" + name;
+        std::string result;
+        for (size_t start = 0; start < path.size();) {
+            const auto end = path.find_first_of("/\\", start);
+            const auto part = path.substr(start, end - start);
+            if (part == "..") {
+                if (result.empty()) {
+                    return {};
+                }
+                const auto slash = result.rfind('/');
+                result.resize(slash == std::string::npos ? 0 : slash);
+            } else if (!part.empty() && part != ".") {
+                if (!result.empty()) {
+                    result += '/';
+                }
+                result += part;
+            }
+            if (end == std::string::npos) {
+                break;
+            }
+            start = end + 1;
+        }
+        return result;
+    }
+
+    bool needsEmbeddingFile() const {
+        const auto tie = tie_embeddings_info();
+        return !tie.valid || tie.weight_offset == 0;
+    }
+    static ujson::json readConfig(const LlmResources::Resource& source) {
+        if (!source.valid() || ((source.data || source.bounded) && source.size > std::numeric_limits<int>::max())) {
+            return ujson::json();
+        }
+        AutoStorage<uint8_t> buffer;
+        const uint8_t* data = source.data;
+        size_t size = static_cast<size_t>(source.size);
+        if (!data) {
+            FileLoader loader(source.filePath().c_str());
+            if (!loader.read() || !loader.merge(buffer)) {
+                return ujson::json();
+            }
+            data = buffer.get();
+            size = buffer.size();
+        }
+        if (memchr(data, '\0', size)) {
+            return ujson::json();
+        }
+        return ujson::json::parse(std::string(reinterpret_cast<const char*>(data), size));
+    }
+    bool diskCacheEnabled() const { return !resources_ || resource_policy_.diskCache; }
+    bool debugCallbacksEnabled() const { return !resources_ || resource_policy_.debugCallbacks; }
+    LlmConfig(const LlmConfig& other) = default;
     LlmConfig(const std::string& path) {
         // load config
         if (has_suffix(path, ".json")) {
-            std::ifstream config_file(path);
-            if (config_file.is_open()) {
-                std::ostringstream ostr;
-                ostr << config_file.rdbuf();
-                config_ = ujson::json::parse(ostr.str());
-            } else {
-                std::cerr << "Unable to open config file: " << path << std::endl;
-                std::cerr << "Error: " << std::strerror(errno) << " (errno: " << errno << ")" << std::endl;
-            }
+            LlmResources::Resource source;
+            source.path = path;
+            config_ = readConfig(source);
             base_dir_ = base_dir(path);
         } else {
             // compatibility with the original usage
@@ -88,12 +186,11 @@ public:
         // using config's base_dir
         base_dir_ = config_.value("base_dir", base_dir_);
         // load llm_config for model info
-        std::ifstream llm_config_file(llm_config());
-        if (llm_config_file.is_open()) {
-            std::ostringstream ostr;
-            ostr << llm_config_file.rdbuf();
-            auto llm_config_ = ujson::json::parse(ostr.str());
-            config_.merge(llm_config_);
+        LlmResources::Resource modelConfig;
+        modelConfig.path = llm_config();
+        const auto model = readConfig(modelConfig);
+        if (model.is_object()) {
+            config_.merge(model);
         } else {
             std::cerr << "Unable to open llm_config file: " << llm_config() << std::endl;
         }
@@ -406,21 +503,15 @@ public:
 
     std::string asr_language() const { return config_.value("asr_language", "Chinese"); }
 
-    bool use_mmap() const {
-        return config_.value("use_mmap", false);
-    }
-    bool use_cached_mmap() const {
-        return config_.value("use_cached_mmap", true);
-    }
+    bool use_mmap() const { return diskCacheEnabled() && config_.value("use_mmap", false); }
+    bool use_cached_mmap() const { return diskCacheEnabled() && config_.value("use_cached_mmap", true); }
     int mmap_size() const {
         return config_.value("mmap_size", 1024);
     }
     int dynamic_option() const {
         return config_.value("dynamic_option", 0);
     }
-    bool kvcache_mmap() const {
-        return config_.value("kvcache_mmap", false);
-    }
+    bool kvcache_mmap() const { return diskCacheEnabled() && config_.value("kvcache_mmap", false); }
     std::string tmp_path() const {
         return config_.value("tmp_path", "");
     }

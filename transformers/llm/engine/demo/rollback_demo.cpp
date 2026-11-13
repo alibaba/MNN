@@ -277,6 +277,10 @@ int main(int argc, const char* argv[]) {
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
     std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
+    if (!llm) {
+        MNN_ERROR("Cannot open LLM model: %s\n", config_path.c_str());
+        return 1;
+    }
     llm->set_config("{\"tmp_path\":\"tmp\"}");
     llm->set_config("{\"prefix_cache_path\":\"prefixcache\"}");
     {

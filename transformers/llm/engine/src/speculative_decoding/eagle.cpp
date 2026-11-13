@@ -32,18 +32,25 @@ bool EagleGeneration::load(Module::Config module_config) {
     std::vector<std::string> inputNames{"input_embed", "hidden_states", "attention_mask", "position_ids", "logits_index"};
     std::vector<std::string> outputNames {"logits", "out_hidden_states"};
     mEagleModules.resize(2);
-    mEagleModules[0].reset(Module::load(inputNames, outputNames, mLlm->mConfig->eagle_model().c_str(), mLlm->mRuntimeManager, &module_config));
+    mEagleModules[0].reset(mLlm->mConfig->loadModule(inputNames, outputNames, mLlm->mConfig->eagle_model(),
+                                                     mLlm->mRuntimeManager, &module_config));
     if (mEagleModules[0] == nullptr) {
         MNN_ERROR("Eagle: failed to load eagle model %s\n", mLlm->mConfig->eagle_model().c_str());
         return false;
     }
-    mEagleModules[1].reset(Module::load({"fc_hidden"}, {"hidden_states"}, mLlm->mConfig->eagle_fc().c_str(), mLlm->mRuntimeManager, &module_config));
+    mEagleModules[1].reset(mLlm->mConfig->loadModule({"fc_hidden"}, {"hidden_states"}, mLlm->mConfig->eagle_fc(),
+                                                     mLlm->mRuntimeManager, &module_config));
     if (mEagleModules[1] == nullptr) {
         MNN_ERROR("Eagle: failed to load eagle fc model %s\n", mLlm->mConfig->eagle_fc().c_str());
         return false;
     }
 
-    mD2t = Express::Variable::load(mLlm->mConfig->eagle_d2t().c_str())[0];
+    const auto variables = mLlm->mConfig->loadVariables(mLlm->mConfig->eagle_d2t());
+    if (variables.empty()) {
+        MNN_ERROR("Eagle: missing d2t resource\n");
+        return false;
+    }
+    mD2t = variables.begin()->second;
 
     // init
     mTopK = mLlm->mConfig->eagle_topk();

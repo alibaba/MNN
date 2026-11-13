@@ -242,12 +242,26 @@ python llmexport.py \
 - 制定量化bit数使用`--quant_bit`；量化的block大小使用`--quant_block`
 - 使用`--lm_quant_bit`来制定lm_head层权重的量化bit数，不指定则使用`--quant_bit`的量化bit数
 
+### 单文件导出
+
+通过 `--dst_file` 可以将运行所需的配置、计算图、词表、权重及其他资源打包为一个文件：
+
+```bash
+python llmexport.py --path /path/to/model --export mnn --dst_file model.mpack
+```
+
+不指定 `--dst_file` 时，仍按 `--dst_path` 导出模型目录。单文件导出会递归收录运行时资源，保留相对路径，`config.json` 中的文件引用规则不变；ONNX、调试 JSON 和导出日志保存在独立工作目录，不进入模型包。
+
+文本、视觉、音频及多图模型共用资源加载接口，运行引擎仍需启用对应组件的编译选项。当前不支持 `--generate_for_npu`。公开版本的包不压缩、不加密；导出模型和运行引擎需要使用兼容的 MNN 版本。
+
+扩展导出组件时，将运行时文件写入 `args.dst_path` 即可自动收录。外置权重、embedding 等需要直接从文件读取的数据，写出后调用 `register_file_region(args, path)` 标记；其他文件默认内嵌。包内最多包含 1024 个非空资源，目录与内嵌内容合计不超过 64 MiB。新增组件应通过统一资源接口读取文件，避免直接打开包内相对路径。
+
 ### 参数
 执行 `python llmexport.py -h` 可查看参数：
 ```
 usage: llmexport.py [-h] --path PATH [--type TYPE] [--tokenizer_path TOKENIZER_PATH] [--eagle_path EAGLE_PATH]
                     [--dflash_path DFLASH_PATH] [--lora_path LORA_PATH] [--gptq_path GPTQ_PATH]
-                    [--dst_path DST_PATH] [--verbose] [--test TEST] [--export EXPORT] [--onnx_slim]
+                    [--dst_path DST_PATH] [--dst_file FILE] [--verbose] [--test TEST] [--export EXPORT] [--onnx_slim]
                     [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK] [--visual_quant_bit VISUAL_QUANT_BIT]
                     [--visual_quant_block VISUAL_QUANT_BLOCK] [--lm_quant_bit LM_QUANT_BIT]
                     [--lm_quant_block LM_QUANT_BLOCK] [--mnnconvert MNNCONVERT] [--ppl] [--awq] [--hqq] [--omni]
@@ -279,6 +293,7 @@ optional arguments:
   --gptq_path GPTQ_PATH
                         gptq path, default is `None` mean not apply gptq.
   --dst_path DST_PATH   export onnx/mnn model to path, default is `./model`.
+  --dst_file FILE       write an uncompressed LLM package with --export mnn.
   --verbose             Whether or not to print verbose.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
@@ -743,6 +758,18 @@ messages.emplace_back("tool", R"({"temperature": 72, "condition": "sunny"})");
 <audio>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/translate_to_chinese.wav</audio>介绍一下音频里的内容
 ```
 
+#### 加载单文件和自定义资源
+
+单文件可直接传给 `llm_demo`，C++ 中使用 `Llm::createLLM("model.mpack")` 创建实例，再调用 `load()` 加载：
+
+```bash
+./llm_demo /path/to/model.mpack prompt.txt
+```
+
+如果需要从自定义容器加载，可以实现 `llm/llm.hpp` 中的 `LlmResources`，通过 `Llm::createLLM(std::shared_ptr<LlmResources>)` 创建实例。提供器按配置中的相对路径返回资源：配置、计算图和词表可以来自内存、文件或文件区间；权重和独立 embedding 使用文件或文件区间。
+
+文件区间通过 `Resource` 的 `path`、`bounded`、`offset` 和 `size` 指定。引擎在创建实例时绑定资源并持有提供器；提供器需要保证内存地址和文件内容在实例生命周期内有效。当前资源接口支持单图文本生成模型。
+
 #### 单个模型对话性能测评
 建议使用config.json, 可以自行配置运行后端、线程数、输出token数限制等选项。
 ```
@@ -1050,6 +1077,8 @@ python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/l
 python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/lora --lora_split --export mnn
 ```
 导出后模型文件夹内除了原始模型外，还会增加`lora.mnn`，这个就是lora模型文件。
+
+也可以同时指定 `--dst_file model.mpack`，基础模型会导出为 `model.mpack`，分离的 `lora.mnn` 保存在同一目录。单文件模型调用 `create_lora` 时，传入 `lora.mnn` 的文件路径。`lora.mnn` 包含计算图，采用普通 MNN 格式存储。
 
 运行时创建lora模型
   ```cpp
