@@ -380,7 +380,9 @@ def configure_extension_build():
         elif IS_WINDOWS:
             return []
         else:
-            return ['-Wl,-rpath,$ORIGIN/' + path]
+            # data_files install libs (e.g. libMNN_Cuda_Main.so) to <prefix>/lib,
+            # while the extension lives in <prefix>/lib/python*/site-packages/
+            return ['-Wl,-rpath,$ORIGIN/' + path + ':$ORIGIN/../../../' + path]
 
     ################################################################################
     # Declare extensions and package
