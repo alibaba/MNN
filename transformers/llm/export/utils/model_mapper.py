@@ -9,11 +9,11 @@ class ModelMapper:
 
     def get_map(self, config):
         model_type = config.model_type
-        if model_type == 'minicpmv4_7':
+        if model_type in ('minicpmv4_7', 'minicpm_ocr'):
             text_type = config.text_config.model_type
             backbones = {'qwen3_5_text': 'qwen3_5', 'qwen3_5_moe_text': 'qwen3_5_moe'}
             if text_type not in backbones:
-                raise ValueError(f'Unsupported MiniCPM-V 4.7 text model: {text_type}')
+                raise ValueError(f'Unsupported {model_type} text model: {text_type}')
             model_map = copy.deepcopy(self.mapper[backbones[text_type]])
             model_map['model'].update({
                 'visual': 'model.vision_tower',

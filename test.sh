@@ -671,16 +671,22 @@ local_build() {
     # Local mode is CPU-only: host GPU drivers are usually unavailable or
     # unreliable on dev machines, so we omit OpenCL/Vulkan to keep the
     # build fast and the test surface meaningful.
-    cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DMNN_BUILD_TEST=ON \
-        -DMNN_LOW_MEMORY=ON \
-        -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
-        -DMNN_BUILD_LLM=ON \
-        -DMNN_LLM_BUILD_TEST=ON \
-        -DMNN_BUILD_CONVERTER=ON \
-        ${platform_args[@]+"${platform_args[@]}"}
-    make -j"$(_host_jobs)"
+    if [[ -f CMakeCache.txt ]]; then
+        # Require the test target even if a previous reconfiguration disabled
+        # it. Preserve other options and reconfigure to refresh source globs.
+        cmake "${SCRIPT_DIR}" -DMNN_BUILD_TEST=ON
+    else
+        cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMNN_BUILD_TEST=ON \
+            -DMNN_LOW_MEMORY=ON \
+            -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
+            -DMNN_BUILD_LLM=ON \
+            -DMNN_LLM_BUILD_TEST=ON \
+            -DMNN_BUILD_CONVERTER=ON \
+            ${platform_args[@]+"${platform_args[@]}"}
+    fi
+    CMAKE_BUILD_PARALLEL_LEVEL="$(_host_jobs)" cmake --build .
     popd >/dev/null
     log_ok "host build complete"
 }
@@ -1292,11 +1298,7 @@ android_llm_test() {
 # ─────────────────────────────────────────────────────────────────────────────
 drive_local() {
     log_info "mode=local script_dir=${SCRIPT_DIR}"
-    if [[ ! -x "${SCRIPT_DIR}/build/run_test.out" ]]; then
-        local_build
-    else
-        log_info "reusing existing build/ (delete it to force a rebuild)"
-    fi
+    local_build
     # Try to populate the public smoke set after the build (MNNConvert is
     # produced by the build). Stages downstream gate on availability.
     provision_public_models || true

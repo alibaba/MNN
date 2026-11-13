@@ -9,6 +9,11 @@ on:
       - 'express/**'
       - 'test/**'
       - 'project/ios/**'
+      - 'include/**'
+      - 'schema/current/**'
+      - '3rd_party/**'
+      - 'tools/cv/**'
+      - 'package_scripts/ios/**'
       - '.github/workflows/ios.yml'
   pull_request:
     branches: [master]
@@ -17,6 +22,11 @@ on:
       - 'express/**'
       - 'test/**'
       - 'project/ios/**'
+      - 'include/**'
+      - 'schema/current/**'
+      - '3rd_party/**'
+      - 'tools/cv/**'
+      - 'package_scripts/ios/**'
       - '.github/workflows/ios.yml'
 
 concurrency:

@@ -419,7 +419,11 @@ void sync_attention_try_vtcm_workspace(SyncAttentionTaskState *state, int task_r
   // Tile-layout scores cover whole 32-row M-tiles: the HMX store always writes 32 rows, even for the
   // last partial one, so the buffer has to hold them or the store runs past its end.
   const size_t score_rows   = want_scores_tile ? (size_t) ((task_rows + 31) / 32 * 32) : (size_t) task_rows;
-  const size_t score_stride = attn_align_128(score_rows * state->N_padded * score_elem);
+  // The grouped SV output aliases the row-major score buffer.
+  const size_t score_row_bytes = (size_t) state->N_padded * score_elem;
+  const size_t output_row_bytes = want_scores_tile ? 0 : (size_t) state->K_dim_padded * sizeof(__fp16);
+  const size_t score_stride =
+      attn_align_128(score_rows * (score_row_bytes > output_row_bytes ? score_row_bytes : output_row_bytes));
   if ((size_t) workers * score_stride > budget) {
     return;  // keep everything in the DDR workspace the host allocated
   }

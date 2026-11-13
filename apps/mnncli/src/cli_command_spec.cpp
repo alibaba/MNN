@@ -59,17 +59,17 @@ namespace {
         "Show detailed information about a model"
     };
 
-    CommandSpec serve_spec = {
-        "serve",
-        {
-            {"config", 'c', ArgKind::Value, false, "Specify custom config file path"},
-            {"port",   'p', ArgKind::Value, false, "Port number (default: 8000)"},
-            {"host",   'H', ArgKind::Value, false, "Host address (default: 127.0.0.1)"},
-            {"thinking", 't', ArgKind::Value, false, "Override thinking mode: true/false"}
-        },
-        0, 1,  // 0-1 positional args (model_name)
-        "Start a model serving server"
-    };
+    CommandSpec serve_spec = {"serve",
+                              {{"config", 'c', ArgKind::Value, false, "Specify custom config file path"},
+                               {"port", 'p', ArgKind::Value, false, "Port number (default: 8000)"},
+                               {"host", 'H', ArgKind::Value, false, "Host address (default: 127.0.0.1)"},
+                               {"api-key", '\0', ArgKind::Value, false, "Require a bearer token or x-api-key"},
+                               {"embedding-config", '\0', ArgKind::Value, false, "Optional embedding model config"},
+                               {"embedding-model", '\0', ArgKind::Value, false, "Embedding model ID"},
+                               {"thinking", 't', ArgKind::Value, false, "Override thinking mode: true/false"}},
+                              0,
+                              1, // 0-1 positional args (model_name)
+                              "Start a model serving server"};
 
     CommandSpec benchmark_spec = {
         "benchmark",
