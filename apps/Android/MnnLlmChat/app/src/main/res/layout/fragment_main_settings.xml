@@ -69,6 +69,13 @@
                     android:layout_marginEnd="16dp" />
 
                 <TextView
+                    android:id="@+id/btn_tts_voice"
+                    style="@style/SettingsRowClickable"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:text="@string/tts_voice" />
+
+                <TextView
                     android:id="@+id/btn_storage_management"
                     style="@style/SettingsRowClickable"
                     android:paddingStart="16dp"
