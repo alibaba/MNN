@@ -1,4 +1,5 @@
 import testNapi from 'libentry.so';
+import { MemoryProbe } from './MemoryProbe';
 
 export interface NativeTarget {
   modelId: string;
@@ -130,7 +131,9 @@ export class GenerationCoordinator {
 
   prepare(target: NativeTarget): Promise<NativeLoadResult> {
     return this.enqueue(async () => {
-      return await testNapi.loadLlm(target.configPath, target.runtimeConfigJson) as NativeLoadResult;
+      const result = await testNapi.loadLlm(target.configPath, target.runtimeConfigJson) as NativeLoadResult;
+      MemoryProbe.snapshot('model-loaded', target.runtimeConfigJson);
+      return result;
     });
   }
 
@@ -144,9 +147,12 @@ export class GenerationCoordinator {
         return this.canceledGenerateResult(request.requestId);
       }
       await testNapi.loadLlm(target.configPath, target.runtimeConfigJson);
+      MemoryProbe.snapshot('gen-loaded', target.runtimeConfigJson);
       this.activeRequestId = request.requestId;
       try {
-        return await testNapi.generateLlm(request, onChunk) as NativeGenerateResult;
+        const result = await testNapi.generateLlm(request, onChunk) as NativeGenerateResult;
+        MemoryProbe.snapshot('gen-done', target.runtimeConfigJson);
+        return result;
       } finally {
         this.activeRequestId = '';
       }
