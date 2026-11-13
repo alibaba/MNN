@@ -5,11 +5,13 @@
 #include "HexagonRuntime.hpp"
 #include "HexagonExecutionFactory.hpp"
 #include "HexagonCommand.hpp"
+#include "HexagonQuantization.hpp"
 #include <MNN/AutoTime.hpp>
 #include "MNN_generated.h"
 #include "schema/current/Command_generated.h"
 #include <memory>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 
@@ -198,6 +200,9 @@ void HexagonBackend::onResizeBegin() {
 }
 
 ErrorCode HexagonBackend::onResizeEnd() {
+    if (mRuntime->consumeCommandStatus() != 0) {
+        return INVALID_VALUE;
+    }
     auto res = mDynamicAlloc->compute();
     if (res != NO_ERROR) {
         MNN_ERROR("[HexagonBackend] dynamic defer compute failed: %d\n", res);
@@ -206,6 +211,10 @@ ErrorCode HexagonBackend::onResizeEnd() {
 }
 
 void HexagonBackend::onExecuteBegin() const {
+    if (mRuntime->consumeCommandStatus() != 0) {
+        mRuntime->pCurrentStatus = INVALID_VALUE;
+        return;
+    }
     auto res = mDynamicAlloc->apply();
     if (res != NO_ERROR) {
         MNN_ERROR("[HexagonBackend] dynamic defer apply failed: %d\n", res);
@@ -290,7 +299,8 @@ void HexagonBackend::asanClearDynamicTensorGuards() const {
 int HexagonBackend::getBytes(const Tensor* tensor) {
     int bytes = tensor->getType().bytes();
     if (tensor->getType().code == halide_type_float) {
-        bytes = 2;
+        const auto describe = TensorUtils::getDescribe(tensor);
+        bytes = describe->quantAttr != nullptr && describe->applyQuant ? 1 : 2;
     }
     return bytes;
 }
@@ -589,7 +599,7 @@ Backend::MemObj* HexagonBackend::onAcquire(const Tensor* tensor, StorageType sto
 }
 
 bool HexagonBackend::onClearBuffer() {
-    flushCommand();
+    const int flushStatus = flushCommand();
 #ifdef MNN_HEXAGON_ASAN
     asanClearDynamicTensorGuards();
 #endif
@@ -597,7 +607,8 @@ bool HexagonBackend::onClearBuffer() {
     mDynamicAlloc->release(true);
     ++(*mSeparateGeneration);
     mSeparateAlloc->release(true);
-    return true;
+    mRuntime->consumeCommandStatus();
+    return flushStatus == 0;
 }
 
 static bool isNc4hw4Tensor(const Tensor* tensor) {
@@ -819,7 +830,8 @@ void HexagonBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTens
 #define MNN_HEXAGON_RECORD_COPY_BUFFER() \
     do { mRuntime->recordCopyBuffer(profileDirection, profileBytes, copyTimer.durationInUs(), copyFlushUs); } while (0)
 #define MNN_HEXAGON_PROFILE_FLUSH_COMMAND() \
-    do { Timer flushTimer; flushCommand(); copyFlushUs += flushTimer.durationInUs(); } while (0)
+    ([&]() { Timer flushTimer; const int status = flushCommand(); \
+             copyFlushUs += flushTimer.durationInUs(); return status; }())
 #else
 #define MNN_HEXAGON_RECORD_COPY_BUFFER() do {} while (0)
 #define MNN_HEXAGON_PROFILE_FLUSH_COMMAND() flushCommand()
@@ -839,13 +851,18 @@ void HexagonBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTens
         int params[] = {1, 1, (int)copySize, 1, 2};
         HexagonCommand cmd;
         cmd.build(const_cast<HexagonBackend*>(this), DSP_OP_TENSOR_CONVERT, params, sizeof(params), {srcDev}, {dstDev});
-        cmd.execute(true);
+        if (cmd.execute(true) != 0) {
+            mRuntime->latchCommandStatus(INVALID_VALUE);
+        }
         MNN_HEXAGON_RECORD_COPY_BUFFER();
         return;
     }
     if (srcType == MNN_FORWARD_HEXAGON) {
         markHostOutput(srcTensor);
-        MNN_HEXAGON_PROFILE_FLUSH_COMMAND();
+        if (MNN_HEXAGON_PROFILE_FLUSH_COMMAND() != 0) {
+            MNN_HEXAGON_RECORD_COPY_BUFFER();
+            return;
+        }
     }
     // The host writes into DSP memory right now, while the commands queued so far only run at the next
     // flush. DYNAMIC buffers are recycled by lifetime, so a queued command may still have to read what
@@ -857,7 +874,10 @@ void HexagonBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTens
          (mRuntime->hasPendingCommand() &&
           mRuntime->pendingCommandTouches(getDevicePtr(dstTensor).first, getDevicePtr(dstTensor).second,
                                           (int)getSize(dstTensor))))) {
-        MNN_HEXAGON_PROFILE_FLUSH_COMMAND();
+        if (MNN_HEXAGON_PROFILE_FLUSH_COMMAND() != 0) {
+            MNN_HEXAGON_RECORD_COPY_BUFFER();
+            return;
+        }
     }
     if (dstType == MNN_FORWARD_HEXAGON) {
         // One definition of the range key: the lookup and the insert below must never diverge, or the
@@ -873,12 +893,65 @@ void HexagonBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTens
             // still holds their own data, leaving only clean lines behind: a clean line is never written
             // back, so our upload is then safe. markHostInput() below still handles the read direction.
             markHexagonOutput(dstTensor);
-            MNN_HEXAGON_PROFILE_FLUSH_COMMAND();
+            if (MNN_HEXAGON_PROFILE_FLUSH_COMMAND() != 0) {
+                MNN_HEXAGON_RECORD_COPY_BUFFER();
+                return;
+            }
             mPreFlushedHostWrites.insert(key);
         }
     }
     uint8_t* srcHost = srcType == MNN_FORWARD_HEXAGON ? getPtr(srcTensor) : srcTensor->host<uint8_t>();
     uint8_t* dstHost = dstType == MNN_FORWARD_HEXAGON ? getPtr(dstTensor) : dstTensor->host<uint8_t>();
+    const bool srcIsQuantizedPhysical =
+        srcType == MNN_FORWARD_HEXAGON && getBytes(srcTensor) == 1;
+    const bool dstIsQuantizedPhysical =
+        dstType == MNN_FORWARD_HEXAGON && getBytes(dstTensor) == 1;
+    if (srcIsQuantizedPhysical && dstType != MNN_FORWARD_HEXAGON &&
+        dstIsFloat) {
+        const auto attr = TensorUtils::getDescribe(srcTensor)->quantAttr;
+        const bool ok =
+            attr != nullptr &&
+            unpackInt8NcToFloat(
+                reinterpret_cast<const int8_t*>(srcHost),
+                reinterpret_cast<float*>(dstHost), srcTensor->batch(),
+                srcTensor->channel(), srcTensor->height(),
+                srcTensor->width(), pack, dstIsNc4hw4 ? 4 : 1,
+                attr->scale,
+                static_cast<int32_t>(std::nearbyint(attr->zero)),
+                TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NHWC);
+        if (!ok) {
+            MNN_ERROR(
+                "[MNN::Hexagon] failed to unpack quantized tensor\n");
+            mRuntime->latchCommandStatus(INVALID_VALUE);
+        }
+        MNN_HEXAGON_RECORD_COPY_BUFFER();
+        return;
+    }
+    if (dstIsQuantizedPhysical && srcType != MNN_FORWARD_HEXAGON &&
+        srcIsFloat) {
+        const auto attr = TensorUtils::getDescribe(dstTensor)->quantAttr;
+        const bool ok =
+            attr != nullptr &&
+            packFloatToInt8Nc(
+                reinterpret_cast<const float*>(srcHost),
+                reinterpret_cast<int8_t*>(dstHost), dstTensor->batch(),
+                dstTensor->channel(), dstTensor->height(),
+                dstTensor->width(), pack, srcIsNc4hw4 ? 4 : 1,
+                attr->scale,
+                static_cast<int32_t>(std::nearbyint(attr->zero)),
+                static_cast<int32_t>(std::nearbyint(attr->min)),
+                static_cast<int32_t>(std::nearbyint(attr->max)),
+                TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NHWC);
+        if (!ok) {
+            MNN_ERROR(
+                "[MNN::Hexagon] failed to pack quantized tensor\n");
+            mRuntime->latchCommandStatus(INVALID_VALUE);
+        } else {
+            markHostInput(dstTensor);
+        }
+        MNN_HEXAGON_RECORD_COPY_BUFFER();
+        return;
+    }
     if (!srcIsFloat || !dstIsFloat) {
         size_t bytes = srcTensor->elementSize() * srcTensor->getType().bytes();
         memcpy(dstHost, srcHost, bytes);
@@ -937,7 +1010,7 @@ int HexagonBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstT
     if (toCpu) {
         flushCommand();
     }
-    return 0;
+    return mRuntime->consumeCommandStatus();
 }
 uint8_t* HexagonBackend::getPtr(const Tensor* tensor) {
     auto offset = TensorUtils::getDescribeOrigin(tensor)->offset;
@@ -1035,10 +1108,10 @@ int HexagonBackend::commandSerial() const {
     return mRuntime->commandSerial();
 }
 
-void HexagonBackend::flushCommand() const {
+int HexagonBackend::flushCommand() const {
     if (!mAllOpSupport) {
         markDynamicHostOutput();
     }
-    mRuntime->flushCommand();
+    return mRuntime->flushCommand();
 }
 }

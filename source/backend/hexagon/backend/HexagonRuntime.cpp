@@ -16,7 +16,9 @@
 #include <vector>
 #include <MNN/MNNDefine.h>
 #include "HexagonRuntime.hpp"
+#include "HexagonQuantization.hpp"
 #include "HexagonBackend.hpp"
+#include "core/TensorUtils.hpp"
 #include "dsprpc_interface.h"
 #include "dsp_op_name.h"
 #include "schema/current/Command_generated.h"
@@ -909,12 +911,15 @@ void HexagonRuntime::recordCopyBuffer(int direction, size_t bytes, uint64_t us, 
 #endif
 
 bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const {
-    if (mCommandGroup == nullptr || cmdChunk.first == nullptr) {
+    if (mCommandStatus.peek() != 0 || mCommandGroup == nullptr ||
+        cmdChunk.first == nullptr) {
         return false;
     }
     MNN_ASSERT(cmdSize <= MAX_MSG_SIZE);
     if (mCommandGroupCount >= gCommandGroupCapacity) {
-        flushCommand();
+        if (flushCommand() != 0) {
+            return false;
+        }
     }
     std::vector<HexagonBuffer*> commandWeights;
     // Only FP16 weights go to the lazy allocator (see HexagonConvolution::create), so for any
@@ -950,7 +955,9 @@ bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
         }
     }
     if (mCommandGroupCount > 0 && mCommandWeightBytes + additionalBytes > kCommandWeightMapLimit) {
-        flushCommand();
+        if (flushCommand() != 0) {
+            return false;
+        }
     }
     for (auto buffer : commandWeights) {
         if (std::find(mCommandWeightBuffers.begin(), mCommandWeightBuffers.end(), buffer) !=
@@ -971,7 +978,9 @@ bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
         const int copyAllocSize = cmdSize;
         queuedChunk = mCommandAlloc->alloc(copyAllocSize);
         if (queuedChunk.first == nullptr && mCommandGroupCount > 0) {
-            flushCommand();
+            if (flushCommand() != 0) {
+                return false;
+            }
             queuedChunk = mCommandAlloc->alloc(copyAllocSize);
         }
         if (queuedChunk.first == nullptr) {
@@ -997,19 +1006,22 @@ bool HexagonRuntime::pushCommand(const MemChunk& cmdChunk, int cmdSize, bool nee
     mCommandGroupCount++;
 
     if (mCommandGroupCount >= gCommandGroupCapacity) {
-        flushCommand();
+        if (flushCommand() != 0) {
+            return false;
+        }
     }
     return true;
 }
 
-void HexagonRuntime::flushCommand() const {
+int HexagonRuntime::flushCommand() const {
     if (mCommandGroupCount == 0 && mPendingHostOutputs.empty() && mPendingHostInputs.empty() &&
         mPendingHexagonOutputs.empty()) {
-        return;
+        return mCommandStatus.peek();
     }
     if (mCommandGroup == nullptr || mCommandGroupChunk.first == nullptr) {
         MNN_ERROR("[Hexagon] flushCommand: command group buffer is not allocated\n");
-        return;
+        mCommandStatus.latch(-1);
+        return mCommandStatus.peek();
     }
     auto context = getContext();
     auto functions = context != nullptr ? &context->functions : nullptr;
@@ -1044,7 +1056,8 @@ void HexagonRuntime::flushCommand() const {
         } else {
             if (mCommandGroupCount == 0) {
                 MNN_ERROR("[Hexagon] flushCommand: failed to allocate sync group for sync-only flush\n");
-                return;
+                mCommandStatus.latch(-1);
+                return mCommandStatus.peek();
             }
             syncGroupSize = 0;
         }
@@ -1089,6 +1102,7 @@ void HexagonRuntime::flushCommand() const {
         }
         if (ret != 0) {
             MNN_ERROR("[Hexagon] execute_command_group_profile failed with code %d\n", ret);
+            mCommandStatus.latch(ret);
         }
     } else if (
 #ifdef MNN_HEXAGON_ASAN
@@ -1110,13 +1124,16 @@ void HexagonRuntime::flushCommand() const {
         }
         if (ret != 0) {
             MNN_ERROR("[Hexagon] execute_command_group failed with code %d\n", ret);
+            mCommandStatus.latch(ret);
         }
 #ifdef MNN_HEXAGON_ASAN
     } else if (!asanBeforeFlush) {
         MNN_ERROR("[MNN::Hexagon][ASAN] skip execute_command_group because guard is already corrupted\n");
+        mCommandStatus.latch(-1);
 #endif
     } else {
         MNN_ERROR("[Hexagon] execute_command_group function pointer is null! functions=%p\n", functions);
+        mCommandStatus.latch(-1);
     }
 #else
     if (
@@ -1139,13 +1156,16 @@ void HexagonRuntime::flushCommand() const {
         }
         if (ret != 0) {
             MNN_ERROR("[Hexagon] execute_command_group failed with code %d\n", ret);
+            mCommandStatus.latch(ret);
         }
 #ifdef MNN_HEXAGON_ASAN
     } else if (!asanBeforeFlush) {
         MNN_ERROR("[MNN::Hexagon][ASAN] skip execute_command_group because guard is already corrupted\n");
+        mCommandStatus.latch(-1);
 #endif
     } else {
         MNN_ERROR("[Hexagon] execute_command_group function pointer is null! functions=%p\n", functions);
+        mCommandStatus.latch(-1);
     }
 #endif
 #ifdef MNN_HEXAGON_APP_POWER_HOLD
@@ -1158,7 +1178,9 @@ void HexagonRuntime::flushCommand() const {
     }
 #endif
 #ifdef MNN_HEXAGON_ASAN
-    asanCheckAllBuffers("after flushCommand");
+    if (!asanCheckAllBuffers("after flushCommand")) {
+        mCommandStatus.latch(-1);
+    }
 #endif
     if (syncGroupChunk.first != nullptr) {
         mCommandAlloc->free(syncGroupChunk);
@@ -1183,6 +1205,15 @@ void HexagonRuntime::flushCommand() const {
     if (mCommandSerial == 0) {
         mCommandSerial = 1;
     }
+    return mCommandStatus.peek();
+}
+
+int HexagonRuntime::consumeCommandStatus() const {
+    return mCommandStatus.consume();
+}
+
+void HexagonRuntime::latchCommandStatus(int status) const {
+    mCommandStatus.latch(status);
 }
 
 float HexagonRuntime::onGetMemoryInMB() {
@@ -1497,6 +1528,21 @@ bool HexagonRuntimeCreator::onValid(Backend::Info& info) const {
     if (info.type != MNN_FORWARD_HEXAGON) return false;
     info.mode = Backend::Info::DIRECT;
     return true;
+}
+
+bool HexagonRuntimeCreator::onSetQuantInfo(
+    const Op* op, const std::vector<Tensor*>& inputs,
+    const std::vector<Tensor*>& outputs) const {
+    if (op == nullptr) {
+        return true;
+    }
+    const bool supported = supportsW8A8Conv1x1(op, inputs, outputs);
+    for (auto tensor : outputs) {
+        if (tensor != nullptr) {
+            TensorUtils::getDescribe(tensor)->applyQuant = supported;
+        }
+    }
+    return supported;
 }
 
 extern void registerHexagon() {

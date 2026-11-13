@@ -130,6 +130,10 @@ enum DSPOpType {
   DSP_OP_MATMUL_Q4A16_GEMV_I8_FUSED           = 47,
   DSP_OP_LINEAR_ATTN                          = 48,
   DSP_OP_GATED_RMS_NORM                       = 49,
+  DSP_OP_QUANTIZE_I8                          = 50,
+  DSP_OP_DEQUANTIZE_I8                        = 51,
+  DSP_OP_REQUANTIZE_I8                        = 52,
+  DSP_OP_CONV2D_W8A8                          = 53,
   DSP_OP_COMMAND_GROUP                        = 99,
   DSP_OP_MAX                                  = 100
 };
@@ -141,6 +145,7 @@ enum DSPCapability {
   DSP_CAP_GATED_RMS_NORM = 1u << 4,
   // DSP_OP_MATMUL_Q4A16_BLOCK_FP16 reads params[11] / [12] as the row stride / first row of a row window.
   DSP_CAP_Q4_ROW_WINDOW  = 1u << 5,
+  DSP_CAP_CONV1X1_W8A8   = 1u << 6,
 };
 
 #ifdef __cplusplus
@@ -154,4 +159,9 @@ static_assert(DSP_OP_LINEAR_ATTN == 48, "DSP_OP_LINEAR_ATTN must stay 48");
 static_assert(sizeof(DSPLinearAttnParam) == 40, "DSPLinearAttnParam ABI changed");
 static_assert(DSP_OP_GATED_RMS_NORM == 49, "DSP_OP_GATED_RMS_NORM must stay 49");
 static_assert(sizeof(DSPGatedRMSNormParam) == 16, "DSPGatedRMSNormParam ABI changed");
+static_assert(DSP_OP_QUANTIZE_I8 == 50, "DSP_OP_QUANTIZE_I8 must stay 50");
+static_assert(DSP_OP_DEQUANTIZE_I8 == 51, "DSP_OP_DEQUANTIZE_I8 must stay 51");
+static_assert(DSP_OP_REQUANTIZE_I8 == 52, "DSP_OP_REQUANTIZE_I8 must stay 52");
+static_assert(DSP_OP_CONV2D_W8A8 == 53, "DSP_OP_CONV2D_W8A8 must stay 53");
+static_assert(DSP_CAP_CONV1X1_W8A8 == (1u << 6), "DSP_CAP_CONV1X1_W8A8 must stay bit 6");
 #endif
