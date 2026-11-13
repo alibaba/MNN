@@ -159,6 +159,7 @@ class LlmModel(PreTrainedModel):
             'funaudiochat': 'AutoModelForSeq2SeqLM',
             'glm_ocr': 'GlmOcrForConditionalGeneration',
             'lfm2_vl': 'Lfm2VlForConditionalGeneration',
+            'lfm3_vl': 'AutoModelForImageTextToText',
             'gemma4': 'Gemma4ForConditionalGeneration',
             'hunyuan_vl': 'HunYuanVLForConditionalGeneration',
             'minicpmv4_7': 'MiniCPMV4_7ForConditionalGeneration',
@@ -289,7 +290,7 @@ class LlmModel(PreTrainedModel):
         # gemma3/gemma3_text/gemma4: dual rotary for sliding vs full attention layers
         # rope_parameters has form {'sliding_attention': {'rope_theta': ...}, 'full_attention': {'rope_theta': ...}}
         _rp = getattr(config, 'rope_parameters', None)
-        _is_dual_rope = (model_type in ('gemma3', 'gemma3_text', 'gemma4')
+        _is_dual_rope = (model_type in ('gemma3', 'gemma3_text', 'gemma4', 'lfm3', 'lfm3_vl')
                          and _rp is not None
                          and isinstance(_rp, dict)
                          and any(isinstance(v, dict) for v in _rp.values()))
@@ -326,8 +327,13 @@ class LlmModel(PreTrainedModel):
             # Adjust rotary_dim for partial rotary factor
             if partial_factor < 1.0:
                 rotary_dim = int(global_head_dim * partial_factor)
-                model.rotary_full.rotary_dim = rotary_dim
-                model.rotary_full.theta = 1.0 / (full_rp.get('rope_theta', 1000000.0) ** (torch.arange(0, rotary_dim, 2, dtype=torch.float32) / global_head_dim))
+                theta = 1.0 / (full_rp.get('rope_theta', 1000000.0) ** (torch.arange(0, rotary_dim, 2, dtype=torch.float32) / global_head_dim))
+                if model_type in ('lfm3', 'lfm3_vl'):
+                    # LFM3 leaves the tail of each half-head unrotated.
+                    theta = torch.cat((theta, torch.zeros((global_head_dim - rotary_dim) // 2)))
+                else:
+                    model.rotary_full.rotary_dim = rotary_dim
+                model.rotary_full.theta = theta
                 model.rotary_full.build_rope_tables()
             model.rotary = model.rotary_sliding  # default rotary for config reference
         else:

@@ -205,7 +205,8 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
 
-    bool isHalf = (inputs[0]->getType().bits == 16);
+    // Low-precision storage can be FP16 even when the logical tensor type is FP32.
+    bool isHalf = static_cast<CUDABackend*>(backend())->useFp16() || inputs[0]->getType().bits == 16;
 
     if (isHalf) {
         if(axis % 256 == 0 || axis >= 768) {

@@ -1117,6 +1117,34 @@ class ModelMapper:
         }
         self.regist('lfm2_vl', lfm2_vl_map)
 
+    def regist_lfm3(self):
+        config_fields = ('hidden_size', 'head_dim', 'num_attention_heads', 'num_hidden_layers',
+                         'num_key_value_heads', 'rope_parameters', 'max_position_embeddings',
+                         'layer_types', 'conv_L_cache', 'sliding_window')
+        decoder = {
+            'self_attn': 'self_attn', 'linear_attn': 'conv', 'mlp': 'feed_forward',
+            'input_layernorm': 'operator_norm',
+            'post_attention_layernorm': 'post_operator_norm',
+            'pre_feedforward_layernorm': 'ffn_norm',
+            'post_feedforward_layernorm': 'post_ffn_norm',
+        }
+        attention = {name: name for name in ('q_proj', 'k_proj', 'v_proj', 'o_proj', 'q_norm', 'k_norm')}
+        attention['output_gate'] = 'gate_proj'
+        for model_type, prefix, backbone in (
+                ('lfm3', '', 'model'),
+                ('lfm3_vl', 'text_config.', 'model.language_model')):
+            mapping = {
+                'config': {name: prefix + name for name in config_fields},
+                'model': {'lm': 'lm_head', 'embed': backbone + '.embed_tokens',
+                          'blocks': backbone + '.layers', 'final_layernorm': backbone + '.embedding_norm'},
+                'decoder': decoder.copy(), 'attention': attention.copy(),
+                'linear_attention': {name: name for name in ('in_proj', 'conv', 'out_proj')},
+            }
+            if model_type == 'lfm3_vl':
+                mapping['model'].update(visual='model.vision_tower',
+                                        multi_modal_projector='model.multi_modal_projector')
+            self.regist(model_type, mapping)
+
     def regist_lfm2_audio(self):
         # Config fields come directly from the nested 'lfm' config (no prefix needed,
         # because LlmConfig.from_pretrained extracts the nested config for lfm2_audio)

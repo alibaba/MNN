@@ -246,7 +246,8 @@ class MNNConverter:
 
     @spinner_run(f'quant model weight to ', True)
     def rebuild(self, json_path):
-        mnn_graph = json.load(open(json_path, 'rt'))
+        with open(json_path, 'rt') as graph_file:
+            mnn_graph = json.load(graph_file)
         new_ops = []
         # Load layernorm weight from external
         with open(self.mnn_weight_path, 'rb') as f:
@@ -260,7 +261,17 @@ class MNNConverter:
                 if op['type'] == 'Const' and 'external' in op['main']:
                     external = op['main']['external']
                     f.seek(external[0])
-                    op['main']['float32s'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
+                    dtype = op['main'].get('dataType', 'DT_FLOAT')
+                    const_types = {'DT_FLOAT': ('float32s', np.float32),
+                                   'DT_INT32': ('int32s', np.int32),
+                                   'DT_INT8': ('int8s', np.int8),
+                                   'DT_UINT8': ('uint8s', np.uint8),
+                                   'DT_BFLOAT16': ('uint8s', np.uint8),
+                                   'DT_HALF': ('uint8s', np.uint8)}
+                    if dtype not in const_types:
+                        raise ValueError(f'Unsupported external Const dtype: {dtype}')
+                    field, numpy_dtype = const_types[dtype]
+                    op['main'][field] = np.frombuffer(f.read(external[1]), numpy_dtype).tolist()
                     del op['main']['external']
         # Rebuild ops
         with open(self.mnn_weight_path, 'wb') as self.mnn_weight:

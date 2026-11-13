@@ -29,6 +29,8 @@ struct Expr::Inside {
     bool mContentDirty = true;
     bool mOwnTensor = true;
     Tensor* mHostTensor = nullptr;
+    // A retained backend refers to resources owned by its runtimes.
+    RuntimeInfo mHoldRuntime;
     std::shared_ptr<Backend> mHoldBackend;
 };
 struct Executor::DebugTools {

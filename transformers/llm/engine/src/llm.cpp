@@ -978,6 +978,9 @@ void Llm::reset() {
     mContext->audio_input_s = 0.0f;
     mMeta->remove = mMeta->previous;
     mCachedPromptText.clear();
+    if (mModule && mContext->status != LlmStatus::NOT_LOADED) {
+        mContext->status = LlmStatus::RUNNING;
+    }
 }
 
 void Llm::generate_init(std::ostream* os, const char* end_with) {

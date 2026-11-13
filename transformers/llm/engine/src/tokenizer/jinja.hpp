@@ -837,6 +837,14 @@ struct MethodCallExpr : Expr {
     json evaluate(Context& context) override {
         json obj_val = object->evaluate(context);
 
+        if (obj_val.is_object() && method == "get" && !args.empty()) {
+            auto key = args[0]->evaluate(context);
+            if (key.is_string() && obj_val.contains(key.get<std::string>())) {
+                return obj_val[key.get<std::string>()];
+            }
+            return args.size() > 1 ? args[1]->evaluate(context) : json(nullptr);
+        }
+
         if (obj_val.is_string()) {
             std::string s = obj_val.get<std::string>();
             if (method == "startswith") {

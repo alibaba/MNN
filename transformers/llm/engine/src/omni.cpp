@@ -59,8 +59,9 @@ static int roundHalfToEven(float value) {
     return (rounded % 2 == 0) ? rounded : rounded + 1;
 }
 
-static std::pair<int, int> qwenVlSmartResize(int height, int width, int factor, int minPixels, int maxPixels) {
-    if (factor <= 0 || height < factor || width < factor) {
+static std::pair<int, int> qwenVlSmartResize(int height, int width, int factor, int minPixels, int maxPixels,
+                                             bool allowSmall = false) {
+    if (factor <= 0 || height <= 0 || width <= 0 || (!allowSmall && (height < factor || width < factor))) {
         MNN_ERROR("Qwen-VL smart resize requires height and width >= factor, got %dx%d with factor %d\n", height, width,
                   factor);
         return std::make_pair(0, 0);
@@ -477,6 +478,7 @@ struct Omni::VisionProcessor {
     struct Fixed;
     struct Patch;
     struct Qwen;
+    struct Lfm3;
     struct Qwen25;
     struct Qwen3;
     struct Idefics;
@@ -880,6 +882,23 @@ struct Omni::VisionProcessor::Qwen : Patch {
         return batch;
     }
     void positions(const Plan& plan, const Feature& feature, int markers) override;
+};
+
+struct Omni::VisionProcessor::Lfm3 : Qwen {
+    using Qwen::Qwen;
+    std::pair<int, int> targetSize(int height, int width, int factor, int min, int max) const override {
+        return qwenVlSmartResize(height, width, factor, min, max, true);
+    }
+    int minPixels() const override { return 65536; }
+    int maxPixels() const override { return 16777216; }
+    std::vector<int> video(const std::vector<VARP>&, const std::vector<float>&) override {
+        MNN_ERROR("LFM3 video is not supported by this image processor\n");
+        mOmni.mContext->status = LlmStatus::INTERNAL_ERROR;
+        return {};
+    }
+    void positions(const Plan& plan, const Feature& feature, int markers) override {
+        VisionProcessor::positions(plan, feature, markers);
+    }
 };
 
 struct Omni::VisionProcessor::Qwen25 : Qwen {
@@ -1709,6 +1728,9 @@ std::unique_ptr<Omni::VisionProcessor> Omni::VisionProcessor::create(Omni& o) {
         return std::unique_ptr<VisionProcessor>(new Fixed(o));
     }
 #ifdef LLM_SUPPORT_VISION
+    if (family == "lfm3_vl") {
+        return std::unique_ptr<VisionProcessor>(new Lfm3(o));
+    }
     if (family == "qwen2_vl" || family == "glm_ocr") {
         return std::unique_ptr<VisionProcessor>(new Qwen(o));
     }
@@ -2776,6 +2798,8 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
 
 void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
     MNN::Express::ExecutorScope s(mExecutor);
+    if (mContext->status == LlmStatus::INTERNAL_ERROR)
+        return;
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
     if (mTalker) {

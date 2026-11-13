@@ -859,6 +859,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         auto back = TensorUtils::getDescribeOrigin(tensor)->getBackend();
         auto x =sharedConst->constReplaceBackend.get();
         if (needReplaceBackend && TensorUtils::getDescribeOrigin(tensor)->getBackend() == sharedConst->constReplaceBackend.get()) {
+            constVar->expr().first->inside()->mHoldRuntime = rt;
             constVar->expr().first->inside()->mHoldBackend = sharedConst->constReplaceBackend;
         }
         initVars.insert(std::make_pair(index, constVar));

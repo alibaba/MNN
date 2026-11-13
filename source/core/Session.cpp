@@ -193,8 +193,8 @@ Session::~Session() {
     waitAsyncResize();
     mInfo.allTensors.clear();
     mPipelines.clear();
-    mRuntime.first.clear();
-    mRuntime.second = nullptr;
+    // ScheduleInfo still owns backend caches. Keep runtimes alive until those
+    // caches are destroyed by member teardown (mRuntime is declared first).
 }
 Schedule::PipelineInfo& Session::getPipelineInfo(int index) const {
     MNN_ASSERT(index >= 0);
