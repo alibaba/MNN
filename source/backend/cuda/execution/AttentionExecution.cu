@@ -363,6 +363,7 @@ __global__ void flash_decode_kernel_with_mask(
         }
         __syncthreads();
         qk_score = smem[0];
+        __syncthreads();
 
         // Online softmax update
         float old_max = thread_max;
@@ -405,22 +406,16 @@ __global__ void flash_decode_kernel_with_mask(
 // Multiple blocks cooperate on a single (batch, head) pair,
 // each processing a range of KV positions.
 // =====================================================================
-template<typename T>
-__global__ void flash_decode_kernel_splitk(
-    const T* __restrict__ query_input,    // [B, 1, H_q, D]
-    const T* __restrict__ key_cache,      // [L_kv_alloc, B, H_kv, D]
-    const T* __restrict__ value_cache,    // [B, H_kv, L_kv_alloc, D]
-    float* __restrict__ partial_output,   // [parallel_blocks, B*H_q, D]
-    float* __restrict__ partial_meta,     // [parallel_blocks, B*H_q, 2] (max, sum)
-    const int batch,
-    const int head_num,
-    const int kv_head_num,
-    const int head_dim,
-    const int key_seq_len,
-    const int max_kv_len,
-    const float scale_factor,
-    const int parallel_blocks
-) {
+template <typename T>
+__global__ void flash_decode_kernel_splitk(const T* __restrict__ query_input,  // [B, 1, H_q, D]
+                                           const T* __restrict__ key_cache,    // [L_kv_alloc, B, H_kv, D]
+                                           const T* __restrict__ value_cache,  // [B, H_kv, L_kv_alloc, D]
+                                           float* __restrict__ partial_output, // [parallel_blocks, B*H_q, D]
+                                           float* __restrict__ partial_meta,   // [parallel_blocks, B*H_q, 2] (max, sum)
+                                           const int batch, const int head_num, const int kv_head_num,
+                                           const int head_dim, const int key_seq_len, const int max_kv_len,
+                                           const float scale_factor, const int parallel_blocks, const T* mask = nullptr,
+                                           const int mask_kv_len = 0) {
     const int bh_idx = blockIdx.x;         // batch * head_num
     const int split_idx = blockIdx.y;       // which split block
     const int b_idx = bh_idx / head_num;
@@ -491,10 +486,15 @@ __global__ void flash_decode_kernel_splitk(
         if (tid == 0) {
             for (int w = 0; w < num_warps; w++) qk_score += smem_qk[w];
             qk_score *= scale_factor;
+            if (mask != nullptr && k >= key_seq_len - mask_kv_len) {
+                qk_score += (float)mask[k - (key_seq_len - mask_kv_len)];
+            }
             smem_qk[0] = qk_score;
         }
         __syncthreads();
         qk_score = smem_qk[0];
+        // All warps must consume the score before the next iteration reuses shared memory.
+        __syncthreads();
 
         // Online softmax
         float old_max = thread_max;
@@ -1344,7 +1344,10 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     // P0/OPT-2: Flash Decoding path for decode stage (seq_len == 1, with KV cache)
     // OPT-2: Use split-K when SM utilization is low
     // =====================================================================
-    if (mQuerySeqLen == 1 && mIsKVCacheEnabled && !mHasMask) {
+    const bool canSplitMaskedDecode =
+        mIsAddMask && current_total_kv_len_for_qk >= 128 &&
+        mBatch * mNumHead <= mCudaBackend->getCUDARuntime()->prop().multiProcessorCount / 2;
+    if (mQuerySeqLen == 1 && mIsKVCacheEnabled && (!mHasMask || canSplitMaskedDecode)) {
         const int num_threads = 128;
         const int num_warps = num_threads / 32;
         const int smem_size = num_warps * sizeof(float); // just for QK reduction
@@ -1356,33 +1359,58 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         int parallel_blocks = 1;
         if (current_total_kv_len_for_qk > 16) {
             // Heuristic: try to fill all SMs
-            int max_blocks_per_sm = 1; // conservative estimate
+            int max_blocks_per_sm = mHasMask ? 8 : 1;
             parallel_blocks = std::max(1, (max_blocks_per_sm * num_sm) / total_heads);
             parallel_blocks = std::min(parallel_blocks, (current_total_kv_len_for_qk + 31) / 32); // at least 32 KV per block
             parallel_blocks = std::min(parallel_blocks, 32); // cap
         }
 
         // OPT-2: Try to allocate split-K buffers if needed
-        if (parallel_blocks > 1 && mMaxParallelBlocks < parallel_blocks) {
+        const size_t out_size = (size_t)parallel_blocks * total_heads * mHeadDim * sizeof(float);
+        const size_t meta_size = (size_t)parallel_blocks * total_heads * 2 * sizeof(float);
+        if ((parallel_blocks > 1 || mHasMask) && (mSplitKOutputBytes < out_size || mSplitKMetaBytes < meta_size)) {
             if (mSplitKOutputPtr) cudaFree(mSplitKOutputPtr);
             if (mSplitKMetaPtr) cudaFree(mSplitKMetaPtr);
             mSplitKOutputPtr = nullptr;
             mSplitKMetaPtr = nullptr;
-            size_t out_size = (size_t)parallel_blocks * total_heads * mHeadDim * sizeof(float);
-            size_t meta_size = (size_t)parallel_blocks * total_heads * 2 * sizeof(float);
+            mSplitKOutputBytes = 0;
+            mSplitKMetaBytes = 0;
             auto err1 = cudaMalloc(&mSplitKOutputPtr, out_size);
             auto err2 = cudaMalloc(&mSplitKMetaPtr, meta_size);
             if (err1 != cudaSuccess || err2 != cudaSuccess) {
                 if (mSplitKOutputPtr) { cudaFree(mSplitKOutputPtr); mSplitKOutputPtr = nullptr; }
                 if (mSplitKMetaPtr) { cudaFree(mSplitKMetaPtr); mSplitKMetaPtr = nullptr; }
-                mMaxParallelBlocks = 0;
+                cudaGetLastError();  // The failed allocation is handled by the single-block fallback.
                 parallel_blocks = 1; // fallback to single-block
             } else {
-                mMaxParallelBlocks = parallel_blocks;
+                mSplitKOutputBytes = out_size;
+                mSplitKMetaBytes = meta_size;
             }
         }
 
-        if (parallel_blocks <= 1) {
+        if (parallel_blocks <= 1 && mHasMask) {
+            dim3 grid(total_heads);
+            dim3 block(num_threads);
+            if (mPrecision == 4) {
+                flash_decode_kernel_with_mask<float><<<grid, block, smem_size, stream>>>(
+                    getTensorDevicePtr<float>(query_execution_tensor),
+                    static_cast<const float*>(effective_key_cache_ptr),
+                    static_cast<const float*>(effective_value_cache_ptr),
+                    getTensorDevicePtr<float>(output_execution_tensor),
+                    static_cast<const float*>(getTensorDevicePtr(mask_input_tensor)), mBatch, mNumHead, mKvNumHead,
+                    mHeadDim, current_total_kv_len_for_qk, allocated_kv_len_for_value_stride, 1, mMaskKvLen, mScale);
+            } else if (mPrecision == 2) {
+                flash_decode_kernel_with_mask<__half><<<grid, block, smem_size, stream>>>(
+                    getTensorDevicePtr<__half>(query_execution_tensor),
+                    static_cast<const __half*>(effective_key_cache_ptr),
+                    static_cast<const __half*>(effective_value_cache_ptr),
+                    getTensorDevicePtr<__half>(output_execution_tensor),
+                    static_cast<const __half*>(getTensorDevicePtr(mask_input_tensor)), mBatch, mNumHead, mKvNumHead,
+                    mHeadDim, current_total_kv_len_for_qk, allocated_kv_len_for_value_stride, 1, mMaskKvLen, mScale);
+            } else {
+                return MNN::NOT_SUPPORT;
+            }
+        } else if (parallel_blocks <= 1) {
             // Single-block flash decode
             const int smem_size_orig = num_warps * (2 * sizeof(float) + mHeadDim * sizeof(float));
             dim3 grid(total_heads);
@@ -1417,20 +1445,18 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
                 flash_decode_kernel_splitk<float><<<grid_splitk, block_splitk, smem_size, stream>>>(
                     getTensorDevicePtr<float>(query_execution_tensor),
                     static_cast<const float*>(effective_key_cache_ptr),
-                    static_cast<const float*>(effective_value_cache_ptr),
-                    partial_out, partial_meta,
-                    mBatch, mNumHead, mKvNumHead, mHeadDim,
-                    current_total_kv_len_for_qk, allocated_kv_len_for_value_stride, mScale,
-                    parallel_blocks);
+                    static_cast<const float*>(effective_value_cache_ptr), partial_out, partial_meta, mBatch, mNumHead,
+                    mKvNumHead, mHeadDim, current_total_kv_len_for_qk, allocated_kv_len_for_value_stride, mScale,
+                    parallel_blocks,
+                    mHasMask ? static_cast<const float*>(getTensorDevicePtr(mask_input_tensor)) : nullptr, mMaskKvLen);
             } else if (mPrecision == 2) {
                 flash_decode_kernel_splitk<__half><<<grid_splitk, block_splitk, smem_size, stream>>>(
                     getTensorDevicePtr<__half>(query_execution_tensor),
                     static_cast<const __half*>(effective_key_cache_ptr),
-                    static_cast<const __half*>(effective_value_cache_ptr),
-                    partial_out, partial_meta,
-                    mBatch, mNumHead, mKvNumHead, mHeadDim,
-                    current_total_kv_len_for_qk, allocated_kv_len_for_value_stride, mScale,
-                    parallel_blocks);
+                    static_cast<const __half*>(effective_value_cache_ptr), partial_out, partial_meta, mBatch, mNumHead,
+                    mKvNumHead, mHeadDim, current_total_kv_len_for_qk, allocated_kv_len_for_value_stride, mScale,
+                    parallel_blocks,
+                    mHasMask ? static_cast<const __half*>(getTensorDevicePtr(mask_input_tensor)) : nullptr, mMaskKvLen);
             } else { return MNN::NOT_SUPPORT; }
             checkKernelErrors;
 
