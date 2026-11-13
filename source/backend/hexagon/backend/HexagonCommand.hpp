@@ -26,7 +26,9 @@ public:
                const std::vector<std::pair<int, int>>& inputFdOffsets,
                const std::vector<std::pair<int, int>>& outputFdOffsets,
                const std::vector<Tensor*>& inputs = {},
-               const std::vector<Tensor*>& outputs = {});
+               const std::vector<Tensor*>& outputs = {},
+               const std::vector<int>& inputSizes = {},
+               const std::vector<int>& outputSizes = {});
 
     int execute(bool forceCopy = false);
 
@@ -53,6 +55,8 @@ private:
     std::vector<uint8_t> mParamData;
     std::vector<std::pair<int, int>> mInputFdOffsets;
     std::vector<std::pair<int, int>> mOutputFdOffsets;
+    std::vector<int> mInputSizes;
+    std::vector<int> mOutputSizes;
     int mLastQueuedSerial = 0;
     bool mDirty = true;
     std::vector<std::pair<int, int>> mInputDevicePtrs;
