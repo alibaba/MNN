@@ -59,10 +59,44 @@ static void writeCacheFile(const Content* net, std::pair<const void*, size_t> bu
     }
 }
 
+// Optional mmap loading: MNN_MMAP_LOAD=1 maps the model file PROT_READ instead of
+// read()+heap copy. Clean file pages are kernel-reclaimable under memory pressure,
+// and releaseModel() unmaps them early (same semantics as the malloc path).
+// The model file must not be modified while the interpreter is alive.
+static bool UseMmapLoad() {
+    static const bool enabled = [] {
+        const char* v = getenv("MNN_MMAP_LOAD");
+        return v != nullptr && v[0] == '1';
+    }();
+    return enabled;
+}
+
 static Content* loadModelFile(const char* file) {
     if (nullptr == file) {
         MNN_PRINT("NULL file for create interpreter\n");
         return nullptr;
+    }
+    if (UseMmapLoad()) {
+        file_t fd = MNNOpenFile(file, MNN_FILE_READ);
+        if (fd == INVALID_FILE) {
+            MNN_PRINT("Create interpreter failed, open %s error\n", file);
+            return nullptr;
+        }
+        size_t size = MNNGetFileSize(fd);
+        if (size == 0) {
+            MNNCloseFile(fd);
+            MNN_PRINT("Create interpreter failed, %s is empty\n", file);
+            return nullptr;
+        }
+        void* addr = MNNMmapFile(fd, size, /*onlyRead=*/true);
+        MNNCloseFile(fd);
+        if (addr == nullptr) {
+            MNN_PRINT("Create interpreter failed, mmap %s error\n", file);
+            return nullptr;
+        }
+        auto net = new Content;
+        net->buffer.setMapped((uint8_t*)addr, (int)size);
+        return net;
     }
     std::unique_ptr<FileLoader> loader(new FileLoader(file, true));
     if (!loader->valid()) {
