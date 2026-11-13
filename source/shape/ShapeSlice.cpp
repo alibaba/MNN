@@ -58,11 +58,15 @@ class SliceComputer : public SizeComputer {
                 // TF value is num_split, Torch value is split_size
                 int numSplits = outputSize,
                     splitDim = input.dim[axis].extent / numSplits;
-                if (MNN::NetSource_TORCH == slice->sourceType()) {
+                const int length = input.dim[axis].extent;
+                const bool fromTorch = MNN::NetSource_TORCH == slice->sourceType();
+                if (fromTorch) {
+                    // Torch split_size, or ONNX num_outputs when slicePoints is absent. Like both frameworks,
+                    // the chunks are ceil-sized and the last one takes the remainder.
+                    splitDim = UP_DIV(length, outputSize);
                     if (nullptr != slice->slicePoints()) {
                         splitDim = slice->slicePoints()->data()[0];
                     }
-                    numSplits = input.dim[axis].extent / splitDim;
                 } else if (MNN::NetSource_TENSORFLOW == slice->sourceType()) {
                     if (nullptr != slice->slicePoints() && slice->slicePoints()->data()[0] != outputSize) {
                         numSplits = slice->slicePoints()->data()[0];
@@ -76,6 +80,9 @@ class SliceComputer : public SizeComputer {
                     output.type       = input.type;
                     ::memcpy(output.dim, input.dim, input.dimensions * sizeof(halide_dimension_t));
                     output.dim[axis].extent = splitDim;
+                    if (fromTorch) {
+                        output.dim[axis].extent = std::max(0, std::min(splitDim, length - i * splitDim));
+                    }
                 }
             } else {
                 std::vector<int> slicePoints;

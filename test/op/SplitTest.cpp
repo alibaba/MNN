@@ -9,6 +9,7 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
+#include "MNN_generated.h"
 #include "TestUtils.h"
 
 using namespace MNN::Express;
@@ -51,6 +52,57 @@ public:
     }
 };
 MNNTestSuiteRegister(SplitTest, "op/split");
+
+// Torch-style Slice (also emitted by the ONNX Split converter) on an axis that does not divide evenly.
+// The last chunk must take the remainder instead of reading past the input.
+class SplitUnevenTest : public MNNTestCase {
+public:
+    virtual ~SplitUnevenTest() = default;
+    static bool check(const int* splitSize, int outputNumber, const std::vector<int>& expectLengths) {
+        const int length = 10, inner = 2;
+        std::vector<float> data(length * inner);
+        for (int i = 0; i < (int)data.size(); ++i) {
+            data[i] = (float)i;
+        }
+        auto input = _Const(data.data(), {length, inner}, NCHW);
+        std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+        op->type = MNN::OpType_Slice;
+        op->main.type = MNN::OpParameter_Slice;
+        auto param = new MNN::SliceT;
+        param->axis = 0;
+        param->sourceType = MNN::NetSource_TORCH;
+        if (nullptr != splitSize) {
+            param->slicePoints = {*splitSize};
+        }
+        op->main.value = param;
+        auto expr = Expr::create(op.get(), {input}, outputNumber);
+        int offset = 0;
+        for (int i = 0; i < outputNumber; ++i) {
+            auto output = Variable::create(expr, i);
+            auto info = output->getInfo();
+            if (nullptr == info || info->dim.size() != 2 || info->dim[0] != expectLengths[i] || info->dim[1] != inner) {
+                MNN_ERROR("SplitUnevenTest: output %d has wrong shape, expect length %d\n", i, expectLengths[i]);
+                return false;
+            }
+            if (!checkVector<float>(output->readMap<float>(), data.data() + offset, expectLengths[i] * inner, 0)) {
+                MNN_ERROR("SplitUnevenTest: output %d has wrong values\n", i);
+                return false;
+            }
+            offset += expectLengths[i] * inner;
+        }
+        return true;
+    }
+    virtual bool run(int precision) {
+        // torch.split(x, 3) on length 10.
+        const int splitSize = 3;
+        if (!check(&splitSize, 4, {3, 3, 3, 1})) {
+            return false;
+        }
+        // ONNX Split with num_outputs = 3 and no split sizes on length 10.
+        return check(nullptr, 3, {4, 4, 2});
+    }
+};
+MNNTestSuiteRegister(SplitUnevenTest, "op/split_uneven");
 
 class SliceTest : public MNNTestCase {
 public:
