@@ -26,6 +26,13 @@
 // w = scale*(v-8) + zero; symmetric weights are exactly this with per-channel zero = 0.
 // so no dedicated qai8dxp/qsi4cxp ukernels are needed here.
 #include "kai_common.h"
+#include "kai_lhs_quant_pack_qai8dxp_f32.h"
+#include "kai_rhs_pack_nxk_qsu2cxp4vlx4_qsu2cx_neon.h"
+#include "kai_rhs_pack_nxk_qsu2cxp4x4bf32sf32_qsu2cx_neon.h"
+#include "kai_matmul_clamp_f32_qai8dxp1vlx4_qsu2cxp4vlx4_1vlx4vl_sme2_mopa.h"
+#include "kai_matmul_clamp_f32_qai8dxp1x4_qsu2cxp4vlx4_1x4vl_sme2_dot.h"
+#include "kai_matmul_clamp_f32_qai8dxp4x4_qsu2cxp4x4bf32sf32_8x4_neon_dotprod.h"
+#include "kai_matmul_clamp_f32_qai8dxp1x4_qsu2cxp4x4bf32sf32_1x4_neon_dotprod.h"
 #include "kai_lhs_quant_pack_qsi8d32pscalef32_f16_neon.h"
 #include "kai_lhs_quant_pack_qsi8d32pscalef32_f32_neon.h"
 #include "kai_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon.h"
@@ -49,7 +56,13 @@ namespace MNN {
 // Static classification / gating (moved out of the former KleidiAI class).
 
 KleidiAIConvInt8::KernelType KleidiAIConvInt8::getKernelType(size_t bits, bool bAsymmetric, size_t blockSize, size_t bytes) {
-    // Only 4-bit dynamic-quant weights are accelerated today. The variant is picked from
+    if (bits == 2) {
+        if (bAsymmetric || blockSize != 0 || bytes != 4) {
+            return KernelType::KERNEL_TYPE_ERROR;
+        }
+        return KernelType::QI2_SYM_PERCHANNEL_F32;
+    }
+    // The INT4 variant is picked from
     // symmetry, quant granularity (per-channel when blockSize == 0, else per-block) and the
     // activation precision (f32 when bytes == 4, f16 when bytes == 2). Anything else falls back.
     if (bits != 4 || (blockSize != 0 && blockSize % 32 != 0)) {
@@ -81,6 +94,8 @@ static bool kaiKernelSupport(KleidiAIConvInt8::KernelType type) {
     auto cpu = MNNGetCPUInfo();
     bool hasKernel = cpu->sme2 || (cpu->dot && cpu->i8mm);
     switch (type) {
+        case KleidiAIConvInt8::KernelType::QI2_SYM_PERCHANNEL_F32:
+            return cpu->sme2 || cpu->dot;
         case KleidiAIConvInt8::KernelType::QI4_SYM_PERBLOCK_F32:
         case KleidiAIConvInt8::KernelType::QI4_SYM_PERBLOCK_F16:
             return cpu->sme2;
@@ -103,9 +118,9 @@ bool KleidiAIConvInt8::isSupported(KernelType type, const Convolution2DCommon* c
         return false;
     }
     if (type == KernelType::QI4_ASYM_PERCHANNEL_F32 || type == KernelType::QI4_ASYM_PERCHANNEL_F16
-        || type == KernelType::QI8_ASYM_PERCHANNEL || type == KernelType::QI4_SYM_PERCHANNEL_F32) {
-        // Symmetric per-channel reuses the asymmetric qsi8d32/qai4c32 kernels, which require
-        // the K dimension to be a multiple of 32.
+        || type == KernelType::QI8_ASYM_PERCHANNEL || type == KernelType::QI4_SYM_PERCHANNEL_F32
+        || type == KernelType::QI2_SYM_PERCHANNEL_F32) {
+        // Both QSU2 and the per-channel QAI4 packers require K to be a multiple of 32.
         if (common->inputCount() % 32 != 0) {
             return false;
         }
@@ -160,6 +175,50 @@ DEFINE_RHS_INFO(rhsSizeAsymNeon, kai_get_rhs_packed_size_rhs_pack_nxk_qai4c32p_q
 // ---- rhs packed offset ----
 DEFINE_RHS_INFO(rhsOffAsymSme2,  kai_get_rhs_packed_offset_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s0s1_f32_f32_f32_neon, bl)
 DEFINE_RHS_INFO(rhsOffAsymNeon,  kai_get_rhs_packed_offset_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon,    bl)
+
+DEFINE_RHS_INFO(rhsSizeQsu2Sme2, kai_get_rhs_packed_size_rhs_pack_nxk_qsu2cxp4vlx4_qsu2cx_neon, sr)
+DEFINE_RHS_INFO(rhsOffQsu2Sme2, kai_get_rhs_packed_offset_rhs_pack_nxk_qsu2cxp4vlx4_qsu2cx_neon, sr)
+DEFINE_RHS_INFO(rhsSizeQsu2Neon, kai_get_rhs_packed_size_rhs_pack_nxk_qsu2cxp4x4bf32sf32_qsu2cx_neon, sr)
+DEFINE_RHS_INFO(rhsOffQsu2Neon, kai_get_rhs_packed_offset_rhs_pack_nxk_qsu2cxp4x4bf32sf32_qsu2cx_neon, sr)
+DEFINE_LHS_INFO_CHNL(lhsSizeQai8F32, kai_get_lhs_packed_size_lhs_quant_pack_qai8dxp_f32)
+DEFINE_LHS_INFO_CHNL(lhsOffQai8F32, kai_get_lhs_packed_offset_lhs_quant_pack_qai8dxp_f32)
+
+void rhsPackQsu2Sme2(size_t groups, size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl,
+                    const void* rhs, const void* scale, const void* zero, const void* bias, void* out) {
+    const kai_rhs_pack_nxk_qsu2cxp4vlx4_qsu2cx_neon_params params = {1, 2};
+    kai_run_rhs_pack_nxk_qsu2cxp4vlx4_qsu2cx_neon(groups, n, k, nr, kr, sr,
+        (const uint8_t*)rhs, (const float*)bias, (const float*)scale, out, 0, &params, nullptr);
+}
+void rhsPackQsu2Neon(size_t groups, size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl,
+                    const void* rhs, const void* scale, const void* zero, const void* bias, void* out) {
+    const kai_rhs_pack_nxk_qsu2cxp4x4bf32sf32_qsu2cx_neon_params params = {1, 2};
+    kai_run_rhs_pack_nxk_qsu2cxp4x4bf32sf32_qsu2cx_neon(groups, n, k, nr, kr, sr,
+        (const uint8_t*)rhs, (const float*)bias, (const float*)scale, out, 0, &params, nullptr);
+}
+void lhsPackQai8F32(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr,
+                   const void* lhs, void* out) {
+    kai_run_lhs_quant_pack_qai8dxp_f32(m, k, mr, kr, sr, 0, (const float*)lhs, k * sizeof(float), out);
+}
+void matmulQsu2Sme2(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
+                    size_t sr, size_t sc, float mn, float mx) {
+    if (m == 1) {
+        kai_run_matmul_clamp_f32_qai8dxp1x4_qsu2cxp4vlx4_1x4vl_sme2_dot(
+            m, n, k, lhs, rhs, (float*)dst, sr, sc, mn, mx, nullptr);
+    } else {
+        kai_run_matmul_clamp_f32_qai8dxp1vlx4_qsu2cxp4vlx4_1vlx4vl_sme2_mopa(
+            m, n, k, lhs, rhs, (float*)dst, sr, sc, mn, mx, nullptr);
+    }
+}
+void matmulQsu2Neon(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
+                    size_t sr, size_t sc, float mn, float mx) {
+    if (m == 1) {
+        kai_run_matmul_clamp_f32_qai8dxp1x4_qsu2cxp4x4bf32sf32_1x4_neon_dotprod(
+            m, n, k, lhs, rhs, (float*)dst, sr, sc, mn, mx, nullptr);
+    } else {
+        kai_run_matmul_clamp_f32_qai8dxp4x4_qsu2cxp4x4bf32sf32_8x4_neon_dotprod(
+            m, n, k, lhs, rhs, (float*)dst, sr, sc, mn, mx, nullptr);
+    }
+}
 
 // ---- rhs pack ----
 void rhsPackAsymSme2(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl,
@@ -439,6 +498,7 @@ void KleidiAIConvInt8::configKernel(bool allowQai4F16Mopa) {
     mUkernel = Ukernel{};
     mUkernelNeon = Ukernel{};
     mChnlQuant = (mKernelType == KernelType::QI4_SYM_PERCHANNEL_F32
+                  || mKernelType == KernelType::QI2_SYM_PERCHANNEL_F32
                   || mKernelType == KernelType::QI4_ASYM_PERCHANNEL_F32
                   || mKernelType == KernelType::QI4_ASYM_PERCHANNEL_F16);
 
@@ -554,6 +614,39 @@ void KleidiAIConvInt8::configKernel(bool allowQai4F16Mopa) {
         return;
     }
     switch (mKernelType) {
+        case KernelType::QI2_SYM_PERCHANNEL_F32: {
+            mUkernel.lhsPackedSize = lhsSizeQai8F32;
+            mUkernel.lhsPackedOffset = lhsOffQai8F32;
+            mUkernel.runLhsQuantPack = lhsPackQai8F32;
+            // Both pairs share RHS packing and KR/SR, but GEMV packs a single LHS row.
+#define SET_QSU2_PARAMS(GEMM, GEMV) \
+            mParam.mKaiMstepGemv = kai_get_m_step_##GEMV(); \
+            mParam.mKaiMrGemv = kai_get_mr_##GEMV(); \
+            mParam.mKaiMstepGemm = kai_get_m_step_##GEMM(); \
+            mParam.mKaiMrGemm = kai_get_mr_##GEMM(); \
+            mParam.mKaiNStep = kai_get_n_step_##GEMM(); \
+            mParam.mKaiNr = kai_get_nr_##GEMM(); \
+            mParam.mKaiKr = kai_get_kr_##GEMM(); \
+            mParam.mKaiSr = kai_get_sr_##GEMM();
+            if (mSme2) {
+                SET_QSU2_PARAMS(matmul_clamp_f32_qai8dxp1vlx4_qsu2cxp4vlx4_1vlx4vl_sme2_mopa,
+                                matmul_clamp_f32_qai8dxp1x4_qsu2cxp4vlx4_1x4vl_sme2_dot)
+                mUkernel.rhsPackedSize = rhsSizeQsu2Sme2;
+                mUkernel.rhsPackedOffset = rhsOffQsu2Sme2;
+                mUkernel.runRhsPack = rhsPackQsu2Sme2;
+                mUkernel.matmul = matmulQsu2Sme2;
+            } else if (mDot) {
+                SET_QSU2_PARAMS(matmul_clamp_f32_qai8dxp4x4_qsu2cxp4x4bf32sf32_8x4_neon_dotprod,
+                                matmul_clamp_f32_qai8dxp1x4_qsu2cxp4x4bf32sf32_1x4_neon_dotprod)
+                mUkernel.rhsPackedSize = rhsSizeQsu2Neon;
+                mUkernel.rhsPackedOffset = rhsOffQsu2Neon;
+                mUkernel.runRhsPack = rhsPackQsu2Neon;
+                mUkernel.matmul = matmulQsu2Neon;
+            }
+#undef SET_QSU2_PARAMS
+            // The INT4 hybrid cost model is not calibrated for QSU2.
+            break;
+        }
         case KernelType::QI4_SYM_PERBLOCK_F32:
         case KernelType::QI4_SYM_PERBLOCK_F16: {
             if (!mSme2) {
@@ -722,6 +815,43 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_p
     auto core = static_cast<CPUBackend*>(backend)->functions();
     int pack = core->pack;
 
+    AutoStorage<uint8_t> qsu2Codes;
+    const uint8_t* rhs = reinterpret_cast<const uint8_t*>(quanCommon->weight.get());
+    if (mKernelType == KernelType::QI2_SYM_PERCHANNEL_F32) {
+        const size_t count = static_cast<size_t>(oc) * ic;
+        const size_t alphaCount = static_cast<size_t>(oc);
+        if (!quanCommon->canUseInt2 || quanCommon->originBits != 2 || quanCommon->asymmetric
+            || mBlockNum != 1 || core->bytes != 4
+            || quanCommon->weight.size() < count || quanCommon->alphaSize != alphaCount
+            || quanCommon->alpha.size() < alphaCount || rhs == nullptr) {
+            return;
+        }
+        for (int i = 0; i < oc; ++i) {
+            const float scale = quanCommon->getAlphaFloat()[i];
+            if (!std::isfinite(scale)) {
+                return;
+            }
+        }
+        qsu2Codes.reset(count / 4);
+        if (qsu2Codes.get() == nullptr) {
+            return;
+        }
+        const auto weights = quanCommon->weight.get();
+        // MNN decodes W2 into signed bytes; KleidiAI expects code = weight + 2, low bits first.
+        for (size_t i = 0; i < count; i += 4) {
+            uint8_t codes = 0;
+            for (size_t j = 0; j < 4; ++j) {
+                const int value = weights[i + j];
+                if (value < -2 || value > 1) {
+                    return;
+                }
+                codes |= static_cast<uint8_t>((value + 2) << (2 * j));
+            }
+            qsu2Codes.get()[i / 4] = codes;
+        }
+        rhs = qsu2Codes.get();
+    }
+
     // compute info
     int ocUp4 = ROUND_UP(oc, pack);
     int scaleSize = ocUp4 * mBlockNum;
@@ -834,7 +964,7 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_p
     //Run rhs pack.
     auto weightPackedData = mWeightInt8->host<uint8_t>();
     runRhsPack(1, n, k, blkSize,
-               (uint8_t*)quanCommon->weight.get(),
+               rhs,
                (const void*)scalePtr, (const void*)zeroPtr, (const void*)biasPtr,
                weightPackedData);
 

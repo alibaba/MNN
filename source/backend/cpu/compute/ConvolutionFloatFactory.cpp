@@ -35,10 +35,14 @@ namespace MNN {
 
 #ifdef MNN_KLEIDIAI_ENABLED
 #ifdef MNN_LOW_MEMORY
-// Try to build a KleidiAI int4 dynamic-quant convolution. Returns nullptr when unsupported.
+// Try to build a KleidiAI low-bit convolution. Returns nullptr when unsupported.
 static Execution* _createKleidiAIConvInt8(Backend* backend, const Op* op,
                                           std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo) {
-    if (!weightQuantInfo->canUseInt4) {
+    if (!weightQuantInfo->canUseInt4 && !weightQuantInfo->canUseInt2) {
+        return nullptr;
+    }
+    // Cached-mmap metadata can mark low-bit weights as INT4 without decoding W2 into signed bytes.
+    if (weightQuantInfo->originBits == 2 && !weightQuantInfo->canUseInt2) {
         return nullptr;
     }
     auto common = op->main_as_Convolution2D()->common();
@@ -47,13 +51,24 @@ static Execution* _createKleidiAIConvInt8(Backend* backend, const Op* op,
     int ic = common->inputCount();
 
     int dequantCnt = weightQuantInfo->alphaSize;
+    if (ic <= 0 || oc <= 0 || dequantCnt <= 0
+        || (weightQuantInfo->asymmetric && dequantCnt % 2 != 0)) {
+        return nullptr;
+    }
     if (weightQuantInfo->asymmetric) {
         dequantCnt /= 2;
     }
+    if (dequantCnt % oc != 0) {
+        return nullptr;
+    }
     int blockNum = dequantCnt / oc;
+    if (blockNum <= 0 || ic % blockNum != 0) {
+        return nullptr;
+    }
     size_t blkSize = blockNum == 1 ? 0 : ic / blockNum;
 
-    auto kernelType = KleidiAIConvInt8::getKernelType(4, weightQuantInfo->asymmetric, blkSize, core->bytes);
+    const size_t bits = weightQuantInfo->canUseInt2 ? 2 : 4;
+    auto kernelType = KleidiAIConvInt8::getKernelType(bits, weightQuantInfo->asymmetric, blkSize, core->bytes);
     if (!KleidiAIConvInt8::isSupported(kernelType, common)) {
         return nullptr;
     }

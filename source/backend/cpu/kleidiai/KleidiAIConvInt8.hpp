@@ -24,6 +24,7 @@ public:
         QI8_ASYM_PERBLOCK,
         QI8_SYM_PERCHANNEL,
         QI8_SYM_PERBLOCK,
+        QI2_SYM_PERCHANNEL_F32,
         KERNEL_TYPE_ERROR
     };
 
