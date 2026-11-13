@@ -288,12 +288,25 @@ int main(int argc, char* argv[]) {
 
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
-    std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
+    std::shared_ptr<LlmResources> resources;
+    const bool isPackage = tryOpenLlmFile(config_path, resources);
+    if (resources && !resources->policy().debugCallbacks) {
+        MNN_ERROR("Quantization requires debug callbacks, which are disabled for this model package.\n");
+        return 1;
+    }
+    std::unique_ptr<Llm> llm(isPackage ? Llm::createLLM(resources) : Llm::createLLM(config_path));
+    if (!llm) {
+        MNN_ERROR("Cannot open LLM model: %s\n", config_path.c_str());
+        return 1;
+    }
     llm->set_config(R"({"tmp_path":"tmp"})");
     llm->set_config(R"({"enable_debug":true})");
 
     //load llm model
-    llm->load();
+    if (!llm->load()) {
+        MNN_ERROR("Cannot load LLM model: %s\n", config_path.c_str());
+        return 1;
+    }
 
     std::cout << "prompt file is " << prompt_file << std::endl;
     std::ifstream prompt_fs(prompt_file);
@@ -333,12 +346,17 @@ int main(int argc, char* argv[]) {
     getFeature(_featureInfo, llm.get(), featureBit, tmpDir);
     computeFeatureScaleKL(_scales, _featureInfo, llm.get(), prompts, maxNewTokensToComputeRange, quantizedToUint);
 
-    std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
+    std::shared_ptr<LlmConfig> config(resources ? new LlmConfig(resources) : new LlmConfig(config_path));
     std::string llmModelPath = config->llm_model();
+    const auto graph = config->resource(llmModelPath);
     std::unique_ptr<MNN::NetT> netT;
-    std::shared_ptr<MNN::Interpreter> netC(MNN::Interpreter::createFromFile(llmModelPath.c_str()), MNN::Interpreter::destroy);
+    std::shared_ptr<MNN::Interpreter> netC(
+        graph.data ? MNN::Interpreter::createFromBuffer(graph.data, static_cast<size_t>(graph.size))
+                   : MNN::Interpreter::createFromFile(graph.filePath().c_str()),
+        MNN::Interpreter::destroy);
     if (nullptr == netC.get()) {
-        return 0;
+        MNN_ERROR("Cannot read LLM graph: %s\n", llmModelPath.c_str());
+        return 1;
     }
     netT = MNN::UnPackNet(netC->getModelBuffer().first);
     for(auto &iter : netT.get()->extraTensorDescribe){
@@ -361,5 +379,10 @@ int main(int argc, char* argv[]) {
         builderOutput.Finish(len);
         std::ofstream output(_destModelFile, std::ofstream::binary);
         output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
+        output.close();
+        if (!output) {
+            MNN_ERROR("Cannot write quantized model: %s\n", _destModelFile.c_str());
+            return 1;
+        }
     }
 }

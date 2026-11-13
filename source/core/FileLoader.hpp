@@ -10,6 +10,8 @@
 #include <vector>
 #include <mutex>
 #include <string>
+#include <functional>
+#include <memory>
 
 #include "core/AutoStorage.h"
 namespace MNN {
@@ -35,6 +37,11 @@ public:
     static std::string fileRegion(const std::string& file, int64_t offset, int64_t length);
     static bool isFileRegion(const std::string& file);
 
+    // Retain the returned locator while readers may reopen it.
+    // Filters receive absolute file offsets and may run concurrently.
+    using ReadFilter = std::function<bool(uint8_t*, size_t, int64_t)>;
+    static std::shared_ptr<const std::string> registerFile(const std::string& file, ReadFilter filter);
+
     bool valid() const {
         return mFile != nullptr;
     }
@@ -51,6 +58,8 @@ public:
 
     bool read(char* buffer, int64_t size);
 private:
+    struct ReadSource;
+    std::shared_ptr<ReadSource> mSource;
     void _init();
     std::vector<std::pair<size_t, void*>> mBlocks;
     FILE* mFile                 = nullptr;

@@ -25,6 +25,10 @@ static void tuning_prepare(Llm *llm) {
 
 static std::unique_ptr<Llm> create_and_prepare_llm(const char *config_path, bool use_template) {
     std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
+    if (!llm) {
+        MNN_ERROR("Cannot open LLM model: %s\n", config_path);
+        return nullptr;
+    }
     if (use_template) {
         llm->set_config("{\"tmp_path\":\"tmp\"}");
     } else {
@@ -187,6 +191,9 @@ static int serve(int argc, const char *argv[]) {
     mls::MlsServer server;
     bool is_r1 = IsR1(config_path);
     auto llm = create_and_prepare_llm(config_path.c_str(), !is_r1);
+    if (!llm) {
+        return 1;
+    }
     server.Start(llm.get(), is_r1);
     return 0;
 }
@@ -231,6 +238,9 @@ static int benchmark(int argc, const char *argv[]) {
         exit(1);
     }
     auto llm = create_and_prepare_llm(config_path.c_str(), true);
+    if (!llm) {
+        return 1;
+    }
     mls::LLMBenchmark benchmark;
     benchmark.Start(llm.get(), {});
     return 0;
@@ -323,16 +333,9 @@ static int run(int argc, const char *argv[]) {
     }
 
     std::cout << "config path is " << config_path << std::endl;
-    std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
-    llm->set_config("{\"tmp_path\":\"tmp\"}");
-    {
-        AUTOTIME;
-        llm->load();
-    }
-    if (true)
-    {
-        AUTOTIME;
-        tuning_prepare(llm.get());
+    auto llm = create_and_prepare_llm(config_path.c_str(), true);
+    if (!llm) {
+        return 1;
     }
     if (prompt.empty() && prompt_file.empty())
     {

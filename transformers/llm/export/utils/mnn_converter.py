@@ -1,11 +1,13 @@
 import os
 import sys
+import subprocess
 import copy
 import json
 import torch
 import numpy as np
 
 from .torch_utils import quant as torch_quant
+from .package_writer import register_file_region
 from tqdm import tqdm
 from .spinner import spinner_run
 from .gptq import GPTQ
@@ -46,7 +48,8 @@ class MNNConverter:
 
     def convert(self, convert_args):
         import contextlib
-        log_fp = open(EXPORT_LOG, "a")
+        log_path = os.path.join(self.args.work_path, EXPORT_LOG) if getattr(self.args, 'dst_file', None) else EXPORT_LOG
+        log_fp = open(log_path, "a")
         sfd = None
         try:
             sfd = os.dup(1)
@@ -58,24 +61,32 @@ class MNNConverter:
                 os.close(sfd)
                 sfd = None
 
+        success = False
         try:
             with contextlib.redirect_stdout(log_fp):
-                sys.argv = convert_args
-                sys.argc = len(convert_args)
                 if self.mnnconvert is None:
                     from MNN.tools import mnnconvert
-                    mnnconvert.main()
+                    previous_argv = sys.argv
+                    try:
+                        sys.argv = convert_args
+                        mnnconvert.main()
+                    finally:
+                        sys.argv = previous_argv
                 else:
-                    convert_args[0] = self.mnnconvert
-                    cmd = ' '.join(convert_args)
-                    message = os.popen(cmd).read()
-                    print(message)
-                sys.argv = []
+                    subprocess.run([self.mnnconvert, *convert_args[1:]], stdout=log_fp, check=True)
+            success = True
         finally:
             if sfd is not None:
                 os.dup2(sfd, 1)
                 os.close(sfd)
             log_fp.close()
+            if not success and getattr(self.args, 'dst_file', None):
+                try:
+                    with open(log_path, encoding='utf-8', errors='replace') as log:
+                        for line in log:
+                            sys.stderr.write(line)
+                except (OSError, ValueError):
+                    pass
 
     @spinner_run(f'convert onnx model to ')
     def onnx2mnn(self, onnx_path, mnn_path, args = [], transformer_fuse = True, group_conv_native = False, weight_sym = False, save_external_data = True):
@@ -173,7 +184,7 @@ class MNNConverter:
                 quant_args = []
             self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, quant_args, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native, weight_sym=weight_sym)
         else:
-            mnn_json = f'{self.mnn_model_path}.json'
+            mnn_json = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), self.mnn_name + '.json')
             self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native, weight_sym=weight_sym)
             self.mnn2json(self.mnn_model_path, mnn_json)
             self.rebuild(mnn_json)
@@ -192,11 +203,13 @@ class MNNConverter:
             if self.args.smooth:
                 self.export_smooth_quant(mnn_json)
         if getattr(self.exporter, 'qat_loader', None) is not None:
-            mnn_json = f'{self.mnn_model_path}.json'
+            mnn_json = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), self.mnn_name + '.json')
             if self.weight_ops is None:
                 self.mnn2json(self.mnn_model_path, mnn_json)
             self.apply_qat(mnn_json)
             self.json2mnn(mnn_json, self.mnn_model_path)
+        if os.path.isfile(self.mnn_weight_path):
+            register_file_region(self.args, self.mnn_weight_path)
         return self.tie_embeddings_info
 
     @spinner_run(f'apply gptq to ')
@@ -211,7 +224,7 @@ class MNNConverter:
 
     @spinner_run(f'export split lora to ')
     def export_lora(self, mnn_json):
-        lora_model = os.path.join(self.args.dst_path, 'lora.mnn')
+        lora_model = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), 'lora.mnn')
         lora_json = f'{lora_model}.json'
         LoRA(self.args.lora_path).apply(mnn_json, lora_json)
         self.json2mnn(lora_json, lora_model)
