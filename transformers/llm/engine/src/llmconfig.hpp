@@ -47,7 +47,7 @@ static inline std::string file_name(const std::string& path) {
     }
 }
 
-bool tryOpenLlmFile(const std::string& path, std::shared_ptr<LlmResources>& result);
+MNN_PUBLIC bool tryOpenLlmFile(const std::string& path, std::shared_ptr<LlmResources>& result);
 bool tryReadLlmPackage(const std::string& path, std::shared_ptr<LlmResources>& result);
 
 class LlmConfig {
