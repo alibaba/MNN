@@ -20,6 +20,12 @@ if(NOT MNN_BUILD_TRAIN)
   list(REMOVE_ITEM Files ${GradTestFiles} ${NNTestFiles})
 endif()
 
+# Allocation injection needs CPU internals, so link those tests statically.
+if(NOT MNN_BUILD_SHARED_LIBS)
+  set_property(SOURCE ${CMAKE_CURRENT_LIST_DIR}/backend/cpu/ConvolutionSingleTapTest.cpp
+    APPEND PROPERTY COMPILE_DEFINITIONS MNN_TEST_CPU_INTERNAL)
+endif()
+
 add_executable(run_test.out ${Files})
 if(TARGET MNNRVV)
   target_compile_definitions(run_test.out PRIVATE MNN_USE_RVV)
