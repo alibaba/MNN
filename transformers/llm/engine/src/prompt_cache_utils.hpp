@@ -5,35 +5,64 @@
 #include <string>
 #include <vector>
 #include "MNN_generated.h"
+#include "core/FileLoader.hpp"
 #include "core/MNNFileUtils.h"
 
 namespace MNN {
 namespace Transformer {
 
-inline const Net* loadVerifiedNet(const std::string& modelPath, std::vector<uint8_t>& modelBuffer) {
+inline const Net* loadVerifiedNet(const std::string& modelPath, std::vector<uint8_t>& modelBuffer,
+                                  const uint8_t* data = nullptr, uint64_t size = 0) {
     using flatbuffers::soffset_t;
-    std::ifstream modelFile(modelPath, std::ios::binary | std::ios::ate);
-    const auto modelSize = modelFile.tellg();
-    if (modelSize <= 0 || modelSize >= FLATBUFFERS_MAX_BUFFER_SIZE) {
+    if (!data && FileLoader::isFileRegion(modelPath)) {
+        if (size == 0 || size >= FLATBUFFERS_MAX_BUFFER_SIZE) {
+            return nullptr;
+        }
+        FileLoader loader(modelPath.c_str(), true);
+        if (!loader.valid()) {
+            return nullptr;
+        }
+        modelBuffer.resize(static_cast<size_t>(size));
+        if (!loader.read(reinterpret_cast<char*>(modelBuffer.data()), size)) {
+            return nullptr;
+        }
+        data = modelBuffer.data();
+    } else if (!data) {
+        std::ifstream modelFile(modelPath, std::ios::binary | std::ios::ate);
+        const auto modelSize = modelFile.tellg();
+        if (modelSize <= 0 || modelSize >= FLATBUFFERS_MAX_BUFFER_SIZE) {
+            return nullptr;
+        }
+        size = static_cast<size_t>(modelSize);
+        modelBuffer.resize(static_cast<size_t>(size));
+        modelFile.seekg(0);
+        if (!modelFile.read(reinterpret_cast<char*>(modelBuffer.data()), modelBuffer.size())) {
+            return nullptr;
+        }
+        data = modelBuffer.data();
+    }
+    if (size == 0 || size >= FLATBUFFERS_MAX_BUFFER_SIZE) {
         return nullptr;
     }
-    modelBuffer.resize(static_cast<size_t>(modelSize));
-    modelFile.seekg(0);
-    if (!modelFile.read(reinterpret_cast<char*>(modelBuffer.data()), modelBuffer.size())) {
-        return nullptr;
-    }
-    flatbuffers::Verifier verifier(modelBuffer.data(), modelBuffer.size());
+    flatbuffers::Verifier verifier(data, static_cast<size_t>(size));
     if (!VerifyNetBuffer(verifier)) {
         return nullptr;
     }
-    return GetNet(modelBuffer.data());
+    return GetNet(data);
 }
 
-inline bool modelHasLinearAttention(const std::string& modelPath) {
+inline bool modelHasLinearAttention(const std::string& modelPath, const uint8_t* data = nullptr, uint64_t size = 0,
+                                    bool* graphValid = nullptr) {
+    if (graphValid) {
+        *graphValid = false;
+    }
     std::vector<uint8_t> modelBuffer;
-    const auto net = loadVerifiedNet(modelPath, modelBuffer);
+    const auto net = loadVerifiedNet(modelPath, modelBuffer, data, size);
     if (net == nullptr || net->oplists() == nullptr) {
         return false;
+    }
+    if (graphValid) {
+        *graphValid = true;
     }
     for (const auto op : *net->oplists()) {
         if (op->type() == OpType_LinearAttention) {
@@ -43,11 +72,15 @@ inline bool modelHasLinearAttention(const std::string& modelPath) {
     return false;
 }
 
-inline bool validatePrefixCacheFiles(const std::string& modelPath, const std::string& prefixPath, int layerCount) {
+inline bool validatePrefixCacheFiles(const std::string& modelPath, const std::string& prefixPath, int layerCount,
+                                     const uint8_t* data = nullptr, uint64_t size = 0, bool* graphValid = nullptr) {
+    if (graphValid) {
+        *graphValid = false;
+    }
     std::vector<bool> needsValue;
     {
         std::vector<uint8_t> modelBuffer;
-        const auto net = loadVerifiedNet(modelPath, modelBuffer);
+        const auto net = loadVerifiedNet(modelPath, modelBuffer, data, size);
         if (net == nullptr || net->oplists() == nullptr ||
             (net->subgraphs() != nullptr && net->subgraphs()->size() != 0)) {
             return false;
@@ -79,6 +112,9 @@ inline bool validatePrefixCacheFiles(const std::string& modelPath, const std::st
     if (layerCount <= 0 || needsValue.size() != static_cast<size_t>(layerCount)) {
         MNN_PRINT("Prefix cache layer layout unavailable or mismatched: %s\n", modelPath.c_str());
         return false;
+    }
+    if (graphValid) {
+        *graphValid = true;
     }
     for (int layer = 0; layer < layerCount; ++layer) {
         const auto base = prefixPath + "_" + std::to_string(layer);

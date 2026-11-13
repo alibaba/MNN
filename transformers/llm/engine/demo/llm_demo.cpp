@@ -301,13 +301,17 @@ void chat(Llm* llm) {
 }
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << std::endl;
+        std::cout << "Usage: " << argv[0] << " <config.json|model.mpack> <prompt.txt>" << std::endl;
         return 0;
     }
 
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
     std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
+    if (!llm) {
+        MNN_ERROR("Cannot open LLM model: %s\n", config_path.c_str());
+        return 1;
+    }
     // The weight-mmap cache files carry no model identity, so the tmp dir must
     // be unique per model or a later run with another model silently reuses
     // the previous model's weight cache (garbage output). Hash the resolved

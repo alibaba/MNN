@@ -20,6 +20,7 @@ class DiskEmbedding {
 public:
     explicit DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::string fileName = "", int hiddenSize = 0, std::vector<int64_t> quant_info = {});
     ~DiskEmbedding() {}
+    bool valid() const { return mSource.valid() && (mSource.data || (mFile && mFile->valid())); }
     void embedding(const std::vector<int>& input_ids, float* ptr);
 
 private:
@@ -27,6 +28,7 @@ private:
     std::unique_ptr<uint8_t[]> mAlpha  = nullptr;
     std::unique_ptr<uint8_t[]> mWeight = nullptr;
     std::unique_ptr<FileLoader> mFile;
+    LlmResources::Resource mSource;
     DequantFunction mDequantFunc;
     size_t mHiddenSize, mTokenSize;
     float mOffset = 0.0f;

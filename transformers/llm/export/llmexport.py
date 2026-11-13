@@ -3,6 +3,8 @@ import json
 import glob
 import warnings
 import argparse
+import tempfile
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
@@ -11,6 +13,7 @@ os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 import onnx
 import torch
 
+from utils.package_writer import pack_model, register_file_region
 from utils.model import LlmModel, EmbeddingModel
 from utils.tokenizer import LlmTokenizer
 from utils.spinner import spinner_run
@@ -42,7 +45,7 @@ class LlmExporter(torch.nn.Module):
         self.dst_name = 'llm'
         self.exported_tokenizer_file = 'tokenizer.mtok'
         # load config from args
-        self.onnx_path = os.path.join(self.args.dst_path, 'onnx')
+        self.onnx_path = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), 'onnx')
         if self.args.tokenizer_path is None:
             self.args.tokenizer_path = self.args.path
         if args.lm_quant_bit is None:
@@ -262,7 +265,7 @@ class LlmExporter(torch.nn.Module):
             return
         from utils.eagle import Eagle
         self.eagle = Eagle.get_eagle(self.model_type)(self.args.eagle_path, self.model)
-        eagle_onnx, eagle_fc_onnx = self.eagle.export(self.onnx_path)
+        eagle_onnx, eagle_fc_onnx = self.eagle.export(self.onnx_path, self.args.dst_path)
         if self.mnn_converter:
             MNNConverter(self, None).export(eagle_onnx)
             MNNConverter(self, None).export(eagle_fc_onnx)
@@ -329,7 +332,7 @@ class LlmExporter(torch.nn.Module):
                 if file_size > 0:
                     f.seek(file_size - 1)
                     f.write(b'\0')
-            return embedding_file
+            return register_file_region(self.args, embedding_file)
 
         if format_bit == 16:
             # BF16 format
@@ -365,11 +368,11 @@ class LlmExporter(torch.nn.Module):
         else:
             raise ValueError(f"Unsupported embedding bit precision: {format_bit}")
 
-        return embedding_file
+        return register_file_region(self.args, embedding_file)
 
     @spinner_run(f'export config to ')
     def export_config(self, mnn_config = False):
-        with open(f'{self.args.dst_path}/export_args.json', 'w', encoding='utf-8') as f:
+        with open(os.path.join(getattr(self.args, 'work_path', self.args.dst_path), 'export_args.json'), 'w', encoding='utf-8') as f:
             json.dump(self.args.__dict__, f, ensure_ascii=False, indent=4)
         config_json = f'{self.args.dst_path}/llm_config.json'
         with open(config_json, 'w', encoding='utf-8') as f:
@@ -695,7 +698,7 @@ class LlmExporter(torch.nn.Module):
                 converter.export(onnx_path, self.talker.quant_bit)
                 if weight_ops is not None:
                     mnn_json = os.path.join(
-                        self.args.dst_path, os.path.basename(onnx_path).replace('.onnx', '.mnn.json'))
+                        getattr(self.args, 'work_path', self.args.dst_path), os.path.basename(onnx_path).replace('.onnx', '.mnn.json'))
                     if os.path.exists(mnn_json):
                         os.remove(mnn_json)
         if self.talker.token2wav is None:
@@ -737,6 +740,7 @@ class LlmExporter(torch.nn.Module):
             with open(ple_file, 'wb') as f:
                 f.write(buffer)
             self.llm_config['ple_embed_file'] = 'ple_embeddings_bf16.bin'
+        register_file_region(self.args, ple_file)
         self.llm_config['ple_embed_scale'] = embed_scale
         self.llm_config['ple_embed_dim'] = embed.embedding_dim
 
@@ -974,7 +978,7 @@ class EmbeddingExporter(LlmExporter):
             # Fix MNN JSON: MNNConvert may swap batch and seq_len dims for input_ids,
             # producing e.g. [3, -1, 2048] instead of [1, -1, 2048]. With shapeMutable=true
             # the static dim 0 must be the batch dimension (1), not the traced seq_len (3).
-            llm_json = f'{self.args.dst_path}/llm.mnn.json'
+            llm_json = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), 'llm.mnn.json')
             if os.path.exists(llm_json):
                 import json as _json
                 with open(llm_json) as f:
@@ -1011,6 +1015,7 @@ def build_args(parser):
     parser.add_argument('--dflash_path', type=str, default=None, help='dflash draft model path, default is `None`')
     parser.add_argument('--lora_path', type=str, default=None, help='lora path, default is `None` mean not apply lora.')
     parser.add_argument('--gptq_path', type=str, default=None, help='gptq path, default is `None` mean not apply gptq.')
+    parser.add_argument('--dst_file', metavar='FILE', help='write an uncompressed LLM package (e.g. model.mpack) with --export mnn')
     parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, default is `./model`.')
     parser.add_argument('--verbose', action='store_true', help='Whether or not to print verbose.')
     parser.add_argument('--test', type=str, help='test model inference with query `TEST`.')
@@ -1070,24 +1075,65 @@ def export(path, **kwargs):
     args = parser.parse_args(['--path', path])
     for k, v in kwargs.items():
         setattr(args, k, v)
-    if args.generate_for_npu:
-        args.transformer_c4 = False
-    embedding_models = ['bge', 'gte', 'Qwen3-Embedding', 'Qwen3-VL-Embedding']
-    if any(model in path for model in embedding_models):
-        llm_exporter = EmbeddingExporter(args)
-    else:
-        llm_exporter = LlmExporter(args)
-    # export
-    if llm_exporter.qat_loader is not None and args.export == 'mnn':
-        with llm_exporter.qat_loader.export_context():
-            llm_exporter.export(args.export)
-    else:
-        llm_exporter.export(args.export)
+    return run_export(args)
 
-def main():
-    parser = argparse.ArgumentParser(description='llm_exporter', formatter_class=argparse.RawTextHelpFormatter)
-    build_args(parser)
-    args = parser.parse_args()
+def _publish_split_lora(bundle, output, lora, lora_output):
+    # All split exports in this directory share one adapter, even with different base filenames.
+    publishing = output.parent / '.llmexport-lora'
+    publishing.mkdir()
+    previous = publishing / 'lora.mnn'
+    try:
+        if lora_output.is_dir():
+            raise IsADirectoryError(lora_output)
+        if os.path.lexists(lora_output):
+            os.replace(lora_output, previous)
+        try:
+            os.replace(lora, lora_output)
+            os.replace(bundle, output)
+        except OSError:
+            if os.path.lexists(previous):
+                os.replace(previous, lora_output)
+            elif not lora.exists():
+                lora_output.unlink()
+            raise
+        if os.path.lexists(previous):
+            previous.unlink()
+    finally:
+        # Keep the old adapter available for recovery if restoring it also failed.
+        if not os.path.lexists(previous):
+            publishing.rmdir()
+
+def run_export(args, cli=False):
+    if args.dst_file:
+        if args.export != 'mnn' or args.generate_for_npu:
+            raise ValueError('--dst_file requires --export mnn without --generate_for_npu')
+        output = Path(args.dst_file).absolute()
+        lora_output = output.parent / 'lora.mnn'
+        split_lora = args.lora_split and args.lora_path
+        if split_lora:
+            if output.name.casefold() == lora_output.name:
+                raise ValueError('--dst_file must differ from the split LoRA output lora.mnn')
+            if output.is_dir() or lora_output.is_dir():
+                raise ValueError('Split LoRA outputs must be files')
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='.llmexport-', dir=output.parent) as staging:
+            args.dst_path = os.path.join(staging, 'model')
+            args.work_path = os.path.join(staging, 'work')
+            args.file_regions = []
+            os.mkdir(args.dst_path)
+            os.mkdir(args.work_path)
+            run_exporter(args, cli)
+            if not split_lora:
+                return pack_model(args.dst_path, output, args.file_regions)
+            lora = Path(args.work_path) / 'lora.mnn'
+            if not lora.is_file() or lora.stat().st_size == 0:
+                raise ValueError('Split LoRA export did not produce a nonempty lora.mnn')
+            bundle = pack_model(args.dst_path, Path(staging) / 'base.mpack', args.file_regions)
+            _publish_split_lora(bundle, output, lora, lora_output)
+            return str(output)
+    return run_exporter(args, cli)
+
+def run_exporter(args, cli):
     if args.generate_for_npu:
         args.transformer_c4 = False
 
@@ -1099,16 +1145,20 @@ def main():
     else:
         llm_exporter = LlmExporter(args)
 
-    # some actions
-    if args.test is not None:
+    if cli and args.test is not None:
         llm_exporter.response(args.test)
 
-    if args.export is not None:
+    if not cli or args.export is not None:
         if llm_exporter.qat_loader is not None and args.export == 'mnn':
             with llm_exporter.qat_loader.export_context():
                 llm_exporter.export(args.export)
         else:
             llm_exporter.export(args.export)
+
+def main():
+    parser = argparse.ArgumentParser(description='llm_exporter', formatter_class=argparse.RawTextHelpFormatter)
+    build_args(parser)
+    run_export(parser.parse_args(), cli=True)
 
 if __name__ == '__main__':
     main()

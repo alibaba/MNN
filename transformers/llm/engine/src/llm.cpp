@@ -7,6 +7,7 @@
 // #define MNN_OPEN_TIME_TRACE 1
 
 #include <fstream>
+#include <limits>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -37,6 +38,41 @@
 namespace MNN {
 using namespace Express;
 namespace Transformer {
+
+bool LlmResources::Resource::valid() const {
+    if (data) {
+        return size > 0 && size <= std::numeric_limits<size_t>::max() && path.empty() && !bounded && offset == 0;
+    }
+    if (path.empty()) {
+        return false;
+    }
+    if (!bounded) {
+        return offset == 0 && size == 0;
+    }
+    return size > 0 && offset <= INT64_MAX && size <= uint64_t(INT64_MAX) - offset;
+}
+
+std::string LlmResources::Resource::filePath() const {
+    if (!valid() || data) {
+        return {};
+    }
+    return bounded ? FileLoader::fileRegion(path, int64_t(offset), int64_t(size)) : path;
+}
+
+Llm* Llm::createLLM(std::shared_ptr<LlmResources> resources) {
+    if (!resources) {
+        return nullptr;
+    }
+    std::shared_ptr<LlmConfig> config(new LlmConfig(resources));
+    if (!config->config_.is_object()) {
+        MNN_ERROR("Invalid resource model configuration.\n");
+        return nullptr;
+    }
+    if (config->is_visual() || config->is_audio() || config->has_talker()) {
+        return new Omni(config);
+    }
+    return new Llm(config);
+}
 
 static MNNForwardType backend_type_convert(const std::string& type_str) {
     if (type_str == "cpu")
@@ -91,7 +127,27 @@ static inline void _llmOrigError(const char* msg) {
     } while (0)
 #endif // LLM_LOG_TO_STRING
 
+#if defined(MNN_LLM_PACKAGE_EXT) && MNN_LLM_PACKAGE_EXT
+bool openPackageFormat(const std::string& path, std::shared_ptr<LlmResources>& result);
+#else
+static bool openPackageFormat(const std::string& path, std::shared_ptr<LlmResources>& result) {
+    return tryReadLlmPackage(path, result);
+}
+#endif
+
+bool tryOpenLlmFile(const std::string& path, std::shared_ptr<LlmResources>& result) {
+    if (openPackageFormat(path, result)) {
+        return true;
+    }
+    return (has_suffix(path, ".mpack") || has_suffix(path, ".llm") || has_suffix(path, ".mnnllm")) &&
+           !MNNDirExist(path.c_str());
+}
+
 Llm* Llm::createLLM(const std::string& config_path) {
+    std::shared_ptr<LlmResources> resources;
+    if (tryOpenLlmFile(config_path, resources)) {
+        return createLLM(std::move(resources));
+    }
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
     Llm* llm = nullptr;
     if (config->is_visual() || config->is_audio() || config->has_talker()) {
@@ -141,11 +197,11 @@ void Llm::setChatTemplate() {
 }
 
 bool Llm::set_config(const std::string& content) {
-    auto contentJson = ujson::json::parse(content);
-    mConfig->config_.merge(contentJson);
+    auto config = ujson::json::parse(content);
+    mConfig->config_.merge(config);
     if (mSampler) {
         // Applied at the next generate_init, so a running generation keeps its sampling values.
-        mSampler->updateConfig(contentJson);
+        mSampler->updateConfig(config);
     }
     mConfig->mllm_config_ = mConfig->config_.contains("mllm") ? mConfig->config_["mllm"] : ujson::json();
     setChatTemplate();
@@ -176,6 +232,10 @@ bool Llm::set_config(const std::string& content) {
 }
 
 void Llm::setDebugCallback(MNN::TensorCallBackWithInfo&& before, MNN::TensorCallBackWithInfo&& after) {
+    if (!mConfig->debugCallbacksEnabled()) {
+        MNN_ERROR("Debug callbacks are disabled for this resource provider.\n");
+        return;
+    }
     mExecutor->setCallBack(std::move(before), std::move(after));
 }
 
@@ -207,7 +267,7 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
     }
     std::string tmpPath = mConfig->tmp_path();
-    if (!tmpPath.empty() && !MNNCreateDir(tmpPath.c_str())) {
+    if (mConfig->diskCacheEnabled() && !tmpPath.empty() && !MNNCreateDir(tmpPath.c_str())) {
         // Everything below only writes into tmpPath, so a missing directory
         // costs the GPU shader cache and the mmap'd weight / KV cache -- a
         // silent per-run recompile, not a failure. Say so once, with the name,
@@ -232,7 +292,7 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     if (!mllm) {
         rtg->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
     }
-    if (backend_type_convert(mConfig->backend_type(mllm)) != 0) { // not cpu
+    if (mConfig->diskCacheEnabled() && backend_type_convert(mConfig->backend_type(mllm)) != 0) { // not cpu
         std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
         rtg->setCache(cacheFilePath + "/mnn_cachefile.bin");
     }
@@ -283,7 +343,7 @@ void Llm::initRuntime() {
     _initDebug();
 #endif
     // get linear input thresholds and max values
-    if (mConfig->config_.value("enable_debug", false)) {
+    if (mConfig->debugCallbacksEnabled() && mConfig->config_.value("enable_debug", false)) {
         mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
     }
 }
@@ -344,9 +404,17 @@ bool Llm::load() {
     std::string tokenizer_path = mConfig->tokenizer_file();
     std::string model_path = mConfig->llm_model();
     std::string weight_path = mConfig->llm_weight();
-    if (!checkFile(tokenizer_path, "tokenizer file") ||
-        !checkFile(model_path, "LLM model file") ||
-        !checkFile(weight_path, "LLM weight file")) {
+    auto readable = [&](const std::string& path) {
+        const auto r = mConfig->resource(path);
+        if (!r.valid() || (!r.data && !FileLoader(r.filePath().c_str(), true).valid())) {
+            MNN_ERROR("Cannot read model resource: %s\n", path.c_str());
+            return false;
+        }
+        return true;
+    };
+    if (!readable(model_path) || !readable(tokenizer_path) || !readable(weight_path) ||
+        (mConfig->needsEmbeddingFile() && !readable(mConfig->embedding_file())) ||
+        (mConfig->has_ple() && !readable(mConfig->ple_embed_file()))) {
         return false;
     }
     MNN::Express::ExecutorScope s(mExecutor);
@@ -360,13 +428,13 @@ bool Llm::load() {
     initRuntime();
     // init module status
     // 1. load vocab
-    mTokenizer.reset(Tokenizer::createTokenizer(tokenizer_path));
+    mTokenizer.reset(Tokenizer::createTokenizer(mConfig->resource(tokenizer_path)));
     if (mTokenizer == nullptr) {
         MNN_ERROR("[Error]: Failed to load tokenizer from: %s\n", tokenizer_path.c_str());
         return false;
     }
     // 2. load context
-    {
+    if (!mConfig->resources_) {
         std::ifstream contextFile(mConfig->context_file());
         if (contextFile.is_open()) {
             std::ostringstream contextStream;
@@ -385,9 +453,15 @@ bool Llm::load() {
         }
     }
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+    if (!mDiskEmbedding->valid()) {
+        return false;
+    }
     // PLE (Per-Layer Embeddings) for gemma4
     if (mConfig->has_ple()) {
         mPleEmbedding.reset(new DiskEmbedding(mConfig, mConfig->ple_embed_file(), mConfig->ple_embed_dim(), mConfig->ple_quant()));
+        if (!mPleEmbedding->valid()) {
+            return false;
+        }
     }
     setChatTemplate();
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
@@ -418,15 +492,14 @@ bool Llm::load() {
         outputNames.emplace_back("hidden_states");
     }
 
-    mRuntimeManager->setExternalFile(weight_path);
     if (mConfig->has_deepstack()) {
         inputNames.emplace_back("deepstack_embeds");
     }
     if (mConfig->has_ple()) {
         inputNames.emplace_back("ple_embeddings");
     }
-    mModule.reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
-    mRuntimeManager->setExternalFile("");
+    mModule.reset(
+        mConfig->loadModule(inputNames, outputNames, model_path, mRuntimeManager, &module_config, weight_path));
     if(nullptr == mModule) {
         MNN_ERROR("[Error]: Load module failed, please check model.\n");
         if(outputNames.size() > 1) {
@@ -487,7 +560,29 @@ bool Llm::load() {
 
 Llm* Llm::create_lora(const std::string& lora_path) {
     auto llm = new Llm(std::make_shared<LlmConfig>(*mConfig));
-    llm->set_config("{\"llm_model\": \"" + lora_path + "\", \"use_mmap\": false, \"use_cached_mmap\": false}");
+    if (mConfig->resources_) {
+        struct LoraResources final : LlmResources {
+            std::shared_ptr<LlmResources> base;
+            std::string model, adapter;
+            Resource resource(const std::string& path) const override {
+                if (path != model) {
+                    return base->resource(path);
+                }
+                Resource result;
+                result.path = adapter;
+                return result;
+            }
+            Policy policy() const override { return base->policy(); }
+        };
+        auto resources = std::make_shared<LoraResources>();
+        resources->base = mConfig->resources_;
+        resources->model = LlmConfig::relativeResourcePath("", mConfig->llm_model());
+        resources->adapter = lora_path;
+        llm->mConfig->resources_ = std::move(resources);
+        llm->set_config("{\"use_mmap\": false, \"use_cached_mmap\": false}");
+    } else {
+        llm->set_config("{\"llm_model\": \"" + lora_path + "\", \"use_mmap\": false, \"use_cached_mmap\": false}");
+    }
     llm->mBaseModule = mModule.get();
     auto res = llm->load();
     if (!res) {
@@ -938,7 +1033,14 @@ void Llm::eraseHistory(size_t begin, size_t end) {
     }
     if (begin > 0 || end < mMeta->previous) {
         if (mHasLinearAttention < 0) {
-            mHasLinearAttention = modelHasLinearAttention(mConfig->llm_model()) ? 1 : 0;
+            bool graphValid = false;
+            const auto graph = mConfig->resource(mConfig->llm_model());
+            const bool hasLinear = modelHasLinearAttention(graph.filePath(), graph.data, graph.size, &graphValid);
+            if (!graphValid) {
+                MNN_ERROR("Cannot inspect model graph for partial history removal.\n");
+                return;
+            }
+            mHasLinearAttention = hasLinear ? 1 : 0;
         }
         if (mHasLinearAttention == 1 && replayKeptHistory(begin, end)) {
             return;
@@ -1488,9 +1590,16 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
     }
 
     if (mIsPrefixFileExist) {
+        bool graphValid = false;
+        const auto graph = mConfig->resource(mConfig->llm_model());
         mIsPrefixFileExist = validatePrefixCacheFiles(
-            mConfig->llm_model(), MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName),
-            mPrefixCacheNums);
+            graph.filePath(), MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName), mPrefixCacheNums,
+            graph.data, graph.size, &graphValid);
+        if (!graphValid) {
+            MNN_ERROR("Cannot validate model graph or prefix cache layer layout.\n");
+            mPrefixCacheMode = false;
+            return false;
+        }
     }
 
     // If the cache is deemed unusable (missing / truncated / size-mismatched /
