@@ -44,7 +44,7 @@ public:
         prefix[2] += pStatus.precision;
         prefix[4] += pStatus.memory;
         prefix[6] += pStatus.power;
-        std::string fileName = MNNFilePathConcat("tmp", prefix + "0.static");
+        std::string fileName = MNNFilePathConcat("tmp", prefix + "uncached_0.static");
         if (!MNNFileExist(fileName.c_str())) {
             FUNC_PRINT(1);
             return false;
