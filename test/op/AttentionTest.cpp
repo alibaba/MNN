@@ -37,7 +37,8 @@ static KVMeta gMeta;
 static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool outputC4 = false,
                                                     bool forceOpenCLBuffer = false, int numThread = -1,
                                                     KVMeta* meta = &gMeta,
-                                                    const std::string& prefixCacheDir = std::string()) {
+                                                    const std::string& prefixCacheDir = std::string(),
+                                                    bool surroundAttention = false) {
     auto Q = _Input();
     auto K = _Input();
     auto V = _Input();
@@ -48,7 +49,12 @@ static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool 
     attention->main.value = new MNN::AttentionParamT;
     attention->main.AsAttentionParam()->kv_cache = true;
     attention->main.AsAttentionParam()->output_c4 = outputC4;
-    auto o = Variable::create(Expr::create(attention.get(), {Q, K, V, mask}));
+    auto o = Variable::create(Expr::create(
+        attention.get(), surroundAttention ? std::vector<VARP>{_Negative(Q), _Negative(K), _Negative(V), mask}
+                                           : std::vector<VARP>{Q, K, V, mask}));
+    if (surroundAttention) {
+        o = _Negative(o);
+    }
     auto buffer = Variable::save({o});
     MNN::ScheduleConfig config;
     auto status = MNNTestSuite::get()->pStaus;
@@ -1955,11 +1961,13 @@ MNNTestSuiteRegister(SpeedAttentionTest, "speed/attention");
 // [batch, len, heads, dim] built from a single-batch tensor, every batch
 // receiving identical rows: each batch's KV cache then holds the same
 // content, so the single-batch NaiveAttention reference applies to all.
-static VARP _rowsToVar(const std::vector<std::vector<std::vector<float>>>& a, int batch) {
+static VARP _rowsToVar(const std::vector<std::vector<std::vector<float>>>& a, int batch, VARP var = nullptr) {
     const int len = (int)a.size();
     const int heads = (int)a[0].size();
     const int dim = (int)a[0][0].size();
-    VARP var = _Input({batch, len, heads, dim}, NCHW, halide_type_of<float>());
+    if (var == nullptr) {
+        var = _Input({batch, len, heads, dim}, NCHW, halide_type_of<float>());
+    }
     float* ptr = var->writeMap<float>();
     for (int b = 0; b < batch; ++b) {
         for (int i = 0; i < len; ++i) {
@@ -2131,7 +2139,7 @@ protected:
     // maskMode: 0 scalar causal sentinel, 1 trivial [1,1,1,1] ADD mask,
     //           2 materialized [1,1,1,kv] ADD mask plane.
     bool runDecodeCase(int numHead, int kvNumHead, int headDim, int batch, int prefill, int steps, int quantMode,
-                       bool outputC4, int maskMode, bool chunked, const char* tag) {
+                       bool outputC4, int maskMode, bool chunked, const char* tag, bool reuseInputs = false) {
         NumHead = numHead;
         KvNumHead = kvNumHead;
         HeadDim = headDim;
@@ -2153,7 +2161,7 @@ protected:
             // the Metal kernels, set to identity.
             module = _makeAttentionModuleQuant(8, outputC4, 1.0f, 1.0f / 127.0f, 1.0f, 1.0f / 127.0f);
         } else {
-            module = _makeAttentionModule(quantMode, outputC4);
+            module = _makeAttentionModule(quantMode, outputC4, false, -1, &gMeta, std::string(), reuseInputs);
         }
         gMeta.previous = 0;
         gMeta.remove = 0;
@@ -2194,6 +2202,8 @@ protected:
         std::vector<std::vector<int>> noMask;
         const float tolAbs = (quantMode != 0) ? 0.03f : 0.005f;
         const float tolRel = (quantMode != 0) ? 0.12f : 0.05f;
+        VARP queryVar, keyVar, valueVar;
+        auto causalMask = _scalarMask();
         for (int s = 0; s < steps; ++s) {
             const int kvLen = prefill + s + 1;
             auto q1 = genProbeQuery(key, probeTarget(s, kvLen));
@@ -2213,10 +2223,12 @@ protected:
                 maskVar = _Input({1, 1, 1, kvLen}, NCHW, halide_type_of<float>());
                 ::memset(maskVar->writeMap<float>(), 0, kvLen * sizeof(float));
             } else {
-                maskVar = _scalarMask();
+                maskVar = reuseInputs ? causalMask : _scalarMask();
             }
-            Output = module->onForward({_rowsToVar(q1, batch), _rowsToVar(k1, batch), _rowsToVar(v1, batch),
-                                        maskVar})[0];
+            queryVar = _rowsToVar(q1, batch, reuseInputs ? queryVar : nullptr);
+            keyVar = _rowsToVar(k1, batch, reuseInputs ? keyVar : nullptr);
+            valueVar = _rowsToVar(v1, batch, reuseInputs ? valueVar : nullptr);
+            Output = module->onForward({queryVar, keyVar, valueVar, maskVar})[0];
             gMeta.sync();
             if (!compareDecodeBatch(batch, tolAbs, tolRel)) {
                 MNN_PRINT("Error: %s failed at decode step %d (kvLen=%d, probe=%d)\n", tag, s, kvLen,
@@ -2281,6 +2293,9 @@ public:
         pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 9, false, 0, false, "decode quant k");
         pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 10, false, 0, false, "decode quant kv");
         pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 11, false, 0, false, "decode static quant");
+        // Fixed input shapes and buffers cross two Vulkan KV-cache growth boundaries.
+        // Surrounding unary ops also check ordering across batch-recorded command segments.
+        pass &= runDecodeCase(4, 2, 64, 1, 4, 140, 0, false, 0, false, "decode cache growth", true);
         return pass;
     }
 

@@ -111,6 +111,8 @@ public:
     void pushCommand(VkCommandBuffer buffer) const;
     std::shared_ptr<VulkanCommandPool::Buffer> acquireIndirectSegmentForRecord();
     void finishIndirectRecordedOp();
+    void registerDynamicCommandBuffer(const std::shared_ptr<VulkanCommandPool::Buffer>& buffer);
+    void prepareDynamicCommandBuffer(const VulkanCommandPool::Buffer* buffer) const;
 
     inline VulkanRuntime::GPUType gpuType() const {
         return mRuntime->mGpuType;
@@ -161,6 +163,7 @@ private:
     std::vector<std::shared_ptr<VulkanCommandPool::Buffer>> mIndirectSegments;
     std::shared_ptr<VulkanCommandPool::Buffer> mCurrentIndirectSegment;
     int mCurrentIndirectSegmentOpCount = 0;
+    mutable size_t mNextIndirectSegment = 0;
 
     mutable std::vector<VkCommandBuffer> mCmdBuffers;
     mutable std::shared_ptr<VulkanFence> mFence;

@@ -156,6 +156,28 @@ void VulkanBackend::finishIndirectRecordedOp() {
     }
 }
 
+void VulkanBackend::registerDynamicCommandBuffer(const std::shared_ptr<VulkanCommandPool::Buffer>& buffer) {
+    if (!mDirect) {
+        _sealIndirectSegment();
+        mIndirectSegments.emplace_back(buffer);
+    }
+}
+
+void VulkanBackend::prepareDynamicCommandBuffer(const VulkanCommandPool::Buffer* buffer) const {
+    if (mDirect) {
+        return;
+    }
+    // Queue preceding segments before a dynamic op can flush the queue to grow its cache.
+    while (mNextIndirectSegment < mIndirectSegments.size()) {
+        auto& segment = mIndirectSegments[mNextIndirectSegment++];
+        if (segment.get() == buffer) {
+            return;
+        }
+        pushCommand(segment->get());
+    }
+    MNN_ASSERT(false);
+}
+
 const VulkanPipeline* VulkanBackend::getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
                                                  const std::vector<uint32_t>& localSize,
                                                  const std::vector<uint32_t>& specConstants) const {
@@ -177,6 +199,11 @@ void VulkanBackend::onResizeBegin() {
     }
 }
 ErrorCode VulkanBackend::onResizeEnd() {
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    if (mTimeProfiler) {
+        mTimeProfiler->markDynamicScopes();
+    }
+#endif
     if (!mDirect) {
         _sealIndirectSegment();
     }
@@ -303,20 +330,26 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     originExecution->setName(EnumNameOpType(op->type()));
 #endif
 
-    if (mDirect) {
+    if (mDirect || originExecution->encodeOnExecute()) {
         return new VulkanBasicExecutionDirect(originExecution);
     }
     return new VulkanBasicExecutionInDirect(originExecution);
 }
 
 void VulkanBackend::onExecuteBegin() const {
+    mNextIndirectSegment = 0;
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    if (mTimeProfiler) {
+        mTimeProfiler->resetDynamicScopes();
+    }
+#endif
 }
 
 void VulkanBackend::onExecuteEnd() const {
     if (!mDirect) {
         mCmdBuffers.reserve(mCmdBuffers.size() + mIndirectSegments.size());
-        for (auto& segment : mIndirectSegments) {
-            mCmdBuffers.push_back(segment->get());
+        while (mNextIndirectSegment < mIndirectSegments.size()) {
+            mCmdBuffers.push_back(mIndirectSegments[mNextIndirectSegment++]->get());
         }
     }
 #ifdef ENABLE_VULKAN_TIME_PROFILE
@@ -368,6 +401,7 @@ void VulkanBackend::_finish() const {
 }
 
 void VulkanBackend::_resetIndirectSegments() {
+    mNextIndirectSegment = 0;
     mCurrentIndirectSegment = nullptr;
     mIndirectSegments.clear();
     mCurrentIndirectSegmentOpCount = 0;
