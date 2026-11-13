@@ -349,53 +349,36 @@ void VulkanBackend::_finish() const {
     if (mCmdBuffers.empty()) {
         return;
     }
-    const auto vkBn = this;
-    if (vkBn->gpuType() == VulkanRuntime::ADRENO) {
-        constexpr size_t kAdrenoSubmitCBLimit = 128;
-        const size_t submitCBLimit =
-            mDirect ? kAdrenoSubmitCBLimit : kAdrenoSubmitCBLimit / kIndirectSegmentOpLimit;
-        const size_t commandBufferCount       = mCmdBuffers.size();
-        const auto queue                       = device().acquireDefaultDevQueue();
-        for (size_t begin = 0; begin < commandBufferCount; begin += submitCBLimit) {
-            const size_t count      = std::min(submitCBLimit, commandBufferCount - begin);
-            const bool isLastSubmit = begin + count == commandBufferCount;
-            VkSubmitInfo submitInfo = {/* .sType                = */ VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                       /* .pNext                = */ nullptr,
-                                       /* .waitSemaphoreCount   = */ 0,
-                                       /* .pWaitSemaphores      = */ nullptr,
-                                       /* .pWaitDstStageMask    = */ nullptr,
-                                       /* .commandBufferCount   = */ (uint32_t)count,
-                                       /* .pCommandBuffers      = */ mCmdBuffers.data() + begin,
-                                       /* .signalSemaphoreCount = */ 0,
-                                       /* .pSignalSemaphores    = */ nullptr};
-            auto fenceReal = isLastSubmit ? mFence->get() : VK_NULL_HANDLE;
-            if (isLastSubmit) {
-                mFence->reset();
-            }
-            CALL_VK(vkQueueSubmit(queue, 1, &submitInfo, fenceReal));
-            if (isLastSubmit) {
-                auto res = mFence->wait();
-                MNN_VK_CHECK(res);
-            }
-        }
-        mCmdBuffers.clear();
-        return;
+    constexpr size_t kAdrenoSubmitCBLimit = 128;
+    const size_t commandBufferCount       = mCmdBuffers.size();
+    size_t submitCBLimit                  = commandBufferCount;
+    if (gpuType() == VulkanRuntime::ADRENO) {
+        submitCBLimit = std::max<size_t>(1, mDirect ? kAdrenoSubmitCBLimit
+                                                    : kAdrenoSubmitCBLimit / kIndirectSegmentOpLimit);
     }
-    VkSubmitInfo submit_info = {/* .sType                = */ VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                /* .pNext                = */ nullptr,
-                                /* .waitSemaphoreCount   = */ 0,
-                                /* .pWaitSemaphores      = */ nullptr,
-                                /* .pWaitDstStageMask    = */ nullptr,
-                                /* .commandBufferCount   = */ (uint32_t)mCmdBuffers.size(),
-                                /* .pCommandBuffers      = */ mCmdBuffers.data(),
-                                /* .signalSemaphoreCount = */ 0,
-                                /* .pSignalSemaphores    = */ nullptr};
-    auto fenceReal           = mFence->get();
-    mFence->reset();
-    CALL_VK(vkQueueSubmit(device().acquireDefaultDevQueue(), 1, &submit_info, fenceReal));
-
-    auto res = mFence->wait();
-    MNN_VK_CHECK(res);
+    const auto queue = device().acquireDefaultDevQueue();
+    for (size_t begin = 0; begin < commandBufferCount; begin += submitCBLimit) {
+        const size_t count      = std::min(submitCBLimit, commandBufferCount - begin);
+        const bool isLastSubmit = begin + count == commandBufferCount;
+        VkSubmitInfo submit_info = {/* .sType                = */ VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                    /* .pNext                = */ nullptr,
+                                    /* .waitSemaphoreCount   = */ 0,
+                                    /* .pWaitSemaphores      = */ nullptr,
+                                    /* .pWaitDstStageMask    = */ nullptr,
+                                    /* .commandBufferCount   = */ (uint32_t)count,
+                                    /* .pCommandBuffers      = */ mCmdBuffers.data() + begin,
+                                    /* .signalSemaphoreCount = */ 0,
+                                    /* .pSignalSemaphores    = */ nullptr};
+        auto fenceReal = isLastSubmit ? mFence->get() : VK_NULL_HANDLE;
+        if (isLastSubmit) {
+            mFence->reset();
+        }
+        CALL_VK(vkQueueSubmit(queue, 1, &submit_info, fenceReal));
+        if (isLastSubmit) {
+            auto res = mFence->wait();
+            MNN_VK_CHECK(res);
+        }
+    }
     mCmdBuffers.clear();
 }
 
