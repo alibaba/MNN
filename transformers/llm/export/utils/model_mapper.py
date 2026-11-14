@@ -26,6 +26,13 @@ class ModelMapper:
             else:
                 model_type = 'chatglm2'
         if model_type in self.mapper:
+            text_config = getattr(config, 'text_config', config)
+            if model_type in ('lfm3', 'lfm3_vl', 'lfm3_audio', 'lfm3_omni') and not text_config.use_sandwich_norm:
+                model_map = copy.deepcopy(self.mapper[model_type])
+                model_map['decoder']['post_attention_layernorm'] = 'ffn_norm'
+                del model_map['decoder']['pre_feedforward_layernorm']
+                del model_map['decoder']['post_feedforward_layernorm']
+                return model_type, model_map
             return model_type, self.mapper[model_type]
         return model_type, self.default_map
 
@@ -1010,6 +1017,49 @@ class ModelMapper:
             'linear_attention': lfm2_linear_attention,
         }
         self.regist('lfm2', lfm2_map)
+
+    def regist_lfm3(self):
+        lfm3_map = copy.deepcopy(self.mapper['lfm2'])
+        del lfm3_map['config']['rope_theta']
+        lfm3_map['config'].update({
+            'head_dim': 'head_dim',
+            'sliding_window': 'sliding_window',
+            'tie_word_embeddings': 'tie_word_embeddings',
+        })
+        lfm3_map['decoder'].update({
+            'post_attention_layernorm': 'post_operator_norm',
+            'pre_feedforward_layernorm': 'ffn_norm',
+            'post_feedforward_layernorm': 'post_ffn_norm',
+        })
+        lfm3_map['attention'] = dict(self.default_attention, head_gate_proj='gate_proj')
+        self.regist('lfm3', lfm3_map)
+
+    def regist_lfm3_multimodal(self):
+        model_map = copy.deepcopy(self.mapper['lfm3'])
+        model_map['config'] = {key: 'text_config.' + value for key, value in model_map['config'].items()}
+        model_map['model'] = {
+            'lm': 'lm_head',
+            'embed': 'model.language_model.embed_tokens',
+            'blocks': 'model.language_model.layers',
+            'final_layernorm': 'model.language_model.embedding_norm',
+            'visual': 'model.vision_tower',
+            'multi_modal_projector': 'model.multi_modal_projector',
+        }
+        self.regist('lfm3_vl', model_map)
+        audio_map = copy.deepcopy(model_map)
+        del audio_map['model']['visual']
+        del audio_map['model']['multi_modal_projector']
+        audio_map['model'].update({
+            'audio': 'model.audio_encoder',
+            'audio_projector': 'model.audio_projector',
+        })
+        self.regist('lfm3_audio', audio_map)
+        omni_map = copy.deepcopy(model_map)
+        omni_map['model'].update({
+            'audio': 'model.audio_encoder',
+            'audio_projector': 'model.audio_projector',
+        })
+        self.regist('lfm3_omni', omni_map)
 
     def regist_lfm2_moe(self):
         lfm2_moe_config = {

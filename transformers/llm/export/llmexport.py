@@ -403,6 +403,8 @@ class LlmExporter(torch.nn.Module):
                 "ngram_factor": 1.0
             }
             config['tokenizer_file'] = self.exported_tokenizer_file
+            if getattr(self.model, 'speech', None) is not None:
+                config.update(self.model.speech.get_generation_config())
             if self.args.embed_bit < 16:
                 config['embedding_file'] = f"embeddings_int{self.args.embed_bit}.bin"
             if hasattr(self, 'talker') and self.talker is not None:
@@ -780,6 +782,10 @@ class LlmExporter(torch.nn.Module):
         self.export_talker()
         self.export_vision()
         self.export_audio()
+        if self.model.speech is not None:
+            for speech_onnx in self.model.speech.export(self.onnx_path):
+                if self.mnn_converter:
+                    self.mnn_converter.export(speech_onnx, 16)
         self.export_eagle()
         self.export_dflash()
         self.export_language()

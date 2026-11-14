@@ -163,6 +163,19 @@ inline void stripThinkBlocks(std::string& text) {
     }
 }
 
+template <typename Decode>
+inline std::string evaluatedPromptText(const std::string& rendered, const std::vector<int>& history,
+                                       size_t evaluatedTokens, size_t prefixTokens, Decode decode) {
+    if (evaluatedTokens == 0 || evaluatedTokens > history.size() || prefixTokens > evaluatedTokens) {
+        return {};
+    }
+    std::string text;
+    for (size_t i = prefixTokens; i < evaluatedTokens; ++i) {
+        text += decode(history[i]);
+    }
+    return rendered.compare(0, text.size(), text) == 0 ? text : std::string();
+}
+
 }  // namespace Transformer
 }  // namespace MNN
 

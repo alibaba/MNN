@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 torch.set_printoptions(precision=4, sci_mode=False)
 from .model_mapper import ModelMapper
-from .transformers import Rotary, Embedding, Decoder, Attention
+from .transformers import Rotary, Embedding, Decoder, Attention, Lfm3OfflineBackbone
 from .spinner import spinner_run
 from .torch_utils import onnx_export
 from .qat import copy_qat_source, mark_qat_sources, filter_qat_unexpected_keys
@@ -622,3 +622,43 @@ class Qwen3TTSToken2Wav(torch.nn.Module):
 
     def export(self, onnx_path):
         return [self.export_speech_decoder(onnx_path), self.export_speaker_encoder(onnx_path)]
+
+
+class LiquidCodecDecoder(torch.nn.Module):
+    def __init__(self, codec):
+        super().__init__()
+        self.quantizer = codec.quantizer
+        self.from_quantizer = codec.from_quantizer
+        self.backbone = Lfm3OfflineBackbone(codec.decoder.lfm, codec.config.decoder_window)
+        self.projection = codec.decoder.lin
+        self.frame_stack = codec.config.stft_frame_stack
+        self.n_fft = codec.config.stft_n_fft
+        self.hop = codec.config.stft_hop_length
+        # Express the real inverse DFT as a fixed projection; overlap-add is done by the runtime.
+        positions = torch.arange(self.n_fft, dtype=torch.float64)[:, None]
+        bins = torch.arange(self.n_fft // 2 + 1, dtype=torch.float64)[None]
+        phase = 2 * torch.pi * positions * bins / self.n_fft
+        scale = torch.full((1, self.n_fft // 2 + 1), 2.0 / self.n_fft, dtype=torch.float64)
+        scale[:, 0] *= 0.5
+        scale[:, -1] *= 0.5
+        matrix = torch.cat([phase.cos() * scale, -phase.sin() * scale], dim=1)
+        matrix *= codec.decoder.istft.window.double()[:, None]
+        self.inverse_dft = torch.nn.Linear(self.n_fft + 2, self.n_fft, bias=False)
+        self.inverse_dft.weight = torch.nn.Parameter(matrix.float(), requires_grad=False)
+
+    def forward(self, codes):
+        indices = codes.transpose(1, 2).reshape(-1, self.quantizer.num_codebooks, 1).int()
+        # Keep FSQ digit extraction integral: FP16 reciprocal rounding can change a code at bin boundaries.
+        digits = torch.div(indices, self.quantizer.basis.int(), rounding_mode='trunc')
+        levels = self.quantizer.levels.int()
+        digits = digits - torch.div(digits, levels, rounding_mode='trunc') * levels
+        half = (self.quantizer.levels // 2).float()
+        latent = ((digits.float() - half) / half).reshape(-1, self.quantizer.num_codebooks * self.quantizer.codebook_dim)
+        latent = self.quantizer.project_out(latent)
+        hidden_states = self.from_quantizer(latent).reshape(1, -1, self.from_quantizer.out_features)
+        hidden_states = hidden_states[:, :, None, :].expand(-1, -1, self.frame_stack, -1)
+        hidden_states = hidden_states.reshape(1, -1, hidden_states.shape[-1])
+        spectrum = self.projection(self.backbone(hidden_states))
+        magnitude, phase = spectrum.chunk(2, dim=-1)
+        magnitude = magnitude.exp()
+        return self.inverse_dft(torch.cat([magnitude * phase.cos(), magnitude * phase.sin()], dim=-1))

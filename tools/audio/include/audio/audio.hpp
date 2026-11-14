@@ -75,6 +75,9 @@ struct SpectrogramParams {
 
     /** Power scaling factor, default is 2.0. */
     float power = 2.0;
+
+    /** Whether to use a periodic window, default is false (symmetric). */
+    bool periodic = false;
 };
 
 /**
