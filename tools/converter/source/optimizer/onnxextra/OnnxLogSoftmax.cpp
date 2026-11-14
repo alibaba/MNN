@@ -19,16 +19,42 @@ class OnnxLogSoftmaxTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         MNN_THROW_CHECK(expr->inputs().size() == 1, "Onnx LogSoftmax needs one inputs.");
+        int axis = -1, opsetVersion = 13;
+        bool hasAxis = false;
         auto attrs = expr->get()->main_as_Extra()->attr();
-        auto it    = std::find_if(attrs->begin(), attrs->end(),
-                               [](const Attribute *attr) { return attr->key()->str() == "axis"; });
-        MNN_ASSERT(it != attrs->end());
-        int axis = it->i();
-
-        VARP x           = expr->inputs()[0];
+        if (attrs != nullptr) {
+            for (int i = 0; i < attrs->size(); ++i) {
+                auto attr = attrs->GetAs<Attribute>(i);
+                if (attr->key()->str() == "axis") {
+                    axis = attr->i();
+                    hasAxis = true;
+                } else if (attr->key()->str() == "onnx_opset_version") {
+                    opsetVersion = attr->i();
+                }
+            }
+        }
+        if (!hasAxis && opsetVersion < 13) {
+            axis = 1;
+        }
+        VARP x = expr->inputs()[0];
+        auto shape = _Shape(x, true);
+        bool flatten = opsetVersion < 13 && axis != -1;
+        if (flatten) {
+            std::unique_ptr<OpT> op(new OpT);
+            op->type = OpType_Flatten;
+            op->main.type = OpParameter_Flatten;
+            op->main.value = new FlattenT;
+            op->main.AsFlatten()->endAxis = 0;
+            op->main.AsFlatten()->axis = axis;
+            x = Variable::create(Expr::create(op.get(), {x}));
+            axis = -1;
+        }
         VARP max         = _ReduceMax(x, {axis}, true);
         VARP sum         = _ReduceSum(_Exp(x - max), {axis}, true);
         VARP log         = x - max - _Log(sum);
+        if (flatten) {
+            log = _Reshape(log, shape);
+        }
         auto log_softmax = log->expr().first;
         log_softmax->setName(expr->name());
         return log_softmax;
