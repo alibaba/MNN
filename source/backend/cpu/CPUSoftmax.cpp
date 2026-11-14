@@ -112,7 +112,7 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
                     0.0f,
                     0.0f
                 };
-                auto workSrc = (float*)srcO;
+                auto workSrc = (float*)dstO;
                 auto workDst = (float*)dstO;
                 if (mLowOrInt8 != 4) {
                     workSrc = tempInput;
