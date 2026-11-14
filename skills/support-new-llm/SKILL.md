@@ -28,6 +28,8 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 
 > **🚨 多模态/embedding 对齐先看 C++ 端真实输入输出**：不要只比 Python 导出逻辑。先直接打印并比对 C++ 运行时的 chat template、token ids、以及必要时的中间输入，确认 runtime tokenizer/Jinja/post_processor 与 HuggingFace 完全一致，再继续看视觉或量化路径。
 
+> **工具调用需验证完整回路**：除首轮 tools 模板外，还要对齐 assistant tool_calls/reasoning_content 与 tool 结果回传，并逐个检查控制 token 的 C++ decode。added_tokens 可能位于基础词表之外，普通文本正确不代表工具标记能解码；Jinja 的 `and`/`or` 应短路返回操作数，不能只返回布尔值。
+
 > **🚨 改导出模板先做“临时 config 覆盖”验证**：当修改 `llm_config.json` / `config.json` 里的 `jinja.chat_template` 时，不要一上来全量重导出模型。先用现有 MNN 模型目录配一个临时 `config.json` 覆盖 `base_dir + jinja/context`，直接跑 C++ `llm_demo`/`embedding_demo` 验证 prompt token 数、构造出的语义和最终结果是否与基线一致，再决定是否全量 re-export。
 
 > **🚨 ASR 模型默认按单轮接口设计**：除非用户明确要求多轮 ASR 会话，否则用户侧一次 `response` 结束后就应立即 `reset` 清空状态，不要把 ASR prompt/template 设计成依赖 trailing assistant、多轮裁剪或 prompt-cache 续写的形态。
@@ -41,6 +43,8 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 > **导出后必须检查 `.mnn` 本体是否残留大权重**：使用 `MNNDump2Json` 按 `Const` 数据量排序；如果 `.mnn` 内出现 embedding、lm/head、projection 等大 Const，说明没有走 `FakeLinear`/外置 embedding/`.mnn.weight` 路径，不能只因为生成了 `.mnn.weight` 就认为权重已正确外置。
 
 > **禁止猜测**：如果不确定某个字段名或路径，必须通过工具读取实际文件确认。
+
+> **融合算子后的门控需核对 layout 标签**：fused RoPE 的输出带 NHWC 标签，逐头广播后若直接进入 Linear 的 NCHW reshape，可能造成通道错位。二维广播可避免图像维度转换；BinaryOp 同 rank 时还会继承首输入的 format，需用实际 C++ prefill/decode 验证。
 
 ---
 
@@ -189,6 +193,7 @@ modeling_*.py 中是否有全新的 Attention 类型（非标准 SDPA）?
 | `idefics3` | 5 | 视觉 (SigLIP + Perceiver) |
 | `lfm2_vl` | 5+6 | 视觉 (SigLIP2 NaFlex + pixel_unshuffle) + 混合架构 |
 | `lfm2` | 6 | 混合架构 (short_conv + full_attention) |
+| `lfm3` | 6 | short_conv + full/sliding attention，逐头门控、sandwich norm、双 RoPE |
 | `qwen3_5` | 6 | 视觉+LinearAttn (gated_delta_rule) |
 
 ---

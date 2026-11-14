@@ -1,4 +1,5 @@
 import math
+import copy
 import torch
 try:
     from transformers.initialization import no_init_weights
@@ -413,6 +414,7 @@ class Attention(torch.nn.Module):
             attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask, attention_sink)
             if gate is not None:
                 attn_output = attn_output * torch.sigmoid(gate)
+            attn_output = self.apply_head_gate(attn_output, hidden_states)
             attn_output = self.o_proj(attn_output)
             return attn_output
 
@@ -470,8 +472,18 @@ class Attention(torch.nn.Module):
 
         if gate is not None:
             attn_output = attn_output * torch.sigmoid(gate)
+        attn_output = self.apply_head_gate(attn_output, hidden_states)
         attn_output = self.o_proj(attn_output)
         return attn_output
+
+    def apply_head_gate(self, attn_output, hidden_states):
+        if getattr(self, 'head_gate_proj', None) is None:
+            return attn_output
+        bsz, q_len, _ = hidden_states.shape
+        # Broadcast in 2D with the NCHW gate first; fused RoPE's NHWC tag must not reach o_proj.
+        gate = torch.sigmoid(self.head_gate_proj(hidden_states)).reshape(-1, 1)
+        attn_output = gate * attn_output.reshape(-1, self.head_dim)
+        return attn_output.reshape(bsz, q_len, self.num_heads * self.head_dim)
 
 def l2norm(x: torch.FloatTensor, dim: int = -1, eps: float = 1e-6):
     """This function is intended to align with the l2norm implementation in the FLA library."""
@@ -721,6 +733,7 @@ class ShortConvAttention(torch.nn.Module):
             use_qk_l2norm=False
         )
         self.conv_state = None
+        self.kv_cache = True
 
     def forward(
         self,
@@ -734,6 +747,11 @@ class ShortConvAttention(torch.nn.Module):
 
         # in_proj: [B, L, H] -> [B, L, 3H]
         bcx = self.in_proj(hidden_states)
+
+        if not self.kv_cache:
+            b, c, x = bcx.chunk(3, dim=-1)
+            convolved = self.conv((b * x).transpose(1, 2))[..., :seq_len]
+            return self.out_proj(c * convolved.transpose(1, 2))
 
         if torch.onnx.is_in_onnx_export():
             # ONNX path: pass through FusedLinearAttention custom op
@@ -1817,3 +1835,57 @@ class Lm(torch.nn.Module):
             m_logits = torch.tanh(m_logits)
             m_logits = m_logits * self.final_logit_softcapping
         return m_logits
+
+
+class Lfm3OfflineBackbone(torch.nn.Module):
+    def __init__(self, model, window=0, causal=True):
+        super().__init__()
+        config = copy.deepcopy(model.config)
+        parameters = config.rope_parameters
+        mapping = ModelMapper().get_map(config)[1]
+        self.rotaries = torch.nn.ModuleDict()
+        self.blocks = torch.nn.ModuleList()
+        self.layer_types = config.layer_types
+        self.windows = []
+        for i, layer in enumerate(model.layers):
+            layer_type = self.layer_types[i]
+            layer_config = copy.copy(config)
+            rotary = Rotary(None)
+            if not hasattr(layer, 'conv'):
+                params = parameters if 'rope_theta' in parameters else parameters[layer_type]
+                layer_config.head_dim = layer.self_attn.head_dim
+                layer_config.rope_theta = params['rope_theta']
+                layer_config.rope_ratio = 1.0
+                layer_config.rope_parameters = dict(params)
+                if config.model_type == 'lfm3':
+                    layer_config.rope_parameters['partial_rotary_factor'] = 1.0
+                if layer_type not in self.rotaries:
+                    rotary = Rotary(layer_config)
+                    if config.model_type == 'lfm3':
+                        # LFM3 preserves full-head frequencies and leaves the partial-RoPE tail unrotated.
+                        angles = int(layer_config.head_dim * params.get('partial_rotary_factor', 1.0)) // 2
+                        rotary.theta[angles:] = 0
+                        rotary.build_rope_tables()
+                    self.rotaries[layer_type] = rotary
+                rotary = self.rotaries[layer_type]
+            block = Decoder(layer, i, layer_config, rotary, mapping)
+            block.self_attn.kv_cache = False
+            if not hasattr(layer, 'conv'):
+                block.self_attn.fused_attn.kv_cache = 0
+            self.blocks.append(block)
+            self.windows.append(window or (config.sliding_window if layer_type == 'sliding_attention' else 0))
+        self.norm = model.embedding_norm
+        self.causal = causal
+
+    def forward(self, hidden_states):
+        positions = torch.arange(hidden_states.shape[1], device=hidden_states.device)
+        distance = positions[:, None] - positions[None, :]
+        allowed = distance >= 0 if self.causal else torch.ones_like(distance, dtype=torch.bool)
+        rotaries = {key: rotary(positions[None]) for key, rotary in self.rotaries.items()}
+        for block, layer_type, window in zip(self.blocks, self.layer_types, self.windows):
+            layer_allowed = allowed & (distance < window) if window else allowed
+            mask = torch.where(layer_allowed, 0.0, torch.finfo(torch.float32).min)[None, None]
+            if hasattr(block.self_attn, 'past_key_value'):
+                block.self_attn.past_key_value = None
+            hidden_states = block(hidden_states, rotaries.get(layer_type), mask)
+        return self.norm(hidden_states)

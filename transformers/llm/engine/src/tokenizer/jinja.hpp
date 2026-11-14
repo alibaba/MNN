@@ -131,6 +131,7 @@ std::unique_ptr<T> mnn_make_unique(Args&&... args) {
 }
 
 inline std::string to_python_string(const json& val);
+inline bool is_undefined(const json& val);
 
 inline std::string token_type_to_string(int type) {
     switch (type) {
@@ -150,6 +151,7 @@ inline std::string token_type_to_string(int type) {
 }
 
 inline std::string to_python_repr(const json& val) {
+    if (is_undefined(val)) return "Undefined";
     if (val.is_string()) {
          std::string s = val.get<std::string>();
          std::string out = "'";
@@ -232,6 +234,7 @@ inline std::string to_json_string(const json& val, int indent = -1, int level = 
 }
 
 inline std::string to_python_string(const json& val) {
+    if (is_undefined(val)) return "";
     if (val.is_null()) return "None";
     if (val.is_boolean()) return val.get<bool>() ? "True" : "False";
     if (val.is_number()) return val.dump();
@@ -810,7 +813,7 @@ struct GetItemExpr : Expr {
                 if (obj_val.contains(k)) return obj_val[k];
             }
         }
-        return "";
+        return undefined_init();
     }
 };
 
@@ -836,6 +839,25 @@ struct MethodCallExpr : Expr {
 
     json evaluate(Context& context) override {
         json obj_val = object->evaluate(context);
+
+        if (obj_val.is_object() && method == "get" && !args.empty()) {
+            auto key = args[0]->evaluate(context);
+            if (key.is_string() && obj_val.contains(key.get<std::string>())) {
+                return obj_val[key.get<std::string>()];
+            }
+            return args.size() > 1 ? args[1]->evaluate(context) : json(nullptr);
+        }
+
+        if (obj_val.is_object() && method == "items" && args.empty()) {
+            json items = json::array();
+            for (auto it = obj_val.begin(); it != obj_val.end(); ++it) {
+                json pair = json::array();
+                pair.push_back(it.key());
+                pair.push_back(it.value());
+                items.push_back(pair);
+            }
+            return items;
+        }
 
         if (obj_val.is_string()) {
             std::string s = obj_val.get<std::string>();
@@ -917,7 +939,20 @@ struct FilterExpr : Expr {
 
     json evaluate(Context& context) override {
         json val = left->evaluate(context);
-        if (name == "tojson") {
+        if (name == "default" || name == "d") {
+            json fallback = "";
+            bool boolean = false;
+            size_t positional = 0;
+            for (const auto& arg : args) {
+                if (arg.first == "default_value" || (arg.first.empty() && positional == 0)) {
+                    fallback = arg.second->evaluate(context);
+                } else if (arg.first == "boolean" || (arg.first.empty() && positional == 1)) {
+                    boolean = is_truthy(arg.second->evaluate(context));
+                }
+                if (arg.first.empty()) ++positional;
+            }
+            return is_undefined(val) || (boolean && !is_truthy(val)) ? fallback : val;
+        } else if (name == "tojson") {
              int indent = -1;
              for (const auto& arg : args) {
                  if (arg.first == "indent") {
@@ -1042,6 +1077,8 @@ struct BinaryExpr : Expr {
 
     json evaluate(Context& context) override {
         json l = left->evaluate(context);
+        if (op == "and") return is_truthy(l) ? right->evaluate(context) : l;
+        if (op == "or") return is_truthy(l) ? l : right->evaluate(context);
         json r = right->evaluate(context);
 
 
@@ -1132,12 +1169,6 @@ struct BinaryExpr : Expr {
         }
         if (op == ">=") return l >= r;
 
-        if (op == "and") {
-             return is_truthy(l) && is_truthy(r);
-        }
-        if (op == "or") {
-             return is_truthy(l) || is_truthy(r);
-        }
         if (op == "~") {
              std::ostringstream ss;
              ss << to_python_string(l);
@@ -1247,7 +1278,7 @@ struct Macro {
 };
 
 // Macro implementation
-Macro::~Macro() = default;
+inline Macro::~Macro() = default;
 
 struct MacroNode : Node {
     Macro macro;

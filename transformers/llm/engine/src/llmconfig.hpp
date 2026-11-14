@@ -267,6 +267,11 @@ public:
 
     bool prompt_cache() const { return config_.value("prompt_cache", false); }
 
+    bool prompt_cache_preserve_template() const {
+        // LFM3 retains think delimiters in historical assistant messages.
+        return config_.value("model_type", std::string()).compare(0, 4, "lfm3") == 0;
+    }
+
     int token_compress() const {
         if (!config_.contains("token_compress")) {
             return 0;

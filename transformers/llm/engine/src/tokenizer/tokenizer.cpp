@@ -2084,7 +2084,16 @@ std::string PipelineTokenizer::decode(const std::vector<int>& ids) {
     for (int id : ids) {
         // Skip special tokens (like [UNK], [CLS], [SEP], etc.)
         if (is_special(id)) continue;
-        tokens.push_back(model_->id_to_token(id));
+        std::string token = model_->id_to_token(id);
+        if (token.empty()) {
+            for (const auto& added : added_tokens_) {
+                if (added.id == id) {
+                    token = added.content;
+                    break;
+                }
+            }
+        }
+        tokens.push_back(std::move(token));
     }
     if (decoder_) {
         decoder_->decode_chain(tokens);
@@ -2112,6 +2121,12 @@ std::string PipelineTokenizer::decode(const std::vector<int>& ids) {
 std::string PipelineTokenizer::decode(int id) {
     if (!model_) return "";
     std::string token = model_->id_to_token(id);
+    if (token.empty()) {
+        // Added control tokens can live beyond the base model vocabulary.
+        for (const auto& added : added_tokens_) {
+            if (added.id == id) return added.content;
+        }
+    }
     // For single-token decode (streaming), apply Replace/ByteFallback/ByteLevel
     // but not Strip/Fuse which are meant for full-sequence decode.
     // Simple approach: replace ▁ with space (Metaspace/SentencePiece convention)

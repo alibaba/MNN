@@ -248,11 +248,21 @@ class MNNConverter:
     def rebuild(self, json_path):
         mnn_graph = json.load(open(json_path, 'rt'))
         new_ops = []
+        blob_storage = {
+            'DT_FLOAT': ('float32s', np.float32),
+            'DT_HALF': ('uint8s', np.uint8),
+            'DT_BFLOAT16': ('uint8s', np.uint8),
+            'DT_INT32': ('int32s', np.int32),
+            'DT_INT8': ('int8s', np.int8),
+            'DT_UINT8': ('uint8s', np.uint8),
+        }
         # Load layernorm weight from external
         with open(self.mnn_weight_path, 'rb') as f:
             for op in tqdm(mnn_graph['oplists'], 'Load LayerNorm data'):
                 if op['type'] == 'LayerNorm' and 'external' in op['main']:
                     external = op['main']['external']
+                    if len(external) != 3 or external[1] != external[2]:
+                        raise ValueError(f"Invalid external LayerNorm gamma/beta sizes: {op['name']}")
                     f.seek(external[0])
                     op['main']['gamma'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
                     op['main']['beta'] = np.frombuffer(f.read(external[2]), np.float32).tolist()
@@ -260,7 +270,18 @@ class MNNConverter:
                 if op['type'] == 'Const' and 'external' in op['main']:
                     external = op['main']['external']
                     f.seek(external[0])
-                    op['main']['float32s'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
+                    field, dtype = blob_storage[op['main'].get('dataType', 'DT_FLOAT')]
+                    op['main'][field] = np.frombuffer(f.read(external[1]), dtype).tolist()
+                    del op['main']['external']
+                if op['type'] in ('Convolution', 'ConvolutionDepthwise', 'Deconvolution') and 'external' in op['main']:
+                    # Ordinary convolutions can coexist with FakeLinear and must survive the weight-file rewrite.
+                    external = op['main']['external']
+                    if op['main'].get('quanParameter'):
+                        raise ValueError(f"Unexpected pre-quantized convolution during rebuild: {op['name']}")
+                    f.seek(external[0])
+                    op['main']['weight'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
+                    bias_size = external[2] if len(external) > 2 else 0
+                    op['main']['bias'] = np.frombuffer(f.read(bias_size), np.float32).tolist()
                     del op['main']['external']
         # Rebuild ops
         with open(self.mnn_weight_path, 'wb') as self.mnn_weight:

@@ -1394,7 +1394,7 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
 
         // If history was trimmed (text_common < cached), fall back to full
         // re-prefill rather than conditioning on stale KV entries.
-        if (text_common < mCachedPromptText.size()) {
+        if (text_common < mCachedPromptText.size() || !preparePromptCache(prompt)) {
             // History was trimmed — clear all stale state and do full re-prefill.
             mCachedPromptText.clear();
             mContext->all_seq_len = 0;
@@ -1515,8 +1515,7 @@ void Llm::updateCachedPromptText(const ChatMessages& chat_prompts, size_t histor
     if (!response_text.empty()) {
         msgs_with_response.emplace_back("assistant", response_text);
     }
-    mCachedPromptText = mTokenizer->apply_chat_template(msgs_with_response, false);
-    MNN::Transformer::stripThinkBlocks(mCachedPromptText);
+    syncPromptCache(msgs_with_response);
 }
 
 Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
@@ -1652,14 +1651,33 @@ void Llm::completePrefixWrite() {
 
 bool Llm::reuse_kv() { return mConfig->reuse_kv(); }
 
+bool Llm::preparePromptCache(const std::string& prompt) {
+    if (!mConfig->prompt_cache_preserve_template()) {
+        return true;
+    }
+    const auto tokens = Llm::tokenizer_encode(prompt);
+    const size_t cached = mContext->all_seq_len;
+    std::lock_guard<std::mutex> lock(mContext->mutex);
+    auto& history = mContext->history_tokens;
+    if (mMeta->remove != 0 || cached == 0 || cached >= tokens.size() || cached > history.size() ||
+        !std::equal(history.begin(), history.begin() + cached, tokens.begin())) {
+        return false;
+    }
+    history.resize(cached);
+    return true;
+}
+
 void Llm::syncPromptCache(const ChatMessages& chat_prompts) {
     if (!mConfig->prompt_cache() || chat_prompts.empty())
         return;
-    // Override cached text with caller-provided messages (e.g. after
-    // deleteThinkPart processing in Android). Uses the same rendering
-    // and <think> stripping as updateCachedPromptText.
     mCachedPromptText = mTokenizer->apply_chat_template(chat_prompts, false);
-    MNN::Transformer::stripThinkBlocks(mCachedPromptText);
+    if (mConfig->prompt_cache_preserve_template()) {
+        mCachedPromptText = evaluatedPromptText(mCachedPromptText, mContext->history_tokens, mContext->all_seq_len,
+                                              Llm::tokenizer_encode("").size(),
+                                              [this](int token) { return tokenizer_decode(token); });
+    } else {
+        MNN::Transformer::stripThinkBlocks(mCachedPromptText);
+    }
 }
 
 static inline bool needNewVar(VARP var, int axis, int seq_len, int kv_seq_len = 0) {

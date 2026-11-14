@@ -226,7 +226,7 @@ public:
     // full conversation (including assistant response). Optional — the cache
     // self-updates after generate(), but this allows callers with post-processed
     // response text (e.g. deleteThinkPart) to provide a more accurate version.
-    void syncPromptCache(const ChatMessages& chat_prompts);
+    virtual void syncPromptCache(const ChatMessages& chat_prompts);
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
@@ -295,6 +295,8 @@ protected:
     friend class Omni;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
+    // Validates the evaluated prefix and drops sampled tokens that have no KV entry.
+    virtual bool preparePromptCache(const std::string& prompt);
     // Readies a text-only re-prefill of input_ids; false when they cannot be embedded from token ids alone.
     virtual bool prepareHistoryReplay(const std::vector<int>& input_ids) {
         return true;
