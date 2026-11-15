@@ -113,6 +113,41 @@ static bool testPostProcessorMropePositions() {
            checkPositions(wrapped.mW, {0, 1, 3, 6, 7}, "W") && checkPositions(wrapped.mX, {0, 1, 3, 6, 7}, "X");
 }
 
+// Jinja semantics that HF chat templates such as LFM3's rely on; getting them wrong silently changes the prompt.
+static bool testChatTemplateSemantics() {
+    struct Case {
+        const char* tpl;
+        const char* context;
+        const char* expected;
+    };
+    const Case cases[] = {
+        {"{%- set t = enable_thinking | default(true) -%}{{ 'T' if t else 'F' }}", "", "T"},
+        {"{%- set t = enable_thinking | default(true) -%}{{ 'T' if t else 'F' }}", R"({"enable_thinking":false})", "F"},
+        {"{{ x | default('d', true) }}{{ y | d('e') }}", R"({"x":""})", "de"},
+        {"{% for k, v in d.items() %}{{ k }}={{ v }};{% endfor %}", R"({"d":{"b":1,"a":2}})", "b=1;a=2;"},
+        {"{{ '<think>' + (x or '') + '</think>' }}{{ x or y }}{{ y and 'Y' }}", R"({"x":"","y":"b"})",
+         "<think></think>bY"},
+        {"{% set ns = namespace(n=0) %}{% macro bump() %}{% set ns.n = ns.n + 1 %}{% endmacro %}"
+         "{{ 'a' or bump() }}{{ '' and bump() }}{{ ns.n }}",
+         "", "a0"},
+        {"{{ (x and x | trim) | string }}{{ (x or y) | length }}"
+         "{{ 'M' if (x or y) is mapping else 'N' }}{{ 'x' ~ (x or y) }}",
+         "", "0Nx"},
+    };
+    PostProcessorTestTokenizer tokenizer;
+    bool ok = true;
+    for (const auto& c : cases) {
+        tokenizer.set_chat_template(c.tpl, "", c.context);
+        std::string actual = tokenizer.apply_chat_template(ChatMessages{{"user", "hi"}}, false);
+        if (actual != c.expected) {
+            std::cerr << "Chat template " << c.tpl << " rendered \"" << actual << "\", expected \"" << c.expected
+                      << "\"" << std::endl;
+            ok = false;
+        }
+    }
+    return ok;
+}
+
 // ANSI colors
 static const char* RED    = "\033[31m";
 static const char* GREEN  = "\033[32m";
@@ -343,7 +378,7 @@ static TestResult test_model(const std::string& models_path, const std::string& 
 }
 
 int main(int argc, char* argv[]) {
-    if (!testPostProcessorMropePositions()) {
+    if (!testPostProcessorMropePositions() || !testChatTemplateSemantics()) {
         return 1;
     }
     std::string models_path = "./models";

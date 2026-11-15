@@ -131,6 +131,7 @@ std::unique_ptr<T> mnn_make_unique(Args&&... args) {
 }
 
 inline std::string to_python_string(const json& val);
+inline bool is_undefined(const json& val);
 
 inline std::string token_type_to_string(int type) {
     switch (type) {
@@ -232,6 +233,8 @@ inline std::string to_json_string(const json& val, int indent = -1, int level = 
 }
 
 inline std::string to_python_string(const json& val) {
+    if (is_undefined(val))
+        return "";
     if (val.is_null()) return "None";
     if (val.is_boolean()) return val.get<bool>() ? "True" : "False";
     if (val.is_number()) return val.dump();
@@ -595,6 +598,19 @@ inline bool is_truthy(const json& val) {
     return true;
 }
 
+// [key, value] pairs for both `x | items` and `x.items()`; ujson (rapidjson) keeps object members in insertion order.
+inline json dict_items(const json& val) {
+    json arr = json::array();
+    if (!val.is_object() || is_undefined(val))
+        return arr;
+    for (json::const_iterator it = val.begin(); it != val.end(); ++it) {
+        json pair = json::array();
+        pair.push_back(it.key());
+        pair.push_back(it.value());
+        arr.push_back(pair);
+    }
+    return arr;
+}
 
 class Context {
     std::vector<json> scopes;
@@ -903,6 +919,8 @@ struct MethodCallExpr : Expr {
                  }
             }
         }
+        if (method == "items")
+            return dict_items(obj_val);
         return "";
     }
 };
@@ -942,7 +960,8 @@ struct FilterExpr : Expr {
                  return s;
              }
         } else if (name == "length") {
-            if (val.is_array() || val.is_object()) return val.size();
+            if (val.is_array() || (val.is_object() && !is_undefined(val)))
+                return val.size();
             if (val.is_string()) return val.get<std::string>().length();
             return 0;
         } else if (name == "trim") {
@@ -956,17 +975,7 @@ struct FilterExpr : Expr {
                 return s.substr(start, end - start + 1);
             }
         } else if (name == "items") {
-             if (val.is_object()) {
-                 json arr = json::array();
-                  for (json::const_iterator it = val.begin(); it != val.end(); ++it) {
-                      json pair = json::array();
-                      pair.push_back(it.key());
-                      pair.push_back(it.value());
-                      arr.push_back(pair);
-                  }
-                 return arr;
-             }
-             return json::array();
+            return dict_items(val);
         } else if (name == "lower") {
              if (val.is_string()) {
                  std::string s = val.get<std::string>();
@@ -1028,6 +1037,20 @@ struct FilterExpr : Expr {
                 }
                 return out;
             }
+        } else if (name == "default" || name == "d") {
+            // Jinja2 signature: default(default_value='', boolean=false).
+            json fallback = "";
+            bool boolean = false;
+            for (size_t i = 0; i < args.size(); ++i) {
+                json v = args[i].second->evaluate(context);
+                if (args[i].first == "boolean" || (args[i].first.empty() && i == 1)) {
+                    boolean = is_truthy(v);
+                } else {
+                    fallback = v;
+                }
+            }
+            if (is_undefined(val) || (boolean && !is_truthy(val)))
+                return fallback;
         }
         return val; // Unknown filter pass-through
     }
@@ -1042,6 +1065,11 @@ struct BinaryExpr : Expr {
 
     json evaluate(Context& context) override {
         json l = left->evaluate(context);
+        // Like Python, and/or short-circuit and yield the deciding operand, so (x or "") stays a string.
+        if (op == "and")
+            return is_truthy(l) ? right->evaluate(context) : l;
+        if (op == "or")
+            return is_truthy(l) ? l : right->evaluate(context);
         json r = right->evaluate(context);
 
 
@@ -1132,12 +1160,6 @@ struct BinaryExpr : Expr {
         }
         if (op == ">=") return l >= r;
 
-        if (op == "and") {
-             return is_truthy(l) && is_truthy(r);
-        }
-        if (op == "or") {
-             return is_truthy(l) || is_truthy(r);
-        }
         if (op == "~") {
              std::ostringstream ss;
              ss << to_python_string(l);
@@ -1177,7 +1199,7 @@ struct TestExpr : Expr {
         } else if (test_name == "sequence" || test_name == "iterable") {
             result = val.is_array() || val.is_string();
         } else if (test_name == "mapping") {
-            result = val.is_object();
+            result = val.is_object() && !is_undefined(val);
         } else if (test_name == "true") {
             result = val.is_boolean() && val.get<bool>() == true;
         } else if (test_name == "false") {
