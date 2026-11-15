@@ -235,12 +235,11 @@ struct NaiveLinearAttention {
 };
 
 // ─── Helper: create a LinearAttention Module via FlatBuffers ───
-static std::shared_ptr<Module> _makeLinearAttentionModule(
-    int numKHeads, int numVHeads, int headKDim, int headVDim, bool useL2Norm,
-    const std::string& attnType = "gated_delta_rule", bool forceOpenCLBuffer = false,
-    bool gateFold = false, const std::vector<float>& gateCoef = std::vector<float>(),
-    const std::vector<float>& gateBias = std::vector<float>())
-{
+static std::shared_ptr<Module>
+_makeLinearAttentionModule(int numKHeads, int numVHeads, int headKDim, int headVDim, bool useL2Norm,
+                           const std::string& attnType = "gated_delta_rule", bool forceOpenCLBuffer = false,
+                           bool gateFold = false, const std::vector<float>& gateCoef = std::vector<float>(),
+                           const std::vector<float>& gateBias = std::vector<float>(), int layers = 1) {
     auto qkv      = _Input();
     auto gate     = _Input();
     auto beta     = _Input();
@@ -261,8 +260,11 @@ static std::shared_ptr<Module> _makeLinearAttentionModule(
     param->gate_coef    = gateCoef;
     param->gate_bias    = gateBias;
 
-    auto o = Variable::create(Expr::create(op.get(), {qkv, gate, beta, convW}));
-    auto buffer = Variable::save({o});
+    std::vector<VARP> outputs;
+    for (int i = 0; i < layers; ++i) {
+        outputs.emplace_back(Variable::create(Expr::create(op.get(), {qkv, gate, beta, convW})));
+    }
+    auto buffer = Variable::save(outputs);
 
     MNN::ScheduleConfig config;
     auto status = MNNTestSuite::get()->pStaus;
@@ -2596,11 +2598,11 @@ public:
     LinearAttentionShortConvTest() = default;
     virtual ~LinearAttentionShortConvTest() = default;
 
-    bool runShortConvCase(int H, int K, int prefillL, int decodeSteps, bool c4, const char* tag) {
+    bool runShortConvCase(int H, int K, int prefillL, int decodeSteps, bool c4, const char* tag, int layers = 1) {
         const int B = 1, D = 3 * H;
         const float tol = linearAttnRunsFp16() ? 0.02f : 0.002f;
 
-        auto module = _makeLinearAttentionModule(1, 1, H, H, false, "short_conv");
+        auto module = _makeLinearAttentionModule(1, 1, H, H, false, "short_conv", false, false, {}, {}, layers);
         if (!module) {
             MNN_PRINT("Error: failed to create module for %s\n", tag);
             return false;
@@ -2613,7 +2615,8 @@ public:
 
         auto runOne = [&](int L, int step, const char* phase) -> bool {
             std::vector<float> qkv(B * D * L), gate(B * L, 0.0f), beta(B * L, 0.0f);
-            fillDeterministic(qkv.data(), (int)qkv.size(), 0.1f, 0.02f * step);
+            // Bounded and different every step, so a stale conv-state element shows up in the output.
+            fillDeterministic(qkv.data(), (int)qkv.size(), 0.1f, 0.2f * ((step * 5) % 11 - 5));
 
             VARP qkvVar, gateVar, betaVar;
             if (c4) {
@@ -2634,21 +2637,23 @@ public:
 
             auto expected = naive.forward(qkv.data(), convWVar->readMap<float>(), L);
             auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
-            if (outputs.empty()) {
-                MNN_PRINT("%s: %s returned empty output\n", tag, phase);
+            if ((int)outputs.size() != layers) {
+                MNN_PRINT("%s: %s returned %d outputs\n", tag, phase, (int)outputs.size());
                 return false;
             }
-            const float* result = outputs[0]->readMap<float>();
             const int tokens = B * L;
-            for (int token = 0; token < tokens; ++token) {
-                for (int h = 0; h < H; ++h) {
-                    int resultIdx = c4 ? (((h / 4) * tokens + token) * 4 + h % 4) : (token * H + h);
-                    float exp = expected[token * H + h];
-                    float diff = fabs(result[resultIdx] - exp);
-                    if (diff > tol + 0.02f * fabs(exp)) {
-                        MNN_PRINT("%s: %s mismatch at token=%d head=%d: expected=%f actual=%f diff=%f\n", tag, phase,
-                                  token, h, exp, result[resultIdx], diff);
-                        return false;
+            for (int layer = 0; layer < layers; ++layer) {
+                const float* result = outputs[layer]->readMap<float>();
+                for (int token = 0; token < tokens; ++token) {
+                    for (int h = 0; h < H; ++h) {
+                        int resultIdx = c4 ? (((h / 4) * tokens + token) * 4 + h % 4) : (token * H + h);
+                        float exp = expected[token * H + h];
+                        float diff = fabs(result[resultIdx] - exp);
+                        if (diff > tol + 0.02f * fabs(exp)) {
+                            MNN_PRINT("%s: %s step %d layer %d mismatch at token=%d head=%d: expected=%f actual=%f\n",
+                                      tag, phase, step, layer, token, h, exp, result[resultIdx]);
+                            return false;
+                        }
                     }
                 }
             }
@@ -2672,6 +2677,10 @@ public:
         ok &= runShortConvCase(8, 4, 5, 3, false, "short_conv (H=8, K=4)");
         ok &= runShortConvCase(8, 1, 3, 2, false, "short_conv (K=1, no state)");
         ok &= runShortConvCase(8, 4, 5, 2, true, "short_conv C4 (H=8, K=4)");
+        // K=7 gives 6-element channel states that straddle SIMD-group and threadgroup boundaries, and 13 layers per
+        // forward, as in LLM decode, make out-of-order execution of those groups likely. H stays at 1024 because
+        // OpenCL sizes the program's __local arrays by head_k_dim (= H here), and 2048 would exceed 32 KB.
+        ok &= runShortConvCase(1024, 7, 9, 512, true, "short_conv C4 (H=1024, K=7, 13 layers)", 13);
         return ok;
     }
 };
