@@ -2536,6 +2536,9 @@ public:
         // NC4HW4 input runs the same kernels through their C4 offset paths.
         ok &= runGatedCase(2, 4, 128, 64, 48, 2, true, "scan prefill sg_v4 C4 (dk=128, L=48)");
         ok &= runGatedCase(2, 4, 96, 64, 192, 2, true, "fused_chunk_sg C4 (dk=96, L=192)");
+        // 13000 tokens need more than 48 KiB, the default shared memory per CUDA block, if the conv stages the whole
+        // sequence.
+        ok &= runGatedCase(2, 2, 4, 4, 13000, 2, false, "long prefill (dk=4, L=13000)");
         return ok;
     }
 };
@@ -2671,6 +2674,10 @@ public:
         bool ok = true;
         ok &= runShortConvCase(8, 4, 5, 3, false, "short_conv (H=8, K=4)");
         ok &= runShortConvCase(8, 1, 3, 2, false, "short_conv (K=1, no state)");
+        // 13000 tokens need more than 48 KiB, the default shared memory per CUDA block, if a kernel stages the whole
+        // sequence. K=7 and K=3 are the LFM3 and LFM2 kernel sizes.
+        ok &= runShortConvCase(8, 7, 13000, 2, true, "short_conv C4 long prefill (K=7, L=13000)");
+        ok &= runShortConvCase(8, 3, 13000, 2, false, "short_conv long prefill (K=3, L=13000)");
         ok &= runShortConvCase(8, 4, 5, 2, true, "short_conv C4 (H=8, K=4)");
         return ok;
     }
