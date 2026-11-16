@@ -39,6 +39,9 @@ class ActiveDownload {
 }
 
 export class DownloadManager {
+  private static readonly DOWNLOAD_USER_AGENT: string =
+    'Mozilla/5.0 (Phone; OpenHarmony 6.1) AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/114.0.0.0 Safari/537.36 ArkWeb/4.1.6.1 MNNChat/1.0';
   private static instance: DownloadManager = new DownloadManager();
   private active: Map<string, ActiveDownload> = new Map<string, ActiveDownload>();
   private lastPersistAt: Map<string, number> = new Map<string, number>();
@@ -109,6 +112,11 @@ export class DownloadManager {
     this.active.set(modelId, active);
     await BackgroundTaskKeeper.getInstance().acquire(context, BackgroundTaskKeeper.OWNER_DOWNLOAD);
 
+    // ModelScope/HF LFS endpoints redirect to a CDN whose WAF answers the download agent's
+    // default (empty) user agent with HTTP 403, so present a regular browser/UA string.
+    const agentHeaders = ProviderAdapters.authHeaders(downloadProvider, token);
+    agentHeaders['User-Agent'] = DownloadManager.DOWNLOAD_USER_AGENT;
+
     try {
       for (let index = 0; index < files.length; index++) {
         const file = files[index];
@@ -123,7 +131,7 @@ export class DownloadManager {
           title: model.modelName,
           description: file.relativePath,
           method: 'GET',
-          headers: ProviderAdapters.authHeaders(downloadProvider, token),
+          headers: agentHeaders,
           saveas: targetPath,
           overwrite: false,
           network: request.agent.Network.ANY,
