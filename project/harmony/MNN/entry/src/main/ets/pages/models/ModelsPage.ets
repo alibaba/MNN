@@ -164,7 +164,6 @@ export struct ModelsPage {
       MenuItem({ content: tr('删除') })
         .onClick(() => {
           const model = this.menuModel();
-          console.info(`[Models] delete menu clicked, menuModelId=${this.menuModelId}`);
           if (model) {
             this.confirmDelete(model);
           }
@@ -188,7 +187,6 @@ export struct ModelsPage {
     }
     if (this.activeModelId === model.id) {
       this.error = tr('使用中的模型不能删除，请先切换到其他模型');
-      console.info(`[Models] delete blocked: ${model.id} is the active model`);
       promptAction.showToast({ message: this.error });
       return;
     }
