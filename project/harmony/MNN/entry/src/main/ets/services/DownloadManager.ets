@@ -48,9 +48,27 @@ export class DownloadManager {
   private static instance: DownloadManager = new DownloadManager();
   private active: Map<string, ActiveDownload> = new Map<string, ActiveDownload>();
   private lastPersistAt: Map<string, number> = new Map<string, number>();
+  private settledListeners: (() => void)[] = [];
 
   static getInstance(): DownloadManager {
     return DownloadManager.instance;
+  }
+
+  /** Lets pages (My Models) rescan once a download finishes, fails or is canceled. */
+  addOnSettledListener(listener: () => void): void {
+    if (this.settledListeners.indexOf(listener) < 0) {
+      this.settledListeners.push(listener);
+    }
+  }
+
+  removeOnSettledListener(listener: () => void): void {
+    this.settledListeners = this.settledListeners.filter((item: () => void) => item !== listener);
+  }
+
+  private notifySettled(): void {
+    this.settledListeners.forEach((listener: () => void) => {
+      listener();
+    });
   }
 
   isActive(modelId: string): boolean {
@@ -322,6 +340,7 @@ export class DownloadManager {
     if (active) {
       this.notify(active, DownloadState.PENDING);
     }
+    this.notifySettled();
   }
 
   async status(modelId: string): Promise<ModelDownloadStatus> {
@@ -485,10 +504,12 @@ export class DownloadManager {
       await this.updateAll(active, DownloadState.COMPLETED);
       this.active.delete(active.modelId);
       this.releaseIfIdle();
+      this.notifySettled();
     } catch (error) {
       await this.updateAll(active, DownloadState.FAILED);
       this.notify(active, DownloadState.FAILED, (error as Error).message);
       this.releaseIfIdle();
+      this.notifySettled();
     }
   }
 

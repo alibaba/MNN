@@ -36,6 +36,7 @@ struct Index {
   @State private currentView: string = VIEW_MAIN;
   @State private apiReturnView: string = VIEW_MAIN;
   @State private selectedTab: number = 0;
+  @State private modelsRefreshTick: number = 0;
   @State private drawerShown: boolean = false;
   @State private requestedSessionId: string = '';
   @State private activeModelId: string = 'legacy-model';
@@ -289,6 +290,7 @@ struct Index {
           TabContent() {
             ModelsPage({
               activeModelId: this.activeModelId,
+              refreshTick: this.modelsRefreshTick,
               onOpenChat: (modelId: string) => this.openChatWithModel(modelId),
               onOpenSettings: () => {
                 this.currentView = VIEW_SETTINGS;
@@ -318,6 +320,9 @@ struct Index {
         .barHeight(58)
         .onChange((index: number) => {
           this.selectedTab = index;
+          if (index === 0) {
+            this.modelsRefreshTick++;
+          }
         })
         .layoutWeight(1)
         .width('100%')

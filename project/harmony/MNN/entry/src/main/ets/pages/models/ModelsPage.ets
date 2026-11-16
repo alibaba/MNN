@@ -29,7 +29,20 @@ export struct ModelsPage {
   onOpenSettings: () => void = () => {};
   onStar: () => void = () => {};
   onReportIssue: () => void = () => {};
+  /** Bumped by Index when the models tab becomes visible again. */
+  @Watch('onRefreshTick') @Prop refreshTick: number = 0;
   @State private fabOpen: boolean = false;
+  private settledListener: () => void = () => this.refresh(true);
+
+  aboutToDisappear(): void {
+    DownloadManager.getInstance().removeOnSettledListener(this.settledListener);
+  }
+
+  private onRefreshTick(): void {
+    if (this.refreshTick > 0) {
+      this.refresh(true);
+    }
+  }
   @State private models: ModelRecord[] = [];
   @State private storage: ModelStorageStats = new ModelStorageStats();
   @State private query: string = '';
@@ -42,6 +55,7 @@ export struct ModelsPage {
 
   aboutToAppear(): void {
     this.refresh(true);
+    DownloadManager.getInstance().addOnSettledListener(this.settledListener);
   }
 
   private refresh(scan: boolean = false): void {
