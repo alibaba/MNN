@@ -500,22 +500,14 @@ struct jsonAggregator : public Printer {
         instances.push_back(t);
     }
 
-    ~jsonAggregator() {
-        if (instances.empty() || !fout) return;
-
-        rapidjson::StringBuffer s;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(s);
-
-        // Use the first instance for common config
-        const auto& t = instances[0];
-
-        writer.StartObject();
+    static void writeSettings(rapidjson::Writer<rapidjson::StringBuffer>& writer, const TestInstance& t) {
         writer.Key("model");
         writer.String(t.modelType.c_str());
         writer.Key("modelSize");
         writer.Double(t.modelSize / 1024.0 / 1024.0 / 1024.0); // GB
         writer.Key("backend");
         if (t.backend == 1) writer.String("METAL");
+        else if (t.backend == 2) writer.String("CUDA");
         else if (t.backend == 3) writer.String("OPENCL");
         else if (t.backend == 7) writer.String("VULKAN");
         else if (t.backend == 10) writer.String("HEXAGON");
@@ -535,6 +527,19 @@ struct jsonAggregator : public Printer {
         writer.Int(t.quantKv);
         writer.Key("flashAttention");
         writer.Int(t.flashAttention);
+    }
+
+    ~jsonAggregator() {
+        if (instances.empty() || !fout) return;
+
+        rapidjson::StringBuffer s;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(s);
+
+        // Keep the first instance settings at the top level for existing consumers.
+        const auto& t = instances[0];
+
+        writer.StartObject();
+        writeSettings(writer, t);
 
         // Store metrics as arrays to avoid duplicate keys
         writer.Key("results");
@@ -542,6 +547,11 @@ struct jsonAggregator : public Printer {
 
         for (const auto& inst : instances) {
             writer.StartObject();
+            writeSettings(writer, inst);
+            writer.Key("dynamicOption");
+            writer.Int(inst.dynamicOption);
+            writer.Key("divisionRatioSme2Neon");
+            writer.Int(inst.divisionRatioSme2Neon);
 
             // Case 1: Prefill (nPrompt > 0, nGenerate == 0)
             if (inst.nPrompt > 0 && inst.nGenerate == 0) {
