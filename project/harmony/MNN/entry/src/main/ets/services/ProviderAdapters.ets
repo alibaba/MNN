@@ -226,7 +226,7 @@ export class ProviderAdapters {
         throw new Error(tr('仓库拒绝访问，请在设置中填写有效的私有仓库令牌'));
       }
       if (response.responseCode < 200 || response.responseCode >= 300) {
-        throw new Error(`${tr('仓库请求失败：HTTP ')}${response.responseCode}`);
+        throw new Error(`${provider} ${tr('仓库请求失败：HTTP ')}${response.responseCode}`);
       }
       if (typeof response.result === 'string') {
         return JSON.parse(response.result) as Object;

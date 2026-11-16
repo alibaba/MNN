@@ -17,6 +17,12 @@ import { ProviderAdapters } from './ProviderAdapters';
 
 export type DownloadStatusListener = (status: ModelDownloadStatus) => void;
 
+class ResolvedListing {
+  provider: string = '';
+  token: string = '';
+  files: ProviderFileRecord[] = [];
+}
+
 class ActiveDownload {
   modelId: string = '';
   modelName: string = '';
@@ -60,11 +66,12 @@ export class DownloadManager {
       await DownloadRepository.getInstance().removeModel(modelId);
     }
 
-    const token = await MarketAuth.getToken(provider);
-    const files = await ProviderAdapters.listFiles(model, provider, token);
-    if (files.length === 0 || !files.some((file: ProviderFileRecord) => file.relativePath === 'config.json')) {
-      throw new Error(tr('仓库缺少可下载文件或 config.json'));
-    }
+    // The catalog lists providers optimistically (e.g. a Modelers repo may not exist yet and its
+    // API returns HTTP 404), so fall back to the other providers of the model before failing.
+    const listing = await this.resolveListing(model, provider);
+    const downloadProvider = listing.provider;
+    const token = listing.token;
+    const files = listing.files;
     let totalBytes = 0;
     files.forEach((file: ProviderFileRecord) => {
       totalBytes += file.sizeBytes;
@@ -93,7 +100,7 @@ export class DownloadManager {
     const active = new ActiveDownload();
     active.modelId = modelId;
     active.modelName = model.modelName;
-    active.provider = provider;
+    active.provider = downloadProvider;
     active.stagingRoot = stagingRoot;
     active.files = files;
     active.listener = listener;
@@ -116,7 +123,7 @@ export class DownloadManager {
           title: model.modelName,
           description: file.relativePath,
           method: 'GET',
-          headers: ProviderAdapters.authHeaders(provider, token),
+          headers: ProviderAdapters.authHeaders(downloadProvider, token),
           saveas: targetPath,
           overwrite: false,
           network: request.agent.Network.ANY,
@@ -134,7 +141,7 @@ export class DownloadManager {
         const record = new DownloadTaskRecord();
         record.id = task.tid;
         record.modelId = modelId;
-        record.provider = provider;
+        record.provider = downloadProvider;
         record.sourceUrl = file.downloadUrl;
         record.targetPath = targetPath;
         record.state = DownloadState.PENDING;
@@ -226,7 +233,9 @@ export class DownloadManager {
       active.modelName = model.modelName;
       active.provider = provider;
       active.stagingRoot = `${context.filesDir}/.mnn-downloads/${this.safeName(model.modelName)}`;
-      active.files = await ProviderAdapters.listFiles(model, provider, await MarketAuth.getToken(provider));
+      const listing = await this.resolveListing(model, provider);
+      active.provider = listing.provider;
+      active.files = listing.files;
       if (active.files.length !== records.length) {
         throw new Error(tr('仓库文件列表已变化，请取消后重新下载'));
       }
@@ -328,6 +337,45 @@ export class DownloadManager {
     return status;
   }
 
+  /**
+   * Lists the repository files from the preferred provider, falling back to the model's other
+   * providers when the preferred one fails (HTTP 404 for catalog entries whose repo was never
+   * uploaded, network errors, missing config.json, ...). Throws the last error if all fail.
+   */
+  private async resolveListing(model: MarketModelRecord, provider: string): Promise<ResolvedListing> {
+    const order: string[] = [provider];
+    ProviderAdapters.providers(model).forEach((candidate: string) => {
+      if (candidate !== provider) {
+        order.push(candidate);
+      }
+    });
+    let lastError: Error = new Error(tr('仓库缺少可下载文件或 config.json'));
+    for (let index = 0; index < order.length; index++) {
+      const candidate = order[index];
+      try {
+        const token = await MarketAuth.getToken(candidate);
+        const files = await ProviderAdapters.listFiles(model, candidate, token);
+        if (files.length === 0 || !files.some((file: ProviderFileRecord) => file.relativePath === 'config.json')) {
+          lastError = new Error(`${candidate}: ${tr('仓库缺少可下载文件或 config.json')}`);
+          console.warn(`[DL] listing rejected provider=${candidate}: ${lastError.message}`);
+          continue;
+        }
+        if (candidate !== provider) {
+          console.warn(`[DL] provider fallback ${provider} -> ${candidate} for ${model.modelName}`);
+        }
+        const listing = new ResolvedListing();
+        listing.provider = candidate;
+        listing.token = token;
+        listing.files = files;
+        return listing;
+      } catch (error) {
+        lastError = error as Error;
+        console.warn(`[DL] listing failed provider=${candidate}: ${lastError.message}`);
+      }
+    }
+    throw lastError;
+  }
+
   private attachTask(active: ActiveDownload, task: request.agent.Task, record: DownloadTaskRecord): void {
     task.on('progress', (progress: request.agent.Progress) => {
       record.state = DownloadState.DOWNLOADING;
@@ -358,16 +406,22 @@ export class DownloadManager {
     });
     task.on('response', (response: request.agent.HttpResponse) => {
       console.info(`[DL] response tid=${task.tid} status=${response.statusCode}`);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        // Remember the HTTP status so the failure notification can explain e.g. a 404.
+        record.error = `HTTP ${response.statusCode}`;
+      }
     });
     task.on('failed', (progress: request.agent.Progress) => {
       record.state = DownloadState.FAILED;
       record.downloadedBytes = progress.processed;
       record.updatedAt = Date.now();
-      record.error = `agent state=${progress.state}, processed=${progress.processed}, ` +
+      const httpInfo = record.error.startsWith('HTTP ') ? `${record.error}, ` : '';
+      record.error = `${httpInfo}agent state=${progress.state}, processed=${progress.processed}, ` +
         `extras=${JSON.stringify(progress.extras).substring(0, 200)}`;
       console.error(`[DL] failed tid=${task.tid} ${record.error}`);
       DownloadRepository.getInstance().save(record);
-      this.notify(active, DownloadState.FAILED, `${tr('文件下载失败')} [agent:${progress.state}]`);
+      this.notify(active, DownloadState.FAILED,
+        `${tr('文件下载失败')} [${httpInfo}agent:${progress.state}]`);
     });
     task.on('completed', (progress: request.agent.Progress) => {
       console.info(`[DL] completed tid=${task.tid} processed=${progress.processed}`);
