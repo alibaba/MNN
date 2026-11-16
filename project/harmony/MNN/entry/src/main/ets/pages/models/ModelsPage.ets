@@ -226,62 +226,70 @@ export struct ModelsPage {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   }
 
+  private chips(model: ModelRecord): string[] {
+    const caps = this.caps.get(model.id);
+    const chips: string[] = [];
+    if (caps) {
+      chips.push(caps.diffusion ? 'image' : 'text');
+      if (caps.vision) {
+        chips.push('vision');
+      }
+      if (caps.audioInput || caps.audioOutput) {
+        chips.push('audio');
+      }
+    }
+    return chips;
+  }
+
+  private statusLine(model: ModelRecord): string {
+    if (model.state !== ModelState.READY) {
+      return tr('配置无效');
+    }
+    const suffix = this.activeModelId === model.id ? `, ${tr('使用中')}` : '';
+    return `${this.formatBytes(model.sizeBytes)}, ${tr('已下载')}${suffix}`;
+  }
+
   build() {
-    Column() {
-      Row({ space: 8 }) {
-        Text(tr('本地模型'))
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
-          .layoutWeight(1)
-        Button(tr('导入'))
-          .height(36)
-          .fontSize(13)
-          .enabled(!this.busy)
-          .onClick(() => this.importModel())
-        Button(tr('扫描'))
-          .height(36)
-          .fontSize(13)
-          .enabled(!this.busy)
-          .onClick(() => this.refresh(true))
-      }
-      .width('100%')
-      .padding(18)
+    Stack({ alignContent: Alignment.BottomEnd }) {
+      Column() {
+        TextInput({ text: this.query, placeholder: tr('搜索名称或路径') })
+          .backgroundColor($r('app.color.surface'))
+          .borderRadius(22)
+          .margin({ left: 16, right: 16, top: 10, bottom: 6 })
+          .onChange((value: string) => {
+            this.query = value;
+          })
 
-      TextInput({ text: this.query, placeholder: tr('搜索名称或路径') })
-        .margin({ left: 16, right: 16, bottom: 10 })
-        .onChange((value: string) => {
-          this.query = value;
-        })
-
-      Row({ space: 8 }) {
-        Button(tr('全部'))
-          .height(30)
-          .fontSize(12)
-          .backgroundColor(this.filterKind === 'all' ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
-          .fontColor(this.filterKind === 'all' ? $r('app.color.brand') : $r('app.color.text_muted'))
-          .onClick(() => this.filterKind = 'all')
-        Button(tr('视觉'))
-          .height(30)
-          .fontSize(12)
-          .backgroundColor(this.filterKind === 'vision' ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
-          .fontColor(this.filterKind === 'vision' ? $r('app.color.brand') : $r('app.color.text_muted'))
-          .onClick(() => this.filterKind = 'vision')
-        Button(tr('音频'))
-          .height(30)
-          .fontSize(12)
-          .backgroundColor(this.filterKind === 'audio' ? $r('app.color.brand_tint') : $r('app.color.surface_muted'))
-          .fontColor(this.filterKind === 'audio' ? $r('app.color.brand') : $r('app.color.text_muted'))
-          .onClick(() => this.filterKind = 'audio')
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, bottom: 8 })
-
-      Text(`${tr('模型 ')}${this.formatBytes(this.storage.modelBytes)}${tr(' · 可用 ')}${this.formatBytes(this.storage.freeBytes)} / ` +
-        `${this.formatBytes(this.storage.totalBytes)}`)
-        .fontSize(12)
-        .fontColor($r('app.color.text_secondary'))
+        Row({ space: 8 }) {
+          Button(tr('全部'))
+            .height(30)
+            .fontSize(12)
+            .backgroundColor(this.filterKind === 'all' ? $r('app.color.brand_tint') : $r('app.color.surface'))
+            .fontColor(this.filterKind === 'all' ? $r('app.color.chip_text') : $r('app.color.text_muted'))
+            .onClick(() => this.filterKind = 'all')
+          Button(tr('视觉'))
+            .height(30)
+            .fontSize(12)
+            .backgroundColor(this.filterKind === 'vision' ? $r('app.color.brand_tint') : $r('app.color.surface'))
+            .fontColor(this.filterKind === 'vision' ? $r('app.color.chip_text') : $r('app.color.text_muted'))
+            .onClick(() => this.filterKind = 'vision')
+          Button(tr('音频'))
+            .height(30)
+            .fontSize(12)
+            .backgroundColor(this.filterKind === 'audio' ? $r('app.color.brand_tint') : $r('app.color.surface'))
+            .fontColor(this.filterKind === 'audio' ? $r('app.color.chip_text') : $r('app.color.text_muted'))
+            .onClick(() => this.filterKind = 'audio')
+          Blank()
+          Button(tr('扫描'))
+            .height(30)
+            .fontSize(12)
+            .backgroundColor(Color.Transparent)
+            .fontColor($r('app.color.text_secondary'))
+            .enabled(!this.busy)
+            .onClick(() => this.refresh(true))
+        }
         .width('100%')
-        .padding({ left: 18, right: 18, bottom: 10 })
+        .padding({ left: 16, right: 16, bottom: 6 })
 
       if (this.downloads.length > 0) {
         Column({ space: 6 }) {
@@ -327,67 +335,50 @@ export struct ModelsPage {
         .padding({ left: 16, right: 16, bottom: 10 })
       }
 
-      List({ space: 12 }) {
+      List() {
         ForEach(this.visibleModels(), (model: ModelRecord) => {
           ListItem() {
-            Column({ space: 8 }) {
-              Row({ space: 6 }) {
+            // Android-style model row: logo tile, name, tag chips, "size, Downloaded" status.
+            Row({ space: 14 }) {
+              Image($r('app.media.icon'))
+                .width(56)
+                .height(56)
+                .borderRadius(14)
+                .objectFit(ImageFit.Cover)
+              Column({ space: 6 }) {
                 Text(model.name)
-                  .fontSize(18)
+                  .fontSize(17)
                   .fontWeight(FontWeight.Medium)
-                  .layoutWeight(1)
-                if (this.activeModelId === model.id) {
-                  Text(tr('使用中'))
-                    .fontSize(12)
-                    .fontColor($r('app.color.brand'))
-                    .backgroundColor($r('app.color.brand_tint'))
-                    .padding({ left: 9, right: 9, top: 4, bottom: 4 })
-                    .borderRadius(10)
+                  .fontColor($r('app.color.text_primary'))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+                Row({ space: 6 }) {
+                  ForEach(this.chips(model), (chip: string) => {
+                    Text(chip)
+                      .fontSize(12)
+                      .fontColor($r('app.color.chip_text'))
+                      .backgroundColor($r('app.color.chip_bg'))
+                      .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+                      .borderRadius(12)
+                  }, (chip: string) => chip)
                 }
-                Text(model.state === ModelState.READY ? tr('可用') : tr('配置无效'))
-                  .fontSize(12)
-                  .fontColor(model.state === ModelState.READY ? $r('app.color.success') : $r('app.color.danger'))
-                  .backgroundColor(model.state === ModelState.READY ? $r('app.color.success_tint') : $r('app.color.danger_tint'))
-                  .padding({ left: 9, right: 9, top: 4, bottom: 4 })
-                  .borderRadius(10)
+                Text(this.statusLine(model))
+                  .fontSize(13)
+                  .fontColor(model.state === ModelState.READY ?
+                    $r('app.color.text_secondary') : $r('app.color.danger'))
               }
-              Text(model.configPath)
-                .fontSize(12)
-                .fontColor($r('app.color.text_secondary'))
-                .maxLines(2)
-              Text(this.formatBytes(model.sizeBytes))
-                .fontSize(12)
-                .fontColor($r('app.color.text_secondary'))
-              if (model.isProtected) {
-                Text(tr('内置沙箱模型 · 受保护，不会被移动或清理'))
-                  .fontSize(12)
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+
+              if (model.isPinned) {
+                Text('★')
+                  .fontSize(16)
                   .fontColor($r('app.color.brand'))
               }
-              Row({ space: 8 }) {
-                Button(model.isPinned ? tr('取消置顶') : tr('置顶'))
-                  .height(32)
-                  .fontSize(12)
-                  .enabled(!this.busy)
-                  .onClick(() => this.togglePinned(model))
-                Button(tr('删除'))
-                  .height(32)
-                  .fontSize(12)
-                  .enabled(!this.busy && !model.isProtected && !model.isLegacy && this.activeModelId !== model.id)
-                  .backgroundColor($r('app.color.danger_tint'))
-                  .fontColor($r('app.color.danger'))
-                  .onClick(() => this.confirmDelete(model))
-                Blank()
-                if (model.state === ModelState.READY) {
-                  Text(tr('点击进入对话 ›'))
-                    .fontSize(12)
-                    .fontColor($r('app.color.text_tertiary'))
-                }
-              }
             }
-            .alignItems(HorizontalAlign.Start)
-            .padding(16)
-            .borderRadius(14)
-            .backgroundColor($r('app.color.surface'))
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 12, bottom: 12 })
             .onClick(() => this.useModel(model))
             .onTouch((event: TouchEvent) => {
               if (event.type === TouchType.Down) {
@@ -398,8 +389,8 @@ export struct ModelsPage {
           }
         }, (model: ModelRecord) => model.id)
       }
+      .divider({ strokeWidth: 1, color: $r('app.color.divider_soft'), startMargin: 86, endMargin: 16 })
       .layoutWeight(1)
-      .padding({ left: 16, right: 16, bottom: 16 })
 
       if (this.error) {
         Text(`${tr('错误：')}${this.error}`)
@@ -407,6 +398,23 @@ export struct ModelsPage {
           .fontColor($r('app.color.danger'))
           .padding(16)
       }
+      }
+      .width('100%')
+      .height('100%')
+
+      Button() {
+        Text('+')
+          .fontSize(28)
+          .fontColor(Color.White)
+      }
+      .width(64)
+      .height(64)
+      .borderRadius(20)
+      .backgroundColor($r('app.color.brand'))
+      .shadow({ radius: 12, color: '#33000000', offsetY: 4 })
+      .margin({ right: 20, bottom: 24 })
+      .enabled(!this.busy)
+      .onClick(() => this.importModel())
     }
     .width('100%')
     .height('100%')

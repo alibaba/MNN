@@ -235,6 +235,7 @@ export struct ChatPage {
       const message = new ChatMessageView(
         this.nextMessageId++, record.id, record.role, record.displayContent, record.state
       );
+      message.timeLabel = ChatMessageView.formatTime(record.createdAt || Date.now());
       message.rawContent = record.rawContent;
       message.reasoning = record.reasoningContent;
       message.metrics = record.metrics;
@@ -1139,105 +1140,100 @@ export struct ChatPage {
 
   build() {
     Column() {
-      Row({ space: 10 }) {
-        Button('←')
-          .width(40)
-          .height(40)
-          .fontSize(18)
-          .padding(0)
-          .fontColor($r('app.color.text_primary'))
-          .backgroundColor($r('app.color.surface_muted'))
-          .onClick(() => this.onExit())
-        Column({ space: 4 }) {
-          Text('MNN Chat')
-            .fontSize(24)
-            .fontWeight(FontWeight.Bold)
+      // Android-style app bar: back arrow, centered model name, overflow menu.
+      Row() {
+        Button() {
+          Text('←')
+            .fontSize(20)
             .fontColor($r('app.color.text_primary'))
-          Row({ space: 6 }) {
-            Row()
-              .width(7)
-              .height(7)
-              .borderRadius(4)
-              .backgroundColor(this.isModelReady ? $r('app.color.status_ok') : $r('app.color.warning_strong'))
-            Text(`${this.activeModelName || this.activeModelId} · ${this.modelStatus}`)
-              .fontSize(13)
-              .fontColor($r('app.color.text_secondary'))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .layoutWeight(1)
-            Text('▾')
-              .fontSize(12)
-              .fontColor($r('app.color.text_secondary'))
-          }
-          .width('100%')
-          .onClick(() => this.openModelPicker())
         }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
+        .width(44)
+        .height(44)
+        .backgroundColor(Color.Transparent)
+        .onClick(() => this.onExit())
 
-        Button(tr('更多'))
-          .fontSize(14)
+        Text(this.activeModelName || this.activeModelId)
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.text_primary'))
-          .backgroundColor(Color.Transparent)
-          .height(38)
-          .width(58)
-          .padding(0)
-          .bindMenu([
-            {
-              value: tr('配置信息'),
-              action: () => this.showConfigInfo()
-            },
-            {
-              value: this.runtimeSettings.thinking ? tr('关闭思考模式') : tr('开启思考模式'),
-              action: () => this.toggleThinking()
-            },
-            {
-              value: this.showMetrics ? tr('隐藏性能指标') : tr('显示性能指标'),
-              action: () => this.toggleShowMetrics()
-            },
-            {
-              value: tr('基准测试'),
-              action: () => this.onOpenBenchmark()
-            },
-            {
-              value: tr('模型设置'),
-              action: () => this.onOpenSettings()
-            },
-            {
-              value: tr('API 控制台'),
-              action: () => this.onOpenApi()
-            },
-            {
-              value: tr('给 MNN 点个 Star'),
-              action: () => this.starProject()
-            },
-            {
-              value: tr('上报问题'),
-              action: () => this.reportIssue()
-            }
-          ])
+          .textAlign(TextAlign.Center)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+          .onClick(() => this.openModelPicker())
 
-        Button(tr('新对话'))
-          .fontSize(14)
-          .fontColor($r('app.color.brand'))
-          .backgroundColor($r('app.color.brand_tint'))
-          .height(38)
-          .enabled(!this.isGenerating && this.initialized)
-          .onClick(() => this.startNewConversation())
+        Button() {
+          Text('⋮')
+            .fontSize(20)
+            .fontColor($r('app.color.text_primary'))
+        }
+        .width(44)
+        .height(44)
+        .backgroundColor(Color.Transparent)
+        .bindMenu([
+          {
+            value: tr('新对话'),
+            action: () => this.startNewConversation()
+          },
+          {
+            value: tr('切换模型'),
+            action: () => this.openModelPicker()
+          },
+          {
+            value: tr('配置信息'),
+            action: () => this.showConfigInfo()
+          },
+          {
+            value: this.runtimeSettings.thinking ? tr('关闭思考模式') : tr('开启思考模式'),
+            action: () => this.toggleThinking()
+          },
+          {
+            value: this.showMetrics ? tr('隐藏性能指标') : tr('显示性能指标'),
+            action: () => this.toggleShowMetrics()
+          },
+          {
+            value: tr('基准测试'),
+            action: () => this.onOpenBenchmark()
+          },
+          {
+            value: tr('模型设置'),
+            action: () => this.onOpenSettings()
+          },
+          {
+            value: tr('API 控制台'),
+            action: () => this.onOpenApi()
+          },
+          {
+            value: tr('给 MNN 点个 Star'),
+            action: () => this.starProject()
+          },
+          {
+            value: tr('上报问题'),
+            action: () => this.reportIssue()
+          }
+        ])
       }
       .width('100%')
-      .padding({ left: 18, right: 18, top: 18, bottom: 14 })
-      .backgroundColor($r('app.color.surface'))
+      .padding({ left: 6, right: 6, top: 8, bottom: 8 })
+      .backgroundColor($r('app.color.background'))
 
-      Divider()
-        .color($r('app.color.divider'))
+      if (!this.modelStatus.startsWith(tr('模型已就绪'))) {
+        Text(`${this.activeModelName || this.activeModelId} · ${this.modelStatus}`)
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .padding({ bottom: 6 })
+          .backgroundColor($r('app.color.background'))
+      }
 
       List({ space: 16, scroller: this.messageScroller }) {
-        ForEach(this.messages, (message: ChatMessageView) => {
+        ForEach(this.messages, (message: ChatMessageView, index: number) => {
           ListItem() {
             MessageBubble({
               message: message,
               showMetrics: this.showMetrics,
+              showTimestamp: index === 0 || this.messages[index - 1].role !== message.role,
               onReportIssue: () => this.reportIssue(),
               onPlayAudio: (attachment: AttachmentRecord) => {
                 AudioPlaybackService.getInstance().play(attachment.localPath).catch((error: Error) => {
@@ -1355,84 +1351,96 @@ export struct ChatPage {
           .width('100%')
         }
 
-        Row({ space: 8 }) {
-          if (this.supportsAttachments()) {
-            Button('+')
-              .width(40)
-              .height(40)
-              .fontSize(24)
-              .fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.brand'))
-              .backgroundColor($r('app.color.brand_tint'))
-              .padding(0)
-              .enabled(this.isModelReady && !this.isGenerating)
-              .onClick(() => this.openAttachmentSheet())
-          }
-          Button(this.voiceListening ? tr('结束') : tr('语音'))
-            .width(48)
-            .height(40)
-            .fontSize(13)
-            .padding(0)
-            .fontColor(this.voiceListening ? Color.White : $r('app.color.brand'))
-            .backgroundColor(this.voiceListening ? $r('app.color.danger') : $r('app.color.brand_tint'))
-            .enabled(this.isModelReady && !this.isGenerating && !this.recording &&
-              this.voiceStatus !== tr('正在识别…'))
-            .onClick(() => this.toggleVoiceInput())
-          if (!this.modelCapabilities.diffusion) {
-            // Thinking-mode quick toggle in the input bar, mirroring Android's btn_toggle_thinking.
-            Button(tr('思考'))
-              .width(48)
-              .height(40)
-              .fontSize(13)
-              .padding(0)
-              .fontColor(this.runtimeSettings.thinking ? Color.White : $r('app.color.brand'))
-              .backgroundColor(this.runtimeSettings.thinking ? $r('app.color.brand') : $r('app.color.brand_tint'))
-              .enabled(this.isModelReady && !this.isGenerating)
-              .onClick(() => this.toggleThinking())
-          }
+        // Android-style composer: rounded surface card holding the input, with the thinking
+        // pill toggle and a circular send/stop button on its bottom row.
+        Column({ space: 4 }) {
           TextArea({ placeholder: this.isModelReady ? tr('输入消息') : tr('模型加载完成后即可对话'), text: this.prompt })
-            .layoutWeight(1)
-            .height(92)
-            .fontSize(16)
-            .backgroundColor($r('app.color.bubble_assistant'))
-            .borderRadius(14)
-            .padding(12)
+            .width('100%')
+            .fontSize(15)
+            .backgroundColor(Color.Transparent)
+            .padding({ left: 12, right: 12, top: 10, bottom: 4 })
+            .constraintSize({ minHeight: 44, maxHeight: 132 })
             .enabled(this.isModelReady && !this.isGenerating)
             .onChange((value: string) => {
               this.prompt = value;
             })
-        }
-        .width('100%')
-        .alignItems(VerticalAlign.Bottom)
-
-        Row({ space: 10 }) {
-          Text(this.voiceListening ? (this.voicePartial ? `${tr('语音：')}${this.voicePartial}` : tr('正在听…')) :
-            (this.voiceStatus === tr('正在识别…') ? tr('正在识别…') :
-              (this.isGenerating ? tr('回答正在本机生成') : tr('内容仅在设备本地处理'))))
-            .fontSize(12)
-            .fontColor(this.voiceListening ? $r('app.color.brand') : $r('app.color.text_tertiary'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-
-          if (this.isGenerating) {
-            Button(tr('停止'))
-              .height(42)
-              .fontSize(15)
-              .fontColor($r('app.color.danger'))
-              .backgroundColor($r('app.color.danger_tint'))
-              .onClick(() => this.stopGeneration())
-          } else {
-            Button(tr('发送'))
-              .height(42)
-              .fontSize(15)
-              .fontColor(Color.White)
-              .backgroundColor($r('app.color.brand'))
-              .enabled(this.isModelReady && (this.prompt.trim().length > 0 || this.pendingAttachments.length > 0))
-              .onClick(() => this.runInference())
+          Row({ space: 8 }) {
+            if (this.supportsAttachments()) {
+              Button('+')
+                .width(36)
+                .height(36)
+                .fontSize(20)
+                .padding(0)
+                .fontColor($r('app.color.text_primary'))
+                .backgroundColor(Color.Transparent)
+                .enabled(this.isModelReady && !this.isGenerating)
+                .onClick(() => this.openAttachmentSheet())
+            }
+            Button(this.voiceListening ? tr('结束') : tr('语音'))
+              .height(36)
+              .fontSize(13)
+              .padding({ left: 10, right: 10 })
+              .fontColor(this.voiceListening ? Color.White : $r('app.color.text_primary'))
+              .backgroundColor(this.voiceListening ? $r('app.color.danger') : Color.Transparent)
+              .enabled(this.isModelReady && !this.isGenerating && !this.recording &&
+                this.voiceStatus !== tr('正在识别…'))
+              .onClick(() => this.toggleVoiceInput())
+            Blank()
+            if (!this.modelCapabilities.diffusion) {
+              // Thinking-mode quick toggle, mirroring Android's btn_toggle_thinking pill.
+              Row({ space: 6 }) {
+                Text('💡')
+                  .fontSize(13)
+                Text(tr('思考'))
+                  .fontSize(13)
+                  .fontColor(this.runtimeSettings.thinking ? $r('app.color.chip_text') : $r('app.color.text_secondary'))
+              }
+              .height(36)
+              .padding({ left: 14, right: 14 })
+              .borderRadius(18)
+              .backgroundColor(this.runtimeSettings.thinking ? $r('app.color.brand_tint') : Color.Transparent)
+              .border({
+                width: 1,
+                color: this.runtimeSettings.thinking ? $r('app.color.brand') : $r('app.color.divider')
+              })
+              .enabled(this.isModelReady && !this.isGenerating)
+              .onClick(() => this.toggleThinking())
+            }
+            Button() {
+              Text(this.isGenerating ? '■' : '➤')
+                .fontSize(16)
+                .fontColor($r('app.color.text_primary'))
+            }
+            .width(44)
+            .height(44)
+            .borderRadius(22)
+            .backgroundColor($r('app.color.surface'))
+            .border({ width: 2, color: $r('app.color.text_primary') })
+            .enabled(this.isGenerating ||
+              (this.isModelReady && (this.prompt.trim().length > 0 || this.pendingAttachments.length > 0)))
+            .onClick(() => {
+              if (this.isGenerating) {
+                this.stopGeneration();
+              } else {
+                this.runInference();
+              }
+            })
           }
+          .width('100%')
+          .padding({ left: 8, right: 8, bottom: 6 })
         }
         .width('100%')
+        .borderRadius(20)
+        .backgroundColor($r('app.color.surface'))
+
+        Text(this.voiceListening ? (this.voicePartial ? `${tr('语音：')}${this.voicePartial}` : tr('正在听…')) :
+          (this.voiceStatus === tr('正在识别…') ? tr('正在识别…') : tr('内容仅在设备本地处理')))
+          .fontSize(11)
+          .fontColor(this.voiceListening ? $r('app.color.brand') : $r('app.color.text_tertiary'))
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 12, bottom: 12 })

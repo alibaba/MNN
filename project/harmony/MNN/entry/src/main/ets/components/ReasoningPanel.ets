@@ -3,24 +3,18 @@ import { tr } from '../services/I18n';
 export struct ReasoningPanel {
   @Prop reasoning: string;
   @Prop isThinking: boolean;
-  @State private expanded: boolean = false;
+  @State private expanded: boolean = true;
 
   build() {
-    Column({ space: 8 }) {
-      Row() {
-        Text(this.isThinking ? tr('正在思考') : tr('思考过程'))
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.text_muted'))
-          .layoutWeight(1)
-        Text(this.expanded ? tr('收起') : tr('展开'))
-          .fontSize(12)
-          .fontColor($r('app.color.brand'))
-      }
-      .width('100%')
-      .onClick(() => {
-        this.expanded = !this.expanded;
-      })
+    // Android shows reasoning as a "Thinking..." label plus a left-bordered indented block.
+    Column({ space: 6 }) {
+      Text(this.isThinking ? tr('Thinking...') : tr('思考过程'))
+        .fontSize(13)
+        .fontColor($r('app.color.text_secondary'))
+        .width('100%')
+        .onClick(() => {
+          this.expanded = !this.expanded;
+        })
 
       if (this.expanded) {
         Text(this.reasoning)
@@ -28,12 +22,15 @@ export struct ReasoningPanel {
           .lineHeight(21)
           .fontColor($r('app.color.text_hint'))
           .width('100%')
+          .padding({ left: 12 })
+          .border({ width: { left: 3 }, color: $r('app.color.divider') })
           .copyOption(CopyOptions.LocalDevice)
+          .onClick(() => {
+            this.expanded = !this.expanded;
+          })
       }
     }
     .width('100%')
-    .padding(10)
-    .borderRadius(10)
-    .backgroundColor($r('app.color.divider_soft'))
+    .alignItems(HorizontalAlign.Start)
   }
 }

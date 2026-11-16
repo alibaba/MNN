@@ -19,6 +19,7 @@ export class ChatMessageView {
   state: GenerationState;
   metrics: GenerationMetrics;
   attachments: AttachmentRecord[];
+  timeLabel: string = '';
 
   constructor(id: number, recordId: string, role: MessageRole, content: string,
     state: GenerationState = GenerationState.COMPLETE) {
@@ -32,6 +33,13 @@ export class ChatMessageView {
     this.state = state;
     this.metrics = new GenerationMetrics();
     this.attachments = [];
+    this.timeLabel = ChatMessageView.formatTime(Date.now());
+  }
+
+  static formatTime(epochMs: number): string {
+    const date = new Date(epochMs);
+    const pad = (value: number): string => value < 10 ? `0${value}` : `${value}`;
+    return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 }
 
@@ -39,6 +47,7 @@ export class ChatMessageView {
 export struct MessageBubble {
   @ObjectLink message: ChatMessageView;
   @Prop showMetrics: boolean = true;
+  @Prop showTimestamp: boolean = false;
   onReportIssue: () => void = () => {};
   onPlayAudio: (attachment: AttachmentRecord) => void = () => {};
 
@@ -104,114 +113,110 @@ export struct MessageBubble {
     }
   }
 
-  build() {
-    Row() {
-      if (this.message.role === MessageRole.ASSISTANT) {
-        Text('M')
-          .fontSize(14)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Color.White)
-          .textAlign(TextAlign.Center)
-          .width(34)
-          .height(34)
-          .borderRadius(17)
-          .backgroundColor($r('app.color.brand'))
-          .margin({ right: 10 })
-      }
-
-      Column() {
-        Text(this.message.role === MessageRole.ASSISTANT ? 'MNN' : tr('我'))
-          .fontSize(13)
-          .fontColor($r('app.color.text_tertiary'))
-          .width('100%')
-          .margin({ bottom: 5 })
-        if (this.message.attachments.length > 0) {
-          Flex({ wrap: FlexWrap.Wrap }) {
-            ForEach(this.message.attachments, (attachment: AttachmentRecord) => {
-              if (attachment.mediaType === 'image') {
-                Image(`file://${attachment.localPath}`)
-                  .width(92)
-                  .height(92)
-                  .objectFit(ImageFit.Cover)
-                  .borderRadius(8)
-                  .margin({ right: 6, bottom: 6 })
-                  .onClick(() => this.openImage(attachment.localPath))
-              } else {
-                Row({ space: 8 }) {
-                  Text(attachment.mediaType === 'audio' ? `${tr('音频 · ')}${attachment.displayName}` :
-                    `${tr('视频 · ')}${attachment.displayName}`)
-                    .fontSize(12)
-                    .fontColor($r('app.color.brand'))
-                  if (attachment.mediaType === 'audio') {
-                    Button(tr('播放'))
-                      .height(26)
-                      .fontSize(11)
-                      .padding({ left: 10, right: 10 })
-                      .backgroundColor($r('app.color.brand'))
-                      .fontColor(Color.White)
-                      .onClick(() => this.onPlayAudio(attachment))
-                  }
-                }
-                .padding(8)
-                .borderRadius(8)
-                .backgroundColor($r('app.color.brand_tint'))
-                .margin({ right: 6, bottom: 6 })
-              }
-            }, (attachment: AttachmentRecord) => attachment.id || attachment.localPath)
-          }
-          .width('100%')
-        }
-        if (this.message.reasoning) {
-          ReasoningPanel({
-            reasoning: this.message.reasoning,
-            isThinking: this.message.isThinking
-          })
-        }
-        if (this.message.content) {
-          RichMessage({ content: this.message.content })
-        } else if (this.message.state === GenerationState.GENERATING) {
+  @Builder
+  private attachmentRow() {
+    Flex({ wrap: FlexWrap.Wrap, justifyContent: this.message.role === MessageRole.USER ?
+      FlexAlign.End : FlexAlign.Start }) {
+      ForEach(this.message.attachments, (attachment: AttachmentRecord) => {
+        if (attachment.mediaType === 'image') {
+          Image(`file://${attachment.localPath}`)
+            .width(92)
+            .height(92)
+            .objectFit(ImageFit.Cover)
+            .borderRadius(8)
+            .margin({ right: 6, bottom: 6 })
+            .onClick(() => this.openImage(attachment.localPath))
+        } else {
           Row({ space: 8 }) {
-            LoadingProgress()
-              .width(18)
-              .height(18)
-            Text(this.message.isThinking ? tr('正在思考') : tr('正在生成'))
+            Text(attachment.mediaType === 'audio' ? `${tr('音频 · ')}${attachment.displayName}` :
+              `${tr('视频 · ')}${attachment.displayName}`)
+              .fontSize(12)
+              .fontColor($r('app.color.brand'))
+            if (attachment.mediaType === 'audio') {
+              Button(tr('播放'))
+                .height(26)
+                .fontSize(11)
+                .padding({ left: 10, right: 10 })
+                .backgroundColor($r('app.color.brand'))
+                .fontColor(Color.White)
+                .onClick(() => this.onPlayAudio(attachment))
+            }
+          }
+          .padding(8)
+          .borderRadius(8)
+          .backgroundColor($r('app.color.brand_tint'))
+          .margin({ right: 6, bottom: 6 })
+        }
+      }, (attachment: AttachmentRecord) => attachment.id || attachment.localPath)
+    }
+    .width('100%')
+  }
+
+  build() {
+    // Mirrors the Android chat list: centered timestamps, plain assistant text on the
+    // background and a filled pill for user messages (no avatars, no cards).
+    Column({ space: 10 }) {
+      if (this.showTimestamp && this.message.timeLabel) {
+        Text(this.message.timeLabel)
+          .fontSize(12)
+          .fontColor($r('app.color.text_disabled'))
+          .width('100%')
+          .textAlign(TextAlign.Center)
+      }
+      if (this.message.role === MessageRole.USER) {
+        Column({ space: 8 }) {
+          if (this.message.attachments.length > 0) {
+            this.attachmentRow()
+          }
+          if (this.message.content) {
+            Text(this.message.content)
+              .fontSize(15)
+              .lineHeight(22)
+              .fontColor(Color.White)
+              .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+              .borderRadius(16)
+              .backgroundColor($r('app.color.bubble_user'))
+          }
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.End)
+      } else {
+        Column({ space: 8 }) {
+          if (this.message.attachments.length > 0) {
+            this.attachmentRow()
+          }
+          if (this.message.reasoning) {
+            ReasoningPanel({
+              reasoning: this.message.reasoning,
+              isThinking: this.message.isThinking
+            })
+          }
+          if (this.message.content) {
+            RichMessage({ content: this.message.content })
+          } else if (this.message.state === GenerationState.GENERATING) {
+            Row({ space: 8 }) {
+              LoadingProgress()
+                .width(18)
+                .height(18)
+              Text(this.message.isThinking ? tr('正在思考') : tr('正在生成'))
+                .fontSize(15)
+                .fontColor($r('app.color.text_secondary'))
+            }
+            .width('100%')
+          } else {
+            Text(tr('未生成内容'))
               .fontSize(15)
               .fontColor($r('app.color.text_secondary'))
           }
-          .width('100%')
-        } else {
-          Text(tr('未生成内容'))
-            .fontSize(15)
-            .fontColor($r('app.color.text_secondary'))
+          if (this.showMetrics) {
+            MetricsPanel({ metrics: this.message.metrics, state: this.message.state })
+          }
         }
-        if (this.message.role === MessageRole.ASSISTANT && this.showMetrics) {
-          MetricsPanel({ metrics: this.message.metrics, state: this.message.state })
-        }
-      }
-      .padding(14)
-      .borderRadius(14)
-      .backgroundColor(this.message.role === MessageRole.ASSISTANT ? $r('app.color.bubble_assistant') : $r('app.color.bubble_user'))
-      .layoutWeight(1)
-
-      if (this.message.role === MessageRole.USER) {
-        Text(tr('我'))
-          .fontSize(14)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Color.White)
-          .textAlign(TextAlign.Center)
-          .width(34)
-          .height(34)
-          .borderRadius(17)
-          .backgroundColor($r('app.color.avatar_user'))
-          .margin({ left: 10 })
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
       }
     }
     .width('100%')
-    .alignItems(VerticalAlign.Top)
-    .padding({
-      left: this.message.role === MessageRole.USER ? 44 : 0,
-      right: this.message.role === MessageRole.ASSISTANT ? 44 : 0
-    })
     .bindContextMenu(this.messageMenu, ResponseType.LongPress)
   }
 }

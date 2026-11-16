@@ -138,49 +138,54 @@ struct Index {
 
   @Builder
   private mainToolbar() {
-    Row({ space: 10 }) {
-      Button('☰')
-        .width(40)
-        .height(40)
-        .fontSize(18)
-        .padding(0)
-        .fontColor($r('app.color.text_primary'))
-        .backgroundColor($r('app.color.surface_muted'))
-        .onClick(() => {
-          this.drawerShown = !this.drawerShown;
-        })
-      Row({ space: 6 }) {
-        Text(this.activeModelName || this.activeModelId || tr('选择模型'))
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
+    // Android-style app bar: hamburger, centered title (model switcher), overflow menu.
+    Row() {
+      Button() {
+        Text('☰')
+          .fontSize(20)
           .fontColor($r('app.color.text_primary'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .layoutWeight(1)
-        Text('▾')
-          .fontSize(12)
-          .fontColor($r('app.color.text_secondary'))
       }
-      .layoutWeight(1)
-      .height(40)
-      .padding({ left: 12, right: 12 })
-      .borderRadius(10)
-      .backgroundColor($r('app.color.surface_muted'))
-      .onClick(() => this.openModelPicker())
+      .width(44)
+      .height(44)
+      .backgroundColor(Color.Transparent)
+      .onClick(() => {
+        this.drawerShown = !this.drawerShown;
+      })
 
-      Button(tr('设置'))
-        .height(40)
-        .fontSize(13)
-        .padding({ left: 12, right: 12 })
-        .fontColor($r('app.color.brand'))
-        .backgroundColor($r('app.color.brand_tint'))
-        .onClick(() => {
-          this.currentView = VIEW_SETTINGS;
-        })
+      Text(this.activeModelName || 'MNN Chat')
+        .fontSize(20)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+        .textAlign(TextAlign.Center)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+        .onClick(() => this.openModelPicker())
+
+      Button() {
+        Text('⋮')
+          .fontSize(20)
+          .fontColor($r('app.color.text_primary'))
+      }
+      .width(44)
+      .height(44)
+      .backgroundColor(Color.Transparent)
+      .bindMenu([
+        {
+          value: tr('切换模型'),
+          action: () => this.openModelPicker()
+        },
+        {
+          value: tr('设置'),
+          action: () => {
+            this.currentView = VIEW_SETTINGS;
+          }
+        }
+      ])
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 12, bottom: 10 })
-    .backgroundColor($r('app.color.surface'))
+    .padding({ left: 6, right: 6, top: 8, bottom: 8 })
+    .backgroundColor($r('app.color.background'))
   }
 
   @Builder

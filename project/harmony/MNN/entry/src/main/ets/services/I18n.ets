@@ -409,6 +409,8 @@ const ENGLISH: Record<string, string> = {
   '本地 API 服务': 'Local API service',
   '提供 OpenAI 兼容接口；在控制台启动服务、查看地址与请求日志': 'OpenAI-compatible endpoint; start the service and view the address and request logs in the console',
   '会话历史': 'Chat history',
+  '切换模型': 'Switch model',
+  '已下载': 'Downloaded',
 };
 
 export class I18n {
