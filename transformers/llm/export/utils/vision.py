@@ -2948,12 +2948,35 @@ class Lfm3VlVision(Qwen2Vision):
             return torch.tensor([[seq_len - 1]], dtype=torch.int32)
         return torch.arange(seq_len, dtype=torch.int32).unsqueeze(0)
 
+    def str_to_ids(self, prompt):
+        import re
+        if re.search(r'<video>.*?</video>', prompt, re.DOTALL):
+            raise NotImplementedError('LFM3-VL export currently supports images and text only')
+        self._image_size_overrides = []
+        for content in re.findall(r'<img>(.*?)</img>', prompt, re.DOTALL):
+            match = re.search(r'<hw>(.*?)</hw>', content)
+            self._image_size_overrides.append(tuple(map(int, match.group(1).split(','))) if match else None)
+        try:
+            return super().str_to_ids(prompt)
+        finally:
+            self._image_size_overrides = []
+
     def image_to_tensor(self, image):
-        self.image_width, self.image_height = image.size
+        overrides = getattr(self, '_image_size_overrides', [])
+        override = overrides.pop(0) if overrides else None
+        if override is None:
+            self.image_width, self.image_height = image.size
+        else:
+            self.image_height, self.image_width = override
         return super().image_to_tensor(image)
 
     def video_process(self, video):
         raise NotImplementedError('LFM3-VL export currently supports images and text only')
+
+    def vision_attention_mask(self, grid_thw, cu_window_seqlens=None, max_seq_len=None):
+        if grid_thw.shape[0] == 1 and int(grid_thw[0, 0]) == 1 and cu_window_seqlens is None:
+            return torch.zeros(1, dtype=torch.float32)
+        return super().vision_attention_mask(grid_thw, cu_window_seqlens, max_seq_len)
 
     def images_forward(self, images):
         if images.shape[0] == 1:
@@ -2984,11 +3007,24 @@ class Lfm3VlVision(Qwen2Vision):
                     left, right = x.chunk(2, -1)
                     return x * cos + torch.cat((-right, left), -1) * sin
                 q, k = rotate(q), rotate(k)
-                q = q.transpose(0, 1).unsqueeze(0)
-                k = k.transpose(0, 1).repeat_interleave(a.num_key_value_groups, 0).unsqueeze(0)
-                v = v.transpose(0, 1).repeat_interleave(a.num_key_value_groups, 0).unsqueeze(0)
-                probs = torch.softmax((q @ k.transpose(-1, -2)) * a.scaling + attention_mask, -1)
-                output = (probs @ v).squeeze(0).transpose(0, 1).reshape(-1, a.num_heads * a.head_dim)
+                if torch.onnx.is_in_onnx_export():
+                    from .custom_op import FusedAttention
+                    output = FusedAttention(a.num_heads * a.head_dim, False, 'lfm3_visual_attention',
+                                            head_dim=a.head_dim)(
+                        q.reshape(1, -1, a.num_heads, a.head_dim),
+                        k.reshape(1, -1, a.num_key_value_heads, a.head_dim),
+                        v.reshape(1, -1, a.num_key_value_heads, a.head_dim), attention_mask)
+                    hidden = hidden + a.out_proj(output.reshape(-1, a.num_heads * a.head_dim))
+                    hidden = hidden + layer.feed_forward(layer.ffn_norm(hidden))
+                    continue
+                q = q.reshape(1, -1, a.num_heads, a.head_dim).transpose(1, 2)
+                k = k.reshape(1, -1, a.num_key_value_heads, a.head_dim).permute(0, 2, 3, 1)
+                v = v.reshape(1, -1, a.num_key_value_heads, a.head_dim).transpose(1, 2)
+                if a.num_key_value_groups != 1:
+                    k = k.repeat_interleave(a.num_key_value_groups, 1)
+                    v = v.repeat_interleave(a.num_key_value_groups, 1)
+                probs = torch.softmax((q @ k) * a.scaling + attention_mask, -1)
+                output = (probs @ v).transpose(1, 2).reshape(-1, a.num_heads * a.head_dim)
                 output = a.out_proj(output)
             else:
                 c = layer.conv

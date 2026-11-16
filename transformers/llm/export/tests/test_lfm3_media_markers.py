@@ -17,6 +17,33 @@ class Tokenizer:
 
 
 class MediaMarkerTest(unittest.TestCase):
+    def test_video_rejected_before_tokenization(self):
+        visual = object.__new__(Lfm3VlVision)
+        with self.assertRaises(NotImplementedError):
+            visual.str_to_ids('<video>missing.mp4</video>Describe')
+
+    def test_size_override_and_native_size(self):
+        from unittest.mock import patch
+        import torch
+        from PIL import Image
+        visual = object.__new__(Lfm3VlVision)
+        torch.nn.Module.__init__(visual)
+        visual._image_size_overrides = [(64, 96), None]
+        with patch.object(Qwen2Vision, 'image_to_tensor', lambda self, image: (self.image_height, self.image_width)):
+            self.assertEqual(visual.image_to_tensor(Image.new('RGB', (160, 80))), (64, 96))
+            self.assertEqual(visual.image_to_tensor(Image.new('RGB', (160, 80))), (80, 160))
+
+    def test_compact_single_image_and_isolated_multiple_grids(self):
+        import torch
+        visual = object.__new__(Lfm3VlVision)
+        mask = visual.vision_attention_mask(torch.tensor([[1, 2, 2]]))
+        self.assertEqual(tuple(mask.shape), (1,))
+        self.assertEqual(mask.item(), 0)
+        mask = visual.vision_attention_mask(torch.tensor([[1, 2, 2], [1, 2, 2]]))
+        self.assertEqual(tuple(mask.shape), (1, 8, 8))
+        self.assertEqual(mask[0, 0, 1].item(), 0)
+        self.assertLess(mask[0, 0, 4].item(), -1e30)
+
     def test_small_image_resize_is_family_specific(self):
         for height, width, expected in [(16, 16, (256, 256)), (16, 64, (128, 512)),
                                          (64, 16, (512, 128)), (31, 31, (256, 256)),

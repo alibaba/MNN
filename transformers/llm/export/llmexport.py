@@ -399,6 +399,16 @@ class LlmExporter(torch.nn.Module):
                 "n_gram": 8,
                 "ngram_factor": 1.0
             }
+            if self.model_type in ('lfm3', 'lfm3_vl'):
+                generation_path = os.path.join(self.args.path, 'generation_config.json')
+                if os.path.isfile(generation_path):
+                    with open(generation_path, encoding='utf-8') as source:
+                        generation = json.load(source)
+                    for key in ('temperature', 'top_k', 'top_p', 'repetition_penalty'):
+                        if key in generation:
+                            config[key] = generation[key]
+                    config['min_p'] = generation.get('min_p', 0.0)
+                    config['sampler_type'] = 'mixed' if generation.get('do_sample', False) else 'greedy'
             config['tokenizer_file'] = self.exported_tokenizer_file
             if self.args.embed_bit < 16:
                 config['embedding_file'] = f"embeddings_int{self.args.embed_bit}.bin"

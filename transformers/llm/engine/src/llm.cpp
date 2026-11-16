@@ -887,36 +887,38 @@ void Llm::reset() {
     }
 }
 
-void Llm::generate_init(std::ostream* os, const char* end_with) {
-    // init status
+void Llm::resetRequestOutput(std::ostream* os, const char* end_with) {
     mContext->os = os;
     {
-        std::lock_guard<std::mutex> _l(mContext->mutex);
-        if (nullptr != end_with) {
+        std::lock_guard<std::mutex> lock(mContext->mutex);
+        if (end_with != nullptr) {
             mContext->end_with = end_with;
         }
-        if (!mContext->generate_str.empty()) {
-            mContext->generate_str.clear();
-        }
-        if (!mConfig->reuse_kv()) {
-            mContext->history_tokens.clear();
-        }
+        mContext->generate_str.clear();
         mContext->output_tokens.clear();
     }
     mContext->gen_seq_len = 0;
-    mContext->prefill_us  = 0;
-    mContext->decode_us   = 0;
+    mContext->prefill_us = 0;
+    mContext->decode_us = 0;
     mContext->current_token = -1;
     mContext->sample_us = 0;
+    if (mContext->status != LlmStatus::NOT_LOADED) {
+        mContext->status = LlmStatus::RUNNING;
+    }
+}
+
+void Llm::generate_init(std::ostream* os, const char* end_with) {
+    resetRequestOutput(os, end_with);
     if (!mConfig->reuse_kv()) {
+        {
+            std::lock_guard<std::mutex> lock(mContext->mutex);
+            mContext->history_tokens.clear();
+        }
         mContext->all_seq_len = 0;
         mMeta->remove = mMeta->previous;
     }
     if (mGenerationStrategy) {
         mGenerationStrategy->reset();
-    }
-    if(mContext->status != LlmStatus::NOT_LOADED) {
-        mContext->status = LlmStatus::RUNNING;
     }
 }
 
@@ -1129,6 +1131,10 @@ std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input)
 
 void Llm::response(const MultimodalPrompt& multimodal_input,
                    std::ostream* os, const char* end_with, int max_new_tokens) {
+    if (mModule && mContext->status == LlmStatus::INTERNAL_ERROR) {
+        reset();
+    }
+    resetRequestOutput(os, end_with);
     CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     auto multimodal_input_copy = multimodal_input;
@@ -1251,6 +1257,10 @@ void Llm::response(MNN::Express::VARP input_embeds, std::ostream* os, const char
 }
 
 void Llm::response(const std::string& user_content, std::ostream* os, const char* end_with, int max_new_tokens) {
+    if (mModule && mContext->status == LlmStatus::INTERNAL_ERROR) {
+        reset();
+    }
+    resetRequestOutput(os, end_with);
     CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     auto prompt = user_content;
@@ -1270,6 +1280,10 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
 }
 
 void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const char* end_with, int max_new_tokens) {
+    if (mModule && mContext->status == LlmStatus::INTERNAL_ERROR) {
+        reset();
+    }
+    resetRequestOutput(os, end_with);
     CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (chat_prompts.empty()) {
@@ -1312,6 +1326,7 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
         // Tokenize the full prompt and split at a token boundary rather than
         // tokenizing a text substring (which can land mid-token for BPE/UTF-8).
         std::vector<int> full_tokens = tokenizer_encode(prompt);
+        CHECK_LLM_RUNNING(mContext);
         // Detect prefix token count (BOS, etc.) by encoding an empty string.
         // tokenizer_encode("") returns only the prefix tokens that are
         // automatically prepended to every input (e.g., <|begin_of_text|>).

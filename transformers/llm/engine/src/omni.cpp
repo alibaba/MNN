@@ -760,6 +760,57 @@ static VARP resizeImage(VARP image, int height, int width, const std::vector<flo
     return _Convert(_Unsqueeze(pixels, {0}), order);
 }
 
+static VARP resizeLfm3Image(VARP image, int height, int width) {
+    auto shape = image->getInfo()->dim;
+    const int sourceH = shape[0], sourceW = shape[1];
+    auto bytes = _Cast<uint8_t>(image);
+    auto source = bytes->readMap<uint8_t>();
+    if (!source)
+        return nullptr;
+    auto cubic = [](double x) {
+        x = std::abs(x);
+        if (x < 1.0)
+            return ((1.5 * x - 2.5) * x) * x + 1.0;
+        if (x < 2.0)
+            return ((-0.5 * x + 2.5) * x - 4.0) * x + 2.0;
+        return 0.0;
+    };
+    auto pass = [&](const uint8_t* input, uint8_t* output, int h, int w, int target, bool horizontal) {
+        int original = horizontal ? w : h;
+        double scale = double(original) / target, filterScale = std::max(scale, 1.0);
+        for (int dst = 0; dst < target; ++dst) {
+            double center = (dst + 0.5) * scale;
+            int first = std::max(0, int(center - 2.0 * filterScale + 0.5));
+            int last = std::min(original, int(center + 2.0 * filterScale + 0.5));
+            std::vector<double> weights(last - first);
+            double sum = 0;
+            for (int i = first; i < last; ++i)
+                sum += weights[i - first] = cubic((i - center + 0.5) / filterScale);
+            std::vector<int> coefficients(weights.size());
+            for (int i = 0; i < weights.size(); ++i) {
+                double v = weights[i] / sum * (1 << 22);
+                coefficients[i] = int(v < 0 ? v - 0.5 : v + 0.5);
+            }
+            int lines = horizontal ? h : w;
+            for (int line = 0; line < lines; ++line)
+                for (int c = 0; c < 3; ++c) {
+                    int value = 1 << 21;
+                    for (int i = first; i < last; ++i) {
+                        int offset = horizontal ? (line * w + i) * 3 + c : (i * w + line) * 3 + c;
+                        value += input[offset] * coefficients[i - first];
+                    }
+                    int offset = horizontal ? (line * target + dst) * 3 + c : (dst * w + line) * 3 + c;
+                    output[offset] = uint8_t(std::max(0, std::min(255, value >> 22)));
+                }
+        }
+    };
+    std::vector<uint8_t> intermediate(sourceH * width * 3);
+    auto output = _Input({height, width, 3}, NHWC, halide_type_of<uint8_t>());
+    pass(source, intermediate.data(), sourceH, sourceW, width, true);
+    pass(intermediate.data(), output->writeMap<uint8_t>(), sourceH, width, height, false);
+    return output;
+}
+
 static VARP splitImage(VARP pixels, int rows, int cols) {
     auto shape = pixels->getInfo()->dim;
     pixels = _Reshape(pixels, {shape[0], shape[1], rows, shape[2] / rows, cols, shape[3] / cols});
@@ -817,6 +868,9 @@ Omni::VisionProcessor::Plan Omni::VisionProcessor::Fixed::prepare(VARP image) {
 struct Omni::VisionProcessor::Patch : VisionProcessor {
     using VisionProcessor::VisionProcessor;
     virtual Batch patchInputs(VARP pixels, bool video) = 0;
+    virtual VARP resizePixels(VARP image, int height, int width) {
+        return resizeImage(image, height, width, mOmni.mVisionMean, mOmni.mVisionNorm, MNN::CV::INTER_CUBIC);
+    }
     virtual int minPixels() const { return 3136; }
     virtual int maxPixels() const { return 12845056; }
     virtual std::pair<int, int> targetSize(int height, int width, int factor, int min, int max) const {
@@ -842,8 +896,7 @@ struct Omni::VisionProcessor::Patch : VisionProcessor {
         }
         mOmni.mVisionHeight = size.first;
         mOmni.mVisionWidth = size.second;
-        auto pixels =
-            resizeImage(image, size.first, size.second, mOmni.mVisionMean, mOmni.mVisionNorm, MNN::CV::INTER_CUBIC);
+        auto pixels = resizePixels(image, size.first, size.second);
         plan.batches.push_back(patchInputs(_Concat(VARPS(temporal, pixels), 0), false));
         return plan;
     }
@@ -884,6 +937,12 @@ struct Omni::VisionProcessor::Qwen : Patch {
 
 struct Omni::VisionProcessor::Lfm3 : Qwen {
     using Qwen::Qwen;
+    VARP resizePixels(VARP image, int height, int width) override {
+        auto resized = resizeLfm3Image(image, height, width);
+        return resized.get() ? resizeImage(resized, height, width, mOmni.mVisionMean, mOmni.mVisionNorm,
+                                           MNN::CV::INTER_NEAREST) : nullptr;
+    }
+
     std::pair<int, int> targetSize(int height, int width, int factor, int min, int max) const override {
         return qwenVlSmartResize(height, width, factor, min, max, true);
     }

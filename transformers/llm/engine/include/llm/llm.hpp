@@ -226,6 +226,7 @@ public:
                              const std::string& ref_audio = "");
 
 protected:
+    void resetRequestOutput(std::ostream* os, const char* end_with);
     void setChatTemplate();
     void initRuntime();
     void setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg, bool mllm = false);

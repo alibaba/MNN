@@ -172,6 +172,30 @@ class MNNConverter:
             if quant_bit == 32:
                 quant_args = []
             self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, quant_args, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native, weight_sym=weight_sym)
+            if self.exporter.model_type == 'lfm3_vl' and self.mnn_name == 'visual.mnn':
+                mnn_json = f'{self.mnn_model_path}.json'
+                self.mnn2json(self.mnn_model_path, mnn_json)
+                with open(mnn_json, encoding='utf-8') as source:
+                    graph = json.load(source)
+                import onnx
+                from onnx import numpy_helper
+                original = onnx.load(str(onnx_path), load_external_data=False)
+                frequency = next(t for t in original.graph.initializer if t.name == 'model.inv_freq')
+                values = numpy_helper.to_array(frequency, base_dir=os.path.dirname(str(onnx_path)))
+                restored_frequencies = 0
+                for index, op in enumerate(graph['oplists']):
+                    if op['type'] == 'Const' and op.get('name') == 'model.inv_freq':
+                        restored_frequencies += 1
+                        op['main'] = {'dims': list(values.shape), 'dataFormat': 'NCHW',
+                                      'dataType': 'DT_FLOAT', 'float32s': values.astype(np.float32).flatten().tolist()}
+                    if op['type'] == 'Extra' and op['main'].get('type') == 'FusedAttention':
+                        graph['oplists'][index] = self.rebuild_attnention(op, graph)[0]
+                if restored_frequencies != 1:
+                    raise ValueError(f'Expected one LFM3 vision rotary frequency constant, restored {restored_frequencies}')
+                with open(mnn_json, 'w', encoding='utf-8') as target:
+                    json.dump(graph, target)
+                self.json2mnn(mnn_json, self.mnn_model_path)
+
         else:
             mnn_json = f'{self.mnn_model_path}.json'
             self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native, weight_sym=weight_sym)
