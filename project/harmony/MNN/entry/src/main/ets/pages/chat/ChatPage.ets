@@ -62,7 +62,10 @@ export struct ChatPage {
   @Watch('onRequestedSessionChanged') @Link requestedSessionId: string;
   @Watch('onActiveModelChanged') @Link activeModelId: string;
   @Watch('onSettingsRevisionChanged') @Link settingsRevision: number;
-  onNavigateTab: (index: number) => void = () => {};
+  onExit: () => void = () => {};
+  onOpenBenchmark: () => void = () => {};
+  onOpenSettings: () => void = () => {};
+  onOpenApi: () => void = () => {};
   @State private prompt: string = '';
   @State private messages: ChatMessageView[] = [];
   @State private error: string = '';
@@ -199,13 +202,13 @@ export struct ChatPage {
     const savedSessionId = await SettingsStore.getInstance().getString(CURRENT_SESSION_KEY);
     const targetSessionId = this.requestedSessionId || savedSessionId;
     const sessions = await ChatRepository.getInstance().listSessions();
-    let canRestore = false;
-    sessions.forEach((session: ChatSessionRecord) => {
-      if (session.id === targetSessionId) {
-        canRestore = true;
-      }
-    });
-    if (canRestore) {
+    const target = sessions.find((session: ChatSessionRecord) => session.id === targetSessionId);
+    // When entering chat by picking a model (no explicitly requested session), only resume the
+    // saved session if it belongs to the same model; otherwise start a fresh one so the tapped
+    // model is actually used (restoreSession would switch back to the old session's model).
+    const modelMatches = !this.requestedSessionId && target &&
+      (target.modelId || LEGACY_MODEL_ID) === this.activeModelId;
+    if (target && (this.requestedSessionId || modelMatches)) {
       await this.restoreSession(targetSessionId, ++this.restoreSequence);
     } else {
       await this.createNewSession();
@@ -1136,7 +1139,15 @@ export struct ChatPage {
 
   build() {
     Column() {
-      Row() {
+      Row({ space: 10 }) {
+        Button('←')
+          .width(40)
+          .height(40)
+          .fontSize(18)
+          .padding(0)
+          .fontColor($r('app.color.text_primary'))
+          .backgroundColor($r('app.color.surface_muted'))
+          .onClick(() => this.onExit())
         Column({ space: 4 }) {
           Text('MNN Chat')
             .fontSize(24)
@@ -1186,15 +1197,15 @@ export struct ChatPage {
             },
             {
               value: tr('基准测试'),
-              action: () => this.onNavigateTab(5)
+              action: () => this.onOpenBenchmark()
             },
             {
               value: tr('模型设置'),
-              action: () => this.onNavigateTab(4)
+              action: () => this.onOpenSettings()
             },
             {
               value: tr('API 控制台'),
-              action: () => this.onNavigateTab(6)
+              action: () => this.onOpenApi()
             },
             {
               value: tr('给 MNN 点个 Star'),
@@ -1367,6 +1378,18 @@ export struct ChatPage {
             .enabled(this.isModelReady && !this.isGenerating && !this.recording &&
               this.voiceStatus !== tr('正在识别…'))
             .onClick(() => this.toggleVoiceInput())
+          if (!this.modelCapabilities.diffusion) {
+            // Thinking-mode quick toggle in the input bar, mirroring Android's btn_toggle_thinking.
+            Button(tr('思考'))
+              .width(48)
+              .height(40)
+              .fontSize(13)
+              .padding(0)
+              .fontColor(this.runtimeSettings.thinking ? Color.White : $r('app.color.brand'))
+              .backgroundColor(this.runtimeSettings.thinking ? $r('app.color.brand') : $r('app.color.brand_tint'))
+              .enabled(this.isModelReady && !this.isGenerating)
+              .onClick(() => this.toggleThinking())
+          }
           TextArea({ placeholder: this.isModelReady ? tr('输入消息') : tr('模型加载完成后即可对话'), text: this.prompt })
             .layoutWeight(1)
             .height(92)

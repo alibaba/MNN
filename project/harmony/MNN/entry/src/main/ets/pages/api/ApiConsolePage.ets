@@ -19,6 +19,7 @@ import { SettingsStore } from '../../services/SettingsStore';
 export struct ApiConsolePage {
   @Watch('onConfigurationChanged') @Link activeModelId: string;
   @Watch('onConfigurationChanged') @Link settingsRevision: number;
+  onExit: () => void = () => {};
   @State private status: ApiServerStatus = new ApiServerStatus();
   @State private portText: string = '8080';
   @State private error: string = '';
@@ -155,11 +156,22 @@ export struct ApiConsolePage {
   build() {
     Scroll() {
       Column() {
-        Text(tr('本地 API'))
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
+        Row({ space: 10 }) {
+          Button('←')
+            .width(40)
+            .height(40)
+            .fontSize(18)
+            .padding(0)
+            .fontColor($r('app.color.text_primary'))
+            .backgroundColor($r('app.color.surface_muted'))
+            .onClick(() => this.onExit())
+          Text(tr('本地 API'))
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+            .layoutWeight(1)
+        }
         .width('100%')
-        .padding({ left: 20, right: 20, top: 18, bottom: 12 })
+        .padding({ left: 16, right: 20, top: 14, bottom: 12 })
 
       Column({ space: 12 }) {
         Row() {

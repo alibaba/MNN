@@ -25,7 +25,8 @@ class DownloadSummary {
 @Component
 export struct ModelsPage {
   @Link activeModelId: string;
-  @Link selectedTab: number;
+  onOpenChat: (modelId: string) => void = () => {};
+  onOpenSettings: () => void = () => {};
   @State private models: ModelRecord[] = [];
   @State private storage: ModelStorageStats = new ModelStorageStats();
   @State private query: string = '';
@@ -34,6 +35,7 @@ export struct ModelsPage {
   @State private filterKind: string = 'all';
   @State private error: string = '';
   @State private busy: boolean = false;
+  @State private menuModelId: string = '';
 
   aboutToAppear(): void {
     this.refresh(true);
@@ -110,10 +112,38 @@ export struct ModelsPage {
     }
     SettingsStore.getInstance().putString(ACTIVE_MODEL_ID_KEY, model.id).then(() => {
       this.activeModelId = model.id;
-      this.selectedTab = 0;
+      this.onOpenChat(model.id);
     }).catch((error: Error) => {
       this.error = error.message;
     });
+  }
+
+  private menuModel(): ModelRecord | undefined {
+    return this.models.find((model: ModelRecord) => model.id === this.menuModelId);
+  }
+
+  // No-parameter builder: bindContextMenu does not fire with a closure builder inside ForEach,
+  // so the long-pressed model is recorded via onTouch instead (same pattern as MessageBubble).
+  @Builder
+  private modelMenu() {
+    Menu() {
+      MenuItem({ content: tr('打开聊天') })
+        .onClick(() => {
+          const model = this.menuModel();
+          if (model) {
+            this.useModel(model);
+          }
+        })
+      MenuItem({ content: tr('模型设置') })
+        .onClick(() => this.onOpenSettings())
+      MenuItem({ content: tr('删除') })
+        .onClick(() => {
+          const model = this.menuModel();
+          if (model) {
+            this.confirmDelete(model);
+          }
+        })
+    }
   }
 
   private togglePinned(model: ModelRecord): void {
@@ -301,11 +331,19 @@ export struct ModelsPage {
         ForEach(this.visibleModels(), (model: ModelRecord) => {
           ListItem() {
             Column({ space: 8 }) {
-              Row() {
+              Row({ space: 6 }) {
                 Text(model.name)
                   .fontSize(18)
                   .fontWeight(FontWeight.Medium)
                   .layoutWeight(1)
+                if (this.activeModelId === model.id) {
+                  Text(tr('使用中'))
+                    .fontSize(12)
+                    .fontColor($r('app.color.brand'))
+                    .backgroundColor($r('app.color.brand_tint'))
+                    .padding({ left: 9, right: 9, top: 4, bottom: 4 })
+                    .borderRadius(10)
+                }
                 Text(model.state === ModelState.READY ? tr('可用') : tr('配置无效'))
                   .fontSize(12)
                   .fontColor(model.state === ModelState.READY ? $r('app.color.success') : $r('app.color.danger'))
@@ -331,11 +369,6 @@ export struct ModelsPage {
                   .fontSize(12)
                   .enabled(!this.busy)
                   .onClick(() => this.togglePinned(model))
-                Button(this.activeModelId === model.id ? tr('使用中') : tr('使用'))
-                  .height(32)
-                  .fontSize(12)
-                  .enabled(!this.busy && model.state === ModelState.READY && this.activeModelId !== model.id)
-                  .onClick(() => this.useModel(model))
                 Button(tr('删除'))
                   .height(32)
                   .fontSize(12)
@@ -343,12 +376,25 @@ export struct ModelsPage {
                   .backgroundColor($r('app.color.danger_tint'))
                   .fontColor($r('app.color.danger'))
                   .onClick(() => this.confirmDelete(model))
+                Blank()
+                if (model.state === ModelState.READY) {
+                  Text(tr('点击进入对话 ›'))
+                    .fontSize(12)
+                    .fontColor($r('app.color.text_tertiary'))
+                }
               }
             }
             .alignItems(HorizontalAlign.Start)
             .padding(16)
             .borderRadius(14)
             .backgroundColor($r('app.color.surface'))
+            .onClick(() => this.useModel(model))
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.menuModelId = model.id;
+              }
+            })
+            .bindContextMenu(this.modelMenu, ResponseType.LongPress)
           }
         }, (model: ModelRecord) => model.id)
       }

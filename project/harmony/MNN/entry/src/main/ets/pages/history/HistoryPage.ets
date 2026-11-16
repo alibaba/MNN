@@ -7,7 +7,9 @@ import { AppInitializer } from '../../services/AppInitializer';
 @Component
 export struct HistoryPage {
   @Link requestedSessionId: string;
-  @Link selectedTab: number;
+  /** Drawer visibility from Index; opening the drawer refreshes the session list. */
+  @Watch('onVisibleChanged') @Prop visible: boolean = false;
+  onOpenChatSession: (sessionId: string) => void = () => {};
   @State private sessions: ChatSessionRecord[] = [];
   @State private error: string = '';
   @State private renameId: string = '';
@@ -15,6 +17,12 @@ export struct HistoryPage {
 
   aboutToAppear(): void {
     this.refresh();
+  }
+
+  private onVisibleChanged(): void {
+    if (this.visible) {
+      this.refresh();
+    }
   }
 
   private refresh(): void {
@@ -30,8 +38,7 @@ export struct HistoryPage {
   }
 
   private openSession(session: ChatSessionRecord): void {
-    this.requestedSessionId = session.id;
-    this.selectedTab = 0;
+    this.onOpenChatSession(session.id);
   }
 
   private beginRename(session: ChatSessionRecord): void {

@@ -401,6 +401,14 @@ const ENGLISH: Record<string, string> = {
   '（已删除模型）': ' (deleted model)',
   '，预期 ': ', expected ',
   '？此操作会移除受管模型文件。': '? This removes managed model files.',
+  '打开聊天': 'Open chat',
+  '打开控制台': 'Open console',
+  '点击进入对话 ›': 'Tap to chat ›',
+  '思考': 'Think',
+  '推理参数': 'Inference parameters',
+  '本地 API 服务': 'Local API service',
+  '提供 OpenAI 兼容接口；在控制台启动服务、查看地址与请求日志': 'OpenAI-compatible endpoint; start the service and view the address and request logs in the console',
+  '会话历史': 'Chat history',
 };
 
 export class I18n {

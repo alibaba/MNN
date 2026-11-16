@@ -40,6 +40,8 @@ class MarketTokenForm {
 export struct SettingsPage {
   @Watch('onActiveModelChanged') @Link activeModelId: string;
   @Link settingsRevision: number;
+  onExit: () => void = () => {};
+  onOpenApi: () => void = () => {};
   @State private modelName: string = '';
   @State private settings: ModelRuntimeSettings = new ModelRuntimeSettings();
   @State private status: string = '';
@@ -473,17 +475,32 @@ export struct SettingsPage {
 
   build() {
     Column() {
-      Column({ space: 4 }) {
-        Text(tr('推理设置'))
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
-          .width('100%')
-        Text(this.modelName || this.activeModelId)
-          .fontSize(13)
-          .fontColor($r('app.color.text_secondary'))
-          .width('100%')
+      Row({ space: 10 }) {
+        Button('←')
+          .width(40)
+          .height(40)
+          .fontSize(18)
+          .padding(0)
+          .fontColor($r('app.color.text_primary'))
+          .backgroundColor($r('app.color.surface_muted'))
+          .onClick(() => this.onExit())
+        Column({ space: 4 }) {
+          Text(tr('设置'))
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+            .width('100%')
+          Text(`${tr('推理参数')} · ${this.modelName || this.activeModelId}`)
+            .fontSize(13)
+            .fontColor($r('app.color.text_secondary'))
+            .width('100%')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
       }
-      .padding({ left: 20, right: 20, top: 18, bottom: 12 })
+      .width('100%')
+      .padding({ left: 16, right: 20, top: 14, bottom: 12 })
 
       Scroll() {
         Column({ space: 16 }) {
@@ -1018,6 +1035,31 @@ export struct SettingsPage {
               .lineHeight(17)
               .fontColor($r('app.color.text_tertiary'))
               .width('100%')
+            Text(tr('API'))
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+              .width('100%')
+            Row({ space: 8 }) {
+              Column({ space: 2 }) {
+                Text(tr('本地 API 服务'))
+                  .fontSize(13)
+                  .fontColor($r('app.color.text_body'))
+                  .width('100%')
+                Text(tr('提供 OpenAI 兼容接口；在控制台启动服务、查看地址与请求日志'))
+                  .fontSize(11)
+                  .lineHeight(17)
+                  .fontColor($r('app.color.text_tertiary'))
+                  .width('100%')
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+              Button(tr('打开控制台'))
+                .height(32)
+                .fontSize(12)
+                .onClick(() => this.onOpenApi())
+            }
+            .width('100%')
             Text(tr('存储管理'))
               .fontSize(15)
               .fontWeight(FontWeight.Medium)
