@@ -22,7 +22,7 @@ export class AppInitializer {
     const legacyModel = await ModelRepository.getInstance().registerLegacyModel(context.filesDir);
     const activeModelId = await SettingsStore.getInstance().getString(ACTIVE_MODEL_ID_KEY);
     const activeModel = activeModelId ? await ModelRepository.getInstance().getModel(activeModelId) : undefined;
-    if (!activeModel || activeModel.state !== ModelState.READY) {
+    if ((!activeModel || activeModel.state !== ModelState.READY) && legacyModel) {
       await SettingsStore.getInstance().putString(ACTIVE_MODEL_ID_KEY, legacyModel.id);
     }
   }

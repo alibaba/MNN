@@ -9,10 +9,12 @@ import {
   DownloadTaskRecord,
   MarketCatalogRecord,
   MarketModelRecord,
-  ModelDownloadStatus
+  ModelDownloadStatus,
+  ProviderFileRecord
 } from '../../domain/AppTypes';
 import { AppInitializer } from '../../services/AppInitializer';
 import { DownloadManager } from '../../services/DownloadManager';
+import { MarketAuth } from '../../services/MarketAuth';
 import { MarketDetailSheet } from '../../components/MarketDetailSheet';
 import { ModelMarketService } from '../../services/ModelMarketService';
 import {
@@ -129,23 +131,54 @@ export struct MarketPage {
    * the Android "update available" badge without requiring a network round trip per card.
    */
   private computeUpdates(): void {
+    this.refreshUpdates().catch(() => {
+    });
+  }
+
+  /**
+   * Update badges compare the installed directory against the *live* repository listing.
+   * The catalog's file_size field goes stale when a repo is re-exported, which used to flag
+   * freshly downloaded models as "update available" right after a successful install.
+   */
+  private async refreshUpdates(): Promise<void> {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    const ids: string[] = [];
-    this.models.forEach((model: MarketModelRecord) => {
-      if (model.fileSize <= 0) {
-        return;
+    const tasks = await DownloadRepository.getInstance().list();
+    const names: string[] = [];
+    for (let index = 0; index < this.statuses.length; index++) {
+      const status = this.statuses[index];
+      if (status.state !== DownloadState.COMPLETED) {
+        continue;
+      }
+      const records = tasks.filter((task: DownloadTaskRecord) => task.modelId === status.modelId);
+      if (records.length === 0) {
+        continue;
+      }
+      const provider = records[0].provider;
+      const model = this.catalog.models.find((item: MarketModelRecord) =>
+        `${provider}/${ProviderAdapters.repository(item, provider)}` === status.modelId);
+      if (!model) {
+        continue;
       }
       const directory = `${context.filesDir}/.mnnmodels/${this.safeName(model.modelName)}`;
       if (!fs.accessSync(directory)) {
-        return;
+        continue;
       }
       const localBytes = this.directorySize(directory);
-      const tolerance = Math.max(1024 * 1024, model.fileSize * 0.005);
-      if (localBytes > 0 && Math.abs(localBytes - model.fileSize) > tolerance) {
-        ids.push(this.modelId(model));
+      try {
+        const files = await ProviderAdapters.listFiles(model, provider, await MarketAuth.getToken(provider));
+        let remoteBytes = 0;
+        files.forEach((file: ProviderFileRecord) => {
+          remoteBytes += file.sizeBytes;
+        });
+        const tolerance = Math.max(1024 * 1024, remoteBytes * 0.005);
+        if (localBytes > 0 && Math.abs(localBytes - remoteBytes) > tolerance) {
+          names.push(model.modelName);
+        }
+      } catch (error) {
+        // Offline or listing blocked: leave this model without a badge.
       }
-    });
-    this.updateIds = ids;
+    }
+    this.updateIds = names;
   }
 
   private directorySize(path: string): number {
@@ -181,7 +214,7 @@ export struct MarketPage {
   }
 
   private isUpdateAvailable(model: MarketModelRecord): boolean {
-    return this.updateIds.indexOf(this.modelId(model)) >= 0;
+    return this.updateIds.indexOf(model.modelName) >= 0;
   }
 
   private modelId(model: MarketModelRecord): string {

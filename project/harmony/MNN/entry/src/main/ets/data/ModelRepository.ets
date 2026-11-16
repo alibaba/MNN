@@ -49,10 +49,18 @@ export class ModelRepository {
     return ModelRepository.instance;
   }
 
-  async registerLegacyModel(filesDir: string): Promise<ModelRecord> {
+  async registerLegacyModel(filesDir: string): Promise<ModelRecord | null> {
     const rootPath = `${filesDir}/model`;
     const configPath = `${rootPath}/config.json`;
     const previous = await this.getModel(LEGACY_MODEL_ID);
+    // Fresh installs have no legacy `filesDir/model` directory; registering a placeholder row
+    // anyway surfaced a confusing "invalid config" entry in My Models.
+    if (!fs.accessSync(rootPath)) {
+      if (previous) {
+        await this.deleteRecord(LEGACY_MODEL_ID);
+      }
+      return null;
+    }
     const model = new ModelRecord();
     model.id = LEGACY_MODEL_ID;
     model.name = previous?.name || 'Qwen3-0.6B';
