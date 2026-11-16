@@ -27,6 +27,9 @@ export struct ModelsPage {
   @Link activeModelId: string;
   onOpenChat: (modelId: string) => void = () => {};
   onOpenSettings: () => void = () => {};
+  onStar: () => void = () => {};
+  onReportIssue: () => void = () => {};
+  @State private fabOpen: boolean = false;
   @State private models: ModelRecord[] = [];
   @State private storage: ModelStorageStats = new ModelStorageStats();
   @State private query: string = '';
@@ -249,6 +252,30 @@ export struct ModelsPage {
     return `${this.formatBytes(model.sizeBytes)}, ${tr('已下载')}${suffix}`;
   }
 
+  @Builder
+  private fabItem(icon: string, label: string, action: () => void) {
+    Row({ space: 10 }) {
+      Text(label)
+        .fontSize(13)
+        .fontColor($r('app.color.text_primary'))
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .borderRadius(16)
+        .backgroundColor($r('app.color.surface'))
+        .shadow({ radius: 8, color: '#22000000', offsetY: 2 })
+      Button() {
+        Text(icon)
+          .fontSize(18)
+          .fontColor(Color.White)
+      }
+      .width(48)
+      .height(48)
+      .borderRadius(16)
+      .backgroundColor($r('app.color.brand'))
+      .shadow({ radius: 8, color: '#22000000', offsetY: 2 })
+      .onClick(action)
+    }
+  }
+
   build() {
     Stack({ alignContent: Alignment.BottomEnd }) {
       Column() {
@@ -402,19 +429,39 @@ export struct ModelsPage {
       .width('100%')
       .height('100%')
 
-      Button() {
-        Text('+')
-          .fontSize(28)
-          .fontColor(Color.White)
+      // Android-style ExpandableFab: the "+" opens sub-actions for Star / issue / import.
+      Column({ space: 14 }) {
+        if (this.fabOpen) {
+          this.fabItem('★', tr('给 MNN 点个 Star'), () => {
+            this.fabOpen = false;
+            this.onStar();
+          })
+          this.fabItem('⚑', tr('上报问题'), () => {
+            this.fabOpen = false;
+            this.onReportIssue();
+          })
+          this.fabItem('⤓', tr('导入本地模型'), () => {
+            this.fabOpen = false;
+            this.importModel();
+          })
+        }
+        Button() {
+          Text(this.fabOpen ? '×' : '+')
+            .fontSize(28)
+            .fontColor(Color.White)
+        }
+        .width(64)
+        .height(64)
+        .borderRadius(20)
+        .backgroundColor($r('app.color.brand'))
+        .shadow({ radius: 12, color: '#33000000', offsetY: 4 })
+        .enabled(!this.busy)
+        .onClick(() => {
+          this.fabOpen = !this.fabOpen;
+        })
       }
-      .width(64)
-      .height(64)
-      .borderRadius(20)
-      .backgroundColor($r('app.color.brand'))
-      .shadow({ radius: 12, color: '#33000000', offsetY: 4 })
+      .alignItems(HorizontalAlign.End)
       .margin({ right: 20, bottom: 24 })
-      .enabled(!this.busy)
-      .onClick(() => this.importModel())
     }
     .width('100%')
     .height('100%')

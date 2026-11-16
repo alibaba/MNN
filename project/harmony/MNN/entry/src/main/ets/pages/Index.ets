@@ -206,15 +206,26 @@ struct Index {
         .layoutWeight(1)
         .onClick(() => this.openModelPicker())
 
-      Button() {
-        Text('⋮')
-          .fontSize(20)
-          .fontColor($r('app.color.text_primary'))
-      }
-      .width(44)
-      .height(44)
-      .backgroundColor(Color.Transparent)
-      .bindMenu([
+      Row({ space: 2 }) {
+        Button() {
+          Text('★')
+            .fontSize(20)
+            .fontColor($r('app.color.text_primary'))
+        }
+        .width(44)
+        .height(44)
+        .backgroundColor(Color.Transparent)
+        .onClick(() => this.openUrl('https://github.com/alibaba/MNN'))
+
+        Button() {
+          Text('⋮')
+            .fontSize(20)
+            .fontColor($r('app.color.text_primary'))
+        }
+        .width(44)
+        .height(44)
+        .backgroundColor(Color.Transparent)
+        .bindMenu([
         {
           value: tr('切换模型'),
           action: () => this.openModelPicker()
@@ -233,7 +244,8 @@ struct Index {
           value: tr('上报问题'),
           action: () => this.reportIssue()
         }
-      ])
+        ])
+      }
     }
     .width('100%')
     .padding({ left: 6, right: 6, top: 8, bottom: 8 })
@@ -254,7 +266,9 @@ struct Index {
               onOpenChat: (modelId: string) => this.openChatWithModel(modelId),
               onOpenSettings: () => {
                 this.currentView = VIEW_SETTINGS;
-              }
+              },
+              onStar: () => this.openUrl('https://github.com/alibaba/MNN'),
+              onReportIssue: () => this.reportIssue()
             })
           }
           .tabBar(tr('模型'))

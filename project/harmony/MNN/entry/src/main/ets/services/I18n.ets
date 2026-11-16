@@ -411,6 +411,7 @@ const ENGLISH: Record<string, string> = {
   '会话历史': 'Chat history',
   '切换模型': 'Switch model',
   '已下载': 'Downloaded',
+  '导入本地模型': 'Import local model',
 };
 
 export class I18n {
