@@ -109,7 +109,9 @@ export class DownloadManager {
         this.ensureParent(targetPath);
         const config: request.agent.Config = {
           action: request.agent.Action.DOWNLOAD,
-          mode: request.agent.Mode.FOREGROUND,
+          // Background-mode tasks survive app backgrounding and screen-off, which foreground-mode
+          // tasks do not; reviewers and real users both hit that during multi-GB model downloads.
+          mode: request.agent.Mode.BACKGROUND,
           url: file.downloadUrl,
           title: model.modelName,
           description: file.relativePath,
@@ -118,14 +120,17 @@ export class DownloadManager {
           saveas: targetPath,
           overwrite: false,
           network: request.agent.Network.ANY,
-          metered: false,
-          roaming: false,
+          // Allow cellular/metered and roaming networks; blocking them made downloads stall on
+          // devices without Wi-Fi (for example during store review).
+          metered: true,
+          roaming: true,
           retry: true,
           redirect: true,
           gauge: true,
           precise: true
         };
         const task = await request.agent.create(context, config);
+        console.info(`[DL] created tid=${task.tid} mode=background metered=true url=${file.downloadUrl}`);
         const record = new DownloadTaskRecord();
         record.id = task.tid;
         record.modelId = modelId;
@@ -351,12 +356,21 @@ export class DownloadManager {
         }
       });
     });
+    task.on('response', (response: request.agent.HttpResponse) => {
+      console.info(`[DL] response tid=${task.tid} status=${response.statusCode}`);
+    });
     task.on('failed', (progress: request.agent.Progress) => {
       record.state = DownloadState.FAILED;
       record.downloadedBytes = progress.processed;
       record.updatedAt = Date.now();
+      record.error = `agent state=${progress.state}, processed=${progress.processed}, ` +
+        `extras=${JSON.stringify(progress.extras).substring(0, 200)}`;
+      console.error(`[DL] failed tid=${task.tid} ${record.error}`);
       DownloadRepository.getInstance().save(record);
-      this.notify(active, DownloadState.FAILED, tr('文件下载失败'));
+      this.notify(active, DownloadState.FAILED, `${tr('文件下载失败')} [agent:${progress.state}]`);
+    });
+    task.on('completed', (progress: request.agent.Progress) => {
+      console.info(`[DL] completed tid=${task.tid} processed=${progress.processed}`);
     });
   }
 

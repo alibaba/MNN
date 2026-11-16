@@ -195,6 +195,8 @@ export class DownloadTaskRecord {
   downloadedBytes: number = 0;
   totalBytes: number = 0;
   updatedAt: number = 0;
+  // Diagnostics only; not persisted in the download_tasks table.
+  error: string = '';
 }
 
 export class ModelDownloadStatus {

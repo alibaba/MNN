@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import fs from '@ohos.file.fs';
-import testNapi, { LlmDiffusionRequest } from 'libentry.so';
+import testNapi, { LlmDiffusionRequest, LlmDiffusionResult } from 'libentry.so';
 import { ModelRecord } from '../domain/AppTypes';
 import { SettingsStore } from './SettingsStore';
 
@@ -63,7 +63,7 @@ export class DiffusionService {
       useCfg: true,
       cfgScale: 4.5
     };
-    const nativeResult = await testNapi.runDiffusion(request, onProgress);
+    const nativeResult = await testNapi.runDiffusion(request, onProgress) as LlmDiffusionResult;
     const result = new DiffusionResult();
     result.outputPath = outputPath;
     result.totalMs = nativeResult.totalMs;
