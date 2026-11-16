@@ -1,5 +1,10 @@
 import { tr } from '../services/I18n';
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
+import bundleManager from '@ohos.bundle.bundleManager';
+import deviceInfo from '@ohos.deviceInfo';
+import pasteboard from '@ohos.pasteboard';
+import { mnnVersion } from '../services/GenerationCoordinator';
 import { ApiConsolePage } from './api/ApiConsolePage';
 import { BenchmarkPage } from './benchmark/BenchmarkPage';
 import { ChatPage } from './chat/ChatPage';
@@ -124,6 +129,45 @@ struct Index {
     });
   }
 
+  private openUrl(uri: string): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: uri
+    };
+    context.startAbility(want).catch(() => {
+    });
+  }
+
+  /** Mirrors the Android "report issue" flow: copy device/app diagnostics, open GitHub issues. */
+  private reportIssue(): void {
+    let appVersion = '';
+    try {
+      appVersion = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT).versionName;
+    } catch (error) {
+      appVersion = '';
+    }
+    const info = [
+      `app_version: ${appVersion}`,
+      `mnn_version: ${mnnVersion()}`,
+      `device: ${deviceInfo.brand} ${deviceInfo.productModel}`,
+      `os: ${deviceInfo.osFullName}`,
+      `model_id: ${this.activeModelId}`
+    ].join('\n');
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, info);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        promptAction.showToast({ message: tr('调试信息已复制，正在打开问题页面') });
+      }).catch(() => {
+        promptAction.showToast({ message: tr('调试信息复制失败') });
+      });
+    } catch (error) {
+      promptAction.showToast({ message: tr('调试信息复制失败') });
+    }
+    this.openUrl('https://github.com/alibaba/MNN/issues');
+  }
+
   private openChatWithModel(modelId: string): void {
     this.activeModelId = modelId;
     this.requestedSessionId = '';
@@ -180,6 +224,14 @@ struct Index {
           action: () => {
             this.currentView = VIEW_SETTINGS;
           }
+        },
+        {
+          value: tr('给 MNN 点个 Star'),
+          action: () => this.openUrl('https://github.com/alibaba/MNN')
+        },
+        {
+          value: tr('上报问题'),
+          action: () => this.reportIssue()
         }
       ])
     }
