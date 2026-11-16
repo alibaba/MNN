@@ -1,5 +1,6 @@
 import { tr } from '../../services/I18n';
 import { common } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import { DownloadRepository } from '../../data/DownloadRepository';
 import { ModelRepository } from '../../data/ModelRepository';
@@ -153,9 +154,17 @@ export struct ModelsPage {
         })
       MenuItem({ content: tr('模型设置') })
         .onClick(() => this.onOpenSettings())
+      MenuItem({ content: this.menuModel() && this.menuModel()?.isPinned ? tr('取消置顶') : tr('置顶') })
+        .onClick(() => {
+          const model = this.menuModel();
+          if (model) {
+            this.togglePinned(model);
+          }
+        })
       MenuItem({ content: tr('删除') })
         .onClick(() => {
           const model = this.menuModel();
+          console.info(`[Models] delete menu clicked, menuModelId=${this.menuModelId}`);
           if (model) {
             this.confirmDelete(model);
           }
@@ -172,6 +181,17 @@ export struct ModelsPage {
   }
 
   private confirmDelete(model: ModelRecord): void {
+    if (model.isProtected || model.isLegacy) {
+      this.error = tr('受保护模型不能删除');
+      promptAction.showToast({ message: this.error });
+      return;
+    }
+    if (this.activeModelId === model.id) {
+      this.error = tr('使用中的模型不能删除，请先切换到其他模型');
+      console.info(`[Models] delete blocked: ${model.id} is the active model`);
+      promptAction.showToast({ message: this.error });
+      return;
+    }
     AlertDialog.show({
       title: tr('删除模型'),
       message: `${tr('确认删除 ')}${model.name}${tr('？此操作会移除受管模型文件。')}`,
@@ -190,6 +210,7 @@ export struct ModelsPage {
 
   private deleteModel(model: ModelRecord): void {
     if (model.isProtected || model.isLegacy || this.activeModelId === model.id) {
+      // confirmDelete() already surfaces a toast for these cases; stay silent here.
       return;
     }
     this.busy = true;
