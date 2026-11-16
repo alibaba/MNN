@@ -412,6 +412,8 @@ const ENGLISH: Record<string, string> = {
   '切换模型': 'Switch model',
   '已下载': 'Downloaded',
   '导入本地模型': 'Import local model',
+  '我的模型': 'My Models',
+  '性能评测': 'Benchmark',
 };
 
 export class I18n {

@@ -180,6 +180,28 @@ struct Index {
     this.currentView = VIEW_CHAT;
   }
 
+  private tabTitle(): string {
+    if (this.selectedTab === 1) {
+      return tr('模型市场');
+    }
+    return this.selectedTab === 2 ? tr('性能评测') : tr('我的模型');
+  }
+
+  @Builder
+  private tabBarBuilder(index: number, icon: Resource, iconSelected: Resource, label: string) {
+    Column({ space: 3 }) {
+      Image(this.selectedTab === index ? iconSelected : icon)
+        .width(22)
+        .height(22)
+      Text(label)
+        .fontSize(11)
+        .fontColor(this.selectedTab === index ? $r('app.color.brand') : $r('app.color.text_secondary'))
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+  }
+
   @Builder
   private mainToolbar() {
     // Android-style app bar: hamburger, centered title (model switcher), overflow menu.
@@ -196,7 +218,7 @@ struct Index {
         this.drawerShown = !this.drawerShown;
       })
 
-      Text(this.activeModelName || 'MNN Chat')
+      Text(this.tabTitle())
         .fontSize(20)
         .fontWeight(FontWeight.Medium)
         .fontColor($r('app.color.text_primary'))
@@ -204,13 +226,17 @@ struct Index {
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
-        .onClick(() => this.openModelPicker())
+        .onClick(() => {
+          if (this.selectedTab === 0) {
+            this.openModelPicker();
+          }
+        })
 
       Row({ space: 2 }) {
         Button() {
-          Text('★')
-            .fontSize(20)
-            .fontColor($r('app.color.text_primary'))
+          Image($r('app.media.ic_star_outline'))
+            .width(22)
+            .height(22)
         }
         .width(44)
         .height(44)
@@ -271,12 +297,14 @@ struct Index {
               onReportIssue: () => this.reportIssue()
             })
           }
-          .tabBar(tr('模型'))
+          .tabBar(this.tabBarBuilder(0, $r('app.media.ic_tab_models'), $r('app.media.ic_tab_models_sel'),
+            tr('我的模型')))
 
           TabContent() {
             MarketPage()
           }
-          .tabBar(tr('市场'))
+          .tabBar(this.tabBarBuilder(1, $r('app.media.ic_tab_market'), $r('app.media.ic_tab_market_sel'),
+            tr('模型市场')))
 
           TabContent() {
             BenchmarkPage({
@@ -284,9 +312,10 @@ struct Index {
               settingsRevision: this.settingsRevision
             })
           }
-          .tabBar(tr('测试'))
+          .tabBar(this.tabBarBuilder(2, $r('app.media.ic_tab_bench'), $r('app.media.ic_tab_bench_sel'),
+            tr('性能评测')))
         }
-        .barHeight(54)
+        .barHeight(58)
         .onChange((index: number) => {
           this.selectedTab = index;
         })
