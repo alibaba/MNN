@@ -283,9 +283,21 @@ export struct MarketPage {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   }
 
+  private formatSpeed(bps: number): string {
+    if (bps < 1024) {
+      return `${bps.toFixed(0)} B/s`;
+    }
+    if (bps < 1024 * 1024) {
+      return `${(bps / 1024).toFixed(1)} KB/s`;
+    }
+    return `${(bps / (1024 * 1024)).toFixed(2)} MB/s`;
+  }
+
   private progressText(status: ModelDownloadStatus): string {
     if (status.state === DownloadState.DOWNLOADING && status.totalBytes > 0) {
-      return `${(status.downloadedBytes * 100 / status.totalBytes).toFixed(1)}%`;
+      const percent = `${(status.downloadedBytes * 100 / status.totalBytes).toFixed(1)}%`;
+      const speed = status.speedBytesPerSec > 0 ? ` | ${this.formatSpeed(status.speedBytesPerSec)}` : '';
+      return `${percent}${speed}`;
     }
     if (status.state === DownloadState.PAUSED) {
       return tr('已暂停');

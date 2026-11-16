@@ -204,6 +204,7 @@ export class ModelDownloadStatus {
   state: DownloadState = DownloadState.PENDING;
   downloadedBytes: number = 0;
   totalBytes: number = 0;
+  speedBytesPerSec: number = 0;
   error: string = '';
 }
 

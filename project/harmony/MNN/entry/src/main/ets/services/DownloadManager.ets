@@ -27,6 +27,9 @@ class ActiveDownload {
   modelId: string = '';
   modelName: string = '';
   provider: string = '';
+  speedBps: number = 0;
+  lastSampleAt: number = 0;
+  lastSampleBytes: number = 0;
   stagingRoot: string = '';
   files: ProviderFileRecord[] = [];
   tasks: request.agent.Task[] = [];
@@ -501,6 +504,26 @@ export class DownloadManager {
       status.downloadedBytes += record.downloadedBytes;
       status.totalBytes += record.totalBytes;
     });
+    // Sample throughput at most once per second, mirroring the Android client's speed display.
+    if (state === DownloadState.DOWNLOADING) {
+      const now = Date.now();
+      if (active.lastSampleAt === 0) {
+        active.lastSampleAt = now;
+        active.lastSampleBytes = status.downloadedBytes;
+      } else if (now - active.lastSampleAt >= 1000) {
+        const elapsedMs = now - active.lastSampleAt;
+        const deltaBytes = status.downloadedBytes - active.lastSampleBytes;
+        if (elapsedMs > 0 && deltaBytes >= 0) {
+          active.speedBps = deltaBytes * 1000 / elapsedMs;
+        }
+        active.lastSampleAt = now;
+        active.lastSampleBytes = status.downloadedBytes;
+      }
+      status.speedBytesPerSec = active.speedBps;
+    } else {
+      active.lastSampleAt = 0;
+      active.speedBps = 0;
+    }
     active.listener(status);
   }
 
