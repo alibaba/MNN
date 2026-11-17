@@ -83,8 +83,6 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_OPENCL_SIZE_CUT  | 是否为了降低OpenCL大小而关闭OpenCL Buffer实现，该宏仅在`MNN_OPENCL=ON`时生效，默认为`OFF` |
 | MNN_GPU_TIME_PROFILE | 是否打开OpenCL后端及Vulkan后端的Kernel性能Profile，该宏仅在`MNN_OPENCL=ON`或`MNN_VULKAN=ON`时生效，默认为`OFF` |
 | MNN_GPU_PROFILE_SILENT | 在GPU性能Profile开启时，仅累计总耗时而不打印每个Kernel的详细信息，可通过`Executor::getLastGpuTimeMs()`获取最近一次推理的GPU总耗时（毫秒），该宏仅在`MNN_GPU_TIME_PROFILE=ON`时生效，默认为`OFF` |
-| MNN_METALLIB_SOURCE  | 使用Metal时是否直接使用Metal源码，该宏仅在`MNN_METAL=ON`时生效，默认为`ON` |
-| MNN_VULKAN_DEBUG     | 是否打开Vulkan的DEBUG模式，该宏仅在`MNN_VULKAN=ON`时生效，默认为`OFF` |
 | MNN_OPENGL_REGEN     | 是否重新生成OpenGL Kenel，该宏仅在`MNN_OPENGL=ON`时生效，默认为`OFF` |
 | MNN_TRT_DYNAMIC      | 是否通过dlopen的方式引入TRT的动态库，该宏仅在`MNN_TENSORRT=ON`时生效，默认为`OFF` |
 | MNN_BUILD_TORCH      | 构建的`MNNConvert`是否支持`TorchScript`，该宏仅在`MNN_BUILD_CONVERTER=ON`时生效，默认为`OFF` |
