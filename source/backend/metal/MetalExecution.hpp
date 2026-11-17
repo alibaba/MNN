@@ -20,6 +20,7 @@ class MetalExecution : public Execution {
 public:
     MetalExecution(Backend *backend);
     virtual ~MetalExecution() = default;
+    virtual void invalidateReplay();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) = 0;
 

@@ -28,6 +28,19 @@ AttentionBufExecution::AttentionBufExecution(Backend* backend, bool kvCache, boo
       mKVQuantParameter(kvQuantParam) {
     _init();
 }
+
+AttentionBufExecution::~AttentionBufExecution() {
+    mKVCacheManager->removeReplayUser(this);
+}
+
+void AttentionBufExecution::invalidateReplay() {
+    MetalExecution::invalidateReplay();
+    mLastKTensor = nullptr;
+    mLastVTensor = nullptr;
+    mLastKScaleBuffer = nil;
+    mLastVScaleBuffer = nil;
+}
+
 void AttentionBufExecution::_init() {
     auto mtbn = static_cast<MetalBackend*>(backend());
     auto context = (__bridge MNNMetalContext*)mtbn->context();
@@ -43,6 +56,7 @@ void AttentionBufExecution::_init() {
     kvconfig.mKvAlignNum = mKvAlignNum;
 
     mKVCacheManager.reset(new MetalKVCacheManager(backend(), kvconfig));
+    mKVCacheManager->addReplayUser(this);
     mKvInDisk = mKVCache && !kvconfig.mKVCacheDir.empty();
     mKVCacheManager->setKVQuantParameter(mKVQuantParameter);
 }
@@ -319,7 +333,10 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
             MNN_ERROR("MNN::Metal SDPA: no viable NSG, falling back to legacy decode path\n");
             mSdpaSinglePass = false;
             // the single-pass early return skipped mTempQK/mTempSoftMax; re-run
-            handleKVAllocMemory();
+            mKVAllocError = handleKVAllocMemory();
+            if (NO_ERROR != mKVAllocError) {
+                return;
+            }
         } else {
             mSdpaNsg = nsg;
             mKernel_sdpa = pipeline;
@@ -519,9 +536,10 @@ int AttentionBufExecution::_resolveQseqSplit() const {
         return 1;
     }
     // A piece of q rows costs both scratch tensors at once, so one q row is
-    // 2 * B * H * kv_max elements wide.
+    // 2 * B * H * aligned_kv elements wide.
     const int elemBytes = static_cast<MetalBackend*>(backend())->useFp16InsteadFp32() ? 2 : 4;
-    const int64_t bytesPerQRow = (int64_t)2 * mBatch * mNumHead * mKvMaxLen * elemBytes;
+    const int scratchKvLen = ROUND_UP(mKvSeqLen, mKvAlignNum);
+    const int64_t bytesPerQRow = (int64_t)2 * mBatch * mNumHead * scratchKvLen * elemBytes;
     const auto& env = MetalEnv::get();
     int split = 1;
     if (bytesPerQRow > 0) {
@@ -548,7 +566,7 @@ int AttentionBufExecution::_pastKvLength() const {
     return mIsKVShared ? mKVCacheManager->kvLength() - mCurrentKvLen : mKVCacheManager->kvLength();
 }
 
-void AttentionBufExecution::handleKVAllocMemory() {
+ErrorCode AttentionBufExecution::handleKVAllocMemory() {
     constexpr auto allocType = Backend::DYNAMIC_IN_EXECUTION;
     if (!mKVCache) {
         mKvSeqLen = mCurrentKvLen;
@@ -585,21 +603,27 @@ void AttentionBufExecution::handleKVAllocMemory() {
                    backend()->onAcquireBuffer(mTempSoftMax.get(), allocType);
         if (!res) {
             MNN_ERROR("MNN::Metal: OUT_OF_MEMORY when execute attention metal %d\n", res);
-            return;
+            return OUT_OF_MEMORY;
         }
         backend()->onReleaseBuffer(mTempK.get(), allocType);
         backend()->onReleaseBuffer(mTempV.get(), allocType);
         backend()->onReleaseBuffer(mTempQK.get(), allocType);
         backend()->onReleaseBuffer(mTempSoftMax.get(), allocType);
-        return;
+        return NO_ERROR;
     }
 
     if (!mIsKVShared) {
         if (nullptr == mMeta || mMeta->previous == mMeta->remove) {
             mKVCacheManager->onClear();
-            mKVCacheManager->onAlloc(mMeta, mCurrentKvLen);
+            auto code = mKVCacheManager->onAlloc(mMeta, mCurrentKvLen);
+            if (NO_ERROR != code) {
+                return code;
+            }
         } else {
-            mKVCacheManager->onRealloc(mMeta);
+            auto code = mKVCacheManager->onRealloc(mMeta);
+            if (NO_ERROR != code) {
+                return code;
+            }
         }
     }
 
@@ -611,37 +635,51 @@ void AttentionBufExecution::handleKVAllocMemory() {
     // materializes mTempQK/mTempSoftMax, which are O(B*H*seq*kv_max) and dominate
     // long-context memory.
     if (mFlashAttnPrefill || mFaTcPrefill || mFaSgPrefill) {
-        return;
+        return NO_ERROR;
     }
 
     // Single-pass fused SDPA writes the final output from the kernel itself;
     // no partial buffer, no mTempQK/mTempSoftMax.
     if (mSdpaSinglePass) {
-        return;
+        return NO_ERROR;
     }
 
     int qSeqLenPiece = UP_DIV(mSeqLen, mQseqSplitNum);
     // temp tensor alloc memory
+    const int scratchKvLen = ROUND_UP(mKvSeqLen, mKvAlignNum);
     bool needMalloc = mTempQK->length(0) != mBatch * mNumHead;
-    if (mTempQK->length(1) != qSeqLenPiece * mKvMaxLen) {
+    if (mTempQK->length(1) != qSeqLenPiece * scratchKvLen) {
         needMalloc = true;
     }
 
     if (needMalloc) {
         mTempQK->setLength(0, mBatch * mNumHead);
-        mTempQK->setLength(1, qSeqLenPiece * mKvMaxLen);
+        mTempQK->setLength(1, qSeqLenPiece * scratchKvLen);
         mTempSoftMax->setLength(0, mBatch * mNumHead);
-        mTempSoftMax->setLength(1, qSeqLenPiece * mKvMaxLen);
+        mTempSoftMax->setLength(1, qSeqLenPiece * scratchKvLen);
     }
 
     auto res = backend()->onAcquireBuffer(mTempQK.get(), allocType) &&
                backend()->onAcquireBuffer(mTempSoftMax.get(), allocType);
     if (!res) {
         MNN_ERROR("MNN::Metal: OUT_OF_MEMORY when execute attention metal %d\n", res);
-        return;
+        return OUT_OF_MEMORY;
     }
     backend()->onReleaseBuffer(mTempQK.get(), allocType);
     backend()->onReleaseBuffer(mTempSoftMax.get(), allocType);
+    return NO_ERROR;
+}
+
+ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    if (NO_ERROR != mKVAllocError) {
+        return mKVAllocError;
+    }
+    auto code = MetalExecution::onExecute(inputs, outputs);
+    if (NO_ERROR != code) {
+        return code;
+    }
+    // onEncode runs inside the base call and can only park its failure here.
+    return mKVAllocError;
 }
 
 ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -677,9 +715,14 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, co
     bool dynamicQuantK = (attentionOption % 8 >= 1);
     bool dynamicQuantV = (attentionOption % 8 > 1);
 
-    mQuantValue = mKVCache && !mKvInDisk &&
+    // Prefix cache also stores KV on disk (PendingWrite / PendingRead) without setting
+    // mKVCacheDir, and that path has no quantized layout, so int8 KV must stay off there too.
+    const bool prefixCacheOnDisk = mMeta != nullptr && mMeta->file_name.size() > 0 &&
+                                   (mMeta->file_flag == KVMeta::PendingWrite ||
+                                    mMeta->file_flag == KVMeta::PendingRead);
+    mQuantValue = mKVCache && !mKvInDisk && !prefixCacheOnDisk &&
                   ((mKVQuantParameter != nullptr && mKVQuantParameter->vScale != 0.0f) || dynamicQuantV);
-    mQuantKey = mKVCache && !mKvInDisk &&
+    mQuantKey = mKVCache && !mKvInDisk && !prefixCacheOnDisk &&
                 ((mKVQuantParameter != nullptr && mKVQuantParameter->kScale != 0.0f) || dynamicQuantK);
     if (mKVCache && !mIsKVShared) {
         mKVCacheManager->setKVQuantParameter(mKVQuantParameter);
@@ -884,7 +927,10 @@ void AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
         }
     }
 
-    handleKVAllocMemory();
+    mKVAllocError = handleKVAllocMemory();
+    if (NO_ERROR != mKVAllocError) {
+        return;
+    }
 
     // decode and thread number not too large
     mQkSimdReduce = supportSimdReduce && mShortSeq;
@@ -1076,6 +1122,9 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     auto context = (__bridge MNNMetalContext*)mtbn->context();
 
     _computePathFlags(inputs);
+    if (NO_ERROR != mKVAllocError) {
+        return;
+    }
     int group_size = mNumHead / mKvNumHead;
 
     // temp memory alloc, handle variable set
@@ -1096,6 +1145,9 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 
     // start to compile attention shaders
     compilerShader(inputs);
+    if (NO_ERROR != mKVAllocError) {
+        return;
+    }
 
 #if MNN_METAL_OP_PROFILE
     // Split Attention into per-subpass command buffers so profile shows QK / Softmax / AV / Copy separately.
@@ -1468,9 +1520,14 @@ bool AttentionBufExecution::onReplayUpdate(const std::vector<Tensor*>& inputs, c
         mQseqSplitNum != 1) {
         return false;
     }
-    // Recompute per-token path state exactly as onEncode would; idempotent on
-    // fallback since handleKVAllocMemory's onRealloc is a no-op once capacity fits.
+    // Reserve compaction is not idempotent across replay fallback.
+    if (mMeta && mMeta->n_reserve != 0) {
+        return false;
+    }
     _computePathFlags(inputs);
+    if (NO_ERROR != mKVAllocError) {
+        return false;
+    }
     if (!mShortSeq || _pathSignature() != mLastEncodeSig) {
         return false;
     }

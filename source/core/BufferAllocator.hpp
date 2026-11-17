@@ -118,8 +118,12 @@ public:
     /**
      * @brief init buffer allocator with pointer alignment.
      * @param align given pointer alignment.
+     * @param releaseFreeOnMiss opt-in: reclaim whole free blocks when reuse misses. Unsafe over an
+     *                        mmap parent, which can hand a live block's file to the next alloc.
      */
-    EagerBufferAllocator(std::shared_ptr<Allocator> parent, size_t align = MNN_MEMORY_ALIGN_DEFAULT, size_t minAllocSize = 0) : mAllocator(parent), mAlign(align), mMinAllocSize(minAllocSize) {
+    EagerBufferAllocator(std::shared_ptr<Allocator> parent, size_t align = MNN_MEMORY_ALIGN_DEFAULT,
+                         size_t minAllocSize = 0, bool releaseFreeOnMiss = false)
+        : mAllocator(parent), mAlign(align), mMinAllocSize(minAllocSize), mReleaseFreeOnMiss(releaseFreeOnMiss) {
         // nothing to do
     }
     /**
@@ -193,6 +197,7 @@ private:
     std::shared_ptr<Allocator> mAllocator;
     size_t mAlign;
     size_t mMinAllocSize = 0;
+    bool mReleaseFreeOnMiss = false;
 };
 typedef void(*MemChunkApplyToTensor)(uint8_t* ptr, size_t offset, Tensor* tensor);
 
