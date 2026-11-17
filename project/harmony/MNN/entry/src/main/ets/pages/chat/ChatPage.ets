@@ -846,6 +846,10 @@ export struct ChatPage {
         });
       }
       if (requestId !== this.activeRequestId || result.requestId !== requestId) {
+        // Still release the voice-chat loop (mic pause / tts wait) on this bail-out path.
+        if (onDone) {
+          onDone('');
+        }
         return;
       }
       const rawResult = result.text || this.streamingAnswer;

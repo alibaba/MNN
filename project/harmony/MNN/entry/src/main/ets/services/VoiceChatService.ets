@@ -41,6 +41,7 @@ export class VoiceChatService {
   private speechStart: number = 0;
   private lastLoud: number = 0;
   private partial: string = '';
+  private consecutiveErrors: number = 0;
   private readCallback: (buffer: ArrayBuffer) => void = (buffer: ArrayBuffer) => this.feed(buffer);
 
   static getInstance(): VoiceChatService {
@@ -84,6 +85,7 @@ export class VoiceChatService {
       onEvent: (sessionId: string, eventCode: number, eventMessage: string) => {
       },
       onResult: (sessionId: string, result: speechRecognizer.SpeechRecognitionResult) => {
+        this.consecutiveErrors = 0;
         if (result.isFinal) {
           const text = result.result.trim();
           this.partial = '';
@@ -109,10 +111,19 @@ export class VoiceChatService {
       onError: (sessionId: string, errorCode: number, errorMessage: string) => {
         console.error(`[VoiceChat] error ${errorCode}: ${errorMessage}`);
         this.partial = '';
-        if (this.running) {
-          this.openSession();
-          this.phase = 'listening';
+        this.consecutiveErrors++;
+        if (!this.running) {
+          return;
         }
+        if (this.consecutiveErrors >= 3) {
+          // A persistently failing engine would otherwise reopen sessions forever.
+          this.stop().catch(() => {
+          });
+          this.callbacks.onError(`${tr('语音识别失败(')}${errorCode})：${errorMessage}`);
+          return;
+        }
+        this.openSession();
+        this.phase = 'listening';
       }
     });
     this.engine = engine;
