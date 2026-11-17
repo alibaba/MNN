@@ -494,11 +494,11 @@ export class DownloadManager {
       }
       if (active.replace) {
         await ModelRepository.getInstance().replaceDownloadedModel(
-          active.stagingRoot, active.context.filesDir, active.modelName
+          active.stagingRoot, active.context.filesDir, active.modelName, active.modelId
         );
       } else {
         await ModelRepository.getInstance().installDownloadedModel(
-          active.stagingRoot, active.context.filesDir, active.modelName
+          active.stagingRoot, active.context.filesDir, active.modelName, active.modelId
         );
       }
       await this.updateAll(active, DownloadState.COMPLETED);

@@ -157,7 +157,8 @@ export class ModelRepository {
     }
   }
 
-  async installDownloadedModel(stagingRoot: string, filesDir: string, name: string): Promise<ModelRecord> {
+  async installDownloadedModel(stagingRoot: string, filesDir: string, name: string,
+    sourceModelId: string = ''): Promise<ModelRecord> {
     const downloadsRoot = `${filesDir}/.mnn-downloads/`;
     if (!stagingRoot.startsWith(downloadsRoot) || this.containsSymbolicLink(stagingRoot)) {
       throw new Error(tr('下载暂存目录无效'));
@@ -178,6 +179,7 @@ export class ModelRepository {
     fs.renameSync(stagingRoot, targetRoot);
     try {
       const model = await this.createManagedRecord(targetRoot, directoryName);
+      model.sourceModelId = sourceModelId;
       await this.upsert(model);
       return model;
     } catch (error) {
@@ -192,7 +194,8 @@ export class ModelRepository {
    * Installs a freshly downloaded copy over an existing model directory. The previous version is
    * moved into the trash first so a failed swap can be rolled back; trash is cleared on next scan.
    */
-  async replaceDownloadedModel(stagingRoot: string, filesDir: string, name: string): Promise<ModelRecord> {
+  async replaceDownloadedModel(stagingRoot: string, filesDir: string, name: string,
+    sourceModelId: string = ''): Promise<ModelRecord> {
     const downloadsRoot = `${filesDir}/.mnn-downloads/`;
     if (!stagingRoot.startsWith(downloadsRoot) || this.containsSymbolicLink(stagingRoot)) {
       throw new Error(tr('下载暂存目录无效'));
@@ -220,6 +223,7 @@ export class ModelRepository {
     try {
       fs.renameSync(stagingRoot, targetRoot);
       const model = await this.createManagedRecord(targetRoot, directoryName);
+      model.sourceModelId = sourceModelId;
       await this.upsert(model);
       return model;
     } catch (error) {
@@ -370,11 +374,9 @@ export class ModelRepository {
       await BenchmarkRepository.getInstance().deleteForModel(modelId);
     } catch (error) {
     }
-    const base = this.baseName(model.rootPath);
-    const providers: string[] = ['ModelScope', 'HuggingFace', 'Modelers'];
-    for (let index = 0; index < providers.length; index++) {
+    if (model.sourceModelId) {
       try {
-        await DownloadRepository.getInstance().removeModel(`${providers[index]}/${base}`);
+        await DownloadRepository.getInstance().removeModel(model.sourceModelId);
       } catch (error) {
       }
     }
@@ -648,6 +650,7 @@ export class ModelRepository {
     model.isPinned = result.getLong(result.getColumnIndex('is_pinned')) === 1;
     model.lastUsedAt = result.getLong(result.getColumnIndex('last_used_at'));
     model.createdAt = result.getLong(result.getColumnIndex('created_at'));
+    model.sourceModelId = result.getString(result.getColumnIndex('source_model_id'));
     return model;
   }
 
@@ -662,7 +665,8 @@ export class ModelRepository {
       is_protected: model.isProtected ? 1 : 0,
       is_pinned: model.isPinned ? 1 : 0,
       last_used_at: model.lastUsedAt,
-      created_at: model.createdAt
+      created_at: model.createdAt,
+      source_model_id: model.sourceModelId
     };
   }
 }

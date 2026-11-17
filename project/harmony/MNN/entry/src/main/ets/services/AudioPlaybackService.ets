@@ -8,6 +8,7 @@ export class AudioPlaybackService {
   private player?: media.AVPlayer;
   private file?: fileIo.File;
   private renderer?: audio.AudioRenderer;
+  private playGeneration: number = 0;
   private rendererReady: Promise<void> = Promise.resolve();
 
   static getInstance(): AudioPlaybackService {
@@ -16,6 +17,7 @@ export class AudioPlaybackService {
 
   async play(path: string): Promise<void> {
     await this.stop();
+    const generation = this.playGeneration;
     // AVPlayer only accepts fd:// or network sources, so hand it an open descriptor.
     const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
     const size = fileIo.statSync(path).size;
@@ -25,6 +27,13 @@ export class AudioPlaybackService {
     } catch (error) {
       fileIo.closeSync(file);
       throw error as Error;
+    }
+    if (generation !== this.playGeneration) {
+      // stop() won the race while createAVPlayer was in flight.
+      fileIo.closeSync(file);
+      player.release().catch(() => {
+      });
+      return;
     }
     this.player = player;
     this.file = file;
@@ -51,6 +60,7 @@ export class AudioPlaybackService {
   }
 
   async stop(): Promise<void> {
+    this.playGeneration++;
     const player = this.player;
     this.player = undefined;
     AppStorage.setOrCreate('audioPlaying', false);

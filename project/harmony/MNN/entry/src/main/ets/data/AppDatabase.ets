@@ -3,7 +3,7 @@ import { common } from '@kit.AbilityKit';
 import relationalStore from '@ohos.data.relationalStore';
 
 const DATABASE_NAME: string = 'mnn_chat.db';
-const DATABASE_VERSION: number = 1;
+const DATABASE_VERSION: number = 2;
 
 export class AppDatabase {
   private static instance: AppDatabase = new AppDatabase();
@@ -70,6 +70,11 @@ export class AppDatabase {
     await store.executeSql('CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at)');
     await store.executeSql('CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at)');
     await store.executeSql('CREATE INDEX IF NOT EXISTS idx_models_last_used ON models(last_used_at)');
+    try {
+      await store.executeSql("ALTER TABLE models ADD COLUMN source_model_id TEXT NOT NULL DEFAULT ''");
+    } catch (error) {
+      // Column already present (fresh v2 schema); ignore.
+    }
     store.version = DATABASE_VERSION;
   }
 }

@@ -70,6 +70,8 @@ export class ModelRecord {
   sizeBytes: number = 0;
   lastUsedAt: number = 0;
   createdAt: number = 0;
+  // Download-manager modelId (`provider/repo`) that installed this model, for orphan cleanup.
+  sourceModelId: string = '';
 }
 
 export class ModelStorageStats {

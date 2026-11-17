@@ -454,6 +454,7 @@ export struct ChatPage {
     this.voiceListening = false;
     this.voicePartial = '';
     this.voiceStatus = '';
+    this.voiceRecognizing = false;
     VoiceInputService.getInstance().cancel().catch(() => {
     });
   }
@@ -1238,7 +1239,7 @@ export struct ChatPage {
       } else {
         VoiceChatService.getInstance().setPaused(false);
       }
-    }, ).catch((error: Error) => {
+    }).catch((error: Error) => {
       this.error = error.message;
       this.isGenerating = false;
       VoiceChatService.getInstance().setPaused(false);

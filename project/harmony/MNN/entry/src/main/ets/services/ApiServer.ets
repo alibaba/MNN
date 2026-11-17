@@ -562,24 +562,30 @@ export class ApiServer {
   }
 
   private isAllowedHost(host: string): boolean {
-    const name = host.split(':')[0].toLowerCase();
+    let name = host.toLowerCase();
+    const bracket = name.indexOf('[');
+    if (bracket >= 0) {
+      // Bracketed IPv6 literal: Host: [::1]:8080
+      const end = name.indexOf(']');
+      name = end > bracket ? name.substring(bracket + 1, end) : name.substring(bracket + 1);
+    } else {
+      name = name.split(':')[0];
+    }
     if (name === '127.0.0.1' || name === 'localhost' || name === '::1') {
       return true;
     }
     if (!this.bindAll) {
       return false;
     }
-    // In LAN mode clients address us by the device IP. Accept IP literals only: a DNS-rebinding
+    // In LAN mode clients address us by the device IP. Accept IPv4 literals only: a DNS-rebinding
     // page necessarily sends a domain name in Host, which this rejects.
-    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(name)) {
-      return true;
-    }
-    return name.startsWith('[') && name.endsWith(']');
+    return /^(\d{1,3}\.){3}\d{1,3}$/.test(name);
   }
 
   /**
-   * Route-based local IP discovery: connecting a UDP socket sends no packets but makes the
-   * stack pick the egress interface, whose address is what LAN clients must use in Host/URLs.
+   * Route-based local IP discovery. HarmonyOS exposes no zero-send API for the egress address,
+   * so this binds a UDP socket and sends a single 1-byte datagram (no payload, no handshake)
+   * to make the stack pick the egress interface; that address is what LAN clients must use.
    */
   private async detectLanAddress(): Promise<void> {
     let udp: socket.UDPSocket | undefined = undefined;

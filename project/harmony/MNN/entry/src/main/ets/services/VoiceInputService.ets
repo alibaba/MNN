@@ -150,13 +150,16 @@ export class VoiceInputService {
         this.finishTimerId = setTimeout(() => {
           this.finishTimerId = -1;
           this.releaseEngine();
+          this.callbacks.onRecognizing(false);
           this.callbacks.onState(false, '');
         }, 6000);
       } catch (error) {
         this.releaseEngine();
+        this.callbacks.onRecognizing(false);
         this.callbacks.onState(false, '');
       }
     } else {
+      this.callbacks.onRecognizing(false);
       this.callbacks.onState(false, '');
     }
     // Stopping the capturer can take a moment; the UI already reflects the stopped state.
@@ -166,6 +169,7 @@ export class VoiceInputService {
   /** Aborts recognition without waiting for a final result. */
   async cancel(): Promise<void> {
     this.listening = false;
+    this.callbacks.onRecognizing(false);
     this.clearFinishTimer();
     await this.releaseCapture();
     this.pending = new Uint8Array(0);

@@ -48,6 +48,10 @@ export struct BenchmarkPage {
       BenchmarkService.getInstance().cancel(this.requestId);
       this.requestId = '';
     }
+    if (this.datasetRunning) {
+      DatasetTestService.getInstance().cancel();
+      this.datasetRunning = false;
+    }
   }
 
   aboutToAppear(): void {
