@@ -61,13 +61,17 @@ export class MarkdownParser {
     for (let index = 0; index < LATEX_SYMBOLS.length; index++) {
       s = s.replace(LATEX_SYMBOLS[index][0], LATEX_SYMBOLS[index][1]);
     }
+    // One nesting level inside the braces is enough for typical model output (x^{n+1} etc.).
+    const groupPattern = '((?:[^{}]|\\{[^{}]*\\})*)';
+    const fractionPattern = new RegExp(`\\\\frac\\s*\\{${groupPattern}\\}\\s*\\{${groupPattern}\\}`);
+    const rootPattern = new RegExp(`\\\\sqrt\\s*\\{${groupPattern}\\}`);
     for (let guard = 0; guard < 64; guard++) {
-      const fraction = s.match(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/);
+      const fraction = s.match(fractionPattern);
       if (fraction) {
         s = s.replace(fraction[0], `(${fraction[1]})/(${fraction[2]})`);
         continue;
       }
-      const root = s.match(/\\sqrt\s*\{([^{}]*)\}/);
+      const root = s.match(rootPattern);
       if (root) {
         s = s.replace(root[0], `√(${root[1]})`);
         continue;
@@ -102,7 +106,9 @@ export class MarkdownParser {
   }
 
   private static replaceInlineMath(text: string): string {
-    return text.replace(/\$([^$\n]+)\$/g, (whole: string, group: string) => MarkdownParser.latexToUnicode(group));
+    const render = (whole: string, group: string): string => MarkdownParser.latexToUnicode(group);
+    // Display pairs on a single line first, otherwise their outer dollars survive the inline pass.
+    return text.replace(/\$\$([^$\n]+)\$\$/g, render).replace(/\$([^$\n]+)\$/g, render);
   }
 
   static parse(source: string): MarkdownBlock[] {
