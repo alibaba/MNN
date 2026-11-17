@@ -22,6 +22,7 @@ export class AudioPlaybackService {
     const player = await media.createAVPlayer();
     this.player = player;
     this.file = file;
+    AppStorage.setOrCreate('audioPlaying', true);
     player.on('stateChange', (state: media.AVPlayerState) => {
       if (state === 'initialized') {
         player.prepare().catch(() => {
@@ -39,9 +40,14 @@ export class AudioPlaybackService {
     player.fdSrc = { fd: file.fd, offset: 0, length: size };
   }
 
+  isPlaying(): boolean {
+    return this.player !== undefined;
+  }
+
   async stop(): Promise<void> {
     const player = this.player;
     this.player = undefined;
+    AppStorage.setOrCreate('audioPlaying', false);
     if (player) {
       try {
         await player.release();
@@ -56,6 +62,7 @@ export class AudioPlaybackService {
     });
     if (this.player === player) {
       this.player = undefined;
+      AppStorage.setOrCreate('audioPlaying', false);
       this.closeFile();
     }
   }

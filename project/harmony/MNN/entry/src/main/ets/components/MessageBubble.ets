@@ -2,6 +2,7 @@ import { tr } from '../services/I18n';
 import { promptAction } from '@kit.ArkUI';
 import pasteboard from '@ohos.pasteboard';
 import { AttachmentRecord, GenerationMetrics, GenerationState, MessageRole } from '../domain/AppTypes';
+import { AudioPlaybackService } from '../services/AudioPlaybackService';
 import { ImagePreviewDialog } from './ImagePreviewDialog';
 import { MetricsPanel } from './MetricsPanel';
 import { ReasoningPanel } from './ReasoningPanel';
@@ -48,6 +49,7 @@ export struct MessageBubble {
   @ObjectLink message: ChatMessageView;
   @Prop showMetrics: boolean = true;
   @Prop showTimestamp: boolean = false;
+  @StorageLink('audioPlaying') private audioPlaying: boolean = false;
   onReportIssue: () => void = () => {};
   onPlayAudio: (attachment: AttachmentRecord) => void = () => {};
   onToggleMetrics: () => void = () => {};
@@ -135,13 +137,20 @@ export struct MessageBubble {
               .fontSize(12)
               .fontColor($r('app.color.brand'))
             if (attachment.mediaType === 'audio') {
-              Button(tr('播放'))
+              Button(this.audioPlaying ? tr('停止') : tr('播放'))
                 .height(26)
                 .fontSize(11)
                 .padding({ left: 10, right: 10 })
-                .backgroundColor($r('app.color.brand'))
+                .backgroundColor(this.audioPlaying ? $r('app.color.danger') : $r('app.color.brand'))
                 .fontColor(Color.White)
-                .onClick(() => this.onPlayAudio(attachment))
+                .onClick(() => {
+                  if (this.audioPlaying) {
+                    AudioPlaybackService.getInstance().stop().catch(() => {
+                    });
+                  } else {
+                    this.onPlayAudio(attachment);
+                  }
+                })
             }
           }
           .padding(8)
@@ -226,10 +235,15 @@ export struct MessageBubble {
                 .onClick(() => this.onToggleMetrics())
               if (this.message.attachments.some((attachment: AttachmentRecord) =>
                 attachment.mediaType === 'audio')) {
-                Text(tr('重放'))
+                Text(this.audioPlaying ? tr('停止') : tr('重放'))
                   .fontSize(12)
                   .fontColor($r('app.color.text_tertiary'))
                   .onClick(() => {
+                    if (this.audioPlaying) {
+                      AudioPlaybackService.getInstance().stop().catch(() => {
+                      });
+                      return;
+                    }
                     const audio = this.message.attachments.find((attachment: AttachmentRecord) =>
                       attachment.mediaType === 'audio');
                     if (audio) {
