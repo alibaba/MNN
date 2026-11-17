@@ -2899,7 +2899,8 @@ class Lfm3VisionLayer(nn.Module):
         normed = self.operator_norm(hidden_states)
         if self.is_attention:
             self.self_attn.past_key_value = None
-            output = self.self_attn(normed.unsqueeze(0), rotary_pos_emb=rotary, attention_mask=mask).squeeze(0)
+            # Index instead of squeeze(0): squeeze exports as an If here, and Module::load splits the graph at each If.
+            output = self.self_attn(normed.unsqueeze(0), rotary_pos_emb=rotary, attention_mask=mask)[0]
         else:
             b, c, x = self.in_proj(normed).chunk(3, dim=-1)
             merge = self.merge_size
