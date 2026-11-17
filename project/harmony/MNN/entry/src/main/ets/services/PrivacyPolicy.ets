@@ -2,9 +2,8 @@ import { I18n } from './I18n';
 
 export const PRIVACY_POLICY_KEY: string = 'privacy_policy_version';
 // Bump this whenever the policy text changes, so existing users must agree again.
-export const PRIVACY_POLICY_VERSION: number = 2;
-// Replace with the real support mailbox before publishing to AppGallery.
-export const PRIVACY_CONTACT_EMAIL: string = '待填写：联系邮箱';
+export const PRIVACY_POLICY_VERSION: number = 3;
+export const PRIVACY_CONTACT_EMAIL: string = 'qianxinyu.qxy@taobao.com';
 
 const PRIVACY_POLICY_ZH: string =
   'MNN Chat 是一款在您的设备本地运行大语言模型的应用。我们重视您的个人信息和隐私保护，' +
