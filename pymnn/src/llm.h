@@ -204,20 +204,25 @@ static PyObject* PyMNNLLM_tokenizer_encode(LLM *self, PyObject *args) {
         Py_RETURN_NONE;
     }
     PyObject* content = nullptr;
-    if (!PyArg_ParseTuple(args, "O", &content)) {
+    int add_special_tokens = 1;
+    if (!PyArg_ParseTuple(args, "O|p", &content, &add_special_tokens)) {
         Py_RETURN_NONE;
     }
     std::vector<int> ids;
     if (isString(content)) {
         std::string prompt = object2String(content);
-        ids = self->llm->tokenizer_encode(prompt);
+        ids = self->llm->tokenizer_encode(prompt, add_special_tokens != 0);
     } else if (isPyDict(content)) {
         auto multimodal_input = parse_multimodal_input(content);
-        ids = self->llm->tokenizer_encode(multimodal_input);
+        ids = self->llm->tokenizer_encode(multimodal_input, add_special_tokens != 0);
     } else {
         PyMNN_ERROR("content must be str or dict");
     }
     return toPyObj<int, toPyObj>(ids);
+}
+
+static PyObject* PyMNNLLM_has_chat_template(LLM* self, PyObject*) {
+    return toPyObj(self->llm->has_chat_template());
 }
 
 static PyObject* PyMNNLLM_apply_chat_template(LLM *self, PyObject *args) {
@@ -528,6 +533,7 @@ static PyMethodDef PyMNNLLM_methods[] = {
      "response `query` - supports both text and multimodal input."},
     {"get_current_history", (PyCFunction)PyMNNLLM_getCurrentHistory, METH_VARARGS, "Get Current History."},
     {"erase_history", (PyCFunction)PyMNNLLM_eraseHistory, METH_VARARGS, "Erase History."},
+    {"has_chat_template", (PyCFunction)PyMNNLLM_has_chat_template, METH_NOARGS, "Check for a chat template."},
     {"apply_chat_template", (PyCFunction)PyMNNLLM_apply_chat_template, METH_VARARGS, "apply chat template."},
     {"tokenizer_encode", (PyCFunction)PyMNNLLM_tokenizer_encode, METH_VARARGS, "tokenizer encode."},
     {"tokenizer_decode", (PyCFunction)PyMNNLLM_tokenizer_decode, METH_VARARGS, "tokenizer decode."},

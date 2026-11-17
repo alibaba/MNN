@@ -39,7 +39,7 @@ def demo_chat_template(model):
 def demo_low_level_generation(model):
     """Generate at most 64 tokens with manual greedy decoding."""
     prompt = model.apply_chat_template("The capital of France is")
-    input_ids = model.tokenizer_encode(prompt)
+    input_ids = model.tokenizer_encode(prompt, not model.has_chat_template())
     model.generate_init()
     output_ids = []
     # The manual loop owns its token budget; forward() does not apply max_new_tokens.

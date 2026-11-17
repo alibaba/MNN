@@ -2549,7 +2549,7 @@ std::vector<int> Omni::processMediaFile(const std::string& mode, std::string inf
     return std::vector<int>(0);
 }
 
-std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
+std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input, bool add_special_tokens) {
     std::string prompt = multimodal_input.prompt_template;
     std::regex multimode_regex(kOmniMultimodalRegex);
     std::string::const_iterator searchStart(prompt.cbegin());
@@ -2569,7 +2569,7 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
 
     // Text-only requests use the same compression and post-processing as Llm.
     if (mConfig->token_compress() != 0 && !std::regex_search(prompt, multimode_regex)) {
-        ids = Llm::tokenizer_encode(prompt);
+        ids = Llm::tokenizer_encode(prompt, add_special_tokens);
         addPositionIds(static_cast<int>(ids.size()));
         return ids;
     }
@@ -2588,7 +2588,7 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         addPositionIds(txt_ids.size());
         ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
     }
-    const auto postProcessorInfo = mTokenizer->post_process(ids);
+    const auto postProcessorInfo = add_special_tokens ? mTokenizer->post_process(ids) : Tokenizer::PostProcessorInfo();
     const auto positionIdsDims = mModule->getInfo()->inputs[2].dim;
     if (positionIdsDims[0] != 1) {
         if (!postProcessorInfo.has_single_sequence_a) {
@@ -2607,10 +2607,10 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     return ids;
 }
 
-std::vector<int> Omni::tokenizer_encode(const std::string& prompt) {
+std::vector<int> Omni::tokenizer_encode(const std::string& prompt, bool add_special_tokens) {
     MultimodalPrompt multimodal_input;
     multimodal_input.prompt_template = prompt;
-    return tokenizer_encode(multimodal_input);
+    return tokenizer_encode(multimodal_input, add_special_tokens);
 }
 
 std::vector<int> Omni::processMediaContent(const std::string& mode, const std::string& content,

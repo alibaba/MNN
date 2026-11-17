@@ -227,6 +227,8 @@ void Tokenizer::cache_special_tokens() {
 
 Tokenizer::PostProcessorInfo Tokenizer::apply_post_processor(std::vector<int>& ids) const {
     PostProcessorInfo info;
+    ids.insert(ids.begin(), prefix_tokens_.begin(), prefix_tokens_.end());
+    info.prefix_size = prefix_tokens_.size();
     if (post_single_ops_.empty()) {
         return info;
     }
@@ -250,13 +252,14 @@ Tokenizer::PostProcessorInfo Tokenizer::apply_post_processor(std::vector<int>& i
     info.has_single_sequence_a = sequence_a_count == 1;
     if (info.has_single_sequence_a) {
         info.suffix_size = processed.size() - info.prefix_size - base_ids.size();
+        info.prefix_size += prefix_tokens_.size();
     }
     ids.swap(processed);
     return info;
 }
 
-std::vector<int> Tokenizer::encode(const std::string& str, bool with_post_processor) {
-    std::vector<int> ids = prefix_tokens_;
+std::vector<int> Tokenizer::encode(const std::string& str, bool add_special_tokens) {
+    std::vector<int> ids;
     if (special_tokens_cache_.empty() && !special_tokens_.empty()) {
         cache_special_tokens();
     }
@@ -286,7 +289,7 @@ std::vector<int> Tokenizer::encode(const std::string& str, bool with_post_proces
     } else {
         encode(str, ids);
     }
-    if (with_post_processor) {
+    if (add_special_tokens) {
         apply_post_processor(ids);
     }
     return ids;

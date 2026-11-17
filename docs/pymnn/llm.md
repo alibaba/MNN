@@ -132,8 +132,9 @@ text = "".join(model.tokenizer_decode(token_id) for token_id in token_ids)
 
 `tokenizer_encode` returns a list of token IDs. `tokenizer_decode` accepts one
 integer token ID and returns its text; decode lists one token at a time.
-Some tokenizers include special tokens, so encoded/decoded text need not be
-identical to the input string.
+The optional second argument `add_special_tokens` defaults to `True` for raw
+text. After `apply_chat_template`, pass `not model.has_chat_template()` to avoid
+inserting BOS/EOS again while preserving them for models without a chat template.
 
 ### Manual generation: generate_init, forward, and stoped
 
@@ -144,7 +145,7 @@ Use a manual decoding loop for token-level control, following the existing
 import MNN.numpy as np
 
 prompt = model.apply_chat_template("Tell me a joke")
-input_ids = model.tokenizer_encode(prompt)
+input_ids = model.tokenizer_encode(prompt, not model.has_chat_template())
 model.generate_init()
 output_ids = []
 max_new_tokens = 64

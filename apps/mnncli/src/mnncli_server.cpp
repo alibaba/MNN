@@ -373,7 +373,7 @@ Result generate(
     settings.update(request.sampler);
     if (!llm->set_config(settings.dump()))
         return result;
-    auto ids = llm->tokenizer_encode(request.prompt);
+    auto ids = llm->tokenizer_encode(request.prompt, !llm->has_chat_template());
     if (ids.empty())
         return result;
     on_ready(ids.size());

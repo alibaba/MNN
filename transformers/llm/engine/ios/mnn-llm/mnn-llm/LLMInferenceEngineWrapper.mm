@@ -528,7 +528,8 @@ static void LogAnswerChunks(const std::string& answer) {
         }
         std::string name = casePaths[i].substr(casePaths[i].find_last_of('/') + 1);
         auto start = std::chrono::steady_clock::now();
-        auto tokens = llm->tokenizer_encode(llm->apply_chat_template(ChatMessages{{"user", content}}));
+        auto tokens = llm->tokenizer_encode(llm->apply_chat_template(ChatMessages{{"user", content}}),
+                                            !llm->has_chat_template());
         double compress_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         std::ostringstream answer;
         dispatch_source_t memTimer = StartFootprintLogger(name.c_str());
