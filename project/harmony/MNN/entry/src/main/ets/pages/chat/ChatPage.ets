@@ -90,6 +90,7 @@ export struct ChatPage {
   @State private voiceListening: boolean = false;
   @State private voicePartial: string = '';
   @State private voiceStatus: string = '';
+  @State private voiceRecognizing: boolean = false;
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   @StorageLink('audioReply') private audioReply: boolean = false;
   @StorageLink('liveAudio') private liveAudio: boolean = true;
@@ -129,6 +130,8 @@ export struct ChatPage {
       // Chunks must not keep flowing into a destroyed component; mark the record canceled.
       GenerationCoordinator.getInstance().cancel(this.activeRequestId);
     }
+    AudioPlaybackService.getInstance().stopStream().catch(() => {
+    });
     if (this.diffusionTimerId >= 0) {
       clearInterval(this.diffusionTimerId);
       this.diffusionTimerId = -1;
@@ -423,6 +426,9 @@ export struct ChatPage {
         this.prompt = this.prompt.trim() ? `${this.prompt.trim()} ${trimmed}` : trimmed;
       }
       this.voicePartial = '';
+    };
+    callbacks.onRecognizing = (recognizing: boolean) => {
+      this.voiceRecognizing = recognizing;
     };
     callbacks.onState = (listening: boolean, message: string) => {
       this.voiceListening = listening;
@@ -738,12 +744,24 @@ export struct ChatPage {
     if (videoAttachment && this.modelCapabilities.videoInput) {
       const previousStatus = this.modelStatus;
       this.modelStatus = tr('正在提取视频帧');
-      const frameContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const frameDirectory = MediaService.getInstance().ensureHistoryDirectory(frameContext, this.currentSessionId);
-      const frameCount = await SettingsStore.getInstance().getNumber(APP_VIDEO_FRAMES_KEY, 4);
-      const frameSize = await SettingsStore.getInstance().getNumber(APP_VIDEO_FRAME_SIZE_KEY, 320);
-      const frames = await VideoFrameExtractor.getInstance()
-        .extract(videoAttachment.localPath, frameDirectory, frameCount, frameSize);
+      let frames: string[] = [];
+      try {
+        const frameContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const frameDirectory = MediaService.getInstance().ensureHistoryDirectory(frameContext, this.currentSessionId);
+        const frameCount = await SettingsStore.getInstance().getNumber(APP_VIDEO_FRAMES_KEY, 4);
+        const frameSize = await SettingsStore.getInstance().getNumber(APP_VIDEO_FRAME_SIZE_KEY, 320);
+        frames = await VideoFrameExtractor.getInstance()
+          .extract(videoAttachment.localPath, frameDirectory, frameCount, frameSize);
+      } catch (error) {
+        // isGenerating is already true here; without this reset the composer would lock up.
+        this.modelStatus = previousStatus;
+        this.isGenerating = false;
+        this.error = (error as Error).message;
+        if (onDone) {
+          onDone('');
+        }
+        return;
+      }
       this.modelStatus = previousStatus;
       if (frames.length === 0) {
         this.error = tr('无法从视频中提取画面');
@@ -1220,6 +1238,10 @@ export struct ChatPage {
       } else {
         VoiceChatService.getInstance().setPaused(false);
       }
+    }, ).catch((error: Error) => {
+      this.error = error.message;
+      this.isGenerating = false;
+      VoiceChatService.getInstance().setPaused(false);
     });
   }
 
@@ -1587,7 +1609,7 @@ export struct ChatPage {
               .fontColor(this.voiceListening ? Color.White : $r('app.color.text_primary'))
               .backgroundColor(this.voiceListening ? $r('app.color.danger') : Color.Transparent)
               .enabled(this.isModelReady && !this.isGenerating && !this.recording &&
-                this.voiceStatus !== tr('正在识别…'))
+                !this.voiceRecognizing)
               .onClick(() => this.toggleVoiceInput())
             Blank()
             if (this.modelCapabilities.audioOutput) {
@@ -1646,7 +1668,10 @@ export struct ChatPage {
               if (this.isGenerating) {
                 this.stopGeneration();
               } else {
-                this.runInference();
+                this.runInference().catch((error: Error) => {
+                  this.error = error.message;
+                  this.isGenerating = false;
+                });
               }
             })
           }

@@ -160,6 +160,27 @@ struct LoadWork {
     bool reused = false;
 };
 
+void RunOnBigStack(void* data, void* (*entry)(void*)) {
+    // Omni talker/DiT graphs recurse deeply; libuv worker stacks are far too small for them.
+    pthread_attr_t attributes;
+    pthread_attr_init(&attributes);
+    pthread_attr_setstacksize(&attributes, 32 * 1024 * 1024);
+    pthread_t thread;
+    if (pthread_create(&thread, &attributes, entry, data) == 0) {
+        pthread_join(thread, nullptr);
+    } else {
+        entry(data);
+    }
+    pthread_attr_destroy(&attributes);
+}
+
+void* runLoadThread(void* raw) {
+    auto work = static_cast<LoadWork*>(raw);
+    LlmSession::instance().load(work->configPath, work->runtimeConfigJson, work->loadMs, work->reused,
+                                work->error);
+    return nullptr;
+}
+
 napi_value LoadLlm(napi_env env, napi_callback_info info) {
     size_t argc = 2;
     napi_value args[2] = {nullptr};
@@ -179,9 +200,7 @@ napi_value LoadLlm(napi_env env, napi_callback_info info) {
     napi_create_async_work(
         env, nullptr, resourceName,
         [](napi_env, void* data) {
-            auto work = static_cast<LoadWork*>(data);
-            LlmSession::instance().load(work->configPath, work->runtimeConfigJson, work->loadMs, work->reused,
-                                        work->error);
+            RunOnBigStack(data, runLoadThread);
         },
         [](napi_env env, napi_status status, void* data) {
             std::unique_ptr<LoadWork> work(static_cast<LoadWork*>(data));
@@ -300,17 +319,7 @@ napi_value GenerateLlm(napi_env env, napi_callback_info info) {
     napi_create_async_work(
         env, nullptr, resourceName,
         [](napi_env, void* data) {
-            // Omni talker/DiT graphs recurse deeply; the NAPI worker stack is only 128 KB on musl.
-            pthread_attr_t attributes;
-            pthread_attr_init(&attributes);
-            pthread_attr_setstacksize(&attributes, 32 * 1024 * 1024);
-            pthread_t thread;
-            if (pthread_create(&thread, &attributes, runGenerateThread, data) == 0) {
-                pthread_join(thread, nullptr);
-            } else {
-                runGenerateThread(data);
-            }
-            pthread_attr_destroy(&attributes);
+            RunOnBigStack(data, runGenerateThread);
         },
         [](napi_env env, napi_status status, void* data) {
             std::unique_ptr<GenerateWork> work(static_cast<GenerateWork*>(data));
@@ -556,16 +565,7 @@ napi_value RunDiffusion(napi_env env, napi_callback_info info) {
             // Diffusion graphs (VAE/DiT) recurse deeply during graph build/execute. The NAPI
             // worker uses the musl default stack (128 KB), which overflows on device, so run the
             // generation on a dedicated thread with a generous stack.
-            pthread_attr_t attributes;
-            pthread_attr_init(&attributes);
-            pthread_attr_setstacksize(&attributes, 32 * 1024 * 1024);
-            pthread_t thread;
-            if (pthread_create(&thread, &attributes, runDiffusionThread, data) == 0) {
-                pthread_join(thread, nullptr);
-            } else {
-                runDiffusionThread(data);
-            }
-            pthread_attr_destroy(&attributes);
+            RunOnBigStack(data, runDiffusionThread);
         },
         [](napi_env env, napi_status status, void* data) {
             std::unique_ptr<DiffusionWork> work(static_cast<DiffusionWork*>(data));

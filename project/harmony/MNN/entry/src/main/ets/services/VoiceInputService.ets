@@ -15,6 +15,8 @@ export class VoiceInputCallbacks {
   };
   onState: (listening: boolean, message: string) => void = () => {
   };
+  onRecognizing: (recognizing: boolean) => void = () => {
+  };
 }
 
 /**
@@ -60,6 +62,7 @@ export class VoiceInputService {
       },
       onResult: (sessionId: string, result: speechRecognizer.SpeechRecognitionResult) => {
         if (result.isFinal) {
+          this.callbacks.onRecognizing(false);
           this.callbacks.onFinal(result.result);
         } else {
           this.callbacks.onPartial(result.result);
@@ -67,6 +70,7 @@ export class VoiceInputService {
       },
       onComplete: (sessionId: string, eventMessage: string) => {
         console.info(`[VoiceInput] complete: ${eventMessage}`);
+        this.callbacks.onRecognizing(false);
         this.clearFinishTimer();
         this.releaseCapture();
         this.releaseEngine();
@@ -74,6 +78,7 @@ export class VoiceInputService {
       },
       onError: (sessionId: string, errorCode: number, errorMessage: string) => {
         console.error(`[VoiceInput] error ${errorCode}: ${errorMessage}`);
+        this.callbacks.onRecognizing(false);
         this.clearFinishTimer();
         this.releaseCapture();
         this.releaseEngine();
@@ -139,6 +144,7 @@ export class VoiceInputService {
     if (engine) {
       try {
         engine.finish(this.sessionId);
+        this.callbacks.onRecognizing(true);
         this.callbacks.onState(false, tr('正在识别…'));
         // Guard against a missing onComplete (for example when no speech was detected).
         this.finishTimerId = setTimeout(() => {

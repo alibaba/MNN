@@ -126,6 +126,7 @@ export struct ApiConsolePage {
       this.notice = tr('已恢复默认设置，重新启动服务后生效');
       this.error = '';
     }).catch((error: Error) => {
+      this.notice = '';
       this.error = error.message;
     });
   }
@@ -268,7 +269,7 @@ export struct ApiConsolePage {
             .onChange((value: boolean) => this.corsEnabled = value)
         }
         if (this.corsEnabled) {
-          TextInput({ text: this.corsOriginsText, placeholder: tr('允许的来源，逗号分隔；留空允许全部') })
+          TextInput({ text: this.corsOriginsText, placeholder: tr('允许的来源，逗号分隔；留空禁止跨域') })
             .enabled(!this.busy)
             .onChange((value: string) => this.corsOriginsText = value)
           Text(tr('例如 http://localhost:3000,https://example.com'))

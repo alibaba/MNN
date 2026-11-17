@@ -49,11 +49,26 @@ export class MediaService {
       });
       const packer = image.createImagePacker();
       const tmpPath = `${path}.tmp.jpg`;
-      const file = fileIo.openSync(tmpPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY);
-      await packer.packToFile(pixelMap, file.fd, { format: 'image/jpeg', quality: 90 });
-      fileIo.closeSync(file);
-      packer.release();
-      pixelMap.release();
+      let file: fileIo.File | undefined = undefined;
+      try {
+        file = fileIo.openSync(tmpPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY);
+        await packer.packToFile(pixelMap, file.fd, { format: 'image/jpeg', quality: 90 });
+      } finally {
+        if (file) {
+          try {
+            fileIo.closeSync(file);
+          } catch (closeError) {
+          }
+        }
+        try {
+          packer.release();
+        } catch (releaseError) {
+        }
+        try {
+          pixelMap.release();
+        } catch (releaseError) {
+        }
+      }
       fileIo.renameSync(tmpPath, path);
     } catch (error) {
       // Keep the original attachment when downsampling fails for any reason.

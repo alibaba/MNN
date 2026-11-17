@@ -8,6 +8,8 @@ export class TtsService {
   private static instance: TtsService = new TtsService();
   private engine?: textToSpeech.TextToSpeechEngine;
   private pendingDone: (() => void) | null = null;
+  private currentRequestId: string = '';
+  private seq: number = 0;
 
   static getInstance(): TtsService {
     return TtsService.instance;
@@ -37,13 +39,13 @@ export class TtsService {
         onStart: (requestId: string, response: textToSpeech.StartResponse) => {
         },
         onComplete: (requestId: string, response: textToSpeech.CompleteResponse) => {
-          this.finish();
+          this.finishFor(requestId);
         },
         onStop: (requestId: string, response: textToSpeech.StopResponse) => {
-          this.finish();
+          this.finishFor(requestId);
         },
         onError: (requestId: string, errorCode: number, errorMessage: string) => {
-          this.finish();
+          this.finishFor(requestId);
         }
       });
     }
@@ -56,6 +58,7 @@ export class TtsService {
       // Never strand a waiter (the voice-chat loop pauses the mic until onDone fires).
       const stranded = this.pendingDone;
       this.pendingDone = null;
+      this.currentRequestId = '';
       try {
         engine.stop();
       } catch (error) {
@@ -63,11 +66,29 @@ export class TtsService {
       stranded();
     }
     this.pendingDone = onDone;
-    const params: textToSpeech.SpeakParams = { requestId: `tts_${Date.now()}` };
+    this.seq++;
+    this.currentRequestId = `tts_${this.seq}`;
+    const params: textToSpeech.SpeakParams = { requestId: this.currentRequestId };
     engine.speak(text, params);
   }
 
   stop(): void {
+    this.currentRequestId = '';
+    const engine = this.engine;
+    if (engine) {
+      try {
+        engine.stop();
+      } catch (error) {
+      }
+    }
+    this.finish();
+  }
+
+  /** Async engine callbacks from a superseded speak must not release the current waiter. */
+  private finishFor(requestId: string): void {
+    if (this.currentRequestId !== '' && requestId !== this.currentRequestId) {
+      return;
+    }
     this.finish();
   }
 

@@ -19,7 +19,13 @@ export class AudioPlaybackService {
     // AVPlayer only accepts fd:// or network sources, so hand it an open descriptor.
     const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
     const size = fileIo.statSync(path).size;
-    const player = await media.createAVPlayer();
+    let player: media.AVPlayer;
+    try {
+      player = await media.createAVPlayer();
+    } catch (error) {
+      fileIo.closeSync(file);
+      throw error as Error;
+    }
     this.player = player;
     this.file = file;
     AppStorage.setOrCreate('audioPlaying', true);

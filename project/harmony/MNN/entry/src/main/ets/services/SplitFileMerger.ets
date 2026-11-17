@@ -49,7 +49,7 @@ export class SplitFileMerger {
       return false;
     }
     const document = SplitFileMerger.readDocument(modelDir);
-    if (!document || document.chunks.length === 0) {
+    if (!document || !document.chunks || document.chunks.length === 0) {
       throw new Error(tr('splits_info.json 内容无效'));
     }
     document.chunks.forEach((chunk: SplitChunkDocument) => {

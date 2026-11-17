@@ -5,6 +5,7 @@ import fileUri from '@ohos.file.fileuri';
 import statvfs from '@ohos.file.statvfs';
 import { AppDatabase } from './AppDatabase';
 import { BenchmarkRepository } from './BenchmarkRepository';
+import { DownloadRepository } from './DownloadRepository';
 import { ModelCapabilities, ModelRecord, ModelState, ModelStorageStats } from '../domain/AppTypes';
 import { SplitFileMerger } from '../services/SplitFileMerger';
 
@@ -355,8 +356,6 @@ export class ModelRepository {
         movedToTrash = true;
       }
       await this.deleteRecord(modelId);
-      // Avoid unbounded growth of per-model benchmark history for deleted models.
-      await BenchmarkRepository.getInstance().deleteForModel(modelId);
     } catch (error) {
       if (movedToTrash && fs.accessSync(trashPath) && !fs.accessSync(model.rootPath)) {
         fs.renameSync(trashPath, model.rootPath);
@@ -365,6 +364,19 @@ export class ModelRepository {
     }
     if (movedToTrash && fs.accessSync(trashPath)) {
       fs.rmdirSync(trashPath);
+    }
+    // Best-effort cleanup of per-model history; failures must not resurrect the model.
+    try {
+      await BenchmarkRepository.getInstance().deleteForModel(modelId);
+    } catch (error) {
+    }
+    const base = this.baseName(model.rootPath);
+    const providers: string[] = ['ModelScope', 'HuggingFace', 'Modelers'];
+    for (let index = 0; index < providers.length; index++) {
+      try {
+        await DownloadRepository.getInstance().removeModel(`${providers[index]}/${base}`);
+      } catch (error) {
+      }
     }
   }
 

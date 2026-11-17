@@ -88,6 +88,7 @@ export class ApiServer {
   private static instance: ApiServer = new ApiServer();
   private server?: socket.TCPSocketServer;
   private boundAddress: string = '';
+  private lanIp: string = '';
   private clients: Map<number, ClientState> = new Map<number, ClientState>();
   private context?: common.UIAbilityContext;
   private target?: NativeTarget;
@@ -145,6 +146,9 @@ export class ApiServer {
     // LAN clients reach us through this address; Host-header validation accepts it.
     this.boundAddress = localAddress.address;
     if (this.bindAll) {
+      await this.detectLanAddress();
+    }
+    if (this.bindAll) {
       // 0.0.0.0 exposure without a bearer token would let anyone on the network drive the
       // model, so listening on LAN implicitly requires authentication.
       this.authEnabled = true;
@@ -185,7 +189,7 @@ export class ApiServer {
   getStatus(): ApiServerStatus {
     const status = new ApiServerStatus();
     status.running = !!this.server;
-    status.address = this.bindAll ? (this.boundAddress || '0.0.0.0') : '127.0.0.1';
+    status.address = this.bindAll ? (this.lanIp || this.boundAddress || '0.0.0.0') : '127.0.0.1';
     status.port = this.port;
     status.token = this.token;
     status.connections = this.clients.size;
@@ -431,7 +435,8 @@ export class ApiServer {
               `"text":${escapedChunk}}}\n\n` :
             `data: {"id":${JSON.stringify(requestId)},"object":"chat.completion.chunk","choices":[{"index":0,` +
               `"delta":{"content":${escapedChunk}},"finish_reason":null}]}\n\n`;
-          this.queueSse(client, payload);
+          this.queueSse(client, payload).catch(() => {
+          });
         }
       });
     } catch (error) {
@@ -553,7 +558,7 @@ export class ApiServer {
     return `Access-Control-Allow-Origin: ${allowed}\r\n` +
       'Access-Control-Allow-Headers: Authorization, Content-Type, x-api-key, anthropic-version\r\n' +
       'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n' +
-      (allowed === '*' ? '' : 'Vary: Origin\r\n');
+      'Vary: Origin\r\n';
   }
 
   private isAllowedHost(host: string): boolean {
@@ -561,7 +566,39 @@ export class ApiServer {
     if (name === '127.0.0.1' || name === 'localhost' || name === '::1') {
       return true;
     }
-    return this.bindAll && this.boundAddress !== '' && name === this.boundAddress.toLowerCase();
+    if (!this.bindAll) {
+      return false;
+    }
+    // In LAN mode clients address us by the device IP. Accept IP literals only: a DNS-rebinding
+    // page necessarily sends a domain name in Host, which this rejects.
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(name)) {
+      return true;
+    }
+    return name.startsWith('[') && name.endsWith(']');
+  }
+
+  /**
+   * Route-based local IP discovery: connecting a UDP socket sends no packets but makes the
+   * stack pick the egress interface, whose address is what LAN clients must use in Host/URLs.
+   */
+  private async detectLanAddress(): Promise<void> {
+    let udp: socket.UDPSocket | undefined = undefined;
+    try {
+      udp = socket.constructUDPSocketInstance();
+      await udp.bind({ address: '0.0.0.0', port: 0, family: 1 });
+      // A one-byte datagram makes the stack pick the egress interface without any handshake.
+      await udp.send({ address: { address: '223.5.5.5', port: 53, family: 1 }, data: 'x' });
+      const local = await udp.getLocalAddress();
+      this.lanIp = local && local.address ? local.address : '';
+    } catch (error) {
+      this.lanIp = '';
+    }
+    if (udp) {
+      try {
+        await udp.close();
+      } catch (error) {
+      }
+    }
   }
 
   private allowedOrigin(origin: string): string {

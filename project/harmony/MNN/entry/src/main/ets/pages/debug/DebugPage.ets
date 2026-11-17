@@ -20,6 +20,15 @@ export struct DebugPage {
   @State private busy: boolean = false;
   @State private error: string = '';
 
+  aboutToDisappear(): void {
+    if (this.asrOn) {
+      VoiceInputService.getInstance().cancel().catch(() => {
+      });
+      this.asrOn = false;
+    }
+    TtsService.getInstance().stop();
+  }
+
   private async toggleAsr(): Promise<void> {
     if (this.asrOn) {
       this.asrOn = false;

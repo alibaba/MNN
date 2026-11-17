@@ -90,9 +90,18 @@ export class VoiceRecorderService {
     const capturer = this.capturer;
     this.capturer = undefined;
     this.recording = false;
-    await capturer.stop();
-    capturer.off('readData', this.readCallback);
-    await capturer.release();
+    try {
+      await capturer.stop();
+    } catch (error) {
+    }
+    try {
+      capturer.off('readData', this.readCallback);
+    } catch (error) {
+    }
+    try {
+      await capturer.release();
+    } catch (error) {
+    }
     this.closePcm(false);
     this.writeWav();
     fileIo.unlinkSync(this.pcmPath);

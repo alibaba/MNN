@@ -8,7 +8,7 @@ export class ReasoningResult {
  * Splits a reply into its thinking section and the user-facing answer.
  *
  * This follows the Android client's GenerateResultProcessor (THINK_TAGS format) rather than only
- * looking for an opening ` thinking` tag: the chat template usually puts ` thinking` in the prompt,
+ * looking for an opening think tag: the chat template usually puts it in the prompt,
  * so the model only emits the closing tag. In that case everything up to the closing tag is
  * reasoning and the rest is the answer. While the closing tag has not arrived yet the text is shown
  * as normal output, exactly like the Android processor does with its pending buffer.

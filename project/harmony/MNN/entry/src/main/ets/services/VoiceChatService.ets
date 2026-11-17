@@ -176,7 +176,13 @@ export class VoiceChatService {
     if (capturer) {
       try {
         await capturer.stop();
+      } catch (error) {
+      }
+      try {
         capturer.off('readData', this.readCallback);
+      } catch (error) {
+      }
+      try {
         await capturer.release();
       } catch (error) {
       }

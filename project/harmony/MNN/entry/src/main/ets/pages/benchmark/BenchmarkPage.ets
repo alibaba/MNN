@@ -43,6 +43,13 @@ export struct BenchmarkPage {
   @State private datasetResult: DatasetTestResult = new DatasetTestResult();
   private requestId: string = '';
 
+  aboutToDisappear(): void {
+    if (this.requestId) {
+      BenchmarkService.getInstance().cancel(this.requestId);
+      this.requestId = '';
+    }
+  }
+
   aboutToAppear(): void {
     this.benchModelId = this.activeModelId;
     this.refreshModel();

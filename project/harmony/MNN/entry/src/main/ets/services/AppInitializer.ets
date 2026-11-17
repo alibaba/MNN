@@ -10,7 +10,14 @@ export class AppInitializer {
 
   static initialize(context: common.UIAbilityContext): Promise<void> {
     if (!AppInitializer.initialization) {
-      AppInitializer.initialization = AppInitializer.initializeInternal(context);
+      const pending = AppInitializer.initializeInternal(context);
+      pending.catch(() => {
+        // Do not cache a rejected promise forever; allow the next caller to retry.
+        if (AppInitializer.initialization === pending) {
+          AppInitializer.initialization = undefined;
+        }
+      });
+      AppInitializer.initialization = pending;
     }
     return AppInitializer.initialization;
   }
