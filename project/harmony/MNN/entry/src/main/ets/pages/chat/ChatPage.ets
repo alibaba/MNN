@@ -1396,8 +1396,10 @@ export struct ChatPage {
               onToggleMetrics: () => this.toggleShowMetrics(),
               onShare: (text: string) => this.shareText(text),
               onPlayAudio: (attachment: AttachmentRecord) => {
+                promptAction.showToast({ message: tr('开始播放音频') });
                 AudioPlaybackService.getInstance().play(attachment.localPath).catch((error: Error) => {
                   this.error = `${tr('语音播放失败：')}${error.message}`;
+                  promptAction.showToast({ message: `${tr('语音播放失败：')}${error.message}` });
                 });
               }
             })

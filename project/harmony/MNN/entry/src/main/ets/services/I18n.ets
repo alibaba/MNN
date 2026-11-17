@@ -417,6 +417,7 @@ const ENGLISH: Record<string, string> = {
   '性能评测': 'Benchmark',
   '使用中的模型不能删除，请先切换到其他模型': 'The model in use cannot be deleted. Switch to another model first.',
   '受保护模型不能删除': 'Protected models cannot be deleted',
+  '开始播放音频': 'Playing audio…',
   '上报': 'Report',
   '指标': 'Metrics',
   '重放': 'Replay',
