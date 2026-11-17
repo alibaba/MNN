@@ -1,4 +1,5 @@
 import { i18n } from '@kit.LocalizationKit';
+import { TRADITIONAL } from './TraditionalMap';
 
 /**
  * Lightweight runtime translation for the UI. Chinese is the source language: UI literals stay in
@@ -416,18 +417,49 @@ const ENGLISH: Record<string, string> = {
   '性能评测': 'Benchmark',
   '使用中的模型不能删除，请先切换到其他模型': 'The model in use cannot be deleted. Switch to another model first.',
   '受保护模型不能删除': 'Protected models cannot be deleted',
+  '上报': 'Report',
+  '指标': 'Metrics',
+  '重放': 'Replay',
+  '模型信息': 'Model info',
+  '默认下载源': 'Default download source',
+  '关闭实时音频': 'Disable realtime audio',
+  '开启实时音频': 'Enable realtime audio',
+  '语音对话': 'Voice chat',
+  '结束语音对话': 'End voice chat',
+  '等待语音输入': 'Waiting for speech…',
+  '模型回复中…': 'Model is replying…',
+  '仓库最新发布 ': 'Latest repo release: ',
+  '检查更新失败，请稍后重试': 'Update check failed. Try again later.',
 };
 
 export class I18n {
   private static english: boolean = I18n.detectEnglish();
+  private static traditional: boolean = I18n.detectTraditional();
 
   static isEnglish(): boolean {
     return I18n.english;
   }
 
+  static isTraditional(): boolean {
+    return I18n.traditional;
+  }
+
   /** Overrides the detected language; used by tests and temporary debugging. */
   static setEnglish(value: boolean): void {
     I18n.english = value;
+  }
+
+  /** Maps simplified Chinese characters to traditional ones (zh-Hant/TW/HK/MO locales). */
+  static convertTraditional(text: string): string {
+    if (!I18n.traditional) {
+      return text;
+    }
+    let out = '';
+    for (let index = 0; index < text.length; index++) {
+      const char = text[index];
+      out += TRADITIONAL[char] === undefined ? char : TRADITIONAL[char];
+    }
+    return out;
   }
 
   private static detectEnglish(): boolean {
@@ -438,11 +470,24 @@ export class I18n {
       return false;
     }
   }
+
+  private static detectTraditional(): boolean {
+    try {
+      const language = i18n.System.getSystemLanguage().toLowerCase();
+      if (!language.startsWith('zh')) {
+        return false;
+      }
+      return language.indexOf('hant') >= 0 || language.indexOf('-tw') >= 0 ||
+        language.indexOf('-hk') >= 0 || language.indexOf('-mo') >= 0;
+    } catch (error) {
+      return false;
+    }
+  }
 }
 
 export function tr(text: string): string {
   if (!I18n.isEnglish()) {
-    return text;
+    return I18n.convertTraditional(text);
   }
   const translated = ENGLISH[text];
   return translated === undefined ? text : translated;

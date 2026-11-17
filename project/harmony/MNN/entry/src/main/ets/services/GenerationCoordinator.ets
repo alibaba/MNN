@@ -22,6 +22,7 @@ export interface NativeGenerateRequest {
   messages: NativeChatMessage[];
   maxTokens: number;
   audioOutputPath?: string;
+  streamAudio?: boolean;
 }
 
 export interface NativeGenerateResult {
@@ -138,7 +139,8 @@ export class GenerationCoordinator {
   }
 
   generate(target: NativeTarget, request: NativeGenerateRequest,
-    onChunk: (chunk: string) => void): Promise<NativeGenerateResult> {
+    onChunk: (chunk: string) => void,
+    onAudio?: (pcm: Int16Array) => void): Promise<NativeGenerateResult> {
     this.totalRequests++;
     this.pendingIds.add(request.requestId);
     const pending = this.enqueue(async () => {
@@ -150,7 +152,7 @@ export class GenerationCoordinator {
       MemoryProbe.snapshot('gen-loaded', target.runtimeConfigJson);
       this.activeRequestId = request.requestId;
       try {
-        const result = await testNapi.generateLlm(request, onChunk) as NativeGenerateResult;
+        const result = await testNapi.generateLlm(request, onChunk, onAudio) as NativeGenerateResult;
         MemoryProbe.snapshot('gen-done', target.runtimeConfigJson);
         return result;
       } finally {

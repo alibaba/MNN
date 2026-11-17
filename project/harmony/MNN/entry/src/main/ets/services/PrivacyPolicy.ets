@@ -101,5 +101,5 @@ const PRIVACY_POLICY_EN: string =
   'agree to this privacy statement.';
 
 export function privacyPolicyText(): string {
-  return I18n.isEnglish() ? PRIVACY_POLICY_EN : PRIVACY_POLICY_ZH;
+  return I18n.isEnglish() ? PRIVACY_POLICY_EN : I18n.convertTraditional(PRIVACY_POLICY_ZH);
 }

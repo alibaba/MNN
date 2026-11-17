@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -18,6 +19,8 @@ struct GenerateRequest {
     int maxTokens = 256;
     // When set, omni models with a talker write the spoken waveform to this WAV path.
     std::string audioOutputPath;
+    // Also push talker PCM chunks to the audio callback while generating (realtime playback).
+    bool streamAudio = false;
 };
 
 struct GenerateResult {
@@ -58,6 +61,7 @@ class LlmSession {
 public:
     using CancellationFlag = std::shared_ptr<std::atomic<bool>>;
     using ChunkCallback = std::function<void(const std::string&)>;
+    using AudioCallback = std::function<void(const int16_t* samples, size_t count)>;
     using BenchmarkCallback = std::function<void(const BenchmarkSample&)>;
 
     static LlmSession& instance();
@@ -65,8 +69,8 @@ public:
     void load(const std::string& configPath, const std::string& runtimeConfigJson, double& loadMs, bool& reused,
               std::string& error);
     void registerRequest(const std::string& requestId);
-    void generate(const GenerateRequest& request, const ChunkCallback& onChunk, GenerateResult& result,
-                  std::string& error);
+    void generate(const GenerateRequest& request, const ChunkCallback& onChunk, const AudioCallback& onAudio,
+                  GenerateResult& result, std::string& error);
     void benchmark(const BenchmarkRequest& request, const BenchmarkCallback& onProgress, BenchmarkResult& result,
                    std::string& error);
     void cancel(const std::string& requestId);

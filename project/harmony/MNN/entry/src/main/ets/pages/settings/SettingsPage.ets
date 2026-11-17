@@ -1,6 +1,7 @@
 import { tr } from '../../services/I18n';
 import { common, Want } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
+import { http } from '@kit.NetworkKit';
 import pasteboard from '@ohos.pasteboard';
 import bundleManager from '@ohos.bundle.bundleManager';
 import { ModelRepository } from '../../data/ModelRepository';
@@ -23,6 +24,7 @@ import {
 } from '../../services/ProviderAdapters';
 import {
   APP_AUDIO_REPLY_KEY,
+  APP_DEFAULT_PROVIDER_KEY,
   APP_SHOW_METRICS_KEY,
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
   APP_VIDEO_FRAMES_KEY,
@@ -34,6 +36,12 @@ class MarketTokenForm {
   huggingFace: string = '';
   modelScope: string = '';
   modelers: string = '';
+}
+
+interface GitHubReleaseDoc {
+  tag_name?: string;
+  name?: string;
+  html_url?: string;
 }
 
 @Component
@@ -57,6 +65,7 @@ export struct SettingsPage {
   @State private videoFrameSize: number = 320;
   @State private isDiffusion: boolean = false;
   @State private tokens: MarketTokenForm = new MarketTokenForm();
+  @State private defaultProvider: string = PROVIDER_MODEL_SCOPE;
   private loadSequence: number = 0;
 
   aboutToAppear(): void {
@@ -74,6 +83,11 @@ export struct SettingsPage {
     });
     SettingsStore.getInstance().getBoolean(APP_AUDIO_REPLY_KEY, false).then((value: boolean) => {
       this.audioReply = value;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+    SettingsStore.getInstance().getString(APP_DEFAULT_PROVIDER_KEY, PROVIDER_MODEL_SCOPE).then((value: string) => {
+      this.defaultProvider = value || PROVIDER_MODEL_SCOPE;
     }).catch((error: Error) => {
       this.error = error.message;
     });
@@ -145,10 +159,45 @@ export struct SettingsPage {
   }
 
   private checkForUpdate(): void {
-    const version = this.appVersion ? `${tr('当前版本 ')}${this.appVersion}\n\n` : '';
+    // Mirrors Android's update check: query the latest GitHub release and compare tags.
+    const request = http.createHttp();
+    request.request('https://api.github.com/repos/alibaba/MNN/releases/latest', {
+      method: http.RequestMethod.GET,
+      header: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'MNNChat-Harmony' },
+      connectTimeout: 10000,
+      readTimeout: 10000
+    }).then((response: http.HttpResponse) => {
+      request.destroy();
+      if (response.responseCode === 200 && typeof response.result === 'string') {
+        const doc = JSON.parse(response.result) as GitHubReleaseDoc;
+        const tag = doc.tag_name || '';
+        const current = this.appVersion;
+        const message = tag ?
+          `${tr('仓库最新发布 ')}${tag}\n${tr('当前版本 ')}${current}\n\n` +
+          tr('鸿蒙客户端随 MNN 仓库一起发布，请到 GitHub Releases 查看最新版本与更新说明。') :
+          `${tr('当前版本 ')}${current}\n\n` +
+          tr('鸿蒙客户端随 MNN 仓库一起发布，请到 GitHub Releases 查看最新版本与更新说明。');
+        this.showUpdateDialog(message);
+      } else {
+        this.showUpdateDialog(tr('检查更新失败，请稍后重试'));
+      }
+    }).catch(() => {
+      request.destroy();
+      this.showUpdateDialog(tr('检查更新失败，请稍后重试'));
+    });
+  }
+
+  private saveDefaultProvider(provider: string): void {
+    this.defaultProvider = provider;
+    SettingsStore.getInstance().putString(APP_DEFAULT_PROVIDER_KEY, provider).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private showUpdateDialog(message: string): void {
     AlertDialog.show({
       title: tr('检查更新'),
-      message: `${version}${tr('鸿蒙客户端随 MNN 仓库一起发布，请到 GitHub Releases 查看最新版本与更新说明。')}`,
+      message: message,
       primaryButton: {
         value: tr('打开 Releases'),
         action: () => this.openWebPage('https://github.com/alibaba/MNN/releases')
@@ -988,6 +1037,20 @@ export struct SettingsPage {
                 .layoutWeight(1)
               Toggle({ type: ToggleType.Switch, isOn: this.stopDownloadsOnChat })
                 .onChange((value: boolean) => this.toggleStopDownloadsOnChat(value))
+            }
+            .width('100%')
+            Row({ space: 8 }) {
+              Text(tr('默认下载源'))
+                .fontSize(15)
+                .layoutWeight(1)
+              ForEach([PROVIDER_MODEL_SCOPE, PROVIDER_HUGGING_FACE, PROVIDER_MODELERS], (provider: string) => {
+                Button(provider)
+                  .height(30)
+                  .fontSize(11)
+                  .fontColor(this.defaultProvider === provider ? Color.White : $r('app.color.text_secondary'))
+                  .backgroundColor(this.defaultProvider === provider ? $r('app.color.brand') : $r('app.color.surface_muted'))
+                  .onClick(() => this.saveDefaultProvider(provider))
+              }, (provider: string) => provider)
             }
             .width('100%')
             Row() {

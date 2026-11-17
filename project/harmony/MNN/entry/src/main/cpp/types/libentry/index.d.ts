@@ -13,6 +13,7 @@ export interface LlmGenerateRequest {
   messages: LlmChatMessage[];
   maxTokens: number;
   audioOutputPath?: string;
+  streamAudio?: boolean;
 }
 
 export interface LlmGenerateResult {
@@ -76,7 +77,8 @@ export interface LlmDiffusionResult {
 export const loadLlm: (configPath: string, runtimeConfigJson: string) => Promise<LlmLoadResult>;
 export const generateLlm: (
   request: LlmGenerateRequest,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  onAudio?: (pcm: Int16Array) => void
 ) => Promise<LlmGenerateResult>;
 export const runLlmBenchmark: (
   request: LlmBenchmarkRequest,

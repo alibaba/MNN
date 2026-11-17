@@ -50,6 +50,8 @@ export struct MessageBubble {
   @Prop showTimestamp: boolean = false;
   onReportIssue: () => void = () => {};
   onPlayAudio: (attachment: AttachmentRecord) => void = () => {};
+  onToggleMetrics: () => void = () => {};
+  onShare: (text: string) => void = () => {};
 
   private openImage(path: string): void {
     let controller: CustomDialogController | null = null;
@@ -210,6 +212,37 @@ export struct MessageBubble {
           }
           if (this.showMetrics) {
             MetricsPanel({ metrics: this.message.metrics, state: this.message.state })
+          }
+          if (this.message.content && this.message.state !== GenerationState.GENERATING) {
+            // Android-style per-message action row.
+            Row({ space: 16 }) {
+              Text(tr('上报'))
+                .fontSize(12)
+                .fontColor($r('app.color.text_tertiary'))
+                .onClick(() => this.onReportIssue())
+              Text(tr('指标'))
+                .fontSize(12)
+                .fontColor($r('app.color.text_tertiary'))
+                .onClick(() => this.onToggleMetrics())
+              if (this.message.attachments.some((attachment: AttachmentRecord) =>
+                attachment.mediaType === 'audio')) {
+                Text(tr('重放'))
+                  .fontSize(12)
+                  .fontColor($r('app.color.text_tertiary'))
+                  .onClick(() => {
+                    const audio = this.message.attachments.find((attachment: AttachmentRecord) =>
+                      attachment.mediaType === 'audio');
+                    if (audio) {
+                      this.onPlayAudio(audio);
+                    }
+                  })
+              }
+              Text(tr('分享'))
+                .fontSize(12)
+                .fontColor($r('app.color.text_tertiary'))
+                .onClick(() => this.onShare(this.message.content))
+            }
+            .width('100%')
           }
         }
         .width('100%')

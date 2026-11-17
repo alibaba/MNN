@@ -2,6 +2,8 @@ import { tr } from '../../services/I18n';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
+import pasteboard from '@ohos.pasteboard';
+import { InfoSheet } from '../../components/InfoSheet';
 import { DownloadRepository } from '../../data/DownloadRepository';
 import { ModelRepository } from '../../data/ModelRepository';
 import {
@@ -161,6 +163,13 @@ export struct ModelsPage {
             this.togglePinned(model);
           }
         })
+      MenuItem({ content: tr('模型信息') })
+        .onClick(() => {
+          const model = this.menuModel();
+          if (model) {
+            this.showModelInfo(model);
+          }
+        })
       MenuItem({ content: tr('删除') })
         .onClick(() => {
           const model = this.menuModel();
@@ -169,6 +178,46 @@ export struct ModelsPage {
           }
         })
     }
+  }
+
+  private showModelInfo(model: ModelRecord): void {
+    const caps = this.caps.get(model.id);
+    const info = [
+      `name: ${model.name}`,
+      `id: ${model.id}`,
+      `state: ${model.state}`,
+      `size: ${this.formatBytes(model.sizeBytes)}`,
+      `root: ${model.rootPath}`,
+      `config: ${model.configPath}`,
+      `vision: ${caps ? caps.vision : false}`,
+      `audio_in: ${caps ? caps.audioInput : false}`,
+      `audio_out: ${caps ? caps.audioOutput : false}`,
+      `video_in: ${caps ? caps.videoInput : false}`,
+      `diffusion: ${caps ? caps.diffusion : false}`,
+      `pinned: ${model.isPinned}`,
+      `protected: ${model.isProtected}`
+    ].join('\n');
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: InfoSheet({
+        title: tr('模型信息'),
+        message: info,
+        onCopy: () => {
+          try {
+            const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, info);
+            pasteboard.getSystemPasteboard().setData(data).then(() => {
+              promptAction.showToast({ message: tr('已复制') });
+            }).catch(() => {
+            });
+          } catch (error) {
+          }
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Bottom,
+      customStyle: true
+    });
+    controller.open();
   }
 
   private togglePinned(model: ModelRecord): void {

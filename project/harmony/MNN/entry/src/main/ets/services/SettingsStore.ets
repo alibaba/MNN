@@ -19,6 +19,8 @@ export const APP_STOP_DOWNLOAD_ON_CHAT_KEY: string = 'app_stop_download_on_chat'
 export const APP_AUDIO_REPLY_KEY: string = 'app_audio_reply';
 export const APP_VIDEO_FRAMES_KEY: string = 'app_video_frames';
 export const APP_VIDEO_FRAME_SIZE_KEY: string = 'app_video_frame_size';
+export const APP_DEFAULT_PROVIDER_KEY: string = 'app_default_provider';
+export const APP_LIVE_AUDIO_KEY: string = 'app_live_audio';
 
 interface RuntimeSettingsDocument {
   backend_type?: string;

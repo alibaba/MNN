@@ -1,6 +1,8 @@
 import { tr } from '../../services/I18n';
 import { common, Want } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
+import { systemShare } from '@kit.ShareKit';
+import { uniformTypeDescriptor } from '@kit.ArkData';
 import bundleManager from '@ohos.bundle.bundleManager';
 import deviceInfo from '@ohos.deviceInfo';
 import pasteboard from '@ohos.pasteboard';
@@ -38,9 +40,12 @@ import { SplitFileMerger } from '../../services/SplitFileMerger';
 import { VideoFrameExtractor } from '../../services/VideoFrameExtractor';
 import { VoiceRecorderService } from '../../services/VoiceRecorderService';
 import { VoiceInputCallbacks, VoiceInputService } from '../../services/VoiceInputService';
+import { VoiceChatCallbacks, VoiceChatService } from '../../services/VoiceChatService';
+import { TtsService } from '../../services/TtsService';
 import {
   ACTIVE_MODEL_ID_KEY,
   APP_AUDIO_REPLY_KEY,
+  APP_LIVE_AUDIO_KEY,
   APP_SHOW_METRICS_KEY,
   APP_STOP_DOWNLOAD_ON_CHAT_KEY,
   APP_VIDEO_FRAMES_KEY,
@@ -87,6 +92,10 @@ export struct ChatPage {
   @State private voiceStatus: string = '';
   @StorageLink('showMetrics') private showMetrics: boolean = true;
   @StorageLink('audioReply') private audioReply: boolean = false;
+  @StorageLink('liveAudio') private liveAudio: boolean = true;
+  @State private voiceChatOn: boolean = false;
+  @State private voiceChatState: string = '';
+  @State private voiceChatPartial: string = '';
   private messageScroller: Scroller = new Scroller();
   private nextMessageId: number = 1;
   private activeRequestId: string = '';
@@ -113,6 +122,9 @@ export struct ChatPage {
   aboutToDisappear(): void {
     this.cancelRecording();
     this.cancelVoiceInput();
+    if (this.voiceChatOn) {
+      this.stopVoiceChat();
+    }
     if (this.diffusionTimerId >= 0) {
       clearInterval(this.diffusionTimerId);
       this.diffusionTimerId = -1;
@@ -188,6 +200,7 @@ export struct ChatPage {
     AppInitializer.initialize(context).then(async () => {
       this.showMetrics = await SettingsStore.getInstance().getBoolean(APP_SHOW_METRICS_KEY, true);
       this.audioReply = await SettingsStore.getInstance().getBoolean(APP_AUDIO_REPLY_KEY, false);
+      this.liveAudio = await SettingsStore.getInstance().getBoolean(APP_LIVE_AUDIO_KEY, true);
       this.initialized = true;
       await this.restoreInitialSession();
     }).then(() => {
@@ -694,7 +707,7 @@ export struct ChatPage {
     }
   }
 
-  private async runInference(): Promise<void> {
+  private async runInference(onDone?: (answer: string) => void): Promise<void> {
     const input = this.prompt.trim();
     const attachments = this.pendingAttachments.slice();
     if ((!input && attachments.length === 0) || !this.isModelReady || this.isGenerating || !this.currentSessionId) {
@@ -764,7 +777,8 @@ export struct ChatPage {
         requestId: requestId,
         messages: this.buildNativeHistory(historyRecords),
         maxTokens: this.runtimeSettings.maxTokens,
-        audioOutputPath: replyAudioPath
+        audioOutputPath: replyAudioPath,
+        streamAudio: this.modelCapabilities.audioOutput && this.liveAudio
       };
       assistantRecord = await ChatRepository.getInstance().addMessage(
         this.currentSessionId, MessageRole.ASSISTANT, '', GenerationState.GENERATING
@@ -782,6 +796,21 @@ export struct ChatPage {
       if (!this.nativeTarget) {
         throw new Error(tr('模型尚未准备完成'));
       }
+      let liveStreamStarted = false;
+      const onLiveAudio = (pcm: Int16Array): void => {
+        if (!this.liveAudio || generationFinished) {
+          return;
+        }
+        const service = AudioPlaybackService.getInstance();
+        if (!liveStreamStarted) {
+          liveStreamStarted = true;
+          service.startStream().catch(() => {
+            liveStreamStarted = false;
+          });
+        }
+        service.writeStream(pcm).catch(() => {
+        });
+      };
       const generationPromise: Promise<NativeGenerateResult> = GenerationCoordinator.getInstance().generate(
         this.nativeTarget, request, (chunk: string) => {
         if (generationFinished || requestId !== this.activeRequestId) {
@@ -797,12 +826,16 @@ export struct ChatPage {
         if (this.followsLatest) {
           this.scrollToBottom();
         }
-      });
+      }, onLiveAudio);
       if (this.stopRequested) {
         GenerationCoordinator.getInstance().cancel(requestId);
       }
       const result = await generationPromise;
       generationFinished = true;
+      if (liveStreamStarted) {
+        AudioPlaybackService.getInstance().stopStream().catch(() => {
+        });
+      }
       if (requestId !== this.activeRequestId || result.requestId !== requestId) {
         return;
       }
@@ -853,8 +886,17 @@ export struct ChatPage {
           this.scrollToBottom();
         }
       }, 0);
+      if (onDone) {
+        onDone(persistedAnswer);
+      }
     } catch (error) {
       generationFinished = true;
+      // No-op when no live stream was started; keeps the renderer from outliving a failed run.
+      AudioPlaybackService.getInstance().stopStream().catch(() => {
+      });
+      if (onDone) {
+        onDone('');
+      }
       if (requestId !== this.activeRequestId) {
         return;
       }
@@ -1074,6 +1116,87 @@ export struct ChatPage {
     });
   }
 
+  private toggleLiveAudio(): void {
+    this.liveAudio = !this.liveAudio;
+    SettingsStore.getInstance().putBoolean(APP_LIVE_AUDIO_KEY, this.liveAudio).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private voiceChatLabel(): string {
+    if (this.voiceChatState === 'speech') {
+      return this.voiceChatPartial ? this.voiceChatPartial : tr('正在听…');
+    }
+    if (this.voiceChatState === 'recognizing') {
+      return tr('正在识别…');
+    }
+    if (this.voiceChatState === 'paused') {
+      return tr('模型回复中…');
+    }
+    return tr('等待语音输入');
+  }
+
+  private async startVoiceChat(): Promise<void> {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const callbacks = new VoiceChatCallbacks();
+    callbacks.onState = (state: string, partial: string) => {
+      this.voiceChatState = state;
+      this.voiceChatPartial = partial;
+    };
+    callbacks.onUtterance = (text: string) => this.handleVoiceUtterance(text);
+    callbacks.onError = (message: string) => {
+      this.error = message;
+    };
+    this.voiceChatOn = true;
+    try {
+      await VoiceChatService.getInstance().start(context, callbacks);
+    } catch (error) {
+      this.voiceChatOn = false;
+      this.error = (error as Error).message;
+    }
+  }
+
+  private stopVoiceChat(): void {
+    this.voiceChatOn = false;
+    this.voiceChatState = '';
+    this.voiceChatPartial = '';
+    VoiceChatService.getInstance().stop().catch(() => {
+    });
+    TtsService.getInstance().stop();
+  }
+
+  /** Hands-free loop: transcript in, answer spoken out, then the mic re-opens. */
+  private handleVoiceUtterance(text: string): void {
+    if (!this.voiceChatOn || this.isGenerating || !this.isModelReady) {
+      return;
+    }
+    VoiceChatService.getInstance().setPaused(true);
+    this.prompt = text;
+    this.runInference((answer: string) => {
+      if (!this.voiceChatOn) {
+        return;
+      }
+      if (this.modelCapabilities.audioOutput) {
+        // Talker audio was streamed (or saved) during generation; leave a tail before re-listening.
+        setTimeout(() => {
+          if (this.voiceChatOn) {
+            VoiceChatService.getInstance().setPaused(false);
+          }
+        }, 1200);
+      } else if (answer) {
+        TtsService.getInstance().speak(answer, () => {
+          if (this.voiceChatOn) {
+            VoiceChatService.getInstance().setPaused(false);
+          }
+        }).catch(() => {
+          VoiceChatService.getInstance().setPaused(false);
+        });
+      } else {
+        VoiceChatService.getInstance().setPaused(false);
+      }
+    });
+  }
+
   private buildDiagnosticInfo(): string {
     const settings = this.runtimeSettings;
     let appVersion = '';
@@ -1101,6 +1224,20 @@ export struct ChatPage {
       `load_ms: ${this.loadMs}`,
       `messages: ${this.messages.length}`
     ].join('\n');
+  }
+
+  private shareText(text: string): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const record: systemShare.SharedRecord = {
+      utd: uniformTypeDescriptor.UniformDataType.PLAIN_TEXT,
+      content: text
+    };
+    const controller = new systemShare.ShareController(new systemShare.SharedData(record));
+    controller.show(context, {
+      selectionMode: systemShare.SelectionMode.SINGLE
+    }).catch((error: Error) => {
+      this.error = `${tr('分享失败：')}${error.message}`;
+    });
   }
 
   private starProject(): void {
@@ -1188,6 +1325,20 @@ export struct ChatPage {
             action: () => this.toggleThinking()
           },
           {
+            value: this.liveAudio ? tr('关闭实时音频') : tr('开启实时音频'),
+            action: () => this.toggleLiveAudio()
+          },
+          {
+            value: this.voiceChatOn ? tr('结束语音对话') : tr('语音对话'),
+            action: () => {
+              if (this.voiceChatOn) {
+                this.stopVoiceChat();
+              } else {
+                this.startVoiceChat();
+              }
+            }
+          },
+          {
             value: this.showMetrics ? tr('隐藏性能指标') : tr('显示性能指标'),
             action: () => this.toggleShowMetrics()
           },
@@ -1235,6 +1386,8 @@ export struct ChatPage {
               showMetrics: this.showMetrics,
               showTimestamp: index === 0 || this.messages[index - 1].role !== message.role,
               onReportIssue: () => this.reportIssue(),
+              onToggleMetrics: () => this.toggleShowMetrics(),
+              onShare: (text: string) => this.shareText(text),
               onPlayAudio: (attachment: AttachmentRecord) => {
                 AudioPlaybackService.getInstance().play(attachment.localPath).catch((error: Error) => {
                   this.error = `${tr('语音播放失败：')}${error.message}`;
@@ -1354,6 +1507,29 @@ export struct ChatPage {
         // Android-style composer: rounded surface card holding the input, with the thinking
         // pill toggle and a circular send/stop button on its bottom row.
         Column({ space: 4 }) {
+          if (this.voiceChatOn) {
+            Row({ space: 8 }) {
+              Row()
+                .width(8)
+                .height(8)
+                .borderRadius(4)
+                .backgroundColor(this.voiceChatState === 'speech' ? $r('app.color.danger') : $r('app.color.brand'))
+              Text(this.voiceChatLabel())
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .layoutWeight(1)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Button(tr('结束'))
+                .height(28)
+                .fontSize(12)
+                .backgroundColor($r('app.color.danger_tint'))
+                .fontColor($r('app.color.danger'))
+                .onClick(() => this.stopVoiceChat())
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 8 })
+          }
           TextArea({ placeholder: this.isModelReady ? tr('输入消息') : tr('模型加载完成后即可对话'), text: this.prompt })
             .width('100%')
             .fontSize(15)

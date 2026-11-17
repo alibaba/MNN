@@ -7,6 +7,8 @@
 
 #include <pthread.h>
 
+#include <cstring>
+
 #include <memory>
 #include <string>
 #include <utility>
@@ -94,6 +96,13 @@ bool readGenerateRequest(napi_env env, napi_value value, GenerateRequest& reques
         request.messages.emplace_back(std::move(role), std::move(content));
     }
     readNamedString(env, value, "audioOutputPath", request.audioOutputPath);
+    napi_value streamAudio;
+    if (napi_get_named_property(env, value, "streamAudio", &streamAudio) == napi_ok) {
+        bool flag = false;
+        if (napi_get_value_bool(env, streamAudio, &flag) == napi_ok) {
+            request.streamAudio = flag;
+        }
+    }
     return true;
 }
 
@@ -209,10 +218,28 @@ struct GenerateWork {
     napi_async_work work = nullptr;
     napi_deferred deferred = nullptr;
     napi_threadsafe_function callback = nullptr;
+    napi_threadsafe_function audioCallback = nullptr;
     GenerateRequest request;
     GenerateResult result;
     std::string error;
 };
+
+void callAudio(napi_env env, napi_value callback, void*, void* data) {
+    std::unique_ptr<std::vector<int16_t>> samples(static_cast<std::vector<int16_t>*>(data));
+    if (!env || !callback) {
+        return;
+    }
+    napi_value receiver;
+    napi_value arrayBuffer;
+    void* bufferData = nullptr;
+    napi_create_arraybuffer(env, samples->size() * sizeof(int16_t), &bufferData, &arrayBuffer);
+    if (bufferData != nullptr && !samples->empty()) {
+        memcpy(bufferData, samples->data(), samples->size() * sizeof(int16_t));
+    }
+    napi_value argument;
+    napi_create_typedarray(env, napi_int16_array, samples->size(), arrayBuffer, 0, &argument);
+    napi_call_function(env, receiver, callback, 1, &argument, nullptr);
+}
 
 void* runGenerateThread(void* raw) {
     auto work = static_cast<GenerateWork*>(raw);
@@ -224,24 +251,39 @@ void* runGenerateThread(void* raw) {
                 delete payload;
             }
         },
+        [work](const int16_t* samples, size_t count) {
+            if (work->audioCallback == nullptr) {
+                return;
+            }
+            auto payload = new std::vector<int16_t>(samples, samples + count);
+            if (napi_call_threadsafe_function(work->audioCallback, payload, napi_tsfn_nonblocking) != napi_ok) {
+                delete payload;
+            }
+        },
         work->result, work->error);
     napi_release_threadsafe_function(work->callback, napi_tsfn_release);
     work->callback = nullptr;
+    if (work->audioCallback) {
+        napi_release_threadsafe_function(work->audioCallback, napi_tsfn_release);
+        work->audioCallback = nullptr;
+    }
     return nullptr;
 }
 
 napi_value GenerateLlm(napi_env env, napi_callback_info info) {
-    size_t argc = 2;
-    napi_value args[2] = {nullptr};
+    size_t argc = 3;
+    napi_value args[3] = {nullptr};
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     auto context = std::make_unique<GenerateWork>();
     napi_valuetype callbackType = napi_undefined;
-    if (argc != 2 || !readGenerateRequest(env, args[0], context->request) ||
+    if (argc < 2 || !readGenerateRequest(env, args[0], context->request) ||
         napi_typeof(env, args[1], &callbackType) != napi_ok || callbackType != napi_function) {
         napi_throw_type_error(env, nullptr, "generateLlm expects a request object and onChunk callback");
         return nullptr;
     }
+    napi_valuetype audioType = napi_undefined;
+    const bool hasAudio = argc >= 3 && napi_typeof(env, args[2], &audioType) == napi_ok && audioType == napi_function;
 
     napi_value promise;
     napi_create_promise(env, &context->deferred, &promise);
@@ -249,6 +291,10 @@ napi_value GenerateLlm(napi_env env, napi_callback_info info) {
     napi_create_string_utf8(env, "MNN LLM generate", NAPI_AUTO_LENGTH, &resourceName);
     napi_create_threadsafe_function(env, args[1], nullptr, resourceName, 0, 1, nullptr, nullptr, nullptr, callChunk,
                                     &context->callback);
+    if (hasAudio) {
+        napi_create_threadsafe_function(env, args[2], nullptr, resourceName, 0, 1, nullptr, nullptr, nullptr,
+                                        callAudio, &context->audioCallback);
+    }
     LlmSession::instance().registerRequest(context->request.requestId);
     napi_create_async_work(
         env, nullptr, resourceName,
@@ -269,6 +315,9 @@ napi_value GenerateLlm(napi_env env, napi_callback_info info) {
             std::unique_ptr<GenerateWork> work(static_cast<GenerateWork*>(data));
             if (work->callback) {
                 napi_release_threadsafe_function(work->callback, napi_tsfn_abort);
+            }
+            if (work->audioCallback) {
+                napi_release_threadsafe_function(work->audioCallback, napi_tsfn_abort);
             }
             if (status == napi_ok && work->error.empty()) {
                 napi_value result;

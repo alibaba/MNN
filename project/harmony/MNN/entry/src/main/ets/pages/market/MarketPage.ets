@@ -15,6 +15,7 @@ import {
 import { AppInitializer } from '../../services/AppInitializer';
 import { DownloadManager } from '../../services/DownloadManager';
 import { MarketAuth } from '../../services/MarketAuth';
+import { APP_DEFAULT_PROVIDER_KEY, SettingsStore } from '../../services/SettingsStore';
 import { MarketDetailSheet } from '../../components/MarketDetailSheet';
 import { ModelMarketService } from '../../services/ModelMarketService';
 import {
@@ -38,7 +39,14 @@ export struct MarketPage {
   @State private error: string = '';
 
   aboutToAppear(): void {
-    this.load(false);
+    SettingsStore.getInstance().getString(APP_DEFAULT_PROVIDER_KEY, PROVIDER_MODEL_SCOPE).then((value: string) => {
+      if (value) {
+        this.provider = value;
+      }
+      this.load(false);
+    }).catch(() => {
+      this.load(false);
+    });
   }
 
   private load(refreshNetwork: boolean): void {

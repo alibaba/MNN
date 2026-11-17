@@ -260,8 +260,8 @@ void LlmSession::registerRequest(const std::string& requestId) {
     mCancellations[requestId] = std::make_shared<std::atomic<bool>>(false);
 }
 
-void LlmSession::generate(const GenerateRequest& request, const ChunkCallback& onChunk, GenerateResult& result,
-                          std::string& error) {
+void LlmSession::generate(const GenerateRequest& request, const ChunkCallback& onChunk, const AudioCallback& onAudio,
+                          GenerateResult& result, std::string& error) {
     std::lock_guard<std::mutex> lock(mOperationMutex);
     const auto cancellation = getCancellation(request.requestId);
     result.requestId = request.requestId;
@@ -285,9 +285,9 @@ void LlmSession::generate(const GenerateRequest& request, const ChunkCallback& o
     const int maxTokens = request.maxTokens <= 0 ? 2048 : (request.maxTokens > 8192 ? 8192 : request.maxTokens);
     std::vector<int16_t> audioSamples;
     const bool captureAudio = !request.audioOutputPath.empty();
-    if (captureAudio) {
+    if (captureAudio || request.streamAudio) {
         // Presence of a waveform callback is what enables the omni talker path.
-        mLlm->setWavformCallback([&audioSamples](const float* data, size_t size, bool) {
+        mLlm->setWavformCallback([&audioSamples, &request, &onAudio](const float* data, size_t size, bool) {
             if (data != nullptr && size > 0) {
                 const size_t base = audioSamples.size();
                 audioSamples.resize(base + size);
@@ -299,6 +299,9 @@ void LlmSession::generate(const GenerateRequest& request, const ChunkCallback& o
                         value = -1.0f;
                     }
                     audioSamples[base + index] = static_cast<int16_t>(value * 32767.0f);
+                }
+                if (request.streamAudio && onAudio) {
+                    onAudio(audioSamples.data() + base, size);
                 }
             }
             return true;

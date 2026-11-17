@@ -1,4 +1,5 @@
 import { media } from '@kit.MediaKit';
+import { audio } from '@kit.AudioKit';
 import { fileIo } from '@kit.CoreFileKit';
 
 /** Minimal AVPlayer wrapper used to replay generated or recorded speech files. */
@@ -6,6 +7,8 @@ export class AudioPlaybackService {
   private static instance: AudioPlaybackService = new AudioPlaybackService();
   private player?: media.AVPlayer;
   private file?: fileIo.File;
+  private renderer?: audio.AudioRenderer;
+  private rendererReady: Promise<void> = Promise.resolve();
 
   static getInstance(): AudioPlaybackService {
     return AudioPlaybackService.instance;
@@ -65,5 +68,53 @@ export class AudioPlaybackService {
       }
       this.file = undefined;
     }
+  }
+
+  /**
+   * Low-latency PCM sink for realtime Omni speech: the talker waveform chunks arrive while the
+   * model is still generating, mirroring Android's stream-while-decoding playback.
+   */
+  async startStream(): Promise<void> {
+    await this.stopStream();
+    this.rendererReady = this.createRenderer();
+    await this.rendererReady;
+  }
+
+  async writeStream(pcm: Int16Array): Promise<void> {
+    await this.rendererReady;
+    const renderer = this.renderer;
+    if (!renderer || pcm.length === 0) {
+      return;
+    }
+    await renderer.write(pcm.buffer as ArrayBuffer);
+  }
+
+  async stopStream(): Promise<void> {
+    this.rendererReady = Promise.resolve();
+    const renderer = this.renderer;
+    this.renderer = undefined;
+    if (renderer) {
+      try {
+        await renderer.stop();
+        await renderer.release();
+      } catch (error) {
+      }
+    }
+  }
+
+  private async createRenderer(): Promise<void> {
+    const streamInfo: audio.AudioStreamInfo = {
+      samplingRate: audio.AudioSamplingRate.SAMPLE_RATE_24000,
+      channels: audio.AudioChannel.CHANNEL_1,
+      sampleFormat: audio.AudioSampleFormat.SAMPLE_FORMAT_S16LE,
+      encodingType: audio.AudioEncodingType.ENCODING_TYPE_RAW
+    };
+    const rendererInfo: audio.AudioRendererInfo = {
+      usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
+      rendererFlags: 0
+    };
+    const renderer = await audio.createAudioRenderer({ streamInfo: streamInfo, rendererInfo: rendererInfo });
+    this.renderer = renderer;
+    await renderer.start();
   }
 }
