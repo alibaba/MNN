@@ -39,9 +39,9 @@ private:
     
     size_t mFlashAttentionUpperKv = 0;
     
-    void expandKVCacheInMem(int oldMaxLength);
+    bool expandKVCacheInMem(int oldMaxLength);
     void moveKVCacheFromMemToDisk(int oldMaxLength);
-    void expandKVCacheInDisk(size_t oldMaxLength, size_t oldKeySize, size_t oldValueSize, size_t keySize,
+    bool expandKVCacheInDisk(size_t oldMaxLength, size_t oldKeySize, size_t oldValueSize, size_t keySize,
                              size_t valueSize, file_t specKeyFile = INVALID_FILE, file_t specValueFile = INVALID_FILE);
     template <typename T> void ProcessKey(const Tensor* key, int seq_len, int kv_h);
     template <typename T> void ProcessValue(const Tensor* value, int seq_len, int kv_h);
@@ -147,8 +147,8 @@ public:
 
     virtual void onResize(int kv_num_head, int head_dim);
     virtual void onClear();
-    virtual void onAlloc(KVMeta* meta, int seq_len);
-    virtual void onRealloc(KVMeta* meta);
+    virtual ErrorCode onAlloc(KVMeta* meta, int seq_len);
+    virtual ErrorCode onRealloc(KVMeta* meta);
 
 };
 

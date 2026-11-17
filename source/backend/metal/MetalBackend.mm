@@ -252,7 +252,8 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
     mRuntime = runtime;
     auto ctx = (__bridge MNNMetalContext *)runtime->context();
     mBufferPool.reset(runtime->createDynamicAllocator(0, false));
-    mExecutionBufferPool.reset(new EagerBufferAllocator(runtime->buffer(0)->root, 1024));
+    // Execution-time frees end real lifetimes, so whole free blocks can be reclaimed here.
+    mExecutionBufferPool.reset(new EagerBufferAllocator(runtime->buffer(0)->root, 1024, 0, true));
     mCurrentAllocator = mBufferPool.get();
     mUseFloatAsFp16 = usefp16AsFp32;
     mMemoryMode = mode;

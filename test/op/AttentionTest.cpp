@@ -954,6 +954,156 @@ public:
 };
 MNNTestSuiteRegister(AttentionPrefixCacheChunkedWriteTest, "op/attention_prefix_cache_chunked_write");
 
+class AttentionCapacityTest : public AttentionTest {
+public:
+    bool run(int precision) override {
+        OpenCLBufferScope clBufferScope;
+        KVMeta baselineMeta;
+        KVMeta plannedMeta;
+        auto baseline = _makeAttentionModule(8, false, false, -1, &baselineMeta);
+        auto planned = _makeAttentionModule(8, false, false, -1, &plannedMeta);
+        if (!baseline || !planned) {
+            return false;
+        }
+        std::shared_ptr<Module> baselineDecode;
+        std::shared_ptr<Module> plannedDecode;
+        for (size_t capacity : {512, 8192, 128}) {
+            baselineMeta.remove = baselineMeta.previous;
+            plannedMeta.remove = plannedMeta.previous;
+            plannedMeta.capacity = capacity;
+            for (int seqLen : {64, 64, 1, 1, 1, 1, 1, 1, 129, 1, 1, 1, 1, 1, 1}) {
+                generateInput(seqLen, precision);
+                generateMask(seqLen, seqLen);
+                baselineMeta.add = seqLen;
+                plannedMeta.add = seqLen;
+                std::vector<float> expected;
+                std::vector<float> actual;
+                auto baselineModule = seqLen == 1 ? baselineDecode : baseline;
+                auto plannedModule = seqLen == 1 ? plannedDecode : planned;
+                if (!readAttentionOutput(baselineModule, {Query, Key, Value, Mask}, expected) ||
+                    !readAttentionOutput(plannedModule, {Query, Key, Value, Mask}, actual)) {
+                    return false;
+                }
+                if (!baselineDecode) {
+                    // Shape-less test modules create their executions on the first forward.
+                    baselineDecode.reset(Module::clone(baseline.get()));
+                    plannedDecode.reset(Module::clone(planned.get()));
+                    if (!baselineDecode || !plannedDecode) {
+                        return false;
+                    }
+                }
+                baselineMeta.sync();
+                plannedMeta.sync();
+                for (float value : actual) {
+                    if (!std::isfinite(value)) {
+                        return false;
+                    }
+                }
+                if (!compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                             "attention_capacity")) {
+                    return false;
+                }
+            }
+            plannedMeta.capacity = plannedMeta.previous + 4096;
+            baselineMeta.add = 64;
+            plannedMeta.add = 64;
+            generateInput(64, precision);
+            generateMask(64, 64);
+            std::vector<float> expected;
+            std::vector<float> actual;
+            if (!readAttentionOutput(baseline, {Query, Key, Value, Mask}, expected) ||
+                !readAttentionOutput(planned, {Query, Key, Value, Mask}, actual) ||
+                !compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                         "attention_capacity_append")) {
+                return false;
+            }
+            baselineMeta.sync();
+            plannedMeta.sync();
+            int reserve[] = {5, 17};
+            baselineMeta.remove = plannedMeta.remove = 128;
+            baselineMeta.reserve = plannedMeta.reserve = reserve;
+            baselineMeta.n_reserve = plannedMeta.n_reserve = 1;
+            baselineMeta.add = plannedMeta.add = 32;
+            plannedMeta.capacity = plannedMeta.previous + 8192;
+            generateInput(32, precision);
+            generateMask(32, 32);
+            if (!readAttentionOutput(baseline, {Query, Key, Value, Mask}, expected) ||
+                !readAttentionOutput(planned, {Query, Key, Value, Mask}, actual) ||
+                !compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                         "attention_capacity_reserve")) {
+                return false;
+            }
+            baselineMeta.sync();
+            plannedMeta.sync();
+        }
+        // Stable input bindings let decode replay arm on Metal. Compare a planned
+        // capacity against the organic baseline on the same backend path so fp16
+        // rounding cancels; a reserve compaction run twice on replay fallback would
+        // make the planned module diverge.
+        KVMeta baseMeta;
+        KVMeta planMeta;
+        auto baseMod = _makeAttentionModule(8, false, false, -1, &baseMeta);
+        auto planMod = _makeAttentionModule(8, false, false, -1, &planMeta);
+        if (!baseMod || !planMod) {
+            return false;
+        }
+        generateInput(200, precision);
+        generateMask(200, 200);
+        ::memset(Query->writeMap<float>(), 0, Query->getInfo()->size * sizeof(float));
+        ::memset(Key->writeMap<float>(), 0, Key->getInfo()->size * sizeof(float));
+        auto values = Value->writeMap<float>();
+        for (int token = 0; token < 200; ++token) {
+            for (int i = 0; i < KvNumHead * HeadDim; ++i) {
+                values[token * KvNumHead * HeadDim + i] = token;
+            }
+        }
+        baseMeta.add = planMeta.add = 200;
+        std::vector<float> expected;
+        std::vector<float> actual;
+        if (!readAttentionOutput(baseMod, {Query, Key, Value, Mask}, expected) ||
+            !readAttentionOutput(planMod, {Query, Key, Value, Mask}, actual)) {
+            return false;
+        }
+        baseMeta.sync();
+        planMeta.sync();
+        generateInput(1, precision);
+        generateMask(1, 1);
+        ::memset(Query->writeMap<float>(), 0, Query->getInfo()->size * sizeof(float));
+        ::memset(Key->writeMap<float>(), 0, Key->getInfo()->size * sizeof(float));
+        int reserve[] = {5, 17};
+        for (int step = 0; step < 17; ++step) {
+            if (step == 8) {
+                baseMeta.remove = planMeta.remove = 40;
+                baseMeta.reserve = planMeta.reserve = reserve;
+                baseMeta.n_reserve = planMeta.n_reserve = 1;
+                planMeta.capacity = 4096;
+            }
+            values = Value->writeMap<float>();
+            for (int i = 0; i < KvNumHead * HeadDim; ++i) {
+                values[i] = 200 + step;
+            }
+            baseMeta.add = planMeta.add = 1;
+            if (!readAttentionOutput(baseMod, {Query, Key, Value, Mask}, expected) ||
+                !readAttentionOutput(planMod, {Query, Key, Value, Mask}, actual)) {
+                return false;
+            }
+            baseMeta.sync();
+            planMeta.sync();
+            for (float value : actual) {
+                if (!std::isfinite(value)) {
+                    return false;
+                }
+            }
+            if (!compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                         "attention_capacity_decode_reserve")) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionCapacityTest, "op/attention_capacity");
+
 class AttentionPrefixCachePartialLoadTest : public AttentionTest {
 public:
     virtual bool run(int precision) {

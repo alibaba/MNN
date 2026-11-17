@@ -14,6 +14,7 @@
 #include "core/Macro.h"
 #include "core/MNNFileUtils.h"
 #include "core/OpCommonUtils.hpp"
+#include <MNN/ErrorCode.hpp>
 
 
 namespace MNN {
@@ -96,8 +97,8 @@ public:
 
     virtual void onResize(int kv_num_head, int head_dim) = 0;
     virtual void onClear() = 0;
-    virtual void onAlloc(KVMeta* meta, int seq_len) = 0;
-    virtual void onRealloc(KVMeta* meta) = 0;
+    virtual ErrorCode onAlloc(KVMeta* meta, int seq_len) = 0;
+    virtual ErrorCode onRealloc(KVMeta* meta) = 0;
 };
 
 } // namespace MNN

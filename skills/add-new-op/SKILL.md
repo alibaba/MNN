@@ -24,6 +24,10 @@ description: 为 MNN 框架新增算子。包含 Schema 定义、形状计算、
 
 > **名字必须等于真实物理量**：新增或修改任何后端算子 / kernel 代码时，变量、字段、宏名指代的必须是代码里真正装的那个量——`blockSize` 是"块内元素数"还是"每行块数"、`step` 是元素数还是字节数、shape 门禁的自变量是通道数还是 tile 数。名字骗人不会报错（编译、对拍、单测都过），但后续基于它写的阈值、门控、分档会一起错。写完对着实际索引 / 指针算术复核一遍，不符就改名。
 
+> **不要加多余打印**：失败路径先返回上游能拿到的 `ErrorCode`，不要再补一条 `MNN_ERROR`。错误码上抛后上游已经打印——`StaticModule::onForward` 的 `FUNC_PRINT(code)`（`express/module/StaticModule.cpp:837`），Metal 侧 `source/backend/metal/MetalAttention.mm:605` / `:665` 也已有 OOM 打印；后端再打一遍是重复噪声（`MNN_ERROR` 在 macOS 就是 printf）。只有上游拿不到的信息才值得打：具体文件路径、被违反的不变量、不中断执行的警告。改失败路径时顺带检查旧打印是否已失效——回退语义变了，原来那句描述就不成立。
+
+> **临时 owning 指针用智能指针**：函数内新建、用完即弃或最终交给成员的 `Tensor*` 一律用 `std::unique_ptr<Tensor>`，不要裸指针 + 显式 `delete` + 手动置空（写法见 `source/backend/cpu/CPUKVCacheManager.cpp:33` / `:94` / `:592`、`source/backend/metal/MetalKVCacheManager.mm:161` / `:337`）。提交时 `release()` 移交给 `shared_ptr` 成员。**关键区分**：`onAcquireBuffer` 成功之后再失败，必须先 `onReleaseBuffer` 归还后端缓冲，再让析构 `delete` Tensor 对象——这是两次不同的释放，智能指针只负责后者，只写 `delete` 会泄漏后端缓冲。非 owning 别名（指向 `inputs[i]` 或成员 `.get()`）不适用，保持裸指针。
+
 ---
 
 ## 核心文件清单

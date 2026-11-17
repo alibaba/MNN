@@ -6,6 +6,7 @@
 //
 // #define MNN_OPEN_TIME_TRACE 1
 
+#include <algorithm>
 #include <fstream>
 #include <limits>
 #include <iostream>
@@ -1163,6 +1164,7 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
         }
     }
 
+    KVMeta::CapacityScope capacityScope(mMeta.get(), input_ids.size(), max_tokens);
     {
         std::lock_guard<std::mutex> _l(mContext->mutex);
         mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
@@ -1247,6 +1249,7 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
         max_tokens = mConfig->max_new_tokens();
     }
     int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
+    KVMeta::CapacityScope capacityScope(mMeta.get(), seqLen, max_tokens);
     mContext->prompt_len = seqLen;
 
     // Disable record queue during prefill for better performance
