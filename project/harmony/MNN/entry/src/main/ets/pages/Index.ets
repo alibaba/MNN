@@ -12,6 +12,7 @@ import { HistoryPage } from './history/HistoryPage';
 import { MarketPage } from './market/MarketPage';
 import { ModelsPage } from './models/ModelsPage';
 import { SettingsPage } from './settings/SettingsPage';
+import { DebugPage } from './debug/DebugPage';
 import { PrivacyPolicySheet } from '../components/PrivacyPolicySheet';
 import { ModelPickerSheet } from '../components/ModelPickerSheet';
 import { ModelRepository } from '../data/ModelRepository';
@@ -24,6 +25,7 @@ const VIEW_MAIN: string = 'main';
 const VIEW_CHAT: string = 'chat';
 const VIEW_SETTINGS: string = 'settings';
 const VIEW_API: string = 'api';
+const VIEW_DEBUG: string = 'debug';
 
 /**
  * Mirrors the Android app's navigation: a main screen with a history drawer and three bottom
@@ -296,7 +298,8 @@ struct Index {
                 this.currentView = VIEW_SETTINGS;
               },
               onStar: () => this.openUrl('https://github.com/alibaba/MNN'),
-              onReportIssue: () => this.reportIssue()
+              onReportIssue: () => this.reportIssue(),
+              onOpenUrl: (url: string) => this.openUrl(url)
             })
           }
           .tabBar(this.tabBarBuilder(0, $r('app.media.ic_tab_models'), $r('app.media.ic_tab_models_sel'),
@@ -385,6 +388,9 @@ struct Index {
           onOpenApi: () => {
             this.apiReturnView = VIEW_SETTINGS;
             this.currentView = VIEW_API;
+          },
+          onOpenDebug: () => {
+            this.currentView = VIEW_DEBUG;
           }
         })
       } else if (this.currentView === VIEW_API) {
@@ -393,6 +399,12 @@ struct Index {
           settingsRevision: this.settingsRevision,
           onExit: () => {
             this.currentView = this.apiReturnView;
+          }
+        })
+      } else if (this.currentView === VIEW_DEBUG) {
+        DebugPage({
+          onExit: () => {
+            this.currentView = VIEW_SETTINGS;
           }
         })
       } else {

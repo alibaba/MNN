@@ -13,7 +13,17 @@ import {
   RuntimeSamplerType
 } from '../../domain/AppTypes';
 import { mnnVersion } from '../../services/GenerationCoordinator';
+import {
+  API_AUTH_ENABLED_KEY,
+  API_BIND_ALL_KEY,
+  API_CORS_ENABLED_KEY,
+  API_CORS_ORIGINS_KEY,
+  API_HTTPS_URL_KEY,
+  API_TOKEN_SETTING_KEY,
+  ApiServer
+} from '../../services/ApiServer';
 import { InfoSheet } from '../../components/InfoSheet';
+import { VoiceModelsSheet } from '../../components/VoiceModelsSheet';
 import { MarketAuth } from '../../services/MarketAuth';
 import { privacyPolicyText } from '../../services/PrivacyPolicy';
 import { StorageEntry, StorageService, StorageSnapshot } from '../../services/StorageService';
@@ -50,6 +60,7 @@ export struct SettingsPage {
   @Link settingsRevision: number;
   onExit: () => void = () => {};
   onOpenApi: () => void = () => {};
+  onOpenDebug: () => void = () => {};
   @State private modelName: string = '';
   @State private settings: ModelRuntimeSettings = new ModelRuntimeSettings();
   @State private status: string = '';
@@ -66,11 +77,13 @@ export struct SettingsPage {
   @State private isDiffusion: boolean = false;
   @State private tokens: MarketTokenForm = new MarketTokenForm();
   @State private defaultProvider: string = PROVIDER_MODEL_SCOPE;
+  @State private apiRunning: boolean = false;
   private loadSequence: number = 0;
 
   aboutToAppear(): void {
     this.loadSettings();
     this.refreshAppInfo();
+    this.apiRunning = ApiServer.getInstance().getStatus().running;
     SettingsStore.getInstance().getBoolean(APP_SHOW_METRICS_KEY, true).then((value: boolean) => {
       this.showMetrics = value;
     }).catch((error: Error) => {
@@ -184,6 +197,49 @@ export struct SettingsPage {
     }).catch(() => {
       request.destroy();
       this.showUpdateDialog(tr('检查更新失败，请稍后重试'));
+    });
+  }
+
+  private async toggleApiService(on: boolean): Promise<void> {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    try {
+      if (on) {
+        await ApiServer.getInstance().start(context, this.activeModelId, 8080);
+      } else {
+        await ApiServer.getInstance().stop();
+      }
+      this.apiRunning = ApiServer.getInstance().getStatus().running;
+    } catch (error) {
+      this.apiRunning = ApiServer.getInstance().getStatus().running;
+      this.error = (error as Error).message;
+    }
+  }
+
+  private openVoiceModels(): void {
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: VoiceModelsSheet({}),
+      autoCancel: true,
+      alignment: DialogAlignment.Bottom,
+      customStyle: true
+    });
+    controller.open();
+  }
+
+  private resetApiSettings(): void {
+    const store = SettingsStore.getInstance();
+    Promise.all([
+      store.putBoolean(API_AUTH_ENABLED_KEY, true),
+      store.putBoolean(API_BIND_ALL_KEY, false),
+      store.putBoolean(API_CORS_ENABLED_KEY, false),
+      store.putBoolean(API_HTTPS_URL_KEY, false),
+      store.putString(API_CORS_ORIGINS_KEY, ''),
+      store.putString(API_TOKEN_SETTING_KEY, '')
+    ]).then(() => {
+      this.settingsRevision++;
+      this.status = tr('API 配置已重置');
+    }).catch((error: Error) => {
+      this.error = error.message;
     });
   }
 
@@ -1123,6 +1179,35 @@ export struct SettingsPage {
                 .onClick(() => this.onOpenApi())
             }
             .width('100%')
+            Row() {
+              Text(tr('启用本地 API 服务'))
+                .fontSize(13)
+                .fontColor($r('app.color.text_body'))
+                .layoutWeight(1)
+              Toggle({ type: ToggleType.Switch, isOn: this.apiRunning })
+                .onChange((value: boolean) => this.toggleApiService(value))
+            }
+            .width('100%')
+            Row() {
+              Button(tr('重置 API 配置'))
+                .height(32)
+                .fontSize(12)
+                .backgroundColor($r('app.color.surface_muted'))
+                .fontColor($r('app.color.text_muted'))
+                .onClick(() => this.resetApiSettings())
+            }
+            .width('100%')
+            Row() {
+              Text(tr('语音模型管理'))
+                .fontSize(13)
+                .fontColor($r('app.color.text_body'))
+                .layoutWeight(1)
+              Button(tr('打开'))
+                .height(32)
+                .fontSize(12)
+                .onClick(() => this.openVoiceModels())
+            }
+            .width('100%')
             Text(tr('存储管理'))
               .fontSize(15)
               .fontWeight(FontWeight.Medium)
@@ -1212,6 +1297,13 @@ export struct SettingsPage {
                 .backgroundColor($r('app.color.surface_muted'))
                 .fontColor($r('app.color.text_muted'))
                 .onClick(() => this.showAbout())
+              Button(tr('调试测试'))
+                .layoutWeight(1)
+                .height(34)
+                .fontSize(13)
+                .backgroundColor($r('app.color.surface_muted'))
+                .fontColor($r('app.color.text_muted'))
+                .onClick(() => this.onOpenDebug())
             }
             .width('100%')
             Text(tr('隐私政策'))

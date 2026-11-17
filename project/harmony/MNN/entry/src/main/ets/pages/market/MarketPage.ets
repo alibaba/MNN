@@ -34,6 +34,7 @@ export struct MarketPage {
   @State private query: string = '';
   @State private selectedTag: string = '';
   @State private selectedVendor: string = '';
+  @State private onlyDownloaded: boolean = false;
   @State private updateIds: string[] = [];
   @State private loading: boolean = false;
   @State private error: string = '';
@@ -77,6 +78,9 @@ export struct MarketPage {
         return false;
       }
       if (this.selectedVendor && model.vendor !== this.selectedVendor) {
+        return false;
+      }
+      if (this.onlyDownloaded && this.statusFor(model).state !== DownloadState.COMPLETED) {
         return false;
       }
       return !query || model.modelName.toLowerCase().indexOf(query) >= 0 ||
@@ -438,6 +442,15 @@ export struct MarketPage {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .layoutWeight(1)
+        Button(this.onlyDownloaded ? tr('只看已下载 ✓') : tr('只看已下载'))
+          .height(34)
+          .fontSize(11)
+          .fontColor(this.onlyDownloaded ? Color.White : $r('app.color.brand'))
+          .backgroundColor(this.onlyDownloaded ? $r('app.color.brand') : $r('app.color.brand_tint'))
+          .onClick(() => {
+            this.onlyDownloaded = !this.onlyDownloaded;
+            this.applyFilters();
+          })
         Button(tr('刷新'))
           .height(34)
           .fontSize(12)

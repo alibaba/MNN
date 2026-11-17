@@ -1116,6 +1116,13 @@ export struct ChatPage {
     });
   }
 
+  private toggleAudioReply(): void {
+    this.audioReply = !this.audioReply;
+    SettingsStore.getInstance().putBoolean(APP_AUDIO_REPLY_KEY, this.audioReply).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
   private toggleLiveAudio(): void {
     this.liveAudio = !this.liveAudio;
     SettingsStore.getInstance().putBoolean(APP_LIVE_AUDIO_KEY, this.liveAudio).catch((error: Error) => {
@@ -1562,6 +1569,26 @@ export struct ChatPage {
                 this.voiceStatus !== tr('正在识别…'))
               .onClick(() => this.toggleVoiceInput())
             Blank()
+            if (this.modelCapabilities.audioOutput) {
+              // Audio-output quick toggle, mirroring Android's speaker switch in the input bar.
+              Row({ space: 6 }) {
+                Text('🔊')
+                  .fontSize(13)
+                Text(tr('语音回复'))
+                  .fontSize(13)
+                  .fontColor(this.audioReply ? $r('app.color.chip_text') : $r('app.color.text_secondary'))
+              }
+              .height(36)
+              .padding({ left: 12, right: 12 })
+              .borderRadius(18)
+              .backgroundColor(this.audioReply ? $r('app.color.brand_tint') : Color.Transparent)
+              .border({
+                width: 1,
+                color: this.audioReply ? $r('app.color.brand') : $r('app.color.divider')
+              })
+              .enabled(this.isModelReady && !this.isGenerating)
+              .onClick(() => this.toggleAudioReply())
+            }
             if (!this.modelCapabilities.diffusion) {
               // Thinking-mode quick toggle, mirroring Android's btn_toggle_thinking pill.
               Row({ space: 6 }) {

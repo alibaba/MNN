@@ -9,12 +9,16 @@ import { ModelRepository } from '../../data/ModelRepository';
 import {
   DownloadState,
   DownloadTaskRecord,
+  MarketCatalogRecord,
+  MarketModelRecord,
   ModelCapabilities,
   ModelRecord,
   ModelState,
   ModelStorageStats
 } from '../../domain/AppTypes';
 import { AppInitializer } from '../../services/AppInitializer';
+import { ModelMarketService } from '../../services/ModelMarketService';
+import { ProviderAdapters } from '../../services/ProviderAdapters';
 import { ACTIVE_MODEL_ID_KEY, SettingsStore } from '../../services/SettingsStore';
 import { DownloadManager } from '../../services/DownloadManager';
 
@@ -32,6 +36,7 @@ export struct ModelsPage {
   onOpenSettings: () => void = () => {};
   onStar: () => void = () => {};
   onReportIssue: () => void = () => {};
+  onOpenUrl: (url: string) => void = () => {};
   /** Bumped by Index when the models tab becomes visible again. */
   @Watch('onRefreshTick') @Prop refreshTick: number = 0;
   @State private fabOpen: boolean = false;
@@ -163,6 +168,20 @@ export struct ModelsPage {
             this.togglePinned(model);
           }
         })
+      MenuItem({ content: tr('更新') })
+        .onClick(() => {
+          const model = this.menuModel();
+          if (model) {
+            this.updateFromMarket(model);
+          }
+        })
+      MenuItem({ content: tr('打开模型卡') })
+        .onClick(() => {
+          const model = this.menuModel();
+          if (model) {
+            this.openModelCard(model);
+          }
+        })
       MenuItem({ content: tr('模型信息') })
         .onClick(() => {
           const model = this.menuModel();
@@ -218,6 +237,52 @@ export struct ModelsPage {
       customStyle: true
     });
     controller.open();
+  }
+
+  private marketRecord(model: ModelRecord): Promise<MarketModelRecord | undefined> {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    return ModelMarketService.getInstance().load(context, false).then((catalog: MarketCatalogRecord) => {
+      return catalog.models.find((item: MarketModelRecord) => item.modelName === model.name ||
+        model.name.indexOf(item.modelName) === 0);
+    }).catch(() => undefined);
+  }
+
+  /** Android long-press "update": re-download the managed model from its market source. */
+  private updateFromMarket(model: ModelRecord): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.marketRecord(model).then((record: MarketModelRecord | undefined) => {
+      if (!record) {
+        this.error = tr('未在模型市场找到该模型，无法更新');
+        return;
+      }
+      const providers = ProviderAdapters.providers(record);
+      if (providers.length === 0) {
+        this.error = tr('未在模型市场找到该模型，无法更新');
+        return;
+      }
+      return DownloadManager.getInstance().start(context, record, providers[0], () => {
+      }, true);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private openModelCard(model: ModelRecord): void {
+    this.marketRecord(model).then((record: MarketModelRecord | undefined) => {
+      if (!record) {
+        this.error = tr('未在模型市场找到该模型');
+        return;
+      }
+      const providers = ProviderAdapters.providers(record);
+      const url = providers.length > 0 ? ProviderAdapters.webPage(record, providers[0]) : '';
+      if (url) {
+        this.onOpenUrl(url);
+      } else {
+        this.error = tr('未在模型市场找到该模型');
+      }
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
   }
 
   private togglePinned(model: ModelRecord): void {
