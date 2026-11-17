@@ -85,6 +85,16 @@ interface NativeRuntimeConfigDocument {
   max_new_tokens: number;
   system_prompt: string;
   jinja: RuntimeJinja;
+  // Overrides the exported config's vision-encoder section: without it the ViT runs fp32 on
+  // CPU and a single photo takes minutes to prefill.
+  mllm: NativeMllmConfig;
+}
+
+interface NativeMllmConfig {
+  backend_type: string;
+  thread_num: number;
+  precision: string;
+  memory: string;
 }
 
 export class SettingsStore {
@@ -221,7 +231,13 @@ export class SettingsStore {
       ngram_factor: settings.nGramFactor,
       max_new_tokens: settings.maxTokens,
       system_prompt: settings.systemPrompt,
-      jinja: { context: { enable_thinking: settings.thinking } }
+      jinja: { context: { enable_thinking: settings.thinking } },
+      mllm: {
+        backend_type: settings.backendType,
+        thread_num: settings.threadNum,
+        precision: settings.precision === 'high' ? 'low' : settings.precision,
+        memory: settings.memory
+      }
     };
     return JSON.stringify(document);
   }

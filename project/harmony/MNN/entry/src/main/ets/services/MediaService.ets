@@ -3,10 +3,14 @@ import { common } from '@kit.AbilityKit';
 import { camera, cameraPicker } from '@kit.CameraKit';
 import { fileIo, fileUri, picker } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { image } from '@kit.ImageKit';
 import { AttachmentRecord } from '../domain/AppTypes';
 
 export class MediaService {
   private static instance: MediaService = new MediaService();
+  // Full-resolution camera photos (12 MP+) make the vision prefill take minutes on CPU and push
+  // RSS towards the per-app limit; the Android client downsamples attachments, so do we.
+  private static readonly MAX_IMAGE_EDGE: number = 768;
 
   static getInstance(): MediaService {
     return MediaService.instance;
@@ -19,9 +23,48 @@ export class MediaService {
     const result = await new photoAccessHelper.PhotoViewPicker().select(options);
     const attachments: AttachmentRecord[] = [];
     for (let index = 0; index < result.photoUris.length; index++) {
-      attachments.push(this.copyToHistory(context, sessionId, result.photoUris[index], 'image', 'jpg', index));
+      const record = this.copyToHistory(context, sessionId, result.photoUris[index], 'image', 'jpg', index);
+      await this.downscaleImage(record.localPath);
+      record.sizeBytes = this.fileSize(record.localPath);
+      attachments.push(record);
     }
     return attachments;
+  }
+
+  async downscaleImage(path: string): Promise<void> {
+    let source: image.ImageSource | undefined = undefined;
+    try {
+      source = image.createImageSource(path);
+      const info = await source.getImageInfo();
+      const maxEdge = Math.max(info.size.width, info.size.height);
+      if (maxEdge <= MediaService.MAX_IMAGE_EDGE) {
+        return;
+      }
+      const scale = MediaService.MAX_IMAGE_EDGE / maxEdge;
+      const pixelMap = await source.createPixelMap({
+        desiredSize: {
+          width: Math.max(1, Math.round(info.size.width * scale)),
+          height: Math.max(1, Math.round(info.size.height * scale))
+        }
+      });
+      const packer = image.createImagePacker();
+      const tmpPath = `${path}.tmp.jpg`;
+      const file = fileIo.openSync(tmpPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY);
+      await packer.packToFile(pixelMap, file.fd, { format: 'image/jpeg', quality: 90 });
+      fileIo.closeSync(file);
+      packer.release();
+      pixelMap.release();
+      fileIo.renameSync(tmpPath, path);
+    } catch (error) {
+      // Keep the original attachment when downsampling fails for any reason.
+    } finally {
+      if (source) {
+        try {
+          source.release();
+        } catch (error) {
+        }
+      }
+    }
   }
 
   async capturePhoto(context: common.UIAbilityContext, sessionId: string): Promise<AttachmentRecord[]> {
@@ -31,18 +74,24 @@ export class MediaService {
     }
     const fileName = `image-${Date.now()}-camera.jpg`;
     const targetPath = `${directory}/${fileName}`;
-    const file = fileIo.openSync(targetPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY);
-    fileIo.closeSync(file);
-    const profile = new cameraPicker.PickerProfile();
-    profile.cameraPosition = camera.CameraPosition.CAMERA_POSITION_BACK;
-    profile.saveUri = fileUri.getUriFromPath(targetPath);
+    // PickerProfile instances expose read-only properties at runtime; pass a plain literal.
+    // The saveUri target must exist beforehand, otherwise the picker returns success with
+    // an empty resultUri and writes nothing.
+    const pre = fileIo.openSync(targetPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY);
+    fileIo.closeSync(pre);
+    const profile: cameraPicker.PickerProfile = {
+      cameraPosition: camera.CameraPosition.CAMERA_POSITION_BACK,
+      saveUri: fileUri.getUriFromPath(targetPath)
+    };
     const result = await cameraPicker.pick(context, [cameraPicker.PickerMediaType.PHOTO], profile);
+    console.info(`[Media] cameraPicker result=${result.resultCode} uri=${result.resultUri || 'none'}`);
     if (result.resultCode !== 0 || !fileIo.accessSync(targetPath) || fileIo.statSync(targetPath).size === 0) {
       if (fileIo.accessSync(targetPath)) {
         fileIo.unlinkSync(targetPath);
       }
       return [];
     }
+    await this.downscaleImage(targetPath);
     return [this.createAttachment(targetPath, 'image', fileName)];
   }
 

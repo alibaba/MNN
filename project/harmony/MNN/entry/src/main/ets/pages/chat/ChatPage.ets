@@ -253,6 +253,14 @@ export struct ChatPage {
       message.reasoning = record.reasoningContent;
       message.metrics = record.metrics;
       message.attachments = await AttachmentRepository.getInstance().getForMessage(record.id);
+      for (let ai = 0; ai < message.attachments.length; ai++) {
+        const attachment = message.attachments[ai];
+        if (attachment.mediaType === 'image') {
+          // Migrate pre-downscale attachments (e.g. 12 MP camera originals): the vision
+          // encoder would otherwise re-encode them for minutes on every generate.
+          await MediaService.getInstance().downscaleImage(attachment.localPath);
+        }
+      }
       restored.push(message);
     }
     if (restoreSequence !== this.restoreSequence) {
@@ -323,6 +331,7 @@ export struct ChatPage {
     MediaService.getInstance().capturePhoto(context, this.currentSessionId).then((items: AttachmentRecord[]) => {
       this.pendingAttachments = this.pendingAttachments.concat(items);
     }).catch((error: Error) => {
+      console.error(`[Chat] capturePhoto failed: ${error.message} | stack: ${error.stack}`);
       this.error = error.message;
     });
   }
