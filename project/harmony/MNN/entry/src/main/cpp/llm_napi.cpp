@@ -230,6 +230,7 @@ void callAudio(napi_env env, napi_value callback, void*, void* data) {
         return;
     }
     napi_value receiver;
+    napi_get_undefined(env, &receiver);
     napi_value arrayBuffer;
     void* bufferData = nullptr;
     napi_create_arraybuffer(env, samples->size() * sizeof(int16_t), &bufferData, &arrayBuffer);
@@ -375,7 +376,8 @@ napi_value RunLlmBenchmark(napi_env env, napi_callback_info info) {
         !readNamedInt(env, args[0], "generateTokens", context->request.generateTokens) ||
         !readNamedInt(env, args[0], "repeats", context->request.repeats) || context->request.requestId.empty() ||
         context->request.promptTokens <= 0 || context->request.generateTokens <= 0 || context->request.repeats <= 0 ||
-        context->request.repeats > 20 || napi_typeof(env, args[1], &callbackType) != napi_ok ||
+        context->request.repeats > 20 || context->request.promptTokens > 32768 ||
+        context->request.generateTokens > 32768 || napi_typeof(env, args[1], &callbackType) != napi_ok ||
         callbackType != napi_function) {
         napi_throw_type_error(env, nullptr, "runLlmBenchmark expects a valid request and progress callback");
         return nullptr;

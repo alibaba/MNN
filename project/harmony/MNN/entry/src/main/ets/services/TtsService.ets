@@ -52,6 +52,16 @@ export class TtsService {
       onDone();
       return;
     }
+    if (this.pendingDone) {
+      // Never strand a waiter (the voice-chat loop pauses the mic until onDone fires).
+      const stranded = this.pendingDone;
+      this.pendingDone = null;
+      try {
+        engine.stop();
+      } catch (error) {
+      }
+      stranded();
+    }
     this.pendingDone = onDone;
     const params: textToSpeech.SpeakParams = { requestId: `tts_${Date.now()}` };
     engine.speak(text, params);

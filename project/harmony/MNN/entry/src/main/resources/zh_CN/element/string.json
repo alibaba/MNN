@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "MNN Chat"
+    },
+    {
+      "name": "microphone_reason",
+      "value": "MNN Chat 需要麦克风用于语音输入与免提语音对话。"
     }
   ]
 }

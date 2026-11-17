@@ -87,6 +87,7 @@ export class ApiServerStatus {
 export class ApiServer {
   private static instance: ApiServer = new ApiServer();
   private server?: socket.TCPSocketServer;
+  private boundAddress: string = '';
   private clients: Map<number, ClientState> = new Map<number, ClientState>();
   private context?: common.UIAbilityContext;
   private target?: NativeTarget;
@@ -141,6 +142,13 @@ export class ApiServer {
     const server = socket.constructTCPSocketServerInstance();
     await server.listen({ address: listenAddress, family: 1, port: port });
     const localAddress = await server.getLocalAddress();
+    // LAN clients reach us through this address; Host-header validation accepts it.
+    this.boundAddress = localAddress.address;
+    if (this.bindAll) {
+      // 0.0.0.0 exposure without a bearer token would let anyone on the network drive the
+      // model, so listening on LAN implicitly requires authentication.
+      this.authEnabled = true;
+    }
     if (localAddress.port !== port || (!this.bindAll && localAddress.address !== '127.0.0.1')) {
       await server.close();
       throw new Error(`${tr('无法绑定地址 ')}${listenAddress}:${port}`);
@@ -177,6 +185,7 @@ export class ApiServer {
   getStatus(): ApiServerStatus {
     const status = new ApiServerStatus();
     status.running = !!this.server;
+    status.address = this.bindAll ? (this.boundAddress || '0.0.0.0') : '127.0.0.1';
     status.port = this.port;
     status.token = this.token;
     status.connections = this.clients.size;
@@ -261,6 +270,10 @@ export class ApiServer {
     }
     if (!request.headers.has('host')) {
       throw new Error(tr('缺少 Host 请求头'));
+    }
+    // DNS-rebinding guard: only accept Host values that actually belong to this device.
+    if (!this.isAllowedHost(request.headers.get('host') || '')) {
+      throw new Error(tr('非法 Host 请求头'));
     }
     if (request.headers.has('transfer-encoding')) {
       throw new Error(tr('不支持 Transfer-Encoding 请求体'));
@@ -539,7 +552,16 @@ export class ApiServer {
     }
     return `Access-Control-Allow-Origin: ${allowed}\r\n` +
       'Access-Control-Allow-Headers: Authorization, Content-Type, x-api-key, anthropic-version\r\n' +
-      'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n';
+      'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n' +
+      (allowed === '*' ? '' : 'Vary: Origin\r\n');
+  }
+
+  private isAllowedHost(host: string): boolean {
+    const name = host.split(':')[0].toLowerCase();
+    if (name === '127.0.0.1' || name === 'localhost' || name === '::1') {
+      return true;
+    }
+    return this.bindAll && this.boundAddress !== '' && name === this.boundAddress.toLowerCase();
   }
 
   private allowedOrigin(origin: string): string {
@@ -551,7 +573,8 @@ export class ApiServer {
       }
     });
     if (entries.length === 0) {
-      return '*';
+      // An empty whitelist disables cross-origin access instead of allowing everyone.
+      return '';
     }
     if (!origin) {
       return '';
@@ -576,8 +599,12 @@ export class ApiServer {
   }
 
   private queueSend(client: ClientState, data: string): Promise<void> {
-    client.writeTail = client.writeTail.then(() => client.connection.send({ data: data, encoding: 'UTF-8' }));
-    return client.writeTail;
+    const next = client.writeTail.catch(() => {
+    }).then(() => client.connection.send({ data: data, encoding: 'UTF-8' }));
+    // Keep the chain alive even when a send fails, otherwise every later write rejects.
+    client.writeTail = next.catch(() => {
+    });
+    return next;
   }
 
   private sendRaw(connection: socket.TCPSocketConnection, data: string): Promise<void> {

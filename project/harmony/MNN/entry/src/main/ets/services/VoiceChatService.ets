@@ -143,7 +143,14 @@ export class VoiceChatService {
         capturerFlags: 0
       }
     };
-    const capturer = await audio.createAudioCapturer(options);
+    let capturer: audio.AudioCapturer;
+    try {
+      capturer = await audio.createAudioCapturer(options);
+    } catch (error) {
+      this.running = false;
+      this.shutdownEngine();
+      throw error as Error;
+    }
     try {
       capturer.on('readData', this.readCallback);
       await capturer.start();
@@ -154,6 +161,7 @@ export class VoiceChatService {
       capturer.off('readData', this.readCallback);
       await capturer.release();
       this.running = false;
+      this.shutdownEngine();
       throw error as Error;
     }
   }
@@ -186,6 +194,17 @@ export class VoiceChatService {
       }
     }
     this.callbacks.onState('idle', '');
+  }
+
+  private shutdownEngine(): void {
+    const engine = this.engine;
+    this.engine = undefined;
+    if (engine) {
+      try {
+        engine.shutdown();
+      } catch (error) {
+      }
+    }
   }
 
   private openSession(): void {

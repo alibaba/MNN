@@ -9,6 +9,7 @@ import {
   NativeBenchmarkRequest,
   NativeBenchmarkResult,
   NativeBenchmarkSample,
+  NativeLoadResult,
   NativeTarget
 } from './GenerationCoordinator';
 import { SettingsStore } from './SettingsStore';
@@ -95,14 +96,22 @@ export class BenchmarkService {
     };
     const sampler = new PeakMemorySampler();
     sampler.start();
-    const loadResult = await GenerationCoordinator.getInstance().prepare(target);
+    let loadResult: NativeLoadResult;
+    let result: NativeBenchmarkResult;
     const request: NativeBenchmarkRequest = {
       requestId: requestId,
       promptTokens: promptTokens,
       generateTokens: generateTokens,
       repeats: repeats
     };
-    const result = await GenerationCoordinator.getInstance().benchmark(target, request, onProgress);
+    try {
+      loadResult = await GenerationCoordinator.getInstance().prepare(target);
+      result = await GenerationCoordinator.getInstance().benchmark(target, request, onProgress);
+    } catch (error) {
+      // Without this the 500 ms PSS interval would outlive the failed run forever.
+      sampler.stop();
+      throw error as Error;
+    }
     const peakMemoryKb = sampler.stop();
     const summary = this.summarize(model.id, backendType, loadResult.loadMs, request, result);
     summary.peakMemoryKb = peakMemoryKb;

@@ -150,6 +150,10 @@ export class GenerationCoordinator {
       }
       await testNapi.loadLlm(target.configPath, target.runtimeConfigJson);
       MemoryProbe.snapshot('gen-loaded', target.runtimeConfigJson);
+      // A cancel that arrived while the model was loading must not start the generation.
+      if (this.canceled.delete(request.requestId)) {
+        return this.canceledGenerateResult(request.requestId);
+      }
       this.activeRequestId = request.requestId;
       try {
         const result = await testNapi.generateLlm(request, onChunk, onAudio) as NativeGenerateResult;

@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "MNN Chat"
+    },
+    {
+      "name": "microphone_reason",
+      "value": "MNN Chat needs the microphone for voice input and hands-free voice chat."
     }
   ]
 }

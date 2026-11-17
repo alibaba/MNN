@@ -14,7 +14,7 @@ export class ReasoningResult {
  * as normal output, exactly like the Android processor does with its pending buffer.
  */
 export class ReasoningParser {
-  private static readonly OPEN_TAG: string = ' thinking';
+  private static readonly OPEN_TAG: string = '\u003cthink\u003e';
   private static readonly CLOSE_TAG: string = '\u003c/think\u003e';
 
   static parse(rawText: string): ReasoningResult {

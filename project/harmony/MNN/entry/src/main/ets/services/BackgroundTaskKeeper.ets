@@ -51,6 +51,14 @@ export class BackgroundTaskKeeper {
     if (this.owners.size > 0) {
       return;
     }
+    // A startTask still in flight would flip running=true after we bail out here, leaving the
+    // continuous task running with no owners left to ever stop it.
+    if (this.starting) {
+      try {
+        await this.starting;
+      } catch (error) {
+      }
+    }
     if (!this.running || !this.context) {
       return;
     }

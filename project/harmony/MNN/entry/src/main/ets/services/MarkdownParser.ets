@@ -108,7 +108,9 @@ export class MarkdownParser {
   private static replaceInlineMath(text: string): string {
     const render = (whole: string, group: string): string => MarkdownParser.latexToUnicode(group);
     // Display pairs on a single line first, otherwise their outer dollars survive the inline pass.
-    return text.replace(/\$\$([^$\n]+)\$\$/g, render).replace(/\$([^$\n]+)\$/g, render);
+    // Require non-space edges so prose like "costs $5 or $10" is not treated as math.
+    return text.replace(/\$\$([^$\n]+)\$\$/g, render)
+      .replace(/\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, render);
   }
 
   static parse(source: string): MarkdownBlock[] {

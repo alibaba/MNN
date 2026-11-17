@@ -31,6 +31,12 @@ export class BenchmarkRepository {
     return record;
   }
 
+  async deleteForModel(modelId: string): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('benchmark_results');
+    predicates.equalTo('model_id', modelId);
+    await AppDatabase.getInstance().getStore().delete(predicates);
+  }
+
   async listLatest(modelId: string, limit: number = 10): Promise<BenchmarkRecord[]> {
     const predicates = new relationalStore.RdbPredicates('benchmark_results');
     predicates.equalTo('model_id', modelId).orderByDesc('created_at').limitAs(limit);

@@ -125,6 +125,10 @@ export struct ChatPage {
     if (this.voiceChatOn) {
       this.stopVoiceChat();
     }
+    if (this.isGenerating && this.activeRequestId) {
+      // Chunks must not keep flowing into a destroyed component; mark the record canceled.
+      GenerationCoordinator.getInstance().cancel(this.activeRequestId);
+    }
     if (this.diffusionTimerId >= 0) {
       clearInterval(this.diffusionTimerId);
       this.diffusionTimerId = -1;
@@ -726,6 +730,8 @@ export struct ChatPage {
       await this.runDiffusion(input);
       return;
     }
+    // Set before the (slow) video frame extraction so the send button cannot double-fire.
+    this.isGenerating = true;
     const displayInput = input || tr('已发送附件');
     let nativeInput = '';
     const videoAttachment = attachments.find((item: AttachmentRecord) => item.mediaType === 'video');
@@ -741,6 +747,7 @@ export struct ChatPage {
       this.modelStatus = previousStatus;
       if (frames.length === 0) {
         this.error = tr('无法从视频中提取画面');
+        this.isGenerating = false;
         return;
       }
       const nonVideo = attachments.filter((item: AttachmentRecord) => item.mediaType !== 'video');
@@ -753,7 +760,6 @@ export struct ChatPage {
 
     this.error = '';
     this.metrics = '';
-    this.isGenerating = true;
     this.stopRequested = false;
     this.streamingAnswer = '';
     const requestId = GenerationCoordinator.getInstance().createRequestId('chat');
@@ -1388,7 +1394,7 @@ export struct ChatPage {
       .padding({ left: 6, right: 6, top: 8, bottom: 8 })
       .backgroundColor($r('app.color.background'))
 
-      if (!this.modelStatus.startsWith(tr('模型已就绪'))) {
+      if (!this.isModelReady) {
         Text(`${this.activeModelName || this.activeModelId} · ${this.modelStatus}`)
           .fontSize(12)
           .fontColor($r('app.color.text_secondary'))

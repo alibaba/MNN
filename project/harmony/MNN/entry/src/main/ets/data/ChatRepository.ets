@@ -262,7 +262,13 @@ export class ChatRepository {
     if (!value) {
       return metrics;
     }
-    const parsed = JSON.parse(value) as GenerationMetrics;
+    let parsed: GenerationMetrics;
+    try {
+      parsed = JSON.parse(value) as GenerationMetrics;
+    } catch (error) {
+      // A single corrupt metrics_json row must not break session loading.
+      return metrics;
+    }
     metrics.loadMs = parsed.loadMs;
     metrics.firstTokenMs = parsed.firstTokenMs;
     metrics.promptTokens = parsed.promptTokens;

@@ -4,6 +4,7 @@ import fs from '@ohos.file.fs';
 import fileUri from '@ohos.file.fileuri';
 import statvfs from '@ohos.file.statvfs';
 import { AppDatabase } from './AppDatabase';
+import { BenchmarkRepository } from './BenchmarkRepository';
 import { ModelCapabilities, ModelRecord, ModelState, ModelStorageStats } from '../domain/AppTypes';
 import { SplitFileMerger } from '../services/SplitFileMerger';
 
@@ -354,6 +355,8 @@ export class ModelRepository {
         movedToTrash = true;
       }
       await this.deleteRecord(modelId);
+      // Avoid unbounded growth of per-model benchmark history for deleted models.
+      await BenchmarkRepository.getInstance().deleteForModel(modelId);
     } catch (error) {
       if (movedToTrash && fs.accessSync(trashPath) && !fs.accessSync(model.rootPath)) {
         fs.renameSync(trashPath, model.rootPath);

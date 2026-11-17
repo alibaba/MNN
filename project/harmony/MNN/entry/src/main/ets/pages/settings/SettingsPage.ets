@@ -715,8 +715,11 @@ export struct SettingsPage {
               }
               .width('100%')
               TextInput({ text: `${this.settings.diffusionSeed}`, placeholder: tr('42，-1 表示每次随机') })
-                .type(InputType.Number)
+                .type(InputType.Normal)
                 .onChange((value: string) => {
+                  if (value !== '' && value !== '-' && !/^-?\d+$/.test(value)) {
+                    return;
+                  }
                   const parsed = Number(value);
                   if (value === '' || value === '-' || Number.isNaN(parsed)) {
                     return;

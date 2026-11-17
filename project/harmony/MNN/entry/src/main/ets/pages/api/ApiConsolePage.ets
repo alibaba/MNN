@@ -30,6 +30,7 @@ export struct ApiConsolePage {
   @State private corsOriginsText: string = '';
   @State private httpsUrl: boolean = false;
   @State private tokenText: string = '';
+  @State private notice: string = '';
 
   aboutToAppear(): void {
     this.status = ApiServer.getInstance().getStatus();
@@ -66,13 +67,22 @@ export struct ApiConsolePage {
 
   private saveApiSettings(): void {
     const store = SettingsStore.getInstance();
+    const token = this.tokenText.trim();
+    if (token && token.length < 32) {
+      this.error = tr('Token 至少 32 字符');
+      return;
+    }
+    // 0.0.0.0 exposure without a bearer token would be an open model endpoint on the LAN.
+    if (this.bindAll && !this.authEnabled) {
+      this.authEnabled = true;
+    }
     this.busy = true;
     Promise.all([
       store.putBoolean(API_BIND_ALL_KEY, this.bindAll),
       store.putBoolean(API_AUTH_ENABLED_KEY, this.authEnabled),
       store.putBoolean(API_CORS_ENABLED_KEY, this.corsEnabled),
       store.putString(API_CORS_ORIGINS_KEY, this.corsOriginsText.trim()),
-      store.putString(API_TOKEN_SETTING_KEY, this.tokenText.trim())
+      store.putString(API_TOKEN_SETTING_KEY, token)
     ]).then(() => {
       if (this.status.running) {
         return ApiServer.getInstance().stop();
@@ -85,8 +95,10 @@ export struct ApiConsolePage {
       }
       return Promise.resolve();
     }).then(() => {
-      this.error = tr('设置已保存，重新启动服务后生效');
+      this.notice = tr('设置已保存，重新启动服务后生效');
+      this.error = '';
     }).catch((error: Error) => {
+      this.notice = '';
       this.error = error.message;
     }).finally(() => {
       this.busy = false;
@@ -111,7 +123,8 @@ export struct ApiConsolePage {
         store.putString(API_TOKEN_SETTING_KEY, '')
       ]);
     }).then(() => {
-      this.error = tr('已恢复默认设置，重新启动服务后生效');
+      this.notice = tr('已恢复默认设置，重新启动服务后生效');
+      this.error = '';
     }).catch((error: Error) => {
       this.error = error.message;
     });
@@ -382,6 +395,12 @@ export struct ApiConsolePage {
       .borderRadius(14)
       .margin({ left: 16, right: 16, bottom: 14 })
 
+      if (this.notice) {
+        Text(this.notice)
+          .fontSize(13)
+          .fontColor($r('app.color.success'))
+          .padding(16)
+      }
       if (this.error) {
         Text(`${tr('错误：')}${this.error}`)
           .fontSize(13)

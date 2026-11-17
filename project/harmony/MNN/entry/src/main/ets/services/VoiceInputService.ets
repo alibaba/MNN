@@ -105,7 +105,14 @@ export class VoiceInputService {
         capturerFlags: 0
       }
     };
-    const capturer = await audio.createAudioCapturer(options);
+    let capturer: audio.AudioCapturer;
+    try {
+      capturer = await audio.createAudioCapturer(options);
+    } catch (error) {
+      this.listening = false;
+      this.releaseEngine();
+      throw error as Error;
+    }
     try {
       capturer.on('readData', this.readCallback);
       await capturer.start();

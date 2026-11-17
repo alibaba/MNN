@@ -308,8 +308,12 @@ void LlmSession::generate(const GenerateRequest& request, const ChunkCallback& o
         });
     }
     mLlm->response(request.messages, &output, "<eop>", maxTokens);
-    if (captureAudio) {
+    // Always unregister: the lambda captures stack locals by reference, so leaving it
+    // installed (streamAudio without audioOutputPath) would dangle after generate() returns.
+    if (captureAudio || request.streamAudio) {
         mLlm->setWavformCallback(nullptr);
+    }
+    if (captureAudio) {
         writePcm16Wav(request.audioOutputPath, audioSamples);
     }
     const auto end = std::chrono::steady_clock::now();
