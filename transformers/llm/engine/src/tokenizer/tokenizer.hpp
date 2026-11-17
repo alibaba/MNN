@@ -151,7 +151,7 @@ public:
     static Tokenizer* createTokenizer(const LlmResources::Resource& source);
     bool is_stop(int token);
     bool is_special(int token);
-    std::vector<int> encode(const std::string& str, bool with_post_processor = true);
+    std::vector<int> encode(const std::string& str, bool add_special_tokens = true);
     PostProcessorInfo post_process(std::vector<int>& ids) const { return apply_post_processor(ids); }
     virtual std::string decode(int id) = 0;
     virtual std::string decode(const std::vector<int>& ids);

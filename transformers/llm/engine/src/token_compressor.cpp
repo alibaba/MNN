@@ -78,8 +78,8 @@ static bool compressPrompt(Tokenizer* tokenizer, std::vector<int>& ids, size_t m
     return true;
 }
 
-std::vector<int> encodePrompt(Tokenizer* tokenizer, const std::string& text, int maxTokens) {
-    auto ids = tokenizer->encode(text);
+std::vector<int> encodePrompt(Tokenizer* tokenizer, const std::string& text, int maxTokens, bool add_special_tokens) {
+    auto ids = tokenizer->encode(text, add_special_tokens);
     if (maxTokens < 0) {
         MNN_ERROR("token_compress must be a non-negative integer token limit\n");
         return {};

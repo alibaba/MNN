@@ -826,6 +826,17 @@ struct CallExpr : Expr {
     std::string dump() const override { return func_name + "(...)"; }
 };
 
+static json dict_items(const json& obj) {
+    json arr = json::array();
+    for (json::const_iterator it = obj.begin(); it != obj.end(); ++it) {
+        json pair = json::array();
+        pair.push_back(it.key());
+        pair.push_back(it.value());
+        arr.push_back(pair);
+    }
+    return arr;
+}
+
 struct MethodCallExpr : Expr {
     std::unique_ptr<Expr> object;
     std::string method;
@@ -902,6 +913,16 @@ struct MethodCallExpr : Expr {
                      return res;
                  }
             }
+        } else if (obj_val.is_object() && !is_undefined(obj_val)) {
+            if (method == "get" && !args.empty()) {
+                json key = args[0]->evaluate(context);
+                if (key.is_string() && obj_val.contains(key.get<std::string>())) {
+                    return obj_val[key.get<std::string>()];
+                }
+                return args.size() > 1 ? args[1]->evaluate(context) : json(nullptr);
+            } else if (method == "items") {
+                return dict_items(obj_val);
+            }
         }
         return "";
     }
@@ -956,17 +977,7 @@ struct FilterExpr : Expr {
                 return s.substr(start, end - start + 1);
             }
         } else if (name == "items") {
-             if (val.is_object()) {
-                 json arr = json::array();
-                  for (json::const_iterator it = val.begin(); it != val.end(); ++it) {
-                      json pair = json::array();
-                      pair.push_back(it.key());
-                      pair.push_back(it.value());
-                      arr.push_back(pair);
-                  }
-                 return arr;
-             }
-             return json::array();
+            return val.is_object() ? dict_items(val) : json::array();
         } else if (name == "lower") {
              if (val.is_string()) {
                  std::string s = val.get<std::string>();

@@ -174,26 +174,23 @@ std::string Llm::dump_config() {
 void Llm::setChatTemplate() {
     if (!mTokenizer || !mConfig->config_.contains("jinja")) return;
     auto jinja = mConfig->config_["jinja"];
-    if (jinja.contains("chat_template")) {
-        ujson::json context_json = jinja.contains("context") ? jinja["context"] : ujson::json::object();
-        if (!context_json.is_object()) {
-            context_json = ujson::json::object();
-        }
-        if (mConfig->config_.contains("asr_language")) {
-            context_json["asr_language"] = mConfig->asr_language();
-        }
-        mTokenizer->set_chat_template(jinja["chat_template"].get<std::string>(), jinja.value("eos", ""),
-                                      context_json.dump());
+
+    auto context = ujson::json::object();
+    if (jinja.contains("bos") && jinja["bos"].is_string()) {
+        context["bos_token"] = jinja["bos"];
     }
-    if (jinja.contains("context") || mConfig->config_.contains("asr_language")) {
-        ujson::json context_json = jinja.contains("context") ? jinja["context"] : ujson::json::object();
-        if (!context_json.is_object()) {
-            context_json = ujson::json::object();
-        }
-        if (mConfig->config_.contains("asr_language")) {
-            context_json["asr_language"] = mConfig->asr_language();
-        }
-        mTokenizer->set_chat_template_context(context_json.dump());
+    if (jinja.contains("context") && jinja["context"].is_object()) {
+        context.merge(jinja["context"]);
+    }
+    if (mConfig->config_.contains("asr_language")) {
+        context["asr_language"] = mConfig->asr_language();
+    }
+
+    if (jinja.contains("chat_template")) {
+        mTokenizer->set_chat_template(jinja["chat_template"].get<std::string>(), jinja.value("eos", ""),
+                                      context.dump());
+    } else if (jinja.contains("bos") || jinja.contains("context") || mConfig->config_.contains("asr_language")) {
+        mTokenizer->set_chat_template_context(context.dump());
     }
 }
 
@@ -1205,6 +1202,10 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
     return mContext->output_tokens;
 }
 
+bool Llm::has_chat_template() const {
+    return !mTokenizer->chat_template().empty();
+}
+
 std::string Llm::apply_chat_template(const std::string& user_content) const {
     return mTokenizer->apply_chat_template(user_content, mConfig->system_prompt());
 }
@@ -1213,20 +1214,17 @@ std::string Llm::apply_chat_template(const ChatMessages& chat_prompts) const {
     return mTokenizer->apply_chat_template(chat_prompts, true);
 }
 
-std::vector<int> Llm::tokenizer_encode(const std::string& user_content) {
+std::vector<int> Llm::tokenizer_encode(const std::string& user_content, bool add_special_tokens) {
 #ifdef MNN_LLM_TOKEN_COMPRESS
-    return TokenCompression::encodePrompt(mTokenizer.get(), user_content, mConfig->token_compress());
+    return TokenCompression::encodePrompt(mTokenizer.get(), user_content, mConfig->token_compress(),
+                                          add_special_tokens);
 #else
-    return mTokenizer->encode(user_content);
+    return mTokenizer->encode(user_content, add_special_tokens);
 #endif
 }
 
-std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
-#ifdef MNN_LLM_TOKEN_COMPRESS
-    return TokenCompression::encodePrompt(mTokenizer.get(), multimodal_input.prompt_template, mConfig->token_compress());
-#else
-    return mTokenizer->encode(multimodal_input.prompt_template);
-#endif
+std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input, bool add_special_tokens) {
+    return Llm::tokenizer_encode(multimodal_input.prompt_template, add_special_tokens);
 }
 
 void Llm::response(const MultimodalPrompt& multimodal_input,
@@ -1237,7 +1235,8 @@ void Llm::response(const MultimodalPrompt& multimodal_input,
     if (mConfig->use_template()) {
         multimodal_input_copy.prompt_template = apply_chat_template(multimodal_input_copy.prompt_template);
     }
-    std::vector<int> input_ids = tokenizer_encode(multimodal_input_copy);
+    const bool add_special_tokens = !mConfig->use_template() || mTokenizer->chat_template().empty();
+    std::vector<int> input_ids = tokenizer_encode(multimodal_input_copy, add_special_tokens);
     response(input_ids, os, end_with, max_new_tokens);
 }
 
@@ -1357,13 +1356,16 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
     CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     auto prompt = user_content;
+    bool add_special_tokens = true;
     if (mConfig->use_template()) {
         prompt = apply_chat_template(user_content);
         if (prompt.empty()) {
             prompt = user_content;
+        } else {
+            add_special_tokens = mTokenizer->chat_template().empty();
         }
     }
-    std::vector<int> input_ids = tokenizer_encode(prompt);
+    std::vector<int> input_ids = tokenizer_encode(prompt, add_special_tokens);
     if (input_ids.empty()) {
         MNN_ERROR("[Error]: empty input_ids after tokenizer_encode in Llm::response(text)\n");
         mContext->status = LlmStatus::INTERNAL_ERROR;
@@ -1379,6 +1381,7 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
         return;
     }
     std::string prompt = apply_chat_template(chat_prompts);
+    const bool add_special_tokens = mTokenizer->chat_template().empty();
 
     // Prompt cache: compare current prompt text against the previous turn's to
     // find the common prefix, then only tokenize and prefill the new suffix.
@@ -1403,7 +1406,7 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
                 mContext->history_tokens.clear();
             }
             mMeta->remove = mMeta->previous;
-            std::vector<int> input_ids = tokenizer_encode(prompt);
+            std::vector<int> input_ids = tokenizer_encode(prompt, add_special_tokens);
             size_t history_before = input_ids.size(); // generate() pushes these first
             response(input_ids, os, end_with, max_new_tokens);
             if (mConfig->prompt_cache()) {
@@ -1414,15 +1417,9 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
 
         // Tokenize the full prompt and split at a token boundary rather than
         // tokenizing a text substring (which can land mid-token for BPE/UTF-8).
-        std::vector<int> full_tokens = tokenizer_encode(prompt);
-        // Detect prefix token count (BOS, etc.) by encoding an empty string.
-        // tokenizer_encode("") returns only the prefix tokens that are
-        // automatically prepended to every input (e.g., <|begin_of_text|>).
-        // This count is used to skip prefix tokens when mapping text
-        // positions to token indices, since they don't correspond to any
-        // prompt text bytes. Assumption: prefix tokens are constant across
-        // inputs for a given tokenizer configuration.
-        size_t prefix_count = tokenizer_encode("").size();
+        std::vector<int> full_tokens = tokenizer_encode(prompt, add_special_tokens);
+        // Template control tokens correspond to text bytes; only skip automatically inserted tokens.
+        size_t prefix_count = tokenizer_encode("", add_special_tokens).size();
         size_t char_pos = 0;
         size_t token_split = prefix_count; // start after prefix tokens
         for (size_t i = prefix_count; i < full_tokens.size(); i++) {
@@ -1479,7 +1476,7 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
             }
             mMeta->remove = mMeta->previous;
         }
-        std::vector<int> input_ids = tokenizer_encode(prompt);
+        std::vector<int> input_ids = tokenizer_encode(prompt, add_special_tokens);
         // history_before accounts for input_ids that generate() pushes first
         size_t history_before = input_ids.size();
         response(input_ids, os, end_with, max_new_tokens);

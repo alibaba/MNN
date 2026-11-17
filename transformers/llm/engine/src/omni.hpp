@@ -168,8 +168,9 @@ public:
     bool load() override;
     std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos,
                                           Express::VARPS extraArgs = {}) override;
-    std::vector<int> tokenizer_encode(const std::string& query) override;
-    std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input) override;
+    std::vector<int> tokenizer_encode(const std::string& query, bool add_special_tokens = true) override;
+    std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input,
+                                      bool add_special_tokens = true) override;
     Express::VARP embedding(const std::vector<int>& input_ids) override;
     Express::VARP gen_attention_mask(int seq_len) override;
     Express::VARP gen_position_ids(int seq_len) override;

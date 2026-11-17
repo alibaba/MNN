@@ -235,10 +235,11 @@ public:
     // tokenier function
     bool is_stop(int token);
     std::string tokenizer_decode(int token);
-    virtual std::vector<int> tokenizer_encode(const std::string& query);
+    virtual std::vector<int> tokenizer_encode(const std::string& query, bool add_special_tokens = true);
     friend class Pipeline;
-    virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input);
+    virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input, bool add_special_tokens = true);
     // ptompt functions
+    bool has_chat_template() const;
     std::string apply_chat_template(const std::string& user_content) const;
     std::string apply_chat_template(const ChatMessages& chat_prompts) const;
     void response(const MultimodalPrompt& multimodal_input,
