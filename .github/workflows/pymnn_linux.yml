@@ -24,14 +24,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - name: prepare
         run: |
-            sudo pip3 install "numpy<2.5" "opencv-python<5" torch
+            python3 -m venv "$RUNNER_TEMP/pymnn-venv"
+            echo "$RUNNER_TEMP/pymnn-venv/bin" >> "$GITHUB_PATH"
+            "$RUNNER_TEMP/pymnn-venv/bin/python" -m pip install "setuptools>=77.0.3,<81" "numpy<2.5" "opencv-python<5"
+            "$RUNNER_TEMP/pymnn-venv/bin/python" -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: build
         run: |
             cd pymnn/pip_package
             python3 build_deps.py llm
-            sudo python3 setup.py install --version 1.0
+            python3 setup.py install --version 1.0
       - name: test
         run: |
             cd pymnn/test

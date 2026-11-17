@@ -17,6 +17,8 @@
 #include <iomanip>
 #include <limits>
 #include <random>
+#include <numeric>
+#include <fstream>
 #include <sstream>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -27,6 +29,7 @@
 #include "tokenizer/tokenizer.hpp"
 #include "diskembedding.hpp"
 #include "sampler.hpp"
+#include "speculative_decoding/generate.hpp"
 #ifdef LLM_SUPPORT_HTTP_RESOURCE
 #include "httplib.h"
 #endif
@@ -479,9 +482,11 @@ struct Omni::VisionProcessor {
     struct Qwen;
     struct Qwen25;
     struct Qwen3;
+    struct Lfm3;
     struct Idefics;
     struct MiniCPM;
     struct MiniCPM47;
+    struct MiniCPMOcr;
     struct Hunyuan;
     struct Gemma4;
     explicit VisionProcessor(Omni& omni) : mOmni(omni) {}
@@ -489,6 +494,21 @@ struct Omni::VisionProcessor {
     static std::unique_ptr<VisionProcessor> create(Omni& omni);
     virtual Plan prepare(VARP image) = 0;
     virtual std::vector<int> video(const std::vector<VARP>& frames, const std::vector<float>& timestamps);
+    virtual int videoFrameCount(int count) const {
+        return qwenVideoAlignedFrameCount(count, mOmni.mVideoMaxFrames,
+                                          mOmni.mVisionConfig.value("temporal_patch_size", 2));
+    }
+    virtual std::vector<int> videoSamples(int count, double fps) const {
+        return qwenVideoSampleIndices(count, fps, mOmni.mVideoFps, 4, mOmni.mVideoMaxFrames);
+    }
+    virtual std::pair<int, int> videoSize(int width, int height, int count) const {
+        int patch = mOmni.mVisionConfig.value("patch_size", 14);
+        int temporal = mOmni.mVisionConfig.value("temporal_patch_size", 2);
+        int factor = patch * mOmni.mVisionConfig.value("spatial_merge_size", 2);
+        int maxPixels = qwenVideoEffectiveMaxPixels(mOmni.mVideoMaxPixels, mOmni.mVideoMaxVisionTokens,
+                                                    videoFrameCount(count), temporal, patch);
+        return qwenVideoResizeSize(width, height, factor, maxPixels);
+    }
     std::vector<int> encode(const Plan& plan);
     virtual bool splitVideoFrames() const { return false; }
     virtual bool relativeSpatialPositions() const { return false; }
@@ -511,6 +531,7 @@ struct Omni::VisionProcessor::Fixed : VisionProcessor {
 
 struct Omni::AudioProcessor {
     struct Whisper;
+    struct Lfm3;
     struct Conformer;
     struct Gemma4;
     explicit AudioProcessor(Omni& omni) : mOmni(omni) {}
@@ -519,6 +540,191 @@ struct Omni::AudioProcessor {
     virtual VARP extract(VARP waveform) const = 0;
     VARPS prepare(VARP waveform) const;
     Omni& mOmni;
+};
+
+class Omni::Lfm3Speech {
+public:
+    explicit Lfm3Speech(const std::shared_ptr<LlmConfig>& config) : mConfig(config), mRng(std::random_device{}()) {
+        settings = config->config_["lfm3_speech"];
+    }
+
+    bool load(const std::shared_ptr<Express::Executor::RuntimeManager>& runtime) {
+        if (mDepth && mCodec && mEmbedding) {
+            return true;
+        }
+        const int books = settings["num_codebooks"].get<int>();
+        const int vocabulary = settings["codebook_size"].get<int>();
+        const int fft = settings["n_fft"].get<int>(), hop = settings["hop_length"].get<int>();
+        const int eos = settings["audio_eos_code"].get<int>();
+        const auto schedule = settings["maskgit_schedule"].get<std::vector<int>>();
+        if (books <= 0 || vocabulary <= 0 || fft <= 1 || hop <= 0 || hop >= fft ||
+            eos < 0 || eos >= vocabulary) {
+            MNN_ERROR("Invalid LFM3 speech dimensions\n");
+            return false;
+        }
+        int remaining = books;
+        for (int count : schedule) {
+            if (count <= 0 || count > remaining) {
+                MNN_ERROR("Invalid LFM3 MaskGit schedule\n");
+                return false;
+            }
+            remaining -= count;
+        }
+        if (remaining != 0) {
+            MNN_ERROR("Incomplete LFM3 MaskGit schedule\n");
+            return false;
+        }
+        Express::Module::Config config;
+        config.shapeMutable = true;
+        config.rearrange = true;
+        mDepth.reset(Express::Module::load({"hidden_states", "codes", "masked"}, {"logits"},
+                                           (mConfig->base_dir_ + "depth.mnn").c_str(), runtime, &config));
+        mCodec.reset(
+            Express::Module::load({"codes"}, {"frames"}, (mConfig->base_dir_ + "codec.mnn").c_str(), runtime, &config));
+        const auto file = mConfig->base_dir_ + "audio_embeddings_bf16.bin";
+        std::ifstream stream(file, std::ios::binary | std::ios::ate);
+        const int64_t size = int64_t(settings["num_codebooks"].get<int>()) * settings["codebook_size"].get<int>() *
+                             mConfig->hidden_size() * 2;
+        if (!mDepth || !mCodec || !stream || stream.tellg() != size) {
+            MNN_ERROR("LFM3 speech assets are missing or invalid\n");
+            return false;
+        }
+        mEmbedding.reset(new DiskEmbedding(mConfig, file, mConfig->hidden_size()));
+        return true;
+    }
+
+    void reset() { mFrames.clear(); }
+
+    bool sampleFrame(Express::VARP hidden, std::vector<int>& codes) {
+        using namespace Express;
+        const int books = settings["num_codebooks"].get<int>();
+        const int vocabulary = settings["codebook_size"].get<int>();
+        codes.assign(books, 0);
+        std::vector<int> masked(books, 1), order(books);
+        std::iota(order.begin(), order.end(), 0);
+        std::shuffle(order.begin(), order.end(), mRng);
+        int revealed = 0;
+        const auto schedule = settings["maskgit_schedule"].get<std::vector<int>>();
+        for (int count : schedule) {
+            auto result = mDepth->onForward({_Reshape(hidden, {1, mConfig->hidden_size()}),
+                                             _Const(codes.data(), {1, books}, NCHW, halide_type_of<int>()),
+                                             _Const(masked.data(), {1, books}, NCHW, halide_type_of<int>())});
+            if (result.empty() || result[0].get() == nullptr || !result[0]->readMap<float>() ||
+                revealed + count > books) {
+                return false;
+            }
+            const auto ptr = result[0]->readMap<float>();
+            for (int j = 0; j < count; ++j) {
+                int book = order[revealed++];
+                std::vector<float> logits(ptr + book * vocabulary, ptr + (book + 1) * vocabulary);
+                float penalty = mConfig->config_.value("audio_repetition_penalty", 1.1f);
+                int window = std::max(0, mConfig->config_.value("audio_repetition_window", 4096));
+                std::vector<bool> seen(vocabulary, false);
+                for (int i = std::max(0, int(mFrames.size() / books) - window); i < int(mFrames.size() / books); ++i) {
+                    seen[mFrames[i * books + book]] = true;
+                }
+                for (int i = 0; i < vocabulary; ++i) {
+                    if (seen[i] && penalty > 0.0f) {
+                        logits[i] = logits[i] < 0 ? logits[i] * penalty : logits[i] / penalty;
+                    }
+                }
+                std::vector<int> indices(vocabulary);
+                std::iota(indices.begin(), indices.end(), 0);
+                int topK = mConfig->config_.value("audio_top_k", 128);
+                topK = topK <= 0 ? vocabulary : std::min(topK, vocabulary);
+                std::partial_sort(indices.begin(), indices.begin() + topK, indices.end(),
+                                  [&](int a, int b) { return logits[a] > logits[b]; });
+                float temperature = mConfig->config_.value("audio_temperature", 1.0f);
+                codes[book] = indices[0];
+                if (temperature > 0) {
+                    std::vector<double> weights(topK);
+                    for (int i = 0; i < topK; ++i) {
+                        weights[i] = std::exp((logits[indices[i]] - logits[indices[0]]) / temperature);
+                    }
+                    std::discrete_distribution<int> distribution(weights.begin(), weights.end());
+                    codes[book] = indices[distribution(mRng)];
+                }
+                masked[book] = 0;
+            }
+        }
+        if (revealed != books) {
+            return false;
+        }
+        const int eos = settings["audio_eos_code"].get<int>();
+        if (std::find(codes.begin(), codes.end(), eos) != codes.end()) {
+            std::fill(codes.begin(), codes.end(), eos);
+        } else {
+            mFrames.insert(mFrames.end(), codes.begin(), codes.end());
+        }
+        return true;
+    }
+
+    Express::VARP embedding(const std::vector<int>& codes) {
+        using namespace Express;
+        const int size = mConfig->hidden_size();
+        auto values = _Input({int(codes.size()), size}, NCHW);
+        auto indices = codes;
+        for (int i = 0; i < int(indices.size()); ++i) {
+            indices[i] += i * settings["codebook_size"].get<int>();
+        }
+        mEmbedding->embedding(indices, values->writeMap<float>());
+        return _Reshape(_ReduceSum(values, {0}, true), {1, 1, size});
+    }
+
+    LlmStatus decode() {
+        using namespace Express;
+        const int books = settings["num_codebooks"].get<int>();
+        const int count = int(mFrames.size()) / books;
+        if (count == 0) {
+            return LlmStatus::NORMAL_FINISHED;
+        }
+        auto codes = _Input({1, books, count}, NCHW, halide_type_of<int>());
+        auto ptr = codes->writeMap<int>();
+        for (int t = 0; t < count; ++t) {
+            for (int b = 0; b < books; ++b) {
+                ptr[b * count + t] = mFrames[t * books + b];
+            }
+        }
+        auto output = mCodec->onForward({codes});
+        if (output.empty() || output[0].get() == nullptr || !output[0]->readMap<float>()) {
+            return LlmStatus::INTERNAL_ERROR;
+        }
+        const int fft = settings["n_fft"].get<int>(), hop = settings["hop_length"].get<int>();
+        const int frames = output[0]->getInfo()->size / fft;
+        const int length = (frames - 1) * hop + fft, trim = (fft - hop) / 2;
+        std::vector<float> wave(length, 0), envelope(length, 0), window(fft);
+        for (int i = 0; i < fft; ++i) {
+            const double value = 0.5 * (1 - std::cos(2 * 3.14159265358979323846 * i / fft));
+            window[i] = value * value;
+        }
+        const auto samples = output[0]->readMap<float>();
+        for (int t = 0; t < frames; ++t) {
+            for (int i = 0; i < fft; ++i) {
+                wave[t * hop + i] += samples[t * fft + i];
+                envelope[t * hop + i] += window[i];
+            }
+        }
+        for (int i = trim; i < length - trim; ++i) {
+            wave[i] /= envelope[i];
+            if (!std::isfinite(wave[i])) {
+                return LlmStatus::INTERNAL_ERROR;
+            }
+        }
+        if (callback && !callback(wave.data() + trim, length - 2 * trim, true)) {
+            return LlmStatus::USER_CANCEL;
+        }
+        return LlmStatus::NORMAL_FINISHED;
+    }
+
+    ujson::json settings;
+    std::function<bool(const float*, size_t, bool)> callback;
+
+private:
+    std::shared_ptr<LlmConfig> mConfig;
+    std::shared_ptr<Express::Module> mDepth, mCodec;
+    std::unique_ptr<DiskEmbedding> mEmbedding;
+    std::vector<int> mFrames;
+    std::mt19937 mRng;
 };
 
 Omni::Omni(std::shared_ptr<LlmConfig> config) : Embedding(config) {
@@ -548,13 +754,16 @@ bool Omni::load() {
     bool res = true;
     if (mIsEmbedding || isQwen3TTSTalker(mConfig)) {
         initRuntime();
-        mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
+        mTokenizer.reset(Tokenizer::createTokenizer(mConfig->resource(mConfig->tokenizer_file())));
         if (mTokenizer == nullptr) {
             MNN_ERROR("[Error]: Failed to load tokenizer from: %s\n", mConfig->tokenizer_file().c_str());
             return false;
         }
         if (mIsEmbedding) {
             mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+            if (!mDiskEmbedding->valid()) {
+                return false;
+            }
         }
         setChatTemplate();
     } else {
@@ -575,6 +784,9 @@ bool Omni::load() {
             return false;
         }
     }
+    if (mConfig->config_.contains("lfm3_speech")) {
+        mLfm3Speech.reset(new Lfm3Speech(mConfig));
+    }
     if (mConfig->has_deepstack()) {
         mExtraArgs.emplace_back(Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0)));
     }
@@ -589,10 +801,9 @@ bool Omni::load() {
         auto model_path = mConfig->llm_model();
         auto weight_path = mConfig->llm_weight();
         MNN_PRINT("load %s ... ", model_path.c_str());
-        mRuntimeManager->setExternalFile(weight_path);
-        mModule.reset(Module::load({"input_ids", "attention_mask", "position_ids", "deepstack_embeds"},
-                                   {"sentence_embeddings"}, model_path.c_str(), mRuntimeManager, &module_config));
-        mRuntimeManager->setExternalFile("");
+        mModule.reset(mConfig->loadModule({"input_ids", "attention_mask", "position_ids", "deepstack_embeds"},
+                                          {"sentence_embeddings"}, model_path, mRuntimeManager, &module_config,
+                                          weight_path));
         if (nullptr == mModule.get()) {
             MNN_ERROR("[Omni:embedding] Module::load failed for %s\n", model_path.c_str());
             return false;
@@ -645,7 +856,7 @@ bool Omni::initProcessorRuntime() {
             MNN_ERROR("Unsupported %s descriptor\n", key.c_str());
             return false;
         }
-        module.reset(Module::load({}, {}, path.c_str(), mProcessorRuntimeManager, &moduleConfig));
+        module.reset(mConfig->loadModule({}, {}, path, mProcessorRuntimeManager, &moduleConfig));
         return module != nullptr;
     };
     if (mConfig->is_visual()) {
@@ -916,6 +1127,76 @@ struct Omni::VisionProcessor::Qwen3 : Qwen {
     }
 };
 
+struct Omni::VisionProcessor::Lfm3 : Qwen3 {
+    using Qwen3::Qwen3;
+    std::pair<int, int> targetSize(int height, int width, int factor, int min, int max) const override {
+        if (height <= 0 || width <= 0 || double(std::max(height, width)) / std::min(height, width) > 200) {
+            return {0, 0};
+        }
+        int h = roundHalfToEven(float(height) / factor) * factor;
+        int w = roundHalfToEven(float(width) / factor) * factor;
+        if (int64_t(h) * w > max) {
+            double scale = std::sqrt(double(height) * width / max);
+            h = std::max(factor, int(std::floor(height / scale / factor)) * factor);
+            w = std::max(factor, int(std::floor(width / scale / factor)) * factor);
+        } else if (int64_t(h) * w < min) {
+            double scale = std::sqrt(double(min) / (double(height) * width));
+            h = int(std::ceil(height * scale / factor)) * factor;
+            w = int(std::ceil(width * scale / factor)) * factor;
+        }
+        return {h, w};
+    }
+    int videoFrameCount(int count) const override {
+        count = std::min(count, mOmni.mVideoMaxFrames);
+        return count > 0 ? UP_DIV(count, 2) * 2 : 0;
+    }
+    std::vector<int> videoSamples(int count, double fps) const override {
+        if (count <= 0 || mOmni.mVideoMaxFrames <= 0) {
+            return {};
+        }
+        int samples = std::min({std::max(int(count / std::max(fps, 1e-6) * mOmni.mVideoFps), 4),
+                                mOmni.mVideoMaxFrames, count});
+        std::vector<int> indices(samples, 0);
+        for (int i = 1; i < samples; ++i) {
+            indices[i] = roundHalfToEven(float(count - 1) * i / (samples - 1));
+        }
+        return indices;
+    }
+    std::pair<int, int> videoSize(int width, int height, int count) const override {
+        const int factor = mOmni.mVisionConfig.value("patch_size", 16) *
+                           mOmni.mVisionConfig.value("spatial_merge_size", 2);
+        if (width <= 0 || height <= 0 || count <= 0) {
+            return {0, 0};
+        }
+        if (height < factor || width < factor) {
+            double scale = double(factor) / std::min(height, width);
+            height = int(height * scale);
+            width = int(width * scale);
+        }
+        int h = roundHalfToEven(float(height) / factor) * factor;
+        int w = roundHalfToEven(float(width) / factor) * factor;
+        const int rounded = std::max(2, roundHalfToEven(float(count) / 2) * 2);
+        if (int64_t(rounded) * h * w > mOmni.mVideoMaxPixels) {
+            double scale = std::sqrt(double(count) * height * width / mOmni.mVideoMaxPixels);
+            h = std::max(factor, int(std::floor(height / scale / factor)) * factor);
+            w = std::max(factor, int(std::floor(width / scale / factor)) * factor);
+        } else if (int64_t(rounded) * h * w < 4096) {
+            double scale = std::sqrt(4096.0 / (double(count) * height * width));
+            h = int(std::ceil(height * scale / factor)) * factor;
+            w = int(std::ceil(width * scale / factor)) * factor;
+        }
+        return {w, h};
+    }
+    VARPS extraInputs(int t, int h, int w, int merge, bool video) override {
+        // LFM3 has no Qwen3 positional interpolation inputs.
+        return Qwen::extraInputs(t, h, w, merge, video);
+    }
+    void positions(const Plan& plan, const Feature& feature, int markers) override {
+        // The language backbone uses 1D positions instead of Qwen's MRoPE.
+        VisionProcessor::positions(plan, feature, markers);
+    }
+};
+
 struct Omni::VisionProcessor::Hunyuan : Patch {
     using Patch::Patch;
     int minPixels() const override { return mOmni.mVisionHeight * mOmni.mVisionWidth; }
@@ -1127,12 +1408,13 @@ struct Omni::VisionProcessor::MiniCPM47 : MiniCPM {
         const int resolution = mOmni.mConfig->config_.value("image_size", 448);
         const int maxSlices = mOmni.mConfig->config_.value("vision_max_slice_nums", 9);
         const int bins = mOmni.mConfig->config_.value("vision_position_size", 70);
+        const int merge = mOmni.mConfig->config_.value("vision_merge_size", 4);
         int height = mOmni.mVisionHeight, width = mOmni.mVisionWidth;
         if (!mOmni.mVisionSizeOverridden) {
             height = image->getInfo()->dim[0];
             width = image->getInfo()->dim[1];
         }
-        if (patch <= 0 || resolution <= 0 || maxSlices < 1 || bins <= 0 || height <= 0 || width <= 0) {
+        if (patch <= 0 || resolution <= 0 || maxSlices < 1 || bins <= 0 || merge <= 0 || height <= 0 || width <= 0) {
             return {};
         }
         auto divide = [](double value, int unit) {
@@ -1144,7 +1426,7 @@ struct Omni::VisionProcessor::MiniCPM47 : MiniCPM {
                 h = static_cast<int>(resolution / std::sqrt(ratio));
                 w = static_cast<int>(h * ratio);
             }
-            return std::make_pair(divide(h, patch * 4), divide(w, patch * 4));
+            return std::make_pair(divide(h, patch * merge), divide(w, patch * merge));
         };
         int multiple = std::min(
             maxSlices, static_cast<int>(std::ceil(static_cast<double>(height) * width / (resolution * resolution))));
@@ -1389,6 +1671,13 @@ bool Omni::VisionProcessor::MiniCPM47::promptPositions(const std::vector<int>& i
     return true;
 }
 
+struct Omni::VisionProcessor::MiniCPMOcr : MiniCPM47 {
+    using MiniCPM47::MiniCPM47;
+    // OCR keeps MiniCPM-V 4.7's slice layout but uses plain 1-D positions.
+    bool promptPositions(const std::vector<int>&) override { return true; }
+    int lastPosition() const override { return VisionProcessor::lastPosition(); }
+};
+
 struct Omni::VisionProcessor::Gemma4 : VisionProcessor {
     using VisionProcessor::VisionProcessor;
     Plan prepare(VARP image) override {
@@ -1557,22 +1846,16 @@ std::vector<int> Omni::VisionProcessor::Qwen::video(const std::vector<VARP>& fra
     }
     MNN::Express::ExecutorScope s(mOmni.mExecutor);
     Timer _t;
-    const int patch_size = mOmni.mVisionConfig.value("patch_size", 14);
     const int temporal_patch_size = mOmni.mVisionConfig.value("temporal_patch_size", kQwenVideoTemporalPatchSize);
-    const int merge_size = mOmni.mVisionConfig.value("spatial_merge_size", 2);
-    const int align_size = patch_size * merge_size;
-    int frameCount =
-        qwenVideoAlignedFrameCount(static_cast<int>(frames.size()), mOmni.mVideoMaxFrames, temporal_patch_size);
+    int frameCount = videoFrameCount(static_cast<int>(frames.size()));
     if (frameCount <= 0) {
         MNN_PRINT("Omni video requires max_frames >= %d\n", temporal_patch_size);
         mOmni.mContext->status = LlmStatus::INTERNAL_ERROR;
         return std::vector<int>(0);
     }
-    int maxPixels = qwenVideoEffectiveMaxPixels(mOmni.mVideoMaxPixels, mOmni.mVideoMaxVisionTokens, frameCount,
-                                                temporal_patch_size, patch_size);
-    auto videoSize = qwenVideoResizeSize(mOmni.mVisionWidth, mOmni.mVisionHeight, align_size, maxPixels);
-    mOmni.mVisionWidth = videoSize.first;
-    mOmni.mVisionHeight = videoSize.second;
+    auto size = videoSize(mOmni.mVisionWidth, mOmni.mVisionHeight, static_cast<int>(frames.size()));
+    mOmni.mVisionWidth = size.first;
+    mOmni.mVisionHeight = size.second;
 
     std::vector<VARP> processedFrames;
     std::vector<float> frameTimes;
@@ -1585,7 +1868,9 @@ std::vector<int> Omni::VisionProcessor::Qwen::video(const std::vector<VARP>& fra
         if (frameIndex < timestamps.size()) {
             frameTimes.push_back(timestamps[frameIndex]);
         } else {
-            frameTimes.push_back(static_cast<float>(i) / std::max(mOmni.mVideoFps, 1.0f));
+            const size_t lastIndex = timestamps.empty() ? 0 : timestamps.size() - 1;
+            const float lastTime = timestamps.empty() ? 0.0f : timestamps.back();
+            frameTimes.push_back(lastTime + (frameIndex - lastIndex) / std::max(mOmni.mVideoFps, 1.0f));
         }
     }
 
@@ -1659,7 +1944,12 @@ std::unique_ptr<Omni::VisionProcessor> Omni::VisionProcessor::create(Omni& o) {
         } else if (type == "tiles") {
             family = "idefics3";
         } else if (type == "resampler") {
-            family = o.mConfig->config_.value("vision_type", "") == "minicpmv4_7" ? "minicpmv4_7" : "minicpmv";
+            const std::string visionType = o.mConfig->config_.value("vision_type", "");
+            if (visionType == "minicpmv4_7" || visionType == "minicpm_ocr") {
+                family = visionType;
+            } else {
+                family = "minicpmv";
+            }
         } else if (type == "row_grid") {
             family = "hunyuan_vl";
         } else if (type == "padded_patches") {
@@ -1702,11 +1992,17 @@ std::unique_ptr<Omni::VisionProcessor> Omni::VisionProcessor::create(Omni& o) {
     if (family == "qwen3_vl" || family == "qwen3_5") {
         return std::unique_ptr<VisionProcessor>(new Qwen3(o));
     }
+    if (family == "lfm3_vl") {
+        return std::unique_ptr<VisionProcessor>(new Lfm3(o));
+    }
     if (family == "idefics3" || family == "lfm2_vl") {
         return std::unique_ptr<VisionProcessor>(new Idefics(o));
     }
     if (family == "minicpmv4_7") {
         return std::unique_ptr<VisionProcessor>(new MiniCPM47(o));
+    }
+    if (family == "minicpm_ocr") {
+        return std::unique_ptr<VisionProcessor>(new MiniCPMOcr(o));
     }
     if (family == "minicpmv") {
         return std::unique_ptr<VisionProcessor>(new MiniCPM(o));
@@ -1935,17 +2231,13 @@ std::vector<int> Omni::videoProcess(const std::string& file) {
         nativeFps = 24.0;
     }
     int totalFrames = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
-    auto sampleIndices = qwenVideoSampleIndices(totalFrames, nativeFps, mVideoFps, 4, mVideoMaxFrames);
+    auto sampleIndices = mVisionProcessor->videoSamples(totalFrames, nativeFps);
     std::vector<VARP> frames;
     std::vector<float> timestamps;
     int frameIdx = 0;
     int sampleIdx = 0;
     int oldVisionHeight = mVisionHeight;
     int oldVisionWidth = mVisionWidth;
-    const int patchSize = mVisionConfig.value("patch_size", 14);
-    const int alignSize = patchSize * mVisionConfig.value("spatial_merge_size", 2);
-    int frameCount = qwenVideoAlignedFrameCount(static_cast<int>(sampleIndices.size()), mVideoMaxFrames,
-                                                kQwenVideoTemporalPatchSize);
     bool hasVideoSize = false;
     cv::Mat frame;
     while (sampleIdx < sampleIndices.size() && cap.read(frame)) {
@@ -1960,9 +2252,7 @@ std::vector<int> Omni::videoProcess(const std::string& file) {
                 bgr = bgr.clone();
             }
             if (!hasVideoSize) {
-                int maxPixels = qwenVideoEffectiveMaxPixels(mVideoMaxPixels, mVideoMaxVisionTokens, frameCount,
-                                                            kQwenVideoTemporalPatchSize, patchSize);
-                auto videoSize = qwenVideoResizeSize(bgr.cols, bgr.rows, alignSize, maxPixels);
+                auto videoSize = mVisionProcessor->videoSize(bgr.cols, bgr.rows, static_cast<int>(sampleIndices.size()));
                 mVisionWidth = videoSize.first;
                 mVisionHeight = videoSize.second;
                 hasVideoSize = true;
@@ -2012,6 +2302,38 @@ VARP Omni::AudioProcessor::Whisper::extract(VARP waveform) const {
     return nullptr;
 #endif
 }
+struct Omni::AudioProcessor::Lfm3 : AudioProcessor {
+    using AudioProcessor::AudioProcessor;
+    VARP extract(VARP waveform) const override {
+#ifdef LLM_SUPPORT_AUDIO
+        const auto& config = mOmni.mAudioConfig;
+        MNN::AUDIO::SpectrogramParams spec;
+        spec.n_fft = config.value("n_fft", 400);
+        spec.hop_length = config.value("hop_length", 160);
+        spec.periodic = true;
+        MNN::AUDIO::MelscaleParams mel;
+        mel.n_mels = config.value("mel_bins", 128);
+        mel.n_fft = spec.n_fft;
+        mel.sample_rate = config.value("sample_rate", 16000);
+        mel.htk = false;
+        mel.norm = true;
+        if (!waveform.get() || !waveform->getInfo() || mel.sample_rate <= 0 || mel.n_mels <= 0 ||
+            mel.n_mels > 1024 || spec.n_fft < 2 || spec.hop_length <= 0) {
+            MNN_ERROR("LFM3: invalid waveform or spectral parameters\n");
+            return nullptr;
+        }
+        int samples = waveform->getInfo()->size;
+        int frames = 1 + std::max(0, (samples - spec.n_fft + spec.hop_length - 1) / spec.hop_length);
+        spec.pad_right = spec.n_fft + (frames - 1) * spec.hop_length - samples;
+        auto features = MNN::AUDIO::mel_spectrogram(waveform, &mel, &spec);
+        features = (_Log(_Maximum(features, _Scalar<float>(1e-12f))) / _Scalar<float>(std::log(10.0f)) +
+                    _Scalar<float>(4.0f)) / _Scalar<float>(4.0f);
+        return _Unsqueeze(_Transpose(features, {1, 0}), {0});
+#else
+        return nullptr;
+#endif
+    }
+};
 struct Omni::AudioProcessor::Conformer : AudioProcessor {
     using AudioProcessor::AudioProcessor;
     VARP extract(VARP waveform) const override {
@@ -2083,6 +2405,9 @@ std::unique_ptr<Omni::AudioProcessor> Omni::AudioProcessor::create(Omni& o) {
     }
     if (family == "lfm2_audio") {
         return std::unique_ptr<AudioProcessor>(new Conformer(o));
+    }
+    if (family == "lfm3_audio") {
+        return std::unique_ptr<AudioProcessor>(new Lfm3(o));
     }
     if (family == "gemma4") {
         return std::unique_ptr<AudioProcessor>(new Gemma4(o));
@@ -2451,6 +2776,44 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     return mergedEmbed;
 }
 
+bool Omni::preparePromptCache(const std::string& prompt) {
+    if (mConfig->prompt_cache_preserve_template() && std::regex_search(prompt, std::regex(kOmniMultimodalRegex))) {
+        return false;
+    }
+    if (!mLfm3Speech) {
+        return Llm::preparePromptCache(prompt);
+    }
+    if (mConfig->config_.value("audio_output", false)) {
+        return false;
+    }
+    const auto& speech = mLfm3Speech->settings;
+    const auto tokens = Llm::tokenizer_encode(prompt);
+    if (tokens.empty() || tokens.back() == speech["audio_start_token_id"].get<int>() ||
+        tokens.back() == speech["mixed_start_token_id"].get<int>()) {
+        return false;
+    }
+    const int audioOut = speech["audio_out_token_id"].get<int>();
+    for (int token : tokens) {
+        if (token == audioOut || token == mVisionPad || token == mAudioPad || token == mVideoPad) {
+            return false;
+        }
+    }
+    return Llm::preparePromptCache(prompt);
+}
+
+void Omni::syncPromptCache(const ChatMessages& chat_prompts) {
+    if (mLfm3Speech) {
+        const int audioOut = mLfm3Speech->settings["audio_out_token_id"].get<int>();
+        const auto& history = mContext->history_tokens;
+        // Audio placeholders cannot reconstruct the generated codebook embeddings.
+        if (std::find(history.begin(), history.end(), audioOut) != history.end()) {
+            mCachedPromptText.clear();
+            return;
+        }
+    }
+    Llm::syncPromptCache(chat_prompts);
+}
+
 bool Omni::prepareHistoryReplay(const std::vector<int>& input_ids) {
     // Encoder embeddings and MRoPE layouts of past multimodal spans are dropped after their prefill.
     if (mTalker != nullptr) {
@@ -2755,10 +3118,179 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
 #endif
 }
 
+bool Omni::responseLfm3(const std::vector<int>& input_ids, std::ostream* os, int max_new_tokens) {
+    CHECK_LLM_RUNNING_RET(mContext, false);
+    if (input_ids.empty() || !mLfm3Speech->load(mProcessorRuntimeManager)) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    auto& speech = *mLfm3Speech;
+    speech.reset();
+    const auto& cfg = speech.settings;
+    const int audioStart = cfg["audio_start_token_id"].get<int>();
+    const int mixedStart = cfg["mixed_start_token_id"].get<int>();
+    const int audioOut = cfg["audio_out_token_id"].get<int>();
+    const int textEnd = cfg["text_end_token_id"].get<int>();
+    const int audioEos = cfg["audio_eos_code"].get<int>();
+    const int textSlots = cfg["interleaved_n_text"].get<int>();
+    const int audioSlots = cfg["interleaved_n_audio"].get<int>();
+    bool audio = input_ids.back() == audioStart;
+    bool mixed = input_ids.back() == mixedStart;
+    bool speaking = false, textDone = false;
+    int slotsLeft = textSlots;
+    const int limit = max_new_tokens < 0 ? mConfig->max_new_tokens() : max_new_tokens;
+    mContext->prompt_len = int(input_ids.size());
+    {
+        std::lock_guard<std::mutex> lock(mContext->mutex);
+        mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end());
+    }
+    Timer prefillTimer;
+    auto embeds = embedding(input_ids);
+    if (embeds.get() == nullptr) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    auto outputs = forwardVec(embeds);
+    if (outputs.empty()) {
+        return false;
+    }
+    auto logits = outputs[0];
+    updateContext(int(input_ids.size()), 0);
+    mContext->prefill_us += prefillTimer.durationInUs();
+    ExecutorScope::Current()->gc();
+    for (int step = 0; step < limit && mContext->status == LlmStatus::RUNNING; ++step) {
+        Timer decodeTimer;
+        if (mConfig->timeout_ms() > 0 && (mContext->prefill_us + mContext->decode_us) / 1000 >= mConfig->timeout_ms()) {
+            mContext->status = LlmStatus::TIMEOUT;
+            return false;
+        }
+        if (logits.get() == nullptr) {
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
+        const int vocabulary = logits->getInfo()->dim.back();
+        const int position = mGenerateParam->validLogitSize > 0 ? mGenerateParam->validLogitStart / vocabulary
+                                                                : logits->getInfo()->size / vocabulary - 1;
+        const bool interleaving = mixed;
+        bool finished = false;
+        VARP next;
+        int token = audioOut;
+        if (audio || (mixed && speaking)) {
+            auto outputs = getOutputs();
+            int index = getOutputIndex("hidden_states");
+            std::vector<int> codes;
+            if (index < 0 || index >= int(outputs.size())) {
+                mContext->status = LlmStatus::INTERNAL_ERROR;
+                return false;
+            }
+            auto hidden = _Reshape(outputs[index], {-1, mConfig->hidden_size()});
+            hidden = _Slice(hidden, _var<int>({position, 0}, {2}), _var<int>({1, -1}, {2}));
+            if (!speech.sampleFrame(hidden, codes)) {
+                mContext->status = LlmStatus::INTERNAL_ERROR;
+                return false;
+            }
+            if (codes[0] == audioEos) {
+                audio = mixed = false;
+            }
+            next = speech.embedding(codes);
+        } else {
+            const int count = vocabulary;
+            const auto ptr = logits->readMap<float>();
+            if (ptr == nullptr) {
+                mContext->status = LlmStatus::INTERNAL_ERROR;
+                return false;
+            }
+            std::vector<float> scores(ptr + position * count, ptr + (position + 1) * count);
+            for (int id : {mVisionPad, mVideoPad, mAudioPad, audioOut}) {
+                if (id >= 0 && id < count) {
+                    scores[id] = std::numeric_limits<float>::lowest();
+                }
+            }
+            token = sample(_Const(scores.data(), {count}, NCHW, halide_type_of<float>()));
+            if (token < 0) {
+                return false;
+            }
+            if ((token == textEnd && !mixed) || (token != textEnd && is_stop(token))) {
+                finished = true;
+            } else if (token == textEnd && mixed) {
+                textDone = speaking = true;
+            } else if (!mixed && token == audioStart) {
+                audio = true;
+            } else if (!mixed && token == mixedStart) {
+                mixed = true;
+                speaking = textDone = false;
+                slotsLeft = textSlots;
+            } else {
+                const auto piece = tokenizer_decode(token);
+                if (os) {
+                    *os << piece << std::flush;
+                }
+                std::lock_guard<std::mutex> lock(mContext->mutex);
+                mContext->generate_str += piece;
+            }
+            if (!finished) {
+                next = embedding({token});
+            }
+        }
+        {
+            std::lock_guard<std::mutex> lock(mContext->mutex);
+            mContext->current_token = token;
+            mContext->output_tokens.push_back(token);
+            mContext->history_tokens.push_back(token);
+        }
+        updateContext(0, 1);
+        if (finished) {
+            if (mContext->status == LlmStatus::RUNNING) {
+                mContext->status = LlmStatus::NORMAL_FINISHED;
+            }
+            if (os && mContext->status == LlmStatus::NORMAL_FINISHED) {
+                *os << mContext->end_with << std::flush;
+            }
+            mContext->decode_us += decodeTimer.durationInUs();
+            break;
+        }
+        if (interleaving && !textDone && --slotsLeft == 0) {
+            speaking = !speaking;
+            slotsLeft = speaking ? audioSlots : textSlots;
+        }
+        // Cache every non-terminal slot, including the last one at the token limit.
+        outputs = forwardVec(next);
+        if (outputs.empty()) {
+            return false;
+        }
+        logits = outputs[0];
+        updateContext(1, 0);
+        mContext->decode_us += decodeTimer.durationInUs();
+    }
+    if (mContext->status == LlmStatus::RUNNING) {
+        mContext->status = LlmStatus::MAX_TOKENS_FINISHED;
+    }
+    if (mContext->status != LlmStatus::NORMAL_FINISHED && mContext->status != LlmStatus::MAX_TOKENS_FINISHED) {
+        return false;
+    }
+    Timer audioTimer;
+    auto status = speech.decode();
+    mContext->audio_us += audioTimer.durationInUs();
+    if (status != LlmStatus::NORMAL_FINISHED) {
+        mContext->status = status;
+        return false;
+    }
+    return true;
+}
+
 void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
     MNN::Express::ExecutorScope s(mExecutor);
-    if (!end_with) { end_with = "\n"; }
+    if (!end_with) {
+        end_with = "\n";
+    }
     generate_init(os, end_with);
+    if (mLfm3Speech &&
+        (mConfig->config_.value("audio_output", false) ||
+         (!input_ids.empty() && (input_ids.back() == mLfm3Speech->settings["audio_start_token_id"].get<int>() ||
+                                 input_ids.back() == mLfm3Speech->settings["mixed_start_token_id"].get<int>())))) {
+        responseLfm3(input_ids, os, max_new_tokens);
+        return;
+    }
     if (mTalker) {
         mTalker->generate_init();
     }
@@ -2773,6 +3305,9 @@ void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const c
 }
 
 void Omni::setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {
+    if (mLfm3Speech) {
+        mLfm3Speech->callback = callback;
+    }
     if (mTalker) {
         mTalker->setWavformCallback(callback);
     }
@@ -2829,6 +3364,18 @@ static std::string qwen3TTSNormalizeLanguage(std::string language) {
 bool Omni::generateTTS(const std::string& text, const std::string& language, int max_new_tokens,
                        const std::string& ref_audio) {
     MNN::Express::ExecutorScope s(mExecutor);
+    if (mLfm3Speech) {
+        if (!ref_audio.empty()) {
+            MNN_ERROR("LFM3 TTS does not support reference-voice cloning\n");
+            return false;
+        }
+        reset();
+        generate_init();
+        ChatMessages messages{{"system", "Perform TTS in " + language + " using a " +
+            mConfig->config_.value("tts_voice", std::string("female")) + " voice."}, {"user", text}};
+        const auto prompt = apply_chat_template(messages) + "<|audio_start|>";
+        return responseLfm3(tokenizer_encode(prompt), nullptr, max_new_tokens);
+    }
     if (!mTalker || !isQwen3TTSTalker(mConfig)) {
         MNN_ERROR("[Error]: current model does not support Qwen3-TTS generation\n");
         return false;
@@ -2924,7 +3471,7 @@ bool Talker::load() {
         auxScheduleConfig.backendConfig = &auxBackendConfig;
         mQwen3RuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(auxScheduleConfig));
         setRuntimeHint(mQwen3RuntimeManager, true);
-        if (backend_type_convert(mConfig->backend_type()) != 0) { // not cpu
+        if (mConfig->diskCacheEnabled() && backend_type_convert(mConfig->backend_type()) != 0) { // not cpu
             // mRuntimeManager already claims "<tmp>/mnn_cachefile.bin"; a second manager
             // on the same path would clobber the talker's tuned shader cache.
             std::string tmpPath = mConfig->tmp_path().empty() ? "." : mConfig->tmp_path();
@@ -2935,18 +3482,17 @@ bool Talker::load() {
         module_config.rearrange = true;
         constexpr int hiddenSize = 1024;
 
-        mRuntimeManager->setExternalFile(mConfig->talker_weight().c_str());
-        mModule.reset(Module::load({"inputs_embeds", "attention_mask", "position_ids"}, {"logits", "hidden_states"},
-                                   mConfig->talker_model().c_str(), mRuntimeManager, &module_config),
+        mModule.reset(mConfig->loadModule({"inputs_embeds", "attention_mask", "position_ids"},
+                                          {"logits", "hidden_states"}, mConfig->talker_model(), mRuntimeManager,
+                                          &module_config, mConfig->talker_weight()),
                       Module::destroy);
-        mRuntimeManager->setExternalFile("");
 
-        mQwen3RuntimeManager->setExternalFile(mConfig->talker_weight().c_str());
-        mQwen3PromptEmbedder.reset(Module::load({"codec_embeds", "text_raw_embeds", "tts_raw_embeds"},
-                                                {"prompt_inputs_embeds", "trailing_text_hidden", "tts_pad_embed"},
-                                                mConfig->talker_model().c_str(), mQwen3RuntimeManager, &module_config),
-                                   Module::destroy);
-        mQwen3RuntimeManager->setExternalFile("");
+        mQwen3PromptEmbedder.reset(
+            mConfig->loadModule({"codec_embeds", "text_raw_embeds", "tts_raw_embeds"},
+                                {"prompt_inputs_embeds", "trailing_text_hidden", "tts_pad_embed"},
+                                mConfig->talker_model(), mQwen3RuntimeManager, &module_config,
+                                mConfig->talker_weight()),
+            Module::destroy);
 
         const bool cpIncremental = mConfig->audio_code_predictor_incremental();
         if (cpIncremental) {
@@ -2979,48 +3525,54 @@ bool Talker::load() {
             mQwen3CpRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mQwen3CpMeta.get());
         }
         auto cpManager = cpIncremental ? mQwen3CpRuntimeManager : mQwen3RuntimeManager;
-        cpManager->setExternalFile(mConfig->audio_code_predictor_weight().c_str());
+
         if (cpIncremental) {
-            mQwen3AudioCodePredictor.reset(
-                Module::load({"inputs_embeds", "attention_mask", "position_ids"}, {"logits"},
-                             mConfig->audio_code_predictor_model().c_str(), cpManager, &module_config),
-                Module::destroy);
+            mQwen3AudioCodePredictor.reset(mConfig->loadModule({"inputs_embeds", "attention_mask", "position_ids"},
+                                                               {"logits"}, mConfig->audio_code_predictor_model(),
+                                                               cpManager, &module_config,
+                                                               mConfig->audio_code_predictor_weight()),
+                                           Module::destroy);
         } else {
             mQwen3AudioCodePredictor.reset(
-                Module::load({"talker_hidden_states", "codec_embeds", "attention_mask", "position_ids"}, {"logits"},
-                             mConfig->audio_code_predictor_model().c_str(), cpManager, &module_config),
+                mConfig->loadModule({"talker_hidden_states", "codec_embeds", "attention_mask", "position_ids"},
+                                    {"logits"}, mConfig->audio_code_predictor_model(), cpManager, &module_config,
+                                    mConfig->audio_code_predictor_weight()),
                 Module::destroy);
         }
-        cpManager->setExternalFile("");
 
-        mQwen3RuntimeManager->setExternalFile(mConfig->codec_embedder_weight().c_str());
-        mQwen3CodecEmbedder.reset(Module::load({"codec_embeds", "text_hidden"}, {"inputs_embeds"},
-                                               mConfig->codec_embedder_model().c_str(), mQwen3RuntimeManager,
-                                               &module_config),
+        mQwen3CodecEmbedder.reset(mConfig->loadModule({"codec_embeds", "text_hidden"}, {"inputs_embeds"},
+                                                      mConfig->codec_embedder_model(), mQwen3RuntimeManager,
+                                                      &module_config, mConfig->codec_embedder_weight()),
                                   Module::destroy);
-        mQwen3RuntimeManager->setExternalFile("");
 
-        mQwen3RuntimeManager->setExternalFile(mConfig->speech_decoder_weight().c_str());
-        mQwen3SpeechDecoder.reset(Module::load({"codes"}, {"waveform"}, mConfig->speech_decoder_model().c_str(),
-                                               mQwen3RuntimeManager, &module_config),
+        mQwen3SpeechDecoder.reset(mConfig->loadModule({"codes"}, {"waveform"}, mConfig->speech_decoder_model(),
+                                                      mQwen3RuntimeManager, &module_config,
+                                                      mConfig->speech_decoder_weight()),
                                   Module::destroy);
-        mQwen3RuntimeManager->setExternalFile("");
 
-        mQwen3RuntimeManager->setExternalFile(mConfig->speaker_encoder_weight().c_str());
-        mQwen3SpeakerEncoder.reset(Module::load({"mels"}, {"speaker_embedding"},
-                                                mConfig->speaker_encoder_model().c_str(), mQwen3RuntimeManager,
-                                                &module_config),
+        mQwen3SpeakerEncoder.reset(mConfig->loadModule({"mels"}, {"speaker_embedding"},
+                                                       mConfig->speaker_encoder_model(), mQwen3RuntimeManager,
+                                                       &module_config, mConfig->speaker_encoder_weight()),
                                    Module::destroy);
-        mQwen3RuntimeManager->setExternalFile("");
+
         if (!mModule || !mQwen3PromptEmbedder || !mQwen3AudioCodePredictor || !mQwen3CodecEmbedder || !mQwen3SpeechDecoder ||
             !mQwen3SpeakerEncoder) {
             return false;
         }
         mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
+        if (!mDiskEmbedding->valid()) {
+            return false;
+        }
         mQwen3TextEmbedding.reset(
             new DiskEmbedding(mConfig, mConfig->talker_text_embedding_file(), mConfig->talker_text_hidden_size()));
+        if (!mQwen3TextEmbedding->valid()) {
+            return false;
+        }
         mQwen3AudioCodePredictorEmbedding.reset(
             new DiskEmbedding(mConfig, mConfig->audio_code_predictor_embedding_file(), hiddenSize));
+        if (!mQwen3AudioCodePredictorEmbedding->valid()) {
+            return false;
+        }
         mMaxNewTokens = mConfig->talker_max_new_tokens();
         set_config("{\"sampler_type\":\"greedy\"}");
         mSampler.reset(Sampler::createSampler(mContext, mConfig));
@@ -3034,11 +3586,19 @@ bool Talker::load() {
         "\"temperature\": 0.9, \"topK\": 40, \"topP\": 0.8, \"penalty\": 1.05, \"penalty_window\": 64}");
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
+    if (!mDiskEmbedding->valid()) {
+        return false;
+    }
     // some embeddings
     mMaxNewTokens = mConfig->talker_max_new_tokens();
     mInterleaved = mConfig->interleaved();
     std::string speaker = mConfig->talker_speaker();
-    auto spk_dict = Express::Variable::loadMap(mConfig->spk_dict().c_str());
+    auto spk_dict = mConfig->loadVariables(mConfig->spk_dict());
+    if (!spk_dict.count(speaker + "_spk") || !spk_dict.count(speaker + "_cond") ||
+        !spk_dict.count(speaker + "_bos_token")) {
+        MNN_ERROR("Missing speaker resources: %s\n", speaker.c_str());
+        return false;
+    }
     mSpk = spk_dict[speaker + "_spk"];
     mCond = spk_dict[speaker + "_cond"];
     mTextBosToken = int(spk_dict[speaker + "_bos_token"]->readMap<float>()[0]);
@@ -3053,8 +3613,7 @@ bool Talker::load() {
     module_config.rearrange    = true;
     std::vector<std::string> inputNames {"inputs_embeds", "attention_mask", "position_ids", "logits_index"};
 
-    mModule.reset(Module::load(inputNames,
-                                    {"logits"}, mConfig->talker_model().c_str(), mRuntimeManager, &module_config));
+    mModule.reset(mConfig->loadModule(inputNames, {"logits"}, mConfig->talker_model(), mRuntimeManager, &module_config));
     if (mModule.get() == nullptr) {
         return false;
     }
@@ -3079,13 +3638,13 @@ bool Talker::load() {
         dit_runtime.reset(Executor::RuntimeManager::createRuntimeManager(ditSchedConfig));
     }
     // dit
-    mPreDit.reset(Module::load({"cond", "spk", "code"}, {"code_embeds", "rope", "mask"},
-                                mConfig->predit_model().c_str(), module_runtime, &module_config));
-    mDit.reset(Module::load({"x", "code_embeds", "rope", "mask", "time"}, {"mel"}, mConfig->dit_model().c_str(),
-                            dit_runtime, &module_config));
+    mPreDit.reset(mConfig->loadModule({"cond", "spk", "code"}, {"code_embeds", "rope", "mask"}, mConfig->predit_model(),
+                                      module_runtime, &module_config));
+    mDit.reset(mConfig->loadModule({"x", "code_embeds", "rope", "mask", "time"}, {"mel"}, mConfig->dit_model(),
+                                   dit_runtime, &module_config));
     // bigvgan
-    mBigvgan.reset(Module::load({"generated_mel"},
-                                {"waveform"}, mConfig->bigvgan_model().c_str(), module_runtime, &module_config));
+    mBigvgan.reset(
+        mConfig->loadModule({"generated_mel"}, {"waveform"}, mConfig->bigvgan_model(), module_runtime, &module_config));
     // autoregressive decode module
     mModulePool[std::make_pair(1, false)].reset(Module::clone(mModule.get()));
     // prefill module

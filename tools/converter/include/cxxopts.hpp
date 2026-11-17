@@ -407,6 +407,14 @@ inline void parse_value(const std::string &text, int64_t &value) {
 }
 
 inline void parse_value(const std::string &text, bool &value) {
+    if (text == "true") {
+        value = true;
+        return;
+    }
+    if (text == "false") {
+        value = false;
+        return;
+    }
     std::istringstream is(text);
     is >> value;
 }

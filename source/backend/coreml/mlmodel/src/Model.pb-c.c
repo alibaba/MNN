@@ -103,6 +103,51 @@ void   core_ml__specification__metadata__free_unpacked
   assert(message->base.descriptor == &core_ml__specification__metadata__descriptor);
   protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
 }
+void   core_ml__specification__function_description__init
+                     (CoreML__Specification__FunctionDescription         *message)
+{
+  static const CoreML__Specification__FunctionDescription init_value = CORE_ML__SPECIFICATION__FUNCTION_DESCRIPTION__INIT;
+  *message = init_value;
+}
+size_t core_ml__specification__function_description__get_packed_size
+                     (const CoreML__Specification__FunctionDescription *message)
+{
+  assert(message->base.descriptor == &core_ml__specification__function_description__descriptor);
+  return protobuf_c_message_get_packed_size ((const ProtobufCMessage*)(message));
+}
+size_t core_ml__specification__function_description__pack
+                     (const CoreML__Specification__FunctionDescription *message,
+                      uint8_t       *out)
+{
+  assert(message->base.descriptor == &core_ml__specification__function_description__descriptor);
+  return protobuf_c_message_pack ((const ProtobufCMessage*)message, out);
+}
+size_t core_ml__specification__function_description__pack_to_buffer
+                     (const CoreML__Specification__FunctionDescription *message,
+                      ProtobufCBuffer *buffer)
+{
+  assert(message->base.descriptor == &core_ml__specification__function_description__descriptor);
+  return protobuf_c_message_pack_to_buffer ((const ProtobufCMessage*)message, buffer);
+}
+CoreML__Specification__FunctionDescription *
+       core_ml__specification__function_description__unpack
+                     (ProtobufCAllocator  *allocator,
+                      size_t               len,
+                      const uint8_t       *data)
+{
+  return (CoreML__Specification__FunctionDescription *)
+     protobuf_c_message_unpack (&core_ml__specification__function_description__descriptor,
+                                allocator, len, data);
+}
+void   core_ml__specification__function_description__free_unpacked
+                     (CoreML__Specification__FunctionDescription *message,
+                      ProtobufCAllocator *allocator)
+{
+  if(!message)
+    return;
+  assert(message->base.descriptor == &core_ml__specification__function_description__descriptor);
+  protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
+}
 void   core_ml__specification__model_description__init
                      (CoreML__Specification__ModelDescription         *message)
 {
@@ -444,7 +489,110 @@ const ProtobufCMessageDescriptor core_ml__specification__metadata__descriptor =
   (ProtobufCMessageInit) core_ml__specification__metadata__init,
   NULL,NULL,NULL    /* reserved[123] */
 };
-static const ProtobufCFieldDescriptor core_ml__specification__model_description__field_descriptors[6] =
+static const ProtobufCFieldDescriptor core_ml__specification__function_description__field_descriptors[6] =
+{
+  {
+    "name",
+    1,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_STRING,
+    0,   /* quantifier_offset */
+    offsetof(CoreML__Specification__FunctionDescription, name),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "input",
+    2,
+    PROTOBUF_C_LABEL_REPEATED,
+    PROTOBUF_C_TYPE_MESSAGE,
+    offsetof(CoreML__Specification__FunctionDescription, n_input),
+    offsetof(CoreML__Specification__FunctionDescription, input),
+    &core_ml__specification__feature_description__descriptor,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "output",
+    3,
+    PROTOBUF_C_LABEL_REPEATED,
+    PROTOBUF_C_TYPE_MESSAGE,
+    offsetof(CoreML__Specification__FunctionDescription, n_output),
+    offsetof(CoreML__Specification__FunctionDescription, output),
+    &core_ml__specification__feature_description__descriptor,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "predictedFeatureName",
+    4,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_STRING,
+    0,   /* quantifier_offset */
+    offsetof(CoreML__Specification__FunctionDescription, predictedfeaturename),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "predictedProbabilitiesName",
+    5,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_STRING,
+    0,   /* quantifier_offset */
+    offsetof(CoreML__Specification__FunctionDescription, predictedprobabilitiesname),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "state",
+    6,
+    PROTOBUF_C_LABEL_REPEATED,
+    PROTOBUF_C_TYPE_MESSAGE,
+    offsetof(CoreML__Specification__FunctionDescription, n_state),
+    offsetof(CoreML__Specification__FunctionDescription, state),
+    &core_ml__specification__feature_description__descriptor,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+};
+static const unsigned core_ml__specification__function_description__field_indices_by_name[] = {
+  1,   /* field[1] = input */
+  0,   /* field[0] = name */
+  2,   /* field[2] = output */
+  3,   /* field[3] = predictedFeatureName */
+  4,   /* field[4] = predictedProbabilitiesName */
+  5,   /* field[5] = state */
+};
+static const ProtobufCIntRange core_ml__specification__function_description__number_ranges[1 + 1] =
+{
+  { 1, 0 },
+  { 0, 6 }
+};
+const ProtobufCMessageDescriptor core_ml__specification__function_description__descriptor =
+{
+  PROTOBUF_C__MESSAGE_DESCRIPTOR_MAGIC,
+  "CoreML.Specification.FunctionDescription",
+  "FunctionDescription",
+  "CoreML__Specification__FunctionDescription",
+  "CoreML.Specification",
+  sizeof(CoreML__Specification__FunctionDescription),
+  6,
+  core_ml__specification__function_description__field_descriptors,
+  core_ml__specification__function_description__field_indices_by_name,
+  1,  core_ml__specification__function_description__number_ranges,
+  (ProtobufCMessageInit) core_ml__specification__function_description__init,
+  NULL,NULL,NULL    /* reserved[123] */
+};
+static const ProtobufCFieldDescriptor core_ml__specification__model_description__field_descriptors[9] =
 {
   {
     "input",
@@ -495,6 +643,42 @@ static const ProtobufCFieldDescriptor core_ml__specification__model_description_
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
   {
+    "state",
+    13,
+    PROTOBUF_C_LABEL_REPEATED,
+    PROTOBUF_C_TYPE_MESSAGE,
+    offsetof(CoreML__Specification__ModelDescription, n_state),
+    offsetof(CoreML__Specification__ModelDescription, state),
+    &core_ml__specification__feature_description__descriptor,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "functions",
+    20,
+    PROTOBUF_C_LABEL_REPEATED,
+    PROTOBUF_C_TYPE_MESSAGE,
+    offsetof(CoreML__Specification__ModelDescription, n_functions),
+    offsetof(CoreML__Specification__ModelDescription, functions),
+    &core_ml__specification__function_description__descriptor,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "defaultFunctionName",
+    21,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_STRING,
+    0,   /* quantifier_offset */
+    offsetof(CoreML__Specification__ModelDescription, defaultfunctionname),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
     "trainingInput",
     50,
     PROTOBUF_C_LABEL_REPEATED,
@@ -520,20 +704,24 @@ static const ProtobufCFieldDescriptor core_ml__specification__model_description_
   },
 };
 static const unsigned core_ml__specification__model_description__field_indices_by_name[] = {
+  6,   /* field[6] = defaultFunctionName */
+  5,   /* field[5] = functions */
   0,   /* field[0] = input */
-  5,   /* field[5] = metadata */
+  8,   /* field[8] = metadata */
   1,   /* field[1] = output */
   2,   /* field[2] = predictedFeatureName */
   3,   /* field[3] = predictedProbabilitiesName */
-  4,   /* field[4] = trainingInput */
+  4,   /* field[4] = state */
+  7,   /* field[7] = trainingInput */
 };
-static const ProtobufCIntRange core_ml__specification__model_description__number_ranges[4 + 1] =
+static const ProtobufCIntRange core_ml__specification__model_description__number_ranges[5 + 1] =
 {
   { 1, 0 },
   { 10, 1 },
-  { 50, 4 },
-  { 100, 5 },
-  { 0, 6 }
+  { 20, 5 },
+  { 50, 7 },
+  { 100, 8 },
+  { 0, 9 }
 };
 const ProtobufCMessageDescriptor core_ml__specification__model_description__descriptor =
 {
@@ -543,10 +731,10 @@ const ProtobufCMessageDescriptor core_ml__specification__model_description__desc
   "CoreML__Specification__ModelDescription",
   "CoreML.Specification",
   sizeof(CoreML__Specification__ModelDescription),
-  6,
+  9,
   core_ml__specification__model_description__field_descriptors,
   core_ml__specification__model_description__field_indices_by_name,
-  4,  core_ml__specification__model_description__number_ranges,
+  5,  core_ml__specification__model_description__number_ranges,
   (ProtobufCMessageInit) core_ml__specification__model_description__init,
   NULL,NULL,NULL    /* reserved[123] */
 };
@@ -640,13 +828,13 @@ static const ProtobufCFieldDescriptor core_ml__specification__model__field_descr
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
   {
-    "neuralNetwork",
-    500,
+    "mlProgram",
+    502,
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_MESSAGE,
     offsetof(CoreML__Specification__Model, type_case),
-    offsetof(CoreML__Specification__Model, neuralnetwork),
-    &core_ml__specification__neural_network__descriptor,
+    offsetof(CoreML__Specification__Model, mlprogram),
+    &core_ml__specification__milspec__program__descriptor,
     NULL,
     0 | PROTOBUF_C_FIELD_FLAG_ONEOF,             /* flags */
     0,NULL,NULL    /* reserved1,reserved2, etc */
@@ -655,14 +843,14 @@ static const ProtobufCFieldDescriptor core_ml__specification__model__field_descr
 static const unsigned core_ml__specification__model__field_indices_by_name[] = {
   1,   /* field[1] = description */
   2,   /* field[2] = isUpdatable */
-  3,   /* field[3] = neuralNetwork */
+  3,   /* field[3] = mlProgram */
   0,   /* field[0] = specificationVersion */
 };
 static const ProtobufCIntRange core_ml__specification__model__number_ranges[3 + 1] =
 {
   { 1, 0 },
   { 10, 2 },
-  { 500, 3 },
+  { 502, 3 },
   { 0, 4 }
 };
 const ProtobufCMessageDescriptor core_ml__specification__model__descriptor =

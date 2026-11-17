@@ -267,10 +267,10 @@ static void poolingAvgPad(const T *offsetInput, T *offsetOutput, int inputWidth,
     }
 }
 
-template<typename T, typename VEC, int PACK>
-static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T *channelOutput,
-                       int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
-                       int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
+template <typename T, typename VEC, int PACK>
+static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T* channelOutput, int outputWidth,
+                       int outputHeight, int kernelWidth, int kernelHeight, int strideWidth, int strideHeight,
+                       int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
     // Compute Mid Rect
     int l = 0, t = 0, r = outputWidth, b = outputHeight;
     for (; l * strideWidth - padWidth < 0 && l < outputWidth; l++) {

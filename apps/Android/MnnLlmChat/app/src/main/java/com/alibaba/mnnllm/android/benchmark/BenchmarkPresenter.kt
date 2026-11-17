@@ -532,7 +532,10 @@ class BenchmarkPresenter(
                             }
                             
                             // Calculate real progress based on token processing
-                            val realProgress = calculateRealProgress(progress)
+                            val realProgress = calculateRealProgress(progress).let {
+                                if (view.isEnergyMeasurementEnabled() && progress.progressType != ProgressType.ENERGY_BASELINE)
+                                    it.coerceAtMost(95) else it
+                            }
                             Log.d(TAG, "onProgress: calculated realProgress=$realProgress for progressType=${progress.progressType}, nativeProgress=${progress.progress}")
                             
                             // Update UI with real progress
@@ -626,7 +629,8 @@ class BenchmarkPresenter(
                             }
                         }
                     },
-                    backendType
+                    backendType,
+                    view.isEnergyMeasurementEnabled()
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Benchmark start failed", e)
@@ -734,6 +738,7 @@ class BenchmarkPresenter(
         
         // Calculate progress based on progressType
         val finalProgress = when (progress.progressType) {
+            ProgressType.ENERGY_BASELINE -> 99
             ProgressType.INITIALIZING -> {
                 // During initialization: 0-10%
                 val initProgress = (progress.progress.coerceIn(0, 100) / 100.0f * runningStateStart).toInt()
@@ -784,4 +789,4 @@ class BenchmarkPresenter(
     fun loadModels() {
         setupModelSelector()
     }
-} 
+}

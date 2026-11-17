@@ -8,24 +8,29 @@
 
 #ifndef MNN_COREMLEXECUTORWRAPPER_H
 #define MNN_COREMLEXECUTORWRAPPER_H
-
+#include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 #include <MNN/Tensor.hpp>
 #include "Model.pb-c.h"
-
-// this class is wrapper of CoreMLExecutor
-// seprate objectc source file and cpp source file
 namespace MNN {
-    class CoreMLExecutorWrapper {
-    public:
-        CoreMLExecutorWrapper(int precision);
-        ~CoreMLExecutorWrapper();
-        bool compileModel(CoreML__Specification__Model* model);
-        void invokModel(const std::vector<std::pair<const MNN::Tensor*, std::string>>& inputs,
-                        const std::vector<std::pair<const MNN::Tensor*, std::string>>& outputs);
-    private:
-        void* mCoreMLExecutorPtr = nullptr;
-    };
-};
+std::shared_ptr<void> createCoreMLTemporaryDirectory(std::string& path);
+class CoreMLExecutorWrapper {
+public:
+    explicit CoreMLExecutorWrapper(int precision);
+    ~CoreMLExecutorWrapper();
+    bool compileModel(CoreML__Specification__Model* model, const std::string& weightsPath = "",
+                      const std::shared_ptr<std::vector<uint8_t>>& weights = nullptr,
+                      bool forceFileCompilation = false);
+    bool compiledFromSource() const;
+    std::shared_ptr<CoreMLExecutorWrapper> createSession(const CoreMLExecutorWrapper* previous = nullptr) const;
+    bool invokModel(const std::vector<std::pair<const Tensor*, std::string>>& inputs,
+                    const std::vector<std::pair<const Tensor*, std::string>>& outputs, bool flatIO = false);
 
-#endif //MNN_COREMLEXECUTORWRAPPER_H
+private:
+    void* mCoreMLExecutorPtr = nullptr;
+    std::shared_ptr<std::mutex> mPredictionMutex = std::make_shared<std::mutex>();
+};
+} // namespace MNN
+#endif

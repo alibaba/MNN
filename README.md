@@ -13,10 +13,15 @@
 [![Sana](https://img.shields.io/badge/Apps-Sana_Image_Edit-blue)](./apps/sana/README.md)
 
 ## News 🔥
-- [2026/07/22] MNN 3.6.1 is released with a new 🚀 Hexagon backend, enabling accelerated model inference on Qualcomm Hexagon DSPs. [Learn more](./source/backend/hexagon/README.md).
+
+- [2026/11/04] We released **MNN-Pocket-0.3B**, a **300M-parameter mobile-app-native language model** for Chinese/English instruction following. The MNN team co-designed its architecture, training methods, and inference engine around smartphone apps' task requirements and resource budgets. It supports **32K context**; the INT4 (W4A16) QAT MNN build occupies only **173 MB** and achieves **350 tok/s** decode throughput in tests on iPhone 18 Pro. Released under **Apache 2.0**.
+
+  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://arxiv.org/pdf/2611.12311)
 
 <details>
 <summary> History News </summary>
+
+- [2026/07/22] MNN 3.6.1 is released with a new 🚀 Hexagon backend, enabling accelerated model inference on Qualcomm Hexagon DSPs. [Learn more](./source/backend/hexagon/README.md).
 
 - [2026/03/05] Support Qwen3.5 Series.
 <p align="center">
@@ -135,22 +140,36 @@ The Architecture / Precision MNN supported is shown below:
 - B ：Support but has bug or not optimized, no recommend to use
 - C ：Not Support
 
-| Architecture / Precision |  | Normal | FP16 | BF16 | Int8 |
+| Architecture / Precision |  | Normal | FP16 | BF16 | INT8 / INT4 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | Native | B | C | B | B |
 |  | x86/x64-SSE4.1 | A | C | C | A |
 |  | x86/x64-AVX2 | S | C | C | A |
 |  | x86/x64-AVX512 | S | C | C | S |
-|  | ARMv7a | S | S (ARMv8.2) | S | S |
+|  | ARMv7a | S | C | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
+|  | ARMv9 (SME2) | S | S | B | S |
+|  | RISC-V (RVV) | A | C | C | B |
 | GPU | OpenCL | A | S | C | S |
 |  | Vulkan | A | A | C | A |
 |  | Metal | A | S | C | S |
 |  | CUDA | A | S | C | A |
-| NPU | CoreML | A | C | C | C |
+| NPU | CoreML | A | A | C | C |
+|  | Hexagon | A | A | C | B |
+|  | NeuroPilot | B | B | C | B |
 |  | HIAI | A | C | C | C |
 |  | NNAPI | B | B | C | B |
-|  | QNN | C | B | C | C |
+|  | QNN | C | B | C | A |
+
+CoreML primarily uses FP16 MIL tensors and weights in `Precision_Normal`; `Precision_Low` is not a separate execution path. Core ML selects the compute device for each operation.
+
+Hexagon uses FP16 device tensors even with normal-precision host input.
+
+
+ARMv9 can use ARMv8 paths; SME2 acceleration requires a supported CPU and build configuration. BF16 uses the existing ARM path and requires `MNN_SUPPORT_BF16`. RISC-V IME2 optimizations target SpacemiT K3.
+
+INT8 / INT4 ratings cover supported quantized model paths, including weight-only quantization; they do not imply full integer execution for every operator. Hexagon LLM currently documents symmetric INT4 weights with FP16 activations. QNN support depends on the target and quantization configuration.
+
 
 
 ## Tools

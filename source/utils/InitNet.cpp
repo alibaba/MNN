@@ -71,7 +71,7 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
                 return false;
             }
             if (parameter->dataType() == DataType_DT_HALF) {
-                if (nullptr == parameter->uint8s()) {
+                if (nullptr == parameter->uint8s() && !USE_EXTERNAL_DATA(parameter)) {
                     // Error half const
                     code = INVALID_VALUE;
                     return false;
@@ -83,7 +83,11 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
                 if (USE_EXTERNAL_DATA(parameter)) {
                     tmp.reset((new half_float::half[size]));
                     src = tmp.get();
-                    OpCommonUtils::loadExternalDatas(external, {reinterpret_cast<char*>(src)}, parameter->external()->data());
+                    if (!OpCommonUtils::loadBlobData(external, op, reinterpret_cast<char*>(src),
+                                                    size * sizeof(half_float::half))) {
+                        code = INPUT_DATA_ERROR;
+                        return false;
+                    }
                 } else {
                     src = (half_float::half*)parameter->uint8s()->data();
                 }
@@ -91,7 +95,10 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
                     outputPtr[i] = src[i];
                 }
             } else {
-                OpCommonUtils::loadBlobData(external, op, output->host<char>(), output->size());
+                if (!OpCommonUtils::loadBlobData(external, op, output->host<char>(), output->size())) {
+                    code = INPUT_DATA_ERROR;
+                    return false;
+                }
             }
         } else {
             if (nullptr != op->outputIndexes()) {

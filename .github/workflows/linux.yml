@@ -8,6 +8,15 @@ on:
       - 'source/**'
       - 'express/**'
       - 'test/**'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'include/**'
+      - 'schema/current/**'
+      - '3rd_party/**'
+      - 'tools/cpp/**'
+      - 'tools/cv/**'
+      - 'tools/audio/**'
+      - 'transformers/llm/engine/**'
       - '.github/workflows/linux.yml'
   pull_request:
     branches: [master]
@@ -15,6 +24,15 @@ on:
       - 'source/**'
       - 'express/**'
       - 'test/**'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'include/**'
+      - 'schema/current/**'
+      - '3rd_party/**'
+      - 'tools/cpp/**'
+      - 'tools/cv/**'
+      - 'tools/audio/**'
+      - 'transformers/llm/engine/**'
       - '.github/workflows/linux.yml'
 
 concurrency:

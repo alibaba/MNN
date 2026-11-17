@@ -2,21 +2,11 @@
 //  MetalFusedProj.mm
 //  MNN
 //
-//  Metal execution for the export-time fused projection op (FusedLinear =
-//  307): a group of projections sharing one input. The execution owns one
-//  Conv1x1 child per param conv, plus a MUL_SILU binary child (act_silu_mul)
-//  and a binary-RMSNorm LayerNorm child (has_ln).
-//
-//  Fusion is decided by the EXPORTED GRAPH, not by runtime pattern matching:
-//  setupFusion() drives the children's setupQKVFusion / setupLNFusion directly
-//  in member order, so the group is exactly what the exporter emitted. The
-//  backend calls it from onResizeEnd because the setup re-homes follower
-//  outputs to STATIC, which only sticks after the allocator's compute().
-//
-//  Decode GEMV is the only shape the fused kernels support (see
-//  MetalConvolution1x1's mIs2sgDecode conditions); any other shape, including
-//  all of prefill, keeps every child dispatching its own pipeline, which is
-//  exactly the unfused graph.
+//  Metal execution for the export-time fused projection op (FusedLinear).
+//  Owns one Conv1x1 child per param conv plus optional MUL_SILU and LayerNorm
+//  children. The group is driven by the exported member order and only the
+//  decode GEMV shape actually fuses; other shapes fall back to per-child
+//  dispatch.
 //
 
 #import "backend/metal/MetalBackend.hpp"
@@ -46,11 +36,8 @@ public:
         if (!eager) {
             return;
         }
-        // Create the member convs (and thus load the folded weights) right
-        // away: the pre-arrange / Session::clone machinery shares weights via
-        // onClone at module-clone time — before the first onResize — so lazy
-        // children would leave nothing to share and every cloned session
-        // would load a full second copy of every folded weight.
+        // Create the member convs eagerly so cloned sessions can share their
+        // weights via onClone before the first onResize.
         auto metalBackend = static_cast<MetalBackend *>(backend);
         for (int i = 0; i < mNumConvs; ++i) {
             auto conv   = mParam->convs()->GetAs<Convolution2D>(i);
@@ -85,11 +72,8 @@ public:
         if ((int)mConvs.size() != mNumConvs) {
             return false;
         }
-        // Share the member conv weights through each child's own onClone
-        // (same as graph-level MetalConvolution1x1), otherwise the cloned
-        // session would load a full second copy of every folded weight.
-        // mMulSilu / mLn carry no bulk weights and are re-created lazily on
-        // the clone's first onResize.
+        // Share conv weights through each child's onClone; the lightweight
+        // mMulSilu / mLn children are re-created lazily on first onResize.
         std::unique_ptr<MetalFusedProj> clone(new MetalFusedProj(bn, op, /*eager=*/false));
         for (int i = 0; i < mNumConvs; ++i) {
             const Op* convOp = clone->_wrapConv(clone->mParam->convs()->GetAs<Convolution2D>(i), mChildFormat);
@@ -142,14 +126,9 @@ public:
             if (mIsGateUp) {
                 err = mConvs[0]->onResize({projInput}, {mGate.get()});
                 if (err == NO_ERROR) {
-                    // Offer the up projection the group's MUL_SILU. It only
-                    // takes it on the M64 prefill tile, so read the answer back
-                    // rather than assuming. mGate and mUp are acquired while
-                    // outputs[0] is already live, so the allocator cannot place
-                    // the group output over the gate tile the fused epilogue
-                    // reads. The resize still names mUp: it has the same shape
-                    // and format as outputs[0], so the kernel constants match
-                    // whichever tensor the encode ends up binding.
+                    // Offer the up projection the group's MUL_SILU; the child
+                    // accepts only on the M64 prefill tile. Acquiring mGate/mUp
+                    // while outputs[0] is live keeps the gate tile unaliased.
                     mConvs[1]->requestPrefillSiluMul(mGate.get());
                     // Better still: let the up projection carry the gate tile in
                     // a second accumulator, so the gate tensor is never written.
@@ -206,25 +185,15 @@ public:
                 return;
             }
         }
-        // The grouping comes straight from the exported member order:
-        // act_silu_mul is (gate, up); otherwise q/k/v plus an optional fourth
-        // projection (a gated variant's output gate, or linear attention's
-        // qkv/z/b/a).
+        // Grouping matches the exported member order: (gate, up) for
+        // act_silu_mul, else q/k/v plus an optional fourth projection.
         bool projFused = false;
         if (mIsGateUp) {
-            if (mConvs.size() == 2 && !MetalEnv::get().gateUpFusionDisabled) {
-                // Offer the group's output so the leader can also absorb the
-                // MUL_SILU; it takes it only on shapes whose epilogue supports
-                // it, so read the decision back rather than assuming it.
-                //
-                // Folding the MUL_SILU makes the leader write that output while
-                // it is still reading the projection input. Without the LN
-                // fold that input is the op's own input tensor, which the
-                // allocator may have placed under the output -- legal while the
-                // write happened in a later dispatch, a race now. Re-home to
-                // STATIC, which the dynamic pool never reuses; if that fails,
-                // keep MUL_SILU separate rather than risk it. (With the LN fold
-                // the reads are mLnHiddenIn/mLnResidualIn, guarded below.)
+            if (mConvs.size() == 2) {
+                // Offer the group's output so the leader may absorb MUL_SILU;
+                // if accepted, re-home the input to STATIC (the allocator may
+                // have placed it under the leader's output). Fall back to a
+                // separate MUL_SILU dispatch if that fails.
                 const Tensor *siluOut = mProjOutputs[0];
                 if (!mHasLn && backend->tensorsOverlap(siluOut, mProjInput) &&
                     !backend->onAcquireBuffer(mProjOutputs[0], Backend::STATIC)) {
@@ -233,7 +202,7 @@ public:
                 projFused = mConvs[0]->setupGateUpFusion(mConvs[1].get(), mUp.get(), siluOut);
                 mSiluFused = projFused && mConvs[0]->gateUpSiluFused();
             }
-        } else if (mConvs.size() >= 3 && !MetalEnv::get().qkvFusionDisabled) {
+        } else if (mConvs.size() >= 3) {
             if (mConvs.size() == 3) {
                 projFused = mConvs[0]->setupQKVFusion(mProjOutputs[0], mConvs[1].get(), mProjOutputs[1],
                                                       mConvs[2].get(), mProjOutputs[2]);
@@ -243,28 +212,16 @@ public:
                                                       mProjOutputs[3]);
             }
         }
-        // The LN fold suppresses the LayerNorm's own dispatch, so mNormalized is
-        // never written. That is only sound when the projection fusion succeeded
-        // and the leader's single dispatch covers the whole group; if it failed
-        // (env-disabled, pipeline miss, quant-layout mismatch, re-home failure),
-        // the other convs still dispatch themselves reading mNormalized and the
-        // LayerNorm must stay a separate dispatch.
-        // lnFusionDisabled is the opt-in two-stage path: the LayerNorm child
-        // writes residual_out + normalized once, then the fused projections
-        // consume normalized. It helped Qwen3.5-2B decode on Mac, but not on
-        // iPad M5, so the portable default remains the single folded dispatch.
-        if (!projFused || !mHasLn || !mLn || MetalEnv::get().lnFusionDisabled) {
+        // Only a fully fused projection group can skip materializing mNormalized.
+        if (!projFused || !mHasLn || !mLn) {
             return;
         }
         if (!mLn->isNC4HW4() || !mLn->isRMSNormWithGammaBeta()) {
             return;
         }
-        // Folding the LayerNorm into the projection dispatch turns its residual
-        // read and the projections' writes into one kernel. The allocator may
-        // have aliased a projection output onto the residual input, which was
-        // legal while the LayerNorm was a separate earlier dispatch but now
-        // races. Re-home any such output to STATIC, which the dynamic pool
-        // never reuses; if that fails, skip the fold rather than risk it.
+        // Fold LayerNorm into the projection dispatch. Re-home any projection
+        // output aliased onto the residual input to STATIC (safe for the
+        // single-dispatch fold); skip the fold if that fails.
         std::vector<Tensor *> written = mProjOutputs;
         if (mIsGateUp) {
             // The gate/up leader writes both halves plus the SiLU-mul result --
@@ -332,10 +289,8 @@ public:
             projInput = mNormalized.get();
         }
         if (mIsGateUp) {
-            // Once paired, the gate child (leader) dispatches both projections
-            // and the up child encodes nothing. With the prefill dual it is the
-            // other way round: the up child dispatches both tiles and the gate
-            // child is not encoded at all.
+            // Decode: the gate child dispatches both projections.
+            // Prefill dual: the up child dispatches both tiles instead.
             if (!mPrefillDualFused) {
                 mConvs[0]->onEncode({projInput}, {mGate.get()}, encoder);
             }
@@ -363,10 +318,8 @@ public:
     }
 
 private:
-    // Keep the Tensor object when its description is unchanged: recorded
-    // encode-replay bindings hold raw Tensor* to these intermediates, so
-    // re-creating them every resize would leave the recording dangling.
-    // Returns true when a new Tensor was allocated.
+    // Keep the Tensor object when its description is unchanged so recorded
+    // encode-replay bindings never dangle. Returns true if newly allocated.
     bool _ensureIntermediate(std::shared_ptr<Tensor> &t, const Tensor *like, int channel, MNN_DATA_FORMAT fmt) {
         auto shape = like->shape();
         if (shape.size() >= 2) {

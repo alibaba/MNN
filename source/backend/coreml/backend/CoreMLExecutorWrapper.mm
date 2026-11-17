@@ -6,63 +6,47 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CoreMLDefine.h"
 #import "CoreMLExecutorWrapper.h"
 #import "CoreMLExecutor.h"
-
 namespace MNN {
-// cast c-ptr to objectc-ptr and transfers ownership
-static inline CoreMLExecutor* getCoreMLExecutoreOwn(void* ptr) {
-    return (__bridge_transfer CoreMLExecutor*)ptr;
-}
-// cast c-ptr to objectc-ptr with no transfer of ownership
-static inline CoreMLExecutor* getCoreMLExecutoreRef(void* ptr) {
-    return (__bridge CoreMLExecutor*)ptr;
-}
-
+static CoreMLExecutor* executorRef(void* ptr) { return (__bridge CoreMLExecutor*)ptr; }
 CoreMLExecutorWrapper::CoreMLExecutorWrapper(int precision) {
-    if (mCoreMLExecutorPtr == nullptr)  {
-        mCoreMLExecutorPtr = (__bridge_retained void*)[[CoreMLExecutor alloc] init];
-        auto executor = getCoreMLExecutoreRef(mCoreMLExecutorPtr);
-        executor.precision = precision;
-    }
+    auto executor = [[CoreMLExecutor alloc] init];
+    executor.precision = precision;
+    mCoreMLExecutorPtr = (__bridge_retained void*)executor;
 }
-
 CoreMLExecutorWrapper::~CoreMLExecutorWrapper() {
     @autoreleasepool {
-        auto executor = getCoreMLExecutoreOwn(mCoreMLExecutorPtr);
+        auto executor = (__bridge_transfer CoreMLExecutor*)mCoreMLExecutorPtr;
         (void)executor;
-        executor = nullptr;
     }
 }
-
-bool CoreMLExecutorWrapper::compileModel(CoreML__Specification__Model* model) {
-    if (@available(iOS 11, *)) {
-        auto executor = getCoreMLExecutoreRef(mCoreMLExecutorPtr);
-        NSURL* model_url = [executor saveModel:model];
-        if (![executor build:model_url]) {
-            printf("Failed to Compile and save Model.");
-            return false;
+bool CoreMLExecutorWrapper::compiledFromSource() const { return executorRef(mCoreMLExecutorPtr).compiledFromSource; }
+bool CoreMLExecutorWrapper::compileModel(CoreML__Specification__Model* model, const std::string& weightsPath,
+                                         const std::shared_ptr<std::vector<uint8_t>>& weights, bool forceFileCompilation) {
+    @autoreleasepool {
+        return [executorRef(mCoreMLExecutorPtr) buildModel:model weightsPath:weightsPath weights:weights
+                                      forceFileCompilation:forceFileCompilation];
+    }
+}
+std::shared_ptr<CoreMLExecutorWrapper> CoreMLExecutorWrapper::createSession(const CoreMLExecutorWrapper* previous) const {
+    @autoreleasepool {
+        auto executor = [executorRef(mCoreMLExecutorPtr) sessionWithPrevious:
+            previous ? executorRef(previous->mCoreMLExecutorPtr) : nil];
+        if (!executor) {
+            return nullptr;
         }
-        [executor cleanup];
-        return true;
-    } else {
-        printf("Failed to Compile and save Model.");
-        return false;
+        std::shared_ptr<CoreMLExecutorWrapper> session(new CoreMLExecutorWrapper(executor.precision));
+        auto unused = (__bridge_transfer CoreMLExecutor*)session->mCoreMLExecutorPtr;
+        (void)unused;
+        session->mCoreMLExecutorPtr = (__bridge_retained void*)executor;
+        session->mPredictionMutex = mPredictionMutex;
+        return session;
     }
 }
-
-void CoreMLExecutorWrapper::invokModel(const std::vector<std::pair<const MNN::Tensor*, std::string>>& inputs,
-                                       const std::vector<std::pair<const MNN::Tensor*, std::string>>& outputs) {
-    if (@available(iOS 11, *)) {
-        auto executor = getCoreMLExecutoreRef(mCoreMLExecutorPtr);
-        if (![executor invokeWithInputs:inputs outputs:outputs]) {
-            printf("Failed to Invok the Model.\n");
-            return;
-        }
-    } else {
-        printf("Failed to Invok the Model.\n");
-        return;
-    }
+bool CoreMLExecutorWrapper::invokModel(const std::vector<std::pair<const Tensor*, std::string>>& inputs,
+                                      const std::vector<std::pair<const Tensor*, std::string>>& outputs, bool flatIO) {
+    std::lock_guard<std::mutex> lock(*mPredictionMutex);
+    @autoreleasepool { return [executorRef(mCoreMLExecutorPtr) invokeWithInputs:inputs outputs:outputs flatIO:flatIO]; }
 }
-};
+} // namespace MNN

@@ -54,8 +54,8 @@ kernel void resize_bilinear(const device ftype4 *in     [[buffer(0)]],
 }
 
 static inline float4 resize_cubic_interpolation(float4 A, float4 B, float4 C, float4 D, float factor) {
-    // Must stay term-for-term with CubicInterpolation2 in ResizeFunction.cpp (F = -0.75). The
-    // F = -0.5 polynomial form this used to carry picks different weights and overshoots further.
+    // Must stay term-for-term with CubicInterpolation2 in ResizeFunction.cpp (F = -0.75);
+    // the F = -0.5 polynomial form picks different weights and overshoots further.
     float t = factor;
     float u = 1.0f - t;
     float ta = 1.0f + t;

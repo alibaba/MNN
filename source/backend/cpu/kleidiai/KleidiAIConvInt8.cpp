@@ -38,10 +38,9 @@
 #include "kai_matmul_clamp_f32_qsi8d32p1x4_qai4c32p4vlx4_1x4vl_sme2_dot.h"
 #include "kai_matmul_clamp_f16_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa.h"
 #include "kai_matmul_clamp_f16_qsi8d32p1x4_qai4c32p4vlx4_1x4vl_sme2_dot.h"
-#ifdef MNN_KLEIDIAI_F16_PACKED_INT4
-#include "kai_lhs_pack_f16pmrx4_f32_neon.h"
-#include "kai_matmul_clamp_f32_f16p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa.h"
-#endif
+#include "kai_matmul.h"
+#include "kai_matmul_pack_lhs.h"
+#include "kai_lhs_pack_f16pmrx2_f32_neon.h"
 
 #define QUANT_INFO_BYTES 4
 namespace MNN {
@@ -66,7 +65,11 @@ KleidiAIConvInt8::KernelType KleidiAIConvInt8::getKernelType(size_t bits, bool b
         }
         return KernelType::KERNEL_TYPE_ERROR;
     }
-    // Symmetric: only per-channel f32 has a ukernel.
+    // QSI4 has no affine zero term; never route asymmetric weights through it.
+    if (!perChannel && (bytes == 4 || bytes == 2)) {
+        return bytes == 4 ? KernelType::QI4_SYM_PERBLOCK_F32 : KernelType::QI4_SYM_PERBLOCK_F16;
+    }
+    // Keep the existing symmetric per-channel route unchanged.
     if (perChannel && bytes == 4) {
         return KernelType::QI4_SYM_PERCHANNEL_F32;
     }
@@ -78,6 +81,9 @@ static bool kaiKernelSupport(KleidiAIConvInt8::KernelType type) {
     auto cpu = MNNGetCPUInfo();
     bool hasKernel = cpu->sme2 || (cpu->dot && cpu->i8mm);
     switch (type) {
+        case KleidiAIConvInt8::KernelType::QI4_SYM_PERBLOCK_F32:
+        case KleidiAIConvInt8::KernelType::QI4_SYM_PERBLOCK_F16:
+            return cpu->sme2;
         case KleidiAIConvInt8::KernelType::QI4_SYM_PERCHANNEL_F32:
         case KleidiAIConvInt8::KernelType::QI4_ASYM_PERCHANNEL_F32:
         case KleidiAIConvInt8::KernelType::QI4_ASYM_PERBLOCK_F32:
@@ -176,21 +182,10 @@ void rhsPackAsymNeon(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr,
 // ---- lhs quanted packed size ----
 DEFINE_LHS_INFO_BLK(lhsSizeAsymF32,  kai_get_lhs_packed_size_lhs_quant_pack_qsi8d32pscalef32_f32_neon)
 DEFINE_LHS_INFO_BLK(lhsSizeAsymF16,  kai_get_lhs_packed_size_lhs_quant_pack_qsi8d32pscalef32_f16_neon)
-#ifdef MNN_KLEIDIAI_F16_PACKED_INT4
-size_t lhsSizeDirectF32(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr) {
-    if (mr == 1) {
-        return kai_get_lhs_packed_size_lhs_quant_pack_qsi8d32pscalef32_f32_neon(m, k, bl, 1, kr, sr);
-    }
-    return kai_get_lhs_packed_size_lhs_pack_f16pmrx4_f32_neon(m, k, bl, mr, kr, sr);
-}
-#endif
 
 // ---- lhs quanted packed offset ----
 DEFINE_LHS_INFO_BLK(lhsOffAsymF32,   kai_get_lhs_packed_offset_lhs_quant_pack_qsi8d32pscalef32_f32_neon)
 DEFINE_LHS_INFO_BLK(lhsOffAsymF16,   kai_get_lhs_packed_offset_lhs_quant_pack_qsi8d32pscalef32_f16_neon)
-#ifdef MNN_KLEIDIAI_F16_PACKED_INT4
-DEFINE_LHS_INFO_BLK(lhsOffDirectF32,  kai_get_lhs_packed_offset_lhs_pack_f16pmrx4_f32_neon)
-#endif
 
 // ---- lhs quant + pack ----
 void lhsPackAsymF32(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr, const void* lhs, void* out) {
@@ -199,17 +194,6 @@ void lhsPackAsymF32(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t 
 void lhsPackAsymF16(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr, const void* lhs, void* out) {
     kai_run_lhs_quant_pack_qsi8d32pscalef32_f16_neon(m, k, bl, mr, kr, sr, 0, (const __fp16*)lhs, k * sizeof(__fp16), out);
 }
-#ifdef MNN_KLEIDIAI_F16_PACKED_INT4
-void lhsPackDirectF32(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr, const void* lhs, void* out) {
-    // A GEMM packing worker can own a one-row tail. Keep the layout selected
-    // for the full operation (mr), rather than treating that tail as GEMV.
-    if (mr == 1) {
-        lhsPackAsymF32(m, k, bl, 1, kr, sr, lhs, out);
-        return;
-    }
-    kai_run_lhs_pack_f16pmrx4_f32_neon(m, k, bl, mr, kr, sr, 0, lhs, k * sizeof(float), out);
-}
-#endif
 
 // ---- matmul (GEMV when m == 1, GEMM otherwise) ----
 void matmulAsymF32Sme2(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
@@ -244,20 +228,194 @@ void matmulAsymF16Neon(size_t m, size_t n, size_t k, size_t bl, const void* lhs,
         kai_run_matmul_clamp_f16_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm(m, n, k, bl, lhs, rhs, (float*)dst, sr, sc, mn, mx);
     }
 }
-#ifdef MNN_KLEIDIAI_F16_PACKED_INT4
-void matmulDirectF32Sme2(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
-                         size_t sr, size_t sc, float mn, float mx) {
-    if (m == 1) {
-        kai_run_matmul_clamp_f32_qsi8d32p1x4_qai4c32p4vlx4_1x4vl_sme2_dot(
-            m, n, k, bl, lhs, rhs, (float*)dst, sr, sc, mn, mx);
-        return;
-    }
-    kai_run_matmul_clamp_f32_f16p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa(
-        m, n, k, bl, lhs, rhs, (float*)dst, sr, sc, mn, mx);
-}
-#endif
 
+// QSI4C32P stores each NR panel as all K/4 groups of four offset-binary
+// nibbles, followed by [K/BL, NR] FP16 scales. Unlike QAI4 there is no bias
+// or zero-point field. Pack directly from MNN's high-nibble-first q+8 codes;
+// this also avoids the official intermediate RHS packer's BL <= 256 limit.
+size_t rhsSizeQsi4(size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl) {
+    return kai_roundup(n, nr) * (k / 2 + (k / bl) * sizeof(__fp16));
+}
+size_t rhsOffQsi4(size_t nIdx, size_t k, size_t nr, size_t kr, size_t sr, size_t bl) {
+    MNN_ASSERT(nIdx % nr == 0);
+    return nIdx * (k / 2 + (k / bl) * sizeof(__fp16));
+}
+void rhsPackQsi4(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl,
+                 const void* rhs, const void* scale, const void* zeroPoint, const void* bias, void* out) {
+    MNN_ASSERT(numGroups == 1 && bl != 0 && bl % 32 == 0 && k % bl == 0);
+    const auto src = static_cast<const uint8_t*>(rhs);
+    const auto scales = static_cast<const float*>(scale);
+    const size_t blocks = k / bl;
+    const size_t panelBytes = nr * (k / 2 + blocks * sizeof(__fp16));
+    ::memset(out, 0, rhsSizeQsi4(n, k, nr, kr, sr, bl));
+    for (size_t start = 0; start < n; start += nr) {
+        auto panel = static_cast<uint8_t*>(out) + (start / nr) * panelBytes;
+        auto panelScales = reinterpret_cast<__fp16*>(panel + nr * k / 2);
+        for (size_t c = 0; c < std::min(nr, n - start); ++c) {
+            const auto row = src + (start + c) * k / 2;
+            for (size_t group = 0; group < k / 4; ++group) {
+                for (size_t pair = 0; pair < 2; ++pair) {
+                    const uint8_t v = row[2 * group + pair];
+                    panel[2 * (group * nr + c) + pair] = (v >> 4) | (v << 4);
+                }
+            }
+            for (size_t block = 0; block < blocks; ++block) {
+                panelScales[block * nr + c] = static_cast<__fp16>(scales[(start + c) * blocks + block]);
+            }
+        }
+    }
+}
+DEFINE_LHS_INFO_BLK(lhsSizeF16Mopa, kai_get_lhs_packed_size_lhs_pack_f16pmrx2_f32_neon)
+DEFINE_LHS_INFO_BLK(lhsOffF16Mopa, kai_get_lhs_packed_offset_lhs_pack_f16pmrx2_f32_neon)
+void lhsPackF16MopaF32(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr,
+                    const void* lhs, void* out) {
+    // Even M=1 uses the MOPA MR layout, including one-row parallel tails.
+    kai_run_lhs_pack_f16pmrx2_f32_neon(m, k, bl, mr, kr, sr, 0, lhs, k * sizeof(float), out);
+}
+void lhsPackF16MopaF16(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr,
+                    const void* lhs, void* out) {
+    const auto api = kai_matmul_pack_lhs_mxk_x16p4vsx2_x16_sme2();
+    kai_matmul_pack_lhs_uker_config config = {};
+    kai_matmul_pack_lhs_uker_args args = {};
+    args.shape.m = m;
+    args.shape.k = k;
+    args.operand.lhs.ptr = lhs;
+    args.operand.lhs.stride.m = k * sizeof(__fp16);
+    args.operand.lhs_packed.ptr = out;
+    const kai_matmul_pack_lhs_uker_lhs_packed_dim_args shape = {m, k};
+    args.operand.lhs_packed.stride = api.get_lhs_packed_stride(&config, &shape);
+    api.run(&config, &args);
+}
+void matmulQsi4F16Mopa(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
+                      size_t sr, size_t sc, float mn, float mx) {
+    MNN_ASSERT(sc == sizeof(float));
+    const auto api = kai_matmul_clamp_f32_f16p4vsx2_qsi4c32p16vsx4s1s0sf16_f16p_4vsx16vs_sme2_mopa();
+    kai_matmul_uker_config config = {};
+    config.format.bl = bl;
+    kai_matmul_uker_args args = {};
+    args.shape.m = m;
+    args.shape.n = n;
+    args.shape.k = k;
+    args.operand.lhs.ptr = lhs;
+    args.operand.rhs.ptr = rhs;
+    args.operand.dst.ptr = dst;
+    args.operand.dst.stride.m = sr;
+    // Default LUT decodes q+8. No activation clamp here: bias must be added
+    // first. The executor performs bias + clamp and only then converts to F16.
+    api.run(&config, &args);
+}
+// Each NR panel contains K/32 blocks of [16*NR code bytes, NR half offsets,
+// NR half scales]. Unlike QSI4, metadata separates every 32 depths, and its
+// channel order is 0, NR/2, 1, NR/2+1, ... . Original BL stays separate from
+// the compute BL=32: subdivide blocks by repeating metadata, not requantizing.
+size_t rhsSizeQai4(size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl) {
+    return kai_roundup(n, nr) * (k / 32) * 20;
+}
+size_t rhsOffQai4(size_t nIdx, size_t k, size_t nr, size_t kr, size_t sr, size_t bl) {
+    MNN_ASSERT(nIdx % nr == 0);
+    return nIdx * (k / 32) * 20;
+}
+void rhsPackQai4(size_t numGroups, size_t n, size_t k, size_t nr, size_t kr, size_t sr, size_t bl,
+                 const void* rhs, const void* scale, const void* zeroPoint, const void* bias, void* out) {
+    MNN_ASSERT(numGroups == 1 && n > 0 && bl != 0 && bl % 32 == 0 && k % bl == 0);
+    const auto src = static_cast<const uint8_t*>(rhs);
+    const auto scales = static_cast<const float*>(scale);
+    const auto zeros = static_cast<const float*>(zeroPoint);
+    const size_t blocks = k / bl;
+    const size_t panelBytes = nr * (k / 32) * 20;
+    for (size_t start = 0; start < n; start += nr) {
+        auto panel = static_cast<uint8_t*>(out) + (start / nr) * panelBytes;
+        for (size_t block = 0; block < k / 32; ++block) {
+            auto data = panel + block * 20 * nr;
+            auto offsets = reinterpret_cast<__fp16*>(data + 16 * nr);
+            auto packedScales = reinterpret_cast<__fp16*>(data + 18 * nr);
+            for (size_t c = 0; c < nr; ++c) {
+                // Match the official packer's last-channel replication for N tails.
+                const size_t channel = std::min(start + c, n - 1);
+                const auto row = src + channel * k / 2 + block * 16;
+                for (size_t group = 0; group < 8; ++group) {
+                    for (size_t pair = 0; pair < 2; ++pair) {
+                        const uint8_t v = row[2 * group + pair];
+                        data[2 * (group * nr + c) + pair] = (v >> 4) | (v << 4);
+                    }
+                }
+                const size_t idx = channel * blocks + (block * 32) / bl;
+                const size_t meta = 2 * (c % (nr / 2)) + c / (nr / 2);
+                // MNN w=(u-8)*s+z; official kernel dequantizes FMA16(u,s,z-8*s).
+                offsets[meta] = static_cast<__fp16>(zeros[idx] - 8.0f * scales[idx]);
+                packedScales[meta] = static_cast<__fp16>(scales[idx]);
+            }
+        }
+    }
+}
+void matmulQai4F16Mopa(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
+                      size_t sr, size_t sc, float mn, float mx) {
+    MNN_ASSERT(sc == sizeof(float));
+    const auto api = kai_matmul_clamp_f32_f16p4vsx2_qai4c32p16vsx4s1s0sf16_4vsx16vs_sme2_mopa();
+    kai_matmul_uker_config config = {};
+    config.format.bl = 32;
+    kai_matmul_uker_args args = {};
+    args.shape.m = m;
+    args.shape.n = n;
+    args.shape.k = k;
+    args.operand.lhs.ptr = lhs;
+    args.operand.rhs.ptr = rhs;
+    args.operand.dst.ptr = dst;
+    const kai_matmul_uker_lhs_dim_args lhsShape = {m, k};
+    const kai_matmul_uker_rhs_dim_args rhsShape = {n, k};
+    // QAI4's wrapper consumes both strides verbatim; zero only works for one tile.
+    args.operand.lhs.stride = api.get_lhs_stride(&config, &lhsShape);
+    args.operand.rhs.stride = api.get_rhs_stride(&config, &rhsShape);
+    args.operand.dst.stride.m = sr;
+    // Bias and clamp belong after FP32 accumulation, before any FP16 output cast.
+    api.run(&config, &args);
+}
 #undef DEFINE_RHS_INFO
+size_t lhsSizeQai4Dot(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr) {
+    const auto api = kai_matmul_pack_lhs_mxk_qsi8d32p1x4sf16_f32_neon();
+    kai_matmul_pack_lhs_uker_config config = {};
+    const kai_matmul_pack_lhs_uker_lhs_packed_dim_args shape = {m, k};
+    const auto stride = api.get_lhs_packed_stride(&config, &shape);
+    return api.get_lhs_packed_size(&config, &shape, &stride);
+}
+size_t lhsOffQai4Dot(size_t mIdx, size_t k, size_t bl, size_t mr, size_t kr, size_t sr) {
+    return mIdx * lhsSizeQai4Dot(1, k, bl, mr, kr, sr);
+}
+void lhsPackQai4Dot(size_t m, size_t k, size_t bl, size_t mr, size_t kr, size_t sr,
+                    const void* lhs, void* out) {
+    const auto api = kai_matmul_pack_lhs_mxk_qsi8d32p1x4sf16_f32_neon();
+    kai_matmul_pack_lhs_uker_config config = {};
+    kai_matmul_pack_lhs_uker_args args = {};
+    args.shape.m = m;
+    args.shape.k = k;
+    args.operand.lhs.ptr = lhs;
+    args.operand.lhs.stride.m = k * sizeof(float);
+    args.operand.lhs_packed.ptr = out;
+    const kai_matmul_pack_lhs_uker_lhs_packed_dim_args shape = {m, k};
+    args.operand.lhs_packed.stride = api.get_lhs_packed_stride(&config, &shape);
+    api.run(&config, &args);
+}
+void matmulQai4Dot(size_t m, size_t n, size_t k, size_t bl, const void* lhs, const void* rhs, void* dst,
+                  size_t sr, size_t sc, float mn, float mx) {
+    MNN_ASSERT(m == 1 && sc == sizeof(float));
+    const auto api = kai_matmul_clamp_f32_qsi8d32p1x4_qai4c32p16vsx4s1s0sf16_1x16vs_sme2_dot();
+    kai_matmul_uker_config config = {};
+    config.format.bl = 32;
+    kai_matmul_uker_args args = {};
+    args.shape.m = m;
+    args.shape.n = n;
+    args.shape.k = k;
+    args.operand.lhs.ptr = lhs;
+    args.operand.rhs.ptr = rhs;
+    args.operand.dst.ptr = dst;
+    const kai_matmul_uker_lhs_dim_args lhsShape = {m, k};
+    const kai_matmul_uker_rhs_dim_args rhsShape = {n, k};
+    args.operand.lhs.stride = api.get_lhs_stride(&config, &lhsShape);
+    args.operand.rhs.stride = api.get_rhs_stride(&config, &rhsShape);
+    args.operand.dst.stride.m = sr;
+    // Like MOPA, DOT has no fused bias; clamp only after the executor adds it.
+    api.run(&config, &args);
+}
 #undef DEFINE_LHS_INFO_CHNL
 #undef DEFINE_LHS_INFO_BLK
 
@@ -266,12 +424,20 @@ void matmulDirectF32Sme2(size_t m, size_t n, size_t k, size_t bl, const void* lh
 // ===================================================================
 // Per-instance kernel parameter resolution and ukernel dispatch.
 
-void KleidiAIConvInt8::configKernel() {
+void KleidiAIConvInt8::configKernel(bool allowQai4F16Mopa) {
     auto cpu = MNNGetCPUInfo();
     mSme2 = cpu->sme2;
     mDot  = cpu->dot;
     mI8mm = cpu->i8mm;
     mHybrid = false;
+    mF16Mopa = false;
+    mQai4F16Mopa = false;
+    mParamGemv = KernelParam{};
+    mUkernelGemv = Ukernel{};
+    mParam = KernelParam{};
+    mParamNeon = KernelParam{};
+    mUkernel = Ukernel{};
+    mUkernelNeon = Ukernel{};
     mChnlQuant = (mKernelType == KernelType::QI4_SYM_PERCHANNEL_F32
                   || mKernelType == KernelType::QI4_ASYM_PERCHANNEL_F32
                   || mKernelType == KernelType::QI4_ASYM_PERCHANNEL_F16);
@@ -312,25 +478,6 @@ void KleidiAIConvInt8::configKernel() {
         u.runRhsPack      = rhsPackAsymNeon;
         u.matmul          = matmulAsymF32Neon;
     };
-#ifdef MNN_KLEIDIAI_F16_PACKED_INT4
-    auto fillSmeDirectF32 = [](KernelParam& p, Ukernel& u) {
-        u.lhsPackedSize   = lhsSizeDirectF32;
-        u.lhsPackedOffset = lhsOffDirectF32;
-        u.runLhsQuantPack = lhsPackDirectF32;
-        p.mKaiMstepGemv = 1;
-        p.mKaiMstepGemm = kai_get_m_step_matmul_clamp_f32_f16p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
-        p.mKaiNStep     = kai_get_n_step_matmul_clamp_f32_f16p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
-        p.mKaiMrGemv    = 1;
-        p.mKaiMrGemm    = kai_get_mr_matmul_clamp_f32_f16p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
-        p.mKaiNr        = kai_get_nr_matmul_clamp_f32_f16p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
-        p.mKaiKr        = kai_get_kr_matmul_clamp_f32_f16p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
-        p.mKaiSr        = kai_get_sr_matmul_clamp_f32_f16p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
-        u.rhsPackedSize   = rhsSizeAsymSme2;
-        u.rhsPackedOffset = rhsOffAsymSme2;
-        u.runRhsPack      = rhsPackAsymSme2;
-        u.matmul          = matmulDirectF32Sme2;
-    };
-#endif
     auto fillSmeF16 = [](KernelParam& p, Ukernel& u) {
         u.lhsPackedSize   = lhsSizeAsymF16;
         u.lhsPackedOffset = lhsOffAsymF16;
@@ -366,7 +513,71 @@ void KleidiAIConvInt8::configKernel() {
         u.matmul          = matmulAsymF16Neon;
     };
 
+    // Select the RHS layout before packing, using the model's original block
+    // length, not the fixed BL32 used internally by the official FP16 kernel.
+    // Larger blocks retain the QSI8 path and its matching GEMM/GEMV packers.
+    const int blockSize = mBlockNum > 1 ? mCommon->inputCount() / mBlockNum : 0;
+    const bool preferQai4F16 = blockSize > 0 && blockSize < 64;
+    if (allowQai4F16Mopa && preferQai4F16 && mSme2
+        && (mKernelType == KernelType::QI4_ASYM_PERBLOCK_F32
+            || mKernelType == KernelType::QI4_ASYM_PERBLOCK_F16)) {
+        const auto api = kai_matmul_clamp_f32_f16p4vsx2_qai4c32p16vsx4s1s0sf16_4vsx16vs_sme2_mopa();
+        kai_matmul_uker_config config = {};
+        config.format.bl = 32;
+        const auto step = api.get_step(&config);
+        mParam.mKaiMstepGemv = mParam.mKaiMstepGemm = step.m;
+        mParam.mKaiMrGemv = mParam.mKaiMrGemm = step.m;
+        mParam.mKaiNStep = mParam.mKaiNr = step.n;
+        mParam.mKaiKr = 4;
+        mParam.mKaiSr = 2;
+        mUkernel.rhsPackedSize = rhsSizeQai4;
+        mUkernel.rhsPackedOffset = rhsOffQai4;
+        mUkernel.runRhsPack = rhsPackQai4;
+        mUkernel.lhsPackedSize = lhsSizeF16Mopa;
+        mUkernel.lhsPackedOffset = lhsOffF16Mopa;
+        mUkernel.runLhsQuantPack = mKernelType == KernelType::QI4_ASYM_PERBLOCK_F32
+            ? lhsPackF16MopaF32 : lhsPackF16MopaF16;
+        mUkernel.matmul = matmulQai4F16Mopa;
+        const auto gemvApi = kai_matmul_clamp_f32_qsi8d32p1x4_qai4c32p16vsx4s1s0sf16_1x16vs_sme2_dot();
+        const auto gemvStep = gemvApi.get_step(&config);
+        MNN_ASSERT(gemvStep.n == step.n && gemvStep.m == 1);
+        mParamGemv = mParam;
+        mParamGemv.mKaiMrGemv = mParamGemv.mKaiMrGemm = gemvStep.m;
+        mParamGemv.mKaiMstepGemv = mParamGemv.mKaiMstepGemm = gemvStep.m;
+        mUkernelGemv = mUkernel;
+        mUkernelGemv.lhsPackedSize = lhsSizeQai4Dot;
+        mUkernelGemv.lhsPackedOffset = lhsOffQai4Dot;
+        mUkernelGemv.runLhsQuantPack = lhsPackQai4Dot;
+        mUkernelGemv.matmul = matmulQai4Dot;
+        mF16Mopa = mQai4F16Mopa = true;
+        // No hybrid policy has been calibrated for this packed FP16 route.
+        return;
+    }
     switch (mKernelType) {
+        case KernelType::QI4_SYM_PERBLOCK_F32:
+        case KernelType::QI4_SYM_PERBLOCK_F16: {
+            if (!mSme2) {
+                break;
+            }
+            const auto api = kai_matmul_clamp_f32_f16p4vsx2_qsi4c32p16vsx4s1s0sf16_f16p_4vsx16vs_sme2_mopa();
+            kai_matmul_uker_config config = {};
+            const auto step = api.get_step(&config);
+            mParam.mKaiMstepGemv = mParam.mKaiMstepGemm = step.m;
+            mParam.mKaiMrGemv = mParam.mKaiMrGemm = step.m;
+            mParam.mKaiNStep = mParam.mKaiNr = step.n;
+            mParam.mKaiKr = 4;
+            mParam.mKaiSr = 2;
+            mUkernel.rhsPackedSize = rhsSizeQsi4;
+            mUkernel.rhsPackedOffset = rhsOffQsi4;
+            mUkernel.runRhsPack = rhsPackQsi4;
+            mUkernel.lhsPackedSize = lhsSizeF16Mopa;
+            mUkernel.lhsPackedOffset = lhsOffF16Mopa;
+            mUkernel.runLhsQuantPack = mKernelType == KernelType::QI4_SYM_PERBLOCK_F32
+                ? lhsPackF16MopaF32 : lhsPackF16MopaF16;
+            mUkernel.matmul = matmulQsi4F16Mopa;
+            mF16Mopa = true;
+            break;
+        }
         // Symmetric per-channel int4 is served by the asymmetric qsi8d32/qai4c32 kernels:
         // the asym packer stores signed int4 (v-8), so w = scale*(v-8) + zero; symmetric is
         // exactly this with per-channel zero = 0. The symmetric scale/zero are synthesized in
@@ -386,13 +597,7 @@ void KleidiAIConvInt8::configKernel() {
             break;
         case KernelType::QI4_ASYM_PERBLOCK_F32:
             if (mSme2) {
-#ifdef MNN_KLEIDIAI_F16_PACKED_INT4
-                // The direct kernel converts FP32 activations to packed FP16 and accumulates in
-                // FP32 ZA, avoiding dynamic INT8 quantization and per-block requantization.
-                fillSmeDirectF32(mParam, mUkernel);
-#else
                 fillSmeF32(mParam, mUkernel);
-#endif
             } else if (mDot && mI8mm) {
                 fillNeonF32(mParam, mUkernel);
             }
@@ -462,8 +667,6 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_p
     : CPUConvolution(op->main_as_Convolution2D()->common(), backend), mKernelType(kernelType), mBlockNum(blockNum) {
     // Publish validity only after all persistent resources have been packed.
     mValid = false;
-    // Resolve CPU features and kernel packing parameters for this KernelType.
-    configKernel();
 
     // convolution info
     auto convOp = op->main_as_Convolution2D();
@@ -471,6 +674,48 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_p
     int ic = convOp->common()->inputCount();
     if (ic <= 0 || oc <= 0 || mBlockNum <= 0 || ic % mBlockNum != 0 || (ic / mBlockNum) % 32 != 0) {
         return;
+    }
+    // Resolve the block-size policy only after validating the source shape.
+    configKernel();
+    if (mUkernel.matmul == nullptr) {
+        return;
+    }
+    if (mQai4F16Mopa) {
+        if (!quanCommon->asymmetric || mBlockNum <= 1 || quanCommon->alpha.size() < 2 * oc * mBlockNum) {
+            return;
+        }
+        // Reject unsafe FP16 metadata before packing, so the QSI8 route keeps
+        // its original FP32 scale/zero ABI. Its selection must survive cloning.
+        for (int i = 0; i < oc * mBlockNum; ++i) {
+            const float zero = quanCommon->alpha.get()[2 * i];
+            const float scale = quanCommon->alpha.get()[2 * i + 1];
+            const float offset = zero - 8.0f * scale;
+            const float hs = static_cast<float>(static_cast<__fp16>(scale));
+            const float ho = static_cast<float>(static_cast<__fp16>(offset));
+            // Fused FP16 dequantization is affine over unsigned codes 0..15.
+            // Checking both endpoints also bounds every intermediate code.
+            if (!std::isfinite(scale) || !std::isfinite(zero) || !std::isfinite(hs)
+                || !std::isfinite(ho) || std::fabs(ho + 15.0f * hs) > 65504.0f
+                || (scale != 0.0f && hs == 0.0f) || (offset != 0.0f && ho == 0.0f)) {
+                configKernel(false);
+                break;
+            }
+        }
+    }
+    if (mF16Mopa && !mQai4F16Mopa) {
+        if (quanCommon->asymmetric || mBlockNum <= 1 || quanCommon->alpha.size() < oc * mBlockNum) {
+            return;
+        }
+        // QSI4 dequantizes in FP16. Reject scales whose conversion (or INT4
+        // multiplication) would overflow, or erase an entire nonzero block.
+        for (int i = 0; i < oc * mBlockNum; ++i) {
+            const float scale = quanCommon->alpha.get()[i];
+            const float rounded = static_cast<float>(static_cast<__fp16>(scale));
+            if (!std::isfinite(rounded) || std::fabs(rounded) > 65504.0f / 8.0f
+                || (scale != 0.0f && rounded == 0.0f)) {
+                return;
+            }
+        }
     }
 
     // backend info
@@ -557,7 +802,32 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, std::shared_p
         }
     } else {
         if(blkSize != 0) {
-            memcpy(scalePtr, (uint8_t*)quanInfoPtr, paraNum * sizeof(float));
+            // alpha has only OC * blockNum entries, not the padded OC count.
+            memcpy(scalePtr, (uint8_t*)quanInfoPtr, oc * mBlockNum * sizeof(float));
+        }
+    }
+
+    if (mF16Mopa) {
+        // Retain original F32 metadata for exceptional inputs. Shared DOT also
+        // needs it with FP16 storage: a block sum can overflow even for finite
+        // FP16 inputs. Neither fallback needs a second copy of INT4 codes.
+        const bool retainMetadata = !bFP16 || mQai4F16Mopa;
+        const size_t entries = static_cast<size_t>(oc)
+            * (1 + (retainMetadata ? mBlockNum * (mQai4F16Mopa ? 2 : 1) : 0));
+        if (entries > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(float)) {
+            return;
+        }
+        mF16MopaBias.reset(Tensor::createDevice<uint8_t>({static_cast<int>(entries * sizeof(float))}));
+        if (!backend->onAcquireBuffer(mF16MopaBias.get(), Backend::STATIC)) {
+            return;
+        }
+        ::memcpy(mF16MopaBias->host<float>(), biasPtr, oc * sizeof(float));
+        if (retainMetadata) {
+            ::memcpy(mF16MopaBias->host<float>() + oc, scalePtr, oc * mBlockNum * sizeof(float));
+            if (mQai4F16Mopa) {
+                ::memcpy(mF16MopaBias->host<float>() + oc + oc * mBlockNum, zeroPtr,
+                         oc * mBlockNum * sizeof(float));
+            }
         }
     }
 
@@ -593,8 +863,9 @@ KleidiAIConvInt8::KleidiAIConvInt8(Backend* backend, const Op* op, const KleidiA
     : CPUConvolution(op->main_as_Convolution2D()->common(), backend),
     mWeightInt8(exe.mWeightInt8),
     mWeightInt8Neon(exe.mWeightInt8Neon),
+    mF16MopaBias(exe.mF16MopaBias),
     mKernelType(exe.mKernelType), mBlockNum(exe.mBlockNum) {
-    configKernel();
+    configKernel(exe.mQai4F16Mopa);
 }
 
 KleidiAIConvInt8::~KleidiAIConvInt8() {
@@ -606,7 +877,15 @@ bool KleidiAIConvInt8::onClone(Backend* bn, const Op* op, Execution** dst) {
         return false;
     }
     if (nullptr == dst) {
+        // StaticModule probes clone support with both bn and dst null.
         return true;
+    }
+    // KernelType fixes both input/output storage precision. Sharing weights
+    // across different backend precisions must rebuild, not reuse this slot.
+    if (bn == nullptr || bn->type() != backend()->type()
+        || static_cast<CPUBackend*>(bn)->functions()->bytes
+        != static_cast<CPUBackend*>(backend())->functions()->bytes) {
+        return false;
     }
     auto exe = new KleidiAIConvInt8(bn, op, *this);
     if (!exe->valid()) {
@@ -629,6 +908,8 @@ ErrorCode KleidiAIConvInt8::onResize(const std::vector<Tensor*>& inputs, const s
     const size_t n = outputs[0]->channel(); //rhs vector number.
     const size_t k = inputs[0]->channel(); //vector size.
     const size_t blkSize = mBlockNum == 1 ? 0 : k / mBlockNum;
+
+    mUseQai4Gemv = mQai4F16Mopa && m == 1;
 
     configSchedule(m, n, k, blkSize, static_cast<CPUBackend*>(backend())->threadNumber());
 
@@ -653,7 +934,8 @@ ErrorCode KleidiAIConvInt8::onResize(const std::vector<Tensor*>& inputs, const s
         }
     }
 
-    int packedSize = getLhsQuantedPackedSize(m, k, blkSize);
+    int packedSize = mUseQai4Gemv ? getLhsQuantedPackedSize(mUkernelGemv, mParamGemv, m, k, blkSize)
+                                : getLhsQuantedPackedSize(m, k, blkSize);
     int elementSize = core->bytes;
 
     //Split mTempIm2ColBuffer as two parts for linear/tile transfer:
@@ -664,6 +946,17 @@ ErrorCode KleidiAIConvInt8::onResize(const std::vector<Tensor*>& inputs, const s
     if (!success) {
         MNN_ERROR("Out of dynamic memory!\n");
         return OUT_OF_MEMORY;
+    }
+
+    mGemvInputF32.reset();
+    if (mUseQai4Gemv && core->bytes == 2) {
+        if (k > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(float)) {
+            return OUT_OF_MEMORY;
+        }
+        mGemvInputF32.reset(Tensor::createDevice<uint8_t>({static_cast<int>(k * sizeof(float))}));
+        if (!b->onAcquireBuffer(mGemvInputF32.get(), Backend::DYNAMIC)) {
+            return OUT_OF_MEMORY;
+        }
     }
 
     if (mHybrid) {
@@ -677,9 +970,26 @@ ErrorCode KleidiAIConvInt8::onResize(const std::vector<Tensor*>& inputs, const s
         }
     }
 
+    if (mF16Mopa && core->bytes == 2) {
+        const size_t outputBytes = m * n * sizeof(float);
+        if (outputBytes > static_cast<size_t>(std::numeric_limits<int>::max())) {
+            return OUT_OF_MEMORY;
+        }
+        mF16MopaOutput.reset(Tensor::createDevice<uint8_t>({static_cast<int>(outputBytes)}));
+        if (!backend()->onAcquireBuffer(mF16MopaOutput.get(), Backend::DYNAMIC)) {
+            return OUT_OF_MEMORY;
+        }
+    }
+
     backend()->onReleaseBuffer(mTempIm2ColBuffer.get(), Backend::DYNAMIC);
+    if (mGemvInputF32) {
+        b->onReleaseBuffer(mGemvInputF32.get(), Backend::DYNAMIC);
+    }
     if (mHybrid) {
         backend()->onReleaseBuffer(mTempIm2ColBufferNeon.get(), Backend::DYNAMIC);
+    }
+    if (mF16MopaOutput) {
+        backend()->onReleaseBuffer(mF16MopaOutput.get(), Backend::DYNAMIC);
     }
 
     if(inputOriginFmt != MNN_DATA_FORMAT_NHWC){
@@ -900,6 +1210,11 @@ ErrorCode KleidiAIConvInt8::onExecute(const std::vector<Tensor*>& inputs, const 
         lhs = mInputConvertBuffer->host<uint8_t>();
     }
 
+    if (mUseQai4Gemv && elementSize == 2) {
+        core->MNNLowpToFp32(reinterpret_cast<const int16_t*>(lhs), mGemvInputF32->host<float>(), k);
+        lhs = mGemvInputF32->host<uint8_t>();
+    }
+
     // Dynamic-quant + pack lhs into `out` using the given kernel slot. Splits the M dimension over
     // the thread pool (single call for the GEMV m == 1 case).
     auto packLhs = [&](const Ukernel& u, const KernelParam& p, int8_t* out) {
@@ -929,23 +1244,99 @@ ErrorCode KleidiAIConvInt8::onExecute(const std::vector<Tensor*>& inputs, const 
     }
     auto postPtr = getPostParameters();
 
+    // Official FP16 MOPA accumulates/stores FP32, regardless of backend storage
+    // precision. Keep activation packing strides in the original element size.
+    auto matmulDst = mF16MopaOutput ? mF16MopaOutput->host<uint8_t>() : dst;
+    const size_t matmulElementSize = mF16Mopa ? sizeof(float) : elementSize;
+
+    // Normal-precision callers may supply finite values outside FP16 range.
+    // Never silently turn those into Inf during LHS packing. This rare path
+    // evaluates original weights/metadata in F32 from the same packed codes.
+    bool f32Fallback = false;
+    if (mF16Mopa && (elementSize == sizeof(float) || mUseQai4Gemv)) {
+        const auto inputF32 = reinterpret_cast<const float*>(lhs);
+        for (size_t i = 0; i < m * k; ++i) {
+            if (!std::isfinite(inputF32[i]) || std::fabs(inputF32[i]) > 65504.0f
+                || (mUseQai4Gemv && inputF32[i] != 0.0f
+                    && std::fabs(inputF32[i]) < 127.0f * std::numeric_limits<float>::min())) {
+                f32Fallback = true;
+                break;
+            }
+        }
+    }
+
+    if (mUseQai4Gemv && !f32Fallback) {
+        auto packed = mTempIm2ColBuffer->host<int8_t>();
+        packLhs(mUkernelGemv, mParamGemv, packed);
+        // DOT LHS blocks contain [32 int8, half(sum(q)*scale), half(scale)].
+        // The sum can overflow even when each source value fits in FP16.
+        const auto src = reinterpret_cast<const float*>(lhs);
+        for (size_t block = 0; block < k / 32; ++block) {
+            const auto data = packed + block * 36;
+            const auto meta = reinterpret_cast<const __fp16*>(data + 32);
+            int sum = 0;
+            bool nonzero = false;
+            for (size_t i = 0; i < 32; ++i) {
+                sum += data[i];
+                nonzero = nonzero || src[block * 32 + i] != 0.0f;
+            }
+            if (!std::isfinite(static_cast<float>(meta[0])) || !std::isfinite(static_cast<float>(meta[1]))
+                || (nonzero && meta[1] == 0) || (sum != 0 && meta[0] == 0)) {
+                f32Fallback = true;
+                break;
+            }
+        }
+    }
+
     // The shape-dependent split was resolved during onResize().
-    if (mSmeColumns == 0) {
-        // Single-slot path: SME-only on one thread (SME prefers a single thread for better
-        // performance/power ratio) or NEON-only spread across all threads.
+    if (f32Fallback) {
+        const size_t nr = getNr();
+        const size_t blocks = k / blkSize;
+        const size_t panelBytes = mQai4F16Mopa ? nr * (k / 32) * 20
+                                             : nr * (k / 2 + blocks * sizeof(__fp16));
+        const auto rhs = mWeightInt8->host<uint8_t>();
+        const auto scales = mF16MopaBias->host<float>() + n;
+        const auto zeros = mQai4F16Mopa ? scales + n * blocks : nullptr;
+        const auto inputF32 = reinterpret_cast<const float*>(lhs);
+        auto outputF32 = reinterpret_cast<float*>(matmulDst);
+        MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+            for (size_t row = tId; row < m; row += threadNum) {
+                for (size_t col = 0; col < n; ++col) {
+                    const auto panel = rhs + (col / nr) * panelBytes;
+                    float sum = 0.0f;
+                    for (size_t depth = 0; depth < k; ++depth) {
+                        const size_t codeOffset = mQai4F16Mopa
+                            ? (depth / 32) * 20 * nr + 2 * (((depth % 32) / 4) * nr + col % nr)
+                            : 2 * ((depth / 4) * nr + col % nr);
+                        const uint8_t pair = panel[codeOffset + (depth % 4) / 2];
+                        const int q = ((pair >> (4 * (depth % 2))) & 15) - 8;
+                        const size_t idx = col * blocks + depth / blkSize;
+                        sum += inputF32[row * k + depth] * (q * scales[idx] + (zeros ? zeros[idx] : 0.0f));
+                    }
+                    outputF32[row * n + col] = sum;
+                }
+            }
+        }
+        MNN_CONCURRENCY_END();
+    } else if (mSmeColumns == 0) {
+        // The paired DOT changes only the LHS contract and shares the primary RHS.
+        const auto& ukernel = mUseQai4Gemv ? mUkernelGemv : mUkernel;
+        const auto& param = mUseQai4Gemv ? mParamGemv : mParam;
         auto lhsPacked = mTempIm2ColBuffer->host<int8_t>();
         auto rhsPacked = mWeightInt8->host<uint8_t>();
-        packLhs(mUkernel, mParam, lhsPacked);
+        if (!mUseQai4Gemv) {
+            packLhs(ukernel, param, lhsPacked);
+        }
         int matThreadNum = bSupportSme2() ? 1 : threadNum;
-        int vecPerThread = getVecNumPerThread(n, matThreadNum, getNStep());
+        int vecPerThread = getVecNumPerThread(n, matThreadNum, getNStep(param));
         int threadNeed = n % vecPerThread == 0 ? n / vecPerThread : (n / vecPerThread + 1);
         MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
             int t = (int)tId;
-            auto threadRhsPacked = rhsPacked + getRhsPackedOffset(t * vecPerThread, k, blkSize);
-            auto threadDst = dst + getDstOffset(0, t * vecPerThread, n, elementSize);
+            auto threadRhsPacked = rhsPacked + getRhsPackedOffset(ukernel, param, t * vecPerThread, k, blkSize);
+            auto threadDst = matmulDst + getDstOffset(0, t * vecPerThread, n, matmulElementSize);
             int vecNum = (t == threadNeed - 1) ? (n - vecPerThread * t) : vecPerThread; //Last threadN may less than vecPerThread.
-            runMatmul(m, vecNum, k, blkSize, lhsPacked, threadRhsPacked, threadDst,
-                      n * elementSize, elementSize, postPtr[3], postPtr[2]);
+            runMatmul(ukernel, param, m, vecNum, k, blkSize, lhsPacked, threadRhsPacked, threadDst,
+                      n * matmulElementSize, matmulElementSize, postPtr[3], postPtr[2]);
         }
         MNN_CONCURRENCY_END();
     } else {
@@ -977,6 +1368,25 @@ ErrorCode KleidiAIConvInt8::onExecute(const std::vector<Tensor*>& inputs, const 
                     auto threadDst = dst + getDstOffset(0, globalStart, n, elementSize);
                     runMatmul(mUkernelNeon, mParamNeon, m, vecNum, k, blkSize, lhsPackedNeon, threadRhsPacked,
                               threadDst, n * elementSize, elementSize, postPtr[3], postPtr[2]);
+                }
+            }
+        }
+        MNN_CONCURRENCY_END();
+    }
+
+    if (mF16Mopa) {
+        const auto values = reinterpret_cast<const float*>(matmulDst);
+        const auto bias = mF16MopaBias->host<float>();
+        MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+            for (size_t row = tId; row < m; row += threadNum) {
+                for (size_t col = 0; col < n; ++col) {
+                    const size_t idx = row * n + col;
+                    const float value = std::min(postPtr[3], std::max(postPtr[2], values[idx] + bias[col]));
+                    if (elementSize == sizeof(float)) {
+                        reinterpret_cast<float*>(dst)[idx] = value;
+                    } else {
+                        reinterpret_cast<__fp16*>(dst)[idx] = static_cast<__fp16>(value);
+                    }
                 }
             }
         }

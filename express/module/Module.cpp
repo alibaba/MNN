@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <climits>
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -353,7 +354,20 @@ static void _loadInputs(Module::Info* info, const std::vector<std::string>& inpu
     }
 }
 
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                     const char* fileName, int64_t offset, int64_t length,
+                     const std::shared_ptr<Executor::RuntimeManager> rtMgr, const Module::Config* config) {
+    if (!fileName || length > INT_MAX) {
+        return nullptr;
+    }
+    const auto region = FileLoader::fileRegion(fileName, offset, length);
+    return region.empty() ? nullptr : load(inputs, outputs, region.c_str(), rtMgr, config);
+}
+
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+    if (!fileName) {
+        return nullptr;
+    }
     AutoStorage<uint8_t> buffer;
     {
         FileLoader loader(fileName, true);
@@ -361,12 +375,7 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
             MNN_ERROR("Error for open %s\n", fileName);
             return nullptr;
         }
-        loader.read();
-        if (!loader.valid()) {
-            return nullptr;
-        }
-        loader.merge(buffer);
-        if (buffer.get() == nullptr) {
+        if (!loader.read() || !loader.merge(buffer)) {
             return nullptr;
         }
     }
@@ -374,8 +383,11 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     if (nullptr == rtMgr.get()) {
         rtMgr.reset(_createDefaultRuntimeManager(config));
     }
+    if (!rtMgr) {
+        return nullptr;
+    }
     bool needReset = false;
-    if (rtMgr->getInside()->mContent->mExternalFile.empty()) {
+    if (!FileLoader::isFileRegion(fileName) && rtMgr->getInside()->mContent->mExternalFile.empty()) {
         // Set Default externalFile
         rtMgr->setExternalFile(std::string(fileName) + ".weight");
         needReset = true;
@@ -395,7 +407,20 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     return loadInternal(inputs, outputs, buffer, length, rtmgr, config);
 }
 
-static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+static bool usesBoundExternalFile(const flatbuffers::Vector<flatbuffers::Offset<Op>>* ops, const std::string& bound) {
+    if (!ops)
+        return true;
+    for (const auto* op : *ops) {
+        if (!op || (op->externalPath() && op->externalPath()->str() != bound))
+            return false;
+    }
+    return true;
+}
+
+static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                            const uint8_t* buffer, size_t length,
+                            const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr,
+                            const Module::Config* config) {
     // Check if runtime is valid
     if (nullptr == _rtMgr || _rtMgr->getInside()->mRuntime.first.empty()) {
         MNN_ERROR("Invalid runtime\n");
@@ -406,13 +431,27 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
         checkMNNBuffer = _rtMgr->getInside()->mContent->modes.checkNetBuffer;
     }
     bool valid = true;
-    if (checkMNNBuffer) {
+    const auto& externalFile = _rtMgr->getInside()->mContent->mExternalFile;
+    const bool boundedExternalFile = FileLoader::isFileRegion(externalFile);
+    if (checkMNNBuffer || boundedExternalFile) {
         valid = OpCommonUtils::checkNet(buffer, length);
     }
     if (!valid) {
         return nullptr;
     }
     auto net = GetNet(buffer);
+    if (boundedExternalFile) {
+        bool bound = usesBoundExternalFile(net->oplists(), externalFile);
+        if (net->subgraphs()) {
+            for (const auto* graph : *net->subgraphs()) {
+                bound = bound && graph && usesBoundExternalFile(graph->nodes(), externalFile);
+            }
+        }
+        if (!bound) {
+            MNN_ERROR("Bounded models cannot reference external file paths.\n");
+            return nullptr;
+        }
+    }
     Timer _time;
     std::shared_ptr<Module::Info> info(new Module::Info);
     if (net->mnn_uuid()) {

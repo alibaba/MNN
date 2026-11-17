@@ -4,22 +4,19 @@
 //
 //  Metal execution for OpType_GatedRMSNorm: out = RMSNorm(x) * silu(z).
 //
-//  Replaces what used to be discovered at runtime by
-//  MetalBackend::matchLinearAttnGatedNormFolds, which walked the
-//  Raster/Cast/RMSNorm/SILU/MUL/Raster chain and claimed its six executions.
-//  The exporter now emits this op directly, so the backend just runs it.
+//  The exporter emits this op directly, so the backend runs one execution instead
+//  of matching a Raster/Cast/RMSNorm/SILU/MUL/Raster chain at runtime.
 //
-//  The kernel is unchanged (MetalGatedNormShader.hpp): its RMS reduction mirrors
-//  layernorm_c4_rms_sg line for line, which is what makes the result bit-identical
-//  to the unfused chain in fp32 builds. Do not "optimize" the grid or the
-//  reduction order — see skills/metal-optimize/kernel-dev-and-optimize.md §2.4.4.
+//  The kernel (MetalGatedNormShader.hpp) mirrors layernorm_c4_rms_sg's RMS
+//  reduction line for line, which is what makes the result bit-identical to the
+//  unfused chain in fp32 builds. Do not "optimize" the grid or the reduction
+//  order — see skills/metal-optimize/kernel-dev-and-optimize.md §2.4.4.
 //
 //  Layout: x is NC4HW4 [outside, inside] with the head folded into the batch axis
 //  (outside = z_batch * heads); z and the output are NC4HW4
 //  [z_batch, heads*inside]. Indexing z and out at (head*CU + c)*z_batch + b
-//  absorbs the two C4 repacks that used to bracket the chain (they are exact
-//  inverses). Decode is the z_batch == 1 case, where that folds back to the
-//  contiguous index the kernel originally used.
+//  absorbs the two C4 repacks that bracket the chain (they are exact inverses).
+//  Decode is the z_batch == 1 case, where that folds back to a contiguous index.
 //
 
 #import "backend/metal/MetalBackend.hpp"

@@ -237,6 +237,17 @@ function(generate_mnn_podspec_from_targets)
     convert_to_relative_paths("${ALL_SOURCE_FILES}" "${MNN_ROOT}" ALL_SOURCE_FILES_REL)
     convert_to_relative_paths("${ARM82_SOURCE_FILES}" "${MNN_ROOT}" ARM82_SOURCE_FILES_REL)
 
+    # Match the compile definition to the sources included in this podspec.
+    set(LLM_PACKAGE_EXT_DEFINE "")
+    if(LLM_PACKAGE_EXT_SOURCE)
+        list(FIND ALL_SOURCE_FILES "${LLM_PACKAGE_EXT_SOURCE}" LLM_PACKAGE_EXT_INDEX)
+        if(NOT LLM_PACKAGE_EXT_INDEX EQUAL -1)
+            # A distributed podspec can outlive the optional source in the destination checkout.
+            file(RELATIVE_PATH LLM_PACKAGE_EXT_INCLUDE "${MNN_ROOT}/transformers/llm/engine/src" "${LLM_PACKAGE_EXT_SOURCE}")
+            set(LLM_PACKAGE_EXT_DEFINE "      'MNN_LLM_PACKAGE_EXT=__has_include(<${LLM_PACKAGE_EXT_INCLUDE}>)',\n")
+        endif()
+    endif()
+
     # 分类文件
     classify_files("${ALL_SOURCE_FILES_REL}"
         CPP_FILES HEADER_FILES ASM_FILES MM_FILES METAL_FILES OTHER_FILES)
@@ -359,7 +370,7 @@ ${PUBLIC_HEADERS_FORMATTED}
     ].join(' '),
     'GCC_PREPROCESSOR_DEFINITIONS' => [
       '\$(inherited)',
-      'MNN_METAL_ENABLED=1',
+${LLM_PACKAGE_EXT_DEFINE}      'MNN_METAL_ENABLED=1',
       'ENABLE_ARMV82=1',
       'MNN_USE_NEON=1',
       'MNN_SUPPORT_TRANSFORMER_FUSE=1',

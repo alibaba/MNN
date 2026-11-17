@@ -67,10 +67,9 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
   test). Never read the all-passed line as proof that a specific test ran.
 * `skipped:N` in the same line counts cases that gated themselves off the
   running backend through `MNNTEST_CPU_ONLY()` (`test/MNNTestSuite.h`); they are
-  excluded from `passed`. A green Metal run reporting `skipped:6` means
-  `op/AvePool3d`, `op/Interp`, `op/InterpInt8` and
-  `op/unary/{erf,erfc,erfinv}Int8` never executed — not that they passed. Each
-  gate site records the backend gap it stands in for.
+  excluded from `passed`. A green GPU run reporting `skipped:N` means N cases
+  never executed — not that they passed. Each gate site records the backend gap
+  it stands in for.
 * When a remote transport has a shorter timeout than the device workload, a
   blank or truncated client response does not prove that the process exited.
   Write results on the device, then poll the process and result-file size
@@ -235,9 +234,9 @@ prefill_qkv shader change, you must:
    (causal) model and one real-mask-tensor (non-causal) model — since the two
    compile and dispatch different kernel variants.
 
-No env pin in stage entries is needed anymore. `MNN_ENABLE_FLASH_ATTN_PREFILL=0`
-remains only as a developer A/B override, not a correctness workaround
-(real-mask models never route to FA).
+No env pin in stage entries is needed. FA routing is config-driven
+(`attention_mode/8`) and real-mask models never route to FA, so no
+correctness workaround is required either.
 
 Full risk breakdown, gate conditions, and remediation options: see
 [`skills/general-debug/kernel-assumptions.md`](../general-debug/kernel-assumptions.md) (§7 后端 kernel 隐式假设违反)

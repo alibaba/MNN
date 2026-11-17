@@ -75,6 +75,11 @@ public:
     static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Config* config = nullptr);
     static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Config* config = nullptr);
 
+    // Load [offset, offset + length); bind external weights explicitly on rtMgr.
+    static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                        const char* fileName, int64_t offset, int64_t length,
+                        const std::shared_ptr<Executor::RuntimeManager> rtMgr = nullptr, const Config* config = nullptr);
+
     static Module* extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph = {});
 
     static Module* clone(const Module* module, const bool shareParams = false);

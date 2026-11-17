@@ -403,6 +403,51 @@ void   core_ml__specification__sequence_feature_type__free_unpacked
   assert(message->base.descriptor == &core_ml__specification__sequence_feature_type__descriptor);
   protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
 }
+void   core_ml__specification__state_feature_type__init
+                     (CoreML__Specification__StateFeatureType         *message)
+{
+  static const CoreML__Specification__StateFeatureType init_value = CORE_ML__SPECIFICATION__STATE_FEATURE_TYPE__INIT;
+  *message = init_value;
+}
+size_t core_ml__specification__state_feature_type__get_packed_size
+                     (const CoreML__Specification__StateFeatureType *message)
+{
+  assert(message->base.descriptor == &core_ml__specification__state_feature_type__descriptor);
+  return protobuf_c_message_get_packed_size ((const ProtobufCMessage*)(message));
+}
+size_t core_ml__specification__state_feature_type__pack
+                     (const CoreML__Specification__StateFeatureType *message,
+                      uint8_t       *out)
+{
+  assert(message->base.descriptor == &core_ml__specification__state_feature_type__descriptor);
+  return protobuf_c_message_pack ((const ProtobufCMessage*)message, out);
+}
+size_t core_ml__specification__state_feature_type__pack_to_buffer
+                     (const CoreML__Specification__StateFeatureType *message,
+                      ProtobufCBuffer *buffer)
+{
+  assert(message->base.descriptor == &core_ml__specification__state_feature_type__descriptor);
+  return protobuf_c_message_pack_to_buffer ((const ProtobufCMessage*)message, buffer);
+}
+CoreML__Specification__StateFeatureType *
+       core_ml__specification__state_feature_type__unpack
+                     (ProtobufCAllocator  *allocator,
+                      size_t               len,
+                      const uint8_t       *data)
+{
+  return (CoreML__Specification__StateFeatureType *)
+     protobuf_c_message_unpack (&core_ml__specification__state_feature_type__descriptor,
+                                allocator, len, data);
+}
+void   core_ml__specification__state_feature_type__free_unpacked
+                     (CoreML__Specification__StateFeatureType *message,
+                      ProtobufCAllocator *allocator)
+{
+  if(!message)
+    return;
+  assert(message->base.descriptor == &core_ml__specification__state_feature_type__descriptor);
+  protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
+}
 void   core_ml__specification__feature_type__init
                      (CoreML__Specification__FeatureType         *message)
 {
@@ -693,20 +738,22 @@ const ProtobufCMessageDescriptor core_ml__specification__image_feature_type__ima
   (ProtobufCMessageInit) core_ml__specification__image_feature_type__image_size_range__init,
   NULL,NULL,NULL    /* reserved[123] */
 };
-static const ProtobufCEnumValue core_ml__specification__image_feature_type__color_space__enum_values_by_number[4] =
+static const ProtobufCEnumValue core_ml__specification__image_feature_type__color_space__enum_values_by_number[5] =
 {
   { "INVALID_COLOR_SPACE", "CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__INVALID_COLOR_SPACE", 0 },
   { "GRAYSCALE", "CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__GRAYSCALE", 10 },
   { "RGB", "CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__RGB", 20 },
   { "BGR", "CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__BGR", 30 },
+  { "GRAYSCALE_FLOAT16", "CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__GRAYSCALE_FLOAT16", 40 },
 };
 static const ProtobufCIntRange core_ml__specification__image_feature_type__color_space__value_ranges[] = {
-{0, 0},{10, 1},{20, 2},{30, 3},{0, 4}
+{0, 0},{10, 1},{20, 2},{30, 3},{40, 4},{0, 5}
 };
-static const ProtobufCEnumValueIndex core_ml__specification__image_feature_type__color_space__enum_values_by_name[4] =
+static const ProtobufCEnumValueIndex core_ml__specification__image_feature_type__color_space__enum_values_by_name[5] =
 {
   { "BGR", 3 },
   { "GRAYSCALE", 1 },
+  { "GRAYSCALE_FLOAT16", 4 },
   { "INVALID_COLOR_SPACE", 0 },
   { "RGB", 2 },
 };
@@ -717,11 +764,11 @@ const ProtobufCEnumDescriptor core_ml__specification__image_feature_type__color_
   "ColorSpace",
   "CoreML__Specification__ImageFeatureType__ColorSpace",
   "CoreML.Specification",
-  4,
+  5,
   core_ml__specification__image_feature_type__color_space__enum_values_by_number,
-  4,
+  5,
   core_ml__specification__image_feature_type__color_space__enum_values_by_name,
-  4,
+  5,
   core_ml__specification__image_feature_type__color_space__value_ranges,
   NULL,NULL,NULL,NULL   /* reserved[1234] */
 };
@@ -931,21 +978,25 @@ const ProtobufCMessageDescriptor core_ml__specification__array_feature_type__sha
   (ProtobufCMessageInit) core_ml__specification__array_feature_type__shape_range__init,
   NULL,NULL,NULL    /* reserved[123] */
 };
-static const ProtobufCEnumValue core_ml__specification__array_feature_type__array_data_type__enum_values_by_number[4] =
+static const ProtobufCEnumValue core_ml__specification__array_feature_type__array_data_type__enum_values_by_number[6] =
 {
   { "INVALID_ARRAY_DATA_TYPE", "CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__INVALID_ARRAY_DATA_TYPE", 0 },
+  { "FLOAT16", "CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__FLOAT16", 65552 },
   { "FLOAT32", "CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__FLOAT32", 65568 },
   { "DOUBLE", "CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__DOUBLE", 65600 },
+  { "INT8", "CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__INT8", 131080 },
   { "INT32", "CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__INT32", 131104 },
 };
 static const ProtobufCIntRange core_ml__specification__array_feature_type__array_data_type__value_ranges[] = {
-{0, 0},{65568, 1},{65600, 2},{131104, 3},{0, 4}
+{0, 0},{65552, 1},{65568, 2},{65600, 3},{131080, 4},{131104, 5},{0, 6}
 };
-static const ProtobufCEnumValueIndex core_ml__specification__array_feature_type__array_data_type__enum_values_by_name[4] =
+static const ProtobufCEnumValueIndex core_ml__specification__array_feature_type__array_data_type__enum_values_by_name[6] =
 {
-  { "DOUBLE", 2 },
-  { "FLOAT32", 1 },
-  { "INT32", 3 },
+  { "DOUBLE", 3 },
+  { "FLOAT16", 1 },
+  { "FLOAT32", 2 },
+  { "INT32", 5 },
+  { "INT8", 4 },
   { "INVALID_ARRAY_DATA_TYPE", 0 },
 };
 const ProtobufCEnumDescriptor core_ml__specification__array_feature_type__array_data_type__descriptor =
@@ -955,11 +1006,11 @@ const ProtobufCEnumDescriptor core_ml__specification__array_feature_type__array_
   "ArrayDataType",
   "CoreML__Specification__ArrayFeatureType__ArrayDataType",
   "CoreML.Specification",
-  4,
+  6,
   core_ml__specification__array_feature_type__array_data_type__enum_values_by_number,
-  4,
+  6,
   core_ml__specification__array_feature_type__array_data_type__enum_values_by_name,
-  4,
+  6,
   core_ml__specification__array_feature_type__array_data_type__value_ranges,
   NULL,NULL,NULL,NULL   /* reserved[1234] */
 };
@@ -1201,7 +1252,45 @@ const ProtobufCMessageDescriptor core_ml__specification__sequence_feature_type__
   (ProtobufCMessageInit) core_ml__specification__sequence_feature_type__init,
   NULL,NULL,NULL    /* reserved[123] */
 };
-static const ProtobufCFieldDescriptor core_ml__specification__feature_type__field_descriptors[8] =
+static const ProtobufCFieldDescriptor core_ml__specification__state_feature_type__field_descriptors[1] =
+{
+  {
+    "arrayType",
+    1,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_MESSAGE,
+    offsetof(CoreML__Specification__StateFeatureType, type_case),
+    offsetof(CoreML__Specification__StateFeatureType, arraytype),
+    &core_ml__specification__array_feature_type__descriptor,
+    NULL,
+    0 | PROTOBUF_C_FIELD_FLAG_ONEOF,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+};
+static const unsigned core_ml__specification__state_feature_type__field_indices_by_name[] = {
+  0,   /* field[0] = arrayType */
+};
+static const ProtobufCIntRange core_ml__specification__state_feature_type__number_ranges[1 + 1] =
+{
+  { 1, 0 },
+  { 0, 1 }
+};
+const ProtobufCMessageDescriptor core_ml__specification__state_feature_type__descriptor =
+{
+  PROTOBUF_C__MESSAGE_DESCRIPTOR_MAGIC,
+  "CoreML.Specification.StateFeatureType",
+  "StateFeatureType",
+  "CoreML__Specification__StateFeatureType",
+  "CoreML.Specification",
+  sizeof(CoreML__Specification__StateFeatureType),
+  1,
+  core_ml__specification__state_feature_type__field_descriptors,
+  core_ml__specification__state_feature_type__field_indices_by_name,
+  1,  core_ml__specification__state_feature_type__number_ranges,
+  (ProtobufCMessageInit) core_ml__specification__state_feature_type__init,
+  NULL,NULL,NULL    /* reserved[123] */
+};
+static const ProtobufCFieldDescriptor core_ml__specification__feature_type__field_descriptors[9] =
 {
   {
     "int64Type",
@@ -1288,6 +1377,18 @@ static const ProtobufCFieldDescriptor core_ml__specification__feature_type__fiel
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
   {
+    "stateType",
+    8,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_MESSAGE,
+    offsetof(CoreML__Specification__FeatureType, type_case),
+    offsetof(CoreML__Specification__FeatureType, statetype),
+    &core_ml__specification__state_feature_type__descriptor,
+    NULL,
+    0 | PROTOBUF_C_FIELD_FLAG_ONEOF,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
     "isOptional",
     1000,
     PROTOBUF_C_LABEL_NONE,
@@ -1305,16 +1406,17 @@ static const unsigned core_ml__specification__feature_type__field_indices_by_nam
   1,   /* field[1] = doubleType */
   3,   /* field[3] = imageType */
   0,   /* field[0] = int64Type */
-  7,   /* field[7] = isOptional */
+  8,   /* field[8] = isOptional */
   4,   /* field[4] = multiArrayType */
   6,   /* field[6] = sequenceType */
+  7,   /* field[7] = stateType */
   2,   /* field[2] = stringType */
 };
 static const ProtobufCIntRange core_ml__specification__feature_type__number_ranges[2 + 1] =
 {
   { 1, 0 },
-  { 1000, 7 },
-  { 0, 8 }
+  { 1000, 8 },
+  { 0, 9 }
 };
 const ProtobufCMessageDescriptor core_ml__specification__feature_type__descriptor =
 {
@@ -1324,7 +1426,7 @@ const ProtobufCMessageDescriptor core_ml__specification__feature_type__descripto
   "CoreML__Specification__FeatureType",
   "CoreML.Specification",
   sizeof(CoreML__Specification__FeatureType),
-  8,
+  9,
   core_ml__specification__feature_type__field_descriptors,
   core_ml__specification__feature_type__field_indices_by_name,
   2,  core_ml__specification__feature_type__number_ranges,

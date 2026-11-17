@@ -7,6 +7,7 @@
 
 #ifndef TOKENIZER_hpp
 #define TOKENIZER_hpp
+#include "llm/llm.hpp"
 
 #include <vector>
 #include <memory>
@@ -64,9 +65,6 @@ namespace std {
 namespace MNN {
 namespace Transformer {
 
-// ChatMessage: pair<role, content>, see llm.hpp for full documentation.
-using ChatMessage = std::pair<std::string, std::string>;
-using ChatMessages = std::vector<ChatMessage>;
 // std::string_view impl in c++11 start
 
 
@@ -150,6 +148,7 @@ public:
     Tokenizer() = default;
     virtual ~Tokenizer() = default;
     static Tokenizer* createTokenizer(const std::string& filename);
+    static Tokenizer* createTokenizer(const LlmResources::Resource& source);
     bool is_stop(int token);
     bool is_special(int token);
     std::vector<int> encode(const std::string& str, bool with_post_processor = true);
@@ -174,8 +173,9 @@ protected:
     };
     void cache_special_tokens();
     PostProcessorInfo apply_post_processor(std::vector<int>& ids) const;
-    virtual void load_special(std::ifstream& file);
-    virtual bool load_vocab(std::ifstream& file) = 0;
+    static Tokenizer* createTokenizer(std::istream& file);
+    virtual bool load_special(std::istream& file);
+    virtual bool load_vocab(std::istream& file) = 0;
     virtual void encode(const std::string& str, std::vector<int>& ids) = 0;
     std::vector<int> special_tokens_;
     std::vector<int> stop_tokens_;
@@ -193,7 +193,7 @@ public:
     Sentencepiece() = default;
     virtual std::string decode(int id) override;
 protected:
-    virtual bool load_vocab(std::ifstream& file) override;
+    virtual bool load_vocab(std::istream& file) override;
     virtual void encode(const std::string& str, std::vector<int>& ids) override;
 private:
     enum ModelType {
@@ -245,7 +245,7 @@ public:
     Tiktoken() = default;
     virtual std::string decode(int id) override;
 protected:
-    virtual bool load_vocab(std::ifstream& file) override;
+    virtual bool load_vocab(std::istream& file) override;
     virtual void encode(const std::string& str, std::vector<int>& ids) override;
     Trie encoder_;
     std::vector<std::string> decoder_;
@@ -256,7 +256,7 @@ public:
     BertTokenizer() = default;
     virtual std::string decode(int id) override;
 protected:
-    virtual bool load_vocab(std::ifstream& file) override;
+    virtual bool load_vocab(std::istream& file) override;
     virtual void encode(const std::string& str, std::vector<int>& ids) override;
     std::unordered_map<std::string, int> encoder_;
     std::vector<std::string> decoder_;
@@ -278,7 +278,7 @@ public:
     HuggingfaceTokenizer() = default;
     virtual std::string decode(int id) override;
 protected:
-    virtual bool load_vocab(std::ifstream& file) override;
+    virtual bool load_vocab(std::istream& file) override;
     virtual void encode(const std::string& str, std::vector<int>& ids) override;
 private:
     void bpe(const std::wstring& token, const BPERanks& bpe_ranks, std::vector<std::wstring>* result);
@@ -325,9 +325,9 @@ public:
     virtual ~PipelineTokenizer();
     virtual std::string decode(int id) override;
     virtual std::string decode(const std::vector<int>& ids) override;
-    bool load_vocab_binary(std::ifstream& file);
+
 protected:
-    virtual bool load_vocab(std::ifstream& file) override;
+    virtual bool load_vocab(std::istream& file) override;
     virtual void encode(const std::string& str, std::vector<int>& ids) override;
 private:
     std::unique_ptr<Normalizer> normalizer_;

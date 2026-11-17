@@ -476,10 +476,10 @@ VARP melscale_fbanks(const MelscaleParams* params) {
     return bins;
 }
 
-static VARP spectrogramImpl(VARP waveform, const SpectrogramParams* params, bool periodic) {
+VARP spectrogram(VARP waveform, const SpectrogramParams* params) {
     int pad_left = 0, pad_right = 0, pad_mode = REFLECT;
     int n_fft = 400, hop_length = 0, win_length = 0, window_type = HANNING;
-    bool center = false, normalized = false;
+    bool center = false, normalized = false, periodic = false;
     float power = 2.0;
     if (params) {
         pad_left = params->pad_left;
@@ -491,9 +491,10 @@ static VARP spectrogramImpl(VARP waveform, const SpectrogramParams* params, bool
         win_length = params->win_length;
         window_type = params->window_type;
         normalized = params->normalized;
+        periodic = params->periodic;
         power = params->power;
     }
-    if (pad_left > 1 || pad_right > 1) {
+    if (pad_left > 0 || pad_right > 0) {
         waveform = MNN::Express::_Pad(waveform, _var<int>({pad_left, pad_right}, {2}), MNN::Express::CONSTANT);
     }
     if (center) {
@@ -547,10 +548,6 @@ static VARP spectrogramImpl(VARP waveform, const SpectrogramParams* params, bool
         specgram = _Pow(specgram, _Scalar<float>(power / 2.0f));
     }
     return specgram;
-}
-
-VARP spectrogram(VARP waveform, const SpectrogramParams* params) {
-    return spectrogramImpl(waveform, params, false);
 }
 
 VARP mel_spectrogram(VARP waveform, const MelscaleParams* mel_params, const SpectrogramParams* spec_params) {
@@ -757,10 +754,8 @@ VARP whisper_fbank(VARP waveform, int sample_rate, int n_mels, int n_fft, int ho
     spec_params.n_fft = n_fft;
     spec_params.hop_length = hop_length;
     spec_params.center = true;
-    // Whisper uses a periodic Hann window, unlike the symmetric window in spectrogram().
-    auto banks = melscale_fbanks(&mel_params);
-    auto specgram = spectrogramImpl(waveform, &spec_params, true);
-    auto mel_specgram = _MatMul(specgram, banks, false, true);
+    spec_params.periodic = true;
+    auto mel_specgram = mel_spectrogram(waveform, &mel_params, &spec_params);
     mel_specgram =
         _Slice(mel_specgram, _var<int>({0, 0}, {2}), _var<int>({mel_specgram->getInfo()->dim[0] - 1, -1}, {2}));
     auto log_specgram = _Log(_Maximum(mel_specgram, _Scalar<float>(1e-10f))) / _Log(_Scalar<float>(10.0));

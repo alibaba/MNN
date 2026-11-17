@@ -19,10 +19,10 @@
 
 namespace MNN {
 using VecType = Math::Vec<int8_t, 8>;
-CPUUnary::CPUUnary(Backend *b, MNNUnaryExecute proc, MNNUnaryExecuteInt8 procInt8, const Op* op) : MNN::Execution(b), mProc(proc), mProcInt8(procInt8){
-    if (op->main_as_UnaryOp()->tableInt8()) {
-        mTableBuffer.resize(255);
-        ::memcpy(mTableBuffer.data(), op->main_as_UnaryOp()->tableInt8()->data(), 255);
+CPUUnary::CPUUnary(Backend* b, MNNUnaryExecute proc, MNNUnaryExecuteInt8 procInt8, const int8_t* table)
+    : MNN::Execution(b), mProc(proc), mProcInt8(procInt8) {
+    if (table) {
+        mTableBuffer.assign(table, table + 255);
     }
 }
 
@@ -558,8 +558,13 @@ public:
         auto type = inputs[0]->getType();
         MNNUnaryExecute proc = nullptr;
         MNNUnaryExecuteInt8 procInt8 = nullptr;
+        // tableInt8 is indexed by quantized values. A float input, e.g. an op a GPU backend
+        // falls back to CPU, must not use it.
+        bool int8Input = CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || type.bytes() == 1;
+        auto tableInt8 = op->main_as_UnaryOp()->tableInt8();
+        auto table = (int8Input && tableInt8) ? tableInt8->data() : nullptr;
 #ifdef MNN_SUPPORT_QUANT_EXTEND
-        if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
+        if (int8Input) {
             if (nullptr == core->MNNSelectUnaryFunctionForInt8) {
                 return nullptr;
             }
@@ -574,11 +579,11 @@ public:
                
             }
         }
-        if (nullptr == proc && nullptr == procInt8 && nullptr == op->main_as_UnaryOp()->tableInt8()) {
+        if (nullptr == proc && nullptr == procInt8 && nullptr == table) {
             MNN_ERROR("ERROR: Unary Op can not execute\n");
             return nullptr;
         }
-        return new CPUUnary(backend, proc, procInt8, op);
+        return new CPUUnary(backend, proc, procInt8, table);
     }
 };
 

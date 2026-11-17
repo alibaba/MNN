@@ -26,7 +26,7 @@ class IDominate:
         self.dfs_id = 0
         self.__data__ = [[0 for i in range(self.N)] for i in range(7)]
         for i in range(2):
-            self.__data__.append([0 for i in range(self.N*10)])
+            self.__data__.append([0])
         for i in range(3):
             self.__data__.append([i for i in range(self.N)])
         self.forward = self.__data__[0]
@@ -44,8 +44,8 @@ class IDominate:
 
     def __addedge(self, graph, _from, _to):
         self.E += 1
-        self.next[self.E] = graph[_from]
-        self.to[self.E] = _to
+        self.next.append(graph[_from])
+        self.to.append(_to)
         graph[_from] = self.E
     # using union_find to compress path
     def __push_union_find(self, v):

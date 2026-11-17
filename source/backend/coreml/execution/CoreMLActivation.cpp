@@ -10,73 +10,72 @@
 
 namespace MNN {
 
+CoreMLActivation::CoreMLActivation(MNN::Backend* b, const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                                   const std::vector<MNN::Tensor*>& outputs)
+    : CoreMLCommonExecution(b, op) {}
 
-CoreMLActivation::CoreMLActivation(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : CoreMLCommonExecution(b, op) {
-    initLayer();
-}
-
-ErrorCode CoreMLActivation::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode CoreMLActivation::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(inputs.size() == 1 && outputs.size() == 1);
     auto inputName = mCoreMLBackend->getTensorName(inputs[0]);
     auto opType = mOp->type();
-    if (opType == OpType_Softmax) {
-        mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_SOFTMAX_ND;
-        mLayer_->softmaxnd = mCoreMLBackend->create<CoreML__Specification__SoftmaxNDLayerParams>();
-        core_ml__specification__softmax_ndlayer_params__init(mLayer_->softmaxnd);
-        mLayer_->softmaxnd->axis = mOp->main_as_Axis()->axis();
-    } else {
-        mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ACTIVATION;
-        mLayer_->activation = mCoreMLBackend->create<CoreML__Specification__ActivationParams>();
-        core_ml__specification__activation_params__init(mLayer_->activation);
-        switch (opType) {
-            case OpType_ReLU:
-                mLayer_->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_LEAKY_RE_LU;
-                mLayer_->activation->leakyrelu = mCoreMLBackend->create<CoreML__Specification__ActivationLeakyReLU>();
-                core_ml__specification__activation_leaky_re_lu__init(mLayer_->activation->leakyrelu);
-                mLayer_->activation->leakyrelu->alpha = mOp->main_as_Relu()->slope();
-                break;
-            case OpType_ELU:
-                mLayer_->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_ELU;
-                mLayer_->activation->elu = mCoreMLBackend->create<CoreML__Specification__ActivationELU>();
-                core_ml__specification__activation_elu__init(mLayer_->activation->elu);
-                break;
-            case OpType_PReLU:
-            {
-                if (mOp->main_as_PRelu()->slopeCount() == 1) {
-                    mLayer_->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_LEAKY_RE_LU;
-                    mLayer_->activation->leakyrelu = mCoreMLBackend->create<CoreML__Specification__ActivationLeakyReLU>();
-                    core_ml__specification__activation_leaky_re_lu__init(mLayer_->activation->leakyrelu);
-                    mLayer_->activation->leakyrelu->alpha = mOp->main_as_PRelu()->slope()->data()[0];
-                    break;
-                }
-                mLayer_->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_PRE_LU;
-                mLayer_->activation->prelu = mCoreMLBackend->create<CoreML__Specification__ActivationPReLU>();
-                core_ml__specification__activation_pre_lu__init(mLayer_->activation->prelu);
-                mLayer_->activation->prelu->alpha = mCoreMLBackend->create<CoreML__Specification__WeightParams>();
-                core_ml__specification__weight_params__init(mLayer_->activation->prelu->alpha);
-                int slopeCount = mOp->main_as_PRelu()->slopeCount();
-                mLayer_->activation->prelu->alpha->n_floatvalue = slopeCount;
-                mLayer_->activation->prelu->alpha->floatvalue = mCoreMLBackend->create<float>(slopeCount);
-                memcpy(mLayer_->activation->prelu->alpha->floatvalue, mOp->main_as_PRelu()->slope()->Data(), slopeCount * sizeof(float));
-                break;
+    switch (opType) {
+        case OpType_Softmax:
+            operation("softmax").input("x", inputs[0]).scalar("axis", mOp->main_as_Axis()->axis()).output(outputs);
+            break;
+        case OpType_ReLU: {
+            float slope = mOp->main_as_Relu()->slope();
+            auto builder = operation(slope == 0.0f ? "relu" : "leaky_relu");
+            builder.input("x", inputs[0]);
+            if (slope != 0.0f) {
+                builder.scalar("alpha", slope);
             }
-            case OpType_Sigmoid:
-                mLayer_->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_SIGMOID;
-                mLayer_->activation->sigmoid = mCoreMLBackend->create<CoreML__Specification__ActivationSigmoid>();
-                core_ml__specification__activation_sigmoid__init(mLayer_->activation->sigmoid);
-                break;
-            default:
-                return NOT_SUPPORT;
+            builder.output(outputs);
+            break;
         }
+        case OpType_ReLU6: {
+            auto relu6 = mOp->main_as_Relu6();
+            float min = relu6 ? relu6->minValue() : 0.0f;
+            float max = relu6 ? relu6->maxValue() : 6.0f;
+            operation("clip").input("x", inputs[0]).scalar("alpha", min).scalar("beta", max).output(outputs);
+            break;
+        }
+        case OpType_ELU:
+            operation("elu").input("x", inputs[0]).scalar("alpha", mOp->main_as_ELU()->alpha()).output(outputs);
+            break;
+        case OpType_PReLU: {
+            auto slope = mOp->main_as_PRelu()->slope();
+            std::vector<int> shape(inputs[0]->dimensions(), 1);
+            if (shape.empty() || !slope || slope->size() == 0) {
+                return NOT_SUPPORT;
+            }
+            const int axis = TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NHWC
+                                 ? shape.size() - 1
+                                 : std::min<int>(1, shape.size() - 1);
+            shape[axis] = slope->size();
+            auto alpha = buildBlob(slope->data(), slope->size() * sizeof(float),
+                                   CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__FLOAT32, shape, "slope");
+            auto neg = operation("minimum")
+                           .input("x", inputName)
+                           .scalar("y", 0.0f, "zero")
+                           .output(inputs[0]->shape(), "negative");
+            auto scaled = operation("mul").input("x", neg).input("y", alpha).output(inputs[0]->shape(), "scaled");
+            auto pos = operation("relu").input("x", inputName).output(inputs[0]->shape(), "positive");
+            operation("add").input("x", pos).input("y", scaled).output(outputs);
+            break;
+        }
+        case OpType_Sigmoid:
+            operation("sigmoid").input("x", inputs[0]).output(outputs);
+            break;
+        default:
+            return NOT_SUPPORT;
     }
-    setLayerInputsAndOutputs(mLayer_, {inputName}, {mCoreMLBackend->getTensorName(outputs[0])});
-    mCoreMLBackend->addLayer(mLayer_);
     return NO_ERROR;
 }
 
-REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ReLU)
-REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ELU)
-REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_PReLU)
-REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_Sigmoid)
-REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_Softmax)
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ReLU);
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ReLU6);
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ELU);
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_PReLU);
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_Sigmoid);
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_Softmax);
 } // namespace MNN

@@ -59,6 +59,9 @@ def _distance(a, b):
 def _cos_distance(a, b):
     norm_a = norm(a)
     norm_b = norm(b)
+    if norm_a == 0 or norm_b == 0:
+        # Cosine distance is undefined for a zero-norm tensor.
+        return float("nan")
     sum = 0
     for i, va in enumerate(a):
         vb = b[i]
@@ -135,8 +138,8 @@ class Analyzer(object):
                 d = _distance(normal_tensor, dequant_tensor)
                 normalized_d = _normalized_distance(normal_tensor, dequant_tensor)
                 cos_d = _cos_distance(normal_tensor, dequant_tensor)
-                print('max rate: %.06f%%' % (max_value_count / non_zero_count * 100))
-                print('min rate: %.06f%%' % (min_value_count / non_zero_count * 100))
+                print('max rate: %.06f%%' % (max_value_count / non_zero_count * 100 if non_zero_count else 0))
+                print('min rate: %.06f%%' % (min_value_count / non_zero_count * 100 if non_zero_count else 0))
                 print('norm of normal: %.06f' % (norm(normal_tensor)))
                 print('norm of quant: %.06f' % (norm(dequant_tensor)))
                 print('cos distance: %.08f' % (cos_d))

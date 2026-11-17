@@ -124,13 +124,13 @@ class Eagle(torch.nn.Module):
         return LlamaEagle
 
     @spinner_run(f'export onnx model to ')
-    def export(self, onnx_path):
+    def export(self, onnx_path, dst_path=None):
         # save d2t to file
         import MNN.expr as expr
         torch_d2t = self.d2t.detach().to(torch.int32).contiguous().cpu()
         mnn_d2t = expr.const(torch_d2t.data_ptr(), torch_d2t.shape, expr.data_format.NHWC, expr.dtype.int)
         mnn_d2t.name = 'd2t'
-        expr.save([mnn_d2t], f'{onnx_path}/../eagle_d2t.mnn')
+        expr.save([mnn_d2t], os.path.join(dst_path or os.path.dirname(onnx_path), 'eagle_d2t.mnn'))
 
         eagle_model = f'{onnx_path}/eagle.onnx'
         eagle_fc_model = f'{onnx_path}/eagle_fc.onnx'

@@ -286,6 +286,12 @@ run_one_bench() {
             STATUS="error"
             SIG=$(grep -o "App terminated due to signal [0-9]*" "$LOG_FILE" | head -1)
             echo "[MNN_BENCH_ERROR] app crashed: $SIG" >> "$LOG_FILE"
+        elif grep -q "The application failed to launch" "$LOG_FILE" 2>/dev/null; then
+            # devicectl can exit before the first poll grep runs (launch denial
+            # is instant); without this the combo misreports as a full timeout.
+            STATUS="error"
+            REASON=$(grep -o "NSLocalizedFailureReason = .*" "$LOG_FILE" | head -1 | sed 's/NSLocalizedFailureReason = //')
+            echo "[MNN_BENCH_ERROR] app failed to launch: ${REASON:-device locked or developer profile not trusted}" >> "$LOG_FILE"
         fi
     fi
 }

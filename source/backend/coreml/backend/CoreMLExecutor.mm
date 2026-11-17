@@ -6,430 +6,527 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CoreMLDefine.h"
 #import "CoreMLExecutor.h"
-
-#include <fstream>
-#include <iostream>
+#import <objc/runtime.h>
+#include "CoreMLExecutorWrapper.h"
+#include <cstdlib>
+#include <cstring>
+#include <cerrno>
+#include <memory>
+#include <mutex>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#include "core/TensorUtils.hpp"
 
 bool isAvailable() {
-#if !defined(__APPLE__)
-    return false;
-#endif
-#if (TARGET_OS_IPHONE)
-    if (@available(iOS 11, *)) {
+    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)) {
         return true;
-    } else {
-        return false;
     }
-#else
-    return true;
-#endif
+    return false;
 }
 
 namespace {
-NSURL* createTemporaryFile() {
-    NSURL* temporaryDirectoryURL = [NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES];
-    NSString* temporaryFilename = [[NSProcessInfo processInfo] globallyUniqueString];
-    NSURL* temporaryFileURL = [temporaryDirectoryURL URLByAppendingPathComponent:temporaryFilename];
-    return temporaryFileURL;
-}
-}  // namespace
-
-@interface MultiArrayFeatureProvider : NSObject <MLFeatureProvider> {
-    NSMutableDictionary* _inputs;
-    NSSet* _featureNames;
-}
-
-- (instancetype)initWithInputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>*)inputs useImage:(bool)useImage
-                 coreMlVersion:(int)coreMlVersion;
-- (MLFeatureValue*)featureValueForName:(NSString*)featureName API_AVAILABLE(ios(11));
-- (NSSet<NSString*>*)featureNames;
-
-@property(nonatomic, readonly) int coreMlVersion;
-
-@end
-
-@implementation MultiArrayFeatureProvider
-
-- (instancetype)initWithInputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>*)inputs useImage:(bool)useImage
-                  coreMlVersion:(int)coreMlVersion {
-    self = [super init];
-    _inputs = [NSMutableDictionary dictionaryWithCapacity:inputs->size()];
-    _coreMlVersion = coreMlVersion;
-    _featureNames = nil;
-    NSMutableArray* names = [[NSMutableArray alloc] init];
-    for (auto& input : *inputs) {
-        MLFeatureValue* value = nil;
-        auto tensor = input.first;
-        NSError* error = nil;
-        NSString* name = [NSString stringWithCString:input.second.c_str() encoding:[NSString defaultCStringEncoding]];
-        if (useImage) {
-            CVPixelBufferRef pixelBuffer = NULL;
-            OSType pixelFormat = kCVPixelFormatType_OneComponent8;
-            size_t bytePerRow = tensor->width();
-            CVReturn status = CVPixelBufferCreateWithBytes(nil, tensor->width(), tensor->height(), pixelFormat,
-                                                           tensor->host<void>(), bytePerRow, nil, nil, nil, &pixelBuffer);
-            if (status != kCVReturnSuccess) {
-                NSLog(@"Failed to create CVPixelBufferRef for feature %@", name);
-                return nil;
-            }
-            value = [MLFeatureValue featureValueWithPixelBuffer:pixelBuffer];
-        } else {
-            auto input_shape = input.first->shape();
-            NSMutableArray* shape = [NSMutableArray arrayWithCapacity:input_shape.size()];
-            NSMutableArray* strides = [NSMutableArray arrayWithCapacity:input_shape.size()];
-            std::vector<int> stridesDim(input_shape.size());
-            int curStride = 1;
-            if (input_shape.size() >= 1) {
-                for (int i=input_shape.size()-1; i>=0; --i) {
-                    stridesDim[i] = curStride;
-                    curStride *= input_shape[i];
+// Core ML may specialize a compiled bundle on load or on its first prediction.
+// Serialize sessions sharing a compiled program.
+struct ProgramCacheLock {
+    explicit ProgramCacheLock(const char* path) : fd(open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0600)) {}
+    ProgramCacheLock(const char* path, const char* directory, int owner)
+        : fd(open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0600)), ownerFd(owner), directory(directory) {}
+    ~ProgramCacheLock() {
+        if (fd >= 0) {
+            close(fd);
+        }
+        if (ownerFd >= 0) {
+            @autoreleasepool {
+                NSError* error = nil;
+                if (![NSFileManager.defaultManager removeItemAtPath:@(directory.c_str()) error:&error] &&
+                    [NSFileManager.defaultManager fileExistsAtPath:@(directory.c_str())]) {
+                    NSLog(@"[CoreML] Cannot remove temporary program: %@", error);
                 }
             }
-            for (int i=0; i<input_shape.size(); ++i) {
-                [shape addObject:@(input_shape[i])];
-                [strides addObject:@(stridesDim[i])];
-            }
-            MLMultiArray* mlArray = [[MLMultiArray alloc] initWithDataPointer:tensor->host<float>()
-                                                                        shape:shape
-                                                                     dataType:MLMultiArrayDataTypeFloat32
-                                                                      strides:strides
-                                                                  deallocator:(^(void* bytes){})error:&error];
-            if (error != nil) {
-                NSLog(@"Failed to create MLMultiArray for feature %@ error: %@", name, [error localizedDescription]);
-                return nil;
-            }
-            value= [MLFeatureValue featureValueWithMultiArray:mlArray];
+            close(ownerFd);
         }
-        [names addObject:name];
-        [_inputs setValue:value forKey:(name)];
     }
-    _featureNames = [NSSet setWithArray:names];
-    return self;
-}
-
-- (NSSet<NSString*>*)featureNames {
-    return _featureNames;
-}
-
-- (MLFeatureValue*)featureValueForName:(NSString*)featureName {
-    return _inputs[featureName];
-}
-@end
-
-@implementation CoreMLExecutor
-- (bool)invokeWithInputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>&)inputs
-                 outputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>&)outputs {
-    if (_model == nil) {
-        return NO;
+    int fd;
+    int ownerFd = -1;
+    std::string directory;
+    std::mutex mutex;
+};
+class ProgramCacheGuard {
+public:
+    explicit ProgramCacheGuard(ProgramCacheLock& lock) : mLock(lock), mThreadLock(lock.mutex) {
+        if (lock.fd < 0) {
+            return;
+        }
+        int status;
+        do {
+            status = flock(lock.fd, LOCK_EX);
+        } while (status < 0 && errno == EINTR);
+        mLocked = status == 0;
     }
-
-    @autoreleasepool{
-        _outputArray = nil;
-        _outputArray = [NSMutableArray arrayWithCapacity:0];
-        NSError* error = nil;
-        bool useImage = _precision == 2;
-        MultiArrayFeatureProvider* inputFeature = [[MultiArrayFeatureProvider alloc] initWithInputs:&inputs useImage:useImage coreMlVersion:[self coreMlVersion]];
-        if (inputFeature == nil) {
-            NSLog(@"inputFeature is not initialized.");
-            return NO;
+    ~ProgramCacheGuard() {
+        if (mLocked) {
+            flock(mLock.fd, LOCK_UN);
         }
-        MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
-        // options.usesCPUOnly = true;
-        auto _outputFeature = [_model predictionFromFeatures:inputFeature
-                                                options:options
-                                                  error:&error];
-        if (error != nil) {
-            NSLog(@"Error executing model: %@", [error localizedDescription]);
-            return NO;
-        }
-        NSSet<NSString*>* outputFeatureNames = [_outputFeature featureNames];
-        for (auto& output : outputs) {
-            NSString* outputName = [NSString stringWithCString:output.second.c_str()
-                                                      encoding:[NSString defaultCStringEncoding]];
-            MLFeatureValue* outputValue = [_outputFeature featureValueForName:[outputFeatureNames member:outputName]];
-            if ([outputValue type] == MLFeatureTypeImage) {
-                auto data = [outputValue imageBufferValue];
-                CVPixelBufferLockBaseAddress(data, kCVPixelBufferLock_ReadOnly);
-                auto pixelbuffer = (unsigned char*)CVPixelBufferGetBaseAddress(data);
-                auto width = CVPixelBufferGetWidth(data);
-                auto byte_per_row = CVPixelBufferGetBytesPerRow(data);
-                for (int row = 0; row < CVPixelBufferGetHeight(data); row++) {
-                    memcpy(const_cast<MNN::Tensor*>(output.first)->buffer().host + row * width, pixelbuffer + row * byte_per_row, width);
-                }
-                CVPixelBufferUnlockBaseAddress(data, kCVPixelBufferLock_ReadOnly);
-            } else {
-                auto* data = [outputValue multiArrayValue];
-                if (data.dataPointer == nullptr) {
-                    return NO;
-                }
-                [_outputArray addObject:data];
-                const_cast<MNN::Tensor*>(output.first)->buffer().host = (unsigned char*)data.dataPointer;
-           }
-        }
-        inputFeature = nil;
     }
-    return YES;
+    bool valid() const { return mLocked; }
+
+private:
+    ProgramCacheLock& mLock;
+    std::unique_lock<std::mutex> mThreadLock;
+    bool mLocked = false;
+};
+
+NSString* programRoot() {
+    const char* directory = std::getenv("MNN_COREML_CACHE_DIR");
+    if (directory && *directory) {
+        return [NSString stringWithUTF8String:directory];
+    }
+    return [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject
+        stringByAppendingPathComponent:@"MNN/CoreMLPrograms"];
 }
 
-- (bool)cleanup {
+// A locked owner file protects live programs while later processes remove abandoned directories.
+std::shared_ptr<ProgramCacheLock> createProgramDirectory(NSString* root) {
+    NSFileManager* files = NSFileManager.defaultManager;
     NSError* error = nil;
-    [[NSFileManager defaultManager] removeItemAtPath:_mlModelFilePath error:&error];
-    if (error != nil) {
-        NSLog(@"Failed cleaning up model: %@", [error localizedDescription]);
-        return NO;
+    if (![files createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:&error]) {
+        NSLog(@"[CoreML] Cannot create program directory: %@", error);
+        return nullptr;
     }
-    [[NSFileManager defaultManager] removeItemAtPath:_compiledModelFilePath error:&error];
-    if (error != nil) {
-        NSLog(@"Failed cleaning up compiled model: %@", [error localizedDescription]);
-        return NO;
+    NSString* rootLockPath = [root stringByAppendingPathComponent:@".programs.lock"];
+    ProgramCacheLock rootLock(rootLockPath.fileSystemRepresentation);
+    ProgramCacheGuard guard(rootLock);
+    if (!guard.valid()) {
+        NSLog(@"[CoreML] Cannot lock program directory: %s", strerror(errno));
+        return nullptr;
     }
-    return YES;
+    NSArray<NSString*>* entries = [files contentsOfDirectoryAtPath:root error:&error];
+    if (!entries) {
+        NSLog(@"[CoreML] Cannot inspect program directory: %@", error);
+        return nullptr;
+    }
+    for (NSString* entry in entries) {
+        if (![entry hasPrefix:@"program-"] || ![[NSUUID alloc] initWithUUIDString:[entry substringFromIndex:8]]) {
+            continue;
+        }
+        NSString* directory = [root stringByAppendingPathComponent:entry];
+        NSString* ownerPath = [directory stringByAppendingPathComponent:@"owner.lock"];
+        int owner = open(ownerPath.fileSystemRepresentation, O_RDWR | O_CLOEXEC);
+        if (owner < 0) {
+            if (errno == ENOENT) {
+                [files removeItemAtPath:directory error:nil];
+            }
+            continue;
+        }
+        if (flock(owner, LOCK_EX | LOCK_NB) == 0) {
+            [files removeItemAtPath:directory error:nil];
+        }
+        close(owner);
+    }
+    NSString* directory = [root stringByAppendingPathComponent:
+        [@"program-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+    if (![files createDirectoryAtPath:directory withIntermediateDirectories:NO attributes:nil error:&error]) {
+        NSLog(@"[CoreML] Cannot create temporary program: %@", error);
+        return nullptr;
+    }
+    NSString* ownerPath = [directory stringByAppendingPathComponent:@"owner.lock"];
+    int owner = open(ownerPath.fileSystemRepresentation, O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, 0600);
+    if (owner < 0 || flock(owner, LOCK_EX | LOCK_NB) != 0) {
+        if (owner >= 0) {
+            close(owner);
+        }
+        [files removeItemAtPath:directory error:nil];
+        return nullptr;
+    }
+    NSString* predictionLockPath = [directory stringByAppendingPathComponent:@"prediction.lock"];
+    return std::make_shared<ProgramCacheLock>(predictionLockPath.fileSystemRepresentation,
+                                               directory.fileSystemRepresentation, owner);
 }
 
-- (NSURL*)saveModel:(CoreML__Specification__Model*)model {
-    NSURL* modelUrl = createTemporaryFile();
-    NSString* modelPath = [modelUrl path];
-    if (model->specificationversion == 3) {
-        _coreMlVersion = 2;
-    } else if (model->specificationversion == 4) {
-        _coreMlVersion = 3;
+MLMultiArrayDataType arrayType(const MNN::Tensor* tensor) {
+    if (tensor->getType() == halide_type_of<int>()) {
+        return MLMultiArrayDataTypeInt32;
+    }
+    return MLMultiArrayDataTypeFloat16;
+}
+MLMultiArray* wrapTensor(const MNN::Tensor* tensor, bool flatIO, NSError** error) {
+    NSMutableArray<NSNumber*>* shape = [NSMutableArray array];
+    NSMutableArray<NSNumber*>* strides = [NSMutableArray array];
+    auto dimensions = flatIO ? std::vector<int>{static_cast<int>(MNN::TensorUtils::getRawSize(tensor))}
+                             : tensor->shape();
+    if (dimensions.empty()) {
+        dimensions.push_back(1);
+    }
+    size_t stride = 1;
+    for (auto it = dimensions.rbegin(); it != dimensions.rend(); ++it) {
+        [shape insertObject:@(*it) atIndex:0];
+        [strides insertObject:@(stride) atIndex:0];
+        stride *= *it;
+    }
+    return [[MLMultiArray alloc] initWithDataPointer:tensor->host<void>() shape:shape dataType:arrayType(tensor)
+        strides:strides deallocator:^(void*) {} error:error];
+}
+bool sameStateLayout(MLModel* first, MLModel* second) {
+    auto a = first.modelDescription.stateDescriptionsByName;
+    auto b = second.modelDescription.stateDescriptionsByName;
+    if (a.count != b.count) {
+        return false;
+    }
+    for (NSString* name in a) {
+        auto x = a[name].stateConstraint;
+        auto y = b[name].stateConstraint;
+        if (!y || x.dataType != y.dataType || ![x.bufferShape isEqualToArray:y.bufferShape]) {
+            return false;
+        }
+    }
+    return true;
+}
+bool requiresFileCompilation(const CoreML__Specification__MILSpec__Block* block) {
+    for (size_t i = 0; i < block->n_operations; ++i) {
+        const auto* op = block->operations[i];
+        if (std::strcmp(op->type, "resample") == 0 || std::strcmp(op->type, "topk") == 0) {
+            return true;
+        }
+        for (size_t j = 0; j < op->n_blocks; ++j) {
+            if (requiresFileCompilation(op->blocks[j])) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+bool requiresFileCompilation(const CoreML__Specification__Model* spec) {
+    const auto* program = spec->mlprogram;
+    if (!program) {
+        return false;
+    }
+    for (size_t i = 0; i < program->n_functions; ++i) {
+        const auto* function = program->functions[i]->value;
+        for (size_t j = 0; j < function->n_block_specializations; ++j) {
+            if (requiresFileCompilation(function->block_specializations[j]->value)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+bool copyOutput(MLMultiArray* array, const MNN::Tensor* tensor) {
+    if (!array || array.count != MNN::TensorUtils::getRawSize(tensor) || array.dataType != arrayType(tensor)) {
+        return false;
+    }
+    size_t bytes = tensor->getType().code == halide_type_float ? 2 : tensor->getType().bytes();
+    auto src = static_cast<const uint8_t*>(array.dataPointer);
+    auto dst = tensor->host<uint8_t>();
+    if (src == dst) {
+        return true;
+    }
+    size_t expected = 1;
+    bool contiguous = true;
+    for (NSInteger i = array.shape.count - 1; i >= 0; --i) {
+        if (array.shape[i].integerValue > 1 && array.strides[i].unsignedLongLongValue != expected) {
+            contiguous = false;
+        }
+        expected *= array.shape[i].unsignedLongLongValue;
+    }
+    if (contiguous) {
+        ::memcpy(dst, src, array.count * bytes);
     } else {
-        NSLog(@"Only Core ML models with specification version 3 or 4 are supported");
-        return nil;
+        std::vector<size_t> index(array.shape.count, 0);
+        for (size_t i = 0; i < array.count; ++i) {
+            size_t offset = 0;
+            for (size_t d = 0; d < index.size(); ++d) {
+                offset += index[d] * array.strides[d].unsignedLongLongValue;
+            }
+            ::memcpy(dst + i * bytes, src + offset * bytes, bytes);
+            for (NSInteger d = index.size() - 1; d >= 0; --d) {
+                if (++index[d] < array.shape[d].unsignedLongLongValue) {
+                    break;
+                }
+                index[d] = 0;
+            }
+        }
     }
-    size_t modelSize = core_ml__specification__model__get_packed_size(model);
-    std::unique_ptr<uint8_t> writeBuffer(new uint8_t[modelSize]);
-    core_ml__specification__model__pack(model, writeBuffer.get());
-    // TODO: Can we mmap this instead of actual writing it to phone ?
-    std::ofstream file_stream([modelPath UTF8String], std::ios::out | std::ios::binary);
-    const char* ptr = reinterpret_cast<const char*>(writeBuffer.get());
-    file_stream.write(ptr, modelSize);
-    return modelUrl;
+    return true;
 }
+} // namespace
 
-- (bool)build:(NSURL*)modelUrl {
-    NSError* error = nil;
-    NSURL* compileUrl = [MLModel compileModelAtURL:modelUrl error:&error];
-    if (error != nil) {
-        NSLog(@"Error compiling model %@", [error localizedDescription]);
+namespace MNN {
+std::shared_ptr<void> createCoreMLTemporaryDirectory(std::string& path) {
+    @autoreleasepool {
+        auto program = createProgramDirectory(programRoot());
+        if (!program || program->fd < 0) {
+            return nullptr;
+        }
+        path = program->directory;
+        return program;
+    }
+}
+} // namespace MNN
+
+@implementation CoreMLExecutor {
+    std::shared_ptr<ProgramCacheLock> _cacheLock;
+    std::shared_ptr<std::vector<uint8_t>> _weights;
+}
+- (void)dealloc {
+    self.state = nil;
+    self.model = nil;
+    _cacheLock.reset();
+}
+- (bool)buildModel:(CoreML__Specification__Model*)spec weightsPath:(const std::string&)weightsPath
+           weights:(const std::shared_ptr<std::vector<uint8_t>>&)weights forceFileCompilation:(bool)forceFileCompilation {
+    if (!isAvailable()) {
         return NO;
     }
-    _mlModelFilePath = [modelUrl path];
-    _compiledModelFilePath = [compileUrl path];
-
-    if (@available(iOS 12.0, *)) {
-        MLModelConfiguration* config = [MLModelConfiguration alloc];
+    // The in-memory asset path changes resample and topk results on some Core ML versions.
+    if (forceFileCompilation || requiresFileCompilation(spec)) {
+        if (std::getenv("MNN_COREML_VERBOSE")) {
+            NSLog(@"[CoreML] Using file compilation for per-command execution or operator compatibility");
+        }
+        if (!weights) {
+            return [self buildModelFromFile:spec weightsPath:weightsPath];
+        }
+        std::string directory;
+        auto cleanup = MNN::createCoreMLTemporaryDirectory(directory);
+        if (!cleanup) {
+            return NO;
+        }
+        auto path = directory + "/weight.bin";
+        NSData* blob = [NSData dataWithBytesNoCopy:weights->data() length:weights->size() freeWhenDone:NO];
+        NSError* error = nil;
+        if (![blob writeToFile:@(path.c_str()) options:NSDataWritingAtomic error:&error]) {
+            NSLog(@"[CoreML] Cannot write compatibility weights: %@", error);
+            return NO;
+        }
+        return [self buildModelFromFile:spec weightsPath:path];
+    }
+    self.compiledFromSource = NO;
+    size_t size = core_ml__specification__model__get_packed_size(spec);
+    NSMutableData* data = [NSMutableData dataWithLength:size];
+    core_ml__specification__model__pack(spec, static_cast<uint8_t*>(data.mutableBytes));
+    _cacheLock = createProgramDirectory(programRoot());
+    if (!_cacheLock) {
+        return NO;
+    }
+    ProgramCacheGuard guard(*_cacheLock);
+    if (!guard.valid()) {
+        NSLog(@"[CoreML] Cannot lock program cache: %s", strerror(errno));
+        return NO;
+    }
+    MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
+    config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
+    const char* units = std::getenv("MNN_COREML_COMPUTE_UNITS");
+    if (units && std::strcmp(units, "cpu") == 0) {
+        config.computeUnits = MLComputeUnitsCPUOnly;
+    }
+    if (units && std::strcmp(units, "all") == 0) {
         config.computeUnits = MLComputeUnitsAll;
-        _model = [MLModel modelWithContentsOfURL:compileUrl configuration:config error:&error];
-    } else {
-        _model = [MLModel modelWithContentsOfURL:compileUrl error:&error];
     }
-    if (error != NULL) {
-        NSLog(@"Error Creating MLModel %@", [error localizedDescription]);
+    NSError* error = nil;
+    NSData* weightData = nil;
+    if (weights) {
+        _weights = weights;
+        weightData = [NSData dataWithBytesNoCopy:_weights->data() length:_weights->size() freeWhenDone:NO];
+    } else if (!weightsPath.empty()) {
+        weightData = [NSData dataWithContentsOfFile:@(weightsPath.c_str()) options:NSDataReadingMappedIfSafe error:&error];
+        if (!weightData) {
+            NSLog(@"[CoreML] Cannot read weights: %@", error);
+            return NO;
+        }
+    }
+    MLModelAsset* asset = nil;
+    if (weightData) {
+        NSURL* weightURL = [NSURL fileURLWithPath:@"weights/weight.bin" relativeToURL:nil];
+        asset = [MLModelAsset modelAssetWithSpecificationData:data blobMapping:@{weightURL: weightData} error:&error];
+    } else {
+        asset = [MLModelAsset modelAssetWithSpecificationData:data error:&error];
+    }
+    if (!asset) {
+        NSLog(@"[CoreML] Cannot create model asset: %@", error);
         return NO;
     }
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    __block MLModel* model = nil;
+    __block NSError* loadError = nil;
+    [MLModel loadModelAsset:asset configuration:config completionHandler:^(MLModel* loaded, NSError* failure) {
+        model = loaded;
+        loadError = failure;
+        dispatch_semaphore_signal(done);
+    }];
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    if (!model) {
+        NSLog(@"[CoreML] Cannot load model asset: %@", loadError);
+        return NO;
+    }
+    // Core ML may reference the specification and blobs after asynchronous loading completes.
+    static char retentionKey;
+    NSArray* retained = weightData ? @[asset, data, weightData] : @[asset, data];
+    objc_setAssociatedObject(model, &retentionKey, retained, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    self.model = model;
+    self.compiledFromSource = YES;
     return YES;
 }
-@end
-
-@implementation RasterLayer
-- (instancetype)initWithParameterDictionary:(NSDictionary<NSString *,id> *)parameters
-                                      error:(NSError * _Nullable *)error {
-    self = [super init];
-    return self;
-}
-- (void) setRegionSampler
-{
-    samplers.resize(regions.size());
-    for (int r = 0; r < regions.size(); r++) {
-        const Region& region = regions[r];
-        SamplerInfo& sampler = samplers[r];
-        int sizeTotal = 1;
-        for (int i=0; i<3; ++i) {
-            sampler.size[i] = region.size[i];
-            sampler.stride[i] = region.src.stride[i];
-            sampler.extent[i] = region.dst.stride[i];
-            sizeTotal *= region.size[i];
-        }
-        sampler.size[3] = sizeTotal;
-        sampler.stride[3] = region.src.offset;
-        sampler.extent[3] = region.dst.offset;
+- (bool)buildModelFromFile:(CoreML__Specification__Model*)spec weightsPath:(const std::string&)weightsPath {
+    if (!isAvailable()) {
+        return NO;
     }
-}
-
-- (std::pair<MTLSize, MTLSize>)computeBestGroupAndLocal:(SamplerInfo&) s {
-    MTLSize t = MTLSizeMake(s.size[0], s.size[1], s.size[2]);
-    auto local = [self computeBestGroup:t];
-    #define UP_DIV(x, y) (((x) + (y) - (1)) / (y))
-    auto globalSize = MTLSizeMake(UP_DIV(t.width, local.width), UP_DIV(t.height, local.height), UP_DIV(t.depth, local.depth));
-    #undef UP_DIV
-    return std::make_pair(globalSize, local);
-}
-
-- (MTLSize)computeBestGroup:(MTLSize)t {
-    if (pipeline.maxTotalThreadsPerThreadgroup > 64) {
-        auto res = MTLSizeMake(8, 8, 8);
-        int reduceNumber = 0;
-        if (t.depth < 4) {
-            res.depth = 1;
-            reduceNumber++;
-        }
-        if (t.width < 4) {
-            res.width = 1;
-            reduceNumber++;
-        }
-        if (t.height < 4) {
-            res.height = 1;
-            reduceNumber++;
-        }
-        if (reduceNumber == 0) {
-            return MTLSizeMake(4, 4, 4);
-        }
-        if (reduceNumber == 2) {
-            if (res.width > 1) {
-                res.width = 64;
-            }
-            if (res.height > 1) {
-                res.height = 64;
-            }
-            if (res.depth > 1) {
-                res.depth = 64;
-            }
-        }
-        return res;
+    self.compiledFromSource = NO;
+    size_t size = core_ml__specification__model__get_packed_size(spec);
+    NSMutableData* data = [NSMutableData dataWithLength:size];
+    core_ml__specification__model__pack(spec, static_cast<uint8_t*>(data.mutableBytes));
+    _cacheLock = createProgramDirectory(programRoot());
+    if (!_cacheLock) {
+        return NO;
     }
-    auto smallest_log2 = [](NSUInteger integer) -> NSUInteger {
-        if (integer == 0)
-            return 0;
-        NSUInteger power = 0;
-        while ((integer & 0b1) == 0) {
-            integer = integer >> 1;
-            power++;
+    NSString* directory = @(_cacheLock->directory.c_str());
+    NSString* destination = [directory stringByAppendingPathComponent:@"compiled.mlmodelc"];
+    NSURL* destinationURL = [NSURL fileURLWithPath:destination isDirectory:YES];
+    NSFileManager* files = NSFileManager.defaultManager;
+    MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
+    config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
+    const char* units = std::getenv("MNN_COREML_COMPUTE_UNITS");
+    if (units && std::strcmp(units, "cpu") == 0) {
+        config.computeUnits = MLComputeUnitsCPUOnly;
+    }
+    if (units && std::strcmp(units, "all") == 0) {
+        config.computeUnits = MLComputeUnitsAll;
+    }
+    NSError* error = nil;
+    ProgramCacheGuard guard(*_cacheLock);
+    if (!guard.valid()) {
+        NSLog(@"[CoreML] Cannot lock program cache: %s", strerror(errno));
+        return NO;
+    }
+    NSString* source = [directory stringByAppendingPathComponent:
+        weightsPath.empty() ? @"source.mlmodel" : @"source.mlpackage"];
+    if (weightsPath.empty()) {
+        if (![data writeToFile:source options:NSDataWritingAtomic error:&error]) {
+            return NO;
         }
-        return power;
-    };
-    auto pwarp = smallest_log2(pipeline.threadExecutionWidth);
-    auto px = smallest_log2(t.width), sx = (NSUInteger)ceil(log2(t.width));
-    auto py = smallest_log2(t.height), sy = (NSUInteger)ceil(log2(t.height));
-
-    // accurately match on x
-    if (px >= pwarp) {
-        return {pipeline.threadExecutionWidth, 1, 1};
-    }
-    // accurately match on xy
-    else if (px + py >= pwarp && sx < pwarp / 2) {
-        NSUInteger x = pow(2, px);
-        return {x, pipeline.threadExecutionWidth / x, 1};
-    }
-    // similarly match on x
-    else if (sx >= pwarp) {
-        return {pipeline.threadExecutionWidth, 1, 1};
-    }
-    // similarly match on xy
-    else if (sx + sy >= pwarp) {
-        NSUInteger x = pow(2, sx);
-        return {x, pipeline.threadExecutionWidth / x, 1};
-    }
-
-    // on xyz (for most shaders do not protect gid.z, z axis must be accurately match)
-    auto pz = smallest_log2(t.depth);
-    auto sz = pz;
-    if (px + py + pz >= pwarp) {
-        NSUInteger x = pow(2, px), y = pow(2, py);
-        return {x, y, pipeline.threadExecutionWidth / x / y};
-    } else if (sx + sy + sz >= pwarp) {
-        NSUInteger x = pow(2, sx), z = pow(2, MIN(sz, pwarp - sx));
-        return {x, pipeline.threadExecutionWidth / x / z, z};
     } else {
-        NSUInteger z = pow(2, sz);
-        return {t.width, t.height, z};
+        NSString* modelDirectory = [source stringByAppendingPathComponent:@"Data/com.apple.CoreML"];
+        NSString* weightsDirectory = [modelDirectory stringByAppendingPathComponent:@"weights"];
+        NSString* rootID = NSUUID.UUID.UUIDString;
+        NSDictionary* manifest = @{
+            @"fileFormatVersion": @"1.0.0", @"rootModelIdentifier": rootID,
+            @"itemInfoEntries": @{
+                rootID: @{@"author": @"com.apple.CoreML", @"description": @"CoreML Model Specification",
+                          @"name": @"model.mlmodel", @"path": @"com.apple.CoreML/model.mlmodel"},
+                NSUUID.UUID.UUIDString: @{@"author": @"com.apple.CoreML", @"description": @"CoreML Model Weights",
+                          @"name": @"weights", @"path": @"com.apple.CoreML/weights"}}};
+        NSData* manifestData = [NSJSONSerialization dataWithJSONObject:manifest options:0 error:&error];
+        bool success = manifestData &&
+            [files createDirectoryAtPath:weightsDirectory withIntermediateDirectories:YES attributes:nil error:&error] &&
+            [data writeToFile:[modelDirectory stringByAppendingPathComponent:@"model.mlmodel"] options:0 error:&error] &&
+            [files copyItemAtPath:@(weightsPath.c_str())
+                toPath:[weightsDirectory stringByAppendingPathComponent:@"weight.bin"] error:&error] &&
+            [manifestData writeToFile:[source stringByAppendingPathComponent:@"Manifest.json"] options:0 error:&error];
+        if (!success) {
+            [files removeItemAtPath:source error:nil];
+            NSLog(@"[CoreML] Cannot prepare weighted program: %@", error);
+            return NO;
+        }
     }
-}
-
-- (BOOL)setWeightData:(NSArray<NSData *> *)weights
-                error:(NSError * _Nullable *)error {
-    assert(weights.count > 1);
-    outputShape.resize(weights[0].length / sizeof(int));
-    memcpy(outputShape.data(), [weights[0] bytes], weights[0].length);
-    regions.resize(weights.count - 1);
-    for (int i = 1; i < weights.count; i++) {
-        auto regionPtr = [weights[i] bytes];
-        memcpy(&regions[i-1], regionPtr, weights[i].length);
+    NSURL* compiled = [MLModel compileModelAtURL:[NSURL fileURLWithPath:source] error:&error];
+    [files removeItemAtPath:source error:nil];
+    if (!compiled) {
+        NSLog(@"[CoreML] Cannot compile kernel: %@", error);
+        return NO;
     }
-    [self setRegionSampler];
-    return YES;
-}
-
-- (NSArray<NSArray<NSNumber *> *> *)outputShapesForInputShapes:(NSArray<NSArray<NSNumber *> *> *)inputShapes
-                                                         error:(NSError * _Nullable *)error {
-    NSMutableArray* shape = [[NSMutableArray alloc] initWithCapacity: outputShape.size()];
-    for (int x : outputShape) {
-        [shape addObject: [NSNumber numberWithInt:x]];
+    self.compiledFromSource = YES;
+    if (![files moveItemAtURL:compiled toURL:destinationURL error:&error]) {
+        [files removeItemAtURL:compiled error:nil];
+        NSLog(@"[CoreML] Cannot retain compiled program: %@", error);
+        return NO;
     }
-    NSArray* outputShapes = @[ shape ];
-    return outputShapes;
+    self.model = [MLModel modelWithContentsOfURL:destinationURL configuration:config error:&error];
+    if (!self.model) {
+        NSLog(@"[CoreML] Cannot load kernel: %@", error);
+    }
+    return self.model != nil;
 }
-
-// execute on cpu
-- (BOOL)evaluateOnCPUWithInputs:(NSArray<MLMultiArray *> *)inputs
-                        outputs:(NSArray<MLMultiArray *> *)outputs
-                          error:(NSError * _Nullable *)error {
-    // NSLog(@"%@ -> %@", inputs[0].shape, outputs[0].shape);
-    assert(inputs.count == regions.size());
-    float* outputPtr = static_cast<float*>(outputs[0].dataPointer);
-    for (int i = 0; i < inputs.count; i++) {
-        const float* inputPtr = static_cast<const float*>(inputs[i].dataPointer);
-        const auto& region = regions[i];
-        for (int z = 0; z < region.size[0]; z++) {
-            for (int y = 0; y < region.size[1]; y++) {
-                for (int x = 0; x < region.size[2]; x++) {
-                    outputPtr[region.dst.offset + z * region.dst.stride[0] + y * region.dst.stride[1] + x * region.dst.stride[2]] =
-                        inputPtr[region.src.offset + z * region.src.stride[0] + y * region.src.stride[1] + x * region.src.stride[2]];
-                }
+- (CoreMLExecutor*)sessionWithPrevious:(CoreMLExecutor*)previous {
+    CoreMLExecutor* session = [[CoreMLExecutor alloc] init];
+    session.model = self.model;
+    session->_cacheLock = _cacheLock;
+    session->_weights = _weights;
+    session.precision = self.precision;
+    if (self.model.modelDescription.stateDescriptionsByName.count) {
+        if (previous.state && self.model == previous.model) {
+            session.state = previous.state;
+        } else {
+            session.state = [self.model newState];
+        }
+        if (!session.state) {
+            NSLog(@"[CoreML] Cannot create model state");
+            return nil;
+        }
+        if (previous.state && self.model != previous.model) {
+            if (!sameStateLayout(self.model, previous.model)) {
+                NSLog(@"[CoreML] Cannot reuse KV state with a different buffer layout");
+                return nil;
+            }
+            for (NSString* name in self.model.modelDescription.stateDescriptionsByName) {
+                [previous.state getMultiArrayForStateNamed:name handler:^(MLMultiArray* source) {
+                    [session.state getMultiArrayForStateNamed:name handler:^(MLMultiArray* destination) {
+                        [source transferToMultiArray:destination];
+                    }];
+                }];
             }
         }
     }
-    return YES;
+    return session;
 }
-
-@end
-
-@implementation DumpLayer
-- (instancetype)initWithParameterDictionary:(NSDictionary<NSString *,id> *)parameters
-                                      error:(NSError * _Nullable *)error {
-    self = [super init];
-    return self;
-}
-
-- (BOOL)setWeightData:(NSArray<NSData *> *)weights
-                error:(NSError * _Nullable *)error {
-    return YES;
-}
-
-- (NSArray<NSArray<NSNumber *> *> *)outputShapesForInputShapes:(NSArray<NSArray<NSNumber *> *> *)inputShapes
-                                                         error:(NSError * _Nullable *)error {
-    for (int i = 0; i < inputShapes.count; i++) {
-        printf("### shape_%d : { ", i);
-        for (int j = 0; j < inputShapes[i].count; j++) {
-            printf("%d, ", inputShapes[i][j].intValue);
+- (bool)invokeWithInputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>&)inputs
+                 outputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>&)outputs flatIO:(bool)flatIO {
+    @autoreleasepool {
+        if (!_cacheLock) {
+            return NO;
         }
-        printf(" }\n");
+        ProgramCacheGuard guard(*_cacheLock);
+        if (!guard.valid()) {
+            NSLog(@"[CoreML] Cannot lock program for prediction: %s", strerror(errno));
+            return NO;
+        }
+        NSError* error = nil;
+        NSMutableDictionary<NSString*, MLFeatureValue*>* features = [NSMutableDictionary dictionary];
+        for (const auto& input : inputs) {
+            auto array = wrapTensor(input.first, flatIO, &error);
+            if (!array) {
+                NSLog(@"[CoreML] Invalid input %s: %@", input.second.c_str(), error);
+                return NO;
+            }
+            features[@(input.second.c_str())] = [MLFeatureValue featureValueWithMultiArray:array];
+        }
+        auto provider = [[MLDictionaryFeatureProvider alloc] initWithDictionary:features error:&error];
+        MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
+        NSMutableDictionary<NSString*, MLMultiArray*>* backings = [NSMutableDictionary dictionary];
+        for (const auto& output : outputs) {
+            auto array = wrapTensor(output.first, flatIO, &error);
+            if (!array) {
+                return NO;
+            }
+            backings[@(output.second.c_str())] = array;
+        }
+        options.outputBackings = backings;
+        id<MLFeatureProvider> result = nil;
+        if (self.state) {
+            result = [self.model predictionFromFeatures:provider usingState:self.state options:options error:&error];
+        } else {
+            result = [self.model predictionFromFeatures:provider options:options error:&error];
+        }
+        if (!result) {
+            NSLog(@"[CoreML] Prediction failed: %@", error);
+            return NO;
+        }
+        for (const auto& output : outputs) {
+            if (!copyOutput([result featureValueForName:@(output.second.c_str())].multiArrayValue, output.first)) {
+                NSLog(@"[CoreML] Invalid output %s", output.second.c_str());
+                return NO;
+            }
+        }
+        return YES;
     }
-    return inputShapes;
-}
-
-- (BOOL)evaluateOnCPUWithInputs:(NSArray<MLMultiArray *> *)inputs
-                        outputs:(NSArray<MLMultiArray *> *)outputs
-                          error:(NSError * _Nullable *)error {
-    assert(inputs.count == 1 && outputs.count == 1);
-    assert(inputs[0].count == outputs[0].count);
-    const float* inputPtr = static_cast<float*>(inputs[0].dataPointer);
-    float* outputPtr = static_cast<float*>(outputs[0].dataPointer);
-    printf(">>> "); for (int i = 0; i < 10; i++) printf("%f, ", inputPtr[i]); printf("\n");
-    // memcpy(outputPtr, inputPtr, outputs[0].count);
-    memcpy(outputPtr, inputPtr, outputs[0].count * sizeof(float));
-    return YES;
 }
 @end

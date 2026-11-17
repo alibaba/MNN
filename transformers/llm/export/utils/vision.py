@@ -6,8 +6,9 @@ import torch.nn.functional as F
 import numpy as np
 from torch import nn
 from typing import Tuple, Optional, Dict, Any
+from types import SimpleNamespace
 
-from .transformers import VisionRotary, Decoder
+from .transformers import VisionRotary, Decoder, Attention
 from .spinner import spinner_run
 from .torch_utils import onnx_export, EncoderExport, embedding_scale
 from .qat import copy_qat_source
@@ -109,6 +110,8 @@ class Vision(torch.nn.Module):
 
     @staticmethod
     def get_vision(model_type):
+        if model_type in ('lfm3_vl', 'lfm3_omni'):
+            return Lfm3Vision
         visual_models = {
             'deepseek-vl': DeepSeekVL,
             'internvl_chat': InternVLVision,
@@ -127,6 +130,7 @@ class Vision(torch.nn.Module):
             'llava_qwen2': MobileCLIPVision,
             'minicpmv': MiniCPMVision,
             'minicpmv4_7': MiniCPMV4_7Vision,
+            'minicpm_ocr': MiniCPMOcrVision,
             'glm_ocr': GlmOcrVision,
             'lfm2_vl': Lfm2VlVision,
             'hunyuan_vl': HunyuanVLVision,
@@ -462,7 +466,11 @@ class Qwen2Vision(Vision):
                         image_obj = Image.open(requests.get(img_content, stream=True).raw)
                     else:
                         image_obj = Image.open(img_content)
-                    img_pad_len = self.img_process(image_obj)
+                    self._image_size_override = match is not None
+                    try:
+                        img_pad_len = self.img_process(image_obj)
+                    finally:
+                        self._image_size_override = False
                     self.vision_segments.append({'type': 'image', 'grid': self.image_grid_thw[-1]})
                     img_pad_str = self.image_pad_token * img_pad_len
                     img_str = f'{self.vision_start_token}{img_pad_str}{self.vision_end_token}'
@@ -2296,6 +2304,51 @@ class MiniCPMV4_7Vision(Vision):
 
 
 
+class MiniCPMOcrVision(MiniCPMV4_7Vision):
+    processor_family = "minicpm_ocr"
+
+    def init_config(self):
+        from transformers import AutoProcessor
+        self.transformer_fuse = False
+        self.processor = AutoProcessor.from_pretrained(self.config.name_or_path)
+        processor = self.processor.image_processor
+        tokenizer = self.processor.tokenizer
+        self.patch_size = self.config.vision_config.patch_size
+        self.downsample_mode = self.config.downsample_mode
+        self.use_vit_merger = self.downsample_mode != '4x'
+        self.merge_size = 4 if self.use_vit_merger else 2
+        self.image_embeds = []
+        self.target_sizes = None
+        self.llm_config.update({
+            'vision_type': 'minicpm_ocr',
+            'image_size': processor.scale_resolution,
+            'image_size_unit': self.patch_size,
+            'image_mean': (np.array(processor.image_mean) * 255.0).tolist(),
+            'image_norm': (1 / (np.array(processor.image_std) * 255.0)).tolist(),
+            'image_pad': self.config.image_token_id,
+            'vision_start': tokenizer.convert_tokens_to_ids(tokenizer.image_start_token),
+            'vision_end': tokenizer.convert_tokens_to_ids(tokenizer.image_end_token),
+            'vision_slice_start_id': tokenizer.convert_tokens_to_ids(tokenizer.slice_start_token),
+            'vision_slice_end_id': tokenizer.convert_tokens_to_ids(tokenizer.slice_end_token),
+            'vision_id_start_id': tokenizer.convert_tokens_to_ids(tokenizer.image_id_start_token),
+            'vision_id_end_id': tokenizer.convert_tokens_to_ids(tokenizer.image_id_end_token),
+            'vision_merge_size': self.merge_size,
+            'vision_position_size': self.config.vision_config.image_size // self.patch_size,
+            'vision_max_slice_nums': processor.max_slice_nums,
+            'vision_use_image_id': processor.use_image_id,
+            'vision_newline_id': tokenizer.encode('\n', add_special_tokens=False)[0],
+        })
+
+    def load(self):
+        self.merger = self.visual.merger
+
+    def get_position_ids(self, input_ids, seq_len, new_tokens):
+        # OCR's language model uses plain 1-D positions, unlike MiniCPM-V 4.7's M-RoPE.
+        if new_tokens:
+            return torch.tensor([seq_len - 1], dtype=torch.int)
+        return torch.arange(seq_len, dtype=torch.int).unsqueeze(0)
+
+
 class MiniCPMVision(Vision):
     processor_family = "minicpmv"
     output_axes = (1, 0, 2)
@@ -2822,3 +2875,191 @@ class Lfm2VlVision(Vision):
                         "pixel_values": { 0: "size" },
                     })
         return onnx_model
+
+
+class Lfm3VisionLayer(nn.Module):
+    def __init__(self, layer, index, config):
+        super().__init__()
+        self.operator_norm = layer.operator_norm
+        self.ffn_norm = layer.ffn_norm
+        self.mlp = layer.feed_forward
+        self.merge_size = config.merge_size
+        self.hidden_size = config.hidden_size
+        self.is_attention = layer.is_attention_layer
+        if self.is_attention:
+            self.self_attn = Attention(layer.self_attn, index, config, config.rotary, config.model_map)
+            self.self_attn.kv_cache = False
+            self.self_attn.fused_attn.kv_cache = 0
+        else:
+            self.in_proj = layer.conv.in_proj
+            self.spatial_conv = layer.conv.spatial_conv
+            self.out_proj = layer.conv.out_proj
+
+    def forward(self, hidden_states, rotary, mask, height, width):
+        normed = self.operator_norm(hidden_states)
+        if self.is_attention:
+            self.self_attn.past_key_value = None
+            output = self.self_attn(normed.unsqueeze(0), rotary_pos_emb=rotary, attention_mask=mask).squeeze(0)
+        else:
+            b, c, x = self.in_proj(normed).chunk(3, dim=-1)
+            merge = self.merge_size
+            # The patch stream is ordered by merge blocks, while Conv2d consumes a raster grid.
+            frames = (b * x).reshape(-1, height // merge, width // merge, merge, merge, self.hidden_size)
+            frames = frames.permute(0, 5, 1, 3, 2, 4).reshape(-1, self.hidden_size, height, width)
+            frames = self.spatial_conv(frames)
+            frames = frames.reshape(-1, self.hidden_size, height // merge, merge, width // merge, merge)
+            frames = frames.permute(0, 2, 4, 3, 5, 1).reshape(-1, self.hidden_size)
+            output = self.out_proj(c * frames)
+        hidden_states = hidden_states + output
+        return hidden_states + self.mlp(self.ffn_norm(hidden_states))
+
+
+
+class Lfm3Vision(Qwen2Vision):
+    processor_family = 'lfm3_vl'
+
+    def __init__(self, visual, base):
+        super().__init__(visual, base)
+        self.quant_bit = 8
+        self.merger = base.multi_modal_projector
+
+    def init_config(self):
+        self.norm_mean = [0.5] * 3
+        self.norm_std = [0.5] * 3
+        self.llm_config.update(image_mean=[127.5] * 3, image_norm=[1 / 127.5] * 3)
+
+    def load(self):
+        config = self.visual.config
+        self.patch_size = config.patch_size
+        self.temporal_patch_size = config.temporal_patch_size
+        self.merge_size = config.spatial_merge_size
+        self.image_height = self.image_width = 256
+        self.min_pixels, self.max_pixels = 65536, 16777216
+        self.vision_start_id = self.tokenizer.convert_tokens_to_ids('<|vision_start|>')
+        self.vision_end_id = self.tokenizer.convert_tokens_to_ids('<|vision_end|>')
+        self.image_pad_id = self.config.image_token_id
+        self.video_pad_id = self.config.video_token_id
+        self.vision_start_token = '<|vision_start|>'
+        self.vision_end_token = '<|vision_end|>'
+        self.image_pad_token = '<|image|>'
+        self.video_pad_token = '<|video|>'
+        self.video_max_pixels = 25165824
+        self.video_max_vision_tokens = self.video_max_pixels // (self.patch_size ** 2 * self.temporal_patch_size)
+        self.llm_config.update(
+            image_size=self.image_height, vision_merge_size=self.merge_size,
+            vision_start=self.vision_start_id, vision_end=self.vision_end_id,
+            image_pad=self.image_pad_id, video_pad=self.video_pad_id,
+            video_fps=self.video_fps, video_max_frames=self.video_max_frames,
+            video_max_pixels=self.video_max_pixels, video_max_vision_tokens=self.video_max_vision_tokens)
+        self.refresh_image_resize_config()
+        self.hidden_size = config.hidden_size
+        self.num_attention_heads = config.num_attention_heads
+        self.num_key_value_heads = config.num_key_value_heads
+        self.head_dim = config.hidden_size // config.num_attention_heads
+        self.rope_theta = config.rope_parameters['rope_theta']
+        self.rotary_dim = self.head_dim // 2
+        self.rotary = VisionRotary(self)
+        self.model_map = {'attention': {
+            'q_proj': 'q_proj', 'k_proj': 'k_proj', 'v_proj': 'v_proj', 'o_proj': 'out_proj',
+            'q_norm': 'q_layernorm', 'k_norm': 'k_layernorm'}}
+        self.patch_embed = self.visual.patchifier
+        self.embedding_norm = self.visual.embedding_norm
+        layer_config = SimpleNamespace(
+            model_type='lfm3_vl_vision', hidden_size=self.hidden_size, head_dim=self.head_dim,
+            num_attention_heads=self.num_attention_heads, num_key_value_heads=self.num_key_value_heads,
+            merge_size=self.merge_size, rotary=self.rotary, model_map=self.model_map)
+        self.blocks = nn.ModuleList(Lfm3VisionLayer(layer, i, layer_config)
+                                    for i, layer in enumerate(self.visual.layers))
+
+    def get_position_ids(self, input_ids, seq_len, token_len):
+        start = seq_len - 1 if token_len else 0
+        return torch.arange(start, seq_len, dtype=torch.int32).unsqueeze(0)
+
+    def image_to_tensor(self, image):
+        previous = self.image_height, self.image_width
+        if not getattr(self, '_processing_video', False) and not getattr(self, '_image_size_override', False):
+            self.image_width, self.image_height = image.size
+        try:
+            return super().image_to_tensor(image)
+        finally:
+            self.image_height, self.image_width = previous
+
+    def video_process(self, video):
+        self._processing_video = True
+        try:
+            return super().video_process(video)
+        finally:
+            self._processing_video = False
+
+    @staticmethod
+    def smart_resize(height, width, factor, min_pixels, max_pixels):
+        if height <= 0 or width <= 0 or max(height, width) / min(height, width) > 200:
+            raise ValueError('Invalid LFM3 image dimensions')
+        h, w = round(height / factor) * factor, round(width / factor) * factor
+        if h * w > max_pixels:
+            scale = math.sqrt(height * width / max_pixels)
+            h = max(factor, math.floor(height / scale / factor) * factor)
+            w = max(factor, math.floor(width / scale / factor) * factor)
+        elif h * w < min_pixels:
+            scale = math.sqrt(min_pixels / (height * width))
+            h, w = math.ceil(height * scale / factor) * factor, math.ceil(width * scale / factor) * factor
+        return h, w
+
+    def video_sample_indices(self, total_frames, native_fps):
+        if total_frames <= 0:
+            return []
+        count = min(max(int(total_frames / max(native_fps, 1e-6) * self.video_fps), 4),
+                    self.video_max_frames, total_frames)
+        indices = torch.linspace(0, total_frames - 1, count).round().long().tolist()
+        self._sampled_video_frames = count
+        indices += [indices[-1]] * (-count % self.temporal_patch_size)
+        return indices
+
+    def video_resize_size(self, width, height, frame_count=None):
+        count = getattr(self, '_sampled_video_frames', frame_count or 2)
+        factor = self.patch_size * self.merge_size
+        if min(height, width) < factor:
+            scale = factor / min(height, width)
+            height, width = int(height * scale), int(width * scale)
+        # HF rounds time for the budget check, but uses the original frame count to compute the scale.
+        rounded = max(self.temporal_patch_size, round(count / self.temporal_patch_size) * self.temporal_patch_size)
+        h, w = round(height / factor) * factor, round(width / factor) * factor
+        if rounded * h * w > self.video_max_pixels:
+            scale = math.sqrt(count * height * width / self.video_max_pixels)
+            h, w = max(factor, math.floor(height / scale / factor) * factor), max(factor, math.floor(width / scale / factor) * factor)
+        elif rounded * h * w < 4096:
+            scale = math.sqrt(4096 / (count * height * width))
+            h, w = math.ceil(height * scale / factor) * factor, math.ceil(width * scale / factor) * factor
+        return w, h
+
+    def export_inputs(self, pixels, *extra_inputs):
+        height, width = pixels.shape[-2:]
+        return (*super().export_inputs(pixels, *extra_inputs), height // self.patch_size, width // self.patch_size)
+
+    def images_forward(self, images):
+        patches, grid = self.vision_reshape(images)
+        return self(patches, self.vision_position_ids(grid), self.vision_attention_mask(grid),
+                    images.shape[-2] // self.patch_size, images.shape[-1] // self.patch_size)
+
+    def videos_forward(self, frames):
+        patches, grid = self.video_reshape(frames)
+        return self(patches, self.vision_position_ids(grid), self.vision_attention_mask(grid),
+                    frames[0].shape[-2] // self.patch_size, frames[0].shape[-1] // self.patch_size)
+
+    def forward(self, patches, position_ids, attention_mask, height, width):
+        hidden_states = self.embedding_norm(self.patch_embed(patches))
+        rotary = self.rotary(position_ids).to(hidden_states.dtype)
+        for block in self.blocks:
+            hidden_states = block(hidden_states, rotary, attention_mask, height, width)
+        return self.merger(hidden_states).unsqueeze(1)
+
+    def export(self, onnx_path):
+        count = 256
+        patches = torch.randn(count, 3 * self.temporal_patch_size * self.patch_size ** 2)
+        positions = torch.zeros(2, count, dtype=torch.int32)
+        mask = torch.zeros(1, count, count)
+        path = f'{onnx_path}/visual.onnx'
+        self.export_onnx(self, (patches, positions, mask), path,
+                         ['patches', 'position_ids', 'attention_mask'], ['image_embeds'],
+                         {'position_ids': {1: 'patches'}, 'attention_mask': {1: 'patches', 2: 'patches'}})
+        return path

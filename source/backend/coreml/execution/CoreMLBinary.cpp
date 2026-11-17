@@ -11,12 +11,48 @@
 
 namespace MNN {
 
-
-CoreMLBinary::CoreMLBinary(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : CoreMLCommonExecution(b, op) {
-    initLayer();
+CoreMLBinary::CoreMLBinary(MNN::Backend* b, const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                           const std::vector<MNN::Tensor*>& outputs)
+    : CoreMLCommonExecution(b, op) {
+    if (inputs.size() != 2 || outputs.size() != 1) {
+        mValid = false;
+        return;
+    }
+    if (op->type() == OpType_BinaryOp) {
+        auto type = op->main_as_BinaryOp()->opType();
+        switch (type) {
+            case BinaryOpOperation_ADD:
+            case BinaryOpOperation_SUB:
+            case BinaryOpOperation_MUL:
+            case BinaryOpOperation_DIV:
+            case BinaryOpOperation_POW:
+            case BinaryOpOperation_REALDIV:
+            case BinaryOpOperation_MINIMUM:
+            case BinaryOpOperation_MAXIMUM:
+            case BinaryOpOperation_GREATER:
+            case BinaryOpOperation_GREATER_EQUAL:
+            case BinaryOpOperation_LESS:
+            case BinaryOpOperation_FLOORDIV:
+            case BinaryOpOperation_SquaredDifference:
+            case BinaryOpOperation_LESS_EQUAL:
+            case BinaryOpOperation_FLOORMOD:
+            case BinaryOpOperation_EQUAL:
+            case BinaryOpOperation_MOD:
+            case BinaryOpOperation_ATAN2:
+            case BinaryOpOperation_LOGICALOR:
+            case BinaryOpOperation_NOTEQUAL:
+            case BinaryOpOperation_LOGICALXOR:
+            case BinaryOpOperation_MUL_SILU:
+                mValid = op->main_as_BinaryOp()->activationType() >= 0 && op->main_as_BinaryOp()->activationType() <= 1;
+                break;
+            default:
+                mValid = false;
+                break;
+        }
+    }
 }
 
-ErrorCode CoreMLBinary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode CoreMLBinary::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(inputs.size() == 2 && outputs.size() == 1);
     BinaryOpOperation binaryType;
     if (mOp->type() == OpType_BinaryOp) {
@@ -38,201 +74,161 @@ ErrorCode CoreMLBinary::onResize(const std::vector<Tensor *> &inputs, const std:
                 break;
         }
     }
-    bool oneInput = false;
-    float constVal = 0.f;
-    const Tensor* input = nullptr;
-    if (TensorUtils::getDescribe(inputs[0])->usage == Tensor::InsideDescribe::CONSTANT && 1 == TensorUtils::getRawSize(inputs[0])) {
-        constVal = inputs[0]->host<float>()[0];
-        input = inputs[1];
-    } else if (TensorUtils::getDescribe(inputs[1])->usage == Tensor::InsideDescribe::CONSTANT && 1 == TensorUtils::getRawSize(inputs[1])) {
-        constVal = inputs[1]->host<float>()[0];
-        input = inputs[0];
-    }
-    switch (binaryType) {
-        case BinaryOpOperation_ADD:
-            if (input) {
-                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ADD;
-                mLayer_->add = mCoreMLBackend->create<CoreML__Specification__AddLayerParams>();
-                core_ml__specification__add_layer_params__init(mLayer_->add);
-                mLayer_->add->alpha = constVal;
-                oneInput = true;
-            } else {
-                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ADD_BROADCASTABLE;
-                mLayer_->addbroadcastable = mCoreMLBackend->create<CoreML__Specification__AddBroadcastableLayerParams>();
-                core_ml__specification__add_broadcastable_layer_params__init(mLayer_->addbroadcastable);
-            }
-            break;
-        case BinaryOpOperation_SUB:
-            if (input) {
-                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ACTIVATION;
-                mLayer_->activation = mCoreMLBackend->create<CoreML__Specification__ActivationParams>();
-                core_ml__specification__activation_params__init(mLayer_->activation);
-                mLayer_->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_LINEAR;
-                mLayer_->activation->linear = mCoreMLBackend->create<CoreML__Specification__ActivationLinear>();
-                core_ml__specification__activation_linear__init(mLayer_->activation->linear);
-                mLayer_->activation->linear->alpha = 1;
-                mLayer_->activation->linear->beta = -constVal;
-                oneInput = true;
-            } else {
-                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_SUBTRACT_BROADCASTABLE;
-                mLayer_->subtractbroadcastable = mCoreMLBackend->create<CoreML__Specification__SubtractBroadcastableLayerParams>();
-                core_ml__specification__subtract_broadcastable_layer_params__init(mLayer_->subtractbroadcastable);
-            }
-            break;
-        case BinaryOpOperation_MUL:
-            if (input) {
-                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_MULTIPLY;
-                mLayer_->multiply = mCoreMLBackend->create<CoreML__Specification__MultiplyLayerParams>();
-                core_ml__specification__multiply_layer_params__init(mLayer_->multiply);
-                mLayer_->multiply->alpha = constVal;
-                oneInput = true;
-            } else {
-                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_MULTIPLY_BROADCASTABLE;
-                mLayer_->multiplybroadcastable = mCoreMLBackend->create<_CoreML__Specification__MultiplyBroadcastableLayerParams>();
-                core_ml__specification__multiply_broadcastable_layer_params__init(mLayer_->multiplybroadcastable);
-            }
-            break;
-        case BinaryOpOperation_DIV:
-        case BinaryOpOperation_REALDIV:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_DIVIDE_BROADCASTABLE;
-            mLayer_->dividebroadcastable = mCoreMLBackend->create<CoreML__Specification__DivideBroadcastableLayerParams>();
-            core_ml__specification__divide_broadcastable_layer_params__init(mLayer_->dividebroadcastable);
-            break;
-        case BinaryOpOperation_POW:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_POW_BROADCASTABLE;
-            mLayer_->powbroadcastable = mCoreMLBackend->create<CoreML__Specification__PowBroadcastableLayerParams>();
-            core_ml__specification__pow_broadcastable_layer_params__init(mLayer_->powbroadcastable);
-            break;
-        case BinaryOpOperation_MINIMUM:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_MIN;
-            mLayer_->min = mCoreMLBackend->create<CoreML__Specification__MinLayerParams>();
-            core_ml__specification__min_layer_params__init(mLayer_->min);
-            break;
-        case BinaryOpOperation_MAXIMUM:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_MAX;
-            mLayer_->max = mCoreMLBackend->create<CoreML__Specification__MaxLayerParams>();
-            core_ml__specification__max_layer_params__init(mLayer_->max);
-            break;
-        case BinaryOpOperation_GREATER:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_GREATER_THAN;
-            mLayer_->greaterthan = mCoreMLBackend->create<CoreML__Specification__GreaterThanLayerParams>();
-            core_ml__specification__greater_than_layer_params__init(mLayer_->greaterthan);
-            if (input) {
-                mLayer_->greaterthan->alpha = constVal;
-                oneInput = true;
-            }
-            break;
-        case BinaryOpOperation_GREATER_EQUAL:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_GREATER_EQUAL;
-            mLayer_->greaterequal = mCoreMLBackend->create<CoreML__Specification__GreaterEqualLayerParams>();
-            core_ml__specification__greater_equal_layer_params__init(mLayer_->greaterequal);
-            if (input) {
-                mLayer_->greaterequal->alpha = constVal;
-                oneInput = true;
-            }
-            break;
-        case BinaryOpOperation_LESS:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_LESS_THAN;
-            mLayer_->lessthan = mCoreMLBackend->create<CoreML__Specification__LessThanLayerParams>();
-            core_ml__specification__less_than_layer_params__init(mLayer_->lessthan);
-            if (input) {
-                mLayer_->lessthan->alpha = constVal;
-                oneInput = true;
-            }
-            break;
-        case BinaryOpOperation_LESS_EQUAL:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_LESS_EQUAL;
-            mLayer_->lessequal = mCoreMLBackend->create<CoreML__Specification__LessEqualLayerParams>();
-            core_ml__specification__less_equal_layer_params__init(mLayer_->lessequal);
-            if (input) {
-                mLayer_->lessequal->alpha = constVal;
-                oneInput = true;
-            }
-            break;
-        case BinaryOpOperation_FLOORDIV:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_FLOOR_DIV_BROADCASTABLE;
-            mLayer_->floordivbroadcastable = mCoreMLBackend->create<CoreML__Specification__FloorDivBroadcastableLayerParams>();
-            core_ml__specification__floor_div_broadcastable_layer_params__init(mLayer_->floordivbroadcastable);
-            break;
-        case BinaryOpOperation_EQUAL:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_EQUAL;
-            mLayer_->equal = mCoreMLBackend->create<CoreML__Specification__EqualLayerParams>();
-            core_ml__specification__equal_layer_params__init(mLayer_->equal);
-            if (input) {
-                mLayer_->equal->alpha = constVal;
-                oneInput = true;
-            }
-            break;
-        case BinaryOpOperation_NOTEQUAL:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_NOT_EQUAL;
-            mLayer_->notequal = mCoreMLBackend->create<CoreML__Specification__NotEqualLayerParams>();
-            core_ml__specification__not_equal_layer_params__init(mLayer_->notequal);
-            if (input) {
-                mLayer_->notequal->alpha = constVal;
-                oneInput = true;
-            }
-            break;
-        case BinaryOpOperation_MOD:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_MOD_BROADCASTABLE;
-            mLayer_->modbroadcastable = mCoreMLBackend->create<CoreML__Specification__ModBroadcastableLayerParams>();
-            core_ml__specification__mod_broadcastable_layer_params__init(mLayer_->modbroadcastable);
-            break;
-        case BinaryOpOperation_ATAN2:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_GREATER_THAN;
-            mLayer_->atan = mCoreMLBackend->create<CoreML__Specification__AtanLayerParams>();
-            core_ml__specification__atan_layer_params__init(mLayer_->atan);
-            break;
-        case BinaryOpOperation_LOGICALOR:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_LOGICAL_OR;
-            mLayer_->logicalor = mCoreMLBackend->create<CoreML__Specification__LogicalOrLayerParams>();
-            core_ml__specification__logical_or_layer_params__init(mLayer_->logicalor);
-            break;
-        default:
-            MNN_ERROR("NPU Binary not support %s\n", MNN::EnumNameBinaryOpOperation(binaryType));
-            break;
-    }
-
-    std::string binartInputName;
-    if(oneInput) {
-        binartInputName = mCoreMLBackend->getTensorName(input);
-    } else {
-        binartInputName = mCoreMLBackend->getTensorName(inputs[0]);
-    }
-    std::string binaryOutputName = mCoreMLBackend->getTensorName(outputs[0]);
     int activationType = 0;
-    if(mOp->type() == OpType_BinaryOp) {
+    if (mOp->type() == OpType_BinaryOp) {
         activationType = mOp->main_as_BinaryOp()->activationType();
     }
-    if (activationType == 1) {
-        binaryOutputName = binartInputName + "-" + binaryOutputName + "-Relu";
-    }
+    std::map<BinaryOpOperation, std::string> binaryTypeMap = {{BinaryOpOperation_ADD, "add"},
+                                                              {BinaryOpOperation_SUB, "sub"},
+                                                              {BinaryOpOperation_MUL, "mul"},
+                                                              {BinaryOpOperation_DIV, "real_div"},
+                                                              {BinaryOpOperation_POW, "pow"},
+                                                              {BinaryOpOperation_REALDIV, "real_div"},
+                                                              {BinaryOpOperation_MINIMUM, "minimum"},
+                                                              {BinaryOpOperation_MAXIMUM, "maximum"},
+                                                              {BinaryOpOperation_GREATER, "greater"},
+                                                              {BinaryOpOperation_GREATER_EQUAL, "greater_equal"},
+                                                              {BinaryOpOperation_LESS, "less"},
+                                                              {BinaryOpOperation_FLOORDIV, "floor_div"},
+                                                              {BinaryOpOperation_SquaredDifference, ""},
+                                                              {BinaryOpOperation_LESS_EQUAL, "less_equal"},
+                                                              {BinaryOpOperation_FLOORMOD, ""},
+                                                              {BinaryOpOperation_EQUAL, "equal"},
+                                                              {BinaryOpOperation_MOD, "mod"},
+                                                              {BinaryOpOperation_ATAN2, ""},
+                                                              {BinaryOpOperation_LOGICALOR, "logical_or"},
+                                                              {BinaryOpOperation_NOTEQUAL, "not_equal"},
+                                                              {BinaryOpOperation_BITWISE_AND, ""},
+                                                              {BinaryOpOperation_BITWISE_OR, ""},
+                                                              {BinaryOpOperation_BITWISE_XOR, ""},
+                                                              {BinaryOpOperation_LOGICALXOR, "logical_xor"},
+                                                              {BinaryOpOperation_LEFTSHIFT, ""},
+                                                              {BinaryOpOperation_RIGHTSHIFT, ""}};
 
-    if (oneInput) {
-        setLayerInputsAndOutputs(mLayer_, {mCoreMLBackend->getTensorName(input)}, {binaryOutputName});
+    if (binaryType == BinaryOpOperation_MUL_SILU) {
+        const auto fp32 = CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__FLOAT32;
+        std::vector<std::string> values;
+        for (int i = 0; i < 2; ++i) {
+            values.push_back(operation("cast")
+                                 .input("x", inputs[i])
+                                 .scalar("dtype", "fp32", "accum_dtype")
+                                 .output(inputs[i]->shape(), "float_" + std::to_string(i), fp32));
+        }
+        auto gate = operation("sigmoid").input("x", values[1]).output(inputs[1]->shape(), "sigmoid", fp32);
+        gate = operation("mul").input("x", values[1]).input("y", gate).output(inputs[1]->shape(), "silu", fp32);
+        auto result =
+            operation("mul").input("x", values[0]).input("y", gate).output(outputs[0]->shape(), "product", fp32);
+        operation("cast").input("x", result).scalar("dtype", "fp16", "output_dtype").output(outputs);
+        return NO_ERROR;
+    }
+    const auto fp16 = CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__FLOAT16;
+    const auto int32 = CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__INT32;
+    const auto boolean = CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__BOOL;
+    auto dtype = outputs[0]->getType() == halide_type_of<int>() ? int32 : fp16;
+    auto shape = outputs[0]->shape();
+    auto x = mCoreMLBackend->getTensorName(inputs[0]);
+    auto y = mCoreMLBackend->getTensorName(inputs[1]);
+    int serial = 0;
+    auto binary = [&](const std::string& type, const std::string& lhs, const std::string& rhs,
+                      CoreML__Specification__MILSpec__DataType resultType) {
+        return operation(type).input("x", lhs).input("y", rhs).output(shape, std::to_string(serial++), resultType);
+    };
+    auto unary = [&](const std::string& type, const std::string& value) {
+        return operation(type).input("x", value).output(shape, std::to_string(serial++), dtype);
+    };
+    auto select = [&](const std::string& cond, const std::string& a, const std::string& b) {
+        return operation("select")
+            .input("cond", cond)
+            .input("a", a)
+            .input("b", b)
+            .output(shape, std::to_string(serial++), dtype);
+    };
+    if (binaryType == BinaryOpOperation_ATAN2 || binaryType == BinaryOpOperation_LOGICALOR ||
+        binaryType == BinaryOpOperation_LOGICALXOR || (binaryType == BinaryOpOperation_DIV && dtype == int32)) {
+        // Intermediate predicates must use the same broadcast shape as the result.
+        for (int i = 0; i < 2; ++i) {
+            auto& value = i == 0 ? x : y;
+            if (inputs[i]->shape() == shape) {
+                continue;
+            }
+            auto tag = "broadcast_" + std::to_string(i);
+            std::vector<int> expanded(shape.size(), 1);
+            auto inputShape = inputs[i]->shape();
+            std::copy(inputShape.begin(), inputShape.end(), expanded.end() - inputShape.size());
+            auto reshape = operation("reshape");
+            reshape.input("x", value).shape("shape", expanded, tag + "_shape");
+            auto inputType = mCoreMLBackend->typeConvert(inputs[i]->getType());
+            value = reshape.output(expanded, tag, inputType);
+            std::vector<int> reps(shape.size());
+            for (int j = 0; j < shape.size(); ++j) {
+                reps[j] = shape[j] / expanded[j];
+            }
+            value =
+                operation("tile").input("x", value).array("reps", reps, tag + "_reps").output(shape, tag, inputType);
+        }
+    }
+    std::string result;
+    if (binaryType == BinaryOpOperation_ATAN2) {
+        auto zero = buildScalar(0.0f, "zero");
+        auto one = buildScalar(1.0f, "one");
+        auto pi = buildScalar(3.141592653589793f, "pi");
+        auto halfPi = buildScalar(1.5707963267948966f, "half_pi");
+        auto yZero = binary("equal", y, zero, boolean);
+        auto safeY = select(yZero, one, y);
+        result = unary("atan", binary("real_div", x, safeY, dtype));
+        auto xNegative = binary("less", x, zero, boolean);
+        auto signedPi = select(xNegative, buildScalar(-3.141592653589793f, "negative_pi"), pi);
+        result = select(binary("less", y, zero, boolean), binary("add", result, signedPi, dtype), result);
+        auto vertical = select(xNegative, buildScalar(-1.5707963267948966f, "negative_half_pi"), halfPi);
+        vertical = select(binary("equal", x, zero, boolean), zero, vertical);
+        result = select(yZero, vertical, result);
+    } else if (binaryType == BinaryOpOperation_SquaredDifference) {
+        auto diff = binary("sub", x, y, dtype);
+        result = binary("mul", diff, diff, dtype);
+    } else if (binaryType == BinaryOpOperation_DIV && dtype == int32) {
+        auto quotient = binary("floor_div", x, y, dtype);
+        auto remainder = binary("sub", x, binary("mul", quotient, y, dtype), dtype);
+        auto zero = buildScalar(0, "zero");
+        auto opposite =
+            binary("logical_xor", binary("less", x, zero, boolean), binary("less", y, zero, boolean), boolean);
+        auto adjust = binary("logical_and", opposite, binary("not_equal", remainder, zero, boolean), boolean);
+        result = select(adjust, binary("add", quotient, buildScalar(1, "one"), dtype), quotient);
+    } else if (binaryType == BinaryOpOperation_MOD && dtype == int32) {
+        auto quotient = binary("floor_div", x, y, dtype);
+        result = binary("sub", x, binary("mul", quotient, y, dtype), dtype);
+    } else if (binaryType == BinaryOpOperation_FLOORMOD) {
+        auto quotient = binary("floor_div", x, y, dtype);
+        result = binary("sub", x, binary("mul", quotient, y, dtype), dtype);
+    } else if (binaryType == BinaryOpOperation_LOGICALOR || binaryType == BinaryOpOperation_LOGICALXOR) {
+        auto zero = inputs[0]->getType() == halide_type_of<int>() ? buildScalar(0, "zero") : buildScalar(0.0f, "zero");
+        x = binary("not_equal", x, zero, boolean);
+        y = binary("not_equal", y, zero, boolean);
+        result = binary(binaryTypeMap[binaryType], x, y, boolean);
     } else {
-        setLayerInputsAndOutputs(mLayer_, {mCoreMLBackend->getTensorName(inputs[0]), mCoreMLBackend->getTensorName(inputs[1])}, {binaryOutputName});
+        auto optype = binaryTypeMap[binaryType];
+        if (optype.empty()) {
+            return NOT_SUPPORT;
+        }
+        bool comparison = binaryType == BinaryOpOperation_GREATER || binaryType == BinaryOpOperation_GREATER_EQUAL ||
+                          binaryType == BinaryOpOperation_LESS || binaryType == BinaryOpOperation_LESS_EQUAL ||
+                          binaryType == BinaryOpOperation_EQUAL || binaryType == BinaryOpOperation_NOTEQUAL;
+        result = binary(optype, x, y, comparison ? boolean : dtype);
     }
-    mCoreMLBackend->addLayer(mLayer_);
-
-    if (activationType == 1) {
-        auto reluLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
-        core_ml__specification__neural_network_layer__init(reluLayer);
-        mCoreMLBackend->setLayerName(reluLayer, "BinaryRelu");
-        reluLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ACTIVATION;
-        reluLayer->activation = mCoreMLBackend->create<CoreML__Specification__ActivationParams>();
-        core_ml__specification__activation_params__init(reluLayer->activation);
-        reluLayer->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_RE_LU;
-        reluLayer->activation->relu = mCoreMLBackend->create<CoreML__Specification__ActivationReLU>();
-        core_ml__specification__activation_re_lu__init(reluLayer->activation->relu);
-        setLayerInputsAndOutputs(reluLayer, {binaryOutputName}, {mCoreMLBackend->getTensorName(outputs[0])});
-        mCoreMLBackend->addLayer(reluLayer);
+    bool comparison = binaryType == BinaryOpOperation_GREATER || binaryType == BinaryOpOperation_GREATER_EQUAL ||
+                      binaryType == BinaryOpOperation_LESS || binaryType == BinaryOpOperation_LESS_EQUAL ||
+                      binaryType == BinaryOpOperation_EQUAL || binaryType == BinaryOpOperation_NOTEQUAL ||
+                      binaryType == BinaryOpOperation_LOGICALOR || binaryType == BinaryOpOperation_LOGICALXOR;
+    auto output = operation(comparison ? "cast" : activationType ? "relu" : "identity");
+    output.input("x", result);
+    if (comparison) {
+        output.scalar("dtype", std::string(dtype == int32 ? "int32" : "fp16"), "output_dtype");
     }
-
+    output.output(outputs);
+    // TODO: more BinaryType and activation support
     return NO_ERROR;
 }
 
-
-REGISTER_COREML_OP_CREATOR(CoreMLBinary, OpType_BinaryOp)
-REGISTER_COREML_OP_CREATOR(CoreMLBinary, OpType_Eltwise)
+REGISTER_COREML_OP_CREATOR(CoreMLBinary, OpType_BinaryOp);
+REGISTER_COREML_OP_CREATOR(CoreMLBinary, OpType_Eltwise);
 
 } // namespace MNN

@@ -2,35 +2,10 @@
 //  MetalFlashAttnShader.hpp
 //  MNN
 //
-//  Fused prefill flash-attention Metal kernel.
-//  Uses an online-softmax layout adapted to MNN tensor layouts.
-//
-//  Preprocessor macros expected at pipeline compile time:
-//    ftype           : half or float
-//    HEAD_DIM        : 64, 128, or 256
-//    GROUP_SIZE      : GQA group (num_heads / num_kv_heads)
-//    HAS_MASK        : defined when ADD-type fp16 mask input is present at buffer(8)
-//    ATTENTION_C4    : defined when output tensor is NC4HW4 [H*D/4, B*seq_q, 4]
-//    QUANT_K         : K is int8 with per-token scale/bias at k_scales[kv_token * 2]
-//                      (buffer(9) when defined)
-//    QUANT_V         : V is int8 with per-token scale/bias at v_scales[kv_token * 2]
-//                      (buffer(10) when defined)
-//
-//  Fixed tile constants:
-//    Q_TILE  = 16   Q rows per threadgroup
-//    KV_TILE = 32   K/V cols per streaming block (= 1 simdgroup width)
-//    NSG     = 4    simdgroups per threadgroup (128 threads)
-//  Each SG:
-//    - QK output: 1 * 8 kv cols, spanning all 16 Q rows -> 2 stacked 8x8 accumulators
-//    - Softmax: 4 Q rows, each row 32 cols = 1 lane per col
-//    - PV output: NO_PER_SG d slices, each spanning all 16 Q rows -> 2 stacked 8x8 accumulators
-//
-//  Threadgroup memory (D=128): ~15 KB total, under 32 KB limit.
-//    sq : 16 * 128 * 2 =  4 KB
-//    sf : 16 *  32 * 4 =  2 KB
-//    ss : 16 *  32 * 2 =  1 KB
-//    so : 16 * 128 * 4 =  8 KB
-//    (+ 512B sK/sV scratch when QUANT_K/QUANT_V)
+//  Fused prefill flash-attention Metal kernel (online softmax).
+//  Pipeline-compile macros: ftype, HEAD_DIM (64/128/256), GROUP_SIZE, HAS_MASK,
+//  ATTENTION_C4, QUANT_K/QUANT_V (int8 K/V with per-token scale+bias).
+//  Tile: Q_TILE=16, KV_TILE=32, 4 simdgroups per threadgroup.
 //
 
 #if MNN_METAL_ENABLED
@@ -331,32 +306,12 @@ kernel void prefill_flash_attn(
 }
 )metal";
 
-//  ---------------------------------------------------------------------------
 //  prefill_flash_attn_tc -- fused prefill attention on the Metal tensor API.
-//
-//  Why the tensor API: an 8x8 simdgroup_matrix variant of this fused structure
-//  (prefill_flash_attn_v2, since removed) was numerically correct but lost
-//  to the three-stage path, because 8x8 simdgroup_matrix delivers about
-//  half the FLOP efficiency of matmul2d for these shapes (see
-//  skills/metal-optimize/kernel-dev-and-optimize.md 2.3.3). This version keeps the same
-//  fused structure -- S and O resident in registers, scores never written to
-//  global memory -- but does the matmuls with matmul2d.
-//
-//  matmul2d input cooperative tensors are only allowed at single-simdgroup
-//  scope, so each simdgroup runs its own 16x32x16 matmul and every operand is a
-//  cooperative tensor. That is what lets the QK destination become the PV left
-//  operand in registers.
-//
-//  Per-lane element layout of those cooperative tensors is dumped and documented
-//  in skills/metal-optimize/kernel-dev-and-optimize.md; the two facts this kernel leans on
-//  are that a lane owns exactly two M rows (fm and fm+8) and that row-mates
-//  differ only in lane bits 0 and 3.
-//
-//  Macros: ftype, HEAD_DIM (64/128/256), GROUP_SIZE, ATTENTION_C4, HAS_MASK,
-//  FATC_QK_K32 (QK accumulate width 32, requires HEAD_DIM % 32 == 0).
-//  Tiles: 64 queries/threadgroup over 4 simdgroups (16 rows each), 32 kv/step.
-//  Zero threadgroup memory: Q/K/V go straight from device to registers.
-//  ---------------------------------------------------------------------------
+//  Each simdgroup runs its own 16x32x16 matmul with input cooperative tensors,
+//  so the QK destination feeds PV in registers. See
+//  skills/metal-optimize/kernel-dev-and-optimize.md for the coop-tensor lane
+//  layout. Macros: ftype, HEAD_DIM, GROUP_SIZE, ATTENTION_C4, HAS_MASK,
+//  FATC_QK_K32. Tiles: 64 queries/threadgroup over 4 simdgroups, 32 kv/step.
 const char* gPrefillFlashAttnTc = R"metal(
 #include <metal_stdlib>
 #include <metal_tensor>
@@ -394,30 +349,19 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 
 #define FATC_NSG   4
 #define FATC_BQ    64                   // queries per threadgroup (16 per simdgroup)
-// kv columns per step (= matmul2d N for QK). Do not widen this to buy scalar
-// moves: the QK destination capacity tracks N, so BK=64 doubles s_acc and pushes
-// the lane past an occupancy cliff, which costs more than the moves it saves.
-// Widening K is the free direction (capacity is K-independent) -- see FATC_QK_K.
+// kv columns per step (matmul2d N for QK). Widening N inflates s_acc; prefer
+// widening K (FATC_QK_K) instead, whose capacity is K-independent.
 #define FATC_BK    32
 #define FATC_TK    (FATC_BK / 16)      // kv frags
 #define FATC_TD    (HEAD_DIM / 16)      // head_dim frags
 #define FATC_NEG   (-1.0e30f)
 
-// QK destination capacity per lane, and the layout it implies. Element bits
-// 0..3 index within the 32-wide tile as
-//   m = fm + ((i>>2)&1)*8
-//   n = fn + (i&3) + ((i>>3)&1)*16
+// QK destination capacity per lane; element i maps to
+//   m = fm + ((i>>2)&1)*8,  n = fn + (i&3) + ((i>>3)&1)*16
 #define FATC_SCAP  (FATC_BK / 2)
 
-// FATC_DSPLIT: split head_dim across the dispatch grid's z dimension, so a
-// threadgroup owns 64 q rows x FATC_DDIM output dims instead of all HEAD_DIM.
-// The persistent O accumulator is HEAD_DIM/32 destination CTs of 16 floats each,
-// i.e. 128 float registers per lane at HEAD_DIM=256 -- past Apple's ~128-reg
-// full-occupancy budget, which is why the naive 256 generalization collapses
-// under register pressure. Splitting z-ways divides that by
-// FATC_DSPLIT. The cost is that QK is recomputed per z slice (1.5x total FLOPs
-// at DSPLIT=2), but it needs no barrier and no cross-simdgroup traffic, unlike
-// every staging variant tried here.
+// Split head_dim across grid.z so one threadgroup owns FATC_DDIM output dims;
+// divides the O register budget by FATC_DSPLIT at the cost of recomputed QK.
 #ifndef FATC_DSPLIT
 #define FATC_DSPLIT 1
 #endif
@@ -426,10 +370,8 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 #error "FATC_DSPLIT requires FATC_O_CT (only the persistent-CT PV path is d-sliced)"
 #endif
 
-// 32-wide O tiles, one destination cooperative tensor each. The per-tile code
-// (declare / zero / softmax rescale / PV accumulate / epilogue unpack) is
-// identical, so it is written once and expanded through FATC_O_FOREACH; a
-// cooperative tensor is not default-constructible, so an array is not an option.
+// 32-wide O tiles, one destination coop tensor each; expanded through
+// FATC_O_FOREACH since cooperative tensors are not default-constructible.
 #define FATC_TO (FATC_DDIM / 32)
 #if FATC_TO == 1
 #define FATC_O_FOREACH(F) F(0, ct_o0)
@@ -444,12 +386,8 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 #error "prefill_flash_attn_tc supports HEAD_DIM 64 / 128 / 256"
 #endif
 
-// QK accumulate width. K=32 (FATC_QK_K32) halves the head_dim loop: each
-// matmul2d covers two consecutive 16-K frags. The K=32 coop layout is the
-// K=16 layout replicated along K with a +16 offset in the upper half:
-//   A: K = fn + (i&3) + ((i>>3)&1)*16, M = fm + ((i>>2)&1)*8        (cap 16)
-//   B: K = fn + (i&3) + ((i>>4)&1)*16, N = fm + ((i>>2)&1)*8 + ((i>>3)&1)*16 (cap 32)
-//   D: bit-identical to K=16 (cap 16) -- softmax / PV handoff untouched.
+// QK accumulate width. FATC_QK_K32 doubles K per matmul2d (two 16-K frags)
+// with the K=16 layout replicated and +16 offset in the upper half.
 #ifdef FATC_QK_K32
 #define FATC_QK_K 32
 #else
@@ -458,13 +396,8 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 #define FATC_NH    (FATC_QK_K / 16)        // 16-K halves per QK call
 #define FATC_TDK   (HEAD_DIM / FATC_QK_K)  // QK accumulate steps
 
-// PV accumulate width. K=32 (FATC_PV_K32) consumes the whole BK=32 kv tile in
-// one matmul2d, so the PV call count drops from FATC_TK*(FATC_TD/2) to
-// FATC_TD/2 (8 -> 4 at HEAD_DIM=128). The PV slot (A=float B=half,
-// tb=false) K=32 again just adds a +16 K level on top of the K=16 layout:
-//   A: K = kv frag as in K=16, so element i is exactly s_acc[i]        (cap 16)
-//   B: N = fn + f*16 + j, K = fm + g*8 + ((i>>4)&1)*16                 (cap 32)
-//   D: bit-identical to K=16 (cap 16).
+// PV accumulate width. FATC_PV_K32 consumes the whole BK=32 kv tile in one
+// matmul2d, cutting PV call count. Layout matches QK's +16 upper-half K.
 #ifdef FATC_PV_K32
 #define FATC_PV_K 32
 #else
@@ -475,20 +408,8 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 #error "FATC_PV_K32 requires FATC_O_CT (only the persistent-CT PV path is wide-K)"
 #endif
 
-// FATC_KV_DEV_TENSOR: hand K/V to matmul2d as `tensor` handle slices pointing
-// straight at device memory (strided tensor_inline over the kv cache), instead
-// of hand-filling the right input cooperative tensor. The matmul then issues the
-// operand loads itself, so the per-lane B fill -- BK*HEAD_DIM/32 = 128 half
-// moves per lane per kv tile for K plus another 128 for V, the single largest
-// scalar cost in this kernel and one that no BK/K widening can reduce --
-// disappears, and nothing is staged, so there is no barrier and no need to widen
-// the kv loop to the threadgroup's max q row.
-//
-// Staging K/V through threadgroup smem first was tried twice and lost both
-// times: once still hand-packing every ct_b out of smem, once as a staged
-// tensor-handle form that dropped the packing but kept paying stage + barrier +
-// a kv loop widened to the threadgroup's max q row. Reading in place is what
-// makes the idea pay.
+// Pass K/V to matmul2d as device-tensor slices instead of hand-filling the
+// right input coop tensor; the matmul issues the loads itself.
 #ifdef FATC_KV_DEV_TENSOR
 #ifndef FATC_O_CT
 #error "FATC_KV_DEV_TENSOR requires FATC_O_CT (only the persistent-CT PV path is generalized)"
@@ -529,12 +450,8 @@ kernel void prefill_flash_attn_tc(
     const int kv_heads = param.head_num / param.group;
     // Each simdgroup owns 16 consecutive query rows of this threadgroup's 64.
 #ifdef FATC_QREV
-    // Causal cost per threadgroup grows with the q-tile index (its kv range is
-    // q_row_base+16 long), but the grid issues x-major, so the cheapest tiles
-    // launch first and the longest ones last -- the tail runs a few long
-    // threadgroups with the machine mostly idle. Reversing the mapping issues
-    // the longest tiles first and leaves cheap ones to fill the tail. This is
-    // a permutation of the same tile set, so every q row is still covered once.
+    // Reverse the x-major tile mapping so the longest causal tiles launch
+    // first; otherwise the tail runs with the machine mostly idle.
     const int q_tiles = (param.q_seq_piece_len + FATC_BQ - 1) / FATC_BQ;
     const int q_tile  = q_tiles - 1 - int(tgpig.x);
 #else
@@ -574,12 +491,10 @@ kernel void prefill_flash_attn_tc(
 #endif
 
 #ifdef FATC_O_CT
-    // O accumulator lives in a persistent cooperative_tensor destination per
-    // 32-D tile: values stay in registers across the
-    // entire kv-loop instead of round-tripping through a float array.
-    // Grab reference input CTs once so we can spell out the destination CT
-    // type via decltype(). These variables are shadowed inside the QK/PV
-    // loops so their register footprint is transient.
+    // One persistent coop_tensor destination per 32-D tile keeps O in
+    // registers across the kv loop. Reference input CTs are grabbed once so
+    // decltype() can spell out the destination CT type; they are shadowed
+    // inside the inner loops.
     auto ct_a_ref = mm_pv.get_left_input_cooperative_tensor<float, ftype, float>();
 #ifdef FATC_KV_DEV_TENSOR
     // The destination CT type depends on both operand types, so the reference B
@@ -590,7 +505,7 @@ kernel void prefill_flash_attn_tc(
 #endif
     (void)ct_a_ref; (void)ct_b_ref;
 #define FATC_DECL_O(IDX, CT) \
-    auto CT = mm_pv.get_destination_cooperative_tensor<decltype(ct_a_ref), decltype(ct_b_ref), float>();
+    auto CT = mm_pv.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ct_a_ref)>, metal::remove_addrspace_t<decltype(ct_b_ref)>, float>();
     FATC_O_FOREACH(FATC_DECL_O)
 #undef FATC_DECL_O
     // Zero the persistent destination CTs.
@@ -633,14 +548,8 @@ kernel void prefill_flash_attn_tc(
     const int q_valid_rows = seq_q - q_row_base;   // rows >= this are padding
 
 #if defined(FATC_Q_CT)
-    // Q is invariant across the kv loop, so build the QK left-input CTs here and
-    // reuse them for every tile. faTcQReg only got Q as far as a register array;
-    // each tile still repacked it into a fresh input CT. The CTs hold the same
-    // HEAD_DIM/2 halves per lane that q_reg did, so this replaces that storage
-    // rather than adding to it.
-    // One left-input CT per QK K-step. Same storage the q_reg array used, so the
-    // list only has to be spelled out; FATC_Q_CT implies the wide-K QK, hence
-    // FATC_TDK = HEAD_DIM/32 in {2, 4, 8}.
+    // Build one QK left-input CT per K-step and reuse across tiles (Q is
+    // kv-invariant). FATC_Q_CT implies wide-K QK, so FATC_TDK = HEAD_DIM/32.
 #if FATC_TDK == 2
 #define FATC_Q_FOREACH(F) F(0, ct_q0) F(1, ct_q1)
 #elif FATC_TDK == 4
@@ -714,9 +623,9 @@ kernel void prefill_flash_attn_tc(
             auto ct_b = mm.get_right_input_cooperative_tensor<ftype, ftype, float>();
 #endif
 #ifdef FATC_Q_CT
-            auto ct_c = mm.get_destination_cooperative_tensor<decltype(ct_q0), decltype(ct_b), float>();
+            auto ct_c = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ct_q0)>, metal::remove_addrspace_t<decltype(ct_b)>, float>();
 #else
-            auto ct_c = mm.get_destination_cooperative_tensor<decltype(ct_a), decltype(ct_b), float>();
+            auto ct_c = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ct_a)>, metal::remove_addrspace_t<decltype(ct_b)>, float>();
 #endif
 
 #if defined(FATC_Q_CT)
@@ -880,7 +789,7 @@ kernel void prefill_flash_attn_tc(
     for (int t = 0; t < FATC_TD / 2; t++) {
                 auto ct_a = mm_pv.get_left_input_cooperative_tensor<float, ftype, float>();
                 auto ct_b = mm_pv.get_right_input_cooperative_tensor<float, ftype, float>();
-                auto ct_c = mm_pv.get_destination_cooperative_tensor<decltype(ct_a), decltype(ct_b), float>();
+                auto ct_c = mm_pv.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ct_a)>, metal::remove_addrspace_t<decltype(ct_b)>, float>();
 
                 for (ushort j = 0; j < 8; j++) {
                     ct_a[j] = s_acc[ik * 8 + (j >> 2) * 4 + (j & 3)];
@@ -944,24 +853,10 @@ kernel void prefill_flash_attn_tc(
 }
 )metal";
 
-// --------------------------------------------------------------------------------
-// prefill_flash_attn_sg -- M4 fused prefill (no tensor-coop / TC).
-//
-// Tiling on non-TC devices: BQ=32, BK=16 (D>=128) / 32 (D<128),
-// WM=4. Q lives in smem; K/V stream through one reused smem tile in [kv, d]
-// (row-major, matching the current KV cache). QK uses simdgroup_load(K,
-// transpose=true); online softmax + O stay in 8x8 float fragments so S never
-// touches global memory (each lane holds 2 consecutive
-// cols of one row, row-reduce = local op + shuffle_xor 1 and 8).
-//
-// vs the previous STEEL-like attempt: K/V are now loaded
-// coalesced along head_dim (consecutive threads = consecutive d), not along
-// kv; V matches the row-major cache; K and V sit in separate smem tiles so
-// each KV block is one barrier, not three. No KV-split.
-//
-// Macros: ftype, HEAD_DIM (64/128), HAS_MASK, ATTENTION_C4.
-// Grid: (ceil(seq_q/32), B*H, 1), threadgroup 128 (4 simdgroups).
-// --------------------------------------------------------------------------------
+// prefill_flash_attn_sg -- fused prefill without tensor cooperative inputs.
+// BQ=32, BK=16/32 by D, WM=4. Q resident in smem, K/V stream through separate
+// smem tiles coalesced along head_dim. S stays in 8x8 fp32 fragments and never
+// hits global memory. Macros: ftype, HEAD_DIM (64/128), HAS_MASK, ATTENTION_C4.
 const char* gPrefillFlashAttnSg = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
@@ -1009,15 +904,10 @@ static inline thread half2& fasg_elems_h(thread simdgroup_half8x8& m) {
     return reinterpret_cast<thread half2&>(m.thread_elements());
 }
 
-// BQ is FASG_NSG * 8: 8 q rows per simdgroup times the simdgroup count.
-// FASG_NSG8 widens the q tile to 64 rows by adding simdgroups (256 threads),
-// which halves how many times the device K/V stream is re-read without touching
-// per-lane register pressure.
-#ifdef FASG_NSG8
+// BQ is FASG_NSG * 8: 8 q rows per simdgroup times the simdgroup count. 8
+// simdgroups (256 threads) give a 64-row q tile, which halves how many times the
+// device K/V stream is re-read without touching per-lane register pressure.
 #define FASG_NSG    8
-#else
-#define FASG_NSG    4
-#endif
 #define FASG_PAD    8
 #define FASG_BQ     (FASG_NSG * 8)
 #if HEAD_DIM < 128
@@ -1119,14 +1009,12 @@ kernel void prefill_flash_attn_sg(
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef FASG_Q_REG
     // Q is a kv-loop invariant; keep its ND fragments in registers so the QK
     // loop issues one smem load per MMA instead of two.
     simdgroup_half8x8 mQreg[FASG_ND];
     for (int dd = 0; dd < FASG_ND; dd++) {
         simdgroup_load(mQreg[dd], Qs + q_row_sg * FASG_LDQ + dd * 8, FASG_LDQ);
     }
-#endif
 
     const int kv_lo = kv_start_arg;
     const int kv_hi = kv_start_arg + kv_len_arg;
@@ -1148,11 +1036,9 @@ kernel void prefill_flash_attn_sg(
             mS[kf] = make_filled_simdgroup_matrix<float, 8>(0.0f);
         }
 #ifdef FASG_LOADBATCH
-        // Issue every K fragment for this head_dim slab before any MMA consumes
-        // one, so each load's latency is covered by the preceding MMAs instead of
-        // stalling the MMA that needs it. Every index must fold to a compile-time
-        // constant: a dynamically indexed simdgroup-matrix array spills out of
-        // registers and costs ~2.8x, so the batch loops stay fully unrolled.
+        // Issue every K load for this slab before any MMA consumes it so loads
+        // overlap with MMAs; indices must be compile-time constants, so the
+        // batch loops stay fully unrolled.
 #pragma clang loop unroll(full)
         for (int dd = 0; dd < FASG_ND; dd++) {
             simdgroup_half8x8 mKb[FASG_NK];
@@ -1162,23 +1048,12 @@ kernel void prefill_flash_attn_sg(
             }
 #pragma clang loop unroll(full)
             for (int kf = 0; kf < FASG_NK; kf++) {
-#ifdef FASG_Q_REG
                 simdgroup_multiply_accumulate(mS[kf], mQreg[dd], mKb[kf], mS[kf]);
-#else
-                simdgroup_half8x8 mQl;
-                simdgroup_load(mQl, Qs + q_row_sg * FASG_LDQ + dd * 8, FASG_LDQ);
-                simdgroup_multiply_accumulate(mS[kf], mQl, mKb[kf], mS[kf]);
-#endif
             }
         }
 #else
         for (int dd = 0; dd < FASG_ND; dd++) {
-#ifdef FASG_Q_REG
             simdgroup_half8x8 mQ = mQreg[dd];
-#else
-            simdgroup_half8x8 mQ;
-            simdgroup_load(mQ, Qs + q_row_sg * FASG_LDQ + dd * 8, FASG_LDQ);
-#endif
             for (int kf = 0; kf < FASG_NK; kf++) {
                 simdgroup_half8x8 mK;
                 simdgroup_load(mK, Ks + kf * 8 * FASG_LDV + dd * 8, FASG_LDV, ulong2(0, 0), true);

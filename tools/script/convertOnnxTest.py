@@ -37,7 +37,8 @@ for name in os.listdir(root_dir):
         total_size += mnnsize
 
     print(message)
-    print("Model Size:", mnnsize, " MB")
+    if message.find("TEST_SUCCESS") != -1:
+        print("Model Size:", mnnsize, " MB")
 
 print('Wrong: %d' %len(gWrong))
 for w in gWrong:

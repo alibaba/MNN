@@ -39,6 +39,16 @@ inline ftype4 activate(ftype4 value, conv_activation_type type) {
             return value;
     }
 }
+inline ftype activate(ftype value, conv_activation_type type) {
+    switch (type) {
+        case ReLU:
+            return max(value, (ftype)0);
+        case ReLU6:
+            return clamp(value, (ftype)0, (ftype)6);
+        default: // None
+            return value;
+    }
+}
 struct conv1x1_constants {
     int inputSize;
     int inputDepthQuad;
@@ -1775,12 +1785,11 @@ kernel void conv1x1_gemm_32x16_sg(const device ftype4 *in            [[buffer(0)
 // uchar2 in memory step by N4-inner (+1) or by K/4-quad (+4).
 //
 // IMPORTANT: mWeight is NOT `[N/4, K/16, N4, K4, K4]` (that's the fp16
-// dequanted mTempWeight layout). The W_QUANT_4 branch in the fp16 tensor
-// API kernel (conv1x1_gemm_32x64_split_k_sg) uses `MNN::uchar4x2 w = wt[z]`
-// which reads 4 successive uchar2 slots — under mWeight's real layout these
-// are 4 different N4-inners of the SAME K/4-quad, not 4 K/4-quads for the
-// same N4-inner. That's why buffer(3) is always fed mTempWeight (fp16) in
-// that kernel; the W_QUANT_4 branch is effectively dead.
+// dequanted mTempWeight layout). A `MNN::uchar4x2 w = wt[z]` read, as in the
+// fp16 tensor-API kernel conv1x1_gemm_32x64_split_k_sg, takes 4 successive
+// uchar2 slots — under mWeight's real layout those are 4 different N4-inners of
+// the SAME K/4-quad, not 4 K/4-quads of one N4-inner, so that kernel is always
+// fed mTempWeight (fp16) on buffer(3) and its W_QUANT_4 branch is unused.
 //
 // For a thread with (nl, kwl) reading K = 4*(kwl*4 + i) + j for i,j ∈ [0..3]:
 //   uchar2 w = xy_wt_i4[(zQuad + kwl*4 + i) * 4]  // zQuad is K/4-quad index
@@ -1796,9 +1805,8 @@ kernel void conv1x1_gemm_32x16_sg(const device ftype4 *in            [[buffer(0)
 //     bias  = dequantScale[((idx_n4 * blockCount + bi) * 2 + 1) * 4 + nl]
 //
 // K_TILE = 8 per iter and quant block spans quadsPerBlock = ceil(ic_4 / blockCount)
-// K-quads (each K-quad = 4 K along contiguous K4). This kernel is only
-// selected when blockCount divides ic_4 cleanly and quadsPerBlock >= 2 K-quads,
-// which holds for all Qwen3 W4-block32 shapes we care about.
+// K-quads (each K-quad = 4 K along contiguous K4). The host only selects it
+// when quadsPerBlock is a multiple of 8, i.e. quant blocks of 32*n K.
 //======================================================================
 #if defined(W_QUANT_2) || defined(W_QUANT_3) || defined(W_QUANT_4) || defined(W_QUANT_8)
 kernel void conv1x1_fused_q4_gemm_stage(
@@ -1896,12 +1904,9 @@ kernel void conv1x1_fused_q4_gemm_stage(
 
         for (int z = zmin; z < zmax; z += 8) {
             // ---- Phase 1: weight load (in-kernel quant unpack) ----
-            //
-            // Outer z counts K/4-quads; one iter per quant block since
-            // quadsPerBlock == zmax-zmin K/4-quads and we jump by 8 (=1 block for the
-            // Qwen3-0.6B W4-block32 shape). Inner unrolled i=0..3 reads 4
-            // K/4-quads for THIS thread's (nl) N4-inner row, corresponding to
-            // the kwl-half of the block (K positions 4*(kwl*4+i) .. 4*(kwl*4+i)+3).
+            // Outer z counts K/4-quads, one iter per quant block; inner unrolled
+            // i=0..3 reads 4 K/4-quads of THIS thread's (nl) N4-inner row, i.e. the
+            // kwl-half of the block (K positions 4*(kwl*4+i) .. 4*(kwl*4+i)+3).
             FLOAT4x4 w_dequant;
             {
 #ifdef W_QUANT_2
@@ -2474,13 +2479,12 @@ kernel void conv1x1_fused_q4_ksplit_reduce(
 )metal";
 
 //======================================================================
-// conv1x1_fused_q4_gemm_stage_m64 — M=64 tile variant (P0 M_TILE=64)
+// conv1x1_fused_q4_gemm_stage_m64 — M=64 tile variant
 //----------------------------------------------------------------------
-// Same fused-Q4 GEMM as conv1x1_fused_q4_gemm_stage but with M=64 tile
-// (vs baseline M=32). Halves grid.x for prefill, so each threadgroup
-// consumes the same K-cost (weight reads = N*K, dequant work) but produces
-// 2x the M output — cuts weight-read redundancy across TGs in half.
-// This is the M=64, N=64 variant (N unchanged for lower risk).
+// Same fused-Q4 GEMM as conv1x1_fused_q4_gemm_stage but with an M=64 tile
+// instead of M=32, N unchanged. Halves grid.x for prefill, so each threadgroup
+// keeps the same K-cost (weight reads = N*K, dequant work) while producing 2x
+// the M output, which halves the weight-read redundancy across threadgroups.
 //
 // Threadgroup memory (16 KB max used):
 //   sA:  [M=64, K=32] fp16 = 2048 half = 4096 B  (ftype offsets 0..2047)
@@ -2544,26 +2548,21 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
 #else
     const int K = 32, M = 64, N = 64, NT = 1;
 #endif
-#ifdef FQ4_SMEM_PAD
     // A store address is (4*ml + r) * RS + kl in ftype4 units. With RS = K the
     // bank index is independent of ml, so all 16 ml lanes of a simdgroup hit
     // the same banks (16-way conflict); padding breaks that up. RS must stay a
     // multiple of 8 ftype so every operand row starts 16-byte aligned: at fp16
     // RS = 36 puts row 1 at 72 B, which matmul2d reads as garbage.
     const int RS = 40;                 // padded row stride, ftype
-#else
-    const int RS = K;                  // == the default tensor row stride
-#endif
     // sdata must hold the larger of the staged operands and the cT.store
     // destination. Derived from the tile constants rather than hardcoded: the
     // operand side scales with sizeof(ftype), which differs between precisions,
     // while the destination is always FLOAT.
-#ifdef FQ4_DOUBLE_BUF
-    // Double-buffered staging keeps two operand sets so the next K8 window's
-    // dequant/stores overlap the current window's matmul (one barrier per
-    // window instead of two). The second set lives in the 16 KB the cT.store
-    // destination already budgets, which is overwritten only after every
-    // matmul is done.
+#ifdef FQ_DOUBLE_BUF
+    // Double-buffered staging keeps two operand sets, so staging K8 window i+1 never
+    // aliases the set matmul(i) reads. That drops the barrier count to one per window;
+    // whether staging also overlaps the matmul depends on when mmOps.run retires and is
+    // not established. The second set lives in the 16 KB cT.store already budgets.
     const int SMEM_OPERAND4 = 2 * (M + NT * N) * RS * sizeof(ftype) / sizeof(FLOAT4);
 #else
     const int SMEM_OPERAND4 = (M + NT * N) * RS * sizeof(ftype) / sizeof(FLOAT4);
@@ -2573,7 +2572,7 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
 
     const int RS4 = RS / 4;
     const int SB  = M * RS;            // first sB base, ftype
-#ifdef FQ4_DOUBLE_BUF
+#ifdef FQ_DOUBLE_BUF
     const int SBUF  = (M + NT * N) * RS; // one buffer-set footprint, ftype
     const int SBUF4 = SBUF / 4;          // one buffer-set footprint, ftype4
 #endif
@@ -2655,7 +2654,6 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
 #else
     auto wtBase   = (const device uchar2*)wt_int4;
 #endif
-    auto xy_wt_i4 = wtBase + (idx_n4 * cst.inputDepthQuad + 0) * 4 + nl;
 #else // W_QUANT_8
 #ifdef FQ4_GATEUP_DUAL
     auto wtBase   = (mtx == 0) ? (const device char4*)wt_int8 : (const device char4*)wt2_int8;
@@ -2672,7 +2670,7 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
     int idx_sb = (M + mtx * N) * RS4 + (non * 4 + nl) * RS4 + kwl * 4 + 0;
     int quadsPerBlock = (cst.inputDepthQuad + cst.blockCount - 1) / cst.blockCount;
 
-#ifdef FQ4_DOUBLE_BUF
+#ifdef FQ_DOUBLE_BUF
     int it = 0;                        // global K8-window counter -> buffer phase
 #endif
     for (int bi = 0; bi < cst.blockCount; ++bi) {
@@ -2682,12 +2680,12 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
         int zmax = min(zmin + quadsPerBlock, cst.inputDepthQuad);
 
         for (int z = zmin; z < zmax; z += 8) {
-#if defined(W_QUANT_4) && defined(FQ4_UNORM)
-            // Wide-load B staging (A/B-verified): one contiguous 8B uint2 per
+#if defined(W_QUANT_4)
+            // Wide-load B staging: one contiguous 8B uint2 per
             // thread replaces four 2B uchar2 loads. The uint2 at (n4, k4) packs
             // the 4x4 weight tile as four N rows of four K values, so the four
             // stores land on consecutive N rows at one K4 group.
-#ifdef FQ4_DOUBLE_BUF
+#ifdef FQ_DOUBLE_BUF
             const int bufF4 = (it & 1) * SBUF4;
 #else
             threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -2745,17 +2743,6 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
                 }
                 FLOAT4 val = FLOAT4(dequant_bias0 - 4.0 * scale0);
                 w_dequant  = w_dequant * scale0 + FLOAT4x4(val, val, val, val);
-#elif defined(W_QUANT_4)
-                #pragma unroll(4)
-                for (int i = 0; i < 4; ++i) {
-                    uchar2 w = xy_wt_i4[(z + kwl * 4 + i) * 4];
-                    w_dequant[i][0] = FLOAT(w[0] >> 4);
-                    w_dequant[i][1] = FLOAT(w[0] & 0x0F);
-                    w_dequant[i][2] = FLOAT(w[1] >> 4);
-                    w_dequant[i][3] = FLOAT(w[1] & 0x0F);
-                }
-                FLOAT4 val = FLOAT4(dequant_bias0 - 8.0 * scale0);
-                w_dequant  = w_dequant * scale0 + FLOAT4x4(val, val, val, val);
 #else // W_QUANT_8
                 #pragma unroll(4)
                 for (int i = 0; i < 4; ++i) {
@@ -2766,7 +2753,7 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
 #endif
             }
 
-#ifdef FQ4_DOUBLE_BUF
+#ifdef FQ_DOUBLE_BUF
             // The previous window's matmul reads the other buffer set, so this
             // stage proceeds without waiting for it.
             const int bufF4 = (it & 1) * SBUF4;
@@ -2802,9 +2789,11 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
             ((threadgroup ftype4*)sdata)[bufF4 + idx_sa + RS4 * 3] = (ftype4)*(xy_in3);
             #endif
 
-#ifdef FQ4_DOUBLE_BUF
-            // Advance inside the stage so the next window's DRAM loads issue
-            // while this window's matmul runs.
+#ifdef FQ_DOUBLE_BUF
+            // Advance the activation pointers and the window counter here, but this
+            // moves pointers only: their loads still sit at the top of the next
+            // iteration, after this window's matmul. FQ_DOUBLE_BUF buys the buffer
+            // phase, not overlap -- window i+1 stages into the other phase.
             xy_in0 += 8 * cst.inputSize * cst.batch;
             xy_in1 += 8 * cst.inputSize * cst.batch;
             xy_in2 += 8 * cst.inputSize * cst.batch;
@@ -2814,7 +2803,7 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef FQ4_DOUBLE_BUF
+#ifdef FQ_DOUBLE_BUF
             const int bufF = bufF4 * 4; // ftype units
             auto tIb = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + bufF,      dextents<int32_t, 2>(K, M), array<int, 2>{1, RS});
             auto tWb = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + bufF + SB, dextents<int32_t, 2>(K, N), array<int, 2>{1, RS});
@@ -2826,7 +2815,7 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
 #endif
             mmOps.run(sA, sB, cT);
 #ifdef FQ4_GATEUP_DUAL
-#ifdef FQ4_DOUBLE_BUF
+#ifdef FQ_DOUBLE_BUF
             auto tW2b = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + bufF + SB + N * RS, dextents<int32_t, 2>(K, N), array<int, 2>{1, RS});
             auto sB2 = tW2b.slice(0, 0);
 #else
@@ -2835,7 +2824,7 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
             mmOps.run(sA, sB2, cT2);
 #endif
 
-#ifndef FQ4_DOUBLE_BUF
+#ifndef FQ_DOUBLE_BUF
             xy_in0 += 8 * cst.inputSize * cst.batch;
             xy_in1 += 8 * cst.inputSize * cst.batch;
             xy_in2 += 8 * cst.inputSize * cst.batch;
@@ -2898,10 +2887,9 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
     // Epilogue: same per-thread pattern as M=32 kernel, but with mm=0..1 to cover M=64.
     // Each (mm, mlc, nlc) thread role writes 4 N-inner values at (M=rx*64+m_idx, N4-slot=uz*4+nlc).
     //
-    // FQ4_SILU_MUL folds the gate/up MUL_SILU here: the gate projection has
-    // already written a tensor with this exact layout, so the extra read is at
-    // the address about to be written. That turns three full-tensor passes
-    // (write up, read up+gate, write out) into one read plus one write.
+    // FQ4_SILU_MUL folds the gate/up MUL_SILU here: the gate projection already wrote a
+    // tensor with this exact layout, so the extra read hits the address about to be
+    // written, turning three full-tensor passes into one read plus one write.
     for (int mm = 0; mm < 2; ++mm) {
         int m_idx = mm * 32 + mlc;
         auto xy_out = out + ((uz * 4 + nlc) * 4 + 0) * outStride + (rx * 64 + m_idx);
@@ -2930,7 +2918,7 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
 
 //======================================================================
 // conv1x1_gemm_64x64_split_k_sg — sg_matrix M=64 tile (fp16 weights,
-// outer-dequant path, non-tensor-API devices e.g. M4).
+// outer-dequant path, non-tensor-API devices).
 //
 // Same [N64, K32] weight tile per iteration as the 32x64 kernel, but each
 // threadgroup produces M64 output rows — grid.x halves, so weight DRAM
@@ -3172,6 +3160,10 @@ kernel void conv1x1_gemv_g4mx_wquant_sg(const device ftype4 *in            [[buf
     int blocksInFlight = SIMD_GROUP_WIDTH / lanesPerBlock;
     int laneInBlock = (tiisg) % lanesPerBlock;
     int blockSlot = (tiisg) / lanesPerBlock;
+    // Lanes left over by a non-power-of-two lanesPerBlock would repeat a block.
+    if (blockSlot >= blocksInFlight) {
+        blockSlot = cst.blockCount;
+    }
 
 
     for (int bi= blockSlot; bi<cst.blockCount; bi += blocksInFlight) {
@@ -3425,7 +3417,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
                             //          scaleCoef + outputDepthQuad,
                             //          [6..8]=packed-grid base of projections 1..3,
                             //          [9..12]=merged-output element offset per
-                            //          projection (QKV_MERGED_OUT)
+                            //          projection
                             constant float *qkv_seg                         [[buffer(14)]],
                         #ifdef QKV_FUSED_P4
                             device ftype4 *out_w                            [[buffer(15)]],
@@ -3484,18 +3476,12 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     int qkvOutputDepthQuad = cst.outputDepthQuad;
     float qkv_scale_coef = cst.scaleCoef;
     if (qkv_proj == 1) {
-#ifndef QKV_MERGED_OUT
-        out = out_k;
-#endif
         biasTerms = biasTerms_k;
         wt = wt_k;
         dequantScale = dequantScale_k;
         qkv_scale_coef = qkv_seg[0];
         qkvOutputDepthQuad = int(qkv_seg[2]);
     } else if (qkv_proj == 2) {
-#ifndef QKV_MERGED_OUT
-        out = out_v;
-#endif
         biasTerms = biasTerms_v;
         wt = wt_v;
         dequantScale = dequantScale_v;
@@ -3506,9 +3492,6 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     // 4-projection groups (Qwen3.5 linear-attention layers: qkv/z/b/a share
     // one LN input).
     else if (qkv_proj == 3) {
-#ifndef QKV_MERGED_OUT
-        out = out_w;
-#endif
         biasTerms = biasTerms_w;
         wt = wt_w;
         dequantScale = dequantScale_w;
@@ -3519,14 +3502,9 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     // Merged output: every member's output tensor is laid into one allocation, so
     // the destination is the leader's base (buffer(1)) plus a per-projection
     // element offset -- qkv_seg[9..12], the leader's being 0 -- and out_k/out_v/
-    // out_w go unread. The alternative form selects one of N bound output
-    // pointers in the branch above instead.
-#ifdef QKV_MERGED_OUT
+    // out_w go unread.
     const int qkv_out_off = int(qkv_seg[9 + qkv_proj]);
 #define GEMV_OUT_BASE qkv_out_off
-#else
-#define GEMV_OUT_BASE 0
-#endif
 #define GEMV_OUT out
     const int tg_x = qkv_gx;
 #else
@@ -3547,24 +3525,16 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     //                      prologue is not re-read by twice as many groups)
     //   GEMV_SPLIT_K       K ranges each quad is split into (1 = unsplit,
     //                      2 = two halves reduced through threadgroup memory)
-    // sgitg % tgQuads picks the quad, sgitg / tgQuads the K range. 4x2 was
-    // "SPLIT_K_WIDE" and 2x2 was "SPLIT_K_2" -- both split K by 2, so the old
-    // names described the threadgroup width while sounding like K depth.
-    // 8- and 16-quad TGs lose: the parallelism the larger threadgroups give
-    // up costs more than the LN prologue read they amortize.
-#if defined(GEMV_2OCQUAD_PER_SG)
-    // Two oc quads per simdgroup, carried as two accumulator streams in the same
-    // thread: doubles the weight reads in flight with no barrier and shares the
-    // input read plus the LN prologue between them. 2 simdgroups, 4 quads/TG.
-    //
-    // GATE_UP_SILU is the one shape the macro name does not describe: there the
-    // second stream is the up matrix at the SAME quad, not a second quad, so the
-    // threadgroup owns 2 quads rather than 4.
-    //
-    // GEMV_2OCQUAD_PER_SG_SPLIT_K keeps the quads either way and pairs up
-    // 2 * factor simdgroups over the K range.
-#ifdef GEMV_2OCQUAD_PER_SG_SPLIT_K
-    constexpr int tg_simds  = 2 * GEMV_2OCQUAD_PER_SG_SPLIT_K;
+// sgitg % tgQuads picks the quad, sgitg / tgQuads the K range; past 4 quads a
+// threadgroup gives up more parallelism than the shared LN prologue repays.
+#if defined(GEMV_SG_OC_QUADS_2)
+// Two oc quads per simdgroup, carried as two accumulator streams in one thread:
+// doubles the weight reads in flight with no barrier and shares the input read and
+// the LN prologue. 2 simdgroups, 4 quads/TG -- except under GATE_UP_SILU, whose
+// second stream is the up matrix at the SAME quad, so the threadgroup owns 2 quads.
+// GEMV_SG_OC_QUADS_2_KSPLIT keeps the quads and pairs 2 * factor simdgroups over K.
+#ifdef GEMV_SG_OC_QUADS_2_KSPLIT
+    constexpr int tg_simds  = 2 * GEMV_SG_OC_QUADS_2_KSPLIT;
 #else
     constexpr int tg_simds  = 2;
 #endif
@@ -3600,38 +3570,20 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     if (tg_first_uz >= cst.outputDepthQuad) return;
 #endif
 
-    // Hoisted above the per-simdgroup output-range checks below: the reduction
-    // barrier has to be reached by every thread in the threadgroup, and a tail
-    // threadgroup can have one simdgroup land outside outputDepthQuad.
-    //
-    // inv_rms is the same scalar for both simdgroups, so sweep the input once
-    // with all 64 threads and reduce through threadgroup memory, instead of
-    // letting each simdgroup re-read the whole input+residual to recompute it.
-    // The host sizes the threadgroup at tg_simds simdgroups (2, or more under
-    // GEMV_2OCQUAD_PER_SG_SPLIT_K, or GEMV_QUADS_PER_TG * GEMV_SPLIT_K) and the
-    // sweep/reduce below follow that count.
-    //
-    // Only one threadgroup writes ln_residual_out, to avoid races when several
-    // threadgroups process the same input quads; both of its simdgroups take
-    // part since they now cover disjoint halves of the input.
+    // Hoisted above the per-simdgroup output-range checks below: every thread must
+    // reach the reduction barrier, and a tail threadgroup can have one simdgroup land
+    // outside outputDepthQuad. inv_rms is one scalar for the whole threadgroup, so its
+    // tg_simds * 32 threads sweep the input once and reduce through threadgroup memory
+    // rather than each simdgroup re-reading input+residual. Only one threadgroup writes
+    // ln_residual_out, since several of them share the same input quads.
     float sq_sum = 0.0f;
 #ifdef LN_STAGE
-    // The sweep below already touches every input quad once per threadgroup, so
-    // keep (in + residual) * gamma there instead of letting the GEMV body re-read
-    // both device streams for each quad and K half it owns (4x here). At 256
-    // threadgroups per layer that redundancy is a multiple of the weight traffic.
-    // inv_rms is not known until the sweep finishes, so it is applied on read.
-    // Stored as ftype4: in fp16 mode that is half the threadgroup footprint of
-    // the FLOAT4 it replaces (4KB vs 8KB here, one fewer occupancy clamp), and
-    // it rounds the GEMM input exactly like the unfused path does (AddRMSNorm
-    // writes an fp16 tensor), so the numerics match the separate-dispatch
-    // baseline the fusion replaces. LN_STAGE_FP32 restores the float4 staging
-    // (host rollback switch).
-#ifdef LN_STAGE_FP32
-    threadgroup FLOAT4 ln_staged[LN_STAGE_QUADS];
-#else
+    // The sweep already touches every input quad once per threadgroup, so it keeps
+    // (in + residual) * gamma here instead of letting the GEMV body re-read both device
+    // streams per quad and K half. inv_rms is only known afterwards and is applied on
+    // read. Storing ftype4 rounds the pre-inv_rms value, unlike unfused AddRMSNorm; the
+    // RMS reduction and GEMV accumulation stay fp32.
     threadgroup ftype4 ln_staged[LN_STAGE_QUADS];
-#endif
 #endif
     const bool ln_write_residual = (
 #if defined(GATE_UP_FUSED) || defined(QKV_FUSED)
@@ -3644,11 +3596,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         float4 d = (float4)*(in + z * area_size) + (float4)*(ln_residual_in + z * area_size);
         sq_sum += dot(d, d);
 #ifdef LN_STAGE
-#ifdef LN_STAGE_FP32
-        ln_staged[z] = (FLOAT4)d * (FLOAT4)ln_gamma[z];
-#else
         ln_staged[z] = (ftype4)((FLOAT4)d * (FLOAT4)ln_gamma[z]);
-#endif
 #endif
         if (ln_write_residual) {
             ln_residual_out[z * area_size] = (ftype4)d;
@@ -3678,7 +3626,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
 #define GEMV_2SG_LOAD_IN4(z) ((FLOAT4)*(xy_in0 + (z) * area_size))
 #endif
 
-#ifdef GEMV_2OCQUAD_PER_SG
+#ifdef GEMV_SG_OC_QUADS_2
     // Dual-stream variant (fused pipelines only): each simdgroup carries TWO
     // independent accumulator streams — doubles in-flight weight reads with no
     // barrier (cf. the split-K tg reduce) and shares the input read + LN
@@ -3691,15 +3639,12 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     // gate/up round trip through memory -- disappears. Parallelism is untouched:
     // grid.x doubles as grid.z drops from 2 to 1, so both the threadgroup count
     // and the 4 quad-dots each threadgroup issues stay exactly as they were.
-#ifdef GEMV_2OCQUAD_PER_SG_SPLIT_K
-    // K-split on top of the dual streams: 2 * GEMV_2OCQUAD_PER_SG_SPLIT_K simdgroups
-    // instead of 2. Every simdgroup pair covers the threadgroup's two quads,
-    // and pair p sweeps quant-block range p of GEMV_2OCQUAD_PER_SG_SPLIT_K; partials are merged
-    // through threadgroup memory in the epilogue. The dispatch is what limits
-    // these small fused GEMVs (parallelism, not DRAM), so widening the
-    // threadgroup multiplies the loads in flight per quad. The host only
-    // enables this when outputDepthQuad is even and blockCount divides by the
-    // factor, so nothing early-returns before the barrier below.
+#ifdef GEMV_SG_OC_QUADS_2_KSPLIT
+    // K-split on top of the dual streams: 2 * GEMV_SG_OC_QUADS_2_KSPLIT simdgroups
+    // instead of 2. Each pair covers the threadgroup's two quads and sweeps one
+    // quant-block range, with partials merged in the epilogue. The host only enables
+    // this when outputDepthQuad is even and blockCount divides by the factor, so
+    // nothing early-returns before the barrier below.
     const int uz = tg_x * 2 + ((int)sgitg & 1);
     const int ds_sk = (int)sgitg >> 1;
 #else
@@ -3755,37 +3700,28 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     const device ftype4* dqs1 = dequantScale;
 #endif
 
-#ifdef GEMV_QBLOCK_W16_DS
-    // Dual-stream W16: the host picked GEMV_QBLOCK_W16_LANES_PER_BLOCK from the
-    // post-split block count (blockCount / GEMV_2OCQUAD_PER_SG_SPLIT_K), the same rule the
-    // runtime widening below follows, so compile-time lanes make the uint4 pair
-    // loop in the W4 branch match laneInBlock/blockSlot exactly.
-    constexpr int quadsPerBlock = GEMV_QBLOCK_W16_QUADS_PER_BLOCK;
-    constexpr int lanesPerBlock = GEMV_QBLOCK_W16_LANES_PER_BLOCK;
-    constexpr int blocksInFlight = SIMD_GROUP_WIDTH / lanesPerBlock;
-    const int laneInBlock = int(tiisg) & (lanesPerBlock - 1);
-    const int blockSlot  = int(tiisg) / lanesPerBlock;
-    const int ds_blocks_owned = max(cst.blockCount / GEMV_2OCQUAD_PER_SG_SPLIT_K, 1);
-#else
     int quadsPerBlock = (cst.inputDepthQuad + cst.blockCount - 1) / cst.blockCount;
     int lanesPerBlock = min(SIMD_GROUP_WIDTH, max(quadsPerBlock / 4, 1));
-#ifdef GEMV_2OCQUAD_PER_SG_SPLIT_K
-    // A pair now owns only blockCount / GEMV_2OCQUAD_PER_SG_SPLIT_K blocks. Widen the lanes per
+#ifdef GEMV_SG_OC_QUADS_2_KSPLIT
+    // A pair now owns only blockCount / GEMV_SG_OC_QUADS_2_KSPLIT blocks. Widen the lanes per
     // block so blocksInFlight never exceeds that count -- otherwise the surplus
     // lane groups sit idle instead of shortening each lane's run.
-    const int ds_blocks_owned = max(cst.blockCount / GEMV_2OCQUAD_PER_SG_SPLIT_K, 1);
+    const int ds_blocks_owned = max(cst.blockCount / GEMV_SG_OC_QUADS_2_KSPLIT, 1);
     lanesPerBlock = max(lanesPerBlock, SIMD_GROUP_WIDTH / ds_blocks_owned);
     lanesPerBlock = min(lanesPerBlock, SIMD_GROUP_WIDTH);
 #endif
     int blocksInFlight = SIMD_GROUP_WIDTH / lanesPerBlock;
     int laneInBlock = tiisg % lanesPerBlock;
     int blockSlot  = tiisg / lanesPerBlock;
-#endif
+    // Lanes left over by a non-power-of-two lanesPerBlock would repeat a block.
+    if (blockSlot >= blocksInFlight) {
+        blockSlot = cst.blockCount;
+    }
 
     FLOAT4 result0 = FLOAT4(0);
     FLOAT4 result1 = FLOAT4(0);
 
-#ifdef GEMV_2OCQUAD_PER_SG_SPLIT_K
+#ifdef GEMV_SG_OC_QUADS_2_KSPLIT
     const int ds_bi_begin = ds_sk * ds_blocks_owned;
     const int ds_bi_end   = ds_bi_begin + ds_blocks_owned;
 #else
@@ -3859,46 +3795,6 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         result0 += raw_dot0 * scale0 + input_sum * adj0;
         result1 += raw_dot1 * scale1 + input_sum * adj1;
     #elif defined(W_QUANT_4)
-    #ifdef GEMV_QBLOCK_W16_DS
-        // uint4 (16B) weight reads for the dual-stream body, mirroring the
-        // single-stream W16 specialization: the two weight streams (gate/up)
-        // share the input quads this lane owns.
-        FLOAT4 raw_dot0 = FLOAT4(0);
-        FLOAT4 raw_dot1 = FLOAT4(0);
-        FLOAT input_sum = FLOAT(0);
-        const device uint4* wt16_0 = (const device uint4*)(xy_wt0 + zmin);
-        const device uint4* wt16_1 = (const device uint4*)(xy_wt1 + zmin);
-        constexpr int uint4PairsPerLane = (quadsPerBlock / 2) / lanesPerBlock;
-        const int pair_begin = laneInBlock * uint4PairsPerLane;
-        for (int pair = pair_begin; pair < pair_begin + uint4PairsPerLane; ++pair) {
-            const uint4 packed0 = wt16_0[pair];
-            const uint4 packed1 = wt16_1[pair];
-            const ushort4 w00 = ushort4(packed0.x & 0xFFFFu, packed0.x >> 16, packed0.y & 0xFFFFu, packed0.y >> 16);
-            const ushort4 w01 = ushort4(packed0.z & 0xFFFFu, packed0.z >> 16, packed0.w & 0xFFFFu, packed0.w >> 16);
-            const ushort4 w10 = ushort4(packed1.x & 0xFFFFu, packed1.x >> 16, packed1.y & 0xFFFFu, packed1.y >> 16);
-            const ushort4 w11 = ushort4(packed1.z & 0xFFFFu, packed1.z >> 16, packed1.w & 0xFFFFu, packed1.w >> 16);
-            const FLOAT4 input0 = GEMV_2SG_LOAD_IN4(zmin + 2 * pair);
-            const FLOAT4 input1 = GEMV_2SG_LOAD_IN4(zmin + 2 * pair + 1);
-            input_sum += input0[0] + input0[1] + input0[2] + input0[3] +
-                         input1[0] + input1[1] + input1[2] + input1[3];
-            raw_dot0 += input0[0] * FLOAT(1.0/16.0) * FLOAT4(w00 & ushort4(0x00F0)) +
-                        input0[1] * FLOAT4(w00 & ushort4(0x000F)) +
-                        input0[2] * FLOAT(1.0/4096.0) * FLOAT4(w00 & ushort4(0xF000)) +
-                        input0[3] * FLOAT(1.0/256.0) * FLOAT4(w00 & ushort4(0x0F00)) +
-                        input1[0] * FLOAT(1.0/16.0) * FLOAT4(w01 & ushort4(0x00F0)) +
-                        input1[1] * FLOAT4(w01 & ushort4(0x000F)) +
-                        input1[2] * FLOAT(1.0/4096.0) * FLOAT4(w01 & ushort4(0xF000)) +
-                        input1[3] * FLOAT(1.0/256.0) * FLOAT4(w01 & ushort4(0x0F00));
-            raw_dot1 += input0[0] * FLOAT(1.0/16.0) * FLOAT4(w10 & ushort4(0x00F0)) +
-                        input0[1] * FLOAT4(w10 & ushort4(0x000F)) +
-                        input0[2] * FLOAT(1.0/4096.0) * FLOAT4(w10 & ushort4(0xF000)) +
-                        input0[3] * FLOAT(1.0/256.0) * FLOAT4(w10 & ushort4(0x0F00)) +
-                        input1[0] * FLOAT(1.0/16.0) * FLOAT4(w11 & ushort4(0x00F0)) +
-                        input1[1] * FLOAT4(w11 & ushort4(0x000F)) +
-                        input1[2] * FLOAT(1.0/4096.0) * FLOAT4(w11 & ushort4(0xF000)) +
-                        input1[3] * FLOAT(1.0/256.0) * FLOAT4(w11 & ushort4(0x0F00));
-        }
-    #else
         FLOAT4 raw_dot0 = FLOAT4(0);
         FLOAT4 raw_dot1 = FLOAT4(0);
         FLOAT input_sum = FLOAT(0);
@@ -3919,7 +3815,6 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
             raw_dot1 += in_ps0 * FLOAT4(wB & ushort4(0x00F0)) + in4[1] * FLOAT4(wB & ushort4(0x000F))
                       + in_ps2 * FLOAT4(wB & ushort4(0xF000)) + in_ps3 * FLOAT4(wB & ushort4(0x0F00));
         }
-    #endif
         FLOAT4 adj0 = dbias0 - FLOAT(8.0) * scale0;
         FLOAT4 adj1 = dbias1 - FLOAT(8.0) * scale1;
         result0 += raw_dot0 * scale0 + input_sum * adj0;
@@ -3929,7 +3824,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         // so each lane needs dot(in4, w[j]) with lane j's scale/bias. Deferred
         // like the W4 branch: raw dot + input_sum, dequant applied per block.
         // (A per-z `result += in4[i] * (w[i]*scale[i]+bias[i])` loop is the
-        // TRANSPOSED product with the wrong scale lane -- W8 regression trap.)
+        // TRANSPOSED product, with the wrong scale lane.)
         FLOAT4 raw_dot0 = FLOAT4(0);
         FLOAT4 raw_dot1 = FLOAT4(0);
         FLOAT input_sum = FLOAT(0);
@@ -3950,42 +3845,73 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
 
     result0 = simd_sum(result0);
     result1 = simd_sum(result1);
-#ifdef GEMV_2OCQUAD_PER_SG_SPLIT_K
-    threadgroup FLOAT4 ds_partial[2][2 * GEMV_2OCQUAD_PER_SG_SPLIT_K];
+#ifdef GEMV_SG_OC_QUADS_2_KSPLIT
+    threadgroup FLOAT4 ds_partial[2][2 * GEMV_SG_OC_QUADS_2_KSPLIT];
     const int ds_slot = (int)sgitg & 1;
     if (tiisg == 0) {
         ds_partial[0][sgitg] = result0;
         ds_partial[1][sgitg] = result1;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
+#ifndef GATE_UP_SILU
+    // The silu-mul epilogue below merges the partials element-parallel instead.
     const bool ds_write = (ds_sk == 0 && tiisg == 0);
     if (ds_write) {
         result0 = FLOAT4(0);
         result1 = FLOAT4(0);
-        for (int s = 0; s < GEMV_2OCQUAD_PER_SG_SPLIT_K; ++s) {
+        for (int s = 0; s < GEMV_SG_OC_QUADS_2_KSPLIT; ++s) {
             result0 += ds_partial[0][s * 2 + ds_slot];
             result1 += ds_partial[1][s * 2 + ds_slot];
         }
     }
+#endif
 #else
+#ifndef GATE_UP_SILU
     const bool ds_write = (tiisg == 0);
 #endif
-    if (ds_write) {
+#endif
 #ifdef GATE_UP_SILU
-        // Matches the op this replaces (MUL_SILU: in0 = up, in1 = gate), applied
-        // after each projection's own activation, exactly as the unfused
-        // conv -> conv -> binary chain did.
-        FLOAT4 gateV = FLOAT4(activate(ftype4(result0 + biasValue0), cst.activation));
-        FLOAT4 upV   = FLOAT4(activate(ftype4(result1 + biasValue1), cst.activation));
-        GEMV_OUT[GEMV_OUT_BASE + uz * area_size] = ftype4(upV * (gateV / (FLOAT4(1) + exp(-gateV))));
+    // Matches the op this replaces (MUL_SILU: in0 = up, in1 = gate), applied after each
+    // projection's own activation. Element-parallel: lanes 0-3 own one output element
+    // each, so the four exp/div chains do not serialize on lane 0. silu(g) is evaluated
+    // as g * (1 / (1 + exp2(-log2e * g))) with fast::exp2 / fast::divide, whose ~2^-11
+    // relative error sits below the fp16 store quantization.
+#ifdef GEMV_SG_OC_QUADS_2_KSPLIT
+    if (ds_sk == 0 && tiisg < 4) {
 #else
+    if (tiisg < 4) {
+#endif
+        const int e = (int)tiisg;
+        FLOAT gateV;
+        FLOAT upV;
+#ifdef GEMV_SG_OC_QUADS_2_KSPLIT
+        // This lane merges its output element across the split-K partials.
+        gateV = FLOAT(0);
+        upV = FLOAT(0);
+        for (int s = 0; s < GEMV_SG_OC_QUADS_2_KSPLIT; ++s) {
+            gateV += ds_partial[0][s * 2 + ds_slot][e];
+            upV   += ds_partial[1][s * 2 + ds_slot][e];
+        }
+        gateV += biasValue0[e];
+        upV   += biasValue1[e];
+#else
+        gateV = result0[e] + biasValue0[e];
+        upV   = result1[e] + biasValue1[e];
+#endif
+        gateV = (FLOAT)activate((ftype)gateV, cst.activation);
+        upV   = (FLOAT)activate((ftype)upV, cst.activation);
+        const FLOAT silu = gateV * fast::divide(FLOAT(1), FLOAT(1) + fast::exp2(FLOAT(-1.4426950408889634f) * gateV));
+        ((device ftype*)(GEMV_OUT + GEMV_OUT_BASE + uz * area_size))[e] = (ftype)(upV * silu);
+    }
+#else
+    if (ds_write) {
         GEMV_OUT[GEMV_OUT_BASE + uz * area_size] = activate(ftype4(result0 + biasValue0), cst.activation);
         if (stream1_valid) {
             GEMV_OUT[GEMV_OUT_BASE + uz1 * area_size] = activate(ftype4(result1 + biasValue1), cst.activation);
         }
-#endif
     }
-#else  // !GEMV_2OCQUAD_PER_SG
+#endif
+#else  // !GEMV_SG_OC_QUADS_2
 
     // Single stream: each simdgroup owns one output quad and one K range.
 #if GEMV_SPLIT_K > 1
@@ -3996,9 +3922,9 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     const int uz = tg_x * tgQuads + ((int)sgitg % tgQuads);
     const int sk_half = (int)sgitg / tgQuads;
 #else
-    // tgQuads = GEMV_QUADS_PER_TG (2, or 4 for the tg4 decode variant); each
+    // tgQuads = GEMV_QUADS_PER_TG (2, or 4 for the oc16Sg4K1 decode variant); each
     // simdgroup owns the quad matching its index. Hardcoding 2 here left the
-    // upper half of every tg4 output unwritten (stale memory -> garbage decode).
+    // upper half of every oc16Sg4K1 output unwritten (stale memory -> garbage decode).
     const int uz = tg_x * tgQuads + (int)sgitg;
 #endif
 #ifdef QKV_FUSED
@@ -4011,8 +3937,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     #ifdef GATE_UP_FUSED
     // Gate uses cst.scaleCoef (leader's), up uses its own scaleCoef via gate_up_seg[0].
     // Without this, up's dequant is scaled by gate's coefficient -> systematic bias
-    // whenever gate/up weights have different fp16-fit ranges (visible on Qwen3.5-2B
-    // as decode drift into repetition / low-quality output).
+    // whenever gate/up weights have different fp16-fit ranges.
     if (gid.z == 1) {
         cur_scale_coef = gate_up_seg[0];
     }
@@ -4029,37 +3954,11 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     auto xy_in0 = in;
     auto biasValue = FLOAT4(biasTerms[uz]);
 
-#ifdef GEMV_QBLOCK_W16
-    // Q4 block 32/64/128/256 specialization for decode GEMV. The host supplies
-    // the exact C4 quads per quant block (8/16/32/64), so the inner extent is
-    // compile-time constant and no tail check is needed.
-    //
-    // GEMV_QBLOCK_W16_LANES_PER_BLOCK = how many lanes share one quant block. The host
-    // picks it per pipeline from the blocks a simdgroup owns (blockCount, or
-    // blockCount/2 under split-K) so that all 32 lanes stay fed: too few lanes
-    // per block idles lanes on short rows, too many shortens each lane's
-    // contiguous run. See chooseQ4W16LanesPerBlock in MetalConvolution1x1.mm.
-#ifndef GEMV_QBLOCK_W16_QUADS_PER_BLOCK
-#define GEMV_QBLOCK_W16_QUADS_PER_BLOCK 16
-#endif
-#ifndef GEMV_QBLOCK_W16_LANES_PER_BLOCK
-#define GEMV_QBLOCK_W16_LANES_PER_BLOCK 1
-#endif
-    constexpr int quadsPerBlock = GEMV_QBLOCK_W16_QUADS_PER_BLOCK;
-    constexpr int lanesPerBlock = GEMV_QBLOCK_W16_LANES_PER_BLOCK;
-    constexpr int blocksInFlight = SIMD_GROUP_WIDTH / lanesPerBlock;
-    const int laneInBlock = int(tiisg) & (lanesPerBlock - 1);
-    const int blockSlot = int(tiisg) / lanesPerBlock;
-#else
     int quadsPerBlock = (cst.inputDepthQuad + cst.blockCount - 1) / cst.blockCount;
     // GEMV inner reduction lane partitioning.
-    //
-    // GEMV_LANES_PER_BLOCK (split-K pipelines): host-computed, see gemvLanesPerBlock().
-    //
-    // Fallback (M4/Apple GPU 7-8): min(32, max(quadsPerBlock/4, 1))
-    //   For Qwen3-0.6B blockCount=32, inputDepthQuad/32≈8 => lanesPerBlock=2, blocksInFlight=16.
-    //   Only 2 lanes participate in inner K reduction; other 30 lanes iterate outer
-    //   blocks. Fine on narrower SM (M4) where BW is the bottleneck.
+    //   GEMV_LANES_PER_BLOCK (split-K pipelines): host-computed, see gemvLanesPerBlock().
+    //   Fallback: min(32, max(quadsPerBlock/4, 1)) -- a few lanes share a block's inner
+    //   K reduction while the rest iterate outer blocks, which suits a bandwidth-bound SM.
 #ifdef GEMV_LANES_PER_BLOCK
     // Every input is known at pipeline build time, and keeping it a literal lets
     // the compiler strength-reduce the %/÷ below instead of carrying a runtime
@@ -4074,7 +3973,10 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     int laneInBlock = tiisg % lanesPerBlock;
     int blockSlot = tiisg / lanesPerBlock;
 #endif
-#endif // GEMV_QBLOCK_W16
+    // Lanes left over by a non-power-of-two lanesPerBlock would repeat a block.
+    if (blockSlot >= blocksInFlight) {
+        blockSlot = cst.blockCount;
+    }
 
     FLOAT4 result = FLOAT4(0);
 
@@ -4088,11 +3990,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.blockCount + bi) + 0]) * (FLOAT)inv_scale_coef;
         FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.blockCount + bi) + 1]) * (FLOAT)inv_scale_coef;
         int zmin = bi * quadsPerBlock;
-        #ifdef GEMV_QBLOCK_W16
-        int zmax = zmin + quadsPerBlock;
-        #else
         int zmax = min(zmin + quadsPerBlock, cst.inputDepthQuad);
-        #endif
 
     #if defined(W_QUANT_2) || defined(W_QUANT_3)
         // Deferred + pre-scaling (see g8 kernel for the mask/pre-scale
@@ -4107,7 +4005,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
             FLOAT in_ps1 = in4[1] * FLOAT(1.0/16.0);
             FLOAT in_ps2 = in4[2] * FLOAT(1.0/4.0);
         #ifdef W_QUANT_2
-            // Vectorized mask-only unpack (see the GEMV_2OCQUAD_PER_SG body above).
+            // Vectorized mask-only unpack (see the GEMV_SG_OC_QUADS_2 body above).
             uchar4 w_b = xy_wt[z];
             raw_dot += in_ps0 * FLOAT4(w_b & uchar4(0xC0)) + in_ps1 * FLOAT4(w_b & uchar4(0x30))
                      + in_ps2 * FLOAT4(w_b & uchar4(0x0C)) + in4[3] * FLOAT4(w_b & uchar4(0x03));
@@ -4117,7 +4015,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
             FLOAT in_hi3 = in4[3] * FLOAT(4.0);
             const device ushort* t = (const device ushort*)(xy_wt + z * 6);
             ushort tw0 = t[0], tw1 = t[1], tw2 = t[2];
-            // Vectorized lo-byte / hi-nibble unpack (see the GEMV_2OCQUAD_PER_SG body above).
+            // Vectorized lo-byte / hi-nibble unpack (see the GEMV_SG_OC_QUADS_2 body above).
             uchar4 lo = uchar4(uchar(tw0), uchar(tw0 >> 8), uchar(tw1), uchar(tw1 >> 8));
             uchar hb0 = uchar(tw2), hb1 = uchar(tw2 >> 8);
             uchar4 hi = uchar4(hb0 >> 4, hb0 & 0xF, hb1 >> 4, hb1 & 0xF);
@@ -4142,53 +4040,6 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         // schedules this compact 4-row loop body optimally; forcing unroll
         // increases register pressure and hurts simdgroup occupancy in the
         // decode (GEMV) regime. Leave the loop unannotated.
-#ifdef GEMV_QBLOCK_W16
-        // Read weights as uint4 (16 bytes, two C4 quads) and keep the same
-        // pre-scaling mask math. The host also enables this branch for eligible
-        // LN/QKV/GateUp fused non-GEMV_2OCQUAD_PER_SG pipelines.
-        const device uint4* wt16 = (const device uint4*)(xy_wt + zmin);
-        const device ftype4* in16 = xy_in0 + zmin * area_size;
-        // lanesPerBlock lanes share a block evenly.
-        constexpr int uint4PairsPerLane = (quadsPerBlock / 2) / lanesPerBlock;
-        const int pair_begin = laneInBlock * uint4PairsPerLane;
-        for (int pair = pair_begin; pair < pair_begin + uint4PairsPerLane; ++pair) {
-            const uint4 packed_weight = wt16[pair];
-            const ushort4 weight0 = ushort4(packed_weight.x & 0xFFFFu, packed_weight.x >> 16,
-                                            packed_weight.y & 0xFFFFu, packed_weight.y >> 16);
-            const ushort4 weight1 = ushort4(packed_weight.z & 0xFFFFu, packed_weight.z >> 16,
-                                            packed_weight.w & 0xFFFFu, packed_weight.w >> 16);
-        #ifdef LN_FUSED
-            // Fused into the block-input RMSNorm (has_ln): the same
-            // raw*inv_rms*gamma transform the legacy loop applies, on the two
-            // quads this lane owns. zmin+2*pair / +1 are the absolute quads.
-            const int zln0 = zmin + 2 * pair;
-        #ifdef LN_STAGE
-            const FLOAT4 input0 = GEMV_2SG_LOAD_IN4(zln0);
-            const FLOAT4 input1 = GEMV_2SG_LOAD_IN4(zln0 + 1);
-        #else
-            const FLOAT4 input0 = ((FLOAT4)in16[(2 * pair) * area_size]
-                                   + (FLOAT4)*(ln_residual_in + zln0 * area_size))
-                                  * inv_rms * (FLOAT4)ln_gamma[zln0];
-            const FLOAT4 input1 = ((FLOAT4)in16[(2 * pair + 1) * area_size]
-                                   + (FLOAT4)*(ln_residual_in + (zln0 + 1) * area_size))
-                                  * inv_rms * (FLOAT4)ln_gamma[zln0 + 1];
-        #endif
-        #else
-            const FLOAT4 input0 = FLOAT4(in16[(2 * pair) * area_size]);
-            const FLOAT4 input1 = FLOAT4(in16[(2 * pair + 1) * area_size]);
-        #endif
-            input_sum += input0[0] + input0[1] + input0[2] + input0[3] +
-                         input1[0] + input1[1] + input1[2] + input1[3];
-            raw_dot += input0[0] * FLOAT(1.0 / 16.0) * FLOAT4(weight0 & ushort4(0x00F0)) +
-                       input0[1] * FLOAT4(weight0 & ushort4(0x000F)) +
-                       input0[2] * FLOAT(1.0 / 4096.0) * FLOAT4(weight0 & ushort4(0xF000)) +
-                       input0[3] * FLOAT(1.0 / 256.0) * FLOAT4(weight0 & ushort4(0x0F00)) +
-                       input1[0] * FLOAT(1.0 / 16.0) * FLOAT4(weight1 & ushort4(0x00F0)) +
-                       input1[1] * FLOAT4(weight1 & ushort4(0x000F)) +
-                       input1[2] * FLOAT(1.0 / 4096.0) * FLOAT4(weight1 & ushort4(0xF000)) +
-                       input1[3] * FLOAT(1.0 / 256.0) * FLOAT4(weight1 & ushort4(0x0F00));
-        }
-#else
         for (int z = zmin + laneInBlock; z < zmax; z += lanesPerBlock) {
             FLOAT4 in4 = GEMV_2SG_LOAD_IN4(z);
             input_sum += dot(in4, FLOAT4(1.0));
@@ -4204,11 +4055,10 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
             raw_dot += in_ps0 * FLOAT4(w16 & ushort4(0x00F0)) + in4[1] * FLOAT4(w16 & ushort4(0x000F))
                      + in_ps2 * FLOAT4(w16 & ushort4(0xF000)) + in_ps3 * FLOAT4(w16 & ushort4(0x0F00));
         }
-#endif
         FLOAT4 adjusted_bias = dequant_bias - FLOAT(8.0) * scale;
         result += raw_dot * scale + input_sum * adjusted_bias;
     #elif defined(W_QUANT_8)
-        // See the GEMV_2OCQUAD_PER_SG W8 branch above: w[j] = output lane j's ic weights, so
+        // See the GEMV_SG_OC_QUADS_2 W8 branch above: w[j] = output lane j's ic weights, so
         // accumulate dot(in4, w[j]) per lane; the per-z scalar-broadcast form
         // is the transposed product with the wrong scale lane.
         FLOAT4 raw_dot = FLOAT4(0);
@@ -4241,7 +4091,7 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
         GEMV_OUT[GEMV_OUT_BASE + uz * area_size] = activate(ftype4(result + biasValue), cst.activation);
     }
 #endif
-#endif // GEMV_2OCQUAD_PER_SG
+#endif // GEMV_SG_OC_QUADS_2
 #undef GEMV_2SG_LOAD_IN4
 #undef GEMV_OUT
 #undef GEMV_OUT_BASE
@@ -4294,6 +4144,10 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
         int blocksInFlight = SIMD_GROUP_WIDTH_4 / lanesPerBlock;
         int laneInBlock = (tiisg + i_sgitg * SIMD_GROUP_WIDTH) % lanesPerBlock;
         int blockSlot = (tiisg + i_sgitg * SIMD_GROUP_WIDTH) / lanesPerBlock;
+        // Lanes left over by a non-power-of-two lanesPerBlock would repeat a block.
+        if (blockSlot >= blocksInFlight) {
+            blockSlot = cst.blockCount;
+        }
 
 
         for (int bi= blockSlot; bi<cst.blockCount; bi += blocksInFlight) {
@@ -4462,17 +4316,6 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
                             uint3 gid[[threadgroup_position_in_grid]],
                             uint  tiisg[[thread_index_in_simdgroup]],
                             uint  sgitg[[simdgroup_index_in_threadgroup]]) {
-#ifdef G16_SPLIT_K
-    // 4 simdgroups per threadgroup (128 threads); each SG pair (sgitg >> 1)
-    // cooperates on the same two oc_4 rows, splitting the quant-block range
-    // in half (sk_half = sgitg & 1). Partials combine via threadgroup memory
-    // after the loop. Host guarantees the grid is exact (oc % 16 == 0), so no
-    // simdgroup may early-return before the barrier below -- the legacy guard
-    // is deliberately absent here.
-    const int G16_ROWS = 2;
-    const int sk_half = (int)sgitg & 1;
-    int uz = G16_ROWS * (gid.x * 2 + (int)(sgitg >> 1));
-#else
     // 2 simdgroups per threadgroup; each simdgroup computes 8 output data (2 oc_4).
     const int GEMV_G16_SGS = 2;
     const int G16_ROWS = 2;
@@ -4480,7 +4323,6 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     if(uz >= cst.outputDepthQuad) {
         return;
     }
-#endif
     auto area_size = cst.outputSize * cst.batch;
     int rx = gid.y;
 #ifdef W_QUANT_3
@@ -4503,14 +4345,12 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     int blocksInFlight = SIMD_GROUP_WIDTH / lanesPerBlock;
     int laneInBlock = (tiisg) % lanesPerBlock;
     int blockSlot = (tiisg) / lanesPerBlock;
+    // Lanes left over by a non-power-of-two lanesPerBlock would repeat a block.
+    if (blockSlot >= blocksInFlight) {
+        blockSlot = cst.blockCount;
+    }
 
-#ifdef G16_SPLIT_K
-    const int g16_bi_begin = sk_half * (cst.blockCount / 2);
-    const int g16_bi_end   = (sk_half == 1) ? cst.blockCount : (cst.blockCount / 2);
-    for (int bi = g16_bi_begin + blockSlot; bi < g16_bi_end; bi += blocksInFlight) {
-#else
     for (int bi= blockSlot; bi<cst.blockCount; bi += blocksInFlight) {
-#endif
         const int quant_offset = 2 * (uz * cst.blockCount + bi);
         FLOAT4 scale0 = FLOAT4(dequantScale[quant_offset + 0]) / (FLOAT)cst.scaleCoef;
         FLOAT4 dequant_bias0 = FLOAT4(dequantScale[quant_offset + 1]) / (FLOAT)cst.scaleCoef;
@@ -4691,29 +4531,10 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     FLOAT4 res0 = simd_sum(result0);
     FLOAT4 res1 = simd_sum(result1);
 
-#ifdef G16_SPLIT_K
-    // Two rows per SG pair -> two partial slots per pair.
-    threadgroup FLOAT4 g16_sk_partial0[2];
-    threadgroup FLOAT4 g16_sk_partial1[2];
-    const int row_pair = (int)sgitg >> 1;
-    if (sk_half == 1 && tiisg == 0) {
-        g16_sk_partial0[row_pair] = res0;
-        g16_sk_partial1[row_pair] = res1;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (sk_half == 0 && tiisg == 0) {
-        res0 += g16_sk_partial0[row_pair];
-        res1 += g16_sk_partial1[row_pair];
-        xy_out[0] = activate(ftype4(res0 + biasValue0), cst.activation);
-        xy_out[area_size] = activate(ftype4(res1 + biasValue1), cst.activation);
-    }
-#else
-    /* true */
     if (tiisg == 0) {
         xy_out[0] = activate(ftype4(res0 + biasValue0), cst.activation);
         xy_out[area_size] = activate(ftype4(res1 + biasValue1), cst.activation);
     }
-#endif
 }
 )metal";
 

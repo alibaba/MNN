@@ -97,6 +97,18 @@
   - `LoRA` 将LorA权重添加到模型权重中
   - `compilefornpu` 将Npu要运行的部分转换为Plugin算子
   - `generateIO` 用于为Npu模型转换提供输入输出工具
+## SME2硬件探针
+- 相关编译选项
+  - `MNN_BUILD_TOOLS` 是否编译测试工具（需开启）
+  - 仅 Apple Silicon (arm64) 平台生成，其他平台不编译
+- 编译命令
+    ```bash
+    mkdir build && cd build
+    cmake .. -DMNN_BUILD_TOOLS=ON
+    make -j4
+    ```
+- 编译产物
+  - `MNNSme2Probe` Apple Silicon SME2 硬件探针工具，实测各核 SME1/SME2 指令执行能力与 FMOPA 吞吐扩展性，用于判断 SoC 是每核独立 SMCU 还是共享单个 SMCU
 ## Benchmark工具
 - 相关编译选项
   - `MNN_BUILD_BENCHMARK` 是否编译Benchmark工具

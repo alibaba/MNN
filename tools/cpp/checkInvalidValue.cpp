@@ -93,8 +93,15 @@ int main(int argc, char* argv[]) {
         }
         int pos      = 0;
         bool correct = true;
-        float v1;
-        while (targetOs >> v1) {
+        std::string token;
+        while (targetOs >> token) {
+            char* end = nullptr;
+            float v1 = strtof(token.c_str(), &end);
+            if (end != token.c_str() + token.size() || !isfinite(v1)) {
+                printf(RED "Error for %s, %d: invalid value\n" NONE, s.c_str(), pos);
+                correct = false;
+                break;
+            }
             auto absValue = fabsf(v1);
             if (!isnan(v1) && absValue < limitValue) {
                 pos++;
@@ -103,6 +110,10 @@ int main(int argc, char* argv[]) {
             printf(RED "Error for %s, %d, v1=%.6f\n" NONE, s.c_str(), pos, v1);
             correct = false;
             break;
+        }
+        if (targetOs.bad()) {
+            printf(RED "Error for %s, %d: failed to read value\n" NONE, s.c_str(), pos);
+            correct = false;
         }
         if (correct) {
             printf(GREEN "Correct : %s\n" NONE, s.c_str());

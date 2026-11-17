@@ -38,7 +38,7 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
         }
         auto vkTensor = (VulkanBuffer*)(input->deviceId());
         if (nullptr == vkTensor) {
-            // The case occured if we don't need the content of input
+            // The case occurred if we don't need the content of input
             continue;
         }
         auto offset = des->offset;

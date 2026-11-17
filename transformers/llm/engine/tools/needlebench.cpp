@@ -700,6 +700,10 @@ int main(int argc, const char** argv) {
     if (!compressOnly) {
         const auto loadStart = std::chrono::steady_clock::now();
         llm.reset(Llm::createLLM(modelPath));
+        if (!llm) {
+            std::cerr << "Cannot open LLM model: " << modelPath << std::endl;
+            return 1;
+        }
         if (!llm->set_config("{\"sampler_type\":\"greedy\",\"temperature\":0,\"presence_penalty\":0,"
                              "\"repetition_penalty\":1,\"reuse_kv\":false,\"prompt_cache\":false,"
                              "\"token_compress\":0,\"kvcache_mmap\":false,\"async\":false}")) {

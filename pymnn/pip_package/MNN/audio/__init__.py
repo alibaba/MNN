@@ -65,7 +65,7 @@ Returns:
     The Hann window.
 """
 def hanning_window(window_size, periodic = False):
-    return _F.hanning_window(window_size, periodic)
+    return _F.hann_window(window_size, periodic)
 
 def melscale_fbanks(n_mels, n_fft, sampe_rate = 16000, htk = True, norm = False,
                     f_min = 0.0, f_max = 0.0):

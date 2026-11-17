@@ -1,15 +1,3 @@
-# CustomLayer Metal Impl
-file(GLOB MNN_COREML_METAL_SRCS
-    ${CMAKE_CURRENT_LIST_DIR}/backend/*.metal
-)
-
-IF(DEFINED SDK_VERSION)
-    #Defined by iOS toolchain
-    SET(METAL_SDK_PLAT "iphoneos")
-ELSE()
-    SET(METAL_SDK_PLAT "macosx")
-ENDIF()
-
 # CoreML
 file(GLOB MNN_COREML_SRCS
     ${CMAKE_CURRENT_LIST_DIR}/backend/*.cpp
@@ -18,7 +6,10 @@ file(GLOB MNN_COREML_SRCS
     ${CMAKE_CURRENT_LIST_DIR}/backend/*.mm
     ${CMAKE_CURRENT_LIST_DIR}/execution/*.cpp
     ${CMAKE_CURRENT_LIST_DIR}/execution/*.hpp
-    ${CMAKE_CURRENT_LIST_DIR}/mlmodel/src/*.c
+    ${CMAKE_CURRENT_LIST_DIR}/mlmodel/src/FeatureTypes.pb-c.c
+    ${CMAKE_CURRENT_LIST_DIR}/mlmodel/src/MIL.pb-c.c
+    ${CMAKE_CURRENT_LIST_DIR}/mlmodel/src/Model.pb-c.c
+    ${CMAKE_CURRENT_LIST_DIR}/mlmodel/src/protobuf-c.c
 )
 
 add_library(

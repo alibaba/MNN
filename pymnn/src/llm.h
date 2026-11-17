@@ -622,7 +622,7 @@ static PyObject* PyMNNLLM_create(PyObject *self, PyObject *args) {
         PyMNN_ERROR_LOG("Invalid arguments. Usage: create(path, embedding_model=False)");
         return NULL;
     }
-    LLM *llm = (LLM *)PyObject_Call((PyObject*)PyType_FindTLSType(&PyMNNLLM), PyTuple_New(0), NULL);
+    LLM *llm = (LLM *)PyObject_CallObject((PyObject*)PyType_FindTLSType(&PyMNNLLM), NULL);
     if (!llm) {
         return NULL;
     }
@@ -631,6 +631,11 @@ static PyObject* PyMNNLLM_create(PyObject *self, PyObject *args) {
         llm->is_embedding = true;
     } else {
         llm->llm = MNN::Transformer::Llm::createLLM(path);
+    }
+    if (!llm->llm) {
+        Py_DECREF(llm);
+        PyErr_Format(PyExc_RuntimeError, "Cannot open LLM model: %s", path);
+        return NULL;
     }
     return (PyObject*)llm;
 }

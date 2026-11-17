@@ -167,7 +167,7 @@ tensor 地址随之变化又会使 encode replay 失效。
 攒得太久又可能推迟 GPU 开始执行，减少 CPU/GPU 重叠。
 目标不是最少的 command buffer，而是关键路径上的供给连续、依赖正确。
 
-**方法**：由调用方 `tuning()` 或 `MNN_METAL_COMMIT_NUM` 调整批次，
+**方法**：由调用方 `tuning()` 或 `setHint(OP_ENCODER_NUMBER_FOR_COMMIT, N)` 调整批次，
 在同一工作负载上交替测量生产 wall，并用时间线解释差异。
 同时观察 command buffer 数量与它们之间的 GPU 间隙；不能仅凭数量判断切换是瓶颈，
 也不能照搬其他引擎的批次或宣称某个固定值对所有模型最优。
@@ -215,6 +215,15 @@ tensor 地址随之变化又会使 encode replay 失效。
 `onReplayUpdate` 必须在 `metalReplayValidate` 解引用之前，先比较 K/V tensor 的指针身份；
 不能通过读取旧对象来验证它是否存活。scale buffer 的替换也必须触发相应失效处理。
 
+**闲置录制的强引用**：请求重置或 KV 替换时，应通知共享该 cache 的全部 execution 失效录制；
+只等下一次 decode 自行校验，会让闲置 module 在整段 prefill 期间继续持有上一请求的 buffer。
+
+**容量与工作集分离**：`source/core/KVMeta.hpp` 的 `KVMeta::CapacityScope` 在已有历史 KV 之外，
+预留 `promptLength + min(maxTokens, promptLength)`：解码余量不超过本次 prompt 长度，避免短请求按大生成上限过度预留，
+同时在生成上限不超过 prompt 长度时覆盖整次生成，减少长上下文扩容时的新旧 KV 共存峰值；超过余量仍需扩容。
+预留是可回退目标，分配失败要退到本次前向的实际所需长度。scratch 大小和 Q 切分按实际有效长度及
+kernel 对齐推导，不要把尚未使用的物理容量带入工作量估算。保留容量仍须用于真实的 batch/scale 存储跨度。
+
 ### 7.4 LinearAttention 接入
 
 `source/backend/metal/MetalLinearAttention.mm` 的 `canRecordEncode()` 按
@@ -231,6 +240,8 @@ shape 不变时应保留 Tensor 对象，并在 `onReplayUpdate` 中检查 resiz
 用 `MNN_METAL_REPLAY_DEBUG` 观察 record / ban / invalidate 的触发原因。
 验证应覆盖稳定 shape、KV 扩容、路径阈值跨越、参数变化和重复 resize：
 稳定路径能重放，变化路径能安全失效并重录，输出与正常 encode 一致。
+涉及内存回收或容量规划时，还要覆盖完整请求后的长短切换、共享 prefill/decode module、追加历史和
+嵌套 chunk 入口；同时检查输出、旧录制引用、池内完整空闲根块和进程峰值，不能仅以逻辑 Tensor 缩小判定成功。
 
 ---
 

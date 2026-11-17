@@ -59,11 +59,26 @@ static void q31_dequant_ref(const uint8_t* src, float* dst, float scale, float z
 }
 
 void DiskEmbedding::seek_read(uint8_t* dst, size_t size, size_t offset) {
+    if (mSource.data) {
+        if (offset <= mSource.size && size <= mSource.size - offset) {
+            memcpy(dst, mSource.data + offset, size);
+        } else {
+            memset(dst, 0, size);
+            MNN_ERROR("Embedding read exceeds resource bounds.\n");
+        }
+        return;
+    }
     mFile->offset(offset);
     mFile->read((char*)dst, size);
 }
 
 DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::string fileName, int hiddenSize, std::vector<int64_t> quant_info) {
+    auto open = [&](const std::string& path) {
+        mSource = config->resource(path);
+        if (!mSource.data) {
+            mFile.reset(new FileLoader(mSource.filePath().c_str(), true));
+        }
+    };
     // External positional list (e.g. ple_quant) takes precedence; otherwise read structured form from config.
     LlmConfig::TieEmbeddingsInfo info =
         quant_info.size() >= 5 ? LlmConfig::parseTieEmbeddings(quant_info) : config->tie_embeddings_info();
@@ -71,7 +86,7 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
     if (hiddenSize > 0 && !fileName.empty() && quant_info.empty()) {
         // PLE bf16 path
         mTokenSize = mHiddenSize * sizeof(int16_t);
-        mFile.reset(new FileLoader(fileName.c_str(), true));
+        open(fileName);
     } else if (info.valid) {
         mWeightOffset = info.weight_offset;
         mQuantBit = info.quant_bit;
@@ -85,7 +100,11 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
         } else {
             fileName = config->llm_weight();
         }
-        mFile.reset(new FileLoader(fileName.c_str(), true));
+        open(fileName);
+        if (!valid()) {
+            MNN_ERROR("Failed to open embedding resource: %s\n", fileName.c_str());
+            return;
+        }
         mTokenSize = mHiddenSize * mQuantBit / 8;
         // TODO: optimize dequant function
         if (mQuantBit != 16) {
@@ -141,9 +160,9 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
             fileName = config->embedding_file();
         }
         mTokenSize = mHiddenSize * sizeof(int16_t);
-        mFile.reset(new FileLoader(fileName.c_str(), true));
+        open(fileName);
     }
-    if(mFile == nullptr || (!mFile->valid())) {
+    if (!valid()) {
         MNN_ERROR("Failed to open embedding file!\n");
     }
     mWeight.reset(new uint8_t[mTokenSize]);

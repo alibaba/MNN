@@ -60,6 +60,8 @@ data class TestInstance(
     val dynamicOption: Int
 ) {
     // Following llm_bench.cpp calculation methods
+    var energy: BenchmarkEnergyResult? = null
+
     fun getTokensPerSecond(nTokens: Int, costUs: List<Long>): List<Double> {
         return costUs.map { t -> 1e6 * nTokens / t }
     }
@@ -130,7 +132,8 @@ enum class ProgressType {
     RUNNING_TEST,
     PROCESSING_RESULTS,
     COMPLETED,
-    STOPPING
+    STOPPING,
+    ENERGY_BASELINE
 }
 
 // Final benchmark result from C++ - updated to match official structure

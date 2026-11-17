@@ -8,6 +8,13 @@
 [![MNN Homepage](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
 [![zread](https://img.shields.io/badge/Zread-ask-green)](https://zread.ai/alibaba/MNN)
 
+## 新闻 🔥
+
+- [2026/11/04] 我们发布了 **MNN-Pocket-0.3B**，一款支持中英文指令交互的 **3 亿参数手机应用原生大模型**。MNN 团队从手机应用的任务需求与资源预算出发，协同设计模型结构、训练方法与推理引擎。支持 **32K 上下文**；INT4（W4A16）QAT MNN 版本体积仅 **173 MB**，在 iPhone 18 Pro 上实测解码速度为 **350 tok/s**。以 **Apache 2.0** 许可证开源。
+
+  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://arxiv.org/pdf/2611.12311)
+
+## 简介
 
 [MNN](https://github.com/alibaba/MNN)是一个轻量级的深度神经网络引擎，支持深度学习的推理与训练。适用于服务器/个人电脑/手机/嵌入式各类设备。目前，MNN已经在阿里巴巴的手机淘宝、手机天猫、优酷等30多个App中使用，覆盖直播、短视频、搜索推荐、商品图像搜索、互动营销、权益发放、安全风控等场景。
 
@@ -81,22 +88,36 @@ MNN适配的硬件架构与精度详见下表：
 - B ：支持，无优化或在实验状态，不推荐使用
 - C ：不支持
 
-| Architecture / Precision |  | Normal | FP16 | BF16 | Int8 / Int4 |
+| Architecture / Precision |  | Normal | FP16 | BF16 | INT8 / INT4 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | Native | B | C | B | B |
 |  | x86/x64-SSE4.1 | A | C | C | A |
 |  | x86/x64-AVX2 | S | C | C | A |
 |  | x86/x64-AVX512 | S | C | C | S |
-|  | ARMv7a | S | S (ARMv8.2) | S | S |
+|  | ARMv7a | S | C | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
+|  | ARMv9 (SME2) | S | S | B | S |
+|  | RISC-V (RVV) | A | C | C | B |
 | GPU | OpenCL | A | S | C | S |
 |  | Vulkan | A | A | C | A |
 |  | Metal | A | S | C | S |
 |  | CUDA | A | S | C | A |
-| NPU | CoreML | A | C | C | C |
+| NPU | CoreML | A | A | C | C |
+|  | Hexagon | A | A | C | B |
+|  | NeuroPilot | B | B | C | B |
 |  | HIAI | A | C | C | C |
 |  | NNAPI | B | B | C | B |
-|  | QNN | C | B | C | C |
+|  | QNN | C | B | C | A |
+
+CoreML 在 `Precision_Normal` 下主要使用 FP16 MIL 张量和权重；`Precision_Low` 不是独立的执行路径。算子的执行设备由 Core ML 选择。
+
+Hexagon 即使接收 Normal 精度的主机输入，设备端张量仍使用 FP16。
+
+
+ARMv9 可使用 ARMv8 路径；SME2 加速需要 CPU 和构建配置支持。BF16 使用已有 ARM 路径，需启用 `MNN_SUPPORT_BF16`。RISC-V IME2 优化针对 SpacemiT K3。
+
+INT8 / INT4 评级包含仅量化权重的模型路径，不表示所有算子均使用整数计算。Hexagon 的 LLM 文档目前要求对称 INT4 权重和 FP16 激活；QNN 的支持范围取决于目标设备和量化配置。
+
 
 
 ## 工具

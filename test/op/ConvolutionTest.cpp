@@ -388,6 +388,10 @@ public:
                               {pad_w, pad_h}, sparseAlgo, sparseBlockOC, mSparse);
              out = _Convert(out, NCHW);
              auto outputPtr = out->readMap<float>();
+             if (!outputPtr) {
+                 MNN_ERROR("Convolution test: backend returned no output\n");
+                 return false;
+             }
              if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
                  MNN_PRINT("multi expect:\t real:\n");
                  for (int i = 0; i < outputData.size(); ++i)
@@ -445,6 +449,10 @@ public:
 
             // difference below 0.5% relative error is considered correct.
             auto outputPtr = output->readMap<float>();
+            if (!outputPtr) {
+                MNN_ERROR("Convolution test: backend returned no output\n");
+                return false;
+            }
 
             // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
 
@@ -665,6 +673,10 @@ public:
             // difference below 0.5% relative error is considered correct.
             output = _Convert(output, NCHW);
             auto outputPtr = output->readMap<float>();
+            if (!outputPtr) {
+                MNN_ERROR("Convolution test: backend returned no output\n");
+                return false;
+            }
             // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
 
             if (!checkVectorByRelativeError<float>(outputPtr, toutputData.data(), toutputData.data(), toutputData.size(), 0.001 * errorScale)) {

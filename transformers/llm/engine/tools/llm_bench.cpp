@@ -1,5 +1,6 @@
 #include "llm/llm.hpp"
 #include "core/MNNFileUtils.h"
+#include "Utils.hpp"
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/Interpreter.hpp>
@@ -16,6 +17,7 @@
 #include <rapidjson/writer.h>
 #include <thread>
 #include <algorithm>
+#include <cstring>
 #include <numeric>
 #include <memory>
 
@@ -812,27 +814,74 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
 }
 
 std::string getDirectoryOf(const std::string& file_path, std::string& modelname) {
+    if (MNNDirExist(file_path.c_str())) {
+        return getDirectoryOf(MNNFilePathConcat(file_path, "config.json"), modelname);
+    }
+    size_t pos = file_path.find_last_of("/\\");
+    const auto filename = file_path.substr(pos == std::string::npos ? 0 : pos + 1);
+    if (filename.size() < 5 || filename.compare(filename.size() - 5, 5, ".json") != 0) {
+        modelname = filename;
+        if (filename.size() >= 4 && filename.compare(filename.size() - 4, 4, ".mnn") == 0) {
+            return file_path + ".weight";
+        }
+        return file_path;
+    }
     // weight filename
     std::string weight_name = "llm.mnn.weight";
-    std::ifstream file(file_path.c_str());
+    std::ifstream file(file_path.c_str(), std::ios::binary);
+    if (!file) {
+        MNN_ERROR("Cannot open model config: %s\n", file_path.c_str());
+        return "";
+    }
+    const unsigned char packageMagic[] = {0xae, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
+    unsigned char prefix[sizeof(packageMagic)];
+    if (file.read(reinterpret_cast<char*>(prefix), sizeof(prefix)) &&
+        std::memcmp(prefix, packageMagic, sizeof(prefix)) == 0) {
+        modelname = filename;
+        return file_path;
+    }
+    file.clear();
+    file.seekg(0);
     std::string json_str((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
     rapidjson::Document doc;
     doc.Parse(json_str.c_str());
 
+    if (doc.HasParseError() || !doc.IsObject()) {
+        MNN_ERROR("Invalid model config: %s\n", file_path.c_str());
+        return "";
+    }
     if (doc.HasMember("llm_weight") && doc["llm_weight"].IsString()) {
         weight_name = doc["llm_weight"].GetString();
     }
 
-    size_t pos = file_path.find_last_of("/\\");
-    if (pos == std::string::npos) {
-        MNN_ERROR("Invalid model config path\n");
-        return "";
-    }
-    auto dir = file_path.substr(0, pos);
+    auto dir = pos == std::string::npos ? std::string(".") : file_path.substr(0, pos);
     pos = dir.find_last_of("/\\");
     modelname = dir.substr(pos + 1, -1);
     return MNNFilePathConcat(dir, weight_name);
+}
+
+static bool modelFileSize(file_t file, uint64_t& size) {
+#if defined(__ANDROID__) && !defined(__LP64__)
+    struct stat64 info;
+    if (fstat64(file, &info) != 0 || info.st_size < 0) {
+        return false;
+    }
+    size = static_cast<uint64_t>(info.st_size);
+#elif (defined(WIN32) || defined(_WIN32) || defined(_MSC_VER)) && !defined(_WIN64)
+    LARGE_INTEGER info;
+    if (!GetFileSizeEx(file, &info) || info.QuadPart < 0) {
+        return false;
+    }
+    size = static_cast<uint64_t>(info.QuadPart);
+#else
+    const auto info = MNNGetFileSize(file);
+    if (info == INVALID_SIZE) {
+        return false;
+    }
+    size = static_cast<uint64_t>(info);
+#endif
+    return true;
 }
 
 static void printUsage(int /* argc */, char ** argv) {
@@ -1106,7 +1155,12 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
 
 
 static Llm* buildLLM(const std::string& config_path, int backend, int memory, int precision, int threads, int power, int dynamic_option, bool use_mmap, int divisionRatioSme2Neon, int promptLen, int quant_kv, int flash_attention) {
-    auto llmPtr = Llm::createLLM(config_path);
+    const auto path = MNNDirExist(config_path.c_str()) ? MNNFilePathConcat(config_path, "config.json") : config_path;
+    auto llmPtr = Llm::createLLM(path);
+    if (!llmPtr) {
+        MNN_ERROR("Cannot create LLM from: %s\n", config_path.c_str());
+        return nullptr;
+    }
     // Every repetition must execute the requested number of decode steps.
     // Random sampling + EOS otherwise changes the workload and inflates tgN
     // throughput when N is divided by the time of an early-stopped response.
@@ -1310,13 +1364,30 @@ int main(int argc, char ** argv) {
 
     bool printHeader = true;
 
+    bool notedPackageSize = false;
     for (const auto & instance: paramsInstances) {
         TestInstance t(instance);
         auto llmWeightPath = getDirectoryOf(t.modelConfigFile, t.modelType); // To check path
+        if (llmWeightPath.empty()) {
+            return 1;
+        }
+        if (llmWeightPath == t.modelConfigFile && !notedPackageSize) {
+            fprintf(stderr, "[llm_bench] modelSize is the full file size for single-file models; "
+                            "for config.json it is the weight file size.\n");
+            notedPackageSize = true;
+        }
 
         file_t file = MNNOpenFile(llmWeightPath.c_str(), MNN_FILE_READ);
-        t.modelSize = MNNGetFileSize(file);
+        if (file == INVALID_FILE) {
+            MNN_ERROR("Cannot open model file: %s\n", llmWeightPath.c_str());
+            return 1;
+        }
+        const bool gotSize = modelFileSize(file, t.modelSize);
         MNNCloseFile(file);
+        if (!gotSize) {
+            MNN_ERROR("Cannot determine model size: %s\n", llmWeightPath.c_str());
+            return 1;
+        }
 
         MNN::BackendConfig backendConfig;
         // Map backend parameter to MNN forward type (0=CPU, 1=METAL, 2=CUDA, 3=OPENCL)
@@ -1326,6 +1397,9 @@ int main(int argc, char ** argv) {
 
         BenchProfile profile;
         auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.nPrompt, instance.mCmdParam.quantKv, instance.mCmdParam.flashAttention);
+        if (!llmPtr) {
+            return 1;
+        }
         std::unique_ptr<Llm> llm(llmPtr);
         if (enableProfile) {
             llm->set_config(R"({"enable_debug":true})");
@@ -1339,6 +1413,11 @@ int main(int argc, char ** argv) {
                     return true;
                 }
             );
+            const auto debug = llm->getExecutor()->getDebugTools();
+            if (!debug || !debug->before || !debug->after) {
+                MNN_ERROR("[llm_bench] Operator profiling is unavailable for this model.\n");
+                return 1;
+            }
         }
         if (instance.mCmdParam.loadingTime == "true") {
             for (int k = 0; k < 3; ++k) {

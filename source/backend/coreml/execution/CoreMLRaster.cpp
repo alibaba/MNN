@@ -8,383 +8,546 @@
 
 #include "CoreMLRaster.hpp"
 #include <cmath>
+#include <algorithm>
 #include "core/OpCommonUtils.hpp"
+#include "backend/arm82/Arm82OptFunc.hpp"
 
 namespace MNN {
 
-CoreMLRaster::CoreMLRaster(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : CoreMLCommonExecution(b, op) {
-    initLayer();
+CoreMLRaster::CoreMLRaster(MNN::Backend* b, const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                           const std::vector<MNN::Tensor*>& outputs)
+    : CoreMLCommonExecution(b, op) {
+    if (op->type() == OpType_Padding && inputs.size() > 2) {
+        mValid = TensorUtils::getDescribe(inputs[2])->usage == Tensor::InsideDescribe::CONSTANT &&
+                 TensorUtils::getRawSize(inputs[2]) == 1 && inputs[2]->host<void>();
+    }
+    if (op->type() == OpType_StridedSlice && op->main_as_StridedSliceParam()->fromType() == 0 && inputs.size() == 5) {
+        mValid = false;
+    }
 }
 
-bool CoreMLRaster::buildReshape(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output) {
-    mCoreMLBackend->setLayerName(layer, "Reshape");
-    layer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_RESHAPE_STATIC;
-    layer->reshapestatic = mCoreMLBackend->create<CoreML__Specification__ReshapeStaticLayerParams>();
-    core_ml__specification__reshape_static_layer_params__init(layer->reshapestatic);
-    auto outputShape = output->shape();
-    layer->reshapestatic->n_targetshape = outputShape.size();
-    layer->reshapestatic->targetshape = mCoreMLBackend->create<int64_t>(layer->reshapestatic->n_targetshape);
-    for (int i = 0; i < outputShape.size(); i++) {
-        layer->reshapestatic->targetshape[i] = outputShape[i];
-    }
-     if (outputShape.size() == 0) {
-         layer->reshapestatic->n_targetshape = 1;
-         layer->reshapestatic->targetshape = mCoreMLBackend->create<int64_t>(layer->reshapestatic->n_targetshape);
-         layer->reshapestatic->targetshape[0] = 1;
-     }
-    mCoreMLBackend->setLayerInputs(layer, {mCoreMLBackend->getTensorName(input)});
-    return true;
-}
-bool CoreMLRaster::buildPermute(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output) {
-    bool needReshape = input->dimensions() != output->dimensions();
-    CoreML__Specification__NeuralNetworkLayer *permuteLayer = layer, *reshapeLayer = nullptr;
-    if (needReshape) {
-        permuteLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
-        core_ml__specification__neural_network_layer__init(permuteLayer);
-        reshapeLayer = layer;
-    }
-    mCoreMLBackend->setLayerName(permuteLayer, "Transpose");
-    permuteLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_TRANSPOSE;
-    permuteLayer->transpose = mCoreMLBackend->create<CoreML__Specification__TransposeLayerParams>();
-    core_ml__specification__transpose_layer_params__init(permuteLayer->transpose);
-    permuteLayer->transpose->n_axes = 4;
-    permuteLayer->transpose->axes = mCoreMLBackend->create<uint64_t>(permuteLayer->transpose->n_axes);
-    auto srcFormat = TensorUtils::getDescribe(input)->dimensionFormat;
-    auto dstFormat = TensorUtils::getDescribe(output)->dimensionFormat;
-    // NCHW -> NHWC
-    if ((srcFormat == MNN_DATA_FORMAT_NC4HW4 || srcFormat == MNN_DATA_FORMAT_NCHW)
-        && dstFormat == MNN_DATA_FORMAT_NHWC) {
-        permuteLayer->transpose->axes[0] = 0;
-        permuteLayer->transpose->axes[1] = 2;
-        permuteLayer->transpose->axes[2] = 3;
-        permuteLayer->transpose->axes[3] = 1;
-    }
-    // NHWC -> NCHW
-    if ((dstFormat == MNN_DATA_FORMAT_NC4HW4 || srcFormat == MNN_DATA_FORMAT_NCHW)
-        && srcFormat == MNN_DATA_FORMAT_NHWC) {
-        permuteLayer->transpose->axes[0] = 0;
-        permuteLayer->transpose->axes[1] = 3;
-        permuteLayer->transpose->axes[2] = 1;
-        permuteLayer->transpose->axes[3] = 2;
-    }
-    if (srcFormat == dstFormat) {
-        auto inputShape = input->shape();
-        auto outputShape = output->shape();
-        for (int i = 0; i < outputShape.size(); i++) {
-            auto dimVal = outputShape[i];
-            auto axis = -1;
-            for (int j = 0; j < inputShape.size(); j++) {
-                if (inputShape[j] == dimVal) {
-                    axis = j;
-                    break;
-                }
-            }
-            permuteLayer->transpose->axes[i] = axis;
-        }
-    }
-    mCoreMLBackend->setLayerInputs(permuteLayer, {mCoreMLBackend->getTensorName(input)});
-    if (reshapeLayer) {
-        std::string middleName = mCoreMLBackend->getTensorName(input) + "_permute_" + mCoreMLBackend->getTensorName(output);
-        mCoreMLBackend->setLayerOutputs(permuteLayer, {middleName});
-        mCoreMLBackend->addLayer(permuteLayer);
-        mCoreMLBackend->setLayerName(reshapeLayer, "Permute_Reshape");
-        reshapeLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_RESHAPE_STATIC;
-        reshapeLayer->reshapestatic = mCoreMLBackend->create<CoreML__Specification__ReshapeStaticLayerParams>();
-        core_ml__specification__reshape_static_layer_params__init(reshapeLayer->reshapestatic);
-        auto outputShape = output->shape();
-        reshapeLayer->reshapestatic->n_targetshape = outputShape.size();
-        reshapeLayer->reshapestatic->targetshape = mCoreMLBackend->create<int64_t>(reshapeLayer->reshapestatic->n_targetshape);
-        for (int i = 0; i < outputShape.size(); i++) {
-            reshapeLayer->reshapestatic->targetshape[i] = outputShape[i];
-        }
-        mCoreMLBackend->setLayerInputs(reshapeLayer, {middleName});
-    }
-    return true;
+inline std::vector<int> tovec(const flatbuffers::Vector<int>* dims) {
+    return std::vector<int>(dims->data(), dims->data() + dims->size());
 }
 
-bool CoreMLRaster::buildPad(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output) {
-    bool needPermute = TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NHWC;
-    CoreML__Specification__NeuralNetworkLayer *padLayer = layer, *postPermute = nullptr;
-    std::string inputName = mCoreMLBackend->getTensorName(input);
-    if (needPermute) {
-        padLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
-        core_ml__specification__neural_network_layer__init(padLayer);
-        postPermute = layer;
-        // NHWC -> NCHW
-        auto prePermute = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
-        core_ml__specification__neural_network_layer__init(prePermute);
-        mCoreMLBackend->setLayerName(prePermute, "prePermute");
-        prePermute->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_PERMUTE;
-        prePermute->permute = mCoreMLBackend->create<CoreML__Specification__PermuteLayerParams>();
-        core_ml__specification__permute_layer_params__init(prePermute->permute);
-        prePermute->permute->n_axis = 4;
-        prePermute->permute->axis = mCoreMLBackend->create<uint64_t>(prePermute->permute->n_axis);
-        prePermute->permute->axis[0] = 0;
-        prePermute->permute->axis[1] = 3;
-        prePermute->permute->axis[2] = 1;
-        prePermute->permute->axis[3] = 2;
-        setLayerInputsAndOutputs(prePermute, {inputName}, {inputName + "-permute"});
-        inputName = inputName + "-permute";
-        mCoreMLBackend->addLayer(prePermute);
-    }
-    int padh = output->height() - input->height(), padw = output->width() - input->width();
-    int top = padh / 2, bottom = std::ceil(padh / 2.0), left = padw / 2, right = std::ceil(padw / 2.0);
-    mCoreMLBackend->setLayerName(padLayer, "Pad");
-    padLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_PADDING;
-    padLayer->padding = mCoreMLBackend->create<CoreML__Specification__PaddingLayerParams>();
-    core_ml__specification__padding_layer_params__init(padLayer->padding);
-    padLayer->padding->padding_type_case = CORE_ML__SPECIFICATION__PADDING_LAYER_PARAMS__PADDING_TYPE_CONSTANT;
-    padLayer->padding->constant = mCoreMLBackend->create<CoreML__Specification__PaddingLayerParams__PaddingConstant>();
-    core_ml__specification__padding_layer_params__padding_constant__init(padLayer->padding->constant);
-    padLayer->padding->constant->value = 0;
-    padLayer->padding->paddingamounts = mCoreMLBackend->create<CoreML__Specification__BorderAmounts>();
-    core_ml__specification__border_amounts__init(padLayer->padding->paddingamounts);
-    padLayer->padding->paddingamounts->n_borderamounts = 2;
-    padLayer->padding->paddingamounts->borderamounts = mCoreMLBackend->create<CoreML__Specification__BorderAmounts__EdgeSizes*>(2);
-    padLayer->padding->paddingamounts->borderamounts[0] = mCoreMLBackend->create<CoreML__Specification__BorderAmounts__EdgeSizes>();
-    core_ml__specification__border_amounts__edge_sizes__init(padLayer->padding->paddingamounts->borderamounts[0]);
-    padLayer->padding->paddingamounts->borderamounts[0]->startedgesize = top;
-    padLayer->padding->paddingamounts->borderamounts[0]->endedgesize = bottom;
-    padLayer->padding->paddingamounts->borderamounts[1] = mCoreMLBackend->create<CoreML__Specification__BorderAmounts__EdgeSizes>();
-    core_ml__specification__border_amounts__edge_sizes__init(padLayer->padding->paddingamounts->borderamounts[1]);
-    padLayer->padding->paddingamounts->borderamounts[1]->startedgesize = left;
-    padLayer->padding->paddingamounts->borderamounts[1]->endedgesize = right;
-    mCoreMLBackend->setLayerInputs(padLayer, {inputName});
-    if (needPermute) {
-        inputName = inputName + "-pad";
-        mCoreMLBackend->setLayerOutputs(padLayer, {inputName});
-        mCoreMLBackend->addLayer(padLayer);
-        // NHWC -> NCHW
-        mCoreMLBackend->setLayerName(postPermute, "postPermute");
-        postPermute->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_PERMUTE;
-        postPermute->permute = mCoreMLBackend->create<CoreML__Specification__PermuteLayerParams>();
-        core_ml__specification__permute_layer_params__init(postPermute->permute);
-        postPermute->permute->n_axis = 4;
-        postPermute->permute->axis = mCoreMLBackend->create<uint64_t>(postPermute->permute->n_axis);
-        postPermute->permute->axis[0] = 0;
-        postPermute->permute->axis[1] = 2;
-        postPermute->permute->axis[2] = 3;
-        postPermute->permute->axis[3] = 1;
-        mCoreMLBackend->setLayerInputs(postPermute, {inputName});
-    }
-    return true;
-}
-
-bool CoreMLRaster::buildCrop(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output) {
-    if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
-        return false;
-    }
-    int croph = input->height() - output->height(), cropw = input->width() - output->width();
-    int top = croph / 2, bottom = std::ceil(croph / 2.0), left = cropw / 2, right = std::ceil(cropw / 2.0);
-    mCoreMLBackend->setLayerName(layer, "Crop");
-    layer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_CROP;
-    layer->crop = mCoreMLBackend->create<CoreML__Specification__CropLayerParams>();
-    core_ml__specification__crop_layer_params__init(layer->crop);
-    layer->crop->cropamounts = mCoreMLBackend->create<CoreML__Specification__BorderAmounts>();
-    core_ml__specification__border_amounts__init(layer->padding->paddingamounts);
-    layer->crop->cropamounts->n_borderamounts = 2;
-    layer->crop->cropamounts->borderamounts = mCoreMLBackend->create<CoreML__Specification__BorderAmounts__EdgeSizes*>(2);
-    layer->crop->cropamounts->borderamounts[0] = mCoreMLBackend->create<CoreML__Specification__BorderAmounts__EdgeSizes>();
-    core_ml__specification__border_amounts__edge_sizes__init(layer->crop->cropamounts->borderamounts[0]);
-    layer->crop->cropamounts->borderamounts[0]->startedgesize = top;
-    layer->crop->cropamounts->borderamounts[0]->endedgesize = bottom;
-    layer->crop->cropamounts->borderamounts[1] = mCoreMLBackend->create<CoreML__Specification__BorderAmounts__EdgeSizes>();
-    core_ml__specification__border_amounts__edge_sizes__init(layer->crop->cropamounts->borderamounts[1]);
-    layer->crop->cropamounts->borderamounts[1]->startedgesize = left;
-    layer->crop->cropamounts->borderamounts[1]->endedgesize = right;
-    mCoreMLBackend->setLayerInputs(layer, {mCoreMLBackend->getTensorName(input)});
-    return true;
-}
-
-bool CoreMLRaster::buildSlice(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output) {
-    int endc = output->channel(), endh = output->height(), endw = output->width();
-    bool maskc = endc == input->channel(), maskh = endh == input->height(), maskw = endw == input->width();
-    mCoreMLBackend->setLayerName(layer, "Slice");
-    layer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_SLICE_STATIC;
-    layer->slicestatic = mCoreMLBackend->create<CoreML__Specification__SliceStaticLayerParams>();
-    core_ml__specification__slice_static_layer_params__init(layer->slicestatic);
-    // [Seq, N, C, H, W] : [0:1:-1, 0:1:-1, 0:1:endc, 0:1:endh, 0:1:endw]
-    int dims = 5;
-    layer->slicestatic->n_beginids = dims;
-    layer->slicestatic->beginids = mCoreMLBackend->create<int64_t>(dims);
-    layer->slicestatic->n_beginmasks = dims;
-    layer->slicestatic->beginmasks = mCoreMLBackend->create<int>(dims);
-    layer->slicestatic->n_strides = dims;
-    layer->slicestatic->strides = mCoreMLBackend->create<int64_t>(dims);
-    for (int i = 0; i < dims; i++) {
-        layer->slicestatic->beginids[i] = 0;
-        layer->slicestatic->beginmasks[i] = true;
-        layer->slicestatic->strides[i] = 1;
-    }
-    layer->slicestatic->n_endids = dims;
-    layer->slicestatic->endids = mCoreMLBackend->create<int64_t>(dims);
-    layer->slicestatic->n_endmasks = dims;
-    layer->slicestatic->endmasks = mCoreMLBackend->create<int>(dims);
-    layer->slicestatic->endids[0] = -1;
-    layer->slicestatic->endids[1] = -1;
-    layer->slicestatic->endids[2] = endc;
-    layer->slicestatic->endids[3] = endh;
-    layer->slicestatic->endids[4] = endw;
-    layer->slicestatic->endmasks[0] = true;
-    layer->slicestatic->endmasks[1] = true;
-    layer->slicestatic->endmasks[2] = maskc;
-    layer->slicestatic->endmasks[3] = maskh;
-    layer->slicestatic->endmasks[4] = maskw;
-    mCoreMLBackend->setLayerInputs(layer, {mCoreMLBackend->getTensorName(input)});
-    return true;
-}
-
-bool CoreMLRaster::buildDepthToSpace(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output) {
-    int blockSize = output->height() / input->height();
-    mCoreMLBackend->setLayerName(layer, "DepthToSpace");
-    layer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_REORGANIZE_DATA;
-    layer->reorganizedata = mCoreMLBackend->create<CoreML__Specification__ReorganizeDataLayerParams>();
-    core_ml__specification__reorganize_data_layer_params__init(layer->reorganizedata);
-    layer->reorganizedata->blocksize = blockSize;
-    // layer->reorganizedata->mode = CORE_ML__SPECIFICATION__REORGANIZE_DATA_LAYER_PARAMS__REORGANIZATION_TYPE__DEPTH_TO_SPACE;
-    layer->reorganizedata->mode = CORE_ML__SPECIFICATION__REORGANIZE_DATA_LAYER_PARAMS__REORGANIZATION_TYPE__PIXEL_SHUFFLE;
-    mCoreMLBackend->setLayerInputs(layer, {mCoreMLBackend->getTensorName(input)});
-    return true;
-}
-
-bool CoreMLRaster::rasterOptimization(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    const auto& regions = TensorUtils::getDescribe(inputs[0])->regions;
-    const auto region = regions[0];
-    // region_size = 1: reshape, transpose
-    if (regions.size() == 1) {
-        int inputSize = 1, outputSize = 1;
-        for (int i = 0; i < region.origin->dimensions(); i++) {
-            inputSize *= region.origin->length(i);
-        }
-        for (int i = 0; i < outputs[0]->dimensions(); i++) {
-            outputSize *= outputs[0]->length(i);
-        }
-        // reshape, permute
-        if (inputSize == outputSize) {
-            // reshape
-            if (TensorUtils::isCopyRegion(region)) {
-                return buildReshape(mLayer_, region.origin, outputs[0]);
-            }
-            // transpose
-            if (TensorUtils::isTransposeRegion(region)) {
-                return buildPermute(mLayer_, region.origin, outputs[0]);
-            }
-        }
-        // pad
-        if (inputSize < outputSize) {
-            return buildPad(mLayer_, region.origin, outputs[0]);
-        }
-        // slice/crop
-        if (inputSize > outputSize) {
-            return false;
-            // TODO: Apple NPU will ANCE Error.
-            // return buildCrop(mLayer_, region.origin, outputs[0]);
-            // return buildSlice(mLayer_, region.origin, outputs[0]);
-        }
-        return false;
-    }
-    if (TensorUtils::isDepthToSpaceRegions(outputs[0])) {
-        return buildDepthToSpace(mLayer_, region.origin, outputs[0]);
-    }
-    // region_size > 1: concat
-    {
-        int dim = outputs[0]->dimensions();
-
-        if (region.origin->dimensions() != dim) {
-            return false;
-        }
-        int axis = -1;
-        for (int i = 0; i < outputs[0]->dimensions(); i++) {
-            if (region.origin->length(i) != outputs[0]->length(i)) {
-                if (axis >= 0) {
+ErrorCode CoreMLRaster::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    if (mOp->type() == OpType_Raster) {
+        // Raster addresses dense storage linearly. Keeping its public MIL bindings
+        // flat also avoids ANE compiler reshape expansion for rank-five tensors
+        // (for example [2,2,2,2,2] -> [32] -> [2,2,2,2,2]).
+        mCoreMLBackend->useFlatIO();
+        OpCommonUtils::rasterInputReset(inputs, outputs[0]);
+        auto regions = TensorUtils::getDescribe(outputs[0])->regions;
+        const int total = TensorUtils::getRawSize(outputs[0]);
+        const auto dtype = mCoreMLBackend->typeConvert(outputs[0]->getType());
+        int serial = 0;
+        auto reshape = [&](const std::string& x, const std::vector<int>& shape) {
+            auto tag = std::to_string(serial++);
+            return operation("reshape").input("x", x).shape("shape", shape, "shape_" + tag).output(shape, tag, dtype);
+        };
+        auto gather = [&](const std::string& x, const std::vector<int>& indices) {
+            auto tag = std::to_string(serial++);
+            return operation("gather")
+                .input("x", x)
+                .array("indices", indices, "indices_" + tag)
+                .scalar<int32_t>("axis", 0, "axis_" + tag)
+                .scalar("validate_indices", true, "validate_" + tag)
+                .output({int(indices.size())}, tag, dtype);
+        };
+        auto contiguous = [](const Tensor::InsideDescribe::Region& region, bool source) {
+            const auto& view = source ? region.src : region.dst;
+            int stride = 1;
+            for (int i = 2; i >= 0; --i) {
+                if (region.size[i] > 1 && view.stride[i] != stride) {
                     return false;
                 }
-                axis = i;
+                stride *= region.size[i];
             }
+            return true;
+        };
+        bool concatenation = true;
+        int covered = 0;
+        for (const auto& region : regions) {
+            if (!contiguous(region, false) || region.dst.offset != covered) {
+                concatenation = false;
+            }
+            covered += region.size[0] * region.size[1] * region.size[2];
         }
-        int elemSize = region.size[0] * region.size[1] * region.size[2];
-        bool isSameShape = true;
-        for (int i = 1; i < regions.size(); i++) {
-            isSameShape &= (elemSize == regions[i].size[0] * regions[i].size[1] * regions[i].size[2]);
-            if (regions[i].origin->dimensions() != dim) {
-                return false;
+        concatenation = concatenation && covered == total;
+        std::vector<std::string> pieces;
+        std::string output;
+        if (!concatenation) {
+            auto fill = operation("fill");
+            fill.shape("shape", {total}, "zero_shape");
+            fill.input("value", outputs[0]->getType() == halide_type_of<int>() ? buildScalar(0, "zero")
+                                                                               : buildScalar(0.0f, "zero"));
+            output = fill.output({total}, "zero", dtype);
+        }
+        for (const auto& region : regions) {
+            if (!region.origin) {
+                return NOT_SUPPORT;
             }
-            for (int j = 0; j < dim; j++) {
-                if (j != axis && regions[i].origin->length(j) != outputs[0]->length(j)) {
-                    return false;
+            int count = region.size[0] * region.size[1] * region.size[2];
+            int sourceSize = TensorUtils::getRawSize(region.origin);
+            auto value = mCoreMLBackend->getTensorName(region.origin);
+            auto flat = value;
+            std::vector<int> order = {0, 1, 2};
+            std::sort(order.begin(), order.end(),
+                      [&](int a, int b) { return region.src.stride[a] > region.src.stride[b]; });
+            int stride = 1;
+            bool permutation = region.src.offset == 0 && count == sourceSize;
+            for (int i = 2; i >= 0; --i) {
+                int axis = order[i];
+                if (region.size[axis] > 1 && region.src.stride[axis] != stride) {
+                    permutation = false;
                 }
+                stride *= region.size[axis];
             }
-        }
-        if (isSameShape && (axis - dim == -3)) {
-            mCoreMLBackend->setLayerName(mLayer_, "Concat");
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_CONCAT;
-            mLayer_->concat = mCoreMLBackend->create<CoreML__Specification__ConcatLayerParams>();
-            core_ml__specification__concat_layer_params__init(mLayer_->concat);
-            mLayer_->concat->sequenceconcat = false;
-        } else {
-            mCoreMLBackend->setLayerName(mLayer_, "NDConcat");
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_CONCAT_ND;
-            mLayer_->concatnd = mCoreMLBackend->create<CoreML__Specification__ConcatNDLayerParams>();
-            core_ml__specification__concat_ndlayer_params__init(mLayer_->concatnd);
-            mLayer_->concatnd->axis = axis - dim;
-        }
-        std::vector<std::string> inputNames;
-        for (const auto& reg : regions) {
-            inputNames.push_back(mCoreMLBackend->getTensorName(reg.origin));
-        }
-        mCoreMLBackend->setLayerInputs(mLayer_, std::move(inputNames));
-        return true;
-    }
-    return false;
-}
-static void dumpRegion(const Tensor::InsideDescribe::Region& reg) {
-    printf("\n{\nsize: [%d, %d, %d], origin: %p\n", reg.size[0], reg.size[1], reg.size[2], reg.origin);
-    printf("src: { stride: [%d, %d, %d], offset: %d }\n", reg.src.stride[0],reg.src.stride[1],reg.src.stride[2],reg.src.offset);
-    printf("dst: { stride: [%d, %d, %d], offset: %d }\n}\n", reg.dst.stride[0],reg.dst.stride[1],reg.dst.stride[2],reg.dst.offset);
-}
-ErrorCode CoreMLRaster::onResize(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
-    OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
-    MNN_ASSERT(outputs.size() == 1);
-    if (!rasterOptimization(outputs, outputs)) {
-        /*
-        printf(">>> start\n");
-        for (const auto& reg : TensorUtils::getDescribe(inputs[0])->regions) {
-            printf("inputShape: ["); for (auto x : reg.origin->shape()) printf("%d, ", x); printf("]\n");
-            dumpRegion(reg);
-        }
-        printf("outputShape: ["); for (auto x : outputs[0]->shape()) printf("%d, ", x); printf("]\n");
-        printf(">>> end\n");*/
-        auto outputShape = outputs[0]->shape();
-        mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_CUSTOM;
-        mLayer_->custom = mCoreMLBackend->create<CoreML__Specification__CustomLayerParams>();
-        core_ml__specification__custom_layer_params__init(mLayer_->custom);
-        mCoreMLBackend->copyName(&(mLayer_->custom->classname), "RasterLayer");
-        const auto& regions = TensorUtils::getDescribe(outputs[0])->regions;
-        mLayer_->custom->n_weights = regions.size() + 1;
-        mLayer_->custom->weights = mCoreMLBackend->create<CoreML__Specification__WeightParams*>(mLayer_->custom->n_weights);
-        std::vector<std::string> inputNames;
-        for (int i = 0; i <= regions.size(); i++) {
-            mLayer_->custom->weights[i] = mCoreMLBackend->create<CoreML__Specification__WeightParams>();
-            core_ml__specification__weight_params__init(mLayer_->custom->weights[i]);
-            if (i == 0) {
-                // first set outputShape
-                mLayer_->custom->weights[i]->n_floatvalue = outputShape.size();
-                mLayer_->custom->weights[i]->floatvalue = mCoreMLBackend->create<float>(mLayer_->custom->weights[i]->n_floatvalue);
-                memcpy(mLayer_->custom->weights[i]->floatvalue, outputShape.data(), outputShape.size() * sizeof(int));
+            if (contiguous(region, true)) {
+                if (region.src.offset < 0 || count < 0 ||
+                    static_cast<int64_t>(region.src.offset) + count > sourceSize) {
+                    return NOT_SUPPORT;
+                }
+                if (region.src.offset == 0 && count == sourceSize) {
+                    value = flat;
+                } else {
+                    auto tag = std::to_string(serial++);
+                    value = operation("slice_by_size")
+                                .input("x", flat)
+                                .array<int>("begin", {region.src.offset}, "begin_" + tag)
+                                .array<int>("size", {count}, "size_" + tag)
+                                .output({count}, tag, dtype);
+                }
+            } else if (permutation) {
+                std::vector<int> shape, perm(3);
+                for (int i = 0; i < 3; ++i) {
+                    shape.push_back(region.size[order[i]]);
+                    perm[order[i]] = i;
+                }
+                value = reshape(flat, shape);
+                auto tag = std::to_string(serial++);
+                auto transpose = operation("transpose");
+                transpose.input("x", value).array("perm", perm, "perm_" + tag);
+                value = transpose.output({region.size[0], region.size[1], region.size[2]}, tag, dtype);
+                value = reshape(value, {count});
             } else {
-                // then set regions info
-                mLayer_->custom->weights[i]->n_floatvalue = 11;
-                mLayer_->custom->weights[i]->floatvalue = mCoreMLBackend->create<float>(mLayer_->custom->weights[i]->n_floatvalue);
-                memcpy(mLayer_->custom->weights[i]->floatvalue, &(regions[i-1]), 11 * sizeof(int));
-                inputNames.push_back(mCoreMLBackend->getTensorName(regions[i-1].origin));
+                std::vector<int> indices;
+                indices.reserve(count);
+                for (int z = 0; z < region.size[0]; ++z) {
+                    for (int y = 0; y < region.size[1]; ++y) {
+                        for (int x = 0; x < region.size[2]; ++x) {
+                            int index = region.src.offset + z * region.src.stride[0] + y * region.src.stride[1] +
+                                        x * region.src.stride[2];
+                            if (index < 0 || index >= sourceSize) {
+                                return NOT_SUPPORT;
+                            }
+                            indices.push_back(index);
+                        }
+                    }
+                }
+                value = gather(flat, indices);
+            }
+            if (concatenation) {
+                pieces.push_back(value);
+            } else {
+                std::vector<int> indices;
+                indices.reserve(count);
+                for (int z = 0; z < region.size[0]; ++z) {
+                    for (int y = 0; y < region.size[1]; ++y) {
+                        for (int x = 0; x < region.size[2]; ++x) {
+                            int index = region.dst.offset + z * region.dst.stride[0] + y * region.dst.stride[1] +
+                                        x * region.dst.stride[2];
+                            if (index < 0 || index >= total) {
+                                return NOT_SUPPORT;
+                            }
+                            indices.push_back(index);
+                        }
+                    }
+                }
+                auto tag = std::to_string(serial++);
+                output = operation("scatter")
+                             .input("data", output)
+                             .input("updates", value)
+                             .array("indices", indices, "dst_" + tag)
+                             .scalar("axis", 0, "scatter_axis_" + tag)
+                             .scalar("mode", "update", "scatter_mode_" + tag)
+                             .scalar("validate_indices", true, "scatter_validate_" + tag)
+                             .output({total}, tag, dtype);
             }
         }
-        mCoreMLBackend->setLayerInputs(mLayer_, std::move(inputNames));
+        if (concatenation) {
+            if (pieces.size() == 1) {
+                output = pieces[0];
+            } else {
+                output = operation("concat")
+                             .inputs("values", pieces)
+                             .scalar("axis", 0, "concat_axis")
+                             .scalar("interleave", false)
+                             .output({total}, "joined", dtype);
+            }
+        }
+        operation("reshape").input("x", output).shape("shape", {total}, "output_shape").output(outputs);
+        return NO_ERROR;
     }
-    mCoreMLBackend->setLayerOutputs(mLayer_, {mCoreMLBackend->getTensorName(outputs[0])});
-    mCoreMLBackend->addLayer(mLayer_);
+    auto input = inputs[0];
+    auto inputName = mCoreMLBackend->getTensorName(input);
+    switch (mOp->type()) {
+        case OpType_Select: {
+            auto cond = operation("cast")
+                            .input("x", inputName)
+                            .scalar("dtype", "bool", "condition_dtype")
+                            .output(inputs[0]->shape(), "condition", CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__BOOL);
+            operation("select").input("cond", cond).input("a", inputs[1]).input("b", inputs[2]).output(outputs);
+            break;
+        }
+        case OpType_ConvertTensor: {
+            bool fromNHWC = TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NHWC;
+            bool toNHWC = TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NHWC;
+            int rank = input->dimensions();
+            if (fromNHWC == toNHWC || rank <= 2) {
+                operation("identity").input("x", inputName).output(outputs);
+                return NO_ERROR;
+            }
+            std::vector<int> perm(rank);
+            perm[0] = 0;
+            if (toNHWC) {
+                for (int i = 1; i < rank - 1; ++i) {
+                    perm[i] = i + 1;
+                }
+                perm.back() = 1;
+            } else {
+                perm[1] = rank - 1;
+                for (int i = 2; i < rank; ++i) {
+                    perm[i] = i - 1;
+                }
+            }
+            operation("transpose").input("x", inputName).array<int>("perm", perm).output(outputs);
+            break;
+        }
+        case OpType_Reshape: {
+            // auto reshape = mOp->main_as_Reshape();
+            // auto dims = toVec(reshape->dims());
+            operation("reshape").input("x", inputName).shape("shape", outputs[0]->shape()).output(outputs);
+            break;
+        }
+        case OpType_Unsqueeze:
+        case OpType_Squeeze: {
+            auto builder = operation(mOp->type() == OpType_Unsqueeze ? "expand_dims" : "squeeze");
+            builder.input("x", inputName);
+            if (inputs.size() == 2) {
+                builder.input("axes", inputs[1]);
+            } else {
+                auto unsqueeze = mOp->main_as_SqueezeParam();
+                if (unsqueeze->squeezeDims() != nullptr) {
+                    auto axes = tovec(unsqueeze->squeezeDims());
+                    builder.array<int>("axes", axes);
+                }
+            }
+            builder.output(outputs);
+            break;
+        }
+        case OpType_Permute: {
+            auto permute = mOp->main_as_Permute();
+            auto dims = tovec(permute->dims());
+            operation("transpose").input("x", inputName).array<int>("perm", dims).output(outputs);
+            break;
+        }
+        case OpType_Concat: {
+            auto axis = mOp->main_as_Axis()->axis();
+            operation("concat")
+                .inputs("values", inputs)
+                .scalar("axis", axis)
+                .scalar<bool>("interleave", false)
+                .output(outputs);
+            break;
+        }
+        case OpType_GatherV2: {
+            auto builder = operation("gather");
+            builder.input("x", inputName).input("indices", inputs[1]);
+            int axis = 0;
+            if (inputs.size() == 3) {
+                if (inputs[2]->getType() != halide_type_of<int>() || !inputs[2]->host<int>() ||
+                    TensorUtils::getRawSize(inputs[2]) != 1) {
+                    return NOT_SUPPORT;
+                }
+                axis = inputs[2]->host<int32_t>()[0];
+            } else if (mOp->main_type() == OpParameter_Axis) {
+                axis = mOp->main_as_Axis()->axis();
+            }
+            builder.scalar("axis", axis).scalar<bool>("validate_indices", true).output(outputs);
+            break;
+        }
+        case OpType_Slice: {
+            auto slice = mOp->main_as_Slice();
+            auto axis = slice->axis();
+            if (axis < 0) {
+                axis = axis + input->dimensions();
+            }
+            std::vector<int> splitSizes(outputs.size());
+            for (int i = 0; i < outputs.size(); ++i) {
+                auto output = outputs[i];
+                splitSizes[i] = output->length(axis);
+            }
+            bool isNumSplits = true;
+            for (int i = 1; i < splitSizes.size(); i++) {
+                isNumSplits &= (splitSizes[i] == splitSizes[i - 1]);
+            }
+            auto builder = operation("split");
+            builder.input("x", inputName).scalar("axis", axis);
+            if (isNumSplits) {
+                builder.scalar<int>("num_splits", static_cast<int>(splitSizes.size()));
+            } else {
+                builder.array<int>("split_sizes", splitSizes);
+            }
+            builder.output(outputs);
+            break;
+        }
+        case OpType_StridedSlice: {
+            const auto param = mOp->main_as_StridedSliceParam();
+            const int rank = input->dimensions();
+            if (inputs.size() < 3) {
+                return NOT_SUPPORT;
+            }
+            const int count = TensorUtils::getRawSize(inputs[1]);
+            for (size_t i = 1; i < inputs.size(); ++i) {
+                if (inputs[i]->getType() != halide_type_of<int>() || !inputs[i]->host<int>() ||
+                    TensorUtils::getRawSize(inputs[i]) != count) {
+                    return NOT_SUPPORT;
+                }
+            }
+            std::vector<int> begin(rank, 0), end = input->shape(), stride(rank, 1), slicedShape(rank);
+            std::vector<bool> beginMask(rank, false), endMask(rank, false);
+            int axis = 0;
+            for (int i = 0; i < count; ++i) {
+                if (param->fromType() == 0 && (param->newAxisMask() & (1 << i))) {
+                    continue;
+                }
+                if (param->fromType() == 0 && (param->ellipsisMask() & (1 << i))) {
+                    int remaining = 0;
+                    for (int j = i + 1; j < count; ++j) {
+                        if (!(param->newAxisMask() & (1 << j))) {
+                            ++remaining;
+                        }
+                    }
+                    axis = rank - remaining;
+                    continue;
+                }
+                int dim = param->fromType() == 1 && inputs.size() >= 4 ? inputs[3]->host<int>()[i] : axis;
+                if (dim < 0) {
+                    dim += rank;
+                }
+                if (dim < 0 || dim >= rank) {
+                    return NOT_SUPPORT;
+                }
+                begin[dim] = inputs[1]->host<int>()[i];
+                end[dim] = inputs[2]->host<int>()[i];
+                int stepInput = param->fromType() == 1 ? 4 : 3;
+                if (inputs.size() > stepInput) {
+                    stride[dim] = inputs[stepInput]->host<int>()[i];
+                }
+                if (!stride[dim]) {
+                    return NOT_SUPPORT;
+                }
+                if (param->fromType() == 0) {
+                    beginMask[dim] = param->beginMask() & (1 << i);
+                    endMask[dim] = param->endMask() & (1 << i);
+                    if (param->shrinkAxisMask() & (1 << i)) {
+                        int start = begin[dim] < 0 ? begin[dim] + input->length(dim) : begin[dim];
+                        begin[dim] = start;
+                        end[dim] = start + 1;
+                        stride[dim] = 1;
+                        beginMask[dim] = endMask[dim] = false;
+                    }
+                }
+                ++axis;
+            }
+            for (int i = 0; i < rank; ++i) {
+                int64_t length = input->length(i), start = begin[i], stop = end[i], step = stride[i];
+                if (beginMask[i]) {
+                    start = step > 0 ? 0 : length - 1;
+                } else if (start < 0) {
+                    start += length;
+                }
+                if (endMask[i]) {
+                    stop = step > 0 ? length : -1;
+                } else if (stop < 0) {
+                    stop += length;
+                }
+                if (step > 0) {
+                    start = std::max<int64_t>(0, std::min(length, start));
+                    stop = std::max<int64_t>(0, std::min(length, stop));
+                    slicedShape[i] = std::max<int64_t>(0, (stop - start + step - 1) / step);
+                } else {
+                    start = std::max<int64_t>(-1, std::min(length - 1, start));
+                    stop = std::max<int64_t>(-1, std::min(length - 1, stop));
+                    slicedShape[i] = std::max<int64_t>(0, (start - stop - step - 1) / -step);
+                }
+                if (slicedShape[i] <= 0) {
+                    return NOT_SUPPORT;
+                }
+                begin[i] = start;
+                end[i] = stop;
+                beginMask[i] = false;
+                endMask[i] = step < 0 && stop == -1;
+            }
+            auto builder = operation("slice_by_index");
+            builder.input("x", inputName)
+                .array("begin", begin)
+                .array("end", end)
+                .array("stride", stride)
+                .array("begin_mask", beginMask)
+                .array("end_mask", endMask);
+            if (slicedShape != outputs[0]->shape()) {
+                auto sliced = builder.output(slicedShape, "sliced", mCoreMLBackend->typeConvert(input->getType()));
+                operation("reshape")
+                    .input("x", sliced)
+                    .shape("shape", outputs[0]->shape(), "slice_shape")
+                    .output(outputs);
+                return NO_ERROR;
+            }
+            builder.output(outputs);
+            break;
+        }
+        case OpType_Padding: {
+            auto pad = mOp->main_as_PadParam();
+            const int rank = input->dimensions();
+            if (inputs[1]->getType() != halide_type_of<int>() || !inputs[1]->host<int>() ||
+                TensorUtils::getRawSize(inputs[1]) != 2 * rank) {
+                return NOT_SUPPORT;
+            }
+            std::vector<int> pads(inputs[1]->host<int>(), inputs[1]->host<int>() + 2 * rank);
+            if (pad->mode() == PadValueMode_SYMMETRIC) {
+                auto value = inputName;
+                auto shape = input->shape();
+                for (int axis = 0; axis < rank; ++axis) {
+                    if (pads[2 * axis] == 0 && pads[2 * axis + 1] == 0) {
+                        continue;
+                    }
+                    int length = shape[axis];
+                    int size = outputs[0]->length(axis);
+                    if (length <= 0 || size <= 0) {
+                        return NOT_SUPPORT;
+                    }
+                    std::vector<int> indices(size);
+                    for (int i = 0; i < size; ++i) {
+                        int64_t position = (static_cast<int64_t>(i) - pads[2 * axis]) % (2LL * length);
+                        if (position < 0) {
+                            position += 2LL * length;
+                        }
+                        indices[i] = position < length ? position : 2LL * length - 1 - position;
+                    }
+                    shape[axis] = size;
+                    auto tag = std::to_string(axis);
+                    value = operation("gather")
+                                .input("x", value)
+                                .array("indices", indices, "indices_" + tag)
+                                .scalar("axis", axis, "axis_" + tag)
+                                .scalar("validate_indices", true, "valid_" + tag)
+                                .output(shape, "symmetric_" + tag, mCoreMLBackend->typeConvert(input->getType()));
+                }
+                operation("identity").input("x", value).output(outputs);
+                break;
+            }
+            std::string padMode = "constant";
+            switch (pad->mode()) {
+                case PadValueMode_CONSTANT:
+                    break;
+                case PadValueMode_REFLECT:
+                    padMode = "reflect";
+                    break;
+                case PadValueMode_EDGE:
+                    padMode = "replicate";
+                    break;
+                default:
+                    return NOT_SUPPORT;
+            }
+            auto builder = operation("pad");
+            builder.input("x", inputName);
+            float fill = 0.0f;
+            if (inputs.size() > 2) {
+                auto tensor = inputs[2];
+                auto owner = TensorUtils::getDescribeOrigin(tensor)->getBackend();
+                if (tensor->getType() == halide_type_of<int>()) {
+                    fill = tensor->host<int>()[0];
+                } else if (owner && owner->type() == MNN_FORWARD_NN) {
+                    MNNDequantizeFP16(tensor->host<int16_t>(), &fill, 1);
+                } else {
+                    fill = tensor->host<float>()[0];
+                }
+            }
+            builder.array("pad", pads, "pads").scalar("mode", padMode).scalar("constant_val", fill).output(outputs);
+            break;
+        }
+        case OpType_Tile: {
+            operation("tile").input("x", inputName).input("reps", inputs[1]).output(outputs);
+            break;
+        }
+        case OpType_Fill: {
+            operation("fill_like").input("ref_tensor", inputs[0]).input("value", inputs[1]).output(outputs);
+            break;
+        }
+        case OpType_BroadcastTo: {
+            auto oShape = outputs[0]->shape();
+            auto iShape = inputs[0]->shape();
+            if (iShape.size() > oShape.size()) {
+                return NOT_SUPPORT;
+            }
+            if (iShape.size() < oShape.size()) {
+                const bool forward = mOp->main() && mOp->main_as_Axis()->axis();
+                iShape.insert(forward ? iShape.end() : iShape.begin(), oShape.size() - iShape.size(), 1);
+                inputName = operation("reshape")
+                                .input("x", inputName)
+                                .shape("shape", iShape)
+                                .output(iShape, "broadcast_input", mCoreMLBackend->typeConvert(input->getType()));
+            }
+            auto builder = operation("tile");
+            builder.input("x", inputName);
+            std::vector<int> reps(oShape.size(), 1);
+            for (auto i = 0; i < oShape.size(); ++i) {
+                if (iShape[i] <= 0 || (iShape[i] != 1 && iShape[i] != oShape[i])) {
+                    return NOT_SUPPORT;
+                }
+                reps[i] = oShape[i] / iShape[i];
+            }
+            builder.array<int>("reps", reps).output(outputs);
+            break;
+        }
+        case OpType_Cast: {
+            auto dstType = mOp->main_as_CastParam()->dstT();
+            if (dstType == DataType_DT_BOOL) {
+                auto compare = operation("not_equal");
+                compare.input("x", inputName);
+                compare.input("y", input->getType() == halide_type_of<int>() ? buildScalar(0, "zero")
+                                                                             : buildScalar(0.0f, "zero"));
+                inputName = compare.output(input->shape(), "boolean", CORE_ML__SPECIFICATION__MILSPEC__DATA_TYPE__BOOL);
+            }
+            operation("cast")
+                .input("x", inputName)
+                .scalar("dtype", outputs[0]->getType() == halide_type_of<int>() ? "int32" : "fp16")
+                .output(outputs);
+            break;
+        }
+        default:
+            return NOT_SUPPORT;
+    }
     return NO_ERROR;
 }
 
-REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Raster)
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Select);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Raster);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_ConvertTensor);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Reshape);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Unsqueeze);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Squeeze);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Permute);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Concat);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_GatherV2);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Slice);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_StridedSlice);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Padding);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Cast);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Fill);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Tile);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_BroadcastTo);
+
 } // namespace MNN

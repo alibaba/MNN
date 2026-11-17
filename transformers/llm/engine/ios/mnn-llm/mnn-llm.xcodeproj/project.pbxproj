@@ -12,6 +12,17 @@
 		4D5B97902B2B21D5003AF2F1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4D5B978F2B2B21D5003AF2F1 /* Assets.xcassets */; };
 		4D5B97932B2B21D5003AF2F1 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4D5B97922B2B21D5003AF2F1 /* Preview Assets.xcassets */; };
 		4D5B97C42B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4D5B97C32B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm */; };
+		A1B0000000000000000000A1 /* MNNTestSuite.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B1 /* MNNTestSuite.cpp */; };
+		A1B0000000000000000000A2 /* LlmLinearSpeed.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B2 /* LlmLinearSpeed.cpp */; };
+		A1B0000000000000000000A3 /* LlmAttentionSpeed.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B3 /* LlmAttentionSpeed.cpp */; };
+		A1B0000000000000000000A4 /* LinearAttentionSpeed.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B4 /* LinearAttentionSpeed.cpp */; };
+		A1B0000000000000000000A5 /* TestUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B5 /* TestUtils.cpp */; };
+		A1B0000000000000000000A6 /* TestUtils.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B6 /* TestUtils.mm */; };
+		A1B0000000000000000000A7 /* ConvolutionTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B7 /* ConvolutionTest.cpp */; };
+		A1B0000000000000000000A8 /* HybridConvSpeedTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B8 /* HybridConvSpeedTest.cpp */; };
+		A1B0000000000000000000A9 /* RVVConvRunLineDepthwiseTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B9 /* RVVConvRunLineDepthwiseTest.cpp */; };
+		B2C0000000000000000000A1 /* FusedProjTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2C0000000000000000000B1 /* FusedProjTest.cpp */; };
+		B2C0000000000000000000A2 /* MetalConvWQuantTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2C0000000000000000000B2 /* MetalConvWQuantTest.cpp */; };
 		CE1A4A5D2C8596D900A62A4F /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE1A4A5C2C8596D900A62A4F /* MNN.framework */; };
 /* End PBXBuildFile section */
 
@@ -37,7 +48,18 @@
 		4D5B97992B2B263D003AF2F1 /* LLMInferenceEngineWrapper.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LLMInferenceEngineWrapper.h; sourceTree = "<group>"; };
 		4D5B979A2B2B2677003AF2F1 /* mnn-llm-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "mnn-llm-Bridging-Header.h"; sourceTree = "<group>"; };
 		4D5B97C32B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = LLMInferenceEngineWrapper.mm; sourceTree = "<group>"; };
+		A1B0000000000000000000B1 /* MNNTestSuite.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = MNNTestSuite.cpp; path = ../../../../../test/MNNTestSuite.cpp; sourceTree = SOURCE_ROOT; };
+		A1B0000000000000000000B2 /* LlmLinearSpeed.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = LlmLinearSpeed.cpp; path = ../../../../../test/speed/LlmLinearSpeed.cpp; sourceTree = SOURCE_ROOT; };
+		A1B0000000000000000000B3 /* LlmAttentionSpeed.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = LlmAttentionSpeed.cpp; path = ../../../../../test/speed/LlmAttentionSpeed.cpp; sourceTree = SOURCE_ROOT; };
+		A1B0000000000000000000B4 /* LinearAttentionSpeed.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = LinearAttentionSpeed.cpp; path = ../../../../../test/speed/LinearAttentionSpeed.cpp; sourceTree = SOURCE_ROOT; };
+		A1B0000000000000000000B5 /* TestUtils.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TestUtils.cpp; path = ../../../../../test/TestUtils.cpp; sourceTree = SOURCE_ROOT; };
+		A1B0000000000000000000B6 /* TestUtils.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = TestUtils.mm; path = ../../../../../test/TestUtils.mm; sourceTree = SOURCE_ROOT; };
+		A1B0000000000000000000B7 /* ConvolutionTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ConvolutionTest.cpp; path = ../../../../../test/op/ConvolutionTest.cpp; sourceTree = SOURCE_ROOT; };
+		A1B0000000000000000000B8 /* HybridConvSpeedTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = HybridConvSpeedTest.cpp; path = ../../../../../test/speed/HybridConvSpeedTest.cpp; sourceTree = SOURCE_ROOT; };
+		A1B0000000000000000000B9 /* RVVConvRunLineDepthwiseTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RVVConvRunLineDepthwiseTest.cpp; path = ../../../../../test/backend/cpu/RVVConvRunLineDepthwiseTest.cpp; sourceTree = SOURCE_ROOT; };
 		CE1A4A5C2C8596D900A62A4F /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MNN.framework; path = ../MNN.framework; sourceTree = "<group>"; };
+		B2C0000000000000000000B1 /* FusedProjTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = FusedProjTest.cpp; path = ../../../../../test/op/FusedProjTest.cpp; sourceTree = SOURCE_ROOT; };
+		B2C0000000000000000000B2 /* MetalConvWQuantTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = MetalConvWQuantTest.cpp; path = ../../../../../test/op/MetalConvWQuantTest.cpp; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -84,6 +106,17 @@
 				4D5B97992B2B263D003AF2F1 /* LLMInferenceEngineWrapper.h */,
 				4D5B97C32B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm */,
 				4D5B979A2B2B2677003AF2F1 /* mnn-llm-Bridging-Header.h */,
+				A1B0000000000000000000B1 /* MNNTestSuite.cpp */,
+				A1B0000000000000000000B2 /* LlmLinearSpeed.cpp */,
+				A1B0000000000000000000B3 /* LlmAttentionSpeed.cpp */,
+				A1B0000000000000000000B4 /* LinearAttentionSpeed.cpp */,
+				A1B0000000000000000000B5 /* TestUtils.cpp */,
+				A1B0000000000000000000B6 /* TestUtils.mm */,
+				A1B0000000000000000000B7 /* ConvolutionTest.cpp */,
+				A1B0000000000000000000B8 /* HybridConvSpeedTest.cpp */,
+				A1B0000000000000000000B9 /* RVVConvRunLineDepthwiseTest.cpp */,
+				B2C0000000000000000000B1 /* FusedProjTest.cpp */,
+				B2C0000000000000000000B2 /* MetalConvWQuantTest.cpp */,
 			);
 			path = "mnn-llm";
 			sourceTree = "<group>";
@@ -182,6 +215,17 @@
 				4D5B97C42B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm in Sources */,
 				4D5B978E2B2B21D3003AF2F1 /* ContentView.swift in Sources */,
 				4D5B978C2B2B21D3003AF2F1 /* mnn_llmApp.swift in Sources */,
+				A1B0000000000000000000A1 /* MNNTestSuite.cpp in Sources */,
+				A1B0000000000000000000A2 /* LlmLinearSpeed.cpp in Sources */,
+				A1B0000000000000000000A3 /* LlmAttentionSpeed.cpp in Sources */,
+				A1B0000000000000000000A4 /* LinearAttentionSpeed.cpp in Sources */,
+				A1B0000000000000000000A5 /* TestUtils.cpp in Sources */,
+				A1B0000000000000000000A6 /* TestUtils.mm in Sources */,
+				A1B0000000000000000000A7 /* ConvolutionTest.cpp in Sources */,
+				A1B0000000000000000000A8 /* HybridConvSpeedTest.cpp in Sources */,
+				A1B0000000000000000000A9 /* RVVConvRunLineDepthwiseTest.cpp in Sources */,
+				B2C0000000000000000000A1 /* FusedProjTest.cpp in Sources */,
+				B2C0000000000000000000A2 /* MetalConvWQuantTest.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -324,6 +368,20 @@
 					"$(PROJECT_DIR)/../",
 					"$(PROJECT_DIR)/../../",
 				);
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../../../../../test",
+					"$(PROJECT_DIR)/../../../../../source",
+					"$(PROJECT_DIR)/../../../../../express",
+					"$(PROJECT_DIR)/../../../../../tools",
+					"$(PROJECT_DIR)/../../../../../codegen",
+					"$(PROJECT_DIR)/../../../../../schema/current",
+					"$(PROJECT_DIR)/../../../../../3rd_party",
+					"$(PROJECT_DIR)/../../../../../3rd_party/flatbuffers/include",
+					"$(PROJECT_DIR)/../../../../../3rd_party/half",
+					"$(PROJECT_DIR)/../../../../../3rd_party/imageHelper",
+					"$(PROJECT_DIR)/../../../../../3rd_party/OpenCLHeaders",
+				);
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"MNN_ARM82=1",
 					"MNN_SUPPORT_TRANSFORMER_FUSE=1",
@@ -370,6 +428,20 @@
 					"$(PROJECT_DIR)/mnn-llm",
 					"$(PROJECT_DIR)/../",
 					"$(PROJECT_DIR)/../../",
+				);
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../../../../../test",
+					"$(PROJECT_DIR)/../../../../../source",
+					"$(PROJECT_DIR)/../../../../../express",
+					"$(PROJECT_DIR)/../../../../../tools",
+					"$(PROJECT_DIR)/../../../../../codegen",
+					"$(PROJECT_DIR)/../../../../../schema/current",
+					"$(PROJECT_DIR)/../../../../../3rd_party",
+					"$(PROJECT_DIR)/../../../../../3rd_party/flatbuffers/include",
+					"$(PROJECT_DIR)/../../../../../3rd_party/half",
+					"$(PROJECT_DIR)/../../../../../3rd_party/imageHelper",
+					"$(PROJECT_DIR)/../../../../../3rd_party/OpenCLHeaders",
 				);
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"MNN_ARM82=1",

@@ -954,6 +954,156 @@ public:
 };
 MNNTestSuiteRegister(AttentionPrefixCacheChunkedWriteTest, "op/attention_prefix_cache_chunked_write");
 
+class AttentionCapacityTest : public AttentionTest {
+public:
+    bool run(int precision) override {
+        OpenCLBufferScope clBufferScope;
+        KVMeta baselineMeta;
+        KVMeta plannedMeta;
+        auto baseline = _makeAttentionModule(8, false, false, -1, &baselineMeta);
+        auto planned = _makeAttentionModule(8, false, false, -1, &plannedMeta);
+        if (!baseline || !planned) {
+            return false;
+        }
+        std::shared_ptr<Module> baselineDecode;
+        std::shared_ptr<Module> plannedDecode;
+        for (size_t capacity : {512, 8192, 128}) {
+            baselineMeta.remove = baselineMeta.previous;
+            plannedMeta.remove = plannedMeta.previous;
+            plannedMeta.capacity = capacity;
+            for (int seqLen : {64, 64, 1, 1, 1, 1, 1, 1, 129, 1, 1, 1, 1, 1, 1}) {
+                generateInput(seqLen, precision);
+                generateMask(seqLen, seqLen);
+                baselineMeta.add = seqLen;
+                plannedMeta.add = seqLen;
+                std::vector<float> expected;
+                std::vector<float> actual;
+                auto baselineModule = seqLen == 1 ? baselineDecode : baseline;
+                auto plannedModule = seqLen == 1 ? plannedDecode : planned;
+                if (!readAttentionOutput(baselineModule, {Query, Key, Value, Mask}, expected) ||
+                    !readAttentionOutput(plannedModule, {Query, Key, Value, Mask}, actual)) {
+                    return false;
+                }
+                if (!baselineDecode) {
+                    // Shape-less test modules create their executions on the first forward.
+                    baselineDecode.reset(Module::clone(baseline.get()));
+                    plannedDecode.reset(Module::clone(planned.get()));
+                    if (!baselineDecode || !plannedDecode) {
+                        return false;
+                    }
+                }
+                baselineMeta.sync();
+                plannedMeta.sync();
+                for (float value : actual) {
+                    if (!std::isfinite(value)) {
+                        return false;
+                    }
+                }
+                if (!compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                             "attention_capacity")) {
+                    return false;
+                }
+            }
+            plannedMeta.capacity = plannedMeta.previous + 4096;
+            baselineMeta.add = 64;
+            plannedMeta.add = 64;
+            generateInput(64, precision);
+            generateMask(64, 64);
+            std::vector<float> expected;
+            std::vector<float> actual;
+            if (!readAttentionOutput(baseline, {Query, Key, Value, Mask}, expected) ||
+                !readAttentionOutput(planned, {Query, Key, Value, Mask}, actual) ||
+                !compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                         "attention_capacity_append")) {
+                return false;
+            }
+            baselineMeta.sync();
+            plannedMeta.sync();
+            int reserve[] = {5, 17};
+            baselineMeta.remove = plannedMeta.remove = 128;
+            baselineMeta.reserve = plannedMeta.reserve = reserve;
+            baselineMeta.n_reserve = plannedMeta.n_reserve = 1;
+            baselineMeta.add = plannedMeta.add = 32;
+            plannedMeta.capacity = plannedMeta.previous + 8192;
+            generateInput(32, precision);
+            generateMask(32, 32);
+            if (!readAttentionOutput(baseline, {Query, Key, Value, Mask}, expected) ||
+                !readAttentionOutput(planned, {Query, Key, Value, Mask}, actual) ||
+                !compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                         "attention_capacity_reserve")) {
+                return false;
+            }
+            baselineMeta.sync();
+            plannedMeta.sync();
+        }
+        // Stable input bindings let decode replay arm on Metal. Compare a planned
+        // capacity against the organic baseline on the same backend path so fp16
+        // rounding cancels; a reserve compaction run twice on replay fallback would
+        // make the planned module diverge.
+        KVMeta baseMeta;
+        KVMeta planMeta;
+        auto baseMod = _makeAttentionModule(8, false, false, -1, &baseMeta);
+        auto planMod = _makeAttentionModule(8, false, false, -1, &planMeta);
+        if (!baseMod || !planMod) {
+            return false;
+        }
+        generateInput(200, precision);
+        generateMask(200, 200);
+        ::memset(Query->writeMap<float>(), 0, Query->getInfo()->size * sizeof(float));
+        ::memset(Key->writeMap<float>(), 0, Key->getInfo()->size * sizeof(float));
+        auto values = Value->writeMap<float>();
+        for (int token = 0; token < 200; ++token) {
+            for (int i = 0; i < KvNumHead * HeadDim; ++i) {
+                values[token * KvNumHead * HeadDim + i] = token;
+            }
+        }
+        baseMeta.add = planMeta.add = 200;
+        std::vector<float> expected;
+        std::vector<float> actual;
+        if (!readAttentionOutput(baseMod, {Query, Key, Value, Mask}, expected) ||
+            !readAttentionOutput(planMod, {Query, Key, Value, Mask}, actual)) {
+            return false;
+        }
+        baseMeta.sync();
+        planMeta.sync();
+        generateInput(1, precision);
+        generateMask(1, 1);
+        ::memset(Query->writeMap<float>(), 0, Query->getInfo()->size * sizeof(float));
+        ::memset(Key->writeMap<float>(), 0, Key->getInfo()->size * sizeof(float));
+        int reserve[] = {5, 17};
+        for (int step = 0; step < 17; ++step) {
+            if (step == 8) {
+                baseMeta.remove = planMeta.remove = 40;
+                baseMeta.reserve = planMeta.reserve = reserve;
+                baseMeta.n_reserve = planMeta.n_reserve = 1;
+                planMeta.capacity = 4096;
+            }
+            values = Value->writeMap<float>();
+            for (int i = 0; i < KvNumHead * HeadDim; ++i) {
+                values[i] = 200 + step;
+            }
+            baseMeta.add = planMeta.add = 1;
+            if (!readAttentionOutput(baseMod, {Query, Key, Value, Mask}, expected) ||
+                !readAttentionOutput(planMod, {Query, Key, Value, Mask}, actual)) {
+                return false;
+            }
+            baseMeta.sync();
+            planMeta.sync();
+            for (float value : actual) {
+                if (!std::isfinite(value)) {
+                    return false;
+                }
+            }
+            if (!compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                         "attention_capacity_decode_reserve")) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionCapacityTest, "op/attention_capacity");
+
 class AttentionPrefixCachePartialLoadTest : public AttentionTest {
 public:
     virtual bool run(int precision) {
@@ -1952,14 +2102,6 @@ MNNTestSuiteRegister(SpeedAttentionTest, "speed/attention");
 // O(1) error.
 // ============================================================================
 
-static int _envInt(const char* name, int defValue) {
-    const char* v = getenv(name);
-    if (v == nullptr || v[0] == '\0') {
-        return defValue;
-    }
-    return atoi(v);
-}
-
 // [batch, len, heads, dim] built from a single-batch tensor, every batch
 // receiving identical rows: each batch's KV cache then holds the same
 // content, so the single-batch NaiveAttention reference applies to all.
@@ -2296,44 +2438,6 @@ private:
     bool mOutputC4 = false;
 };
 
-// Env-gated decode paths that the default flags never select:
-//   MNN_METAL_DECODE_SDPA=0   -> fused qk_softmax / three-stage decode
-//   MNN_METAL_DECODE_SDPA=N   -> qk_softmax up to kv=N (QK_QSPLIT at kv>=512)
-//   MNN_METAL_DECODE_SDPA_NTG=2 -> 2-pass split-KV reduce
-// MetalEnv parses env vars once per process, so the cases run only when the
-// matching var was set before this process started.
-class AttentionDecodeEnvTest : public AttentionDecodeTest {
-public:
-    virtual bool run(int precision) {
-        ShapeGuard guard;
-        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
-            return true;
-        }
-        bool pass = true;
-        const int sdpaEnv = _envInt("MNN_METAL_DECODE_SDPA", 1);
-        if (sdpaEnv == 0) {
-            // mDecodeQkSoftmax requires group >= 2, so MQA is forced onto the
-            // three-stage decode at every kv length; group=8 caps the fused
-            // path at kv<=512, so kv 513+ also lands on three-stage.
-            pass &= runDecodeCase(16, 16, 128, 1, 64, 4, 0, false, 0, false,
-                                  "decodeSdpa=0 mqa three-stage");
-            pass &= runDecodeCase(16, 2, 128, 1, 513, 4, 0, false, 0, false,
-                                  "decodeSdpa=0 three-stage");
-            pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, false, 0, false,
-                                  "decodeSdpa=0 qk_softmax");
-        } else if (sdpaEnv > 1) {
-            pass &= runDecodeCase(16, 8, 128, 1, 64, 4, 0, false, 0, false,
-                                  "decodeSdpa=N qk_softmax short kv");
-            pass &= runDecodeCase(16, 8, 128, 1, 511, 4, 0, false, 0, false,
-                                  "decodeSdpa=N qk_softmax qsplit");
-        }
-        if (_envInt("MNN_METAL_DECODE_SDPA_NTG", 0) > 1) {
-            pass &= runDecodeCase(16, 8, 128, 1, 64, 6, 0, false, 0, false, "split-kv 2-pass");
-        }
-        return pass;
-    }
-};
-
 // Prefill-path coverage: three-stage vs fused FA variants at the shapes the
 // path flags distinguish. hint=0 keeps the three-stage pipeline on every
 // backend; hint=8 enables the legacy FA kernel where eligible (M2+, fp16,
@@ -2372,26 +2476,6 @@ public:
         pass &= runPrefillCase(16, 8, 128, 1, 192, 10, false, 0.03f, 0.12f, "prefill quant kv");
         pass &= runPrefillCase(16, 8, 128, 1, 192, 11, false, 0.03f, 0.12f, "prefill static quant");
 
-        // Env-forced prefill paths (Metal-only; MetalEnv reads the vars once).
-        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_METAL) {
-            const bool forceSg = _envInt("MNN_METAL_PREFILL_FA_SG", -1) == 1;
-            const bool forceFa = _envInt("MNN_ENABLE_FLASH_ATTN_PREFILL", -1) == 1;
-            const bool forceFaOff = _envInt("MNN_ENABLE_FLASH_ATTN_PREFILL", -1) == 0;
-            if (forceSg) {
-                // FA-SG force-on: seq>=64, hd 64/128, group 1/2/4/8.
-                pass &= runPrefillCase(16, 8, 128, 1, 64, 8, false, 0.0f, 0.0f, "fa-sg seq64");
-                pass &= runPrefillCase(16, 8, 64, 1, 192, 8, false, 0.0f, 0.0f, "fa-sg hd64");
-                pass &= runPrefillCase(16, 4, 128, 1, 128, 8, false, 0.0f, 0.0f, "fa-sg g4");
-            }
-            if (forceFa) {
-                // Legacy FA force-on (overrides the M4-class demotion).
-                pass &= runPrefillCase(16, 8, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa forced");
-            }
-            if (forceFaOff) {
-                // FA force-off: hint=8 falls back to three-stage.
-                pass &= runPrefillCase(16, 8, 128, 1, 192, 8, false, 0.0f, 0.0f, "three-stage forced");
-            }
-        }
         NumHead = savedNumHead;
         KvNumHead = savedKvNumHead;
         HeadDim = savedHeadDim;
@@ -2472,6 +2556,5 @@ private:
 };
 
 MNNTestSuiteRegister(AttentionDecodeTest, "op/attention_decode");
-MNNTestSuiteRegister(AttentionDecodeEnvTest, "op/attention_decode_env");
 MNNTestSuiteRegister(AttentionPrefillPathTest, "op/attention_prefill_paths");
 #endif

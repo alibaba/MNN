@@ -562,13 +562,10 @@ kernel void binary_layernorm_c4_sg(const device ftype4 *in0       [[buffer(0)]],
     }
 }
 
-// LN_SIMDS = simdgroups per threadgroup for the two RMS reduction kernels below.
-// One row is one threadgroup, so at decode (outside == 1) the whole dispatch is a
-// single threadgroup and the GPU is mostly idle; widening the threadgroup is the
-// only way to add parallelism there. The host always passes this macro explicitly
-// for the pipelines it owns (see MetalLayerNorm::rmsSimdGroups), so the default
-// here only guards a stray compile. LN_SIMDS == the legacy value (1 single-input,
-// 2 binary) reproduces the previous reduction order bit-for-bit.
+// LN_SIMDS = simdgroups per threadgroup for the two RMS reduction kernels below. One
+// row is one threadgroup, so widening it is the only way to add parallelism at decode
+// (outside == 1). The host always passes the macro for the pipelines it owns (see
+// MetalLayerNorm::rmsSimdGroups); the default below only guards a stray compile.
 #ifndef LN_SIMDS
 #define LN_SIMDS 1
 #endif
@@ -647,9 +644,9 @@ kernel void binary_layernorm_c4_rms_sg(const device ftype4 *in0       [[buffer(0
     for(int c = sgitg * SIMD_GROUP_WIDTH + tiisg; c < channelUnit; c += LN_SIMDS * SIMD_GROUP_WIDTH) {
         int idx = c * batch + gid.y;
         float4 data = float4(in0[idx]) + float4(in1[idx]);
-#if LN_SUM_REREAD
+        // The normalize pass below needs this row again; reading back the sum we
+        // just wrote costs one DRAM read instead of re-adding both inputs.
         out0[idx] = (ftype4)data;
-#endif
         square_sum4 += data * data;
     }
 
@@ -674,12 +671,7 @@ kernel void binary_layernorm_c4_rms_sg(const device ftype4 *in0       [[buffer(0
 
     for(int c = sgitg * SIMD_GROUP_WIDTH + tiisg; c < channelUnit; c += LN_SIMDS * SIMD_GROUP_WIDTH) {
         int idx = c * batch + gid.y;
-#if LN_SUM_REREAD
         float4 my_data = float4(out0[idx]);
-#else
-        float4 my_data = float4(in0[idx]) + float4(in1[idx]);
-        out0[idx] = (ftype4)my_data;
-#endif
         float4 norm = var4 * my_data;
         if(cst.has_gamma_beta) {
             out1[idx] = (ftype4)(norm * gamma[c] + beta[c]);
@@ -689,17 +681,11 @@ kernel void binary_layernorm_c4_rms_sg(const device ftype4 *in0       [[buffer(0
     }
 }
 
-// Multi-token RMSNorm, for prefill where `outside` is the token count.
-//
-// Same per-lane work as the channel-parallel kernels above — one simdgroup
-// reduces one token, reduction stays inside simd_sum — but LN_SIMDS tokens
-// share a threadgroup instead of each getting one of its own. At a 2048-token
-// prefill that turns 2048 threadgroups of 32 threads into 512 of 128, which
-// costs nothing (the simdgroups never talk, so there is still no barrier) and
-// stops the dispatch from burning a threadgroup slot per token.
-//
-// Needs enough tokens to fill the wider threadgroups; decode (outside == 1)
-// still takes the one-threadgroup-per-token form.
+// Multi-token RMSNorm, for prefill where `outside` is the token count. Same per-lane
+// work as the channel-parallel kernels above, one simdgroup per token with the
+// reduction inside simd_sum, but LN_SIMDS tokens share a threadgroup, which costs no
+// barrier (the simdgroups never talk) and stops the dispatch from burning a threadgroup
+// slot per token. Decode (outside == 1) keeps one threadgroup per token.
 kernel void layernorm_c4_rms_row_sg(const device ftype4 *in      [[buffer(0)]],
                                     device ftype4 *out            [[buffer(1)]],
                                     constant layernorm_constants& cst  [[buffer(2)]],
@@ -759,9 +745,9 @@ kernel void binary_layernorm_c4_rms_row_sg(const device ftype4 *in0  [[buffer(0)
     for(int c = tiisg; c < channelUnit; c += SIMD_GROUP_WIDTH) {
         int idx = c * batch + row;
         float4 data = float4(in0[idx]) + float4(in1[idx]);
-#if LN_SUM_REREAD
+        // Written once here and read back below, so the normalize pass costs one
+        // DRAM read instead of re-adding both inputs.
         out0[idx] = (ftype4)data;
-#endif
         square_sum4 += data * data;
     }
     square_sum4 = simd_sum(square_sum4);
@@ -771,84 +757,8 @@ kernel void binary_layernorm_c4_rms_row_sg(const device ftype4 *in0  [[buffer(0)
 
     for(int c = tiisg; c < channelUnit; c += SIMD_GROUP_WIDTH) {
         int idx = c * batch + row;
-#if LN_SUM_REREAD
         float4 my_data = float4(out0[idx]);
-#else
-        float4 my_data = float4(in0[idx]) + float4(in1[idx]);
-        out0[idx] = (ftype4)my_data;
-#endif
         float4 norm = var4 * my_data;
-        if(cst.has_gamma_beta) {
-            out1[idx] = (ftype4)(norm * gamma[c] + beta[c]);
-        } else {
-            out1[idx] = (ftype4)(norm);
-        }
-    }
-}
-
-// Token-parallel binary RMSNorm. The C4 activation is channel-major
-// (idx = c * batch + token), so mapping the lane index to the channel — what
-// every kernel above does — makes a 32-lane load touch 32 addresses batch*16
-// bytes apart. Mapping the lane to the *token* instead makes one load 32
-// contiguous float4 = 512 bytes, and the row reduction becomes private to the
-// lane, so simd_sum and the threadgroup barrier both disappear. gamma/beta turn
-// into a broadcast because every lane is on the same channel.
-//
-// Needs batch >= SIMD_GROUP_WIDTH to fill a simdgroup, so this is a prefill-only
-// form; decode keeps the channel-parallel kernels.
-kernel void binary_layernorm_c4_rms_tok_sg(const device ftype4 *in0  [[buffer(0)]],
-                                           const device ftype4 *in1  [[buffer(1)]],
-                                           device ftype4 *out0       [[buffer(2)]],
-                                           device ftype4 *out1       [[buffer(3)]],
-                                           constant layernorm_constants& cst  [[buffer(4)]],
-                                           const device float4 *gamma    [[buffer(5)]],
-                                           const device float4 *beta     [[buffer(6)]],
-                                           uint3  gid  [[threadgroup_position_in_grid]],
-                                           uint   tiisg[[thread_index_in_simdgroup]],
-                                           uint   sgitg[[simdgroup_index_in_threadgroup]]) {
-    const int batch = cst.outside;
-    const int channelUnit = cst.inside / 4;
-    const int token = (int(gid.y) * LN_SIMDS + int(sgitg)) * SIMD_GROUP_WIDTH + int(tiisg);
-
-    if (token >= batch) {
-        return;
-    }
-
-    // One lane owns the whole row, so a single accumulator would build a
-    // channelUnit-long dependent FMA chain -- the channel-parallel kernels never
-    // hit this because each lane only does a couple of iterations before
-    // simd_sum. Four independent partials let the loads and FMAs overlap.
-    float4 acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
-    int c = 0;
-    for(; c + 4 <= channelUnit; c += 4) {
-        int idx = c * batch + token;
-        float4 d0 = float4(in0[idx])             + float4(in1[idx]);
-        float4 d1 = float4(in0[idx + batch])     + float4(in1[idx + batch]);
-        float4 d2 = float4(in0[idx + 2 * batch]) + float4(in1[idx + 2 * batch]);
-        float4 d3 = float4(in0[idx + 3 * batch]) + float4(in1[idx + 3 * batch]);
-        out0[idx]             = (ftype4)d0;
-        out0[idx + batch]     = (ftype4)d1;
-        out0[idx + 2 * batch] = (ftype4)d2;
-        out0[idx + 3 * batch] = (ftype4)d3;
-        acc0 += d0 * d0;
-        acc1 += d1 * d1;
-        acc2 += d2 * d2;
-        acc3 += d3 * d3;
-    }
-    for(; c < channelUnit; ++c) {
-        int idx = c * batch + token;
-        float4 data = float4(in0[idx]) + float4(in1[idx]);
-        out0[idx] = (ftype4)data;
-        acc0 += data * data;
-    }
-    float4 square_sum4 = (acc0 + acc1) + (acc2 + acc3);
-
-    float square_sum = square_sum4[0] + square_sum4[1] + square_sum4[2] + square_sum4[3];
-    float4 var4 = 1.0f / sqrt(square_sum / (channelUnit * 4) + cst.eps);
-
-    for(int c = 0; c < channelUnit; ++c) {
-        int idx = c * batch + token;
-        float4 norm = var4 * float4(out0[idx]);
         if(cst.has_gamma_beta) {
             out1[idx] = (ftype4)(norm * gamma[c] + beta[c]);
         } else {

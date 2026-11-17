@@ -9,6 +9,14 @@
 [![zread](https://img.shields.io/badge/Zread-ask-green)](https://zread.ai/alibaba/MNN)
 
 ## ニュース 🔥
+
+- [2026/11/04] **MNN-Pocket-0.3B** をリリースしました。中国語・英語の指示に対応する **3 億パラメータのモバイルアプリネイティブ言語モデル**です。MNN チームがスマートフォンアプリのタスク要件とリソース予算を踏まえ、モデル構造・学習手法・推論エンジンを協調設計しました。**32K コンテキスト**に対応し、INT4（W4A16）QAT MNN 版のサイズはわずか **173 MB**。iPhone 18 Pro での実測デコード速度は **350 tok/s** です。**Apache 2.0** ライセンスで公開しています。
+
+  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://arxiv.org/pdf/2611.12311)
+
+<details>
+<summary> 過去のニュース </summary>
+
 - [2025/01/23] フルマルチモーダル LLM Android アプリをリリースしました: [MNN-LLM-Android](./apps/Android/MnnLlmChat/README.md)。テキストからテキスト、画像からテキスト、音声からテキスト、テキストから画像生成を含みます。
 <p align="center">
   <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home_new.jpg" style="margin: 0 10px;">
@@ -16,6 +24,8 @@
   <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound_new.jpg" style="margin: 0 10px;">
   <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image_new.jpg" style="margin: 0 10px;">
 </p>
+
+</details>
 
 ## 紹介
 MNNは非常に効率的で軽量なディープラーニングフレームワークです。ディープラーニングモデルの推論とトレーニングをサポートし、デバイス上での推論とトレーニングにおいて業界をリードするパフォーマンスを発揮します。現在、MNNはAlibaba Incの30以上のアプリに統合されており、ライブ放送、短編動画キャプチャ、検索推薦、画像による商品検索、インタラクティブマーケティング、エクイティ配布、セキュリティリスク管理など、70以上の使用シナリオをカバーしています。さらに、MNNはIoTなどの組み込みデバイスでも使用されています。
@@ -84,22 +94,35 @@ MNNがサポートするアーキテクチャ/精度は以下の通りです：
 - B ：サポートされていますが、バグがあるか、最適化されていないため、使用を推奨しません。
 - C ：サポートされていません。
 
-| アーキテクチャ / 精度 |  | 通常 | FP16 | BF16 | Int8 |
+| アーキテクチャ / 精度 |  | Normal | FP16 | BF16 | INT8 / INT4 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | ネイティブ | B | C | B | B |
 |  | x86/x64-SSE4.1 | A | C | C | A |
 |  | x86/x64-AVX2 | S | C | C | A |
 |  | x86/x64-AVX512 | S | C | C | S |
-|  | ARMv7a | S | S (ARMv8.2) | S | S |
+|  | ARMv7a | S | C | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
+|  | ARMv9 (SME2) | S | S | B | S |
+|  | RISC-V (RVV) | A | C | C | B |
 | GPU | OpenCL | A | S | C | S |
 |  | Vulkan | A | A | C | A |
 |  | Metal | A | S | C | S |
-|  | CUDA | A | S | C | C |
-| NPU | CoreML | B | B | C | C |
+|  | CUDA | A | S | C | A |
+| NPU | CoreML | A | A | C | C |
+|  | Hexagon | A | A | C | B |
+|  | NeuroPilot | B | B | C | B |
 |  | HIAI | B | C | C | B |
 |  | NNAPI | B | B | C | B |
-|  | QNN | C | B | C | C |
+|  | QNN | C | B | C | A |
+
+CoreML は `Precision_Normal` で主に FP16 の MIL テンソルと重みを使用します。`Precision_Low` は独立した実行パスではなく、各演算の実行デバイスは Core ML が選択します。
+
+Hexagon ではホスト入力が Normal 精度の場合もデバイステンソルに FP16 を使用します。
+
+
+ARMv9 では ARMv8 のパスを使用できます。SME2 の高速化には対応 CPU とビルド設定が必要です。BF16 は既存の ARM パスを使用し、`MNN_SUPPORT_BF16` の有効化が必要です。RISC-V IME2 の最適化は SpacemiT K3 向けです。
+
+INT8 / INT4 の評価には重みのみを量子化するモデルのパスも含まれ、すべての演算が整数計算されることを意味しません。Hexagon の LLM ドキュメントでは現在、対称 INT4 重みと FP16 活性化を必要とします。QNN の対応範囲は対象デバイスと量子化設定によって異なります。
 
 
 

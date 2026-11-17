@@ -8,6 +8,14 @@
 [![MNN Homepage](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
 [![zread](https://img.shields.io/badge/Zread-ask-green)](https://zread.ai/alibaba/MNN)
 
+## 最新消息 🔥
+
+- [2026/11/04] 我們發布了 **MNN-Pocket-0.3B**，一款支援中英文指令互動的 **3 億參數手機應用原生大模型**。MNN 團隊從手機應用的任務需求與資源預算出發，協同設計模型架構、訓練方法與推論引擎。支援 **32K 上下文**；INT4（W4A16）QAT MNN 版本體積僅 **173 MB**，在 iPhone 18 Pro 上實測解碼速度為 **350 tok/s**。以 **Apache 2.0** 授權條款開源。
+
+  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://arxiv.org/pdf/2611.12311)
+
+## 簡介
+
 [MNN](https://github.com/alibaba/MNN) 是一個輕量級的深度神經網路引擎，支援深度學習的推理 (Inference) 與訓練。適用於伺服器、個人電腦、手機及各類嵌入式裝置。目前，MNN 已在阿里巴巴的手機淘寶、手機天貓、優酷等超過 30 個 App 中使用，涵蓋直播、短影音、搜尋推薦、商品圖像搜尋、互動行銷、權益發放、安全風控等場景。
 
 [MNN-LLM](https://github.com/alibaba/MNN/tree/master/transformers/llm) 是基於 MNN 引擎開發的大型語言模型執行方案，旨在解決大語言模型在本機裝置（手機 / 個人電腦 / 嵌入式裝置）上的高效部署問題。支援常見的 Qwen、Baichuan、Zhipu、LLAMA 等大語言模型。使用教學：[MNN-LLM 使用教學](https://mnn-docs.readthedocs.io/en/latest/transformers/llm.html)
@@ -79,22 +87,37 @@ MNN 適配的硬體架構與精度詳見下表：
 - B：支援，無最佳化或處於實驗狀態，不推薦使用
 - C：不支援
 
-| Architecture / Precision |  | Normal | FP16 | BF16 | Int8 / Int4 |
+| Architecture / Precision |  | Normal | FP16 | BF16 | INT8 / INT4 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | Native | B | C | B | B |
 |  | x86/x64-SSE4.1 | A | C | C | A |
 |  | x86/x64-AVX2 | S | C | C | A |
 |  | x86/x64-AVX512 | S | C | C | S |
-|  | ARMv7a | S | S (ARMv8.2) | S | S |
+|  | ARMv7a | S | C | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S (ARMv8.6) | S |
+|  | ARMv9 (SME2) | S | S | B | S |
+|  | RISC-V (RVV) | A | C | C | B |
 | GPU | OpenCL | A | S | C | S |
 |  | Vulkan | A | A | C | A |
 |  | Metal | A | S | C | S |
 |  | CUDA | A | S | C | A |
-| NPU | CoreML | A | C | C | C |
+| NPU | CoreML | A | A | C | C |
+|  | Hexagon | A | A | C | B |
+|  | NeuroPilot | B | B | C | B |
 |  | HIAI | A | C | C | C |
 |  | NNAPI | B | B | C | B |
-|  | QNN | C | B | C | C |
+|  | QNN | C | B | C | A |
+
+CoreML 在 `Precision_Normal` 下主要使用 FP16 MIL 張量與權重；`Precision_Low` 不是獨立的執行路徑。運算子的執行裝置由 Core ML 選擇。
+
+Hexagon 即使接收 Normal 精度的主機輸入，裝置端張量仍使用 FP16。
+
+
+ARMv9 可使用 ARMv8 路徑；SME2 加速需要 CPU 和建置設定支援。BF16 使用既有 ARM 路徑，需啟用 `MNN_SUPPORT_BF16`。RISC-V IME2 最佳化針對 SpacemiT K3。
+
+INT8 / INT4 評級包含僅量化權重的模型路徑，不表示所有運算子均使用整數計算。Hexagon 的 LLM 文件目前要求對稱 INT4 權重和 FP16 啟用值；QNN 的支援範圍取決於目標裝置和量化設定。
+
+
 
 ## 工具
 

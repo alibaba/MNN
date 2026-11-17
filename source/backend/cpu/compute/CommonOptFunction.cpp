@@ -3559,6 +3559,77 @@ void MNNNorm(float* dst, const float* src, const float* gamma, const float* beta
 }
 #endif // MNN_USE_SSE
 
+static void MNNPoolingAvg(const void* channelInput, int inputWidth, int inputHeight, void* channelOutput,
+                          int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
+                          int strideHeight, int padWidth, int padHeight, int padType, int countType) {
+    auto input = static_cast<const float*>(channelInput);
+    auto output = static_cast<float*>(channelOutput);
+    if (countType == MNN::AvgPoolCountType_DEFAULT) {
+        countType = padType == MNN::PoolPadType_CAFFE ? MNN::AvgPoolCountType_INCLUDE_PADDING
+                                                      : MNN::AvgPoolCountType_EXCLUDE_PADDING;
+    }
+    auto pool = [=](const float* src, float* dst, int width, int height, float scale) {
+        Vec4 sum(0.0f), sum1(0.0f);
+        for (int y = 0; y < height; ++y) {
+            const auto* cursor = src + y * inputWidth * 4;
+            int x = 0;
+            for (; x + 1 < width; x += 2, cursor += 8) {
+                sum = sum + Vec4::load(cursor);
+                sum1 = sum1 + Vec4::load(cursor + 4);
+            }
+            for (; x < width; ++x, cursor += 4) {
+                sum = sum + Vec4::load(cursor);
+            }
+        }
+        Vec4::save(dst, (sum + sum1) * Vec4(scale));
+    };
+    auto poolPad = [=](int oh, int ow) {
+        const int ih = oh * strideHeight - padHeight;
+        const int iw = ow * strideWidth - padWidth;
+        const int hStart = ALIMAX(ih, 0), hEnd = ALIMIN(ih + kernelHeight, inputHeight);
+        const int wStart = ALIMAX(iw, 0), wEnd = ALIMIN(iw + kernelWidth, inputWidth);
+        auto dst = output + (oh * outputWidth + ow) * 4;
+        if (hStart >= hEnd || wStart >= wEnd) {
+            pool(input, dst, 0, 0, 0.0f);
+            return;
+        }
+        int count = (hEnd - hStart) * (wEnd - wStart);
+        if (countType == MNN::AvgPoolCountType_INCLUDE_PADDING) {
+            count = (ALIMIN(ih + kernelHeight, inputHeight + padHeight) - ih) *
+                    (ALIMIN(iw + kernelWidth, inputWidth + padWidth) - iw);
+        }
+        pool(input + (hStart * inputWidth + wStart) * 4, dst, wEnd - wStart, hEnd - hStart,
+             count > 0 ? 1.0f / count : 0.0f);
+    };
+    int left = 0, right = outputWidth;
+    for (; left < outputWidth && left * strideWidth < padWidth; ++left) {
+    }
+    for (; right > left && (right - 1) * strideWidth - padWidth + kernelWidth > inputWidth; --right) {
+    }
+    const float scale = 1.0f / (kernelWidth * kernelHeight);
+    for (int oh = 0; oh < outputHeight; ++oh) {
+        const int ih = oh * strideHeight - padHeight;
+        int middleBegin = left, middleEnd = right;
+        if (ih < 0 || ih + kernelHeight > inputHeight) {
+            middleBegin = middleEnd = outputWidth;
+        }
+        int ow = 0;
+        for (; ow < middleBegin; ++ow) {
+            poolPad(oh, ow);
+        }
+        if (ow < middleEnd) {
+            const auto* src = input + (ih * inputWidth + ow * strideWidth - padWidth) * 4;
+            auto dst = output + (oh * outputWidth + ow) * 4;
+            for (; ow < middleEnd; ++ow, src += strideWidth * 4, dst += 4) {
+                pool(src, dst, kernelWidth, kernelHeight, scale);
+            }
+        }
+        for (; ow < outputWidth; ++ow) {
+            poolPad(oh, ow);
+        }
+    }
+}
+
 void MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) {
     Vec4 max = Vec4(-FLT_MAX);
     for (int h = 0; h < hLen; h++, src += iw * UNIT) {
@@ -5180,7 +5251,7 @@ void MNNCoreFunctionInit() {
 
     gCoreFunction->MNNReluWithSlopeChannel = MNNReluWithSlopeChannel;
     gCoreFunction->MNNReluInt8 = MNNReluInt8;
-    gCoreFunction->MNNPoolingAvg = (decltype(gCoreFunction->MNNPoolingAvg))(poolingAvg<float, Vec4, 4>);
+    gCoreFunction->MNNPoolingAvg = MNNPoolingAvg;
     // Set min value as 1 << 24
     gCoreFunction->MNNPoolingMax = (decltype(gCoreFunction->MNNPoolingMax))(poolingMax<float, Vec4, 4, -16777216>);
 

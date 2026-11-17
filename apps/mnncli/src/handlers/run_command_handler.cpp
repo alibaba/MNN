@@ -119,6 +119,10 @@ int RunCommandHandler::Handle(const ParsedCommand& cmd) {
     LOG_INFO("Config path: " + config_path);
     
     auto llm = LLMManager::CreateLLM(config_path, true);
+    if (!llm) {
+        UserInterface::ShowError("Failed to load model", config_path);
+        return 1;
+    }
     if (has_thinking_override) {
         std::string thinking_cfg = std::string("{\"jinja\":{\"context\":{\"enable_thinking\":") +
                                    (thinking_enabled ? "true" : "false") + "}}}";

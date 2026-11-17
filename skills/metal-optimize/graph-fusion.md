@@ -89,8 +89,8 @@
 
 GatedRMSNorm 没有单独开关：由 `--transformerFuseC4` 统一控制（见 §5）。
 
-⚠️ **旧模型（转换时未跑该 pass 的）在 Metal 上不享有融合**（实测 Qwen3.5-0.8B
-decode dispatch 246 → 365）。**换收益的方式是重新转换模型，不是改后端**。
+⚠️ **旧模型（转换时未跑该 pass 的）在 Metal 上不享有融合**（表现为每 token 的
+dispatch 数明显上升）。**换收益的方式是重新转换模型，不是改后端**。
 
 **成员语义**：`act_silu_mul == true` ⇒ 这组是 (gate, up)，运行时会追加 SiLU×Mul；
 否则是 q/k/v（3 成员）或 q/k/v + 第四投影（4 成员：gated 变体的输出门，
@@ -197,17 +197,17 @@ for (auto &conv : mConvs) {
 // ② 分组直接来自导出的成员顺序，运行时不做任何模式推断
 bool projFused = false;
 if (mIsGateUp) {                                          // act_silu_mul
-    if (mConvs.size() == 2 && !MetalEnv::get().gateUpFusionDisabled)
+    if (mConvs.size() == 2)
         projFused = mConvs[0]->setupGateUpFusion(mConvs[1].get(), mUp.get());
-} else if (mConvs.size() >= 3 && !MetalEnv::get().qkvFusionDisabled) {
+} else if (mConvs.size() >= 3) {
     projFused = (mConvs.size() == 3)
         ? mConvs[0]->setupQKVFusion(/* k,v */)
         : mConvs[0]->setupQKVFusion(/* k,v,w —— 第 4 投影 */);
 }
 
 // ③ LN 折叠必须以投影融合成功为前提（见 §4.4）
-if (!projFused || !mHasLn || !mLn || MetalEnv::get().lnFusionDisabled) return;
-if (!mLn->isNC4HW4() || !mLn->isRMSNormWithGammaBeta())                return;
+if (!projFused || !mHasLn || !mLn) return;
+if (!mLn->isNC4HW4() || !mLn->isRMSNormWithGammaBeta()) return;
 
 // ④ 别名检测 + STATIC re-home（见 §4.3）
 // ⑤ mConvs[0]->setupLNFusion(...) 成功后 mLn->setFused() 压掉 LayerNorm 自己的 dispatch
@@ -254,10 +254,8 @@ for (auto *out : written) {
 
 `setupFusion` 曾**忽略** `setupGateUpFusion`/`setupQKVFusion` 的返回值，无条件接着做 LN 折叠。
 LN 折叠会 `mLn->setFused()` 压掉 LayerNorm 自己的 dispatch，`mNormalized` 从此**无人写**；
-投影融合一旦失败（env 关闭 / pipeline 创建失败 / 量化布局不一致 / STATIC re-home 失败），
+投影融合一旦失败（pipeline 创建失败 / 量化布局不一致 / STATIC re-home 失败），
 非 leader 的 conv 仍各自 dispatch 去读 `mNormalized` → 输出错误。
-
-复现：`MNN_METAL_DISABLE_QKV_FUSION=1`（LN 融合保持默认开）即让 0.8B 输出乱码。
 
 修法：捕获返回值，`projFused == false` 直接跳过 LN 折叠。
 
@@ -287,26 +285,18 @@ LN 折叠会 `mLn->setFused()` 压掉 LayerNorm 自己的 dispatch，`mNormalize
 且只对非 tensor-API 设备开**。`setupLNFusion` 里另有一处
 `row2 && !mIsGateUpLeader && !mIsQKVLeader` 是 grid.x 减半的分支，不是宏门控，别混。
 
-### 4.6 env 开关（`MetalEnv.hpp:140-142`）
+### 4.6 融合条件与调参
 
-| 开关 | 默认 | 说明 |
-|---|---|---|
-| `MNN_METAL_DISABLE_QKV_FUSION` | 开融合 | `=1` 关掉 q/k/v(/w) leader 装配 |
-| `MNN_METAL_ENABLE_QKV_COMPACT_GRID` | 关（旧矩形网格） | `=1` 启用 `grid.x` 前缀和紧凑网格，其他融合保持不变；Mac M5 Pro 有收益，iPad M5 无收益 |
-| `MNN_METAL_DISABLE_GATE_UP_FUSION` | 开融合 | `=1` 关掉 gate/up leader 装配 |
-| `MNN_METAL_DISABLE_LN_FUSION` | LN 折入投影（两阶段关） | `=1` 改走独立 AddRMSNorm → 物化 normalized → 融合投影；Mac 有收益、iPad M5 无收益，故默认不启用两阶段（不影响 GatedRMSNorm）|
-
-三个融合 DISABLE 开关语义 = 默认开，仅 `=1` 关闭；compact grid 是默认关的实验路径，
-使用正向 ENABLE 开关。**所有 Metal env 走 `MetalEnv.hpp` 单一入口**，
-后端代码禁止散落 `getenv`。目前唯一例外：`MetalLinearAttention.mm:689` 的
-`MNN_METAL_DISABLE_LINEAR_ATTN_CONV_STATE_FUSION`。
+QKV、Gate/Up 与 LN 融合在满足 `MetalFusedProj::setupFusion()` 的条件时自动尝试；
+投影融合失败时保留独立 LN dispatch（见 §4.4）。布局、网格与 kernel 调参见
+[`env-registry.md`](./env-registry.md)；统一解析入口为 `MetalEnv.hpp`。
 
 ---
 
 ## 5. `GatedRMSNorm`：另一条独立链路
 
-Qwen3.5 linear-attention 输出门控段的融合，**不走 `FusedLinear`，也不受
-`MNN_METAL_DISABLE_LN_FUSION` 影响**——它是一个独立 op（`OpType_GatedRMSNorm = 308`）。
+Qwen3.5 linear-attention 输出门控段的融合**不走 `FusedLinear`**，
+而是一个独立 op（`OpType_GatedRMSNorm = 308`）。
 
 ### 5.1 链路
 
@@ -484,7 +474,7 @@ RoPE/Attention 形状放行 + Metal `kBaseOffset`/`v_channel_offset`）已**全�
 1. **先跑 `precision: high`（fp32）对拍**。fp32 bit-identical ⇒ 索引/布局/数学都对，
    问题在 fp16 rounding，多半可接受（本仓已合入的融合大多会改 fp16 token）。
 2. **fp32 也不对 ⇒ 查内存别名**（§4.3）。特征是"输出偶尔不同"、
-   对 `MNN_METAL_COMMIT_NUM=1` / `MNN_METAL_DISABLE_REPLAY=1` **不敏感**。
+   对 `MNN_METAL_DISABLE_REPLAY=1` **不敏感**。
 3. **稳定乱码 ⇒ 查链式门控**（§4.4）。用 env 逐项关融合二分：
    关掉某一项反而正确 ⇒ 那一项的前置依赖没检查。
 4. **崩在 `Create execution error : <optype>` ⇒ geometry 保留门与 Creator 谓词分叉**（§5.2）。

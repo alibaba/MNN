@@ -365,11 +365,9 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
                 if (nil != mFusedSGTGPipeline) rt->insertPipeline(keys, mFusedSGTGPipeline);
             }
         }
-        // ── Tensor-op chunk-64 prefill, without sequence-sized scratch ──
-        // A/P reuse conv_out's V storage after V is backed up into the output;
-        // the recurrent scan overwrites that backup with final results. Two
-        // 64x64 matrices require at least 128 V channels.
-        mUseFlashChunk = rt->supportTensorOps() && mHeadKDim > 0 && mHeadKDim <= 128 &&
+        // Tensor-op chunk-64 prefill. A/P reuse conv_out's V storage after V
+        // is backed up into the output; needs >= 128 V channels for the pair.
+        mUseFlashChunk = rt->useTensorOps() && mHeadKDim > 0 && mHeadKDim <= 128 &&
                          mHeadKDim % 16 == 0 && mHeadVDim >= 128 &&
                          mHeadVDim % mFlashDvBlock == 0;
         if (mUseFlashChunk) {
@@ -418,11 +416,8 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
                 mUseFlashChunk = false;
             }
         }
-        // ── simdgroup_matrix flash chunk prefill (non-tensor-API devices) ──
-        // Same chunked algorithm as flash_chunk but with 8x8 fp32 MMA tiles,
-        // for M4-class Macs / iPhone where MPP tensor ops are unavailable.
-        // Gated to head_k_dim == 128: at dk=64 the scalar fused_chunk_sg
-        // baseline (CHUNK_BT=32) is faster across all L, while dk=128 wins.
+        // simdgroup_matrix port of flash_chunk for non-tensor-API devices
+        // (gated to head_k_dim == 128).
         mUseFlashChunkSGMM = !mUseFlashChunk && rt->supportSimdGroupMatrix() &&
                              mHeadKDim == 128 &&
                              mHeadVDim >= mSgmmDvBlock && mHeadVDim % mSgmmDvBlock == 0;
@@ -506,18 +501,13 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     int batch = 0, convDim = 0, seqLen = 0;
     linearAttentionDims(qkv, batch, convDim, seqLen);
     mLastSeqLen = seqLen;
-    // gate/beta chain fold: (re-)register the request for onResizeEnd
-    // matching. Results persist across the per-token forced re-resize (the
-    // chain executions and tensors are untouched then); a change of the
-    // gate/beta tensors invalidates them.
+    // Re-register the gate/beta chain fold for onResizeEnd matching; fold
+    // results persist across per-token resizes until gate/beta tensors change.
     if (mAttentionType == "gated_delta_rule") {
         if (mGateFold) {
-            // Export-time fold: inputs[1]=raw_a, inputs[2]=raw_b, constants
-            // from LinearAttentionParam. Register for onResizeEnd handling —
-            // the STATIC re-home must NOT happen here in onResize: the
-            // pipeline's resize sweep releases a consumer's input memory when
-            // its useCount exhausts (Pipeline.cpp _releaseTensor), freeing a
-            // STATIC home acquired this early before encode runs.
+            // Export-time fold (inputs[1]=raw_a, inputs[2]=raw_b). Must defer
+            // the STATIC re-home to onResizeEnd: the pipeline sweep would
+            // otherwise release it when the consumer's useCount exhausts.
             if (mFoldReq.rawA != inputs[1] || mFoldReq.rawB != inputs[2]) {
                 mFoldReq = MetalBackend::LinearAttnFoldRequest();
                 mFoldReq.rawA = inputs[1];
@@ -624,10 +614,8 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
         }
     }
 
-    // Pipeline force-resizes LinearAttention every decode token. Keep the
-    // mConvOut Tensor object alive when its shape is unchanged so encode-replay
-    // recordings never hold a dangling Tensor*; buffer/offset drift after an
-    // allocator re-plan is caught by metalReplayValidate.
+    // Pipeline force-resizes every decode token. Keep mConvOut alive when the
+    // shape is unchanged so encode-replay recordings never dangle.
     const bool convOutChanged = mConvOut.get() == nullptr ||
                                 mConvOut->length(0) != batch ||
                                 mConvOut->length(1) != convChannels ||
@@ -1038,8 +1026,7 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
     }
 
     const bool fuseDecodeConvState =
-        seqLen == 1 && convStateSize > 0 && !lazyMode && mConvSiluStateDecodePipeline != nil &&
-        getenv("MNN_METAL_DISABLE_LINEAR_ATTN_CONV_STATE_FUSION") == nullptr;
+        seqLen == 1 && convStateSize > 0 && !lazyMode && mConvSiluStateDecodePipeline != nil;
 
     // ── Fixed head: Conv1D + SiLU (always run) ────────────────────────
     {

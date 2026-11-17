@@ -1,9 +1,10 @@
+from .package_writer import register_file_region
 import os
 import torch
 torch.set_printoptions(precision=4, sci_mode=False)
 from .model_mapper import ModelMapper
-from .transformers import Rotary, Decoder
-from .token2wav import Qwen2_5OmniToken2Wav, Qwen3TTSToken2Wav
+from .transformers import Rotary, Decoder, Lfm3OfflineBackbone
+from .token2wav import Qwen2_5OmniToken2Wav, Qwen3TTSToken2Wav, LiquidCodecDecoder
 from .spinner import spinner_run
 from .torch_utils import onnx_export
 from .custom_op import FakeLinear
@@ -69,7 +70,7 @@ class Talker(torch.nn.Module):
         embedding_file = f'{self.args.dst_path}/talker_embeddings_bf16.bin'
         with open(embedding_file, 'wb') as f:
             f.write(buffer)
-        return embedding_file
+        return register_file_region(self.args, embedding_file)
 
 class OmniRotary(Rotary):
     def __init__(self, model):
@@ -330,7 +331,7 @@ class Qwen3TTSAudioCodePredictor(torch.nn.Module):
         embedding_file = f'{self.args.dst_path}/code_predictor_embeddings_bf16.bin'
         with open(embedding_file, 'wb') as f:
             f.write(buffer)
-        return embedding_file
+        return register_file_region(self.args, embedding_file)
 
     def unload_param(self):
         self.unloaded_ops = {}
@@ -527,7 +528,7 @@ class Qwen3TTSTalker(Talker):
         embedding_file = f'{self.args.dst_path}/talker_text_embeddings_bf16.bin'
         with open(embedding_file, 'wb') as f:
             f.write(buffer)
-        return embedding_file
+        return register_file_region(self.args, embedding_file)
 
     def unload_param(self):
         self.unloaded_ops = {}
@@ -596,3 +597,75 @@ class Qwen3TTSTalker(Talker):
         return [talker_onnx,
                 self.audio_code_predictor.export(onnx_path),
                 self.codec_embedder.export(onnx_path)]
+
+
+class Lfm3DepthDecoder(torch.nn.Module):
+    def __init__(self, depth):
+        super().__init__()
+        self.projection = depth.depth_linear
+        self.mask_embedding = depth.mask_embedding
+        self.embeddings = depth.depth_embeddings
+        self.backbone = Lfm3OfflineBackbone(depth.model, causal=False)
+        self.num_codebooks, self.hidden_size = depth.num_codebooks, depth.hidden_size
+        self.heads = torch.nn.ModuleList()
+        for embedding in self.embeddings:
+            head = torch.nn.Linear(embedding.embedding.weight.shape[1], embedding.embedding.weight.shape[0], bias=False)
+            head.weight = embedding.embedding.weight
+            self.heads.append(head)
+
+    def forward(self, hidden_states, codes, masked):
+        embeds = torch.stack([embedding(codes[:, i]) for i, embedding in enumerate(self.embeddings)], dim=1)
+        hidden_states = self.projection(hidden_states).reshape(-1, self.num_codebooks, self.hidden_size)
+        hidden_states = hidden_states + torch.where(masked[:, :, None] > 0, self.mask_embedding, embeds)
+        hidden_states = self.backbone(hidden_states)
+        return torch.stack([head(embedding.embedding_norm(hidden_states[:, i]))
+                            for i, (embedding, head) in enumerate(zip(self.embeddings, self.heads))], dim=1)
+
+
+
+class Lfm3Speech(torch.nn.Module):
+    def __init__(self, model, path, generation_config):
+        super().__init__()
+        from transformers import AutoProcessor
+        self.config = model.config
+        self.generation_config = generation_config
+        self.depth = Lfm3DepthDecoder(model.depth_decoder.float())
+        self.codebook_embedding = model.codebook_embedding
+        codec = AutoProcessor.from_pretrained(path, trust_remote_code=True).audio_tokenizer.float().eval()
+        self.codec = LiquidCodecDecoder(codec)
+
+    def get_config(self):
+        keys = ('num_codebooks', 'codebook_size', 'audio_eos_code', 'maskgit_schedule',
+                'interleaved_n_text', 'interleaved_n_audio', 'audio_start_token_id',
+                'audio_out_token_id', 'mixed_start_token_id', 'text_end_token_id')
+        return {'lfm3_speech': {**{key: getattr(self.config, key) for key in keys},
+                               'sample_rate': 24000, 'n_fft': self.codec.n_fft, 'hop_length': self.codec.hop},
+                'hidden_states': True}
+
+    def get_generation_config(self):
+        config = {}
+        for key in ('audio_temperature', 'audio_top_k', 'audio_repetition_penalty', 'audio_repetition_window'):
+            value = getattr(self.generation_config, key, None)
+            # HF uses null for an unbounded top-k; MNN uses zero.
+            if key == 'audio_top_k' and value is None:
+                value = 0
+            if value is not None:
+                config[key] = value
+        # HF controls audio sampling independently of the text do_sample setting.
+        if not self.generation_config.do_sample:
+            config['sampler_type'] = 'greedy'
+        return config
+
+    def export(self, onnx_path):
+        from pathlib import Path
+        root = Path(onnx_path)
+        embedding = self.codebook_embedding.weight.detach().cpu().bfloat16().view(torch.int16)
+        (root.parent / 'audio_embeddings_bf16.bin').write_bytes(embedding.numpy().tobytes())
+        depth_path, codec_path = str(root / 'depth.onnx'), str(root / 'codec.onnx')
+        count = self.config.num_codebooks
+        onnx_export(self.depth, (torch.randn(1, self.config.text_config.hidden_size),
+                                torch.zeros(1, count, dtype=torch.int32), torch.ones(1, count, dtype=torch.int32)),
+                    depth_path, ['hidden_states', 'codes', 'masked'], ['logits'], {})
+        onnx_export(self.codec, (torch.zeros(1, count, 4, dtype=torch.int32),), codec_path,
+                    ['codes'], ['frames'], {'codes': {2: 'frames'}, 'frames': {1: 'stft_frames'}})
+        return [depth_path, codec_path]

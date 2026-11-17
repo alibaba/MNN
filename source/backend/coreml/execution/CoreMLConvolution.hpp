@@ -17,20 +17,30 @@ namespace MNN {
 
 class CoreMLConvolution : public CoreMLCommonExecution {
 public:
-    CoreMLConvolution(Backend *b, const Op *op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    CoreMLConvolution(Backend* b, const Op* op, const std::vector<Tensor*>& inputs,
+                      const std::vector<Tensor*>& outputs);
+    ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     virtual ~CoreMLConvolution() = default;
+
 private:
-    void loadWeightBias(const std::vector<Tensor *> &inputs);
-    void addPadLayer(const Tensor * input, const Tensor* output, const Convolution2DCommon* common);
-    std::string mConvInputName, mConvOutputName;
-    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    const float *weightPtr, *biasPtr;
-    int weightSize, biasSize;
-    bool isDeconv = false;
-    bool isSamePadding = false;
-    int outputHeight, outputWidth, inputHeight, inputWidth;
+    void addOutput(Operation, const std::vector<Tensor*>&);
+    void initConv2d(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    bool mIsDeconv = false;
+    bool mIsLinear = false;
+    std::string mWeight, mBias;
 };
+
+class CoreMLConvolution3D : public CoreMLCommonExecution {
+public:
+    CoreMLConvolution3D(Backend* b, const Op* op, const std::vector<Tensor*>& inputs,
+                        const std::vector<Tensor*>& outputs);
+    ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    virtual ~CoreMLConvolution3D() = default;
+
+private:
+    std::string mWeight, mBias;
+};
+
 } // namespace MNN
 
 #endif // MNN_COREMLCONVOLUTION_HPP

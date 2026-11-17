@@ -128,7 +128,8 @@ static void compareNet(Interpreter* net, Interpreter* net2, MNNForwardType expec
 
 int main(int argc, const char* argv[]) {
     if (argc < 3) {
-        MNN_PRINT("Usage: ./modelCompare.out origin.mnn origin_quant.mnn [0.05]");
+        MNN_PRINT("Usage: ./modelCompare.out origin.mnn origin_quant.mnn [0.05]\n");
+        return 1;
     }
     // read args
     std::string cmd = argv[0];
@@ -152,9 +153,17 @@ int main(int argc, const char* argv[]) {
     MNN_PRINT("Open Model %s, %s\n", fileName, compareFileName);
     std::shared_ptr<MNN::Interpreter> net =
         std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(fileName));
+    if (nullptr == net) {
+        MNN_ERROR("Failed to load model: %s\n", fileName);
+        return 1;
+    }
     net->setSessionMode(Interpreter::Session_Debug);
     std::shared_ptr<MNN::Interpreter> net2 =
         std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(compareFileName));
+    if (nullptr == net2) {
+        MNN_ERROR("Failed to load model: %s\n", compareFileName);
+        return 1;
+    }
     net2->setSessionMode(Interpreter::Session_Debug);
 
     // create session for get input info

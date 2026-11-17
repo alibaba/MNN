@@ -17,8 +17,8 @@
 ## 6.1 排查流程（按成本从低到高）
 
 1. **先看第一条错误，别被 victim 骗**：`InnocentVictim`/`SubmissionsIgnored` 都是**受害者**代码，真凶 buffer 常常不在日志里。不要基于 victim 的 op 去猜。
-2. **用 env 开关把"路径"与"触发变量"解耦**（判别性探针，代价一次 run）：逐个关可疑路径（如 `MNN_METAL_DECODE_SDPA=0`、`MNN_METAL_DISABLE_REPLAY=1`）看谁消失。⚠️ 注意"关 A 消失"不等于"A 是根因"——replay 常只是放大面；要看**最小共同集**（本案例：0.8B 关 replay 也好，2B 只有关 splitkv 才好 ⇒ 根在 splitkv）。
-3. **解耦相关变量**：阈值型触发常有多个共变量（kv 长度 ↔ nwg=ceil(kv/256)）。用 pin 类旋钮做 2×2（当年是 `MNN_METAL_DECODE_SPLITKV_NWG=19/20` × 安全/故障 kv）——本案例一轮就锁定"nwg>16 而非 kv 本身"。⚠️ 本案例的 split-KV 路径及其 `MNN_METAL_DECODE_SPLITKV` / `_NWG` 两个 env **已于 2026-07-30 删除**（收敛到单 pass `MNN_METAL_DECODE_SDPA`）；方法论照用，具体开关名以 `metal-optimize/env-registry.md` 现表为准。
+2. **用 env 开关把"路径"与"触发变量"解耦**（判别性探针，代价一次 run）：逐个关可疑路径（如 `MNN_METAL_DISABLE_REPLAY=1`）看谁消失。⚠️ 注意"关 A 消失"不等于"A 是根因"——replay 常只是放大面；要看**最小共同集**（本案例：0.8B 关 replay 也好，2B 只有关 splitkv 才好 ⇒ 根在 splitkv）。
+3. **解耦相关变量**：阈值型触发常有多个共变量（kv 长度 ↔ nwg=ceil(kv/256)）。用 pin 类旋钮做 2×2（当年是 `MNN_METAL_DECODE_SPLITKV_NWG=19/20` × 安全/故障 kv）——本案例一轮就锁定"nwg>16 而非 kv 本身"。⚠️ 本案例的 split-KV 路径及其 `MNN_METAL_DECODE_SPLITKV` / `_NWG` 两个 env **已于 2026-07-30 删除**（收敛到单 pass 融合 SDPA，相关 env 开关也已删净）；方法论照用，具体开关名以 `metal-optimize/env-registry.md` 现表为准。
 4. **Metal Shader Validation 拿实锤**（最有力，几分钟）：
    ```bash
    MTL_SHADER_VALIDATION=1 MTL_SHADER_VALIDATION_REPORT_TO_STDERR=1 \

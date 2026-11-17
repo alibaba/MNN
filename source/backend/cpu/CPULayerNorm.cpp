@@ -142,7 +142,8 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*>& inputs, const std:
         // result. Plain form: outputs[0] is the normalized result and there is no sum.
         float* normOut = output1Float != nullptr ? output1Float : outputFloat;
         float* sumOut = output1Float != nullptr ? outputFloat : nullptr;
-        // The fp16 kernel and the pack-4 fp32 kernel both walk 4-token tiles; the
+        // Use 4-token scheduling for fp16 and pack-4 fp32. Aligned fp16 RMSNorm
+        // groups 8 tokens for batch >= 32; extra workers may have no tile.
         // AVX2 / AVX512 fp32 kernels split per token.
         const int tokenTile = (bytes == 4 && core->pack != 4) ? 1 : 4;
         const int packedThreadNumber = ALIMIN(threadNumber, UP_DIV(batch, tokenTile));

@@ -39,6 +39,10 @@ int main(int argc, const char* argv[]) {
     FUNC_PRINT_ALL(llmPath, s);
     FUNC_PRINT_ALL(textPath, s);
     std::shared_ptr<MNN::Transformer::Llm> llm(MNN::Transformer::Llm::createLLM(llmPath));
+    if (!llm) {
+        MNN_ERROR("Cannot open LLM model: %s\n", llmPath);
+        return 1;
+    }
     {
         AUTOTIME;
         llm->set_config("{\"all_logits\":true, \"use_template\":false}");

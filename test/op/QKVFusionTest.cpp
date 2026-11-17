@@ -243,7 +243,7 @@ public:
             }
         }
 
-        // Test the generalized Q4 W16 fused path with larger quant blocks.
+        // Test the Q4 fused path with larger quant blocks.
         for (int blocksize : {128, 256}) {
             bool ok = testQKVFusion(512, 256, 64, 4, blocksize, precision);
             if (!ok) {

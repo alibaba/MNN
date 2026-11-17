@@ -424,6 +424,15 @@ void Executor::RuntimeManager::setExternalFile(std::string fileName) {
     mInside->mContent->mExternalFile = fileName;
 }
 
+bool Executor::RuntimeManager::setExternalFile(std::string fileName, int64_t offset, int64_t length) {
+    auto region = FileLoader::fileRegion(fileName, offset, length);
+    if (region.empty() || !FileLoader(region.c_str(), true).valid()) {
+        return false;
+    }
+    mInside->mContent->mExternalFile = std::move(region);
+    return true;
+}
+
 void Executor::RuntimeManager::updateCache() {
     if (nullptr == mInside->mCache) {
         return;

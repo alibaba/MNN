@@ -241,7 +241,7 @@ int main(int argc, const char* argv[]) {
 #else
                     std::cout << RED << "Failed to open " << inputName << NONE << std::endl;
 #endif
-                    break;
+                    return false;
                 }
                 inputTensor->copyFromHostTensor(givenTensor);
                 delete givenTensor;
@@ -276,7 +276,7 @@ int main(int argc, const char* argv[]) {
 #else
                     std::cout << RED << "Failed to open " << expectName << NONE << std::endl;
 #endif
-                    break;
+                    return false;
                 }
                 if (!MNN::TensorUtils::compareTensors(outputTensor, expectTensor, tolerance, true)) {
                     correct = false;

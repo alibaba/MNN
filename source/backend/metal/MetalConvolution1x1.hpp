@@ -24,26 +24,21 @@ public:
     virtual void onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                           id<MTLComputeCommandEncoder> encoder) override;
 
-    // Gate/Up fusion: called by the owning MetalFusedProj for the two members of
-    // an exported FusedGateUp group. 'this' is the gate (leader), 'peer' the up
-    // (follower); peerOutput is the up projection's output tensor.
-    //
-    // siluOutput, when given, additionally folds the group's MUL_SILU into this
-    // kernel's epilogue: the dual-stream body drives gate and up for one quad
-    // instead of two quads of one matrix, writes up * silu(gate) straight to
-    // siluOutput, and the owner must then skip its MUL_SILU child. Only the
-    // GEMV_2OCQUAD_PER_SG shape can do this; the caller must check gateUpSiluFused().
+    // Gate/Up fusion: called by the owning MetalFusedProj for the two members of an
+    // exported FusedGateUp group. 'this' is the gate (leader), 'peer' the up (follower).
+    // siluOutput, when given, also folds the group's MUL_SILU into this kernel's
+    // epilogue, so the owner must skip its MUL_SILU child. Only the oc16Sg2K1
+    // (GEMV_SG_OC_QUADS_2) shape can do that; the caller must check gateUpSiluFused().
     bool setupGateUpFusion(MetalConvolution1x1* peer, const Tensor* peerOutput,
                            const Tensor* siluOutput = nullptr);
     bool gateUpSiluFused() const { return mGateUpSilu; }
     bool isGateUpLeader() const { return mIsGateUpLeader; }
     bool isGateUpFollower() const { return mIsGateUpFollower; }
-    // QKV fusion: called by the owning MetalFusedProj for the three (or four,
-    // e.g. Qwen3.5 linear-attention qkv/z/b/a) decode GEMV projections of one
-    // exported group. 'this' (first in member order) becomes the leader and
-    // dispatches all of them in a single grid.z=3/4 kernel; the followers'
-    // onEncode become no-ops. selfOutput is the leader's own output tensor: the
-    // merged-output form lays the whole group's outputs into one allocation.
+    // QKV fusion: called by the owning MetalFusedProj for the three or four decode GEMV
+    // projections of one exported group. 'this' (first in member order) becomes the
+    // leader and dispatches all of them in a single grid.z kernel, turning the
+    // followers' onEncode into no-ops; the merged-output form lays the whole group's
+    // outputs into the leader's allocation.
     bool setupQKVFusion(const Tensor* selfOutput,
                         MetalConvolution1x1* peerK, const Tensor* peerKOutput,
                         MetalConvolution1x1* peerV, const Tensor* peerVOutput,
@@ -87,9 +82,6 @@ private:
     std::pair<MTLSize, MTLSize> mDequantThreads;
     bool mPreDequantWeight = false;
     std::shared_ptr<Tensor> mTempWeight;
-    // Fused weight+scale buffer for decode GEMV optimization
-    std::shared_ptr<Tensor> mFusedWeightScale;
-    bool mUseFusedDecode = false;
     // Gate/Up fusion state
     bool mIs2sgDecode = false;           // true if using conv1x1_gemv_g4m1_2sg_wquant_sg pipeline
     bool mIsGateUpLeader = false;        // true if this is the gate (leader) in a fused pair
@@ -98,7 +90,7 @@ private:
     const Tensor* mGateUpPeerOutput = nullptr;    // follower's output tensor
     bool mGateUpSilu = false;                     // epilogue emits up * silu(gate)
     const Tensor* mGateUpSiluOutput = nullptr;    // the group's post-MUL_SILU output
-    int mGateUpDualStreamSplitK = 0;                    // SwiGLU K-split factor (0 off, 2 or 4)
+    int mGateUpSiluKSplit = 0;                    // SwiGLU K split factor (0 = off)
     id<MTLComputePipelineState> mGateUpFusedPipeline = nil;  // fused pipeline with GATE_UP_FUSED
     id<MTLBuffer> mGateUpSegBuffer = nil;         // {up_scale_coef} (gate uses cst.scaleCoef)
     // Prefill MUL_SILU fold (see requestPrefillSiluMul)
@@ -136,7 +128,7 @@ private:
     bool mQKVPackedGrid = false;
     // Whether the group's member output tensors were laid into one allocation, so
     // the fused body addresses every projection as buffer(1) plus a per-projection
-    // offset instead of selecting one of N bound pointers (see setupQKVFusion).
+    // offset (see setupQKVFusion).
     // mQKVMergedOutHolder owns that allocation; the member tensors only alias into
     // it, so it has to outlive them.
     bool mQKVMergedOut = false;
@@ -144,26 +136,24 @@ private:
     // Whether the fused QKV grid was shaped for two accumulator streams per
     // simdgroup (see setupQKVFusion); the LN-folded variant must be compiled
     // to match.
-    bool mQKVDualStream = false;
+    bool mQKVUseOc16Sg2K1 = false;
     // Whether setupQKVFusion committed the grid to a K split, and if so whether
-    // to the wide shape (4 quads/TG over 8 simdgroups) rather than the narrow
+    // to the wide shape (4 quads/TG over 8 simdgroups) rather than the plain
     // one (2 over 4). The LN-folded variant must be compiled to match.
     bool mQKVSplitK = false;
-    bool mQKVSplitKWide = false;
-    // 4-simdgroup non-split-K tg4 path for fused kernels (see use4sg in setupGateUpFusion / setupQKVFusion).
-    bool mUse4sg = false;
+    bool mQKVUseOc16Sg8K2 = false;
+    // Lanes per quant block of the committed QKV K split (0 when unsplit); the
+    // LN-folded variant must be compiled with the same value.
+    int mQKVSkLanesPerBlock = 0;
+    // oc16Sg4K1 route (4 simdgroups, no K-split) for fused kernels.
+    bool mUseOc16Sg4K1 = false;
     // Quant block count along IC (per outputDepthQuad); fused projections must match.
     int mBlockCount = 1;
-    // C4 quads per Q4 quant block for the generalized 16-byte decode path.
-    // Supported values are 8/16/32/64 (quant blocks 32/64/128/256). Zero means
-    // the layout is not eligible. Recorded so fusion setup can compile the same
-    // block shape as the standalone decode pipeline.
-    int mQ4W16QuadsPerBlock = 0;
 
     // Fused W2/W3/W4/W8 GEMM: kernel unpacks quantized weights in-kernel
     // (FUSED_Q4_REAL_UNPACK), skipping the dequant pre-pass and mTempWeight.
-    // Tensor-API devices only (M5+); the kernel bodies are compiled under
-    // USE_METAL_TENSOR_OPS. Kill-switch: MNN_METAL_W4W8_OUTER_DEQUANT_GEMM_TENSORAPI=1.
+    // Tensor-API devices only; the kernel bodies are compiled under
+    // USE_METAL_TENSOR_OPS.
     bool mTensorApiFusedQuant = false;
     // K-split x4 for TG-starved speculative-verify shapes; fp32 partials land in
     // mKsplitPartial and are summed by mKsplitReducePipeline.
@@ -172,10 +162,10 @@ private:
     id<MTLComputePipelineState> mKsplitReducePipeline = nil;
     std::shared_ptr<Tensor> mKsplitPartial;
     std::pair<MTLSize, MTLSize> mKsplitReduceThreads;
-    // M=64 tile variant of the fused Q4 GEMM (conv1x1_fused_q4_gemm_stage_m64).
+    // M=64 tile variant of the fused quant GEMM (conv1x1_fused_q4_gemm_stage_m64).
     // Halves grid.x for prefill (M_TILE=64 vs baseline M_TILE=32) — cuts
-    // weight-read redundancy across TGs in half. Auto: fused + Q4 + area >= 64.
-    bool mFusedQ4M64 = false;
+    // weight-read redundancy across TGs in half. Auto: fused + Q4/W8 + area >= 64.
+    bool mFusedQuantM64 = false;
 
     void bindLNBuffers(id<MTLComputeCommandEncoder> encoder);
 

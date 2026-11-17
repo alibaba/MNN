@@ -102,6 +102,7 @@ class LlmModel(PreTrainedModel):
         self.visual = None
         self.audio = None
         self.talker = None
+        self.speech = None
         self.token2wav = None
         self.mtp = None
         self.scale_emb = None
@@ -133,7 +134,7 @@ class LlmModel(PreTrainedModel):
 
     def get_config(self):
         llm_config = {}
-        models = ['visual', 'audio', 'talker']
+        models = ['visual', 'audio', 'talker', 'speech']
         for m in models:
             if hasattr(self, m) and getattr(self, m) is not None:
                 m_config = getattr(self, m).get_config()
@@ -159,9 +160,13 @@ class LlmModel(PreTrainedModel):
             'funaudiochat': 'AutoModelForSeq2SeqLM',
             'glm_ocr': 'GlmOcrForConditionalGeneration',
             'lfm2_vl': 'Lfm2VlForConditionalGeneration',
+            'lfm3_vl': 'AutoModelForImageTextToText',
+            'lfm3_audio': 'AutoModelForMultimodalLM',
+            'lfm3_omni': 'AutoModelForMultimodalLM',
             'gemma4': 'Gemma4ForConditionalGeneration',
             'hunyuan_vl': 'HunYuanVLForConditionalGeneration',
             'minicpmv4_7': 'MiniCPMV4_7ForConditionalGeneration',
+            'minicpm_ocr': 'MiniCPMOcrForConditionalGeneration',
         }
         if model_type is None or model_type not in MODEL_CLASS_MAPPING:
             return AutoModelForCausalLM
@@ -285,10 +290,10 @@ class LlmModel(PreTrainedModel):
 
         model.embed = Embedding(model.embed, config)
 
-        # gemma3/gemma3_text/gemma4: dual rotary for sliding vs full attention layers
+        # Separate rotary for sliding vs full attention layers.
         # rope_parameters has form {'sliding_attention': {'rope_theta': ...}, 'full_attention': {'rope_theta': ...}}
         _rp = getattr(config, 'rope_parameters', None)
-        _is_dual_rope = (model_type in ('gemma3', 'gemma3_text', 'gemma4')
+        _is_dual_rope = ((model_type in ('gemma3', 'gemma3_text', 'gemma4') or model_type.startswith('lfm3'))
                          and _rp is not None
                          and isinstance(_rp, dict)
                          and any(isinstance(v, dict) for v in _rp.values()))
@@ -323,7 +328,11 @@ class LlmModel(PreTrainedModel):
             })()
             model.rotary_full = Rotary(full_config)
             # Adjust rotary_dim for partial rotary factor
-            if partial_factor < 1.0:
+            if partial_factor < 1.0 and model_type.startswith('lfm3'):
+                # LFM3 rotates across the full head halves, with zero frequencies in the tail.
+                model.rotary_full.theta[int(global_head_dim * partial_factor) // 2:] = 0
+                model.rotary_full.build_rope_tables()
+            elif partial_factor < 1.0:
                 rotary_dim = int(global_head_dim * partial_factor)
                 model.rotary_full.rotary_dim = rotary_dim
                 model.rotary_full.theta = 1.0 / (full_rp.get('rope_theta', 1000000.0) ** (torch.arange(0, rotary_dim, 2, dtype=torch.float32) / global_head_dim))
@@ -375,6 +384,10 @@ class LlmModel(PreTrainedModel):
                 model.talker = talker_cls(model.talker, getattr(model, 'token2wav', None), model)
             else:
                 model.talker = None
+        if model_type in ('lfm3_audio', 'lfm3_omni'):
+            from utils.talker import Lfm3Speech
+            model.speech = Lfm3Speech(original_model.model, pretrained_model_name_or_path,
+                                     original_model.generation_config)
         if model_type == 'poi_qwen2_mtp':
             model.mtp = [model.mtp1, model.mtp2]
         if model.mtp is not None:
@@ -393,7 +406,7 @@ class LlmModel(PreTrainedModel):
                 audio_pad_id = self.audio.config.audio_token_id
                 audio_mask = (input_ids == audio_pad_id).squeeze()
                 if audio_mask.any():
-                    embed_scale = self.config.hidden_size ** 0.5
+                    embed_scale = self.audio.embedding_scale
                     result[audio_mask] = self.audio.audio_embeds.to(result.dtype) / embed_scale
                     self.audio.audio_embeds = None
             return result

@@ -7,6 +7,7 @@
 //
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -239,3 +240,68 @@ public:
 };
 
 MNNTestSuiteRegister(MaxPoolExplicitPadsTest, "op/MaxPoolExplicitPads");
+
+class AvgPoolAccumulationTest : public MNNTestCase {
+    bool runCase(int size, int kernel, int pad, AvgPoolCountType countType) {
+        const int batch = 2, channels = 13;
+        const float values[] = {1.0f, -0.5f, 2.0f, 8192.0f, 0.25f};
+        auto input = _Input({batch, channels, size, size}, NCHW, halide_type_of<float>());
+        auto inputData = input->writeMap<float>();
+        for (int nc = 0; nc < batch * channels; ++nc) {
+            std::fill(inputData + nc * size * size, inputData + (nc + 1) * size * size, values[nc % 5]);
+        }
+        input->unMap();
+
+        std::unique_ptr<OpT> op(new OpT);
+        op->type = OpType_Pooling;
+        op->main.type = OpParameter_Pool;
+        op->main.value = new PoolT;
+        auto pool = op->main.AsPool();
+        pool->type = PoolType_AVEPOOL;
+        pool->kernelX = pool->kernelY = kernel;
+        pool->strideX = pool->strideY = 1;
+        pool->padX = pool->padY = pad;
+        pool->padType = PoolPadType_CAFFE;
+        pool->countType = countType;
+        pool->ceilModel = false;
+        auto output = _Convert(Variable::create(Expr::create(op.get(), {_Convert(input, NC4HW4)})), NCHW);
+        const int outputSize = size + 2 * pad - kernel + 1;
+        auto info = output->getInfo();
+        auto actual = output->readMap<float>();
+        if (info == nullptr || actual == nullptr ||
+            info->dim != std::vector<int>({batch, channels, outputSize, outputSize})) {
+            MNN_ERROR("AvgPoolAccumulation: invalid output shape\n");
+            return false;
+        }
+        for (int nc = 0; nc < batch * channels; ++nc) {
+            for (int y = 0; y < outputSize; ++y) {
+                for (int x = 0; x < outputSize; ++x) {
+                    const int validH = std::min(y - pad + kernel, size) - std::max(y - pad, 0);
+                    const int validW = std::min(x - pad + kernel, size) - std::max(x - pad, 0);
+                    const int count = countType == AvgPoolCountType_EXCLUDE_PADDING ? validH * validW : kernel * kernel;
+                    const float expected = values[nc % 5] * validH * validW / count;
+                    const int index = (nc * outputSize + y) * outputSize + x;
+                    if (!std::isfinite(actual[index]) ||
+                        std::fabs(actual[index] - expected) > 0.001f * std::max(1.0f, std::fabs(expected))) {
+                        MNN_ERROR("AvgPoolAccumulation: size=%d kernel=%d pad=%d countType=%d at %d: %f != %f\n", size,
+                                  kernel, pad, countType, index, actual[index], expected);
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+public:
+    bool run(int precision) override {
+        MNNTEST_CPU_ONLY();
+        bool valid = runCase(112, 112, 0, AvgPoolCountType_DEFAULT);
+        valid = runCase(112, 112, 1, AvgPoolCountType_EXCLUDE_PADDING) && valid;
+        valid = runCase(112, 112, 1, AvgPoolCountType_INCLUDE_PADDING) && valid;
+        valid = runCase(7, 3, 1, AvgPoolCountType_EXCLUDE_PADDING) && valid;
+        return valid;
+    }
+};
+
+MNNTestSuiteRegister(AvgPoolAccumulationTest, "op/AvgPoolAccumulation");

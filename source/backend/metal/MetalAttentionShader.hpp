@@ -127,14 +127,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
     int ncl = kl;// 0~3
 
 #ifdef CAUSAL_TRI
-    // Causal triangular dispatch for 32x32 tiles: mirror the trapezoid tile
-    // count in the host (useTensorCausalTri branch, MetalAttention.mm). Decode
-    // linear tile id gid.x back to (slq, slk). Same closed-form as the 16-tile
-    // variant in prefill_qk with 32 substituted for 16.
-    //   base = ceil(D, 32) + 1  is the number of k-tiles the top q-tile row
-    //     needs to cover; row lq needs min(kt, lq + base) tiles.
-    //   rows 0..r-1 form a triangle (v = lq + base, T1 = r*base + r*(r-1)/2);
-    //   rows r..qt-1 each need the full kt tiles.
+    // 32x32 variant of the causal trapezoid dispatch (see prefill_qk's 16-tile
+    // form): decode gid.x back to (slq, slk) over trapezoid tiles only.
     int slq, slk;
     {
         int D = (param.key_seq_len - param.query_seq_len) + seq_idx * param.q_seq_piece_len - kv_start;
@@ -245,10 +239,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
 #endif
 
 #ifdef CAUSAL_TRI
-    // Whole-tile below the causal diagonal: mask is a no-op for every k in
-    // this tile (max_k <= min-row-causal-bound), so skip all mask reads and
-    // -FLT_MAX branches. Only diagonal-straddling tiles keep the per-element
-    // masked path. Matches the prefill_qk shader's three-zone decomposition.
+    // Whole tile under the causal diagonal: mask is a no-op, so skip the mask
+    // reads and -FLT_MAX branches (same three-zone split as prefill_qk).
     const bool tileFullValid = (kv_start + slk * 32 + 31) <=
         ((k_seq_len - q_seq_len) + seq_idx * q_seq_piece_len + slq * 32);
 #else
@@ -482,11 +474,8 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     int rcl = tiitg / 2;// 0~15
 
 #ifdef CAUSAL_TRI
-    // Causal triangular dispatch: the host launches only the trapezoid of tiles
-    // at or below the causal diagonal (grid.x = total trapezoid tile count,
-    // see the mirrored formula in MetalAttention.mm). Decode the linear tile id
-    // back to (slq, slk). Row-tile lq covers v(lq) = min(kt, lq + base) k-tiles:
-    //   rows 0..r-1 form a triangle (v = lq + base), rows >= r are full kt rows.
+    // Causal trapezoid dispatch: grid.x covers only tiles at or below the
+    // diagonal; decode the linear tile id back to (slq, slk).
     int slq, slk;
     {
         int D = (param.key_seq_len - param.query_seq_len) + seq_idx * param.q_seq_piece_len - kv_start;
@@ -551,18 +540,9 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     int zin = hn / param.group;
 
 #if !defined(CAUSAL_TRI) && defined(DEFAULT_MASK)
-    // Causal skip: if this M16xN16 tile lies entirely above the diagonal in the
-    // causal-mask sense, the whole tile ends up as -FLT_MAX after masking anyway.
-    // Write -FLT_MAX directly and exit to save all the QK matmul work on the upper
-    // triangle (~50% of tiles in a square prefill grid).
-    // (With CAUSAL_TRI the host never launches these tiles and the CAUSAL_BOUND
-    // softmax never reads the upper region, so this check is compiled out.)
-    //
-    // DEFAULT_MASK only: its semantics (no mask input + kv-cache) really are
-    // causal. ADD_MASK / SET_MASK carry an arbitrary per-element tensor mask --
-    // a vision encoder feeds an all-visible one and is fully bidirectional --
-    // so they must fall through to the per-element masked path below, otherwise
-    // every above-diagonal tile is silently dropped.
+    // Tile entirely above the diagonal: write -FLT_MAX and skip QK (DEFAULT_MASK
+    // only; ADD_MASK/SET_MASK carry arbitrary content and must take the masked
+    // path). Compiled out under CAUSAL_TRI.
     {
         int tile_min_k_global = kv_start + slk * 16;
         int tile_max_q_absolute = (k_seq_len - q_seq_len) + seq_idx * q_seq_piece_len + slq * 16 + 15;
@@ -594,7 +574,6 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 #endif
 
     for(int i = 0; i < head_dim; i += 8){
-        // 向量化写入 Q（4 元素一组）
         *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[rcl * 8 + kl * 4])) = *((const device ftype4*)(&A_offset[i]));
 
         ((threadgroup ftype*)sdata)[128 + (kl * 4 + 0) * 16 + rcl] = GETK(B_offset[i + 0], idx_slk * param.batch + b);
@@ -651,11 +630,8 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 #endif
 
 #ifdef CAUSAL_TRI
-    // Three-zone decomposition: a tile entirely at or below the causal diagonal
-    // (max k of tile <= causal bound of its min q row) is fully valid — the mask
-    // is a no-op there (DEFAULT_MASK never fires; causal ADD/SET masks are
-    // 0/pass in the valid region), so skip the per-element mask reads/branches.
-    // Only the O(T) diagonal-straddling tiles keep the masked path.
+    // Three-zone split: a tile fully at/below the causal diagonal takes the
+    // mask-free path; only diagonal-straddling tiles read the mask.
     const bool tileFullValid = (kv_start + slk * 16 + 15) <=
         ((k_seq_len - q_seq_len) + seq_idx * q_seq_piece_len + slq * 16);
 #else
@@ -853,8 +829,8 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     const int output_offset = y * param.q_seq_piece_len * output_k_len;
     float out0 = 0.0;
 
-    // 两路流水：每次处理 8 个标量（两个 float4），减少循环开销
-    int itN = head_dim / 8; // head_dim 保证 16 对齐，因此 /8 为整数
+    // Two-way pipeline: 8 scalars (two float4) per iteration, to cut loop overhead
+    int itN = head_dim / 8; // head_dim is 16-aligned, so /8 is exact
     const device ftype4* A4p = (const device ftype4*)A_offset;
 #ifdef QUANT_K
     const device char4* B4p_c = (const device char4*)B_offset;
@@ -958,7 +934,8 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
 
 
 
-    // 保持与原 Mask 分支一致的计算路径，避免提前返回带来的数值波动
+    // Same computation path as the masked branch, so the early return cannot
+    // shift the numerics
     float out[GROUP_SIZE] = {0.0};
 #if defined(QUANT_K) && defined(DYNAMIC_QUANT_K)
     int k_token_idx = z * param.batch + b;
@@ -1015,7 +992,7 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
     }
 #else
     {
-        // 统一使用 float4 向量化点积（QUANT_K 走 GETK4）
+        // float4 vectorized dot throughout (QUANT_K goes through GETK4)
         int itN = head_dim / 8;
         for (int i = 0; i < itN; ++i) {
 #ifdef QUANT_K
@@ -1551,14 +1528,9 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
 
     auto A_offset = input0 + (long)(z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 4 + kl) * 8 + 0;
 
-    // AV causal early-exit for the tensor-API tile (M=32, K=32). Each iteration
-    // loads 8 ftype4 = 32 scalar K, so av_k_upper_v4 must be a multiple of 8.
-    // The upper bound is picked as ceil-32(tile_max_valid), which is:
-    //   * >= tile_max_valid_len (all live rows in the tile see their full valid K)
-    //   * <= softmax's per-row pad_end for every row in the tile (softmax pads
-    //     to ceil-32(valid_len + 32); see MetalSoftmaxShader.cpp CAUSAL_BOUND
-    //     branch), so the tile never reads memory that softmax did not write.
-    // v_k_upper_v4 is 32-scalar-aligned by construction (32 / 4 = 8 v4).
+    // AV causal early-exit for the M=32,K=32 tensor-API tile. Upper bound is
+    // ceil-32(tile_max_valid) so every live row sees its full valid K while
+    // staying within softmax's own pad window.
     int av_k_upper_v4 = (value_seq_len + 3) / 4;
 #ifdef CAUSAL_BOUND
     {
@@ -1575,7 +1547,6 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
 #endif
 
     for(int i = 0; i < av_k_upper_v4; i += 8){
-        // 向量化写入 P（两次 ftype4，覆盖 8 个标量）
         *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 0])) = *((const device ftype4*)(&A_offset[4*i + 0]));
         *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 4])) = *((const device ftype4*)(&A_offset[4*i + 4]));
 
@@ -1614,13 +1585,8 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
     // [M32, N4, N2, n4]
     auto sindex_base = (mcl * 4 + ncl) * 2 + 0;
 
-    // Output layout write. Two paths depending on the exported model:
-    //   * default: [mBatch, mSeqLen, mNumHead, mHeadDim] as ftype4* stride 1
-    //     (each ftype4 packs 4 consecutive d-lane values).
-    //   * ATTENTION_C4: [mNumHead * (mHeadDim/4), mBatch * mSeqLen, 4]
-    //     — this matches Qwen3 c4-head exports; without this branch the
-    //     tensor-API kernel wrote to the default layout while the rest of
-    //     the graph assumed C4, producing garbage tokens.
+    // Output layout: default [B, S, H, D] (ftype4 stride 1) or ATTENTION_C4
+    // [H*(D/4), B*S, 4] for c4-head exports.
     int d_group0 = (hm * 4 + ncl) * 2 + 0;
     int d_group1 = (hm * 4 + ncl) * 2 + 1;
     int q_abs = seq_idx * q_seq_piece_len + sl * 32 + mcl;
@@ -1747,11 +1713,8 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
     auto A_offset = input0 + (long)(z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 2 + kl) * 4 + 0;
 
-    // Causal skip for AV matmul: because softmax output beyond causal k_max is 0
-    // (thanks to -FLT_MAX in QK+softmax), we can stop accumulating early.  Each
-    // M16 q-tile has a maximum allowed k = kv_valid_offset + tile_max_q_absolute.
-    // Round up to K=8 alignment.  For a square prefill this halves K iterations
-    // on average, and skips the most work for early-q tiles.
+    // AV causal early-exit: softmax is 0 beyond k_max, so stop accumulating
+    // at kv_valid_offset + tile_max_q_absolute (rounded to K=8).
     int av_k_upper = align_value_len;
 #if defined(DEFAULT_MASK) || defined(ADD_MASK) || defined(SET_MASK) || defined(CAUSAL_BOUND)
     {
@@ -2139,20 +2102,13 @@ struct Param {
 #define DECODE_QK_SOFTMAX_MAX_KV 512
 #endif
 
-// GROUP_SIZE == 2 specialization: keep the hard-coded implementation.
-// The generic loop-over-GROUP_SIZE version (below) puts scores/reduce state in
-// arrays indexed by g, which stops Metal's compiler from fully lifting them into
-// registers. The hard-coded pair of scalars gives the compiler two independent
-// instruction streams (s0/s1, local_max0/local_max1, etc.) which interleave
-// cleanly.
+// GROUP_SIZE == 2 specialization: scalar pair instead of the generic
+// g-indexed arrays, which the Metal compiler would otherwise fail to lift
+// into registers.
 #if GROUP_SIZE == 2
 #ifdef QK_QSPLIT
-// Q-head-split variant (host auto gate: group_size==2, non-tensor-API device,
-// kv>=512): each
-// threadgroup handles ONE query head — gid.z selects the head within the kv
-// group. Doubles threadgroup count for occupancy, at
-// the cost of reading K once per q-head (2x K traffic) and a single dot
-// stream per thread (vs the s0/s1 ILP pair below).
+// Q-head-split variant: one threadgroup per query head (gid.z picks the head
+// within the kv group). Trades extra K traffic for more threadgroups.
 kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
     device ftype* past_key [[buffer(2)]],
@@ -2628,16 +2584,10 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
 #endif // GROUP_SIZE == 2
 )metal";
 
-// Decode attention as per-token interleaved streaming
-// (simdgroup s handles kv tokens s, s+NSG, ...), each lane owns a HEAD_DIM/32
-// slice of q/k/v/o kept in registers, and online softmax updates O directly
-// from the token's V row -- no score staging, no separate AV phase.
-// Compile-time: ftype, GROUP_SIZE, HEAD_DIM, SPLITKV_NSG (+ optional
-// ATTENTION_C4, QUANT_K/QUANT_V with per-token DYNAMIC scales).
-// Layouts:
-//   query : [batch, 1, head_num, head_dim]
-//   K     : [max_kv, batch, kv_head_num, head_dim]
-//   V     : [max_kv, batch, kv_head_num, head_dim]   (row-major, same as K)
+// Decode attention as per-token interleaved streaming (simdgroup s handles
+// tokens s, s+NSG, ...); each lane owns a HEAD_DIM/32 slice of q/k/v/o in
+// registers and online softmax updates O directly from the V row.
+// Macros: ftype, GROUP_SIZE, HEAD_DIM, SPLITKV_NSG, ATTENTION_C4, QUANT_K/V.
 const char* gDecodeSplitKV = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
@@ -2665,14 +2615,16 @@ struct Param {
 #define SPLITKV_NSG 4
 #endif
 #define DPT (HEAD_DIM / SIMD_GROUP_WIDTH)   // d-values owned per lane
-// q heads per threadgroup, all sharing one kv head. SDPA_QH_PER_TG=1 is the
-// one-TG-per-q-head form (grid.y = batch*head_num). SDPA_QH_PER_TG>1
-// (must divide GROUP_SIZE) makes the TG own SDPA_QH_PER_TG consecutive q heads so each
-// K/V row is fetched once for all of them instead of once per q head -- at
-// GROUP_SIZE=4 the ungrouped form issues 4x the KV read requests, which caps
-// achieved DRAM bandwidth well below peak on long contexts.
+// q heads per threadgroup sharing one kv head. SDPA_QH_PER_TG>1 (must divide
+// GROUP_SIZE) folds that many q heads into one TG so each K/V row is fetched
+// once instead of per q head.
 #ifndef SDPA_QH_PER_TG
 #define SDPA_QH_PER_TG 1
+#endif
+// kv tokens per stream-loop iteration. SDPA_KVB>1 overlaps the per-token
+// QK/simd_sum chains and folds their scores into one online-softmax update.
+#ifndef SDPA_KVB
+#define SDPA_KVB 1
 #endif
 
 kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
@@ -2680,11 +2632,6 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     const device ftype* past_key [[buffer(2)]],
     const device ftype* past_value [[buffer(3)]],
     constant Param& param [[buffer(4)]],
-    constant int& ntg [[buffer(5)]],
-#ifdef SPLIT_KV_PARTIAL
-    device float* partial_out [[buffer(6)]],
-    device float* partial_sm [[buffer(7)]],
-#endif
     device ftype* k_scales [[buffer(8)]],
     device ftype* v_scales [[buffer(9)]],
     uint3 gid [[threadgroup_position_in_grid]],
@@ -2742,16 +2689,102 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     const device ftype* v_cache = past_value;
 #endif
 
-    // Per-token interleaved streaming: simdgroup s handles tokens
-    // s, s+NSG, s+2*NSG, ... (i = simd_gid; i < N; i += BN).
-    // fast::exp2 with scale*log2e folded into q (FA_SG technique); the V row
-    // load is issued before the QK reduction (it is score-independent) so its
-    // latency overlaps the simd_sum shuffle chain.
-    // With ntg > 1 the sweep is interleaved across threadgroups too: threadgroup w's
-    // simdgroup s starts at w*NSG + s and strides by NSG*ntg. grid.x == 1 makes
-    // this the single-pass form again.
-    const int step = SPLITKV_NSG * ntg;
-    int i = int(gid.x) * SPLITKV_NSG + int(sgitg);
+    // Per-token interleaved streaming over kv (simdgroup s steps by NSG).
+    // V row is loaded before the QK reduction so its latency overlaps the
+    // simd_sum shuffle chain; scale*log2e is folded into q for fast::exp2.
+    const int step = SPLITKV_NSG;
+    int i = int(sgitg);
+#if SDPA_KVB > 1
+    // Multi-token overlap: take SDPA_KVB tokens of the simdgroup's stripe so
+    // their dot/shuffle chains overlap and their scores share one softmax
+    // update. Tail tokens fall through to the single-token loop.
+    for (; i + (SDPA_KVB - 1) * SPLITKV_NSG < key_seq_len; i += step * SDPA_KVB) {
+        float k_row[SDPA_KVB][DPT];
+        float v_row[SDPA_KVB][DPT];
+        float score[SDPA_KVB][SDPA_QH_PER_TG];
+        for (int kk = 0; kk < SDPA_KVB; ++kk) {
+            const int it = i + kk * SPLITKV_NSG;
+#ifdef QUANT_K
+            const device char* kp = k_cache + ((long)it * param.batch + b) * key_stride + kv_hn * HEAD_DIM + int(tiisg) * DPT;
+#ifdef DYNAMIC_QUANT_K
+            const float k_scale = float(k_scales[(it * param.batch + b) * 2 + 0]);
+            const float k_bias  = float(k_scales[(it * param.batch + b) * 2 + 1]);
+#else
+            const float k_scale = param.k_scale;
+            const float k_bias  = 0.0f;
+#endif
+            for (int d = 0; d < DPT; ++d) {
+                k_row[kk][d] = float(kp[d]) * k_scale + k_bias;
+            }
+#else
+            const device ftype* kp = k_cache + ((long)it * param.batch + b) * key_stride + kv_hn * HEAD_DIM + int(tiisg) * DPT;
+            for (int d = 0; d < DPT; ++d) {
+                k_row[kk][d] = float(kp[d]);
+            }
+#endif
+        }
+        for (int kk = 0; kk < SDPA_KVB; ++kk) {
+            for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+                float acc = 0.0f;
+                for (int d = 0; d < DPT; ++d) {
+                    acc += q[g][d] * k_row[kk][d];
+                }
+                score[kk][g] = acc;
+            }
+        }
+        // V row loads issued before the reduce: score-independent, their
+        // latency overlaps the shuffle chains.
+        for (int kk = 0; kk < SDPA_KVB; ++kk) {
+            const int it = i + kk * SPLITKV_NSG;
+#ifdef QUANT_V
+            const device char* vp = v_cache + (long)it * v_seq_stride + (b * kv_head_num + kv_hn) * HEAD_DIM + int(tiisg) * DPT;
+#ifdef DYNAMIC_QUANT_V
+            const float v_sc = float(v_scales[(b * param.max_kv_len + it) * 2 + 0]);
+            const float v_bi = float(v_scales[(b * param.max_kv_len + it) * 2 + 1]);
+#else
+            const float v_sc = param.v_scale;
+            const float v_bi = 0.0f;
+#endif
+            for (int d = 0; d < DPT; ++d) {
+                v_row[kk][d] = float(vp[d]) * v_sc + v_bi;
+            }
+#else
+            const device ftype* vp = v_cache + (long)it * v_seq_stride + (b * kv_head_num + kv_hn) * HEAD_DIM + int(tiisg) * DPT;
+            for (int d = 0; d < DPT; ++d) {
+                v_row[kk][d] = float(vp[d]);
+            }
+#endif
+        }
+        for (int kk = 0; kk < SDPA_KVB; ++kk) {
+            for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+                score[kk][g] = simd_sum(score[kk][g]);
+            }
+        }
+        for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+            const float m_prev = M[g];
+            float m_new = m_prev;
+            for (int kk = 0; kk < SDPA_KVB; ++kk) {
+                m_new = max(m_new, score[kk][g]);
+            }
+            const float ms = fast::exp2(m_prev - m_new);
+            float vs[SDPA_KVB];
+            float s_add = 0.0f;
+            for (int kk = 0; kk < SDPA_KVB; ++kk) {
+                vs[kk] = fast::exp2(score[kk][g] - m_new);
+                s_add += vs[kk];
+            }
+            M[g] = m_new;
+            S[g] = S[g] * ms + s_add;
+            for (int d = 0; d < DPT; ++d) {
+                float o = O[g][d] * ms;
+                for (int kk = 0; kk < SDPA_KVB; ++kk) {
+                    o += vs[kk] * v_row[kk][d];
+                }
+                O[g][d] = o;
+            }
+        }
+    }
+#endif
     for (; i < key_seq_len; i += step) {
         // ---- QK: lane <-> head_dim slice of kv token i ----
 #ifdef QUANT_K
@@ -2820,11 +2853,9 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
         }
     }
     // ---- cross-simdgroup reduce inside the threadgroup ----
-    // Transposed reduce: (S, M) are combined by one
-    // simd_max/simd_sum over lanes indexing simdgroups; O is combined one
-    // 32-component group at a time through the shared s_out scratch, so the
-    // barrier count is 2 per component group instead of log2(NSG) full-HEAD_DIM
-    // sweeps and threadgroup memory stays HEAD_DIM-independent.
+    // Transposed reduce: (S, M) via one simd_max/simd_sum over lanes indexing
+    // simdgroups; O combined 32 components at a time through s_out, so
+    // threadgroup memory stays HEAD_DIM-independent.
     if (tiisg == 0) {
         for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
             s_sm[sgitg][g][0] = S[g];
@@ -2845,18 +2876,6 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 
         const float inv_s = (S_tot == 0.0f) ? 0.0f : (1.0f / S_tot);
         const int hn = q_head_base + g;
-#ifdef SPLIT_KV_PARTIAL
-        // Pass 1 of 2: publish (S_tot, m) and the unnormalized O of this
-        // threadgroup's kv slice; both are already rescaled to this threadgroup's
-        // own max m, so pass 2 only needs one more exp2 per threadgroup.
-        // An idle threadgroup leaves m = -FLT_MAX/2, S_tot = 0, acc = 0, which
-        // pass 2 folds in as a zero-weight term.
-        const int part_row = (row_base + g) * ntg + int(gid.x);
-        if (sgitg == 0 && tiisg == 0) {
-            partial_sm[part_row * 2 + 0] = S_tot;
-            partial_sm[part_row * 2 + 1] = m;
-        }
-#endif
 
         for (int dd = 0; dd < DPT; ++dd) {
             // transpose partials: component-lane major so one simdgroup can gather
@@ -2870,9 +2889,7 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
                 if (tiisg == 0) {
                     // Lane mapping: lane lp owns components lp*DPT .. lp*DPT+DPT-1
                     const int d = lp * DPT + dd;
-#ifdef SPLIT_KV_PARTIAL
-                    partial_out[part_row * HEAD_DIM + d] = acc;
-#elif defined(ATTENTION_C4)
+#ifdef ATTENTION_C4
                     // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen(=1), 4]
                     const int c  = hn * HEAD_DIM + d;
                     out_final[b * 4 + (c % 4) + (c / 4) * param.batch * 4] = ftype(acc * inv_s);
@@ -2887,56 +2904,6 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     }
 }
 
-#ifdef SPLIT_KV_PARTIAL
-// Pass 2 of 2: combine the ntg per-threadgroup partials of one (batch, q head)
-// row. One simdgroup per row; lane t owns components t*DPT .. t*DPT+DPT-1,
-// matching pass 1's write mapping. ntg is small (<= 32), so every lane loops
-// over the threadgroups redundantly instead of paying a cross-lane reduce.
-kernel void decode_splitkv_reduce(
-    device ftype* out_final [[buffer(1)]],
-    constant Param& param [[buffer(4)]],
-    constant int& ntg [[buffer(5)]],
-    const device float* partial_out [[buffer(6)]],
-    const device float* partial_sm [[buffer(7)]],
-    uint3 gid [[threadgroup_position_in_grid]],
-    uint tiisg [[thread_index_in_simdgroup]]) {
-
-    const int row = int(gid.y);
-    const int b   = row / param.head_num;
-    const int hn  = row % param.head_num;
-    const device float* sm = partial_sm + (long)row * ntg * 2;
-
-    float m = -FLT_MAX / 2;
-    for (int w = 0; w < ntg; ++w) {
-        m = max(m, sm[w * 2 + 1]);
-    }
-
-    float S = 0.0f;
-    float acc[DPT];
-    for (int d = 0; d < DPT; ++d) {
-        acc[d] = 0.0f;
-    }
-    for (int w = 0; w < ntg; ++w) {
-        // M is in log2 units (scale*log2e folded into q in pass 1).
-        const float f = fast::exp2(sm[w * 2 + 1] - m);
-        S += sm[w * 2 + 0] * f;
-        const device float* po = partial_out + ((long)row * ntg + w) * HEAD_DIM + int(tiisg) * DPT;
-        for (int d = 0; d < DPT; ++d) {
-            acc[d] += po[d] * f;
-        }
-    }
-    const float inv_s = (S == 0.0f) ? 0.0f : (1.0f / S);
-    for (int d = 0; d < DPT; ++d) {
-        const int dg = int(tiisg) * DPT + d;
-#ifdef ATTENTION_C4
-        const int c = hn * HEAD_DIM + dg;
-        out_final[b * 4 + (c % 4) + (c / 4) * param.batch * 4] = ftype(acc[d] * inv_s);
-#else
-        out_final[(long)row * HEAD_DIM + dg] = ftype(acc[d] * inv_s);
-#endif
-    }
-}
-#endif // SPLIT_KV_PARTIAL
 )metal";
 
 // softmax sg reduce source moved to MetalSoftmaxShader.cpp
