@@ -296,6 +296,7 @@ protected:
     friend class Omni;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
+    void beginResponse();
     // Validates the evaluated prefix and drops sampled tokens that have no KV entry.
     virtual bool preparePromptCache(const std::string& prompt);
     // Readies a text-only re-prefill of input_ids; false when they cannot be embedded from token ids alone.

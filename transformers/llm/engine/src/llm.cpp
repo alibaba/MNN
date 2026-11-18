@@ -966,6 +966,7 @@ void Llm::reset() {
     {
         std::lock_guard<std::mutex> _l(mContext->mutex);
         mContext->output_tokens.clear();
+        mContext->generate_str.clear();
         mContext->history_tokens.clear();
     }
     mContext->all_seq_len = 0;
@@ -976,6 +977,28 @@ void Llm::reset() {
     mContext->audio_input_s = 0.0f;
     mMeta->remove = mMeta->previous;
     mCachedPromptText.clear();
+    if (mContext->status != LlmStatus::NOT_LOADED) {
+        mContext->status = LlmStatus::RUNNING;
+    }
+}
+
+void Llm::beginResponse() {
+    if (mContext->status == LlmStatus::INTERNAL_ERROR || mContext->status == LlmStatus::TIMEOUT ||
+        mContext->status == LlmStatus::USER_CANCEL) {
+        // Failed generation can leave partially evaluated history and cache state.
+        reset();
+    }
+    {
+        std::lock_guard<std::mutex> lock(mContext->mutex);
+        mContext->output_tokens.clear();
+        mContext->generate_str.clear();
+    }
+    mContext->gen_seq_len = 0;
+    mContext->prompt_len = 0;
+    mContext->current_token = -1;
+    mContext->prefill_us = mContext->decode_us = mContext->sample_us = 0;
+    mContext->vision_us = mContext->audio_us = 0;
+    mContext->pixels_mp = mContext->audio_input_s = 0.0f;
 }
 
 void Llm::generate_init(std::ostream* os, const char* end_with) {
@@ -1229,6 +1252,7 @@ std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input,
 
 void Llm::response(const MultimodalPrompt& multimodal_input,
                    std::ostream* os, const char* end_with, int max_new_tokens) {
+    beginResponse();
     CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     auto multimodal_input_copy = multimodal_input;
@@ -1237,6 +1261,7 @@ void Llm::response(const MultimodalPrompt& multimodal_input,
     }
     const bool add_special_tokens = !mConfig->use_template() || mTokenizer->chat_template().empty();
     std::vector<int> input_ids = tokenizer_encode(multimodal_input_copy, add_special_tokens);
+    CHECK_LLM_RUNNING(mContext);
     response(input_ids, os, end_with, max_new_tokens);
 }
 
@@ -1353,6 +1378,7 @@ void Llm::response(MNN::Express::VARP input_embeds, std::ostream* os, const char
 }
 
 void Llm::response(const std::string& user_content, std::ostream* os, const char* end_with, int max_new_tokens) {
+    beginResponse();
     CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     auto prompt = user_content;
@@ -1366,6 +1392,7 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
         }
     }
     std::vector<int> input_ids = tokenizer_encode(prompt, add_special_tokens);
+    CHECK_LLM_RUNNING(mContext);
     if (input_ids.empty()) {
         MNN_ERROR("[Error]: empty input_ids after tokenizer_encode in Llm::response(text)\n");
         mContext->status = LlmStatus::INTERNAL_ERROR;
@@ -1375,6 +1402,7 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
 }
 
 void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const char* end_with, int max_new_tokens) {
+    beginResponse();
     CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (chat_prompts.empty()) {
@@ -1407,6 +1435,7 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
             }
             mMeta->remove = mMeta->previous;
             std::vector<int> input_ids = tokenizer_encode(prompt, add_special_tokens);
+            CHECK_LLM_RUNNING(mContext);
             size_t history_before = input_ids.size(); // generate() pushes these first
             response(input_ids, os, end_with, max_new_tokens);
             if (mConfig->prompt_cache()) {
@@ -1418,8 +1447,10 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
         // Tokenize the full prompt and split at a token boundary rather than
         // tokenizing a text substring (which can land mid-token for BPE/UTF-8).
         std::vector<int> full_tokens = tokenizer_encode(prompt, add_special_tokens);
+        CHECK_LLM_RUNNING(mContext);
         // Template control tokens correspond to text bytes; only skip automatically inserted tokens.
         size_t prefix_count = tokenizer_encode("", add_special_tokens).size();
+        CHECK_LLM_RUNNING(mContext);
         size_t char_pos = 0;
         size_t token_split = prefix_count; // start after prefix tokens
         for (size_t i = prefix_count; i < full_tokens.size(); i++) {
@@ -1477,6 +1508,7 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
             mMeta->remove = mMeta->previous;
         }
         std::vector<int> input_ids = tokenizer_encode(prompt, add_special_tokens);
+        CHECK_LLM_RUNNING(mContext);
         // history_before accounts for input_ids that generate() pushes first
         size_t history_before = input_ids.size();
         response(input_ids, os, end_with, max_new_tokens);
