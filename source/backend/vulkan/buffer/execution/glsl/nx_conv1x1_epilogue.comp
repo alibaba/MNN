@@ -1,0 +1,87 @@
+precision highp float;
+precision highp int;
+
+// 32 rows x 8 column-quads per workgroup. The old 8x8 block dispatched ceil(rows/8) row blocks, so a
+// tail chunk kept only 8 useful rows per block; one 16-byte access now also replaces the four scalar
+// reads of the accumulator quad.
+layout(local_size_x = 32, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer AccumulatorBuffer {
+    ivec4 Acc4[];
+};
+
+layout(binding = 1) readonly buffer ActivationParams {
+    float Params[];
+};
+
+layout(binding = 2) readonly buffer SumActivation {
+    int SumA[];
+};
+
+layout(binding = 3) readonly buffer WeightMeta {
+    vec4 MetaW[];
+};
+
+layout(binding = 4) writeonly buffer OutputBuffer {
+    FLOAT4 Out[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint rows;
+    uint rowBase;
+    uint N;
+    uint K;
+    uint padN;
+    uint co4;
+    uint activation;
+    // Experiment-only: per-row symmetric activation with symmetric weights collapses the epilogue to
+    // `(sA * weightScale) * acc + bias`, dropping the SumA read and three of the five terms.
+    uint symmetric;
+} pc;
+
+void main() {
+    uint m = gl_GlobalInvocationID.x;
+    uint n4 = gl_GlobalInvocationID.y;
+    if (m >= pc.rows || n4 >= pc.co4) {
+        return;
+    }
+    float sA = Params[2u * m];
+    float oA = 0.0;
+    float sumA = 0.0;
+    float kOa = 0.0;
+    if (pc.symmetric == 0u) {
+        oA = Params[2u * m + 1u];
+        sumA = float(SumA[m]);
+        kOa = float(pc.K) * oA;
+    }
+    // padN and 4*n4 are both multiples of four, so the quad never straddles an accumulator row and the
+    // load stays in bounds even when N is not, where the trailing columns are simply discarded.
+    vec4 acc = vec4(Acc4[(m * pc.padN + 4u * n4) >> 2]);
+    uint n = 4u * n4;
+    vec4 result = vec4(0.0);
+    for (uint lane = 0u; lane < 4u; ++lane) {
+        if (n + lane < pc.N) {
+            // Per-channel metadata, and every factor keeps the original left-to-right association so the
+            // result is bit-identical to the expression the convOracle bound was derived from.
+            vec4 meta = MetaW[n + lane];
+            float value;
+            if (pc.symmetric != 0u) {
+                value = (sA * meta.x) * acc[lane] + meta.z;
+            } else {
+                value = (sA * meta.x) * acc[lane];
+                value = value + sA * meta.y * sumA;
+                value = value + oA * meta.x * meta.w;
+                value = value + kOa * meta.y;
+                value = value + meta.z;
+            }
+            if (pc.activation == 1u) {
+                value = max(value, 0.0);
+            } else if (pc.activation == 2u) {
+                value = clamp(value, 0.0, 6.0);
+            }
+            result[lane] = value;
+        }
+    }
+    Out[n4 * pc.M + pc.rowBase + m] = FLOAT4(result);
+}

@@ -504,6 +504,12 @@
     "conv1x1_quant_meta_prepare.comp": {
         "useFP16": true
     },
+    "nx_conv1x1_quant.comp": {
+        "useFP16": true
+    },
+    "nx_conv1x1_epilogue.comp": {
+        "useFP16": true
+    },
     "gemm_m8n4.comp": {
         "useFP16": true
     },

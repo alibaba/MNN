@@ -17,6 +17,8 @@ table TuneInfo {
 
 table TuneInfoCache {
     TuneInfos: [TuneInfo];
+    // Serialized VkPipelineCache data (driver-owned blob; ignored on UUID/driver mismatch).
+    PipelineCache: [ubyte];
 }
 
 root_type TuneInfoCache;

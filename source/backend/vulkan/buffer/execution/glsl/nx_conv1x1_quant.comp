@@ -1,0 +1,184 @@
+precision highp float;
+precision highp int;
+
+// Workgroup = 4 rows x 64 k-slices. Rows map to local x so the [K/4, M, 4] activation is read
+// coalesced; one row per workgroup (as before) used only 8 of every 64 bytes fetched. The packed
+// stores are then row-strided, which is the cheaper trade: 128 KB of output that L2 write-back
+// merges, instead of 2 MB of amplified activation reads.
+//
+// The activation is deliberately read from global twice. Caching the row on chip to make it one pass
+// was measured twice and lost both times (63-67 us against 40 us at M=128 K=2048): the second read
+// hits L1/L2 for free, while a 16 KB shared tile or 8 FLOAT4 of spilled registers cost occupancy.
+// What does pay is doubling the workgroup count to 32 per 128-row chunk and replacing the serial
+// slice-0 sweeps with halving trees.
+layout(local_size_x = 4, local_size_y = 64, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer SrcActivation {
+    FLOAT4 A4[];
+};
+
+layout(binding = 1) writeonly buffer QuantActivation {
+    uint AqPacked[];
+};
+
+layout(binding = 2) writeonly buffer ActivationParams {
+    float Params[];
+};
+
+layout(binding = 3) writeonly buffer SumActivation {
+    int SumAq[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint rows;
+    uint rowBase;
+    uint K;
+    uint padK;
+    // Experiment-only: per-row symmetric quantization (offset 0), which needs just an absmax and no
+    // row sum. It is a push constant, so the branch is uniform across the whole dispatch.
+    uint symmetric;
+} pc;
+
+const uint ROWS = 4u;
+const uint SLICES = 64u;
+
+// Row (local x) is the innermost index of every shared array so that the lanes of a warp touch
+// consecutive words instead of one ROWS-way bank conflict per access.
+shared float sMin[SLICES][ROWS];
+shared float sMax[SLICES][ROWS];
+shared int sSum[SLICES][ROWS];
+shared float sScale[ROWS];
+shared float sOffset[ROWS];
+
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    uint slice = gl_LocalInvocationID.y;
+    uint row = gl_WorkGroupID.x * ROWS + lane;
+    // The host always dispatches bucket / ROWS groups and sizes the graph-owned buffers by
+    // `bucket`, so `row` is in bounds for them; rows at or past this chunk's count only zero-fill.
+    bool padding = row >= pc.rows;
+    uint wordsPerRow = pc.padK / 4u;
+    uint m = pc.rowBase + row;
+
+    float minValue = 3.402823466e38;
+    float maxValue = -3.402823466e38;
+    if (!padding) {
+        if (pc.symmetric != 0u) {
+            for (uint k4 = slice; k4 * 4u < pc.K; k4 += SLICES) {
+                vec4 values = vec4(A4[k4 * pc.M + m]);
+                for (uint i = 0u; i < 4u; ++i) {
+                    if (k4 * 4u + i < pc.K) {
+                        maxValue = max(maxValue, abs(values[i]));
+                    }
+                }
+            }
+        } else {
+            for (uint k4 = slice; k4 * 4u < pc.K; k4 += SLICES) {
+                vec4 values = vec4(A4[k4 * pc.M + m]);
+                for (uint i = 0u; i < 4u; ++i) {
+                    if (k4 * 4u + i < pc.K) {
+                        minValue = min(minValue, values[i]);
+                        maxValue = max(maxValue, values[i]);
+                    }
+                }
+            }
+        }
+    }
+    sMin[slice][lane] = minValue;
+    sMax[slice][lane] = maxValue;
+    barrier();
+
+    // Halving tree: the previous serial sweep left 248 of the 256 threads parked at the barrier
+    // while slice 0 walked all SLICES entries. min/max/sum are exact and associative, so the results
+    // are unchanged; writers (slice < step) never alias the reads (slice + step >= step).
+    for (uint step = SLICES >> 1; step > 0u; step >>= 1) {
+        if (slice < step) {
+            if (pc.symmetric != 0u) {
+                sMax[slice][lane] = max(sMax[slice][lane], sMax[slice + step][lane]);
+            } else {
+                sMin[slice][lane] = min(sMin[slice][lane], sMin[slice + step][lane]);
+                sMax[slice][lane] = max(sMax[slice][lane], sMax[slice + step][lane]);
+            }
+        }
+        barrier();
+    }
+
+    if (slice == 0u) {
+        float rowScale = 0.0;
+        float rowOffset = 0.0;
+        if (!padding) {
+            if (pc.symmetric != 0u) {
+                float absMax = sMax[0][lane];
+                if (pc.K == 0u) {
+                    absMax = 0.0;
+                }
+                rowScale = absMax > 0.0 ? absMax * (1.0 / 127.0) : 0.0;
+            } else {
+                float minRow = sMin[0][lane];
+                float maxRow = sMax[0][lane];
+                if (pc.K == 0u) {
+                    minRow = 0.0;
+                    maxRow = 0.0;
+                }
+                float range = maxRow - minRow;
+                rowScale = range > 0.0 ? range * (1.0 / 255.0) : 0.0;
+                rowOffset = minRow + 128.0 * rowScale;
+            }
+        }
+        // Padding rows of a bucketed shape must stay deterministic for the discarded graph rows.
+        Params[2u * row] = rowScale;
+        Params[2u * row + 1u] = rowOffset;
+        sScale[lane] = rowScale;
+        sOffset[lane] = rowOffset;
+    }
+    barrier();
+
+    float scale = sScale[lane];
+    float offset = sOffset[lane];
+    int sum = 0;
+    if (pc.symmetric != 0u) {
+        // No row sum at all: a symmetric activation and symmetric weights annihilate the only term
+        // that consumes it. `offset` is exactly 0.0 here, so the quantization expression is unchanged.
+        for (uint k4 = slice; k4 < wordsPerRow; k4 += SLICES) {
+            uint packed = 0u;
+            if (!padding && k4 * 4u < pc.K && scale > 0.0) {
+                vec4 values = vec4(A4[k4 * pc.M + m]);
+                for (uint i = 0u; i < 4u; ++i) {
+                    if (k4 * 4u + i < pc.K) {
+                        int q = int(clamp(roundEven((values[i] - offset) / scale), -128.0, 127.0));
+                        packed |= (uint(q) & 0xFFu) << (i * 8u);
+                    }
+                }
+            }
+            AqPacked[row * wordsPerRow + k4] = packed;
+        }
+    } else {
+        for (uint k4 = slice; k4 < wordsPerRow; k4 += SLICES) {
+            uint packed = 0u;
+            if (!padding && k4 * 4u < pc.K && scale > 0.0) {
+                vec4 values = vec4(A4[k4 * pc.M + m]);
+                for (uint i = 0u; i < 4u; ++i) {
+                    if (k4 * 4u + i < pc.K) {
+                        int q = int(clamp(roundEven((values[i] - offset) / scale), -128.0, 127.0));
+                        packed |= (uint(q) & 0xFFu) << (i * 8u);
+                        sum += q;
+                    }
+                }
+            }
+            AqPacked[row * wordsPerRow + k4] = packed;
+        }
+
+        sSum[slice][lane] = sum;
+        barrier();
+        for (uint step = SLICES >> 1; step > 0u; step >>= 1) {
+            if (slice < step) {
+                sSum[slice][lane] += sSum[slice + step][lane];
+            }
+            barrier();
+        }
+        if (slice == 0u) {
+            SumAq[row] = sSum[0][lane];
+        }
+    }
+}

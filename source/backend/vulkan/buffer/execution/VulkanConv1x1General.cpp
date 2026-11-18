@@ -161,7 +161,8 @@ VulkanConv1x1General::VulkanConv1x1General(VulkanBackend* backend, const Convolu
                                            const float* biasPtr, int ci, int co,
                                            std::shared_ptr<ConvolutionCommon::Int8Common> quantInfo)
     : VulkanBasicExecution(backend), mCommon(convOption), mCi(ci), mCo(co), mQuantCommon(std::move(quantInfo)) {
-    if (!_init(biasPtr, true)) {
+    mInitialized = _init(biasPtr, true);
+    if (!mInitialized) {
         MNN_ERROR("VulkanConv1x1General init failed\n");
     }
 }
@@ -170,7 +171,8 @@ VulkanConv1x1General::VulkanConv1x1General(VulkanBackend* backend, const Convolu
                                            int co, std::shared_ptr<ConvolutionCommon::Int8Common> quantInfo,
                                            bool initStaticResource)
     : VulkanBasicExecution(backend), mCommon(convOption), mCi(ci), mCo(co), mQuantCommon(std::move(quantInfo)) {
-    if (!_init(nullptr, initStaticResource)) {
+    mInitialized = _init(nullptr, initStaticResource);
+    if (!mInitialized) {
         MNN_ERROR("VulkanConv1x1General clone init failed\n");
     }
 }

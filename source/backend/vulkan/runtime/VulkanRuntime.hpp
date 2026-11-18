@@ -11,6 +11,8 @@
 #include <queue>
 #include <array>
 #include <functional>
+#include <mutex>
+#include <string>
 #include <unordered_map>
 #include "VKCache_generated.h"
 #include "VulkanBuffer.hpp"
@@ -66,6 +68,11 @@ public:
     static VulkanRuntime* create(const Backend::Info& info);
     virtual std::pair<const void*, size_t> onGetCache() override;
     virtual bool onSetCache(const void* buffer, size_t size) override;
+    // Content-keyed resident GPU resources (for example NX weight tensors) shared by every
+    // execution instance that decoded the same bytes. `create` runs only on a miss, under the lock.
+    std::shared_ptr<void> acquireResident(const std::string& key,
+                                          const std::function<std::shared_ptr<void>()>& create) const;
+    std::shared_ptr<void> findResident(const std::string& key) const;
 
 private:
     VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDevice> device, std::shared_ptr<VulkanInstance> instance);
@@ -92,6 +99,9 @@ private:
 private:
     mutable std::unordered_map<VKTuneKey, VKTuneValue, VkTuneHash> mTuneMap;
     std::vector<uint8_t> mTuneBuffer;
+    // Declared last so resident GPU resources are released before the memory pool and device.
+    mutable std::mutex mResidentMutex;
+    mutable std::unordered_map<std::string, std::shared_ptr<void>> mResident;
 };
 }
 #endif
